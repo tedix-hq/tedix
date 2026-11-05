@@ -24,6 +24,7 @@ import {
 	APP_RUNTIME_ENTRY,
 	AppRuntimeConfigSchema,
 	AppRuntimeFilesSchema,
+	AppRuntimePublicOperationsSchema,
 } from "./os-app-runtime";
 import {
 	DECISION_DECK_ENTRY,
@@ -517,6 +518,9 @@ export const OsGadgetManifestSchema = z
 			})
 			.optional(),
 		capabilities: z.array(z.string().min(1).max(200)).max(100).default([]),
+		operations: AppRuntimePublicOperationsSchema.optional().describe(
+			"Public runtime app methods discoverable without reading source code",
+		),
 		resourceGrants: z
 			.array(OsGadgetResourceGrantSchema)
 			.max(25)
@@ -591,7 +595,35 @@ export const OsGadgetManifestSchema = z
 			path: ["exports"],
 			message: "App export ids must be unique",
 		},
-	);
+	)
+	.superRefine((manifest, ctx) => {
+		if (manifest.operations && manifest.entry !== APP_RUNTIME_ENTRY) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["operations"],
+				message: "Only runtime apps declare operations",
+			});
+		}
+		for (const [index, operation] of (manifest.operations ?? []).entries()) {
+			if (!operation.outputSlot) continue;
+			const grant = manifest.resourceGrants?.find(
+				(grant) => grant.slot === operation.outputSlot,
+			);
+			const allowed =
+				operation.effect === "read"
+					? grant?.operations.includes("outputs.read")
+					: grant?.operations.some(
+							(value) => value === "outputs.patch" || value === "outputs.write",
+						);
+			if (!allowed)
+				ctx.addIssue({
+					code: "custom",
+					path: ["operations", index, "outputSlot"],
+					message:
+						"Operation output slot needs a matching Output resource grant",
+				});
+		}
+	});
 
 /**
  * A manifest as written: a built-in app's settings must match that app's

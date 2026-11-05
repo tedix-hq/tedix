@@ -12,6 +12,7 @@ import {
 } from "../schemas/os-workspaces";
 import {
 	AppRuntimeScopeSchema,
+	AppRuntimePublicOperationsSchema,
 	AppRuntimeMethodSchema,
 	AppRuntimeArgumentsSchema,
 	AppRuntimeSessionResultSchema,
@@ -62,6 +63,37 @@ export const osAppRuntimeContract = oc
 			})
 			.input(AppRuntimeScopeSchema.strict())
 			.output(AppRuntimeSessionResultSchema),
+		listOperations: oc
+			.route({
+				method: "POST",
+				path: "/operations",
+				summary:
+					"Discover a runtime app's operations, input schemas, effects and Output slots without reading code",
+			})
+			.input(AppRuntimeScopeSchema.strict())
+			.output(
+				z.object({
+					revisionId: z.uuid(),
+					operations: AppRuntimePublicOperationsSchema,
+				}),
+			),
+		invokeOperation: oc
+			.route({
+				method: "POST",
+				path: "/invoke-operation",
+				summary:
+					"Call a declared app operation with named input; open the app first for a scoped session",
+				description:
+					"Input is checked against the manifest JSON Schema and passed as the method's sole argument. Effects are author declarations; existing app grants and caller access still apply.",
+			})
+			.input(
+				AppRuntimeScopeSchema.extend({
+					session: z.string().min(1).max(16000),
+					name: AppRuntimeMethodSchema,
+					input: z.record(z.string(), JsonValueSchema),
+				}).strict(),
+			)
+			.output(z.object({ result: JsonValueSchema })),
 		call: oc
 			.route({
 				method: "POST",

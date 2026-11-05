@@ -17,6 +17,12 @@ import { executeCatalogOperation } from "./codemode-catalog";
 import { describe, expect, it, vi } from "vite-plus/test";
 import * as z from "zod";
 import { osWorkspacesContract } from "@tedix/api-contract/contracts/os-workspaces";
+import { resolveContractEndpoint } from "@tedix/api-contract/utils/contract-routers";
+import {
+	zodToToolInputJsonSchema,
+	zodToStructuredOutputJsonSchema,
+} from "@tedix/api-contract/utils/tool-json-schema";
+import { PLATFORM_OPERATOR_TOOL_DEFINITIONS } from "./platform-operator-tools";
 import { createNativeDescriptorLookup } from "./registration/bootstrap";
 
 import {
@@ -159,6 +165,71 @@ function resultMeta(results: CatalogSearchResult): Record<string, unknown> {
 }
 
 describe("Code Mode catalog (discover.*) annotations + outputSchema", () => {
+	it("exposes app operation discovery and invocation schemas through Code Mode", async () => {
+		const ctx = buildLargeServerCtx(0);
+		for (const definition of PLATFORM_OPERATOR_TOOL_DEFINITIONS.filter((row) =>
+			[
+				"list_os_app_operations",
+				"open_os_app",
+				"invoke_os_app_operation",
+			].includes(row.toolId),
+		)) {
+			const endpoint = resolveContractEndpoint(definition.endpoint)!;
+			const toolId = `os__${definition.toolId}`;
+			ctx.loadedTools.set(
+				toolId,
+				tool({
+					toolId,
+					title: definition.toolId,
+					description: "Runtime app operations",
+					inputSchema: zodToToolInputJsonSchema(endpoint.inputSchema),
+					outputSchema: zodToStructuredOutputJsonSchema(endpoint.outputSchema),
+					annotations: {
+						readOnlyHint: definition.kind === "read",
+						destructiveHint: definition.kind === "destructive",
+					},
+				}),
+			);
+		}
+		const provider = buildCatalogProvider(ctx, undefined);
+		const entries = catalogToolEntries(
+			await runSearch(provider, "Runtime app operations", 10, {
+				namespace: "os",
+				includeParameters: true,
+				includeOutputSchema: true,
+			}),
+		);
+		expect(entries).toHaveLength(3);
+		const discovery = entries.find(
+			(entry) => entry.tool === "list_os_app_operations",
+		)!;
+		expect(discovery.annotations).toMatchObject({ readOnlyHint: true });
+		expect(discovery.outputSchema).toMatchObject({
+			properties: {
+				operations: {
+					type: "array",
+					items: {
+						properties: {
+							name: { type: "string" },
+							input: { type: "object" },
+							effect: { enum: ["read", "write", "destructive"] },
+							outputSlot: { type: "string" },
+						},
+					},
+				},
+			},
+		});
+		const invoke = entries.find(
+			(entry) => entry.tool === "invoke_os_app_operation",
+		)!;
+		expect(invoke.parameters).toMatchObject({
+			required: ["workspaceId", "gadgetId", "session", "name", "input"],
+		});
+		expect(invoke.annotations).toMatchObject({
+			destructiveHint: true,
+			readOnlyHint: false,
+		});
+	});
 	it("keeps discovery alive when one tool has no capability mapping", async () => {
 		const ctx = buildLargeServerCtx(1);
 		ctx.loadedTools.set(

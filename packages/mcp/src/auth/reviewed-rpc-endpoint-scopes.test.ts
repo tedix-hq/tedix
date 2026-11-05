@@ -32,6 +32,32 @@ function resolve(
 }
 
 describe("reviewed RPC endpoint scopes", () => {
+	it("keeps runtime app discovery readable and invocation behind app write access", () => {
+		expect(resolve("osAppRuntime/listOperations")).toEqual(["mcp:apps.read"]);
+		expect(
+			resolve("osAppRuntime/invokeOperation", {
+				readOnlyHint: false,
+				destructiveHint: true,
+			}),
+		).toEqual(["mcp:apps.admin"]);
+		const tool = {
+			toolId: "os__invoke_os_app_operation",
+			toolTypeId: "rpc",
+			authRequired: true,
+			config: { endpoint: "osAppRuntime/invokeOperation" },
+			annotations: { readOnlyHint: false, destructiveHint: true },
+		};
+		for (const [scope, visible] of [
+			["mcp:apps.read", false],
+			["mcp:apps.write", true],
+		] as const)
+			expect(
+				isMcpToolVisibleToCaller(tool, "os", undefined, {
+					authType: "oauth",
+					scopes: [scope],
+				}),
+			).toBe(visible);
+	});
 	it("requires Work write scope only for candidate mutations", () => {
 		expect(
 			REVIEWED_RPC_ENDPOINT_SCOPES["workItems/readRepositoryCandidate"],

@@ -743,6 +743,49 @@ Bind the slot to an active resource in the same workspace with `providerId`
 `providerResourceId`. Keep sheet selection, column names and other tenant
 choices in resource bindings or `config.settings`, never in source code.
 
+### Operations agents can discover
+
+Declare public methods in the manifest's `operations` array so an agent can
+use the app without reading its source:
+
+```json
+{
+	"name": "count",
+	"description": "Count cards with a given status",
+	"input": {
+		"type": "object",
+		"properties": { "status": { "type": "string", "enum": ["open", "done"] } },
+		"required": ["status"],
+		"additionalProperties": false
+	},
+	"effect": "read",
+	"outputSlot": "cards"
+}
+```
+
+The name is the public `server.js` method. It receives one object, for example
+`count({ status })`. Input must be an object JSON Schema supported by the
+runtime validator; external references and unsupported schema features are
+rejected when saving. Names must be unique; lifecycle methods remain private.
+An optional `outputSlot` names a resource grant: a read needs `outputs.read`,
+and a write or destructive operation needs `outputs.patch` or `outputs.write`.
+Omit the slot for an operation that only uses the app's own storage.
+
+In Code Mode, discover `list_os_app_operations`, `open_os_app` and
+`invoke_os_app_operation` in your connection's catalog. List operations with
+`workspaceId` and `gadgetId` to get the current revision and declarations.
+Open the same app, then invoke with those IDs, the returned `session`, the
+operation `name` and its named `input` object. The host validates that input
+and passes it as the method's sole argument. Existing apps without declared
+operations return an empty list.
+
+Effects (`read`, `write`, `destructive`) are author declarations for planning,
+not permission grants or proof of what the code does. Invocation uses the
+existing app session, caller access and resource grants; stale sessions fail.
+Machine invocation requires `apps:write`. The generic invocation tool keeps
+its destructive annotation because a saved app can declare destructive work;
+an app's claimed effect cannot lower that tool's access checks.
+
 ### Browser and server contract
 
 `client.js` renders into `#app` in an isolated sandbox without network, host

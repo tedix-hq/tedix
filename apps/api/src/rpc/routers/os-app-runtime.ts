@@ -14,6 +14,7 @@ import {
 	OsGadgetRevisionSchema,
 	OsOutputContentSchema,
 	OsOutputPatchSchema,
+	OsGadgetManifestSchema,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { JsonValueSchema } from "@tedix/api-contract/schemas/common";
 import {
@@ -104,6 +105,15 @@ export function createOsAppRuntimeRouter() {
 			{
 				handlerOwnedUserAuthorization:
 					"Preview requires the collaborator graph build role, rechecked by the handler.",
+			},
+			"apps:write",
+		),
+	);
+	const operate = authed.use(
+		withAuthorization(
+			{
+				handlerOwnedUserAuthorization:
+					"The opened app session and collaborator graph are rechecked before executing a declared operation.",
 			},
 			"apps:write",
 		),
@@ -758,6 +768,57 @@ export function createOsAppRuntimeRouter() {
 			);
 		return OsOutputContentSchema.parse(JSON.parse(revision.content));
 	});
+	const listOperations = read.listOperations.handler(
+		async ({ context, input }) => {
+			const scope = await resolve(context, input);
+			const revision = await getOsGadgetRevision(queryDb(context), {
+				organizationId: scope.organizationId,
+				revisionId: scope.revisionId,
+			});
+			if (!revision || revision.gadgetId !== scope.gadgetId)
+				throw createError(ErrorCodes.NOT_FOUND, "App revision unavailable");
+			const manifest = OsGadgetManifestSchema.parse(
+				JSON.parse(revision.manifest),
+			);
+			if (manifest.entry !== "tedix:runtime/v1")
+				throw createError(ErrorCodes.BAD_REQUEST, "App has no server runtime");
+			return {
+				revisionId: scope.revisionId,
+				operations: manifest.operations ?? [],
+			};
+		},
+	);
+	const invokeOperation = operate.invokeOperation.handler(
+		async ({ context, input }) => {
+			const { code } = await openedSession(context, input);
+			const operation = code.manifest.operations?.find(
+				(operation) => operation.name === input.name,
+			);
+			if (!operation)
+				throw createError(ErrorCodes.NOT_FOUND, "App operation unavailable");
+			const parsed = z
+				.fromJSONSchema(
+					operation.input as Parameters<typeof z.fromJSONSchema>[0],
+				)
+				.safeParse(input.input);
+			if (!parsed.success)
+				throw createError(
+					ErrorCodes.BAD_REQUEST,
+					"App operation input does not match its schema",
+				);
+			return callProcedure(
+				call,
+				{
+					workspaceId: input.workspaceId,
+					gadgetId: input.gadgetId,
+					session: input.session,
+					method: operation.name,
+					args: [input.input],
+				},
+				{ context },
+			);
+		},
+	);
 	const call = read.call.handler(async ({ context, input }) => {
 		const { scope, session, code } = await openedSession(context, input);
 		const run = session.previewId
@@ -1132,6 +1193,8 @@ export function createOsAppRuntimeRouter() {
 		client,
 		readOutput,
 		call,
+		listOperations,
+		invokeOperation,
 		preview,
 		triggerWebhook,
 		draft,

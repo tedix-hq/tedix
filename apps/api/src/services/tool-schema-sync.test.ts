@@ -2956,6 +2956,36 @@ it.each(["pause", "resume", "archive"])(
 	},
 );
 
+it("projects app operation discovery and invocation into persisted tools", async () => {
+	const { db, inserts } = makeDb([]);
+	const result = await runToolSchemaSync(db, {
+		mode: "projection",
+		apply: true,
+		endpoints: [
+			"osAppRuntime/listOperations",
+			"osAppRuntime/open",
+			"osAppRuntime/invokeOperation",
+		],
+	});
+	expect(result.failed).toBe(0);
+	expect(inserts).toHaveLength(3);
+	for (const [endpoint, name, kind] of [
+		["osAppRuntime/listOperations", "list_os_app_operations", "read"],
+		["osAppRuntime/open", "open_os_app", "read"],
+		["osAppRuntime/invokeOperation", "invoke_os_app_operation", "destructive"],
+	]) {
+		expect(OS_TOOL_ID_OVERRIDES[endpoint!]).toBe(name);
+		expect(OS_KIND_OVERRIDES[endpoint!]).toBe(kind);
+		expect(inserts.find((tool) => tool.toolId === name)).toMatchObject({
+			config: { transport: "rpc", endpoint },
+			annotations: {
+				readOnlyHint: kind === "read",
+				destructiveHint: kind === "destructive",
+			},
+		});
+	}
+});
+
 it("pins headless attention names and capability kinds", () => {
 	for (const [endpoint, name, kind] of [
 		["attention/listDeckCards", "list_deck_cards", "read"],
