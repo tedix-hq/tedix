@@ -56,6 +56,9 @@ const writeOs = authenticatedOs.use(
 	),
 );
 
+/** The system's own human-addressed risk approvals use this full window. */
+const MAX_WORK_APPROVAL_EXPIRY_DAYS = 30;
+
 function rethrowApprovalError(error: unknown): never {
 	return rethrowWorkControlError(error, { invalidPrincipal: "forbidden" });
 }
@@ -123,6 +126,15 @@ const proposeProcedure = requestOs.propose.handler(
 			throw createError(
 				ErrorCodes.UNPROCESSABLE_CONTENT,
 				"Work approval expiry must be in the future",
+			);
+		}
+		const latestExpiry = new Date(
+			Date.parse(requestedAt) + MAX_WORK_APPROVAL_EXPIRY_DAYS * 86_400_000,
+		).toISOString();
+		if (Date.parse(input.expiresAt) > Date.parse(latestExpiry)) {
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				`Work approval expiry may be at most ${MAX_WORK_APPROVAL_EXPIRY_DAYS} days after the request (latest allowed: ${latestExpiry})`,
 			);
 		}
 		const actor = await verifiedActiveWorkActor(context, workItem.orgId);
@@ -338,8 +350,7 @@ const listInboxProcedure = readOs.listInbox.handler(
 			workItemId: input.workItemId,
 			projectId: input.projectId,
 			authorityKey: input.authorityKey,
-			approverType: actor.type,
-			approverId: actor.id,
+			party: { type: actor.type, id: actor.id, role: input.role ?? "approver" },
 			cursor: input.cursor,
 			limit: input.limit,
 			observedAt,
@@ -356,7 +367,10 @@ const listInboxProcedure = readOs.listInbox.handler(
 					return {
 						proposal: proposalOutput(row.proposal),
 						effectiveStatus: row.effectiveStatus,
-						canDecide: row.effectiveStatus === "pending",
+						canDecide:
+							row.effectiveStatus === "pending" &&
+							row.proposal.approverType === actor.type &&
+							row.proposal.approverId === actor.id,
 						decision:
 							row.decision.id === null ? null : decisionOutput(row.decision),
 						workItem: row.workItem,

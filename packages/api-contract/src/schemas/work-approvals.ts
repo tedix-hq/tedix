@@ -169,11 +169,21 @@ export const ListWorkApprovalInboxInputSchema = z.strictObject({
 		.describe(
 			"Optional authority filter; omission includes every authority requested from the caller.",
 		),
+	role: z
+		.enum(["approver", "requester", "any"])
+		.optional()
+		.describe(
+			"Which of the caller's approvals to list: approver (default) is the decision inbox, requester lists proposals the caller filed, any lists both. Owners and admins read every proposal with list_work_approval_audit.",
+		),
 	cursor: WorkApprovalCursorSchema.optional().describe(
 		"Opaque inbox continuation cursor; omit to read the newest page.",
 	),
 	limit: z.number().int().min(1).max(100).default(50),
 });
+
+/** The audit ledger is organization-wide, so it has no caller role. */
+export const ListWorkApprovalAuditInputSchema =
+	ListWorkApprovalInboxInputSchema.omit({ role: true });
 
 export const ListWorkApprovalInboxResultSchema = z.strictObject({
 	data: z.array(WorkApprovalInboxRowSchema),

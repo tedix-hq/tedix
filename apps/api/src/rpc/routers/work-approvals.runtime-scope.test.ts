@@ -45,6 +45,8 @@ const REQUESTER_USER_ID = "requester-user-id";
 const REQUESTER_SUBJECT = "requester-subject";
 const APPROVER_USER_ID = "approver-user-id";
 const APPROVER_SUBJECT = "approver-subject";
+// Inside the 30-day maximum Work approval window.
+const EXPIRES_AT = new Date(Date.now() + 86_400_000).toISOString();
 
 function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
@@ -170,7 +172,7 @@ function fixture() {
 			approverType: approver.type,
 			approverId: approver.id,
 			requestRationale: "Runtime scope proof",
-			expiresAt: "2099-10-20T00:00:00.000Z",
+			expiresAt: EXPIRES_AT,
 		});
 	return { sqlite, userClient, runtimeClient, requester, proposeFor };
 }
@@ -324,7 +326,7 @@ describe("Work approvals through the tedi runtime service binding", () => {
 				approverType: "user",
 				approverId: APPROVER_USER_ID,
 				requestRationale: "Runtime request",
-				expiresAt: "2099-10-20T00:00:00.000Z",
+				expiresAt: EXPIRES_AT,
 			}),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
 	});

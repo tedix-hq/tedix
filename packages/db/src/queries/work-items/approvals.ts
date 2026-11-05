@@ -21,6 +21,7 @@ import {
 	getColumns,
 	inArray,
 	isNull,
+	or,
 	sql,
 } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
@@ -317,6 +318,38 @@ export async function proposeWorkApproval(
 			externalSessionKey: p.externalSessionKey,
 		});
 	}
+	// One pending proposal per scope (uniq_work_approval_pending_scope). Name
+	// the live one instead of surfacing the index violation as a server error.
+	const requireNoPendingScope = async () => {
+		const [pending] = await db
+			.select({
+				id: workApprovalProposals.id,
+				requesterType: workApprovalProposals.requesterType,
+				requesterId: workApprovalProposals.requesterId,
+				expiresAt: workApprovalProposals.expiresAt,
+			})
+			.from(workApprovalProposals)
+			.where(
+				and(
+					eq(workApprovalProposals.orgId, p.orgId),
+					eq(workApprovalProposals.workItemId, p.workItemId),
+					eq(workApprovalProposals.workItemVersion, p.workItemVersion),
+					eq(workApprovalProposals.authorityKey, p.authorityKey),
+					eq(workApprovalProposals.action, action),
+					eq(workApprovalProposals.approverType, p.approverType),
+					eq(workApprovalProposals.approverId, p.approverId),
+					eq(workApprovalProposals.status, "pending"),
+					sql`${workApprovalProposals.expiresAt}>${p.now}`,
+				),
+			)
+			.limit(1);
+		if (pending)
+			throw new WorkControlError(
+				"CONFLICT",
+				`Work approval ${pending.id} from ${pending.requesterType}:${pending.requesterId} is already pending for this Work Item version, authority and approver until ${pending.expiresAt}; wait for its decision instead of proposing again`,
+			);
+	};
+	await requireNoPendingScope();
 	const expire = db
 		.update(workApprovalProposals)
 		.set({
@@ -364,17 +397,24 @@ export async function proposeWorkApproval(
 			version: 1,
 		})
 		.returning();
-	const [, rows] = agentRequest
-		? await db.batch([
-				expire,
-				insert,
-				db.insert(workApprovalExecutions).values({
-					proposalId: p.id,
-					orgId: p.orgId,
-					execution: { status: "pending" },
-				}),
-			])
-		: await db.batch([expire, insert]);
+	let rows;
+	try {
+		[, rows] = agentRequest
+			? await db.batch([
+					expire,
+					insert,
+					db.insert(workApprovalExecutions).values({
+						proposalId: p.id,
+						orgId: p.orgId,
+						execution: { status: "pending" },
+					}),
+				])
+			: await db.batch([expire, insert]);
+	} catch (error) {
+		// A concurrent proposal won the pending slot between check and insert.
+		await requireNoPendingScope();
+		throw error;
+	}
 	if (rows[0] && p.approverType === "user")
 		await recordCardCreationEdges(
 			db,
@@ -667,13 +707,37 @@ export async function listWorkApprovalInbox(
 		workItemId?: string;
 		projectId?: string;
 		authorityKey?: string;
-		approverType?: "user" | "tedi";
-		approverId?: string;
+		/** Restrict to proposals this principal decides, requested, or either. */
+		party?: {
+			type: "user" | "tedi";
+			id: string;
+			role: "approver" | "requester" | "any";
+		};
 		cursor?: { at: string; id: string };
 		limit?: number;
 		observedAt: string;
 	},
 ) {
+	const asApprover = p.party
+		? and(
+				eq(workApprovalProposals.approverType, p.party.type),
+				eq(workApprovalProposals.approverId, p.party.id),
+			)
+		: undefined;
+	const asRequester = p.party
+		? and(
+				eq(workApprovalProposals.requesterType, p.party.type),
+				eq(workApprovalProposals.requesterId, p.party.id),
+			)
+		: undefined;
+	const partyFilter =
+		p.party?.role === "approver"
+			? asApprover
+			: p.party?.role === "requester"
+				? asRequester
+				: p.party
+					? or(asApprover, asRequester)
+					: undefined;
 	const effective = sql<
 		"pending" | "approved" | "rejected" | "cancelled" | "expired"
 	>`CASE WHEN ${workApprovalProposals.status}='pending' AND ${workApprovalProposals.expiresAt}<=${p.observedAt} THEN 'expired' ELSE ${workApprovalProposals.status} END`;
@@ -724,12 +788,7 @@ export async function listWorkApprovalInbox(
 				p.authorityKey
 					? eq(workApprovalProposals.authorityKey, p.authorityKey)
 					: undefined,
-				p.approverType
-					? eq(workApprovalProposals.approverType, p.approverType)
-					: undefined,
-				p.approverId
-					? eq(workApprovalProposals.approverId, p.approverId)
-					: undefined,
+				partyFilter,
 				p.cursor
 					? sql`(${workApprovalProposals.createdAt}<${p.cursor.at} OR (${workApprovalProposals.createdAt}=${p.cursor.at} AND ${workApprovalProposals.id}<${p.cursor.id}))`
 					: undefined,
