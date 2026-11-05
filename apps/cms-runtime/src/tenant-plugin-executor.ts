@@ -1,3 +1,4 @@
+import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import { exports as workerExports, WorkerEntrypoint } from "cloudflare:workers";
 import { withDynamicWorkerLoaderDiagnostics } from "@tedix/tedi-codemode-core/model-authored-code-loader";
 import { generatePluginWrapper } from "@emdash-cms/cloudflare/sandbox";
@@ -170,8 +171,11 @@ export class TenantPluginKvBridge extends WorkerEntrypoint<
 	private db(): PluginDbStub {
 		this.assertOpen();
 		validateScope(this.ctx.props);
-		const id = this.env.DB_DO.idFromName(this.ctx.props.tenantSlug);
-		return this.env.DB_DO.get(id) as unknown as PluginDbStub;
+		return durableObjectStubByName(
+			this.env.DB_DO,
+			this.env,
+			this.ctx.props.tenantSlug,
+		) as unknown as PluginDbStub;
 	}
 
 	private requireGrant(grant: TenantPluginScope["grants"][number]): void {
@@ -184,7 +188,7 @@ export class TenantPluginKvBridge extends WorkerEntrypoint<
 	private async write<T>(run: (db: PluginDbStub) => Promise<T>): Promise<T> {
 		const db = this.db();
 		return withSharedCmsRestorePermit(
-			this.env.DB_DO,
+			this.env,
 			{
 				siteId: this.ctx.props.siteId,
 				slug: this.ctx.props.tenantSlug,
@@ -429,8 +433,11 @@ export class TenantPluginHost extends WorkerEntrypoint<
 		) {
 			throw new Error("Invalid plugin tenant scope");
 		}
-		const id = this.env.DB_DO.idFromName(tenantSlug);
-		const db = this.env.DB_DO.get(id) as unknown as PluginDbStub;
+		const db = durableObjectStubByName(
+			this.env.DB_DO,
+			this.env,
+			tenantSlug,
+		) as unknown as PluginDbStub;
 		const result = await db.query(
 			"SELECT version, status, source FROM _plugin_state WHERE plugin_id = ?",
 			[pluginId],

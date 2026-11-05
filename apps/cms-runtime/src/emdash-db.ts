@@ -1,3 +1,4 @@
+import { durableObjectIdFromName } from "@tedix/worker-kit/durable-objects";
 import { PublicRestorePermits } from "./public-restore-permits";
 import { createHash } from "node:crypto";
 import { EmDashDB as EmdashSqlDB } from "@emdash-cms/cloudflare/db/do-sql";
@@ -306,7 +307,8 @@ export class EmDashDB extends EmdashSqlDB {
 	): Promise<T> {
 		const env = this.siteDrillEnv();
 		if (
-			this.ctx.id.toString() !== env.DB_DO.idFromName(identity.slug).toString()
+			this.ctx.id.toString() !==
+			durableObjectIdFromName(env.DB_DO, env, identity.slug).toString()
 		)
 			throw new CmsRestoreFenceUnavailableError();
 		const queries = this.databasePermits.forRequest((task) =>
@@ -397,7 +399,11 @@ export class EmDashDB extends EmdashSqlDB {
 		if (!drill) throw new Error("CMS site restore drill is not configured");
 		if (
 			this.ctx.id.toString() !==
-			this.siteDrillEnv().DB_DO.idFromName(drill.slug).toString()
+			durableObjectIdFromName(
+				this.siteDrillEnv().DB_DO,
+				this.siteDrillEnv(),
+				drill.slug,
+			).toString()
 		)
 			throw new Error("CMS site restore drill object identity mismatch");
 		return drill;
@@ -636,9 +642,11 @@ export class EmDashDB extends EmdashSqlDB {
 	private assertPitrSelfTestObject(): void {
 		if (
 			this.ctx.id.toString() !==
-			this.pitrSelfTestEnv()
-				.DB_DO.idFromName(CMS_PITR_SELF_TEST_DO_NAME)
-				.toString()
+			durableObjectIdFromName(
+				this.pitrSelfTestEnv().DB_DO,
+				this.pitrSelfTestEnv(),
+				CMS_PITR_SELF_TEST_DO_NAME,
+			).toString()
 		)
 			throw new Error("CMS PITR self-test object identity mismatch");
 	}
@@ -915,7 +923,8 @@ export class EmDashDB extends EmdashSqlDB {
 	private assertCmsSiteRestoreObject(identity: CmsSiteRestoreIdentity): void {
 		const env = this.env as unknown as Pick<Env, "DB_DO">;
 		if (
-			this.ctx.id.toString() !== env.DB_DO.idFromName(identity.slug).toString()
+			this.ctx.id.toString() !==
+			durableObjectIdFromName(env.DB_DO, env, identity.slug).toString()
 		)
 			throw new Error("CMS restore Durable Object identity mismatch");
 	}

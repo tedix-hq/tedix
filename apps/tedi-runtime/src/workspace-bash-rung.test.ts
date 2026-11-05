@@ -173,6 +173,7 @@ const { ScopedComputerWorkspace } = await import("./computer-workspace-scope");
 	};
 	const scope = new ScopedComputerWorkspace(
 		namespace as never,
+		{},
 		{ kind: "delegated-run", key: "run-1" },
 		"owner-1",
 		async () => "tedi-1",

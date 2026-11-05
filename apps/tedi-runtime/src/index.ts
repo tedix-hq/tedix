@@ -1,3 +1,4 @@
+import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { requireUnrestrictedModelEgress } from "./unrouted-model-egress";
 /**
@@ -335,8 +336,11 @@ async function fetchIsolateDo(
 	tedi: ResolvedTedi,
 	request: Request,
 ): Promise<Response> {
-	const id = env.TEDI_AGENT.idFromName(tedi.isolateAgentId);
-	const stub = env.TEDI_AGENT.get(id);
+	const stub = durableObjectStubByName(
+		env.TEDI_AGENT,
+		env,
+		tedi.isolateAgentId,
+	);
 	try {
 		return await stub.fetch(request);
 	} finally {
@@ -1942,8 +1946,11 @@ export default {
 					};
 				}
 			).VOICE_CALL;
-			const voiceId = voiceNs.idFromName(`${tedi.slug}:${conversationKey}`);
-			const voiceStub = voiceNs.get(voiceId);
+			const voiceStub = durableObjectStubByName(
+				voiceNs,
+				env,
+				`${tedi.slug}:${conversationKey}`,
+			);
 			const doResponse = await voiceStub.fetch(voiceRequest);
 
 			// Echo the auth-bearing subprotocol on the 101, exactly like /acp — a
@@ -2030,8 +2037,11 @@ export default {
 			).VOICE_INPUT;
 			// Keyed `${slug}:input` — dictation sessions are ephemeral and per-slug.
 			// Single-active-session enforcement is inside VoiceInputDO.beforeCallStart.
-			const inputId = inputNs.idFromName(`${tedi.slug}:input`);
-			const inputStub = inputNs.get(inputId);
+			const inputStub = durableObjectStubByName(
+				inputNs,
+				env,
+				`${tedi.slug}:input`,
+			);
 			const doResponse = await inputStub.fetch(inputRequest);
 
 			// Echo the auth-bearing subprotocol on the 101 — same pattern as /acp

@@ -34,6 +34,7 @@ it("retains the SDK's full result in scoped Computer storage and recovers after 
 	const workspace = () =>
 		new ScopedComputerWorkspace(
 			binding,
+			env,
 			computerWorkspaceScope({ sessionKey }),
 			"browser-test",
 			async () => "test-tedi",
@@ -71,6 +72,7 @@ it("retains the SDK's full result in scoped Computer storage and recovers after 
 	expect(calls).toBe(1);
 	const other = new ScopedComputerWorkspace(
 		binding,
+		env,
 		computerWorkspaceScope({ sessionKey: "other" }),
 		"browser-test",
 		async () => "test-tedi",

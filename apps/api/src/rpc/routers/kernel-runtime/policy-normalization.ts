@@ -1,3 +1,4 @@
+import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import { firstNonSkillReferenceLine } from "@tedix/api-contract/utils/skill-reference";
 import { controlHomeRunSteering } from "./run-steering";
 import { readDelegationAutonomyLessons } from "@tedix/db/queries/work-items/delegation-autonomy";
@@ -547,7 +548,11 @@ const defaultKernelDoTurnCanceler: KernelDoTurnCanceler = async (input) => {
 			}
 		).KERNEL;
 		if (!kernel) return false;
-		const stub = kernel.get(kernel.idFromName(input.organizationId));
+		const stub = durableObjectStubByName(
+			kernel,
+			input.context.env,
+			input.organizationId,
+		);
 		return await stub.cancelTurn(input.runId);
 	} catch (error) {
 		console.warn(

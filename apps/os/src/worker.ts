@@ -97,6 +97,7 @@ import {
 	type WidgetServiceIdentity,
 } from "./widgets/proxy";
 import { base64UrlEncode } from "@tedix/auth/utils";
+import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 
 /**
  * Kept only on the Worker-side request between product-session normalization
@@ -1843,7 +1844,7 @@ async function handleCollabUpgrade(
 		: appDraft
 			? appDraftRoomName({ tenantSlug: tenantScope, workspaceId, ...appDraft })
 			: `${tenantScope}:${workspaceId}:${docKey}`;
-	const room = env.COLLAB_ROOM.get(env.COLLAB_ROOM.idFromName(roomName));
+	const room = durableObjectStubByName(env.COLLAB_ROOM, env, roomName);
 	// Credentials stop at this Worker. The DO receives only a strict, verified,
 	// privacy-safe presence projection over the internal namespace binding.
 	const headers = new Headers(request.headers);

@@ -1,3 +1,4 @@
+import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import {
 	WorkflowEntrypoint,
 	type WorkflowEvent,
@@ -339,8 +340,10 @@ export async function captureCmsRecovery(
 		const current = await readRecoveryAuthority(env, params.slug);
 		if (!current || current.siteId !== params.siteId)
 			throw new Error("CMS recovery site authority changed");
-		const stub = env.DB_DO.get(
-			env.DB_DO.idFromName(params.slug),
+		const stub = durableObjectStubByName(
+			env.DB_DO,
+			env,
+			params.slug,
 		) as unknown as {
 			captureRecoverySnapshot(): Promise<{
 				bookmark: string;
@@ -442,8 +445,10 @@ export async function captureCmsRecovery(
 			current.bundle.etag !== authority.current.bundle.etag
 		)
 			throw new Error("CMS recovery bundle changed during capture");
-		const stub = env.DB_DO.get(
-			env.DB_DO.idFromName(params.slug),
+		const stub = durableObjectStubByName(
+			env.DB_DO,
+			env,
+			params.slug,
 		) as unknown as {
 			captureRecoverySnapshot(): Promise<{
 				bookmark: string;

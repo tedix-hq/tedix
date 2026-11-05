@@ -1,3 +1,4 @@
+import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import type { z } from "zod";
 import {
 	AppDraftRoomSnapshotSchema,
@@ -13,6 +14,7 @@ import { createError, ErrorCodes } from "../rpc/orpc";
 
 export async function requestAppDraftRoom(input: {
 	rooms: DurableObjectNamespace | undefined;
+	env: unknown;
 	organizationId: string;
 	tenantSlug: string;
 	workspaceId: string;
@@ -54,7 +56,11 @@ export async function requestAppDraftRoom(input: {
 		role: "build",
 		verified: true,
 	};
-	const room = input.rooms.get(input.rooms.idFromName(appDraftRoomName(input)));
+	const room = durableObjectStubByName(
+		input.rooms,
+		input.env,
+		appDraftRoomName(input),
+	);
 	const response = await room.fetch(
 		new Request("https://room.internal/__internal/app-draft", {
 			method: "POST",

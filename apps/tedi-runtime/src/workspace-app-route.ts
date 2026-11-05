@@ -2,6 +2,7 @@ import { AppRuntimeFilesSchema } from "@tedix/api-contract/schemas/os-app-runtim
 import { loadAppRuntimeWorker } from "@tedix/api-contract/utils/app-runtime";
 import { withDynamicWorkerLoaderDiagnostics } from "@tedix/tedi-codemode-core/model-authored-code-loader";
 import { z } from "zod";
+import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import { isServiceBinding } from "@tedix/worker-kit/request-auth";
 import { verifyWorkspaceAppSession } from "@tedix/auth/workspace-app-session";
 import type { WorkspaceAppHostDO } from "./workspace-app-host-do";
@@ -37,7 +38,9 @@ export async function handleWorkspaceAppRevoke(
 	const parsed = RevokeSchema.safeParse(await request.json().catch(() => null));
 	if (!parsed.success)
 		return new Response("Invalid revocation", { status: 400 });
-	const host = env.WORKSPACE_APP_HOST.getByName(
+	const host = durableObjectStubByName(
+		env.WORKSPACE_APP_HOST,
+		env,
 		`${parsed.data.organizationId}:${parsed.data.workspaceId}`,
 	);
 	return Response.json(await host.revokeSessions(parsed.data));
@@ -64,7 +67,9 @@ export async function handleWorkspaceAppCall(
 	} catch {
 		return new Response("Invalid app session", { status: 403 });
 	}
-	const host = env.WORKSPACE_APP_HOST.getByName(
+	const host = durableObjectStubByName(
+		env.WORKSPACE_APP_HOST,
+		env,
 		`${session.organizationId}:${session.workspaceId}`,
 	);
 	return Response.json(await host.call(input));
@@ -95,7 +100,9 @@ export async function handleWorkspaceAppCloseDraft(
 		.safeParse(await request.json().catch(() => null));
 	if (!parsed.success)
 		return new Response("Invalid draft closure", { status: 400 });
-	const host = env.WORKSPACE_APP_HOST.getByName(
+	const host = durableObjectStubByName(
+		env.WORKSPACE_APP_HOST,
+		env,
 		`${parsed.data.organizationId}:${parsed.data.workspaceId}`,
 	);
 	return Response.json(await host.closeDraft(parsed.data));

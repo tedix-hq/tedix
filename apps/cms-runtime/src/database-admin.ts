@@ -1,3 +1,4 @@
+import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import { readSiteDrillIdentity } from "./cms-site-restore-drill-workflow";
 import {
 	CmsRestoreFenceUnavailableError,
@@ -111,8 +112,11 @@ export async function databaseDeprovisionAdminResponse(args: {
 	}
 	const denied = await cmsDeprovisionDeleteGuard(env, request, slug);
 	if (denied) return denied;
-	const id = env.DB_DO.idFromName(slug);
-	const stub = env.DB_DO.get(id) as unknown as EmDashDBStub;
+	const stub = durableObjectStubByName(
+		env.DB_DO,
+		env,
+		slug,
+	) as unknown as EmDashDBStub;
 	await stub.deleteTenantData();
 	return jsonResponse({
 		ok: true,
@@ -140,8 +144,11 @@ export async function databaseStorageAdminResponse(args: {
 		);
 	}
 	try {
-		const id = env.DB_DO.idFromName(slug);
-		const stub = env.DB_DO.get(id) as unknown as EmDashDBStub;
+		const stub = durableObjectStubByName(
+			env.DB_DO,
+			env,
+			slug,
+		) as unknown as EmDashDBStub;
 		const result = await stub.query(
 			"SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'ec_%' LIMIT 1",
 		);
@@ -183,8 +190,10 @@ export async function databaseRecoveryBookmarkAdminResponse(args: {
 		);
 	}
 	try {
-		const stub = env.DB_DO.get(
-			env.DB_DO.idFromName(slug),
+		const stub = durableObjectStubByName(
+			env.DB_DO,
+			env,
+			slug,
 		) as unknown as EmDashDBStub;
 		const siteDrill = await readSiteDrillIdentity(env.RECOVERY_STORAGE).catch(
 			() => null,
@@ -258,8 +267,11 @@ export async function databaseSchemaDiagnosticResponse(args: {
 		);
 	}
 	try {
-		const id = env.DB_DO.idFromName(slug);
-		const stub = env.DB_DO.get(id) as unknown as EmDashDBStub;
+		const stub = durableObjectStubByName(
+			env.DB_DO,
+			env,
+			slug,
+		) as unknown as EmDashDBStub;
 		const [
 			columns,
 			fields,

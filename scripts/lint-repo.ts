@@ -21,6 +21,7 @@ const GATES: string[][] = [
 	["check-package-exports.ts"],
 	["lint-wrangler.ts", "--strict"],
 	["lint-loader-sandbox.ts", "--strict"],
+	["lint-do-jurisdiction.ts", "--strict"],
 	["lint-kumo.ts"],
 	["lint-d1.ts"],
 	["lint-remote-d1.ts"],

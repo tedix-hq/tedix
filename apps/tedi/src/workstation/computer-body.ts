@@ -97,6 +97,7 @@ export type WorkstationRuntimeBody = {
 };
 export interface WorkstationRuntimeNamespace {
 	getByName(name: string): WorkstationRuntimeBody;
+	get(id: DurableObjectId): WorkstationRuntimeBody;
 	idFromName(name: string): DurableObjectId;
 }
 export type WorkstationExecResult = NativeProcessOutput;

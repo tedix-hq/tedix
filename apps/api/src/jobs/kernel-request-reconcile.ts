@@ -1,4 +1,5 @@
 import { createDbQueryClient } from "@tedix/db/query-client";
+import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import {
 	DISPATCHER_ATTEMPT_CAPTURE_LOOKBACK_MS,
 	listDispatcherAttemptCaptureOrganizations,
@@ -50,7 +51,11 @@ export async function reconcileDueKernelRequests(
 	const failures: unknown[] = [];
 	for (const result of await Promise.allSettled(
 		[...organizations].map((organizationId) =>
-			env.KERNEL.get(env.KERNEL.idFromName(organizationId)).reconcileRequests({
+			durableObjectStubByName(
+				env.KERNEL,
+				env,
+				organizationId,
+			).reconcileRequests({
 				organizationId,
 			}),
 		),

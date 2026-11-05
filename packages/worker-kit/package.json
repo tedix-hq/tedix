@@ -8,6 +8,7 @@
 	"exports": {
 		"./cors": "./src/cors.ts",
 		"./crypto": "./src/crypto.ts",
+		"./durable-objects": "./src/durable-objects.ts",
 		"./error-message": "./src/error-message.ts",
 		"./errors": "./src/errors.ts",
 		"./exception-topology": "./src/exception-topology.ts",

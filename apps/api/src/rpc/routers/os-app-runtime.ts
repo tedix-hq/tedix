@@ -300,6 +300,7 @@ export function createOsAppRuntimeRouter() {
 			);
 		return requestAppDraftRoom({
 			rooms: context.env.APP_DRAFT_ROOM,
+			env: context.env,
 			organizationId: scope.organizationId,
 			tenantSlug: organization.slug,
 			workspaceId: scope.workspaceId,

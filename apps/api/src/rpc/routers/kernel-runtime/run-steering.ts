@@ -1,3 +1,4 @@
+import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import type { KernelRuntimeRun } from "@tedix/db/queries/kernel-runtime-runs";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import { controlRuntimeRunSteering } from "@tedix/provisioning";
@@ -59,7 +60,9 @@ export async function controlHomeRunSteering(
 		runId: run.id,
 		sessionKey: run.conversationId,
 	};
-	return kernel
-		.get(kernel.idFromName(run.organizationId))
-		.controlRunSteering(input);
+	return durableObjectStubByName(
+		kernel,
+		context.env,
+		run.organizationId,
+	).controlRunSteering(input);
 }

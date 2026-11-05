@@ -1,3 +1,4 @@
+import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import { admitPersonalRequest } from "../../../services/personal-request-authority";
 import { getKernelRuntimeRun } from "@tedix/db/queries/kernel-runtime-runs";
@@ -1224,7 +1225,11 @@ export const enqueueMessageRoute = authed.enqueueMessage
 			if (kernel && !ownerCertification) {
 				let doTurn: Promise<KernelTurnWorkResult> | null = null;
 				try {
-					const stub = kernel.get(kernel.idFromName(organizationId));
+					const stub = durableObjectStubByName(
+						kernel,
+						context.env,
+						organizationId,
+					);
 					doTurn = Promise.resolve(stub.processTurn(turnInput)).then(
 						(result) => result as unknown as KernelTurnWorkResult,
 					);

@@ -142,6 +142,7 @@ it("uses the production scoped adapter for native tools, shell and Code Mode fil
 	const scoped = (sessionKey: string) =>
 		new ScopedComputerWorkspace(
 			bindings.TEDI_COMPUTER_WORKSPACE,
+			bindings,
 			computerWorkspaceScope({ sessionKey }),
 			owner,
 			async () => "tedi-test",
@@ -274,12 +275,14 @@ it("clones through the typed workspace-owner RPC into only the selected scope", 
 		const owner = crypto.randomUUID();
 		const a = new ScopedComputerWorkspace(
 			bindings.TEDI_COMPUTER_WORKSPACE,
+			bindings,
 			computerWorkspaceScope({ sessionKey: "clone-a" }),
 			owner,
 			async () => "tedi-test",
 		);
 		const b = new ScopedComputerWorkspace(
 			bindings.TEDI_COMPUTER_WORKSPACE,
+			bindings,
 			computerWorkspaceScope({ sessionKey: "clone-b" }),
 			owner,
 			async () => "tedi-test",
@@ -301,6 +304,7 @@ it("clones through the typed workspace-owner RPC into only the selected scope", 
 it("parses quoted network command names as text and rejects actual unavailable commands", async () => {
 	const scoped = new ScopedComputerWorkspace(
 		bindings.TEDI_COMPUTER_WORKSPACE,
+		bindings,
 		computerWorkspaceScope({ sessionKey: "shell-parser" }),
 		crypto.randomUUID(),
 		async () => "tedi-test",
@@ -326,12 +330,14 @@ it("keeps Code Mode environment metadata outside immutable scratch identity", as
 	const scope = { kind: "conversation" as const, key: "code-binding" };
 	const native = new ScopedComputerWorkspace(
 		bindings.TEDI_COMPUTER_WORKSPACE,
+		bindings,
 		scope,
 		owner,
 		async () => "tedi-test",
 	);
 	const bound = new ScopedComputerWorkspace(
 		bindings.TEDI_COMPUTER_WORKSPACE,
+		bindings,
 		{ ...scope, environment: null } as typeof scope,
 		owner,
 		async () => "tedi-test",

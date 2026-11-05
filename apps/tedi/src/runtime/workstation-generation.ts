@@ -1,3 +1,4 @@
+import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import {
 	hashTediBodyGenerationToken,
 	type TediBodyGenerationStatus,
@@ -75,6 +76,7 @@ interface WorkstationGenerationOptions {
 	db: TediGenerationDb;
 	externalId?: string;
 	namespace: WorkstationRuntimeNamespace;
+	env?: unknown;
 	proofEnvPath: string;
 	record: RuntimeBodyGenerationRecord;
 	sandboxId?: string;
@@ -99,7 +101,9 @@ export class WorkstationGeneration
 
 	async ensureBody(): Promise<WorkstationRuntimeBody> {
 		if (!this.sandbox) {
-			this.sandbox = this.sandboxParams.namespace.getByName(
+			this.sandbox = durableObjectStubByName(
+				this.sandboxParams.namespace,
+				this.sandboxParams.env,
 				this.sandboxParams.sandboxId ?? this.sandboxParams.record.tediId,
 			);
 		}

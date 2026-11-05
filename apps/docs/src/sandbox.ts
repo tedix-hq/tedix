@@ -1,3 +1,4 @@
+import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import type { AppBindings } from "./types";
 import type { DocsBuildSandbox } from "./container/docs-build-sandbox";
 
@@ -9,7 +10,9 @@ export function getDocsSandbox(
 	env: Pick<AppBindings, "DOCS_BUILD_SANDBOX">,
 	buildId: string,
 ) {
-	return env.DOCS_BUILD_SANDBOX.getByName(
+	return durableObjectStubByName(
+		env.DOCS_BUILD_SANDBOX,
+		env,
 		buildId,
 	) as unknown as DocsBuildSandbox;
 }

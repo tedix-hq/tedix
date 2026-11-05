@@ -17,6 +17,7 @@
 
 import { createDbClient } from "@tedix/db/client";
 import { listReapableWorkstationBodies } from "@tedix/db/queries/workstations";
+import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import { isServiceBinding } from "@tedix/worker-kit/request-auth";
 import { Hono } from "hono";
 import type { AppEnv } from "../types";
@@ -60,7 +61,11 @@ workstationReaper.post("/internal/workstation/reap", async (c) => {
 	const results: WorkstationBodyReapResult[] = [];
 	for (const body of bodies) {
 		try {
-			const sandbox = namespace.getByName(body.instanceName);
+			const sandbox = durableObjectStubByName(
+				namespace,
+				c.env,
+				body.instanceName,
+			);
 			await sandbox.destroy();
 			results.push({
 				instanceName: body.instanceName,

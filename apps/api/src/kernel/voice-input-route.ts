@@ -1,6 +1,7 @@
 /** Authenticated STT-only WebSocket upgrade for the OS composer. */
 import type { KernelVoiceInputDO } from "./kernel-voice-input-do";
 import { pickEchoableSubprotocol } from "@tedix/worker-kit/request-auth";
+import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import { authenticateKernelEdge } from "./edge-auth";
 
 export async function handleKernelVoiceInput(
@@ -34,8 +35,10 @@ export async function handleKernelVoiceInput(
 	headers.set("X-Kernel-Organization-Id", auth.identity.organizationId);
 	const url = new URL(request.url);
 	url.searchParams.set("organization", auth.identity.organizationId);
-	const stub = namespace.get(
-		namespace.idFromName(`${auth.identity.organizationId}:dictation`),
+	const stub = durableObjectStubByName(
+		namespace,
+		env,
+		`${auth.identity.organizationId}:dictation`,
 	);
 	const response = await stub.fetch(
 		new Request(url.toString(), { ...request, headers }),

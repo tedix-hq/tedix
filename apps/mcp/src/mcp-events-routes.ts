@@ -1,3 +1,4 @@
+import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import { MCP_MODERN_PROTOCOL_VERSION } from "@tedix/mcp-shared/protocol";
 import { isServiceBinding } from "@tedix/worker-kit/request-auth";
 import {
@@ -155,22 +156,20 @@ export async function maybeHandleInteractionEvents(
 			...target,
 		};
 		const binding = (env as McpSubscriptionBindingEnv).MCP_SUBSCRIPTIONS!;
-		const response = await binding
-			.get(
-				binding.idFromName(
-					interactionEventShard(target.organizationId, target.requestId),
+		const response = await durableObjectStubByName(
+			binding,
+			env,
+			interactionEventShard(target.organizationId, target.requestId),
+		).fetch(
+			`https://mcp-subscriptions.internal/events/${unsubscribe ? "unsubscribe" : "subscribe"}`,
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(
+					unsubscribe ? { credential, params } : { credential, params },
 				),
-			)
-			.fetch(
-				`https://mcp-subscriptions.internal/events/${unsubscribe ? "unsubscribe" : "subscribe"}`,
-				{
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify(
-						unsubscribe ? { credential, params } : { credential, params },
-					),
-				},
-			);
+			},
+		);
 		const result = (await response.json()) as Record<string, unknown>;
 		if (isRecord(result.error))
 			return jsonRpcEnvelopeErrorResponse(
@@ -250,13 +249,14 @@ async function publishSubscriptionEventToApp(
 ): Promise<number> {
 	const binding = (env as McpSubscriptionBindingEnv).MCP_SUBSCRIPTIONS;
 	if (!binding) return 0;
-	const response = await binding
-		.get(binding.idFromName(appId))
-		.fetch("https://mcp-subscriptions.internal/publish", {
+	const response = await durableObjectStubByName(binding, env, appId).fetch(
+		"https://mcp-subscriptions.internal/publish",
+		{
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify(event),
-		});
+		},
+	);
 	if (!response.ok) return 0;
 	const payload = (await response.json().catch(() => ({}))) as {
 		delivered?: unknown;
@@ -295,21 +295,19 @@ export async function handleInternalSubscriptionPublish(
 					{ ok: false, error: "Event delivery unavailable" },
 					{ status: 503 },
 				);
-			const response = await binding
-				.get(
-					binding.idFromName(
-						interactionEventShard(target.organizationId, target.requestId),
-					),
-				)
-				.fetch("https://mcp-subscriptions.internal/events/publish", {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({
-						...target,
-						responseId: body.responseId,
-						respondedAt: body.respondedAt,
-					}),
-				});
+			const response = await durableObjectStubByName(
+				binding,
+				env,
+				interactionEventShard(target.organizationId, target.requestId),
+			).fetch("https://mcp-subscriptions.internal/events/publish", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					...target,
+					responseId: body.responseId,
+					respondedAt: body.respondedAt,
+				}),
+			});
 			const result = (await response.json()) as {
 				accepted?: number;
 				error?: unknown;
@@ -390,7 +388,7 @@ export async function maybeHandleSubscriptionsListen(
 		) ??
 		allowedOrigins[0] ??
 		new URL(request.url).origin;
-	const stub = binding.get(binding.idFromName(resolvedApp.app.id));
+	const stub = durableObjectStubByName(binding, env, resolvedApp.app.id);
 	return stub.fetch("https://mcp-subscriptions.internal/listen", {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },

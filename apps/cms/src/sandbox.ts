@@ -41,11 +41,14 @@ export function getSiteBuilderSandbox(
 	const name = job
 		? `cms-job:${JSON.stringify([orgSlug, job.kind, job.jobId])}`
 		: orgSlug;
-	return env.SITE_BUILDER_SANDBOX.getByName(
+	return durableObjectStubByName(
+		env.SITE_BUILDER_SANDBOX,
+		env,
 		name,
 	) as unknown as SiteBuilderSandboxRuntime;
 }
 
+import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import type { SiteBuilderSandboxRuntime } from "./container/site-builder-sandbox";
 
 export type CmsSandbox = ReturnType<typeof getSiteBuilderSandbox>;

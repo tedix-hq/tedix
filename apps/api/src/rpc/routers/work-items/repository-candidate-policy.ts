@@ -1,3 +1,4 @@
+import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import {
 	RepositoryCandidateStateSchema,
 	type RepositoryCandidateRoomRequestSchema,
@@ -87,15 +88,17 @@ export async function candidateRoom(
 	request: z.infer<typeof RepositoryCandidateRoomRequestSchema>,
 ) {
 	const binding = context.env.APP_DRAFT_ROOM;
-	const response = await binding
-		.get(binding.idFromName(request.descriptor.roomName))
-		.fetch(
-			new Request("https://collab.internal/__internal/repository-candidate", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify(request),
-			}),
-		);
+	const response = await durableObjectStubByName(
+		binding,
+		context.env,
+		request.descriptor.roomName,
+	).fetch(
+		new Request("https://collab.internal/__internal/repository-candidate", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(request),
+		}),
+	);
 	if (!response.ok)
 		throw createError(
 			response.status === 409 ? ErrorCodes.CONFLICT : ErrorCodes.BAD_GATEWAY,

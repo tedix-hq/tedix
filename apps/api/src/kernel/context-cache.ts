@@ -25,6 +25,7 @@
  * that assembly stamps into `metadata.contextManifest.cache`.
  */
 
+import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import type { KernelDO } from "./kernel-do";
 
@@ -185,7 +186,7 @@ export function invalidateKernelContextCache(
 	if (!kernel || typeof kernel.idFromName !== "function") return;
 	let call: Promise<void>;
 	try {
-		const stub = kernel.get(kernel.idFromName(organizationId));
+		const stub = durableObjectStubByName(kernel, context.env, organizationId);
 		call = Promise.resolve(stub.invalidateContextCache(reason)).then(
 			() => undefined,
 		);

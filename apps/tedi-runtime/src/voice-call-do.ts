@@ -49,6 +49,7 @@ import {
 	installVoiceWireGuard,
 	SingleSpeakerGate,
 } from "@tedix/voice/runtime";
+import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import { Agent, type Connection, type ConnectionContext } from "agents";
 import { recordVoiceProviderUsage } from "./voice-provider-usage-client";
 import { buildVoiceCallRecap, type VoiceRecapTurn } from "./voice-recap";
@@ -585,15 +586,12 @@ export class VoiceCallDO extends VoiceAgentBase {
 		body: { mode: "turn"; text: string; client_request_id: string },
 		signal: AbortSignal,
 	): AsyncGenerator<string> {
-		const ns = (
-			this.env as unknown as {
-				TEDI_AGENT: {
-					idFromName(name: string): unknown;
-					get(id: unknown): { fetch(req: Request): Promise<Response> };
-				};
-			}
-		).TEDI_AGENT;
-		const stub = ns.get(ns.idFromName(ctx.isolateAgentId));
+		const stub = durableObjectStubByName(
+			(this.env as unknown as { TEDI_AGENT: DurableObjectNamespace })
+				.TEDI_AGENT,
+			this.env,
+			ctx.isolateAgentId,
+		);
 		const req = new Request(
 			`https://isolate.internal/__internal/voice/consult?slug=${encodeURIComponent(
 				ctx.slug,
@@ -779,16 +777,12 @@ export class VoiceCallDO extends VoiceAgentBase {
 			| { mode: "turn"; text: string; client_request_id: string }
 			| { mode: "recap"; recap: string; client_request_id: string },
 	): Promise<unknown> {
-		const ns = (
-			this.env as unknown as {
-				TEDI_AGENT: {
-					idFromName(name: string): unknown;
-					get(id: unknown): { fetch(req: Request): Promise<Response> };
-				};
-			}
-		).TEDI_AGENT;
-		const id = ns.idFromName(ctx.isolateAgentId);
-		const stub = ns.get(id);
+		const stub = durableObjectStubByName(
+			(this.env as unknown as { TEDI_AGENT: DurableObjectNamespace })
+				.TEDI_AGENT,
+			this.env,
+			ctx.isolateAgentId,
+		);
 		const req = new Request(
 			`https://isolate.internal/__internal/voice/consult?slug=${encodeURIComponent(
 				ctx.slug,
