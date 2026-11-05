@@ -976,7 +976,8 @@ export function createOsAppRuntimeRouter() {
 		if (
 			session.previewId &&
 			input.operation !== "outputs.read" &&
-			input.operation !== "skills.read"
+			input.operation !== "skills.read" &&
+			input.operation !== "work.read"
 		)
 			throw createError(
 				ErrorCodes.FORBIDDEN,
@@ -1103,6 +1104,11 @@ export function createOsAppRuntimeRouter() {
 			const { readWorkspaceAppSkill } =
 				await import("../../services/os-app-skill-read");
 			return readWorkspaceAppSkill(acting, resource, input.args);
+		}
+		if (input.operation === "work.read") {
+			const { readWorkspaceAppWork } =
+				await import("../../services/os-app-work-read");
+			return readWorkspaceAppWork(acting, session, resource, input.args);
 		}
 		if (input.operation === "skills.run") {
 			if (resource.providerId !== "tedix" || resource.resourceType !== "skill")

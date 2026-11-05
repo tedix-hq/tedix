@@ -31,6 +31,7 @@ const GRANT_GATED = new Set<AppRuntimeOperation>([
 	"connections.call",
 	"skills.read",
 	"skills.run",
+	"work.read",
 ]);
 const RANK: Record<AppRuntimeRole, number> = {
 	viewer: 0,
@@ -91,7 +92,8 @@ describe("app runtime permission matrix, exhaustively", () => {
 				(input.role === "use" &&
 					(input.operation === "app.call" ||
 						input.operation === "outputs.read" ||
-						input.operation === "skills.read"));
+						input.operation === "skills.read" ||
+						input.operation === "work.read"));
 			const granted =
 				input.slot === "sheet" &&
 				input.grants[0]!.operations.includes(input.operation);
@@ -106,6 +108,7 @@ describe("app runtime permission matrix, exhaustively", () => {
 			"app.call",
 			"outputs.read",
 			"skills.read",
+			"work.read",
 		]);
 		expect(appRuntimeOperationsForRole("viewer")).toEqual([]);
 		for (const input of everyCase()) {
@@ -118,7 +121,8 @@ describe("app runtime permission matrix, exhaustively", () => {
 				input.role === "use" &&
 				input.operation !== "app.call" &&
 				input.operation !== "outputs.read" &&
-				input.operation !== "skills.read"
+				input.operation !== "skills.read" &&
+				input.operation !== "work.read"
 			)
 				expect(appRuntimePermission(input).allowed).toBe(false);
 		}

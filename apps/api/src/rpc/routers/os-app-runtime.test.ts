@@ -27,6 +27,8 @@ import { OWNER_HOST_SESSION_HEADER } from "@tedix/api-contract/contracts/externa
 import { bindForwardedOwnerHostSession } from "../orpc";
 import { osCollaborationProcedures } from "./os-workspace-collaboration";
 import { organizations } from "@tedix/db/schema/organizations";
+import { projects } from "@tedix/db/schema/projects";
+import { workAttempts, workItems } from "@tedix/db/schema/work-items";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import {
 	osWorkspaceAccessEdges,
@@ -78,6 +80,9 @@ async function fixture(manifestOverrides: Record<string, unknown> = {}) {
 			osWorkspaceCollaborators,
 			osWorkspaceShareLinks,
 			osWorkspaceShareKeys,
+			projects,
+			workItems,
+			workAttempts,
 		),
 	);
 	const facade = createD1Facade(sqlite);
@@ -2408,5 +2413,151 @@ describe("app edits from a delegated tedi", () => {
 		await expect(
 			f.tedi("not-a-run").proposeEdit(f.input),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+});
+
+describe("workspace app live Work board reads", () => {
+	const projectId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+	const otherProjectId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+	const boardItem = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+	const otherItem = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+
+	async function boardFixture(
+		grants = [{ slot: "board", operations: ["work.read"] }],
+	) {
+		const f = await fixture({ resourceGrants: grants });
+		for (const id of [projectId, otherProjectId])
+			await f.db.insert(projects).values({
+				id,
+				orgId: "org-1",
+				name: id === projectId ? "Fictional board" : "Other board",
+				key: id.slice(0, 4),
+				createdAt: "2026-10-01T00:00:00.000Z",
+			} as never);
+		for (const [id, project] of [
+			[boardItem, projectId],
+			[otherItem, otherProjectId],
+		] as const)
+			await f.db.insert(workItems).values({
+				id,
+				orgId: "org-1",
+				projectId: project,
+				title: `Item in ${project.slice(0, 4)}`,
+				disposition: "accepted",
+				workKind: "coding",
+				createdAt: "2026-10-01T00:00:00.000Z",
+				updatedAt: "2026-10-01T00:00:00.000Z",
+			} as never);
+		await f.db.insert(osWorkspaceResources).values({
+			id: crypto.randomUUID(),
+			organizationId: "org-1",
+			workspaceId,
+			slot: "board",
+			providerId: "tedix",
+			connectionScope: "tenant",
+			resourceType: "project",
+			providerResourceId: projectId,
+			name: "Fictional work board",
+			createdByKind: "user",
+			createdById: "user-1",
+		});
+		const internal = createRouterClient(f.router, {
+			context: userContext({
+				env: f.env,
+				headers: { "X-Service-Binding": "true" },
+			}),
+		});
+		const reader = createRouterClient(f.router, {
+			context: userContext({ env: f.env, sub: "user-2" }),
+		});
+		return { ...f, internal, reader };
+	}
+	const request = (session: string, slot = "board", args: unknown = {}) => ({
+		session,
+		operation: "work.read" as const,
+		slot,
+		args,
+	});
+
+	it("lets a use member read only the bound project's board and records the read", async () => {
+		const f = await boardFixture();
+		const { session, role } = await f.reader.open(scope);
+		expect(role).toBe("use");
+		const result = (await f.internal.capability(request(session))) as {
+			project: { id: string };
+			rows: Array<{ id: string; activeAttempt: unknown }>;
+			pagination: { total: number };
+		};
+		expect(result.project.id).toBe(projectId);
+		expect(result.rows.map((row) => row.id)).toEqual([boardItem]);
+		expect(result.rows[0]).toMatchObject({
+			title: `Item in ${projectId.slice(0, 4)}`,
+			disposition: "accepted",
+			workKind: "coding",
+			activeAttempt: null,
+		});
+		expect(result.pagination.total).toBe(1);
+		const receipts = await f.db.select().from(osGadgetExecutions);
+		expect(receipts).toHaveLength(1);
+		expect(JSON.parse(receipts[0]!.input!)).toMatchObject({
+			kind: "connection_observation",
+			slot: "board",
+			resourceType: "project",
+			providerResourceId: projectId,
+			actingUserId: "user-2",
+		});
+	});
+
+	it("refuses a missing grant", async () => {
+		const f = await boardFixture([
+			{ slot: "board", operations: ["outputs.read"] },
+		]);
+		const { session } = await f.reader.open(scope);
+		await expect(f.internal.capability(request(session))).rejects.toMatchObject(
+			{
+				code: "FORBIDDEN",
+			},
+		);
+		await expect(
+			f.internal.capability(request(session, "other")),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+
+	it("refuses a viewer session", async () => {
+		const f = await boardFixture();
+		const { session } = await f.reader.open(scope);
+		const signed = await verifyWorkspaceAppSession(key, session);
+		const {
+			expiresAt: _expiresAt,
+			sessionId: _sessionId,
+			...claims
+		} = signed as typeof signed & { sessionId?: string };
+		const { token } = await mintWorkspaceAppSession(key, {
+			...claims,
+			role: "viewer",
+		});
+		await expect(f.internal.capability(request(token))).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
+	});
+
+	it("refuses another project, by argument or by a foreign binding", async () => {
+		const f = await boardFixture();
+		const { session } = await f.reader.open(scope);
+		await expect(
+			f.internal.capability(
+				request(session, "board", { projectId: otherProjectId }),
+			),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await f.db
+			.update(projects)
+			.set({ orgId: "org-other" })
+			.where(eq(projects.id, projectId));
+		await expect(f.internal.capability(request(session))).rejects.toMatchObject(
+			{
+				code: "FORBIDDEN",
+			},
+		);
+		expect(await f.db.select().from(osGadgetExecutions)).toHaveLength(0);
 	});
 });

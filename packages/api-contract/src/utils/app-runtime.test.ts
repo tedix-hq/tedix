@@ -190,6 +190,36 @@ describe("permission matrix", () => {
 		}
 	});
 
+	it("allows live Work board reads only through a work.read grant", () => {
+		const grants = [{ slot: "board", operations: ["work.read"] }];
+		for (const role of ["use", "build", "owner"] as const) {
+			expect(
+				appRuntimePermission({
+					role,
+					operation: "work.read",
+					grants,
+					slot: "board",
+				}),
+			).toEqual({ allowed: true });
+			expect(
+				appRuntimePermission({
+					role,
+					operation: "work.read",
+					grants: [{ slot: "board", operations: ["outputs.read"] }],
+					slot: "board",
+				}),
+			).toEqual({ allowed: false, reason: "grant_operation" });
+		}
+		expect(
+			appRuntimePermission({
+				role: "viewer",
+				operation: "work.read",
+				grants,
+				slot: "board",
+			}),
+		).toEqual({ allowed: false, reason: "role" });
+	});
+
 	it("lets use read a granted sheet and refuses writes", () => {
 		expect(
 			appRuntimePermission({
@@ -261,7 +291,12 @@ describe("guest access to a runtime app", () => {
 		expect(appRuntimeGuestRefusal([], new Map())).toBeNull();
 	});
 	it("refuses a connection or skill grant, whatever the slot holds", () => {
-		for (const operation of ["connections.call", "skills.run", "skills.read"])
+		for (const operation of [
+			"connections.call",
+			"skills.run",
+			"skills.read",
+			"work.read",
+		])
 			expect(
 				appRuntimeGuestRefusal(
 					[{ slot: "cards", operations: ["outputs.read", operation] }],

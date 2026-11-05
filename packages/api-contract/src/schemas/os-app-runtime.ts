@@ -248,6 +248,7 @@ export const APP_RUNTIME_OPERATIONS = [
 	"connections.call",
 	"skills.read",
 	"skills.run",
+	"work.read",
 ] as const;
 export const AppRuntimeOperationSchema = z.enum(APP_RUNTIME_OPERATIONS);
 export type AppRuntimeOperation = z.infer<typeof AppRuntimeOperationSchema>;
@@ -274,6 +275,14 @@ export const AppRuntimeSkillReadSchema = z.discriminatedUnion("view", [
 		runId: z.string().min(1).max(200),
 	}),
 ]);
+
+/** Page through the Work board of the project bound to the granted slot. */
+export const AppRuntimeWorkReadSchema = z.strictObject({
+	limit: z.number().int().min(1).max(50).default(50),
+	offset: z.number().int().min(0).max(10000).default(0),
+	/** Optional guard: when given it must be the bound project. */
+	projectId: z.string().min(1).max(200).optional(),
+});
 
 export const AppRuntimeCodeSchema = z.object({
 	revisionId: z.string().uuid(),
