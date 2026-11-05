@@ -111,12 +111,11 @@ export function registerSkillMediaRoutes(
 
 		const { getRunArtifact } =
 			await import("@tedix/db/queries/skill-run-artifacts");
-		const { createDbClient } = await import("@tedix/db/client");
-		const artifact = await getRunArtifact(
-			createDbClient(c.env.DB),
-			runId,
-			path,
-		);
+		const { createDbClient, configureLogStore } =
+			await import("@tedix/db/client");
+		const db = createDbClient(c.env.DB);
+		configureLogStore(db, c.env);
+		const artifact = await getRunArtifact(db, runId, path);
 		if (!artifact) return c.text("Artifact not found", 404);
 
 		const media = await readSkillMedia(c.env, artifact);
@@ -175,8 +174,10 @@ export function registerSkillMediaRoutes(
 		}
 
 		// --- Resolve org from the Descope tenant claim, then check run ownership ---
-		const { createDbClient } = await import("@tedix/db/client");
+		const { createDbClient, configureLogStore } =
+			await import("@tedix/db/client");
 		const db = createDbClient(c.env.DB);
+		configureLogStore(db, c.env);
 		const orgId = await resolveMediaRouteOrgId(
 			db,
 			payload,
