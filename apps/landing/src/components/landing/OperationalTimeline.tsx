@@ -127,6 +127,7 @@ function ConnectedNode({
 				reduceMotion ? undefined : { y: [0, -5, 0], scale: [1, 1.025, 1] }
 			}
 			transition={{ duration: 4.2, delay, repeat: Infinity, ease: "easeInOut" }}
+			role="img"
 			aria-label={node.label}
 		>
 			{node.logo ? (
