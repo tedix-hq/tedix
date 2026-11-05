@@ -1,0 +1,1089 @@
+import {
+	AgentRequestActionSchema,
+	AgentRequestProposalSchema,
+	agentRequestAction,
+	type AgentRequestExecution,
+} from "@tedix/api-contract/schemas/agent-requests";
+import { organizations } from "../../schema/organizations";
+import { organizationMembers } from "../../schema/organization-members";
+import { normalizeWorkItemRow } from "./normalization";
+import {
+	recordCardCreationEdges,
+	recordDecisionResolutionEdges,
+} from "../decision-graph-writers";
+import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import { WorkItemAcceptanceContractSchema } from "@tedix/api-contract/schemas/work-items";
+import {
+	and,
+	asc,
+	desc,
+	eq,
+	getColumns,
+	inArray,
+	isNull,
+	or,
+	sql,
+} from "drizzle-orm";
+import type { PgQueryClient } from "../../client";
+import { prefixedColumns } from "../../utils/select";
+import { workItems, workEvents, type WorkItem } from "../../schema/work-items";
+import {
+	workApprovalDecisions,
+	workApprovalExecutions,
+	workApprovalProposals,
+	type WorkApprovalDecision,
+	type WorkApprovalProposal,
+} from "../../schema/work-factory";
+import {
+	WorkControlError,
+	requireActivePrincipal,
+	requireExternalSession,
+	requireWorkItem,
+} from "./factory-validation";
+import {
+	requiredWorkAdmissionAuthorities,
+	WORK_ADMISSION_APPROVAL_ACTION,
+} from "./admission-approval-policy";
+import { areSameWorkParty } from "../external-agent-identity/canonical-party";
+import { humanReservedActionClasses } from "@tedix/api-contract/utils/approval-policy";
+import { getActiveOrganizationPolicyPack } from "../kernel-runtime-support";
+import { tedis } from "../../schema/tedis";
+
+export interface ProposeWorkApprovalParams {
+	id: string;
+	orgId: string;
+	workItemId: string;
+	workItemVersion: number;
+	action?:
+		| "admission"
+		| "acceptance"
+		| "agent.create"
+		| "agent.connect"
+		| "resource.grant";
+	acceptanceContract?: { version: 1; doneLooksLike?: string };
+	authorityKey: string;
+	proposal: Record<string, JsonValue>;
+	requesterType: "user" | "tedi" | "external_agent" | "system";
+	requesterId: string;
+	requesterSessionId?: string;
+	externalSessionKey?: string;
+	approverType: "user" | "tedi";
+	approverId: string;
+	rationale: string;
+	expiresAt: string;
+	now: string;
+}
+
+export interface PendingTediWorkApproval {
+	id: string;
+	orgId: string;
+	workItemId: string;
+	workItemVersion: number;
+	workItemTitle: string;
+	action?: string;
+	authorityKey: string;
+	proposal: Record<string, JsonValue>;
+	requesterType: "user" | "tedi" | "external_agent" | "system";
+	requesterId: string;
+	approverId: string;
+	rationale: string;
+	expiresAt: string;
+	version: number;
+}
+
+/** Pending tedi-addressed admission decisions that need an agent wake. */
+export async function listPendingTediWorkApprovals(
+	db: PgQueryClient,
+	input: { observedAt: string; limit?: number },
+): Promise<PendingTediWorkApproval[]> {
+	const limit = Math.min(Math.max(input.limit ?? 50, 1), 100);
+	return db
+		.select({
+			id: workApprovalProposals.id,
+			orgId: workApprovalProposals.orgId,
+			workItemId: workApprovalProposals.workItemId,
+			workItemVersion: workApprovalProposals.workItemVersion,
+			workItemTitle: workItems.title,
+			action: workApprovalProposals.action,
+			authorityKey: workApprovalProposals.authorityKey,
+			proposal: workApprovalProposals.proposal,
+			requesterType: workApprovalProposals.requesterType,
+			requesterId: workApprovalProposals.requesterId,
+			approverId: workApprovalProposals.approverId,
+			rationale: workApprovalProposals.rationale,
+			expiresAt: sql<string>`${workApprovalProposals.expiresAt}`.as(
+				"approval_expires_at",
+			),
+			version: workApprovalProposals.version,
+		})
+		.from(workApprovalProposals)
+		.innerJoin(
+			workItems,
+			and(
+				eq(workItems.id, workApprovalProposals.workItemId),
+				eq(workItems.orgId, workApprovalProposals.orgId),
+			),
+		)
+		.where(
+			and(
+				eq(workApprovalProposals.status, "pending"),
+				eq(workApprovalProposals.approverType, "tedi"),
+				sql`${workApprovalProposals.expiresAt}>${input.observedAt}`,
+			),
+		)
+		.orderBy(desc(workApprovalProposals.createdAt))
+		.limit(limit);
+}
+function routineAcceptanceContract(
+	item: WorkItem,
+	approver: {
+		approverType: "user" | "tedi";
+		approverId: string;
+		authorityKey: string;
+	},
+	value: unknown,
+) {
+	const parsed = WorkItemAcceptanceContractSchema.safeParse(value);
+	if (
+		item.disposition !== "proposed" ||
+		!["low", "medium"].includes(item.riskLevel) ||
+		approver.approverType !== "tedi" ||
+		approver.authorityKey !== "work:accept" ||
+		!parsed.success ||
+		!parsed.data.doneLooksLike?.trim()
+	)
+		throw new WorkControlError(
+			"NOT_ELIGIBLE",
+			"Routine acceptance requires proposed low/medium-risk Work, an independent tedi and a non-empty acceptance contract",
+		);
+	if (
+		item.accountableOwnerType === "tedi" &&
+		item.accountableOwnerId === approver.approverId
+	)
+		throw new WorkControlError(
+			"INVALID_PRINCIPAL",
+			"A tedi cannot accept its own Work Item",
+		);
+	return {
+		version: 1 as const,
+		doneLooksLike: parsed.data.doneLooksLike.trim(),
+	};
+}
+
+async function requireAgentRequestApprover(
+	db: PgQueryClient,
+	input: {
+		orgId: string;
+		approverType: string;
+		approverId: string;
+		authorityKey: string;
+		action: string;
+		proposal: Record<string, JsonValue>;
+	},
+) {
+	const parsed = AgentRequestProposalSchema.safeParse(input.proposal);
+	if (
+		!parsed.success ||
+		agentRequestAction(parsed.data) !== input.action ||
+		input.authorityKey !== input.action ||
+		input.approverType !== "user"
+	)
+		throw new WorkControlError(
+			"NOT_ELIGIBLE",
+			"Agent requests require a matching typed proposal and user approver",
+		);
+	const [organization] = await db
+		.select({ metadata: organizations.metadata })
+		.from(organizations)
+		.where(eq(organizations.id, input.orgId))
+		.limit(1);
+	if (organization?.metadata?.agentRequestApprovals?.approver !== "org_admin")
+		throw new WorkControlError(
+			"NOT_ELIGIBLE",
+			"Agent request approval policy has not been enabled by the organization owner",
+		);
+	const members = await db
+		.select({
+			userId: organizationMembers.userId,
+			role: organizationMembers.role,
+		})
+		.from(organizationMembers)
+		.where(
+			and(
+				eq(organizationMembers.organizationId, input.orgId),
+				eq(organizationMembers.status, "active"),
+				eq(organizationMembers.kind, "human"),
+				inArray(organizationMembers.userId, [
+					input.approverId,
+					parsed.data.ownerUserId,
+				]),
+			),
+		);
+	if (
+		!members.some(
+			(member) =>
+				member.userId === input.approverId &&
+				["owner", "admin"].includes(member.role),
+		)
+	)
+		throw new WorkControlError(
+			"INVALID_PRINCIPAL",
+			"Agent request approver must be an active organization owner or admin",
+		);
+	if (
+		!members.some(
+			(member) =>
+				member.userId === parsed.data.ownerUserId &&
+				["owner", "admin", "member"].includes(member.role),
+		)
+	)
+		throw new WorkControlError(
+			"INVALID_PRINCIPAL",
+			"Agent request owner must be an active organization member",
+		);
+	return parsed.data;
+}
+
+export async function proposeWorkApproval(
+	db: PgQueryClient,
+	p: ProposeWorkApprovalParams,
+): Promise<WorkApprovalProposal & { execution: AgentRequestExecution | null }> {
+	const item = await requireWorkItem(db, p.orgId, p.workItemId);
+	if (item.version !== p.workItemVersion)
+		throw new WorkControlError(
+			"CONFLICT",
+			"Approval proposal Work Item version is stale",
+		);
+	const action = p.action ?? WORK_ADMISSION_APPROVAL_ACTION;
+	const agentRequest = AgentRequestActionSchema.safeParse(action).success;
+	if (agentRequest) {
+		await requireAgentRequestApprover(db, { ...p, action });
+		if (["completed", "cancelled"].includes(item.disposition))
+			throw new WorkControlError(
+				"NOT_ELIGIBLE",
+				"Agent requests require open Work",
+			);
+	}
+	const contract =
+		action === "acceptance"
+			? routineAcceptanceContract(item, p, p.acceptanceContract)
+			: undefined;
+	if (action !== "acceptance" && p.acceptanceContract)
+		throw new WorkControlError(
+			"NOT_ELIGIBLE",
+			"Acceptance contracts require the acceptance action",
+		);
+	if (
+		action === "admission" &&
+		!requiredWorkAdmissionAuthorities(item).includes(p.authorityKey)
+	)
+		throw new WorkControlError(
+			"NOT_ELIGIBLE",
+			`Authority ${p.authorityKey} is not required for Work Item admission`,
+		);
+	await Promise.all([
+		requireActivePrincipal(db, {
+			orgId: p.orgId,
+			type: p.requesterType,
+			id: p.requesterId,
+		}),
+		requireActivePrincipal(db, {
+			orgId: p.orgId,
+			type: p.approverType,
+			id: p.approverId,
+		}),
+	]);
+	// Canonical parties: an owner-host agent and its human owner are one party.
+	if (
+		await areSameWorkParty(db, {
+			organizationId: p.orgId,
+			left: { type: p.requesterType, id: p.requesterId },
+			right: { type: p.approverType, id: p.approverId },
+		})
+	)
+		throw new WorkControlError(
+			"INVALID_PRINCIPAL",
+			"Requester cannot approve its own proposal",
+		);
+	if (p.requesterType === "external_agent") {
+		if (!p.requesterSessionId || !p.externalSessionKey)
+			throw new WorkControlError(
+				"INVALID_PRINCIPAL",
+				"External requester requires exact session fence",
+			);
+		await requireExternalSession(db, {
+			orgId: p.orgId,
+			principalId: p.requesterId,
+			sessionId: p.requesterSessionId,
+			externalSessionKey: p.externalSessionKey,
+		});
+	}
+	// One pending proposal per scope (uniq_work_approval_pending_scope). Name
+	// the live one instead of surfacing the index violation as a server error.
+	const requireNoPendingScope = async () => {
+		const [pending] = await db
+			.select({
+				id: workApprovalProposals.id,
+				requesterType: workApprovalProposals.requesterType,
+				requesterId: workApprovalProposals.requesterId,
+				expiresAt: workApprovalProposals.expiresAt,
+			})
+			.from(workApprovalProposals)
+			.where(
+				and(
+					eq(workApprovalProposals.orgId, p.orgId),
+					eq(workApprovalProposals.workItemId, p.workItemId),
+					eq(workApprovalProposals.workItemVersion, p.workItemVersion),
+					eq(workApprovalProposals.authorityKey, p.authorityKey),
+					eq(workApprovalProposals.action, action),
+					eq(workApprovalProposals.approverType, p.approverType),
+					eq(workApprovalProposals.approverId, p.approverId),
+					eq(workApprovalProposals.status, "pending"),
+					sql`${workApprovalProposals.expiresAt}>${p.now}`,
+				),
+			)
+			.limit(1);
+		if (pending)
+			throw new WorkControlError(
+				"CONFLICT",
+				`Work approval ${pending.id} from ${pending.requesterType}:${pending.requesterId} is already pending for this Work Item version, authority and approver until ${pending.expiresAt}; wait for its decision instead of proposing again`,
+			);
+	};
+	await requireNoPendingScope();
+	const expire = (q: PgQueryClient) =>
+		q
+			.update(workApprovalProposals)
+			.set({
+				status: "expired",
+				resolutionFence: crypto.randomUUID(),
+				resolvedAt: p.now,
+				version: sql`${workApprovalProposals.version}+1`,
+			})
+			.where(
+				and(
+					eq(workApprovalProposals.orgId, p.orgId),
+					eq(workApprovalProposals.workItemId, p.workItemId),
+					eq(workApprovalProposals.workItemVersion, p.workItemVersion),
+					eq(workApprovalProposals.authorityKey, p.authorityKey),
+					eq(workApprovalProposals.action, action),
+					eq(workApprovalProposals.approverType, p.approverType),
+					eq(workApprovalProposals.approverId, p.approverId),
+					eq(workApprovalProposals.status, "pending"),
+					sql`${workApprovalProposals.expiresAt}<=${p.now}`,
+				),
+			);
+	const insert = (q: PgQueryClient) =>
+		q
+			.insert(workApprovalProposals)
+			.values({
+				id: p.id,
+				orgId: p.orgId,
+				workItemId: p.workItemId,
+				workItemVersion: p.workItemVersion,
+				authorityKey: p.authorityKey,
+				action,
+				proposal: contract
+					? { ...p.proposal, acceptanceContract: contract }
+					: p.proposal,
+				requesterType: p.requesterType,
+				requesterId: p.requesterId,
+				requesterSessionId: p.requesterSessionId,
+				requesterExternalSessionKey: p.externalSessionKey,
+				approverType: p.approverType,
+				approverId: p.approverId,
+				status: "pending",
+				rationale: p.rationale,
+				expiresAt: p.expiresAt,
+				resolutionFence: null,
+				createdAt: p.now,
+				version: 1,
+			})
+			.returning();
+	let rows;
+	try {
+		[, rows] = agentRequest
+			? await db.transaction(async (tx) => {
+					const __r: any[] = [];
+					for (const __s of [
+						expire(tx),
+						insert(tx),
+						tx.insert(workApprovalExecutions).values({
+							proposalId: p.id,
+							orgId: p.orgId,
+							execution: { status: "pending" },
+						}),
+					])
+						__r.push(await __s);
+					return __r;
+				})
+			: await db.transaction(async (tx) => {
+					const __r: any[] = [];
+					for (const __s of [expire(tx), insert(tx)]) __r.push(await __s);
+					return __r;
+				});
+	} catch (error) {
+		// A concurrent proposal won the pending slot between check and insert.
+		await requireNoPendingScope();
+		throw error;
+	}
+	if (rows[0] && p.approverType === "user")
+		await recordCardCreationEdges(
+			db,
+			{
+				id: `work-approval:${rows[0].id}`,
+				orgId: p.orgId,
+				workItemId: item.id,
+				kind: "question",
+				targetType: "user",
+				subject: item.title,
+				prompt: p.rationale,
+				metadata: p.proposal,
+				createdAt: p.now,
+			},
+			item,
+		);
+	return {
+		...rows[0]!,
+		execution: agentRequest ? { status: "pending" } : null,
+	};
+}
+
+export interface DecideWorkApprovalParams {
+	id: string;
+	orgId: string;
+	proposalId: string;
+	expectedVersion: number;
+	decision: "approved" | "rejected";
+	deciderType: "user" | "tedi";
+	deciderId: string;
+	rationale: string;
+	now: string;
+}
+export async function decideWorkApproval(
+	db: PgQueryClient,
+	p: DecideWorkApprovalParams,
+): Promise<WorkApprovalDecision> {
+	await requireActivePrincipal(db, {
+		orgId: p.orgId,
+		type: p.deciderType,
+		id: p.deciderId,
+	});
+	const proposal = (
+		await db
+			.select()
+			.from(workApprovalProposals)
+			.where(
+				and(
+					eq(workApprovalProposals.id, p.proposalId),
+					eq(workApprovalProposals.orgId, p.orgId),
+					eq(workApprovalProposals.version, p.expectedVersion),
+					eq(workApprovalProposals.status, "pending"),
+					sql`(${workApprovalProposals.expiresAt} IS NULL OR ${workApprovalProposals.expiresAt}>${p.now})`,
+				),
+			)
+			.limit(1)
+	)[0];
+	if (!proposal)
+		throw new WorkControlError(
+			"CONFLICT",
+			"Approval proposal is no longer resolvable",
+		);
+	if (
+		proposal.approverType !== p.deciderType ||
+		proposal.approverId !== p.deciderId
+	)
+		throw new WorkControlError(
+			"INVALID_PRINCIPAL",
+			"Decision actor is not the designated approver",
+		);
+	if (
+		await areSameWorkParty(db, {
+			organizationId: p.orgId,
+			left: { type: proposal.requesterType, id: proposal.requesterId },
+			right: { type: p.deciderType, id: p.deciderId },
+		})
+	)
+		throw new WorkControlError(
+			"INVALID_PRINCIPAL",
+			"Requester cannot decide its own proposal",
+		);
+	const agentRequest = AgentRequestActionSchema.safeParse(
+		proposal.action,
+	).success;
+	const agentProposal = agentRequest
+		? await requireAgentRequestApprover(db, proposal)
+		: undefined;
+	const contract =
+		proposal.action === "acceptance" && p.decision === "approved"
+			? routineAcceptanceContract(
+					await requireWorkItem(db, p.orgId, proposal.workItemId),
+					proposal,
+					proposal.proposal.acceptanceContract,
+				)
+			: undefined;
+	const resolvedVersion = p.expectedVersion + 1;
+	const decisionInsert = (q: PgQueryClient) =>
+		q
+			.insert(workApprovalDecisions)
+			.select((qb) =>
+				qb
+					.select({
+						id: sql<string>`${p.id}`.as("id"),
+						proposalId: workApprovalProposals.id,
+						resolvedProposalVersion: sql<number>`${resolvedVersion}`.as(
+							"resolved_proposal_version",
+						),
+						decision: sql<typeof p.decision>`${p.decision}`.as("decision"),
+						deciderType: sql<typeof p.deciderType>`${p.deciderType}`.as(
+							"decider_type",
+						),
+						deciderId: sql<string>`${p.deciderId}`.as("decider_id"),
+						rationale: sql<string>`${p.rationale}`.as("rationale"),
+						decidedAt: sql<string>`${p.now}`.as("decided_at"),
+					})
+					.from(workApprovalProposals)
+					.where(
+						and(
+							eq(workApprovalProposals.id, p.proposalId),
+							eq(workApprovalProposals.orgId, p.orgId),
+							eq(workApprovalProposals.version, p.expectedVersion),
+							eq(workApprovalProposals.status, "pending"),
+							sql`${workApprovalProposals.resolutionFence} IS NULL`,
+							sql`${workApprovalProposals.expiresAt}>${p.now}`,
+							agentProposal
+								? sql`EXISTS (SELECT 1 FROM ${workItems} WHERE ${workItems.orgId}=${p.orgId} AND ${workItems.id}=${proposal.workItemId} AND ${workItems.version}=${proposal.workItemVersion} AND ${workItems.disposition} NOT IN ('completed', 'cancelled'))
+							 AND EXISTS (SELECT 1 FROM ${organizationMembers} WHERE ${organizationMembers.organizationId}=${p.orgId} AND ${organizationMembers.userId}=${p.deciderId} AND ${organizationMembers.status}='active' AND ${organizationMembers.kind}='human' AND ${organizationMembers.role} IN ('owner','admin'))
+							 AND EXISTS (SELECT 1 FROM ${organizationMembers} WHERE ${organizationMembers.organizationId}=${p.orgId} AND ${organizationMembers.userId}=${agentProposal.ownerUserId} AND ${organizationMembers.status}='active' AND ${organizationMembers.kind}='human' AND ${organizationMembers.role} IN ('owner','admin','member'))
+							 AND EXISTS (SELECT 1 FROM ${organizations} WHERE ${organizations.id}=${p.orgId} AND (${organizations.metadata} #>> '{agentRequestApprovals,approver}')='org_admin')`
+								: undefined,
+							contract
+								? sql`EXISTS (SELECT 1 FROM ${workItems} WHERE ${workItems.orgId}=${p.orgId} AND ${workItems.id}=${proposal.workItemId} AND ${workItems.version}=${proposal.workItemVersion} AND ${workItems.disposition}='proposed')`
+								: undefined,
+						),
+					),
+			)
+			.returning();
+	try {
+		let decisions: WorkApprovalDecision[];
+		if (contract) {
+			const recorded = sql`EXISTS (SELECT 1 FROM ${workApprovalDecisions} WHERE ${workApprovalDecisions.id}=${p.id} AND ${workApprovalDecisions.proposalId}=${proposal.id})`;
+			const acceptance = (q: PgQueryClient) =>
+				q
+					.update(workItems)
+					.set({
+						disposition: "accepted",
+						acceptanceContract: contract,
+						acceptedAt: p.now,
+						updatedAt: p.now,
+						version: sql`${workItems.version}+1`,
+					})
+					.where(
+						and(
+							eq(workItems.orgId, p.orgId),
+							eq(workItems.id, proposal.workItemId),
+							eq(workItems.version, proposal.workItemVersion),
+							eq(workItems.disposition, "proposed"),
+							recorded,
+						),
+					);
+			const event = (q: PgQueryClient) =>
+				q.insert(workEvents).select((qb) =>
+					qb
+						.select({
+							id: sql<string>`${crypto.randomUUID()}`.as("id"),
+							orgId: workItems.orgId,
+							workItemId: workItems.id,
+							attemptId: sql<null>`NULL`.as("attempt_id"),
+							eventType: sql<string>`'work.accepted'`.as("event_type"),
+							actorType: sql<"system">`'system'`.as("actor_type"),
+							actorId: sql<string>`'tedix'`.as("actor_id"),
+							actorSessionId: sql<null>`NULL`.as("actor_session_id"),
+							payload: sql<
+								Record<string, JsonValue>
+							>`${JSON.stringify({ executor: "api:work-acceptance", proposalId: proposal.id, decisionId: p.id, deciderType: p.deciderType, deciderId: p.deciderId })}`.as(
+								"payload",
+							),
+							occurredAt: sql<string>`${p.now}`.as("occurred_at"),
+						})
+						.from(workItems)
+						.where(
+							and(
+								eq(workItems.orgId, p.orgId),
+								eq(workItems.id, proposal.workItemId),
+								eq(workItems.version, proposal.workItemVersion + 1),
+								eq(workItems.disposition, "accepted"),
+								recorded,
+							),
+						),
+				);
+			// D1 executes the decision, acceptance and provenance as one transaction.
+			[decisions] = await db.transaction(async (tx) => {
+				const __r: any[] = [];
+				for (const __s of [decisionInsert(tx), acceptance(tx), event(tx)])
+					__r.push(await __s);
+				return __r;
+			});
+		} else decisions = await decisionInsert(db);
+		if (!decisions[0]) throw new Error("lost race");
+		await recordDecisionResolutionEdges(db, {
+			orgId: p.orgId,
+			cardId: `work-approval:${proposal.id}`,
+			decisionId: decisions[0].id,
+			workItemId: proposal.workItemId,
+			occurredAt: decisions[0].decidedAt,
+			source: "work_approval_resolution",
+			evidenceRef: `work-approval-decision:${decisions[0].id}`,
+			note: p.rationale,
+		});
+		return decisions[0];
+	} catch {
+		throw new WorkControlError(
+			"CONFLICT",
+			"Approval proposal lost its resolution race",
+		);
+	}
+}
+
+export async function getWorkApprovalProposal(
+	db: PgQueryClient,
+	p: { orgId: string; proposalId: string },
+) {
+	return (
+		(
+			await db
+				.select({
+					...getColumns(workApprovalProposals),
+					execution: workApprovalExecutions.execution,
+				})
+				.from(workApprovalProposals)
+				.leftJoin(
+					workApprovalExecutions,
+					and(
+						eq(workApprovalExecutions.proposalId, workApprovalProposals.id),
+						eq(workApprovalExecutions.orgId, workApprovalProposals.orgId),
+					),
+				)
+				.where(
+					and(
+						eq(workApprovalProposals.orgId, p.orgId),
+						eq(workApprovalProposals.id, p.proposalId),
+					),
+				)
+				.limit(1)
+		)[0] ?? null
+	);
+}
+/** A durable claim prevents a repeated decision from repeating external effects. */
+export async function claimAgentRequestExecution(
+	db: PgQueryClient,
+	input: { orgId: string; proposalId: string; decisionId: string },
+) {
+	const rows = await db
+		.update(workApprovalExecutions)
+		.set({ execution: { status: "running" } })
+		.where(
+			and(
+				eq(workApprovalExecutions.orgId, input.orgId),
+				eq(workApprovalExecutions.proposalId, input.proposalId),
+				sql`(${workApprovalExecutions.execution} #>> '{status}') = 'pending'`,
+				sql`EXISTS (SELECT 1 FROM ${workApprovalProposals} p JOIN ${workApprovalDecisions} d ON d.proposal_id=p.id WHERE p.org_id=${input.orgId} AND p.id=${input.proposalId} AND p.status='approved' AND p.action IN ('agent.create','agent.connect','resource.grant') AND d.id=${input.decisionId} AND d.decision='approved'
+				 AND EXISTS (SELECT 1 FROM ${organizations} o WHERE o.id=p.org_id AND (o.metadata #>> '{agentRequestApprovals,approver}')='org_admin')
+				 AND EXISTS (SELECT 1 FROM ${workItems} wi WHERE wi.org_id=p.org_id AND wi.id=p.work_item_id AND wi.version=p.work_item_version AND wi.disposition NOT IN ('completed','cancelled')))`,
+			),
+		)
+		.returning();
+	return rows[0] ? getWorkApprovalProposal(db, input) : null;
+}
+
+export async function finishAgentRequestExecution(
+	db: PgQueryClient,
+	input: {
+		orgId: string;
+		proposalId: string;
+		execution: AgentRequestExecution & { status: "succeeded" | "failed" };
+	},
+) {
+	await db
+		.update(workApprovalExecutions)
+		.set({ execution: input.execution })
+		.where(
+			and(
+				eq(workApprovalExecutions.orgId, input.orgId),
+				eq(workApprovalExecutions.proposalId, input.proposalId),
+				sql`(${workApprovalExecutions.execution} #>> '{status}') = 'running'`,
+			),
+		);
+}
+
+export async function listWorkApprovalInbox(
+	db: PgQueryClient,
+	p: {
+		orgId: string;
+		proposalId?: string;
+		statuses?: Array<
+			"pending" | "approved" | "rejected" | "cancelled" | "expired"
+		>;
+		workItemId?: string;
+		projectId?: string;
+		authorityKey?: string;
+		/** Restrict to proposals this principal decides, requested, or either. */
+		party?: {
+			type: "user" | "tedi";
+			id: string;
+			role: "approver" | "requester" | "any";
+		};
+		cursor?: { at: string; id: string };
+		limit?: number;
+		observedAt: string;
+	},
+) {
+	const asApprover = p.party
+		? and(
+				eq(workApprovalProposals.approverType, p.party.type),
+				eq(workApprovalProposals.approverId, p.party.id),
+			)
+		: undefined;
+	const asRequester = p.party
+		? and(
+				eq(workApprovalProposals.requesterType, p.party.type),
+				eq(workApprovalProposals.requesterId, p.party.id),
+			)
+		: undefined;
+	const partyFilter =
+		p.party?.role === "approver"
+			? asApprover
+			: p.party?.role === "requester"
+				? asRequester
+				: p.party
+					? or(asApprover, asRequester)
+					: undefined;
+	const effective = sql<
+		"pending" | "approved" | "rejected" | "cancelled" | "expired"
+	>`CASE WHEN ${workApprovalProposals.status}='pending' AND ${workApprovalProposals.expiresAt}<=${p.observedAt} THEN 'expired' ELSE ${workApprovalProposals.status} END`;
+	const limit = Math.min(p.limit ?? 50, 200);
+	const rows = await db
+		.select({
+			execution: workApprovalExecutions.execution,
+			proposal: prefixedColumns(
+				workApprovalProposals,
+				"work_approval_proposal",
+			),
+			effectiveStatus: effective.as("effective_status"),
+			decision: prefixedColumns(
+				workApprovalDecisions,
+				"work_approval_decision",
+			),
+			workItem: prefixedColumns(workItems, "work_approval_item"),
+		})
+		.from(workApprovalProposals)
+		.leftJoin(
+			workApprovalExecutions,
+			and(
+				eq(workApprovalExecutions.proposalId, workApprovalProposals.id),
+				eq(workApprovalExecutions.orgId, workApprovalProposals.orgId),
+			),
+		)
+		.innerJoin(
+			workItems,
+			and(
+				eq(workItems.orgId, workApprovalProposals.orgId),
+				eq(workItems.id, workApprovalProposals.workItemId),
+			),
+		)
+		.leftJoin(
+			workApprovalDecisions,
+			eq(workApprovalDecisions.proposalId, workApprovalProposals.id),
+		)
+		.where(
+			and(
+				eq(workApprovalProposals.orgId, p.orgId),
+				p.proposalId ? eq(workApprovalProposals.id, p.proposalId) : undefined,
+				// bound-params: statuses is a closed four-value approval-status enum
+				p.statuses?.length ? inArray(effective, p.statuses) : undefined,
+				p.workItemId
+					? eq(workApprovalProposals.workItemId, p.workItemId)
+					: undefined,
+				p.projectId ? eq(workItems.projectId, p.projectId) : undefined,
+				p.authorityKey
+					? eq(workApprovalProposals.authorityKey, p.authorityKey)
+					: undefined,
+				partyFilter,
+				p.cursor
+					? sql`(${workApprovalProposals.createdAt}<${p.cursor.at} OR (${workApprovalProposals.createdAt}=${p.cursor.at} AND ${workApprovalProposals.id}<${p.cursor.id}))`
+					: undefined,
+			),
+		)
+		.orderBy(
+			desc(workApprovalProposals.createdAt),
+			desc(workApprovalProposals.id),
+		)
+		.limit(limit + 1);
+	const hasMore = rows.length > limit;
+	// The joined Work Item crosses the DB boundary like every other work-item
+	// read: older accepted rows carry the retired `claims[]`
+	// acceptance-contract shape, which the strict read contract rejects.
+	const data = rows.slice(0, limit).map((row) => ({
+		...row,
+		proposal: { ...row.proposal, execution: row.execution },
+		workItem: normalizeWorkItemRow(row.workItem),
+	}));
+	const last = data.at(-1);
+	return {
+		data,
+		hasMore,
+		nextCursor:
+			hasMore && last
+				? { at: last.proposal.createdAt, id: last.proposal.id }
+				: null,
+		observedAt: p.observedAt,
+	};
+}
+
+export type RequestedWorkApprovalEventRow = Pick<
+	WorkApprovalProposal,
+	| "id"
+	| "workItemId"
+	| "action"
+	| "authorityKey"
+	| "approverType"
+	| "approverId"
+	| "expiresAt"
+	| "createdAt"
+>;
+
+/**
+ * Org-scoped ascending keyset read of approval requests, projected as the
+ * `work.approval.requested` MCP event. The proposal body and rationale are
+ * deliberately not selected.
+ */
+export async function listRequestedWorkApprovalEvents(
+	db: PgQueryClient,
+	p: {
+		orgId: string;
+		after: { at: string; id: string } | null;
+		workItemId?: string;
+		approverId?: string;
+		limit: number;
+	},
+): Promise<RequestedWorkApprovalEventRow[]> {
+	return db
+		.select({
+			id: workApprovalProposals.id,
+			workItemId: workApprovalProposals.workItemId,
+			action: workApprovalProposals.action,
+			authorityKey: workApprovalProposals.authorityKey,
+			approverType: workApprovalProposals.approverType,
+			approverId: workApprovalProposals.approverId,
+			expiresAt: workApprovalProposals.expiresAt,
+			createdAt: workApprovalProposals.createdAt,
+		})
+		.from(workApprovalProposals)
+		.where(
+			and(
+				eq(workApprovalProposals.orgId, p.orgId),
+				p.workItemId
+					? eq(workApprovalProposals.workItemId, p.workItemId)
+					: undefined,
+				p.approverId
+					? eq(workApprovalProposals.approverId, p.approverId)
+					: undefined,
+				p.after
+					? sql`(${workApprovalProposals.createdAt}>${p.after.at} OR (${workApprovalProposals.createdAt}=${p.after.at} AND ${workApprovalProposals.id}>${p.after.id}))`
+					: undefined,
+			),
+		)
+		.orderBy(
+			asc(workApprovalProposals.createdAt),
+			asc(workApprovalProposals.id),
+		)
+		.limit(p.limit);
+}
+
+/** Newest approval request position in the org, used to poll "from now". */
+export async function getLatestWorkApprovalPosition(
+	db: PgQueryClient,
+	orgId: string,
+): Promise<{ at: string; id: string } | null> {
+	const [row] = await db
+		.select({
+			at: workApprovalProposals.createdAt,
+			id: workApprovalProposals.id,
+		})
+		.from(workApprovalProposals)
+		.where(eq(workApprovalProposals.orgId, orgId))
+		.orderBy(
+			desc(workApprovalProposals.createdAt),
+			desc(workApprovalProposals.id),
+		)
+		.limit(1);
+	return row ?? null;
+}
+
+/**
+ * The organization's designated approval tedi
+ * (`gatingPolicy.delegationApprover` on its active policy pack), when it is an
+ * active tedi independent of this Work and the Work names no human-reserved
+ * action. Otherwise null, and a human owner decides.
+ */
+async function resolveRiskApprovalTedi(
+	db: PgQueryClient,
+	item: WorkItem,
+): Promise<string | null> {
+	if (
+		humanReservedActionClasses(`${item.title}\n${item.description ?? ""}`)
+			.length
+	)
+		return null;
+	const pack = await getActiveOrganizationPolicyPack(db, item.orgId);
+	const gating = pack?.definition?.gatingPolicy;
+	const designation =
+		gating && typeof gating === "object" && !Array.isArray(gating)
+			? (gating as Record<string, JsonValue>).delegationApprover
+			: null;
+	if (
+		!designation ||
+		typeof designation !== "object" ||
+		Array.isArray(designation) ||
+		designation.type !== "tedi" ||
+		typeof designation.id !== "string" ||
+		!designation.id.trim()
+	)
+		return null;
+	const tediId = designation.id.trim();
+	// Not independent: the tedi answers for this Work. Stewardship confers no
+	// execution, and admission ignores an approval decided by the executor.
+	if (
+		item.accountableOwnerType === "tedi" &&
+		item.accountableOwnerId === tediId
+	)
+		return null;
+	const [tedi] = await db
+		.select({ id: tedis.id })
+		.from(tedis)
+		.where(
+			and(
+				eq(tedis.organizationId, item.orgId),
+				eq(tedis.id, tediId),
+				eq(tedis.status, "active"),
+				isNull(tedis.retiredAt),
+				sql`${tedis.slug}<>''`,
+			),
+		)
+		.limit(1);
+	return tedi?.id ?? null;
+}
+
+/**
+ * Materialize the risk decision that otherwise leaves accepted Work invisible.
+ * The designated approval tedi decides when one is valid; a human owner
+ * decides otherwise, and also when the tedi let its request expire.
+ */
+export async function ensureWorkRiskApproval(
+	db: PgQueryClient,
+	item: WorkItem,
+	now: string,
+) {
+	if (
+		item.disposition !== "accepted" ||
+		!["high", "critical"].includes(item.riskLevel)
+	)
+		return;
+	const authorityKey = `risk:${item.riskLevel}`;
+	const existing = await db
+		.select({
+			approverType: workApprovalProposals.approverType,
+			status: workApprovalProposals.status,
+			expiresAt: sql<string>`${workApprovalProposals.expiresAt}`.as(
+				"risk_approval_expires_at",
+			),
+		})
+		.from(workApprovalProposals)
+		.where(
+			and(
+				eq(workApprovalProposals.orgId, item.orgId),
+				eq(workApprovalProposals.workItemId, item.id),
+				eq(workApprovalProposals.workItemVersion, item.version),
+				eq(workApprovalProposals.authorityKey, authorityKey),
+				eq(workApprovalProposals.action, "admission"),
+			),
+		)
+		.limit(10);
+	const lapsed = (row: (typeof existing)[number]) =>
+		row.status === "expired" ||
+		(row.status === "pending" && row.expiresAt <= now);
+	// A rejection is a decision, not an invitation to request approval again.
+	// Only a tedi request that lapsed undecided hands the decision to a human.
+	if (existing.some((row) => row.approverType === "user" || !lapsed(row)))
+		return;
+	const tediId = existing.length
+		? null
+		: await resolveRiskApprovalTedi(db, item);
+	let approverId = tediId;
+	if (!approverId) {
+		const ownerId =
+			item.accountableOwnerType === "user" ? item.accountableOwnerId : null;
+		const [approver] = await db
+			.select({ userId: organizationMembers.userId })
+			.from(organizationMembers)
+			.where(
+				and(
+					eq(organizationMembers.organizationId, item.orgId),
+					eq(organizationMembers.status, "active"),
+					eq(organizationMembers.kind, "human"),
+					sql`${organizationMembers.userId} IS NOT NULL`,
+					sql`(${organizationMembers.userId}=${ownerId} OR ${organizationMembers.role}='owner')`,
+				),
+			)
+			.orderBy(
+				sql`CASE WHEN ${organizationMembers.userId}=${ownerId} THEN 0 ELSE 1 END`,
+				asc(organizationMembers.userId),
+			)
+			.limit(1);
+		approverId = approver?.userId ?? null;
+	}
+	if (!approverId) return;
+	// Stable identity also fences concurrent passes after a decision is recorded.
+	const digest = await crypto.subtle.digest(
+		"SHA-256",
+		new TextEncoder().encode(
+			`risk-approval:${item.orgId}:${item.id}:${item.version}:${item.riskLevel}${tediId ? `:tedi:${tediId}` : ""}`,
+		),
+	);
+	const hex = Array.from(new Uint8Array(digest), (byte) =>
+		byte.toString(16).padStart(2, "0"),
+	).join("");
+	const id = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+	try {
+		await proposeWorkApproval(db, {
+			id,
+			orgId: item.orgId,
+			workItemId: item.id,
+			workItemVersion: item.version,
+			authorityKey,
+			requesterType: "system",
+			requesterId: "tedix",
+			approverType: tediId ? "tedi" : "user",
+			approverId,
+			proposal: { workItemId: item.id },
+			rationale: `This Work needs your approval before it can run because its risk is ${item.riskLevel}.`,
+			// The redrive wakes a tedi every few minutes; one that cannot decide
+			// within a day hands the decision to a human owner.
+			expiresAt: new Date(
+				Date.parse(now) + (tediId ? 1 : 30) * 86400000,
+			).toISOString(),
+			now,
+		});
+	} catch (error) {
+		const raced = await db
+			.select({ id: workApprovalProposals.id })
+			.from(workApprovalProposals)
+			.where(
+				and(
+					eq(workApprovalProposals.orgId, item.orgId),
+					eq(workApprovalProposals.id, id),
+				),
+			)
+			.limit(1);
+		if (!raced.length) throw error;
+	}
+}

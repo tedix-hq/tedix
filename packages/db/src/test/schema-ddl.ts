@@ -20,7 +20,8 @@ import {
 	getTableConfig,
 	type SQLiteColumn,
 	SQLiteDialect,
-	type SQLiteTable,
+	SQLiteTable,
+	type SQLiteTable as SQLiteTableT,
 } from "drizzle-orm/sqlite-core";
 import { capabilityLinks, orgCapabilities } from "../schema/capabilities";
 import { organizations } from "../schema/organizations";
@@ -163,8 +164,19 @@ export function tableDdl(
  * Order matters when foreign keys are enforced: list parents before children,
  * or create the tables with `PRAGMA foreign_keys = OFF`.
  */
-export function schemaDdl(...tables: SQLiteTable[]): string {
-	return tables.flatMap((table) => tableDdl(table)).join("\n");
+export function schemaDdl(...tables: SQLiteTable[]): string;
+export function schemaDdl(
+	options: TableDdlOptions,
+	...tables: SQLiteTable[]
+): string;
+export function schemaDdl(
+	optionsOrTable: TableDdlOptions | SQLiteTable,
+	...tables: SQLiteTable[]
+): string {
+	const isOptions = !is(optionsOrTable, SQLiteTable);
+	const options = isOptions ? (optionsOrTable as TableDdlOptions) : {};
+	const list = isOptions ? tables : [optionsOrTable as SQLiteTableT, ...tables];
+	return list.flatMap((table) => tableDdl(table, options)).join("\n");
 }
 
 /** Current artifact-neutral Work factory schema for focused in-memory tests. */
