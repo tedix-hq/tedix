@@ -24,6 +24,9 @@ const runningSurfaces = [
 ] as const;
 const shots = process.env.CHAT_COMPOSER_LAYOUT_SHOTS;
 const server = await startFixtureServer("/chat");
+// This matrix checks a healthy running turn. Its seeded activity must not age
+// into the separate stalled-run state while later viewport cases execute.
+const fixtureTime = new Date();
 const browser = await chromium.launch({ headless: true });
 
 type Box = {
@@ -215,6 +218,7 @@ try {
 				hasTouch: phone,
 			});
 			const page = await context.newPage();
+			await page.clock.setFixedTime(fixtureTime);
 			for (const surface of surfaces) {
 				const label = `${surface.name} ${width}px ${theme}`;
 				await openComposer(page, surface.path);
@@ -265,6 +269,7 @@ try {
 	const page = await browser.newPage({
 		viewport: { width: 1280, height: 844 },
 	});
+	await page.clock.setFixedTime(fixtureTime);
 	for (const surface of surfaces) {
 		await openComposer(page, surface.path);
 		for (let pane = 280; pane <= 800; pane += 24) {

@@ -84,7 +84,12 @@ export default defineConfig(async ({ command, mode, isPreview }) => {
 		// Kumo also imports the barrel; rewriting only app source still eagerly
 		// initializes thousands of unused SVG weight maps on every navigation.
 		optimizeDeps: iconImports
-			? { rolldownOptions: { plugins: [iconImports] } }
+			? {
+					// Lazy routes introduce new leaves after startup; prebundle them
+					// together so discovery cannot invalidate an open page's imports.
+					include: ["@phosphor-icons/react/dist/csr/*"],
+					rolldownOptions: { plugins: [iconImports] },
+				}
 			: {},
 		define: {
 			__OS_BUILD_SHA__: JSON.stringify(buildSha),

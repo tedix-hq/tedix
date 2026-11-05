@@ -84,7 +84,7 @@ function request(n: number) {
 }
 async function fixture(
 	page: Page,
-	options: { failure?: boolean; loading?: boolean } = {},
+	options: { failure?: boolean; loading?: Promise<void> } = {},
 ) {
 	const decided = new Set<string>();
 	const requests = Array.from({ length: 20 }, (_, i) => request(i + 1));
@@ -143,8 +143,7 @@ async function fixture(
 		if (path.endsWith("/learningFeedback/cardContextPrompt"))
 			return json({ ask: false });
 		if (path.endsWith("/workInteractions/listInbox")) {
-			if (options.loading)
-				await new Promise((resolve) => setTimeout(resolve, 4000));
+			if (options.loading) await options.loading;
 			return json({
 				data:
 					input.decisionKind || input.states?.includes("resolved")
@@ -389,34 +388,47 @@ try {
 				colorScheme,
 			});
 			const loadingPage = await loading.newPage();
-			await fixture(loadingPage, { loading: true });
-			await loadingPage.goto(`${origin}/work?view=deck`);
-			const skeleton = loadingPage.locator(
-				'[data-workspace-app-entry="decision-deck"] [data-slot="skeleton"]',
-			);
-			await skeleton.waitFor();
-			assert.equal(
-				await skeleton.count(),
-				1,
-				"one placeholder in the card region",
-			);
-			assert(
-				!/Loading decisions…|Loading approval…/.test(
-					await loadingPage.locator("body").innerText(),
-				),
-				"no stacked loading labels",
-			);
-			const bounds = await skeleton.boundingBox();
-			assert(
-				bounds && bounds.x >= 0 && bounds.width > 0,
-				"placeholder's leading edge stays visible",
-			);
-			await assertNoOverflow(loadingPage, `${width} ${colorScheme} loading`);
-			if (screenshots)
-				await loadingPage.screenshot({
-					path: `${screenshots}/deck-progress-loading-${width}-${colorScheme}.png`,
-				});
-			await loading.close();
+			// Prefetch can finish before the lazy Deck mounts on a slow runner.
+			// Keep the inbox pending until its loading state has been checked.
+			const inbox = Promise.withResolvers<void>();
+			try {
+				await fixture(loadingPage, { loading: inbox.promise });
+				await loadingPage.goto(`${origin}/work?view=deck`);
+				const skeleton = loadingPage.locator(
+					'[data-workspace-app-entry="decision-deck"] [data-slot="skeleton"]',
+				);
+				await skeleton.waitFor();
+				assert.equal(
+					await skeleton.count(),
+					1,
+					"one placeholder in the card region",
+				);
+				assert(
+					!/Loading decisions…|Loading approval…/.test(
+						await loadingPage.locator("body").innerText(),
+					),
+					"no stacked loading labels",
+				);
+				const bounds = await skeleton.boundingBox();
+				assert(
+					bounds && bounds.x >= 0 && bounds.width > 0,
+					"placeholder's leading edge stays visible",
+				);
+				await assertNoOverflow(loadingPage, `${width} ${colorScheme} loading`);
+				if (screenshots)
+					await loadingPage.screenshot({
+						path: `${screenshots}/deck-progress-loading-${width}-${colorScheme}.png`,
+					});
+				inbox.resolve();
+				await loadingPage
+					.getByRole("region", { name: "Review card 1?", exact: true })
+					.waitFor();
+				await skeleton.waitFor({ state: "hidden" });
+			} finally {
+				inbox.resolve();
+				await loadingPage.unrouteAll({ behavior: "wait" });
+				await loading.close();
+			}
 			console.log(`Deck progress: ${width} ${colorScheme} passed`);
 		}
 	if (!selectedWidth || (selectedWidth === 1280 && selectedTheme === "dark")) {
