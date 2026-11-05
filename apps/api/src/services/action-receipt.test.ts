@@ -88,6 +88,7 @@ describe("verified action receipts", () => {
 			url: "https://os.example.test/outputs/output-1",
 			actor: "tedi:worker-1",
 		});
+		expect(receipt.id).toMatch(/^[0-9a-f-]{36}$/);
 		expect(renderActionReceipt(receipt)).toContain("archived, revision 2");
 	});
 	it("verifies an app rename only when the app reads back with that name", async () => {
