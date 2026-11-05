@@ -52,6 +52,8 @@ import {
 import { tedixMcpAITools } from "./ai-sdk-adapter";
 import type { RecentTurn } from "./bridge-turn-input";
 import { isVisionCapableChatDeployment } from "./chat-attachments";
+import { describeTurnImages } from "./image-description";
+import { observerCompletion } from "./observer-llm";
 import type { ChatTurnParams } from "./chat-turn-input";
 import {
 	AcquisitionDeadline,
@@ -307,6 +309,7 @@ export interface RuntimeFacetTurnsHost {
 	subAgent: AgentTediDO["subAgent"];
 	admitInferenceTurn: AgentTediDO["admitInferenceTurn"];
 	tediAigMetadata: AgentTediDO["tediAigMetadata"];
+	observerBeforeDispatch: AgentTediDO["observerBeforeDispatch"];
 	sessionHarness: AgentTediDO["sessionHarness"];
 	emitFacetTurnDatapoint: AgentTediDO["emitFacetTurnDatapoint"];
 	modelOverrideForTurn: AgentTediDO["modelOverrideForTurn"];
@@ -428,18 +431,14 @@ export const runtimeFacetTurns = {
 				this.state.orgId!,
 				"Speech transcription",
 			);
-		// Image bytes persist only under admitted custody; without it the turn
-		// still runs and names the image instead of failing dispatch.
-		const resolveImages =
-			isVisionCapableChatDeployment(this.env.AZURE_CHAT_DEPLOYMENT) &&
-			this.runtimeAdmission() !== null;
+		const deployment = this.env.AZURE_CHAT_DEPLOYMENT;
 		const resolved = await resolveVoiceMessageContent({
 			env: this.env as unknown as VoiceSttEnv,
 			content: userText,
 			attachments,
 			logContext: "isolate.do",
 			includeNonAudioAttachmentNote: true,
-			resolveImages,
+			resolveImages: isVisionCapableChatDeployment(deployment),
 			gatewayMetadata: {
 				orgId: this.state.orgId,
 				tediId: this.state.tediId,
@@ -447,7 +446,29 @@ export const runtimeFacetTurns = {
 				usage: JSON.stringify({ k: "voice_stt", u: "units", q: 1 }),
 			},
 		});
-		return { content: resolved.content, images: resolved.images };
+		// Image bytes persist only under admitted custody, which new tedis no
+		// longer receive. Without it the model gets a text description instead.
+		if (this.runtimeAdmission() !== null || !resolved.images.length)
+			return { content: resolved.content, images: resolved.images };
+		const description = await describeTurnImages(
+			resolved.images,
+			({ messages, images }) =>
+				observerCompletion({
+					env: this.env,
+					beforeDispatch: this.observerBeforeDispatch(),
+					metadata: this.tediAigMetadata("chat:image-description"),
+					modelRef: `azure-openai/${deployment}`,
+					messages,
+					images,
+					maxCompletionTokens: 1500,
+				}),
+		);
+		return {
+			content: [resolved.content.trim(), description]
+				.filter(Boolean)
+				.join("\n\n"),
+			images: [],
+		};
 	},
 	/**
 	 * Facet-per-conversation judge turn: run a blind

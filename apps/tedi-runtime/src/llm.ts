@@ -309,6 +309,9 @@ export function azureChatHeaders(
 export interface ObserverCallOptions {
 	env: AzureChatEnv & { AZURE_OBSERVER_DEPLOYMENT: string };
 	messages: Array<{ role: "system" | "user" | "assistant"; content: string }>;
+	/** Image URLs (`data:` or https) appended to the last user message. Only
+	 * this Azure call sends them; the routed observer paths reject them. */
+	images?: string[];
 	temperature?: number;
 	maxCompletionTokens?: number;
 	signal?: AbortSignal;
@@ -345,8 +348,25 @@ export async function observerCompletion(
 ): Promise<string> {
 	const deployment = opts.deployment || opts.env.AZURE_OBSERVER_DEPLOYMENT;
 	const url = azureChatUrl(opts.env, deployment);
+	const messages: Array<{ role: string; content: unknown }> = [
+		...withJsonInstruction(opts.messages),
+	];
+	if (opts.images?.length) {
+		const lastUser = messages.findLastIndex((m) => m.role === "user");
+		if (lastUser < 0) throw new Error("Observer images need a user message");
+		messages[lastUser] = {
+			role: "user",
+			content: [
+				{ type: "text", text: messages[lastUser]!.content },
+				...opts.images.map((url) => ({
+					type: "image_url",
+					image_url: { url },
+				})),
+			],
+		};
+	}
 	const body = JSON.stringify({
-		messages: withJsonInstruction(opts.messages),
+		messages,
 		// GPT-5 reasoning deployments reject `temperature`. Observer quality is
 		// schema-constrained, so use the provider default across Azure models.
 		max_completion_tokens: opts.maxCompletionTokens ?? 4000,
