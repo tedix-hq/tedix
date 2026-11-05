@@ -56,7 +56,10 @@ export function answerSentence(subject: string, answer: BoardAnswer) {
 		answer.kind === "answer" && answer.instruction
 			? `\n\nWhat to do next, in their words: ${answer.instruction}`
 			: "";
-	return `Decision recorded for “${subject}” — ${said}.${next}`.slice(0, 4000);
+	return `Decision recorded for “${subject}” — ${said.replace(/[.!?\s]+$/, "")}.${next}`.slice(
+		0,
+		4000,
+	);
 }
 
 /**
