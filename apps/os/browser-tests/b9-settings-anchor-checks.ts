@@ -261,7 +261,8 @@ export async function runSettingsAnchor(
 				hasTouch: viewport.width < 600 || scenario === "touch",
 				reducedMotion: "reduce",
 			});
-			page.setDefaultTimeout(12_000);
+			const pageTimeoutMs = 12_000;
+			page.setDefaultTimeout(pageTimeoutMs);
 			const consoleEntries: string[] = [];
 			const requests: string[] = [];
 			page.on("console", (entry) =>
@@ -276,6 +277,7 @@ export async function runSettingsAnchor(
 			});
 			let readStarted = false;
 			let readFinished = false;
+			const heldRead = Promise.withResolvers<{ error: unknown } | undefined>();
 			// Loader-prefetched API reads block the rail mount. Delay the real
 			// lazy section's local GET instead, preserving its Suspense boundary.
 			await page.route("**/*", async (route) => {
@@ -295,8 +297,14 @@ export async function runSettingsAnchor(
 						url.pathname.endsWith("/team_.$tediId.settings.tsx") &&
 						url.searchParams.get("tsr-split") === "component")
 				) {
-					const response = await route.fetch();
+					const response = await route.fetch().catch((error: unknown) => {
+						if (!settingsPages) throw error;
+						heldRead.resolve({ error });
+						return null;
+					});
+					if (!response) return route.abort("failed");
 					readStarted = true;
+					heldRead.resolve(undefined);
 					await delayed;
 					await route.fulfill({ response });
 					readFinished = true;
@@ -325,6 +333,24 @@ export async function runSettingsAnchor(
 							await page
 								.locator('.route-content .tedis-page [aria-busy="true"]')
 								.waitFor();
+							let readinessDeadline: ReturnType<typeof setTimeout> | undefined;
+							try {
+								const heldReadError = await Promise.race([
+									heldRead.promise,
+									new Promise<never>((_, reject) => {
+										readinessDeadline = setTimeout(
+											() =>
+												reject(
+													new Error("Held settings chunk read did not start"),
+												),
+											pageTimeoutMs,
+										);
+									}),
+								]);
+								if (heldReadError) throw heldReadError.error;
+							} finally {
+								clearTimeout(readinessDeadline);
+							}
 							assert(readStarted && !readFinished);
 							assert.equal(
 								await page.locator('.route-content [data-slot="page"]').count(),
