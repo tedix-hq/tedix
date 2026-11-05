@@ -40,4 +40,14 @@ describe("IdenticalFailureBudget", () => {
 		budget.recordFailure("same");
 		expect(budget.recordSuccess("same").attempts).toBe(0);
 	});
+
+	it("blocks an identical call after one non-retryable denial", () => {
+		const budget = new IdenticalFailureBudget();
+		expect(budget.recordNonRetryableFailure("same")).toEqual({
+			attempts: 2,
+			blocked: true,
+			limit: 2,
+		});
+		expect(budget.state("different").blocked).toBe(false);
+	});
 });

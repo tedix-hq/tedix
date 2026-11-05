@@ -360,6 +360,7 @@ it("routes a selected organization through its own caller context and rejects ot
 	expect(agent.toolHandler.execute).toHaveBeenCalledWith(
 		expect.anything(),
 		expect.objectContaining({
+			app: expect.objectContaining({ organizationId: "org-2" }),
 			callerIdentity: expect.objectContaining({
 				organizationId: "org-2",
 				tediId: undefined,

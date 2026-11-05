@@ -56,6 +56,11 @@ export class IdenticalFailureBudget {
 		return this.state(key);
 	}
 
+	recordNonRetryableFailure(key: string): FailureBudgetState {
+		this.#attempts.set(key, this.limit);
+		return this.state(key);
+	}
+
 	recordSuccess(key: string): FailureBudgetState {
 		this.#attempts.delete(key);
 		return this.state(key);

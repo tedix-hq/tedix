@@ -19,7 +19,10 @@ import {
 	getApprovalAnchor,
 } from "@tedix/db/queries/approvals";
 import { getMemberByUserId } from "@tedix/db/queries/organization-members";
-import { getOrganizationById } from "@tedix/db/queries/organizations";
+import {
+	getOrganizationById,
+	getOrganizationSecretEgressMode,
+} from "@tedix/db/queries/organizations";
 import { getKernelRuntimeRun } from "@tedix/db/queries/kernel-runtime-runs";
 import {
 	getRunSensitiveDataLatch,
@@ -3874,6 +3877,17 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 				organizationId: input.organizationId,
 				runRef: input.runRef,
 			});
+		},
+	),
+	resolveSecretEgressPolicy: serviceOs.resolveSecretEgressPolicy.handler(
+		async ({ input, context }) => {
+			await assertGatewayOrganization(context, input.organizationId);
+			return {
+				mode: await getOrganizationSecretEgressMode(
+					context.db,
+					input.organizationId,
+				),
+			};
 		},
 	),
 	resolveConnectionSensitivity: serviceOs.resolveConnectionSensitivity.handler(

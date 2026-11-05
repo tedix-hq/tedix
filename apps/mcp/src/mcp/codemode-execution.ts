@@ -108,6 +108,7 @@ function innerToolError(result: CallToolResult): Error {
 	return Object.assign(new Error(callToolResultText(result)), {
 		...(typeof detail?.code === "string" ? { code: detail.code } : {}),
 		...(typeof detail?.status === "number" ? { status: detail.status } : {}),
+		...(detail?.retryable === false ? { retryable: false } : {}),
 	});
 }
 
@@ -710,7 +711,11 @@ export function buildNamespaceGroups(
 						limit: updatedRetryState.limit,
 					});
 				} catch (error) {
-					executionRefs.failureBudget.recordFailure(retryKey);
+					const retryable =
+						!(error instanceof Error) ||
+						(error as Error & { retryable?: boolean }).retryable !== false;
+					if (retryable) executionRefs.failureBudget.recordFailure(retryKey);
+					else executionRefs.failureBudget.recordNonRetryableFailure(retryKey);
 					executionRefs.toolReceipts.push({
 						operation: `${ns}.${safeName}`,
 						status: "failed",

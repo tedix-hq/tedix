@@ -15,6 +15,7 @@ import { sanitizeToolName } from "@cloudflare/codemode";
 import { tracing } from "cloudflare:workers";
 import { resolveMcpToolNamespace } from "@tedix/mcp-shared/auth/tool-scopes";
 import { resolveMultiOrgToolTarget } from "./multi-org-tool-target";
+import { getApiClient } from "../lib/api-client";
 import { contentFreeMcpException, createMcpLogger } from "../log";
 /**
  * Tool Execution Module
@@ -259,12 +260,19 @@ export async function executeTool(
 	if (selected && agent.callerIdentity) {
 		agent = {
 			...agent,
+			app: { ...agent.app, organizationId: selected.organizationId },
 			callerIdentity: {
 				...agent.callerIdentity,
 				organizationId: selected.organizationId,
 				// A hosting-org tedi cannot select target-org credentials.
 				tediId: undefined,
 			},
+			apiClient: agent.env.API_SERVICE
+				? getApiClient({
+						serviceFetch: agent.env.API_SERVICE,
+						orgId: selected.organizationId,
+					})
+				: agent.apiClient,
 		};
 	}
 
@@ -342,6 +350,11 @@ export async function executeTool(
 						"Tool returned isError without text content",
 				)
 			: undefined;
+		const securityMeta = result._meta?.["com.tedix/security"];
+		const security =
+			typeof securityMeta === "object" && securityMeta !== null
+				? (securityMeta as Record<string, string | number | boolean>)
+				: null;
 		const event: McpEvent = {
 			...baseEvent,
 			success: !result.isError,
@@ -352,6 +365,16 @@ export async function executeTool(
 				? { tokensUsed: result.tokensUsed }
 				: {}),
 			...(errorMessage ? { errorMessage } : {}),
+			...(security && {
+				metadata: {
+					...baseEvent.metadata,
+					...security,
+				},
+			}),
+			...(result.isError &&
+				typeof security?.denialReason === "string" && {
+					errorCode: security.denialReason,
+				}),
 		} as McpEvent;
 		trackMcpEvent(agent.env, event);
 		emitMcpAuditEvent(agent.env, event, waitUntil);
@@ -716,6 +739,8 @@ async function executeWithHandler(
 		| undefined;
 
 	const ctx: ToolExecutionContext<ToolConfig> = {
+		apiClient: agent.apiClient,
+		publicEgress: tool.publicEgress === true,
 		expectedPolicyCredential,
 		expectedPolicyProbe,
 		expectedNativePolicyRevalidate,
@@ -1260,7 +1285,10 @@ async function executeWithHandler(
 				"openai/toolInvocation/invoking": `Processing ${tool.title}...`,
 				"openai/toolInvocation/invoked": textContent.substring(0, 50),
 				...structuredMetadata,
-				...(isErrorResult && toolConfig.transport === "rpc"
+				...(ctx.secretEgressDecision
+					? { "com.tedix/security": ctx.secretEgressDecision }
+					: {}),
+				...(isErrorResult
 					? {
 							"tedix/error": {
 								code:
@@ -1268,6 +1296,10 @@ async function executeWithHandler(
 										? result.data.code
 										: undefined,
 								status: resultStatus,
+								retryable:
+									isRecord(result.data) && result.data.retryable === false
+										? false
+										: undefined,
 							},
 						}
 					: {}),

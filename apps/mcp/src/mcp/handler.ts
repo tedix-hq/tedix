@@ -27,6 +27,7 @@ import {
 } from "@tedix/mcp-shared/tool-result";
 import { type DocsFileObservationReceipt } from "@tedix/mcp-shared/read-observation-receipt";
 import { getApiClient } from "../lib/api-client";
+import type { ApiClient } from "../lib/api-client";
 import { tediToolCeilingDenial } from "../tedi-tool-ceiling";
 import { callApiRpc } from "../lib/rpc";
 import { contentFreeMcpException, createMcpLogger } from "../log";
@@ -62,6 +63,8 @@ import {
 	TEDIX_TRACE_BUNDLE_META_KEY,
 	metaString,
 } from "./handler-request-context";
+import { gateDecisionMetadata } from "./gate-decision";
+import { findSecretValuePattern } from "./utils/payload-capture";
 
 /**
  * Tool Handler
@@ -97,6 +100,12 @@ const log = createMcpLogger("mcp.tool_handler");
  * Context passed to the handler during tool execution
  */
 export interface ToolExecutionContext<TConfig = unknown> {
+	/** Request-local API client used for gateway policy reads. */
+	apiClient?: ApiClient;
+	/** Trusted declaration from the app_tools row. */
+	publicEgress?: boolean;
+	/** Set by the handler when secret-egress scanning makes a gate decision. */
+	secretEgressDecision?: Record<string, string>;
 	/** Internal preparation only, after loading an owner-reviewed profile. */
 	prepareIdentityProbe?: {
 		profile: ProviderIdentityProbeProfile;
@@ -337,6 +346,44 @@ export class ToolHandler {
 		const { _fields, ...upstreamInput } = input;
 		input = upstreamInput;
 		const config = ctx.config;
+		if (ctx.publicEgress) {
+			const secretPattern = findSecretValuePattern(input);
+			if (secretPattern) {
+				let mode: "block" | "warn" = "block";
+				const organizationId = ctx.app.organizationId;
+				if (organizationId && ctx.apiClient) {
+					try {
+						mode = (
+							await ctx.apiClient.mcpGovernance.resolveSecretEgressPolicy({
+								organizationId,
+							})
+						).mode;
+					} catch {
+						// A policy read cannot safely weaken the default block.
+					}
+				}
+				ctx.secretEgressDecision = {
+					...gateDecisionMetadata(
+						"secret_egress",
+						mode === "warn" ? "allow" : "deny",
+						mode === "warn" ? "secret_detected_warn" : "secret_detected",
+					),
+					secretPattern,
+					policyMode: mode,
+					...(mode === "block" ? { denialReason: "SECRET_EGRESS_DENIED" } : {}),
+				};
+				if (mode === "block") {
+					return {
+						status: 403,
+						data: {
+							code: "SECRET_EGRESS_DENIED",
+							retryable: false,
+							error: `Tool call blocked before public egress: arguments matched the ${secretPattern} pattern. Remove the secret and retry.`,
+						},
+					};
+				}
+			}
+		}
 		// Discovery shard rows have no schema or execution contract.
 		if (isDiscoveryShardTool(config)) {
 			return {

@@ -14,6 +14,16 @@
 
 import * as z from "zod";
 
+export const SecretEgressModeSchema = z.enum(["block", "warn"]);
+export type SecretEgressMode = z.infer<typeof SecretEgressModeSchema>;
+
+export const ResolveSecretEgressPolicyInputSchema = z.object({
+	organizationId: z.string().min(1),
+});
+export const SecretEgressPolicySchema = z.object({
+	mode: SecretEgressModeSchema,
+});
+
 export const SensitiveDataLatchReasonSchema = z.enum([
 	"tool_declared_sensitive",
 	"connection_restricted",

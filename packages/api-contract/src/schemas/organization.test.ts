@@ -228,3 +228,12 @@ it("keeps organization metadata reads tolerant of historical stored keys", () =>
 		}),
 	).toEqual({ website: "https://example.com" });
 });
+
+it("accepts only block or warn for the secret-egress setting", () => {
+	expect(
+		OrganizationMetadataSchema.parse({ secretEgressMode: "warn" }),
+	).toEqual({ secretEgressMode: "warn" });
+	expect(
+		OrganizationMetadataSchema.safeParse({ secretEgressMode: "allow" }).success,
+	).toBe(false);
+});

@@ -418,6 +418,12 @@ export const PortfolioBucketsSchema = z
 	);
 
 export const OrganizationMetadataSchema = z.object({
+	secretEgressMode: z
+		.enum(["block", "warn"])
+		.optional()
+		.describe(
+			"How the MCP gateway handles detected secrets in public-egress tool arguments; absent defaults to block.",
+		),
 	agentRequestApprovals: z
 		.strictObject({ approver: z.literal("org_admin") })
 		.nullable()

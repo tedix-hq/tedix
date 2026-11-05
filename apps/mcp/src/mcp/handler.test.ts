@@ -2,6 +2,82 @@ import type { ToolConfig } from "@tedix/api-contract/schemas/tools";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { ToolHandler, type ToolExecutionContext } from "./handler";
 
+describe("public-egress secret scanning", () => {
+	const context = (mode: "block" | "warn") => {
+		const catalogTransport = vi.fn(async () => ({ results: [] }));
+		const ctx = {
+			apiClient: {
+				mcpGovernance: {
+					resolveSecretEgressPolicy: vi.fn(async () => ({ mode })),
+				},
+			},
+			publicEgress: true,
+			appId: "app",
+			app: {
+				id: "app",
+				slug: "tickets",
+				name: "Tickets",
+				domain: null,
+				organizationId: "org",
+			},
+			appCapabilities: {},
+			env: { ENVIRONMENT: "test" },
+			config: { transport: "catalog", endpoint: "catalog/search" },
+			catalogTransport,
+			toolId: "create_public_ticket",
+			requestId: "request",
+		} as unknown as ToolExecutionContext<ToolConfig>;
+		return { catalogTransport, ctx };
+	};
+
+	it("blocks a nested token and names only the matched pattern", async () => {
+		const { catalogTransport, ctx } = context("block");
+		const token = ["ghp", "0123456789abcdefghij0123"].join("_");
+		const result = await new ToolHandler().execute(
+			{ payload: { body: `ticket text ${token}` } },
+			ctx,
+		);
+		expect(result).toMatchObject({
+			status: 403,
+			data: { code: "SECRET_EGRESS_DENIED", retryable: false },
+		});
+		expect(JSON.stringify(result)).toContain("GitHub token");
+		expect(JSON.stringify(result)).not.toContain(token);
+		expect(ctx.secretEgressDecision).toMatchObject({
+			gate: "secret_egress",
+			gateDecision: "deny",
+			secretPattern: "GitHub token",
+		});
+		expect(catalogTransport).not.toHaveBeenCalled();
+	});
+
+	it("allows the call in warn mode and ignores a normal UUID", async () => {
+		const warned = context("warn");
+		const token = ["ghp", "0123456789abcdefghij0123"].join("_");
+		expect(
+			await new ToolHandler().execute(
+				{ query: `ticket text ${token}` },
+				warned.ctx,
+			),
+		).toMatchObject({ status: 200 });
+		expect(warned.ctx.secretEgressDecision).toMatchObject({
+			gateDecision: "allow",
+			gateReason: "secret_detected_warn",
+			policyMode: "warn",
+		});
+		expect(warned.catalogTransport).toHaveBeenCalledOnce();
+
+		const safe = context("block");
+		expect(
+			await new ToolHandler().execute(
+				{ query: "5eed0020-0000-4000-8000-000000000020" },
+				safe.ctx,
+			),
+		).toMatchObject({ status: 200 });
+		expect(safe.ctx.secretEgressDecision).toBeUndefined();
+	});
+});
+
 describe("named account credential routing", () => {
 	it.each(["user", "tenant"] as const)(
 		"selects exact %s slots and observes rotation without stale token caching",

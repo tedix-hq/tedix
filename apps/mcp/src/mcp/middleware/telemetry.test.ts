@@ -305,6 +305,63 @@ describe("telemetry middleware — exactly-one cardinality", () => {
 		});
 	});
 
+	it("audits a multi-organization secret denial against the selected organization", async () => {
+		const ctx = {
+			...makeServerCtx(),
+			appSlug: "connect",
+			app: { organizationId: null },
+			appMetadata: { mcpConfig: { multiOrgConsent: true } },
+			callerIdentity: {
+				authType: "oauth",
+				userId: "user-uuid",
+				scopes: ["mcp:apps.read", "mcp:observe.read"],
+				verifiedMultiOrgOrganizations: [
+					{
+						organizationId: "org-target",
+						descopeTenantId: "tenant-target",
+						gatewaySlug: "sample",
+					},
+				],
+			},
+		};
+		const callback = wrapToolCallTelemetry(
+			"sample__create_ticket",
+			ctx as never,
+			async () => ({
+				content: [
+					{ type: "text" as const, text: "Blocked by GitHub token pattern" },
+				],
+				isError: true,
+				_meta: {
+					"com.tedix/security": {
+						gate: "secret_egress",
+						gateDecision: "deny",
+						gateReason: "secret_detected",
+						denialReason: "SECRET_EGRESS_DENIED",
+					},
+				},
+			}),
+			{
+				toolId: "sample__create_ticket",
+				config: { _multiOrgOrganizationId: "org-target" },
+				meta: null,
+			},
+		);
+
+		await callback({}, {} as never);
+		expect(trackSpy).toHaveBeenCalledOnce();
+		expect(auditSpy).toHaveBeenCalledOnce();
+		expect(trackSpy.mock.calls[0]?.[1]).toMatchObject({
+			organizationId: "org-target",
+			success: false,
+			errorCode: "SECRET_EGRESS_DENIED",
+			metadata: {
+				gate: "secret_egress",
+				gateDecision: "deny",
+			},
+		});
+	});
+
 	it("emits 0 events for notifications (202 path)", async () => {
 		const res = await call(
 			postRpc({

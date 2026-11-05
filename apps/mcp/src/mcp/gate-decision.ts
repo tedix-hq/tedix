@@ -8,7 +8,8 @@ export type McpGate =
 	| "tool_scope"
 	| "risk_rate_limit"
 	| "annotation_assertion"
-	| "destructive_approval";
+	| "destructive_approval"
+	| "secret_egress";
 
 export type McpGateDecision = "allow" | "deny";
 
