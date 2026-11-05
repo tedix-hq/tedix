@@ -64,6 +64,12 @@ const { revision } = await this.env.TEDIX.outputsRead(slot, {});
 const content = revision.content;
 ```
 
+To show a project's live Work board, bind a slot to a Tedix `project`
+resource and grant it `work.read`; then
+`await this.env.TEDIX.workRead(slot, {limit, offset})` returns
+`{project, rows, pagination}` for that project only (limit at most 50). Read
+on open and on Reload instead of copying Work into a sheet.
+
 Build callers may also use `outputsWrite(slot, {content, expectedRevision})`,
 `connectionsCall` and `skillsRun` when the
 role, resource type, manifest grant and current authorization all allow it.
@@ -72,8 +78,9 @@ ambient Cloudflare bindings, credentials or arbitrary host tools are available.
 
 ## Roles and grants
 
-- `owner` and `build`: `app.call`, Output reads/writes, connection calls and skill runs.
-- `use`: `app.call` and Output reads. App-local KV writes through a public
+- `owner` and `build`: `app.call`, Output reads/writes, connection calls,
+  skill runs and Work board reads (`work.read`).
+- `use`: `app.call`, Output reads and Work board reads. App-local KV writes through a public
   method are possible; do not confuse them with permission to write Outputs.
 - `viewer`: no runtime operations. `context` exposes presentation context only.
 

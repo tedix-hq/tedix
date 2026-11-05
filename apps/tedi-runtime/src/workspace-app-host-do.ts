@@ -417,6 +417,10 @@ class AppReadCapability extends RpcTarget {
 		this.assertActive();
 		return this.#endpoint.skillsRead(slot, args);
 	}
+	workRead(slot: string, args: unknown) {
+		this.assertActive();
+		return this.#endpoint.workRead(slot, args);
+	}
 }
 class AppBuildCapability extends AppReadCapability {
 	#endpoint: Service<WorkspaceAppCapability>;
@@ -451,6 +455,9 @@ export class WorkspaceAppCapability extends WorkerEntrypoint<
 	}
 	async skillsRead(slot: string, args: unknown) {
 		return this.#invoke("skills.read", slot, args);
+	}
+	async workRead(slot: string, args: unknown) {
+		return this.#invoke("work.read", slot, args);
 	}
 	async outputsPatch(slot: string, args: unknown) {
 		return this.#invoke("outputs.patch", slot, args);

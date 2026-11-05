@@ -961,13 +961,43 @@ storage. Recheck the run's access before serving cached evidence. A finished
 skill trigger can pass a run ID to a refresh method; read the saved run
 rather than trusting report content supplied by a caller.
 
+### Read a project's Work board
+
+An app can show a project's Work board as it is right now, with no copied
+sheet and no sync job. Bind a workspace slot to a Tedix `project` resource
+(`providerId: "tedix"`, `resourceType: "project"`, the project ID as
+`providerResourceId`) and grant that slot `work.read`:
+
+```json
+"resourceGrants": [{ "slot": "board", "operations": ["work.read"] }]
+```
+
+Server code then reads the board one page at a time:
+
+```js
+const { project, rows, pagination } = await this.env.TEDIX.workRead("board", {
+	limit: 50,
+	offset: 0,
+});
+```
+
+Each row has `id`, `title`, `workKind`, `disposition`, `priority`,
+`riskLevel`, `projectId`, `createdAt` and `activeAttempt` (the agent session
+working on it, or `null`). `limit` is 1 to 50; `pagination.hasMore` says
+whether another page exists. Rows come only from the bound project. Passing a
+different `projectId` is refused.
+
+Each read checks that the person using the app is still an active member of
+the organization and records a read on the app's Runs tab. Read when the app
+opens and when someone clicks Reload; the rows are not pushed to the browser.
+
 ### Roles, errors and limits
 
-| Role             | Allowed runtime operations                                                                                    |
-| ---------------- | ------------------------------------------------------------------------------------------------------------- |
-| `owner`, `build` | `app.call`, `outputs.read`, `outputs.patch`, `outputs.write`, `connections.call`, `skills.read`, `skills.run` |
-| `use`            | `app.call`, `outputs.read`, `skills.read`                                                                     |
-| `viewer`         | None                                                                                                          |
+| Role             | Allowed runtime operations                                                                                                 |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `owner`, `build` | `app.call`, `outputs.read`, `outputs.patch`, `outputs.write`, `connections.call`, `skills.read`, `skills.run`, `work.read` |
+| `use`            | `app.call`, `outputs.read`, `skills.read`, `work.read`                                                                     |
+| `viewer`         | None                                                                                                                       |
 
 `context` exposes presentation context. Every resource operation also requires
 a matching slot and operation in `resourceGrants`, plus current source access.
@@ -979,7 +1009,7 @@ control. Do not put protected decisions behind an unrestricted app method.
 A "Can use" link lets people without a Tedix account open the app. That
 normally requires every slot in `resourceGrants` to be bound to an Output
 with no data from connected accounts. Grants for `connections.call`,
-`skills.read` and `skills.run` otherwise require sign-in.
+`skills.read`, `skills.run` and `work.read` otherwise require sign-in.
 
 An organization owner or admin can approve an app's existing `skills.read`
 slot for one "Anyone with the link" use link by calling `osShares.shares.update`
