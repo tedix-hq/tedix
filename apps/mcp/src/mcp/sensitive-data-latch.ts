@@ -139,8 +139,9 @@ async function resolveConnectionRestricted(
 
 /**
  * After a successful call, record a sensitive read on the run. Declared
- * sensitive tools always latch; a connected read latches only when the
- * organization's connection is classified `restricted`. Any other read
+ * sensitive tools always latch; an untrusted read (third-party external or
+ * upstream-MCP content) always latches; a connected read latches only when
+ * the organization's connection is classified `restricted`. Any other read
  * returns true without touching the API.
  *
  * Returns false when a sensitive read could not be recorded (the write is
@@ -153,16 +154,22 @@ export async function recordSensitiveRead(
 	agent: LatchContext,
 	tool: Pick<AppTool, "toolId" | "sensitiveData">,
 	collectionRead: ConnectedCollectionRead | null,
+	options?: { untrustedRead?: boolean },
 ): Promise<boolean> {
 	const runRef = callerRunRef(agent.callerIdentity);
 	const toolDeclaredSensitive = tool.sensitiveData === true;
+	const untrustedRead = options?.untrustedRead === true;
 	const connectionProviderId =
 		collectionRead?.source.connectionProviderId ?? null;
-	if (!runRef || (!toolDeclaredSensitive && !connectionProviderId)) return true;
+	if (
+		!runRef ||
+		(!toolDeclaredSensitive && !untrustedRead && !connectionProviderId)
+	)
+		return true;
 	const organizationId = agent.app?.organizationId;
 	if (!organizationId) return false;
 
-	if (!toolDeclaredSensitive && connectionProviderId) {
+	if (!toolDeclaredSensitive && !untrustedRead && connectionProviderId) {
 		const restricted = await resolveConnectionRestricted(
 			agent,
 			organizationId,
@@ -193,6 +200,7 @@ export async function recordSensitiveRead(
 			toolId: tool.toolId,
 			connectionProviderId,
 			toolDeclaredSensitive,
+			...(untrustedRead ? { untrustedSource: true } : {}),
 		},
 	};
 	let lastError: unknown;

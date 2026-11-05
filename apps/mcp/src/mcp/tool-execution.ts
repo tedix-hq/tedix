@@ -72,6 +72,12 @@ import {
 	READ_OBSERVATION_META_KEY,
 	parseConnectedCollectionRead,
 } from "@tedix/mcp-shared/read-observation-receipt";
+import {
+	isUntrustedTransport,
+	resolveToolTrustLabel,
+	sanitizeUntrustedValue,
+	TOOL_TRUST_META_KEY,
+} from "@tedix/mcp-shared/content-sanitize";
 import { homeQueuedAckText } from "./home-surface";
 import { recordSensitiveRead } from "./sensitive-data-latch";
 import {
@@ -473,6 +479,13 @@ async function executeWithHandler(
 	/** MCP convention — set on handler-thrown errors and upstream status >= 400. */
 	isError?: boolean;
 }> {
+	// Every result carries the gateway's trust label: integrity follows the
+	// app's transport (external and upstream-MCP results are third-party
+	// content), confidentiality follows the row's sensitiveData declaration.
+	const trustLabel = resolveToolTrustLabel({
+		transport: toolConfig.transport,
+		sensitiveData: tool.sensitiveData,
+	});
 	// ── Capability-gated generic async task (io.modelcontextprotocol/tasks) ──
 	// A tool config can opt into out-of-band execution with `_asyncTask: true`.
 	// When the caller also opted into the Tasks extension, create an mcp_tasks
@@ -676,6 +689,7 @@ async function executeWithHandler(
 			],
 			structuredContent: { taskId, status: "working" },
 			_meta: {
+				[TOOL_TRUST_META_KEY]: trustLabel,
 				"tedix/genericTask": {
 					taskId,
 					status: "working",
@@ -777,6 +791,12 @@ async function executeWithHandler(
 
 		const responseFields = readResponseFields(effectiveArgs);
 		const result = await handler.execute(effectiveArgs, ctx);
+		// Third-party content: remove invisible/bidirectional Unicode and
+		// unsafe HTML before shaping so the client and the Code Mode sandbox
+		// (which receives this same result) only ever see clean text.
+		if (isUntrustedTransport(toolConfig.transport)) {
+			result.data = sanitizeUntrustedValue(result.data);
+		}
 		let structuredContent: unknown = handler.buildStructuredContent(
 			result,
 			ctx,
@@ -959,9 +979,15 @@ async function executeWithHandler(
 		const collectionRead = isErrorResult
 			? null
 			: connectedCollectionRead(agent, tool);
+		const untrustedRead =
+			!isErrorResult &&
+			isUntrustedTransport(toolConfig.transport) &&
+			annotations?.readOnlyHint === true;
 		if (
 			!isErrorResult &&
-			!(await recordSensitiveRead(agent, tool, collectionRead))
+			!(await recordSensitiveRead(agent, tool, collectionRead, {
+				untrustedRead,
+			}))
 		)
 			return {
 				content: [
@@ -972,7 +998,9 @@ async function executeWithHandler(
 				],
 				structuredContent: null,
 				isError: true as const,
-				_meta: {} as OpenAiWidgetMeta,
+				_meta: {
+					[TOOL_TRUST_META_KEY]: trustLabel,
+				} as OpenAiWidgetMeta,
 			};
 
 		// Honest ack on the Home soft-deadline shape (home-surface enqueue tools
@@ -1224,6 +1252,7 @@ async function executeWithHandler(
 			...(isErrorResult ? { isError: true as const } : {}),
 			_meta: {
 				...(fieldSelection ? { "tedix/fieldSelection": fieldSelection } : {}),
+				[TOOL_TRUST_META_KEY]: trustLabel,
 				"openai/outputTemplate": outputTemplate,
 				...(actionReceipt ? { [ACTION_RECEIPT_META_KEY]: actionReceipt } : {}),
 				"openai/widgetAccessible": tool.widgetAccessible ?? true,
@@ -1306,6 +1335,7 @@ async function executeWithHandler(
 			// look like normal returns to anything downstream.
 			isError: true,
 			_meta: {
+				[TOOL_TRUST_META_KEY]: trustLabel,
 				"openai/outputTemplate": outputTemplate,
 				"openai/widgetAccessible": tool.widgetAccessible ?? true,
 				"openai/toolInvocation/invoking": `Processing ${tool.title}...`,

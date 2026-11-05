@@ -3837,13 +3837,15 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 			const db = context.db;
 			const reason = input.source.toolDeclaredSensitive
 				? "tool_declared_sensitive"
-				: input.source.connectionProviderId &&
-					  (await isConnectionProviderRestricted(db, {
-							organizationId: input.organizationId,
-							providerId: input.source.connectionProviderId,
-					  }))
-					? "connection_restricted"
-					: null;
+				: input.source.untrustedSource === true
+					? "untrusted_source"
+					: input.source.connectionProviderId &&
+						  (await isConnectionProviderRestricted(db, {
+								organizationId: input.organizationId,
+								providerId: input.source.connectionProviderId,
+						  }))
+						? "connection_restricted"
+						: null;
 			if (!reason)
 				return getRunSensitiveDataLatch(db, {
 					organizationId: input.organizationId,

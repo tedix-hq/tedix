@@ -19,6 +19,7 @@
 		"./catalog-projection": "./src/catalog-projection.ts",
 		"./codemode": "./src/codemode.ts",
 		"./compact-types": "./src/compact-types.ts",
+		"./content-sanitize": "./src/content-sanitize.ts",
 		"./elicitation-fill": "./src/elicitation-fill.ts",
 		"./mcp-param-headers": "./src/mcp-param-headers.ts",
 		"./namespace-governance": "./src/namespace-governance.ts",
