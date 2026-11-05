@@ -92,6 +92,34 @@ export function applyInputSchemaDefaults(
 }
 
 /**
+ * Top-level keys a schema declares, including keys declared by its
+ * `anyOf`/`oneOf`/`allOf` branches (a `z.union` of objects declares none at the
+ * root). Returns null when any branch permits extras.
+ */
+function declaredTopLevelKeys(schema: JsonObject): Set<string> | null {
+	if (
+		schema.additionalProperties === true ||
+		isRecord(schema.additionalProperties)
+	) {
+		return null;
+	}
+	const keys = new Set(
+		isRecord(schema.properties) ? Object.keys(schema.properties) : [],
+	);
+	for (const combinator of ["anyOf", "oneOf", "allOf"] as const) {
+		const branches = schema[combinator];
+		if (!Array.isArray(branches)) continue;
+		for (const branch of branches) {
+			if (!isRecord(branch)) continue;
+			const branchKeys = declaredTopLevelKeys(branch as JsonObject);
+			if (!branchKeys) return null;
+			for (const key of branchKeys) keys.add(key);
+		}
+	}
+	return keys;
+}
+
+/**
  * Preserve the retired `z.object` strip semantics: unknown top-level keys are
  * dropped unless the schema explicitly permits extras via `additionalProperties`.
  * Copy-on-write.
@@ -100,16 +128,11 @@ function stripUnknownTopLevelKeys(
 	args: Record<string, unknown>,
 	schema: JsonObject,
 ): Record<string, unknown> {
-	if (
-		schema.additionalProperties === true ||
-		isRecord(schema.additionalProperties)
-	) {
-		return args;
-	}
-	const properties = isRecord(schema.properties) ? schema.properties : {};
+	const declared = declaredTopLevelKeys(schema);
+	if (!declared) return args;
 	let out: Record<string, unknown> | null = null;
 	for (const key of Object.keys(args)) {
-		if (Object.hasOwn(properties, key)) continue;
+		if (declared.has(key)) continue;
 		out ??= { ...args };
 		delete out[key];
 	}
