@@ -21,11 +21,13 @@ import {
 } from "@tedix/api-contract/schemas/os-workspace-schedules";
 import {
 	createOsWorkspaceResource,
+	findOsWorkspaceTenantResource,
 	getOsWorkspaceResource,
 	listOsWorkspaceResources,
 	removeOsWorkspaceResource,
 	rebindOsWorkspaceResource,
 	renameOsWorkspaceResource,
+	restoreOsWorkspaceResource,
 } from "@tedix/db/queries/os-workspaces/resources";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import type { OsWorkspaceResourceRow } from "@tedix/db/schema/os-workspaces";
@@ -277,6 +279,58 @@ const list = readOs.resources.list.handler(async ({ input, context }) => {
 	};
 });
 
+/**
+ * Attaching an organization resource that was removed from this Workspace
+ * restores that reference with the new slot and name instead of failing on
+ * the removed row. Returns undefined when nothing removed matches or the
+ * slot is taken.
+ */
+async function restoreRemovedTenantResource(
+	context: BaseContext,
+	params: {
+		organizationId: string;
+		workspaceId: string;
+		selection: OsWorkspaceResourceSelection;
+		slot: string | null;
+		requiredScopes: string;
+		providerAccess: OsWorkspaceResourceRow["providerAccess"];
+		now: string;
+	},
+): Promise<OsWorkspaceResourceRow | undefined> {
+	if (
+		params.selection.connectionScope !== "tenant" ||
+		params.selection.connectionInstanceId
+	)
+		return undefined;
+	const db = queryDb(context);
+	const removed = await findOsWorkspaceTenantResource(db, {
+		organizationId: params.organizationId,
+		workspaceId: params.workspaceId,
+		providerId: params.selection.providerId,
+		resourceType: params.selection.resourceType,
+		providerResourceId: params.selection.providerResourceId,
+	});
+	if (removed?.status !== "removed") return undefined;
+	try {
+		return await restoreOsWorkspaceResource(db, {
+			organizationId: params.organizationId,
+			workspaceId: params.workspaceId,
+			resourceId: removed.id,
+			now: params.now,
+			replace: {
+				slot: params.slot,
+				name: params.selection.name,
+				metadata: JSON.stringify(params.selection.metadata),
+				requiredScopes: params.requiredScopes,
+				providerAccess: params.providerAccess,
+			},
+		});
+	} catch (error) {
+		if (isUniqueConstraintError(error)) return undefined;
+		throw error;
+	}
+}
+
 const create = authorOs.resources.create.handler(async ({ input, context }) => {
 	const workspace = await requireWorkspace(context, input.workspaceId);
 	const creator = resolveCreator(context);
@@ -317,6 +371,17 @@ const create = authorOs.resources.create.handler(async ({ input, context }) => {
 	);
 	const verified = await verifiedResourceScopes(context, input.selection);
 	const now = new Date().toISOString();
+	const restored = await restoreRemovedTenantResource(context, {
+		organizationId: workspace.organizationId,
+		workspaceId: workspace.id,
+		selection: input.selection,
+		slot: input.slot ?? null,
+		requiredScopes: JSON.stringify(verified.requiredScopes),
+		providerAccess: verified.providerAccess,
+		now,
+	});
+	if (restored)
+		return { resource: await projectWorkspaceResource(context, restored) };
 	try {
 		const row = await createOsWorkspaceResource(queryDb(context), {
 			id: crypto.randomUUID(),

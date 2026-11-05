@@ -584,6 +584,25 @@ describe("Workspace resources", () => {
 				slot: null,
 			}),
 		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		const again = {
+			workspaceId: workspace.id,
+			selection: {
+				...selection,
+				providerResourceId: "example/manual",
+				name: "Manual again",
+			},
+			slot: "restored",
+		};
+		const restored = await c.org1.resources.create(again);
+		expect(restored.resource).toMatchObject({
+			id: manual.id,
+			status: "active",
+			slot: "restored",
+			name: "Manual again",
+		});
+		await expect(c.org1.resources.create(again)).rejects.toMatchObject({
+			code: "CONFLICT",
+		});
 	});
 
 	it("verifies exact calendar existence, ACL and scopes instead of accepting caller metadata", async () => {
