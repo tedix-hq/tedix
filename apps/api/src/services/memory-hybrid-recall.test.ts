@@ -44,7 +44,7 @@ const fact = (id: string) =>
 		replacesFactIds: [],
 	}) as unknown as MemoryFact;
 const scope = {
-	orgId: "fictional-a",
+	organizationId: "fictional-a",
 	tediId: "tedi-a",
 	query: "cobalt yesterday",
 };

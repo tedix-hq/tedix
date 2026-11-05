@@ -209,6 +209,7 @@ export const skillsRunWorkflowSendEvent = authedSkills.runWorkflowSendEvent
 			const epoch = run.executionEpoch ?? 0;
 			const artifact = await getRunArtifact(
 				context.db,
+				{ organizationId: orgId },
 				run.id,
 				`epochs/${epoch}/controls/${input.type}.json`,
 			);
@@ -669,6 +670,7 @@ export const skillsGetWorkflowRunTimeline = authedSkills.getWorkflowRunTimeline
 		}
 		const artifacts = await listRunTimelineArtifacts(
 			context.db,
+			{ organizationId: orgId },
 			run.id,
 			run.executionEpoch ?? 0,
 		);

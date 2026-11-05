@@ -1,3 +1,4 @@
+import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
 import {
 	and,
 	desc,
@@ -12,8 +13,7 @@ import { type AnySQLiteColumn, alias } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../../client";
 import { memoryEdges, memoryFacts } from "../../schema/memory-graph";
 
-export interface AutoLinkScope {
-	organizationId: string;
+export interface AutoLinkScope extends TenantScope {
 	tediId?: string;
 	domainId?: string;
 	factIds?: readonly string[];
@@ -59,6 +59,7 @@ export async function listAutoLinkFacts(
 	db: DbClient,
 	scope: AutoLinkScope,
 ): Promise<AutoLinkFact[]> {
+	scope = { ...scope, ...normalizeTenantScope(scope) };
 	if (scope.factIds?.length === 0) return [];
 	if ((scope.factIds?.length ?? 0) > 80)
 		throw new Error("Auto-link selection exceeds80facts");
@@ -96,6 +97,7 @@ export async function createAutoLinkEdge(
 		context: string;
 	},
 ): Promise<boolean> {
+	scope = { ...scope, ...normalizeTenantScope(scope) };
 	const a = alias(memoryFacts, "a");
 	const b = alias(memoryFacts, "b");
 	const e = alias(memoryEdges, "e");

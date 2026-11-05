@@ -957,7 +957,11 @@ export async function insertRuntimeEvent(
 		}
 		return normalizeRuntimeEvent(inserted);
 	}
-	const existing = await getTediRuntimeEventById(context.db, event.id);
+	const existing = await getTediRuntimeEventById(
+		context.db,
+		{ organizationId: input.organizationId },
+		event.id,
+	);
 	if (existing) return normalizeRuntimeEvent(existing);
 	throw createError(
 		ErrorCodes.INTERNAL_SERVER_ERROR,

@@ -106,8 +106,8 @@ export async function getActiveSheetByTitle(
 
 export async function createOsOutput(
 	db: Parameters<typeof outputs.createOsOutput>[0],
-	output: Parameters<typeof outputs.createOsOutput>[1],
-	revision: Parameters<typeof outputs.createOsOutput>[2],
+	output: Parameters<typeof outputs.createOsOutput>[2],
+	revision: Parameters<typeof outputs.createOsOutput>[3],
 	bucket: OutputBodyBucket = env.R2_BUCKET,
 ) {
 	if (
@@ -120,11 +120,19 @@ export async function createOsOutput(
 		revision.organizationId,
 		revision.content,
 	);
-	const created = await outputs.createOsOutput(db, output, {
-		...revision,
-		...body,
-		content: INLINE_BODY_OFFLOADED,
-	});
+	const created = await outputs.createOsOutput(
+		db,
+		{
+			organizationId: output.organizationId,
+			workspaceId: output.workspaceId ?? undefined,
+		},
+		output,
+		{
+			...revision,
+			...body,
+			content: INLINE_BODY_OFFLOADED,
+		},
+	);
 	return {
 		...created,
 		revision: { ...created.revision, content: revision.content },

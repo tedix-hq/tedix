@@ -359,6 +359,7 @@ describe("mineHomeOperatorDecisions", () => {
 			expect(mockCreateFact).not.toHaveBeenCalled();
 			expect(mockRecordFactVerification).toHaveBeenCalledWith(
 				expect.anything(),
+				{ organizationId: ORG },
 				"fact-existing-hash",
 				1.01,
 			);

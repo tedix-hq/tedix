@@ -608,6 +608,7 @@ export const executeReadOnlyToolRoute = authed.executeReadOnlyTool
 				});
 				const existingReceipt = await getKernelRuntimeEventById(
 					context.db,
+					{ organizationId },
 					receiptEventId,
 				);
 				if (!existingReceipt && !directReadFenceIsStale(request.createdAt)) {

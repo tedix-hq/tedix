@@ -50,6 +50,7 @@ describe("runtime event pagination", () => {
 		}
 
 		const first = await listTediRuntimeEventsForRouter(db, {
+			organizationId: "org-1",
 			tediId: "tedi-1",
 			conversationId: "conversation-1",
 			runId: "run-1",
@@ -59,6 +60,7 @@ describe("runtime event pagination", () => {
 		});
 		const last = first.at(-1)!;
 		const second = await listTediRuntimeEventsForRouter(db, {
+			organizationId: "org-1",
 			tediId: "tedi-1",
 			conversationId: "conversation-1",
 			runId: "run-1",

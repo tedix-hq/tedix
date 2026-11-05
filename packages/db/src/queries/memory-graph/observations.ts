@@ -1,3 +1,4 @@
+import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
 	MemoryConsolidationSchema,
@@ -95,7 +96,12 @@ async function headId(
 ) {
 	return `memory-${kind}:${await digest([orgId, target.entityKey, kind === "observation" ? target.topicKey : null, target.tediId, target.visibility, target.memoryScope])}`;
 }
-async function readHead(db: DbQueryClient, orgId: string, id: string) {
+async function readHead(
+	db: DbQueryClient,
+	tenantScope: TenantScope,
+	id: string,
+) {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const [row] = await db
 		.select()
 		.from(memoryFacts)
@@ -111,7 +117,7 @@ function statement(sources: MemoryFact[], disputed: boolean): string {
 }
 async function persist(
 	db: DbQueryClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	target: Target,
 	kind: MemoryConsolidation["kind"],
 	sources: MemoryFact[],
@@ -121,8 +127,9 @@ async function persist(
 		changedSourceIds?: string[];
 	} = {},
 ): Promise<MemoryFact | undefined> {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const id = await headId(orgId, target, kind);
-	const old = await readHead(db, orgId, id);
+	const old = await readHead(db, tenantScope, id);
 	const previous = old && readConsolidation(old);
 	if (!old && !sources.length) return undefined;
 	if (old?.archivedAt || old?.validTo) return old;
@@ -271,14 +278,15 @@ async function persist(
 		await db.batch([
 			db.insert(memoryFacts).values(values).onConflictDoNothing(),
 		]);
-	return readHead(db, orgId, id);
+	return readHead(db, tenantScope, id);
 }
 async function refreshTarget(
 	db: DbQueryClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	target: Target,
 	changedSourceIds: string[] = [],
 ) {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	let sources = await db
 		.select()
 		.from(memoryFacts)
@@ -321,7 +329,11 @@ async function refreshTarget(
 	if (sources.length > MAX_SOURCES) return { written: 0, overflow: true };
 	if (
 		sources.length < 2 &&
-		!(await readHead(db, orgId, await headId(orgId, target, "observation")))
+		!(await readHead(
+			db,
+			tenantScope,
+			await headId(orgId, target, "observation"),
+		))
 	)
 		return { written: 0, overflow: false };
 	const ids = sources.map((fact) => fact.id);
@@ -334,14 +346,21 @@ async function refreshTarget(
 				)
 				.limit(1)
 		: [];
-	const observation = await persist(db, orgId, target, "observation", sources, {
-		disputed:
-			conflicts.length > 0 ||
-			sources.some((s) => s.reviewStatus === "disputed"),
-		changedSourceIds,
-	});
+	const observation = await persist(
+		db,
+		tenantScope,
+		target,
+		"observation",
+		sources,
+		{
+			disputed:
+				conflicts.length > 0 ||
+				sources.some((s) => s.reviewStatus === "disputed"),
+			changedSourceIds,
+		},
+	);
 	if (!observation) return { written: 0, overflow: false };
-	await refreshSummary(db, orgId, target, changedSourceIds);
+	await refreshSummary(db, tenantScope, target, changedSourceIds);
 	await db
 		.update(memoryFacts)
 		.set({ lastVerifiedAt: new Date().toISOString() })
@@ -355,10 +374,11 @@ async function refreshTarget(
 }
 async function refreshSummary(
 	db: DbQueryClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	target: Target,
 	changedSourceIds: string[],
 ) {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const observations = await db
 		.select(prefixedColumns(memoryFacts, "fact"))
 		.from(derivedFacts)
@@ -374,7 +394,12 @@ async function refreshSummary(
 		.orderBy(asc(memoryFacts.id))
 		.limit(MAX_SOURCES + 1);
 	if (observations.length > MAX_SOURCES) return;
-	const live = await filterConsolidatedEvidence(db, orgId, observations, false);
+	const live = await filterConsolidatedEvidence(
+		db,
+		tenantScope,
+		observations,
+		false,
+	);
 	// Summary citations remain raw facts, so a source retraction invalidates both levels.
 	const sourceIds = [
 		...new Set(
@@ -396,7 +421,7 @@ async function refreshSummary(
 		: [];
 	await persist(
 		db,
-		orgId,
+		tenantScope,
 		{ ...target, topicKey: null },
 		"standing_summary",
 		sources,
@@ -410,9 +435,10 @@ async function refreshSummary(
 /** Rotate existing heads by last evidence check and admit new topics in bounded groups. */
 export async function consolidateMemory(
 	db: DbQueryClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	options: { tediId?: string; topicKey?: string; limit?: number } = {},
 ) {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const limit = Math.min(
 		MAX_TARGETS,
 		Math.max(1, options.limit ?? MAX_TARGETS),
@@ -504,7 +530,7 @@ export async function consolidateMemory(
 	let observations = 0,
 		overflow = 0;
 	for (const target of [...targets.values()].slice(0, MAX_TARGETS * 2)) {
-		const result = await refreshTarget(db, orgId, target);
+		const result = await refreshTarget(db, tenantScope, target);
 		observations += result.written;
 		overflow += Number(result.overflow);
 	}
@@ -514,15 +540,16 @@ export async function consolidateMemory(
 /** Mutation path: every direct dependent is refreshed, in bounded pages, without a model call. */
 export async function refreshConsolidatedForFact(
 	db: DbQueryClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	factId: string,
 ) {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const { id, metadata, tediId, visibility, memoryScope } = prefixedColumns(
 		memoryFacts,
 		"fact",
 	);
 	const dependentIds = JSON.stringify(
-		await findCitationDependents(db, orgId, [factId]),
+		await findCitationDependents(db, tenantScope, [factId]),
 	);
 	let cursor = "";
 	while (true) {
@@ -546,7 +573,7 @@ export async function refreshConsolidatedForFact(
 			if (meta)
 				await refreshTarget(
 					db,
-					orgId,
+					tenantScope,
 					{ ...row, entityKey: meta.entityKey, topicKey: meta.topicKey },
 					[factId],
 				);
@@ -559,7 +586,13 @@ export async function refreshConsolidatedForFact(
 /** Shared recall boundary: held evidence is never injected, even before the next reflection. */
 export async function filterConsolidatedEvidence<
 	T extends { id: string; metadata: MemoryFact["metadata"] },
->(db: DbQueryClient, orgId: string, rows: T[], prefer = true): Promise<T[]> {
+>(
+	db: DbQueryClient,
+	tenantScope: TenantScope,
+	rows: T[],
+	prefer = true,
+): Promise<T[]> {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const derived = rows.filter(
 		(row) => row.metadata?.consolidation !== undefined,
 	);
@@ -682,7 +715,7 @@ export async function filterConsolidatedEvidence<
 
 export async function listMemoryObservations(
 	db: DbQueryClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	options: {
 		topicKey?: string;
 		tediId?: string;
@@ -690,6 +723,7 @@ export async function listMemoryObservations(
 		includeHistory?: boolean;
 	} = {},
 ) {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	return db
 		.select(prefixedColumns(memoryFacts, "fact"))
 		.from(derivedFacts)
@@ -724,16 +758,17 @@ export async function listMemoryObservations(
 /** Bring a cached summary into the static Home recall set even when only its raw sources ranked. */
 export async function preferConsolidatedFacts(
 	db: DbQueryClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	facts: MemoryFact[],
 	tediId?: string,
 ) {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	if (!facts.length) return facts;
 	// Runs on every Home turn: at most one legacy page per source until the
 	// org's citation backfill is done, so recall never walks the whole corpus.
 	const ids = await findCitationDependents(
 		db,
-		orgId,
+		tenantScope,
 		facts.map((fact) => fact.id),
 		{ legacyPages: 2 },
 	);
@@ -760,5 +795,5 @@ export async function preferConsolidatedFacts(
 			(fact) => [fact.id, fact],
 		),
 	);
-	return filterConsolidatedEvidence(db, orgId, [...merged.values()]);
+	return filterConsolidatedEvidence(db, tenantScope, [...merged.values()]);
 }

@@ -74,7 +74,7 @@ export async function readEditTargetOutput(input: {
 		if (title) {
 			const sheets = await listOsOutputs(
 				input.db,
-				input.organizationId,
+				{ organizationId: input.organizationId },
 				input.viewer,
 				{ kind: "sheet", status: "active", limit: 200 },
 			).catch(() => []);

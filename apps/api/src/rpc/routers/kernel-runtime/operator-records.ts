@@ -162,10 +162,14 @@ export const readOperatorRecordsRoute = os.readOperatorRecords
 			};
 		}
 		if (input.source === "memory") {
-			const rows = await getTopPlatformFacts(context.db, organizationId, {
-				tediId: tedi.id,
-				limit: 50,
-			});
+			const rows = await getTopPlatformFacts(
+				context.db,
+				{ organizationId: organizationId },
+				{
+					tediId: tedi.id,
+					limit: 50,
+				},
+			);
 			const visible = rows
 				.map((row) => row.fact)
 				.filter((fact) =>

@@ -181,7 +181,11 @@ export async function observeRepositoryEvent(
 	}
 	const now = new Date().toISOString();
 	const lessons = (
-		await listApprovedAgentLessons(context.db, orgId, AGENT_LESSON_TOPIC_PREFIX)
+		await listApprovedAgentLessons(
+			context.db,
+			{ organizationId: orgId },
+			AGENT_LESSON_TOPIC_PREFIX,
+		)
 	).map((r) => ({
 		id: r.id,
 		text: r.content,

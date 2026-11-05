@@ -1,3 +1,4 @@
+import type { TenantScope } from "@tedix/db/tenant-scope";
 import type { MemoryFeedbackSignal } from "@tedix/api-contract/constants/enums";
 import {
 	extractFactIdsFromEvidence,
@@ -88,6 +89,7 @@ export function feedbackSignalsFromEvidence(
 
 export async function emitFactFeedbackForOutcome(
 	db: DbClient,
+	tenantScope: TenantScope,
 	evidence: unknown,
 	outcomeStatus: string,
 ): Promise<number> {
@@ -98,7 +100,7 @@ export async function emitFactFeedbackForOutcome(
 		payload,
 		outcomeStatus,
 	)) {
-		updated += await recordFactUsage(db, factIds, signal);
+		updated += await recordFactUsage(db, tenantScope, factIds, signal);
 	}
 	return updated;
 }

@@ -18,16 +18,50 @@
  * stays available for bounded filtering and legacy artifacts.
  */
 
+import { type TenantScope, normalizeTenantScope } from "../tenant-scope";
+
 import { and, asc, eq, inArray, like, notLike, or, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
+import type { DbQueryClient } from "../query-client";
+import { osGadgetExecutions } from "../schema/os-workspaces";
 import {
 	type NewSkillRunArtifact,
 	type SkillRunArtifact,
 	skillRunArtifacts,
+	skillRuns,
 } from "../schema/cognitive";
 import { chunkForBoundParams } from "../utils/batch";
 import { mergeLogStoreRows, readLogStores } from "../utils/log-store";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
+
+/** Control-plane lookup after a signed capability is verified; never authorizes access. */
+export async function resolveRunArtifactTenantScope(
+	db: DbQueryClient,
+	runId: string,
+): Promise<TenantScope | undefined> {
+	const [runs, executions] = await db.batch([
+		db
+			.select({ organizationId: skillRuns.organizationId })
+			.from(skillRuns)
+			.where(eq(skillRuns.id, runId))
+			.limit(1),
+		db
+			.select({
+				organizationId: osGadgetExecutions.organizationId,
+				workspaceId: osGadgetExecutions.workspaceId,
+			})
+			.from(osGadgetExecutions)
+			.where(eq(osGadgetExecutions.id, runId))
+			.limit(1),
+	]);
+	if (
+		runs[0] &&
+		executions[0] &&
+		runs[0].organizationId !== executions[0].organizationId
+	)
+		throw new Error("Artifact parent scope conflict");
+	return executions[0] ?? runs[0];
+}
 
 async function withArtifactReadRetry<T>(read: () => Promise<T>): Promise<T> {
 	for (let attempt = 0; ; attempt++) {
@@ -188,9 +222,11 @@ export function validateArtifactPath(path: string): void {
  */
 export async function recordRunArtifact(
 	db: DbClient,
+	tenantScope: TenantScope,
 	input: RecordArtifactInput,
 	bucket?: R2Bucket,
 ): Promise<SkillRunArtifact> {
+	tenantScope = normalizeTenantScope(tenantScope);
 	validateArtifactPath(input.path);
 	const mimeType = input.mimeType ?? "application/json";
 	const id = crypto.randomUUID();
@@ -297,20 +333,26 @@ export async function recordRunArtifact(
 /** Read one artifact by (runId, path). Returns null if not found. */
 export async function getRunArtifact(
 	db: DbClient,
+	tenantScope: TenantScope,
 	runId: string,
 	path: string,
 ): Promise<SkillRunArtifact | null> {
-	return withArtifactReadRetry(() => readRunArtifact(db, runId, path));
+	tenantScope = normalizeTenantScope(tenantScope);
+	return withArtifactReadRetry(() =>
+		readRunArtifact(db, tenantScope, runId, path),
+	);
 }
 
 async function readRunArtifact(
 	db: DbClient,
+	tenantScope: TenantScope,
 	runId: string,
 	path: string,
 ): Promise<SkillRunArtifact | null> {
+	tenantScope = normalizeTenantScope(tenantScope);
 	// Artifact rows past the retention keep window live in the logs database.
 	const pages = await readLogStores(db, async (store) => {
-		const row = await readRunArtifact(store, runId, path);
+		const row = await readRunArtifact(store, tenantScope, runId, path);
 		return row ? [row] : [];
 	});
 	if (pages) return mergeLogStoreRows(pages, { limit: 1 })[0] ?? null;
@@ -327,10 +369,12 @@ async function readRunArtifact(
 /** List all artifacts for a run, ordered by createdAt. */
 export async function listRunArtifacts(
 	db: DbClient,
+	tenantScope: TenantScope,
 	runId: string,
 ): Promise<SkillRunArtifact[]> {
+	tenantScope = normalizeTenantScope(tenantScope);
 	const pages = await readLogStores(db, (store) =>
-		listRunArtifacts(store, runId),
+		listRunArtifacts(store, tenantScope, runId),
 	);
 	if (pages) return mergeLogStoreRows(pages, { compare: compareArtifactOrder });
 	return db
@@ -343,13 +387,18 @@ export async function listRunArtifacts(
 /** Bounded artifact page for agent/API inventory surfaces. */
 export async function listRunArtifactsPage(
 	db: DbClient,
+	tenantScope: TenantScope,
 	runId: string,
 	options?: { limit?: number; offset?: number },
 ): Promise<SkillRunArtifact[]> {
+	tenantScope = normalizeTenantScope(tenantScope);
 	const limit = Math.min(Math.max(options?.limit ?? 201, 1), 2_001);
 	const offset = Math.max(options?.offset ?? 0, 0);
 	const pages = await readLogStores(db, (store) =>
-		listRunArtifactsPage(store, runId, { limit: limit + offset, offset: 0 }),
+		listRunArtifactsPage(store, tenantScope, runId, {
+			limit: limit + offset,
+			offset: 0,
+		}),
 	);
 	if (pages)
 		return mergeLogStoreRows(pages, {
@@ -379,9 +428,11 @@ function compareArtifactOrder(a: SkillRunArtifact, b: SkillRunArtifact) {
  */
 export async function listRunArtifactsForRuns(
 	db: DbClient,
+	tenantScope: TenantScope,
 	runIds: string[],
 	limit = 5_000,
 ): Promise<SkillRunArtifact[]> {
+	tenantScope = normalizeTenantScope(tenantScope);
 	if (runIds.length === 0) return [];
 	const boundedLimit = Math.min(Math.max(limit, 1), 10_000);
 	const rows: SkillRunArtifact[] = [];
@@ -401,9 +452,11 @@ export async function listRunArtifactsForRuns(
 /** Bounded batch variant of listRunOperationalArtifacts. */
 export async function listRunOperationalArtifactsForRuns(
 	db: DbClient,
+	tenantScope: TenantScope,
 	runIds: string[],
 	limit = 5_000,
 ): Promise<SkillRunArtifact[]> {
+	tenantScope = normalizeTenantScope(tenantScope);
 	if (runIds.length === 0) return [];
 	const boundedLimit = Math.min(Math.max(limit, 1), 10_000);
 	const rows: SkillRunArtifact[] = [];
@@ -433,9 +486,11 @@ export async function listRunOperationalArtifactsForRuns(
 /** Read only the small operational records used by agent run inspection. */
 export async function listRunOperationalArtifacts(
 	db: DbClient,
+	tenantScope: TenantScope,
 	runId: string,
 	limit = 2_001,
 ): Promise<SkillRunArtifact[]> {
+	tenantScope = normalizeTenantScope(tenantScope);
 	return db
 		.select()
 		.from(skillRunArtifacts)
@@ -528,9 +583,11 @@ function stepKindPathPredicate(kind: WorkflowStepArtifactKind | undefined) {
 /** Bounded step records excluding nested MCP call receipts. */
 export async function listRunWorkflowStepArtifacts(
 	db: DbClient,
+	tenantScope: TenantScope,
 	runId: string,
 	options: WorkflowArtifactPageOptions = {},
 ): Promise<SkillRunArtifact[]> {
+	tenantScope = normalizeTenantScope(tenantScope);
 	const structured = and(
 		stepPathPredicate(),
 		stepNamePathPredicate(options.stepName),
@@ -551,9 +608,11 @@ export async function listRunWorkflowStepArtifacts(
 /** Bounded MCP call receipts selected in SQL before any inline/R2 parsing. */
 export async function listRunWorkflowCallArtifacts(
 	db: DbClient,
+	tenantScope: TenantScope,
 	runId: string,
 	options: WorkflowArtifactPageOptions = {},
 ): Promise<SkillRunArtifact[]> {
+	tenantScope = normalizeTenantScope(tenantScope);
 	return db
 		.select()
 		.from(skillRunArtifacts)
@@ -578,9 +637,11 @@ export async function listRunWorkflowCallArtifacts(
 /** Batch-read one canonical artifact path across already-scoped run ids. */
 export async function listRunArtifactsForRunsByPath(
 	db: DbClient,
+	tenantScope: TenantScope,
 	runIds: string[],
 	path: string,
 ): Promise<SkillRunArtifact[]> {
+	tenantScope = normalizeTenantScope(tenantScope);
 	if (runIds.length === 0) return [];
 	validateArtifactPath(path);
 	const rows: SkillRunArtifact[] = [];
@@ -604,9 +665,11 @@ export async function listRunArtifactsForRunsByPath(
 /** Executed, compatible-resume, and fail-closed runtime observations. */
 export async function listRunWorkflowRuntimeObservationsForRuns(
 	db: DbClient,
+	tenantScope: TenantScope,
 	runIds: string[],
 	limit = 10_000,
 ): Promise<SkillRunArtifact[]> {
+	tenantScope = normalizeTenantScope(tenantScope);
 	if (runIds.length === 0) return [];
 	const boundedLimit = Math.min(Math.max(limit, 1), 10_000);
 	const rows: SkillRunArtifact[] = [];
@@ -641,8 +704,10 @@ export async function listRunWorkflowRuntimeObservationsForRuns(
  */
 export async function deleteRunArtifacts(
 	db: DbClient,
+	tenantScope: TenantScope,
 	runId: string,
 ): Promise<number> {
+	tenantScope = normalizeTenantScope(tenantScope);
 	const deleted = await db
 		.delete(skillRunArtifacts)
 		.where(eq(skillRunArtifacts.runId, runId))
@@ -653,11 +718,13 @@ export async function deleteRunArtifacts(
 /** Full inline timeline for an already organization/environment-scoped run. */
 export async function listRunTimelineArtifacts(
 	db: DbClient,
+	tenantScope: TenantScope,
 	runId: string,
 	executionEpoch: number,
 ): Promise<SkillRunArtifact[]> {
+	tenantScope = normalizeTenantScope(tenantScope);
 	const pages = await readLogStores(db, (store) =>
-		listRunTimelineArtifacts(store, runId, executionEpoch),
+		listRunTimelineArtifacts(store, tenantScope, runId, executionEpoch),
 	);
 	if (pages) return mergeLogStoreRows(pages, { compare: compareArtifactOrder });
 	return db

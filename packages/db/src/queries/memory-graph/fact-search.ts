@@ -1,3 +1,4 @@
+import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
 import {
 	and,
 	count,
@@ -27,8 +28,7 @@ function boundedLimit(limit: number | undefined): number {
 	return Math.max(1, Math.min(FACT_SEARCH_MAX_LIMIT, limit ?? 50));
 }
 
-export interface FactSearchParams {
-	orgId: string;
+export interface FactSearchParams extends TenantScope {
 	tediId?: string;
 	domainId?: string;
 	factType?: MemoryFactType;
@@ -44,7 +44,8 @@ export async function searchFacts(
 	db: DbClient,
 	params: FactSearchParams,
 ): Promise<MemoryFact[]> {
-	const conditions = [eq(memoryFacts.organizationId, params.orgId)];
+	params = { ...params, ...normalizeTenantScope(params) };
+	const conditions = [eq(memoryFacts.organizationId, params.organizationId)];
 
 	if (params.tediId) {
 		conditions.push(eq(memoryFacts.tediId, params.tediId));
@@ -98,9 +99,10 @@ export interface BoundedFactCount {
  */
 export async function countActiveFactsUpTo(
 	db: DbClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	cap: number,
 ): Promise<BoundedFactCount> {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const live = db
 		.select({ one: sql<number>`1`.as("one") })
 		.from(memoryFacts)
@@ -133,9 +135,10 @@ export async function countActiveFactsUpTo(
  */
 export async function deleteFactsByRunId(
 	db: DbClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	runId: string,
 ): Promise<number> {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const source = `skill://runs/${runId}`;
 	const result = await db
 		.delete(memoryFacts)
@@ -162,7 +165,8 @@ export async function searchFactsWithVisibility(
 	db: DbClient,
 	params: VisibilityAwareSearchParams,
 ): Promise<MemoryFact[]> {
-	const conditions = [eq(memoryFacts.organizationId, params.orgId)];
+	params = { ...params, ...normalizeTenantScope(params) };
+	const conditions = [eq(memoryFacts.organizationId, params.organizationId)];
 
 	if (params.visibilityTediId) {
 		// Tedi sees: org facts + shared facts + own private facts
@@ -229,13 +233,14 @@ export async function searchFactsWithVisibility(
 
 export async function getActiveFacts(
 	db: DbClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	options?: {
 		tediId?: string;
 		domainId?: string;
 		includeGraphAnchors?: boolean;
 	},
 ) {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const conditions = [
 		eq(memoryFacts.organizationId, orgId),
 		isNull(memoryFacts.archivedAt),

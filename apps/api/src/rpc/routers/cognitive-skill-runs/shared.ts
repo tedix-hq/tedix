@@ -1,3 +1,4 @@
+import { requireOrgId } from "../../org-scope";
 import { ORPCError } from "@orpc/server";
 import type { SkillWorkflowStep } from "@tedix/api-contract/contracts/cognitive";
 import {
@@ -192,25 +193,45 @@ export async function resolveSkillRunArtifacts(
 	const requested = Math.min(Math.max(limit, 1), 2_000);
 	const readPage = async (offset: number, pageLimit: number) =>
 		kind === "steps"
-			? listRunWorkflowStepArtifacts(context.db, runId, {
-					limit: pageLimit,
-					offset,
-					stepName: query?.stepName,
-					kind: query?.stepKind,
-				})
-			: kind === "calls"
-				? listRunWorkflowCallArtifacts(context.db, runId, {
+			? listRunWorkflowStepArtifacts(
+					context.db,
+					{ organizationId: requireOrgId(context) },
+					runId,
+					{
 						limit: pageLimit,
 						offset,
 						stepName: query?.stepName,
-						attempt: query?.attempt,
-					})
-				: operationalOnly
-					? listRunOperationalArtifacts(context.db, runId, pageLimit)
-					: listRunArtifactsPage(context.db, runId, {
+						kind: query?.stepKind,
+					},
+				)
+			: kind === "calls"
+				? listRunWorkflowCallArtifacts(
+						context.db,
+						{ organizationId: requireOrgId(context) },
+						runId,
+						{
 							limit: pageLimit,
 							offset,
-						});
+							stepName: query?.stepName,
+							attempt: query?.attempt,
+						},
+					)
+				: operationalOnly
+					? listRunOperationalArtifacts(
+							context.db,
+							{ organizationId: requireOrgId(context) },
+							runId,
+							pageLimit,
+						)
+					: listRunArtifactsPage(
+							context.db,
+							{ organizationId: requireOrgId(context) },
+							runId,
+							{
+								limit: pageLimit,
+								offset,
+							},
+						);
 	let fetched: Awaited<ReturnType<typeof listRunArtifactsPage>> = [];
 	if (query?.exhaustive && (kind === "steps" || kind === "calls")) {
 		const scanPageSize = 500;

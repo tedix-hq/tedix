@@ -114,7 +114,11 @@ const promote = authed.promote
 	.use(AUTHZ.tedisWrite)
 	.handler(async ({ input, context }) => {
 		const orgId = requireOrgId(context);
-		const fact = await getFactById(context.db, input.factId);
+		const fact = await getFactById(
+			context.db,
+			{ organizationId: orgId },
+			input.factId,
+		);
 		if (!fact) throw createError(ErrorCodes.NOT_FOUND, "Fact not found");
 		if (fact.organizationId !== orgId)
 			throw createError(ErrorCodes.UNAUTHORIZED, "Not your fact");
@@ -123,7 +127,7 @@ const promote = authed.promote
 		if (input.visibility === "org" && fact.tediId) {
 			if (targetPriority === "core" && fact.domainId) {
 				const coreFacts = await searchFacts(context.db, {
-					orgId,
+					organizationId: orgId,
 					domainId: fact.domainId,
 					limit: 21,
 				});
@@ -135,7 +139,7 @@ const promote = authed.promote
 						return aTime.localeCompare(bTime);
 					})[0];
 					if (oldest) {
-						await updateFact(context.db, oldest.id, {
+						await updateFact(context.db, { organizationId: orgId }, oldest.id, {
 							priority: "active",
 						});
 					}
@@ -184,19 +188,23 @@ const promote = authed.promote
 				createdAt: now,
 				updatedAt: now,
 			});
-			await createEdge(context.db, {
-				id: crypto.randomUUID(),
-				sourceFactId: promoted.id,
-				targetFactId: fact.id,
-				relationType: "promoted_from",
-				strength: 1,
-				context: "Validated tedi evidence promoted into org memory",
-			});
+			await createEdge(
+				context.db,
+				{ organizationId: orgId },
+				{
+					id: crypto.randomUUID(),
+					sourceFactId: promoted.id,
+					targetFactId: fact.id,
+					relationType: "promoted_from",
+					strength: 1,
+					context: "Validated tedi evidence promoted into org memory",
+				},
+			);
 			await reconcileFactProjection(context, promoted);
 			if (topicKey) {
 				const currentFacts = await findCurrentFactsByTopicKey(
 					context.db,
-					orgId,
+					{ organizationId: orgId },
 					topicKey,
 					{
 						memoryScope: "org",
@@ -206,21 +214,26 @@ const promote = authed.promote
 					if (current.id === promoted.id) continue;
 					await invalidateFact(
 						context.db,
+						{ organizationId: orgId },
 						current.id,
 						`Superseded by promoted fact ${promoted.id} for topic ${topicKey}`,
 					);
-					await updateFact(context.db, current.id, {
+					await updateFact(context.db, { organizationId: orgId }, current.id, {
 						reviewStatus: "superseded",
 					});
 					await deleteFactProjection(context, current);
-					await createEdge(context.db, {
-						id: crypto.randomUUID(),
-						sourceFactId: promoted.id,
-						targetFactId: current.id,
-						relationType: "supersedes",
-						strength: 1,
-						context: `Topic-key supersession: ${topicKey}`,
-					});
+					await createEdge(
+						context.db,
+						{ organizationId: orgId },
+						{
+							id: crypto.randomUUID(),
+							sourceFactId: promoted.id,
+							targetFactId: current.id,
+							relationType: "supersedes",
+							strength: 1,
+							context: `Topic-key supersession: ${topicKey}`,
+						},
+					);
 				}
 			}
 			return {
@@ -240,7 +253,7 @@ const promote = authed.promote
 		// If promoting to core priority, enforce max 20 core facts per domain
 		if (input.priority === "core" && fact.domainId) {
 			const coreFacts = await searchFacts(context.db, {
-				orgId,
+				organizationId: orgId,
 				domainId: fact.domainId,
 				limit: 21,
 			});
@@ -253,7 +266,7 @@ const promote = authed.promote
 					return aTime.localeCompare(bTime);
 				})[0];
 				if (oldest) {
-					await updateFact(context.db, oldest.id, {
+					await updateFact(context.db, { organizationId: orgId }, oldest.id, {
 						priority: "active",
 					});
 				}
@@ -262,8 +275,17 @@ const promote = authed.promote
 		} else if (input.priority) {
 			updates.priority = input.priority;
 		}
-		await updateFact(context.db, input.factId, updates);
-		const updated = await getFactById(context.db, input.factId);
+		await updateFact(
+			context.db,
+			{ organizationId: orgId },
+			input.factId,
+			updates,
+		);
+		const updated = await getFactById(
+			context.db,
+			{ organizationId: orgId },
+			input.factId,
+		);
 		await reconcileFactProjection(context, updated!);
 		return {
 			fact: updated!,
@@ -282,7 +304,11 @@ const review = authed.review
 	.use(AUTHZ.tedisWrite)
 	.handler(async ({ input, context }) => {
 		const orgId = requireOrgId(context);
-		const fact = await getFactById(context.db, input.factId);
+		const fact = await getFactById(
+			context.db,
+			{ organizationId: orgId },
+			input.factId,
+		);
 		if (!fact) throw createError(ErrorCodes.NOT_FOUND, "Fact not found");
 		if (fact.organizationId !== orgId)
 			throw createError(ErrorCodes.UNAUTHORIZED, "Not your fact");
@@ -303,8 +329,17 @@ const review = authed.review
 			reviewerTediId,
 			reviewerAuthType: context.authType ?? null,
 		});
-		await updateFact(context.db, input.factId, updates);
-		const updated = await getFactById(context.db, input.factId);
+		await updateFact(
+			context.db,
+			{ organizationId: orgId },
+			input.factId,
+			updates,
+		);
+		const updated = await getFactById(
+			context.db,
+			{ organizationId: orgId },
+			input.factId,
+		);
 		await reconcileFactProjection(context, updated!);
 		return {
 			fact: updated!,
@@ -326,11 +361,21 @@ const reindex = authed.reindex
 		const startedAt = Date.now();
 		let domainId: string | undefined;
 		if (input.domain)
-			domainId = (await getOrCreateDomain(context.db, orgId, input.domain)).id;
-		const facts = await getActiveFacts(context.db, orgId, {
-			tediId: input.tediId,
-			domainId,
-		});
+			domainId = (
+				await getOrCreateDomain(
+					context.db,
+					{ organizationId: orgId },
+					input.domain,
+				)
+			).id;
+		const facts = await getActiveFacts(
+			context.db,
+			{ organizationId: orgId },
+			{
+				tediId: input.tediId,
+				domainId,
+			},
+		);
 		return {
 			indexed: 0,
 			skipped: facts.length,
@@ -351,17 +396,23 @@ const gapsDetect = authed.gaps.detect
 	.use(AUTHZ.tedisRead)
 	.handler(async ({ input, context }) => {
 		const orgId = requireOrgId(context);
-		const domain = await getOrCreateDomain(context.db, orgId, input.domain);
+		const domain = await getOrCreateDomain(
+			context.db,
+			{ organizationId: orgId },
+			input.domain,
+		);
 
 		// Get all facts in the domain
 		const facts = await searchFacts(context.db, {
-			orgId,
+			organizationId: orgId,
 			domainId: domain.id,
 			includeArchived: false,
 		});
 
 		// Get sub-domains (children of this domain)
-		const allDomains = await listDomains(context.db, orgId);
+		const allDomains = await listDomains(context.db, {
+			organizationId: requireOrgId(context),
+		});
 		const subDomains = allDomains.filter((d) => d.parentId === domain.id);
 		const gapsFound = [];
 
@@ -370,7 +421,7 @@ const gapsDetect = authed.gaps.detect
 			const subFacts = facts.filter((f) => f.domainId === sub.id);
 			if (subFacts.length === 0) {
 				const gap = await createGapFact(context.db, {
-					orgId,
+					organizationId: orgId,
 					tediId: input.tediId,
 					domainId: domain.id,
 					content: `No knowledge about sub-topic "${sub.name}" in domain "${input.domain}"`,
@@ -389,7 +440,7 @@ const gapsDetect = authed.gaps.detect
 		const lowConfFacts = facts.filter((f) => f.confidence < 0.5);
 		if (lowConfFacts.length > 3) {
 			const gap = await createGapFact(context.db, {
-				orgId,
+				organizationId: orgId,
 				tediId: input.tediId,
 				domainId: domain.id,
 				content: `${lowConfFacts.length} facts in "${input.domain}" have low confidence (<0.5) — weak area needing verification`,
@@ -414,7 +465,7 @@ const gapsDetect = authed.gaps.detect
 		});
 		if (staleFacts.length > 5) {
 			const gap = await createGapFact(context.db, {
-				orgId,
+				organizationId: orgId,
 				tediId: input.tediId,
 				domainId: domain.id,
 				content: `${staleFacts.length} stale facts in "${input.domain}" (>90 days without access) — knowledge may be outdated`,
@@ -439,15 +490,23 @@ export const gapsList = authed.gaps.list
 		const orgId = requireOrgId(context);
 		let domainId: string | undefined;
 		if (input.domain) {
-			const d = await getOrCreateDomain(context.db, orgId, input.domain);
+			const d = await getOrCreateDomain(
+				context.db,
+				{ organizationId: orgId },
+				input.domain,
+			);
 			domainId = d.id;
 		}
-		const gaps = await listGaps(context.db, orgId, {
-			domainId,
-			severity: input.severity,
-			tediId: input.tediId,
-			limit: input.limit,
-		});
+		const gaps = await listGaps(
+			context.db,
+			{ organizationId: orgId },
+			{
+				domainId,
+				severity: input.severity,
+				tediId: input.tediId,
+				limit: input.limit,
+			},
+		);
 		return {
 			gaps,
 		};
@@ -458,9 +517,9 @@ export const gapsResolve = authed.gaps.resolve
 	.handler(async ({ input, context }) => {
 		await resolveGap(
 			context.db,
+			{ organizationId: requireOrgId(context) },
 			input.gapId,
 			input.resolvedByFactId,
-			requireOrgId(context),
 		);
 		return {
 			success: true,
@@ -471,7 +530,7 @@ export const gapsReport = authed.gaps.report
 	.use(AUTHZ.tedisRead)
 	.handler(async ({ context }) => {
 		const orgId = requireOrgId(context);
-		return getGapStats(context.db, orgId);
+		return getGapStats(context.db, { organizationId: orgId });
 	});
 
 // =============================================================================
@@ -486,14 +545,16 @@ const health = authed.health
 	.use(AUTHZ.tedisRead)
 	.handler(async ({ context }) => {
 		const orgId = requireOrgId(context);
-		return getMemoryHealthExtended(context.db, orgId);
+		return getMemoryHealthExtended(context.db, { organizationId: orgId });
 	});
 
 export const healthFindings = authed.healthFindings
 	.use(AUTHZ.tedisRead)
 	.handler(async ({ context }) => {
 		const orgId = requireOrgId(context);
-		const result = await getMemoryHealthFindings(context.db, orgId);
+		const result = await getMemoryHealthFindings(context.db, {
+			organizationId: orgId,
+		});
 		// Configuration only: no Neo4j probe. D1 stays canonical either way.
 		return {
 			...result,
@@ -516,7 +577,11 @@ const link = authed.link
 		if (input.mode === "auto") {
 			let domainId: string | undefined;
 			if (input.domain) {
-				const d = await getOrCreateDomain(context.db, orgId, input.domain);
+				const d = await getOrCreateDomain(
+					context.db,
+					{ organizationId: orgId },
+					input.domain,
+				);
 				domainId = d.id;
 			}
 			const result = await autoLinkFactsWithJev({
@@ -541,32 +606,48 @@ const link = authed.link
 			);
 		}
 		// Verify both facts belong to the requesting organization
-		const sourceFact = await getFactById(context.db, input.sourceFactId);
+		const sourceFact = await getFactById(
+			context.db,
+			{ organizationId: orgId },
+			input.sourceFactId,
+		);
 		if (!sourceFact)
 			throw createError(ErrorCodes.NOT_FOUND, "Source fact not found");
 		if (sourceFact.organizationId !== orgId)
 			throw createError(ErrorCodes.UNAUTHORIZED, "Not your fact");
-		const targetFact = await getFactById(context.db, input.targetFactId);
+		const targetFact = await getFactById(
+			context.db,
+			{ organizationId: orgId },
+			input.targetFactId,
+		);
 		if (!targetFact)
 			throw createError(ErrorCodes.NOT_FOUND, "Target fact not found");
 		if (targetFact.organizationId !== orgId)
 			throw createError(ErrorCodes.UNAUTHORIZED, "Not your fact");
 		const MAX_EDGES_PER_FACT = 20;
-		const edgeCount = await countEdgesForFact(context.db, input.sourceFactId);
+		const edgeCount = await countEdgesForFact(
+			context.db,
+			{ organizationId: orgId },
+			input.sourceFactId,
+		);
 		if (edgeCount >= MAX_EDGES_PER_FACT) {
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
 				`Fact has reached max edge limit (${MAX_EDGES_PER_FACT})`,
 			);
 		}
-		const edge = await createEdge(context.db, {
-			id: crypto.randomUUID(),
-			sourceFactId: input.sourceFactId,
-			targetFactId: input.targetFactId,
-			relationType: input.relationType,
-			strength: 0.8,
-			context: input.context ?? null,
-		});
+		const edge = await createEdge(
+			context.db,
+			{ organizationId: orgId },
+			{
+				id: crypto.randomUUID(),
+				sourceFactId: input.sourceFactId,
+				targetFactId: input.targetFactId,
+				relationType: input.relationType,
+				strength: 0.8,
+				context: input.context ?? null,
+			},
+		);
 		return {
 			edges: [edge],
 		};
@@ -584,9 +665,13 @@ const synthesize = authed.synthesize
 	.use(AUTHZ.tedisRead)
 	.handler(async ({ input, context }) => {
 		const orgId = requireOrgId(context);
-		const domain = await getOrCreateDomain(context.db, orgId, input.domain);
+		const domain = await getOrCreateDomain(
+			context.db,
+			{ organizationId: orgId },
+			input.domain,
+		);
 		const facts = await searchFacts(context.db, {
-			orgId,
+			organizationId: orgId,
 			domainId: domain.id,
 			includeArchived: false,
 			limit: 200,
@@ -702,7 +787,7 @@ const opine = authed.opine
 		// by the Tedi runtime as untrusted semantic context, never as an API-side
 		// authorization or persistence decision.
 		const d1Facts = await searchFactsWithVisibility(context.db, {
-			orgId,
+			organizationId: orgId,
 			visibilityTediId: tediId,
 			limit: 30,
 			minConfidence: 0.3,
@@ -719,7 +804,9 @@ const opine = authed.opine
 		// graph anchors) are silently excluded, never errored.
 		const facts = (
 			await Promise.all(
-				relevantFacts.map((r) => getFactById(context.db, r.factId)),
+				relevantFacts.map((r) =>
+					getFactById(context.db, { organizationId: orgId }, r.factId),
+				),
 			)
 		).filter(
 			(f): f is Exclude<typeof f, null | undefined> =>
@@ -824,6 +911,7 @@ const feedback = authed.feedback
 	.handler(async ({ input, context }) => {
 		const updated = await recordFactUsage(
 			context.db,
+			{ organizationId: requireOrgId(context) },
 			input.factIds,
 			input.signal,
 		);

@@ -1,3 +1,4 @@
+import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
 import { refreshConsolidatedForFact } from "./observations";
 import { eq, inArray, or } from "drizzle-orm";
 import type { DbClient } from "../../client";
@@ -14,8 +15,10 @@ export type { RelationType };
 
 export async function createEdge(
 	db: DbClient,
+	tenantScope: TenantScope,
 	edge: NewMemoryEdge,
 ): Promise<MemoryEdge> {
+	tenantScope = normalizeTenantScope(tenantScope);
 	const [created] = await db.insert(memoryEdges).values(edge).returning();
 	if (!created) throw new Error(`Failed to create edge: ${edge.id}`);
 	if (
@@ -24,6 +27,7 @@ export async function createEdge(
 	) {
 		const facts = await getFactsByIds(
 			db,
+			tenantScope,
 			[edge.sourceFactId, edge.targetFactId],
 			{ includeGraphAnchors: true },
 		);
@@ -32,7 +36,7 @@ export async function createEdge(
 			facts[0]!.organizationId === facts[1]!.organizationId
 		)
 			for (const fact of facts)
-				await refreshConsolidatedForFact(db, fact.organizationId, fact.id);
+				await refreshConsolidatedForFact(db, tenantScope, fact.id);
 	}
 	return created;
 }
@@ -48,8 +52,10 @@ export async function createEdge(
  */
 export async function getEdgesForFacts(
 	db: DbClient,
+	tenantScope: TenantScope,
 	factIds: string[],
 ): Promise<MemoryEdge[]> {
+	tenantScope = normalizeTenantScope(tenantScope);
 	if (factIds.length === 0) return [];
 	const CHUNK = 80; // D1 bound-parameter cap headroom (~100)
 	const edges: MemoryEdge[] = [];
@@ -77,9 +83,11 @@ export async function getEdgesForFacts(
 
 export async function getEdgesForFact(
 	db: DbClient,
+	tenantScope: TenantScope,
 	factId: string,
 	direction: "outgoing" | "incoming" | "both" = "both",
 ): Promise<MemoryEdge[]> {
+	tenantScope = normalizeTenantScope(tenantScope);
 	if (direction === "outgoing") {
 		return db
 			.select()
@@ -102,8 +110,10 @@ export async function getEdgesForFact(
 
 export async function countEdgesForFact(
 	db: DbClient,
+	tenantScope: TenantScope,
 	factId: string,
 ): Promise<number> {
+	tenantScope = normalizeTenantScope(tenantScope);
 	const [outgoing, incoming] = await Promise.all([
 		db.$count(memoryEdges, eq(memoryEdges.sourceFactId, factId)),
 		db.$count(memoryEdges, eq(memoryEdges.targetFactId, factId)),
@@ -113,9 +123,11 @@ export async function countEdgesForFact(
 
 export async function getRelatedFactsForFacts(
 	db: DbClient,
+	tenantScope: TenantScope,
 	factIds: string[],
 	relationType?: RelationType,
 ): Promise<Map<string, MemoryFact[]>> {
+	tenantScope = normalizeTenantScope(tenantScope);
 	const uniqueFactIds = [...new Set(factIds)].filter(Boolean);
 	const relatedByFactId = new Map<string, Set<string>>(
 		uniqueFactIds.map((factId) => [factId, new Set<string>()]),
@@ -154,7 +166,7 @@ export async function getRelatedFactsForFacts(
 		return new Map(uniqueFactIds.map((factId) => [factId, []]));
 	}
 
-	const facts = await getFactsByIds(db, relatedIds);
+	const facts = await getFactsByIds(db, tenantScope, relatedIds);
 	const factById = new Map(facts.map((fact) => [fact.id, fact]));
 
 	return new Map(

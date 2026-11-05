@@ -3,6 +3,8 @@
  * CRUD operations for the knowledge graph — facts, edges, and domains.
  */
 
+import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
+
 import { and, eq, isNull, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import {
@@ -22,8 +24,9 @@ export interface MemoryGraphStats {
 
 export async function getMemoryGraphStats(
 	db: DbClient,
-	orgId: string,
+	tenantScope: TenantScope,
 ): Promise<MemoryGraphStats> {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	// Run all independent queries in parallel
 	const [edgeResult, totalDomains, byType, byDomain, avgResult] =
 		await Promise.all([

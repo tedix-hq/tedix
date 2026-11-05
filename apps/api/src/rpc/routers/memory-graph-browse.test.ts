@@ -45,7 +45,7 @@ describe("Memory browser authorization and projection", () => {
 		expect(mocks.browseMemory).toHaveBeenCalledWith(
 			{},
 			expect.objectContaining({
-				orgId: "orchard",
+				organizationId: "orchard",
 				tediId: "self",
 				view: "stale",
 				limit: 20,

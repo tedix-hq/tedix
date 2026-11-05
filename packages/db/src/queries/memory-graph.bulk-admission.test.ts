@@ -77,14 +77,18 @@ describe("assertBulkFactAdmission", () => {
 describe("createFacts", () => {
 	it("rejects >threshold agent writes before touching the database", async () => {
 		await expect(
-			createFacts(untouchableDb, makeFacts(BULK_FACT_ADMISSION_THRESHOLD + 1)),
+			createFacts(
+				untouchableDb,
+				{ organizationId: "org-1" },
+				makeFacts(BULK_FACT_ADMISSION_THRESHOLD + 1),
+			),
 		).rejects.toBeInstanceOf(BulkFactAdmissionError);
 	});
 
 	it("inserts ≤threshold writes without authority (the normal loop)", async () => {
 		const { db, inserted } = mockDb();
 		const facts = makeFacts(BULK_FACT_ADMISSION_THRESHOLD);
-		const created = await createFacts(db, facts);
+		const created = await createFacts(db, { organizationId: "org-1" }, facts);
 		expect(created).toHaveLength(facts.length);
 		expect(inserted.flat()).toHaveLength(facts.length);
 	});
@@ -92,12 +96,16 @@ describe("createFacts", () => {
 	it("inserts >threshold writes when operator authority is proven", async () => {
 		const { db, inserted } = mockDb();
 		const facts = makeFacts(BULK_FACT_ADMISSION_THRESHOLD + 5);
-		const created = await createFacts(db, facts, { operatorAuthority: true });
+		const created = await createFacts(db, { organizationId: "org-1" }, facts, {
+			operatorAuthority: true,
+		});
 		expect(created).toHaveLength(facts.length);
 		expect(inserted.flat()).toHaveLength(facts.length);
 	});
 
 	it("returns empty for an empty batch without touching the database", async () => {
-		await expect(createFacts(untouchableDb, [])).resolves.toEqual([]);
+		await expect(
+			createFacts(untouchableDb, { organizationId: "org-1" }, []),
+		).resolves.toEqual([]);
 	});
 });

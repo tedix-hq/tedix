@@ -295,7 +295,9 @@ describe("output body backfill", () => {
 			await expect(f.run(params)).rejects.toThrow();
 		}
 		expect(
-			await getOutputBodyBackfillSummary(f.db, "fictional-ridge"),
+			await getOutputBodyBackfillSummary(f.db, {
+				organizationId: "fictional-ridge",
+			}),
 		).toMatchObject({ rows: 0, missing: 0 });
 	});
 });

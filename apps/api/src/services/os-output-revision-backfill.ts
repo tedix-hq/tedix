@@ -30,7 +30,9 @@ export async function backfillOutputRevisionBodiesPage(
 ) {
 	const { organizationId } = params;
 	outputRevisionBodyKey(organizationId, "0".repeat(64));
-	const before = await getOutputBodyBackfillSummary(db, organizationId);
+	const before = await getOutputBodyBackfillSummary(db, {
+		organizationId: organizationId,
+	});
 	const after = params.after ?? 0;
 	const through = params.through ?? before.through;
 	if (after !== 0 && params.through === undefined)
@@ -127,7 +129,9 @@ export async function backfillOutputRevisionBodiesPage(
 	receipt.status = receipt.failures.length ? "failed" : "verified";
 	if (!rows.length) receipt.cursor = through;
 	await saveReceipt();
-	const summary = await getOutputBodyBackfillSummary(db, organizationId);
+	const summary = await getOutputBodyBackfillSummary(db, {
+		organizationId: organizationId,
+	});
 	return {
 		receiptKey,
 		...receipt,

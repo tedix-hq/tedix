@@ -899,7 +899,7 @@ const correct = authed.correct
 		);
 		await archiveCorrectedAgentLessons(
 			context.db,
-			organizationId,
+			{ organizationId: organizationId },
 			actor.actorId,
 			event.id,
 			new Date().toISOString(),

@@ -1,3 +1,4 @@
+import { requireOrgId } from "../org-scope";
 import type { SkillWorkflowRuntimeVariant } from "@tedix/api-contract/contracts/cognitive";
 import type { SkillRun } from "@tedix/db/queries/skill-runs";
 import type { BaseContext } from "../orpc";
@@ -154,6 +155,7 @@ export async function loadSkillWorkflowRuntimeVariants(
 		await import("@tedix/db/queries/skill-run-artifacts");
 	const artifacts = await listRunWorkflowRuntimeObservationsForRuns(
 		context.db,
+		{ organizationId: requireOrgId(context) },
 		runIds,
 	);
 	const env = context.env as { SKILL_ARTIFACTS?: R2Bucket };
@@ -191,7 +193,12 @@ export async function loadSkillWorkflowRuntimeProvenance(
 ): Promise<SkillWorkflowRuntimeProvenance> {
 	const { getRunArtifact } =
 		await import("@tedix/db/queries/skill-run-artifacts");
-	const manifest = await getRunArtifact(context.db, runId, "manifest.json");
+	const manifest = await getRunArtifact(
+		context.db,
+		{ organizationId: requireOrgId(context) },
+		runId,
+		"manifest.json",
+	);
 	return parseSkillWorkflowRuntimeProvenance(
 		manifest ? await resolveArtifactText(context, manifest) : null,
 	);

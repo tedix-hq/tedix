@@ -270,7 +270,7 @@ export async function getSessionLessons(
 	const actor = observedLearningActor(context);
 	const rows = await listApprovedAgentLessons(
 		context.db,
-		organizationId,
+		{ organizationId: organizationId },
 		AGENT_LESSON_TOPIC_PREFIX,
 		{ viewerUserId: actor.actorType === "user" ? actor.actorId : null },
 	);
@@ -424,7 +424,7 @@ export async function listNotebookLessons(
 	const viewerUserId = actor.actorType === "user" ? actor.actorId : null;
 	const rows = await listApprovedAgentLessons(
 		context.db,
-		organizationId,
+		{ organizationId: organizationId },
 		AGENT_LESSON_TOPIC_PREFIX,
 		{ viewerUserId },
 	);

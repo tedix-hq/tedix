@@ -147,6 +147,7 @@ async function fixture() {
 		await storeFile(r2, resourceId, title);
 		await createOsOutput(
 			db,
+			{ organizationId: ORG },
 			{
 				...accountability,
 				id: outputId,

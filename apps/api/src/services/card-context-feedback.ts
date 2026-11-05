@@ -219,8 +219,16 @@ async function learnCardContext(
 	if (examples.length < policy.minimumExamples) return;
 	const topicKey = `learning-feed:card-context:${classId}:${chip}:user:${actorId}`;
 	const [current, archived] = await Promise.all([
-		findCurrentFactsByTopicKey(context.db, organizationId, topicKey),
-		listArchivedLearningFeedLessons(context.db, organizationId, [topicKey]),
+		findCurrentFactsByTopicKey(
+			context.db,
+			{ organizationId: organizationId },
+			topicKey,
+		),
+		listArchivedLearningFeedLessons(
+			context.db,
+			{ organizationId: organizationId },
+			[topicKey],
+		),
 	]);
 	// Respect edits, rejection and removal in Brain; repeated clicks cannot recreate a rule.
 	if (current.length || archived.length) return;
@@ -243,7 +251,7 @@ async function learnCardContext(
 	if (!claim.ok) return;
 	const evidence = await decisionLessonEvidence(
 		context.db,
-		organizationId,
+		{ organizationId: organizationId },
 		examples.map((event) => event.id),
 	);
 	if (evidence.state !== "live") return;
@@ -278,7 +286,7 @@ async function learnCardContext(
 	});
 	const domain = await getOrCreateDomain(
 		context.db,
-		organizationId,
+		{ organizationId: organizationId },
 		"operations",
 	);
 	await createFact(context.db, {

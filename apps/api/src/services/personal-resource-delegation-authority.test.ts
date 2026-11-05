@@ -252,8 +252,10 @@ describe("explicit personal-resource delegation authority", () => {
 		await expect(
 			authorizePersonalResourceDelegation(context(true), use),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
-		marker.mockImplementation(async (_db, runId, path) =>
-			runId === id && path === "epochs/2/started.json"
+		marker.mockImplementation(async (_db, scope, runId, path) =>
+			scope.organizationId === id &&
+			runId === id &&
+			path === "epochs/2/started.json"
 				? ({ outcome: "success" } as never)
 				: null,
 		);

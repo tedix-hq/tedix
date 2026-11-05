@@ -79,7 +79,8 @@ function setup(plans: string[] = []) {
 			ORG,
 			"learning-feed:decision:orchard:general:database",
 		);
-	const read = () => listApprovedAgentLessons(db, ORG, "learning-feed:");
+	const read = () =>
+		listApprovedAgentLessons(db, { organizationId: ORG }, "learning-feed:");
 	return { db, sqlite, fact, event, lesson, read };
 }
 
@@ -88,13 +89,17 @@ describe("lesson evidence lifecycle", () => {
 		const plans: string[] = [];
 		const { db, event } = setup(plans);
 		event("decision", "Always verify before release.");
-		const evidence = await decisionLessonEvidence(db, ORG, ["decision"]);
+		const evidence = await decisionLessonEvidence(db, { organizationId: ORG }, [
+			"decision",
+		]);
 		const rows = ["lesson-a", "lesson-b"].map((id) => ({
 			id,
 			metadata: { learningFeed: { evidence } },
 		}));
 		plans.length = 0;
-		expect(await filterEvidenceBackedLessons(db, ORG, rows)).toEqual(rows);
+		expect(
+			await filterEvidenceBackedLessons(db, { organizationId: ORG }, rows),
+		).toEqual(rows);
 		expect(plans.filter((plan) => plan.startsWith("SEARCH c "))).toHaveLength(
 			1,
 		);
@@ -106,9 +111,10 @@ describe("lesson evidence lifecycle", () => {
 			const { db, event } = setup(plans);
 			const ids = Array.from({ length: count }, (_, i) => `decision-${i}`);
 			for (const id of ids) event(id, "Always verify before release.");
-			expect((await decisionLessonEvidence(db, ORG, ids)).supportCount).toBe(
-				count,
-			);
+			expect(
+				(await decisionLessonEvidence(db, { organizationId: ORG }, ids))
+					.supportCount,
+			).toBe(count);
 			expect(plans).toContainEqual(
 				expect.stringMatching(
 					/SEARCH c USING INDEX idx_learning_event_target_occurred .*target_type=\? AND target_id=\? AND occurred_at>\?/,
@@ -212,7 +218,7 @@ describe("lesson evidence lifecycle", () => {
 			"2026-10-01T00:00:00Z",
 			"request-1",
 		);
-		const evidence = await decisionLessonEvidence(db, ORG, [
+		const evidence = await decisionLessonEvidence(db, { organizationId: ORG }, [
 			"decision-1",
 			"decision-1",
 		]);
@@ -233,7 +239,10 @@ describe("lesson evidence lifecycle", () => {
 		expect(await read()).toEqual([]);
 		expect(
 			(
-				await decisionLessonEvidence(db, ORG, ["decision-1", "correction-2"])
+				await decisionLessonEvidence(db, { organizationId: ORG }, [
+					"decision-1",
+					"correction-2",
+				])
 			).sources.map((s) => s.id),
 		).toEqual(["correction-2"]);
 	});
@@ -270,21 +279,24 @@ describe("lesson evidence lifecycle", () => {
 					`UPDATE learning_interaction_events SET ${column} = ? WHERE id = 'correction'`,
 				)
 				.run(value);
-			expect(await decisionLessonEvidence(db, ORG, ["original"])).toMatchObject(
-				{
-					state: "live",
-					supportCount: 1,
-					sources: [
-						{ kind: "decision", id: "original", quote: "Original answer." },
-					],
-				},
-			);
+			expect(
+				await decisionLessonEvidence(db, { organizationId: ORG }, ["original"]),
+			).toMatchObject({
+				state: "live",
+				supportCount: 1,
+				sources: [
+					{ kind: "decision", id: "original", quote: "Original answer." },
+				],
+			});
 		},
 	);
 	it("chunks more than 100 cited decisions under D1's parameter ceiling", async () => {
 		const { db, event } = setup();
 		const ids = Array.from({ length: 123 }, (_, i) => `event-${i}`);
 		ids.forEach((id) => event(id, `Always verify ${id} before release.`));
-		expect((await decisionLessonEvidence(db, ORG, ids)).supportCount).toBe(123);
+		expect(
+			(await decisionLessonEvidence(db, { organizationId: ORG }, ids))
+				.supportCount,
+		).toBe(123);
 	});
 });

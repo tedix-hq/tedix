@@ -343,15 +343,19 @@ describe("governed gadget dispatch", () => {
 		)
 			.bind(execution.id)
 			.run();
-		await recordRunArtifact(createDbClient(env.DB), {
-			runId: execution.id,
-			path: "outputs/calendar.json",
-			value: {
-				bytesBase64Encoded: btoa("BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n"),
-				mimeType: "text/calendar",
+		await recordRunArtifact(
+			createDbClient(env.DB),
+			{ organizationId: "org-1" },
+			{
+				runId: execution.id,
+				path: "outputs/calendar.json",
+				value: {
+					bytesBase64Encoded: btoa("BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n"),
+					mimeType: "text/calendar",
+				},
+				outcome: "success",
 			},
-			outcome: "success",
-		});
+		);
 
 		const exported = await client.executions.export({
 			...seeded,

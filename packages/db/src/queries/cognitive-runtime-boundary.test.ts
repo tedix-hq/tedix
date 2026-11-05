@@ -515,6 +515,7 @@ describe("cognitive runtime query boundary", () => {
 
 		await expect(
 			listTediConversationTranscriptRows(db, {
+				organizationId: "org-1",
 				tediId: "tedi-1",
 				conversationId: "agent:main:one",
 				limit: 10,
@@ -612,6 +613,7 @@ describe("cognitive runtime query boundary", () => {
 
 		await expect(
 			getLatestTediConversationCompactionEvent(db, {
+				organizationId: "org-1",
 				tediId: "tedi-1",
 				conversationId: "agent:main:one",
 			}),
@@ -732,7 +734,11 @@ describe("cognitive runtime query boundary", () => {
 			createdAt: "2026-08-01T01:00:00.000Z",
 		});
 		await expect(
-			getTediArtifact(db, { tediId: "tedi-1", artifactId: "artifact-1" }),
+			getTediArtifact(db, {
+				organizationId: "org-1",
+				tediId: "tedi-1",
+				artifactId: "artifact-1",
+			}),
 		).resolves.toMatchObject({
 			organizationId: "org-1",
 			tediId: "tedi-1",
@@ -756,7 +762,11 @@ describe("cognitive runtime query boundary", () => {
 			}),
 		).resolves.toBeNull();
 		await expect(
-			listTediArtifacts(db, { tediId: "tedi-2", limit: 10 }),
+			listTediArtifacts(db, {
+				organizationId: "org-1",
+				tediId: "tedi-2",
+				limit: 10,
+			}),
 		).resolves.toEqual([]);
 		const race = await Promise.allSettled([
 			upsertTediArtifact(db, {

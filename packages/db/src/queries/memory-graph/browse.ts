@@ -1,9 +1,9 @@
+import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
 import { and, asc, desc, eq, isNull, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { memoryFacts } from "../../schema/memory-graph";
 
-interface BrowseMemoryParams {
-	orgId: string;
+interface BrowseMemoryParams extends TenantScope {
 	tediId?: string;
 	view: "observations" | "stale" | "contradictions" | "gaps";
 	search?: string;
@@ -18,10 +18,14 @@ export async function browseMemory(
 	db: DbQueryClient,
 	input: BrowseMemoryParams,
 ) {
+	input = { ...input, ...normalizeTenantScope(input) };
 	const visible = input.tediId
 		? sql`(${memoryFacts.visibility} IN ('org', 'shared') OR ${memoryFacts.tediId} = ${input.tediId})`
 		: sql`${memoryFacts.visibility} IN ('org', 'shared')`;
-	const filters = [eq(memoryFacts.organizationId, input.orgId), visible];
+	const filters = [
+		eq(memoryFacts.organizationId, input.organizationId),
+		visible,
+	];
 	if (input.view === "stale") {
 		// Keep the same age boundary as memory health, independent of review status.
 		const cutoff = new Date(
@@ -36,7 +40,7 @@ export async function browseMemory(
 		filters.push(sql`EXISTS (
 			SELECT 1 FROM memory_edges e JOIN memory_facts target ON target.id = e.target_fact_id
 			WHERE e.source_fact_id = ${memoryFacts.id} AND e.relation_type = 'contradicts'
-			AND target.organization_id = ${input.orgId}
+			AND target.organization_id = ${input.organizationId}
 			AND (target.visibility IN ('org', 'shared') OR target.tedi_id = ${input.tediId ?? ""})
 		)`);
 	} else {

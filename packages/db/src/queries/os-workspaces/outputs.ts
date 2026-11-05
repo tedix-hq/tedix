@@ -1,3 +1,4 @@
+import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
 import { and, desc, eq, getColumns, sql } from "drizzle-orm";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import type { DbQueryClient } from "../../query-client";
@@ -19,13 +20,11 @@ import {
 	osWorkspaceChildVisibleToPredicate,
 } from "./workspaces";
 
-export interface OsOutputScopeParams {
-	organizationId: string;
+export interface OsOutputScopeParams extends TenantScope {
 	outputId: string;
 }
 
 export interface ListOsOutputsOptions {
-	workspaceId?: string;
 	kind?: OsOutputRow["kind"];
 	status?: OsOutputRow["status"];
 	limit?: number;
@@ -43,7 +42,7 @@ export interface OsOutputLibraryRow {
 	workspace: OsWorkspaceRow | null;
 }
 
-export interface CreateOsOutputRevisionParams {
+export interface CreateOsOutputRevisionParams extends TenantScope {
 	/** Caller-generated UUID for the new revision row. */
 	id: string;
 	organizationId: string;
@@ -83,9 +82,18 @@ export type CreateOsOutputRevisionResult =
  */
 export async function createOsOutput(
 	db: DbQueryClient,
+	tenantScope: TenantScope,
 	output: NewOsOutputRow,
 	revision: NewOsOutputRevisionRow,
 ): Promise<{ output: OsOutputRow; revision: OsOutputRevisionRow }> {
+	const { organizationId, workspaceId } = normalizeTenantScope(tenantScope);
+	if (
+		output.organizationId !== organizationId ||
+		revision.organizationId !== organizationId ||
+		(workspaceId !== undefined && output.workspaceId !== workspaceId)
+	) {
+		throw new Error("Output and revision must belong to the tenant scope");
+	}
 	const [outputRows, revisionRows] = await db.batch([
 		db.insert(osOutputs).values(output).returning(),
 		db.insert(osOutputRevisions).values(revision).returning(),
@@ -102,6 +110,7 @@ export async function getOsOutput(
 	db: DbQueryClient,
 	params: OsOutputScopeParams,
 ): Promise<OsOutputRow | undefined> {
+	params = { ...params, ...normalizeTenantScope(params) };
 	const [row] = await db
 		.select()
 		.from(osOutputs)
@@ -122,8 +131,13 @@ export async function getOsOutput(
  */
 export async function getActiveSheetByTitle(
 	db: DbQueryClient,
-	params: { organizationId: string; workspaceId: string; title: string },
+	params: {
+		organizationId: string;
+		workspaceId: string;
+		title: string;
+	} & TenantScope,
 ): Promise<{ output: OsOutputRow; revision: OsOutputRevisionRow } | undefined> {
+	params = { ...params, ...normalizeTenantScope(params) };
 	const [row] = await db
 		.select({
 			output: prefixedColumns(osOutputs, "output"),
@@ -154,10 +168,11 @@ export async function getActiveSheetByTitle(
 
 export async function listOsOutputs(
 	db: DbQueryClient,
-	organizationId: string,
+	tenantScope: TenantScope,
 	viewer: OsWorkspaceViewer,
 	options: ListOsOutputsOptions = {},
 ): Promise<OsOutputRow[]> {
+	const { organizationId } = normalizeTenantScope(tenantScope);
 	const conditions = [
 		eq(osOutputs.organizationId, organizationId),
 		osWorkspaceChildVisibleToPredicate(
@@ -167,8 +182,8 @@ export async function listOsOutputs(
 			viewer,
 		),
 	];
-	if (options.workspaceId) {
-		conditions.push(eq(osOutputs.workspaceId, options.workspaceId));
+	if (tenantScope.workspaceId) {
+		conditions.push(eq(osOutputs.workspaceId, tenantScope.workspaceId));
 	}
 	if (options.kind) {
 		conditions.push(eq(osOutputs.kind, options.kind));
@@ -192,13 +207,11 @@ export async function listOsOutputs(
  */
 export async function listOsOutputLibraryRows(
 	db: DbQueryClient,
-	organizationId: string,
+	tenantScope: TenantScope,
 	viewer: OsWorkspaceViewer,
-	options: Pick<
-		ListOsOutputsOptions,
-		"workspaceId" | "kind" | "status" | "limit"
-	> = {},
+	options: Pick<ListOsOutputsOptions, "kind" | "status" | "limit"> = {},
 ): Promise<OsOutputLibraryRow[]> {
+	const { organizationId } = normalizeTenantScope(tenantScope);
 	const conditions = [
 		eq(osOutputs.organizationId, organizationId),
 		osWorkspaceChildVisibleToPredicate(
@@ -208,8 +221,8 @@ export async function listOsOutputLibraryRows(
 			viewer,
 		),
 	];
-	if (options.workspaceId) {
-		conditions.push(eq(osOutputs.workspaceId, options.workspaceId));
+	if (tenantScope.workspaceId) {
+		conditions.push(eq(osOutputs.workspaceId, tenantScope.workspaceId));
 	}
 	if (options.kind) conditions.push(eq(osOutputs.kind, options.kind));
 	if (options.status) conditions.push(eq(osOutputs.status, options.status));
@@ -256,6 +269,7 @@ export async function updateOsOutput(
 	params: OsOutputScopeParams,
 	patch: UpdateOsOutputPatch,
 ): Promise<OsOutputRow | undefined> {
+	params = { ...params, ...normalizeTenantScope(params) };
 	const [row] = await db
 		.update(osOutputs)
 		.set({ ...patch, updatedAt: new Date().toISOString() })
@@ -273,6 +287,7 @@ export async function deleteOsOutput(
 	db: DbQueryClient,
 	params: OsOutputScopeParams,
 ): Promise<boolean> {
+	params = { ...params, ...normalizeTenantScope(params) };
 	const result = await db
 		.delete(osOutputs)
 		.where(
@@ -286,8 +301,9 @@ export async function deleteOsOutput(
 
 export async function getOsOutputRevision(
 	db: DbQueryClient,
-	params: { organizationId: string; revisionId: string },
+	params: { organizationId: string; revisionId: string } & TenantScope,
 ): Promise<OsOutputRevisionRow | undefined> {
+	params = { ...params, ...normalizeTenantScope(params) };
 	const [row] = await db
 		.select()
 		.from(osOutputRevisions)
@@ -304,8 +320,13 @@ export async function getOsOutputRevision(
 /** Resolve one immutable revision by its per-output display number. */
 export async function getOsOutputRevisionByNumber(
 	db: DbQueryClient,
-	params: { organizationId: string; outputId: string; revision: number },
+	params: {
+		organizationId: string;
+		outputId: string;
+		revision: number;
+	} & TenantScope,
 ): Promise<OsOutputRevisionRow | undefined> {
+	params = { ...params, ...normalizeTenantScope(params) };
 	const [row] = await db
 		.select()
 		.from(osOutputRevisions)
@@ -327,6 +348,7 @@ export async function listOsOutputRevisions(
 	params: OsOutputScopeParams,
 	options: { limit?: number; beforeRevision?: number } = {},
 ): Promise<OsOutputRevisionMetadataRow[]> {
+	params = { ...params, ...normalizeTenantScope(params) };
 	const { content: _content, ...metadata } = getColumns(osOutputRevisions);
 	return db
 		.select(metadata)
@@ -357,6 +379,7 @@ export async function createOsOutputRevision(
 	db: DbQueryClient,
 	params: CreateOsOutputRevisionParams,
 ): Promise<CreateOsOutputRevisionResult> {
+	params = { ...params, ...normalizeTenantScope(params) };
 	const now = new Date().toISOString();
 	const [base] = await db
 		.select({
@@ -402,6 +425,7 @@ export async function createOsOutputRevision(
 		(accessEnvelope ?? null) === (base.accessEnvelope ?? null)
 	) {
 		const current = await getOsOutputRevision(db, {
+			workspaceId: params.workspaceId,
 			organizationId: params.organizationId,
 			revisionId: base.id,
 		});
@@ -469,6 +493,7 @@ export async function createOsOutputRevision(
 		return { ok: true, revision };
 	}
 	const output = await getOsOutput(db, {
+		workspaceId: params.workspaceId,
 		organizationId: params.organizationId,
 		outputId: params.outputId,
 	});
@@ -481,9 +506,10 @@ export async function createOsOutputRevision(
 /** Every revision is a GC root, including history and inline-backed revisions. */
 export async function referencedOutputBodyHashes(
 	db: DbQueryClient,
-	organizationId: string,
+	tenantScope: TenantScope,
 	hashes: readonly string[],
 ): Promise<Set<string>> {
+	const { organizationId } = normalizeTenantScope(tenantScope);
 	if (hashes.length === 0) return new Set();
 	const rows = await db
 		.selectDistinct({ hash: osOutputRevisions.contentSha256 })

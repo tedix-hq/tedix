@@ -76,11 +76,9 @@ describe("getTopPlatformFacts", () => {
 			{ id: "core-high", priority: "core", confidence: 0.9 },
 		]);
 
-		expect(ids(await getTopPlatformFacts(db, "org-1"))).toEqual([
-			"core-high",
-			"core-low",
-			"active-high",
-		]);
+		expect(
+			ids(await getTopPlatformFacts(db, { organizationId: "org-1" })),
+		).toEqual(["core-high", "core-low", "active-high"]);
 	});
 
 	it("breaks confidence ties on last-accessed, most recent first", async () => {
@@ -89,10 +87,9 @@ describe("getTopPlatformFacts", () => {
 			{ id: "fresh", confidence: 0.7, lastAccessedAt: "2026-07-01T00:00:00Z" },
 		]);
 
-		expect(ids(await getTopPlatformFacts(db, "org-1"))).toEqual([
-			"fresh",
-			"stale",
-		]);
+		expect(
+			ids(await getTopPlatformFacts(db, { organizationId: "org-1" })),
+		).toEqual(["fresh", "stale"]);
 	});
 
 	it("excludes archived facts and background priority", async () => {
@@ -102,7 +99,9 @@ describe("getTopPlatformFacts", () => {
 			{ id: "background", priority: "background", confidence: 0.99 },
 		]);
 
-		expect(ids(await getTopPlatformFacts(db, "org-1"))).toEqual(["keep"]);
+		expect(
+			ids(await getTopPlatformFacts(db, { organizationId: "org-1" })),
+		).toEqual(["keep"]);
 	});
 
 	it("applies the limit ACROSS both priorities, not per priority", async () => {
@@ -114,11 +113,15 @@ describe("getTopPlatformFacts", () => {
 			{ id: "active-b", priority: "active", confidence: 0.6 },
 		]);
 
-		expect(ids(await getTopPlatformFacts(db, "org-1", { limit: 3 }))).toEqual([
-			"core-a",
-			"core-b",
-			"active-a",
-		]);
+		expect(
+			ids(
+				await getTopPlatformFacts(
+					db,
+					{ organizationId: "org-1" },
+					{ limit: 3 },
+				),
+			),
+		).toEqual(["core-a", "core-b", "active-a"]);
 	});
 
 	it("admits org-wide facts alongside the requested tedi's own", async () => {
@@ -129,7 +132,13 @@ describe("getTopPlatformFacts", () => {
 		]);
 
 		expect(
-			ids(await getTopPlatformFacts(db, "org-1", { tediId: "tedi-1" })),
+			ids(
+				await getTopPlatformFacts(
+					db,
+					{ organizationId: "org-1" },
+					{ tediId: "tedi-1" },
+				),
+			),
 		).toEqual(["mine", "org-wide"]);
 	});
 });

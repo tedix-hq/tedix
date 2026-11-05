@@ -397,9 +397,9 @@ async function workspaceShareableFiles(
 ) {
 	const outputs = await listOsOutputs(
 		db,
-		scope.organizationId,
+		{ workspaceId: scope.workspaceId, organizationId: scope.organizationId },
 		{ userIds: [], workspaceIds: [scope.workspaceId] },
-		{ workspaceId: scope.workspaceId, status: "active", limit: 200 },
+		{ status: "active", limit: 200 },
 	);
 	const checked = await Promise.all(
 		outputs.map((output) => shareableOutputRevision(db, scope, output.id)),

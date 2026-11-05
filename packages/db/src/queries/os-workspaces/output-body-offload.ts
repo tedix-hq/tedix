@@ -1,3 +1,4 @@
+import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
 import { and, eq, isNull, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { osOutputRevisions } from "../../schema/os-workspaces";
@@ -75,8 +76,9 @@ export async function listInlineOutputBodyCandidates(
 /** One row's inline body, read on its own so a tick never holds many bodies. */
 export async function getInlineOutputBody(
 	db: DbQueryClient,
-	params: { rowid: number; id: string },
+	params: { rowid: number; id: string } & TenantScope,
 ): Promise<{ organizationId: string; content: string } | undefined> {
+	params = { ...params, ...normalizeTenantScope(params) };
 	const [row] = await db
 		.select({
 			organizationId: osOutputRevisions.organizationId,
@@ -84,7 +86,11 @@ export async function getInlineOutputBody(
 		})
 		.from(osOutputRevisions)
 		.where(
-			and(sql`${rowid} = ${params.rowid}`, eq(osOutputRevisions.id, params.id)),
+			and(
+				sql`${rowid} = ${params.rowid}`,
+				eq(osOutputRevisions.id, params.id),
+				eq(osOutputRevisions.organizationId, params.organizationId),
+			),
 		)
 		.limit(1);
 	return row;
@@ -105,8 +111,9 @@ export async function clearOffloadedOutputBody(
 		bodyR2Key: string;
 		contentSha256: string;
 		contentBytes: number;
-	},
+	} & TenantScope,
 ) {
+	params = { ...params, ...normalizeTenantScope(params) };
 	return db
 		.update(osOutputRevisions)
 		.set({

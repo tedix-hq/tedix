@@ -64,7 +64,7 @@ export async function assembleContext(
 		() =>
 			Promise.all(
 				(params.domains ?? []).map((name) =>
-					getDomainByName(db, params.orgId, name),
+					getDomainByName(db, { organizationId: params.orgId }, name),
 				),
 			),
 		100,
@@ -76,7 +76,7 @@ export async function assembleContext(
 	if (params.domains?.length && domainIds.size === 0)
 		return { context: "", factCount: 0, sources: [] };
 	const ranked = await recallMemoryFacts(db, {
-		orgId: params.orgId,
+		organizationId: params.orgId,
 		tediId: params.tediId,
 		query: params.query,
 		domainIds: [...domainIds],
@@ -130,7 +130,11 @@ export async function assembleContext(
 				confidence: fact.confidence,
 				provenance: provenanceById.get(fact.id)!,
 			});
-			void recordFactAccess(db, fact.id).catch(() => undefined);
+			void recordFactAccess(
+				db,
+				{ organizationId: params.orgId },
+				fact.id,
+			).catch(() => undefined);
 		}
 		if (lines.length) sections.push(`## ${title}\n${lines.join("\n")}`);
 	}

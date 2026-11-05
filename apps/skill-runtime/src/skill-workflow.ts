@@ -445,6 +445,7 @@ export const SkillWorkflow = createDynamicWorkflowEntrypoint<SkillWorkflowEnv>(
 								},
 								async () =>
 									enforceGroundingPolicy({
+										organizationId: snapshot.orgId,
 										db: env.DB,
 										artifacts: env.SKILL_ARTIFACTS,
 										runId: meta.runId!,

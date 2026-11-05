@@ -1,3 +1,4 @@
+import type { TenantScope } from "@tedix/db/tenant-scope";
 import { SkillWorkflowConnectionRecoverySchema } from "@tedix/api-contract/schemas/cognitive";
 import { getRunArtifact } from "@tedix/db/queries/skill-run-artifacts";
 import type { DbClient } from "@tedix/db/client";
@@ -20,10 +21,11 @@ export async function requirePendingConnectionRecovery(
 		executionEpoch: number;
 		type: string;
 		payload: unknown;
-	},
+	} & TenantScope,
 ) {
 	const artifact = await getRunArtifact(
 		db,
+		input,
 		input.runId,
 		connectionRecoveryPath(input.executionEpoch, input.type),
 	);

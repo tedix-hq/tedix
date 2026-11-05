@@ -115,7 +115,11 @@ export function registerSkillMediaRoutes(
 			await import("@tedix/db/client");
 		const db = createDbClient(c.env.DB);
 		configureLogStore(db, c.env);
-		const artifact = await getRunArtifact(db, runId, path);
+		const { resolveRunArtifactTenantScope } =
+			await import("@tedix/db/queries/skill-run-artifacts");
+		const scope = await resolveRunArtifactTenantScope(db, runId);
+		if (!scope) return c.text("Not found", 404);
+		const artifact = await getRunArtifact(db, scope, runId, path);
 		if (!artifact) return c.text("Artifact not found", 404);
 
 		const media = await readSkillMedia(c.env, artifact);
@@ -210,7 +214,12 @@ export function registerSkillMediaRoutes(
 
 		const { getRunArtifact } =
 			await import("@tedix/db/queries/skill-run-artifacts");
-		const artifact = await getRunArtifact(db, runId, path);
+		const artifact = await getRunArtifact(
+			db,
+			{ organizationId: orgId },
+			runId,
+			path,
+		);
 		if (!artifact) return c.text("Artifact not found", 404);
 
 		const media = await readSkillMedia(c.env, artifact);

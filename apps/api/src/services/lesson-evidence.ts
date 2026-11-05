@@ -31,7 +31,7 @@ export async function holdLessonsForCorrection(
 	if (correctionWords.size < 2) return;
 	const rows = await listCurrentLearningFeedLessons(
 		db,
-		event.organizationId,
+		{ organizationId: event.organizationId },
 		"learning-feed:",
 		500,
 		event.scopeId,
@@ -70,7 +70,7 @@ export async function holdLessonsForCorrection(
 		)
 			await holdLessonForRedistillation(
 				db,
-				event.organizationId,
+				{ organizationId: event.organizationId },
 				row.id,
 				row.metadata,
 			);

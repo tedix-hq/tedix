@@ -1,3 +1,4 @@
+import { type TenantScope, normalizeTenantScope } from "../tenant-scope";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import {
 	and,
@@ -51,8 +52,9 @@ export async function listHomeRunFinishedEvents(
 		runId?: string;
 		limit: number;
 		head?: boolean;
-	},
+	} & TenantScope,
 ) {
+	input = { ...input, ...normalizeTenantScope(input) };
 	// Group repeated ledger writes into one stable notice per run/status.
 	// Child ACLs come from the parent conversation, including plan branches.
 	// CROSS JOIN expands plan assignments before probing the child-run index;
@@ -152,8 +154,9 @@ export async function listKernelRuntimeEvents(
 		order?: "asc" | "desc";
 		limit?: number;
 		offset?: number;
-	},
+	} & TenantScope,
 ): Promise<KernelRuntimeEvent[]> {
+	input = { ...input, ...normalizeTenantScope(input) };
 	if (input.kinds?.length === 0) return [];
 	// Rows older than the retention keep window live in the logs database.
 	// Each store applies the same filters; offset applies to the merged set.
@@ -228,8 +231,9 @@ export async function listTediRuntimeEvents(
 		order?: "asc" | "desc";
 		limit?: number;
 		offset?: number;
-	},
+	} & TenantScope,
 ): Promise<TediRuntimeEventRow[]> {
+	input = { ...input, ...normalizeTenantScope(input) };
 	if (input.kinds?.length === 0) return [];
 	if (input.runIds?.length === 0) return [];
 	const pages = await readLogStores(db, (store) =>
@@ -258,7 +262,11 @@ export async function listTediRuntimeEvents(
 		const runScoped = Boolean(runId) && !input.runIdPrefix;
 		const conditions = [
 			...(input.organizationId
-				? [unindexedOrganizationId(input.organizationId)]
+				? [
+						runScoped
+							? unindexedOrganizationId(input.organizationId)
+							: eq(tediRuntimeEvents.organizationId, input.organizationId),
+					]
 				: []),
 			eq(tediRuntimeEvents.tediId, input.tediId),
 			...(runId ? [eq(tediRuntimeEvents.runId, runId)] : []),
@@ -327,8 +335,9 @@ export async function listTediArtifacts(
 		tediId: string;
 		runIds: string[];
 		limit: number;
-	},
+	} & TenantScope,
 ): Promise<TediArtifactRow[]> {
+	input = { ...input, ...normalizeTenantScope(input) };
 	if (input.runIds.length === 0) return [];
 	const rows: TediArtifactRow[] = [];
 	for (const chunk of chunkForBoundParams(
@@ -361,11 +370,16 @@ export async function listTediArtifacts(
 	return rows.slice(0, input.limit);
 }
 
-/** Read one artifact by its stable id and owning tedi, optionally org-scoped. */
+/** Read one artifact by its stable id, organization and owning tedi. */
 export async function getTediArtifactById(
 	db: DbClient,
-	input: { organizationId?: string; tediId: string; artifactId: string },
+	input: {
+		organizationId?: string;
+		tediId: string;
+		artifactId: string;
+	} & TenantScope,
 ): Promise<TediArtifactRow | undefined> {
+	input = { ...input, ...normalizeTenantScope(input) };
 	const [row] = await db
 		.select()
 		.from(tediArtifacts)
@@ -396,8 +410,13 @@ export async function getChatDispatchMappingByIdempotencyKey(
 
 export async function countTediRuntimeEvents(
 	db: DbClient,
-	input: { organizationId: string; tediId: string; runId: string },
+	input: {
+		organizationId: string;
+		tediId: string;
+		runId: string;
+	} & TenantScope,
 ): Promise<number> {
+	input = { ...input, ...normalizeTenantScope(input) };
 	return db.$count(
 		tediRuntimeEvents,
 		and(
@@ -410,9 +429,11 @@ export async function countTediRuntimeEvents(
 
 export async function updateKernelRuntimeEventMetadata(
 	db: DbClient,
+	tenantScope: TenantScope,
 	id: string,
 	runtimeMetadata: Record<string, JsonValue>,
 ): Promise<void> {
+	const { organizationId } = normalizeTenantScope(tenantScope);
 	const metadataTraceId = runtimeMetadata.traceId;
 	await db
 		.update(kernelRuntimeEvents)
@@ -420,7 +441,12 @@ export async function updateKernelRuntimeEventMetadata(
 			runtimeMetadata,
 			traceId: typeof metadataTraceId === "string" ? metadataTraceId : null,
 		})
-		.where(eq(kernelRuntimeEvents.id, id));
+		.where(
+			and(
+				eq(kernelRuntimeEvents.organizationId, organizationId),
+				eq(kernelRuntimeEvents.id, id),
+			),
+		);
 }
 
 function resolveEventTraceId(value: NewKernelRuntimeEvent): string | undefined {
@@ -441,8 +467,9 @@ function resolveEventTraceId(value: NewKernelRuntimeEvent): string | undefined {
  */
 export function buildInsertKernelRuntimeEventIfAbsentStatement(
 	db: DbClient,
-	value: NewKernelRuntimeEvent,
+	value: NewKernelRuntimeEvent & TenantScope,
 ) {
+	value = { ...value, ...normalizeTenantScope(value) };
 	if (value.causeEventId !== undefined && value.causeEventId !== null)
 		throw new Error(
 			"buildInsertKernelRuntimeEventIfAbsentStatement: cause-bound events are not batch-composable",
@@ -465,8 +492,9 @@ export function buildInsertKernelRuntimeEventIfAbsentStatement(
  */
 export function buildInsertKernelRuntimeEventStatement(
 	db: DbClient,
-	value: NewKernelRuntimeEvent,
+	value: NewKernelRuntimeEvent & TenantScope,
 ) {
+	value = { ...value, ...normalizeTenantScope(value) };
 	if (value.causeEventId === undefined || value.causeEventId === null)
 		return buildInsertKernelRuntimeEventIfAbsentStatement(db, value);
 	if (value.causeEventId.length === 0)
@@ -541,8 +569,9 @@ export function buildInsertKernelRuntimeEventStatement(
 
 export async function insertKernelRuntimeEventIfAbsent(
 	db: DbClient,
-	value: NewKernelRuntimeEvent,
+	value: NewKernelRuntimeEvent & TenantScope,
 ): Promise<{ row: KernelRuntimeEvent | undefined; inserted: boolean }> {
+	value = { ...value, ...normalizeTenantScope(value) };
 	const rows: KernelRuntimeEvent[] =
 		await buildInsertKernelRuntimeEventStatement(db, value);
 	if (rows[0]) return { row: rows[0], inserted: true };
@@ -557,8 +586,9 @@ export async function insertKernelRuntimeEventIfAbsent(
  */
 export async function resolveReplayedKernelRuntimeEvent(
 	db: DbClient,
-	value: NewKernelRuntimeEvent,
+	value: NewKernelRuntimeEvent & TenantScope,
 ): Promise<{ row: KernelRuntimeEvent | undefined; inserted: boolean }> {
+	value = { ...value, ...normalizeTenantScope(value) };
 	const [existing] = await db
 		.select()
 		.from(kernelRuntimeEvents)
@@ -583,17 +613,24 @@ export async function resolveReplayedKernelRuntimeEvent(
 
 export async function getKernelRuntimeEventById(
 	db: DbClient,
+	tenantScope: TenantScope,
 	id: string,
 ): Promise<KernelRuntimeEvent | undefined> {
+	const { organizationId } = normalizeTenantScope(tenantScope);
 	const pages = await readLogStores(db, async (store) => {
-		const row = await getKernelRuntimeEventById(store, id);
+		const row = await getKernelRuntimeEventById(store, tenantScope, id);
 		return row ? [row] : [];
 	});
 	if (pages) return mergeLogStoreRows(pages, { limit: 1 })[0];
 	const [row] = await db
 		.select()
 		.from(kernelRuntimeEvents)
-		.where(eq(kernelRuntimeEvents.id, id))
+		.where(
+			and(
+				eq(kernelRuntimeEvents.organizationId, organizationId),
+				eq(kernelRuntimeEvents.id, id),
+			),
+		)
 		.limit(1);
 	return row;
 }
@@ -604,8 +641,9 @@ export async function countKernelConversationEventsByKind(
 		organizationId: string;
 		conversationId: string;
 		kinds: readonly TediRuntimeEventKind[];
-	},
+	} & TenantScope,
 ): Promise<Map<TediRuntimeEventKind, number>> {
+	input = { ...input, ...normalizeTenantScope(input) };
 	if (input.kinds.length === 0) return new Map();
 	const rows = await db
 		.select({
@@ -631,8 +669,9 @@ export async function countKernelConversationTitleGuardEvents(
 	input: {
 		organizationId: string;
 		conversationId: string;
-	},
+	} & TenantScope,
 ): Promise<Map<TediRuntimeEventKind, number>> {
+	input = { ...input, ...normalizeTenantScope(input) };
 	const rows = await db
 		.select({
 			kind: kernelRuntimeEvents.kind,

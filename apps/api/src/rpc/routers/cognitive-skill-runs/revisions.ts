@@ -47,6 +47,7 @@ export const skillsListWorkflowRevisions = authedSkills.listWorkflowRevisions
 			await import("@tedix/db/queries/skill-run-artifacts");
 		const manifests = await listRunArtifactsForRunsByPath(
 			context.db,
+			{ organizationId: requireOrgId(context) },
 			runs.map((run) => run.id),
 			"manifest.json",
 		);
@@ -317,6 +318,7 @@ export const skillsGetWorkflowReliability = authedSkills.getWorkflowReliability
 			await import("@tedix/db/queries/skill-run-artifacts");
 		const artifacts = await listRunOperationalArtifactsForRuns(
 			context.db,
+			{ organizationId: requireOrgId(context) },
 			runs.map((run) => run.id),
 			5_000,
 		);

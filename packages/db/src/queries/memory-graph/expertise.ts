@@ -3,6 +3,8 @@
  * CRUD operations for the knowledge graph — facts, edges, and domains.
  */
 
+import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
+
 import { and, count, eq, isNull, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import {
@@ -18,11 +20,13 @@ export type { ExpertiseLevel };
 
 async function upsertExpertise(
 	db: DbClient,
+	tenantScope: TenantScope,
 	input: Omit<
 		NewTediExpertise,
 		"id" | "createdAt" | "updatedAt" | "lastActivityAt"
 	> & { id?: string },
 ): Promise<TediExpertise> {
+	tenantScope = normalizeTenantScope(tenantScope);
 	const now = new Date().toISOString();
 	const existing = await db.query.tediExpertise.findFirst({
 		where: { tediId: input.tediId, domainId: input.domainId },
@@ -64,11 +68,13 @@ async function upsertExpertise(
 }
 export async function getExpertise(
 	db: DbClient,
+	tenantScope: TenantScope,
 	tediId: string,
 	domainId?: string,
 ): Promise<
 	(TediExpertise & { domainName: string | null; competenceScore: number })[]
 > {
+	const { organizationId } = normalizeTenantScope(tenantScope);
 	const conditions = [eq(tediExpertise.tediId, tediId)];
 	if (domainId) {
 		conditions.push(eq(tediExpertise.domainId, domainId));
@@ -106,7 +112,10 @@ export async function getExpertise(
 			})
 			.from(memoryFacts)
 			.where(
-				and(eq(memoryFacts.tediId, tediId), isNull(memoryFacts.archivedAt)),
+				and(
+					eq(memoryFacts.organizationId, organizationId),
+					and(eq(memoryFacts.tediId, tediId), isNull(memoryFacts.archivedAt)),
+				),
 			)
 			.groupBy(memoryFacts.domainId);
 		for (const row of competenceRows) {
@@ -133,9 +142,11 @@ function calculateExpertiseLevel(
 }
 export async function recalculateExpertise(
 	db: DbClient,
+	tenantScope: TenantScope,
 	tediId: string,
 	domainId: string,
 ): Promise<TediExpertise> {
+	const { organizationId } = normalizeTenantScope(tenantScope);
 	const result = await db
 		.select({
 			factCount: count(memoryFacts.id),
@@ -144,9 +155,12 @@ export async function recalculateExpertise(
 		.from(memoryFacts)
 		.where(
 			and(
-				eq(memoryFacts.tediId, tediId),
-				eq(memoryFacts.domainId, domainId),
-				isNull(memoryFacts.archivedAt),
+				eq(memoryFacts.organizationId, organizationId),
+				and(
+					eq(memoryFacts.tediId, tediId),
+					eq(memoryFacts.domainId, domainId),
+					isNull(memoryFacts.archivedAt),
+				),
 			),
 		);
 
@@ -154,7 +168,7 @@ export async function recalculateExpertise(
 	const ac = result[0]?.avgConf ?? 0;
 	const level = calculateExpertiseLevel(fc, ac);
 
-	return upsertExpertise(db, {
+	return upsertExpertise(db, tenantScope, {
 		tediId,
 		domainId,
 		factCount: fc,

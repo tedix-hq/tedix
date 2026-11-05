@@ -1,3 +1,4 @@
+import { type TenantScope, normalizeTenantScope } from "../tenant-scope";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, desc, eq, exists, gte, inArray, isNull, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
@@ -78,8 +79,9 @@ export async function createMemoryEntity(
 		displayName: string;
 		normalizedName?: string;
 		now: string;
-	},
+	} & TenantScope,
 ): Promise<MemoryEntity> {
+	input = { ...input, ...normalizeTenantScope(input) };
 	const normalizedName =
 		input.normalizedName ?? normalizeMemoryEntitySurface(input.displayName);
 	const [created] = await db
@@ -124,8 +126,9 @@ export async function createMemoryEntity(
 
 export async function getMemoryEntity(
 	db: DbClient,
-	input: { organizationId: string; entityId: string },
+	input: { organizationId: string; entityId: string } & TenantScope,
 ): Promise<MemoryEntity | null> {
+	input = { ...input, ...normalizeTenantScope(input) };
 	const [row] = await db
 		.select()
 		.from(memoryEntities)
@@ -157,8 +160,9 @@ export async function listMemoryEntityCandidates(
 		surface: string;
 		entityType?: MemoryEntityType;
 		limit?: number;
-	},
+	} & TenantScope,
 ): Promise<MemoryEntityCandidate[]> {
+	input = { ...input, ...normalizeTenantScope(input) };
 	const normalized = normalizeMemoryEntitySurface(input.surface);
 	const limit = Math.max(1, Math.min(100, Math.trunc(input.limit ?? 25)));
 	const entityTypeCondition = input.entityType
@@ -282,9 +286,10 @@ function sameImmutableMention(
 
 async function getMentionByOccurrence(
 	db: DbClient,
-	organizationId: string,
+	tenantScope: TenantScope,
 	occurrenceKey: string,
 ): Promise<MemoryEntityMention | null> {
+	const { organizationId } = normalizeTenantScope(tenantScope);
 	const [row] = await db
 		.select()
 		.from(memoryEntityMentions)
@@ -325,8 +330,9 @@ export async function recordMemoryEntityMention(
 		confidence: number;
 		evidence?: Record<string, JsonValue>;
 		createdAt: string;
-	},
+	} & TenantScope,
 ): Promise<MemoryEntityMention> {
+	input = { ...input, ...normalizeTenantScope(input) };
 	if (input.sourceFactId) {
 		const [sourceFact] = await db
 			.select({ id: memoryFacts.id })
@@ -346,11 +352,7 @@ export async function recordMemoryEntityMention(
 		}
 	}
 
-	const existing = await getMentionByOccurrence(
-		db,
-		input.organizationId,
-		input.occurrenceKey,
-	);
+	const existing = await getMentionByOccurrence(db, input, input.occurrenceKey);
 	if (existing) {
 		if (!sameImmutableMention(existing, input)) {
 			throw new MemoryEntityGovernanceError(
@@ -405,11 +407,7 @@ export async function recordMemoryEntityMention(
 		if (!mention) throw new Error("Mention insert returned no row");
 		return mention;
 	} catch (error) {
-		const raced = await getMentionByOccurrence(
-			db,
-			input.organizationId,
-			input.occurrenceKey,
-		);
+		const raced = await getMentionByOccurrence(db, input, input.occurrenceKey);
 		if (raced && sameImmutableMention(raced, input)) return raced;
 		if (raced) {
 			throw new MemoryEntityGovernanceError(
@@ -423,9 +421,10 @@ export async function recordMemoryEntityMention(
 
 async function getMentionAndHead(
 	db: DbClient,
-	organizationId: string,
+	tenantScope: TenantScope,
 	mentionId: string,
 ) {
+	const { organizationId } = normalizeTenantScope(tenantScope);
 	const [mention] = await db
 		.select()
 		.from(memoryEntityMentions)
@@ -457,15 +456,16 @@ async function getMentionAndHead(
 
 export async function getMemoryEntityMentionState(
 	db: DbClient,
-	input: { organizationId: string; mentionId: string },
+	input: { organizationId: string; mentionId: string } & TenantScope,
 ): Promise<{
 	mention: MemoryEntityMention;
 	head: typeof memoryEntityResolutionHeads.$inferSelect;
 	currentResolution: MemoryEntityResolution | null;
 } | null> {
+	input = { ...input, ...normalizeTenantScope(input) };
 	let row: Awaited<ReturnType<typeof getMentionAndHead>>;
 	try {
-		row = await getMentionAndHead(db, input.organizationId, input.mentionId);
+		row = await getMentionAndHead(db, input, input.mentionId);
 	} catch (error) {
 		if (
 			error instanceof MemoryEntityGovernanceError &&
@@ -479,7 +479,7 @@ export async function getMemoryEntityMentionState(
 		...row,
 		currentResolution: await getResolutionById(
 			db,
-			input.organizationId,
+			input,
 			row.head.currentResolutionId,
 		),
 	};
@@ -487,9 +487,10 @@ export async function getMemoryEntityMentionState(
 
 async function requireActiveEntity(
 	db: DbClient,
-	organizationId: string,
+	tenantScope: TenantScope,
 	entityId: string,
 ): Promise<MemoryEntity> {
+	const { organizationId } = normalizeTenantScope(tenantScope);
 	const [entity] = await db
 		.select()
 		.from(memoryEntities)
@@ -517,9 +518,10 @@ async function requireActiveEntity(
 
 async function getResolutionById(
 	db: DbClient,
-	organizationId: string,
+	tenantScope: TenantScope,
 	resolutionId: string | null,
 ): Promise<MemoryEntityResolution | null> {
+	const { organizationId } = normalizeTenantScope(tenantScope);
 	if (!resolutionId) return null;
 	const [row] = await db
 		.select()
@@ -560,9 +562,10 @@ function sameProposal(
 
 async function readExistingProposal(
 	db: DbClient,
-	organizationId: string,
+	tenantScope: TenantScope,
 	clientProposalKey: string,
 ): Promise<MemoryEntityResolutionDecision | null> {
+	const { organizationId } = normalizeTenantScope(tenantScope);
 	const [row] = await db
 		.select()
 		.from(memoryEntityResolutionDecisions)
@@ -593,29 +596,18 @@ export async function proposeMemoryEntityResolution(
 		proposedBy: MemoryEntityActor;
 		sourceRunId?: string | null;
 		proposedAt: string;
-	},
+	} & TenantScope,
 ): Promise<MemoryEntityResolutionDecision> {
-	const { head } = await getMentionAndHead(
-		db,
-		input.organizationId,
-		input.mentionId,
-	);
-	const target = await requireActiveEntity(
-		db,
-		input.organizationId,
-		input.targetEntityId,
-	);
+	input = { ...input, ...normalizeTenantScope(input) };
+	const { head } = await getMentionAndHead(db, input, input.mentionId);
+	const target = await requireActiveEntity(db, input, input.targetEntityId);
 	if (head.currentEntityId === target.id) {
 		throw new MemoryEntityGovernanceError(
 			"no_state_change",
 			"Mention is already resolved to this entity",
 		);
 	}
-	const previous = await getResolutionById(
-		db,
-		input.organizationId,
-		head.currentResolutionId,
-	);
+	const previous = await getResolutionById(db, input, head.currentResolutionId);
 	const operation: MemoryEntityResolutionDecision["operation"] =
 		head.currentEntityId === null ? "link_mention" : "reassign_mention";
 	const inverse: MemoryEntityResolutionInverse = {
@@ -654,7 +646,7 @@ export async function proposeMemoryEntityResolution(
 
 	const existing = await readExistingProposal(
 		db,
-		input.organizationId,
+		input,
 		input.clientProposalKey,
 	);
 	if (
@@ -689,8 +681,9 @@ export async function proposeMemoryEntityResolutionRollback(
 		proposedBy: MemoryEntityActor;
 		sourceRunId?: string | null;
 		proposedAt: string;
-	},
+	} & TenantScope,
 ): Promise<MemoryEntityResolutionDecision> {
+	input = { ...input, ...normalizeTenantScope(input) };
 	const [original] = await db
 		.select()
 		.from(memoryEntityResolutionDecisions)
@@ -716,11 +709,7 @@ export async function proposeMemoryEntityResolutionRollback(
 			"Only an accepted mention resolution can be rolled back",
 		);
 	}
-	const { head } = await getMentionAndHead(
-		db,
-		input.organizationId,
-		original.mentionId,
-	);
+	const { head } = await getMentionAndHead(db, input, original.mentionId);
 	if (head.lastDecisionId !== original.id) {
 		throw new MemoryEntityGovernanceError(
 			"state_changed",
@@ -729,13 +718,9 @@ export async function proposeMemoryEntityResolutionRollback(
 	}
 	const restore = original.inverse as MemoryEntityResolutionInverse;
 	const target = restore.entityId
-		? await requireActiveEntity(db, input.organizationId, restore.entityId)
+		? await requireActiveEntity(db, input, restore.entityId)
 		: null;
-	const current = await getResolutionById(
-		db,
-		input.organizationId,
-		head.currentResolutionId,
-	);
+	const current = await getResolutionById(db, input, head.currentResolutionId);
 	const inverse: MemoryEntityResolutionInverse = {
 		entityId: head.currentEntityId,
 		resolutionId: head.currentResolutionId,
@@ -773,7 +758,7 @@ export async function proposeMemoryEntityResolutionRollback(
 
 	const existing = await readExistingProposal(
 		db,
-		input.organizationId,
+		input,
 		input.clientProposalKey,
 	);
 	if (
@@ -805,8 +790,9 @@ export interface ReviewMemoryEntityResolutionResult {
 
 export async function getMemoryEntityResolutionDecision(
 	db: DbClient,
-	input: { organizationId: string; decisionId: string },
+	input: { organizationId: string; decisionId: string } & TenantScope,
 ): Promise<MemoryEntityResolutionDecision | null> {
+	input = { ...input, ...normalizeTenantScope(input) };
 	const [row] = await db
 		.select()
 		.from(memoryEntityResolutionDecisions)
@@ -834,8 +820,9 @@ export async function reviewMemoryEntityResolutionProposal(
 		reviewRationale: string;
 		resolutionId?: string;
 		reviewedAt: string;
-	},
+	} & TenantScope,
 ): Promise<ReviewMemoryEntityResolutionResult> {
+	input = { ...input, ...normalizeTenantScope(input) };
 	const [decision] = await db
 		.select()
 		.from(memoryEntityResolutionDecisions)
@@ -1102,8 +1089,9 @@ export async function reviewMemoryEntityResolutionProposal(
 
 export async function getCurrentMemoryEntityResolution(
 	db: DbClient,
-	input: { organizationId: string; mentionId: string },
+	input: { organizationId: string; mentionId: string } & TenantScope,
 ): Promise<MemoryEntityResolution | null> {
+	input = { ...input, ...normalizeTenantScope(input) };
 	const [row] = await db
 		.select()
 		.from(memoryEntityResolutions)
@@ -1120,8 +1108,13 @@ export async function getCurrentMemoryEntityResolution(
 
 export async function listMemoryEntityResolutionDecisions(
 	db: DbClient,
-	input: { organizationId: string; mentionId: string; limit?: number },
+	input: {
+		organizationId: string;
+		mentionId: string;
+		limit?: number;
+	} & TenantScope,
 ): Promise<MemoryEntityResolutionDecision[]> {
+	input = { ...input, ...normalizeTenantScope(input) };
 	return db
 		.select()
 		.from(memoryEntityResolutionDecisions)
@@ -1141,8 +1134,9 @@ export async function listMemoryEntityResolutionDecisions(
 /** Bounded recent-fact pool first, then indexed people-mention lookups. */
 export async function listRecentPeopleFacts(
 	db: DbClient,
-	input: { organizationId: string; since: string },
+	input: { organizationId: string; since: string } & TenantScope,
 ) {
+	input = { ...input, ...normalizeTenantScope(input) };
 	const candidates = await db
 		.select()
 		.from(memoryFacts)

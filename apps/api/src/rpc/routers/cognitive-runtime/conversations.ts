@@ -110,12 +110,14 @@ export const readMessagesRoute = authed.readMessages
 		}
 		const [rows, compactionRow] = await Promise.all([
 			listTediConversationTranscriptRows(context.db, {
+				organizationId: tedi.organizationId,
 				tediId: input.tediId,
 				conversationId,
 				before: input.cursor,
 				limit,
 			}),
 			getLatestTediConversationCompactionEvent(context.db, {
+				organizationId: tedi.organizationId,
 				tediId: input.tediId,
 				conversationId,
 			}),

@@ -118,7 +118,7 @@ describe("confidence-ordered fact search", () => {
 	it("returns the same eligible facts in confidence, access, then creation order", async () => {
 		const { db } = seed(FIXTURE);
 		const rows = await searchFactsWithVisibility(db, {
-			orgId: "org-1",
+			organizationId: "org-1",
 			visibilityTediId: "t1",
 			factType: "preference",
 			limit: 100,
@@ -133,7 +133,7 @@ describe("confidence-ordered fact search", () => {
 			"low",
 		]);
 		const limited = await searchFactsWithVisibility(db, {
-			orgId: "org-1",
+			organizationId: "org-1",
 			factType: "preference",
 			limit: 2,
 		});
@@ -143,7 +143,7 @@ describe("confidence-ordered fact search", () => {
 	it("walks the type rank index in ORDER BY order instead of sorting", async () => {
 		const { db, plan } = seed(FIXTURE);
 		await searchFactsWithVisibility(db, {
-			orgId: "org-1",
+			organizationId: "org-1",
 			visibilityTediId: "t1",
 			factType: "preference",
 			limit: 100,
@@ -155,7 +155,7 @@ describe("confidence-ordered fact search", () => {
 
 	it("walks the live rank index when no fact type is given", async () => {
 		const { db, plan } = seed(FIXTURE);
-		const rows = await searchFacts(db, { orgId: "org-1", limit: 3 });
+		const rows = await searchFacts(db, { organizationId: "org-1", limit: 3 });
 		expect(rows.map((row) => row.id)).toEqual([
 			"technical",
 			"other-private",
@@ -171,7 +171,7 @@ describe("confidence-ordered fact search", () => {
 			Array.from({ length: 510 }, (_, index) => ({ id: `fact-${index}` })),
 		);
 		expect(
-			await searchFacts(db, { orgId: "org-1", limit: 10_000 }),
+			await searchFacts(db, { organizationId: "org-1", limit: 10_000 }),
 		).toHaveLength(500);
 	});
 });
@@ -180,11 +180,15 @@ describe("countActiveFactsUpTo", () => {
 	it("counts active facts of one organization exactly below the cap", async () => {
 		const { db } = seed(FIXTURE);
 		// Every org-1 fact except the archived one; invalidated facts still count.
-		await expect(countActiveFactsUpTo(db, "org-1", 100)).resolves.toEqual({
+		await expect(
+			countActiveFactsUpTo(db, { organizationId: "org-1" }, 100),
+		).resolves.toEqual({
 			count: 12,
 			capped: false,
 		});
-		await expect(countActiveFactsUpTo(db, "org-1", 12)).resolves.toEqual({
+		await expect(
+			countActiveFactsUpTo(db, { organizationId: "org-1" }, 12),
+		).resolves.toEqual({
 			count: 12,
 			capped: false,
 		});
@@ -192,7 +196,9 @@ describe("countActiveFactsUpTo", () => {
 
 	it("stops at the cap and says so", async () => {
 		const { db, plan } = seed(FIXTURE);
-		await expect(countActiveFactsUpTo(db, "org-1", 5)).resolves.toEqual({
+		await expect(
+			countActiveFactsUpTo(db, { organizationId: "org-1" }, 5),
+		).resolves.toEqual({
 			count: 5,
 			capped: true,
 		});

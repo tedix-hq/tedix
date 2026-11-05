@@ -3,8 +3,16 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { signMediaUrl } from "../lib/skill-media-url";
 import { registerSkillMediaRoutes } from "./skill-media-routes";
 
-const { getRunArtifact } = vi.hoisted(() => ({ getRunArtifact: vi.fn() }));
-vi.mock("@tedix/db/queries/skill-run-artifacts", () => ({ getRunArtifact }));
+const { getRunArtifact, resolveRunArtifactTenantScope } = vi.hoisted(() => ({
+	getRunArtifact: vi.fn(),
+	resolveRunArtifactTenantScope: vi.fn(async () => ({
+		organizationId: "org-1",
+	})),
+}));
+vi.mock("@tedix/db/queries/skill-run-artifacts", () => ({
+	getRunArtifact,
+	resolveRunArtifactTenantScope,
+}));
 vi.mock("@tedix/db/client", () => ({
 	createDbClient: () => ({}),
 	configureLogStore: vi.fn(),
@@ -18,6 +26,7 @@ registerSkillMediaRoutes(app);
 
 describe("signed skill-media paths", () => {
 	beforeEach(() => {
+		resolveRunArtifactTenantScope.mockClear();
 		getRunArtifact.mockReset().mockResolvedValue({
 			mimeType: "application/json",
 			contentInline: JSON.stringify({
@@ -46,7 +55,12 @@ describe("signed skill-media paths", () => {
 		const response = await app.request(url, undefined, env);
 		expect(response.status).toBe(200);
 		expect(await response.text()).toBe("Hello");
-		expect(getRunArtifact).toHaveBeenCalledExactlyOnceWith({}, "run-1", path);
+		expect(getRunArtifact).toHaveBeenCalledExactlyOnceWith(
+			{},
+			{ organizationId: "org-1" },
+			"run-1",
+			path,
+		);
 	});
 
 	it("rejects a changed filename before reading an artifact", async () => {
@@ -62,6 +76,7 @@ describe("signed skill-media paths", () => {
 		const response = await app.request(swapped, undefined, env);
 		expect(response.status).toBe(403);
 		expect(getRunArtifact).not.toHaveBeenCalled();
+		expect(resolveRunArtifactTenantScope).not.toHaveBeenCalled();
 	});
 });
 

@@ -1,3 +1,4 @@
+import { requireOrgId } from "../../org-scope";
 import type {
 	HomeChildRunStatus,
 	HomeChildRunTree,
@@ -339,6 +340,7 @@ async function readTerminalFanoutRuns(
 ): Promise<Map<string, "partial" | "completed" | "failed" | "canceled">> {
 	try {
 		const rows = await listTediRuntimeEvents(context.db, {
+			organizationId: requireOrgId(context),
 			tediId,
 			runIdPrefix: `${tediId}:fanout:`,
 			order: "desc",

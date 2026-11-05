@@ -422,8 +422,16 @@ export const skillsRevokeSkillRun = authedSkills.revokeSkillRun
 		//    dupes; cascade FK takes care of any future child tables.
 		const { listRunArtifacts, deleteRunArtifacts } =
 			await import("@tedix/db/queries/skill-run-artifacts");
-		const beforeArtifacts = await listRunArtifacts(context.db, run.id);
-		const artifactsDeleted = await deleteRunArtifacts(context.db, run.id);
+		const beforeArtifacts = await listRunArtifacts(
+			context.db,
+			{ organizationId: requireOrgId(context) },
+			run.id,
+		);
+		const artifactsDeleted = await deleteRunArtifacts(
+			context.db,
+			{ organizationId: requireOrgId(context) },
+			run.id,
+		);
 
 		// 2) R2 objects under `{runId}/` prefix. List then delete in batch.
 		//    Skipped if the binding isn't configured (test envs).
@@ -467,7 +475,11 @@ export const skillsRevokeSkillRun = authedSkills.revokeSkillRun
 		//    cleaned by the periodic reindex.
 		const { deleteFactsByRunId } =
 			await import("@tedix/db/queries/memory-graph/fact-search");
-		const factsDeleted = await deleteFactsByRunId(context.db, orgId, run.id);
+		const factsDeleted = await deleteFactsByRunId(
+			context.db,
+			{ organizationId: orgId },
+			run.id,
+		);
 
 		// Muscle memory cascade still deferred — muscle entries don't yet
 		// carry a run-source link.

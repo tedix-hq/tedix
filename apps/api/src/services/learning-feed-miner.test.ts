@@ -419,7 +419,7 @@ describe("mineLearningFeed", () => {
 		expect(result).toMatchObject({ factsWritten: 1, factsSuperseded: 2 });
 		expect(findCurrentFactsByTopicKey).toHaveBeenCalledWith(
 			db,
-			"org-1",
+			{ organizationId: "org-1" },
 			"learning-feed:decision:acme:claude-code:deploy",
 		);
 		const fact = vi.mocked(createFact).mock.calls[0]![1];
@@ -444,18 +444,24 @@ describe("mineLearningFeed", () => {
 			},
 		});
 		// A person's own review is never replaced.
-		expect(vi.mocked(invalidateFact).mock.calls.map((call) => call[1])).toEqual(
+		expect(vi.mocked(invalidateFact).mock.calls.map((call) => call[2])).toEqual(
 			["fact-old", "fact-pending"],
 		);
 		expect(invalidateFact).toHaveBeenCalledWith(
 			db,
+			{ organizationId: "org-1" },
 			"fact-old",
 			expect.stringContaining("Superseded by"),
 		);
-		expect(updateFact).toHaveBeenCalledWith(db, "fact-old", {
-			reviewStatus: "superseded",
-		});
-		expect(vi.mocked(createEdge).mock.calls[0]![1]).toMatchObject({
+		expect(updateFact).toHaveBeenCalledWith(
+			db,
+			{ organizationId: "org-1" },
+			"fact-old",
+			{
+				reviewStatus: "superseded",
+			},
+		);
+		expect(vi.mocked(createEdge).mock.calls[0]![2]).toMatchObject({
 			targetFactId: "fact-old",
 			relationType: "supersedes",
 		});
@@ -586,6 +592,7 @@ describe("mineLearningFeed", () => {
 		expect(result.factsWritten).toBe(1);
 		expect(invalidateFact).toHaveBeenCalledWith(
 			db,
+			{ organizationId: "org-1" },
 			"held-old",
 			expect.stringContaining("Superseded"),
 		);
@@ -638,15 +645,20 @@ describe("mineLearningFeed", () => {
 		const result = await mineLearningFeed(db, { orgId: "org-1", now });
 		expect(listStaleLearningFeedLessons).toHaveBeenCalledWith(
 			db,
-			"org-1",
+			{ organizationId: "org-1" },
 			"learning-feed:decision:",
 			new Date(now.getTime() - STALE_DAYS * 86_400_000).toISOString(),
 		);
 		expect(result.factsArchived).toBe(1);
 		expect(updateFact).toHaveBeenCalledTimes(1);
-		expect(updateFact).toHaveBeenCalledWith(db, "fact-stale", {
-			archivedAt: now.toISOString(),
-		});
+		expect(updateFact).toHaveBeenCalledWith(
+			db,
+			{ organizationId: "org-1" },
+			"fact-stale",
+			{
+				archivedAt: now.toISOString(),
+			},
+		);
 	});
 
 	it("keeps an event without a personal scope org-wide", async () => {
@@ -806,7 +818,7 @@ describe("mineLearningFeed", () => {
 			learningFeed: { evidenceEventIds: ["e4", "e1"] },
 		});
 		for (const call of vi.mocked(findCurrentFactsByTopicKey).mock.calls)
-			expect(call[1]).toBe("org-1");
+			expect(call[1]).toEqual({ organizationId: "org-1" });
 	});
 
 	it("records fix Work Items and proposes a directive after three", async () => {

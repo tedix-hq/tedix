@@ -404,6 +404,7 @@ const fakeDb = (value: unknown) =>
 		}),
 	}) as Parameters<typeof requirePendingConnectionRecovery>[0];
 const event = {
+	organizationId: "org",
 	runId: "run",
 	executionEpoch: 3,
 	type: eventType,

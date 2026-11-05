@@ -3,6 +3,8 @@
  * CRUD operations for the knowledge graph — facts, edges, and domains.
  */
 
+import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
+
 import { eq } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import {
@@ -13,9 +15,10 @@ import {
 
 export async function getDomainByName(
 	db: DbClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	name: string,
 ): Promise<MemoryDomain | undefined> {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	return db.query.memoryDomains.findFirst({
 		where: { organizationId: orgId, name },
 	});
@@ -23,13 +26,15 @@ export async function getDomainByName(
 
 export async function getOrCreateDomain(
 	db: DbClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	name: string,
 	description?: string,
 ): Promise<MemoryDomain> {
-	const existing = await getDomainByName(db, orgId, name);
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
+	const existing = await getDomainByName(db, tenantScope, name);
 	if (existing) return existing;
 	return createDomain(db, {
+		workspaceId: tenantScope.workspaceId,
 		id: crypto.randomUUID(),
 		organizationId: orgId,
 		name,
@@ -39,8 +44,9 @@ export async function getOrCreateDomain(
 
 export async function listDomains(
 	db: DbClient,
-	orgId: string,
+	tenantScope: TenantScope,
 ): Promise<MemoryDomain[]> {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	return db
 		.select()
 		.from(memoryDomains)
@@ -49,8 +55,9 @@ export async function listDomains(
 
 async function createDomain(
 	db: DbClient,
-	domain: NewMemoryDomain,
+	domain: NewMemoryDomain & TenantScope,
 ): Promise<MemoryDomain> {
+	domain = { ...domain, ...normalizeTenantScope(domain) };
 	const [created] = await db.insert(memoryDomains).values(domain).returning();
 	if (!created) throw new Error(`Failed to create domain: ${domain.id}`);
 	return created;

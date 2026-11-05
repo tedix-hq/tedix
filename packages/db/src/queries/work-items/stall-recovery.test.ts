@@ -1,6 +1,5 @@
-import { readdirSync, readFileSync } from "node:fs";
-import { DatabaseSync } from "node:sqlite";
-import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
+import { createMigratedSqlite } from "../../test/migrated-sqlite";
+import { beforeAll, describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "../../client";
 import { createD1Facade } from "../../test/d1-facade";
 import {
@@ -9,7 +8,7 @@ import {
 	listContinuityScopes,
 } from "./stall-recovery";
 
-const sqlite = new DatabaseSync(":memory:");
+const sqlite = createMigratedSqlite();
 let query = "";
 const db = createDbClient(
 	createD1Facade(sqlite, {
@@ -19,15 +18,11 @@ const db = createDbClient(
 	}),
 );
 beforeAll(() => {
-	const root = new URL("../../../drizzle/", import.meta.url);
-	for (const name of readdirSync(root).sort())
-		sqlite.exec(readFileSync(new URL(`${name}/migration.sql`, root), "utf8"));
 	sqlite.exec("PRAGMA foreign_keys=OFF");
 	sqlite.exec(`INSERT INTO tedis(id,organization_id,name,slug,status) VALUES ('owner','fictional-orchard','Owner','owner','active');
  INSERT INTO tedi_objectives(id,org_id,tedi_id,title,created_at) VALUES ('a','fictional-orchard','owner','Standalone','2026-10-01'),('covered','fictional-orchard','owner','Covered','2026-10-01');
  INSERT INTO projects(id,org_id,key,name,objective_id,created_at) VALUES ('a','fictional-orchard','A','Project','covered','2026-10-01'),('z','fictional-forest','Z','Foreign',NULL,'2026-10-01');`);
 });
-afterAll(() => sqlite.close());
 
 describe("migrated stall recovery", () => {
 	it("keeps compound key order, skips covered objectives, and scopes tenants", async () => {

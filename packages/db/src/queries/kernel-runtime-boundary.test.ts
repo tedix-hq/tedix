@@ -228,11 +228,19 @@ describe("kernel runtime query boundary", () => {
 		expect(kernelInsert.row?.traceId).toBe("trace-kernel");
 		expect(tediInsert?.traceId).toBe("trace-tedi");
 
-		await updateKernelRuntimeEventMetadata(db, "kernel-trace", {
-			traceId: "trace-kernel-updated",
-		});
+		await updateKernelRuntimeEventMetadata(
+			db,
+			{ organizationId: "org-1" },
+			"kernel-trace",
+			{
+				traceId: "trace-kernel-updated",
+			},
+		);
 		await expect(
-			listKernelRuntimeEvents(db, { id: "kernel-trace" }),
+			listKernelRuntimeEvents(db, {
+				organizationId: "org-1",
+				id: "kernel-trace",
+			}),
 		).resolves.toMatchObject([{ traceId: "trace-kernel-updated" }]);
 	});
 
@@ -420,6 +428,7 @@ describe("run-scoped runtime event reads under production statistics", () => {
 			);
 		}
 		const routerRows = await listTediRuntimeEventsForRouter(db, {
+			organizationId: "org-1",
 			tediId: "tedi-1",
 			runIds: ["run-2", "run-3"],
 			kinds: ["message.completed"],
@@ -438,6 +447,7 @@ describe("run-scoped runtime event reads under production statistics", () => {
 		const { db, sqlite } = fixture();
 		const statements = captureStatements(sqlite);
 		await listTediRuntimeEvents(db, {
+			organizationId: "org-1",
 			tediId: "tedi-1",
 			runIdPrefix: "run-",
 			kinds: ["message.completed"],
@@ -446,6 +456,7 @@ describe("run-scoped runtime event reads under production statistics", () => {
 		expect(statements.at(-1)).toContain('"tedi_runtime_events"."kind" in (?)');
 		expect(statements.at(-1)).not.toContain("+");
 		await listTediRuntimeEventsForRouter(db, {
+			organizationId: "org-1",
 			tediId: "tedi-1",
 			conversationId: "conversation-1",
 			kind: "message.completed",

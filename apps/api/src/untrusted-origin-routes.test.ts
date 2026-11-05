@@ -48,6 +48,7 @@ vi.mock("@tedix/db/queries/artifact-policy/releases", () => ({
 vi.mock("@tedix/db/queries/skill-run-artifacts", async (importOriginal) => ({
 	...(await importOriginal<Record<string, unknown>>()),
 	getRunArtifact: async () => skillArtifactMock.current,
+	resolveRunArtifactTenantScope: async () => ({ organizationId: "org-1" }),
 }));
 
 vi.mock("@tedix/auth/jwt", async (importOriginal) => ({
@@ -64,6 +65,10 @@ vi.mock("@tedix/auth/types", async (importOriginal) => ({
 vi.mock("@tedix/db/client", async (importOriginal) => ({
 	...(await importOriginal<Record<string, unknown>>()),
 	createDbClient: () => ({}),
+}));
+vi.mock("@tedix/db/queries/tedis", async (importOriginal) => ({
+	...(await importOriginal<Record<string, unknown>>()),
+	getTediById: async () => ({ id: "tedi-1", organizationId: "org-1" }),
 }));
 vi.mock("@tedix/db/queries/organizations", async (importOriginal) => ({
 	...(await importOriginal<Record<string, unknown>>()),

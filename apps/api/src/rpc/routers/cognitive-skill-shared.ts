@@ -463,7 +463,7 @@ export async function createSkillFromInput(
 	const schedule = validatedSkillSchedule(input.content, input.tediId);
 	const domain = await getOrCreateDomain(
 		context.db,
-		orgId,
+		{ organizationId: orgId },
 		input.domain ?? "general",
 	);
 	const visibility = input.visibility ?? (input.tediId ? "private" : "org");

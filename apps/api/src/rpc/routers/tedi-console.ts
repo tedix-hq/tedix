@@ -202,9 +202,9 @@ const read = os.read.use(AUTHZ.osRead).handler(async ({ context, input }) => {
 	const outputs = input.workspaceId
 		? await listOsOutputs(
 				context.db,
-				organizationId,
+				{ workspaceId: input.workspaceId, organizationId: organizationId },
 				{ userIds: [], workspaceIds: ids },
-				{ workspaceId: input.workspaceId },
+				{},
 			)
 		: [];
 	await emitAuditEvent(context.db, {

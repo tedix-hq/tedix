@@ -37,13 +37,17 @@ describe("memory observation authorization", () => {
 		await expect(
 			client().listObservations({ topicKey: "orchard:repo" }),
 		).resolves.toEqual({ facts: [] });
-		expect(mocks.list).toHaveBeenCalledWith(context.db, "fictional-orchard", {
-			topicKey: "orchard:repo",
-		});
+		expect(mocks.list).toHaveBeenCalledWith(
+			context.db,
+			{ organizationId: "fictional-orchard" },
+			{
+				topicKey: "orchard:repo",
+			},
+		);
 		await client().consolidateObservations({ topicKey: "orchard:repo" });
 		expect(mocks.consolidate).toHaveBeenCalledWith(
 			context.db,
-			"fictional-orchard",
+			{ organizationId: "fictional-orchard" },
 			{ topicKey: "orchard:repo" },
 		);
 	});
@@ -72,12 +76,16 @@ describe("memory observation authorization", () => {
 		});
 		await own.listObservations({});
 		await own.consolidateObservations({});
-		expect(mocks.list).toHaveBeenCalledWith(context.db, "fictional-orchard", {
-			tediId: "orchard-worker",
-		});
+		expect(mocks.list).toHaveBeenCalledWith(
+			context.db,
+			{ organizationId: "fictional-orchard" },
+			{
+				tediId: "orchard-worker",
+			},
+		);
 		expect(mocks.consolidate).toHaveBeenCalledWith(
 			context.db,
-			"fictional-orchard",
+			{ organizationId: "fictional-orchard" },
 			{ tediId: "orchard-worker" },
 		);
 		await expect(

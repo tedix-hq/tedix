@@ -33,14 +33,14 @@ export async function recordSessionFeedback(
 ) {
 	const existing = await listCurrentLearningFeedLessons(
 		db,
-		scope.organizationId,
+		{ organizationId: scope.organizationId },
 		"learning-feed:",
 		500,
 		scope.ownerUserId,
 	);
 	const approved = await listApprovedAgentLessons(
 		db,
-		scope.organizationId,
+		{ organizationId: scope.organizationId },
 		"learning-feed:",
 		{ viewerUserId: scope.ownerUserId },
 	);

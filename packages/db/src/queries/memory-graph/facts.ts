@@ -3,6 +3,8 @@
  * CRUD operations for the knowledge graph — facts, edges, and domains.
  */
 
+import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
+
 import {
 	refreshConsolidatedForFact,
 	filterConsolidatedEvidence,
@@ -38,9 +40,10 @@ export type FactType = MemoryFactType;
 
 export async function findFactBySourceHash(
 	db: DbClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	sourceHash: string,
 ): Promise<MemoryFact | undefined> {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	return db.query.memoryFacts.findFirst({
 		where: {
 			organizationId: orgId,
@@ -52,10 +55,11 @@ export async function findFactBySourceHash(
 
 export async function findCurrentFactsByTopicKey(
 	db: DbClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	topicKey: string,
 	options?: { memoryScope?: MemoryScope },
 ): Promise<MemoryFact[]> {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const conditions = [
 		eq(memoryFacts.organizationId, orgId),
 		eq(memoryFacts.topicKey, topicKey),
@@ -74,8 +78,9 @@ export async function findCurrentFactsByTopicKey(
 
 export async function createFact(
 	db: DbClient,
-	fact: NewMemoryFact,
+	fact: NewMemoryFact & TenantScope,
 ): Promise<MemoryFact> {
+	fact = { ...fact, ...normalizeTenantScope(fact) };
 	const [created] = await db.insert(memoryFacts).values(fact).returning();
 	if (!created) throw new Error(`Failed to create fact: ${fact.id}`);
 	await recordOwnerInstructionEdges(db, created);
@@ -134,10 +139,15 @@ export function assertBulkFactAdmission(
  */
 export async function createFacts(
 	db: DbClient,
+	tenantScope: TenantScope,
 	facts: NewMemoryFact[],
 	options?: BulkFactAdmissionOptions,
 ): Promise<MemoryFact[]> {
+	const { organizationId } = normalizeTenantScope(tenantScope);
 	assertBulkFactAdmission(facts.length, options);
+	if (facts.some((fact) => fact.organizationId !== organizationId)) {
+		throw new Error("Memory facts must belong to the tenant scope");
+	}
 	if (facts.length === 0) return [];
 	const created: MemoryFact[] = [];
 	// Small chunks keep each statement under D1's bound-parameter limit.
@@ -160,22 +170,29 @@ export async function createFacts(
 
 export async function getFactById(
 	db: DbClient,
+	tenantScope: TenantScope,
 	factId: string,
 ): Promise<MemoryFact | undefined> {
-	return db.query.memoryFacts.findFirst({ where: { id: factId } });
+	const { organizationId } = normalizeTenantScope(tenantScope);
+	return db.query.memoryFacts.findFirst({
+		where: { id: factId, organizationId },
+	});
 }
 
 export async function getFactsByIds(
 	db: DbClient,
+	tenantScope: TenantScope,
 	factIds: string[],
 	options?: { includeGraphAnchors?: boolean },
 ): Promise<MemoryFact[]> {
+	const { organizationId } = normalizeTenantScope(tenantScope);
 	if (factIds.length === 0) return [];
 	// Select by primary key only and filter here: with the archived/valid_to/
 	// scope predicates in SQL, D1's planner picked idx_memory_facts_valid_to
 	// (nearly every row is valid_to IS NULL) and scanned ~62k rows, ~160 ms per
 	// call (2026-10-12).
 	const visible = (fact: MemoryFact) =>
+		fact.organizationId === organizationId &&
 		fact.archivedAt == null &&
 		fact.validTo == null &&
 		(options?.includeGraphAnchors ||
@@ -192,28 +209,31 @@ export async function getFactsByIds(
 		facts.push(...rows.filter(visible));
 	}
 	if (options?.includeGraphAnchors) return facts;
-	const eligible: MemoryFact[] = [];
-	for (const orgId of new Set(facts.map((fact) => fact.organizationId)))
-		eligible.push(
-			...(await filterConsolidatedEvidence(
-				db,
-				orgId,
-				facts.filter((fact) => fact.organizationId === orgId),
-				false,
-			)),
-		);
-	return eligible;
+	return filterConsolidatedEvidence(db, tenantScope, facts, false);
 }
 
 export async function updateFact(
 	db: DbClient,
+	tenantScope: TenantScope,
 	factId: string,
 	updates: Partial<NewMemoryFact>,
 ): Promise<void> {
+	const { organizationId } = normalizeTenantScope(tenantScope);
+	if (
+		updates.organizationId !== undefined &&
+		updates.organizationId !== organizationId
+	) {
+		throw new Error("Memory fact organization cannot change");
+	}
 	await db
 		.update(memoryFacts)
 		.set({ ...updates, updatedAt: new Date().toISOString() })
-		.where(eq(memoryFacts.id, factId));
+		.where(
+			and(
+				eq(memoryFacts.organizationId, organizationId),
+				eq(memoryFacts.id, factId),
+			),
+		);
 	if (
 		updates.content !== undefined ||
 		updates.validTo !== undefined ||
@@ -226,25 +246,32 @@ export async function updateFact(
 		updates.topicKey !== undefined ||
 		updates.status !== undefined
 	) {
-		const fact = await getFactById(db, factId);
+		const fact = await getFactById(db, tenantScope, factId);
 		if (fact) {
 			await recordOwnerInstructionEdges(db, fact);
-			await refreshConsolidatedForFact(db, fact.organizationId, factId);
+			await refreshConsolidatedForFact(db, tenantScope, factId);
 		}
 	}
 }
 
 export async function recordFactAccess(
 	db: DbClient,
+	tenantScope: TenantScope,
 	factId: string,
 ): Promise<void> {
+	const { organizationId } = normalizeTenantScope(tenantScope);
 	await db
 		.update(memoryFacts)
 		.set({
 			lastAccessedAt: new Date().toISOString(),
 			accessCount: sql`${memoryFacts.accessCount} + 1`,
 		})
-		.where(eq(memoryFacts.id, factId));
+		.where(
+			and(
+				eq(memoryFacts.organizationId, organizationId),
+				eq(memoryFacts.id, factId),
+			),
+		);
 }
 
 /**
@@ -253,9 +280,11 @@ export async function recordFactAccess(
  */
 export async function recordFactVerification(
 	db: DbClient,
+	tenantScope: TenantScope,
 	factId: string,
 	boostFactor: number = 1.1,
 ): Promise<void> {
+	const { organizationId } = normalizeTenantScope(tenantScope);
 	await db
 		.update(memoryFacts)
 		.set({
@@ -263,7 +292,12 @@ export async function recordFactVerification(
 			confidence: sql`MIN(1.0, ${memoryFacts.confidence} * ${boostFactor})`,
 			updatedAt: new Date().toISOString(),
 		})
-		.where(eq(memoryFacts.id, factId));
+		.where(
+			and(
+				eq(memoryFacts.organizationId, organizationId),
+				eq(memoryFacts.id, factId),
+			),
+		);
 }
 
 /**
@@ -272,9 +306,11 @@ export async function recordFactVerification(
  */
 export async function recordFactUsage(
 	db: DbClient,
+	tenantScope: TenantScope,
 	factIds: string[],
 	signal: MemoryFeedbackSignal,
 ): Promise<number> {
+	const { organizationId } = normalizeTenantScope(tenantScope);
 	if (factIds.length === 0) return 0;
 
 	// "not_used" means retrieved but not used — no DB mutation needed
@@ -310,7 +346,15 @@ export async function recordFactUsage(
 
 	// Batch all updates into a single D1 round-trip
 	const queries = factIds.map((factId) =>
-		db.update(memoryFacts).set(setClause).where(eq(memoryFacts.id, factId)),
+		db
+			.update(memoryFacts)
+			.set(setClause)
+			.where(
+				and(
+					eq(memoryFacts.organizationId, organizationId),
+					eq(memoryFacts.id, factId),
+				),
+			),
 	);
 	await db.batch(batchNonEmpty(queries));
 

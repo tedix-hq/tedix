@@ -80,6 +80,7 @@ describe("settleKernelRuntimeTurn", () => {
 			"completed",
 		);
 		const rows = await listKernelRuntimeEvents(db, {
+			organizationId: "org-1",
 			runId: "run-1",
 			order: "asc",
 		});
@@ -120,7 +121,12 @@ describe("settleKernelRuntimeTurn", () => {
 			expect((await getKernelRuntimeRun(db, { id: "run-1" }))?.status).toBe(
 				"requires_approval",
 			);
-			expect(await listKernelRuntimeEvents(db, { runId: "run-1" })).toEqual([]);
+			expect(
+				await listKernelRuntimeEvents(db, {
+					organizationId: "org-1",
+					runId: "run-1",
+				}),
+			).toEqual([]);
 			sqlite.close();
 		}
 	});
@@ -132,9 +138,14 @@ describe("settleKernelRuntimeTurn", () => {
 		expect((await getKernelRuntimeRun(db, { id: "run-1" }))?.status).toBe(
 			"canceled",
 		);
-		expect((await listKernelRuntimeEvents(db, { runId: "run-1" })).length).toBe(
-			2,
-		);
+		expect(
+			(
+				await listKernelRuntimeEvents(db, {
+					organizationId: "org-1",
+					runId: "run-1",
+				})
+			).length,
+		).toBe(2);
 	});
 
 	it("resolves a replayed event to its existing row without double-inserting", async () => {
@@ -147,9 +158,14 @@ describe("settleKernelRuntimeTurn", () => {
 			false,
 		]);
 		expect(replay.events[0]?.row.id).toBe("evt-message");
-		expect((await listKernelRuntimeEvents(db, { runId: "run-1" })).length).toBe(
-			2,
-		);
+		expect(
+			(
+				await listKernelRuntimeEvents(db, {
+					organizationId: "org-1",
+					runId: "run-1",
+				})
+			).length,
+		).toBe(2);
 	});
 });
 
@@ -298,9 +314,12 @@ describe("direct policy write durability", () => {
 		expect((await getKernelRuntimeRun(db, { id: "run-1" }))?.status).toBe(
 			"running",
 		);
-		expect(await listKernelRuntimeEvents(db, { runId: "run-1" })).toHaveLength(
-			0,
-		);
+		expect(
+			await listKernelRuntimeEvents(db, {
+				organizationId: "org-1",
+				runId: "run-1",
+			}),
+		).toHaveLength(0);
 	});
 	it("a receipt failure rolls back the terminal run and both transcript rows", async () => {
 		const { sqlite, db, admission, receipt } = await setupAuto();
@@ -317,8 +336,11 @@ describe("direct policy write durability", () => {
 		expect((await getKernelRuntimeRun(db, { id: "run-1" }))?.status).toBe(
 			"running",
 		);
-		expect(await listKernelRuntimeEvents(db, { runId: "run-1" })).toHaveLength(
-			0,
-		);
+		expect(
+			await listKernelRuntimeEvents(db, {
+				organizationId: "org-1",
+				runId: "run-1",
+			}),
+		).toHaveLength(0);
 	});
 });

@@ -24,7 +24,11 @@ export const knowledgeSynthesize = authedKnowledge.synthesize
 	.use(AUTHZ.tedisWrite)
 	.handler(async ({ input, context }) => {
 		const orgId = requireOrgId(context);
-		const domain = await getOrCreateDomain(context.db, orgId, input.domain);
+		const domain = await getOrCreateDomain(
+			context.db,
+			{ organizationId: orgId },
+			input.domain,
+		);
 		const visibility = input.visibility ?? (input.tediId ? "private" : "org");
 
 		const entry = await createKnowledgeEntry(context.db, {
@@ -49,7 +53,11 @@ export const knowledgeOpine = authedKnowledge.opine
 	.use(AUTHZ.tedisWrite)
 	.handler(async ({ input, context }) => {
 		const orgId = requireOrgId(context);
-		const domain = await getOrCreateDomain(context.db, orgId, input.domain);
+		const domain = await getOrCreateDomain(
+			context.db,
+			{ organizationId: orgId },
+			input.domain,
+		);
 		const visibility = input.tediId ? "private" : "org";
 
 		const entry = await createKnowledgeEntry(context.db, {
@@ -79,7 +87,11 @@ export const knowledgeList = authedKnowledge.list
 		if (input.query) {
 			let domainId: string | undefined;
 			if (input.domain) {
-				const d = await getOrCreateDomain(context.db, orgId, input.domain);
+				const d = await getOrCreateDomain(
+					context.db,
+					{ organizationId: orgId },
+					input.domain,
+				);
 				domainId = d.id;
 			}
 			const entries = await searchKnowledge(context.db, orgId, input.query, {
@@ -92,7 +104,11 @@ export const knowledgeList = authedKnowledge.list
 
 		// Domain filter
 		if (input.domain) {
-			const d = await getOrCreateDomain(context.db, orgId, input.domain);
+			const d = await getOrCreateDomain(
+				context.db,
+				{ organizationId: orgId },
+				input.domain,
+			);
 			const entries = await listKnowledgeByDomain(context.db, orgId, d.id, {
 				limit: input.limit,
 				entryType: input.entryType as KnowledgeEntryType,

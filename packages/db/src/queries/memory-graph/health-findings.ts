@@ -9,6 +9,8 @@
  * idea of FounderOS `lib/knowledge-metrics.ts` (MIT); the queries are our own.
  */
 
+import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
+
 import { aliasedTable, and, desc, eq, gte, isNull, lt, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import { memoryEdges, memoryFacts } from "../../schema/memory-graph";
@@ -115,9 +117,10 @@ function finish(
 
 export async function getMemoryHealthFindings(
 	db: DbClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	options: MemoryHealthFindingsOptions = {},
 ): Promise<MemoryHealthFindingsResult> {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const now = options.now ?? new Date();
 	const unusedDays = options.unusedDays ?? 60;
 	const staleDays = options.staleDays ?? 90;

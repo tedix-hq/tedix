@@ -183,10 +183,9 @@ const outputsList = readOs.outputs.list.handler(async ({ input, context }) => {
 	if (input.workspaceId) await requireWorkspace(context, input.workspaceId);
 	const rows = await listOsOutputs(
 		queryDb(context),
-		organizationId,
+		{ workspaceId: input.workspaceId, organizationId: organizationId },
 		await resolveOsWorkspaceViewer(context),
 		{
-			workspaceId: input.workspaceId,
 			kind: input.kind,
 			status: input.status,
 			limit: input.limit + 1,

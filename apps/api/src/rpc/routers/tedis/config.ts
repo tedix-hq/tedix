@@ -56,7 +56,11 @@ export const syncConfig = authedTedisOs.syncConfig
 				tedi.workspaceTemplateSetId
 					? getWorkspaceTemplateSetById(context.db, tedi.workspaceTemplateSetId)
 					: null,
-				getCompiledPatterns(context.db, tedi.id),
+				getCompiledPatterns(
+					context.db,
+					{ organizationId: tedi.organizationId },
+					tedi.id,
+				),
 			]);
 
 		const resolved = resolveWorkspaceFiles(

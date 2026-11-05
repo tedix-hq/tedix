@@ -1,3 +1,4 @@
+import { requireOrgId } from "../../org-scope";
 /**
  * Kernel — delegated child-run evidence and combined readers.
  * This module must NOT import kernel-runtime.ts: the router imports this module.
@@ -143,7 +144,7 @@ export async function readChildRunEvidenceRows(
 		try {
 			const rows = await withTransientD1Retry(() =>
 				listTediRuntimeEvents(context.db, {
-					organizationId: input.organizationId,
+					organizationId: input.organizationId ?? requireOrgId(context),
 					tediId: input.tediId,
 					runIds: observedRunIds,
 					order: "desc",
@@ -163,7 +164,7 @@ export async function readChildRunEvidenceRows(
 			) {
 				const terminalRows = await withTransientD1Retry(() =>
 					listTediRuntimeEvents(context.db, {
-						organizationId: input.organizationId,
+						organizationId: input.organizationId ?? requireOrgId(context),
 						tediId: input.tediId,
 						runIds: observedRunIds,
 						kinds: terminalKinds,
@@ -181,7 +182,7 @@ export async function readChildRunEvidenceRows(
 			eventReadAvailable = false;
 			console.warn("[kernelRuntime] child runtime event evidence read failed", {
 				error: errorMessage(error),
-				organizationId: input.organizationId,
+				organizationId: input.organizationId ?? requireOrgId(context),
 				runIds: observedRunIds,
 				tediId: input.tediId,
 			});
@@ -202,7 +203,7 @@ export async function readChildRunEvidenceRows(
 				try {
 					return await withTransientD1Retry(() =>
 						listTediRuntimeEvents(context.db, {
-							organizationId: input.organizationId,
+							organizationId: input.organizationId ?? requireOrgId(context),
 							tediId: input.tediId,
 							runId: kernelRunId,
 							kinds: WORKSTATION_EGRESS_KINDS,
@@ -216,7 +217,7 @@ export async function readChildRunEvidenceRows(
 						{
 							error: errorMessage(error),
 							kernelRunId,
-							organizationId: input.organizationId,
+							organizationId: input.organizationId ?? requireOrgId(context),
 							tediId: input.tediId,
 						},
 					);
@@ -230,7 +231,7 @@ export async function readChildRunEvidenceRows(
 					try {
 						return await withTransientD1Retry(() =>
 							listTediArtifacts(context.db, {
-								organizationId: input.organizationId,
+								organizationId: input.organizationId ?? requireOrgId(context),
 								tediId: input.tediId,
 								runIds: observedRunIds,
 								limit: input.artifactLimit,
@@ -241,7 +242,7 @@ export async function readChildRunEvidenceRows(
 							"[kernelRuntime] child artifact evidence read failed",
 							{
 								error: errorMessage(error),
-								organizationId: input.organizationId,
+								organizationId: input.organizationId ?? requireOrgId(context),
 								runIds: observedRunIds,
 								tediId: input.tediId,
 							},
@@ -410,7 +411,7 @@ export async function readChildRunResultAndLiveness(
 			await readChildRunEvidenceRows(context, {
 				tediId: input.tediId,
 				runId: input.runId,
-				organizationId: input.organizationId,
+				organizationId: input.organizationId ?? requireOrgId(context),
 				eventLimit: input.eventLimit ?? 120,
 				artifactLimit: input.artifactLimit ?? 8,
 				includeMappedWorkstationRun:
@@ -423,7 +424,7 @@ export async function readChildRunResultAndLiveness(
 		if (eventReadAvailable && latestFinalAssistantContent(eventRows) === null) {
 			const finalRows = await withTransientD1Retry(() =>
 				listTediRuntimeEvents(context.db, {
-					organizationId: input.organizationId,
+					organizationId: input.organizationId ?? requireOrgId(context),
 					tediId: input.tediId,
 					runIds: observedRunIds,
 					kinds: ["message.completed"],
@@ -574,7 +575,7 @@ export async function readChildRunFinalAssistantResult(
 		const { eventRows } = await readChildRunEvidenceRows(context, {
 			tediId: input.tediId,
 			runId: input.runId,
-			organizationId: input.organizationId,
+			organizationId: input.organizationId ?? requireOrgId(context),
 			eventLimit: 120,
 			artifactLimit: 0,
 			includeMappedWorkstationRun: input.runId.includes(":workstation:"),

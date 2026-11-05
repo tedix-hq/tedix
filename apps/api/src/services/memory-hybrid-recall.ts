@@ -146,7 +146,7 @@ export async function recallMemoryFacts(
 			() =>
 				params.env?.AGENT_MEMORY
 					? recallCanonicalMemoryCandidates(params.env.AGENT_MEMORY, {
-							orgId: params.orgId,
+							orgId: params.organizationId,
 							tediId: params.tediId,
 							query: params.query,
 							limit: 40,

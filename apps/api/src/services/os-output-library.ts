@@ -148,10 +148,9 @@ export async function buildOsOutputLibrary(
 ): Promise<{ items: OsOutputLibraryItem[]; truncated: boolean }> {
 	const rows = await listOsOutputLibraryRows(
 		db,
-		params.organizationId,
+		{ workspaceId: params.workspaceId, organizationId: params.organizationId },
 		params.viewer,
 		{
-			workspaceId: params.workspaceId,
 			kind: params.kind,
 			status: params.status,
 			limit: params.limit + 1,

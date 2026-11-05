@@ -15,6 +15,8 @@
  * it an org-wide lesson, provided no tedi owns it.
  */
 
+import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
+
 import { filterConsolidatedEvidence } from "./observations";
 
 import {
@@ -60,10 +62,11 @@ function prefixEnd(prefix: string): string {
 
 export async function listApprovedAgentLessons(
 	db: DbQueryClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	topicPrefix: string,
 	options: { viewerUserId?: string | null; limit?: number } = {},
 ): Promise<ApprovedAgentLessonRow[]> {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const owner = sql`json_extract(${memoryFacts.metadata}, '$.learningFeed.ownerUserId')`;
 	const orgWide = and(
 		isNull(memoryFacts.tediId),
@@ -103,7 +106,7 @@ export async function listApprovedAgentLessons(
 		)
 		.orderBy(desc(memoryFacts.confidence), desc(memoryFacts.updatedAt))
 		.limit(options.limit ?? 200);
-	return filterEvidenceBackedLessons(db, orgId, rows);
+	return filterEvidenceBackedLessons(db, tenantScope, rows);
 }
 
 export interface StaleLearningFeedLessonRow {
@@ -128,11 +131,12 @@ export interface CurrentLearningFeedLessonRow {
  */
 export async function listCurrentLearningFeedLessons(
 	db: DbQueryClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	topicPrefix: string,
 	limit = 500,
 	ownerUserId?: string,
 ): Promise<CurrentLearningFeedLessonRow[]> {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	return db
 		.select({
 			id: memoryFacts.id,
@@ -166,11 +170,12 @@ export async function listCurrentLearningFeedLessons(
  */
 export async function listStaleLearningFeedLessons(
 	db: DbQueryClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	topicPrefix: string,
 	before: string,
 	limit = 200,
 ): Promise<StaleLearningFeedLessonRow[]> {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	return db
 		.select({
 			id: memoryFacts.id,
@@ -197,10 +202,11 @@ export async function listStaleLearningFeedLessons(
  */
 export async function listArchivedLearningFeedLessons(
 	db: DbQueryClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	topicKeys: string[],
 	limit = 50,
 ): Promise<StaleLearningFeedLessonRow[]> {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	if (topicKeys.length === 0) return [];
 	return db
 		.select({
@@ -227,11 +233,12 @@ export async function listArchivedLearningFeedLessons(
  */
 export async function listArchivedLearningFeedLessonsForOwner(
 	db: DbQueryClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	topicPrefix: string,
 	ownerUserId: string,
 	limit = 200,
 ): Promise<CurrentLearningFeedLessonRow[]> {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	return db
 		.select({
 			id: memoryFacts.id,
@@ -257,10 +264,11 @@ export async function listArchivedLearningFeedLessonsForOwner(
 /** Preserve peer edits and tenant ownership when replacing trigger metadata. */
 export async function setAgentLessonTriggers(
 	db: DbQueryClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	row: ApprovedAgentLessonRow,
 	triggers: import("@tedix/api-contract/schemas/agent-session-lessons").LessonTriggers,
 ): Promise<boolean> {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const feed = row.metadata?.learningFeed;
 	const learningFeed =
 		feed && typeof feed === "object" && !Array.isArray(feed) ? feed : {};
@@ -292,11 +300,12 @@ export async function setAgentLessonTriggers(
 /** Undo can retire only the caller's automatically mined lesson, never a person-authored rule. */
 export async function archiveCorrectedAgentLessons(
 	db: DbQueryClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	ownerUserId: string,
 	eventId: string,
 	now: string,
 ) {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	return db
 		.update(memoryFacts)
 		.set({ archivedAt: now, validTo: now, updatedAt: now })
@@ -315,9 +324,10 @@ export async function archiveCorrectedAgentLessons(
 /** Resolve decision ids within the tenant; quotes are copied from canonical sources. */
 export async function decisionLessonEvidence(
 	db: DbQueryClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	ids: string[],
 ): Promise<LessonEvidence> {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const sources: LessonEvidenceSource[] = [];
 	const unique = [...new Set(ids)];
 	for (let offset = 0; offset < unique.length; offset += 50) {
@@ -358,7 +368,7 @@ export async function decisionLessonEvidence(
 				});
 		}
 	}
-	const live = await liveEvidenceSources(db, orgId, sources);
+	const live = await liveEvidenceSources(db, tenantScope, sources);
 	const supported = sources.filter((s) =>
 		live.get(`event:${s.id}`)?.includes(s.quote),
 	);
@@ -379,10 +389,11 @@ export async function decisionLessonEvidence(
 /** A held lesson is the existing reflection workflow's re-distillation queue. */
 function buildHoldLessonForRedistillationStatement(
 	db: DbQueryClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	id: string,
 	expectedMetadata?: Record<string, JsonValue> | null,
 ) {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const now = new Date().toISOString();
 	return db
 		.update(memoryFacts)
@@ -407,13 +418,14 @@ function buildHoldLessonForRedistillationStatement(
 
 export async function holdLessonForRedistillation(
 	db: DbQueryClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	id: string,
 	expectedMetadata?: Record<string, JsonValue> | null,
 ): Promise<void> {
+	tenantScope = normalizeTenantScope(tenantScope);
 	await buildHoldLessonForRedistillationStatement(
 		db,
-		orgId,
+		tenantScope,
 		id,
 		expectedMetadata,
 	);
@@ -422,9 +434,10 @@ export async function holdLessonForRedistillation(
 /** Resolve a set once, in chunks of 50 (under D1's 100 parameter cap). */
 async function liveEvidenceSources(
 	db: DbQueryClient,
-	orgId: string,
+	tenantScope: TenantScope,
 	sources: LessonEvidenceSource[],
 ): Promise<Map<string, string>> {
+	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const live = new Map<string, string>();
 	const factIds = [
 		...new Set(sources.filter((s) => s.kind === "fact").map((s) => s.id)),
@@ -511,7 +524,8 @@ function evidenceIsLive(
 /** Authored lessons need no distillation proof; mined lessons fail closed. */
 export async function filterEvidenceBackedLessons<
 	T extends { id: string; metadata: Record<string, JsonValue> | null },
->(db: DbQueryClient, orgId: string, rows: T[]): Promise<T[]> {
+>(db: DbQueryClient, tenantScope: TenantScope, rows: T[]): Promise<T[]> {
+	tenantScope = normalizeTenantScope(tenantScope);
 	const parsedRows = rows
 		.map((row) => {
 			const feed = row.metadata?.learningFeed;
@@ -529,7 +543,7 @@ export async function filterEvidenceBackedLessons<
 		}));
 	const sourceState = await liveEvidenceSources(
 		db,
-		orgId,
+		tenantScope,
 		parsedRows.flatMap((r) => (r.parsed.success ? r.parsed.data.sources : [])),
 	);
 	const live: T[] = [];
@@ -561,7 +575,7 @@ export async function filterEvidenceBackedLessons<
 					.map((row) =>
 						buildHoldLessonForRedistillationStatement(
 							db,
-							orgId,
+							tenantScope,
 							row.id,
 							row.metadata,
 						),
@@ -569,5 +583,5 @@ export async function filterEvidenceBackedLessons<
 			),
 		);
 	}
-	return filterConsolidatedEvidence(db, orgId, live);
+	return filterConsolidatedEvidence(db, tenantScope, live);
 }

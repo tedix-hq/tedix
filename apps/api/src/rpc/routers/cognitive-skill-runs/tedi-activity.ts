@@ -39,8 +39,18 @@ export const skillsGetWorkflowStepTediActivity =
 				);
 			const parentPath = input.path.split("/calls/")[0] + ".json";
 			const [artifact, parent] = await Promise.all([
-				getRunArtifact(context.db, run.id, input.path),
-				getRunArtifact(context.db, run.id, parentPath),
+				getRunArtifact(
+					context.db,
+					{ organizationId: orgId },
+					run.id,
+					input.path,
+				),
+				getRunArtifact(
+					context.db,
+					{ organizationId: orgId },
+					run.id,
+					parentPath,
+				),
 			]);
 			if (!artifact)
 				return unavailableTediActivity(
