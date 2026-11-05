@@ -88,36 +88,3 @@ export async function waitForFixtureBrowser(
 		await browser.close();
 	}
 }
-
-/**
- * Load every fixture entry once so the dev server discovers each spec's
- * module graph before real spec pages connect. A dependency found mid-suite
- * would re-bundle and, before the fixture lane dropped HMR, full-reload
- * pages other specs were driving. Best effort: a fixture that fails still
- * contributes the modules it did request, and the budget only bounds the
- * warmup, never a spec.
- */
-export async function warmFixtureModuleGraph(
-	origin: string,
-	entries: readonly string[],
-	{ pageTimeoutMs = 15_000, budgetMs = 90_000 } = {},
-) {
-	if (entries.length === 0) return;
-	const browser = await chromium.launch({ timeout: budgetMs });
-	try {
-		const page = await browser.newPage();
-		const deadline = performance.now() + budgetMs;
-		for (const entry of entries) {
-			const remaining = deadline - performance.now();
-			if (remaining <= 0) break;
-			await page
-				.goto(`${origin}${entry}`, {
-					waitUntil: "load",
-					timeout: Math.min(pageTimeoutMs, remaining),
-				})
-				.catch(() => {});
-		}
-	} finally {
-		await browser.close();
-	}
-}
