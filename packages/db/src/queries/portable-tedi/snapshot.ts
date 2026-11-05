@@ -81,6 +81,7 @@ export async function listPortableTediDomainsPage(
 ) {
 	// UNION (rather than UNION ALL) stops a malformed parent cycle. The seed
 	// reads only tedi-owned references; each parent must belong to the same org.
+	// Raw: Drizzle v1 has no WITH RECURSIVE builder for the ancestor walk.
 	const rows = await db.all(sql`
 		WITH RECURSIVE included(id, parent_id) AS (
 			SELECT d.id, d.parent_id

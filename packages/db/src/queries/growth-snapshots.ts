@@ -6,8 +6,24 @@
  * and the weekly growth snapshot cron.
  */
 
-import { desc, eq } from "drizzle-orm";
+import {
+	count,
+	countDistinct,
+	desc,
+	eq,
+	inArray,
+	isNull,
+	sql,
+} from "drizzle-orm";
 import type { DbClient } from "../client";
+import { createDbQueryClient } from "../query-client";
+import { skillEntries, tediMuscleMemory } from "../schema/cognitive";
+import { memoryFacts, tediExpertise } from "../schema/memory-graph";
+import { tediRationaleRecords } from "../schema/rationale-records";
+import { tedis as tedisTable } from "../schema/tedis";
+import { chunkForBoundParams } from "../utils/batch";
+
+const D1_IN_LIST_CHUNK = 50;
 import {
 	type GrowthSnapshotMetrics,
 	type TediGrowthSnapshot,
@@ -128,7 +144,7 @@ type ExpertiseRow = {
 
 /**
  * Collect cognitive metrics for ALL active tedis in batch.
- * Uses raw D1 SQL for efficiency — no per-tedi round trips.
+ * Three bulk queries — no per-tedi round trips.
  *
  * Returns an array ready to be inserted via createGrowthSnapshot.
  */
@@ -143,79 +159,103 @@ export async function collectAllTediGrowthMetrics(
 		metrics: GrowthSnapshotMetrics;
 	}>
 > {
-	// 1. Get all active tedis with their core cognitive counts in one query
-	const metricsResult = await d1
-		.prepare(
-			`
-		SELECT
-			t.id AS tedi_id,
-			t.organization_id AS org_id,
-			COALESCE(f.fact_count, 0) AS facts,
-			COALESCE(f.avg_confidence, 0) AS avg_confidence,
-			COALESCE(s.skill_count, 0) AS skills,
-			COALESCE(s.avg_revision, 0) AS avg_revision,
-			COALESCE(m.muscle_count, 0) AS muscles,
-			COALESCE(m.avg_usage, 0) AS avg_usage,
-			COALESCE(d.domain_count, 0) AS domains
-		FROM tedis t
-		LEFT JOIN (
-			SELECT tedi_id,
-				COUNT(*) AS fact_count,
-				AVG(confidence) AS avg_confidence
-			FROM memory_facts
-			WHERE archived_at IS NULL
-			GROUP BY tedi_id
-		) f ON f.tedi_id = t.id
-		LEFT JOIN (
-			SELECT tedi_id,
-				COUNT(*) AS skill_count,
-				AVG(revision) AS avg_revision
-			FROM skill_entries
-			GROUP BY tedi_id
-		) s ON s.tedi_id = t.id
-		LEFT JOIN (
-			SELECT tedi_id,
-				COUNT(*) AS muscle_count,
-				AVG(usage_count) AS avg_usage
-			FROM tedi_muscle_memory
-			GROUP BY tedi_id
-		) m ON m.tedi_id = t.id
-		LEFT JOIN (
-			SELECT tedi_id,
-				COUNT(DISTINCT domain_id) AS domain_count
-			FROM tedi_expertise
-			GROUP BY tedi_id
-		) d ON d.tedi_id = t.id
-		WHERE t.status = 'active'
-		`,
-		)
-		.all<TediMetricsRow>();
+	const db = createDbQueryClient(d1);
 
-	const tedis = metricsResult.results;
+	// 1. Get all active tedis with their core cognitive counts in one query
+	const f = db
+		.select({
+			tediId: memoryFacts.tediId,
+			factCount: count().as("fact_count"),
+			avgConfidence: sql<number>`AVG(${memoryFacts.confidence})`.as(
+				"avg_confidence",
+			),
+		})
+		.from(memoryFacts)
+		.where(isNull(memoryFacts.archivedAt))
+		.groupBy(memoryFacts.tediId)
+		.as("f");
+	const s = db
+		.select({
+			tediId: skillEntries.tediId,
+			skillCount: count().as("skill_count"),
+			avgRevision: sql<number>`AVG(${skillEntries.revision})`.as(
+				"avg_revision",
+			),
+		})
+		.from(skillEntries)
+		.groupBy(skillEntries.tediId)
+		.as("s");
+	const m = db
+		.select({
+			tediId: tediMuscleMemory.tediId,
+			muscleCount: count().as("muscle_count"),
+			avgUsage: sql<number>`AVG(${tediMuscleMemory.usageCount})`.as(
+				"avg_usage",
+			),
+		})
+		.from(tediMuscleMemory)
+		.groupBy(tediMuscleMemory.tediId)
+		.as("m");
+	const d = db
+		.select({
+			tediId: tediExpertise.tediId,
+			domainCount: countDistinct(tediExpertise.domainId).as("domain_count"),
+		})
+		.from(tediExpertise)
+		.groupBy(tediExpertise.tediId)
+		.as("d");
+	const tedis: TediMetricsRow[] = await db
+		.select({
+			tedi_id: sql<string>`${tedisTable.id}`.as("tedi_id"),
+			org_id: sql<string>`${tedisTable.organizationId}`.as("org_id"),
+			facts: sql<number>`COALESCE(${f.factCount}, 0)`.as("facts"),
+			avg_confidence: sql<number>`COALESCE(${f.avgConfidence}, 0)`.as(
+				"avg_confidence",
+			),
+			skills: sql<number>`COALESCE(${s.skillCount}, 0)`.as("skills"),
+			avg_revision: sql<number>`COALESCE(${s.avgRevision}, 0)`.as(
+				"avg_revision",
+			),
+			muscles: sql<number>`COALESCE(${m.muscleCount}, 0)`.as("muscles"),
+			avg_usage: sql<number>`COALESCE(${m.avgUsage}, 0)`.as("avg_usage"),
+			domains: sql<number>`COALESCE(${d.domainCount}, 0)`.as("domains"),
+		})
+		.from(tedisTable)
+		.leftJoin(f, eq(f.tediId, tedisTable.id))
+		.leftJoin(s, eq(s.tediId, tedisTable.id))
+		.leftJoin(m, eq(m.tediId, tedisTable.id))
+		.leftJoin(d, eq(d.tediId, tedisTable.id))
+		.where(eq(tedisTable.status, "active"));
+
 	if (tedis.length === 0) return [];
 
 	const tediIds = tedis.map((t) => t.tedi_id);
 
+	// D1 caps bound parameters per statement; each chunk's groups are disjoint
+	// by tedi, so merged rows equal one unchunked read.
+	const tediIdChunks = chunkForBoundParams(tediIds, D1_IN_LIST_CHUNK);
+
 	// 2. Batch autonomy rate from rationale records
-	// Use a single query with IN clause for all active tedis
-	const placeholders = tediIds.map(() => "?").join(",");
-	const autonomyResult = await d1
-		.prepare(
-			`
-		SELECT
-			tedi_id,
-			COUNT(*) AS total,
-			SUM(CASE WHEN approval_request_id IS NULL THEN 1 ELSE 0 END) AS auto_approved
-		FROM tedi_rationale_records
-		WHERE tedi_id IN (${placeholders})
-		GROUP BY tedi_id
-		`,
-		)
-		.bind(...tediIds)
-		.all<AutonomyRow>();
+	const autonomyRows: AutonomyRow[] = [];
+	for (const ids of tediIdChunks) {
+		autonomyRows.push(
+			...(await db
+				.select({
+					tedi_id: sql<string>`${tediRationaleRecords.tediId}`.as("tedi_id"),
+					total: count().as("total"),
+					auto_approved:
+						sql<number>`SUM(CASE WHEN ${tediRationaleRecords.approvalRequestId} IS NULL THEN 1 ELSE 0 END)`.as(
+							"auto_approved",
+						),
+				})
+				.from(tediRationaleRecords)
+				.where(inArray(tediRationaleRecords.tediId, ids))
+				.groupBy(tediRationaleRecords.tediId)),
+		);
+	}
 
 	const autonomyMap = new Map<string, number>();
-	for (const row of autonomyResult.results) {
+	for (const row of autonomyRows) {
 		autonomyMap.set(
 			row.tedi_id,
 			row.total > 0 ? row.auto_approved / row.total : 0,
@@ -223,19 +263,22 @@ export async function collectAllTediGrowthMetrics(
 	}
 
 	// 3. Batch expertise levels per domain
-	const expertiseResult = await d1
-		.prepare(
-			`
-		SELECT tedi_id, domain_id, expertise_level
-		FROM tedi_expertise
-		WHERE tedi_id IN (${placeholders})
-		`,
-		)
-		.bind(...tediIds)
-		.all<ExpertiseRow>();
+	const expertiseRows: ExpertiseRow[] = [];
+	for (const ids of tediIdChunks) {
+		expertiseRows.push(
+			...(await db
+				.select({
+					tedi_id: tediExpertise.tediId,
+					domain_id: tediExpertise.domainId,
+					expertise_level: tediExpertise.expertiseLevel,
+				})
+				.from(tediExpertise)
+				.where(inArray(tediExpertise.tediId, ids))),
+		);
+	}
 
 	const expertiseMap = new Map<string, Record<string, string>>();
-	for (const row of expertiseResult.results) {
+	for (const row of expertiseRows) {
 		if (!expertiseMap.has(row.tedi_id)) {
 			expertiseMap.set(row.tedi_id, {});
 		}

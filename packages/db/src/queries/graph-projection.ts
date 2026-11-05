@@ -15,6 +15,7 @@ import {
 	lte,
 	max,
 	min,
+	notExists,
 	or,
 	sql,
 } from "drizzle-orm";
@@ -877,8 +878,8 @@ export async function countPendingGraphProjectionEvents(
 
 /**
  * Final readiness CAS: readiness may become ready only if no newer outbox row
- * arrived after certification. Raw SQL is retained here because the
- * UPDATE...NOT EXISTS...RETURNING statement is the atomic fence.
+ * arrived after certification. The single UPDATE...NOT EXISTS...RETURNING
+ * statement is the atomic fence.
  */
 export async function confirmGraphProjectionReadyWithoutBacklog(
 	db: DbClient,
@@ -889,34 +890,34 @@ export async function confirmGraphProjectionReadyWithoutBacklog(
 		updatedAt: string;
 	},
 ): Promise<boolean> {
-	const d1 = db.$client;
-	const row = await d1
-		.prepare(
-			`UPDATE graph_projection_readiness
-			 SET state = 'ready',
-				reason = NULL,
-				projection_epoch = ?,
-				persisted_watermark = ?,
-				updated_at = ?
-			 WHERE organization_id = ?
-				AND state = 'ready'
-				AND projection_epoch = ?
-				AND NOT EXISTS (
-					SELECT 1 FROM graph_projection_outbox
-					WHERE organization_id = ? AND sequence > ?
-				)
-			 RETURNING state`,
+	const [row] = await db
+		.update(graphProjectionReadiness)
+		.set({
+			state: "ready",
+			reason: null,
+			projectionEpoch: input.projectionEpoch,
+			persistedWatermark: input.persistedWatermark,
+			updatedAt: input.updatedAt,
+		})
+		.where(
+			and(
+				eq(graphProjectionReadiness.organizationId, input.organizationId),
+				eq(graphProjectionReadiness.state, "ready"),
+				eq(graphProjectionReadiness.projectionEpoch, input.projectionEpoch),
+				notExists(
+					db
+						.select({ one: sql`1` })
+						.from(graphProjectionOutbox)
+						.where(
+							and(
+								eq(graphProjectionOutbox.organizationId, input.organizationId),
+								gt(graphProjectionOutbox.sequence, input.persistedWatermark),
+							),
+						),
+				),
+			),
 		)
-		.bind(
-			input.projectionEpoch,
-			input.persistedWatermark,
-			input.updatedAt,
-			input.organizationId,
-			input.projectionEpoch,
-			input.organizationId,
-			input.persistedWatermark,
-		)
-		.first<{ state: string }>();
+		.returning({ state: graphProjectionReadiness.state });
 	return row?.state === "ready";
 }
 
@@ -977,6 +978,8 @@ export async function hydrateCanonicalGraphProjectionRows(
 	events: GraphProjectionOutboxEvent[],
 ): Promise<Array<Record<string, unknown> | null>> {
 	if (events.length === 0) return [];
+	// Stays raw: SELECT * hydrates physical snake_case rows across heterogeneous
+	// tables, which typed builders would re-key and decode.
 	const d1 = db.$client;
 	const results = await d1.batch(
 		events.map((event) =>

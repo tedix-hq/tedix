@@ -1,7 +1,21 @@
-import { and, count, eq, sql } from "drizzle-orm";
+import {
+	and,
+	count,
+	eq,
+	exists,
+	gt,
+	inArray,
+	isNotNull,
+	notExists,
+	or,
+	sql,
+} from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import type { DbQueryClient } from "../query-client";
+import { cmsDeprovisionOperations } from "../schema/cms-deprovision-operations";
 import { cmsSites } from "../schema/cms-sites";
 import {
+	cmsCaptureCronPauses,
 	cmsRestoreFences,
 	cmsRestorePermits,
 	type CmsRestoreFenceRow,
@@ -27,19 +41,42 @@ export interface CmsCaptureCronPauseParams extends CmsRestoreSiteParams {
 	captureId: string;
 }
 
+/** Correlated guard: the outer `cms_sites` row has no closed restore fence. */
+function siteHasNoFence(db: DbQueryClient) {
+	return notExists(
+		db
+			.select({ one: sql`1` })
+			.from(cmsRestoreFences)
+			.where(eq(cmsRestoreFences.siteId, cmsSites.id)),
+	);
+}
+
+/** Correlated guard: the outer `cms_sites` row has no deprovision reservation. */
+function siteHasNoDeprovision(db: DbQueryClient) {
+	return notExists(
+		db
+			.select({ one: sql`1` })
+			.from(cmsDeprovisionOperations)
+			.where(eq(cmsDeprovisionOperations.id, cmsSites.id)),
+	);
+}
+
 /** Terminal capture cleanup removes only its own pause, even before drain.
  * It never reclaims permits or touches a replacement capture's ownership. */
 export async function abortCmsCaptureCronPause(
 	db: DbQueryClient,
 	input: CmsCaptureCronPauseParams,
 ): Promise<number> {
-	const rows = await db.all(sql`
-  DELETE FROM cms_capture_cron_pauses
-  WHERE site_id = ${input.siteId}
-   AND slug = ${input.slug}
-   AND capture_id = ${input.captureId}
-  RETURNING site_id
- `);
+	const rows = await db
+		.delete(cmsCaptureCronPauses)
+		.where(
+			and(
+				eq(cmsCaptureCronPauses.siteId, input.siteId),
+				eq(cmsCaptureCronPauses.slug, input.slug),
+				eq(cmsCaptureCronPauses.captureId, input.captureId),
+			),
+		)
+		.returning({ siteId: cmsCaptureCronPauses.siteId });
 	return rows.length;
 }
 
@@ -48,25 +85,44 @@ export async function claimCmsCaptureCronPause(
 	db: DbQueryClient,
 	input: CmsCaptureCronPauseParams,
 ): Promise<boolean> {
-	const rows = await db.all(sql`
-		INSERT INTO cms_capture_cron_pauses (site_id, slug, capture_id, expires_at_unix)
-		SELECT site.id, site.slug, ${input.captureId}, unixepoch() + 3600
-		FROM cms_sites AS site
-		WHERE site.id = ${input.siteId}
-			AND site.slug = ${input.slug}
-			AND site.status = 'active'
-			AND NOT EXISTS (SELECT 1 FROM cms_restore_fences AS fence WHERE fence.site_id = site.id)
-			AND NOT EXISTS (SELECT 1 FROM cms_deprovision_operations AS operation WHERE operation.id = site.id)
-		ON CONFLICT(site_id) DO UPDATE SET
-			slug = excluded.slug,
-			capture_id = excluded.capture_id,
-			expires_at_unix = excluded.expires_at_unix,
-			drained_at_unix = NULL
-		WHERE cms_capture_cron_pauses.expires_at_unix <= unixepoch()
-			OR (cms_capture_cron_pauses.slug = excluded.slug
-				AND cms_capture_cron_pauses.capture_id = excluded.capture_id)
-		RETURNING site_id
-	`);
+	const rows = await db
+		.insert(cmsCaptureCronPauses)
+		.select(
+			db
+				.select({
+					siteId: cmsSites.id,
+					slug: cmsSites.slug,
+					captureId: sql<string>`${input.captureId}`.as("capture_id"),
+					expiresAtUnix: sql<number>`unixepoch() + 3600`.as("expires_at_unix"),
+				})
+				.from(cmsSites)
+				.where(
+					and(
+						eq(cmsSites.id, input.siteId),
+						eq(cmsSites.slug, input.slug),
+						eq(cmsSites.status, "active"),
+						siteHasNoFence(db),
+						siteHasNoDeprovision(db),
+					),
+				),
+		)
+		.onConflictDoUpdate({
+			target: cmsCaptureCronPauses.siteId,
+			set: {
+				slug: sql`excluded.slug`,
+				captureId: sql`excluded.capture_id`,
+				expiresAtUnix: sql`excluded.expires_at_unix`,
+				drainedAtUnix: null,
+			},
+			setWhere: or(
+				sql`${cmsCaptureCronPauses.expiresAtUnix} <= unixepoch()`,
+				and(
+					sql`${cmsCaptureCronPauses.slug} = excluded.slug`,
+					sql`${cmsCaptureCronPauses.captureId} = excluded.capture_id`,
+				),
+			),
+		})
+		.returning({ siteId: cmsCaptureCronPauses.siteId });
 	return rows.length === 1;
 }
 
@@ -75,20 +131,29 @@ export async function drainCmsCaptureCronPause(
 	db: DbQueryClient,
 	input: CmsCaptureCronPauseParams,
 ): Promise<boolean> {
-	const rows = await db.all(sql`
-		UPDATE cms_capture_cron_pauses
-		SET drained_at_unix = unixepoch()
-		WHERE site_id = ${input.siteId}
-			AND slug = ${input.slug}
-			AND capture_id = ${input.captureId}
-			AND expires_at_unix > unixepoch()
-			AND NOT EXISTS (
-				SELECT 1 FROM cms_restore_permits AS permit
-				WHERE permit.site_id = ${input.siteId}
-					AND permit.kind = 'scheduled'
-			)
-		RETURNING site_id
-	`);
+	const rows = await db
+		.update(cmsCaptureCronPauses)
+		.set({ drainedAtUnix: sql`unixepoch()` })
+		.where(
+			and(
+				eq(cmsCaptureCronPauses.siteId, input.siteId),
+				eq(cmsCaptureCronPauses.slug, input.slug),
+				eq(cmsCaptureCronPauses.captureId, input.captureId),
+				sql`${cmsCaptureCronPauses.expiresAtUnix} > unixepoch()`,
+				notExists(
+					db
+						.select({ one: sql`1` })
+						.from(cmsRestorePermits)
+						.where(
+							and(
+								eq(cmsRestorePermits.siteId, input.siteId),
+								eq(cmsRestorePermits.kind, "scheduled"),
+							),
+						),
+				),
+			),
+		)
+		.returning({ siteId: cmsCaptureCronPauses.siteId });
 	return rows.length === 1;
 }
 
@@ -97,16 +162,19 @@ export async function assertCmsCaptureCronPause(
 	db: DbQueryClient,
 	input: CmsCaptureCronPauseParams,
 ): Promise<boolean> {
-	const rows = await db.all(sql`
-		UPDATE cms_capture_cron_pauses
-		SET drained_at_unix = drained_at_unix
-		WHERE site_id = ${input.siteId}
-			AND slug = ${input.slug}
-			AND capture_id = ${input.captureId}
-			AND drained_at_unix IS NOT NULL
-			AND expires_at_unix > unixepoch() + 60
-		RETURNING site_id
-	`);
+	const rows = await db
+		.update(cmsCaptureCronPauses)
+		.set({ drainedAtUnix: sql`${cmsCaptureCronPauses.drainedAtUnix}` })
+		.where(
+			and(
+				eq(cmsCaptureCronPauses.siteId, input.siteId),
+				eq(cmsCaptureCronPauses.slug, input.slug),
+				eq(cmsCaptureCronPauses.captureId, input.captureId),
+				isNotNull(cmsCaptureCronPauses.drainedAtUnix),
+				sql`${cmsCaptureCronPauses.expiresAtUnix} > unixepoch() + 60`,
+			),
+		)
+		.returning({ siteId: cmsCaptureCronPauses.siteId });
 	return rows.length === 1;
 }
 
@@ -114,23 +182,26 @@ export async function releaseCmsCaptureCronPause(
 	db: DbQueryClient,
 	input: CmsCaptureCronPauseParams,
 ): Promise<boolean> {
-	const rows = await db.all(sql`
-		DELETE FROM cms_capture_cron_pauses
-		WHERE site_id = ${input.siteId}
-			AND slug = ${input.slug}
-			AND capture_id = ${input.captureId}
-			AND drained_at_unix IS NOT NULL
-			AND expires_at_unix > unixepoch()
-		RETURNING site_id
-	`);
+	const rows = await db
+		.delete(cmsCaptureCronPauses)
+		.where(
+			and(
+				eq(cmsCaptureCronPauses.siteId, input.siteId),
+				eq(cmsCaptureCronPauses.slug, input.slug),
+				eq(cmsCaptureCronPauses.captureId, input.captureId),
+				isNotNull(cmsCaptureCronPauses.drainedAtUnix),
+				sql`${cmsCaptureCronPauses.expiresAtUnix} > unixepoch()`,
+			),
+		)
+		.returning({ siteId: cmsCaptureCronPauses.siteId });
 	if (rows.length === 1) return true;
 	// A D1 response can be lost after the exact row was deleted. Replaying the
 	// Workflow release must succeed only if no replacement owns this site.
-	const remaining = await db.all(sql`
-		SELECT site_id FROM cms_capture_cron_pauses
-		WHERE site_id = ${input.siteId}
-		LIMIT 1
-	`);
+	const remaining = await db
+		.select({ siteId: cmsCaptureCronPauses.siteId })
+		.from(cmsCaptureCronPauses)
+		.where(eq(cmsCaptureCronPauses.siteId, input.siteId))
+		.limit(1);
 	return remaining.length === 0;
 }
 
@@ -142,31 +213,46 @@ export async function enterCmsRestorePermit(
 	db: DbQueryClient,
 	input: CmsRestorePermitParams,
 ): Promise<boolean> {
-	const rows = await db.all(sql`
-		INSERT INTO cms_restore_permits (id, site_id, slug, restore_epoch, kind)
-		SELECT ${input.permitId}, site.id, site.slug, site.restore_epoch, ${input.kind}
-		FROM cms_sites AS site
-		WHERE site.id = ${input.siteId}
-			AND site.slug = ${input.slug}
-			AND site.restore_epoch = ${input.restoreEpoch}
-			AND site.status = 'active'
-			AND NOT EXISTS (
-				SELECT 1 FROM cms_restore_fences AS fence
-				WHERE fence.site_id = site.id
-			)
-			AND NOT EXISTS (
-				SELECT 1 FROM cms_deprovision_operations AS operation
-				WHERE operation.id = site.id
-			)
-			AND (${input.kind} <> 'scheduled' OR NOT EXISTS (
-				SELECT 1 FROM cms_capture_cron_pauses AS pause
-				WHERE pause.site_id = site.id
-					AND pause.slug = site.slug
-					AND pause.expires_at_unix > unixepoch()
-			))
-		ON CONFLICT(id) DO NOTHING
-		RETURNING id
-	`);
+	const rows = await db
+		.insert(cmsRestorePermits)
+		.select(
+			db
+				.select({
+					id: sql<string>`${input.permitId}`.as("id"),
+					siteId: cmsSites.id,
+					slug: cmsSites.slug,
+					restoreEpoch: cmsSites.restoreEpoch,
+					kind: sql<CmsRestorePermitParams["kind"]>`${input.kind}`.as("kind"),
+				})
+				.from(cmsSites)
+				.where(
+					and(
+						eq(cmsSites.id, input.siteId),
+						eq(cmsSites.slug, input.slug),
+						eq(cmsSites.restoreEpoch, input.restoreEpoch),
+						eq(cmsSites.status, "active"),
+						siteHasNoFence(db),
+						siteHasNoDeprovision(db),
+						// A scheduled permit also waits for an unexpired capture pause.
+						input.kind === "scheduled"
+							? notExists(
+									db
+										.select({ one: sql`1` })
+										.from(cmsCaptureCronPauses)
+										.where(
+											and(
+												eq(cmsCaptureCronPauses.siteId, cmsSites.id),
+												eq(cmsCaptureCronPauses.slug, cmsSites.slug),
+												sql`${cmsCaptureCronPauses.expiresAtUnix} > unixepoch()`,
+											),
+										),
+								)
+							: undefined,
+					),
+				),
+		)
+		.onConflictDoNothing({ target: cmsRestorePermits.id })
+		.returning({ id: cmsRestorePermits.id });
 	return rows.length === 1;
 }
 
@@ -176,25 +262,31 @@ export async function enterCmsRecoveryPurgePermit(
 	db: DbQueryClient,
 	input: CmsRestorePermitParams,
 ): Promise<boolean> {
-	const rows = await db.all(sql`
-		INSERT INTO cms_restore_permits (id, site_id, slug, restore_epoch, kind)
-		SELECT ${input.permitId}, site.id, site.slug, site.restore_epoch, ${input.kind}
-		FROM cms_sites AS site
-		WHERE site.id = ${input.siteId}
-			AND site.slug = ${input.slug}
-			AND site.restore_epoch = ${input.restoreEpoch}
-			AND site.status IN ('active', 'paused')
-			AND NOT EXISTS (
-				SELECT 1 FROM cms_restore_fences AS fence
-				WHERE fence.site_id = site.id
-			)
-			AND NOT EXISTS (
-				SELECT 1 FROM cms_deprovision_operations AS operation
-				WHERE operation.id = site.id
-			)
-		ON CONFLICT(id) DO NOTHING
-		RETURNING id
-	`);
+	const rows = await db
+		.insert(cmsRestorePermits)
+		.select(
+			db
+				.select({
+					id: sql<string>`${input.permitId}`.as("id"),
+					siteId: cmsSites.id,
+					slug: cmsSites.slug,
+					restoreEpoch: cmsSites.restoreEpoch,
+					kind: sql<CmsRestorePermitParams["kind"]>`${input.kind}`.as("kind"),
+				})
+				.from(cmsSites)
+				.where(
+					and(
+						eq(cmsSites.id, input.siteId),
+						eq(cmsSites.slug, input.slug),
+						eq(cmsSites.restoreEpoch, input.restoreEpoch),
+						inArray(cmsSites.status, ["active", "paused"]),
+						siteHasNoFence(db),
+						siteHasNoDeprovision(db),
+					),
+				),
+		)
+		.onConflictDoNothing({ target: cmsRestorePermits.id })
+		.returning({ id: cmsRestorePermits.id });
 	return rows.length === 1;
 }
 
@@ -203,25 +295,31 @@ export async function enterCmsProvisioningPermit(
 	db: DbQueryClient,
 	input: CmsRestorePermitParams,
 ): Promise<boolean> {
-	const rows = await db.all(sql`
-		INSERT INTO cms_restore_permits (id, site_id, slug, restore_epoch, kind)
-		SELECT ${input.permitId}, site.id, site.slug, site.restore_epoch, ${input.kind}
-		FROM cms_sites AS site
-		WHERE site.id = ${input.siteId}
-			AND site.slug = ${input.slug}
-			AND site.restore_epoch = ${input.restoreEpoch}
-			AND site.status = 'provisioning'
-			AND NOT EXISTS (
-				SELECT 1 FROM cms_restore_fences AS fence
-				WHERE fence.site_id = site.id
-			)
-			AND NOT EXISTS (
-				SELECT 1 FROM cms_deprovision_operations AS operation
-				WHERE operation.id = site.id
-			)
-		ON CONFLICT(id) DO NOTHING
-		RETURNING id
-	`);
+	const rows = await db
+		.insert(cmsRestorePermits)
+		.select(
+			db
+				.select({
+					id: sql<string>`${input.permitId}`.as("id"),
+					siteId: cmsSites.id,
+					slug: cmsSites.slug,
+					restoreEpoch: cmsSites.restoreEpoch,
+					kind: sql<CmsRestorePermitParams["kind"]>`${input.kind}`.as("kind"),
+				})
+				.from(cmsSites)
+				.where(
+					and(
+						eq(cmsSites.id, input.siteId),
+						eq(cmsSites.slug, input.slug),
+						eq(cmsSites.restoreEpoch, input.restoreEpoch),
+						eq(cmsSites.status, "provisioning"),
+						siteHasNoFence(db),
+						siteHasNoDeprovision(db),
+					),
+				),
+		)
+		.onConflictDoNothing({ target: cmsRestorePermits.id })
+		.returning({ id: cmsRestorePermits.id });
 	return rows.length === 1;
 }
 
@@ -230,15 +328,18 @@ export async function leaveCmsRestorePermit(
 	db: DbQueryClient,
 	input: CmsRestorePermitParams,
 ): Promise<boolean> {
-	const rows = await db.all(sql`
-		DELETE FROM cms_restore_permits
-		WHERE id = ${input.permitId}
-			AND site_id = ${input.siteId}
-			AND slug = ${input.slug}
-			AND restore_epoch = ${input.restoreEpoch}
-			AND kind = ${input.kind}
-		RETURNING id
-	`);
+	const rows = await db
+		.delete(cmsRestorePermits)
+		.where(
+			and(
+				eq(cmsRestorePermits.id, input.permitId),
+				eq(cmsRestorePermits.siteId, input.siteId),
+				eq(cmsRestorePermits.slug, input.slug),
+				eq(cmsRestorePermits.restoreEpoch, input.restoreEpoch),
+				eq(cmsRestorePermits.kind, input.kind),
+			),
+		)
+		.returning({ id: cmsRestorePermits.id });
 	return rows.length === 1;
 }
 
@@ -250,9 +351,11 @@ export async function leaveCompletedCmsScheduledPermit(
 ): Promise<boolean> {
 	if (input.kind !== "scheduled") return false;
 	if (await leaveCmsRestorePermit(db, input)) return true;
-	const rows = await db.all(sql`
-		SELECT id FROM cms_restore_permits WHERE id = ${input.permitId} LIMIT 1
-	`);
+	const rows = await db
+		.select({ id: cmsRestorePermits.id })
+		.from(cmsRestorePermits)
+		.where(eq(cmsRestorePermits.id, input.permitId))
+		.limit(1);
 	return rows.length === 0;
 }
 
@@ -344,30 +447,46 @@ export async function reconcileCmsRestoreOuterPermits(
 	db: DbQueryClient,
 	input: CmsRestoreFenceParams,
 ): Promise<number> {
-	const rows = await db.all(sql`
-		DELETE FROM cms_restore_permits AS permit
-		WHERE permit.site_id = ${input.siteId}
-			AND permit.slug = ${input.slug}
-			AND permit.kind = 'outer'
-			AND EXISTS (
-				SELECT 1 FROM cms_restore_fences AS fence
-				JOIN cms_sites AS site ON site.id = fence.site_id
-				WHERE fence.site_id = ${input.siteId}
-					AND fence.slug = ${input.slug}
-					AND fence.generation = ${input.generation}
-					AND fence.capture_id = ${input.captureId}
-					AND fence.restore_epoch IS NOT NULL
-					AND site.slug = ${input.slug}
-					AND site.restore_epoch > fence.restore_epoch
-					AND site.restore_epoch > permit.restore_epoch
-			)
-			AND NOT EXISTS (
-				SELECT 1 FROM cms_restore_permits AS blocker
-				WHERE blocker.site_id = ${input.siteId}
-					AND blocker.kind IN ('nested', 'legacy')
-			)
-		RETURNING id
-	`);
+	const blocker = alias(cmsRestorePermits, "blocker");
+	const rows = await db
+		.delete(cmsRestorePermits)
+		.where(
+			and(
+				eq(cmsRestorePermits.siteId, input.siteId),
+				eq(cmsRestorePermits.slug, input.slug),
+				eq(cmsRestorePermits.kind, "outer"),
+				exists(
+					db
+						.select({ one: sql`1` })
+						.from(cmsRestoreFences)
+						.innerJoin(cmsSites, eq(cmsSites.id, cmsRestoreFences.siteId))
+						.where(
+							and(
+								eq(cmsRestoreFences.siteId, input.siteId),
+								eq(cmsRestoreFences.slug, input.slug),
+								eq(cmsRestoreFences.generation, input.generation),
+								eq(cmsRestoreFences.captureId, input.captureId),
+								isNotNull(cmsRestoreFences.restoreEpoch),
+								eq(cmsSites.slug, input.slug),
+								gt(cmsSites.restoreEpoch, cmsRestoreFences.restoreEpoch),
+								gt(cmsSites.restoreEpoch, cmsRestorePermits.restoreEpoch),
+							),
+						),
+				),
+				notExists(
+					db
+						.select({ one: sql`1` })
+						.from(blocker)
+						.where(
+							and(
+								eq(blocker.siteId, input.siteId),
+								inArray(blocker.kind, ["nested", "legacy"]),
+							),
+						),
+				),
+			),
+		)
+		.returning({ id: cmsRestorePermits.id });
 	return rows.length;
 }
 
@@ -403,17 +522,22 @@ export async function releaseCmsRestoreFence(
 	db: DbQueryClient,
 	input: CmsRestoreFenceParams,
 ): Promise<boolean> {
-	const rows = await db.all(sql`
-		DELETE FROM cms_restore_fences
-		WHERE site_id = ${input.siteId}
-			AND slug = ${input.slug}
-			AND generation = ${input.generation}
-			AND capture_id = ${input.captureId}
-			AND NOT EXISTS (
-				SELECT 1 FROM cms_restore_permits AS permit
-				WHERE permit.site_id = ${input.siteId}
-			)
-		RETURNING site_id
-	`);
+	const rows = await db
+		.delete(cmsRestoreFences)
+		.where(
+			and(
+				eq(cmsRestoreFences.siteId, input.siteId),
+				eq(cmsRestoreFences.slug, input.slug),
+				eq(cmsRestoreFences.generation, input.generation),
+				eq(cmsRestoreFences.captureId, input.captureId),
+				notExists(
+					db
+						.select({ one: sql`1` })
+						.from(cmsRestorePermits)
+						.where(eq(cmsRestorePermits.siteId, input.siteId)),
+				),
+			),
+		)
+		.returning({ siteId: cmsRestoreFences.siteId });
 	return rows.length === 1;
 }

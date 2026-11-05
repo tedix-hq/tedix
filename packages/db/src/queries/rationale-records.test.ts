@@ -11,8 +11,12 @@
  * so we test the helper functions and type contracts.
  */
 
+import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
-import type { DbClient } from "../client";
+import { createDbClient, type DbClient } from "../client";
+import { tediRuntimeEvents } from "../schema/cognitive-runtime";
+import { createD1Facade } from "../test/d1-facade";
+import { schemaDdl } from "../test/schema-ddl";
 import {
 	assertRationaleExecutionLinked,
 	compareSkillWorkflowArtifactPaths,
@@ -25,10 +29,19 @@ import {
 } from "./rationale-records";
 
 describe("rationale runtime-event count", () => {
-	it("normalizes the D1 count result", async () => {
-		const db = {
-			all: async () => [{ cnt: "2" }],
-		} as unknown as DbClient;
+	it("counts terminal tool events for the run", async () => {
+		const sqlite = new DatabaseSync(":memory:");
+		sqlite.exec("PRAGMA foreign_keys=OFF");
+		sqlite.exec(schemaDdl(tediRuntimeEvents));
+		const insert = sqlite.prepare(
+			"INSERT INTO tedi_runtime_events(id, organization_id, tedi_id, run_id, kind, payload, runtime_backend, created_at) VALUES(?, ?, ?, ?, ?, '{}', 'cloudflare', '2026-01-01')",
+		);
+		insert.run("e1", "org-1", "tedi-1", "run-1", "tool.completed");
+		insert.run("e2", "org-1", "tedi-1", "run-1", "tool.failed");
+		insert.run("e3", "org-1", "tedi-1", "run-1", "run.started");
+		insert.run("e4", "org-1", "tedi-1", "run-2", "tool.completed");
+		insert.run("e5", "org-2", "tedi-1", "run-1", "tool.completed");
+		const db = createDbClient(createD1Facade(sqlite));
 		await expect(
 			countRationaleRunToolEvents(db, {
 				tediId: "tedi-1",

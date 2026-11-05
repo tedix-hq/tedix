@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, like, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import { auditEvents } from "../schema/audit-events";
 import { tediRuntimeEvents } from "../schema/cognitive-runtime";
@@ -83,29 +83,77 @@ export interface AnalyticsRationaleEvidenceRow {
 }
 
 /** `subjectUserId`, restored where the row stores `subjectIsActor` (queries/audit.ts). */
-const auditSubjectUserId = sql`coalesce(json_extract(${auditEvents.metadata}, '$.subjectUserId'), CASE WHEN json_extract(${auditEvents.metadata}, '$.subjectIsActor') = 1 THEN ${auditEvents.actorId} END)`;
+const auditSubjectUserId = sql<
+	string | null
+>`coalesce(json_extract(${auditEvents.metadata}, '$.subjectUserId'), CASE WHEN json_extract(${auditEvents.metadata}, '$.subjectIsActor') = 1 THEN ${auditEvents.actorId} END)`;
 
-const auditActivityProjection = sql`
-	${auditEvents.action} AS action,
-	${auditEvents.actorId} AS actorId,
-	${auditEvents.actorType} AS actorType,
-	${auditEvents.resourceId} AS resourceId,
-	${auditEvents.timestamp} AS timestamp,
-	json_extract(${auditEvents.metadata}, '$.appId') AS appId,
-	json_extract(${auditEvents.metadata}, '$.durationMs') AS durationMs,
-	json_extract(${auditEvents.metadata}, '$.errorCode') AS errorCode,
-	json_extract(${auditEvents.metadata}, '$.executionId') AS executionId,
-	json_extract(${auditEvents.metadata}, '$.traceId') AS traceId,
-	json_extract(${auditEvents.metadata}, '$.clientId') AS clientId,
-	${auditSubjectUserId} AS subjectUserId,
-	json_extract(${auditEvents.metadata}, '$.agentTediId') AS agentTediId,
-	coalesce(json_extract(${auditEvents.metadata}, '$.clientId'), json_extract(${auditEvents.metadata}, '$.oauthClientId')) AS oauthClientId,
-	json_extract(${auditEvents.metadata}, '$.delegationMode') AS delegationMode,
-	json_extract(${auditEvents.metadata}, '$.denialReason') AS denialReason,
-	json_extract(${auditEvents.metadata}, '$.httpStatus') AS httpStatus,
-	json_extract(${auditEvents.metadata}, '$.mcpMethod') AS mcpMethod,
-	json_extract(${auditEvents.metadata}, '$.riskTier') AS riskTier
-`;
+/** Raw driver values: the timestamp stays epoch seconds, not a decoded Date. */
+const auditTimestamp = sql<Date | number | string>`${auditEvents.timestamp}`;
+
+/** `json_extract(metadata, '$.key') AS key`; D1 needs unique output names. */
+function auditMetadata(key: string) {
+	return sql<
+		string | null
+	>`json_extract(${auditEvents.metadata}, ${`$.${key}`})`.as(key);
+}
+
+function auditMetadataNumber(key: string) {
+	return sql<
+		number | null
+	>`json_extract(${auditEvents.metadata}, ${`$.${key}`})`.as(key);
+}
+
+function auditMetadataNumeric(key: string) {
+	return sql<
+		number | string | null
+	>`json_extract(${auditEvents.metadata}, ${`$.${key}`})`.as(key);
+}
+
+const auditOauthClientId = sql<
+	string | null
+>`coalesce(json_extract(${auditEvents.metadata}, '$.clientId'), json_extract(${auditEvents.metadata}, '$.oauthClientId'))`;
+
+const auditActivityFields = {
+	action: auditEvents.action,
+	actorId: auditEvents.actorId,
+	actorType: auditEvents.actorType,
+	resourceId: auditEvents.resourceId,
+	timestamp: auditTimestamp.as("timestamp"),
+	appId: auditMetadata("appId"),
+	durationMs: auditMetadataNumeric("durationMs"),
+	errorCode: auditMetadata("errorCode"),
+	executionId: auditMetadata("executionId"),
+	traceId: auditMetadata("traceId"),
+	clientId: auditMetadata("clientId"),
+	subjectUserId: auditSubjectUserId.as("subjectUserId"),
+	agentTediId: auditMetadata("agentTediId"),
+	oauthClientId: auditOauthClientId.as("oauthClientId"),
+	delegationMode: auditMetadata("delegationMode"),
+	denialReason: auditMetadata("denialReason"),
+	httpStatus: auditMetadataNumeric("httpStatus"),
+	mcpMethod: auditMetadata("mcpMethod"),
+	riskTier: auditMetadata("riskTier"),
+};
+
+function optionalOrganization(organizationId: string | undefined) {
+	return organizationId
+		? eq(auditEvents.organizationId, organizationId)
+		: undefined;
+}
+
+function optionalActivityScope(input: {
+	organizationId?: string;
+	appId?: string;
+	actorId?: string;
+}) {
+	return [
+		optionalOrganization(input.organizationId),
+		input.appId
+			? sql`json_extract(${auditEvents.metadata}, '$.appId') = ${input.appId}`
+			: undefined,
+		input.actorId ? eq(auditEvents.actorId, input.actorId) : undefined,
+	];
+}
 
 export async function getAnalyticsAppFreshness(
 	db: DbClient,
@@ -147,35 +195,53 @@ export async function getAnalyticsAppFreshness(
 			.sort((a, b) => Number(b.timestamp) - Number(a.timestamp))[0];
 		return { countsRow, latestRow };
 	}
-	const [countsRow] = await db.all<AnalyticsFreshnessCountsRow>(sql`
-		SELECT
-			COUNT(*) AS totalEvents,
-			SUM(CASE WHEN ${auditEvents.action} = 'mcp.tool.execute' THEN 1 ELSE 0 END) AS toolExecutions,
-			SUM(CASE WHEN ${auditEvents.action} = 'mcp.code.execute' THEN 1 ELSE 0 END) AS codeExecutions,
-			SUM(CASE WHEN ${auditEvents.action} = 'mcp.tool.error' THEN 1 ELSE 0 END) AS toolErrors
-		FROM ${auditEvents}
-		WHERE ${auditEvents.organizationId} = ${input.organizationId}
-			AND json_extract(${auditEvents.metadata}, '$.appId') = ${input.appId}
-			AND ${auditEvents.timestamp} >= ${input.windowStartSeconds}
-			AND ${auditEvents.timestamp} <= ${input.windowEndSeconds}
-	`);
+	const appScope = and(
+		eq(auditEvents.organizationId, input.organizationId),
+		sql`json_extract(${auditEvents.metadata}, '$.appId') = ${input.appId}`,
+	);
+	const [countsRow] = await db
+		.select({
+			totalEvents: sql<number | null>`COUNT(*)`.as("totalEvents"),
+			toolExecutions: sql<
+				number | null
+			>`SUM(CASE WHEN ${auditEvents.action} = 'mcp.tool.execute' THEN 1 ELSE 0 END)`.as(
+				"toolExecutions",
+			),
+			codeExecutions: sql<
+				number | null
+			>`SUM(CASE WHEN ${auditEvents.action} = 'mcp.code.execute' THEN 1 ELSE 0 END)`.as(
+				"codeExecutions",
+			),
+			toolErrors: sql<
+				number | null
+			>`SUM(CASE WHEN ${auditEvents.action} = 'mcp.tool.error' THEN 1 ELSE 0 END)`.as(
+				"toolErrors",
+			),
+		})
+		.from(auditEvents)
+		.where(
+			and(
+				appScope,
+				sql`${auditEvents.timestamp} >= ${input.windowStartSeconds}`,
+				sql`${auditEvents.timestamp} <= ${input.windowEndSeconds}`,
+			),
+		);
 
-	const [latestRow] = await db.all<AnalyticsLatestAuditRow>(sql`
-		SELECT
-			${auditEvents.action} AS action,
-			${auditEvents.resourceId} AS resourceId,
-			${auditEvents.timestamp} AS timestamp,
-			json_extract(${auditEvents.metadata}, '$.durationMs') AS durationMs,
-			json_extract(${auditEvents.metadata}, '$.executionId') AS executionId,
-			json_extract(${auditEvents.metadata}, '$.traceId') AS traceId,
-			json_extract(${auditEvents.metadata}, '$.toolCount') AS toolCount,
-			json_extract(${auditEvents.metadata}, '$.namespaceCount') AS namespaceCount
-		FROM ${auditEvents}
-		WHERE ${auditEvents.organizationId} = ${input.organizationId}
-			AND json_extract(${auditEvents.metadata}, '$.appId') = ${input.appId}
-		ORDER BY ${auditEvents.timestamp} DESC
-		LIMIT 1
-	`);
+	const [latestRow] = await db
+		.select({
+			action: auditEvents.action,
+			resourceId: auditEvents.resourceId,
+			timestamp: auditTimestamp.as("timestamp"),
+			durationMs: auditMetadataNumber("durationMs"),
+			executionId: auditMetadata("executionId"),
+			traceId: auditMetadata("traceId"),
+			toolCount: auditMetadataNumber("toolCount"),
+			namespaceCount: auditMetadataNumber("namespaceCount"),
+		})
+		.from(auditEvents)
+		.where(appScope)
+		.orderBy(desc(auditEvents.timestamp))
+		.limit(1);
 
 	return { countsRow, latestRow };
 }
@@ -195,30 +261,36 @@ export async function listAnalyticsExecutionAuditRows(
 			.sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
 		return rows;
 	}
-	const orgCondition = input.organizationId
-		? sql`AND ${auditEvents.organizationId} = ${input.organizationId}`
-		: sql``;
-	return db.all<AnalyticsAuditDrilldownRow>(sql`
-		SELECT
-			${auditEvents.action} AS action,
-			${auditEvents.actorId} AS actorId,
-			${auditEvents.actorType} AS actorType,
-			${auditEvents.resourceId} AS resourceId,
-			${auditEvents.timestamp} AS timestamp,
-			json_extract(${auditEvents.metadata}, '$.durationMs') AS durationMs,
-			json_extract(${auditEvents.metadata}, '$.errorCode') AS errorCode,
-			json_extract(${auditEvents.metadata}, '$.traceId') AS traceId,
-			json_extract(${auditEvents.metadata}, '$.clientId') AS clientId,
-			${auditSubjectUserId} AS subjectUserId,
-			json_extract(${auditEvents.metadata}, '$.agentTediId') AS agentTediId,
-			coalesce(json_extract(${auditEvents.metadata}, '$.clientId'), json_extract(${auditEvents.metadata}, '$.oauthClientId')) AS oauthClientId,
-			json_extract(${auditEvents.metadata}, '$.delegationMode') AS delegationMode
-		FROM ${auditEvents}
-		WHERE json_extract(${auditEvents.metadata}, '$.executionId') = ${input.executionId}
-			AND ${auditEvents.action} IN ('mcp.code.execute', 'mcp.code.error', 'mcp.tool.execute', 'mcp.tool.error')
-			${orgCondition}
-		ORDER BY ${auditEvents.timestamp} ASC
-	`);
+	return db
+		.select({
+			action: auditEvents.action,
+			actorId: auditEvents.actorId,
+			actorType: auditEvents.actorType,
+			resourceId: auditEvents.resourceId,
+			timestamp: auditTimestamp.as("timestamp"),
+			durationMs: auditMetadataNumeric("durationMs"),
+			errorCode: auditMetadata("errorCode"),
+			traceId: auditMetadata("traceId"),
+			clientId: auditMetadata("clientId"),
+			subjectUserId: auditSubjectUserId.as("subjectUserId"),
+			agentTediId: auditMetadata("agentTediId"),
+			oauthClientId: auditOauthClientId.as("oauthClientId"),
+			delegationMode: auditMetadata("delegationMode"),
+		})
+		.from(auditEvents)
+		.where(
+			and(
+				sql`json_extract(${auditEvents.metadata}, '$.executionId') = ${input.executionId}`,
+				inArray(auditEvents.action, [
+					"mcp.code.execute",
+					"mcp.code.error",
+					"mcp.tool.execute",
+					"mcp.tool.error",
+				]),
+				optionalOrganization(input.organizationId),
+			),
+		)
+		.orderBy(asc(auditEvents.timestamp));
 }
 
 export async function listRecentAnalyticsAuditActivity(
@@ -241,23 +313,14 @@ export async function listRecentAnalyticsAuditActivity(
 			.sort((a, b) => -(Number(a.timestamp) - Number(b.timestamp)));
 		return rows.slice(0, input.limit);
 	}
-	const orgCondition = input.organizationId
-		? sql`AND ${auditEvents.organizationId} = ${input.organizationId}`
-		: sql``;
-	const appCondition = input.appId
-		? sql`AND json_extract(${auditEvents.metadata}, '$.appId') = ${input.appId}`
-		: sql``;
-	const actorCondition = input.actorId
-		? sql`AND ${auditEvents.actorId} = ${input.actorId}`
-		: sql``;
-	return db.all<AnalyticsAuditActivityRow>(sql`
-		SELECT ${auditActivityProjection}
-		FROM ${auditEvents}
-		WHERE ${auditEvents.action} LIKE 'mcp.%'
-			${orgCondition} ${appCondition} ${actorCondition}
-		ORDER BY ${auditEvents.timestamp} DESC
-		LIMIT ${input.limit}
-	`);
+	return db
+		.select(auditActivityFields)
+		.from(auditEvents)
+		.where(
+			and(like(auditEvents.action, "mcp.%"), ...optionalActivityScope(input)),
+		)
+		.orderBy(desc(auditEvents.timestamp))
+		.limit(input.limit);
 }
 
 export async function listAnalyticsTraceActivity(
@@ -275,17 +338,17 @@ export async function listAnalyticsTraceActivity(
 			.sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
 		return rows;
 	}
-	const orgCondition = input.organizationId
-		? sql`AND ${auditEvents.organizationId} = ${input.organizationId}`
-		: sql``;
-	return db.all<AnalyticsAuditActivityRow>(sql`
-		SELECT ${auditActivityProjection}
-		FROM ${auditEvents}
-		WHERE json_extract(${auditEvents.metadata}, '$.traceId') = ${input.traceId}
-			AND ${auditEvents.action} LIKE 'mcp.%'
-			${orgCondition}
-		ORDER BY ${auditEvents.timestamp} ASC
-	`);
+	return db
+		.select(auditActivityFields)
+		.from(auditEvents)
+		.where(
+			and(
+				sql`json_extract(${auditEvents.metadata}, '$.traceId') = ${input.traceId}`,
+				like(auditEvents.action, "mcp.%"),
+				optionalOrganization(input.organizationId),
+			),
+		)
+		.orderBy(asc(auditEvents.timestamp));
 }
 
 export async function listAnalyticsAuditActivityWindow(
@@ -314,25 +377,19 @@ export async function listAnalyticsAuditActivityWindow(
 			.sort((a, b) => -(Number(a.timestamp) - Number(b.timestamp)));
 		return rows.slice(0, input.limit);
 	}
-	const orgCondition = input.organizationId
-		? sql`AND ${auditEvents.organizationId} = ${input.organizationId}`
-		: sql``;
-	const appCondition = input.appId
-		? sql`AND json_extract(${auditEvents.metadata}, '$.appId') = ${input.appId}`
-		: sql``;
-	const actorCondition = input.actorId
-		? sql`AND ${auditEvents.actorId} = ${input.actorId}`
-		: sql``;
-	return db.all<AnalyticsAuditActivityRow>(sql`
-		SELECT ${auditActivityProjection}
-		FROM ${auditEvents}
-		WHERE ${auditEvents.action} LIKE 'mcp.%'
-			AND ${auditEvents.timestamp} >= ${input.startSeconds}
-			AND ${auditEvents.timestamp} <= ${input.endSeconds}
-			${orgCondition} ${appCondition} ${actorCondition}
-		ORDER BY ${auditEvents.timestamp} DESC
-		LIMIT ${input.limit}
-	`);
+	return db
+		.select(auditActivityFields)
+		.from(auditEvents)
+		.where(
+			and(
+				like(auditEvents.action, "mcp.%"),
+				sql`${auditEvents.timestamp} >= ${input.startSeconds}`,
+				sql`${auditEvents.timestamp} <= ${input.endSeconds}`,
+				...optionalActivityScope(input),
+			),
+		)
+		.orderBy(desc(auditEvents.timestamp))
+		.limit(input.limit);
 }
 
 export async function listAnalyticsRuntimeTraceEvidence(
@@ -344,24 +401,25 @@ export async function listAnalyticsRuntimeTraceEvidence(
 		[...new Set(input.traceIds)],
 		D1_IN_LIST_CHUNK,
 	)) {
-		const traceList = sql.join(
-			traceIds.map((traceId) => sql`${traceId}`),
-			sql`, `,
-		);
 		rows.push(
-			...(await db.all<AnalyticsRuntimeTraceEvidenceRow>(sql`
-				SELECT
-					${tediRuntimeEvents.traceId} AS traceId,
-					${tediRuntimeEvents.kind} AS kind,
-					${tediRuntimeEvents.createdAt} AS createdAt,
-					${tediRuntimeEvents.runtimeBackend} AS runtimeBackend,
-					${tediRuntimeEvents.payload} AS payload
-				FROM ${tediRuntimeEvents}
-				WHERE ${tediRuntimeEvents.organizationId} = ${input.organizationId}
-					AND ${tediRuntimeEvents.traceId} IN (${traceList})
-				ORDER BY ${tediRuntimeEvents.createdAt} ASC
-				LIMIT ${input.limit ?? 2000}
-			`)),
+			...(await db
+				.select({
+					traceId: tediRuntimeEvents.traceId,
+					kind: tediRuntimeEvents.kind,
+					createdAt: tediRuntimeEvents.createdAt,
+					runtimeBackend: tediRuntimeEvents.runtimeBackend,
+					// Raw stored JSON text, as before; callers parse it.
+					payload: sql<unknown>`${tediRuntimeEvents.payload}`.as("payload"),
+				})
+				.from(tediRuntimeEvents)
+				.where(
+					and(
+						eq(tediRuntimeEvents.organizationId, input.organizationId),
+						inArray(tediRuntimeEvents.traceId, traceIds),
+					),
+				)
+				.orderBy(asc(tediRuntimeEvents.createdAt))
+				.limit(input.limit ?? 2000)),
 		);
 	}
 	return rows
@@ -380,24 +438,26 @@ export async function listAnalyticsRationaleEvidence(
 		[...new Set(input.decisionIds)],
 		D1_IN_LIST_CHUNK,
 	)) {
-		const decisionList = sql.join(
-			decisionIds.map((decisionId) => sql`${decisionId}`),
-			sql`, `,
-		);
 		rows.push(
-			...(await db.all<AnalyticsRationaleEvidenceRow>(sql`
-				SELECT
-					${tediRationaleRecords.id} AS id,
-					${tediRationaleRecords.category} AS category,
-					${tediRationaleRecords.outcomeStatus} AS outcomeStatus,
-					${tediRationaleRecords.confidence} AS confidence,
-					${tediRationaleRecords.evidence} AS evidence,
-					${tediRationaleRecords.createdAt} AS createdAt,
-					${tediRationaleRecords.completedAt} AS completedAt
-				FROM ${tediRationaleRecords}
-				WHERE ${tediRationaleRecords.orgId} = ${input.organizationId}
-					AND ${tediRationaleRecords.id} IN (${decisionList})
-			`)),
+			...(await db
+				.select({
+					id: tediRationaleRecords.id,
+					category: tediRationaleRecords.category,
+					outcomeStatus: tediRationaleRecords.outcomeStatus,
+					confidence: tediRationaleRecords.confidence,
+					evidence: sql<unknown>`${tediRationaleRecords.evidence}`.as(
+						"evidence",
+					),
+					createdAt: tediRationaleRecords.createdAt,
+					completedAt: tediRationaleRecords.completedAt,
+				})
+				.from(tediRationaleRecords)
+				.where(
+					and(
+						eq(tediRationaleRecords.orgId, input.organizationId),
+						inArray(tediRationaleRecords.id, decisionIds),
+					),
+				)),
 		);
 	}
 	return rows;

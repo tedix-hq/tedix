@@ -489,48 +489,71 @@ export async function getGoalLoopWorkItemSnapshot(
 		0,
 		Math.min(Math.trunc(params.outstandingPreviewLimit ?? 100), 500),
 	);
-	type SnapshotRow = {
-		total: unknown;
-		doneCount: unknown;
-		outstandingCount: unknown;
-		outstandingId: string | null;
-	};
-	const rows = await db.all<SnapshotRow>(sql`
-		WITH scoped AS (
-			SELECT id, disposition, created_at
-			FROM ${workItems}
-			WHERE org_id = ${params.orgId}
-				AND objective_id = ${params.objectiveId}
-		), counts AS (
-			SELECT COUNT(*) AS total,
-				COALESCE(SUM(CASE WHEN disposition = 'completed' THEN 1 ELSE 0 END), 0) AS done_count,
-				COALESCE(SUM(CASE WHEN disposition != 'completed' THEN 1 ELSE 0 END), 0) AS outstanding_count
-			FROM scoped
-		), outstanding_preview AS (
-			SELECT id
-			FROM scoped
-			WHERE disposition != 'completed'
-			ORDER BY created_at, id
-			LIMIT ${previewLimit}
-		)
-		SELECT counts.total AS total,
-			counts.done_count AS doneCount,
-			counts.outstanding_count AS outstandingCount,
-			outstanding_preview.id AS outstandingId
-		FROM counts
-		LEFT JOIN outstanding_preview ON 1 = 1
-		ORDER BY outstanding_preview.id
-	`);
-	const counts = rows[0] ?? {
+	const scoped = db.$with("scoped").as(
+		db
+			.select({
+				id: workItems.id,
+				disposition: workItems.disposition,
+				createdAt: workItems.createdAt,
+			})
+			.from(workItems)
+			.where(
+				and(
+					eq(workItems.orgId, params.orgId),
+					eq(workItems.objectiveId, params.objectiveId),
+				),
+			),
+	);
+	const counts = db.$with("counts").as(
+		db
+			.select({
+				total: sql<unknown>`COUNT(*)`.as("total"),
+				doneCount:
+					sql<unknown>`COALESCE(SUM(CASE WHEN ${scoped.disposition} = 'completed' THEN 1 ELSE 0 END), 0)`.as(
+						"done_count",
+					),
+				outstandingCount:
+					sql<unknown>`COALESCE(SUM(CASE WHEN ${scoped.disposition} != 'completed' THEN 1 ELSE 0 END), 0)`.as(
+						"outstanding_count",
+					),
+			})
+			.from(scoped),
+	);
+	const outstandingPreview = db
+		.$with("outstanding_preview")
+		.as(
+			db
+				.select({ id: scoped.id })
+				.from(scoped)
+				.where(ne(scoped.disposition, "completed"))
+				.orderBy(scoped.createdAt, scoped.id)
+				.limit(previewLimit),
+		);
+	const rows = await db
+		.with(scoped, counts, outstandingPreview)
+		.select({
+			total: sql<unknown>`${counts.total}`.as("total"),
+			doneCount: sql<unknown>`${counts.doneCount}`.as("doneCount"),
+			outstandingCount: sql<unknown>`${counts.outstandingCount}`.as(
+				"outstandingCount",
+			),
+			outstandingId: sql<string | null>`${outstandingPreview.id}`.as(
+				"outstandingId",
+			),
+		})
+		.from(counts)
+		.leftJoin(outstandingPreview, sql`1 = 1`)
+		.orderBy(outstandingPreview.id);
+	const totals = rows[0] ?? {
 		total: 0,
 		doneCount: 0,
 		outstandingCount: 0,
 		outstandingId: null,
 	};
 	return {
-		total: Number(counts.total),
-		doneCount: Number(counts.doneCount),
-		outstandingCount: Number(counts.outstandingCount),
+		total: Number(totals.total),
+		doneCount: Number(totals.doneCount),
+		outstandingCount: Number(totals.outstandingCount),
 		outstandingIds: rows.flatMap((row) =>
 			row.outstandingId ? [row.outstandingId] : [],
 		),

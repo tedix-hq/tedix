@@ -1,4 +1,16 @@
-import { and, desc, eq, inArray, lt, or, sql, type SQL } from "drizzle-orm";
+import {
+	and,
+	desc,
+	eq,
+	inArray,
+	lt,
+	notInArray,
+	or,
+	sql,
+	type SQL,
+	type SQLWrapper,
+} from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import type { DbQueryClient } from "../../query-client";
 import { personalWorkFeedPredicate } from "./personal-feed";
 import { prefixedColumns } from "../../utils/select";
@@ -11,6 +23,7 @@ import {
 	type WorkItemPriority,
 	type WorkItemRiskLevel,
 	workAttempts,
+	workItemRelations,
 	workItems,
 } from "../../schema/work-items";
 
@@ -170,12 +183,14 @@ export async function listOrgWorkAttempts(
 function recoveryPredicate(
 	signal: WorkRecoverySignal | undefined,
 	now: string,
+	latest: { runtimeState: SQLWrapper; expiresAt: SQLWrapper },
+	blockingCount: SQLWrapper,
 ) {
 	const predicates: Record<WorkRecoverySignal, SQL> = {
-		dependencies_blocked: sql`COALESCE(blockers.blocking_count, 0) > 0`,
-		latest_attempt_failed: sql`latest.runtime_state = 'failed'`,
-		latest_attempt_expired: sql`latest.runtime_state = 'expired'`,
-		attempt_lease_elapsed: sql`latest.runtime_state IN ('queued', 'running', 'waiting', 'retrying') AND latest.expires_at IS NOT NULL AND latest.expires_at <= ${now}`,
+		dependencies_blocked: sql`COALESCE(${blockingCount}, 0) > 0`,
+		latest_attempt_failed: sql`${latest.runtimeState} = 'failed'`,
+		latest_attempt_expired: sql`${latest.runtimeState} = 'expired'`,
+		attempt_lease_elapsed: sql`${latest.runtimeState} IN ('queued', 'running', 'waiting', 'retrying') AND ${latest.expiresAt} IS NOT NULL AND ${latest.expiresAt} <= ${now}`,
 	};
 	return signal
 		? predicates[signal]
@@ -197,65 +212,130 @@ export async function listOrgWorkRecovery(
 	},
 ): Promise<ProjectionPage<WorkRecoveryProjectionRow>> {
 	const limit = pageLimit(params.limit);
-	type RawRecoveryRow = Omit<WorkRecoveryProjectionRow, "signals"> & {
-		blockingDependencyCount: unknown;
-	};
-	const rows = await db.all<RawRecoveryRow>(sql`
-		WITH ranked_attempts AS (
-			SELECT attempt.*,
-				ROW_NUMBER() OVER (
-					PARTITION BY attempt.org_id, attempt.work_item_id
-					ORDER BY attempt.attempt_number DESC
-				) AS rank
-			FROM ${workAttempts} AS attempt
-			WHERE attempt.org_id = ${params.orgId}
-		), latest AS (
-			SELECT * FROM ranked_attempts WHERE rank = 1
-		), blockers AS (
-			SELECT relation.to_work_item_id AS work_item_id, COUNT(*) AS blocking_count
-			FROM work_item_relations AS relation
-			INNER JOIN work_items AS blocker
-				ON blocker.org_id = relation.org_id
-				AND blocker.id = relation.from_work_item_id
-			WHERE relation.org_id = ${params.orgId}
-				AND relation.relation_type = 'blocks'
-				AND blocker.disposition NOT IN ('completed', 'cancelled')
-			GROUP BY relation.to_work_item_id
-		)
-		SELECT item.id AS id,
-			item.title AS title,
-			item.disposition AS disposition,
-			item.work_kind AS workKind,
-			item.risk_level AS riskLevel,
-			item.priority AS priority,
-			item.project_id AS projectId,
-			item.accountable_owner_type AS accountableOwnerType,
-			item.accountable_owner_id AS accountableOwnerId,
-			COALESCE(item.updated_at, item.created_at) AS sortAt,
-			COALESCE(blockers.blocking_count, 0) AS blockingDependencyCount,
-			latest.id AS latestAttemptId,
-			latest.runtime_state AS latestAttemptState,
-			latest.outcome AS latestAttemptOutcome,
-			latest.finished_at AS latestAttemptFinishedAt,
-			latest.expires_at AS latestAttemptExpiresAt
-		FROM ${workItems} AS item
-		LEFT JOIN latest ON latest.work_item_id = item.id
-		LEFT JOIN blockers ON blockers.work_item_id = item.id
-		WHERE item.org_id = ${params.orgId}
-			AND item.disposition = 'accepted'
-			${params.projectId ? sql`AND item.project_id = ${params.projectId}` : sql``}
-			${params.workKind ? sql`AND item.work_kind = ${params.workKind}` : sql``}
-			${params.riskLevel ? sql`AND item.risk_level = ${params.riskLevel}` : sql``}
-			${params.priority ? sql`AND item.priority = ${params.priority}` : sql``}
-			AND ${recoveryPredicate(params.signal, params.observedAt)}
-			${
+	const rankedAttempts = db.$with("ranked_attempts").as(
+		db
+			.select({
+				id: workAttempts.id,
+				workItemId: workAttempts.workItemId,
+				runtimeState: workAttempts.runtimeState,
+				outcome: workAttempts.outcome,
+				finishedAt: workAttempts.finishedAt,
+				expiresAt: workAttempts.expiresAt,
+				rank: sql<number>`ROW_NUMBER() OVER (
+					PARTITION BY ${workAttempts.orgId}, ${workAttempts.workItemId}
+					ORDER BY ${workAttempts.attemptNumber} DESC
+				)`.as("rank"),
+			})
+			.from(workAttempts)
+			.where(eq(workAttempts.orgId, params.orgId)),
+	);
+	const latest = db.$with("latest").as(
+		db
+			.select({
+				id: rankedAttempts.id,
+				workItemId: rankedAttempts.workItemId,
+				runtimeState: rankedAttempts.runtimeState,
+				outcome: rankedAttempts.outcome,
+				finishedAt: rankedAttempts.finishedAt,
+				expiresAt: rankedAttempts.expiresAt,
+			})
+			.from(rankedAttempts)
+			.where(eq(rankedAttempts.rank, 1)),
+	);
+	const blocker = alias(workItems, "blocker");
+	const blockers = db.$with("blockers").as(
+		db
+			.select({
+				workItemId: sql<string>`${workItemRelations.toWorkItemId}`.as(
+					"work_item_id",
+				),
+				blockingCount: sql<number>`COUNT(*)`.as("blocking_count"),
+			})
+			.from(workItemRelations)
+			.innerJoin(
+				blocker,
+				and(
+					eq(blocker.orgId, workItemRelations.orgId),
+					eq(blocker.id, workItemRelations.fromWorkItemId),
+				),
+			)
+			.where(
+				and(
+					eq(workItemRelations.orgId, params.orgId),
+					eq(workItemRelations.relationType, "blocks"),
+					notInArray(blocker.disposition, ["completed", "cancelled"]),
+				),
+			)
+			.groupBy(workItemRelations.toWorkItemId),
+	);
+	const sortAt = sql<string>`COALESCE(${workItems.updatedAt}, ${workItems.createdAt})`;
+	const rows = await db
+		.with(rankedAttempts, latest, blockers)
+		.select({
+			id: workItems.id,
+			title: workItems.title,
+			disposition: workItems.disposition,
+			workKind: workItems.workKind,
+			riskLevel: workItems.riskLevel,
+			priority: workItems.priority,
+			projectId: workItems.projectId,
+			accountableOwnerType: workItems.accountableOwnerType,
+			accountableOwnerId: workItems.accountableOwnerId,
+			sortAt: sortAt.as("sortAt"),
+			blockingDependencyCount:
+				sql<unknown>`COALESCE(${blockers.blockingCount}, 0)`.as(
+					"blockingDependencyCount",
+				),
+			latestAttemptId: sql<string | null>`${latest.id}`.as("latestAttemptId"),
+			latestAttemptState:
+				sql<WorkAttemptRuntimeState | null>`${latest.runtimeState}`.as(
+					"latestAttemptState",
+				),
+			latestAttemptOutcome:
+				sql<WorkAttemptOutcome | null>`${latest.outcome}`.as(
+					"latestAttemptOutcome",
+				),
+			latestAttemptFinishedAt: sql<string | null>`${latest.finishedAt}`.as(
+				"latestAttemptFinishedAt",
+			),
+			latestAttemptExpiresAt: sql<string | null>`${latest.expiresAt}`.as(
+				"latestAttemptExpiresAt",
+			),
+		})
+		.from(workItems)
+		.leftJoin(latest, eq(latest.workItemId, workItems.id))
+		.leftJoin(blockers, eq(blockers.workItemId, workItems.id))
+		.where(
+			and(
+				eq(workItems.orgId, params.orgId),
+				eq(workItems.disposition, "accepted"),
+				params.projectId
+					? eq(workItems.projectId, params.projectId)
+					: undefined,
+				params.workKind ? eq(workItems.workKind, params.workKind) : undefined,
+				params.riskLevel
+					? eq(workItems.riskLevel, params.riskLevel)
+					: undefined,
+				params.priority ? eq(workItems.priority, params.priority) : undefined,
+				recoveryPredicate(
+					params.signal,
+					params.observedAt,
+					latest,
+					blockers.blockingCount,
+				),
 				params.cursor
-					? sql`AND (COALESCE(item.updated_at, item.created_at) < ${params.cursor.at} OR (COALESCE(item.updated_at, item.created_at) = ${params.cursor.at} AND item.id < ${params.cursor.id}))`
-					: sql``
-			}
-		ORDER BY sortAt DESC, item.id DESC
-		LIMIT ${limit + 1}
-	`);
+					? or(
+							lt(sortAt, params.cursor.at),
+							and(
+								eq(sortAt, params.cursor.at),
+								lt(workItems.id, params.cursor.id),
+							),
+						)
+					: undefined,
+			),
+		)
+		.orderBy(desc(sortAt), desc(workItems.id))
+		.limit(limit + 1);
 	const data: WorkRecoveryProjectionRow[] = rows.slice(0, limit).map((row) => {
 		const signals: WorkRecoverySignal[] = [];
 		if (Number(row.blockingDependencyCount) > 0)

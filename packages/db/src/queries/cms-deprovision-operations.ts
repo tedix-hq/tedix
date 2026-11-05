@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, notExists, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
 import { cmsSites } from "../schema/cms-sites";
 import { cmsRestoreFences } from "../schema/cms-restore-fences";
@@ -28,22 +28,33 @@ export async function reserveCmsDeprovisionOperation(
 ): Promise<CmsDeprovisionOperationRow> {
 	// D1 serializes this write with restore-fence close and permit admission.
 	// Selecting the canonical site row prevents a caller from reserving another identity.
-	await db.all(sql`
-		INSERT INTO cms_deprovision_operations
-			(id, organization_id, slug, authoring_app_id)
-		SELECT site.id, site.organization_id, site.slug, site.authoring_app_id
-		FROM cms_sites AS site
-		WHERE site.id = ${input.siteId}
-			AND site.organization_id = ${input.organizationId}
-			AND site.slug = ${input.slug}
-			AND site.authoring_app_id IS ${input.authoringAppId}
-			AND NOT EXISTS (
-				SELECT 1 FROM cms_restore_fences AS fence
-				WHERE fence.site_id = site.id
-			)
-		ON CONFLICT(id) DO NOTHING
-		RETURNING id
-	`);
+	await db
+		.insert(cmsDeprovisionOperations)
+		.select(
+			db
+				.select({
+					id: cmsSites.id,
+					organizationId: cmsSites.organizationId,
+					slug: cmsSites.slug,
+					authoringAppId: cmsSites.authoringAppId,
+				})
+				.from(cmsSites)
+				.where(
+					and(
+						eq(cmsSites.id, input.siteId),
+						eq(cmsSites.organizationId, input.organizationId),
+						eq(cmsSites.slug, input.slug),
+						sql`${cmsSites.authoringAppId} IS ${input.authoringAppId}`,
+						notExists(
+							db
+								.select({ one: sql`1` })
+								.from(cmsRestoreFences)
+								.where(eq(cmsRestoreFences.siteId, cmsSites.id)),
+						),
+					),
+				),
+		)
+		.onConflictDoNothing({ target: cmsDeprovisionOperations.id });
 	const [fence] = await db
 		.select({ siteId: cmsRestoreFences.siteId })
 		.from(cmsRestoreFences)

@@ -10,7 +10,7 @@
  * the tedi's OWN completed episode history instead of an LLM guess.
  *
  * Task identity is exactly the learning-curve identity
- * (`learningCurveRawEpisodesSql` in ./flywheel/learning-curves.ts): explicit
+ * (`learningCurveRawEpisodes` in ./flywheel/learning-curves.ts): explicit
  * `evidence.taskType`, then `skill:{slug}` from `evidence.skillSlug`, then
  * rationale category. The SQL is reused, not duplicated, so the estimate is
  * computed over the same episode population the learning curves report on.
@@ -21,12 +21,12 @@
  * quantile for "plan to this, not to the median".
  */
 
-import { sql } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import type { DbClient } from "../client";
 import {
 	type FlywheelAccess,
 	LEARNING_TREND_THRESHOLDS,
-	learningCurveRawEpisodesSql,
+	learningCurveRawEpisodes,
 } from "./flywheel/learning-curves";
 
 // ============================================================================
@@ -232,7 +232,7 @@ type ReferenceClassEpisodeRow = {
 /**
  * Reference-class estimate for one learning-curve task type, computed over
  * the same episode population as `getTaskTypeLearningCurves` (shared
- * `learningCurveRawEpisodesSql` CTE — do not fork the SQL).
+ * `learningCurveRawEpisodes` CTE — do not fork the SQL).
  */
 export async function getReferenceClassEstimate(
 	db: DbClient,
@@ -246,16 +246,20 @@ export async function getReferenceClassEstimate(
 	const since = new Date(
 		Date.now() - windowDays * 24 * 60 * 60 * 1000,
 	).toISOString();
-	const rows = await db.all<ReferenceClassEpisodeRow>(
-		sql`WITH raw_episodes AS (
-			${learningCurveRawEpisodesSql(access, since)}
-		)
-		SELECT outcome_status AS outcomeStatus, durationMs, steps
-		FROM raw_episodes
-		WHERE taskType = ${options.taskType}
-		ORDER BY created_at ASC, id ASC
-		LIMIT ${REFERENCE_CLASS_MAX_EPISODES}`,
-	);
+	const rawEpisodes = db
+		.$with("raw_episodes")
+		.as(learningCurveRawEpisodes(access, since));
+	const rows: ReferenceClassEpisodeRow[] = await db
+		.with(rawEpisodes)
+		.select({
+			outcomeStatus: rawEpisodes.outcomeStatus,
+			durationMs: rawEpisodes.durationMs,
+			steps: rawEpisodes.steps,
+		})
+		.from(rawEpisodes)
+		.where(eq(rawEpisodes.taskType, options.taskType))
+		.orderBy(asc(rawEpisodes.createdAt), asc(rawEpisodes.id))
+		.limit(REFERENCE_CLASS_MAX_EPISODES);
 	return computeReferenceClassEstimate({
 		taskType: options.taskType,
 		windowDays,

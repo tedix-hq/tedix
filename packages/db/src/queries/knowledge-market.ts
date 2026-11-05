@@ -29,8 +29,23 @@
  * is reported as a payload caveat instead of silently biasing the counts.
  */
 
-import { sql } from "drizzle-orm";
+import {
+	and,
+	desc,
+	eq,
+	exists,
+	gte,
+	inArray,
+	isNotNull,
+	isNull,
+	ne,
+	sql,
+} from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../client";
+import { skillEntries, skillUsageEvents } from "../schema/cognitive";
+import { memoryFacts } from "../schema/memory-graph";
+import { tediRationaleRecords } from "../schema/rationale-records";
 import { chunkForBoundParams } from "../utils/batch";
 import { extractFactIdsFromFlywheelEvidence } from "./flywheel/evidence-fact-ids";
 import { evidenceReferencesFactsSql } from "./flywheel/evidence-references-facts";
@@ -554,67 +569,104 @@ export async function getKnowledgeMarketReport(
 		Date.now() - windowDays * 24 * 60 * 60 * 1000,
 	).toISOString();
 
+	const usage = alias(skillUsageEvents, "usage");
+	const skills = alias(skillEntries, "skills");
+	const windowedUsage = and(
+		eq(usage.organizationId, access.orgId),
+		gte(usage.createdAt, since),
+	);
+	const unarchivedSkill = sql`coalesce(${skills.lifecycleState}, 'draft') <> 'archived'`;
 	const [flows, repute, commonsRows, ownership, factDecisions] =
 		await Promise.all([
-			db.all<SkillFlowRow>(
-				sql`SELECT usage.tedi_id AS userTediId,
-						skills.tedi_id AS ownerTediId,
-						count(*) AS executions,
-						count(DISTINCT usage.skill_id) AS distinctSkills
-					FROM skill_usage_events usage
-					JOIN skill_entries skills ON skills.id = usage.skill_id
-					WHERE usage.organization_id = ${access.orgId}
-						AND usage.created_at >= ${since}
-					GROUP BY usage.tedi_id, skills.tedi_id
-					LIMIT ${KNOWLEDGE_MARKET_FLOW_GROUP_CAP}`,
-			),
-			db.all<SkillReputeRow>(
-				sql`SELECT skills.tedi_id AS ownerTediId,
-						count(DISTINCT usage.skill_id) AS skillsUsedByOthers,
-						count(*) AS executionsByOthers,
-						count(DISTINCT usage.tedi_id) AS distinctConsumers
-					FROM skill_usage_events usage
-					JOIN skill_entries skills ON skills.id = usage.skill_id
-					WHERE usage.organization_id = ${access.orgId}
-						AND usage.created_at >= ${since}
-						AND usage.tedi_id IS NOT NULL
-						AND skills.tedi_id IS NOT NULL
-						AND usage.tedi_id != skills.tedi_id
-					GROUP BY skills.tedi_id
-					LIMIT ${KNOWLEDGE_MARKET_TEDI_GROUP_CAP}`,
-			),
-			db.all<CommonsInventoryRow>(
-				sql`SELECT count(*) AS totalCommonsSkills,
-						sum(CASE WHEN EXISTS (
-							SELECT 1 FROM skill_usage_events usage
-							WHERE usage.skill_id = skills.id
-								AND usage.organization_id = ${access.orgId}
-								AND usage.created_at >= ${since}
-						) THEN 1 ELSE 0 END) AS usedCommonsSkills
-					FROM skill_entries skills
-					WHERE skills.organization_id = ${access.orgId}
-						AND skills.tedi_id IS NULL
-						AND skills.app_id IS NULL
-						AND coalesce(skills.lifecycle_state, 'draft') <> 'archived'`,
-			),
-			db.all<SkillOwnershipRow>(
-				sql`SELECT skills.tedi_id AS tediId, count(*) AS ownedSkills
-					FROM skill_entries skills
-					WHERE skills.organization_id = ${access.orgId}
-						AND skills.tedi_id IS NOT NULL
-						AND coalesce(skills.lifecycle_state, 'draft') <> 'archived'
-					GROUP BY skills.tedi_id
-					LIMIT ${KNOWLEDGE_MARKET_TEDI_GROUP_CAP}`,
-			),
-			db.all<{ tediId: string; evidence: unknown }>(
-				sql`SELECT tedi_id AS tediId, evidence
-					FROM tedi_rationale_records
-					WHERE org_id = ${access.orgId}
-						AND created_at >= ${since}
-						AND ${evidenceReferencesFactsSql()}
-					ORDER BY created_at DESC
-					LIMIT ${KNOWLEDGE_MARKET_FACT_DECISION_CAP}`,
-			),
+			db
+				.select({
+					userTediId: sql<string | null>`${usage.tediId}`.as("userTediId"),
+					ownerTediId: sql<string | null>`${skills.tediId}`.as("ownerTediId"),
+					executions: sql<number>`count(*)`.as("executions"),
+					distinctSkills: sql<number>`count(DISTINCT ${usage.skillId})`.as(
+						"distinctSkills",
+					),
+				})
+				.from(usage)
+				.innerJoin(skills, eq(skills.id, usage.skillId))
+				.where(windowedUsage)
+				.groupBy(usage.tediId, skills.tediId)
+				.limit(KNOWLEDGE_MARKET_FLOW_GROUP_CAP),
+			db
+				.select({
+					ownerTediId: sql<string>`${skills.tediId}`.as("ownerTediId"),
+					skillsUsedByOthers: sql<number>`count(DISTINCT ${usage.skillId})`.as(
+						"skillsUsedByOthers",
+					),
+					executionsByOthers: sql<number>`count(*)`.as("executionsByOthers"),
+					distinctConsumers: sql<number>`count(DISTINCT ${usage.tediId})`.as(
+						"distinctConsumers",
+					),
+				})
+				.from(usage)
+				.innerJoin(skills, eq(skills.id, usage.skillId))
+				.where(
+					and(
+						windowedUsage,
+						isNotNull(usage.tediId),
+						isNotNull(skills.tediId),
+						ne(usage.tediId, skills.tediId),
+					),
+				)
+				.groupBy(skills.tediId)
+				.limit(KNOWLEDGE_MARKET_TEDI_GROUP_CAP),
+			db
+				.select({
+					totalCommonsSkills: sql<number>`count(*)`.as("totalCommonsSkills"),
+					usedCommonsSkills: sql<number | null>`sum(CASE WHEN ${exists(
+						db
+							.select({ one: sql`1` })
+							.from(usage)
+							.where(and(eq(usage.skillId, skills.id), windowedUsage)),
+					)} THEN 1 ELSE 0 END)`.as("usedCommonsSkills"),
+				})
+				.from(skills)
+				.where(
+					and(
+						eq(skills.organizationId, access.orgId),
+						isNull(skills.tediId),
+						isNull(skills.appId),
+						unarchivedSkill,
+					),
+				),
+			db
+				.select({
+					tediId: sql<string>`${skills.tediId}`.as("tediId"),
+					ownedSkills: sql<number>`count(*)`.as("ownedSkills"),
+				})
+				.from(skills)
+				.where(
+					and(
+						eq(skills.organizationId, access.orgId),
+						isNotNull(skills.tediId),
+						unarchivedSkill,
+					),
+				)
+				.groupBy(skills.tediId)
+				.limit(KNOWLEDGE_MARKET_TEDI_GROUP_CAP),
+			db
+				.select({
+					tediId: tediRationaleRecords.tediId,
+					// Raw JSON text; safeExtractFactIds tolerates hostile shapes.
+					evidence: sql<unknown>`${tediRationaleRecords.evidence}`.as(
+						"evidence",
+					),
+				})
+				.from(tediRationaleRecords)
+				.where(
+					and(
+						eq(tediRationaleRecords.orgId, access.orgId),
+						gte(tediRationaleRecords.createdAt, since),
+						evidenceReferencesFactsSql(),
+					),
+				)
+				.orderBy(desc(tediRationaleRecords.createdAt))
+				.limit(KNOWLEDGE_MARKET_FACT_DECISION_CAP),
 		]);
 
 	// Resolve cited fact ids to their scope tedi (producer proxy), capped and
@@ -636,15 +688,15 @@ export async function getKnowledgeMarketReport(
 		boundedFactIds,
 		KNOWLEDGE_MARKET_FACT_ID_CHUNK,
 	)) {
-		const rows = await db.all<{ id: string; tediId: string | null }>(
-			sql`SELECT id, tedi_id AS tediId
-				FROM memory_facts
-				WHERE organization_id = ${access.orgId}
-					AND id IN (${sql.join(
-						factIdChunk.map((factId) => sql`${factId}`),
-						sql`, `,
-					)})`,
-		);
+		const rows = await db
+			.select({ id: memoryFacts.id, tediId: memoryFacts.tediId })
+			.from(memoryFacts)
+			.where(
+				and(
+					eq(memoryFacts.organizationId, access.orgId),
+					inArray(memoryFacts.id, factIdChunk),
+				),
+			);
 		for (const row of rows) {
 			if (typeof row.id !== "string") continue;
 			factProducers.set(row.id, row.tediId ?? null);

@@ -1,4 +1,27 @@
+import {
+	and,
+	asc,
+	eq,
+	exists,
+	isNotNull,
+	isNull,
+	notExists,
+	or,
+	sql,
+} from "drizzle-orm";
+import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../../client";
+import { createDbQueryClient, type DbQueryClient } from "../../query-client";
+import { apps } from "../../schema/apps";
+import {
+	appCatalog,
+	appCatalogMcpPrompts,
+	appCatalogMcpResources,
+	appCatalogMcpResourceTemplates,
+	appCatalogMcpTools,
+	appCatalogStoreListings,
+} from "../../schema/catalog";
+import { appTools } from "../../schema/tools";
 import { resolveDriftReport, saveDriftReport } from "./drift-reports";
 import { checkCatalogIntegrity } from "./mcp-tools";
 import { syncCatalogToolsToApp } from "./sync-tools-to-app";
@@ -132,6 +155,26 @@ const QUALITY_ISSUE_LIMIT = 200;
 const DEFAULT_STALE_LAST_SEEN_DAYS = 14;
 const MIN_PUBLIC_DESCRIPTION_LENGTH = 80;
 
+const catalogQualityFields = {
+	id: appCatalog.id,
+	name: appCatalog.name,
+	slug: appCatalog.slug,
+	toolSource: appCatalog.toolSource,
+};
+
+/** `(?1 IS NULL OR column = ?1)`: only a supplied catalog app ID narrows. */
+function scopedToCatalogApp(
+	column: AnySQLiteColumn,
+	catalogAppId: string | undefined,
+) {
+	return catalogAppId === undefined || catalogAppId === null
+		? undefined
+		: eq(column, catalogAppId);
+}
+
+const blankText = (column: AnySQLiteColumn) =>
+	or(isNull(column), sql`trim(${column}) = ''`);
+
 function isTedixHostedCatalogAsset(url: string | null | undefined): boolean {
 	if (!url) return false;
 	return /\/app_catalog\//.test(url) || /\/app_catalog%2F/.test(url);
@@ -183,33 +226,30 @@ function qualityIssue(
 }
 
 async function collectMissingCatalogFieldIssues(
-	d1: D1Database,
+	db: DbQueryClient,
 	options: RunCatalogIntegrityOptions,
 ): Promise<CatalogQualityIssue[]> {
-	const rows = (
-		await d1
-			.prepare(
-				`SELECT id, name, slug, tool_source AS toolSource, description, logo_url AS logoUrl
-					FROM app_catalog
-					WHERE status = 'ENABLED'
-						AND (?1 IS NULL OR id = ?1)
-						AND (
-							name IS NULL OR trim(name) = ''
-							OR slug IS NULL OR trim(slug) = ''
-							OR logo_url IS NULL OR trim(logo_url) = ''
-							OR description IS NULL OR trim(description) = ''
-						)
-					ORDER BY name ASC
-					LIMIT ?2`,
-			)
-			.bind(options.catalogAppId ?? null, QUALITY_ISSUE_LIMIT)
-			.all<
-				CatalogQualityAppRow & {
-					description: string | null;
-					logoUrl: string | null;
-				}
-			>()
-	).results;
+	const rows = await db
+		.select({
+			...catalogQualityFields,
+			description: appCatalog.description,
+			logoUrl: appCatalog.logoUrl,
+		})
+		.from(appCatalog)
+		.where(
+			and(
+				eq(appCatalog.status, "ENABLED"),
+				scopedToCatalogApp(appCatalog.id, options.catalogAppId),
+				or(
+					blankText(appCatalog.name),
+					blankText(appCatalog.slug),
+					blankText(appCatalog.logoUrl),
+					blankText(appCatalog.description),
+				),
+			),
+		)
+		.orderBy(asc(appCatalog.name))
+		.limit(QUALITY_ISSUE_LIMIT);
 
 	const issues: CatalogQualityIssue[] = [];
 	for (const row of rows) {
@@ -264,58 +304,51 @@ async function collectMissingCatalogFieldIssues(
 }
 
 async function collectPublicPresentationIssues(
-	d1: D1Database,
+	db: DbQueryClient,
 	options: RunCatalogIntegrityOptions,
 ): Promise<CatalogQualityIssue[]> {
-	const rows = (
-		await d1
-			.prepare(
-				`SELECT id,
-						name,
-						slug,
-						tool_source AS toolSource,
-						description,
-						logo_url AS logoUrl,
-						json_extract(system_hints, '$.svgLogo') AS svgLogo,
-						json_extract(rich_content, '$.screenshotUrl') AS screenshotUrl,
-						json_extract(raw_data, '$.quality.logoStatus') AS logoAssetStatus,
-						json_extract(raw_data, '$.quality.screenshotStatus') AS screenshotAssetStatus
-					FROM app_catalog
-					WHERE status = 'ENABLED'
-						AND (?1 IS NULL OR id = ?1)
-						AND (
-							description IS NULL
-							OR length(trim(description)) < ?2
-							OR logo_url IS NULL
-							OR trim(logo_url) = ''
-							OR lower(logo_url) LIKE 'data:image/%'
-							OR logo_url LIKE 'connectors://%'
-							OR logo_url LIKE '%google.com/s2/favicons%'
-							OR logo_url NOT LIKE '%/app_catalog/%'
-							OR json_extract(raw_data, '$.quality.logoStatus') IN ('fallback_favicon', 'fetch_failed', 'missing', 'invalid')
-							OR json_extract(rich_content, '$.screenshotUrl') IS NULL
-							OR trim(json_extract(rich_content, '$.screenshotUrl')) = ''
-							OR json_extract(raw_data, '$.quality.screenshotStatus') IN ('missing', 'partial', 'fetch_failed', 'invalid')
-						)
-					ORDER BY name ASC
-					LIMIT ?3`,
-			)
-			.bind(
-				options.catalogAppId ?? null,
-				MIN_PUBLIC_DESCRIPTION_LENGTH,
-				QUALITY_ISSUE_LIMIT,
-			)
-			.all<
-				CatalogQualityAppRow & {
-					description: string | null;
-					logoUrl: string | null;
-					svgLogo: string | null;
-					screenshotUrl: string | null;
-					logoAssetStatus: string | null;
-					screenshotAssetStatus: string | null;
-				}
-			>()
-	).results;
+	const screenshotUrl = sql`json_extract(${appCatalog.richContent}, '$.screenshotUrl')`;
+	const logoAssetStatus = sql`json_extract(${appCatalog.rawData}, '$.quality.logoStatus')`;
+	const screenshotAssetStatus = sql`json_extract(${appCatalog.rawData}, '$.quality.screenshotStatus')`;
+	const rows = await db
+		.select({
+			...catalogQualityFields,
+			description: appCatalog.description,
+			logoUrl: appCatalog.logoUrl,
+			svgLogo: sql<
+				string | null
+			>`json_extract(${appCatalog.systemHints}, '$.svgLogo')`.as("svgLogo"),
+			screenshotUrl: sql<string | null>`${screenshotUrl}`.as("screenshotUrl"),
+			logoAssetStatus: sql<string | null>`${logoAssetStatus}`.as(
+				"logoAssetStatus",
+			),
+			screenshotAssetStatus: sql<string | null>`${screenshotAssetStatus}`.as(
+				"screenshotAssetStatus",
+			),
+		})
+		.from(appCatalog)
+		.where(
+			and(
+				eq(appCatalog.status, "ENABLED"),
+				scopedToCatalogApp(appCatalog.id, options.catalogAppId),
+				or(
+					isNull(appCatalog.description),
+					sql`length(trim(${appCatalog.description})) < ${MIN_PUBLIC_DESCRIPTION_LENGTH}`,
+					isNull(appCatalog.logoUrl),
+					sql`trim(${appCatalog.logoUrl}) = ''`,
+					sql`lower(${appCatalog.logoUrl}) LIKE 'data:image/%'`,
+					sql`${appCatalog.logoUrl} LIKE 'connectors://%'`,
+					sql`${appCatalog.logoUrl} LIKE '%google.com/s2/favicons%'`,
+					sql`${appCatalog.logoUrl} NOT LIKE '%/app_catalog/%'`,
+					sql`${logoAssetStatus} IN ('fallback_favicon', 'fetch_failed', 'missing', 'invalid')`,
+					sql`${screenshotUrl} IS NULL`,
+					sql`trim(${screenshotUrl}) = ''`,
+					sql`${screenshotAssetStatus} IN ('missing', 'partial', 'fetch_failed', 'invalid')`,
+				),
+			),
+		)
+		.orderBy(asc(appCatalog.name))
+		.limit(QUALITY_ISSUE_LIMIT);
 
 	const issues: CatalogQualityIssue[] = [];
 	for (const row of rows) {
@@ -378,51 +411,47 @@ async function collectPublicPresentationIssues(
 }
 
 async function collectMissingSourceIdIssues(
-	d1: D1Database,
+	db: DbQueryClient,
 	options: RunCatalogIntegrityOptions,
 ): Promise<CatalogQualityIssue[]> {
-	const blankSourceRows = (
-		await d1
-			.prepare(
-				`SELECT ac.id,
-						ac.name,
-						ac.slug,
-						ac.tool_source AS toolSource,
-						count(*) AS count
-					FROM app_catalog_store_listings sl
-					INNER JOIN app_catalog ac ON ac.id = sl.catalog_app_id
-					WHERE ac.status = 'ENABLED'
-						AND (?1 IS NULL OR ac.id = ?1)
-						AND trim(sl.source_app_id) = ''
-					GROUP BY ac.id
-					ORDER BY ac.name ASC
-					LIMIT ?2`,
-			)
-			.bind(options.catalogAppId ?? null, QUALITY_ISSUE_LIMIT)
-			.all<CatalogQualityCountRow>()
-	).results;
+	const blankSourceRows = await db
+		.select({
+			...catalogQualityFields,
+			count: sql<number>`count(*)`.as("count"),
+		})
+		.from(appCatalogStoreListings)
+		.innerJoin(
+			appCatalog,
+			eq(appCatalog.id, appCatalogStoreListings.catalogAppId),
+		)
+		.where(
+			and(
+				eq(appCatalog.status, "ENABLED"),
+				scopedToCatalogApp(appCatalog.id, options.catalogAppId),
+				sql`trim(${appCatalogStoreListings.sourceAppId}) = ''`,
+			),
+		)
+		.groupBy(appCatalog.id)
+		.orderBy(asc(appCatalog.name))
+		.limit(QUALITY_ISSUE_LIMIT);
 
-	const missingListingRows = (
-		await d1
-			.prepare(
-				`SELECT ac.id,
-						ac.name,
-						ac.slug,
-						ac.tool_source AS toolSource
-					FROM app_catalog ac
-					WHERE ac.status = 'ENABLED'
-						AND (?1 IS NULL OR ac.id = ?1)
-						AND NOT EXISTS (
-							SELECT 1
-							FROM app_catalog_store_listings sl
-							WHERE sl.catalog_app_id = ac.id
-						)
-					ORDER BY ac.name ASC
-					LIMIT ?2`,
-			)
-			.bind(options.catalogAppId ?? null, QUALITY_ISSUE_LIMIT)
-			.all<CatalogQualityAppRow>()
-	).results;
+	const missingListingRows = await db
+		.select(catalogQualityFields)
+		.from(appCatalog)
+		.where(
+			and(
+				eq(appCatalog.status, "ENABLED"),
+				scopedToCatalogApp(appCatalog.id, options.catalogAppId),
+				notExists(
+					db
+						.select({ one: sql`1` })
+						.from(appCatalogStoreListings)
+						.where(eq(appCatalogStoreListings.catalogAppId, appCatalog.id)),
+				),
+			),
+		)
+		.orderBy(asc(appCatalog.name))
+		.limit(QUALITY_ISSUE_LIMIT);
 
 	return [
 		...blankSourceRows.map((row) =>
@@ -447,97 +476,78 @@ async function collectMissingSourceIdIssues(
 }
 
 async function collectLeakageIssues(
-	d1: D1Database,
+	db: DbQueryClient,
 	options: RunCatalogIntegrityOptions,
 ): Promise<CatalogQualityIssue[]> {
-	const endpointRows = (
-		await d1
-			.prepare(
-				`SELECT id,
-						name,
-						slug,
-						tool_source AS toolSource,
-						base_url AS baseUrl,
-						mcp_endpoint_normalized AS mcpEndpointNormalized,
-						website
-					-- .tedi.club stays in this detector after the staging lane was
-					-- retired: its job is to FIND catalog rows still pointing at dead
-					-- internal hosts. Dropping the pattern would hide them, not fix them.
-					FROM app_catalog
-					WHERE status = 'ENABLED'
-						AND (?1 IS NULL OR id = ?1)
-						AND (
-							lower(coalesce(base_url, '') || ' ' || coalesce(mcp_endpoint_normalized, '') || ' ' || coalesce(website, '')) LIKE '%.mcp.tedix.dev%'
-							OR lower(coalesce(base_url, '') || ' ' || coalesce(mcp_endpoint_normalized, '') || ' ' || coalesce(website, '')) LIKE '%.tedi.tedix.dev%'
-							OR lower(coalesce(base_url, '') || ' ' || coalesce(mcp_endpoint_normalized, '') || ' ' || coalesce(website, '')) LIKE '%.tedi.club%'
-							OR lower(coalesce(base_url, '') || ' ' || coalesce(mcp_endpoint_normalized, '') || ' ' || coalesce(website, '')) LIKE '%workers.dev%'
-							OR lower(coalesce(base_url, '') || ' ' || coalesce(mcp_endpoint_normalized, '') || ' ' || coalesce(website, '')) LIKE '%localhost%'
-							OR lower(coalesce(base_url, '') || ' ' || coalesce(mcp_endpoint_normalized, '') || ' ' || coalesce(website, '')) LIKE '%127.0.0.1%'
-							OR lower(coalesce(base_url, '') || ' ' || coalesce(mcp_endpoint_normalized, '') || ' ' || coalesce(website, '')) LIKE '%/rpc/%'
-						)
-					ORDER BY name ASC
-					LIMIT ?2`,
-			)
-			.bind(options.catalogAppId ?? null, QUALITY_ISSUE_LIMIT)
-			.all<
-				CatalogQualityAppRow & {
-					baseUrl: string | null;
-					mcpEndpointNormalized: string | null;
-					website: string | null;
-				}
-			>()
-	).results;
+	const exposedUrls = sql`lower(coalesce(${appCatalog.baseUrl}, '') || ' ' || coalesce(${appCatalog.mcpEndpointNormalized}, '') || ' ' || coalesce(${appCatalog.website}, ''))`;
+	const endpointRows = await db
+		.select({
+			...catalogQualityFields,
+			baseUrl: appCatalog.baseUrl,
+			mcpEndpointNormalized: appCatalog.mcpEndpointNormalized,
+			website: appCatalog.website,
+		})
+		.from(appCatalog)
+		.where(
+			and(
+				eq(appCatalog.status, "ENABLED"),
+				scopedToCatalogApp(appCatalog.id, options.catalogAppId),
+				// .tedi.club stays in this detector after the staging lane was
+				// retired: its job is to FIND catalog rows still pointing at dead
+				// internal hosts. Dropping the pattern would hide them, not fix them.
+				or(
+					sql`${exposedUrls} LIKE '%.mcp.tedix.dev%'`,
+					sql`${exposedUrls} LIKE '%.tedi.tedix.dev%'`,
+					sql`${exposedUrls} LIKE '%.tedi.club%'`,
+					sql`${exposedUrls} LIKE '%workers.dev%'`,
+					sql`${exposedUrls} LIKE '%localhost%'`,
+					sql`${exposedUrls} LIKE '%127.0.0.1%'`,
+					sql`${exposedUrls} LIKE '%/rpc/%'`,
+				),
+			),
+		)
+		.orderBy(asc(appCatalog.name))
+		.limit(QUALITY_ISSUE_LIMIT);
 
-	const proxyToolRows = (
-		await d1
-			.prepare(
-				`SELECT ac.id,
-						ac.name,
-						ac.slug,
-						ac.tool_source AS toolSource,
-						a.id AS appId,
-						a.slug AS appSlug,
-						count(t.id) AS count
-					FROM apps a
-					INNER JOIN app_catalog ac ON ac.id = a.catalog_app_id
-					INNER JOIN app_tools t ON t.app_id = a.id
-					WHERE ac.status = 'ENABLED'
-						AND a.source_app_id IS NOT NULL
-						AND (?1 IS NULL OR ac.id = ?1)
-					GROUP BY ac.id, a.id
-					ORDER BY ac.name ASC
-					LIMIT ?2`,
-			)
-			.bind(options.catalogAppId ?? null, QUALITY_ISSUE_LIMIT)
-			.all<
-				CatalogQualityCountRow & {
-					appId: string;
-					appSlug: string | null;
-				}
-			>()
-	).results;
+	const proxyToolRows = await db
+		.select({
+			...catalogQualityFields,
+			appId: sql<string>`${apps.id}`.as("appId"),
+			appSlug: sql<string | null>`${apps.slug}`.as("appSlug"),
+			count: sql<number>`count(${appTools.id})`.as("count"),
+		})
+		.from(apps)
+		.innerJoin(appCatalog, eq(appCatalog.id, apps.catalogAppId))
+		.innerJoin(appTools, eq(appTools.appId, apps.id))
+		.where(
+			and(
+				eq(appCatalog.status, "ENABLED"),
+				isNotNull(apps.sourceAppId),
+				scopedToCatalogApp(appCatalog.id, options.catalogAppId),
+			),
+		)
+		.groupBy(appCatalog.id, apps.id)
+		.orderBy(asc(appCatalog.name))
+		.limit(QUALITY_ISSUE_LIMIT);
 
-	const publicProxyRows = (
-		await d1
-			.prepare(
-				`SELECT ac.id,
-						ac.name,
-						ac.slug,
-						ac.tool_source AS toolSource,
-						a.id AS appId,
-						a.slug AS appSlug
-					FROM apps a
-					INNER JOIN app_catalog ac ON ac.id = a.catalog_app_id
-					WHERE ac.status = 'ENABLED'
-						AND a.source_app_id IS NOT NULL
-						AND a.visibility = 'public'
-						AND (?1 IS NULL OR ac.id = ?1)
-					ORDER BY ac.name ASC
-					LIMIT ?2`,
-			)
-			.bind(options.catalogAppId ?? null, QUALITY_ISSUE_LIMIT)
-			.all<CatalogQualityAppRow & { appId: string; appSlug: string | null }>()
-	).results;
+	const publicProxyRows = await db
+		.select({
+			...catalogQualityFields,
+			appId: sql<string>`${apps.id}`.as("appId"),
+			appSlug: sql<string | null>`${apps.slug}`.as("appSlug"),
+		})
+		.from(apps)
+		.innerJoin(appCatalog, eq(appCatalog.id, apps.catalogAppId))
+		.where(
+			and(
+				eq(appCatalog.status, "ENABLED"),
+				isNotNull(apps.sourceAppId),
+				eq(apps.visibility, "public"),
+				scopedToCatalogApp(appCatalog.id, options.catalogAppId),
+			),
+		)
+		.orderBy(asc(appCatalog.name))
+		.limit(QUALITY_ISSUE_LIMIT);
 
 	return [
 		...endpointRows.map((row) =>
@@ -578,37 +588,55 @@ async function collectLeakageIssues(
 }
 
 async function collectDuplicateSlugIssues(
-	d1: D1Database,
+	db: DbQueryClient,
 	options: RunCatalogIntegrityOptions,
 ): Promise<CatalogQualityIssue[]> {
-	const rows = (
-		await d1
-			.prepare(
-				`WITH normalized AS (
-					SELECT id,
-						name,
-						slug,
-						lower(replace(replace(replace(trim(slug), '_', '-'), ' ', '-'), '.', '-')) AS normalized_slug
-					FROM app_catalog
-					WHERE status = 'ENABLED'
-						AND slug IS NOT NULL
-						AND trim(slug) != ''
-				)
-				SELECT normalized_slug AS normalizedSlug,
-					count(*) AS count,
-					group_concat(id, ',') AS catalogAppIds,
-					group_concat(name, ' | ') AS names,
-					group_concat(slug, ' | ') AS slugs
-				FROM normalized
-				GROUP BY normalized_slug
-				HAVING count(*) > 1
-					AND (?1 IS NULL OR sum(case when id = ?1 then 1 else 0 end) > 0)
-				ORDER BY count(*) DESC, normalized_slug ASC
-				LIMIT ?2`,
-			)
-			.bind(options.catalogAppId ?? null, QUALITY_ISSUE_LIMIT)
-			.all<DuplicateSlugRow>()
-	).results;
+	const normalized = db.$with("normalized").as(
+		db
+			.select({
+				id: appCatalog.id,
+				name: appCatalog.name,
+				slug: appCatalog.slug,
+				normalizedSlug:
+					sql<string>`lower(replace(replace(replace(trim(${appCatalog.slug}), '_', '-'), ' ', '-'), '.', '-'))`.as(
+						"normalized_slug",
+					),
+			})
+			.from(appCatalog)
+			.where(
+				and(
+					eq(appCatalog.status, "ENABLED"),
+					isNotNull(appCatalog.slug),
+					sql`trim(${appCatalog.slug}) != ''`,
+				),
+			),
+	);
+	const catalogAppId = options.catalogAppId;
+	const rows: DuplicateSlugRow[] = await db
+		.with(normalized)
+		.select({
+			normalizedSlug: sql<string>`${normalized.normalizedSlug}`.as(
+				"normalizedSlug",
+			),
+			count: sql<number>`count(*)`.as("count"),
+			catalogAppIds: sql<string>`group_concat(${normalized.id}, ',')`.as(
+				"catalogAppIds",
+			),
+			names: sql<string>`group_concat(${normalized.name}, ' | ')`.as("names"),
+			slugs: sql<string>`group_concat(${normalized.slug}, ' | ')`.as("slugs"),
+		})
+		.from(normalized)
+		.groupBy(normalized.normalizedSlug)
+		.having(
+			and(
+				sql`count(*) > 1`,
+				catalogAppId === undefined || catalogAppId === null
+					? undefined
+					: sql`sum(case when ${normalized.id} = ${catalogAppId} then 1 else 0 end) > 0`,
+			),
+		)
+		.orderBy(sql`count(*) DESC`, asc(normalized.normalizedSlug))
+		.limit(QUALITY_ISSUE_LIMIT);
 
 	return rows.map((row) => ({
 		code: "duplicateish_slug",
@@ -628,7 +656,7 @@ async function collectDuplicateSlugIssues(
 }
 
 async function collectStaleLastSeenIssues(
-	d1: D1Database,
+	db: DbQueryClient,
 	options: RunCatalogIntegrityOptions,
 ): Promise<CatalogQualityIssue[]> {
 	const staleLastSeenDays = Math.min(
@@ -637,45 +665,39 @@ async function collectStaleLastSeenIssues(
 	);
 	const threshold = `-${staleLastSeenDays} days`;
 	const tables = [
-		{ table: "app_catalog_mcp_tools", entity: "tool" },
-		{ table: "app_catalog_mcp_resources", entity: "resource" },
-		{
-			table: "app_catalog_mcp_resource_templates",
-			entity: "resource_template",
-		},
-		{ table: "app_catalog_mcp_prompts", entity: "prompt" },
+		{ table: appCatalogMcpTools, entity: "tool" },
+		{ table: appCatalogMcpResources, entity: "resource" },
+		{ table: appCatalogMcpResourceTemplates, entity: "resource_template" },
+		{ table: appCatalogMcpPrompts, entity: "prompt" },
 	] as const;
 	const issues: CatalogQualityIssue[] = [];
 
 	for (const table of tables) {
-		const rows = (
-			await d1
-				.prepare(
-					`SELECT ac.id,
-							ac.name,
-							ac.slug,
-							ac.tool_source AS toolSource,
-							count(s.id) AS count,
-							min(s.last_seen_at) AS oldestLastSeenAt,
-							max(s.last_seen_at) AS newestLastSeenAt
-						FROM ${table.table} s
-						INNER JOIN app_catalog ac ON ac.id = s.catalog_app_id
-						WHERE ac.status = 'ENABLED'
-							AND s.removed_at IS NULL
-							AND julianday(s.last_seen_at) < julianday('now', ?1)
-							AND (?2 IS NULL OR ac.id = ?2)
-						GROUP BY ac.id
-						ORDER BY count(s.id) DESC, ac.name ASC
-						LIMIT ?3`,
-				)
-				.bind(threshold, options.catalogAppId ?? null, QUALITY_ISSUE_LIMIT)
-				.all<
-					CatalogQualityCountRow & {
-						oldestLastSeenAt: string | null;
-						newestLastSeenAt: string | null;
-					}
-				>()
-		).results;
+		const surface = table.table;
+		const rows = await db
+			.select({
+				...catalogQualityFields,
+				count: sql<number>`count(${surface.id})`.as("count"),
+				oldestLastSeenAt: sql<string | null>`min(${surface.lastSeenAt})`.as(
+					"oldestLastSeenAt",
+				),
+				newestLastSeenAt: sql<string | null>`max(${surface.lastSeenAt})`.as(
+					"newestLastSeenAt",
+				),
+			})
+			.from(surface)
+			.innerJoin(appCatalog, eq(appCatalog.id, surface.catalogAppId))
+			.where(
+				and(
+					eq(appCatalog.status, "ENABLED"),
+					isNull(surface.removedAt),
+					sql`julianday(${surface.lastSeenAt}) < julianday('now', ${threshold})`,
+					scopedToCatalogApp(appCatalog.id, options.catalogAppId),
+				),
+			)
+			.groupBy(appCatalog.id)
+			.orderBy(sql`count(${surface.id}) DESC`, asc(appCatalog.name))
+			.limit(QUALITY_ISSUE_LIMIT);
 
 		for (const row of rows) {
 			issues.push(
@@ -707,13 +729,14 @@ export async function buildCatalogQualityReport(
 		Math.max(options.staleLastSeenDays ?? DEFAULT_STALE_LAST_SEEN_DAYS, 1),
 		365,
 	);
+	const db = createDbQueryClient(d1);
 	const issueGroups = await Promise.all([
-		collectMissingCatalogFieldIssues(d1, options),
-		collectPublicPresentationIssues(d1, options),
-		collectMissingSourceIdIssues(d1, options),
-		collectLeakageIssues(d1, options),
-		collectDuplicateSlugIssues(d1, options),
-		collectStaleLastSeenIssues(d1, { ...options, staleLastSeenDays }),
+		collectMissingCatalogFieldIssues(db, options),
+		collectPublicPresentationIssues(db, options),
+		collectMissingSourceIdIssues(db, options),
+		collectLeakageIssues(db, options),
+		collectDuplicateSlugIssues(db, options),
+		collectStaleLastSeenIssues(db, { ...options, staleLastSeenDays }),
 	]);
 	const issues = issueGroups.flat().slice(0, QUALITY_ISSUE_LIMIT);
 	const errorCount = issues.filter(
@@ -771,45 +794,47 @@ export async function runCatalogDriftDetection(
 ) {
 	const limit = options.limit ?? 50;
 	const autoSync = options.autoSync ?? true;
-	const catalogApps = (
-		await d1
-			.prepare(
-				`SELECT id,
-						name,
-						base_url AS baseUrl,
-						mcp_endpoint_normalized AS mcpEndpointNormalized,
-						health_status AS healthStatus,
-						tool_source AS toolSource
-					FROM app_catalog
-					WHERE status = 'ENABLED'
-						AND mcp_endpoint_normalized IS NOT NULL
-						AND (?1 IS NULL OR id = ?1)
-					ORDER BY
-						CASE
-							WHEN EXISTS (
-								SELECT 1 FROM apps
-								WHERE apps.catalog_app_id = app_catalog.id
-									AND apps.source_app_id IS NULL
-							) THEN 0
-							ELSE 1
-						END,
-						CASE
-							WHEN health_status = 'healthy' THEN 0
-							WHEN health_status = 'degraded' THEN 1
-							WHEN health_status = 'unknown' THEN 2
-							ELSE 3
-						END,
-						COALESCE(
-							json_extract(mcp_metadata, '$.lastScannedAt'),
-							json_extract(health_data, '$.lastCheckedAt'),
-							'1970-01-01T00:00:00.000Z'
-						),
-						slug
-					LIMIT ?2`,
-			)
-			.bind(options.catalogAppId ?? null, limit)
-			.all<CatalogDriftCandidate>()
-	).results;
+	const reader = createDbQueryClient(d1);
+	const catalogApps: CatalogDriftCandidate[] = await reader
+		.select({
+			id: appCatalog.id,
+			name: appCatalog.name,
+			baseUrl: appCatalog.baseUrl,
+			mcpEndpointNormalized: appCatalog.mcpEndpointNormalized,
+			healthStatus: appCatalog.healthStatus,
+			toolSource: appCatalog.toolSource,
+		})
+		.from(appCatalog)
+		.where(
+			and(
+				eq(appCatalog.status, "ENABLED"),
+				isNotNull(appCatalog.mcpEndpointNormalized),
+				scopedToCatalogApp(appCatalog.id, options.catalogAppId),
+			),
+		)
+		.orderBy(
+			sql`CASE WHEN ${exists(
+				reader
+					.select({ one: sql`1` })
+					.from(apps)
+					.where(
+						and(eq(apps.catalogAppId, appCatalog.id), isNull(apps.sourceAppId)),
+					),
+			)} THEN 0 ELSE 1 END`,
+			sql`CASE
+				WHEN ${appCatalog.healthStatus} = 'healthy' THEN 0
+				WHEN ${appCatalog.healthStatus} = 'degraded' THEN 1
+				WHEN ${appCatalog.healthStatus} = 'unknown' THEN 2
+				ELSE 3
+			END`,
+			sql`COALESCE(
+				json_extract(${appCatalog.mcpMetadata}, '$.lastScannedAt'),
+				json_extract(${appCatalog.healthData}, '$.lastCheckedAt'),
+				'1970-01-01T00:00:00.000Z'
+			)`,
+			appCatalog.slug,
+		)
+		.limit(limit);
 
 	const toCheck = catalogApps.filter(
 		(app) =>
@@ -859,17 +884,17 @@ export async function runCatalogDriftDetection(
 				catalogApp.mcpEndpointNormalized ?? catalogApp.baseUrl;
 			if (!autoSync || !hasAutoSyncableDrift || !upstreamUrl) continue;
 
-			const baseApps = (
-				await d1
-					.prepare(
-						`SELECT id, name, metadata
-							FROM apps
-							WHERE catalog_app_id = ?
-								AND source_app_id IS NULL`,
-					)
-					.bind(catalogApp.id)
-					.all<AppMetadataRecord>()
-			).results;
+			const baseApps: AppMetadataRecord[] = await reader
+				.select({
+					id: apps.id,
+					name: apps.name,
+					// Raw stored JSON text; readAutoSyncPolicy parses it.
+					metadata: sql<unknown>`${apps.metadata}`.as("metadata"),
+				})
+				.from(apps)
+				.where(
+					and(eq(apps.catalogAppId, catalogApp.id), isNull(apps.sourceAppId)),
+				);
 
 			for (const baseApp of baseApps) {
 				const policy = readAutoSyncPolicy(baseApp.metadata);

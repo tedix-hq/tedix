@@ -58,6 +58,9 @@ export function effectiveCallCostsRelation() {
 		),
 		sql`, `,
 	);
+	// Raw: literal JSON paths keep this relation inside D1's 100-parameter limit
+	// wherever it is embedded; the CTE + UNION ALL is exposed as a shadowing
+	// Subquery that the builders cannot construct with these output names.
 	const retired = sql.join(
 		columns.map(
 			([key, c]) =>
@@ -385,6 +388,8 @@ export function buildAppendProviderCostEvidenceStatement(
 		),
 		sql` AND `,
 	);
+	// Raw: one JSON-bound CTE feeds a conditional INSERT ... SELECT whose fences use
+	// json_each and literal paths (D1's 100-parameter limit); Drizzle cannot build it.
 	const names = sql.join(
 		Object.values(columns).map((c) => sql.identifier(c.name)),
 		sql`, `,

@@ -1,6 +1,15 @@
 import { resolveEnabledGovernedLearningCronNames } from "@tedix/api-contract/utils/governed-learning";
 import { and, eq, inArray, sql } from "drizzle-orm";
+import { unionAll } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../../client";
+import {
+	skillEntries,
+	skillRuns,
+	skillSchedules,
+} from "../../schema/cognitive";
+import { policyPacks } from "../../schema/control-plane";
+import { tediCronExecutions } from "../../schema/cron-executions";
+import { tedis } from "../../schema/tedis";
 import { workItems } from "../../schema/work-items";
 import { createWorkItem, type CreateWorkItemParams } from "../work-items/crud";
 import { workItemPurposeFor } from "../work-items/purpose";
@@ -71,48 +80,99 @@ export async function getFleetLatestCronExecutions(
 	db: DbClient,
 	options: { orgId?: string } = {},
 ): Promise<FleetCronExecutionRow[]> {
-	const nameList = sql.join(
-		EXPECTED_COGNITIVE_CRONS.map((cron) => sql`${cron.name}`),
-		sql`, `,
+	const executions = db.$with("executions").as(
+		unionAll(
+			db
+				.select({
+					tediId: sql<string>`${tediCronExecutions.tediId}`.as("tediId"),
+					orgId: sql<string>`${tediCronExecutions.orgId}`.as("orgId"),
+					cronName: sql<string>`${tediCronExecutions.cronName}`.as("cronName"),
+					startedAt: sql<string>`${tediCronExecutions.startedAt}`.as(
+						"startedAt",
+					),
+					status: sql<string>`${tediCronExecutions.status}`.as("status"),
+					mechanism: sql<FleetCronExecutionRow["mechanism"]>`'legacy_cron'`.as(
+						"mechanism",
+					),
+				})
+				.from(tediCronExecutions)
+				.where(
+					inArray(
+						tediCronExecutions.cronName,
+						EXPECTED_COGNITIVE_CRONS.map((cron) => cron.name),
+					),
+				),
+			db
+				.select({
+					tediId: sql<string>`${skillRuns.tediId}`.as("tediId"),
+					orgId: sql<string>`${skillRuns.organizationId}`.as("orgId"),
+					cronName:
+						sql<string>`replace(replace(${skillRuns.skillSlug}, 'platform-', ''), '-dogfood', '')`.as(
+							"cronName",
+						),
+					startedAt: sql<string>`${skillRuns.startedAt}`.as("startedAt"),
+					status: sql<string>`CASE
+						WHEN ${skillRuns.status} = 'completed' THEN 'success'
+						WHEN ${skillRuns.status} IN ('failed', 'canceled') THEN 'failure'
+						ELSE 'running'
+					END`.as("status"),
+					mechanism: sql<
+						FleetCronExecutionRow["mechanism"]
+					>`'scheduled_skill_workflow'`.as("mechanism"),
+				})
+				.from(skillRuns)
+				.where(
+					and(
+						eq(skillRuns.createdBy, "schedule"),
+						inArray(skillRuns.skillSlug, [...COGNITIVE_SKILL_SLUGS]),
+					),
+				),
+		),
 	);
-	const skillSlugList = sql.join(
-		COGNITIVE_SKILL_SLUGS.map((slug) => sql`${slug}`),
-		sql`, `,
+	// firstStartedAt comes from its own grouped CTE, NOT a second MIN()
+	// aggregate here: SQLite's bare-column guarantee (status rides the
+	// MAX(started_at) row) only holds when the query has exactly one
+	// min()/max() aggregate.
+	const firstStamps = db.$with("first_stamps").as(
+		db
+			.select({
+				tediId: executions.tediId,
+				cronName: executions.cronName,
+				firstStartedAt: sql<string>`MIN(${executions.startedAt})`.as(
+					"firstStartedAt",
+				),
+			})
+			.from(executions)
+			.groupBy(executions.tediId, executions.cronName),
 	);
-	const orgFilter = options.orgId ? sql`AND e.orgId = ${options.orgId}` : sql``;
-	// firstStartedAt is a correlated subquery, NOT a second MIN() aggregate:
-	// SQLite's bare-column guarantee (status rides the MAX(started_at) row)
-	// only holds when the query has exactly one min()/max() aggregate.
-	return db.all<FleetCronExecutionRow>(
-		sql`WITH executions AS (
-			SELECT tedi_id as tediId, org_id as orgId, cron_name as cronName,
-				started_at as startedAt, status, 'legacy_cron' as mechanism
-			FROM tedi_cron_executions
-			WHERE cron_name IN (${nameList})
-			UNION ALL
-			SELECT tedi_id as tediId, organization_id as orgId,
-				replace(replace(skill_slug, 'platform-', ''), '-dogfood', '') as cronName,
-				started_at as startedAt,
-				CASE
-					WHEN status = 'completed' THEN 'success'
-					WHEN status IN ('failed', 'canceled') THEN 'failure'
-					ELSE 'running'
-				END as status,
-				'scheduled_skill_workflow' as mechanism
-			FROM skill_runs
-			WHERE created_by = 'schedule' AND skill_slug IN (${skillSlugList})
+	return db
+		.with(executions, firstStamps)
+		.select({
+			tediId: executions.tediId,
+			orgId: executions.orgId,
+			tediSlug: sql<string | null>`${tedis.slug}`.as("tediSlug"),
+			cronName: executions.cronName,
+			startedAt: sql<string>`MAX(${executions.startedAt})`.as("startedAt"),
+			firstStartedAt: firstStamps.firstStartedAt,
+			status: executions.status,
+			mechanism: executions.mechanism,
+		})
+		.from(executions)
+		.innerJoin(tedis, eq(tedis.id, executions.tediId))
+		.innerJoin(
+			firstStamps,
+			and(
+				eq(firstStamps.tediId, executions.tediId),
+				eq(firstStamps.cronName, executions.cronName),
+			),
 		)
-		SELECT e.tediId, e.orgId, t.slug as tediSlug,
-				e.cronName, MAX(e.startedAt) as startedAt,
-				(SELECT MIN(e2.startedAt) FROM executions e2
-					WHERE e2.tediId = e.tediId AND e2.cronName = e.cronName) as firstStartedAt,
-				e.status, e.mechanism
-			FROM executions e
-			JOIN tedis t ON t.id = e.tediId
-			WHERE t.runtime_state = 'active'
-				${orgFilter}
-			GROUP BY e.tediId, e.orgId, e.cronName`,
-	);
+		.where(
+			and(
+				eq(tedis.runtimeState, "active"),
+				options.orgId ? eq(executions.orgId, options.orgId) : undefined,
+			),
+		)
+		.groupBy(executions.tediId, executions.orgId, executions.cronName);
 }
 
 /**
@@ -217,27 +277,35 @@ export async function getEnabledGovernedLearningCronNamesByTedi(
 ): Promise<Map<string, ReadonlySet<string>>> {
 	const tediIds = [...new Set(rows.map((row) => row.tediId))];
 	if (tediIds.length === 0) return new Map();
-	const idList = sql.join(
-		tediIds.map((id) => sql`${id}`),
-		sql`, `,
-	);
-	const skillSlugList = sql.join(
-		COGNITIVE_SKILL_SLUGS.map((slug) => sql`${slug}`),
-		sql`, `,
-	);
-	const governanceRows = await db.all<FleetCronGovernanceRow>(
-		sql`SELECT t.id as tediId,
-				t.runtime_overrides as runtimeOverrides,
-				p.definition as policyPackDefinition,
-				se.slug as skillSlug
-			FROM tedis t
-			LEFT JOIN policy_packs p ON p.id = t.policy_pack_id
-			LEFT JOIN skill_schedules ss
-				ON ss.tedi_id = t.id AND ss.enabled = 1
-			LEFT JOIN skill_entries se
-				ON se.id = ss.skill_id AND se.slug IN (${skillSlugList})
-			WHERE t.id IN (${idList})`,
-	);
+	// JSON columns stay raw TEXT for the governed-learning resolver.
+	const governanceRows: FleetCronGovernanceRow[] = await db
+		.select({
+			tediId: sql<string>`${tedis.id}`.as("tediId"),
+			runtimeOverrides: sql<unknown>`${tedis.runtimeOverrides}`.as(
+				"runtimeOverrides",
+			),
+			policyPackDefinition: sql<unknown>`${policyPacks.definition}`.as(
+				"policyPackDefinition",
+			),
+			skillSlug: sql<string | null>`${skillEntries.slug}`.as("skillSlug"),
+		})
+		.from(tedis)
+		.leftJoin(policyPacks, eq(policyPacks.id, tedis.policyPackId))
+		.leftJoin(
+			skillSchedules,
+			and(
+				eq(skillSchedules.tediId, tedis.id),
+				sql`${skillSchedules.enabled} = 1`,
+			),
+		)
+		.leftJoin(
+			skillEntries,
+			and(
+				eq(skillEntries.id, skillSchedules.skillId),
+				inArray(skillEntries.slug, [...COGNITIVE_SKILL_SLUGS]),
+			),
+		)
+		.where(inArray(tedis.id, tediIds));
 	const byTedi = new Map<string, FleetCronGovernanceRow[]>();
 	for (const row of governanceRows) {
 		const list = byTedi.get(row.tediId) ?? [];

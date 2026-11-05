@@ -1,7 +1,7 @@
 /** Canonical billing credits queries. */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, asc, eq, inArray, lte, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, lte, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import {
 	type BillingAccount,
@@ -41,28 +41,39 @@ export async function expireBillingCredits(
 		// statement, and the unique idempotency index absorbs races. D1 has no
 		// interactive transactions — an explicit BEGIN/COMMIT (Drizzle
 		// `db.transaction`) is rejected by the binding.
-		const inserted = await db.all<{ id: string }>(sql`
-			INSERT INTO billing_credit_entries (
-				id, organization_id, kind, amount_micros, source_type, source_ref,
-				idempotency_key, description, metadata, created_at
+		const inserted = await db
+			.insert(billingCreditEntries)
+			.select(
+				db
+					.select({
+						id: sql<string>`${crypto.randomUUID()}`.as("id"),
+						organizationId: billingAccounts.organizationId,
+						kind: sql<"adjustment">`'adjustment'`.as("kind"),
+						amountMicros:
+							sql<number>`-MIN(${billingAccounts.creditBalanceMicros}, ${grant.amountMicros})`.as(
+								"amount_micros",
+							),
+						sourceType: sql<string>`'credit_expiry'`.as("source_type"),
+						sourceRef: sql<string>`${grant.id}`.as("source_ref"),
+						idempotencyKey: sql<string>`${`credit-expiry:${grant.id}`}`.as(
+							"idempotency_key",
+						),
+						description: sql<string>`${`Expired credit grant ${grant.id}`}`.as(
+							"description",
+						),
+						metadata: sql<string>`'{}'`.as("metadata"),
+						createdAt: sql<string>`${now}`.as("created_at"),
+					})
+					.from(billingAccounts)
+					.where(
+						and(
+							eq(billingAccounts.organizationId, grant.organizationId),
+							gt(billingAccounts.creditBalanceMicros, 0),
+						),
+					),
 			)
-			SELECT
-				${crypto.randomUUID()},
-				account.organization_id,
-				'adjustment',
-				-MIN(account.credit_balance_micros, ${grant.amountMicros}),
-				'credit_expiry',
-				${grant.id},
-				${`credit-expiry:${grant.id}`},
-				${`Expired credit grant ${grant.id}`},
-				'{}',
-				${now}
-			FROM billing_accounts AS account
-			WHERE account.organization_id = ${grant.organizationId}
-				AND account.credit_balance_micros > 0
-			ON CONFLICT (idempotency_key) DO NOTHING
-			RETURNING id
-		`);
+			.onConflictDoNothing({ target: billingCreditEntries.idempotencyKey })
+			.returning({ id: billingCreditEntries.id });
 		expired += inserted.length;
 	}
 	return expired;
@@ -107,6 +118,8 @@ export async function getBillingBalanceSnapshot(
 	// Writers persist UTC ISO milliseconds. datetime() previously truncated both
 	// sides to seconds; start the text range at the next whole second to retain
 	// that cutoff, including for offset or fractional-second caller timestamps.
+	// Raw: Drizzle $with cannot emit the MATERIALIZED hint that keeps live holds
+	// aggregated once (ca63b0da1).
 	const rows = (await db.all(sql`
 		WITH reserved AS MATERIALIZED (
 			SELECT
@@ -159,7 +172,7 @@ export async function getBillingBalanceSnapshot(
 			COALESCE(period.customer_charge_micros, 0) AS customerChargeMicros,
 			${monetaryPeriodSpendSql()} AS monetarySpentMicros,
 			account.hard_spend_limit_micros AS hardSpendLimitMicros,
-			${sql.raw(effectiveAllowOverageSql("plan", "account"))} AS allowOverage,
+			${effectiveAllowOverageSql("plan", "account")} AS allowOverage,
 			account.overage_enabled AS overageEnabled,
 			account.stripe_customer_id AS stripeCustomerId,
 			(json_extract(account.metadata, '$.providerCustomerKey') IS NOT NULL

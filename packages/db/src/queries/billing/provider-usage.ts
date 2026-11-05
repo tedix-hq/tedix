@@ -361,7 +361,7 @@ export interface WorkstationCostCoverageResult {
 /** SQLite date parsing alone accepts non-ISO strings. Keep stored allocation
  * evidence closed to explicit timestamp syntax before comparing instants. */
 function allocationTimestamp(column: "allocation_start" | "allocation_end") {
-	const v = sql.raw(column);
+	const v = sql.identifier(column);
 	return sql`(${v} GLOB '????-??-??T??:??:??*'
  AND (substr(${v},1,4) || substr(${v},6,2) || substr(${v},9,2) || substr(${v},12,2) || substr(${v},15,2) || substr(${v},18,2)) NOT GLOB '*[^0-9]*'
  AND date(substr(${v},1,10), '+0 days') = substr(${v},1,10)
@@ -400,49 +400,120 @@ export async function getWorkstationCostCoverage(
 		throw new Error("Invalid workstation coverage window or organization");
 	const periodStart = new Date(start).toISOString(),
 		periodEnd = new Date(end).toISOString();
-	const rows = await db.all(sql`
- WITH scoped AS (
- SELECT quantity, provider_cost_micros AS cost, provider_cost_quality AS quality, occurred_at AS occurred,
- CASE WHEN json_valid(metadata) THEN CASE WHEN json_type(metadata) = 'object' THEN metadata ELSE '{}' END ELSE '{}' END AS evidence
- FROM billing_provider_usage WHERE organization_id = ${input.organizationId}
- AND occurred_at >= ${periodStart} AND occurred_at < ${periodEnd}
- AND usage_kind = 'workstation_compute' AND provider = 'cloudflare' AND unit = 'compute_seconds'
- ), fields AS (
- SELECT *, json_extract(evidence, '$.allocation.chargePeriod') AS charge_period,
- json_extract(evidence, '$.allocation.chargeTotalMicros') AS charge_total,
- json_extract(evidence, '$.allocation.shareBasisPoints') AS share,
- CASE WHEN typeof(quantity) = 'integer' AND quantity BETWEEN 0 AND 9007199254740991
- AND typeof(cost) = 'integer' AND cost BETWEEN 0 AND 9007199254740991 THEN 1 ELSE 0 END AS numeric_ok
- FROM scoped
- ), periods AS (
- SELECT *, substr(charge_period, 1, instr(charge_period, '..') - 1) AS allocation_start,
- substr(charge_period, instr(charge_period, '..') + 2) AS allocation_end FROM fields
- ), classified AS (
- SELECT *, CASE WHEN quality = 'provider_reconciled'
- AND json_type(evidence, '$.pricingStatus') = 'text' AND json_extract(evidence, '$.pricingStatus') = 'allocated'
- AND json_type(evidence, '$.allocation') = 'object'
- AND json_extract(evidence, '$.allocation.basis') = 'workstation_lease_wall_clock_share'
- AND json_type(evidence, '$.allocation.chargeSourceRef') = 'text' AND length(trim(json_extract(evidence, '$.allocation.chargeSourceRef'), char(9,10,11,12,13,32,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288,65279))) > 0
- AND json_type(evidence, '$.allocation.chargePeriod') = 'text' AND instr(charge_period, '..') > 0 AND instr(allocation_end, '..') = 0
+	const usage = billingProviderUsage;
+	const scoped = db.$with("scoped").as(
+		db
+			.select({
+				quantity: usage.quantity,
+				cost: sql<number>`${usage.providerCostMicros}`.as("cost"),
+				quality: sql<string>`${usage.providerCostQuality}`.as("quality"),
+				occurred: sql<string>`${usage.occurredAt}`.as("occurred"),
+				evidence:
+					sql<string>`CASE WHEN json_valid(${usage.metadata}) THEN CASE WHEN json_type(${usage.metadata}) = 'object' THEN ${usage.metadata} ELSE '{}' END ELSE '{}' END`.as(
+						"evidence",
+					),
+			})
+			.from(usage)
+			.where(
+				and(
+					eq(usage.organizationId, input.organizationId),
+					gte(usage.occurredAt, periodStart),
+					lt(usage.occurredAt, periodEnd),
+					sql`${usage.usageKind} = 'workstation_compute' AND ${usage.provider} = 'cloudflare' AND ${usage.unit} = 'compute_seconds'`,
+				),
+			),
+	);
+	const fields = db.$with("fields").as(
+		db
+			.select({
+				quantity: scoped.quantity,
+				cost: scoped.cost,
+				quality: scoped.quality,
+				occurred: scoped.occurred,
+				evidence: scoped.evidence,
+				chargePeriod:
+					sql<string>`json_extract(${scoped.evidence}, '$.allocation.chargePeriod')`.as(
+						"charge_period",
+					),
+				chargeTotal:
+					sql<number>`json_extract(${scoped.evidence}, '$.allocation.chargeTotalMicros')`.as(
+						"charge_total",
+					),
+				share:
+					sql<number>`json_extract(${scoped.evidence}, '$.allocation.shareBasisPoints')`.as(
+						"share",
+					),
+				numericOk:
+					sql<number>`CASE WHEN typeof(${scoped.quantity}) = 'integer' AND ${scoped.quantity} BETWEEN 0 AND 9007199254740991
+ AND typeof(${scoped.cost}) = 'integer' AND ${scoped.cost} BETWEEN 0 AND 9007199254740991 THEN 1 ELSE 0 END`.as(
+						"numeric_ok",
+					),
+			})
+			.from(scoped),
+	);
+	const periods = db.$with("periods").as(
+		db
+			.select({
+				quantity: fields.quantity,
+				cost: fields.cost,
+				quality: fields.quality,
+				occurred: fields.occurred,
+				evidence: fields.evidence,
+				chargePeriod: fields.chargePeriod,
+				chargeTotal: fields.chargeTotal,
+				share: fields.share,
+				numericOk: fields.numericOk,
+				allocationStart:
+					sql<string>`substr(${fields.chargePeriod}, 1, instr(${fields.chargePeriod}, '..') - 1)`.as(
+						"allocation_start",
+					),
+				allocationEnd:
+					sql<string>`substr(${fields.chargePeriod}, instr(${fields.chargePeriod}, '..') + 2)`.as(
+						"allocation_end",
+					),
+			})
+			.from(fields),
+	);
+	const p = periods;
+	const classified = db.$with("classified").as(
+		db
+			.select({
+				quantity: p.quantity,
+				cost: p.cost,
+				numericOk: p.numericOk,
+				category: sql<string>`CASE WHEN ${p.quality} = 'provider_reconciled'
+ AND json_type(${p.evidence}, '$.pricingStatus') = 'text' AND json_extract(${p.evidence}, '$.pricingStatus') = 'allocated'
+ AND json_type(${p.evidence}, '$.allocation') = 'object'
+ AND json_extract(${p.evidence}, '$.allocation.basis') = 'workstation_lease_wall_clock_share'
+ AND json_type(${p.evidence}, '$.allocation.chargeSourceRef') = 'text' AND length(trim(json_extract(${p.evidence}, '$.allocation.chargeSourceRef'), char(9,10,11,12,13,32,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288,65279))) > 0
+ AND json_type(${p.evidence}, '$.allocation.chargePeriod') = 'text' AND instr(${p.chargePeriod}, '..') > 0 AND instr(${p.allocationEnd}, '..') = 0
  AND ${allocationTimestamp("allocation_start")} AND ${allocationTimestamp("allocation_end")}
- AND julianday(allocation_start) < julianday(allocation_end)
- AND julianday(occurred) >= julianday(allocation_start) AND julianday(occurred) < julianday(allocation_end)
- AND json_type(evidence, '$.allocation.chargeTotalMicros') = 'integer' AND charge_total BETWEEN 0 AND 9007199254740991 AND cost <= charge_total
- AND json_type(evidence, '$.allocation.shareBasisPoints') = 'integer' AND share BETWEEN 0 AND 10000
- THEN 'reconciled' WHEN quality = 'estimated' THEN 'pending' ELSE 'unproven' END AS category
- FROM periods
- )
- SELECT COUNT(*) AS total_rows,
- COALESCE(SUM(CASE WHEN numeric_ok = 1 THEN quantity ELSE 0 END), 0) AS total_seconds,
- COALESCE(SUM(CASE WHEN numeric_ok = 0 THEN 1 ELSE 0 END), 0) AS invalid_rows,
- COALESCE(SUM(CASE WHEN category = 'reconciled' THEN 1 ELSE 0 END), 0) AS reconciled_rows,
- COALESCE(SUM(CASE WHEN category = 'reconciled' AND numeric_ok = 1 THEN quantity ELSE 0 END), 0) AS reconciled_seconds,
- COALESCE(SUM(CASE WHEN category = 'reconciled' AND numeric_ok = 1 THEN cost ELSE 0 END), 0) AS reconciled_cost,
- COALESCE(SUM(CASE WHEN category = 'pending' THEN 1 ELSE 0 END), 0) AS pending_rows,
- COALESCE(SUM(CASE WHEN category = 'pending' AND numeric_ok = 1 THEN quantity ELSE 0 END), 0) AS pending_seconds,
- COALESCE(SUM(CASE WHEN category = 'unproven' THEN 1 ELSE 0 END), 0) AS unproven_rows,
- COALESCE(SUM(CASE WHEN category = 'unproven' AND numeric_ok = 1 THEN quantity ELSE 0 END), 0) AS unproven_seconds
- FROM classified`);
+ AND julianday(${p.allocationStart}) < julianday(${p.allocationEnd})
+ AND julianday(${p.occurred}) >= julianday(${p.allocationStart}) AND julianday(${p.occurred}) < julianday(${p.allocationEnd})
+ AND json_type(${p.evidence}, '$.allocation.chargeTotalMicros') = 'integer' AND ${p.chargeTotal} BETWEEN 0 AND 9007199254740991 AND ${p.cost} <= ${p.chargeTotal}
+ AND json_type(${p.evidence}, '$.allocation.shareBasisPoints') = 'integer' AND ${p.share} BETWEEN 0 AND 10000
+ THEN 'reconciled' WHEN ${p.quality} = 'estimated' THEN 'pending' ELSE 'unproven' END`.as(
+					"category",
+				),
+			})
+			.from(p),
+	);
+	const c = classified;
+	const rows = await db
+		.with(scoped, fields, periods, classified)
+		.select({
+			total_rows: sql<number>`COUNT(*)`,
+			total_seconds: sql<number>`COALESCE(SUM(CASE WHEN ${c.numericOk} = 1 THEN ${c.quantity} ELSE 0 END), 0)`,
+			invalid_rows: sql<number>`COALESCE(SUM(CASE WHEN ${c.numericOk} = 0 THEN 1 ELSE 0 END), 0)`,
+			reconciled_rows: sql<number>`COALESCE(SUM(CASE WHEN ${c.category} = 'reconciled' THEN 1 ELSE 0 END), 0)`,
+			reconciled_seconds: sql<number>`COALESCE(SUM(CASE WHEN ${c.category} = 'reconciled' AND ${c.numericOk} = 1 THEN ${c.quantity} ELSE 0 END), 0)`,
+			reconciled_cost: sql<number>`COALESCE(SUM(CASE WHEN ${c.category} = 'reconciled' AND ${c.numericOk} = 1 THEN ${c.cost} ELSE 0 END), 0)`,
+			pending_rows: sql<number>`COALESCE(SUM(CASE WHEN ${c.category} = 'pending' THEN 1 ELSE 0 END), 0)`,
+			pending_seconds: sql<number>`COALESCE(SUM(CASE WHEN ${c.category} = 'pending' AND ${c.numericOk} = 1 THEN ${c.quantity} ELSE 0 END), 0)`,
+			unproven_rows: sql<number>`COALESCE(SUM(CASE WHEN ${c.category} = 'unproven' THEN 1 ELSE 0 END), 0)`,
+			unproven_seconds: sql<number>`COALESCE(SUM(CASE WHEN ${c.category} = 'unproven' AND ${c.numericOk} = 1 THEN ${c.quantity} ELSE 0 END), 0)`,
+		})
+		.from(c);
 	const row = rows[0] as Record<string, unknown> | undefined;
 	if (
 		!row ||

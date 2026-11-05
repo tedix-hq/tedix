@@ -905,6 +905,7 @@ export async function resolveWorkItemAuthorization(
 		// project state, and every same-or-later reserved revocation event.
 		// Cryptographic verification happens only over rows returned by this
 		// snapshot, so a revocation inserted before the query can never be missed.
+		// Raw: WITH RECURSIVE lineage walk; Drizzle has no recursive CTE builder.
 		const linearized = (await db.all(sql`
 			/* owned-channel-linearization */
 			WITH RECURSIVE lineage(id, parent_work_item_id, depth) AS (

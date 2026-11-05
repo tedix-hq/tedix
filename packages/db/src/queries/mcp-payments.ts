@@ -63,47 +63,84 @@ export async function insertSettledMcpPaymentEventWithinBudget(
 	}
 	const json = (value: unknown): string | null =>
 		value === undefined || value === null ? null : JSON.stringify(value);
-	const toolScope = guard.toolId ? sql` AND tool_id = ${guard.toolId}` : sql``;
-	const tediScope = guard.tediId ? sql` AND tedi_id = ${guard.tediId}` : sql``;
-	const userScope = guard.userId ? sql` AND user_id = ${guard.userId}` : sql``;
-
-	const rows = (await db.all(sql`
-		INSERT INTO mcp_payment_events (
-			id, requirement_id, event_type, status, protocol, mode, network, asset,
-			currency, amount, recipient, resource, app_id, app_slug,
-			organization_id, tool_row_id, tool_id, tedi_id, user_id, client_id,
-			auth_type, trace_id, tool_args_hash, settled, requirements,
-			payment_proof, payment_response, budget_policy, budget_decision,
-			decision_rationale, audit_event_id, rationale_record_id
+	const e = mcpPaymentEvents;
+	// SUM without GROUP BY yields exactly one row, so the insert selects from
+	// the window total and the budget check stays in the same statement.
+	const window = db
+		.select({
+			spent: sql<number>`COALESCE(SUM(CAST(${e.amount} AS REAL)), 0)`.as(
+				"spent",
+			),
+		})
+		.from(e)
+		.where(
+			and(
+				eq(e.organizationId, event.organizationId),
+				sql`${e.status} = 'settled'`,
+				sql`${e.settled} = 1`,
+				eq(e.appSlug, event.appSlug),
+				eq(e.currency, event.currency ?? "USDC"),
+				eq(e.network, event.network),
+				sql`datetime(${e.createdAt}) >= datetime(${guard.since})`,
+				guard.toolId ? eq(e.toolId, guard.toolId) : undefined,
+				guard.tediId ? eq(e.tediId, guard.tediId) : undefined,
+				guard.userId ? eq(e.userId, guard.userId) : undefined,
+			),
 		)
-		SELECT
-			${event.id}, ${event.requirementId}, ${event.eventType}, ${event.status},
-			${event.protocol ?? "x402"}, ${event.mode ?? "mock"}, ${event.network},
-			${event.asset ?? null}, ${event.currency ?? null}, ${event.amount},
-			${event.recipient}, ${event.resource ?? null}, ${event.appId ?? null},
-			${event.appSlug}, ${event.organizationId},
-			${event.toolRowId ?? null}, ${event.toolId}, ${event.tediId ?? null},
-			${event.userId ?? null}, ${event.clientId ?? null},
-			${event.authType ?? null}, ${event.traceId ?? null},
-			${event.toolArgsHash ?? null}, ${event.settled ? 1 : 0},
-			${json(event.requirements)}, ${json(event.paymentProof)},
-			${json(event.paymentResponse)}, ${json(event.budgetPolicy)},
-			${json(event.budgetDecision)}, ${event.decisionRationale ?? null},
-			${event.auditEventId ?? null}, ${event.rationaleRecordId ?? null}
-		WHERE (
-			SELECT COALESCE(SUM(CAST(amount AS REAL)), 0)
-			FROM mcp_payment_events
-			WHERE organization_id = ${event.organizationId}
-				AND status = 'settled'
-				AND settled = 1
-				AND app_slug = ${event.appSlug}
-				AND currency = ${event.currency ?? "USDC"}
-				AND network = ${event.network}
-				AND datetime(created_at) >= datetime(${guard.since})
-				${toolScope}${tediScope}${userScope}
-		) + CAST(${event.amount} AS REAL) <= CAST(${guard.maxAmount} AS REAL)
-		RETURNING id
-	`)) as Array<{ id: string }> | Array<[string]>;
+		.as("budget_window");
+
+	const rows = await db
+		.insert(e)
+		.select(
+			db
+				.select({
+					id: sql`${event.id}`.as("id"),
+					requirementId: sql`${event.requirementId}`.as("requirement_id"),
+					eventType: sql`${event.eventType}`.as("event_type"),
+					status: sql`${event.status}`.as("status"),
+					protocol: sql`${event.protocol ?? "x402"}`.as("protocol"),
+					mode: sql`${event.mode ?? "mock"}`.as("mode"),
+					network: sql`${event.network}`.as("network"),
+					asset: sql`${event.asset ?? null}`.as("asset"),
+					currency: sql`${event.currency ?? null}`.as("currency"),
+					amount: sql`${event.amount}`.as("amount"),
+					recipient: sql`${event.recipient}`.as("recipient"),
+					resource: sql`${event.resource ?? null}`.as("resource"),
+					appId: sql`${event.appId ?? null}`.as("app_id"),
+					appSlug: sql`${event.appSlug}`.as("app_slug"),
+					organizationId: sql`${event.organizationId}`.as("organization_id"),
+					toolRowId: sql`${event.toolRowId ?? null}`.as("tool_row_id"),
+					toolId: sql`${event.toolId}`.as("tool_id"),
+					tediId: sql`${event.tediId ?? null}`.as("tedi_id"),
+					userId: sql`${event.userId ?? null}`.as("user_id"),
+					clientId: sql`${event.clientId ?? null}`.as("client_id"),
+					authType: sql`${event.authType ?? null}`.as("auth_type"),
+					traceId: sql`${event.traceId ?? null}`.as("trace_id"),
+					toolArgsHash: sql`${event.toolArgsHash ?? null}`.as("tool_args_hash"),
+					settled: sql`${event.settled ? 1 : 0}`.as("settled"),
+					requirements: sql`${json(event.requirements)}`.as("requirements"),
+					paymentProof: sql`${json(event.paymentProof)}`.as("payment_proof"),
+					paymentResponse: sql`${json(event.paymentResponse)}`.as(
+						"payment_response",
+					),
+					budgetPolicy: sql`${json(event.budgetPolicy)}`.as("budget_policy"),
+					budgetDecision: sql`${json(event.budgetDecision)}`.as(
+						"budget_decision",
+					),
+					decisionRationale: sql`${event.decisionRationale ?? null}`.as(
+						"decision_rationale",
+					),
+					auditEventId: sql`${event.auditEventId ?? null}`.as("audit_event_id"),
+					rationaleRecordId: sql`${event.rationaleRecordId ?? null}`.as(
+						"rationale_record_id",
+					),
+				})
+				.from(window)
+				.where(
+					sql`${window.spent} + CAST(${event.amount} AS REAL) <= CAST(${guard.maxAmount} AS REAL)`,
+				),
+		)
+		.returning({ id: e.id });
 
 	return rows.length > 0;
 }

@@ -12,7 +12,17 @@ import {
 	autoRoutedPricingIdentity,
 	readProviderExecutionIdentity,
 } from "@tedix/api-contract/schemas/provider-execution";
-import { and, eq, sql } from "drizzle-orm";
+import {
+	and,
+	asc,
+	eq,
+	inArray,
+	lte,
+	type SQL,
+	type SQLWrapper,
+	sql,
+} from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../../client";
 import {
 	type BillingAccountStatus,
@@ -22,6 +32,9 @@ import {
 	billingUsageReservations,
 	billingPlanVersions,
 	billingAccounts,
+	billingCapacityAllocations,
+	billingUsageCharges,
+	billingUsagePeriods,
 } from "../../schema/billing";
 
 import {
@@ -71,125 +84,165 @@ async function aiGatewayLimitExceeded(
 		monthlyFirst: boolean;
 	},
 ): Promise<boolean> {
-	const [row] = await db.all<{
-		organizationDayTokens: number;
-		organizationDaySpendMicros: number;
-		organizationDayCapacityTokens: number;
-		organizationDayCapacitySpendMicros: number;
-		tediDayTokens: number;
-		tediDaySpendMicros: number;
-		estimatedChargeMicros: number;
-	}>(sql`
-		WITH usage AS (
-			SELECT
-				account.organization_id,
-				plan.included_monthly_tokens,
-				plan.overage_unit_tokens,
-				plan.overage_unit_price_micros,
-				COALESCE(period.used_input_tokens + period.used_output_tokens, 0) AS used_tokens,
-				COALESCE((
-					SELECT SUM(estimated_input_tokens + estimated_output_tokens)
-					FROM billing_usage_reservations
-					WHERE organization_id = account.organization_id
-						AND status = 'reserved'
-						AND ${liveAtSql("expires_at", input.now)}
-						AND period_start = account.period_start
-						AND period_end = account.period_end
-				), 0) AS reserved_tokens,
-				COALESCE((
-					SELECT SUM(${reservationUsedTokensSql("reservation")})
-					FROM billing_usage_reservations AS reservation
-					WHERE reservation.organization_id = account.organization_id
-						AND ${sameUtcDaySql("reservation.created_at", input.now)}
-						AND reservation.status IN ('reserved', 'settled')
-						AND (reservation.status = 'settled' OR ${liveAtSql("reservation.expires_at", input.now)})
-				), 0) AS organization_day_tokens,
-				COALESCE((
-					SELECT SUM(spend_micros)
-					FROM (
-						SELECT estimated_charge_micros AS spend_micros
-						FROM billing_usage_reservations
-						WHERE organization_id = account.organization_id
-							AND ${sameUtcDaySql("created_at", input.now)}
-							AND status = 'reserved'
-							AND ${liveAtSql("expires_at", input.now)}
-						UNION ALL
-						SELECT provider_cost_micros AS spend_micros
-						FROM billing_usage_charges
-						WHERE organization_id = account.organization_id
-							AND ${sameUtcDaySql("occurred_at", input.now)}
-					)
-				), 0) AS organization_day_spend_micros,
-				COALESCE((
-					SELECT SUM(token_amount)
-					FROM billing_capacity_allocations
-					WHERE organization_id = account.organization_id
-						AND budget_day = substr(${input.now}, 1, 10)
-						AND stripe_environment = ${input.stripeEnvironment}
-						AND ${liveAtSql("expires_at", input.now)}
-				), 0) AS organization_day_capacity_tokens,
-				COALESCE((
-					SELECT SUM(spend_amount_micros)
-					FROM billing_capacity_allocations
-					WHERE organization_id = account.organization_id
-						AND budget_day = substr(${input.now}, 1, 10)
-						AND stripe_environment = ${input.stripeEnvironment}
-						AND ${liveAtSql("expires_at", input.now)}
-				), 0) AS organization_day_capacity_spend_micros,
-				COALESCE((
-					SELECT SUM(${reservationUsedTokensSql("reservation")})
-					FROM billing_usage_reservations AS reservation
-					WHERE reservation.organization_id = account.organization_id
-						AND reservation.tedi_id = ${input.tediId ?? null}
-						AND ${sameUtcDaySql("reservation.created_at", input.now)}
-						AND reservation.status IN ('reserved', 'settled')
-						AND (reservation.status = 'settled' OR ${liveAtSql("reservation.expires_at", input.now)})
-				), 0) AS tedi_day_tokens,
-				COALESCE((
-					SELECT SUM(spend_micros)
-					FROM (
-						SELECT estimated_charge_micros AS spend_micros
-						FROM billing_usage_reservations
-						WHERE organization_id = account.organization_id
-							AND tedi_id = ${input.tediId ?? null}
-							AND ${sameUtcDaySql("created_at", input.now)}
-							AND status = 'reserved'
-							AND ${liveAtSql("expires_at", input.now)}
-						UNION ALL
-						SELECT provider_cost_micros AS spend_micros
-						FROM billing_usage_charges
-						WHERE organization_id = account.organization_id
-							AND tedi_id = ${input.tediId ?? null}
-							AND ${sameUtcDaySql("occurred_at", input.now)}
-					)
-				), 0) AS tedi_day_spend_micros
-			FROM billing_accounts AS account
-			INNER JOIN billing_plan_versions AS plan ON plan.id = account.plan_version_id
-			LEFT JOIN billing_usage_periods AS period
-				ON period.organization_id = account.organization_id
-				AND period.period_start = account.period_start
-				AND period.period_end = account.period_end
-			WHERE account.organization_id = ${input.organizationId}
-		)
-		SELECT
-			organization_day_tokens AS organizationDayTokens,
-			organization_day_spend_micros AS organizationDaySpendMicros,
-			organization_day_capacity_tokens AS organizationDayCapacityTokens,
-			organization_day_capacity_spend_micros AS organizationDayCapacitySpendMicros,
-			tedi_day_tokens AS tediDayTokens,
-			tedi_day_spend_micros AS tediDaySpendMicros,
-			CASE
-				WHEN included_monthly_tokens < 0 OR
-					used_tokens + reserved_tokens + ${input.estimatedTokens} <= included_monthly_tokens
+	const account = alias(billingAccounts, "account");
+	const plan = alias(billingPlanVersions, "plan");
+	const period = alias(billingUsagePeriods, "period");
+	const reservation = alias(billingUsageReservations, "reservation");
+	const tediId = input.tediId ?? null;
+	/** Sum of one scalar subquery, or 0 when it matches no rows. */
+	const total = (subquery: SQLWrapper) => sql<number>`COALESCE(${subquery}, 0)`;
+	const dayTokens = (tediFilter?: SQL) =>
+		db
+			.select({ tokens: sql`SUM(${reservationUsedTokensSql("reservation")})` })
+			.from(reservation)
+			.where(
+				and(
+					eq(reservation.organizationId, account.organizationId),
+					tediFilter,
+					sameUtcDaySql("reservation.created_at", input.now),
+					sql`${reservation.status} IN ('reserved', 'settled')`,
+					sql`(${reservation.status} = 'settled' OR ${liveAtSql("reservation.expires_at", input.now)})`,
+				),
+			);
+	const daySpend = (alias: string, tediFilter: boolean) => {
+		const spend = db
+			.select({
+				spendMicros:
+					sql<number>`${billingUsageReservations.estimatedChargeMicros}`.as(
+						"spend_micros",
+					),
+			})
+			.from(billingUsageReservations)
+			.where(
+				and(
+					eq(billingUsageReservations.organizationId, account.organizationId),
+					tediFilter
+						? sql`${billingUsageReservations.tediId} = ${tediId}`
+						: undefined,
+					sameUtcDaySql("created_at", input.now),
+					sql`${billingUsageReservations.status} = 'reserved'`,
+					liveAtSql("expires_at", input.now),
+				),
+			)
+			.unionAll(
+				db
+					.select({
+						spendMicros:
+							sql<number>`${billingUsageCharges.providerCostMicros}`.as(
+								"spend_micros",
+							),
+					})
+					.from(billingUsageCharges)
+					.where(
+						and(
+							eq(billingUsageCharges.organizationId, account.organizationId),
+							tediFilter
+								? sql`${billingUsageCharges.tediId} = ${tediId}`
+								: undefined,
+							sameUtcDaySql("occurred_at", input.now),
+						),
+					),
+			)
+			.as(alias);
+		return db.select({ total: sql`SUM(${spend.spendMicros})` }).from(spend);
+	};
+	const dayCapacity = (amount: SQL) =>
+		db
+			.select({ total: sql`SUM(${amount})` })
+			.from(billingCapacityAllocations)
+			.where(
+				and(
+					eq(billingCapacityAllocations.organizationId, account.organizationId),
+					sql`${billingCapacityAllocations.budgetDay} = substr(${input.now}, 1, 10)`,
+					eq(
+						billingCapacityAllocations.stripeEnvironment,
+						input.stripeEnvironment,
+					),
+					liveAtSql("expires_at", input.now),
+				),
+			);
+	const usage = db.$with("usage").as(
+		db
+			.select({
+				organizationId: account.organizationId,
+				includedMonthlyTokens: plan.includedMonthlyTokens,
+				overageUnitTokens: plan.overageUnitTokens,
+				overageUnitPriceMicros: plan.overageUnitPriceMicros,
+				usedTokens:
+					sql<number>`COALESCE(${period.usedInputTokens} + ${period.usedOutputTokens}, 0)`.as(
+						"used_tokens",
+					),
+				reservedTokens: total(
+					db
+						.select({
+							tokens: sql`SUM(${billingUsageReservations.estimatedInputTokens} + ${billingUsageReservations.estimatedOutputTokens})`,
+						})
+						.from(billingUsageReservations)
+						.where(
+							and(
+								eq(
+									billingUsageReservations.organizationId,
+									account.organizationId,
+								),
+								sql`${billingUsageReservations.status} = 'reserved'`,
+								liveAtSql("expires_at", input.now),
+								eq(billingUsageReservations.periodStart, account.periodStart),
+								eq(billingUsageReservations.periodEnd, account.periodEnd),
+							),
+						),
+				).as("reserved_tokens"),
+				organizationDayTokens: total(dayTokens()).as("organization_day_tokens"),
+				organizationDaySpendMicros: total(
+					daySpend("organization_spend", false),
+				).as("organization_day_spend_micros"),
+				organizationDayCapacityTokens: total(
+					dayCapacity(sql`${billingCapacityAllocations.tokenAmount}`),
+				).as("organization_day_capacity_tokens"),
+				organizationDayCapacitySpendMicros: total(
+					dayCapacity(sql`${billingCapacityAllocations.spendAmountMicros}`),
+				).as("organization_day_capacity_spend_micros"),
+				tediDayTokens: total(
+					dayTokens(sql`${reservation.tediId} = ${tediId}`),
+				).as("tedi_day_tokens"),
+				tediDaySpendMicros: total(daySpend("tedi_spend", true)).as(
+					"tedi_day_spend_micros",
+				),
+			})
+			.from(account)
+			.innerJoin(plan, eq(plan.id, account.planVersionId))
+			.leftJoin(
+				period,
+				and(
+					eq(period.organizationId, account.organizationId),
+					eq(period.periodStart, account.periodStart),
+					eq(period.periodEnd, account.periodEnd),
+				),
+			)
+			.where(eq(account.organizationId, input.organizationId)),
+	);
+	const projected = sql`${usage.usedTokens} + ${usage.reservedTokens} + ${input.estimatedTokens}`;
+	const [row] = await db
+		.with(usage)
+		.select({
+			organizationDayTokens: usage.organizationDayTokens,
+			organizationDaySpendMicros: usage.organizationDaySpendMicros,
+			organizationDayCapacityTokens: usage.organizationDayCapacityTokens,
+			organizationDayCapacitySpendMicros:
+				usage.organizationDayCapacitySpendMicros,
+			tediDayTokens: usage.tediDayTokens,
+			tediDaySpendMicros: usage.tediDaySpendMicros,
+			estimatedChargeMicros: sql<number>`CASE
+				WHEN ${usage.includedMonthlyTokens} < 0 OR
+					${projected} <= ${usage.includedMonthlyTokens}
 					THEN 0
-				WHEN overage_unit_price_micros <= 0 THEN 0
+				WHEN ${usage.overageUnitPriceMicros} <= 0 THEN 0
 				ELSE (
-					CAST((MAX(used_tokens + reserved_tokens + ${input.estimatedTokens} - included_monthly_tokens, 0) + overage_unit_tokens - 1) / overage_unit_tokens AS INTEGER) -
-					CAST((MAX(used_tokens + reserved_tokens - included_monthly_tokens, 0) + overage_unit_tokens - 1) / overage_unit_tokens AS INTEGER)
-				) * overage_unit_price_micros
-			END AS estimatedChargeMicros
-		FROM usage
-	`);
+					CAST((MAX(${projected} - ${usage.includedMonthlyTokens}, 0) + ${usage.overageUnitTokens} - 1) / ${usage.overageUnitTokens} AS INTEGER) -
+					CAST((MAX(${usage.usedTokens} + ${usage.reservedTokens} - ${usage.includedMonthlyTokens}, 0) + ${usage.overageUnitTokens} - 1) / ${usage.overageUnitTokens} AS INTEGER)
+				) * ${usage.overageUnitPriceMicros}
+			END`,
+		})
+		.from(usage);
 	if (!row) return false;
 	const limitExceeded = (usage: number, increment: number, limit?: number) =>
 		limit !== undefined && usage + increment > limit;
@@ -487,6 +540,8 @@ export async function reserveBillingUsage(
 		...input.metadata,
 		...(monetaryQuote ? { monetaryQuote } : {}),
 	};
+	// Raw: the eligibility CTE is AS MATERIALIZED, which Drizzle $with cannot emit,
+	// and the admission CAS reads its SELECT * chain verbatim (plan-tested).
 	const reservationStatement = db.all(sql`
 		WITH ${eligibility} snapshot AS (
 			SELECT
@@ -525,7 +580,7 @@ export async function reserveBillingUsage(
 				account.stripe_customer_id,
 				account.stripe_environment,
 				plan.included_monthly_tokens,
-				${sql.raw(effectiveAllowOverageSql("plan", "account"))} AS allow_overage,
+				${effectiveAllowOverageSql("plan", "account")} AS allow_overage,
 				plan.overage_unit_tokens,
 				plan.overage_unit_price_micros,
 				COALESCE(period.used_input_tokens + period.used_output_tokens, 0)
@@ -1071,16 +1126,26 @@ export async function expireBillingReservations(
 	db: DbClient,
 	now: string,
 ): Promise<number> {
-	const rows = await db.all<{ id: string }>(sql`
-		UPDATE billing_usage_reservations
-		SET status = 'expired', updated_at = ${now}
-		WHERE id IN (
-			SELECT id FROM billing_usage_reservations
-			WHERE status = 'reserved' AND expires_at <= ${now}
-			ORDER BY expires_at
-			LIMIT 500
+	const rows = await db
+		.update(billingUsageReservations)
+		.set({ status: "expired", updatedAt: now })
+		.where(
+			// bound-params: a subquery, not a bound list.
+			inArray(
+				billingUsageReservations.id,
+				db
+					.select({ id: billingUsageReservations.id })
+					.from(billingUsageReservations)
+					.where(
+						and(
+							eq(billingUsageReservations.status, "reserved"),
+							lte(billingUsageReservations.expiresAt, now),
+						),
+					)
+					.orderBy(asc(billingUsageReservations.expiresAt))
+					.limit(500),
+			),
 		)
-		RETURNING id
-	`);
+		.returning({ id: billingUsageReservations.id });
 	return rows.length;
 }

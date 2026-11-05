@@ -4,7 +4,7 @@ import type {
 	RepriceCreditBillingInput,
 } from "@tedix/api-contract/schemas/credit-billing-activation";
 import { MonetaryInferenceConfigSchema } from "@tedix/api-contract/schemas/billing";
-import { and, eq, getColumns, inArray, sql } from "drizzle-orm";
+import { type SQL, and, eq, getColumns, inArray, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import { billingAccounts, billingPlanVersions } from "../../schema/billing";
 import { providerModelRateVersions } from "../../schema/provider-model-rates";
@@ -15,6 +15,21 @@ import {
 } from "./monetary-inference";
 
 import { buildIncludedCreditPeriodGrant } from "./credit-periods";
+
+/** Every plan column as a bound constant, so the clone lands only on a fenced account row. */
+function planCloneSelection(clone: Record<string, unknown>) {
+	return Object.fromEntries(
+		Object.entries(getColumns(billingPlanVersions)).map(([key, column]) => {
+			const value = clone[key];
+			return [
+				key,
+				sql`${typeof value === "object" && value !== null ? JSON.stringify(value) : typeof value === "boolean" ? Number(value) : value}`.as(
+					column.name,
+				),
+			];
+		}),
+	) as Record<keyof typeof billingPlanVersions.$inferSelect, SQL.Aliased>;
+}
 
 export async function configureCreditBilling(
 	db: DbClient,
@@ -110,17 +125,16 @@ export async function configureCreditBilling(
 	};
 	// The plan insert and account CAS share a fence inside one atomic D1 batch.
 	// A stale activation cannot leave an orphan private plan that poisons retries.
-	const values = Object.keys(getColumns(billingPlanVersions)).map((key) => {
-		const value = clone[key as keyof typeof clone];
-		return sql`${typeof value === "object" && value !== null ? JSON.stringify(value) : typeof value === "boolean" ? Number(value) : value}`;
-	});
-	const fence = sql`organization_id = ${input.organizationId} AND entitlement_version = ${account.entitlementVersion}
-  AND NOT EXISTS (SELECT 1 FROM billing_usage_reservations WHERE organization_id = ${input.organizationId} AND status = 'reserved' AND expires_at > ${now})`;
+	const fence = and(
+		eq(billingAccounts.organizationId, input.organizationId),
+		eq(billingAccounts.entitlementVersion, account.entitlementVersion),
+		sql`NOT EXISTS (SELECT 1 FROM billing_usage_reservations WHERE organization_id = ${input.organizationId} AND status = 'reserved' AND expires_at > ${now})`,
+	);
 	await db.batch([
 		db
 			.insert(billingPlanVersions)
 			.select(
-				sql`SELECT ${sql.join(values, sql`, `)} FROM billing_accounts WHERE ${fence}`,
+				db.select(planCloneSelection(clone)).from(billingAccounts).where(fence),
 			),
 		db
 			.update(billingAccounts)
@@ -230,17 +244,20 @@ export async function repriceCreditBilling(
 		effectiveAt: now,
 		createdAt: now,
 	};
-	const values = Object.keys(getColumns(billingPlanVersions)).map((key) => {
-		const value = clone[key as keyof typeof clone];
-		return sql`${typeof value === "object" && value !== null ? JSON.stringify(value) : typeof value === "boolean" ? Number(value) : value}`;
-	});
 	// One atomic batch: the plan exists only if the account CAS can move to it.
 	await db.batch([
-		db
-			.insert(billingPlanVersions)
-			.select(
-				sql`SELECT ${sql.join(values, sql`, `)} FROM billing_accounts WHERE organization_id = ${input.organizationId} AND entitlement_version = ${account.entitlementVersion} AND plan_version_id = ${plan.id}`,
-			),
+		db.insert(billingPlanVersions).select(
+			db
+				.select(planCloneSelection(clone))
+				.from(billingAccounts)
+				.where(
+					and(
+						eq(billingAccounts.organizationId, input.organizationId),
+						eq(billingAccounts.entitlementVersion, account.entitlementVersion),
+						eq(billingAccounts.planVersionId, plan.id),
+					),
+				),
+		),
 		db
 			.update(billingAccounts)
 			.set({

@@ -1,6 +1,6 @@
-import { sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
-import { billingCreditEntries } from "../../schema/billing";
+import { billingAccounts, billingCreditEntries } from "../../schema/billing";
 export function includedCreditPeriodKey(
 	organizationId: string,
 	periodStart: string,
@@ -37,12 +37,41 @@ export function buildIncludedCreditPeriodGrant(
 	});
 	return db
 		.insert(billingCreditEntries)
-		.select(sql`SELECT
-  ${key}, organization_id, 'grant', ${input.amountMicros}, 'plan_period', ${input.periodStart},
-  NULL, ${key}, NULL, 'Included monthly credits (carry forward)', ${metadata}, ${input.now}
-  FROM billing_accounts WHERE organization_id = ${input.organizationId}
-  AND plan_version_id = ${input.planVersionId} AND period_start = ${input.periodStart}
-  AND period_end = ${input.periodEnd} AND status = 'active'
- AND (${input.expectedEntitlementVersion ?? null} IS NULL OR entitlement_version = ${input.expectedEntitlementVersion ?? null})`)
+		.select(
+			db
+				.select({
+					id: sql<string>`${key}`.as("id"),
+					organizationId: billingAccounts.organizationId,
+					kind: sql<"grant">`'grant'`.as("kind"),
+					amountMicros: sql<number>`${input.amountMicros}`.as("amount_micros"),
+					sourceType: sql<string>`'plan_period'`.as("source_type"),
+					sourceRef: sql<string>`${input.periodStart}`.as("source_ref"),
+					usageChargeId: sql<null>`NULL`.as("usage_charge_id"),
+					idempotencyKey: sql<string>`${key}`.as("idempotency_key"),
+					expiresAt: sql<null>`NULL`.as("expires_at"),
+					description:
+						sql<string>`'Included monthly credits (carry forward)'`.as(
+							"description",
+						),
+					metadata: sql<string>`${metadata}`.as("metadata"),
+					createdAt: sql<string>`${input.now}`.as("created_at"),
+				})
+				.from(billingAccounts)
+				.where(
+					and(
+						eq(billingAccounts.organizationId, input.organizationId),
+						eq(billingAccounts.planVersionId, input.planVersionId),
+						eq(billingAccounts.periodStart, input.periodStart),
+						eq(billingAccounts.periodEnd, input.periodEnd),
+						eq(billingAccounts.status, "active"),
+						input.expectedEntitlementVersion == null
+							? undefined
+							: eq(
+									billingAccounts.entitlementVersion,
+									input.expectedEntitlementVersion,
+								),
+					),
+				),
+		)
 		.onConflictDoNothing({ target: billingCreditEntries.idempotencyKey });
 }

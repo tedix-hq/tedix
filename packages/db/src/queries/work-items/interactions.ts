@@ -22,7 +22,9 @@ import {
 	getColumns,
 	inArray,
 	isNull,
+	notExists,
 	or,
+	type SQLWrapper,
 	sql,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
@@ -351,13 +353,19 @@ interface RepositoryCiAlertParams {
 	now: string;
 }
 
-function repositoryCiScope(p: RepositoryCiAlertParams) {
-	return sql`w.org_id=${p.orgId} AND w.project_id=${p.projectId}
-		AND json_extract(w.metadata, '$.repositoryObserver')=1
-		AND json_extract(w.metadata, '$.event.kind')='ci_red'
-		AND json_extract(w.metadata, '$.event.repository')=${p.repository}
-		AND json_extract(w.metadata, '$.event.branch')=${p.branch}
-		AND json_extract(w.metadata, '$.event.surface')=${p.surface}`;
+function repositoryCiScope(
+	w: { orgId: SQLWrapper; projectId: SQLWrapper; metadata: SQLWrapper },
+	p: RepositoryCiAlertParams,
+) {
+	return and(
+		eq(w.orgId, p.orgId),
+		eq(w.projectId, p.projectId),
+		sql`json_extract(${w.metadata}, '$.repositoryObserver')=1`,
+		sql`json_extract(${w.metadata}, '$.event.kind')='ci_red'`,
+		sql`json_extract(${w.metadata}, '$.event.repository')=${p.repository}`,
+		sql`json_extract(${w.metadata}, '$.event.branch')=${p.branch}`,
+		sql`json_extract(${w.metadata}, '$.event.surface')=${p.surface}`,
+	);
 }
 
 const ciAlertReason = "Failing checks need a decision after diagnosis";
@@ -392,14 +400,56 @@ export async function createRepositoryCiAlert(
 			deliverAt: urgent ? p.now : nextInteractionDigestAt(p.now),
 		},
 	});
-	await db.run(sql`INSERT INTO work_interactions
-		(id,org_id,work_item_id,kind,subject,prompt,creator_type,creator_id,target_type,target_id,created_at,metadata)
-		SELECT ${p.id},${p.orgId},${p.workItemId},'coordination',${p.subject},${p.prompt},'tedi',${p.ownerTediId},'user',${p.escalationUserId},${p.now},${metadata}
-		WHERE EXISTS (SELECT 1 FROM work_items w WHERE ${repositoryCiScope(p)} AND w.id=${p.workItemId} AND w.disposition IN ('proposed','accepted') AND json_extract(w.metadata, '$.ciRecoveredAt') IS NULL)
-		AND NOT EXISTS (SELECT 1 FROM work_interactions a JOIN work_items w ON w.org_id=a.org_id AND w.id=a.work_item_id
-			WHERE ${repositoryCiScope(p)} AND a.status='open' AND a.kind='coordination'
-			AND json_extract(a.metadata, '$.reason')=${ciAlertReason})
-		ON CONFLICT DO NOTHING`);
+	const w = alias(workItems, "w");
+	const a = alias(workInteractions, "a");
+	const open = alias(workItems, "open_w");
+	// work_items.id is the primary key, so the observation yields at most one row.
+	await db
+		.insert(workInteractions)
+		.select(
+			db
+				.select({
+					id: sql<string>`${p.id}`.as("id"),
+					orgId: sql<string>`${p.orgId}`.as("org_id"),
+					workItemId: sql<string>`${p.workItemId}`.as("work_item_id"),
+					kind: sql<"coordination">`'coordination'`.as("kind"),
+					subject: sql<string>`${p.subject}`.as("subject"),
+					prompt: sql<string>`${p.prompt}`.as("prompt"),
+					creatorType: sql<"tedi">`'tedi'`.as("creator_type"),
+					creatorId: sql<string>`${p.ownerTediId}`.as("creator_id"),
+					targetType: sql<"user">`'user'`.as("target_type"),
+					targetId: sql<string>`${p.escalationUserId}`.as("target_id"),
+					createdAt: sql<string>`${p.now}`.as("created_at"),
+					metadata: sql<Record<string, JsonValue>>`${metadata}`.as("metadata"),
+				})
+				.from(w)
+				.where(
+					and(
+						repositoryCiScope(w, p),
+						eq(w.id, p.workItemId),
+						inArray(w.disposition, ["proposed", "accepted"]),
+						sql`json_extract(${w.metadata}, '$.ciRecoveredAt') IS NULL`,
+						notExists(
+							db
+								.select({ one: sql`1` })
+								.from(a)
+								.innerJoin(
+									open,
+									and(eq(open.orgId, a.orgId), eq(open.id, a.workItemId)),
+								)
+								.where(
+									and(
+										repositoryCiScope(open, p),
+										eq(a.status, "open"),
+										eq(a.kind, "coordination"),
+										sql`json_extract(${a.metadata}, '$.reason')=${ciAlertReason}`,
+									),
+								),
+						),
+					),
+				),
+		)
+		.onConflictDoNothing();
 	const created = await getWorkInteraction(db, {
 		orgId: p.orgId,
 		interactionId: p.id,

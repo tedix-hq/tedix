@@ -32,6 +32,7 @@ export async function publishProviderModelRate(
 			(!Number.isSafeInteger(tokenMax) || tokenMax <= tokenMin))
 	)
 		return null;
+	// Raw: a FROM-less conditional INSERT ... SELECT ... WHERE NOT EXISTS; Drizzle cannot build it.
 	const result = await db.run(sql`INSERT INTO provider_model_rate_versions (
   id, provider, model_id, deployment_scope, input_token_min, input_token_max, effective_from,
   input_microusd_per_million, output_microusd_per_million, cache_read_microusd_per_million, cache_write_microusd_per_million,

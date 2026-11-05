@@ -1,5 +1,7 @@
-import { sql } from "drizzle-orm";
+import { and, asc, desc, eq, exists, gt, gte, ne, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../../client";
+import { tediRationaleRecords } from "../../schema/rationale-records";
 import { extractFactIdsFromFlywheelEvidence } from "./evidence-fact-ids";
 import { evidenceReferencesFactsSql } from "./evidence-references-facts";
 
@@ -54,14 +56,6 @@ export interface LearningReplayValidation {
 	gaps: string[];
 }
 
-type ReplayCategoryRow = {
-	category: string;
-	total: number;
-	successes: number;
-	failures: number;
-	withFacts: number;
-};
-
 type ReplayTransitionRow = {
 	failureDecisionId: string;
 	successDecisionId: string | null;
@@ -74,11 +68,6 @@ type ReplayTransitionRow = {
 	successEvidence: unknown;
 };
 
-type ReplayTransitionCountRow = {
-	failures: number;
-	matchedFailures: number;
-};
-
 export async function getLearningReplayValidation(
 	db: DbClient,
 	access: FlywheelAccess,
@@ -87,69 +76,111 @@ export async function getLearningReplayValidation(
 	const since = new Date(
 		Date.now() - windowDays * 24 * 60 * 60 * 1000,
 	).toISOString();
+	const records = tediRationaleRecords;
+	const fail = alias(tediRationaleRecords, "fail");
+	const success = alias(tediRationaleRecords, "success");
+	const candidate = alias(tediRationaleRecords, "candidate");
+	const failureScope = and(
+		eq(fail.tediId, access.tediId),
+		eq(fail.orgId, access.orgId),
+		gte(fail.createdAt, since),
+		eq(fail.outcomeStatus, "failure"),
+	);
+	const total = sql<number>`count(*)`.as("total");
 	const [categoryRows, transitionRows, transitionCountRows] = await Promise.all(
 		[
-			db.all<ReplayCategoryRow>(
-				sql`SELECT category,
-					count(*) as total,
-					sum(CASE WHEN outcome_status = 'success' THEN 1 ELSE 0 END) as successes,
-					sum(CASE WHEN outcome_status = 'failure' THEN 1 ELSE 0 END) as failures,
-					sum(CASE WHEN ${evidenceReferencesFactsSql()} THEN 1 ELSE 0 END) as withFacts
-				FROM tedi_rationale_records
-				WHERE tedi_id = ${access.tediId}
-					AND org_id = ${access.orgId}
-					AND created_at >= ${since}
-					AND outcome_status != 'pending'
-				GROUP BY category
-				ORDER BY total DESC
-				LIMIT 20`,
-			),
-			db.all<ReplayTransitionRow>(
-				sql`SELECT fail.id as failureDecisionId,
-					success.id as successDecisionId,
-					fail.category as category,
-					fail.action as failureAction,
-					success.action as successAction,
-					fail.created_at as failureAt,
-					success.created_at as successAt,
-					fail.evidence as failureEvidence,
-					success.evidence as successEvidence
-				FROM tedi_rationale_records fail
-				LEFT JOIN tedi_rationale_records success
-					ON success.id = (
-						SELECT candidate.id
-						FROM tedi_rationale_records candidate
-						WHERE candidate.tedi_id = fail.tedi_id
-							AND candidate.org_id = fail.org_id
-							AND candidate.category = fail.category
-							AND candidate.outcome_status = 'success'
-							AND candidate.created_at > fail.created_at
-						ORDER BY candidate.created_at ASC
-						LIMIT 1
-					)
-				WHERE fail.tedi_id = ${access.tediId}
-					AND fail.org_id = ${access.orgId}
-					AND fail.created_at >= ${since}
-					AND fail.outcome_status = 'failure'
-				ORDER BY fail.created_at DESC
-				LIMIT 20`,
-			),
-			db.all<ReplayTransitionCountRow>(
-				sql`SELECT count(*) AS failures,
-					sum(CASE WHEN EXISTS (
-						SELECT 1 FROM tedi_rationale_records success
-						WHERE success.tedi_id = fail.tedi_id
-							AND success.org_id = fail.org_id
-							AND success.category = fail.category
-							AND success.outcome_status = 'success'
-							AND success.created_at > fail.created_at
-					) THEN 1 ELSE 0 END) AS matchedFailures
-				FROM tedi_rationale_records fail
-				WHERE fail.tedi_id = ${access.tediId}
-					AND fail.org_id = ${access.orgId}
-					AND fail.created_at >= ${since}
-					AND fail.outcome_status = 'failure'`,
-			),
+			db
+				.select({
+					category: records.category,
+					total,
+					successes:
+						sql<number>`sum(CASE WHEN ${records.outcomeStatus} = 'success' THEN 1 ELSE 0 END)`.as(
+							"successes",
+						),
+					failures:
+						sql<number>`sum(CASE WHEN ${records.outcomeStatus} = 'failure' THEN 1 ELSE 0 END)`.as(
+							"failures",
+						),
+					withFacts:
+						sql<number>`sum(CASE WHEN ${evidenceReferencesFactsSql()} THEN 1 ELSE 0 END)`.as(
+							"withFacts",
+						),
+				})
+				.from(records)
+				.where(
+					and(
+						eq(records.tediId, access.tediId),
+						eq(records.orgId, access.orgId),
+						gte(records.createdAt, since),
+						ne(records.outcomeStatus, "pending"),
+					),
+				)
+				.groupBy(records.category)
+				.orderBy(desc(total))
+				.limit(20),
+			db
+				.select({
+					failureDecisionId: sql<string>`${fail.id}`.as("failureDecisionId"),
+					successDecisionId: sql<string | null>`${success.id}`.as(
+						"successDecisionId",
+					),
+					category: sql<string>`${fail.category}`.as("category"),
+					failureAction: sql<string>`${fail.action}`.as("failureAction"),
+					successAction: sql<string | null>`${success.action}`.as(
+						"successAction",
+					),
+					failureAt: sql<string>`${fail.createdAt}`.as("failureAt"),
+					successAt: sql<string | null>`${success.createdAt}`.as("successAt"),
+					// Raw JSON text, as stored; the fact-id extractor parses it.
+					failureEvidence: sql<unknown>`${fail.evidence}`.as("failureEvidence"),
+					successEvidence: sql<unknown>`${success.evidence}`.as(
+						"successEvidence",
+					),
+				})
+				.from(fail)
+				.leftJoin(
+					success,
+					eq(
+						success.id,
+						db
+							.select({ id: candidate.id })
+							.from(candidate)
+							.where(
+								and(
+									eq(candidate.tediId, fail.tediId),
+									eq(candidate.orgId, fail.orgId),
+									eq(candidate.category, fail.category),
+									eq(candidate.outcomeStatus, "success"),
+									gt(candidate.createdAt, fail.createdAt),
+								),
+							)
+							.orderBy(asc(candidate.createdAt))
+							.limit(1),
+					),
+				)
+				.where(failureScope)
+				.orderBy(desc(fail.createdAt))
+				.limit(20),
+			db
+				.select({
+					failures: sql<number>`count(*)`.as("failures"),
+					matchedFailures: sql<number>`sum(CASE WHEN ${exists(
+						db
+							.select({ one: sql`1` })
+							.from(success)
+							.where(
+								and(
+									eq(success.tediId, fail.tediId),
+									eq(success.orgId, fail.orgId),
+									eq(success.category, fail.category),
+									eq(success.outcomeStatus, "success"),
+									gt(success.createdAt, fail.createdAt),
+								),
+							),
+					)} THEN 1 ELSE 0 END)`.as("matchedFailures"),
+				})
+				.from(fail)
+				.where(failureScope),
 		],
 	);
 	const transitions: LearningReplayTransition[] = transitionRows

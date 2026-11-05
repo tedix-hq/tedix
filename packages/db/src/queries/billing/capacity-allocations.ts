@@ -1,13 +1,19 @@
 /** Canonical append-only capacity-allocation journal. */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, eq, gt, sql } from "drizzle-orm";
+import { and, desc, eq, gt, isNotNull, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../../client";
 import {
 	type BillingCapacityAllocation,
 	billingAccounts,
 	billingCapacityAllocations,
+	billingInferenceCapacityPackVersions,
+	billingInferencePolicies,
+	billingUsageCharges,
+	billingUsageReservations,
 } from "../../schema/billing";
+import { tedis } from "../../schema/tedis";
 import { reservationUsedTokensSql } from "./usage-tokens";
 
 export interface RecordCapacityAllocationParams {
@@ -107,21 +113,21 @@ export async function findCapacityAllocationByPaymentIntent(
 	db: DbClient,
 	input: { paymentIntentId: string; stripeEnvironment: "test" | "live" },
 ): Promise<BillingCapacityAllocation | null> {
-	const [allocation] = await db.all<BillingCapacityAllocation>(sql`
-		SELECT id, organization_id AS organizationId,
-			pack_version_id AS packVersionId, budget_day AS budgetDay,
-			token_amount AS tokenAmount, spend_amount_micros AS spendAmountMicros,
-			source_type AS sourceType, source_ref AS sourceRef,
-			idempotency_key AS idempotencyKey,
-			stripe_environment AS stripeEnvironment, expires_at AS expiresAt,
-			metadata, created_at AS createdAt
-		FROM billing_capacity_allocations
-		WHERE stripe_environment = ${input.stripeEnvironment}
-			AND source_type = 'stripe_checkout'
-			AND json_extract(metadata, '$.paymentIntentId') = ${input.paymentIntentId}
-		ORDER BY created_at DESC
-		LIMIT 1
-	`);
+	const [allocation] = await db
+		.select()
+		.from(billingCapacityAllocations)
+		.where(
+			and(
+				eq(
+					billingCapacityAllocations.stripeEnvironment,
+					input.stripeEnvironment,
+				),
+				sql`${billingCapacityAllocations.sourceType} = 'stripe_checkout'`,
+				sql`json_extract(${billingCapacityAllocations.metadata}, '$.paymentIntentId') = ${input.paymentIntentId}`,
+			),
+		)
+		.orderBy(desc(billingCapacityAllocations.createdAt))
+		.limit(1);
 	return allocation ?? null;
 }
 
@@ -146,16 +152,18 @@ export async function reconcileCapacityRefund(
 		input.amountRefunded > input.amount
 	)
 		throw new Error("Stripe refund amounts are invalid");
-	const [current] = await db.all<{
-		tokenAmount: number;
-		spendAmountMicros: number;
-	}>(sql`
-		SELECT COALESCE(SUM(token_amount), 0) AS tokenAmount,
-			COALESCE(SUM(spend_amount_micros), 0) AS spendAmountMicros
-		FROM billing_capacity_allocations
-		WHERE organization_id = ${input.organizationId}
-			AND json_extract(metadata, '$.originalAllocationId') = ${input.allocation.id}
-	`);
+	const [current] = await db
+		.select({
+			tokenAmount: sql<number>`COALESCE(SUM(${billingCapacityAllocations.tokenAmount}), 0)`,
+			spendAmountMicros: sql<number>`COALESCE(SUM(${billingCapacityAllocations.spendAmountMicros}), 0)`,
+		})
+		.from(billingCapacityAllocations)
+		.where(
+			and(
+				eq(billingCapacityAllocations.organizationId, input.organizationId),
+				sql`json_extract(${billingCapacityAllocations.metadata}, '$.originalAllocationId') = ${input.allocation.id}`,
+			),
+		);
 	const { tokenDelta, spendDelta } = capacityRefundDelta({
 		tokenAmount: input.allocation.tokenAmount,
 		spendAmountMicros: input.allocation.spendAmountMicros,
@@ -253,74 +261,94 @@ export async function getInferenceCapacityLedger(
 	},
 ): Promise<InferenceCapacityLedger> {
 	const budgetDay = input.now.slice(0, 10);
-	const allocationRows = await db.all<{
-		id: string;
-		packVersionId: string | null;
-		packKey: string | null;
-		packVersion: number | null;
-		packName: string | null;
-		budgetDay: string;
-		tokenAmount: number;
-		spendAmountMicros: number;
-		sourceType: string;
-		sourceRef: string | null;
-		checkoutSessionId: string | null;
-		paymentIntentId: string | null;
-		stripeEnvironment: "test" | "live";
-		expiresAt: string;
-		createdAt: string;
-	}>(sql`
-		SELECT allocation.id, allocation.pack_version_id AS packVersionId,
-			pack.pack_key AS packKey, pack.version AS packVersion,
-			pack.name AS packName, allocation.budget_day AS budgetDay,
-			allocation.token_amount AS tokenAmount,
-			allocation.spend_amount_micros AS spendAmountMicros,
-			allocation.source_type AS sourceType, allocation.source_ref AS sourceRef,
-			json_extract(allocation.metadata, '$.checkoutSessionId') AS checkoutSessionId,
-			json_extract(allocation.metadata, '$.paymentIntentId') AS paymentIntentId,
-			allocation.stripe_environment AS stripeEnvironment,
-			allocation.expires_at AS expiresAt, allocation.created_at AS createdAt
-		FROM billing_capacity_allocations AS allocation
-		LEFT JOIN billing_inference_capacity_pack_versions AS pack
-			ON pack.id = allocation.pack_version_id
-		WHERE allocation.organization_id = ${input.organizationId}
-			AND allocation.stripe_environment = ${input.stripeEnvironment}
-		ORDER BY allocation.created_at DESC
-		LIMIT 50
-	`);
-	const tediRows = await db.all<{
-		tediId: string;
-		displayName: string;
-		usedTokens: number;
-		usedSpendMicros: number;
-		baseTokenLimit: number | null;
-		baseSpendLimitMicros: number | null;
-	}>(sql`
-		SELECT reservation.tedi_id AS tediId,
-			COALESCE(tedi.display_name, tedi.slug, reservation.tedi_id) AS displayName,
-			SUM(${reservationUsedTokensSql("reservation")}) AS usedTokens,
-			SUM(CASE WHEN reservation.status = 'reserved'
-				THEN reservation.estimated_charge_micros
-				ELSE COALESCE((SELECT SUM(charge.provider_cost_micros)
-					FROM billing_usage_charges AS charge
-					WHERE charge.reservation_id = reservation.id), reservation.estimated_charge_micros)
-			END) AS usedSpendMicros,
-			COALESCE(policy.daily_token_limit, ${input.baseDailyTokenLimit}) AS baseTokenLimit,
-			COALESCE(policy.daily_spend_limit_micros, ${input.baseDailySpendLimitMicros}) AS baseSpendLimitMicros
-		FROM billing_usage_reservations AS reservation
-		LEFT JOIN tedis AS tedi ON tedi.id = reservation.tedi_id
-		LEFT JOIN billing_inference_policies AS policy
-			ON policy.organization_id = reservation.organization_id
-			AND policy.scope = 'tedi' AND policy.tedi_id = reservation.tedi_id
-		WHERE reservation.organization_id = ${input.organizationId}
-			AND reservation.tedi_id IS NOT NULL
-			AND reservation.status IN ('reserved', 'settled')
-			AND (reservation.status = 'settled' OR datetime(reservation.expires_at) > datetime(${input.now}))
-			AND substr(reservation.created_at, 1, 10) = ${budgetDay}
-		GROUP BY reservation.tedi_id, tedi.display_name, tedi.slug,
-			policy.daily_token_limit, policy.daily_spend_limit_micros
-		ORDER BY usedTokens DESC
-	`);
+	const allocation = alias(billingCapacityAllocations, "allocation");
+	const pack = alias(billingInferenceCapacityPackVersions, "pack");
+	const allocationRows = await db
+		.select({
+			id: allocation.id,
+			packVersionId: allocation.packVersionId,
+			packKey: pack.packKey,
+			packVersion: pack.version,
+			packName: pack.name,
+			budgetDay: allocation.budgetDay,
+			tokenAmount: allocation.tokenAmount,
+			spendAmountMicros: allocation.spendAmountMicros,
+			sourceType: allocation.sourceType,
+			sourceRef: allocation.sourceRef,
+			checkoutSessionId: sql<
+				string | null
+			>`json_extract(${allocation.metadata}, '$.checkoutSessionId')`,
+			paymentIntentId: sql<
+				string | null
+			>`json_extract(${allocation.metadata}, '$.paymentIntentId')`,
+			stripeEnvironment: allocation.stripeEnvironment,
+			expiresAt: allocation.expiresAt,
+			createdAt: allocation.createdAt,
+		})
+		.from(allocation)
+		.leftJoin(pack, eq(pack.id, allocation.packVersionId))
+		.where(
+			and(
+				eq(allocation.organizationId, input.organizationId),
+				eq(allocation.stripeEnvironment, input.stripeEnvironment),
+			),
+		)
+		.orderBy(desc(allocation.createdAt))
+		.limit(50);
+	const reservation = alias(billingUsageReservations, "reservation");
+	const tedi = alias(tedis, "tedi");
+	const policy = alias(billingInferencePolicies, "policy");
+	const usedTokens = sql<number>`SUM(${reservationUsedTokensSql("reservation")})`;
+	const tediRows = await db
+		.select({
+			tediId: sql<string>`${reservation.tediId}`,
+			displayName: sql<string>`COALESCE(${tedi.displayName}, ${tedi.slug}, ${reservation.tediId})`,
+			usedTokens,
+			usedSpendMicros: sql<number>`SUM(CASE WHEN ${reservation.status} = 'reserved'
+				THEN ${reservation.estimatedChargeMicros}
+				ELSE COALESCE(${db
+					.select({
+						total: sql`SUM(${billingUsageCharges.providerCostMicros})`,
+					})
+					.from(billingUsageCharges)
+					.where(
+						eq(billingUsageCharges.reservationId, reservation.id),
+					)}, ${reservation.estimatedChargeMicros})
+			END)`,
+			baseTokenLimit: sql<
+				number | null
+			>`COALESCE(${policy.dailyTokenLimit}, ${input.baseDailyTokenLimit})`,
+			baseSpendLimitMicros: sql<
+				number | null
+			>`COALESCE(${policy.dailySpendLimitMicros}, ${input.baseDailySpendLimitMicros})`,
+		})
+		.from(reservation)
+		.leftJoin(tedi, eq(tedi.id, reservation.tediId))
+		.leftJoin(
+			policy,
+			and(
+				eq(policy.organizationId, reservation.organizationId),
+				sql`${policy.scope} = 'tedi'`,
+				eq(policy.tediId, reservation.tediId),
+			),
+		)
+		.where(
+			and(
+				eq(reservation.organizationId, input.organizationId),
+				isNotNull(reservation.tediId),
+				sql`${reservation.status} IN ('reserved', 'settled')`,
+				sql`(${reservation.status} = 'settled' OR datetime(${reservation.expiresAt}) > datetime(${input.now}))`,
+				sql`substr(${reservation.createdAt}, 1, 10) = ${budgetDay}`,
+			),
+		)
+		.groupBy(
+			reservation.tediId,
+			tedi.displayName,
+			tedi.slug,
+			policy.dailyTokenLimit,
+			policy.dailySpendLimitMicros,
+		)
+		.orderBy(desc(usedTokens));
 	return {
 		allocations: allocationRows.map((row) => ({
 			...row,
@@ -426,17 +454,26 @@ export async function countSponsoredCapacityTransfers(
 		stripeEnvironment: "test" | "live";
 	},
 ): Promise<number> {
-	const [row] = await db.all<{ count: number }>(sql`
-		SELECT COUNT(*) AS count
-		FROM billing_capacity_allocations
-		WHERE organization_id = ${input.customerOrganizationId}
-			AND budget_day = ${input.budgetDay}
-			AND stripe_environment = ${input.stripeEnvironment}
-			AND source_type = 'provider_sponsored_transfer'
-			AND token_amount >= 0 AND spend_amount_micros >= 0
-			AND json_extract(metadata, '$.providerInstallationId') = ${input.providerInstallationId}
-			AND json_extract(metadata, '$.budgetRevision') = ${input.budgetRevision}
-	`);
+	const [row] = await db
+		.select({ count: sql<number>`COUNT(*)` })
+		.from(billingCapacityAllocations)
+		.where(
+			and(
+				eq(
+					billingCapacityAllocations.organizationId,
+					input.customerOrganizationId,
+				),
+				eq(billingCapacityAllocations.budgetDay, input.budgetDay),
+				eq(
+					billingCapacityAllocations.stripeEnvironment,
+					input.stripeEnvironment,
+				),
+				sql`${billingCapacityAllocations.sourceType} = 'provider_sponsored_transfer'`,
+				sql`${billingCapacityAllocations.tokenAmount} >= 0 AND ${billingCapacityAllocations.spendAmountMicros} >= 0`,
+				sql`json_extract(${billingCapacityAllocations.metadata}, '$.providerInstallationId') = ${input.providerInstallationId}`,
+				sql`json_extract(${billingCapacityAllocations.metadata}, '$.budgetRevision') = ${input.budgetRevision}`,
+			),
+		);
 	return Number(row?.count ?? 0);
 }
 
@@ -645,53 +682,80 @@ export async function getInferenceCapacityDailyOverview(
 	},
 ): Promise<InferenceCapacityDailyOverview> {
 	const budgetDay = input.now.slice(0, 10);
-	const [row] = await db.all<{
-		usedTokens: number;
-		usedSpendMicros: number;
-		allocatedTokens: number;
-		allocatedSpendMicros: number;
-		sponsoredTokens: number;
-		sponsoredSpendMicros: number;
-		earliestExpiryAt: string | null;
-	}>(sql`
-		SELECT
-			COALESCE((
-				SELECT SUM(${reservationUsedTokensSql("reservation")})
-				FROM billing_usage_reservations AS reservation
-				WHERE reservation.organization_id = ${input.organizationId}
-					AND reservation.status IN ('reserved', 'settled')
-					AND (reservation.status = 'settled' OR datetime(reservation.expires_at) > datetime(${input.now}))
-					AND substr(reservation.created_at, 1, 10) = ${budgetDay}
-			), 0) AS usedTokens,
-			COALESCE((
-				SELECT SUM(spend_micros)
-				FROM (
-					SELECT estimated_charge_micros AS spend_micros
-					FROM billing_usage_reservations
-					WHERE organization_id = ${input.organizationId}
-						AND status = 'reserved'
-						AND datetime(expires_at) > datetime(${input.now})
-						AND substr(created_at, 1, 10) = ${budgetDay}
-					UNION ALL
-					SELECT provider_cost_micros AS spend_micros
-					FROM billing_usage_charges
-					WHERE organization_id = ${input.organizationId}
-						AND substr(occurred_at, 1, 10) = ${budgetDay}
-				)
-			), 0) AS usedSpendMicros,
-			COALESCE(SUM(token_amount), 0) AS allocatedTokens,
-			COALESCE(SUM(spend_amount_micros), 0) AS allocatedSpendMicros,
-			COALESCE(SUM(CASE WHEN source_type = 'provider_sponsored_transfer'
-				THEN token_amount ELSE 0 END), 0) AS sponsoredTokens,
-			COALESCE(SUM(CASE WHEN source_type = 'provider_sponsored_transfer'
-				THEN spend_amount_micros ELSE 0 END), 0) AS sponsoredSpendMicros,
-			MIN(expires_at) AS earliestExpiryAt
-		FROM billing_capacity_allocations
-		WHERE organization_id = ${input.organizationId}
-			AND budget_day = ${budgetDay}
-			AND stripe_environment = ${input.stripeEnvironment}
-			AND datetime(expires_at) > datetime(${input.now})
-	`);
+	const reservation = alias(billingUsageReservations, "reservation");
+	const usedTokens = db
+		.select({ total: sql`SUM(${reservationUsedTokensSql("reservation")})` })
+		.from(reservation)
+		.where(
+			and(
+				eq(reservation.organizationId, input.organizationId),
+				sql`${reservation.status} IN ('reserved', 'settled')`,
+				sql`(${reservation.status} = 'settled' OR datetime(${reservation.expiresAt}) > datetime(${input.now}))`,
+				sql`substr(${reservation.createdAt}, 1, 10) = ${budgetDay}`,
+			),
+		);
+	const spend = db
+		.select({
+			spendMicros:
+				sql<number>`${billingUsageReservations.estimatedChargeMicros}`.as(
+					"spend_micros",
+				),
+		})
+		.from(billingUsageReservations)
+		.where(
+			and(
+				eq(billingUsageReservations.organizationId, input.organizationId),
+				sql`${billingUsageReservations.status} = 'reserved'`,
+				sql`datetime(${billingUsageReservations.expiresAt}) > datetime(${input.now})`,
+				sql`substr(${billingUsageReservations.createdAt}, 1, 10) = ${budgetDay}`,
+			),
+		)
+		.unionAll(
+			db
+				.select({
+					spendMicros:
+						sql<number>`${billingUsageCharges.providerCostMicros}`.as(
+							"spend_micros",
+						),
+				})
+				.from(billingUsageCharges)
+				.where(
+					and(
+						eq(billingUsageCharges.organizationId, input.organizationId),
+						sql`substr(${billingUsageCharges.occurredAt}, 1, 10) = ${budgetDay}`,
+					),
+				),
+		)
+		.as("spend");
+	const usedSpendMicros = db
+		.select({ total: sql`SUM(${spend.spendMicros})` })
+		.from(spend);
+	const [row] = await db
+		.select({
+			usedTokens: sql<number>`COALESCE(${usedTokens}, 0)`,
+			usedSpendMicros: sql<number>`COALESCE(${usedSpendMicros}, 0)`,
+			allocatedTokens: sql<number>`COALESCE(SUM(${billingCapacityAllocations.tokenAmount}), 0)`,
+			allocatedSpendMicros: sql<number>`COALESCE(SUM(${billingCapacityAllocations.spendAmountMicros}), 0)`,
+			sponsoredTokens: sql<number>`COALESCE(SUM(CASE WHEN ${billingCapacityAllocations.sourceType} = 'provider_sponsored_transfer'
+				THEN ${billingCapacityAllocations.tokenAmount} ELSE 0 END), 0)`,
+			sponsoredSpendMicros: sql<number>`COALESCE(SUM(CASE WHEN ${billingCapacityAllocations.sourceType} = 'provider_sponsored_transfer'
+				THEN ${billingCapacityAllocations.spendAmountMicros} ELSE 0 END), 0)`,
+			earliestExpiryAt: sql<
+				string | null
+			>`MIN(${billingCapacityAllocations.expiresAt})`,
+		})
+		.from(billingCapacityAllocations)
+		.where(
+			and(
+				eq(billingCapacityAllocations.organizationId, input.organizationId),
+				eq(billingCapacityAllocations.budgetDay, budgetDay),
+				eq(
+					billingCapacityAllocations.stripeEnvironment,
+					input.stripeEnvironment,
+				),
+				sql`datetime(${billingCapacityAllocations.expiresAt}) > datetime(${input.now})`,
+			),
+		);
 	return {
 		budgetDay,
 		usedTokens: Number(row?.usedTokens ?? 0),

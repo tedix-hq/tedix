@@ -152,6 +152,7 @@ async function dependencyWouldCreateCycle(
 		prerequisiteApprovalRequestId: string;
 	},
 ): Promise<boolean> {
+	// Raw: WITH RECURSIVE reachability; Drizzle has no recursive CTE builder.
 	const rows = (await db.all(sql`
 		WITH RECURSIVE active_edges(dependent_id, prerequisite_id) AS (
 			SELECT declared.dependent_approval_request_id,

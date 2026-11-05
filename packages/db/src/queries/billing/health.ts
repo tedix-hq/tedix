@@ -1,15 +1,32 @@
 /** Canonical billing health queries. */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, eq, sql } from "drizzle-orm";
+import {
+	and,
+	desc,
+	eq,
+	exists,
+	gte,
+	isNotNull,
+	isNull,
+	lt,
+	sql,
+} from "drizzle-orm";
 import type { DbClient } from "../../client";
-import { effectiveCallCostsRelation } from "./provider-cost-evidence";
+import {
+	effectiveCallCostsRelation,
+	reviewedCostMicros,
+	sourceRetiredProjection,
+} from "./provider-cost-evidence";
+import { tediCallCosts } from "../../schema/tedis";
 import {
 	type BillingProviderReconciliation,
 	type BillingUsagePeriod,
 	billingProviderReconciliations,
 	billingUsageCharges,
 	billingUsagePeriods,
+	billingUsageQuarantines,
+	billingUsageReservations,
 } from "../../schema/billing";
 
 export interface BillingSettlementHealth {
@@ -24,46 +41,58 @@ export async function getBillingSettlementHealth(
 	db: DbClient,
 	since24h: string,
 ): Promise<BillingSettlementHealth> {
-	const rows = (await db.all(sql`
-		SELECT
-			(
-				SELECT COUNT(*)
-				FROM tedi_call_costs AS call
-				LEFT JOIN billing_usage_charges AS charge
-					ON charge.gateway_log_id = call.gateway_log_id
-				LEFT JOIN billing_usage_quarantines AS quarantine
-					ON quarantine.gateway_log_id = call.gateway_log_id
-				WHERE call.success = 1
-					AND call.org_id IS NOT NULL
-					AND call.billing_reservation_id IS NOT NULL
-					AND charge.id IS NULL
-					AND quarantine.id IS NULL
-			) AS unsettledReservedSuccessCount,
-			(
-				SELECT MIN(call.snapshot_at)
-				FROM tedi_call_costs AS call
-				LEFT JOIN billing_usage_charges AS charge
-					ON charge.gateway_log_id = call.gateway_log_id
-				LEFT JOIN billing_usage_quarantines AS quarantine
-					ON quarantine.gateway_log_id = call.gateway_log_id
-				WHERE call.success = 1
-					AND call.org_id IS NOT NULL
-					AND call.billing_reservation_id IS NOT NULL
-					AND charge.id IS NULL
-					AND quarantine.id IS NULL
-			) AS oldestUnsettledAt,
-			(SELECT MAX(created_at) FROM billing_usage_charges) AS latestSettledAt,
-			(
-				SELECT COUNT(*) FROM billing_usage_quarantines
-				WHERE created_at >= ${since24h}
-			) AS quarantined24h,
-			(
-				SELECT COUNT(*) FROM billing_usage_quarantines
-				WHERE created_at >= ${since24h}
-					AND reason <> 'missing_reservation'
-			) AS nonLegacyQuarantined24h
-	`)) as Array<Record<string, unknown>>;
-	const row = rows[0] ?? {};
+	// One D1 batch reads every figure from the same snapshot.
+	const [calls, charges, quarantines] = await db.batch([
+		db
+			.select({
+				unsettledReservedSuccessCount: sql<number>`COUNT(*)`.as(
+					"unsettledReservedSuccessCount",
+				),
+				oldestUnsettledAt: sql<
+					string | null
+				>`MIN(${tediCallCosts.snapshotAt})`.as("oldestUnsettledAt"),
+			})
+			.from(tediCallCosts)
+			.leftJoin(
+				billingUsageCharges,
+				eq(billingUsageCharges.gatewayLogId, tediCallCosts.gatewayLogId),
+			)
+			.leftJoin(
+				billingUsageQuarantines,
+				eq(billingUsageQuarantines.gatewayLogId, tediCallCosts.gatewayLogId),
+			)
+			.where(
+				and(
+					eq(tediCallCosts.success, true),
+					isNotNull(tediCallCosts.orgId),
+					isNotNull(tediCallCosts.billingReservationId),
+					isNull(billingUsageCharges.id),
+					isNull(billingUsageQuarantines.id),
+				),
+			),
+		db
+			.select({
+				latestSettledAt: sql<
+					string | null
+				>`MAX(${billingUsageCharges.createdAt})`.as("latestSettledAt"),
+			})
+			.from(billingUsageCharges),
+		db
+			.select({
+				quarantined24h: sql<number>`COUNT(*)`.as("quarantined24h"),
+				nonLegacyQuarantined24h:
+					sql<number>`COUNT(CASE WHEN ${billingUsageQuarantines.reason} <> 'missing_reservation' THEN 1 END)`.as(
+						"nonLegacyQuarantined24h",
+					),
+			})
+			.from(billingUsageQuarantines)
+			.where(gte(billingUsageQuarantines.createdAt, since24h)),
+	]);
+	const row: Record<string, unknown> = {
+		...calls[0],
+		...charges[0],
+		...quarantines[0],
+	};
 	return {
 		unsettledReservedSuccessCount: Number(
 			row.unsettledReservedSuccessCount ?? 0,
@@ -130,23 +159,24 @@ export async function recordBillingProviderReconciliation(
 	) {
 		throw new Error("Provider reconciliation cost must be non-negative micros");
 	}
-	const totals = (await db.all(sql`
-		SELECT
-			COALESCE(SUM(provider_cost_micros), 0) AS ledgerCostMicros,
-			COUNT(*) AS usageRowCount
-		FROM billing_usage_charges
-		WHERE provider = ${input.provider}
-			AND occurred_at >= ${input.periodStart}
-			AND occurred_at < ${input.periodEnd}
-			AND (
-				${input.providerResource} = ''
-				OR COALESCE(
-					json_extract(metadata, '$.providerResource'),
-					json_extract(metadata, '$.deployment'),
+	const totals = await db
+		.select({
+			ledgerCostMicros: sql<number>`COALESCE(SUM(${billingUsageCharges.providerCostMicros}), 0)`,
+			usageRowCount: sql<number>`COUNT(*)`,
+		})
+		.from(billingUsageCharges)
+		.where(
+			and(
+				eq(billingUsageCharges.provider, input.provider),
+				gte(billingUsageCharges.occurredAt, input.periodStart),
+				lt(billingUsageCharges.occurredAt, input.periodEnd),
+				sql`(${input.providerResource} = '' OR COALESCE(
+					json_extract(${billingUsageCharges.metadata}, '$.providerResource'),
+					json_extract(${billingUsageCharges.metadata}, '$.deployment'),
 					''
-				) = ${input.providerResource}
-			)
-	`)) as Array<Record<string, unknown>>;
+				) = ${input.providerResource})`,
+			),
+		);
 	const ledgerCostMicros =
 		input.ledgerCostMicrosOverride ?? Number(totals[0]?.ledgerCostMicros ?? 0);
 	const usageRowCount =
@@ -237,7 +267,114 @@ export async function getRecentProviderPricingHealth(
 		throw new Error("Invalid provider pricing health window");
 	// One statement gives totals and bounded examples from the same snapshot.
 	// Window aggregates run over every group BEFORE LIMIT, not only examples.
-	const groups = await db.all<{
+	const observations = db.$with("observations").as(
+		db
+			.select({
+				provider: tediCallCosts.provider,
+				model: tediCallCosts.model,
+				gatewayId: tediCallCosts.gatewayId,
+				providerResource: tediCallCosts.providerResource,
+				providerBaseUrl: tediCallCosts.providerBaseUrl,
+				deployment: tediCallCosts.deployment,
+				totalTokens: tediCallCosts.totalTokens,
+				orgId: tediCallCosts.orgId,
+				billingReservationId: tediCallCosts.billingReservationId,
+				snapshotAt: tediCallCosts.snapshotAt,
+				reason: sql<string>`CASE
+					WHEN ${tediCallCosts.costReason} IN ('missing_rate', 'ambiguous_rate', 'ambiguous_scope', 'invalid_usage',
+						'missing_execution', 'unverified_execution', 'rate_authority_unavailable', 'rate_lookup_failed', 'invalid_timestamp') THEN ${tediCallCosts.costReason}
+					WHEN ${tediCallCosts.costReason} IS NOT NULL THEN 'unknown_reason'
+					WHEN ${tediCallCosts.dataQuality} = 'quarantined_failed' THEN 'failed_usage_unknown'
+					WHEN ${tediCallCosts.dataQuality} = 'quarantined_no_pricing' AND ${tediCallCosts.costBasis} = 'legacy_estimate' THEN 'legacy_unspecified_no_pricing'
+					ELSE 'missing_cost_evidence'
+				END`.as("reason"),
+			})
+			.from(tediCallCosts)
+			.where(
+				and(
+					gte(tediCallCosts.snapshotAt, window.sinceInclusive),
+					lt(tediCallCosts.snapshotAt, window.untilExclusive),
+					sql`${tediCallCosts.provider} IN ('azure-openai', 'workers-ai')`,
+					sql`(${tediCallCosts.source} = 'ai-gateway-log' OR ${tediCallCosts.source} LIKE 'ai-gateway-log:%')`,
+					isNull(tediCallCosts.usageKind),
+					sql`${tediCallCosts.source} NOT IN ('ai-gateway-log:voice-stt', 'ai-gateway-log:voice-tts')`,
+					sql`(${tediCallCosts.dataQuality} = 'quarantined_no_pricing' OR ${tediCallCosts.costBasis} = 'unknown' OR ${tediCallCosts.estimatedCostUsd} IS NULL)`,
+				),
+			),
+	);
+	const grouped = db.$with("grouped").as(
+		db
+			.select({
+				provider: observations.provider,
+				model: observations.model,
+				gatewayId: observations.gatewayId,
+				providerResource: observations.providerResource,
+				providerBaseUrl: observations.providerBaseUrl,
+				deployment: observations.deployment,
+				reason: observations.reason,
+				rowCount: sql<number>`COUNT(*)`.as("row_count"),
+				tokens: sql<number>`COALESCE(SUM(${observations.totalTokens}), 0)`.as(
+					"tokens",
+				),
+				unattributedCount:
+					sql<number>`SUM(CASE WHEN ${observations.orgId} IS NULL THEN 1 ELSE 0 END)`.as(
+						"unattributed_count",
+					),
+				unreservedCount:
+					sql<number>`SUM(CASE WHEN ${observations.billingReservationId} IS NULL THEN 1 ELSE 0 END)`.as(
+						"unreserved_count",
+					),
+				firstAt: sql<string>`MIN(${observations.snapshotAt})`.as("first_at"),
+				lastAt: sql<string>`MAX(${observations.snapshotAt})`.as("last_at"),
+			})
+			.from(observations)
+			.groupBy(
+				observations.provider,
+				observations.model,
+				observations.gatewayId,
+				observations.providerResource,
+				observations.providerBaseUrl,
+				observations.deployment,
+				observations.reason,
+			),
+	);
+	const groups = (await db
+		.with(observations, grouped)
+		.select({
+			provider: grouped.provider,
+			model: grouped.model,
+			gatewayId: grouped.gatewayId,
+			providerResource: grouped.providerResource,
+			providerOrigin: grouped.providerBaseUrl,
+			deployment: grouped.deployment,
+			reason: grouped.reason,
+			rowCount: grouped.rowCount,
+			tokens: grouped.tokens,
+			unattributedCount: grouped.unattributedCount,
+			unreservedCount: grouped.unreservedCount,
+			firstObservedAt: grouped.firstAt,
+			lastObservedAt: grouped.lastAt,
+			totalRows: sql<number>`SUM(${grouped.rowCount}) OVER ()`,
+			totalTokens: sql<number>`SUM(${grouped.tokens}) OVER ()`,
+			totalUnattributed: sql<number>`SUM(${grouped.unattributedCount}) OVER ()`,
+			totalUnreserved: sql<number>`SUM(${grouped.unreservedCount}) OVER ()`,
+			missingRateRows: sql<number>`SUM(CASE WHEN ${grouped.reason} = 'missing_rate' THEN ${grouped.rowCount} ELSE 0 END) OVER ()`,
+			totalGroups: sql<number>`COUNT(*) OVER ()`,
+			firstAt: sql<string>`MIN(${grouped.firstAt}) OVER ()`,
+			lastAt: sql<string>`MAX(${grouped.lastAt}) OVER ()`,
+		})
+		.from(grouped)
+		.orderBy(
+			desc(grouped.rowCount),
+			grouped.provider,
+			grouped.model,
+			grouped.gatewayId,
+			grouped.providerResource,
+			grouped.providerBaseUrl,
+			grouped.deployment,
+			grouped.reason,
+		)
+		.limit(10)) as Array<{
 		provider: string;
 		model: string;
 		gatewayId: string | null;
@@ -259,59 +396,24 @@ export async function getRecentProviderPricingHealth(
 		totalGroups: number;
 		firstAt: string;
 		lastAt: string;
-	}>(sql`
-		WITH observations AS (
-			SELECT provider, model, gateway_id, provider_resource, provider_base_url, deployment,
-				total_tokens, org_id, billing_reservation_id, snapshot_at,
-				CASE
-					WHEN cost_reason IN ('missing_rate', 'ambiguous_rate', 'ambiguous_scope', 'invalid_usage',
-						'missing_execution', 'unverified_execution', 'rate_authority_unavailable', 'rate_lookup_failed', 'invalid_timestamp') THEN cost_reason
-					WHEN cost_reason IS NOT NULL THEN 'unknown_reason'
-					WHEN data_quality = 'quarantined_failed' THEN 'failed_usage_unknown'
-					WHEN data_quality = 'quarantined_no_pricing' AND cost_basis = 'legacy_estimate' THEN 'legacy_unspecified_no_pricing'
-					ELSE 'missing_cost_evidence'
-				END AS reason
-			FROM tedi_call_costs
-			WHERE snapshot_at >= ${window.sinceInclusive} AND snapshot_at < ${window.untilExclusive}
-				AND provider IN ('azure-openai', 'workers-ai')
-				AND (source = 'ai-gateway-log' OR source LIKE 'ai-gateway-log:%')
-				AND usage_kind IS NULL
-				AND source NOT IN ('ai-gateway-log:voice-stt', 'ai-gateway-log:voice-tts')
-				AND (data_quality = 'quarantined_no_pricing' OR cost_basis = 'unknown' OR estimated_cost_usd IS NULL)
-		), grouped AS (
-			SELECT provider, model, gateway_id, provider_resource, provider_base_url, deployment, reason,
-				COUNT(*) AS row_count, COALESCE(SUM(total_tokens), 0) AS tokens,
-				SUM(CASE WHEN org_id IS NULL THEN 1 ELSE 0 END) AS unattributed_count,
-				SUM(CASE WHEN billing_reservation_id IS NULL THEN 1 ELSE 0 END) AS unreserved_count,
-				MIN(snapshot_at) AS first_at, MAX(snapshot_at) AS last_at
-			FROM observations
-			GROUP BY provider, model, gateway_id, provider_resource, provider_base_url, deployment, reason
-		)
-		SELECT provider, model, gateway_id AS gatewayId, provider_resource AS providerResource,
-			provider_base_url AS providerOrigin, deployment, reason, row_count AS rowCount, tokens,
-			unattributed_count AS unattributedCount, unreserved_count AS unreservedCount,
-			first_at AS firstObservedAt, last_at AS lastObservedAt,
-			SUM(row_count) OVER () AS totalRows, SUM(tokens) OVER () AS totalTokens,
-			SUM(unattributed_count) OVER () AS totalUnattributed, SUM(unreserved_count) OVER () AS totalUnreserved,
-			SUM(CASE WHEN reason = 'missing_rate' THEN row_count ELSE 0 END) OVER () AS missingRateRows,
-			COUNT(*) OVER () AS totalGroups, MIN(first_at) OVER () AS firstAt, MAX(last_at) OVER () AS lastAt
-		FROM grouped
-		ORDER BY row_count DESC, provider, model, gateway_id, provider_resource, provider_base_url, deployment, reason
-		LIMIT 10
-	`);
+	}>;
 	const first = groups[0];
-	const reviewed = await db.all<{
-		reviewedEstimateRowCount: number;
-		reviewedEstimateTokens: number;
-		reviewedEstimateMicros: number;
-		sourceRetiredRowCount: number;
-	}>(sql`
-	SELECT COUNT(reviewed_cost_micros) AS reviewedEstimateRowCount,
-	COALESCE(SUM(CASE WHEN reviewed_cost_micros IS NOT NULL THEN total_tokens ELSE 0 END),0) AS reviewedEstimateTokens,
-	COALESCE(SUM(reviewed_cost_micros),0) AS reviewedEstimateMicros,
-	COALESCE(SUM(source_retired),0) AS sourceRetiredRowCount
-	FROM ${effectiveCallCostsRelation()} WHERE snapshot_at >= ${window.sinceInclusive} AND snapshot_at < ${window.untilExclusive}
-	AND provider IN ('azure-openai','workers-ai') AND usage_kind IS NULL`);
+	const reviewed = await db
+		.select({
+			reviewedEstimateRowCount: sql<number>`COUNT(${reviewedCostMicros})`,
+			reviewedEstimateTokens: sql<number>`COALESCE(SUM(CASE WHEN ${reviewedCostMicros} IS NOT NULL THEN ${tediCallCosts.totalTokens} ELSE 0 END),0)`,
+			reviewedEstimateMicros: sql<number>`COALESCE(SUM(${reviewedCostMicros}),0)`,
+			sourceRetiredRowCount: sql<number>`COALESCE(SUM(${sourceRetiredProjection}),0)`,
+		})
+		.from(effectiveCallCostsRelation())
+		.where(
+			and(
+				gte(tediCallCosts.snapshotAt, window.sinceInclusive),
+				lt(tediCallCosts.snapshotAt, window.untilExclusive),
+				sql`${tediCallCosts.provider} IN ('azure-openai','workers-ai')`,
+				isNull(tediCallCosts.usageKind),
+			),
+		);
 	return {
 		...reviewed[0]!,
 		affectedRows: first?.totalRows ?? 0,
@@ -371,7 +473,235 @@ export async function getRecentProviderAttributionHealth(
 		throw new Error("Invalid provider attribution health window");
 	const sinceInclusive = new Date(sinceMs).toISOString();
 	const untilExclusive = new Date(untilMs).toISOString();
-	const rows = await db.all<{
+	const call = tediCallCosts;
+	const observations = db.$with("observations").as(
+		db
+			.select({
+				provider: call.provider,
+				success: call.success,
+				totalTokens: call.totalTokens,
+				billingReservationId: call.billingReservationId,
+				ownership:
+					sql<string>`CASE WHEN ${call.orgId} IS NULL THEN 'unproven' ELSE 'attributed' END`.as(
+						"ownership",
+					),
+				pricing:
+					sql<string>`CASE WHEN ${call.dataQuality} = 'ok' AND ${call.costBasis} <> 'unknown' AND ${call.estimatedCostUsd} >= 0 THEN 'priced' ELSE 'incomplete' END`.as(
+						"pricing",
+					),
+				reservationMatch: exists(
+					db
+						.select({ one: sql`1` })
+						.from(billingUsageReservations)
+						.where(
+							and(
+								eq(billingUsageReservations.id, call.billingReservationId),
+								eq(billingUsageReservations.organizationId, call.orgId),
+							),
+						),
+				).as("reservation_match"),
+				expiredMatch: exists(
+					db
+						.select({ one: sql`1` })
+						.from(billingUsageReservations)
+						.where(
+							and(
+								eq(billingUsageReservations.id, call.billingReservationId),
+								eq(billingUsageReservations.organizationId, call.orgId),
+								eq(billingUsageReservations.status, "expired"),
+							),
+						),
+				).as("expired_match"),
+				chargeMatch: exists(
+					db
+						.select({ one: sql`1` })
+						.from(billingUsageCharges)
+						.where(
+							and(
+								eq(billingUsageCharges.gatewayLogId, call.gatewayLogId),
+								eq(
+									billingUsageCharges.reservationId,
+									call.billingReservationId,
+								),
+								eq(billingUsageCharges.organizationId, call.orgId),
+							),
+						),
+				).as("charge_match"),
+				chargeConflict: exists(
+					db
+						.select({ one: sql`1` })
+						.from(billingUsageCharges)
+						.where(
+							and(
+								eq(billingUsageCharges.gatewayLogId, call.gatewayLogId),
+								sql`(${billingUsageCharges.reservationId} IS NOT ${call.billingReservationId} OR ${billingUsageCharges.organizationId} IS NOT ${call.orgId})`,
+							),
+						),
+				).as("charge_conflict"),
+				holdMatch: exists(
+					db
+						.select({ one: sql`1` })
+						.from(billingUsageQuarantines)
+						.where(
+							and(
+								eq(billingUsageQuarantines.gatewayLogId, call.gatewayLogId),
+								eq(billingUsageQuarantines.organizationId, call.orgId),
+								eq(billingUsageQuarantines.sourceSnapshotAt, call.snapshotAt),
+							),
+						),
+				).as("hold_match"),
+				holdConflict: exists(
+					db
+						.select({ one: sql`1` })
+						.from(billingUsageQuarantines)
+						.where(
+							and(
+								eq(billingUsageQuarantines.gatewayLogId, call.gatewayLogId),
+								sql`(${billingUsageQuarantines.organizationId} IS NOT ${call.orgId} OR ${billingUsageQuarantines.organizationId} IS NULL OR ${billingUsageQuarantines.sourceSnapshotAt} IS NOT ${call.snapshotAt})`,
+							),
+						),
+				).as("hold_conflict"),
+			})
+			.from(call)
+			.where(
+				and(
+					gte(call.snapshotAt, sinceInclusive),
+					lt(call.snapshotAt, untilExclusive),
+					sql`${call.provider} IN ('azure-openai','workers-ai')`,
+					sql`(${call.source} = 'ai-gateway-log' OR ${call.source} LIKE 'ai-gateway-log:%')`,
+					isNull(call.usageKind),
+					sql`${call.source} NOT IN ('ai-gateway-log:voice-stt','ai-gateway-log:voice-tts')`,
+				),
+			),
+	);
+	const o = observations;
+	const classified = db.$with("classified").as(
+		db
+			.select({
+				provider: o.provider,
+				totalTokens: o.totalTokens,
+				billingReservationId: o.billingReservationId,
+				ownership: o.ownership,
+				pricing: o.pricing,
+				chargeMatch: o.chargeMatch,
+				chargeConflict: o.chargeConflict,
+				holdMatch: o.holdMatch,
+				holdConflict: o.holdConflict,
+				expiredObserved:
+					sql<number>`CASE WHEN ${o.expiredMatch} AND ${o.success} = 1 AND ${o.totalTokens} > 0 THEN 1 ELSE 0 END`.as(
+						"expired_observed",
+					),
+				disposition: sql<string>`CASE
+					WHEN ${o.chargeMatch} THEN 'settled'
+					WHEN (${o.billingReservationId} IS NOT NULL AND NOT ${o.reservationMatch}) OR ${o.chargeConflict} OR ${o.holdConflict} THEN 'relationship_unproven'
+					WHEN ${o.holdMatch} THEN 'held'
+					ELSE 'unresolved'
+				END`.as("disposition"),
+			})
+			.from(o),
+	);
+	const c = classified;
+	const grouped = db.$with("grouped").as(
+		db
+			.select({
+				provider: c.provider,
+				ownership: c.ownership,
+				pricing: c.pricing,
+				disposition: c.disposition,
+				rowCount: sql<number>`COUNT(*)`.as("row_count"),
+				tokens: sql<number>`COALESCE(SUM(${c.totalTokens}),0)`.as("tokens"),
+			})
+			.from(c)
+			.groupBy(c.provider, c.ownership, c.pricing, c.disposition),
+	);
+	const totals = db.$with("totals").as(
+		db
+			.select({
+				invalidTokenRows:
+					sql<number>`COALESCE(SUM(typeof(${c.totalTokens}) <> 'integer' OR ${c.totalTokens} < 0 OR ${c.totalTokens} > 9007199254740991),0)`.as(
+						"invalidTokenRows",
+					),
+				totalRows: sql<number>`COUNT(*)`.as("totalRows"),
+				totalTokens: sql<number>`COALESCE(SUM(${c.totalTokens}),0)`.as(
+					"totalTokens",
+				),
+				unattributedRows:
+					sql<number>`COALESCE(SUM(${c.ownership} = 'unproven'),0)`.as(
+						"unattributedRows",
+					),
+				unattributedTokens:
+					sql<number>`COALESCE(SUM(CASE WHEN ${c.ownership} = 'unproven' THEN ${c.totalTokens} ELSE 0 END),0)`.as(
+						"unattributedTokens",
+					),
+				expiredObservedRows:
+					sql<number>`COALESCE(SUM(${c.expiredObserved}),0)`.as(
+						"expiredObservedRows",
+					),
+				expiredReservations:
+					sql<number>`COUNT(DISTINCT CASE WHEN ${c.expiredObserved} THEN ${c.billingReservationId} END)`.as(
+						"expiredReservations",
+					),
+				expiredUnresolvedRows:
+					sql<number>`COALESCE(SUM(${c.expiredObserved} AND ${c.disposition} = 'unresolved'),0)`.as(
+						"expiredUnresolvedRows",
+					),
+				expiredHeldRows:
+					sql<number>`COALESCE(SUM(${c.expiredObserved} AND ${c.disposition} = 'held'),0)`.as(
+						"expiredHeldRows",
+					),
+				expiredSettledRows:
+					sql<number>`COALESCE(SUM(${c.expiredObserved} AND ${c.disposition} = 'settled'),0)`.as(
+						"expiredSettledRows",
+					),
+				relationshipUnprovenRows:
+					sql<number>`COALESCE(SUM(${c.disposition} = 'relationship_unproven'),0)`.as(
+						"relationshipUnprovenRows",
+					),
+				historicalHoldRows:
+					sql<number>`COALESCE(SUM(${c.chargeMatch} AND ${c.holdMatch}),0)`.as(
+						"historicalHoldRows",
+					),
+				conflictingReceiptRows:
+					sql<number>`COALESCE(SUM(${c.chargeConflict} OR ${c.holdConflict}),0)`.as(
+						"conflictingReceiptRows",
+					),
+			})
+			.from(c),
+	);
+	const rows = (await db
+		.with(observations, classified, grouped, totals)
+		.select({
+			invalidTokenRows: totals.invalidTokenRows,
+			totalRows: totals.totalRows,
+			totalTokens: totals.totalTokens,
+			unattributedRows: totals.unattributedRows,
+			unattributedTokens: totals.unattributedTokens,
+			expiredObservedRows: totals.expiredObservedRows,
+			expiredReservations: totals.expiredReservations,
+			expiredUnresolvedRows: totals.expiredUnresolvedRows,
+			expiredHeldRows: totals.expiredHeldRows,
+			expiredSettledRows: totals.expiredSettledRows,
+			relationshipUnprovenRows: totals.relationshipUnprovenRows,
+			historicalHoldRows: totals.historicalHoldRows,
+			conflictingReceiptRows: totals.conflictingReceiptRows,
+			provider: grouped.provider,
+			ownership: grouped.ownership,
+			pricing: grouped.pricing,
+			disposition: grouped.disposition,
+			rowCount: grouped.rowCount,
+			tokens: grouped.tokens,
+			totalGroups: sql<number>`${db.select({ count: sql`COUNT(*)` }).from(grouped)}`,
+		})
+		.from(totals)
+		.leftJoin(grouped, sql`1=1`)
+		.orderBy(
+			desc(grouped.rowCount),
+			grouped.provider,
+			grouped.ownership,
+			grouped.pricing,
+			grouped.disposition,
+		)
+		.limit(10)) as Array<{
 		provider: string | null;
 		ownership: string | null;
 		pricing: string | null;
@@ -392,54 +722,7 @@ export async function getRecentProviderAttributionHealth(
 		conflictingReceiptRows: number;
 		totalGroups: number;
 		invalidTokenRows: number;
-	}>(sql`
- WITH observations AS (
-  SELECT call.*,
-   CASE WHEN call.org_id IS NULL THEN 'unproven' ELSE 'attributed' END AS ownership,
-   CASE WHEN call.data_quality = 'ok' AND call.cost_basis <> 'unknown' AND call.estimated_cost_usd >= 0 THEN 'priced' ELSE 'incomplete' END AS pricing,
-   EXISTS (SELECT 1 FROM billing_usage_reservations r WHERE r.id = call.billing_reservation_id AND r.organization_id = call.org_id) AS reservation_match,
-   EXISTS (SELECT 1 FROM billing_usage_reservations r WHERE r.id = call.billing_reservation_id AND r.organization_id = call.org_id AND r.status = 'expired') AS expired_match,
-   EXISTS (SELECT 1 FROM billing_usage_charges c WHERE c.gateway_log_id = call.gateway_log_id AND c.reservation_id = call.billing_reservation_id AND c.organization_id = call.org_id) AS charge_match,
-   EXISTS (SELECT 1 FROM billing_usage_charges c WHERE c.gateway_log_id = call.gateway_log_id AND (c.reservation_id IS NOT call.billing_reservation_id OR c.organization_id IS NOT call.org_id)) AS charge_conflict,
-   EXISTS (SELECT 1 FROM billing_usage_quarantines q WHERE q.gateway_log_id = call.gateway_log_id AND q.organization_id = call.org_id AND q.source_snapshot_at = call.snapshot_at) AS hold_match,
-   EXISTS (SELECT 1 FROM billing_usage_quarantines q WHERE q.gateway_log_id = call.gateway_log_id AND (q.organization_id IS NOT call.org_id OR q.organization_id IS NULL OR q.source_snapshot_at IS NOT call.snapshot_at)) AS hold_conflict
-  FROM tedi_call_costs call
-  WHERE call.snapshot_at >= ${sinceInclusive} AND call.snapshot_at < ${untilExclusive}
-   AND call.provider IN ('azure-openai','workers-ai')
-   AND (call.source = 'ai-gateway-log' OR call.source LIKE 'ai-gateway-log:%')
-   AND call.usage_kind IS NULL
-   AND call.source NOT IN ('ai-gateway-log:voice-stt','ai-gateway-log:voice-tts')
- ), classified AS (
-  SELECT *, CASE WHEN expired_match AND success = 1 AND total_tokens > 0 THEN 1 ELSE 0 END AS expired_observed,
-   CASE
-    WHEN charge_match THEN 'settled'
-    WHEN (billing_reservation_id IS NOT NULL AND NOT reservation_match) OR charge_conflict OR hold_conflict THEN 'relationship_unproven'
-    WHEN hold_match THEN 'held'
-    ELSE 'unresolved'
-   END AS disposition
-  FROM observations
- ), grouped AS (
-  SELECT provider, ownership, pricing, disposition, COUNT(*) AS row_count, COALESCE(SUM(total_tokens),0) AS tokens
-  FROM classified GROUP BY provider, ownership, pricing, disposition
- ), totals AS (
-  SELECT COALESCE(SUM(typeof(total_tokens) <> 'integer' OR total_tokens < 0 OR total_tokens > 9007199254740991),0) AS invalidTokenRows, COUNT(*) AS totalRows, COALESCE(SUM(total_tokens),0) AS totalTokens,
-   COALESCE(SUM(ownership = 'unproven'),0) AS unattributedRows,
-   COALESCE(SUM(CASE WHEN ownership = 'unproven' THEN total_tokens ELSE 0 END),0) AS unattributedTokens,
-   COALESCE(SUM(expired_observed),0) AS expiredObservedRows,
-   COUNT(DISTINCT CASE WHEN expired_observed THEN billing_reservation_id END) AS expiredReservations,
-   COALESCE(SUM(expired_observed AND disposition = 'unresolved'),0) AS expiredUnresolvedRows,
-   COALESCE(SUM(expired_observed AND disposition = 'held'),0) AS expiredHeldRows,
-   COALESCE(SUM(expired_observed AND disposition = 'settled'),0) AS expiredSettledRows,
-   COALESCE(SUM(disposition = 'relationship_unproven'),0) AS relationshipUnprovenRows,
-   COALESCE(SUM(charge_match AND hold_match),0) AS historicalHoldRows,
-   COALESCE(SUM(charge_conflict OR hold_conflict),0) AS conflictingReceiptRows
-  FROM classified
- ) SELECT totals.*, grouped.provider, grouped.ownership, grouped.pricing, grouped.disposition,
-  grouped.row_count AS rowCount, grouped.tokens,
-  (SELECT COUNT(*) FROM grouped) AS totalGroups
- FROM totals LEFT JOIN grouped ON 1=1
- ORDER BY grouped.row_count DESC, grouped.provider, grouped.ownership, grouped.pricing, grouped.disposition LIMIT 10
- `);
+	}>;
 	const row = rows[0]!;
 	if (row.invalidTokenRows !== 0)
 		throw new Error("Invalid provider attribution health source tokens");

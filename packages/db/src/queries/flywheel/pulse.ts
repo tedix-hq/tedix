@@ -1,5 +1,13 @@
-import { sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, or, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
+import {
+	skillEntries,
+	skillUsageEvents,
+	tediMuscleMemory,
+} from "../../schema/cognitive";
+import { tediRuntimeEvents } from "../../schema/cognitive-runtime";
+import { memoryFacts } from "../../schema/memory-graph";
+import { tediRationaleRecords } from "../../schema/rationale-records";
 
 export interface FlywheelAccess {
 	tediId: string;
@@ -105,12 +113,24 @@ export async function getLastRationale(
 	db: DbClient,
 	access: FlywheelAccess,
 ): Promise<LastRationale[]> {
-	return db.all<LastRationale>(
-		sql`SELECT id, action, category, confidence, outcome_status as outcomeStatus, created_at as createdAt
-			FROM tedi_rationale_records
-			WHERE tedi_id = ${access.tediId} AND org_id = ${access.orgId}
-			ORDER BY created_at DESC LIMIT 1`,
-	);
+	return db
+		.select({
+			id: tediRationaleRecords.id,
+			action: tediRationaleRecords.action,
+			category: tediRationaleRecords.category,
+			confidence: tediRationaleRecords.confidence,
+			outcomeStatus: tediRationaleRecords.outcomeStatus,
+			createdAt: tediRationaleRecords.createdAt,
+		})
+		.from(tediRationaleRecords)
+		.where(
+			and(
+				eq(tediRationaleRecords.tediId, access.tediId),
+				eq(tediRationaleRecords.orgId, access.orgId),
+			),
+		)
+		.orderBy(desc(tediRationaleRecords.createdAt))
+		.limit(1);
 }
 
 /**
@@ -120,14 +140,25 @@ export async function getLastFact(
 	db: DbClient,
 	access: FlywheelAccess,
 ): Promise<LastFact[]> {
-	return db.all<LastFact>(
-		sql`SELECT id, summary, fact_type as factType, confidence, source, created_at as createdAt
-			FROM memory_facts
-			WHERE organization_id = ${access.orgId}
-				AND (tedi_id = ${access.tediId} OR tedi_id IS NULL)
-				AND archived_at IS NULL
-			ORDER BY created_at DESC LIMIT 1`,
-	);
+	return db
+		.select({
+			id: memoryFacts.id,
+			summary: memoryFacts.summary,
+			factType: memoryFacts.factType,
+			confidence: memoryFacts.confidence,
+			source: memoryFacts.source,
+			createdAt: memoryFacts.createdAt,
+		})
+		.from(memoryFacts)
+		.where(
+			and(
+				eq(memoryFacts.organizationId, access.orgId),
+				or(eq(memoryFacts.tediId, access.tediId), isNull(memoryFacts.tediId)),
+				isNull(memoryFacts.archivedAt),
+			),
+		)
+		.orderBy(desc(memoryFacts.createdAt))
+		.limit(1);
 }
 
 /**
@@ -137,13 +168,22 @@ export async function getLastSkill(
 	db: DbClient,
 	access: FlywheelAccess,
 ): Promise<LastSkill[]> {
-	return db.all<LastSkill>(
-		sql`SELECT id, title, revision, updated_at as updatedAt
-			FROM skill_entries
-			WHERE organization_id = ${access.orgId}
-				AND (tedi_id = ${access.tediId} OR tedi_id IS NULL)
-			ORDER BY updated_at DESC LIMIT 1`,
-	);
+	return db
+		.select({
+			id: skillEntries.id,
+			title: skillEntries.title,
+			revision: skillEntries.revision,
+			updatedAt: skillEntries.updatedAt,
+		})
+		.from(skillEntries)
+		.where(
+			and(
+				eq(skillEntries.organizationId, access.orgId),
+				or(eq(skillEntries.tediId, access.tediId), isNull(skillEntries.tediId)),
+			),
+		)
+		.orderBy(desc(skillEntries.updatedAt))
+		.limit(1);
 }
 
 /**
@@ -153,12 +193,23 @@ export async function getLastMuscle(
 	db: DbClient,
 	access: FlywheelAccess,
 ): Promise<LastMuscle[]> {
-	return db.all<LastMuscle>(
-		sql`SELECT id, name, kind, origin, updated_at as updatedAt
-			FROM tedi_muscle_memory
-			WHERE tedi_id = ${access.tediId} AND organization_id = ${access.orgId}
-			ORDER BY updated_at DESC LIMIT 1`,
-	);
+	return db
+		.select({
+			id: tediMuscleMemory.id,
+			name: tediMuscleMemory.name,
+			kind: tediMuscleMemory.kind,
+			origin: tediMuscleMemory.origin,
+			updatedAt: tediMuscleMemory.updatedAt,
+		})
+		.from(tediMuscleMemory)
+		.where(
+			and(
+				eq(tediMuscleMemory.tediId, access.tediId),
+				eq(tediMuscleMemory.organizationId, access.orgId),
+			),
+		)
+		.orderBy(desc(tediMuscleMemory.updatedAt))
+		.limit(1);
 }
 
 /**
@@ -172,16 +223,28 @@ export async function getLastToolCall(
 	db: DbClient,
 	access: FlywheelAccess,
 ): Promise<LastToolCall[]> {
-	return db.all<LastToolCall>(
-		sql`SELECT json_extract(payload, '$.name') as toolName,
-				CASE kind WHEN 'tool.completed' THEN 1 WHEN 'tool.failed' THEN 0 END as success,
-				created_at as createdAt
-			FROM tedi_runtime_events
-			WHERE tedi_id = ${access.tediId}
-				AND organization_id = ${access.orgId}
-				AND kind IN ('tool.completed', 'tool.failed')
-			ORDER BY created_at DESC LIMIT 1`,
-	);
+	return db
+		.select({
+			toolName: sql<
+				string | null
+			>`json_extract(${tediRuntimeEvents.payload}, '$.name')`.as("toolName"),
+			success: sql<
+				number | null
+			>`CASE ${tediRuntimeEvents.kind} WHEN 'tool.completed' THEN 1 WHEN 'tool.failed' THEN 0 END`.as(
+				"success",
+			),
+			createdAt: tediRuntimeEvents.createdAt,
+		})
+		.from(tediRuntimeEvents)
+		.where(
+			and(
+				eq(tediRuntimeEvents.tediId, access.tediId),
+				eq(tediRuntimeEvents.organizationId, access.orgId),
+				inArray(tediRuntimeEvents.kind, ["tool.completed", "tool.failed"]),
+			),
+		)
+		.orderBy(desc(tediRuntimeEvents.createdAt))
+		.limit(1);
 }
 
 /**
@@ -192,11 +255,16 @@ export async function countDecisionsLast24h(
 	access: FlywheelAccess,
 	since: string,
 ): Promise<CountRow[]> {
-	return db.all<CountRow>(
-		sql`SELECT count(*) as cnt FROM tedi_rationale_records
-			WHERE tedi_id = ${access.tediId} AND org_id = ${access.orgId}
-				AND created_at >= ${since}`,
-	);
+	return db
+		.select({ cnt: sql<number>`count(*)`.as("cnt") })
+		.from(tediRationaleRecords)
+		.where(
+			and(
+				eq(tediRationaleRecords.tediId, access.tediId),
+				eq(tediRationaleRecords.orgId, access.orgId),
+				gte(tediRationaleRecords.createdAt, since),
+			),
+		);
 }
 
 /**
@@ -207,12 +275,17 @@ export async function countFactsLast24h(
 	access: FlywheelAccess,
 	since: string,
 ): Promise<CountRow[]> {
-	return db.all<CountRow>(
-		sql`SELECT count(*) as cnt FROM memory_facts
-			WHERE organization_id = ${access.orgId}
-				AND (tedi_id = ${access.tediId} OR tedi_id IS NULL)
-				AND archived_at IS NULL AND created_at >= ${since}`,
-	);
+	return db
+		.select({ cnt: sql<number>`count(*)`.as("cnt") })
+		.from(memoryFacts)
+		.where(
+			and(
+				eq(memoryFacts.organizationId, access.orgId),
+				or(eq(memoryFacts.tediId, access.tediId), isNull(memoryFacts.tediId)),
+				isNull(memoryFacts.archivedAt),
+				gte(memoryFacts.createdAt, since),
+			),
+		);
 }
 
 /**
@@ -226,12 +299,16 @@ export async function countSkillUsagesLast24h(
 	access: FlywheelAccess,
 	since: string,
 ): Promise<CountRow[]> {
-	return db.all<CountRow>(
-		sql`SELECT count(*) as cnt FROM skill_usage_events
-			WHERE tedi_id = ${access.tediId}
-				AND organization_id = ${access.orgId}
-				AND created_at >= ${since}`,
-	);
+	return db
+		.select({ cnt: sql<number>`count(*)`.as("cnt") })
+		.from(skillUsageEvents)
+		.where(
+			and(
+				eq(skillUsageEvents.tediId, access.tediId),
+				eq(skillUsageEvents.organizationId, access.orgId),
+				gte(skillUsageEvents.createdAt, since),
+			),
+		);
 }
 
 // ============================================================================

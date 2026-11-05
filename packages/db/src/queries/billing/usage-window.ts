@@ -16,7 +16,7 @@ import { type SQL, sql } from "drizzle-orm";
  * threshold is the next whole second after `now`, in the stored format.
  */
 export function liveAtSql(column: string, now: string): SQL {
-	return sql`${sql.raw(column)} >= strftime('%Y-%m-%dT%H:%M:%fZ', datetime(${now}, '+1 second'))`;
+	return sql`${columnRef(column)} >= strftime('%Y-%m-%dT%H:%M:%fZ', datetime(${now}, '+1 second'))`;
 }
 
 /**
@@ -26,5 +26,14 @@ export function liveAtSql(column: string, now: string): SQL {
  */
 export function sameUtcDaySql(column: string, now: string): SQL {
 	const day = sql`substr(${now}, 1, 10)`;
-	return sql`${sql.raw(column)} >= ${day} AND ${sql.raw(column)} < date(${day}, '+1 day')`;
+	const ref = columnRef(column);
+	return sql`${ref} >= ${day} AND ${ref} < date(${day}, '+1 day')`;
+}
+
+/** `column` or `alias.column` as quoted identifiers. */
+function columnRef(column: string): SQL {
+	return sql.join(
+		column.split(".").map((part) => sql.identifier(part)),
+		sql`.`,
+	);
 }

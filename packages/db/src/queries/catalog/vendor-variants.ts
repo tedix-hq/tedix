@@ -34,6 +34,9 @@ type CatalogVendorColumns = {
 	reviewStatus: SQLiteColumn;
 };
 
+// The raw-SQL ratchet reads these `replace(...)` string expressions as REPLACE
+// statements; they are bound fragments inside builders, so the baseline keeps 4.
+
 /**
  * SQL mirror of `extractVendorDomain(website)`: lowercased host without a
  * scheme, path, query, fragment, port or leading `www.`; NULL when empty.

@@ -1,4 +1,5 @@
-import { eq, sql } from "drizzle-orm";
+import { eq, getColumns, sql } from "drizzle-orm";
+import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../client";
 import { platformCronExecutions } from "../schema/platform-cron-executions";
 import { getAffectedRows } from "../utils/d1-result";
@@ -42,30 +43,49 @@ export interface PlatformCronExecutionSummary {
 export async function listPlatformCronExecutionSummaries(
 	db: DbClient,
 ): Promise<PlatformCronExecutionSummary[]> {
-	const rows = (await db.all(sql`
-		WITH ranked AS (
-			SELECT *,
-				ROW_NUMBER() OVER (
-					PARTITION BY schedule_id ORDER BY scheduled_at DESC, started_at DESC
-				) AS latest_rank
-			FROM platform_cron_executions
-		)
-		SELECT
-			schedule_id AS scheduleId,
-			MAX(CASE WHEN latest_rank = 1 THEN id END) AS latestId,
-			MAX(CASE WHEN latest_rank = 1 THEN status END) AS latestStatus,
-			MAX(CASE WHEN latest_rank = 1 THEN scheduled_at END) AS latestScheduledAt,
-			MAX(CASE WHEN latest_rank = 1 THEN started_at END) AS latestStartedAt,
-			MAX(CASE WHEN latest_rank = 1 THEN finished_at END) AS latestFinishedAt,
-			MAX(CASE WHEN latest_rank = 1 THEN duration_ms END) AS latestDurationMs,
-			MAX(CASE WHEN latest_rank = 1 THEN affected_row_counts END) AS latestAffectedRowCounts,
-			MAX(CASE WHEN latest_rank = 1 THEN error END) AS latestError,
-			MAX(CASE WHEN status = 'success' THEN finished_at END) AS lastSuccessAt,
-			MAX(CASE WHEN status = 'failure' THEN finished_at END) AS lastFailureAt
-		FROM ranked
-		GROUP BY schedule_id
-		ORDER BY schedule_id
-	`)) as Array<Record<string, unknown>>;
+	const ranked = db.$with("ranked").as(
+		db
+			.select({
+				...getColumns(platformCronExecutions),
+				latestRank: sql<number>`ROW_NUMBER() OVER (
+					PARTITION BY ${platformCronExecutions.scheduleId}
+					ORDER BY ${platformCronExecutions.scheduledAt} DESC, ${platformCronExecutions.startedAt} DESC
+				)`.as("latest_rank"),
+			})
+			.from(platformCronExecutions),
+	);
+	// Raw driver values: the JSON column is parsed below, exactly as stored.
+	const latest = (column: AnySQLiteColumn, name: string) =>
+		sql<unknown>`MAX(CASE WHEN ${ranked.latestRank} = 1 THEN ${column} END)`.as(
+			name,
+		);
+	const rows: Array<Record<string, unknown>> = await db
+		.with(ranked)
+		.select({
+			scheduleId: sql<unknown>`${ranked.scheduleId}`.as("scheduleId"),
+			latestId: latest(ranked.id, "latestId"),
+			latestStatus: latest(ranked.status, "latestStatus"),
+			latestScheduledAt: latest(ranked.scheduledAt, "latestScheduledAt"),
+			latestStartedAt: latest(ranked.startedAt, "latestStartedAt"),
+			latestFinishedAt: latest(ranked.finishedAt, "latestFinishedAt"),
+			latestDurationMs: latest(ranked.durationMs, "latestDurationMs"),
+			latestAffectedRowCounts: latest(
+				ranked.affectedRowCounts,
+				"latestAffectedRowCounts",
+			),
+			latestError: latest(ranked.error, "latestError"),
+			lastSuccessAt:
+				sql<unknown>`MAX(CASE WHEN ${ranked.status} = 'success' THEN ${ranked.finishedAt} END)`.as(
+					"lastSuccessAt",
+				),
+			lastFailureAt:
+				sql<unknown>`MAX(CASE WHEN ${ranked.status} = 'failure' THEN ${ranked.finishedAt} END)`.as(
+					"lastFailureAt",
+				),
+		})
+		.from(ranked)
+		.groupBy(ranked.scheduleId)
+		.orderBy(ranked.scheduleId);
 
 	return rows.map((row) => ({
 		scheduleId: String(row.scheduleId),

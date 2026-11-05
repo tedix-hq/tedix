@@ -35,16 +35,72 @@ export async function setOrganizationResidencyPolicy(
 	},
 ) {
 	const { organizationId, mode, expectedRevision, actorId, now } = input;
-	const update = db.all<{
-		revision: number;
-	}>(sql`INSERT INTO organization_residency_policies (organization_id, mode, revision, updated_at, updated_by)
-		SELECT ${organizationId}, ${mode}, ${expectedRevision + 1}, ${now}, ${actorId}
-		WHERE ${expectedRevision} = 0 OR EXISTS (SELECT 1 FROM organization_residency_policies WHERE organization_id = ${organizationId})
-		ON CONFLICT (organization_id) DO UPDATE SET mode = excluded.mode, revision = excluded.revision, updated_at = excluded.updated_at, updated_by = excluded.updated_by
-		WHERE organization_residency_policies.revision = ${expectedRevision} RETURNING revision`);
-	const audit =
-		db.run(sql`INSERT INTO ${auditEvents} (id, organization_id, actor_id, actor_type, action, resource_type, resource_id, metadata, timestamp)
-		SELECT ${crypto.randomUUID()}, ${organizationId}, ${actorId}, 'user', 'organization.residency.updated', 'organization', ${organizationId}, ${JSON.stringify({ mode, revision: expectedRevision + 1 })}, ${Math.floor(Date.parse(now) / 1000)} WHERE changes() > 0`);
+	const values = {
+		organizationId,
+		mode,
+		revision: expectedRevision + 1,
+		updatedAt: now,
+		updatedBy: actorId,
+	};
+	// Revision 0 creates the row; any other revision only advances an existing
+	// row that still holds the expected revision.
+	const update =
+		expectedRevision === 0
+			? db
+					.insert(organizationResidencyPolicies)
+					.values(values)
+					.onConflictDoUpdate({
+						target: organizationResidencyPolicies.organizationId,
+						set: {
+							mode: sql`excluded.mode`,
+							revision: sql`excluded.revision`,
+							updatedAt: sql`excluded.updated_at`,
+							updatedBy: sql`excluded.updated_by`,
+						},
+						setWhere: eq(
+							organizationResidencyPolicies.revision,
+							expectedRevision,
+						),
+					})
+					.returning({ revision: organizationResidencyPolicies.revision })
+			: db
+					.update(organizationResidencyPolicies)
+					.set(values)
+					.where(
+						and(
+							eq(organizationResidencyPolicies.organizationId, organizationId),
+							eq(organizationResidencyPolicies.revision, expectedRevision),
+						),
+					)
+					.returning({ revision: organizationResidencyPolicies.revision });
+	// The policy row exists whenever the upsert changed it, so it doubles as the
+	// one-row source for an audit insert gated on changes().
+	const audit = db.insert(auditEvents).select(
+		db
+			.select({
+				id: sql<string>`${crypto.randomUUID()}`.as("id"),
+				organizationId: organizationResidencyPolicies.organizationId,
+				actorId: sql<string>`${actorId}`.as("actor_id"),
+				actorType: sql<string>`'user'`.as("actor_type"),
+				action: sql<string>`'organization.residency.updated'`.as("action"),
+				resourceType: sql<string>`'organization'`.as("resource_type"),
+				resourceId: sql<string>`${organizationId}`.as("resource_id"),
+				metadata:
+					sql<string>`${JSON.stringify({ mode, revision: expectedRevision + 1 })}`.as(
+						"metadata",
+					),
+				timestamp: sql<number>`${Math.floor(Date.parse(now) / 1000)}`.as(
+					"timestamp",
+				),
+			})
+			.from(organizationResidencyPolicies)
+			.where(
+				and(
+					eq(organizationResidencyPolicies.organizationId, organizationId),
+					sql`changes() > 0`,
+				),
+			),
+	);
 	const [result] = await db.batch([update, audit]);
 	if (result.length !== 1)
 		throw new Error("Residency policy revision conflict");

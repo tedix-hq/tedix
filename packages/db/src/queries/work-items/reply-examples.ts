@@ -12,8 +12,12 @@
  * capture, so nothing here redacts again.
  */
 
-import { sql } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
+import {
+	workInteractionResponses,
+	workInteractions,
+} from "../../schema/work-factory";
 
 const DECISION_CAPTURE_SCHEMA = "tedix.decision-capture.v1";
 /** Answer sources whose body the target user wrote or chose. */
@@ -80,49 +84,83 @@ export async function listReplyExamples(
 	);
 	if (limit === 0) return [];
 	const repository = p.repository ?? null;
-	const sources = sql.join(
-		USER_ANSWER_SOURCES.map((source) => sql`${source}`),
-		sql`, `,
-	);
-	const rows = await db.all<ReplyExampleRow>(sql`
-		SELECT
-			q.id AS interaction_id,
-			q.created_at AS created_at,
-			json_extract(q.metadata, '$.repository') AS repository,
-			substr(q.prompt, -${REPLY_EXAMPLE_AGENT_TAIL_CHARS}) AS agent_tail,
-			substr(r.body, 1, ${REPLY_EXAMPLE_REPLY_CHARS}) AS reply_body,
-			json_extract(r.metadata, '$.replyClass') AS reply_class,
-			json_extract(r.metadata, '$.draftOutcome') AS draft_outcome,
-			json_extract(r.metadata, '$.source') AS answer_source
-		FROM (
-			SELECT w.id, w.org_id, w.target_id, w.created_at, w.prompt, w.metadata
-			FROM work_interactions w
-			WHERE w.org_id = ${p.orgId}
-				AND w.target_type = 'user'
-				AND w.target_id = ${p.targetUserId}
-				AND w.status = 'resolved'
-				AND w.kind = 'question'
-				AND w.id <> ${p.excludeInteractionId}
-				AND json_extract(w.metadata, '$.schema') = ${DECISION_CAPTURE_SCHEMA}
-			ORDER BY w.created_at DESC, w.id DESC
-			LIMIT ${REPLY_EXAMPLE_CANDIDATE_LIMIT}
-		) q
-		JOIN work_interaction_responses r
-			ON r.org_id = q.org_id
-			AND r.interaction_id = q.id
-			AND r.resolves_request = 1
-			AND r.responder_type = 'user'
-			AND r.responder_id = q.target_id
-		WHERE json_extract(r.metadata, '$.source') IN (${sources})
-			AND coalesce(json_extract(r.metadata, '$.draftOutcome'), '') <> 'auto-sent'
-			AND length(trim(r.body)) > 0
-		ORDER BY
-			CASE WHEN ${repository} IS NOT NULL AND json_extract(q.metadata, '$.repository') = ${repository} THEN 0 ELSE 1 END,
-			CASE WHEN json_extract(r.metadata, '$.draftOutcome') IN ('replaced', 'edited') THEN 0 ELSE 1 END,
-			q.created_at DESC,
-			q.id DESC
-		LIMIT ${limit}
-	`);
+	const q = db
+		.select({
+			id: workInteractions.id,
+			orgId: workInteractions.orgId,
+			targetId: workInteractions.targetId,
+			createdAt: workInteractions.createdAt,
+			prompt: workInteractions.prompt,
+			metadata: workInteractions.metadata,
+		})
+		.from(workInteractions)
+		.where(
+			and(
+				eq(workInteractions.orgId, p.orgId),
+				eq(workInteractions.targetType, "user"),
+				eq(workInteractions.targetId, p.targetUserId),
+				eq(workInteractions.status, "resolved"),
+				eq(workInteractions.kind, "question"),
+				ne(workInteractions.id, p.excludeInteractionId),
+				sql`json_extract(${workInteractions.metadata}, '$.schema') = ${DECISION_CAPTURE_SCHEMA}`,
+			),
+		)
+		.orderBy(desc(workInteractions.createdAt), desc(workInteractions.id))
+		.limit(REPLY_EXAMPLE_CANDIDATE_LIMIT)
+		.as("q");
+	const r = workInteractionResponses;
+	const rows: ReplyExampleRow[] = await db
+		.select({
+			interaction_id: q.id,
+			created_at: q.createdAt,
+			repository: sql<
+				string | null
+			>`json_extract(${q.metadata}, '$.repository')`.as("repository"),
+			agent_tail:
+				sql<string>`substr(${q.prompt}, -${REPLY_EXAMPLE_AGENT_TAIL_CHARS})`.as(
+					"agent_tail",
+				),
+			reply_body:
+				sql<string>`substr(${r.body}, 1, ${REPLY_EXAMPLE_REPLY_CHARS})`.as(
+					"reply_body",
+				),
+			reply_class: sql<
+				string | null
+			>`json_extract(${r.metadata}, '$.replyClass')`.as("reply_class"),
+			draft_outcome: sql<
+				string | null
+			>`json_extract(${r.metadata}, '$.draftOutcome')`.as("draft_outcome"),
+			answer_source: sql<string>`json_extract(${r.metadata}, '$.source')`.as(
+				"answer_source",
+			),
+		})
+		.from(q)
+		.innerJoin(
+			r,
+			and(
+				eq(r.orgId, q.orgId),
+				eq(r.interactionId, q.id),
+				eq(r.resolvesRequest, true),
+				eq(r.responderType, "user"),
+				eq(r.responderId, q.targetId),
+			),
+		)
+		.where(
+			and(
+				inArray(sql`json_extract(${r.metadata}, '$.source')`, [
+					...USER_ANSWER_SOURCES,
+				]),
+				sql`coalesce(json_extract(${r.metadata}, '$.draftOutcome'), '') <> 'auto-sent'`,
+				sql`length(trim(${r.body})) > 0`,
+			),
+		)
+		.orderBy(
+			sql`CASE WHEN ${repository} IS NOT NULL AND json_extract(${q.metadata}, '$.repository') = ${repository} THEN 0 ELSE 1 END`,
+			sql`CASE WHEN json_extract(${r.metadata}, '$.draftOutcome') IN ('replaced', 'edited') THEN 0 ELSE 1 END`,
+			desc(q.createdAt),
+			desc(q.id),
+		)
+		.limit(limit);
 	return rows.map((row) => ({
 		interactionId: row.interaction_id,
 		createdAt: row.created_at,

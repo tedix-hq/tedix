@@ -1,5 +1,8 @@
-import { sql } from "drizzle-orm";
+import { and, eq, notExists, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../client";
+import { auditEvents } from "../schema/audit-events";
+import { tediRuntimeEvents } from "../schema/cognitive-runtime";
 import { insertAuditEvent } from "./audit";
 
 const ATTEMPT_ACTION = "tedi.runtime.orphan_cleanup_attempt";
@@ -16,32 +19,91 @@ export type OrphanWorkflowCleanup = {
 };
 const receiptId = (id: string) => `orphan-native-confirmed:${id}`;
 
-function candidates(now: Date, terminalEventId?: string, limit = 20) {
-	return sql`
- SELECT e.id AS terminalEventId, e.organization_id AS organizationId,
- e.tedi_id AS tediId, e.run_id AS runId, e.created_at AS sealedAt
- FROM tedi_runtime_events e
- WHERE e.kind = 'run.failed' AND e.runtime_backend = 'cloudflare-agents'
- AND e.created_at <= ${now.toISOString()}
- AND json_extract(e.runtime_metadata, '$.source') = 'scheduled.sweepOrphanRuns'
- AND json_extract(e.runtime_metadata, '$.reason') = 'runtime_dropped'
- AND e.run_id LIKE e.tedi_id || ':mcp:%'
- ${terminalEventId ? sql`AND e.id = ${terminalEventId}` : sql``}
- AND NOT EXISTS (SELECT 1 FROM audit_events done
-   WHERE done.id = 'orphan-native-confirmed:' || e.id
-   AND done.organization_id = e.organization_id AND done.action = ${CONFIRMED_ACTION})
- AND NOT EXISTS (SELECT 1 FROM audit_events attempted
-   WHERE attempted.organization_id = e.organization_id AND attempted.resource_type = ${RESOURCE}
-   AND attempted.resource_id = e.id AND attempted.action = ${ATTEMPT_ACTION}
-   AND attempted.timestamp > ${Math.floor((now.getTime() - RETRY_MS) / 1000)})
- AND NOT EXISTS (SELECT 1 FROM tedi_runtime_events newer
-   WHERE newer.organization_id = e.organization_id AND newer.tedi_id = e.tedi_id
-   AND newer.run_id = e.run_id AND newer.created_at >= e.created_at
-   AND newer.kind IN ('run.started', 'run.completed', 'run.canceled'))
- ORDER BY COALESCE((SELECT MAX(prior.timestamp) FROM audit_events prior
-   WHERE prior.organization_id = e.organization_id AND prior.resource_type = ${RESOURCE}
-   AND prior.resource_id = e.id AND prior.action = ${ATTEMPT_ACTION}), 0),
- e.created_at, e.id LIMIT ${Math.min(Math.max(limit, 1), 20)}`;
+function candidates(
+	db: DbClient,
+	now: Date,
+	terminalEventId?: string,
+	limit = 20,
+) {
+	const e = alias(tediRuntimeEvents, "e");
+	const done = alias(auditEvents, "done");
+	const attempted = alias(auditEvents, "attempted");
+	const newer = alias(tediRuntimeEvents, "newer");
+	const prior = alias(auditEvents, "prior");
+	const one = { one: sql`1` };
+	const lastAttempt = db
+		.select({ lastAttempt: sql`MAX(${prior.timestamp})` })
+		.from(prior)
+		.where(
+			and(
+				eq(prior.organizationId, e.organizationId),
+				eq(prior.resourceType, RESOURCE),
+				eq(prior.resourceId, e.id),
+				eq(prior.action, ATTEMPT_ACTION),
+			),
+		);
+	return db
+		.select({
+			terminalEventId: sql<string>`${e.id}`.as("terminalEventId"),
+			organizationId: sql<string>`${e.organizationId}`.as("organizationId"),
+			tediId: sql<string>`${e.tediId}`.as("tediId"),
+			runId: sql<string>`${e.runId}`.as("runId"),
+			sealedAt: sql<string>`${e.createdAt}`.as("sealedAt"),
+		})
+		.from(e)
+		.where(
+			and(
+				sql`${e.kind} = 'run.failed'`,
+				sql`${e.runtimeBackend} = 'cloudflare-agents'`,
+				sql`${e.createdAt} <= ${now.toISOString()}`,
+				sql`json_extract(${e.runtimeMetadata}, '$.source') = 'scheduled.sweepOrphanRuns'`,
+				sql`json_extract(${e.runtimeMetadata}, '$.reason') = 'runtime_dropped'`,
+				sql`${e.runId} LIKE ${e.tediId} || ':mcp:%'`,
+				terminalEventId ? eq(e.id, terminalEventId) : undefined,
+				notExists(
+					db
+						.select(one)
+						.from(done)
+						.where(
+							and(
+								sql`${done.id} = 'orphan-native-confirmed:' || ${e.id}`,
+								eq(done.organizationId, e.organizationId),
+								eq(done.action, CONFIRMED_ACTION),
+							),
+						),
+				),
+				notExists(
+					db
+						.select(one)
+						.from(attempted)
+						.where(
+							and(
+								eq(attempted.organizationId, e.organizationId),
+								eq(attempted.resourceType, RESOURCE),
+								eq(attempted.resourceId, e.id),
+								eq(attempted.action, ATTEMPT_ACTION),
+								sql`${attempted.timestamp} > ${Math.floor((now.getTime() - RETRY_MS) / 1000)}`,
+							),
+						),
+				),
+				notExists(
+					db
+						.select(one)
+						.from(newer)
+						.where(
+							and(
+								eq(newer.organizationId, e.organizationId),
+								eq(newer.tediId, e.tediId),
+								eq(newer.runId, e.runId),
+								sql`${newer.createdAt} >= ${e.createdAt}`,
+								sql`${newer.kind} IN ('run.started', 'run.completed', 'run.canceled')`,
+							),
+						),
+				),
+			),
+		)
+		.orderBy(sql`COALESCE(${lastAttempt}, 0)`, e.createdAt, e.id)
+		.limit(Math.min(Math.max(limit, 1), 20));
 }
 
 /** Fleet maintenance uses existing sweep terminal rows as its durable queue. */
@@ -49,7 +111,7 @@ export async function listPendingOrphanWorkflowCleanups(
 	db: DbClient,
 	now = new Date(),
 ) {
-	return db.all<OrphanWorkflowCleanup>(candidates(now));
+	return candidates(db, now);
 }
 
 /** Claim and eligibility recheck are one D1 statement; overlapping ticks cannot double-claim. */
@@ -59,12 +121,36 @@ export async function claimOrphanWorkflowCleanup(
 	now = new Date(),
 ) {
 	const id = `orphan-native-attempt:${Math.floor(now.getTime() / RETRY_MS)}:${item.terminalEventId}`;
-	const rows = await db.all<{ id: string }>(sql`
- INSERT INTO audit_events (id, organization_id, actor_id, actor_type, action, resource_type, resource_id, timestamp)
- SELECT ${id}, c.organizationId, 'scheduled.orphan-cleanup', 'service', ${ATTEMPT_ACTION}, ${RESOURCE}, c.terminalEventId, ${Math.floor(now.getTime() / 1000)}
- FROM (${candidates(now, item.terminalEventId, 1)}) c
- WHERE c.organizationId = ${item.organizationId} AND c.tediId = ${item.tediId} AND c.runId = ${item.runId} AND c.sealedAt = ${item.sealedAt}
- ON CONFLICT(id) DO NOTHING RETURNING id`);
+	const c = candidates(db, now, item.terminalEventId, 1).as("c");
+	const rows = await db
+		.insert(auditEvents)
+		.select(
+			db
+				.select({
+					id: sql<string>`${id}`.as("id"),
+					organizationId: c.organizationId,
+					actorId: sql<string>`'scheduled.orphan-cleanup'`.as("actor_id"),
+					actorType: sql<"service">`'service'`.as("actor_type"),
+					action: sql<string>`${ATTEMPT_ACTION}`.as("action"),
+					resourceType: sql<string>`${RESOURCE}`.as("resource_type"),
+					resourceId: c.terminalEventId,
+					// Epoch seconds, bound raw like the column's stored form.
+					timestamp: sql<Date>`${Math.floor(now.getTime() / 1000)}`.as(
+						"timestamp",
+					),
+				})
+				.from(c)
+				.where(
+					and(
+						eq(c.organizationId, item.organizationId),
+						eq(c.tediId, item.tediId),
+						eq(c.runId, item.runId),
+						eq(c.sealedAt, item.sealedAt),
+					),
+				),
+		)
+		.onConflictDoNothing({ target: auditEvents.id })
+		.returning({ id: auditEvents.id });
 	return rows.length === 1;
 }
 

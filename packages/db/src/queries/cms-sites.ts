@@ -1,11 +1,13 @@
 import {
 	and,
+	count,
 	eq,
 	exists,
 	inArray,
 	isNotNull,
 	isNull,
 	notExists,
+	or,
 	sql,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
@@ -346,22 +348,29 @@ export async function activateCmsSiteAfterMedia(
 	db: DbQueryClient,
 	input: { siteId: string; slug: string },
 ): Promise<CmsSite | null> {
-	const rows = await db.all<{ id: string }>(sql`
-		UPDATE cms_sites AS site
-		SET status = 'active', updated_at = datetime('now')
-		WHERE site.id = ${input.siteId}
-			AND site.slug = ${input.slug}
-			AND site.status = 'provisioning'
-			AND NOT EXISTS (
-				SELECT 1 FROM cms_restore_fences AS fence
-				WHERE fence.site_id = site.id
-			)
-			AND NOT EXISTS (
-				SELECT 1 FROM cms_deprovision_operations AS operation
-				WHERE operation.id = site.id
-			)
-		RETURNING id
-	`);
+	const rows = await db
+		.update(cmsSites)
+		.set({ status: "active", updatedAt: sql`datetime('now')` })
+		.where(
+			and(
+				eq(cmsSites.id, input.siteId),
+				eq(cmsSites.slug, input.slug),
+				eq(cmsSites.status, "provisioning"),
+				notExists(
+					db
+						.select({ one: sql`1` })
+						.from(cmsRestoreFences)
+						.where(eq(cmsRestoreFences.siteId, cmsSites.id)),
+				),
+				notExists(
+					db
+						.select({ one: sql`1` })
+						.from(cmsDeprovisionOperations)
+						.where(eq(cmsDeprovisionOperations.id, cmsSites.id)),
+				),
+			),
+		)
+		.returning({ id: cmsSites.id });
 	if (rows.length !== 1) return null;
 	return getCmsSiteBySlug(db, input.slug);
 }
@@ -403,23 +412,49 @@ export async function registerCmsSiteWithinQuota(
 ): Promise<CmsSite | null> {
 	if (!Number.isSafeInteger(maxCmsSites) || maxCmsSites < -1)
 		throw new Error("CMS site quota must be -1 or a non-negative integer");
-	const inserted = await db.all<{ id: string }>(sql`
-		INSERT INTO cms_sites (
-			id, organization_id, slug, name, canonical_url,
-			custom_domain, template_slug, config, authoring_app_id, status
+	// COUNT(*) without GROUP BY yields exactly one row, so the insert reads one
+	// candidate row that the quota predicate keeps or drops.
+	const quota = db
+		.select({ siteCount: count().as("site_count") })
+		.from(cmsSites)
+		.where(eq(cmsSites.organizationId, input.organizationId))
+		.as("quota");
+	const inserted = await db
+		.insert(cmsSites)
+		.select(
+			db
+				.select({
+					id: sql<string>`${input.id}`.as("id"),
+					organizationId: sql<string>`${input.organizationId}`.as(
+						"organization_id",
+					),
+					slug: sql<string>`${input.slug}`.as("slug"),
+					name: sql<string>`${input.name}`.as("name"),
+					canonicalUrl: sql<string>`${input.canonicalUrl}`.as("canonical_url"),
+					customDomain: sql<string | null>`${input.customDomain ?? null}`.as(
+						"custom_domain",
+					),
+					templateSlug: sql<string>`${input.templateSlug ?? "tedix"}`.as(
+						"template_slug",
+					),
+					config: sql<string | null>`${
+						input.config ? JSON.stringify(input.config) : null
+					}`.as("config"),
+					authoringAppId: sql<
+						string | null
+					>`${input.authoringAppId ?? null}`.as("authoring_app_id"),
+					status: sql<string>`${input.status ?? "active"}`.as("status"),
+				})
+				.from(quota)
+				.where(
+					or(
+						sql`${maxCmsSites} = -1`,
+						sql`${quota.siteCount} < ${maxCmsSites}`,
+					),
+				),
 		)
-		SELECT ${input.id}, ${input.organizationId}, ${input.slug},
-			${input.name}, ${input.canonicalUrl}, ${input.customDomain ?? null},
-			${input.templateSlug ?? "tedix"},
-			${input.config ? JSON.stringify(input.config) : null},
-			${input.authoringAppId ?? null}, ${input.status ?? "active"}
-		WHERE ${maxCmsSites} = -1 OR (
-			SELECT COUNT(*) FROM cms_sites
-			WHERE organization_id = ${input.organizationId}
-		) < ${maxCmsSites}
-		ON CONFLICT(slug) DO NOTHING
-		RETURNING id
-	`);
+		.onConflictDoNothing({ target: cmsSites.slug })
+		.returning({ id: cmsSites.id });
 	return inserted.length ? getCmsSiteBySlug(db, input.slug) : null;
 }
 

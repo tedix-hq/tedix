@@ -1,5 +1,6 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../../client";
 import {
 	type ExternalAgentAttribution,
@@ -47,38 +48,65 @@ export async function recordVerifiedExternalAgentMcpExecution(
 			verifier: "tedix",
 		},
 	};
-	const inserted = (await db.all(sql`
-		INSERT INTO ${externalAgentAttributions} (
-			id, organization_id, principal_id, session_id, target_type,
-			target_id, role, work_item_id, metadata, occurred_at
+	const authorizedCredential = alias(
+		externalAgentMcpCredentials,
+		"authorized_credential",
+	);
+	const authorizedSession = alias(externalAgentSessions, "authorized_session");
+	const inserted = await db
+		.insert(externalAgentAttributions)
+		.select(
+			db
+				.select({
+					id: sql<string>`${input.id}`.as("id"),
+					organizationId: sql<string>`${input.organizationId}`.as(
+						"organization_id",
+					),
+					principalId: sql<string>`${input.principalId}`.as("principal_id"),
+					sessionId: sql<string>`${input.sessionId}`.as("session_id"),
+					targetType: sql<"mcp_execution">`'mcp_execution'`.as("target_type"),
+					targetId: sql<string>`${input.targetId}`.as("target_id"),
+					role: sql<"executor">`'executor'`.as("role"),
+					workItemId: sql<null>`NULL`.as("work_item_id"),
+					metadata: sql<
+						Record<string, JsonValue>
+					>`${JSON.stringify(metadata)}`.as("metadata"),
+					occurredAt: sql<string>`${input.occurredAt}`.as("occurred_at"),
+				})
+				.from(authorizedCredential)
+				.innerJoin(
+					authorizedSession,
+					and(
+						eq(
+							authorizedSession.organizationId,
+							authorizedCredential.organizationId,
+						),
+						eq(authorizedSession.principalId, authorizedCredential.principalId),
+						eq(authorizedSession.id, authorizedCredential.sessionId),
+					),
+				)
+				.where(
+					and(
+						eq(authorizedCredential.organizationId, input.organizationId),
+						eq(authorizedCredential.principalId, input.principalId),
+						eq(authorizedCredential.sessionId, input.sessionId),
+						eq(authorizedCredential.clientRecordId, input.clientRecordId),
+						lte(authorizedCredential.issuedAt, input.occurredAt),
+						gte(authorizedCredential.expiresAt, input.occurredAt),
+						or(
+							isNull(authorizedCredential.revokedAt),
+							gte(authorizedCredential.revokedAt, input.occurredAt),
+						),
+						lte(authorizedSession.startedAt, input.occurredAt),
+						or(
+							isNull(authorizedSession.endedAt),
+							gte(authorizedSession.endedAt, input.occurredAt),
+						),
+					),
+				),
 		)
-		SELECT
-			${input.id}, ${input.organizationId}, ${input.principalId},
-			${input.sessionId}, 'mcp_execution', ${input.targetId}, 'executor',
-			NULL, ${JSON.stringify(metadata)}, ${input.occurredAt}
-		FROM ${externalAgentMcpCredentials} AS authorized_credential
-		JOIN ${externalAgentSessions} AS authorized_session
-			ON authorized_session.organization_id = authorized_credential.organization_id
-			AND authorized_session.principal_id = authorized_credential.principal_id
-			AND authorized_session.id = authorized_credential.session_id
-		WHERE authorized_credential.organization_id = ${input.organizationId}
-			AND authorized_credential.principal_id = ${input.principalId}
-			AND authorized_credential.session_id = ${input.sessionId}
-			AND authorized_credential.client_record_id = ${input.clientRecordId}
-			AND authorized_credential.issued_at <= ${input.occurredAt}
-			AND authorized_credential.expires_at >= ${input.occurredAt}
-			AND (
-				authorized_credential.revoked_at IS NULL
-				OR authorized_credential.revoked_at >= ${input.occurredAt}
-			)
-			AND authorized_session.started_at <= ${input.occurredAt}
-			AND (
-				authorized_session.ended_at IS NULL
-				OR authorized_session.ended_at >= ${input.occurredAt}
-			)
-		ON CONFLICT DO NOTHING
-		RETURNING id
-	`)) as Array<{ id: string }>;
+		.onConflictDoNothing()
+		.returning({ id: externalAgentAttributions.id });
 	if (inserted[0]) {
 		const created = await db
 			.select()

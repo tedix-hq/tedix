@@ -3,6 +3,7 @@ import { ExternalAgentPlatformSchema } from "@tedix/api-contract/schemas/externa
 import { organizationMembers } from "../../schema/organization-members";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, desc, eq, getColumns, inArray, ne, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../../client";
 import type { DbQueryClient } from "../../query-client";
 import { apiKeys } from "../../schema/api-keys";
@@ -159,24 +160,49 @@ export async function createExternalAgentPrincipal(
 				"binding_conflict",
 				"Representation requires a canonical human user id",
 			);
-		const inserted = await db.all(sql`
-			INSERT INTO ${externalAgentPrincipals} (
-				id, organization_id, key, display_name, status,
-				credential_binding_type, credential_binding_id, created_by_type,
-				created_by_id, metadata, created_at, updated_at
+		const representedPerson = alias(organizationMembers, "represented_person");
+		const inserted = await db
+			.insert(externalAgentPrincipals)
+			.select(
+				db
+					.select({
+						id: sql<string>`${input.id}`.as("id"),
+						organizationId: sql<string>`${input.organizationId}`.as(
+							"organization_id",
+						),
+						key: sql<string>`${input.key}`.as("key"),
+						displayName: sql<string>`${input.displayName}`.as("display_name"),
+						status: sql<"active">`'active'`.as("status"),
+						credentialBindingType: sql<
+							typeof input.credentialBindingType
+						>`${input.credentialBindingType}`.as("credential_binding_type"),
+						credentialBindingId: sql<string>`${input.credentialBindingId}`.as(
+							"credential_binding_id",
+						),
+						createdByType: sql<
+							typeof input.createdByType
+						>`${input.createdByType}`.as("created_by_type"),
+						createdById: sql<string>`${input.createdById}`.as("created_by_id"),
+						metadata: sql<
+							Record<string, JsonValue>
+						>`${JSON.stringify(input.metadata)}`.as("metadata"),
+						createdAt: sql<string>`${input.createdAt}`.as("created_at"),
+						updatedAt: sql<string>`${input.createdAt}`.as("updated_at"),
+					})
+					.from(representedPerson)
+					.where(
+						and(
+							eq(representedPerson.organizationId, input.organizationId),
+							eq(representedPerson.userId, representedUserId),
+							eq(representedPerson.status, "active"),
+							eq(representedPerson.kind, "human"),
+							inArray(representedPerson.role, ["owner", "admin", "member"]),
+						),
+					)
+					.limit(1),
 			)
-			SELECT ${input.id}, ${input.organizationId}, ${input.key}, ${input.displayName}, 'active',
-				${input.credentialBindingType}, ${input.credentialBindingId}, ${input.createdByType},
-				${input.createdById}, ${JSON.stringify(input.metadata)}, ${input.createdAt}, ${input.createdAt}
-			FROM ${organizationMembers} AS represented_person
-			WHERE represented_person.organization_id = ${input.organizationId}
-				AND represented_person.user_id = ${representedUserId}
-				AND represented_person.status = 'active'
-				AND represented_person.kind = 'human'
-				AND represented_person.role IN ('owner', 'admin', 'member')
-			LIMIT 1
-			ON CONFLICT DO NOTHING RETURNING id
-		`);
+			.onConflictDoNothing()
+			.returning({ id: externalAgentPrincipals.id });
 		if (inserted.length)
 			return (await getExternalAgentPrincipal(db, {
 				organizationId: input.organizationId,

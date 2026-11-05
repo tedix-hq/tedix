@@ -1,6 +1,26 @@
-import { and, desc, eq, sql, type SQL } from "drizzle-orm";
+import {
+	and,
+	desc,
+	eq,
+	exists,
+	inArray,
+	isNull,
+	or,
+	sql,
+	type SQL,
+} from "drizzle-orm";
+import { alias, union } from "drizzle-orm/sqlite-core";
 import type { DbQueryClient } from "../../query-client";
-import { memoryFacts, type MemoryFact } from "../../schema/memory-graph";
+import {
+	memoryEntities,
+	memoryEntityMentions,
+	memoryEntityResolutions,
+} from "../../schema/memory-entities";
+import {
+	memoryEdges,
+	memoryFacts,
+	type MemoryFact,
+} from "../../schema/memory-graph";
 import { prefixedColumns } from "../../utils/select";
 import { filterEvidenceBackedLessons } from "./agent-lessons";
 
@@ -124,26 +144,89 @@ export async function graphRecall(
 	if (!terms.length) return [];
 	// Resolve entities from the query, then traverse one fact edge from their
 	// accepted mentions. Every hop independently fences organization ownership.
-	const matched = sql`WITH seeds AS (
-		SELECT DISTINCT m.source_fact_id AS fact_id FROM memory_entities ent
-		JOIN memory_entity_resolutions r ON r.entity_id = ent.id AND r.organization_id = ${scope.orgId} AND r.status = 'active' AND r.valid_to IS NULL
-		JOIN memory_entity_mentions m ON m.id = r.mention_id AND m.organization_id = ${scope.orgId}
-		JOIN memory_facts seed ON seed.id = m.source_fact_id AND seed.organization_id = ${scope.orgId}
-		WHERE ent.organization_id = ${scope.orgId} AND ent.status = 'active'
-		AND EXISTS (SELECT 1 FROM ${memoryFacts} WHERE ${memoryFacts.id} = seed.id AND ${eligible({ ...scope, domainIds: undefined, factTypes: undefined, includeGraphAnchors: true, minConfidence: 0 })})
-		AND instr(${` ${terms.join(" ")} `}, ' ' || ent.normalized_name || ' ') > 0
-		LIMIT 40
-	) SELECT fact_id FROM seeds UNION SELECT CASE WHEN e.source_fact_id = seeds.fact_id THEN e.target_fact_id ELSE e.source_fact_id END AS fact_id
-	FROM seeds JOIN memory_edges e ON e.source_fact_id = seeds.fact_id OR e.target_fact_id = seeds.fact_id`;
-	return db
-		.select({
-			factId: sql<string>`${memoryFacts.id}`.as("graph_fact_id"),
-			score: sql<number>`${memoryFacts.confidence}`.as("graph_score"),
-		})
-		.from(sql`${memoryFacts} INDEXED BY sqlite_autoindex_memory_facts_1`)
-		.where(and(eligible(scope), sql`${memoryFacts.id} IN (${matched})`))
-		.orderBy(desc(memoryFacts.confidence), memoryFacts.id)
-		.limit(40);
+	const ent = memoryEntities;
+	const r = memoryEntityResolutions;
+	const m = memoryEntityMentions;
+	const seed = alias(memoryFacts, "seed");
+	const e = alias(memoryEdges, "e");
+	// Status literals stay inline so the partial active-resolution index applies.
+	const seeds = db.$with("seeds").as(
+		db
+			.selectDistinct({
+				factId: sql<string>`${m.sourceFactId}`.as("fact_id"),
+			})
+			.from(ent)
+			.innerJoin(
+				r,
+				and(
+					eq(r.entityId, ent.id),
+					eq(r.organizationId, scope.orgId),
+					sql`${r.status} = 'active'`,
+					isNull(r.validTo),
+				),
+			)
+			.innerJoin(
+				m,
+				and(eq(m.id, r.mentionId), eq(m.organizationId, scope.orgId)),
+			)
+			.innerJoin(
+				seed,
+				and(eq(seed.id, m.sourceFactId), eq(seed.organizationId, scope.orgId)),
+			)
+			.where(
+				and(
+					eq(ent.organizationId, scope.orgId),
+					sql`${ent.status} = 'active'`,
+					exists(
+						db
+							.select({ one: sql`1` })
+							.from(memoryFacts)
+							.where(
+								and(
+									eq(memoryFacts.id, seed.id),
+									eligible({
+										...scope,
+										domainIds: undefined,
+										factTypes: undefined,
+										includeGraphAnchors: true,
+										minConfidence: 0,
+									}),
+								),
+							),
+					),
+					sql`instr(${` ${terms.join(" ")} `}, ' ' || ${ent.normalizedName} || ' ') > 0`,
+				),
+			)
+			.limit(40),
+	);
+	const matched = union(
+		db.select({ factId: seeds.factId }).from(seeds),
+		db
+			.select({
+				factId:
+					sql<string>`CASE WHEN ${e.sourceFactId} = ${seeds.factId} THEN ${e.targetFactId} ELSE ${e.sourceFactId} END`.as(
+						"fact_id",
+					),
+			})
+			.from(seeds)
+			.innerJoin(
+				e,
+				or(eq(e.sourceFactId, seeds.factId), eq(e.targetFactId, seeds.factId)),
+			),
+	);
+	return (
+		db
+			.with(seeds)
+			.select({
+				factId: sql<string>`${memoryFacts.id}`.as("graph_fact_id"),
+				score: sql<number>`${memoryFacts.confidence}`.as("graph_score"),
+			})
+			.from(sql`${memoryFacts} INDEXED BY sqlite_autoindex_memory_facts_1`)
+			// bound-params: matched is a subquery, not a bound list.
+			.where(and(eligible(scope), inArray(memoryFacts.id, matched)))
+			.orderBy(desc(memoryFacts.confidence), memoryFacts.id)
+			.limit(40)
+	);
 }
 
 export interface RecallWindow {
@@ -373,6 +456,7 @@ export async function backfillFactSearch(
 	orgId: string,
 	limit = 500,
 ): Promise<number> {
+	// Stays raw: FTS5 shadow tables and changes() reads have no Drizzle builder.
 	const results = await db.batch([
 		db.run(sql`INSERT OR REPLACE INTO memory_fact_fts(rowid, fact_id, organization_id, text, entity_names)
 		SELECT rowid, fact_id, organization_id, text, entity_names FROM memory_fact_search_documents d

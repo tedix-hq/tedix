@@ -65,6 +65,7 @@ export async function getBrainProducerQuality(
 	const since = new Date(
 		Date.now() - windowDays * 24 * 60 * 60 * 1000,
 	).toISOString();
+	// Stays raw: cited_fact_ids walks rationale evidence with json_tree().
 	const rows = await db.all<BrainProducerQualityRow>(
 		sql`WITH facts AS (
 			SELECT

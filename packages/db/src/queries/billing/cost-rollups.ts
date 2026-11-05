@@ -237,6 +237,7 @@ export async function listCostRollupDaysToBuild(
 	const lookbackDays = Math.max(1, Math.floor(options.lookbackDays ?? 35));
 	const boundedLimit = Math.max(0, Math.floor(limit));
 	if (boundedLimit === 0) return [];
+	// Raw: the day series is a recursive CTE, which Drizzle builders cannot express.
 	return db.all<{ organizationId: string; day: string }>(sql`
 		WITH RECURSIVE days(day) AS (
 			SELECT date(${today}, '-1 day')

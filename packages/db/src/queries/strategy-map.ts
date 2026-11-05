@@ -20,8 +20,12 @@
  *   learning stage  →  process stage  →  outcome stage
  */
 
-import { sql } from "drizzle-orm";
+import { and, eq, gte, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
+import { alias, unionAll } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../client";
+import { skillUsageEvents } from "../schema/cognitive";
+import { memoryFacts } from "../schema/memory-graph";
+import { tediRationaleRecords } from "../schema/rationale-records";
 import { skillReusePriorEventSql } from "./flywheel/compounding-signals";
 import type { FlywheelAccess } from "./flywheel/learning-curves";
 import { evidenceReferencesFactsSql } from "./flywheel/evidence-references-facts";
@@ -488,68 +492,119 @@ export async function getStrategyMapValidation(
 	);
 	const sinceIso = since.toISOString();
 
+	const usage = alias(skillUsageEvents, "usage");
+	const factScope = and(
+		eq(memoryFacts.organizationId, access.orgId),
+		or(eq(memoryFacts.tediId, access.tediId), isNull(memoryFacts.tediId)),
+	);
+	const consolidatedAt = sql<string>`COALESCE(${memoryFacts.archivedAt}, ${memoryFacts.validTo})`;
+	const factEvents = unionAll(
+		db
+			.select({
+				day: sql<string>`date(${memoryFacts.createdAt})`.as("day"),
+				created: sql<number>`count(*)`.as("created"),
+				consolidated: sql<number>`0`.as("consolidated"),
+			})
+			.from(memoryFacts)
+			.where(and(factScope, gte(memoryFacts.createdAt, sinceIso)))
+			.groupBy(sql`date(${memoryFacts.createdAt})`),
+		db
+			.select({
+				day: sql<string>`date(${consolidatedAt})`.as("day"),
+				created: sql<number>`0`.as("created"),
+				consolidated: sql<number>`count(*)`.as("consolidated"),
+			})
+			.from(memoryFacts)
+			.where(and(factScope, gte(consolidatedAt, sinceIso)))
+			.groupBy(sql`date(${consolidatedAt})`),
+	).as("fact_events");
+
 	const [
 		skillUsageDaily,
 		decisionCreatedDaily,
 		decisionCompletedDaily,
 		factDaily,
 	] = await Promise.all([
-		db.all<SkillUsageDailyRow>(
-			sql`SELECT date(usage.created_at) AS day,
-					count(*) AS total,
-					sum(CASE WHEN ${skillReusePriorEventSql("usage")} THEN 1 ELSE 0 END) AS reused
-				FROM skill_usage_events usage
-				WHERE usage.tedi_id = ${access.tediId}
-					AND usage.organization_id = ${access.orgId}
-					AND usage.created_at >= ${sinceIso}
-				GROUP BY date(usage.created_at)`,
-		),
-		db.all<DecisionCreatedDailyRow>(
-			sql`SELECT date(created_at) AS day,
-					count(*) AS decisions,
-					sum(CASE WHEN run_id IS NOT NULL
-						OR work_item_id IS NOT NULL
-						OR (tool_call_refs IS NOT NULL AND json_valid(tool_call_refs)
-							AND json_array_length(tool_call_refs) > 0)
-						THEN 1 ELSE 0 END) AS linked,
-					sum(CASE WHEN ${evidenceReferencesFactsSql()} THEN 1 ELSE 0 END) AS cited
-				FROM tedi_rationale_records
-				WHERE tedi_id = ${access.tediId}
-					AND org_id = ${access.orgId}
-					AND created_at >= ${sinceIso}
-				GROUP BY date(created_at)`,
-		),
-		db.all<DecisionCompletedDailyRow>(
-			sql`SELECT date(completed_at) AS day,
-					count(*) AS completed,
-					sum(CASE WHEN outcome_status = 'success' THEN 1 ELSE 0 END) AS successes,
-					sum(CASE WHEN outcome_status = 'partial' THEN 1 ELSE 0 END) AS partials,
-					sum(CASE WHEN outcome_status = 'unverified' THEN 1 ELSE 0 END) AS unverified
-				FROM tedi_rationale_records
-				WHERE tedi_id = ${access.tediId}
-					AND org_id = ${access.orgId}
-					AND outcome_status != 'pending'
-					AND completed_at IS NOT NULL
-					AND completed_at >= ${sinceIso}
-				GROUP BY date(completed_at)`,
-		),
-		db.all<FactDailyRow>(
-			sql`SELECT day, sum(created) AS created, sum(consolidated) AS consolidated FROM (
-					SELECT date(created_at) AS day, count(*) AS created, 0 AS consolidated
-					FROM memory_facts
-					WHERE organization_id = ${access.orgId}
-						AND (tedi_id = ${access.tediId} OR tedi_id IS NULL)
-						AND created_at >= ${sinceIso}
-					GROUP BY date(created_at)
-					UNION ALL
-					SELECT date(COALESCE(archived_at, valid_to)) AS day, 0 AS created, count(*) AS consolidated
-					FROM memory_facts
-					WHERE organization_id = ${access.orgId}
-						AND (tedi_id = ${access.tediId} OR tedi_id IS NULL)
-						AND COALESCE(archived_at, valid_to) >= ${sinceIso}
-					GROUP BY date(COALESCE(archived_at, valid_to))
-				) GROUP BY day`,
-		),
+		db
+			.select({
+				day: sql<string>`date(${usage.createdAt})`.as("day"),
+				total: sql<number>`count(*)`.as("total"),
+				reused:
+					sql<number>`sum(CASE WHEN ${skillReusePriorEventSql(usage)} THEN 1 ELSE 0 END)`.as(
+						"reused",
+					),
+			})
+			.from(usage)
+			.where(
+				and(
+					eq(usage.tediId, access.tediId),
+					eq(usage.organizationId, access.orgId),
+					gte(usage.createdAt, sinceIso),
+				),
+			)
+			.groupBy(sql`date(${usage.createdAt})`),
+		db
+			.select({
+				day: sql<string>`date(${tediRationaleRecords.createdAt})`.as("day"),
+				decisions: sql<number>`count(*)`.as("decisions"),
+				linked:
+					sql<number>`sum(CASE WHEN ${tediRationaleRecords.runId} IS NOT NULL
+						OR ${tediRationaleRecords.workItemId} IS NOT NULL
+						OR (${tediRationaleRecords.toolCallRefs} IS NOT NULL AND json_valid(${tediRationaleRecords.toolCallRefs})
+							AND json_array_length(${tediRationaleRecords.toolCallRefs}) > 0)
+						THEN 1 ELSE 0 END)`.as("linked"),
+				cited:
+					sql<number>`sum(CASE WHEN ${evidenceReferencesFactsSql()} THEN 1 ELSE 0 END)`.as(
+						"cited",
+					),
+			})
+			.from(tediRationaleRecords)
+			.where(
+				and(
+					eq(tediRationaleRecords.tediId, access.tediId),
+					eq(tediRationaleRecords.orgId, access.orgId),
+					gte(tediRationaleRecords.createdAt, sinceIso),
+				),
+			)
+			.groupBy(sql`date(${tediRationaleRecords.createdAt})`),
+		db
+			.select({
+				day: sql<string>`date(${tediRationaleRecords.completedAt})`.as("day"),
+				completed: sql<number>`count(*)`.as("completed"),
+				successes:
+					sql<number>`sum(CASE WHEN ${tediRationaleRecords.outcomeStatus} = 'success' THEN 1 ELSE 0 END)`.as(
+						"successes",
+					),
+				partials:
+					sql<number>`sum(CASE WHEN ${tediRationaleRecords.outcomeStatus} = 'partial' THEN 1 ELSE 0 END)`.as(
+						"partials",
+					),
+				unverified:
+					sql<number>`sum(CASE WHEN ${tediRationaleRecords.outcomeStatus} = 'unverified' THEN 1 ELSE 0 END)`.as(
+						"unverified",
+					),
+			})
+			.from(tediRationaleRecords)
+			.where(
+				and(
+					eq(tediRationaleRecords.tediId, access.tediId),
+					eq(tediRationaleRecords.orgId, access.orgId),
+					ne(tediRationaleRecords.outcomeStatus, "pending"),
+					isNotNull(tediRationaleRecords.completedAt),
+					gte(tediRationaleRecords.completedAt, sinceIso),
+				),
+			)
+			.groupBy(sql`date(${tediRationaleRecords.completedAt})`),
+		db
+			.select({
+				day: factEvents.day,
+				created: sql<number>`sum(${factEvents.created})`.as("created"),
+				consolidated: sql<number>`sum(${factEvents.consolidated})`.as(
+					"consolidated",
+				),
+			})
+			.from(factEvents)
+			.groupBy(factEvents.day),
 	]);
 
 	return buildStrategyMapValidation({

@@ -1,4 +1,5 @@
-import { and, asc, eq, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import { union } from "drizzle-orm/sqlite-core";
 import type { DbQueryClient } from "../query-client";
 import {
 	kernelConversations,
@@ -16,35 +17,49 @@ export type EvictedKernelToolResult = Pick<
 	"id" | "objectKey" | "sha256" | "evictedAt"
 >;
 
-function retentionVictims(input: {
-	organizationId: string;
-	conversationId: string;
-	now: string;
-}) {
-	return sql`WITH ranked AS (
-		SELECT id,
-			ROW_NUMBER() OVER (ORDER BY created_at DESC, id DESC) AS keep_rank,
-			SUM(byte_size) OVER (
-				ORDER BY created_at DESC, id DESC
+function retentionVictims(
+	db: DbQueryClient,
+	input: {
+		organizationId: string;
+		conversationId: string;
+		now: string;
+	},
+) {
+	const conversation = and(
+		eq(kernelToolResults.organizationId, input.organizationId),
+		eq(kernelToolResults.conversationId, input.conversationId),
+		isNull(kernelToolResults.evictedAt),
+	);
+	const ranked = db
+		.select({
+			id: kernelToolResults.id,
+			keepRank:
+				sql<number>`ROW_NUMBER() OVER (ORDER BY ${kernelToolResults.createdAt} DESC, ${kernelToolResults.id} DESC)`.as(
+					"keep_rank",
+				),
+			runningBytes: sql<number>`SUM(${kernelToolResults.byteSize}) OVER (
+				ORDER BY ${kernelToolResults.createdAt} DESC, ${kernelToolResults.id} DESC
 				ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-			) AS running_bytes
-		FROM kernel_tool_results
-		WHERE organization_id = ${input.organizationId}
-			AND conversation_id = ${input.conversationId}
-			AND evicted_at IS NULL
-			AND expires_at > ${input.now}
-	), victims AS (
-		SELECT id FROM kernel_tool_results
-		WHERE organization_id = ${input.organizationId}
-			AND conversation_id = ${input.conversationId}
-			AND evicted_at IS NULL
-			AND expires_at <= ${input.now}
-		UNION
-		SELECT id FROM ranked
-		WHERE keep_rank > ${KERNEL_TOOL_RESULT_MAX_COUNT}
-			OR running_bytes > ${KERNEL_TOOL_RESULT_MAX_CONVERSATION_BYTES}
-	)
-	SELECT id FROM victims`;
+			)`.as("running_bytes"),
+		})
+		.from(kernelToolResults)
+		.where(and(conversation, gt(kernelToolResults.expiresAt, input.now)))
+		.as("ranked");
+	return union(
+		db
+			.select({ id: kernelToolResults.id })
+			.from(kernelToolResults)
+			.where(and(conversation, lte(kernelToolResults.expiresAt, input.now))),
+		db
+			.select({ id: ranked.id })
+			.from(ranked)
+			.where(
+				or(
+					gt(ranked.keepRank, KERNEL_TOOL_RESULT_MAX_COUNT),
+					gt(ranked.runningBytes, KERNEL_TOOL_RESULT_MAX_CONVERSATION_BYTES),
+				),
+			),
+	);
 }
 
 /** One D1 transaction: the insert must succeed before retention can commit. */
@@ -106,7 +121,8 @@ export async function insertKernelToolResultWithRetention(
 				eq(kernelToolResults.organizationId, input.organizationId),
 				eq(kernelToolResults.conversationId, input.conversationId),
 				isNull(kernelToolResults.evictedAt),
-				sql`${kernelToolResults.id} IN (${retentionVictims(input)})`,
+				// bound-params: retentionVictims is a subquery, not a bound list.
+				inArray(kernelToolResults.id, retentionVictims(db, input)),
 			),
 		)
 		.returning({
