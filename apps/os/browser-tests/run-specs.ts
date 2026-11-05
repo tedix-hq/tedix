@@ -1,5 +1,3 @@
-import { readdirSync } from "node:fs";
-import { warmFixtureModuleGraph } from "../dev/fixture-server-readiness";
 import { startFixtureServer } from "./fixture-server";
 import { runSharedFixtureSpecs } from "./shared-fixture-specs";
 import { shardSpecs } from "./spec-shards";
@@ -36,18 +34,6 @@ const seconds = (since: number) =>
 	`${((performance.now() - since) / 1000).toFixed(1)}s`;
 console.log(
 	`[run-specs] fixture server ${server.origin} ready in ${seconds(started)}`,
-);
-// Cold fixture entries discover dependencies while a neighbor spec runs: the
-// shared server then re-bundles and stalls or reloads pages it does not own.
-// Discover them now, while only this warmup page is connected.
-const warmed = performance.now();
-const fixtureEntries = readdirSync(new URL(".", import.meta.url))
-	.filter((name) => name.endsWith(".html"))
-	.sort()
-	.map((name) => `/browser-tests/${name}`);
-await warmFixtureModuleGraph(server.origin, fixtureEntries);
-console.log(
-	`[run-specs] warmed ${fixtureEntries.length} fixture entries in ${seconds(warmed)}`,
 );
 let results: Awaited<ReturnType<typeof runSharedFixtureSpecs>>;
 try {
