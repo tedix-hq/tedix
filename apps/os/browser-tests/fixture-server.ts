@@ -61,13 +61,11 @@ export async function startFixtureServer(
 	}
 	const port = fixturePort();
 	const origin = `http://127.0.0.1:${port}`;
-	// The fixture lane keeps its own optimize-deps store, so every suite pays a
-	// cold full-graph bundle before the first page can finish loading.
-	const deadline = performance.now() + 240_000;
+	const deadline = performance.now() + 90_000;
 	const remaining = () => {
 		const milliseconds = deadline - performance.now();
 		if (milliseconds <= 0)
-			throw new Error(`Fixture server ${origin}: not ready within 240000ms`);
+			throw new Error(`Fixture server ${origin}: not ready within 90000ms`);
 		return milliseconds;
 	};
 	const server = Bun.spawn(

@@ -35,19 +35,6 @@ const useRemoteWorker = devLane === "remote-worker";
 const useLocalWorker = devLane === "local-worker";
 const useLocalFixtures = devLane === "fixtures";
 
-// A `vp dev` that serves browser specs: fixture servers carry
-// TEDIX_BROWSER_FIXTURE, and spec children spawn their own dev servers with
-// the OS_FIXTURE_ORIGIN run-specs gave them. Up to three of these run at once
-// on one checkout, so each needs its own optimize-deps store: a re-bundle
-// rewrites every chunk's ?v= browserHash in the shared node_modules/.vite and
-// leaves another server's live pages holding URLs that now 504. The fixture
-// lane additionally runs with HMR off, so its pages cannot even reload out of
-// that state.
-const fixtureLane = process.env.TEDIX_BROWSER_FIXTURE === "1";
-const specOwnedServer =
-	!fixtureLane && process.env.OS_FIXTURE_ORIGIN !== undefined;
-const browserSpecServer = fixtureLane || specOwnedServer;
-
 // cloudflare.config.ts selects the lane's bindings from the same environment.
 // Builds always emit the Worker so `cf deploy --prebuilt` has a Build Output.
 const workerPlugin = () =>
@@ -94,25 +81,16 @@ export default defineConfig(async ({ command, mode, isPreview }) => {
 			tailwindcss(),
 			...(useLocalFixtures ? [localApiPlugin()] : []),
 		],
-		// Per spec server (see browserSpecServer): an optimize-deps store
-		// siblings cannot rewrite. In the fixture lane a scan of every fixture
-		// entry plus the routed app graph finishes discovery before spec pages
-		// connect, and serving a still-present stale chunk is safer than a 504
-		// a page cannot reload itself out of. Spec-owned servers keep today's
-		// entry inference: their pages can still reload when their own store
-		// re-bundles.
-		cacheDir: browserSpecServer
-			? `node_modules/.cache/vite-${process.pid}`
-			: "node_modules/.vite",
 		// Kumo also imports the barrel; rewriting only app source still eagerly
 		// initializes thousands of unused SVG weight maps on every navigation.
-		optimizeDeps: {
-			...(iconImports ? { rolldownOptions: { plugins: [iconImports] } } : {}),
-			...(fixtureLane
-				? { entries: ["index.html", "browser-tests/*.html"] }
-				: {}),
-			...(browserSpecServer ? { ignoreOutdatedRequests: true } : {}),
-		},
+		optimizeDeps: iconImports
+			? {
+					// Lazy routes introduce new leaves after startup; prebundle them
+					// together so discovery cannot invalidate an open page's imports.
+					include: ["@phosphor-icons/react/dist/csr/*"],
+					rolldownOptions: { plugins: [iconImports] },
+				}
+			: {},
 		define: {
 			__OS_BUILD_SHA__: JSON.stringify(buildSha),
 			__API_URL__: JSON.stringify(buildConfig.API_URL),
@@ -156,10 +134,10 @@ export default defineConfig(async ({ command, mode, isPreview }) => {
 		server: {
 			port: 3010,
 			// Ignore file events during browser checks; watch:null also disables Vite's resolver cache.
-			watch: browserSpecServer ? { ignored: () => true } : undefined,
-			// Specs own every navigation: a late-discovered dependency otherwise
-			// re-bundles and full-reloads every connected page mid-interaction.
-			hmr: fixtureLane ? false : undefined,
+			watch:
+				process.env.TEDIX_BROWSER_FIXTURE === "1"
+					? { ignored: () => true }
+					: undefined,
 			allowedHosts: [
 				"localhost",
 				".localhost",
