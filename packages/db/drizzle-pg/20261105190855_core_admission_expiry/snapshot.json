@@ -1,0 +1,43 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "e2b7e118-7b57-4078-8aed-77b35b59cd2b",
+  "prevIds": [
+    "117501f8-a32d-4cc0-a92e-e483c331df95"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_check",
+      "statementTarget": [
+        "table",
+        "public",
+        "work_admissions"
+      ],
+      "writes": [
+        "s|ck|public.work_admissions.chk_work_admission_expiry",
+        "n|ck|public.work_admissions.chk_work_admission_expiry",
+        "e|ck|public.work_admissions.chk_work_admission_expiry",
+        "n|con|public.work_admissions.chk_work_admission_expiry"
+      ],
+      "reads": [
+        "n|tbl|public.work_admissions",
+        "n|sch|public",
+        "n|col|public.work_admissions.expires_at",
+        "n|col|public.work_admissions.decided_at"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "work_admissions",
+        "name": "chk_work_admission_expiry",
+        "value": "\"expires_at\" > \"decided_at\"",
+        "entityType": "checks"
+      }
+    }
+  ]
+}

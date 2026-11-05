@@ -1,0 +1,1 @@
+ALTER TABLE "work_admissions" ADD CONSTRAINT "chk_work_admission_expiry" CHECK ("expires_at" > "decided_at");
