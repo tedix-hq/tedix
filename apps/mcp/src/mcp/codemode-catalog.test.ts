@@ -976,6 +976,9 @@ describe("progressive disclosure (namespace filter, description budget, schema p
 			callable: "work.list_work_items",
 		})) as Record<string, unknown>;
 		expect(described.resultEnvelopeKeys).toEqual(["data", "pagination"]);
+		expect(described.parameters).toMatchObject({
+			properties: { _fields: { type: "array", items: { type: "string" } } },
+		});
 
 		// A tool with no declared output schema simply omits the hint.
 		const bare = (await tools.describe?.execute?.({
@@ -2019,7 +2022,13 @@ describe("discover.search results flat array", () => {
 					parameters: { properties: unknown };
 				}
 			).parameters.properties,
-		).toEqual({});
+		).toEqual({
+			_fields: {
+				type: "array",
+				items: { type: "string", minLength: 1 },
+				description: expect.stringContaining("Reserved runtime argument"),
+			},
+		});
 
 		// Discovery-option telemetry: describe counts as a schema request.
 		expect(refs.discoverCalls).toBeGreaterThan(0);

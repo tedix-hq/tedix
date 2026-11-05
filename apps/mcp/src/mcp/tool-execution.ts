@@ -1,3 +1,9 @@
+import {
+	readFieldSelectionMetrics,
+	readResponseFields,
+	selectResponseFields,
+	fieldSelectionSources,
+} from "./field-selection";
 import type { OwnerHostSession } from "./owner-host-session";
 import type { SelectedConnectionCredential } from "@tedix/api-contract/schemas/connections";
 import {
@@ -334,6 +340,7 @@ export async function executeTool(
 			success: !result.isError,
 			durationMs: Date.now() - startTime,
 			toolOutputSize: getJsonSize(result),
+			...readFieldSelectionMetrics(result),
 			...(typeof result.tokensUsed === "number"
 				? { tokensUsed: result.tokensUsed }
 				: {}),
@@ -768,6 +775,7 @@ async function executeWithHandler(
 			);
 		}
 
+		const responseFields = readResponseFields(effectiveArgs);
 		const result = await handler.execute(effectiveArgs, ctx);
 		let structuredContent: unknown = handler.buildStructuredContent(
 			result,
@@ -1186,14 +1194,36 @@ async function executeWithHandler(
 		// Resource URIs are version-agnostic (no ?v=) to avoid stale-hash mismatches
 		const mcpAppResourceUri = `ui://widgets/mcp-app/${agent.appSlug}/${widgetRoute}.html`;
 
+		const selectedContent =
+			!isErrorResult && responseFields !== undefined
+				? selectResponseFields(fullStructuredContent, responseFields)
+				: fullStructuredContent;
+		const fieldSelection =
+			!isErrorResult && responseFields !== undefined
+				? {
+						responseBytesBefore: getJsonSize(fullStructuredContent),
+						responseBytesAfter: getJsonSize(selectedContent),
+					}
+				: undefined;
+		if (
+			fieldSelection &&
+			selectedContent !== null &&
+			typeof selectedContent === "object"
+		) {
+			fieldSelectionSources.set(selectedContent, fullStructuredContent);
+			textContent = JSON.stringify(selectedContent);
+		}
 		return {
 			content: [
-				...(homeAckText ? [{ type: "text" as const, text: homeAckText }] : []),
+				...(!fieldSelection && homeAckText
+					? [{ type: "text" as const, text: homeAckText }]
+					: []),
 				{ type: "text" as const, text: textContent },
 			],
-			structuredContent: fullStructuredContent,
+			structuredContent: selectedContent,
 			...(isErrorResult ? { isError: true as const } : {}),
 			_meta: {
+				...(fieldSelection ? { "tedix/fieldSelection": fieldSelection } : {}),
 				"openai/outputTemplate": outputTemplate,
 				...(actionReceipt ? { [ACTION_RECEIPT_META_KEY]: actionReceipt } : {}),
 				"openai/widgetAccessible": tool.widgetAccessible ?? true,

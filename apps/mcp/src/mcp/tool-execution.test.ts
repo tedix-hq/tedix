@@ -1,3 +1,6 @@
+import { createMcpServer } from "@tedix/mcp-shared/server";
+import { mountMcp } from "@tedix/mcp-shared/transport";
+import { registerDynamicTool } from "./widget-tool-registration";
 import {
 	beforeEach,
 	describe,
@@ -1726,5 +1729,117 @@ describe("canonical cross-router action read-back", () => {
 			});
 			expect(agent.toolHandler.execute).toHaveBeenCalledTimes(1);
 		},
+	);
+});
+
+describe("response field selection dispatch", () => {
+	it.each([undefined, "execution-fields"])(
+		"selects fields on native and Code Mode calls (%s)",
+		async (executionId) => {
+			const agent = makeAgent({
+				status: 200,
+				data: {
+					data: [{ id: "1", title: "é", body: "x".repeat(30_000) }],
+					extra: true,
+				},
+			});
+			const result = await executeTool(
+				agent,
+				makeTool(),
+				{ _fields: ["data.id", "data.title"] },
+				{ adapterScope: "all", resultStrategy: "first_success", executionId },
+			);
+			expect(result.isError).toBeUndefined();
+			expect(result.structuredContent).toEqual({
+				data: [{ id: "1", title: "é" }],
+			});
+			expect(result.content).toEqual([
+				{ type: "text", text: JSON.stringify(result.structuredContent) },
+			]);
+			const metrics = result._meta?.["tedix/fieldSelection"];
+			expect(metrics).toMatchObject({
+				responseBytesAfter: new TextEncoder().encode(
+					JSON.stringify(result.structuredContent),
+				).length,
+			});
+			expect(
+				(metrics as { responseBytesBefore: number }).responseBytesBefore,
+			).toBeGreaterThan(30_000);
+			if (executionId)
+				expect(trackSpy).toHaveBeenCalledWith(
+					agent.env,
+					expect.objectContaining({
+						eventType: "tool_call",
+						...(metrics as object),
+					}),
+				);
+		},
+	);
+	it("keeps errors visible when requested paths are missing", async () => {
+		const result = await executeTool(
+			makeAgent({ status: 403, data: { error: "denied" } }),
+			makeTool(),
+			{ _fields: ["id"] },
+			{ adapterScope: "all", resultStrategy: "first_success" },
+		);
+		expect(result.isError).toBe(true);
+		expect(result.structuredContent).toMatchObject({ error: "denied" });
+	});
+});
+
+it("serves selected fields over native tools/call with a strict output schema and telemetry", async () => {
+	const agent: ServerContext = {
+		...makeAgent({ status: 200, data: { id: "1", title: "é", body: "large" } }),
+		server: createMcpServer({ name: "fields-test", version: "0.0.1" }),
+		appToolIds: new Set(),
+		loadedTools: new Map(),
+		authRequiredTools: new Set(),
+	};
+	const tool = makeTool();
+	tool.outputSchema = {
+		type: "object",
+		properties: {
+			id: { type: "string" },
+			title: { type: "string" },
+			body: { type: "string" },
+		},
+		required: ["id", "title", "body"],
+		additionalProperties: false,
+	};
+	await registerDynamicTool(agent, tool);
+	const response = await mountMcp(
+		agent.server,
+		new Request("https://test.local/mcp", {
+			method: "POST",
+			headers: {
+				Accept: "application/json, text/event-stream",
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				jsonrpc: "2.0",
+				id: 1,
+				method: "tools/call",
+				params: { name: tool.toolId, arguments: { _fields: ["id", "title"] } },
+			}),
+		}),
+		{ requiredClientExtensions: [] },
+	);
+	expect(response.status).toBe(200);
+	const payload = await response.json();
+	expect(payload).toMatchObject({
+		result: { structuredContent: { id: "1", title: "é" } },
+	});
+	expect(
+		(payload as { result: { structuredContent: unknown } }).result
+			.structuredContent,
+	).toEqual({ id: "1", title: "é" });
+	expect(trackSpy).toHaveBeenCalledTimes(1);
+	expect(trackSpy).toHaveBeenCalledWith(
+		agent.env,
+		expect.objectContaining({
+			eventType: "tool_call",
+			responseBytesBefore: 38,
+			responseBytesAfter: 23,
+		}),
 	);
 });

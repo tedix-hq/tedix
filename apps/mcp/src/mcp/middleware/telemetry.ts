@@ -18,6 +18,7 @@
  * proven for tools/call).
  */
 
+import { readFieldSelectionMetrics } from "../field-selection";
 import type { ServerContext as McpCtx } from "@modelcontextprotocol/server";
 import { tracing } from "cloudflare:workers";
 import { runWithTelemetrySpan } from "@tedix/worker-kit/telemetry";
@@ -147,6 +148,7 @@ export function wrapToolCallTelemetry(
 				success,
 				durationMs: Date.now() - startTime,
 				toolOutputSize: getJsonSize(result),
+				...readFieldSelectionMetrics(result),
 				...(tokensUsed != null ? { tokensUsed } : {}),
 				...(!success
 					? {

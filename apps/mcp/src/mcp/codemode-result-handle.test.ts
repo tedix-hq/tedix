@@ -1,3 +1,4 @@
+import { selectResponseFields } from "./field-selection";
 /**
  * Over-budget Code Mode results are kept whole behind a handle (R2
  * `AGGREGATE_CACHE`) and paged back through `discover.read_result`. A handle
@@ -90,6 +91,24 @@ async function readResult(
 }
 
 describe("Code Mode result handles", () => {
+	it("selects an oversized response before the token cap or R2 write", async () => {
+		const bucket = new FakeBucket();
+		const ctx = serverCtx({ bucket, organizationId: "org_a", userId: "u1" });
+		const full = {
+			data: Array.from({ length: 200 }, (_, i) => ({
+				id: String(i),
+				title: "Work",
+				body: "x".repeat(1000),
+			})),
+		};
+		const selected = selectResponseFields(full, ["data.id", "data.title"]);
+		const shaped = await shapeCodeModeResultWithHandle(selected, {
+			store: createCodeModeResultStore(ctx.env, codeModeResultOwner(ctx)),
+			executionId: EXECUTION_ID,
+		});
+		expect(shaped).toBe(selected);
+		expect(bucket.objects.size).toBe(0);
+	});
 	it("leaves a within-budget result untouched and writes nothing", async () => {
 		const bucket = new FakeBucket();
 		const ctx = serverCtx({ bucket, organizationId: "org_a", userId: "u1" });

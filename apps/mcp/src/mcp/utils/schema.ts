@@ -16,6 +16,7 @@
  *
  * @module @tedix/mcp/utils/schema
  */
+import { readResponseFields, fieldSelectionSources } from "../field-selection";
 import {
 	fromJsonSchema,
 	type JsonSchemaType,
@@ -161,7 +162,15 @@ export function jsonSchemaToInputSchema(
 				],
 			};
 		}
-		let args = applyInputSchemaDefaults(data, effectiveSchema);
+		let responseFields: string[] | undefined;
+		try {
+			responseFields = readResponseFields(data);
+		} catch (error) {
+			return { issues: [{ message: (error as Error).message }] };
+		}
+		// Runtime arguments are not part of nested upstream schema branches.
+		const { _fields, ...upstreamArgs } = data;
+		let args = applyInputSchemaDefaults(upstreamArgs, effectiveSchema);
 		if (options.normalizeArgs) args = options.normalizeArgs(args);
 		args = stripUnknownTopLevelKeys(args, effectiveSchema);
 
@@ -184,7 +193,12 @@ export function jsonSchemaToInputSchema(
 				};
 			}
 		}
-		return { value: args };
+		return {
+			value:
+				responseFields === undefined
+					? args
+					: { ...args, _fields: responseFields },
+		};
 	};
 
 	return {
@@ -215,7 +229,26 @@ export function jsonSchemaToOutputSchema(
 ): StandardSchemaWithJSON | undefined {
 	if (!jsonSchema) return undefined;
 	if (!hasObjectRoot(jsonSchema)) return undefined;
-	return fromJsonSchema(jsonSchema as JsonSchemaType, jsonSchemaValidator);
+	const schema = fromJsonSchema(
+		jsonSchema as JsonSchemaType,
+		jsonSchemaValidator,
+	);
+	return {
+		...schema,
+		"~standard": {
+			...schema["~standard"],
+			validate: async (value: unknown) => {
+				const source =
+					value !== null &&
+					typeof value === "object" &&
+					fieldSelectionSources.has(value)
+						? fieldSelectionSources.get(value)
+						: value;
+				const checked = await schema["~standard"].validate(source);
+				return checked.issues ? checked : { value };
+			},
+		},
+	};
 }
 
 /** Keep transport evidence outside strict native resource payloads. */
