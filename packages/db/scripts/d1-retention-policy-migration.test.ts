@@ -36,7 +36,7 @@ describe("D1 retention policy migrations", () => {
 		).toEqual({
 			mode: "move_to_logs_db",
 			keep_days: 14,
-			max_rows_per_run: 2000,
+			max_rows_per_run: 6000,
 		});
 		sqlite.close();
 	});
@@ -62,6 +62,7 @@ describe("D1 retention policy migrations", () => {
 			for (const directory of [
 				"20261105023558_skill_artifact_retention_move_to_logs_db",
 				"20261105065416_skill_artifact_retention_page_cap",
+				"20261105103437_skill_artifact_retention_head_cap",
 			]) {
 				sqlite.exec(
 					readFileSync(
