@@ -21,10 +21,6 @@ it("uses tenant-scoped dependencies and latest Attempts with D1-safe chunks", as
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys=OFF");
 	sqlite.exec(schemaDdl(workItems, workAttempts, workItemRelations));
-	// schemaDdl omits index predicates; restore the real active-Attempt uniqueness rule.
-	sqlite.exec(
-		"DROP INDEX uniq_work_attempt_active; CREATE UNIQUE INDEX uniq_work_attempt_active ON work_attempts(org_id,work_item_id) WHERE runtime_state IN ('queued','running','waiting','retrying')",
-	);
 	const db = createDbQueryClient(createD1Facade(sqlite));
 	const insert = sqlite.prepare(
 		"INSERT INTO work_items(id,org_id,title,disposition,created_at) VALUES(?,?,?,?,?)",
