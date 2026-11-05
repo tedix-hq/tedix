@@ -45,11 +45,11 @@ type CheckedRelation = {
 	};
 };
 
-// An empty type is an unset type. From 2 Nov live checks rejected every
-// tedi's real app grant (the loose export reader still saw them), so an answer
-// that only blanks or repeats a field must not read as "no access".
+// Descope answers an untyped target with targetType "none" (seen live on every
+// app grant), and may leave a type empty. Both mean unset; rejecting them hid
+// every tedi's real app grant from 2 Nov.
 function typeMatches(answered: string | undefined, expected: string) {
-	return !answered || answered === expected;
+	return !answered || answered === "none" || answered === expected;
 }
 
 function matchesRelation(
