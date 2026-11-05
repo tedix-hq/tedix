@@ -42,8 +42,14 @@ function fixture() {
 	const objects = new Map<string, ArrayBuffer>();
 	const bucket = {
 		puts: [] as string[],
+		inFlight: 0,
+		peakInFlight: 0,
 		async put(key: string, value: ArrayBuffer) {
 			bucket.puts.push(key);
+			bucket.inFlight++;
+			bucket.peakInFlight = Math.max(bucket.peakInFlight, bucket.inFlight);
+			await new Promise((resolve) => setTimeout(resolve, 1));
+			bucket.inFlight--;
 			objects.set(key, value);
 		},
 		async get(key: string) {
@@ -265,5 +271,23 @@ describe("output revision body offload tick", () => {
 				)
 				.get(),
 		).toEqual({ n: 0 });
+	});
+
+	it("moves rows in bounded groups and keeps failures and the cursor in row order", async () => {
+		const f = fixture();
+		for (const id of ["g1", "g2", "g3", "g4", "g5"]) await f.seed(id, id);
+		await f.seed("g6", "bytes", "fictional-harbor", {
+			contentSha256: "0".repeat(64),
+		});
+		await f.seed("g7", "g7");
+		const result = await f.tick(t0, { concurrency: 3 });
+		expect(result).toMatchObject({
+			rowsCleared: 6,
+			failures: [{ id: "g6", rowid: 6, reason: "pointer_failed" }],
+			cursor: 7,
+			passes: 1,
+		});
+		expect(f.bucket.peakInFlight).toBeGreaterThan(1);
+		expect(f.bucket.peakInFlight).toBeLessThanOrEqual(3);
 	});
 });

@@ -52,17 +52,20 @@ export interface OutputBodyOffloadLimits {
 	maxRows: number;
 	/** Inline bytes moved per tick; the row that crosses it still completes. */
 	maxBytes: number;
-	/** Wall-clock budget; the row in flight still completes. */
+	/** Wall-clock budget; the rows in flight still complete. */
 	maxMs: number;
+	/** Rows moved at the same time within one tick. */
+	concurrency: number;
 	/** Idle time between two full passes over the table. */
 	passPauseMs: number;
 }
 
 export const DEFAULT_OUTPUT_BODY_OFFLOAD_LIMITS: OutputBodyOffloadLimits = {
 	windowRows: 500,
-	maxRows: 40,
+	maxRows: 160,
 	maxBytes: 24 * 1024 * 1024,
 	maxMs: 20_000,
+	concurrency: 4,
 	passPauseMs: 60 * 60 * 1000,
 };
 
@@ -152,18 +155,13 @@ export async function runOutputRevisionBodyOffloadTick(input: {
 	let cursor = candidates.length === limits.maxRows ? after : through;
 	let bytesSeen = 0;
 	const result = { ...base, candidates: candidates.length };
-	for (const candidate of candidates) {
-		if (bytesSeen >= limits.maxBytes || Date.now() - started >= limits.maxMs) {
-			// Budget spent: resume from the last row this tick looked at.
-			cursor = candidate.rowid - 1;
-			break;
-		}
-		bytesSeen += candidate.inlineBytes;
-		cursor = Math.max(cursor, candidate.rowid);
+	const offloadOne = async (
+		candidate: (typeof candidates)[number],
+	): Promise<{ bytes: number } | { reason: string } | null> => {
 		let phase = "read";
 		try {
 			const body = await getInlineOutputBody(db, candidate);
-			if (!body || body.content === "") continue;
+			if (!body || body.content === "") return null;
 			if (body.organizationId !== candidate.organizationId)
 				throw new Error("Output revision organization changed");
 			phase = "store";
@@ -197,21 +195,53 @@ export async function runOutputRevisionBodyOffloadTick(input: {
 			});
 			if (changed.length !== 1)
 				throw new Error("Output revision changed during offload");
-			result.rowsCleared++;
-			result.bytesCleared += metadata.contentBytes;
+			return { bytes: metadata.contentBytes };
 		} catch (error) {
 			// Driver errors can carry body text; receipts keep codes only.
-			const reason =
-				error instanceof Error &&
-				error.message === "Output revision body verification mismatch"
-					? "body_mismatch"
-					: `${phase}_failed`;
-			result.failures.push({
-				id: candidate.id,
-				rowid: candidate.rowid,
-				reason,
-			});
+			return {
+				reason:
+					error instanceof Error &&
+					error.message === "Output revision body verification mismatch"
+						? "body_mismatch"
+						: `${phase}_failed`,
+			};
 		}
+	};
+	// Each row costs several sequential D1 and R2 round trips, so rows move a
+	// few at a time; the budgets are checked before each group starts.
+	let next = 0;
+	while (next < candidates.length) {
+		if (bytesSeen >= limits.maxBytes || Date.now() - started >= limits.maxMs) {
+			// Budget spent: resume from the last row this tick looked at.
+			cursor = candidates[next]!.rowid - 1;
+			break;
+		}
+		const group: typeof candidates = [];
+		while (
+			next < candidates.length &&
+			group.length < limits.concurrency &&
+			bytesSeen < limits.maxBytes
+		) {
+			const candidate = candidates[next++]!;
+			bytesSeen += candidate.inlineBytes;
+			group.push(candidate);
+		}
+		const outcomes = await Promise.all(group.map(offloadOne));
+		group.forEach((candidate, index) => {
+			cursor = Math.max(cursor, candidate.rowid);
+			const outcome = outcomes[index];
+			if (!outcome) return;
+			if ("reason" in outcome)
+				result.failures.push({
+					id: candidate.id,
+					rowid: candidate.rowid,
+					reason: outcome.reason,
+				});
+			else {
+				result.rowsCleared++;
+				result.bytesCleared += outcome.bytes;
+			}
+		});
 	}
 	if (cursor >= maxRowid) {
 		state.passes++;
