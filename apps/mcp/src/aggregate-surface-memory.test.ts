@@ -92,6 +92,10 @@ function createR2() {
 					json: () => response.json(),
 				};
 			}),
+			head: vi.fn(async (key: string) => {
+				const object = objects.get(key);
+				return object ? { customMetadata: object.customMetadata } : null;
+			}),
 			put: vi.fn(
 				async (
 					key: string,
@@ -619,17 +623,61 @@ describe("aggregate snapshot memory", () => {
 			expect(result.status).toBe(409);
 		});
 
-		it("falls back to the full catalog when a shard is missing or from another epoch", async () => {
+		it("hydrates organizations whose shard is missing and falls back when none exist", async () => {
 			await loadConnect();
 			await settleBackground();
+			// A schema sync rolls the epoch: no shard exists yet.
 			await expect(
 				loadDiscoveryShards(env, mounts, new Set(), "epoch-after-sync"),
 			).resolves.toBeNull();
-			r2.objects.delete(shardKeys()[0]!);
+			const acmeKey = shardKeys().find((key) =>
+				r2.objects
+					.get(key)!
+					.body.includes('"toolId":"acme_unified_source__read_item_0"'),
+			)!;
+			r2.objects.delete(acmeKey);
 			discoveryShardCache.clear();
-			await expect(
-				loadDiscoveryShards(env, mounts, new Set(), activation.value),
-			).resolves.toBeNull();
+			const partial = await loadDiscoveryShards(
+				env,
+				mounts,
+				new Set(),
+				activation.value,
+			);
+			expect(partial?.hydrate.map((entry) => entry.slug)).toEqual([
+				"acme-unified",
+			]);
+			expect(
+				partial?.tools.every((tool) =>
+					tool.toolId.startsWith("globex_unified_"),
+				),
+			).toBe(true);
+		});
+
+		it("writes shards after the response, one at a time, and skips fresh ones", async () => {
+			let active = 0;
+			let peak = 0;
+			const put = r2.bucket.put.getMockImplementation()!;
+			r2.bucket.put.mockImplementation(async (...args) => {
+				if (!args[0].startsWith("aggregate-discovery/")) return put(...args);
+				active++;
+				peak = Math.max(peak, active);
+				await new Promise((resolve) => setTimeout(resolve, 0));
+				await put(...args);
+				active--;
+			});
+			await loadConnect();
+			expect(shardKeys()).toHaveLength(0);
+			await settleBackground();
+			expect(shardKeys()).toHaveLength(2);
+			expect(peak).toBe(1);
+
+			// Another isolate with its own graph objects finds fresh shards.
+			aggregateSurfaceCache.clear();
+			aggregateSurfaceInFlight.clear();
+			const puts = r2.bucket.put.mock.calls.length;
+			await loadConnect();
+			await settleBackground();
+			expect(r2.bucket.put.mock.calls.length).toBe(puts);
 		});
 	});
 
