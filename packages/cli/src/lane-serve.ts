@@ -738,10 +738,14 @@ async function laneWorktreeInUse(destination: string): Promise<boolean> {
 			maxBuffer: 16 * 1024 * 1024,
 		};
 		const [cwds, processes] = await Promise.all([
-			promisify(execFile)("lsof", ["-d", "cwd", "-Fn"], options),
-			promisify(execFile)("ps", ["-axo", "command="], options),
+			promisify(execFile)("lsof", ["-d", "cwd", "-Fn"], options).catch(
+				() => undefined,
+			),
+			promisify(execFile)("ps", ["-axo", "command="], options).catch(
+				() => undefined,
+			),
 		]);
-		if (!cwds.stdout) return true;
+		if (!cwds || !processes || !cwds.stdout) return true;
 		return (
 			cwds.stdout
 				.split("\n")
@@ -1023,10 +1027,10 @@ export async function landedLaneCommits(
 		}
 		// Historical proof must retain its original Work and executor custody.
 		if (!recovery) continue;
-		const trailers = gitOutput(repo, [
+		const [committed, ...trailers] = gitOutput(repo, [
 			"show",
 			"-s",
-			"--format=%(trailers:only,unfold)",
+			"--format=%cI%n%(trailers:only,unfold)",
 			sha,
 		]).split("\n");
 		const work = trailers.filter((line) => /^Work-Item:/i.test(line));
@@ -1038,9 +1042,7 @@ export async function landedLaneCommits(
 		)
 			continue;
 		const session = sessions[0]!.slice("Agent-Session:".length).trim();
-		const committedAt = Date.parse(
-			gitOutput(repo, ["show", "-s", "--format=%cI", sha]),
-		);
+		const committedAt = Date.parse(committed!);
 		if (session && (await recovery.verifySession(session, sha, committedAt)))
 			landed.push(sha);
 	}
