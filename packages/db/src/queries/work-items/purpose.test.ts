@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
-import { createDbQueryClient } from "../../query-client";
+import { createDbClient } from "../../client";
 import { workItems } from "../../schema/work-items";
 import { createD1Facade } from "../../test/d1-facade";
 import {
@@ -32,7 +32,7 @@ function fixture() {
 			"INSERT INTO projects (id,org_id,key,name,objective_id,created_at) VALUES ('project','org','FACTORY','Factory','objective',?)",
 		)
 		.run(NOW);
-	return { sqlite, db: createDbQueryClient(createD1Facade(sqlite)) };
+	return { sqlite, db: createDbClient(createD1Facade(sqlite)) };
 }
 
 describe("canonical Work Item purpose", () => {
@@ -84,7 +84,7 @@ describe("canonical Work Item purpose", () => {
 				('live-exception','org','Live','accepted',NULL,'hygiene','${FUTURE}','${NOW}'),
 				('lapsed-exception','org','Lapsed','accepted',NULL,'hygiene','${NOW}','${NOW}');
 		`);
-		const db = createDbQueryClient(createD1Facade(sqlite));
+		const db = createDbClient(createD1Facade(sqlite));
 		const admissible = await db
 			.select({ id: workItems.id })
 			.from(workItems)

@@ -42,7 +42,6 @@ import {
 	listLatestWorkAttemptSummaries as listPgAttemptSummaries,
 	listWorkItems as listPgWorkItems,
 } from "./queries/work-items";
-import * as pgSchema from "./schema";
 import {
 	billingAccounts as pgBillingAccounts,
 	billingCreditEntries as pgBillingCreditEntries,
@@ -74,13 +73,18 @@ const organization = {
 	features: { maxApps: 5 },
 	metadata: {
 		tediWidget: {
+			version: 1,
 			locale: "de",
+			title: "Parity assistant",
+			subtitle: "Cross-dialect fixture",
+			product: "Parity",
+			conversationStarters: [],
 			translations: { de: { welcome: "Hallo" } },
 		},
 	},
 	createdAt: now,
 	updatedAt: now,
-} as const;
+} satisfies typeof sqliteOrganizations.$inferInsert;
 
 const member = {
 	id: "member-parity",
@@ -101,7 +105,7 @@ const member = {
 	lastActiveAt: later,
 	createdAt: now,
 	updatedAt: later,
-} as const;
+} satisfies typeof sqliteOrganizationMembers.$inferInsert;
 
 const principal = {
 	id: "principal-parity",
@@ -136,7 +140,7 @@ const workItem = {
 	createdAt: now,
 	updatedAt: later,
 	version: 2,
-} as const;
+} satisfies typeof sqliteWorkItems.$inferInsert;
 
 const attempt = {
 	id: "attempt-parity",
@@ -178,7 +182,7 @@ const admission = {
 	decidedAt: now,
 	expiresAt: attempt.expiresAt,
 	createdAt: now,
-} as const;
+} satisfies typeof pgWorkAdmissions.$inferInsert;
 
 const plan = {
 	id: "plan-parity",
@@ -238,7 +242,7 @@ describe("SQLite and Postgres core query parity", () => {
 	sqlite.exec("DROP TRIGGER work_attempt_admission_insert_guard");
 	const sqliteDb = createDbClient(createD1Facade(sqlite));
 	const pg = new PGlite();
-	const pgDb = drizzlePglite({ client: pg, schema: pgSchema });
+	const pgDb = drizzlePglite({ client: pg });
 
 	beforeAll(async () => {
 		const migrationRoot = fileURLToPath(

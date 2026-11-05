@@ -9,6 +9,7 @@ import {
 import { createD1Facade } from "../test/d1-facade";
 import {
 	EXACT_RETRIEVAL_ONLY_CASE_THRESHOLDS,
+	type CanonicalBenchmarkFact,
 	evaluateGraphRetrievalGraduation,
 	scoreGraphRetrievalCase,
 	validateCanonicalGraphPath,
@@ -184,7 +185,7 @@ const expectedPath = {
 	factIds: ["fact-a", "fact-b"],
 	edges: [expectedEdge],
 };
-const canonicalFacts = [
+const canonicalFacts: CanonicalBenchmarkFact[] = [
 	{
 		id: "fact-a",
 		organizationId: "org-1",

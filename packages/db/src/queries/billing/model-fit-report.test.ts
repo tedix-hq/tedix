@@ -73,7 +73,7 @@ describe("model fit report", () => {
 				startedAt: "2026-10-20T00:00:00.000Z",
 				heartbeatAt: "2026-10-20T00:00:01.000Z",
 			});
-			await db.insert(providerExecutionAttempts).values({
+			const execution: typeof providerExecutionAttempts.$inferInsert = {
 				id: "execution",
 				organizationId: "org",
 				tediId: "tedi",
@@ -91,9 +91,38 @@ describe("model fit report", () => {
 				deploymentScope: "fictional-scope",
 				authorizedAt: "2026-10-20T00:00:00.000Z",
 				sendBefore: "2026-10-20T00:01:00.000Z",
-				origin: { inputDigest: "sha256:fixture" },
-				policy: { purpose: "fixture" },
-			});
+				origin: {
+					kind: "unselected_native",
+					root: {
+						owner: { orgId: "org", tediId: "tedi", objectId: "root" },
+						objectName: "root",
+						className: "AgentTediDO",
+						path: [],
+						generation: 0,
+					},
+					selected: {
+						owner: { orgId: "org", tediId: "tedi", objectId: "root" },
+						className: "AgentTediDO",
+						identityName: "root",
+						facetName: null,
+						path: [],
+						generation: 0,
+					},
+					configurationHash: "a".repeat(64),
+				},
+				policy: {
+					kind: "auto_router_v1",
+					routing: {
+						version: 1,
+						modality: "text",
+						mode: "unrestricted",
+						allowedProviders: null,
+						allowedModels: null,
+					},
+					finite: null,
+				},
+			};
+			await db.insert(providerExecutionAttempts).values(execution);
 			await db.insert(tediCallCosts).values([
 				{
 					id: "call-1",
@@ -318,7 +347,7 @@ describe("model fit report", () => {
 					occurredAt: "2026-10-20T01:00:00.000Z",
 				},
 			]);
-			await db.insert(decisionExposures).values({
+			const exposure: typeof decisionExposures.$inferInsert = {
 				id: "exposure",
 				organizationId: "org",
 				actorId: "user",
@@ -356,6 +385,11 @@ describe("model fit report", () => {
 					aboveFold: ["title"],
 					railOpened: false,
 					timezone: "UTC",
+					ranking: {
+						version: "decision-learning-v1",
+						score: null,
+						features: [],
+					},
 					candidateCount: 1,
 					candidates: [],
 					candidateSetComplete: false,
@@ -365,7 +399,8 @@ describe("model fit report", () => {
 				},
 				occurredAt: "2026-10-20T00:30:00.000Z",
 				expiresAt: "2027-01-20T00:30:00.000Z",
-			});
+			};
+			await db.insert(decisionExposures).values(exposure);
 			await db.insert(decisionOutcomeLabels).values({
 				id: "label",
 				organizationId: "org",

@@ -130,7 +130,15 @@ function fixture(broken = false, wrap?: (d1: D1Database) => D1Database) {
 			.prepare(
 				"SELECT kind,from_id,to_id,to_kind,note,occurred_at,evidence_ref FROM decision_edges ORDER BY kind,to_id",
 			)
-			.all();
+			.all() as {
+			kind: string;
+			from_id: string;
+			to_id: string;
+			to_kind: string;
+			note: string | null;
+			occurred_at: string;
+			evidence_ref: string | null;
+		}[];
 	return { sqlite, db, card, edges, warn };
 }
 
@@ -728,19 +736,29 @@ const involvedIds = (f: { edges(): { kind: string; to_id: string }[] }) =>
 it("bounds card name matching to one batched, capped candidate read", async () => {
 	const prepared: string[] = [];
 	const batches: string[][] = [];
-	const f = fixture(false, (d1) => ({
-		...d1,
-		prepare: (sql: string) => {
-			prepared.push(sql);
-			return Object.assign(d1.prepare(sql), { __laneSql: sql });
-		},
-		batch: (statements: Array<{ __laneSql?: string }>) => {
-			batches.push(
-				statements.map((statement) => statement.__laneSql ?? "<unseen>"),
-			);
-			return d1.batch(statements as D1PreparedStatement[]);
-		},
-	}));
+	const f = fixture(
+		false,
+		(d1) =>
+			new Proxy(d1, {
+				get(target, property, receiver) {
+					if (property === "prepare")
+						return (sql: string) => {
+							prepared.push(sql);
+							return Object.assign(target.prepare(sql), { __laneSql: sql });
+						};
+					if (property === "batch")
+						return (statements: Array<{ __laneSql?: string }>) => {
+							batches.push(
+								statements.map(
+									(statement) => statement.__laneSql ?? "<unseen>",
+								),
+							);
+							return target.batch(statements as D1PreparedStatement[]);
+						};
+					return Reflect.get(target, property, receiver);
+				},
+			}),
+	);
 	// A few hundred active candidates per table, none named in the card text.
 	bulkCandidates(f.sqlite, 300);
 	await f.card();

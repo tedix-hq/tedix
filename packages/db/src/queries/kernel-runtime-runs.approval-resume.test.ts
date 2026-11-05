@@ -807,7 +807,7 @@ it("refuses an indexed known runtime child submission", async () => {
 		runId: f.params.expectedChildRunId,
 		conversationId: "child-conversation",
 		sourceKind: "home",
-		status: "queued",
+		status: "admitted",
 	});
 	expect(await claimApprovedHomeDelegationResume(f.db, f.params)).toBeNull();
 });

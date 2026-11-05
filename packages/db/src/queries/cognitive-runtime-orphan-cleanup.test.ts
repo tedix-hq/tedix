@@ -37,6 +37,7 @@ async function fixture() {
 it("retries unconfirmed cleanup durably, atomically claims once and never changes the failure", async () => {
 	const { db, sqlite } = await fixture();
 	const [item] = await listPendingOrphanWorkflowCleanups(db, now);
+	if (!item) throw new Error("Expected an orphan cleanup candidate");
 	expect(item).toMatchObject({
 		terminalEventId: "orphan-1",
 		organizationId: "org-1",
@@ -103,6 +104,7 @@ it("excludes unrelated failures and protects later starts and successful/cancele
 it("rechecks eligibility at claim time if an operator restarted after discovery", async () => {
 	const { db, event } = await fixture();
 	const [item] = await listPendingOrphanWorkflowCleanups(db, now);
+	if (!item) throw new Error("Expected an orphan cleanup candidate");
 	await db.insert(tediRuntimeEvents).values({
 		...event,
 		id: "new-start",

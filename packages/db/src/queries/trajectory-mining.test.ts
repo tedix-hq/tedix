@@ -659,7 +659,7 @@ describe("bindNativeTelemetryIdentities", () => {
 		);
 		expect(skipped).toEqual([]);
 		expect(resolved).toHaveLength(1);
-		const draft = composeTrajectorySkillProposal(resolved[0], {
+		const draft = composeTrajectorySkillProposal(resolved[0]!, {
 			toolIdByName: resolution.toolIdByName,
 		});
 		expect(draft.toolIds).toContain("native:request_workstation");

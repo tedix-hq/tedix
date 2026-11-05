@@ -220,7 +220,7 @@ describe("complimentary internal plan assignment", () => {
 			sqlite.exec(
 				"UPDATE billing_accounts SET entitlement_version = entitlement_version + 1",
 			);
-			return originalBatch(statements);
+			return [...(await originalBatch(statements))];
 		}) as typeof db.batch;
 		await expect(assignInternalPlan(db, input, actor, now)).rejects.toThrow(
 			/changed/,

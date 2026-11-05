@@ -296,7 +296,7 @@ describe("agent session request ledger", () => {
 
 	it("filters by status-change time before limiting, including older requests closed today", async () => {
 		const db = fixture();
-		const [old] = await record(db);
+		const old = (await record(db))[0]!;
 		await record(db, {
 			sourceKey: "message-2",
 			sourceAt: T1,
@@ -703,7 +703,7 @@ it("scopes and paginates activity to its owner and organization with daily cover
 		[ORG, USER, T1, "own-same-time", "second digest"],
 		[ORG, OTHER_USER, T1, "other-user"],
 		["other-org", USER, T1, "other-org"],
-	])
+	] as const)
 		await recordAgentSessionEvents(db, {
 			organizationId,
 			userId,
@@ -815,7 +815,7 @@ for (const requestCount of [0, 1])
 			[ORG, OTHER_USER, "session-1"],
 			["org-other", USER, "session-1"],
 			[ORG, USER, "other-session"],
-		]) {
+		] as const) {
 			await recordAgentSessionEvents(db, {
 				organizationId,
 				userId,

@@ -873,8 +873,8 @@ describe("mergeCatalogRawData", () => {
 
 	it("serializes the existing record when incoming is absent or malformed", () => {
 		expect(mergeCatalogRawData({ a: 1 }, null)).toEqual({ a: 1 });
-		expect(mergeCatalogRawData({ a: 1 }, "junk")).toEqual({ a: 1 });
-		expect(mergeCatalogRawData(null, "junk")).toBeNull();
+		expect(mergeCatalogRawData({ a: 1 }, "junk" as never)).toEqual({ a: 1 });
+		expect(mergeCatalogRawData(null, "junk" as never)).toBeNull();
 	});
 
 	it("merges incoming keys, skipping null and undefined values", () => {

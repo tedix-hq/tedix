@@ -260,6 +260,7 @@ describe("getCatalogHealthSummary protocol inventory", () => {
 				healthStatus: "healthy",
 				healthData: { lastCheckedAt: freshCheckedAt },
 				mcpMetadata: { protocolObservedAt: freshCheckedAt },
+				lastSyncedAt: STAMP,
 				createdAt: STAMP,
 				updatedAt: STAMP,
 			},
@@ -277,6 +278,7 @@ describe("getCatalogHealthSummary protocol inventory", () => {
 					lastCheckedAt: freshCheckedAt,
 				},
 				mcpMetadata: { protocolObservedAt: freshCheckedAt },
+				lastSyncedAt: STAMP,
 				createdAt: STAMP,
 				updatedAt: STAMP,
 			},
@@ -296,6 +298,7 @@ describe("getCatalogHealthSummary protocol inventory", () => {
 				mcpMetadata: {
 					protocolObservedAt: "2026-08-22T12:00:00.000Z",
 				},
+				lastSyncedAt: STAMP,
 				createdAt: STAMP,
 				updatedAt: STAMP,
 			},
@@ -307,6 +310,7 @@ describe("getCatalogHealthSummary protocol inventory", () => {
 				connectorType: "MCP",
 				mcpEndpointNormalized: "https://unknown.example/mcp",
 				healthStatus: "unknown",
+				lastSyncedAt: STAMP,
 				createdAt: STAMP,
 				updatedAt: STAMP,
 			},
@@ -322,12 +326,13 @@ describe("getCatalogHealthSummary protocol inventory", () => {
 				healthData: { lastCheckedAt: freshCheckedAt },
 				mcpMetadata: { protocolObservedAt: freshCheckedAt },
 				status: "DISABLED",
+				lastSyncedAt: STAMP,
 				createdAt: STAMP,
 				updatedAt: STAMP,
 			},
-		];
+		] satisfies Array<typeof appCatalog.$inferInsert>;
 		for (const row of rows) {
-			await db.insert(appCatalog).values({ ...row, lastSyncedAt: STAMP });
+			await db.insert(appCatalog).values(row);
 		}
 
 		const summary = await getCatalogHealthSummary(db);

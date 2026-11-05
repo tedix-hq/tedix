@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
-import { createDbQueryClient } from "../query-client";
+import { createDbClient } from "../client";
 import { createD1Facade } from "../test/d1-facade";
 import { canonicalWorkFactoryDdl } from "../test/schema-ddl";
 import { getOrgGraphHealth } from "./org-graph-health";
@@ -41,7 +41,7 @@ function fixture() {
 			.run(`${org}:${from}:${to}`, org, from, to, NOW);
 	return {
 		sqlite,
-		db: createDbQueryClient(createD1Facade(sqlite)),
+		db: createDbClient(createD1Facade(sqlite)),
 		seed,
 		edge,
 	};

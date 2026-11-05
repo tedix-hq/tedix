@@ -23,14 +23,15 @@ function setup() {
 describe("runtime entitlements", () => {
 	it("projects only provider-neutral runtime fields from the temporary backing tables", async () => {
 		const { db } = setup();
-		await db.insert(organizations).values({
-			id: "org-1",
-			name: "Acme",
-			slug: "acme",
-			stripeCustomerId: "cus_must_not_escape",
-			createdAt: START,
-			updatedAt: START,
-		});
+		await db.insert(organizations).values([
+			{
+				id: "org-1",
+				name: "Acme",
+				slug: "acme",
+				createdAt: START,
+				updatedAt: START,
+			},
+		]);
 		await db.insert(billingPlanVersions).values({
 			id: "profile-1",
 			planKey: "starter",
@@ -52,6 +53,8 @@ describe("runtime entitlements", () => {
 			planVersionId: "profile-1",
 			status: "active",
 			billingMode: "internal",
+			stripeEnvironment: "test",
+			stripeCustomerId: "cus_must_not_escape",
 			periodStart: START,
 			periodEnd: END,
 			entitlementVersion: 3,

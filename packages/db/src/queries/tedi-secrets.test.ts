@@ -42,7 +42,7 @@ describe("tedi access-key rotation queries", () => {
 			["fresh", "org-1", "cmo", "user-2", null],
 			["retired", "org-1", "old", "user-3", "2026-08-01"],
 			["no-identity", "org-1", "new", null, null],
-		]) {
+		] as const) {
 			sqlite
 				.prepare(
 					"INSERT INTO tedis (id, organization_id, slug, descope_user_id, retired_at) VALUES (?, ?, ?, ?, ?)",
@@ -54,7 +54,7 @@ describe("tedi access-key rotation queries", () => {
 			["secret-fresh", "fresh", "2026-08-19T00:00:00.000Z"],
 			["secret-retired", "retired", "2026-05-01T00:00:00.000Z"],
 			["secret-no-identity", "no-identity", "2026-05-01T00:00:00.000Z"],
-		]) {
+		] as const) {
 			sqlite
 				.prepare(
 					"INSERT INTO tedi_secrets (id, tedi_id, name, encrypted_value, created_at, updated_at) VALUES (?, ?, 'DESCOPE_ACCESS_KEY', 'encrypted', ?, ?)",
@@ -85,7 +85,7 @@ describe("tedi access-key rotation queries", () => {
 		for (const [id, name] of [
 			["secret-key", "DESCOPE_ACCESS_KEY"],
 			["secret-key-id", "DESCOPE_ACCESS_KEY_ID"],
-		]) {
+		] as const) {
 			sqlite
 				.prepare(
 					"INSERT INTO tedi_secrets (id, tedi_id, name, encrypted_value, key_version, created_at, updated_at) VALUES (?, 'tedi-1', ?, 'old', 2, '2026-01-01', '2026-01-01')",

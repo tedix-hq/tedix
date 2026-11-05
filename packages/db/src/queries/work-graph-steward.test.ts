@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
-import { createDbQueryClient } from "../query-client";
+import { createDbClient } from "../client";
 import { createD1Facade } from "../test/d1-facade";
 import { canonicalWorkFactoryDdl } from "../test/schema-ddl";
 import {
@@ -48,7 +48,7 @@ function fixture() {
 				options.createdAt ?? NOW,
 				options.disposition === "proposed" ? null : (options.createdAt ?? NOW),
 			);
-	return { sqlite, db: createDbQueryClient(createD1Facade(sqlite)), seed };
+	return { sqlite, db: createDbClient(createD1Facade(sqlite)), seed };
 }
 
 describe("work graph steward canonical detectors", () => {

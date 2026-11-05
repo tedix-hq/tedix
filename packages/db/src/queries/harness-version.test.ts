@@ -54,7 +54,9 @@ import {
 	serializeHarnessComponents,
 } from "./harness-version/versions";
 
-function evalResult(over: Partial<HarnessEvalResult> = {}): HarnessEvalResult {
+function evalResult(
+	over: Partial<HarnessEvalResult> = {},
+): HarnessEvalResult & { lane: string | null } {
 	return {
 		id: "her_1",
 		harnessVersionId: "hv_01",
@@ -63,10 +65,10 @@ function evalResult(over: Partial<HarnessEvalResult> = {}): HarnessEvalResult {
 		score: 0.9,
 		gates: { task_success: true },
 		passed: true,
-		lane: "validation",
 		taskSetId: "taskset_v1",
 		createdAt: "2026-05-31T00:00:00.000Z",
 		...over,
+		lane: over.lane === undefined ? "validation" : over.lane,
 	};
 }
 
@@ -186,6 +188,10 @@ function traceBundle(over: Partial<TraceBundle> = {}): TraceBundle {
 		harnessVersionId: "hv-1",
 		createdAt: "2026-09-22T00:00:00.000Z",
 		...over,
+		eventIds: over.eventIds ?? [],
+		rationaleRecordIds: over.rationaleRecordIds ?? [],
+		artifactIds: over.artifactIds ?? [],
+		workstation: over.workstation ?? null,
 	};
 }
 

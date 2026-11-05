@@ -14,6 +14,7 @@ import { schemaDdl } from "../test/schema-ddl";
 import { listKernelRuntimeEvents } from "./kernel-runtime-events";
 import {
 	getKernelRuntimeRun,
+	type SettleKernelRuntimeTurnParams,
 	settleKernelRuntimeTurn,
 } from "./kernel-runtime-runs";
 
@@ -35,7 +36,7 @@ async function setup(status: "running" | "canceled" = "running") {
 	return db;
 }
 
-function turnParams() {
+function turnParams(): SettleKernelRuntimeTurnParams {
 	return {
 		run: {
 			id: "run-1",

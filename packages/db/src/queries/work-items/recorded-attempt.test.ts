@@ -25,7 +25,7 @@ describe("historical Attempt reads", () => {
 				executorType: "external_agent",
 				executorId: "agent",
 				externalSessionKey: "codex:old",
-				runtimeState: "succeeded",
+				runtimeState: "finished",
 				outcome: "succeeded",
 				attemptNumber: 1,
 				startedAt: "2026-01-01T00:00:00.000Z",

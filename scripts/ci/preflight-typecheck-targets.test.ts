@@ -19,6 +19,15 @@ describe("typeCheckTargets", () => {
 		).toEqual(["packages/cli"]);
 	});
 
+	test("type-checks changed database tests", () => {
+		expect(
+			typeCheckTargets(
+				["packages/db/src/queries/items.test.ts"],
+				allWorkspacesExist,
+			),
+		).toEqual(["packages/db"]);
+	});
+
 	test("still type-checks a changed workspace under apps/", () => {
 		expect(
 			typeCheckTargets(["apps/os/src/main.tsx"], allWorkspacesExist),

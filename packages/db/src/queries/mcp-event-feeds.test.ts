@@ -5,7 +5,7 @@
  */
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
-import { createDbQueryClient } from "../query-client";
+import { createDbClient } from "../client";
 import { skillRuns } from "../schema/cognitive";
 import {
 	workInteractionResponses,
@@ -65,7 +65,7 @@ function fixture() {
 				"INSERT INTO work_items(id,org_id,title,disposition,work_kind,created_at,work_class) VALUES(?,?,?,'proposed','coding',?,'maintenance')",
 			)
 			.run(id, org, id, NOW);
-	return { sqlite, db: createDbQueryClient(createD1Facade(sqlite)), seedItem };
+	return { sqlite, db: createDbClient(createD1Facade(sqlite)), seedItem };
 }
 
 describe("work.item.state_changed ledger feed", () => {

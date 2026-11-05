@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
-import { createDbQueryClient } from "../query-client";
+import { createDbClient } from "../client";
 import { createD1Facade } from "../test/d1-facade";
 import { loadDescopeAihD1SnapshotRows } from "./descope-aih-drift";
 
@@ -17,7 +17,7 @@ function fixture() {
 			mcp_capability_profile TEXT, retired_at TEXT
 		);
 	`);
-	return { sqlite, db: createDbQueryClient(createD1Facade(sqlite)) };
+	return { sqlite, db: createDbClient(createD1Facade(sqlite)) };
 }
 
 describe("Descope AIH drift snapshot", () => {

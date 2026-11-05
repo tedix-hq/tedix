@@ -4,7 +4,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { createDbClient, type DbClient } from "../client";
 import { projects } from "../schema/projects";
 import { workAttempts, workEvents, workItems } from "../schema/work-items";
-import { createD1Facade } from "../test/d1-facade";
+import { createD1Facade, type SyncSqliteDatabase } from "../test/d1-facade";
 import {
 	buildGrantScope,
 	buildGrantScopeCandidates,
@@ -97,7 +97,7 @@ CREATE TABLE work_events (
 const sqliteByDb = new WeakMap<object, DatabaseSync>();
 
 function realDb(
-	beforePrepare?: (sql: string, sqlite: DatabaseSync) => void,
+	beforePrepare?: (sql: string, sqlite: SyncSqliteDatabase) => void,
 ): DbClient {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(REAL_DDL);
@@ -121,7 +121,7 @@ async function seedActiveTediLeaf(
 	input: {
 		id?: string;
 		subjectId?: string;
-		status?: "claimed" | "in_progress";
+		status?: "claimed" | "in_progress" | "done" | "cancelled";
 		parentWorkItemId?: string;
 	} = {},
 ): Promise<string> {
@@ -234,7 +234,7 @@ async function seedAuthorization(
 		workItemId,
 		orgId: ORG,
 		actorType: input.authorType ?? "user",
-		actorId: authorId,
+		actorId: authorId!,
 		eventType,
 		payload: signature
 			? {

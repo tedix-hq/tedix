@@ -29,7 +29,7 @@ it("seeks private filing history by tenant and ledger owner in chronological ord
 		["foreign-owner", "org-example", "grace", "personal", "request_filing"],
 		["foreign-tenant", "org-other", "ada", "personal", "request_filing"],
 		["foreign-surface", "org-example", "ada", "personal", "other"],
-	]) {
+	] as const) {
 		insert.run(
 			id,
 			org,

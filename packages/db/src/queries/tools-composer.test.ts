@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { expect, it } from "vite-plus/test";
 import { createDbClient } from "../client";
 import { apps } from "../schema/apps";
-import { appTools } from "../schema/tools";
+import { appTools, type NewAppTool } from "../schema/tools";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
 import {
@@ -26,7 +26,10 @@ it("offers only enabled, explicit composer tools from this tenant", async () => 
 				.insert(apps)
 				.values({ id, organizationId, visibility, name: id, slug: id });
 		}
-		for (const row of [
+		const rows: Array<
+			Pick<NewAppTool, "id" | "appId" | "config"> &
+				Partial<Pick<NewAppTool, "enabled" | "visibility">>
+		> = [
 			{ id: "write", appId: "sample", config: { composer: true } },
 			{ id: "unmarked", appId: "sample", config: {} },
 			{ id: "false", appId: "sample", config: { composer: false } },
@@ -45,14 +48,17 @@ it("offers only enabled, explicit composer tools from this tenant", async () => 
 			},
 			{ id: "foreign", appId: "foreign", config: { composer: true } },
 			{ id: "disabled", appId: "disabled", config: { composer: true } },
-		]) {
-			await db.insert(appTools).values({
-				toolId: row.id === "write" ? "send_message" : row.id,
-				title: "Send",
-				toolTypeId: "rpc",
-				visibility: "public",
-				...row,
-			});
+		];
+		for (const row of rows) {
+			await db.insert(appTools).values([
+				{
+					toolId: row.id === "write" ? "send_message" : row.id,
+					title: "Send",
+					toolTypeId: "rpc",
+					visibility: "public",
+					...row,
+				},
+			]);
 		}
 		expect(await listComposerToolsForOrganization(db, "org-one")).toEqual([
 			{

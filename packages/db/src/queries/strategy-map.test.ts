@@ -21,7 +21,7 @@ const BASE_RATES = [
 function shiftedBy(lag: number): DailyRateSeries {
 	// lagging[t] = leading[t - lag]; first `lag` buckets have no signal.
 	return BASE_RATES.map((_, index) =>
-		index < lag ? null : BASE_RATES[index - lag],
+		index < lag ? null : BASE_RATES[index - lag]!,
 	);
 }
 
@@ -221,7 +221,7 @@ describe("buildStrategyMapValidation", () => {
 						{
 							day: dayKey(index),
 							completed: 20,
-							successes: Math.round(BASE_RATES[index - 2] * 20),
+							successes: Math.round(BASE_RATES[index - 2]! * 20),
 							partials: 0,
 							unverified: 0,
 						},

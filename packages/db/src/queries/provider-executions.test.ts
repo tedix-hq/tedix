@@ -61,9 +61,9 @@ async function setup() {
 	);
 	sqlite.exec(
 		schemaDdl(
-			...Object.values(billing).filter((value): value is SQLiteTable =>
+			...(Object.values(billing).filter((value) =>
 				is(value, SQLiteTable),
-			),
+			) as SQLiteTable[]),
 		),
 	);
 	const migration = readFileSync(
@@ -789,7 +789,7 @@ async function depthAdmission(branch: "gen0" | "root" | "leaf") {
 		user = "00000000-0000-4000-8000-000000000003";
 	const at = new Date().toISOString();
 	const exposures = [];
-	const operations = [];
+	const operations: Array<{ id: string; operationId: string }> = [];
 	for (let i = 0; i < (branch === "leaf" ? 4 : 1); i++) {
 		const objectId = i
 			? (i + 10).toString(16).padStart(64, "0")
@@ -1115,6 +1115,9 @@ describe("private kernel Auto original admission", () => {
 		providerResource: null,
 		providerOrigin: null,
 		deployment: null,
+		gatewayAccountId: "account",
+		gatewayId: "gateway",
+		transportKind: "gateway-https" as const,
 		autoRouting: {
 			version: 1 as const,
 			modality: "text" as const,
@@ -1185,10 +1188,11 @@ describe("private kernel Auto original admission", () => {
 			["origin_hash", "a".repeat(64)],
 			["origin", "{}"],
 			["policy_hash", "a".repeat(64)],
-		]) {
+		] as const) {
 			const old = sqlite
 				.prepare(`SELECT ${column} AS value FROM provider_execution_attempts`)
 				.get()!.value;
+			if (old === undefined) throw new Error(`Missing ${column}`);
 			sqlite
 				.prepare(`UPDATE provider_execution_attempts SET ${column}=?`)
 				.run(value);

@@ -75,6 +75,9 @@ function leaseBundle(
 		bodyGenerationTokenExpiresAt: null,
 		bodyGenerationExternalId: null,
 		bodyGenerationHeartbeatAt: null,
+		bodyInstanceId: null,
+		bodyInstanceName: null,
+		bodyInstanceObservedAt: null,
 	};
 	return {
 		workstation: {
@@ -82,7 +85,14 @@ function leaseBundle(
 			profileId: "general",
 			orgId: "org_tedix",
 			status: "ready",
-			seats: [{ role: "lead", slug: "cto", tediId: "tedi-cto" }],
+			seats: [
+				{
+					role: "lead",
+					slug: "cto",
+					tediId: "tedi-cto",
+					permissionScopes: [],
+				},
+			],
 			capabilities: ["repo", "shell"],
 			adapters: ["sandbox-workstation"],
 			artifactRefs: [],

@@ -501,7 +501,12 @@ describe("decision graph", () => {
 				chain: [],
 				duplicates: [],
 				blocksCount: 0,
-				objective: { id: "o", title: "Grow orchard sales", priority: 1 },
+				objective: {
+					id: "o",
+					title: "Grow orchard sales",
+					priority: 1,
+					top: false,
+				},
 			}),
 		).toBe("Serves Grow orchard sales");
 	});

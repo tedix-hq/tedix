@@ -40,30 +40,36 @@ describe("template extraction controls", () => {
 				slug: "example",
 				appsCount: 0,
 			});
-			await db.insert(appTemplates).values({
-				id: templateId,
-				name: "Catalog",
-				slug: "catalog",
-				vertical: "ecommerce",
-				isActive: true,
-				extractionConfig: {
-					method: "agent",
-					arrayKey: "items",
-					siteName: "{siteName}",
-					siteSearchInstructions: "Browse",
-					prompt: "Extract {siteContext}",
-					schema: { type: "object" },
-				},
-				tools: [
-					{
-						toolId: "list_items",
-						toolTypeId: "test",
-						title: "Items",
-						config: { context: "{siteContext}" },
-						outputTemplate: "Catalog: {siteContext}",
+			await db.insert(appTemplates).values([
+				{
+					id: templateId,
+					name: "Catalog",
+					slug: "catalog",
+					vertical: "ecommerce",
+					isActive: true,
+					extractionConfig: {
+						method: "agent",
+						arrayKey: "items",
+						siteName: "{siteName}",
+						siteSearchInstructions: "Browse",
+						prompt: "Extract {siteContext}",
+						schema: { type: "object" },
 					},
-				],
-			});
+					tools: [
+						{
+							toolId: "list_items",
+							toolTypeId: "rpc",
+							title: "Items",
+							config: {
+								endpoint: "items/list",
+								staticParams: { context: "{siteContext}" },
+							},
+							widgetKey: "render",
+							outputTemplate: "Catalog: {siteContext}",
+						},
+					],
+				},
+			]);
 			const input = ApplyTemplateInputSchema.parse({
 				templateId,
 				organizationId,
@@ -93,7 +99,7 @@ describe("template extraction controls", () => {
 					logWarnings: false,
 				},
 			});
-			expect(result.tools[0]?.config).toMatchObject({
+			expect(result.tools[0]?.config?.staticParams).toMatchObject({
 				context: "Regional catalog",
 			});
 			expect(result.tools[0]?.outputTemplate).toBe("Catalog: Regional catalog");

@@ -113,7 +113,12 @@ describe("cognitive runtime query boundary", () => {
 			sqlite.close();
 		}
 	});
-	it.each([
+	it.each<{
+		name: string;
+		kind: "message.completed" | "artifact.created";
+		payload: Parameters<typeof insertTediRuntimeEvent>[1]["payload"];
+		success: boolean;
+	}>([
 		{
 			name: "legacy completion",
 			kind: "message.completed",

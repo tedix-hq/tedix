@@ -222,7 +222,7 @@ describe("organization purpose", () => {
 			"Give teams durable workers they can own and steer.",
 		);
 		const backfilled = await db.query.tediObjectives.findFirst({
-			where: (table, { eq }) => eq(table.id, legacyObjective.id),
+			where: { id: legacyObjective.id },
 		});
 		expect(backfilled?.purposeCharterId).toBe("charter-1");
 		const objective = await createObjective(db, {

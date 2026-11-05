@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { eq } from "drizzle-orm";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "../../client";
@@ -79,7 +80,13 @@ describe("catalog quality score components", () => {
 		});
 	});
 
-	it.each([
+	it.each<{
+		name: string;
+		description: string | null;
+		schema: { properties: Record<string, JsonValue> };
+		annotations: ToolInput["annotations"];
+		expected: number;
+	}>([
 		{
 			name: "x",
 			description: null,

@@ -9,27 +9,39 @@ import {
 	projectOrganizationWidgetQuota,
 } from "./organizations";
 
+const WIDGET = {
+	version: 1 as const,
+	title: "Assistant",
+	subtitle: "How can I help?",
+	product: "Tedix",
+	conversationStarters: [],
+};
+
 describe("projectOrganizationWidgetQuota", () => {
 	it("returns null per ceiling when the quota was never set", () => {
 		expect(projectOrganizationWidgetQuota(null)).toEqual({
 			visitorTurnsPerHour: null,
 			originTurnsPerHour: null,
 		});
-		expect(
-			projectOrganizationWidgetQuota({ tediWidget: { version: 1 } }),
-		).toEqual({ visitorTurnsPerHour: null, originTurnsPerHour: null });
+		expect(projectOrganizationWidgetQuota({ tediWidget: WIDGET })).toEqual({
+			visitorTurnsPerHour: null,
+			originTurnsPerHour: null,
+		});
 	});
 
 	it("projects each ceiling independently and drops malformed values", () => {
 		expect(
 			projectOrganizationWidgetQuota({
-				tediWidget: { version: 1, turnQuota: { visitorTurnsPerHour: 40 } },
+				tediWidget: {
+					...WIDGET,
+					turnQuota: { visitorTurnsPerHour: 40 },
+				},
 			}),
 		).toEqual({ visitorTurnsPerHour: 40, originTurnsPerHour: null });
 		expect(
 			projectOrganizationWidgetQuota({
 				tediWidget: {
-					version: 1,
+					...WIDGET,
 					turnQuota: {
 						visitorTurnsPerHour: -1,
 						originTurnsPerHour: 2.5,
@@ -54,7 +66,7 @@ describe("listOrganizationWidgetQuotaStatus", () => {
 					metadata: {
 						contactEmail: "ops@example.test",
 						tediWidget: {
-							version: 1,
+							...WIDGET,
 							turnQuota: { visitorTurnsPerHour: 20, originTurnsPerHour: 500 },
 						},
 					},

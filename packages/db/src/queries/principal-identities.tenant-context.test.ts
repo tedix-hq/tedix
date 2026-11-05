@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import type { OrganizationMetadata } from "@tedix/api-contract/schemas/organization";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "../client";
@@ -103,7 +104,10 @@ describe("user tenant identity context", () => {
 				id: "canonical-org",
 				name: "Canonical",
 				slug: "canonical",
-				metadata: state === "retired" ? { retiredAt: NOW } : null,
+				metadata:
+					state === "retired"
+						? ({ retiredAt: NOW } as OrganizationMetadata)
+						: null,
 			});
 			await db.insert(principalIdentities).values({
 				id: "tenant-mapping",
@@ -222,7 +226,7 @@ describe("user tenant identity context", () => {
 	it("does not resolve retired organizations", async () => {
 		await db
 			.update(organizations)
-			.set({ metadata: { retiredAt: NOW } })
+			.set({ metadata: { retiredAt: NOW } as OrganizationMetadata })
 			.where(eq(organizations.id, ORG));
 
 		await expect(resolve()).resolves.toBeUndefined();

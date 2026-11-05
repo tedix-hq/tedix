@@ -111,11 +111,11 @@ it.each([
 			const before = sqlite
 				.prepare("SELECT presentation FROM work_interaction_card_presentations")
 				.get();
-			if ("status" in change)
+			if ("status" in change && change.status !== undefined)
 				sqlite
 					.prepare("UPDATE work_interactions SET status=?")
 					.run(change.status);
-			if ("expiresAt" in change)
+			if ("expiresAt" in change && change.expiresAt !== undefined)
 				sqlite
 					.prepare("UPDATE work_interactions SET expires_at=?")
 					.run(change.expiresAt);

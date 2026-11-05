@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
-import { createDbQueryClient } from "../query-client";
+import { createDbClient } from "../client";
 import { createD1Facade } from "../test/d1-facade";
 import {
 	activateCmsSiteAfterMedia,
@@ -52,7 +52,7 @@ function fixture(onPrepare?: (query: string) => void) {
 		);
 	`);
 	return {
-		db: createDbQueryClient(createD1Facade(sqlite, { onPrepare })),
+		db: createDbClient(createD1Facade(sqlite, { onPrepare })),
 		sqlite,
 	};
 }

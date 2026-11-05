@@ -87,8 +87,8 @@ describe("durable embedded profiles", () => {
 		});
 		expect(result.company?.companyProfile?.name).toBe("Acme");
 		const [installation] = await db.select().from(providerInstallations);
-		expect(installation.status).toBe("paused");
-		expect(installation.provenance).toBeNull();
+		expect(installation!.status).toBe("paused");
+		expect(installation!.provenance).toBeNull();
 	});
 	it("preserves omissions, clears explicit null, and does not resurrect older labels", async () => {
 		const { db } = await fixture();
@@ -162,7 +162,7 @@ describe("durable embedded profiles", () => {
 			["1", "first@example.com"],
 			["2", "second@example.com"],
 			["3", "third@example.com"],
-		])
+		] as const)
 			await identifyEmbeddedContact(db, {
 				...base,
 				hostUserId,
@@ -175,7 +175,7 @@ describe("durable embedded profiles", () => {
 			offset: 1,
 		});
 		expect(page.total).toBe(3);
-		expect(page.people[0].hostUserId).toBe("2");
+		expect(page.people[0]!.hostUserId).toBe("2");
 		expect(page.companies).toHaveLength(1);
 		expect(
 			(
@@ -186,7 +186,7 @@ describe("durable embedded profiles", () => {
 					limit: 50,
 					offset: 0,
 				})
-			).people[0].hostUserId,
+			).people[0]!.hostUserId,
 		).toBe("3");
 		expect(
 			(
@@ -244,7 +244,7 @@ describe("durable embedded profiles", () => {
 			offset: 0,
 		});
 		expect(page.total).toBe(1);
-		expect(page.people[0].hostUserId).toBe("long");
+		expect(page.people[0]!.hostUserId).toBe("long");
 	});
 	it("preserves simultaneous sparse updates to one user", async () => {
 		const { db } = await fixture();
@@ -265,7 +265,7 @@ describe("durable embedded profiles", () => {
 	});
 	it("keeps the same host user distinct across businesses and preserves concurrent company patches", async () => {
 		const { db } = await fixture();
-		const [first] = await db.select().from(providerInstallations);
+		const first = (await db.select().from(providerInstallations))[0]!;
 		await db
 			.insert(providerInstallations)
 			.values({ ...first, id: "second", externalTenantId: "999" });

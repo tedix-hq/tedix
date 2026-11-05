@@ -165,7 +165,7 @@ describe("durable unpriced gateway holds", () => {
 				for (const [id, quality, timestamp] of [
 					["held", "quarantined_no_pricing", "2026-09-01"],
 					["valid", "ok", "2026-09-02"],
-				]) {
+				] as const) {
 					sqlite
 						.prepare(
 							`INSERT INTO tedi_call_costs (id, gateway_log_id, gateway_id, org_id, billing_reservation_id, snapshot_at, model, provider, success, data_quality, input_tokens, total_tokens, estimated_cost_usd, usage_kind, usage_unit, usage_quantity) VALUES (?, ?, 'gateway', ?, 'reservation', ?, 'model', 'workers-ai', 1, ?, 100, 100, 0, ?, ?, ?)`,

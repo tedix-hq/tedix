@@ -88,13 +88,14 @@ describe("installFromCatalog", () => {
 	it("links the proxy to its base app by id and slug", async () => {
 		const { db, sqlite } = realDb();
 		// The ORM insert applies the schema's runtime defaults.
-		await db.insert(appCatalog).values({
+		const catalogApp: typeof appCatalog.$inferInsert = {
 			id: "catalog-mail",
 			name: "Sample Mail",
 			slug: "sample-mail",
-			connectorType: "mcp",
+			connectorType: "MCP",
 			lastSyncedAt: "2026-01-01T00:00:00.000Z",
-		});
+		};
+		await db.insert(appCatalog).values(catalogApp);
 		insertApp(sqlite, {
 			id: "20000000-0000-4000-8000-000000000001",
 			organizationId: PLATFORM_ORG,

@@ -94,8 +94,9 @@ describe("delegation FYI and correction lessons", () => {
 		expect(feed.events.map((row) => row.delegationFyi?.outcome).sort()).toEqual(
 			["completed", "queued"],
 		);
-		expect(feed.events[0].body).toContain("Researcher");
-		expect(feed.events[0].delegationFyi?.task).toBe("Review the paper");
+		const firstEvent = feed.events.at(0)!;
+		expect(firstEvent.body).toContain("Researcher");
+		expect(firstEvent.delegationFyi?.task).toBe("Review the paper");
 		const page = await listWorkActivity(db, { orgId: "org", limit: 1 });
 		expect(
 			WorkFactoryProjectionCursorSchema.safeParse(page.nextCursor).success,
@@ -114,10 +115,11 @@ describe("delegation FYI and correction lessons", () => {
 	it("idempotently tightens the exact class from owner feedback and fences cross-tenant or fabricated receipts", async () => {
 		const { db, sqlite } = fixture();
 		await recordDelegationFyi(db, input);
+		const event = (await listWorkActivity(db, { orgId: "org" })).events.at(0)!;
 		const feedback = {
 			orgId: "org",
 			workItemId: "research",
-			eventId: (await listWorkActivity(db, { orgId: "org" })).events[0].id,
+			eventId: event.id,
 			userId: "owner",
 			at: input.at,
 		};
@@ -147,7 +149,7 @@ describe("delegation FYI and correction lessons", () => {
 			["comment", "system", "home"],
 			["delegation.fyi", "external_agent", "harness"],
 			["delegation.fyi", "system", "other"],
-		]) {
+		] as const) {
 			const id = crypto.randomUUID();
 			await db.insert(workEvents).values({
 				id,

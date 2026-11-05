@@ -342,7 +342,9 @@ describe("pending MCP consent activation on real D1 SQL", () => {
 	it(`keeps at most ${MAX_MCP_CONSENT_GRANTS_PER_CLIENT} newest grants per client`, async () => {
 		vi.useFakeTimers({ toFake: ["Date"] });
 		vi.setSystemTime(new Date("2026-10-01T00:00:00.000Z"));
-		onTestFinished(() => vi.useRealTimers());
+		onTestFinished(() => {
+			vi.useRealTimers();
+		});
 		const { db } = fixture();
 		await replaceMcpConsentSelection(db, active);
 		let expected = "old";

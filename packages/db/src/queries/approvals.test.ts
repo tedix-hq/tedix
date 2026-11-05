@@ -789,7 +789,9 @@ it("claims queued calls only when due, recovers a cut-off run, and rejects an ol
 	const now = "2026-10-31T12:00:00.000Z";
 	vi.useFakeTimers({ toFake: ["Date"] });
 	vi.setSystemTime(new Date(now));
-	onTestFinished(() => vi.useRealTimers());
+	onTestFinished(() => {
+		vi.useRealTimers();
+	});
 	await createApprovalRequest(db, {
 		id: "queued-1",
 		orgId: "org-1",
