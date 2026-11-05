@@ -45,6 +45,13 @@ type CheckedRelation = {
 	};
 };
 
+// An empty type is an unset type. From 2 Nov live checks rejected every
+// tedi's real app grant (the loose export reader still saw them), so an answer
+// that only blanks or repeats a field must not read as "no access".
+function typeMatches(answered: string | undefined, expected: string) {
+	return !answered || answered === expected;
+}
+
 function matchesRelation(
 	tuple: CheckedRelation["tuple"],
 	expected: AppRelation,
@@ -53,13 +60,34 @@ function matchesRelation(
 		tuple.resource === expected.resource &&
 		tuple.target === expected.target &&
 		tuple.relation === expected.relation &&
-		(tuple.resourceType === undefined || tuple.resourceType === "app") &&
-		(tuple.targetType === undefined || tuple.targetType === "user")
+		typeMatches(tuple.resourceType, "app") &&
+		typeMatches(tuple.targetType, "user")
 	);
 }
 
-// Provider answers cannot expand the requested objects or principals. Duplicate
-// answers are ambiguous, including an allow/deny pair for the same tuple.
+/** Names which fields of a rejected allowed answer differed; no identifiers. */
+function logRejectedAllowedAnswer(
+	results: CheckedRelation[],
+	expected: AppRelation,
+	matchingCount: number,
+): void {
+	const candidate = results.find(
+		(entry) =>
+			entry.allowed === true &&
+			entry.tuple.resource === expected.resource &&
+			entry.tuple.relation === expected.relation,
+	);
+	if (!candidate) return;
+	console.warn("[FGA] Allowed app answer rejected", {
+		matchingCount,
+		targetMatches: candidate.tuple.target === expected.target,
+		resourceType: candidate.tuple.resourceType ?? null,
+		targetType: candidate.tuple.targetType ?? null,
+	});
+}
+
+// Provider answers cannot expand the requested objects or principals. Repeated
+// identical answers agree; an allow/deny pair for the same tuple is ambiguous.
 function allowedRequestedRelations(
 	results: CheckedRelation[],
 	requested: AppRelation[],
@@ -68,7 +96,12 @@ function allowedRequestedRelations(
 		const matching = results.filter((entry) =>
 			matchesRelation(entry.tuple, expected),
 		);
-		return matching.length === 1 && matching[0]!.allowed === true;
+		const allowed =
+			matching.length > 0 && matching.every((entry) => entry.allowed === true);
+		if (!allowed && matching.length !== 1) {
+			logRejectedAllowedAnswer(results, expected, matching.length);
+		}
+		return allowed;
 	});
 }
 
