@@ -133,6 +133,9 @@ export default defineConfig(async ({ command, mode, isPreview }) => {
 				process.env.TEDIX_BROWSER_FIXTURE === "1"
 					? { ignored: () => true }
 					: undefined,
+			// Specs own every navigation: a late-discovered dependency otherwise
+			// re-bundles and full-reloads every connected page mid-interaction.
+			hmr: process.env.TEDIX_BROWSER_FIXTURE === "1" ? false : undefined,
 			allowedHosts: [
 				"localhost",
 				".localhost",
