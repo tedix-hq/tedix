@@ -365,6 +365,28 @@ describe("approved Home write scopes", () => {
 		).toEqual(["apps:write", "mcp:apps.write", "tools:write"]);
 	});
 
+	it("carries the runner's machine scope only for an approved skill run", async () => {
+		expect(
+			await delegatedScopes("skills/runWorkflow", {
+				userId: undefined,
+				approvedHomeUserId: "approver-1",
+				homeApprovedCall: true,
+			}),
+		).toEqual(["mcp:skills.write", "tedis:write"]);
+		for (const caller of [
+			{},
+			{ homeApprovedCall: true, kernel: false },
+			{ homeApprovedCall: true, authType: "tedi" as const },
+		]) {
+			expect(await delegatedScopes("skills/runWorkflow", caller)).not.toContain(
+				"tedis:write",
+			);
+		}
+		expect(
+			await delegatedScopes("skills/update", { homeApprovedCall: true }),
+		).not.toContain("tedis:write");
+	});
+
 	it("never delegates a write scope for an approved read tool", async () => {
 		const scopes = await delegatedScopes("osWorkspaces/outputs/get", {
 			homeApprovedCall: true,

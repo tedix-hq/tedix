@@ -250,7 +250,16 @@ function homeApprovedToolScopes(
 			mcpConfig,
 			{ fallbackOnAuthenticatedAuthMode: true, toolCall: { arguments: args } },
 		);
-		return [...new Set([...required, ...delegatedMachineScopes(required)])];
+		const machine = delegatedMachineScopes(required);
+		// The skill runner still uses AUTHZ.tedisWrite. Translate only this
+		// approved dispatch, rather than granting tedi management to skills.write.
+		if (
+			transport === "rpc" &&
+			readToolConfigExtension(config, "endpoint") === "skills/runWorkflow" &&
+			required.includes("mcp:skills.write")
+		)
+			machine.push("tedis:write");
+		return [...new Set([...required, ...machine])];
 	} catch {
 		// No resolvable mapping: delegate nothing, so apps/api refuses the call.
 		return [];
