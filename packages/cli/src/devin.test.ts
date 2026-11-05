@@ -1153,6 +1153,7 @@ test.each([
 test.each([
 	"verified",
 	"november-5",
+	"duplicate-declarations",
 	"bad-confirmation",
 	"wrong-native-session",
 ])("bounded two-turn Devin runner: %s", async (mode) => {
@@ -1195,6 +1196,7 @@ test.each([
 	let writes = 0;
 	// Sanitized ATIF agent messages from the 5 Nov shiny-newt attempt.
 	const retainedMessage = novemberTranscript.steps[0]!.message;
+	const declaration = `TEDIX_LANE_RESULT ${JSON.stringify({ workItemId: binding.workItemId, workVersion: 2, contractVersion: 1, outcomeText: workItem.acceptanceContract.doneLooksLike, outcome: "completed" })}`;
 	const note =
 		mode === "november-5"
 			? (JSON.parse(
@@ -1203,11 +1205,11 @@ test.each([
 						.find((line) => line.startsWith("TEDIX_WORK_RESULT "))!
 						.slice("TEDIX_WORK_RESULT ".length),
 				).note as string)
-			: `The guide was read. Commit: ${"a".repeat(40)}\nTEDIX_LANE_RESULT ${JSON.stringify({ workItemId: binding.workItemId, workVersion: 2, contractVersion: 1, outcomeText: workItem.acceptanceContract.doneLooksLike, outcome: "completed" })}`;
+			: `The guide was read. Commit: ${"a".repeat(40)}\n${declaration}`;
 	const firstMessage =
 		mode === "november-5"
 			? retainedMessage
-			: `TEDIX_WORK_RESULT ${JSON.stringify({ binding, outcome: "succeeded", note })}`;
+			: `${mode === "duplicate-declarations" ? `${declaration}\n` : ""}TEDIX_WORK_RESULT ${JSON.stringify({ binding, outcome: "succeeded", note })}`;
 	const bridge = createDevinWorkBridge(binding, {
 		read: async () => ({ workItem, attempt, comments }),
 		post: async (body) => {
@@ -1275,7 +1277,10 @@ test.each([
 			},
 		},
 	);
-	const verified = mode === "verified" || mode === "november-5";
+	const verified =
+		mode === "verified" ||
+		mode === "november-5" ||
+		mode === "duplicate-declarations";
 	expect(exit).toBe(verified ? 0 : 1);
 	expect(writes).toBe(1);
 	const turns = readFileSync(join(dir, "turns.jsonl"), "utf8")
@@ -1289,7 +1294,18 @@ test.each([
 		expect(turn.config.permissions.deny).toContain("mcp__tedix__*");
 	}
 	expect(turns[1].prompt).toContain(note.split("\n")[0]);
-	if (verified) {
+	if (mode === "duplicate-declarations") {
+		const message = (last as { finalMessage: string }).finalMessage;
+		expect(last).toMatchObject({ outcome: "succeeded" });
+		expect(
+			message
+				.split("\n")
+				.filter((line) => line.startsWith("TEDIX_LANE_RESULT")),
+		).toHaveLength(2);
+		expect(() => parseLaneResult(message)).toThrow(
+			"Expected one bounded TEDIX_LANE_RESULT JSON line",
+		);
+	} else if (verified) {
 		const result = parseLaneResult(
 			(last as { finalMessage: string }).finalMessage,
 		);
