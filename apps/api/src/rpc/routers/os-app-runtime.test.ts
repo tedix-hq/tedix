@@ -51,7 +51,7 @@ const previewId = "44444444-4444-4444-8444-444444444444";
 const key = "fictional-api-app-key";
 const scope = { workspaceId, gadgetId };
 
-async function fixture() {
+async function fixture(manifestOverrides: Record<string, unknown> = {}) {
 	const sqlite = new DatabaseSync(":memory:");
 	onTestFinished(() => sqlite.close());
 	sqlite.exec("PRAGMA foreign_keys = OFF");
@@ -130,6 +130,7 @@ async function fixture() {
 			capabilities: [],
 			config: { version: 1, settings: { tags: ["Relevant"] } },
 			resourceGrants: [{ slot: "sheet", operations: ["outputs.read"] }],
+			...manifestOverrides,
 		}),
 		createdByKind: "user",
 		createdById: "user-1",
@@ -167,6 +168,139 @@ async function fixture() {
 	const client = createRouterClient(router, { context });
 	return { db, env, router, context, client, fetch, validateFetch };
 }
+
+describe("workspace app operation discovery and invocation", () => {
+	const operation = {
+		name: "count",
+		description: "Count cards matching a status",
+		input: {
+			type: "object",
+			properties: { status: { type: "string", enum: ["open", "done"] } },
+			required: ["status"],
+			additionalProperties: false,
+		},
+		effect: "read",
+		outputSlot: "sheet",
+	};
+	it("discovers the pinned manifest without loading or returning source code", async () => {
+		const { client, db, fetch } = await fixture({ operations: [operation] });
+		await db
+			.delete(osGadgetCode)
+			.where(eq(osGadgetCode.revisionId, revisionId));
+		expect(await client.listOperations(scope)).toEqual({
+			revisionId,
+			operations: [operation],
+		});
+		expect(fetch).not.toHaveBeenCalled();
+	});
+	it("returns an empty list for an older app", async () => {
+		const { client } = await fixture();
+		expect(await client.listOperations(scope)).toEqual({
+			revisionId,
+			operations: [],
+		});
+	});
+	it("invokes using only discovery and records the named input in the app ledger", async () => {
+		const { client, fetch, db } = await fixture({ operations: [operation] });
+		const discovered = await client.listOperations(scope);
+		const { session } = await client.open(scope);
+		expect(
+			await client.invokeOperation({
+				...scope,
+				session,
+				name: discovered.operations[0]!.name,
+				input: { status: "open" },
+			}),
+		).toEqual({ result: { count: 1 } });
+		expect(await fetch.mock.calls[0]![0].json()).toMatchObject({
+			method: "count",
+			args: [{ status: "open" }],
+		});
+		expect(await db.select().from(osGadgetExecutions)).toMatchObject([
+			{
+				status: "completed",
+				input: JSON.stringify({ method: "count", args: [{ status: "open" }] }),
+			},
+		]);
+	});
+	it.each([
+		{},
+		{ status: 1 },
+		{ status: "unknown" },
+		{ status: "open", extra: true },
+	])("rejects input that violates the published schema: %j", async (input) => {
+		const { client, fetch } = await fixture({ operations: [operation] });
+		const { session } = await client.open(scope);
+		await expect(
+			client.invokeOperation({ ...scope, session, name: "count", input }),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		expect(fetch).not.toHaveBeenCalled();
+	});
+	it("refuses undeclared methods and forged sessions before runtime execution", async () => {
+		const { client, fetch } = await fixture({ operations: [operation] });
+		const { session } = await client.open(scope);
+		await expect(
+			client.invokeOperation({ ...scope, session, name: "secret", input: {} }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		await expect(
+			client.invokeOperation({
+				...scope,
+				session: "forged",
+				name: "count",
+				input: { status: "open" },
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(fetch).not.toHaveBeenCalled();
+	});
+	it("requires machine write access for invocation while permitting discovery with read access", async () => {
+		const { env, router, fetch } = await fixture({ operations: [operation] });
+		const reader = createRouterClient(router, {
+			context: apiKeyContext({ env, scopes: ["apps:read"] }),
+		});
+		expect((await reader.listOperations(scope)).operations).toEqual([
+			operation,
+		]);
+		const { session } = await reader.open(scope);
+		await expect(
+			reader.invokeOperation({
+				...scope,
+				session,
+				name: "count",
+				input: { status: "open" },
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(fetch).not.toHaveBeenCalled();
+	});
+	it("rejects cross-organization discovery and stale revision calls", async () => {
+		const { env, router, client, db, fetch } = await fixture({
+			operations: [operation],
+		});
+		const outsider = createRouterClient(router, {
+			context: apiKeyContext({
+				env,
+				organizationId: "other-org",
+				scopes: ["apps:read", "apps:write"],
+			}),
+		});
+		await expect(outsider.listOperations(scope)).rejects.toMatchObject({
+			code: "NOT_FOUND",
+		});
+		const { session } = await client.open(scope);
+		await db
+			.update(osGadgets)
+			.set({ currentRevisionId: previewId })
+			.where(eq(osGadgets.id, gadgetId));
+		await expect(
+			client.invokeOperation({
+				...scope,
+				session,
+				name: "count",
+				input: { status: "open" },
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(fetch).not.toHaveBeenCalled();
+	});
+});
 
 describe("workspace app runtime API admission", () => {
 	it.each(["user", "external_agent"] as const)(

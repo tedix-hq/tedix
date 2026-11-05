@@ -1,5 +1,6 @@
 import * as z from "zod";
 import { JsonValueSchema } from "./common";
+import { ToolJsonSchemaSchema } from "./tools";
 import { nextSkillScheduleFireAt } from "../utils/skill-schedule";
 
 /**
@@ -80,6 +81,54 @@ export const AppRuntimeArgumentsSchema = z
 		(args) => new TextEncoder().encode(JSON.stringify(args)).length <= 65536,
 		"App arguments exceed 64 KiB",
 	);
+/** Public app methods take one named-parameter object, passed as args[0]. */
+export const AppRuntimePublicOperationSchema = z.strictObject({
+	name: AppRuntimeMethodSchema,
+	description: z.string().trim().min(1).max(1000),
+	input: ToolJsonSchemaSchema.extend({ type: z.literal("object") }).superRefine(
+		(schema, ctx) => {
+			if (JSON.stringify(schema).length > 16000) {
+				ctx.addIssue({
+					code: "custom",
+					message: "Operation input schema exceeds 16,000 characters",
+				});
+				return;
+			}
+			try {
+				z.fromJSONSchema(schema as Parameters<typeof z.fromJSONSchema>[0]);
+			} catch {
+				ctx.addIssue({
+					code: "custom",
+					message: "Operation input must be a supported JSON Schema",
+				});
+			}
+		},
+	),
+	effect: z
+		.enum(["read", "write", "destructive"])
+		.describe(
+			"Author-declared effect for planning; never grants authority or proves behavior",
+		),
+	outputSlot: z
+		.string()
+		.min(1)
+		.max(160)
+		.optional()
+		.describe(
+			"Output resource slot read or changed by this operation; must have an Output grant",
+		),
+});
+
+export const AppRuntimePublicOperationsSchema = z
+	.array(AppRuntimePublicOperationSchema)
+	.max(50)
+	.refine(
+		(operations) =>
+			new Set(operations.map((operation) => operation.name)).size ===
+			operations.length,
+		"Operation names must be unique",
+	);
+
 /** One app method a trigger calls, with optional leading arguments. */
 const appRuntimeTriggerBase = {
 	id: z

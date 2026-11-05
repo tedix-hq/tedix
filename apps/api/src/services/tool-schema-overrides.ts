@@ -194,6 +194,9 @@ export const OS_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"osWorkspaces/gadgets/get": "get_os_gadget",
 	"osWorkspaces/gadgets/revise": "revise_os_gadget",
 	"osAppRuntime/proposeEdit": "propose_os_app_edit",
+	"osAppRuntime/listOperations": "list_os_app_operations",
+	"osAppRuntime/invokeOperation": "invoke_os_app_operation",
+	"osAppRuntime/open": "open_os_app",
 	"osAppRuntime/acceptEdit": "accept_os_app_edit",
 	"osAppRuntime/revisions": "list_os_app_revisions",
 	"osAppRuntime/restoreRevision": "restore_os_app_revision",
@@ -250,6 +253,9 @@ export const OS_KIND_OVERRIDES: Record<
 	string,
 	"read" | "write" | "destructive"
 > = {
+	"osAppRuntime/listOperations": "read",
+	"osAppRuntime/open": "read",
+	"osAppRuntime/invokeOperation": "destructive",
 	"personalResourceDelegations/create": "destructive",
 	"personalResourceDelegations/list": "read",
 	"personalResourceDelegations/revoke": "destructive",

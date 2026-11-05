@@ -179,6 +179,21 @@ export const PLATFORM_OPERATOR_TOOL_DEFINITIONS = [
 		kind: "write",
 	},
 	{
+		toolId: "list_os_app_operations",
+		endpoint: "osAppRuntime/listOperations",
+		kind: "read",
+	},
+	{
+		toolId: "open_os_app",
+		endpoint: "osAppRuntime/open",
+		kind: "read",
+	},
+	{
+		toolId: "invoke_os_app_operation",
+		endpoint: "osAppRuntime/invokeOperation",
+		kind: "destructive",
+	},
+	{
 		toolId: "accept_os_app_edit",
 		endpoint: "osAppRuntime/acceptEdit",
 		kind: "write",

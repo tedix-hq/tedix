@@ -35,6 +35,26 @@ function expectOperatorWidget(toolId: string, layoutId: string) {
 }
 
 describe("platform operator tool definitions", () => {
+	it("registers scoped app operation discovery and invocation", () => {
+		expect(definition("list_os_app_operations")).toMatchObject({
+			endpoint: "osAppRuntime/listOperations",
+			kind: "read",
+		});
+		expect(definition("open_os_app")).toMatchObject({
+			endpoint: "osAppRuntime/open",
+			kind: "read",
+		});
+		expect(definition("invoke_os_app_operation")).toMatchObject({
+			endpoint: "osAppRuntime/invokeOperation",
+			kind: "destructive",
+		});
+		expect(toolToGranularCapabilityScope("list_os_app_operations")).toBe(
+			"mcp:apps.read",
+		);
+		expect(toolToGranularCapabilityScope("invoke_os_app_operation")).toBe(
+			"mcp:apps.write",
+		);
+	});
 	it("curates the Tedix admin oRPC surface that is persisted in D1", () => {
 		const toolIds = PLATFORM_OPERATOR_TOOL_DEFINITIONS.map(
 			(tool) => tool.toolId,
