@@ -15,6 +15,8 @@ import {
 	ToolJsonSchemaSchema,
 	type ToolSchemaDialect,
 	type ToolSchemaSource,
+	TOOL_WRITE_CAPABILITY_VALUES,
+	type ToolWriteCapability,
 } from "@tedix/api-contract/schemas/tools";
 import type { DbClient } from "../../client";
 import type {
@@ -42,7 +44,26 @@ interface AppMcpConfigLike {
 	connectionProviderId?: string;
 	connectionScope?: ConnectionScope;
 	connectionScopes?: string[];
+	writeCapabilityOverrides?: Record<string, ToolWriteCapability>;
 	aggregateApps?: unknown[];
+}
+
+/**
+ * Operator-declared write capabilities keyed by tool name, stored on the app's
+ * `mcpConfig.writeCapabilityOverrides`. This is the remediation for upstream
+ * MCP servers that send no classifying annotations: the catalog sync refuses
+ * to create an UNDECLARED row, so someone declares the capability here.
+ */
+function readWriteCapabilityOverrides(
+	mcpConfig: Record<string, unknown>,
+): Record<string, ToolWriteCapability> | undefined {
+	const raw = mcpConfig.writeCapabilityOverrides;
+	if (!isRecord(raw)) return undefined;
+	const entries = Object.entries(raw).filter(
+		(entry): entry is [string, ToolWriteCapability] =>
+			TOOL_WRITE_CAPABILITY_VALUES.includes(entry[1] as ToolWriteCapability),
+	);
+	return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
 export function readAppMcpConfig(app: {
@@ -85,6 +106,7 @@ export function readAppMcpConfig(app: {
 					(scope): scope is string => typeof scope === "string",
 				)
 			: undefined,
+		writeCapabilityOverrides: readWriteCapabilityOverrides(mcpConfig),
 		aggregateApps: Array.isArray(mcpConfig.aggregateApps)
 			? mcpConfig.aggregateApps
 			: undefined,

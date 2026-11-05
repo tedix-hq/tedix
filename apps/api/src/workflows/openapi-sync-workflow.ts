@@ -22,6 +22,7 @@ import {
 	listApiSyncApps,
 } from "@tedix/db/queries/apps";
 import { projectCatalogToolsFromBaseApp } from "@tedix/db/queries/catalog/mcp-tools";
+import { reportUnclassifiedWriteCapability } from "@tedix/db/queries/catalog/write-capability";
 import { publishMcpListChangedEvents } from "../lib/mcp-subscriptions";
 import { runGoogleDiscoveryToolImport } from "../services/google-discovery-tool-import";
 import { executeOpenApiToolImport } from "../services/openapi-tool-import";
@@ -183,7 +184,27 @@ export class OpenApiSyncWorkflow extends WorkflowEntrypoint<
 			results.push(result);
 		}
 		const failedApps = results.filter((result) => result.failed > 0).length;
+		// The sync writes a declared writeCapability on every new row; rows that
+		// predate the declaration requirement can still carry NULL (gated). List
+		// that residual backlog per app so the operator sees what re-syncing did
+		// not classify.
+		const writeCapabilityReport = await step.do(
+			"report unclassified write capability",
+			async () => {
+				const reports = [];
+				for (const appId of appIds) {
+					reports.push(
+						await reportUnclassifiedWriteCapability(db, {
+							appId,
+							limit: 100,
+						}),
+					);
+				}
+				return reports;
+			},
+		);
 		return {
+			writeCapabilityReport,
 			status:
 				failedApps === 0
 					? "succeeded"

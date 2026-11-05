@@ -7,6 +7,7 @@ import type { ConnectionCredentialProfile } from "@tedix/api-contract/schemas/co
 import type {
 	ToolAnnotations,
 	ToolConfig,
+	ToolWriteCapability,
 } from "@tedix/api-contract/schemas/tools";
 import { deriveToolWriteCapability } from "@tedix/api-contract/schemas/tools";
 import { eq } from "drizzle-orm";
@@ -44,6 +45,13 @@ export interface SyncCatalogToolsToAppOptions {
 	connectionProviderId?: string;
 	connectionScope?: ConnectionScope;
 	connectionScopes?: string[];
+	/**
+	 * Operator-declared capabilities keyed by catalog tool name, consulted when
+	 * upstream annotations classify nothing. The target app's
+	 * `mcpConfig.writeCapabilityOverrides` supplies the same declarations;
+	 * this option wins on a name collision.
+	 */
+	writeCapabilityOverrides?: Record<string, ToolWriteCapability>;
 	dryRun: boolean;
 	disableRemoved?: boolean;
 	/** Internal dry-run support for createBaseAppFromCatalog planning. */
@@ -124,6 +132,7 @@ export async function syncCatalogToolsToApp(
 		connectionProviderId,
 		connectionScope,
 		connectionScopes,
+		writeCapabilityOverrides,
 		dryRun,
 		disableRemoved = true,
 		targetAppOverride,
@@ -172,6 +181,13 @@ export async function syncCatalogToolsToApp(
 	);
 	const effectiveConnectionScopes =
 		connectionScopes ?? targetMcpConfig.connectionScopes;
+	// Explicit declarations keyed by catalog tool name. The per-call option wins
+	// over the declarations stored on the target app.
+	const effectiveWriteCapabilityOverrides: Record<string, ToolWriteCapability> =
+		{
+			...targetMcpConfig.writeCapabilityOverrides,
+			...writeCapabilityOverrides,
+		};
 	const connectionProvider = effectiveConnectionProviderId
 		? await getConnectionProviderByDescopeAppId(
 				db,
@@ -216,6 +232,11 @@ export async function syncCatalogToolsToApp(
 		clientCredentialsTokenUrl: catalogApp.scanClientCredentialsTokenUrl,
 	});
 
+	// New tools whose capability nobody declared. Collected across the whole
+	// pass so an applied sync fails once, naming every tool that needs an
+	// explicit scope decision, instead of surfacing them one run at a time.
+	const undeclaredNewTools: string[] = [];
+
 	// Collect all planned mutations, then execute atomically in a transaction
 	const plannedInserts: (typeof appTools.$inferInsert)[] = [];
 	const plannedUpdates: Array<{
@@ -234,12 +255,17 @@ export async function syncCatalogToolsToApp(
 		// Declarative classification, derived ONCE from the upstream annotations
 		// and persisted alongside them. Everything downstream (the Kernel write
 		// planner, the apps/mcp destructive gate) reads a column instead of
-		// re-inferring capability from the tool NAME. NULL stays NULL: an upstream
-		// server that sends no annotations leaves the tool UNDECLARED, which is
-		// gated and shows up in the unclassified report.
+		// re-inferring capability from the tool NAME. An upstream server that
+		// sends no classifying annotations derives NULL; the override map is the
+		// declaration of last resort, and a new row with neither is refused
+		// rather than born UNDECLARED.
 		const derivedWriteCapability = deriveToolWriteCapability(
 			annotations as ToolAnnotations | null,
 		);
+		const declaredWriteCapability =
+			derivedWriteCapability ??
+			effectiveWriteCapabilityOverrides[ct.toolName] ??
+			null;
 		const outputSchema = mcpToolOutputSchema(
 			ct.outputSchema,
 			annotations as ToolAnnotations | null,
@@ -280,6 +306,23 @@ export async function syncCatalogToolsToApp(
 		}
 
 		if (!existing) {
+			if (declaredWriteCapability === null) {
+				// Every gate treats an UNDECLARED row as write-capable, so a silent
+				// NULL read could never ship — but a backlog of unclassified rows is
+				// exactly the defect this sync must stop creating. Fail loudly and
+				// point at the two override surfaces.
+				const reason =
+					`Tool "${ct.toolName}" has no declared write capability: upstream ` +
+					`sent no classifying annotations and no override covers it. Declare ` +
+					`it via mcpConfig.writeCapabilityOverrides on the app or the ` +
+					`writeCapabilityOverrides sync option.`;
+				if (dryRun) {
+					results.push({ toolName: ct.toolName, action: "skipped", reason });
+					continue;
+				}
+				undeclaredNewTools.push(ct.toolName);
+				continue;
+			}
 			if (dryRun) {
 				results.push({ toolName: ct.toolName, action: "would_create" });
 			} else {
@@ -296,8 +339,9 @@ export async function syncCatalogToolsToApp(
 					icons,
 					executionTaskSupport,
 					annotations: (annotations as ToolAnnotations | null) ?? null,
-					// Insert: no existing row, so nothing to preserve.
-					writeCapability: derivedWriteCapability,
+					// Insert: no existing row, so nothing to preserve. The null case
+					// was refused above — a new row is never born UNDECLARED.
+					writeCapability: declaredWriteCapability,
 					meta,
 					schemaDialect: "json-schema-2020-12",
 					schemaSource: "mcp",
@@ -345,18 +389,20 @@ export async function syncCatalogToolsToApp(
 		// otherwise never be re-synced into a classified state.
 		// An upstream server that sends NO annotations derives `null`, which
 		// carries no information — it cannot contradict anything. Overwriting a
-		// declaration with it destroyed the ONLY remediation available to the ~52
-		// third-party tools whose upstream never sends annotations: an operator
-		// declared the capability by hand, and the next routine catalog sync
-		// silently erased it, reported as an unremarkable "1 updated". The
-		// unclassified report could therefore never shrink for exactly the rows it
-		// exists to surface, and at the apps/mcp destructive gate the swing was
-		// GATED -> UNGATED, not fail-safe.
+		// declaration with it destroyed the remediation available to tools whose
+		// upstream never sends annotations: an operator declared the capability
+		// (by hand on the row, or through writeCapabilityOverrides), and the next
+		// routine catalog sync silently erased it, reported as an unremarkable
+		// "1 updated". The unclassified report could therefore never shrink for
+		// exactly the rows it exists to surface, and at the apps/mcp destructive
+		// gate the swing was GATED -> UNGATED, not fail-safe. An existing NULL is
+		// kept — the row predates the declaration requirement and stays gated —
+		// while an override is a fresh declaration that outranks the stored one.
 		//
 		// Upstream still wins whenever it actually speaks, so a tool that changes
 		// from read-only to destructive re-derives correctly.
 		const writeCapability =
-			derivedWriteCapability ?? existing?.writeCapability ?? null;
+			declaredWriteCapability ?? existing?.writeCapability ?? null;
 		const writeCapabilityChanged =
 			(existing.writeCapability ?? null) !== (writeCapability ?? null);
 		const metaChanged = !jsonEqual(existing.meta, meta);
@@ -472,6 +518,16 @@ export async function syncCatalogToolsToApp(
 			});
 			results.push({ toolName: ct.toolName, action: "updated" });
 		}
+	}
+
+	if (undeclaredNewTools.length > 0) {
+		throw new Error(
+			`Refusing to create ${undeclaredNewTools.length} tool row(s) with undeclared ` +
+				`write capability on ${targetApp.name}: ${undeclaredNewTools.join(", ")}. ` +
+				`Upstream annotations do not classify them; declare each via ` +
+				`mcpConfig.writeCapabilityOverrides on the app or the ` +
+				`writeCapabilityOverrides sync option.`,
+		);
 	}
 
 	if (disableRemoved) {

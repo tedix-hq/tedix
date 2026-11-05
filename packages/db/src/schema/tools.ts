@@ -142,10 +142,18 @@ export const appTools = sqliteTable(
 		 * by a verb regex that never matched camelCase, so `createJiraIssue` and
 		 * `cms_provision_service_key` silently classified as non-writes.
 		 *
-		 * Populated from MCP `annotations` at catalog sync
-		 * (`deriveToolWriteCapability`) and settable directly for upstream servers
-		 * that never send annotations. Nullable BY DESIGN — a NOT NULL default
-		 * would have to invent one of the three answers for every existing row.
+		 * Every sync path declares it: the oRPC projection derives it from the
+		 * contract endpoint's kind/method annotations, the OpenAPI and Google
+		 * Discovery importers derive it from the HTTP method, and the catalog
+		 * scan derives it from upstream MCP `annotations`
+		 * (`deriveToolWriteCapability`) or a `writeCapabilityOverrides`
+		 * declaration (the app's `mcpConfig.writeCapabilityOverrides` or the
+		 * sync option). A new row that would land NULL is refused loudly —
+		 * undeclared tools force an explicit scope decision. Rows that predate
+		 * the requirement keep NULL (still gated, never read) and are listed by
+		 * `reportUnclassifiedWriteCapability`. Nullable BY DESIGN — a NOT NULL
+		 * default would have to invent one of the three answers for every
+		 * existing row.
 		 */
 		writeCapability: text("write_capability", {
 			enum: TOOL_WRITE_CAPABILITY_VALUES,

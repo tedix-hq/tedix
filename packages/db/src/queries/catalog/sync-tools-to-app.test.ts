@@ -151,6 +151,9 @@ describe("buildCatalogMcpConnectionAuth", () => {
 							type: "object",
 							properties: { keyword: { type: "string" } },
 						},
+						// A sync refuses to create UNDECLARED rows, so the seeded
+						// catalog tools declare write capability through annotations.
+						annotations: { readOnlyHint: false },
 					}),
 				),
 			),
@@ -289,7 +292,7 @@ describe("syncCatalogToolsToApp write capability", () => {
 		});
 	});
 
-	it("populates write_capability from upstream annotations, leaving unannotated tools UNDECLARED", async () => {
+	it("populates write_capability from upstream annotations", async () => {
 		const { db } = setup();
 		await seed(db);
 		await db.batch(
@@ -309,10 +312,6 @@ describe("syncCatalogToolsToApp write capability", () => {
 						readOnlyHint: false,
 					}),
 				),
-				// The production shape: upstream sends nothing at all.
-				db
-					.insert(appCatalogMcpTools)
-					.values(catalogTool("ct-4", "createJiraIssue", null)),
 			]),
 		);
 
@@ -334,8 +333,122 @@ describe("syncCatalogToolsToApp write capability", () => {
 		expect(byTool.get("acme_delete_thing")).toBe("destructive");
 		expect(byTool.get("acme_get_thing")).toBe("read");
 		expect(byTool.get("acme_edit_thing")).toBe("write");
-		// UNDECLARED, NOT "read" — this is the row the gates must fail closed on.
-		expect(byTool.get("createJiraIssue")).toBeNull();
+	});
+
+	// The production shape: upstream sends nothing at all. A new row can no
+	// longer be born UNDECLARED — an applied sync names every tool that needs
+	// an explicit scope decision instead of silently gating it forever.
+	it("refuses to create an undeclared tool row on an applied sync", async () => {
+		const { db } = setup();
+		await seed(db);
+		await db
+			.insert(appCatalogMcpTools)
+			.values(catalogTool("ct-4", "createJiraIssue", null));
+
+		await expect(
+			syncCatalogToolsToApp(db, {
+				catalogAppId: "catalog-wc",
+				appId: "app-wc",
+				mcpServerUrl: "https://mcp.acme.test/mcp",
+				dryRun: false,
+			}),
+		).rejects.toThrow(/createJiraIssue.*writeCapabilityOverrides/s);
+
+		const rows = await db
+			.select({ toolId: appTools.toolId })
+			.from(appTools)
+			.where(eq(appTools.appId, "app-wc"));
+		expect(rows).toHaveLength(0);
+	});
+
+	it("reports undeclared new tools as skipped on a dry run", async () => {
+		const { db } = setup();
+		await seed(db);
+		await db
+			.insert(appCatalogMcpTools)
+			.values(catalogTool("ct-4", "createJiraIssue", null));
+
+		const result = await syncCatalogToolsToApp(db, {
+			catalogAppId: "catalog-wc",
+			appId: "app-wc",
+			mcpServerUrl: "https://mcp.acme.test/mcp",
+			dryRun: true,
+		});
+
+		expect(result.results).toEqual([
+			{
+				toolName: "createJiraIssue",
+				action: "skipped",
+				reason: expect.stringContaining("no declared write capability"),
+			},
+		]);
+	});
+
+	it("creates undeclared upstream tools through the override map", async () => {
+		const { db } = setup();
+		await seed(db);
+		await db
+			.insert(appCatalogMcpTools)
+			.values(catalogTool("ct-4", "createJiraIssue", null));
+
+		await syncCatalogToolsToApp(db, {
+			catalogAppId: "catalog-wc",
+			appId: "app-wc",
+			mcpServerUrl: "https://mcp.acme.test/mcp",
+			dryRun: false,
+			writeCapabilityOverrides: { createJiraIssue: "write" },
+		});
+
+		const [row] = await db
+			.select({ writeCapability: appTools.writeCapability })
+			.from(appTools)
+			.where(eq(appTools.appId, "app-wc"));
+		expect(row?.writeCapability).toBe("write");
+	});
+
+	it("reads undeclared upstream tools from mcpConfig.writeCapabilityOverrides", async () => {
+		const { db } = setup();
+		await db.insert(appCatalog).values({
+			id: "catalog-wc",
+			name: "Acme",
+			slug: "acme",
+			toolSource: "upstream_mcp",
+			connectorType: "MCP",
+			authTypes: ["API_KEY"],
+			lastSyncedAt: "2026-08-18T00:00:00.000Z",
+		});
+		await db.insert(apps).values({
+			id: "app-wc",
+			organizationId: "platform-org",
+			name: "Acme",
+			slug: "acme",
+			visibility: "public",
+			catalogAppId: "catalog-wc",
+			metadata: {
+				mcpConfig: {
+					writeCapabilityOverrides: {
+						createJiraIssue: "write",
+						bogus_entry: "explode",
+					},
+				},
+			},
+		});
+		await db
+			.insert(appCatalogMcpTools)
+			.values(catalogTool("ct-4", "createJiraIssue", null));
+
+		await syncCatalogToolsToApp(db, {
+			catalogAppId: "catalog-wc",
+			appId: "app-wc",
+			mcpServerUrl: "https://mcp.acme.test/mcp",
+			dryRun: false,
+		});
+
+		const [row] = await db
+			.select({ writeCapability: appTools.writeCapability })
+			.from(appTools)
+			.where(eq(appTools.appId, "app-wc"));
+		expect(row?.writeCapability).toBe("write");
 	});
 
 	// The remediation path for the ~52 third-party tools whose upstream sends no
@@ -355,6 +468,7 @@ describe("syncCatalogToolsToApp write capability", () => {
 			appId: "app-wc",
 			mcpServerUrl: "https://mcp.acme.test/mcp",
 			dryRun: false,
+			writeCapabilityOverrides: { createJiraIssue: "write" },
 		};
 		await syncCatalogToolsToApp(db, syncInput);
 
@@ -365,7 +479,12 @@ describe("syncCatalogToolsToApp write capability", () => {
 			.set({ writeCapability: "destructive" })
 			.where(eq(appTools.appId, "app-wc"));
 
-		await syncCatalogToolsToApp(db, syncInput);
+		await syncCatalogToolsToApp(db, {
+			catalogAppId: "catalog-wc",
+			appId: "app-wc",
+			mcpServerUrl: "https://mcp.acme.test/mcp",
+			dryRun: false,
+		});
 
 		const [row] = await db
 			.select({

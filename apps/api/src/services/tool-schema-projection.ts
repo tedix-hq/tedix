@@ -37,6 +37,7 @@ export type SyncColumn =
 	| "description"
 	| "config"
 	| "annotations"
+	| "writeCapability"
 	| "meta"
 	| "authRequired"
 	| "visibility"
@@ -655,6 +656,14 @@ export function changedProjectionColumns(
 	if (!jsonEqual(existing.config, projected.config)) changed.push("config");
 	if (!jsonEqual(existing.annotations, projected.annotations)) {
 		changed.push("annotations");
+	}
+	// Separate from annotations: rows written before the declarative column
+	// existed carry correct annotations and a NULL declaration, and would
+	// otherwise report inSync forever without ever being classified.
+	if (
+		(existing.writeCapability ?? null) !== (projected.writeCapability ?? null)
+	) {
+		changed.push("writeCapability");
 	}
 	if (!jsonEqual(existing.meta, projected.meta)) changed.push("meta");
 	if ((existing.authRequired ?? false) !== projected.authRequired) {

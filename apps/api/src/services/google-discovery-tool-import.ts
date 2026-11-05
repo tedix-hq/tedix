@@ -3,6 +3,7 @@ import type {
 	ToolInputJsonSchema,
 	ToolJsonSchema,
 } from "@tedix/api-contract/schemas/tools";
+import { deriveToolWriteCapability } from "@tedix/api-contract/schemas/tools";
 import type { DbClient } from "@tedix/db/client";
 import { getAppById, updateApp } from "@tedix/db/queries/app-records";
 import {
@@ -497,6 +498,11 @@ export async function runGoogleDiscoveryToolImport(
 					readOnlyHint: operation.httpMethod === "GET",
 					destructiveHint: operation.httpMethod === "DELETE",
 				};
+				// The HTTP method always speaks, so every generated row carries a
+				// declared capability: GET → read, DELETE → destructive, the rest
+				// → write. Persisting the derivation keeps rows out of the
+				// UNDECLARED backlog the unclassified report scans for.
+				const writeCapability = deriveToolWriteCapability(annotations);
 				const schemaSourceRef = `${discoveryUrlFor(service)}#${operation.methodId}`;
 				const schemaSourceHash = await sha256Hex(
 					stableStringify({
@@ -505,6 +511,7 @@ export async function runGoogleDiscoveryToolImport(
 						outputSchema,
 						config,
 						annotations,
+						writeCapability,
 					}),
 				);
 				const existing = existingByToolId.get(toolId);
@@ -514,7 +521,8 @@ export async function runGoogleDiscoveryToolImport(
 					jsonEqual(existing.inputSchema, inputSchema) &&
 					jsonEqual(existing.outputSchema, outputSchema) &&
 					jsonEqual(existing.config, config) &&
-					jsonEqual(existing.annotations, annotations);
+					jsonEqual(existing.annotations, annotations) &&
+					existing.writeCapability === writeCapability;
 				const status = existing
 					? matches
 						? "inSync"
@@ -540,6 +548,7 @@ export async function runGoogleDiscoveryToolImport(
 						authRequired: true,
 						visibility: "private",
 						annotations,
+						writeCapability,
 						schemaDialect: "json-schema-2020-12",
 						schemaSource: "google-discovery",
 						schemaSourceRef,

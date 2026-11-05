@@ -198,6 +198,22 @@ async function runToolProjectionSync(
 			continue;
 		}
 
+		if (projected.tool.writeCapability == null) {
+			// The projection builds annotations for every endpoint, so NULL here
+			// means a future code path produced an unclassified row — fail loudly
+			// rather than land the UNDECLARED declaration this sync exists to stop.
+			failed++;
+			items.push({
+				toolUuid: existing?.id ?? null,
+				toolId: projected.tool.toolId,
+				endpoint: endpointPath,
+				status: "failed",
+				changed: [],
+				message: `Projection produced no declared write capability for ${endpointPath}; refusing to write an UNDECLARED row`,
+			});
+			continue;
+		}
+
 		if (onlyToolIds && !onlyToolIds.has(projected.tool.toolId)) continue;
 
 		const changed = existing
@@ -209,6 +225,7 @@ async function runToolProjectionSync(
 					"outputSchema",
 					"config",
 					"annotations",
+					"writeCapability",
 					"meta",
 					"authRequired",
 					"visibility",

@@ -14,6 +14,7 @@ import { describe, expect, it } from "vite-plus/test";
 import * as z from "zod";
 import {
 	annotationsForEndpoint,
+	changedProjectionColumns,
 	generatedToolIdForEndpoint,
 	mergeGeneratedConfig,
 	projectionContractHash,
@@ -364,6 +365,28 @@ describe("mergeGeneratedConfig", () => {
 			method: "GET",
 			injectOrganizationId: true,
 		});
+	});
+});
+
+describe("changedProjectionColumns", () => {
+	// The function only reads columns off both rows; the fixtures carry just
+	// the column under comparison.
+	it("flags a stored NULL declaration the projection would classify", () => {
+		const existing = { writeCapability: null } as AppTool;
+		expect(
+			changedProjectionColumns(existing, {
+				writeCapability: "read",
+			} as never),
+		).toContain("writeCapability");
+	});
+
+	it("leaves a matching declaration out of the diff", () => {
+		const existing = { writeCapability: "write" } as AppTool;
+		expect(
+			changedProjectionColumns(existing, {
+				writeCapability: "write",
+			} as never),
+		).not.toContain("writeCapability");
 	});
 });
 
