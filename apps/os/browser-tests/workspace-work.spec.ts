@@ -69,7 +69,7 @@ for (const lane of lanes) {
 		],
 		{
 			cwd,
-			env: { ...process.env, ...lane.env },
+			env: { ...process.env, TEDIX_BROWSER_FIXTURE: "1", ...lane.env },
 			stdout: "inherit",
 			stderr: "inherit",
 			detached: true,
@@ -81,6 +81,23 @@ for (const lane of lanes) {
 	});
 	try {
 		await waitForFixtureServer(`${origin}/work`, { server });
+		/*
+		 * A drawer mounts translated off-screen under data-starting-style and
+		 * settles on the first rendered frame, so a button inside it resolves
+		 * while its bounding box is still below the viewport and click()'s
+		 * actionability gate can never converge. Poll on a timer, not rAF, so
+		 * a stalled frame pipeline fails here on the unsettled dialog instead
+		 * of inside the click's stability checks.
+		 */
+		const settled = (page: Page) =>
+			page.waitForFunction(
+				() =>
+					!document.querySelector(
+						"[data-starting-style], [data-ending-style]",
+					) && document.getAnimations().every((a) => a.playState !== "running"),
+				undefined,
+				{ polling: 100 },
+			);
 		for (const width of [1280, 375])
 			for (const theme of ["light", "dark"] as const) {
 				const page = await browser.newPage({
@@ -129,6 +146,10 @@ for (const lane of lanes) {
 					async () => {
 						await page.getByRole("button", { name: "Manage projects" }).click();
 						await page
+							.getByRole("dialog", { name: "Manage projects" })
+							.waitFor();
+						await settled(page);
+						await page
 							.getByRole("button", { name: /^Remove / })
 							.first()
 							.click();
@@ -150,6 +171,7 @@ for (const lane of lanes) {
 				await page.screenshot({
 					path: `${shots}/workspace-work-remove-${lane.name}-${width}-${theme}.png`,
 				});
+				await settled(page);
 				await confirm.getByRole("button", { name: "Keep linked" }).click();
 				await confirm.waitFor({ state: "hidden" });
 				await page.close();
