@@ -40,6 +40,8 @@ const DISCOVERY_SHARD_FORMAT = "discovery-shard-v1";
 /** Same serve-stale ceiling as the R2 aggregate snapshot. */
 const DISCOVERY_SHARD_HARD_TTL_MS = 3_600_000;
 const DISCOVERY_SHARD_L1_TTL_MS = 120_000;
+/** An unchanged graph seen by another isolate does not rewrite its shard. */
+const DISCOVERY_SHARD_REFRESH_MS = 600_000;
 const MAX_DISCOVERY_SHARD_L1_ENTRIES = 64;
 const EMPTY_INPUT_SCHEMA = { type: "object" } as const;
 
@@ -83,9 +85,16 @@ function compactTool(tool: InternalAppTool): InternalAppTool {
 	};
 }
 
+/** One shard serialization at a time per isolate, after the response. */
+let shardWrites: Promise<void> = Promise.resolve();
+
 /**
- * Writes one organization mount's shard unless this isolate already wrote it
+ * Queues one organization mount's shard unless this isolate already queued it
  * from the same graph object (L1 keeps that object while it is unchanged).
+ * The write runs after the response, one mount at a time, and is skipped when
+ * another isolate wrote this shard recently: a cold isolate already holds
+ * every organization graph, and serializing all of them at once beside those
+ * graphs crossed the memory limit on the first deploy (5 Nov 2026).
  */
 export function compileDiscoveryShard(
 	env: CloudflareEnv,
@@ -96,18 +105,33 @@ export function compileDiscoveryShard(
 	ctx?: Pick<ExecutionContext, "waitUntil">,
 ): void {
 	if (!("AGGREGATE_CACHE" in env) || !env.AGGREGATE_CACHE) return;
+	const bucket = env.AGGREGATE_CACHE;
 	const key = discoveryShardR2Key(entry, activationEpoch);
 	if (compiledShardSources.get(source) === key) return;
 	compiledShardSources.set(source, key);
-	const builtAt = Date.now();
-	const body = JSON.stringify({
-		tools: shard.tools.map(compactTool),
-		toolScopes: shard.toolScopes,
-	});
-	const put = env.AGGREGATE_CACHE.put(key, body, {
-		httpMetadata: { contentType: "application/json" },
-		customMetadata: { builtAt: String(builtAt) },
-	}).catch((error: unknown) => {
+	const write = async () => {
+		const existing = await bucket.head(key);
+		const writtenAt = Number(existing?.customMetadata?.builtAt);
+		if (Date.now() - writtenAt < DISCOVERY_SHARD_REFRESH_MS) return;
+		const builtAt = Date.now();
+		const body = JSON.stringify({
+			tools: shard.tools.map(compactTool),
+			toolScopes: shard.toolScopes,
+		});
+		await bucket.put(key, body, {
+			httpMetadata: { contentType: "application/json" },
+			customMetadata: { builtAt: String(builtAt) },
+		});
+		console.log(
+			JSON.stringify({
+				_cm: "aggregate",
+				event: "discovery_shard_compiled",
+				toolCount: shard.tools.length,
+				bytes: body.length,
+			}),
+		);
+	};
+	const run = shardWrites.then(write).catch((error: unknown) => {
 		compiledShardSources.delete(source);
 		log.warn("Discovery shard write failed", {
 			event: "aggregate.discovery_shard_write_failed",
@@ -115,15 +139,8 @@ export function compileDiscoveryShard(
 			error: contentFreeMcpException(error),
 		});
 	});
-	if (ctx) ctx.waitUntil(put);
-	console.log(
-		JSON.stringify({
-			_cm: "aggregate",
-			event: "discovery_shard_compiled",
-			toolCount: shard.tools.length,
-			bytes: body.length,
-		}),
-	);
+	shardWrites = run;
+	ctx?.waitUntil(run);
 }
 
 async function readDiscoveryShard(
@@ -168,10 +185,11 @@ async function readDiscoveryShard(
 /**
  * Splits a Connect selection for a namespace-free discovery program: the
  * organization mounts serving `namespaces` are hydrated in full; every other
- * mount contributes its shard rows. Returns null (load the full catalog) when
- * any shard is missing, expired or unreadable, or when the shard rows are few
- * enough that discovery would still match parameter names
- * (`CATALOG_SCHEMA_SEARCH_MAX_ROWS`), so ranking is unchanged either way.
+ * mount contributes its shard rows, and a mount whose shard is missing or
+ * expired is hydrated too. Returns null (load the full catalog) when shards
+ * are unreadable, or when the shard rows are few enough that discovery would
+ * still match parameter names (`CATALOG_SCHEMA_SEARCH_MAX_ROWS`), so ranking
+ * is unchanged either way.
  */
 export async function loadDiscoveryShards(
 	env: CloudflareEnv,
@@ -200,29 +218,33 @@ export async function loadDiscoveryShards(
 				),
 			),
 		);
-		if (shards.some((shard) => !shard)) {
-			console.log(
-				JSON.stringify({ _cm: "aggregate", event: "discovery_shard_miss" }),
-			);
-			return null;
-		}
-		const tools = shards.flatMap((shard) => shard!.tools);
-		if (tools.length <= CATALOG_SCHEMA_SEARCH_MAX_ROWS) return null;
+		// A mount without a shard is hydrated in full, which compiles its shard,
+		// so coverage fills in one organization at a time.
+		const present = shards.filter((shard) => shard !== null);
+		const tools = present.flatMap((shard) => shard.tools);
 		console.log(
 			JSON.stringify({
 				_cm: "aggregate",
-				event: "discovery_shard_hit",
-				shardCount: shards.length,
+				event:
+					present.length === shards.length
+						? "discovery_shard_hit"
+						: "discovery_shard_partial",
+				shardCount: present.length,
+				missingCount: shards.length - present.length,
 				hydratedCount: hydrate.length,
 				toolCount: tools.length,
 			}),
 		);
+		if (tools.length <= CATALOG_SCHEMA_SEARCH_MAX_ROWS) return null;
 		return {
-			hydrate,
+			hydrate: [
+				...hydrate,
+				...sharded.filter((_, index) => shards[index] === null),
+			],
 			tools,
 			toolScopes: Object.assign(
 				{},
-				...shards.map((shard) => shard!.toolScopes),
+				...present.map((shard) => shard.toolScopes),
 			),
 		};
 	} catch (error) {
