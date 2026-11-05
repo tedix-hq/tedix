@@ -89,9 +89,11 @@ import {
 import {
 	ConnectionSensitivitySchema,
 	LatchRunSensitiveDataInputSchema,
+	ResolveSecretEgressPolicyInputSchema,
 	ResolveConnectionSensitivityInputSchema,
 	ResolveRunSensitiveDataLatchInputSchema,
 	RunSensitiveDataLatchStateSchema,
+	SecretEgressPolicySchema,
 } from "../schemas/sensitive-data-latch";
 
 export const mcpGovernanceContract = oc
@@ -527,6 +529,17 @@ export const mcpGovernanceContract = oc
 			})
 			.input(ResolveRunSensitiveDataLatchInputSchema)
 			.output(RunSensitiveDataLatchStateSchema),
+		resolveSecretEgressPolicy: oc
+			.route({
+				method: "POST",
+				path: "/resolve-secret-egress-policy",
+				summary: "Read the organization's secret-egress policy",
+				description:
+					"Internal service-binding read used before a tool declared public egress executes. Absent or invalid settings resolve to block.",
+				tags: ["internal"],
+			})
+			.input(ResolveSecretEgressPolicyInputSchema)
+			.output(SecretEgressPolicySchema),
 		resolveConnectionSensitivity: oc
 			.route({
 				method: "POST",

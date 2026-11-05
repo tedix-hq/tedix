@@ -10,6 +10,7 @@ import {
 import { kernelRuntimeRuns } from "@tedix/db/schema/cognitive-runtime";
 import { connectionInstances } from "@tedix/db/schema/connection-instances";
 import { connectionProviders } from "@tedix/db/schema/connection-providers";
+import { organizations } from "@tedix/db/schema/organizations";
 import {
 	createPinnedSkillRun,
 	getSkillRun,
@@ -416,12 +417,18 @@ describe("sensitive-data latch through the gateway", () => {
 		sqlite.exec("PRAGMA foreign_keys = OFF");
 		sqlite.exec(
 			schemaDdl(
+				organizations,
 				skillRuns,
 				kernelRuntimeRuns,
 				connectionProviders,
 				connectionInstances,
 			),
 		);
+		sqlite
+			.prepare(
+				"INSERT INTO organizations (id, name, slug, metadata) VALUES (?, 'Fixture', 'fixture', '{}')",
+			)
+			.run(ORG_ID);
 		sqlite
 			.prepare(
 				"INSERT INTO skill_runs (id, organization_id, skill_id, tedi_id, workflow_instance_id, runtime_environment, status) VALUES ('run-1', ?, 'skill-1', ?, 'wf-1', 'production', 'running')",
@@ -442,6 +449,23 @@ describe("sensitive-data latch through the gateway", () => {
 		return { sqlite, client, later };
 	}
 	const runRef = { kind: "skill_run" as const, id: "run-1" };
+
+	it("reads warn mode from organization metadata and defaults to block", async () => {
+		const { sqlite, client } = fixture();
+		try {
+			await expect(
+				client.resolveSecretEgressPolicy({ organizationId: ORG_ID }),
+			).resolves.toEqual({ mode: "block" });
+			sqlite
+				.prepare("UPDATE organizations SET metadata = ? WHERE id = ?")
+				.run(JSON.stringify({ secretEgressMode: "warn" }), ORG_ID);
+			await expect(
+				client.resolveSecretEgressPolicy({ organizationId: ORG_ID }),
+			).resolves.toEqual({ mode: "warn" });
+		} finally {
+			sqlite.close();
+		}
+	});
 
 	it("latches on a declared sensitive read and keeps the latch for later requests", async () => {
 		const { sqlite, client, later } = fixture();

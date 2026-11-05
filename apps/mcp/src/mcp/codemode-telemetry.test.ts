@@ -1423,6 +1423,47 @@ describe("Code Mode tail telemetry", () => {
 		]);
 	});
 
+	it("blocks retries immediately after a non-retryable secret-egress denial", async () => {
+		executeToolMock.mockResolvedValue({
+			content: [
+				{
+					type: "text",
+					text: "Tool call blocked: arguments matched the GitHub token pattern.",
+				},
+			],
+			structuredContent: null,
+			_meta: {
+				"tedix/error": {
+					code: "SECRET_EGRESS_DENIED",
+					status: 403,
+					retryable: false,
+				},
+			},
+			isError: true,
+		});
+		const registered = new Map<string, (args: unknown) => Promise<unknown>>();
+		await registerCodeModeTools(
+			{
+				registerTool: (
+					name: string,
+					_config: unknown,
+					handler: (args: unknown) => Promise<unknown>,
+				) => registered.set(name, handler),
+			} as never,
+			makeServerCtx(),
+		);
+		const response = (await registered.get("code")?.({
+			code: "async () => repeated_soft_fail()",
+		})) as { structuredContent?: { result?: string[] } };
+
+		expect(executeToolMock).toHaveBeenCalledOnce();
+		expect(response.structuredContent?.result).toEqual([
+			expect.stringContaining("GitHub token pattern"),
+			expect.stringContaining("Identical call blocked"),
+			expect.stringContaining("Identical call blocked"),
+		]);
+	});
+
 	it.each(["throw", "reject", "logs"])(
 		"keeps discovery and tool calls successful when telemetry sinks %s",
 		async (failure) => {

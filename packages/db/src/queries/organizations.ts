@@ -85,6 +85,18 @@ export async function getOrganizationById(
 	return db.query.organizations.findFirst({ where: { id } });
 }
 
+export async function getOrganizationSecretEgressMode(
+	db: DbQueryClient,
+	id: string,
+): Promise<"block" | "warn"> {
+	const [row] = await db
+		.select({ metadata: organizations.metadata })
+		.from(organizations)
+		.where(eq(organizations.id, id))
+		.limit(1);
+	return row?.metadata?.secretEgressMode === "warn" ? "warn" : "block";
+}
+
 export async function getOrganizationSessionProjectBindings(
 	db: DbQueryClient,
 	id: string,

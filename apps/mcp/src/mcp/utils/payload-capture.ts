@@ -45,19 +45,37 @@ const REDACT_PII = false;
  * boundaries / length) to prefer false-negatives over mangling normal prose,
  * UUIDs, or ordinary identifiers.
  */
-const SECRET_VALUE_PATTERNS: readonly RegExp[] = [
+const SECRET_VALUE_PATTERNS: readonly {
+	name: string;
+	pattern: RegExp;
+}[] = [
 	// Bearer tokens (Authorization header value form).
-	/Bearer\s+[A-Za-z0-9._-]+/gi,
+	{ name: "Bearer token", pattern: /Bearer\s+[A-Za-z0-9._-]+/gi },
 	// JWTs: three base64url segments. Anchored on the `eyJ` header prefix.
-	/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g,
+	{
+		name: "JWT",
+		pattern: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g,
+	},
 	// Stripe-style / generic prefixed keys: sk_live_…, pk_test_…, rk_…, ak_…
-	/\b(?:sk|pk|rk|ak)[_-](?:live|test)?[_-]?[A-Za-z0-9]{16,}/gi,
+	{
+		name: "prefixed API key",
+		pattern: /\b(?:sk|pk|rk|ak)[_-](?:live|test)?[_-]?[A-Za-z0-9]{16,}/gi,
+	},
 	// Cloudflare API tokens.
-	/\bcfat[_-][A-Za-z0-9._-]{20,}/gi,
+	{
+		name: "Cloudflare API token",
+		pattern: /\bcfat[_-][A-Za-z0-9._-]{20,}/gi,
+	},
 	// Cloudflare-style v1.0-… tokens.
-	/\bv1\.0-[A-Za-z0-9-]{40,}/g,
+	{
+		name: "Cloudflare v1 token",
+		pattern: /\bv1\.0-[A-Za-z0-9-]{40,}/g,
+	},
 	// GitHub tokens: ghp_, gho_, ghu_, ghs_, ghr_.
-	/\bgh[pousr]_[A-Za-z0-9]{20,}/g,
+	{
+		name: "GitHub token",
+		pattern: /\bgh[pousr]_[A-Za-z0-9]{20,}/g,
+	},
 ];
 
 // URL basic-auth credentials: keep the scheme, redact `user:pass@`.
@@ -84,8 +102,8 @@ const EMAIL_RE = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
 export function redactSecretValues(s: string): string {
 	let out = s;
 	out = out.replace(URL_BASIC_AUTH_RE, `$1${REDACTED}@`);
-	for (const re of SECRET_VALUE_PATTERNS) {
-		out = out.replace(re, REDACTED);
+	for (const { pattern } of SECRET_VALUE_PATTERNS) {
+		out = out.replace(pattern, REDACTED);
 	}
 	// Long opaque run is the broadest pattern; run it last so already-redacted
 	// markers stay intact. Only redact runs with mixed letter+digit entropy.
@@ -96,6 +114,29 @@ export function redactSecretValues(s: string): string {
 		out = out.replace(EMAIL_RE, REDACTED);
 	}
 	return out;
+}
+
+/** Return the first high-confidence secret pattern in a JSON-like value. */
+export function findSecretValuePattern(value: unknown): string | null {
+	let serialized: string;
+	try {
+		serialized = JSON.stringify(value) ?? "";
+	} catch {
+		return null;
+	}
+	URL_BASIC_AUTH_RE.lastIndex = 0;
+	if (URL_BASIC_AUTH_RE.test(serialized)) return "URL basic authentication";
+	for (const { name, pattern } of SECRET_VALUE_PATTERNS) {
+		pattern.lastIndex = 0;
+		if (pattern.test(serialized)) return name;
+	}
+	LONG_OPAQUE_SECRET_RE.lastIndex = 0;
+	for (const match of serialized.matchAll(LONG_OPAQUE_SECRET_RE)) {
+		const candidate = match[0];
+		if (HAS_LETTER_RE.test(candidate) && HAS_DIGIT_RE.test(candidate))
+			return "long opaque token";
+	}
+	return null;
 }
 
 /**

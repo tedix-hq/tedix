@@ -24,6 +24,7 @@ import { tracing } from "cloudflare:workers";
 import { runWithTelemetrySpan } from "@tedix/worker-kit/telemetry";
 import type { ServerContext } from "../server-context";
 import { toolRiskAuditMetadata } from "../tool-risk-policy";
+import { resolveMultiOrgToolTarget } from "../multi-org-tool-target";
 import {
 	buildCallerTelemetryFields,
 	emitMcpAuditEvent,
@@ -66,18 +67,30 @@ export function wrapToolCallTelemetry(
 	toolName: string,
 	serverCtx: ServerContext,
 	cb: ToolCallback,
-	tool?: Pick<import("../server-context").AppTool, "meta">,
+	tool?: Pick<import("../server-context").AppTool, "meta"> &
+		Partial<Pick<import("../server-context").AppTool, "config" | "toolId">>,
 ): ToolCallback {
 	return async (args, extra) => {
 		const startTime = Date.now();
 		const callerFields = buildCallerTelemetryFields(serverCtx.callerIdentity);
 		const riskMetadata = tool ? toolRiskAuditMetadata(tool) : undefined;
+		let selectedOrganizationId: string | undefined;
+		if (tool?.toolId) {
+			try {
+				selectedOrganizationId = resolveMultiOrgToolTarget(serverCtx, {
+					toolId: tool.toolId,
+					config: tool.config,
+				})?.organizationId;
+			} catch {
+				// Execution repeats the target check inside the telemetry envelope.
+			}
+		}
 		const baseEvent: Partial<McpEvent> = {
 			timestamp: new Date().toISOString(),
 			eventType: "tool_call",
 			appId: serverCtx.appId,
 			appSlug: serverCtx.appSlug,
-			organizationId: serverCtx.app?.organizationId,
+			organizationId: selectedOrganizationId ?? serverCtx.app?.organizationId,
 			toolName,
 			toolInputSize: getJsonSize(args),
 			...callerFields,
@@ -175,7 +188,8 @@ export function wrapToolCallTelemetry(
 					executionId: "",
 					appId: serverCtx.appId ?? "",
 					appSlug: serverCtx.appSlug ?? "",
-					organizationId: serverCtx.app?.organizationId ?? "",
+					organizationId:
+						selectedOrganizationId ?? serverCtx.app?.organizationId ?? "",
 					toolName,
 					eventType: "tool_call",
 					success: success ? 1 : 0,
@@ -224,7 +238,8 @@ export function wrapToolCallTelemetry(
 					executionId: "",
 					appId: serverCtx.appId ?? "",
 					appSlug: serverCtx.appSlug ?? "",
-					organizationId: serverCtx.app?.organizationId ?? "",
+					organizationId:
+						selectedOrganizationId ?? serverCtx.app?.organizationId ?? "",
 					toolName,
 					eventType: "tool_call",
 					success: 0,

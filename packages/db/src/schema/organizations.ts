@@ -112,6 +112,8 @@ export interface OrganizationFeatures {
  * Additional organization information
  */
 export interface OrganizationMetadata {
+	/** Public-egress argument scanning policy; absent defaults to block. */
+	secretEgressMode?: "block" | "warn";
 	agentRequestApprovals?: OrganizationContractMetadata["agentRequestApprovals"];
 	sessionProjectBindings?: OrganizationContractMetadata["sessionProjectBindings"];
 	modelFallback?: OrganizationContractMetadata["modelFallback"];

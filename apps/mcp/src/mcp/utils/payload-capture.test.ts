@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
 	capturePayloadRecord,
+	findSecretValuePattern,
 	type PayloadCaptureRecord,
 	payloadCaptureAllowed,
 	redactAndTruncate,
@@ -55,6 +56,16 @@ function makeRecord(
 }
 
 describe("redactAndTruncate", () => {
+	it("finds a token in a nested string without treating a UUID as a secret", () => {
+		const token = ["ghp", "0123456789abcdefghij0123"].join("_");
+		expect(
+			findSecretValuePattern({ payload: { body: `ticket text ${token}` } }),
+		).toBe("GitHub token");
+		expect(
+			findSecretValuePattern({ id: "5eed0020-0000-4000-8000-000000000020" }),
+		).toBeNull();
+	});
+
 	it("redacts sensitive nested keys and keeps non-sensitive values", () => {
 		const { json } = redactAndTruncate({
 			query: "shoes",
