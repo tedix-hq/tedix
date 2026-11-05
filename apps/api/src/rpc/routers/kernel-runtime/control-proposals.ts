@@ -230,12 +230,21 @@ export async function resolveDelegationRecoveryBinding(
 			ErrorCodes.NOT_FOUND,
 			`Linked Home run ${homeRunId} not found`,
 		);
+	const homeWorkStamps = [homeRun.metadata, homeRun.runtimeMetadata].flatMap(
+		(value) => {
+			const metadata = nonNullRecord(value);
+			return metadata && Object.hasOwn(metadata, "workItemId")
+				? [metadata.workItemId]
+				: [];
+		},
+	);
 	if (
 		canonicalReuse &&
 		(homeRun.id !== homeRunId ||
 			homeRun.childRunId !== latest!.runId ||
 			homeRun.delegatedTediId !== latest!.executorId ||
-			nonNullRecord(homeRun.metadata)?.workItemId !== workItemId ||
+			homeWorkStamps.length === 0 ||
+			homeWorkStamps.some((stamp) => stamp !== workItemId) ||
 			!homeRun.conversationId)
 	)
 		throw createError(
