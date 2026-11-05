@@ -1356,6 +1356,10 @@
 		{
 			"name": "20261105023558_skill_artifact_retention_move_to_logs_db/migration.sql",
 			"sha256": "6aa552ff7f44376371797255c239038db0e514176be31080bed9e2ad4776ea81"
+		},
+		{
+			"name": "20261105065416_skill_artifact_retention_page_cap/migration.sql",
+			"sha256": "79501d202386cd115a4dab8f04fc9d2b65d5e1979bdeab35ea14aa5101824471"
 		}
 	]
 }

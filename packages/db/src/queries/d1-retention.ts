@@ -283,50 +283,213 @@ export async function groupD1RetentionArchiveRows(
 	return groups;
 }
 
-/** Missing or nonterminal runs are retained; a memory source pins the whole run. */
-function artifactMayMove(): SQL {
+/** An artifact row's run must be finished and not queued for a restart. */
+function artifactRunIsTerminal(): SQL {
 	return sql`EXISTS (
 		SELECT 1 FROM ${skillRuns}
 		WHERE ${skillRuns.id} = ${skillRunArtifacts.runId}
 		AND ${skillRuns.status} IN ('completed', 'failed', 'canceled')
 		AND ${skillRuns.completedAt} IS NOT NULL
 		AND ${skillRuns.restartRequestedAt} IS NULL
-		AND NOT EXISTS (
-			SELECT 1 FROM ${memoryFacts}
-			WHERE ${memoryFacts.organizationId} = ${skillRuns.organizationId}
-			AND substr(${memoryFacts.source}, 1, 8) = 'skill://'
-			AND instr(${memoryFacts.source} || '/', '/runs/' || ${skillRuns.id} || '/') > 0
-		)
-		AND NOT EXISTS (
-			SELECT 1 FROM ${workEvidence}
-			WHERE ${workEvidence.orgId} = ${skillRuns.organizationId}
-			AND ${workEvidence.uri} = 'artifact://' || ${skillRunArtifacts.id}
-		)
-		AND NOT EXISTS (
-			SELECT 1 FROM ${tediArtifacts}
-			INNER JOIN ${workEvidence}
-			ON ${workEvidence.orgId} = ${tediArtifacts.organizationId}
-			AND substr(${workEvidence.uri}, 1, 11) = 'artifact://'
-			AND ${tediArtifacts.id} IN (
-				substr(${workEvidence.uri}, 12),
-				json_extract(${workEvidence.metadata}, '$._tedixEvidence.artifactId')
-			)
-			WHERE ${tediArtifacts.organizationId} = ${skillRuns.organizationId}
-			AND (
-				${tediArtifacts.runId} = ${skillRuns.id}
-				OR EXISTS (
-					SELECT 1 FROM ${osGadgetExecutions}
-					WHERE ${osGadgetExecutions.id} = ${tediArtifacts.producerExecutionId}
-					AND ${osGadgetExecutions.organizationId} = ${skillRuns.organizationId}
-					AND ${osGadgetExecutions.runId} = ${skillRuns.id}
-				)
-				OR (
-					substr(${tediArtifacts.uri}, 1, 8) = 'skill://'
-					AND instr(${tediArtifacts.uri} || '/', '/runs/' || ${skillRuns.id} || '/') > 0
-				)
-			)
-		)
 	)`;
+}
+
+/** `/runs/<id>/` segments of a `skill://` URI; the trailing slash is implied. */
+function skillUriRunIds(uri: unknown): string[] {
+	if (typeof uri !== "string" || !uri.startsWith("skill://")) return [];
+	const ids: string[] = [];
+	for (const match of `${uri}/`.matchAll(/\/runs\/([^/]+)\//g)) {
+		if (match[1]) ids.push(match[1]);
+	}
+	return ids;
+}
+
+function pinKey(organizationId: unknown, id: unknown): string {
+	return `${String(organizationId)}\u0000${String(id)}`;
+}
+
+function jsonList(values: Iterable<string>): SQL {
+	return sql`(SELECT value FROM json_each(${JSON.stringify([...values])}))`;
+}
+
+/**
+ * Everything that currently pins a skill run or one of its artifacts inside
+ * its organization: a memory fact whose `skill://` source names the run, Work
+ * evidence that cites the artifact directly, and Work evidence that cites a
+ * registry artifact produced by the run (by run id, by its governed producer
+ * execution, or by a `skill://` URI). The pinned set is small (a few hundred
+ * rows live) while the artifact ledger holds hundreds of thousands, so it is
+ * read once per page and applied in memory. A correlated `NOT EXISTS` per
+ * candidate row scanned every fact of the organization again for each row
+ * (millions of rows read per page), which exhausted D1's CPU budget in
+ * production.
+ */
+interface D1ArtifactPins {
+	/** `organization\0runId` */
+	runs: Set<string>;
+	/** `organization\0artifactId` */
+	artifacts: Set<string>;
+}
+
+async function loadArtifactPins(db: DbQueryClient): Promise<D1ArtifactPins> {
+	const pins: D1ArtifactPins = { runs: new Set(), artifacts: new Set() };
+	const facts = await db
+		.select({
+			organizationId: memoryFacts.organizationId,
+			source: memoryFacts.source,
+		})
+		.from(memoryFacts)
+		.where(sql`substr(${memoryFacts.source}, 1, 8) = 'skill://'`);
+	for (const fact of facts) {
+		for (const runId of skillUriRunIds(fact.source))
+			pins.runs.add(pinKey(fact.organizationId, runId));
+	}
+	const evidence = await db
+		.select({
+			orgId: workEvidence.orgId,
+			uri: workEvidence.uri,
+			resolvedArtifactId: sql<
+				string | null
+			>`json_extract(${workEvidence.metadata}, '$._tedixEvidence.artifactId')`,
+		})
+		.from(workEvidence)
+		.where(sql`substr(${workEvidence.uri}, 1, 11) = 'artifact://'`);
+	// Registry artifact ids each evidence row may name, by organization.
+	const registryCandidates = new Map<string, Set<string>>();
+	for (const row of evidence) {
+		const direct = row.uri.slice("artifact://".length);
+		pins.artifacts.add(pinKey(row.orgId, direct));
+		const candidates = registryCandidates.get(direct) ?? new Set<string>();
+		candidates.add(row.orgId);
+		registryCandidates.set(direct, candidates);
+		if (typeof row.resolvedArtifactId === "string" && row.resolvedArtifactId) {
+			const resolved =
+				registryCandidates.get(row.resolvedArtifactId) ?? new Set<string>();
+			resolved.add(row.orgId);
+			registryCandidates.set(row.resolvedArtifactId, resolved);
+		}
+	}
+	const producerExecutions = new Map<string, Set<string>>();
+	const candidateIds = [...registryCandidates.keys()];
+	for (
+		let start = 0;
+		start < candidateIds.length;
+		start += D1_RETENTION_PAGE_ROWS
+	) {
+		const chunk = candidateIds.slice(start, start + D1_RETENTION_PAGE_ROWS);
+		const registered = await db
+			.select({
+				id: tediArtifacts.id,
+				organizationId: tediArtifacts.organizationId,
+				runId: tediArtifacts.runId,
+				producerExecutionId: tediArtifacts.producerExecutionId,
+				uri: tediArtifacts.uri,
+			})
+			.from(tediArtifacts)
+			.where(sql`${tediArtifacts.id} IN ${jsonList(chunk)}`);
+		for (const artifact of registered) {
+			// Evidence pins a registry artifact only inside its own organization.
+			if (!registryCandidates.get(artifact.id)?.has(artifact.organizationId))
+				continue;
+			if (artifact.runId)
+				pins.runs.add(pinKey(artifact.organizationId, artifact.runId));
+			for (const runId of skillUriRunIds(artifact.uri))
+				pins.runs.add(pinKey(artifact.organizationId, runId));
+			if (artifact.producerExecutionId) {
+				const orgs =
+					producerExecutions.get(artifact.producerExecutionId) ??
+					new Set<string>();
+				orgs.add(artifact.organizationId);
+				producerExecutions.set(artifact.producerExecutionId, orgs);
+			}
+		}
+	}
+	const executionIds = [...producerExecutions.keys()];
+	for (
+		let start = 0;
+		start < executionIds.length;
+		start += D1_RETENTION_PAGE_ROWS
+	) {
+		const chunk = executionIds.slice(start, start + D1_RETENTION_PAGE_ROWS);
+		const executions = await db
+			.select({
+				id: osGadgetExecutions.id,
+				organizationId: osGadgetExecutions.organizationId,
+				runId: osGadgetExecutions.runId,
+			})
+			.from(osGadgetExecutions)
+			.where(sql`${osGadgetExecutions.id} IN ${jsonList(chunk)}`);
+		for (const execution of executions) {
+			if (
+				execution.runId &&
+				producerExecutions.get(execution.id)?.has(execution.organizationId)
+			)
+				pins.runs.add(pinKey(execution.organizationId, execution.runId));
+		}
+	}
+	return pins;
+}
+
+/** The columns the reference check needs from an artifact row. */
+interface D1ArtifactCandidate {
+	__rowid: number;
+	id?: JsonValue;
+	run_id?: JsonValue;
+}
+
+/**
+ * Rowids of artifact rows that may leave the main database right now: the run
+ * exists, is finished and not restarting, and neither the run nor the artifact
+ * is pinned. Reads the current pins and the rows' runs, so a reference added
+ * after an earlier check is honoured.
+ */
+async function movableArtifactRowids(
+	db: DbQueryClient,
+	rows: readonly D1ArtifactCandidate[],
+): Promise<Set<number>> {
+	const movable = new Set<number>();
+	if (rows.length === 0) return movable;
+	const pins = await loadArtifactPins(db);
+	const runIds = [...new Set(rows.map((row) => String(row.run_id)))];
+	const runs = new Map<
+		string,
+		{
+			id: string;
+			organizationId: string;
+			status: string;
+			completedAt: unknown;
+			restartRequestedAt: unknown;
+		}
+	>();
+	for (let start = 0; start < runIds.length; start += D1_RETENTION_PAGE_ROWS) {
+		const chunk = runIds.slice(start, start + D1_RETENTION_PAGE_ROWS);
+		const found = await db
+			.select({
+				id: skillRuns.id,
+				organizationId: skillRuns.organizationId,
+				status: skillRuns.status,
+				completedAt: skillRuns.completedAt,
+				restartRequestedAt: skillRuns.restartRequestedAt,
+			})
+			.from(skillRuns)
+			.where(sql`${skillRuns.id} IN ${jsonList(chunk)}`);
+		for (const run of found) runs.set(run.id, run);
+	}
+	for (const row of rows) {
+		const run = runs.get(String(row.run_id));
+		if (
+			!run ||
+			!["completed", "failed", "canceled"].includes(run.status) ||
+			run.completedAt === null ||
+			run.completedAt === undefined ||
+			run.restartRequestedAt !== null
+		)
+			continue;
+		if (pins.runs.has(pinKey(run.organizationId, run.id))) continue;
+		if (pins.artifacts.has(pinKey(run.organizationId, row.id))) continue;
+		movable.add(row.__rowid);
+	}
+	return movable;
 }
 
 /**
@@ -341,18 +504,7 @@ export async function filterD1RetentionReferencedRows(
 ): Promise<{ rows: D1RetentionRow[]; referencedRows: number }> {
 	if (tableSpec.tableName !== "skill_run_artifacts" || rows.length === 0)
 		return { rows, referencedRows: 0 };
-	const movable = new Set<number>();
-	for (let start = 0; start < rows.length; start += D1_RETENTION_PAGE_ROWS) {
-		const rowids = rows
-			.slice(start, start + D1_RETENTION_PAGE_ROWS)
-			.map((row) => row.__rowid);
-		const allowed = await db.all<{ rowid: number }>(
-			sql`SELECT rowid AS rowid FROM ${skillRunArtifacts}
-			WHERE rowid IN (SELECT value FROM json_each(${JSON.stringify(rowids)}))
-			AND ${artifactMayMove()}`,
-		);
-		for (const row of allowed) movable.add(row.rowid);
-	}
+	const movable = await movableArtifactRowids(db, rows);
 	const filtered = rows.filter((row) => movable.has(row.__rowid));
 	return { rows: filtered, referencedRows: rows.length - filtered.length };
 }
@@ -361,7 +513,9 @@ export async function filterD1RetentionReferencedRows(
  * Delete statements for rows the run already read and judged expired: one
  * statement per page of rowids (passed as one JSON parameter, looked up by
  * rowid), and the cutoff is tested again so a row can never be removed while
- * it is still inside the keep window.
+ * it is still inside the keep window. Artifact rows also require a finished,
+ * non-restarting run; `deleteD1RetentionRows` re-applies the reference pins
+ * before building these.
  */
 export function buildD1RetentionDeleteStatements(
 	db: DbQueryClient,
@@ -377,7 +531,7 @@ export function buildD1RetentionDeleteStatements(
 				.delete(tableSpec.table)
 				.where(
 					sql`rowid IN (SELECT value FROM json_each(${JSON.stringify(chunk)})) AND ${tableSpec.timestamp} < ${cutoff}
-					AND ${tableSpec.tableName === "skill_run_artifacts" ? artifactMayMove() : sql`1 = 1`}`,
+					AND ${tableSpec.tableName === "skill_run_artifacts" ? artifactRunIsTerminal() : sql`1 = 1`}`,
 				)
 				.returning({ rowid: sql<number>`rowid` }),
 		);
@@ -387,7 +541,9 @@ export function buildD1RetentionDeleteStatements(
 
 /**
  * Run delete statements in one D1 batch; returns rows removed, counted from
- * the rowids each statement returns.
+ * the rowids each statement returns. Artifact rows are checked against the
+ * current reference pins first, so a run or artifact pinned since the page
+ * was filtered stays in the main database.
  */
 export async function deleteD1RetentionRows(
 	db: DbQueryClient,
@@ -395,10 +551,28 @@ export async function deleteD1RetentionRows(
 	rowids: readonly number[],
 	cutoff: D1RetentionCutoff,
 ): Promise<number> {
+	let deletable = rowids;
+	if (tableSpec.tableName === "skill_run_artifacts" && rowids.length > 0) {
+		const candidates: D1ArtifactCandidate[] = [];
+		for (
+			let start = 0;
+			start < rowids.length;
+			start += D1_RETENTION_PAGE_ROWS
+		) {
+			const chunk = rowids.slice(start, start + D1_RETENTION_PAGE_ROWS);
+			candidates.push(
+				...(await db.all<D1ArtifactCandidate>(
+					sql`SELECT rowid AS __rowid, ${skillRunArtifacts.id} AS id, ${skillRunArtifacts.runId} AS run_id FROM ${skillRunArtifacts} WHERE rowid IN (SELECT value FROM json_each(${JSON.stringify(chunk)}))`,
+				)),
+			);
+		}
+		const movable = await movableArtifactRowids(db, candidates);
+		deletable = rowids.filter((rowid) => movable.has(rowid));
+	}
 	const statements = buildD1RetentionDeleteStatements(
 		db,
 		tableSpec,
-		rowids,
+		deletable,
 		cutoff,
 	);
 	const [first, ...rest] = statements;
