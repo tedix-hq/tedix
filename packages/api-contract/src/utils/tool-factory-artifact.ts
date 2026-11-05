@@ -95,8 +95,21 @@ export async function signToolFactoryArtifact(input: {
 	payloads: Record<string, string>;
 	keyId: string;
 	privateKey: CryptoKey;
+	verifyExecutionEvidence: (
+		evidence: ToolFactoryArtifactManifest["evidence"][number],
+		skill: ToolFactoryArtifactManifest["skill"],
+	) => Promise<boolean>;
 }): Promise<SignedToolFactoryArtifact> {
 	const manifest = ToolFactoryArtifactManifestSchema.parse(input.manifest);
+	const evidenceVerified = await Promise.all(
+		manifest.evidence.map((evidence) =>
+			input.verifyExecutionEvidence(evidence, manifest.skill),
+		),
+	);
+	if (evidenceVerified.some((verified) => !verified))
+		throw new Error(
+			"Skill promotion requires canonical successful-run evidence",
+		);
 	await verifyManifestBindings(manifest, input.payloads);
 	const serialized = canonicalJson(manifest);
 	const signedDigest = await sha256(serialized);

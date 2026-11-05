@@ -159,6 +159,16 @@ export const ToolFactoryArtifactManifestSchema = z
 				path: ["resources"],
 			});
 		}
+		const evidenceSlots = manifest.evidence.map(
+			(item) => `${item.runId}:${item.executionEpoch}`,
+		);
+		if (new Set(evidenceSlots).size !== evidenceSlots.length) {
+			context.addIssue({
+				code: "custom",
+				message: "Successful execution evidence must name unique run epochs",
+				path: ["evidence"],
+			});
+		}
 		if (manifest.taskContract.toolId !== manifest.tool.toolId) {
 			context.addIssue({
 				code: "custom",
