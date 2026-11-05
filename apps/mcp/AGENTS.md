@@ -124,8 +124,9 @@ Caches are isolate-lifetime `Map`s with TTLs and in-flight dedupe maps
 run (`skill_runs` / `kernel_runtime_runs.sensitive_data_latch`, through
 `mcpGovernance.latchRunSensitiveData`) and `requireDestructiveToolApproval`
 reads it back. The gateway decides first whether the read is sensitive: a
-tool declared `sensitive_data`, or a connected read whose connection is
-classified `restricted` (`mcpGovernance.resolveConnectionSensitivity`, cached
+tool declared `sensitive_data`, an untrusted read through `external` or `mcp`,
+or a connected read whose connection is classified `restricted`
+(`mcpGovernance.resolveConnectionSensitivity`, cached
 per organization and provider). Only then does it write the latch, retrying
 once and withholding the result if the write still fails. Any other read
 never touches the latch API, so an API or database failure cannot withhold

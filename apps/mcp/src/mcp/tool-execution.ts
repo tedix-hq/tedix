@@ -75,6 +75,7 @@ import {
 import {
 	isUntrustedTransport,
 	resolveToolTrustLabel,
+	sanitizeUntrustedText,
 	sanitizeUntrustedValue,
 	TOOL_TRUST_META_KEY,
 } from "@tedix/mcp-shared/content-sanitize";
@@ -1319,16 +1320,13 @@ async function executeWithHandler(
 		).replace(/^\//, "");
 		const mcpAppResourceUri = `ui://widgets/mcp-app/${agent.appSlug}/${errorWidgetRoute}.html`;
 
+		const message = error instanceof Error ? error.message : "Unknown error";
+		const safeMessage = isUntrustedTransport(toolConfig.transport)
+			? sanitizeUntrustedText(message)
+			: message;
 		return {
-			content: [
-				{
-					type: "text" as const,
-					text: `Error: ${error instanceof Error ? error.message : "Unknown error"}`,
-				},
-			],
-			structuredContent: {
-				error: error instanceof Error ? error.message : "Unknown error",
-			},
+			content: [{ type: "text" as const, text: `Error: ${safeMessage}` }],
+			structuredContent: { error: safeMessage },
 			// MCP convention: surfaces handler failures so the telemetry
 			// middleware can log success: false, and clients can branch on
 			// the failure shape. Without this flag, exceptions caught here

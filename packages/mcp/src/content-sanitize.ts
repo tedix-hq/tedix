@@ -8,10 +8,9 @@
  * URLs). Both are removed before the payload reaches a model, a Code Mode
  * sandbox, or a client.
  *
- * Sanitization applies to text only: string leaves are treated as text and
- * every transform is removal-only, so clean identifiers, URLs and structured
- * numbers pass through byte-identical. There is no model or network call —
- * the module is pure.
+ * Sanitization applies to text leaves; identifier and link fields and
+ * structured numbers pass through unchanged. There is no model or network
+ * call — the module is pure.
  */
 
 /** The `_meta` key carrying the gateway's trust label on every tool result. */
@@ -299,7 +298,7 @@ function renderTag(tag: ParsedTag): string {
 export function stripUnsafeHtml(input: string): string {
 	// Decode entities first so `&lt;script>` and `<scr&#105;pt>` cannot hide
 	// markup from the tag parser.
-	const decoded = decodeEntities(input);
+	const decoded = stripInvisibleCharacters(decodeEntities(input));
 	if (!decoded.includes("<")) return decoded;
 	input = decoded;
 	let out = "";
@@ -369,15 +368,21 @@ export function sanitizeUntrustedText(text: string): string {
 
 const MAX_SANITIZE_DEPTH = 50;
 
-function sanitizeValue(value: unknown, seen: Set<object>, depth: number) {
-	if (typeof value === "string") return sanitizeUntrustedText(value);
+function sanitizeValue(
+	value: unknown,
+	seen: Set<object>,
+	depth: number,
+	opaque = false,
+) {
+	if (typeof value === "string")
+		return opaque ? value : sanitizeUntrustedText(value);
 	if (value === null || typeof value !== "object") return value;
 	if (depth > MAX_SANITIZE_DEPTH || seen.has(value)) return value;
 	seen.add(value);
 	if (Array.isArray(value)) {
 		const out: unknown[] = new Array(value.length);
 		for (let i = 0; i < value.length; i += 1)
-			out[i] = sanitizeValue(value[i], seen, depth + 1);
+			out[i] = sanitizeValue(value[i], seen, depth + 1, opaque);
 		seen.delete(value);
 		return out;
 	}
@@ -387,17 +392,23 @@ function sanitizeValue(value: unknown, seen: Set<object>, depth: number) {
 		return value;
 	}
 	const out: Record<string, unknown> = {};
-	for (const [key, child] of Object.entries(value))
-		out[key] = sanitizeValue(child, seen, depth + 1);
+	for (const [key, child] of Object.entries(value)) {
+		// Identifier and link fields are opaque, including their array entries.
+		const field = key.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
+		out[key] = sanitizeValue(
+			child,
+			seen,
+			depth + 1,
+			/(?:^|[_-])(?:ids?|urls?|uris?|href|src)$/.test(field),
+		);
+	}
 	seen.delete(value);
 	return out;
 }
 
 /**
- * Deep-sanitize an untrusted result payload. Every string leaf is treated as
- * text; object keys, numbers, booleans, null and non-plain objects pass
- * through unchanged, so identifiers and URLs are never re-encoded or
- * restructured.
+ * Deep-sanitize text leaves while preserving identifier and link fields.
+ * Object keys, numbers, booleans, null and non-plain objects pass through.
  */
 export function sanitizeUntrustedValue(value: unknown): unknown {
 	return sanitizeValue(value, new Set(), 0);

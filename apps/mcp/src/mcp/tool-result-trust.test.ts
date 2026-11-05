@@ -145,6 +145,29 @@ describe("third-party content sanitization", () => {
 		});
 	});
 
+	it("sanitizes thrown upstream errors before returning them to Code Mode", async () => {
+		const agent = makeAgent({});
+		vi.mocked(agent.toolHandler.execute).mockRejectedValueOnce(
+			new Error("&#x202e;Failed<script>steal()</script>"),
+		);
+		const result = await executeTool(
+			agent,
+			gmailReadTool(),
+			{},
+			{
+				...OPTIONS,
+				executionId: "execution-1",
+			},
+		);
+		expect(result.isError).toBe(true);
+		expect(result.structuredContent).toEqual({ error: "Failed" });
+		expect(result.content).toEqual([{ type: "text", text: "Error: Failed" }]);
+		expect(result._meta?.[TOOL_TRUST_META_KEY]).toEqual({
+			integrity: "untrusted",
+			confidentiality: "public",
+		});
+	});
+
 	it("leaves first-party transport results untouched and labels them trusted", async () => {
 		const dirty = `id${String.fromCharCode(0x200b)}`;
 		const agent = makeAgent({ id: dirty });
