@@ -126,7 +126,12 @@ export async function themeArtifactSourceView(
 		async readFile(path: string) {
 			const hash = files.get(path);
 			if (!hash) throw new Error("Artifacts source file unavailable");
-			return readThemeArtifactBlob(repo, hash);
+			const blob = await repo.readBlob(hash);
+			if (!blob) throw new Error("Artifacts source blob unavailable");
+			return {
+				content: new Uint8Array(await blob.arrayBuffer()),
+				size: blob.size,
+			};
 		},
 	};
 }

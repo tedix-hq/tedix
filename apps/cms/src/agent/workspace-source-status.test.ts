@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import type { ArtifactsBinding } from "../types";
 import { digestEditableThemeSource } from "./source-provenance";
+import { readThemeArtifactBlob } from "./theme-artifacts";
 import { inspectWorkspaceSourceStatus } from "./workspace-source-status";
 
 const COMMIT = "a".repeat(40);
@@ -8,8 +9,8 @@ const TOKEN = "test-secret-do-not-return";
 const activeRevision = { kind: "artifacts_commit" as const, value: COMMIT };
 
 function fixture(input: {
-	workspace?: Record<string, string>;
-	committed?: Record<string, string>;
+	workspace?: Record<string, string | Uint8Array<ArrayBuffer>>;
+	committed?: Record<string, string | Uint8Array<ArrayBuffer>>;
 	failCommit?: boolean;
 	missingBlob?: boolean;
 	unsafeMode?: boolean;
@@ -43,7 +44,7 @@ function fixture(input: {
 		string,
 		Array<{ name: string; type: string; mode: string; hash: string }>
 	>();
-	const blobs = new Map<string, string>();
+	const blobs = new Map<string, string | Uint8Array<ArrayBuffer>>();
 	let next = 1;
 	const root = "b".repeat(40);
 	trees.set(root, []);
@@ -113,12 +114,19 @@ function fixture(input: {
 					relativePath: path.slice(root.length + 1),
 				}));
 		},
-		async readFile(path: string) {
+		async readFile(path: string, options?: { encoding?: "none" | "utf8" }) {
 			const content = files.get(path);
 			if (content === undefined) throw new Error("Missing file");
+			const bytes =
+				typeof content === "string"
+					? new TextEncoder().encode(content)
+					: content;
 			return delayed({
-				content,
-				size: new TextEncoder().encode(content).byteLength,
+				content:
+					options?.encoding === "none"
+						? bytes
+						: new TextDecoder().decode(bytes),
+				size: bytes.byteLength,
 			});
 		},
 	};
@@ -174,6 +182,29 @@ describe("CMS builder workspace source status", () => {
 			false,
 		);
 		expect(JSON.stringify(result)).not.toContain(TOKEN);
+	});
+
+	it("compares binary assets without losing byte differences", async () => {
+		const asset = "components/image.png";
+		const original = new Uint8Array([137, 80, 78, 71, 0, 255]);
+		const changed = new Uint8Array([137, 80, 78, 71, 0, 254]);
+		// Both byte sequences decode to the same replacement characters.
+		expect(new TextDecoder().decode(original)).toBe(
+			new TextDecoder().decode(changed),
+		);
+		for (const [workspace, expected] of [
+			[original, "matches_active_source"],
+			[changed, "differs_from_active_source"],
+		] as const) {
+			const f = fixture({
+				workspace: { [asset]: workspace, "pages/index.astro": "Active" },
+				committed: { [asset]: original, "pages/index.astro": "Active" },
+			});
+			const result = await f.inspect();
+			expect(result.status).toBe(expected);
+			expect(result.workspaceSource?.fileCount).toBe(2);
+			expect(result.activeSource?.fileCount).toBe(2);
+		}
 	});
 
 	it("reads editable files concurrently on both sides of the comparison", async () => {
@@ -305,7 +336,19 @@ describe("CMS builder workspace source status", () => {
 		});
 		expect((await inspect()).status).toBe("unavailable");
 	});
-	it.each([{ unsafeMode: true }, { invalidUtf8: true }])(
+	it("compares invalid text bytes as drift but keeps text reads strict", async () => {
+		const f = fixture({
+			workspace: { "pages/index.astro": "active" },
+			committed: { "pages/index.astro": "active" },
+			invalidUtf8: true,
+		});
+		expect((await f.inspect()).status).toBe("differs_from_active_source");
+		const repo = {
+			readBlob: async () => new Blob([new Uint8Array([255])]),
+		} as unknown as ArtifactsRepo;
+		await expect(readThemeArtifactBlob(repo, "a".repeat(40))).rejects.toThrow();
+	});
+	it.each([{ unsafeMode: true }])(
 		"rejects unsafe editable native content %j",
 		async (option) => {
 			const f = fixture({
