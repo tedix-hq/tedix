@@ -85,28 +85,41 @@ export async function listLatestWorkAttemptSummaries(
 	db: PgQueryClient,
 	params: { orgId: string; workItemIds: string[] },
 ) {
-	if (params.workItemIds.length === 0) return new Map();
-	const rows = await db
-		.select({
-			workItemId: workAttempts.workItemId,
-			attemptId: workAttempts.id,
-			runtimeState: workAttempts.runtimeState,
-			outcome: workAttempts.outcome,
-			finishedAt: workAttempts.finishedAt,
-			workItemVersion: sql<
-				number | null
-			>`(${workAttempts.metadata} ->> 'dispatchVersion')::integer`,
-		})
-		.from(workAttempts)
-		.where(
-			and(
-				eq(workAttempts.orgId, params.orgId),
-				inArray(workAttempts.workItemId, params.workItemIds),
-				sql`${workAttempts.id} = (SELECT latest.id FROM work_attempts latest
-					WHERE latest.org_id = ${workAttempts.orgId}
-					AND latest.work_item_id = ${workAttempts.workItemId}
-					ORDER BY latest.started_at DESC, latest.id DESC LIMIT 1)`,
-			),
-		);
-	return new Map(rows.map(({ workItemId, ...row }) => [workItemId, row]));
+	const summaries = new Map<
+		string,
+		{
+			attemptId: string;
+			runtimeState: string;
+			outcome: string | null;
+			finishedAt: string | null;
+			workItemVersion: number | null;
+		}
+	>();
+	const ids = [...new Set(params.workItemIds)];
+	for (let offset = 0; offset < ids.length; offset += 50) {
+		const rows = await db
+			.select({
+				workItemId: workAttempts.workItemId,
+				attemptId: workAttempts.id,
+				runtimeState: workAttempts.runtimeState,
+				outcome: workAttempts.outcome,
+				finishedAt: workAttempts.finishedAt,
+				workItemVersion: sql<
+					number | null
+				>`(${workAttempts.metadata} ->> 'dispatchVersion')::integer`,
+			})
+			.from(workAttempts)
+			.where(
+				and(
+					eq(workAttempts.orgId, params.orgId),
+					inArray(workAttempts.workItemId, ids.slice(offset, offset + 50)),
+					sql`${workAttempts.id} = (SELECT latest.id FROM work_attempts latest
+						WHERE latest.org_id = ${workAttempts.orgId}
+						AND latest.work_item_id = ${workAttempts.workItemId}
+						ORDER BY latest.started_at DESC, latest.id DESC LIMIT 1)`,
+				),
+			);
+		for (const { workItemId, ...row } of rows) summaries.set(workItemId, row);
+	}
+	return summaries;
 }

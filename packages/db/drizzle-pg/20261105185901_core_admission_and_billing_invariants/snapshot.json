@@ -1,998 +1,939 @@
 {
-  "type": "diff",
-  "version": "9",
-  "dialect": "postgres",
-  "id": "49bbb757-7ebe-42f9-8000-c8f711e6f823",
-  "prevIds": [
-    "7dfe03ac-b7dd-4525-8d1a-71533bf4c49b"
-  ],
-  "footprints": [
-    {
-      "statementType": "create_table",
-      "statementTarget": [
-        "table",
-        "public",
-        "work_admissions"
-      ],
-      "writes": [
-        "s|tbl|public.work_admissions",
-        "n|tbl|public.work_admissions",
-        "e|tbl|public.work_admissions",
-        "n|rel|public.work_admissions",
-        "n|type|public.work_admissions",
-        "n|rel|public.work_admissions_pkey"
-      ],
-      "reads": [
-        "n|sch|public"
-      ]
-    },
-    {
-      "statementType": "alter_column",
-      "statementTarget": [
-        "column",
-        "public",
-        "work_attempts",
-        "admission_id"
-      ],
-      "writes": [
-        "s|colprop|public.work_attempts.admission_id.notNull"
-      ],
-      "reads": [
-        "n|tbl|public.work_attempts",
-        "n|sch|public",
-        "n|col|public.work_attempts.admission_id"
-      ],
-      "sqlHash": "33b00cdfc8d96a5e"
-    },
-    {
-      "statementType": "create_index",
-      "statementTarget": [
-        "index",
-        "public",
-        "billing_accounts",
-        "uniq_billing_account_stripe_customer"
-      ],
-      "writes": [
-        "s|idx|public.uniq_billing_account_stripe_customer",
-        "n|idx|public.uniq_billing_account_stripe_customer",
-        "e|idx|public.uniq_billing_account_stripe_customer",
-        "n|rel|public.uniq_billing_account_stripe_customer"
-      ],
-      "reads": [
-        "n|tbl|public.billing_accounts",
-        "n|sch|public",
-        "n|col|public.billing_accounts.stripe_environment",
-        "n|col|public.billing_accounts.stripe_customer_id"
-      ]
-    },
-    {
-      "statementType": "create_index",
-      "statementTarget": [
-        "index",
-        "public",
-        "billing_accounts",
-        "uniq_billing_account_stripe_subscription"
-      ],
-      "writes": [
-        "s|idx|public.uniq_billing_account_stripe_subscription",
-        "n|idx|public.uniq_billing_account_stripe_subscription",
-        "e|idx|public.uniq_billing_account_stripe_subscription",
-        "n|rel|public.uniq_billing_account_stripe_subscription"
-      ],
-      "reads": [
-        "n|tbl|public.billing_accounts",
-        "n|sch|public",
-        "n|col|public.billing_accounts.stripe_environment",
-        "n|col|public.billing_accounts.stripe_subscription_id"
-      ]
-    },
-    {
-      "statementType": "create_index",
-      "statementTarget": [
-        "index",
-        "public",
-        "billing_credit_entries",
-        "idx_billing_credit_expiry"
-      ],
-      "writes": [
-        "s|idx|public.idx_billing_credit_expiry",
-        "n|idx|public.idx_billing_credit_expiry",
-        "e|idx|public.idx_billing_credit_expiry",
-        "n|rel|public.idx_billing_credit_expiry"
-      ],
-      "reads": [
-        "n|tbl|public.billing_credit_entries",
-        "n|sch|public",
-        "n|col|public.billing_credit_entries.organization_id",
-        "n|col|public.billing_credit_entries.expires_at"
-      ]
-    },
-    {
-      "statementType": "create_index",
-      "statementTarget": [
-        "index",
-        "public",
-        "work_admissions",
-        "uniq_work_admission_org_item_id"
-      ],
-      "writes": [
-        "s|idx|public.uniq_work_admission_org_item_id",
-        "n|idx|public.uniq_work_admission_org_item_id",
-        "e|idx|public.uniq_work_admission_org_item_id",
-        "n|rel|public.uniq_work_admission_org_item_id"
-      ],
-      "reads": [
-        "n|tbl|public.work_admissions",
-        "n|sch|public",
-        "n|col|public.work_admissions.org_id",
-        "n|col|public.work_admissions.work_item_id",
-        "n|col|public.work_admissions.id"
-      ]
-    },
-    {
-      "statementType": "create_index",
-      "statementTarget": [
-        "index",
-        "public",
-        "work_admissions",
-        "uniq_work_admission_rejection_key"
-      ],
-      "writes": [
-        "s|idx|public.uniq_work_admission_rejection_key",
-        "n|idx|public.uniq_work_admission_rejection_key",
-        "e|idx|public.uniq_work_admission_rejection_key",
-        "n|rel|public.uniq_work_admission_rejection_key"
-      ],
-      "reads": [
-        "n|tbl|public.work_admissions",
-        "n|sch|public",
-        "n|col|public.work_admissions.org_id",
-        "n|col|public.work_admissions.rejection_key"
-      ]
-    },
-    {
-      "statementType": "create_index",
-      "statementTarget": [
-        "index",
-        "public",
-        "work_admissions",
-        "idx_work_admission_executor_time"
-      ],
-      "writes": [
-        "s|idx|public.idx_work_admission_executor_time",
-        "n|idx|public.idx_work_admission_executor_time",
-        "e|idx|public.idx_work_admission_executor_time",
-        "n|rel|public.idx_work_admission_executor_time"
-      ],
-      "reads": [
-        "n|tbl|public.work_admissions",
-        "n|sch|public",
-        "n|col|public.work_admissions.org_id",
-        "n|col|public.work_admissions.executor_type",
-        "n|col|public.work_admissions.executor_id",
-        "n|col|public.work_admissions.created_at"
-      ]
-    },
-    {
-      "statementType": "create_index",
-      "statementTarget": [
-        "index",
-        "public",
-        "work_admissions",
-        "idx_work_admission_item_time"
-      ],
-      "writes": [
-        "s|idx|public.idx_work_admission_item_time",
-        "n|idx|public.idx_work_admission_item_time",
-        "e|idx|public.idx_work_admission_item_time",
-        "n|rel|public.idx_work_admission_item_time"
-      ],
-      "reads": [
-        "n|tbl|public.work_admissions",
-        "n|sch|public",
-        "n|col|public.work_admissions.org_id",
-        "n|col|public.work_admissions.work_item_id",
-        "n|col|public.work_admissions.created_at"
-      ]
-    },
-    {
-      "statementType": "create_fk",
-      "statementTarget": [
-        "table",
-        "public",
-        "work_admissions"
-      ],
-      "writes": [
-        "s|fk|public.work_admissions.work_admissions_org_id_organizations_id_fkey",
-        "n|fk|public.work_admissions.work_admissions_org_id_organizations_id_fkey",
-        "e|fk|public.work_admissions.work_admissions_org_id_organizations_id_fkey",
-        "n|con|public.work_admissions.work_admissions_org_id_organizations_id_fkey"
-      ],
-      "reads": [
-        "n|tbl|public.work_admissions",
-        "n|sch|public",
-        "n|tbl|public.organizations",
-        "n|sch|public",
-        "n|col|public.work_admissions.org_id",
-        "n|col|public.organizations.id",
-        "e|uniqueness|public.organizations.id"
-      ]
-    },
-    {
-      "statementType": "create_fk",
-      "statementTarget": [
-        "table",
-        "public",
-        "work_admissions"
-      ],
-      "writes": [
-        "s|fk|public.work_admissions.fk_work_admission_item",
-        "n|fk|public.work_admissions.fk_work_admission_item",
-        "e|fk|public.work_admissions.fk_work_admission_item",
-        "n|con|public.work_admissions.fk_work_admission_item"
-      ],
-      "reads": [
-        "n|tbl|public.work_admissions",
-        "n|sch|public",
-        "n|tbl|public.work_items",
-        "n|sch|public",
-        "n|col|public.work_admissions.org_id",
-        "n|col|public.work_admissions.work_item_id",
-        "n|col|public.work_items.org_id",
-        "n|col|public.work_items.id",
-        "e|uniqueness|public.work_items.id.org_id"
-      ]
-    },
-    {
-      "statementType": "create_fk",
-      "statementTarget": [
-        "table",
-        "public",
-        "work_attempts"
-      ],
-      "writes": [
-        "s|fk|public.work_attempts.fk_work_attempt_admission",
-        "n|fk|public.work_attempts.fk_work_attempt_admission",
-        "e|fk|public.work_attempts.fk_work_attempt_admission",
-        "n|con|public.work_attempts.fk_work_attempt_admission"
-      ],
-      "reads": [
-        "n|tbl|public.work_attempts",
-        "n|sch|public",
-        "n|tbl|public.work_admissions",
-        "n|sch|public",
-        "n|col|public.work_attempts.org_id",
-        "n|col|public.work_attempts.work_item_id",
-        "n|col|public.work_attempts.admission_id",
-        "n|col|public.work_admissions.org_id",
-        "n|col|public.work_admissions.work_item_id",
-        "n|col|public.work_admissions.id",
-        "e|uniqueness|public.work_admissions.id.org_id.work_item_id"
-      ]
-    },
-    {
-      "statementType": "add_check",
-      "statementTarget": [
-        "table",
-        "public",
-        "billing_credit_entries"
-      ],
-      "writes": [
-        "s|ck|public.billing_credit_entries.chk_billing_credit_nonzero",
-        "n|ck|public.billing_credit_entries.chk_billing_credit_nonzero",
-        "e|ck|public.billing_credit_entries.chk_billing_credit_nonzero",
-        "n|con|public.billing_credit_entries.chk_billing_credit_nonzero"
-      ],
-      "reads": [
-        "n|tbl|public.billing_credit_entries",
-        "n|sch|public",
-        "n|col|public.billing_credit_entries.amount_micros"
-      ]
-    },
-    {
-      "statementType": "add_check",
-      "statementTarget": [
-        "table",
-        "public",
-        "billing_credit_entries"
-      ],
-      "writes": [
-        "s|ck|public.billing_credit_entries.chk_billing_credit_direction",
-        "n|ck|public.billing_credit_entries.chk_billing_credit_direction",
-        "e|ck|public.billing_credit_entries.chk_billing_credit_direction",
-        "n|con|public.billing_credit_entries.chk_billing_credit_direction"
-      ],
-      "reads": [
-        "n|tbl|public.billing_credit_entries",
-        "n|sch|public",
-        "n|col|public.billing_credit_entries.kind",
-        "n|col|public.billing_credit_entries.amount_micros"
-      ]
-    },
-    {
-      "statementType": "add_check",
-      "statementTarget": [
-        "table",
-        "public",
-        "work_attempts"
-      ],
-      "writes": [
-        "s|ck|public.work_attempts.chk_work_attempt_identity",
-        "n|ck|public.work_attempts.chk_work_attempt_identity",
-        "e|ck|public.work_attempts.chk_work_attempt_identity",
-        "n|con|public.work_attempts.chk_work_attempt_identity"
-      ],
-      "reads": [
-        "n|tbl|public.work_attempts",
-        "n|sch|public",
-        "n|col|public.work_attempts.executor_type",
-        "n|col|public.work_attempts.executor_session_id",
-        "n|col|public.work_attempts.external_session_key"
-      ]
-    }
-  ],
-  "deltas": [
-    {
-      "op": "create",
-      "row": {
-        "schema": "public",
-        "name": "work_admissions",
-        "isRlsEnabled": false,
-        "entityType": "tables"
-      }
-    },
-    {
-      "op": "create",
-      "row": {
-        "schema": "public",
-        "table": "work_admissions",
-        "name": "id",
-        "type": "text",
-        "typeSchema": null,
-        "notNull": true,
-        "dimensions": 0,
-        "default": null,
-        "generated": null,
-        "identity": null,
-        "entityType": "columns"
-      }
-    },
-    {
-      "op": "create",
-      "row": {
-        "schema": "public",
-        "table": "work_admissions",
-        "name": "org_id",
-        "type": "text",
-        "typeSchema": null,
-        "notNull": true,
-        "dimensions": 0,
-        "default": null,
-        "generated": null,
-        "identity": null,
-        "entityType": "columns"
-      }
-    },
-    {
-      "op": "create",
-      "row": {
-        "schema": "public",
-        "table": "work_admissions",
-        "name": "work_item_id",
-        "type": "text",
-        "typeSchema": null,
-        "notNull": true,
-        "dimensions": 0,
-        "default": null,
-        "generated": null,
-        "identity": null,
-        "entityType": "columns"
-      }
-    },
-    {
-      "op": "create",
-      "row": {
-        "schema": "public",
-        "table": "work_admissions",
-        "name": "work_item_version",
-        "type": "integer",
-        "typeSchema": null,
-        "notNull": true,
-        "dimensions": 0,
-        "default": null,
-        "generated": null,
-        "identity": null,
-        "entityType": "columns"
-      }
-    },
-    {
-      "op": "create",
-      "row": {
-        "schema": "public",
-        "table": "work_admissions",
-        "name": "admission_spec_revision",
-        "type": "text",
-        "typeSchema": null,
-        "notNull": true,
-        "dimensions": 0,
-        "default": null,
-        "generated": null,
-        "identity": null,
-        "entityType": "columns"
-      }
-    },
-    {
-      "op": "create",
-      "row": {
-        "schema": "public",
-        "table": "work_admissions",
-        "name": "executor_type",
-        "type": "text",
-        "typeSchema": null,
-        "notNull": true,
-        "dimensions": 0,
-        "default": null,
-        "generated": null,
-        "identity": null,
-        "entityType": "columns"
-      }
-    },
-    {
-      "op": "create",
-      "row": {
-        "schema": "public",
-        "table": "work_admissions",
-        "name": "executor_id",
-        "type": "text",
-        "typeSchema": null,
-        "notNull": true,
-        "dimensions": 0,
-        "default": null,
-        "generated": null,
-        "identity": null,
-        "entityType": "columns"
-      }
-    },
-    {
-      "op": "create",
-      "row": {
-        "schema": "public",
-        "table": "work_admissions",
-        "name": "executor_session_id",
-        "type": "text",
-        "typeSchema": null,
-        "notNull": false,
-        "dimensions": 0,
-        "default": null,
-        "generated": null,
-        "identity": null,
-        "entityType": "columns"
-      }
-    },
-    {
-      "op": "create",
-      "row": {
-        "schema": "public",
-        "table": "work_admissions",
-        "name": "external_session_key",
-        "type": "text",
-        "typeSchema": null,
-        "notNull": false,
-        "dimensions": 0,
-        "default": null,
-        "generated": null,
-        "identity": null,
-        "entityType": "columns"
-      }
-    },
-    {
-      "op": "create",
-      "row": {
-        "schema": "public",
-        "table": "work_admissions",
-        "name": "decision",
-        "type": "text",
-        "typeSchema": null,
-        "notNull": true,
-        "dimensions": 0,
-        "default": null,
-        "generated": null,
-        "identity": null,
-        "entityType": "columns"
-      }
-    },
-    {
-      "op": "create",
-      "row": {
-        "schema": "public",
-        "table": "work_admissions",
-        "name": "rejection_code",
-        "type": "text",
-        "typeSchema": null,
-        "notNull": false,
-        "dimensions": 0,
-        "default": null,
-        "generated": null,
-        "identity": null,
-        "entityType": "columns"
-      }
-    },
-    {
-      "op": "create",
-      "row": {
-        "schema": "public",
-        "table": "work_admissions",
-        "name": "rejection_reason",
-        "type": "text",
-        "typeSchema": null,
-        "notNull": false,
-        "dimensions": 0,
-        "default": null,
-        "generated": null,
-        "identity": null,
-        "entityType": "columns"
-      }
-    },
-    {
-      "op": "create",
-      "row": {
-        "schema": "public",
-        "table": "work_admissions",
-        "name": "rejection_key",
-        "type": "text",
-        "typeSchema": null,
-        "notNull": false,
-        "dimensions": 0,
-        "default": null,
-        "generated": null,
-        "identity": null,
-        "entityType": "columns"
-      }
-    },
-    {
-      "op": "create",
-      "row": {
-        "schema": "public",
-        "table": "work_admissions",
-        "name": "max_cost_micros",
-        "type": "bigint",
-        "typeSchema": null,
-        "notNull": false,
-        "dimensions": 0,
-        "default": null,
-        "generated": null,
-        "identity": null,
-        "entityType": "columns"
-      }
-    },
-    {
-      "op": "create",
-      "row": {
-        "schema": "public",
-        "table": "work_admissions",
-        "name": "decided_at",
-        "type": "text",
-        "typeSchema": null,
-        "notNull": true,
-        "dimensions": 0,
-        "default": null,
-        "generated": null,
-        "identity": null,
-        "entityType": "columns"
-      }
-    },
-    {
-      "op": "create",
-      "row": {
-        "schema": "public",
-        "table": "work_admissions",
-        "name": "expires_at",
-        "type": "text",
-        "typeSchema": null,
-        "notNull": true,
-        "dimensions": 0,
-        "default": null,
-        "generated": null,
-        "identity": null,
-        "entityType": "columns"
-      }
-    },
-    {
-      "op": "create",
-      "row": {
-        "schema": "public",
-        "table": "work_admissions",
-        "name": "created_at",
-        "type": "text",
-        "typeSchema": null,
-        "notNull": true,
-        "dimensions": 0,
-        "default": null,
-        "generated": null,
-        "identity": null,
-        "entityType": "columns"
-      }
-    },
-    {
-      "op": "create",
-      "row": {
-        "schema": "public",
-        "table": "billing_accounts",
-        "name": "uniq_billing_account_stripe_customer",
-        "nameExplicit": true,
-        "columns": [
-          {
-            "value": "stripe_environment",
-            "isExpression": false,
-            "asc": true,
-            "nullsFirst": false,
-            "opclass": null
-          },
-          {
-            "value": "stripe_customer_id",
-            "isExpression": false,
-            "asc": true,
-            "nullsFirst": false,
-            "opclass": null
-          }
-        ],
-        "isUnique": true,
-        "where": "\"stripe_customer_id\" IS NOT NULL",
-        "with": "",
-        "method": "btree",
-        "concurrently": false,
-        "entityType": "indexes"
-      }
-    },
-    {
-      "op": "create",
-      "row": {
-        "schema": "public",
-        "table": "billing_accounts",
-        "name": "uniq_billing_account_stripe_subscription",
-        "nameExplicit": true,
-        "columns": [
-          {
-            "value": "stripe_environment",
-            "isExpression": false,
-            "asc": true,
-            "nullsFirst": false,
-            "opclass": null
-          },
-          {
-            "value": "stripe_subscription_id",
-            "isExpression": false,
-            "asc": true,
-            "nullsFirst": false,
-            "opclass": null
-          }
-        ],
-        "isUnique": true,
-        "where": "\"stripe_subscription_id\" IS NOT NULL",
-        "with": "",
-        "method": "btree",
-        "concurrently": false,
-        "entityType": "indexes"
-      }
-    },
-    {
-      "op": "create",
-      "row": {
-        "schema": "public",
-        "table": "billing_credit_entries",
-        "name": "idx_billing_credit_expiry",
-        "nameExplicit": true,
-        "columns": [
-          {
-            "value": "organization_id",
-            "isExpression": false,
-            "asc": true,
-            "nullsFirst": false,
-            "opclass": null
-          },
-          {
-            "value": "expires_at",
-            "isExpression": false,
-            "asc": true,
-            "nullsFirst": false,
-            "opclass": null
-          }
-        ],
-        "isUnique": false,
-        "where": null,
-        "with": "",
-        "method": "btree",
-        "concurrently": false,
-        "entityType": "indexes"
-      }
-    },
-    {
-      "op": "create",
-      "row": {
-        "schema": "public",
-        "table": "work_admissions",
-        "name": "uniq_work_admission_org_item_id",
-        "nameExplicit": true,
-        "columns": [
-          {
-            "value": "org_id",
-            "isExpression": false,
-            "asc": true,
-            "nullsFirst": false,
-            "opclass": null
-          },
-          {
-            "value": "work_item_id",
-            "isExpression": false,
-            "asc": true,
-            "nullsFirst": false,
-            "opclass": null
-          },
-          {
-            "value": "id",
-            "isExpression": false,
-            "asc": true,
-            "nullsFirst": false,
-            "opclass": null
-          }
-        ],
-        "isUnique": true,
-        "where": null,
-        "with": "",
-        "method": "btree",
-        "concurrently": false,
-        "entityType": "indexes"
-      }
-    },
-    {
-      "op": "create",
-      "row": {
-        "schema": "public",
-        "table": "work_admissions",
-        "name": "uniq_work_admission_rejection_key",
-        "nameExplicit": true,
-        "columns": [
-          {
-            "value": "org_id",
-            "isExpression": false,
-            "asc": true,
-            "nullsFirst": false,
-            "opclass": null
-          },
-          {
-            "value": "rejection_key",
-            "isExpression": false,
-            "asc": true,
-            "nullsFirst": false,
-            "opclass": null
-          }
-        ],
-        "isUnique": true,
-        "where": null,
-        "with": "",
-        "method": "btree",
-        "concurrently": false,
-        "entityType": "indexes"
-      }
-    },
-    {
-      "op": "create",
-      "row": {
-        "schema": "public",
-        "table": "work_admissions",
-        "name": "idx_work_admission_executor_time",
-        "nameExplicit": true,
-        "columns": [
-          {
-            "value": "org_id",
-            "isExpression": false,
-            "asc": true,
-            "nullsFirst": false,
-            "opclass": null
-          },
-          {
-            "value": "executor_type",
-            "isExpression": false,
-            "asc": true,
-            "nullsFirst": false,
-            "opclass": null
-          },
-          {
-            "value": "executor_id",
-            "isExpression": false,
-            "asc": true,
-            "nullsFirst": false,
-            "opclass": null
-          },
-          {
-            "value": "created_at",
-            "isExpression": false,
-            "asc": true,
-            "nullsFirst": false,
-            "opclass": null
-          }
-        ],
-        "isUnique": false,
-        "where": null,
-        "with": "",
-        "method": "btree",
-        "concurrently": false,
-        "entityType": "indexes"
-      }
-    },
-    {
-      "op": "create",
-      "row": {
-        "schema": "public",
-        "table": "work_admissions",
-        "name": "idx_work_admission_item_time",
-        "nameExplicit": true,
-        "columns": [
-          {
-            "value": "org_id",
-            "isExpression": false,
-            "asc": true,
-            "nullsFirst": false,
-            "opclass": null
-          },
-          {
-            "value": "work_item_id",
-            "isExpression": false,
-            "asc": true,
-            "nullsFirst": false,
-            "opclass": null
-          },
-          {
-            "value": "created_at",
-            "isExpression": false,
-            "asc": true,
-            "nullsFirst": false,
-            "opclass": null
-          }
-        ],
-        "isUnique": false,
-        "where": null,
-        "with": "",
-        "method": "btree",
-        "concurrently": false,
-        "entityType": "indexes"
-      }
-    },
-    {
-      "op": "create",
-      "row": {
-        "schema": "public",
-        "table": "work_admissions",
-        "name": "work_admissions_org_id_organizations_id_fkey",
-        "nameExplicit": false,
-        "columns": [
-          "org_id"
-        ],
-        "schemaTo": "public",
-        "tableTo": "organizations",
-        "columnsTo": [
-          "id"
-        ],
-        "onUpdate": "NO ACTION",
-        "onDelete": "CASCADE",
-        "entityType": "fks"
-      }
-    },
-    {
-      "op": "create",
-      "row": {
-        "schema": "public",
-        "table": "work_admissions",
-        "name": "fk_work_admission_item",
-        "nameExplicit": true,
-        "columns": [
-          "org_id",
-          "work_item_id"
-        ],
-        "schemaTo": "public",
-        "tableTo": "work_items",
-        "columnsTo": [
-          "org_id",
-          "id"
-        ],
-        "onUpdate": "NO ACTION",
-        "onDelete": "RESTRICT",
-        "entityType": "fks"
-      }
-    },
-    {
-      "op": "create",
-      "row": {
-        "schema": "public",
-        "table": "work_attempts",
-        "name": "fk_work_attempt_admission",
-        "nameExplicit": true,
-        "columns": [
-          "org_id",
-          "work_item_id",
-          "admission_id"
-        ],
-        "schemaTo": "public",
-        "tableTo": "work_admissions",
-        "columnsTo": [
-          "org_id",
-          "work_item_id",
-          "id"
-        ],
-        "onUpdate": "NO ACTION",
-        "onDelete": "RESTRICT",
-        "entityType": "fks"
-      }
-    },
-    {
-      "op": "create",
-      "row": {
-        "schema": "public",
-        "table": "work_admissions",
-        "name": "work_admissions_pkey",
-        "columns": [
-          "id"
-        ],
-        "nameExplicit": false,
-        "entityType": "pks"
-      }
-    },
-    {
-      "op": "create",
-      "row": {
-        "schema": "public",
-        "table": "billing_credit_entries",
-        "name": "chk_billing_credit_nonzero",
-        "value": "\"amount_micros\" <> 0",
-        "entityType": "checks"
-      }
-    },
-    {
-      "op": "create",
-      "row": {
-        "schema": "public",
-        "table": "billing_credit_entries",
-        "name": "chk_billing_credit_direction",
-        "value": "(\"kind\" IN ('grant', 'refund') AND \"amount_micros\" > 0) OR (\"kind\" = 'debit' AND \"amount_micros\" < 0) OR \"kind\" = 'adjustment'",
-        "entityType": "checks"
-      }
-    },
-    {
-      "op": "create",
-      "row": {
-        "schema": "public",
-        "table": "work_admissions",
-        "name": "chk_work_admission_identity",
-        "value": "(\"executor_type\" = 'tedi' AND \"executor_session_id\" IS NULL AND \"external_session_key\" IS NULL) OR (\"executor_type\" = 'external_agent' AND \"executor_session_id\" IS NOT NULL AND \"external_session_key\" IS NOT NULL)",
-        "entityType": "checks"
-      }
-    },
-    {
-      "op": "create",
-      "row": {
-        "schema": "public",
-        "table": "work_admissions",
-        "name": "chk_work_admission_decision",
-        "value": "(\"decision\" = 'admitted' AND \"rejection_code\" IS NULL AND \"rejection_reason\" IS NULL AND \"rejection_key\" IS NULL) OR (\"decision\" = 'rejected' AND \"rejection_code\" IS NOT NULL AND \"rejection_reason\" IS NOT NULL AND \"rejection_key\" IS NOT NULL)",
-        "entityType": "checks"
-      }
-    },
-    {
-      "op": "create",
-      "row": {
-        "schema": "public",
-        "table": "work_attempts",
-        "name": "chk_work_attempt_identity",
-        "value": "(\"executor_type\" = 'tedi' AND \"executor_session_id\" IS NULL AND \"external_session_key\" IS NULL) OR (\"executor_type\" = 'external_agent' AND \"executor_session_id\" IS NOT NULL AND \"external_session_key\" IS NOT NULL)",
-        "entityType": "checks"
-      }
-    },
-    {
-      "op": "alter",
-      "key": "columns\u0000[\"public\",\"work_attempts\",\"admission_id\"]",
-      "set": {
-        "notNull": true
-      }
-    }
-  ]
+	"type": "diff",
+	"version": "9",
+	"dialect": "postgres",
+	"id": "49bbb757-7ebe-42f9-8000-c8f711e6f823",
+	"prevIds": ["7dfe03ac-b7dd-4525-8d1a-71533bf4c49b"],
+	"footprints": [
+		{
+			"statementType": "create_table",
+			"statementTarget": ["table", "public", "work_admissions"],
+			"writes": [
+				"s|tbl|public.work_admissions",
+				"n|tbl|public.work_admissions",
+				"e|tbl|public.work_admissions",
+				"n|rel|public.work_admissions",
+				"n|type|public.work_admissions",
+				"n|rel|public.work_admissions_pkey"
+			],
+			"reads": ["n|sch|public"]
+		},
+		{
+			"statementType": "alter_column",
+			"statementTarget": ["column", "public", "work_attempts", "admission_id"],
+			"writes": ["s|colprop|public.work_attempts.admission_id.notNull"],
+			"reads": [
+				"n|tbl|public.work_attempts",
+				"n|sch|public",
+				"n|col|public.work_attempts.admission_id"
+			],
+			"sqlHash": "33b00cdfc8d96a5e"
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"billing_accounts",
+				"uniq_billing_account_stripe_customer"
+			],
+			"writes": [
+				"s|idx|public.uniq_billing_account_stripe_customer",
+				"n|idx|public.uniq_billing_account_stripe_customer",
+				"e|idx|public.uniq_billing_account_stripe_customer",
+				"n|rel|public.uniq_billing_account_stripe_customer"
+			],
+			"reads": [
+				"n|tbl|public.billing_accounts",
+				"n|sch|public",
+				"n|col|public.billing_accounts.stripe_environment",
+				"n|col|public.billing_accounts.stripe_customer_id"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"billing_accounts",
+				"uniq_billing_account_stripe_subscription"
+			],
+			"writes": [
+				"s|idx|public.uniq_billing_account_stripe_subscription",
+				"n|idx|public.uniq_billing_account_stripe_subscription",
+				"e|idx|public.uniq_billing_account_stripe_subscription",
+				"n|rel|public.uniq_billing_account_stripe_subscription"
+			],
+			"reads": [
+				"n|tbl|public.billing_accounts",
+				"n|sch|public",
+				"n|col|public.billing_accounts.stripe_environment",
+				"n|col|public.billing_accounts.stripe_subscription_id"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"billing_credit_entries",
+				"idx_billing_credit_expiry"
+			],
+			"writes": [
+				"s|idx|public.idx_billing_credit_expiry",
+				"n|idx|public.idx_billing_credit_expiry",
+				"e|idx|public.idx_billing_credit_expiry",
+				"n|rel|public.idx_billing_credit_expiry"
+			],
+			"reads": [
+				"n|tbl|public.billing_credit_entries",
+				"n|sch|public",
+				"n|col|public.billing_credit_entries.organization_id",
+				"n|col|public.billing_credit_entries.expires_at"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"work_admissions",
+				"uniq_work_admission_org_item_id"
+			],
+			"writes": [
+				"s|idx|public.uniq_work_admission_org_item_id",
+				"n|idx|public.uniq_work_admission_org_item_id",
+				"e|idx|public.uniq_work_admission_org_item_id",
+				"n|rel|public.uniq_work_admission_org_item_id"
+			],
+			"reads": [
+				"n|tbl|public.work_admissions",
+				"n|sch|public",
+				"n|col|public.work_admissions.org_id",
+				"n|col|public.work_admissions.work_item_id",
+				"n|col|public.work_admissions.id"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"work_admissions",
+				"uniq_work_admission_rejection_key"
+			],
+			"writes": [
+				"s|idx|public.uniq_work_admission_rejection_key",
+				"n|idx|public.uniq_work_admission_rejection_key",
+				"e|idx|public.uniq_work_admission_rejection_key",
+				"n|rel|public.uniq_work_admission_rejection_key"
+			],
+			"reads": [
+				"n|tbl|public.work_admissions",
+				"n|sch|public",
+				"n|col|public.work_admissions.org_id",
+				"n|col|public.work_admissions.rejection_key"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"work_admissions",
+				"idx_work_admission_executor_time"
+			],
+			"writes": [
+				"s|idx|public.idx_work_admission_executor_time",
+				"n|idx|public.idx_work_admission_executor_time",
+				"e|idx|public.idx_work_admission_executor_time",
+				"n|rel|public.idx_work_admission_executor_time"
+			],
+			"reads": [
+				"n|tbl|public.work_admissions",
+				"n|sch|public",
+				"n|col|public.work_admissions.org_id",
+				"n|col|public.work_admissions.executor_type",
+				"n|col|public.work_admissions.executor_id",
+				"n|col|public.work_admissions.created_at"
+			]
+		},
+		{
+			"statementType": "create_index",
+			"statementTarget": [
+				"index",
+				"public",
+				"work_admissions",
+				"idx_work_admission_item_time"
+			],
+			"writes": [
+				"s|idx|public.idx_work_admission_item_time",
+				"n|idx|public.idx_work_admission_item_time",
+				"e|idx|public.idx_work_admission_item_time",
+				"n|rel|public.idx_work_admission_item_time"
+			],
+			"reads": [
+				"n|tbl|public.work_admissions",
+				"n|sch|public",
+				"n|col|public.work_admissions.org_id",
+				"n|col|public.work_admissions.work_item_id",
+				"n|col|public.work_admissions.created_at"
+			]
+		},
+		{
+			"statementType": "create_fk",
+			"statementTarget": ["table", "public", "work_admissions"],
+			"writes": [
+				"s|fk|public.work_admissions.work_admissions_org_id_organizations_id_fkey",
+				"n|fk|public.work_admissions.work_admissions_org_id_organizations_id_fkey",
+				"e|fk|public.work_admissions.work_admissions_org_id_organizations_id_fkey",
+				"n|con|public.work_admissions.work_admissions_org_id_organizations_id_fkey"
+			],
+			"reads": [
+				"n|tbl|public.work_admissions",
+				"n|sch|public",
+				"n|tbl|public.organizations",
+				"n|sch|public",
+				"n|col|public.work_admissions.org_id",
+				"n|col|public.organizations.id",
+				"e|uniqueness|public.organizations.id"
+			]
+		},
+		{
+			"statementType": "create_fk",
+			"statementTarget": ["table", "public", "work_admissions"],
+			"writes": [
+				"s|fk|public.work_admissions.fk_work_admission_item",
+				"n|fk|public.work_admissions.fk_work_admission_item",
+				"e|fk|public.work_admissions.fk_work_admission_item",
+				"n|con|public.work_admissions.fk_work_admission_item"
+			],
+			"reads": [
+				"n|tbl|public.work_admissions",
+				"n|sch|public",
+				"n|tbl|public.work_items",
+				"n|sch|public",
+				"n|col|public.work_admissions.org_id",
+				"n|col|public.work_admissions.work_item_id",
+				"n|col|public.work_items.org_id",
+				"n|col|public.work_items.id",
+				"e|uniqueness|public.work_items.id.org_id"
+			]
+		},
+		{
+			"statementType": "create_fk",
+			"statementTarget": ["table", "public", "work_attempts"],
+			"writes": [
+				"s|fk|public.work_attempts.fk_work_attempt_admission",
+				"n|fk|public.work_attempts.fk_work_attempt_admission",
+				"e|fk|public.work_attempts.fk_work_attempt_admission",
+				"n|con|public.work_attempts.fk_work_attempt_admission"
+			],
+			"reads": [
+				"n|tbl|public.work_attempts",
+				"n|sch|public",
+				"n|tbl|public.work_admissions",
+				"n|sch|public",
+				"n|col|public.work_attempts.org_id",
+				"n|col|public.work_attempts.work_item_id",
+				"n|col|public.work_attempts.admission_id",
+				"n|col|public.work_admissions.org_id",
+				"n|col|public.work_admissions.work_item_id",
+				"n|col|public.work_admissions.id",
+				"e|uniqueness|public.work_admissions.id.org_id.work_item_id"
+			]
+		},
+		{
+			"statementType": "add_check",
+			"statementTarget": ["table", "public", "billing_credit_entries"],
+			"writes": [
+				"s|ck|public.billing_credit_entries.chk_billing_credit_nonzero",
+				"n|ck|public.billing_credit_entries.chk_billing_credit_nonzero",
+				"e|ck|public.billing_credit_entries.chk_billing_credit_nonzero",
+				"n|con|public.billing_credit_entries.chk_billing_credit_nonzero"
+			],
+			"reads": [
+				"n|tbl|public.billing_credit_entries",
+				"n|sch|public",
+				"n|col|public.billing_credit_entries.amount_micros"
+			]
+		},
+		{
+			"statementType": "add_check",
+			"statementTarget": ["table", "public", "billing_credit_entries"],
+			"writes": [
+				"s|ck|public.billing_credit_entries.chk_billing_credit_direction",
+				"n|ck|public.billing_credit_entries.chk_billing_credit_direction",
+				"e|ck|public.billing_credit_entries.chk_billing_credit_direction",
+				"n|con|public.billing_credit_entries.chk_billing_credit_direction"
+			],
+			"reads": [
+				"n|tbl|public.billing_credit_entries",
+				"n|sch|public",
+				"n|col|public.billing_credit_entries.kind",
+				"n|col|public.billing_credit_entries.amount_micros"
+			]
+		},
+		{
+			"statementType": "add_check",
+			"statementTarget": ["table", "public", "work_attempts"],
+			"writes": [
+				"s|ck|public.work_attempts.chk_work_attempt_identity",
+				"n|ck|public.work_attempts.chk_work_attempt_identity",
+				"e|ck|public.work_attempts.chk_work_attempt_identity",
+				"n|con|public.work_attempts.chk_work_attempt_identity"
+			],
+			"reads": [
+				"n|tbl|public.work_attempts",
+				"n|sch|public",
+				"n|col|public.work_attempts.executor_type",
+				"n|col|public.work_attempts.executor_session_id",
+				"n|col|public.work_attempts.external_session_key"
+			]
+		}
+	],
+	"deltas": [
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"name": "work_admissions",
+				"isRlsEnabled": false,
+				"entityType": "tables"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "work_admissions",
+				"name": "id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "work_admissions",
+				"name": "org_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "work_admissions",
+				"name": "work_item_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "work_admissions",
+				"name": "work_item_version",
+				"type": "integer",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "work_admissions",
+				"name": "admission_spec_revision",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "work_admissions",
+				"name": "executor_type",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "work_admissions",
+				"name": "executor_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "work_admissions",
+				"name": "executor_session_id",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "work_admissions",
+				"name": "external_session_key",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "work_admissions",
+				"name": "decision",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "work_admissions",
+				"name": "rejection_code",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "work_admissions",
+				"name": "rejection_reason",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "work_admissions",
+				"name": "rejection_key",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "work_admissions",
+				"name": "max_cost_micros",
+				"type": "bigint",
+				"typeSchema": null,
+				"notNull": false,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "work_admissions",
+				"name": "decided_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "work_admissions",
+				"name": "expires_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "work_admissions",
+				"name": "created_at",
+				"type": "text",
+				"typeSchema": null,
+				"notNull": true,
+				"dimensions": 0,
+				"default": null,
+				"generated": null,
+				"identity": null,
+				"entityType": "columns"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_accounts",
+				"name": "uniq_billing_account_stripe_customer",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "stripe_environment",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "stripe_customer_id",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": true,
+				"where": "\"stripe_customer_id\" IS NOT NULL",
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_accounts",
+				"name": "uniq_billing_account_stripe_subscription",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "stripe_environment",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "stripe_subscription_id",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": true,
+				"where": "\"stripe_subscription_id\" IS NOT NULL",
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_credit_entries",
+				"name": "idx_billing_credit_expiry",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "organization_id",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "expires_at",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": false,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "work_admissions",
+				"name": "uniq_work_admission_org_item_id",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "org_id",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "work_item_id",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "id",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": true,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "work_admissions",
+				"name": "uniq_work_admission_rejection_key",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "org_id",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "rejection_key",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": true,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "work_admissions",
+				"name": "idx_work_admission_executor_time",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "org_id",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "executor_type",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "executor_id",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "created_at",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": false,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "work_admissions",
+				"name": "idx_work_admission_item_time",
+				"nameExplicit": true,
+				"columns": [
+					{
+						"value": "org_id",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "work_item_id",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					},
+					{
+						"value": "created_at",
+						"isExpression": false,
+						"asc": true,
+						"nullsFirst": false,
+						"opclass": null
+					}
+				],
+				"isUnique": false,
+				"where": null,
+				"with": "",
+				"method": "btree",
+				"concurrently": false,
+				"entityType": "indexes"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "work_admissions",
+				"name": "work_admissions_org_id_organizations_id_fkey",
+				"nameExplicit": false,
+				"columns": ["org_id"],
+				"schemaTo": "public",
+				"tableTo": "organizations",
+				"columnsTo": ["id"],
+				"onUpdate": "NO ACTION",
+				"onDelete": "CASCADE",
+				"entityType": "fks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "work_admissions",
+				"name": "fk_work_admission_item",
+				"nameExplicit": true,
+				"columns": ["org_id", "work_item_id"],
+				"schemaTo": "public",
+				"tableTo": "work_items",
+				"columnsTo": ["org_id", "id"],
+				"onUpdate": "NO ACTION",
+				"onDelete": "RESTRICT",
+				"entityType": "fks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "work_attempts",
+				"name": "fk_work_attempt_admission",
+				"nameExplicit": true,
+				"columns": ["org_id", "work_item_id", "admission_id"],
+				"schemaTo": "public",
+				"tableTo": "work_admissions",
+				"columnsTo": ["org_id", "work_item_id", "id"],
+				"onUpdate": "NO ACTION",
+				"onDelete": "RESTRICT",
+				"entityType": "fks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "work_admissions",
+				"name": "work_admissions_pkey",
+				"columns": ["id"],
+				"nameExplicit": false,
+				"entityType": "pks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_credit_entries",
+				"name": "chk_billing_credit_nonzero",
+				"value": "\"amount_micros\" <> 0",
+				"entityType": "checks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "billing_credit_entries",
+				"name": "chk_billing_credit_direction",
+				"value": "(\"kind\" IN ('grant', 'refund') AND \"amount_micros\" > 0) OR (\"kind\" = 'debit' AND \"amount_micros\" < 0) OR \"kind\" = 'adjustment'",
+				"entityType": "checks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "work_admissions",
+				"name": "chk_work_admission_identity",
+				"value": "(\"executor_type\" = 'tedi' AND \"executor_session_id\" IS NULL AND \"external_session_key\" IS NULL) OR (\"executor_type\" = 'external_agent' AND \"executor_session_id\" IS NOT NULL AND \"external_session_key\" IS NOT NULL)",
+				"entityType": "checks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "work_admissions",
+				"name": "chk_work_admission_decision",
+				"value": "(\"decision\" = 'admitted' AND \"rejection_code\" IS NULL AND \"rejection_reason\" IS NULL AND \"rejection_key\" IS NULL) OR (\"decision\" = 'rejected' AND \"rejection_code\" IS NOT NULL AND \"rejection_reason\" IS NOT NULL AND \"rejection_key\" IS NOT NULL)",
+				"entityType": "checks"
+			}
+		},
+		{
+			"op": "create",
+			"row": {
+				"schema": "public",
+				"table": "work_attempts",
+				"name": "chk_work_attempt_identity",
+				"value": "(\"executor_type\" = 'tedi' AND \"executor_session_id\" IS NULL AND \"external_session_key\" IS NULL) OR (\"executor_type\" = 'external_agent' AND \"executor_session_id\" IS NOT NULL AND \"external_session_key\" IS NOT NULL)",
+				"entityType": "checks"
+			}
+		},
+		{
+			"op": "alter",
+			"key": "columns\u0000[\"public\",\"work_attempts\",\"admission_id\"]",
+			"set": {
+				"notNull": true
+			}
+		}
+	]
 }
