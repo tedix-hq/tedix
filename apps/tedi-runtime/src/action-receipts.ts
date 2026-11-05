@@ -66,7 +66,7 @@ export function appendActionReceipts(
 ): string {
 	const unique = new Map(
 		receipts.map((receipt) => [
-			`${receipt.operation}:${receipt.url}:${receipt.checkedAt}`,
+			receipt.id ?? `${receipt.operation}:${receipt.url}:${receipt.checkedAt}`,
 			receipt,
 		]),
 	);

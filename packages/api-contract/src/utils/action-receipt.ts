@@ -1,6 +1,7 @@
 import { asRecord } from "./is-record";
 
 export interface ActionReceipt {
+	id?: string;
 	operation: string;
 	actor: string;
 	verified: boolean;
@@ -172,6 +173,7 @@ export async function verifyAction(input: {
 	) => Promise<unknown>;
 }): Promise<ActionReceipt> {
 	const receipt: ActionReceipt = {
+		id: crypto.randomUUID(),
 		operation: input.operation,
 		actor: input.actor,
 		verified: false,
