@@ -494,6 +494,28 @@ export function parseSkillFrontmatter(
 	return parsed as Record<string, unknown>;
 }
 
+const SKILL_TOOL_REF_RE = /^[A-Za-z_][\w-]*(?:\.[A-Za-z_][\w-]*)?$/;
+const MAX_SKILL_TOOL_REFS = 50;
+
+/**
+ * Code Mode namespaces (`gmail`) or callables (`work.list_work_items`) that a
+ * skill names in its frontmatter `tools` key, as a YAML list or a comma- or
+ * space-separated string. Discovery returns these tools with the skill. This
+ * is a pointer for search, not a grant: every call is still authorized.
+ */
+export function readSkillToolRefs(source: string): string[] {
+	const value = parseSkillFrontmatter(source)?.tools;
+	const refs = Array.isArray(value)
+		? value.flatMap((item) => (typeof item === "string" ? [item.trim()] : []))
+		: typeof value === "string"
+			? value.split(/[\s,]+/)
+			: [];
+	return [...new Set(refs.filter((ref) => SKILL_TOOL_REF_RE.test(ref)))].slice(
+		0,
+		MAX_SKILL_TOOL_REFS,
+	);
+}
+
 function cloneEmptyManifest(): CapabilityManifest {
 	return {
 		mcp: {},

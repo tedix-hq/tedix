@@ -24,5 +24,23 @@ describe("summarizeSkillEntry", () => {
 		const entry = summarizeSkillEntry({ content: "short body", files: null });
 		expect(entry.content).toBe("short body");
 		expect(entry.files).toBeNull();
+		expect(entry).not.toHaveProperty("tools");
+	});
+
+	it("keeps the frontmatter tools list that the preview cut drops", () => {
+		const entry = summarizeSkillEntry({
+			content: [
+				"---",
+				"name: triage-inbox",
+				`description: ${"Sort new inbox requests by owner and urgency. ".repeat(6)}`,
+				"tools: [google_gmail.search_messages, work, 'bad ref!', work]",
+				"---",
+				"# Triage inbox",
+			].join("\n"),
+			files: null,
+		});
+		expect(entry.content).toContain("[summary view — truncated");
+		expect(entry.content).not.toContain("tools:");
+		expect(entry.tools).toEqual(["google_gmail.search_messages", "work"]);
 	});
 });

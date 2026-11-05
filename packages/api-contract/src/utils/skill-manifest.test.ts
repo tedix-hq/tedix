@@ -5,6 +5,7 @@ import {
 	readPinnedCapabilityManifest,
 	validateGroundingPolicy,
 	readReasonPolicy,
+	readSkillToolRefs,
 	validateWorkflowReliabilityPolicy,
 } from "./skill-manifest";
 
@@ -410,5 +411,24 @@ capabilities:
 				"---\nname: x\ncapabilities:\n  network: false\n---\n",
 			).reason,
 		).toEqual({ enabled: false, maxCalls: null });
+	});
+});
+
+describe("readSkillToolRefs", () => {
+	test("reads namespaces and callables from a list or a string", () => {
+		expect(
+			readSkillToolRefs(
+				"---\nname: x\ntools:\n  - google_gmail\n  - work.create_work_item\n  - 'not a ref'\n  - work.create_work_item\n---\n",
+			),
+		).toEqual(["google_gmail", "work.create_work_item"]);
+		expect(
+			readSkillToolRefs("---\ntools: work, cto.run_skill_workflow\n---\n"),
+		).toEqual(["work", "cto.run_skill_workflow"]);
+	});
+
+	test("returns nothing without frontmatter tools", () => {
+		expect(readSkillToolRefs("# No frontmatter")).toEqual([]);
+		expect(readSkillToolRefs("---\nname: x\n---\n")).toEqual([]);
+		expect(readSkillToolRefs("---\nname: x…\n[summary view]")).toEqual([]);
 	});
 });

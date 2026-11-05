@@ -224,6 +224,12 @@ export const SkillEntrySchema = z.object({
 	toolIds: z.array(z.string()).nullable().optional(),
 	/** Executable-skill MCP namespace → app id, derived on every content write. */
 	mcpAppBindings: z.record(z.string(), z.string()).nullable().optional(),
+	/**
+	 * Code Mode namespaces or `namespace.tool` callables named by the SKILL.md
+	 * frontmatter `tools` key. Read from `content` when listing, never stored,
+	 * so summary listings keep it after `content` is truncated.
+	 */
+	tools: z.array(z.string()).optional(),
 	summary: z.string().nullable().optional(),
 	tags: z.array(z.string()).nullable().optional(),
 	audience: z.array(z.string()).nullable().optional(),

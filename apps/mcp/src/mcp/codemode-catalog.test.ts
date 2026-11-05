@@ -1090,6 +1090,125 @@ describe("progressive disclosure (namespace filter, description budget, schema p
 		expect(catalogToolEntries(bareResults)).toHaveLength(0);
 	});
 
+	describe("skills that name their tools in frontmatter", () => {
+		const ctx = () =>
+			({
+				loadedTools: new Map<string, AppTool>(
+					[
+						["gmail__search_messages", "Search inbox messages."],
+						["gmail__label_message", "Apply a label to a message."],
+						["work__create_work_item", "Create a work item."],
+						["work__list_work_items", "List work items."],
+						["calendar__list_events", "List calendar events."],
+						["skills__get_skills_for_mcp", "Load one recorded skill."],
+					].map(([toolId, description]) => [
+						toolId!,
+						tool({ toolId, title: toolId, description }),
+					]),
+				),
+				apiClient: {
+					skills: {
+						listByOrg: async () => ({
+							entries: [
+								{
+									id: "s1",
+									slug: "triage-inbox",
+									title: "Triage inbox",
+									description: "Triage inbox requests into work items.",
+									// Summary content is truncated; the API sends `tools`.
+									content: "---\nname: triage-inbox…",
+									tools: ["gmail", "work.create_work_item", "crm.find_contact"],
+									successCount: 3,
+									lifecycleState: "active",
+								},
+								{
+									id: "s2",
+									slug: "inbox-zero-habits",
+									title: "Inbox zero habits",
+									description: "Habits for keeping the inbox small.",
+									content: "# Inbox zero\nNo frontmatter tools.",
+									successCount: 0,
+									lifecycleState: "active",
+								},
+							],
+							total: 2,
+						}),
+					},
+				},
+			}) as unknown as ServerContext;
+
+		it("returns a matching skill together with the tools it names", async () => {
+			const results = await runSearch(
+				buildCatalogProvider(ctx(), undefined),
+				"triage inbox",
+				10,
+			);
+			const skill = catalogToolEntries(results).find(
+				(row) => row.slug === "triage-inbox",
+			);
+			expect(skill?.kind).toBe("skill");
+			expect(
+				(skill?.tools as Array<{ callable: string }>).map((t) => t.callable),
+			).toEqual([
+				"gmail.search_messages",
+				"gmail.label_message",
+				"work.create_work_item",
+			]);
+			expect((skill?.tools as Array<Record<string, unknown>>)[0]).toMatchObject(
+				{
+					callable: "gmail.search_messages",
+					description: "Search inbox messages.",
+				},
+			);
+			expect(skill?.unresolvedTools).toEqual(["crm.find_contact"]);
+			expect(skill).not.toHaveProperty("toolRefs");
+		});
+
+		it("leaves a skill without frontmatter tools unchanged", async () => {
+			const results = await runSearch(
+				buildCatalogProvider(ctx(), undefined),
+				"inbox zero habits",
+				10,
+			);
+			const skill = catalogToolEntries(results).find(
+				(row) => row.slug === "inbox-zero-habits",
+			);
+			expect(skill?.kind).toBe("skill");
+			expect(skill).not.toHaveProperty("tools");
+			expect(skill).not.toHaveProperty("unresolvedTools");
+		});
+
+		it("reports tools that no skill names", async () => {
+			const tools = buildCatalogProvider(ctx(), undefined).tools as Record<
+				string,
+				{ execute: (input: unknown) => Promise<unknown> }
+			>;
+			const listed = (await tools.list_namespaces!.execute({
+				includeSkillCoverage: true,
+			})) as Record<
+				string,
+				{ skillCoverage?: { coveredTools: number; uncoveredTools: string[] } }
+			>;
+			expect(listed.gmail?.skillCoverage).toEqual({
+				coveredTools: 2,
+				uncoveredTools: [],
+			});
+			expect(listed.work?.skillCoverage).toEqual({
+				coveredTools: 1,
+				uncoveredTools: ["list_work_items"],
+			});
+			expect(listed.calendar?.skillCoverage).toEqual({
+				coveredTools: 0,
+				uncoveredTools: ["list_events"],
+			});
+			const plain = (await tools.list_namespaces!.execute({})) as Record<
+				string,
+				Record<string, unknown>
+			>;
+			expect(plain.gmail).not.toHaveProperty("skillCoverage");
+		});
+	});
+
 	it("points skill load expressions at the namespace that mounts the loader", async () => {
 		const loader = (namespace: string, organizationId: string) =>
 			tool({
