@@ -679,6 +679,8 @@ export const McpConfigSchema = z
 		 * outbound app ID via their auth config.
 		 */
 		aggregateApps: z.array(AggregateAppSchema).optional(),
+		/** Work thread that receives one comment when this gateway's tool contract changes. */
+		contractChangeWorkItemId: z.string().min(1).optional(),
 		/** Saved membership settings, restored when an installed app is re-enabled. */
 		inactiveAggregateApps: z
 			.array(AggregateAppSchema)

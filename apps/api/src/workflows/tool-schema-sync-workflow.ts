@@ -202,6 +202,21 @@ export class ToolSchemaSyncWorkflow extends WorkflowEntrypoint<
 		// successful responses.
 		//
 		// The run still reports the failures; it just refuses to publish them.
+		if (apply && aggregate.failed === 0) {
+			await step.do(
+				"snapshot organization gateway tool contracts",
+				{ retries: { limit: 2, delay: "5 seconds" }, timeout: "5 minutes" },
+				async () => {
+					const { snapshotOrganizationGatewayToolContracts } =
+						await import("../services/gateway-tool-contract-snapshot");
+					return snapshotOrganizationGatewayToolContracts(
+						db,
+						this.env.R2_BUCKET,
+					);
+				},
+			);
+		}
+
 		if (apply && changed > 0 && aggregate.failed === 0) {
 			await step.do(
 				"publish tool list changed",

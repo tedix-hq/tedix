@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
 	planRows: vi.fn(),
 	run: vi.fn(),
 	publish: vi.fn(),
+	snapshot: vi.fn(),
 }));
 
 vi.mock("@tedix/db/client", () => ({
@@ -28,6 +29,10 @@ vi.mock("../services/tool-schema-sync", () => ({
 	resolveTedixAdminAppId: async () => "5eed0020-0000-4000-8000-000000000020",
 	runToolSchemaSync: mocks.run,
 	publishToolSchemaSyncEvents: mocks.publish,
+}));
+
+vi.mock("../services/gateway-tool-contract-snapshot", () => ({
+	snapshotOrganizationGatewayToolContracts: mocks.snapshot,
 }));
 
 import { ToolSchemaSyncWorkflow } from "./tool-schema-sync-workflow";
@@ -123,6 +128,7 @@ beforeEach(() => {
 	mocks.createDb.mockReturnValue({} as never);
 	mocks.run.mockImplementation(async () => syncResult());
 	mocks.publish.mockResolvedValue(undefined);
+	mocks.snapshot.mockResolvedValue({ gatewaysChecked: 0, gatewaysChanged: 0 });
 	mocks.planProjection.mockReturnValue({
 		appId: "app-1",
 		endpoints: endpoints(120),
@@ -169,10 +175,14 @@ describe("ToolSchemaSyncWorkflow incremental projection", () => {
 			step as never,
 		);
 
-		expect(executed).toEqual(["plan tool schema sync"]);
+		expect(executed).toEqual([
+			"plan tool schema sync",
+			"snapshot organization gateway tool contracts",
+		]);
 		expect(mocks.planProjection).not.toHaveBeenCalled();
 		expect(mocks.run).not.toHaveBeenCalled();
 		expect(mocks.publish).not.toHaveBeenCalled();
+		expect(mocks.snapshot).toHaveBeenCalledTimes(1);
 		expect(purgeCalls(env)).toBe(0);
 		expect(JSON.parse(cache.get("plan tool schema sync") as string)).toEqual({
 			appId: "app-1",
@@ -425,6 +435,7 @@ describe("ToolSchemaSyncWorkflow cache purge", () => {
 
 		expect(purgeCalls(env)).toBe(0);
 		expect(mocks.publish).not.toHaveBeenCalled();
+		expect(mocks.snapshot).not.toHaveBeenCalled();
 		expect(executed).not.toContain("purge aggregate tool cache");
 	});
 
@@ -457,6 +468,7 @@ describe("ToolSchemaSyncWorkflow cache purge", () => {
 		// Changed rows exist, so the old `changed > 0` gate would have fired.
 		expect(result.updated).toBeGreaterThan(0);
 		expect(mocks.publish).not.toHaveBeenCalled();
+		expect(mocks.snapshot).not.toHaveBeenCalled();
 		expect(purgeCalls(env)).toBe(0);
 		expect(executed).not.toContain("purge aggregate tool cache");
 		expect(executed).not.toContain("publish tool list changed");
@@ -471,6 +483,7 @@ describe("ToolSchemaSyncWorkflow cache purge", () => {
 		);
 		expect(purgeCalls(env)).toBe(0);
 		expect(mocks.publish).not.toHaveBeenCalled();
+		expect(mocks.snapshot).toHaveBeenCalledTimes(1);
 	});
 
 	it("does not purge a preview run", async () => {
@@ -485,6 +498,7 @@ describe("ToolSchemaSyncWorkflow cache purge", () => {
 		);
 		expect(purgeCalls(env)).toBe(0);
 		expect(mocks.publish).not.toHaveBeenCalled();
+		expect(mocks.snapshot).not.toHaveBeenCalled();
 	});
 });
 
