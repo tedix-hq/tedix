@@ -1360,6 +1360,10 @@
 		{
 			"name": "20261105065416_skill_artifact_retention_page_cap/migration.sql",
 			"sha256": "79501d202386cd115a4dab8f04fc9d2b65d5e1979bdeab35ea14aa5101824471"
+		},
+		{
+			"name": "20261105103437_skill_artifact_retention_head_cap/migration.sql",
+			"sha256": "63649368cb2b3cd62364dab5bb1962c8bda81013a5a29cd28ecbb822dfbde080"
 		}
 	]
 }

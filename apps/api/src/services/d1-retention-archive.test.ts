@@ -557,6 +557,46 @@ describe("runD1Retention", () => {
 		expect(JSON.parse(policy("audit_events").report).scanAfterRowid).toBe(-1);
 	});
 
+	it("moves a later table's expired head before an earlier table sweeps retained rows", async () => {
+		const { db, d1, seed, seedRuntime, count, policy } = fixture(
+			"('audit_events','move_to_logs_db',30,100000,'2026-10-21'), ('tedi_runtime_events','move_to_logs_db',14,100000,'2026-10-21')",
+		);
+		// Audit holds only retained rows, so its sweep finds nothing to move;
+		// the runtime ledger holds 20 expired pages.
+		seed(Array.from({ length: 5000 }, () => 1));
+		seedRuntime(Array.from({ length: 10_000 }, () => 30));
+		const logs = logsFixture();
+		let clock = 0;
+		const mocked = vi.spyOn(Date, "now").mockImplementation(() => clock);
+		const prepare = d1.prepare.bind(d1);
+		d1.prepare = (query) => {
+			// Each page read takes 2ms; the budget fits about 20 page reads.
+			if (query.startsWith("SELECT") && query.includes("__rowid")) clock += 2;
+			return prepare(query);
+		};
+		try {
+			const result = await runD1Retention({
+				db,
+				logsDb: logs.db,
+				bucket: new MemoryBucket() as unknown as R2Bucket,
+				now: NOW,
+				timeBudgetMs: 40,
+			});
+			const [audit, runtime] = result.tables;
+			// An equal split would have left the runtime ledger about 20ms
+			// (5,000 rows) after the audit sweep spent its half.
+			expect(runtime?.movedRows).toBeGreaterThanOrEqual(8000);
+			expect(logs.count("tedi_runtime_events")).toBe(runtime?.movedRows);
+			expect(audit).toMatchObject({ deletedRows: 0, stoppedBy: "time_budget" });
+			expect(audit?.timings.pages).toBe(1);
+			expect(count()).toBe(5000);
+			expect(JSON.parse(policy("audit_events").report).scanAfterRowid).toBe(-1);
+		} finally {
+			mocked.mockRestore();
+			d1.prepare = prepare;
+		}
+	});
+
 	it("keeps the parked sweep cursor when a head page fails", async () => {
 		const { db, sqlite, seed, count, policy } = fixture(
 			"('audit_events','move_to_logs_db',30,10000,'2026-10-21')",
@@ -998,7 +1038,7 @@ describe("runD1Retention", () => {
 		expect(count()).toBe(30);
 	});
 
-	it("leaves the cursor on the last deleted page when a later page fails", async () => {
+	it("keeps moved head pages and retries a failed later page on the next tick", async () => {
 		const { db, seed, count, policy } = fixture(
 			"('audit_events','move_to_logs_db',30,10000,'2026-10-21')",
 		);
@@ -1015,15 +1055,29 @@ describe("runD1Retention", () => {
 			bucket: bucket as unknown as R2Bucket,
 			now: NOW,
 		});
+		// Head pages never move the sweep cursor; the next head pass starts at
+		// the oldest remaining row anyway.
 		expect(result.tables[0]).toMatchObject({
 			stoppedBy: "error",
 			movedRows: 500,
 			deletedRows: 500,
-			scanAfterRowid: 500,
+			scanAfterRowid: -1,
 		});
 		expect(count()).toBe(200);
-		expect(JSON.parse(policy("audit_events").report).scanAfterRowid).toBe(500);
+		expect(JSON.parse(policy("audit_events").report).scanAfterRowid).toBe(-1);
 		expect(bucket.objects.size).toBe(1);
+		logs.sqlite.exec("DROP TRIGGER lose_row");
+		const retry = await runD1Retention({
+			db,
+			logsDb: logs.db,
+			bucket: bucket as unknown as R2Bucket,
+			now: NOW,
+		});
+		expect(retry.tables[0]).toMatchObject({
+			stoppedBy: "done",
+			movedRows: 200,
+		});
+		expect(count()).toBe(0);
 	});
 
 	it("reports a missing logs binding and changes nothing", async () => {

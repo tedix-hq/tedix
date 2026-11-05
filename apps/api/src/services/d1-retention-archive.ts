@@ -9,10 +9,12 @@
  * while the current one is copied, archived and deleted, so a page costs a
  * few round trips instead of one per 50 rows. Every tick starts at the oldest
  * row, where rows leave the keep window, and moves what expired there; the
- * first page with nothing to move ends that head pass. The rest of the tick
- * continues the long sweep through retained rows from the rowid saved in
- * `last_report` (`scanAfterRowid`), so out-of-order old rows are still found
- * and a completed sweep wraps to reconsider retained rows. If a run stops
+ * first page with nothing to move ends that head pass. Every table's head pass
+ * runs before any table sweeps, so a table with a real backlog is not left
+ * waiting behind tables that only re-check retained rows. The rest of the
+ * tick continues each long sweep through retained rows from the rowid saved
+ * in `last_report` (`scanAfterRowid`), so out-of-order old rows are still
+ * found and a completed sweep wraps to reconsider retained rows. If a run stops
  * between the R2 write and the delete, the next tick rewrites the same rows
  * to the same deterministic key before deleting them.
  *
@@ -342,183 +344,210 @@ async function estimateBacklog(
 	}
 }
 
-async function runPolicy(
+/**
+ * One table's progress through a tick: its result and where its sweep starts,
+ * or null when the head pass settled the table or the sweep must not run.
+ */
+interface PolicyTurn {
+	policy: D1RetentionPolicyRow;
+	result: D1RetentionTableResult;
+	sweepFrom: number | null;
+}
+
+/** Check the policy, then run its head pass (or its dry-run estimate). */
+async function runPolicyHead(
 	db: DbQueryClient,
 	logsDb: DbQueryClient | undefined,
 	bucket: R2Bucket | undefined,
 	policy: D1RetentionPolicyRow,
 	now: Date,
 	deadline: number,
-): Promise<D1RetentionTableResult> {
+): Promise<PolicyTurn> {
 	const result = emptyResult(policy);
+	const turn: PolicyTurn = { policy, result, sweepFrom: null };
 	result.problem = d1RetentionPolicyProblem(policy);
 	const tableSpec = getD1RetentionTableSpec(policy.tableName);
-	if (result.problem || !tableSpec) return result;
+	if (result.problem || !tableSpec) return turn;
 	const archives =
 		policy.mode === "archive_then_delete" || policy.mode === "move_to_logs_db";
 	if (archives && !bucket) {
 		result.problem = "archive_bucket_missing";
-		return result;
+		return turn;
 	}
 	if (policy.mode === "move_to_logs_db" && !logsDb) {
 		result.problem = "logs_db_missing";
-		return result;
+		return turn;
 	}
+	result.stoppedBy = "done";
+	if (policy.mode === "dry_run") {
+		const keepDays = d1RetentionEffectiveKeepDays(tableSpec, policy);
+		const cutoff = d1RetentionCutoff(tableSpec, now, keepDays);
+		await estimateBacklog(db, tableSpec, cutoff, result, deadline);
+		return turn;
+	}
+	// Where the previous tick's walk through retained rows stopped; -1 when
+	// that sweep completed or never ran. Persisted as `scanAfterRowid`.
+	let sweepAfterRowid = -1;
+	const previousCursor = policy.lastReport?.scanAfterRowid;
+	if (
+		typeof previousCursor === "number" &&
+		Number.isSafeInteger(previousCursor) &&
+		previousCursor >= -1
+	)
+		sweepAfterRowid = previousCursor;
+	result.scanAfterRowid = sweepAfterRowid;
+	await movePages(db, logsDb, bucket, policy, now, deadline, turn, "head");
+	return turn;
+}
+
+/**
+ * Move expired pages in rowid order. `head` starts at the oldest row and ends
+ * at the first page with nothing to move, recording where the sweep resumes;
+ * a head page never moves the parked sweep cursor. `sweep` continues from
+ * `turn.sweepFrom` and saves its position as `scanAfterRowid`.
+ */
+async function movePages(
+	db: DbQueryClient,
+	logsDb: DbQueryClient | undefined,
+	bucket: R2Bucket | undefined,
+	policy: D1RetentionPolicyRow,
+	now: Date,
+	deadline: number,
+	turn: PolicyTurn,
+	phase: "head" | "sweep",
+): Promise<void> {
+	const { result } = turn;
+	const tableSpec = getD1RetentionTableSpec(policy.tableName);
+	if (!tableSpec) return;
+	const archives =
+		policy.mode === "archive_then_delete" || policy.mode === "move_to_logs_db";
 	const keepDays = d1RetentionEffectiveKeepDays(tableSpec, policy);
 	const cutoff = d1RetentionCutoff(tableSpec, now, keepDays);
 	const { timings } = result;
+	const sweepAfterRowid = result.scanAfterRowid;
+	let readAfterRowid = phase === "head" ? -1 : (turn.sweepFrom ?? -1);
+	turn.sweepFrom = null;
 	result.stoppedBy = "done";
-
-	if (policy.mode === "dry_run") {
-		await estimateBacklog(db, tableSpec, cutoff, result, deadline);
-	} else {
-		// Where the previous tick's walk through retained rows stopped; -1 when
-		// that sweep completed or never ran. Persisted as `scanAfterRowid`.
-		let sweepAfterRowid = -1;
-		const previousCursor = policy.lastReport?.scanAfterRowid;
-		if (
-			typeof previousCursor === "number" &&
-			Number.isSafeInteger(previousCursor) &&
-			previousCursor >= -1
-		)
-			sweepAfterRowid = previousCursor;
-		result.scanAfterRowid = sweepAfterRowid;
-		// Rows leave the keep window at the oldest end, so every tick reads the
-		// head first (`head`) and moves what expired there. The first page with
-		// nothing to move ends the head; the tick then continues the long sweep
-		// through retained rows (`sweep`) where the previous tick left it, so
-		// out-of-order old rows are still found and the cursor still wraps. A
-		// completed previous sweep starts at the head anyway, with one phase.
-		let phase: "head" | "sweep" = sweepAfterRowid === -1 ? "sweep" : "head";
-		let readAfterRowid = -1;
-		const rowCap = Math.max(0, policy.maxRowsPerRun);
-		const read = (afterRowid: number, limit: number) => {
-			const pending = readExpiredChunk(
-				db,
-				tableSpec,
-				cutoff,
-				limit,
-				afterRowid,
-				deadline,
-			);
-			// Awaited later or abandoned when the run stops; never unhandled.
-			pending.catch(() => {});
-			return pending;
-		};
-		let next: Promise<ExpiredChunk> | null = null;
-		try {
-			while (true) {
-				const remaining = rowCap - result.deletedRows;
-				if (remaining <= 0) {
-					result.stoppedBy = "row_cap";
-					break;
-				}
-				if (Date.now() >= deadline) {
-					result.stoppedBy = "time_budget";
-					break;
-				}
-				const pending: Promise<ExpiredChunk> =
-					next ??
-					read(readAfterRowid, Math.min(D1_ARCHIVE_CHUNK_ROWS, remaining));
-				next = null;
-				const { rows, referencedRows, afterRowid, reachedEnd } = await timed(
-					timings,
-					"readMs",
-					() => pending,
-				);
-				timings.pages += 1;
-				result.referencedRows += referencedRows;
-				if (phase === "head" && rows.length === 0) {
-					// The head holds nothing more to move (retained, pinned or
-					// invalid rows). Continue the sweep where the previous tick
-					// stopped, unless this page already reached past it.
-					phase = "sweep";
-					if (reachedEnd) {
-						result.scanAfterRowid = -1;
-						break;
-					}
-					if (sweepAfterRowid > afterRowid) {
-						readAfterRowid = sweepAfterRowid;
-						continue;
-					}
-				}
-				readAfterRowid = afterRowid;
-				// The next page has higher rowids than every row this one may
-				// delete, so it is read while this page is copied and deleted.
-				const nextLimit = Math.min(
-					D1_ARCHIVE_CHUNK_ROWS,
-					remaining - rows.length,
-				);
-				if (!reachedEnd && nextLimit > 0) next = read(afterRowid, nextLimit);
-				if (rows.length === 0) {
-					result.scanAfterRowid = reachedEnd ? -1 : afterRowid;
-					if (reachedEnd) break;
-					continue;
-				}
-				let conflicted = 0;
-				if (policy.mode === "move_to_logs_db" && logsDb) {
-					const check = await timed(timings, "copyMs", () =>
-						copyChunkToLogs(logsDb, tableSpec, rows, deadline),
-					);
-					conflicted = check.mismatched.length;
-					result.conflictedRows += conflicted;
-					for (const id of check.mismatched) {
-						if (result.conflicts.length >= D1_RETENTION_CONFLICT_SAMPLE) break;
-						result.conflicts.push({
-							id,
-							columns: check.divergentColumns[id] ?? [],
-						});
-					}
-				}
-				if (archives && bucket) {
-					const groups = await groupD1RetentionArchiveRows(db, tableSpec, rows);
-					for (const [organizationId, group] of groups) {
-						await timed(timings, "archiveMs", () =>
-							archiveChunk(bucket, organizationId, tableSpec, group, cutoff),
-						);
-						result.archivedRows += group.length;
-						result.objects += 1;
-					}
-				}
-				// Only a chunk that is in the logs database (verified) and in R2
-				// (confirmed) reaches this delete.
-				const deleted = await timed(timings, "deleteMs", () =>
-					withOverloadBackoff(
-						() =>
-							deleteD1RetentionRows(
-								db,
-								tableSpec,
-								rows.map((row) => row.__rowid),
-								cutoff,
-							),
-						deadline,
-					),
-				);
-				if (policy.mode === "move_to_logs_db")
-					result.movedRows += deleted - Math.min(deleted, conflicted);
-				result.deletedRows += deleted;
-				// Fewer deletions than rows read means something else changed these
-				// rows; stop instead of re-reading the same chunk forever.
-				if (deleted < rows.length) {
-					throw new Error(
-						`deleted ${deleted} of ${rows.length} rows read; stopping`,
-					);
-				}
-				// A head page never moves the parked sweep cursor; the head is
-				// re-read every tick anyway.
-				if (phase === "sweep" || reachedEnd)
-					result.scanAfterRowid = reachedEnd ? -1 : afterRowid;
-				if (reachedEnd) break;
+	const rowCap = Math.max(0, policy.maxRowsPerRun);
+	const read = (afterRowid: number, limit: number) => {
+		const pending = readExpiredChunk(
+			db,
+			tableSpec,
+			cutoff,
+			limit,
+			afterRowid,
+			deadline,
+		);
+		// Awaited later or abandoned when the run stops; never unhandled.
+		pending.catch(() => {});
+		return pending;
+	};
+	let next: Promise<ExpiredChunk> | null = null;
+	try {
+		while (true) {
+			const remaining = rowCap - result.deletedRows;
+			if (remaining <= 0) {
+				result.stoppedBy = "row_cap";
+				break;
 			}
-		} catch (error) {
-			result.stoppedBy = "error";
-			result.error = error instanceof Error ? error.message : String(error);
-		} finally {
-			if (next) await next.then(noop, noop);
+			if (Date.now() >= deadline) {
+				result.stoppedBy = "time_budget";
+				break;
+			}
+			const pending: Promise<ExpiredChunk> =
+				next ??
+				read(readAfterRowid, Math.min(D1_ARCHIVE_CHUNK_ROWS, remaining));
+			next = null;
+			const { rows, referencedRows, afterRowid, reachedEnd } = await timed(
+				timings,
+				"readMs",
+				() => pending,
+			);
+			timings.pages += 1;
+			result.referencedRows += referencedRows;
+			if (phase === "head" && rows.length === 0) {
+				// The head holds nothing more to move (retained, pinned or
+				// invalid rows). The sweep continues where the previous tick
+				// stopped, unless this page already reached past it.
+				if (reachedEnd) result.scanAfterRowid = -1;
+				else turn.sweepFrom = Math.max(sweepAfterRowid, afterRowid);
+				break;
+			}
+			readAfterRowid = afterRowid;
+			// The next page has higher rowids than every row this one may
+			// delete, so it is read while this page is copied and deleted.
+			const nextLimit = Math.min(
+				D1_ARCHIVE_CHUNK_ROWS,
+				remaining - rows.length,
+			);
+			if (!reachedEnd && nextLimit > 0) next = read(afterRowid, nextLimit);
+			if (rows.length === 0) {
+				result.scanAfterRowid = reachedEnd ? -1 : afterRowid;
+				if (reachedEnd) break;
+				continue;
+			}
+			let conflicted = 0;
+			if (policy.mode === "move_to_logs_db" && logsDb) {
+				const check = await timed(timings, "copyMs", () =>
+					copyChunkToLogs(logsDb, tableSpec, rows, deadline),
+				);
+				conflicted = check.mismatched.length;
+				result.conflictedRows += conflicted;
+				for (const id of check.mismatched) {
+					if (result.conflicts.length >= D1_RETENTION_CONFLICT_SAMPLE) break;
+					result.conflicts.push({
+						id,
+						columns: check.divergentColumns[id] ?? [],
+					});
+				}
+			}
+			if (archives && bucket) {
+				const groups = await groupD1RetentionArchiveRows(db, tableSpec, rows);
+				for (const [organizationId, group] of groups) {
+					await timed(timings, "archiveMs", () =>
+						archiveChunk(bucket, organizationId, tableSpec, group, cutoff),
+					);
+					result.archivedRows += group.length;
+					result.objects += 1;
+				}
+			}
+			// Only a chunk that is in the logs database (verified) and in R2
+			// (confirmed) reaches this delete.
+			const deleted = await timed(timings, "deleteMs", () =>
+				withOverloadBackoff(
+					() =>
+						deleteD1RetentionRows(
+							db,
+							tableSpec,
+							rows.map((row) => row.__rowid),
+							cutoff,
+						),
+					deadline,
+				),
+			);
+			if (policy.mode === "move_to_logs_db")
+				result.movedRows += deleted - Math.min(deleted, conflicted);
+			result.deletedRows += deleted;
+			// Fewer deletions than rows read means something else changed these
+			// rows; stop instead of re-reading the same chunk forever.
+			if (deleted < rows.length) {
+				throw new Error(
+					`deleted ${deleted} of ${rows.length} rows read; stopping`,
+				);
+			}
+			// A head page never moves the parked sweep cursor; the head is
+			// re-read every tick anyway.
+			if (phase === "sweep" || reachedEnd)
+				result.scanAfterRowid = reachedEnd ? -1 : afterRowid;
+			if (reachedEnd) break;
 		}
+	} catch (error) {
+		result.stoppedBy = "error";
+		result.error = error instanceof Error ? error.message : String(error);
+		turn.sweepFrom = null;
+	} finally {
+		if (next) await next.then(noop, noop);
 	}
-
-	return result;
 }
 
 function noop(): void {}
@@ -554,8 +583,10 @@ function reportFor(
 }
 
 /**
- * Run active policies serially, reserving an equal share of the remaining
- * processing time for each table.
+ * Run active policies serially in two rounds: every table's head pass (or
+ * dry-run estimate) first, then the sweeps through retained rows. Each round
+ * reserves an equal share of the remaining processing time for each table it
+ * runs, and leftovers flow to later tables.
  * In-flight pages finish their safety fences even when their share expires.
  * Dry runs estimate during their turn; optional estimates and report writes
  * follow all processing turns so diagnostics cannot consume another table's time.
@@ -570,34 +601,51 @@ export async function runD1Retention(params: {
 }): Promise<D1RetentionRunResult> {
 	const deadline = Date.now() + (params.timeBudgetMs ?? DEFAULT_TIME_BUDGET_MS);
 	const policies = await listActiveD1RetentionPolicies(params.db);
-	const tables: D1RetentionTableResult[] = [];
+	const shareOf = (remainingTables: number) => {
+		if (remainingTables <= 1) return deadline;
+		const startedAt = Date.now();
+		return startedAt + Math.max(0, deadline - startedAt) / remainingTables;
+	};
+	const turns: PolicyTurn[] = [];
 	for (const [index, policy] of policies.entries()) {
-		const remainingTables = policies.length - index;
-		let tableDeadline = deadline;
-		if (remainingTables > 1) {
-			const startedAt = Date.now();
-			tableDeadline =
-				startedAt + Math.max(0, deadline - startedAt) / remainingTables;
-		}
-		let result: D1RetentionTableResult;
+		const tableDeadline = shareOf(policies.length - index);
 		try {
-			result = await runPolicy(
-				params.db,
-				params.logsDb,
-				params.bucket,
-				policy,
-				params.now,
-				tableDeadline,
+			turns.push(
+				await runPolicyHead(
+					params.db,
+					params.logsDb,
+					params.bucket,
+					policy,
+					params.now,
+					tableDeadline,
+				),
 			);
 		} catch (error) {
-			result = {
-				...emptyResult(policy),
-				stoppedBy: "error",
-				error: error instanceof Error ? error.message : String(error),
-			};
+			turns.push({
+				policy,
+				sweepFrom: null,
+				result: {
+					...emptyResult(policy),
+					stoppedBy: "error",
+					error: error instanceof Error ? error.message : String(error),
+				},
+			});
 		}
-		tables.push(result);
 	}
+	const sweeping = turns.filter((turn) => turn.sweepFrom !== null);
+	for (const [index, turn] of sweeping.entries()) {
+		await movePages(
+			params.db,
+			params.logsDb,
+			params.bucket,
+			turn.policy,
+			params.now,
+			shareOf(sweeping.length - index),
+			turn,
+			"sweep",
+		);
+	}
+	const tables = turns.map((turn) => turn.result);
 	for (const [index, policy] of policies.entries()) {
 		const result = tables[index]!;
 		const tableSpec = getD1RetentionTableSpec(policy.tableName);
