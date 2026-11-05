@@ -71,6 +71,48 @@ function fixture(): { db: DbClient; sqlite: DatabaseSync } {
 }
 
 describe("cognitive runtime query boundary", () => {
+	it("honours a long workflow round heartbeat and sweeps it after liveness stops", async () => {
+		const { db, sqlite } = fixture();
+		try {
+			const common = {
+				organizationId: "org-1",
+				tediId: "tedi-1",
+				runId: "silent-round",
+				runtimeBackend: "cloudflare-agents" as const,
+			};
+			await insertTediRuntimeEvent(db, {
+				...common,
+				id: "round-start",
+				kind: "run.started",
+				createdAt: "2026-08-01T00:00:00.000Z",
+			});
+			await insertTediRuntimeEvent(db, {
+				...common,
+				id: "round-heartbeat",
+				kind: "message.progress",
+				payload: { operation: "workflow_turn_heartbeat" },
+				createdAt: "2026-08-01T00:19:00.000Z",
+			});
+			for (const organizationId of [undefined, "org-1"]) {
+				await expect(
+					findOrphanRuns(db, {
+						organizationId,
+						now: new Date("2026-08-01T00:20:00.000Z"),
+					}),
+				).resolves.toEqual([]);
+				await expect(
+					findOrphanRuns(db, {
+						organizationId,
+						now: new Date("2026-08-01T00:32:00.000Z"),
+					}),
+				).resolves.toMatchObject([
+					{ runId: "silent-round", succeededLost: false },
+				]);
+			}
+		} finally {
+			sqlite.close();
+		}
+	});
 	it.each([
 		{
 			name: "legacy completion",

@@ -535,6 +535,7 @@ export interface PlatformClient {
 	}): Promise<{ artifacts: TediArtifact[]; nextCursor?: string | null }>;
 	listRuntimeEvents(params: {
 		runId?: string;
+		kind?: TediRuntimeEvent["kind"];
 		conversationId?: string;
 		limit?: number;
 		before?: string;
@@ -754,6 +755,7 @@ export class HttpPlatformClient implements PlatformClient {
 
 	async listRuntimeEvents(params: {
 		runId?: string;
+		kind?: TediRuntimeEvent["kind"];
 		conversationId?: string;
 		limit?: number;
 		before?: string;

@@ -1,4 +1,5 @@
 import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
+import { workflowRunIsTerminal } from "./workflow-run-liveness";
 import { buildTediConversationId } from "@tedix/api-contract/utils/runtime-identity";
 import { SessionHarness } from "@tedix/tedi-session/session-harness";
 import { deriveIdempotencyKey } from "@tedix/tedi-session/session-repo";
@@ -72,6 +73,7 @@ import { type WorkstationProcessCancelInput } from "./workstation";
 import { type WorkstationTurnContext } from "./workstation-turn-context";
 
 export interface RuntimeWorkflowHost {
+	getPlatformClient: AgentTediDO["getPlatformClient"];
 	suppressCronAfterBudgetFailure(
 		workflowId: string,
 		reason: string,
@@ -237,6 +239,11 @@ export const runtimeWorkflow = {
 		console.log(
 			`[isolate.workflow] complete name=${workflowName} id=${workflowId}`,
 		);
+		if (this.unknownRecord(result)?.stopReason === "run_terminal") {
+			await this.clearWorkflowDispatch(workflowId, "terminal");
+			await this.clearFanoutSlot(workflowId);
+			return;
+		}
 		const cronSuppression = cronSuppressionReason(result);
 		if (cronSuppression) {
 			try {
@@ -277,6 +284,16 @@ export const runtimeWorkflow = {
 			.get<WorkflowDispatchContext>(key)
 			.catch(() => undefined);
 		if (workflowName === "CHAT_TURN_WORKFLOW" && dispatchCtx) {
+			if (
+				await workflowRunIsTerminal(
+					await this.getPlatformClient(),
+					dispatchCtx.runId,
+				)
+			) {
+				await this.clearWorkflowDispatch(workflowId, "terminal");
+				await this.clearFanoutSlot(workflowId);
+				return;
+			}
 			await this.ctx.storage.put<WorkflowDispatchContext>(key, {
 				...dispatchCtx,
 				latestAttemptError: error,
@@ -516,6 +533,13 @@ export const runtimeWorkflow = {
 		error: string,
 	): Promise<void> {
 		const nextRedriveCount = (context.redriveCount ?? 0) + 1;
+		if (
+			await workflowRunIsTerminal(await this.getPlatformClient(), context.runId)
+		) {
+			await this.clearWorkflowDispatch(workflowInstanceId, "terminal");
+			await this.clearFanoutSlot(workflowInstanceId);
+			return;
+		}
 		try {
 			await this.assertChatTurnActive(context.runId);
 			if (
@@ -719,6 +743,13 @@ export const runtimeWorkflow = {
 			.get<WorkflowDispatchContext>(key)
 			.catch(() => undefined);
 		if (!context || context.startedAt) return;
+		if (
+			await workflowRunIsTerminal(await this.getPlatformClient(), context.runId)
+		) {
+			await this.clearWorkflowDispatch(input.workflowInstanceId, "terminal");
+			await this.clearFanoutSlot(input.workflowInstanceId);
+			return;
+		}
 
 		let status = "unknown";
 		try {

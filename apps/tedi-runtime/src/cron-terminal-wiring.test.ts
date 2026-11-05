@@ -397,6 +397,9 @@ async function reconcileProbe(
 	const agent = tediDo({
 		ctx: { storage },
 		workflowTerminalReconciliations: new Map<string, Promise<boolean>>(),
+		async getPlatformClient() {
+			return { listRuntimeEvents: async () => ({ events: [] }) };
+		},
 		getInferenceBudgetStore: () => budget,
 		inferenceBudgetLimits: () => limits,
 		async getWorkflowStatus() {
@@ -583,6 +586,7 @@ for (const options of [{ exhausted: true }, { admitted: false }]) {
 		async ensureIdentity() {},
 		async getPlatformClient() {
 			return {
+				listRuntimeEvents: async () => ({ events: [] }),
 				async recordRuntimeEvent(event: Record<string, unknown>) {
 					recorded.push(event);
 					probe.calls.push(`event:${String(event.kind)}`);
