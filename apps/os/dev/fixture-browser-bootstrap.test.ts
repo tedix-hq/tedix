@@ -7,14 +7,17 @@ vi.mock("playwright", () => ({ chromium: { launch } }));
 beforeEach(() => vi.clearAllMocks());
 
 describe("fixture browser bootstrap", () => {
-	it("waits for module loading and uses the remaining startup budget", async () => {
+	it("waits for module loading and the shell within the remaining startup budget", async () => {
 		const load = Promise.withResolvers<void>();
+		const shell = Promise.withResolvers<void>();
+		const waitFor = vi.fn((_options: { timeout: number }) => shell.promise);
+		const locator = vi.fn((_selector: string) => ({ waitFor }));
 		const goto = vi.fn(
 			(_url: string, _options: { timeout: number }) => load.promise,
 		);
 		const close = vi.fn();
 		launch.mockResolvedValue({
-			newPage: async () => ({ on() {}, goto }),
+			newPage: async () => ({ on() {}, goto, locator }),
 			close,
 		});
 		let ready = false;
@@ -30,6 +33,12 @@ describe("fixture browser bootstrap", () => {
 		expect(launch.mock.calls[0]![0].timeout).toBe(79_900);
 		expect(goto.mock.calls[0]![1].timeout).toBe(79_800);
 		load.resolve();
+		await vi.waitFor(() => expect(waitFor).toHaveBeenCalledOnce());
+		expect(locator).toHaveBeenCalledWith(".os-shell");
+		expect(waitFor.mock.calls[0]![0].timeout).toBe(79_700);
+		expect(ready).toBe(false);
+		expect(close).not.toHaveBeenCalled();
+		shell.resolve();
 		await starting;
 		expect(close).toHaveBeenCalledOnce();
 	});

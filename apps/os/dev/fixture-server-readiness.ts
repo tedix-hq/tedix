@@ -82,6 +82,8 @@ export async function waitForFixtureBrowser(
 		const errors: string[] = [];
 		page.on("pageerror", (error) => errors.push(error.message));
 		await page.goto(url, { timeout: remaining() });
+		if (errors.length)
+			throw new Error(`Fixture bootstrap failed: ${errors.join("; ")}`);
 		await page.locator(".os-shell").waitFor({ timeout: remaining() });
 		if (errors.length)
 			throw new Error(`Fixture bootstrap failed: ${errors.join("; ")}`);
