@@ -225,6 +225,7 @@ function setup(onPrepare?: (query: string) => void) {
 			metadata TEXT NOT NULL DEFAULT '{}',
 			created_at TEXT NOT NULL
 		);
+		CREATE INDEX idx_billing_charge_monetary_eur ON billing_usage_charges (organization_id, occurred_at) WHERE json_extract(metadata,'$.monetaryQuote.schemaVersion')=1 AND json_extract(metadata,'$.monetaryQuote.rateSnapshot.customerCurrency')='EUR';
 		CREATE TABLE stripe_meter_outbox (
 			id TEXT PRIMARY KEY,
 			organization_id TEXT NOT NULL,

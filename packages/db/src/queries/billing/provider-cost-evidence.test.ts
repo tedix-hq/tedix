@@ -533,6 +533,7 @@ describe("atomic source and authority fences", () => {
 					id: "charge",
 					organizationId: "org",
 					gatewayLogId: "log",
+					metadata: {},
 				});
 			if (kind === "credit")
 				seed(billingCreditEntries, {

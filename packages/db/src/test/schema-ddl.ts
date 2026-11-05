@@ -10,8 +10,9 @@
  *
  * This intentionally covers the subset of SQLite DDL the schema actually uses —
  * column types, NOT NULL, PRIMARY KEY (single and composite), DEFAULT, UNIQUE,
- * CHECK, foreign keys, and indexes. It is not a general-purpose DDL emitter;
- * `drizzle-kit generate` remains the source of truth for real migrations.
+ * CHECK, foreign keys, and indexes with their partial-index WHERE clauses. It
+ * is not a general-purpose DDL emitter; `drizzle-kit generate` remains the
+ * source of truth for real migrations.
  */
 
 import { is, SQL } from "drizzle-orm";
@@ -145,7 +146,11 @@ export function tableDdl(
 		);
 		statements.push(
 			`CREATE ${indexConfig.unique ? "UNIQUE " : ""}INDEX ${quote(indexConfig.name)} ` +
-				`ON ${quote(config.name)} (${members.join(", ")});`,
+				`ON ${quote(config.name)} (${members.join(", ")})` +
+				(indexConfig.where
+					? ` WHERE ${indexExpression(indexConfig.where)}`
+					: "") +
+				";",
 		);
 	}
 
