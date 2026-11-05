@@ -55,6 +55,7 @@
 		"./queries/os-workspaces/gadget-state": "./src/queries/os-workspaces/gadget-state.ts",
 		"./client": "./src/client.ts",
 		"./query-client": "./src/query-client.ts",
+		"./queries/postgres/core-store": "./src/queries/postgres/core-store.ts",
 		"./schema": "./src/schema/index.ts",
 		"./schema/adapters": "./src/schema/adapters.ts",
 		"./schema/analytics": "./src/schema/analytics.ts",
