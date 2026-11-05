@@ -101,6 +101,17 @@ Contract (`buildCatalogProvider`):
 - For ambiguous tenant queries a model judgment may permute at most twelve
   authorized lexical results; `meta.discovery.order` says which order applied.
 - Org skills rank alongside tools (`kind: "skill"`, a `skill://` uri).
+  A skill can name the tools it uses in its SKILL.md frontmatter, for
+  example `tools: [google_gmail, work.create_work_item]`: a namespace
+  selects all of its tools, `namespace.tool` selects one. The skill row then
+  carries `tools` (compact rows with authorization, at most twelve, the rest
+  counted in `toolsOmitted`) and `unresolvedTools` for refs this gateway does
+  not mount. Skill listings read the key before the summary cuts `content`
+  (`readSkillToolRefs`); storage and approval are unchanged. The list is a
+  pointer for search and grants nothing.
+- `discover.list_namespaces({ includeSkillCoverage: true })` adds
+  `skillCoverage: { coveredTools, uncoveredTools }` per namespace, naming the
+  tools no organization skill lists.
 - A `describe` miss means the callable is absent from this gateway's catalog,
   not that membership or upstream credentials are broken.
 

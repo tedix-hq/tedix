@@ -98,9 +98,9 @@ export function renderSkillMarkdown(
 	} else delete projected.summary;
 	if (skill.tags?.length) projected.tags = skill.tags;
 	else delete projected.tags;
-	if (toolNames.length) {
-		projected.tools = toolNames;
-	} else delete projected.tools;
+	// Resolved app tools replace an authored list; otherwise the authored
+	// frontmatter `tools` (Code Mode namespaces or callables) is kept.
+	if (toolNames.length) projected.tools = toolNames;
 	const projectedMetadata = {
 		...otherMetadata,
 		...(toolNames.length ? { [MCP_SKILL_TOOL_METADATA_KEY]: toolNames } : {}),

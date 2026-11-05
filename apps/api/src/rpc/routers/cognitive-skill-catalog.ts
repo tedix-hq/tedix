@@ -28,6 +28,7 @@ import { auditLowQualitySkills } from "@tedix/db/queries/cognitive/skill-quality
 import { computeSkillRepairs } from "@tedix/db/queries/cognitive/skill-repair";
 import { findSkillForTask } from "@tedix/db/queries/cognitive/skill-search";
 import { resolveToolSlugsForApp } from "@tedix/db/queries/cognitive/skill-tool-metadata";
+import { readSkillToolRefs } from "@tedix/api-contract/utils/skill-manifest";
 import {
 	type SkillValidationIssue,
 	slugify,
@@ -492,7 +493,7 @@ export const skillsMove = authedSkills.move
  * lifecycle + counters, not every row's full SKILL.md. `content` is required by SkillEntrySchema, so it becomes a marked preview
  * rather than being omitted — the marker points at read_skill so a truncated
  * body can never be mistaken for the real one. `files` is nullable and large;
- * summary nulls it.
+ * summary nulls it. The frontmatter `tools` list is kept as `tools`.
  *
  * The marker names the SKILL, never a tool: `read_skill` is a tedi-runtime
  * native tool that is NOT mounted on tenant aggregates (a live tenant-gateway
@@ -504,8 +505,11 @@ export const skillsMove = authedSkills.move
  */
 export function summarizeSkillEntry<
 	T extends { content: string; files?: Record<string, string> | null },
->(entry: T): T {
+>(entry: T): T & { tools?: string[] } {
 	const preview = entry.content.slice(0, 280);
+	// The frontmatter `tools` list usually sits past the preview cut, so it is
+	// read before truncation; discovery returns these tools with the skill.
+	const tools = readSkillToolRefs(entry.content);
 	return {
 		...entry,
 		content:
@@ -513,6 +517,7 @@ export function summarizeSkillEntry<
 				? `${preview}…\n[summary view — truncated; fetch this skill by id or slug for the full SKILL.md]`
 				: entry.content,
 		files: null,
+		...(tools.length > 0 ? { tools } : {}),
 	};
 }
 
@@ -520,7 +525,6 @@ export const skillsListByOrg = authedSkills.listByOrg
 	.use(AUTHZ.tedisRead)
 	.handler(async ({ input, context }) => {
 		const orgId = requireOrgId(context);
-		const project = input.summary ? summarizeSkillEntry : <T>(e: T) => e;
 
 		const domainId = input.domain
 			? (await getOrCreateDomain(context.db, orgId, input.domain)).id
@@ -541,7 +545,12 @@ export const skillsListByOrg = authedSkills.listByOrg
 			domainId,
 			tediId: input.tediId,
 		});
-		return { ...page, entries: page.entries.map(project) };
+		return {
+			...page,
+			entries: input.summary
+				? page.entries.map(summarizeSkillEntry)
+				: page.entries,
+		};
 	});
 
 export const skillsFind = authedSkills.find
@@ -557,9 +566,10 @@ export const skillsFind = authedSkills.find
 		// 100-skill library returned every full SKILL.md — the skills-layer
 		// twin of the includeParameters discovery problem. summary: false is
 		// the explicit full-body opt-out.
-		const project =
-			input.summary === false ? <T>(e: T) => e : summarizeSkillEntry;
-		return { entries: entries.map(project) };
+		return {
+			entries:
+				input.summary === false ? entries : entries.map(summarizeSkillEntry),
+		};
 	});
 
 export const skillsListByApp = authedSkills.listByApp

@@ -70,4 +70,21 @@ describe("renderSkillMarkdown author frontmatter", () => {
 			"author.example/custom": "retained",
 		});
 	});
+
+	it("keeps an authored tools list when no app tools resolve", () => {
+		const rendered = renderSkillMarkdown(
+			{
+				...skill,
+				toolIds: [],
+				content:
+					"---\nname: x\ntools: [work, google_gmail.search]\n---\n# Body",
+			},
+			"example",
+			new Map(),
+		);
+		expect(parseSkillFrontmatter(rendered)?.tools).toEqual([
+			"work",
+			"google_gmail.search",
+		]);
+	});
 });
