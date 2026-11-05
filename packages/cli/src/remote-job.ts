@@ -52,6 +52,14 @@ export const RemoteJobRecordSchema = z.strictObject({
 	receipt: ReceiptSchema.optional(),
 	heartbeat: RemoteJobEventSchema.options[0].optional(),
 	result: RemoteJobEventSchema.options[1].optional(),
+	publication: z
+		.strictObject({
+			snapshotDigest: text,
+			status: z.enum(["publishing", "published", "unknown"]),
+			evidenceId: z.uuid().optional(),
+			uri: text.optional(),
+		})
+		.optional(),
 });
 export type RemoteJobRecord = z.infer<typeof RemoteJobRecordSchema>;
 
@@ -67,6 +75,12 @@ export interface RemoteJobTransport {
 	/** The transport must preserve the job envelope and return a provider receipt. */
 	sendJob(job: RemoteJob): Promise<z.infer<typeof ReceiptSchema>>;
 }
+export interface RemoteJobEvidence {
+	publish(
+		record: RemoteJobRecord,
+		snapshotDigest: string,
+	): Promise<{ id: string; uri: string }>;
+}
 export type RemoteConnection =
 	| { status: "available"; transport: RemoteJobTransport; testMailbox: string }
 	| { status: "unavailable"; reason: string };
@@ -76,7 +90,7 @@ export interface RemoteJobAdapter {
 		| { status: "available" }
 		| { status: "unavailable"; reason: string };
 	sendJob(job: RemoteJob): Promise<RemoteJobRecord>;
-	receiveResult(event: RemoteJobEvent): RemoteJobRecord;
+	receiveResult(event: RemoteJobEvent): Promise<RemoteJobRecord>;
 }
 function digest(job: RemoteJob) {
 	return createHash("sha256")
@@ -92,7 +106,64 @@ export function createRemoteJobAdapter(
 	id: RemoteJob["adapter"],
 	store: RemoteJobStore,
 	connection: RemoteConnection,
+	evidence: RemoteJobEvidence,
 ): RemoteJobAdapter {
+	function snapshot(record: RemoteJobRecord) {
+		const { publication: _, ...value } = record;
+		return value;
+	}
+	function snapshotDigest(record: RemoteJobRecord) {
+		return createHash("sha256")
+			.update(JSON.stringify(snapshot(record)))
+			.digest("hex");
+	}
+	async function publish(record: RemoteJobRecord): Promise<RemoteJobRecord> {
+		const digest = snapshotDigest(record);
+		const reserved = store.update(record.job, (current) => {
+			if (!current || snapshotDigest(current) !== digest)
+				throw new Error("Job changed before evidence publication");
+			if (current.publication?.snapshotDigest === digest) {
+				if (current.publication.status === "published") return current;
+				throw new Error(
+					"Evidence publication uncertain or in progress; reconciliation required",
+				);
+			}
+			return {
+				...current,
+				publication: { snapshotDigest: digest, status: "publishing" },
+			};
+		});
+		if (reserved.publication?.status === "published") return reserved;
+		let receipt: { id: string; uri: string };
+		try {
+			receipt = z
+				.strictObject({ id: z.uuid(), uri: text })
+				.parse(await evidence.publish(snapshot(reserved), digest));
+		} catch (error) {
+			store.update(record.job, (current) => {
+				if (!current || current.publication?.snapshotDigest !== digest)
+					throw new Error("Job changed during evidence publication");
+				return {
+					...current,
+					publication: { snapshotDigest: digest, status: "unknown" },
+				};
+			});
+			throw error;
+		}
+		return store.update(record.job, (current) => {
+			if (!current || snapshotDigest(current) !== digest)
+				throw new Error("Job changed during evidence publication");
+			return {
+				...current,
+				publication: {
+					snapshotDigest: digest,
+					status: "published",
+					evidenceId: receipt.id,
+					uri: receipt.uri,
+				},
+			};
+		});
+	}
 	return {
 		id,
 		availability:
@@ -107,63 +178,76 @@ export function createRemoteJobAdapter(
 			const prior = store.read(job);
 			if (prior) {
 				sameJob(prior, job);
-				return prior;
+				return publish(prior);
 			}
 			// Persist before the external call. Neither a crash nor an ambiguous response permits replay.
-			store.update(job, (current) => {
+			const intent = store.update(job, (current) => {
 				if (current)
 					throw new Error("Job already reserved; read its existing result");
 				return { job, digest: digest(job), state: "sending" };
 			});
+			await publish(intent);
 			let receipt: z.infer<typeof ReceiptSchema>;
 			try {
 				receipt = ReceiptSchema.parse(await connection.transport.sendJob(job));
 			} catch {
-				return store.update(job, (current) => {
-					if (!current) throw new Error("Missing send intent");
-					return { ...current, state: "unknown" };
-				});
+				return publish(
+					store.update(job, (current) => {
+						if (!current) throw new Error("Missing send intent");
+						return { ...current, state: "unknown" };
+					}),
+				);
 			}
-			return store.update(job, (current) => {
-				if (!current || current.state !== "sending")
-					throw new Error("Send intent changed; reconciliation required");
-				return { ...current, state: "sent", receipt };
-			});
+			return publish(
+				store.update(job, (current) => {
+					if (!current || current.state !== "sending")
+						throw new Error("Send intent changed; reconciliation required");
+					return { ...current, state: "sent", receipt };
+				}),
+			);
 		},
-		receiveResult(input) {
+		async receiveResult(input) {
 			// Only an authenticated transport may supply an event; the envelope itself is not authentication.
 			const event = RemoteJobEventSchema.parse(input);
 			if (event.adapter !== id) throw new Error("Adapter mismatch");
-			return store.update(event, (current) => {
-				if (!current?.receipt)
-					throw new Error("No confirmed provider job; reconciliation required");
-				for (const field of Object.keys(
-					correlation,
-				) as (keyof typeof correlation)[]) {
-					if (event[field] !== current.job[field])
-						throw new Error("Event correlation mismatch");
-				}
-				if (event.providerJobId !== current.receipt.providerJobId)
-					throw new Error("Provider job mismatch");
-				const previous =
-					event.kind === "result" ? current.result : current.heartbeat;
-				if (previous?.eventId === event.eventId) {
-					if (JSON.stringify(previous) !== JSON.stringify(event))
-						throw new Error("Conflicting duplicate event");
-					return current;
-				}
-				if (current.result)
-					throw new Error("Job already has a terminal result");
-				if (
-					current.heartbeat &&
-					Date.parse(event.observedAt) <
-						Date.parse(current.heartbeat.observedAt)
-				)
-					throw new Error("Stale event");
-				return event.kind === "heartbeat"
-					? { ...current, heartbeat: event }
-					: { ...current, state: event.outcome, result: event };
-			});
+			return publish(
+				store.update(event, (current) => {
+					if (!current?.receipt)
+						throw new Error(
+							"No confirmed provider job; reconciliation required",
+						);
+					if (current.publication && current.publication.status !== "published")
+						throw new Error(
+							"Evidence publication uncertain or in progress; reconciliation required",
+						);
+					for (const field of Object.keys(
+						correlation,
+					) as (keyof typeof correlation)[]) {
+						if (event[field] !== current.job[field])
+							throw new Error("Event correlation mismatch");
+					}
+					if (event.providerJobId !== current.receipt.providerJobId)
+						throw new Error("Provider job mismatch");
+					const previous =
+						event.kind === "result" ? current.result : current.heartbeat;
+					if (previous?.eventId === event.eventId) {
+						if (JSON.stringify(previous) !== JSON.stringify(event))
+							throw new Error("Conflicting duplicate event");
+						return current;
+					}
+					if (current.result)
+						throw new Error("Job already has a terminal result");
+					if (
+						current.heartbeat &&
+						Date.parse(event.observedAt) <
+							Date.parse(current.heartbeat.observedAt)
+					)
+						throw new Error("Stale event");
+					return event.kind === "heartbeat"
+						? { ...current, heartbeat: event }
+						: { ...current, state: event.outcome, result: event };
+				}),
+			);
 		},
 	};
 }
@@ -171,6 +255,7 @@ export function createRemoteJobAdapter(
 export function createInstinctEmailAdapter(
 	store: RemoteJobStore,
 	connection: RemoteConnection,
+	evidence: RemoteJobEvidence,
 ) {
-	return createRemoteJobAdapter("instinct-email", store, connection);
+	return createRemoteJobAdapter("instinct-email", store, connection, evidence);
 }

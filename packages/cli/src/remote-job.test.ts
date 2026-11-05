@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { randomUUID } from "node:crypto";
 import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,6 +9,7 @@ import {
 	remoteAdapterOrder,
 	type RemoteJob,
 	type RemoteJobEvent,
+	type RemoteJobRecord,
 } from "./remote-job";
 import { fileRemoteJobStore } from "./remote-job-store";
 import { createInstinctEmailTransport } from "./remote-job-email";
@@ -42,13 +44,22 @@ function fixture() {
 		},
 	};
 	const store = fileRemoteJobStore(directory);
+	const published: RemoteJobRecord[] = [];
+	const evidence = {
+		async publish(record: RemoteJobRecord) {
+			published.push(record);
+			return { id: randomUUID(), uri: "test://work-evidence" };
+		},
+	};
 	return {
 		directory,
 		job,
 		connection,
 		store,
+		evidence,
+		published,
 		sends: () => sends,
-		adapter: createInstinctEmailAdapter(store, connection),
+		adapter: createInstinctEmailAdapter(store, connection, evidence),
 	};
 }
 function event(job: RemoteJob): Extract<RemoteJobEvent, { kind: "result" }> {
@@ -71,7 +82,7 @@ describe("remote job adapters", () => {
 		await f.adapter.sendJob(f.job);
 		const result = event(f.job);
 		const { outcome: _, result: __, ...heartbeat } = result;
-		f.adapter.receiveResult({
+		await f.adapter.receiveResult({
 			...heartbeat,
 			kind: "heartbeat",
 			eventId: "heartbeat-1",
@@ -79,8 +90,9 @@ describe("remote job adapters", () => {
 		const resumed = createInstinctEmailAdapter(
 			fileRemoteJobStore(f.directory),
 			f.connection,
+			f.evidence,
 		);
-		expect(resumed.receiveResult(result)).toMatchObject({
+		expect(await resumed.receiveResult(result)).toMatchObject({
 			state: "succeeded",
 			job: f.job,
 			receipt: { proofRef: "test://sent-message-1" },
@@ -103,22 +115,34 @@ describe("remote job adapters", () => {
 			},
 		};
 		expect(
-			await createInstinctEmailAdapter(f.store, connection).sendJob(f.job),
+			await createInstinctEmailAdapter(f.store, connection, f.evidence).sendJob(
+				f.job,
+			),
 		).toMatchObject({ state: "unknown" });
 		expect(
 			await createInstinctEmailAdapter(
 				fileRemoteJobStore(f.directory),
 				connection,
+				f.evidence,
 			).sendJob(f.job),
 		).toMatchObject({ state: "unknown" });
 		expect(delivered).toBe(1);
-		expect(() => f.adapter.receiveResult(event(f.job))).toThrow(
+		await expect(f.adapter.receiveResult(event(f.job))).rejects.toThrow(
 			"reconciliation",
 		);
 	});
 	it("does not dispatch twice during concurrent send calls", async () => {
 		const f = fixture();
-		await Promise.all([f.adapter.sendJob(f.job), f.adapter.sendJob(f.job)]);
+		const results = await Promise.allSettled([
+			f.adapter.sendJob(f.job),
+			f.adapter.sendJob(f.job),
+		]);
+		expect(
+			results.filter((result) => result.status === "fulfilled"),
+		).toHaveLength(1);
+		expect(
+			results.filter((result) => result.status === "rejected"),
+		).toHaveLength(1);
 		expect(f.sends()).toBe(1);
 	});
 	it("refuses changed payloads and correlation or provider mismatches", async () => {
@@ -139,22 +163,22 @@ describe("remote job adapters", () => {
 				field !== "providerJobId"
 					? "55555555-5555-4555-8555-555555555555"
 					: "wrong";
-			expect(() =>
+			await expect(
 				f.adapter.receiveResult({ ...event(f.job), [field]: wrong }),
-			).toThrow("mismatch");
+			).rejects.toThrow("mismatch");
 		}
 	});
 	it("deduplicates identical results and rejects conflicting terminal results", async () => {
 		const f = fixture();
 		await f.adapter.sendJob(f.job);
-		const first = f.adapter.receiveResult(event(f.job));
-		expect(f.adapter.receiveResult(event(f.job))).toEqual(first);
-		expect(() =>
+		const first = await f.adapter.receiveResult(event(f.job));
+		expect(await f.adapter.receiveResult(event(f.job))).toEqual(first);
+		await expect(
 			f.adapter.receiveResult({ ...event(f.job), proofRef: "test://changed" }),
-		).toThrow("Conflicting");
-		expect(() =>
+		).rejects.toThrow("Conflicting");
+		await expect(
 			f.adapter.receiveResult({ ...event(f.job), eventId: "message-3" }),
-		).toThrow("terminal");
+		).rejects.toThrow("terminal");
 	});
 	it("rejects a missing proof and non-test recipients before sending", async () => {
 		const f = fixture();
@@ -163,9 +187,9 @@ describe("remote job adapters", () => {
 		).rejects.toThrow("test mailbox");
 		expect(f.sends()).toBe(0);
 		await f.adapter.sendJob(f.job);
-		expect(() =>
+		await expect(
 			f.adapter.receiveResult({ ...event(f.job), proofRef: "" }),
-		).toThrow();
+		).rejects.toThrow();
 	});
 	it("retains a crashed send intent and fails closed on an interrupted store lock", async () => {
 		const f = fixture();
@@ -174,7 +198,7 @@ describe("remote job adapters", () => {
 			name.endsWith(".json"),
 		)!;
 		writeFileSync(join(f.directory, `${name}.lock`), "interrupted writer");
-		expect(() => f.adapter.receiveResult(event(f.job))).toThrow();
+		await expect(f.adapter.receiveResult(event(f.job))).rejects.toThrow();
 		expect(f.store.read(f.job)?.state).toBe("sent");
 	});
 	it("shows unconfigured cloud adapters as unavailable in the requested order", async () => {
@@ -186,10 +210,15 @@ describe("remote job adapters", () => {
 			"codex-cloud",
 		]);
 		for (const id of remoteAdapterOrder.slice(1)) {
-			const adapter = createRemoteJobAdapter(id, f.store, {
-				status: "unavailable",
-				reason: "Connection not verified; owner sign-in may be required",
-			});
+			const adapter = createRemoteJobAdapter(
+				id,
+				f.store,
+				{
+					status: "unavailable",
+					reason: "Connection not verified; owner sign-in may be required",
+				},
+				f.evidence,
+			);
 			expect(adapter.availability.status).toBe("unavailable");
 			await expect(adapter.sendJob({ ...f.job, adapter: id })).rejects.toThrow(
 				"Unavailable",
@@ -239,10 +268,14 @@ it("runs the email envelope through authenticated provider reads and persistent 
 			},
 		},
 	);
-	const adapter = createInstinctEmailAdapter(f.store, {
-		...f.connection,
-		transport,
-	});
+	const adapter = createInstinctEmailAdapter(
+		f.store,
+		{
+			...f.connection,
+			transport,
+		},
+		f.evidence,
+	);
 	await adapter.sendJob(f.job);
 	expect(JSON.parse(sentBody).job).toEqual(f.job);
 	from = "attacker@example.test";
@@ -259,7 +292,7 @@ it("runs the email envelope through authenticated provider reads and persistent 
 		"correlation",
 	);
 	expect(
-		adapter.receiveResult(await transport.receiveResult("message-2")),
+		await adapter.receiveResult(await transport.receiveResult("message-2")),
 	).toMatchObject({
 		state: "succeeded",
 		result: {
@@ -308,7 +341,7 @@ it("retains send intent after a process dies inside the provider call", async ()
 		const adapter = createInstinctEmailAdapter(fileRemoteJobStore(${JSON.stringify(f.directory)}), {
 			status: "available", testMailbox: ${JSON.stringify(f.job.recipient)},
 			transport: { async sendJob() { process.exit(0); } }
-		});
+		}, { async publish() { return { id: "77777777-7777-4777-8777-777777777777", uri: "test://work-evidence" }; } });
 		await adapter.sendJob(${JSON.stringify(f.job)});
 	`,
 		],
@@ -323,24 +356,109 @@ it("compares heartbeat times chronologically across fractional precision", async
 	const f = fixture();
 	await f.adapter.sendJob(f.job);
 	const { outcome: _, result: __, ...base } = event(f.job);
-	f.adapter.receiveResult({
+	await f.adapter.receiveResult({
 		...base,
 		kind: "heartbeat",
 		eventId: "hb-1",
 		observedAt: "2026-10-01T12:00:00Z",
 	});
-	f.adapter.receiveResult({
+	await f.adapter.receiveResult({
 		...base,
 		kind: "heartbeat",
 		eventId: "hb-2",
 		observedAt: "2026-10-01T12:00:00.001Z",
 	});
-	expect(() =>
+	await expect(
 		f.adapter.receiveResult({
 			...base,
 			kind: "heartbeat",
 			eventId: "hb-old",
 			observedAt: "2026-10-01T12:00:00Z",
 		}),
-	).toThrow("Stale");
+	).rejects.toThrow("Stale");
+});
+
+it("publishes intent before sending and correlates each transition on Work", async () => {
+	const f = fixture();
+	const adapter = createInstinctEmailAdapter(
+		f.store,
+		{
+			...f.connection,
+			transport: {
+				async sendJob(job) {
+					expect(f.published).toHaveLength(1);
+					expect(f.published[0]).toMatchObject({ state: "sending", job });
+					return f.connection.transport.sendJob();
+				},
+			},
+		},
+		f.evidence,
+	);
+	await adapter.sendJob(f.job);
+	await adapter.receiveResult(event(f.job));
+	expect(f.published.map((record) => record.state)).toEqual([
+		"sending",
+		"sent",
+		"succeeded",
+	]);
+	expect(f.published.every((record) => record.publication === undefined)).toBe(
+		true,
+	);
+	const count = f.published.length;
+	await adapter.receiveResult(event(f.job));
+	await adapter.sendJob(f.job);
+	expect(f.published).toHaveLength(count);
+});
+
+it("never sends or republishes an ambiguous Work intent after restart", async () => {
+	const f = fixture();
+	let writes = 0;
+	const evidence = {
+		async publish(): Promise<never> {
+			writes++;
+			throw new Error("Work write timed out after commit");
+		},
+	};
+	await expect(
+		createInstinctEmailAdapter(f.store, f.connection, evidence).sendJob(f.job),
+	).rejects.toThrow("timed out");
+	expect(f.store.read(f.job)).toMatchObject({
+		state: "sending",
+		publication: { status: "unknown" },
+	});
+	const resumed = createInstinctEmailAdapter(
+		fileRemoteJobStore(f.directory),
+		f.connection,
+		evidence,
+	);
+	await expect(resumed.sendJob(f.job)).rejects.toThrow("reconciliation");
+	expect(writes).toBe(1);
+	expect(f.sends()).toBe(0);
+});
+
+it("retains a result whose OS write is ambiguous without blindly publishing it again", async () => {
+	const f = fixture();
+	let writes = 0;
+	const evidence = {
+		async publish(record: RemoteJobRecord) {
+			writes++;
+			if (record.result) throw new Error("result receipt lost");
+			return f.evidence.publish(record);
+		},
+	};
+	const adapter = createInstinctEmailAdapter(f.store, f.connection, evidence);
+	await adapter.sendJob(f.job);
+	await expect(adapter.receiveResult(event(f.job))).rejects.toThrow(
+		"receipt lost",
+	);
+	await expect(adapter.receiveResult(event(f.job))).rejects.toThrow(
+		"reconciliation",
+	);
+	await expect(adapter.sendJob(f.job)).rejects.toThrow("reconciliation");
+	expect(f.store.read(f.job)).toMatchObject({
+		state: "succeeded",
+		publication: { status: "unknown" },
+	});
+	expect(writes).toBe(3);
+	expect(f.sends()).toBe(1);
 });
