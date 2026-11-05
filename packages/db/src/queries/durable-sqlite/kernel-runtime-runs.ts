@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { kernelRuntimeRuns } from "../../schema/cognitive-runtime";
 import type {
 	KernelRuntimeRun,
@@ -81,7 +81,7 @@ export async function listKernelRuntimeRuns(
 					? eq(kernelRuntimeRuns.conversationId, input.conversationId)
 					: undefined,
 				input.childRunIds
-					? inArray(kernelRuntimeRuns.childRunId, input.childRunIds)
+					? sql`${kernelRuntimeRuns.childRunId} IN (SELECT value FROM json_each(${JSON.stringify(input.childRunIds)}))`
 					: undefined,
 			),
 		);

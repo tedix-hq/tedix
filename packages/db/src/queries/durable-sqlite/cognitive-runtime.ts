@@ -116,6 +116,7 @@ export async function listTediRuntimeEventsForRouter(
 			: undefined,
 		input.runId ? eq(tediRuntimeEvents.runId, input.runId) : undefined,
 		input.kind ? eq(tediRuntimeEvents.kind, input.kind) : undefined,
+		// bound-params: kinds is a subset of the closed TediRuntimeEventKind enum
 		input.kinds ? inArray(tediRuntimeEvents.kind, input.kinds) : undefined,
 		input.before
 			? or(
