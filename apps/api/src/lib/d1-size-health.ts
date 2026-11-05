@@ -19,7 +19,7 @@ import {
 	markAlertsResolved,
 	recordAlertState,
 } from "@tedix/db/queries/ops-alert-state";
-import { sendOpsAlert } from "./ops-alert-egress";
+import { type SendOpsAlertResult, sendOpsAlert } from "./ops-alert-egress";
 
 const GB = 1_000_000_000;
 export const MAIN_D1_ALERT_BYTES = 9 * GB;
@@ -51,32 +51,46 @@ export function describeD1Size(probe: D1SizeProbe): string {
 		: `Logs D1 is ${gb} GB (rotation trigger ${limit} GB, hard cap 10 GB). Create the next logs database and rebind LOGS_DB.`;
 }
 
+export type D1SizeAlertLifecycle =
+	| "new"
+	| "escalated"
+	| "ongoing"
+	| "resolved"
+	| "unchanged";
+
+export interface D1SizeAlertOutcome {
+	lifecycle: D1SizeAlertLifecycle;
+	/** Which channels delivered the page; null when no page was due. */
+	delivery: SendOpsAlertResult | null;
+}
+
 /**
- * Reconcile one store's size against its alert state. Returns what happened
- * so the cron receipt can carry it. A probe that returned no size leaves the
- * state untouched.
+ * Reconcile one store's size against its alert state. Returns what happened,
+ * including which channels delivered a page, so the cron receipt can prove
+ * delivery. A probe that returned no size leaves the state untouched.
  */
 export async function reconcileD1SizeAlert(
 	db: DbClient,
 	env: D1SizeAlertEnv,
 	probe: D1SizeProbe,
 	nowIso: string,
-): Promise<"new" | "escalated" | "ongoing" | "resolved" | "unchanged"> {
-	if (probe.bytes === null) return "unchanged";
+): Promise<D1SizeAlertOutcome> {
+	if (probe.bytes === null) return { lifecycle: "unchanged", delivery: null };
 	const key = D1_SIZE_CONDITION_KEYS[probe.store];
 	const previous = await getAlertState(db, key);
 	const firing = probe.bytes >= d1SizeThreshold(probe.store);
 	if (!firing) {
-		if (previous?.status !== "open") return "unchanged";
+		if (previous?.status !== "open")
+			return { lifecycle: "unchanged", delivery: null };
 		await markAlertsResolved(db, [key], nowIso);
-		await sendOpsAlert(env, {
+		const delivery = await sendOpsAlert(env, {
 			subject: `[Tedix Health] resolved · ${probe.store === "main" ? "Main" : "Logs"} D1 size`,
 			text: `RESOLVED: ${describeD1Size(probe)}`,
 			emailRecipients: env.HEALTH_ALERT_EMAIL,
 			webhookUrl: env.HEALTH_ALERT_WEBHOOK,
 			meta: { conditionKey: key, lifecycle: "resolved", bytes: probe.bytes },
 		});
-		return "resolved";
+		return { lifecycle: "resolved", delivery };
 	}
 	// Re-page only when the size crosses the next quarter gigabyte.
 	const bucket = String(Math.floor(probe.bytes / (GB / 4)));
@@ -95,8 +109,9 @@ export async function reconcileD1SizeAlert(
 		notifyCount: isNew ? 1 : previous.notifyCount + (escalated ? 1 : 0),
 	});
 	const lifecycle = isNew ? "new" : escalated ? "escalated" : "ongoing";
+	let delivery: SendOpsAlertResult | null = null;
 	if (lifecycle !== "ongoing") {
-		await sendOpsAlert(env, {
+		delivery = await sendOpsAlert(env, {
 			subject: `[Tedix Health] P1 · ${probe.store === "main" ? "Main" : "Logs"} D1 is near its size cap`,
 			text: `${lifecycle.toUpperCase()}: ${detail}`,
 			emailRecipients: env.HEALTH_ALERT_EMAIL,
@@ -113,5 +128,5 @@ export async function reconcileD1SizeAlert(
 			asOf: nowIso,
 		}),
 	);
-	return lifecycle;
+	return { lifecycle, delivery };
 }
