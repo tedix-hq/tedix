@@ -11,11 +11,9 @@
  * order — each one is a 4xx, not a 101:
  *
  * 1. WebSocket upgrade only. A non-upgrade request is refused with 426 before
- *    any capnweb code runs. This is also why `newWorkersWebSocketRpcResponse`
- *    is imported directly instead of `newWorkersRpcResponse`: the latter
- *    serves capnweb's HTTP-batch mode on POST *before* it checks the upgrade
- *    header, and that mode also sets `Access-Control-Allow-Origin: *`. The
- *    session lifecycle (limits, subscriptions, disposal) must stay socket-bound.
+ *    any capnweb code runs. The mount owns its WebSocketPair and uses
+ *    `newWebSocketRpcSession` so it can close a revoked idle session. The
+ *    session lifecycle (limits, subscriptions, disposal) stays socket-bound.
  *
  * 2. Same-origin `Origin`. capnweb's own docs warn that its Workers entry
  *    accepts cross-origin requests and that the caller must validate `Origin`
@@ -32,8 +30,8 @@
  *    canonical read in the host tenant before the upgrade is granted (the same
  *    shape `handleCollabUpgrade` uses). Unauthenticated, foreign-tenant, and
  *    non-member callers collapse into one 403 so tenant existence does not leak
- *    at the socket layer. Without it, `newWorkersWebSocketRpcResponse` answers
- *    101 to anyone and refusal only happens per-RPC, downstream.
+ *    at the socket layer. The same read repeats while the socket is open;
+ *    refusal disposes the session and closes its server socket.
  *
  * Credentials: only the caller's own `Authorization` and `Cookie` headers are
  * captured (same allowlist as the collab upgrade), plus `CF-Connecting-IP` so
@@ -45,7 +43,7 @@
  */
 
 import { callRpc, serviceBindingFetch } from "@tedix/api-client/internal";
-import { newWorkersWebSocketRpcResponse } from "capnweb";
+import { newWebSocketRpcSession } from "capnweb";
 import {
 	CAPN_REQUEST_ERROR_NAME,
 	CapnChatSession,
@@ -161,44 +159,83 @@ export async function mountCapnChat(
 	const headers: Record<string, string> = hostTenantId
 		? { ...credentialHeaders, "X-Tedix-Tenant-Id": hostTenantId }
 		: { ...credentialHeaders };
-	try {
-		// The caller's OWN credentials authorize this socket — never a
-		// service-binding claim, which would evaluate the call without the
-		// user's org context. apps/api proves membership in the asserted tenant.
-		await callRpc(
+	const authorize = () =>
+		callRpc(
 			"kernelRuntime/listConversations",
 			{ limit: 1 },
 			{
 				apiUrl: "https://api",
-				fetch: serviceBindingFetch(env.API_SERVICE),
+				fetch: serviceBindingFetch(env.API_SERVICE!),
 				headers,
 				timeoutMs: AUTHORIZE_TIMEOUT_MS,
 			},
 		);
+	try {
+		// The caller's OWN credentials authorize this socket — never a
+		// service-binding claim, which would evaluate the call without the
+		// user's org context. apps/api proves membership in the asserted tenant.
+		await authorize();
 	} catch {
 		// Unauthenticated, foreign-org, and not-a-member all collapse to one
 		// refusal: tenant existence must not leak at the socket layer.
 		return refuse(403, "You do not have access to this workspace.");
 	}
-	return newWorkersWebSocketRpcResponse(
-		request,
-		new CapnChatSession({ env, hostTenantId, credentialHeaders }),
-		{
-			limits: {
-				maxMessageSize: CAPN_MAX_WIRE_BYTES,
-				maxDepth: CAPN_MAX_DEPTH,
-			},
-			// Redaction: capnweb serializes thrown errors verbatim to the peer
-			// (message AND stack), which would ship upstream oRPC text and
-			// internal binding detail into the browser. Only this root's own
-			// contract refusals — cursor/argument validation and the session
-			// limits — are the peer's business; everything else collapses to a
-			// generic refusal, with the detail kept in this Worker's logs.
-			onSendError: (error) => {
-				if (error.name === CAPN_REQUEST_ERROR_NAME) return error;
-				console.error(`capnweb session error: ${error.message}`);
-				return new Error("The connection was interrupted. Please try again.");
-			},
+	// Keep the server socket so a revoked idle session can actually be closed.
+	const Pair = (
+		globalThis as typeof globalThis & {
+			WebSocketPair: new () => {
+				0: WebSocket & { accept(): void };
+				1: WebSocket;
+			};
+		}
+	).WebSocketPair;
+	const pair = new Pair();
+	const server = pair[0];
+	server.accept();
+	const session = new CapnChatSession({ env, hostTenantId, credentialHeaders });
+	newWebSocketRpcSession(server, session, {
+		limits: {
+			maxMessageSize: CAPN_MAX_WIRE_BYTES,
+			maxDepth: CAPN_MAX_DEPTH,
 		},
-	);
+		// Redaction: capnweb serializes thrown errors verbatim to the peer
+		// (message AND stack), which would ship upstream oRPC text and
+		// internal binding detail into the browser. Only this root's own
+		// contract refusals — cursor/argument validation and the session
+		// limits — are the peer's business; everything else collapses to a
+		// generic refusal, with the detail kept in this Worker's logs.
+		onSendError: (error) => {
+			if (error.name === CAPN_REQUEST_ERROR_NAME) return error;
+			console.error(`capnweb session error: ${error.message}`);
+			return new Error("The connection was interrupted. Please try again.");
+		},
+	});
+	let stopped = false;
+	let checking = false;
+	const stop = () => {
+		stopped = true;
+		clearInterval(timer);
+		session[Symbol.dispose]();
+	};
+	const timer = setInterval(async () => {
+		if (stopped || checking) return;
+		checking = true;
+		try {
+			await authorize();
+		} catch {
+			if (!stopped) {
+				stop();
+				server.close(4003, "Organization access changed; reconnect.");
+			}
+		} finally {
+			checking = false;
+		}
+	}, 3_000);
+	server.addEventListener("close", stop, { once: true });
+	server.addEventListener("error", stop, { once: true });
+	const responseInit: ResponseInit & { webSocket: WebSocket } = {
+		status: 101,
+		webSocket: pair[1],
+	};
+	return new Response(null, responseInit);
 }

@@ -1242,6 +1242,30 @@ export const suspendAgentSeatContract = authedMembersOs.suspendAgentSeat
 				representedUserId: seat.representedUserId,
 			},
 		});
+		// Keep the membership disabled if provider revocation fails. Repeating
+		// suspension retries revocation without reopening the seat.
+		if (!seat.descopeUserId)
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"Agent suspended, but no provider identity is linked to revoke its sessions",
+			);
+		const mgmt = getDescopeManagement(context.env, true);
+		assertDescopeOk(
+			await mgmt.management.user.logoutUserByUserId(seat.descopeUserId),
+			"user.logoutUserByUserId",
+		);
+		await emitAuditEvent(context.db, {
+			organizationId: input.organizationId,
+			actorId: actor.actorId,
+			actorType: actor.actorType,
+			action: "member.agent_sessions_revoked",
+			resourceType: "organization_member",
+			resourceId: seat.id,
+			metadata: {
+				...actor.actorMetadata,
+				representedUserId: seat.representedUserId,
+			},
+		});
 		return { data: formatMemberResponse(seat) };
 	});
 

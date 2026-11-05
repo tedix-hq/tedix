@@ -18,6 +18,7 @@ vi.mock("@tedix/db/queries/organizations", () => ({
 }));
 vi.mock("@tedix/db/queries/organization-members", () => ({
 	getMemberByUserId: mocks.member,
+	getMemberByCanonicalUserId: vi.fn(),
 }));
 const ORG = "11111111-2222-3333-4444-555555555555",
 	KEY = "test-key";
@@ -30,10 +31,20 @@ beforeEach(() => {
 	vi.resetAllMocks();
 	mocks.validate.mockResolvedValue({ sub: "user", type: "user" });
 	mocks.org.mockResolvedValue({ id: ORG });
-	mocks.member.mockResolvedValue(null);
-	mocks.member.mockResolvedValue(null);
+	mocks.member.mockResolvedValue({
+		id: "membership",
+		status: "active",
+		kind: "human",
+	});
 });
 describe("handleKernelWsToken", () => {
+	it("does not mint new scoped credentials for a suspended seat", async () => {
+		mocks.member.mockResolvedValueOnce({
+			status: "deactivated",
+			kind: "browser_agent",
+		});
+		expect((await handleKernelWsToken(req("session"), env)).status).toBe(403);
+	});
 	it("rejects absent and URL-only credentials", async () => {
 		expect((await handleKernelWsToken(req(), env)).status).toBe(401);
 		expect(
@@ -65,7 +76,7 @@ describe("handleKernelWsToken", () => {
 				organizationId: ORG,
 				descopeUserId: "user",
 			});
-			expect(mocks.member).not.toHaveBeenCalled();
+			expect(mocks.member).toHaveBeenCalledWith({}, ORG, "user");
 		},
 	);
 	it("requires a user JWT rather than accepting a locally valid scoped token", async () => {
@@ -93,6 +104,7 @@ describe("handleKernelWsToken", () => {
 		).toBe(503);
 	});
 	it("denies unauthorized organizations", async () => {
+		mocks.member.mockResolvedValueOnce(null);
 		expect(
 			(await handleKernelWsToken(req("session", "?organization=other"), env))
 				.status,
