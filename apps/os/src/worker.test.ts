@@ -946,6 +946,7 @@ describe("Tedix OS origin router", () => {
 			"/api/os-shared/redeem",
 			"/api/os-shared/session",
 			"/api/os-shared/output",
+			"/api/os-shared/file",
 			"/api/os-shared/app/open",
 			"/api/os-shared/app/call",
 			"/api/os-shared/app/read",
@@ -969,8 +970,33 @@ describe("Tedix OS origin router", () => {
 			expect(forwarded.headers.get("Authorization")).toBeNull();
 			expect(forwarded.headers.get("Cookie")).toBeNull();
 		}
+		// A shared document's file bytes: a signed GET a <video> ranges over,
+		// passed signed-out with its Range header and without a client bearer.
+		const fileRead = await handleOsRequest(
+			new Request(
+				"https://acme.os.tedix.dev/api/os-shared/file/0e8f2c64-1b1a-4f53-9c51-6b0f1f0a7a11/out-1?sig=s",
+				{
+					headers: {
+						Range: "bytes=0-1",
+						Authorization: "Bearer attacker-selected",
+					},
+				},
+			),
+			env,
+			provisionedWithTenant,
+		);
+		expect(fileRead.status).toBe(200);
+		const fileForwarded = seen.at(-1)!;
+		expect(new URL(fileForwarded.url).pathname).toBe(
+			"/os-shared/file/0e8f2c64-1b1a-4f53-9c51-6b0f1f0a7a11/out-1",
+		);
+		expect(new URL(fileForwarded.url).searchParams.get("sig")).toBe("s");
+		expect(fileForwarded.method).toBe("GET");
+		expect(fileForwarded.headers.get("Range")).toBe("bytes=0-1");
+		expect(fileForwarded.headers.get("Authorization")).toBeNull();
 		// Any other share path, verb or API still needs a session.
 		for (const [path, method] of [
+			["/api/os-shared/file/not-a-session/out-1", "GET"],
 			["/api/os-shared/app/open", "GET"],
 			["/api/os-shared/anything", "POST"],
 			["/api/rpc/osWorkspaces/list", "POST"],

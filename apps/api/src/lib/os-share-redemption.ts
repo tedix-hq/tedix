@@ -473,7 +473,7 @@ function parseJson(text: string): unknown {
  * `use`, an "Anyone with the link" workspace link admits guests read-only,
  * and anything else needs an authorized member.
  */
-async function recipientMayOpen(
+export async function recipientMayOpen(
 	db: DbQueryClient,
 	link: OsShareLinkRow,
 	authorizeRecipient?: AuthorizeOsShareRecipient,

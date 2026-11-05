@@ -4,7 +4,15 @@ import type {
 	OsRichTextNode,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { FileText, PencilSimple } from "@phosphor-icons/react";
-import { lazy, Suspense, useEffect, useId, useMemo, useState } from "react";
+import {
+	lazy,
+	type ReactNode,
+	Suspense,
+	useEffect,
+	useId,
+	useMemo,
+	useState,
+} from "react";
 import {
 	DocumentOutline,
 	type DocumentOutlineItem,
@@ -44,19 +52,29 @@ export function FileOutputView(props: {
 	);
 }
 
+type DocumentFile = NonNullable<
+	Extract<OsOutputContent, { kind: "document" }>["file"]
+>;
+
 export function OutputContentView({
 	content,
 	onEdit,
+	renderFile = (file) => <FileOutputView {...file} />,
 }: {
 	content: OsOutputContent;
 	/** Opens the editor; the deck view binds it to the E key. */
 	onEdit?: () => void;
+	/**
+	 * Shows a document's uploaded file. The default reads it through the
+	 * workspace; a share page reads it through its link instead.
+	 */
+	renderFile?: (file: DocumentFile) => ReactNode;
 }) {
 	switch (content.kind) {
 		case "document":
 			return (
 				<>
-					{content.file ? <FileOutputView {...content.file} /> : null}
+					{content.file ? renderFile(content.file) : null}
 					<RichDocumentView content={content} onEdit={onEdit} />
 				</>
 			);

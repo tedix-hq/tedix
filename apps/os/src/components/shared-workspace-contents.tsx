@@ -13,6 +13,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import { Text } from "@/components/kumo/text";
 import { OutputContentView } from "@/components/output-content";
+import { SharedFileView } from "@/components/shared-file-view";
 
 export type SharedWorkspaceFile = {
 	id: string;
@@ -42,13 +43,6 @@ type OpenedFile =
 	| { status: "loading"; file: SharedWorkspaceFile }
 	| { status: "ready"; file: SharedWorkspaceFile; content: OsOutputContent }
 	| { status: "unavailable"; file: SharedWorkspaceFile };
-
-/** A file's text only: an uploaded file's preview reads through the owner's workspace. */
-function readableContent(content: OsOutputContent): OsOutputContent {
-	if (content.kind !== "document" || !content.file) return content;
-	const { file: _file, ...text } = content;
-	return text;
-}
 
 /** What a workspace link leaves out, in plain words, or null when nothing is. */
 export function workspaceLeftOutText(
@@ -107,7 +101,7 @@ export function SharedWorkspaceContents(props: {
 						setOpened({
 							status: "ready",
 							file: opened.file,
-							content: readableContent(body.revision.content),
+							content: body.revision.content,
 						});
 				},
 				() => {
@@ -268,7 +262,15 @@ export function SharedWorkspaceContents(props: {
 							</Alert>
 						) : (
 							<div data-shared-output>
-								<OutputContentView content={opened.content} />
+								<OutputContentView
+									content={opened.content}
+									renderFile={() => (
+										<SharedFileView
+											sessionToken={props.sessionToken}
+											outputId={opened.file.id}
+										/>
+									)}
+								/>
 							</div>
 						)}
 					</>

@@ -170,6 +170,66 @@ describe("SharedResourcePage", () => {
 		expect(container.querySelector("[data-shared-output]")).not.toBeNull();
 	});
 
+	it("plays a shared document's uploaded video through the link", async () => {
+		const file = payload("use");
+		const mediaUrl =
+			"/api/os-shared/file/0e8f2c64-1b1a-4f53-9c51-6b0f1f0a7a11/output-1?sig=s";
+		vi.mocked(fetch).mockImplementation(async (input, init) => {
+			if (input === "/api/os-shared/file") {
+				expect(JSON.parse(String(init?.body))).toEqual({
+					sessionToken: SESSION,
+					outputId: "output-1",
+				});
+				return new Response(
+					JSON.stringify({
+						filename: "highlights.mp4",
+						mimeType: "video/mp4",
+						size: 1024,
+						url: mediaUrl,
+					}),
+					{ status: 200 },
+				);
+			}
+			return new Response(
+				JSON.stringify({
+					...file,
+					share: {
+						...file.share,
+						resourceType: "output",
+						role: "viewer",
+						effectiveRole: "viewer",
+					},
+					resource: {
+						type: "output",
+						output: { id: "output-1", title: "highlights.mp4" },
+						revision: {
+							id: "revision-1",
+							revision: 1,
+							content: {
+								kind: "document",
+								file: {
+									workspaceId: "11111111-1111-4111-8111-111111111111",
+									resourceId: "22222222-2222-4222-8222-222222222222",
+								},
+								blocks: [],
+							},
+						},
+						openPath: null,
+					},
+				}),
+				{ status: 200 },
+			);
+		});
+		const container = await renderPage();
+		await act(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 0));
+		});
+		expect(container.querySelector("video")?.getAttribute("src")).toBe(
+			mediaUrl,
+		);
+		expect(container.textContent).not.toContain("This document is empty");
+	});
+
 	it("redeems from the fragment, removes it, and gives use access no source or build path", async () => {
 		vi.mocked(fetch).mockResolvedValue(
 			new Response(JSON.stringify(payload("use")), { status: 200 }),
