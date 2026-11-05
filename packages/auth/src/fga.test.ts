@@ -155,6 +155,29 @@ describe("app assignment checks", () => {
 		).resolves.toEqual([]);
 	});
 
+	it("keeps a grant answered with blank types or repeated identically", async () => {
+		const tuple = {
+			resource: "app-a",
+			target: "user-a",
+			relation: "operator",
+			resourceType: "",
+			targetType: "",
+		};
+		const client = checkClientReturning({
+			ok: true,
+			data: [
+				{ allowed: true, tuple },
+				{ allowed: true, tuple },
+			],
+		});
+		await expect(
+			getAssignedAppRoles(client, "user-a", ["app-a"]),
+		).resolves.toEqual({ "app-a": "operator" });
+		await expect(getOperableApps(client, "user-a", ["app-a"])).resolves.toEqual(
+			["app-a"],
+		);
+	});
+
 	it.each([{ resourceType: "document" }, { targetType: "group" }])(
 		"cannot substitute a tuple of another type before mutation: %j",
 		async (override) => {
