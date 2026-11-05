@@ -679,6 +679,17 @@ describe("workspace app edits", () => {
 		expect(guidance).toContain("gadgets_get_code({ workspaceId, gadgetId })");
 		expect(guidance).toContain("files: { [path]: text }");
 		expect(result.toolGuidance.every((item) => !item.endsWith("…"))).toBe(true);
+		// An approval-required tedi asked "Should I proceed?" before the draft.
+		expect(guidance).toContain("without asking first");
+		const gated = buildDelegationWorkOrder({
+			userContent: request,
+			card: { ...readerCard, requiresApproval: true },
+			route: embodied,
+			workspace: { id: "0c2464ac-201c-4e56-bb40-e1499d4673fe", name: "Reddit" },
+		});
+		expect(gated.boundaries.join("\n")).toContain(
+			"An app draft is not a write: open it without asking.",
+		);
 		expect(guidance).not.toContain("open_computer({ repository: true })");
 		expect(guidance).not.toContain("browser_markdown");
 		// Catalog tool names differ by organization: Code Mode, not exact ids.
