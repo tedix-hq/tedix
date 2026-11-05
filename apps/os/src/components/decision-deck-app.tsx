@@ -1,4 +1,5 @@
 import { useDeckDecision } from "./use-deck-decision";
+import { decisionOutcome } from "@/lib/decision-outcome";
 import { projectDecisionDeck } from "./decision-deck-projection";
 import { DecisionDeckToolbar } from "./decision-deck-toolbar";
 import { DeckWaitingList } from "./decision-deck-waiting";
@@ -205,7 +206,7 @@ function DecisionDeckContent({
 			input: {
 				projectId: config.projectId,
 				limit: config.limit,
-				states: ["resolved"],
+				states: ["resolved", "cancelled"],
 			},
 		}),
 		enabled: mode === "history",
@@ -1112,11 +1113,25 @@ function DecisionDeckContent({
 														}
 														body={selected.row?.request.prompt}
 														why={
-															<Link href={`/work/interactions/${selected.id}`}>
-																{decisionText(
-																	"Read the saved answer and history",
+															<>
+																{selected.row && (
+																	<p data-decision-outcome>
+																		{
+																			decisionOutcome(
+																				selected.row.request,
+																				selected.row.effectiveState,
+																			)?.line
+																		}
+																	</p>
 																)}
-															</Link>
+																<Link
+																	href={`/work/interactions/${selected.id}`}
+																>
+																	{decisionText(
+																		"Read the saved answer and history",
+																	)}
+																</Link>
+															</>
 														}
 														disabled
 														onDecision={async () => {}}

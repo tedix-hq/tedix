@@ -293,3 +293,47 @@ export async function setDeckPipelineLearned(
 		})
 		.where(eq(organizations.id, orgId));
 }
+
+/**
+ * The recipient's latest "not needed" answer to the same ask on the same Work
+ * (or project, for a card without Work): a re-ask the person already refused.
+ */
+export async function findNotUsefulAnswer(
+	db: DbQueryClient,
+	p: {
+		orgId: string;
+		recipientId: string;
+		subject: string;
+		workItemId?: string | null;
+		projectId?: string | null;
+	},
+) {
+	if (!p.workItemId && !p.projectId) return null;
+	const [row] = await db
+		.select({
+			id: workInteractions.id,
+			reason: sql<
+				string | null
+			>`json_extract(${workInteractions.metadata},'$.curation.notUseful.reason')`.as(
+				"not_useful_reason",
+			),
+			cancelledAt: workInteractions.cancelledAt,
+		})
+		.from(workInteractions)
+		.where(
+			and(
+				eq(workInteractions.orgId, p.orgId),
+				eq(workInteractions.targetType, "user"),
+				eq(workInteractions.targetId, p.recipientId),
+				eq(workInteractions.status, "cancelled"),
+				p.workItemId
+					? eq(workInteractions.workItemId, p.workItemId)
+					: eq(workInteractions.projectId, p.projectId!),
+				sql`lower(trim(${workInteractions.subject}))=${p.subject.trim().toLowerCase()}`,
+				sql`json_type(${workInteractions.metadata},'$.curation.notUseful')='object'`,
+			),
+		)
+		.orderBy(desc(workInteractions.createdAt))
+		.limit(1);
+	return row ?? null;
+}

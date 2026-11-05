@@ -1,4 +1,7 @@
-import { listDeckSourceStates } from "@tedix/db/queries/work-items/deck-sweep";
+import {
+	findNotUsefulAnswer,
+	listDeckSourceStates,
+} from "@tedix/db/queries/work-items/deck-sweep";
 import { deckCardStale } from "@tedix/api-contract/utils/deck-ask";
 import { classifyDeckAsk } from "@tedix/api-contract/utils/deck-qualification";
 import { credentialCard } from "@tedix/api-contract/utils/card-secrets";
@@ -17,6 +20,7 @@ type GateInput = {
 	subject: string;
 	prompt: string;
 	workItemId?: string;
+	projectId?: string;
 	caseId?: string;
 	dueAt?: string;
 	expiresAt?: string;
@@ -35,6 +39,19 @@ export async function deckCreateGate(
 	actor: VerifiedActiveWorkActor,
 	input: GateInput,
 ) {
+	// A person's "not needed" holds without the asking agent alive to hear it.
+	const refused = await findNotUsefulAnswer(context.db, {
+		orgId,
+		recipientId: input.recipientId,
+		subject: input.subject,
+		workItemId: input.workItemId,
+		projectId: input.projectId,
+	});
+	if (refused)
+		throw createError(
+			ErrorCodes.CONFLICT,
+			`Already answered: the person marked this ask not needed (${(refused.reason ?? "not useful").replaceAll("_", " ")}). Do not ask again; record new information on the Work instead.`,
+		);
 	const config = (await getDecisionLearningConfig(context.db, orgId))
 		.deckPipeline;
 	const gate = config.createGate;

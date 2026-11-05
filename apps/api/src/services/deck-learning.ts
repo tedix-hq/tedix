@@ -22,6 +22,7 @@ import { createError, ErrorCodes, type BaseContext } from "../rpc/orpc";
 import { verifiedActiveWorkActor } from "../rpc/routers/work-items-principal";
 import { cardOriginalBody } from "./card-revisions";
 import { appendCuration } from "./deck-curation";
+import { recordDecisionAnswerOnBoard } from "./decision-answer-board";
 import {
 	observedLearningActor,
 	recordObservedLearningInteraction,
@@ -71,6 +72,7 @@ export async function markDeckCardNotUseful(
 	const prior = DeckCurationStateSchema.safeParse(request.metadata.curation);
 	const learner = observedLearningActor(context);
 	const clientEventId = `deck-not-useful:${request.id}:${request.version}`;
+	const answeredAt = new Date().toISOString();
 	await recordObservedLearningInteraction(context, {
 		organizationId: orgId,
 		clientEventId,
@@ -129,7 +131,13 @@ export async function markDeckCardNotUseful(
 				model: prior.success ? prior.data.model : null,
 				exampleIds: prior.success ? prior.data.exampleIds : [],
 				retirement: { reason, workItemId: null },
-				notUseful: { reason: input.reason, sourceKey, classKey },
+				notUseful: {
+					reason: input.reason,
+					sourceKey,
+					classKey,
+					at: answeredAt,
+					...(input.note ? { note: input.note } : {}),
+				},
 				...(prior.success && prior.data.shadow
 					? { shadow: prior.data.shadow }
 					: {}),
@@ -142,6 +150,18 @@ export async function markDeckCardNotUseful(
 			restoreRevision: revision.revision - 1,
 		};
 	}
+
+	if (undo)
+		await recordDecisionAnswerOnBoard(context, {
+			orgId,
+			request,
+			answer: {
+				kind: "not_useful",
+				reason: input.reason,
+				note: input.note,
+				at: answeredAt,
+			},
+		});
 
 	const config = (await getDecisionLearningConfig(context.db, orgId))
 		.deckPipeline;

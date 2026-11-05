@@ -10,6 +10,10 @@ const mocks = vi.hoisted(() => ({
 	history: vi.fn(),
 	config: vi.fn(),
 	setLearned: vi.fn(),
+	board: vi.fn(),
+}));
+vi.mock("./decision-answer-board", () => ({
+	recordDecisionAnswerOnBoard: mocks.board,
 }));
 vi.mock("../rpc/routers/work-items-principal", () => ({
 	verifiedActiveWorkActor: mocks.actor,
@@ -96,7 +100,12 @@ describe("markDeckCardNotUseful", () => {
 		expect(mocks.append.mock.calls[0]?.[1].state).toMatchObject({
 			status: "cancelled",
 			retirement: { reason: "no_longer_relevant" },
-			notUseful: { reason: "not_for_me" },
+			notUseful: { reason: "not_for_me", at: expect.any(String) },
+		});
+		expect(mocks.board.mock.calls[0]?.[1]).toMatchObject({
+			orgId,
+			request: { id: cardId },
+			answer: { kind: "not_useful", reason: "not_for_me" },
 		});
 	});
 
@@ -133,6 +142,7 @@ describe("markDeckCardNotUseful", () => {
 		});
 		expect(result).toMatchObject({ retired: false, undo: null });
 		expect(mocks.append).not.toHaveBeenCalled();
+		expect(mocks.board).not.toHaveBeenCalled();
 		expect(mocks.record).toHaveBeenCalledTimes(1);
 	});
 

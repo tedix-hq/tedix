@@ -242,6 +242,25 @@ export const SPANISH_FEED_DECK_COPY = {
 			rule: (sentence: string) => `A partir de ahora: ${sentence}`,
 			undo: "Deshacer",
 		},
+		outcome: {
+			notNeeded: "No necesario",
+			notNeededLine: (reason: string, time?: string) =>
+				`Dijiste que no hace falta — ${reason}${time ? ` · ${time}` : ""}`,
+			withdrawn: "Retirada",
+			withdrawnLine:
+				"La retiró el agente que preguntó. No hacía falta respuesta.",
+			answered: "Respondida",
+			answeredLine: "Respuesta guardada",
+			expired: "Caducada",
+			expiredLine: "Caducó sin respuesta",
+			reasons: {
+				already_decided: "ya decidido",
+				expired: "ya no es actual",
+				agent_could_do: "un agente puede hacerlo",
+				duplicate: "duplicada",
+				not_for_me: "no es para mí",
+			},
+		},
 		pipeline: {
 			lastCleaned: (time: string) => `Última limpieza ${time}`,
 			neverCleaned: "Sin limpieza todavía",

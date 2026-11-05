@@ -1,3 +1,4 @@
+import { decisionOutcome } from "@/lib/decision-outcome";
 import {
 	WorkPageHeader,
 	WorkListSkeleton,
@@ -407,7 +408,8 @@ export function WorkInteractionsPage() {
 				variant={effectiveState === "open" ? "warning" : "outline"}
 				className={mobile ? "mt-1 shrink-0" : undefined}
 			>
-				{sentenceCase(effectiveState)}
+				{decisionOutcome(request, effectiveState)?.label ??
+					sentenceCase(effectiveState)}
 			</Badge>
 		);
 		const target = (

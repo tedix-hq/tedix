@@ -291,6 +291,24 @@ const ENGLISH_COPY = {
 			rule: (sentence: string) => `From now on: ${sentence}`,
 			undo: "Undo",
 		},
+		outcome: {
+			notNeeded: "Not needed",
+			notNeededLine: (reason: string, time?: string) =>
+				`You said not needed — ${reason}${time ? ` · ${time}` : ""}`,
+			withdrawn: "Withdrawn",
+			withdrawnLine: "Withdrawn by the agent that asked. No answer was needed.",
+			answered: "Answered",
+			answeredLine: "Answer saved",
+			expired: "Expired",
+			expiredLine: "Expired without an answer",
+			reasons: {
+				already_decided: "already decided",
+				expired: "no longer current",
+				agent_could_do: "an agent can do this",
+				duplicate: "duplicate",
+				not_for_me: "not for me",
+			},
+		},
 		pipeline: {
 			lastCleaned: (time: string) => `Last cleaned ${time}`,
 			neverCleaned: "Not cleaned yet",

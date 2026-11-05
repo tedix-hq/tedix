@@ -425,7 +425,11 @@ it("does not announce All clear while decision history is loading", async () => 
 	);
 	client.removeQueries({
 		queryKey: osQuery.workInteractions.listInbox.queryOptions({
-			input: { projectId: undefined, limit: 50, states: ["resolved"] },
+			input: {
+				projectId: undefined,
+				limit: 50,
+				states: ["resolved", "cancelled"],
+			},
 		}).queryKey,
 		exact: true,
 	});
@@ -434,7 +438,11 @@ it("does not announce All clear while decision history is loading", async () => 
 	expect(
 		client.getQueryState(
 			osQuery.workInteractions.listInbox.queryOptions({
-				input: { projectId: undefined, limit: 50, states: ["resolved"] },
+				input: {
+					projectId: undefined,
+					limit: 50,
+					states: ["resolved", "cancelled"],
+				},
 			}).queryKey,
 		)?.status,
 	).toBe("pending");
