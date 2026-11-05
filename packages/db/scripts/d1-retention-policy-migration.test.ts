@@ -36,7 +36,7 @@ describe("D1 retention policy migrations", () => {
 		).toEqual({
 			mode: "move_to_logs_db",
 			keep_days: 14,
-			max_rows_per_run: 100,
+			max_rows_per_run: 2000,
 		});
 		sqlite.close();
 	});
@@ -59,15 +59,17 @@ describe("D1 retention policy migrations", () => {
 					"UPDATE d1_retention_policies SET mode = ?, keep_days = 30, max_rows_per_run = 25 WHERE table_name = 'skill_run_artifacts'",
 				)
 				.run(mode);
-			sqlite.exec(
-				readFileSync(
-					join(
-						migrationsDirectory,
-						"20261105023558_skill_artifact_retention_move_to_logs_db/migration.sql",
+			for (const directory of [
+				"20261105023558_skill_artifact_retention_move_to_logs_db",
+				"20261105065416_skill_artifact_retention_page_cap",
+			]) {
+				sqlite.exec(
+					readFileSync(
+						join(migrationsDirectory, directory, "migration.sql"),
+						"utf8",
 					),
-					"utf8",
-				),
-			);
+				);
+			}
 			expect(
 				sqlite
 					.prepare(

@@ -57,7 +57,13 @@ import type { D1RetentionPolicyRow } from "@tedix/db/schema/d1-retention";
 export const D1_ARCHIVE_PREFIX = "d1-archive/v1/";
 /** Rows per R2 object, per logs copy and per delete statement. */
 export const D1_ARCHIVE_CHUNK_ROWS = D1_RETENTION_PAGE_ROWS;
-const DEFAULT_TIME_BUDGET_MS = 20_000;
+/**
+ * Shared by every active policy (equal shares, leftovers flow to later
+ * tables). Each 15-minute tick has to move a few 500-row artifact pages, each
+ * costing a few seconds of reads, copies and R2 writes, or the main database
+ * grows faster than retention drains it.
+ */
+const DEFAULT_TIME_BUDGET_MS = 60_000;
 /** Conflicts kept in `last_report` for repair evidence. */
 const D1_RETENTION_CONFLICT_SAMPLE = 20;
 /** Waits before each retry of a statement D1 refused as overloaded. */

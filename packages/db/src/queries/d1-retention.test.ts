@@ -630,8 +630,9 @@ describe("artifact retention references", () => {
 	});
 
 	it("looks up registry pins by primary key instead of joining every organization artifact", async () => {
-		const { sqlite, db, spec, seed } = artifacts();
+		const { sqlite, db, spec, seed, evidence } = artifacts();
 		seed("free");
+		evidence("registered-elsewhere");
 		const queries: string[] = [];
 		const observed = createDbQueryClient(
 			createD1Facade(sqlite, {
