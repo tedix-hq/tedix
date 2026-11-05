@@ -4,7 +4,9 @@ import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { getTableName } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
+import { auditEvents } from "../src/schema/audit-events";
 import { LOGS_DB_TABLES } from "../src/schema/logs-db";
+import { tableDdl } from "../src/test/schema-ddl";
 import { renderLogsDbSchema } from "./logs-db-schema";
 
 const MIGRATIONS_DIR = path.resolve(
@@ -73,5 +75,21 @@ describe("logs database migrations", () => {
 			expect(
 				applied.prepare(`PRAGMA foreign_key_list("${table}")`).all(),
 			).toEqual([]);
+	});
+
+	it("renders audit lookup indexes in logs only", () => {
+		const logsDdl = renderLogsDbSchema("audit_events");
+		const mainDdl = tableDdl(auditEvents, {
+			expressionIndexes: true,
+		}).join("\n");
+		for (const name of [
+			"idx_audit_events_trace_timestamp",
+			"idx_audit_events_execution_timestamp",
+			"idx_audit_events_org_app_timestamp",
+			"idx_audit_events_org_actor_timestamp",
+		]) {
+			expect(logsDdl).toContain(name);
+			expect(mainDdl).not.toContain(name);
+		}
 	});
 });

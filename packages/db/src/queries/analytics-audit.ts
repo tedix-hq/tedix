@@ -125,6 +125,7 @@ export async function getAnalyticsAppFreshness(
 		{
 			from: new Date(input.windowStartSeconds * 1000).toISOString(),
 			to: new Date(input.windowEndSeconds * 1000).toISOString(),
+			order: "logs-first",
 		},
 	);
 	if (pages) {
@@ -183,8 +184,10 @@ export async function listAnalyticsExecutionAuditRows(
 	db: DbClient,
 	input: { executionId: string; organizationId?: string },
 ): Promise<AnalyticsAuditDrilldownRow[]> {
-	const pages = await readLogStores(db, (store) =>
-		listAnalyticsExecutionAuditRows(store, input),
+	const pages = await readLogStores(
+		db,
+		(store) => listAnalyticsExecutionAuditRows(store, input),
+		{ order: "logs-first" },
 	);
 	if (pages) {
 		const rows = pages
@@ -227,8 +230,10 @@ export async function listRecentAnalyticsAuditActivity(
 		limit: number;
 	},
 ): Promise<AnalyticsAuditActivityRow[]> {
-	const pages = await readLogStores(db, (store) =>
-		listRecentAnalyticsAuditActivity(store, input),
+	const pages = await readLogStores(
+		db,
+		(store) => listRecentAnalyticsAuditActivity(store, input),
+		{ order: "logs-first" },
 	);
 	if (pages) {
 		const rows = pages
@@ -259,8 +264,10 @@ export async function listAnalyticsTraceActivity(
 	db: DbClient,
 	input: { traceId: string; organizationId?: string },
 ): Promise<AnalyticsAuditActivityRow[]> {
-	const pages = await readLogStores(db, (store) =>
-		listAnalyticsTraceActivity(store, input),
+	const pages = await readLogStores(
+		db,
+		(store) => listAnalyticsTraceActivity(store, input),
+		{ order: "logs-first" },
 	);
 	if (pages) {
 		const rows = pages
@@ -298,6 +305,7 @@ export async function listAnalyticsAuditActivityWindow(
 		{
 			from: new Date(input.startSeconds * 1000).toISOString(),
 			to: new Date(input.endSeconds * 1000).toISOString(),
+			order: "logs-first",
 		},
 	);
 	if (pages) {

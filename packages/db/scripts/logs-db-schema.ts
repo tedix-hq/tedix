@@ -16,7 +16,7 @@
 
 import { writeFileSync } from "node:fs";
 import { getTableName } from "drizzle-orm";
-import { LOGS_DB_TABLES } from "../src/schema/logs-db";
+import { LOGS_DB_INDEXES, LOGS_DB_TABLES } from "../src/schema/logs-db";
 import { tableDdl } from "../src/test/schema-ddl";
 
 export function renderLogsDbSchema(tableName?: string): string {
@@ -24,9 +24,15 @@ export function renderLogsDbSchema(tableName?: string): string {
 		? LOGS_DB_TABLES.filter((table) => getTableName(table) === tableName)
 		: LOGS_DB_TABLES;
 	if (!tables.length) throw new Error(`Unknown logs table: ${tableName}`);
-	const statements = tables.flatMap((table) =>
-		tableDdl(table, { foreignKeys: false, expressionIndexes: true }),
-	);
+	const tableNames = new Set(tables.map(getTableName));
+	const statements = [
+		...tables.flatMap((table) =>
+			tableDdl(table, { foreignKeys: false, expressionIndexes: true }),
+		),
+		...LOGS_DB_INDEXES.filter((index) => tableNames.has(index.table)).map(
+			(index) => index.ddl,
+		),
+	];
 	return `-- Logs database schema, rendered by scripts/logs-db-schema.ts.\n-- Log tables without foreign keys, plus logs-local metadata.\n${statements.join("\n")}\n`;
 }
 
