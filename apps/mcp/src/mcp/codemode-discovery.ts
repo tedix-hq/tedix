@@ -270,6 +270,30 @@ const CATALOG_SEARCH_DESCRIPTION_CHARS = 4_000;
 const CATALOG_SEARCH_PARAMETERS_CHARS = 2_000;
 
 /**
+ * Above this many rows an unfiltered search no longer walks input schemas.
+ * A schema hit weighs 1 against 4-14 for the other fields, yet on the 16k-tool
+ * Connect catalog it was half of each search's CPU and most of its garbage:
+ * every term no name or description matched walked all 16k schemas. Connect
+ * `discover.search` then failed with Cloudflare 1102 (5 Nov). A namespace
+ * filter, or a catalog this size or smaller, still matches parameter names.
+ */
+export const CATALOG_SCHEMA_SEARCH_MAX_ROWS = 4_000;
+
+export function catalogSearchesSchemas(
+	catalog: Record<string, Record<string, unknown>>,
+	namespaceFiltered = false,
+): boolean {
+	if (namespaceFiltered) return true;
+	let rows = 0;
+	for (const tools of Object.values(catalog)) {
+		for (const _ in tools) {
+			if (++rows > CATALOG_SCHEMA_SEARCH_MAX_ROWS) return false;
+		}
+	}
+	return true;
+}
+
+/**
  * Scoring reads each entry's own fields; it never builds normalized copies.
  * A query term is lowercase `[a-z0-9]+`, and normalization only lowercases and
  * turns every other character into a space, so a case-insensitive substring
@@ -506,6 +530,7 @@ function scoringFieldWeight(
 	meta: CatalogToolEntry,
 	term: PreparedSearchTerm,
 	best: number,
+	scoreSchema: boolean,
 ): number {
 	const patterns = term.patterns;
 	if (best < 12 && textContains(toolName, patterns)) return 12;
@@ -518,7 +543,8 @@ function scoringFieldWeight(
 	) {
 		return 4;
 	}
-	if (best < 1 && schemaContains(meta.parameters, term)) return 1;
+	if (best < 1 && scoreSchema && schemaContains(meta.parameters, term))
+		return 1;
 	return best;
 }
 
@@ -545,16 +571,21 @@ const lastCatalogMatch = new WeakMap<
 		query: string;
 		namespace: string;
 		toolName: string;
+		scoreSchema: boolean;
 		match: CatalogSearchMatch | null;
 	}
 >();
 
-// One shared key string per query, so 16k match records add no strings.
+// One shared key string per query, so 16k match records add no strings. The
+// terms array is reused for every row of a search, so join it once.
+let lastQueryTerms: readonly string[] | undefined;
 let lastQueryKey = "";
 
 function queryKey(terms: readonly string[]): string {
+	if (terms === lastQueryTerms) return lastQueryKey;
 	const key = terms.join(" ");
 	if (key !== lastQueryKey) lastQueryKey = key;
+	lastQueryTerms = terms;
 	return lastQueryKey;
 }
 
@@ -563,6 +594,7 @@ export function scoreCatalogSearch(
 	namespace: string,
 	toolName: string,
 	meta: CatalogToolEntry,
+	scoreSchema = true,
 ): CatalogSearchMatch | null {
 	if (terms.length === 0) {
 		return { score: 1, matchedTerms: [], unmatchedTerms: [] };
@@ -580,12 +612,26 @@ export function scoreCatalogSearch(
 	if (
 		cached?.query === query &&
 		cached.namespace === namespace &&
-		cached.toolName === toolName
+		cached.toolName === toolName &&
+		cached.scoreSchema === scoreSchema
 	) {
 		return cached.match;
 	}
-	const match = computeCatalogSearch(terms, query, namespace, toolName, meta);
-	lastCatalogMatch.set(matchKey, { query, namespace, toolName, match });
+	const match = computeCatalogSearch(
+		terms,
+		query,
+		namespace,
+		toolName,
+		meta,
+		scoreSchema,
+	);
+	lastCatalogMatch.set(matchKey, {
+		query,
+		namespace,
+		toolName,
+		scoreSchema,
+		match,
+	});
 	return match;
 }
 
@@ -595,13 +641,14 @@ function computeCatalogSearch(
 	namespace: string,
 	toolName: string,
 	meta: CatalogToolEntry,
+	scoreSchema: boolean,
 ): CatalogSearchMatch | null {
 	let score = 0;
 	const matchedTerms: string[] = [];
 	const unmatchedTerms: string[] = [];
 	for (const term of prepareSearchTerms(terms, query)) {
 		let best = namespaceWeight(namespace, term.variants, term.patterns);
-		best = scoringFieldWeight(toolName, meta, term, best);
+		best = scoringFieldWeight(toolName, meta, term, best, scoreSchema);
 		if (best > 0) {
 			score += best;
 			matchedTerms.push(term.term);
@@ -654,11 +701,20 @@ export function nearestCatalogNamespaces(
 	sampleTools: string[];
 }> {
 	const terms = normalizeSearchTerms(query);
+	// Hints read the whole catalog, so they follow its size rule even when the
+	// ranked search was namespace-filtered.
+	const scoreSchema = catalogSearchesSchemas(catalog);
 	return Object.entries(catalog)
 		.map(([namespace, tools]) => {
 			let score = 0;
 			for (const [toolName, meta] of Object.entries(tools)) {
-				const match = scoreCatalogSearch(terms, namespace, toolName, meta);
+				const match = scoreCatalogSearch(
+					terms,
+					namespace,
+					toolName,
+					meta,
+					scoreSchema,
+				);
 				score = Math.max(score, match?.score ?? 0);
 			}
 			if (score === 0) {

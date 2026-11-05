@@ -5,6 +5,8 @@ import type {
 	CatalogPageEntry,
 } from "./codemode-catalog-entries";
 import {
+	CATALOG_SCHEMA_SEARCH_MAX_ROWS,
+	catalogSearchesSchemas,
 	editDistance,
 	enrichToolNotFoundError,
 	enrichUnmountedNamespaceError,
@@ -316,6 +318,44 @@ describe("Code Mode discovery helpers", () => {
 			).toMatchObject({ matchedTerms: ["invoicenumber"] });
 		}
 		expect(keyEnumerations).toBe(1);
+	});
+
+	it("skips schema walks on an unfiltered catalog-scale search", () => {
+		const schemaReads = { count: 0 };
+		const parameters = new Proxy(
+			{ type: "object", properties: { invoiceNumber: { type: "string" } } },
+			{
+				ownKeys(target) {
+					schemaReads.count++;
+					return Reflect.ownKeys(target);
+				},
+			},
+		);
+		const tools = Object.fromEntries(
+			Array.from({ length: CATALOG_SCHEMA_SEARCH_MAX_ROWS + 1 }, (_, i) => [
+				`get_record_${i}`,
+				entry("billing", `get_record_${i}`, { parameters }),
+			]),
+		);
+		const catalog = { billing: tools };
+		expect(catalogSearchesSchemas(catalog)).toBe(false);
+		expect(catalogSearchesSchemas(catalog, true)).toBe(true);
+		expect(
+			catalogSearchesSchemas({ billing: { one: tools.get_record_0! } }),
+		).toBe(true);
+		const terms = normalizeSearchTerms("invoiceNumber");
+		const meta = tools.get_record_0!;
+		expect(
+			scoreCatalogSearch(terms, "billing", "get_record_0", meta, false),
+		).toBeNull();
+		expect(schemaReads.count).toBe(0);
+		// The hint pass follows the catalog's size rule, so it walks no schema.
+		nearestCatalogNamespaces("invoiceNumber", catalog);
+		expect(schemaReads.count).toBe(0);
+		// A namespace-filtered search still matches parameter names.
+		expect(
+			scoreCatalogSearch(terms, "billing", "get_record_0", meta, true),
+		).toMatchObject({ matchedTerms: ["invoicenumber"] });
 	});
 
 	it("finds nearest namespaces and useful query suggestions", () => {
