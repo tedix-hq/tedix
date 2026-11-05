@@ -1,3 +1,4 @@
+import { readResponseFields } from "./field-selection";
 import { attachExchangedToken } from "./token-exchange-pilot";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { applyMcpCustomHeaders } from "./handler-external-request";
@@ -331,6 +332,9 @@ export class ToolHandler {
 		input: Record<string, unknown>,
 		ctx: ToolExecutionContext<ToolConfig>,
 	): Promise<RpcToolResult> {
+		readResponseFields(input);
+		const { _fields, ...upstreamInput } = input;
+		input = upstreamInput;
 		const config = ctx.config;
 		const expectedConfig = ctx.requestMeta?.["tedix/expectedToolConfig"];
 		if (

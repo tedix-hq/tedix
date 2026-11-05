@@ -27,6 +27,8 @@ export const MCP_ANALYTICS_DOUBLE = {
 	toolInputSize: "double3",
 	toolOutputSize: "double4",
 	tokensUsed: "double5",
+	responseBytesBefore: "double6",
+	responseBytesAfter: "double7",
 } as const;
 
 export const MCP_ANALYTICS_BLOB_ORDER = [
@@ -51,6 +53,8 @@ export const MCP_ANALYTICS_DOUBLE_ORDER = [
 	"toolInputSize",
 	"toolOutputSize",
 	"tokensUsed",
+	"responseBytesBefore",
+	"responseBytesAfter",
 ] as const;
 
 export const MCP_CODEMODE_ANALYTICS_DOUBLE = {
@@ -98,6 +102,8 @@ export interface McpAnalyticsDataPointEvent {
 	success?: boolean;
 	durationMs?: number;
 	toolInputSize?: number;
+	responseBytesBefore?: number;
+	responseBytesAfter?: number;
 	toolOutputSize?: number;
 	tokensUsed?: number;
 }
@@ -148,6 +154,9 @@ export function buildMcpAnalyticsDataPoint(event: McpAnalyticsDataPointEvent): {
 			event.toolInputSize || 0,
 			event.toolOutputSize || 0,
 			event.tokensUsed || 0,
+			...(event.eventType === "tool_call"
+				? [event.responseBytesBefore || 0, event.responseBytesAfter || 0]
+				: []),
 		],
 		indexes: [event.appId || "unknown"],
 	};

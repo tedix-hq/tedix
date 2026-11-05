@@ -1,3 +1,4 @@
+import { withFieldSelectionSchema } from "./field-selection";
 import { gateDecisionMetadata } from "./gate-decision";
 import { resolveHumanPolicyReplay } from "./tenant-human-replay";
 import {
@@ -734,9 +735,8 @@ export function buildNamespaceGroups(
 				description: tool.description ?? toolId,
 				inputSchema: {
 					type: "object" as const,
-					properties: (withDestructiveApprovalSchema(
-						tool,
-						resolveWireAnnotations(tool),
+					properties: (withFieldSelectionSchema(
+						withDestructiveApprovalSchema(tool, resolveWireAnnotations(tool)),
 					).properties ??
 						{}) as JsonSchemaToolDescriptors[string]["inputSchema"]["properties"],
 				},

@@ -1,3 +1,4 @@
+import { withFieldSelectionSchema } from "./field-selection";
 import { createMcpLogger } from "../log";
 import { nativeCatalogToolMeta } from "./registration/bootstrap";
 import { isToolDeniedForConnection } from "./no-funds-policy";
@@ -55,7 +56,9 @@ const log = createMcpLogger("mcp.tool_registration");
 function buildToolInputSchema(tool: AppTool): ToolInputStandardSchema {
 	const transport = tool.config?.transport;
 	return jsonSchemaToInputSchema(
-		withDestructiveApprovalSchema(tool, resolveWireAnnotations(tool)),
+		withFieldSelectionSchema(
+			withDestructiveApprovalSchema(tool, resolveWireAnnotations(tool)),
+		),
 		{
 			toolId: tool.toolId,
 			lenient: transport === "external" || transport === "mcp",

@@ -271,7 +271,14 @@ describe("catalog projection reuse", () => {
 		expect(read).not.toHaveBeenCalled();
 		expect(
 			groups.get("apps")!.schemas.read_item?.inputSchema.properties,
-		).toEqual(schema.properties);
+		).toEqual({
+			...schema.properties,
+			_fields: {
+				type: "array",
+				items: { type: "string", minLength: 1 },
+				description: expect.stringContaining("Reserved runtime argument"),
+			},
+		});
 		expect(read).toHaveBeenCalledTimes(1);
 	});
 	it("enumerates 16k bindings and legacy aliases without building executable namespaces", () => {

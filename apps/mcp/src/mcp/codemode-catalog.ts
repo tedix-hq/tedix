@@ -1,3 +1,4 @@
+import { withFieldSelectionSchema } from "./field-selection";
 import { projectCatalogMeta } from "@tedix/mcp-shared/catalog-projection";
 import { type ServerContext } from "./server-context";
 import { tenantProfileDiscoveryPotential } from "./tenant-profile-candidate";
@@ -491,7 +492,9 @@ export function buildCatalogProvider(
 			return createCatalogToolEntry(ns, safeName, {
 				name: tool.title ?? toolId,
 				description: `${humanizeWeakDescription(tool.description, safeName)}${paymentDescription}`,
-				parameters: withDestructiveApprovalSchema(tool, wireAnnotations),
+				parameters: withFieldSelectionSchema(
+					withDestructiveApprovalSchema(tool, wireAnnotations),
+				),
 				annotations: wireAnnotations,
 				_meta: toolApprovalMetadata(tool),
 				outputSchema: tool.outputSchema as

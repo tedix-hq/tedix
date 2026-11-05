@@ -71,6 +71,8 @@ export interface McpEvent {
 	// Tool/prompt call specific
 	toolName?: string; // Tool or prompt identifier
 	toolInputSize?: number; // Input JSON byte size
+	responseBytesBefore?: number;
+	responseBytesAfter?: number;
 	toolOutputSize?: number; // Output JSON byte size
 	durationMs?: number; // Execution time in milliseconds
 

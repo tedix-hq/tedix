@@ -90,6 +90,8 @@ describe("MCP Analytics Engine data point contract", () => {
 			toolInputSize: 128,
 			toolOutputSize: 256,
 			tokensUsed: 512,
+			responseBytesBefore: 4096,
+			responseBytesAfter: 128,
 		});
 
 		expect(dataPoint.blobs).toEqual([
@@ -107,7 +109,7 @@ describe("MCP Analytics Engine data point contract", () => {
 			"trace-id",
 			"pre_registered",
 		]);
-		expect(dataPoint.doubles).toEqual([0, 42, 128, 256, 512]);
+		expect(dataPoint.doubles).toEqual([0, 42, 128, 256, 512, 4096, 128]);
 		expect(dataPoint.indexes).toEqual(["app-id"]);
 		expect(MCP_ANALYTICS_BLOB.executionId).toBe("blob11");
 		expect(MCP_ANALYTICS_BLOB.registrationMethod).toBe("blob13");
@@ -133,6 +135,8 @@ describe("MCP Analytics Engine data point contract", () => {
 			"toolInputSize",
 			"toolOutputSize",
 			"tokensUsed",
+			"responseBytesBefore",
+			"responseBytesAfter",
 		]);
 	});
 

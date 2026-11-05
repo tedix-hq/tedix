@@ -413,3 +413,14 @@ describe("MCP caller telemetry helpers", () => {
 		});
 	});
 });
+
+it("writes field-selection byte counts to the tool_call Analytics Engine tail", () => {
+	const writeDataPoint = vi.fn();
+	trackMcpEvent(
+		{ ANALYTICS: { writeDataPoint } } as unknown as CloudflareEnv,
+		baseEvent({ responseBytesBefore: 30000, responseBytesAfter: 800 }),
+	);
+	expect(writeDataPoint).toHaveBeenCalledWith(
+		expect.objectContaining({ doubles: [1, 42, 0, 0, 0, 30000, 800] }),
+	);
+});

@@ -162,6 +162,35 @@ Verify the entrypoint in the actual ChatGPT host after deployment and plugin
 discovery refresh. A local render or MCP descriptor does not prove that the
 host displayed the sidebar entry.
 
+## Response Field Selection
+
+Pass `_fields: string[]` in a tool's arguments to return only the response
+paths you need. For example, after describing the callable and checking its
+response shape:
+
+```js
+return await work.list_work_items({
+	_fields: ["data.id", "data.title"],
+});
+```
+
+Paths use dots for nested properties. `data.id` selects `id` in every item
+of a `data` array, retaining array order and nesting. Selecting a parent keeps
+its whole value. Missing paths are omitted; an empty array returns `{}`.
+Paths must have non-empty segments and cannot contain prototype keys
+(`__proto__`, `constructor`, `prototype`). Invalid selectors fail before dispatch.
+
+The gateway advertises this reserved argument in `discover.describe` and native
+input schemas and Code Mode stubs, without changing stored D1 tool schemas.
+It strips `_fields` before upstream dispatch. Selection runs after configured
+response shaping and full output validation, before the 6,000-token cap and
+before result-handle storage in R2. Error results and transport metadata remain
+available. An omitted `_fields` preserves the normal response.
+
+The `tool_call` Analytics Engine event records UTF-8 JSON byte counts as
+`responseBytesBefore` (`double6`) and `responseBytesAfter` (`double7`) for
+selected responses; existing input/output size slots retain their meaning.
+
 ## Result Bounds and Prompt Budget
 
 `shapeBoundedCodeModeResult()` passes results through up to 6,000 tokens
