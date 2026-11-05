@@ -333,9 +333,10 @@ See [Build a factory](../../docs/public/factory-agent-guide.md#build-a-factory).
 ## Native Work commands
 
 `tedix work` resolves typed operations through the authenticated gateway's native
-bootstrap and configured catalog. Missing, denied, stale, ambiguous, or
-non-native catalog entries refuse the command; Work commands do not fall back to
-Code Mode. Configure the required native tools before activating this CLI.
+bootstrap and the built-in native catalog every Code Mode organization gateway
+offers. Missing, denied, stale, ambiguous, or non-native catalog entries refuse
+the command; Work commands do not fall back to Code Mode. The credential needs
+`mcp:catalog.read`.
 
 `--as` selects a read-only namespace and does not grant another actor's identity.
 The configured input schema must support every supplied filter, including

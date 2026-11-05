@@ -66,7 +66,7 @@ call. `discover.list_namespaces({ includeTools })` is for inventory.
 `discover.describe(callable)` returns the full input schema, description and
 annotations. Request the output schema only when needed with
 `discover.describe({ callable, includeOutputSchema: true })`.
-The configured native `catalog/describe` transport retains its full descriptor
+The native `catalog/describe` transport retains its full descriptor
 for existing clients; the CLI explicitly fetches output schemas through
 `catalog/search` with `includeOutputSchema: true` for result validation.
 Contract (`buildCatalogProvider`):
@@ -90,15 +90,16 @@ Contract (`buildCatalogProvider`):
 - A `describe` miss means the callable is absent from this gateway's catalog,
   not that membership or upstream credentials are broken.
 
-Tools with `transport: "catalog"` expose `catalog/search` / `catalog/describe`
-through the same request-local projection without a Dynamic Worker (see
-`docs/public/mcp-app-platform.md`).
+The built-in `search_native_tools` / `get_native_tool_schema` pair
+(`apps/mcp/src/mcp/native-catalog-tools.ts`) exposes `catalog/search` /
+`catalog/describe` through the same request-local projection without a Dynamic
+Worker (see `docs/public/mcp-app-platform.md`).
 
 ## Outer Surface Lanes
 
 Pinned by `apps/mcp/src/mcp/outer-surface-lanes.test.ts`: a Code Mode app
 lists `code` as its only top-level tool by default. The stateless fast path
-(`index.ts`) adds configured catalog rows but never `ask` (it needs an org
+(`index.ts`) adds the built-in native catalog pair but never `ask` (it needs an org
 context); the session lane (`server-factory.ts`) adds `ask`. Any other tool is
 listed only when its exact registered name is in `mcpConfig.codeModeNativeTools`
 (`code-mode-native-tools.ts`); this applies to the bootstrap `get_info` and

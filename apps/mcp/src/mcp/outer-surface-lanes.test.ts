@@ -1,4 +1,4 @@
-import { CatalogueSearchInputJsonSchema } from "@tedix/api-contract/schemas/tools";
+import { NATIVE_CATALOG_TOOLS } from "./native-catalog-tools";
 /**
  * Outer-surface lane conformance: the
  * registered outer tool surface per lane is a decided contract, not an
@@ -233,47 +233,50 @@ describe("outer-surface lanes", () => {
 	});
 });
 
-describe("configured compact native catalog rows", () => {
+describe("built-in compact native catalog", () => {
 	function app(
-		rows: unknown[],
-		scopes: Record<string, string[]> = { find_tools: ["mcp:catalog.read"] },
+		rows: unknown[] = [],
+		mcpConfig: Record<string, unknown> = {},
+		slug = "fictional-unified",
 	) {
 		return {
-			app: { slug: "tedix-unified", name: "Tedix" },
+			app: { slug, name: "Fictional" },
 			tools: rows,
 			metadata: {
-				mcpConfig: {
-					codeMode: true,
-					authMode: "authenticated",
-					toolScopes: scopes,
-				},
+				mcpConfig: { codeMode: true, authMode: "authenticated", ...mcpConfig },
 			},
 		} as never;
 	}
-	const row = {
-		id: "fictional",
-		toolId: "find_tools",
-		title: "Find permitted tools",
+	const storedRow = {
+		id: "fictional-stored-row",
+		toolId: "search_native_tools",
+		title: "Stored title",
 		description: "Stored description",
 		toolTypeId: "rpc",
 		enabled: true,
 		config: { transport: "catalog", endpoint: "catalog/search" },
-		inputSchema: CatalogueSearchInputJsonSchema,
-		outputSchema: { type: "object" },
+		inputSchema: { type: "object", properties: {} },
+		outputSchema: null,
 		annotations: { readOnlyHint: true },
 	};
 	const headers = new Headers({
 		"x-tedix-auth-type": "oauth",
 		"x-tedix-auth-scopes": "mcp:catalog.read",
 	});
-	it("uses actual configured metadata and caller capability, never aggregate hydration", () => {
-		const tools = compactCodeModeTools(app([row]), headers);
-		expect(tools.find((tool) => tool.name === "find_tools")).toMatchObject({
-			title: row.title,
-			description: row.description,
-			inputSchema: row.inputSchema,
-			outputSchema: row.outputSchema,
-			annotations: row.annotations,
+	const names = (tools: Array<Record<string, unknown>>) =>
+		tools.map((tool) => String(tool.name)).filter((name) => name !== "code");
+	it("lists the code-built pair on every Code Mode gateway with its code-defined scope", () => {
+		const [search, describe] = NATIVE_CATALOG_TOOLS;
+		const tools = compactCodeModeTools(app(), headers);
+		expect(names(tools)).toEqual(
+			expect.arrayContaining(["search_native_tools", "get_native_tool_schema"]),
+		);
+		expect(
+			tools.find((tool) => tool.name === "search_native_tools"),
+		).toMatchObject({
+			description: search!.description,
+			inputSchema: search!.inputSchema,
+			annotations: search!.annotations,
 			securitySchemes: [{ type: "oauth2", scopes: ["mcp:catalog.read"] }],
 			_meta: {
 				"com.tedix/nativeCatalog": {
@@ -284,26 +287,34 @@ describe("configured compact native catalog rows", () => {
 			},
 		});
 		expect(
-			compactCodeModeTools(app([row]), new Headers()).some(
-				(tool) => tool.name === "find_tools",
-			),
-		).toBe(false);
-		expect(
-			compactCodeModeTools(app([row], {}), headers).some(
-				(tool) => tool.name === "find_tools",
-			),
-		).toBe(false);
-		expect(
-			compactCodeModeTools(app([row, row]), headers).some(
-				(tool) => tool.name === "find_tools",
-			),
-		).toBe(false);
-		expect(
-			compactCodeModeTools(
-				app([{ ...row, toolId: "code" }], { code: ["mcp:catalog.read"] }),
-				headers,
-			).filter((tool) => tool.name === "code"),
-		).toHaveLength(1);
+			tools.find((tool) => tool.name === "get_native_tool_schema"),
+		).toMatchObject({ inputSchema: describe!.inputSchema });
+	});
+	it("ignores stored catalog rows instead of listing a duplicate", () => {
+		const tools = compactCodeModeTools(app([storedRow]), headers);
+		const listed = tools.filter((tool) => tool.name === "search_native_tools");
+		expect(listed).toHaveLength(1);
+		expect(listed[0]?.description).toBe(NATIVE_CATALOG_TOOLS[0]!.description);
+	});
+	it("withholds the pair from callers without the scope and from non-Code Mode, policy-mode or multi-org surfaces", () => {
+		for (const [resolved, requestHeaders] of [
+			[app(), new Headers()],
+			[
+				app(),
+				new Headers({
+					"x-tedix-auth-type": "oauth",
+					"x-tedix-auth-scopes": "mcp:work.read",
+				}),
+			],
+			[app([storedRow], { codeMode: false }), headers],
+			[app([], { multiOrgConsent: true }, "connect"), headers],
+			[app([], { enforcePolicies: true }), headers],
+		] as const)
+			expect(
+				names(compactCodeModeTools(resolved, requestHeaders)).filter((name) =>
+					name.includes("native"),
+				),
+			).toEqual([]);
 	});
 });
 

@@ -11,6 +11,10 @@ import {
 	type ToolAuthShape,
 } from "@tedix/mcp-shared/auth/tool-scopes";
 import type { ServerContext } from "./server-context";
+import {
+	isNativeCatalogTool,
+	NATIVE_CATALOG_REQUIRED_SCOPES,
+} from "./native-catalog-tools";
 
 export class CodeModeAuthorizationError extends Error {
 	readonly requiredScopes: string[];
@@ -40,6 +44,9 @@ export function resolveCodeModeInnerToolScopes(
 	toolCall?: { arguments: unknown },
 	verifiedBoundedCall?: boolean,
 ): string[] {
+	// The built-in catalog pair declares its scope in code; gateway config cannot change it.
+	if (isNativeCatalogTool(tool as ToolAuthShape & { id?: string }))
+		return [...NATIVE_CATALOG_REQUIRED_SCOPES];
 	const effect =
 		tool.config?.transport === "mcp"
 			? reviewedConnectedEffect({

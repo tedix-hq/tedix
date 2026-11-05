@@ -14,6 +14,7 @@ import {
 
 import type { AppTool, ServerContext } from "./server-context";
 import { resolveMcpToolNamespace } from "@tedix/mcp-shared/auth/tool-scopes";
+import { isNativeCatalogTool } from "./native-catalog-tools";
 
 /**
  * Derive securitySchemes for a tool based on app's authMode and toolScopes.
@@ -161,7 +162,9 @@ export function enforceNativeToolScopeGate(
 	const source = (tool.meta as { source?: unknown } | null)?.source;
 	const config = tool.config as Record<string, unknown> | null | undefined;
 	const isAggregate = typeof config?._aggregateNamespace === "string";
-	if (source !== "homeSurface" && !isAggregate) return null;
+	// The built-in catalog pair is added after the edge gate, like Home tools.
+	const isNativeCatalog = isNativeCatalogTool(tool);
+	if (source !== "homeSurface" && !isAggregate && !isNativeCatalog) return null;
 
 	// Resolve the namespace the same way Code Mode does, so a tool reachable
 	// through both surfaces can never get two different verdicts.

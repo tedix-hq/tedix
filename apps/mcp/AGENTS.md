@@ -39,9 +39,10 @@ Authorization, native eligibility and execution closures remain request-local.
 
 Every app tool is a config-driven `app_tools` row executed by the universal
 `ToolHandler` (`src/mcp/handler.ts` — six transports: rpc/rest/external/mcp/
-code/catalog). The `catalog` transport runs configured `catalog/search` and
+code/catalog). The `catalog` transport runs `catalog/search` and
 `catalog/describe` through the same authorized catalog projection with fresh
-request context; it does not create a WorkerLoader. Native RPC descriptors
+request context; it does not create a WorkerLoader. Only the code-built pair in
+`src/mcp/native-catalog-tools.ts` uses it; stored catalog rows are ignored. Native RPC descriptors
 remain subject to their endpoint scope checks. **No per-tool handler files.**
 The few code-built platform tools under
 `src/mcp/tools/` (widget authoring) are the deliberate exceptions,
@@ -63,7 +64,10 @@ of them:
   `enforceMcpAccess()` has run, so the request-level gate never sees them. They
   are gated by `enforceNativeToolScopeGate`
   (`src/mcp/tool-registration-policy.ts`), scoped to
-  `meta.source === "homeSurface"` and `config._aggregateNamespace`.
+  `meta.source === "homeSurface"`, `config._aggregateNamespace` and the
+  built-in native catalog pair. The pair's `mcp:catalog.read` is defined in
+  `src/mcp/native-catalog-tools.ts`; the edge gate applies the same scope when
+  it runs.
 
 The rule that follows: a tool registered after the edge gate runs is unguarded
 unless it gets its own dispatch-time check. Never add one without deciding
