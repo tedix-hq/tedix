@@ -39,6 +39,7 @@ describe("TenantStore router", () => {
 		} as unknown as DurableObjectNamespace;
 		const result = routeTenantQuery(
 			namespace,
+			{},
 			{ organizationId: "org_a", workspaceId: "ws_1", extra: true } as never,
 			(store, scope) => ({ store, scope }),
 		);
