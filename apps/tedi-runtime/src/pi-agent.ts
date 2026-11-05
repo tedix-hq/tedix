@@ -8,7 +8,7 @@ import { logTediPiReport, logTediRuntimeFailure } from "./runtime-failure-log";
 import { createPiTelemetry } from "./pi-telemetry";
 import type { ConfiguredConversationTurn } from "./conversation-facet";
 import { workflowImageUri } from "./workflow-image-handoff";
-import { finalReportInstruction } from "./facet-turn-stop";
+import { type FinalReportStop, finalReportPrompt } from "./facet-turn-stop";
 import {
 	RuntimeAdmissionDO,
 	readStoredRuntimeAdmission,
@@ -1212,12 +1212,11 @@ export abstract class PiAgent<Env extends Cloudflare.Env, State> extends Agent<
 				})),
 			];
 		} else if (operationId === `${binding.operationId}:final-report`) {
-			const stop = (
-				this.state as { finalReportStop?: { reason: string } | null }
-			).finalReportStop;
+			const stop = (this.state as { finalReportStop?: FinalReportStop | null })
+				.finalReportStop;
 			if (!stop?.reason)
 				throw new Error("Native final report has no owned stop");
-			parts = [{ type: "text", text: finalReportInstruction(stop.reason) }];
+			parts = [{ type: "text", text: finalReportPrompt(stop) }];
 		} else
 			throw new Error("Native submission is outside the accepted operation");
 		if (

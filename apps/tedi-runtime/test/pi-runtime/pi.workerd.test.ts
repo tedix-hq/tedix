@@ -203,6 +203,17 @@ describe("Production ConversationFacet on native Pi", () => {
 			});
 		},
 	);
+	it("continues an unexplained empty stop once with tools on, without a ceiling", async () => {
+		const agent = await fixture(crypto.randomUUID());
+		await agent.setup("empty");
+		const turn = await agent.turn("continue-empty", {});
+		expect(turn.result.assistantText).toContain("owned answer 2");
+		expect(turn.result.stopReason).toBeUndefined();
+		const stats = (await inspect(agent)).stats;
+		expect(stats.requests).toBe(2);
+		// The continuation is not a forced tools-off report.
+		expect(stats.toolChoices.at(-1)).not.toEqual({ type: "none" });
+	});
 	it("closes a spent delegated tool budget with one tool-free answer and no extra effect, including replay", async () => {
 		const name = crypto.randomUUID();
 		const agent = await fixture(name);

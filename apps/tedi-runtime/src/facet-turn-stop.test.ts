@@ -4,7 +4,11 @@ import {
 	composeStoppedTurnText,
 	finalReportInstruction,
 	emptyTurnModelError,
+	finalReportIsToolFree,
+	finalReportPrompt,
 	finalReportReason,
+	finalReportStopFor,
+	NO_WRITTEN_ANSWER,
 	reservedFinalStepConfig,
 	resolveFacetStepCeiling,
 	splitFinalReport,
@@ -170,3 +174,26 @@ assert.equal(
 	null,
 	"a clean empty finish still gets the tools-off final report",
 );
+
+// A clean empty stop mid-task continues once with tools on: a delegated tedi
+// stopped after its first tool result and its turn ended before the edit.
+const continued = finalReportStopFor({
+	reason: NO_WRITTEN_ANSWER,
+	stopped: false,
+	ceiling: null,
+});
+assert.equal(continued.continueWithTools, true);
+assert.equal(finalReportIsToolFree(continued), false);
+assert.match(finalReportPrompt(continued), /Continue it now with your tools/);
+// A budget stop, a governed ceiling or another reason still reports tools-off.
+for (const input of [
+	{ reason: "delegated tool-call budget spent", stopped: true, ceiling: null },
+	{ reason: NO_WRITTEN_ANSWER, stopped: false, ceiling: 8 },
+	{ reason: NO_WRITTEN_ANSWER, stopped: true, ceiling: null },
+]) {
+	const stop = finalReportStopFor(input);
+	assert.equal(stop.continueWithTools, undefined);
+	assert.equal(finalReportIsToolFree(stop), true);
+	assert.equal(finalReportPrompt(stop), finalReportInstruction(stop.reason));
+}
+assert.equal(finalReportIsToolFree(null), false);
