@@ -555,6 +555,8 @@ export interface McpConfig {
 	 * Key is tool_id, value is the list of acceptable scopes for that tool.
 	 */
 	toolScopes?: Record<string, string[]>;
+	/** Work thread that receives one comment when this gateway's tool contract changes. */
+	contractChangeWorkItemId?: string;
 
 	/**
 	 * Optional human-readable descriptions keyed by scope string.
