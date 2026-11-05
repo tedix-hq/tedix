@@ -742,7 +742,8 @@ export function buildDelegationWorkOrder(input: {
 	const appEdit = isWorkspaceAppRequest(sourceContent, route);
 	if (appEdit)
 		guidanceSeeds.push(
-			"This is a Tedix workspace app, not a repository: never open_computer or clone a repo. Use Code Mode (tedix_mcp_code) app tools.",
+			// A child guessed `.gadgets`, hit undefined and gave up.
+			"This is a Tedix workspace app, not a repository: never open_computer or clone a repo. Use Code Mode (tedix_mcp_code) app tools; list_os_gadgets returns { items: [{ id, name, status }] }.",
 			input.workspace?.workpiece?.kind === "gadget"
 				? `The open app is "${input.workspace.workpiece.name}" (gadgetId ${input.workspace.workpiece.id}) in workspace ${input.workspace.id}; read its files with gadgets_get_code.`
 				: input.workspace

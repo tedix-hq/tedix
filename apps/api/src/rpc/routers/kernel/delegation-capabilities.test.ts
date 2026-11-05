@@ -674,6 +674,8 @@ describe("workspace app edits", () => {
 		expect(guidance).toContain("gadgets_get_code");
 		expect(guidance).toContain("propose_os_app_edit");
 		expect(guidance).toContain("0c2464ac-201c-4e56-bb40-e1499d4673fe");
+		// The child guessed `.gadgets` and gave up; name the real result shape.
+		expect(guidance).toContain("{ items: [{ id, name, status }] }");
 		expect(guidance).not.toContain("open_computer({ repository: true })");
 		expect(guidance).not.toContain("browser_markdown");
 		// Catalog tool names differ by organization: Code Mode, not exact ids.
