@@ -54,9 +54,9 @@ import {
 	organizations as pgOrganizations,
 } from "./schema/organizations";
 import { principalIdentities as pgPrincipalIdentities } from "./schema/principal-identities";
+import { workAdmissions as pgWorkAdmissions } from "./schema/work-factory";
 import {
 	workAttempts as pgWorkAttempts,
-	workAdmissions as pgWorkAdmissions,
 	workItems as pgWorkItems,
 } from "./schema/work-items";
 
