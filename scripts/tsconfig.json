@@ -10,6 +10,8 @@
 		"types": ["node", "bun-types"]
 	},
 	"include": [
+		"db/prepare-audit-index-rebuild.ts",
+		"db/prepare-audit-index-rebuild.test.ts",
 		"db/audit-provider-capabilities.ts",
 		"db/audit-provider-capabilities.test.ts",
 		"db/d1-size-report.ts",

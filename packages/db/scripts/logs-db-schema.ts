@@ -27,7 +27,16 @@ export function renderLogsDbSchema(tableName?: string): string {
 	const tableNames = new Set(tables.map(getTableName));
 	const statements = [
 		...tables.flatMap((table) =>
-			tableDdl(table, { foreignKeys: false, expressionIndexes: true }),
+			tableDdl(table, { foreignKeys: false, expressionIndexes: true }).map(
+				// The rebuild creates these before the old table releases its names.
+				(statement) =>
+					getTableName(table) === "audit_events"
+						? statement.replace(
+								/("idx_audit_events_(?:org_timestamp|timestamp|resource))"/g,
+								'$1_logs"',
+							)
+						: statement,
+			),
 		),
 		...LOGS_DB_INDEXES.filter((index) => tableNames.has(index.table)).map(
 			(index) => index.ddl,
