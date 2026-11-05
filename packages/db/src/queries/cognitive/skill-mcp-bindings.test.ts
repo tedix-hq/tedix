@@ -113,6 +113,7 @@ async function recordSkill(
 	organizationId = ACME_ORG,
 ) {
 	return createSkillEntry(db, {
+		id: crypto.randomUUID(),
 		organizationId,
 		title: "Mail digest",
 		content: skillBody(mcp),

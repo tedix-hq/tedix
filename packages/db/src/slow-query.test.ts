@@ -51,11 +51,19 @@ describe("slow D1 observation", () => {
 			const { db, database, native, result, log } = fixture();
 			const sql = `SELECT "value" FROM "items" WHERE id = ? AND value = 'private''literal' AND n = 123 /* private comment */`;
 			const statement = db.prepare(sql).bind("private-binding");
-			expect(await statement[method]()).toBe(result);
+			const observed =
+				method === "all"
+					? await statement.all()
+					: method === "run"
+						? await statement.run()
+						: method === "raw"
+							? await statement.raw()
+							: await statement.first();
+			expect(observed).toBe(result);
 			expect(database.prepare).toHaveBeenCalledWith(sql);
 			expect(native.bind).toHaveBeenCalledWith("private-binding");
 			expect(log).toHaveBeenCalledOnce();
-			const event = log.mock.calls[0][0];
+			const event = log.mock.calls.at(0)![0];
 			expect(event).toMatchObject({
 				event: "db.query.slow",
 				sampleRate: 1,
@@ -88,7 +96,7 @@ describe("slow D1 observation", () => {
 		const { db, result, log } = fixture(1_500);
 		expect(await db.batch([db.prepare("SELECT ?").bind(7)])).toEqual([result]);
 		expect(log).toHaveBeenCalledOnce();
-		expect(log.mock.calls[0][0]).toMatchObject({
+		expect(log.mock.calls.at(0)![0]).toMatchObject({
 			durationMs: 1_500,
 			durationSource: "d1",
 			rowsRead: 500,

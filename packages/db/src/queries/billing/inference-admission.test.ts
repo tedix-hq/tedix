@@ -138,7 +138,6 @@ describe("batched inference admission reads", () => {
 		const { db, sqlite } = setup();
 		const statements: string[] = [];
 		const original = sqlite.prepare.bind(sqlite);
-		// @ts-expect-error -- test double over the node:sqlite handle
 		sqlite.prepare = (sql: string) => {
 			statements.push(sql);
 			return original(sql);

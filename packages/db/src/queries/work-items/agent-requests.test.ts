@@ -103,8 +103,7 @@ describe("agent requests on the migrated approval ledger", () => {
 		).toBeNull();
 		const inbox = await listWorkApprovalInbox(db, {
 			orgId: "org",
-			approverType: "user",
-			approverId: "approver",
+			party: { type: "user", id: "approver", role: "approver" },
 			observedAt: NOW,
 		});
 		expect(inbox.data[0]?.proposal.proposal).toEqual(payload);

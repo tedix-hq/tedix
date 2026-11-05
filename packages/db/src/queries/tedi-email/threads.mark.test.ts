@@ -31,7 +31,7 @@ function fixture() {
 		["other-thread", "org-1", "tedi-1"],
 		["other-tedi", "org-1", "tedi-2"],
 		["other-org", "org-2", "tedi-1"],
-	]) {
+	] as const) {
 		insertThread.run(id, org, tedi);
 		insertMessage.run(`${id}-1`, id, org, tedi);
 		insertMessage.run(`${id}-2`, id, org, tedi);

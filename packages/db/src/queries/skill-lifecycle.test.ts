@@ -416,7 +416,10 @@ describe("assertSkillLifecycleTransition via updateSkillEntry", () => {
 		expect(created.lifecycleState).toBe("draft");
 	});
 
-	it.each([null, {}, { "references/guide.md": "# Guide" }])(
+	it.each([null, {}, { "references/guide.md": "# Guide" }] as Array<Record<
+		string,
+		string
+	> | null>)(
 		"activates instruction-only skills with files %j without workflow evidence",
 		async (files) => {
 			const { db, insertSkill, skillRow } = fixture();

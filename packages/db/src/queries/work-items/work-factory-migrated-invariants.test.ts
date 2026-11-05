@@ -2194,6 +2194,8 @@ describe("lane human handoffs with production triggers", () => {
 				"SELECT id,status,prompt FROM work_interactions WHERE json_extract(metadata,'$.laneNudge.requestId')=?",
 			)
 			.get(interactionId!)!;
+		if (typeof reminder.id !== "string")
+			throw new TypeError("missing reminder id");
 		expect(reminder.status).toBe("open");
 		expect(reminder.prompt).toContain("performs no step");
 		// The original still open: a later tick keeps the reminder.

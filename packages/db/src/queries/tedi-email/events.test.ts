@@ -60,14 +60,12 @@ describe("content-free email outcome receipts", () => {
 		await expect(
 			findUniqueInboundTediEmailMessageIdentityByHeader(db, {
 				tediId: "tedi-1",
-				organizationId: "org-1",
 				messageIdHeader: "<same@example.org>",
 			}),
 		).resolves.toMatchObject({ status: "found", message: { id: "a" } });
 		await expect(
 			findUniqueInboundTediEmailMessageIdentityByHeader(db, {
 				tediId: "tedi-1",
-				organizationId: "org-1",
 				messageIdHeader: "same@example.org",
 			}),
 		).resolves.toEqual({ status: "missing" });
@@ -75,7 +73,6 @@ describe("content-free email outcome receipts", () => {
 		await expect(
 			findUniqueInboundTediEmailMessageIdentityByHeader(db, {
 				tediId: "tedi-1",
-				organizationId: "org-1",
 				messageIdHeader: "<same@example.org>",
 			}),
 		).resolves.toEqual({ status: "ambiguous" });

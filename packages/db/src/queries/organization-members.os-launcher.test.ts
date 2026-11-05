@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import type { OrganizationMetadata } from "@tedix/api-contract/schemas/organization";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "../client";
 import { apps } from "../schema/apps";
@@ -59,10 +60,10 @@ async function seed(
 		updatedAt: NOW,
 		metadata:
 			input.retiredAt || input.cancelledAt
-				? {
+				? ({
 						...(input.retiredAt ? { retiredAt: input.retiredAt } : {}),
 						...(input.cancelledAt ? { cancelledAt: input.cancelledAt } : {}),
-					}
+					} as OrganizationMetadata)
 				: undefined,
 	});
 	await db.insert(organizationMembers).values({

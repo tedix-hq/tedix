@@ -99,7 +99,7 @@ describe("workflow improvement cleanup", () => {
 			organizationId: "org-1",
 			skillId: "copy",
 			runId: "run",
-			source: "workflow",
+			source: "workflow_run",
 			outcome: "success",
 		});
 		await db

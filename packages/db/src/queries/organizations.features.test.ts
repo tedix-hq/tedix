@@ -27,6 +27,14 @@ const NOW = "2026-10-20T12:00:00.000Z";
 const PAST = "2026-01-01T00:00:00.000Z";
 const FUTURE = "2999-01-01T00:00:00.000Z";
 
+const WIDGET = {
+	version: 1 as const,
+	title: "Assistant",
+	subtitle: "How can I help?",
+	product: "Tedix",
+	conversationStarters: [],
+};
+
 let sqlite: DatabaseSync | undefined;
 
 function setup(): DbClient {
@@ -44,7 +52,7 @@ const METADATA = {
 	contactEmail: "ops@example.test",
 	timezone: "Europe/Berlin",
 	tediWidget: {
-		version: 1 as const,
+		...WIDGET,
 		turnQuota: { visitorTurnsPerHour: 20, originTurnsPerHour: 500 },
 	},
 };
@@ -189,7 +197,7 @@ describe("listOrganizationWidgetQuotaStatus", () => {
 				id: "org-a",
 				name: "Alpha",
 				slug: "alpha",
-				metadata: { ...METADATA, tediWidget: { version: 1 } },
+				metadata: { ...METADATA, tediWidget: WIDGET },
 				createdAt: NOW,
 				updatedAt: NOW,
 			},

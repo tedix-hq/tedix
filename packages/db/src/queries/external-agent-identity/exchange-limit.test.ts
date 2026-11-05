@@ -13,7 +13,7 @@ function fixture() {
 	sqlite.exec("PRAGMA foreign_keys=OFF");
 	sqlite.exec(
 		[externalAgentPrincipals, externalAgentExchangeLimits]
-			.flatMap(tableDdl)
+			.flatMap((table) => tableDdl(table))
 			.join(";"),
 	);
 	return { sqlite, db: createDbClient(createD1Facade(sqlite)) };

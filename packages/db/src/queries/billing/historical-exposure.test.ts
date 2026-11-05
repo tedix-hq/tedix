@@ -12,7 +12,7 @@ import {
 import { sql } from "drizzle-orm";
 import { DatabaseSync } from "node:sqlite";
 import { describe, it, expect } from "vite-plus/test";
-import { createDbQueryClient } from "../../query-client";
+import { createDbClient } from "../../client";
 import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
 import { organizationMembers } from "../../schema/organization-members";
@@ -62,7 +62,7 @@ async function setup() {
 			billingHistoricalDecisions,
 		),
 	);
-	const db = createDbQueryClient(createD1Facade(sqlite));
+	const db = createDbClient(createD1Facade(sqlite));
 	await db.insert(organizationMembers).values({
 		id: "member",
 		organizationId: org,
@@ -279,6 +279,8 @@ describe("append-only UNKNOWN historical exposure and human records", () => {
 		]);
 		expect(results.filter(Boolean)).toHaveLength(1);
 		const original = results.find(Boolean)!;
+		if (original.payload.authority !== "records_only")
+			throw new Error("Expected a records-only decision");
 		const i = {
 			tediId: tedi,
 			operationId: "revoke",
@@ -750,7 +752,7 @@ describe("immutable finite ledger scalar and payload agreement", () => {
 		["recorded_by", "wrong"],
 		["recorded_user_id", plan],
 		["recorded_at", "2020-01-01T00:00:00.000Z"],
-	])
+	] as const)
 		it(`corrupt grant ${column} cannot remain eligible or exact evidence`, async () => {
 			const f = await finiteFixture();
 			await recordFiniteExecutionAuthorization(f.db, f.grant);
@@ -797,7 +799,7 @@ describe("immutable finite ledger scalar and payload agreement", () => {
 		["recorded_by", "wrong"],
 		["recorded_user_id", plan],
 		["recorded_at", "2020-01-01T00:00:00.000Z"],
-	])
+	] as const)
 		it(`corrupt revocation ${column} cannot return as an exact original event`, async () => {
 			const f = await finiteFixture();
 			await recordFiniteExecutionAuthorization(f.db, f.grant);
@@ -1132,6 +1134,8 @@ describe("audited sticky native origin selection", () => {
 		const f = await verifiedNativeFixture();
 		expect(await f.allowed()).toBe(1);
 		f.sqlite.exec("UPDATE tedis SET isolate_agent_id='replacement'");
+		if (f.origin.kind !== "unselected_native")
+			throw new Error("Expected an unselected native origin");
 		const origin = {
 			...f.origin,
 			root: { ...f.origin.root, objectName: "replacement" },
@@ -1236,6 +1240,7 @@ async function finiteProviderFixture(
 ) {
 	const f = await verifiedNativeFixture(true);
 	if (!("grant" in f)) throw new Error("Missing test grant");
+	const baseGrant = FiniteExecutionAuthorizationSchema.parse(f.grant);
 	f.sqlite.exec(
 		schemaDdl(
 			providerExecutionAttempts,
@@ -1252,12 +1257,12 @@ async function finiteProviderFixture(
 	);
 	const set = await historicalExposureSet(f.db, org, tedi);
 	const input = {
-		...f.grant.input,
+		...baseGrant.input,
 		exposureSetHash: set.hash,
-		funding: { ...f.grant.input.funding, settlementMode: mode },
+		funding: { ...baseGrant.input.funding, settlementMode: mode },
 	};
 	const grant = FiniteExecutionAuthorizationSchema.parse({
-		...f.grant,
+		...baseGrant,
 		input,
 		requestHash: await historicalRequestHash([org, "human", user, input]),
 		exposures: set.rows.map((r) => r.payload),
@@ -1342,7 +1347,11 @@ describe("actual finite provider SQL admission and immutable retries", () => {
 				"finite-provider",
 			);
 			expect(stored?.authorizedAt).toBe(f.prepared.execution.authorizedAt);
-			expect(stored?.policy?.authorizationId).toBe(f.grant.id);
+			expect(
+				stored?.policy && "authorizationId" in stored.policy
+					? stored.policy.authorizationId
+					: undefined,
+			).toBe(f.grant.id);
 		},
 	);
 	it.each(["member", "funding", "custody", "set", "revocation", "expiry"])(
@@ -1351,7 +1360,9 @@ describe("actual finite provider SQL admission and immutable retries", () => {
 			const f = await finiteProviderFixture();
 			await changeFiniteProvider(f, change);
 			const result = await f.insert().catch(() => null);
-			expect(result?.allowed ?? false).toBe(false);
+			expect(result && "allowed" in result ? result.allowed : false).toBe(
+				false,
+			);
 			expect(
 				f.sqlite
 					.prepare("SELECT count(*) n FROM billing_usage_reservations")
@@ -1563,6 +1574,7 @@ it("SQL policy single binding preserves quoted custody and does not interpolate 
 it("multiple audited ROOT and leaf exposure facts retain real D1 grant and revocation eligibility", async () => {
 	const f = await verifiedNativeFixture(true);
 	if (!("grant" in f)) throw new Error("Missing grant");
+	const baseGrant = FiniteExecutionAuthorizationSchema.parse(f.grant);
 	for (let i = 0; i < 3; i++) {
 		const leaf = i > 0;
 		const objectId = String(i + 5).repeat(64);
@@ -1623,9 +1635,9 @@ it("multiple audited ROOT and leaf exposure facts retain real D1 grant and revoc
 		});
 	}
 	const set = await historicalExposureSet(f.db, org, tedi);
-	const input = { ...f.grant.input, exposureSetHash: set.hash };
+	const input = { ...baseGrant.input, exposureSetHash: set.hash };
 	const grant = FiniteExecutionAuthorizationSchema.parse({
-		...f.grant,
+		...baseGrant,
 		input,
 		requestHash: await historicalRequestHash([org, "human", user, input]),
 		exposures: set.rows.map((r) => r.payload),

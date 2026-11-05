@@ -469,7 +469,7 @@ describe("syncCatalogToolsToApp write capability", () => {
 			mcpServerUrl: "https://mcp.acme.test/mcp",
 			dryRun: false,
 			writeCapabilityOverrides: { createJiraIssue: "write" },
-		};
+		} satisfies Parameters<typeof syncCatalogToolsToApp>[1];
 		await syncCatalogToolsToApp(db, syncInput);
 
 		// Operator classifies it by hand — `annotations` deliberately untouched,

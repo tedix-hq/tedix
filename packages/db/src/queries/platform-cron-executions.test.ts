@@ -138,7 +138,7 @@ describe("platform cron execution receipts", () => {
 				["recent", "2026-08-09T11:59:00.000Z", "running"],
 				["success", "2026-01-03T00:00:00.000Z", "success"],
 				["failure", "2026-01-04T00:00:00.000Z", "failure"],
-			]) {
+			] as const) {
 				insert.run(
 					id,
 					startedAt,

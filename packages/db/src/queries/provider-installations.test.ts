@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
-import { createDbQueryClient } from "../query-client";
+import { createDbClient } from "../client";
 import { providerInstallations } from "../schema/provider-installations";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
@@ -23,7 +23,7 @@ function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys = OFF;");
 	sqlite.exec(schemaDdl(providerInstallations));
-	return createDbQueryClient(createD1Facade(sqlite));
+	return createDbClient(createD1Facade(sqlite));
 }
 
 function installation(overrides: Record<string, unknown> = {}) {

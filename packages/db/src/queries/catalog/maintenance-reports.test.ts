@@ -113,17 +113,58 @@ async function seedCatalog(
 
 describe("buildCatalogQualityReport stale boundary", () => {
 	it.each([
-		["tool", appCatalogMcpTools, { toolName: "list_entries" }],
-		["resource", appCatalogMcpResources, { uri: "test://entries" }],
+		[
+			"tool",
+			(db: Db, id: string, lastSeenAt: string, removedAt: string | null) =>
+				db.insert(appCatalogMcpTools).values({
+					id,
+					catalogAppId: "fictional-boundary",
+					toolName: `list_entries-${id}`,
+					detectedAt: NOW,
+					lastSeenAt,
+					removedAt,
+				}),
+		],
+		[
+			"resource",
+			(db: Db, id: string, lastSeenAt: string, removedAt: string | null) =>
+				db.insert(appCatalogMcpResources).values({
+					id,
+					catalogAppId: "fictional-boundary",
+					uri: `test://entries-${id}`,
+					detectedAt: NOW,
+					lastSeenAt,
+					removedAt,
+				}),
+		],
 		[
 			"resource_template",
-			appCatalogMcpResourceTemplates,
-			{ name: "entries", uriTemplate: "test://entries/{id}" },
+			(db: Db, id: string, lastSeenAt: string, removedAt: string | null) =>
+				db.insert(appCatalogMcpResourceTemplates).values({
+					id,
+					catalogAppId: "fictional-boundary",
+					name: `entries-${id}`,
+					uriTemplate: `test://entries/{id}-${id}`,
+					detectedAt: NOW,
+					lastSeenAt,
+					removedAt,
+				}),
 		],
-		["prompt", appCatalogMcpPrompts, { promptName: "summarize_entries" }],
+		[
+			"prompt",
+			(db: Db, id: string, lastSeenAt: string, removedAt: string | null) =>
+				db.insert(appCatalogMcpPrompts).values({
+					id,
+					catalogAppId: "fictional-boundary",
+					promptName: `summarize_entries-${id}`,
+					detectedAt: NOW,
+					lastSeenAt,
+					removedAt,
+				}),
+		],
 	] as const)(
 		"counts only active %s rows strictly older than the cutoff",
-		async (entity, table, fields) => {
+		async (entity, insertEntity) => {
 			const { db, d1 } = setup();
 			await seedCatalog(db, "fictional-boundary");
 			for (const [id, lastSeenAt, removedAt] of [
@@ -131,20 +172,8 @@ describe("buildCatalogQualityReport stale boundary", () => {
 				["past", "2026-10-06T11:59:59.999Z", null],
 				["recent", "2026-10-06T12:00:00.001Z", null],
 				["removed", "2026-10-01T00:00:00.000Z", NOW],
-			]) {
-				await db.insert(table).values({
-					id,
-					catalogAppId: "fictional-boundary",
-					detectedAt: NOW,
-					lastSeenAt,
-					removedAt,
-					...Object.fromEntries(
-						Object.entries(fields).map(([key, value]) => [
-							key,
-							`${value}-${id}`,
-						]),
-					),
-				});
+			] as const) {
+				await insertEntity(db, id, lastSeenAt, removedAt);
 			}
 			const report = await buildCatalogQualityReport(d1, {
 				staleLastSeenDays: 14,

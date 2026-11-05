@@ -170,7 +170,11 @@ describe("retireOrganization", () => {
 			retiredAt: RETIRED_AT,
 			retiredBy: "owner-1",
 			features: { os: false },
-			metadata: { retiredAt: RETIRED_AT, memoryRetained: true },
+			metadata: {
+				retiredAt: RETIRED_AT,
+				retiredSlug: "acme",
+				memoryRetained: true,
+			},
 		} as const;
 
 		expect(await retireOrganization(db, input)).toBeDefined();

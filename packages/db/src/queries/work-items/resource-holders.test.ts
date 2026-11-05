@@ -37,15 +37,21 @@ function fixture() {
 			.run(id, org, `file:${id}`, NOW);
 	const holder = (
 		id: string,
-		{
-			org = "org-a",
-			poolId = "pool",
-			state = "active",
-			expiresAt = FUTURE,
-			attemptOrg = org,
-			itemOrg = org,
+		options: {
+			org?: string;
+			poolId?: string;
+			state?: string;
+			expiresAt?: string;
+			attemptOrg?: string;
+			itemOrg?: string;
 		} = {},
 	) => {
+		const org = options.org ?? "org-a";
+		const poolId = options.poolId ?? "pool";
+		const state = options.state ?? "active";
+		const expiresAt = options.expiresAt ?? FUTURE;
+		const attemptOrg = options.attemptOrg ?? org;
+		const itemOrg = options.itemOrg ?? org;
 		sqlite
 			.prepare(
 				"INSERT INTO work_items (id,org_id,title,created_at) VALUES (?,?,?,?)",

@@ -113,7 +113,7 @@ async function fixture() {
 				id,
 				organizationId,
 				content: `Fact ${id}`,
-				factType: "observation",
+				factType: "technical",
 			})
 			.run();
 		await db

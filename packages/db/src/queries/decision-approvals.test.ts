@@ -144,6 +144,8 @@ it("looks up exposures by tenant, actor and card for each resolved approval", as
 			reason: null,
 			exposureId: "match",
 			receiptId: "target",
+			decidedAt: now,
+			laterToDecisionMs: null,
 		},
 		observedAt: now,
 		dueAt: now,

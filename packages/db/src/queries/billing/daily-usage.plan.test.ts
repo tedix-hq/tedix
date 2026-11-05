@@ -1,5 +1,5 @@
 import { expect, it } from "vite-plus/test";
-import { createDbQueryClient } from "../../query-client";
+import { createDbClient } from "../../client";
 import { createD1Facade } from "../../test/d1-facade";
 import { createMigratedSqlite } from "../../test/migrated-sqlite";
 import { reserveBillingUsage } from "./reservations";
@@ -109,7 +109,7 @@ it("reads one day of reservations and charges through their indexes", async () =
 	);
 
 	const plans: string[] = [];
-	const db = createDbQueryClient(
+	const db = createDbClient(
 		createD1Facade({
 			prepare(query) {
 				if (/^\s*(WITH|SELECT|INSERT)/i.test(query))

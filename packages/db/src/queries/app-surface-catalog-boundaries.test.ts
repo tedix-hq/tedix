@@ -150,25 +150,28 @@ function fixture(catalogCount: number) {
 	const batches: StatementRead[][] = [];
 	const preparedReads = new WeakMap<D1PreparedStatement, StatementRead>();
 	const facade = createD1Facade(sqlite, { maxBoundParams: 100 });
-	const client = createDbClient({
-		...facade,
-		prepare(sql: string) {
-			const prepared = facade.prepare(sql);
-			const read: StatementRead = { sql, params: [] };
-			statements.push(read);
-			preparedReads.set(prepared, read);
-			const bind = prepared.bind.bind(prepared);
-			prepared.bind = (...params: unknown[]) => {
-				read.params = params;
-				return bind(...params);
-			};
-			return prepared;
-		},
-		batch(queries) {
-			batches.push(queries.map((query) => preparedReads.get(query)!));
-			return facade.batch(queries);
-		},
-	});
+	const prepare = facade.prepare.bind(facade);
+	const batch = facade.batch.bind(facade);
+	const client = createDbClient(
+		Object.assign(facade, {
+			prepare(sql: string) {
+				const prepared = prepare(sql);
+				const read: StatementRead = { sql, params: [] };
+				statements.push(read);
+				preparedReads.set(prepared, read);
+				const bind = prepared.bind.bind(prepared);
+				prepared.bind = (...params: unknown[]) => {
+					read.params = params;
+					return bind(...params);
+				};
+				return prepared;
+			},
+			batch(queries: D1PreparedStatement[]) {
+				batches.push(queries.map((query) => preparedReads.get(query)!));
+				return batch(queries);
+			},
+		}),
+	);
 	return { sqlite, client, entries, statements, batches };
 }
 
@@ -180,7 +183,7 @@ describe("getAppsBySlugsWithTools catalog chunk boundaries", () => {
 				fixture(catalogCount);
 			try {
 				const bySlug = new Map(entries.map((entry) => [entry.slug, entry]));
-				const requests = [
+				const requests: Array<{ slug: string; toolIds?: string[] }> = [
 					...entries.toReversed().map(({ slug }) => ({ slug })),
 					...entries.map(({ slug }) => ({ slug, toolIds: ["second"] })),
 					...entries
@@ -269,6 +272,11 @@ describe("getAppsBySlugsWithTools catalog chunk boundaries", () => {
 					const hasTools =
 						request.slug !== "fictional-alias" &&
 						request.slug !== "fictional-unlinked";
+					const expectedToolIds: readonly string[] = hasTools
+						? "toolIds" in request
+							? request.toolIds!
+							: ["first", "second"]
+						: [];
 					expect(
 						result?.tools.map(({ id, appId, toolId }) => ({
 							id,
@@ -276,12 +284,7 @@ describe("getAppsBySlugsWithTools catalog chunk boundaries", () => {
 							toolId,
 						})),
 					).toEqual(
-						(hasTools
-							? "toolIds" in request
-								? request.toolIds!
-								: ["first", "second"]
-							: []
-						).map((toolId) => ({
+						expectedToolIds.map((toolId) => ({
 							id: `${request.slug}-${toolId}`,
 							appId: request.slug,
 							toolId,

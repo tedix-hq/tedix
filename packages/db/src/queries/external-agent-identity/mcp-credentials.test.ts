@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
-import { createDbQueryClient } from "../../query-client";
+import { createDbClient } from "../../client";
 import { createD1Facade } from "../../test/d1-facade";
 import {
 	listActiveExternalAgentMcpCredentialsByServer,
@@ -27,7 +27,7 @@ function fixture() {
 			revoked_at TEXT, provider_cleanup_at TEXT
 		);
 	`);
-	return { sqlite, db: createDbQueryClient(createD1Facade(sqlite)) };
+	return { sqlite, db: createDbClient(createD1Facade(sqlite)) };
 }
 
 function insert(

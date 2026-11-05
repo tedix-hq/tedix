@@ -56,7 +56,7 @@ describe("personal connection instances on D1", () => {
 		for (const [id, organizationId] of [
 			["a", "org-a"],
 			["b", "org-b"],
-		])
+		] as const)
 			await createConnectionInstance(db, {
 				id,
 				organizationId,

@@ -1119,7 +1119,10 @@ describe("earned delegation D1 settlement", () => {
 		try {
 			for (let index = 1; index <= 1_001; index += 1) {
 				const suffix = String(index).padStart(4, "0");
-				const row = {
+				const row: Record<
+					string,
+					null | number | bigint | string | Uint8Array
+				> = {
 					...seed,
 					id: `bulk-${suffix}`,
 					client_observation_id: `bulk-client-${suffix}`,

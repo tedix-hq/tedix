@@ -40,7 +40,12 @@ function makeDb(script: {
 }
 
 const attribution = (
-	over: Partial<LearningFeedbackAttribution> = {},
+	over: Partial<
+		LearningFeedbackAttribution & {
+			eventKind: "rejected" | "edited";
+			issueKey: string | null;
+		}
+	> = {},
 ): LearningFeedbackAttribution & {
 	eventKind: "rejected" | "edited";
 	issueKey: string | null;

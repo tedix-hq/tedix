@@ -122,7 +122,9 @@ describe("outbound work on migrated D1", () => {
 				})
 			).outboundReviewsTimedOut,
 		).toBe(1);
-		const [overlay] = await outboundInteractionOverlays(db, "org", [QUESTION]);
+		const overlay = (
+			await outboundInteractionOverlays(db, "org", [QUESTION])
+		).at(0)!;
 		expect(overlay.record.outbound).toEqual({
 			...state,
 			status: "waiting_on_you",
@@ -306,9 +308,9 @@ describe("outbound work on migrated D1", () => {
 			routes: [{ channel: "email", reviewerTediId: REVIEWER }],
 		});
 		expect((await getOutboundPolicy(db, "foreign")).routes).toEqual([]);
-		expect((await getOutboundPolicy(db, "org")).routes[0].reviewerTediId).toBe(
-			REVIEWER,
-		);
+		expect(
+			(await getOutboundPolicy(db, "org")).routes.at(0)!.reviewerTediId,
+		).toBe(REVIEWER);
 		expect(
 			await saveOutbound(db, {
 				orgId: "org",
@@ -322,7 +324,7 @@ describe("outbound work on migrated D1", () => {
 		).toBe(true);
 		expect(await listOutbound(db, "foreign", undefined, 10)).toEqual([]);
 		expect(
-			(await listOutbound(db, "org", undefined, 10))[0].outbound.draft.body,
+			(await listOutbound(db, "org", undefined, 10)).at(0)!.outbound.draft.body,
 		).toBe(state.draft.body);
 		expect(
 			JSON.parse(
@@ -393,8 +395,9 @@ describe("outbound work on migrated D1", () => {
 			).toBe(true);
 			const history = await outboundApprovalHistory(db, "org", "rosa");
 			expect(history).toHaveLength(1);
-			expect(history[0].totalCount).toBe(1);
-			expect(history[0].metadata).toMatchObject({
+			const approval = history.at(0)!;
+			expect(approval.totalCount).toBe(1);
+			expect(approval.metadata).toMatchObject({
 				action: "approve_manual",
 				before: "Dear Lina, regarding our aforementioned discussion…",
 				after: state.draft.body,
