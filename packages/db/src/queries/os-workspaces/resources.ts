@@ -413,14 +413,29 @@ export async function findOsWorkspaceTenantResource(
 	return row;
 }
 
-/** Make a removed reference active again, keeping its id, name and metadata. */
+/**
+ * Make a removed reference active again, keeping its id. Name, slot,
+ * metadata and scopes stay as they were unless given; a slot taken by
+ * another reference fails the update as a unique constraint error.
+ */
 export async function restoreOsWorkspaceResource(
 	db: DbQueryClient,
-	params: OsWorkspaceResourceIdentity & { now: string },
+	params: OsWorkspaceResourceIdentity & {
+		now: string;
+		replace?: Pick<
+			NewOsWorkspaceResourceRow,
+			"slot" | "name" | "metadata" | "requiredScopes" | "providerAccess"
+		>;
+	},
 ): Promise<OsWorkspaceResourceRow | undefined> {
 	const [row] = await db
 		.update(osWorkspaceResources)
-		.set({ status: "active", removedAt: null, updatedAt: params.now })
+		.set({
+			...params.replace,
+			status: "active",
+			removedAt: null,
+			updatedAt: params.now,
+		})
 		.where(
 			and(
 				eq(osWorkspaceResources.organizationId, params.organizationId),
