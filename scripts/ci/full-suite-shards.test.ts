@@ -122,6 +122,14 @@ test("slow workspaces publish complete non-overlapping shard sets on the real ma
 			types: shard === 1,
 		})),
 	);
+	expect(jobsOf("packages/db", "test:postgres")).toEqual([
+		{
+			workspace: "packages/db",
+			test: true,
+			testScript: "test:postgres",
+			types: false,
+		},
+	]);
 	const groups = new Map<string, MatrixJob[]>();
 	for (const job of workspaceMatrix(root).include as MatrixJob[]) {
 		const key = `${job.workspace}:${job.testScript ?? ""}`;
