@@ -2,7 +2,21 @@ vi.mock("@tedix/db/queries/data-residency", async (original) => ({
 	...(await original<typeof import("@tedix/db/queries/data-residency")>()),
 	getOrganizationResidencyPolicy: vi.fn().mockResolvedValue(null),
 }));
-import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { DatabaseSync } from "node:sqlite";
+import {
+	beforeEach,
+	describe,
+	expect,
+	it,
+	onTestFinished,
+	vi,
+} from "vite-plus/test";
+import { createDbClient } from "@tedix/db/client";
+import { suspendBrowserAgentSeat } from "@tedix/db/queries/organization-members";
+import { organizationMembers } from "@tedix/db/schema/organization-members";
+import { organizations } from "@tedix/db/schema/organizations";
+import { createD1Facade } from "@tedix/db/test/d1-facade";
+import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { handleKernelVoiceTranscription } from "./voice-transcription-route";
 import { mintKernelWsToken } from "./ws-token";
 const transcribe = vi.hoisted(() => vi.fn());
@@ -12,11 +26,48 @@ vi.mock("@tedix/voice/stt", () => ({
 }));
 const ORG = "11111111-2222-3333-4444-555555555555",
 	KEY = "test-key";
-const env = { PLATFORM_SERVICE_TOKEN: KEY } as CloudflareEnv;
+let env: CloudflareEnv;
+let sqlite: DatabaseSync;
 const URL = "https://api.tedix.dev/kernel/voice/transcribe";
-beforeEach(() => {
+beforeEach(async () => {
 	vi.resetAllMocks();
 	transcribe.mockResolvedValue({ text: "dictated text" });
+	sqlite = new DatabaseSync(":memory:");
+	onTestFinished(() => sqlite.close());
+	sqlite.exec(schemaDdl(organizations, organizationMembers));
+	env = {
+		DB: createD1Facade(sqlite),
+		PLATFORM_SERVICE_TOKEN: KEY,
+	} as CloudflareEnv;
+	const db = createDbClient(env.DB);
+	await db.insert(organizations).values({
+		id: ORG,
+		name: "Fictional team",
+		slug: "fictional-team",
+	});
+	await db.insert(organizationMembers).values([
+		{
+			id: "seat",
+			organizationId: ORG,
+			userId: "seat-user",
+			descopeUserId: "user",
+			email: "seat@example.test",
+			kind: "browser_agent",
+			representedUserId: "owner-user",
+			role: "member",
+			status: "active",
+		},
+		{
+			id: "owner",
+			organizationId: ORG,
+			userId: "owner-user",
+			descopeUserId: "owner-provider",
+			email: "owner@example.test",
+			kind: "human",
+			role: "owner",
+			status: "active",
+		},
+	]);
 });
 async function upload(file?: File) {
 	const { token } = await mintKernelWsToken({
@@ -36,6 +87,34 @@ async function upload(file?: File) {
 	});
 }
 describe("voice transcription", () => {
+	it("denies a token minted before seat suspension before parsing audio", async () => {
+		const request = await upload(new File(["audio"], "clip.webm"));
+		const parse = vi.spyOn(request, "formData");
+		await suspendBrowserAgentSeat(createDbClient(env.DB), {
+			organizationId: ORG,
+			memberId: "seat",
+			actorUserId: "owner-user",
+		});
+		expect((await handleKernelVoiceTranscription(request, env)).status).toBe(
+			403,
+		);
+		expect(parse).not.toHaveBeenCalled();
+		expect(transcribe).not.toHaveBeenCalled();
+	});
+	it.each([
+		"DELETE FROM organization_members WHERE id = 'seat'",
+		"UPDATE organization_members SET status = 'deactivated' WHERE id = 'owner'",
+		"DROP TABLE organization_members",
+	])("denies unavailable membership authority: %s", async (change) => {
+		const request = await upload(new File(["audio"], "clip.webm"));
+		const parse = vi.spyOn(request, "formData");
+		sqlite.exec(change);
+		expect((await handleKernelVoiceTranscription(request, env)).status).toBe(
+			403,
+		);
+		expect(parse).not.toHaveBeenCalled();
+		expect(transcribe).not.toHaveBeenCalled();
+	});
 	it("authenticates before parsing or forwarding audio", async () => {
 		expect(
 			(

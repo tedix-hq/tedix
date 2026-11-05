@@ -191,6 +191,44 @@ async function until(
 // -----------------------------------------------------------------------------
 
 describe("/capn client↔Worker roundtrip over a real WebSocket", () => {
+	it.each([403, 503])(
+		"closes an idle socket when the live authority answers %s",
+		async (status) => {
+			let suspended = false;
+			const service = {
+				fetch: async (request: Request) => {
+					expect(request.headers.get("Cookie")).toBe("DS=abc");
+					expect(request.headers.get("X-Tedix-Tenant-Id")).toBe(HOST_TENANT);
+					return suspended
+						? new Response(null, { status })
+						: Response.json({ json: { conversations: [] } });
+				},
+			};
+			const response = await mountCapnChat(
+				upgradeRequest(),
+				{ API_SERVICE: service },
+				HOST_TENANT,
+			);
+			expect(response.status).toBe(101);
+			const socket = (
+				response as Response & { webSocket?: WorkerdSocket | null }
+			).webSocket;
+			if (!socket) throw new Error("missing client socket");
+			socket.accept();
+			const closed = new Promise<CloseEvent>((resolve) =>
+				socket.addEventListener("close", resolve, { once: true }),
+			);
+			try {
+				suspended = true;
+				const event = await closed;
+				expect(event.code).toBe(4003);
+				expect(event.reason).toBe("Organization access changed; reconnect.");
+			} finally {
+				socket.close();
+			}
+		},
+	);
+
 	it("establishes, snapshots, subscribes, and delivers live frames in order", async () => {
 		const pages = new Map<string, unknown>([
 			// Snapshot page (waitMs 0), then the subscription's long poll.

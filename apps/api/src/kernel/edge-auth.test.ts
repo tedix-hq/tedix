@@ -24,6 +24,7 @@ vi.mock("@tedix/db/queries/organizations", () => ({
 }));
 vi.mock("@tedix/db/queries/organization-members", () => ({
 	getMemberByUserId: mocks.member,
+	getMemberByCanonicalUserId: vi.fn(),
 }));
 const ORG = "11111111-2222-3333-4444-555555555555";
 const KEY = "test-platform-key";
@@ -43,7 +44,11 @@ beforeEach(() => {
 	mocks.user.mockReturnValue(true);
 	mocks.tenant.mockReturnValue("org_tedix");
 	mocks.org.mockResolvedValue({ id: ORG });
-	mocks.member.mockResolvedValue(null);
+	mocks.member.mockResolvedValue({
+		id: "membership",
+		status: "active",
+		kind: "human",
+	});
 });
 async function status(
 	result: Awaited<ReturnType<typeof authenticateKernelEdge>>,
@@ -77,6 +82,15 @@ describe("kernel token extraction", () => {
 	);
 });
 describe("session organization authorization", () => {
+	it.each([null, { status: "deactivated" }, { status: "invited" }])(
+		"refuses a current-tenant JWT with inactive membership: %s",
+		async (member) => {
+			mocks.member.mockResolvedValueOnce(member);
+			expect(
+				await status(await authenticateKernelSessionJwt("session", ORG, env)),
+			).toBe(403);
+		},
+	);
 	it.each([null, "org_tedix", ORG])(
 		"normalizes the user's own organization %s",
 		async (organization) => {
@@ -86,16 +100,21 @@ describe("session organization authorization", () => {
 				ok: true,
 				identity: { descopeUserId: "user", organizationId: ORG },
 			});
-			expect(mocks.member).not.toHaveBeenCalled();
+			expect(mocks.member).toHaveBeenCalledWith({}, ORG, "user");
 		},
 	);
 	it("requires membership for another canonical organization", async () => {
+		mocks.member.mockResolvedValueOnce(null);
 		expect(
 			await status(
 				await authenticateKernelSessionJwt("session", "other-org", env),
 			),
 		).toBe(403);
-		mocks.member.mockResolvedValue({ id: "membership" });
+		mocks.member.mockResolvedValue({
+			id: "membership",
+			status: "active",
+			kind: "human",
+		});
 		expect(
 			await authenticateKernelSessionJwt("session", "other-org", env),
 		).toMatchObject({ ok: true, identity: { organizationId: "other-org" } });
@@ -161,6 +180,21 @@ describe("session organization authorization", () => {
 	});
 });
 describe("scoped voice tokens", () => {
+	it("refuses a scoped token minted before suspension without falling back to JWT", async () => {
+		const { token } = await mintKernelWsToken({
+			organizationId: ORG,
+			descopeUserId: "user",
+			platformServiceToken: KEY,
+		});
+		mocks.member.mockResolvedValueOnce({
+			status: "deactivated",
+			kind: "browser_agent",
+		});
+		expect(
+			await status(await authenticateKernelEdge(request(token), env)),
+		).toBe(403);
+		expect(mocks.validate).not.toHaveBeenCalled();
+	});
 	it("rejects absent credentials", async () => {
 		expect(await status(await authenticateKernelEdge(request(), env))).toBe(
 			401,

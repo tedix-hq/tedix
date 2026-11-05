@@ -35,6 +35,7 @@ import {
 	updateOsWorkspaceShareLink,
 } from "@tedix/db/queries/os-collaborators";
 import { getOrganizationProfile } from "@tedix/db/queries/organizations";
+import { getMemberAccessByUserId } from "@tedix/db/queries/organization-members";
 import {
 	getOsGadget,
 	getOsGadgetRevision,
@@ -253,6 +254,13 @@ export async function readWorkspaceSessionRole(
 		workspaceId,
 	});
 	if (!workspace || workspace.status !== "active") return null;
+	const member = await getMemberAccessByUserId(
+		database,
+		workspace.organizationId,
+		userId,
+	);
+	// Explicit shares cannot keep a suspended organization seat connected.
+	if (member && member.status !== "active") return null;
 	return (await loadAccess(database, workspace, userId)).role;
 }
 
