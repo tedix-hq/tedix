@@ -1,0 +1,1315 @@
+import { kernelRuntimeRuns } from "../../schema/cognitive-runtime";
+import { runtimeSubmissions } from "../../schema/runtime-submissions";
+import { organizationMembers } from "../../schema/organization-members";
+import { tedis } from "../../schema/tedis";
+import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import {
+	containsCardSecret,
+	CARD_SECRET_MESSAGE,
+} from "@tedix/api-contract/utils/card-secrets";
+import type { LaneDispatchPlan } from "@tedix/api-contract/schemas/work-items";
+import {
+	and,
+	desc,
+	eq,
+	gte,
+	inArray,
+	isNotNull,
+	isNull,
+	lt,
+	ne,
+	or,
+	sql,
+} from "drizzle-orm";
+import type { PgQueryClient } from "../../client";
+import { policyPacks } from "../../schema/control-plane";
+import { workAdmissions, workMilestoneItems } from "../../schema/work-factory";
+import { kernelRequests } from "../../schema/kernel-requests";
+import {
+	type WorkItem,
+	type WorkItemDisposition,
+	type WorkItemAcceptanceContract,
+	type WorkItemAccountabilityPrincipalType,
+	type WorkItemClass,
+	type WorkItemKind,
+	type WorkItemPriority,
+	type WorkItemProjection,
+	type WorkItemProjectionDirection,
+	type WorkItemProjectionStatus,
+	type WorkItemRiskLevel,
+	workAttempts,
+	workEvents,
+	workItemComments,
+	workItemProjections,
+	workItems,
+} from "../../schema/work-items";
+import { normalizeWorkItemRow } from "./normalization";
+import { acceptanceRenewedPurposeExpiry } from "./purpose";
+import { resolveWorkItemSteward } from "./stewardship";
+import { retireDecisionReviews } from "./decision-review-retirement";
+
+export interface CreateWorkItemParams {
+	id: string;
+	orgId: string;
+	/** Supplied by authenticated ingress, never from request metadata. */
+	createdBy?: WorkActor;
+	title: string;
+	description?: string;
+	workKind?: WorkItemKind;
+	riskLevel?: WorkItemRiskLevel;
+	requiredCapabilities?: string[];
+	requiredAuthorities?: string[];
+	accountableOwnerType?: WorkItemAccountabilityPrincipalType;
+	accountableOwnerId?: string;
+	stewardType?: WorkItemAccountabilityPrincipalType;
+	stewardId?: string;
+	priority?: WorkItemPriority;
+	objectiveId?: string;
+	workClass?: WorkItemClass;
+	purposeExceptionExpiresAt?: string;
+	projectId?: string;
+	parentWorkItemId?: string;
+	sourceSessionKey?: string;
+	sourceIntentId?: string;
+	dueDate?: string;
+	deadline?: string;
+	startAt?: string;
+	durationDays?: number;
+	provenance?: Record<string, JsonValue>;
+	metadata?: Record<string, JsonValue>;
+	createdAt: string;
+}
+
+function lifecycleEventInsert(
+	db: PgQueryClient,
+	params: {
+		orgId: string;
+		workItemId: string;
+		disposition: WorkItemDisposition;
+		expectedVersion: number;
+		eventType: string;
+		actor: WorkActor;
+		occurredAt: string;
+		payload?: Record<string, JsonValue>;
+	},
+) {
+	const eventId = crypto.randomUUID();
+	return db.insert(workEvents).select((qb) =>
+		qb
+			.select({
+				id: sql<string>`${eventId}`.as("id"),
+				orgId: workItems.orgId,
+				workItemId: workItems.id,
+				attemptId: sql<null>`NULL`.as("attempt_id"),
+				eventType: sql<string>`${params.eventType}`.as("event_type"),
+				actorType: sql<typeof params.actor.type>`${params.actor.type}`.as(
+					"actor_type",
+				),
+				actorId: sql<string>`${params.actor.id}`.as("actor_id"),
+				actorSessionId: sql<
+					string | null
+				>`${params.actor.sessionId ?? null}`.as("actor_session_id"),
+				payload: sql<
+					Record<string, JsonValue>
+				>`${JSON.stringify(params.payload ?? {})}`.as("payload"),
+				occurredAt: sql<string>`${params.occurredAt}`.as("occurred_at"),
+			})
+			.from(workItems)
+			.where(
+				and(
+					eq(workItems.orgId, params.orgId),
+					eq(workItems.id, params.workItemId),
+					eq(workItems.disposition, params.disposition),
+					eq(workItems.version, params.expectedVersion),
+				),
+			),
+	);
+}
+
+function dispatchReceiptInsert(
+	db: PgQueryClient,
+	item: WorkItem,
+	executor: string,
+	at: string,
+	receiptId: string,
+) {
+	return db.insert(workItemComments).select((qb) =>
+		qb
+			.select({
+				id: sql<string>`${receiptId}`.as("id"),
+				workItemId: workItems.id,
+				orgId: workItems.orgId,
+				authorType: sql<string>`'system'`.as("author_type"),
+				authorId: sql<string>`'lane-dispatch'`.as("author_id"),
+				body: sql<string>`${`Dispatched to ${executor} at ${at}`}`.as("body"),
+				metadata: sql<Record<string, JsonValue>>`'{}'`.as("metadata"),
+				createdAt: sql<string>`${at}`.as("created_at"),
+			})
+			.from(workItems)
+			.where(
+				and(
+					eq(workItems.orgId, item.orgId),
+					eq(workItems.id, item.id),
+					eq(workItems.version, item.version + 1),
+					eq(workItems.updatedAt, at),
+					sql`(${workItems.metadata} #>> '{laneDispatchReceiptId}') = ${receiptId}`,
+				),
+			),
+	);
+}
+
+export async function createWorkItem(
+	db: PgQueryClient,
+	params: CreateWorkItemParams,
+): Promise<WorkItem> {
+	const stewardship = await resolveWorkItemSteward(db, params);
+	const { createdBy, ...values } = params;
+	const insert = (q: PgQueryClient) =>
+		q
+			.insert(workItems)
+			.values({
+				...values,
+				...stewardship,
+				disposition: "proposed",
+				workKind: params.workKind ?? "other",
+				riskLevel: params.riskLevel ?? "medium",
+				requiredCapabilities: params.requiredCapabilities ?? [],
+				requiredAuthorities: params.requiredAuthorities ?? [],
+				admissionSpecRevision: sql`lower(replace(gen_random_uuid()::text, '-', ''))`,
+				priority: params.priority ?? "medium",
+				provenance: params.provenance ?? {},
+				metadata: params.metadata ?? {},
+			})
+			.returning();
+	const rows = createdBy
+		? (
+				await db.transaction(async (tx) => {
+					const __r: any[] = [];
+					for (const __s of [
+						insert(tx),
+						tx.insert(workEvents).values({
+							id: crypto.randomUUID(),
+							orgId: params.orgId,
+							workItemId: params.id,
+							eventType: "work.created",
+							actorType: createdBy.type,
+							actorId: createdBy.id,
+							actorSessionId: createdBy.sessionId,
+							payload: {},
+							occurredAt: params.createdAt,
+						}),
+					])
+						__r.push(await __s);
+					return __r;
+				})
+			)[0]
+		: await insert(db);
+	const row = rows[0];
+	if (!row) throw new Error("Work Item insert returned no row");
+	return normalizeWorkItemRow(row);
+}
+
+export async function getWorkItemById(
+	db: PgQueryClient,
+	workItemId: string,
+	orgId?: string,
+): Promise<WorkItem | null> {
+	const row =
+		(
+			await db
+				.select()
+				.from(workItems)
+				.where(
+					and(
+						eq(workItems.id, workItemId),
+						orgId ? eq(workItems.orgId, orgId) : undefined,
+					),
+				)
+				.limit(1)
+		)[0] ?? null;
+	return row ? normalizeWorkItemRow(row) : null;
+}
+
+/** Resolve the idempotency key used by Home and other durable producers. */
+export async function getWorkItemBySourceIntentId(
+	db: PgQueryClient,
+	params: { orgId: string; sourceIntentId: string },
+): Promise<WorkItem | null> {
+	const row =
+		(
+			await db
+				.select()
+				.from(workItems)
+				.where(
+					and(
+						eq(workItems.orgId, params.orgId),
+						eq(workItems.sourceIntentId, params.sourceIntentId),
+					),
+				)
+				.limit(1)
+		)[0] ?? null;
+	return row ? normalizeWorkItemRow(row) : null;
+}
+
+export interface ListWorkItemsOptions {
+	orgId: string;
+	projectId?: string | null;
+	parentWorkItemId?: string | null;
+	disposition?: WorkItem["disposition"];
+	workKind?: WorkItemKind;
+	limit?: number;
+}
+
+export async function listWorkItems(
+	db: PgQueryClient,
+	options: ListWorkItemsOptions,
+): Promise<WorkItem[]> {
+	const rows = await db
+		.select()
+		.from(workItems)
+		.where(
+			and(
+				eq(workItems.orgId, options.orgId),
+				options.projectId === undefined
+					? undefined
+					: options.projectId === null
+						? isNull(workItems.projectId)
+						: eq(workItems.projectId, options.projectId),
+				options.parentWorkItemId === undefined
+					? undefined
+					: options.parentWorkItemId === null
+						? isNull(workItems.parentWorkItemId)
+						: eq(workItems.parentWorkItemId, options.parentWorkItemId),
+				options.disposition
+					? eq(workItems.disposition, options.disposition)
+					: undefined,
+				options.workKind ? eq(workItems.workKind, options.workKind) : undefined,
+			),
+		)
+		.orderBy(desc(workItems.createdAt))
+		.limit(options.limit ?? 100);
+	return rows.map(normalizeWorkItemRow);
+}
+
+/**
+ * Exclusive upper bound for a BINARY-collation prefix scan: the prefix with its
+ * final code unit incremented. `id >= prefix AND id < successor` is exactly
+ * `id LIKE 'prefix%'` for a TEXT PRIMARY KEY, and — unlike LIKE — SQLite can
+ * satisfy it from the primary-key index instead of scanning the whole org.
+ */
+function prefixUpperBound(prefix: string): string {
+	const last = prefix.charCodeAt(prefix.length - 1);
+	return prefix.slice(0, -1) + String.fromCharCode(last + 1);
+}
+
+const FULL_UUID_PATTERN =
+	/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * Titles for 8-character short ids quoted in text. A short id that matches
+ * no Work Item, or more than one, is left out.
+ */
+export async function listWorkItemTitlesByShortIds(
+	db: PgQueryClient,
+	params: { orgId: string; shortIds: readonly string[] },
+): Promise<Array<{ shortId: string; title: string }>> {
+	const shortIds = [...new Set(params.shortIds.map((id) => id.toLowerCase()))]
+		.filter((id) => /^[0-9a-f]{8}$/.test(id))
+		.slice(0, 20);
+	if (!shortIds.length) return [];
+	const rows = await db
+		.select({ id: workItems.id, title: workItems.title })
+		.from(workItems)
+		.where(
+			and(
+				eq(workItems.orgId, params.orgId),
+				or(
+					...shortIds.map((id) =>
+						and(gte(workItems.id, id), lt(workItems.id, prefixUpperBound(id))),
+					),
+				),
+			),
+		)
+		.limit(shortIds.length * 2);
+	return shortIds.flatMap((shortId) => {
+		const [match, ...others] = rows.filter((row) => row.id.startsWith(shortId));
+		return match && !others.length ? [{ shortId, title: match.title }] : [];
+	});
+}
+
+export interface ListWorkItemsPageOptions {
+	orgId: string;
+	executor?: string | string[];
+	dispatchReadyOnly?: boolean;
+	projectId?: string | null;
+	parentWorkItemId?: string | null;
+	disposition?: WorkItem["disposition"];
+	workKind?: WorkItemKind;
+	objectiveId?: string;
+	workClass?: WorkItemClass;
+	/** Exact accountable owner identity, of any owner type. */
+	accountableOwnerId?: string;
+	/** true: only rows with an objective; false: only rows without one. */
+	objectiveLinked?: boolean;
+	/** Lowercase id fragment (6-36 chars of `[0-9a-f-]`), matched in SQL. */
+	idPrefix?: string;
+	/** Case-insensitive title substring; LIKE wildcards stay literal. */
+	titleContains?: string;
+	/**
+	 * Exclude records with metadata.agentSession or a metadata.purposeContext
+	 * beginning with `transitional_` before pagination. This coarse prefilter
+	 * is not authorization or a complete customer-visibility decision.
+	 */
+	customerVisiblePreFilter?: boolean;
+	limit?: number;
+	offset?: number;
+}
+
+export interface ListWorkItemsPageResult {
+	data: WorkItem[];
+	/** Exact `COUNT(*)` over the filtered set — never a window size. */
+	total: number;
+}
+
+/**
+ * One board page with EVERY filter applied in SQL and an exact count.
+ *
+ * The predecessor read a fixed 1,000-row window and then filtered and paged it
+ * in memory, so `total` reported the window size, `idPrefix` could not see a row
+ * older than the newest 1,000 of its disposition, and every count was a
+ * count-within-the-window. It lied coherently, which is why two remediation
+ * cohorts were sized 9x and 13x too small before anyone noticed. Nothing here
+ * may reintroduce a prefetch: the ORDER BY carries `id` as a deterministic
+ * tie-break so offset pages stay stable across equal `created_at` values.
+ */
+export async function listWorkItemsPage(
+	db: PgQueryClient,
+	options: ListWorkItemsPageOptions,
+): Promise<ListWorkItemsPageResult> {
+	const limit = Math.min(Math.max(Math.trunc(options.limit ?? 50), 1), 100);
+	const offset = Math.max(Math.trunc(options.offset ?? 0), 0);
+	const idPrefix = options.idPrefix?.trim().toLowerCase();
+	const titleContains = options.titleContains?.toLowerCase();
+	const executors = Array.isArray(options.executor)
+		? options.executor
+		: options.executor
+			? [options.executor]
+			: undefined;
+	if (executors && (executors.length < 1 || executors.length > 10))
+		throw new Error("Executor filter requires between 1 and 10 values");
+	const where = and(
+		eq(workItems.orgId, options.orgId),
+		options.projectId === undefined
+			? undefined
+			: options.projectId === null
+				? isNull(workItems.projectId)
+				: eq(workItems.projectId, options.projectId),
+		options.parentWorkItemId === undefined
+			? undefined
+			: options.parentWorkItemId === null
+				? isNull(workItems.parentWorkItemId)
+				: eq(workItems.parentWorkItemId, options.parentWorkItemId),
+		options.disposition
+			? eq(workItems.disposition, options.disposition)
+			: undefined,
+		executors
+			? // bound-params: executor filter is limited to 10 values above.
+				inArray(sql`(${workItems.metadata} #>> '{executor}')`, executors)
+			: undefined,
+		options.dispatchReadyOnly
+			? sql`(jsonb_typeof(${workItems.metadata} #> '{laneDispatch}') IS NULL OR (${workItems.metadata} #>> '{laneDispatch,state}') = 'ready') = 1`
+			: undefined,
+		options.workKind ? eq(workItems.workKind, options.workKind) : undefined,
+		options.objectiveId
+			? eq(workItems.objectiveId, options.objectiveId)
+			: undefined,
+		options.workClass ? eq(workItems.workClass, options.workClass) : undefined,
+		// The org's dominant owner otherwise fills every page, so an owner's
+		// items must be selected before paging, not filtered from a page.
+		options.accountableOwnerId
+			? eq(workItems.accountableOwnerId, options.accountableOwnerId)
+			: undefined,
+		options.objectiveLinked === undefined
+			? undefined
+			: options.objectiveLinked
+				? isNotNull(workItems.objectiveId)
+				: isNull(workItems.objectiveId),
+		// A complete id is an exact primary-key lookup; anything shorter is an
+		// index-backed range over the prefix. Neither depends on the row's age.
+		idPrefix
+			? FULL_UUID_PATTERN.test(idPrefix)
+				? eq(workItems.id, idPrefix)
+				: and(
+						gte(workItems.id, idPrefix),
+						lt(workItems.id, prefixUpperBound(idPrefix)),
+					)
+			: undefined,
+		// `instr`, not LIKE: D1 caps a LIKE/GLOB pattern at 50 bytes, so a
+		// substring of 48+ characters (every delegation title the CLI searches
+		// for before creating one) made the whole page a D1_ERROR. `instr` takes
+		// the bound substring at any length and needs no wildcard escaping.
+		titleContains
+			? sql`strpos(lower(${workItems.title}), ${titleContains}) > 0`
+			: undefined,
+		// `_` is a LIKE wildcard, so `transitional_` must be escaped or it also
+		// matches `transitionalX`.
+		options.customerVisiblePreFilter
+			? sql`(${workItems.metadata} #>> '{agentSession}') IS NULL AND ((${workItems.metadata} #>> '{purposeContext}') IS NULL OR (${workItems.metadata} #>> '{purposeContext}') NOT LIKE 'transitional\\_%' ESCAPE '\\')`
+			: undefined,
+	);
+	const rows = await db
+		.select()
+		.from(workItems)
+		.where(where)
+		.orderBy(desc(workItems.createdAt), desc(workItems.id))
+		.limit(limit)
+		.offset(offset);
+	const [counted] = await db
+		.select({ total: sql<number>`count(*)` })
+		.from(workItems)
+		.where(where);
+	return {
+		data: rows.map(normalizeWorkItemRow),
+		total: Number(counted?.total ?? 0),
+	};
+}
+
+/** Uncapped goal-loop counts with a bounded operator-facing outstanding preview. */
+export async function getGoalLoopWorkItemSnapshot(
+	db: PgQueryClient,
+	params: {
+		orgId: string;
+		objectiveId: string;
+		outstandingPreviewLimit?: number;
+	},
+): Promise<{
+	total: number;
+	doneCount: number;
+	outstandingCount: number;
+	outstandingIds: string[];
+}> {
+	const previewLimit = Math.max(
+		0,
+		Math.min(Math.trunc(params.outstandingPreviewLimit ?? 100), 500),
+	);
+	const scoped = db.$with("scoped").as(
+		db
+			.select({
+				id: workItems.id,
+				disposition: workItems.disposition,
+				createdAt: workItems.createdAt,
+			})
+			.from(workItems)
+			.where(
+				and(
+					eq(workItems.orgId, params.orgId),
+					eq(workItems.objectiveId, params.objectiveId),
+				),
+			),
+	);
+	const counts = db.$with("counts").as(
+		db
+			.select({
+				total: sql<unknown>`COUNT(*)`.as("total"),
+				doneCount:
+					sql<unknown>`COALESCE(SUM(CASE WHEN ${scoped.disposition} = 'completed' THEN 1 ELSE 0 END), 0)`.as(
+						"done_count",
+					),
+				outstandingCount:
+					sql<unknown>`COALESCE(SUM(CASE WHEN ${scoped.disposition} != 'completed' THEN 1 ELSE 0 END), 0)`.as(
+						"outstanding_count",
+					),
+			})
+			.from(scoped),
+	);
+	const outstandingPreview = db
+		.$with("outstanding_preview")
+		.as(
+			db
+				.select({ id: scoped.id })
+				.from(scoped)
+				.where(ne(scoped.disposition, "completed"))
+				.orderBy(scoped.createdAt, scoped.id)
+				.limit(previewLimit),
+		);
+	const rows = await db
+		.with(scoped, counts, outstandingPreview)
+		.select({
+			total: sql<unknown>`${counts.total}`.as("total"),
+			doneCount: sql<unknown>`${counts.doneCount}`.as("doneCount"),
+			outstandingCount: sql<unknown>`${counts.outstandingCount}`.as(
+				"outstandingCount",
+			),
+			outstandingId: sql<string | null>`${outstandingPreview.id}`.as(
+				"outstandingId",
+			),
+		})
+		.from(counts)
+		.leftJoin(outstandingPreview, sql`1 = 1`)
+		.orderBy(outstandingPreview.id);
+	const totals = rows[0] ?? {
+		total: 0,
+		doneCount: 0,
+		outstandingCount: 0,
+		outstandingId: null,
+	};
+	return {
+		total: Number(totals.total),
+		doneCount: Number(totals.doneCount),
+		outstandingCount: Number(totals.outstandingCount),
+		outstandingIds: rows.flatMap((row) =>
+			row.outstandingId ? [row.outstandingId] : [],
+		),
+	};
+}
+
+export interface UpsertWorkItemProjectionParams {
+	id: string;
+	workItemId: string;
+	orgId: string;
+	provider: string;
+	direction?: WorkItemProjectionDirection;
+	status?: WorkItemProjectionStatus;
+	externalId?: string | null;
+	externalUrl?: string | null;
+	externalProjectId?: string | null;
+	externalSectionId?: string | null;
+	lastSyncedAt?: string | null;
+	lastError?: string | null;
+	syncCursor?: string | null;
+	providerState?: Record<string, JsonValue>;
+	createdAt: string;
+	updatedAt?: string | null;
+}
+
+export async function upsertWorkItemProjection(
+	db: PgQueryClient,
+	params: UpsertWorkItemProjectionParams,
+): Promise<WorkItemProjection> {
+	return (
+		await db
+			.insert(workItemProjections)
+			.values({
+				...params,
+				direction: params.direction ?? "projection",
+				status: params.status ?? "pending",
+			})
+			.onConflictDoUpdate({
+				target: [workItemProjections.workItemId, workItemProjections.provider],
+				set: {
+					direction: params.direction,
+					status: params.status,
+					externalId: params.externalId,
+					externalUrl: params.externalUrl,
+					externalProjectId: params.externalProjectId,
+					externalSectionId: params.externalSectionId,
+					lastSyncedAt: params.lastSyncedAt,
+					lastError: params.lastError,
+					syncCursor: params.syncCursor,
+					providerState: params.providerState,
+					updatedAt: params.updatedAt,
+				},
+			})
+			.returning()
+	)[0]!;
+}
+
+export async function listWorkItemProjections(
+	db: PgQueryClient,
+	workItemId: string,
+): Promise<WorkItemProjection[]> {
+	return db
+		.select()
+		.from(workItemProjections)
+		.where(eq(workItemProjections.workItemId, workItemId));
+}
+
+export interface OrgProjectionRow {
+	id: string;
+	workItemId: string;
+	workItemTitle: string;
+	workItemStatus: WorkItem["disposition"];
+	projectId: string | null;
+	provider: string;
+	direction: WorkItemProjectionDirection;
+	syncStatus: WorkItemProjectionStatus;
+	externalId: string | null;
+	externalUrl: string | null;
+	lastSyncedAt: string | null;
+	lastError: string | null;
+	createdAt: string;
+}
+
+export async function listOrgWorkItemProjections(
+	db: PgQueryClient,
+	params: {
+		orgId: string;
+		provider?: string;
+		projectId?: string;
+		limit?: number;
+		offset?: number;
+	},
+): Promise<{ data: OrgProjectionRow[]; total: number }> {
+	const limit = Math.min(Math.max(params.limit ?? 100, 1), 500);
+	const offset = Math.max(params.offset ?? 0, 0);
+	const where = and(
+		eq(workItemProjections.orgId, params.orgId),
+		params.provider
+			? eq(workItemProjections.provider, params.provider)
+			: undefined,
+		params.projectId ? eq(workItems.projectId, params.projectId) : undefined,
+	);
+	const rows = await db
+		.select({
+			id: workItemProjections.id,
+			workItemId: workItemProjections.workItemId,
+			workItemTitle: workItems.title,
+			workItemStatus: workItems.disposition,
+			projectId: workItems.projectId,
+			provider: workItemProjections.provider,
+			direction: workItemProjections.direction,
+			syncStatus: workItemProjections.status,
+			externalId: workItemProjections.externalId,
+			externalUrl: workItemProjections.externalUrl,
+			lastSyncedAt: workItemProjections.lastSyncedAt,
+			lastError: workItemProjections.lastError,
+			createdAt: workItemProjections.createdAt,
+		})
+		.from(workItemProjections)
+		.innerJoin(
+			workItems,
+			and(
+				eq(workItems.id, workItemProjections.workItemId),
+				eq(workItems.orgId, workItemProjections.orgId),
+			),
+		)
+		.where(where)
+		// `id` is a deterministic tie-break: without it two projections sharing a
+		// `created_at` order arbitrarily per statement, so an OFFSET page could
+		// repeat or skip rows.
+		.orderBy(desc(workItemProjections.createdAt), desc(workItemProjections.id))
+		.limit(limit)
+		.offset(offset);
+	const [counted] = await db
+		.select({ total: sql<number>`count(*)` })
+		.from(workItemProjections)
+		.innerJoin(
+			workItems,
+			and(
+				eq(workItems.id, workItemProjections.workItemId),
+				eq(workItems.orgId, workItemProjections.orgId),
+			),
+		)
+		.where(where);
+	return { data: rows, total: Number(counted?.total ?? 0) };
+}
+
+import {
+	getScopedWorkItem,
+	type WorkActor,
+	WorkFactoryError,
+} from "./factory-state";
+export async function acceptWorkItem(
+	db: PgQueryClient,
+	params: {
+		orgId: string;
+		workItemId: string;
+		acceptanceContract: WorkItemAcceptanceContract;
+		actor: WorkActor;
+		acceptedAt?: string;
+	},
+): Promise<WorkItem> {
+	const acceptedAt = params.acceptedAt ?? new Date().toISOString();
+	const prior = await getScopedWorkItem(db, params.orgId, params.workItemId);
+	// Acceptance fixes the outcome in plain language; an empty contract says
+	// nothing about done.
+	if (!params.acceptanceContract.doneLooksLike?.trim())
+		throw new WorkFactoryError(
+			"ACCEPTANCE_REQUIRED",
+			"An acceptance contract must state what done looks like",
+		);
+	const executor = prior.metadata?.executor;
+	const dispatch = ["codex", "claude-code", "tedi", "human"].includes(
+		String(executor),
+	);
+	const receiptId = crypto.randomUUID();
+	const parent =
+		prior.parentWorkItemId && prior.workClass !== "objective"
+			? await getScopedWorkItem(db, params.orgId, prior.parentWorkItemId)
+			: null;
+	const purposeExceptionExpiresAt = acceptanceRenewedPurposeExpiry(
+		prior,
+		parent,
+		acceptedAt,
+	);
+	const acceptMutation = (q: PgQueryClient) =>
+		q
+			.update(workItems)
+			.set({
+				disposition: "accepted",
+				...(purposeExceptionExpiresAt ? { purposeExceptionExpiresAt } : {}),
+				...(dispatch
+					? {
+							metadata: {
+								...prior.metadata,
+								laneDispatch: { state: "ready" as const },
+								laneDispatchReceiptId: receiptId,
+							},
+						}
+					: {}),
+				acceptanceContract: params.acceptanceContract,
+				acceptedAt,
+				updatedAt: acceptedAt,
+				version: sql`${workItems.version} + 1`,
+			})
+			.where(
+				and(
+					eq(workItems.orgId, params.orgId),
+					eq(workItems.id, params.workItemId),
+					eq(workItems.disposition, "proposed"),
+					eq(workItems.version, prior.version),
+				),
+			)
+			.returning();
+	const acceptEvent = (q: PgQueryClient) =>
+		lifecycleEventInsert(q, {
+			orgId: params.orgId,
+			workItemId: params.workItemId,
+			disposition: "accepted",
+			expectedVersion: prior.version + 1,
+			eventType: "work.accepted",
+			actor: params.actor,
+			occurredAt: acceptedAt,
+		});
+	const [acceptedRows] = await db.transaction(async (tx) => {
+		const __r: any[] = [];
+		for (const __s of [
+			acceptMutation(tx),
+			acceptEvent(tx),
+			...(dispatch
+				? [
+						dispatchReceiptInsert(
+							tx,
+							prior,
+							String(executor),
+							acceptedAt,
+							receiptId,
+						),
+					]
+				: []),
+		])
+			__r.push(await __s);
+		return __r;
+	});
+	const item = acceptedRows[0];
+	if (!item)
+		throw new WorkFactoryError(
+			"NOT_READY",
+			"Only proposed work can be accepted",
+		);
+	return normalizeWorkItemRow(item);
+}
+
+export interface NativeStewardCloseoutFence {
+	homeRunId: string;
+	runId: string;
+	linkedWorkItemId: string;
+	coordinatorAttemptId: string;
+	coordinatorAdmissionId: string;
+	ownerUserId: string;
+	tediId: string;
+	targetWorkItemVersion: number;
+	sourceAttemptId: string;
+	sourceAttemptMetadata: Record<string, JsonValue>;
+	sourceCommit: string;
+	repositoryTargetId: string;
+	policyPackId: string;
+	policyDefinition: string;
+	capabilityPlanJson: string;
+	tediPolicyPackId: string | null;
+	tediPolicyDefinition: string | null;
+	autonomyLessonClasses: string[];
+}
+
+export async function completeWorkItem(
+	db: PgQueryClient,
+	params: {
+		orgId: string;
+		workItemId: string;
+		actor: WorkActor;
+		expectedWorkItemVersion?: number;
+		completedAt?: string;
+		nativeStewardCloseout?: NativeStewardCloseoutFence;
+		/** Internal timer closeout, fenced against a changed request, policy or Attempt. */
+		verifiedDispatcherDelivery?: {
+			requestId: string;
+			ownerUserId: string;
+			requestVersion: number;
+			attemptId: string;
+			policyPackId: string;
+			policyDefinition: string;
+		};
+		closingComment?: {
+			id: string;
+			body: string;
+			metadata?: Record<string, JsonValue>;
+		};
+	},
+): Promise<WorkItem> {
+	const completedAt = params.completedAt ?? new Date().toISOString();
+	if (
+		params.closingComment &&
+		containsCardSecret([
+			params.closingComment.body,
+			params.closingComment.metadata,
+		])
+	)
+		throw new Error(CARD_SECRET_MESSAGE);
+	const item = await getScopedWorkItem(db, params.orgId, params.workItemId);
+	// Completion is idempotent. Any peer that re-issues complete on an already
+	// completed item reads the settled row back rather than failing, so a
+	// double-send drains instead of deadlocking the item.
+	const native = params.nativeStewardCloseout;
+	const nativeCommentId = native
+		? `${native.homeRunId}:steward-closeout:${item.id}:v${native.targetWorkItemVersion}`
+		: null;
+	if (
+		native &&
+		(params.actor.type !== "tedi" ||
+			params.actor.id !== native.tediId ||
+			params.expectedWorkItemVersion !== native.targetWorkItemVersion ||
+			params.closingComment?.id !== nativeCommentId ||
+			item.id === native.linkedWorkItemId)
+	)
+		throw new WorkFactoryError(
+			"NOT_READY",
+			"Native steward completion proof is mismatched",
+		);
+	if (item.disposition === "completed") {
+		if (
+			native &&
+			(item.version !== native.targetWorkItemVersion + 1 ||
+				item.metadata?.completionCommentId !== nativeCommentId)
+		)
+			throw new WorkFactoryError(
+				"NOT_READY",
+				"Completed Work does not match this native closeout receipt",
+			);
+		return item;
+	}
+	// Settled means done: completion carries no evidence count and no review
+	// requirement (decisions/minimal-gates-over-pre-proof.md). Legacy
+	// contract-bearing items and contract-less items complete through one path.
+	if (item.disposition !== "accepted")
+		throw new WorkFactoryError(
+			"ACCEPTANCE_REQUIRED",
+			"Only accepted work can complete",
+		);
+	const delivery = params.verifiedDispatcherDelivery;
+	const completeMutation = (q: PgQueryClient) =>
+		q
+			.update(workItems)
+			.set({
+				disposition: "completed",
+				completedAt,
+				updatedAt: completedAt,
+				...(params.closingComment
+					? {
+							metadata: {
+								...item.metadata,
+								completionCommentId: params.closingComment.id,
+							},
+						}
+					: {}),
+				version: sql`${workItems.version} + 1`,
+			})
+			.where(
+				and(
+					eq(workItems.id, params.workItemId),
+					eq(workItems.orgId, params.orgId),
+					eq(workItems.version, params.expectedWorkItemVersion ?? item.version),
+					eq(workItems.disposition, "accepted"),
+					native
+						? and(
+								eq(workItems.stewardType, "tedi"),
+								eq(workItems.stewardId, native.tediId),
+								sql`EXISTS (SELECT 1 FROM ${tedis} native_tedi WHERE native_tedi.id=${native.tediId} AND native_tedi.organization_id=${params.orgId} AND native_tedi.status='active' AND native_tedi.policy_pack_id IS NOT DISTINCT FROM ${native.tediPolicyPackId})`,
+								native.tediPolicyPackId === null
+									? sql`1`
+									: sql`EXISTS (SELECT 1 FROM ${policyPacks} native_tedi_policy WHERE native_tedi_policy.id=${native.tediPolicyPackId} AND native_tedi_policy.status='active' AND (native_tedi_policy.organization_id IS NULL OR native_tedi_policy.organization_id=${params.orgId}) AND native_tedi_policy.definition=${native.tediPolicyDefinition})`,
+								sql`(SELECT count(DISTINCT (native_lesson.payload #>> '{classId}')) FROM ${workEvents} native_lesson WHERE native_lesson.org_id=${params.orgId} AND native_lesson.event_type='delegation.autonomy.corrected' AND native_lesson.actor_type='user' AND jsonb_typeof(native_lesson.payload #> '{classId}')='text')=${native.autonomyLessonClasses.length} AND NOT EXISTS (SELECT 1 FROM ${workEvents} native_lesson WHERE native_lesson.org_id=${params.orgId} AND native_lesson.event_type='delegation.autonomy.corrected' AND native_lesson.actor_type='user' AND jsonb_typeof(native_lesson.payload #> '{classId}')='text' AND (native_lesson.payload #>> '{classId}') NOT IN (SELECT value FROM jsonb_array_elements_text(${JSON.stringify(native.autonomyLessonClasses)}::jsonb)))`,
+								sql`EXISTS (SELECT 1 FROM ${organizationMembers} native_owner WHERE native_owner.organization_id=${params.orgId} AND native_owner.descope_user_id=${native.ownerUserId} AND native_owner.status='active' AND native_owner.role IN ('owner','admin'))`,
+								sql`EXISTS (SELECT 1 FROM ${kernelRuntimeRuns} native_home WHERE native_home.id=${native.homeRunId} AND native_home.organization_id=${params.orgId} AND native_home.status IN ('queued','running','waiting') AND native_home.delegated_tedi_id=${native.tediId} AND native_home.child_run_id=${native.runId} AND (native_home.metadata #>> '{workItemId}')=${native.linkedWorkItemId} AND (native_home.metadata #>> '{redriveInput,descopeUserId}')=${native.ownerUserId} AND (native_home.metadata #>> '{homeDelegation,workOrder,capabilityPlan}')=${native.capabilityPlanJson} AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(native_home.metadata #> '{homeDelegation,workOrder,capabilityPlan,allowedToolIds}') native_read_tool WHERE native_read_tool.value='read_steward_work') AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(native_home.metadata #> '{homeDelegation,workOrder,capabilityPlan,allowedToolIds}') native_complete_tool WHERE native_complete_tool.value='complete_steward_work') AND (native_home.metadata #>> '{homeDelegation,workOrder,capabilityPlan,stewardCloseoutTargets}') = (native_home.metadata #>> '{redriveInput,runtimeMetadata,stewardCloseoutTargets}') AND EXISTS (SELECT 1 FROM jsonb_array_elements(native_home.metadata #> '{homeDelegation,workOrder,capabilityPlan,stewardCloseoutTargets}') native_target WHERE (native_target.value #>> '{id}')=${params.workItemId} AND (native_target.value #>> '{expectedWorkItemVersion}')=${native.targetWorkItemVersion} AND (native_target.value #>> '{repositoryTargetId}')=${native.repositoryTargetId}))`,
+								sql`EXISTS (SELECT 1 FROM ${workAttempts} native_coordinator WHERE native_coordinator.id=${native.coordinatorAttemptId} AND native_coordinator.org_id=${params.orgId} AND native_coordinator.work_item_id=${native.linkedWorkItemId} AND native_coordinator.admission_id=${native.coordinatorAdmissionId} AND native_coordinator.executor_type='tedi' AND native_coordinator.executor_id=${native.tediId} AND native_coordinator.run_id=${native.runId} AND native_coordinator.runtime_state IN ('running','waiting','retrying') AND EXISTS (SELECT 1 FROM ${workItems} native_coordinator_work WHERE native_coordinator_work.id=native_coordinator.work_item_id AND native_coordinator_work.org_id=native_coordinator.org_id AND native_coordinator_work.disposition='accepted' AND EXISTS (SELECT 1 FROM ${workAdmissions} native_admission WHERE native_admission.id=native_coordinator.admission_id AND native_admission.org_id=native_coordinator.org_id AND native_admission.work_item_id=native_coordinator.work_item_id AND native_admission.decision='admitted' AND native_admission.work_item_version=native_coordinator_work.version AND native_admission.admission_spec_revision=native_coordinator_work.admission_spec_revision)) AND native_coordinator.expires_at > to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))`,
+								sql`NOT EXISTS (SELECT 1 FROM ${runtimeSubmissions} native_abort WHERE native_abort.organization_id=${params.orgId} AND native_abort.run_id=${native.homeRunId} AND native_abort.abort_requested_at IS NOT NULL)`,
+								sql`EXISTS (SELECT 1 FROM ${workAttempts} native_source WHERE native_source.id=${native.sourceAttemptId} AND native_source.org_id=${params.orgId} AND native_source.work_item_id=${params.workItemId} AND native_source.runtime_state='finished' AND native_source.outcome='succeeded' AND native_source.finished_at IS NOT NULL AND native_source.metadata=${JSON.stringify(native.sourceAttemptMetadata)} AND coalesce((native_source.metadata #>> '{settlement,commitSha}'),(native_source.metadata #>> '{sourceCommit}'))=${native.sourceCommit} AND NOT EXISTS (SELECT 1 FROM ${workAttempts} native_newer WHERE native_newer.org_id=native_source.org_id AND native_newer.work_item_id=native_source.work_item_id AND native_newer.attempt_number>native_source.attempt_number))`,
+								sql`EXISTS (SELECT 1 FROM ${policyPacks} native_policy WHERE native_policy.id=${native.policyPackId} AND native_policy.organization_id=${params.orgId} AND native_policy.status='active' AND native_policy.definition=${native.policyDefinition} AND NOT EXISTS (SELECT 1 FROM ${policyPacks} native_newer_policy WHERE native_newer_policy.organization_id=native_policy.organization_id AND native_newer_policy.status='active' AND native_newer_policy.version>native_policy.version))`,
+							)
+						: undefined,
+					delivery
+						? and(
+								eq(workItems.workKind, "coding"),
+								sql`EXISTS (SELECT 1 FROM ${policyPacks} policy WHERE policy.id=${delivery.policyPackId} AND policy.definition=${delivery.policyDefinition}::jsonb)`,
+								inArray(workItems.riskLevel, ["low", "medium"]),
+								sql`EXISTS (SELECT 1 FROM ${policyPacks} p WHERE p.id=${delivery.policyPackId} AND p.organization_id=${params.orgId} AND p.status='active' AND (p.definition #>> '{kernelRequestCoordinator,enabled}')='true' AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(p.definition #> '{kernelRequestCoordinator,workAttemptDelivery,completion,projectIds}') project WHERE project.value=${workItems.projectId}) AND NOT EXISTS (SELECT 1 FROM ${policyPacks} newer WHERE newer.organization_id=p.organization_id AND newer.status='active' AND newer.version>p.version))`,
+								sql`EXISTS (SELECT 1 FROM ${kernelRequests} r WHERE r.id=${delivery.requestId} AND r.organization_id=${params.orgId} AND r.owner_user_id=${delivery.ownerUserId} AND r.version=${delivery.requestVersion} AND r.source_kind='work_attempt' AND r.source_id=${delivery.attemptId} AND (r.snapshot #>> '{workItemId}')=${params.workItemId} AND (r.snapshot #>> '{attemptId}')=${delivery.attemptId} AND (r.snapshot #>> '{state}')='verifying' AND (r.snapshot #>> '{outcome}')='verified' AND (r.snapshot #>> '{delivery,status}')='pending')`,
+								sql`EXISTS (SELECT 1 FROM ${workAttempts} a WHERE a.org_id=${params.orgId} AND a.work_item_id=${params.workItemId} AND a.id=${delivery.attemptId} AND a.outcome='succeeded' AND a.runtime_state='finished' AND a.finished_at IS NOT NULL AND (a.metadata #>> '{dispatchVersion}') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM ${workAttempts} successor WHERE successor.org_id=a.org_id AND successor.work_item_id=a.work_item_id AND successor.attempt_number>a.attempt_number))`,
+							)
+						: undefined,
+					sql`NOT EXISTS (SELECT 1 FROM ${workAttempts} active_attempt WHERE active_attempt.org_id = ${params.orgId} AND active_attempt.work_item_id = ${params.workItemId} AND active_attempt.runtime_state IN ('queued','running','waiting','retrying') AND (active_attempt.expires_at IS NULL OR active_attempt.expires_at > ${completedAt}))`,
+				),
+			)
+			.returning();
+	const completeEvent = (q: PgQueryClient) =>
+		lifecycleEventInsert(q, {
+			orgId: params.orgId,
+			workItemId: params.workItemId,
+			disposition: "completed",
+			expectedVersion: item.version + 1,
+			eventType: "work.completed",
+			actor: params.actor,
+			occurredAt: completedAt,
+		});
+	const comment = params.closingComment;
+	const [completedRows] = await db.transaction(async (tx) => {
+		const __r: any[] = [];
+		for (const __s of [
+			completeMutation(tx),
+			completeEvent(tx),
+			...(comment
+				? [
+						tx.insert(workItemComments).select((qb) =>
+							qb
+								.select({
+									id: sql<string>`${comment.id}`.as("id"),
+									workItemId: workItems.id,
+									orgId: workItems.orgId,
+									authorType: sql<string>`${params.actor.type}`.as(
+										"author_type",
+									),
+									authorId: sql<string>`${params.actor.id}`.as("author_id"),
+									body: sql<string>`${comment.body}`.as("body"),
+									metadata: sql<
+										Record<string, JsonValue>
+									>`${JSON.stringify(comment.metadata ?? {})}`.as("metadata"),
+									createdAt: sql<string>`${completedAt}`.as("created_at"),
+								})
+								.from(workItems)
+								.where(
+									and(
+										eq(workItems.orgId, params.orgId),
+										eq(workItems.id, params.workItemId),
+										eq(workItems.disposition, "completed"),
+										eq(
+											workItems.version,
+											(params.expectedWorkItemVersion ?? item.version) + 1,
+										),
+										eq(workItems.completedAt, completedAt),
+										sql`(${workItems.metadata} #>> '{completionCommentId}') = ${comment.id}`,
+									),
+								),
+						),
+					]
+				: []),
+		])
+			__r.push(await __s);
+		return __r;
+	});
+	const completed = completedRows[0];
+	if (!completed)
+		throw new WorkFactoryError(
+			"NOT_READY",
+			"Work changed while completion was evaluated",
+		);
+	await retireDecisionReviews(db, {
+		orgId: params.orgId,
+		workItemId: completed.id,
+		now: completedAt,
+	});
+	return normalizeWorkItemRow(completed);
+}
+
+export async function cancelWorkItem(
+	db: PgQueryClient,
+	params: {
+		orgId: string;
+		workItemId: string;
+		actor: WorkActor;
+		reason?: string;
+		expectedWorkItemVersion?: number;
+		hygiene?: { humanQuietHours: number; noAttempts: boolean };
+		cancelledAt?: string;
+	},
+): Promise<WorkItem> {
+	const cancelledAt = params.cancelledAt ?? new Date().toISOString();
+	const prior = await getScopedWorkItem(db, params.orgId, params.workItemId);
+	const humanCutoff = params.hygiene
+		? new Date(
+				Date.parse(cancelledAt) -
+					Math.max(48, params.hygiene.humanQuietHours) * 3600000,
+			).toISOString()
+		: null;
+	const cancelMutation = (q: PgQueryClient) =>
+		q
+			.update(workItems)
+			.set({
+				disposition: "cancelled",
+				cancelledAt,
+				updatedAt: cancelledAt,
+				version: sql`${workItems.version} + 1`,
+			})
+			.where(
+				and(
+					eq(workItems.orgId, params.orgId),
+					eq(workItems.id, params.workItemId),
+					eq(
+						workItems.version,
+						params.expectedWorkItemVersion ?? prior.version,
+					),
+					inArray(workItems.disposition, ["proposed", "accepted"]),
+					sql`NOT EXISTS (SELECT 1 FROM ${workAttempts} active_attempt WHERE active_attempt.org_id = ${params.orgId} AND active_attempt.work_item_id = ${params.workItemId} AND active_attempt.runtime_state IN ('queued','running','waiting','retrying') AND (active_attempt.expires_at IS NULL OR active_attempt.expires_at > ${cancelledAt}))`,
+					params.hygiene
+						? sql`NOT EXISTS (SELECT 1 FROM ${workItemComments} human_comment WHERE human_comment.org_id = ${params.orgId} AND human_comment.work_item_id = ${params.workItemId} AND human_comment.author_type = 'user' AND ((extract(epoch from (human_comment.created_at)::timestamptz)/86400.0) IS NULL OR (extract(epoch from (human_comment.created_at)::timestamptz)/86400.0) >= (extract(epoch from (${humanCutoff})::timestamptz)/86400.0)))`
+						: undefined,
+					params.hygiene?.noAttempts
+						? sql`NOT EXISTS (SELECT 1 FROM ${workAttempts} prior_attempt WHERE prior_attempt.org_id = ${params.orgId} AND prior_attempt.work_item_id = ${params.workItemId})`
+						: undefined,
+				),
+			)
+			.returning();
+	const cancelEvent = (q: PgQueryClient) =>
+		lifecycleEventInsert(q, {
+			orgId: params.orgId,
+			workItemId: params.workItemId,
+			disposition: "cancelled",
+			expectedVersion: prior.version + 1,
+			eventType: "work.cancelled",
+			actor: params.actor,
+			occurredAt: cancelledAt,
+			payload: { reason: params.reason ?? null },
+		});
+	const [cancelledRows] = await db.transaction(async (tx) => {
+		const __r: any[] = [];
+		for (const __s of [cancelMutation(tx), cancelEvent(tx)])
+			__r.push(await __s);
+		return __r;
+	});
+	const item = cancelledRows[0];
+	if (!item)
+		throw new WorkFactoryError(
+			"NOT_READY",
+			"Terminal work cannot be cancelled",
+		);
+	await retireDecisionReviews(db, {
+		orgId: params.orgId,
+		workItemId: item.id,
+		now: cancelledAt,
+	});
+	return normalizeWorkItemRow(item);
+}
+
+/** Specification fields an approval was given for; any change invalidates it. */
+const APPROVED_SPECIFICATION_FIELDS = [
+	"projectId",
+	"title",
+	"description",
+	"workKind",
+	"objectiveId",
+	"workClass",
+	"purposeExceptionExpiresAt",
+	"riskLevel",
+	"priority",
+	"accountableOwnerType",
+	"accountableOwnerId",
+	"stewardType",
+	"stewardId",
+	"requiredCapabilities",
+	"requiredAuthorities",
+	"dueDate",
+	"deadline",
+	"startAt",
+	"durationDays",
+] as const;
+
+/**
+ * Lane planning (a laneDispatch state with no other change, or a repeat of
+ * the current executor) is bookkeeping, not a new specification.
+ */
+function isPlanningOnlyUpdate(
+	prior: WorkItem,
+	params: Partial<
+		Record<(typeof APPROVED_SPECIFICATION_FIELDS)[number], unknown>
+	> & { executor?: string; laneDispatch?: LaneDispatchPlan },
+): boolean {
+	return (
+		params.laneDispatch !== undefined &&
+		(params.executor === undefined ||
+			params.executor === prior.metadata?.executor) &&
+		APPROVED_SPECIFICATION_FIELDS.every(
+			(field) =>
+				params[field] === undefined ||
+				JSON.stringify(params[field]) === JSON.stringify(prior[field]),
+		)
+	);
+}
+
+export async function updateWorkItemSpecification(
+	db: PgQueryClient,
+	params: {
+		orgId: string;
+		workItemId: string;
+		actor: WorkActor;
+		executor?: string;
+		laneDispatch?: LaneDispatchPlan;
+		/** Validated by the caller; refused while milestone links remain. */
+		projectId?: string;
+		title?: string;
+		description?: string | null;
+		workKind?: WorkItemKind;
+		objectiveId?: string | null;
+		workClass?: WorkItemClass;
+		purposeExceptionExpiresAt?: string | null;
+		riskLevel?: WorkItemRiskLevel;
+		priority?: WorkItemPriority;
+		accountableOwnerType?: WorkItemAccountabilityPrincipalType | null;
+		accountableOwnerId?: string | null;
+		stewardType?: WorkItemAccountabilityPrincipalType | null;
+		stewardId?: string | null;
+		expectedWorkItemVersion?: number;
+		requiredCapabilities?: string[];
+		requiredAuthorities?: string[];
+		dueDate?: string | null;
+		deadline?: string | null;
+		startAt?: string | null;
+		durationDays?: number | null;
+		updatedAt?: string;
+	},
+): Promise<WorkItem> {
+	const updatedAt = params.updatedAt ?? new Date().toISOString();
+	const prior = await getScopedWorkItem(db, params.orgId, params.workItemId);
+	const laneDispatch =
+		params.laneDispatch ??
+		(params.executor !== undefined &&
+		["codex", "claude-code", "tedi", "human"].includes(params.executor)
+			? { state: "ready" as const }
+			: undefined);
+	const dispatch =
+		prior.disposition === "accepted" && laneDispatch?.state === "ready";
+	const projectMove =
+		params.projectId !== undefined && params.projectId !== prior.projectId
+			? { from: prior.projectId, to: params.projectId }
+			: null;
+	const receiptId = crypto.randomUUID();
+	const planningOnly = isPlanningOnlyUpdate(prior, params);
+	const updateMutation = (q: PgQueryClient) =>
+		q
+			.update(workItems)
+			.set({
+				metadata:
+					params.executor === undefined && laneDispatch === undefined
+						? undefined
+						: {
+								...prior.metadata,
+								...(dispatch ? { laneDispatchReceiptId: receiptId } : {}),
+								...(params.executor === undefined
+									? {}
+									: { executor: params.executor }),
+								...(laneDispatch === undefined
+									? {}
+									: { laneDispatch: laneDispatch }),
+							},
+				projectId: projectMove?.to,
+				title: params.title,
+				description: params.description,
+				workKind: params.workKind,
+				objectiveId: params.objectiveId,
+				workClass: params.workClass,
+				purposeExceptionExpiresAt: params.purposeExceptionExpiresAt,
+				riskLevel: params.riskLevel,
+				priority: params.priority,
+				accountableOwnerType: params.accountableOwnerType,
+				accountableOwnerId: params.accountableOwnerId,
+				stewardType: params.stewardType,
+				stewardId: params.stewardId,
+				requiredCapabilities: params.requiredCapabilities,
+				requiredAuthorities: params.requiredAuthorities,
+				dueDate: params.dueDate,
+				deadline: params.deadline,
+				startAt: params.startAt,
+				durationDays: params.durationDays,
+				admissionSpecRevision: planningOnly
+					? undefined
+					: sql`lower(replace(gen_random_uuid()::text, '-', ''))`,
+				updatedAt,
+				version: sql`${workItems.version} + 1`,
+			})
+			.where(
+				and(
+					eq(workItems.orgId, params.orgId),
+					eq(workItems.id, params.workItemId),
+					eq(
+						workItems.version,
+						params.expectedWorkItemVersion ?? prior.version,
+					),
+					laneDispatch === undefined
+						? undefined
+						: sql`NOT EXISTS (
+					SELECT 1 FROM ${workAttempts}
+					WHERE ${workAttempts.orgId} = ${params.orgId}
+					AND ${workAttempts.workItemId} = ${params.workItemId}
+					AND ${workAttempts.runtimeState} IN ('queued', 'running', 'waiting', 'retrying')
+					AND (${workAttempts.expiresAt} IS NULL OR ${workAttempts.expiresAt} > ${updatedAt})
+				)`,
+					// Milestones must share their Work's project.
+					projectMove
+						? sql`NOT EXISTS (
+					SELECT 1 FROM ${workMilestoneItems}
+					WHERE ${workMilestoneItems.orgId} = ${params.orgId}
+					AND ${workMilestoneItems.workItemId} = ${params.workItemId}
+				)`
+						: undefined,
+					ne(workItems.disposition, "completed"),
+					ne(workItems.disposition, "cancelled"),
+				),
+			)
+			.returning();
+	const updateEvent = (q: PgQueryClient) =>
+		lifecycleEventInsert(q, {
+			orgId: params.orgId,
+			workItemId: params.workItemId,
+			disposition: prior.disposition,
+			expectedVersion: prior.version + 1,
+			eventType: "work.specification_updated",
+			actor: params.actor,
+			occurredAt: updatedAt,
+			...(projectMove ? { payload: { projectMove } } : {}),
+		});
+	// Approval proposals are immutable and remain bound to their reviewed version.
+	const [updatedRows] = await db.transaction(async (tx) => {
+		const __r: any[] = [];
+		for (const __s of [
+			updateMutation(tx),
+			updateEvent(tx),
+			...(dispatch
+				? [
+						dispatchReceiptInsert(
+							tx,
+							prior,
+							String(params.executor ?? prior.metadata?.executor),
+							updatedAt,
+							receiptId,
+						),
+					]
+				: []),
+		])
+			__r.push(await __s);
+		return __r;
+	});
+	const item = updatedRows[0];
+	if (!item)
+		throw new WorkFactoryError(
+			"NOT_READY",
+			"Terminal work specifications are immutable",
+		);
+	return normalizeWorkItemRow(item);
+}

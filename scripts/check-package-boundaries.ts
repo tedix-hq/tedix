@@ -114,7 +114,9 @@ for (const file of files) {
 // `db.batch()` is D1's transaction primitive.
 //
 // Scoped to D1-backed code only. `.transaction()` is correct on
-// drizzle-orm/durable-sqlite, where the DO owns its own SQLite instance.
+// drizzle-orm/durable-sqlite, where the DO owns its own SQLite instance, and
+// on the Postgres plane (packages/db/src/pg), where it is the transaction
+// primitive the plane exists to use.
 const D1_TRANSACTION_SCOPES = [
 	"packages/db/src/",
 	"apps/api/src/",
@@ -133,6 +135,7 @@ for (const file of files.filter((path) => /\.[cm]?tsx?$/.test(path))) {
 		continue;
 	}
 	if (file.includes("durable-sqlite")) continue;
+	if (file.startsWith("packages/db/src/pg/")) continue;
 	if (D1_TRANSACTION_ALLOWLIST.has(file)) continue;
 	const raw = readText(file);
 	if (!raw) continue;

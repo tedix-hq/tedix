@@ -1,0 +1,399 @@
+/**
+ * Product interaction feedback and learning attribution ledger.
+ *
+ * This is deliberately separate from `memory_feedback`: memory feedback tunes
+ * fact confidence, while this ledger preserves the raw user/product signal,
+ * the scope it is allowed to influence, the component changed because of it,
+ * and the baseline/follow-up proof that the change helped.
+ */
+
+import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import {
+	LEARNING_CHANGE_KINDS,
+	LEARNING_IMPROVEMENT_STATUSES,
+	LEARNING_INTERACTION_KINDS,
+	LEARNING_MEASUREMENT_WINDOWS,
+	LEARNING_PROMOTION_ROUTES,
+	LEARNING_SCOPE_KINDS,
+	LEARNING_SIGNAL_CLASSES,
+	LEARNING_SUBJECT_KINDS,
+} from "@tedix/api-contract/schemas/learning-feedback";
+import { sql } from "drizzle-orm";
+import {
+	index,
+	integer,
+	jsonb,
+	pgTable,
+	text,
+	uniqueIndex,
+} from "drizzle-orm/pg-core";
+import { organizations } from "./organizations";
+import { tedis } from "./tedis";
+
+export const learningInteractionEvents = pgTable(
+	"learning_interaction_events",
+	{
+		id: text("id")
+			.primaryKey()
+			.$defaultFn(() => crypto.randomUUID()),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		actorType: text("actor_type", {
+			enum: ["user", "tedi", "service", "api_key", "unknown"],
+		}).notNull(),
+		actorId: text("actor_id"),
+		tediId: text("tedi_id").references(() => tedis.id, {
+			onDelete: "set null",
+		}),
+		clientEventId: text("client_event_id").notNull(),
+		signalClass: text("signal_class", { enum: LEARNING_SIGNAL_CLASSES })
+			.notNull()
+			.default("quality"),
+		eventKind: text("event_kind", {
+			enum: LEARNING_INTERACTION_KINDS,
+		}).notNull(),
+		scopeKind: text("scope_kind", { enum: LEARNING_SCOPE_KINDS }).notNull(),
+		scopeId: text("scope_id").notNull(),
+		issueKey: text("issue_key"),
+		surface: text("surface").notNull(),
+		targetType: text("target_type"),
+		targetId: text("target_id"),
+		threadId: text("thread_id"),
+		runId: text("run_id"),
+		metadata: jsonb("metadata").$type<Record<string, JsonValue>>(),
+		occurredAt: text("occurred_at").notNull(),
+		createdAt: text("created_at")
+			.notNull()
+			.default(sql`(CURRENT_TIMESTAMP)`),
+	},
+	(table) => [
+		uniqueIndex("uniq_learning_event_org_client").on(
+			table.organizationId,
+			table.clientEventId,
+		),
+		index("idx_learning_event_org_occurred").on(
+			table.organizationId,
+			table.occurredAt,
+		),
+		index("idx_learning_event_tedi_occurred").on(
+			table.tediId,
+			table.occurredAt,
+		),
+		index("idx_learning_event_scope").on(
+			table.organizationId,
+			table.scopeKind,
+			table.scopeId,
+		),
+		// Evidence validation checks later corrections for one exact target.
+		index("idx_learning_event_target_occurred").on(
+			table.organizationId,
+			table.scopeKind,
+			table.scopeId,
+			table.targetType,
+			table.targetId,
+			table.occurredAt,
+		),
+		index("idx_learning_event_issue").on(table.organizationId, table.issueKey),
+		// Standalone created_at for the retention sweep (WHERE created_at < cutoff).
+		index("idx_learning_interaction_events_created").on(table.createdAt),
+		// Producer-surface reads (filing lessons, reflection by surface) used to
+		// walk every event of the tenant through idx_learning_event_issue.
+		index("idx_learning_event_surface_kind_occurred").on(
+			table.organizationId,
+			table.surface,
+			table.eventKind,
+			table.occurredAt,
+		),
+		// A person's own page, newest first, without a tenant-wide reverse scan.
+		index("idx_learning_event_scope_occurred").on(
+			table.organizationId,
+			table.scopeKind,
+			table.scopeId,
+			table.occurredAt,
+		),
+		// Filing history is private to its ledger owner, including shared corrections.
+		index("idx_learning_event_filing_owner_occurred").on(
+			table.organizationId,
+			sql`(${table.metadata} #>> '{ledgerOwnerId}')`,
+			table.surface,
+			table.occurredAt,
+			table.id,
+		),
+		// The not-corrected predicate looks up `undone` corrections per row; on
+		// the scope index that was the whole scope per row (4.7M rows read per
+		// owner page on 23 Oct 2026).
+		index("idx_learning_event_corrections")
+			.on(table.organizationId, table.scopeKind, table.scopeId, table.actorId)
+			.where(sql`event_kind = 'undone'`),
+		// The unfiled-request listing asks, per open row, whether a pending
+		// filing proposal exists for exactly that request. On the owner index
+		// that probe ranged over all of the owner's later filing events.
+		index("idx_learning_event_pending_filing")
+			.on(table.organizationId, table.issueKey, table.occurredAt)
+			.where(sql`(metadata #>> '{pending}') = 1`),
+	],
+);
+
+export const learningFeedbackAttributions = pgTable(
+	"learning_feedback_attributions",
+	{
+		id: text("id")
+			.primaryKey()
+			.$defaultFn(() => crypto.randomUUID()),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		clientAttributionId: text("client_attribution_id").notNull(),
+		feedbackEventId: text("feedback_event_id")
+			.notNull()
+			.references(() => learningInteractionEvents.id, { onDelete: "cascade" }),
+		subjectKind: text("subject_kind", {
+			enum: LEARNING_SUBJECT_KINDS,
+		}).notNull(),
+		subjectId: text("subject_id").notNull(),
+		changeKind: text("change_kind", { enum: LEARNING_CHANGE_KINDS }).notNull(),
+		rationale: text("rationale"),
+		evidenceRefs: jsonb("evidence_refs").$type<string[]>().notNull(),
+		metadata: jsonb("metadata").$type<Record<string, JsonValue>>(),
+		occurredAt: text("occurred_at").notNull(),
+		createdAt: text("created_at")
+			.notNull()
+			.default(sql`(CURRENT_TIMESTAMP)`),
+	},
+	(table) => [
+		uniqueIndex("uniq_learning_attr_org_client_event").on(
+			table.organizationId,
+			table.clientAttributionId,
+			table.feedbackEventId,
+		),
+		index("idx_learning_attr_subject").on(
+			table.organizationId,
+			table.subjectKind,
+			table.subjectId,
+		),
+		index("idx_learning_attr_event").on(table.feedbackEventId),
+	],
+);
+
+export const learningFeedbackMeasurements = pgTable(
+	"learning_feedback_measurements",
+	{
+		id: text("id")
+			.primaryKey()
+			.$defaultFn(() => crypto.randomUUID()),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		clientMeasurementId: text("client_measurement_id").notNull(),
+		attributionId: text("attribution_id")
+			.notNull()
+			.references(() => learningFeedbackAttributions.id, {
+				onDelete: "cascade",
+			}),
+		windowKind: text("window_kind", {
+			enum: LEARNING_MEASUREMENT_WINDOWS,
+		}).notNull(),
+		windowStart: text("window_start").notNull(),
+		windowEnd: text("window_end").notNull(),
+		opportunityCount: integer("opportunity_count").notNull(),
+		recurrenceCount: integer("recurrence_count").notNull(),
+		successCount: integer("success_count").notNull().default(0),
+		metadata: jsonb("metadata").$type<Record<string, JsonValue>>(),
+		createdAt: text("created_at")
+			.notNull()
+			.default(sql`(CURRENT_TIMESTAMP)`),
+	},
+	(table) => [
+		uniqueIndex("uniq_learning_measure_org_client").on(
+			table.organizationId,
+			table.clientMeasurementId,
+		),
+		index("idx_learning_measure_attr_window").on(
+			table.attributionId,
+			table.windowKind,
+			table.windowEnd,
+		),
+	],
+);
+
+export const learningImprovementProposals = pgTable(
+	"learning_improvement_proposals",
+	{
+		id: text("id")
+			.primaryKey()
+			.$defaultFn(() => crypto.randomUUID()),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		clientProposalId: text("client_proposal_id").notNull(),
+		tediId: text("tedi_id").references(() => tedis.id, {
+			onDelete: "set null",
+		}),
+		scopeKind: text("scope_kind", { enum: LEARNING_SCOPE_KINDS }).notNull(),
+		scopeId: text("scope_id").notNull(),
+		issueKey: text("issue_key").notNull(),
+		subjectKind: text("subject_kind", {
+			enum: LEARNING_SUBJECT_KINDS,
+		}).notNull(),
+		subjectId: text("subject_id").notNull(),
+		status: text("status", {
+			enum: LEARNING_IMPROVEMENT_STATUSES,
+		})
+			.notNull()
+			.default("proposed"),
+		promotionRoute: text("promotion_route", {
+			enum: LEARNING_PROMOTION_ROUTES,
+		}).notNull(),
+		recommendation: text("recommendation").notNull(),
+		evidenceEventIds: jsonb("evidence_event_ids").$type<string[]>().notNull(),
+		attributionId: text("attribution_id").references(
+			() => learningFeedbackAttributions.id,
+			{ onDelete: "set null" },
+		),
+		baselineMeasurementId: text("baseline_measurement_id").references(
+			() => learningFeedbackMeasurements.id,
+			{ onDelete: "set null" },
+		),
+		followupMeasurementId: text("followup_measurement_id").references(
+			() => learningFeedbackMeasurements.id,
+			{ onDelete: "set null" },
+		),
+		// Kept for additive D1 compatibility with the first operator schema. This
+		// field is no longer accepted from callers or treated as certification.
+		certificationEvidenceRefs: jsonb("certification_evidence_refs")
+			.$type<string[]>()
+			.notNull(),
+		evaluationNote: text("evaluation_note"),
+		reviewReason: text("review_reason"),
+		proposedByType: text("proposed_by_type", {
+			enum: ["user", "tedi", "service", "api_key", "unknown"],
+		}).notNull(),
+		proposedById: text("proposed_by_id"),
+		reviewedById: text("reviewed_by_id"),
+		createdAt: text("created_at")
+			.notNull()
+			.default(sql`(CURRENT_TIMESTAMP)`),
+		updatedAt: text("updated_at")
+			.notNull()
+			.default(sql`(CURRENT_TIMESTAMP)`),
+		reviewedAt: text("reviewed_at"),
+	},
+	(table) => [
+		uniqueIndex("uniq_learning_proposal_org_client").on(
+			table.organizationId,
+			table.clientProposalId,
+		),
+		index("idx_learning_proposal_org_status_updated").on(
+			table.organizationId,
+			table.status,
+			table.updatedAt,
+		),
+		index("idx_learning_proposal_tedi_issue").on(table.tediId, table.issueKey),
+		index("idx_learning_proposal_subject").on(
+			table.organizationId,
+			table.subjectKind,
+			table.subjectId,
+		),
+	],
+);
+
+export type LearningInteractionEventRow =
+	typeof learningInteractionEvents.$inferSelect;
+export type NewLearningInteractionEvent =
+	typeof learningInteractionEvents.$inferInsert;
+export type LearningFeedbackAttributionRow =
+	typeof learningFeedbackAttributions.$inferSelect;
+export type NewLearningFeedbackAttribution =
+	typeof learningFeedbackAttributions.$inferInsert;
+export type LearningFeedbackMeasurementRow =
+	typeof learningFeedbackMeasurements.$inferSelect;
+export type NewLearningFeedbackMeasurement =
+	typeof learningFeedbackMeasurements.$inferInsert;
+export type LearningImprovementProposalRow =
+	typeof learningImprovementProposals.$inferSelect;
+export type NewLearningImprovementProposal =
+	typeof learningImprovementProposals.$inferInsert;
+
+/** Browser exposure reports are immutable; outcome truth comes from canonical receipts. */
+export const decisionExposures = pgTable(
+	"decision_exposures",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		actorId: text("actor_id").notNull(),
+		cardId: text("card_id").notNull(),
+		sessionId: text("session_id").notNull(),
+		classId: text("class_id").notNull(),
+		snapshot: jsonb("snapshot")
+			.$type<
+				import("@tedix/api-contract/schemas/decision-learning").DecisionSnapshot
+			>()
+			.notNull(),
+		context: jsonb("context")
+			.$type<
+				import("@tedix/api-contract/schemas/decision-learning").DecisionExposureInput
+			>()
+			.notNull(),
+		occurredAt: text("occurred_at").notNull(),
+		expiresAt: text("expires_at").notNull(),
+	},
+	(t) => [
+		uniqueIndex("uniq_decision_exposure_org_actor_event").on(
+			t.organizationId,
+			t.actorId,
+			t.id,
+		),
+		index("idx_decision_exposure_org_actor_card").on(
+			t.organizationId,
+			t.actorId,
+			t.cardId,
+		),
+		index("idx_decision_exposure_expiry").on(t.expiresAt),
+	],
+);
+
+export const decisionOutcomeLabels = pgTable(
+	"decision_outcome_labels",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		actorId: text("actor_id").notNull(),
+		cardId: text("card_id").notNull(),
+		classId: text("class_id").notNull(),
+		window: text("window", { enum: ["immediate", "day_1", "day_7"] }).notNull(),
+		outcome: jsonb("outcome")
+			.$type<
+				import("@tedix/api-contract/schemas/decision-learning").DecisionOutcome
+			>()
+			.notNull(),
+		delayed:
+			jsonb("delayed").$type<
+				import("@tedix/api-contract/schemas/decision-learning").DecisionDelayedOutcome
+			>(),
+		observedAt: text("observed_at").notNull(),
+		dueAt: text("due_at").notNull(),
+		expiresAt: text("expires_at").notNull(),
+	},
+	(t) => [
+		uniqueIndex("uniq_decision_label_org_actor_receipt_window").on(
+			t.organizationId,
+			t.actorId,
+			t.cardId,
+			t.window,
+			t.id,
+		),
+		index("idx_decision_label_org_class").on(
+			t.organizationId,
+			t.actorId,
+			t.classId,
+			t.window,
+		),
+		index("idx_decision_label_due").on(t.window, t.dueAt),
+		index("idx_decision_label_expiry").on(t.expiresAt),
+	],
+);
