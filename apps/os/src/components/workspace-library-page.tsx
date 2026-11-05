@@ -1,6 +1,7 @@
 import type { OsWorkspace } from "@tedix/api-contract/schemas/os-workspaces";
 import { WorkspaceListRow } from "./workspace-list-row";
 import { EntityAvatar } from "@/shared/entity-avatar";
+import { cn } from "@/lib/utils";
 import {
 	Archive,
 	Clock,
@@ -34,6 +35,7 @@ import {
 	PageHeader,
 	PageHeading,
 	PageTitle,
+	PageToolbar,
 } from "@/components/kumo/page";
 import { SearchInput } from "@/components/kumo/search-input";
 import { SegmentedControl } from "@/components/kumo/segmented-control";
@@ -52,8 +54,9 @@ import {
 import {
 	formatWorkspaceLastOpened,
 	groupWorkspaceLibrary,
+	workspaceDescriptionForDisplay,
 } from "@/lib/workspace-library";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 
 /** Initial workspace window; larger loaded libraries expand in 15-row steps. */
 export const WORKSPACES_VISIBLE_PAGE_SIZE = 15;
@@ -193,27 +196,32 @@ export function WorkspaceLibraryPage() {
 					</PageActions>
 				</PageHeader>
 
-				<SegmentedControl
-					ariaLabel="Workspace status"
-					compact
-					onValueChange={(next) => {
-						changeSearch("");
-						setView(next);
-					}}
-					options={LIBRARY_VIEWS}
-					value={view}
-				/>
-				{view === "active" &&
-				workspaces.data &&
-				(workspaces.data.items.length > 0 || normalizedSearch) ? (
-					<SearchInput
-						aria-label="Search workspaces"
-						containerClassName="w-full sm:max-w-md"
-						onChange={(event) => changeSearch(event.target.value)}
-						placeholder="Search workspaces…"
-						value={search}
+				<PageToolbar appearance="inline">
+					<SegmentedControl
+						ariaLabel="Workspace status"
+						className="shrink-0"
+						compact
+						onValueChange={(next) => {
+							changeSearch("");
+							setView(next);
+						}}
+						options={LIBRARY_VIEWS}
+						value={view}
 					/>
-				) : null}
+					{view === "active" &&
+					workspaces.data &&
+					(workspaces.data.items.length > 0 || normalizedSearch) ? (
+						<div className="w-full lg:w-80">
+							<SearchInput
+								aria-label="Search workspaces"
+								containerClassName="w-full"
+								onChange={(event) => changeSearch(event.target.value)}
+								placeholder="Search workspaces…"
+								value={search}
+							/>
+						</div>
+					) : null}
+				</PageToolbar>
 			</div>
 
 			{view === "active" ? <SharedWorkspacesList /> : null}
@@ -299,36 +307,46 @@ export function WorkspaceLibraryPage() {
 				<div className="grid gap-4">
 					{groups.all.length > 0 ? (
 						<>
-							<Collection aria-label="Workspaces">
+							<Collection
+								aria-label="Workspaces"
+								appearance="inline"
+								className="-mx-2 gap-0.5 divide-y-0"
+							>
 								{displayedWorkspaces.map(({ workspace, preference }) => {
 									const lastOpened = formatWorkspaceLastOpened(
 										preference?.lastOpenedAt ?? null,
 									);
 									return (
 										<WorkspaceListRow
-											className="group gap-1 p-0"
+											className="relative gap-1 rounded-lg p-0 pe-2 transition-colors hover:bg-kumo-tint has-[a:focus-visible]:ring-2 has-[a:focus-visible]:ring-kumo-focus has-[a:focus-visible]:ring-inset motion-reduce:transition-none"
 											key={workspace.id}
 										>
+											{/* The link's overlay covers the whole row, date included;
+											    the favorite button sits above it as its own control. */}
 											<Link
-												className="min-w-0 flex-1 justify-start gap-3 px-3 py-3 text-left"
+												className="static grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 px-2 py-2.5 text-left after:absolute after:inset-0 after:rounded-lg after:content-[''] hover:bg-transparent focus-visible:ring-0"
 												href={`/workspace/${workspace.id}`}
 												variant="collection"
 											>
 												<WorkspaceIdentity
 													workspace={workspace}
-													description={
-														workspace.description || "No description"
+													description={workspaceDescriptionForDisplay(
+														workspace.description,
+													)}
+													meta={
+														lastOpened ? (
+															<LastOpened
+																className="sm:hidden"
+																value={lastOpened}
+															/>
+														) : null
 													}
 												/>
 												{lastOpened ? (
-													<Text
-														as="span"
-														role="label"
-														className="hidden shrink-0 items-center gap-1 text-kumo-inactive sm:flex"
-													>
-														<Clock size={11} />{" "}
-														{lastOpened.replace("Opened ", "")}
-													</Text>
+													<LastOpened
+														className="max-sm:hidden"
+														value={lastOpened}
+													/>
 												) : null}
 											</Link>
 											<Button
@@ -348,11 +366,12 @@ export function WorkspaceLibraryPage() {
 														: "Favorite state is unverified"
 												}
 												disabled={!favoritesKnown || favorite.isPending}
-												className={
+												className={cn(
+													"relative z-10 shrink-0",
 													favoritesKnown && preference?.favorite
 														? "text-kumo-link"
-														: "text-kumo-subtle"
-												}
+														: "text-kumo-subtle",
+												)}
 												onClick={() => {
 													if (!favoritesKnown || favoriteInFlight.current)
 														return;
@@ -367,11 +386,11 @@ export function WorkspaceLibraryPage() {
 											>
 												{favoritesKnown ? (
 													<Star
-														size={15}
+														size={16}
 														weight={preference?.favorite ? "fill" : "regular"}
 													/>
 												) : (
-													<Question size={15} />
+													<Question size={16} />
 												)}
 											</Button>
 										</WorkspaceListRow>
@@ -647,6 +666,26 @@ function ArchivedWorkspaces({
 	);
 }
 
+function LastOpened({
+	value,
+	className,
+}: {
+	value: string;
+	className?: string;
+}) {
+	return (
+		<Text
+			as="span"
+			role="label"
+			tone="secondary"
+			className={cn("flex shrink-0 items-center gap-1 tabular-nums", className)}
+		>
+			<Clock size={12} aria-hidden="true" />
+			{value.replace("Opened ", "")}
+		</Text>
+	);
+}
+
 /** A private workspace is visible only to the member who owns it. */
 function PrivateWorkspaceBadge() {
 	return (
@@ -666,9 +705,12 @@ function PrivateWorkspaceBadge() {
 function WorkspaceIdentity({
 	workspace,
 	description,
+	meta,
 }: {
 	workspace: Pick<OsWorkspace, "id" | "name" | "visibility" | "iconUrl">;
-	description: string;
+	description?: string | null;
+	/** A quiet line under the description, such as the last-opened date. */
+	meta?: ReactNode;
 }) {
 	return (
 		<>
@@ -688,7 +730,7 @@ function WorkspaceIdentity({
 						role="body"
 						weight="medium"
 						tone="strong"
-						className="break-words [overflow-wrap:anywhere]"
+						className="min-w-0 break-words [overflow-wrap:anywhere]"
 					>
 						{workspace.name}
 					</Text>
@@ -696,14 +738,17 @@ function WorkspaceIdentity({
 						<PrivateWorkspaceBadge />
 					) : null}
 				</span>
-				<Text
-					as="span"
-					role="label"
-					tone="secondary"
-					className="break-words [overflow-wrap:anywhere]"
-				>
-					{description}
-				</Text>
+				{description ? (
+					<Text
+						as="span"
+						role="label"
+						tone="secondary"
+						className="line-clamp-2 break-words [overflow-wrap:anywhere]"
+					>
+						{description}
+					</Text>
+				) : null}
+				{meta}
 			</span>
 		</>
 	);
