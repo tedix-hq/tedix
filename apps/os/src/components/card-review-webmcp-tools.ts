@@ -21,7 +21,7 @@ import type {
 
 export type CardReviewActionResult =
 	| { ok: true; result?: string }
-	| { ok: false; error: string };
+	| { ok: false; error: string; needsAccess?: true };
 
 /** The live app state and button callbacks the tools act through. */
 export interface CardReviewController {

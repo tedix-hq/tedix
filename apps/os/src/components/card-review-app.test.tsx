@@ -27,8 +27,9 @@ vi.mock("@/lib/api", () => ({
 				setSheetRange: vi.fn(),
 				history: vi.fn(),
 			},
-			schedules: { list: vi.fn() },
+			schedules: { list: vi.fn(), runNow: vi.fn(), setPersonalAccess: vi.fn() },
 		},
+		personalResourceDelegations: { list: vi.fn() },
 		learningFeedback: {
 			model: vi.fn(),
 			listInteractions: vi.fn().mockResolvedValue({ events: [] }),
@@ -959,4 +960,66 @@ it("delivers earned cards as updates while audit samples and protected cards sti
 	appConfig.sources[0]!.protectedEffects = ["message"];
 	await renderPolicy(true, 0);
 	expect(host.textContent).toContain("3 waiting · 0 decided · 3 total");
+});
+
+describe("CardReviewApp actions that need organise access", () => {
+	const drafting = CardReviewConfigSchema.parse({
+		...config,
+		sources: [
+			{
+				...config.sources[0],
+				doIt: "run_skill",
+				doItLabel: "Draft a reply",
+				run: {
+					skillId: "inbox-run",
+					actions: [{ kind: "reply_draft", match: ["opportunity"] }],
+				},
+			},
+		],
+	});
+	const api = vi.mocked(osApi.osWorkspaces.schedules);
+
+	it("shows Allow organising on the deck card and runs the action again after it", async () => {
+		api.runNow
+			.mockResolvedValueOnce({
+				status: "needs_access",
+				level: "read",
+				resourceId: "gmail-resource",
+				providerName: "Gmail",
+			})
+			.mockResolvedValue({ status: "started" } as never);
+		api.setPersonalAccess.mockResolvedValue({} as never);
+		sheet.rows[0]![sheet.columns.length - 1] = "Draft a reply";
+		await mount(true, false, drafting);
+		expect(
+			[...host.querySelectorAll("button")].map((node) =>
+				node.textContent?.trim(),
+			),
+		).not.toContain("Useful");
+		await click("Draft a reply");
+		const alert = host.querySelector('[role="alert"]')?.textContent ?? "";
+		expect(alert).toContain("Tedix can read your Gmail but not change it yet");
+		expect(alert).not.toMatch(
+			/Check your connection|the person must|not saved/,
+		);
+		expect(api.runNow).toHaveBeenCalledWith(
+			expect.objectContaining({ needs: "organise" }),
+		);
+		const allow = host.querySelector(
+			"[data-card-review-allow-organising] button",
+		) as HTMLButtonElement;
+		expect(allow.textContent).toContain("Let this organise my Gmail");
+		await act(async () => allow.click());
+		for (let i = 0; i < 5; i++) await flush();
+		expect(api.setPersonalAccess).toHaveBeenCalledWith({
+			workspaceId: config.sources[0]!.workspaceId,
+			resourceId: "gmail-resource",
+			level: "organise",
+		});
+		expect(api.runNow).toHaveBeenCalledTimes(2);
+		expect(
+			host.querySelector("[data-card-review-allow-organising]"),
+		).toBeNull();
+		expect(host.querySelector('[role="alert"]')).toBeNull();
+	});
 });
