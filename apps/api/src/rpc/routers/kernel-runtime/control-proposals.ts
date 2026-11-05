@@ -52,6 +52,7 @@ import {
 } from "../kernel/runtime-shared";
 import {
 	startWorkItemAttempt,
+	getWorkAttemptRepositoryAdmission,
 	listWorkItemAttempts,
 	settleWorkItemAttempt,
 } from "@tedix/db/queries/work-items/attempts";
@@ -74,6 +75,7 @@ import {
 } from "../kernel/run-store-normalization";
 import {
 	insertKernelRuntimeEvent,
+	ensureHomeConversationAccess,
 	recordHomeDelegationDispatchFailure,
 } from "../kernel/run-store";
 import { reconcileHomeRunRowsFromChildStatus } from "../kernel/run-store-reconciliation";
@@ -136,6 +138,131 @@ export function recoverableDelegationWorkOrder(
 	);
 }
 
+export async function resolveDelegationRecoveryBinding(
+	context: BaseContext,
+	input: { organizationId: string; workItemId: string },
+) {
+	const { organizationId, workItemId } = input;
+	const workItem = await getWorkItemById(context.db, workItemId);
+	if (
+		!workItem ||
+		workItem.id !== workItemId ||
+		workItem.orgId !== organizationId
+	)
+		throw createError(
+			ErrorCodes.NOT_FOUND,
+			`Work item ${workItemId} not found`,
+		);
+	if (workItem.disposition !== "accepted")
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			`Work item ${workItemId} is "${workItem.disposition}" — only accepted delegations can be retried`,
+		);
+	const metadata = nonNullRecord(workItem.metadata) ?? {};
+	const attempts = await listWorkItemAttempts(context.db, {
+		orgId: organizationId,
+		workItemId,
+	});
+	const canonicalReuse =
+		workItem.sourceSessionKey == null && metadata.homeRunId == null;
+	let homeRunId =
+		typeof metadata.homeRunId === "string" ? metadata.homeRunId : null;
+	let previousTediId =
+		(workItem.accountableOwnerType === "tedi"
+			? workItem.accountableOwnerId
+			: null) ??
+		(typeof metadata.delegatedTediId === "string"
+			? metadata.delegatedTediId
+			: null);
+	let admission: Awaited<ReturnType<typeof getWorkAttemptRepositoryAdmission>> =
+		null;
+	const latest = attempts.data[0];
+	if (canonicalReuse) {
+		const proof = nonNullRecord(latest?.metadata) ?? {};
+		if (
+			!latest ||
+			latest.orgId !== organizationId ||
+			latest.workItemId !== workItemId ||
+			latest.executorType !== "tedi" ||
+			!latest.executorId ||
+			!["failed", "finished"].includes(latest.runtimeState) ||
+			latest.outcome !== "failed" ||
+			!latest.finishedAt ||
+			proof.canonicalWorkItemReuse !== true ||
+			!(
+				proof.source === "kernelRuntime.directDelegation" ||
+				(proof.source === "kernelRuntime.retryDelegation" &&
+					proof.recovery === true)
+			) ||
+			typeof proof.homeRunId !== "string" ||
+			!proof.homeRunId ||
+			!latest.runId ||
+			proof.childRunId !== latest.runId
+		)
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"Work has no current canonical failed delegation binding",
+			);
+		admission = await getWorkAttemptRepositoryAdmission(context.db, latest);
+		if (
+			!admission ||
+			admission.workItemVersion !== workItem.version ||
+			admission.admissionSpecRevision !== workItem.admissionSpecRevision
+		)
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"Canonical delegation admission no longer matches the current Work specification",
+			);
+		homeRunId = proof.homeRunId;
+		previousTediId = latest.executorId;
+	}
+	if (!homeRunId)
+		throw createError(
+			ErrorCodes.NOT_FOUND,
+			`Work item ${workItemId} has no linked Home run to recover`,
+		);
+	const homeRun = await getKernelRuntimeRun(context.db, {
+		id: homeRunId,
+		organizationId,
+	});
+	if (!homeRun || homeRun.organizationId !== organizationId)
+		throw createError(
+			ErrorCodes.NOT_FOUND,
+			`Linked Home run ${homeRunId} not found`,
+		);
+	if (
+		canonicalReuse &&
+		(homeRun.id !== homeRunId ||
+			homeRun.childRunId !== latest!.runId ||
+			homeRun.delegatedTediId !== latest!.executorId ||
+			nonNullRecord(homeRun.metadata)?.workItemId !== workItemId ||
+			!homeRun.conversationId)
+	)
+		throw createError(
+			ErrorCodes.CONFLICT,
+			"Canonical delegation does not match this Work and Home child",
+		);
+	return {
+		workItem,
+		attempts,
+		homeRun,
+		canonicalReuse,
+		previousTediId,
+		snapshot: canonicalReuse
+			? JSON.stringify({
+					workItem,
+					attempts: attempts.data,
+					homeRun,
+					admission,
+				})
+			: null,
+	};
+}
+
+type DelegationRecoveryBinding = Awaited<
+	ReturnType<typeof resolveDelegationRecoveryBinding>
+>;
+
 export /**
  * BOUNDED RECOVERY PRIMITIVE: re-dispatch a failed delegation attempt for the
  * same target tedi with the SAME work order, deterministically and at most
@@ -167,6 +294,7 @@ async function retryDelegationWorkItem(
 	input: {
 		organizationId: string;
 		workItemId: string;
+		recoveryBinding?: DelegationRecoveryBinding;
 		/**
 		 * Re-route: dispatch the same work order to this tedi instead of the one
 		 * that held the attempt. Home passes it when the first tedi reported a
@@ -183,27 +311,23 @@ async function retryDelegationWorkItem(
 }> {
 	const { organizationId, workItemId } = input;
 
-	// (1) Load + fail-closed guards.
-	const workItem = await getWorkItemById(context.db, workItemId);
-	if (!workItem || workItem.orgId !== organizationId) {
+	const binding = await resolveDelegationRecoveryBinding(context, input);
+	if (
+		input.recoveryBinding &&
+		input.recoveryBinding.snapshot !== binding.snapshot
+	)
 		throw createError(
-			ErrorCodes.NOT_FOUND,
-			`Work item ${workItemId} not found`,
+			ErrorCodes.CONFLICT,
+			"Delegation recovery binding changed after authorization",
 		);
-	}
-
-	if (workItem.disposition !== "accepted") {
-		// Only an accepted WorkSpec may admit a recovery attempt.
-		throw createError(
-			ErrorCodes.BAD_REQUEST,
-			`Work item ${workItemId} is "${workItem.disposition}" — only accepted delegations can be retried`,
-		);
-	}
+	const { workItem, attempts, homeRun, previousTediId } = binding;
 	const metadata = nonNullRecord(workItem.metadata) ?? {};
-	const attempts = await listWorkItemAttempts(context.db, {
-		orgId: organizationId,
-		workItemId,
-	});
+	if (binding.canonicalReuse)
+		await ensureHomeConversationAccess(context, {
+			organizationId,
+			conversationId: homeRun.conversationId,
+			required: "edit",
+		});
 	const { latestAttemptMetadata, retryCount } = delegationRetryState(
 		metadata,
 		attempts.data,
@@ -262,39 +386,23 @@ async function retryDelegationWorkItem(
 	const nextRetryCount = retryCount + 1;
 
 	// (3) Resolve target tedi + the linked Home run (source of the work order).
-	const previousTediId =
-		(workItem.accountableOwnerType === "tedi"
-			? workItem.accountableOwnerId
-			: null) ??
-		(typeof metadata.delegatedTediId === "string"
-			? metadata.delegatedTediId
-			: null);
+	if (
+		binding.canonicalReuse &&
+		input.targetTediId &&
+		input.targetTediId !== previousTediId
+	)
+		throw createError(
+			ErrorCodes.CONFLICT,
+			"Canonical reused Work recovery cannot retarget its Home executor",
+		);
 	const delegatedTediId = input.targetTediId ?? previousTediId;
 	const trigger = input.trigger ?? "operator-recovery";
-	if (!delegatedTediId) {
+	if (!delegatedTediId)
 		throw createError(
 			ErrorCodes.BAD_REQUEST,
 			`Work item ${workItemId} cannot be retried: no delegated tedi to re-dispatch to`,
 		);
-	}
-	const homeRunId =
-		typeof metadata.homeRunId === "string" ? metadata.homeRunId : null;
-	if (!homeRunId) {
-		throw createError(
-			ErrorCodes.NOT_FOUND,
-			`Work item ${workItemId} has no linked Home run to recover`,
-		);
-	}
-	const homeRun = await getKernelRuntimeRun(context.db, {
-		id: homeRunId,
-		organizationId,
-	});
-	if (!homeRun) {
-		throw createError(
-			ErrorCodes.NOT_FOUND,
-			`Linked Home run ${homeRunId} not found`,
-		);
-	}
+	const homeRunId = homeRun.id;
 	await requireDelegatedChildTerminalReceipt(context, {
 		organizationId,
 		delegatedTediId: previousTediId ?? delegatedTediId,
@@ -322,6 +430,18 @@ async function retryDelegationWorkItem(
 
 	// (5) IDEMPOTENCY LATCH: admit one fenced retry attempt. A racing/repeat
 	// caller resumes the active attempt without double-dispatching.
+	if (binding.canonicalReuse)
+		await ensureHomeConversationAccess(context, {
+			organizationId,
+			conversationId: homeRun.conversationId,
+			required: "edit",
+		});
+	const fresh = await resolveDelegationRecoveryBinding(context, input);
+	if (fresh.snapshot !== binding.snapshot)
+		throw createError(
+			ErrorCodes.CONFLICT,
+			"Delegation recovery binding changed before admission",
+		);
 	const admission = await admitWorkAttempt(context.db, {
 		workItem: workItem,
 		executor: { type: "tedi", id: delegatedTediId },
@@ -336,7 +456,19 @@ async function retryDelegationWorkItem(
 		runId: predictedChildRunId,
 		startedAt: dispatchedAt,
 		expiresAt: admission.expiresAt,
-		metadata: { retryCount: nextRetryCount, recovery: true, trigger },
+		metadata: {
+			retryCount: nextRetryCount,
+			recovery: true,
+			trigger,
+			...(binding.canonicalReuse
+				? {
+						source: "kernelRuntime.retryDelegation",
+						homeRunId,
+						childRunId: predictedChildRunId,
+						canonicalWorkItemReuse: true,
+					}
+				: {}),
+		},
 		// Operator recovery retries the same admitted WorkSpec. Dependency state is
 		// already represented by the original admission decision.
 	});

@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
+import {
+	retryDelegationWorkItem,
+	resolveDelegationRecoveryBinding,
+} from "./kernel-runtime/control-proposals";
+import * as childEvidence from "./kernel/child-run-reads";
+import { evaluateAndRecordWorkAdmission } from "@tedix/db/queries/work-items/admissions";
+import { getWorkAttemptRepositoryAdmission } from "@tedix/db/queries/work-items/attempts";
+import { predictAgentRunId } from "./kernel/runtime-shared";
 import { normalizeHomeRunRecord } from "./kernel/run-store-normalization";
 import { createDelegationWorkItem } from "./kernel/delegation-work-item";
 import type { KernelResult } from "./kernel/index";
@@ -23,7 +31,12 @@ import {
 	createKernelRuntimeDb,
 	createContext,
 	createKernelRuntimeClient,
+	grantRow,
 } from "./__tests__/kernel-runtime-db";
+
+const recoveryAdmissionRows = vi.hoisted(
+	() => new Map<string, Record<string, unknown>>(),
+);
 
 vi.mock("@tedix/db/queries/work-items/admissions", async (importOriginal) => {
 	const original =
@@ -32,13 +45,23 @@ vi.mock("@tedix/db/queries/work-items/admissions", async (importOriginal) => {
 		>();
 	return {
 		...original,
-		evaluateAndRecordWorkAdmission: vi.fn(async (_db, input) => ({
-			id: `admission:${input.workItemId}:${input.executorId}`,
-			expiresAt: new Date(
-				Date.parse(input.now) + input.leaseTtlMs,
-			).toISOString(),
-			decision: "admitted" as const,
-		})),
+		evaluateAndRecordWorkAdmission: vi.fn(async (_db, input) => {
+			const receipt = {
+				id: `admission:${input.workItemId}:${input.executorId}`,
+				orgId: input.orgId,
+				workItemId: input.workItemId,
+				executorType: input.executorType,
+				executorId: input.executorId,
+				workItemVersion: input.expectedWorkItemVersion,
+				admissionSpecRevision: input.expectedAdmissionSpecRevision,
+				expiresAt: new Date(
+					Date.parse(input.now) + input.leaseTtlMs,
+				).toISOString(),
+				decision: "admitted" as const,
+			};
+			recoveryAdmissionRows.set(receipt.id, receipt);
+			return receipt;
+		}),
 	};
 });
 
@@ -49,6 +72,16 @@ vi.mock("@tedix/db/queries/work-items/attempts", async (importOriginal) => {
 		>();
 	return {
 		...original,
+		getWorkAttemptRepositoryAdmission: vi.fn(async (_db, attempt) => {
+			const receipt = recoveryAdmissionRows.get(attempt.admissionId);
+			return receipt &&
+				receipt.orgId === attempt.orgId &&
+				receipt.workItemId === attempt.workItemId &&
+				receipt.executorType === attempt.executorType &&
+				receipt.executorId === attempt.executorId
+				? structuredClone(receipt)
+				: null;
+		}),
 		startWorkItemAttempt: vi.fn(
 			async (
 				db: unknown,
@@ -2719,4 +2752,356 @@ describe("home approved-write layer (v1)", () => {
 			).rejects.toThrow(/Home run not found/);
 		});
 	});
+});
+
+function reusedWorkRecoveryFixture() {
+	const db = createKernelRuntimeDb();
+	const work = Object.assign(
+		normalizeWorkItemInsert({
+			id: "11111111-1111-4111-8111-111111111111",
+			orgId: ORG_ID,
+			title: "Existing canonical Work",
+			disposition: "accepted",
+			version: 2,
+			accountableOwnerType: "external_agent",
+			accountableOwnerId: "original-owner",
+			createdAt: "2026-06-06T08:00:00.000Z",
+			metadata: {},
+		}),
+		{ admissionSpecRevision: "fixture-spec" },
+	);
+	db.workItemRows.push(work);
+	const home = normalizeKernelRuntimeRunInsert({
+		id: "reused-home",
+		organizationId: ORG_ID,
+		conversationId: "home:reused",
+		status: "failed",
+		delegatedTediId: "tedi-cpo",
+		childRunId: "original-child",
+		metadata: {
+			workItemId: work.id,
+			delegationWorkOrder: {
+				kind: "task",
+				status: "approved",
+				objective: "Recover existing Work",
+				executionRequirement: NATIVE_EXECUTION_REQUIREMENT,
+			},
+		},
+	});
+	db.runs.push(home);
+	const attempt = Object.assign(
+		runningWorkAttempt(work.id, "tedi-cpo", "original-child"),
+		{
+			admissionId: "original-admission",
+			runtimeState: "failed" as const,
+			outcome: "failed" as const,
+			finishedAt: "2026-06-06T08:01:00.000Z",
+			metadata: {
+				source: "kernelRuntime.directDelegation",
+				canonicalWorkItemReuse: true,
+				homeRunId: home.id,
+				childRunId: "original-child",
+			},
+		},
+	);
+	db.workAttemptRows.push(attempt);
+	recoveryAdmissionRows.set("original-admission", {
+		id: "original-admission",
+		orgId: ORG_ID,
+		workItemId: work.id,
+		workItemVersion: 2,
+		admissionSpecRevision: "fixture-spec",
+		executorType: "tedi",
+		executorId: "tedi-cpo",
+		decision: "admitted",
+	});
+	db.runtimeEvents.push(
+		childRuntimeEvent({
+			id: "original-terminal",
+			runId: "original-child",
+			tediId: "tedi-cpo",
+			kind: "run.failed",
+			createdAt: "2026-06-06T08:01:00.000Z",
+			payload: { status: "failed" },
+		}),
+	);
+	const context = createContext(db);
+	const runner = vi.fn(
+		async (input: { childRunId: string; delegateToTediId: string }) => ({
+			childRunId: predictAgentRunId({
+				clientRequestId: input.childRunId,
+				tediId: input.delegateToTediId,
+			}),
+			status: "queued" as const,
+		}),
+	);
+	kernelRuntimeTestHooks.setDelegateRunnerForTest(runner);
+	return { db, work, home, attempt, context, runner };
+}
+
+it.each(["route", "core"] as const)(
+	"recovers NULL-origin canonical Work through %s using its actual failed tedi ledger",
+	async (surface) => {
+		const f = reusedWorkRecoveryFixture();
+		const origin = structuredClone(f.work);
+		const result =
+			surface === "route"
+				? await createKernelRuntimeClient(f.context).retryDelegation({
+						workItemId: f.work.id,
+					})
+				: await retryDelegationWorkItem(f.context, {
+						organizationId: ORG_ID,
+						workItemId: f.work.id,
+					});
+		expect(result.retryCount).toBe(1);
+		expect(f.runner).toHaveBeenCalledTimes(1);
+		expect(f.work).toEqual(origin);
+	},
+);
+
+afterEach(() => {
+	recoveryAdmissionRows.clear();
+	kernelRuntimeTestHooks.setDelegateRunnerForTest(null);
+});
+
+it.each([
+	"Work org",
+	"Attempt org",
+	"Attempt Work",
+	"external executor",
+	"live Attempt",
+	"expired Attempt",
+	"foreign producer",
+	"not canonical reuse",
+	"metadata child",
+	"Home org",
+	"Home Work",
+	"Home child",
+	"Home tedi",
+	"missing admission",
+	"admission version",
+	"admission spec",
+	"not retryable",
+	"ceiling",
+	"missing terminal",
+	"unavailable terminal",
+] as const)(
+	"refuses canonical recovery with %s before admission or dispatch",
+	async (kind) => {
+		const f = reusedWorkRecoveryFixture();
+		const proof = f.attempt.metadata!;
+		const receipt = recoveryAdmissionRows.get("original-admission")!;
+		if (kind === "Work org") f.work.orgId = "foreign-org";
+		if (kind === "Attempt org") f.attempt.orgId = "foreign-org";
+		if (kind === "Attempt Work") f.attempt.workItemId = "foreign-work";
+		if (kind === "external executor") f.attempt.executorType = "external_agent";
+		if (kind === "live Attempt") {
+			f.attempt.runtimeState = "running";
+			f.attempt.outcome = null;
+			f.attempt.finishedAt = null;
+		}
+		if (kind === "expired Attempt") {
+			f.attempt.runtimeState = "expired";
+			f.attempt.outcome = "expired";
+		}
+		if (kind === "foreign producer") proof.source = "foreign-controller";
+		if (kind === "not canonical reuse") proof.canonicalWorkItemReuse = false;
+		if (kind === "metadata child") proof.childRunId = "foreign-child";
+		if (kind === "Home org") f.home.organizationId = "foreign-org";
+		if (kind === "Home Work") f.home.metadata!.workItemId = "foreign-work";
+		if (kind === "Home child") f.home.childRunId = "foreign-child";
+		if (kind === "Home tedi") f.home.delegatedTediId = "foreign-tedi";
+		if (kind === "missing admission")
+			recoveryAdmissionRows.delete("original-admission");
+		if (kind === "admission version") receipt.workItemVersion = 1;
+		if (kind === "admission spec") receipt.admissionSpecRevision = "old-spec";
+		if (kind === "not retryable") proof.retryable = false;
+		if (kind === "ceiling") proof.retryCount = 3;
+		if (kind === "missing terminal") f.db.runtimeEvents.length = 0;
+		if (kind === "unavailable terminal")
+			f.db.controls.childRuntimeSelectError = new Error("D1 unavailable");
+		const before = vi.mocked(evaluateAndRecordWorkAdmission).mock.calls.length;
+		await expect(
+			createKernelRuntimeClient(f.context).retryDelegation({
+				workItemId: f.work.id,
+			}),
+		).rejects.toThrow();
+		expect(evaluateAndRecordWorkAdmission).toHaveBeenCalledTimes(before);
+		expect(f.runner).not.toHaveBeenCalled();
+		expect(f.db.workAttemptRows).toHaveLength(1);
+	},
+);
+
+it.each(["foreign", "live"] as const)(
+	"never skips a newer %s Attempt to recover an older canonical binding",
+	async (kind) => {
+		const f = reusedWorkRecoveryFixture();
+		const newer = runningWorkAttempt(f.work.id, "tedi-cpo", "new-child");
+		newer.startedAt = "2026-06-06T08:02:00.000Z";
+		if (kind === "foreign") newer.executorType = "external_agent";
+		f.db.workAttemptRows.unshift(newer);
+		const before = vi.mocked(evaluateAndRecordWorkAdmission).mock.calls.length;
+		await expect(
+			createKernelRuntimeClient(f.context).retryDelegation({
+				workItemId: f.work.id,
+			}),
+		).rejects.toThrow(/canonical failed delegation/);
+		expect(evaluateAndRecordWorkAdmission).toHaveBeenCalledTimes(before);
+		expect(f.runner).not.toHaveBeenCalled();
+	},
+);
+
+it.each(["route", "core"] as const)(
+	"requires actual Home EDIT rather than READ through %s",
+	async (surface) => {
+		const f = reusedWorkRecoveryFixture();
+		f.db.grantRows.push(
+			grantRow({
+				access: "read",
+				conversationId: f.home.conversationId,
+				userId: "viewer",
+			}),
+		);
+		const context = createContext(f.db, { userSub: "viewer" });
+		const before = vi.mocked(evaluateAndRecordWorkAdmission).mock.calls.length;
+		const action =
+			surface === "route"
+				? createKernelRuntimeClient(context).retryDelegation({
+						workItemId: f.work.id,
+					})
+				: retryDelegationWorkItem(context, {
+						organizationId: ORG_ID,
+						workItemId: f.work.id,
+					});
+		await expect(action).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(evaluateAndRecordWorkAdmission).toHaveBeenCalledTimes(before);
+		expect(f.runner).not.toHaveBeenCalled();
+	},
+);
+
+it("never falls back from a denied nonnull creation conversation to an editable ledger Home", async () => {
+	const f = reusedWorkRecoveryFixture();
+	f.work.sourceSessionKey = "home:creation";
+	f.work.metadata = { homeRunId: f.home.id, delegatedTediId: "tedi-cpo" };
+	f.db.grantRows.push(
+		grantRow({
+			access: "read",
+			conversationId: "home:creation",
+			userId: "viewer",
+		}),
+		grantRow({
+			access: "edit",
+			conversationId: f.home.conversationId,
+			userId: "viewer",
+		}),
+	);
+	const before = vi.mocked(evaluateAndRecordWorkAdmission).mock.calls.length;
+	await expect(
+		createKernelRuntimeClient(
+			createContext(f.db, { userSub: "viewer" }),
+		).retryDelegation({ workItemId: f.work.id }),
+	).rejects.toMatchObject({ code: "FORBIDDEN" });
+	expect(evaluateAndRecordWorkAdmission).toHaveBeenCalledTimes(before);
+	expect(f.runner).not.toHaveBeenCalled();
+});
+
+it("refuses route-to-core conversation drift after authorization", async () => {
+	const f = reusedWorkRecoveryFixture();
+	const lookup = vi.mocked(getWorkAttemptRepositoryAdmission);
+	const original = lookup.getMockImplementation()!;
+	let calls = 0;
+	lookup.mockImplementation(async (...args) => {
+		const receipt = await original(...args);
+		if (++calls === 2) f.home.conversationId = "foreign-conversation";
+		return receipt;
+	});
+	try {
+		const before = vi.mocked(evaluateAndRecordWorkAdmission).mock.calls.length;
+		await expect(
+			createKernelRuntimeClient(f.context).retryDelegation({
+				workItemId: f.work.id,
+			}),
+		).rejects.toThrow(/changed after authorization/);
+		expect(evaluateAndRecordWorkAdmission).toHaveBeenCalledTimes(before);
+		expect(f.runner).not.toHaveBeenCalled();
+	} finally {
+		lookup.mockImplementation(original);
+	}
+});
+
+it.each([
+	"version",
+	"spec",
+	"child",
+	"tedi",
+	"conversation",
+	"newer Attempt",
+] as const)(
+	"freshly refuses %s drift after the terminal read and before admission",
+	async (kind) => {
+		const f = reusedWorkRecoveryFixture();
+		const original = childEvidence.readChildRunEvidenceRows;
+		const spy = vi
+			.spyOn(childEvidence, "readChildRunEvidenceRows")
+			.mockImplementation(async (...args) => {
+				const evidence = await original(...args);
+				if (kind === "version") f.work.version++;
+				if (kind === "spec") f.work.admissionSpecRevision = "new-spec";
+				if (kind === "child") f.home.childRunId = "foreign-child";
+				if (kind === "tedi") f.home.delegatedTediId = "foreign-tedi";
+				if (kind === "conversation")
+					f.home.conversationId = "foreign-conversation";
+				if (kind === "newer Attempt") {
+					const newer = runningWorkAttempt(f.work.id, "tedi-cpo", "new-child");
+					newer.startedAt = "2026-06-06T08:02:00.000Z";
+					f.db.workAttemptRows.unshift(newer);
+				}
+				return evidence;
+			});
+		try {
+			const before = vi.mocked(evaluateAndRecordWorkAdmission).mock.calls
+				.length;
+			await expect(
+				createKernelRuntimeClient(f.context).retryDelegation({
+					workItemId: f.work.id,
+				}),
+			).rejects.toThrow();
+			expect(evaluateAndRecordWorkAdmission).toHaveBeenCalledTimes(before);
+			expect(f.runner).not.toHaveBeenCalled();
+		} finally {
+			spy.mockRestore();
+		}
+	},
+);
+
+it("retains server recovery provenance on the next fresh Attempt without rewriting creation fields", async () => {
+	const f = reusedWorkRecoveryFixture();
+	const origin = structuredClone(f.work);
+	await createKernelRuntimeClient(f.context).retryDelegation({
+		workItemId: f.work.id,
+	});
+	const next = f.db.workAttemptRows.at(-1)!;
+	expect(next.metadata).toMatchObject({
+		source: "kernelRuntime.retryDelegation",
+		homeRunId: f.home.id,
+		childRunId: next.runId,
+		canonicalWorkItemReuse: true,
+		recovery: true,
+		retryCount: 1,
+	});
+	expect(f.work).toEqual(origin);
+	next.runtimeState = "failed";
+	next.outcome = "failed";
+	next.finishedAt = new Date(Date.parse(next.startedAt) + 1000).toISOString();
+	// The shared select fake keeps insertion order; model the query's latest-first contract.
+	f.db.workAttemptRows.sort(
+		(a, b) =>
+			b.startedAt.localeCompare(a.startedAt) || b.id.localeCompare(a.id),
+	);
+	const binding = await resolveDelegationRecoveryBinding(f.context, {
+		organizationId: ORG_ID,
+		workItemId: f.work.id,
+	});
+	expect(binding.homeRun.id).toBe(f.home.id);
+	expect(binding.previousTediId).toBe(next.executorId);
 });
