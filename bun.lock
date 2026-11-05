@@ -717,6 +717,7 @@
         "zod": "catalog:",
       },
       "devDependencies": {
+        "@cloudflare/vitest-plugin": "catalog:",
         "@cloudflare/workers-types": "catalog:",
         "@electric-sql/pglite": "^0.3.14",
         "@tedix/tsconfig": "workspace:*",

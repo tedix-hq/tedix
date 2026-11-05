@@ -4,6 +4,6 @@
 		"types": ["@cloudflare/workers-types"],
 		"noEmit": true
 	},
-	"include": ["src/**/*"],
+	"include": ["src/**/*", "test/**/*"],
 	"exclude": ["node_modules", "drizzle", "src/**/*.test.ts"]
 }

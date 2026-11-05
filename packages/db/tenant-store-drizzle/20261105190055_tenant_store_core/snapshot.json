@@ -1,0 +1,117 @@
+{
+	"version": "7",
+	"dialect": "sqlite",
+	"id": "d0bf32ac-80f8-4892-a114-c1a60d6d98d3",
+	"prevIds": ["00000000-0000-0000-0000-000000000000"],
+	"ddl": [
+		{
+			"name": "tenant_store_identity",
+			"entityType": "tables"
+		},
+		{
+			"name": "tenant_store_import_batches",
+			"entityType": "tables"
+		},
+		{
+			"table": "tenant_store_identity",
+			"name": "slot",
+			"type": "integer",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tenant_store_identity",
+			"name": "organization_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tenant_store_identity",
+			"name": "workspace_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tenant_store_identity",
+			"name": "created_at",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tenant_store_import_batches",
+			"name": "batch_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tenant_store_import_batches",
+			"name": "table_name",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tenant_store_import_batches",
+			"name": "row_count",
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tenant_store_import_batches",
+			"name": "imported_at",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tenant_store_identity",
+			"name": "tenant_store_identity_pk",
+			"columns": ["slot"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "tenant_store_import_batches",
+			"name": "tenant_store_import_batches_pk",
+			"columns": ["batch_id"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "tenant_store_identity",
+			"name": "tenant_store_identity_single_row",
+			"value": "\"slot\" = 1",
+			"entityType": "checks"
+		}
+	],
+	"renames": []
+}

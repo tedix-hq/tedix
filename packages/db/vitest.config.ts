@@ -4,10 +4,19 @@ import { sharedTestConfig } from "../../scripts/vite/task-config";
 export default defineConfig({
 	test: {
 		...sharedTestConfig,
-		exclude: ["src/**/*.postgres.test.ts"],
-		include: ["src/**/*.test.ts"],
-		globalSetup: "./src/test/migrated-sqlite-global-setup.ts",
 		// Migration/CLI fixtures compete for CPU with other admitted suite jobs.
 		maxWorkers: 1,
+		projects: [
+			{
+				extends: true,
+				test: {
+					name: "node",
+					include: ["src/**/*.test.ts"],
+					exclude: ["src/**/*.postgres.test.ts", "src/**/*.workerd.test.ts"],
+					globalSetup: "./src/test/migrated-sqlite-global-setup.ts",
+				},
+			},
+			"./vitest.workerd.config.ts",
+		],
 	},
 });
