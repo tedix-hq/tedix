@@ -137,17 +137,16 @@ Items: 🔒 GDPR Compliant • 🇩🇪 Made in Germany • 🏢 Enterprise-Read
 These landing-owned components are available for purposeful storytelling. They
 are not substitutes for shared controls or a default decoration layer:
 
-| Component              | Use For                                                  |
-| ---------------------- | -------------------------------------------------------- |
-| `BlurFade`             | Entrance animations (direction="up", stagger with delay) |
-| `Particles`            | Ambient background particles (hero, dark sections)       |
-| `ShimmerButton`        | Primary CTAs                                             |
-| `AnimatedGradientText` | Highlighted punchlines                                   |
-| `Marquee`              | Logo carousels                                           |
-| `NumberTicker`         | Stats counters                                           |
-| `AnimatedBeam`         | Connection lines in tech flow diagrams                   |
-| `BorderBeam`           | Card highlight borders                                   |
-| `TextAnimate`          | Text entrance effects                                    |
+| Component              | Use For                                            |
+| ---------------------- | -------------------------------------------------- |
+| `Particles`            | Ambient background particles (hero, dark sections) |
+| `ShimmerButton`        | Primary CTAs                                       |
+| `AnimatedGradientText` | Highlighted punchlines                             |
+| `Marquee`              | Logo carousels                                     |
+| `NumberTicker`         | Stats counters                                     |
+| `AnimatedBeam`         | Connection lines in tech flow diagrams             |
+| `BorderBeam`           | Card highlight borders                             |
+| `TextAnimate`          | Text entrance effects                              |
 
 ### Animation Rules
 
@@ -156,7 +155,8 @@ are not substitutes for shared controls or a default decoration layer:
 - Do not pulse, shimmer, float, or continuously animate idle product surfaces.
 - Every transition and animation must have an effective reduced-motion path.
 - Use `client:only="react"` ONLY for heavy components that can't SSR (particles, complex state)
-- Stagger BlurFade delays by 0.1-0.15s increments
+- Server-render above-the-fold copy; animate entrances with CSS opacity/transform only so layout never shifts
+- Stagger entrance delays by 0.1-0.15s increments
 - Keep all animations under 3s duration
 - Respect `prefers-reduced-motion` (already handled in globals.css)
 
