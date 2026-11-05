@@ -56,6 +56,7 @@ import {
 	paginateCatalog,
 	normalizeSearchTerms,
 	scoreCatalogSearch,
+	catalogSearchesSchemas,
 	paginateCatalogEntries,
 	suggestedCatalogQueries,
 	editDistance,
@@ -721,6 +722,10 @@ export function buildCatalogProvider(
 						? null
 						: tediNativeInterfaceGroups(searchCatalog, preferredTediNamespace);
 					const terms = normalizeSearchTerms(q);
+					const scoreSchema = catalogSearchesSchemas(
+						catalog,
+						Boolean(namespaceFilter),
+					);
 					for (const [ns, tools] of Object.entries(searchCatalog)) {
 						for (const [name, meta] of Object.entries(tools)) {
 							// Alias mirrors enumerate only under an explicit filter on
@@ -733,7 +738,13 @@ export function buildCatalogProvider(
 							if (isGroupedRoleVerb && ns !== roleGroup[0]!.namespace) {
 								continue;
 							}
-							const match = scoreCatalogSearch(terms, ns, name, meta);
+							const match = scoreCatalogSearch(
+								terms,
+								ns,
+								name,
+								meta,
+								scoreSchema,
+							);
 							if (!match) continue;
 							const mirror = mirroredSkillWorkflowSurface(ns, name, meta);
 							const canonical = mirror
