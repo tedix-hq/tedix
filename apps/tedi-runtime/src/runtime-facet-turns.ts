@@ -1068,12 +1068,15 @@ export const runtimeFacetTurns = {
 		const cronTool = this.cronAiTool(input.sessionKey);
 		// Connections carry the calling run's personal-read lookup and trace.
 		// Isolate them per turn so a scheduled or concurrent turn cannot borrow
-		// another request's binding or its supervised credentials.
-		const { AgentMcpRuntime } = await import("./mcp-client-runtime");
+		// another request's binding or its supervised credentials. The runtime
+		// module stays lazily loaded; starting its fetch beside the platform
+		// client keeps a cold import out of the sync's critical path.
+		const runtimeModule = import("./mcp-client-runtime");
+		runtimeModule.catch(() => undefined);
 		const isolatedRequest = supervised || input.personalRequest === true;
 		const mcpRuntime =
 			isolatedRequest && this.state.tediId
-				? new AgentMcpRuntime(
+				? new (await runtimeModule).AgentMcpRuntime(
 						this.env,
 						this.state.tediId,
 						this.state.orgId,
