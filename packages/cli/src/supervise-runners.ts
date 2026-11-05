@@ -23,6 +23,7 @@ import {
 	type SupervisorDutyStatus,
 } from "./supervise-duty-status";
 import { laneProcessIdentity } from "./lane-process-recovery";
+import { dispatcherNextCheckAt } from "./dispatcher-health";
 
 /**
  * Runners as duties of the one supervisor. A runner is the process on this
@@ -46,6 +47,15 @@ export const RUNNER_RECORDS_DIR = ["supervisor", "runners"] as const;
 /** A dispatcher that exits is restarted after this long, doubling per exit. */
 export const RUNNER_RESTART_BASE_MS = 60_000;
 export const RUNNER_RESTART_MAX_MS = 15 * 60_000;
+/**
+ * A runner that misses its scheduled pass by this much is hung and restarted.
+ * Passes run every 30 seconds, so this restarts a hung lane about four minutes
+ * after its last pass. A stopping runner drains for at most two minutes, so its
+ * replacement passes well inside this window.
+ */
+export const RUNNER_PASS_GRACE_MS = 3.5 * 60_000;
+/** A longer gap between checks means this machine slept; passes restart from waking. */
+const CHECK_GAP_MS = 90_000;
 /** Exits older than this no longer lengthen the backoff. */
 const EXIT_WINDOW_MS = 60 * 60_000;
 
@@ -335,6 +345,8 @@ export class RunnerDuties {
 	private readonly exits = new Map<string, number[]>();
 	private readonly restartAt = new Map<string, number>();
 	private configError: string | undefined;
+	private checkedAt = 0;
+	private awakeAt = 0;
 
 	constructor(private readonly deps: RunnerDutiesDeps) {
 		try {
@@ -432,6 +444,9 @@ export class RunnerDuties {
 			this.stopOne(key, entry);
 		}
 		const now = this.now();
+		if (this.checkedAt && now - this.checkedAt > CHECK_GAP_MS)
+			this.awakeAt = now;
+		this.checkedAt = now;
 		for (const runner of runners.filter((row) => !row.enabled))
 			this.record(
 				runner,
@@ -446,6 +461,7 @@ export class RunnerDuties {
 					(entry.identity &&
 						this.identity(entry.pid, runner) === entry.identity)
 				) {
+					if (this.restartIfHung(key, entry, now)) continue;
 					this.record(
 						runner,
 						{
@@ -600,6 +616,34 @@ export class RunnerDuties {
 			rmSync(this.childPath(runner), { force: true });
 			this.noteExit(key, runner, code, this.now());
 		});
+	}
+
+	/**
+	 * Kills and restarts a runner that missed its scheduled pass. SIGKILL,
+	 * because a hung pass never reaches the SIGTERM drain. Lane processes run
+	 * in their own process groups, so the replacement recovers them as orphans.
+	 */
+	private restartIfHung(key: string, entry: Running, now: number): boolean {
+		const directory = join(configDir(this.deps.env), "dispatchers", key);
+		const due = Math.max(
+			dispatcherNextCheckAt(directory, entry.pid) ?? entry.startedAt,
+			this.awakeAt,
+		);
+		if (now - due <= RUNNER_PASS_GRACE_MS) return false;
+		const reason = `${entry.runner.executor} missed its lane pass due ${new Date(due).toISOString()} by ${Math.round((now - due) / 1000)}s; killing pid ${entry.pid} and restarting`;
+		this.log(reason);
+		this.running.delete(key);
+		if (entry.child) entry.child.stop("SIGKILL");
+		else
+			try {
+				process.kill(-entry.pid, "SIGKILL");
+			} catch {
+				/* Already gone. */
+			}
+		rmSync(this.childPath(entry.runner), { force: true });
+		this.record(entry.runner, { lastProblem: reason }, now);
+		this.start(key, entry.runner, now);
+		return true;
 	}
 
 	private noteExit(

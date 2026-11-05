@@ -9,11 +9,16 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+	recordDispatcherNextCheck,
+	writeDispatcherHealthSource,
+} from "./dispatcher-health";
 import { installLaneService } from "./lane-service";
 import { parseServeOptions } from "./lane-serve";
 import { readDutyStatuses } from "./supervise-duty-status";
 import {
 	adoptRunnerLaunchAgents,
+	RUNNER_PASS_GRACE_MS,
 	RUNNER_RESTART_BASE_MS,
 	RUNNER_RESTART_MAX_MS,
 	RUNNERS_FILE,
@@ -187,7 +192,11 @@ describe("adopting the old per-dispatcher LaunchAgents", () => {
 });
 
 describe("running the dispatchers", () => {
-	type Fake = RunnerChild & { args: string[]; exit: (code: number) => void };
+	type Fake = RunnerChild & {
+		args: string[];
+		exit: (code: number) => void;
+		signal?: string;
+	};
 	function setup(identity = (_pid: number) => "fixture-process-identity") {
 		const env = { TEDIX_CONFIG_DIR: config };
 		let now = 1_000_000;
@@ -208,7 +217,10 @@ describe("running the dispatchers", () => {
 					onExit: (l) => {
 						listener = l;
 					},
-					stop: () => void child.exit(143),
+					stop: (signal) => {
+						child.signal = signal;
+						child.exit(143);
+					},
 					exit: (code) => listener?.(code),
 				};
 				spawned.push(child);
@@ -229,6 +241,7 @@ describe("running the dispatchers", () => {
 			advance: (ms: number) => {
 				now += ms;
 			},
+			now: () => now,
 			childFile: (l: RunnerDuty) =>
 				join(config, "supervisor", "runners", `${runnerKey(l)}.json`),
 		};
@@ -263,6 +276,89 @@ describe("running the dispatchers", () => {
 			{ key: runnerKey(runner()), executor: "codex", pid: 100 },
 		]);
 		expect(f.lines[0]).toContain("codex started (pid 100, 4 slots)");
+	});
+
+	test("kills and immediately restarts a runner that misses its lane pass", () => {
+		const f = setup();
+		f.write([runner({ executor: "claude-code" })]);
+		f.duties.tick();
+		const directory = join(
+			config,
+			"dispatchers",
+			runnerKey(runner({ executor: "claude-code" })),
+		);
+		mkdirSync(directory, { recursive: true });
+		writeDispatcherHealthSource(
+			directory,
+			{
+				scope: ["--organization", "org_fixture", "--workspace", "fixture"],
+				executor: "claude-code",
+				max: 4,
+			},
+			100,
+		);
+		const pass = () =>
+			recordDispatcherNextCheck(
+				directory,
+				new Date(f.now() + 30_000).toISOString(),
+				100,
+			);
+		// Healthy passes every 30 seconds keep it running for a long time.
+		for (let i = 0; i < 20; i++) {
+			pass();
+			f.advance(30_000);
+			f.duties.tick();
+		}
+		expect(f.spawned).toHaveLength(1);
+		// The lane stops passing: restarted once the pass is late by the grace.
+		const hungAt = f.now();
+		pass();
+		while (f.spawned.length === 1 && f.now() - hungAt < 10 * 60_000) {
+			f.advance(30_000);
+			f.duties.tick();
+		}
+		expect(f.spawned).toHaveLength(2);
+		expect(f.now() - hungAt).toBeLessThanOrEqual(
+			30_000 + RUNNER_PASS_GRACE_MS + 30_000,
+		);
+		expect(f.spawned[0]!.signal).toBe("SIGKILL");
+		expect(f.lines.join("\n")).toContain(
+			"claude-code missed its lane pass due",
+		);
+		expect(f.lines.join("\n")).toContain("killing pid 100 and restarting");
+		expect(f.duties.status()).toEqual([
+			{
+				key: runnerKey(runner({ executor: "claude-code" })),
+				executor: "claude-code",
+				pid: 101,
+			},
+		]);
+	});
+
+	test("a runner that never passes since starting, e.g. waiting on a draining lock holder, is restarted", () => {
+		const f = setup();
+		f.write([runner()]);
+		f.duties.tick();
+		for (let t = 0; t < RUNNER_PASS_GRACE_MS; t += 30_000) {
+			f.advance(30_000);
+			f.duties.tick();
+		}
+		expect(f.spawned).toHaveLength(1);
+		f.advance(30_000);
+		f.duties.tick();
+		expect(f.spawned).toHaveLength(2);
+		expect(f.spawned[0]!.signal).toBe("SIGKILL");
+	});
+
+	test("a sleeping machine does not count as a missed pass", () => {
+		const f = setup();
+		f.write([runner()]);
+		f.duties.tick();
+		f.advance(60 * 60_000);
+		f.duties.tick();
+		f.advance(30_000);
+		f.duties.tick();
+		expect(f.spawned).toHaveLength(1);
 	});
 
 	test("restarts an exited runner after a doubling backoff that is capped", () => {

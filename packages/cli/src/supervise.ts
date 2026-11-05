@@ -158,8 +158,6 @@ export interface SuperviseDeps {
 	claude?: ClaudeDriver;
 	drivers?: Partial<Record<LeadHost, LeadDriver>>;
 	leadRun?: LeadRun;
-	/** Set by the long-running command only; `--once` never starts dispatchers. */
-	runners?: RunnerDuties;
 	now?: () => number;
 	sleep?: (ms: number) => Promise<void>;
 	log?: (line: string) => void;
@@ -193,13 +191,6 @@ export class Supervisor {
 
 	/** Returns the number of drafts delivered in this pass. */
 	async tick(waitForLead = false): Promise<number> {
-		try {
-			this.deps.runners?.tick();
-		} catch (error) {
-			this.log(
-				`runners: tick failed: ${(error as Error).message?.slice(0, 200)}`,
-			);
-		}
 		const lead = this.lead.tick(waitForLead);
 		let delivered = 0;
 		this.lastPass = { checked: 0, failed: 0 };
@@ -1136,7 +1127,6 @@ export async function runSuperviseCommand(args: string[]): Promise<number> {
 		env,
 		read: supervisorRead,
 		codex: codexDriver(env),
-		runners,
 	});
 	try {
 		if (once) {
@@ -1154,6 +1144,20 @@ export async function runSuperviseCommand(args: string[]): Promise<number> {
 		};
 		process.once("SIGTERM", stop);
 		process.once("SIGINT", stop);
+		// Runners are checked on their own clock: a slow question or lead pass
+		// must not delay restarting a hung runner.
+		const checkRunners = () => {
+			try {
+				runners?.tick();
+			} catch (error) {
+				supervisorLog(
+					env,
+					`runners: tick failed: ${(error as Error).message?.slice(0, 200)}`,
+				);
+			}
+		};
+		checkRunners();
+		const runnerTimer = setInterval(checkRunners, SUPERVISE_INTERVAL_MS);
 		while (!stopped) {
 			await supervisor.tick();
 			for (
@@ -1163,6 +1167,7 @@ export async function runSuperviseCommand(args: string[]): Promise<number> {
 			)
 				await pause(1000);
 		}
+		clearInterval(runnerTimer);
 		runners?.stop();
 		supervisorLog(env, "supervisor stopped");
 		return 0;
