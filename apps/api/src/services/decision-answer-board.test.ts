@@ -114,6 +114,63 @@ describe("recordDecisionAnswerOnBoard", () => {
 		});
 	});
 
+	it("accepts a still-proposed linked Work on a yes, carrying the person's typed words", async () => {
+		mocks.work.mockResolvedValue({ id: workId, disposition: "proposed" });
+		const instruction =
+			"Draft an email in my Gmail to the right contacts so I can approve.";
+		await recordDecisionAnswerOnBoard(context, {
+			orgId,
+			request: { ...card, workItemId: workId },
+			answer: { ...yes, instruction },
+		});
+		expect(mocks.call).not.toHaveBeenCalled();
+		const deckCard = {
+			...card,
+			workItemId: workId,
+			metadata: { decisionDeck: { kind: "decision" } },
+		} as typeof card;
+		await recordDecisionAnswerOnBoard(context, {
+			orgId,
+			request: deckCard,
+			answer: { ...yes, responseId: "resp-2", instruction },
+		});
+		expect(mocks.comment.mock.calls[0]?.[1].body).toContain(
+			`What to do next, in their words: ${instruction}`,
+		);
+		expect(mocks.call).toHaveBeenCalledTimes(1);
+		expect(mocks.call.mock.calls[0]).toEqual([
+			"accept",
+			{
+				id: workId,
+				acceptanceContract: {
+					version: 1,
+					doneLooksLike: expect.stringContaining(instruction),
+				},
+			},
+			{ context },
+		]);
+	});
+
+	it("leaves accepted or declined linked Work alone", async () => {
+		mocks.work.mockResolvedValue({ id: workId, disposition: "accepted" });
+		await recordDecisionAnswerOnBoard(context, {
+			orgId,
+			request: { ...card, workItemId: workId },
+			answer: yes,
+		});
+		mocks.work.mockResolvedValue({ id: workId, disposition: "proposed" });
+		await recordDecisionAnswerOnBoard(context, {
+			orgId,
+			request: {
+				...card,
+				workItemId: workId,
+				metadata: { decisionDeck: { kind: "decision" } },
+			} as typeof card,
+			answer: { ...yes, choice: "reject" },
+		});
+		expect(mocks.call).not.toHaveBeenCalled();
+	});
+
 	it("links the Work already created from this card instead of duplicating it", async () => {
 		mocks.bySource.mockResolvedValue({ id: workId, disposition: "accepted" });
 		const result = await recordDecisionAnswerOnBoard(context, {

@@ -825,6 +825,10 @@ const respondProcedure = writeOs.respond.handler(async ({ input, context }) => {
 						typeof response.metadata.decisionChoice === "string"
 							? response.metadata.decisionChoice
 							: undefined,
+					instruction:
+						typeof response.metadata.feedbackText === "string"
+							? response.metadata.feedbackText
+							: undefined,
 					at: response.respondedAt,
 				},
 			});
