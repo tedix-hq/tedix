@@ -52,6 +52,10 @@ credentials, live account settings, and runbooks. Public source does not
 change this deployment boundary. Product code and patches belong in the
 product repository; operations remain private.
 
+A Tedix Cloud release redeploys only the services whose source changed since
+the last release. For example, a change to these public guides updates the
+docs site and leaves the API and agents running as they were.
+
 ## Commits
 
 Maintainers commit directly to `main`. Commit messages and author identities
