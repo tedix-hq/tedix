@@ -642,3 +642,27 @@ describe("applyInputSchemaDefaults", () => {
 		);
 	});
 });
+
+it("keeps inferred output schemas advisory when later responses have a different shape", () => {
+	expect(() =>
+		validateStructuredContentAgainstOutputSchema(
+			{
+				type: "object",
+				required: ["id"],
+				properties: { id: { type: "string" } },
+				"x-tedix-provenance": "inferred",
+			},
+			{ changed: true },
+			"sampled_tool",
+		),
+	).not.toThrow();
+});
+
+it("does not register inferred shapes as SDK response validators", () => {
+	expect(
+		jsonSchemaToOutputSchema({
+			type: "object",
+			"x-tedix-provenance": "inferred",
+		}),
+	).toBeUndefined();
+});

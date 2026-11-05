@@ -137,3 +137,26 @@ describe("MCP wire result transformation", () => {
 		).toBe(ordinary);
 	});
 });
+
+it("keeps advisory inferred schemas out of normative tools/list output schemas", () => {
+	const transform = mcpToolsListResultTransform(
+		[
+			{
+				toolId: "example",
+				outputSchema: { type: "object", "x-tedix-provenance": "inferred" },
+			},
+		],
+		undefined,
+		new Headers(),
+	);
+	const result = transform({
+		request: { jsonrpc: "2.0", id: 1, method: "tools/list" },
+		response: {
+			jsonrpc: "2.0",
+			id: 1,
+			result: { tools: [{ name: "example", inputSchema: { type: "object" } }] },
+		},
+	} as TransformInput);
+	expect(result).toMatchObject({ result: { tools: [{ name: "example" }] } });
+	expect(JSON.stringify(result)).not.toContain("outputSchema");
+});

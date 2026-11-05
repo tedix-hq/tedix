@@ -39,6 +39,7 @@ function calculateScores(
 		toolName: string;
 		description: string | null;
 		inputSchema: unknown;
+		outputSchema: unknown;
 		annotations: unknown;
 	}[],
 ) {
@@ -48,10 +49,12 @@ function calculateScores(
 		let toolScoreSum = 0;
 		for (const tool of tools) {
 			let toolScore = 0;
-			// Has description? (0-30)
+			// Has description? (0-20)
 			if (tool.description) {
-				toolScore += Math.min(30, tool.description.length / 3); // 90+ chars = full marks
+				toolScore += Math.min(20, tool.description.length / 4.5); // 90+ chars = full marks
 			}
+			// Has output schema? (0-10)
+			if (tool.outputSchema) toolScore += 10;
 			// Has input schema? (0-30)
 			if (tool.inputSchema) {
 				const schema = tool.inputSchema as Record<string, unknown> | null;
@@ -213,6 +216,7 @@ export async function calculateAndUpdateScores(
 				toolName: appCatalogMcpTools.toolName,
 				description: appCatalogMcpTools.description,
 				inputSchema: appCatalogMcpTools.inputSchema,
+				outputSchema: appCatalogMcpTools.outputSchema,
 				annotations: appCatalogMcpTools.annotations,
 			})
 			.from(appCatalogMcpTools)
@@ -270,6 +274,9 @@ export async function calculateAndUpdateScores(
 				scores: {
 					...app.scores,
 					schemaQuality: scores.schemaQuality,
+					missingOutputSchemaTools: tools
+						.filter((tool) => !tool.outputSchema)
+						.map((tool) => tool.toolName),
 					capabilityBreadth: scores.capabilityBreadth,
 					freshness: scores.freshness,
 					standards: scores.standards,

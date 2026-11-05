@@ -36,6 +36,8 @@ import {
 	insertToolTest,
 	updateToolTestMetrics,
 } from "@tedix/db/queries/catalog/tool-tests";
+import { inferCatalogToolOutputSchemas } from "@tedix/db/queries/tools";
+import { unwrapCallToolResult } from "@tedix/mcp-shared/tool-result";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import { callMcpTool } from "../lib/mcp-client";
 import {
@@ -414,6 +416,21 @@ export class McpToolTestWorkflow extends WorkflowEntrypoint<
 			testInput,
 			{ timeout },
 		);
+
+		const rawResult = result.rawResult;
+		if (result.success && !result.isError && rawResult) {
+			try {
+				await inferCatalogToolOutputSchemas(
+					createDbClient(this.env.DB),
+					tool.catalogAppId,
+					tool.toolName,
+					() => unwrapCallToolResult(rawResult, tool.toolName),
+				);
+			} catch (error) {
+				// Advisory inference must not change the tool test's outcome.
+				console.warn("[Tool Test] Output schema inference unavailable", error);
+			}
+		}
 
 		// Validate output
 		const validation = validateToolOutput(result.output);

@@ -64,11 +64,25 @@ reserved by the SDK.
 Flow: `discover.search(query, { limit })` → `discover.describe(callable)` → the
 call. `discover.list_namespaces({ includeTools })` is for inventory.
 `discover.describe(callable)` returns the full input schema, description and
-annotations. Request the output schema only when needed with
+annotations, a bounded TypeScript `resultType`, and `outputSchemaProvenance`
+when a schema exists. Unknown or deeply nested parts render as `unknown`.
+Request the output schema only when needed with
 `discover.describe({ callable, includeOutputSchema: true })`.
 The native `catalog/describe` transport retains its full descriptor
 for existing clients; the CLI explicitly fetches output schemas through
 `catalog/search` with `includeOutputSchema: true` for result validation.
+
+The 6am tool test samples successful MCP results before truncation, using the
+same result unwrapping as Code Mode. Installed catalog tool rows without a
+declared output schema receive a shape with `x-tedix-provenance: "inferred"`.
+Later samples merge shapes and make missing fields optional. These schemas are
+advisory: they never validate responses or become normative `tools/list` output
+schemas. Sensitive rows are excluded before inference, declared schemas win,
+and catalog refreshes preserve inferred shapes until upstream declares one.
+No sample values are stored in the inferred schema. The nightly catalog quality
+score deducts points for missing output schemas and records their tool names in
+`scores.missingOutputSchemaTools`.
+
 Contract (`buildCatalogProvider`):
 
 - Rows omit schemas unless requested; schema-bearing searches without a

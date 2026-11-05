@@ -256,6 +256,39 @@ describe("syncCatalogToolsToApp write capability", () => {
 		...(annotations ? { annotations } : {}),
 	});
 
+	it("retains sampled shapes across refreshes until upstream declares an output schema", async () => {
+		const { db } = setup();
+		await seed(db);
+		await db
+			.insert(appCatalogMcpTools)
+			.values(
+				catalogTool("catalog-row", "list_records", { readOnlyHint: true }),
+			);
+		const options = {
+			catalogAppId: "catalog-wc",
+			appId: "app-wc",
+			mcpServerUrl: "https://mcp.acme.test/mcp",
+			dryRun: false,
+		};
+		await syncCatalogToolsToApp(db, options);
+		const inferred = {
+			type: "string" as const,
+			"x-tedix-provenance": "inferred",
+		};
+		await db.update(appTools).set({ outputSchema: inferred });
+		await syncCatalogToolsToApp(db, options);
+		expect((await db.select().from(appTools))[0]?.outputSchema).toEqual(
+			inferred,
+		);
+		await db
+			.update(appCatalogMcpTools)
+			.set({ outputSchema: { type: "number" } });
+		await syncCatalogToolsToApp(db, options);
+		expect((await db.select().from(appTools))[0]?.outputSchema).toEqual({
+			type: "number",
+		});
+	});
+
 	it("populates write_capability from upstream annotations, leaving unannotated tools UNDECLARED", async () => {
 		const { db } = setup();
 		await seed(db);

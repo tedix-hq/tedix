@@ -377,6 +377,7 @@ export const appCatalog = sqliteTable(
 		scores: text("scores", { mode: "json" }).$type<{
 			overall?: number | null;
 			schemaQuality?: number | null;
+			missingOutputSchemaTools?: string[];
 			capabilityBreadth?: number | null;
 			freshness?: number | null;
 			standards?: number | null;

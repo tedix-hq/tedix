@@ -54,6 +54,10 @@ const evaluationMocks = vi.hoisted(() => ({
 	judge: vi.fn(),
 	call: vi.fn(),
 	generate: vi.fn(),
+	infer: vi.fn(),
+}));
+vi.mock("@tedix/db/queries/tools", () => ({
+	inferCatalogToolOutputSchemas: evaluationMocks.infer,
 }));
 vi.mock("@tedix/db/client", () => ({ createDbClient: () => ({}) }));
 vi.mock("../services/jev-judgment", () => ({
@@ -229,4 +233,73 @@ it("leaves programmatic tests free of semantic inference", async () => {
 	);
 	expect(evaluationMocks.judge).not.toHaveBeenCalled();
 	expect(evaluationMocks.generate).not.toHaveBeenCalled();
+});
+
+it.each([
+	{ success: true, isError: false, expected: 1 },
+	{ success: false, isError: false, expected: 0 },
+	{ success: true, isError: true, expected: 0 },
+])(
+	"samples only successful non-error test responses: %j",
+	async ({ success, isError, expected }) => {
+		evaluationMocks.infer
+			.mockReset()
+			.mockImplementation(async (_db, _catalogId, _name, sample) => {
+				expect(sample()).toEqual({ data: [{ id: "record" }] });
+				return 1;
+			});
+		evaluationMocks.call.mockResolvedValue({
+			success,
+			isError,
+			latencyMs: 1,
+			output: [{ type: "text", text: '{"ignored":true}' }],
+			rawResult: {
+				isError,
+				structuredContent: { data: [{ id: "record" }] },
+				content: [{ type: "text", text: '{"ignored":true}' }],
+			},
+		});
+		const workflow = Object.create(McpToolTestWorkflow.prototype);
+		workflow.env = { DB: {} };
+		await workflow.testTool(
+			{
+				id: "tool",
+				catalogAppId: "catalog",
+				toolName: "list_records",
+				inputSchema: { type: "object" },
+				mcpEndpoint: "https://example.test/mcp",
+			},
+			1000,
+			"programmatic",
+			"workflow",
+			null,
+		);
+		expect(evaluationMocks.infer).toHaveBeenCalledTimes(expected);
+	},
+);
+
+it("preserves a successful test when advisory schema persistence fails", async () => {
+	evaluationMocks.infer.mockRejectedValueOnce(new Error("storage unavailable"));
+	evaluationMocks.call.mockResolvedValue({
+		success: true,
+		latencyMs: 1,
+		output: { id: "record" },
+		rawResult: { structuredContent: { id: "record" } },
+	});
+	const workflow = Object.create(McpToolTestWorkflow.prototype);
+	workflow.env = { DB: {} };
+	const result = await workflow.testTool(
+		{
+			id: "tool",
+			catalogAppId: "catalog",
+			toolName: "list_records",
+			inputSchema: { type: "object" },
+			mcpEndpoint: "https://example.test/mcp",
+		},
+		1000,
+		"programmatic",
+		"workflow",
+		null,
+	);
+	expect(result.success).toBe(true);
 });

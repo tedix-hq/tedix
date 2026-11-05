@@ -69,6 +69,7 @@ describe("catalog quality score components", () => {
 		expect(await calculateAndUpdateScores(db)).toBe(1);
 		expect(await readScores()).toEqual({
 			schemaQuality: 0,
+			missingOutputSchemaTools: [],
 			capabilityBreadth: 4,
 			freshness: 50,
 			standards: 30,
@@ -98,14 +99,14 @@ describe("catalog quality score components", () => {
 			description: "x".repeat(90),
 			schema: { properties: { a: {}, b: {}, c: {} } },
 			annotations: { readOnlyHint: false },
-			expected: 100,
+			expected: 90,
 		},
 		{
 			name: "get_record",
 			description: "x".repeat(300),
 			schema: { properties: { a: {}, b: {}, c: {}, d: {} } },
 			annotations: { readOnlyHint: true },
-			expected: 100,
+			expected: 90,
 		},
 	])(
 		"scores schema quality for $name at $expected",
@@ -135,7 +136,7 @@ describe("catalog quality score components", () => {
 		await seedTool("removed", { toolName: "y", removedAt: NOW });
 		await calculateAndUpdateScores(db);
 		expect(await readScores()).toMatchObject({
-			schemaQuality: 50,
+			schemaQuality: 45,
 			standards: 40,
 		});
 	});
@@ -272,6 +273,7 @@ describe("catalog quality score components", () => {
 		});
 		await seedTool("tool", {
 			description: "x".repeat(90),
+			outputSchema: { type: "object" },
 			inputSchema: { type: "object", properties: { a: {}, b: {}, c: {} } },
 			annotations: { readOnlyHint: true },
 		});
@@ -352,4 +354,18 @@ describe("calculateAndUpdateScores", () => {
 			expect(duplicateOutputColumns(query)).toEqual([]);
 		}
 	});
+});
+
+it("penalizes missing output schemas and names the tools needing them", async () => {
+	const { db, seedApp, seedTool, readScores } = setup();
+	await seedApp("app");
+	await seedTool("tool", { toolName: "list_records" });
+	await calculateAndUpdateScores(db);
+	const missing = await readScores();
+	expect(missing?.missingOutputSchemaTools).toEqual(["list_records"]);
+	await db.update(appCatalogMcpTools).set({ outputSchema: { type: "object" } });
+	await calculateAndUpdateScores(db);
+	const declared = await readScores();
+	expect(declared?.missingOutputSchemaTools).toEqual([]);
+	expect(declared?.schemaQuality).toBe((missing?.schemaQuality ?? 0) + 10);
 });

@@ -75,6 +75,7 @@ export const appTools = sqliteTable(
 
 		// Output schema (optional MCP JSON Schema for structuredContent)
 		// The root may be object, array, scalar, or a composed JSON Schema.
+		// x-tedix-provenance="inferred" marks advisory shapes sampled by tool tests.
 		outputSchema: text("output_schema", {
 			mode: "json",
 		}).$type<ToolJsonSchema>(),

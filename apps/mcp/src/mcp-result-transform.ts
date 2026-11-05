@@ -43,7 +43,10 @@ export function mcpToolsListResultTransform(
 ): McpResultTransform {
 	const outputSchemasByName = new Map(
 		tools.flatMap((tool) =>
-			tool.outputSchema ? [[tool.toolId, tool.outputSchema] as const] : [],
+			tool.outputSchema &&
+			tool.outputSchema["x-tedix-provenance"] !== "inferred"
+				? [[tool.toolId, tool.outputSchema] as const]
+				: [],
 		),
 	);
 	const toolsByName = new Map(tools.map((tool) => [tool.toolId, tool]));
