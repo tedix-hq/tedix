@@ -235,22 +235,27 @@ describe("multi-organization MCP consent", () => {
 			message: expect.stringContaining("selection_replaced"),
 		});
 
-		fetch.mockResolvedValueOnce(
+		const providerDown = () =>
 			Response.json({
 				json: {
 					allowed: false,
 					reason: "provider_unavailable",
 					organizations: [],
 				},
-			}),
-		);
+			});
+		// Each unavailable answer is retried once before it is reported.
+		fetch
+			.mockResolvedValueOnce(providerDown())
+			.mockResolvedValueOnce(providerDown());
 		const provider = await resolveHumanMcpSelection(payload, env, config);
 		expect(provider).toEqual({
 			ok: false,
 			unavailable: true,
 			reason: "provider_unavailable",
 		});
-		fetch.mockRejectedValueOnce(new Error("service binding down"));
+		fetch
+			.mockRejectedValueOnce(new Error("service binding down"))
+			.mockRejectedValueOnce(new Error("service binding down"));
 		const caught = await resolveHumanMcpSelection(payload, env, config);
 		expect(caught).toEqual({
 			ok: false,
@@ -279,7 +284,158 @@ describe("multi-organization MCP consent", () => {
 			unavailable: false,
 			reason: "token_claims_invalid",
 		});
-		expect(fetch).toHaveBeenCalledTimes(3);
+		expect(fetch).toHaveBeenCalledTimes(5);
+	});
+
+	describe("transient grant-check failures", () => {
+		const allowed = () =>
+			Response.json({
+				json: {
+					allowed: true,
+					effectiveScopes: ["mcp:apps.read", "mcp:work.read"],
+					organizations: [
+						{
+							organizationId: "id-1",
+							descopeTenantId: "org_tedix",
+							gatewaySlug: "tedix",
+						},
+						{
+							organizationId: "id-2",
+							descopeTenantId: "org_sample",
+							gatewaySlug: "sample",
+						},
+					],
+				},
+			});
+		// A Worker 5xx (exception, D1 error) arrives without an oRPC error body.
+		const apiUnavailable = () =>
+			new Response("Fictional worker error", { status: 503 });
+		const grantMetrics = (log: { mock: { calls: unknown[][] } }) =>
+			log.mock.calls
+				.map(([line]): { toolName?: string } | null => {
+					try {
+						return JSON.parse(String(line));
+					} catch {
+						return null;
+					}
+				})
+				.filter((entry) => entry?.toolName === "human_mcp_grant");
+
+		afterEach(() => {
+			vi.restoreAllMocks();
+			vi.useRealTimers();
+		});
+
+		it.each([
+			["a 503 from the API", apiUnavailable],
+			[
+				"a dropped service-binding fetch",
+				() => Promise.reject(new Error("Network connection lost")),
+			],
+			[
+				"a provider_unavailable decision",
+				() =>
+					Response.json({
+						json: {
+							allowed: false,
+							reason: "provider_unavailable",
+							organizations: [],
+						},
+					}),
+			],
+		])("retries once after %s and records the recovery", async (_, fail) => {
+			const log = vi.spyOn(console, "log").mockImplementation(() => {});
+			const fetch = vi
+				.fn()
+				.mockImplementationOnce(fail)
+				.mockResolvedValueOnce(allowed());
+			const env = { API_SERVICE: { fetch } } as unknown as CloudflareEnv;
+			const result = await resolveHumanMcpSelection(payload, env, config);
+			expect(result).toMatchObject({
+				ok: true,
+				selection: { effectiveScopes: ["mcp:apps.read", "mcp:work.read"] },
+			});
+			expect(fetch).toHaveBeenCalledTimes(2);
+			expect(grantMetrics(log)).toEqual([
+				expect.objectContaining({
+					eventType: "auth_validation",
+					success: true,
+					metadata: expect.objectContaining({
+						grantOutcome: "allowed",
+						attempts: 2,
+					}),
+				}),
+			]);
+		});
+
+		it("reports grant_check_failed with its failure class after the retry also fails", async () => {
+			const log = vi.spyOn(console, "log").mockImplementation(() => {});
+			const fetch = vi.fn(async () => apiUnavailable());
+			const env = { API_SERVICE: { fetch } } as unknown as CloudflareEnv;
+			expect(await resolveHumanMcpSelection(payload, env, config)).toEqual({
+				ok: false,
+				unavailable: true,
+				reason: "grant_check_failed",
+			});
+			expect(fetch).toHaveBeenCalledTimes(2);
+			expect(grantMetrics(log)).toEqual([
+				expect.objectContaining({
+					success: false,
+					errorCode: "grant_check_failed",
+					metadata: expect.objectContaining({
+						grantOutcome: "grant_check_failed",
+						attempts: 2,
+						failureKind: "http_503",
+					}),
+				}),
+			]);
+		});
+
+		it("does not retry a definite denial or a 4xx answer", async () => {
+			vi.spyOn(console, "log").mockImplementation(() => {});
+			const fetch = vi
+				.fn()
+				.mockResolvedValueOnce(
+					Response.json({
+						json: {
+							allowed: false,
+							reason: "selection_replaced",
+							organizations: [],
+						},
+					}),
+				)
+				.mockResolvedValueOnce(
+					new Response("Fictional forbidden", { status: 403 }),
+				);
+			const env = { API_SERVICE: { fetch } } as unknown as CloudflareEnv;
+			expect(
+				await resolveHumanMcpSelection(payload, env, config),
+			).toMatchObject({
+				reason: "selection_replaced",
+			});
+			expect(
+				await resolveHumanMcpSelection(payload, env, config),
+			).toMatchObject({
+				reason: "grant_check_failed",
+			});
+			expect(fetch).toHaveBeenCalledTimes(2);
+		});
+
+		it("does not retry once too little of the budget is left", async () => {
+			vi.useFakeTimers();
+			vi.spyOn(console, "log").mockImplementation(() => {});
+			const fetch = vi.fn(
+				() =>
+					new Promise<Response>((resolve) =>
+						setTimeout(() => resolve(apiUnavailable()), 14_000),
+					),
+			);
+			const env = { API_SERVICE: { fetch } } as unknown as CloudflareEnv;
+			const pending = resolveHumanMcpSelection(payload, env, config);
+			await vi.advanceTimersByTimeAsync(15_000);
+			expect(await pending).toMatchObject({ reason: "grant_check_failed" });
+			expect(fetch).toHaveBeenCalledTimes(1);
+		});
 	});
 
 	it("rejects wrong audience, missing client, duplicate tenants before API access", async () => {

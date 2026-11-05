@@ -778,10 +778,18 @@ export const withAuth = base.middleware(async (options, input) => {
 		}
 		if (isForwardedMcpUserCall(context.headers)) {
 			try {
-				await measureMiningPhase(context, "auth.forwarded", () =>
-					authenticateForwardedMcpUserJwt(context),
+				// Identity resolution only reads D1 and rewrites the same context
+				// fields, so a transient D1 failure is safe to retry as a whole.
+				await withTransientD1ReadRetry(
+					"forwarded_mcp_identity",
+					async () => {
+						await measureMiningPhase(context, "auth.forwarded", () =>
+							authenticateForwardedMcpUserJwt(context),
+						);
+						await bindBrowserAgentSeat(context);
+					},
+					{ attempts: 3, delayMs: 100 + Math.floor(Math.random() * 150) },
 				);
-				await bindBrowserAgentSeat(context);
 			} catch (error) {
 				if (error instanceof ORPCError) throw error;
 				// Token/permission failures above are explicit ORPCErrors. An
