@@ -312,13 +312,16 @@ describe("WorkspaceLibraryPage", () => {
 		if (!(search instanceof HTMLInputElement))
 			throw new Error("search missing");
 		expect(search.className).not.toContain("max-w-md");
-		const searchGroup = search.closest('[data-kumo-component="SearchInput"]');
-		expect(searchGroup?.className).toContain("sm:max-w-md");
-		expect(searchGroup?.parentElement?.className).not.toContain("px-3");
-		expect(searchGroup?.parentElement?.className).toContain("gap-4");
+		// Status tabs and search share one Kumo page toolbar row.
+		const toolbar = search.closest('[data-slot="page-toolbar"]');
+		expect(toolbar?.getAttribute("data-appearance")).toBe("inline");
 		expect(
-			container.querySelector('ul[aria-label="Workspaces"]'),
+			toolbar?.querySelector('[data-kumo-component="SegmentedControl"]'),
 		).not.toBeNull();
+		// A calm list: no bordered box around the rows.
+		const list = container.querySelector('ul[aria-label="Workspaces"]');
+		expect(list?.getAttribute("data-appearance")).toBe("inline");
+		expect(list?.className).not.toContain("border");
 		expect(container.querySelector("strong")?.className).toContain(
 			"type-tedix-body",
 		);
@@ -348,6 +351,13 @@ describe("WorkspaceLibraryPage", () => {
 		expect(open.getAttribute("data-link-role")).toBe("collection");
 		expect(open.getAttribute("role")).toBeNull();
 		expect(open.textContent).toContain("Support Desk");
+		// The link's overlay spans the whole row; the star stays its own button
+		// stacked above it.
+		const row = open.closest("li");
+		expect(row?.className).toContain("relative");
+		expect(row?.className).toContain("hover:bg-kumo-tint");
+		expect(open.className).toContain("after:inset-0");
+		expect(row?.querySelector("button")?.className).toContain("z-10");
 		act(() => root.unmount());
 	});
 
@@ -395,6 +405,8 @@ describe("WorkspaceLibraryPage", () => {
 			expect.anything(),
 		);
 		expect(container.textContent).toContain("Reddit Intelligence");
+		// A workspace without a description shows no placeholder line.
+		expect(container.textContent).not.toContain("No description");
 		expect(container.textContent).not.toContain("Weekly revenue reporting");
 		expect(container.textContent).not.toContain("No workspaces match");
 		act(() => root.unmount());
