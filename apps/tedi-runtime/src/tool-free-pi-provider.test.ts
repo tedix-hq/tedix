@@ -8,6 +8,7 @@ import {
 	createToolFreePiModels,
 	toolFreePiModel,
 } from "./tool-free-pi-provider";
+import { evaluationOutputShape } from "./evaluation-evidence";
 
 const identity = { provider: "fixture", model: "judge" };
 function fixture(
@@ -23,6 +24,7 @@ function fixture(
 	let runId: string | undefined = options.missingRun ? undefined : "run-1";
 	const order: string[] = [];
 	const usage: unknown[] = [];
+	const outcomes: unknown[] = [];
 	let dispatched: LanguageModelV2CallOptions | undefined;
 	const sdk: LanguageModelV2 = {
 		specificationVersion: "v2",
@@ -63,6 +65,9 @@ function fixture(
 		},
 	};
 	const models = createToolFreePiModels({
+		afterDispatch: async (outcome) => {
+			outcomes.push(outcome);
+		},
 		beforeDispatch: options.audit,
 		runId: () => runId,
 		selected: () => ({ model: sdk, identity }),
@@ -100,7 +105,7 @@ function fixture(
 			},
 		},
 	});
-	return { models, order, usage, dispatched: () => dispatched };
+	return { models, order, outcomes, usage, dispatched: () => dispatched };
 }
 async function run(
 	f: ReturnType<typeof fixture>,
@@ -120,7 +125,73 @@ async function run(
 	assert.deepEqual(f.usage, [
 		{ inputTokens: 12, outputTokens: 4, totalTokens: 16 },
 	]);
+	assert.deepEqual((f.outcomes[0] as { outputShape?: unknown }).outputShape, {
+		measurementBoundary: "pi-adapter-final-assistant-message-v1",
+		textPartCount: 1,
+		textChars: 13,
+		reasoningPartCount: 0,
+		reasoningChars: 0,
+	});
 }
+
+for (const [message, expected] of [
+	[
+		{ content: [{ type: "text", text: "answer" }] },
+		{
+			textPartCount: 1,
+			textChars: 6,
+			reasoningPartCount: 0,
+			reasoningChars: 0,
+		},
+	],
+	[
+		{ content: [{ type: "thinking", thinking: "private" }] },
+		{
+			textPartCount: 0,
+			textChars: 0,
+			reasoningPartCount: 1,
+			reasoningChars: 7,
+		},
+	],
+	[
+		{
+			content: [
+				{ type: "thinking", thinking: "plan" },
+				{ type: "text", text: "one" },
+				{ type: "text", text: "two" },
+			],
+		},
+		{
+			textPartCount: 2,
+			textChars: 6,
+			reasoningPartCount: 1,
+			reasoningChars: 4,
+		},
+	],
+	[
+		{ content: [] },
+		{
+			textPartCount: 0,
+			textChars: 0,
+			reasoningPartCount: 0,
+			reasoningChars: 0,
+		},
+	],
+] as const) {
+	assert.deepEqual(evaluationOutputShape(message), {
+		measurementBoundary: "pi-adapter-final-assistant-message-v1",
+		...expected,
+	});
+}
+for (const malformed of [
+	undefined,
+	{},
+	{ content: null },
+	{ content: [{ type: "text" }] },
+	{ content: [{ type: "thinking", thinking: 4 }] },
+	{ content: [{ type: "unknown", text: "private" }] },
+])
+	assert.equal(evaluationOutputShape(malformed), undefined);
 {
 	const f = fixture({ unknownUsage: true });
 	await run(f);

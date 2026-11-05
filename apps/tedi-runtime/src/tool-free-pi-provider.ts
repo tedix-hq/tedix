@@ -3,6 +3,7 @@ import type { TediSessionModelIdentity } from "@tedix/tedi-session/session-harne
 import { createTedixPiProvider, type TedixSdkModel } from "./pi-model";
 import type { PiTurnAccounting, PiProviderAttempt } from "./pi-turn-accounting";
 import { TEDI_CONTEXT_WINDOW_TOKENS } from "./model-input-budget";
+import { evaluationOutputShape } from "./evaluation-evidence";
 
 export interface ToolFreePiProviderHost {
 	maxSteps?(): number;
@@ -120,14 +121,17 @@ export function createToolFreePiModels(host: ToolFreePiProviderHost) {
 					[],
 					receipt.providerAttempt,
 				);
-				if (measurement.dispatched)
+				if (measurement.dispatched) {
+					const outputShape = evaluationOutputShape(message);
 					await host.afterDispatch?.({
 						providerAttempt: receipt.providerAttempt,
 						usage,
 						finishReason: message.stopReason,
 						responseId: message.responseId ?? null,
 						responseModel: message.responseModel ?? null,
+						...(outputShape ? { outputShape } : {}),
 					});
+				}
 			},
 		}),
 	);
