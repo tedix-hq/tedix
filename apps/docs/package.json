@@ -11,7 +11,7 @@
 		"types": "cf workers types --mode production",
 		"dev": "bun run clear-port && bun ../../scripts/dev-local.ts -- vp dev",
 		"build": "vp build",
-		"deploy:production": "bun run types && vp build --mode production && cf deploy --mode production --prebuilt --message ${GIT_SHA:-${GITHUB_SHA:-unknown}}",
+		"deploy:production": "bun run types && bun scripts/deploy-production.ts",
 		"test": "vp test run",
 		"test:run": "vp test run",
 		"test:ci": "bun run test:run",
