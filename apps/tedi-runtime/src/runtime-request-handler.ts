@@ -203,6 +203,7 @@ export interface RuntimeRequestHost {
 	resolveAttachmentTurn: (
 		userText: string,
 		attachments: AudioAttachment[] | undefined,
+		turn?: { runId: string; sessionKey: string },
 	) => Promise<{ content: string; images: TurnImagePart[] }>;
 	prepareWorkflowImages: (
 		runId: string,
@@ -961,7 +962,10 @@ export async function handleRuntimeRequest(
 					if (attachments.length > 0) {
 						let resolved: { content: string; images: TurnImagePart[] };
 						try {
-							resolved = await host.resolveAttachmentTurn(text, attachments);
+							resolved = await host.resolveAttachmentTurn(text, attachments, {
+								runId,
+								sessionKey,
+							});
 						} catch (e) {
 							const error =
 								e instanceof Error ? e.message : "attachment resolution failed";

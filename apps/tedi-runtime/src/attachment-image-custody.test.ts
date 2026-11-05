@@ -42,6 +42,26 @@ assert.deepEqual(unadmitted.images, []);
 assert.match(unadmitted.content, /fix the loading ui/);
 assert.match(unadmitted.content, /Screenshot\.png/);
 
+// The description request is billed to the turn's own run; a run-less call is
+// refused by a per-run budget.
+const correlations: unknown[] = [];
+await runtimeFacetTurns.resolveAttachmentTurn.call(
+	{
+		...host(false),
+		observerBeforeDispatch: () => () => {},
+		tediAigMetadata: (_source: string, turn: unknown) => {
+			correlations.push(turn);
+			return {};
+		},
+	} as unknown as ThisParameterType<
+		typeof runtimeFacetTurns.resolveAttachmentTurn
+	>,
+	"fix the loading ui",
+	screenshot,
+	{ runId: "run-1", sessionKey: "session-1" },
+);
+assert.deepEqual(correlations, [{ runId: "run-1", sessionKey: "session-1" }]);
+
 // The vision request carries the image itself and its answer becomes text.
 const [image] = resolveTurnImageParts(screenshot).images;
 let sent: string[] = [];

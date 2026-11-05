@@ -424,6 +424,7 @@ export const runtimeFacetTurns = {
 		this: RuntimeFacetTurnsHost,
 		userText: string,
 		attachments: AudioAttachment[] | undefined,
+		turn?: { runId: string; sessionKey: string },
 	): Promise<{ content: string; images: TurnImagePart[] }> {
 		if (attachments?.some((a) => a.type === "audio"))
 			await requireUnrestrictedModelEgress(
@@ -456,7 +457,9 @@ export const runtimeFacetTurns = {
 				observerCompletion({
 					env: this.env,
 					beforeDispatch: this.observerBeforeDispatch(),
-					metadata: this.tediAigMetadata("chat:image-description"),
+					// Billing needs the turn's run: a per-run budget refuses a
+					// run-less call as hard_spend_limit.
+					metadata: this.tediAigMetadata("chat:image-description", turn),
 					modelRef: `azure-openai/${deployment}`,
 					messages,
 					images,
@@ -2049,6 +2052,7 @@ export const runtimeFacetTurns = {
 			const resolved = await this.resolveAttachmentTurn(
 				input.text.trim(),
 				input.attachments,
+				{ runId, sessionKey },
 			);
 			const userText = resolved.content.trim();
 			if (!userText) throw new Error("text is required");

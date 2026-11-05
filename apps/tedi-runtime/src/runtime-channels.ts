@@ -554,6 +554,7 @@ export const runtimeChannels = {
 		const resolvedTurn = await this.resolveAttachmentTurn(
 			input.text.trim(),
 			input.attachments,
+			{ runId: sseRunId, sessionKey },
 		);
 		const userMessage = resolvedTurn.content.trim();
 		const turnImages = resolvedTurn.images;
