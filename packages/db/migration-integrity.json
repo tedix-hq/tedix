@@ -1352,6 +1352,10 @@
 		{
 			"name": "20261104234650_drop_audit_events_metadata_indexes/migration.sql",
 			"sha256": "9fa20e14e9f1f576199de205b301543ae2fcd0f159555a0c71b7f0c74c745f5c"
+		},
+		{
+			"name": "20261105023558_skill_artifact_retention_move_to_logs_db/migration.sql",
+			"sha256": "6aa552ff7f44376371797255c239038db0e514176be31080bed9e2ad4776ea81"
 		}
 	]
 }
