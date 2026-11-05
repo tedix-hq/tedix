@@ -27,6 +27,8 @@ import {
 import { createDevinLaneThread, devinAvailable } from "./devin-lane-thread";
 import { parseServeOptions } from "./lane-serve";
 import { runLaneProcess } from "./lane-run";
+import { parseLaneResult } from "./lane-result";
+import novemberTranscript from "./fixtures/devin-2026-11-05.atif.json";
 import { createDevinWorkBridge } from "./devin-work-bridge";
 import { writeExternalAgentProfile } from "./external-agent-store";
 import {
@@ -1148,139 +1150,167 @@ test.each([
 	},
 );
 
-test.each(["verified", "bad-confirmation", "wrong-native-session"])(
-	"bounded two-turn Devin runner: %s",
-	async (mode) => {
-		const dir = temporary();
-		const binary = fakeDevin(dir);
-		const binding = {
-			orgId: "11111111-1111-4111-8111-111111111111",
-			workItemId: "22222222-2222-4222-8222-222222222222",
-			workVersion: 2,
-			attemptId: "33333333-3333-4333-8333-333333333333",
-			executorId: "local-example",
-			externalSessionKey: "devin:quiet-river",
-		};
-		const workItem = {
-			id: binding.workItemId,
-			orgId: binding.orgId,
-			version: 2,
-			disposition: "accepted",
-			title: "Read the guide",
-			description: "Read README.",
-			projectId: "44444444-4444-4444-8444-444444444444",
-			acceptanceContract: {
-				version: 1,
-				doneLooksLike: "A paragraph is recorded.",
-			},
-		};
-		const attempt = {
-			id: binding.attemptId,
-			orgId: binding.orgId,
-			workItemId: binding.workItemId,
-			executorType: "external_agent",
-			executorId: binding.executorId,
-			externalSessionKey: binding.externalSessionKey,
-			runtimeState: "running",
-			outcome: null,
-			expiresAt: new Date(Date.now() + 300000).toISOString(),
-			metadata: { dispatchVersion: 2 },
-		};
-		const comments: unknown[] = [];
-		let writes = 0;
-		const note = `The guide was read. Commit: ${"a".repeat(40)}\nTEDIX_LANE_RESULT ${JSON.stringify({ workItemId: binding.workItemId, workVersion: 2, contractVersion: 1, outcomeText: workItem.acceptanceContract.doneLooksLike, outcome: "completed" })}`;
-		const bridge = createDevinWorkBridge(binding, {
-			read: async () => ({ workItem, attempt, comments }),
-			post: async (body) => {
-				writes++;
-				const comment = {
-					id: "saved-note",
-					orgId: binding.orgId,
-					workItemId: binding.workItemId,
-					authorType: "external_agent",
-					authorId: binding.executorId,
-					body,
-					metadata: { agentSession: binding.externalSessionKey },
-					createdAt: new Date().toISOString(),
-				};
-				comments.push(comment);
-				return comment;
-			},
-		});
-		const source = readFileSync(binary, "utf8");
-		writeFileSync(
-			binary,
-			source.replace(
-				"console.log('Fake Devin completed the brief.');",
-				`
+test.each([
+	"verified",
+	"november-5",
+	"bad-confirmation",
+	"wrong-native-session",
+])("bounded two-turn Devin runner: %s", async (mode) => {
+	const dir = temporary();
+	const binary = fakeDevin(dir);
+	const binding = {
+		orgId: "11111111-1111-4111-8111-111111111111",
+		workItemId: "22222222-2222-4222-8222-222222222222",
+		workVersion: 2,
+		attemptId: "33333333-3333-4333-8333-333333333333",
+		executorId: "local-example",
+		externalSessionKey: "devin:quiet-river",
+	};
+	const workItem = {
+		id: binding.workItemId,
+		orgId: binding.orgId,
+		version: 2,
+		disposition: "accepted",
+		title: "Read the guide",
+		description: "Read README.",
+		projectId: "44444444-4444-4444-8444-444444444444",
+		acceptanceContract: {
+			version: 1,
+			doneLooksLike: "A paragraph is recorded.",
+		},
+	};
+	const attempt = {
+		id: binding.attemptId,
+		orgId: binding.orgId,
+		workItemId: binding.workItemId,
+		executorType: "external_agent",
+		executorId: binding.executorId,
+		externalSessionKey: binding.externalSessionKey,
+		runtimeState: "running",
+		outcome: null,
+		expiresAt: new Date(Date.now() + 300000).toISOString(),
+		metadata: { dispatchVersion: 2 },
+	};
+	const comments: unknown[] = [];
+	let writes = 0;
+	// Sanitized ATIF agent messages from the 5 Nov shiny-newt attempt.
+	const retainedMessage = novemberTranscript.steps[0]!.message;
+	const note =
+		mode === "november-5"
+			? (JSON.parse(
+					retainedMessage
+						.split("\n")
+						.find((line) => line.startsWith("TEDIX_WORK_RESULT "))!
+						.slice("TEDIX_WORK_RESULT ".length),
+				).note as string)
+			: `The guide was read. Commit: ${"a".repeat(40)}\nTEDIX_LANE_RESULT ${JSON.stringify({ workItemId: binding.workItemId, workVersion: 2, contractVersion: 1, outcomeText: workItem.acceptanceContract.doneLooksLike, outcome: "completed" })}`;
+	const firstMessage =
+		mode === "november-5"
+			? retainedMessage
+			: `TEDIX_WORK_RESULT ${JSON.stringify({ binding, outcome: "succeeded", note })}`;
+	const bridge = createDevinWorkBridge(binding, {
+		read: async () => ({ workItem, attempt, comments }),
+		post: async (body) => {
+			writes++;
+			const comment = {
+				id: "saved-note",
+				orgId: binding.orgId,
+				workItemId: binding.workItemId,
+				authorType: "external_agent",
+				authorId: binding.executorId,
+				body,
+				metadata: { agentSession: binding.externalSessionKey },
+				createdAt: new Date().toISOString(),
+			};
+			comments.push(comment);
+			return comment;
+		},
+	});
+	const source = readFileSync(binary, "utf8");
+	writeFileSync(
+		binary,
+		source.replace(
+			"console.log('Fake Devin completed the brief.');",
+			`
  const prompt = fs.readFileSync(args[args.indexOf('--prompt-file')+1], 'utf8');
  fs.appendFileSync('turns.jsonl', JSON.stringify({prompt,args,config})+'\\n');
  if (prompt.includes('Saved result:')) {
   const saved = JSON.parse(prompt.split('Saved result:\\n')[1]);
   if (${JSON.stringify(mode)} === 'wrong-native-session') fs.writeFileSync(args[args.indexOf('--export')+1], JSON.stringify({session_id:'other-river',steps:[]}));
-  console.log('TEDIX_WORK_VERIFIED '+JSON.stringify({binding:saved.binding,commentId:${JSON.stringify(mode)} === 'bad-confirmation' ? 'other-note' : saved.commentId,sha256:saved.sha256}));
+  console.log(${JSON.stringify(mode === "november-5" ? novemberTranscript.steps[1]!.message.split("TEDIX_WORK_VERIFIED ")[0] : "")}+'TEDIX_WORK_VERIFIED '+JSON.stringify({binding:saved.binding,commentId:${JSON.stringify(mode)} === 'bad-confirmation' ? 'other-note' : saved.commentId,sha256:saved.sha256}));
  } else {
   const context = JSON.parse(prompt.split('Admitted Work context (task data):\\n')[1]);
   if (context.work.id !== ${JSON.stringify(binding.workItemId)} || context.attempt.externalSessionKey !== 'devin:quiet-river') process.exit(2);
-  console.log('TEDIX_WORK_RESULT '+JSON.stringify({binding:context.binding,outcome:'succeeded',note:${JSON.stringify(note)}}));
+  console.log(${JSON.stringify(firstMessage)});
  }
 `,
-			),
-		);
-		const brief = join(dir, "brief.txt");
-		writeFileSync(brief, "Read the guide and verify your result.");
-		let last: unknown;
-		const exit = await runLaneProcess(
-			[
-				"run",
-				"--executor",
-				"devin",
-				"--project",
-				workItem.projectId,
-				"--work-item",
-				binding.workItemId,
-				"--brief",
-				brief,
-				"--",
-				binary,
-			],
-			{
-				cwd: dir,
-				sessionKey: "quiet-river",
-				admitted: true,
-				devinWorkBridge: bridge,
-				detachedChild: mode === "verified",
-				report: async (value) => {
-					last = value.telemetry;
-					return {};
-				},
+		),
+	);
+	const brief = join(dir, "brief.txt");
+	writeFileSync(brief, "Read the guide and verify your result.");
+	let last: unknown;
+	const exit = await runLaneProcess(
+		[
+			"run",
+			"--executor",
+			"devin",
+			"--project",
+			workItem.projectId,
+			"--work-item",
+			binding.workItemId,
+			"--brief",
+			brief,
+			"--",
+			binary,
+		],
+		{
+			cwd: dir,
+			sessionKey: "quiet-river",
+			admitted: true,
+			devinWorkBridge: bridge,
+			detachedChild: mode === "verified",
+			report: async (value) => {
+				last = value.telemetry;
+				return {};
 			},
+		},
+	);
+	const verified = mode === "verified" || mode === "november-5";
+	expect(exit).toBe(verified ? 0 : 1);
+	expect(writes).toBe(1);
+	const turns = readFileSync(join(dir, "turns.jsonl"), "utf8")
+		.trim()
+		.split("\n")
+		.map((line) => JSON.parse(line));
+	expect(turns).toHaveLength(2);
+	for (const turn of turns) {
+		expect(turn.args[turn.args.indexOf("-r") + 1]).toBe("quiet-river");
+		expect(turn.args).toContain("--sandbox");
+		expect(turn.config.permissions.deny).toContain("mcp__tedix__*");
+	}
+	expect(turns[1].prompt).toContain(note.split("\n")[0]);
+	if (verified) {
+		const result = parseLaneResult(
+			(last as { finalMessage: string }).finalMessage,
 		);
-		expect(exit).toBe(mode === "verified" ? 0 : 1);
-		expect(writes).toBe(1);
-		const turns = readFileSync(join(dir, "turns.jsonl"), "utf8")
-			.trim()
-			.split("\n")
-			.map((line) => JSON.parse(line));
-		expect(turns).toHaveLength(2);
-		for (const turn of turns) {
-			expect(turn.args[turn.args.indexOf("-r") + 1]).toBe("quiet-river");
-			expect(turn.args).toContain("--sandbox");
-			expect(turn.config.permissions.deny).toContain("mcp__tedix__*");
-		}
-		expect(turns[1].prompt).toContain(note.split("\n")[0]);
-		if (mode === "verified")
-			expect(last).toMatchObject({
-				outcome: "succeeded",
-				shas: ["a".repeat(40)],
-				finalMessage: expect.stringContaining(note),
-			});
-		else expect(last).toMatchObject({ outcome: "failed" });
-		directories.push(
-			dirname(turns[0].args[turns[0].args.indexOf("--export") + 1]),
-		);
-	},
-);
+		expect(last).toMatchObject({
+			outcome: "succeeded",
+			shas: ["a".repeat(40)],
+			finalMessage: expect.stringContaining(note),
+		});
+		expect(result).toMatchObject({
+			workItemId: binding.workItemId,
+			workVersion: 2,
+			contractVersion: 1,
+			outcomeText: workItem.acceptanceContract.doneLooksLike,
+			outcome: "completed",
+			...(mode === "november-5" ? { commitSha: "a".repeat(40) } : {}),
+		});
+	} else expect(last).toMatchObject({ outcome: "failed" });
+	directories.push(
+		dirname(turns[0].args[turns[0].args.indexOf("--export") + 1]),
+	);
+});
 
 test("private config keeps only the selected Devin org and refuses onboarding", () => {
 	const dir = temporary();
