@@ -5,7 +5,10 @@ import { registerSkillMediaRoutes } from "./skill-media-routes";
 
 const { getRunArtifact } = vi.hoisted(() => ({ getRunArtifact: vi.fn() }));
 vi.mock("@tedix/db/queries/skill-run-artifacts", () => ({ getRunArtifact }));
-vi.mock("@tedix/db/client", () => ({ createDbClient: () => ({}) }));
+vi.mock("@tedix/db/client", () => ({
+	createDbClient: () => ({}),
+	configureLogStore: vi.fn(),
+}));
 
 const env = {
 	SECRETS_MASTER_KEY: "test-media-signing-key",
