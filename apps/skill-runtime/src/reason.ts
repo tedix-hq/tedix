@@ -33,6 +33,7 @@
  * bridge enforces a hard per-run call ceiling that tenant code cannot raise.
  */
 import { WorkerEntrypoint } from "cloudflare:workers";
+import type { SkillWorkflowTediTaskReference } from "@tedix/api-contract/schemas/cognitive";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { recordArtifactOnceForRun } from "./artifact-immutability";
 import { logSkillRuntimeWarning } from "./control-log";
@@ -43,6 +44,7 @@ import {
 	buildReasonSessionKey,
 	callIdentity,
 	extractReasonModelIdentity,
+	extractReasonText,
 	REASON_DEFAULT_MAX_CALLS,
 	REASON_MAX_CALLS_CEILING,
 	REASON_METHOD,
@@ -55,21 +57,6 @@ import {
 } from "./reason-core";
 import type { WorkflowMcpCallContext } from "./workflow-identity";
 
-function extractAssistantText(result: unknown): string {
-	const payload = (result ?? {}) as Record<string, unknown>;
-	const inner = (payload.result ?? payload) as Record<string, unknown>;
-	const assistant = (inner.assistant ?? {}) as Record<string, unknown>;
-	for (const candidate of [
-		assistant.content,
-		inner.text,
-		inner.reply,
-		payload.text,
-	]) {
-		if (typeof candidate === "string" && candidate.trim()) return candidate;
-	}
-	return "";
-}
-
 export class ReasonBridge extends WorkerEntrypoint<
 	ReasonBridgeEnv,
 	ReasonBridgeProps
@@ -81,9 +68,8 @@ export class ReasonBridge extends WorkerEntrypoint<
 	 * Ask one independent, memory-free reasoner.
 	 *
 	 * Never throws for an unhelpful model: an empty or failed reply comes back
-	 * as `{ empty: true }` so a fan-out of K reasoners degrades to K-1 votes
-	 * instead of failing the whole durable step. Budget and validation errors DO
-	 * throw — those are contract violations the author must see.
+	 * as `{ empty: true, error }` for the workflow to handle explicitly.
+	 * Budget and validation errors throw — those are contract violations.
 	 */
 	async ask(payload: unknown): Promise<ReasonAskResult> {
 		const parsed = AskRequestSchema.safeParse(payload);
@@ -129,6 +115,8 @@ export class ReasonBridge extends WorkerEntrypoint<
 		let modelIdentity: { provider: string; model: string } | null = null;
 		let failure: string | null = null;
 		let replyShape: Record<string, unknown> | null = null;
+		let tediTaskReference: SkillWorkflowTediTaskReference | undefined;
+		const startedAt = Date.now();
 		try {
 			const request = {
 				namespace: REASON_NAMESPACE,
@@ -142,11 +130,15 @@ export class ReasonBridge extends WorkerEntrypoint<
 				workflow,
 			};
 			const result = await awaitReasonTurn(sessionKey, () =>
-				callMcpTool(this.env, this.ctx.props.mcp, request),
+				callMcpTool(this.env, this.ctx.props.mcp, request, (reference) => {
+					tediTaskReference = reference;
+				}),
 			);
-			raw = extractAssistantText(result);
+			raw = extractReasonText(result);
 			modelIdentity = extractReasonModelIdentity(result);
 			if (!raw.trim()) {
+				failure =
+					"REASON_EMPTY_REPLY: terminal receipt contained no assistant text";
 				const payload = (result ?? {}) as Record<string, unknown>;
 				const nested = payload.result;
 				replyShape = {
@@ -180,6 +172,8 @@ export class ReasonBridge extends WorkerEntrypoint<
 				reply: raw.slice(0, REASON_REPLY_SEAL_CHARS),
 				replyChars: raw.length,
 				replyTruncated: raw.length > REASON_REPLY_SEAL_CHARS,
+				elapsedMs: Date.now() - startedAt,
+				...(tediTaskReference ? { tediTaskReference } : {}),
 				...(replyShape ? { replyShape } : {}),
 				...(failure ? { error: failure.slice(0, 1_000) } : {}),
 			},
@@ -190,6 +184,7 @@ export class ReasonBridge extends WorkerEntrypoint<
 			text: raw,
 			modelIdentity,
 			empty: raw.trim().length === 0,
+			...(failure ? { error: failure.slice(0, 1_000) } : {}),
 		};
 	}
 
