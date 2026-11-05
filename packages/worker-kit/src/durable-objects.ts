@@ -79,14 +79,19 @@ export function durableObjectIdFromName<ID>(
 	return durableObjectNamespace(namespace, env).idFromName(name);
 }
 
-/** `get(idFromName(name))` on the jurisdiction-selected namespace — exactly `getByName(name)`. */
+/** `getByName(name)` on the jurisdiction-selected namespace (`get(idFromName(name))` where a binding lacks it). */
 export function durableObjectStubByName<ID, S>(
-	namespace: { idFromName(name: string): ID; get(id: ID): S },
+	namespace:
+		| { getByName(name: string): S }
+		| { idFromName(name: string): ID; get(id: ID): S },
 	env: unknown,
 	name: string,
 ): S {
 	const scoped = durableObjectNamespace(namespace, env);
-	return scoped.get(scoped.idFromName(name));
+	if ("getByName" in scoped && typeof scoped.getByName === "function")
+		return scoped.getByName(name);
+	const addressed = scoped as { idFromName(name: string): ID; get(id: ID): S };
+	return addressed.get(addressed.idFromName(name));
 }
 
 /** `newUniqueId` on the jurisdiction-selected namespace. */
