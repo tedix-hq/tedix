@@ -15,6 +15,7 @@ import { assertModelEgressAllowed } from "./unrouted-model-egress";
 import {
 	isScheduledLedgerPrompt,
 	hasPotentialLessonRecovery,
+	hasPotentialLessonSuccess,
 	type LedgerRowRef,
 	type LedgerLesson,
 	type LedgerLessonSource,
@@ -43,6 +44,8 @@ import {
 	claimAgentSessionEvent,
 	getAgentSessionInferenceReflection,
 	getAgentSessionLessonReflection,
+	hasAgentSessionLessonCoverage,
+	recordAgentSessionLessonCoverage,
 	recordAgentSessionInferenceReflection,
 	recordAgentSessionLessonReflection,
 	getPreviousAgentSessionTurn,
@@ -81,7 +84,7 @@ const writeInferenceDiagnostic = createTelemetryWriter(
 
 function recordSkippedInference(
 	surface: "agent-session-request-reflector" | "agent-session-lesson-reflector",
-	reason: "no_active_rows" | "no_recovery_evidence",
+	reason: "no_active_rows" | "no_recovery_evidence" | "covered_recovery",
 ) {
 	writeInferenceDiagnostic(() =>
 		console.info({
@@ -668,6 +671,44 @@ export async function reflectAgentSessionRequests(
 		},
 	];
 	const canReflectLessons = hasPotentialLessonRecovery(lessonSources);
+	// Keep every possible failure/fix ID. Only exact repeats without activity or
+	// success evidence add no new lesson source; new prose may clarify a recovery.
+	const seenRoutineBodies = new Set<string>();
+	const coverageSources = lessonSources
+		.map(({ id, body, activity }) => ({ id, body, activity }))
+		.filter((source) => {
+			if (source.activity?.trim() || hasPotentialLessonSuccess(source))
+				return true;
+			if (seenRoutineBodies.has(source.body)) return false;
+			seenRoutineBodies.add(source.body);
+			return true;
+		});
+	const coverageKey =
+		canReflectLessons && input.sourceEventId && model.lessonReflectionIdentity
+			? await sourceKey([
+					JSON.stringify({
+						version: 1,
+						identity: model.lessonReflectionIdentity,
+						repository: input.repository,
+						userMessage,
+						sources: coverageSources,
+					}),
+				])
+			: null;
+	const coveredRecovery = Boolean(
+		coverageKey &&
+		coverageSources.length < lessonSources.length &&
+		(await hasAgentSessionLessonCoverage(db, {
+			...input,
+			ids: recentTurns.map((s) => s.id),
+			inputKey: coverageKey,
+		})),
+	);
+	if (coveredRecovery)
+		recordSkippedInference(
+			"agent-session-lesson-reflector",
+			"covered_recovery",
+		);
 	if (!canReflectLessons)
 		recordSkippedInference(
 			"agent-session-lesson-reflector",
@@ -682,9 +723,10 @@ export async function reflectAgentSessionRequests(
 		receiptWrites = result.catch(() => undefined);
 		return result;
 	};
-	const lessonsPending = canReflectLessons
-		? reflectSessionLessons(db, model, input, lessonSources, writeReceipt)
-		: Promise.resolve('{"lessons":[]}');
+	const lessonsPending =
+		canReflectLessons && !coveredRecovery
+			? reflectSessionLessons(db, model, input, lessonSources, writeReceipt)
+			: Promise.resolve('{"lessons":[]}');
 	const statusPrompt = requestReflectorInput(
 		input.turn,
 		prompt.slice(0, active.length),
@@ -860,6 +902,18 @@ export async function reflectAgentSessionRequests(
 		),
 		input,
 	);
+	if (
+		coverageKey &&
+		!coveredRecovery &&
+		model.learn &&
+		isReusableLessonReflection(lessonRaw, lessonSources)
+	) {
+		await recordAgentSessionLessonCoverage(db, {
+			...input,
+			id: input.sourceEventId!,
+			inputKey: coverageKey,
+		});
+	}
 	return { status: "reflected", updated: changes, recorded, atRisk };
 }
 

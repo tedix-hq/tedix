@@ -265,6 +265,12 @@ const LESSON_SUCCESS_QUOTE = new RegExp(
 );
 const LESSON_POSSIBLE_SUCCESS = new RegExp(LESSON_SUCCESS_PATTERN, "i");
 
+export function hasPotentialLessonSuccess(source: LedgerLessonSource): boolean {
+	return LESSON_POSSIBLE_SUCCESS.test(
+		squash(`${source.activity ?? ""}\n${source.body}`),
+	);
+}
+
 /** A conservative preflight: accepted quotes can be substrings of normalized sources. */
 export function hasPotentialLessonRecovery(
 	sources: readonly LedgerLessonSource[],
@@ -275,13 +281,7 @@ export function hasPotentialLessonRecovery(
 			.split("\n")
 			.some((line) => /^(?:Failed|Error|Denied)\b/i.test(line));
 		// Include the whole failure event: a later quote can occur in that same event.
-		if (
-			failureSeen &&
-			LESSON_POSSIBLE_SUCCESS.test(
-				squash(`${source.activity ?? ""}\n${source.body}`),
-			)
-		)
-			return true;
+		if (failureSeen && hasPotentialLessonSuccess(source)) return true;
 	}
 	return false;
 }

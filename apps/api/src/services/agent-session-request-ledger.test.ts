@@ -316,6 +316,175 @@ describe("durable lesson inference reuse", () => {
 	});
 });
 
+describe("sequential covered recovery qualification", () => {
+	async function setup(throughQueue = false) {
+		const db = fixture();
+		const { model } = scripted();
+		const context = { repository: "example/app" };
+		model.lessonReflectionIdentity = {
+			model: "qualified-model",
+			systemPrompt: SESSION_LESSON_REFLECTOR_SYSTEM_PROMPT,
+		};
+		model.extractObligations = vi.fn(async () => '{"new":[]}');
+		model.reflectLessons = vi.fn(async () =>
+			JSON.stringify({
+				lessons: [
+					{
+						rule: "Inline uploads fail → use the native uploader. Why: the payload limit.",
+						failure: "Failed upload: payload limit",
+						fix: "Native upload saved successfully",
+					},
+				],
+			}),
+		);
+		model.learn = vi.fn(async () => undefined);
+		async function turn(index: number, text: string, activity?: string) {
+			const sourceAt = `2026-10-06T10:0${index}:00.000Z`;
+			await acceptAgentSessionEvents(db, {
+				...SCOPE,
+				now: sourceAt,
+				events: [{ ...SCOPE, kind: "turn", sourceAt, text, activity }],
+			});
+			if (throughQueue)
+				return processAgentSessionEvents(db, model, SCOPE, {
+					limit: 1,
+					now: () => sourceAt,
+				});
+			const [event] = await db
+				.select()
+				.from(agentSessionEvents)
+				.where(eq(agentSessionEvents.sourceAt, sourceAt));
+			return reflectAgentSessionRequests(db, model, {
+				...SCOPE,
+				sourceAt,
+				now: sourceAt,
+				sourceEventId: event!.id,
+				turn: text,
+				activity: activity ?? null,
+				repository: context.repository,
+			});
+		}
+		await turn(0, "Investigating uploader", "Failed upload: payload limit");
+		await turn(1, "Native upload saved successfully");
+		return { db, model, turn, context };
+	}
+
+	it("retains coverage across separately processed event batches", async () => {
+		const { db, model, turn } = await setup(true);
+		expect(await turn(2, "Continuing the review")).toBe(1);
+		expect(await turn(3, "Continuing the review")).toBe(1);
+		expect(model.reflectLessons).toHaveBeenCalledTimes(2);
+		expect(
+			(await db.select().from(agentSessionEvents)).map((e) => e.status),
+		).toEqual(["processed", "processed", "processed", "processed"]);
+	});
+
+	it("retries novelty using saved inference before covering later repeats", async () => {
+		const { model, turn } = await setup();
+		vi.mocked(model.learn!).mockRejectedValueOnce(
+			new Error("novelty unavailable"),
+		);
+		await expect(turn(2, "Continuing the review")).rejects.toThrow(
+			"novelty unavailable",
+		);
+		await turn(2, "Continuing the review");
+		await turn(3, "Continuing the review");
+		expect(model.reflectLessons).toHaveBeenCalledTimes(2);
+		expect(
+			vi.mocked(model.learn!).mock.calls.filter(([lessons]) => lessons.length),
+		).toHaveLength(3);
+	});
+
+	it("keeps the first routine turn and skips only its exact repeat across passes", async () => {
+		const { db, model, turn } = await setup();
+		await turn(2, "Continuing the review");
+		const captured = vi
+			.mocked(model.learn!)
+			.mock.calls.flatMap(([lessons]) => lessons);
+		await turn(3, "Continuing the review");
+		expect(model.reflectLessons).toHaveBeenCalledTimes(2);
+		expect(
+			vi.mocked(model.learn!).mock.calls.flatMap(([lessons]) => lessons),
+		).toEqual(captured);
+		expect(captured).toHaveLength(2);
+		expect(captured[0]!.failureEventId).toBe(captured[1]!.failureEventId);
+		expect(captured[0]!.fixEventId).toBe(captured[1]!.fixEventId);
+		model.lessonReflectionIdentity = undefined;
+		await turn(3, "Continuing the review");
+		expect(model.reflectLessons).toHaveBeenCalledTimes(3);
+		expect(vi.mocked(model.learn!).mock.calls.at(-1)![0]).toEqual([
+			captured[0],
+		]);
+		expect(
+			(await db.select().from(agentSessionEvents)).filter(
+				(e) => e.lessonReflection?.coverageInputKey,
+			),
+		).toHaveLength(2);
+	});
+
+	it.each([
+		"wording",
+		"activity",
+		"success",
+		"model",
+		"prompt",
+		"repository",
+		"user clarification",
+		"late arrival",
+		"failed learning",
+		"failed inference",
+	])("reflects again after %s", async (change) => {
+		const { db, model, turn, context } = await setup();
+		if (change === "failed inference")
+			vi.mocked(model.reflectLessons).mockResolvedValueOnce(null);
+		if (change === "failed learning")
+			vi.mocked(model.learn!).mockRejectedValueOnce(
+				new Error("novelty unavailable"),
+			);
+		if (change === "failed learning")
+			await expect(turn(2, "Continuing the review")).rejects.toThrow(
+				"novelty unavailable",
+			);
+		else if (change === "failed inference")
+			await expect(turn(2, "Continuing the review")).rejects.toThrow(
+				"Session lesson reflection unavailable",
+			);
+		else await turn(2, "Continuing the review");
+		if (change === "repository") context.repository = "example/other";
+		if (change === "model") model.lessonReflectionIdentity!.model = "new-model";
+		if (change === "prompt")
+			model.lessonReflectionIdentity!.systemPrompt += " New rule.";
+		if (change === "user clarification" || change === "late arrival") {
+			await acceptAgentSessionEvents(db, {
+				...SCOPE,
+				now: T0,
+				events: [
+					{
+						...SCOPE,
+						kind: change === "late arrival" ? "turn" : "prompt",
+						sourceAt: "2026-10-06T10:00:30.000Z",
+						text: "Clarification: use the native uploader only for large files",
+						activity:
+							change === "late arrival"
+								? "Failed upload: payload limit"
+								: undefined,
+					},
+				],
+			});
+		}
+		await turn(
+			3,
+			change === "wording"
+				? "Continuing the review, only for large files"
+				: change === "success"
+					? "Native upload saved successfully"
+					: "Continuing the review",
+			change === "activity" ? "Denied upload: separate permission" : undefined,
+		);
+		expect(model.reflectLessons).toHaveBeenCalledTimes(3);
+	});
+});
+
 function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys = OFF;");

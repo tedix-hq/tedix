@@ -27,6 +27,8 @@ import {
 	updateAgentSessionRequests,
 	getAgentSessionLessonReflection,
 	recordAgentSessionLessonReflection,
+	hasAgentSessionLessonCoverage,
+	recordAgentSessionLessonCoverage,
 } from "./agent-session-requests";
 
 const ORG = "org-example";
@@ -98,6 +100,16 @@ describe("agent session request ledger", () => {
 			...scope,
 			response: '{"lessons":[]}',
 		});
+		await recordAgentSessionLessonCoverage(db, scope);
+		const covered = (override = {}) =>
+			hasAgentSessionLessonCoverage(db, {
+				...scope,
+				ids: [scope.id],
+				...override,
+			});
+		expect(await covered()).toBe(true);
+		expect(await covered({ ids: [] })).toBe(false);
+		expect(await covered({ inputKey: "changed-input" })).toBe(false);
 		for (const override of [
 			{ organizationId: "other-org" },
 			{ userId: OTHER_USER },
@@ -105,6 +117,15 @@ describe("agent session request ledger", () => {
 			{ sessionKey: "other-session" },
 			{ id: "other-event" },
 		]) {
+			expect(
+				await covered({ ...override, ids: [override.id ?? scope.id] }),
+			).toBe(false);
+			await recordAgentSessionLessonCoverage(db, {
+				...scope,
+				...override,
+				inputKey: "wrong-owner",
+			});
+			expect(await covered()).toBe(true);
 			expect(
 				await getAgentSessionLessonReflection(db, { ...scope, ...override }),
 			).toBeNull();

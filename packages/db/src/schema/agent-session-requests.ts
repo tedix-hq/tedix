@@ -172,6 +172,7 @@ export const agentSessionEvents = sqliteTable(
 		lessonReflection: text("lesson_reflection", { mode: "json" }).$type<{
 			inputKey: string;
 			response: string;
+			coverageInputKey?: string;
 			status?: { inputKey: string; response: string };
 			intake?: { inputKey: string; response: string };
 		}>(),
