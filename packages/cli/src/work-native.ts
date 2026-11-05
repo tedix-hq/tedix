@@ -431,7 +431,9 @@ export async function boardCall(
 			const key = bootstrapCacheKey(ctx);
 			const entry = key ? ctx.bootstrapCache!.read(key) : undefined;
 			const cached = entry?.resolutions?.[callable];
-			const catalogHash = JSON.stringify(bootstrap.nativeCatalog);
+			const catalogHash = cached
+				? JSON.stringify(bootstrap.nativeCatalog)
+				: undefined;
 			const cachedResolution =
 				!!cached &&
 				cached.catalogHash === catalogHash &&
@@ -516,7 +518,8 @@ export async function boardCall(
 						...entry.resolutions,
 						[callable]: {
 							at: Date.now(),
-							catalogHash,
+							catalogHash:
+								catalogHash ?? JSON.stringify(bootstrap.nativeCatalog),
 							row,
 							detail,
 						},

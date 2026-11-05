@@ -89,8 +89,8 @@ import {
 } from "./learn-proposals";
 import { type RunModel, localModel, runAnalyzeSessions } from "./learn-analyze";
 import { createHash } from "node:crypto";
-import { type ReadJson, cliRead, AGENT_IDENTITY_ENV } from "./hooks/hook-io";
-import { selfCommand } from "./shared";
+import { type ReadJson, cliRead } from "./hooks/hook-io";
+import { AGENT_IDENTITY_ENV, selfCommand } from "./shared";
 import { spawn } from "node:child_process";
 import { unknownOptionError } from "./unknown-option";
 

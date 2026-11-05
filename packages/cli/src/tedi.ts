@@ -4,11 +4,16 @@ import { TEDI_DURABLE_CODE_GATEWAY_TIMEOUT_MS } from "@tedix/api-contract/schema
  * commands through the selected organization gateway.
  */
 
-import { type CommandContext, firstWord, reportSendResult } from "./commands";
+import { type CommandContext, reportSendResult } from "./commands";
 import { normalizeCodeResult } from "./code-result";
 import { printUnknownPayload } from "./format";
 import type { TedixHomeClient } from "./home-client";
-import { type AuthResolution, type CliOptions, looksLikeUuid } from "./shared";
+import {
+	type AuthResolution,
+	type CliOptions,
+	firstWord,
+	looksLikeUuid,
+} from "./shared";
 
 export function tediUsage(): string {
 	return `Tedix tedi commands

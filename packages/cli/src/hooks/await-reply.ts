@@ -48,8 +48,8 @@ import {
 	recordDraftDelivered,
 	writeState,
 } from "./decision-capture";
+import { AGENT_IDENTITY_ENV } from "../shared";
 import {
-	AGENT_IDENTITY_ENV,
 	CAPTURE_EVENT_LIMIT,
 	type HookDeps,
 	hostEvent,

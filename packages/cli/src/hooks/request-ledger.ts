@@ -34,8 +34,8 @@ import { humanText, scrub } from "../learn-import";
 import { asciiJson, harnessOf } from "./agent-status";
 import { bindingFor, redact, repositoryName } from "./decision-capture";
 import { referencedCommitEvidence } from "./referenced-commits";
+import { AGENT_IDENTITY_ENV } from "../shared";
 import {
-	AGENT_IDENTITY_ENV,
 	CAPTURE_EVENT_LIMIT,
 	type HookDeps,
 	type JsonObject,

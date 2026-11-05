@@ -52,8 +52,8 @@ import {
 	type StatusDeps,
 	type TriageResult,
 } from "./agent-status";
+import { AGENT_IDENTITY_ENV } from "../shared";
 import {
-	AGENT_IDENTITY_ENV,
 	CAPTURE_EVENT_LIMIT,
 	type HookDeps,
 	type JsonObject,

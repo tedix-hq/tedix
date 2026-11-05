@@ -16,8 +16,8 @@ import { localFeedbackModel } from "../learn-analyze";
 import { harnessOf } from "./agent-status";
 import { normalizeGitOrigin } from "../agent-context";
 import { bindingFor, redact } from "./decision-capture";
+import { AGENT_IDENTITY_ENV } from "../shared";
 import {
-	AGENT_IDENTITY_ENV,
 	CAPTURE_EVENT_LIMIT,
 	hostEvent,
 	unattendedRun,
