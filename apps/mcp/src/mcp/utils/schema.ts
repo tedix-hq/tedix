@@ -27,7 +27,10 @@ import type {
 	ToolInputSchema,
 	ToolJsonSchema,
 } from "@tedix/api-contract/schemas/tools";
-import { normalizeToolInputSchema } from "@tedix/mcp-shared/schema-normalization";
+import {
+	applyInputSchemaDefaults,
+	normalizeToolInputSchema,
+} from "@tedix/mcp-shared/schema-normalization";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 
 type JsonObject = Record<string, unknown>;
@@ -61,34 +64,6 @@ export function jsonSchemaToToolInputSchema(
 	jsonSchema: unknown,
 ): ToolInputSchema | null {
 	return normalizeToolInputSchema(jsonSchema) as ToolInputSchema | null;
-}
-
-/**
- * Merge JSON-Schema property `default`s into args (pre-validation), matching the
- * retired Zod path's z.default() semantics: top-level missing keys get defaults;
- * object-typed args that are present get nested defaults recursively. Copy-on-write.
- */
-export function applyInputSchemaDefaults(
-	args: Record<string, unknown>,
-	schema: JsonObject,
-): Record<string, unknown> {
-	if (!isRecord(schema.properties)) return args;
-	let out = args;
-	for (const [key, prop] of Object.entries(schema.properties)) {
-		if (!isRecord(prop)) continue;
-		const current = out[key];
-		if (current === undefined && prop.default !== undefined) {
-			if (out === args) out = { ...args };
-			out[key] = structuredClone(prop.default);
-		} else if (isRecord(current) && isRecord(prop.properties)) {
-			const nested = applyInputSchemaDefaults(current, prop);
-			if (nested !== current) {
-				if (out === args) out = { ...args };
-				out[key] = nested;
-			}
-		}
-	}
-	return out;
 }
 
 /**

@@ -5,6 +5,7 @@ import {
 	type LanguageModel,
 	NoObjectGeneratedError,
 } from "ai";
+import { applyInputSchemaDefaults } from "@tedix/mcp-shared/schema-normalization";
 import * as z from "zod";
 import { objectSpanTelemetry, tracedAi } from "../../../lib/traced-ai";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
@@ -517,16 +518,19 @@ export function validateProposedCall(
 	const tool = writes.find((t) => t.name === planned.toolName);
 	if (!tool) return null;
 	const props = tool.inputSchema?.properties ?? {};
-	const args: Record<string, unknown> = {};
+	const declared: Record<string, unknown> = {};
 	for (const [key, value] of Object.entries(planned.args)) {
 		if (!(key in props)) continue; // drop undeclared params
-		args[key] = value;
+		declared[key] = value;
 	}
 	if (paramDefaults) {
 		for (const [key, value] of Object.entries(paramDefaults)) {
-			if (key in props) args[key] = value;
+			if (key in props) declared[key] = value;
 		}
 	}
+	// The gateway fills schema defaults before it checks the approval receipt,
+	// so the stored call carries them too and its digest matches what runs.
+	const args = applyInputSchemaDefaults(declared, { ...tool.inputSchema });
 	const required = tool.inputSchema?.required ?? [];
 	const missing = required.filter((key) => !(key in args));
 	if (missing.length) {

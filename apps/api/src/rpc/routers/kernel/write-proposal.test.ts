@@ -10,6 +10,7 @@ import {
 	declaredWriteCapability,
 	DESTRUCTIVE_VERBS,
 	isWriteCapable,
+	type McpTool,
 	WRITE_ONLY_VERBS,
 } from "./write-tool-policy";
 import {
@@ -20,6 +21,7 @@ import { OsOutputContentSchema } from "@tedix/api-contract/schemas/os-workspaces
 import { planWriteCall, validateProposedCall } from "./write-call-plan";
 import * as z from "zod";
 import { MCP_MODERN_PROTOCOL_VERSION } from "@tedix/mcp-shared/protocol";
+import { applyInputSchemaDefaults } from "@tedix/mcp-shared/schema-normalization";
 import type { DbClient } from "@tedix/db/client";
 import { MockLanguageModelV3 } from "ai/test";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -1381,6 +1383,43 @@ describe("canonical Work creation purpose", () => {
 				null,
 			)?.args,
 		).toEqual({ title: "Repair a failed job", workClass: "incident" });
+	});
+
+	it("stores the schema defaults the gateway fills in before its receipt check", () => {
+		const withDefaults: McpTool = {
+			name: "work.create_work_items",
+			inputSchema: {
+				properties: {
+					title: { type: "string" },
+					projectId: { type: "string" },
+					priority: { type: "string", default: "medium" },
+					requiredCapabilities: {
+						type: "array",
+						items: { type: "string" },
+						default: [],
+					},
+				},
+				required: ["title"],
+			},
+		};
+		const stored = validateProposedCall(
+			{
+				toolName: withDefaults.name,
+				args: { title: "Live work reads", projectId: "project-1" },
+			},
+			[withDefaults],
+			null,
+		)?.args;
+		expect(stored).toEqual({
+			title: "Live work reads",
+			projectId: "project-1",
+			priority: "medium",
+			requiredCapabilities: [],
+		});
+		// The gateway's native validation leaves the stored call unchanged.
+		expect(
+			applyInputSchemaDefaults(stored ?? {}, { ...withDefaults.inputSchema }),
+		).toEqual(stored);
 	});
 });
 

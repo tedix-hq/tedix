@@ -3,8 +3,8 @@ import { createMcpServer } from "@tedix/mcp-shared/server";
 import { mountMcp } from "@tedix/mcp-shared/transport";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { normalizeOpenApiExternalArgs } from "./openapi-args";
+import { applyInputSchemaDefaults } from "@tedix/mcp-shared/schema-normalization";
 import {
-	applyInputSchemaDefaults,
 	jsonSchemaToInputSchema,
 	jsonSchemaToOutputSchema,
 	projectNativeOutputEvidence,
