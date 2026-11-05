@@ -239,9 +239,19 @@ for (const failure of [
 					payload: {
 						dispatched: true,
 						finalInputSha256: capture.finalInputSha256,
+						outputShape: {
+							measurementBoundary: "pi-adapter-final-assistant-message-v1",
+							textPartCount: 1,
+							reasoningPartCount: 0,
+							reasoningChars: 0,
+						},
 						providerAttempt: capture.providerAttempt,
 					},
 				});
+				const receipt = await ctx.storage.get<{
+					payload: { outputShape: { textChars: number } };
+				}>("actual-event:step.completed");
+				expect(receipt?.payload.outputShape.textChars).toBeGreaterThan(0);
 				await execute();
 				expect(dispatches).toBe(1);
 			} else

@@ -236,11 +236,73 @@ export interface EvaluationOutcome {
 	finishReason: string;
 	responseId: string | null;
 	responseModel: string | null;
+	outputShape?: EvaluationOutputShape;
 	usage: {
 		inputTokens: number | null;
 		outputTokens: number | null;
 		totalTokens: number | null;
 	};
+}
+
+export interface EvaluationOutputShape {
+	measurementBoundary: "pi-adapter-final-assistant-message-v1";
+	textPartCount: number;
+	textChars: number;
+	reasoningPartCount: number;
+	reasoningChars: number;
+}
+
+/** Count only adapter-visible output. Missing or malformed observations stay unknown. */
+export function evaluationOutputShape(
+	message: unknown,
+): EvaluationOutputShape | undefined {
+	if (!message || typeof message !== "object" || Array.isArray(message))
+		return undefined;
+	const content = (message as { content?: unknown }).content;
+	if (!Array.isArray(content)) return undefined;
+	const shape: EvaluationOutputShape = {
+		measurementBoundary: "pi-adapter-final-assistant-message-v1",
+		textPartCount: 0,
+		textChars: 0,
+		reasoningPartCount: 0,
+		reasoningChars: 0,
+	};
+	for (const part of content) {
+		if (!part || typeof part !== "object" || Array.isArray(part))
+			return undefined;
+		if ((part as { type?: unknown }).type === "text") {
+			const text = (part as { text?: unknown }).text;
+			if (typeof text !== "string") return undefined;
+			shape.textPartCount++;
+			shape.textChars += text.length;
+		} else if ((part as { type?: unknown }).type === "thinking") {
+			const reasoning = (part as { thinking?: unknown }).thinking;
+			if (typeof reasoning !== "string") return undefined;
+			shape.reasoningPartCount++;
+			shape.reasoningChars += reasoning.length;
+		} else if ((part as { type?: unknown }).type !== "toolCall")
+			return undefined;
+	}
+	return shape;
+}
+
+function isEvaluationOutputShape(
+	value: unknown,
+): value is EvaluationOutputShape {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+	const shape = value as Record<string, unknown>;
+	return (
+		Object.keys(shape).length === 5 &&
+		shape.measurementBoundary === "pi-adapter-final-assistant-message-v1" &&
+		[
+			"textPartCount",
+			"textChars",
+			"reasoningPartCount",
+			"reasoningChars",
+		].every(
+			(key) => Number.isSafeInteger(shape[key]) && (shape[key] as number) >= 0,
+		)
+	);
 }
 
 export async function recordEvaluationOutcome(
@@ -262,6 +324,15 @@ export async function recordEvaluationOutcome(
 		throw new Error(
 			"Evaluation model receipt has no persisted context attestation",
 		);
+	if (
+		prepared.artifactId !==
+			`${input.providerAttempt.runId}:artifact:v2:evaluation-context:${input.providerAttempt.attemptId}` ||
+		!/^[a-f0-9]{64}$/.test(prepared.finalInputSha256) ||
+		!prepared.conversationId ||
+		(input.outputShape !== undefined &&
+			!isEvaluationOutputShape(input.outputShape))
+	)
+		throw new Error("Evaluation model receipt has invalid bound evidence");
 	await host.platform.recordRuntimeEvent({
 		id: `${prepared.artifactId}:model-settled`,
 		tediId: host.tediId,
@@ -272,7 +343,12 @@ export async function recordEvaluationOutcome(
 		payload: {
 			source: "isolated-evaluation-provider-receipt",
 			...prepared,
-			...input,
+			providerAttempt: input.providerAttempt,
+			finishReason: input.finishReason,
+			responseId: input.responseId,
+			responseModel: input.responseModel,
+			usage: input.usage,
+			...(input.outputShape ? { outputShape: input.outputShape } : {}),
 			dispatched: true,
 		},
 		runtime: { backend: "cloudflare-agents" },

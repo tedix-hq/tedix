@@ -9,7 +9,9 @@ import {
 	type EvaluationAdmission,
 } from "./evaluation-context";
 import {
+	evaluationOutputShape,
 	recordEvaluationEvidence,
+	recordEvaluationOutcome,
 	type EvaluationDispatchEvidence,
 } from "./evaluation-evidence";
 import {
@@ -220,5 +222,88 @@ for (const failure of ["artifact", "event"]) {
 		}),
 		/write failed/,
 	);
+}
+
+const receiptWrites: unknown[] = [];
+const preparedKey = "evaluation-context:child-1:attempt-1";
+const prepared = {
+	artifactId: "child-1:artifact:v2:evaluation-context:attempt-1",
+	finalInputSha256: body.finalInputSha256,
+	conversationId: "fixture:workflow:synth:evaluation:child-1",
+};
+const receiptHost = {
+	tediId: "tedi-1",
+	storage: {
+		get: async (key: string) => (key === preparedKey ? prepared : undefined),
+	},
+	platform: {
+		recordRuntimeEvent: async (value: unknown) => {
+			receiptWrites.push(value);
+		},
+	},
+};
+await recordEvaluationOutcome(
+	{
+		providerAttempt: evidence.providerAttempt,
+		finishReason: "stop",
+		responseId: null,
+		responseModel: null,
+		usage: { inputTokens: 4, outputTokens: 2, totalTokens: 6 },
+		outputShape: evaluationOutputShape({
+			content: [
+				{ type: "thinking", thinking: "private reasoning" },
+				{ type: "text", text: "private answer" },
+			],
+		}),
+		privateMetadata: "must not persist",
+	} as Parameters<typeof recordEvaluationOutcome>[0],
+	receiptHost as Parameters<typeof recordEvaluationOutcome>[1],
+);
+assert.equal(receiptWrites.length, 1);
+const receipt = receiptWrites[0] as { payload: Record<string, unknown> };
+assert.deepEqual(receipt.payload.outputShape, {
+	measurementBoundary: "pi-adapter-final-assistant-message-v1",
+	textPartCount: 1,
+	textChars: 14,
+	reasoningPartCount: 1,
+	reasoningChars: 17,
+});
+assert.equal(receipt.payload.artifactId, prepared.artifactId);
+assert.equal(receipt.payload.finalInputSha256, prepared.finalInputSha256);
+assert.deepEqual(receipt.payload.providerAttempt, evidence.providerAttempt);
+assert.equal(JSON.stringify(receipt).includes("private reasoning"), false);
+assert.equal(JSON.stringify(receipt).includes("private answer"), false);
+assert.equal(JSON.stringify(receipt).includes("must not persist"), false);
+
+for (const rejected of [
+	{
+		providerAttempt: { runId: "foreign-run", attemptId: "attempt-1" },
+		outputShape: evaluationOutputShape({ content: [] }),
+	},
+	{
+		providerAttempt: evidence.providerAttempt,
+		outputShape: {
+			measurementBoundary: "pi-adapter-final-assistant-message-v1",
+			textPartCount: -1,
+			textChars: 0,
+			reasoningPartCount: 0,
+			reasoningChars: 0,
+		},
+	},
+]) {
+	const writesBefore: number = receiptWrites.length;
+	await assert.rejects(
+		recordEvaluationOutcome(
+			{
+				finishReason: "stop",
+				responseId: null,
+				responseModel: null,
+				usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+				...rejected,
+			} as Parameters<typeof recordEvaluationOutcome>[0],
+			receiptHost as Parameters<typeof recordEvaluationOutcome>[1],
+		),
+	);
+	assert.equal(receiptWrites.length, writesBefore);
 }
 console.log("evaluation-context OK");
