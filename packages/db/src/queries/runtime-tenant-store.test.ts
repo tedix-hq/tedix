@@ -1,41 +1,17 @@
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "../client";
-import {
-	kernelConversations,
-	kernelRuntimeEvents,
-	kernelRuntimeRuns,
-} from "../schema/cognitive-runtime";
 import { createD1Facade } from "../test/d1-facade";
+import { createDurableSqliteFixture } from "../test/durable-sqlite-fixture";
 import { createMigratedSqlite } from "../test/migrated-sqlite";
-import {
-	insertTediRuntimeEvent,
-	listTediRuntimeEventsForRouter,
-	updateTediRuntimeEventPayload,
-} from "./cognitive-runtime";
-import {
-	countTediRuntimeEvents,
-	insertKernelRuntimeEventIfAbsent,
-	KernelRuntimeEventConflictError,
-	listKernelRuntimeEvents,
-	listTediRuntimeEvents,
-} from "./kernel-runtime-events";
-import {
-	findKernelRuntimeRunByChild,
-	getKernelRuntimeRun,
-	getKernelRuntimeRunStatus,
-	insertKernelRuntimeRunIfAbsent,
-	listKernelRuntimeRuns,
-	updateKernelRuntimeRunForOrg,
-} from "./kernel-runtime-runs";
-import {
-	getReadableKernelToolResult,
-	getReadableKernelToolResultBySource,
-	insertKernelToolResultWithRetention,
-} from "./kernel-tool-results";
-import {
-	selectRuntimeStore,
-	type TenantRuntimeStorage,
-} from "./runtime-tenant-store";
+import * as platformCognitive from "./cognitive-runtime";
+import * as tenantCognitive from "./durable-sqlite/cognitive-runtime";
+import * as tenantEvents from "./durable-sqlite/kernel-runtime-events";
+import * as tenantRuns from "./durable-sqlite/kernel-runtime-runs";
+import { createTenantStoreDb } from "./durable-sqlite/tenant-store";
+import * as tenantToolResults from "./durable-sqlite/kernel-tool-results";
+import * as platformEvents from "./kernel-runtime-events";
+import * as platformRuns from "./kernel-runtime-runs";
+import * as platformToolResults from "./kernel-tool-results";
 
 const organizationId = "fictional-runtime-org";
 const workspaceId = "fictional-runtime-workspace";
@@ -49,39 +25,182 @@ afterEach(() => {
 function fixture(plane: "d1" | "tenant") {
 	const sqlite = createMigratedSqlite({ foreignKeys: false });
 	databases.push(sqlite);
-	const storage: TenantRuntimeStorage = {
-		sql: {
-			exec(query, ...bindings) {
-				const statement = sqlite.prepare(query);
-				const columnNames = statement.columns().map((column) => column.name);
-				statement.setReturnArrays(true);
-				const rows = statement.all(...bindings);
-				return {
-					columnNames,
-					raw: () => rows.values(),
-					rowsRead: rows.length,
-					rowsWritten: 0,
-				};
-			},
-		},
-		transactionSync(callback) {
-			sqlite.exec("BEGIN");
-			try {
-				const result = callback();
-				sqlite.exec("COMMIT");
-				return result;
-			} catch (error) {
-				sqlite.exec("ROLLBACK");
-				throw error;
-			}
-		},
+	const platformDb = createDbClient(createD1Facade(sqlite));
+	const tenantDb = createTenantStoreDb(createDurableSqliteFixture(sqlite));
+	const scope = { organizationId, workspaceId };
+	return {
+		sqlite,
+		scope,
+		insertTedi: (
+			input: Parameters<typeof platformCognitive.insertTediRuntimeEvent>[1],
+		) =>
+			plane === "tenant"
+				? tenantCognitive.insertTediRuntimeEvent(tenantDb, input)
+				: platformCognitive.insertTediRuntimeEvent(platformDb, input),
+		updateTediPayload: (
+			input: Parameters<
+				typeof tenantCognitive.updateTediRuntimeEventPayload
+			>[1],
+		) =>
+			plane === "tenant"
+				? tenantCognitive.updateTediRuntimeEventPayload(tenantDb, input)
+				: platformCognitive.updateTediRuntimeEventPayload(platformDb, input),
+		listTediForRouter: (
+			input: tenantCognitive.ListTediRuntimeEventsForRouterInput,
+		) =>
+			plane === "tenant"
+				? tenantCognitive.listTediRuntimeEventsForRouter(tenantDb, input)
+				: platformCognitive.listTediRuntimeEventsForRouter(platformDb, input),
+		getTediEvent: (input: {
+			organizationId: string;
+			tediId: string;
+			id: string;
+		}) =>
+			plane === "tenant"
+				? tenantCognitive.getTediRuntimeEventById(tenantDb, input)
+				: platformCognitive.getTediRuntimeEventById(
+						platformDb,
+						input.id,
+						input,
+					),
+		insertRun: (input: platformRuns.NewKernelRuntimeRun) =>
+			plane === "tenant"
+				? tenantRuns.insertKernelRuntimeRunIfAbsent(tenantDb, input)
+				: platformRuns.insertKernelRuntimeRunIfAbsent(platformDb, input),
+		updateRun: (
+			input: Parameters<typeof platformRuns.updateKernelRuntimeRunForOrg>[1],
+		) =>
+			plane === "tenant"
+				? tenantRuns.updateKernelRuntimeRunForOrg(tenantDb, input)
+				: platformRuns.updateKernelRuntimeRunForOrg(platformDb, input),
+		listRuns: (
+			input: Parameters<typeof tenantRuns.listKernelRuntimeRuns>[1],
+		) =>
+			plane === "tenant"
+				? tenantRuns.listKernelRuntimeRuns(tenantDb, input)
+				: platformRuns.listKernelRuntimeRuns(platformDb, input),
+		getRunStatus: (
+			input: Parameters<typeof tenantRuns.getKernelRuntimeRunStatus>[1],
+		) =>
+			plane === "tenant"
+				? tenantRuns.getKernelRuntimeRunStatus(tenantDb, input)
+				: platformRuns.getKernelRuntimeRunStatus(platformDb, input),
+		findRunByChild: (
+			input: Parameters<typeof tenantRuns.findKernelRuntimeRunByChild>[1],
+		) =>
+			plane === "tenant"
+				? tenantRuns.findKernelRuntimeRunByChild(tenantDb, input)
+				: platformRuns.findKernelRuntimeRunByChild(platformDb, input),
+		transitionRun: (
+			input: Parameters<typeof tenantRuns.transitionKernelRuntimeRunStatus>[1],
+		) =>
+			plane === "tenant"
+				? tenantRuns.transitionKernelRuntimeRunStatus(tenantDb, input)
+				: platformRuns.transitionKernelRuntimeRunStatus(platformDb, input),
+		openTurn: (
+			input: Parameters<typeof tenantRuns.openKernelRuntimeTurn>[1],
+		) =>
+			plane === "tenant"
+				? tenantRuns.openKernelRuntimeTurn(tenantDb, input)
+				: platformRuns.openKernelRuntimeTurn(platformDb, {
+						...input,
+						conversation: null,
+						submission: null,
+					}),
+		settleTurn: (
+			input: Parameters<typeof tenantRuns.settleKernelRuntimeTurn>[1],
+		) =>
+			plane === "tenant"
+				? tenantRuns.settleKernelRuntimeTurn(tenantDb, input)
+				: platformRuns.settleKernelRuntimeTurn(platformDb, input),
+		compareAndTouchRun: (
+			input: Parameters<typeof tenantRuns.compareAndTouchKernelRuntimeRun>[1],
+		) =>
+			plane === "tenant"
+				? tenantRuns.compareAndTouchKernelRuntimeRun(tenantDb, input)
+				: platformRuns.compareAndTouchKernelRuntimeRun(platformDb, input),
+		insertKernelEvent: (input: platformEvents.NewKernelRuntimeEvent) =>
+			plane === "tenant"
+				? tenantEvents.insertKernelRuntimeEventIfAbsent(tenantDb, input)
+				: platformEvents.insertKernelRuntimeEventIfAbsent(platformDb, input),
+		listKernelEvents: (input: tenantEvents.ListKernelRuntimeEventsInput) =>
+			plane === "tenant"
+				? tenantEvents.listKernelRuntimeEvents(tenantDb, input)
+				: platformEvents.listKernelRuntimeEvents(platformDb, input),
+		listFinishedEvents: (
+			input: Parameters<typeof tenantEvents.listHomeRunFinishedEvents>[1],
+		) =>
+			plane === "tenant"
+				? tenantEvents.listHomeRunFinishedEvents(tenantDb, input)
+				: platformEvents.listHomeRunFinishedEvents(platformDb, input),
+		updateKernelEventMetadata: (
+			input: Parameters<
+				typeof tenantEvents.updateKernelRuntimeEventMetadata
+			>[1],
+		) =>
+			plane === "tenant"
+				? tenantEvents.updateKernelRuntimeEventMetadata(tenantDb, input)
+				: platformEvents.updateKernelRuntimeEventMetadata(
+						platformDb,
+						input.id,
+						input.runtimeMetadata,
+					),
+		listTediEvents: (input: tenantEvents.ListTediRuntimeEventsInput) =>
+			plane === "tenant"
+				? tenantEvents.listTediRuntimeEvents(tenantDb, input)
+				: platformEvents.listTediRuntimeEvents(platformDb, input),
+		countTediEvents: (
+			input: Parameters<typeof tenantEvents.countTediRuntimeEvents>[1],
+		) =>
+			plane === "tenant"
+				? tenantEvents.countTediRuntimeEvents(tenantDb, input)
+				: platformEvents.countTediRuntimeEvents(platformDb, input),
+		insertToolResult: (
+			input: Parameters<
+				typeof platformToolResults.insertKernelToolResultWithRetention
+			>[1],
+		) =>
+			plane === "tenant"
+				? tenantToolResults.insertKernelToolResultWithRetention(tenantDb, input)
+				: platformToolResults.insertKernelToolResultWithRetention(
+						platformDb,
+						input,
+					),
+		readToolResult: (
+			input: Parameters<
+				typeof tenantToolResults.getReadableKernelToolResult
+			>[1],
+		) =>
+			plane === "tenant"
+				? tenantToolResults.getReadableKernelToolResult(tenantDb, input)
+				: platformToolResults.getReadableKernelToolResult(platformDb, input),
+		readToolResultBySource: (
+			input: Parameters<
+				typeof tenantToolResults.getReadableKernelToolResultBySource
+			>[1],
+		) =>
+			plane === "tenant"
+				? tenantToolResults.getReadableKernelToolResultBySource(tenantDb, input)
+				: platformToolResults.getReadableKernelToolResultBySource(
+						platformDb,
+						input,
+					),
+		evictToolResults: (
+			input: Parameters<
+				typeof tenantToolResults.evictConversationToolResults
+			>[1],
+		) =>
+			plane === "tenant"
+				? tenantToolResults.evictConversationToolResults(tenantDb, input)
+				: platformDb
+						.batch([
+							platformToolResults.buildEvictConversationToolResultsStatement(
+								platformDb,
+								input,
+							),
+						])
+						.then(([rows]) => rows),
 	};
-	const db = selectRuntimeStore(
-		plane === "tenant"
-			? { plane, storage }
-			: { plane, db: createDbClient(createD1Facade(sqlite)) },
-	);
-	return { db, scope: { organizationId, workspaceId } };
 }
 
 function runRow(id: string, more: Record<string, unknown> = {}) {
@@ -119,8 +238,9 @@ describe.each(["d1", "tenant"] as const)(
 	"runtime store parity: %s",
 	(plane) => {
 		it("records, patches and pages tedi runtime events", async () => {
-			const { db, scope } = fixture(plane);
-			await insertTediRuntimeEvent(db, {
+			const queries = fixture(plane);
+			const { scope } = queries;
+			await queries.insertTedi({
 				...scope,
 				id: "tedi-event-old",
 				tediId: "tedi-one",
@@ -131,7 +251,7 @@ describe.each(["d1", "tenant"] as const)(
 				runtimeBackend: "custom",
 				createdAt: "2026-11-05T10:00:00.000Z",
 			});
-			await insertTediRuntimeEvent(db, {
+			await queries.insertTedi({
 				...scope,
 				id: "tedi-event-new",
 				tediId: "tedi-one",
@@ -147,9 +267,9 @@ describe.each(["d1", "tenant"] as const)(
 				id: "tedi-event-new",
 				payload: { status: "completed" },
 			};
-			await updateTediRuntimeEventPayload(db, patch);
+			await queries.updateTediPayload(patch);
 			await expect(
-				listTediRuntimeEventsForRouter(db, {
+				queries.listTediForRouter({
 					...scope,
 					tediId: "tedi-one",
 					runId: "child-run",
@@ -163,51 +283,137 @@ describe.each(["d1", "tenant"] as const)(
 					traceId: "trace-one",
 				},
 			]);
+			await expect(
+				queries.getTediEvent({
+					...scope,
+					tediId: "tedi-one",
+					id: "tedi-event-new",
+				}),
+			).resolves.toMatchObject({ id: "tedi-event-new" });
 		});
 
 		it("persists and lists kernel runs with scoped child resolution", async () => {
-			const { db, scope } = fixture(plane);
-			await insertKernelRuntimeRunIfAbsent(db, {
+			const queries = fixture(plane);
+			const { scope } = queries;
+			await queries.insertRun({
 				...runRow("run-old", {
 					delegatedTediId: "tedi-one",
 					childRunId: "child-run",
 				}),
 				...scope,
 			});
-			await insertKernelRuntimeRunIfAbsent(db, {
+			await queries.insertRun({
 				...runRow("run-new", {
 					createdAt: "2026-11-05T10:01:00.000Z",
 					updatedAt: "2026-11-05T10:01:00.000Z",
 				}),
 				...scope,
 			});
-			await updateKernelRuntimeRunForOrg(db, {
+			await queries.updateRun({
 				...scope,
 				id: "run-old",
 				patch: { status: "completed", preview: "finished" },
 			});
 			await expect(
-				listKernelRuntimeRuns(db, {
+				queries.listRuns({
 					...scope,
 					conversationId,
 					limit: 10,
 				}),
 			).resolves.toMatchObject([{ id: "run-new" }, { id: "run-old" }]);
 			await expect(
-				getKernelRuntimeRunStatus(db, { ...scope, id: "run-old" }),
+				queries.getRunStatus({ ...scope, id: "run-old" }),
 			).resolves.toBe("completed");
 			await expect(
-				findKernelRuntimeRunByChild(db, {
+				queries.findRunByChild({
 					...scope,
 					delegatedTediId: "tedi-one",
 					childRunId: "child-run",
 				}),
 			).resolves.toMatchObject({ id: "run-old", preview: "finished" });
+			await expect(
+				queries.transitionRun({
+					...scope,
+					id: "run-new",
+					fromStatus: "running",
+					patch: { status: "completed" },
+				}),
+			).resolves.toBe(true);
+		});
+
+		it("opens, compare-and-touches and settles a run atomically", async () => {
+			const queries = fixture(plane);
+			const { scope } = queries;
+			const opened = await queries.openTurn({
+				run: { ...runRow("atomic-run"), ...scope },
+				events: [
+					{
+						...scope,
+						id: "atomic-received",
+						kind: "message.received",
+						conversationId,
+						runId: "atomic-run",
+						createdAt: "2026-11-05T10:00:00.000Z",
+					},
+					{
+						...scope,
+						id: "atomic-started",
+						kind: "run.started",
+						conversationId,
+						runId: "atomic-run",
+						causeEventId: "atomic-received",
+						createdAt: "2026-11-05T10:00:01.000Z",
+					},
+				],
+			});
+			expect(opened.events).toMatchObject([
+				{ inserted: true },
+				{ inserted: true },
+			]);
+			await expect(
+				queries.compareAndTouchRun({
+					...scope,
+					id: "atomic-run",
+					status: "running",
+					expectedUpdatedAt: "2026-11-05T10:00:00.000Z",
+					updatedAt: "2026-11-05T10:01:00.000Z",
+				}),
+			).resolves.toBe(true);
+			const settled = await queries.settleTurn({
+				run: {
+					...scope,
+					id: "atomic-run",
+					fromStatus: "running",
+					expectedUpdatedAt: "2026-11-05T10:01:00.000Z",
+					patch: {
+						status: "completed",
+						updatedAt: "2026-11-05T10:02:00.000Z",
+					},
+				},
+				events: [
+					{
+						...scope,
+						id: "atomic-completed",
+						kind: "run.completed",
+						conversationId,
+						runId: "atomic-run",
+						createdAt: "2026-11-05T10:02:00.000Z",
+					},
+				],
+			});
+			expect(settled).toMatchObject({
+				runTransitioned: true,
+				events: [{ inserted: true }],
+			});
+			await expect(
+				queries.listFinishedEvents({ ...scope, limit: 10 }),
+			).resolves.toMatchObject([{ runId: "atomic-run", status: "completed" }]);
 		});
 
 		it("keeps kernel event causes immutable and timelines ordered", async () => {
-			const { db, scope } = fixture(plane);
-			await insertKernelRuntimeEventIfAbsent(db, {
+			const queries = fixture(plane);
+			const { scope } = queries;
+			await queries.insertKernelEvent({
 				...scope,
 				id: "cause",
 				kind: "message.received",
@@ -215,7 +421,7 @@ describe.each(["d1", "tenant"] as const)(
 				runId: "home-run",
 				createdAt: "2026-11-05T10:00:00.000Z",
 			});
-			await insertKernelRuntimeEventIfAbsent(db, {
+			await queries.insertKernelEvent({
 				...scope,
 				id: "started",
 				kind: "run.started",
@@ -224,8 +430,13 @@ describe.each(["d1", "tenant"] as const)(
 				causeEventId: "cause",
 				createdAt: "2026-11-05T10:01:00.000Z",
 			});
+			await queries.updateKernelEventMetadata({
+				...scope,
+				id: "started",
+				runtimeMetadata: { traceId: "kernel-trace" },
+			});
 			await expect(
-				insertKernelRuntimeEventIfAbsent(db, {
+				queries.insertKernelEvent({
 					...scope,
 					id: "started",
 					kind: "run.started",
@@ -233,18 +444,22 @@ describe.each(["d1", "tenant"] as const)(
 					runId: "home-run",
 					causeEventId: "other",
 				}),
-			).rejects.toBeInstanceOf(KernelRuntimeEventConflictError);
+			).rejects.toBeInstanceOf(platformEvents.KernelRuntimeEventConflictError);
 			await expect(
-				listKernelRuntimeEvents(db, {
+				queries.listKernelEvents({
 					...scope,
 					runId: "home-run",
 					order: "asc",
 				}),
-			).resolves.toMatchObject([{ id: "cause" }, { id: "started" }]);
+			).resolves.toMatchObject([
+				{ id: "cause" },
+				{ id: "started", traceId: "kernel-trace" },
+			]);
 		});
 
 		it("preserves merged child timeline ordering, filtering and counts", async () => {
-			const { db, scope } = fixture(plane);
+			const queries = fixture(plane);
+			const { scope } = queries;
 			for (const event of [
 				{
 					id: "child-one",
@@ -265,14 +480,14 @@ describe.each(["d1", "tenant"] as const)(
 					createdAt: "2026-11-05T10:03:00.000Z",
 				},
 			])
-				await insertTediRuntimeEvent(db, {
+				await queries.insertTedi({
 					...scope,
 					...event,
 					tediId: "tedi-one",
 					conversationId,
 					runtimeBackend: "custom",
 				});
-			await insertTediRuntimeEvent(db, {
+			await queries.insertTedi({
 				...scope,
 				organizationId: "fictional-other-org",
 				id: "foreign-child",
@@ -284,7 +499,7 @@ describe.each(["d1", "tenant"] as const)(
 				createdAt: "2026-11-05T10:04:00.000Z",
 			});
 			await expect(
-				listTediRuntimeEvents(db, {
+				queries.listTediEvents({
 					...scope,
 					tediId: "tedi-one",
 					runIds: ["child-a", "child-b", "child-a"],
@@ -294,7 +509,7 @@ describe.each(["d1", "tenant"] as const)(
 				}),
 			).resolves.toMatchObject([{ id: "child-two" }, { id: "child-one" }]);
 			await expect(
-				countTediRuntimeEvents(db, {
+				queries.countTediEvents({
 					...scope,
 					tediId: "tedi-one",
 					runId: "child-a",
@@ -302,19 +517,67 @@ describe.each(["d1", "tenant"] as const)(
 			).resolves.toBe(2);
 		});
 
-		it("retains and reads bounded kernel tool-result metadata", async () => {
-			const { db } = fixture(plane);
-			await db.insert(kernelConversations).values({
-				id: `${organizationId}:${conversationId}`,
-				organizationId,
-				conversationId,
-				lastMessageAt: "2026-11-05T10:00:00.000Z",
+		it("projects direct and planned child completions into the Home feed", async () => {
+			const queries = fixture(plane);
+			const { scope } = queries;
+			await queries.insertRun({
+				...runRow("direct-parent", {
+					delegatedTediId: "tedi-one",
+					childRunId: "direct-child",
+				}),
+				...scope,
 			});
+			await queries.insertRun({
+				...runRow("plan-parent", {
+					metadata: {
+						homePlan: {
+							assignments: [
+								{ ownerTediId: "tedi-one", childRunId: "plan-child" },
+							],
+						},
+					},
+				}),
+				...scope,
+			});
+			for (const [id, runId, createdAt] of [
+				["direct-terminal", "direct-child", "2026-11-05T10:05:00.000Z"],
+				["plan-terminal", "plan-child", "2026-11-05T10:06:00.000Z"],
+			] as const)
+				await queries.insertTedi({
+					...scope,
+					id,
+					tediId: "tedi-one",
+					conversationId,
+					runId,
+					kind: "run.completed",
+					runtimeBackend: "custom",
+					createdAt,
+				});
+			await expect(
+				queries.listFinishedEvents({ ...scope, limit: 10 }),
+			).resolves.toMatchObject([
+				{ runId: "direct-child", parentRunId: "direct-parent" },
+				{ runId: "plan-child", parentRunId: "plan-parent" },
+			]);
+		});
+
+		it("retains and reads bounded kernel tool-result metadata", async () => {
+			const queries = fixture(plane);
+			queries.sqlite
+				.prepare(
+					"INSERT INTO kernel_conversations(id,organization_id,conversation_id,last_message_at) VALUES(?,?,?,?)",
+				)
+				.run(
+					`${organizationId}:${conversationId}`,
+					organizationId,
+					conversationId,
+					"2026-11-05T10:00:00.000Z",
+				);
 			for (let index = 0; index < 21; index++)
-				await insertKernelToolResultWithRetention(db, toolResultRow(index));
+				await queries.insertToolResult(toolResultRow(index));
 			const newest = toolResultRow(20);
 			await expect(
-				getReadableKernelToolResultBySource(db, {
+				queries.readToolResultBySource({
 					organizationId,
 					conversationId,
 					sourceKind: newest.sourceKind,
@@ -323,7 +586,7 @@ describe.each(["d1", "tenant"] as const)(
 				}),
 			).resolves.toMatchObject({ id: newest.id });
 			await expect(
-				getReadableKernelToolResult(db, {
+				queries.readToolResult({
 					organizationId: "fictional-other-org",
 					conversationId,
 					id: newest.id,
@@ -332,7 +595,7 @@ describe.each(["d1", "tenant"] as const)(
 				}),
 			).resolves.toBeNull();
 			await expect(
-				getReadableKernelToolResultBySource(db, {
+				queries.readToolResultBySource({
 					organizationId,
 					conversationId,
 					sourceKind: "direct_read",
@@ -340,30 +603,22 @@ describe.each(["d1", "tenant"] as const)(
 					now: newest.now,
 				}),
 			).resolves.toBeNull();
-		});
-
-		it("rolls back a complete runtime batch on failure", async () => {
-			const { db } = fixture(plane);
 			await expect(
-				db.batch([
-					db.insert(kernelRuntimeRuns).values(runRow("rollback-run")),
-					db.insert(kernelRuntimeEvents).values({
-						id: "rollback-event",
-						organizationId,
-						conversationId,
-						kind: "run.started",
-					}),
-					db.insert(kernelRuntimeEvents).values({
-						id: "rollback-event",
-						organizationId,
-						conversationId,
-						kind: "run.started",
-					}),
-				]),
-			).rejects.toThrow();
+				queries.evictToolResults({
+					organizationId,
+					conversationId,
+					evictedAt: newest.now,
+				}),
+			).resolves.toHaveLength(20);
 			await expect(
-				getKernelRuntimeRun(db, { id: "rollback-run", organizationId }),
-			).resolves.toBeUndefined();
+				queries.readToolResult({
+					organizationId,
+					conversationId,
+					id: newest.id,
+					sha256: newest.sha256,
+					now: newest.now,
+				}),
+			).resolves.toBeNull();
 		});
 	},
 );
