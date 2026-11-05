@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { LaneCheckpointSchema } from "./lane-execution";
+import { SelectedConnectionCredentialSchema } from "./connections";
 
 export const KernelRequestStateSchema = z.enum([
 	"received",
@@ -179,11 +180,21 @@ export const KernelRequestPolicySchema = z
 							.regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/),
 						workflowId: z.string().regex(/^[A-Za-z0-9_.-]+$/),
 						connectionInstanceId: identity.optional(),
+						defaultTenantCredential:
+							SelectedConnectionCredentialSchema.options[0]
+								.omit({ connectionInstanceId: true })
+								.required({ accountRevisionDigest: true })
+								.optional(),
 						surface: identity,
 						liveManifestUrl: z.url({ protocol: /^https$/ }),
 						maxAgeMs: z.number().int().min(1000).max(86_400_000),
 					})
-					.strict(),
+					.strict()
+					.refine(
+						(target) =>
+							!(target.connectionInstanceId && target.defaultTenantCredential),
+						"Select either a named account or a pinned default account",
+					),
 			)
 			.max(20),
 	})

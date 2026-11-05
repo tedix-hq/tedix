@@ -11,6 +11,7 @@ import {
 const mocks = vi.hoisted(() => ({
 	fetchToken: vi.fn(),
 	instances: vi.fn(),
+	apiKeyProvider: false,
 }));
 
 vi.mock("../../../lib/descope-management", () => ({
@@ -45,7 +46,8 @@ vi.mock("./discovery-user", () => ({
 				enabled: true,
 				availableScopes: [],
 				logoUrl: null,
-				connectionType: "oauth",
+				connectionType:
+					mocks.apiKeyProvider && state === "present" ? "api_key" : "oauth",
 				registrationMode: "pre_registered",
 				tokenScope: "tenant",
 				supportedScopes: ["tenant", "user"],
@@ -74,6 +76,7 @@ vi.mock("./provider-registration", () => ({
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	mocks.apiKeyProvider = false;
 	mocks.instances.mockResolvedValue([]);
 	mocks.fetchToken.mockImplementation(async (providerId: string) => {
 		switch (providerId) {
@@ -292,4 +295,60 @@ describe("readGoogleAccountEmail", () => {
 		).resolves.toBeNull();
 		expect(fetcher).not.toHaveBeenCalled();
 	});
+});
+
+describe("safe default API-key reference inventory", () => {
+	const overview = async (
+		scope: "organization" | "personal" = "organization",
+	) => {
+		const context =
+			scope === "personal"
+				? userContext({ permissions: ["apps:read"] })
+				: apiKeyContext({ scopes: ["apps:read"] });
+		context.env.SECRETS_MASTER_KEY = "fictional-master";
+		return call(
+			getConnectionsOverview,
+			ConnectionInventoryInputSchema.parse({ scope, providerId: "present" }),
+			{ context },
+		);
+	};
+	it("returns a revision selector without the PAT or vault ID", async () => {
+		mocks.apiKeyProvider = true;
+		mocks.fetchToken.mockResolvedValue({
+			ok: true,
+			data: { id: "private-vault-id", accessToken: "fictional-opaque-pat" },
+		});
+		const result = await overview();
+		expect(result.rows[0]?.selectedCredential).toEqual({
+			organizationId: "org-1",
+			providerId: "present",
+			scope: "tenant",
+			accountRevisionDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+		});
+		expect(JSON.stringify(result)).not.toContain("private-vault-id");
+		expect(JSON.stringify(result)).not.toContain("fictional-opaque-pat");
+	});
+	it.each(["oauth", "personal", "missing-id", "unknown"])(
+		"omits unsupported or unverified reference %s without changing state",
+		async (kind) => {
+			mocks.apiKeyProvider = kind !== "oauth";
+			if (kind === "unknown")
+				mocks.fetchToken.mockRejectedValue(new Error("upstream unavailable"));
+			else
+				mocks.fetchToken.mockResolvedValue({
+					ok: true,
+					data: {
+						...(kind === "missing-id" ? {} : { id: "private-vault-id" }),
+						accessToken: "fictional-opaque-pat",
+					},
+				});
+			const result = await overview(
+				kind === "personal" ? "personal" : "organization",
+			);
+			expect(result.rows[0]?.selectedCredential).toBeUndefined();
+			expect(result.rows[0]?.accountState).toBe(
+				kind === "unknown" ? "unknown" : "present",
+			);
+		},
+	);
 });

@@ -8,7 +8,8 @@ import { JsonValueSchema } from "./common";
 import { TOOL_OPERATIONAL_RISK_TIER_VALUES } from "./tools";
 
 /** Identity of the vault selection, never the credential or its secret.
- * An absent instance ID does not identify a stable external account. */
+ * An absent instance ID alone does not identify a stable external account.
+ * A default API-key reference additionally pins its server-derived revision. */
 export const SelectedConnectionCredentialSchema = z.discriminatedUnion(
 	"scope",
 	[
@@ -609,6 +610,7 @@ export const ConnectionAccessCheckSchema = z.object({
 export type ConnectionAccessCheck = z.infer<typeof ConnectionAccessCheckSchema>;
 export const ConnectionInventoryRowSchema = z.object({
 	provider: ConnectionProviderSchema,
+	selectedCredential: SelectedConnectionCredentialSchema.optional(),
 	connectionInstanceId: z.uuid().optional(),
 	instanceLabel: z.string().optional(),
 	allowedResources: ConnectionAllowedResourcesSchema.nullable().optional(),
