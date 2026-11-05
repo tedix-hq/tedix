@@ -669,6 +669,12 @@ export function buildCatalogProvider(
 			.map((ns, rank) => [ns, rank]),
 	);
 	let freshnessMeta: ReturnType<typeof catalogFreshnessMeta> | undefined;
+	// Owner groups of the unfiltered catalog, fixed per build like freshness:
+	// each one walked all 16k Connect rows on every search of a run.
+	let unfilteredTediOwners: ReturnType<typeof workflowTediOwners> | undefined;
+	let unfilteredRoleGroups:
+		| ReturnType<typeof tediNativeInterfaceGroups>
+		| undefined;
 	const namespaceSummary = canonicalNamespaces
 		.map((ns) => `${ns} (${Object.keys(catalog[ns] ?? {}).length} tools)`)
 		.join(", ");
@@ -758,20 +764,23 @@ export function buildCatalogProvider(
 						);
 					const organizationId =
 						selectedOrganization?.organizationId ?? organizationFilter;
-					const searchCatalog = Object.fromEntries(
-						Object.entries(catalog)
-							.filter(([ns]) => !namespaceFilter || ns === namespaceFilter)
-							.map(([ns, tools]) => [
-								ns,
-								organizationFilter
-									? Object.fromEntries(
-											Object.entries(tools).filter(
-												([, meta]) => meta.organization === organizationId,
-											),
-										)
-									: tools,
-							]),
-					);
+					const unfiltered = !namespaceFilter && !organizationFilter;
+					const searchCatalog = unfiltered
+						? catalog
+						: Object.fromEntries(
+								Object.entries(catalog)
+									.filter(([ns]) => !namespaceFilter || ns === namespaceFilter)
+									.map(([ns, tools]) => [
+										ns,
+										organizationFilter
+											? Object.fromEntries(
+													Object.entries(tools).filter(
+														([, meta]) => meta.organization === organizationId,
+													),
+												)
+											: tools,
+									]),
+							);
 					if (!q)
 						return annotateDiscovery(
 							paginateCatalog(
@@ -798,19 +807,32 @@ export function buildCatalogProvider(
 						);
 
 					const rankedByCallable = new Map<string, CatalogPageEntry>();
-					const tediOwners = workflowTediOwners(searchCatalog);
+					const tediOwners = unfiltered
+						? (unfilteredTediOwners ??= workflowTediOwners(catalog))
+						: workflowTediOwners(searchCatalog);
 					// Role-verb collapse applies only to unfiltered ranking; an
 					// explicit { namespace } filter shows that worker's own rows.
 					const roleGroups = namespaceFilter
 						? null
-						: tediNativeInterfaceGroups(searchCatalog, preferredTediNamespace);
+						: unfiltered
+							? (unfilteredRoleGroups ??= tediNativeInterfaceGroups(
+									catalog,
+									preferredTediNamespace,
+								))
+							: tediNativeInterfaceGroups(
+									searchCatalog,
+									preferredTediNamespace,
+								);
 					const terms = normalizeSearchTerms(q);
 					const scoreSchema = catalogSearchesSchemas(
 						catalog,
 						Boolean(namespaceFilter),
 					);
-					for (const [ns, tools] of Object.entries(searchCatalog)) {
-						for (const [name, meta] of Object.entries(tools)) {
+					// for...in: Object.entries allocated a pair per row per search.
+					for (const ns in searchCatalog) {
+						const tools = searchCatalog[ns]!;
+						for (const name in tools) {
+							const meta = tools[name]!;
 							// Alias mirrors enumerate only under an explicit filter on
 							// their own namespace; unfiltered ranking shows the canonical
 							// entry once.

@@ -253,8 +253,10 @@ export function workflowTediOwners(
 		string,
 		Array<{ namespace: string; callable: string }>
 	>();
-	for (const [namespace, tools] of Object.entries(catalog)) {
-		for (const [toolName, meta] of Object.entries(tools)) {
+	for (const namespace in catalog) {
+		const tools = catalog[namespace]!;
+		for (const toolName in tools) {
+			const meta = tools[toolName]!;
 			const surface = mirroredSkillWorkflowSurface(namespace, toolName, meta);
 			if (!surface) continue;
 			const list = owners.get(surface.canonicalCallable) ?? [];
@@ -298,8 +300,10 @@ export function tediNativeInterfaceGroups(
 		string,
 		Array<{ namespace: string; callable: string }>
 	>();
-	for (const [namespace, tools] of Object.entries(catalog)) {
-		for (const [toolName, meta] of Object.entries(tools)) {
+	for (const namespace in catalog) {
+		const tools = catalog[namespace]!;
+		for (const toolName in tools) {
+			const meta = tools[toolName]!;
 			if (meta.aliasOf) continue;
 			if (!isTediNativeInterfaceTool(meta)) continue;
 			// Skill-workflow mirrors already collapse onto their platform
