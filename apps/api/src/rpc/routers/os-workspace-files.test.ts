@@ -1,4 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
+import type { OsOutputRevisionRow } from "@tedix/db/schema/os-workspaces";
+import { hydrateOutputRevision } from "../../services/os-output-revision-body-store";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
@@ -240,10 +242,21 @@ describe("workspace file uploads", () => {
 		expect(
 			f.sqlite.prepare("SELECT COUNT(*) AS n FROM os_outputs").get()?.n,
 		).toBe(1);
-		const content = f.sqlite
-			.prepare("SELECT content FROM os_output_revisions")
-			.get()?.content;
-		expect(JSON.parse(String(content)).file.resourceId).toBe(ticket.resourceId);
+		// The body is in R2; the D1 row keeps the pointer and an empty body.
+		const stored = f.sqlite
+			.prepare(
+				"SELECT content, organization_id, content_sha256, content_bytes, body_r2_key FROM os_output_revisions",
+			)
+			.get()!;
+		expect(stored.content).toBe("");
+		const { content } = await hydrateOutputRevision({
+			content: "",
+			organizationId: stored.organization_id,
+			contentSha256: stored.content_sha256,
+			contentBytes: stored.content_bytes,
+			bodyR2Key: stored.body_r2_key,
+		} as unknown as OsOutputRevisionRow);
+		expect(JSON.parse(content).file.resourceId).toBe(ticket.resourceId);
 		const output = await createRouterClient(osOutputProcedures.get, {
 			context: f.context(),
 		})({ outputId: first.outputId });

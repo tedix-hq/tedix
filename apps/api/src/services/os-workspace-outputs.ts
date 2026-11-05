@@ -12,6 +12,14 @@ import {
 	type OutputBodyBucket,
 } from "./os-output-revision-body-store";
 
+/**
+ * Every writer stores the body in R2 first and leaves this sentinel in the
+ * D1 row; `hydrateOutputRevision` reads the pointer. Inline bodies were the
+ * largest growth driver of the main database (700 MB in November 2026).
+ * Returned rows carry the caller's bytes back so no writer re-reads R2.
+ */
+const INLINE_BODY_OFFLOADED = "";
+
 export async function confirmOsWorkspaceFile(
 	db: Parameters<typeof confirmFile>[0],
 	params: Parameters<typeof confirmFile>[1],
@@ -26,7 +34,7 @@ export async function confirmOsWorkspaceFile(
 	);
 	return confirmFile(db, {
 		...params,
-		revision: { ...revision, ...body },
+		revision: { ...revision, ...body, content: INLINE_BODY_OFFLOADED },
 	});
 }
 
@@ -50,6 +58,7 @@ export async function instantiateOsBlueprint(
 					revision.organizationId,
 					revision.content,
 				)),
+				content: INLINE_BODY_OFFLOADED,
 			});
 		}
 		return stored;
@@ -111,7 +120,15 @@ export async function createOsOutput(
 		revision.organizationId,
 		revision.content,
 	);
-	return outputs.createOsOutput(db, output, { ...revision, ...body });
+	const created = await outputs.createOsOutput(db, output, {
+		...revision,
+		...body,
+		content: INLINE_BODY_OFFLOADED,
+	});
+	return {
+		...created,
+		revision: { ...created.revision, content: revision.content },
+	};
 }
 
 export async function createOsOutputRevision(
@@ -127,12 +144,12 @@ export async function createOsOutputRevision(
 	const result = await outputs.createOsOutputRevision(db, {
 		...params,
 		...body,
+		content: INLINE_BODY_OFFLOADED,
 	});
+	// An unchanged save returns the current revision; its digest equals this
+	// body's, so the caller's bytes are the row's bytes either way.
 	return result.ok
-		? {
-				...result,
-				revision: await hydrateOutputRevision(result.revision, bucket),
-			}
+		? { ...result, revision: { ...result.revision, content: params.content } }
 		: result;
 }
 
@@ -154,8 +171,11 @@ export async function mergeOsCollaborationProposal(
 		proposal.organizationId,
 		proposal.content,
 	);
-	return mergeProposal(db, {
+	const result = await mergeProposal(db, {
 		...params,
 		outputBody: { ...body, content: proposal.content },
 	});
+	return result.ok
+		? { ...result, revision: { ...result.revision, content: proposal.content } }
+		: result;
 }

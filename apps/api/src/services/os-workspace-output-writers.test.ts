@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { env } from "cloudflare:workers";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
@@ -27,15 +28,13 @@ function fixture() {
 	sqlite.exec(
 		schemaDdl(osWorkspaces, osOutputs, osOutputRevisions, osWorkspaceResources),
 	);
-	const objects = new Map<string, ArrayBuffer>();
+	// Evidence resolution reads through the default Worker binding, so the
+	// writers under test share the stubbed `cloudflare:workers` bucket.
 	const bucket = {
-		put: vi.fn(async (key: string, bytes: ArrayBuffer) => {
-			objects.set(key, bytes);
-		}),
-		get: vi.fn(async (key: string) => {
-			const bytes = objects.get(key);
-			return bytes ? { arrayBuffer: async () => bytes } : null;
-		}),
+		put: vi.fn((key: string, bytes: ArrayBuffer) =>
+			env.R2_BUCKET.put(key, bytes),
+		),
+		get: vi.fn((key: string) => env.R2_BUCKET.get(key)),
 	};
 	return { sqlite, db: createDbQueryClient(createD1Facade(sqlite)), bucket };
 }
@@ -101,7 +100,7 @@ async function write(path: string, f: ReturnType<typeof fixture>) {
 describe.each(["file", "blueprint", "provisioning"])(
 	"%s output writer",
 	(path) => {
-		it("persists R2 metadata and preserves exact inline and hydrated evidence bytes", async () => {
+		it("stores the body in R2, keeps the D1 row small and hydrates exact evidence bytes", async () => {
 			const f = fixture();
 			await write(path, f);
 			const row = await readRevision(f.db, {
@@ -110,15 +109,12 @@ describe.each(["file", "blueprint", "provisioning"])(
 			});
 			const digest = await sha256Hex(content);
 			expect(row).toMatchObject({
-				content,
+				content: "",
 				contentSha256: digest,
 				contentBytes: new TextEncoder().encode(content).byteLength,
 				bodyR2Key: `os-output-revisions/v1/org-1/${digest}.gz`,
 			});
-			const hydrated = await hydrateOutputRevision(
-				{ ...row!, content: "" },
-				f.bucket,
-			);
+			const hydrated = await hydrateOutputRevision(row!, f.bucket);
 			expect(hydrated.content).toBe(content);
 			expect(await sha256Hex(hydrated.content)).toBe(digest);
 			const evidence = await resolveWorkEvidenceReference(

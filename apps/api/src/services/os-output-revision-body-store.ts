@@ -63,7 +63,11 @@ export async function verifyStoredOutputRevisionBody(
 		throw new Error("Output revision body verification mismatch");
 }
 
-/** Inline-first during rollout; an absent inline body is read from R2. */
+/**
+ * A row written since November 2026 keeps `content = ''` and a pointer; its
+ * body is read from R2. A legacy row still carrying its inline body (until the
+ * scheduled offload clears it) is served from that body without an R2 read.
+ */
 export async function hydrateOutputRevision(
 	row: OsOutputRevisionRow,
 	bucket: OutputBodyBucket | undefined = env.R2_BUCKET,
