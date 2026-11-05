@@ -76,6 +76,7 @@ import {
 	type ProjectionOptions,
 	projectionCandidates,
 	projectionContractHash,
+	projectionContractHashForSourceHash,
 	projectSchemas,
 	sha256,
 	stableStringify,
@@ -159,14 +160,31 @@ async function runToolProjectionSync(
 				regenerateToolIds: options.regenerateToolIds,
 				schemas: projectSchemas(endpoint),
 			};
-			const contractHash = await projectionContractHash(
-				endpoint,
-				projectionOptions,
-			);
-			projected = await buildProjectedTool(options.appId, endpoint, existing, {
-				...projectionOptions,
-				contractHash,
-			});
+			if (existing) {
+				const contractHash = await projectionContractHash(
+					endpoint,
+					projectionOptions,
+				);
+				projected = await buildProjectedTool(
+					options.appId,
+					endpoint,
+					existing,
+					{ ...projectionOptions, contractHash },
+				);
+			} else {
+				// No stored row to merge: the row this build produces is itself the
+				// code-derived projection, so its schemaSourceHash is the contract
+				// hash input — one build instead of two per fresh endpoint.
+				projected = await buildProjectedTool(
+					options.appId,
+					endpoint,
+					undefined,
+					projectionOptions,
+				);
+				projected.tool.contractHash = await projectionContractHashForSourceHash(
+					projected.tool.schemaSourceHash,
+				);
+			}
 		} catch (error) {
 			skipped++;
 			items.push({

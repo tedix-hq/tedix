@@ -16,13 +16,14 @@ import * as toolJsonSchema from "@tedix/api-contract/utils/tool-json-schema";
 import type { SQL } from "drizzle-orm";
 import { createApiSqliteFixture } from "../rpc/routers/__tests__/api-sqlite";
 import { apps, appTools, type AppTool } from "@tedix/db/schema";
-import { describe, expect, it, vi } from "vite-plus/test";
+import { beforeAll, describe, expect, it, vi } from "vite-plus/test";
 import {
 	OS_KIND_OVERRIDES,
 	OS_TOOL_ID_OVERRIDES,
 	WORK_HIERARCHY_KIND_OVERRIDES,
 	WORK_HIERARCHY_TOOL_ID_OVERRIDES,
 } from "./tool-schema-overrides";
+import { projectionCandidates, projectSchemas } from "./tool-schema-projection";
 import {
 	runToolSchemaSync,
 	planToolSchemaSyncProjection,
@@ -898,6 +899,19 @@ describe("runToolSchemaSync entity routing flags", () => {
 });
 
 describe("oRPC tool projection sync", () => {
+	// The first-ever full-surface schema pass in this worker pays a large
+	// one-time cost (zod's JSON Schema code paths warm up across ~1,300
+	// endpoints). Pay it once here, inside the 30s hook budget, so the
+	// per-test 20s budget measures steady-state projection instead.
+	beforeAll(() => {
+		for (const endpoint of projectionCandidates({})) {
+			try {
+				projectSchemas(endpoint);
+			} catch {
+				// converterUnsupported endpoints throw inside the sync as well.
+			}
+		}
+	});
 	it("lists contract endpoints with internal procedures behind an explicit flag", () => {
 		expect(
 			listContractEndpoints({
