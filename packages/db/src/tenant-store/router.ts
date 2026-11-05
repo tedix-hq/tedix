@@ -2,10 +2,12 @@
  * Send a workspace-scoped query to that workspace's TenantStore object.
  *
  * Runtime-neutral: no `cloudflare:workers` import, so Node callers and tests
- * can load it. Pass `env.TENANT_STORE.jurisdiction("eu")` (or whatever
- * jurisdiction the installation fixes) as the namespace; a jurisdiction is
- * part of every object ID and must never change for existing data.
+ * can load it. `durableObjectStubByName` applies `env.DO_JURISDICTION` before
+ * addressing (the private ops overlay sets `eu` on the EU installation); a
+ * jurisdiction is part of every object ID and must never change for existing
+ * data.
  */
+import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import type { TenantScope } from "../tenant-scope";
 
 /** A tenant scope that names one workspace, which one TenantStore serves. */
@@ -39,9 +41,10 @@ export function tenantStoreName(scope: TenantScope): string {
 /** The stub for the object that owns `scope`'s workspace data. */
 export function tenantStoreStub<T extends Rpc.DurableObjectBranded | undefined>(
 	namespace: DurableObjectNamespace<T>,
+	env: unknown,
 	scope: TenantScope,
 ): DurableObjectStub<T> {
-	return namespace.get(namespace.idFromName(tenantStoreName(scope)));
+	return durableObjectStubByName(namespace, env, tenantStoreName(scope));
 }
 
 /**
@@ -54,9 +57,10 @@ export function routeTenantQuery<
 	R,
 >(
 	namespace: DurableObjectNamespace<T>,
+	env: unknown,
 	scope: TenantScope,
 	query: (store: DurableObjectStub<T>, scope: WorkspaceTenantScope) => R,
 ): R {
 	const workspaceScope = requireWorkspaceScope(scope);
-	return query(tenantStoreStub(namespace, workspaceScope), workspaceScope);
+	return query(tenantStoreStub(namespace, env, workspaceScope), workspaceScope);
 }

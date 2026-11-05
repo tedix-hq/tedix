@@ -51,6 +51,7 @@ describe("TenantStore", () => {
 		const at = scope("wake");
 		const description = await routeTenantQuery(
 			bindings.TENANT_STORE,
+			bindings,
 			at,
 			(store, s) => store.describe(s),
 		);
@@ -59,7 +60,11 @@ describe("TenantStore", () => {
 			"20261105190055_tenant_store_core",
 		]);
 		// A second call is served by the same object and keeps its identity.
-		const again = await tenantStoreStub(bindings.TENANT_STORE, at).describe(at);
+		const again = await tenantStoreStub(
+			bindings.TENANT_STORE,
+			bindings,
+			at,
+		).describe(at);
 		expect(again).toEqual(description);
 	});
 
@@ -69,8 +74,8 @@ describe("TenantStore", () => {
 		expect(tenantStoreName(a)).toBe(
 			`${encodeURIComponent(a.organizationId)}:${encodeURIComponent(a.workspaceId)}`,
 		);
-		const first = tenantStoreStub(bindings.TENANT_STORE_FIXTURE, a);
-		const second = tenantStoreStub(bindings.TENANT_STORE_FIXTURE, b);
+		const first = tenantStoreStub(bindings.TENANT_STORE_FIXTURE, bindings, a);
+		const second = tenantStoreStub(bindings.TENANT_STORE_FIXTURE, bindings, b);
 		expect(first.id.equals(second.id)).toBe(false);
 		await first.importRows(a, {
 			batchId: "a-1",
@@ -84,7 +89,7 @@ describe("TenantStore", () => {
 	it("rejects a scope the object does not serve", async () => {
 		const a = scope("reject");
 		const b = scope("reject");
-		const named = tenantStoreStub(bindings.TENANT_STORE, a);
+		const named = tenantStoreStub(bindings.TENANT_STORE, bindings, a);
 		expect(await failure(() => named.describe(b))).toContain(
 			"TenantStore scope does not match this object",
 		);
@@ -105,7 +110,7 @@ describe("TenantStore", () => {
 describe("TenantStore bulk import", () => {
 	it("writes raw values once per batch ID", async () => {
 		const at = scope("import");
-		const store = tenantStoreStub(bindings.TENANT_STORE_FIXTURE, at);
+		const store = tenantStoreStub(bindings.TENANT_STORE_FIXTURE, bindings, at);
 		const batch = {
 			batchId: "notes-0001",
 			table: "fixture_notes",
@@ -135,7 +140,7 @@ describe("TenantStore bulk import", () => {
 
 	it("loads nothing when any row in the batch fails", async () => {
 		const at = scope("atomic");
-		const store = tenantStoreStub(bindings.TENANT_STORE_FIXTURE, at);
+		const store = tenantStoreStub(bindings.TENANT_STORE_FIXTURE, bindings, at);
 		await store.importRows(at, {
 			batchId: "seed",
 			table: "fixture_notes",
@@ -170,7 +175,7 @@ describe("TenantStore bulk import", () => {
 
 	it("imports 10,000 rows in 1,000-row batches", async () => {
 		const at = scope("bulk");
-		const store = tenantStoreStub(bindings.TENANT_STORE_FIXTURE, at);
+		const store = tenantStoreStub(bindings.TENANT_STORE_FIXTURE, bindings, at);
 		const started = performance.now();
 		for (let batch = 0; batch < 10; batch += 1) {
 			const rows = Array.from({ length: 1000 }, (_, i) =>
