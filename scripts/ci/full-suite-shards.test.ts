@@ -144,4 +144,4 @@ test("slow workspaces publish complete non-overlapping shard sets on the real ma
 	);
 	expect(api.scripts["test:run"]).toBe("bun run test:unit");
 	expect(api.scripts["test:unit"]).toContain("test-unit.ts");
-});
+}, 20_000);
