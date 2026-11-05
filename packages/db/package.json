@@ -55,6 +55,9 @@
 		"./schema/os-gadget-state": "./src/schema/os-gadget-state.ts",
 		"./queries/os-workspaces/gadget-state": "./src/queries/os-workspaces/gadget-state.ts",
 		"./client": "./src/client.ts",
+		"./tenant-store/router": "./src/tenant-store/router.ts",
+		"./tenant-store/schema": "./src/tenant-store/schema.ts",
+		"./tenant-store/store": "./src/tenant-store/store.ts",
 		"./query-client": "./src/query-client.ts",
 		"./queries/postgres/core-store": "./src/queries/postgres/core-store.ts",
 		"./schema": "./src/schema/index.ts",
@@ -511,7 +514,8 @@
 		"test:ci": "bun run test:run && bun run test:postgres",
 		"db:migrate:generate": "bun scripts/generate-migration.ts",
 		"migration:restamp": "node ../../node_modules/jiti/lib/jiti-cli.mjs scripts/generate-migration.ts --restamp",
-		"db:schema:check": "bun scripts/generate-migration.ts --check",
+		"db:schema:check": "bun scripts/generate-migration.ts --check && bun scripts/generate-tenant-store-migration.ts --check",
+		"db:tenant-store:generate": "bun scripts/generate-tenant-store-migration.ts",
 		"db:migrate:history-check": "bun scripts/check-migration-history.ts",
 		"db:migrate:chain-check": "bun scripts/check-d1-migration-chain.ts",
 		"db:migrate:check": "bun scripts/check-migration-suite.ts",
@@ -534,6 +538,7 @@
 		"zod": "catalog:"
 	},
 	"devDependencies": {
+		"@cloudflare/vitest-plugin": "catalog:",
 		"@cloudflare/workers-types": "catalog:",
 		"@electric-sql/pglite": "^0.3.14",
 		"@tedix/tsconfig": "workspace:*",
