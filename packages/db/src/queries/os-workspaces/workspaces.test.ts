@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { sql } from "drizzle-orm";
+import type { SQLiteTable } from "drizzle-orm/sqlite-core";
 import {
 	osWorkspaceCollaborators,
 	osWorkspaceAccessEdges,
@@ -35,7 +36,7 @@ import {
 	updateOsWorkspace,
 } from "./workspaces";
 
-function fixture(...extraTables: Parameters<typeof schemaDdl>) {
+function fixture(...extraTables: SQLiteTable[]) {
 	const sqlite = new DatabaseSync(":memory:");
 	// The OS table is emitted from the same Drizzle object production uses, so a
 	// column added to `os_workspaces` cannot drift away from what this fixture

@@ -104,10 +104,10 @@ interface Plane {
 	name: string;
 	setup: () => Promise<{ db: any; close: () => Promise<void> | void }>;
 	modules: {
-		crud: typeof d1Crud;
-		attempts: typeof d1Attempts;
-		admissions: typeof d1Admissions;
-		comments: typeof d1Comments;
+		crud: typeof d1Crud | typeof pgCrud;
+		attempts: typeof d1Attempts | typeof pgAttempts;
+		admissions: typeof d1Admissions | typeof pgAdmissions;
+		comments: typeof d1Comments | typeof pgComments;
 	};
 }
 
