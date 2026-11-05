@@ -10,6 +10,7 @@ import {
 	buildReasonSessionKey,
 	callIdentity,
 	extractReasonModelIdentity,
+	extractReasonText,
 	PLATFORM_REASON_MANIFEST,
 	REASON_DEFAULT_MAX_CALLS,
 	REASON_MAX_CALLS_CEILING,
@@ -366,5 +367,99 @@ for (const invalid of [
 		);
 	});
 }
+
+test("terminal failures cannot supply a successful reasoning vote", () => {
+	for (const failed of [
+		{ ok: false, error: "provider failed", text: "stale answer" },
+		{
+			result: {
+				ok: false,
+				error: "provider failed",
+				assistant: { content: "partial" },
+			},
+		},
+	]) {
+		assert.throws(
+			() => extractReasonText(failed),
+			/REASON_TURN_FAILED.*provider failed/,
+		);
+	}
+	assert.equal(extractReasonText(settled), settled.assistant.content);
+	assert.equal(
+		extractReasonText({ result: settled }),
+		settled.assistant.content,
+	);
+	assert.equal(extractReasonText({ assistant: { content: "  " } }), "");
+});
+
+test("a hung initial dispatch is bounded without dispatching another turn", async () => {
+	let calls = 0;
+	await assert.rejects(
+		awaitReasonTurn(
+			pending.session_key,
+			() => {
+				calls++;
+				return new Promise(() => {});
+			},
+			{ totalTimeoutMs: 10 },
+		),
+		/REASON_TURN_TIMEOUT/,
+	);
+	assert.equal(calls, 1);
+});
+
+test("a recovery dispatch cannot overrun the fixed pending deadline", async () => {
+	let calls = 0;
+	await assert.rejects(
+		awaitReasonTurn(
+			pending.session_key,
+			async () => {
+				calls++;
+				return calls === 1 ? pending : new Promise(() => {});
+			},
+			{ timeoutMs: 20, sleep: async () => {} },
+		),
+		/REASON_TURN_TIMEOUT/,
+	);
+	assert.equal(calls, 2);
+});
+
+test("pending recovery and late terminal replies share the outer RPC budget", async () => {
+	let elapsed = 0;
+	let calls = 0;
+	await assert.rejects(
+		awaitReasonTurn(
+			pending.session_key,
+			async () => {
+				calls++;
+				elapsed += 180_000;
+				return calls === 1 ? taskPending : settled;
+			},
+			{
+				now: () => elapsed,
+				sleep: async (ms) => {
+					elapsed += ms;
+				},
+			},
+		),
+		/REASON_TURN_TIMEOUT/,
+	);
+	assert.equal(calls, 2);
+});
+
+test("terminal task failures preserve the bridge error without retrying", async () => {
+	let calls = 0;
+	const failure = new Error(
+		"MCP_TASK_FAILED: example task failed: empty_assistant_message",
+	);
+	await assert.rejects(
+		awaitReasonTurn(pending.session_key, async () => {
+			calls++;
+			throw failure;
+		}),
+		(error) => error === failure,
+	);
+	assert.equal(calls, 1);
+});
 
 console.log("skill-runtime reason tests passed");

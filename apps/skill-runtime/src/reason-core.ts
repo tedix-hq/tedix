@@ -51,6 +51,8 @@ export const PLATFORM_REASON_MANIFEST = {
 export const REASON_MAX_CALLS_CEILING = 64;
 /** Default when a manifest enables reasoning without naming a budget. */
 export const REASON_DEFAULT_MAX_CALLS = 8;
+const REASON_TURN_TIMEOUT =
+	"REASON_TURN_TIMEOUT: reply deadline exceeded; an accepted child may still be running";
 
 /** Redelivery must reuse the session and client_request_id to read the same turn. */
 export async function awaitReasonTurn(
@@ -58,18 +60,36 @@ export async function awaitReasonTurn(
 	dispatch: () => Promise<unknown>,
 	{
 		timeoutMs = 150_000,
+		totalTimeoutMs = 230_000,
 		now = Date.now,
 		sleep = (ms: number) =>
 			new Promise<void>((resolve) => setTimeout(resolve, ms)),
 	} = {},
 ): Promise<unknown> {
-	// The first bridge dispatch can itself take 180 seconds. Budget recovery
-	// from its first pending receipt, without resetting on later receipts.
+	// Preserve the pending-recovery budget, but leave time to seal a failure
+	// before the runner's existing 240-second RPC guard closes the bridge.
+	const totalDeadline = now() + totalTimeoutMs;
 	let deadline: number | undefined;
 	let runId: string | undefined;
 	let taskId: string | undefined;
 	while (true) {
-		const response = await dispatch();
+		const remainingDispatchMs =
+			Math.min(deadline ?? totalDeadline, totalDeadline) - now();
+		if (remainingDispatchMs <= 0) throw new Error(REASON_TURN_TIMEOUT);
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const response = await Promise.race([
+			Promise.resolve().then(dispatch),
+			new Promise<never>((_, reject) => {
+				timer = setTimeout(
+					() => reject(new Error(REASON_TURN_TIMEOUT)),
+					remainingDispatchMs,
+				);
+			}),
+		]).finally(() => {
+			if (timer !== undefined) clearTimeout(timer);
+		});
+		if (now() >= Math.min(deadline ?? totalDeadline, totalDeadline))
+			throw new Error(REASON_TURN_TIMEOUT);
 		const envelope = response as {
 			__tedixMcpResult?: boolean;
 			value?: unknown;
@@ -103,11 +123,11 @@ export async function awaitReasonTurn(
 			throw new Error("REASON_PENDING_RECEIPT_INVALID");
 		if (!taskOnly) runId = receipt.run_id as string;
 		if (pendingTaskId) taskId = pendingTaskId;
-		deadline ??= now() + timeoutMs;
+		deadline ??= Math.min(now() + timeoutMs, totalDeadline);
 		const remaining = deadline - now();
-		if (remaining <= 0) throw new Error("REASON_TURN_TIMEOUT");
+		if (remaining <= 0) throw new Error(REASON_TURN_TIMEOUT);
 		await sleep(Math.min(2_500, remaining));
-		if (now() >= deadline) throw new Error("REASON_TURN_TIMEOUT");
+		if (now() >= deadline) throw new Error(REASON_TURN_TIMEOUT);
 	}
 }
 
@@ -166,6 +186,28 @@ export interface ReasonAskResult {
 	modelIdentity: { provider: string; model: string } | null;
 	/** True when the model returned nothing usable — never throws for that. */
 	empty: boolean;
+	/** Failure details are also sealed; an empty reply is never a successful vote. */
+	error?: string;
+}
+
+export function extractReasonText(result: unknown): string {
+	const payload = (result ?? {}) as Record<string, unknown>;
+	const inner = (payload.result ?? payload) as Record<string, unknown>;
+	if (payload.ok === false || inner.ok === false) {
+		throw new Error(
+			`REASON_TURN_FAILED: ${JSON.stringify(inner.error ?? payload.error ?? "unsuccessful receipt").slice(0, 1_000)}`,
+		);
+	}
+	const assistant = (inner.assistant ?? {}) as Record<string, unknown>;
+	for (const candidate of [
+		assistant.content,
+		inner.text,
+		inner.reply,
+		payload.text,
+	]) {
+		if (typeof candidate === "string" && candidate.trim()) return candidate;
+	}
+	return "";
 }
 
 /** The native run_tedi_turn receipt uses model_identity on direct and wrapped replies. */
