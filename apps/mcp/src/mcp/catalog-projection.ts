@@ -21,6 +21,16 @@ export function copyCatalogTool(tool: AppTool): AppTool {
 	return copy;
 }
 
+/**
+ * The immutable source row behind a `copyCatalogTool` copy, or undefined for
+ * ad hoc rows. Memoization keys on the source so every server built from the
+ * same snapshot shares pure per-row work; ad hoc rows can mutate and must
+ * never participate.
+ */
+export function catalogProjectionSource(tool: AppTool): AppTool | undefined {
+	return sources.get(tool);
+}
+
 /** Only pure descriptors belong here; never cache caller decisions or handlers. */
 export function cachedCatalogProjection(
 	tool: AppTool,

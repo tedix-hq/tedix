@@ -1,6 +1,7 @@
 import { type z as NativeZ } from "zod";
 import { type McpNativeDescriptorSchema } from "@tedix/api-contract/schemas/mcp-native-transport";
 import { type AppTool, type ServerContext } from "./server-context";
+import { catalogProjectionSource } from "./catalog-projection";
 import { resolveMcpToolNamespace } from "@tedix/mcp-shared/auth/tool-scopes";
 import { sanitizeToolName } from "@cloudflare/codemode";
 import {
@@ -9,6 +10,14 @@ import {
 	FLOW_NAMESPACE,
 } from "./codemode-flow";
 import { recordFrom } from "./codemode-ui";
+
+/**
+ * Back-reference from a request's private catalog row to the shared
+ * `cachedCatalogProjection` descriptor. Scoring and schema matching key on
+ * it, so every server built from the same snapshot revision reuses those
+ * pure results instead of rescoring 16k rows per request.
+ */
+export const SHARED_CATALOG_PROJECTION = Symbol("sharedCatalogProjection");
 
 export const CODEMODE_NAMESPACE = "codemode";
 
@@ -109,17 +118,62 @@ export interface CatalogPageEntry {
 /**
  * Group tools by namespace and build executable functions + JSON Schema descriptors.
  */
-export function projectedToolIdentity(
+interface ProjectedToolIdentity {
+	namespace: string;
+	safeName: string;
+	ownerKey: string;
+}
+
+/**
+ * Identity is a pure function of the row plus the overrides object. Source
+ * snapshot rows never change, so their identity is memoized once per
+ * (source, overrides-reference) and shared by every caller pass
+ * (collision quarantine, lazy groups, catalog build, legacy aliases) and
+ * every server built from the same snapshot.
+ */
+const projectedIdentities = new WeakMap<
+	AppTool,
+	Map<
+		Record<string, string> | undefined,
+		{ toolId: string } & ProjectedToolIdentity
+	>
+>();
+
+function computeToolIdentity(
 	toolId: string,
 	tool: AppTool,
 	namespaceOverrides: Record<string, string> | undefined,
-): { namespace: string; safeName: string; ownerKey: string } {
+): ProjectedToolIdentity {
 	const namespace = resolveMcpToolNamespace(tool, namespaceOverrides);
 	const rawName = toolId.includes("__")
 		? toolId.split("__").slice(1).join("__")
 		: toolId;
 	const safeName = sanitizeToolName(rawName);
 	return { namespace, safeName, ownerKey: `${namespace}.${safeName}` };
+}
+
+export function projectedToolIdentity(
+	toolId: string,
+	tool: AppTool,
+	namespaceOverrides: Record<string, string> | undefined,
+): ProjectedToolIdentity {
+	const source = catalogProjectionSource(tool);
+	if (!source) return computeToolIdentity(toolId, tool, namespaceOverrides);
+	let byOverrides = projectedIdentities.get(source);
+	if (!byOverrides) {
+		byOverrides = new Map();
+		projectedIdentities.set(source, byOverrides);
+	}
+	const hit = byOverrides.get(namespaceOverrides);
+	if (hit && hit.toolId === toolId) return hit;
+	const identity = {
+		toolId,
+		...computeToolIdentity(toolId, source, namespaceOverrides),
+	};
+	if (byOverrides.size >= 4)
+		byOverrides.delete(byOverrides.keys().next().value);
+	byOverrides.set(namespaceOverrides, identity);
+	return identity;
 }
 
 export function codeModeCollisionOwners(

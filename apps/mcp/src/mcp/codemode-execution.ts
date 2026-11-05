@@ -60,7 +60,7 @@ import {
 } from "./tool-risk-policy";
 import { resolveWireAnnotations } from "./tool-registration-policy";
 import { type NamespaceGroup } from "@tedix/mcp-shared/compact-types";
-import { isToolDeniedForConnection } from "./no-funds-policy";
+import { hasNoFundsRestriction, isNoFundsToolDenied } from "./no-funds-policy";
 import {
 	CONNECT_PAYMENT_DENIED,
 	isNonPayingConnection,
@@ -357,6 +357,10 @@ export function buildNamespaceGroups(
 	const groups = new Map<string, NamespaceGroup>();
 	const toolOwners = new Map<string, string>();
 
+	// Connection-level denial is constant for the whole pass; only the
+	// per-tool financial check varies.
+	const connectionRestricted = hasNoFundsRestriction(serverCtx);
+
 	for (const [toolId, tool] of serverCtx.loadedTools) {
 		const {
 			namespace: ns,
@@ -371,7 +375,7 @@ export function buildNamespaceGroups(
 			groups.set(ns, { fns: {}, schemas: {} });
 		}
 		const group = groups.get(ns)!;
-		if (isToolDeniedForConnection(serverCtx, tool)) {
+		if (connectionRestricted && isNoFundsToolDenied(tool)) {
 			group.fns[safeName] = async () => {
 				throw new Error(CONNECT_PAYMENT_DENIED);
 			};
