@@ -317,6 +317,21 @@ export async function runRetentionCleanupCron(
 		);
 	}
 
+	let removedSkillImprovementCopies = 0;
+	try {
+		const { sweepAbandonedSkillImprovements } =
+			await import("@tedix/db/queries/cognitive/skill-improvement-cleanup");
+		const result = await sweepAbandonedSkillImprovements(db, {
+			now: new Date(event.scheduledTime),
+		});
+		removedSkillImprovementCopies = result.removedIds.length;
+	} catch (error) {
+		console.warn(
+			"[Scheduled] Skill improvement cleanup failed:",
+			safeExceptionTopology(error),
+		);
+	}
+
 	// Draft-TTL sweep — execute-to-promote lifecycle:
 	// Ordinary drafts with zero recorded usage and unpromoted flow-ephemeral
 	// drafts inactive for 14 days auto-archive fleet-wide. Archived, not deleted.
@@ -600,5 +615,6 @@ export async function runRetentionCleanupCron(
 		catalogSnapshotsDeleted: deletedCatalogSnapshots,
 		auditExportObjectsWritten,
 		auditExportObjectsDeleted,
+		removedSkillImprovementCopies,
 	};
 }

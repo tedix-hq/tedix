@@ -1,5 +1,9 @@
 /** Workshop, workflow-improvement, trajectory, and coverage handlers. */
 
+import {
+	adoptSkillImprovementCopy,
+	removeSkillImprovementCopy,
+} from "@tedix/db/queries/cognitive/skill-improvement-cleanup";
 import { resolveFactoryRunContext } from "@tedix/db/queries/factories";
 import { isToolExcludedFromSkillCoverage } from "@tedix/api-contract/schemas/tools";
 import { getAppById } from "@tedix/db/queries/app-records";
@@ -696,57 +700,65 @@ export const skillsActivateWorkflowImprovement =
 				proposal.content,
 				baseline.tediId,
 			);
-			await updateSkillEntry(context.db, baseline.id, {
-				content: proposal.content,
-				files: proposal.files ?? null,
-				description: proposal.description ?? baseline.description,
-				summary: proposal.summary ?? baseline.summary,
-				inputSchema: proposal.inputSchema ?? baseline.inputSchema,
-				agentSkillsFormat:
-					proposal.agentSkillsFormat ?? baseline.agentSkillsFormat,
-				appId: proposal.appId ?? baseline.appId,
-				toolIds: proposal.toolIds ?? baseline.toolIds,
-				tags: (proposal.tags ?? []).filter(
-					(tag) =>
-						tag !== WORKFLOW_IMPROVEMENT_TAG &&
-						!tag.startsWith(BASELINE_RUN_TAG_PREFIX) &&
-						!tag.startsWith(BASELINE_WORKFLOW_TAG_PREFIX) &&
-						!tag.startsWith(CANDIDATE_WORKFLOW_TAG_PREFIX),
-				),
-				audience: proposal.audience ?? baseline.audience,
-				preconditions: proposal.preconditions ?? baseline.preconditions,
-				revision: baseline.revision + 1,
-				revisionReasoning: appendRevisionReasoning(
-					baseline,
-					`Workflow improvement ${proposal.id} activated by ${isHumanSkillActivator(context) ? `user ${context.user!.sub}` : `${context.authType} caller${context.tediId ? ` (tedi ${context.tediId})` : ""}`} after certified run ${certificationRun.id}: ${input.reason}`,
-				),
+			const adopted = await adoptSkillImprovementCopy(context.db, {
+				baseline,
+				proposal,
+				baselineUpdates: {
+					content: proposal.content,
+					files: proposal.files ?? null,
+					description: proposal.description ?? baseline.description,
+					summary: proposal.summary ?? baseline.summary,
+					inputSchema: proposal.inputSchema ?? baseline.inputSchema,
+					agentSkillsFormat:
+						proposal.agentSkillsFormat ?? baseline.agentSkillsFormat,
+					appId: proposal.appId ?? baseline.appId,
+					toolIds: proposal.toolIds ?? baseline.toolIds,
+					tags: (proposal.tags ?? []).filter(
+						(tag) =>
+							tag !== WORKFLOW_IMPROVEMENT_TAG &&
+							!tag.startsWith(BASELINE_RUN_TAG_PREFIX) &&
+							!tag.startsWith(BASELINE_WORKFLOW_TAG_PREFIX) &&
+							!tag.startsWith(CANDIDATE_WORKFLOW_TAG_PREFIX),
+					),
+					audience: proposal.audience ?? baseline.audience,
+					preconditions: proposal.preconditions ?? baseline.preconditions,
+					revision: baseline.revision + 1,
+					revisionReasoning: appendRevisionReasoning(
+						baseline,
+						`Workflow improvement ${proposal.id} activated by ${isHumanSkillActivator(context) ? `user ${context.user!.sub}` : `${context.authType} caller${context.tediId ? ` (tedi ${context.tediId})` : ""}`} after certified run ${certificationRun.id}: ${input.reason}`,
+					),
+				},
+				proposalUpdates: {
+					lifecycleState: "archived",
+					improvementAdoption: {
+						activatedIntoRevision: baseline.revision + 1,
+						certificationRunId: certificationRun.id,
+						adoptedAt: new Date().toISOString(),
+						reason: input.reason,
+					},
+					revision: proposal.revision + 1,
+					revisionReasoning: appendRevisionReasoning(
+						proposal,
+						`Activated into canonical skill ${baseline.id} revision ${baseline.revision + 1}.`,
+					),
+				},
 			});
+			if (!adopted)
+				throw createError(
+					ErrorCodes.CONFLICT,
+					"The skill or improvement changed during adoption. Review it again.",
+				);
 			const activatedBaseline = await getSkillEntry(
 				context.db,
 				baseline.id,
 				orgId,
 			);
-			if (!activatedBaseline) {
+			if (!activatedBaseline)
 				throw createError(
 					ErrorCodes.INTERNAL_SERVER_ERROR,
 					"Activated skill not found",
 				);
-			}
 			await syncSkillScheduleProjection(context, activatedBaseline, schedule);
-			await updateSkillEntry(context.db, proposal.id, {
-				lifecycleState: "archived",
-				improvementAdoption: {
-					activatedIntoRevision: activatedBaseline.revision,
-					certificationRunId: certificationRun.id,
-					adoptedAt: new Date().toISOString(),
-					reason: input.reason,
-				},
-				revision: proposal.revision + 1,
-				revisionReasoning: appendRevisionReasoning(
-					proposal,
-					`Activated into canonical skill ${baseline.id} revision ${activatedBaseline.revision}.`,
-				),
-			});
 			const archivedProposal = await getSkillEntry(
 				context.db,
 				proposal.id,
@@ -1046,6 +1058,22 @@ export const skillsRejectWorkshop = authedSkills.rejectWorkshop
 		const existing = await getSkillWorkshopProposal(context, orgId, {
 			id: input.id,
 		});
+		if (
+			existing.tags?.includes(WORKFLOW_IMPROVEMENT_TAG) &&
+			existing.sourceSkillId
+		) {
+			const removed = await removeSkillImprovementCopy(context.db, {
+				organizationId: orgId,
+				id: existing.id,
+				reason: `Rejected: ${input.reason}`,
+			});
+			if (!removed)
+				throw createError(
+					ErrorCodes.CONFLICT,
+					"This improvement was kept because it was adopted, has a run in progress, or its main skill is unavailable.",
+				);
+			return { entry: null, removedId: existing.id };
+		}
 		await updateSkillEntry(context.db, existing.id, {
 			lifecycleState: "archived",
 			revision: existing.revision + 1,

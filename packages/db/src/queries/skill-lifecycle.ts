@@ -684,6 +684,8 @@ export async function sweepExpiredDraftSkills(
 	);
 	const conditions = [
 		eq(skillEntries.lifecycleState, "draft"),
+		// Improvement copies have their own deletion sweep and evidence guards.
+		sql`NOT EXISTS (SELECT 1 FROM json_each(coalesce(${skillEntries.tags}, '[]')) WHERE value = 'workflow-improvement')`,
 		or(ordinaryDraftIsExpired, ephemeralFlowIsExpired),
 	];
 	if (options.organizationId) {
