@@ -50,5 +50,21 @@
 			"totalCostMicros": null,
 			"cacheByResolvedModel": {}
 		}
+	},
+	"comparisons": {
+		"calibration": {
+			"status": "incomplete",
+			"reason": "incomplete_measurements",
+			"deltas": null,
+			"checks": null,
+			"noRegression": null
+		},
+		"holdout": {
+			"status": "incomplete",
+			"reason": "incomplete_measurements",
+			"deltas": null,
+			"checks": null,
+			"noRegression": null
+		}
 	}
 }
