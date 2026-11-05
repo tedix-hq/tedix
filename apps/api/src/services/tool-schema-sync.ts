@@ -25,6 +25,7 @@ import {
 	upsertTool,
 } from "@tedix/db/queries/tools";
 import type { AppTool } from "@tedix/db/schema";
+import { isTransientD1ReadError } from "@tedix/db/utils/d1-retry";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import { publishMcpListChangedEvents } from "../lib/mcp-subscriptions";
 import {
@@ -83,6 +84,24 @@ import {
 	type SyncColumn,
 	targetColumns,
 } from "./tool-schema-projection";
+
+/**
+ * Message for a row write that failed. A transient D1 failure (D1 returned an
+ * internal error, overload, or a lost connection) is rethrown instead of
+ * reported, so the workflow's step retry replays the batch rather than landing
+ * a report with `failed: N` that Ship refuses. Anything else is reported with
+ * the database cause first: Drizzle's "Failed query: <sql>" wrapper otherwise
+ * fills the bounded report message and hides the reason.
+ */
+function failedWriteMessage(error: unknown): string {
+	if (isTransientD1ReadError(error)) throw error;
+	const message = error instanceof Error ? error.message : String(error);
+	const cause =
+		error instanceof Error && error.cause instanceof Error
+			? error.cause.message
+			: null;
+	return cause ? `${cause} (${message})` : message;
+}
 
 export const TEDIX_ADMIN_APP_SLUG = "tedix";
 
@@ -295,7 +314,7 @@ async function runToolProjectionSync(
 				endpoint: endpointPath,
 				status: "failed",
 				changed,
-				message: (error as Error).message,
+				message: failedWriteMessage(error),
 			});
 		}
 	}
@@ -731,7 +750,7 @@ export async function runToolSchemaSync(
 					endpoint,
 					status: "failed",
 					changed: [],
-					message: (error as Error).message,
+					message: failedWriteMessage(error),
 				});
 			}
 			continue;
@@ -932,7 +951,7 @@ export async function runToolSchemaSync(
 				endpoint,
 				status: "failed",
 				changed,
-				message: (error as Error).message,
+				message: failedWriteMessage(error),
 			});
 		}
 	}
@@ -945,9 +964,10 @@ export async function runToolSchemaSync(
 				now: new Date().toISOString(),
 			});
 		} catch (error) {
+			const message = failedWriteMessage(error);
 			for (const item of provenanceItems) {
 				item.status = "failed";
-				item.message = (error as Error).message;
+				item.message = message;
 			}
 			inSync -= provenanceItems.length;
 			failed += provenanceItems.length;

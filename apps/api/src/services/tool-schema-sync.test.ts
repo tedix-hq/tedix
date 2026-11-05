@@ -394,6 +394,48 @@ describe("schema-only provenance refresh", () => {
 		});
 	});
 
+	it("reports the database cause first when a write fails", async () => {
+		const row = await synchronizedTool();
+		row.schemaSyncedAt = "2026-01-01T00:00:00.000Z";
+		row.updatedAt = "2026-01-01T00:00:00.001Z";
+		const fixture = makeDb([row]);
+		(fixture.db as unknown as { batch: () => Promise<never> }).batch =
+			async () => {
+				throw new Error(
+					`Failed query: update "app_tools" set ${"x".repeat(500)}`,
+					{
+						cause: new Error("D1_ERROR: no such column: app_tools.new_column"),
+					},
+				);
+			};
+		const result = await runToolSchemaSync(fixture.db, {
+			apply: true,
+			pruneStale: false,
+		});
+		expect(result).toMatchObject({ failed: 1 });
+		expect(result.items[0]?.message).toMatch(
+			/^D1_ERROR: no such column: app_tools\.new_column \(Failed query:/,
+		);
+	});
+
+	it("rethrows a transient D1 failure so the workflow step retries it", async () => {
+		const row = await synchronizedTool();
+		row.schemaSyncedAt = "2026-01-01T00:00:00.000Z";
+		row.updatedAt = "2026-01-01T00:00:00.001Z";
+		const fixture = makeDb([row]);
+		(fixture.db as unknown as { batch: () => Promise<never> }).batch =
+			async () => {
+				throw new Error('Failed query: update "app_tools"', {
+					cause: new Error(
+						"D1_ERROR: internal error; reference = fictional [code: 7500]",
+					),
+				});
+			};
+		await expect(
+			runToolSchemaSync(fixture.db, { apply: true, pruneStale: false }),
+		).rejects.toThrow("Failed query");
+	});
+
 	it("does not certify provenance or write a partial projection when conversion fails", async () => {
 		const row = await synchronizedTool();
 		row.schemaSyncedAt = null;
