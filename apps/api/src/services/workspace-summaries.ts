@@ -125,7 +125,10 @@ export async function publishOsWorkspaceSummaryForKernelEvent(
 	db: DbClient,
 	event: KernelRuntimeEvent,
 ): Promise<void> {
-	if (!context.env.AUTOMATION_EVENTS) return;
+	// Summary rows are a side projection: callers persisting kernel events
+	// (some without an env, such as swept-child failure propagation) must
+	// never fail because of them.
+	if (!context.env?.AUTOMATION_EVENTS) return;
 	if (!WORKSPACE_SUMMARY_EVENT_KINDS.has(event.kind)) return;
 	// The message.received/completed payload carries the workspace binding
 	// directly; every other kind resolves through the conversation row.
@@ -146,11 +149,20 @@ export async function publishOsWorkspaceSummaryForKernelEvent(
 			? workspaceContext.workspaceId
 			: null;
 	if (!workspaceId) {
-		const conversation = await getKernelConversation(db, {
-			organizationId: event.organizationId,
-			conversationId: event.conversationId,
-		});
-		workspaceId = conversation?.workspaceId ?? null;
+		try {
+			const conversation = await getKernelConversation(db, {
+				organizationId: event.organizationId,
+				conversationId: event.conversationId,
+			});
+			workspaceId = conversation?.workspaceId ?? null;
+		} catch (error) {
+			console.warn("[workspace-summaries] conversation lookup failed", {
+				organizationId: event.organizationId,
+				conversationId: event.conversationId,
+				error: error instanceof Error ? error.message : String(error),
+			});
+			return;
+		}
 	}
 	if (!workspaceId) return;
 	scheduleOsWorkspaceSummaryPublish(context, {

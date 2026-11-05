@@ -24,10 +24,11 @@ import {
 } from "@tedix/db/schema/os-collaborators";
 import { osShareLinks } from "@tedix/db/schema/os-shares";
 import {
-	osGadgetRevisions,
 	osCollaborationProposals,
+	osGadgetRevisions,
 	osGadgets,
 	osOutputs,
+	osWorkspaceSummaries,
 	osWorkspaces,
 } from "@tedix/db/schema/os-workspaces";
 import { tedis } from "@tedix/db/schema/tedis";
@@ -57,6 +58,7 @@ function createEnv() {
 			kernelConversationGrants,
 			kernelRuntimeEvents,
 			osWorkspaces,
+			osWorkspaceSummaries,
 			osOutputs,
 			providerInstallations,
 			osCollaborationProposals,
