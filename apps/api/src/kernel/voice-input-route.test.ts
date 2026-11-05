@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { handleKernelVoiceInput } from "./voice-input-route";
 import { mintKernelWsToken } from "./ws-token";
+const membership = vi.hoisted(() => vi.fn(async () => true));
+vi.mock("./voice-membership", () => ({ hasActiveVoiceMembership: membership }));
 const ORG = "11111111-2222-3333-4444-555555555555",
 	KEY = "test-key";
 const URL = "https://api.tedix.dev/kernel/voice/input";
@@ -29,6 +31,23 @@ function capturingEnv(upgrade = false) {
 	return { env, captured, fetch };
 }
 describe("handleKernelVoiceInput", () => {
+	it("refuses a valid scoped token after suspension before forwarding the socket", async () => {
+		const { env, fetch } = capturingEnv();
+		const { token } = await mintKernelWsToken({
+			organizationId: ORG,
+			descopeUserId: "user",
+			platformServiceToken: KEY,
+		});
+		membership.mockResolvedValueOnce(false);
+		const response = await handleKernelVoiceInput(
+			new Request(URL, {
+				headers: { Upgrade: "websocket", Authorization: `Bearer ${token}` },
+			}),
+			env,
+		);
+		expect(response.status).toBe(403);
+		expect(fetch).not.toHaveBeenCalled();
+	});
 	it("keeps unauthenticated capability probes", async () => {
 		expect(
 			(await handleKernelVoiceInput(new Request(URL), {} as CloudflareEnv))

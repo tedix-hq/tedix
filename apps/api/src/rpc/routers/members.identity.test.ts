@@ -8,9 +8,25 @@ import { tedis } from "@tedix/db/schema/tedis";
 import { auditEvents } from "@tedix/db/schema/audit-events";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
-import { describe, expect, it } from "vite-plus/test";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
 import { membersContractRouter } from "./members";
+
+const provider = vi.hoisted(() => ({ logout: vi.fn(), management: vi.fn() }));
+vi.mock("../../lib/descope-management", () => ({
+	getDescopeManagement: provider.management,
+}));
+beforeEach(() => {
+	vi.resetAllMocks();
+	provider.logout.mockResolvedValue({ ok: true });
+	provider.management.mockImplementation((_env, required) =>
+		required
+			? {
+					management: { user: { logoutUserByUserId: provider.logout } },
+				}
+			: null,
+	);
+});
 
 const org = "00000000-0000-4000-8000-000000000001";
 const agent = "00000000-0000-4000-8000-000000000002";
@@ -321,6 +337,65 @@ describe("browser agent member identity", () => {
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
 	});
 
+	it("revokes the seat's provider sessions only after deactivation and permits a failed revocation to be retried", async () => {
+		const { client, sqlite } = await fixture();
+		await client.setMemberIdentity(browserInput);
+		provider.logout.mockImplementationOnce(async (subject: string) => {
+			expect(subject).toBe("juniper-provider");
+			expect(
+				sqlite
+					.prepare("SELECT status FROM organization_members WHERE id = ?")
+					.get(agent),
+			).toMatchObject({ status: "deactivated" });
+			return {
+				ok: false,
+				code: 503,
+				error: { errorDescription: "provider unavailable" },
+			};
+		});
+		await expect(
+			client.suspendAgentSeat({ organizationId: org, memberId: agent }),
+		).rejects.toThrow();
+		expect(
+			sqlite
+				.prepare("SELECT status FROM organization_members WHERE id = ?")
+				.get(agent),
+		).toMatchObject({ status: "deactivated" });
+		expect(
+			sqlite
+				.prepare(
+					"SELECT count(*) AS count FROM audit_events WHERE action = 'member.agent_sessions_revoked'",
+				)
+				.get(),
+		).toMatchObject({ count: 0 });
+		await client.suspendAgentSeat({ organizationId: org, memberId: agent });
+		expect(provider.logout).toHaveBeenCalledTimes(2);
+		expect(
+			sqlite
+				.prepare(
+					"SELECT actor_id FROM audit_events WHERE action = 'member.agent_sessions_revoked'",
+				)
+				.get(),
+		).toMatchObject({ actor_id: "river" });
+	});
+
+	it("does not report provider revocation when management access is unavailable", async () => {
+		const { client, sqlite } = await fixture();
+		await client.setMemberIdentity(browserInput);
+		provider.management.mockImplementationOnce(() => {
+			throw new Error("Descope management key not configured");
+		});
+		await expect(
+			client.suspendAgentSeat({ organizationId: org, memberId: agent }),
+		).rejects.toThrow("Descope management key not configured");
+		expect(provider.logout).not.toHaveBeenCalled();
+		expect(
+			sqlite
+				.prepare("SELECT status FROM organization_members WHERE id = ?")
+				.get(agent),
+		).toMatchObject({ status: "deactivated" });
+	});
+
 	it("does not let the agent stop switch deactivate an owner membership", async () => {
 		const { client, db, sqlite } = await fixture();
 		await client.setMemberIdentity(browserInput);
@@ -336,6 +411,7 @@ describe("browser agent member identity", () => {
 				.prepare("SELECT role, status FROM organization_members WHERE id = ?")
 				.get(agent),
 		).toMatchObject({ role: "owner", status: "active" });
+		expect(provider.logout).not.toHaveBeenCalled();
 	});
 
 	it("refuses suspension by an unrelated human member", async () => {
@@ -367,6 +443,7 @@ describe("browser agent member identity", () => {
 				.prepare("SELECT status FROM organization_members WHERE id = ?")
 				.get(agent),
 		).toMatchObject({ status: "active" });
+		expect(provider.logout).not.toHaveBeenCalled();
 	});
 
 	it("leaves identity unchanged if its audit intent cannot be persisted", async () => {

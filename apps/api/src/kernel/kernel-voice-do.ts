@@ -35,6 +35,7 @@ import {
 	type VoiceChannel,
 } from "./voice-gateway-ai";
 import { voiceShapeResult } from "./voice-helpers";
+import { watchVoiceMembership } from "./voice-membership";
 
 /** Per-call connection context stamped from the WS upgrade URL. */
 interface KernelVoiceContext {
@@ -65,6 +66,7 @@ export class KernelVoiceDO extends VoiceAgentBase {
 	tts = new WorkersAITTS(this.voiceAi("voice-tts"));
 
 	#ctxByConn = new Map<string, KernelVoiceContext>();
+	#membershipWatches = new Map<string, () => void>();
 	#speakerGate = new SingleSpeakerGate();
 	#activeConnectionId: string | null = null;
 	#activeContext: KernelVoiceContext | null = null;
@@ -249,6 +251,9 @@ export class KernelVoiceDO extends VoiceAgentBase {
 		connection: Connection,
 		ctx: ConnectionContext,
 	): Promise<void> {
+		const stop = await watchVoiceMembership(connection, ctx.request, this.env);
+		if (!stop) return;
+		this.#membershipWatches.set(connection.id, stop);
 		try {
 			(connection as { binaryType?: string }).binaryType = "arraybuffer";
 		} catch {
@@ -475,6 +480,8 @@ export class KernelVoiceDO extends VoiceAgentBase {
 	}
 
 	override onClose(connection: Connection, ...rest: unknown[]): void {
+		this.#membershipWatches.get(connection.id)?.();
+		this.#membershipWatches.delete(connection.id);
 		const ctx = this.#getCtx(connection);
 		if (this.#activeConnectionId === connection.id) {
 			this.#activeConnectionId = null;
