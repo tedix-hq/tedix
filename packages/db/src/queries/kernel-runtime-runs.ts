@@ -1300,12 +1300,14 @@ export async function recordApprovedHomeDelegationResumeDispatch(
 		)
 		.returning({ id: kernelRuntimeRuns.id });
 
+	const dispatchStartedAt = sql<string>`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.dispatchStartedAt')`;
 	const physical = db
 		.update(kernelRuntimeRuns)
 		.set({
 			status: outcome === "acknowledged" ? "queued" : "failed",
 			...(outcome === "acknowledged"
 				? {
+						startedAt: dispatchStartedAt,
 						childRunId: input.observedChildRunId!,
 						childConversationId: input.childConversationId ?? null,
 						delegatedTediId: sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.targetTediId')`,
@@ -1324,6 +1326,15 @@ export async function recordApprovedHomeDelegationResumeDispatch(
 					"running",
 				]),
 				sql`${outcome} <> 'unknown'`,
+				outcome === "acknowledged"
+					? and(
+							sql`json_type(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.dispatchStartedAt') = 'text'`,
+							sql`${dispatchStartedAt} = strftime('%Y-%m-%dT%H:%M:%fZ', ${dispatchStartedAt})`,
+							sql`julianday(${dispatchStartedAt}) <= julianday(${input.now})`,
+							sql`julianday(${dispatchStartedAt}) >= julianday(json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.claimedAt'))`,
+							sql`julianday(${dispatchStartedAt}) >= julianday(json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.approvalResolvedAt'))`,
+						)
+					: undefined,
 				sql`(json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.observation.id') = ${observationId} or json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.lateObservation.id') = ${observationId})`,
 				sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume.expectedChildRunId') = ${input.expectedChildRunId}`,
 				isNull(kernelRuntimeRuns.childRunId),
