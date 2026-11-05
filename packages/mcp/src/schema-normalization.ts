@@ -171,3 +171,31 @@ export function normalizeToolInputSchema(
 	const required = new Set(asStringArray(schema.required) ?? []);
 	return normalizeProperties(properties, required);
 }
+
+/**
+ * Merge JSON-Schema property `default`s into args (pre-validation), matching the
+ * retired Zod path's z.default() semantics: top-level missing keys get defaults;
+ * object-typed args that are present get nested defaults recursively. Copy-on-write.
+ */
+export function applyInputSchemaDefaults(
+	args: Record<string, unknown>,
+	schema: Record<string, unknown>,
+): Record<string, unknown> {
+	if (!isRecord(schema.properties)) return args;
+	let out = args;
+	for (const [key, prop] of Object.entries(schema.properties)) {
+		if (!isRecord(prop)) continue;
+		const current = out[key];
+		if (current === undefined && prop.default !== undefined) {
+			if (out === args) out = { ...args };
+			out[key] = structuredClone(prop.default);
+		} else if (isRecord(current) && isRecord(prop.properties)) {
+			const nested = applyInputSchemaDefaults(current, prop);
+			if (nested !== current) {
+				if (out === args) out = { ...args };
+				out[key] = nested;
+			}
+		}
+	}
+	return out;
+}
