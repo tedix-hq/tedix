@@ -17,6 +17,11 @@ import {
 } from "./format";
 import type { HomeRunSummary } from "./home-payload";
 import type { TedixHomeClient } from "./home-client";
+import {
+	firstWord,
+	INTERACTIVE_COMMANDS,
+	type InteractiveCommandSpec,
+} from "./shared";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import {
 	delegatedChildStopFromPayload,
@@ -84,12 +89,6 @@ export interface CommandSpec {
 	handler: CommandHandler;
 	name: string;
 	summary: string;
-}
-
-export function firstWord(text: string): [string, string] {
-	const trimmed = text.trim();
-	const [first = "", ...rest] = trimmed.split(/\s+/);
-	return [first, rest.join(" ").trim()];
 }
 
 /**
@@ -794,53 +793,6 @@ export function formatCommandHelp(): string {
 		`  ${pad("/exit")}Quit (or Ctrl-D)`,
 	].join("\n");
 }
-
-interface InteractiveCommandSpec {
-	argHint?: string;
-	name: string;
-	summary: string;
-}
-
-/**
- * Commands with semantics owned by the Ink REPL rather than the generic CLI
- * registry. Keeping them declarative makes typeahead and help agree, while
- * avoiding collisions with `/runs` and `/rename` from the non-interactive CLI.
- */
-const INTERACTIVE_COMMANDS: readonly InteractiveCommandSpec[] = [
-	{ name: "help", summary: "Show this command reference" },
-	{ name: "exit", summary: "Quit after active runs settle" },
-	{ argHint: "[prefix]", name: "runs", summary: "List in-flight runs" },
-	{
-		argHint: "compact|full|errors",
-		name: "activity",
-		summary: "Set nested tool and delegation detail",
-	},
-	{
-		argHint: "<message>",
-		name: "parallel",
-		summary: "Start an explicit sibling Home run",
-	},
-	{ name: "wait", summary: "Wait for in-flight runs to settle" },
-	{ name: "workspaces", summary: "List logged-in workspaces" },
-	{
-		argHint: "[workspace]",
-		name: "use",
-		summary: "Select a workspace for the next launch",
-	},
-	{ argHint: "[search]", name: "sessions", summary: "List Home conversations" },
-	{
-		argHint: "<n|id|name>",
-		name: "resume",
-		summary: "Switch Home conversation",
-	},
-	{ argHint: "[name]", name: "new", summary: "Start fresh Home context" },
-	{ argHint: "<title>", name: "rename", summary: "Rename this conversation" },
-	{
-		argHint: "[focus]",
-		name: "compact",
-		summary: "Carry a focused brief into a fresh session",
-	},
-];
 
 const INTERACTIVE_OVERRIDES = new Set(["runs", "rename"]);
 

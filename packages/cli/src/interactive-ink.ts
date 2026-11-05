@@ -12,7 +12,6 @@ import { gatewayHost, INTERACTIVE_KEY_HINTS, renderBanner } from "./banner";
 import {
 	type CommandContext,
 	findCommand,
-	firstWord,
 	formatInteractiveCommandHelp,
 	interactiveSlashCommands,
 	formatSendResult,
@@ -45,7 +44,12 @@ import { InkReplBridge } from "./ink-bridge";
 import { isActivityNoise, LiveActivityPanel } from "./live-panel";
 import { renderMarkdown } from "./markdown";
 import { parseQuestionPrompt } from "./question-prompt";
-import { CLI_VERSION, type CliOptions, defaultConversationId } from "./shared";
+import {
+	CLI_VERSION,
+	type CliOptions,
+	defaultConversationId,
+	firstWord,
+} from "./shared";
 import { faint, muted } from "./theme";
 import { listThreads, resolveThread, setThread } from "./thread-store";
 import { waitForSettlement } from "./turn";

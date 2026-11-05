@@ -15,29 +15,9 @@ import {
 	LaneTelemetryInputSchema,
 } from "@tedix/api-contract/schemas/work-agent-sessions";
 import type { NativeProviderActivity } from "@tedix/api-contract/schemas/dispatcher-health";
-import { createLaneReporter } from "./lane-reporter";
-import { createOpenCodeLaneThread } from "./opencode-lane-thread";
-import { createDevinLaneThread, devinSessionIds } from "./devin-lane-thread";
-import { writeDevinLaneConfig } from "./devin-config";
-import {
-	devinScopedWorkInstruction,
-	type DevinWorkBridge,
-} from "./devin-work-bridge";
-import {
-	deliverDevinWorkResult,
-	devinWorkResultInstruction,
-} from "./devin-work-result";
-import {
-	assertDevinProjectHooks,
-	writeDevinGitIdentity,
-} from "./devin-lane-security";
-import {
-	externalAgentProfileSlot,
-	readExternalAgentProfile,
-} from "./external-agent-store";
+import type { DevinWorkBridge } from "./devin-work-bridge";
 import { laneChildEnv } from "./lane-child-env";
-import { claudeConfigDirectory, claudeTranscript } from "./claude-lane-thread";
-import { parseLaneTranscript, type LaneObservation } from "./lane-telemetry";
+import type { LaneObservation } from "./lane-telemetry";
 import { laneOutput } from "./lane-output";
 
 export const laneRunUsage = `tedix lane run --executor codex|claude-code|opencode|devin|tedi|skill --brief <file> --project <id>
@@ -56,6 +36,7 @@ export async function reportLaneObservation(
 	input: Record<string, unknown>,
 	scope: string[],
 ) {
+	const { createLaneReporter } = await import("./lane-reporter");
 	const reporter = createLaneReporter();
 	try {
 		return await reporter.report(input, scope);
@@ -237,6 +218,7 @@ async function runLaneProcessWithReporter(
 		const path = options.get("--lane-transcript");
 		if (path && ["codex", "claude-code"].includes(input.harness)) {
 			try {
+				const { parseLaneTranscript } = await import("./lane-telemetry");
 				const parsed = await parseLaneTranscript(path, input.harness);
 				input.telemetry = {
 					...parsed.telemetry,
@@ -276,16 +258,26 @@ async function runLaneProcessWithReporter(
 	if (!projectId) throw new Error("--project is required");
 	const devin = executor === "devin";
 	const opencode = executor === "opencode";
-	if (devin) assertDevinProjectHooks(deps.cwd ?? process.cwd());
+	if (devin) {
+		const { assertDevinProjectHooks } = await import("./devin-lane-security");
+		assertDevinProjectHooks(deps.cwd ?? process.cwd());
+	}
+	const devinThreadModule = devin
+		? await import("./devin-lane-thread")
+		: undefined;
+	const opencodeThreadModule =
+		opencode && !deps.sessionKey
+			? await import("./opencode-lane-thread")
+			: undefined;
 	const nativeThread =
 		devin && !deps.sessionKey
-			? await createDevinLaneThread(
+			? await devinThreadModule!.createDevinLaneThread(
 					deps.cwd ?? process.cwd(),
 					command[0] ?? "devin",
 					options.get("--model"),
 				)
-			: opencode && !deps.sessionKey
-				? await createOpenCodeLaneThread(
+			: opencodeThreadModule
+				? await opencodeThreadModule.createOpenCodeLaneThread(
 						deps.cwd ?? process.cwd(),
 						options.get("--model") ?? "",
 					)
@@ -357,6 +349,7 @@ async function runLaneProcessWithReporter(
 			!["codex", "claude-code"].includes(executor!)
 		)
 			throw new Error("Import needs a Codex or Claude transcript");
+		const { parseLaneTranscript } = await import("./lane-telemetry");
 		const parsed = await parseLaneTranscript(
 			options.get("--transcript")!,
 			executor as "codex" | "claude-code",
@@ -398,6 +391,19 @@ async function runLaneProcessWithReporter(
 	)
 		throw new Error("Devin Work bridge differs from the admitted lane");
 	if (devin) {
+		const [
+			{ writeDevinGitIdentity },
+			{ devinScopedWorkInstruction },
+			{ devinWorkResultInstruction },
+			{ writeDevinLaneConfig },
+			{ externalAgentProfileSlot, readExternalAgentProfile },
+		] = await Promise.all([
+			import("./devin-lane-security"),
+			import("./devin-work-bridge"),
+			import("./devin-work-result"),
+			import("./devin-config"),
+			import("./external-agent-store"),
+		]);
 		writeDevinGitIdentity(join(dir, "gitconfig"), deps.cwd ?? process.cwd());
 		const config = join(dir, "devin", "config.json");
 		const prompt = join(dir, "devin-brief.txt");
@@ -773,26 +779,34 @@ async function runLaneProcessWithReporter(
 					...new Set(telemetry.finalMessage.match(/\b[a-f0-9]{40}\b/g) ?? []),
 				].slice(0, 100);
 			}
-			if (
-				devin &&
-				!devinSessionIds(deps.cwd ?? process.cwd(), command[0]!).includes(
-					sessionKey,
+			if (devin) {
+				const { devinSessionIds } = await import("./devin-lane-thread");
+				if (
+					!devinSessionIds(deps.cwd ?? process.cwd(), command[0]!).includes(
+						sessionKey,
+					)
 				)
-			)
-				throw new Error("Devin resumed session was not found in this worktree");
-			const path =
-				options.get("--transcript") ??
-				(nativeId
-					? executor === "claude-code"
-						? claudeTranscript(nativeId, claudeConfigDirectory(env, deps.cwd))
-						: codexTranscript(nativeId)
-					: undefined);
+					throw new Error(
+						"Devin resumed session was not found in this worktree",
+					);
+			}
+			let path = options.get("--transcript");
+			if (!path && nativeId)
+				if (executor === "claude-code") {
+					const { claudeConfigDirectory, claudeTranscript } =
+						await import("./claude-lane-thread");
+					path = claudeTranscript(
+						nativeId,
+						claudeConfigDirectory(env, deps.cwd),
+					);
+				} else path = codexTranscript(nativeId);
 			if (deps.sessionKey && claudeJson && !path) {
 				exitCode = 1;
 				telemetry.finalMessage =
 					"Native Claude transcript is unavailable; result needs reconciliation";
 			}
 			if (path && ["codex", "claude-code"].includes(executor!)) {
+				const { parseLaneTranscript } = await import("./lane-telemetry");
 				const parsed = await parseLaneTranscript(
 					path,
 					executor as "codex" | "claude-code",
@@ -840,6 +854,7 @@ async function runLaneProcessWithReporter(
 					throw new Error(
 						"Devin Work delivery requires its admitted dispatcher",
 					);
+				const { deliverDevinWorkResult } = await import("./devin-work-result");
 				const result = await deliverDevinWorkResult(
 					telemetry.finalMessage,
 					deps.deliverWorkNote,
@@ -923,7 +938,9 @@ export async function runLaneProcess(
 	args: string[],
 	deps: Parameters<typeof runLaneProcessWithReporter>[1] = {},
 ): Promise<number> {
-	const reporter = deps.report ? undefined : createLaneReporter();
+	const reporter = deps.report
+		? undefined
+		: (await import("./lane-reporter")).createLaneReporter();
 	try {
 		return await runLaneProcessWithReporter(args, {
 			...deps,

@@ -32,9 +32,13 @@ import {
 	type AgentContextOptions,
 	resolveAgentContext,
 } from "../agent-context";
-import { CLI_VERSION, looksLikeUuid, selfCommand } from "../shared";
 import {
 	AGENT_IDENTITY_ENV,
+	CLI_VERSION,
+	looksLikeUuid,
+	selfCommand,
+} from "../shared";
+import {
 	captureOwnsStop,
 	codexSideThread,
 	isObject,

@@ -1,4 +1,4 @@
-import { AGENT_IDENTITY_ENV } from "./hooks/hook-io";
+import { AGENT_IDENTITY_ENV } from "./shared";
 
 export function laneChildEnv(env = process.env): NodeJS.ProcessEnv {
 	const child = { ...env };

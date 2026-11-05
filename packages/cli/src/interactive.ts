@@ -13,7 +13,6 @@ import {
 	type CommandContext,
 	commandNames,
 	findCommand,
-	firstWord,
 	formatCommandHelp,
 	reportSendResult,
 	formatSendResult,
@@ -36,7 +35,7 @@ import { InFlightRegistry } from "./inflight";
 import { printInFlightRunSnapshot, runInteractiveInk } from "./interactive-ink";
 import { classifyInterrupt } from "./interrupt";
 import { LiveActivityPanel } from "./live-panel";
-import { type CliOptions, withTimeout } from "./shared";
+import { type CliOptions, firstWord, withTimeout } from "./shared";
 import { faint, muted, warn } from "./theme";
 import { waitForSettlement } from "./turn";
 

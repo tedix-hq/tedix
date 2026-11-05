@@ -1,9 +1,8 @@
 /** `tedix hooks <name>`: agent-host lifecycle hooks that read the host event on stdin. */
 import { isAbsolute } from "node:path";
 import { spawn } from "node:child_process";
-import { selfCommand } from "../shared";
+import { AGENT_IDENTITY_ENV, selfCommand } from "../shared";
 import {
-	AGENT_IDENTITY_ENV,
 	CAPTURE_EVENT_LIMIT,
 	cliRead,
 	type HookDeps,

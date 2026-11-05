@@ -10,8 +10,6 @@ import {
 	saveLocalInstallation,
 } from "./local-source";
 import { createInterface } from "node:readline/promises";
-import { runAgentHostSetup } from "./agent-host-setup";
-import { runAgentContext } from "./agent-context";
 
 export function localInstallationUsage(): string {
 	return `Tedix local installation
@@ -163,9 +161,11 @@ export async function runLocalInstallation(
 	args: string[],
 ): Promise<number> {
 	if (command === "setup" && args[0] === "agents" && args[1] === "context")
-		return runAgentContext(args.slice(2));
+		return (await import("./agent-context")).runAgentContext(args.slice(2));
 	if (command === "setup" && args[0] === "agents")
-		return runAgentHostSetup(args.slice(1));
+		return (await import("./agent-host-setup")).runAgentHostSetup(
+			args.slice(1),
+		);
 	if (args.length === 1 && (args[0] === "--help" || args[0] === "-h")) {
 		console.log(localInstallationUsage());
 		return 0;

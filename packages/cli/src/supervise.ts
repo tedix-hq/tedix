@@ -76,7 +76,8 @@ import {
 	recordDraftDelivered,
 	workTool,
 } from "./hooks/decision-capture";
-import { AGENT_IDENTITY_ENV, cliRead, type ReadJson } from "./hooks/hook-io";
+import { cliRead, type ReadJson } from "./hooks/hook-io";
+import { AGENT_IDENTITY_ENV } from "./shared";
 import { readAuthStatus } from "./auth-resolve";
 import { parseOptions } from "./options";
 import {
