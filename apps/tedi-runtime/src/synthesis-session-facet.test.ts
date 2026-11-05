@@ -83,6 +83,24 @@ import { selectChatModelForTurn as configured_selectChatModelForTurn } from "./t
 	assert.equal(synthesized.length, 1, "workflow synthesis runs its facet");
 }
 
+// Adapter-visible empty output keeps the existing workflow failure guard.
+{
+	const probe = facetWorkflowTurnProbe({
+		fields: {
+			runSynthesisFacetTurn: async () => ({
+				assistantText: "",
+				turnError: null,
+				modelIdentity: { provider: "fixture", model: "judge" },
+			}),
+		},
+	});
+	await assert.rejects(
+		probe.run({ sessionKey: "workflow:synth:evaluation:empty" }),
+		/empty_assistant_message/,
+	);
+	assert.equal(probe.commits.length, 0);
+}
+
 // One run gets one isolated synthesis facet, even if a producer reuses its
 // session key.
 {

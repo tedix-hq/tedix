@@ -306,4 +306,22 @@ for (const rejected of [
 	);
 	assert.equal(receiptWrites.length, writesBefore);
 }
+
+receiptWrites.length = 0;
+await recordEvaluationOutcome(
+	{
+		providerAttempt: evidence.providerAttempt,
+		finishReason: "stop",
+		responseId: null,
+		responseModel: null,
+		usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+		outputShape: null,
+	},
+	receiptHost as Parameters<typeof recordEvaluationOutcome>[1],
+);
+assert.equal(
+	(receiptWrites[0] as { payload: { outputShape: unknown } }).payload
+		.outputShape,
+	null,
+);
 console.log("evaluation-context OK");

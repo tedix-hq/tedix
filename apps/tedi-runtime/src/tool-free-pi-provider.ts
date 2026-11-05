@@ -122,14 +122,13 @@ export function createToolFreePiModels(host: ToolFreePiProviderHost) {
 					receipt.providerAttempt,
 				);
 				if (measurement.dispatched) {
-					const outputShape = evaluationOutputShape(message);
 					await host.afterDispatch?.({
 						providerAttempt: receipt.providerAttempt,
 						usage,
 						finishReason: message.stopReason,
 						responseId: message.responseId ?? null,
 						responseModel: message.responseModel ?? null,
-						...(outputShape ? { outputShape } : {}),
+						outputShape: evaluationOutputShape(message) ?? null,
 					});
 				}
 			},
