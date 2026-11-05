@@ -40,6 +40,7 @@ import {
 	kernelFirstAttemptBatch,
 	recordKernelSubmissionStarted,
 } from "../../../kernel/runtime-submission-bridge";
+import { publishOsWorkspaceSummaryForKernelEvent } from "../../../services/workspace-summaries";
 import { type BaseContext, createError, ErrorCodes } from "../../orpc";
 import { auditActor } from "../../audit-helpers";
 import {
@@ -311,6 +312,11 @@ async function finishPersistedKernelRuntimeEvent(
 	if (persisted.inserted) {
 		await applyKernelConversationEvent(context.db, persisted.row);
 		await notifyPersistedPush(context, persisted.row);
+		await publishOsWorkspaceSummaryForKernelEvent(
+			context,
+			context.db,
+			persisted.row,
+		);
 	}
 	return {
 		event: normalizeHomeEvent(persisted.row),
@@ -398,6 +404,11 @@ export async function persistKernelTurnSettlement(
 			.map(async (event) => {
 				await applyKernelConversationEvent(context.db, event.row);
 				await notifyPersistedPush(context, event.row);
+				await publishOsWorkspaceSummaryForKernelEvent(
+					context,
+					context.db,
+					event.row,
+				);
 			}),
 	).then(() => undefined);
 	if (input.holdAfterSettle) input.holdAfterSettle(projection);

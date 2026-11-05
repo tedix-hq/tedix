@@ -26,6 +26,7 @@ import {
 	getOsWorkspaceProject,
 	reactivateOsWorkspaceProject,
 } from "@tedix/db/queries/os-workspaces/projects";
+import { parseOsWorkspaceSummaryPayload } from "@tedix/db/queries/os-workspaces/summaries";
 import {
 	createOsWorkspaceResource,
 	findOsWorkspaceTenantResource,
@@ -57,6 +58,7 @@ import type {
 	OsOutputRow,
 	OsWorkspaceProjectRow,
 	OsWorkspaceRow,
+	OsWorkspaceSummaryRow,
 } from "@tedix/db/schema/os-workspaces";
 import { parseBlueprintLineage } from "../../services/os-blueprint-portability";
 import {
@@ -286,7 +288,10 @@ function mapRollbackReference(
 	};
 }
 
-export function mapWorkspace(row: OsWorkspaceRow): OsWorkspace {
+export function mapWorkspace(
+	row: OsWorkspaceRow,
+	summary?: OsWorkspaceSummaryRow | null,
+): OsWorkspace {
 	return {
 		id: row.id,
 		organizationId: row.organizationId,
@@ -308,6 +313,19 @@ export function mapWorkspace(row: OsWorkspaceRow): OsWorkspace {
 		visibility: row.visibility,
 		ownerUserId: row.ownerUserId,
 		iconUrl: row.iconUrl,
+		summary: summary ? mapWorkspaceSummary(summary) : null,
+	};
+}
+
+function mapWorkspaceSummary(row: OsWorkspaceSummaryRow) {
+	const payload = parseOsWorkspaceSummaryPayload(row);
+	return {
+		revision: row.revision,
+		usage: payload.usage,
+		runStatus: payload.runStatus,
+		workLinks: payload.workLinks,
+		publishedAt: row.publishedAt,
+		appliedAt: row.appliedAt,
 	};
 }
 

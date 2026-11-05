@@ -277,6 +277,7 @@
 		"./queries/os-workspaces/resources": "./src/queries/os-workspaces/resources.ts",
 		"./queries/os-workspaces/files": "./src/queries/os-workspaces/files.ts",
 		"./queries/os-workspaces/projects": "./src/queries/os-workspaces/projects.ts",
+		"./queries/os-workspaces/summaries": "./src/queries/os-workspaces/summaries.ts",
 		"./queries/os-workspaces/gadgets": "./src/queries/os-workspaces/gadgets.ts",
 		"./queries/os-workspaces/blueprints": "./src/queries/os-workspaces/blueprints.ts",
 		"./queries/os-workspaces/executions": "./src/queries/os-workspaces/executions.ts",

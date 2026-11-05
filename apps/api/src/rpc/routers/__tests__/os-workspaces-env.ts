@@ -42,8 +42,10 @@ import {
 	osGadgets,
 	osOutputRevisions,
 	osOutputs,
+	osWorkspaceProjects,
 	osWorkspaceResources,
 	osWorkspaces,
+	osWorkspaceSummaries,
 } from "@tedix/db/schema/os-workspaces";
 import { userConfigs } from "@tedix/db/schema/user-configs";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
@@ -72,6 +74,8 @@ export function createEnv(): CloudflareEnv {
 			kernelConversations,
 			kernelConversationGrants,
 			osWorkspaces,
+			osWorkspaceSummaries,
+			osWorkspaceProjects,
 			osGadgets,
 			osGadgetRevisions,
 			osGadgetCode,
