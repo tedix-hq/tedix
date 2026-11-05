@@ -61,7 +61,7 @@ const facts = MemoryBrowseOutputSchema.parse({
 const lessons = ListAgentLessonsResultSchema.parse({
 	lessons: Array.from({ length: 23 }, (_, i) => ({
 		id: `b9-rule-${i}`,
-		fromCallerFeedback: true,
+		fromCallerFeedback: i !== 0,
 		text: `Orchard rule ${String(i + 1).padStart(2, "0")}: ${i === 0 ? longText : "Keep the sample harvest notes concise."}`,
 		addedAt: new Date(Date.UTC(2026, 0, 2, 10, 0, -i)).toISOString(),
 		learnedFrom: null,
@@ -287,7 +287,7 @@ try {
 	for (const viewport of [
 		{ width: 375, height: 667 },
 		{ width: 390, height: 844 },
-		{ width: 1280, height: 900 },
+		{ width: 1440, height: 844 },
 	]) {
 		for (const theme of ["light", "dark"] as const) {
 			for (const scenario of [
@@ -322,7 +322,7 @@ try {
 				const control = await fixture(page, receipt);
 				try {
 					if (scenario === "recovery") control.setMode("pending");
-					await page.goto(`${origin}/brain`);
+					await page.goto(`${origin}/brain`, { waitUntil: "domcontentloaded" });
 					await shown(memory(page));
 					assert.equal(
 						await page.locator("html").getAttribute("data-mode"),
@@ -430,6 +430,11 @@ try {
 								.getByRole("tab", { name: "Rules", exact: true })
 								.click();
 							await pageCount(page, 1, 20);
+							const organizationRule = memory(page)
+								.locator("tbody tr")
+								.filter({ hasText: "Orchard rule 01" });
+							await shown(organizationRule);
+							assert.match(await organizationRule.innerText(), /Organization/);
 							await shown(
 								memory(page).getByText(
 									"Search and sort the latest 100 records. Open a memory for full text and evidence.",

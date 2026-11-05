@@ -275,16 +275,14 @@ export function MemoryBrowser({
 			details: <FactDetails fact={fact} />,
 		}));
 	if (search.tab === "rules")
-		rows = (rules.data?.lessons ?? [])
-			.filter((lesson) => lesson.fromCallerFeedback)
-			.map((lesson) => ({
-				id: lesson.id,
-				body: lesson.text,
-				source: "Your feedback",
-				updated: lesson.addedAt,
-				confidence: null,
-				details: <MemoryRuleDetails lesson={lesson} />,
-			}));
+		rows = (rules.data?.lessons ?? []).map((lesson) => ({
+			id: lesson.id,
+			body: lesson.text,
+			source: lesson.fromCallerFeedback ? "Your feedback" : "Organization",
+			updated: lesson.addedAt,
+			confidence: null,
+			details: <MemoryRuleDetails lesson={lesson} />,
+		}));
 	if (search.tab === "knowledge")
 		rows = (knowledge.data?.entries ?? []).map((entry) => ({
 			id: entry.id,
