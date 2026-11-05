@@ -255,6 +255,51 @@ interface AgentSessionLessonReflectionParams extends AgentSessionRequestOwner {
 
 type AgentSessionInferencePhase = "status" | "intake";
 
+export async function hasAgentSessionLessonCoverage(
+	db: DbQueryClient,
+	params: Omit<AgentSessionLessonReflectionParams, "id"> & { ids: string[] },
+): Promise<boolean> {
+	if (!params.ids.length) return false;
+	const [row] = await db
+		.select({ id: agentSessionEvents.id })
+		.from(agentSessionEvents)
+		.where(
+			and(
+				// bound-params: the reflection window contributes at most three IDs.
+				inArray(agentSessionEvents.id, params.ids.slice(0, 3)),
+				eq(agentSessionEvents.organizationId, params.organizationId),
+				eq(agentSessionEvents.userId, params.userId),
+				eq(agentSessionEvents.harness, params.harness),
+				eq(agentSessionEvents.sessionKey, params.sessionKey),
+				eq(agentSessionEvents.kind, "turn"),
+				sql`json_extract(${agentSessionEvents.lessonReflection}, '$.coverageInputKey') = ${params.inputKey}`,
+			),
+		)
+		.limit(1);
+	return Boolean(row);
+}
+
+export async function recordAgentSessionLessonCoverage(
+	db: DbQueryClient,
+	params: AgentSessionLessonReflectionParams,
+): Promise<void> {
+	await db
+		.update(agentSessionEvents)
+		.set({
+			lessonReflection: sql`json_set(COALESCE(${agentSessionEvents.lessonReflection}, '{}'), '$.coverageInputKey', ${params.inputKey})`,
+		})
+		.where(
+			and(
+				eq(agentSessionEvents.id, params.id),
+				eq(agentSessionEvents.organizationId, params.organizationId),
+				eq(agentSessionEvents.userId, params.userId),
+				eq(agentSessionEvents.harness, params.harness),
+				eq(agentSessionEvents.sessionKey, params.sessionKey),
+				eq(agentSessionEvents.kind, "turn"),
+			),
+		);
+}
+
 export async function getAgentSessionLessonReflection(
 	db: DbQueryClient,
 	params: AgentSessionLessonReflectionParams,
