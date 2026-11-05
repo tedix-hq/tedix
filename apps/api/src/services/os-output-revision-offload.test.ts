@@ -231,6 +231,30 @@ describe("output revision body offload tick", () => {
 		]);
 	});
 
+	it("revisits failures after the pause even when new revisions keep arriving", async () => {
+		const f = fixture();
+		await f.seed("failed", "bytes", "fictional-harbor", {
+			contentSha256: "0".repeat(64),
+		});
+		expect(await f.tick(t0)).toMatchObject({
+			passes: 1,
+			failures: [{ id: "failed", rowid: 1, reason: "pointer_failed" }],
+		});
+		await f.seed("new", "");
+		expect(await f.tick(later(2))).toMatchObject({ status: "idle" });
+		await f.seed("newer", "");
+		expect(await f.tick(later(70), { windowRows: 2 })).toMatchObject({
+			passes: 1,
+			failures: [{ id: "failed", rowid: 1, reason: "pointer_failed" }],
+			cursor: 2,
+		});
+		expect(await f.tick(later(72))).toMatchObject({
+			status: "swept",
+			passes: 2,
+			cursor: 3,
+		});
+	});
+
 	it("stops at the byte budget, resumes after the last moved row and honours the pause switch", async () => {
 		const f = fixture();
 		for (const id of ["one", "two", "three"]) await f.seed(id, id.repeat(10));

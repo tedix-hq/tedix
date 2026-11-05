@@ -138,13 +138,15 @@ export async function runOutputRevisionBodyOffloadTick(input: {
 	if (state.paused)
 		return { ...base, status: "paused", cursor: state.cursor, maxRowid };
 	let after = state.cursor;
-	if (after >= maxRowid) {
+	// A completed pass must rewind even if inserts have moved the table's tail.
+	if (state.passCompletedAt || after >= maxRowid) {
 		const completedAt = state.passCompletedAt
 			? Date.parse(state.passCompletedAt)
 			: 0;
 		if (input.now.getTime() - completedAt < limits.passPauseMs)
 			return { ...base, status: "idle", cursor: after, maxRowid };
 		after = 0;
+		delete state.passCompletedAt;
 	}
 	const through = Math.min(after + limits.windowRows, maxRowid);
 	const candidates = await listInlineOutputBodyCandidates(db, {
