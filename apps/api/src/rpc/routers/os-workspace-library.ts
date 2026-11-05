@@ -20,6 +20,10 @@ import {
 	updateOsWorkspace,
 } from "@tedix/db/queries/os-workspaces/workspaces";
 import { getKernelConversation } from "@tedix/db/queries/kernel-conversations";
+import {
+	getOsWorkspaceSummary,
+	listOsWorkspaceSummaries,
+} from "@tedix/db/queries/os-workspaces/summaries";
 import { getMemberByUserId } from "@tedix/db/queries/organization-members";
 import {
 	getUserConfig,
@@ -56,6 +60,7 @@ import {
 } from "../../services/os-workspace-visibility";
 import { resolveKernelConversationAccess } from "../../kernel/conversation-access";
 import { DEFAULT_OS_WORKSPACE_NAME } from "../../services/os-default-workspace";
+import { scheduleOsWorkspaceSummaryPublish } from "../../services/workspace-summaries";
 
 const os = implement(osWorkspacesContract).$context<BaseContext>();
 const authed = os.use(withAuth).use(osAudit(OS_WORKSPACES_AUDIT));
@@ -220,9 +225,11 @@ async function giveToMember(
 }
 
 const list = readOs.workspaces.list.handler(async ({ input, context }) => {
+	const organizationId = requireOrgId(context);
+	const db = queryDb(context);
 	const rows = await listOsWorkspaces(
-		queryDb(context),
-		requireOrgId(context),
+		db,
+		organizationId,
 		await resolveOsWorkspaceViewer(context),
 		{
 			status: input.status,
@@ -231,8 +238,19 @@ const list = readOs.workspaces.list.handler(async ({ input, context }) => {
 			offset: input.offset,
 		},
 	);
+	// The org-wide listing — admin, search and the command palette — attaches
+	// each workspace's published summary row; workspaces without one yet read
+	// `summary: null` until their first queued snapshot lands.
+	const summaries = new Map(
+		(await listOsWorkspaceSummaries(db, organizationId)).map((row) => [
+			row.workspaceId,
+			row,
+		]),
+	);
 	return {
-		items: rows.slice(0, input.limit).map(mapWorkspace),
+		items: rows
+			.slice(0, input.limit)
+			.map((row) => mapWorkspace(row, summaries.get(row.id) ?? null)),
 		truncated: rows.length > input.limit,
 	};
 });
@@ -258,6 +276,10 @@ const create = authorOs.workspaces.create.handler(
 				createdById: accountable.id,
 				createdAt: timestamp,
 				updatedAt: timestamp,
+			});
+			scheduleOsWorkspaceSummaryPublish(context, {
+				organizationId: row.organizationId,
+				workspaceId: row.id,
 			});
 			return { workspace: mapWorkspace(row) };
 		} catch (error) {
@@ -356,9 +378,14 @@ const createFromConversation =
 		},
 	);
 
-const get = readOs.workspaces.get.handler(async ({ input, context }) => ({
-	workspace: mapWorkspace(await requireWorkspace(context, input.workspaceId)),
-}));
+const get = readOs.workspaces.get.handler(async ({ input, context }) => {
+	const workspace = await requireWorkspace(context, input.workspaceId);
+	const summary = await getOsWorkspaceSummary(queryDb(context), {
+		organizationId: workspace.organizationId,
+		workspaceId: workspace.id,
+	});
+	return { workspace: mapWorkspace(workspace, summary ?? null) };
+});
 
 const update = authorOs.workspaces.update.handler(
 	async ({ input, context }) => {
@@ -391,6 +418,10 @@ const update = authorOs.workspaces.update.handler(
 			if (!row) {
 				throw createError(ErrorCodes.NOT_FOUND, "OS workspace not found");
 			}
+			scheduleOsWorkspaceSummaryPublish(context, {
+				organizationId: row.organizationId,
+				workspaceId: row.id,
+			});
 			return { workspace: mapWorkspace(row) };
 		} catch (error) {
 			rethrowNameConflict(error);

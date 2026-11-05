@@ -357,6 +357,37 @@ export const OsBlueprintStatusSchema = z.enum([
 	"archived",
 ]);
 
+/**
+ * The workspace's published core summary row — usage, run status and Work
+ * links — read from `os_workspace_summaries` by cross-workspace readers.
+ * Eventually consistent: the workspace store feeds it through a queue, so it
+ * trails the workspace's own writes by the queue lag (bounded seconds).
+ */
+export const OsWorkspaceSummarySchema = z
+	.object({
+		revision: z.number().int().positive(),
+		usage: z.object({
+			conversationCount: z.number().int().nonnegative(),
+			messageCount: z.number().int().nonnegative(),
+			runCount: z.number().int().nonnegative(),
+		}),
+		runStatus: z.object({
+			activeRunCount: z.number().int().nonnegative(),
+			latestRun: z
+				.object({
+					id: z.string(),
+					status: z.string(),
+					updatedAt: z.string(),
+				})
+				.nullable(),
+		}),
+		workLinks: z.array(OsWorkspaceProjectSchema),
+		publishedAt: z.string(),
+		appliedAt: z.string(),
+	})
+	.strict();
+export type OsWorkspaceSummary = z.infer<typeof OsWorkspaceSummarySchema>;
+
 /** A Tedix OS workspace: the org-scoped container for gadgets. */
 export const OsWorkspaceSchema = z.object({
 	id: z.string().uuid(),
@@ -426,6 +457,11 @@ export const OsWorkspaceSchema = z.object({
 		.optional()
 		.describe(
 			"Public URL of the workspace's uploaded icon, shown instead of its initials; null or absent when none is set",
+		),
+	summary: OsWorkspaceSummarySchema.nullable()
+		.optional()
+		.describe(
+			"The workspace's published core summary row (usage, run status, Work links); eventually consistent, null until the first snapshot lands",
 		),
 });
 

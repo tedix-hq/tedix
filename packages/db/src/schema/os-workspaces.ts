@@ -757,10 +757,56 @@ export const osWorkspaceSkillDraftProposals = sqliteTable(
 	],
 );
 
+/**
+ * Core summary row for one workspace, fed by the workspace store through the
+ * automation-events queue and applied idempotently in revision order (newest
+ * wins). Cross-workspace readers — the org-wide Work board's project links,
+ * admin and search workspace listings, and workspace usage views — read this
+ * projection instead of fanning out to the workspace-scoped source tables.
+ * The row is rebuildable: `computeOsWorkspaceSummary` re-derives every payload
+ * column from the source tables.
+ */
+export const osWorkspaceSummaries = sqliteTable(
+	"os_workspace_summaries",
+	{
+		workspaceId: text("workspace_id")
+			.primaryKey()
+			.references(() => osWorkspaces.id, { onDelete: "cascade" }),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		/**
+		 * Publisher-minted monotonic revision (epoch milliseconds). The
+		 * consumer applies only when the message's revision is newer than the
+		 * stored one, so out-of-order delivery settles on the newest snapshot.
+		 */
+		revision: integer("revision").notNull(),
+		/** JSON: the workspace's usage rollup (conversations, messages, runs). */
+		usage: text("usage").notNull().default("{}"),
+		/** JSON: the workspace's run-status rollup (active count, latest run). */
+		runStatus: text("run_status").notNull().default("{}"),
+		/** JSON: the workspace's active Work project link projections. */
+		workLinks: text("work_links").notNull().default("[]"),
+		/** Publisher wall clock when the snapshot was computed. */
+		publishedAt: text("published_at").notNull(),
+		/** Consumer wall clock when this snapshot was applied. */
+		appliedAt: text("applied_at").notNull(),
+		createdAt: text("created_at")
+			.notNull()
+			.default(sql`(datetime('now'))`),
+		updatedAt: text("updated_at")
+			.notNull()
+			.default(sql`(datetime('now'))`),
+	},
+	(table) => [index("os_workspace_summaries_org_idx").on(table.organizationId)],
+);
+
 export type OsWorkspaceRow = typeof osWorkspaces.$inferSelect;
 export type NewOsWorkspaceRow = typeof osWorkspaces.$inferInsert;
 export type OsWorkspaceProjectRow = typeof osWorkspaceProjects.$inferSelect;
 export type NewOsWorkspaceProjectRow = typeof osWorkspaceProjects.$inferInsert;
+export type OsWorkspaceSummaryRow = typeof osWorkspaceSummaries.$inferSelect;
+export type NewOsWorkspaceSummaryRow = typeof osWorkspaceSummaries.$inferInsert;
 export type OsWorkspaceResourceRow = typeof osWorkspaceResources.$inferSelect;
 export type NewOsWorkspaceResourceRow =
 	typeof osWorkspaceResources.$inferInsert;

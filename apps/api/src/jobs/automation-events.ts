@@ -117,6 +117,16 @@ export async function handleAutomationEventMessage(
 			return "retry";
 		}
 	}
+	if (
+		body &&
+		typeof body === "object" &&
+		"kind" in body &&
+		body.kind === "workspace_summary"
+	) {
+		const { handleWorkspaceSummaryMessage } =
+			await import("../services/workspace-summaries");
+		return handleWorkspaceSummaryMessage(env, body);
+	}
 	const parsed = AutomationEventSchema.safeParse(body);
 	if (!parsed.success) {
 		console.warn(
