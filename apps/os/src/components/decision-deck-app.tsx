@@ -1,5 +1,6 @@
 import { useDeckDecision } from "./use-deck-decision";
 import { decisionOutcome } from "@/lib/decision-outcome";
+import { respondConfirmed } from "@/lib/respond-confirmed";
 import { projectDecisionDeck } from "./decision-deck-projection";
 import { DecisionDeckToolbar } from "./decision-deck-toolbar";
 import { DeckWaitingList } from "./decision-deck-waiting";
@@ -1200,8 +1201,9 @@ function DecisionDeckContent({
 																return;
 															}
 															const request = selected.row!.request;
-															const result =
-																await osApi.workInteractions.respond({
+															const result = await respondConfirmed(
+																osApi.workInteractions,
+																{
 																	requestId: request.id,
 																	expectedRequestVersion: request.version,
 																	responseKind: "answer",
@@ -1222,6 +1224,13 @@ function DecisionDeckContent({
 																		choice,
 																		elapsedMs,
 																	),
+																},
+															);
+															// Outside the decide queue nothing removes the card
+															// optimistically, so read the queue again.
+															if (mode !== "decide")
+																void client.invalidateQueries({
+																	queryKey: osQuery.workInteractions.key(),
 																});
 															return result;
 														}}

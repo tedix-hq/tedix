@@ -18,6 +18,8 @@ export type BoardAnswer =
 			responseKind: string;
 			body: string;
 			choice?: string;
+			/** The person's own words typed with the answer. */
+			instruction?: string;
 			at: string;
 	  }
 	| {
@@ -50,7 +52,11 @@ export function answerSentence(subject: string, answer: BoardAnswer) {
 		answer.kind === "not_useful"
 			? `marked it not needed (${NOT_USEFUL_TEXT[answer.reason]})${answer.note ? `: ${answer.note}` : ""}. Agents should not ask this again`
 			: `answered: ${answer.body}`;
-	return `Decision recorded for “${subject}” — ${said}.`.slice(0, 4000);
+	const next =
+		answer.kind === "answer" && answer.instruction
+			? `\n\nWhat to do next, in their words: ${answer.instruction}`
+			: "";
+	return `Decision recorded for “${subject}” — ${said}.${next}`.slice(0, 4000);
 }
 
 /**
@@ -117,9 +123,10 @@ export async function recordDecisionAnswerOnBoard(
 				}
 			}
 			workItemId = work.id;
-			if (created) await settleCreatedWork(context, work.id, request, answer);
+			if (created) await settleWork(context, work.id, request, answer);
 		}
-		if (!(await getWorkItemById(context.db, workItemId, orgId))) return null;
+		const work = await getWorkItemById(context.db, workItemId, orgId);
+		if (!work) return null;
 		await addWorkItemCommentIfAbsent(context.db, {
 			id: `decision-answer:${request.id}:${answer.kind === "answer" ? answer.responseId : "not-useful"}`,
 			orgId,
@@ -141,6 +148,17 @@ export async function recordDecisionAnswerOnBoard(
 			},
 			createdAt: answer.at,
 		});
+		// A yes on a card whose Work is still only proposed makes that Work
+		// actionable, carrying the person's words as the outcome.
+		if (
+			!created &&
+			work.disposition === "proposed" &&
+			request.kind !== "handoff" &&
+			// Only an explicit approve option, never any typed answer.
+			request.metadata.decisionDeck !== undefined &&
+			answerDisposition(answer) === "accept"
+		)
+			await settleWork(context, workItemId, request, answer);
 		return { workItemId, created };
 	} catch (error) {
 		console.warn("[decision-answer-board] answer not recorded on the board", {
@@ -151,7 +169,7 @@ export async function recordDecisionAnswerOnBoard(
 	}
 }
 
-async function settleCreatedWork(
+async function settleWork(
 	context: BaseContext,
 	workItemId: string,
 	request: Card,
@@ -167,11 +185,10 @@ async function settleCreatedWork(
 				id: workItemId,
 				acceptanceContract: {
 					version: 1,
-					doneLooksLike:
-						`Follow through on “${request.subject}” as decided, or post a short recommendation with evidence here.`.slice(
-							0,
-							2000,
-						),
+					doneLooksLike: (answer.kind === "answer" && answer.instruction
+						? `Do what the person asked on “${request.subject}”: ${answer.instruction}`
+						: `Follow through on “${request.subject}” as decided, or post a short recommendation with evidence here.`
+					).slice(0, 2000),
 				},
 			},
 			{ context },

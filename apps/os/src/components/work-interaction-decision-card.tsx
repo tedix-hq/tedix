@@ -15,6 +15,7 @@ import {
 } from "@/lib/interaction-card-kind";
 import { decisionEnvelope, decisionDeadlinePassed } from "@/lib/decision-deck";
 import { decisionOutcome } from "@/lib/decision-outcome";
+import { respondConfirmed } from "@/lib/respond-confirmed";
 import { DecisionCardPresentationSchema } from "@tedix/api-contract/schemas/decision-card-presentation";
 import type { WorkInteractionInboxRowSchema } from "@tedix/api-contract/schemas/work-interactions";
 import { OS_COPY, decisionText } from "@/shared/os-copy";
@@ -220,7 +221,7 @@ export function WorkInteractionDecisionCard({
 						: feedback.signal === "rejected"
 							? "No / Not needed."
 							: (option?.body ?? option?.label ?? feedback.body);
-			const result = await osApi.workInteractions.respond({
+			const result = await respondConfirmed(osApi.workInteractions, {
 				requestId,
 				expectedRequestVersion: request.version,
 				responseKind: proposal
@@ -274,7 +275,8 @@ export function WorkInteractionDecisionCard({
 					source: "os-decision-card",
 				},
 			});
-			if (!optimistic) await refresh();
+			// The saved answer must not wait on every other list refreshing.
+			if (!optimistic) void refresh();
 			return result;
 		},
 	});
