@@ -199,7 +199,23 @@ try {
 						.locator("xpath=ancestor::*[@data-workspace-app]")
 						.getAttribute("data-workspace-app");
 					withPreview = false;
+					// The card renders the record's own description until the
+					// detail query lands, so prove the rewritten manifest
+					// reached the page before asserting on its text.
+					const detailResponse = page.waitForResponse(
+						(response) =>
+							new URL(response.url()).pathname ===
+							"/api/rpc/osWorkspaces/gadgets/get",
+					);
 					await page.reload();
+					const detailBody = await detailResponse.then((response) =>
+						response.json(),
+					);
+					assert.equal(
+						(detailBody.json ?? detailBody).currentRevision?.manifest
+							?.description,
+						"App without a saved preview",
+					);
 					const compact = library.locator(`[data-workspace-app="${appId}"]`);
 					await compact.waitFor();
 					await compact.getByText("App without a saved preview").waitFor();
