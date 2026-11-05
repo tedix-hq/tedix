@@ -2859,6 +2859,107 @@ it.each(["route", "core"] as const)(
 	},
 );
 
+it.each(["route", "core"] as const)(
+	"recovers producer-shaped runtime-only Work stamp through %s",
+	async (surface) => {
+		const f = reusedWorkRecoveryFixture();
+		delete f.home.metadata!.workItemId;
+		f.home.runtimeMetadata = {
+			source: "kernelRuntime.enqueueMessage",
+			workItemId: f.work.id,
+		};
+		const before = structuredClone(f.home);
+		const originalWork = structuredClone(f.work);
+		const admission = vi.mocked(evaluateAndRecordWorkAdmission);
+		const admit = admission.getMockImplementation()!;
+		const checkedAdmission = vi.fn((...args: Parameters<typeof admit>) => {
+			expect(f.home.metadata).not.toHaveProperty("workItemId");
+			expect(f.home.runtimeMetadata).toEqual(before.runtimeMetadata);
+			return admit(...args);
+		});
+		admission.mockImplementationOnce(checkedAdmission);
+		const result =
+			surface === "route"
+				? await createKernelRuntimeClient(f.context).retryDelegation({
+						workItemId: f.work.id,
+					})
+				: await retryDelegationWorkItem(f.context, {
+						organizationId: ORG_ID,
+						workItemId: f.work.id,
+					});
+		expect(result.retryCount).toBe(1);
+		expect(f.runner).toHaveBeenCalledTimes(1);
+		expect(checkedAdmission).toHaveBeenCalledTimes(1);
+		expect(f.home.metadata?.workItemId).toBe(f.work.id);
+		expect(f.work).toEqual(originalWork);
+		expect(f.home.runtimeMetadata).toMatchObject(before.runtimeMetadata!);
+	},
+);
+
+it.each(["route", "core"] as const)(
+	"accepts equal dual Work stamps through %s without changing provenance",
+	async (surface) => {
+		const f = reusedWorkRecoveryFixture();
+		f.home.runtimeMetadata = { workItemId: f.work.id };
+		const result =
+			surface === "route"
+				? await createKernelRuntimeClient(f.context).retryDelegation({
+						workItemId: f.work.id,
+					})
+				: await retryDelegationWorkItem(f.context, {
+						organizationId: ORG_ID,
+						workItemId: f.work.id,
+					});
+		expect(result.retryCount).toBe(1);
+		expect(f.runner).toHaveBeenCalledTimes(1);
+		expect(f.home.metadata?.workItemId).toBe(f.work.id);
+		expect(f.home.runtimeMetadata?.workItemId).toBe(f.work.id);
+	},
+);
+
+it.each(["route", "core"] as const)(
+	"rejects every absent, conflicting or malformed Work stamp through %s before effects",
+	async (surface) => {
+		const id = "11111111-1111-4111-8111-111111111111";
+		const cases: Array<[Record<string, unknown>, Record<string, unknown>]> = [
+			[{}, {}],
+			[{ workItemId: id }, { workItemId: "foreign-work" }],
+			[{ workItemId: "foreign-work" }, { workItemId: id }],
+			[{}, { workItemId: "foreign-work" }],
+			...[null, undefined, 42, "", {}, [id]].flatMap(
+				(value) =>
+					[
+						[{ workItemId: id }, { workItemId: value }],
+						[{ workItemId: value }, { workItemId: id }],
+					] satisfies Array<[Record<string, unknown>, Record<string, unknown>]>,
+			),
+		];
+		for (const [metadata, runtimeMetadata] of cases) {
+			const f = reusedWorkRecoveryFixture();
+			delete f.home.metadata!.workItemId;
+			Object.assign(f.home.metadata!, metadata);
+			f.home.runtimeMetadata = runtimeMetadata;
+			const before = vi.mocked(evaluateAndRecordWorkAdmission).mock.calls
+				.length;
+			await expect(
+				surface === "route"
+					? createKernelRuntimeClient(f.context).retryDelegation({
+							workItemId: f.work.id,
+						})
+					: retryDelegationWorkItem(f.context, {
+							organizationId: ORG_ID,
+							workItemId: f.work.id,
+						}),
+			).rejects.toThrow(
+				"Canonical delegation does not match this Work and Home child",
+			);
+			expect(evaluateAndRecordWorkAdmission).toHaveBeenCalledTimes(before);
+			expect(f.runner).not.toHaveBeenCalled();
+			expect(f.db.workAttemptRows).toHaveLength(1);
+		}
+	},
+);
+
 afterEach(() => {
 	recoveryAdmissionRows.clear();
 	kernelRuntimeTestHooks.setDelegateRunnerForTest(null);
