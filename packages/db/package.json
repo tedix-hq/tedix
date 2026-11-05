@@ -485,7 +485,7 @@
 		"db:schema:check": "bun scripts/generate-migration.ts --check",
 		"db:migrate:history-check": "bun scripts/check-migration-history.ts",
 		"db:migrate:chain-check": "bun scripts/check-d1-migration-chain.ts",
-		"db:migrate:check": "bun run db:schema:check && bun run db:migrate:collision-check && bun run db:migrate:history-check && node ../../node_modules/jiti/lib/jiti-cli.mjs scripts/check-migrations.ts && bun run db:migrate:chain-check",
+		"db:migrate:check": "bun scripts/check-migration-suite.ts",
 		"db:migrate:apply": "bun run db:migrate:check && bun scripts/apply-production-migrations.ts",
 		"db:migrate": "sh -c 'CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN:-${CLOUDFLARE_D1_API_TOKEN:?set CLOUDFLARE_API_TOKEN to a D1-scoped token}} CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID:-${CF_ACCOUNT_ID:?set CLOUDFLARE_ACCOUNT_ID}} bun run db:migrate:apply'",
 		"db:migrate:list": "sh -c 'CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN:-${CLOUDFLARE_D1_API_TOKEN:?set CLOUDFLARE_API_TOKEN to a D1-scoped token}} CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID:-${CF_ACCOUNT_ID:?set CLOUDFLARE_ACCOUNT_ID}} bun scripts/check-live-migration-ledger.ts'",
