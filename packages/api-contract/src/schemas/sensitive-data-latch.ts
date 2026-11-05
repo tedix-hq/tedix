@@ -2,8 +2,9 @@
  * Sensitive-data latch for a run.
  *
  * When a skill run or Home (kernel) run reads from a source that is declared
- * sensitive — an `app_tools` row with `sensitive_data`, or a connection whose
- * stored classification is `restricted` — the run row records a latch. While
+ * sensitive — an `app_tools` row with `sensitive_data`, a connection whose
+ * stored classification is `restricted`, or an untrusted third-party
+ * (external / upstream-MCP) tool result — the run row records a latch. While
  * the latch is set, the run may not send data outside the organization
  * (tools declared `public_egress`, OS share links) and no grant or policy may
  * approve an action on its behalf. An owner or admin reviews and clears it;
@@ -16,6 +17,7 @@ import * as z from "zod";
 export const SensitiveDataLatchReasonSchema = z.enum([
 	"tool_declared_sensitive",
 	"connection_restricted",
+	"untrusted_source",
 ]);
 export type SensitiveDataLatchReason = z.infer<
 	typeof SensitiveDataLatchReasonSchema
@@ -48,6 +50,8 @@ export const LatchRunSensitiveDataInputSchema = z.object({
 		connectionProviderId: z.string().min(1).nullable(),
 		/** The `app_tools` row carries `sensitive_data`. */
 		toolDeclaredSensitive: z.boolean(),
+		/** The read returned third-party (external / upstream-MCP) content. */
+		untrustedSource: z.boolean().optional(),
 	}),
 });
 export type LatchRunSensitiveDataInput = z.infer<

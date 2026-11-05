@@ -610,7 +610,7 @@ describe("executeTool home soft-deadline ack (honest text on queued turns)", () 
 		expect(withheld.content[0]?.text).toContain("withheld");
 	});
 
-	it("returns a non-sensitive connected read inside a run even when the latch API errors", async () => {
+	it("withholds an untrusted third-party read when the latch write fails", async () => {
 		const latchRunSensitiveData = vi.fn(async () => {
 			throw new Error("D1 unavailable");
 		});
@@ -648,13 +648,16 @@ describe("executeTool home soft-deadline ack (honest text on queued turns)", () 
 			{},
 			{ adapterScope: "primary", resultStrategy: "merge" },
 		);
-		expect(result.isError).toBeUndefined();
-		expect(result.structuredContent).toMatchObject({ results: [{ url: "x" }] });
-		expect(latchRunSensitiveData).not.toHaveBeenCalled();
-		expect(resolveConnectionSensitivity).toHaveBeenCalledWith({
-			organizationId: "org-uuid",
-			connectionProviderId: "firecrawl",
-		});
+		expect(result.isError).toBe(true);
+		expect(latchRunSensitiveData).toHaveBeenCalledTimes(2);
+		expect(latchRunSensitiveData).toHaveBeenCalledWith(
+			expect.objectContaining({
+				source: expect.objectContaining({ untrustedSource: true }),
+			}),
+		);
+		// An untrusted read latches unconditionally; the connection
+		// classification is only consulted for first-party connected reads.
+		expect(resolveConnectionSensitivity).not.toHaveBeenCalled();
 	});
 
 	it("records an unclassified read without guessing from the tool name", async () => {
