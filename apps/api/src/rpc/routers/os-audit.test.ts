@@ -34,6 +34,7 @@ import {
 	osOutputRevisions,
 	osOutputs,
 	osWorkspaceResources,
+	osWorkspaceSummaries,
 	osWorkspaces,
 } from "@tedix/db/schema/os-workspaces";
 import { userConfigs } from "@tedix/db/schema/user-configs";
@@ -53,6 +54,7 @@ function createEnv(): CloudflareEnv {
 	sqlite.exec(
 		schemaDdl(
 			osWorkspaces,
+			osWorkspaceSummaries,
 			providerInstallations,
 			osWorkspaceResources,
 			osWorkspaceCollaborators,

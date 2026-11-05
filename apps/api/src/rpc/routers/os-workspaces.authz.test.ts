@@ -20,6 +20,7 @@ import {
 	osGadgets,
 	osOutputRevisions,
 	osOutputs,
+	osWorkspaceSummaries,
 	osWorkspaces,
 } from "@tedix/db/schema/os-workspaces";
 import { userConfigs } from "@tedix/db/schema/user-configs";
@@ -41,6 +42,7 @@ function createEnv(): CloudflareEnv {
 		schemaDdl(
 			policyPacks,
 			osWorkspaces,
+			osWorkspaceSummaries,
 			osGadgets,
 			osGadgetRevisions,
 			osGadgetExecutions,

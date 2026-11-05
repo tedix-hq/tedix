@@ -19,6 +19,7 @@ import {
 	osOutputs,
 	osWorkspaceResources,
 	osWorkspaces,
+	osWorkspaceSummaries,
 } from "@tedix/db/schema/os-workspaces";
 import { userConfigs } from "@tedix/db/schema/user-configs";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
@@ -55,6 +56,7 @@ function createEnv(): CloudflareEnv {
 			auditEvents,
 			organizationMembers,
 			osWorkspaceResources,
+			osWorkspaceSummaries,
 			skillRuns,
 			skillWorkflowSources,
 		),
