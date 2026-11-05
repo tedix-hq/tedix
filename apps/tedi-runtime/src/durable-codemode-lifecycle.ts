@@ -30,8 +30,9 @@ export function tediMcpConnectorInstructions(): string {
 	return [
 		"Tedix-assigned MCP apps for this tedi.",
 		"The mcp global is proxy-backed: Object.keys(mcp) is empty and is not a discovery mechanism.",
-		"Call mcp.list_namespaces({}) and mcp.search_tools({ query }) directly, then use mcp.call_tool(...) for a selected tool.",
+		"Call mcp.list_namespaces({}) and mcp.search_tools({ query }) directly, then call a selected tool.",
 		"There is no discover namespace inside this durable runtime; do not call discover.* or mcp.discover.*.",
-		"call_tool is approval-gated because it can dispatch either reads or writes; approval is tied to the exact recorded arguments.",
+		"For a tool whose search row has riskTier read, use mcp.call_read_tool(...): it runs without approval and refuses any other tool.",
+		"Use mcp.call_tool(...) for writes; it pauses for approval tied to the exact recorded arguments.",
 	].join(" ");
 }

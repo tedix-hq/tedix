@@ -1,4 +1,4 @@
-import { TediWorkspaceConnector } from "./durable-codemode";
+import { isReadTierCallable, TediWorkspaceConnector } from "./durable-codemode";
 import assert from "node:assert/strict";
 import { constructedTediDo, tediDo } from "../test/tedi-do";
 import { validateDurableCodeSource } from "./durable-codemode-policy";
@@ -20,6 +20,46 @@ assert.match(
 	).error ?? "",
 	/Do not shadow the mcp sandbox namespace/,
 );
+
+// call_read_tool trusts only the server's catalog row for the exact callable.
+const readRow = {
+	callable: "work.list_work_items",
+	_meta: { "com.tedix/policy": { riskTier: "read", blastRadius: "none" } },
+};
+const writeRow = {
+	callable: "work.create_work_item",
+	_meta: {
+		"com.tedix/policy": { riskTier: "bounded_write", blastRadius: "tenant" },
+	},
+};
+assert.equal(
+	isReadTierCallable([writeRow, readRow], "work.list_work_items"),
+	true,
+);
+assert.equal(
+	isReadTierCallable([readRow, writeRow], "work.create_work_item"),
+	false,
+);
+assert.equal(isReadTierCallable([readRow], "work.list_work_item"), false);
+assert.equal(
+	isReadTierCallable(
+		[{ callable: "work.list_work_items" }],
+		"work.list_work_items",
+	),
+	false,
+);
+assert.equal(
+	isReadTierCallable(
+		[readRow, { ...writeRow, callable: "work.list_work_items" }],
+		"work.list_work_items",
+	),
+	false,
+);
+assert.equal(
+	isReadTierCallable({ results: [readRow] }, "work.list_work_items"),
+	true,
+);
+assert.equal(isReadTierCallable(null, "work.list_work_items"), false);
 
 // The parent must not materialize an automatic second MCP tool catalog.
 assert.equal(

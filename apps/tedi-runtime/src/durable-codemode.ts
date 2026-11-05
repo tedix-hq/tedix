@@ -24,7 +24,11 @@ const MAX_REVERSIBLE_WORKSPACE_CHARS = 250_000;
 export interface DurableCodeMcpRuntime {
 	ensureSynced(options?: { force?: boolean }): Promise<void>;
 	getToolSpecs(): ChatToolSpec[];
-	executeTool(name: string, args: Record<string, unknown>): Promise<unknown>;
+	executeTool(
+		name: string,
+		args: Record<string, unknown>,
+		opts?: { resultAudience?: "machine" },
+	): Promise<unknown>;
 }
 
 export interface ReversibleWorkspaceWrite {
@@ -55,6 +59,28 @@ function objectArgs(value: unknown): Record<string, unknown> {
 
 function durableMethodName(toolName: string): string {
 	return toolName.replace(/^tedix_mcp_/, "");
+}
+
+const CALL_TOOL = "tedix_mcp_call_tool";
+const SEARCH_TOOLS = "tedix_mcp_search_tools";
+
+/**
+ * True only when the server's own catalog rows name this exact callable and
+ * every matching row declares the read risk tier. Model-authored arguments
+ * never supply the classification.
+ */
+export function isReadTierCallable(search: unknown, callable: string): boolean {
+	const rows = Array.isArray(search) ? search : objectArgs(search).results;
+	if (!Array.isArray(rows)) return false;
+	const matches = rows.filter((row) => objectArgs(row).callable === callable);
+	return (
+		matches.length > 0 &&
+		matches.every(
+			(row) =>
+				objectArgs(objectArgs(objectArgs(row)._meta)["com.tedix/policy"])
+					.riskTier === "read",
+		)
+	);
 }
 
 /**
@@ -88,7 +114,7 @@ class TediMcpConnector extends CodemodeConnector<Cloudflare.Env> {
 			// Mode wrapper. It can discover and call the underlying tools directly.
 			if (originalName === "tedix_mcp_code") continue;
 			const name = durableMethodName(originalName);
-			const requiresApproval = originalName === "tedix_mcp_call_tool";
+			const requiresApproval = originalName === CALL_TOOL;
 			out[name] = {
 				description: spec.function.description,
 				inputSchema: spec.function.parameters,
@@ -98,8 +124,33 @@ class TediMcpConnector extends CodemodeConnector<Cloudflare.Env> {
 				execute: async (args) =>
 					this.runtime.executeTool(originalName, objectArgs(args)),
 			};
+			if (originalName === CALL_TOOL) {
+				out.call_read_tool = {
+					description:
+						"Call one read-tier tool (riskTier read in search_tools) without approval. Same arguments as call_tool. Any other tool is refused; use call_tool for writes.",
+					inputSchema: spec.function.parameters,
+					replay: "reexecute",
+					execute: async (args) => this.callReadTool(objectArgs(args)),
+				};
+			}
 		}
 		return out;
+	}
+
+	private async callReadTool(args: Record<string, unknown>): Promise<unknown> {
+		const callable =
+			typeof args.callable === "string" ? args.callable.trim() : "";
+		if (!callable) throw new Error("callable is required");
+		const rows = await this.runtime.executeTool(
+			SEARCH_TOOLS,
+			{ query: callable, limit: 25 },
+			{ resultAudience: "machine" },
+		);
+		if (!isReadTierCallable(rows, callable))
+			throw new Error(
+				`${callable} is not a read-tier tool, so call_read_tool refused it. Use mcp.call_tool, which pauses for approval.`,
+			);
+		return this.runtime.executeTool(CALL_TOOL, { ...args, callable });
 	}
 }
 
