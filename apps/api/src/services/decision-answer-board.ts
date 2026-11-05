@@ -181,7 +181,7 @@ async function settleWork(
 	const disposition = answerDisposition(answer);
 	if (disposition === "propose") return;
 	const { workItemsContractRouter } = await import("../rpc/routers/work-items");
-	if (disposition === "accept")
+	if (disposition === "accept") {
 		await call(
 			workItemsContractRouter.accept,
 			{
@@ -196,7 +196,14 @@ async function settleWork(
 			},
 			{ context },
 		);
-	else
+		// A Yes also gives the accepted Work an agent, so it starts.
+		const { assignAgentOnYes } = await import("./decision-yes-assign");
+		await assignAgentOnYes(context, {
+			orgId: request.orgId,
+			workItemId,
+			personId: request.targetId!,
+		});
+	} else
 		await call(
 			workItemsContractRouter.cancel,
 			{

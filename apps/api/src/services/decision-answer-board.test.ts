@@ -6,7 +6,9 @@ const mocks = vi.hoisted(() => ({
 	comment: vi.fn(),
 	work: vi.fn(),
 	bySource: vi.fn(),
+	assign: vi.fn(),
 }));
+vi.mock("./decision-yes-assign", () => ({ assignAgentOnYes: mocks.assign }));
 vi.mock("@orpc/server", () => ({ call: mocks.call }));
 vi.mock("@tedix/db/queries/work-items/comments", () => ({
 	addWorkItemCommentIfAbsent: mocks.comment,
@@ -108,6 +110,11 @@ describe("recordDecisionAnswerOnBoard", () => {
 		});
 		expect(input).not.toHaveProperty("workClass");
 		expect(mocks.call.mock.calls[1]?.[0]).toBe("accept");
+		expect(mocks.assign).toHaveBeenCalledWith(context, {
+			orgId,
+			workItemId: workId,
+			personId: "user-1",
+		});
 		expect(mocks.comment.mock.calls[0]?.[1]).toMatchObject({
 			id: `decision-answer:${card.id}:resp-1`,
 			workItemId: workId,
@@ -204,6 +211,7 @@ describe("recordDecisionAnswerOnBoard", () => {
 			answer: { ...yes, choice: "reject", body: "Not needed" },
 		});
 		expect(mocks.call.mock.calls[1]?.[0]).toBe("cancel");
+		expect(mocks.assign).not.toHaveBeenCalled();
 		expect(answerDisposition({ ...yes, choice: "later" })).toBe("propose");
 	});
 

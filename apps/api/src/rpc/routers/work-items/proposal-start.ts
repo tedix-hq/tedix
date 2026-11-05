@@ -133,6 +133,11 @@ const defaultActions: ProposalStartActions = {
 
 let activeActions = defaultActions;
 
+/** The procedures a start reuses, including any a test installed. */
+export function proposalStartActions(): ProposalStartActions {
+	return activeActions;
+}
+
 export const proposalStartTestHooks = {
 	use(actions: ProposalStartActions) {
 		activeActions = actions;
