@@ -657,7 +657,7 @@ normal identity and Attempt fences remain mandatory.
 
 ### Controlled remote email jobs
 
-`tedix lane remote-job send|receive --input <file> -w <profile> --organization <org>`
+`tedix lane remote-job send|receive|inspect --input <file> -w <profile> --organization <org>`
 runs one explicit Instinct email pass under the caller's existing admitted
 Attempt. It never starts, heartbeats or settles an Attempt. `lane serve`
 continues to dispatch local executors; it does not poll these remote jobs.
@@ -687,6 +687,15 @@ accepted the message; it does not prove delivery or a result. No reply leaves
 the record pending. A `sending` or `unknown` record, or an uncertain evidence
 publication, requires reconciliation; repeating the command never resends the
 job automatically. Keep its input and recovery record until reconciled.
+Use `inspect` to search up to ten matching mailbox threads across all statuses,
+without marking mail read or changing the job, its evidence or recovery record.
+For an older job, keep its original envelope and set only `scope` to your current
+admitted session and Attempt. Inspection requires matching original Work evidence
+and the current owner/member binding. It returns the original job, inspecting
+Attempt, local recovery snapshot, mailbox cursor and any exact outbound envelope
+with a stored provider receipt. An empty search remains unknown; multiple receipts
+are conflicting. A confirmed receipt proves provider acceptance only. Inspection
+never authorizes a resend, consumes replies or resolves uncertain publications.
 WhatsApp remains an explicit computer-use fallback, never an automatic resend
 after an unknown email outcome. Cloud transports and ordered live proofs
 remain separate requirements; this command does not configure them.
