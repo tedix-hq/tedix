@@ -569,7 +569,11 @@ export const osOutputRevisions = sqliteTable(
 			.notNull()
 			.references(() => osOutputs.id, { onDelete: "cascade" }),
 		revision: integer("revision").notNull(),
-		/** JSON string: the semantic content body, discriminated by the output's kind. */
+		/**
+		 * JSON string: the semantic content body, discriminated by the output's
+		 * kind. Rows whose body lives in R2 (`body_r2_key`) keep the empty string
+		 * here; read bodies through the API's `hydrateOutputRevision`, never raw.
+		 */
 		content: text("content").notNull(),
 		/** Optional revision message describing the edit. */
 		note: text("note"),

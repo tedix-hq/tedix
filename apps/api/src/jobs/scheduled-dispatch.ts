@@ -42,7 +42,8 @@ async function trackPlatformCronPath(
  *   of each quarter hour: retire expired, finished-Work and duplicate cards),
  *   due skill schedules, always-on keepalive, orphan-run sweep, work-attempt
  *   lease sweep, kernel request reconcile, interaction review dispatch, work
- *   approval redrive, MCP event webhook delivery, Work
+ *   approval redrive, MCP event webhook delivery, inline output revision
+ *   body offload to R2 (bounded rowid window per tick), Work
  *   routing (every ten minutes: accepted non-coding Work to its steward tedi).
  * - Every 15 minutes → AI Gateway cost-ledger tick, workstation lease reaper,
  *   reply-draft career ladder,
@@ -285,6 +286,45 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 				event,
 				"mcp-event-webhook-delivery",
 				() => runMcpEventWebhookDelivery(env),
+			);
+		}
+
+		// Inline output revision bodies move to R2 in small bounded steps on the
+		// installation tick: storage maintenance, not fleet-commercial.
+		if (cron === "*/2 * * * *") {
+			await trackPlatformCronPath(
+				env,
+				event,
+				"output-revision-body-offload",
+				async () => {
+					const { createDbQueryClient } =
+						await import("@tedix/db/query-client");
+					const { runOutputRevisionBodyOffloadTick } =
+						await import("../services/os-output-revision-offload");
+					const result = await runOutputRevisionBodyOffloadTick({
+						db: createDbQueryClient(env.DB),
+						bucket: env.R2_BUCKET,
+						now: new Date(event.scheduledTime),
+					});
+					if (result.status === "swept")
+						console.log(
+							JSON.stringify({
+								event: "os.output_revision_body_offload.tick",
+								...result,
+								failures: result.failures.length,
+								failureReasons: result.failures.map((row) => row.reason),
+							}),
+						);
+					return {
+						offloadCandidates: result.candidates,
+						offloadRowsCleared: result.rowsCleared,
+						offloadBytesCleared: result.bytesCleared,
+						offloadFailures: result.failures.length,
+						offloadCursor: result.cursor,
+						offloadMaxRowid: result.maxRowid,
+						offloadPasses: result.passes,
+					};
+				},
 			);
 		}
 

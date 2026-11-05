@@ -42,6 +42,7 @@ import {
 import { describe, expect, it, vi, onTestFinished } from "vite-plus/test";
 import { userContext, apiKeyContext } from "../test-context";
 import { createOsAppRuntimeRouter } from "./os-app-runtime";
+import { hydrateOutputRevision } from "../../services/os-output-revision-body-store";
 import { OsDerivedAccessEnvelopeSchema } from "@tedix/api-contract/schemas/os-workspaces";
 
 const workspaceId = "11111111-1111-4111-8111-111111111111";
@@ -1177,10 +1178,11 @@ describe("workspace app runtime API under attack", () => {
 			.select()
 			.from(osOutputRevisions)
 			.where(eq(osOutputRevisions.revision, 2));
-		expect(JSON.parse(latest[0]!.content).blocks).toEqual([
-			{ type: "paragraph", text: "Edited by the app" },
-			quote,
-		]);
+		// The body is in R2; the D1 row keeps only the pointer.
+		expect(latest[0]!.content).toBe("");
+		expect(
+			JSON.parse((await hydrateOutputRevision(latest[0]!)).content).blocks,
+		).toEqual([{ type: "paragraph", text: "Edited by the app" }, quote]);
 		// A stale read cannot land, and a patch grant is not a whole-body write.
 		await expect(internal.capability(patch(1))).rejects.toMatchObject({
 			code: "CONFLICT",

@@ -445,7 +445,11 @@ export async function mergeOsCollaborationProposal(
 						sql<number>`${osCollaborationProposals.baseRevision} + 1`.as(
 							"revision",
 						),
-					content: osCollaborationProposals.content,
+					// With an R2 body the row keeps the empty-string sentinel that
+					// hydrateOutputRevision reads as "fetch the pointer".
+					content: params.outputBody
+						? sql<string>`''`.as("content")
+						: osCollaborationProposals.content,
 					note: sql<string>`${params.rationale}`.as("note"),
 					createdByKind: sql<
 						OsOutputRevisionRow["createdByKind"]

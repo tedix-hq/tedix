@@ -1,4 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
+import type { OsOutputRevisionRow } from "@tedix/db/schema/os-workspaces";
+import { hydrateOutputRevision } from "../../services/os-output-revision-body-store";
 import { createRouterClient } from "@orpc/server";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { createDbClient } from "@tedix/db/client";
@@ -252,11 +254,22 @@ describe("generic blueprint apply", () => {
 		expect(JSON.parse(String(item.metadata)).suggestedOwners).toEqual([
 			"A fictional teammate",
 		]);
+		// The body is in R2; the D1 row keeps the pointer and an empty body.
 		const doc = f.sqlite
-			.prepare("SELECT content FROM os_output_revisions")
+			.prepare(
+				"SELECT content, organization_id, content_sha256, content_bytes, body_r2_key FROM os_output_revisions",
+			)
 			.get()!;
-		expect(String(doc.content)).toContain(preview.receipt.workspaceId);
-		expect(String(doc.content)).toContain("Example day");
+		expect(doc.content).toBe("");
+		const { content } = await hydrateOutputRevision({
+			content: "",
+			organizationId: doc.organization_id,
+			contentSha256: doc.content_sha256,
+			contentBytes: doc.content_bytes,
+			bodyR2Key: doc.body_r2_key,
+		} as unknown as OsOutputRevisionRow);
+		expect(content).toContain(preview.receipt.workspaceId);
+		expect(content).toContain("Example day");
 		const schedule = f.sqlite
 			.prepare(
 				"SELECT metadata FROM os_workspace_resources WHERE resource_type='schedule_definition'",

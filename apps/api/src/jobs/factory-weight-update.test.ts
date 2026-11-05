@@ -13,6 +13,7 @@ import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { desc, eq } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
+import { hydrateOutputRevision } from "../services/os-output-revision-body-store";
 import { updateFactoryWeights } from "./factory-weight-update";
 
 const ORG = "org-weights";
@@ -172,9 +173,11 @@ async function rulesContent(db: DbClient) {
 		.where(eq(osOutputRevisions.outputId, RULES))
 		.orderBy(desc(osOutputRevisions.revision))
 		.limit(1);
+	// Bodies live in R2; the row keeps a pointer and an empty inline body.
+	const { content } = await hydrateOutputRevision(row!);
 	return {
 		revision: row!.revision,
-		content: JSON.parse(row!.content) as {
+		content: JSON.parse(content) as {
 			columns: string[];
 			rows: (string | null)[][];
 		},

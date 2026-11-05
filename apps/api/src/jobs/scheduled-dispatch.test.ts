@@ -32,6 +32,18 @@ const catchup = vi.hoisted(() => ({
 	ingest: vi.fn(),
 	billing: vi.fn(),
 	stall: vi.fn().mockResolvedValue(0),
+	offload: vi.fn().mockResolvedValue({
+		status: "idle",
+		cursor: 0,
+		maxRowid: 0,
+		passes: 0,
+		candidates: 0,
+		rowsCleared: 0,
+		bytesCleared: 0,
+		failures: [],
+		receiptKey: null,
+		summary: null,
+	}),
 	paths: [] as string[],
 	outcomes: [] as Array<{ id: string; status: "success" | "failure" }>,
 }));
@@ -91,6 +103,9 @@ vi.mock("./repository-observer", () => ({
 }));
 vi.mock("./support-maintenance", () => ({
 	maintainSupport: vi.fn().mockResolvedValue({ mirrors: 0 }),
+}));
+vi.mock("../services/os-output-revision-offload", () => ({
+	runOutputRevisionBodyOffloadTick: catchup.offload,
 }));
 vi.mock("./platform-cron-receipts", () => ({
 	runPlatformCronPath: async (
@@ -192,6 +207,14 @@ it("runs bounded gateway-only catch-up on the existing two-minute trigger", asyn
 	expect(catchup.billing).not.toHaveBeenCalled();
 	expect(catchup.outcomes).toContainEqual({
 		id: "gateway-cost-catchup",
+		status: "success",
+	});
+	// Inline output bodies drain to R2 on the same installation tick.
+	expect(catchup.offload).toHaveBeenCalledWith(
+		expect.objectContaining({ now: new Date(Date.UTC(2026, 8, 24, 0, 0)) }),
+	);
+	expect(catchup.outcomes).toContainEqual({
+		id: "output-revision-body-offload",
 		status: "success",
 	});
 });
