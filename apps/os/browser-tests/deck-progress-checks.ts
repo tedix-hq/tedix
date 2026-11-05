@@ -234,6 +234,8 @@ async function assertNoOverflow(page: Page, state: string) {
 	);
 }
 const screenshots = process.env.DECK_PROGRESS_SCREENSHOTS;
+const selectedWidth = Number(process.env.DECK_PROGRESS_WIDTH ?? 0);
+const selectedTheme = process.env.DECK_PROGRESS_THEME;
 let browser: Browser | undefined;
 try {
 	browser = await chromium.launch();
@@ -241,8 +243,10 @@ try {
 		[375, 667],
 		[390, 844],
 		[1280, 800],
-	])
-		for (const colorScheme of ["light", "dark"] as const) {
+	].filter(([width]) => !selectedWidth || selectedWidth === width))
+		for (const colorScheme of (["light", "dark"] as const).filter(
+			(theme) => !selectedTheme || selectedTheme === theme,
+		)) {
 			const context = await browser.newContext({
 				viewport: { width, height },
 				colorScheme,
@@ -415,36 +419,38 @@ try {
 			await loading.close();
 			console.log(`Deck progress: ${width} ${colorScheme} passed`);
 		}
-	const page = await browser.newPage();
-	await fixture(page, { failure: true });
-	await page.goto(`${origin}/work?view=deck`);
-	const first = page.getByRole("region", {
-		name: "Review card 1?",
-		exact: true,
-	});
-	const original = await first.elementHandle();
-	await first.getByRole("button", { name: /^Approve/ }).click();
-	assert.equal(
-		await page.locator("[data-deck-progress] p").innerText(),
-		"1 of 20",
-		"pending saves keep the deciding card mounted",
-	);
-	await page
-		// The card states the failure inline, with its next step.
-		.getByText(/Fictional save failed/)
-		.first()
-		.waitFor();
-	await first.waitFor();
-	assert.equal(
-		await page.locator("[data-deck-progress] p").innerText(),
-		"1 of 20",
-		"failed save preserves progress and card",
-	);
-	assert(
-		await original!.evaluate((element) => element.isConnected),
-		"failed save preserves the editor instance",
-	);
-	await page.close();
+	if (!selectedWidth || (selectedWidth === 1280 && selectedTheme === "dark")) {
+		const page = await browser.newPage();
+		await fixture(page, { failure: true });
+		await page.goto(`${origin}/work?view=deck`);
+		const first = page.getByRole("region", {
+			name: "Review card 1?",
+			exact: true,
+		});
+		const original = await first.elementHandle();
+		await first.getByRole("button", { name: /^Approve/ }).click();
+		assert.equal(
+			await page.locator("[data-deck-progress] p").innerText(),
+			"1 of 20",
+			"pending saves keep the deciding card mounted",
+		);
+		await page
+			// The card states the failure inline, with its next step.
+			.getByText(/Fictional save failed/)
+			.first()
+			.waitFor();
+		await first.waitFor();
+		assert.equal(
+			await page.locator("[data-deck-progress] p").innerText(),
+			"1 of 20",
+			"failed save preserves progress and card",
+		);
+		assert(
+			await original!.evaluate((element) => element.isConnected),
+			"failed save preserves the editor instance",
+		);
+		await page.close();
+	}
 } finally {
 	await browser?.close();
 	await server.stop();
