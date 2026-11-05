@@ -250,6 +250,7 @@
 		"./queries/catalog/upsert-sync": "./src/queries/catalog/upsert-sync.ts",
 		"./queries/catalog/vendor-siblings": "./src/queries/catalog/vendor-siblings.ts",
 		"./queries/catalog/vendor-variants": "./src/queries/catalog/vendor-variants.ts",
+		"./queries/catalog/write-capability": "./src/queries/catalog/write-capability.ts",
 		"./queries/workflow-runs": "./src/queries/workflow-runs.ts",
 		"./queries/workstations": "./src/queries/workstations.ts",
 		"./queries/app-secrets": "./src/queries/app-secrets.ts",

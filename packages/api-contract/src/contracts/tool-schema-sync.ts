@@ -135,6 +135,7 @@ export const ToolSchemaSyncItemSchema = z.object({
 			"outputSchema",
 			"config",
 			"annotations",
+			"writeCapability",
 			"meta",
 			"authRequired",
 			"visibility",

@@ -9,6 +9,14 @@ const mocks = vi.hoisted(() => ({
 	list: vi.fn(),
 	discovery: vi.fn(),
 	projection: vi.fn(),
+	writeCapabilityReport: vi.fn(async () => ({
+		totalTools: 0,
+		totalApps: 0,
+		listed: 0,
+		truncated: false,
+		items: [],
+		summary: "Every tool declares a write capability.",
+	})),
 }));
 vi.mock("@tedix/db/client", () => ({ createDbClient: () => ({}) }));
 vi.mock("@tedix/db/queries/apps", () => ({
@@ -19,6 +27,9 @@ vi.mock("@tedix/db/queries/apps", () => ({
 vi.mock("@tedix/db/queries/app-records", () => ({ getAppById: mocks.app }));
 vi.mock("@tedix/db/queries/catalog/mcp-tools", () => ({
 	projectCatalogToolsFromBaseApp: mocks.projection,
+}));
+vi.mock("@tedix/db/queries/catalog/write-capability", () => ({
+	reportUnclassifiedWriteCapability: mocks.writeCapabilityReport,
 }));
 vi.mock("../lib/mcp-subscriptions", () => ({
 	publishMcpListChangedEvents: mocks.publish,
@@ -93,6 +104,29 @@ describe("OpenAPI sync inventory activation", () => {
 		await run(true);
 		expect(mocks.publish).not.toHaveBeenCalled();
 		expect(mocks.app).not.toHaveBeenCalled();
+	});
+	it("reports the residual undeclared write-capability backlog per app", async () => {
+		mocks.writeCapabilityReport.mockResolvedValue({
+			totalTools: 2,
+			totalApps: 1,
+			listed: 2,
+			truncated: false,
+			items: [
+				{ toolId: "create_issue", appId: "app", reason: "no_annotations" },
+				{ toolId: "send_mail", appId: "app", reason: "no_annotations" },
+			],
+			summary: "2 enabled tool(s) have no declared write capability",
+		});
+		const result = await run();
+		expect(mocks.writeCapabilityReport).toHaveBeenCalledWith(
+			expect.anything(),
+			{ appId: "app", limit: 100 },
+		);
+		expect(result.writeCapabilityReport).toHaveLength(1);
+		expect(result.writeCapabilityReport[0].items.map((i) => i.toolId)).toEqual([
+			"create_issue",
+			"send_mail",
+		]);
 	});
 	it("does not invalidate unchanged tools", async () => {
 		mocks.import.mockResolvedValue({
