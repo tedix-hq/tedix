@@ -19,7 +19,7 @@ async function digest(value: string): Promise<string> {
 		.join("");
 }
 
-async function fixture() {
+async function fixture(evidenceVerified = true) {
 	const provider =
 		`${"the"}${"rion"}` as ToolFactoryArtifactManifest["tool"]["provider"];
 	const toolId = `${provider}_review_input`;
@@ -127,11 +127,18 @@ async function fixture() {
 		payloads,
 		keyId: "tool-factory-2026-11",
 		privateKey: keys.privateKey,
+		verifyExecutionEvidence: async () => evidenceVerified,
 	});
 	return { artifact, keys };
 }
 
 describe("signed tool-factory artefacts", () => {
+	it("rejects catalog claims without canonical successful-run evidence", async () => {
+		await expect(fixture(false)).rejects.toThrow(
+			"requires canonical successful-run evidence",
+		);
+	});
+
 	it("promotes proven execution evidence and imports a scoped provider tool", async () => {
 		const { artifact, keys } = await fixture();
 		const imported = await verifyAndImportToolFactoryArtifact({
