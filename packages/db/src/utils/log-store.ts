@@ -15,9 +15,11 @@
 import { getLogStores, type LogStores } from "../client";
 import { readLogPartition } from "../queries/log-partitions";
 
-export interface LogTimeRange {
+export interface ReadLogStoresOptions {
 	from?: string;
 	to?: string;
+	/** Defaults to main-first so moved-row deduplication keeps the main copy. */
+	order?: "main-first" | "logs-first";
 }
 
 /**
@@ -27,7 +29,7 @@ export interface LogTimeRange {
 export async function readLogStores<T>(
 	db: object,
 	read: (store: LogStores["main"]) => Promise<T>,
-	range: LogTimeRange = {},
+	options: ReadLogStoresOptions = {},
 ): Promise<T[] | null> {
 	const stores = getLogStores(db);
 	if (!stores) return null;
@@ -42,15 +44,19 @@ export async function readLogStores<T>(
 			// Inclusive bounds are conservative for strict cursors and second-granular audit rows.
 			const overlaps =
 				!row ||
-				((!range.to || Date.parse(row.fromTs) <= Date.parse(range.to)) &&
-					(!range.from ||
+				((!options.to || Date.parse(row.fromTs) <= Date.parse(options.to)) &&
+					(!options.from ||
 						!row.toTs ||
-						Date.parse(row.toTs) >= Date.parse(range.from)));
+						Date.parse(row.toTs) >= Date.parse(options.from)));
 			return overlaps ? db : null;
 		}),
 	);
+	const logs = partitions.filter((db) => db !== null);
 	return Promise.all(
-		[stores.main, ...partitions.filter((db) => db !== null)].map(read),
+		(options.order === "logs-first"
+			? [...logs, stores.main]
+			: [stores.main, ...logs]
+		).map(read),
 	);
 }
 

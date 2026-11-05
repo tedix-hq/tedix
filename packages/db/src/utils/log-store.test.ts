@@ -77,6 +77,18 @@ describe("log partition directory", () => {
 		]);
 	});
 
+	it("can invoke logs stores before main without changing the default", async () => {
+		const main = store();
+		const logs = store();
+		configureLogStore(main.db, { LOGS_DB: logs.binding });
+		const source = (db: typeof main.db) =>
+			Promise.resolve(db.$client === main.db.$client ? "main" : "logs");
+		expect(await readLogStores(main.db, source)).toEqual(["main", "logs"]);
+		expect(
+			await readLogStores(main.db, source, { order: "logs-first" }),
+		).toEqual(["logs", "main"]);
+	});
+
 	it("skips non-overlapping partitions and includes boundary timestamps", async () => {
 		const main = store();
 		const active = store({ from: "2026-03-01" });

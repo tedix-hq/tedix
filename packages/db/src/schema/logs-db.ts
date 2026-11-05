@@ -51,6 +51,29 @@ export const LOGS_DB_TABLES: readonly SQLiteTable[] = [
 	logPartition,
 ];
 
+/** Indexes that belong only to the logs database, not the shared main schema. */
+export const LOGS_DB_INDEXES: readonly {
+	table: string;
+	ddl: string;
+}[] = [
+	{
+		table: "audit_events",
+		ddl: `CREATE INDEX "idx_audit_events_trace_timestamp" ON "audit_events" (json_extract("metadata", '$.traceId'), "timestamp");`,
+	},
+	{
+		table: "audit_events",
+		ddl: `CREATE INDEX "idx_audit_events_execution_timestamp" ON "audit_events" (json_extract("metadata", '$.executionId'), "timestamp");`,
+	},
+	{
+		table: "audit_events",
+		ddl: `CREATE INDEX "idx_audit_events_org_app_timestamp" ON "audit_events" ("organization_id", json_extract("metadata", '$.appId'), "timestamp");`,
+	},
+	{
+		table: "audit_events",
+		ddl: `CREATE INDEX "idx_audit_events_org_actor_timestamp" ON "audit_events" ("organization_id", "actor_id", "timestamp");`,
+	},
+];
+
 /** Movable log tables for retention policy checks; excludes directory metadata. */
 export const LOGS_DB_TABLE_NAMES: ReadonlySet<string> = new Set([
 	"audit_events",
