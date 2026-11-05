@@ -75,7 +75,21 @@ export const NO_WRITTEN_ANSWER =
  * mid-task (seen live after its first tool result) has not finished, and a
  * tools-off report would end the work it was about to do.
  */
-export type FinalReportStop = { reason: string; continueWithTools?: boolean };
+export type FinalReportStop = {
+	reason: string;
+	continueWithTools?: boolean;
+	/** The fallback ladder's next model; an empty stop counts as unavailability. */
+	modelRef?: string;
+};
+
+/** The catalog ref of the turn's selected model, as fallback ladders key it. */
+export function selectedModelRef(identity: {
+	provider: string;
+	model: string;
+}): string {
+	if (identity.model.startsWith("cloudflare/")) return identity.model;
+	return `${identity.provider}/${identity.model}`;
+}
 
 /** Only an unexplained empty stop continues; a budget or ceiling stop reports. */
 export function finalReportStopFor(input: {
