@@ -141,6 +141,7 @@ export async function listKernelRuntimeEvents(
 				: undefined,
 		input.id ? eq(kernelRuntimeEvents.id, input.id) : undefined,
 		input.kind ? eq(kernelRuntimeEvents.kind, input.kind) : undefined,
+		// bound-params: kinds is a subset of the closed TediRuntimeEventKind enum
 		input.kinds ? inArray(kernelRuntimeEvents.kind, input.kinds) : undefined,
 		input.createdBefore
 			? lt(kernelRuntimeEvents.createdAt, input.createdBefore)
@@ -218,6 +219,7 @@ export async function listTediRuntimeEvents(
 		input.runIdPrefix
 			? like(tediRuntimeEvents.runId, `${input.runIdPrefix}%`)
 			: undefined,
+		// bound-params: kinds is a subset of the closed TediRuntimeEventKind enum
 		input.kinds ? inArray(tediRuntimeEvents.kind, input.kinds) : undefined,
 	];
 	const base = db
