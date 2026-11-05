@@ -252,39 +252,6 @@ describe("workspace collaborators", () => {
 				.get(),
 		).toMatchObject({ access: "owner" });
 	});
-	it("cuts a suspended browser seat even when its explicit workspace share remains", async () => {
-		const { env, workspaceId, sqlite } = await seed();
-		await as(env, ROBIN).add({
-			workspaceId,
-			email: "kai@example.test",
-			role: "build",
-		});
-		sqlite
-			.prepare(
-				"UPDATE organization_members SET kind = 'browser_agent', represented_user_id = ? WHERE descope_user_id = ?",
-			)
-			.run(ROBIN, KAI);
-		const read = async () => {
-			const response = await workspaceSessionAccess(
-				new Request("https://api/__internal/workspace-session-access", {
-					method: "POST",
-					body: JSON.stringify({ workspaceId, userIds: [ROBIN, KAI] }),
-				}),
-				env,
-			);
-			return response.json();
-		};
-		expect(await read()).toEqual({
-			roles: { [ROBIN]: "build", [KAI]: "build" },
-		});
-		sqlite
-			.prepare(
-				"UPDATE organization_members SET status = 'deactivated' WHERE descope_user_id = ?",
-			)
-			.run(KAI);
-		expect(await read()).toEqual({ roles: { [ROBIN]: "build", [KAI]: null } });
-	});
-
 	it("rechecks live session roles after a cascading downgrade and removal", async () => {
 		const { env, workspaceId } = await seed();
 		await as(env, ROBIN).add({

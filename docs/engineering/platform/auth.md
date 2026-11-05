@@ -221,21 +221,10 @@ author and force agent origin. Home and Work display the agent and its owner.
 `members.suspendAgentSeat` lets an active human seat owner or organization
 administrator retain the membership as `deactivated`. Existing browser
 credentials then fail the next authenticated API request. Team exposes this
-as **Suspend agent** in the identity dialog. After deactivation, the API asks
-Descope to log out all sessions for the seat's linked provider user ID. Provider
-failure is reported without reopening the seat; repeating suspension retries
-revocation. The audit records deactivation and successful provider revocation
-separately. This logs the agent out across its provider sessions, including
-other organizations using that identity.
-
-Voice token issuance and upgrades also require live active membership, including
-the browser seat's human owner and restricted role. Open voice and dictation
-sockets recheck membership every five seconds and close when access is lost or
-the check fails. Chat sockets repeat their API authorization every three seconds
-and close on denial or an unavailable authority. Collaboration rooms use their
-existing three-second access alarm; explicit workspace shares cannot retain a
-deactivated organization's seat. Sign-in, mailbox control and consent remain
-with the human.
+as **Suspend agent** in the identity dialog. This does not revoke the identity
+provider's refresh credentials or terminate already-open collaboration sockets;
+those are separate session-revocation work. Sign-in, mailbox control and consent
+remain with the human.
 
 ## Waitlist gate
 
