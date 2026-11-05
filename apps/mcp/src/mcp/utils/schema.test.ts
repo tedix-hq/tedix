@@ -531,6 +531,35 @@ describe("jsonSchemaToInputSchema", () => {
 		});
 	});
 
+	it("keeps keys declared by top-level union branches", async () => {
+		// A z.union of objects publishes its keys only inside anyOf branches;
+		// stripping by root `properties` alone dropped every argument.
+		const schema = jsonSchemaToInputSchema(
+			{
+				type: "object",
+				anyOf: [
+					{
+						type: "object",
+						properties: { mode: { not: {} }, id: { type: "string" } },
+						required: ["id"],
+					},
+					{
+						type: "object",
+						properties: {
+							id: { type: "string", const: "closeout" },
+							mode: { type: "object" },
+						},
+						required: ["id", "mode"],
+					},
+				],
+			},
+			{ toolId: "union_tool", lenient: false },
+		);
+		expect(await schema["~standard"].validate({ id: "abc", extra: 1 })).toEqual(
+			{ value: { id: "abc" } },
+		);
+	});
+
 	it("preserves nested arguments for an upstream tool with an open object schema", async () => {
 		// Descope's hosted management MCP currently advertises `session.args` as
 		// an object with no declared properties. JSON Schema leaves that nested
