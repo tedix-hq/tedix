@@ -13,3 +13,5 @@ const connectorInstructions = tediMcpConnectorInstructions();
 assert.match(connectorInstructions, /Object\.keys\(mcp\) is empty/);
 assert.match(connectorInstructions, /mcp\.search_tools/);
 assert.match(connectorInstructions, /do not call discover\.\*/);
+assert.match(connectorInstructions, /mcp\.call_read_tool/);
+assert.match(connectorInstructions, /mcp\.call_tool\(\.\.\.\) for writes/);
