@@ -2,6 +2,7 @@ import { useContext, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { DeckNotUsefulReason } from "@tedix/api-contract/schemas/deck-pipeline";
 import { osApi } from "@/lib/api";
+import { answerTime } from "@/lib/decision-outcome";
 import { osQuery } from "@/lib/os-query-options";
 import {
 	DeckCardAgentContext,
@@ -73,6 +74,12 @@ export function DeckNotUseful({
 	if (mark.isSuccess)
 		return (
 			<div className="grid gap-1" role="status">
+				<Text>
+					{OS_COPY.decisionDeck.outcome.notNeededLine(
+						OS_COPY.decisionDeck.outcome.reasons[mark.data.reason],
+						answerTime(new Date(mark.submittedAt).toISOString()),
+					)}
+				</Text>
 				<Text tone="secondary">{copy.done}</Text>
 				{mark.data.rule && <Text>{copy.rule(mark.data.rule.sentence)}</Text>}
 				{mark.data.undo && <InternalDecisionUndo target={mark.data.undo} />}

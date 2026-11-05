@@ -451,7 +451,9 @@ describe("Work interaction canonical actor projections", () => {
 				},
 			});
 			expect(result.response.resolvesRequest).toBe(true);
-			expect(lookup).toHaveBeenCalledExactlyOnceWith(
+			// The first read enriches learning; a later one records the answer on the Work.
+			expect(lookup).toHaveBeenNthCalledWith(
+				1,
 				expect.anything(),
 				WORK_ITEM_ID,
 				ORG_ID,

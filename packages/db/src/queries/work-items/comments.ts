@@ -17,19 +17,23 @@ import {
 	workItems,
 } from "../../schema/work-items";
 
-/** Unclassified notes remain facts; only the asking agent's declared progress is exempt. */
+/**
+ * Unclassified notes remain facts; exempt are the asking agent's declared
+ * progress and the record of a person's own card answer.
+ */
 export function decisionRelevantWorkComment(request: {
 	creatorType?: string;
 	creatorId?: string;
 	createdAt?: string;
 }) {
+	if (!request.createdAt) return sql`1`;
+	const answerRecord = sql`(json_extract(${workItemComments.metadata}, '$.schema') = 'tedix.decision-answer.v1' AND ${workItemComments.createdAt} > ${request.createdAt})`;
 	if (
 		!["tedi", "external_agent"].includes(request.creatorType ?? "") ||
-		!request.creatorId ||
-		!request.createdAt
+		!request.creatorId
 	)
-		return sql`1`;
-	return sql`NOT coalesce((
+		return sql`NOT coalesce(${answerRecord}, 0)`;
+	return sql`NOT coalesce(${answerRecord} OR (
 		${workItemComments.authorType} = ${request.creatorType}
 		AND ${workItemComments.authorId} = ${request.creatorId}
 		AND json_extract(${workItemComments.metadata}, '$.decisionImpact') = 'progress'

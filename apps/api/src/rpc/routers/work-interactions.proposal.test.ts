@@ -794,3 +794,112 @@ describe("Accepted proposal starts its first step", () => {
 		expect(result.response.metadata.started).toBeUndefined();
 	});
 });
+
+describe("Answers take effect on the Work board", () => {
+	const ask = (
+		f: ReturnType<typeof setup>,
+		where: { workItemId?: string; projectId?: string },
+	) =>
+		f.owner.create({
+			...where,
+			kind: "question",
+			subject: "Keep rarely used recovery tools?",
+			prompt: "Keep them available until evidence shows no use.",
+			requestedFrom: { type: "user", id: "target-id" },
+			reason: "Only the owner can set this priority.",
+		});
+
+	it("records the person's answer on the card's Work, once", async () => {
+		const f = setup();
+		const request = await ask(f, { workItemId: WORK_ITEM_ID });
+		const { response } = await f.target.respond({
+			requestId: request.id,
+			expectedRequestVersion: request.version,
+			responseKind: "answer",
+			resolvesRequest: true,
+			body: "Keep them",
+		});
+		const comments = f.sqlite
+			.prepare(
+				"SELECT id,author_type,author_id,body,json_extract(metadata,'$.schema') AS schema FROM work_item_comments WHERE work_item_id=?",
+			)
+			.all(WORK_ITEM_ID);
+		expect(comments).toEqual([
+			{
+				id: `decision-answer:${request.id}:${response.id}`,
+				author_type: "user",
+				author_id: "target-id",
+				body: expect.stringContaining("answered: Keep them"),
+				schema: "tedix.decision-answer.v1",
+			},
+		]);
+		expect(
+			f.sqlite
+				.prepare(
+					"SELECT count(*) AS n FROM work_events WHERE work_item_id=? AND event_type='comment'",
+				)
+				.get(WORK_ITEM_ID),
+		).toEqual({ n: 1 });
+	});
+
+	it("creates one Work in the card's project for a card without Work", async () => {
+		const f = setup();
+		const request = await ask(f, { projectId: PROJECT_ID });
+		await f.target.respond({
+			requestId: request.id,
+			expectedRequestVersion: request.version,
+			responseKind: "answer",
+			resolvesRequest: true,
+			body: "Yes, prioritise this",
+			metadata: { decisionChoice: "approve" },
+		});
+		const created = f.sqlite
+			.prepare(
+				"SELECT id,project_id,title,description FROM work_items WHERE source_intent_id=?",
+			)
+			.all(`decision-card:${request.id}`) as { id: string }[];
+		expect(created).toEqual([
+			{
+				id: expect.any(String),
+				project_id: PROJECT_ID,
+				title: "Keep rarely used recovery tools?",
+				description: expect.stringContaining("Yes, prioritise this"),
+			},
+		]);
+		expect(
+			f.sqlite
+				.prepare(
+					"SELECT count(*) AS n FROM work_item_comments WHERE work_item_id=?",
+				)
+				.get(created[0]!.id),
+		).toEqual({ n: 1 });
+	});
+
+	it("refuses an agent's re-ask of a card the person marked not needed", async () => {
+		const f = setup();
+		f.sqlite
+			.prepare(
+				`INSERT INTO work_interactions (id,org_id,work_item_id,kind,status,subject,prompt,creator_type,creator_id,target_type,target_id,created_at,cancelled_at,version,metadata)
+				VALUES ('00000000-0000-4000-8000-0000000000aa',?,?,'question','cancelled','Keep rarely used recovery tools?','x','tedi','chat-tedi','user','target-id',?,?,2,?)`,
+			)
+			.run(
+				ORG_ID,
+				WORK_ITEM_ID,
+				"2026-11-05T08:00:00.000Z",
+				"2026-11-05T08:44:00.000Z",
+				JSON.stringify({
+					curation: { notUseful: { reason: "already_decided" } },
+				}),
+			);
+		await expect(
+			f.kernel().create({
+				workItemId: WORK_ITEM_ID,
+				kind: "question",
+				subject: " keep rarely used recovery tools? ",
+				prompt: "Asking again.",
+				requestedFrom: { type: "user", id: "target-id" },
+				reason: "Only the owner can set this priority.",
+			}),
+		).rejects.toThrow(/not needed \(already decided\)/);
+	});
+});

@@ -14,6 +14,7 @@ import {
 	interactionCardKind,
 } from "@/lib/interaction-card-kind";
 import { decisionEnvelope, decisionDeadlinePassed } from "@/lib/decision-deck";
+import { decisionOutcome } from "@/lib/decision-outcome";
 import { DecisionCardPresentationSchema } from "@tedix/api-contract/schemas/decision-card-presentation";
 import type { WorkInteractionInboxRowSchema } from "@tedix/api-contract/schemas/work-interactions";
 import { OS_COPY, decisionText } from "@/shared/os-copy";
@@ -353,6 +354,7 @@ export function WorkInteractionDecisionCard({
 		);
 	if (!detail) return readNotice;
 	const { request, effectiveState, canRespond, canCancel, responses } = detail;
+	const outcome = decisionOutcome(request, effectiveState);
 	const rowReview = rowReviewSpec(request.metadata);
 	if (rowReview && effectiveState === "open" && canRespond)
 		return (
@@ -551,12 +553,17 @@ export function WorkInteractionDecisionCard({
 				at={request.requestedAt}
 				content={
 					<div className="grid gap-3">
-						{effectiveState !== "open" ? (
-							<p>
-								{effectiveState === "resolved" && !choices.externalAction
-									? "Answer saved"
-									: "Request closed"}
-							</p>
+						{outcome ? (
+							<div role="status" data-decision-outcome>
+								<p>
+									{effectiveState === "resolved" && choices.externalAction
+										? "Request closed"
+										: outcome.line}
+								</p>
+								{outcome.note ? (
+									<p className="text-kumo-subtle">{outcome.note}</p>
+								) : null}
+							</div>
 						) : null}
 						{capture?.attention === "fyi" ? (
 							<p>{decisionText("Update: nothing needed from you")}</p>

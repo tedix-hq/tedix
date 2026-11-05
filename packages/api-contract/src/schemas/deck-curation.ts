@@ -73,6 +73,9 @@ export const DeckCurationStateSchema = z.strictObject({
 			]),
 			sourceKey: z.string().max(300),
 			classKey: z.string().max(300),
+			/** When the recipient answered, and their optional note. */
+			at: z.iso.datetime().optional(),
+			note: z.string().max(4000).optional(),
 		})
 		.optional(),
 	/** Shadow ranking: Qwen label and the second key's NOISE probability. */

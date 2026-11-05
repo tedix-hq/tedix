@@ -1,4 +1,5 @@
 import type { DecisionDeckConfig } from "@tedix/api-contract/schemas/os-decision-deck";
+import { notUsefulAnswer } from "@/lib/decision-outcome";
 import type { DecisionLearningModel } from "@tedix/api-contract/schemas/decision-learning";
 import {
 	rankDeckCard,
@@ -87,7 +88,11 @@ export function projectDecisionDeck({
 						)
 					: []),
 				...(mode === "history"
-					? history.filter((row) => row.effectiveState === "resolved")
+					? history.filter(
+							(row) =>
+								row.effectiveState === "resolved" ||
+								notUsefulAnswer(row.request.metadata) !== null,
+						)
 					: decisions.requests
 				).map((row) => {
 					const decision = decisionEnvelope(row.request.metadata);

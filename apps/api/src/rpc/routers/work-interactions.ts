@@ -806,6 +806,29 @@ const respondProcedure = writeOs.respond.handler(async ({ input, context }) => {
 			});
 		}
 		await recordDecisionLearning(context, orgId, request, response);
+		if (
+			response.resolvesRequest &&
+			responder.type === "user" &&
+			!response.metadata.corrects
+		) {
+			const { recordDecisionAnswerOnBoard } =
+				await import("../../services/decision-answer-board");
+			await recordDecisionAnswerOnBoard(startContext, {
+				orgId,
+				request,
+				answer: {
+					kind: "answer",
+					responseId: response.id,
+					responseKind: response.responseKind,
+					body: response.body,
+					choice:
+						typeof response.metadata.decisionChoice === "string"
+							? response.metadata.decisionChoice
+							: undefined,
+					at: response.respondedAt,
+				},
+			});
+		}
 		return {
 			request: requestOutput(request),
 			response: responseOutput(response),

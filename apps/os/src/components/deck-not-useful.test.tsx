@@ -118,6 +118,9 @@ describe("DeckNotUseful", () => {
 			expectedRequestVersion: 3,
 			reason: "expired",
 		});
+		expect(host.textContent).toMatch(
+			/You said not needed — no longer current · \d{1,2}:\d{2}/,
+		);
 		expect(host.textContent).toContain("From now on: Cards from deck-truth");
 		expect(buttons().map((button) => button.textContent)).toEqual(["Undo"]);
 	});

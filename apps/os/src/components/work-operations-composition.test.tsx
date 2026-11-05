@@ -627,6 +627,51 @@ describe("External action requests", () => {
 			page.host.querySelector('textarea[aria-label="Your answer"]'),
 		).not.toBeNull();
 	});
+	it("shows the person's not-useful answer instead of a plain cancelled card", async () => {
+		api.reads["workInteractions.get"] = {
+			request: {
+				id: "request-1",
+				version: 2,
+				subject: "Convert the browser seat",
+				kind: "handoff",
+				creatorType: "external_agent",
+				creatorId: "agent-1",
+				requestedFromId: "owner-1",
+				prompt: "Change the seat role.",
+				metadata: {
+					curation: {
+						schema: "tedix.deck-curation.v1",
+						revision: 2,
+						draftBody: null,
+						status: "cancelled",
+						successorId: null,
+						penalty: 0,
+						reason: "Not useful: already decided",
+						evidenceRefs: [],
+						model: null,
+						exampleIds: [],
+						notUseful: {
+							reason: "already_decided",
+							sourceKey: "external_agent:agent-1",
+							classKey: "decide|external_agent:agent-1",
+							at: "2026-11-05T08:44:00.000Z",
+						},
+					},
+				},
+			},
+			effectiveState: "cancelled",
+			canRespond: false,
+			canCancel: false,
+			responses: { data: [], hasMore: false, nextCursor: null },
+		};
+		const page = await mount(<WorkInteractionPage requestId="request-1" />);
+		const status = page.host.querySelector("[data-decision-outcome]");
+		expect(status?.textContent).toMatch(
+			/^You said not needed — already decided · \S+/,
+		);
+		expect(page.host.textContent).not.toContain("Withdrawn");
+		expect(page.host.textContent).not.toContain("already_decided");
+	});
 	it.each([
 		["cancelled", true],
 		["resolved", true],
@@ -639,7 +684,11 @@ describe("External action requests", () => {
 			expect(page.host.textContent).not.toContain("Open sign-in");
 			expect(page.host.querySelector("form, textarea")).toBeNull();
 			if (state !== "open")
-				expect(page.host.textContent).toContain("Request closed");
+				expect(page.host.textContent).toContain(
+					state === "cancelled"
+						? "Withdrawn by the agent that asked"
+						: "Request closed",
+				);
 			expect(
 				page.host.querySelector('textarea[aria-label="Your answer"]'),
 			).toBeNull();

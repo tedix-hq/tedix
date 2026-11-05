@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
 	config: vi.fn(),
 	prior: vi.fn(),
 	states: vi.fn(),
+	refused: vi.fn(async () => null),
 }));
 vi.mock("@tedix/db/queries/decision-learning", () => ({
 	getDecisionLearningConfig: mocks.config,
@@ -17,6 +18,7 @@ vi.mock("@tedix/db/queries/decision-graph", () => ({
 }));
 vi.mock("@tedix/db/queries/work-items/deck-sweep", () => ({
 	listDeckSourceStates: mocks.states,
+	findNotUsefulAnswer: mocks.refused,
 }));
 
 const orgId = "11111111-1111-4111-8111-111111111111";
