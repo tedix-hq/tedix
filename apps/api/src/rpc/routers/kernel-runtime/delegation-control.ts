@@ -83,6 +83,7 @@ import {
 import {
 	cancelKernelRunCore,
 	retryDelegationWorkItem,
+	resolveDelegationRecoveryBinding,
 	steerKernelRunCore,
 } from "./control-proposals";
 
@@ -955,20 +956,37 @@ export const retryDelegationRoute = authed.retryDelegation
 				`Work item ${input.workItemId} not found`,
 			);
 		}
-		if (!workItem.sourceSessionKey) {
-			throw createError(
-				ErrorCodes.NOT_FOUND,
-				`Work item ${input.workItemId} has no source Home conversation to gate against`,
-			);
-		}
-		await ensureHomeConversationAccess(context, {
-			conversationId: workItem.sourceSessionKey,
+		if (workItem.sourceSessionKey)
+			await ensureHomeConversationAccess(context, {
+				conversationId: workItem.sourceSessionKey,
+				organizationId,
+				required: "edit",
+			});
+		const binding = await resolveDelegationRecoveryBinding(context, {
 			organizationId,
-			required: "edit",
+			workItemId: input.workItemId,
 		});
+		if (binding.workItem.sourceSessionKey !== workItem.sourceSessionKey)
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"Work origin changed during recovery authorization",
+			);
+		if (!workItem.sourceSessionKey) {
+			if (!binding.canonicalReuse)
+				throw createError(
+					ErrorCodes.NOT_FOUND,
+					`Work item ${input.workItemId} has no source Home conversation to gate against`,
+				);
+			await ensureHomeConversationAccess(context, {
+				conversationId: binding.homeRun.conversationId,
+				organizationId,
+				required: "edit",
+			});
+		}
 		const result = await retryDelegationWorkItem(context, {
 			organizationId,
 			workItemId: input.workItemId,
+			recoveryBinding: binding,
 		});
 		await recordObservedLearningInteraction(context, {
 			organizationId,
@@ -986,7 +1004,7 @@ export const retryDelegationRoute = authed.retryDelegation
 			issueKey: "kernel-delegation-retry",
 			targetType: "work_item",
 			targetId: input.workItemId,
-			threadId: workItem.sourceSessionKey,
+			threadId: workItem.sourceSessionKey ?? binding.homeRun.conversationId,
 			runId: result.childRunId,
 			metadata: {
 				retryCount: result.retryCount,
