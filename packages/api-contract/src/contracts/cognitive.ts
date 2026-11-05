@@ -836,7 +836,12 @@ export const skillsContract = oc.route({ tags: ["skills"] }).router({
 				reason: z.string().min(1),
 			}),
 		)
-		.output(z.object({ entry: SkillEntrySchema })),
+		.output(
+			z.object({
+				entry: SkillEntrySchema.nullable(),
+				removedId: z.string().optional(),
+			}),
+		),
 
 	quarantineWorkshop: oc
 		.route({

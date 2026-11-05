@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
 	getOrganizationById: vi.fn(),
 	getSkillEntry: vi.fn(),
 	updateSkillEntry: vi.fn(),
+	adoptSkillImprovementCopy: vi.fn(),
+	removeSkillImprovementCopy: vi.fn(),
 	validateSkillInput: vi.fn(),
 	syncSkillScheduleProjection: vi.fn(),
 	getSkillRun: vi.fn(),
@@ -104,6 +106,10 @@ vi.mock(
 		validateSkillInput: mocks.validateSkillInput,
 	}),
 );
+vi.mock("@tedix/db/queries/cognitive/skill-improvement-cleanup", () => ({
+	adoptSkillImprovementCopy: mocks.adoptSkillImprovementCopy,
+	removeSkillImprovementCopy: mocks.removeSkillImprovementCopy,
+}));
 vi.mock("./cognitive-skill-shared", async (importOriginal) => ({
 	...(await importOriginal<typeof import("./cognitive-skill-shared")>()),
 	syncSkillScheduleProjection: mocks.syncSkillScheduleProjection,
@@ -484,11 +490,17 @@ describe("workflow improvement activation", () => {
 		mocks.getSkillEntry.mockImplementation(
 			async (_db, id: string) => rows[id] ?? null,
 		);
-		mocks.updateSkillEntry.mockImplementation(
-			async (_db, id: string, updates) => {
-				rows[id] = { ...rows[id], ...updates };
-			},
-		);
+		mocks.adoptSkillImprovementCopy.mockImplementation(async (_db, params) => {
+			rows[params.baseline.id] = {
+				...rows[params.baseline.id],
+				...params.baselineUpdates,
+			};
+			rows[params.proposal.id] = {
+				...rows[params.proposal.id],
+				...params.proposalUpdates,
+			};
+			return true;
+		});
 		mocks.getSkillRun.mockResolvedValue({
 			...RUN,
 			skillId: proposal.id,
@@ -519,6 +531,39 @@ describe("workflow improvement activation", () => {
 		expect(
 			Number.isNaN(Date.parse(result.proposal.improvementAdoption!.adoptedAt!)),
 		).toBe(false);
+	});
+
+	it("rejects an improvement in one step and returns its removed id", async () => {
+		mocks.removeSkillImprovementCopy.mockResolvedValue(true);
+		const client = createRouterClient(skillsContractRouter, {
+			context: createContext(vi.fn()),
+		});
+		expect(
+			await client.rejectWorkshop({
+				id: proposal.id,
+				reason: "Keep the original",
+			}),
+		).toEqual({ entry: null, removedId: proposal.id });
+		expect(mocks.removeSkillImprovementCopy).toHaveBeenCalledWith(
+			expect.anything(),
+			{
+				organizationId: "org-1",
+				id: proposal.id,
+				reason: "Rejected: Keep the original",
+			},
+		);
+		expect(mocks.updateSkillEntry).not.toHaveBeenCalled();
+	});
+
+	it("reports protected improvements without archiving or deleting them", async () => {
+		mocks.removeSkillImprovementCopy.mockResolvedValue(false);
+		const client = createRouterClient(skillsContractRouter, {
+			context: createContext(vi.fn()),
+		});
+		await expect(
+			client.rejectWorkshop({ id: proposal.id, reason: "Keep the original" }),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+		expect(mocks.updateSkillEntry).not.toHaveBeenCalled();
 	});
 
 	it("still refuses when the baseline moved after the proposal", async () => {

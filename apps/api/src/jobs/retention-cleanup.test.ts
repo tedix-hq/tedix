@@ -3,6 +3,7 @@ import { tediCallCosts } from "@tedix/db/schema/tedis";
 import { appCatalogHealthHistory } from "@tedix/db/schema/catalog";
 import { kernelToolResults } from "@tedix/db/schema/cognitive-runtime";
 import { organizations } from "@tedix/db/schema/organizations";
+import { sweepAbandonedSkillImprovements } from "@tedix/db/queries/cognitive/skill-improvement-cleanup";
 import {
 	prunePlatformCronExecutions,
 	terminalizeAbandonedPlatformCronExecutions,
@@ -98,6 +99,11 @@ vi.mock("@tedix/db/queries/skill-lifecycle", () => ({
 	sweepExpiredDraftSkills: vi
 		.fn()
 		.mockResolvedValue({ archived: 0, entries: [] }),
+}));
+vi.mock("@tedix/db/queries/cognitive/skill-improvement-cleanup", () => ({
+	sweepAbandonedSkillImprovements: vi
+		.fn()
+		.mockResolvedValue({ removedIds: ["old-copy"] }),
 }));
 vi.mock("@tedix/db/queries/fact-lifecycle", () => ({
 	FACT_TTL_SWEEP_HOMEOSTAT_MAX_BATCHES_PER_ORG: 10,
@@ -196,6 +202,13 @@ describe("scheduled usage evidence retention", () => {
 					.all(),
 			).toEqual([{ id: "recent" }]);
 			expect(result.healthHistoryDeleted).toBe(1);
+			expect(result.removedSkillImprovementCopies).toBe(1);
+			expect(sweepAbandonedSkillImprovements).toHaveBeenCalledWith(
+				expect.anything(),
+				{
+					now: new Date("2026-09-21T03:00:00Z"),
+				},
+			);
 			expect(result.platformCronExecutionsAbandoned).toBe(2);
 			expect(terminalizeAbandonedPlatformCronExecutions).toHaveBeenCalledWith(
 				expect.anything(),

@@ -984,6 +984,24 @@ describe("pace-layer auto-classification (WS6)", () => {
 });
 
 describe("sweepExpiredDraftSkills", () => {
+	it("leaves improvement copies to their evidence-aware deletion sweep", async () => {
+		const { db, insertSkill, skillRow } = fixture();
+		insertSkill({
+			id: "improvement",
+			lifecycleState: "draft",
+			tags: ["workflow-improvement"],
+			updatedAt: "2026-06-01T00:00:00.000Z",
+		});
+		expect(
+			(
+				await sweepExpiredDraftSkills(db, {
+					now: new Date("2026-07-16T00:00:00.000Z"),
+				})
+			).archived,
+		).toBe(0);
+		expect(skillRow("improvement").lifecycleState).toBe("draft");
+	});
+
 	it("archives zero-use drafts older than the TTL and appends revision reasoning", async () => {
 		const { db, insertSkill, skillRow } = fixture();
 		insertSkill({

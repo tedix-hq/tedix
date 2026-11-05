@@ -123,6 +123,7 @@
 		"./queries/cognitive/muscle-memory": "./src/queries/cognitive/muscle-memory.ts",
 		"./queries/cognitive/skill-catalog": "./src/queries/cognitive/skill-catalog.ts",
 		"./queries/cognitive/skill-crud": "./src/queries/cognitive/skill-crud.ts",
+		"./queries/cognitive/skill-improvement-cleanup": "./src/queries/cognitive/skill-improvement-cleanup.ts",
 		"./queries/cognitive/skill-folders": "./src/queries/cognitive/skill-folders.ts",
 		"./queries/cognitive/skill-mcp-bindings": "./src/queries/cognitive/skill-mcp-bindings.ts",
 		"./queries/cognitive/skill-crystallization": "./src/queries/cognitive/skill-crystallization.ts",
