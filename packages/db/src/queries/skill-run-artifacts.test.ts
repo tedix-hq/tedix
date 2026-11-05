@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { configureLogStore, createDbClient } from "../client";
 import { createD1Facade } from "../test/d1-facade";
 import {
@@ -15,7 +15,7 @@ import {
 } from "./skill-run-artifacts";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 
-function fixture() {
+function fixture(onPrepare?: (query: string) => void) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(`
 		CREATE TABLE skill_run_artifacts (
@@ -38,9 +38,104 @@ function fixture() {
 			(id, run_id, path, content_inline, attempt, created_at)
 		VALUES (?, 'run-1', ?, '{}', ?, ?)
 	`);
-	const binding = createD1Facade(sqlite);
+	const binding = createD1Facade(sqlite, { onPrepare });
 	return { db: createDbClient(binding), insert, binding };
 }
+
+describe("skill run artifact overload recovery", () => {
+	afterEach(() => vi.useRealTimers());
+	const overload = () =>
+		new Error("Failed query: select artifact", {
+			cause: new Error("D1_ERROR: Database is overloaded"),
+		});
+
+	it("continues the artifact read after one overload in a logs store", async () => {
+		vi.useFakeTimers();
+		const main = fixture();
+		let reads = 0;
+		const logs = fixture(() => {
+			if (++reads === 1) throw overload();
+		});
+		logs.insert.run("saved", "steps/search.json", 1, "2026-01-01");
+		configureLogStore(main.db, { LOGS_DB: logs.binding });
+		const result = getRunArtifact(main.db, "run-1", "steps/search.json");
+		await vi.advanceTimersByTimeAsync(999);
+		expect(reads).toBe(1);
+		await vi.advanceTimersByTimeAsync(1);
+		expect((await result)?.id).toBe("saved");
+		expect(reads).toBe(2);
+	});
+
+	it("recovers the pre-upsert read without repeating the artifact upload", async () => {
+		const value = "x".repeat(5_000);
+		const sha256 = await sha256Hex(JSON.stringify(value));
+		vi.useFakeTimers();
+		let reads = 0;
+		const { db } = fixture((query) => {
+			if (/^select/i.test(query) && ++reads === 1) throw overload();
+		});
+		const put = vi.fn(async () => null);
+		const result = recordRunArtifact(
+			db,
+			{
+				runId: "run-1",
+				path: "large.json",
+				value,
+				sha256,
+			},
+			{ put } as unknown as R2Bucket,
+		);
+		await vi.advanceTimersByTimeAsync(1_000);
+		expect((await result).contentR2Key).toBeTruthy();
+		expect(reads).toBe(2);
+		expect(put).toHaveBeenCalledTimes(1);
+	});
+
+	it("stops a sustained outage with the D1 cause in the engine-visible message", async () => {
+		vi.useFakeTimers();
+		const read = vi.fn(() => {
+			throw overload();
+		});
+		const { db } = fixture(read);
+		// Cloudflare retains only name and message, not Error.cause.
+		const result = getRunArtifact(db, "run-1", "steps/search.json").catch(
+			(error) => ({
+				name: error.name,
+				message: error.message,
+			}),
+		);
+		for (const delay of [1_000, 2_000, 4_000, 8_000]) {
+			await vi.advanceTimersByTimeAsync(delay - 1);
+			const calls = read.mock.calls.length;
+			await vi.advanceTimersByTimeAsync(1);
+			expect(read).toHaveBeenCalledTimes(calls + 1);
+		}
+		expect(await result).toEqual({
+			name: "Error",
+			message:
+				"D1_OVERLOADED: artifact read failed after 5 attempts (15 seconds of backoff)",
+		});
+		expect(read).toHaveBeenCalledTimes(5);
+		expect(vi.getTimerCount()).toBe(0);
+	});
+
+	it.each(["D1_ERROR: no such table", "upstream overloaded"])(
+		"does not retry %s",
+		async (message) => {
+			vi.useFakeTimers();
+			const error = new Error(message);
+			const read = vi.fn(() => {
+				throw error;
+			});
+			const { db } = fixture(read);
+			await expect(
+				getRunArtifact(db, "run-1", "missing.json"),
+			).rejects.toMatchObject({ cause: error });
+			expect(read).toHaveBeenCalledTimes(1);
+			expect(vi.getTimerCount()).toBe(0);
+		},
+	);
+});
 
 describe("skill run artifact content addressing", () => {
 	it("content-addresses inline writes without any caller change", async () => {
