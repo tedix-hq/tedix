@@ -6,6 +6,8 @@
 	"license": "Apache-2.0",
 	"type": "module",
 	"exports": {
+		"./schemas/task-contract": "./src/schemas/task-contract.ts",
+		"./utils/task-contract": "./src/utils/task-contract.ts",
 		"./schemas/browser-agent-seat": "./src/schemas/browser-agent-seat.ts",
 		"./schemas/decision-cascade": "./src/schemas/decision-cascade.ts",
 		"./assets/decision-cascade.v1.json": "./src/assets/decision-cascade.v1.json",
