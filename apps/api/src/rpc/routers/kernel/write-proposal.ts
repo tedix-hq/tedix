@@ -1224,11 +1224,13 @@ export async function planKernelWriteProposal(args: {
 				: {}),
 			...(destinationTitle ? { destinationTitle } : {}),
 			reasoning: planned.reasoning,
-			riskTier: /^projects\.(?:create|pause|resume|archive)_factory$/.test(
-				validated.tool.name,
-			)
-				? "high"
-				: validated.riskTier,
+			riskTier:
+				workpieceRename?.capability === "skills.run" ||
+				/^projects\.(?:create|pause|resume|archive)_factory$/.test(
+					validated.tool.name,
+				)
+					? "high"
+					: validated.riskTier,
 			transport,
 			editableFields: deriveApprovalEditableFields({
 				inputSchema: validated.tool.inputSchema,
