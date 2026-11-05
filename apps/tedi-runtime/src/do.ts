@@ -977,6 +977,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	private workflowHost(): RuntimeWorkflowHost {
 		const parent = this;
 		return {
+			getPlatformClient: (...args) => parent.getPlatformClient(...args),
 			suppressCronAfterBudgetFailure: (...args) =>
 				parent.suppressCronAfterBudgetFailure(...args),
 			settleWorkflowFailure: (...args) => parent.settleWorkflowFailure(...args),

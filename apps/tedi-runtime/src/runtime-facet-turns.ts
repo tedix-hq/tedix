@@ -3,6 +3,10 @@ import {
 	resolveTurnExecutionRestriction,
 } from "./turn-execution-restriction";
 import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
+import {
+	workflowRunIsTerminal,
+	withWorkflowTurnLiveness,
+} from "./workflow-run-liveness";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { operatorRecordTools } from "./operator-record-tools";
 import {
@@ -24,6 +28,7 @@ import {
 import {
 	buildTediConversationId,
 	isBlindVerificationSession,
+	isEphemeralSessionKey,
 	isWorkflowSynthesisSession,
 } from "@tedix/api-contract/utils/runtime-identity";
 import { type CallerTrustTier } from "@tedix/mcp-shared/auth/caller-trust";
@@ -2273,6 +2278,15 @@ export const runtimeFacetTurns = {
 				} else if (input.workflowInstanceId) {
 					throw new Error("Native workflow admitted dispatch is missing");
 				}
+				const checkLedger =
+					input.workflowInstanceId && !isEphemeralSessionKey(input.sessionKey);
+				const platform = checkLedger ? await this.getPlatformClient() : null;
+				if (
+					checkLedger &&
+					(await workflowRunIsTerminal(platform, input.runId))
+				) {
+					return { text: "", stopReason: "run_terminal", toolCalls: [] };
+				}
 				const settled = readSettled();
 				if (settled) {
 					return {
@@ -2320,10 +2334,16 @@ export const runtimeFacetTurns = {
 							);
 							if (prepared?.cached)
 								return this.commitFacetWorkflowSegment(input, prepared.cached);
-							return this.runFacetWorkflowTurnImpl(
-								input,
-								prepared?.completionText,
-							);
+							const run = () =>
+								this.runFacetWorkflowTurnImpl(input, prepared?.completionText);
+							return platform
+								? withWorkflowTurnLiveness(
+										input,
+										platform,
+										this.state.tediId!,
+										run,
+									)
+								: run();
 						}),
 				);
 			}),
