@@ -464,6 +464,20 @@ export type ProjectionOptions = NonNullable<
  * override, or projector change moves it, while existing-row state does not.
  * The planner and the batch both compute it this way, so they always agree.
  */
+/**
+ * Contract hash for a projection whose schemaSourceHash is already computed —
+ * when no stored row exists, the row a sync just built IS the code-derived
+ * projection `projectionContractHash` would rebuild from scratch.
+ */
+export async function projectionContractHashForSourceHash(
+	schemaSourceHash: string,
+): Promise<string> {
+	return sha256({
+		revision: TOOL_PROJECTION_REVISION,
+		projection: schemaSourceHash,
+	});
+}
+
 export async function projectionContractHash(
 	endpoint: ResolvedContractEndpoint,
 	options: ProjectionOptions,
@@ -472,10 +486,7 @@ export async function projectionContractHash(
 		...options,
 		contractHash: undefined,
 	});
-	return sha256({
-		revision: TOOL_PROJECTION_REVISION,
-		projection: tool.schemaSourceHash,
-	});
+	return projectionContractHashForSourceHash(tool.schemaSourceHash);
 }
 
 export async function buildProjectedTool(

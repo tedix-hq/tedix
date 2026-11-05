@@ -23,6 +23,38 @@ const twoSlides = () =>
 		{ title: "Q4", bullets: [] },
 	]);
 
+/** A deck whose title element sits a few presses above the 24px size clamp. */
+const nearMinimumDeck = (): PresentationContent => ({
+	kind: "presentation",
+	slides: [],
+	deck: {
+		width: PRESENTATION_WIDTH,
+		height: PRESENTATION_HEIGHT,
+		activeSlideId: "slide-1",
+		slides: [
+			{
+				id: "slide-1",
+				name: "Slide 1",
+				layout: "title-content",
+				background: "#ffffff",
+				elements: [
+					{
+						id: "slide-1-title",
+						type: "title",
+						x: 72,
+						y: 64,
+						// Whole percentages so the CSS width/height parse back exactly.
+						width: 48,
+						height: 27,
+						text: "Q3",
+						style: { fontSize: 46, fontWeight: "bold", color: "#161616" },
+					},
+				],
+			},
+		],
+	},
+});
+
 function mountEditor(initial = twoSlides(), disabled = false) {
 	const container = document.createElement("div");
 	document.body.appendChild(container);
@@ -1106,7 +1138,10 @@ describe("SlidesEditor", () => {
 
 describe("slide resize boundaries", () => {
 	it("resizes the selected element with the keyboard handle controls", () => {
-		const mounted = mountEditor();
+		// Near-minimum sizing reaches the 24px clamp in a few presses — ~200
+		// keydown dispatches each re-render the editor and the boundary behavior
+		// is identical once the clamp is reached.
+		const mounted = mountEditor(nearMinimumDeck());
 		const title = mounted.container.querySelector<HTMLElement>(
 			'[data-element="title"]',
 		)!;
@@ -1140,9 +1175,11 @@ describe("slide resize boundaries", () => {
 			`title element ${resized.width} by ${resized.height}`,
 		);
 
-		// At the minimum size a key announces but commits nothing new.
+		// At the minimum size a key announces but commits nothing new: press until
+		// a key stops committing (the 200 bound only guards against no clamp).
 		const commits = mounted.emitted.length;
-		for (let step = 0; step < 200; step++)
+		for (let step = 0; step < 200; step++) {
+			const before = mounted.emitted.length;
 			act(() =>
 				handle.dispatchEvent(
 					new KeyboardEvent("keydown", {
@@ -1152,6 +1189,8 @@ describe("slide resize boundaries", () => {
 					}),
 				),
 			);
+			if (mounted.emitted.length === before) break;
+		}
 		const atMinimum = mounted.emitted.length;
 		expect(atMinimum).toBeGreaterThan(commits);
 		act(() =>
