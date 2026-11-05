@@ -742,15 +742,15 @@ export function buildDelegationWorkOrder(input: {
 	const appEdit = isWorkspaceAppRequest(sourceContent, route);
 	if (appEdit)
 		guidanceSeeds.push(
-			// A child guessed `.gadgets`, hit undefined and gave up.
-			"This is a Tedix workspace app, not a repository: never open_computer or clone a repo. Use Code Mode (tedix_mcp_code) app tools; list_os_gadgets returns { items: [{ id, name, status }] }.",
+			"This is a Tedix workspace app, not a repository: never open_computer or clone a repo. Use Code Mode (tedix_mcp_code). Attached files arrive with this message; do not fetch their OS links.",
+			// Children guessed these result shapes, read undefined and gave up.
 			input.workspace?.workpiece?.kind === "gadget"
-				? `The open app is "${input.workspace.workpiece.name}" (gadgetId ${input.workspace.workpiece.id}) in workspace ${input.workspace.id}; read its files with gadgets_get_code.`
+				? `The open app is "${input.workspace.workpiece.name}": gadgets_get_code({ workspaceId: "${input.workspace.id}", gadgetId: "${input.workspace.workpiece.id}" }).`
 				: input.workspace
-					? `Find the app with list_os_gadgets in workspace ${input.workspace.id} ("${input.workspace.name}"), then read its files with gadgets_get_code.`
-					: "Find the app with list_os_workspaces and list_os_gadgets, then read its files with gadgets_get_code.",
-			'Propose exact before/after replacements with propose_os_app_edit (discover.search("propose app edit") if named differently); it opens a draft for review.',
-			"Report the draft's previewUrl and what changed. Attached workspace files arrive with this message; do not fetch their OS links.",
+					? `Find the app with list_os_gadgets({ workspaceId: "${input.workspace.id}" }), which returns { items: [{ id, name }] }; then gadgets_get_code({ workspaceId, gadgetId }).`
+					: "Find the app with list_os_workspaces, then list_os_gadgets({ workspaceId }), which returns { items: [{ id, name }] }; then gadgets_get_code({ workspaceId, gadgetId }).",
+			"gadgets_get_code returns { code: { revisionId, files: { [path]: text } } }. Files are large: search them inside the same Code Mode call and return only the lines you need.",
+			"Propose exact before/after replacements with propose_os_app_edit; it opens a draft for review. Report the draft's previewUrl and what changed.",
 		);
 	// OS links to workspace files and outputs are not readable web pages.
 	if (
