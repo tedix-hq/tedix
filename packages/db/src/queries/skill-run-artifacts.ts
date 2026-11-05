@@ -29,6 +29,40 @@ import { chunkForBoundParams } from "../utils/batch";
 import { mergeLogStoreRows, readLogStores } from "../utils/log-store";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 
+async function withArtifactReadRetry<T>(read: () => Promise<T>): Promise<T> {
+	for (let attempt = 0; ; attempt++) {
+		try {
+			return await read();
+		} catch (error) {
+			const seen = new Set<unknown>();
+			let cause: unknown = error;
+			let overloaded = false;
+			for (
+				let depth = 0;
+				depth < 8 && cause instanceof Error && !seen.has(cause);
+				depth++
+			) {
+				seen.add(cause);
+				if (
+					/D1_ERROR/i.test(cause.message) &&
+					/\boverloaded\b/i.test(cause.message)
+				)
+					overloaded = true;
+				cause = cause.cause;
+			}
+			if (!overloaded) throw error;
+			if (attempt === 4) {
+				throw new Error(
+					"D1_OVERLOADED: artifact read failed after 5 attempts (15 seconds of backoff)",
+					{ cause: error },
+				);
+			}
+			// Retry only reads: never replay a workflow tool or an ambiguous write.
+			await new Promise((resolve) => setTimeout(resolve, 1_000 * 2 ** attempt));
+		}
+	}
+}
+
 /**
  * D1 caps bound parameters at 100 per statement. The batch readers below
  * combine the run-id IN() list with a handful of path predicates, so 50 ids
@@ -226,16 +260,18 @@ export async function recordRunArtifact(
 
 	// Upsert on (run_id, path). D1's HTTP API rejects ON CONFLICT in some
 	// drizzle paths; do read-then-upsert with a fallback path.
-	const existingRows = await db
-		.select()
-		.from(skillRunArtifacts)
-		.where(
-			and(
-				eq(skillRunArtifacts.runId, input.runId),
-				eq(skillRunArtifacts.path, input.path),
-			),
-		)
-		.limit(1);
+	const existingRows = await withArtifactReadRetry(async () =>
+		db
+			.select()
+			.from(skillRunArtifacts)
+			.where(
+				and(
+					eq(skillRunArtifacts.runId, input.runId),
+					eq(skillRunArtifacts.path, input.path),
+				),
+			)
+			.limit(1),
+	);
 	const existing = existingRows[0];
 	if (existing) {
 		const [updated] = await db
@@ -264,9 +300,17 @@ export async function getRunArtifact(
 	runId: string,
 	path: string,
 ): Promise<SkillRunArtifact | null> {
+	return withArtifactReadRetry(() => readRunArtifact(db, runId, path));
+}
+
+async function readRunArtifact(
+	db: DbClient,
+	runId: string,
+	path: string,
+): Promise<SkillRunArtifact | null> {
 	// Artifact rows past the retention keep window live in the logs database.
 	const pages = await readLogStores(db, async (store) => {
-		const row = await getRunArtifact(store, runId, path);
+		const row = await readRunArtifact(store, runId, path);
 		return row ? [row] : [];
 	});
 	if (pages) return mergeLogStoreRows(pages, { limit: 1 })[0] ?? null;
