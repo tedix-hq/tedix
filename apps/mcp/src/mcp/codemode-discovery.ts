@@ -942,3 +942,72 @@ export function enrichUnmountedNamespaceError(
 	}
 	return `${error}. Namespace "${missing}" is unavailable in this request. The potential namespace inventory does not establish tool exposure or the cause of the missing binding. Use discover.search on the current organization target to find an exposed callable. This result does not establish an upstream failure or missing organization membership.`;
 }
+
+/** Bounded result types for describe; recursive/unsupported schema parts stay unknown. */
+export function resultTypeFromSchema(schema: unknown): string {
+	for (const maxDepth of [6, 4, 2, 1]) {
+		const result = renderResultType(schema, schema, 0, maxDepth);
+		if (result.length <= 700) return result;
+	}
+	return "unknown";
+}
+
+function renderResultType(
+	schema: unknown,
+	root: unknown,
+	depth: number,
+	maxDepth: number,
+): string {
+	if (!isRecord(schema) || depth >= maxDepth) return "unknown";
+	const nested = (value: unknown) =>
+		renderResultType(value, root, depth + 1, maxDepth);
+	if (typeof schema.$ref === "string" && schema.$ref.startsWith("#/")) {
+		let target = root;
+		for (const key of schema.$ref.slice(2).split("/")) {
+			target = isRecord(target)
+				? target[key.replace(/~1/g, "/").replace(/~0/g, "~")]
+				: undefined;
+		}
+		return nested(target);
+	}
+	if (schema.const !== undefined) return JSON.stringify(schema.const);
+	if (Array.isArray(schema.enum))
+		return (
+			schema.enum.map((value) => JSON.stringify(value)).join(" | ") || "never"
+		);
+	for (const key of ["anyOf", "oneOf", "allOf"]) {
+		if (Array.isArray(schema[key]))
+			return `(${schema[key].map(nested).join(key === "allOf" ? " & " : " | ")})`;
+	}
+	if (Array.isArray(schema.type))
+		return schema.type.map((type) => nested({ ...schema, type })).join(" | ");
+	switch (schema.type ?? (isRecord(schema.properties) ? "object" : undefined)) {
+		case "null":
+			return "null";
+		case "string":
+			return "string";
+		case "boolean":
+			return "boolean";
+		case "number":
+		case "integer":
+			return "number";
+		case "array":
+			return `Array<${nested(schema.items)}>`;
+		case "object": {
+			const required = Array.isArray(schema.required) ? schema.required : [];
+			const fields = Object.entries(
+				isRecord(schema.properties) ? schema.properties : {},
+			)
+				.slice(0, 40)
+				.map(
+					([key, value]) =>
+						`${JSON.stringify(key)}${required.includes(key) ? "" : "?"}: ${nested(value)}`,
+				);
+			return fields.length
+				? `{ ${fields.join("; ")} }`
+				: "Record<string, unknown>";
+		}
+		default:
+			return "unknown";
+	}
+}

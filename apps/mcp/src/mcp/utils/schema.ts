@@ -227,7 +227,8 @@ export function jsonSchemaToInputSchema(
 export function jsonSchemaToOutputSchema(
 	jsonSchema: ToolJsonSchema | null | undefined,
 ): StandardSchemaWithJSON | undefined {
-	if (!jsonSchema) return undefined;
+	if (!jsonSchema || jsonSchema["x-tedix-provenance"] === "inferred")
+		return undefined;
 	if (!hasObjectRoot(jsonSchema)) return undefined;
 	const schema = fromJsonSchema(
 		jsonSchema as JsonSchemaType,
@@ -297,7 +298,7 @@ export function validateStructuredContentAgainstOutputSchema(
 	structuredContent: unknown,
 	toolId: string,
 ): void {
-	if (!jsonSchema) return;
+	if (!jsonSchema || jsonSchema["x-tedix-provenance"] === "inferred") return;
 	const schemaObject = jsonSchema as JsonObject;
 	let validate = compiledValidatorCache.get(schemaObject);
 	if (!validate) {

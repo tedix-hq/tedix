@@ -985,6 +985,8 @@ describe("progressive disclosure (namespace filter, description budget, schema p
 			callable: "work.peek",
 		})) as Record<string, unknown>;
 		expect(bare.resultEnvelopeKeys).toBeUndefined();
+		expect(bare.resultType).toBe("unknown");
+		expect(described.outputSchemaProvenance).toBe("declared");
 
 		// Search rows stay compact — the hint is describe-only.
 		const rows = catalogToolEntries(await runSearch(provider, "work items", 5));
@@ -2753,4 +2755,44 @@ it("normalizes short multiline search summaries without marking them truncated",
 		description: "List items. Use filters. Returns items.",
 	});
 	expect(result.results[0]).not.toHaveProperty("descriptionTruncated");
+});
+
+it("describes the nested TypeScript result and its inferred provenance without requesting schema JSON", async () => {
+	const ctx = buildLargeServerCtx(0);
+	ctx.loadedTools.set(
+		"list_records",
+		tool({
+			toolId: "list_records",
+			config: { _aggregateNamespace: "records" },
+			outputSchema: {
+				type: "object",
+				"x-tedix-provenance": "inferred",
+				required: ["data"],
+				properties: {
+					data: {
+						type: "array",
+						items: {
+							type: "object",
+							required: ["id"],
+							properties: { id: { type: "string" }, count: { type: "number" } },
+						},
+					},
+					cursor: { anyOf: [{ type: "string" }, { type: "null" }] },
+				},
+			},
+		}),
+	);
+	const provider = buildCatalogProvider(ctx, undefined);
+	const tools = provider.tools as Record<
+		string,
+		{ execute: (input: unknown) => Promise<unknown> }
+	>;
+	expect(await tools.describe!.execute("records.list_records")).toMatchObject({
+		resultType:
+			'{ "data": Array<{ "id": string; "count"?: number }>; "cursor"?: (string | null) }',
+		outputSchemaProvenance: "inferred",
+	});
+	expect(
+		await tools.describe!.execute("records.list_records"),
+	).not.toHaveProperty("outputSchema");
 });

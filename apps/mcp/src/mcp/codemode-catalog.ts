@@ -51,6 +51,7 @@ import { resolveWireAnnotations } from "./tool-registration-policy";
 import { toolApprovalMetadata } from "./tool-risk-policy";
 import { FLOW_NAMESPACE, FLOW_CATALOG_TOOLS } from "./codemode-flow";
 import {
+	resultTypeFromSchema,
 	SCHEMA_DISCOVERY_DEFAULT_LIMIT,
 	normalizeDiscoverySearchInput,
 	nearestCatalogNamespaces,
@@ -884,7 +885,7 @@ export function buildCatalogProvider(
 			},
 			describe: {
 				description:
-					'Fetch ONE tool\'s full definition — exact JSON Schema parameters, description, annotations, schemaFreshness; outputSchema only with includeOutputSchema: true — by its exact callable (e.g. { callable: "work.list_work_items" }). This is the cheap second step after a compact search: one small result instead of schema-bearing search pages. `resultEnvelopeKeys` names the top-level keys the result is wrapped in (e.g. ["data","pagination"]) so you do not have to guess the envelope. Throws a current-catalog diagnostic when the callable is not exposed; re-run discover.search to correct the name.',
+					'Fetch ONE tool\'s full definition — exact JSON Schema parameters, description, annotations, schemaFreshness; outputSchema only with includeOutputSchema: true — by its exact callable (e.g. { callable: "work.list_work_items" }). This is the cheap second step after a compact search: one small result instead of schema-bearing search pages. `resultType` gives the TypeScript result shape; outputSchemaProvenance="inferred" means advisory, sampled rather than declared. `resultEnvelopeKeys` names the top-level keys the result is wrapped in (e.g. ["data","pagination"]) so you do not have to guess the envelope. Throws a current-catalog diagnostic when the callable is not exposed; re-run discover.search to correct the name.',
 				execute: async (input: unknown) => {
 					if (executionRefs) {
 						executionRefs.discoverCalls += 1;
@@ -953,10 +954,21 @@ export function buildCatalogProvider(
 						true,
 					);
 					await annotateConditionalAccess(described);
+					if (!isRecord(described)) return described;
 					const envelopeKeys = resultEnvelopeKeys(meta);
-					return envelopeKeys && isRecord(described)
-						? { ...described, resultEnvelopeKeys: envelopeKeys }
-						: described;
+					return {
+						...described,
+						...(envelopeKeys ? { resultEnvelopeKeys: envelopeKeys } : {}),
+						resultType: resultTypeFromSchema(meta.outputSchema),
+						...(meta.outputSchema
+							? {
+									outputSchemaProvenance:
+										meta.outputSchema["x-tedix-provenance"] === "inferred"
+											? "inferred"
+											: "declared",
+								}
+							: {}),
+					};
 				},
 			},
 			list_namespaces: {
@@ -1033,7 +1045,7 @@ export function buildCatalogProvider(
 			"  function search(query: string | { query?: string; namespace?: string; organization?: string; limit?: number; offset?: number; includeParameters?: boolean; includeOutputSchema?: boolean; includeMetadata?: boolean }): Promise<{ results: Array<{ callable: string; namespace: string; organization?: string; tool: string; name: string; displayName: string; description: string; descriptionTruncated?: boolean; parameters?: Record<string, unknown>; annotations?: { destructiveHint?: boolean; readOnlyHint?: boolean; idempotentHint?: boolean; openWorldHint?: boolean }; outputSchema?: Record<string, unknown>; native?: { name: string; toolRowId: string; endpoint: string; eligible: boolean; authorized: boolean; schemaFreshness: { source: string | null; sourceRef: string | null; sourceHash: string | null; syncedAt: string | null } }; schemaFreshness?: { dialect?: string; source?: string; sourceRef?: string; sourceHash?: string; syncedAt?: string; toolUpdatedAt?: string }; equivalentTediOwners?: Array<{ namespace: string; callable: string }>; aliasOf?: string; authorized?: boolean; requiredScopes?: string[]; missingScopes?: string[]; kind?: 'skill'; uri?: string; load?: string; lifecycleState?: string; successCount?: number; _match?: { score: number; matchedTerms: string[]; unmatchedTerms: string[] } }>; namespaces: Record<string, Record<string, { callable: string; namespace: string; organization?: string; tool: string; name: string; displayName: string; description: string; descriptionTruncated?: boolean; parameters?: Record<string, unknown>; annotations?: { destructiveHint?: boolean; readOnlyHint?: boolean; idempotentHint?: boolean; openWorldHint?: boolean }; outputSchema?: Record<string, unknown>; native?: { name: string; toolRowId: string; endpoint: string; eligible: boolean; authorized: boolean; schemaFreshness: { source: string | null; sourceRef: string | null; sourceHash: string | null; syncedAt: string | null } }; schemaFreshness?: { dialect?: string; source?: string; sourceRef?: string; sourceHash?: string; syncedAt?: string; toolUpdatedAt?: string }; equivalentTediOwners?: Array<{ namespace: string; callable: string }>; aliasOf?: string; authorized?: boolean; requiredScopes?: string[]; missingScopes?: string[]; kind?: 'skill'; uri?: string; load?: string; lifecycleState?: string; successCount?: number; _match?: { score: number; matchedTerms: string[]; unmatchedTerms: string[] } }>>; meta: { pagination: { limit: number; offset: number; total: number }; freshness?: { catalogBuiltAt: string; toolCount: number; namespaceCount: number; schemaSyncedTools: number; unsyncedTools: number; newestSchemaSyncedAt?: string; oldestSchemaSyncedAt?: string }; discovery?: { query: string; terms: string[]; mode: string; order?: 'jev' | 'lexical'; namespace?: string; nearestNamespaces: Array<{ namespace: string; score: number; tools: number; sampleTools: string[] }>; suggestedQueries: string[] } } }>;",
 			"  /** List all namespaces as an object keyed by namespace, with counts as values. Use Object.keys/Object.entries to filter it. Tool names are omitted unless includeTools is true; prefer search for normal discovery. */",
 			"  /** Fetch ONE tool's input definition (parameters, full description, annotations, schemaFreshness) by exact callable. Output schemas require includeOutputSchema: true. The cheap second step after a compact search — prefer this over includeParameters on a broad search. Throws a current-catalog recovery diagnostic for an unknown callable. */",
-			"  function describe(input: string | { callable: string; includeOutputSchema?: boolean }): Promise<{ callable: string; namespace: string; tool: string; name: string; displayName: string; description: string; resultEnvelopeKeys?: string[]; parameters?: Record<string, unknown>; outputSchema?: Record<string, unknown>; annotations?: { destructiveHint?: boolean; readOnlyHint?: boolean; idempotentHint?: boolean; openWorldHint?: boolean }; native?: { name: string; toolRowId: string; endpoint: string; eligible: boolean; authorized: boolean; schemaFreshness: { source: string | null; sourceRef: string | null; sourceHash: string | null; syncedAt: string | null } }; schemaFreshness?: { dialect?: string; source?: string; sourceRef?: string; sourceHash?: string; syncedAt?: string; toolUpdatedAt?: string } }>;",
+			"  function describe(input: string | { callable: string; includeOutputSchema?: boolean }): Promise<{ callable: string; namespace: string; tool: string; name: string; displayName: string; description: string; resultEnvelopeKeys?: string[]; resultType: string; outputSchemaProvenance?: 'inferred' | 'declared'; parameters?: Record<string, unknown>; outputSchema?: Record<string, unknown>; annotations?: { destructiveHint?: boolean; readOnlyHint?: boolean; idempotentHint?: boolean; openWorldHint?: boolean }; native?: { name: string; toolRowId: string; endpoint: string; eligible: boolean; authorized: boolean; schemaFreshness: { source: string | null; sourceRef: string | null; sourceHash: string | null; syncedAt: string | null } }; schemaFreshness?: { dialect?: string; source?: string; sourceRef?: string; sourceHash?: string; syncedAt?: string; toolUpdatedAt?: string } }>;",
 			'  function list_namespaces(input?: { includeTools?: boolean }): Promise<Record<string, { tools: number; toolNames?: string[]; quarantinedTools?: string[]; governance: { owner: string; class: "discovery" | "host" | "platform" | "tenant_app" | "virtual_tedi"; aliases: readonly string[]; requiredScopes: readonly string[]; visibility: "internal" | "tenant"; freshness: "build" | "request" | "d1_config"; collisionPolicy: "reserved_wins" | "reject_duplicate" } }>>;',
 			"  /** Page a stored over-budget result by its handle (from a { __tedix_result_handle: true } envelope). path selects a nested value; offset/limit page its compact JSON text. value is set when the selection fits in one page; otherwise concatenate text slices by following nextOffset, then parse. Handles are caller-bound and expire. */",
 			"  function read_result(input: string | { handle: string; path?: string; offset?: number; limit?: number }): Promise<{ handle: string; path?: string; total: number; offset: number; limit: number; keys?: string[]; length?: number; value?: unknown; text?: string; nextOffset?: number; complete: boolean }>;",

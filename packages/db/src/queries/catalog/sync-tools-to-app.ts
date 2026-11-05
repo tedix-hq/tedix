@@ -323,7 +323,17 @@ export async function syncCatalogToolsToApp(
 			existingConfig.mcpToolName === ct.toolName;
 		const urlMatch = existingConfig.mcpServerUrl === mcpServerUrl;
 		const schemaChanged = !jsonEqual(existing.inputSchema, inputSchema);
-		const outputSchemaChanged = !jsonEqual(existing.outputSchema, outputSchema);
+		const effectiveOutputSchema =
+			!ct.outputSchema &&
+			transportMatch &&
+			urlMatch &&
+			existing.outputSchema?.["x-tedix-provenance"] === "inferred"
+				? existing.outputSchema
+				: outputSchema;
+		const outputSchemaChanged = !jsonEqual(
+			existing.outputSchema,
+			effectiveOutputSchema,
+		);
 		const descChanged = existing.description !== ct.description;
 		const titleChanged = existing.title !== title;
 		const iconsChanged = !jsonEqual(existing.icons, icons);
@@ -444,7 +454,7 @@ export async function syncCatalogToolsToApp(
 					toolTypeId: "mcp",
 					config: mergedConfig,
 					inputSchema: inputSchema,
-					outputSchema: outputSchema,
+					outputSchema: effectiveOutputSchema,
 					title,
 					description: ct.description,
 					icons,

@@ -15,6 +15,11 @@ import {
 	withDerivedToolOperationalRiskPolicy,
 } from "@tedix/api-contract/schemas/tools";
 import { and, asc, count, eq, inArray, isNotNull, ne, sql } from "drizzle-orm";
+import {
+	inferOutputSchema,
+	mergeOutputSchemas,
+	INFERRED_SCHEMA_PROVENANCE,
+} from "@tedix/api-contract/utils/output-schema-inference";
 import type { DbClient } from "../client";
 import { apps } from "../schema/apps";
 import type { AppTool, NewAppTool } from "../schema/tools";
@@ -793,4 +798,59 @@ export async function bulkUpdateToolSortOrders(
 			.where(eq(appTools.id, toolId)),
 	);
 	await db.batch(batchNonEmpty(queries));
+}
+
+/** Public catalog samples must never be inferred for sensitive installed rows. */
+export async function inferCatalogToolOutputSchemas(
+	db: DbClient,
+	catalogAppId: string,
+	toolName: string,
+	sample: () => unknown,
+): Promise<number> {
+	const rows = await db
+		.select({ id: appTools.id, outputSchema: appTools.outputSchema })
+		.from(appTools)
+		.innerJoin(apps, eq(appTools.appId, apps.id))
+		.where(
+			and(
+				eq(apps.catalogAppId, catalogAppId),
+				eq(appTools.toolId, toolName),
+				eq(appTools.sensitiveData, false),
+				sql`json_extract(${appTools.config}, '$.transport') = 'mcp'`,
+				sql`json_extract(${appTools.config}, '$.mcpServerId') = ${catalogAppId}`,
+				sql`json_extract(${appTools.config}, '$.mcpToolName') = ${toolName}`,
+				sql`(${appTools.outputSchema} IS NULL OR json_extract(${appTools.outputSchema}, '$.x-tedix-provenance') = 'inferred')`,
+			),
+		);
+	if (!rows.length) return 0;
+	const inferred = inferOutputSchema(sample());
+	let updated = 0;
+	for (const row of rows) {
+		const previous = row.outputSchema
+			? Object.fromEntries(
+					Object.entries(row.outputSchema).filter(
+						([key]) => key !== INFERRED_SCHEMA_PROVENANCE,
+					),
+				)
+			: undefined;
+		const schema = {
+			...mergeOutputSchemas(previous, inferred),
+			[INFERRED_SCHEMA_PROVENANCE]: "inferred",
+		};
+		const changed = await db
+			.update(appTools)
+			.set({ outputSchema: schema, updatedAt: new Date().toISOString() })
+			.where(
+				and(
+					eq(appTools.id, row.id),
+					eq(appTools.sensitiveData, false),
+					row.outputSchema === null
+						? sql`${appTools.outputSchema} IS NULL`
+						: eq(appTools.outputSchema, row.outputSchema),
+				),
+			)
+			.returning({ id: appTools.id });
+		updated += changed.length;
+	}
+	return updated;
 }
