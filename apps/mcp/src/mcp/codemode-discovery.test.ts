@@ -204,6 +204,21 @@ describe("Code Mode discovery helpers", () => {
 		expect(moreTerms.score).toBeGreaterThan(fewerTerms.score);
 	});
 
+	it("keeps name bonuses exact when names are tokenized only on a substring hit", () => {
+		const score = (terms: string[], ns: string, tool: string) =>
+			scoreCatalogSearch(terms, ns, tool, entry(ns, tool))?.score;
+		// Name fields 2x12, coverage 20, devoted name 16, name is the query 20.
+		expect(score(["list", "skills"], "tools", "list_skills")).toBe(80);
+		// Every term in the name, plus a third token: devoted name 2/3 of 16.
+		expect(score(["list", "skills"], "tools", "list_skills_metadata")).toBe(
+			24 + 20 + 32 / 3,
+		);
+		// Substrings without equal tokens earn neither bonus.
+		expect(score(["list", "skill"], "tools", "lists_skills")).toBe(44);
+		// The callable names the query through its namespace token.
+		expect(score(["tedis", "list"], "tedis", "list")).toBe(14 + 12 + 20 + 20);
+	});
+
 	it("scores a catalog-scale search without serializing or fully walking schemas", () => {
 		// A 16k-tool Connect catalog once kept a normalized copy of every
 		// description and stringified schema per request; a cold isolate then

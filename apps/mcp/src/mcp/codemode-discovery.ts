@@ -373,7 +373,12 @@ function textContains(
 		maxChars !== undefined && text.length > maxChars
 			? text.slice(0, maxChars)
 			: text;
-	return patterns.some((pattern) => pattern.test(bounded));
+	// A loop, not .some(): a closure per field per row was a large share of a
+	// catalog-scale search's garbage.
+	for (let index = 0; index < patterns.length; index++) {
+		if (patterns[index]!.test(bounded)) return true;
+	}
+	return false;
 }
 
 type SchemaIndex = {
@@ -665,21 +670,25 @@ function computeCatalogSearch(
 	}
 	if (!matchedTerms || !unmatchedTerms) return null;
 	score += Math.round((matchedTerms.length / terms.length) * 20);
-	// When the name contains every query term, favour names devoted to those
-	// terms over longer vendor names. Count repeated tokens in the denominator.
-	const nameTokens = normalizeSearchText(toolName).split(" ").filter(Boolean);
-	const nameTokenSet = new Set(nameTokens);
-	if (terms.every((term) => nameTokenSet.has(term))) {
-		score += (terms.length / nameTokens.length) * 16;
+	// A name token equal to a term contains it, so a name that misses any term
+	// as a substring cannot earn either bonus below. Most matched rows miss one;
+	// testing first skips tokenizing their names.
+	let toolNamesQuery = false;
+	if (containsEveryTerm(toolName, prepared)) {
+		// When the name contains every query term, favour names devoted to those
+		// terms over longer vendor names. Count repeated tokens in the denominator.
+		const nameTokens = normalizeSearchText(toolName).split(" ").filter(Boolean);
+		const nameTokenSet = new Set(nameTokens);
+		if (terms.every((term) => nameTokenSet.has(term))) {
+			score += (terms.length / nameTokens.length) * 16;
+			// Every term can hit a high-weight field of a sibling tool too ("list
+			// tedis" scores tedis.list_addresses like tedis.list_tedis), so a query
+			// that IS the tool's name must outrank its namespace neighbours.
+			toolNamesQuery = nameTokenSet.size === terms.length;
+		}
 	}
-	// Every term can hit a high-weight field of a sibling tool too ("list tedis"
-	// scores tedis.list_addresses like tedis.list_tedis), so a query that IS
-	// the tool's name must outrank its namespace neighbours.
-	const toolNamesQuery =
-		nameTokenSet.size === terms.length &&
-		terms.every((term) => nameTokenSet.has(term));
 	let callableNamesQuery = false;
-	if (!toolNamesQuery) {
+	if (!toolNamesQuery && containsEveryTerm(meta.callable, prepared)) {
 		const callableTokens = new Set(normalizeSearchTerms(meta.callable ?? ""));
 		callableNamesQuery =
 			callableTokens.size === terms.length &&
@@ -687,6 +696,18 @@ function computeCatalogSearch(
 	}
 	if (toolNamesQuery || callableNamesQuery) score += 20;
 	return { score, matchedTerms, unmatchedTerms };
+}
+
+/** Whether `text` contains every term itself (not a plural variant). */
+function containsEveryTerm(
+	text: string | undefined,
+	prepared: readonly PreparedSearchTerm[],
+): boolean {
+	if (!text) return false;
+	for (let index = 0; index < prepared.length; index++) {
+		if (!prepared[index]!.patterns[0]!.test(text)) return false;
+	}
+	return true;
 }
 
 function searchTermVariants(term: string): string[] {
@@ -711,30 +732,36 @@ export function nearestCatalogNamespaces(
 	// Hints read the whole catalog, so they follow its size rule even when the
 	// ranked search was namespace-filtered.
 	const scoreSchema = catalogSearchesSchemas(catalog);
-	return Object.entries(catalog)
-		.map(([namespace, tools]) => {
-			let score = 0;
-			for (const [toolName, meta] of Object.entries(tools)) {
-				const match = scoreCatalogSearch(
-					terms,
-					namespace,
-					toolName,
-					meta,
-					scoreSchema,
-				);
-				score = Math.max(score, match?.score ?? 0);
-			}
-			if (score === 0) {
-				score = fuzzyNamespaceScore(terms, namespace, tools);
-			}
-			return {
+	// for...in, not Object.entries/keys: every search reads all 16k Connect
+	// rows here, and the per-row pair arrays were most of this hint's garbage.
+	const ranked: Array<{
+		namespace: string;
+		score: number;
+		tools: number;
+		sampleTools: string[];
+	}> = [];
+	for (const namespace in catalog) {
+		const tools = catalog[namespace]!;
+		let score = 0;
+		let count = 0;
+		const sampleTools: string[] = [];
+		for (const toolName in tools) {
+			if (count++ < 5) sampleTools.push(toolName);
+			const match = scoreCatalogSearch(
+				terms,
 				namespace,
-				score,
-				tools: Object.keys(tools).length,
-				sampleTools: Object.keys(tools).slice(0, 5),
-			};
-		})
-		.filter((entry) => entry.score > 0)
+				toolName,
+				tools[toolName]!,
+				scoreSchema,
+			);
+			if (match && match.score > score) score = match.score;
+		}
+		if (score === 0) {
+			score = fuzzyNamespaceScore(terms, namespace, tools);
+		}
+		if (score > 0) ranked.push({ namespace, score, tools: count, sampleTools });
+	}
+	return ranked
 		.sort((a, b) => b.score - a.score || a.namespace.localeCompare(b.namespace))
 		.slice(0, 8);
 }
