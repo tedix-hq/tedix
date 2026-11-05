@@ -3901,3 +3901,145 @@ describe("factory control from chat", () => {
 		},
 	);
 });
+
+it("proposes the pinned direct skill call and executes only the approved stored arguments", async () => {
+	const { executeApprovedKernelWrite } = await import("./write-executor");
+	const { decideKernelWriteApproval } =
+		await import("@tedix/api-contract/utils/approval-policy");
+	const args = {
+		skillId: "00000000-0000-4000-8000-000000000011",
+		tediId: "existing-owner",
+		workItemId: "00000000-0000-4000-8000-000000000012",
+		expectedSkillRevision: 2,
+		idempotencyKey: "home:run-1",
+		confirmDestructive: true as const,
+		reason: "Run after approval",
+		params: {
+			startDate: "2026-10-12",
+			endDate: "2026-10-18",
+			cycleKey: "2026-W42",
+		},
+	};
+	const tool = {
+		callable: "skills.run_workflow",
+		authorized: true,
+		annotations: { readOnlyHint: false, destructiveHint: true },
+		parameters: {
+			type: "object",
+			properties: {
+				skillId: { type: "string" },
+				tediId: { type: "string" },
+				workItemId: { type: "string" },
+				expectedSkillRevision: { type: "integer" },
+				idempotencyKey: { type: "string" },
+				confirmDestructive: { type: "boolean" },
+				reason: { type: "string" },
+				params: { type: "object", additionalProperties: true },
+			},
+			required: [
+				"skillId",
+				"tediId",
+				"expectedSkillRevision",
+				"idempotencyKey",
+				"params",
+			],
+		},
+		native: {
+			name: "tedix__run_workflow",
+			toolRowId: "configured-skill-runner",
+			endpoint: "skills/runWorkflow",
+			eligible: true,
+			authorized: true,
+			schemaFreshness: {
+				source: "orpc",
+				sourceRef: "skills/runWorkflow",
+				sourceHash: "schema-hash",
+				syncedAt: "2026-10-01T00:00:00Z",
+			},
+		},
+	};
+	const service = mcpService((body) => ({
+		json: {
+			jsonrpc: "2.0",
+			id: 1,
+			result:
+				body.method === "tools/list"
+					? { tools: [{ name: "code" }] }
+					: body.params?.name === "tedix__run_workflow"
+						? {
+								structuredContent: {
+									runId: "durable-skill-run",
+									status: "queued",
+								},
+							}
+						: { structuredContent: tool },
+		},
+	}));
+	mocks.getAppBySlugForOrg.mockResolvedValue({ slug: "sample-tools" });
+	const model = new MockLanguageModelV3({
+		doGenerate: async () => {
+			throw new Error("Exact skill arguments must not be regenerated");
+		},
+	});
+	const proposal = await planKernelWriteProposal({
+		db: DB,
+		organizationId: "org-1",
+		env: baseEnv(service),
+		model,
+		content: `Run existing skill ${args.skillId} once with params: cycleKey=2026-W42. Do not delegate.`,
+		route: writeRoute({
+			toolIntent: {
+				appSlug: "sample-tools",
+				capability: "skills.run",
+				connectionStatus: "connected",
+			},
+		}),
+		directRename: {
+			capability: "skills.run",
+			toolName: "skills.run_workflow",
+			args,
+		},
+	});
+	expect(proposal).toMatchObject({
+		toolName: "skills.run_workflow",
+		args,
+		riskTier: "high",
+	});
+	expect(model.doGenerateCalls).toHaveLength(0);
+	expect(
+		service.calls.filter((call) => call.params.name === "tedix__run_workflow"),
+	).toHaveLength(0);
+	expect(decideKernelWriteApproval({ proposal: proposal! }).autoResolve).toBe(
+		false,
+	);
+	const result = await executeApprovedKernelWrite({
+		env: baseEnv(service),
+		approvalRequestId: "approved-request",
+		approvedByUserId: "approver",
+		payload: {
+			kind: "home_tool_write",
+			organizationId: "org-1",
+			homeRunId: "run-1",
+			conversationId: "home:test",
+			initiatedByUserId: null,
+			initiatedByAgentPrincipalId: "agent-1",
+			appSlug: proposal!.appSlug,
+			toolName: proposal!.toolName,
+			args: proposal!.args,
+			transport: proposal!.transport,
+		},
+	});
+	expect(result).toMatchObject({
+		ok: true,
+		data: { runId: "durable-skill-run" },
+	});
+	const writes = service.calls.filter(
+		(call) => call.params.name === "tedix__run_workflow",
+	);
+	expect(writes).toHaveLength(1);
+	expect(writes[0]?.params.arguments).toEqual(args);
+	expect(writes[0]?.params._meta).toMatchObject({
+		"com.tedix/homeApprovalRequestId": "approved-request",
+		"com.tedix/homeApprovalToolName": "skills.run_workflow",
+	});
+});

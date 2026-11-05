@@ -87,6 +87,13 @@ vi.mock("./direct-skill-move", async (importOriginal) => {
 	};
 });
 
+const directSkillRunMocks = vi.hoisted(() => ({ resolve: vi.fn() }));
+vi.mock("./direct-skill-run", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("./direct-skill-run")>();
+	directSkillRunMocks.resolve.mockImplementation(actual.resolveDirectSkillRun);
+	return { ...actual, resolveDirectSkillRun: directSkillRunMocks.resolve };
+});
+
 import { HomeAnswerIncompleteError } from "./home-page-tools";
 import { readDelegationDepth, runKernelTurnWork } from "./turn-work";
 import {
@@ -4714,4 +4721,81 @@ it("threads only the original structured steward targets into the kernel produce
 	expect(kernel).toHaveBeenCalledWith(
 		expect.objectContaining({ stewardCloseoutTargets: targets }),
 	);
+});
+
+it("parks a bounded direct skill run for human approval instead of a text-only no-delegation answer", async () => {
+	const args = {
+		skillId: "00000000-0000-4000-8000-000000000011",
+		tediId: "existing-owner",
+		workItemId: "00000000-0000-4000-8000-000000000012",
+		expectedSkillRevision: 2,
+		idempotencyKey: "home:run-1",
+		confirmDestructive: true as const,
+		reason: "Run after approval",
+		params: {
+			startDate: "2026-10-12",
+			endDate: "2026-10-18",
+			cycleKey: "2026-W42",
+		},
+	};
+	directSkillRunMocks.resolve.mockResolvedValueOnce({
+		skillTitle: "Weekly visibility",
+		intent: { capability: "skills.run", toolName: "skills.run_workflow", args },
+	});
+	const kernel = vi.fn(async () => ({
+		route: route({
+			routeKind: "answer_in_home",
+			answer: "I’ll respond here without delegating.",
+		}),
+		assistantContent: "I’ll respond here without delegating.",
+	}));
+	const planner = vi.fn(async () => ({
+		appSlug: "org-1-unified",
+		toolName: "skills.run_workflow",
+		args,
+		reasoning: "Run after approval",
+		riskTier: "high" as const,
+		transport: "codemode" as const,
+	}));
+	const execute = vi.fn();
+	const events: string[] = [];
+	const deps = stubDeps({
+		kernel: kernel as KernelTurnWorkDeps["kernel"],
+		writeProposalPlanner: planner,
+		executeDirectWrite: execute,
+		autoResolveKernelWrite: execute,
+	});
+	const insertEvent = deps.insertKernelRuntimeEvent;
+	deps.insertKernelRuntimeEvent = async (event) => {
+		events.push(event.kind);
+		return insertEvent(event);
+	};
+	const result = await runKernelTurnWork(deps, {
+		...turnInput(),
+		descopeUserId: undefined,
+		externalAgentPrincipalId: "agent-1",
+		content: `For Work Item ${args.workItemId}, directly run existing skill ${args.skillId} once with exactly these params: startDate=2026-10-12, endDate=2026-10-18, cycleKey=2026-W42. Pin the run to that Work Item and use the skill's existing CTO owner. Do not delegate. If human approval is required, create the approval request and stop for the owner; do not bypass it or perform any other write.`,
+	});
+	expect(kernel).not.toHaveBeenCalled();
+	expect(planner).toHaveBeenCalledWith(
+		expect.objectContaining({
+			route: expect.objectContaining({
+				routeKind: "propose_tool_write",
+				targetTediId: null,
+			}),
+			directRename: {
+				capability: "skills.run",
+				toolName: "skills.run_workflow",
+				args,
+			},
+		}),
+	);
+	expect(result.status).toBe("requires_approval");
+	expect(result.run.metadata).toMatchObject({
+		approvalRequestId: "approval:run-1",
+	});
+	expect(result.run.completedAt).toBeNull();
+	expect(events).toContain("approval.requested");
+	expect(events).not.toContain("run.completed");
+	expect(execute).not.toHaveBeenCalled();
 });
