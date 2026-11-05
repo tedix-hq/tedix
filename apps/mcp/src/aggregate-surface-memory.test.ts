@@ -40,6 +40,10 @@ import {
 	readAggregateL2,
 } from "./aggregate-surface-cache";
 import { CACHE_TIER_BUDGET_MS } from "./lib/step-budget";
+import {
+	discoveryShardCache,
+	loadDiscoveryShards,
+} from "./aggregate-discovery-shards";
 
 type StoredResponse = { body: string; headers: [string, string][] };
 
@@ -142,6 +146,7 @@ describe("aggregate snapshot memory", () => {
 		aggregateSurfaceCache.clear();
 		aggregateSurfaceInFlight.clear();
 		aggregateRevalidateInFlight.clear();
+		discoveryShardCache.clear();
 		resolveUpstreamToolsInternally.mockReset();
 		resolveUpstreamToolsInternally.mockImplementation(async () =>
 			sourceApp(["read_item", "list_items"]),
@@ -479,6 +484,153 @@ describe("aggregate snapshot memory", () => {
 		vi.setSystemTime(Date.now() + AGGREGATE_SURFACE_CACHE_TTL_MS + 1_000);
 		await loadTransient();
 		expect(colo.bodyReads.count).toBe(0);
+	});
+
+	describe("discovery shards", () => {
+		// Above CATALOG_SCHEMA_SEARCH_MAX_ROWS, so ranking never reads schemas.
+		const manyTools = Array.from({ length: 4_001 }, (_, i) => `read_item_${i}`);
+		const organizations = ["acme-unified", "globex-unified"];
+		const mounts: AggregateAppEntry[] = organizations.map((slug) => ({
+			slug,
+			prefix: slug,
+			organizationId: `org-${slug}`,
+			organizationMount: true,
+		}));
+		beforeEach(() => {
+			resolveUpstreamToolsInternally.mockImplementation(
+				async (source: AggregateAppEntry) =>
+					organizations.includes(source.slug)
+						? toInternalResolveResult(source.slug, {
+								app: {
+									id: `${source.slug}-app`,
+									slug: source.slug,
+									organizationId: `org-${source.slug}`,
+									metadata: {
+										mcpConfig: { aggregateApps: [{ slug: "source" }] },
+									},
+								},
+								tools: [],
+								catalogResources: [],
+								catalogResourceTemplates: [],
+							} as never)
+						: sourceApp(manyTools),
+			);
+		});
+		const loadConnect = () =>
+			aggregateAndPrefixTools(
+				mounts,
+				env,
+				new Set(),
+				ctx,
+				"connect",
+				activation,
+				false,
+			);
+		const shardKeys = () =>
+			[...r2.objects.keys()].filter((key) =>
+				key.startsWith("aggregate-discovery/v1/"),
+			);
+
+		it("compiles one compact shard per organization graph", async () => {
+			const surface = await loadConnect();
+			await settleBackground();
+			expect(shardKeys()).toHaveLength(2);
+			// Shards drop schemas; the served surface keeps them.
+			for (const key of shardKeys())
+				expect(r2.objects.get(key)!.body).not.toContain('"properties"');
+			expect(surface.tools[0]?.inputSchema).toHaveProperty("properties");
+
+			// An unchanged organization graph is not compiled again.
+			const puts = r2.bucket.put.mock.calls.length;
+			await loadConnect();
+			await settleBackground();
+			expect(r2.bucket.put.mock.calls.length).toBe(puts);
+		});
+
+		it("serves namespace-free discovery without parsing any organization snapshot", async () => {
+			await loadConnect();
+			await settleBackground();
+			// A cold isolate: no organization graph in memory.
+			aggregateSurfaceCache.clear();
+			aggregateSurfaceInFlight.clear();
+			resolveUpstreamToolsInternally.mockClear();
+			r2.bucket.get.mockClear();
+			colo.cache.match.mockClear();
+
+			const shards = await loadDiscoveryShards(
+				env,
+				mounts,
+				new Set(),
+				activation.value,
+			);
+			expect(shards?.hydrate).toEqual([]);
+			// Each organization gateway mounts `source` plus the platform app.
+			expect(shards?.tools).toHaveLength(manyTools.length * 4);
+			const row = shards!.tools.find(
+				(tool) => tool.toolId === "acme_unified_source__read_item_0",
+			)!;
+			expect(row.inputSchema).toEqual({ type: "object" });
+			expect(row.config?._discoveryShard).toBe(true);
+			expect(row.config?._multiOrgOrganizationId).toBe("org-acme-unified");
+			// Only shard objects were read: no snapshot tier, no live fan-out.
+			expect(resolveUpstreamToolsInternally).not.toHaveBeenCalled();
+			expect(colo.cache.match).not.toHaveBeenCalled();
+			expect(colo.bodyReads.count).toBe(0);
+			expect(
+				r2.bucket.get.mock.calls.every(([key]) =>
+					String(key).startsWith("aggregate-discovery/v1/"),
+				),
+			).toBe(true);
+
+			// Parsed shards are shared by the next request in this isolate.
+			r2.bucket.get.mockClear();
+			const again = await loadDiscoveryShards(
+				env,
+				mounts,
+				new Set(),
+				activation.value,
+			);
+			expect(again?.tools).toContain(row);
+			expect(r2.bucket.get).not.toHaveBeenCalled();
+		});
+
+		it("hydrates only the organization a program calls by name", async () => {
+			await loadConnect();
+			await settleBackground();
+			const shards = await loadDiscoveryShards(
+				env,
+				mounts,
+				new Set(["globex_unified_source"]),
+				activation.value,
+			);
+			expect(shards?.hydrate.map((entry) => entry.slug)).toEqual([
+				"globex-unified",
+			]);
+			expect(
+				shards?.tools.every((tool) => tool.toolId.startsWith("acme_unified_")),
+			).toBe(true);
+		});
+
+		it("never executes a shard row", async () => {
+			const { ToolHandler } = await import("./mcp/handler");
+			const result = await new ToolHandler().execute({}, {
+				config: { endpoint: "apps/get", _discoveryShard: true },
+			} as never);
+			expect(result.status).toBe(409);
+		});
+
+		it("falls back to the full catalog when a shard is missing or from another epoch", async () => {
+			await loadConnect();
+			await settleBackground();
+			await expect(
+				loadDiscoveryShards(env, mounts, new Set(), "epoch-after-sync"),
+			).resolves.toBeNull();
+			r2.objects.delete(shardKeys()[0]!);
+			discoveryShardCache.clear();
+			await expect(
+				loadDiscoveryShards(env, mounts, new Set(), activation.value),
+			).resolves.toBeNull();
+		});
 	});
 
 	it("does not parse a snapshot after its read budget tripped", async () => {

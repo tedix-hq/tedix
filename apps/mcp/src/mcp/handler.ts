@@ -1,4 +1,5 @@
 import { readResponseFields } from "./field-selection";
+import { isDiscoveryShardTool } from "../aggregate-discovery-shards";
 import { attachExchangedToken } from "./token-exchange-pilot";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { applyMcpCustomHeaders } from "./handler-external-request";
@@ -336,6 +337,16 @@ export class ToolHandler {
 		const { _fields, ...upstreamInput } = input;
 		input = upstreamInput;
 		const config = ctx.config;
+		// Discovery shard rows have no schema or execution contract.
+		if (isDiscoveryShardTool(config)) {
+			return {
+				status: 409,
+				data: {
+					error:
+						"This tool was loaded for discovery only. Call it from a program that names its namespace directly.",
+				},
+			};
+		}
 		const expectedConfig = ctx.requestMeta?.["tedix/expectedToolConfig"];
 		if (
 			expectedConfig !== undefined &&

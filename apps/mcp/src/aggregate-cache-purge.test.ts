@@ -128,6 +128,11 @@ describe("purge-aggregate-cache", () => {
 				objects: [{ key: "aggregate-surface/v1/cccc" }],
 				truncated: false,
 			},
+			// Discovery shards are listed under their own prefix.
+			{
+				objects: [{ key: "aggregate-discovery/v1/dddd" }],
+				truncated: false,
+			},
 		];
 		const list = vi.fn(async () => pages.shift());
 		const env = createEnv({
@@ -154,8 +159,9 @@ describe("purge-aggregate-cache", () => {
 			"aggregate-surface/v1/aaaa",
 			"aggregate-surface/v1/bbbb",
 			"aggregate-surface/v1/cccc",
+			"aggregate-discovery/v1/dddd",
 		]);
-		expect(list).toHaveBeenCalledTimes(2);
+		expect(list).toHaveBeenCalledTimes(3);
 	});
 
 	it("still succeeds with no R2 binding (local dev)", async () => {

@@ -665,6 +665,9 @@ export async function joinAggregateLoad(
 	);
 	return load;
 }
+/** Compact discovery shards (`aggregate-discovery-shards.ts`), fenced by epoch. */
+export const DISCOVERY_SHARD_PREFIX = "aggregate-discovery/v1/";
+
 export async function purgeAggregateSurfaceCaches(env: CloudflareEnv) {
 	let deleted = 0;
 	let l2Deleted = 0;
@@ -691,6 +694,18 @@ export async function purgeAggregateSurfaceCaches(env: CloudflareEnv) {
 					page.objects.map((object) => object.key),
 				);
 				deleted += page.objects.length;
+			}
+			cursor = page.truncated ? page.cursor : undefined;
+		} while (cursor);
+		do {
+			const page = await env.AGGREGATE_CACHE.list({
+				prefix: DISCOVERY_SHARD_PREFIX,
+				...(cursor ? { cursor } : {}),
+			});
+			if (page.objects.length > 0) {
+				await env.AGGREGATE_CACHE.delete(
+					page.objects.map((object) => object.key),
+				);
 			}
 			cursor = page.truncated ? page.cursor : undefined;
 		} while (cursor);

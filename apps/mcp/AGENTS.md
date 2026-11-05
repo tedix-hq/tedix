@@ -97,7 +97,8 @@ D1 tools or `mcpConfig.connectionLabel` instead.
 
 Caches are isolate-lifetime `Map`s with TTLs and in-flight dedupe maps
 (`src/resolution.ts`, `src/mcp/skill-cache.ts`, `src/aggregate-surface.ts`
-`internalToolCache`/`aggregateSurfaceCache`). Two rules:
+`internalToolCache`/`aggregateSurfaceCache`, `src/aggregate-discovery-shards.ts`
+`discoveryShardCache`). Two rules:
 
 - A cache keyed by caller/token/client input must be **size-bounded** like the
   existing siblings: `userTediCache` (`src/index.ts`, 200),
