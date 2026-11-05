@@ -154,20 +154,8 @@ export async function evaluateDecisionCascade(
 				return null;
 			}
 		}
-		if (!response.receipt) {
-			stopReason = "missing_receipt";
-			return null;
-		}
-		if (!response.receipt.resolvedModel) {
+		if (response.status === "ok" && !response.receipt.resolvedModel) {
 			stopReason = "unknown_resolved_model";
-			return null;
-		}
-		if (
-			response.receipt.costMicros === null ||
-			response.receipt.cacheReadTokens === null ||
-			response.receipt.cacheWriteTokens === null
-		) {
-			stopReason = "unknown_usage_attribution";
 			return null;
 		}
 		return response.status === "ok" ? response.value : null;

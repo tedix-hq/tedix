@@ -288,29 +288,6 @@ describe("decision cascade evaluation boundary", () => {
 		expect(result.status).toBe("proposed");
 		expect(result.receipts[0]?.executionId).toBe("failed-paid-send");
 	});
-	it.each(["missing", "resolved", "cost", "cacheRead", "cacheWrite"])(
-		"stops an unavailable send with unknown %s attribution before escalation",
-		async (kind) => {
-			const adapters = harness();
-			adapters.dispatch.mockResolvedValueOnce({
-				status: "unavailable",
-				receipt:
-					kind === "missing"
-						? null
-						: {
-								...receipt(policy.judgmentModel, "failed-paid-send"),
-								...(kind === "resolved" ? { resolvedModel: null } : {}),
-								...(kind === "cost" ? { costMicros: null } : {}),
-								...(kind === "cacheRead" ? { cacheReadTokens: null } : {}),
-								...(kind === "cacheWrite" ? { cacheWriteTokens: null } : {}),
-							},
-			});
-			const result = await evaluateDecisionCascade(policy, input, adapters);
-			expect(result).toMatchObject({ status: "stopped", proposal: null });
-			expect(result.receipts).toHaveLength(kind === "missing" ? 0 : 1);
-			expect(adapters.dispatch).toHaveBeenCalledTimes(1);
-		},
-	);
 	it("stops at the call limit even when stronger reasoning would help", async () => {
 		const adapters = harness([{ ...judgment, confidence: 0.1 }]);
 		expect(

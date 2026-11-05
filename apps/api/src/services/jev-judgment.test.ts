@@ -18,7 +18,6 @@ vi.mock("@tedix/db/queries/tedi-usage", () => ({
 }));
 vi.mock("@tedix/workers-ai/jev", () => ({
 	callJev: mocks.call,
-	JEV_MODEL: "typesafe/jev",
 	JevResponseError: class extends Error {
 		constructor(
 			message: string,
