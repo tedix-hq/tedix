@@ -38,6 +38,9 @@ const artifact = {
 	sizeBytes: 64,
 };
 
+/** Artifact reads are run-keyed; the platform seam still requires a tenant scope. */
+const scope = { organizationId: "org-1" };
+
 async function body(row: { sha256: string | null } | null) {
 	return row;
 }
@@ -122,12 +125,12 @@ describe("skill-run artifacts plane parity", () => {
 			t.db.insert(skillRunArtifacts).values(row).run();
 		}
 		const [pAll, tAll] = await Promise.all([
-			platform.listRunArtifacts(p.platform, "run-1"),
+			platform.listRunArtifacts(p.platform, scope, "run-1"),
 			tenant.listRunArtifacts(t.db, "run-1"),
 		]);
 		expect(tAll).toEqual(pAll);
 		const [pPage, tPage] = await Promise.all([
-			platform.listRunArtifactsPage(p.platform, "run-1", {
+			platform.listRunArtifactsPage(p.platform, scope, "run-1", {
 				limit: 2,
 				offset: 1,
 			}),
@@ -135,33 +138,34 @@ describe("skill-run artifacts plane parity", () => {
 		]);
 		expect(tPage).toEqual(pPage);
 		const [pOne, tOne] = await Promise.all([
-			platform.getRunArtifact(p.platform, "run-1", "timeline.json"),
+			platform.getRunArtifact(p.platform, scope, "run-1", "timeline.json"),
 			tenant.getRunArtifact(t.db, "run-1", "timeline.json"),
 		]);
 		expect(tOne).toEqual(pOne);
 		const [pOps, tOps] = await Promise.all([
-			platform.listRunOperationalArtifacts(p.platform, "run-1"),
+			platform.listRunOperationalArtifacts(p.platform, scope, "run-1"),
 			tenant.listRunOperationalArtifacts(t.db, "run-1"),
 		]);
 		expect(tOps).toEqual(pOps);
 		const [pSteps, tSteps] = await Promise.all([
-			platform.listRunWorkflowStepArtifacts(p.platform, "run-1"),
+			platform.listRunWorkflowStepArtifacts(p.platform, scope, "run-1"),
 			tenant.listRunWorkflowStepArtifacts(t.db, "run-1"),
 		]);
 		expect(tSteps).toEqual(pSteps);
 		const [pCalls, tCalls] = await Promise.all([
-			platform.listRunWorkflowCallArtifacts(p.platform, "run-1"),
+			platform.listRunWorkflowCallArtifacts(p.platform, scope, "run-1"),
 			tenant.listRunWorkflowCallArtifacts(t.db, "run-1"),
 		]);
 		expect(tCalls).toEqual(pCalls);
 		const [pBatch, tBatch] = await Promise.all([
-			platform.listRunArtifactsForRuns(p.platform, ["run-1", "run-2"]),
+			platform.listRunArtifactsForRuns(p.platform, scope, ["run-1", "run-2"]),
 			tenant.listRunArtifactsForRuns(t.db, ["run-1", "run-2"]),
 		]);
 		expect(tBatch).toEqual(pBatch);
 		const [pByPath, tByPath] = await Promise.all([
 			platform.listRunArtifactsForRunsByPath(
 				p.platform,
+				scope,
 				["run-1"],
 				"timeline.json",
 			),
@@ -169,12 +173,14 @@ describe("skill-run artifacts plane parity", () => {
 		]);
 		expect(tByPath).toEqual(pByPath);
 		const [pObs, tObs] = await Promise.all([
-			platform.listRunWorkflowRuntimeObservationsForRuns(p.platform, ["run-1"]),
+			platform.listRunWorkflowRuntimeObservationsForRuns(p.platform, scope, [
+				"run-1",
+			]),
 			tenant.listRunWorkflowRuntimeObservationsForRuns(t.db, ["run-1"]),
 		]);
 		expect(tObs).toEqual(pObs);
 		const [pTime, tTime] = await Promise.all([
-			platform.listRunTimelineArtifacts(p.platform, "run-1", 2),
+			platform.listRunTimelineArtifacts(p.platform, scope, "run-1", 2),
 			tenant.listRunTimelineArtifacts(t.db, "run-1", 2),
 		]);
 		expect(tTime).toEqual(pTime);

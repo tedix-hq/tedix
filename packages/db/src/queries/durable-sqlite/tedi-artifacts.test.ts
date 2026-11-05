@@ -110,6 +110,7 @@ describe("tedi artifacts plane parity", () => {
 		]);
 		const [pList, tList] = await Promise.all([
 			platform.listTediArtifacts(p.platform, {
+				organizationId: "org-1",
 				tediId: "tedi-1",
 				runId: "run-1",
 				limit: 10,

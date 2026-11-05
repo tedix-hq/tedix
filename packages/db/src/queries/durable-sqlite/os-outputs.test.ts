@@ -54,6 +54,7 @@ function tenantDb(): { sqlite: DatabaseSync; db: TenantStoreDb } {
 async function seedPlatform(db: ReturnType<typeof platformDb>["db"]) {
 	return platform.createOsOutput(
 		db,
+		{ organizationId: "org-1", workspaceId: "ws-1" },
 		{
 			...accountability,
 			id: "out-1",
@@ -230,7 +231,11 @@ describe("os outputs plane parity", () => {
 		}
 		const anyone = { userIds: [] };
 		const [libP, libT] = await Promise.all([
-			platform.listOsOutputLibraryRows(p.db, "org-1", anyone),
+			platform.listOsOutputLibraryRows(
+				p.db,
+				{ organizationId: "org-1" },
+				anyone,
+			),
 			tenant.listOsOutputLibraryRows(t.db, "org-1", anyone),
 		]);
 		expect(libT).toHaveLength(1);

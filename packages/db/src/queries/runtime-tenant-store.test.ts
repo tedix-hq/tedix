@@ -60,8 +60,8 @@ function fixture(plane: "d1" | "tenant") {
 				? tenantCognitive.getTediRuntimeEventById(tenantDb, input)
 				: platformCognitive.getTediRuntimeEventById(
 						platformDb,
+						{ organizationId: input.organizationId, tediId: input.tediId },
 						input.id,
-						input,
 					),
 		insertRun: (input: platformRuns.NewKernelRuntimeRun) =>
 			plane === "tenant"
@@ -142,6 +142,7 @@ function fixture(plane: "d1" | "tenant") {
 				? tenantEvents.updateKernelRuntimeEventMetadata(tenantDb, input)
 				: platformEvents.updateKernelRuntimeEventMetadata(
 						platformDb,
+						{ organizationId: input.organizationId },
 						input.id,
 						input.runtimeMetadata,
 					),
