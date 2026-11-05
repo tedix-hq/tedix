@@ -1,3 +1,4 @@
+import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import { assertFreshCustomHost } from "./custom-host";
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import {
@@ -770,8 +771,11 @@ async function createIntentForSurface(
 		brokerOrigins(env).osOrigin,
 	);
 	await assertFreshCustomHost(env.API_SERVICE, intent);
-	const created =
-		await env.SESSION_INTENTS.getByName(intentId).initialize(intent);
+	const created = await durableObjectStubByName(
+		env.SESSION_INTENTS,
+		env,
+		intentId,
+	).initialize(intent);
 	if (!created) throw new Error("Session broker intent collision");
 	return {
 		authorizeUrl: buildSessionBrokerAuthorizeUrl(
@@ -789,11 +793,11 @@ async function exchangeCodeForSurface(
 	input: ExchangeSessionBrokerCodeInput,
 ): Promise<SessionBrokerExchangeResult> {
 	const codeHash = await digestReference(input.code);
-	const result = await env.SESSION_INTENTS.getByName(input.intentId).exchange(
-		input,
-		surface,
-		codeHash,
-	);
+	const result = await durableObjectStubByName(
+		env.SESSION_INTENTS,
+		env,
+		input.intentId,
+	).exchange(input, surface, codeHash);
 	if (!result) throw new Error("Session broker code rejected");
 	return result;
 }
@@ -1016,7 +1020,11 @@ async function authorize(request: Request, env: BrokerEnv): Promise<Response> {
 			headers: noStoreHeaders({ "Content-Type": "text/plain; charset=utf-8" }),
 		});
 	}
-	const intentOwner = env.SESSION_INTENTS.getByName(intentId);
+	const intentOwner = durableObjectStubByName(
+		env.SESSION_INTENTS,
+		env,
+		intentId,
+	);
 	const intent = await intentOwner.readPending();
 	if (!intent) {
 		return unavailableIntentResponse(osOrigin ?? "https://os.tedix.dev");
@@ -1111,7 +1119,11 @@ async function authorize(request: Request, env: BrokerEnv): Promise<Response> {
 				sessionValues[0] && SESSION_ID_PATTERN.test(sessionValues[0])
 					? sessionValues[0]
 					: randomReference();
-			await env.SESSION_ROTATION.getByName(logoutSessionId).logout({
+			await durableObjectStubByName(
+				env.SESSION_ROTATION,
+				env,
+				logoutSessionId,
+			).logout({
 				refreshToken: refreshValues[0]!,
 				traceId,
 			});
@@ -1161,7 +1173,11 @@ async function authorize(request: Request, env: BrokerEnv): Promise<Response> {
 		SESSION_ID_PATTERN.test(sessionValues[0])
 			? sessionValues[0]
 			: await digestReference(refreshValues[0]!);
-	const rotationOwner = env.SESSION_ROTATION.getByName(browserSessionId);
+	const rotationOwner = durableObjectStubByName(
+		env.SESSION_ROTATION,
+		env,
+		browserSessionId,
+	);
 	const rotated =
 		intent.operation === "issue_session"
 			? await rotationOwner.rotate({
@@ -1297,8 +1313,11 @@ export default {
 			} catch {
 				return new Response("Invalid outbound callback\n", { status: 400 });
 			}
-			const intent =
-				await env.SESSION_INTENTS.getByName(intentId).consumeOutbound();
+			const intent = await durableObjectStubByName(
+				env.SESSION_INTENTS,
+				env,
+				intentId,
+			).consumeOutbound();
 			if (!intent)
 				return new Response("Outbound request expired\n", { status: 410 });
 			return new Response(null, {

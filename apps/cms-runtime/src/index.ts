@@ -1,3 +1,4 @@
+import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import {
 	publicAssetCacheEligible,
 	publicAssetCacheRequest,
@@ -343,7 +344,7 @@ function withTenantStoragePermit<T>(
 	identity: { siteId: string; slug: string; restoreEpoch: number },
 	run: () => Promise<T>,
 ): Promise<T> {
-	return withSharedCmsRestorePermit(env.DB_DO, identity, run);
+	return withSharedCmsRestorePermit(env, identity, run);
 }
 
 export class TenantEmDashDB extends WorkerEntrypoint<
@@ -355,8 +356,11 @@ export class TenantEmDashDB extends WorkerEntrypoint<
 	}
 
 	private stub(): EmDashDBStub {
-		const id = this.env.DB_DO.idFromName(this.ctx.props.name);
-		return this.env.DB_DO.get(id) as unknown as EmDashDBStub;
+		return durableObjectStubByName(
+			this.env.DB_DO,
+			this.env,
+			this.ctx.props.name,
+		) as unknown as EmDashDBStub;
 	}
 
 	async executeCollectionDeletionGuard(
@@ -755,7 +759,7 @@ async function writeCompressedBundleIfPermitted(
 ): Promise<void> {
 	if (!identity) return;
 	try {
-		await withSharedCmsRestorePermit(env.DB_DO, identity, () =>
+		await withSharedCmsRestorePermit(env, identity, () =>
 			writeCompressedBundle(env, r2Prefix, json),
 		);
 	} catch (err) {
@@ -2128,7 +2132,7 @@ export default {
 						!isMarketingContactPath(url.pathname)
 					)
 						return run();
-					return withSharedCmsRestorePermit(env.DB_DO, identity, run);
+					return withSharedCmsRestorePermit(env, identity, run);
 				},
 				undefined,
 				restoreQueries?.(),

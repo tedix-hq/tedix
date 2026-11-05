@@ -1,4 +1,5 @@
 import type { DbQueryClient } from "@tedix/db/query-client";
+import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import {
 	enterCmsRestorePermit,
 	leaveCmsRestorePermit,
@@ -101,12 +102,14 @@ export async function withCmsRestorePermit<T>(
  * settles, so a restore, pause or deprovision drains it exactly as it drains
  * an exact permit. Any coordinator failure is a closed fence. */
 export async function withSharedCmsRestorePermit<T>(
-	namespace: DurableObjectNamespace,
+	env: { DB_DO: DurableObjectNamespace },
 	identity: CmsRestoreFenceIdentity,
 	run: () => Promise<T>,
 ): Promise<T> {
-	const coordinator = namespace.get(
-		namespace.idFromName(identity.slug),
+	const coordinator = durableObjectStubByName(
+		env.DB_DO,
+		env,
+		identity.slug,
 	) as unknown as Pick<EmDashDBStub, "runWithRestorePermit">;
 	let outcome: { value: T } | { error: unknown } | undefined;
 	try {

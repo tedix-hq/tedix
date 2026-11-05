@@ -1,3 +1,4 @@
+import { durableObjectIdFromName } from "@tedix/worker-kit/durable-objects";
 import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { callRpc, serviceBindingFetch } from "@tedix/api-client/internal";
 import { encodeAiGatewayAttribution } from "@tedix/api-contract/schemas/ai-gateway-attribution";
@@ -424,7 +425,7 @@ export const runtimeParentTurns = {
 		return resolveRuntimeParentIdentity({
 			db: this.env.DB,
 			physicalIdForName: (name) =>
-				this.env.TEDI_AGENT.idFromName(name).toString(),
+				durableObjectIdFromName(this.env.TEDI_AGENT, this.env, name).toString(),
 			capture: () =>
 				captureRuntimeParentIdentity({
 					ctx: this.ctx,
@@ -1440,7 +1441,11 @@ export const runtimeParentTurns = {
 					: null;
 		if (
 			!identityName ||
-			this.env.TEDI_AGENT.idFromName(identityName).toString() !== input.objectId
+			durableObjectIdFromName(
+				this.env.TEDI_AGENT,
+				this.env,
+				identityName,
+			).toString() !== input.objectId
 		)
 			throw new Error("Facet physical custody mismatch");
 		const root: NativeRootProof = {

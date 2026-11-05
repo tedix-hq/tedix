@@ -1,3 +1,4 @@
+import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import {
 	WorkflowEntrypoint,
 	type WorkflowEvent,
@@ -143,8 +144,10 @@ export function cmsSiteDrillStub(
 	env: Pick<Env, "DB_DO">,
 	drill: Pick<CmsSiteDrillIdentity, "slug">,
 ): CmsSiteDrillStub {
-	return env.DB_DO.get(
-		env.DB_DO.idFromName(drill.slug),
+	return durableObjectStubByName(
+		env.DB_DO,
+		env,
+		drill.slug,
 	) as unknown as CmsSiteDrillStub;
 }
 

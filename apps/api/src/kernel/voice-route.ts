@@ -21,6 +21,7 @@
 
 import type { KernelVoiceDO } from "./kernel-voice-do";
 import { pickEchoableSubprotocol } from "@tedix/worker-kit/request-auth";
+import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import { authenticateKernelEdge, jsonError } from "./edge-auth";
 
 export async function handleKernelVoiceCall(
@@ -68,8 +69,10 @@ export async function handleKernelVoiceCall(
 	doUrl.searchParams.set("organization", identity.organizationId);
 	doUrl.searchParams.set("conversation", conversation);
 
-	const stub = kernelVoice.get(
-		kernelVoice.idFromName(`${identity.organizationId}:${conversation}`),
+	const stub = durableObjectStubByName(
+		kernelVoice,
+		env,
+		`${identity.organizationId}:${conversation}`,
 	);
 	const doRequest = new Request(doUrl.toString(), { ...request, headers });
 	const doResponse = await stub.fetch(doRequest);

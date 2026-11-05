@@ -1,3 +1,4 @@
+import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import { approvalPayloadForViewer } from "../../../services/approval-result-privacy";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
 import {
@@ -142,7 +143,7 @@ export async function notifyKernelChildComplete(
 			}
 		).KERNEL;
 		if (!kernel) return;
-		const stub = kernel.get(kernel.idFromName(organizationId));
+		const stub = durableObjectStubByName(kernel, context.env, organizationId);
 		await stub.scheduleWakeAlarm(
 			input.parentConversationId,
 			input.childRunId,
@@ -182,7 +183,11 @@ export async function notifyKernelChildApprovalBlock(
 			}
 		).KERNEL;
 		if (!kernel) return;
-		const stub = kernel.get(kernel.idFromName(input.parentOrganizationId));
+		const stub = durableObjectStubByName(
+			kernel,
+			context.env,
+			input.parentOrganizationId,
+		);
 		if (input.blocked) {
 			await stub.mirrorChildApprovalBlocked({
 				parentConversationId: input.parentConversationId,

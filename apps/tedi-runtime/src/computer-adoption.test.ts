@@ -75,6 +75,7 @@ assert.equal(
 		namespace as unknown as ConstructorParameters<
 			typeof ScopedComputerWorkspace
 		>[0],
+		{},
 		{ kind: "conversation", key: "main" },
 		"owner",
 		async () => "tedi-1",

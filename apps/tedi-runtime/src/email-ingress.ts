@@ -12,6 +12,7 @@
 import { callRpc, serviceBindingFetch } from "@tedix/api-client/internal";
 import { getTediEmailIngressRouteBySlug } from "@tedix/db/queries/tedi-runtime-bootstrap";
 import { routeAgentEmail } from "agents";
+import { durableObjectNamespace } from "@tedix/worker-kit/durable-objects";
 import { createSecureReplyEmailResolver } from "agents/email";
 import { logInboundEmailPersistenceFailure } from "./email-ingress-failure-log";
 import {
@@ -742,19 +743,29 @@ async function maybeRouteToAgent(
 			input.senderTrust,
 		);
 		let noRoute = false;
-		await routeAgentEmail(replayableMessage, env as unknown as Cloudflare.Env, {
-			resolver: async (email, _workerEnv) => {
-				if (secureResolver) {
-					const secureReply = await secureResolver(email, env);
-					if (secureReply) return secureReply;
-				}
-				return { agentName: "TEDI_AGENT", agentId };
+		await routeAgentEmail(
+			replayableMessage,
+			{
+				...(env as unknown as Cloudflare.Env),
+				TEDI_AGENT: durableObjectNamespace(
+					env.TEDI_AGENT as unknown as Cloudflare.Env["TEDI_AGENT"],
+					env,
+				),
 			},
-			onNoRoute: () => {
-				noRoute = true;
-				console.warn("[Email] routeAgentEmail found no route");
+			{
+				resolver: async (email, _workerEnv) => {
+					if (secureResolver) {
+						const secureReply = await secureResolver(email, env);
+						if (secureReply) return secureReply;
+					}
+					return { agentName: "TEDI_AGENT", agentId };
+				},
+				onNoRoute: () => {
+					noRoute = true;
+					console.warn("[Email] routeAgentEmail found no route");
+				},
 			},
-		});
+		);
 		return noRoute ? "no_route" : "sdk_returned";
 	} catch {
 		console.warn("[Email] routeAgentEmail failed");

@@ -1,3 +1,4 @@
+import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import { CALLER_TRUST_HEADER } from "@tedix/mcp-shared/auth/caller-trust";
 import { resolveTediRuntimeIdentity } from "@tedix/db/queries/tedi-runtime-bootstrap";
 import { identityValue } from "./runtime-facet-turns";
@@ -161,8 +162,7 @@ export async function meshInject(
 			};
 		}
 	).TEDI_AGENT;
-	const id = ns.idFromName(target.isolateAgentId);
-	const stub = ns.get(id);
+	const stub = durableObjectStubByName(ns, sender.env, target.isolateAgentId);
 	const headers = new Headers({
 		"Content-Type": "application/json",
 		"X-Service-Binding": "true",

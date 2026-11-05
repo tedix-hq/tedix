@@ -1,3 +1,4 @@
+import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import {
 	WorkflowEntrypoint,
 	type WorkflowEvent,
@@ -36,8 +37,10 @@ interface CmsPitrSelfTestStub {
 }
 
 function selfTestStub(env: Pick<Env, "DB_DO">): CmsPitrSelfTestStub {
-	return env.DB_DO.get(
-		env.DB_DO.idFromName(CMS_PITR_SELF_TEST_DO_NAME),
+	return durableObjectStubByName(
+		env.DB_DO,
+		env,
+		CMS_PITR_SELF_TEST_DO_NAME,
 	) as unknown as CmsPitrSelfTestStub;
 }
 

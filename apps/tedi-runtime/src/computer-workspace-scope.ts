@@ -3,6 +3,10 @@ import {
 	type WorkspaceClient,
 	type Workspace,
 } from "@cloudflare/computer";
+import {
+	durableObjectIdFromName,
+	durableObjectStubByName,
+} from "@tedix/worker-kit/durable-objects";
 import type { ToolSet } from "ai";
 import {
 	adaptVfsToWorkspaceFs,
@@ -54,17 +58,16 @@ export class ScopedComputerWorkspace {
 
 	constructor(
 		namespace: DurableObjectNamespace<TediComputerWorkspaceDO>,
+		env: unknown,
 		readonly scope: ComputerWorkspaceScope,
 		private readonly ownerId: string,
 		private readonly resolveTediId: () => Promise<string>,
 	) {
 		this.scope = { kind: scope.kind, key: scope.key };
-		const id = namespace.idFromName(
-			JSON.stringify([ownerId, scope.kind, scope.key]),
-		);
-		this.id = id.toString();
+		const name = JSON.stringify([ownerId, scope.kind, scope.key]);
+		this.id = durableObjectIdFromName(namespace, env, name).toString();
 		this.snapshotPrefix = `workspace/${this.id}/`;
-		this.stub = namespace.get(id);
+		this.stub = durableObjectStubByName(namespace, env, name);
 		const fsMethod = <K extends keyof ComputerWorkspaceSurface["fs"]>(
 			name: K,
 		): ComputerWorkspaceSurface["fs"][K] => {

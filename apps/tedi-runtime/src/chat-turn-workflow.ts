@@ -53,6 +53,10 @@
 import { NonRetryableError } from "cloudflare:workflows";
 import { getAgentByName } from "agents";
 import {
+	durableObjectIdFromName,
+	durableObjectNamespace,
+} from "@tedix/worker-kit/durable-objects";
+import {
 	AgentWorkflow,
 	type AgentWorkflowEvent,
 	type AgentWorkflowStep,
@@ -121,7 +125,7 @@ export class ChatTurnWorkflow extends AgentWorkflow<
 		const agentName = params.agentName?.trim();
 		if (!agentName) return operation(this.agent);
 		const agent = await getAgentByName<CloudflareEnv, AgentTediDO>(
-			this.env.TEDI_AGENT,
+			durableObjectNamespace(this.env.TEDI_AGENT, this.env),
 			agentName,
 		);
 		try {
@@ -157,7 +161,11 @@ export class ChatTurnWorkflow extends AgentWorkflow<
 		// SDK facet origins are RPC-only proxies; never redirect them to a root.
 		this.callbackAgentName = undefined;
 		if (agentName) {
-			const expectedId = this.env.TEDI_AGENT.idFromName(agentName);
+			const expectedId = durableObjectIdFromName(
+				this.env.TEDI_AGENT,
+				this.env,
+				agentName,
+			);
 			try {
 				if (expectedId.equals(originId)) this.callbackAgentName = agentName;
 			} catch (error) {

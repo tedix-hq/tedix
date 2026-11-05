@@ -1,3 +1,4 @@
+import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import { createRouterClient, ORPCError } from "@orpc/server";
 import { controlHomeRunSteering } from "./run-steering";
 import { steeringWithdrawalEventId } from "@tedix/db/queries/kernel-runtime-steering";
@@ -431,7 +432,7 @@ export const resolvePageToolRoute = authed.resolvePageTool
 			context.env as { KERNEL?: DurableObjectNamespace<KernelDO> }
 		).KERNEL;
 		if (!kernel) return { accepted: false };
-		const stub = kernel.get(kernel.idFromName(organizationId));
+		const stub = durableObjectStubByName(kernel, context.env, organizationId);
 		return {
 			accepted: await stub.resolvePageTool(
 				input.runId,

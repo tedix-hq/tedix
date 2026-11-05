@@ -16,6 +16,7 @@ import {
 } from "@tedix/api-contract/schemas/workstation";
 import { createDbClient } from "@tedix/db/client";
 import { updateTediLastHeartbeat } from "@tedix/db/queries/tedis";
+import { durableObjectIdFromName } from "@tedix/worker-kit/durable-objects";
 import { installHonoErrorHandlers } from "@tedix/worker-kit/errors";
 import {
 	applyInboundTrustHeaderHygiene,
@@ -425,6 +426,7 @@ app.use("*", async (c, next) => {
 		db: c.env.DB,
 		externalId: selectedWorkstation.workstationId,
 		namespace: sandboxNamespace,
+		env: c.env,
 		proofEnvPath: `${WORKSTATION_HOME}/.tedix-body-generation.env`,
 		record: {
 			kind: "workstationLease",
@@ -442,7 +444,11 @@ app.use("*", async (c, next) => {
 	// the workstation runtime. Both are derived here and recorded on the lease
 	// once the envelope is persisted.
 	c.set("workstationBodyInstance", {
-		id: sandboxNamespace.idFromName(physicalSandboxId).toString(),
+		id: durableObjectIdFromName(
+			sandboxNamespace,
+			c.env,
+			physicalSandboxId,
+		).toString(),
 		name: physicalSandboxId,
 	});
 	const sandbox = await runtimeBodyLauncher.ensureBody();

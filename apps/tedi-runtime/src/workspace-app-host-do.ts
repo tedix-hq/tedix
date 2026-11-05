@@ -17,6 +17,7 @@ import {
 	appRuntimePermission,
 } from "@tedix/api-contract/utils/app-runtime";
 import { callRpc, serviceBindingFetch } from "@tedix/api-client/internal";
+import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { withDynamicWorkerLoaderDiagnostics } from "@tedix/tedi-codemode-core/model-authored-code-loader";
 
@@ -503,7 +504,9 @@ export class WorkspaceAppTail extends WorkerEntrypoint<
 	}
 > {
 	async tail(events: TraceItem[]) {
-		const host = this.env.WORKSPACE_APP_HOST.getByName(
+		const host = durableObjectStubByName(
+			this.env.WORKSPACE_APP_HOST,
+			this.env,
 			`${this.ctx.props.organizationId}:${this.ctx.props.workspaceId}`,
 		);
 		for (const event of events)

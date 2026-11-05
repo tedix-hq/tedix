@@ -1,3 +1,4 @@
+import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import {
 	WorkflowEntrypoint,
 	type WorkflowEvent,
@@ -62,8 +63,10 @@ export interface CmsSiteRestoreStub {
 }
 
 function restoreStub(env: Env, slug: string): CmsSiteRestoreStub {
-	return env.DB_DO.get(
-		env.DB_DO.idFromName(slug),
+	return durableObjectStubByName(
+		env.DB_DO,
+		env,
+		slug,
 	) as unknown as CmsSiteRestoreStub;
 }
 

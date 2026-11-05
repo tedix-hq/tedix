@@ -308,6 +308,7 @@ assert.equal(
 			idFromName: () => ({ toString: () => "scope-id" }),
 			get: () => ({}),
 		} as unknown as ConstructorParameters<typeof ScopedComputerWorkspace>[0],
+		{},
 		{ kind: "conversation", key: "main" },
 		"owner",
 		async () => "tedi-1",

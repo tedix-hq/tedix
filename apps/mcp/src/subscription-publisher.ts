@@ -1,3 +1,4 @@
+import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import type { McpTaskState } from "@tedix/mcp-shared/tasks";
 import { contentFreeMcpException, createMcpLogger } from "./log";
 import type { McpSubscriptionPublishEvent } from "./subscriptions";
@@ -16,13 +17,14 @@ async function publishToSubscriptionDo(
 	const binding = (env as SubscriptionPublisherEnv).MCP_SUBSCRIPTIONS;
 	if (!binding) return 0;
 	try {
-		const response = await binding
-			.get(binding.idFromName(appId))
-			.fetch("https://mcp-subscriptions.internal/publish", {
+		const response = await durableObjectStubByName(binding, env, appId).fetch(
+			"https://mcp-subscriptions.internal/publish",
+			{
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify(event),
-			});
+			},
+		);
 		if (!response.ok) {
 			log.warn("MCP subscription publish rejected", {
 				event: "mcp.subscription.publish_rejected",

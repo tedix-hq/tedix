@@ -96,6 +96,8 @@
 		"lint-remote-d1.ts",
 		"lint-remote-d1.test.ts",
 		"lint-loader-sandbox.ts",
+		"lint-do-jurisdiction.ts",
+		"lint-do-jurisdiction.test.ts",
 		"lint-kumo.ts",
 		"lint-output-kinds.ts",
 		"lint-output-kinds.test.ts",

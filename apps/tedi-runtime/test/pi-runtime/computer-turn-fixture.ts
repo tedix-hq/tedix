@@ -457,6 +457,7 @@ export class ComputerTurnFixture extends ConversationFacet {
 	private computer(operator = false) {
 		return new ScopedComputerWorkspace(
 			this.env.TEDI_COMPUTER_WORKSPACE,
+			this.env,
 			operator
 				? OPERATOR_COMPUTER_SCOPE
 				: computerWorkspaceScope({ sessionKey: this.sessionKey }),

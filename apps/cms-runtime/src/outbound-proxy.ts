@@ -42,7 +42,7 @@ export class CmsOutboundProxy extends WorkerEntrypoint<
 	CmsOutboundProxyProps
 > {
 	async fetch(request: Request): Promise<Response> {
-		return withSharedCmsRestorePermit(this.env.DB_DO, this.ctx.props, () =>
+		return withSharedCmsRestorePermit(this.env, this.ctx.props, () =>
 			this.fetchPermitted(request),
 		);
 	}

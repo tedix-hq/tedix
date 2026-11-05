@@ -42,7 +42,7 @@ async function withAiSearchPermit<T>(
 	identity: TenantAiSearchProps,
 	run: () => Promise<T>,
 ): Promise<T> {
-	return withSharedCmsRestorePermit(env.DB_DO, identity, run);
+	return withSharedCmsRestorePermit(env, identity, run);
 }
 
 class TenantAiSearchItems extends RpcTarget {

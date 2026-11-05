@@ -1,3 +1,4 @@
+import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { approverEditedPayload } from "../../../services/approval-edits";
 import { resolveHomeAttachments } from "./attachment-storage";
@@ -125,8 +126,10 @@ export function buildKernelTurnWorkDeps(
 		...(context.env.KERNEL
 			? {
 					scheduleRouteRedrive: async (input: KernelTurnWorkInput) => {
-						const stub = context.env.KERNEL.get(
-							context.env.KERNEL.idFromName(input.organizationId),
+						const stub = durableObjectStubByName(
+							context.env.KERNEL,
+							context.env,
+							input.organizationId,
 						);
 						await stub.scheduleRouteRedrive(input);
 					},

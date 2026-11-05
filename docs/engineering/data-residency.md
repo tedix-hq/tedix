@@ -158,8 +158,12 @@ function objectNamespace<T extends DurableObjectNamespace>(
 }
 ```
 
-This is a design sketch, not a deployed helper. The implementation should use
-the owning Cloudflare types without a generic if it loses the class stub type.
+The deployed helper is `@tedix/worker-kit/durable-objects`:
+`durableObjectNamespace` selects the jurisdiction declared by the
+`DO_JURISDICTION` deployment var (unset preserves today's global ids), and
+`durableObjectIdFromName` / `durableObjectIdFromString` /
+`durableObjectNewUniqueId` / `durableObjectStubByName` are the only permitted
+addressing paths — `scripts/lint-do-jurisdiction.ts` rejects direct calls.
 All name/id comparisons, persisted object pointers, alarms, facets, container
 sessions and reverse mappings must migrate together. Shared global objects
 need a tenant ownership decision before per-organization routing is possible.

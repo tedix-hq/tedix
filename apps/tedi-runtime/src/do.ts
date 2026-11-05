@@ -1879,6 +1879,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	): ScopedComputerWorkspace {
 		return new ScopedComputerWorkspace(
 			this.env.TEDI_COMPUTER_WORKSPACE,
+			this.env,
 			scope,
 			this.ctx.id.toString(),
 			async () => {
