@@ -314,9 +314,7 @@ async function workflowImprovementGovernance(
 		baselineSkillId: proposal.sourceSkillId!,
 		baselineRevision: proposal.sourceRevision ?? 0,
 		baselineWorkflowSha256: baselineHash,
-		candidateWorkflowSha256:
-			taggedValue(proposal.tags, CANDIDATE_WORKFLOW_TAG_PREFIX) ??
-			(await sha256Digest(candidateSource)),
+		candidateWorkflowSha256: await sha256Digest(candidateSource),
 		certificationRunId,
 		certificationPassed: certificationRunId !== null,
 	};
@@ -672,6 +670,17 @@ export const skillsActivateWorkflowImprovement =
 					"Activation requires a completed, failure-free run of this proposal whose result contains certification.passed=true or certification.overallStatus='passed'",
 				);
 			}
+			const candidateSource = proposal.files?.["scripts/workflow.ts"];
+			if (
+				certificationRun.skillRevision !== proposal.revision ||
+				!candidateSource ||
+				certificationRun.workflowSource !== candidateSource
+			) {
+				throw createError(
+					ErrorCodes.CONFLICT,
+					"Certification does not match the current proposal revision and workflow source; recertify the proposal",
+				);
+			}
 			const validation = await validateWorkflowImprovementEntry(
 				context,
 				proposal,
@@ -855,6 +864,34 @@ export const skillsReviseWorkshop = authedSkills.reviseWorkshop
 			toolIdsUpdate = [...new Set([...explicit, ...slugIds])];
 		}
 
+		let tags =
+			input.tags !== undefined ? coerceArrayOptional(input.tags) : undefined;
+		if (existing.tags?.includes(WORKFLOW_IMPROVEMENT_TAG)) {
+			const candidateSource = (
+				input.files !== undefined ? input.files : existing.files
+			)?.["scripts/workflow.ts"];
+			tags = [
+				...(tags ?? existing.tags).filter(
+					(tag) =>
+						tag !== WORKFLOW_IMPROVEMENT_TAG &&
+						!tag.startsWith(BASELINE_RUN_TAG_PREFIX) &&
+						!tag.startsWith(BASELINE_WORKFLOW_TAG_PREFIX) &&
+						!tag.startsWith(CANDIDATE_WORKFLOW_TAG_PREFIX),
+				),
+				...existing.tags.filter(
+					(tag) =>
+						tag === WORKFLOW_IMPROVEMENT_TAG ||
+						tag.startsWith(BASELINE_RUN_TAG_PREFIX) ||
+						tag.startsWith(BASELINE_WORKFLOW_TAG_PREFIX),
+				),
+				...(candidateSource
+					? [
+							`${CANDIDATE_WORKFLOW_TAG_PREFIX}${await sha256Digest(candidateSource)}`,
+						]
+					: []),
+			];
+		}
+
 		await updateSkillEntry(context.db, input.id, {
 			...(input.title !== undefined ? { title: input.title } : {}),
 			...(input.content !== undefined ? { content: input.content } : {}),
@@ -879,9 +916,7 @@ export const skillsReviseWorkshop = authedSkills.reviseWorkshop
 			...(resolvedAppId !== null ? { appId: resolvedAppId } : {}),
 			...(toolIdsUpdate !== undefined ? { toolIds: toolIdsUpdate } : {}),
 			...(input.summary !== undefined ? { summary: input.summary } : {}),
-			...(input.tags !== undefined
-				? { tags: coerceArrayOptional(input.tags) }
-				: {}),
+			...(tags !== undefined ? { tags } : {}),
 			...(input.audience !== undefined
 				? { audience: coerceArrayOptional(input.audience) }
 				: {}),

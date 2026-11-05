@@ -1,4 +1,5 @@
 import { createRouterClient } from "@orpc/server";
+import { createHash } from "node:crypto";
 import { SkillRunSummarySchema } from "@tedix/api-contract/contracts/cognitive";
 import type { SkillRun } from "@tedix/db/schema/cognitive";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -263,7 +264,20 @@ describe("workflow improvement activation", () => {
 		id: "proposal-1",
 		organizationId: "org-1",
 		tediId: "tedi-1",
-		tags: ["workflow-improvement"],
+		title: "Candidate",
+		content: "# Candidate",
+		successCount: 0,
+		failureCount: 0,
+		visibility: "private",
+		paceLayer: "innovation",
+		revision: 1,
+		files: { "scripts/workflow.ts": RUN.workflowSource! },
+		tags: [
+			"workflow-improvement",
+			"baseline-run:observed-run",
+			"baseline-workflow:observed-hash",
+			"candidate-workflow:outdated-hash",
+		],
 		sourceSkillId: "skill-1",
 		sourceRevision: 1,
 	};
@@ -271,10 +285,162 @@ describe("workflow improvement activation", () => {
 
 	beforeEach(() => {
 		vi.clearAllMocks();
+		mocks.updateSkillEntry.mockReset();
 		mocks.getSkillEntry.mockImplementation(async (_db, id: string) =>
 			id === proposal.id ? proposal : id === baseline.id ? baseline : null,
 		);
 		mocks.listRunArtifacts.mockResolvedValue([]);
+		mocks.validateSkillInput.mockResolvedValue({
+			valid: true,
+			errors: [],
+			warnings: [],
+		});
+		mocks.getSkillRun.mockResolvedValue({
+			...RUN,
+			skillId: proposal.id,
+			status: "completed",
+			result: { certification: { passed: true } },
+		});
+	});
+
+	it.each([
+		{ skillRevision: 0 },
+		{ skillRevision: null },
+		{ workflowSource: "export default { changed: true }" },
+		{ workflowSource: null },
+	])("refuses stale or missing run provenance: %j", async (provenance) => {
+		mocks.getSkillRun.mockResolvedValue({
+			...RUN,
+			skillId: proposal.id,
+			status: "completed",
+			result: { certification: { passed: true } },
+			...provenance,
+		});
+		const client = createRouterClient(skillsContractRouter, {
+			context: createContext(vi.fn()),
+		});
+		await expect(
+			client.activateWorkflowImprovement({
+				id: proposal.id,
+				certificationRunId: RUN.id,
+				reason: "stale evidence",
+			}),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+		expect(mocks.updateSkillEntry).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		{ tags: undefined },
+		{ tags: ["custom", "baseline-run:forged", "candidate-workflow:forged"] },
+	])(
+		"refreshes candidate metadata and refuses certification after revising files (tags: %j)",
+		async ({ tags }) => {
+			let current = { ...proposal };
+			mocks.getSkillEntry.mockImplementation(async (_db, id: string) =>
+				id === proposal.id ? current : baseline,
+			);
+			mocks.updateSkillEntry.mockImplementation(async (_db, _id, patch) => {
+				current = { ...current, ...patch };
+			});
+			const client = createRouterClient(skillsContractRouter, {
+				context: createContext(vi.fn()),
+			});
+			const source = "export default { changed: true }";
+			const revised = await client.reviseWorkshop({
+				id: proposal.id,
+				files: { "scripts/workflow.ts": source },
+				tags,
+			});
+			expect(revised.entry.revision).toBe(2);
+			expect(revised.entry.tags).toEqual([
+				...(tags ? ["custom"] : []),
+				"workflow-improvement",
+				"baseline-run:observed-run",
+				"baseline-workflow:observed-hash",
+				`candidate-workflow:sha256:${createHash("sha256").update(source).digest("hex")}`,
+			]);
+			mocks.updateSkillEntry.mockClear();
+			await expect(
+				client.activateWorkflowImprovement({
+					id: proposal.id,
+					certificationRunId: RUN.id,
+					reason: "old run",
+				}),
+			).rejects.toMatchObject({ code: "CONFLICT" });
+			expect(mocks.updateSkillEntry).not.toHaveBeenCalled();
+		},
+	);
+
+	it("inspects current source rather than trusting a stale candidate tag", async () => {
+		const client = createRouterClient(skillsContractRouter, {
+			context: createContext(vi.fn()),
+		});
+		const inspected = await client.inspectWorkflowImprovement({
+			id: proposal.id,
+		});
+		expect(inspected.governance.candidateWorkflowSha256).toBe(
+			`sha256:${createHash("sha256").update(proposal.files["scripts/workflow.ts"]).digest("hex")}`,
+		);
+	});
+
+	it.each([
+		{ content: "# Revised instructions" },
+		{ files: { ...proposal.files, "references/guide.md": "changed" } },
+		{ files: {} },
+	])(
+		"invalidates old certification for every proposal revision: %j",
+		async (patch) => {
+			let current = { ...proposal };
+			mocks.getSkillEntry.mockImplementation(async (_db, id: string) =>
+				id === proposal.id ? current : baseline,
+			);
+			mocks.updateSkillEntry.mockImplementation(async (_db, _id, updates) => {
+				current = { ...current, ...updates };
+			});
+			const client = createRouterClient(skillsContractRouter, {
+				context: createContext(vi.fn()),
+			});
+			const revised = await client.reviseWorkshop({
+				id: proposal.id,
+				...patch,
+			});
+			if (patch.files && !("scripts/workflow.ts" in patch.files)) {
+				expect(
+					revised.entry.tags?.some((tag) =>
+						tag.startsWith("candidate-workflow:"),
+					),
+				).toBe(false);
+			}
+			mocks.updateSkillEntry.mockClear();
+			await expect(
+				client.activateWorkflowImprovement({
+					id: proposal.id,
+					certificationRunId: RUN.id,
+					reason: "old certification",
+				}),
+			).rejects.toMatchObject({ code: "CONFLICT" });
+			expect(mocks.updateSkillEntry).not.toHaveBeenCalled();
+		},
+	);
+
+	it("keeps certification reads scoped to organization and environment", async () => {
+		mocks.getSkillRun.mockResolvedValue(undefined);
+		const context = createContext(vi.fn());
+		const client = createRouterClient(skillsContractRouter, { context });
+		await expect(
+			client.activateWorkflowImprovement({
+				id: proposal.id,
+				certificationRunId: RUN.id,
+				reason: "foreign run",
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		expect(mocks.getSkillRun).toHaveBeenCalledWith(
+			context.db,
+			RUN.id,
+			"org-1",
+			"development",
+		);
+		expect(mocks.updateSkillEntry).not.toHaveBeenCalled();
 	});
 
 	it("lets a non-human caller reach the certification check instead of a human-only refusal", async () => {
