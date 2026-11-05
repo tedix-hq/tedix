@@ -796,6 +796,7 @@ describe("platform-default autonomy (organization-autonomy.v1.json)", () => {
 		["os.set_os_sheet_range", "workspace_management"],
 		["skills.pause_skill_workflow", "skills_and_schedules"],
 		["skills.move_skill_to_tedi", "skills_and_schedules"],
+		["skills.improve_skills", "skills_and_schedules"],
 		["skills.run_skill_workflow", "runs"],
 		["os.run_os_gadget", "runs"],
 	])("classifies %s as %s by the tool, not the request", (tool, id) => {
