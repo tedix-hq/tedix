@@ -107,6 +107,7 @@ import {
 	finalReportIsToolFree,
 	finalReportPrompt,
 	finalReportStopFor,
+	selectedModelRef,
 	type FinalReportStop,
 } from "./facet-turn-stop";
 import { promptCacheKey, explicitPromptCacheConfig } from "./prompt-cache";
@@ -507,9 +508,14 @@ export class ConversationFacet extends PiAgent<
 		model: TedixSdkModel;
 		identity: SelectedConversationModelIdentity;
 	} {
+		const modelRef =
+			this.state.finalReportStop?.continueWithTools &&
+			this.state.finalReportStop.modelRef
+				? this.state.finalReportStop.modelRef
+				: this.state.modelRef;
 		const selected = selectChatModelForTurn(
 			this.env as unknown as AzureChatEnv,
-			this.state.modelRef ? { modelRef: this.state.modelRef } : null,
+			modelRef ? { modelRef } : null,
 			this.state.aigMetadata ?? undefined,
 			undefined,
 			this.state.adaptiveRouting,
@@ -1652,6 +1658,36 @@ export class ConversationFacet extends PiAgent<
 		if (!this.state.toolRegistryUnavailableRunId) return;
 		this.setState({ ...this.state, toolRegistryUnavailableRunId: null });
 	}
+	/**
+	 * A model that stopped with no answer is treated like an unavailable one:
+	 * the continuation runs on the next model of the configured fallback
+	 * ladder. Seen live: the Auto Router's pick ended app-edit turns twice in a
+	 * row with output tokens but no text. No ladder entry keeps the model.
+	 */
+	private async continuationModelRef(
+		primaryRef: string,
+	): Promise<string | undefined> {
+		// The same policies that disable availability fallback pin this model.
+		if (
+			this.state.adaptiveRouting?.reproducibility === "fixed-model-required" ||
+			this.state.adaptiveRouting?.sovereignty === "residency-bound"
+		)
+			return undefined;
+		try {
+			const policy = await loadTediModelFallback(
+				this.env.DB,
+				this.state.aigMetadata?.tediId,
+				this.state.modelCatalog,
+			);
+			return policy.ladder[primaryRef]?.[0];
+		} catch (error) {
+			console.warn({
+				event: "tedix.pi.continuation_model_unavailable",
+				exception: exceptionTopology(error),
+			});
+			return undefined;
+		}
+	}
 	private async runSubmittedConversationTurn(
 		pending: PendingFacetSubmission,
 	): Promise<ConversationFacetTurnResult> {
@@ -1745,11 +1781,17 @@ export class ConversationFacet extends PiAgent<
 			(stop?.kind !== "delegation_budget" ||
 				isDelegatedToolCallBudgetStop(stop.reason))
 		) {
-			const finalReportStop = finalReportStopFor({
+			const finalReportStop: FinalReportStop = finalReportStopFor({
 				reason: reportReason,
 				stopped: Boolean(stop),
 				ceiling,
 			});
+			if (finalReportStop.continueWithTools && this.selected) {
+				const nextModelRef = await this.continuationModelRef(
+					selectedModelRef(this.selected.identity),
+				);
+				if (nextModelRef) finalReportStop.modelRef = nextModelRef;
+			}
 			this.setState({ ...this.state, finalReportStop });
 			const reportId = `${id}:final-report`;
 			await this.submitMessages(
@@ -1774,6 +1816,7 @@ export class ConversationFacet extends PiAgent<
 				console.info({
 					event: "tedix.pi.empty_answer_continued",
 					answered: Boolean(report.trim()),
+					model: finalReportStop.modelRef ?? "unchanged",
 				});
 				if (!report.trim()) report = CONTINUATION_WITHOUT_ANSWER;
 			}

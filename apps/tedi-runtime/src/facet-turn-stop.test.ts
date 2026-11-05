@@ -10,6 +10,7 @@ import {
 	finalReportStopFor,
 	NO_WRITTEN_ANSWER,
 	reservedFinalStepConfig,
+	selectedModelRef,
 	resolveFacetStepCeiling,
 	splitFinalReport,
 	stepCeilingReached,
@@ -197,3 +198,17 @@ for (const input of [
 	assert.equal(finalReportPrompt(stop), finalReportInstruction(stop.reason));
 }
 assert.equal(finalReportIsToolFree(null), false);
+
+// The continuation looks up the fallback ladder by the selected model's ref.
+assert.equal(
+	selectedModelRef({ provider: "workers-ai", model: "cloudflare/auto" }),
+	"cloudflare/auto",
+);
+assert.equal(
+	selectedModelRef({ provider: "azure-openai", model: "gpt-6.1-sol" }),
+	"azure-openai/gpt-6.1-sol",
+);
+assert.equal(
+	selectedModelRef({ provider: "workers-ai", model: "@cf/meta/llama" }),
+	"workers-ai/@cf/meta/llama",
+);
