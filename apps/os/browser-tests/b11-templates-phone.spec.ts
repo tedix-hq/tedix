@@ -363,13 +363,14 @@ async function run(engine: string, type: BrowserType) {
 				// list read settles, so the search box is not mounted yet. Waiting
 				// for that request keeps a failed navigation inside this scenario
 				// instead of an unhandled rejection.
-				const listRequest = page.waitForRequest(
-					(request) =>
-						new URL(request.url()).pathname ===
-						"/api/rpc/osWorkspaces/blueprints/list",
-				);
-				await page.goto(`${origin}/blueprints`);
-				await listRequest;
+				await Promise.all([
+					page.waitForRequest(
+						(request) =>
+							new URL(request.url()).pathname ===
+							"/api/rpc/osWorkspaces/blueprints/list",
+					),
+					page.goto(`${origin}/blueprints`),
+				]);
 				await page.waitForTimeout(1500);
 				assert.equal(
 					await page.getByText("No templates yet").count(),
