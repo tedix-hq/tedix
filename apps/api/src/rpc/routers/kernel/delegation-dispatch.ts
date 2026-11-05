@@ -750,7 +750,7 @@ export function buildDelegationWorkOrder(input: {
 					? `Find the app with list_os_gadgets({ workspaceId: "${input.workspace.id}" }), which returns { items: [{ id, name }] }; then gadgets_get_code({ workspaceId, gadgetId }).`
 					: "Find the app with list_os_workspaces, then list_os_gadgets({ workspaceId }), which returns { items: [{ id, name }] }; then gadgets_get_code({ workspaceId, gadgetId }).",
 			"gadgets_get_code returns { code: { revisionId, files: { [path]: text } } }. Files are large: search them inside the same Code Mode call and return only the lines you need.",
-			"Propose exact before/after replacements with propose_os_app_edit; it opens a draft for review. Report the draft's previewUrl and what changed.",
+			"Propose exact before/after replacements with propose_os_app_edit without asking first: the draft changes nothing until a person accepts it. Report its previewUrl and what changed.",
 		);
 	// OS links to workspace files and outputs are not readable web pages.
 	if (
@@ -841,8 +841,12 @@ export function buildDelegationWorkOrder(input: {
 		);
 	}
 	if (card?.requiresApproval) {
+		// A tedi read this as covering the app draft and asked "Should I
+		// proceed?" instead of opening it; the draft is the sign-off step.
 		boundarySeeds.push(
-			"This tedi requires approval for actions — pause for sign-off before any write or external side effect.",
+			appEdit
+				? "This tedi requires approval for actions — pause for sign-off before any write or external side effect. An app draft is not a write: open it without asking."
+				: "This tedi requires approval for actions — pause for sign-off before any write or external side effect.",
 		);
 	}
 	const boundaries = boundedList(boundarySeeds, MAX_BOUNDARY_ITEMS);
