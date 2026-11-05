@@ -51,6 +51,8 @@ export const laneUsage = `tedix lane serve --executor codex|claude-code|opencode
 
 ${laneRunUsage}
 
+tedix lane remote-job send|receive --input <file> --workspace <profile> --organization <org>
+
 tedix lane start "<title>" --project <id> [--work-item <id>]
 tedix lane brief <brief-file> [--host codex|claude]  # enriched brief for launchers
 tedix lane done|fail "<note>" [--commit <sha> ...] [--needs-user "<next click>"] [--request-id <ledger-id>]
@@ -122,6 +124,13 @@ export async function runLane(
 		["-w", "--workspace", "--organization"].includes(args[verbIndex] ?? "")
 	)
 		verbIndex += 2;
+	if (args[verbIndex] === "remote-job") {
+		const { runRemoteJobCommand } = await import("./remote-job-native");
+		return runRemoteJobCommand([
+			...args.slice(0, verbIndex),
+			...args.slice(verbIndex + 1),
+		]);
+	}
 	if (args[verbIndex] === "serve") {
 		const { runLaneServe } = await import("./lane-serve");
 		return runLaneServe([
