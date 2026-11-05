@@ -3,6 +3,7 @@ import { filterAggregateAppsForCodeNamespaces } from "../codemode-targeting";
 import {
 	extractCodeModeExecutionNamespacesFromCode,
 	extractCodeModeProviderNamespacesFromCode,
+	extractCodeModeShardDiscoveryNamespaces,
 } from "./code-mode-namespaces";
 
 describe("Code Mode execution bindings", () => {
@@ -102,5 +103,43 @@ describe("Code Mode execution bindings", () => {
 		"async () => `result ${acme[method]({})}`",
 	])("retains all bindings for indirect execution: %s", (code) => {
 		expect(extractCodeModeExecutionNamespacesFromCode(code)).toBeNull();
+	});
+});
+
+describe("Code Mode discovery shards", () => {
+	it("serves namespace-free searches from shards and hydrates named calls", () => {
+		const code = `async () => { const out = []; for (const q of ["send email", "notion page"]) out.push(await discover.search({ query: q, limit: 3 })); out.push(await discover.search("calendar")); await discover.describe("acme_unified_cms.get_page"); return [out, await acme_unified_crm.list_contacts({})]; }`;
+		// The full-catalog scan cannot bound this program.
+		expect(extractCodeModeProviderNamespacesFromCode(code)).toBeNull();
+		const namespaces = extractCodeModeShardDiscoveryNamespaces(code);
+		expect(namespaces).toContain("acme_unified_cms");
+		expect(namespaces).toContain("acme_unified_crm");
+		expect(namespaces).not.toContain("discover");
+	});
+
+	it("allows list_namespaces and read_result", () => {
+		expect(
+			extractCodeModeShardDiscoveryNamespaces(
+				`async () => [await discover.list_namespaces(), await discover.read_result({ handle: "h" })]`,
+			),
+		).toEqual(new Set());
+	});
+
+	it.each([
+		// Already bounded: the normal targeting handles it.
+		`async () => discover.search({ query: "x", namespace: "work" })`,
+		`async () => work.list_work_items({})`,
+		// Shard rows carry no schemas.
+		`async () => discover.search({ query: "x", includeParameters: true })`,
+		`async () => discover.search({ query: "x", includeOutputSchema: true })`,
+		// Opaque arguments, aliasing or dynamic calls cannot be bounded.
+		`async () => { const q = { query: "x" }; return discover.search(q); }`,
+		`async () => { const o = { query: "x" }; return discover.search({ ...o }); }`,
+		`async () => discover.search({ query: "x", [key]: "work" })`,
+		`async () => flow.status({ runId: "r" }).then(() => discover.search("x"))`,
+		`async () => { const d = discover; return d.search("x"); }`,
+		`async () => { const r = await discover.search("x"); return globalThis[r.results[0].namespace].run({}); }`,
+	])("keeps the full catalog path for %s", (code) => {
+		expect(extractCodeModeShardDiscoveryNamespaces(code)).toBeNull();
 	});
 });

@@ -8,7 +8,10 @@ import { clientSupportsMcpApps } from "./mcp/client-apps-capability";
 import { resolveToolWidgetRoute } from "./mcp/utils/render-widget";
 import { isCodeModeNativeOptIn } from "./mcp/code-mode-native-tools";
 import { z } from "zod";
-import { extractCodeModeProviderNamespacesFromCode } from "./mcp/code-mode-namespaces";
+import {
+	extractCodeModeProviderNamespacesFromCode,
+	extractCodeModeShardDiscoveryNamespaces,
+} from "./mcp/code-mode-namespaces";
 import { parseMcpCallerFromHeaders } from "./mcp-result-transform";
 import {
 	codeModeInputSchema,
@@ -91,6 +94,18 @@ export async function extractRequestedCodeModeNamespaces(
 	const code = typeof args.code === "string" ? args.code : "";
 	if (!code) return new Set();
 	return extractCodeModeProviderNamespacesFromCode(code);
+}
+
+/** See extractCodeModeShardDiscoveryNamespaces; null for non-`code` calls. */
+export async function extractShardDiscoveryNamespaces(
+	request: Request,
+): Promise<Set<string> | null> {
+	const body = await readJsonRpcBody(request);
+	if (body?.method !== "tools/call") return null;
+	const params = isRecord(body.params) ? body.params : {};
+	const args = isRecord(params.arguments) ? params.arguments : {};
+	if (params.name !== "code" || typeof args.code !== "string") return null;
+	return extractCodeModeShardDiscoveryNamespaces(args.code);
 }
 
 export async function extractDirectToolCallArguments(

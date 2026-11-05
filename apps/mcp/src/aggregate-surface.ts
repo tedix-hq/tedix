@@ -4,6 +4,7 @@ import type {
 	InternalAppTool,
 } from "./aggregate-types";
 import { readAggregateActivationEpoch } from "./aggregate-activation-epoch";
+import { compileDiscoveryShard } from "./aggregate-discovery-shards";
 import { withAggregateConnectionProvider } from "./aggregate-host-defaults";
 import {
 	isAggregateSourceVisited,
@@ -807,6 +808,7 @@ async function aggregateAndPrefixToolsUncached(
 						...entryToolScopes,
 						...nestedSurface?.toolScopes,
 					},
+					shardSource: nestedSurface ?? resolved,
 				};
 			}
 
@@ -829,12 +831,35 @@ async function aggregateAndPrefixToolsUncached(
 					...nested,
 					tools: prefixPolicyPath(nested.tools),
 					toolScopes: { ...entryToolScopes, ...nested.toolScopes },
+					shardSource: nested,
 				};
 			}
 
 			return { tools: [], resources: [], resourceTemplates: [], prompts: [] };
 		}),
 	);
+	// A fresh organization mount refreshes its compact discovery shard, so a
+	// later namespace-free search can skip parsing this organization's graph.
+	if (visited.size === 0 && cacheable && !capturePolicyMountPath) {
+		results.forEach((result, index) => {
+			const entry = entries[index]!;
+			const source = (result as { shardSource?: object }).shardSource;
+			if (!entry.organizationMount || !source || result.degraded) return;
+			compileDiscoveryShard(
+				env,
+				entry,
+				activationEpoch,
+				source,
+				{
+					tools: result.tools,
+					toolScopes:
+						(result as { toolScopes?: Record<string, string[]> }).toolScopes ??
+						{},
+				},
+				ctx,
+			);
+		});
+	}
 	const surface = {
 		tools: results.flatMap((result) => result.tools),
 		resources: results.flatMap((result) => result.resources),

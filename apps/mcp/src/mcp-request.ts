@@ -10,6 +10,8 @@ import {
 } from "./mcp/client-apps-capability";
 import { AGGREGATE_SURFACE_CACHE_TTL_MS } from "./aggregate-surface-cache";
 import { aggregateAndPrefixTools } from "./aggregate-surface";
+import { readAggregateActivationEpoch } from "./aggregate-activation-epoch";
+import { loadDiscoveryShards } from "./aggregate-discovery-shards";
 import { withSelfTediSkills } from "./aggregate-self-tedi";
 import { AggregateAppEntry } from "./aggregate-types";
 import {
@@ -138,6 +140,7 @@ import { getAllowedMcpOrigins, normalizeOrigin } from "./mcp-origin";
 import {
 	extractDirectToolCallArguments,
 	extractRequestedCodeModeNamespaces,
+	extractShardDiscoveryNamespaces,
 	maybeHandleCodeModeCompactMcp,
 	modernDiscoverInstructions,
 } from "./codemode-fast-paths";
@@ -472,16 +475,52 @@ export async function handleMcpRequest(
 			| Record<string, string>
 			| undefined,
 	);
-	if (filteredAggregateApps.length && !directHomeKernelCall) {
-		let aggregatedSurface = await aggregateAndPrefixTools(
-			filteredAggregateApps,
-			env,
-			new Set(),
-			ctx,
-			resolvedApp.app.slug,
-			undefined,
-			!multiOrgResource,
-		);
+	// A Connect program whose only unbounded step is a namespace-free search
+	// ranks the other organizations from compact shards instead of parsing
+	// every organization graph into this isolate (1102, 26 Oct-5 Nov 2026).
+	const shardNamespaces =
+		multiOrgResource && aggregateNamespaces === null && !directHomeKernelCall
+			? await extractShardDiscoveryNamespaces(request)
+			: null;
+	const activation = shardNamespaces
+		? await readAggregateActivationEpoch(env)
+		: undefined;
+	const shardDiscovery =
+		shardNamespaces && activation?.cacheable
+			? await loadDiscoveryShards(
+					env,
+					filteredAggregateApps,
+					shardNamespaces,
+					activation.value,
+				)
+			: null;
+	const hydratedAggregateApps =
+		shardDiscovery?.hydrate ?? filteredAggregateApps;
+	if (
+		(hydratedAggregateApps.length || shardDiscovery) &&
+		!directHomeKernelCall
+	) {
+		const loadAggregate = async () => {
+			const surface = hydratedAggregateApps.length
+				? await aggregateAndPrefixTools(
+						hydratedAggregateApps,
+						env,
+						new Set(),
+						ctx,
+						resolvedApp.app.slug,
+						activation,
+						!multiOrgResource,
+					)
+				: { tools: [], resources: [], resourceTemplates: [], prompts: [] };
+			return shardDiscovery
+				? {
+						...surface,
+						tools: [...surface.tools, ...shardDiscovery.tools],
+						toolScopes: { ...shardDiscovery.toolScopes, ...surface.toolScopes },
+					}
+				: surface;
+		};
+		let aggregatedSurface = await loadAggregate();
 		for (
 			let attempt = 1;
 			aggregateNamespaces &&
@@ -497,15 +536,7 @@ export async function handleMcpRequest(
 					attempt,
 				}),
 			);
-			aggregatedSurface = await aggregateAndPrefixTools(
-				filteredAggregateApps,
-				env,
-				new Set(),
-				ctx,
-				resolvedApp.app.slug,
-				undefined,
-				!multiOrgResource,
-			);
+			aggregatedSurface = await loadAggregate();
 		}
 		if (
 			aggregatedSurface.tools.length > 0 ||

@@ -324,4 +324,29 @@ refreshes all tiers. Degraded surfaces (an app failed or exceeded
 keeps failing every request rebuilds live. When cold rebuilds dominate, check
 `entry_timeout` and resolve failures before treating it as latency.
 
+### Discovery shards
+
+Connect's multi-organization root is never snapshotted; it is recomposed from
+each selected organization's graph, about 25 MB of snapshots in total. When a
+request builds an organization mount from a cacheable graph, it also writes a
+compact shard of that mount's rows to `AGGREGATE_CACHE` under
+`aggregate-discovery/v1/`, keyed by the mount entry and activation epoch
+(`apps/mcp/src/aggregate-discovery-shards.ts`). Shard rows keep names,
+descriptions, annotations, config and scopes, and drop input and output
+schemas, templates and icons.
+
+A `code` program whose only unbounded step is a namespace-free
+`discover.search` (constant keys; values may vary) or `discover.list_namespaces`
+reads those shards instead of the organization graphs. Organizations whose
+namespaces the program calls or describes by literal name are still hydrated
+in full. The shard path is skipped, and the full catalog loads, when a shard is
+missing or older than one hour, when the search asks for parameters or output
+schemas, when the program uses `flow`, `globalThis`, `eval` or an opaque
+argument, or when the shards hold no more than `CATALOG_SCHEMA_SEARCH_MAX_ROWS`
+rows (so ranking never differs: above that size it never reads schemas).
+Shard rows carry `config._discoveryShard` and `ToolHandler.execute` refuses
+them. A schema sync rolls the epoch, so the next full load compiles new shards;
+`purgeAggregateSurfaceCaches` deletes them. Parsed shards are shared in an
+isolate for 120 s (`discoveryShardCache`, 64 entries).
+
 Per-app `codeModeTimeout` is 5–330 s (default 330 s on the gateway).
