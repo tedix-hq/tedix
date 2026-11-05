@@ -32,6 +32,8 @@ import { workApprovalsContractRouter } from "./work-approvals";
 
 const ORG_ID = "00000000-0000-4000-8000-000000000001";
 const WORK_ITEM_ID = "00000000-0000-4000-8000-000000000002";
+// Inside the 30-day maximum Work approval window.
+const EXPIRES_AT = new Date(Date.now() + 86_400_000).toISOString();
 
 function fixture(userId = "canonical-user-id") {
 	const sqlite = new DatabaseSync(":memory:");
@@ -170,7 +172,7 @@ describe("Work approval canonical principal identity", () => {
 			approverType: "user",
 			approverId: "canonical-approver-id",
 			requestRationale: "Persisted system admission request",
-			expiresAt: "2099-08-20T13:00:00.000Z",
+			expiresAt: EXPIRES_AT,
 		});
 		sqlite
 			.prepare("UPDATE work_approval_proposals SET requester_type=? WHERE id=?")
@@ -228,7 +230,7 @@ describe("Work approval canonical principal identity", () => {
 			approverType: "user",
 			approverId: "canonical-approver-id",
 			requestRationale: "Legacy acceptance contract must still list",
-			expiresAt: "2099-01-01T00:00:00.000Z",
+			expiresAt: EXPIRES_AT,
 		});
 		const inbox = await approver.listInbox({ limit: 5 });
 		const row = inbox.data.find((r) => r.proposal.id === proposal.id);
@@ -250,7 +252,7 @@ describe("Work approval canonical principal identity", () => {
 			approverType: "user",
 			approverId: "canonical-approver-id",
 			requestRationale: "Request Work admission approval",
-			expiresAt: "2099-08-20T13:00:00.000Z",
+			expiresAt: EXPIRES_AT,
 		});
 		expect(proposal.action).toBe("admission");
 		expect(proposal.authorityKey).toBe("deploy:production");
@@ -266,7 +268,7 @@ describe("Work approval canonical principal identity", () => {
 			approverType: "user",
 			approverId: "canonical-approver-id",
 			requestRationale: "Request Work admission approval",
-			expiresAt: "2099-08-20T13:00:00.000Z",
+			expiresAt: EXPIRES_AT,
 		});
 		const requesterInbox = await client.listInbox({ limit: 50 });
 		expect(requesterInbox.data).toEqual([]);
@@ -291,6 +293,81 @@ describe("Work approval canonical principal identity", () => {
 		});
 	});
 
+	it("lists the caller's requested proposals on request without letting the requester decide", async () => {
+		const { client } = fixture();
+		const proposal = await client.propose({
+			workItemId: WORK_ITEM_ID,
+			workItemVersion: 1,
+			proposal: { operation: "admit_work_attempt" },
+			authorityKey: "deploy:production",
+			approverType: "tedi",
+			approverId: "tedi-approver-id",
+			requestRationale: "Request Work admission approval",
+			expiresAt: EXPIRES_AT,
+		});
+		for (const role of ["requester", "any"] as const) {
+			const page = await client.listInbox({ role, limit: 50 });
+			expect(page.data).toHaveLength(1);
+			expect(page.data[0]).toMatchObject({
+				canDecide: false,
+				effectiveStatus: "pending",
+				proposal: { id: proposal.id, requestedById: "canonical-user-id" },
+			});
+		}
+		expect((await client.listInbox({ limit: 50 })).data).toEqual([]);
+	});
+
+	it("names the pending proposal instead of failing when its scope is proposed again", async () => {
+		const { client } = fixture();
+		const input = {
+			workItemId: WORK_ITEM_ID,
+			workItemVersion: 1,
+			proposal: { operation: "admit_work_attempt" },
+			authorityKey: "deploy:production",
+			approverType: "tedi" as const,
+			approverId: "tedi-approver-id",
+			requestRationale: "Request Work admission approval",
+			expiresAt: EXPIRES_AT,
+		};
+		const first = await client.propose(input);
+		const retry = client.propose({
+			...input,
+			expiresAt: new Date(Date.now() + 7 * 86_400_000).toISOString(),
+		});
+		await expect(retry).rejects.toMatchObject({ code: "CONFLICT" });
+		await expect(retry).rejects.toThrow(
+			new RegExp(`Work approval ${first.id} .* already pending`),
+		);
+	});
+
+	it("rejects an expiry beyond 30 days with the latest allowed time", async () => {
+		const { client, sqlite } = fixture();
+		const propose = (expiresAt: string) =>
+			client.propose({
+				workItemId: WORK_ITEM_ID,
+				workItemVersion: 1,
+				proposal: { operation: "admit_work_attempt" },
+				authorityKey: "deploy:production",
+				approverType: "tedi",
+				approverId: "tedi-approver-id",
+				requestRationale: "Request Work admission approval",
+				expiresAt,
+			});
+		const tooLate = propose(
+			new Date(Date.now() + 31 * 86_400_000).toISOString(),
+		);
+		await expect(tooLate).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		await expect(tooLate).rejects.toThrow(
+			/at most 30 days after the request \(latest allowed: \d{4}-\d{2}-\d{2}T/,
+		);
+		expect(
+			sqlite.prepare("SELECT count(*) AS n FROM work_approval_proposals").get(),
+		).toEqual({ n: 0 });
+		await expect(
+			propose(new Date(Date.now() + 7 * 86_400_000).toISOString()),
+		).resolves.toMatchObject({ status: "pending" });
+	});
+
 	it("rejects a non-designated decision and lets the exact inbox actor decide", async () => {
 		const { client, clientFor, sqlite } = fixture();
 		const proposal = await client.propose({
@@ -301,7 +378,7 @@ describe("Work approval canonical principal identity", () => {
 			approverType: "user",
 			approverId: "canonical-approver-id",
 			requestRationale: "Request Work admission approval",
-			expiresAt: "2099-08-20T13:00:00.000Z",
+			expiresAt: EXPIRES_AT,
 		});
 		await expect(
 			client.decide({
@@ -362,7 +439,7 @@ describe("Work approval canonical principal identity", () => {
 				approverType: "user",
 				approverId: "canonical-user-id",
 				requestRationale: "Request deployment approval",
-				expiresAt: "2099-08-20T13:00:00.000Z",
+				expiresAt: EXPIRES_AT,
 			}),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
 		expect(
@@ -391,7 +468,7 @@ describe("Work approval canonical principal identity", () => {
 			approverType: "tedi",
 			approverId: "tedi-approver-id",
 			requestRationale: "Request independent tedi admission review",
-			expiresAt: "2099-08-20T13:00:00.000Z",
+			expiresAt: EXPIRES_AT,
 		});
 		const approver = clientForTedi("tedi-approver-id");
 		const inbox = await approver.listInbox({ limit: 50 });
@@ -423,7 +500,7 @@ describe("Work approval canonical principal identity", () => {
 				approverType: "user",
 				approverId: "canonical-user-id",
 				requestRationale: "Request deployment approval",
-				expiresAt: "2099-08-20T13:00:00.000Z",
+				expiresAt: EXPIRES_AT,
 			}),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
 		expect(
@@ -480,7 +557,7 @@ async function externalRequester(scopes: string[]) {
 		mcpServerId: "test-server",
 		mcpServerUrl: "https://test.mcp.tedix.dev/mcp",
 		issuedAt: now,
-		expiresAt: "2099-01-01T00:00:00.000Z",
+		expiresAt: EXPIRES_AT,
 	});
 	const client = createRouterClient(workApprovalsContractRouter, {
 		context: {
@@ -510,7 +587,7 @@ const requestInput = {
 	approverType: "user" as const,
 	approverId: "canonical-approver-id",
 	requestRationale: "Request admission",
-	expiresAt: "2099-08-20T13:00:00.000Z",
+	expiresAt: EXPIRES_AT,
 };
 it("allows a verified external requester with Work write and preserves approver-only surfaces", async () => {
 	const { client, principal, session } = await externalRequester([
@@ -664,7 +741,7 @@ function routineAcceptanceFixture() {
 		approverType: "tedi" as const,
 		approverId: "tedi-approver-id",
 		requestRationale: "Independent routine acceptance",
-		expiresAt: "2099-01-01T00:00:00.000Z",
+		expiresAt: EXPIRES_AT,
 	};
 	const decide = (
 		proposalId: string,

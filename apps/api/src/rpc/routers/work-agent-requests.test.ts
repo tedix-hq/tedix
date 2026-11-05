@@ -36,6 +36,8 @@ beforeAll(() => {
 const ORG = "00000000-0000-4000-8000-000000000201";
 const WORK = "00000000-0000-4000-8000-000000000202";
 const KEY = "00000000-0000-4000-8000-000000000203";
+// Inside the 30-day maximum Work approval window.
+const EXPIRES_AT = new Date(Date.now() + 86_400_000).toISOString();
 const labels = {
 	ownerUserId: "requester",
 	ownerTeam: "Research",
@@ -134,7 +136,7 @@ function fixture() {
 			approverType: "user",
 			approverId: "approver",
 			requestRationale: labels.justification,
-			expiresAt: "2099-01-01T00:00:00.000Z",
+			expiresAt: EXPIRES_AT,
 		});
 	const decide = (id: string, decision: "approved" | "rejected" = "approved") =>
 		approver.decide({

@@ -4,6 +4,7 @@ import { baseErrors } from "../errors";
 import {
 	CreateWorkApprovalProposalInputSchema,
 	DecideWorkApprovalProposalInputSchema,
+	ListWorkApprovalAuditInputSchema,
 	ListWorkApprovalInboxInputSchema,
 	ListWorkApprovalInboxResultSchema,
 	WorkApprovalDecisionReceiptSchema,
@@ -54,7 +55,7 @@ export const workApprovalsContract = oc
 				path: "/audit",
 				summary: "List organization Work approval audit ledger",
 			})
-			.input(ListWorkApprovalInboxInputSchema)
+			.input(ListWorkApprovalAuditInputSchema)
 			.output(ListWorkApprovalInboxResultSchema),
 	});
 
