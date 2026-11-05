@@ -197,12 +197,9 @@ export function classifyWriteRisk(
 		!isWorkItemPurposeRepairCall(args)
 			? undefined
 			: policy?.riskTier;
-	const operation = platformAutonomousOperation(tool.name);
-	// Starting a workflow can execute arbitrary writes; retain its declared risk.
-	if (operation?.id === "runs") return risk;
 	return risk === "high" &&
 		(declared === "bounded_write" || declared === "high_impact_write") &&
-		operation
+		platformAutonomousOperation(tool.name)
 		? "medium"
 		: risk;
 }
