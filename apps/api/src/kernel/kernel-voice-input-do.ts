@@ -14,7 +14,6 @@ import {
 import { Agent, type Connection, type ConnectionContext } from "agents";
 import { logKernelVoiceFailure } from "./kernel-voice-log";
 import { type AiRunner, createVoiceGatewayAi } from "./voice-gateway-ai";
-import { watchVoiceMembership } from "./voice-membership";
 
 interface DictationContext {
 	organizationId: string;
@@ -32,7 +31,6 @@ export class KernelVoiceInputDO extends VoiceInputBase {
 
 	#activeContext: DictationContext | null = null;
 	#contexts = new Map<string, DictationContext>();
-	#membershipWatches = new Map<string, () => void>();
 	#speakerGate = new SingleSpeakerGate();
 
 	transcriber = new WorkersAIFluxSTT(
@@ -92,13 +90,6 @@ export class KernelVoiceInputDO extends VoiceInputBase {
 		connection: Connection,
 		context: ConnectionContext,
 	): Promise<void> {
-		const stop = await watchVoiceMembership(
-			connection,
-			context.request,
-			this.env,
-		);
-		if (!stop) return;
-		this.#membershipWatches.set(connection.id, stop);
 		try {
 			(connection as { binaryType?: string }).binaryType = "arraybuffer";
 		} catch {
@@ -152,8 +143,6 @@ export class KernelVoiceInputDO extends VoiceInputBase {
 	}
 
 	override onClose(connection: Connection, ...rest: unknown[]): void {
-		this.#membershipWatches.get(connection.id)?.();
-		this.#membershipWatches.delete(connection.id);
 		const context = this.#contexts.get(connection.id);
 		this.#speakerGate.release(connection);
 		if (this.#activeContext === context) this.#activeContext = null;
