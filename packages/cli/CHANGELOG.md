@@ -3,6 +3,26 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.19.7 — 2026-11-05
+
+### Patch Changes
+
+- Local runners no longer fail Work that its owner edits while the runner is
+  getting it ready. The runner checks the Work again just before starting and
+  waits for the next pass if it changed, so one early edit no longer leaves the
+  Work failing on every later start.
+- When a runner skips Work because it may need a person to authorize it,
+  `tedix lane serve` asks the Work's owner in Tedix OS, with the exact
+  Delegation comment to add. It asks once and never adds the delegation itself.
+- OpenCode runners report provider progress separately from their heartbeat,
+  and safely restart a turn that went silent before using any tool.
+- Runner worktree cleanup no longer stops the dispatcher when a busy Mac makes
+  its process check stall, and commit checks use fewer git calls.
+- Database, credential and approval errors are shown as they are, instead of
+  suggesting that a tool is missing.
+- New `tedix lane remote-job send` and `receive` steps for controlled email
+  jobs, and a safe way to inspect an uncertain email job without sending again.
+
 ## 0.19.6 — 2026-11-04
 
 ### Patch Changes
