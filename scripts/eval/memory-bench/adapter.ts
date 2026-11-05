@@ -53,7 +53,7 @@ export async function adapter(root: string) {
 	const hybridPath = "packages/db/src/queries/memory-graph/hybrid-recall.ts";
 	if (existsSync(resolve(root, hybridPath))) {
 		const arms = await load(hybridPath),
-			scope = { orgId: "org_fable_unseeded" };
+			scope = { organizationId: "org_fable_unseeded" };
 		// The orchestrator intentionally fails soft; schema failures must fail this benchmark.
 		await arms.lexicalRecall(db, scope, "fixture");
 		await arms.graphRecall(db, scope, "fixture");
