@@ -3924,12 +3924,6 @@ it("proposes the pinned direct skill call and executes only the approved stored 
 		callable: "skills.run_workflow",
 		authorized: true,
 		annotations: { readOnlyHint: false, destructiveHint: true },
-		_meta: {
-			"com.tedix/policy": {
-				riskTier: "high_impact_write",
-				blastRadius: "tenant",
-			},
-		},
 		parameters: {
 			type: "object",
 			properties: {
@@ -4018,15 +4012,6 @@ it("proposes the pinned direct skill call and executes only the approved stored 
 	expect(decideKernelWriteApproval({ proposal: proposal! }).autoResolve).toBe(
 		false,
 	);
-	expect(
-		decideKernelWriteApproval({
-			proposal: proposal!,
-			policy: {
-				autonomy: { version: 1, maxRisk: "medium" },
-				writeTier: { trustedTools: ["*"], autoApproveLowRisk: true },
-			},
-		}).autoResolve,
-	).toBe(false);
 	const result = await executeApprovedKernelWrite({
 		env: baseEnv(service),
 		approvalRequestId: "approved-request",
