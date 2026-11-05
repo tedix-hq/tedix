@@ -5,6 +5,13 @@ import { OsTopbarActionsTargetContext } from "../src/components/os-topbar-action
 import { WorkActorDirectoryContext } from "../src/components/work-actor-avatar";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRoot } from "react-dom/client";
+import {
+	Dialog,
+	DialogTrigger,
+	DialogContent,
+	DialogTitle,
+	DialogDescription,
+} from "../src/components/kumo/dialog";
 import { DecisionDeckConfigSchema } from "@tedix/api-contract/schemas/os-decision-deck";
 import { DeckCardSchema } from "@tedix/api-contract/schemas/attention";
 import { OsGadgetManifestSchema } from "@tedix/api-contract/schemas/os-workspaces";
@@ -799,6 +806,21 @@ function ProjectFilterProof() {
 		/>
 	);
 }
+export function mountShortcutDialog() {
+	const host = document.createElement("div");
+	document.querySelector("header")!.append(host);
+	createRoot(host).render(
+		<Dialog>
+			<DialogTrigger>Open shortcut dialog</DialogTrigger>
+			<DialogContent>
+				<DialogTitle>Shortcut ownership</DialogTitle>
+				<DialogDescription>Keys stay with this dialog.</DialogDescription>
+				<input aria-label="Dialog draft" />
+			</DialogContent>
+		</Dialog>,
+	);
+}
+
 createRoot(document.getElementById("root")!).render(
 	<QueryClientProvider client={client}>
 		<ProofFrame>
