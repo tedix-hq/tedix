@@ -27,5 +27,55 @@ describe("D1 retention policy migrations", () => {
 			{ table_name: "kernel_runtime_events", mode: "move_to_logs_db" },
 			{ table_name: "tedi_runtime_events", mode: "move_to_logs_db" },
 		]);
+		expect(
+			sqlite
+				.prepare(
+					"SELECT mode, keep_days, max_rows_per_run FROM d1_retention_policies WHERE table_name = 'skill_run_artifacts'",
+				)
+				.get(),
+		).toEqual({
+			mode: "move_to_logs_db",
+			keep_days: 14,
+			max_rows_per_run: 100,
+		});
+		sqlite.close();
 	});
+
+	it.each(["off", "move_to_logs_db", "archive_then_delete", "delete"])(
+		"preserves an operator's %s artifact policy",
+		(mode) => {
+			const sqlite = new DatabaseSync(":memory:");
+			sqlite.exec(
+				readFileSync(
+					join(
+						migrationsDirectory,
+						"20261021192732_d1_retention_policies/migration.sql",
+					),
+					"utf8",
+				),
+			);
+			sqlite
+				.prepare(
+					"UPDATE d1_retention_policies SET mode = ?, keep_days = 30, max_rows_per_run = 25 WHERE table_name = 'skill_run_artifacts'",
+				)
+				.run(mode);
+			sqlite.exec(
+				readFileSync(
+					join(
+						migrationsDirectory,
+						"20261105023558_skill_artifact_retention_move_to_logs_db/migration.sql",
+					),
+					"utf8",
+				),
+			);
+			expect(
+				sqlite
+					.prepare(
+						"SELECT mode, keep_days, max_rows_per_run FROM d1_retention_policies WHERE table_name = 'skill_run_artifacts'",
+					)
+					.get(),
+			).toEqual({ mode, keep_days: 30, max_rows_per_run: 25 });
+			sqlite.close();
+		},
+	);
 });
