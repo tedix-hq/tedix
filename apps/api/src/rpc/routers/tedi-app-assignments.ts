@@ -232,6 +232,15 @@ async function loadCurrentAssignmentsForTedi(
 	return { tedi, current };
 }
 
+/**
+ * Operator includes everything observer grants, so a tedi already holding
+ * operator satisfies a desired observer assignment. Reconcile never downgrades
+ * an existing grant.
+ */
+function roleCovers(currentRole: string, desiredRole: string): boolean {
+	return currentRole === desiredRole || currentRole === "operator";
+}
+
 async function loadManagedPreviewForTedi(
 	context: BaseContext,
 	orgId: string,
@@ -271,17 +280,17 @@ async function loadManagedPreviewForTedi(
 		desired.map((assignment) => [assignment.appId, assignment]),
 	);
 
-	const missing = desired.filter((assignment) => {
-		const currentAssignment = currentByAppId.get(assignment.appId);
-		return !currentAssignment || currentAssignment.role !== assignment.role;
-	});
-	const unchanged = desired.filter((assignment) => {
-		const currentAssignment = currentByAppId.get(assignment.appId);
-		return currentAssignment?.role === assignment.role;
-	});
+	const isCovered = (assignment: { appId: string; role: string }) => {
+		const currentRole = currentByAppId.get(assignment.appId)?.role;
+		return !!currentRole && roleCovers(currentRole, assignment.role);
+	};
+	const missing = desired.filter((assignment) => !isCovered(assignment));
+	const unchanged = desired.filter(isCovered);
 	const extra = current.filter((assignment) => {
 		const desiredAssignment = desiredByAppId.get(assignment.appId);
-		return !desiredAssignment || desiredAssignment.role !== assignment.role;
+		return (
+			!desiredAssignment || !roleCovers(assignment.role, desiredAssignment.role)
+		);
 	});
 
 	return {
@@ -673,7 +682,10 @@ const reconcileManagedByTedi = authedOs.reconcileManagedByTedi
 					context,
 					tedi: preview.tedi,
 					app,
-					role: assignment.role,
+					role:
+						currentByAppId.get(assignment.appId)?.role === "operator"
+							? "operator"
+							: assignment.role,
 				});
 				aihClientSyncs.push(syncResult);
 				logAihSyncOutcome("reconcile/desired", syncResult);

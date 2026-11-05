@@ -544,4 +544,41 @@ describe("reconcileManagedByTedi surfaces every AIH client sync it attempted", (
 		expect(result.aihClientSyncs).toEqual([]);
 		expect(mocks.ensureTediAihClientForApp).not.toHaveBeenCalled();
 	});
+
+	it("treats an existing operator grant as satisfying a desired observer", async () => {
+		mocks.getAppsByOrganization.mockResolvedValue([
+			{
+				id: APP_ID,
+				name: "Test App",
+				slug: "test-app",
+				organizationId: ORG_ID,
+				metadata: {
+					mcpConfig: {
+						assignmentConfig: { mode: "profile-default", role: "observer" },
+					},
+				},
+			},
+		]);
+		mocks.getAssignedAppRoles.mockResolvedValue({ [APP_ID]: "operator" });
+		mocks.ensureTediAihClientForApp.mockResolvedValue(CREATED_SYNC);
+		const client = createRouterClient(tediAppAssignmentsContractRouter, {
+			context: context(),
+		});
+
+		const result = await client.reconcileManagedByTedi({
+			tediId: TEDI_ID,
+			dryRun: false,
+			pruneExtra: true,
+		});
+
+		expect(result.desired.map((a) => a.role)).toEqual(["observer"]);
+		expect(result.missing).toEqual([]);
+		expect(result.extra).toEqual([]);
+		expect(result.unchanged.map((a) => a.appId)).toEqual([APP_ID]);
+		expect(mocks.revokeAppAccess).not.toHaveBeenCalled();
+		expect(mocks.grantAppObserver).not.toHaveBeenCalled();
+		expect(mocks.ensureTediAihClientForApp).toHaveBeenCalledWith(
+			expect.objectContaining({ role: "operator" }),
+		);
+	});
 });
