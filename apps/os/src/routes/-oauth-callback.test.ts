@@ -34,6 +34,15 @@ import {
 	CONNECTION_FAILED_MESSAGE,
 } from "@/lib/connections-actions";
 
+// autoCodeSplitting wraps the route component in a lazy chunk whose first
+// preload is a multi-second module-runner import. Resolve it during module
+// evaluation — outside any test's 20s budget and before fake timers install.
+// Inside a test, that import timed the first test out under full-suite load
+// and its torn act scope swallowed the renders of the tests after it.
+await (
+	Route.options.component as { preload?: () => Promise<unknown> }
+).preload?.();
+
 describe("oauth callback guards", () => {
 	it("keeps connectError through search validation, even beside bad fields", () => {
 		const validate = Route.options.validateSearch as (
@@ -57,9 +66,6 @@ async function render(strict = true) {
 	).IS_REACT_ACT_ENVIRONMENT = true;
 	const container = document.createElement("div");
 	const root = createRoot(container);
-	await (
-		Route.options.component as { preload?: () => Promise<unknown> }
-	).preload?.();
 	await act(async () =>
 		root.render(
 			strict
@@ -72,6 +78,23 @@ async function render(strict = true) {
 		),
 	);
 	return { container, root };
+}
+
+/**
+ * The effect's redemption resolves through the promise queue, and an empty
+ * `await act(async () => {})` only hopes act's macrotask yields outlast it.
+ * Poll the observable outcome — the postMessage to the opener — while
+ * advancing the fake clock inside one act scope, bounded so a missing
+ * outcome fails fast instead of hanging the test.
+ */
+async function actUntil(observed: () => boolean) {
+	await act(async () => {
+		for (let round = 0; round < 200 && !observed(); round++)
+			await vi.advanceTimersByTimeAsync(1);
+	});
+	expect(observed(), "the callback's outcome never became observable").toBe(
+		true,
+	);
 }
 
 describe("oauth callback correlation", () => {
@@ -102,12 +125,12 @@ describe("oauth callback correlation", () => {
 		window.sessionStorage.setItem(CONNECT_FLOW_KEY, JSON.stringify(flow));
 		const { container, root } = await render();
 		try {
-			await act(async () => {});
+			await actUntil(() => postMessage.mock.calls.length === 1);
+			expect(postMessage).toHaveBeenCalledTimes(1);
 			expect(redeem).toHaveBeenCalledTimes(1);
 			expect(redeem).toHaveBeenCalledWith({ ticket: "raw-ticket" });
 			expect(container.querySelector('[role="status"]')).not.toBeNull();
 			expect(container.textContent).toContain("Authorization returned");
-			expect(postMessage).toHaveBeenCalledTimes(1);
 			expect(postMessage).toHaveBeenCalledWith(
 				{
 					type: CONNECTION_COMPLETE_MESSAGE,
@@ -141,6 +164,9 @@ describe("oauth callback correlation", () => {
 		callbackState.connectError = "reauth_required";
 		const { container, root } = await render();
 		try {
+			// The failed-connect guard notifies synchronously from the effect —
+			// once per StrictMode replay.
+			await actUntil(() => postMessage.mock.calls.length >= 1);
 			expect(redeem).not.toHaveBeenCalled();
 			expect(container.querySelector('[role="alert"]')).not.toBeNull();
 			expect(
@@ -173,7 +199,7 @@ describe("oauth callback correlation", () => {
 		window.sessionStorage.setItem(CONNECT_FLOW_KEY, JSON.stringify(flow));
 		const { container, root } = await render();
 		try {
-			await act(async () => {});
+			await actUntil(() => postMessage.mock.calls.length === 1);
 			expect(redeem).not.toHaveBeenCalled();
 			expect(container.querySelector('[role="alert"]')).not.toBeNull();
 			expect(container.textContent).toContain(
@@ -206,7 +232,7 @@ describe("oauth callback correlation", () => {
 		window.sessionStorage.setItem(CONNECT_FLOW_KEY, JSON.stringify(flow));
 		const { container, root } = await render();
 		try {
-			await act(async () => {});
+			await actUntil(() => postMessage.mock.calls.length === 1);
 			expect(container.textContent).toContain("Not connected");
 			expect(container.textContent).toContain("started by someone else");
 			expect(postMessage).toHaveBeenCalledWith(
@@ -243,6 +269,7 @@ describe("oauth callback correlation", () => {
 		window.sessionStorage.setItem(CONNECT_FLOW_KEY, JSON.stringify(flow));
 		const { container, root } = await render(false);
 		try {
+			await actUntil(() => postMessage.mock.calls.length === 1);
 			expect(container.textContent).toContain("Not connected");
 			expect(container.textContent).toContain("credential vault");
 			expect(postMessage).toHaveBeenCalledWith(
