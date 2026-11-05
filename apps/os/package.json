@@ -136,7 +136,7 @@
 			"test:browser:dialogs": 3,
 			"test:browser:state-gallery": 2,
 			"test:browser:settings": 3,
-			"test:browser:focus-clip": 16
+			"test:browser:focus-clip": 32
 		}
 	}
 }
