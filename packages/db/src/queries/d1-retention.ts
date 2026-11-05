@@ -306,12 +306,10 @@ function artifactMayMove(): SQL {
 			SELECT 1 FROM ${tediArtifacts}
 			INNER JOIN ${workEvidence}
 			ON ${workEvidence.orgId} = ${tediArtifacts.organizationId}
-			AND (
-				${workEvidence.uri} = 'artifact://' || ${tediArtifacts.id}
-				OR (
-					substr(${workEvidence.uri}, 1, 11) = 'artifact://'
-					AND json_extract(${workEvidence.metadata}, '$._tedixEvidence.artifactId') = ${tediArtifacts.id}
-				)
+			AND substr(${workEvidence.uri}, 1, 11) = 'artifact://'
+			AND ${tediArtifacts.id} IN (
+				substr(${workEvidence.uri}, 12),
+				json_extract(${workEvidence.metadata}, '$._tedixEvidence.artifactId')
 			)
 			WHERE ${tediArtifacts.organizationId} = ${skillRuns.organizationId}
 			AND (

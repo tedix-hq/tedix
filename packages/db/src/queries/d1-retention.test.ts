@@ -628,4 +628,33 @@ describe("artifact retention references", () => {
 			(await readD1RetentionPage(db, spec, page[0]!.__rowid, 1))[0]?.id,
 		).toBe("movable");
 	});
+
+	it("looks up registry pins by primary key instead of joining every organization artifact", async () => {
+		const { sqlite, db, spec, seed } = artifacts();
+		seed("free");
+		const queries: string[] = [];
+		const observed = createDbQueryClient(
+			createD1Facade(sqlite, {
+				onPrepare(query) {
+					queries.push(query);
+				},
+			}),
+		);
+		const page = await readD1RetentionPage(db, spec, -1);
+		expect(
+			(await filterD1RetentionReferencedRows(observed, spec, page)).rows,
+		).toHaveLength(1);
+		const query = queries.find((query) => query.includes("tedi_artifacts"))!;
+		const plan = sqlite
+			.prepare(`EXPLAIN QUERY PLAN ${query}`)
+			.all(JSON.stringify(page.map((row) => row.__rowid)));
+		expect(
+			plan.some(
+				(row) =>
+					String(row.detail).includes("SEARCH tedi_artifacts") &&
+					String(row.detail).includes("(id=?)"),
+			),
+		).toBe(true);
+		sqlite.close();
+	});
 });
