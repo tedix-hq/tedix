@@ -140,6 +140,22 @@ function namespaceOf(entry: AggregateAppEntry): string {
 	return (entry.prefix ?? entry.slug).replace(/[^a-zA-Z0-9_]/g, "_");
 }
 
+function gatewayRequiredScopes(
+	...args: Parameters<typeof resolveMcpToolRequiredScopes>
+): string[] | null {
+	try {
+		return resolveMcpToolRequiredScopes(...args).sort();
+	} catch (error) {
+		if (
+			error instanceof Error &&
+			error.message.startsWith("Missing MCP capability mapping for tool:")
+		) {
+			return null;
+		}
+		throw error;
+	}
+}
+
 function formatNames(names: string[]): string {
 	return names.length > 0
 		? names.map((name) => `\`${name}\``).join(", ")
@@ -199,13 +215,17 @@ export async function snapshotOrganizationGatewayToolContracts(
 					authRequired: tool.authRequired ?? undefined,
 					config: { ...tool.config, _aggregateNamespace: namespace },
 				};
+				const requiredScopes = gatewayRequiredScopes(prefixed, namespace, {
+					...gatewayConfig,
+					toolScopes,
+				});
+				// Connect fails closed on a tool with no capability mapping and never
+				// lists it, so it is not part of the gateway's contract.
+				if (!requiredScopes) continue;
 				tools.push({
 					name: tool.toolId,
 					namespace,
-					requiredScopes: resolveMcpToolRequiredScopes(prefixed, namespace, {
-						...gatewayConfig,
-						toolScopes,
-					}).sort(),
+					requiredScopes,
 					writeCapability: tool.writeCapability,
 					schemaHash: tool.contractHash ?? tool.schemaSourceHash,
 				});
