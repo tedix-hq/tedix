@@ -13,6 +13,11 @@ import {
 	type JsonValue,
 	JsonValueSchema,
 } from "@tedix/api-contract/schemas/common";
+import {
+	decideTrustedRecipientSend,
+	normalizeTrustedRecipientAddress,
+	type TrustedRecipientValue,
+} from "@tedix/api-contract/utils/email-trusted-recipients";
 import { isPlatformPrincipal } from "@tedix/auth/types";
 import { getAppBySlug } from "@tedix/db/queries/apps";
 import { getActiveMemberByEmail } from "@tedix/db/queries/organization-members";
@@ -46,6 +51,11 @@ import {
 	searchTediEmail,
 	TediEmailTargetNotFoundError,
 } from "@tedix/db/queries/tedi-email/threads";
+import {
+	addTediEmailTrustedRecipient,
+	listTediEmailTrustedRecipients,
+	revokeTediEmailTrustedRecipient,
+} from "@tedix/db/queries/tedi-email/trusted-recipients";
 import { getActiveTediSlugById, getTediById } from "@tedix/db/queries/tedis";
 import { sendTransactionalEmail } from "../../lib/email";
 import {
@@ -889,6 +899,21 @@ const sendEmail = authed.sendEmail
 					: `App not found for slug "${input.appSlug}"`,
 			);
 		}
+		if (input.trustedRecipientsOnly) {
+			if (!sender.tediId) {
+				throw createError(
+					ErrorCodes.BAD_REQUEST,
+					"trustedRecipientsOnly applies to tedi senders only",
+				);
+			}
+			await assertTrustedRecipientsOnly(context, {
+				tediId: sender.tediId,
+				organizationId: sender.organizationId,
+				to,
+				cc,
+				bcc,
+			});
+		}
 		assertOutboundEmailConfigured(context);
 
 		let inReplyTo: string | null = null;
@@ -986,52 +1011,20 @@ const replyEmail = authed.replyEmail
 		const senderSlug = await getActiveTediSlugById(context.db, input.tediId);
 		if (!senderSlug) throw createError(ErrorCodes.NOT_FOUND, "Tedi not found");
 
-		const threadIdFromMessage = input.messageId
-			? (
-					await getTediEmailMessage(context.db, {
-						messageId: input.messageId,
-						tediId: input.tediId,
-						organizationId: tedi.organizationId,
-					})
-				)?.threadId
-			: undefined;
-		const threadId = input.threadId ?? threadIdFromMessage;
-		if (!threadId) {
-			throw createError(ErrorCodes.NOT_FOUND, "Email reply target not found");
-		}
-
-		const thread = await getTediEmailThread(context.db, {
-			threadId,
+		const { threadId, original, to } = await resolveReplyTarget(context, {
 			tediId: input.tediId,
 			organizationId: tedi.organizationId,
+			threadId: input.threadId,
+			messageId: input.messageId,
 		});
-		if (!thread)
-			throw createError(ErrorCodes.NOT_FOUND, "Email thread not found");
-
-		const original =
-			(input.messageId
-				? thread.messages.find((message) => message.id === input.messageId)
-				: undefined) ??
-			[...thread.messages]
-				.reverse()
-				.find((message) => message.direction === "inbound");
-		if (!original) {
-			throw createError(
-				ErrorCodes.BAD_REQUEST,
-				"No inbound message found to reply to",
-			);
-		}
-
-		const to = normalizeEmailRecipient(
-			original.direction === "inbound"
-				? (original.from ?? original.fromAddr)
-				: (original.replyTo ?? original.to[0] ?? ""),
-		);
-		if (!to.email) {
-			throw createError(
-				ErrorCodes.BAD_REQUEST,
-				"Reply target has no recipient address",
-			);
+		if (input.trustedRecipientsOnly) {
+			await assertTrustedRecipientsOnly(context, {
+				tediId: input.tediId,
+				organizationId: tedi.organizationId,
+				to: [to],
+				cc: input.cc,
+				bcc: input.bcc,
+			});
 		}
 		assertOutboundEmailConfigured(context);
 
@@ -1109,6 +1102,230 @@ const replyEmail = authed.replyEmail
 	});
 
 // =============================================================================
+// TRUSTED RECIPIENTS
+// =============================================================================
+
+/** Resolves who a reply goes to from the stored thread, never from the caller. */
+async function resolveReplyTarget(
+	context: BaseContext,
+	input: {
+		tediId: string;
+		organizationId: string;
+		threadId?: string;
+		messageId?: string;
+	},
+) {
+	const threadIdFromMessage = input.messageId
+		? (
+				await getTediEmailMessage(context.db, {
+					messageId: input.messageId,
+					tediId: input.tediId,
+					organizationId: input.organizationId,
+				})
+			)?.threadId
+		: undefined;
+	const threadId = input.threadId ?? threadIdFromMessage;
+	if (!threadId) {
+		throw createError(ErrorCodes.NOT_FOUND, "Email reply target not found");
+	}
+
+	const thread = await getTediEmailThread(context.db, {
+		threadId,
+		tediId: input.tediId,
+		organizationId: input.organizationId,
+	});
+	if (!thread)
+		throw createError(ErrorCodes.NOT_FOUND, "Email thread not found");
+
+	const original =
+		(input.messageId
+			? thread.messages.find((message) => message.id === input.messageId)
+			: undefined) ??
+		[...thread.messages]
+			.reverse()
+			.find((message) => message.direction === "inbound");
+	if (!original) {
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			"No inbound message found to reply to",
+		);
+	}
+
+	const to = normalizeEmailRecipient(
+		original.direction === "inbound"
+			? (original.from ?? original.fromAddr)
+			: (original.replyTo ?? original.to[0] ?? ""),
+	);
+	if (!to.email) {
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			"Reply target has no recipient address",
+		);
+	}
+	return { threadId, original, to };
+}
+
+async function decideStoredTrustedRecipientSend(
+	context: BaseContext,
+	input: {
+		tediId: string;
+		organizationId: string;
+		actingTediId: string | null;
+		to?: readonly TrustedRecipientValue[];
+		cc?: readonly TrustedRecipientValue[];
+		bcc?: readonly TrustedRecipientValue[];
+	},
+) {
+	const trusted = await listTediEmailTrustedRecipients(context.db, {
+		organizationId: input.organizationId,
+		tediId: input.tediId,
+	});
+	return decideTrustedRecipientSend({
+		senderTediId: input.tediId,
+		actingTediId: input.actingTediId,
+		recipients: { to: input.to, cc: input.cc, bcc: input.bcc },
+		trusted,
+	});
+}
+
+/**
+ * Defense in depth for a send the gateway let through without a card: the
+ * trusted list is read from storage at send time, so a recipient revoked
+ * after the gateway's check is refused here.
+ */
+async function assertTrustedRecipientsOnly(
+	context: BaseContext,
+	input: {
+		tediId: string;
+		organizationId: string;
+		to: readonly TrustedRecipientValue[];
+		cc?: readonly TrustedRecipientValue[];
+		bcc?: readonly TrustedRecipientValue[];
+	},
+): Promise<void> {
+	const decision = await decideStoredTrustedRecipientSend(context, {
+		...input,
+		actingTediId: input.tediId,
+	});
+	if (!decision.trusted) {
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			`Not sent: ${decision.reason}. This email needs a human approval.`,
+		);
+	}
+	console.info(
+		JSON.stringify({
+			event: "tedi_email.trusted_recipient_send",
+			reason: decision.reason,
+			organizationId: input.organizationId,
+			tediId: input.tediId,
+			recipientCount: decision.addresses.length,
+			actor: actorLabel(context),
+		}),
+	);
+}
+
+/** Owners and admins manage the list; a tedi can never trust recipients for itself. */
+function requireTrustedRecipientAdmin(context: BaseContext): void {
+	if (context.authType === "tedi") {
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"A tedi cannot manage its own trusted email recipients",
+		);
+	}
+}
+
+const listTrustedRecipients = authed.listTrustedRecipients
+	.use(withAuthorization("settings:manage", "mcp:messaging.read"))
+	.handler(async ({ input, context }) => {
+		requireTrustedRecipientAdmin(context);
+		const tedi = await requireTediEmailAccess(context, input.tediId);
+		const recipients = await listTediEmailTrustedRecipients(context.db, {
+			organizationId: tedi.organizationId,
+			tediId: tedi.id,
+			includeRevoked: input.includeRevoked,
+		});
+		return { recipients };
+	});
+
+const addTrustedRecipient = authed.addTrustedRecipient
+	.use(withAuthorization("settings:manage", "mcp:messaging.admin"))
+	.handler(async ({ input, context }) => {
+		requireTrustedRecipientAdmin(context);
+		const tedi = await requireTediEmailAccess(context, input.tediId);
+		const address = normalizeTrustedRecipientAddress(input.address);
+		if (!address) {
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"Use one exact email address; wildcards and domains are not allowed",
+			);
+		}
+		return addTediEmailTrustedRecipient(context.db, {
+			organizationId: tedi.organizationId,
+			tediId: tedi.id,
+			address,
+			createdBy: actorLabel(context),
+		});
+	});
+
+const revokeTrustedRecipient = authed.revokeTrustedRecipient
+	.use(withAuthorization("settings:manage", "mcp:messaging.admin"))
+	.handler(async ({ input, context }) => {
+		requireTrustedRecipientAdmin(context);
+		const tedi = await requireTediEmailAccess(context, input.tediId);
+		const recipient = await revokeTediEmailTrustedRecipient(context.db, {
+			organizationId: tedi.organizationId,
+			tediId: tedi.id,
+			id: input.recipientId,
+			revokedBy: actorLabel(context),
+		});
+		if (!recipient) {
+			throw createError(ErrorCodes.NOT_FOUND, "Trusted recipient not found");
+		}
+		return { recipient };
+	});
+
+const resolveTrustedRecipientSend =
+	serviceAuthed.resolveTrustedRecipientSend.handler(
+		async ({ input, context }) => {
+			const tedi = await getTediById(context.db, input.tediId);
+			if (!tedi) throw createError(ErrorCodes.NOT_FOUND, "Tedi not found");
+			const headerOrganizationId = context.headers.get("X-Tedix-Org-Id");
+			if (
+				(context.organizationId &&
+					context.organizationId !== tedi.organizationId) ||
+				(headerOrganizationId && headerOrganizationId !== tedi.organizationId)
+			) {
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Access denied to this mailbox",
+				);
+			}
+			const to =
+				input.kind === "reply" && !input.to?.length
+					? [
+							(
+								await resolveReplyTarget(context, {
+									tediId: tedi.id,
+									organizationId: tedi.organizationId,
+									threadId: input.threadId,
+									messageId: input.messageId,
+								})
+							).to,
+						]
+					: (input.to ?? []);
+			return decideStoredTrustedRecipientSend(context, {
+				tediId: tedi.id,
+				organizationId: tedi.organizationId,
+				actingTediId: input.actingTediId,
+				to,
+				cc: input.cc,
+				bcc: input.bcc,
+			});
+		},
+	);
+
+// =============================================================================
 // ROUTER EXPORT
 // =============================================================================
 
@@ -1129,4 +1346,8 @@ export const tediEmailContractRouter = os.router({
 	provisionAddress,
 	sendEmail,
 	replyEmail,
+	listTrustedRecipients,
+	addTrustedRecipient,
+	revokeTrustedRecipient,
+	resolveTrustedRecipientSend,
 });

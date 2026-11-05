@@ -3,8 +3,18 @@ import { nativeToolAutonomy } from "./native-tool-autonomy";
 
 let autonomy: unknown = { version: 1, maxRisk: "medium" };
 let observedRequest: Request | undefined;
+let trustedDecision: unknown = {
+	trusted: false,
+	reason: "untrusted recipient: stranger@example.com",
+	addresses: ["stranger@example.com"],
+};
+const trustChecks: unknown[] = [];
 const api = {
 	async fetch(request: Request) {
+		if (request.url.includes("resolveTrustedRecipientSend")) {
+			trustChecks.push(((await request.json()) as { json: unknown }).json);
+			return Response.json({ json: trustedDecision });
+		}
 		observedRequest = request;
 		return Response.json({ json: { autonomy } });
 	},
@@ -69,4 +79,47 @@ autonomy = undefined;
 assert.equal((await nativeToolAutonomy(base)).autoApprove, false);
 autonomy = { version: 1, maxRisk: "medium", askForClasses: ["native:write"] };
 assert.equal((await nativeToolAutonomy(base)).autoApprove, false);
+
+// reply_to_email is an external message: a card unless the stored list
+// trusts the inbound sender the runtime recorded for this turn.
+autonomy = { version: 1, maxRisk: "medium" };
+const reply = {
+	...base,
+	tool: "reply_to_email",
+	args: { text: "Thanks, we will follow up." },
+};
+const untrustedReply = await nativeToolAutonomy({
+	...reply,
+	emailRecipients: { to: ["stranger@example.com"] },
+});
+assert.equal(untrustedReply.autoApprove, false);
+assert.equal(untrustedReply.critical, true);
+assert.deepEqual(trustChecks.at(-1), {
+	tediId: "tedi-example",
+	actingTediId: "tedi-example",
+	kind: "reply",
+	to: ["stranger@example.com"],
+});
+const noRecipient = await nativeToolAutonomy(reply);
+assert.equal(noRecipient.critical, true);
+assert.equal(trustChecks.length, 1);
+trustedDecision = {
+	trusted: true,
+	reason: "trusted recipient",
+	addresses: ["partner@example.com"],
+};
+const trustedReply = await nativeToolAutonomy({
+	...reply,
+	emailRecipients: { to: ["partner@example.com"] },
+});
+assert.equal(trustedReply.autoApprove, true);
+assert.equal(trustedReply.critical, false);
+assert.equal(trustedReply.reason, "trusted recipient");
+autonomy = { version: 1, maxRisk: "medium", askForClasses: ["*"] };
+const askAll = await nativeToolAutonomy({
+	...reply,
+	emailRecipients: { to: ["partner@example.com"] },
+});
+assert.equal(askAll.autoApprove, false);
+assert.equal(askAll.critical, true);
 console.log("native-tool-autonomy tests passed");

@@ -2436,3 +2436,250 @@ describe("Connect multi-org governance", () => {
 		expect(fetch).not.toHaveBeenCalled();
 	});
 });
+
+describe("trusted email recipients", () => {
+	const PARTNER = "partner-agent@mail.example.com";
+	const emailSend = {
+		toolId: "worker__email_send",
+		title: "Send email",
+		config: {
+			transport: "rpc",
+			endpoint: "tediEmail/sendEmail",
+			_aggregateTediId: "tedi-1",
+		},
+	};
+	const emailReply = {
+		toolId: "reply_email",
+		title: "Reply to email",
+		config: { transport: "rpc", endpoint: "tediEmail/replyEmail" },
+	};
+
+	function emailContext(
+		resolveTrustedRecipientSend: (input: unknown) => Promise<unknown>,
+		caller: Record<string, unknown> = { authType: "tedi", tediId: "tedi-1" },
+	) {
+		const elicitInput = vi.fn(async () => {
+			throw new Error("interactive approval is unavailable");
+		});
+		return {
+			elicitInput,
+			context: {
+				server: { server: { elicitInput } },
+				callerIdentity: { organizationId: "org-1", ...caller },
+				app: { organizationId: "org-1" },
+				appSlug: "tedis",
+				apiClient: {
+					mcpGovernance: {
+						resolveAgentTransportPolicy: vi.fn(async () => ({})),
+					},
+					tediEmail: { resolveTrustedRecipientSend },
+				},
+			} as unknown as Pick<ServerContext, "server">,
+		};
+	}
+
+	const trusted = vi.fn(async () => ({
+		trusted: true,
+		reason: "trusted recipient",
+		addresses: [PARTNER],
+	}));
+	const untrusted = vi.fn(async () => ({
+		trusted: false,
+		reason: "untrusted recipient: someone@example.com",
+		addresses: [PARTNER, "someone@example.com"],
+	}));
+
+	it("sends to an all-trusted recipient list without a card and marks the call", async () => {
+		const { context, elicitInput } = emailContext(trusted);
+		const args: Record<string, unknown> = {
+			to: [{ email: PARTNER }],
+			cc: [{ email: PARTNER }],
+			subject: "Opportunity",
+			text: "Hello",
+		};
+		await expect(
+			requireDestructiveToolApproval(context, emailSend, null, {
+				args,
+				autoConfirmAgent: true,
+				allowSyncMrtr: false,
+			}),
+		).resolves.toBeNull();
+		expect(trusted).toHaveBeenCalledWith({
+			tediId: "tedi-1",
+			actingTediId: "tedi-1",
+			kind: "send",
+			to: [PARTNER],
+			cc: [PARTNER],
+		});
+		expect(args.trustedRecipientsOnly).toBe(true);
+		expect(elicitInput).not.toHaveBeenCalled();
+	});
+
+	it("keeps the card when any recipient is untrusted", async () => {
+		const { context } = emailContext(untrusted);
+		const args: Record<string, unknown> = {
+			to: [{ email: PARTNER }],
+			bcc: [{ email: "someone@example.com" }],
+			subject: "Opportunity",
+			text: "Hello",
+		};
+		const result = await requireDestructiveToolApproval(
+			context,
+			emailSend,
+			null,
+			{ args, autoConfirmAgent: true, allowSyncMrtr: false },
+		);
+		expect(result?.isError).toBe(true);
+		expect(args.trustedRecipientsOnly).toBeUndefined();
+	});
+
+	it("keeps the card when the check is unavailable", async () => {
+		const { context } = emailContext(
+			vi.fn(async () => {
+				throw new Error("api down");
+			}),
+		);
+		const result = await requireDestructiveToolApproval(
+			context,
+			emailSend,
+			null,
+			{
+				args: { to: [{ email: PARTNER }], subject: "s", text: "t" },
+				autoConfirmAgent: true,
+				allowSyncMrtr: false,
+			},
+		);
+		expect(result?.isError).toBe(true);
+	});
+
+	it("never asks for a caller that is not the sending tedi", async () => {
+		const check = vi.fn(trusted);
+		for (const caller of [
+			{ authType: "tedi", tediId: "tedi-2" },
+			{ authType: "user", userId: "user-1" },
+			{ authType: "service", kernel: true, tediId: "tedi-1" },
+		]) {
+			const { context } = emailContext(check, caller);
+			const args: Record<string, unknown> = {
+				to: [{ email: PARTNER }],
+				subject: "s",
+				text: "t",
+			};
+			await requireDestructiveToolApproval(context, emailSend, null, {
+				args,
+				autoConfirmAgent: true,
+				allowSyncMrtr: false,
+			});
+			expect(args.trustedRecipientsOnly).toBeUndefined();
+		}
+		expect(check).not.toHaveBeenCalled();
+	});
+
+	it("refuses the exception for a latched run", async () => {
+		const { context } = emailContext(trusted, {
+			authType: "service",
+			tediId: "tedi-1",
+			skillRunId: "run-latched",
+			skillId: "skill-1",
+		});
+		const args: Record<string, unknown> = {
+			to: [{ email: PARTNER }],
+			subject: "s",
+			text: "t",
+		};
+		// No latch reader: the lock cannot be checked, so nothing is auto-approved.
+		const result = await requireDestructiveToolApproval(
+			context,
+			emailSend,
+			null,
+			{ args },
+		);
+		expect(result?.isError).toBe(true);
+		expect(args.trustedRecipientsOnly).toBeUndefined();
+	});
+
+	it("lets a skill workflow running as the tedi send to trusted recipients", async () => {
+		const { context } = emailContext(trusted, {
+			authType: "service",
+			tediId: "tedi-1",
+			skillRunId: "run-1",
+			skillId: "skill-1",
+		});
+		const governance = (
+			context as unknown as {
+				apiClient: { mcpGovernance: Record<string, unknown> };
+			}
+		).apiClient.mcpGovernance;
+		governance.resolveRunSensitiveDataLatch = vi.fn(async () => ({
+			latch: null,
+		}));
+		await expect(
+			requireDestructiveToolApproval(context, emailSend, null, {
+				args: { to: [{ email: PARTNER }], subject: "s", text: "t" },
+			}),
+		).resolves.toBeNull();
+	});
+
+	it("keeps an explicit approval policy and destructive hints in charge", async () => {
+		const check = vi.fn(trusted);
+		const { context } = emailContext(check);
+		const args = { to: [{ email: PARTNER }], subject: "s", text: "t" };
+		const configured = await requireDestructiveToolApproval(
+			context,
+			{
+				...emailSend,
+				config: { ...emailSend.config, approvalPolicy: "always" },
+			},
+			null,
+			{ args: { ...args }, autoConfirmAgent: true, allowSyncMrtr: false },
+		);
+		expect(configured?.isError).toBe(true);
+		const destructive = await requireDestructiveToolApproval(
+			context,
+			emailSend,
+			{ destructiveHint: true },
+			{ args: { ...args }, autoConfirmAgent: true, allowSyncMrtr: false },
+		);
+		expect(destructive?.isError).toBe(true);
+		expect(check).not.toHaveBeenCalled();
+	});
+
+	it("resolves a reply's recipient server-side and passes a trusted reply", async () => {
+		const check = vi.fn(trusted);
+		const { context } = emailContext(check);
+		const args: Record<string, unknown> = {
+			tediId: "tedi-1",
+			threadId: "thread-1",
+			text: "Thanks",
+		};
+		await expect(
+			requireDestructiveToolApproval(context, emailReply, null, {
+				args,
+				autoConfirmAgent: true,
+				allowSyncMrtr: false,
+			}),
+		).resolves.toBeNull();
+		expect(check).toHaveBeenCalledWith({
+			tediId: "tedi-1",
+			actingTediId: "tedi-1",
+			kind: "reply",
+			threadId: "thread-1",
+		});
+		expect(args.trustedRecipientsOnly).toBe(true);
+	});
+
+	it("keeps the card on a reply to an untrusted sender", async () => {
+		const { context } = emailContext(untrusted);
+		const result = await requireDestructiveToolApproval(
+			context,
+			emailReply,
+			null,
+			{
+				args: { tediId: "tedi-1", threadId: "thread-1", text: "Thanks" },
+				autoConfirmAgent: true,
+				allowSyncMrtr: false,
+			},
+		);
+		expect(result?.isError).toBe(true);
+	});
+});

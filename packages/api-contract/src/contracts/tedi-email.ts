@@ -10,10 +10,16 @@ import { oc } from "@orpc/contract";
 import * as z from "zod";
 import { JsonValueSchema } from "../schemas/common";
 import {
+	AddEmailTrustedRecipientInputSchema,
 	EmailAuthResultsSchema,
 	EmailIngressDecisionSchema,
 	EmailRoutingPolicySchema,
 	EmailSenderTrustSchema,
+	EmailTrustedRecipientSchema,
+	ListEmailTrustedRecipientsInputSchema,
+	ResolveTrustedRecipientSendInputSchema,
+	ResolveTrustedRecipientSendOutputSchema,
+	RevokeEmailTrustedRecipientInputSchema,
 } from "../schemas/tedi-email";
 
 const EmailThreadStatusSchema = z.enum(["open", "archived", "spam", "all"]);
@@ -524,6 +530,12 @@ export const tediEmailContract = oc
 						replyTo: EmailRecipientSchema.optional(),
 						threadId: z.string().uuid().optional(),
 						inReplyToMessageId: z.string().uuid().optional(),
+						/**
+						 * Narrowing only: when true the API sends only if every recipient
+						 * is on this tedi's trusted list, read from storage at send time.
+						 * The MCP gateway sets it when it skipped the card for that reason.
+						 */
+						trustedRecipientsOnly: z.boolean().optional(),
 					})
 					.refine((d) => Boolean(d.tediId) || Boolean(d.appSlug), {
 						message: "Either tediId or appSlug is required",
@@ -571,6 +583,12 @@ export const tediEmailContract = oc
 						cc: z.array(EmailRecipientSchema).max(49).optional(),
 						bcc: z.array(EmailRecipientSchema).max(49).optional(),
 						replyTo: EmailRecipientSchema.optional(),
+						/**
+						 * Narrowing only: when true the API sends only if every recipient
+						 * is on this tedi's trusted list, read from storage at send time.
+						 * The MCP gateway sets it when it skipped the card for that reason.
+						 */
+						trustedRecipientsOnly: z.boolean().optional(),
 					})
 					.refine((d) => Boolean(d.threadId) || Boolean(d.messageId), {
 						message: "threadId or messageId is required",
@@ -593,6 +611,55 @@ export const tediEmailContract = oc
 					threadId: z.string(),
 				}),
 			),
+
+		listTrustedRecipients: oc
+			.route({
+				method: "GET",
+				path: "/trusted-recipients",
+				summary: "List a tedi's trusted email recipients",
+				description:
+					"Exact addresses this tedi may email without a human approval card. Owners and admins only.",
+			})
+			.input(ListEmailTrustedRecipientsInputSchema)
+			.output(z.object({ recipients: z.array(EmailTrustedRecipientSchema) })),
+
+		addTrustedRecipient: oc
+			.route({
+				method: "POST",
+				path: "/trusted-recipients",
+				summary: "Trust an email recipient for a tedi",
+				description:
+					"Lets this tedi email one exact address without a human approval card. Wildcards and domains are rejected. Owners and admins only; a tedi cannot trust recipients for itself.",
+			})
+			.input(AddEmailTrustedRecipientInputSchema)
+			.output(
+				z.object({
+					recipient: EmailTrustedRecipientSchema,
+					created: z.boolean(),
+				}),
+			),
+
+		revokeTrustedRecipient: oc
+			.route({
+				method: "POST",
+				path: "/trusted-recipients/{recipientId}/revoke",
+				summary: "Revoke a trusted email recipient",
+				description:
+					"Sends to this address need a human approval card again. Owners and admins only.",
+			})
+			.input(RevokeEmailTrustedRecipientInputSchema)
+			.output(z.object({ recipient: EmailTrustedRecipientSchema })),
+
+		resolveTrustedRecipientSend: oc
+			.route({
+				method: "POST",
+				path: "/trusted-recipients/resolve-send",
+				summary: "Check whether a tedi send goes only to trusted recipients",
+				description:
+					"Internal service check for the MCP gateway and tedi runtime. Reads the trusted list and any reply target from storage.",
+			})
+			.input(ResolveTrustedRecipientSendInputSchema)
+			.output(ResolveTrustedRecipientSendOutputSchema),
 	});
 
 export type TediEmailContract = typeof tediEmailContract;

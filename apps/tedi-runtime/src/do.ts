@@ -676,6 +676,9 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 				return parent.sessionHarness;
 			},
 			completeEmailTurn: (...args) => parent.completeEmailTurn(...args),
+			get activeEmailReplyRecipients() {
+				return parent.activeEmailReplyRecipients;
+			},
 			get ctx() {
 				return parent.ctx;
 			},
@@ -3691,6 +3694,8 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 	private facetRegistryRebuildWaitMs?: number;
 	/** Per-run conversation ids so native tool ledger rows land on the turn's conversation. */
 	private activeFacetTurnConversations = new Map<string, string>();
+	/** Per-run inbound sender of an email turn: the only `reply_to_email` recipient. */
+	private activeEmailReplyRecipients = new Map<string, string>();
 	private activeFacetTurnAuthorities = new Map<
 		string,
 		DelegatedTurnAuthority
@@ -3748,12 +3753,19 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		if (!conversationId || !tools?.[input.tool]?.execute)
 			return { autoApprove: false, critical: true };
 		try {
+			const replyRecipient =
+				input.tool === "reply_to_email"
+					? this.activeEmailReplyRecipients.get(input.runId)
+					: undefined;
 			const decision = await nativeToolAutonomy({
 				api: this.env.API_SERVICE,
 				organizationId: this.state.orgId,
 				tediId: this.state.tediId,
 				tool: input.tool,
 				args: input.args,
+				...(replyRecipient
+					? { emailRecipients: { to: [replyRecipient] } }
+					: {}),
 			});
 			if (!decision.autoApprove) return decision;
 			await this.eventOutbox.publish({

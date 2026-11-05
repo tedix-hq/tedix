@@ -322,6 +322,7 @@
 		"./queries/tedi-email/messages": "./src/queries/tedi-email/messages.ts",
 		"./queries/tedi-email/recipients": "./src/queries/tedi-email/recipients.ts",
 		"./queries/tedi-email/threads": "./src/queries/tedi-email/threads.ts",
+		"./queries/tedi-email/trusted-recipients": "./src/queries/tedi-email/trusted-recipients.ts",
 		"./schema/tedi-objectives": "./src/schema/tedi-objectives.ts",
 		"./queries/tedi-objectives": "./src/queries/tedi-objectives.ts",
 		"./schema/capabilities": "./src/schema/capabilities.ts",
