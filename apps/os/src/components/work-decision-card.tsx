@@ -260,6 +260,10 @@ function staleDecisionChange(
 
 /** Plain-English failure text for a decision write, with the next step. */
 function decisionFailureText(cause: unknown): string {
+	// A step the person can take on the card (such as allowing access) is not
+	// a failed save or a connection problem.
+	if (cause instanceof Error && cause.name === "DecisionStepRequired")
+		return cause.message;
 	const code = orpcErrorCode(cause);
 	if (code === "FORBIDDEN" || code === "UNAUTHORIZED")
 		return decisionText(

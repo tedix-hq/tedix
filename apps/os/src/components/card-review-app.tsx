@@ -184,7 +184,15 @@ type NeedsAccess = {
 	workspaceId: string;
 	resourceId: string | null;
 	providerName: string;
+	/** The chosen action and its reason, run again once organising is allowed. */
+	label: string;
+	reason: string;
 };
+
+/** A deck card shows this as a step to take, not as a failed save. */
+export class AllowOrganisingStep extends Error {
+	override name = "DecisionStepRequired";
+}
 
 /** How long a run_skill Do it waits for its outcome before saying it is still working. */
 const RUN_WAIT_MS = 150_000;
@@ -637,10 +645,15 @@ export function CardReviewApp({
 						workspaceId: from.workspaceId,
 						resourceId: started.resourceId,
 						providerName,
+						label,
+						reason,
 					});
 					return {
 						ok: false,
-						error: `Allow organising first: the person must let this organise their ${providerName} (the button on the card), then press ${label} again.`,
+						needsAccess: true,
+						error: started.resourceId
+							? `Allow organising first: Tedix can read your ${providerName} but not change it yet. Choose Allow organising, and ${label} runs right after.`
+							: `Allow organising first: attach your ${providerName} to this workspace, then choose ${label} again.`,
 					};
 				}
 				const result =
@@ -785,6 +798,17 @@ export function CardReviewApp({
 		if (source) void recordChoice(card, source, "later");
 		return { ok: true };
 	}, [card, snoozes, snoozeKey, source, recordChoice]);
+
+	// After the owner allows organising, the action they chose runs again on a
+	// fresh card face, so the earlier "allow first" note does not linger.
+	const [allowedRetries, setAllowedRetries] = useState(0);
+	const retryAfterAllow = useCallback(() => {
+		const access = needsAccess;
+		setNeedsAccess(null);
+		setAllowedRetries((count) => count + 1);
+		if (access && card?.key === access.cardKey)
+			void decide("do_it", access.reason);
+	}, [card?.key, decide, needsAccess]);
 
 	const skip = useCallback((): CardReviewActionResult => {
 		if (!card) return { ok: false, error: "No card is open" };
@@ -1071,79 +1095,97 @@ export function CardReviewApp({
 				{failed ? (
 					readFailure
 				) : card && source ? (
-					<WorkDecisionCard
-						key={card.key}
-						autoFocus
-						kind="decision"
-						title={(card.action || plainWhy(card.why) || card.sourceText).slice(
-							0,
-							500,
+					<>
+						{needsAccess?.cardKey === card.key && (
+							<AllowOrganising
+								access={needsAccess}
+								onAllowed={retryAfterAllow}
+							/>
 						)}
-						askedBy={source.label}
-						body={card.draft}
-						pending={revisionPending || busy}
-						content={
-							<div className="grid min-w-0 gap-3">
-								<FaceChips card={card} />
-								<RankedFor text={whyThisCard(source, card)} />
-								<SourceLine text={card.sourceText} />
-								{card.draft && <Text>{card.draft}</Text>}
-								{card.draft && sheets.get(card.outputId) && (
-									<FactoryCardRevisionPanel
-										key={card.key}
-										card={card}
-										source={source}
-										revision={sheets.get(card.outputId)!.revision}
-										onPending={setRevisionPending}
-									/>
-								)}
-							</div>
-						}
-						why={<Text>{plainWhy(card.why)}</Text>}
-						rejectReasons={source.scoring?.skipReasonChips.map(
-							(chip) => chip.label,
-						)}
-						actions={[
-							{
-								id: "useful",
-								label: decisionText("Useful"),
-								intent: "approve",
-							},
-							{
-								id: "not_useful",
-								label: decisionText("Not useful"),
-								intent: "reject",
-							},
-							...(card.action && actionLabel
-								? [
-										{
-											id: "do_it",
-											label: actionLabel,
-											intent: "approve" as const,
-										},
-									]
-								: []),
-							{ id: "later", label: decisionText("Later"), intent: "later" },
-						]}
-						onDecisionSettled={() => {
-							setDepartingCard(null);
-							if (focusCardKey) onFocusHandled?.();
-						}}
-						onDecision={async (feedback) => {
-							setDepartingCard(card);
-							const result =
-								feedback.action === "later"
-									? snooze()
-									: await decide(
-											feedback.action as Verdict["kind"],
-											formatReason(
-												feedback.reason ? [feedback.reason] : [],
-												feedback.feedback ?? "",
-											),
-										);
-							if (!result.ok) throw new Error(result.error);
-						}}
-					/>
+						<WorkDecisionCard
+							key={`${card.key}:${allowedRetries}`}
+							autoFocus
+							kind="decision"
+							title={(
+								card.action ||
+								plainWhy(card.why) ||
+								card.sourceText
+							).slice(0, 500)}
+							askedBy={source.label}
+							body={card.draft}
+							pending={revisionPending || busy}
+							content={
+								<div className="grid min-w-0 gap-3">
+									<FaceChips card={card} />
+									<RankedFor text={whyThisCard(source, card)} />
+									<SourceLine text={card.sourceText} />
+									{card.draft && <Text>{card.draft}</Text>}
+									{card.draft && sheets.get(card.outputId) && (
+										<FactoryCardRevisionPanel
+											key={card.key}
+											card={card}
+											source={source}
+											revision={sheets.get(card.outputId)!.revision}
+											onPending={setRevisionPending}
+										/>
+									)}
+								</div>
+							}
+							why={<Text>{plainWhy(card.why)}</Text>}
+							rejectReasons={source.scoring?.skipReasonChips.map(
+								(chip) => chip.label,
+							)}
+							actions={[
+								// A card whose action runs a skill (Draft a reply…) needs no
+								// separate Useful: choosing the action already says so.
+								...(source.doIt === "run_skill" && card.action && actionLabel
+									? []
+									: [
+											{
+												id: "useful",
+												label: decisionText("Useful"),
+												intent: "approve" as const,
+											},
+										]),
+								{
+									id: "not_useful",
+									label: decisionText("Not useful"),
+									intent: "reject",
+								},
+								...(card.action && actionLabel
+									? [
+											{
+												id: "do_it",
+												label: actionLabel,
+												intent: "approve" as const,
+											},
+										]
+									: []),
+								{ id: "later", label: decisionText("Later"), intent: "later" },
+							]}
+							onDecisionSettled={() => {
+								setDepartingCard(null);
+								if (focusCardKey) onFocusHandled?.();
+							}}
+							onDecision={async (feedback) => {
+								setDepartingCard(card);
+								const result =
+									feedback.action === "later"
+										? snooze()
+										: await decide(
+												feedback.action as Verdict["kind"],
+												formatReason(
+													feedback.reason ? [feedback.reason] : [],
+													feedback.feedback ?? "",
+												),
+											);
+								if (!result.ok)
+									throw "needsAccess" in result && result.needsAccess
+										? new AllowOrganisingStep(result.error)
+										: new Error(result.error);
+							}}
+						/>
+					</>
 				) : loading ? (
 					<Text>{OS_COPY.feed.loading}</Text>
 				) : focusCardKey ? (
@@ -1277,10 +1319,7 @@ export function CardReviewApp({
 			) : card && source ? (
 				<>
 					{needsAccess?.cardKey === card.key && (
-						<AllowOrganising
-							access={needsAccess}
-							onAllowed={() => setNeedsAccess(null)}
-						/>
+						<AllowOrganising access={needsAccess} onAllowed={retryAfterAllow} />
 					)}
 					<SwipeCard
 						key={card.key}
@@ -1603,7 +1642,7 @@ function AllowOrganising({
 					queryKey: osQuery.personalResourceDelegations.list.key(),
 				}),
 			]);
-			toast.success(`Tedix can now organise your ${name}. Press Do it again.`);
+			toast.success(`Tedix can now organise your ${name}.`);
 			onAllowed();
 		} catch (failure) {
 			setError(
