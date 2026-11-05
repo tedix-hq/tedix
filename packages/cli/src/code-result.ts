@@ -324,8 +324,8 @@ const UNKNOWN_CAPABILITY_PATTERNS = [
 	/\bnot exposed in the current gateway catalog\b/i,
 	/\b[A-Za-z_$][\w$]* is not defined\b/i,
 	/\bunknown tool\b/i,
-	/\btool\b[^\n]*\bnot found\b/i,
-	/\b(?:namespace|tool)\b[^\n]*\b(?:missing|unknown|unavailable)\b/i,
+	/\btool\s+(?:["'`][\w.$-]+["'`]\s+|[\w.$-]+\s+)?(?:is\s+)?not found\b/i,
+	/\b(?:namespace|tool)\s+(?:["'`][\w.$-]+["'`]\s+|[\w.$-]+\s+)?(?:is\s+)?(?:missing|unknown|unavailable)\b/i,
 	/\b[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)? is not a function\b/i,
 ];
 

@@ -154,6 +154,30 @@ describe("codeDiscoveryErrorMessage", () => {
 		const original = "Execution timed out";
 		expect(codeDiscoveryErrorMessage(original)).toBe(original);
 	});
+
+	test.each([
+		'MCP tool error: Execution error: SERVICE_UNAVAILABLE: Database temporarily unavailable — {"traceId":"example-trace"}',
+		'MCP tool error: Execution error: Error: Connection credential lookup failed (status 503): {"code":"SERVICE_UNAVAILABLE","message":"Connection credential lookup unavailable (upstream status 401, tenant_latest, E151103)","data":{"traceId":"example-trace"}}',
+		"MCP tool error: Execution error: FORBIDDEN: Required approval is missing",
+		"MCP tool error: Execution error: Provider resource not found",
+	])("preserves operational failures verbatim: %s", (original) => {
+		expect(
+			codeDiscoveryErrorMessage(original, {
+				workspace: "connect",
+				organization: "org-example",
+			}),
+		).toBe(original);
+	});
+
+	test.each([
+		'Tool "send_mail" not found',
+		"Tool not found: send_mail",
+		'Namespace "mail" is unavailable in this request.',
+		"Unknown tool: send_mail",
+		"mail.send is not a function",
+	])("retains discovery guidance for missing bindings: %s", (original) => {
+		expect(codeDiscoveryErrorMessage(original)).toContain("discover.search");
+	});
 });
 
 describe("normalizeCodeResult: structured truncation envelope", () => {
