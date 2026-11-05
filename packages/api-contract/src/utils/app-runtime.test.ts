@@ -129,7 +129,7 @@ describe("loader manifest", () => {
 		expect(await loaded).toEqual(expected);
 		expect(expected.mainModule).toBe("__tedix_invocation.js");
 		expect(expected.modules[expected.mainModule]).toContain(
-			"{ CONFIG: this.env.CONFIG, TEDIX: capability }",
+			"Object.freeze({ CONFIG: this.env.CONFIG, TEDIX: capability, CALLER: caller })",
 		);
 		expect(expected.env).toEqual({ CONFIG: options.invocation.config });
 		expect(expected.tails).toEqual(options.invocation.tails);

@@ -38,6 +38,22 @@ export function appRuntimeCodeId(parts: AppRuntimeCodeIdParts): string {
 	return parts.codeDigest ? `${id}:${parts.codeDigest}` : id;
 }
 
+/** Host-authenticated identity for one call, exposed as `env.CALLER` in App.
+ * Method arguments are untrusted data. Apps must validate each method and use
+ * this role to separate ordinary feedback from import, export and recovery.
+ * A guest name is self-reported attribution, never an authenticated user.
+ */
+export interface AppRuntimeCallerContext {
+	readonly principal: { readonly kind: string; readonly id: string };
+	readonly actorUserId?: string;
+	readonly role: AppRuntimeRole;
+	readonly organizationId: string;
+	readonly workspaceId: string;
+	readonly gadgetId: string;
+	readonly preview: boolean;
+	readonly guest?: { readonly name: string; readonly selfReported: true };
+}
+
 export const APP_RUNTIME_DEFAULT_COMPATIBILITY_DATE = "2026-10-01";
 
 const INVOCATION_MODULE_NAME = "__tedix_invocation.js";
@@ -59,13 +75,16 @@ for (const level of ['debug', 'log', 'info', 'warn', 'error']) {
   };
 }
 export class AppInvocation extends DurableObject {
-  async invoke(method, args, capability, traceToken, sink) {
+  async invoke(method, args, capability, caller, traceToken, sink) {
     if (traceToken) console.info('__tedix_app_trace__', traceToken);
     const descriptor = Object.getOwnPropertyDescriptor(App.prototype, method);
     if (!descriptor || typeof descriptor.value !== 'function' || method === 'constructor')
       throw new Error('Unknown app method');
     const run = async () => {
-      const app = new App(this.ctx, { CONFIG: this.env.CONFIG, TEDIX: capability });
+      Object.freeze(caller.principal);
+      if (caller.guest) Object.freeze(caller.guest);
+      Object.freeze(caller);
+      const app = new App(this.ctx, Object.freeze({ CONFIG: this.env.CONFIG, TEDIX: capability, CALLER: caller }));
       return await descriptor.value.apply(app, args);
     };
     return sink ? await consoleContext.run({ sink, ctx: this.ctx, sequence: 0 }, run) : await run();

@@ -618,8 +618,8 @@ export function createOsAppRuntimeRouter() {
 			session.gadgetId !== scope.gadgetId ||
 			session.principal.kind !== scope.principal.kind ||
 			session.principal.id !== scope.principal.id ||
-			((session.role === "build" || session.role === "owner") &&
-				scope.role !== "build") ||
+			session.actorUserId !== scope.actorUserId ||
+			session.role !== scope.role ||
 			(!session.previewId && session.revisionId !== scope.revisionId)
 		)
 			throw createError(

@@ -768,6 +768,20 @@ Export `class App` from `server.js`. An invocation creates a new instance with
 `ctx.storage.kv.get/put/delete/list` for durable state, rather than instance
 fields or module globals. Storage belongs to the app and is shared by callers;
 preview storage is separate. `env.CONFIG` is the full manifest config.
+
+`env.CALLER` is an immutable context for this invocation, derived by the host
+from the verified session. It contains `principal: {kind, id}`, `actorUserId`
+when an acting user is present, `role`, `organizationId`, `workspaceId`,
+`gadgetId` and `preview`. For a share-link guest it also contains
+`guest: {name, selfReported: true}`; that name is attribution supplied by the
+guest, never a verified user identity. It contains no session tokens.
+Validate each method's arguments and use `env.CALLER` for ownership and role
+checks. Ordinary feedback may write app-local state with `use` access; keep
+import, export and recovery behind explicit `build` or `owner` checks. Never
+use an actor or role from method arguments. Resource capabilities still enforce
+their own grants and live access checks. A trigger whose revision author left
+the organization cannot invoke app methods, including app-local writes.
+
 `env.TEDIX` is a capability scoped to the caller, revision and current call:
 
 ```js

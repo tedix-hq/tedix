@@ -169,6 +169,73 @@ async function fixture() {
 }
 
 describe("workspace app runtime API admission", () => {
+	it.each(["user", "external_agent"] as const)(
+		"forwards authenticated %s identity despite forged arguments",
+		async (kind) => {
+			const f = await fixture();
+			const context =
+				kind === "user"
+					? f.context
+					: {
+							...apiKeyContext({ env: f.env, scopes: ["apps:read"] }),
+							externalAgentPrincipalId: "verified-agent",
+							externalAgentSessionId: "verified-session",
+						};
+			const client = createRouterClient(f.router, { context });
+			const { session } = await client.open(scope);
+			const args = [
+				{
+					principal: { kind: "user", id: "owner" },
+					actorUserId: "owner",
+					role: "owner",
+					CALLER: { role: "owner" },
+				},
+			];
+			await client.call({ ...scope, session, method: "feedback", args });
+			const body = (await f.fetch.mock.calls[0]![0].json()) as {
+				session: string;
+				args: unknown[];
+			};
+			expect(Object.keys(body).sort()).toEqual([
+				"args",
+				"callId",
+				"files",
+				"method",
+				"session",
+			]);
+			expect(body.args).toEqual(args);
+			const signed = await verifyWorkspaceAppSession(key, body.session);
+			expect(signed.principal).toEqual({
+				kind,
+				id: kind === "user" ? "user-1" : "verified-agent",
+			});
+			expect(signed.role).toBe(kind === "user" ? "build" : "use");
+			expect(signed.actorUserId).toBe(kind === "user" ? "user-1" : undefined);
+		},
+	);
+	it("refuses a signed acting user that no longer matches the authenticated caller", async () => {
+		const f = await fixture();
+		const opened = await f.client.open(scope);
+		const {
+			expiresAt: _expiresAt,
+			sessionId: _sessionId,
+			...claims
+		} = await verifyWorkspaceAppSession(key, opened.session);
+		const wrongActor = await mintWorkspaceAppSession(key, {
+			...claims,
+			actorUserId: "another-user",
+		});
+		await expect(
+			f.client.call({
+				...scope,
+				session: wrongActor.token,
+				method: "feedback",
+				args: [],
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(f.fetch).not.toHaveBeenCalled();
+		expect(await f.db.select().from(osGadgetExecutions)).toEqual([]);
+	});
 	it("signs the resolved principal, role, pinned revision and manifest grants", async () => {
 		const { client } = await fixture();
 		const opened = await client.open(scope);

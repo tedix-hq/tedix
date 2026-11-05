@@ -24,7 +24,26 @@ const files = (version: string) => ({
 	"server.js": `
 import { DurableObject } from 'cloudflare:workers';
 let retained;
+let retainedCaller;
 export class App extends DurableObject {
+  caller() { return this.env.CALLER; }
+  freezeCaller() {
+    const c = this.env.CALLER;
+    let refused = 0;
+    for (const change of [() => { c.role = 'owner'; }, () => { c.principal.id = 'forged'; }, () => { this.env.CALLER = {}; }, ...(c.guest ? [() => { c.guest.name = 'forged'; }] : [])]) {
+      try { change(); } catch { refused++; }
+    }
+    return { caller: this.env.CALLER, refused };
+  }
+  rememberCaller() { retainedCaller = this.env.CALLER; return retainedCaller; }
+  compareCaller() { return { previous: retainedCaller, current: this.env.CALLER, same: retainedCaller === this.env.CALLER }; }
+  feedback(value) {
+    if (!value || typeof value.text !== 'string' || Object.keys(value).some(k => k !== 'text')) throw new Error('Invalid feedback');
+    this.ctx.storage.kv.put('feedback', { text: value.text, caller: this.env.CALLER });
+    return this.ctx.storage.kv.get('feedback');
+  }
+  recover() { if (!['owner', 'build'].includes(this.env.CALLER.role)) throw new Error('Builder required'); this.ctx.storage.kv.delete('feedback'); return true; }
+  async hold() { console.info('fixture_hold_trace', 'queue_hold_started'); await new Promise(resolve => setTimeout(resolve, 5000)); return true; }
   count() { const n = (this.ctx.storage.kv.get('n') || 0) + 1; this.ctx.storage.kv.put('n', n); return {n, version: '${version}'}; }
   log(value) { console.info('fixture_hold_trace', value); console.warn('warning', value); return value; }
   async logWhileRunning() { console.info('fixture_hold_trace', 'still running'); await new Promise(resolve => setTimeout(resolve, 5000)); return 'finished'; }
@@ -45,7 +64,9 @@ async function call(
 		method?: string;
 		callId?: string;
 		args?: unknown[];
-		role?: "build" | "use";
+		role?: "build" | "use" | "viewer";
+		actorUserId?: string;
+		guestName?: string;
 		previewId?: string;
 		principal?: string;
 		principalKind?: string;
@@ -80,10 +101,158 @@ async function mint(
 		},
 		grants: [{ slot: "sheet", operations: ["outputs.read", "outputs.write"] }],
 		previewId: options.previewId,
+		actorUserId: options.actorUserId,
+		guestName: options.guestName,
 		codeDigest: await appRuntimeCodeDigest(code),
 	});
 }
 describe("workspace app supervisor in workerd", () => {
+	it.each([
+		{
+			principalKind: "user",
+			principal: "member",
+			actorUserId: "member",
+			role: "build" as const,
+		},
+		{
+			principalKind: "external_agent",
+			principal: "agent",
+			actorUserId: "owner",
+			role: "use" as const,
+		},
+		{
+			principalKind: "app_trigger",
+			principal: gadgetId + ":morning",
+			actorUserId: "author",
+			role: "build" as const,
+		},
+		{
+			principalKind: "share_session",
+			principal: "guest-session",
+			guestName: "Maya",
+			role: "use" as const,
+		},
+	])(
+		"derives immutable caller context from the signed $principalKind session",
+		async (options) => {
+			const stub = createHost();
+			const expected = {
+				principal: { kind: options.principalKind, id: options.principal },
+				...(options.actorUserId ? { actorUserId: options.actorUserId } : {}),
+				organizationId: "fictional-org",
+				workspaceId: hostWorkspaces.get(stub),
+				gadgetId,
+				role: options.role,
+				preview: false,
+				...(options.guestName
+					? { guest: { name: options.guestName, selfReported: true } }
+					: {}),
+			};
+			const token = (await mint(stub, files("v1"), options)).token;
+			const forged = {
+				principal: { kind: "user", id: "owner" },
+				role: "owner",
+				actorUserId: "owner",
+				CALLER: { role: "owner" },
+			};
+			expect(
+				await call(stub, {
+					...options,
+					token,
+					method: "caller",
+					args: [forged],
+				}),
+			).toEqual(expected);
+			expect(
+				await call(stub, { ...options, token, method: "freezeCaller" }),
+			).toEqual({ caller: expected, refused: options.guestName ? 4 : 3 });
+			expect(
+				await call(stub, { ...options, method: "rememberCaller" }),
+			).toEqual(expected);
+			expect(
+				await call(stub, { method: "compareCaller", principal: "next" }),
+			).toMatchObject({
+				previous: expected,
+				current: { principal: { id: "next" }, role: "use" },
+				same: false,
+			});
+		},
+	);
+	it("labels previews and sibling apps without sharing caller state", async () => {
+		const stub = createHost();
+		expect(
+			await call(stub, { method: "caller", previewId: crypto.randomUUID() }),
+		).toMatchObject({ preview: true, gadgetId });
+		const other = crypto.randomUUID();
+		expect(
+			await call(stub, { method: "caller", gadget: other, principal: "other" }),
+		).toMatchObject({
+			preview: false,
+			gadgetId: other,
+			principal: { id: "other" },
+		});
+		expect(await call(stub, { method: "caller" })).toMatchObject({
+			preview: false,
+			gadgetId,
+			principal: { id: "fictional-member" },
+		});
+	});
+	it("validates feedback and separates ordinary writes from recovery using trusted context", async () => {
+		const stub = createHost();
+		await expect(
+			call(stub, {
+				method: "feedback",
+				args: [{ text: "hello", actorUserId: "owner" }],
+			}),
+		).rejects.toThrow("Invalid feedback");
+		expect(
+			await call(stub, { method: "feedback", args: [{ text: "hello" }] }),
+		).toMatchObject({
+			text: "hello",
+			caller: { role: "use", principal: { id: "fictional-member" } },
+		});
+		await expect(
+			call(stub, { method: "recover", args: [{ role: "build" }] }),
+		).rejects.toThrow("Builder required");
+		expect(await call(stub, { method: "recover", role: "build" })).toBe(true);
+	});
+	it("rejects a queued revoked author before any app-local mutation", async () => {
+		const stub = createHost();
+		await call(stub);
+		const token = (
+			await mint(stub, files("v1"), {
+				principalKind: "app_trigger",
+				actorUserId: "author",
+			})
+		).token;
+		const callId = crypto.randomUUID();
+		const holding = call(stub, { method: "hold", callId }).catch(
+			() => undefined,
+		);
+		await vi.waitFor(async () =>
+			expect(
+				await runInDurableObject(stub, async (_instance, state) => {
+					const traces = await state.storage.list({ prefix: "app-tail:" });
+					return [...traces.values()].some((trace) =>
+						JSON.stringify(trace).includes("queue_hold_started"),
+					);
+				}),
+			).toBe(true),
+		);
+		const queued = call(stub, { token }).then(
+			() => "ran",
+			() => "denied",
+		);
+		await stub.revokeSessions({
+			organizationId: "fictional-org",
+			workspaceId: hostWorkspaces.get(stub)!,
+			principalIds: ["author"],
+			at: Math.floor(Date.now() / 1000),
+		});
+		await holding;
+		expect(await queued).toBe("denied");
+		expect(await call(stub)).toEqual({ n: 2, version: "v1" });
+	});
 	it("correlates actual console tails for queued and sibling app calls", async () => {
 		const stub = createHost();
 		const ids = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
@@ -222,14 +391,11 @@ describe("workspace app supervisor in workerd", () => {
 			principal: `${gadgetId}:morning`,
 		};
 		expect(await call(stub, trigger)).toEqual({ n: 1, version: "v1" });
-		// A trigger whose author lost access runs as `use`: no write capability.
-		await expect(call(stub, { ...trigger, method: "build" })).rejects.toThrow(
-			/outputsWrite/,
-		);
-		expect(await call(stub, { ...trigger, method: "count" })).toEqual({
-			n: 2,
-			version: "v1",
-		});
+		// A departed author gets no app invocation, including local SQLite writes.
+		await expect(
+			call(stub, { ...trigger, role: "viewer", method: "count" }),
+		).rejects.toThrow("App interaction requires use access");
+		expect(await call(stub)).toEqual({ n: 2, version: "v1" });
 	});
 	it("blocks global fetch and refuses build operations for a use session", async () => {
 		const stub = createHost();

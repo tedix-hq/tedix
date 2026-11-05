@@ -10,6 +10,7 @@ import {
 	type AppRuntimeOperation,
 } from "@tedix/api-contract/schemas/os-app-runtime";
 import {
+	type AppRuntimeCallerContext,
 	appRuntimeCodeDigest,
 	appRuntimeCodeId,
 	loadAppRuntimeWorker,
@@ -262,7 +263,7 @@ export class WorkspaceAppHostDO extends DurableObject<WorkspaceAppHostEnv> {
 		if (this.ctx.storage.kv.get(`closed:${name}`))
 			throw new Error("App draft closed");
 		// The invocation wrapper is cached alongside user code by Worker Loader.
-		const codeId = `${appRuntimeCodeId({ ...session, draftId: session.previewId })}${session.proposalId ? `:s${session.proposalSequence}` : ""}:host-v2`;
+		const codeId = `${appRuntimeCodeId({ ...session, draftId: session.previewId })}${session.proposalId ? `:s${session.proposalSequence}` : ""}:host-v3`;
 		const previous = this.ctx.storage.kv.get<string>(`code:${name}`);
 		if (previous && previous !== codeId)
 			this.ctx.facets.abort(name, new Error("App revision changed"));
@@ -301,6 +302,19 @@ export class WorkspaceAppHostDO extends DurableObject<WorkspaceAppHostEnv> {
 			session.role === "use"
 				? new AppReadCapability(capability)
 				: new AppBuildCapability(capability);
+		// Explicit projection: never expose the signed token or other session fields.
+		const caller: AppRuntimeCallerContext = {
+			principal: { kind: session.principal.kind, id: session.principal.id },
+			...(session.actorUserId ? { actorUserId: session.actorUserId } : {}),
+			role: session.role,
+			organizationId: session.organizationId,
+			workspaceId: session.workspaceId,
+			gadgetId: session.gadgetId,
+			preview: session.previewId !== undefined,
+			...(session.principal.kind === "share_session" && session.guestName
+				? { guest: { name: session.guestName, selfReported: true as const } }
+				: {}),
+		};
 		const traceToken = input.callId ? crypto.randomUUID() : undefined;
 		if (traceToken) {
 			this.ctx.storage.kv.put(`app-call:${traceToken}`, {
@@ -312,12 +326,14 @@ export class WorkspaceAppHostDO extends DurableObject<WorkspaceAppHostEnv> {
 			await this.ctx.storage.setAlarm(Date.now() + 60000);
 		}
 		try {
+			if (this.#cutOff(session)) throw new Error("App access changed");
 			return await (
 				facet as unknown as {
 					invoke(
 						method: string,
 						args: unknown[],
 						capability: unknown,
+						caller: AppRuntimeCallerContext,
 						traceToken?: string,
 						console?: AppConsole,
 					): Promise<unknown>;
@@ -326,6 +342,7 @@ export class WorkspaceAppHostDO extends DurableObject<WorkspaceAppHostEnv> {
 				method,
 				args,
 				invocation,
+				caller,
 				traceToken,
 				input.callId
 					? new AppConsole(async (level, message, timestamp, sequence) => {
