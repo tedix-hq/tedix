@@ -727,6 +727,17 @@
         "vite-plus": "catalog:",
       },
     },
+    "packages/deploy-values": {
+      "name": "@tedix/deploy-values",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@tedix/tsconfig": "workspace:*",
+        "@types/node": "catalog:",
+        "typescript": "catalog:",
+        "vite": "catalog:",
+        "vite-plus": "catalog:",
+      },
+    },
     "packages/design-tokens": {
       "name": "@tedix/design-tokens",
       "version": "0.1.0",
@@ -2293,6 +2304,8 @@
     "@tedix/context-core": ["@tedix/context-core@workspace:packages/context-core"],
 
     "@tedix/db": ["@tedix/db@workspace:packages/db"],
+
+    "@tedix/deploy-values": ["@tedix/deploy-values@workspace:packages/deploy-values"],
 
     "@tedix/design-tokens": ["@tedix/design-tokens@workspace:packages/design-tokens"],
 

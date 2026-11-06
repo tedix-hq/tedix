@@ -1,0 +1,7 @@
+{
+	"extends": "@tedix/tsconfig/node.json",
+	"compilerOptions": {
+		"erasableSyntaxOnly": true
+	},
+	"include": ["src/**/*.ts"]
+}
