@@ -76,6 +76,7 @@ import type {
 	SiteBuilderToolContext,
 } from "./agent/tools-shared";
 import { buildCmsMcpDiscovery } from "./mcp-discovery";
+import { cmsPlatformHosts } from "./platform-hosts";
 import { getSiteBuilderSandbox } from "./sandbox";
 import { loadServiceKey } from "./service-key-storage";
 import type { AppBindings, AppEnv } from "./types";
@@ -85,8 +86,6 @@ export { ImageGenerationWorkflow } from "./agent/image-generation-workflow";
 export { SiteBuilderSandboxRuntime } from "./container/site-builder-sandbox";
 export { DirectoryBackupGateway } from "@cloudflare/sandbox";
 
-const SITE_BUILDER_HOSTNAME = "builder.tedix.dev";
-
 const app = new Hono<AppEnv>();
 
 installHonoErrorHandlers(app, { service: "cms" });
@@ -94,11 +93,11 @@ installHonoErrorHandlers(app, { service: "cms" });
 app.use(
 	"*",
 	cors({
-		origin: (origin) => {
+		origin: (origin, c) => {
 			if (!origin) return origin;
 			return resolveCorsOrigin(origin, {
 				allowLocalhost: true,
-				httpsSubdomainSuffixes: ["tedix.dev", "tedix.tech"],
+				httpsSubdomainSuffixes: cmsPlatformHosts(c.env).platformDomains,
 			});
 		},
 		allowMethods: [...MCP_CORS_METHODS],
@@ -411,7 +410,7 @@ function parseCmsServiceKeys(raw: string | undefined): Record<string, string> {
 
 function getPreviewHostname(env: AppEnv["Bindings"]): string {
 	if (env.ENVIRONMENT === "development") return "localhost:3013";
-	return SITE_BUILDER_HOSTNAME;
+	return cmsPlatformHosts(env).siteBuilderHostname;
 }
 
 function buildDeployConfig(env: AppEnv["Bindings"]): DeployConfig {
@@ -1164,7 +1163,7 @@ app.get("/api/internal/deployments/:slug/resources", async (c) => {
 		try {
 			const response = await c.env.CMS_DISPATCH.fetch(
 				new Request(
-					`https://${slug}.cms.tedix.dev/_tedix/internal/database-runtime/storage`,
+					`${cmsPlatformHosts(c.env).tenantOrigin(slug)}/_tedix/internal/database-runtime/storage`,
 					{
 						headers: {
 							"X-Tedix-CMS-Internal-Auth": c.env.CMS_INTERNAL_AUTH_TOKEN,
@@ -1213,7 +1212,7 @@ app.post("/api/internal/deployments/:slug/recovery-bookmark", async (c) => {
 	}
 	const response = await c.env.CMS_DISPATCH.fetch(
 		new Request(
-			`https://${slug}.cms.tedix.dev/_tedix/internal/database-runtime/recovery-bookmark`,
+			`${cmsPlatformHosts(c.env).tenantOrigin(slug)}/_tedix/internal/database-runtime/recovery-bookmark`,
 			{
 				method: "POST",
 				headers: {
@@ -1250,7 +1249,7 @@ app.all("/api/internal/deployments/:slug/recovery-captures", async (c) => {
 	if (!c.env.CMS_DISPATCH || !c.env.CMS_INTERNAL_AUTH_TOKEN)
 		return c.json({ error: "CMS runtime unavailable" }, 503);
 	const target = new URL(
-		`https://${slug}.cms.tedix.dev/_tedix/internal/database-runtime/recovery-captures`,
+		`${cmsPlatformHosts(c.env).tenantOrigin(slug)}/_tedix/internal/database-runtime/recovery-captures`,
 	);
 	target.search = new URL(c.req.url).search;
 	const response = await c.env.CMS_DISPATCH.fetch(
@@ -1281,7 +1280,7 @@ app.all("/api/internal/deployments/:slug/site-restores", async (c) => {
 	if (!c.env.CMS_DISPATCH || !c.env.CMS_INTERNAL_AUTH_TOKEN)
 		return c.json({ error: "CMS runtime unavailable" }, 503);
 	const target = new URL(
-		`https://${slug}.cms.tedix.dev/_tedix/internal/database-runtime/site-restores`,
+		`${cmsPlatformHosts(c.env).tenantOrigin(slug)}/_tedix/internal/database-runtime/site-restores`,
 	);
 	target.search = new URL(c.req.url).search;
 	const response = await c.env.CMS_DISPATCH.fetch(
@@ -1314,11 +1313,14 @@ app.get("/api/internal/deployments/:slug/media", async (c) => {
 		return c.json({ success: false, error: "CMS runtime unavailable" }, 503);
 	}
 	return c.env.CMS_DISPATCH.fetch(
-		new Request(`https://${slug}.cms.tedix.dev/_tedix/internal/media-bucket`, {
-			headers: {
-				"X-Tedix-CMS-Internal-Auth": c.env.CMS_INTERNAL_AUTH_TOKEN,
+		new Request(
+			`${cmsPlatformHosts(c.env).tenantOrigin(slug)}/_tedix/internal/media-bucket`,
+			{
+				headers: {
+					"X-Tedix-CMS-Internal-Auth": c.env.CMS_INTERNAL_AUTH_TOKEN,
+				},
 			},
-		}),
+		),
 	);
 });
 
@@ -1344,14 +1346,17 @@ app.post("/api/internal/deployments/:slug/media", async (c) => {
 		return c.json({ success: false, error: "CMS runtime unavailable" }, 503);
 	}
 	return c.env.CMS_DISPATCH.fetch(
-		new Request(`https://${slug}.cms.tedix.dev/_tedix/internal/media-bucket`, {
-			method: "POST",
-			headers: {
-				"X-Tedix-CMS-Internal-Auth": c.env.CMS_INTERNAL_AUTH_TOKEN,
-				"X-Tedix-CMS-Media-Intent": intent,
-				"X-Tedix-CMS-Site-Id": siteId,
+		new Request(
+			`${cmsPlatformHosts(c.env).tenantOrigin(slug)}/_tedix/internal/media-bucket`,
+			{
+				method: "POST",
+				headers: {
+					"X-Tedix-CMS-Internal-Auth": c.env.CMS_INTERNAL_AUTH_TOKEN,
+					"X-Tedix-CMS-Media-Intent": intent,
+					"X-Tedix-CMS-Site-Id": siteId,
+				},
 			},
-		}),
+		),
 	);
 });
 
@@ -1386,7 +1391,7 @@ app.delete("/api/internal/deployments/:slug", async (c) => {
 		try {
 			const response = await c.env.CMS_DISPATCH.fetch(
 				new Request(
-					`https://${slug}.cms.tedix.dev/_tedix/internal/database-runtime/deprovision`,
+					`${cmsPlatformHosts(c.env).tenantOrigin(slug)}/_tedix/internal/database-runtime/deprovision`,
 					{
 						method: "DELETE",
 						headers: {
@@ -1418,7 +1423,7 @@ app.delete("/api/internal/deployments/:slug", async (c) => {
 				throw new Error("CMS runtime binding or internal token missing");
 			const response = await c.env.CMS_DISPATCH.fetch(
 				new Request(
-					`https://${slug}.cms.tedix.dev/_tedix/internal/media-bucket`,
+					`${cmsPlatformHosts(c.env).tenantOrigin(slug)}/_tedix/internal/media-bucket`,
 					{
 						method: "DELETE",
 						headers: {

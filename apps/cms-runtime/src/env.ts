@@ -1,9 +1,11 @@
 import { type MarketingEnv } from "./marketing";
 import type { TenantAiSearchNamespace } from "./tenant-ai-search";
 import { type CmsSessionBrokerEnv } from "./session-broker";
+import { type CmsRuntimePlatformHostEnv } from "./platform-hosts";
 // The bindings this Worker uses, declared explicitly. `cloudflare.config.ts`
 // is their source of truth.
-export interface Env extends CmsSessionBrokerEnv, MarketingEnv {
+export interface Env
+	extends CmsSessionBrokerEnv, MarketingEnv, CmsRuntimePlatformHostEnv {
 	LOADER: WorkerLoader;
 	DB_DO: DurableObjectNamespace;
 	TENANT_BUNDLES: R2Bucket;

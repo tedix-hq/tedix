@@ -4,6 +4,7 @@
  * observable maintenance domain behind lazy imports.
  */
 
+import { tediHost } from "../lib/platform-hosts";
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 
 /** Backlog size is measured on ticks in the first two minutes of each half hour. */
@@ -231,10 +232,10 @@ export async function runAlwaysOnKeepalive(
 				alwaysOn.map(async (t) => {
 					const probeRes = await tediSvc
 						.fetch(
-							new Request(`https://${t.slug}.tedi.tedix.dev/health`, {
+							new Request(`https://${tediHost(env, t.slug)}/health`, {
 								method: "GET",
 								headers: {
-									"X-Tedix-Host": `${t.slug}.tedi.tedix.dev`,
+									"X-Tedix-Host": tediHost(env, t.slug),
 									"X-Service-Binding": "true",
 								},
 							}),
@@ -275,11 +276,11 @@ export async function runAlwaysOnKeepalive(
 					tediSvc
 						.fetch(
 							new Request(
-								`https://${slug}.tedi.tedix.dev/api/admin/status/wake`,
+								`https://${tediHost(env, slug)}/api/admin/status/wake`,
 								{
 									method: "POST",
 									headers: {
-										"X-Tedix-Host": `${slug}.tedi.tedix.dev`,
+										"X-Tedix-Host": tediHost(env, slug),
 										"X-Service-Binding": "true",
 									},
 								},

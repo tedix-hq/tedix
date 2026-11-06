@@ -75,6 +75,7 @@ import {
 } from "./auth-helpers";
 import { shouldBindHumanToTedi } from "./connect-organization";
 import { deliverDueEventWebhooks } from "./event-webhooks";
+import { mcpPlatformHosts } from "./platform-hosts";
 // Import from split modules
 import { extractAppFromHostname, resolveRequestHostname } from "./hostname";
 import { getApiClient } from "./lib/api-client";
@@ -1921,9 +1922,8 @@ const worker = {
 				return new Response(
 					JSON.stringify({
 						error: "App subdomain required",
-						message:
-							"All MCP access requires an app subdomain. Use {app}.mcp.tedix.dev format.",
-						example: "tedix.mcp.tedix.dev/mcp",
+						message: `All MCP access requires an app subdomain. Use {app}.${mcpPlatformHosts(env).mcpHostSuffix} format.`,
+						example: `tedix.${mcpPlatformHosts(env).mcpHostSuffix}/mcp`,
 						hint: "For local development, set DEFAULT_APP_SLUG=tedix in wrangler.jsonc vars or use X-Tedix-Host header",
 					}),
 					{
