@@ -1,4 +1,5 @@
 import { delegationApprovalScopeDigest } from "./delegation-approval-resume";
+import { staleDelegationResolutionTakeover } from "./delegation-resolution-recovery";
 import { requireDelegatedChildTerminalReceipt } from "../kernel/delegation-recovery";
 import { ORPCError } from "@orpc/server";
 import {
@@ -201,11 +202,16 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 			`Home run ${input.run.id} delegation approval is already "${resolutionStatus}".`,
 		);
 	}
-	if (!input.recordedApproval && normalMarker?.phase === "resolving")
-		throw createError(
-			ErrorCodes.CONFLICT,
-			"Another approval resolution is still in progress",
-		);
+	// A resolver cut off mid-decision leaves its claim behind. Once it is stale,
+	// the next decision takes it over, or finishes the decision it recorded.
+	const staleClaim =
+		!input.recordedApproval && normalMarker?.phase === "resolving"
+			? await staleDelegationResolutionTakeover(context, {
+					run: input.run,
+					decision: input.decision,
+				})
+			: undefined;
+	const finishing = staleClaim?.recorded;
 	let resolvedAt = nowIso();
 	if (resolvedAt === input.run.updatedAt) resolvedAt = offsetIso(resolvedAt, 1);
 	const baseWorkOrder = {
@@ -214,6 +220,7 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 	};
 	const nextWorkOrder =
 		input.recordedApproval?.workOrder ??
+		finishing?.workOrder ??
 		(input.decision === "approve"
 			? approvedExecutionWorkOrder({
 					delegation: pending.delegation,
@@ -225,14 +232,21 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 		...pending.delegation,
 		resolution: input.recordedApproval
 			? input.recordedApproval.resolution
-			: (input.note ?? null),
+			: finishing
+				? finishing.resolution
+				: (input.note ?? null),
 		resolutionStatus: input.decision === "approve" ? "approved" : "rejected",
-		resolvedAt: input.recordedApproval?.resolvedAt ?? resolvedAt,
+		resolvedAt:
+			input.recordedApproval?.resolvedAt ??
+			finishing?.approvalResolvedAt ??
+			resolvedAt,
 		...(input.recordedApproval
 			? { resolvedBy: input.recordedApproval.resolvedBy }
-			: input.resolvedBy
-				? { resolvedBy: input.resolvedBy }
-				: {}),
+			: finishing
+				? { resolvedBy: finishing.resolvedBy }
+				: input.resolvedBy
+					? { resolvedBy: input.resolvedBy }
+					: {}),
 		workOrder: nextWorkOrder,
 	};
 	// Another executor already working the Work Item would make this a second
@@ -244,15 +258,17 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 				stringFromPayload(nonNullRecord(pending.metadata)?.workItemId) ??
 				stringFromPayload(nonNullRecord(input.run.runtimeMetadata)?.workItemId))
 			: undefined;
-	const eventId = [
-		"home",
-		input.organizationId,
-		"event",
-		"delegation.approval.resolved",
-		input.run.conversationId,
-		input.run.id,
-		resolvedAt,
-	].join(":");
+	const eventId =
+		finishing?.approvalEventId ??
+		[
+			"home",
+			input.organizationId,
+			"event",
+			"delegation.approval.resolved",
+			input.run.conversationId,
+			input.run.id,
+			resolvedAt,
+		].join(":");
 	const decisionScopeDigest = await delegationApprovalScopeDigest({
 		organizationId: input.organizationId,
 		runId: input.run.id,
@@ -277,6 +293,14 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 			delegationApprovalEventId: eventId,
 			delegationWorkItemId: heldWorkItemId,
 			delegationScopeDigest: decisionScopeDigest,
+			...(staleClaim
+				? {
+						staleDelegationResolutionClaim: staleClaim,
+						...(finishing
+							? { delegationApprovalResolvedAt: finishing.approvalResolvedAt }
+							: {}),
+					}
+				: {}),
 		}))
 	) {
 		throw createError(
@@ -293,7 +317,8 @@ export async function respondKernelDelegationRecommendationApprovalCore(
 				workItemId: heldWorkItemId,
 			})
 		: null;
-	if (!input.recordedApproval)
+	// A finished decision keeps its one recorded receipt.
+	if (!input.recordedApproval && !finishing)
 		await insertKernelRuntimeEvent(context, {
 			id: eventId,
 			organizationId: input.organizationId,

@@ -6,7 +6,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ActivityItem } from "@tedix/api-contract/schemas/analytics";
 import type { ApprovalRequest } from "@tedix/api-contract/contracts/tedi-approvals";
 import {
-	isRetryableOwnerToolExecution,
+	type OwnerToolExecutionNextStep,
+	ownerToolExecutionNextStep,
 	ownerToolExecutionOutcome,
 	parseOwnerToolExecution,
 } from "@tedix/api-contract/utils/owner-tool-execution";
@@ -48,6 +49,8 @@ export type HistoryEntry = {
 	href: { label: string; to: string } | null;
 	/** An approved call the platform failed to run; an owner may try it once more. */
 	retry?: { approvalId: string };
+	/** A failed or cut-off approved call an owner may clear from the list. */
+	dismiss?: { approvalId: string };
 	needsAttention?: boolean;
 };
 
@@ -115,10 +118,20 @@ export function approvalHistoryEntries(
 		const payload = approval.payload as Record<string, unknown>;
 		const conversationId = payloadString(payload, "conversationId");
 		const executionRecord = parseOwnerToolExecution(payload.execution);
-		const execution = ownerToolExecutionOutcome(executionRecord);
 		const open = Date.parse(approval.expiresAt) > Date.now();
+		const where = appLabel(payloadString(payload, "appSlug"));
+		const who = tediNames[approval.tediId] ?? null;
+		const nextStep = ownerToolExecutionNextStep(executionRecord, {
+			consumedAt: payloadString(payload, "consumedAt"),
+		});
+		const execution =
+			executionDirection(nextStep, { who, where }) ??
+			ownerToolExecutionOutcome(executionRecord);
+		// Retry only where the server accepts it; the rest can be dismissed.
 		const retry =
-			open && isRetryableOwnerToolExecution(executionRecord)
+			open && nextStep === "retry" ? { approvalId: approval.id } : undefined;
+		const dismiss =
+			open && DISMISSIBLE.has(nextStep)
 				? { approvalId: approval.id }
 				: undefined;
 		const how = execution
@@ -138,12 +151,13 @@ export function approvalHistoryEntries(
 			{
 				key: `approval:${approval.id}`,
 				filter: automatic ? "automatic" : "approvals",
-				needsAttention:
-					open &&
-					executionRecord != null &&
-					executionRecord.status !== "executed",
+				needsAttention: open && nextStep !== "none",
 				status: executionRecord
-					? EXECUTION_STATUS[executionRecord.status]
+					? nextStep === "outcome_unknown"
+						? { label: "Outcome unknown", tone: "warning" }
+						: executionRecord.dismissedAt
+							? { label: "Dismissed", tone: "secondary" }
+							: EXECUTION_STATUS[executionRecord.status]
 					: automatic
 						? { label: "Auto-approved", tone: "outline" }
 						: APPROVAL_STATUS[approval.status],
@@ -151,8 +165,8 @@ export function approvalHistoryEntries(
 					approval.review.summary || approval.description,
 					payload,
 				),
-				who: tediNames[approval.tediId] ?? null,
-				where: appLabel(payloadString(payload, "appSlug")),
+				who,
+				where,
 				how,
 				at: approval.resolvedAt ?? approval.createdAt,
 				href: conversationId
@@ -162,9 +176,30 @@ export function approvalHistoryEntries(
 						}
 					: null,
 				...(retry ? { retry } : {}),
+				...(dismiss ? { dismiss } : {}),
 			},
 		];
 	});
+}
+
+const DISMISSIBLE: ReadonlySet<OwnerToolExecutionNextStep> = new Set([
+	"retry",
+	"requester",
+	"outcome_unknown",
+	"final",
+]);
+
+/** Who has to act, in words, when an owner's Retry cannot help. */
+export function executionDirection(
+	nextStep: OwnerToolExecutionNextStep,
+	{ who, where }: { who: string | null; where: string | null },
+): string | null {
+	const app = where ?? "the app";
+	if (nextStep === "requester")
+		return `${who ?? "The agent that asked"} has to send this again. Nothing reached ${app}. Dismiss it here.`;
+	if (nextStep === "outcome_unknown")
+		return `It may have reached ${app} before the run was cut off, so Tedix will not run it again. Check ${app}, then dismiss it.`;
+	return null;
 }
 
 /** Tool calls an agent or person made, from the audit log. */
@@ -377,6 +412,12 @@ function HistoryRow({
 		onSettled: () =>
 			queryClient.invalidateQueries({ queryKey: osQueryKeys.approvals() }),
 	});
+	const dismiss = useMutation({
+		mutationFn: (id: string) => osApi.tediApprovals.dismissExecution({ id }),
+		onSettled: () =>
+			queryClient.invalidateQueries({ queryKey: osQueryKeys.approvals() }),
+	});
+	const failure = retry.error ?? dismiss.error;
 	return (
 		<li className="grid min-w-0 gap-1 border-b border-kumo-hairline px-4 py-2.5 last:border-b-0">
 			<div className="flex min-w-0 items-start gap-2">
@@ -407,20 +448,32 @@ function HistoryRow({
 					{sanitizeUntrustedText(entry.how)}
 				</Text>
 			) : null}
-			{entry.retry && canRetry ? (
+			{(entry.retry || entry.dismiss) && canRetry ? (
 				<div className="flex min-w-0 flex-wrap items-center gap-2">
-					<Button
-						disabled={retry.isPending}
-						icon={<ArrowCounterClockwise size={14} />}
-						onClick={() => retry.mutate(entry.retry!.approvalId)}
-						size="sm"
-						variant="secondary"
-					>
-						{retry.isPending ? "Retrying…" : "Retry"}
-					</Button>
-					{retry.isError ? (
+					{entry.retry ? (
+						<Button
+							disabled={retry.isPending || dismiss.isPending}
+							icon={<ArrowCounterClockwise size={14} />}
+							onClick={() => retry.mutate(entry.retry!.approvalId)}
+							size="sm"
+							variant="secondary"
+						>
+							{retry.isPending ? "Retrying…" : "Retry"}
+						</Button>
+					) : null}
+					{entry.dismiss ? (
+						<Button
+							disabled={retry.isPending || dismiss.isPending}
+							onClick={() => dismiss.mutate(entry.dismiss!.approvalId)}
+							size="sm"
+							variant="ghost"
+						>
+							{dismiss.isPending ? "Dismissing…" : "Dismiss"}
+						</Button>
+					) : null}
+					{failure ? (
 						<Text as="span" className="min-w-0" role="label" tone="error">
-							{sanitizeUntrustedText(errorMessage(retry.error))}
+							{sanitizeUntrustedText(errorMessage(failure))}
 						</Text>
 					) : null}
 				</div>

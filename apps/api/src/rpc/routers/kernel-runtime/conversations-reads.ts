@@ -104,6 +104,7 @@ import {
 	kernelStreamRow,
 } from "./run-reads-streams";
 import { approveHomePlanAssignmentsCore } from "./approval-control";
+import { withDelegationResolutionRecovery } from "./delegation-resolution-recovery";
 import {
 	cancelKernelRunCore,
 	resolveKernelWorkstationAttachWorkOrder,
@@ -952,11 +953,14 @@ export const readRunSetRoute = authed.readRunSet
 					return undefined;
 				}),
 			]);
-		const reconciledRows = await reconcileHomeRunRowsFromChildStatus(context, {
-			unavailableChildRunKeys,
-			childRunStatuses,
-			rows,
-		});
+		const reconciledRows = await withDelegationResolutionRecovery(
+			context,
+			await reconcileHomeRunRowsFromChildStatus(context, {
+				unavailableChildRunKeys,
+				childRunStatuses,
+				rows,
+			}),
+		);
 		const reconciliation = summarizeRunSetReconciliation(rows, reconciledRows);
 		if (reconciliation) {
 			console.info("[kernelRuntime] run-set reconciliation applied", {
@@ -1126,7 +1130,10 @@ export const listPendingHomeDelegationsRoute = authed.listPendingHomeDelegations
 					)
 				: undefined;
 		const visible = [];
-		for (const candidate of candidates) {
+		for (const candidate of await withDelegationResolutionRecovery(
+			context,
+			candidates,
+		)) {
 			try {
 				await ensureHomeConversationAccess(context, {
 					conversationId: candidate.conversationId,

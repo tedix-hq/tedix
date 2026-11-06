@@ -493,6 +493,7 @@ const CALLS = {
 	"tediApprovals/getById": { id: IDS.approvalPending },
 	"tediApprovals/resolve": { id: IDS.approvalPending, status: "approved" },
 	"tediApprovals/retryExecution": { id: IDS.approvalPending },
+	"tediApprovals/dismissExecution": { id: IDS.approvalPending },
 	"tediApprovals/clearExpired": {},
 	"webPush/getStatus": {},
 	"webPush/subscribe": {

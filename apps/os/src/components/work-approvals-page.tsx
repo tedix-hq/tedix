@@ -10,8 +10,10 @@ import { ApprovalProvenanceHistory } from "@/components/approval-provenance";
 import {
 	type ApprovalListItem,
 	collapseIdenticalItems,
+	isOpenDecision,
 	useApprovalInbox,
 } from "@/components/approval-inbox";
+import { resolutionNote } from "@/components/chat-cards";
 import { BrowserTakeoverLiveView } from "@/components/browser-takeover-live-view";
 import { EntityAvatar } from "@/shared/entity-avatar";
 import { FormInput } from "@/components/forms/form-input";
@@ -179,7 +181,7 @@ function NeedsYou({
 }) {
 	const rows = collapseIdenticalItems(inbox.items);
 	const recommended = inbox.items.filter(
-		(item) => item.recommendation === "approved",
+		(item) => item.recommendation === "approved" && isOpenDecision(item),
 	);
 	const [confirmBulk, setConfirmBulk] = useState(false);
 	const total = inbox.count;
@@ -290,6 +292,7 @@ function NeedsYou({
 									busy={row.some((item) => inbox.isPending(item.key))}
 									key={row[0]!.key}
 									onDecide={(choice) => void decide(row, choice)}
+									onRefresh={() => void inbox.refresh()}
 									row={row}
 								/>
 							))}
@@ -314,10 +317,12 @@ function ApprovalCard({
 	row,
 	busy,
 	onDecide,
+	onRefresh,
 }: {
 	row: readonly ApprovalListItem[];
 	busy: boolean;
 	onDecide: (choice: "approved" | "rejected") => void;
+	onRefresh: () => void;
 }) {
 	const item = row[0]!;
 	const repeats = row.length;
@@ -413,23 +418,25 @@ function ApprovalCard({
 			item.target.plane === "runtime" ? (
 				<BrowserTakeoverLiveView approvalId={item.target.approvalId} />
 			) : null}
+			{item.resolution ? (
+				<Text
+					as="p"
+					className="m-0"
+					data-approval-resolution={item.resolution.kind}
+					role="label"
+					tone="secondary"
+				>
+					{resolutionNote(item.resolution)}
+				</Text>
+			) : null}
 			<div className="flex min-w-0 flex-wrap items-center gap-2">
-				<Button
-					disabled={busy}
-					icon={<Check size={14} />}
-					loading={busy}
-					onClick={() => onDecide("approved")}
-				>
-					{repeats > 1 ? `Approve all ${repeats}` : "Approve"}
-				</Button>
-				<Button
-					disabled={busy}
-					icon={<X size={14} />}
-					onClick={() => onDecide("rejected")}
-					variant="secondary"
-				>
-					{repeats > 1 ? `Reject all ${repeats}` : "Reject"}
-				</Button>
+				<ApprovalCardActions
+					busy={busy}
+					item={item}
+					onDecide={onDecide}
+					onRefresh={onRefresh}
+					repeats={repeats}
+				/>
 				{item.conversationId ? (
 					<Link
 						className="inline-flex min-h-9 items-center gap-1.5 px-2 type-tedix-control"
@@ -489,6 +496,65 @@ function ApprovalCard({
 				</CollapsibleDefaultContent>
 			</Collapsible>
 		</Surface>
+	);
+}
+
+/**
+ * Only actions the server accepts: Retry (a re-read) while a decision is being
+ * recorded, the one recorded decision when it did not finish, otherwise both.
+ */
+function ApprovalCardActions({
+	item,
+	repeats,
+	busy,
+	onDecide,
+	onRefresh,
+}: {
+	item: ApprovalListItem;
+	repeats: number;
+	busy: boolean;
+	onDecide: (choice: "approved" | "rejected") => void;
+	onRefresh: () => void;
+}) {
+	const resolution = item.resolution;
+	if (resolution?.kind === "recording")
+		return (
+			<Button disabled={busy} onClick={onRefresh} variant="secondary">
+				Retry
+			</Button>
+		);
+	if (resolution?.kind === "finish") {
+		const approve = resolution.decision === "approve";
+		return (
+			<Button
+				disabled={busy}
+				icon={approve ? <Check size={14} /> : <X size={14} />}
+				loading={busy}
+				onClick={() => onDecide(approve ? "approved" : "rejected")}
+			>
+				{approve ? "Finish approval" : "Finish rejection"}
+			</Button>
+		);
+	}
+	return (
+		<>
+			<Button
+				disabled={busy}
+				icon={<Check size={14} />}
+				loading={busy}
+				onClick={() => onDecide("approved")}
+			>
+				{repeats > 1 ? `Approve all ${repeats}` : "Approve"}
+			</Button>
+			<Button
+				disabled={busy}
+				icon={<X size={14} />}
+				onClick={() => onDecide("rejected")}
+				variant="secondary"
+			>
+				{repeats > 1 ? `Reject all ${repeats}` : "Reject"}
+			</Button>
+		</>
 	);
 }
 

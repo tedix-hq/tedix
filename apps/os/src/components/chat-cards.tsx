@@ -66,6 +66,10 @@ import {
 	isHomeDelegationApprovalId,
 } from "@tedix/api-contract/utils/home-delegation-approval";
 import { asRecord } from "@tedix/api-contract/utils/is-record";
+import {
+	type DelegationResolutionAction,
+	delegationResolutionAction,
+} from "@tedix/api-contract/utils/delegation-resolution-claim";
 
 // UNTRUSTED TEXT. Every string these cards render that an MCP server or a tool
 // authored — tool name, app slug, arg/result/error preview, approval summary,
@@ -1082,7 +1086,21 @@ export type ApprovalCardData = {
 	expiresAt?: string | null;
 	/** In-memory-only CLI-compatible scope for "always allow this session". */
 	sessionScopeKey?: string;
+	/**
+	 * A decision on this delegation is being recorded, or was recorded by a
+	 * resolver that was cut off. Absent means Approve and Reject both work.
+	 */
+	resolution?: Exclude<DelegationResolutionAction, { kind: "decide" }>;
 };
+
+/** The person's one available action while a decision is pending or unfinished. */
+export function resolutionNote(
+	resolution: NonNullable<ApprovalCardData["resolution"]>,
+): string {
+	return resolution.kind === "recording"
+		? "Being recorded… A decision on this request is being saved. Check again in a moment."
+		: `Your earlier ${resolution.decision === "approve" ? "approval" : "rejection"} was recorded but did not finish. ${resolution.decision === "approve" ? "Approve" : "Reject"} again to finish it.`;
+}
 
 export function hasOsApprovalAuthority(
 	authority: { permissions: readonly string[] } | undefined,
@@ -1291,6 +1309,7 @@ export function approvalsFromRunSet(
 				},
 			];
 		}
+		const resolution = delegationResolutionAction(metadata, nowMs);
 		return [
 			{
 				approvalId: homeDelegationApprovalId(run.id),
@@ -1307,7 +1326,12 @@ export function approvalsFromRunSet(
 				...(Number.isFinite(expiresAtMs) && expiresAtMs <= nowMs
 					? { expired: true }
 					: {}),
-				sessionScopeKey: `delegate:${targetTediId ?? targetLabel ?? "?"}`,
+				// A pending or unfinished decision is never auto-approved.
+				...(resolution.kind === "decide"
+					? {
+							sessionScopeKey: `delegate:${targetTediId ?? targetLabel ?? "?"}`,
+						}
+					: { resolution }),
 			},
 		];
 	});
@@ -1450,6 +1474,7 @@ export function ApprovalCard({
 	const expired = approval.expired === true;
 	const decisionMode = approval.decisionMode ?? "approve_or_reject";
 	const actionable = !expired && decisionMode === "approve_or_reject";
+	const resolution = actionable ? approval.resolution : undefined;
 	const isDelegation = isHomeDelegationApprovalId(approval.approvalId);
 	// Only the clicked button shows progress; the rest are just disabled.
 	const [clicked, setClicked] = useState<"approve" | "reject" | "delegate">();
@@ -1611,6 +1636,16 @@ export function ApprovalCard({
 								: "This request resolves through its own surface; no approve/deny decision applies here."}
 						</Text>
 					) : null}
+					{resolution ? (
+						<Text
+							as="span"
+							role="label"
+							tone="secondary"
+							data-slot="approval-resolution"
+						>
+							{resolutionNote(resolution)}
+						</Text>
+					) : null}
 					{resolving ? (
 						<span
 							className="text-kumo-subtle text-xs"
@@ -1621,7 +1656,27 @@ export function ApprovalCard({
 						</span>
 					) : null}
 				</div>
-				{actionable ? (
+				{resolution?.kind === "finish" ? (
+					<span className="col-span-2 flex min-w-0 flex-wrap items-center justify-start gap-2 pl-[30px]">
+						<Button
+							size="sm"
+							icon={
+								resolution.decision === "approve" ? (
+									<Check size={14} />
+								) : (
+									<X size={14} />
+								)
+							}
+							loading={inFlight === resolution.decision}
+							disabled={resolving}
+							onClick={() => resolve(resolution.decision)}
+						>
+							{resolution.decision === "approve"
+								? "Finish approval"
+								: "Finish rejection"}
+						</Button>
+					</span>
+				) : actionable && !resolution ? (
 					<span className="col-span-2 flex min-w-0 flex-wrap items-center justify-start gap-2 pl-[30px]">
 						<Button
 							size="sm"

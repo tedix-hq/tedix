@@ -7467,6 +7467,22 @@ const handlers: Record<string, (input: never) => unknown> = {
 		};
 		return approval;
 	},
+	// Dismissing clears the failed or cut-off run from the waiting list.
+	"tediApprovals/dismissExecution": (input: { id: string }) => {
+		const approval = state.approvals.find((row) => row.id === input.id);
+		if (!approval)
+			throw new RpcError("NOT_FOUND", "Approval request not found");
+		const execution = (approval.payload as Record<string, unknown>).execution;
+		approval.payload = {
+			...approval.payload,
+			execution: {
+				...(execution && typeof execution === "object" ? execution : {}),
+				dismissedAt: now(),
+				dismissedBy: "dev-operator",
+			},
+		};
+		return approval;
+	},
 
 	// --- launcher / apps ---
 	// Fixture mode never provisions a real browser subscription.

@@ -598,6 +598,21 @@ export const tediApprovalsContract = oc
 			.output(ApprovalRequestSchema),
 
 		/**
+		 * Clear an approved call's failed or cut-off run from the waiting list
+		 * POST /tedi-approvals/{id}/dismiss-execution
+		 */
+		dismissExecution: oc
+			.route({
+				method: "POST",
+				path: "/{id}/dismiss-execution",
+				summary: "Dismiss an approved call that did not finish",
+				description:
+					"Takes an approved gateway call off the waiting list after its last run failed or was cut off. Only an owner or admin may dismiss, and only a run nothing is working on: a queued or running call keeps going. A dismissed call is never run again, by a person or automatically. The dismissal and who made it are recorded on the request and in the audit log.",
+			})
+			.input(z.object({ id: z.uuid() }))
+			.output(ApprovalRequestSchema),
+
+		/**
 		 * Close every request in the caller's organization whose window has passed
 		 * POST /tedi-approvals/clear-expired
 		 */

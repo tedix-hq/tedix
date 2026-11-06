@@ -8,9 +8,11 @@ import {
 	like,
 	ne,
 	notExists,
+	type SQL,
 	sql,
 } from "drizzle-orm";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import { QueryBuilder } from "drizzle-orm/sqlite-core";
 import { workItems, workAttempts } from "../schema/work-items";
 import { runtimeSubmissions } from "../schema/runtime-submissions";
 import type { BatchItem } from "drizzle-orm/batch";
@@ -578,6 +580,87 @@ export async function openKernelRuntimeTurn(
 }
 
 /**
+ * A cut-off resolver's `resolving` claim the next decision may take over.
+ * `claimId` is compared and swapped, so two takers cannot both win.
+ */
+export interface StaleDelegationResolutionTakeover {
+	claimId: string;
+	/** The claim must have been taken at or before this instant. */
+	staleBefore: string;
+	/**
+	 * The decision the cut-off resolver already recorded. Present: the receipt
+	 * must exist and the new claim finishes that decision. Absent: no receipt
+	 * may exist, because a recorded decision is never decided twice.
+	 */
+	recorded?: {
+		approvalEventId: string;
+		approvalResolvedAt: string;
+		status: "approved" | "rejected";
+	};
+}
+
+/**
+ * Guard for taking over a stale claim. A resolver records its receipt before
+ * it starts any Work or dispatch, so "no receipt" also means "no effect".
+ */
+export function staleDelegationResolutionTakeoverGuard(
+	takeover: StaleDelegationResolutionTakeover,
+) {
+	const claim = (field: string) =>
+		sql`json_extract(${kernelRuntimeRuns.metadata}, ${`$.homeDelegationResolutionClaim.${field}`})`;
+	const receipt = (extra: SQL) =>
+		new QueryBuilder()
+			.select({ id: kernelRuntimeEvents.id })
+			.from(kernelRuntimeEvents)
+			.where(
+				and(
+					eq(
+						kernelRuntimeEvents.organizationId,
+						kernelRuntimeRuns.organizationId,
+					),
+					eq(kernelRuntimeEvents.runId, kernelRuntimeRuns.id),
+					eq(kernelRuntimeEvents.kind, "approval.resolved"),
+					extra,
+				),
+			);
+	const base = and(
+		sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume') is null`,
+		eq(kernelRuntimeRuns.status, "requires_approval"),
+		sql`${claim("phase")} = 'resolving'`,
+		sql`${claim("claimId")} = ${takeover.claimId}`,
+		sql`${claim("claimedAt")} <= ${takeover.staleBefore}`,
+	)!;
+	const recorded = takeover.recorded;
+	if (!recorded)
+		return and(
+			base,
+			notExists(
+				receipt(
+					sql`(${kernelRuntimeEvents.id} = ${claim("approvalEventId")} or ${kernelRuntimeEvents.createdAt} >= ${claim("claimedAt")})`,
+				),
+			),
+		)!;
+	return and(
+		base,
+		sql`${claim("approvalEventId")} = ${recorded.approvalEventId}`,
+		sql`${claim("approvalResolvedAt")} = ${recorded.approvalResolvedAt}`,
+		exists(
+			receipt(
+				and(
+					eq(
+						kernelRuntimeEvents.conversationId,
+						kernelRuntimeRuns.conversationId,
+					),
+					eq(kernelRuntimeEvents.id, recorded.approvalEventId),
+					eq(kernelRuntimeEvents.createdAt, recorded.approvalResolvedAt),
+					sql`json_extract(${kernelRuntimeEvents.payload}, '$.status') = ${recorded.status}`,
+				)!,
+			),
+		),
+	)!;
+}
+
+/**
  * Single-statement compare-and-set on a run's `updatedAt`: advances it only
  * when the row still has the status and `updatedAt` the caller read. Two
  * resolvers that read the same row cannot both win, which is what makes a
@@ -597,6 +680,10 @@ export async function compareAndTouchKernelRuntimeRun(
 		delegationApprovalEventId?: string;
 		delegationWorkItemId?: string;
 		delegationScopeDigest?: string;
+		/** The recorded decision time when finishing a decision a cut-off resolver recorded. */
+		delegationApprovalResolvedAt?: string;
+		/** Take over a cut-off resolver's claim instead of requiring none. */
+		staleDelegationResolutionClaim?: StaleDelegationResolutionTakeover;
 	},
 ): Promise<boolean> {
 	if (
@@ -605,13 +692,16 @@ export async function compareAndTouchKernelRuntimeRun(
 			!input.delegationApprovalEventId?.trim())
 	)
 		return false;
+	const takeover = input.staleDelegationResolutionClaim;
+	if (takeover && (!input.requireNoDelegationResumeClaim || !takeover.claimId))
+		return false;
 	const rows = await db
 		.update(kernelRuntimeRuns)
 		.set({
 			updatedAt: input.updatedAt,
 			...(input.requireNoDelegationResumeClaim
 				? {
-						metadata: sql`json_set(coalesce(${kernelRuntimeRuns.metadata}, '{}'), '$.homeDelegationResolutionClaim', json(${JSON.stringify({ version: 1, phase: "resolving", claimId: input.delegationResolutionClaimId, claimedAt: input.updatedAt, approvalEventId: input.delegationApprovalEventId, approvalResolvedAt: input.updatedAt, organizationId: input.organizationId, runId: input.id, workItemId: input.delegationWorkItemId ?? null, scopeDigest: input.delegationScopeDigest ?? null })}), '$.homeDelegationResolutionClaim.conversationId', ${kernelRuntimeRuns.conversationId})`,
+						metadata: sql`json_set(coalesce(${kernelRuntimeRuns.metadata}, '{}'), '$.homeDelegationResolutionClaim', json(${JSON.stringify({ version: 1, phase: "resolving", claimId: input.delegationResolutionClaimId, claimedAt: input.updatedAt, approvalEventId: input.delegationApprovalEventId, approvalResolvedAt: input.delegationApprovalResolvedAt ?? input.updatedAt, organizationId: input.organizationId, runId: input.id, workItemId: input.delegationWorkItemId ?? null, scopeDigest: input.delegationScopeDigest ?? null, ...(takeover ? { takeoverOf: takeover.claimId } : {}) })}), '$.homeDelegationResolutionClaim.conversationId', ${kernelRuntimeRuns.conversationId})`,
 					}
 				: {}),
 		})
@@ -622,7 +712,9 @@ export async function compareAndTouchKernelRuntimeRun(
 				eq(kernelRuntimeRuns.status, input.status),
 				eq(kernelRuntimeRuns.updatedAt, input.expectedUpdatedAt),
 				input.requireNoDelegationResumeClaim
-					? sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume') is null and (json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim') is null or (json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.phase') = 'admission_failed' and ${homeDelegationResolutionReceiptExists(db)}))`
+					? takeover
+						? staleDelegationResolutionTakeoverGuard(takeover)
+						: sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume') is null and (json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim') is null or (json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim.phase') = 'admission_failed' and ${homeDelegationResolutionReceiptExists(db)}))`
 					: undefined,
 			),
 		)

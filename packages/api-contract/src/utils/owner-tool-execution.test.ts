@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
 	isRetryableOwnerToolExecution,
+	ownerToolExecutionNextStep,
 	ownerToolExecutionOutcome,
 	parseOwnerToolExecution,
 } from "./owner-tool-execution";
@@ -140,5 +141,67 @@ describe("owner tool execution record", () => {
 			),
 		).toBe("Running now");
 		expect(ownerToolExecutionOutcome(null)).toBeNull();
+	});
+});
+
+describe("ownerToolExecutionNextStep", () => {
+	const now = Date.parse("2026-11-06T09:30:00.000Z");
+	const cutOff = parseOwnerToolExecution({
+		status: "running",
+		startedAt: "2026-11-05T11:43:38.705Z",
+	});
+	it("never offers a retry for a cut-off run the gateway consumed", () => {
+		expect(
+			ownerToolExecutionNextStep(cutOff, {
+				consumedAt: "2026-11-05T11:43:44.838Z",
+				now,
+			}),
+		).toBe("outcome_unknown");
+		expect(ownerToolExecutionNextStep(cutOff, { now })).toBe("retry");
+	});
+	it("leaves a requester-only failure to the requester, even when redacted", () => {
+		const plain = parseOwnerToolExecution({
+			status: "failed",
+			startedAt: "x",
+			retryable: true,
+			error:
+				"The requester must retry with a verified connections.execute grant; no provider call was made",
+		});
+		const redacted = parseOwnerToolExecution({
+			status: "failed",
+			startedAt: "x",
+			retryable: false,
+			actionBy: "requester",
+			error: "Execution details are available to the requester",
+		});
+		for (const execution of [plain, redacted]) {
+			expect(isRetryableOwnerToolExecution(execution, now)).toBe(false);
+			expect(ownerToolExecutionNextStep(execution, { now })).toBe("requester");
+		}
+	});
+	it("keeps live runs waiting and clears finished or dismissed ones", () => {
+		expect(
+			ownerToolExecutionNextStep(
+				parseOwnerToolExecution({
+					status: "running",
+					startedAt: "2026-11-06T09:29:00.000Z",
+				}),
+				{ now },
+			),
+		).toBe("wait");
+		expect(
+			ownerToolExecutionNextStep(
+				parseOwnerToolExecution({ status: "executed", startedAt: "x" }),
+				{ now },
+			),
+		).toBe("none");
+		const dismissed = parseOwnerToolExecution({
+			status: "failed",
+			startedAt: "x",
+			retryable: true,
+			dismissedAt: "2026-11-06T09:00:00.000Z",
+		});
+		expect(isRetryableOwnerToolExecution(dismissed, now)).toBe(false);
+		expect(ownerToolExecutionNextStep(dismissed, { now })).toBe("none");
 	});
 });

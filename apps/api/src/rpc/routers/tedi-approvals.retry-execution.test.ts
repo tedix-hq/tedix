@@ -280,6 +280,116 @@ describe("tediApprovals.retryExecution", () => {
 	});
 });
 
+describe("approved calls a retry cannot help", () => {
+	async function patchPayload(
+		fixture: Fixture,
+		patch: Record<string, unknown>,
+	) {
+		const [row] = await fixture.db
+			.select({ payload: tediApprovalRequests.payload })
+			.from(tediApprovalRequests)
+			.where(eq(tediApprovalRequests.id, APPROVAL_ID));
+		await fixture.db
+			.update(tediApprovalRequests)
+			.set({ payload: { ...(row!.payload as object), ...patch } })
+			.where(eq(tediApprovalRequests.id, APPROVAL_ID));
+	}
+	const cutOff = () => ({
+		status: "running",
+		startedAt: new Date(Date.now() - 11 * 60 * 1000).toISOString(),
+	});
+
+	it("never re-runs a cut-off call the gateway already consumed", async () => {
+		const fixture = createFixture();
+		await seedFailedCall(fixture, cutOff());
+		await patchPayload(fixture, { consumedAt: "2026-10-28T13:23:46.000Z" });
+		await expect(
+			client(fixture).retryExecution({ id: APPROVAL_ID }),
+		).rejects.toMatchObject({
+			code: "BAD_REQUEST",
+			message: expect.stringContaining("may already have reached its target"),
+		});
+		expect(mocks.executor).not.toHaveBeenCalled();
+		expect(await storedExecution(fixture)).toMatchObject({ status: "running" });
+	});
+
+	it("leaves a requester-only failure to the requester without counting an attempt", async () => {
+		const fixture = createFixture();
+		await seedFailedCall(fixture, {
+			status: "failed",
+			startedAt: "2026-10-28T13:23:45.692Z",
+			error:
+				"The requester must retry with a verified connections.execute grant; no provider call was made",
+			retryable: true,
+			attempt: 3,
+		});
+		await patchPayload(fixture, {
+			target: { transport: "mcp", serverId: "notion" },
+		});
+		await expect(
+			client(fixture).retryExecution({ id: APPROVAL_ID }),
+		).rejects.toMatchObject({
+			code: "BAD_REQUEST",
+			message: expect.stringContaining("Only the agent that asked"),
+		});
+		expect(mocks.executor).not.toHaveBeenCalled();
+		expect(await storedExecution(fixture)).toMatchObject({ attempt: 3 });
+	});
+
+	it("records an owner's dismissal and never runs the call again", async () => {
+		const fixture = createFixture();
+		await seedFailedCall(fixture, cutOff());
+		await patchPayload(fixture, { consumedAt: "2026-10-28T13:23:46.000Z" });
+		const result = await client(fixture).dismissExecution({ id: APPROVAL_ID });
+		expect(result.payload.execution).toMatchObject({
+			status: "running",
+			dismissedBy: "admin-2",
+		});
+		expect(mocks.insertAuditEvent).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				action: "approval.execution_dismissed",
+				actorId: "admin-2",
+				resourceId: APPROVAL_ID,
+			}),
+		);
+		await expect(
+			client(fixture).retryExecution({ id: APPROVAL_ID }),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		await expect(
+			client(fixture).dismissExecution({ id: APPROVAL_ID }),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		expect(mocks.executor).not.toHaveBeenCalled();
+	});
+
+	it("does not dismiss a live run, and is for owners and admins only", async () => {
+		const live = createFixture();
+		await seedFailedCall(live, {
+			status: "running",
+			startedAt: new Date().toISOString(),
+		});
+		await expect(
+			client(live).dismissExecution({ id: APPROVAL_ID }),
+		).rejects.toMatchObject({
+			code: "BAD_REQUEST",
+			message: expect.stringContaining("keeps going"),
+		});
+		const failed = createFixture();
+		await seedFailedCall(failed);
+		mocks.getMemberByUserId.mockResolvedValueOnce({
+			role: "member",
+			status: "active",
+		});
+		await expect(
+			client(failed).dismissExecution({ id: APPROVAL_ID }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await expect(
+			client(failed, "org-2").dismissExecution({ id: APPROVAL_ID }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		expect(await storedExecution(failed)).not.toHaveProperty("dismissedAt");
+	});
+});
+
 describe("approved burst queue", () => {
 	it("runs all 31 calls at five per window, without a manual retry or duplicate effect", async () => {
 		vi.useFakeTimers();

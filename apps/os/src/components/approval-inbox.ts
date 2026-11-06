@@ -11,6 +11,7 @@ import {
 	redactMachineApproval,
 } from "@/components/machine-approval-review";
 import {
+	isRequesterOnlyOwnerToolFailure,
 	isRetryableOwnerToolExecution,
 	type OwnerToolExecutionRecord,
 	parseOwnerToolExecution,
@@ -85,7 +86,18 @@ export type ApprovalListItem = {
 	target:
 		| { plane: "home"; runId: string }
 		| { plane: "runtime"; approvalId: string };
+	/**
+	 * A Home decision is being recorded ("recording": only a refresh helps) or
+	 * a cut-off resolver recorded one ("finish": only that decision is
+	 * accepted). Null when Approve and Reject both work.
+	 */
+	resolution: NonNullable<ApprovalCardData["resolution"]> | null;
 };
+
+/** Requests a person can approve or reject outright (no pending decision). */
+export function isOpenDecision(item: ApprovalListItem): boolean {
+	return item.resolution === null;
+}
 
 const RESERVED_CLASS_LABELS: Record<string, string> = {
 	money: "Money",
@@ -159,6 +171,7 @@ export function homeApprovalItem(approval: ApprovalCardData): ApprovalListItem {
 		conversationId: null,
 		actionType: null,
 		target: { plane: "home", runId: approval.runId },
+		resolution: approval.resolution ?? null,
 	};
 }
 
@@ -230,6 +243,7 @@ export function runtimeApprovalItem(
 		conversationId: payloadText(payload, "conversationId"),
 		actionType: approval.actionType,
 		target: { plane: "runtime", approvalId: approval.id },
+		resolution: null,
 	};
 }
 
@@ -274,8 +288,8 @@ export function collapseIdenticalItems(
 			item.raw && typeof item.raw === "object" && !Array.isArray(item.raw)
 				? (item.raw as Record<string, unknown>)
 				: null;
-		if (machineApprovalData(raw?.payload)) {
-			rows.set(`machine:${item.key}`, [item]);
+		if (machineApprovalData(raw?.payload) || item.resolution) {
+			rows.set(`single:${item.key}`, [item]);
 			continue;
 		}
 		const key = [
@@ -353,7 +367,9 @@ export function approvalOutcome(
 	const error = failed[0]?.error;
 	const retry = failed.some(isRetryableOwnerToolExecution)
 		? " Try again from Activity."
-		: " Request a new approval.";
+		: failed.some(isRequesterOnlyOwnerToolFailure)
+			? ` ${item.tedi?.name ?? "The agent that asked"} has to send it again.`
+			: " Request a new approval.";
 	return {
 		...base,
 		message: `Failed: ${
@@ -506,8 +522,21 @@ export function useApprovalInbox({
 	}
 
 	function decideOne(item: ApprovalListItem, choice: ApprovalChoice) {
-		const status = choice === "recommended" ? item.recommendation : choice;
-		const delegateRecommendation = choice === "recommended" || undefined;
+		if (item.resolution?.kind === "recording")
+			return Promise.reject(
+				new Error("A decision on this request is still being recorded"),
+			);
+		// An unfinished recorded decision can only be finished, never reversed.
+		const status =
+			item.resolution?.kind === "finish"
+				? item.resolution.decision === "approve"
+					? "approved"
+					: "rejected"
+				: choice === "recommended"
+					? item.recommendation
+					: choice;
+		const delegateRecommendation =
+			(choice === "recommended" && !item.resolution) || undefined;
 		return item.target.plane === "home"
 			? respondHome.mutateAsync({
 					runId: item.target.runId,
@@ -588,6 +617,8 @@ export function useApprovalInbox({
 		isPending: (key: string) => pendingKeys.includes(key),
 		busy: pendingKeys.length > 0,
 		decide,
+		/** Re-read every source; the Retry for a decision being recorded. */
+		refresh,
 		clearExpired,
 	};
 }

@@ -153,7 +153,11 @@ describe("owner tool approval settlement", () => {
 				expect(mocks.record).toHaveBeenCalledWith(
 					expect.anything(),
 					expect.objectContaining({
-						execution: expect.objectContaining({ retryable: true }),
+						// Only the requester's own grant can send it again.
+						execution: expect.objectContaining({
+							retryable: false,
+							actionBy: "requester",
+						}),
 					}),
 				);
 			}
