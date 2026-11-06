@@ -59,9 +59,11 @@ import {
 	listApprovalRequests,
 	listProvisionalOutcomes,
 	resolveApprovalRequest,
+	resolveToolCatalogApprovalRequest,
 	rollbackProvisionalOutcome,
 } from "@tedix/db/queries/approvals";
 import { getMemberByUserId } from "@tedix/db/queries/organization-members";
+import { getAppByIdForOrganization } from "@tedix/db/queries/app-records";
 import { insertAuditEvent } from "@tedix/db/queries/audit";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import type {
@@ -70,6 +72,7 @@ import type {
 } from "@tedix/db/schema/approvals";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import { canonicalDigest } from "../../lib/blueprint-digest";
+import { publishMcpListChangedEventsSoon } from "../../lib/mcp-subscriptions";
 import {
 	observedLearningActor,
 	recordObservedLearningInteraction,
@@ -1409,12 +1412,20 @@ const resolveProcedure = authedOs.resolve
 		const resolvedBy = resolveApprovalPrincipal(context, existing);
 		const edited = approverEditedPayload(context, existing, input, resolvedBy);
 
-		const resolved = await resolveApprovalRequest(context.db, input.id, {
+		const resolutionParams = {
 			status: input.status,
 			resolvedBy,
 			resolution: input.resolution,
 			...(edited ? { payload: edited.payload } : {}),
-		});
+		};
+		const resolved =
+			existing.actionType === "mcp.tool_catalog_change" &&
+			input.status === "approved"
+				? await resolveToolCatalogApprovalRequest(context.db, input.id, {
+						...resolutionParams,
+						status: "approved",
+					})
+				: await resolveApprovalRequest(context.db, input.id, resolutionParams);
 
 		if (!resolved) {
 			throw createError(
@@ -1440,6 +1451,34 @@ const resolveProcedure = authedOs.resolve
 			}),
 		});
 		await signalApprovalWorkflow(context, resolved);
+		if (
+			input.status === "approved" &&
+			resolved.actionType === "mcp.tool_catalog_change" &&
+			typeof resolved.payload.appId === "string"
+		) {
+			const app = await getAppByIdForOrganization(
+				context.db,
+				resolved.payload.appId,
+				resolved.orgId,
+			);
+			if (app)
+				publishMcpListChangedEventsSoon(
+					context.waitUntil,
+					context.env,
+					{
+						appId: app.id,
+						organizationId: resolved.orgId,
+						appResolutionKeys: [
+							`mcp-subdomain:${app.slug}`,
+							...(app.customMcpDomain ? [`custom:${app.customMcpDomain}`] : []),
+						],
+					},
+					[
+						"notifications/tools/list_changed",
+						"notifications/resources/list_changed",
+					],
+				);
+		}
 
 		// Home tool-write execution hook (v1): an approved "home_tool_write"
 		// approval executes the SERVER-STORED call exactly once; a rejection

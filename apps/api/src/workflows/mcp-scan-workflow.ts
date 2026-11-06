@@ -89,6 +89,7 @@ import {
 	type McpScanListTruncation,
 } from "./mcp-scan-diagnostics";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
+import { ensurePendingToolReviewApprovals } from "../services/tool-review-approvals";
 
 // ============================================================================
 // Types
@@ -153,6 +154,7 @@ interface BatchResult {
 
 interface CatalogBaseAppRow {
 	id: string;
+	organizationId: string;
 	name: string;
 	metadata: unknown;
 }
@@ -858,6 +860,11 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 				mcpServerUrl,
 				dryRun: false,
 				disableRemoved: true,
+			});
+			await ensurePendingToolReviewApprovals(db, {
+				organizationId: baseApp.organizationId,
+				appId: baseApp.id,
+				appName: baseApp.name,
 			});
 			synced++;
 		}

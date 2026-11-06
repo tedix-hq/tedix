@@ -1181,6 +1181,7 @@ export async function projectCatalogToolsFromBaseApp(
 			and(
 				eq(appTools.appId, baseApp.id),
 				eq(appTools.enabled, true),
+				sql`coalesce(${appTools.reviewState}, 'live') = 'live'`,
 				sql`coalesce(${appTools.visibility}, 'public') != 'disabled'`,
 			),
 		)

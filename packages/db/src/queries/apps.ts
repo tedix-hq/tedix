@@ -66,9 +66,21 @@ export async function getLinkedOpenApiCatalogSnapshot(
 export async function listBaseAppsForCatalogApp(
 	db: DbClient,
 	catalogAppId: string,
-): Promise<Array<{ id: string; name: string; metadata: App["metadata"] }>> {
+): Promise<
+	Array<{
+		id: string;
+		organizationId: string;
+		name: string;
+		metadata: App["metadata"];
+	}>
+> {
 	return db
-		.select({ id: apps.id, name: apps.name, metadata: apps.metadata })
+		.select({
+			id: apps.id,
+			organizationId: apps.organizationId,
+			name: apps.name,
+			metadata: apps.metadata,
+		})
 		.from(apps)
 		.where(and(eq(apps.catalogAppId, catalogAppId), isNull(apps.sourceAppId)));
 }

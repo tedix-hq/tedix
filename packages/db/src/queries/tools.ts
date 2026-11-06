@@ -122,6 +122,31 @@ export async function getToolsByAppId(
 		.orderBy(asc(appTools.sortOrder), asc(appTools.createdAt));
 }
 
+export async function listPendingToolReviewsForApp(
+	db: DbClient,
+	appId: string,
+) {
+	return db
+		.select({
+			rowId: appTools.id,
+			toolId: appTools.toolId,
+			schemaSourceHash: appTools.schemaSourceHash,
+			diff: appTools.reviewDiff,
+			reviewBatchId: appTools.reviewBatchId,
+		})
+		.from(appTools)
+		.where(
+			and(
+				eq(appTools.appId, appId),
+				eq(appTools.reviewState, "pending"),
+				isNotNull(appTools.schemaSourceHash),
+				isNotNull(appTools.reviewDiff),
+				isNotNull(appTools.reviewBatchId),
+			),
+		)
+		.orderBy(asc(appTools.toolId));
+}
+
 export interface ListToolsPageOptions {
 	limit: number;
 	offset: number;

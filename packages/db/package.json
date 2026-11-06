@@ -72,6 +72,7 @@
 		"./schema/billing": "./src/schema/billing.ts",
 		"./schema/catalog": "./src/schema/catalog.ts",
 		"./schema/apps": "./src/schema/apps.ts",
+		"./schema/tools": "./src/schema/tools.ts",
 		"./schema/graph-projection": "./src/schema/graph-projection.ts",
 		"./schema/memory-graph": "./src/schema/memory-graph.ts",
 		"./schema/graph-retrieval-benchmarks": "./src/schema/graph-retrieval-benchmarks.ts",

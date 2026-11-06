@@ -322,7 +322,10 @@ async function getCatalogMcpSurfacesForApps(
 }
 
 function buildToolSelectionConditions(options?: ToolSelectionOptions) {
-	const conditions = [eq(appTools.enabled, true)];
+	const conditions = [
+		eq(appTools.enabled, true),
+		sql`coalesce(${appTools.reviewState}, 'live') = 'live'`,
+	];
 	const toolIds = options?.toolIds?.filter(Boolean) ?? [];
 	const endpointPrefixes = options?.endpointPrefixes?.filter(Boolean) ?? [];
 
@@ -423,7 +426,13 @@ export async function getAppPolicyMountMetadataForOrganization(
 			config: appTools.config,
 		})
 		.from(appTools)
-		.where(and(eq(appTools.appId, id), eq(appTools.enabled, true)))
+		.where(
+			and(
+				eq(appTools.appId, id),
+				eq(appTools.enabled, true),
+				sql`coalesce(${appTools.reviewState}, 'live') = 'live'`,
+			),
+		)
 		.orderBy(asc(appTools.sortOrder), asc(appTools.createdAt));
 	const tools = await filterAppConnectionResourceTools(db, app, rows);
 	return { app, tools: tools.map(({ id, toolId }) => ({ id, toolId })) };

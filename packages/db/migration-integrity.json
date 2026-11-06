@@ -1372,6 +1372,10 @@
 		{
 			"name": "20261105194447_tedi_email_trusted_recipients/migration.sql",
 			"sha256": "07418a261ac76ff725eb58806e401baf2041397412a8ecd6a0d6b71cce29919f"
+		},
+		{
+			"name": "20261106095216_app_tool_review_state/migration.sql",
+			"sha256": "b1030d74ae4a52f939e12adb40fb8317823411b49616524e20e76fb50836e97d"
 		}
 	]
 }

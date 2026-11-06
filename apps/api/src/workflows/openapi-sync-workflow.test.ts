@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
 	list: vi.fn(),
 	discovery: vi.fn(),
 	projection: vi.fn(),
+	review: vi.fn(),
 	writeCapabilityReport: vi.fn(async () => ({
 		totalTools: 0,
 		totalApps: 0,
@@ -39,6 +40,9 @@ vi.mock("../services/openapi-tool-import", () => ({
 }));
 vi.mock("../services/google-discovery-tool-import", () => ({
 	runGoogleDiscoveryToolImport: mocks.discovery,
+}));
+vi.mock("../services/tool-review-approvals", () => ({
+	ensurePendingToolReviewApprovals: mocks.review,
 }));
 import {
 	OpenApiSyncWorkflow,
@@ -72,6 +76,9 @@ describe("OpenAPI sync inventory activation", () => {
 		mocks.metadata.mockResolvedValue({});
 		mocks.list.mockResolvedValue([]);
 		mocks.app.mockResolvedValue({
+			id: "app",
+			organizationId: "org",
+			name: "Graph",
 			slug: "graph",
 			customMcpDomain: "graph.example.test",
 		});
@@ -86,19 +93,17 @@ describe("OpenAPI sync inventory activation", () => {
 			items: [],
 		}));
 	});
-	it("supplies exact routing keys so applied imports purge caches before notification", async () => {
+	it("requests review without exposing an applied import", async () => {
 		await run();
-		expect(mocks.publish).toHaveBeenCalledWith(
+		expect(mocks.review).toHaveBeenCalledWith(
 			{},
 			{
 				appId: "app",
-				appResolutionKeys: ["mcp-subdomain:graph", "custom:graph.example.test"],
+				appName: "Graph",
+				organizationId: "org",
 			},
-			[
-				"notifications/tools/list_changed",
-				"notifications/resources/list_changed",
-			],
 		);
+		expect(mocks.publish).not.toHaveBeenCalled();
 	});
 	it("does not invalidate inventory for dry runs", async () => {
 		await run(true);
@@ -148,7 +153,12 @@ describe("OpenAPI app checkpoints", () => {
 		vi.resetAllMocks();
 		mocks.metadata.mockResolvedValue({});
 		mocks.list.mockResolvedValue([{ id: "first" }, { id: "second" }]);
-		mocks.app.mockResolvedValue({ slug: "example" });
+		mocks.app.mockResolvedValue({
+			id: "app",
+			organizationId: "org",
+			name: "Example",
+			slug: "example",
+		});
 		mocks.import.mockImplementation(async (_db, input) => ({
 			appId: input.appId,
 			dryRun: input.dryRun,
@@ -194,13 +204,14 @@ describe("OpenAPI app checkpoints", () => {
 		]);
 		expect(mocks.list).toHaveBeenCalledTimes(1);
 		expect(mocks.import).toHaveBeenCalledTimes(2);
-		expect(mocks.publish).toHaveBeenCalledTimes(2);
+		expect(mocks.review).toHaveBeenCalledTimes(2);
+		expect(mocks.publish).not.toHaveBeenCalled();
 	});
 
-	it("retries notification from its saved import without losing the change counts", async () => {
+	it("retries review creation from its saved import without losing the change counts", async () => {
 		const cache = new Map<string, unknown>();
 		let interrupted = true;
-		mocks.publish.mockRejectedValueOnce(new Error("notification interrupted"));
+		mocks.review.mockRejectedValueOnce(new Error("review interrupted"));
 		const step: TestStep = {
 			do: async (name, callback) => {
 				if (cache.has(name)) return cache.get(name);
@@ -219,11 +230,11 @@ describe("OpenAPI app checkpoints", () => {
 		expect(result.updated).toBe(1);
 		expect(result.status).toBe("succeeded");
 		expect(mocks.import).toHaveBeenCalledTimes(1);
-		expect(mocks.publish).toHaveBeenCalledTimes(2);
+		expect(mocks.review).toHaveBeenCalledTimes(2);
 	});
 
-	it("counts an app once when notification fails and keeps its imported changes", async () => {
-		mocks.publish.mockRejectedValueOnce(new Error("subscriber unavailable"));
+	it("counts an app once when review creation fails and keeps its imported changes", async () => {
+		mocks.review.mockRejectedValueOnce(new Error("review unavailable"));
 		const result = await run(false, { appIds: ["first", "second", "first"] });
 		expect(result).toMatchObject({
 			status: "partial",
@@ -237,7 +248,7 @@ describe("OpenAPI app checkpoints", () => {
 			updated: 1,
 			failed: 1,
 		});
-		expect(result.results[0].items[0]?.message).toBe("subscriber unavailable");
+		expect(result.results[0].items[0]?.message).toBe("review unavailable");
 		expect(mocks.import).toHaveBeenCalledTimes(2);
 	});
 

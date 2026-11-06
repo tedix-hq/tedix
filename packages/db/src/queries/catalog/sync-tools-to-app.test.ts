@@ -213,12 +213,88 @@ describe("buildCatalogMcpConnectionAuth", () => {
 				template: "Basic {token}",
 			});
 		}
+		const reviewStates = await db
+			.select({ state: appTools.reviewState, diff: appTools.reviewDiff })
+			.from(appTools)
+			.where(eq(appTools.appId, appId));
+		expect(reviewStates.every((tool) => tool.state === "pending")).toBe(true);
+		expect(reviewStates.every((tool) => tool.diff?.before !== undefined)).toBe(
+			true,
+		);
 
 		const [app] = await db
 			.select({ metadata: apps.metadata })
 			.from(apps)
 			.where(eq(apps.id, appId));
 		expect(app?.metadata?.mcpConfig?.upstreamMcpUrl).toBeUndefined();
+	});
+
+	it("holds a changed live MCP definition pending with its before and after diff", async () => {
+		const { db } = setup();
+		await db.insert(appCatalog).values({
+			id: "catalog-review",
+			name: "Review",
+			slug: "review",
+			toolSource: "upstream_mcp",
+			connectorType: "MCP",
+			lastSyncedAt: "2026-11-06T00:00:00.000Z",
+		});
+		await db.insert(apps).values({
+			id: "app-review",
+			organizationId: "platform-org",
+			name: "Review",
+			slug: "review",
+			catalogAppId: "catalog-review",
+		});
+		await db.insert(appCatalogMcpTools).values({
+			id: "catalog-tool-review",
+			catalogAppId: "catalog-review",
+			toolName: "read_records",
+			description: "New instructions",
+			inputSchema: { type: "object", properties: {} },
+			annotations: { readOnlyHint: true },
+			detectedAt: "2026-11-06T00:00:00.000Z",
+			lastSeenAt: "2026-11-06T00:00:00.000Z",
+		});
+		await db.insert(appTools).values({
+			id: "tool-review",
+			appId: "app-review",
+			toolTypeId: "mcp",
+			toolId: "read_records",
+			title: "Read Records",
+			description: "Old instructions",
+			inputSchema: { type: "object", properties: {} },
+			config: {
+				transport: "mcp",
+				mcpServerUrl: "https://review.example/mcp",
+				mcpToolName: "read_records",
+				mcpServerId: "catalog-review",
+			},
+			writeCapability: "read",
+			schemaDialect: "json-schema-2020-12",
+			schemaSource: "mcp",
+			schemaSourceRef: "catalog-review:read_records",
+			schemaSourceHash: "old-hash",
+			reviewState: "live",
+			enabled: true,
+		});
+
+		await syncCatalogToolsToApp(db, {
+			catalogAppId: "catalog-review",
+			appId: "app-review",
+			mcpServerUrl: "https://review.example/mcp",
+			dryRun: false,
+		});
+		const [tool] = await db
+			.select()
+			.from(appTools)
+			.where(eq(appTools.id, "tool-review"));
+		expect(tool?.reviewState).toBe("pending");
+		expect(tool?.reviewDiff).toMatchObject({
+			source: "upstream_mcp",
+			before: { description: "Old instructions" },
+			after: { description: "New instructions" },
+		});
 	});
 });
 
