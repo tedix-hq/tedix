@@ -30,6 +30,8 @@ export interface Env extends CmsSessionBrokerEnv, MarketingEnv {
 	GIT_SHA: string;
 	CF_ACCOUNT_ID: string;
 	CLOUDFLARE_R2_API_TOKEN: string;
+	/** R2 jurisdiction of the tenant media buckets (for example "eu"); unset for the default jurisdiction. */
+	CF_R2_JURISDICTION?: string;
 	/** Optional override for the platform API URL injected into tenant isolates. */
 	PLATFORM_API_URL?: string;
 	/** Descope project ID — forwarded to tenant isolates for CMS admin auth. Set via CF secret. */

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { r2RestHeaders } from "./r2-rest";
 
 export interface MediaObject {
 	key: string;
@@ -57,6 +58,7 @@ function assertHttpMetadataMatches(
 export async function assertSourceMediaMatches(args: {
 	accountId: string;
 	token: string;
+	jurisdiction?: string;
 	slug: string;
 	records: VerifiedMediaObject[];
 	missingKey?: string;
@@ -106,12 +108,13 @@ export async function assertSourceMediaMatches(args: {
 export async function deleteSourceMediaObject(args: {
 	accountId: string;
 	token: string;
+	jurisdiction?: string;
 	slug: string;
 	key: string;
 }): Promise<void> {
 	const response = await fetch(sourceUrl(args.accountId, args.slug, args.key), {
 		method: "DELETE",
-		headers: { Authorization: `Bearer ${args.token}` },
+		headers: r2RestHeaders(args.token, args.jurisdiction),
 	});
 	if (!response.ok && response.status !== 404)
 		throw new Error(
@@ -122,6 +125,7 @@ export async function deleteSourceMediaObject(args: {
 export async function restoreSourceMediaObject(args: {
 	accountId: string;
 	token: string;
+	jurisdiction?: string;
 	slug: string;
 	record: VerifiedMediaObject;
 	backup: R2Bucket;
@@ -155,9 +159,7 @@ export async function restoreSourceMediaObject(args: {
 		args.record,
 		"CMS restore drill backup metadata changed before restore",
 	);
-	const headers: Record<string, string> = {
-		Authorization: `Bearer ${args.token}`,
-	};
+	const headers = r2RestHeaders(args.token, args.jurisdiction);
 	for (const [name, value] of [
 		["Content-Type", args.record.contentType],
 		["Cache-Control", args.record.cacheControl],
@@ -229,6 +231,7 @@ function sourceUrl(accountId: string, slug: string, key?: string): string {
 export async function listMediaPage(args: {
 	accountId: string;
 	token: string;
+	jurisdiction?: string;
 	slug: string;
 	cursor?: string;
 	pageSize?: number;
@@ -240,7 +243,7 @@ export async function listMediaPage(args: {
 	url.searchParams.set("per_page", String(pageSize));
 	if (args.cursor) url.searchParams.set("cursor", args.cursor);
 	const response = await fetch(url, {
-		headers: { Authorization: `Bearer ${args.token}` },
+		headers: r2RestHeaders(args.token, args.jurisdiction),
 	});
 	if (!response.ok)
 		throw new Error(`CMS media inventory failed: ${response.status}`);
@@ -277,6 +280,7 @@ export async function listMediaPage(args: {
 export async function inventoryMedia(args: {
 	accountId: string;
 	token: string;
+	jurisdiction?: string;
 	slug: string;
 }): Promise<{ count: number; bytes: number; sha256: string }> {
 	const hash = createHash("sha256");
@@ -313,6 +317,7 @@ export async function inventoryMedia(args: {
 export async function copyAndVerifyMediaObject(args: {
 	accountId: string;
 	token: string;
+	jurisdiction?: string;
 	slug: string;
 	object: MediaObject;
 	destination: R2Bucket;
@@ -321,7 +326,7 @@ export async function copyAndVerifyMediaObject(args: {
 	const response = await fetch(
 		sourceUrl(args.accountId, args.slug, args.object.key),
 		{
-			headers: { Authorization: `Bearer ${args.token}` },
+			headers: r2RestHeaders(args.token, args.jurisdiction),
 		},
 	);
 	if (!response.ok || !response.body)
@@ -377,11 +382,12 @@ export async function copyAndVerifyMediaObject(args: {
 export async function digestSourceMediaObject(args: {
 	accountId: string;
 	token: string;
+	jurisdiction?: string;
 	slug: string;
 	key: string;
 }): Promise<{ sha256: string; bytes: number } & MediaHttpMetadata> {
 	const response = await fetch(sourceUrl(args.accountId, args.slug, args.key), {
-		headers: { Authorization: `Bearer ${args.token}` },
+		headers: r2RestHeaders(args.token, args.jurisdiction),
 	});
 	if (!response.ok || !response.body)
 		throw new Error(`CMS media source reread failed: ${response.status}`);

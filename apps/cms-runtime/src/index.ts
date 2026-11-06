@@ -40,6 +40,7 @@ import {
 	withSharedCmsRestorePermit,
 } from "./tenant-restore-fence";
 import { withScheduledCmsRestorePermit } from "./scheduled-restore-permits";
+import { r2RestHeaders } from "./r2-rest";
 import type {
 	CollectionDeletionGuardInput,
 	CollectionDeletionGuardResult,
@@ -507,7 +508,7 @@ export class TenantR2 extends WorkerEntrypoint<
 		httpMetadata: { contentType?: string; cacheControl?: string };
 	} | null> {
 		const res = await fetch(this.url(key), {
-			headers: { Authorization: `Bearer ${this.ctx.props.token}` },
+			headers: r2RestHeaders(this.ctx.props.token, this.env.CF_R2_JURISDICTION),
 		});
 		if (res.status === 404) return null;
 		if (!res.ok || !res.body) throw new Error(`R2 get failed: ${res.status}`);
@@ -561,9 +562,10 @@ export class TenantR2 extends WorkerEntrypoint<
 		opts?: { httpMetadata?: { contentType?: string; cacheControl?: string } },
 	): Promise<{ httpEtag: string; size: number }> {
 		return this.withPermit(async () => {
-			const headers: Record<string, string> = {
-				Authorization: `Bearer ${this.ctx.props.token}`,
-			};
+			const headers = r2RestHeaders(
+				this.ctx.props.token,
+				this.env.CF_R2_JURISDICTION,
+			);
 			if (opts?.httpMetadata?.contentType) {
 				headers["Content-Type"] = opts.httpMetadata.contentType;
 			}
@@ -589,7 +591,10 @@ export class TenantR2 extends WorkerEntrypoint<
 		await this.withPermit(async () => {
 			const res = await fetch(this.url(key), {
 				method: "DELETE",
-				headers: { Authorization: `Bearer ${this.ctx.props.token}` },
+				headers: r2RestHeaders(
+					this.ctx.props.token,
+					this.env.CF_R2_JURISDICTION,
+				),
 			});
 			if (!res.ok && res.status !== 404) {
 				throw new Error(`R2 delete failed: ${res.status}`);
@@ -614,7 +619,7 @@ export class TenantR2 extends WorkerEntrypoint<
 		if (opts?.limit) url.searchParams.set("per_page", String(opts.limit));
 		if (opts?.cursor) url.searchParams.set("cursor", opts.cursor);
 		const res = await fetch(url.toString(), {
-			headers: { Authorization: `Bearer ${p.token}` },
+			headers: r2RestHeaders(p.token, this.env.CF_R2_JURISDICTION),
 		});
 		if (!res.ok) throw new Error(`R2 list failed: ${res.status}`);
 		const data = (await res.json()) as {

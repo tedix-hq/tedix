@@ -196,6 +196,8 @@ export default defineConfig(({ mode }) => {
 				CF_ACCOUNT_ID: bindings.text(
 					local ? localLane.cfAccountId : "configured-via-private-overlay",
 				),
+				// R2 jurisdiction of tenant media buckets; empty for the default.
+				CF_R2_JURISDICTION: bindings.text(""),
 				DESCOPE_BASE_URL: bindings.text(
 					local ? localLane.descopeBaseUrl : "configured-via-private-overlay",
 				),
