@@ -54,14 +54,20 @@ function store() {
 	return {
 		binding,
 		db: createDbClient(binding),
-		tedi: (id: string, at: string, kind = "message.completed") =>
+		tedi: (
+			id: string,
+			at: string,
+			kind = "message.completed",
+			runId = "run-1",
+			organizationId = ORG,
+		) =>
 			insertTedi.run(
 				id,
-				ORG,
+				organizationId,
 				TEDI,
 				kind,
 				"conv-1",
-				"run-1",
+				runId,
 				"custom",
 				JSON.stringify({ id }),
 				at,
@@ -260,5 +266,54 @@ describe("merged runtime event reads", () => {
 				tediId: TEDI,
 			}),
 		).toEqual([]);
+	});
+
+	it("returns a delegated child run's events through the org-scoped run read the evidence tool uses", async () => {
+		const main = store();
+		const logs = store();
+		const child = `${TEDI}:mcp:coding-apply-explicit-completion_auto_${TEDI}`;
+		logs.tedi("c1", "2026-11-04T13:17:50.156Z", "message.received", child);
+		main.tedi("c2", "2026-11-04T13:17:53.230Z", "run.started", child);
+		main.tedi("c3", "2026-11-04T13:30:12.422Z", "message.completed", child);
+		main.tedi("c4", "2026-11-04T13:30:12.422Z", "run.failed", child);
+		main.tedi(
+			"x1",
+			"2026-11-04T13:20:00.000Z",
+			"run.started",
+			child,
+			"org-other",
+		);
+		configureLogStore(main.db, { LOGS_DB: logs.binding });
+		// Same shape as readChildRunEvidenceRows: run ids plus organization,
+		// so the organization term is the unindexed `+organization_id` form.
+		const read = (organizationId: string) =>
+			listTediRuntimeEvents(main.db, {
+				organizationId,
+				tediId: TEDI,
+				runIds: [child],
+				order: "desc",
+				limit: 100,
+			});
+		const ledger = await listTediRuntimeEventsForRouter(main.db, {
+			organizationId: ORG,
+			tediId: TEDI,
+			runId: child,
+			order: "desc",
+			limit: 100,
+		});
+		expect((await read(ORG)).map((row) => row.id)).toEqual(
+			ledger.map((row) => row.id),
+		);
+		expect(ledger.map((row) => row.id)).toEqual(["c4", "c3", "c2", "c1"]);
+		expect((await read("org-other")).map((row) => row.id)).toEqual(["x1"]);
+		const terminal = await listTediRuntimeEvents(main.db, {
+			organizationId: ORG,
+			tediId: TEDI,
+			runIds: [child],
+			kinds: ["run.completed", "run.failed", "run.canceled"],
+			order: "desc",
+			limit: 1,
+		});
+		expect(terminal.map((row) => row.id)).toEqual(["c4"]);
 	});
 });
