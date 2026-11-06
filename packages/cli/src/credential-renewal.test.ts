@@ -419,3 +419,112 @@ test("a new login saved during a transient response is never overwritten", async
 		rmSync(dir, { recursive: true, force: true });
 	}
 });
+
+test("a token endpoint slower than the former 15s deadline saves its rotation", async () => {
+	const { server, state } = rotatingServer(16_000);
+	const base = `http://127.0.0.1:${server.port}`;
+	try {
+		storeExpiredLogin(base, state.current);
+		const provider = new WorkspaceOAuthProvider({
+			workspace: WORKSPACE,
+			mcpUrl: `${base}/mcp`,
+		});
+		expect(
+			await refreshStoredSession(provider, { isDarkWake: () => false }),
+		).toBe("refreshed");
+		expect(state.rotations).toBe(1);
+		expect(state.invalidated).toBe(false);
+		expect(
+			readWorkspaceCredentials(WORKSPACE)?.oauthTokens?.refresh_token,
+		).toBe(state.current);
+	} finally {
+		server.stop(true);
+	}
+}, 20_000);
+
+test("a rotated but unanswered exchange never replays its spent token", async () => {
+	const { server, state } = rotatingServer(200);
+	const base = `http://127.0.0.1:${server.port}`;
+	try {
+		storeExpiredLogin(base, state.current);
+		const provider = new WorkspaceOAuthProvider({
+			workspace: WORKSPACE,
+			mcpUrl: `${base}/mcp`,
+		});
+		expect(
+			await refreshStoredSession(provider, {
+				timeoutMs: 50,
+				isDarkWake: () => false,
+			}),
+		).toBe("uncertain");
+		for (let n = 0; n < 4; n++)
+			expect(await refreshStoredSession(provider)).toBe("uncertain");
+		expect(state.rotations).toBe(1);
+		expect(state.invalidated).toBe(false);
+		expect(readWorkspaceCredentials(WORKSPACE)?.oauthRefreshPending).toBe(true);
+	} finally {
+		server.stop(true);
+	}
+});
+
+test("a proven pre-connect failure retries once and saves the only rotation", async () => {
+	const { server, state } = rotatingServer(0);
+	const base = `http://127.0.0.1:${server.port}`;
+	try {
+		storeExpiredLogin(base, state.current);
+		const provider = new WorkspaceOAuthProvider({
+			workspace: WORKSPACE,
+			mcpUrl: `${base}/mcp`,
+		});
+		let calls = 0;
+		expect(
+			await refreshStoredSession(provider, {
+				isDarkWake: () => false,
+				fetchFn: async (input, init) => {
+					if (++calls === 1)
+						throw Object.assign(new Error("offline"), { code: "ECONNREFUSED" });
+					return fetch(input, init);
+				},
+			}),
+		).toBe("refreshed");
+		expect(calls).toBe(2);
+		expect(state.rotations).toBe(1);
+		expect(state.invalidated).toBe(false);
+	} finally {
+		server.stop(true);
+	}
+});
+
+test.each([false, true])(
+	"pre-connect exhaustion stays unfenced (deadline elapsed: %s)",
+	async (elapsed) => {
+		const { server, state } = rotatingServer(0);
+		const base = `http://127.0.0.1:${server.port}`;
+		try {
+			storeExpiredLogin(base, state.current);
+			const provider = new WorkspaceOAuthProvider({
+				workspace: WORKSPACE,
+				mcpUrl: `${base}/mcp`,
+			});
+			let calls = 0;
+			expect(
+				await refreshStoredSession(provider, {
+					timeoutMs: elapsed ? 10 : 1000,
+					isDarkWake: () => false,
+					fetchFn: async () => {
+						calls++;
+						if (elapsed) await Bun.sleep(30);
+						throw Object.assign(new Error("offline"), { code: "ECONNREFUSED" });
+					},
+				}),
+			).toBe("failed");
+			expect(calls).toBe(elapsed ? 1 : 2);
+			expect(state.rotations).toBe(0);
+			expect(
+				readWorkspaceCredentials(WORKSPACE)?.oauthRefreshPending,
+			).toBeUndefined();
+		} finally {
+			server.stop(true);
+		}
+	},
+);

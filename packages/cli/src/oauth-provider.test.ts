@@ -1650,7 +1650,7 @@ describe("proactive session refresh", () => {
 			await refreshStoredSession(provider, { fetchFn, timeoutMs: 5 }),
 		).toBe("failed");
 		expect(Date.now() - startedAt).toBeLessThan(250);
-		expect(SESSION_REFRESH_TIMEOUT_MS).toBe(15_000);
+		expect(SESSION_REFRESH_TIMEOUT_MS).toBe(60_000);
 	});
 });
 

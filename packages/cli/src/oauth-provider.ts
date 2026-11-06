@@ -63,7 +63,7 @@ export const TEDIX_OAUTH_CLIENT_URI =
 export const TEDIX_OAUTH_LOGO_URI =
 	process.env.TEDIX_OAUTH_LOGO_URI?.trim() ||
 	"https://os.tedix.dev/images/tedi-astronaut-waving.png";
-export const SESSION_REFRESH_TIMEOUT_MS = 15_000;
+export const SESSION_REFRESH_TIMEOUT_MS = 60_000;
 
 /**
  * Managed MCP endpoints sit under the connect surface's `mcp.` host —
@@ -1090,11 +1090,23 @@ export async function refreshStoredSession(
 				phase = "sent";
 				let response: Response;
 				try {
-					response = await fetchFn(input, {
-						...init,
-						body,
-						signal: controller.signal,
-					});
+					try {
+						response = await fetchFn(input, {
+							...init,
+							body,
+							signal: controller.signal,
+						});
+					} catch (error) {
+						// Retry only when no connection existed; a timeout or reset may
+						// have consumed the token. Both tries share the same deadline.
+						if (!connectionNeverOpened(error) || controller.signal.aborted)
+							throw error;
+						response = await fetchFn(input, {
+							...init,
+							body,
+							signal: controller.signal,
+						});
+					}
 				} catch (error) {
 					// No connection was made (offline after wake, DNS, refused), so the
 					// server never saw the token. Lift the fence so a later run retries.
@@ -1400,7 +1412,7 @@ export function handOffRenewal(workspace: string): void {
 }
 
 /** Covers the renewer's lock wait, its bounded request and process start. */
-export const DETACHED_RENEWAL_WAIT_MS = 60_000;
+export const DETACHED_RENEWAL_WAIT_MS = 105_000;
 
 /**
  * Renew in a detached `tedix auth renew` process, then adopt its result from
