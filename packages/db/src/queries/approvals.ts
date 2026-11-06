@@ -14,6 +14,8 @@ import {
 import { and, desc, eq, gt, isNull, lt, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import { kernelRuntimeRuns } from "../schema/cognitive-runtime";
+import { apps } from "../schema/apps";
+import { appTools } from "../schema/tools";
 import type { KernelRuntimeRunUpdate } from "./kernel-runtime-runs";
 import { osWorkspaceChildVisibleToPredicate } from "./os-workspaces/workspaces";
 import {
@@ -520,6 +522,82 @@ export async function resolveApprovalRequest(
 				resolved.resolution ?? `${resolved.status}: ${resolved.description}`,
 		});
 	return results[0];
+}
+
+/** Resolve and activate one exact upstream-definition batch atomically. */
+export async function resolveToolCatalogApprovalRequest(
+	db: DbClient,
+	id: string,
+	params: Omit<ResolveApprovalRequestParams, "status"> & {
+		status: "approved";
+	},
+): Promise<TediApprovalRequest | undefined> {
+	const resolvedAt = new Date().toISOString();
+	const resolutionStatement = db
+		.update(tediApprovalRequests)
+		.set({
+			status: "approved",
+			resolvedBy: params.resolvedBy,
+			resolvedAt,
+			resolution: params.resolution ?? null,
+			...(params.payload ? { payload: params.payload } : {}),
+		})
+		.where(
+			and(
+				eq(tediApprovalRequests.id, id),
+				eq(tediApprovalRequests.status, "pending"),
+				eq(tediApprovalRequests.actionType, "mcp.tool_catalog_change"),
+				gt(tediApprovalRequests.expiresAt, resolvedAt),
+				sql`json_type(${tediApprovalRequests.payload}, '$.appId') = 'text'`,
+				sql`json_type(${tediApprovalRequests.payload}, '$.reviewBatchId') = 'text'`,
+				sql`json_type(${tediApprovalRequests.payload}, '$.expectedCount') = 'integer'`,
+				sql`json_extract(${tediApprovalRequests.payload}, '$.expectedCount') > 0`,
+				sql`exists (
+					select 1 from ${apps}
+					where ${apps.id} = json_extract(${tediApprovalRequests.payload}, '$.appId')
+						and ${apps.organizationId} = ${tediApprovalRequests.orgId}
+				)`,
+				sql`(
+					select count(*) from ${appTools} pending
+					where pending.app_id = json_extract(${tediApprovalRequests.payload}, '$.appId')
+						and pending.review_state = 'pending'
+						and pending.review_batch_id = json_extract(${tediApprovalRequests.payload}, '$.reviewBatchId')
+				) = json_extract(${tediApprovalRequests.payload}, '$.expectedCount')`,
+			),
+		)
+		.returning();
+	const [resolvedRows] = await db.batch([
+		resolutionStatement,
+		db
+			.update(appTools)
+			.set({
+				reviewState: "live",
+				reviewDiff: null,
+				reviewBatchId: null,
+				updatedAt: resolvedAt,
+			})
+			.where(
+				and(
+					eq(appTools.reviewState, "pending"),
+					sql`${appTools.appId} = (select json_extract(approved.payload, '$.appId') from ${tediApprovalRequests} approved where approved.id = ${id} and approved.status = 'approved' and approved.resolved_at = ${resolvedAt})`,
+					sql`${appTools.reviewBatchId} = (select json_extract(approved.payload, '$.reviewBatchId') from ${tediApprovalRequests} approved where approved.id = ${id} and approved.status = 'approved' and approved.resolved_at = ${resolvedAt})`,
+				),
+			)
+			.returning({ id: appTools.id }),
+	]);
+	const resolved = resolvedRows[0];
+	if (resolved)
+		await recordDecisionResolutionEdges(db, {
+			orgId: resolved.orgId,
+			cardId: `approval:${resolved.id}`,
+			decisionId: resolved.id,
+			workItemId: null,
+			occurredAt: resolvedAt,
+			source: "approval_resolution",
+			evidenceRef: `approval:${resolved.id}`,
+			note: resolved.resolution ?? `approved: ${resolved.description}`,
+		});
+	return resolved;
 }
 
 /**

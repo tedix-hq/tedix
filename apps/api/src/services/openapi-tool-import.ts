@@ -22,6 +22,7 @@ import {
 	upsertTool,
 } from "@tedix/db/queries/tools";
 import type { AppMetadata } from "@tedix/db/schema/apps";
+import type { ToolReviewDiff } from "@tedix/db/schema/tools";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import { parse as parseYaml } from "yaml";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
@@ -1534,6 +1535,7 @@ export async function executeOpenApiToolImport(
 	let skipped = 0;
 	let failed = 0;
 	const generatedToolIds = new Set<string>();
+	const reviewBatchId = crypto.randomUUID();
 
 	for (const entry of operations(spec)) {
 		const operationId =
@@ -1728,6 +1730,7 @@ export async function executeOpenApiToolImport(
 					: (defaultWidget?.widgetKey ?? null);
 			const annotations = annotationsForMethod(entry.method);
 			const writeCapability = writeCapabilityForMethod(entry.method);
+			const description = operationDescription(entry.operation);
 			const schemaSourceRef = `${resolved.specUrl ?? "inline"}#${entry.method} ${entry.path}`;
 			const schemaSourceHash = await sha256Hex(
 				stableStringify({
@@ -1764,6 +1767,23 @@ export async function executeOpenApiToolImport(
 				: dryRun
 					? "wouldCreate"
 					: "created";
+			const reviewDiff: ToolReviewDiff = {
+				source: "openapi",
+				before: existing
+					? {
+							description: existing.description,
+							inputSchema: existing.inputSchema,
+							outputSchema: existing.outputSchema,
+							schemaSourceHash: existing.schemaSourceHash,
+						}
+					: null,
+				after: {
+					description,
+					inputSchema,
+					outputSchema,
+					schemaSourceHash,
+				},
+			};
 
 			if (importStatus === "inSync") {
 				inSync++;
@@ -1783,7 +1803,7 @@ export async function executeOpenApiToolImport(
 					toolId,
 					toolTypeId: "external",
 					title: titleFromName(toolId),
-					description: operationDescription(entry.operation),
+					description,
 					inputSchema,
 					outputSchema,
 					config: toJsonRecord(normalizedConfig),
@@ -1799,6 +1819,9 @@ export async function executeOpenApiToolImport(
 					schemaSourceHash,
 					schemaSyncedAt: new Date().toISOString(),
 					enabled: true,
+					reviewState: "pending",
+					reviewDiff,
+					reviewBatchId,
 					sortOrder: 0,
 				});
 				if (importStatus === "created") created++;

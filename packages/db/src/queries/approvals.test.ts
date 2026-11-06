@@ -13,6 +13,13 @@ import { describe, expect, it, onTestFinished, vi } from "vite-plus/test";
 import { sql } from "drizzle-orm";
 import { createDbClient } from "../client";
 import { createD1Facade } from "../test/d1-facade";
+import { schemaDdl } from "../test/schema-ddl";
+import { apps } from "../schema/apps";
+import { appCatalog } from "../schema/catalog";
+import { appToolCspDomains } from "../schema/configuration";
+import { organizations } from "../schema/organizations";
+import { appTools } from "../schema/tools";
+import { getAppByIdWithToolsForOrganization } from "./app-records";
 import {
 	claimOwnerToolApprovalExecution,
 	consumeHomeToolApprovalCall,
@@ -32,6 +39,7 @@ import {
 	recordOwnerToolApprovalExecution,
 	rollbackProvisionalOutcome,
 	resolveApprovalRequest,
+	resolveToolCatalogApprovalRequest,
 } from "./approvals";
 
 function setup() {
@@ -86,8 +94,83 @@ function setup() {
 			rollback_reason TEXT
 		);
 	`);
+	sqlite.exec(
+		schemaDdl(organizations, appCatalog, apps, appTools, appToolCspDomains),
+	);
 	return { db: createDbClient(createD1Facade(sqlite)) };
 }
+
+it("keeps a pending upstream tool invisible until its exact approval is resolved", async () => {
+	const { db } = setup();
+	await db.insert(organizations).values({
+		id: "org-review",
+		name: "Review Org",
+		slug: "review-org",
+	});
+	await db.insert(apps).values({
+		id: "app-review",
+		organizationId: "org-review",
+		name: "Review App",
+		slug: "review-app",
+	});
+	await db.insert(appTools).values({
+		id: "tool-row",
+		appId: "app-review",
+		toolId: "read_records",
+		toolTypeId: "mcp",
+		title: "Read records",
+		description: "New upstream instructions",
+		inputSchema: { type: "object", properties: {} },
+		schemaSourceHash: "source-hash",
+		reviewState: "pending",
+		reviewBatchId: "batch-review",
+		reviewDiff: {
+			source: "upstream_mcp",
+			before: null,
+			after: {
+				description: "New upstream instructions",
+				inputSchema: { type: "object", properties: {} },
+				outputSchema: null,
+				schemaSourceHash: "source-hash",
+			},
+		},
+		enabled: true,
+	});
+	await createApprovalRequest(db, {
+		id: "tool-review-request",
+		tediId: "approval-anchor",
+		orgId: "org-review",
+		actionType: "mcp.tool_catalog_change",
+		description: "Review upstream tool change",
+		payload: {
+			kind: "mcp_tool_catalog_change",
+			appId: "app-review",
+			reviewBatchId: "batch-review",
+			expectedCount: 1,
+			changes: [],
+		},
+		createdAt: "2026-11-06T00:00:00.000Z",
+		expiresAt: "2027-11-06T00:00:00.000Z",
+	});
+
+	expect(
+		(await getAppByIdWithToolsForOrganization(db, "app-review", "org-review"))
+			?.tools,
+	).toEqual([]);
+	const approved = await resolveToolCatalogApprovalRequest(
+		db,
+		"tool-review-request",
+		{
+			status: "approved",
+			resolvedBy: "owner",
+		},
+	);
+	expect(approved?.status).toBe("approved");
+	expect(
+		(await getAppByIdWithToolsForOrganization(db, "app-review", "org-review"))
+			?.tools,
+	).toEqual([expect.objectContaining({ toolId: "read_records" })]);
+});
 
 async function seedApproval(
 	db: ReturnType<typeof setup>["db"],

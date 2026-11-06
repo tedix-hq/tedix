@@ -20,6 +20,7 @@ import type {
 	ToolSchemaSource,
 	ToolWriteCapability,
 } from "@tedix/api-contract/schemas/tools";
+
 import {
 	TOOL_EXECUTION_TASK_SUPPORT_VALUES,
 	TOOL_SCHEMA_DIALECT_VALUES,
@@ -35,6 +36,22 @@ import {
 	unique,
 } from "drizzle-orm/sqlite-core";
 import { apps } from "./apps";
+
+export const TOOL_REVIEW_STATE_VALUES = ["live", "pending"] as const;
+export type ToolReviewState = (typeof TOOL_REVIEW_STATE_VALUES)[number];
+
+export interface ToolReviewSnapshot {
+	description: string | null;
+	inputSchema: ToolInputJsonSchema;
+	outputSchema: ToolJsonSchema | null;
+	schemaSourceHash: string | null;
+}
+
+export interface ToolReviewDiff {
+	source: "upstream_mcp" | "openapi";
+	before: ToolReviewSnapshot | null;
+	after: ToolReviewSnapshot;
+}
 
 /**
  * App Tools table
@@ -217,6 +234,15 @@ export const appTools = sqliteTable(
 
 		// Tool Status
 		enabled: integer("enabled", { mode: "boolean" }).default(true),
+		/** Upstream-discovered definitions stay hidden until an owner approves their diff. */
+		reviewState: text("review_state", {
+			enum: TOOL_REVIEW_STATE_VALUES,
+		})
+			.$type<ToolReviewState>()
+			.notNull()
+			.default("live"),
+		reviewDiff: text("review_diff", { mode: "json" }).$type<ToolReviewDiff>(),
+		reviewBatchId: text("review_batch_id"),
 
 		// Display order in tool listings (lower = earlier)
 		sortOrder: integer("sort_order").default(0),
@@ -230,6 +256,7 @@ export const appTools = sqliteTable(
 		unique("idx_app_tool_unique").on(table.appId, table.toolId),
 		// Fast lookup for MCP tool loading
 		index("idx_app_tools_app_enabled").on(table.appId, table.enabled),
+		index("idx_app_tools_app_review").on(table.appId, table.reviewState),
 		index("idx_app_tools_app_sort").on(table.appId, table.sortOrder),
 		// NOTE: No index on computed `layout` until Drizzle/D1 supports it reliably.
 	],

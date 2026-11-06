@@ -3,7 +3,7 @@
  * Drizzle ORM queries for organization state resolution and app eligibility.
  */
 
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import { apps } from "../schema/apps";
 import { organizations } from "../schema/organizations";
@@ -37,7 +37,13 @@ export async function getInstalledToolIdsForOrg(db: DbClient, orgId: string) {
 		.select({ toolId: appTools.toolId })
 		.from(appTools)
 		.innerJoin(apps, eq(appTools.appId, apps.id))
-		.where(and(eq(apps.organizationId, orgId), eq(appTools.enabled, true)));
+		.where(
+			and(
+				eq(apps.organizationId, orgId),
+				eq(appTools.enabled, true),
+				sql`coalesce(${appTools.reviewState}, 'live') = 'live'`,
+			),
+		);
 	return rows.map((r) => r.toolId);
 }
 
@@ -64,7 +70,13 @@ export async function getEnabledToolIdsForApp(db: DbClient, appId: string) {
 	const rows = await db
 		.select({ toolId: appTools.toolId })
 		.from(appTools)
-		.where(and(eq(appTools.appId, appId), eq(appTools.enabled, true)));
+		.where(
+			and(
+				eq(appTools.appId, appId),
+				eq(appTools.enabled, true),
+				sql`coalesce(${appTools.reviewState}, 'live') = 'live'`,
+			),
+		);
 	return rows.map((r) => r.toolId);
 }
 
@@ -120,7 +132,13 @@ export async function getEnabledToolDetailsForApp(db: DbClient, appId: string) {
 			inputSchema: appTools.inputSchema,
 		})
 		.from(appTools)
-		.where(and(eq(appTools.appId, appId), eq(appTools.enabled, true)));
+		.where(
+			and(
+				eq(appTools.appId, appId),
+				eq(appTools.enabled, true),
+				sql`coalesce(${appTools.reviewState}, 'live') = 'live'`,
+			),
+		);
 }
 
 /**
@@ -141,5 +159,11 @@ export async function getPortableWebMcpToolAdmissions(
 			writeCapability: appTools.writeCapability,
 		})
 		.from(appTools)
-		.where(and(eq(appTools.appId, appId), eq(appTools.enabled, true)));
+		.where(
+			and(
+				eq(appTools.appId, appId),
+				eq(appTools.enabled, true),
+				sql`coalesce(${appTools.reviewState}, 'live') = 'live'`,
+			),
+		);
 }

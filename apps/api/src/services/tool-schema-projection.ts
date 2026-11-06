@@ -634,6 +634,9 @@ export async function buildProjectedTool(
 			contractHash: options.contractHash ?? null,
 			sortOrder: existing?.sortOrder ?? 0,
 			enabled: existing?.enabled ?? true,
+			reviewState: "live",
+			reviewDiff: null,
+			reviewBatchId: null,
 		},
 	};
 }

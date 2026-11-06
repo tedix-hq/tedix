@@ -26,6 +26,7 @@ import { reportUnclassifiedWriteCapability } from "@tedix/db/queries/catalog/wri
 import { publishMcpListChangedEvents } from "../lib/mcp-subscriptions";
 import { runGoogleDiscoveryToolImport } from "../services/google-discovery-tool-import";
 import { executeOpenApiToolImport } from "../services/openapi-tool-import";
+import { ensurePendingToolReviewApprovals } from "../services/tool-review-approvals";
 
 export type OpenApiSyncWorkflowInput = Partial<OpenApiImportInput> & {
 	appIds?: string[];
@@ -119,6 +120,18 @@ export class OpenApiSyncWorkflow extends WorkflowEntrypoint<
 							);
 				});
 				if (!result.dryRun) {
+					if (result.created + result.updated > 0) {
+						await step.do(`request openapi tool review ${index}`, async () => {
+							const app = await getAppById(db, appId);
+							if (!app)
+								throw new Error(`Imported app ${appId} no longer exists`);
+							await ensurePendingToolReviewApprovals(db, {
+								organizationId: app.organizationId,
+								appId,
+								appName: app.name,
+							});
+						});
+					}
 					const projection = await step.do(`project openapi app ${index}`, () =>
 						projectLinkedOpenApiCatalogSnapshot(db, appId),
 					);
@@ -126,7 +139,7 @@ export class OpenApiSyncWorkflow extends WorkflowEntrypoint<
 
 					// Applied app_tools rewrites change tools/list and the derived
 					// ui:// widget resources for live MCP subscribers.
-					if (result.created + result.updated + result.deleted > 0) {
+					if (result.deleted > 0) {
 						await step.do(`notify openapi app ${index}`, async () => {
 							const app = await getAppById(db, appId);
 							if (!app)

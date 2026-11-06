@@ -13,6 +13,7 @@ import { deriveToolWriteCapability } from "@tedix/api-contract/schemas/tools";
 import { eq } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { apps, appTools, skillEntries } from "../../schema/index";
+import type { ToolReviewDiff } from "../../schema/tools";
 import { batchNonEmpty } from "../../utils/batch";
 import { getConnectionProviderByDescopeAppId } from "../connection-providers";
 import { getCatalogAppById } from "./get-app";
@@ -60,7 +61,7 @@ export interface SyncCatalogToolsToAppOptions {
 	existingToolsOverride?: Array<typeof appTools.$inferSelect>;
 }
 
-interface SyncCatalogToolsToAppResultItem {
+export interface SyncCatalogToolsToAppResultItem {
 	toolName: string;
 	action:
 		| "created"
@@ -71,6 +72,9 @@ interface SyncCatalogToolsToAppResultItem {
 		| "would_update"
 		| "would_disable";
 	reason?: string;
+	rowId?: string;
+	schemaSourceHash?: string;
+	diff?: ToolReviewDiff;
 }
 
 export function buildCatalogMcpConnectionAuth(input: {
@@ -219,6 +223,7 @@ export async function syncCatalogToolsToApp(
 	const catalogToolNames = new Set(catalogTools.map((t) => t.toolName));
 	const results: SyncCatalogToolsToAppResultItem[] = [];
 	const now = new Date().toISOString();
+	const reviewBatchId = crypto.randomUUID();
 
 	const authConfig = buildCatalogMcpConnectionAuth({
 		connectionProviderId: effectiveConnectionProviderId,
@@ -323,11 +328,27 @@ export async function syncCatalogToolsToApp(
 				undeclaredNewTools.push(ct.toolName);
 				continue;
 			}
+			const diff: ToolReviewDiff = {
+				source: "upstream_mcp",
+				before: null,
+				after: {
+					description: ct.description,
+					inputSchema,
+					outputSchema,
+					schemaSourceHash,
+				},
+			};
 			if (dryRun) {
-				results.push({ toolName: ct.toolName, action: "would_create" });
+				results.push({
+					toolName: ct.toolName,
+					action: "would_create",
+					schemaSourceHash,
+					diff,
+				});
 			} else {
+				const rowId = crypto.randomUUID();
 				plannedInserts.push({
-					id: crypto.randomUUID(),
+					id: rowId,
 					appId,
 					toolTypeId: "mcp",
 					toolId: ct.toolName,
@@ -349,12 +370,21 @@ export async function syncCatalogToolsToApp(
 					schemaSourceHash,
 					schemaSyncedAt: now,
 					enabled: true,
+					reviewState: "pending",
+					reviewDiff: diff,
+					reviewBatchId,
 					sortOrder: 0,
 					visibility: "public",
 					createdAt: now,
 					updatedAt: now,
 				} as typeof appTools.$inferInsert);
-				results.push({ toolName: ct.toolName, action: "created" });
+				results.push({
+					toolName: ct.toolName,
+					action: "created",
+					rowId,
+					schemaSourceHash,
+					diff,
+				});
 			}
 			continue;
 		}
@@ -492,8 +522,39 @@ export async function syncCatalogToolsToApp(
 				toolName: ct.toolName,
 				action: "would_update",
 				reason: reasons.join(", "),
+				schemaSourceHash,
+				diff: {
+					source: "upstream_mcp",
+					before: {
+						description: existing.description,
+						inputSchema: existing.inputSchema,
+						outputSchema: existing.outputSchema,
+						schemaSourceHash: existing.schemaSourceHash,
+					},
+					after: {
+						description: ct.description,
+						inputSchema,
+						outputSchema: effectiveOutputSchema,
+						schemaSourceHash,
+					},
+				},
 			});
 		} else {
+			const diff: ToolReviewDiff = {
+				source: "upstream_mcp",
+				before: {
+					description: existing.description,
+					inputSchema: existing.inputSchema,
+					outputSchema: existing.outputSchema,
+					schemaSourceHash: existing.schemaSourceHash,
+				},
+				after: {
+					description: ct.description,
+					inputSchema,
+					outputSchema: effectiveOutputSchema,
+					schemaSourceHash,
+				},
+			};
 			plannedUpdates.push({
 				id: existing.id,
 				set: {
@@ -513,10 +574,19 @@ export async function syncCatalogToolsToApp(
 					schemaSourceRef,
 					schemaSourceHash,
 					schemaSyncedAt: now,
+					reviewState: "pending",
+					reviewDiff: diff,
+					reviewBatchId,
 					updatedAt: now,
 				} as Partial<typeof appTools.$inferInsert>,
 			});
-			results.push({ toolName: ct.toolName, action: "updated" });
+			results.push({
+				toolName: ct.toolName,
+				action: "updated",
+				rowId: existing.id,
+				schemaSourceHash,
+				diff,
+			});
 		}
 	}
 
