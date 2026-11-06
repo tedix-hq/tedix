@@ -83,12 +83,6 @@
 			"remote": false,
 		},
 	],
-	"agent_memory": [
-		{
-			"binding": "AGENT_MEMORY",
-			"namespace": "public-installation-namespace",
-		},
-	],
 	"artifacts": [
 		{
 			"binding": "ARTIFACTS",
@@ -539,12 +533,6 @@
 					"remote": false,
 				},
 			],
-			"agent_memory": [
-				{
-					"binding": "AGENT_MEMORY",
-					"namespace": "public-installation-namespace",
-				},
-			],
 			"artifacts": [
 				{
 					"binding": "ARTIFACTS",
@@ -556,21 +544,25 @@
 				{
 					"binding": "R2_BUCKET",
 					"bucket_name": "public-installation-bucket",
+					"jurisdiction": "eu",
 					"remote": false,
 				},
 				{
 					"binding": "TEDI_R2_BUCKET",
 					"bucket_name": "public-installation-bucket",
+					"jurisdiction": "eu",
 					"remote": false,
 				},
 				{
 					"binding": "CONTENT_CMS_BUCKET",
 					"bucket_name": "public-installation-bucket",
+					"jurisdiction": "eu",
 					"remote": false,
 				},
 				{
 					"binding": "SKILL_ARTIFACTS",
 					"bucket_name": "public-installation-bucket",
+					"jurisdiction": "eu",
 					"remote": false,
 				},
 			],

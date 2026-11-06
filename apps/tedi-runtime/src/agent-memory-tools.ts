@@ -18,13 +18,14 @@ export async function deleteAgentMemoryProfile(
 
 export async function handleAgentMemoryProfileDelete(
 	request: Request,
-	namespace: AgentMemoryNamespace,
+	namespace: AgentMemoryNamespace | undefined,
 	orgId: string,
 	tediId: string,
 ): Promise<Response> {
 	if (request.method !== "POST") {
 		return new Response("Method Not Allowed", { status: 405 });
 	}
+	if (!namespace) return new Response(null, { status: 204 });
 	const profile = await deleteAgentMemoryProfile(namespace, orgId, tediId);
 	return Response.json({ ok: true, profile });
 }
