@@ -48,12 +48,6 @@ export const DecisionEffectSchema = z.discriminatedUnion("kind", [
 		buildId: z.uuid(),
 	}),
 	z.strictObject({
-		kind: z.literal("delegate_work"),
-		workItemId: z.uuid(),
-		executor: z.string().trim().min(1).max(40),
-		workVersion: z.number().int().positive(),
-	}),
-	z.strictObject({
 		kind: z.literal("publish_support"),
 		ticketId: z.uuid(),
 		expectedVersion: z.number().int().positive(),
