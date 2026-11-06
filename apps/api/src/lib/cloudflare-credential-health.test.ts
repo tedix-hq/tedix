@@ -40,7 +40,7 @@ describe("Cloudflare credential health", () => {
 		expect(probe).toMatchObject({
 			status: "firing",
 			finding: {
-				workerName: "tedix-api-production",
+				workerName: "tedix-api",
 				bindingNames: ["CF_ACCOUNT_ID", "CF_AI_GATEWAY_TOKEN"],
 				gatewayIds: ["default", "tedix-llm-production"],
 				remediationUrl: CLOUDFLARE_CREDENTIAL_REMEDIATION_URL,
@@ -75,7 +75,7 @@ describe("Cloudflare credential health", () => {
 			lastSeenAt: lastSeen,
 			notifyCount: 1,
 		});
-		expect(open?.detail).toContain("worker=tedix-api-production");
+		expect(open?.detail).toContain("worker=tedix-api");
 		expect(open?.detail).toContain("bindings=CF_ACCOUNT_ID");
 		expect(open?.detail).toContain(CLOUDFLARE_CREDENTIAL_REMEDIATION_URL);
 
