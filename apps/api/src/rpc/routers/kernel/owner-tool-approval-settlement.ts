@@ -16,6 +16,7 @@
  */
 
 import {
+	isRequesterOnlyOwnerToolFailure,
 	isRetryableOwnerToolExecution,
 	isStaleOwnerToolRun,
 	STALE_OWNER_TOOL_RUN_MS,
@@ -162,6 +163,24 @@ async function activeOwnerOrAdmin(
 type OwnerToolRunOutcome = "succeeded" | "failed" | "queued";
 
 /**
+ * A connection-transport call runs only under the requester's own verified
+ * `connections.execute` grant. An owner's session in Tedix OS does not carry
+ * it, so such a call can only be sent again by the requester.
+ */
+function hasVerifiedRequesterGrant(
+	context: BaseContext,
+	payload: OwnerToolCallPayload,
+): boolean {
+	return (
+		payload.target.transport === "mcp" &&
+		context.authType === "user" &&
+		context.user?.sub === payload.initiatedByUserId &&
+		Array.isArray(context.user.scopes) &&
+		context.user.scopes.includes("connections.execute")
+	);
+}
+
+/**
  * One claimed run of the stored call: apply-time access checks, the gateway
  * replay, and the record on the request, the receipt and the audit event.
  */
@@ -277,9 +296,13 @@ async function runOwnerToolCall(
 		});
 		return observed.outcome;
 	};
-	const fail = (error: string, retryable = false) =>
+	const fail = (
+		error: string,
+		retryable = false,
+		actionBy?: OwnerToolApprovalExecution["actionBy"],
+	) =>
 		finish(
-			{ status: "failed", error, retryable },
+			{ status: "failed", error, retryable, ...(actionBy ? { actionBy } : {}) },
 			{ outcome: "failed", error },
 		);
 
@@ -307,12 +330,10 @@ async function runOwnerToolCall(
 			return fail("The approver is no longer an active owner or admin");
 		const organization = await getOrganizationById(context.db, organizationId);
 		if (!organization) return fail("Organization not found");
-		const verifiedConnectionExecute =
-			payload.target.transport === "mcp" &&
-			context.authType === "user" &&
-			context.user?.sub === payload.initiatedByUserId &&
-			Array.isArray(context.user.scopes) &&
-			context.user.scopes.includes("connections.execute");
+		const verifiedConnectionExecute = hasVerifiedRequesterGrant(
+			context,
+			payload,
+		);
 		const verifiedConnectionAdmin =
 			verifiedConnectionExecute &&
 			Array.isArray(context.user?.scopes) &&
@@ -320,7 +341,8 @@ async function runOwnerToolCall(
 		if (payload.target.transport === "mcp" && !verifiedConnectionExecute)
 			return fail(
 				"The requester must retry with a verified connections.execute grant; no provider call was made",
-				true,
+				false,
+				"requester",
 			);
 		const timings: KernelWriteExecutorTimings = {};
 		const result = await activeOwnerToolExecutor({
@@ -423,6 +445,9 @@ export type OwnerToolRetryRefusal =
 	| "still_running"
 	| "not_retryable"
 	| "expired"
+	| "requester_must_retry"
+	| "outcome_unknown"
+	| "dismissed"
 	| "claim_lost";
 
 /**
@@ -449,10 +474,24 @@ export async function retryOwnerToolCallExecution(
 		return "not_owner_tool_call";
 	const execution = payload.execution;
 	if (!execution || execution.status === "executed") return "not_failed";
+	const recorded = input.approval.payload as Record<string, unknown>;
+	const dismissed =
+		recorded.execution &&
+		typeof recorded.execution === "object" &&
+		typeof (recorded.execution as Record<string, unknown>).dismissedAt ===
+			"string";
+	if (dismissed) return "dismissed";
 	const now = Date.now();
 	if (execution.status === "running" && !isStaleOwnerToolRun(execution, now))
 		return "still_running";
-	if (!isRetryableOwnerToolExecution(execution, now)) return "not_retryable";
+	// The gateway consumed the approval before the run was cut off: the target
+	// may already have changed, so the call is never run a second time.
+	if (typeof recorded.consumedAt === "string") return "outcome_unknown";
+	const requesterOnly = isRequesterOnlyOwnerToolFailure(execution);
+	if (requesterOnly && !hasVerifiedRequesterGrant(context, payload))
+		return "requester_must_retry";
+	if (!requesterOnly && !isRetryableOwnerToolExecution(execution, now))
+		return "not_retryable";
 	if (Date.parse(input.approval.expiresAt) <= now) return "expired";
 	const startedAt = new Date(now).toISOString();
 	const attempt = (execution.attempt ?? 1) + 1;

@@ -51,6 +51,7 @@ import {
 	createApprovalRequest,
 	createApprovalRequestWithAudit,
 	createProvisionalOutcome,
+	dismissOwnerToolApprovalExecution,
 	ensureProvisionalPromotionApprovalRequest,
 	expireStaleApprovals,
 	getApprovalRequestById,
@@ -92,6 +93,7 @@ import {
 } from "../orpc";
 import { settleHomeToolWriteApproval } from "./kernel/write-approval-settlement";
 import { retryOwnerToolCallExecution } from "./kernel/owner-tool-approval-settlement";
+import { STALE_OWNER_TOOL_RUN_MS } from "@tedix/api-contract/utils/owner-tool-execution";
 import { requireOrgId } from "../org-scope";
 import {
 	browserLoginSession,
@@ -1568,6 +1570,11 @@ const retryExecutionProcedure = authedOs.retryExecution
 					"This call was refused by its target or the target changed; request a new approval instead",
 				expired:
 					"This approval's window has passed, so it cannot run again; ask the agent to request a new approval",
+				requester_must_retry:
+					"Only the agent that asked can send this call again, under its own connection access; dismiss it here",
+				outcome_unknown:
+					"This call may already have reached its target before the run was cut off, so it is not run again; check the target, then dismiss it",
+				dismissed: "This call was dismissed, so it does not run again",
 				claim_lost:
 					"This call could not be claimed for a retry: it may have expired, been consumed, or be running now",
 			};
@@ -1578,6 +1585,75 @@ const retryExecutionProcedure = authedOs.retryExecution
 		// waits sees "Running now" and the recorded result on its next read.
 		if (context.waitUntil) context.waitUntil(outcome.run);
 		else await outcome.run;
+		const updated = await getApprovalRequestById(context.db, existing.id);
+		return normalizeApprovalRequest(updated ?? existing, context);
+	});
+
+/**
+ * Clear an approved owner call whose last run failed or was cut off. Only an
+ * active owner or admin may; the dismissal is recorded on the request and in
+ * the audit log, and the call never runs again.
+ */
+const dismissExecutionProcedure = authedOs.dismissExecution
+	.use(AUTHZ.osApprove)
+	.handler(async ({ input, context }) => {
+		const orgId = getOrganizationId(context);
+		const existing = await getApprovalRequestById(context.db, input.id);
+		if (!existing) {
+			throw createError(ErrorCodes.NOT_FOUND, "Approval request not found");
+		}
+		if (orgId && existing.orgId !== orgId) {
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Access denied to this approval request",
+			);
+		}
+		const dismissedBy = context.user?.sub;
+		if (!dismissedBy)
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Only a signed-in owner or admin can dismiss an approved call",
+			);
+		const member = await getMemberByUserId(
+			context.db,
+			existing.orgId,
+			dismissedBy,
+		);
+		if (
+			member?.status !== "active" ||
+			!["owner", "admin"].includes(member.role)
+		)
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Only an active owner or admin can dismiss an approved call",
+			);
+		const now = new Date();
+		const dismissed = await dismissOwnerToolApprovalExecution(context.db, {
+			id: existing.id,
+			organizationId: existing.orgId,
+			now: now.toISOString(),
+			dismissedBy,
+			staleBefore: new Date(
+				now.getTime() - STALE_OWNER_TOOL_RUN_MS,
+			).toISOString(),
+		});
+		if (!dismissed)
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"Only an approved call whose last run failed or was cut off can be dismissed; a queued or running call keeps going",
+			);
+		await insertAuditEvent(context.db, {
+			organizationId: existing.orgId,
+			actorId: dismissedBy,
+			actorType: "user",
+			action: "approval.execution_dismissed",
+			resourceType: "approval_request",
+			resourceId: existing.id,
+			metadata: toJsonRecord({
+				tediId: existing.tediId,
+				actionType: existing.actionType,
+			}),
+		});
 		const updated = await getApprovalRequestById(context.db, existing.id);
 		return normalizeApprovalRequest(updated ?? existing, context);
 	});
@@ -1803,6 +1879,7 @@ export const tediApprovalsContractRouter = approvalsOs.router({
 	resolveReviewManifest: resolveReviewManifestProcedure,
 	resolve: resolveProcedure,
 	retryExecution: retryExecutionProcedure,
+	dismissExecution: dismissExecutionProcedure,
 	cancel: cancelProcedure,
 	clearExpired: clearExpiredProcedure,
 });

@@ -1,10 +1,12 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import { kernelRuntimeRuns } from "../../schema/cognitive-runtime";
-import type {
-	KernelRuntimeRun,
-	KernelRuntimeRunUpdate,
-	NewKernelRuntimeRun,
-	TransitionKernelRuntimeRunStatusParams,
+import {
+	type KernelRuntimeRun,
+	type KernelRuntimeRunUpdate,
+	type NewKernelRuntimeRun,
+	type StaleDelegationResolutionTakeover,
+	type TransitionKernelRuntimeRunStatusParams,
+	staleDelegationResolutionTakeoverGuard,
 } from "../kernel-runtime-runs";
 import {
 	insertKernelRuntimeEventInTransaction,
@@ -277,6 +279,10 @@ export async function compareAndTouchKernelRuntimeRun(
 		delegationApprovalEventId?: string;
 		delegationWorkItemId?: string;
 		delegationScopeDigest?: string;
+		/** The recorded decision time when finishing a decision a cut-off resolver recorded. */
+		delegationApprovalResolvedAt?: string;
+		/** Take over a cut-off resolver's claim instead of requiring none. */
+		staleDelegationResolutionClaim?: StaleDelegationResolutionTakeover;
 	},
 ): Promise<boolean> {
 	if (
@@ -285,13 +291,16 @@ export async function compareAndTouchKernelRuntimeRun(
 			!input.delegationApprovalEventId?.trim())
 	)
 		return false;
+	const takeover = input.staleDelegationResolutionClaim;
+	if (takeover && (!input.requireNoDelegationResumeClaim || !takeover.claimId))
+		return false;
 	const rows = await db
 		.update(kernelRuntimeRuns)
 		.set({
 			updatedAt: input.updatedAt,
 			...(input.requireNoDelegationResumeClaim
 				? {
-						metadata: sql`json_set(coalesce(${kernelRuntimeRuns.metadata}, '{}'), '$.homeDelegationResolutionClaim', json(${JSON.stringify({ version: 1, phase: "resolving", claimId: input.delegationResolutionClaimId, claimedAt: input.updatedAt, approvalEventId: input.delegationApprovalEventId, approvalResolvedAt: input.updatedAt, organizationId: input.organizationId, runId: input.id, workItemId: input.delegationWorkItemId ?? null, scopeDigest: input.delegationScopeDigest ?? null })}), '$.homeDelegationResolutionClaim.conversationId', ${kernelRuntimeRuns.conversationId})`,
+						metadata: sql`json_set(coalesce(${kernelRuntimeRuns.metadata}, '{}'), '$.homeDelegationResolutionClaim', json(${JSON.stringify({ version: 1, phase: "resolving", claimId: input.delegationResolutionClaimId, claimedAt: input.updatedAt, approvalEventId: input.delegationApprovalEventId, approvalResolvedAt: input.delegationApprovalResolvedAt ?? input.updatedAt, organizationId: input.organizationId, runId: input.id, workItemId: input.delegationWorkItemId ?? null, scopeDigest: input.delegationScopeDigest ?? null, ...(takeover ? { takeoverOf: takeover.claimId } : {}) })}), '$.homeDelegationResolutionClaim.conversationId', ${kernelRuntimeRuns.conversationId})`,
 					}
 				: {}),
 		})
@@ -302,7 +311,9 @@ export async function compareAndTouchKernelRuntimeRun(
 				eq(kernelRuntimeRuns.status, input.status),
 				eq(kernelRuntimeRuns.updatedAt, input.expectedUpdatedAt),
 				input.requireNoDelegationResumeClaim
-					? sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume') is null and json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim') is null`
+					? takeover
+						? staleDelegationResolutionTakeoverGuard(takeover)
+						: sql`json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResume') is null and json_extract(${kernelRuntimeRuns.metadata}, '$.homeDelegationResolutionClaim') is null`
 					: undefined,
 			),
 		)

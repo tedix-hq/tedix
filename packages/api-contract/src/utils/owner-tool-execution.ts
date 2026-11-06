@@ -20,6 +20,11 @@ export interface OwnerToolExecutionRecord {
 	/** 2 on the first retry an owner or admin started, and so on; absent on the first run. */
 	attempt?: number;
 	retriedBy?: string;
+	/** Only the requester can send it again (no provider call was made). */
+	actionBy?: "requester";
+	/** An owner or admin cleared it from the waiting list; it never runs again. */
+	dismissedAt?: string;
+	dismissedBy?: string;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -61,7 +66,33 @@ export function parseOwnerToolExecution(
 		...(typeof value.retriedBy === "string"
 			? { retriedBy: value.retriedBy }
 			: {}),
+		...(value.actionBy === "requester"
+			? { actionBy: "requester" as const }
+			: {}),
+		...(typeof value.dismissedAt === "string"
+			? { dismissedAt: value.dismissedAt }
+			: {}),
+		...(typeof value.dismissedBy === "string"
+			? { dismissedBy: value.dismissedBy }
+			: {}),
 	};
+}
+
+/**
+ * Failures only the requester can fix: the call must be sent again under the
+ * requester's own verified grant, which an owner's retry from Tedix OS does
+ * not carry. Nothing reached the provider.
+ */
+const REQUESTER_ONLY_ERROR = /requester must retry/i;
+
+export function isRequesterOnlyOwnerToolFailure(
+	execution: OwnerToolExecutionRecord | null | undefined,
+): boolean {
+	return (
+		execution?.status === "failed" &&
+		(execution.actionBy === "requester" ||
+			REQUESTER_ONLY_ERROR.test(execution.error ?? ""))
+	);
 }
 
 /**
@@ -102,10 +133,11 @@ export function isRetryableOwnerToolExecution(
 	execution: OwnerToolExecutionRecord | null | undefined,
 	now = Date.now(),
 ): boolean {
-	if (!execution) return false;
+	if (!execution || execution.dismissedAt) return false;
 	if (execution.status === "running")
 		return isStaleOwnerToolRun(execution, now);
 	if (execution.status !== "failed") return false;
+	if (isRequesterOnlyOwnerToolFailure(execution)) return false;
 	// A stored `retryable: false` is not final: a gateway refusal before
 	// dispatch is recognisable from its text whatever the recorder decided.
 	return (
@@ -129,4 +161,42 @@ export function ownerToolExecutionOutcome(
 	return isStaleOwnerToolRun(execution, now)
 		? "Did not finish: the run was cut off before it reached the target"
 		: "Running now";
+}
+
+/**
+ * What, if anything, a person can do about an approved call's last run.
+ * - `wait`: it is queued or running now;
+ * - `retry`: nothing reached the target, an owner may run it once more;
+ * - `requester`: only the requester can send it again (see
+ *   `isRequesterOnlyOwnerToolFailure`);
+ * - `outcome_unknown`: the run was cut off after the gateway consumed the
+ *   approval, so the target may have changed; it is never run again;
+ * - `final`: it failed in a way a retry cannot fix;
+ * - `none`: it finished, or a person dismissed it.
+ * Every state except `wait` and `none` can be dismissed.
+ */
+export type OwnerToolExecutionNextStep =
+	| "wait"
+	| "retry"
+	| "requester"
+	| "outcome_unknown"
+	| "final"
+	| "none";
+
+export function ownerToolExecutionNextStep(
+	execution: OwnerToolExecutionRecord | null | undefined,
+	options: { consumedAt?: string | null; now?: number } = {},
+): OwnerToolExecutionNextStep {
+	const now = options.now ?? Date.now();
+	if (!execution || execution.dismissedAt || execution.status === "executed")
+		return "none";
+	if (execution.status === "queued") return "wait";
+	if (execution.status === "running") {
+		if (!isStaleOwnerToolRun(execution, now)) return "wait";
+		return options.consumedAt ? "outcome_unknown" : "retry";
+	}
+	if (isRequesterOnlyOwnerToolFailure(execution)) return "requester";
+	return !options.consumedAt && isRetryableOwnerToolExecution(execution, now)
+		? "retry"
+		: "final";
 }

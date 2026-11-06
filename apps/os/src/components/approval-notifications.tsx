@@ -19,6 +19,7 @@ import {
 	groupApprovalItems,
 	useApprovalInbox,
 } from "@/components/approval-inbox";
+import { resolutionNote } from "@/components/chat-cards";
 import { EntityAvatar } from "@/shared/entity-avatar";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
@@ -207,6 +208,7 @@ export function ApprovalNotifications({
 													items={row}
 													key={row[0]?.key}
 													onDecide={(choice) => void inbox.decide(row, choice)}
+													onRefresh={() => void inbox.refresh()}
 												/>
 											))}
 										</ul>
@@ -248,11 +250,14 @@ function ApprovalRow({
 	items,
 	busy,
 	onDecide,
+	onRefresh,
 }: {
 	/** One request, or several identical ones decided together. */
 	items: readonly ApprovalListItem[];
 	busy: boolean;
 	onDecide: (choice: ApprovalChoice) => void;
+	/** Re-read the inbox; the Retry while a decision is being recorded. */
+	onRefresh: () => void;
 }) {
 	const [expanded, setExpanded] = useState(false);
 	const item = items[0]!;
@@ -361,24 +366,72 @@ function ApprovalRow({
 						: null
 				}
 			/>
+			{item.resolution ? (
+				<Text
+					as="p"
+					className="m-0 sm:pl-10"
+					data-approval-resolution={item.resolution.kind}
+					role="label"
+					tone="secondary"
+				>
+					{resolutionNote(item.resolution)}
+				</Text>
+			) : null}
 			<div className="flex min-w-0 flex-wrap items-center gap-2 sm:pl-10">
-				<Button
-					disabled={busy}
-					icon={<Check size={14} />}
-					onClick={() => onDecide("approved")}
-					size="sm"
-				>
-					{repeats > 1 ? `Approve all ${repeats}` : "Approve"}
-				</Button>
-				<Button
-					disabled={busy}
-					icon={<X size={14} />}
-					onClick={() => onDecide("rejected")}
-					size="sm"
-					variant="secondary"
-				>
-					{repeats > 1 ? `Reject all ${repeats}` : "Reject"}
-				</Button>
+				{item.resolution?.kind === "recording" ? (
+					<Button
+						disabled={busy}
+						onClick={onRefresh}
+						size="sm"
+						variant="secondary"
+					>
+						Retry
+					</Button>
+				) : item.resolution?.kind === "finish" ? (
+					<Button
+						disabled={busy}
+						icon={
+							item.resolution.decision === "approve" ? (
+								<Check size={14} />
+							) : (
+								<X size={14} />
+							)
+						}
+						onClick={() =>
+							onDecide(
+								item.resolution?.kind === "finish" &&
+									item.resolution.decision === "reject"
+									? "rejected"
+									: "approved",
+							)
+						}
+						size="sm"
+					>
+						{item.resolution.decision === "approve"
+							? "Finish approval"
+							: "Finish rejection"}
+					</Button>
+				) : (
+					<>
+						<Button
+							disabled={busy}
+							icon={<Check size={14} />}
+							onClick={() => onDecide("approved")}
+							size="sm"
+						>
+							{repeats > 1 ? `Approve all ${repeats}` : "Approve"}
+						</Button>
+						<Button
+							disabled={busy}
+							icon={<X size={14} />}
+							onClick={() => onDecide("rejected")}
+							size="sm"
+							variant="secondary"
+						>
+							{repeats > 1 ? `Reject all ${repeats}` : "Reject"}
+						</Button>
+					</>
+				)}
 				<DropdownMenu>
 					<DropdownMenuTrigger
 						render={
@@ -394,9 +447,11 @@ function ApprovalRow({
 						}
 					/>
 					<DropdownMenuContent align="end">
-						<DropdownMenuItem onClick={() => onDecide("recommended")}>
-							Follow the suggestion ({recommended.toLowerCase()})
-						</DropdownMenuItem>
+						{item.resolution ? null : (
+							<DropdownMenuItem onClick={() => onDecide("recommended")}>
+								Follow the suggestion ({recommended.toLowerCase()})
+							</DropdownMenuItem>
+						)}
 						<DropdownMenuItem onClick={() => setExpanded((value) => !value)}>
 							{expanded ? "Hide details" : "Show details"}
 						</DropdownMenuItem>

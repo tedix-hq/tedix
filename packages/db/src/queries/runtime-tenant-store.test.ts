@@ -342,6 +342,99 @@ describe.each(["d1", "tenant"] as const)(
 			).resolves.toBe(true);
 		});
 
+		it("takes over a stale resolving claim once, and only without a receipt", async () => {
+			const queries = fixture(plane);
+			const { scope } = queries;
+			const claimedAt = "2026-11-05T10:00:00.000Z";
+			const eventId = "resolution-receipt";
+			await queries.insertRun({
+				...runRow("held-run", {
+					status: "requires_approval",
+					metadata: {
+						homeDelegationResolutionClaim: {
+							version: 1,
+							phase: "resolving",
+							claimId: "cut-off",
+							claimedAt,
+							approvalEventId: eventId,
+							approvalResolvedAt: claimedAt,
+						},
+					},
+				}),
+				...scope,
+			});
+			const touch = (
+				updatedAt: string,
+				claimId: string,
+				staleBefore = "2026-11-05T10:05:00.000Z",
+			) =>
+				queries.compareAndTouchRun({
+					...scope,
+					id: "held-run",
+					status: "requires_approval",
+					expectedUpdatedAt: claimedAt,
+					updatedAt,
+					requireNoDelegationResumeClaim: true,
+					delegationResolutionClaimId: claimId,
+					delegationApprovalEventId: `event-${claimId}`,
+					staleDelegationResolutionClaim: { claimId: "cut-off", staleBefore },
+				});
+			// Still inside the window: the live resolver keeps its claim.
+			await expect(
+				touch("2026-11-05T10:01:00.000Z", "early", "2026-11-05T09:59:00.000Z"),
+			).resolves.toBe(false);
+			// A recorded receipt means the decision is finished, never redone.
+			await queries.insertKernelEvent({
+				...scope,
+				id: eventId,
+				kind: "approval.resolved",
+				conversationId,
+				runId: "held-run",
+				createdAt: claimedAt,
+				payload: { status: "approved" },
+			});
+			await expect(touch("2026-11-05T10:06:00.000Z", "redo")).resolves.toBe(
+				false,
+			);
+			await expect(
+				queries.compareAndTouchRun({
+					...scope,
+					id: "held-run",
+					status: "requires_approval",
+					expectedUpdatedAt: claimedAt,
+					updatedAt: "2026-11-05T10:06:00.000Z",
+					requireNoDelegationResumeClaim: true,
+					delegationResolutionClaimId: "finisher",
+					delegationApprovalEventId: eventId,
+					delegationApprovalResolvedAt: claimedAt,
+					staleDelegationResolutionClaim: {
+						claimId: "cut-off",
+						staleBefore: "2026-11-05T10:05:00.000Z",
+						recorded: {
+							approvalEventId: eventId,
+							approvalResolvedAt: claimedAt,
+							status: "approved",
+						},
+					},
+				}),
+			).resolves.toBe(true);
+			// The swap moved the claim: a second taker of the old claim loses.
+			await expect(touch("2026-11-05T10:07:00.000Z", "second")).resolves.toBe(
+				false,
+			);
+			const [run] = await queries.listRuns({
+				...scope,
+				conversationId,
+				limit: 1,
+			});
+			expect(run?.metadata?.homeDelegationResolutionClaim).toMatchObject({
+				claimId: "finisher",
+				takeoverOf: "cut-off",
+				approvalEventId: eventId,
+				approvalResolvedAt: claimedAt,
+			});
+		});
+
 		it("opens, compare-and-touches and settles a run atomically", async () => {
 			const queries = fixture(plane);
 			const { scope } = queries;

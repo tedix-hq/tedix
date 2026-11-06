@@ -133,6 +133,7 @@ export async function listApprovalRequests(
 			eq(tediApprovalRequests.status, "approved"),
 			eq(tediApprovalRequests.actionType, "mcp.tool_call"),
 			sql`json_extract(${tediApprovalRequests.payload}, '$.execution.status') IN ('queued', 'running', 'failed')`,
+			sql`json_extract(${tediApprovalRequests.payload}, '$.execution.dismissedAt') IS NULL`,
 			// A passed window can never run again; History keeps the row.
 			gt(tediApprovalRequests.expiresAt, new Date().toISOString()),
 		);
@@ -673,6 +674,50 @@ export interface OwnerToolApprovalExecution {
 	/** 2 on the first retry an owner or admin started, and so on; absent on the first run. */
 	attempt?: number;
 	retriedBy?: string;
+	/** Only the requester can send it again (no provider call was made). */
+	actionBy?: "requester";
+	/** An owner or admin cleared it from the waiting list; it never runs again. */
+	dismissedAt?: string;
+	dismissedBy?: string;
+}
+
+/**
+ * Clear an approved call's unfinished or failed run from the waiting list.
+ * Only a run nothing is working on can be dismissed: a failed run, or one
+ * cut off longer than `staleBefore` ago. A queued or live run keeps going.
+ * Dismissed runs are never retried, by a person or by the queue.
+ */
+export async function dismissOwnerToolApprovalExecution(
+	db: DbClient,
+	input: {
+		id: string;
+		organizationId: string;
+		now: string;
+		dismissedBy: string;
+		staleBefore: string;
+	},
+): Promise<boolean> {
+	const rows = await db
+		.update(tediApprovalRequests)
+		.set({
+			payload: sql`json_set(${tediApprovalRequests.payload}, '$.execution.dismissedAt', ${input.now}, '$.execution.dismissedBy', ${input.dismissedBy})`,
+		})
+		.where(
+			and(
+				eq(tediApprovalRequests.id, input.id),
+				eq(tediApprovalRequests.orgId, input.organizationId),
+				eq(tediApprovalRequests.status, "approved"),
+				eq(tediApprovalRequests.actionType, "mcp.tool_call"),
+				sql`json_extract(${tediApprovalRequests.payload}, '$.execution.dismissedAt') IS NULL`,
+				sql`(
+					json_extract(${tediApprovalRequests.payload}, '$.execution.status') = 'failed'
+					OR (json_extract(${tediApprovalRequests.payload}, '$.execution.status') = 'running'
+						AND json_extract(${tediApprovalRequests.payload}, '$.execution.startedAt') < ${input.staleBefore})
+				)`,
+			),
+		)
+		.returning({ id: tediApprovalRequests.id });
+	return rows.length === 1;
 }
 
 /**
@@ -722,6 +767,7 @@ export async function reclaimOwnerToolApprovalExecution(
 						AND json_extract(${tediApprovalRequests.payload}, '$.execution.startedAt') < ${input.staleBefore})
 				)`,
 				sql`json_extract(${tediApprovalRequests.payload}, '$.consumedAt') IS NULL`,
+				sql`json_extract(${tediApprovalRequests.payload}, '$.execution.dismissedAt') IS NULL`,
 			),
 		)
 		.returning({ id: tediApprovalRequests.id });
@@ -855,6 +901,7 @@ export async function listDueOwnerToolApprovals(
 				sql`(json_extract(${tediApprovalRequests.payload}, '$.execution.status') = 'queued' OR (json_extract(${tediApprovalRequests.payload}, '$.execution.status') = 'running' AND json_extract(${tediApprovalRequests.payload}, '$.execution.startedAt') < ${new Date(Date.parse(now) - STALE_OWNER_TOOL_RUN_MS).toISOString()}))`,
 				sql`json_extract(${tediApprovalRequests.payload}, '$.execution.nextAttemptAt') <= ${now}`,
 				sql`json_extract(${tediApprovalRequests.payload}, '$.consumedAt') IS NULL`,
+				sql`json_extract(${tediApprovalRequests.payload}, '$.execution.dismissedAt') IS NULL`,
 			),
 		)
 		.orderBy(

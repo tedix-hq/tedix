@@ -60,10 +60,14 @@ function runtimeRequest(index: number, expiresInHours: number) {
 	};
 }
 
-function renderPage(requests: unknown[], executions: unknown[] = []) {
+function renderPage(
+	requests: unknown[],
+	executions: unknown[] = [],
+	homeRuns: unknown[] = [],
+) {
 	const client = new QueryClient();
 	client.setQueryData<unknown>(operationalContextQueryOptions().queryKey, {
-		authority: { role: "owner", permissions: ["os:approve"] },
+		authority: { role: "owner", permissions: ["os:approve", "tedis:update"] },
 	});
 	client.setQueryData<unknown>(pendingApprovalsQueryOptions().queryKey, {
 		data: requests,
@@ -75,7 +79,7 @@ function renderPage(requests: unknown[], executions: unknown[] = []) {
 		},
 	});
 	client.setQueryData<unknown>(pendingHomeDelegationsQueryOptions().queryKey, {
-		runSet: { runs: [], approvalMirrors: {} },
+		runSet: { runs: homeRuns, approvalMirrors: {} },
 	});
 	client.setQueryData<unknown>(workPendingApprovalsQueryOptions().queryKey, {
 		data: [],
@@ -263,4 +267,131 @@ it("shows an approved failure with Retry on the default tab, and a queued call w
 	expect(html.match(/>Retry</g)).toHaveLength(1);
 	expect(html).toContain(">Queued<");
 	expect(html).toContain("Tedix will retry automatically");
+});
+
+describe("a delegation decision that is being recorded", () => {
+	function heldRun(metadata: Record<string, unknown> = {}) {
+		return {
+			id: "held-run",
+			conversationId: "home:os:held",
+			status: "requires_approval",
+			childRunId: null,
+			createdAt: new Date(Date.now() - HOUR).toISOString(),
+			updatedAt: new Date(Date.now() - HOUR).toISOString(),
+			metadata: {
+				homeDelegation: {
+					decision: { mode: "needs_approval" },
+					workOrder: {
+						targetTediId: "example-tedi",
+						targetTediLabel: "Example tedi",
+						objective: "Accept the proof Work",
+					},
+					expiresAt: new Date(Date.now() + 5 * HOUR).toISOString(),
+				},
+				...metadata,
+			},
+		};
+	}
+	const claim = (claimedAt: string) => ({
+		homeDelegationResolutionClaim: {
+			phase: "resolving",
+			claimId: "claim-1",
+			claimedAt,
+			approvalEventId: "event-1",
+			approvalResolvedAt: claimedAt,
+		},
+	});
+
+	it("shows plain Approve and Reject when nothing is being recorded", () => {
+		const html = renderPage([], [], [heldRun()]);
+		expect(html).toContain(">Approve<");
+		expect(html).toContain(">Reject<");
+	});
+
+	it("shows a fresh claim as being recorded with Retry, never dead buttons", () => {
+		const html = renderPage([], [], [heldRun(claim(new Date().toISOString()))]);
+		expect(html).toContain('data-approval-resolution="recording"');
+		expect(html).toContain("Being recorded…");
+		expect(html).toContain(">Retry<");
+		expect(html).not.toContain(">Approve<");
+		expect(html).not.toContain(">Reject<");
+	});
+
+	it("offers only the recorded decision when a cut-off resolver recorded one", () => {
+		const html = renderPage(
+			[],
+			[],
+			[
+				heldRun({
+					...claim(new Date(Date.now() - HOUR).toISOString()),
+					homeDelegationResolutionRecovery: { recordedDecision: "approve" },
+				}),
+			],
+		);
+		expect(html).toContain("Finish approval");
+		expect(html).not.toContain(">Reject<");
+		expect(html).not.toContain(">Approve<");
+	});
+
+	it("offers both decisions again when a stale claim recorded nothing", () => {
+		const html = renderPage(
+			[],
+			[],
+			[
+				heldRun({
+					...claim(new Date(Date.now() - HOUR).toISOString()),
+					homeDelegationResolutionRecovery: { recordedDecision: null },
+				}),
+			],
+		);
+		expect(html).toContain(">Approve<");
+		expect(html).toContain(">Reject<");
+		expect(html).not.toContain("Being recorded");
+	});
+});
+
+it("offers Dismiss instead of a Retry the server refuses", () => {
+	const base = {
+		...runtimeRequest(1, 20),
+		status: "approved",
+		actionType: "mcp.tool_call",
+	};
+	const html = renderPage(
+		[],
+		[
+			{
+				...base,
+				id: "consumed-call",
+				payload: {
+					kind: "mcp_tool_call",
+					appSlug: "example-unified",
+					consumedAt: new Date(Date.now() - 2 * HOUR).toISOString(),
+					execution: {
+						status: "running",
+						startedAt: new Date(Date.now() - 2 * HOUR).toISOString(),
+					},
+				},
+			},
+			{
+				...base,
+				id: "requester-call",
+				payload: {
+					kind: "mcp_tool_call",
+					appSlug: "example-unified",
+					execution: {
+						status: "failed",
+						startedAt: new Date(Date.now() - HOUR).toISOString(),
+						retryable: true,
+						error:
+							"The requester must retry with a verified connections.execute grant; no provider call was made",
+					},
+				},
+			},
+		],
+	);
+	expect(html).not.toContain(">Retry<");
+	expect(html.match(/>Dismiss</g)).toHaveLength(2);
+	expect(html).toContain(">Outcome unknown<");
+	expect(html).toContain("Tedix will not run it again");
+	expect(html).toContain("Example tedi has to send this again");
 });

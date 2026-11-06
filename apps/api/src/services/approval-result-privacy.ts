@@ -27,6 +27,10 @@ const EXECUTION_METADATA = new Set([
 	"retryable",
 	"attempt",
 	"retriedBy",
+	// Who has to act and whether a person cleared it: no result content.
+	"actionBy",
+	"dismissedAt",
+	"dismissedBy",
 ]);
 const REDACTED = { redacted: true } as const;
 function record(value: unknown): value is Record<string, JsonValue> {

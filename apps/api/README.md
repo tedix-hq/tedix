@@ -97,6 +97,11 @@ again by an owner or admin while the approval is unconsumed
 refusal queues the unconsumed call for automatic retry after its stated wait;
 the existing two-minute approval sweep resumes it while approval remains valid.
 Approvals shows queued, running and failed calls on its default tab.
+Retry appears only when the server accepts it. A cut-off run the gateway
+already consumed may have reached its target, so it shows "Outcome unknown"
+and never runs again; a failure only the requester can fix names who must send
+it again. An owner or admin can dismiss either (`tediApprovals.dismissExecution`,
+audited as `approval.execution_dismissed`); a dismissed call never runs again.
 The approval fingerprint includes the app revision, slot, live resource,
 account grant, tool configuration and provider arguments; changing any of these
 requires a new approval.

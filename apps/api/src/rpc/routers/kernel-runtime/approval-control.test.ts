@@ -619,6 +619,249 @@ describe("delegation approval core", () => {
 	});
 });
 
+describe("interrupted delegation resolution", () => {
+	const CUT_OFF_AT = "2026-01-01T00:05:00.000Z";
+	const recordedEventId = [
+		"home",
+		ORG,
+		"event",
+		"delegation.approval.resolved",
+		"home:test",
+		"held-run",
+		CUT_OFF_AT,
+	].join(":");
+	/** The row a resolver leaves when it is cut off after taking its claim. */
+	async function interrupted(
+		f: Awaited<ReturnType<typeof fixture>>,
+		options: { claimedAt?: string; recorded?: "approved" | "rejected" } = {},
+	) {
+		const claimedAt = options.claimedAt ?? CUT_OFF_AT;
+		const metadata = {
+			...f.run.metadata,
+			homeDelegationResolutionClaim: {
+				version: 1,
+				phase: "resolving",
+				claimId: "cut-off-claim",
+				claimedAt,
+				approvalEventId: recordedEventId,
+				approvalResolvedAt: claimedAt,
+				organizationId: ORG,
+				runId: "held-run",
+				conversationId: "home:test",
+				workItemId: null,
+				scopeDigest: null,
+			},
+		};
+		await f.context.db
+			.update(kernelRuntimeRuns)
+			.set({ metadata, updatedAt: claimedAt })
+			.where(eq(kernelRuntimeRuns.id, "held-run"));
+		if (options.recorded) {
+			const workOrder = (
+				f.run.metadata?.homeDelegation as Record<string, unknown>
+			).workOrder as Record<string, unknown>;
+			await f.context.db.insert(kernelRuntimeEvents).values({
+				id: recordedEventId,
+				organizationId: ORG,
+				conversationId: "home:test",
+				runId: "held-run",
+				kind: "approval.resolved",
+				delegatedTediId: "tedi-research",
+				createdAt: claimedAt,
+				payload: {
+					status: options.recorded,
+					delegationWorkOrder: { ...workOrder, status: options.recorded },
+					resolvedBy: { type: "user", id: "operator" },
+					resolution: "Reviewed before the outage",
+				},
+				runtimeMetadata: { source: "kernelRuntime.respondApproval" },
+			});
+		}
+		f.writes.length = 0;
+		return (await getKernelRuntimeRun(f.context.db, {
+			id: "held-run",
+			organizationId: ORG,
+		}))!;
+	}
+	async function saved(f: Awaited<ReturnType<typeof fixture>>) {
+		return (await getKernelRuntimeRun(f.context.db, {
+			id: "held-run",
+			organizationId: ORG,
+		}))!;
+	}
+
+	it.each(["approve", "reject"] as const)(
+		"refuses a %s while a live resolver still holds a fresh claim",
+		async (decision) => {
+			const f = await fixture();
+			const run = await interrupted(f, {
+				claimedAt: new Date().toISOString(),
+			});
+			await expect(
+				respondKernelDelegationRecommendationApprovalCore(f.context, {
+					organizationId: ORG,
+					run,
+					decision,
+				}),
+			).rejects.toMatchObject({
+				code: "CONFLICT",
+				message: "Another approval resolution is still in progress",
+			});
+			noEffects(f.writes);
+		},
+	);
+
+	it("lets the next decision take over a stale claim that recorded nothing", async () => {
+		const f = await fixture();
+		const run = await interrupted(f);
+		const result = await respondKernelDelegationRecommendationApprovalCore(
+			f.context,
+			{ organizationId: ORG, run, decision: "reject", note: "Not now" },
+		);
+		expect(result.run.status).toBe("canceled");
+		expect(effects.event).toHaveBeenCalledExactlyOnceWith(
+			f.context,
+			expect.objectContaining({
+				kind: "approval.resolved",
+				payload: expect.objectContaining({ status: "rejected" }),
+			}),
+		);
+		const claim = (await saved(f)).metadata
+			?.homeDelegationResolutionClaim as Record<string, unknown>;
+		expect(claim).toMatchObject({
+			phase: "resolving",
+			takeoverOf: "cut-off-claim",
+		});
+		expect(claim.claimId).not.toBe("cut-off-claim");
+	});
+
+	it("lets only one of two concurrent takers win a stale claim", async () => {
+		const f = await fixture();
+		const run = await interrupted(f);
+		await respondKernelDelegationRecommendationApprovalCore(f.context, {
+			organizationId: ORG,
+			run,
+			decision: "approve",
+		});
+		vi.clearAllMocks();
+		await expect(
+			respondKernelDelegationRecommendationApprovalCore(f.context, {
+				organizationId: ORG,
+				run,
+				decision: "approve",
+			}),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+		for (const effect of [effects.event, effects.promote, effects.dispatch])
+			expect(effect).not.toHaveBeenCalled();
+	});
+
+	it("finishes a recorded approval with its one receipt instead of deciding again", async () => {
+		const f = await fixture();
+		const run = await interrupted(f, { recorded: "approved" });
+		const result = await respondKernelDelegationRecommendationApprovalCore(
+			f.context,
+			{ organizationId: ORG, run, decision: "approve" },
+		);
+		expect(result.run.status).toBe("queued");
+		expect(effects.event).not.toHaveBeenCalled();
+		expect(effects.promote).toHaveBeenCalledTimes(1);
+		expect(effects.dispatch).toHaveBeenCalledExactlyOnceWith(
+			expect.objectContaining({
+				childRunId: "held-run:approved:tedi-research",
+			}),
+		);
+		expect(result.run.metadata?.homeDelegation).toMatchObject({
+			resolutionStatus: "approved",
+			resolvedAt: CUT_OFF_AT,
+			resolution: "Reviewed before the outage",
+			resolvedBy: { type: "user", id: "operator" },
+		});
+		const events = await f.context.db
+			.select()
+			.from(kernelRuntimeEvents)
+			.where(eq(kernelRuntimeEvents.kind, "approval.resolved"));
+		expect(events.map((event) => event.id)).toEqual([recordedEventId]);
+		// The finished run is resolved; a repeat cannot resolve it twice.
+		vi.clearAllMocks();
+		await expect(
+			respondKernelDelegationRecommendationApprovalCore(f.context, {
+				organizationId: ORG,
+				run: await saved(f),
+				decision: "approve",
+			}),
+		).rejects.toBeInstanceOf(ORPCError);
+		expect(effects.dispatch).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		["approved", "reject", "Approve again to finish it"],
+		["rejected", "approve", "Reject again to finish it"],
+	] as const)(
+		"refuses the opposite decision over a recorded %s",
+		async (recorded, decision, hint) => {
+			const f = await fixture();
+			const run = await interrupted(f, { recorded });
+			await expect(
+				respondKernelDelegationRecommendationApprovalCore(f.context, {
+					organizationId: ORG,
+					run,
+					decision,
+				}),
+			).rejects.toMatchObject({
+				code: "CONFLICT",
+				message: expect.stringContaining(hint),
+			});
+			noEffects(f.writes);
+		},
+	);
+
+	it("finishes a recorded rejection without dispatching", async () => {
+		const f = await fixture();
+		const run = await interrupted(f, { recorded: "rejected" });
+		const result = await respondKernelDelegationRecommendationApprovalCore(
+			f.context,
+			{ organizationId: ORG, run, decision: "reject" },
+		);
+		expect(result.run.status).toBe("canceled");
+		expect(effects.event).not.toHaveBeenCalled();
+		expect(effects.dispatch).not.toHaveBeenCalled();
+	});
+
+	it("does not take over when a receipt appears after the claim was read", async () => {
+		const f = await fixture();
+		const run = await interrupted(f);
+		// The cut-off resolver's receipt lands between the read and the takeover.
+		effects.event.mockImplementation(async () => ({}));
+		const lookup = vi
+			.spyOn(
+				await import("@tedix/db/queries/kernel-runtime-events"),
+				"getKernelRuntimeEventById",
+			)
+			.mockImplementationOnce(async () => {
+				await f.context.db.insert(kernelRuntimeEvents).values({
+					id: recordedEventId,
+					organizationId: ORG,
+					conversationId: "home:test",
+					runId: "held-run",
+					kind: "approval.resolved",
+					createdAt: CUT_OFF_AT,
+					payload: { status: "approved" },
+				});
+				return undefined;
+			});
+		await expect(
+			respondKernelDelegationRecommendationApprovalCore(f.context, {
+				organizationId: ORG,
+				run,
+				decision: "reject",
+			}),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+		lookup.mockRestore();
+		expect(effects.event).not.toHaveBeenCalled();
+		expect((await saved(f)).status).toBe("requires_approval");
+	});
+});
+
 describe("operator route authorization before delegation resolution", () => {
 	it("refuses a different requested organization", async () => {
 		const f = await fixture();
