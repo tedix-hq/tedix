@@ -848,9 +848,11 @@
 .fd-card-context {
 	color: var(--fd-ink);
 }
+/* The why-now line and the recommendation read as one story: the
+ * recommendation sits closer than the face's grid gap, whatever the fonts. */
 .fd-card-body .fd-face > .fd-recommendation {
-	margin-top: 0;
-	line-height: 1.3 !important;
+	margin-top: -0.25rem;
+	line-height: 1.4 !important;
 }
 .fd-due[data-overdue] {
 	color: var(--color-kumo-danger);
