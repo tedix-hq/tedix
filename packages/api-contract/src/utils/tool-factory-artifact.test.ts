@@ -20,8 +20,7 @@ async function digest(value: string): Promise<string> {
 }
 
 async function fixture(evidenceVerified = true) {
-	const provider =
-		`${"the"}${"rion"}` as ToolFactoryArtifactManifest["tool"]["provider"];
+	const provider: ToolFactoryArtifactManifest["tool"]["provider"] = "factory";
 	const toolId = `${provider}_review_input`;
 	const payloads = {
 		"SKILL.md": "---\nname: reliable-review\n---\nReview one bounded input.\n",

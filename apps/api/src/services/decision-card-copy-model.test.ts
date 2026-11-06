@@ -16,7 +16,7 @@ const options = {
 	maxTokens: 650,
 	timeoutMs: 10000,
 	system: "Source facts only; exactly three texts.",
-	rewriteInstruction: "Apply the Adriana test; do not execute a filing.",
+	rewriteInstruction: "Apply the plain-reader test; do not execute a filing.",
 };
 beforeEach(() => {
 	vi.clearAllMocks();

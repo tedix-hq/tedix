@@ -129,12 +129,12 @@ it("uses the recipient's style and configured model without generating authority
 	});
 	expect(mocks.model.mock.calls[0]?.[1]).toContain("Prefer shorter proposals.");
 });
-it("loads the versioned spec with a plain-English rewriter and Adriana rubric", async () => {
+it("loads the versioned spec with a plain-English rewriter and plain-reader rubric", async () => {
 	await generateDecisionCard({ db: {}, env: {} } as never, request);
 	const system = mocks.model.mock.calls[0]?.[2].system;
 	expect(system).toContain(copySpec.system);
 	expect(system).toContain(copySpec.effectAvailabilityInstruction);
-	expect(system).toContain("Adriana test");
+	expect(system).toContain("plain-reader test");
 	for (const word of copySpec.bannedWords) expect(system).toContain(word);
 });
 it("gives ordinary and Codex interactions server-owned producer rules", async () => {

@@ -36,7 +36,7 @@ const facetResult = {
 };
 
 // The second adapter consumes the same parent projection, with no state store
-// or credential capability. This is a local conformance fixture, not celld.
+// or credential capability. This is a local conformance fixture, not a remote host.
 {
 	const original = structuredClone(payload);
 	const inputs: ConfiguredConversationTurn[] = [];

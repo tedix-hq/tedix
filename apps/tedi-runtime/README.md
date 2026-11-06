@@ -198,7 +198,7 @@ The parent logs an attributed `returned` receipt. That receipt proves only that
 the adapter returned, not that its answer or effects are correct. Streaming,
 judge and synthesis paths retain their existing facet handoffs. The scripted
 second adapter in `runtime-adapter.test.ts` checks local contract behavior with
-the same identity and memory projection. It proves neither live celld/Therion
+the same identity and memory projection. It proves neither live remote
 execution nor tenant-store residency on another host.
 
 ## Delegated research and budgets

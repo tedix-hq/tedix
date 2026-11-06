@@ -111,8 +111,8 @@ it("keeps the explicit decline even when generated button copy suggests yes", ()
 
 it.each([
 	[
-		"Review 07 — LOI draft and paid-maintainer offer for Ines?",
-		"LOI draft and paid-maintainer offer for Ines?",
+		"Review 07 — Renewal quote and support plan for Morgan?",
+		"Renewal quote and support plan for Morgan?",
 	],
 	["Item 3: send the signed quote?", "Send the signed quote?"],
 	["#4 Merge the fix?", "Merge the fix?"],
@@ -128,17 +128,17 @@ it.each([
 it("rejects generated copy that opens with a list number", () => {
 	const face = {
 		...copy,
-		context: "Ines meets you Tue 11:30; this is the offer you would bring.",
+		context: "Morgan meets you Thu 14:00; this is the quote you would bring.",
 		recommendation: "Yes — no price named, nothing sent until you say so.",
 	};
 	expect(
 		checkDecisionCardCopy({
 			...face,
-			title: "Review 07 — Send Ines the LOI draft?",
+			title: "Review 07 — Send Morgan the renewal quote?",
 		}),
 	).toContain("list_prefix");
 	expect(
-		checkDecisionCardCopy({ ...face, title: "Send Ines the LOI draft?" }),
+		checkDecisionCardCopy({ ...face, title: "Send Morgan the renewal quote?" }),
 	).not.toContain("list_prefix");
 });
 

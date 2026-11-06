@@ -99,7 +99,7 @@ export const ToolFactoryTaskContractSchema = z
 	.object({
 		contractId: z.uuid(),
 		version: z.number().int().positive(),
-		toolId: z.string().regex(/^therion_[a-z0-9_]+$/),
+		toolId: z.string().regex(/^factory_[a-z0-9_]+$/),
 		schedule: z
 			.object({
 				kind: z.literal("cron"),
@@ -135,8 +135,8 @@ export const ToolFactoryArtifactManifestSchema = z
 		provenance: ToolFactoryProvenanceSchema,
 		tool: z
 			.object({
-				provider: z.literal("therion"),
-				toolId: z.string().regex(/^therion_[a-z0-9_]+$/),
+				provider: z.literal("factory"),
+				toolId: z.string().regex(/^factory_[a-z0-9_]+$/),
 				title: z.string().min(1),
 				description: z.string().min(1),
 				inputSchema: ToolInputJsonSchemaSchema,
