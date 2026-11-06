@@ -18,12 +18,15 @@ import {
 	describe,
 	expect,
 	it,
+	vi,
 } from "vite-plus/test";
+import * as wranglerCommand from "./wrangler-command";
 import {
 	assertLocalMigrationInspection,
 	checkD1MigrationChain,
 } from "./check-d1-migration-chain";
-import { runWrangler } from "./wrangler-command";
+import { sql } from "drizzle-orm";
+import { readD1MigrationInspection } from "../src/queries/migration-inspection";
 
 describe("full D1 migration-chain inspection", () => {
 	const names = ["a/migration.sql", "b/migration.sql"];
@@ -76,7 +79,7 @@ describe("real local D1 prefix snapshots", () => {
 	function check(env: NodeJS.ProcessEnv = {}) {
 		return checkD1MigrationChain({ dbRoot, cacheDirectory, env });
 	}
-	beforeAll(() => {
+	beforeAll(async () => {
 		seedRoot = mkdtempSync(path.join(tmpdir(), "tedix-chain-seed-"));
 		root = seedRoot;
 		dbRoot = path.join(root, "db");
@@ -101,9 +104,9 @@ describe("real local D1 prefix snapshots", () => {
 		);
 		migration(names[0]!, "CREATE TABLE parent (id INTEGER PRIMARY KEY);");
 		manifest([names[0]!]);
-		expect(check()).toEqual({ cachedCount: 0, appliedCount: 1 });
+		expect(await check()).toEqual({ cachedCount: 0, appliedCount: 1 });
 	});
-	beforeAll(() => {
+	beforeAll(async () => {
 		extendedSeedRoot = mkdtempSync(
 			path.join(tmpdir(), "tedix-chain-extended-seed-"),
 		);
@@ -112,7 +115,7 @@ describe("real local D1 prefix snapshots", () => {
 		cacheDirectory = path.join(extendedSeedRoot, "cache");
 		migration(names[1]!, "CREATE TABLE child (id INTEGER PRIMARY KEY);");
 		manifest();
-		expect(check()).toEqual({ cachedCount: 1, appliedCount: 1 });
+		expect(await check()).toEqual({ cachedCount: 1, appliedCount: 1 });
 	});
 	beforeEach(() => {
 		root = mkdtempSync(path.join(tmpdir(), "tedix-chain-test-"));
@@ -126,73 +129,74 @@ describe("real local D1 prefix snapshots", () => {
 		if (extendedSeedRoot)
 			rmSync(extendedSeedRoot, { recursive: true, force: true });
 	});
-	afterEach(() => rmSync(root, { recursive: true, force: true }));
+	afterEach(() => {
+		vi.restoreAllMocks();
+		rmSync(root, { recursive: true, force: true });
+	});
 
-	it("restores a verified prefix, applies only new migrations, and inspects a complete hit", () => {
+	it("restores a verified prefix, applies only new migrations, and inspects a complete hit", async () => {
 		migration(
 			names[1]!,
 			"CREATE TABLE child (id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES parent(id));",
 		);
 		manifest();
-		expect(check()).toEqual({ cachedCount: 1, appliedCount: 1 });
-		expect(check()).toEqual({ cachedCount: 2, appliedCount: 0 });
+		expect(await check()).toEqual({ cachedCount: 1, appliedCount: 1 });
+		expect(await check()).toEqual({ cachedCount: 2, appliedCount: 0 });
 	});
 
-	it("rejects a broken new migration without publishing its snapshot", () => {
+	it("rejects a broken new migration without publishing its snapshot", async () => {
 		migration(names[1]!, "INSERT INTO missing_table VALUES (1);");
 		manifest();
-		expect(() => check()).toThrow("missing_table");
+		await expect(check()).rejects.toThrow("missing_table");
 		expect(readdirSync(cacheDirectory)).toHaveLength(1);
 	});
 
-	it("rejects a reordered ledger even when the SQL can replay", () => {
+	it("rejects a reordered ledger even when the SQL can replay", async () => {
 		cpSync(extendedSeedRoot, root, { recursive: true });
 		manifest([...names].reverse());
-		expect(() => check()).toThrow("diverged at position 0");
+		await expect(check()).rejects.toThrow("diverged at position 0");
 	});
 
-	it("reads and rejects a reordered real D1 ledger on a complete hit", () => {
+	it("reads and rejects a reordered real D1 ledger on a complete hit", async () => {
 		cpSync(extendedSeedRoot, root, { recursive: true });
-		expect(() =>
+		const run = vi.spyOn(wranglerCommand, "runWrangler");
+		await expect(
 			checkD1MigrationChain({
 				dbRoot,
 				cacheDirectory,
 				env: {},
-				run: (args, options) => {
-					expect(args.slice(0, 2)).toEqual(["d1", "execute"]);
-					const altered = [...args];
-					altered[altered.indexOf("--command") + 1] =
-						"UPDATE tedix_drizzle_migrations SET id = -id;";
-					runWrangler(altered, options);
-					return runWrangler(args, options);
+				inspect: async (db) => {
+					await db.run(sql`UPDATE tedix_drizzle_migrations SET id = -id`);
+					return readD1MigrationInspection(db);
 				},
 			}),
-		).toThrow("diverged at position 0");
+		).rejects.toThrow("diverged at position 0");
+		expect(run).not.toHaveBeenCalled();
 	});
 
-	it("hashes old SQL rather than trusting an unchanged integrity manifest", () => {
+	it("hashes old SQL rather than trusting an unchanged integrity manifest", async () => {
 		migration(
 			names[0]!,
 			"CREATE TABLE parent (id INTEGER PRIMARY KEY); CREATE TABLE revised (id INTEGER PRIMARY KEY);",
 		);
-		expect(check()).toEqual({ cachedCount: 0, appliedCount: 1 });
+		expect(await check()).toEqual({ cachedCount: 0, appliedCount: 1 });
 	});
 
 	it.each([{ CI: "true" }, { CI: "1" }, { TEDIX_D1_CHAIN_FULL_REPLAY: "1" }])(
 		"forces an empty-store replay with %j",
-		(env) => {
-			expect(check(env)).toEqual({ cachedCount: 0, appliedCount: 1 });
+		async (env) => {
+			expect(await check(env)).toEqual({ cachedCount: 0, appliedCount: 1 });
 		},
 	);
 
-	it("rejects unrecorded migrations on a complete cache hit", () => {
+	it("rejects unrecorded migrations on a complete cache hit", async () => {
 		migration(names[1]!, "CREATE TABLE unrecorded (id INTEGER PRIMARY KEY);");
-		expect(() => check()).toThrow("diverged at position 1");
+		await expect(check()).rejects.toThrow("diverged at position 1");
 	});
 
-	it("does not accept a damaged snapshot", () => {
+	it("does not accept a damaged snapshot", async () => {
 		const snapshot = path.join(cacheDirectory, readdirSync(cacheDirectory)[0]!);
 		writeFileSync(path.join(snapshot, "state", "unexpected"), "damage");
-		expect(check()).toEqual({ cachedCount: 0, appliedCount: 1 });
+		expect(await check()).toEqual({ cachedCount: 0, appliedCount: 1 });
 	});
 });
