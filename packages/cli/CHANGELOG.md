@@ -3,6 +3,23 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.19.8 — 2026-11-06
+
+### Patch Changes
+
+- `tedix supervise` restarts a lane runner that stops working. About four
+  minutes after a missed pass it stops the runner, starts a fresh one and
+  writes the reason to `~/.tedix/supervisor.log`. The new runner picks up work
+  the old one left running, so a stuck runner no longer holds up queued Work
+  for an hour.
+- A runner that is shutting down waits at most two minutes for running work,
+  so its replacement no longer waits behind a whole model turn.
+- Slow login renewals get up to a minute and one retry when no connection
+  opened. If a shared runner's login can't renew safely, the supervisor tells
+  the owner once, even when the gateway is down.
+- Devin runners keep their declared result through the final check, so
+  finished Devin work settles with the right commit.
+
 ## 0.19.7 — 2026-11-05
 
 ### Patch Changes
