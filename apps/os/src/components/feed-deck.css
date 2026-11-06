@@ -850,6 +850,7 @@
 }
 .fd-card-body .fd-face > .fd-recommendation {
 	margin-top: 0;
+	line-height: 1.3 !important;
 }
 .fd-due[data-overdue] {
 	color: var(--color-kumo-danger);
