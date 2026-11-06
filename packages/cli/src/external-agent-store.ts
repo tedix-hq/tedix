@@ -81,6 +81,69 @@ interface CachedAgentCredential {
 	expiresAt: number;
 }
 
+type SessionCredentials = Record<string, Record<string, CachedAgentCredential>>;
+
+// A companion file keeps older CLI processes from dropping peer cache entries
+// when they rewrite the single-credential-per-workspace legacy store.
+function readSessionCredentials(
+	options?: ExternalAgentStoreOptions,
+): SessionCredentials {
+	try {
+		const value: unknown = JSON.parse(
+			readFileSync(
+				join(resolveStoreDir(options), "external-agent-credentials.json"),
+				"utf8",
+			),
+		);
+		const result: SessionCredentials = {};
+		if (!isRecord(value)) return result;
+		for (const [workspace, entries] of Object.entries(value)) {
+			if (!isRecord(entries)) continue;
+			for (const [binding, entry] of Object.entries(entries)) {
+				if (
+					isRecord(entry) &&
+					entry.binding === binding &&
+					typeof entry.accessToken === "string" &&
+					entry.accessToken &&
+					typeof entry.expiresAt === "number" &&
+					Number.isFinite(entry.expiresAt) &&
+					entry.expiresAt > Date.now()
+				) {
+					(result[workspace] ??= {})[binding] = {
+						binding,
+						accessToken: entry.accessToken,
+						expiresAt: entry.expiresAt,
+					};
+				}
+			}
+		}
+		return result;
+	} catch {
+		return {};
+	}
+}
+
+/** Called under the canonical store lock; expired entries are pruned on reads. */
+function writeSessionCredentials(
+	credentials: SessionCredentials,
+	options?: ExternalAgentStoreOptions,
+): void {
+	const dir = resolveStoreDir(options);
+	mkdirSync(dir, { recursive: true, mode: 0o700 });
+	chmodSync(dir, 0o700);
+	const path = join(dir, "external-agent-credentials.json");
+	const temp = `${path}.${randomUUID()}.tmp`;
+	try {
+		writeFileSync(temp, JSON.stringify(credentials), {
+			mode: 0o600,
+			flag: "wx",
+		});
+		renameSync(temp, path);
+	} finally {
+		rmSync(temp, { force: true });
+	}
+}
+
 /**
  * A first-time bootstrap whose credential issuance parked on an owner approval.
  * The next start of the same slot retries the identical call with this id
@@ -550,6 +613,11 @@ export function removeExternalAgentSession(
 	mutateStore(options, (store) => {
 		const profile = store.workspaces[workspace];
 		if (!profile || !(externalSessionKey in profile.sessions)) return;
+		const credentials = readSessionCredentials(options);
+		delete credentials[workspace]?.[
+			credentialBinding(profile, profile.sessions[externalSessionKey]!)
+		];
+		writeSessionCredentials(credentials, options);
 		delete profile.sessions[externalSessionKey];
 		if (store.credentials) delete store.credentials[workspace];
 	});
@@ -562,8 +630,18 @@ export function removeExternalAgentSession(
 export function discardExternalAgentCredential(
 	workspace: string,
 	options?: ExternalAgentStoreOptions,
+	externalSessionKey?: string,
 ): void {
 	mutateStore(options, (store) => {
+		const credentials = readSessionCredentials(options);
+		const profile = store.workspaces[workspace];
+		const session = externalSessionKey
+			? profile?.sessions[externalSessionKey]
+			: undefined;
+		if (profile && session)
+			delete credentials[workspace]?.[credentialBinding(profile, session)];
+		else delete credentials[workspace];
+		writeSessionCredentials(credentials, options);
 		if (store.credentials) delete store.credentials[workspace];
 	});
 }
@@ -598,7 +676,10 @@ export function readExternalAgentCredential(
 	options?: ExternalAgentStoreOptions,
 ): string | undefined {
 	const store = readStore(options);
-	const cached = store.credentials?.[workspace];
+	const binding = credentialBinding(profile, session);
+	const cached =
+		readSessionCredentials(options)[workspace]?.[binding] ??
+		store.credentials?.[workspace];
 	const current = store.workspaces[workspace];
 	const currentSession = current?.sessions[session.externalSessionKey];
 	return cached &&
@@ -631,13 +712,14 @@ export function writeExternalAgentCredential(
 				credentialBinding(profile, session)
 		)
 			return;
-		store.credentials = {
-			...store.credentials,
-			[workspace]: {
-				binding: credentialBinding(profile, session),
-				accessToken,
-				expiresAt,
-			},
+		const credentials = readSessionCredentials(options);
+		const binding = credentialBinding(profile, session);
+		(credentials[workspace] ??= {})[binding] = {
+			binding,
+			accessToken,
+			expiresAt,
 		};
+		writeSessionCredentials(credentials, options);
+		if (store.credentials) delete store.credentials[workspace];
 	});
 }

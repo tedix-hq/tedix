@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	clearBootstrapApproval,
+	discardExternalAgentCredential,
 	externalAgentSessionWorkspaces,
 	readBootstrapApproval,
 	readExternalAgentProfile,
@@ -300,6 +301,59 @@ function concurrentSession(key: string) {
 }
 
 describe("external-agent concurrent storage", () => {
+	test("parallel sessions retain their own credentials after a peer writes or ends", () => {
+		const configDir = mkdtempSync(join(tmpdir(), "tedix-external-agent-"));
+		dirs.push(configDir);
+		const options = { configDir };
+		const profile = concurrentProfile();
+		writeExternalAgentProfile("connect", profile, options);
+		const one = concurrentSession("one"),
+			two = concurrentSession("two");
+		writeExternalAgentSession("connect", profile, one, options);
+		writeExternalAgentSession("connect", profile, two, options);
+		writeExternalAgentCredential(
+			"connect",
+			profile,
+			one,
+			"one-token",
+			Date.now() + 60_000,
+			options,
+		);
+		writeExternalAgentCredential(
+			"connect",
+			profile,
+			two,
+			"two-token",
+			Date.now() + 60_000,
+			options,
+		);
+		// Older CLI processes rewrite only the canonical profile store.
+		writeExternalAgentProfile("connect", profile, options);
+		expect(
+			statSync(join(configDir, "external-agent-credentials.json")).mode & 0o777,
+		).toBe(0o600);
+		expect(readExternalAgentCredential("connect", profile, one, options)).toBe(
+			"one-token",
+		);
+		expect(readExternalAgentCredential("connect", profile, two, options)).toBe(
+			"two-token",
+		);
+		discardExternalAgentCredential("connect", options, "one");
+		expect(
+			readExternalAgentCredential("connect", profile, one, options),
+		).toBeUndefined();
+		expect(readExternalAgentCredential("connect", profile, two, options)).toBe(
+			"two-token",
+		);
+		removeExternalAgentSession("connect", "one", options);
+		expect(
+			readExternalAgentCredential("connect", profile, one, options),
+		).toBeUndefined();
+		expect(readExternalAgentCredential("connect", profile, two, options)).toBe(
+			"two-token",
+		);
+	});
+
 	test("rejects principal replacement and preserves peer sessions without resurrecting removals", () => {
 		const configDir = mkdtempSync(join(tmpdir(), "tedix-external-agent-"));
 		dirs.push(configDir);
@@ -367,6 +421,11 @@ describe("external-agent concurrent storage", () => {
 		expect(
 			Object.keys(readExternalAgentProfile("connect", { configDir })!.sessions),
 		).toHaveLength(28);
+		const current = readExternalAgentProfile("connect", { configDir })!;
+		for (const session of Object.values(current.sessions))
+			expect(
+				readExternalAgentCredential("connect", current, session, { configDir }),
+			).toBe("fixture-token");
 		for (let n = 0; n < 4; n++)
 			expect(
 				readExternalAgentProfile(`peer-${n}`, { configDir })?.principalId,

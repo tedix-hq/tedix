@@ -1212,7 +1212,12 @@ export async function resolveExternalAgentAuth(options: {
 	return {
 		headers: credential,
 		credentialProvider,
-		discardCredential: () => discardExternalAgentCredential(slot),
+		discardCredential: () =>
+			discardExternalAgentCredential(
+				slot,
+				undefined,
+				session.externalSessionKey,
+			),
 		mcpUrl: profile.mcpUrl,
 		organization: externalAgentContextOrganization(
 			profile,
