@@ -20,6 +20,14 @@ const text = (value: string | Uint8Array | undefined) =>
 describe("public plugin repository", () => {
 	const files = pluginRepoFiles();
 
+	test("OpenAI default consent excludes platform administration", () => {
+		const mcp = JSON.parse(text(files.get("mcp.json")));
+		const auth = mcp.mcpServers.tedix.extensions["com.openai"].auth;
+		expect(auth.baseScopes).not.toContain("platform:admin");
+		expect(auth.defaultScopes).not.toContain("platform:admin");
+		expect(auth.defaultScopes).toContain("mcp:catalog.read");
+	});
+
 	test("ships one plugin for every host and no hooks", () => {
 		for (const path of [
 			"plugin.json",

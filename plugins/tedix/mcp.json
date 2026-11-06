@@ -8,7 +8,7 @@
 				"com.openai": {
 					"auth": {
 						"type": "oauth",
-						"baseScopes": ["platform:admin"],
+						"baseScopes": [],
 						"defaultScopes": [
 							"connections.admin",
 							"connections.execute",
@@ -42,8 +42,7 @@
 							"mcp:tedis.write",
 							"mcp:work.admin",
 							"mcp:work.read",
-							"mcp:work.write",
-							"platform:admin"
+							"mcp:work.write"
 						]
 					}
 				}
