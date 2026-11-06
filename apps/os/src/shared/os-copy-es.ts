@@ -474,6 +474,8 @@ export const SPANISH_DECISION_CONTROLS: Record<string, string> = {
 	"Your style profile and last 10 approvals":
 		"Tus preferencias y últimas 10 aprobaciones",
 	"Why now:": "Por qué ahora:",
+	"Recommended:": "Recomendado:",
+	"What the agent may do": "Qué puede hacer el agente",
 	"Confidence:": "Confianza:",
 	"not assessed": "sin evaluar",
 	"Waiting:": "Esperar:",

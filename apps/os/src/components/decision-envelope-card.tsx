@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { renderCardDateText } from "@tedix/api-contract/utils/decision-card-copy";
 import type { CardRevisionTarget } from "@/components/card-revision-panel";
 import { DecisionProposalBody } from "@/components/decision-proposal-body";
@@ -8,6 +8,7 @@ import {
 	type DecisionCardFeedback,
 } from "@/components/work-decision-card";
 import { Text } from "@/components/kumo/text";
+import { Textarea } from "@/components/kumo/textarea";
 import { FeedDeckDisclosure } from "@/components/feed-deck-primitives";
 import { OS_COPY, decisionText } from "@/shared/os-copy";
 
@@ -35,6 +36,20 @@ export function DecisionEnvelopeCard({
 	onPrevious?: () => void;
 }) {
 	const shownAt = useRef(performance.now());
+	// A delegation's Allow posts the owner's own grant, so its one-sentence
+	// scope stays editable on the card face.
+	const delegation = decision.options.some(
+		(option) => option.effect?.kind === "delegate_work",
+	);
+	const defaultScope = decision.preview?.body ?? "";
+	const [scope, setScope] = useState(defaultScope);
+	const reversibility = decisionText(
+		decision.reversibility === "two_way"
+			? "Easy to undo"
+			: decision.reversibility === "one_way"
+				? "Hard to undo"
+				: "Reversibility unknown",
+	);
 	const preferDelegation =
 		defaultLowStakesToDelegate &&
 		decision.reversibility === "two_way" &&
@@ -52,6 +67,29 @@ export function DecisionEnvelopeCard({
 			body={decision.preview?.body ?? decision.recommendation}
 			disabled={disabled}
 			allowEdits={!decision.options.some((option) => option.effect)}
+			faceContent={
+				<>
+					{delegation && (
+						<label className="grid gap-1">
+							<Text weight="semibold">
+								{decisionText("What the agent may do")}
+							</Text>
+							<Textarea
+								aria-label={decisionText("What the agent may do")}
+								rows={2}
+								maxLength={500}
+								value={scope}
+								disabled={disabled}
+								onChange={(event) => setScope(event.target.value)}
+							/>
+						</label>
+					)}
+					<Text className="fd-stakes" data-risk>
+						<strong>{reversibility}</strong> ·{" "}
+						{renderCardDateText(decision.blastRadius)}
+					</Text>
+				</>
+			}
 			content={
 				<div className="grid min-w-0 gap-3 break-words">
 					{decision.preview && (
@@ -79,16 +117,8 @@ export function DecisionEnvelopeCard({
 							{renderCardDateText(decision.whyNow)}
 						</Text>
 						<Text>
-							<strong>
-								{decisionText(
-									decision.reversibility === "two_way"
-										? "Easy to undo"
-										: decision.reversibility === "one_way"
-											? "Hard to undo"
-											: "Reversibility unknown",
-								)}
-							</strong>{" "}
-							· {renderCardDateText(decision.blastRadius)}
+							<strong>{reversibility}</strong> ·{" "}
+							{renderCardDateText(decision.blastRadius)}
 						</Text>
 						<Text>
 							{decision.confidence !== null &&
@@ -152,7 +182,9 @@ export function DecisionEnvelopeCard({
 			}
 			onDecision={(feedback) =>
 				onDecision(
-					feedback,
+					delegation && scope.trim() !== defaultScope.trim()
+						? { ...feedback, originalBody: defaultScope, body: scope.trim() }
+						: feedback,
 					feedback.action === "change"
 						? "change"
 						: decision.options.find((option) => option.id === feedback.action)!
