@@ -83,7 +83,11 @@ const envelope: DecisionEnvelope = {
 	],
 };
 
-async function fixture(decision = envelope, cardContent?: string) {
+async function fixture(
+	decision = envelope,
+	cardContent?: string,
+	sources = true,
+) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys = OFF");
 	sqlite.exec(
@@ -177,9 +181,14 @@ async function fixture(decision = envelope, cardContent?: string) {
 		targetId: "person",
 		metadata: {
 			decisionDeck: decision,
-			decisionSources: [
-				{ kind: "work", id: work, version: 1, commentCount: 0 },
-			],
+			// A lane permission card is fenced by its effect's version instead.
+			...(sources
+				? {
+						decisionSources: [
+							{ kind: "work", id: work, version: 1, commentCount: 0 },
+						],
+					}
+				: {}),
 			...(cardContent ? { cardContent } : {}),
 		},
 		now: new Date().toISOString(),
@@ -203,6 +212,81 @@ async function fixture(decision = envelope, cardContent?: string) {
 }
 
 describe("decision card effects", () => {
+	const delegation = () => {
+		const decision = structuredClone(envelope);
+		decision.kind = "approval";
+		decision.classId = "lane-delegation";
+		decision.reversibility = "unknown";
+		decision.protectedEffects = [];
+		decision.preview = {
+			body: "Codex may handle keys only as this task describes, and nothing beyond it.",
+		};
+		decision.options[0]!.effect = {
+			kind: "delegate_work",
+			workItemId: work,
+			executor: "codex",
+			workVersion: 3,
+		};
+		return decision;
+	};
+	const laneTask = (f: Awaited<ReturnType<typeof fixture>>, owner = "person") =>
+		f.sqlite
+			.prepare(
+				`update work_items set disposition='accepted', version=3, metadata='{"executor":"codex"}', accountable_owner_type='user', accountable_owner_id=? where id=?`,
+			)
+			.run(owner, work);
+	it("posts the owner's delegation for the current version with the edited scope", async () => {
+		const f = await fixture(delegation(), undefined, false);
+		laneTask(f);
+		const result = await executeDecisionCardEffect(f.context, {
+			...f.input,
+			metadata: {
+				...f.input.metadata,
+				feedbackSignal: "edited",
+				originalBody: delegation().preview!.body,
+				editedBody: "Codex may rotate only the fictional staging key.",
+			},
+		});
+		expect(result.metadata?.decisionEffect).toMatchObject({
+			kind: "delegate_work",
+			status: "succeeded",
+			state: "delegated",
+		});
+		const comment = f.sqlite
+			.prepare("select author_type, author_id, body from work_item_comments")
+			.get() as { author_type: string; author_id: string; body: string };
+		expect(comment).toMatchObject({ author_type: "user", author_id: "person" });
+		expect(comment.body).toBe(
+			"Delegation: codex work-version=3 Codex may rotate only the fictional staging key.",
+		);
+		// The exact line the lane dispatcher accepts.
+		expect(comment.body).toMatch(
+			/^Delegation: codex work-version=3\s+\S.{9,}/m,
+		);
+		f.sqlite.close();
+	});
+	it("refuses a delegation when the task changed or the person is not its owner", async () => {
+		const moved = await fixture(delegation(), undefined, false);
+		laneTask(moved);
+		moved.sqlite
+			.prepare("update work_items set version=4 where id=?")
+			.run(work);
+		await expect(
+			executeDecisionCardEffect(moved.context, moved.input),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+		const other = await fixture(delegation(), undefined, false);
+		laneTask(other, "someone-else");
+		await expect(
+			executeDecisionCardEffect(other.context, other.input),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		for (const f of [moved, other]) {
+			expect(
+				f.sqlite.prepare("select count(*) as n from work_item_comments").get()
+					?.n,
+			).toBe(0);
+			f.sqlite.close();
+		}
+	});
 	it("refuses to execute an old effect after the written proposal is revised", async () => {
 		const f = await fixture(
 			envelope,

@@ -1,4 +1,5 @@
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
+import { retireStaleLaneDelegationRequests } from "@tedix/db/queries/work-items/lane-delegation-requests";
 import type { DecisionContext } from "@tedix/api-contract/schemas/decision-graph";
 import { createDbClient, type DbClient } from "@tedix/db/client";
 import { listAgentDecisionsWithOutcome } from "@tedix/db/queries/agent-decisions";
@@ -599,6 +600,17 @@ export async function sweepDeckPipeline(
 	const db = createDbClient(env.DB);
 	const now = new Date(scheduledTime);
 	const totals = { organizations: 0, retired: 0, merged: 0, errors: 0 };
+	// Lane permission cards retire in every organization, deck learning or not.
+	try {
+		totals.retired += await retireStaleLaneDelegationRequests(db, {
+			now: now.toISOString(),
+		});
+	} catch (error) {
+		totals.errors += 1;
+		console.error("lane permission card sweep failed", {
+			exception: safeExceptionTopology(error),
+		});
+	}
 	for (const orgId of await listDeckSweepOrganizations(db)) {
 		try {
 			const receipt = await sweepOrganizationDeck(db, orgId, now, env);

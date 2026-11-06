@@ -426,13 +426,13 @@ it("leads with the question, why now with a relative due date, and what each opt
 	const outcomes = host.querySelector(".fd-outcomes")!.textContent;
 	expect(outcomes).toContain(`Yes${FACE.body}`);
 	expect(outcomes).toContain("Not nowSkips it for now");
-	// The recommendation and the original ask stay one tap away in Context.
+	// The recommendation reads at a glance; the original ask stays in Context.
 	expect(host.querySelector(".fd-recommendation")?.textContent).toBe(
-		`Suggested: ${FACE.recommendation}`,
+		`Recommended: ${FACE.recommendation}`,
 	);
 	expect(
 		host.querySelector(".fd-recommendation")?.closest("[hidden]"),
-	).not.toBeNull();
+	).toBeNull();
 });
 
 it("shows the original ask at once, with no waiting or error face, and keeps actions live", async () => {
@@ -778,7 +778,7 @@ it("does not repeat the If yes label inside the consequence sentence", async () 
 it("keeps confidence scores off the card", async () => {
 	await mountFace({ presentation: FACE, confidence: 0.8 });
 	expect(host.querySelector(".fd-recommendation")?.textContent).toBe(
-		`Suggested: ${FACE.recommendation}`,
+		`Recommended: ${FACE.recommendation}`,
 	);
 	expect(host.textContent).not.toContain("% sure");
 });
