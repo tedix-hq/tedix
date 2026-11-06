@@ -12,6 +12,7 @@ const values = {
 	d1: { core: { id: "d1-id-example", name: "core-example" } },
 	kv: { cache: { id: "kv-id-example" } },
 	r2: { jurisdiction: "eu", buckets: { media: "media-example" } },
+	aiSearch: { sites: "sites-example" },
 	hostnames: { api: "api.example.test" },
 	routes: { api: [{ pattern: "api.example.test/*", zone: "example.test" }] },
 	domains: { os: ["app.example.test"] },
@@ -64,6 +65,7 @@ describe("deployValues", () => {
 			name: "media-example",
 			jurisdiction: "eu",
 		});
+		expect(live.aiSearch("sites", "p")).toBe("sites-example");
 		expect(live.host("api", "p")).toBe("api.example.test");
 		expect(live.routes("api", [])).toEqual(values.routes.api);
 		expect(live.domains("os", [])).toEqual(["app.example.test"]);

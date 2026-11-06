@@ -5,6 +5,7 @@ import {
 	exports,
 	triggers,
 } from "cf/config";
+import { deployValues } from "@tedix/deploy-values";
 
 const runtimeEnv = (
 	globalThis as typeof globalThis & {
@@ -26,6 +27,8 @@ const localLane = {
 	demoEnabled: "true",
 	databaseId: "00000000-0000-0000-0000-000000000000",
 } as const;
+// Shown wherever production takes a value from the private deploy values.
+const PLACEHOLDER = "configured-via-private-overlay";
 export const productionIngress = {
 	workersDev: false,
 	previewUrls: false,
@@ -33,6 +36,18 @@ export const productionIngress = {
 
 export default defineConfig(({ mode }) => {
 	const production = mode === "production";
+	// Live production values when Ship sets TEDIX_DEPLOY_VALUES; otherwise
+	// every lookup returns the placeholder beside it.
+	const live = deployValues({ mode });
+	const workerName = production
+		? live.worker("cms-runtime", "public-installation-cms-runtime-production")
+		: "public-installation-cms-runtime";
+	const liveUrl = (host: string) =>
+		live.active ? `https://${live.host(host, "")}` : PLACEHOLDER;
+	const liveVar = (name: string) =>
+		bindings.text(live.vars("cms-runtime", name, PLACEHOLDER));
+	const bucket = (key: string) =>
+		live.r2(key, { name: "public-installation-bucket" });
 	// Isolated `bun dev` and the workerd suite: no remote data, no production ids.
 	const local = !production && !remoteDev;
 	// The recovery Workflow was registered without a mode suffix; the others
@@ -45,15 +60,15 @@ export default defineConfig(({ mode }) => {
 				: name;
 
 	return {
+		...(live.active ? { accountId: live.account("") } : {}),
 		worker: defineWorker({
-			name: production
-				? "public-installation-cms-runtime-production"
-				: "public-installation-cms-runtime",
+			name: workerName,
 			entrypoint: "src/index.ts",
 			compatibilityDate: "2026-05-14",
 			compatibilityFlags: ["nodejs_compat", "global_fetch_strictly_public"],
 			workersDev: productionIngress.workersDev,
 			previewUrls: productionIngress.previewUrls,
+			...(live.active ? { domains: live.domains("cms-runtime", []) } : {}),
 			logpush: true,
 			observability: {
 				enabled: true,
@@ -63,13 +78,18 @@ export default defineConfig(({ mode }) => {
 			// Production only. Cloudflare-for-SaaS custom hostnames match no hostname
 			// route and reach this Worker through the zone-wide `*/*` catch-all, so it
 			// stays declared or a deploy deletes it; more specific routes and
-			// API-managed `script: null` exclusions still win. The cron fans out to
+			// API-managed `script: null` exclusions still win, but `*/*` needs
+			// Cloudflare for SaaS on the zone, so the deploy values leave it out
+			// until that is enabled. The cron fans out to
 			// each active tenant bundle's Emdash scheduled() handler; other lanes share
 			// production data, so a second cron would double-run it.
 			triggers: production
 				? [
 						// Blog, CMS media, theme assets and feeds stay on the apex; these
-						// beat landing's tedix.dev/* because they are more specific.
+						// beat landing's apex route because they are more specific.
+						...live
+							.routes("cms-runtime", [])
+							.map((route) => triggers.fetch(route)),
 						triggers.scheduled({ schedule: "* * * * *" }),
 					]
 				: undefined,
@@ -86,62 +106,54 @@ export default defineConfig(({ mode }) => {
 				LOADER: bindings.workerLoader(),
 				// Each tenant's Emdash database, one object per slug.
 				DB_DO: bindings.durableObject({
-					worker: production
-						? "public-installation-cms-runtime-production"
-						: "public-installation-cms-runtime",
+					worker: workerName,
 					exportName: "EmDashDB",
 				}),
 				CLI_RELEASES: bindings.r2({
-					name: "public-installation-bucket",
+					...bucket("cliReleases"),
 					dev: { remote: remoteDev },
 				}),
 				RECOVERY_STORAGE: bindings.r2({
-					name: "public-installation-bucket",
+					...bucket("cms"),
 					dev: { remote: remoteDev },
 				}),
 				// Tenant bundles keyed by `${slug}/v${version}/...`.
 				TENANT_BUNDLES: bindings.r2({
-					name: "public-installation-bucket",
+					...bucket("cmsBundles"),
 					dev: { remote: remoteDev },
 				}),
 				CMS_RECOVERY_WORKFLOW: bindings.workflow({
-					worker: production
-						? "public-installation-cms-runtime-production"
-						: "public-installation-cms-runtime",
+					worker: workerName,
 					exportName: "CmsRecoveryWorkflow",
 					name: "cms-recovery-captures",
 				}),
 				CMS_SITE_RESTORE_WORKFLOW: bindings.workflow({
-					worker: production
-						? "public-installation-cms-runtime-production"
-						: "public-installation-cms-runtime",
+					worker: workerName,
 					exportName: "CmsSiteRestoreWorkflow",
 					name: workflow("cms-site-restore"),
 				}),
 				CMS_PITR_SELF_TEST_WORKFLOW: bindings.workflow({
-					worker: production
-						? "public-installation-cms-runtime-production"
-						: "public-installation-cms-runtime",
+					worker: workerName,
 					exportName: "CmsPitrSelfTestWorkflow",
 					name: workflow("cms-pitr-self-test"),
 				}),
 				CMS_SITE_RESTORE_DRILL_WORKFLOW: bindings.workflow({
-					worker: production
-						? "public-installation-cms-runtime-production"
-						: "public-installation-cms-runtime",
+					worker: workerName,
 					exportName: "CmsSiteRestoreDrillWorkflow",
 					name: workflow("cms-site-restore-drill"),
 				}),
 				// Read-only slug -> org and active bundle lookup. Local runs use the
 				// zero id every local Worker shares.
 				PLATFORM_DB: bindings.d1({
-					id: "00000000-0000-0000-0000-000000000000",
-					name: "public-installation-database",
+					...live.d1("main", {
+						id: "00000000-0000-0000-0000-000000000000",
+						name: "public-installation-database",
+					}),
 					dev: { remote: remoteDev },
 				}),
 				// Shared session storage, prefixed per tenant.
 				SESSION: bindings.kv({
-					id: "00000000000000000000000000000000",
+					id: live.kv("cmsRuntimeSession", "00000000000000000000000000000000"),
 					dev: { remote: remoteDev },
 				}),
 				// Parent-only: serves Emdash /_image transforms before Worker Loader
@@ -151,7 +163,10 @@ export default defineConfig(({ mode }) => {
 				...(!local
 					? {
 							AI_SEARCH: bindings.aiSearchNamespace({
-								namespace: "public-installation-namespace",
+								namespace: live.aiSearch(
+									"cmsSites",
+									"public-installation-namespace",
+								),
 								dev: { remote: remoteDev },
 							}),
 						}
@@ -165,41 +180,38 @@ export default defineConfig(({ mode }) => {
 				...(!local
 					? {
 							API_SERVICE: bindings.worker({
-								worker: "public-installation-api",
+								worker: live.worker("api", "public-installation-api"),
 								exportName: "InternalEntrypoint",
 							}),
 							CMS_SESSION_BROKER: bindings.worker({
-								worker: "public-installation-session-broker",
+								worker: live.worker(
+									"session-broker",
+									"public-installation-session-broker",
+								),
 								exportName: "CmsSessionBroker",
 							}),
 						}
 					: {}),
-				MARKETING_SITE_SLUG: bindings.text("configured-via-private-overlay"),
-				MARKETING_DOMAINS: bindings.text("configured-via-private-overlay"),
-				CLI_DOWNLOAD_HOST: bindings.text("configured-via-private-overlay"),
-				API_URL: bindings.text(
-					local ? localLane.apiUrl : "configured-via-private-overlay",
-				),
-				TEDIX_MARKETING_ORG_ID: bindings.text("configured-via-private-overlay"),
-				TEDIX_CMO_TEDI_ID: bindings.text("configured-via-private-overlay"),
-				TEDIX_DEMAND_OBJECTIVE_ID: bindings.text(
-					"configured-via-private-overlay",
-				),
-				TEDIX_DEMAND_PROJECT_ID: bindings.text(
-					"configured-via-private-overlay",
-				),
-				TEDIX_DEMAND_INTAKE_PARENT_ID: bindings.text(
-					"configured-via-private-overlay",
-				),
+				MARKETING_SITE_SLUG: liveVar("MARKETING_SITE_SLUG"),
+				MARKETING_DOMAINS: liveVar("MARKETING_DOMAINS"),
+				CLI_DOWNLOAD_HOST: bindings.text(live.host("downloads", PLACEHOLDER)),
+				API_URL: bindings.text(local ? localLane.apiUrl : liveUrl("api")),
+				TEDIX_MARKETING_ORG_ID: liveVar("TEDIX_MARKETING_ORG_ID"),
+				TEDIX_CMO_TEDI_ID: liveVar("TEDIX_CMO_TEDI_ID"),
+				TEDIX_DEMAND_OBJECTIVE_ID: liveVar("TEDIX_DEMAND_OBJECTIVE_ID"),
+				TEDIX_DEMAND_PROJECT_ID: liveVar("TEDIX_DEMAND_PROJECT_ID"),
+				TEDIX_DEMAND_INTAKE_PARENT_ID: liveVar("TEDIX_DEMAND_INTAKE_PARENT_ID"),
 				ENVIRONMENT: bindings.text(production ? "production" : "development"),
 				GIT_SHA: bindings.text(releaseSha),
 				CF_ACCOUNT_ID: bindings.text(
-					local ? localLane.cfAccountId : "configured-via-private-overlay",
+					local ? localLane.cfAccountId : live.account(PLACEHOLDER),
 				),
 				// R2 jurisdiction of tenant media buckets; empty for the default.
-				CF_R2_JURISDICTION: bindings.text(""),
+				CF_R2_JURISDICTION: bindings.text(
+					bucket("cliReleases").jurisdiction ?? "",
+				),
 				DESCOPE_BASE_URL: bindings.text(
-					local ? localLane.descopeBaseUrl : "configured-via-private-overlay",
+					local ? localLane.descopeBaseUrl : liveUrl("auth"),
 				),
 				...(local
 					? {
