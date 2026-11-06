@@ -1,5 +1,6 @@
 import type { InferEnv, UnwrapConfig } from "cf/config";
 import type config from "../cloudflare.config";
+import type { McpPlatformHostEnv } from "./platform-hosts";
 
 /**
  * Bindings inferred from cloudflare.config.ts. The generated `Cloudflare.Env`
@@ -22,7 +23,7 @@ type McpEnv = {
 	// KV Instant is private beta. The binding is absent until an account-enabled
 	// namespace id is supplied while evaluating cloudflare.config.ts.
 	AGGREGATE_EPOCH_KV?: KVNamespace;
-};
+} & McpPlatformHostEnv;
 
 declare global {
 	interface CloudflareEnv extends McpEnv {}

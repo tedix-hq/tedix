@@ -17,6 +17,7 @@ import { type McpAccessDenialReason } from "./mcp/security-decision";
 import type { ResolvedApp } from "./resolution";
 import { readJsonRpcBody } from "./json-rpc-envelope";
 import { withNativeCatalogTools } from "./mcp/native-catalog-tools";
+import { mcpPlatformHosts } from "./platform-hosts";
 
 /**
  * Request-level MCP access gate (`enforceMcpAccess`): origin, authentication,
@@ -208,12 +209,12 @@ export async function enforceMcpAccess(params: {
 		// Connect authority comes from the verified selected organizations, not
 		// the browser session's active tenant. Ordinary app grants retain dct matching.
 		const verifiedConnectSelection =
-			hostname === "connect.mcp.tedix.dev" &&
+			hostname === mcpPlatformHosts(env).connectHostname &&
 			app.slug === "connect" &&
 			metadata?.mcpConfig?.multiOrgConsent === true &&
 			(multiOrgSelection?.organizations.length ?? 0) > 0;
 		const verifiedConnectTarget =
-			hostname === "connect.mcp.tedix.dev" &&
+			hostname === mcpPlatformHosts(env).connectHostname &&
 			multiOrgSelection?.organizations.some(
 				(organization) =>
 					organization.organizationId === app.organizationId &&

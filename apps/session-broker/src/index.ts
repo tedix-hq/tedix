@@ -14,6 +14,7 @@ import {
 	SESSION_BROKER_CALLBACK_PATHS,
 	SESSION_BROKER_CODE_TTL_SECONDS,
 	SESSION_BROKER_INTENT_TTL_SECONDS,
+	SESSION_BROKER_LOGIN_ORIGIN,
 	SESSION_BROKER_NO_STORE_HEADERS,
 	type SessionBrokerExchangeResult,
 	type SessionBrokerIntent,
@@ -981,7 +982,7 @@ async function authorize(request: Request, env: BrokerEnv): Promise<Response> {
 			origin === "null" &&
 			request.headers.get("Sec-Fetch-Site") === "same-site";
 		if (
-			origin !== (osOrigin ?? "https://os.tedix.dev") &&
+			origin !== (osOrigin ?? SESSION_BROKER_LOGIN_ORIGIN) &&
 			!redirectedSameSitePost
 		) {
 			return new Response("Invalid authorization origin\n", {
@@ -1027,13 +1028,13 @@ async function authorize(request: Request, env: BrokerEnv): Promise<Response> {
 	);
 	const intent = await intentOwner.readPending();
 	if (!intent) {
-		return unavailableIntentResponse(osOrigin ?? "https://os.tedix.dev");
+		return unavailableIntentResponse(osOrigin ?? SESSION_BROKER_LOGIN_ORIGIN);
 	}
 	try {
 		await assertFreshCustomHost(env.API_SERVICE, intent);
 	} catch {
 		await intentOwner.fail();
-		return unavailableIntentResponse(osOrigin ?? "https://os.tedix.dev");
+		return unavailableIntentResponse(osOrigin ?? SESSION_BROKER_LOGIN_ORIGIN);
 	}
 	const brokerRefreshValues = distinctCookieValues(
 		request.headers.get("Cookie"),

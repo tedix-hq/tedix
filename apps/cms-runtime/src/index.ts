@@ -130,6 +130,7 @@ import {
 	imageTransformResponse,
 } from "./tenant-media";
 import { type Env } from "./env";
+import { cmsRuntimePlatformHosts } from "./platform-hosts";
 import {
 	DATABASE_RUNTIME_ADMIN_PATH,
 	DATABASE_DEPROVISION_ADMIN_PATH,
@@ -1449,7 +1450,7 @@ async function fetchCmsSite(
 	// authz: public — liveness + deployed-sha probe; serves no tenant data.
 	if (
 		(request.method === "GET" || request.method === "HEAD") &&
-		url.hostname === "cms.tedix.dev" &&
+		url.hostname === cmsRuntimePlatformHosts(env).healthHostname &&
 		url.pathname === "/health"
 	) {
 		return Response.json(
@@ -2056,7 +2057,8 @@ export default {
 		// Health is installation-scoped. Service-only routes must remain reachable
 		// while the public site is closed for a restore; each handler checks auth.
 		if (
-			(url.hostname === "cms.tedix.dev" && url.pathname === "/health") ||
+			(url.hostname === cmsRuntimePlatformHosts(env).healthHostname &&
+				url.pathname === "/health") ||
 			[
 				DATABASE_RUNTIME_ADMIN_PATH,
 				DATABASE_DEPROVISION_ADMIN_PATH,
@@ -2073,7 +2075,8 @@ export default {
 			return fetchCmsSite(request, env, ctx);
 		if (
 			!env.MARKETING_SITE_SLUG &&
-			(isMarketingHost(url.hostname, env) || url.hostname === "blog.tedix.dev")
+			(isMarketingHost(url.hostname, env) ||
+				url.hostname === cmsRuntimePlatformHosts(env).marketingBlogHostname)
 		)
 			return cmsRestoreFenceResponse();
 
@@ -2088,7 +2091,7 @@ export default {
 			const marketingSlug =
 				env.MARKETING_SITE_SLUG &&
 				(isMarketingHost(url.hostname, env) ||
-					url.hostname === "blog.tedix.dev")
+					url.hostname === cmsRuntimePlatformHosts(env).marketingBlogHostname)
 					? env.MARKETING_SITE_SLUG
 					: null;
 			const resolved = alias

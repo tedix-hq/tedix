@@ -1,11 +1,12 @@
 import type { SiteBuilderSandboxRuntime } from "./container/site-builder-sandbox";
 import type { CmsDeployWorkflowParams } from "./agent/deploy-admission";
 import type { ImageGenerationWorkflowParams } from "./agent/image-generation-workflow";
+import type { CmsPlatformHostEnv } from "./platform-hosts";
 
 // Cloudflare's generated binding types are the provider contract.
 export type ArtifactsBinding = Pick<Artifacts, "get" | "create">;
 
-export interface AppBindings {
+export interface AppBindings extends CmsPlatformHostEnv {
 	API_SERVICE: Fetcher;
 	SITE_BUILDER_SANDBOX: DurableObjectNamespace<SiteBuilderSandboxRuntime>;
 	DB: D1Database;

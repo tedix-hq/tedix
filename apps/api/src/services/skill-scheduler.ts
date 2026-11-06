@@ -18,6 +18,7 @@ import {
 } from "@tedix/db/queries/skill-schedules";
 import { getTediById } from "@tedix/db/queries/tedis";
 import { recordTediSubmissionStarted } from "../kernel/runtime-submission-bridge";
+import { tediHost } from "../lib/platform-hosts";
 import { personalDelegationSource } from "./personal-resource-delegation-authority";
 
 export function scheduledSkillWorkflowIdempotencyKey(
@@ -117,11 +118,11 @@ export async function makeTediBudgetProbe(
 			const slug = tedi?.slug;
 			if (slug && env.TEDI_SERVICE) {
 				const res = await env.TEDI_SERVICE.fetch(
-					`https://${slug}.tedi.tedix.dev/__admin/budget-status?admissionClass=${admissionClass}`,
+					`https://${tediHost(env, slug)}/__admin/budget-status?admissionClass=${admissionClass}`,
 					{
 						method: "GET",
 						headers: {
-							"X-Tedix-Host": `${slug}.tedi.tedix.dev`,
+							"X-Tedix-Host": tediHost(env, slug),
 							"X-Service-Binding": "true",
 						},
 					},

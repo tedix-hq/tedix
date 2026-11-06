@@ -27,6 +27,7 @@ import {
 	type SkillDocumentEntry,
 } from "./mcp/skill-document";
 import type { AppData } from "./resolution";
+import { mcpPlatformHosts } from "./platform-hosts";
 import {
 	isRetryableUpstreamError,
 	upstreamUnavailableResponse,
@@ -271,7 +272,7 @@ async function handlePublicSkillIndex(
 		return new Response(
 			JSON.stringify({
 				error: "App subdomain required",
-				message: "Use {app}.mcp.tedix.dev format for skill discovery.",
+				message: `Use {app}.${mcpPlatformHosts(env).mcpHostSuffix} format for skill discovery.`,
 			}),
 			{
 				status: 400,
@@ -401,7 +402,7 @@ async function handleOpenAIChallenge(
 	// become valid moments later and must never serve a stale negative.
 	if (hostnameInfo.type === "base_domain" && !app) {
 		return new Response(
-			"App subdomain required. Use {app}.mcp.tedix.dev format.",
+			`App subdomain required. Use {app}.${mcpPlatformHosts(env).mcpHostSuffix} format.`,
 			{ status: 400, headers: { "Cache-Control": "private, no-store" } },
 		);
 	}
@@ -635,7 +636,7 @@ async function handleOAuthMetadata(
 		return new Response(
 			JSON.stringify({
 				error: "App subdomain required",
-				message: "Use {app}.mcp.tedix.dev format for OAuth metadata.",
+				message: `Use {app}.${mcpPlatformHosts(env).mcpHostSuffix} format for OAuth metadata.`,
 			}),
 			{
 				status: 400,
@@ -722,8 +723,8 @@ async function handleOAuthMetadata(
 	const resourceDocumentation =
 		(mcpConfig?.resourceDocumentation as string | undefined) ??
 		(app
-			? `https://docs.tedix.dev/apps/${app.slug}`
-			: "https://docs.tedix.dev/mcp");
+			? `${mcpPlatformHosts(env).docsUrl}/apps/${app.slug}`
+			: `${mcpPlatformHosts(env).docsUrl}/mcp`);
 
 	// Delegate shape construction to the shared package, then force no-store for
 	// the same cross-host isolation invariant as the override branch above.

@@ -30,6 +30,7 @@ import {
 	stripMemberOnlyInjectFields,
 } from "@tedix/mcp-shared/auth/caller-trust";
 import { normalizeCallerIdentity } from "./caller-identity";
+import { mcpPlatformHosts } from "../platform-hosts";
 import { getByPath, redactByPath } from "./handlers/path-utils";
 import {
 	classifyUpstreamProtocolCaller,
@@ -121,13 +122,11 @@ export function resolveServiceBinding(
 		if (getTedixManagedTediHost(mcpServerUrl) && env.TEDI_SERVICE) {
 			return env.TEDI_SERVICE;
 		}
-		if (host === "builder.tedix.dev" && env.CMS) {
+		const hosts = mcpPlatformHosts(env);
+		if (host === hosts.siteBuilderHostname && env.CMS) {
 			return env.CMS;
 		}
-		if (
-			["docs-admin.tedix.dev", "docs-admin.tedix.tech"].includes(host) &&
-			env.DOCS
-		) {
+		if (hosts.docsAdminHostnames.includes(host) && env.DOCS) {
 			return env.DOCS;
 		}
 	} catch {
