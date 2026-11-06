@@ -13,6 +13,7 @@ const values = {
 	kv: { cache: { id: "kv-id-example" } },
 	r2: { jurisdiction: "eu", buckets: { media: "media-example" } },
 	aiSearch: { sites: "sites-example" },
+	analytics: { events: "events_example" },
 	hostnames: { api: "api.example.test" },
 	routes: { api: [{ pattern: "api.example.test/*", zone: "example.test" }] },
 	domains: { os: ["app.example.test"] },
@@ -66,6 +67,7 @@ describe("deployValues", () => {
 			jurisdiction: "eu",
 		});
 		expect(live.aiSearch("sites", "p")).toBe("sites-example");
+		expect(live.analytics("events", "p")).toBe("events_example");
 		expect(live.host("api", "p")).toBe("api.example.test");
 		expect(live.routes("api", [])).toEqual(values.routes.api);
 		expect(live.domains("os", [])).toEqual(["app.example.test"]);

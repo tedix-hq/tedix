@@ -26,8 +26,8 @@ export default defineConfig(({ mode }) => {
 });
 ```
 
-Accessors: `account`, `worker`, `d1`, `kv`, `r2`, `aiSearch`, `host`,
-`routes`, `domains` and `vars`. Each takes the placeholder as its last argument.
+Accessors: `account`, `worker`, `d1`, `kv`, `r2`, `aiSearch`, `analytics`,
+`host`, `routes`, `domains` and `vars`. Each takes the placeholder as its last argument.
 `vars(surface, name, fallback)` looks in the surface's own section first,
 then in `vars.shared`.
 
@@ -45,6 +45,7 @@ then in `vars.shared`.
 	"kv": { "<key>": { "id": "" } },
 	"r2": { "jurisdiction": "eu", "buckets": { "<key>": "<bucket name>" } },
 	"aiSearch": { "<key>": "<AI Search namespace>" },
+	"analytics": { "<key>": "<Analytics Engine dataset>" },
 	"queues": {},
 	"aiGateway": {
 		"accountId": "",

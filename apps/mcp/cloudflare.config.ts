@@ -1,4 +1,11 @@
-import { bindings, defineConfig, defineWorker, exports } from "cf/config";
+import {
+	bindings,
+	defineConfig,
+	defineWorker,
+	exports,
+	triggers,
+} from "cf/config";
+import { deployValues } from "@tedix/deploy-values";
 
 const runtimeEnv = (
 	globalThis as typeof globalThis & {
@@ -11,6 +18,8 @@ const aggregateEpochKvId = runtimeEnv?.MCP_AGGREGATE_EPOCH_KV_ID?.trim();
 const remoteDev =
 	runtimeEnv?.TEDIX_DEV_REMOTE_TARGET === "shared-production-data";
 export const compatibilityDate = "2026-05-14";
+// Shown wherever production takes a value from the private deploy values.
+const PLACEHOLDER = "configured-via-private-overlay";
 export const productionIngress = {
 	workersDev: false,
 	previewUrls: false,
@@ -22,10 +31,19 @@ export default defineConfig(({ mode }) => {
 	const local = !production && !remoteDev;
 	const worker = (name: string) => (production ? `${name}-production` : name);
 	const lane = production ? "production" : "development";
+	// Live production values when Ship sets TEDIX_DEPLOY_VALUES; otherwise
+	// every lookup returns the placeholder beside it.
+	const live = deployValues({ mode });
+	const service = (surface: string, name: string) =>
+		production ? live.worker(surface, worker(name)) : name;
+	const workerName = service("mcp", "public-installation-mcp");
+	const liveUrl = (host: string) =>
+		live.active ? `https://${live.host(host, "")}` : PLACEHOLDER;
 
 	return {
+		...(live.active ? { accountId: live.account("") } : {}),
 		worker: defineWorker({
-			name: worker("public-installation-mcp"),
+			name: workerName,
 			entrypoint: "src/index.ts",
 			compatibilityDate,
 			// `global_fetch_strictly_public` is a security boundary. This Worker
@@ -37,6 +55,16 @@ export default defineConfig(({ mode }) => {
 			compatibilityFlags: ["nodejs_compat", "global_fetch_strictly_public"],
 			workersDev: productionIngress.workersDev,
 			previewUrls: productionIngress.previewUrls,
+			...(live.active
+				? {
+						domains: live.domains("mcp", []),
+						// The custom domain alone loses to the zone-wide CMS catch-all,
+						// so the apex also needs its route.
+						triggers: live
+							.routes("mcp", [])
+							.map((route) => triggers.fetch(route)),
+					}
+				: {}),
 			logpush: true,
 			// Workers Cache key: entrypoint, URL, Vary values and ctx.props; caller
 			// scope rides a header and is not part of it. Only the unauthenticated
@@ -71,33 +99,40 @@ export default defineConfig(({ mode }) => {
 					: {}),
 				// Shared D1 database. Local runs use the zero id every local Worker shares.
 				DB: bindings.d1({
-					id: "00000000-0000-0000-0000-000000000000",
-					name: "public-installation-database",
+					...live.d1("main", {
+						id: "00000000-0000-0000-0000-000000000000",
+						name: "public-installation-database",
+					}),
 					dev: { remote: remoteDev },
 				}),
 				// Precomputed aggregate tool surface, read by a cold isolate instead of
 				// re-running the live fan-out.
 				AGGREGATE_CACHE: bindings.r2({
-					name: "public-installation-bucket",
+					...live.r2("mcpAggregateCache", {
+						name: "public-installation-bucket",
+					}),
 					dev: { remote: remoteDev },
 				}),
 				ANALYTICS: bindings.analyticsEngineDataset({
-					name: "public_installation_dataset",
+					name: live.analytics("analytics", "public_installation_dataset"),
 				}),
 				CODEMODE_ANALYTICS: bindings.analyticsEngineDataset({
-					name: "public_installation_dataset",
+					name: live.analytics(
+						"codemodeAnalytics",
+						"public_installation_dataset",
+					),
 				}),
 				// Code Mode sandbox for the search and execute meta-tools.
 				LOADER: bindings.workerLoader(),
 				WORKER_VERSION: bindings.versionMetadata(),
 				// Stateful SSE streams for subscriptions/listen.
 				MCP_SUBSCRIPTIONS: bindings.durableObject({
-					worker: worker("public-installation-mcp"),
+					worker: workerName,
 					exportName: "McpSubscriptionDurableObject",
 				}),
 				// Runs config-driven async MCP tools (tasks) and backs `mcp_tasks` rows.
 				GENERIC_TASKS_WORKFLOW: bindings.workflow({
-					worker: worker("public-installation-mcp"),
+					worker: workerName,
 					exportName: "GenericTasksWorkflow",
 					name: worker("generic-tasks-workflow"),
 				}),
@@ -121,49 +156,55 @@ export default defineConfig(({ mode }) => {
 					// scripts/dev-local.ts runs apps/api under this local name.
 					worker: local
 						? "public-installation-api"
-						: worker("public-installation-api"),
+						: service("api", "public-installation-api"),
 					exportName: "McpEntrypoint",
 				}),
 				TEDI_SERVICE: bindings.worker({
-					worker: worker("public-installation-tedi"),
+					worker: service("tedi", "public-installation-tedi"),
 					exportName: "InternalEntrypoint",
 				}),
-				CMS: bindings.worker({ worker: worker("public-installation-cms") }),
-				DOCS: bindings.worker({ worker: worker("public-installation-docs") }),
+				CMS: bindings.worker({
+					worker: service("cms", "public-installation-cms"),
+				}),
+				DOCS: bindings.worker({
+					worker: service("docs", "public-installation-docs"),
+				}),
 				ENVIRONMENT: bindings.text(lane),
-				GIT_SHA: bindings.text(
-					production ? releaseSha : "configured-via-private-overlay",
-				),
+				GIT_SHA: bindings.text(production ? releaseSha : PLACEHOLDER),
 				MCP_URL: bindings.text(
 					production
-						? "configured-via-private-overlay"
+						? liveUrl("mcp")
 						: local
 							? "http://localhost:3000"
-							: "configured-via-private-overlay",
+							: PLACEHOLDER,
 				),
 				API_URL: bindings.text(
 					production
-						? "configured-via-private-overlay"
+						? liveUrl("api")
 						: local
 							? runtimeEnv?.TEDIX_LOCAL_API_URL?.trim() ||
 								"http://localhost:8787"
-							: "configured-via-private-overlay",
+							: PLACEHOLDER,
 				),
 				MCP_UI_URL: bindings.text(
 					production
-						? "configured-via-private-overlay"
+						? liveUrl("mcpUi")
 						: local
 							? "http://localhost:3001"
-							: "configured-via-private-overlay",
+							: PLACEHOLDER,
 				),
 				// Always api.descope.com: custom domains do not proxy /v1/apps/agentic/*.
 				DESCOPE_AIH_BASE_URL: bindings.text(
-					local ? "http://127.0.0.1:9" : "configured-via-private-overlay",
+					local
+						? "http://127.0.0.1:9"
+						: live.vars("mcp", "DESCOPE_AIH_BASE_URL", PLACEHOLDER),
 				),
 				// Resolves base-domain MCP requests to this app slug in local runs.
 				DEFAULT_APP_SLUG: bindings.text(""),
 				// Opts out of the Skybridge runtime's telemetry counter.
-				DO_NOT_TRACK: bindings.text("configured-via-private-overlay"),
+				DO_NOT_TRACK: bindings.text(
+					live.vars("mcp", "DO_NOT_TRACK", PLACEHOLDER),
+				),
 				...(local
 					? {
 							// `bun dev` (scripts/dev-local.ts) passes disabled Descope
@@ -182,10 +223,15 @@ export default defineConfig(({ mode }) => {
 							// Signs the destructive-approval request state and authenticates
 							// service-binding calls; key resolution fails closed without it.
 							PLATFORM_SERVICE_TOKEN: bindings.secret(),
-							// Payload-capture stream. Live in production; the feature is a
-							// no-op wherever they are unset.
-							MCP_PAYLOAD_STREAM_ENDPOINT: bindings.secret(),
-							MCP_PAYLOAD_STREAM_TOKEN: bindings.secret(),
+							// Payload-capture stream; the feature is a no-op wherever they
+							// are unset. Removed from the live production Worker on
+							// 6 Nov 2026, so a deploy with live values leaves them out.
+							...(live.active
+								? {}
+								: {
+										MCP_PAYLOAD_STREAM_ENDPOINT: bindings.secret(),
+										MCP_PAYLOAD_STREAM_TOKEN: bindings.secret(),
+									}),
 						}),
 			},
 		}),
