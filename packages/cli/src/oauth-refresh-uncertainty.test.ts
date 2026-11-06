@@ -268,8 +268,12 @@ for (const code of ["ENOTFOUND", "ECONNREFUSED"] as const) {
 				expect(
 					readWorkspaceCredentials("fixture")?.oauthRefreshPending,
 				).toBeUndefined();
+				expect(attempts).toBe((round + 1) * 2);
+				expect(
+					readWorkspaceCredentials("fixture")?.oauthTokens?.refresh_token,
+				).toBe("original-refresh");
 			}
-			expect(attempts).toBe(2);
+			expect(attempts).toBe(4);
 		} finally {
 			if (previous === undefined) delete process.env.TEDIX_CONFIG_DIR;
 			else process.env.TEDIX_CONFIG_DIR = previous;
