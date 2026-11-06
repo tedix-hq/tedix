@@ -2147,8 +2147,8 @@ describe("byline schema REST proxy routes", () => {
 						return Response.json({
 							data: {
 								id: "byline_1",
-								slug: "christian",
-								displayName: "Dr. Christian Probst",
+								slug: "lena",
+								displayName: "Dr. Lena Example",
 								bio: "Bio",
 								websiteUrl: null,
 								customFields: {},
@@ -2168,8 +2168,8 @@ describe("byline schema REST proxy routes", () => {
 		const result = await callCmsRest(ctx, "byline_update", {
 			id: "byline_1",
 			customFields: {
-				linkedin_url: "https://www.linkedin.com/in/dr-christian-probst/",
-				job_title: "Experte für Vorsorgedokumente",
+				linkedin_url: "https://www.linkedin.com/in/lena-example/",
+				job_title: "Senior Editor",
 			},
 		});
 
@@ -2180,13 +2180,13 @@ describe("byline schema REST proxy routes", () => {
 				method: "PUT",
 				path: "/_emdash/api/admin/bylines/byline_1",
 				body: {
-					slug: "christian",
-					displayName: "Dr. Christian Probst",
+					slug: "lena",
+					displayName: "Dr. Lena Example",
 					bio: "Bio",
 					websiteUrl: null,
 					customFields: {
-						linkedin_url: "https://www.linkedin.com/in/dr-christian-probst/",
-						job_title: "Experte für Vorsorgedokumente",
+						linkedin_url: "https://www.linkedin.com/in/lena-example/",
+						job_title: "Senior Editor",
 					},
 				},
 			},

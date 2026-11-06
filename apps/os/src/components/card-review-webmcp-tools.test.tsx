@@ -147,8 +147,8 @@ function seed() {
 					[
 						"2",
 						"Reply",
-						"https://x.com/jonasfeld/status/2",
-						"Jonas Feld",
+						"https://x.com/rheaquill/status/2",
+						"Rhea Quill",
 						"Mentioned the launch",
 						"Thanks for the mention!",
 						null,
@@ -381,7 +381,7 @@ describe("Card review WebMCP tools", () => {
 	it("filters the screen by channel", async () => {
 		await mount();
 		await call("card_review_filter", { channel: "x" });
-		expect(shownWho()).toBe("Jonas Feld");
+		expect(shownWho()).toBe("Rhea Quill");
 		expect(shownProgress()).toBe("1 waiting · 0 decided · 1 total");
 		expect(
 			host?.querySelector('[aria-pressed="true"]')?.textContent?.trim(),
@@ -417,7 +417,7 @@ describe("Card review WebMCP tools", () => {
 				targetId: CARDS_ID,
 			}),
 		);
-		expect(shownWho()).toBe("Jonas Feld");
+		expect(shownWho()).toBe("Rhea Quill");
 		expect(shownProgress()).toBe("2 waiting · 1 decided · 3 total");
 
 		await call("card_review_undo");
@@ -448,7 +448,7 @@ describe("Card review WebMCP tools", () => {
 		const card = await nextCard();
 		await call("card_review_do_it", { cardKey: card.cardKey });
 		expect(sheets.get(CARDS_ID)!.rows[0]!.slice(6)).toEqual(["yes", "", "yes"]);
-		expect(shownWho()).toBe("Jonas Feld");
+		expect(shownWho()).toBe("Rhea Quill");
 	});
 
 	it("names Do it after the card's action and hides it without one", async () => {
@@ -520,12 +520,12 @@ describe("Card review WebMCP tools", () => {
 	it("skips and snoozes on screen, each undoable", async () => {
 		await mount();
 		await call("card_review_skip", { cardKey: (await nextCard()).cardKey });
-		expect(shownWho()).toBe("Jonas Feld");
+		expect(shownWho()).toBe("Rhea Quill");
 		await call("card_review_undo");
 		expect(shownWho()).toBe("Mira Okafor");
 
 		await call("card_review_snooze", { cardKey: (await nextCard()).cardKey });
-		expect(shownWho()).toBe("Jonas Feld");
+		expect(shownWho()).toBe("Rhea Quill");
 		expect(shownProgress()).toBe("2 waiting · 0 decided · 3 total");
 		await call("card_review_undo");
 		expect(shownWho()).toBe("Mira Okafor");
@@ -615,7 +615,7 @@ describe("Do it that runs the source's skill", () => {
 		sheet.columns.push("Action");
 		const actions = [
 			"Archive the thread",
-			"Draft a reply to Jonas",
+			"Draft a reply to Rhea",
 			"Book a call with Ada",
 		];
 		sheet.rows.forEach((row, index) => row.push(actions[index]!));
@@ -646,7 +646,7 @@ describe("Do it that runs the source's skill", () => {
 		);
 		// The app itself writes nothing; the run did.
 		expect(api.outputs.setSheetRange).not.toHaveBeenCalled();
-		expect(shownWho()).toBe("Jonas Feld");
+		expect(shownWho()).toBe("Rhea Quill");
 		expect(
 			host?.querySelector("[data-card-review-last-result]")?.textContent,
 		).toContain("Archive the thread: Done ✓");

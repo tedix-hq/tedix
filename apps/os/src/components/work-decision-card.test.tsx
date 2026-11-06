@@ -454,9 +454,9 @@ it("shows the original ask at once, with no waiting or error face, and keeps act
 
 it("drops list numbers such as 'Review 07 —' from the headline", async () => {
 	await mountFace({ presentation: null, confidence: null }, undefined, {
-		title: "Review 07 — LOI draft and paid-maintainer offer for Ines?",
+		title: "Review 07 — Renewal quote and support plan for Morgan?",
 	});
-	expect(heading()).toBe("LOI draft and paid-maintainer offer for Ines?");
+	expect(heading()).toBe("Renewal quote and support plan for Morgan?");
 });
 
 it("names every action by its outcome and keeps the decline in view", async () => {
