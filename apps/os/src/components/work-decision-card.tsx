@@ -312,6 +312,7 @@ export function WorkDecisionCard({
 	why,
 	body = "",
 	content,
+	faceContent,
 	actions = [],
 	feedbackAction,
 	editAction,
@@ -339,6 +340,8 @@ export function WorkDecisionCard({
 	why?: ReactNode;
 	body?: string;
 	content?: ReactNode;
+	/** Shown on the card face, not behind Context: fields the answer needs. */
+	faceContent?: ReactNode;
 	actions?: readonly DecisionCardAction[];
 	feedbackAction?: DecisionCardAction;
 	editAction?: DecisionCardAction;
@@ -1078,6 +1081,13 @@ export function WorkDecisionCard({
 											{whyNow && <InlineMarkdown text={whyNow} />}
 										</p>
 									)}
+									{face && (
+										<Text className="fd-recommendation">
+											<strong>{decisionText("Recommended:")}</strong>{" "}
+											<InlineMarkdown text={face.recommendation} />
+										</Text>
+									)}
+									{faceContent}
 									{!face && (
 										// No summary yet: the original ask, as written, right away.
 										<div className="fd-face-original grid gap-2">
@@ -1121,12 +1131,6 @@ export function WorkDecisionCard({
 										onOpenChange={setDetailsOpen}
 									>
 										<div className="grid min-w-0 gap-3 break-words">
-											{face && (
-												<Text className="fd-recommendation">
-													<strong>{decisionText("Suggested:")}</strong>{" "}
-													<InlineMarkdown text={face.recommendation} />
-												</Text>
-											)}
 											{stakes && (
 												<Text className="fd-stakes">
 													<InlineMarkdown text={stakes} />
@@ -1161,8 +1165,11 @@ export function WorkDecisionCard({
 									</FeedDeckDisclosure>
 								</div>
 							) : (
-								(content ??
-								(body ? <DecisionProposalBody body={body} /> : null))
+								<>
+									{faceContent}
+									{content ??
+										(body ? <DecisionProposalBody body={body} /> : null)}
+								</>
 							)}
 						</div>
 						{secureConnection && (

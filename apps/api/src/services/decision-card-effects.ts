@@ -30,6 +30,7 @@ async function dispatchEffect(
 	requestId: string,
 	proposal: string,
 	ownerId: string,
+	scope?: string,
 ) {
 	switch (effect.kind) {
 		case "create_owner_task": {
@@ -185,6 +186,56 @@ async function dispatchEffect(
 				state: "filed",
 			};
 		}
+		case "delegate_work": {
+			const orgId = requireOrgId(context);
+			const card = await getWorkInteraction(context.db, {
+				orgId,
+				interactionId: requestId,
+			});
+			const work = await getWorkItemById(context.db, effect.workItemId, orgId);
+			if (!work || card?.workItemId !== work.id)
+				throw createError(ErrorCodes.NOT_FOUND, "The task is unavailable");
+			if (
+				work.accountableOwnerType !== "user" ||
+				work.accountableOwnerId !== ownerId
+			)
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Only the task's accountable owner can allow this",
+				);
+			if (
+				work.disposition !== "accepted" ||
+				work.version !== effect.workVersion ||
+				work.metadata?.executor !== effect.executor
+			)
+				throw createError(
+					ErrorCodes.CONFLICT,
+					"The task changed since this card was made; the runner will ask again if it still needs permission",
+				);
+			const note = delegationScope(scope ?? proposal);
+			const { workItemsContractRouter } =
+				await import("../rpc/routers/work-items");
+			const row = await call(
+				workItemsContractRouter.addComment,
+				{
+					id: work.id,
+					body: `Delegation: ${effect.executor} work-version=${work.version} ${note}`,
+					metadata: {
+						schema: "tedix.lane-delegation.v1",
+						requestId,
+						executor: effect.executor,
+						workVersion: work.version,
+					},
+				},
+				{ context },
+			);
+			return {
+				kind: effect.kind,
+				targetId: work.id,
+				receiptId: row.id,
+				state: "delegated",
+			};
+		}
 		case "publish_docs": {
 			const { docsContractRouter } = await import("../rpc/routers/docs");
 			const published = await call(
@@ -225,6 +276,17 @@ async function dispatchEffect(
 			};
 		}
 	}
+}
+
+/** One bounded sentence on one line; the lane needs at least ten characters. */
+export function delegationScope(text: string) {
+	const note = text.replace(/\s+/g, " ").trim().slice(0, 500);
+	if (note.length < 10)
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			"Write what the agent may do in one sentence",
+		);
+	return note;
 }
 
 /** Claim before any effect. A lost result stays visible and cannot execute twice. */
@@ -297,11 +359,19 @@ export async function executeDecisionCardEffect(
 			ErrorCodes.CONFLICT,
 			"This wording changed. The agent must revise the source draft and request a fresh review before this action can run.",
 		);
+	// The owner may narrow a delegation's scope sentence; it is their own grant.
+	const scope =
+		option.effect.kind === "delegate_work"
+			? typeof metadata.editedBody === "string"
+				? metadata.editedBody
+				: parsed.data.preview?.body
+			: undefined;
 	if (
-		metadata.feedbackSignal === "edited" ||
-		(typeof metadata.editedBody === "string" &&
-			metadata.editedBody !==
-				(parsed.data.preview?.body ?? parsed.data.recommendation))
+		option.effect.kind !== "delegate_work" &&
+		(metadata.feedbackSignal === "edited" ||
+			(typeof metadata.editedBody === "string" &&
+				metadata.editedBody !==
+					(parsed.data.preview?.body ?? parsed.data.recommendation)))
 	)
 		throw createError(
 			ErrorCodes.CONFLICT,
@@ -353,6 +423,7 @@ export async function executeDecisionCardEffect(
 			request.id,
 			parsed.data.proposal,
 			input.responder.id,
+			scope,
 		);
 		return {
 			...input,
