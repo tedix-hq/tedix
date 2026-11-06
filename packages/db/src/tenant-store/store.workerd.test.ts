@@ -58,6 +58,9 @@ describe("TenantStore", () => {
 		expect(description).toMatchObject(at);
 		expect(description.migrations).toEqual([
 			"20261105190055_tenant_store_core",
+			"20261106092045_tenant_memory",
+			"20261106092201_tenant_memory_projections",
+			"20261106093101_tenant_memory_state",
 		]);
 		// A second call is served by the same object and keeps its identity.
 		const again = await tenantStoreStub(
