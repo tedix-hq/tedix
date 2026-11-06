@@ -460,6 +460,7 @@
 		"./queries/work-items/work-routing": "./src/queries/work-items/work-routing.ts",
 		"./queries/work-items/interaction-deliveries": "./src/queries/work-items/interaction-deliveries.ts",
 		"./queries/work-items/interactions": "./src/queries/work-items/interactions.ts",
+		"./queries/work-items/lane-delegation-requests": "./src/queries/work-items/lane-delegation-requests.ts",
 		"./queries/work-items/interaction-digests": "./src/queries/work-items/interaction-digests.ts",
 		"./queries/work-items/interaction-reviews": "./src/queries/work-items/interaction-reviews.ts",
 		"./queries/work-items/reply-drafts": "./src/queries/work-items/reply-drafts.ts",

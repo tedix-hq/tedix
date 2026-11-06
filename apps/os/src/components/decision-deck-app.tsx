@@ -200,6 +200,7 @@ function DecisionDeckContent({
 	}));
 	const [practice, setPractice] = useState<DecisionLearningReceipt[]>([]);
 	const [skipped, setSkipped] = useState<string[]>([]);
+	const pinnedOrder = useRef({ mode, order: new Map<string, number>() });
 	const decisions = useDecisionInbox(config);
 	const { inbox, approvals } = decisions;
 	const history = useQuery({
@@ -315,14 +316,24 @@ function DecisionDeckContent({
 		(project === "all" || row.project === project) &&
 		(urgency === "all" || row.urgency === urgency) &&
 		row.label.toLowerCase().includes(search.toLowerCase());
-	const ranked = rows
-		.sort(compare)
-		.filter(
-			(row) =>
-				matchesFilters(row) &&
-				!optimisticIds.includes(row.id) &&
-				(mode !== "practice" || !skipped.includes(row.id)),
-		);
+	// Once every source has loaded, the order stays as first shown while the
+	// deck is open; new cards join at the end, so the card on screen and its
+	// Details panel never swap.
+	if (pinnedOrder.current.mode !== mode || decisions.pending)
+		pinnedOrder.current = { mode, order: new Map() };
+	const pinned = pinnedOrder.current.order;
+	rows.sort(compare);
+	if (mode === "decide" && !decisions.pending) {
+		for (const row of rows)
+			if (!pinned.has(row.id)) pinned.set(row.id, pinned.size);
+		rows.sort((a, b) => pinned.get(a.id)! - pinned.get(b.id)!);
+	}
+	const ranked = rows.filter(
+		(row) =>
+			matchesFilters(row) &&
+			!optimisticIds.includes(row.id) &&
+			(mode !== "practice" || !skipped.includes(row.id)),
+	);
 
 	const available =
 		mode === "practice"
