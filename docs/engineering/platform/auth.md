@@ -397,8 +397,13 @@ Consent-flow rules (`packages/auth/src/aih-client.ts`,
    roles-only condition can evaluate against empty context and silently deny;
    roles may only narrow an already tenant-scoped rule.
 2. Use the `inbound-apps-multi-org-consent` flow, the only consent flow. A
-   `tenant` hint preselects that organization. Selecting several organizations
-   produces several tenant-bound tokens, never one multi-tenant token.
+   `tenant` hint preselects that organization. Connect accepts one access token
+   with 1–10 unique organization IDs in `tedixSelectedOrganizations`. On every
+   request, `resolveHumanMcpSelection` checks the resource audience, client and
+   consent revision and calls `verifyMultiOrgMcpGrant` to re-verify the selected
+   organizations and granted scopes. The selection is not a tenant roles map.
+   Single-organization resources require exactly one selection matching `dct`
+   and the resource tenant; Connect enables `multiOrganization` explicitly.
 3. The consent page (`/oauth/consent` in Tedix OS) embeds the Descope flow and
    replaces only the consent screens; authentication stays with Descope. It
    calls `selectTenant` once and waits until the session JWT's `dct` matches

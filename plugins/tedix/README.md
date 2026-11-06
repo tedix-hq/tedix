@@ -84,10 +84,10 @@ steps; a source change does not update an installed package automatically.
 Portable `mcp.json` uses the Agent Plugins `streamable-http` schema. The
 host-native `.mcp.json` declares the same remote server with type `http` and
 the URL `https://connect.mcp.tedix.dev/mcp`, and nothing else. The OpenAI settings
-in `mcp.json` request the regular permissions plus `platform:admin` so eligible
-platform administrators can select it when reconnecting. That checkbox stays
-unchecked until the person selects it. Neither file holds credentials; browser
-consent and server enforcement determine access.
+in `mcp.json` request regular permissions without `platform:admin`. Platform
+administration requires an eligible account and explicit opt-in through
+`tedix login --scope-profile platform-admin`. Neither file holds credentials;
+browser consent and server enforcement determine access.
 
 `tedix-connect` is the packaged onboarding skill. Connect lists one tool, `code`.
 First use calls `codemode.__runtime()` to verify the current account and
