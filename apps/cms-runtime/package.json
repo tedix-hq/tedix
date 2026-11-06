@@ -24,6 +24,7 @@
 		"@tedix/api-contract": "workspace:*",
 		"@tedix/auth": "workspace:*",
 		"@tedix/db": "workspace:*",
+		"@tedix/deploy-values": "workspace:*",
 		"@tedix/provisioning": "workspace:*",
 		"@tedix/ssrf-guard": "workspace:*",
 		"@tedix/tedi-codemode-core": "workspace:*",

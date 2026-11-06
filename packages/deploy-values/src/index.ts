@@ -24,6 +24,7 @@ export type DeployValues = {
 	d1(name: string, fallback: D1Value): D1Value;
 	kv(name: string, fallback: string): string;
 	r2(bucketKey: string, fallback: R2Value): R2Value;
+	aiSearch(key: string, fallback: string): string;
 	host(key: string, fallback: string): string;
 	routes(surface: string, fallback: RouteValue[]): RouteValue[];
 	domains(surface: string, fallback: string[]): string[];
@@ -143,6 +144,7 @@ export function deployValues(options: DeployValuesOptions): DeployValues {
 			}
 			return jurisdiction ? { name, jurisdiction } : { name };
 		},
+		aiSearch: (key, fallback) => string(["aiSearch", key], fallback),
 		host: (key, fallback) => string(["hostnames", key], fallback),
 		routes: (surface, fallback) => {
 			if (!values) return fallback;
