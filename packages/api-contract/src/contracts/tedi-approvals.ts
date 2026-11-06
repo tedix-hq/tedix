@@ -20,6 +20,7 @@ import {
 	BrowserTakeoverStatusSchema,
 } from "../schemas/tedi";
 import { ApprovalEditsInputSchema } from "../schemas/approval-edits";
+import { ApprovalRequestIdSchema } from "../schemas/approval-request-id";
 
 // =============================================================================
 // SCHEMAS
@@ -453,7 +454,7 @@ export const tediApprovalsContract = oc
 				path: "/{id}",
 				summary: "Get approval request",
 			})
-			.input(z.object({ id: z.uuid() }))
+			.input(z.object({ id: ApprovalRequestIdSchema }))
 			.output(ApprovalRequestSchema),
 
 		getProvenance: oc
@@ -571,7 +572,7 @@ export const tediApprovalsContract = oc
 			})
 			.input(
 				z.object({
-					id: z.uuid(),
+					id: ApprovalRequestIdSchema,
 					status: z.enum(["approved", "rejected"]),
 					resolution: z.string().max(2000).optional(),
 					delegateRecommendation: z.boolean().optional(),
@@ -641,7 +642,7 @@ export const tediApprovalsContract = oc
 			})
 			.input(
 				z.object({
-					id: z.uuid(),
+					id: ApprovalRequestIdSchema,
 					reason: z.string().max(2000).optional(),
 				}),
 			)

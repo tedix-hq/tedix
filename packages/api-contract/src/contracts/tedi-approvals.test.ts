@@ -73,3 +73,29 @@ describe("ordered approval review contract", () => {
 		expect(tediApprovalsContract.resolveReviewManifest).toBeDefined();
 	});
 });
+
+describe("approval request ids", () => {
+	const resolveInput = () =>
+		tediApprovalsContract.resolve["~orpc"].inputSchemas[0]!;
+	const toolReviewId = `tool-review-${"a".repeat(64)}`;
+
+	it("lets an approver resolve a tool-change review by its digest id", () => {
+		expect(
+			resolveInput().safeParse({ id: toolReviewId, status: "approved" })
+				.success,
+		).toBe(true);
+		expect(
+			resolveInput().safeParse({
+				id: "019d0000-0000-7000-8000-000000000001",
+				status: "rejected",
+			}).success,
+		).toBe(true);
+	});
+
+	it("still rejects ids that are neither a UUID nor a tool-review digest", () => {
+		for (const id of ["tool-review-abc", "abc12345", `x${toolReviewId}`])
+			expect(resolveInput().safeParse({ id, status: "approved" }).success).toBe(
+				false,
+			);
+	});
+});
