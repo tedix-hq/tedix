@@ -1594,7 +1594,8 @@ it("returns the latest resolved related answer only within the same tenant and r
 	sqlite.exec(
 		"INSERT INTO projects(id,org_id,key,name,created_at) VALUES ('project','org','test','Example','2026-08-20T00:00:00Z'); UPDATE work_interactions SET project_id='project' WHERE id IN ('mine','previous')",
 	);
-	expect(await read()).toBe("previous");
+	// A shared project alone does not make an earlier answer related.
+	expect(await read()).toBeNull();
 	sqlite.close();
 });
 

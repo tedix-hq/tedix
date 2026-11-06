@@ -173,17 +173,42 @@ export function dispatchSkip(
 		return `${kind}; needs an owner comment: Delegation: ${item.metadata?.executor} work-version=${item.version} <bounded delegation note>`;
 }
 
+const AGENT_NAMES: Record<string, string> = {
+	codex: "Codex",
+	"claude-code": "Claude Code",
+	opencode: "OpenCode",
+	devin: "Devin",
+};
+
+/** What the person is asked to allow, in plain words. */
+const RESERVED_STEPS: Record<string, string> = {
+	credentials: "handle keys or account access",
+	money: "spend money",
+	external_message: "message people outside the team",
+	public_publish: "publish something publicly",
+	delete_data: "delete live data",
+	legal: "make a legal commitment",
+	customer_config: "change a customer's live setup",
+};
+
+function shortTitle(title: string, room: number) {
+	const text = title.replace(/\s+/g, " ").trim();
+	return text.length > room ? `${text.slice(0, room - 1)}…` : text;
+}
+
 /**
  * The one OS request a lane raises when it skips Work for a missing owner
- * delegation. It asks; it never adds the delegation or changes the owner.
- * Content is fixed per Work version and executor, so the server's open
- * Interaction deduplication returns the same request on every later pass.
+ * delegation. Its Allow posts the owner's version-specific Delegation comment
+ * through the `delegate_work` card effect; the lane itself never adds it or
+ * changes the owner. The server keeps one card per Work version and person
+ * and retires it when the Work finishes or changes.
  */
 export function laneDelegationRequest(
 	item: Pick<
 		DispatchItem,
 		| "id"
 		| "title"
+		| "description"
 		| "version"
 		| "metadata"
 		| "accountableOwnerType"
@@ -194,7 +219,7 @@ export function laneDelegationRequest(
 ):
 	| {
 			workItemId: string;
-			kind: "input";
+			kind: "question" | "input";
 			subject: string;
 			prompt: string;
 			reason: string;
@@ -205,35 +230,112 @@ export function laneDelegationRequest(
 	| undefined {
 	if (!reason.startsWith("Possible human-reserved action")) return;
 	const executor = String(item.metadata?.executor ?? "");
-	const line = `Delegation: ${executor} work-version=${item.version} <what the lane may do, in one bounded sentence>`;
-	const title =
-		item.title.length > 120 ? `${item.title.slice(0, 119)}…` : item.title;
+	const agent = AGENT_NAMES[executor] ?? executor;
+	const steps = laneReservedActions(`${item.title}\n${item.description ?? ""}`);
+	const step =
+		[
+			...new Set(
+				steps.map((id) => RESERVED_STEPS[id] ?? id.replace(/_/g, " ")),
+			),
+		].join(" and ") || "take a step only a person can allow";
 	const owner =
 		item.accountableOwnerType === "user" && item.accountableOwnerId
 			? item.accountableOwnerId
 			: undefined;
 	const target = owner ?? operatorUserId;
 	if (!target) return;
+	const laneBlocker = {
+		kind: owner ? "owner_delegation" : "accountable_owner",
+		executor,
+		workVersion: item.version,
+	};
+	if (!owner) {
+		const title = shortTitle(item.title, 120);
+		return {
+			workItemId: item.id,
+			kind: "input",
+			subject: `Choose an accountable owner for "${title}"`,
+			prompt: `${agent} paused "${title}" because it asks the agent to ${step}, and the task has no person who can allow that. An organization owner or admin can make a person the task's accountable owner; that person then gets a card to allow or refuse it.`,
+			reason:
+				"Only a person can become the accountable owner who allows this step.",
+			notificationReason: "blocked_approval",
+			requestedFrom: { type: "user", id: target },
+			metadata: { source: "lane-dispatch-blocker", laneBlocker },
+		};
+	}
+	const title = shortTitle(item.title, 200);
+	const ask = `Let ${agent} work on “${shortTitle(item.title, 80 - agent.length - 20)}”?`;
+	const scope = `${agent} may ${step} only as this task describes, and nothing beyond it.`;
+	const whyNow = `${agent} paused this task because it asks the agent to ${step}, which needs your permission. It stays blocked until you answer.`;
+	const allow = `Posts your permission for this version of the task; ${agent} starts on its next check.`;
 	return {
 		workItemId: item.id,
-		kind: "input",
-		subject: owner
-			? `Delegate "${title}" to the ${executor} lane?`
-			: `Choose an accountable owner for "${title}"`,
-		prompt: owner
-			? `The ${executor} lane did not start this Work because it may include an action only a person can authorize. If the lane may do it, add this comment to the Work, filling in what it may do:\n\n${line}\n\nWithout that comment the Work stays waiting. Consent, sign-in and MFA always stay with you.`
-			: `The ${executor} lane did not start this Work because it may include an action only a person can authorize, and the Work has no accountable person who can delegate it. An organization owner or admin can make a person its accountable owner; that person can then add this comment if the lane may go ahead:\n\n${line}`,
-		reason: owner
-			? "Only the accountable owner can delegate a possibly human-reserved action to a lane."
-			: "Only a person can become the accountable owner who delegates this action.",
+		kind: "question",
+		subject: ask,
+		prompt: `${whyNow}\n\nAllow: ${allow}\nNo: nothing is posted and the task stays blocked; this version is not asked again.\nLater: the card stays and the task waits.\n\nPermission text: ${scope}`,
+		reason: "Only the task's accountable owner can allow this step.",
 		notificationReason: "blocked_approval",
 		requestedFrom: { type: "user", id: target },
 		metadata: {
 			source: "lane-dispatch-blocker",
-			laneBlocker: {
-				kind: owner ? "owner_delegation" : "accountable_owner",
-				executor,
-				workVersion: item.version,
+			laneBlocker,
+			decisionDeck: {
+				version: 1,
+				kind: "approval",
+				classId: "lane-delegation",
+				proposal: `Let ${agent} work on “${title}”, including the step that needs you: ${step}?`,
+				whyNow,
+				recommendation: `Allow, because you accepted this task for ${agent} and the permission covers only this version and the sentence above; edit the sentence to narrow it.`,
+				preview: { body: scope },
+				reversibility: "unknown",
+				tasteOrStrategy: false,
+				protectedEffects: [],
+				blastRadius: `Only this task as it reads now; if the task changes, ${agent} asks again.`,
+				confidence: null,
+				costOfWaiting: "The task stays blocked; no agent works on it.",
+				reasoning: `The runner holds a task that asks an agent to ${step} until its accountable owner allows that for the current version.`,
+				options: [
+					{
+						id: "allow",
+						label: "Allow",
+						intent: "approve",
+						consequence: allow,
+						cost: `${agent} may do what the sentence above says.`,
+						effect: {
+							kind: "delegate_work",
+							workItemId: item.id,
+							executor,
+							workVersion: item.version,
+						},
+					},
+					{
+						id: "no",
+						label: "No",
+						intent: "reject",
+						consequence:
+							"Nothing is posted; the task stays blocked and this version is not asked again.",
+						cost: "No agent works on this task until it changes.",
+					},
+					{
+						id: "later",
+						label: "Later",
+						intent: "later",
+						consequence: "Keeps this card; the task waits.",
+						cost: "The task stays blocked meanwhile.",
+					},
+				],
+			},
+			cardPresentation: {
+				version: 2,
+				title: ask,
+				body: allow.slice(0, 120),
+				context: `Needs your permission to ${step}.`.slice(0, 120),
+				recommendation:
+					`Allow, because you accepted this task and the permission covers only this version.`.slice(
+						0,
+						120,
+					),
+				effectStatus: "known",
 			},
 		},
 	};
