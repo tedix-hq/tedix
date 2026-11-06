@@ -16,6 +16,33 @@ import { migrate } from "drizzle-orm/durable-sqlite/migrator";
 import { getTableConfig, type SQLiteTable } from "drizzle-orm/sqlite-core";
 import { tenantStoreMigrations } from "./migrations";
 import {
+	tediExpertise,
+	tediCuriosityQueue,
+	tediOptimizationSignals,
+} from "./memory-schema/memory-state";
+import {
+	executeMemoryQuery,
+	type MemoryQuery,
+} from "../queries/memory-graph/tenant-rpc";
+import { selectMemoryStore } from "../queries/memory-graph/tenant-store";
+import {
+	memoryDomains,
+	memoryFacts,
+	memoryEdges,
+} from "./memory-schema/memory-graph";
+import {
+	memoryEntities,
+	memoryEntityMentions,
+	memoryEntityAliases,
+	memoryEntityResolutionHeads,
+	memoryEntityResolutionDecisions,
+	memoryEntityResolutions,
+} from "./memory-schema/memory-entities";
+import {
+	memoryFactCitations,
+	memoryFactCitationBackfills,
+} from "./memory-schema/memory-fact-citations";
+import {
 	requireWorkspaceScope,
 	tenantStoreName,
 	type WorkspaceTenantScope,
@@ -66,7 +93,22 @@ export interface TenantStoreDefinition {
 /** Tenant ports register their tables here as they land. */
 export const tenantStoreDefinition: TenantStoreDefinition = {
 	migrations: tenantStoreMigrations,
-	importTables: {},
+	importTables: {
+		memory_domains: memoryDomains,
+		tedi_expertise: tediExpertise,
+		tedi_curiosity_queue: tediCuriosityQueue,
+		tedi_optimization_signals: tediOptimizationSignals,
+		memory_facts: memoryFacts,
+		memory_edges: memoryEdges,
+		memory_entities: memoryEntities,
+		memory_entity_mentions: memoryEntityMentions,
+		memory_entity_aliases: memoryEntityAliases,
+		memory_entity_resolution_heads: memoryEntityResolutionHeads,
+		memory_entity_resolution_decisions: memoryEntityResolutionDecisions,
+		memory_entity_resolutions: memoryEntityResolutions,
+		memory_fact_citations: memoryFactCitations,
+		memory_fact_citation_backfills: memoryFactCitationBackfills,
+	},
 };
 
 /** Scope columns that imported rows must match when a table has them. */
@@ -92,6 +134,18 @@ export class TenantStore<Env = unknown> extends DurableObject<Env> {
 		void ctx.blockConcurrencyWhile(async () => {
 			migrate(this.db, { migrations: definition.migrations });
 		});
+	}
+
+	memory(scope: TenantScope, query: MemoryQuery): Promise<unknown> {
+		const bound = this.bindScope(scope);
+		return executeMemoryQuery(
+			selectMemoryStore({
+				plane: "do-local-sqlite",
+				storage: this.ctx.storage,
+			}),
+			bound,
+			query,
+		);
 	}
 
 	/** The bound scope, creation time and applied migrations. */

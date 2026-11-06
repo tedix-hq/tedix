@@ -2,8 +2,8 @@
  * Core tables of one workspace's TenantStore Durable Object SQLite database.
  *
  * Domain tables (outputs, runs, memory) are added by the tenant-port stories.
- * They live in this file too so `drizzle.tenant-store.config.ts` generates one
- * migration chain per store.
+ * Memory tables live in `memory-schema/`; `drizzle.tenant-store.config.ts`
+ * includes both in one migration chain per store.
  */
 import { check, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
