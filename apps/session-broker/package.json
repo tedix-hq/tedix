@@ -22,6 +22,7 @@
 	"dependencies": {
 		"@tedix/api-client": "workspace:*",
 		"@tedix/auth": "workspace:*",
+		"@tedix/deploy-values": "workspace:*",
 		"@tedix/worker-kit": "workspace:*"
 	},
 	"devDependencies": {

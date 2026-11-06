@@ -72,6 +72,7 @@
 		"@tedix/api-contract": "workspace:*",
 		"@tedix/auth": "workspace:*",
 		"@tedix/chat-transport": "workspace:*",
+		"@tedix/deploy-values": "workspace:*",
 		"@tedix/design-tokens": "workspace:*",
 		"@tedix/mcp-shared": "workspace:*",
 		"@tedix/tenant-directory": "workspace:*",

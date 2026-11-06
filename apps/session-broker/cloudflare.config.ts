@@ -1,4 +1,11 @@
-import { bindings, defineConfig, defineWorker, exports } from "cf/config";
+import {
+	bindings,
+	defineConfig,
+	defineWorker,
+	exports,
+	triggers,
+} from "cf/config";
+import { deployValues } from "@tedix/deploy-values";
 
 const runtimeEnv = (
 	globalThis as typeof globalThis & {
@@ -6,6 +13,8 @@ const runtimeEnv = (
 	}
 ).process?.env;
 const releaseSha = runtimeEnv?.GIT_SHA ?? runtimeEnv?.GITHUB_SHA ?? "unknown";
+// Shown wherever production takes a value from the private deploy values.
+const PLACEHOLDER = "configured-via-private-overlay";
 export const productionIngress = {
 	workersDev: false,
 	previewUrls: false,
@@ -13,18 +22,31 @@ export const productionIngress = {
 
 export default defineConfig(({ mode }) => {
 	const production = mode === "production";
+	// Live production values when Ship sets TEDIX_DEPLOY_VALUES; otherwise
+	// every lookup returns the placeholder beside it.
+	const live = deployValues({ mode });
+	const workerName = production
+		? live.worker(
+				"session-broker",
+				"public-installation-session-broker-production",
+			)
+		: "public-installation-session-broker";
 
 	return {
+		...(live.active ? { accountId: live.account("") } : {}),
 		worker: defineWorker({
-			name: production
-				? "public-installation-session-broker-production"
-				: "public-installation-session-broker",
+			name: workerName,
 			entrypoint: "src/index.ts",
 			compatibilityDate: "2026-08-17",
 			compatibilityFlags: ["nodejs_compat", "global_fetch_strictly_public"],
 			workersDev: productionIngress.workersDev,
 			previewUrls: productionIngress.previewUrls,
 			placement: { mode: "smart" },
+			triggers: live.active
+				? live
+						.routes("session-broker", [])
+						.map((route) => triggers.fetch(route))
+				: undefined,
 			logpush: true,
 			observability: {
 				enabled: true,
@@ -40,31 +62,27 @@ export default defineConfig(({ mode }) => {
 			env: {
 				API_SERVICE: bindings.worker({
 					worker: production
-						? "public-installation-api-production"
+						? live.worker("api", "public-installation-api-production")
 						: "public-installation-api",
 					exportName: "InternalEntrypoint",
 				}),
 				SESSION_ROTATION: bindings.durableObject({
-					worker: production
-						? "public-installation-session-broker-production"
-						: "public-installation-session-broker",
+					worker: workerName,
 					exportName: "SessionRotationOwner",
 				}),
 				SESSION_INTENTS: bindings.durableObject({
-					worker: production
-						? "public-installation-session-broker-production"
-						: "public-installation-session-broker",
+					worker: workerName,
 					exportName: "SessionIntentOwner",
 				}),
 				// `bun dev` (scripts/dev-local.ts) passes disabled Descope placeholders
 				// so a local broker never reaches the live project.
 				DESCOPE_BASE_URL: bindings.text(
 					(!production && runtimeEnv?.DESCOPE_BASE_URL) ||
-						"configured-via-private-overlay",
+						(live.active ? `https://${live.host("auth", "")}` : PLACEHOLDER),
 				),
 				DESCOPE_PROJECT_ID: bindings.text(
 					(!production && runtimeEnv?.DESCOPE_PROJECT_ID) ||
-						"configured-via-private-overlay",
+						live.vars("session-broker", "DESCOPE_PROJECT_ID", PLACEHOLDER),
 				),
 				ENVIRONMENT: bindings.text(production ? "production" : "development"),
 				GIT_SHA: bindings.text(releaseSha),
