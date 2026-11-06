@@ -82,6 +82,7 @@
 				{
 					"binding": "CLI_RELEASES",
 					"bucket_name": "public-installation-bucket",
+					"jurisdiction": "eu",
 					"remote": false,
 				},
 			],

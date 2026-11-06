@@ -114,6 +114,7 @@
 				{
 					"binding": "BACKUP_BUCKET",
 					"bucket_name": "public-installation-bucket",
+					"jurisdiction": "eu",
 					"remote": false,
 				},
 			],

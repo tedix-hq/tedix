@@ -172,10 +172,11 @@ export async function projectCanonicalMemory(
 }
 
 export async function deleteCanonicalMemoryProjection(
-	namespace: AgentMemoryNamespace,
+	namespace: AgentMemoryNamespace | undefined,
 	profileNames: Iterable<string>,
 	factId: string,
 ): Promise<void> {
+	if (!namespace) return;
 	const sessionId = agentMemoryFactSessionId(factId);
 	await Promise.all(
 		[...new Set(profileNames)].map(async (profileName) => {
@@ -187,9 +188,10 @@ export async function deleteCanonicalMemoryProjection(
 
 /** Reconcile the rebuildable semantic projection from one canonical D1 row. */
 export async function reconcileCanonicalMemoryProjection(
-	namespace: AgentMemoryNamespace,
+	namespace: AgentMemoryNamespace | undefined,
 	fact: GovernedCanonicalMemoryProjection,
 ): Promise<void> {
+	if (!namespace) return;
 	const profileNames = agentMemoryProjectionProfileNames(fact);
 	if (!isCanonicalMemoryProjectable(fact)) {
 		await deleteCanonicalMemoryProjection(namespace, profileNames, fact.factId);

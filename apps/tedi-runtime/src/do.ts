@@ -3171,7 +3171,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		await this.ensureIdentity();
 		const orgId = identityValue(this.state.orgId);
 		const tediId = identityValue(this.state.tediId);
-		if (!orgId || !tediId) return null;
+		if (!orgId || !tediId || !this.env.AGENT_MEMORY) return null;
 		return this.env.AGENT_MEMORY.getProfile(
 			agentMemoryProfileName(orgId, tediId),
 		);
