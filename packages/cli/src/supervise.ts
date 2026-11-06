@@ -97,6 +97,7 @@ import {
 	supervisorLog,
 } from "./supervise-drivers";
 import { acquireLock, install, uninstall } from "./supervise-launch-agent";
+import { alertStrandedLogins } from "./supervise-login";
 import {
 	answerAction,
 	type Candidate,
@@ -191,6 +192,11 @@ export class Supervisor {
 
 	/** Returns the number of drafts delivered in this pass. */
 	async tick(waitForLead = false): Promise<number> {
+		try {
+			alertStrandedLogins(this.deps.env);
+		} catch (error) {
+			this.log(`Login alert failed: ${String(error)}`);
+		}
 		const lead = this.lead.tick(waitForLead);
 		let delivered = 0;
 		this.lastPass = { checked: 0, failed: 0 };
