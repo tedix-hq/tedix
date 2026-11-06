@@ -1,4 +1,7 @@
-import { documentBlockText } from "@tedix/api-contract/utils/os-document";
+import {
+	documentBlockText,
+	withDerivedDocumentBlocks,
+} from "@tedix/api-contract/utils/os-document";
 import type {
 	OsCreatedByKind,
 	OsOutputContent,
@@ -36,7 +39,9 @@ export function mapOsOutputRevisionRow(
 ): OsOutputRevision {
 	return {
 		...mapOsOutputRevisionMetadata(row),
-		content: OsOutputContentSchema.parse(JSON.parse(row.content)),
+		content: withDerivedDocumentBlocks(
+			OsOutputContentSchema.parse(JSON.parse(row.content)),
+		),
 	};
 }
 

@@ -120,6 +120,45 @@ describe("outputs", () => {
 		).rejects.toMatchObject({ code: "BAD_REQUEST" });
 	});
 
+	it("refuses document fields that would be dropped instead of storing an empty body", async () => {
+		await expect(
+			c.org1.outputs.create({
+				kind: "document",
+				title: "Evidence",
+				content: {
+					kind: "document",
+					blocks: [],
+					markdown: "# Lost",
+				} as never,
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+	});
+
+	it("stores blocks rebuilt from rich text when blocks arrive empty", async () => {
+		const made = await c.org1.outputs.create({
+			kind: "document",
+			title: "Rich only",
+			content: {
+				kind: "document",
+				blocks: [],
+				richText: {
+					type: "doc",
+					content: [
+						{
+							type: "codeBlock",
+							attrs: { language: "json" },
+							content: [{ type: "text", text: '{"ok":true}' }],
+						},
+					],
+				},
+			},
+		});
+		const read = await c.org1.outputs.get({ outputId: made.output.id });
+		expect(read.currentRevision.content).toMatchObject({
+			blocks: [{ type: "code", text: '{"ok":true}' }],
+		});
+	});
+
 	it("normalizes Markdown create and paragraph revise with exact revision CAS", async () => {
 		const made = await c.org1.outputs.create({
 			kind: "document",
