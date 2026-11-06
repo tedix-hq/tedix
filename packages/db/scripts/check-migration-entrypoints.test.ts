@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vite-plus/test";
+import { readLoadPressure } from "../../../scripts/lib/machine-load";
 const packageRoot = fileURLToPath(new URL("../", import.meta.url));
 const jiti = fileURLToPath(
 	new URL("../../../node_modules/jiti/lib/jiti-cli.mjs", import.meta.url),
@@ -24,12 +25,25 @@ describe("migration checker executable entrypoints", () => {
 				expect(result.stdout).toContain(`Usage: ${script}`);
 			});
 	it("the Node/jiti safety command actually replays the migration graph", () => {
+		const loadBefore = readLoadPressure();
+		const started = performance.now();
 		const result = spawnSync("node", [jiti, "scripts/check-migrations.ts"], {
 			cwd: packageRoot,
 			encoding: "utf8",
 			timeout: 30_000,
 		});
-		expect(result.status, result.stderr).toBe(0);
+		expect(
+			result.status,
+			JSON.stringify({
+				elapsedMs: performance.now() - started,
+				spawnError: result.error?.message,
+				signal: result.signal,
+				loadBefore,
+				loadAfter: readLoadPressure(),
+				stdout: result.stdout,
+				stderr: result.stderr,
+			}),
+		).toBe(0);
 		expect(result.stdout).toMatch(
 			/D1 migration safety check passed \(\d+ migration\(s\); cascade graph replayed\)/,
 		);

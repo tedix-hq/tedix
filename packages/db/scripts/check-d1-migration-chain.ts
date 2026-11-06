@@ -15,12 +15,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
 	compareMigrationLedger,
-	D1_MIGRATIONS_TABLE,
 	readMigrationManifest,
 } from "./check-live-migration-ledger";
 import { discoverDrizzleMigrations } from "./migration-integrity";
-import { parseWranglerJson, runWrangler } from "./wrangler-command";
+import { runWrangler } from "./wrangler-command";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
+import { getPlatformProxy } from "wrangler";
+import { createDbQueryClient } from "../src/query-client";
+import { readD1MigrationInspection } from "../src/queries/migration-inspection";
 
 function successfulResults(
 	payload: unknown[],
@@ -101,14 +103,14 @@ function snapshotDigest(directory: string): string {
 	return hash.digest("hex");
 }
 
-export function checkD1MigrationChain(
+export async function checkD1MigrationChain(
 	options: {
 		dbRoot?: string;
 		cacheDirectory?: string;
 		env?: NodeJS.ProcessEnv;
-		run?: typeof runWrangler;
+		inspect?: typeof readD1MigrationInspection;
 	} = {},
-): { cachedCount: number; appliedCount: number } {
+): Promise<{ cachedCount: number; appliedCount: number }> {
 	const started = performance.now();
 	const phase = (name: string, since: number) =>
 		console.log(
@@ -121,7 +123,6 @@ export function checkD1MigrationChain(
 		env.CI === "true" ||
 		env.CI === "1" ||
 		env.TEDIX_D1_CHAIN_FULL_REPLAY === "1";
-	const run = options.run ?? runWrangler;
 	const manifest = readMigrationManifest(
 		path.join(dbRoot, "migration-integrity.json"),
 	);
@@ -181,7 +182,7 @@ export function checkD1MigrationChain(
 		];
 		const applyStarted = performance.now();
 		if (cachedCount < expectedNames.length) {
-			run(["d1", "migrations", "apply", ...common], {
+			runWrangler(["d1", "migrations", "apply", ...common], {
 				cwd: dbRoot,
 				// Suppress Wrangler's quadratic progress-table redraw output.
 				env: { CI: "1", WRANGLER_LOG: "error" },
@@ -192,22 +193,24 @@ export function checkD1MigrationChain(
 			applyStarted,
 		);
 		const inspectStarted = performance.now();
-		const inspection = run(
-			[
-				"d1",
-				"execute",
-				...common,
-				"--command",
-				`SELECT name FROM ${D1_MIGRATIONS_TABLE} ORDER BY id; PRAGMA foreign_key_check;`,
-				"--json",
-			],
-			{ cwd: dbRoot },
-		);
-		assertLocalMigrationInspection(
-			parseWranglerJson(inspection, "Local D1 migration inspection"),
-			expectedNames,
-		);
-		phase("Wrangler ledger and foreign-key inspection", inspectStarted);
+		// Read the same workerd store without booting a second Wrangler CLI.
+		const proxy = await getPlatformProxy<{ DB: D1Database }>({
+			configPath: path.join(dbRoot, "wrangler.jsonc"),
+			persist: { path: path.join(persistencePath, "v3") },
+			remoteBindings: false,
+			envFiles: [],
+		});
+		try {
+			assertLocalMigrationInspection(
+				await (options.inspect ?? readD1MigrationInspection)(
+					createDbQueryClient(proxy.env.DB),
+				),
+				expectedNames,
+			);
+		} finally {
+			await proxy.dispose();
+		}
+		phase("Local D1 ledger and foreign-key inspection", inspectStarted);
 		if (!fullReplay && cachedCount < keys.length) {
 			const publishStarted = performance.now();
 			mkdirSync(cacheDirectory, { recursive: true });
@@ -242,4 +245,4 @@ export function checkD1MigrationChain(
 	}
 }
 
-if (import.meta.main) checkD1MigrationChain();
+if (import.meta.main) await checkD1MigrationChain();
