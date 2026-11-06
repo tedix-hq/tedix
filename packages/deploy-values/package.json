@@ -1,0 +1,26 @@
+{
+	"name": "@tedix/deploy-values",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Reads live deploy values for Worker configs from outside the public repository.",
+	"license": "AGPL-3.0-only",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"scripts": {
+		"clean": "true",
+		"test": "vp test run",
+		"test:run": "vp test run",
+		"test:ci": "bun run test:run",
+		"test:watch": "vp test",
+		"type-check": "tsc --noEmit"
+	},
+	"devDependencies": {
+		"@tedix/tsconfig": "workspace:*",
+		"@types/node": "catalog:",
+		"typescript": "catalog:",
+		"vite": "catalog:",
+		"vite-plus": "catalog:"
+	}
+}

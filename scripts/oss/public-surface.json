@@ -189,6 +189,11 @@
 			"licenseClass": "agpl-product"
 		},
 		{
+			"path": "packages/deploy-values",
+			"decision": "public-product",
+			"licenseClass": "agpl-product"
+		},
+		{
 			"path": "packages/design-tokens",
 			"decision": "public-ecosystem",
 			"licenseClass": "mit-ecosystem"
