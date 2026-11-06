@@ -16,7 +16,7 @@ import type { GatewayIngestionResult } from "../jobs/gateway-cost-ingestion";
 import { sendOpsAlert } from "./ops-alert-egress";
 
 export const CLOUDFLARE_CREDENTIAL_CONDITION_KEY =
-	"cloudflare-credential-drift:tedix-api-production:ai-gateway";
+	"cloudflare-credential-drift:tedix-api:ai-gateway";
 export const CLOUDFLARE_CREDENTIAL_REMEDIATION_URL =
 	"https://developers.cloudflare.com/ai-gateway/configuration/authentication/";
 
@@ -24,7 +24,7 @@ type CredentialBinding = "CF_ACCOUNT_ID" | "CF_AI_GATEWAY_TOKEN";
 
 export interface CloudflareCredentialFinding {
 	conditionKey: typeof CLOUDFLARE_CREDENTIAL_CONDITION_KEY;
-	workerName: "tedix-api-production";
+	workerName: "tedix-api";
 	bindingNames: CredentialBinding[];
 	gatewayIds: string[];
 	remediationUrl: typeof CLOUDFLARE_CREDENTIAL_REMEDIATION_URL;
@@ -72,7 +72,7 @@ export function classifyCloudflareCredentialProbe(
 
 	const bindings = [...bindingNames].sort();
 	const gateways = [...gatewayIds].sort();
-	const workerName = "tedix-api-production" as const;
+	const workerName = "tedix-api" as const;
 	const remediationUrl = CLOUDFLARE_CREDENTIAL_REMEDIATION_URL;
 	return {
 		status: "firing",

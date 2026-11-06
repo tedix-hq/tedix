@@ -297,7 +297,7 @@ export const PLATFORM_CRON_DEFINITIONS: readonly PlatformCronDefinition[] = [
 // `?to=/:account/` lets the dashboard pick the viewer's account, so the
 // published source names no account id.
 const CLOUDFLARE_API_OBSERVABILITY_URL =
-	"https://dash.cloudflare.com/?to=/:account/workers/services/view/tedix-api-production/production/metrics";
+	"https://dash.cloudflare.com/?to=/:account/workers/services/view/tedix-api/production/metrics";
 
 function ageSeconds(at: string | null, nowMs: number): number | null {
 	const ms = at ? Date.parse(at) : Number.NaN;

@@ -50,8 +50,7 @@ const ledgerDark: HealthCondition = {
 describe("reconcileHealthConditions", () => {
 	it("leaves immediate-probe conditions outside the daily digest lifecycle", () => {
 		const credentialDrift = openState({
-			conditionKey:
-				"cloudflare-credential-drift:tedix-api-production:ai-gateway",
+			conditionKey: "cloudflare-credential-drift:tedix-api:ai-gateway",
 		});
 		const daily = openState({ conditionKey: "cost-ledger-dark" });
 

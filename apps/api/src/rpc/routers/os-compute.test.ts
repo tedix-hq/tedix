@@ -588,7 +588,7 @@ describe("osCompute.posture — labeled gaps", () => {
 					?, ?)`,
 			)
 			.run(
-				"cloudflare-credential-drift:tedix-api-production:ai-gateway",
+				"cloudflare-credential-drift:tedix-api:ai-gateway",
 				PAST_START,
 				PAST_START,
 				PAST_START,
@@ -609,7 +609,7 @@ describe("osCompute.posture — labeled gaps", () => {
 					?, ?)`,
 			)
 			.run(
-				"cloudflare-credential-drift:tedix-api-production:ai-gateway",
+				"cloudflare-credential-drift:tedix-api:ai-gateway",
 				PAST_START,
 				PAST_START,
 				PAST_START,
