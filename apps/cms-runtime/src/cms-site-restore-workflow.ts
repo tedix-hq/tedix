@@ -148,6 +148,7 @@ function mediaSource(env: Env, slug: string) {
 	return {
 		accountId: env.CF_ACCOUNT_ID,
 		token: env.CLOUDFLARE_R2_API_TOKEN,
+		jurisdiction: env.CF_R2_JURISDICTION,
 		slug,
 	};
 }
@@ -195,7 +196,10 @@ async function listAllMedia(source: ReturnType<typeof mediaSource>) {
 export async function reconcileCmsSiteMedia(
 	env: Pick<
 		Env,
-		"CF_ACCOUNT_ID" | "CLOUDFLARE_R2_API_TOKEN" | "RECOVERY_STORAGE"
+		| "CF_ACCOUNT_ID"
+		| "CLOUDFLARE_R2_API_TOKEN"
+		| "CF_R2_JURISDICTION"
+		| "RECOVERY_STORAGE"
 	>,
 	identity: CmsSiteRestoreIdentity,
 	records: VerifiedMediaObject[],

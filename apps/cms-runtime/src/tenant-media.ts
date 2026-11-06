@@ -8,6 +8,7 @@ import {
 } from "emdash/media/image-endpoint";
 import { type OrgInfo } from "./public-proxy";
 import { type Env } from "./env";
+import { r2RestHeaders } from "./r2-rest";
 export const CF_API = "https://api.cloudflare.com/client/v4";
 
 // ── Image transforms (parent-Worker interception) ──────────────────
@@ -63,6 +64,7 @@ const IMAGE_TRANSFORM_FORMAT_MIME: Record<
 async function fetchTenantR2ObjectStream(
 	accountId: string,
 	r2Token: string,
+	jurisdiction: string | undefined,
 	bucketName: string,
 	key: string,
 ): Promise<{
@@ -72,7 +74,7 @@ async function fetchTenantR2ObjectStream(
 } | null> {
 	const res = await fetch(
 		`${CF_API}/accounts/${accountId}/r2/buckets/${bucketName}/objects/${encodeURIComponent(key)}`,
-		{ headers: { Authorization: `Bearer ${r2Token}` } },
+		{ headers: r2RestHeaders(r2Token, jurisdiction) },
 	);
 	if (res.status === 404) return null;
 	if (!res.ok || !res.body) {
@@ -115,6 +117,7 @@ export async function imageTransformResponse(
 		const source = await fetchTenantR2ObjectStream(
 			accountId,
 			r2Token,
+			env.CF_R2_JURISDICTION,
 			org.r2BucketName,
 			key,
 		);

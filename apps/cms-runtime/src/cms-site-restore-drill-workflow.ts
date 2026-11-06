@@ -272,6 +272,7 @@ function mediaSource(env: Env, drill: CmsSiteDrillIdentity) {
 	return {
 		accountId: env.CF_ACCOUNT_ID,
 		token: env.CLOUDFLARE_R2_API_TOKEN,
+		jurisdiction: env.CF_R2_JURISDICTION,
 		slug: drill.slug,
 	};
 }

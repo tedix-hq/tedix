@@ -358,6 +358,7 @@ export async function captureCmsRecovery(
 	const source = {
 		accountId: env.CF_ACCOUNT_ID,
 		token: env.CLOUDFLARE_R2_API_TOKEN,
+		jurisdiction: env.CF_R2_JURISDICTION,
 		slug: params.slug,
 	};
 	const initialInventory = await step.do("initial-media-inventory", () =>
