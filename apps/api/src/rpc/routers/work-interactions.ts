@@ -57,10 +57,6 @@ import {
 	respondToWorkInteraction,
 	sweepSupersededSupportDraftInteractions,
 } from "@tedix/db/queries/work-items/interactions";
-import {
-	LANE_DELEGATION_SOURCE,
-	settleLaneDelegationRequests,
-} from "@tedix/db/queries/work-items/lane-delegation-requests";
 import { reviewWorkInteraction } from "@tedix/db/queries/work-items/interaction-reviews";
 import {
 	listUndeliveredWorkInteractionResponses,
@@ -486,25 +482,6 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 		}
 	}
 	try {
-		const laneVersion = (
-			creationMetadata.laneBlocker as { workVersion?: unknown } | undefined
-		)?.workVersion;
-		if (
-			creationMetadata.source === LANE_DELEGATION_SOURCE &&
-			input.workItemId &&
-			typeof laneVersion === "number"
-		) {
-			// One permission card per task and ask, whichever lane or login asks.
-			const { existing } = await settleLaneDelegationRequests(context.db, {
-				orgId,
-				workItemId: input.workItemId,
-				workVersion: laneVersion,
-				targetType: target.type,
-				targetId: target.id,
-				now: requestedAt,
-			});
-			if (existing) return requestOutput(existing);
-		}
 		const created = await createWorkInteraction(context.db, {
 			id: crypto.randomUUID(),
 			orgId,

@@ -2324,9 +2324,8 @@ export async function listLastRelatedDecisions(
 			).find(
 				(row) =>
 					row.id !== card.id &&
-					// A shared project alone is not related: "Last time" must be
-					// about the same task or the same decision source.
 					((card.workItemId !== null && row.workItemId === card.workItemId) ||
+						(card.projectId !== null && row.projectId === card.projectId) ||
 						decisionSourceKeys(row.metadata).some((key) => sources.has(key))),
 			);
 			return {

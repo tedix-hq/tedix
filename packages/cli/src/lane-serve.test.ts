@@ -45,8 +45,6 @@ import { CliReadError } from "./hooks/hook-io";
 import { beginFileLock } from "./local-file-lock";
 import { LaneOutcomeReadError } from "./lane-result";
 import { runtimeAppEvidenceUri } from "./lane-runtime-app-proof";
-import { DecisionEnvelopeSchema } from "@tedix/api-contract/schemas/os-decision-deck";
-import { DecisionCardPresentationSchema } from "@tedix/api-contract/schemas/decision-card-presentation";
 
 const projectId = "11111111-1111-4111-8111-111111111111";
 const dirs: string[] = [];
@@ -3633,53 +3631,17 @@ it("asks the accountable owner once for a missing delegation and never adds it",
 	expect(asks[0]!.input).toEqual(asks[1]!.input);
 	expect(asks[0]!.input).toMatchObject({
 		workItemId: owned.id,
-		kind: "question",
+		kind: "input",
 		notificationReason: "blocked_approval",
 		requestedFrom: { type: "user", id: "fictional-owner" },
 		metadata: {
 			source: "lane-dispatch-blocker",
-			laneBlocker: {
-				kind: "owner_delegation",
-				executor: "codex",
-				workVersion: 2,
-			},
-			decisionDeck: { kind: "approval", classId: "lane-delegation" },
+			laneBlocker: { kind: "owner_delegation", executor: "codex" },
 		},
 	});
-	const input = asks[0]!.input as {
-		subject: string;
-		prompt: string;
-		metadata: {
-			decisionDeck: unknown;
-			cardPresentation: unknown;
-		};
-	};
-	// The card names the agent and the task, says what each answer does and
-	// carries no jargon; Allow posts the delegation through a card effect.
-	expect(input.subject).toBe(`Let Codex work on “${owned.title}”?`);
-	expect(input.prompt).toContain("message people outside the team");
-	expect(input.prompt).not.toMatch(
-		/lane|work-version|Delegation:|sign-in|MFA/i,
+	expect(String(asks[0]!.input?.prompt)).toContain(
+		"Delegation: codex work-version=2 <",
 	);
-	const deck = DecisionEnvelopeSchema.parse(input.metadata.decisionDeck);
-	expect(deck.options.map((option) => [option.label, option.intent])).toEqual([
-		["Allow", "approve"],
-		["No", "reject"],
-		["Later", "later"],
-	]);
-	expect(deck.options[0]!.effect).toEqual({
-		kind: "delegate_work",
-		workItemId: owned.id,
-		executor: "codex",
-		workVersion: 2,
-	});
-	expect(deck.preview?.body).toBe(
-		"Codex may message people outside the team only as this task describes, and nothing beyond it.",
-	);
-	expect(
-		DecisionCardPresentationSchema.safeParse(input.metadata.cardPresentation)
-			.success,
-	).toBe(true);
 	expect(
 		f.events.some((e) => ["start", "comment", "readiness"].includes(e.verb)),
 	).toBe(false);
