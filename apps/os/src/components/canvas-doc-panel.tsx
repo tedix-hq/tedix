@@ -85,6 +85,7 @@ import {
 	type CollabDocCanonical,
 	useCollabDoc,
 } from "@/lib/use-collab-doc";
+import { AUTOSAVE_NOTE, useDraftAutosave } from "@/lib/draft-autosave";
 import { useReviseOutput } from "@/lib/use-revise-output";
 import { workspaceAppReadme } from "@/lib/workspace-apps";
 import { useDocumentCollab } from "@/lib/use-document-collab";
@@ -371,6 +372,8 @@ export function CanvasDocPanel({
 	});
 	const outputDraftIssue =
 		outputParsed && !outputParsed.ok ? outputParsed.issue : null;
+	// Counts this client's own edits; autosave saves only what this person typed.
+	const [localEditStamp, setLocalEditStamp] = useState(0);
 
 	/**
 	 * Structured editors write the whole document, and expressing that as one
@@ -399,6 +402,7 @@ export function CanvasDocPanel({
 		if (change.length === 0) return;
 		session.applyLocal(change, COLLAB_DOC_PATH, serialized);
 		setDocText(serialized);
+		setLocalEditStamp((stamp) => stamp + 1);
 	};
 	const [confirming, setConfirming] = useState(false);
 	const saveFooter = useRef<HTMLDivElement>(null);
@@ -542,7 +546,14 @@ export function CanvasDocPanel({
 		},
 	});
 
-	const commitDraft = async () => {
+	/**
+	 * Saves the shared draft as a version. Resolves `true` when a save request
+	 * was sent, `false` when it declined; autosave retries a declined save.
+	 */
+	const commitDraft = async (
+		mode: "manual" | "auto" = "manual",
+	): Promise<boolean> => {
+		const auto = mode === "auto";
 		setDraftError(null);
 		setCommittedRevision(null);
 		// The session is the live buffer: an editor's keystrokes are already in it
@@ -563,41 +574,44 @@ export function CanvasDocPanel({
 		// answer is "try again in a moment", not a failure.
 		const basis = commitBasis();
 		if (basis === null) {
-			setDraftError(UNACKNOWLEDGED_COMMIT_MESSAGE);
-			return;
+			if (!auto) setDraftError(UNACKNOWLEDGED_COMMIT_MESSAGE);
+			return false;
 		}
 		const parsed = parseDraft(text);
 		if (!parsed.ok) {
 			setDraftError(`The draft is not valid JSON: ${parsed.error}`);
-			return;
+			return false;
 		}
 		if (isGadget) {
 			gadgetCommit.mutate({
 				manifest: parsed.value as OsGadgetManifest,
 				basis,
 			});
-			return;
+			return true;
 		}
 		const loaded = outputDetail.data;
-		if (!loaded) return;
+		if (!loaded) return false;
 		const kindError = outputKindError(parsed.value, loaded.output.kind);
 		if (kindError) {
 			setDraftError(kindError);
-			return;
+			return false;
 		}
 		const result = await reviseOutput.save({
 			content: parsed.value as OsOutputContent,
 			baseContent: loaded.currentRevision.content,
 			expectedRevision,
-			note,
+			note: auto ? AUTOSAVE_NOTE : note,
 		});
 		if (result.kind === "saved") {
 			// Same grounding as the gadget path, for the same reason.
 			groundCommit(basis, result.revision, result.revisionId);
 			setCommittedRevision(result.revision);
-			setConfirming(false);
-			setNote("");
+			if (!auto) {
+				setConfirming(false);
+				setNote("");
+			}
 		}
+		return true;
 	};
 
 	const committing = gadgetCommit.isPending || reviseOutput.saving;
@@ -650,53 +664,6 @@ export function CanvasDocPanel({
 			});
 		}
 	};
-	const documentSaveStatus = detail.isError
-		? "Unavailable"
-		: tooLarge
-			? "Read-only"
-			: !live
-				? status === "connecting"
-					? "Connecting…"
-					: "Disconnected · Changes paused"
-				: recoveryRequired && canonicalDoc
-					? `Newer version saved (v${canonicalDoc.revision})`
-					: outputDraftIssue
-						? "Draft can't be opened"
-						: committing
-							? "Saving version…"
-							: unsynced || unacknowledged
-								? "Syncing changes…"
-								: draftMatchesSaved
-									? committedRevision !== null
-										? `Saved version ${committedRevision}`
-										: "Saved"
-									: "Draft synced";
-	const revisionLabel = isGadget
-		? gadgetDetail.data
-			? gadgetDetail.data.currentRevision
-				? `Revision ${gadgetDetail.data.currentRevision.revision}`
-				: "No revision yet"
-			: null
-		: outputDetail.data
-			? `Revision ${outputDetail.data.currentRevision.revision}`
-			: null;
-	const gadgetWidgetTarget = isGadget
-		? gadgetWidgetTargetFromManifest(
-				gadgetDetail.data?.currentRevision?.manifest,
-			)
-		: null;
-	const builtinManifest = isGadget
-		? gadgetDetail.data?.currentRevision?.manifest
-		: undefined;
-	const builtinAppView =
-		builtinManifest?.entry.trim().startsWith("tedix:app/") &&
-		effectiveGadgetView === "preview";
-	const executionGadgetId = isGadget ? doc.id : doc.linkedGadgetId;
-	useEffect(() => {
-		setPreviewExecution(null);
-	}, [doc.id, doc.type, executionGadgetId, workspaceId]);
-
-	const outputKindLabel = outputKind ? sentenceCase(outputKind) : "Output";
 	/**
 	 * Commit needs a live room, and a room that is not behind canonical truth.
 	 *
@@ -725,6 +692,71 @@ export function CanvasDocPanel({
 		(recoveryRequired && !keepingChanges) ||
 		unacknowledged ||
 		outputDraftIssue !== null;
+	// Saves this client's edits as a version a few seconds after typing stops,
+	// so the saved output (what reloads, agents and workflows read) never lags
+	// far behind the shared draft. Apps keep explicit saves: a saved app
+	// version changes what runs.
+	const autosave = useDraftAutosave({
+		ready:
+			!isGadget &&
+			!commitDisabled &&
+			!recoveryRequired &&
+			!committing &&
+			!confirming &&
+			!conflicted &&
+			!draftMatchesSaved,
+		editStamp: localEditStamp,
+		save: () => commitDraft("auto"),
+	});
+	const documentSaveStatus = detail.isError
+		? "Unavailable"
+		: tooLarge
+			? "Read-only"
+			: !live
+				? status === "connecting"
+					? "Connecting…"
+					: "Disconnected · Changes paused"
+				: recoveryRequired && canonicalDoc
+					? `Newer version saved (v${canonicalDoc.revision})`
+					: outputDraftIssue
+						? "Draft can't be opened"
+						: committing
+							? "Saving version…"
+							: unsynced || unacknowledged
+								? "Syncing changes…"
+								: draftMatchesSaved
+									? committedRevision !== null
+										? `Saved version ${committedRevision}`
+										: "Saved"
+									: !isGadget && autosave.pending
+										? "Unsaved · saving shortly"
+										: "Not saved yet";
+	const revisionLabel = isGadget
+		? gadgetDetail.data
+			? gadgetDetail.data.currentRevision
+				? `Revision ${gadgetDetail.data.currentRevision.revision}`
+				: "No revision yet"
+			: null
+		: outputDetail.data
+			? `Revision ${outputDetail.data.currentRevision.revision}`
+			: null;
+	const gadgetWidgetTarget = isGadget
+		? gadgetWidgetTargetFromManifest(
+				gadgetDetail.data?.currentRevision?.manifest,
+			)
+		: null;
+	const builtinManifest = isGadget
+		? gadgetDetail.data?.currentRevision?.manifest
+		: undefined;
+	const builtinAppView =
+		builtinManifest?.entry.trim().startsWith("tedix:app/") &&
+		effectiveGadgetView === "preview";
+	const executionGadgetId = isGadget ? doc.id : doc.linkedGadgetId;
+	useEffect(() => {
+		setPreviewExecution(null);
+	}, [doc.id, doc.type, executionGadgetId, workspaceId]);
+
+	const outputKindLabel = outputKind ? sentenceCase(outputKind) : "Output";
 	const saveBlockedReason = !detail.data
 		? "The saved version is still loading."
 		: !session || !live
@@ -806,7 +838,7 @@ export function CanvasDocPanel({
 								: undefined
 						}
 						variant={unsynced ? "warning" : "info"}
-						title={`${revisionLabel ?? "No saved version"} · Changes sync automatically.`}
+						title={`${revisionLabel ?? "No saved version"} · ${isGadget ? "Edits are shared live. Save a version to keep them." : "Edits are shared live and saved as a version a few seconds after you stop typing."}`}
 					>
 						{isGadget ? "Draft · Syncing…" : documentSaveStatus}
 					</Badge>
@@ -897,7 +929,7 @@ export function CanvasDocPanel({
 					<Button
 						size="sm"
 						disabled={committing || commitDisabled}
-						onClick={commitDraft}
+						onClick={() => void commitDraft()}
 					>
 						<FloppyDisk size={14} />{" "}
 						{committing

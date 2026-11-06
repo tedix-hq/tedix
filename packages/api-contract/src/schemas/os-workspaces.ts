@@ -1578,6 +1578,30 @@ export const OsOutputContentSchema = z.discriminatedUnion("kind", [
 	}),
 ]);
 
+/**
+ * Body accepted when an output is created or revised.
+ *
+ * Same shape as `OsOutputContentSchema`, but a document body refuses keys it
+ * does not know. The lenient schema would strip them, so a body such as
+ * `{ kind: "document", blocks: [], markdown: "..." }`, or rich text with
+ * `children` instead of `content`, used to be stored as an empty document with
+ * no error. Stored revisions are still read with the lenient schema.
+ */
+const [OsDocumentContentSchema, ...OsOtherOutputContentSchemas] =
+	OsOutputContentSchema.options;
+export const OsOutputContentInputSchema = z.discriminatedUnion("kind", [
+	z.strictObject({
+		...OsDocumentContentSchema.shape,
+		richText: z
+			.strictObject(OsRichTextDocumentSchema.shape)
+			.optional()
+			.describe(
+				"Rich interactive document body; blocks remain its semantic/headless projection",
+			),
+	}),
+	...OsOtherOutputContentSchemas,
+]);
+
 /** A Tedix OS output: a durable, revisioned deliverable. */
 export const OsOutputSchema = z.object({
 	id: z.string().uuid(),

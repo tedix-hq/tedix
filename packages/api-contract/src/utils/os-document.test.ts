@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vite-plus/test";
-import { OsOutputContentSchema } from "../schemas/os-workspaces";
+import {
+	OsOutputContentInputSchema,
+	OsOutputContentSchema,
+} from "../schemas/os-workspaces";
 import {
 	blocksFromRichText,
 	markdownDocument,
 	normalizeOsOutputInput,
 	richTextFromBlocks,
+	withDerivedDocumentBlocks,
 } from "./os-document";
 
 const markdown =
@@ -78,5 +82,81 @@ describe("structured document ingestion", () => {
 		expect(blocksFromRichText(richTextFromBlocks(blocks.blocks))).toEqual(
 			blocks.blocks,
 		);
+	});
+});
+
+describe("documents never lose content silently", () => {
+	const codeDoc = {
+		type: "doc" as const,
+		content: [
+			{
+				type: "codeBlock",
+				attrs: { language: "json" },
+				content: [{ type: "text", text: '{"posts":[1]}' }],
+			},
+		],
+	};
+
+	it("rebuilds blocks from rich text even when empty blocks were sent", () => {
+		const content = normalizeOsOutputInput({
+			kind: "document",
+			blocks: [],
+			richText: codeDoc,
+		});
+		expect(content.kind === "document" && content.blocks).toEqual([
+			{ type: "code", language: "json", text: '{"posts":[1]}' },
+		]);
+	});
+
+	it("derives blocks on read for stored rich text with empty blocks", () => {
+		const content = withDerivedDocumentBlocks({
+			kind: "document",
+			blocks: [],
+			richText: codeDoc,
+		});
+		expect(content.kind === "document" && content.blocks).toHaveLength(1);
+	});
+
+	it("leaves an empty document empty", () => {
+		const empty = {
+			kind: "document" as const,
+			blocks: [],
+			richText: { type: "doc" as const, content: [] },
+		};
+		expect(withDerivedDocumentBlocks(empty)).toBe(empty);
+	});
+
+	it("refuses document fields that would otherwise be stripped", () => {
+		expect(
+			OsOutputContentInputSchema.safeParse({
+				kind: "document",
+				blocks: [],
+				markdown: "# Hi",
+			}).success,
+		).toBe(false);
+		expect(
+			OsOutputContentInputSchema.safeParse({
+				kind: "document",
+				blocks: [],
+				richText: { type: "doc", children: [] },
+			}).success,
+		).toBe(false);
+	});
+
+	it("accepts complete document bodies and other kinds", () => {
+		expect(
+			OsOutputContentInputSchema.safeParse({
+				kind: "document",
+				blocks: [],
+				richText: codeDoc,
+			}).success,
+		).toBe(true);
+		expect(
+			OsOutputContentInputSchema.safeParse({
+				kind: "sheet",
+				columns: [],
+				rows: [],
+			}).success,
+		).toBe(true);
 	});
 });

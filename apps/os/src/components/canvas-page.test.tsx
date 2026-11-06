@@ -3168,6 +3168,66 @@ describe("grounding a commit", () => {
 		);
 	});
 
+	it("autosaves this client's edits as a version after typing stops", async () => {
+		mockLists();
+		const currentRevision = outputRevisionFixture({ revision: 2 });
+		osWorkspacesApi.outputs.get.mockResolvedValue({
+			output: outputFixture(),
+			currentRevision,
+		});
+		osWorkspacesApi.outputs.revise.mockResolvedValue({
+			output: outputFixture(),
+			revision: outputRevisionFixture({ revision: 3 }),
+		});
+		mockCollab({ initial: docJson(currentRevision.content) });
+		collabCommit.basis = {
+			text: docJson(currentRevision.content),
+			position: { generation: 0, revision: 2 },
+		};
+		await openDoc("Weekly report");
+
+		act(() =>
+			outputEditorHarness.onChange?.({
+				kind: "document",
+				blocks: [{ type: "paragraph", text: "typed, never saved by hand" }],
+			}),
+		);
+
+		await vi.waitFor(
+			() =>
+				expect(osWorkspacesApi.outputs.revise).toHaveBeenCalledWith(
+					expect.objectContaining({
+						expectedRevision: 2,
+						note: "Autosaved",
+					}),
+				),
+			{ timeout: 6_000 },
+		);
+	});
+
+	it("does not autosave edits that arrived from a peer", async () => {
+		mockLists();
+		const currentRevision = outputRevisionFixture({ revision: 2 });
+		osWorkspacesApi.outputs.get.mockResolvedValue({
+			output: outputFixture(),
+			currentRevision,
+		});
+		const session = mockCollab({ initial: docJson(currentRevision.content) });
+		await openDoc("Weekly report");
+
+		act(() =>
+			session.remote(
+				JSON.stringify({
+					kind: "document",
+					blocks: [{ type: "paragraph", text: "a colleague's draft" }],
+				}),
+			),
+		);
+		await new Promise((resolve) => setTimeout(resolve, 3_500));
+
+		expect(osWorkspacesApi.outputs.revise).not.toHaveBeenCalled();
+	});
+
 	it("grounds an output commit on the revision it produced", async () => {
 		mockLists();
 		const currentRevision = outputRevisionFixture({ revision: 2 });
@@ -3335,7 +3395,7 @@ describe("live-draft status the panel renders", () => {
 					blocks: [{ type: "paragraph", text: "unsaved draft" }],
 				}),
 			},
-			"Draft synced",
+			"Not saved yet",
 		],
 		[
 			{ initial: docJson(baseContent), unacknowledged: true },
@@ -3536,7 +3596,7 @@ describe("adopting a newer canonical revision", () => {
 		).toContain("Draft can't be opened");
 		expect(
 			container.querySelector(".canvas-document-status")?.textContent,
-		).not.toContain("Draft synced");
+		).not.toContain("Not saved yet");
 		expect(
 			findButton(container, "Download a copy of my changes"),
 		).toBeDefined();

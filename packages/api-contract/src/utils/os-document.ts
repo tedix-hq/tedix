@@ -465,9 +465,12 @@ export function normalizeOsOutputInput(
 			type: "doc",
 			content: input.richText.content.flatMap(expand),
 		};
+		// Rich text is canonical, so blocks are always rebuilt from it. Readers
+		// that use `blocks` (workflows, agents, exports) must never see an empty
+		// projection of a document whose rich text has content.
 		return changed
 			? { ...input, richText, blocks: blocksFromRichText(richText) }
-			: input;
+			: { ...input, blocks: blocksFromRichText(input.richText) };
 	}
 	const richText: OsRichTextDocument = {
 		type: "doc",
@@ -500,4 +503,21 @@ export function documentBlockText(block: OsDocumentBlock): string[] {
 		default:
 			return [block.text];
 	}
+}
+
+/**
+ * A stored document whose rich text has content but whose blocks are empty
+ * (written before blocks were always rebuilt) is read with blocks derived from
+ * the rich text, so readers of `blocks` see the same document as the editor.
+ */
+export function withDerivedDocumentBlocks(
+	content: OsOutputContent,
+): OsOutputContent {
+	if (
+		content.kind !== "document" ||
+		content.blocks.length > 0 ||
+		!content.richText?.content.length
+	)
+		return content;
+	return { ...content, blocks: blocksFromRichText(content.richText) };
 }

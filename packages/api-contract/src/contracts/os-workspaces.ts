@@ -41,7 +41,7 @@ import {
 	OsCollaborationProposalSchema,
 	OsCollaborationProposalStatusSchema,
 	OsCollaborationSourceKindSchema,
-	OsOutputContentSchema,
+	OsOutputContentInputSchema,
 	OsOutputExportFormatSchema,
 	OsOutputKindSchema,
 	OsOutputLibraryItemSchema,
@@ -1245,7 +1245,7 @@ export const osWorkspacesContract = oc
 							),
 						content: z
 							.union([
-								OsOutputContentSchema,
+								OsOutputContentInputSchema,
 								z
 									.string()
 									.max(200_000)
@@ -1365,7 +1365,7 @@ export const osWorkspacesContract = oc
 				.input(
 					outputIdInput.extend({
 						content: z.union([
-							OsOutputContentSchema,
+							OsOutputContentInputSchema,
 							z
 								.string()
 								.max(200_000)
