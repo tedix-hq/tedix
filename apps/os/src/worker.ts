@@ -1660,9 +1660,6 @@ async function handleWorkspaceChatUpgrade(
 	if (tenant.kind !== "tenant" && !localDemo) {
 		return refuse(404, "Workspace chat is only served on tenant hosts.");
 	}
-	if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
-		return refuse(426, "Expected a WebSocket upgrade.");
-	}
 	if (!/^[0-9a-f-]{36}$/i.test(workspaceId) && !localDemo) {
 		return refuse(404, "Malformed workspace chat path.");
 	}
@@ -1677,6 +1674,21 @@ async function handleWorkspaceChatUpgrade(
 					base: LOCAL_WORKSPACE_OBJECT_URL,
 				}
 			: null;
+	const available = upstream !== null && Boolean(env.API_SERVICE);
+	// A plain GET is the browser's probe: a socket that fails before it opens
+	// cannot tell "the object is away" from "this origin has no object lane",
+	// and the pane says something different for each.
+	if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
+		return withSecurityHeaders(
+			new Response(JSON.stringify({ available }), {
+				status: 200,
+				headers: {
+					"Content-Type": "application/json; charset=utf-8",
+					"Cache-Control": "no-store",
+				},
+			}),
+		);
+	}
 	if (!upstream || !env.API_SERVICE) {
 		return refuse(503, "Workspace chat is unavailable on this origin.");
 	}

@@ -46,6 +46,9 @@ function fakeClient(conversationId: string | null) {
 			calls.push(["loadEarlier"]);
 		},
 		forceDrop() {},
+		retry() {
+			calls.push(["retry"]);
+		},
 		close() {
 			calls.push(["close"]);
 		},
@@ -201,6 +204,25 @@ describe("WorkspaceChat", () => {
 		).toContain("reconnecting");
 		expect(host.textContent).not.toContain("Live updates paused");
 		expect(host.textContent).not.toContain("still being prepared");
+	});
+
+	it("says plainly when this origin has no object lane yet, with a retry", () => {
+		const fake = fakeClient("c1");
+		mount(fake);
+		act(() => fake.set({ connection: { phase: "unavailable" } }));
+		const notice = host.querySelector(
+			'[data-testid="workspace-chat-unavailable"]',
+		);
+		expect(notice?.textContent).toContain(
+			"Workspace chat is being upgraded. Home chat still works.",
+		);
+		expect(host.querySelector("textarea")?.disabled).toBe(true);
+		expect(host.querySelector(".workspace-chat-thinking")).toBeNull();
+		const retry = [...(notice?.querySelectorAll("button") ?? [])].find(
+			(button) => button.textContent === "Retry",
+		);
+		act(() => retry?.click());
+		expect(fake.calls).toContainEqual(["retry"]);
 	});
 
 	it("renders an approval inline, blocks the composer and posts the decision", () => {

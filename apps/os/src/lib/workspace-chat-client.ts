@@ -43,6 +43,8 @@ export type WorkspaceChatConnection =
 	| { phase: "connecting"; attempt: number }
 	| { phase: "open"; since: number }
 	| { phase: "reconnecting"; attempt: number; nextTryAt: number }
+	/** This origin has no object lane yet; the ladder is parked until `retry()`. */
+	| { phase: "unavailable" }
 	| { phase: "closed" };
 
 export type WorkspaceChatSnapshot = {
@@ -73,11 +75,15 @@ export type WorkspaceChatClientOptions = {
 	nowFn?: () => number;
 	randomFn?: () => number;
 	newId?: () => string;
+	/** Probe fetch for the lane; defaults to the page's fetch. */
+	fetchFn?: (url: string) => Promise<{ ok: boolean; json(): Promise<unknown> }>;
 	/** Batches token renders; defaults to an animation frame. */
 	scheduleFrame?: (callback: () => void) => void;
 };
 
 export type WorkspaceChatClient = {
+	/** Leave `unavailable` and try to connect again now. */
+	retry(): void;
 	getSnapshot(): WorkspaceChatSnapshot;
 	/** The conversation this socket follows; set by the object on the first turn. */
 	getConversationId(): string | null;
@@ -113,6 +119,7 @@ export function createWorkspaceChatClient(
 		nowFn = () => Date.now(),
 		randomFn = Math.random,
 		newId = () => crypto.randomUUID(),
+		fetchFn = (probeUrl) => fetch(probeUrl, { credentials: "include" }),
 		scheduleFrame = typeof requestAnimationFrame === "function"
 			? (callback) => void requestAnimationFrame(callback)
 			: (callback) => void setTimeout(callback, 16),
@@ -131,6 +138,8 @@ export function createWorkspaceChatClient(
 	let closed = false;
 	let attempt = 0;
 	let openedAt = 0;
+	/** The current attempt's socket opened but the object never said hello. */
+	let sawOpen = false;
 	let retryTimer: unknown = null;
 	let helloTimer: unknown = null;
 	let livenessTimer: unknown = null;
@@ -215,6 +224,18 @@ export function createWorkspaceChatClient(
 		scheduleReconnect();
 	}
 
+	/** True/false when the Worker answered, null when the probe itself failed. */
+	async function probeLane(): Promise<boolean | null> {
+		try {
+			const response = await fetchFn(url.replace(/^ws/, "http"));
+			if (!response.ok) return null;
+			const body = (await response.json()) as { available?: unknown };
+			return typeof body.available === "boolean" ? body.available : null;
+		} catch {
+			return null;
+		}
+	}
+
 	function scheduleReconnect(): void {
 		if (closed) return;
 		// A connection that lived a while earns an instant retry (reference
@@ -253,8 +274,10 @@ export function createWorkspaceChatClient(
 		}
 		socket = candidate;
 		catchingUp = true;
+		sawOpen = false;
 		candidate.onopen = () => {
 			if (socket !== candidate) return;
+			sawOpen = true;
 			// Subscribe before anything else, so no frame falls into a gap.
 			send({ type: "subscribe", conversationId, cursor: state.cursor });
 			helloTimer = setTimeoutFn(() => {
@@ -272,6 +295,16 @@ export function createWorkspaceChatClient(
 			if (socket !== candidate) return;
 			socket = null;
 			clearTimers();
+			if (!sawOpen && connection.phase !== "open") {
+				// Failed before the handshake: ask the Worker whether this origin
+				// has an object lane at all before climbing the ladder.
+				void probeLane().then((available) => {
+					if (closed) return;
+					if (available === false) setConnection({ phase: "unavailable" });
+					else scheduleReconnect();
+				});
+				return;
+			}
 			scheduleReconnect();
 		};
 		candidate.onerror = () => {
@@ -398,6 +431,15 @@ export function createWorkspaceChatClient(
 				before: lowest,
 				limit: WORKSPACE_CHAT_HISTORY_PAGE,
 			});
+		},
+		retry() {
+			if (closed || socket) return;
+			if (retryTimer !== null) {
+				clearTimeoutFn(retryTimer);
+				retryTimer = null;
+			}
+			attempt = 0;
+			establish();
 		},
 		forceDrop() {
 			dropSocket("forced");

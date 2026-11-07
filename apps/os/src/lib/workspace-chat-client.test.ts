@@ -40,7 +40,7 @@ class FakeSocket implements SocketLike {
 
 type Timer = { callback: () => void; at: number; id: number };
 
-function harness() {
+function harness(laneAvailable: boolean | null = true) {
 	const sockets: FakeSocket[] = [];
 	let now = 1_000_000;
 	let timers: Timer[] = [];
@@ -65,6 +65,10 @@ function harness() {
 		nowFn: () => now,
 		randomFn: () => 0.5,
 		newId: () => "client-turn",
+		fetchFn: async () =>
+			laneAvailable === null
+				? { ok: false, json: async () => ({}) }
+				: { ok: true, json: async () => ({ available: laneAvailable }) },
 		scheduleFrame: (callback) => {
 			timers.push({ callback, at: now + 16, id: nextId++ });
 		},
@@ -173,11 +177,38 @@ describe("createWorkspaceChatClient", () => {
 		const firstWait = client.getSnapshot().connection;
 		expect(firstWait.phase).toBe("reconnecting");
 		advance(60_000);
+		sockets.at(-1)!.open();
 		sockets.at(-1)!.drop();
 		const secondWait = client.getSnapshot().connection;
 		expect(secondWait.phase).toBe("reconnecting");
 		expect(secondWait.phase === "reconnecting" && secondWait.attempt).toBe(2);
 		expect(sockets.length).toBe(2);
+	});
+
+	it("parks on 'unavailable' when the origin has no object lane, until retry", async () => {
+		const { client, sockets, hello } = harness(false);
+		sockets[0]!.drop();
+		await Promise.resolve();
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(client.getSnapshot().connection.phase).toBe("unavailable");
+		expect(sockets).toHaveLength(1);
+		client.retry();
+		expect(sockets).toHaveLength(2);
+		sockets[1]!.open();
+		hello(sockets[1]!);
+		expect(client.getSnapshot().connection.phase).toBe("open");
+	});
+
+	it("keeps climbing the ladder when a failed handshake cannot be explained", async () => {
+		const { client, sockets, advance } = harness(null);
+		sockets[0]!.drop();
+		await Promise.resolve();
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(client.getSnapshot().connection.phase).toBe("reconnecting");
+		advance(60_000);
+		expect(sockets).toHaveLength(2);
 	});
 
 	it("pings a silent socket and drops it when no pong comes", () => {
