@@ -625,6 +625,22 @@
         "vite-plus": "catalog:",
       },
     },
+    "packages/agent-governance-postgres": {
+      "name": "@tedix/agent-governance-postgres",
+      "version": "0.1.0",
+      "dependencies": {
+        "@tedix/agent-governance": "workspace:*",
+        "drizzle-orm": "catalog:",
+      },
+      "devDependencies": {
+        "@tedix/tsconfig": "workspace:*",
+        "@types/node": "catalog:",
+        "@types/pg": "^8.15.6",
+        "pg": "^8.22.0",
+        "typescript": "catalog:",
+        "vite-plus": "catalog:",
+      },
+    },
     "packages/agent-runtime": {
       "name": "@tedix/agent-runtime",
       "version": "0.0.1",
@@ -2367,6 +2383,8 @@
 
     "@tedix/agent-governance": ["@tedix/agent-governance@workspace:packages/agent-governance"],
 
+    "@tedix/agent-governance-postgres": ["@tedix/agent-governance-postgres@workspace:packages/agent-governance-postgres"],
+
     "@tedix/agent-runtime": ["@tedix/agent-runtime@workspace:packages/agent-runtime"],
 
     "@tedix/api": ["@tedix/api@workspace:apps/api"],
@@ -2618,6 +2636,8 @@
     "@types/nlcst": ["@types/nlcst@2.0.3", "", { "dependencies": { "@types/unist": "*" } }, "sha512-vSYNSDe6Ix3q+6Z7ri9lyWqgGhJTmzRjZRqyq15N0Z/1/UnVsno9G/N40NBijoYx2seFDIl0+B2mgAb9mezUCA=="],
 
     "@types/node": ["@types/node@26.6.6", "", { "dependencies": { "undici-types": "~8.9.0" } }, "sha512-MzQj+8Kx3XI40OmUAE6Qoh58ZMNstNNMwn2nfd3qWsfe7nDNSqJNzes4njhz6AHwrSHOffSLwXU6yb474Q4aog=="],
+
+    "@types/pg": ["@types/pg@8.23.1", "", { "dependencies": { "@types/node": "*", "pg-protocol": "*", "pg-types": "^2.2.0" } }, "sha512-fKVHpikPdg4GKks3JuLEhvwSyvwzF23hnabPy6DD8ljVbC7+6J5dQzdv4arV6jqq57djnMgs1HKBxX4P8aBI3A=="],
 
     "@types/react": ["@types/react@19.3.0", "", { "dependencies": { "csstype": "^3.2.2" } }, "sha512-N0rFCuH9YoxG9/m61l9MfpJKfmLOVU0em7ipIz6TRgSSkvReLB9vL85GB+yr8Bs5leqpvg96JSwF4ZS1s4viQg=="],
 

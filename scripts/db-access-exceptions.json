@@ -13,6 +13,20 @@
 			"owner": "apps/mcp:mcp-tasks-workflow-ledger",
 			"binding": "createDbClient(this.env.DB)",
 			"reason": "The generic task Workflow owns retry-safe terminal transitions in the documented mcp_tasks edge-enforcement ledger around its durable dispatch steps."
+		},
+		"packages/agent-governance-postgres/src/adapters.ts": {
+			"storagePlane": "agent-governance-postgres",
+			"disposition": "approved",
+			"owner": "packages/agent-governance-postgres:governance-storage",
+			"binding": "NodePgDatabase",
+			"reason": "The standalone Postgres governance adapter owns scoped memory revisions, change records and compliance persistence for agent runtimes outside the D1 storage plane."
+		},
+		"packages/agent-governance-postgres/src/schema.ts": {
+			"storagePlane": "agent-governance-postgres",
+			"disposition": "approved",
+			"owner": "packages/agent-governance-postgres:governance-storage",
+			"binding": "NodePgDatabase",
+			"reason": "The standalone Postgres governance adapter owns scoped memory revisions, change records and compliance persistence for agent runtimes outside the D1 storage plane."
 		}
 	},
 	"directD1": {

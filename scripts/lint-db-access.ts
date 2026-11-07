@@ -24,7 +24,8 @@ export type StoragePlane =
 	| "app-owned-d1-adapter"
 	| "provisioning-control-plane"
 	| "runtime-enforcement-d1"
-	| "do-local-sqlite";
+	| "do-local-sqlite"
+	| "agent-governance-postgres";
 
 export type ExceptionDisposition = "approved";
 
@@ -193,6 +194,7 @@ function validateReason(
 		"provisioning-control-plane",
 		"runtime-enforcement-d1",
 		"do-local-sqlite",
+		"agent-governance-postgres",
 	];
 	if (!planes.includes(entry.storagePlane as StoragePlane)) {
 		failures.push(`${section}.${path}: invalid or missing storagePlane.`);
