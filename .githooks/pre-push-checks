@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Invoked by pre-push while holding the machine-wide gate lock.
+# Invoked by pre-push, with the repository gate lock when available.
 set -uo pipefail
 root="$(git rev-parse --show-toplevel)"
 
