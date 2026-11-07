@@ -619,6 +619,13 @@ export const workAttempts = sqliteTable(
 		),
 		index("idx_work_attempt_expiry").on(table.runtimeState, table.expiresAt),
 		index("idx_work_attempt_org_started").on(table.orgId, table.startedAt),
+		// Live-Attempt lists filter by runtime state; through org_started they
+		// walked every Attempt the organization ever made.
+		index("idx_work_attempt_org_state_started").on(
+			table.orgId,
+			table.runtimeState,
+			table.startedAt,
+		),
 		check(
 			"chk_work_attempt_identity",
 			sql`(${table.executorType} = 'tedi' AND ${table.executorSessionId} IS NULL AND ${table.externalSessionKey} IS NULL) OR (${table.executorType} = 'external_agent' AND ${table.executorSessionId} IS NOT NULL AND ${table.externalSessionKey} IS NOT NULL)`,

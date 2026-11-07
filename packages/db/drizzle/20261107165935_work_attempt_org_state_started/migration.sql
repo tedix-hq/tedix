@@ -1,0 +1,1 @@
+CREATE INDEX `idx_work_attempt_org_state_started` ON `work_attempts` (`org_id`,`runtime_state`,`started_at`);
