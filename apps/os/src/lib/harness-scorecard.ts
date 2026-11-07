@@ -38,15 +38,26 @@ export function aggregateHarnessScorecard(
 		}
 		return row;
 	};
-	for (const report of reports) {
-		const at = Date.parse(report.duty?.observedAt ?? report.observedAt);
-		if (
+	const sources = [
+		...new Map(
+			reports.map((report) => [
+				`${report.reporterId}:${report.executor}:${report.lane}`,
+				report,
+			]),
+		).values(),
+	].filter((report) => {
+		const at = Date.parse(report.observedAt);
+		return (
 			report.duty?.kind !== "task" &&
 			report.lane !== "supervisor-lead" &&
 			at >= now - SCORECARD_WINDOW_MS &&
 			at <= now
-		)
-			runner(report.executor);
+		);
+	});
+	for (const report of sources) {
+		runner(report.executor);
+		for (const count of report.duty?.reliability?.runners ?? [])
+			runner(count.runner);
 	}
 	const seen = new Set<string>();
 	for (const { attempt } of attempts) {
@@ -91,5 +102,52 @@ export function aggregateHarnessScorecard(
 	}
 	return [...runners.values()]
 		.sort((a, b) => a.runner.localeCompare(b.runner))
-		.map(({ commits, ...row }) => ({ ...row, commits: commits.size }));
+		.map(({ commits, ...row }) => {
+			const matching = sources.filter(
+				(source) =>
+					source.executor === row.runner ||
+					source.executor === "any-local" ||
+					source.duty?.reliability?.runners.some(
+						(count) => count.runner === row.runner,
+					),
+			);
+			const complete =
+				matching.length > 0 &&
+				matching.every((source) => {
+					const counts = source.duty?.reliability;
+					return (
+						!source.stale &&
+						counts &&
+						Date.parse(counts.observedAt) <= now &&
+						now - Date.parse(counts.observedAt) <=
+							source.staleAfterSeconds * 1000 &&
+						Date.parse(counts.coverageStartedAt) <=
+							Date.parse(counts.windowStartedAt)
+					);
+				});
+			return {
+				...row,
+				commits: commits.size,
+				held: complete
+					? matching.reduce(
+							(sum, source) =>
+								sum +
+								(source.duty?.reliability?.runners.find(
+									(count) => count.runner === row.runner,
+								)?.held ?? 0),
+							0,
+						)
+					: null,
+				supervisorKills: complete
+					? matching.reduce(
+							(sum, source) =>
+								sum +
+								(source.duty?.reliability?.runners.find(
+									(count) => count.runner === row.runner,
+								)?.supervisorKills ?? 0),
+							0,
+						)
+					: null,
+			};
+		});
 }

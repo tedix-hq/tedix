@@ -7,6 +7,90 @@ import {
 } from "./harness-scorecard";
 
 const now = Date.parse("2026-11-07T12:00:00.000Z");
+it("sums fully covered fleet observations and withholds stale, warming or legacy totals", () => {
+	const at = new Date(now).toISOString();
+	const start = new Date(now - SCORECARD_WINDOW_MS).toISOString();
+	const report = DispatcherHealthReportSchema.parse({
+		reporterId: "cedar",
+		executor: "codex",
+		lane: "runner",
+		running: true,
+		observedAt: at,
+		reportedAt: at,
+		lastAdmissionAt: null,
+		slotsInUse: 0,
+		slotsTotal: 1,
+		topReason: null,
+		ageSeconds: 0,
+		staleAfterSeconds: 60,
+		stale: false,
+		duty: {
+			id: "runner",
+			kind: "service",
+			state: "running",
+			observedAt: at,
+			lastRunAt: at,
+			lastExitAt: null,
+			lastExitCode: null,
+			lastExecutor: "codex",
+			restartsLastHour: 0,
+			retryAt: null,
+			lastProblem: null,
+			reliability: {
+				coverageStartedAt: start,
+				windowStartedAt: start,
+				observedAt: at,
+				runners: [{ runner: "codex", held: 2, supervisorKills: 3 }],
+			},
+		},
+	});
+	const second = { ...report, reporterId: "other-machine" };
+	expect(aggregateHarnessScorecard([], [report, report, second], now)).toEqual([
+		{
+			runner: "codex",
+			started: 0,
+			succeeded: 0,
+			failed: 0,
+			orphaned: 0,
+			commits: 0,
+			held: 4,
+			supervisorKills: 6,
+		},
+	]);
+	const warming = {
+		...second,
+		duty: {
+			...second.duty!,
+			reliability: { ...second.duty!.reliability!, coverageStartedAt: at },
+		},
+	};
+	for (const unavailable of [
+		warming,
+		{ ...second, stale: true },
+		{ ...second, duty: undefined },
+	]) {
+		const result = aggregateHarnessScorecard(
+			[],
+			[report, unavailable],
+			now,
+		)[0]!;
+		expect(result.held).toBeNull();
+		expect(result.supervisorKills).toBeNull();
+	}
+	const coordinated = {
+		...report,
+		executor: "any-local",
+		duty: {
+			...report.duty!,
+			reliability: { ...report.duty!.reliability!, runners: [] },
+		},
+	};
+	expect(
+		aggregateHarnessScorecard([row(1)], [coordinated], now).find(
+			(row) => row.runner === "codex",
+		)?.held,
+	).toBe(0);
+});
 function row(id: number, overrides: Record<string, unknown> = {}) {
 	return WorkAttemptProjectionSchema.parse({
 		attempt: {
@@ -74,6 +158,8 @@ it("uses a bounded start-time cohort and deduplicates Attempts across scopes", (
 			failed: 1,
 			orphaned: 2,
 			commits: 0,
+			held: null,
+			supervisorKills: null,
 		},
 	]);
 	expect(
@@ -178,6 +264,8 @@ it("includes recently reported idle runners without treating supervisor duties a
 			failed: 0,
 			orphaned: 0,
 			commits: 0,
+			held: null,
+			supervisorKills: null,
 		},
 	]);
 });

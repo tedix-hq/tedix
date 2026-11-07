@@ -136,7 +136,7 @@ export function ActivityRunningNow({
 				)}
 				<ActivityHarnessScorecard
 					scopes={scopes}
-					reports={reports}
+					reports={healthFailed ? [] : reports}
 					now={now.getTime()}
 				/>
 				{rows.length > 0 ? (

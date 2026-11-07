@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	writeFileSync,
+	readFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { recordDutyStatus } from "./supervise-duty-status";
@@ -9,10 +15,63 @@ import {
 	recordDispatcherCompletion,
 	recordDispatcherNextCheck,
 	recordDispatcherPreparing,
+	recordDispatcherReliability,
+	dispatcherReliability,
 	writeDispatcherHealthSource,
 } from "./dispatcher-health";
 
 const roots: string[] = [];
+test("retains rolling reliability observations across restart without reading logs", () => {
+	const { directory } = lane();
+	const now = Date.parse("2026-11-07T12:00:00.000Z");
+	const start = new Date(now - 86_400_000).toISOString();
+	const options = {
+		scope: ["--workspace", "fixture", "--organization", "org_fixture"],
+		executor: "any-local",
+		max: 2,
+	};
+	writeDispatcherHealthSource(directory, options, process.pid, start);
+	const event = {
+		id: "attempt-one",
+		runner: "codex",
+		kind: "supervisor_kill" as const,
+		at: new Date(now - 1000).toISOString(),
+	};
+	recordDispatcherReliability(directory, event);
+	recordDispatcherReliability(directory, event);
+	recordDispatcherReliability(directory, {
+		...event,
+		id: "held-one",
+		runner: "claude-code",
+		kind: "held",
+		at: start,
+	});
+	recordDispatcherReliability(
+		directory,
+		{ ...event, id: "wrong-owner" },
+		process.pid + 1,
+	);
+	writeFileSync(join(directory, "dispatcher.log"), "rotated");
+	writeDispatcherHealthSource(
+		directory,
+		options,
+		process.pid,
+		new Date(now).toISOString(),
+	);
+	const source = JSON.parse(
+		readFileSync(join(directory, "health-source.json"), "utf8"),
+	);
+	const result = dispatcherReliability(source, now)!;
+	expect(result.coverageStartedAt).toBe(start);
+	expect(result.runners).toEqual([
+		{ runner: "claude-code", held: 1, supervisorKills: 0 },
+		{ runner: "codex", held: 0, supervisorKills: 1 },
+	]);
+	expect(dispatcherReliability(source, now + 86_400_000)!.runners).toEqual([]);
+	expect(
+		dispatcherReliability({ ...source, reliability: undefined }, now),
+	).toBeUndefined();
+});
 afterEach(() => {
 	for (const root of roots.splice(0))
 		rmSync(root, { recursive: true, force: true });

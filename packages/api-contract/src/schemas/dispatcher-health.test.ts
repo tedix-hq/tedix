@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
 	ReportDispatcherHealthInputSchema,
 	SupervisorDutyHealthSchema,
+	DispatcherReliabilitySchema,
 } from "./dispatcher-health";
 
 const valid = {
@@ -15,6 +16,34 @@ const valid = {
 	slotsTotal: 2,
 	topReason: { reason: "session label clash", count: 3 },
 };
+
+it("requires bounded counts and a real 24-hour reliability window", () => {
+	const value = {
+		coverageStartedAt: "2026-10-29T10:00:00.000Z",
+		windowStartedAt: "2026-10-29T10:00:00.000Z",
+		observedAt: valid.observedAt,
+		runners: [{ runner: "codex", held: 2, supervisorKills: 1 }],
+	};
+	expect(DispatcherReliabilitySchema.parse(value)).toEqual(value);
+	expect(
+		DispatcherReliabilitySchema.safeParse({
+			...value,
+			windowStartedAt: valid.observedAt,
+		}).success,
+	).toBe(false);
+	expect(
+		DispatcherReliabilitySchema.safeParse({
+			...value,
+			coverageStartedAt: "2026-10-31T10:00:00.000Z",
+		}).success,
+	).toBe(false);
+	expect(
+		DispatcherReliabilitySchema.safeParse({
+			...value,
+			runners: [{ runner: "codex", held: -1, supervisorKills: 0 }],
+		}).success,
+	).toBe(false);
+});
 
 describe("dispatcher health report input", () => {
 	it("accepts bounded duty observations while preserving legacy report inputs", () => {
