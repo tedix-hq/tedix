@@ -4,15 +4,15 @@
  * row shape, so a workspace object binding and an MCP tool are governed alike.
  */
 import { describe, expect, it, vi } from "vite-plus/test";
-import { createInMemoryAdapters } from "@tedix/workspace-adapters/in-memory";
+import { createInMemoryAdapters } from "@tedix/agent-governance/in-memory";
 import type {
 	ChangeRecord,
 	ComplianceDecision,
-} from "@tedix/workspace-adapters/types";
+} from "@tedix/agent-governance/types";
 import {
 	CallRefusedError,
 	wrapBinding,
-} from "@tedix/workspace-adapters/wrap-binding";
+} from "@tedix/agent-governance/wrap-binding";
 import { admitGatewayCall, guardGatewayCall } from "./gateway-adapters";
 import type { ServerContext } from "./server-context";
 

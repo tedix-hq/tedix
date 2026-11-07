@@ -1,7 +1,7 @@
 /**
- * In-memory implementations of the three adapters. They exist for tests and
- * for a workspace object before it has storage; the decision logic is the
- * shared `evaluateCall`, not something private to this file.
+ * In-memory implementations of the three adapters, for tests and for a
+ * runtime before it has storage. The decision logic is the shared
+ * `evaluateCall`, not something private to this file.
  */
 import { evaluateCall, budgetForTier, type ApprovalState } from "./compliance";
 import { hashValue } from "./hash";

@@ -1,11 +1,11 @@
 /**
  * The one decision function every ComplianceAdapter runs. An adapter gathers
- * facts from wherever it lives (D1 policy rows and rate limiters at the
- * gateway, an in-memory table in tests, a workspace object's own storage) and
- * hands them here, so the same facts always yield the same decision.
+ * facts from wherever it lives (policy rows and rate limiters at a gateway,
+ * an in-memory table in tests, a runtime's own storage) and hands them here,
+ * so the same facts always yield the same decision.
  *
- * Gate order mirrors the gateway's per-call sequence: scope, annotation
- * assertion, rate limit, policy disposition, destructive approval.
+ * Gate order: scope, secret egress, annotation assertion, rate limit, policy
+ * disposition, destructive approval.
  */
 import type {
 	BudgetState,
@@ -16,7 +16,7 @@ import type {
 	BlastRadius,
 } from "./types";
 
-/** Budgets per risk tier, mirroring the gateway's write and high-risk limiters. */
+/** Default budgets per risk tier (calls per window for one actor). */
 export const RISK_TIER_BUDGETS: Record<
 	Exclude<RiskTier, "read">,
 	BudgetState
