@@ -892,6 +892,7 @@ export async function registerCodeModeTools(
 					...(resultIdentity ? { resultIdentity } : {}),
 					...(resultProjection ? { resultProjection } : {}),
 					...(executionReceipt ? { completionEvidence: executionReceipt } : {}),
+					...codeModeTrustSummary(executionRefs.toolReceipts),
 					...(executionRefs.toolReceipts.some(
 						(receipt) => receipt.actionReceipt,
 					)
@@ -1020,4 +1021,26 @@ export async function registerCodeModeTools(
 	);
 
 	return true;
+}
+
+/**
+ * Which inner calls returned third-party content. The gateway's `_meta` trust
+ * label never reaches a program's hand-built return value, so the outer result
+ * names the calls whose output is data to read, never instructions to follow.
+ */
+function codeModeTrustSummary(
+	receipts: readonly { operation: string; trust?: "trusted" | "untrusted" }[],
+): { trust?: { untrusted: string[]; trusted: string[] } } {
+	const labelled = receipts.filter((receipt) => receipt.trust);
+	if (labelled.length === 0) return {};
+	const names = (integrity: "trusted" | "untrusted") => [
+		...new Set(
+			labelled
+				.filter((receipt) => receipt.trust === integrity)
+				.map((receipt) => receipt.operation),
+		),
+	];
+	return {
+		trust: { untrusted: names("untrusted"), trusted: names("trusted") },
+	};
 }

@@ -1,3 +1,4 @@
+import { resolveToolTrustLabel } from "@tedix/mcp-shared/content-sanitize";
 import { withFieldSelectionSchema } from "./field-selection";
 import { gateDecisionMetadata } from "./gate-decision";
 import { resolveHumanPolicyReplay } from "./tenant-human-replay";
@@ -160,6 +161,7 @@ export interface CodeModeExecutionRefs {
 		status: CompletionEvidence["status"];
 		error?: string;
 		actionReceipt?: ActionReceipt;
+		trust?: "trusted" | "untrusted";
 	}[];
 	/** Exact inner workflow run identities, retained even if JS returns a summary. */
 	skillWorkflowRunIds: Set<string>;
@@ -702,6 +704,10 @@ export function buildNamespaceGroups(
 					executionRefs.toolReceipts.push({
 						operation: `${ns}.${safeName}`,
 						status: evidence.status,
+						trust: resolveToolTrustLabel({
+							transport: tool.config?.transport,
+							sensitiveData: tool.sensitiveData,
+						}).integrity,
 						...(actionReceipt ? { actionReceipt } : {}),
 						...(resultError ? { error: resultError.slice(0, 300) } : {}),
 					});
