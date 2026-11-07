@@ -173,6 +173,10 @@ worker runtime; [decision records](decisions/README.md) explain why.
 Read [AGENTS.md](AGENTS.md) and the nearest scoped `AGENTS.md` before editing,
 then run `bun run verify` for the same checks as the pre-push hook.
 
+The pre-push hook needs Python 3 on your `PATH`. It holds an OS file lock
+while checks run, shared by your clones and worktrees on this machine. Each
+push still runs its checks; other pushes wait without running gates.
+
 `bun run test:ci` runs the full suite, including a Chromium browser test in
 `apps/os` and code-search tests that run [ripgrep](https://github.com/BurntSushi/ripgrep)
 (`rg` on your `PATH`). Install the browser once:

@@ -2,6 +2,8 @@ import { afterEach, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import {
 	chmodSync,
+	copyFileSync,
+	mkdirSync,
 	mkdtempSync,
 	readFileSync,
 	rmSync,
@@ -25,6 +27,13 @@ test.each([
 ] as const)("hook profile %s selects fast checks: %s", (profile, fast) => {
 	const root = mkdtempSync(join(tmpdir(), "push-hook-profile-"));
 	roots.push(root);
+	for (const file of [
+		".githooks/pre-push-checks",
+		"scripts/dev/push-gate-lock.py",
+	]) {
+		mkdirSync(join(root, file, ".."), { recursive: true });
+		copyFileSync(new URL(`../../${file}`, import.meta.url), join(root, file));
+	}
 	const args = join(root, "args");
 	const bun = join(root, "bun");
 	writeFileSync(bun, '#!/bin/sh\nprintf "%s\\n" "$@" > "$HOOK_ARGS"\n');
@@ -35,6 +44,7 @@ test.each([
 		GIT_CONFIG_GLOBAL: "/dev/null",
 		GIT_CONFIG_COUNT: "0",
 		HOOK_ARGS: args,
+		HOME: root,
 		PATH: root + delimiter + process.env.PATH,
 	};
 	delete env.GIT_CONFIG_PARAMETERS;

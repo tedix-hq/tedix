@@ -17,8 +17,8 @@
  * single ticket keeps the original rebase/push path. Waiting sessions print
  * their place and an estimate from recent lock holds (push-queue-history.jsonl).
  *
- * Dead holders and tickets are removed. Single-lane locks also expire after
- * STALE_MS; living trains may need longer for fallback. No daemon.
+ * Dead holders and tickets are removed. A living holder never expires: its
+ * pre-push gates may still be running. No daemon.
  *
  * At most once a day, a successful push also starts `worktree:gc --apply` in
  * the background from the main checkout (log in
@@ -58,7 +58,6 @@ import {
 	type Lane,
 } from "./push-train";
 
-export const STALE_MS = 30 * 60 * 1000;
 const POLL_MS = 2000;
 const MAX_RETRIES = 2;
 export const GC_EVERY_MS = 24 * 60 * 60 * 1000;
@@ -260,7 +259,6 @@ export function isAlive(pid: number): boolean {
 
 export function isStale(
 	holder: Holder | null,
-	now: number,
 	alive: (pid: number) => boolean = isAlive,
 ): boolean {
 	if (
@@ -269,9 +267,7 @@ export function isStale(
 		!Number.isFinite(holder.startedAt)
 	)
 		return true;
-	return (
-		!alive(holder.pid) || (!holder.train && now - holder.startedAt > STALE_MS)
-	);
+	return !alive(holder.pid);
 }
 
 function readHolder(file: string): Holder | null {
@@ -303,7 +299,7 @@ export function tryAcquire(
 			// A holder still writing its JSON reads as null; give it a moment.
 			const stat = statSync(file, { throwIfNoEntry: false });
 			if (holder === null && stat && now - stat.mtimeMs < 5000) return false;
-			if (holder !== null && !isStale(holder, now, alive)) return false;
+			if (holder !== null && !isStale(holder, alive)) return false;
 			rmSync(file, { force: true });
 		}
 	}

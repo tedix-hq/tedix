@@ -14,7 +14,6 @@ import {
 	recordRetry,
 	retryRefusal,
 	selectTrain,
-	STALE_MS,
 	ticketKey,
 	tryAcquire,
 	waitNote,
@@ -40,19 +39,19 @@ describe("push queue lock", () => {
 		expect(tryAcquire(file, Date.now(), alive)).toBe(true);
 	});
 
-	test("a lock older than STALE_MS is recovered even if its pid lives", () => {
+	test("a living single-push holder is never evicted during long gates", () => {
 		const file = join(tmp(), "lock");
 		writeFileSync(file, JSON.stringify({ pid: 1, startedAt: 0 }));
-		expect(tryAcquire(file, STALE_MS + 1, () => true)).toBe(true);
+		expect(tryAcquire(file, 24 * 60 * 60 * 1000, () => true)).toBe(false);
 	});
 
 	test("a live train never times out during per-lane fallback; a dead one recovers", () => {
-		expect(
-			isStale({ pid: 1, startedAt: 0, train: true }, STALE_MS + 1, () => true),
-		).toBe(false);
-		expect(
-			isStale({ pid: 1, startedAt: 0, train: true }, STALE_MS + 1, () => false),
-		).toBe(true);
+		expect(isStale({ pid: 1, startedAt: 0, train: true }, () => true)).toBe(
+			false,
+		);
+		expect(isStale({ pid: 1, startedAt: 0, train: true }, () => false)).toBe(
+			true,
+		);
 	});
 
 	test("a fresh lock still being written is left alone", () => {
@@ -62,9 +61,9 @@ describe("push queue lock", () => {
 	});
 
 	test("isStale", () => {
-		expect(isStale(null, 0)).toBe(true);
-		expect(isStale({ pid: 1, startedAt: 0 }, 10, () => true)).toBe(false);
-		expect(isStale({ pid: 1, startedAt: 0 }, 10, () => false)).toBe(true);
+		expect(isStale(null)).toBe(true);
+		expect(isStale({ pid: 1, startedAt: 0 }, () => true)).toBe(false);
+		expect(isStale({ pid: 1, startedAt: 0 }, () => false)).toBe(true);
 	});
 });
 
