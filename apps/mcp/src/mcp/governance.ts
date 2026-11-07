@@ -659,6 +659,23 @@ function callerIsAgent(
 	return clientSupportsTasks(meta);
 }
 
+/**
+ * One retry after a short pause for the API lookups behind a skill's
+ * manifest approval. A single dropped request or overloaded database read
+ * used to fail the whole run as "authorization unavailable".
+ */
+async function retryOnceOnTransientFailure<T>(
+	call: () => Promise<T>,
+	delayMs = 250,
+): Promise<T> {
+	try {
+		return await call();
+	} catch {
+		await new Promise((resolve) => setTimeout(resolve, delayMs));
+		return call();
+	}
+}
+
 function callerIsUserPrincipalPath(agent: ApprovalContext): boolean {
 	const identity = agent.callerIdentity;
 	if (!identity) return false;
@@ -1731,11 +1748,16 @@ export async function requireDestructiveToolApproval(
 	) {
 		let stage = "transport_policy";
 		try {
-			const transportPolicy =
-				await agent.apiClient.mcpGovernance.resolveAgentTransportPolicy?.({
-					organizationId: manifestOrganizationId,
-					tediId: workflowCaller.tediId,
-				});
+			const resolveTransport =
+				agent.apiClient.mcpGovernance.resolveAgentTransportPolicy;
+			const transportPolicy = resolveTransport
+				? await retryOnceOnTransientFailure(() =>
+						resolveTransport({
+							organizationId: manifestOrganizationId,
+							tediId: workflowCaller.tediId,
+						}),
+					)
+				: undefined;
 			const askForClasses = transportPolicy?.autonomy?.askForClasses;
 			if (
 				askForClasses?.includes("*") ||
@@ -1777,19 +1799,21 @@ export async function requireDestructiveToolApproval(
 				executionEpoch: workflowCaller.workflowExecutionEpoch,
 			};
 			const resolveManifest = (namespace: string | undefined, method: string) =>
-				governance.resolveSkillManifestAuthorization!({
-					...manifestInput,
-					method,
-					namespace,
-					sourceAppSlug:
-						typeof tool.config?._sourceAppSlug === "string"
-							? tool.config._sourceAppSlug
-							: agent.appSlug,
-					targetTediId:
-						typeof tool.config?._aggregateTediId === "string"
-							? tool.config._aggregateTediId
-							: undefined,
-				});
+				retryOnceOnTransientFailure(() =>
+					governance.resolveSkillManifestAuthorization!({
+						...manifestInput,
+						method,
+						namespace,
+						sourceAppSlug:
+							typeof tool.config?._sourceAppSlug === "string"
+								? tool.config._sourceAppSlug
+								: agent.appSlug,
+						targetTediId:
+							typeof tool.config?._aggregateTediId === "string"
+								? tool.config._aggregateTediId
+								: undefined,
+					}),
+				);
 			let resolution = await resolveManifest(gatewayNamespace, gatewayMethod);
 			if (
 				!resolution.approved &&

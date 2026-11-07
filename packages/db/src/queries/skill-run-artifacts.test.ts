@@ -176,6 +176,33 @@ describe("skill run artifact content addressing", () => {
 		expect(read?.sha256).toBe(await sha256Hex('{"price":42}'));
 	});
 
+	it("updates the row a concurrent writer saved between the read and the insert", async () => {
+		let raced = false;
+		let insertRow: ((...args: unknown[]) => unknown) | null = null;
+		const { db, insert, binding } = fixture((query) => {
+			if (!raced && /^insert into "skill_run_artifacts"/i.test(query.trim())) {
+				raced = true;
+				insertRow?.("art-other", "steps/judge.json", 1, "2026-11-05 21:44:00");
+			}
+		});
+		insertRow = (...args) =>
+			insert.run(...(args as [string, string, number, string]));
+		const saved = await recordRunArtifact(
+			db,
+			{ organizationId: "org-1" },
+			{
+				runId: "run-1",
+				path: "steps/judge.json",
+				value: { ok: true },
+				attempt: 2,
+			},
+		);
+		expect(saved.id).toBe("art-other");
+		expect(saved.contentInline).toBe('{"ok":true}');
+		expect(saved.attempt).toBe(2);
+		void binding;
+	});
+
 	it("re-hashes a mutable path so the digest always describes current bytes", async () => {
 		const { db } = fixture();
 		await recordRunArtifact(

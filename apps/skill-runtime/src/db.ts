@@ -759,13 +759,15 @@ export async function listNonTerminalRuns(
 		restartRequestedAt: string | null;
 		restartCommandId: string | null;
 		admissionRecovery: boolean;
+		startedAt: string | null;
 	}>
 > {
 	const res = await db
 		.prepare(
 			`SELECT id, skill_id, tedi_id, workflow_instance_id, organization_id,
 			        params, status, error,
-			        execution_epoch, restart_requested_at, restart_command_id
+			        execution_epoch, restart_requested_at, restart_command_id,
+			        started_at
 			   FROM skill_runs
 			  WHERE runtime_environment = ?1
 			    AND workflow_retired_at IS NULL
@@ -792,6 +794,7 @@ export async function listNonTerminalRuns(
 			execution_epoch: number;
 			restart_requested_at: string | null;
 			restart_command_id: string | null;
+			started_at: string | null;
 		}>();
 	return (res.results ?? []).map((r) => ({
 		runId: r.id,
@@ -808,6 +811,7 @@ export async function listNonTerminalRuns(
 		executionEpoch: r.execution_epoch,
 		restartRequestedAt: r.restart_requested_at ?? null,
 		restartCommandId: r.restart_command_id ?? null,
+		startedAt: r.started_at ?? null,
 	}));
 }
 
