@@ -33,6 +33,8 @@ import {
 	type ReactElement,
 	useCallback,
 	useEffect,
+	useLayoutEffect,
+	useRef,
 	useState,
 	useSyncExternalStore,
 } from "react";
@@ -94,6 +96,15 @@ function useMediaQuery(query: string): boolean {
 		useCallback(() => false, []),
 	);
 }
+
+/**
+ * How long the pointer must rest on the collapsed rail before the flyout
+ * opens. Kumo peeks on the first `mouseenter`, so a pointer crossing the
+ * 56px rail on its way to a control near the page's left edge (the Work
+ * Activity tab) grew the flyout under itself, over that control, and the
+ * click landed in the sidebar.
+ */
+const OS_SIDEBAR_PEEK_INTENT_MS = 300;
 
 function readCollapsed(storageKey: string | undefined): boolean {
 	if (!storageKey) return false;
@@ -216,7 +227,23 @@ function Sidebar({
 	contentClassName,
 	...props
 }: KumoSidebarRootProps) {
-	const { stopPeek, isMobile } = useSidebar();
+	const { stopPeek, startPeek, isPeeking, isMobile } = useSidebar();
+	const intentTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+	// `settled`: a link was clicked; stay closed until the pointer leaves.
+	const intent = useRef({ pointer: false, armed: false, settled: false });
+	const arm = useCallback(
+		(armed: boolean) => {
+			intent.current.armed = armed;
+			if (armed) startPeek();
+		},
+		[startPeek],
+	);
+	const disarm = useCallback(() => {
+		clearTimeout(intentTimer.current);
+		intent.current.pointer = false;
+		intent.current.settled = false;
+		arm(false);
+	}, [arm]);
 	useEffect(() => {
 		const escape = (event: KeyboardEvent) => {
 			if (event.key === "Escape") stopPeek();
@@ -224,9 +251,55 @@ function Sidebar({
 		document.addEventListener("keydown", escape);
 		return () => document.removeEventListener("keydown", escape);
 	}, [stopPeek]);
+	// Kumo peeks on every enter and focus; undo the unarmed ones before paint.
+	// (Kumo's memoized context ignores a changed `peekable`, so gate it here.)
+	useLayoutEffect(() => {
+		if (isPeeking && !intent.current.armed) stopPeek();
+	}, [isPeeking, stopPeek]);
+	useEffect(() => () => clearTimeout(intentTimer.current), []);
+	const inPeekZone = (target: EventTarget) =>
+		target instanceof Element &&
+		target.closest('[data-sidebar="peek-zone"]') !== null;
 	return (
 		<KumoSidebarRoot
 			className={cn("shrink-0", className)}
+			onPointerMove={(event) => {
+				if (event.pointerType !== "mouse") return;
+				if (!inPeekZone(event.target)) return disarm();
+				intent.current.pointer = true;
+				if (intent.current.armed || intent.current.settled) return;
+				// Every move restarts the wait: only a resting pointer opens the flyout.
+				clearTimeout(intentTimer.current);
+				intentTimer.current = setTimeout(
+					() => arm(true),
+					OS_SIDEBAR_PEEK_INTENT_MS,
+				);
+			}}
+			onPointerLeave={disarm}
+			onClick={(event) => {
+				// After navigating from the flyout, the pointer usually heads for the
+				// page; a flyout still open under it covers the page's left controls.
+				if (
+					!(event.target instanceof Element) ||
+					!event.target.closest('[data-sidebar="peek-zone"] a[href]')
+				)
+					return;
+				clearTimeout(intentTimer.current);
+				intent.current.settled = true;
+				arm(false);
+				stopPeek();
+			}}
+			onFocus={(event) => {
+				if (inPeekZone(event.target) && event.target.matches(":focus-visible"))
+					arm(true);
+			}}
+			onBlur={(event) => {
+				if (
+					!intent.current.pointer &&
+					!event.currentTarget.contains(event.relatedTarget)
+				)
+					arm(false);
+			}}
 			// Console separates the rail with a hairline, not Kumo's heavier line.
 			contentClassName={cn(
 				"border-kumo-hairline group-data-[state=peeking]/sidebar:delay-150 group-data-[state=peeking]/sidebar:shadow-tedix-overlay",
