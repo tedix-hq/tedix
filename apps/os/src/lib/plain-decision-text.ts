@@ -1,3 +1,4 @@
+import { agentAddressedIssue } from "@tedix/api-contract/utils/agent-addressed-text";
 import { formatCardTextDates } from "@/lib/format";
 
 /**
@@ -108,7 +109,8 @@ export function plainDecisionText(text: string): string {
 
 /**
  * Notes agents leave for each other ("Then dispatch this Work to a lane…"),
- * and sentences built on variable names (guestSkillReadSlots, actor_scope).
+ * sentences built on variable names (guestSkillReadSlots, actor_scope), and
+ * instructions a person cannot follow ("click Reply on this Needs-you card").
  */
 const AGENT_NOTE =
 	/\b(?:dispatch(?:ed|es)?|lanes?|admitted|admission|heartbeats?|worktrees?|attempts?|lease|fence|settle|executor|harness)\b|\b[a-z]{2,}(?:[A-Z][a-z0-9]+)+\b|(?<![/@\w])[a-z][a-z0-9]*_[a-z0-9_]+\b/;
@@ -125,7 +127,11 @@ export function plainDecisionSource(text: string): string {
 			/^\s*(?:```|~~~|[-*] |\d+\. |\|)/.test(paragraph)
 				? paragraph
 				: (paragraph.match(/[^\n]+?(?:[.!?]+(?=\s|$)|$)\s*/g) ?? [paragraph])
-						.filter((sentence) => !AGENT_NOTE.test(withoutCode(sentence)))
+						.filter(
+							(sentence) =>
+								!AGENT_NOTE.test(withoutCode(sentence)) &&
+								!agentAddressedIssue(sentence),
+						)
 						.join(""),
 		)
 		.map(plainDecisionText)

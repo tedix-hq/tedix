@@ -1,4 +1,5 @@
 import copySpec from "../assets/decision-card-copy.v2.json";
+import { agentAddressedIssue } from "./agent-addressed-text";
 import { containsCardSecret } from "./card-secrets";
 import { calendarDay } from "./card-schedule";
 
@@ -229,6 +230,7 @@ export function checkDecisionCardCopy(copy: CardCopy) {
 	)
 		issues.push("face_word_limit");
 	issues.push(...technicalCopyIssues(text));
+	if (agentAddressedIssue(text)) issues.push("agent_addressed");
 	if (
 		Object.values(copy.actionLabels ?? {}).some(
 			(label) => (label.match(/\S+/gu) ?? []).length > 4,

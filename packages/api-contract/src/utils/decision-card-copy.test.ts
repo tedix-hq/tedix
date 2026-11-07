@@ -180,3 +180,13 @@ it("formats stored ISO deadlines across every face field without changing source
 	expect(rendered.actionLabels.approve).toBe("Review Nov 14, 2026");
 	expect(source.context).toBe("Review by 2026-11-14.");
 });
+
+it("rejects a face that tells the person how to answer the card", () => {
+	expect(
+		checkDecisionCardCopy({
+			...copy,
+			body: "Open this Work item and click Reply on this Needs-you card.",
+		}),
+	).toContain("agent_addressed");
+	expect(checkDecisionCardCopy(copy)).not.toContain("agent_addressed");
+});

@@ -583,3 +583,53 @@ it.each([false, true])(
 		);
 	},
 );
+
+it("shows a person the plain ask and keeps agent instructions under Details for agents", async () => {
+	client = new QueryClient({
+		defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+	});
+	host = document.createElement("div");
+	document.body.append(host);
+	root = createRoot(host);
+	const instructions =
+		"Please open this Work item and click Reply on this Needs-you card. Provide a current read-only comparison of the source and target counts for every logs table.";
+	const request = {
+		...preview.request,
+		subject: "Grant read access to the logs database?",
+		prompt: `The logs move cannot be checked without Cloudflare read access. ${instructions}`,
+		metadata: { reason: "Only you can grant Cloudflare access." },
+	};
+	client.setQueryData(workInteractionDetailQueryOptions(request.id).queryKey, {
+		request,
+		effectiveState: "open",
+		canRespond: true,
+		canCancel: false,
+		responses: { data: [], nextCursor: null, hasMore: false },
+	});
+	await act(async () =>
+		root.render(
+			<QueryClientProvider client={client}>
+				<CardFaceContext.Provider
+					value={{ presentation: null, confidence: null }}
+				>
+					<WorkInteractionDecisionCard requestId={request.id} />
+				</CardFaceContext.Provider>
+			</QueryClientProvider>,
+		),
+	);
+	const face = host.querySelector("[data-card-feedback-content]")?.textContent;
+	expect(face).toContain("Only you can grant Cloudflare access.");
+	expect(face).toContain(
+		"The logs move cannot be checked without Cloudflare read access.",
+	);
+	expect(face).not.toContain("click Reply");
+	expect(face).not.toContain("source and target counts");
+	const details = host.querySelector(".fd-agent-details");
+	expect(details?.textContent).toContain("Details for agents");
+	expect(details?.textContent).toContain(instructions);
+	expect(
+		[...host.querySelectorAll("[data-decision-actions] button")].map(
+			(button) => button.textContent,
+		),
+	).toEqual(expect.arrayContaining(["Yes", "Decline"]));
+});

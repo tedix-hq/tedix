@@ -312,6 +312,7 @@ export function WorkDecisionCard({
 	at,
 	why,
 	body = "",
+	agentDetails,
 	content,
 	faceContent,
 	actions = [],
@@ -342,6 +343,8 @@ export function WorkDecisionCard({
 	at?: string;
 	why?: ReactNode;
 	body?: string;
+	/** The asker's full text, shown only under "Details for agents". */
+	agentDetails?: string;
 	content?: ReactNode;
 	/** Shown on the card face, not behind Context: fields the answer needs. */
 	faceContent?: ReactNode;
@@ -405,7 +408,9 @@ export function WorkDecisionCard({
 	const revision = revisionTarget;
 	const secureConnection =
 		connectionSettings || credentialCard(`${title} ${body}`);
-	const identifiers = decisionIdentifiers(`${title} ${body}`);
+	const identifiers = decisionIdentifiers(
+		`${title} ${body} ${agentDetails ?? ""}`,
+	);
 	const deckFooter = useContext(DeckFooterContext);
 	const deckCuration = useContext(DeckCurationContext);
 	const deckNotice = useContext(DeckNoticeContext);
@@ -496,13 +501,16 @@ export function WorkDecisionCard({
 	const answerAction = actions.find(
 		(action) => action.intent === "approve" && !action.disabled,
 	);
+	// Before a summary is written, the asker's own closed question still gets Yes/No.
+	const askFace =
+		face ?? (faceState && heading.endsWith("?") ? { title: heading } : null);
 	const yesNoLabel =
 		kind === "question" &&
-		face &&
+		askFace &&
 		answerAction &&
 		!suggestedAnswers.length &&
 		!initialAnswer.trim()
-			? yesNoAnswerLabel(face, answerAction)
+			? yesNoAnswerLabel(askFace, answerAction)
 			: null;
 	// A yes/no question still takes a typed answer; typing one replaces "Yes".
 	const yesNo = Boolean(yesNoLabel) && !answer.trim();
@@ -600,8 +608,8 @@ export function WorkDecisionCard({
 			action.intent === "reject"
 				? action.label
 				: kind === "question"
-					? yesNo && face
-						? `${decisionText("Yes")}: ${face.title.replace(/\?+$/, "")}`
+					? yesNo && askFace
+						? `${decisionText("Yes")}: ${askFace.title.replace(/\?+$/, "")}`
 						: answer.trim()
 					: draft.trim();
 		if (containsCardSecret([finalBody, feedback, reason])) {
@@ -1362,7 +1370,11 @@ export function WorkDecisionCard({
 								{error}
 							</p>
 						) : null}
-						{!saved && (submittingActor || identifiers.length > 0 || body) ? (
+						{!saved &&
+						(submittingActor ||
+							identifiers.length > 0 ||
+							body ||
+							agentDetails) ? (
 							<FeedDeckDisclosure
 								inline
 								className="fd-agent-details"
@@ -1386,9 +1398,14 @@ export function WorkDecisionCard({
 											))}
 										</div>
 									)}
-									{body && (
+									{(body || agentDetails) && (
 										<Text className="whitespace-pre-wrap break-all font-mono text-xs">
-											{title === body ? body : `${title}\n\n${body}`}
+											{[title, body, agentDetails]
+												.filter(
+													(part, index, parts): part is string =>
+														Boolean(part) && parts.indexOf(part) === index,
+												)
+												.join("\n\n")}
 										</Text>
 									)}
 								</div>

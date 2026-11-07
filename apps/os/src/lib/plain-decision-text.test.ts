@@ -58,6 +58,14 @@ describe("plain decision text", () => {
 		).toBe("Ask u/fable_kettle on the iPhone app.");
 	});
 
+	it("drops instructions a person cannot follow", () => {
+		expect(
+			plainDecisionSource(
+				"The logs check needs Cloudflare read access. Please open this Work item and click Reply on this Needs-you card. Provide a current read-only comparison of the source and target counts for every logs table.",
+			),
+		).toBe("The logs check needs Cloudflare read access.");
+	});
+
 	it("names who asked without the transport", () => {
 		expect(plainAskerName("Codex session")).toBe("Codex");
 		expect(plainAskerName("Local coding agents (pat@Pats-Laptop.local)")).toBe(
