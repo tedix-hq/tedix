@@ -451,10 +451,13 @@ export async function recordRecallAccess(
 			lastAccessedAt: new Date().toISOString(),
 			accessCount: sql`${memoryFacts.accessCount} + 1`,
 		})
+		// `+organization_id` keeps the tenant fence without letting the planner
+		// pick the org index: it otherwise walked every fact in the organization
+		// (67k rows per recall on 7 Nov) instead of looking each id up by key.
 		.where(
 			and(
-				eq(memoryFacts.organizationId, orgId),
 				sql`${memoryFacts.id} IN (SELECT value FROM json_each(${JSON.stringify([...new Set(ids)].slice(0, 100))}))`,
+				sql`+${memoryFacts.organizationId} = ${orgId}`,
 			),
 		);
 }
