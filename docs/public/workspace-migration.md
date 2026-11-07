@@ -14,11 +14,12 @@ visibility: public
 
 # Move workspaces into workspace objects
 
-On cutover day every workspace's documents, sheets and presentations, their
+A workspace object is one place per workspace that holds the workspace's
+own data and runs its agent, instead of rows in the shared database. On
+cutover day every workspace's documents, sheets and presentations, their
 revision history, workspace chats with their runs and steps, artifacts,
-memory and connected resources move out of the shared database into one
-object per workspace. The object also runs the workspace's agent, so a
-question asked in a workspace is answered next to its data.
+memory and connected resources move into its object. A question asked in a
+workspace is then answered next to its data.
 
 Everything moves in one release. There is no flag, no gradual roll-out and
 no second code path. The old code is removed in the same release. Nothing in
@@ -54,9 +55,10 @@ access to the installation's Cloudflare account. The commands are in
    layout epic; all five must be on `main` and in the release candidate
    before the freeze.
 
-4. **Confirm where objects live.** The installation sets `DO_JURISDICTION`
-   to `eu`. The reconciler checks that every workspace object reports `eu`
-   and stops if one does not.
+4. **Confirm where objects live.** The installation sets `DO_JURISDICTION`,
+   the region workspace objects are created in, to `eu`. The reconciler
+   checks that every workspace object reports `eu` and stops if one does
+   not.
 
 ## Cutover
 
@@ -109,16 +111,16 @@ line stops the cutover; fix the cause, import again, reconcile again. Attach
 ### 6. Deploy the release
 
 One deploy switches every workspace read, write and chat to the objects. It
-contains the five changes and the deletion of the old paths (next step).
-After the deploy, open one workspace per organization, ask a question in
-its chat and open its newest document. Confirm the agent answers from the
-workspace and the document shows its latest revision.
+carries the five changes plus the commits that delete the old paths (listed
+next). After the deploy, open one workspace per organization, ask a
+question in its chat and open its newest document. Confirm the agent
+answers from the workspace and the document shows its latest revision.
 
 ### 7. Remove the old code paths
 
-The deletion is a short series of commits prepared before the day and pushed
-right after the sibling changes are on `main`, so the release never carries
-both paths. It removes:
+The old paths are deleted by a short series of commits prepared before the
+day and pushed right after the sibling changes land on `main`, so the
+release never carries both. The series removes:
 
 - the shared-database output code in `apps/api`: the router
   `src/rpc/routers/os-workspace-outputs.ts` and the output readers in
@@ -140,8 +142,8 @@ both paths. It removes:
 - in `apps/os`: the polling chat path (`src/components/chat-polling.ts`),
   the "Response is still being prepared" state in
   `src/components/chat-message-parts.tsx`, and the Home relay for
-  in-workspace chat in `src/lib/quick-chat-home.ts` and
-  `src/lib/quick-chat-home-adapter.ts`
+  in-workspace chat in `src/lib/quick-chat-home.ts` (its adapter half is
+  already gone)
 
 The exact file list is posted on the Work Item before the day and updated
 as the sibling changes land.
@@ -149,7 +151,8 @@ as the sibling changes land.
 ### 8. Run the feed check
 
 The change feed (`packages/workspace-feed`) projects every write in a
-workspace object into the core so Home, search and the Work board see it.
+workspace object into the shared core so Home, search and the Work board
+see it.
 Run its reconciler against the objects. It must report zero differences
 between the objects and the core projections before the old tables go.
 
@@ -182,7 +185,8 @@ Stop and roll back when any of these happens:
 ## Rollback
 
 Until step 6, nothing has changed for users: unfreeze and stop. The objects
-and bundles can stay; a later run reuses the receipts.
+and bundles can stay where they are; a later import skips the chunks that
+already landed.
 
 After step 6 and before step 9:
 
