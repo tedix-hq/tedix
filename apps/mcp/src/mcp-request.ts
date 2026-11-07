@@ -11,7 +11,10 @@ import {
 import { AGGREGATE_SURFACE_CACHE_TTL_MS } from "./aggregate-surface-cache";
 import { aggregateAndPrefixTools } from "./aggregate-surface";
 import { readAggregateActivationEpoch } from "./aggregate-activation-epoch";
-import { loadDiscoveryShards } from "./aggregate-discovery-shards";
+import {
+	loadDiscoveryShards,
+	refreshDiscoveryShard,
+} from "./aggregate-discovery-shards";
 import { withSelfTediSkills } from "./aggregate-self-tedi";
 import { AggregateAppEntry } from "./aggregate-types";
 import {
@@ -496,6 +499,26 @@ export async function handleMcpRequest(
 			: null;
 	const hydratedAggregateApps =
 		shardDiscovery?.hydrate ?? filteredAggregateApps;
+	// One organization whose shard aged past its refresh window is rebuilt
+	// after the response; the request itself keeps serving the stale shard.
+	if (shardDiscovery?.refresh && activation) {
+		const { refresh } = shardDiscovery;
+		refreshDiscoveryShard(
+			refresh,
+			activation.value,
+			() =>
+				aggregateAndPrefixTools(
+					[refresh],
+					env,
+					new Set(),
+					ctx,
+					resolvedApp.app.slug,
+					activation,
+					false,
+				),
+			ctx,
+		);
+	}
 	if (
 		(hydratedAggregateApps.length || shardDiscovery) &&
 		!directHomeKernelCall

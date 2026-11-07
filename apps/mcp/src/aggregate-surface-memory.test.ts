@@ -37,12 +37,17 @@ import {
 	aggregateSurfaceCache,
 	aggregateSurfaceInFlight,
 	aggregateSurfaceCacheKey,
+	aggregateSurfaceRetainedRows,
+	MAX_AGGREGATE_SURFACE_RETAINED_ROWS,
 	readAggregateL2,
 } from "./aggregate-surface-cache";
 import { CACHE_TIER_BUDGET_MS } from "./lib/step-budget";
 import {
+	DISCOVERY_SHARD_STALE_AFTER_MS,
 	discoveryShardCache,
+	discoveryShardRefreshInFlight,
 	loadDiscoveryShards,
+	refreshDiscoveryShard,
 } from "./aggregate-discovery-shards";
 
 type StoredResponse = { body: string; headers: [string, string][] };
@@ -490,6 +495,60 @@ describe("aggregate snapshot memory", () => {
 		expect(colo.bodyReads.count).toBe(0);
 	});
 
+	it("releases the least recently used organization graph once retained rows exceed the budget", async () => {
+		// Two graphs fit the budget; a third does not.
+		const rowsPerGraph =
+			Math.floor(MAX_AGGREGATE_SURFACE_RETAINED_ROWS / 3) + 1;
+		const toolIds = Array.from({ length: rowsPerGraph }, (_, i) => `tool_${i}`);
+		resolveUpstreamToolsInternally.mockImplementation(
+			async (source: AggregateAppEntry) =>
+				source.slug.startsWith("org-")
+					? toInternalResolveResult(source.slug, {
+							app: {
+								id: `${source.slug}-app`,
+								slug: source.slug,
+								organizationId: source.slug,
+								metadata: {
+									mcpConfig: { aggregateApps: [{ slug: "source" }] },
+								},
+							},
+							tools: [],
+							catalogResources: [],
+							catalogResourceTemplates: [],
+						} as never)
+					: sourceApp(toolIds),
+		);
+		const mount = (slug: string): AggregateAppEntry => ({
+			slug,
+			prefix: slug,
+			organizationId: slug,
+			organizationMount: true,
+		});
+		const loadOrg = (slug: string) =>
+			aggregateAndPrefixTools(
+				[mount(slug)],
+				env,
+				new Set(),
+				ctx,
+				"connect",
+				activation,
+				false,
+			);
+		await loadOrg("org-a");
+		await loadOrg("org-b");
+		expect(aggregateSurfaceRetainedRows()).toBe(rowsPerGraph * 2);
+		// Reading org-a again marks it recently used, so org-b goes first.
+		await loadOrg("org-a");
+		await loadOrg("org-c");
+		expect(aggregateSurfaceRetainedRows()).toBe(rowsPerGraph * 2);
+		// Retained graphs are the organization gateways' nested source graphs,
+		// keyed by the mount they were visited through.
+		const retainedMounts = [...aggregateSurfaceCache.keys()].map(
+			(key) => JSON.parse(key).visited[0],
+		);
+		expect(retainedMounts).toEqual(["org-a", "org-c"]);
+	});
+
 	describe("discovery shards", () => {
 		// Above CATALOG_SCHEMA_SEARCH_MAX_ROWS, so ranking never reads schemas.
 		const manyTools = Array.from({ length: 4_001 }, (_, i) => `read_item_${i}`);
@@ -651,6 +710,62 @@ describe("aggregate snapshot memory", () => {
 					tool.toolId.startsWith("globex_unified_"),
 				),
 			).toBe(true);
+		});
+
+		it("serves a shard past its refresh age and names one organization to rebuild", async () => {
+			await loadConnect();
+			await settleBackground();
+			// Every shard of the selection ages together.
+			vi.setSystemTime(Date.now() + DISCOVERY_SHARD_STALE_AFTER_MS + 1_000);
+			discoveryShardCache.clear();
+			resolveUpstreamToolsInternally.mockClear();
+
+			const shards = await loadDiscoveryShards(
+				env,
+				mounts,
+				new Set(),
+				activation.value,
+			);
+			// Nothing is hydrated in the request: stale rows still rank.
+			expect(shards?.hydrate).toEqual([]);
+			expect(shards?.tools).toHaveLength(manyTools.length * 4);
+			expect(shards?.refresh?.slug).toBe("acme-unified");
+			expect(resolveUpstreamToolsInternally).not.toHaveBeenCalled();
+
+			// The refresh hydrates that one organization after the response and
+			// rewrites only its shard; a second request does not start another.
+			const hydrate = vi.fn(() =>
+				aggregateAndPrefixTools(
+					[shards!.refresh!],
+					env,
+					new Set(),
+					ctx,
+					"connect",
+					activation,
+					false,
+				),
+			);
+			refreshDiscoveryShard(shards!.refresh!, activation.value, hydrate, ctx);
+			refreshDiscoveryShard(shards!.refresh!, activation.value, hydrate, ctx);
+			expect(hydrate).toHaveBeenCalledTimes(1);
+			const next = await loadDiscoveryShards(
+				env,
+				mounts,
+				new Set(),
+				activation.value,
+			);
+			expect(next?.refresh?.slug).toBe("globex-unified");
+			await settleBackground();
+			expect(discoveryShardRefreshInFlight.size).toBe(0);
+			const rewritten = shardKeys().filter(
+				(key) =>
+					Number(r2.objects.get(key)!.customMetadata?.builtAt) >=
+					Date.now() - 1_000,
+			);
+			expect(rewritten).toHaveLength(1);
+			expect(r2.objects.get(rewritten[0]!)!.body).toContain(
+				'"toolId":"acme_unified_source__read_item_0"',
+			);
 		});
 
 		it("writes shards after the response, one at a time, and skips fresh ones", async () => {

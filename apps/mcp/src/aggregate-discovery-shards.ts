@@ -18,12 +18,19 @@
  * A schema sync rolls the activation epoch, which changes every shard key, so
  * the first full load after a sync compiles the new shards and discovery falls
  * back to the full catalog until then.
+ *
+ * Shards of one selection are written together, so they age together. A shard
+ * past its refresh age is still served (its epoch key fences tool contracts)
+ * and the request names one organization to hydrate in the background, which
+ * rewrites that shard. Hydrating every organization at once when all shards
+ * expired crossed the memory limit on 6-7 Nov 2026.
  */
 import type { AggregateAppEntry, InternalAppTool } from "./aggregate-types";
 import {
 	DISCOVERY_SHARD_PREFIX,
 	aggregateSurfaceCacheKey,
 } from "./aggregate-surface-cache";
+import { pruneExpiredCacheEntries } from "./lib/bounded-cache";
 import { hashAggregateCacheKey } from "./lib/cache-key-hash";
 import {
 	CACHE_TIER_BUDGET_MS,
@@ -37,8 +44,10 @@ import { filterAggregateAppsForCodeNamespaces } from "./codemode-targeting";
 const log = createMcpLogger("mcp.router");
 
 const DISCOVERY_SHARD_FORMAT = "discovery-shard-v1";
-/** Same serve-stale ceiling as the R2 aggregate snapshot. */
-const DISCOVERY_SHARD_HARD_TTL_MS = 3_600_000;
+/** Past this age a shard is served and one organization is refreshed. */
+export const DISCOVERY_SHARD_STALE_AFTER_MS = 3_600_000;
+/** Past this age a shard is ignored and its organization hydrated in full. */
+const DISCOVERY_SHARD_HARD_TTL_MS = 86_400_000;
 const DISCOVERY_SHARD_L1_TTL_MS = 120_000;
 /** An unchanged graph seen by another isolate does not rewrite its shard. */
 const DISCOVERY_SHARD_REFRESH_MS = 600_000;
@@ -55,6 +64,8 @@ export const discoveryShardCache = new Map<
 	string,
 	DiscoveryShard & { builtAt: number; expiresAt: number }
 >();
+/** Shard keys whose organization this isolate is already refreshing. */
+export const discoveryShardRefreshInFlight = new Set<string>();
 /** Organization graphs this isolate already compiled, per shard key. */
 const compiledShardSources = new WeakMap<object, string>();
 
@@ -146,7 +157,7 @@ export function compileDiscoveryShard(
 async function readDiscoveryShard(
 	env: CloudflareEnv,
 	key: string,
-): Promise<DiscoveryShard | null> {
+): Promise<(DiscoveryShard & { builtAt: number }) | null> {
 	const now = Date.now();
 	const cached = discoveryShardCache.get(key);
 	if (cached && cached.expiresAt > now) return cached;
@@ -169,6 +180,12 @@ async function readDiscoveryShard(
 	}
 	const shard = (await object.json()) as DiscoveryShard;
 	if (!Array.isArray(shard?.tools)) return null;
+	// Expired entries stay reusable for one more L1 window (same builtAt skips
+	// the parse above); beyond that they only hold heap.
+	pruneExpiredCacheEntries(
+		discoveryShardCache,
+		now - DISCOVERY_SHARD_L1_TTL_MS,
+	);
 	for (const key of discoveryShardCache.keys()) {
 		if (discoveryShardCache.size < MAX_DISCOVERY_SHARD_L1_ENTRIES) break;
 		discoveryShardCache.delete(key);
@@ -186,10 +203,13 @@ async function readDiscoveryShard(
  * Splits a Connect selection for a namespace-free discovery program: the
  * organization mounts serving `namespaces` are hydrated in full; every other
  * mount contributes its shard rows, and a mount whose shard is missing or
- * expired is hydrated too. Returns null (load the full catalog) when shards
- * are unreadable, or when the shard rows are few enough that discovery would
- * still match parameter names (`CATALOG_SCHEMA_SEARCH_MAX_ROWS`), so ranking
- * is unchanged either way.
+ * past the hard ceiling is hydrated too. The oldest shard past its refresh
+ * age is still served and returned as `refresh`, for the caller to hydrate
+ * after the response (one organization per request, one per isolate at a
+ * time). Returns null (load the full catalog) when shards are unreadable, or
+ * when the shard rows are few enough that discovery would still match
+ * parameter names (`CATALOG_SCHEMA_SEARCH_MAX_ROWS`), so ranking is unchanged
+ * either way.
  */
 export async function loadDiscoveryShards(
 	env: CloudflareEnv,
@@ -198,6 +218,7 @@ export async function loadDiscoveryShards(
 	activationEpoch: string,
 ): Promise<{
 	hydrate: AggregateAppEntry[];
+	refresh?: AggregateAppEntry;
 	tools: InternalAppTool[];
 	toolScopes: Record<string, string[]>;
 } | null> {
@@ -222,6 +243,20 @@ export async function loadDiscoveryShards(
 		// so coverage fills in one organization at a time.
 		const present = shards.filter((shard) => shard !== null);
 		const tools = present.flatMap((shard) => shard.tools);
+		const staleBefore = Date.now() - DISCOVERY_SHARD_STALE_AFTER_MS;
+		let refresh: { entry: AggregateAppEntry; builtAt: number } | undefined;
+		shards.forEach((shard, index) => {
+			if (!shard || shard.builtAt > staleBefore) return;
+			if (refresh && refresh.builtAt <= shard.builtAt) return;
+			const entry = sharded[index]!;
+			if (
+				discoveryShardRefreshInFlight.has(
+					discoveryShardR2Key(entry, activationEpoch),
+				)
+			)
+				return;
+			refresh = { entry, builtAt: shard.builtAt };
+		});
 		console.log(
 			JSON.stringify({
 				_cm: "aggregate",
@@ -233,6 +268,7 @@ export async function loadDiscoveryShards(
 				missingCount: shards.length - present.length,
 				hydratedCount: hydrate.length,
 				toolCount: tools.length,
+				...(refresh ? { refreshSlug: refresh.entry.slug } : {}),
 			}),
 		);
 		if (tools.length <= CATALOG_SCHEMA_SEARCH_MAX_ROWS) return null;
@@ -241,6 +277,7 @@ export async function loadDiscoveryShards(
 				...hydrate,
 				...sharded.filter((_, index) => shards[index] === null),
 			],
+			...(refresh ? { refresh: refresh.entry } : {}),
 			tools,
 			toolScopes: Object.assign(
 				{},
@@ -257,4 +294,32 @@ export async function loadDiscoveryShards(
 		}
 		return null;
 	}
+}
+
+/**
+ * Hydrates one organization after the response so its stale shard is rewritten
+ * (`compileDiscoveryShard` runs inside the uncached build). One refresh per
+ * shard key per isolate; a failure only leaves the stale shard in place.
+ */
+export function refreshDiscoveryShard(
+	entry: AggregateAppEntry,
+	activationEpoch: string,
+	hydrate: () => Promise<unknown>,
+	ctx?: Pick<ExecutionContext, "waitUntil">,
+): void {
+	const key = discoveryShardR2Key(entry, activationEpoch);
+	if (discoveryShardRefreshInFlight.has(key)) return;
+	discoveryShardRefreshInFlight.add(key);
+	const run = hydrate()
+		.catch((error: unknown) => {
+			log.warn("Discovery shard refresh failed", {
+				event: "aggregate.discovery_shard_refresh_failed",
+				outcome: "unavailable",
+				error: contentFreeMcpException(error),
+			});
+		})
+		.finally(() => {
+			discoveryShardRefreshInFlight.delete(key);
+		});
+	if (ctx) ctx.waitUntil(run);
 }
