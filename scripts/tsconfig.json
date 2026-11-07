@@ -141,6 +141,8 @@
 		"release/generate-release-notes.ts",
 		"release/generate-release-notes.test.ts",
 		"release/postdeploy-smoke.ts",
+		"release/version.ts",
+		"release/version.test.ts",
 		"run-local.ts",
 		"run-local.test.ts",
 		"secrets/rotate-master-key.ts",
