@@ -15,9 +15,9 @@
  * describes by literal name. Shard rows carry `_discoveryShard` and are never
  * executed (`ToolHandler.execute` refuses them).
  *
- * A schema sync rolls the activation epoch, which changes every shard key, so
- * the first full load after a sync compiles the new shards and discovery falls
- * back to the full catalog until then.
+ * A schema sync rolls the activation epoch, which changes every shard key.
+ * Missing shards are rebuilt one organization at a time, compacting each graph
+ * before loading the next so cold discovery never holds the full selection.
  *
  * Shards of one selection are written together, so they age together. A shard
  * past its refresh age is still served (its epoch key fences tool contracts)
@@ -25,7 +25,11 @@
  * rewrites that shard. Hydrating every organization at once when all shards
  * expired crossed the memory limit on 6-7 Nov 2026.
  */
-import type { AggregateAppEntry, InternalAppTool } from "./aggregate-types";
+import type {
+	AggregateAppEntry,
+	AggregatedMcpSurface,
+	InternalAppTool,
+} from "./aggregate-types";
 import {
 	DISCOVERY_SHARD_PREFIX,
 	aggregateSurfaceCacheKey,
@@ -190,11 +194,12 @@ async function readDiscoveryShard(env: CloudflareEnv, key: string) {
 /**
  * Splits a Connect selection for a namespace-free discovery program: the
  * organization mounts serving `namespaces` are hydrated in full; every other
- * mount contributes its shard rows, and a mount whose shard is missing is
- * hydrated too. The oldest shard past its refresh age is still served and
+ * mount contributes its shard rows. When supplied, hydrateShard builds missing
+ * shards sequentially, compacting each graph before loading the next. The
+ * oldest shard past its refresh age is still served and
  * returned as `refresh`, for the caller to hydrate after the response (one
  * organization per request, one per isolate at a time). Returns null (load
- * the full catalog) when shards are unreadable, or
+ * the full catalog) when shards are unreadable without a hydrator, or
  * when the shard rows are few enough that discovery would still match
  * parameter names (`CATALOG_SCHEMA_SEARCH_MAX_ROWS`), so ranking is unchanged
  * either way.
@@ -204,11 +209,13 @@ export async function loadDiscoveryShards(
 	entries: AggregateAppEntry[],
 	namespaces: Set<string>,
 	activationEpoch: string,
+	hydrateShard?: (entry: AggregateAppEntry) => Promise<AggregatedMcpSurface>,
 ): Promise<{
 	hydrate: AggregateAppEntry[];
 	refresh?: AggregateAppEntry;
 	tools: InternalAppTool[];
 	toolScopes: Record<string, string[]>;
+	degraded?: boolean;
 } | null> {
 	const hydrate =
 		namespaces.size > 0
@@ -217,8 +224,9 @@ export async function loadDiscoveryShards(
 	const sharded = entries.filter((entry) => !hydrate.includes(entry));
 	if (sharded.length === 0 || sharded.some((entry) => !entry.organizationMount))
 		return null;
+	let shards: Array<(DiscoveryShard & { builtAt: number }) | null>;
 	try {
-		const shards = await withStepBudget(
+		shards = await withStepBudget(
 			"aggregate_discovery_shard_read",
 			CACHE_TIER_BUDGET_MS,
 			Promise.all(
@@ -227,51 +235,6 @@ export async function loadDiscoveryShards(
 				),
 			),
 		);
-		// A mount without a shard is hydrated in full, which compiles its shard,
-		// so coverage fills in one organization at a time.
-		const present = shards.filter((shard) => shard !== null);
-		const tools = present.flatMap((shard) => shard.tools);
-		const staleBefore = Date.now() - DISCOVERY_SHARD_STALE_AFTER_MS;
-		let refresh: { entry: AggregateAppEntry; builtAt: number } | undefined;
-		shards.forEach((shard, index) => {
-			if (!shard || shard.builtAt > staleBefore) return;
-			if (refresh && refresh.builtAt <= shard.builtAt) return;
-			const entry = sharded[index]!;
-			if (
-				discoveryShardRefreshInFlight.has(
-					discoveryShardR2Key(entry, activationEpoch),
-				)
-			)
-				return;
-			refresh = { entry, builtAt: shard.builtAt };
-		});
-		console.log(
-			JSON.stringify({
-				_cm: "aggregate",
-				event:
-					present.length === shards.length
-						? "discovery_shard_hit"
-						: "discovery_shard_partial",
-				shardCount: present.length,
-				missingCount: shards.length - present.length,
-				hydratedCount: hydrate.length,
-				toolCount: tools.length,
-				...(refresh ? { refreshSlug: refresh.entry.slug } : {}),
-			}),
-		);
-		if (tools.length <= CATALOG_SCHEMA_SEARCH_MAX_ROWS) return null;
-		return {
-			hydrate: [
-				...hydrate,
-				...sharded.filter((_, index) => shards[index] === null),
-			],
-			...(refresh ? { refresh: refresh.entry } : {}),
-			tools,
-			toolScopes: Object.assign(
-				{},
-				...present.map((shard) => shard.toolScopes),
-			),
-		};
 	} catch (error) {
 		if (!(error instanceof StepBudgetExceededError)) {
 			log.warn("Discovery shard read failed", {
@@ -280,8 +243,66 @@ export async function loadDiscoveryShards(
 				error: contentFreeMcpException(error),
 			});
 		}
-		return null;
+		if (!hydrateShard) return null;
+		shards = sharded.map(() => null);
 	}
+	// A cold epoch can miss every shard. Release each full graph before
+	// loading the next instead of retaining all missing graphs in the root.
+	let degraded = false;
+	const missingCount = shards.filter((shard) => shard === null).length;
+	if (hydrateShard) {
+		for (let index = 0; index < shards.length; index++) {
+			if (shards[index]) continue;
+			const surface = await hydrateShard(sharded[index]!);
+			shards[index] = {
+				tools: surface.tools.map(compactTool),
+				toolScopes: surface.toolScopes ?? {},
+				builtAt: Date.now(),
+			};
+			degraded ||= surface.degraded === true;
+			// Shard compilation queued by hydration also holds the full graph.
+			await shardWrites;
+		}
+	}
+	const present = shards.filter((shard) => shard !== null);
+	const tools = present.flatMap((shard) => shard.tools);
+	const staleBefore = Date.now() - DISCOVERY_SHARD_STALE_AFTER_MS;
+	let refresh: { entry: AggregateAppEntry; builtAt: number } | undefined;
+	shards.forEach((shard, index) => {
+		if (!shard || shard.builtAt > staleBefore) return;
+		if (refresh && refresh.builtAt <= shard.builtAt) return;
+		const entry = sharded[index]!;
+		if (
+			discoveryShardRefreshInFlight.has(
+				discoveryShardR2Key(entry, activationEpoch),
+			)
+		)
+			return;
+		refresh = { entry, builtAt: shard.builtAt };
+	});
+	console.log(
+		JSON.stringify({
+			_cm: "aggregate",
+			event: missingCount ? "discovery_shard_partial" : "discovery_shard_hit",
+			shardCount: shards.length - missingCount,
+			missingCount,
+			rebuiltCount: hydrateShard ? missingCount : 0,
+			hydratedCount: hydrate.length,
+			toolCount: tools.length,
+			...(refresh ? { refreshSlug: refresh.entry.slug } : {}),
+		}),
+	);
+	if (tools.length <= CATALOG_SCHEMA_SEARCH_MAX_ROWS) return null;
+	return {
+		hydrate: [
+			...hydrate,
+			...sharded.filter((_, index) => shards[index] === null),
+		],
+		...(refresh ? { refresh: refresh.entry } : {}),
+		tools,
+		degraded,
+		toolScopes: Object.assign({}, ...present.map((shard) => shard.toolScopes)),
+	};
 }
 
 /**

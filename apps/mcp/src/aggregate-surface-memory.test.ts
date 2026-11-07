@@ -712,6 +712,104 @@ describe("aggregate snapshot memory", () => {
 			).toBe(true);
 		});
 
+		it.each([0, 1])(
+			"compacts missing organization graphs sequentially with %i existing shards",
+			async (existing) => {
+				if (existing) {
+					await aggregateAndPrefixTools(
+						[mounts[0]!],
+						env,
+						new Set(),
+						ctx,
+						"connect",
+						activation,
+						false,
+					);
+					await settleBackground();
+				}
+				const loaded: string[] = [];
+				const shards = await loadDiscoveryShards(
+					env,
+					mounts,
+					new Set(),
+					activation.value,
+					async (entry) => {
+						// The preceding graph's queued serialization must finish before
+						// the next full graph is allocated.
+						expect(shardKeys()).toHaveLength(existing + loaded.length);
+						loaded.push(entry.slug);
+						return aggregateAndPrefixTools(
+							[entry],
+							env,
+							new Set(),
+							ctx,
+							"connect",
+							activation,
+							false,
+						);
+					},
+				);
+				expect(loaded).toEqual(organizations.slice(existing));
+				expect(shards?.hydrate).toEqual([]);
+				expect(shards?.degraded).toBe(false);
+				expect(shards?.tools).toHaveLength(manyTools.length * 4);
+				expect(
+					shards!.tools.every(
+						(tool) =>
+							tool.config?._discoveryShard === true &&
+							!("properties" in tool.inputSchema),
+					),
+				).toBe(true);
+				expect(
+					new Set(
+						shards!.tools.map((tool) => tool.config?._multiOrgOrganizationId),
+					),
+				).toEqual(new Set(mounts.map((entry) => entry.organizationId)));
+				expect(shardKeys()).toHaveLength(mounts.length);
+				const hydrate = vi.fn();
+				const next = await loadDiscoveryShards(
+					env,
+					mounts,
+					new Set(),
+					activation.value,
+					hydrate,
+				);
+				expect(next?.tools.map((tool) => tool.toolId)).toEqual(
+					shards?.tools.map((tool) => tool.toolId),
+				);
+				expect(hydrate).not.toHaveBeenCalled();
+			},
+		);
+
+		it("uses sequential compact hydration when shard storage is unavailable", async () => {
+			r2.bucket.get.mockRejectedValue(new Error("R2 unavailable"));
+			const hydrate = vi.fn(async (entry: AggregateAppEntry) => {
+				const surface = await aggregateAndPrefixTools(
+					[entry],
+					env,
+					new Set(),
+					ctx,
+					"connect",
+					activation,
+					false,
+				);
+				return { ...surface, degraded: true };
+			});
+			const shards = await loadDiscoveryShards(
+				env,
+				mounts,
+				new Set(),
+				activation.value,
+				hydrate,
+			);
+			expect(hydrate.mock.calls.map(([entry]) => entry.slug)).toEqual(
+				organizations,
+			);
+			expect(shards?.hydrate).toEqual([]);
+			expect(shards?.tools).toHaveLength(manyTools.length * 4);
+			expect(shards?.degraded).toBe(true);
+		});
+
 		it.each([
 			DISCOVERY_SHARD_STALE_AFTER_MS + 1_000,
 			7 * 24 * DISCOVERY_SHARD_STALE_AFTER_MS,

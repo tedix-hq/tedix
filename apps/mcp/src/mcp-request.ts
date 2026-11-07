@@ -507,6 +507,16 @@ export async function handleMcpRequest(
 					filteredAggregateApps,
 					shardNamespaces,
 					activation.value,
+					(entry) =>
+						aggregateAndPrefixTools(
+							[entry],
+							env,
+							new Set(),
+							ctx,
+							resolvedApp.app.slug,
+							activation,
+							false,
+						),
 				)
 			: null;
 	const hydratedAggregateApps =
@@ -552,6 +562,7 @@ export async function handleMcpRequest(
 						...surface,
 						tools: [...surface.tools, ...shardDiscovery.tools],
 						toolScopes: { ...shardDiscovery.toolScopes, ...surface.toolScopes },
+						degraded: surface.degraded || shardDiscovery.degraded,
 					}
 				: surface;
 		};
