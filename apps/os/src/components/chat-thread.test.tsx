@@ -325,11 +325,6 @@ describe("contextUsedItems", () => {
 						],
 						historyCompaction: null,
 					},
-					workspaceContext: {
-						workspaceId: "workspace-1",
-						workspaceName: "Launch room",
-						workpiece: { kind: "output", id: "output-1" },
-					},
 					accessToken: "must-never-render",
 					apiKey: "must-never-render",
 				},
@@ -339,8 +334,6 @@ describe("contextUsedItems", () => {
 		expect(items).toEqual(
 			expect.arrayContaining([
 				{ label: "Organization", value: ORG_ID },
-				{ label: "Workspace", value: "Launch room" },
-				{ label: "Workpiece", value: "output: output-1" },
 				{ label: "Model", value: "azure-openai/gpt-5.6-luna" },
 				{ label: "Route", value: "delegate_tedi" },
 				{ label: "Delegated tedi", value: "tedi-cto" },
@@ -2656,7 +2649,6 @@ describe("<ChatThread> attachment dropzone", () => {
 			expect.objectContaining({
 				conversationId: expect.stringMatching(/^home:os:/),
 				content: "Plan the Orion offsite",
-				workspaceContext: undefined,
 			}),
 		);
 		transport.actions.enqueueMessage.mockReset();
@@ -2858,76 +2850,6 @@ beforeEach(() => {
 
 afterEach(() => {
 	while (cleanups.length > 0) cleanups.pop()?.();
-});
-
-describe("<ChatThread> workspace app tools", () => {
-	it.each(["output", "workspace"] as const)(
-		"offers workspace reads but no app writes in %s chat",
-		async (kind) => {
-			transport.actions.enqueueMessage.mockReset();
-			transport.actions.enqueueMessage.mockReturnValue(new Promise(() => {}));
-			const { container } = mountThread({
-				workspaceId: "workspace-1",
-				context: { kind, id: "resource-1", label: "Notes" },
-			});
-			await flush();
-			typeDraft(container, "Update these notes.");
-			act(() => sendButton(container).click());
-			await flush();
-			const offered =
-				transport.actions.enqueueMessage.mock.calls[0]![0].pageTools;
-			expect(offered.map((tool: { name: string }) => tool.name)).toEqual(
-				expect.arrayContaining([
-					"list_workspace_apps",
-					"read_workspace_output",
-					"read_app_files",
-				]),
-			);
-			expect(
-				offered.every(
-					(tool: { annotations: { readOnlyHint?: boolean } }) =>
-						tool.annotations.readOnlyHint,
-				),
-			).toBe(true);
-			transport.actions.enqueueMessage.mockReset();
-		},
-	);
-
-	it.each([CONVERSATION_ID, null])(
-		"offers app edit tools on a Home send in conversation %s",
-		async (conversationId) => {
-			transport.actions.enqueueMessage.mockReset();
-			transport.actions.enqueueMessage.mockReturnValue(new Promise(() => {}));
-			const { container } = mountThread({
-				conversationId,
-				workspaceId: "workspace-1",
-				context: { kind: "gadget", id: "app-1", label: "Hello counter" },
-			});
-			await flush();
-			typeDraft(
-				container,
-				"Change Hello counter to Hello visitor counter and propose a draft for review.",
-			);
-			act(() => sendButton(container).click());
-			await flush();
-			const input = transport.actions.enqueueMessage.mock.calls[0]![0];
-			expect(
-				input.pageTools.map((tool: { name: string }) => tool.name),
-			).toEqual(
-				expect.arrayContaining([
-					"read_app_files",
-					"propose_app_edit",
-					"read_workspace_output",
-				]),
-			);
-			expect(input.workspaceContext).toEqual({
-				workspaceId: "workspace-1",
-				workpiece: { kind: "gadget", id: "app-1" },
-			});
-			expect(input.delegateToTediId).toBeUndefined();
-			transport.actions.enqueueMessage.mockReset();
-		},
-	);
 });
 
 describe("<ChatThread> MCP Apps", () => {
