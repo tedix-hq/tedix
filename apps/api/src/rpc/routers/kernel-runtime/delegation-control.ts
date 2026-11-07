@@ -385,63 +385,6 @@ export const cancelRunRoute = authed.cancelRun
 		});
 	});
 
-/**
- * The person's page returns the result of one page tool call a running Home
- * turn asked for. Same human authority as sending the message (`os:run`): a
- * signed-in person may answer only for a run they started themselves, in a
- * conversation they may edit, so a member never acts on another person's
- * conversation. Tedis never answer page tools: the page is the person's. The
- * KernelDO accepts a result only for an open call of that run, so a guessed
- * or replayed call id, or a result for another run, settles nothing. The
- * result is untrusted page data and grants no server access.
- */
-export const resolvePageToolRoute = authed.resolvePageTool
-	.use(AUTHZ.homeUse)
-	.handler(async ({ context, input }) => {
-		if (context.authType === "tedi" || context.tediId) {
-			throw createError(
-				ErrorCodes.FORBIDDEN,
-				"Page tools are answered by the person's page, never by a tedi",
-			);
-		}
-		const organizationId = resolveOrganizationId(context, input.organizationId);
-		const run = await getKernelRuntimeRun(context.db, {
-			id: input.runId,
-			organizationId,
-		});
-		if (!run) throw createError(ErrorCodes.NOT_FOUND, "Home run not found");
-		await ensureHomeConversationAccess(context, {
-			conversationId: run.conversationId,
-			organizationId,
-			required: "edit",
-		});
-		if (context.authType === "user") {
-			const subject = context.descopeUserId ?? context.user?.sub ?? null;
-			const startedBy = nonNullRecord(
-				nonNullRecord(run.metadata)?.redriveInput,
-			)?.descopeUserId;
-			if (!subject || typeof startedBy !== "string" || startedBy !== subject) {
-				throw createError(
-					ErrorCodes.FORBIDDEN,
-					"Only the person who started this Home run can answer its page tools",
-				);
-			}
-		}
-		if (run.status !== "running") return { accepted: false };
-		const kernel = (
-			context.env as { KERNEL?: DurableObjectNamespace<KernelDO> }
-		).KERNEL;
-		if (!kernel) return { accepted: false };
-		const stub = durableObjectStubByName(kernel, context.env, organizationId);
-		return {
-			accepted: await stub.resolvePageTool(
-				input.runId,
-				input.callId,
-				input.result,
-			),
-		};
-	});
-
 export const controlRunSteeringRoute = authed.controlRunSteering
 	.use(AUTHZ.tedisWrite)
 	.handler(async ({ context, input }) => {
@@ -898,7 +841,6 @@ export const retryRunRoute = authed.retryRun
 				attachments: saved.attachments,
 				modelRef: saved.modelRef,
 				executionPolicy: saved.executionPolicy,
-				workspaceContext: runtime?.workspaceContext,
 				organizationId,
 				conversationId: existingRun.conversationId,
 				idempotencyKey: `route-retry:${existingRun.id}`,

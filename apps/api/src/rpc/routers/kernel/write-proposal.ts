@@ -33,7 +33,6 @@
  * The write layer owns its MCP transport and provider-resolution helpers.
  */
 
-import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 import {
 	canonicalWriteToolName,
 	CREATE_OUTPUT_TOOL,
@@ -44,7 +43,6 @@ import {
 	renameThisConversationArgs,
 	correctWriteRoute,
 	type DirectWriteIntent,
-	workpieceRenameIntent,
 } from "./write-tool-intent";
 import {
 	isWriteCapable,
@@ -58,18 +56,12 @@ import {
 	editTargetKind,
 	readEditTargetOutput,
 	normalizeOsSheetCellAddress,
-	type WriteWorkspaceContext,
 } from "./write-edit-target";
 import {
 	plannerDeclineCodeFrom,
 	planWriteCall,
 	validateProposedCall,
 } from "./write-call-plan";
-import {
-	outputDraftSaveTarget,
-	renderOutputDraftSaveRequest,
-	type OutputDraftSaveTarget,
-} from "./output-draft-save-intent";
 import type { LanguageModel } from "ai";
 import { buildMcpHost } from "../../../lib/mcp-client";
 import {
@@ -89,11 +81,9 @@ import { parseToolPolicyMetadata } from "@tedix/api-contract/schemas/tools";
 import { CreateFactoryResultSchema } from "@tedix/api-contract/schemas/factories";
 import type { DbClient } from "@tedix/db/client";
 import { getAppBySlugForOrg } from "@tedix/db/queries/apps";
-import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import {
 	readWorkCreateProjects,
 	workCreateProjectName,
-	workspaceDefaultProjectId,
 } from "./work-create-projects";
 import {
 	readOpenWorkRequests,
@@ -132,14 +122,6 @@ async function parseDescribedCatalog(
 		? parseCodeModeCatalogValue(await readCodeModeResultPages(handle, readPage))
 		: tools;
 }
-
-/** Any of these places new Work; without one, creation has no purpose context. */
-const WORK_DESTINATION_KEYS = [
-	"projectId",
-	"objectiveId",
-	"parentWorkItemId",
-	"workClass",
-] as const;
 
 export interface WriteProposalEnv extends JevActionEnv {
 	MCP_SERVICE?: {
@@ -428,14 +410,12 @@ export interface KernelWriteProposalDeclined {
 		| "canonical_unavailable"
 		| "validation_failed"
 		| "factory_preview"
-		| "live_draft_save"
 		| "error";
 	detail?: string;
 	/** The tool's own refusal, safe to show the operator (bounded, no trace). */
 	reason?: string;
 	preview?: string;
 	invalidFields?: string[];
-	draftSaveTarget?: OutputDraftSaveTarget;
 	canonicalLookup?: {
 		capability: "work_items.create";
 		tool: "work.create_work_items";
@@ -504,10 +484,6 @@ export function renderWriteDeclined(
 			return `${declined.preview}\nPreview only. No factory was created or activated; no approval was requested.`;
 		case "canonical_unavailable":
 			return "Home couldn't confirm the Work-creation tool for this workspace. No Work item was created. Retry, or ask the workspace owner to check the connection.";
-		case "live_draft_save":
-			return declined.draftSaveTarget
-				? renderOutputDraftSaveRequest(declined.draftSaveTarget)
-				: "Open the selected file and use Save version above the editor. Nothing was saved by this chat.";
 		case "disabled":
 		case "no_provider":
 		case "no_write_tools":
@@ -560,8 +536,6 @@ export async function planKernelWriteProposal(args: {
 	actingUserId?: string;
 	/** The user's message — the source of the write's intent and arguments. */
 	content?: string;
-	/** Server-validated selection from the owning Home turn. */
-	workspaceContext?: WriteWorkspaceContext;
 	/**
 	 * An exact write resolved by the turn: a rename (target app/output, or an
 	 * undo) or a skill move to a named tedi.
@@ -591,20 +565,8 @@ export async function planKernelWriteProposal(args: {
 		return null;
 	};
 	if (args.route.routeKind !== "propose_tool_write") return null;
-	const workpieceRename: DirectWriteIntent | null =
-		args.directRename ??
-		(content ? workpieceRenameIntent(content, args.workspaceContext) : null);
-	const route = correctWriteRoute(
-		args.route,
-		content ?? "",
-		args.workspaceContext,
-		workpieceRename,
-	);
-	const draftSaveTarget = content
-		? outputDraftSaveTarget(content, args.workspaceContext)
-		: null;
-	if (draftSaveTarget)
-		return decline({ stage: "live_draft_save", draftSaveTarget });
+	const workpieceRename: DirectWriteIntent | null = args.directRename ?? null;
+	const route = correctWriteRoute(args.route, content ?? "", workpieceRename);
 	if (!kernelWriteEnabled(env)) return decline({ stage: "disabled" });
 	const appSlug = route.toolIntent?.appSlug?.trim();
 	if (!appSlug || !model || !content?.trim()) {
@@ -647,7 +609,6 @@ export async function planKernelWriteProposal(args: {
 			db,
 			organizationId,
 			viewer: { userIds: actingUserId ? [actingUserId] : [] },
-			workspaceContext: args.workspaceContext,
 			texts: [content, route.rationale],
 		}).catch(() => null);
 		const capability = route.toolIntent?.capability ?? null;
@@ -697,7 +658,6 @@ export async function planKernelWriteProposal(args: {
 				? planDocumentCreate({
 						content,
 						toolName: CREATE_OUTPUT_TOOL,
-						workspaceId: args.workspaceContext?.workspaceId,
 						model,
 						abortSignal: flatAbortSignal(timeoutMs),
 						span: kernelSpanContext({
@@ -853,7 +813,6 @@ export async function planKernelWriteProposal(args: {
 			// against the exact schema and approved by a human.
 			if (!selected.toolName && selected.reason !== "invalid_candidates") {
 				const pick = await planWriteCall({
-					workspaceContext: args.workspaceContext,
 					conversationId: args.gatewayContext?.sessionKey,
 					editTarget: await editTargetPromise,
 					content,
@@ -910,16 +869,6 @@ export async function planKernelWriteProposal(args: {
 			provider.slug,
 			provider.paramDefaults,
 		);
-		if (
-			isWorkCreate &&
-			args.workspaceContext &&
-			exactTool.inputSchema.properties?.workspaceId
-		) {
-			paramDefaults = {
-				...paramDefaults,
-				workspaceId: args.workspaceContext.workspaceId,
-			};
-		}
 		// A tool that answers a Work request needs its requestId and version;
 		// chat names the request by title, so hand the planner the open ones.
 		const answersWorkRequest = Boolean(
@@ -938,21 +887,8 @@ export async function planKernelWriteProposal(args: {
 		let argumentFailure = "Could not construct arguments for the selected tool";
 		let invalidFields: string[] = [];
 		const workProjects = isWorkCreate
-			? await readWorkCreateProjects(db, {
-					organizationId,
-					workspaceId: args.workspaceContext?.workspaceId,
-				}).catch(() => null)
+			? await readWorkCreateProjects(db, { organizationId }).catch(() => null)
 			: null;
-		// Work created from a workspace linked to one project lands in that
-		// project when the operator gave no other destination.
-		const defaultProjectId = workspaceDefaultProjectId(workProjects);
-		const fillWorkDestination =
-			defaultProjectId && exactTool.inputSchema.properties?.projectId
-				? (planned: Record<string, unknown>) =>
-						WORK_DESTINATION_KEYS.some((key) => planned[key])
-							? planned
-							: { ...planned, projectId: defaultProjectId }
-				: undefined;
 		// A plain "rename this conversation to X" needs no model: the target is
 		// the current conversation and the title is the request's own words.
 		const renameArgs =
@@ -1022,7 +958,6 @@ export async function planKernelWriteProposal(args: {
 							reasoning: `Factory ${capability!.split(".")[1]} as asked: ${factoryControl.factory}.`,
 						}
 					: await planWriteCall({
-							workspaceContext: args.workspaceContext,
 							conversationId: args.gatewayContext?.sessionKey,
 							editTarget,
 							// An output edit names its part (a card's row, a block) in the
@@ -1045,9 +980,7 @@ export async function planKernelWriteProposal(args: {
 								: undefined,
 							content: capability?.startsWith("factories.")
 								? `${content}\n${route.rationale}`
-								: route.pageWriteRequest
-									? `${content}\n\nWhat the chat drafted for this write:\n${wrapUntrustedInput(route.pageWriteRequest, "chat_write_draft")}`
-									: content,
+								: content,
 							capability: route.toolIntent?.capability ?? null,
 							tools: [exactTool],
 							model,
@@ -1057,7 +990,6 @@ export async function planKernelWriteProposal(args: {
 								organizationId,
 								source: "write_proposal",
 							}),
-							fillMissing: fillWorkDestination,
 							onFailure: (reason) => {
 								argumentFailure = reason;
 							},
@@ -1080,10 +1012,6 @@ export async function planKernelWriteProposal(args: {
 				/\bdryRun["']?\s*[:=]\s*true\b/.test(content));
 		if (canonical === "projects.create_factory") {
 			planned.args.dryRun = factoryPreview;
-			// A factory asked for in a Workspace's chat works in that Workspace,
-			// which also lets an output named by title be found or created there.
-			if (args.workspaceContext?.workspaceId && !planned.args.workspaceId)
-				planned.args.workspaceId = args.workspaceContext.workspaceId;
 		}
 		if (capability === "factories.run") {
 			const cycleKey = `manual-${crypto.randomUUID()}`;
@@ -1097,22 +1025,6 @@ export async function planKernelWriteProposal(args: {
 				cycleKey,
 			};
 		}
-		// A model can mistype the selected Workspace id (live: …-bb40-… became
-		// …-bbb4-… in a sheet create). An id this organization does not have is
-		// a transcription error, not a destination: use the selected Workspace.
-		const plannedWorkspaceId = planned.args.workspaceId;
-		const selectedWorkspaceId = args.workspaceContext?.workspaceId;
-		if (
-			selectedWorkspaceId &&
-			typeof plannedWorkspaceId === "string" &&
-			plannedWorkspaceId !== selectedWorkspaceId &&
-			/^os[._]/.test(exactTool.name) &&
-			!(await getOsWorkspace(db, {
-				organizationId,
-				workspaceId: plannedWorkspaceId,
-			}).catch(() => undefined))
-		)
-			planned.args.workspaceId = selectedWorkspaceId;
 		const validated = validateProposedCall(
 			{
 				...planned,

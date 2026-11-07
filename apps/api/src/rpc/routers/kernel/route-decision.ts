@@ -6,7 +6,6 @@ import type { DbClient } from "@tedix/db/client";
 import { getOrganizationById } from "@tedix/db/queries/organizations";
 import type { JevAnswer, JevQuestion } from "@tedix/workers-ai/jev";
 import { executeJevJudgment } from "../../../services/jev-judgment";
-import type { HomePageToolDescriptor } from "@tedix/api-contract/schemas/kernel-runtime";
 import type { TediMessageAttachment } from "@tedix/api-contract/schemas/cognitive-runtime";
 import type { TediSessionMessage } from "@tedix/tedi-session/session-harness";
 import type { KernelContext } from "./context-assembly";
@@ -96,17 +95,14 @@ export function routeDecisionAttachments(
 
 export function routeDecisionQuestions(
 	context: KernelContext,
-	pageTools: readonly HomePageToolDescriptor[] = [],
 ): Record<string, JevQuestion> {
 	const criteria: Record<KernelRouteDecision["routeKind"], string> = {
-		answer_in_home: pageTools.length
-			? "General answer or Tedix-internal read from supplied context, or acting on the person's page through the offered pageTools (this workspace's apps, files, outputs: read, explain, fix, propose an edit). No other external action."
-			: "General answer or Tedix-internal read from supplied context; no external action.",
+		answer_in_home:
+			"General answer or Tedix-internal read from supplied context; no external action.",
 		propose_tool_write:
 			"One bounded Tedix artifact/catalog write, or external write with no owning tedi. Propose only; approval policy still applies.",
-		delegate_tedi: pageTools.length
-			? "One bounded task or external provider read/write for a capable owning tedi, or long-running or embodied work. Explicit named capable tedi wins. Internal listings and work the offered pageTools cover stay in Home."
-			: "One bounded task or external provider read/write for a capable owning tedi. Explicit named capable tedi wins. Internal listings stay in Home.",
+		delegate_tedi:
+			"One bounded task or external provider read/write for a capable owning tedi. Explicit named capable tedi wins. Internal listings stay in Home.",
 		suggest_handoff:
 			"Operator explicitly wants an extended human-driven specialist conversation, rather than a bounded delegated task.",
 		run_workflow:
@@ -126,7 +122,7 @@ export function routeDecisionQuestions(
 					target: {
 						type: "choice" as const,
 						instructions:
-							"For delegation/handoff select the single capable owner. Prefer an explicit named capable target, then a target linked to the current workspace (workspaceLinked), then exact provider/tool ownership and relevant entrusted activity. NONE if no capable target. Selection is not permission.",
+							"For delegation/handoff select the single capable owner. Prefer an explicit named capable target, then exact provider/tool ownership and relevant entrusted activity. NONE if no capable target. Selection is not permission.",
 						criteria: Object.fromEntries([
 							["NONE", "No capable target, or no delegation/handoff needed."],
 							...context.tedis.map((tedi, i) => [
@@ -135,7 +131,6 @@ export function routeDecisionQuestions(
 									name: tedi.name,
 									slug: tedi.slug,
 									role: tedi.role,
-									...(tedi.workspaceLinked ? { workspaceLinked: true } : {}),
 									apps: tedi.capability?.apps,
 									skills: tedi.capability?.skills,
 									embodied: tedi.capability?.embodied,
@@ -233,8 +228,6 @@ export async function decideHomeRoute(input: {
 	policy: HomeRoutePolicy;
 	signal?: AbortSignal;
 	ineligible?: boolean;
-	/** Page tools offered for this turn; their descriptions are untrusted page data. */
-	pageTools?: readonly HomePageToolDescriptor[];
 	/** Files attached to the request, named so the text-only judge knows they exist. */
 	attachments?: readonly RouteDecisionAttachment[];
 	hold?: (work: Promise<void>) => void;
@@ -305,32 +298,20 @@ export async function decideHomeRoute(input: {
 				history: context.history
 					.slice(-8)
 					.map(({ role, content }) => ({ role, content })),
-				tedis: context.tedis.map(
-					({ id, name, role, capability, workspaceLinked }) => ({
-						id,
-						name,
-						role,
-						...(workspaceLinked ? { workspaceLinked: true } : {}),
-						apps: capability?.apps,
-					}),
-				),
+				tedis: context.tedis.map(({ id, name, role, capability }) => ({
+					id,
+					name,
+					role,
+					apps: capability?.apps,
+				})),
 				apps: context.apps.map(({ slug }) => slug),
 				workflows: context.workflows,
-				workspace: context.workspace,
-				...(input.pageTools?.length
-					? {
-							pageTools: input.pageTools.map(({ name, description }) => ({
-								name,
-								description,
-							})),
-						}
-					: {}),
 				...(input.attachments?.length
 					? { attachments: input.attachments }
 					: {}),
 			}),
 		},
-		questions: routeDecisionQuestions(context, input.pageTools),
+		questions: routeDecisionQuestions(context),
 		timeoutMs: policy.timeoutMs,
 		holdUsagePersistence: input.hold,
 		signal,

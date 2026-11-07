@@ -1,5 +1,3 @@
-import type { HomePageToolDescriptor } from "@tedix/api-contract/schemas/kernel-runtime";
-import type { HomePageToolRelay } from "./home-page-tools";
 import type {
 	DirectKernelWriteInput,
 	executeDirectKernelWrite,
@@ -125,11 +123,6 @@ export interface HomeTurnRuntimeEventInput {
  */
 export interface KernelTurnWorkDeps {
 	scheduleRouteRedrive?: (input: KernelTurnWorkInput) => Promise<void>;
-	/**
-	 * Asks the person's page to run one page tool and waits for its result
-	 * (`home-page-tools.ts`). Set only by the KernelDO, which holds the wait.
-	 */
-	pageToolRelay?: HomePageToolRelay;
 	db: DbClient;
 	env: CloudflareEnv;
 	kernel: typeof runKernel;
@@ -507,8 +500,6 @@ export interface HomeDelegationAgentReviewRequest {
  * its own run identity.
  */
 export interface KernelTurnWorkInput {
-	/** Authorized at ingress; never taken from caller-supplied metadata. */
-	selectedWorkspaceDocument?: string | null;
 	executionPolicy?: "normal" | "observe_only";
 	organizationId: string;
 	conversationId: string;
@@ -560,11 +551,6 @@ export interface KernelTurnWorkInput {
 	 * trusts it). See {@link decideKernelWriteApproval}.
 	 */
 	sessionWriteAllowlist?: string[] | null;
-	/**
-	 * Tools the person's page offers for this turn (the OS quick chat). Only
-	 * the KernelDO path can relay them; the inline fallback ignores them.
-	 */
-	pageTools?: HomePageToolDescriptor[];
 }
 
 /**

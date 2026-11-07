@@ -33,7 +33,6 @@ import {
 } from "@tedix/mcp-shared/bounded-list";
 import { resolveConnectionAvailability } from "../../../services/connection-availability";
 import { retainKernelToolResult } from "../../../services/kernel-tool-result-retention";
-import { resolveWorkspaceContext } from "./execution-proposals";
 import { AUTHZ, ErrorCodes, createError } from "../../orpc";
 import {
 	ensureHomeConversationAccess,
@@ -555,11 +554,6 @@ export const executeReadOnlyToolRoute = authed.executeReadOnlyTool
 				context,
 				input.organizationId,
 			);
-			const workspaceContext = await resolveWorkspaceContext(
-				context,
-				organizationId,
-				input.workspaceContext,
-			);
 			await ensureHomeConversationAccess(context, {
 				conversationId: input.conversationId,
 				organizationId,
@@ -573,7 +567,6 @@ export const executeReadOnlyToolRoute = authed.executeReadOnlyTool
 				subject: "operator_direct_read",
 				appSlug: input.appSlug,
 				toolName: input.toolName,
-				...(workspaceContext ? { workspaceContext } : {}),
 			};
 			const requestInsert = await insertKernelRuntimeEventWithStatus(context, {
 				id: homeRuntimeEventId({
@@ -592,7 +585,6 @@ export const executeReadOnlyToolRoute = authed.executeReadOnlyTool
 					channel: "home",
 					metadata: {
 						directRead: { appSlug: input.appSlug, toolName: input.toolName },
-						...(workspaceContext ? { workspaceContext } : {}),
 					},
 				},
 				runtimeMetadata,

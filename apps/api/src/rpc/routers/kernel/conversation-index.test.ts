@@ -127,30 +127,6 @@ async function readProjection(
 }
 
 describe("applyKernelConversationEvent (write-through)", () => {
-	it("persists the server-validated Workspace and selected workpiece", async () => {
-		const db = realDb();
-		await applyKernelConversationEvent(
-			db,
-			makeEvent({
-				id: "workspace-event",
-				payload: {
-					channel: "home",
-					metadata: {
-						workspaceContext: {
-							workspaceId: "workspace-1",
-							workpiece: { kind: "output", id: "output-1" },
-						},
-					},
-				},
-			}),
-		);
-		expect(await readProjection(db, "home:chat")).toMatchObject({
-			workspaceId: "workspace-1",
-			workpieceKind: "output",
-			workpieceId: "output-1",
-		});
-	});
-
 	it("creates a row on the first message and bumps count + recency on later ones", async () => {
 		const db = realDb();
 		await applyKernelConversationEvent(

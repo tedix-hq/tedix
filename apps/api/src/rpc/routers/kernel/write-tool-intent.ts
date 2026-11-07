@@ -74,24 +74,6 @@ const OUTPUT_RENAME_CAPABILITY_RE =
 export const RENAME_GADGET_TOOL = "os.rename_os_gadget";
 export const RENAME_OUTPUT_TOOL = "os.rename_os_output";
 
-/** The Workspace selection a write turn carries (ids already tenant-validated). */
-export interface SelectedWorkpieceContext {
-	workspaceId: string;
-	workpiece?: { kind: "gadget" | "output"; id: string; name?: string };
-}
-
-export type WorkpieceRenameIntent =
-	| {
-			capability: "gadgets.rename";
-			toolName: typeof RENAME_GADGET_TOOL;
-			args: { workspaceId: string; gadgetId: string; name: string };
-	  }
-	| {
-			capability: "outputs.rename";
-			toolName: typeof RENAME_OUTPUT_TOOL;
-			args: { outputId: string; title: string };
-	  };
-
 export const MOVE_SKILL_TO_TEDI_TOOL = "skills.move_skill_to_tedi";
 
 /** "Move skill X to tedi Y", resolved to exact ids. */
@@ -153,7 +135,6 @@ export interface SkillScheduleIntent {
 
 /** An exact write a Home turn resolved without the model. */
 export type DirectWriteIntent =
-	| WorkpieceRenameIntent
 	| SkillMoveIntent
 	| SkillCertificationIntent
 	| SkillRunIntent
@@ -211,55 +192,6 @@ export function parseRenameRequest(content: string): RenameRequest | null {
 	return { kind, target, name };
 }
 
-/** The direct rename call for one resolved app or output. */
-export function renameIntentFor(
-	target:
-		| { kind: "gadget"; workspaceId: string; id: string }
-		| { kind: "output"; id: string },
-	name: string,
-): WorkpieceRenameIntent {
-	return target.kind === "gadget"
-		? {
-				capability: "gadgets.rename",
-				toolName: RENAME_GADGET_TOOL,
-				args: { workspaceId: target.workspaceId, gadgetId: target.id, name },
-			}
-		: {
-				capability: "outputs.rename",
-				toolName: RENAME_OUTPUT_TOOL,
-				args: { outputId: target.id, title: name },
-			};
-}
-
-/**
- * "Rename the app to X" in a Workspace chat whose selected workpiece is that
- * app (or output) is one direct rename: the target is the selection and the
- * name is the request's own words. Null for any other target, an external
- * provider, or a selection of the other kind: an attached output is context,
- * not the target of a request that names an app.
- */
-export function workpieceRenameIntent(
-	content: string,
-	workspaceContext: SelectedWorkpieceContext | null | undefined,
-): WorkpieceRenameIntent | null {
-	const workpiece = workspaceContext?.workpiece;
-	if (!workspaceContext?.workspaceId || !workpiece?.id) return null;
-	const request = parseRenameRequest(content);
-	if (!request) return null;
-	const kind = request.kind === "selected" ? workpiece.kind : request.kind;
-	if (kind !== workpiece.kind) return null;
-	return renameIntentFor(
-		kind === "gadget"
-			? {
-					kind,
-					workspaceId: workspaceContext.workspaceId,
-					id: workpiece.id,
-				}
-			: { kind, id: workpiece.id },
-		request.name,
-	);
-}
-
 /**
  * The router's capability is a free-text guess: live it labelled "rename the
  * app gadget" as `work_items.create` (forcing the Work-creation tool) and, with
@@ -272,18 +204,12 @@ export function correctWriteRoute<
 		routeKind: string;
 		toolIntent?: { capability?: string | null } | null;
 	},
->(
-	route: T,
-	content: string,
-	workspaceContext: SelectedWorkpieceContext | null | undefined,
-	resolved?: DirectWriteIntent | null,
-): T {
+>(route: T, content: string, resolved?: DirectWriteIntent | null): T {
 	if (route.routeKind !== "propose_tool_write" || !route.toolIntent)
 		return route;
 	const request = parseRenameRequest(content);
-	const selectedKind = workspaceContext?.workpiece?.kind;
-	const kind =
-		request?.kind === "selected" ? (selectedKind ?? null) : request?.kind;
+	// "Rename it" names no kind without a selected workpiece.
+	const kind = request?.kind === "selected" ? null : request?.kind;
 	const capability =
 		resolved?.capability ??
 		(kind === "gadget"

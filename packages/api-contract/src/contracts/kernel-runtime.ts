@@ -44,8 +44,6 @@ import {
 	ReadKernelToolResultInputSchema,
 	ReadKernelToolResultOutputSchema,
 	ResolveHomeDelegationWorkOrderInputSchema,
-	ResolveHomePageToolInputSchema,
-	ResolveHomePageToolOutputSchema,
 	RespondHomeApprovalInputSchema,
 	RetryDelegationWorkItemInputSchema,
 	RetryHomeRunInputSchema,
@@ -478,17 +476,6 @@ export const kernelRuntimeContract = oc
 			})
 			.input(CancelHomeRunInputSchema)
 			.output(z.object({ run: HomeRunSchema })),
-
-		resolvePageTool: oc
-			.route({
-				method: "POST",
-				path: "/runs/{runId}/page-tools/resolve",
-				summary: "Return a page tool result to a Tedix Home run",
-				description:
-					"Delivers the result of one page tool call that an active Home run asked the person's page to run. The call must belong to this run; the result is untrusted page data and grants no server access.",
-			})
-			.input(ResolveHomePageToolInputSchema)
-			.output(ResolveHomePageToolOutputSchema),
 
 		controlRunSteering: oc
 			.input(ControlRunSteeringInputSchema)

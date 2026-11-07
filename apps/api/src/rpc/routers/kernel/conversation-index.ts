@@ -241,25 +241,6 @@ function titleFromEventPayload(
 	);
 }
 
-function workspaceContextFromEventPayload(
-	payload: Record<string, unknown> | undefined,
-): {
-	workspaceId: string | null;
-	workpieceKind: "gadget" | "output" | null;
-	workpieceId: string | null;
-} {
-	const metadata = nonNullRecord(payload?.metadata);
-	const workspaceContext = nonNullRecord(metadata?.workspaceContext);
-	const workspaceId = stringFromPayload(workspaceContext?.workspaceId) ?? null;
-	const workpiece = nonNullRecord(workspaceContext?.workpiece);
-	const kind = stringFromPayload(workpiece?.kind);
-	return {
-		workspaceId,
-		workpieceKind: kind === "gadget" || kind === "output" ? kind : null,
-		workpieceId: stringFromPayload(workpiece?.id) ?? null,
-	};
-}
-
 /**
  * Soft-delete marker on a `conversation.updated` payload — sibling to
  * {@link titleFromEventPayload}. `kernelRuntime.deleteConversation` reuses the
@@ -322,7 +303,6 @@ export function kernelConversationMessageParams(
 ): RecordKernelConversationMessageParams | null {
 	if (!MESSAGE_EVENT_KINDS.has(event.kind)) return null;
 	const payload = nonNullRecord(event.payload);
-	const workspaceContext = workspaceContextFromEventPayload(payload);
 	const channel = stringFromPayload(payload?.channel) ?? null;
 	// Instant provisional title: the FIRST user message of an untitled
 	// topical Home conversation labels the sidebar synchronously (no LLM,
@@ -352,7 +332,6 @@ export function kernelConversationMessageParams(
 		// reclassify a conversation and a ledger rebuild (which replays
 		// unstamped historical events) leaves every legacy row human.
 		origin: kernelConversationOriginFromPayload(payload),
-		...workspaceContext,
 	};
 }
 

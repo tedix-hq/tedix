@@ -113,7 +113,6 @@ describe("resolveDirectSkillSchedule", () => {
 					},
 				},
 				`Pause the schedule of skill ${SKILL}`,
-				null,
 				resolved!.intent,
 			).toolIntent?.capability,
 		).toBe("skills.pause_schedule");

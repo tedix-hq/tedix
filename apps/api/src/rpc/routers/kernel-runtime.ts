@@ -30,7 +30,6 @@ import {
 import {
 	cancelRunRoute,
 	readRunEventsRoute,
-	resolvePageToolRoute,
 	respondApprovalRoute,
 	retryDelegationRoute,
 	retryRunRoute,
@@ -81,7 +80,6 @@ export const kernelRuntimeContractRouter = kernelRuntimeOs.router({
 	readRunTrace: readRunTraceRoute,
 	readRunEvents: readRunEventsRoute,
 	cancelRun: cancelRunRoute,
-	resolvePageTool: resolvePageToolRoute,
 	steerRun: steerRunRoute,
 	controlRunSteering: controlRunSteeringRoute,
 	// THE Home approval surface: the caller supplies a homeRunId (never a raw

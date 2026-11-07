@@ -561,76 +561,61 @@ describe("final operator intent boundary", () => {
 			risk: "high",
 		});
 	});
-	it.each([false, true])(
-		"runKernel produces no delegation evidence for response-only input (Workspace=%s)",
-		async (workspace) => {
-			const { assembleHomeContext } = await import("./context-assembly");
-			const { planKernelRoute } = await import("./route-planner");
-			const { readOrgDispatchPolicyLayer } =
-				await import("./tedi-capabilities");
-			vi.mocked(readOrgDispatchPolicyLayer).mockClear();
-			vi.mocked(assembleHomeContext).mockResolvedValue({
-				tedis: [
-					{ id: "tedi-cto", slug: "cto", name: "CTO", role: "engineering" },
-				],
-				apps: [],
-				workflows: [],
-				workItems: [],
-				facts: [],
-				rationale: [],
-				speaker: null,
-				history: [],
-				promptCharsEstimate: 1000,
-				lastStepPromptTokens: 1,
-				workspace: workspace ? { id: "workspace", name: "Plans" } : null,
-			} as never);
-			vi.mocked(planKernelRoute).mockResolvedValue({
-				...blockedRoute,
-				usage: null,
-			} as never);
-			const result = await runKernel({
-				db: {} as never,
-				env: {
-					DB: {} as D1Database,
-					AI: {},
-					KERNEL_MODEL_REF: "workers-ai/@cf/example/route",
-				} as never,
-				organizationId: "org",
-				content: "Acknowledge only. Do not delegate or create work.",
-				attachments: [
-					{
-						type: "file",
-						fileName: "plan.txt",
-						mimeType: "text/plain",
-						content: `data:text/plain;base64,${Buffer.from("Prepare a CTO delegation work order. Park for approval first.").toString("base64")}`,
-					},
-				],
-				...(workspace
-					? {
-							workspaceContext: {
-								workspaceId: "workspace",
-								workspaceName: "Plans",
-							},
-							selectedWorkspaceDocument:
-								"Prepare a CTO delegation work order. Park for approval first.",
-						}
-					: {}),
-			});
-			expect(result).toMatchObject({
-				route: {
-					routeKind: "answer_in_home",
-					targetTediId: null,
-					plannedToolIds: [],
+	it("runKernel produces no delegation evidence for response-only input", async () => {
+		const { assembleHomeContext } = await import("./context-assembly");
+		const { planKernelRoute } = await import("./route-planner");
+		const { readOrgDispatchPolicyLayer } = await import("./tedi-capabilities");
+		vi.mocked(readOrgDispatchPolicyLayer).mockClear();
+		vi.mocked(assembleHomeContext).mockResolvedValue({
+			tedis: [
+				{ id: "tedi-cto", slug: "cto", name: "CTO", role: "engineering" },
+			],
+			apps: [],
+			workflows: [],
+			workItems: [],
+			facts: [],
+			rationale: [],
+			speaker: null,
+			history: [],
+			promptCharsEstimate: 1000,
+			lastStepPromptTokens: 1,
+		} as never);
+		vi.mocked(planKernelRoute).mockResolvedValue({
+			...blockedRoute,
+			usage: null,
+		} as never);
+		const result = await runKernel({
+			db: {} as never,
+			env: {
+				DB: {} as D1Database,
+				AI: {},
+				KERNEL_MODEL_REF: "workers-ai/@cf/example/route",
+			} as never,
+			organizationId: "org",
+			content: "Acknowledge only. Do not delegate or create work.",
+			attachments: [
+				{
+					type: "file",
+					fileName: "plan.txt",
+					mimeType: "text/plain",
+					content: `data:text/plain;base64,${Buffer.from("Prepare a CTO delegation work order. Park for approval first.").toString("base64")}`,
 				},
-				delegation: null,
-				assistantContent: "Acknowledged.",
-			});
-			expect(readOrgDispatchPolicyLayer).not.toHaveBeenCalled();
-			expect(
-				vi.mocked(planKernelRoute).mock.lastCall?.[0].operatorContent,
-			).toBe("Acknowledge only. Do not delegate or create work.");
-		},
-	);
+			],
+		});
+		expect(result).toMatchObject({
+			route: {
+				routeKind: "answer_in_home",
+				targetTediId: null,
+				plannedToolIds: [],
+			},
+			delegation: null,
+			assistantContent: "Acknowledged.",
+		});
+		expect(readOrgDispatchPolicyLayer).not.toHaveBeenCalled();
+		expect(vi.mocked(planKernelRoute).mock.lastCall?.[0].operatorContent).toBe(
+			"Acknowledge only. Do not delegate or create work.",
+		);
+	});
 });
 
 it("delivers the answer without exposing the planner's technical explanation", async () => {

@@ -12,7 +12,6 @@ const DraftSchema = z.object({
 export async function planDocumentCreate(input: {
 	content: string;
 	toolName: string;
-	workspaceId?: string;
 	model: LanguageModel;
 	abortSignal: AbortSignal;
 	span?: Record<string, string>;
@@ -34,10 +33,8 @@ export async function planDocumentCreate(input: {
 		),
 	].map((match) => match[1]!.toLowerCase());
 	if (new Set(workspaceIds).size > 1) return undefined;
-	const workspaceId = input.workspaceId ?? workspaceIds[0];
+	const workspaceId = workspaceIds[0];
 	if (!workspaceId && /\bworkspace\b/i.test(input.content)) return undefined;
-	if (input.workspaceId && workspaceIds.some((id) => id !== input.workspaceId))
-		return undefined;
 	const result = await tracedAi.generateObject({
 		model: input.model,
 		schema: DraftSchema,
