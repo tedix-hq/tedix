@@ -124,14 +124,15 @@ function resolveSkillTools(
 				? [entry]
 				: namespace in catalog
 					? []
-					: Object.values(catalog).flatMap((tools) => {
-							const candidate = tools[tool];
-							return candidate &&
-								!candidate.aliasOf &&
-								(!organization || candidate.organization === organization)
-								? [candidate]
-								: [];
-						});
+					: Object.values(catalog)
+							.map((tools) => tools[tool])
+							.filter(
+								(candidate): candidate is CatalogToolEntry =>
+									candidate !== undefined &&
+									!candidate.aliasOf &&
+									(!organization || candidate.organization === organization),
+							)
+							.slice(0, 1);
 		}
 		if (matches.length === 0) unresolved.push(ref);
 		for (const entry of matches) entries.set(entry.callable, entry);

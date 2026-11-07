@@ -435,17 +435,23 @@ describe("readSkillToolRefs", () => {
 	test("falls back to the callables the body calls when no tools are declared", () => {
 		const body =
 			"---\nname: x\n---\n# Review\n\nRun `work.list_work_items({ limit: 5 })`, then\n" +
-			"```js\nconst r = await tedix_unified_github.create_pull_request({ owner });\nconsole.log(r); JSON.stringify(r); items.map(x => x);\n```\n" +
+			"```js\nconst r = await tedix_unified_github.create_pull_request({ owner });\nconsole.log(r); JSON.stringify(r); items.map(x => x); ui.x();\n```\n" +
 			"See e.g. work.list_work_items( again (i.e. once).";
 		expect(readSkillToolRefs(body)).toEqual([
 			"work.list_work_items",
 			"tedix_unified_github.create_pull_request",
+			"console.log",
+			"items.map",
+			"ui.x",
 		]);
-		// A declared list is the author's word and wins over mentions.
+		// A declared key is the author's word and wins over mentions.
 		expect(
 			readSkillToolRefs(
 				"---\ntools: google_gmail\n---\nwork.list_work_items()",
 			),
 		).toEqual(["google_gmail"]);
+		expect(
+			readSkillToolRefs("---\ntools: []\n---\nwork.list_work_items()"),
+		).toEqual([]);
 	});
 });
