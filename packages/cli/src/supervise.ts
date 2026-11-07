@@ -28,6 +28,7 @@
  */
 import { createHash, randomUUID } from "node:crypto";
 import { CLI_VERSION } from "./shared";
+import { holdAwake } from "./supervise-awake";
 import type { OfficeObservation } from "@tedix/api-contract/schemas/office-activity";
 import {
 	existsSync,
@@ -1144,6 +1145,7 @@ export async function runSuperviseCommand(args: string[]): Promise<number> {
 			return supervisor.leadFailed ? 1 : 0;
 		}
 		supervisorLog(env, `supervisor started (pid ${process.pid})`);
+		const releaseAwake = holdAwake((message) => supervisorLog(env, message));
 		let stopped = false;
 		const stop = () => {
 			stopped = true;
@@ -1175,6 +1177,7 @@ export async function runSuperviseCommand(args: string[]): Promise<number> {
 		}
 		clearInterval(runnerTimer);
 		runners?.stop();
+		releaseAwake();
 		supervisorLog(env, "supervisor stopped");
 		return 0;
 	} finally {
