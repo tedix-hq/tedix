@@ -11,6 +11,7 @@ export default defineConfig({
 	schema: [
 		"./src/tenant-store/schema.ts",
 		"./src/tenant-store/memory-schema/*.ts",
+		"./src/tenant-store/outputs-schema.ts",
 	],
 	out: "./tenant-store-drizzle",
 	dialect: "sqlite",

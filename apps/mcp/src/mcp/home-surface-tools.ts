@@ -5,10 +5,7 @@ import type {
 } from "@tedix/api-contract/schemas/tools";
 import { workItemsContract } from "@tedix/api-contract/contracts/work-items";
 import { builtinToolPolicyMetadata } from "@tedix/api-contract/utils/approval-policy";
-import {
-	EnqueueHomeMessageInputSchema,
-	RetryHomeRunInputSchema,
-} from "@tedix/api-contract/schemas/kernel-runtime";
+import { RetryHomeRunInputSchema } from "@tedix/api-contract/schemas/kernel-runtime";
 import { procedureInputSchema } from "@tedix/api-contract/utils/procedure-schemas";
 import { zodToToolInputJsonSchema } from "@tedix/api-contract/utils/tool-json-schema";
 import type { AppTool } from "./server-context";
@@ -37,9 +34,6 @@ const DESTRUCTIVE: ToolAnnotations = {
 const ASK_HOME_SCHEMA: ToolInputJsonSchema = {
 	type: "object",
 	properties: {
-		...zodToToolInputJsonSchema(
-			EnqueueHomeMessageInputSchema.pick({ workspaceContext: true }),
-		).properties,
 		content: {
 			type: "string",
 			minLength: 1,
@@ -49,7 +43,7 @@ const ASK_HOME_SCHEMA: ToolInputJsonSchema = {
 		conversationId: {
 			type: "string",
 			description:
-				"Home conversation to post into. OMIT to post into your own caller-scoped agent thread — that is the right default for probes, smoke tests, and any automated turn. When selecting workspaceContext, use a new conversation or one already associated with that Workspace; a conflicting Workspace is rejected. Pass 'home:main' ONLY when the operator explicitly asked you to write into their main Home thread: that is the transcript a human reads in Tedix OS, and validation traffic posted there is indistinguishable from the operator's own messages.",
+				"Home conversation to post into. OMIT to post into your own caller-scoped agent thread — that is the right default for probes, smoke tests, and any automated turn. Pass 'home:main' ONLY when the operator explicitly asked you to write into their main Home thread: that is the transcript a human reads in Tedix OS, and validation traffic posted there is indistinguishable from the operator's own messages.",
 		},
 		delegateToTediId: {
 			type: "string",

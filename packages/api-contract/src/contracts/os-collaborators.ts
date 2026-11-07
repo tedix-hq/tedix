@@ -89,6 +89,8 @@ export const osCollaboratorsContract = oc
 			.output(
 				z.object({
 					workspaceId: z.string().uuid(),
+					/** The signed-in person's id, so a workspace object can name them on its ledger. */
+					userId: z.string(),
 					displayName: z.string(),
 					role: z.enum(["owner", "build", "use"]),
 				}),

@@ -42,11 +42,25 @@
 		"reason": "Docs runtime intentionally serves public sites and broker-protected organization sites from one edge."
 	},
 	{
+		"app": "apps/landing",
+		"kind": "public",
+		"workersDev": true,
+		"previewUrls": true,
+		"reason": "Public marketing, discovery, and health surface with no tenant authority."
+	},
+	{
 		"app": "apps/mcp",
 		"kind": "application-authenticated",
 		"workersDev": false,
 		"previewUrls": false,
 		"reason": "Public MCP edge; OAuth discovery is public and MCP dispatch enforces principal, scope, tenant, and policy."
+	},
+	{
+		"app": "apps/mcp-ui",
+		"kind": "public",
+		"workersDev": true,
+		"previewUrls": true,
+		"reason": "Public MCP Apps resource documents and sandbox assets; authoritative operations remain on authenticated MCP and API surfaces."
 	},
 	{
 		"app": "apps/os",
@@ -98,24 +112,17 @@
 		"reason": "Workstation runtime is an internal API/tedi service target with no public HTTP contract."
 	},
 	{
-		"app": "apps/landing",
-		"kind": "public",
-		"workersDev": true,
-		"previewUrls": true,
-		"reason": "Public marketing, discovery, and health surface with no tenant authority."
-	},
-	{
-		"app": "apps/mcp-ui",
-		"kind": "public",
-		"workersDev": true,
-		"previewUrls": true,
-		"reason": "Public MCP Apps resource documents and sandbox assets; authoritative operations remain on authenticated MCP and API surfaces."
-	},
-	{
 		"app": "apps/widget",
 		"kind": "public",
 		"workersDev": true,
 		"previewUrls": true,
 		"reason": "Public versioned white-label widget assets; signed sessions remain same-origin on each customer host."
+	},
+	{
+		"app": "apps/workspace-do",
+		"kind": "service-binding-only",
+		"workersDev": false,
+		"previewUrls": false,
+		"reason": "Workspace objects are reached through the OS, API and MCP workers' service bindings; the public fetch serves the liveness probe only."
 	}
 ]

@@ -106,6 +106,12 @@ const ALLOWLIST_ENTRIES: readonly AllowlistEntry[] = [
 		runsModelAuthoredCode: true,
 	},
 	{
+		file: "apps/workspace-do/src/sandbox.ts",
+		reason:
+			"The workspace object runs the model's code in a Worker whose env holds only loopback stubs into that object; the manifest is built here so no network and no importable env can be added elsewhere.",
+		runsModelAuthoredCode: true,
+	},
+	{
 		file: "apps/cms-runtime/src/tenant-plugin-executor.ts",
 		reason:
 			"The CMS parent loads one tenant plugin into an isolated Worker with a tenant-scoped DO bridge and explicit capability grants; it cannot share the Astro bundle Loader manifest.",

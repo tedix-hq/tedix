@@ -1,0 +1,43 @@
+{
+	"name": "@tedix/workspace-do",
+	"version": "0.1.0",
+	"private": true,
+	"description": "One Durable Object per workspace that owns the workspace's data and runs the agent turn beside it.",
+	"license": "AGPL-3.0-only",
+	"type": "module",
+	"scripts": {
+		"clean": "rm -rf .wrangler",
+		"clear-port": "../../scripts/clear-port.sh --app workspace-do",
+		"types": "bun ../../scripts/generate-worker-types.ts workspace-do",
+		"types:check": "bun ../../scripts/generate-worker-types.ts --check workspace-do",
+		"dev": "bun run clear-port && bun ../../scripts/dev-local.ts -- wrangler dev",
+		"deploy:production": "bun run types && wrangler deploy --env production --var GIT_SHA:${GIT_SHA:-${GITHUB_SHA:-unknown}} --message ${GIT_SHA:-${GITHUB_SHA:-unknown}}",
+		"type-check": "tsc --noEmit && tsc --noEmit -p tsconfig.workers-test.json",
+		"test": "bun run test:run",
+		"test:run": "bun run test:unit && bun run test:workers",
+		"test:unit": "bun test src/prompt.test.ts src/bindings-declarations.test.ts src/turn-loop.test.ts",
+		"test:workers": "vp test run --config vitest.workers.config.ts",
+		"test:ci": "bun run test:run"
+	},
+	"dependencies": {
+		"@earendil-works/pi-ai": "catalog:",
+		"@tedix/agent-governance": "workspace:*",
+		"@tedix/api-contract": "workspace:*",
+		"@tedix/chat-transport": "workspace:*",
+		"@tedix/db": "workspace:*",
+		"@tedix/tedi-codemode-core": "workspace:*",
+		"@tedix/worker-kit": "workspace:*",
+		"drizzle-orm": "catalog:",
+		"zod": "catalog:"
+	},
+	"devDependencies": {
+		"@cloudflare/vitest-plugin": "catalog:",
+		"@cloudflare/workers-types": "catalog:",
+		"@tedix/tsconfig": "workspace:*",
+		"typescript": "catalog:",
+		"vite": "catalog:",
+		"vite-plus": "catalog:",
+		"vitest": "catalog:",
+		"wrangler": "catalog:"
+	}
+}

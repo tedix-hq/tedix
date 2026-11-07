@@ -48,6 +48,11 @@ import {
 	type WorkspaceTenantScope,
 } from "./router";
 import { tenantStoreIdentity, tenantStoreImportBatches } from "./schema";
+import {
+	tenantOsOutputRevisions,
+	tenantOsOutputs,
+	tenantOsWorkspaces,
+} from "./outputs-schema";
 import type { TenantScope } from "../tenant-scope";
 
 /** Rows per import call; each row is one statement inside one transaction. */
@@ -94,6 +99,9 @@ export interface TenantStoreDefinition {
 export const tenantStoreDefinition: TenantStoreDefinition = {
 	migrations: tenantStoreMigrations,
 	importTables: {
+		os_workspaces: tenantOsWorkspaces,
+		os_outputs: tenantOsOutputs,
+		os_output_revisions: tenantOsOutputRevisions,
 		memory_domains: memoryDomains,
 		tedi_expertise: tediExpertise,
 		tedi_curiosity_queue: tediCuriosityQueue,
