@@ -613,6 +613,29 @@ describe("recordSkillUsageEvent", () => {
 		expect(skillRow("skill-1").lifecycleState).toBe("draft");
 	});
 
+	it("does not demote a skill when the platform database was overloaded", async () => {
+		const { db, insertSkill, skillRow } = fixture();
+		insertSkill({ id: "skill-1", lifecycleState: "active", successCount: 4 });
+		for (const [i, error] of [
+			"D1_ERROR: D1 DB is overloaded. Too many resources consumed within a 10 second window",
+			"SERVICE_UNAVAILABLE: Database temporarily unavailable; retry shortly",
+			"D1_ERROR: D1 DB is overloaded. Too many resources consumed within a 10 second window",
+		].entries())
+			await recordSkillUsageEvent(db, {
+				organizationId: "org-1",
+				tediId: "tedi-1",
+				skillId: "skill-1",
+				source: "direct",
+				success: false,
+				runId: `db-${i}`,
+				error,
+			});
+		expect(skillRow("skill-1")).toMatchObject({
+			lifecycleState: "active",
+			failureCount: 3,
+		});
+	});
+
 	it("rejects a direct report whose runId names a skill run, so the canonical stamp is never suppressed", async () => {
 		const { db, insertSkill, insertRun, skillRow, usageEvents } = fixture();
 		insertSkill({ id: "skill-1", lifecycleState: "active" });
