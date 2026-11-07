@@ -21,6 +21,7 @@ import {
 import { getMemberByUserId } from "@tedix/db/queries/organization-members";
 import {
 	getOrganizationById,
+	getOrganizationPersonalDataRedaction,
 	getOrganizationSecretEgressMode,
 } from "@tedix/db/queries/organizations";
 import { getKernelRuntimeRun } from "@tedix/db/queries/kernel-runtime-runs";
@@ -3984,6 +3985,17 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 					organizationId: input.organizationId,
 					providerId: input.connectionProviderId,
 				}),
+			};
+		},
+	),
+	resolvePersonalDataRedaction: serviceOs.resolvePersonalDataRedaction.handler(
+		async ({ input, context }) => {
+			await assertGatewayOrganization(context, input.organizationId);
+			return {
+				enabled: await getOrganizationPersonalDataRedaction(
+					context.db,
+					input.organizationId,
+				),
 			};
 		},
 	),

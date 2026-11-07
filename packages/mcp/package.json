@@ -24,6 +24,7 @@
 		"./mcp-param-headers": "./src/mcp-param-headers.ts",
 		"./namespace-governance": "./src/namespace-governance.ts",
 		"./payment": "./src/payment.ts",
+		"./personal-data-redact": "./src/personal-data-redact.ts",
 		"./protocol": "./src/protocol.ts",
 		"./read-observation-receipt": "./src/read-observation-receipt.ts",
 		"./resources": "./src/resources/registration.ts",

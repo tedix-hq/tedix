@@ -467,6 +467,31 @@ describe("sensitive-data latch through the gateway", () => {
 		}
 	});
 
+	it("reads personal-data redaction from organization metadata, defaulting off", async () => {
+		const { sqlite, client } = fixture();
+		try {
+			await expect(
+				client.resolvePersonalDataRedaction({ organizationId: ORG_ID }),
+			).resolves.toEqual({ enabled: false });
+			sqlite
+				.prepare("UPDATE organizations SET metadata = ? WHERE id = ?")
+				.run(
+					JSON.stringify({ personalDataRedaction: { enabled: true } }),
+					ORG_ID,
+				);
+			await expect(
+				client.resolvePersonalDataRedaction({ organizationId: ORG_ID }),
+			).resolves.toEqual({ enabled: true });
+			await expect(
+				client.resolvePersonalDataRedaction({
+					organizationId: "00000000-0000-4000-8000-00000000dead",
+				}),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+		} finally {
+			sqlite.close();
+		}
+	});
+
 	it("latches on a declared sensitive read and keeps the latch for later requests", async () => {
 		const { sqlite, client, later } = fixture();
 		try {

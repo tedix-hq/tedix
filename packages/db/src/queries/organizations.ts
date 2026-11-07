@@ -97,6 +97,22 @@ export async function getOrganizationSecretEgressMode(
 	return row?.metadata?.secretEgressMode === "warn" ? "warn" : "block";
 }
 
+/**
+ * Whether the organization turned personal-data redaction on for tool results.
+ * Absent or malformed metadata resolves to off.
+ */
+export async function getOrganizationPersonalDataRedaction(
+	db: DbQueryClient,
+	id: string,
+): Promise<boolean> {
+	const [row] = await db
+		.select({ metadata: organizations.metadata })
+		.from(organizations)
+		.where(eq(organizations.id, id))
+		.limit(1);
+	return row?.metadata?.personalDataRedaction?.enabled === true;
+}
+
 export async function getOrganizationSessionProjectBindings(
 	db: DbQueryClient,
 	id: string,

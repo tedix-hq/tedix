@@ -91,6 +91,8 @@ import {
 import {
 	ConnectionSensitivitySchema,
 	LatchRunSensitiveDataInputSchema,
+	PersonalDataRedactionPolicySchema,
+	ResolvePersonalDataRedactionInputSchema,
 	ResolveSecretEgressPolicyInputSchema,
 	ResolveConnectionSensitivityInputSchema,
 	ResolveRunSensitiveDataLatchInputSchema,
@@ -572,6 +574,17 @@ export const mcpGovernanceContract = oc
 			})
 			.input(ResolveConnectionSensitivityInputSchema)
 			.output(ConnectionSensitivitySchema),
+		resolvePersonalDataRedaction: oc
+			.route({
+				method: "POST",
+				path: "/resolve-personal-data-redaction",
+				summary: "Read the organization's personal-data redaction setting",
+				description:
+					"Internal service-binding read the MCP gateway makes before a tool declared sensitive_data returns its result. Absent or invalid settings resolve to disabled.",
+				tags: ["internal"],
+			})
+			.input(ResolvePersonalDataRedactionInputSchema)
+			.output(PersonalDataRedactionPolicySchema),
 	});
 
 export type McpGovernanceContract = typeof mcpGovernanceContract;

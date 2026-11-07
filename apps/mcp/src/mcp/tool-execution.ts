@@ -80,7 +80,9 @@ import {
 	sanitizeUntrustedValue,
 	TOOL_TRUST_META_KEY,
 } from "@tedix/mcp-shared/content-sanitize";
+import { redactPersonalDataValue } from "@tedix/mcp-shared/personal-data-redact";
 import { homeQueuedAckText } from "./home-surface";
+import { personalDataRedactionEnabled } from "./personal-data-redaction";
 import { recordSensitiveRead } from "./sensitive-data-latch";
 import {
 	OS_GADGET_RUN_ENDPOINT,
@@ -823,6 +825,16 @@ async function executeWithHandler(
 		if (isUntrustedTransport(toolConfig.transport)) {
 			result.data = sanitizeUntrustedValue(result.data);
 		}
+		// Per-organization personal-data redaction: a tool declared
+		// sensitive_data returns its result with emails, phone numbers and
+		// national identifiers masked — but only when the organization turned
+		// the setting on (organizations.metadata.personalDataRedaction).
+		const personalDataRedacted =
+			tool.sensitiveData === true &&
+			(await personalDataRedactionEnabled(agent));
+		if (personalDataRedacted) {
+			result.data = redactPersonalDataValue(result.data);
+		}
 		let structuredContent: unknown = handler.buildStructuredContent(
 			result,
 			ctx,
@@ -1279,6 +1291,9 @@ async function executeWithHandler(
 			_meta: {
 				...(fieldSelection ? { "tedix/fieldSelection": fieldSelection } : {}),
 				[TOOL_TRUST_META_KEY]: trustLabel,
+				...(personalDataRedacted
+					? { "tedix/personalDataRedaction": { masked: true } }
+					: {}),
 				"openai/outputTemplate": outputTemplate,
 				...(actionReceipt ? { [ACTION_RECEIPT_META_KEY]: actionReceipt } : {}),
 				"openai/widgetAccessible": tool.widgetAccessible ?? true,
