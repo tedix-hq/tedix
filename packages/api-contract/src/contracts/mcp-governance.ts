@@ -556,7 +556,7 @@ export const mcpGovernanceContract = oc
 				path: "/resolve-secret-egress-policy",
 				summary: "Read the organization's secret-egress policy",
 				description:
-					"Internal service-binding read used before a tool declared public egress executes. Absent or invalid settings resolve to block.",
+					"Internal service-binding read used before a tool call whose arguments can leave Tedix — an external or upstream-MCP transport, or an internal tool declared public egress. Absent or invalid settings resolve to block.",
 				tags: ["internal"],
 			})
 			.input(ResolveSecretEgressPolicyInputSchema)

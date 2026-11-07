@@ -191,8 +191,12 @@ export const appTools = sqliteTable(
 			.notNull()
 			.default(false),
 		/**
-		 * Declared: this tool sends data outside the organization (publish,
-		 * share link, post, outbound message). A latched run may not call it.
+		 * Declared: internal tool whose transport forwards to the public
+		 * internet (publish, share link, post, outbound message). A latched run
+		 * may not call it, and the handler scans its arguments for secrets.
+		 * External and upstream-MCP transports already egress by transport —
+		 * the scan covers them without the flag, though a set flag still
+		 * forces the scan on a same-organization tedi call.
 		 */
 		publicEgress: integer("public_egress", { mode: "boolean" })
 			.notNull()
