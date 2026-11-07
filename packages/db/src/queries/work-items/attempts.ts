@@ -1482,11 +1482,7 @@ export async function listLiveWorkAttemptHolders(
 			heartbeatAt: workAttempts.heartbeatAt,
 			expiresAt: workAttempts.expiresAt,
 		})
-		// Named index: the planner otherwise walks every Attempt the organization
-		// ever made through idx_work_attempt_org_started because that index
-		// already yields started_at order (17k rows read per call on 7 Nov; 29
-		// through this one).
-		.from(sql`${workAttempts} INDEXED BY idx_work_attempt_org_state_started`)
+		.from(workAttempts)
 		.where(
 			and(
 				eq(workAttempts.orgId, params.orgId),
