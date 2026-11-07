@@ -96,12 +96,16 @@ const MAX_SKILL_ROW_TOOLS = 12;
 
 /**
  * Catalog entries a skill's `tools` refs name: a namespace ref selects every
- * canonical tool in it, a `namespace.tool` ref selects that callable. Refs this
- * gateway does not mount are returned as unresolved.
+ * canonical tool in it, a `namespace.tool` ref selects that callable. A ref
+ * whose namespace this gateway does not mount (skills recorded inside a tedi
+ * call `tedis.create_task`; Connect mounts that tool as
+ * `<org>_unified_tedix.create_task`) resolves by tool name within the skill's
+ * own organization. Anything else is returned as unresolved.
  */
 function resolveSkillTools(
 	catalog: Record<string, Record<string, CatalogToolEntry>>,
 	refs: readonly string[],
+	organization?: string,
 ): { entries: CatalogToolEntry[]; unresolved: string[] } {
 	const entries = new Map<string, CatalogToolEntry>();
 	const unresolved: string[] = [];
@@ -113,8 +117,21 @@ function resolveSkillTools(
 			const canonical = tools.filter((entry) => !entry.aliasOf);
 			matches = canonical.length > 0 ? canonical : tools;
 		} else {
-			const entry = catalog[ref.slice(0, dot)]?.[ref.slice(dot + 1)];
-			matches = entry ? [entry] : [];
+			const namespace = ref.slice(0, dot);
+			const tool = ref.slice(dot + 1);
+			const entry = catalog[namespace]?.[tool];
+			matches = entry
+				? [entry]
+				: namespace in catalog
+					? []
+					: Object.values(catalog).flatMap((tools) => {
+							const candidate = tools[tool];
+							return candidate &&
+								!candidate.aliasOf &&
+								(!organization || candidate.organization === organization)
+								? [candidate]
+								: [];
+						});
 		}
 		if (matches.length === 0) unresolved.push(ref);
 		for (const entry of matches) entries.set(entry.callable, entry);
@@ -126,9 +143,14 @@ function resolveSkillTools(
 function skillToolFields(
 	catalog: Record<string, Record<string, CatalogToolEntry>>,
 	refs: readonly string[],
+	organization?: string,
 ): Record<string, unknown> {
 	if (refs.length === 0) return {};
-	const { entries, unresolved } = resolveSkillTools(catalog, refs);
+	const { entries, unresolved } = resolveSkillTools(
+		catalog,
+		refs,
+		organization,
+	);
 	const tools = entries.slice(0, MAX_SKILL_ROW_TOOLS).map((entry) => {
 		const projected = projectCatalogMeta(entry, false, false) as Record<
 			string,
@@ -928,7 +950,11 @@ export function buildCatalogProvider(
 											? { organization: skillOrganizationId }
 											: {}),
 										load: `${skillLoader}({ slug: ${JSON.stringify(row.slug)} })`,
-										...skillToolFields(searchCatalog, toolRefs),
+										...skillToolFields(
+											searchCatalog,
+											toolRefs,
+											skillOrganizationId,
+										),
 										_match: {
 											...match,
 											score:
