@@ -29,6 +29,8 @@ import {
 	failOsGadgetApprovalDispatch,
 	settleOsGadgetApproval,
 } from "../services/os-gadget-approval-settlement";
+import { platformDomain } from "@tedix/worker-kit/platform-hosts";
+import { tediHost } from "../lib/platform-hosts";
 
 interface ApprovalWorkflowParams {
 	approvalRequestId: string;
@@ -156,7 +158,7 @@ export class ApprovalWorkflow extends WorkflowEntrypoint<
 					const wake = browserTakeoverWakeRequest(
 						request,
 						{ slug: tedi.slug, organizationId: tedi.organizationId },
-						this.env.ENVIRONMENT === "production" ? "tedix.dev" : "tedix.tech",
+						platformDomain(this.env),
 					);
 					if (!wake)
 						return { notified: false, reason: "takeover_not_approved" };
@@ -180,17 +182,14 @@ export class ApprovalWorkflow extends WorkflowEntrypoint<
 				// Notify via TEDI_SERVICE binding
 				if (this.env.TEDI_SERVICE) {
 					try {
-						const envName = String(this.env.ENVIRONMENT || "");
-						const domain =
-							envName === "production" ? "tedix.dev" : "tedix.tech";
-						const tediHost = `${tedi.slug}.tedi.${domain}`;
+						const host = tediHost(this.env, tedi.slug);
 
 						await this.env.TEDI_SERVICE.fetch(
 							new Request("https://tedi/api/admin/notify", {
 								method: "POST",
 								headers: {
 									"Content-Type": "application/json",
-									"X-Tedix-Host": tediHost,
+									"X-Tedix-Host": host,
 									"X-Service-Binding": "true",
 								},
 								body: JSON.stringify({

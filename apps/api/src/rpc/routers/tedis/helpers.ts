@@ -27,6 +27,7 @@ import {
 	requireTediAccess as requireTediAccessUnderPolicy,
 	type TediAccessPolicy,
 } from "../../tedi-access";
+import { platformDomain } from "@tedix/worker-kit/platform-hosts";
 
 // Re-export commonly used items
 export {
@@ -160,8 +161,7 @@ export function requireOrganizationId(context: BaseContext): string {
 }
 
 export function getPlatformDomain(env: CloudflareEnv): string {
-	const envName = String(env.ENVIRONMENT || "");
-	return envName === "production" ? "tedix.dev" : "tedix.tech";
+	return platformDomain(env);
 }
 
 /**

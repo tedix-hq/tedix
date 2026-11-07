@@ -23,6 +23,7 @@ import {
 	type CommitmentChange,
 	type CommitmentWakeCursor,
 } from "@tedix/db/queries/work-items/commitment-changes";
+import type { TediHostEnv } from "../lib/platform-hosts";
 
 const WINDOW_MS = 120_000;
 const DEBOUNCE_MS = 30_000;
@@ -52,11 +53,11 @@ export function commitmentWakeWindows(
 export function buildCommitmentWakeRequest(
 	changes: CommitmentChange[],
 	through: string,
-	environment: string,
+	env: TediHostEnv,
 ): Request {
 	const first = changes[0]!;
 	const deliveryKey = `commitments:${first.orgId}:${first.tediId}:${through}`;
-	return buildTediContextWakeRequest(first.slug, environment, {
+	return buildTediContextWakeRequest(first.slug, env, {
 		session_key: `commitments:${first.tediId}`,
 		client_request_id: deliveryKey,
 		metadata: {
@@ -262,7 +263,7 @@ export async function dispatchCommitmentWakes(
 								request: buildCommitmentWakeRequest(
 									batch,
 									deliveryBoundary,
-									env.ENVIRONMENT,
+									env,
 								),
 								send: (request) =>
 									env.TEDI_SERVICE.fetch(new Request(request, { signal })),

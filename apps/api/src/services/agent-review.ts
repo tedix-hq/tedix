@@ -15,6 +15,7 @@ import {
 } from "@tedix/provisioning";
 import { HTTPException } from "hono/http-exception";
 import { agentReviewProjectId } from "./agent-review-config";
+import { platformDomain } from "@tedix/worker-kit/platform-hosts";
 
 export const AGENT_REVIEW_MAX_BYTES = 32 * 1024;
 
@@ -225,12 +226,7 @@ export async function wakeAgentReview(
 		project.leadTediId!,
 		project.orgId,
 	);
-	const url =
-		tedi &&
-		buildRuntimeUrl(
-			{ slug: tedi.slug },
-			env.ENVIRONMENT === "production" ? "tedix.dev" : "tedix.tech",
-		);
+	const url = tedi && buildRuntimeUrl({ slug: tedi.slug }, platformDomain(env));
 	const endpoints = [
 		"workItems/list",
 		"workItems/getById",

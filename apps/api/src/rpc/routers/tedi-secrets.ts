@@ -30,6 +30,7 @@ import {
 	withAuth,
 } from "../orpc";
 import { requireTediAccess, type TediAccessPolicy } from "../tedi-access";
+import { platformDomain } from "@tedix/worker-kit/platform-hosts";
 
 const tediSecretsOs = implement(tediSecretsContract).$context<BaseContext>();
 const authedOs = tediSecretsOs.use(withAuth);
@@ -82,9 +83,7 @@ function refreshTediRuntime(
 	options?: { refreshRuntime?: boolean },
 ): void {
 	if (options?.refreshRuntime === false) return;
-	const envName = String(env.ENVIRONMENT || "");
-	const platformDomain = envName === "production" ? "tedix.dev" : "tedix.tech";
-	const workerUrl = buildRuntimeUrl({ slug: tedi.slug }, platformDomain);
+	const workerUrl = buildRuntimeUrl({ slug: tedi.slug }, platformDomain(env));
 	if (!workerUrl) return;
 	const config = buildProvisioningConfig(
 		workerUrl,

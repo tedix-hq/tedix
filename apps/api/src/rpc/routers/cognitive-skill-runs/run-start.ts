@@ -20,10 +20,8 @@ import {
 	getWorkItemById,
 	createWorkItem,
 } from "@tedix/db/queries/work-items/crud";
-import {
-	buildSurfaceUrl,
-	platformDomainForEnvironment,
-} from "@tedix/tenant-directory";
+import { buildSurfaceUrl } from "@tedix/tenant-directory";
+import { platformDomain } from "@tedix/worker-kit/platform-hosts";
 import { workItemPurposeFor } from "@tedix/db/queries/work-items/purpose";
 import {
 	isPendingSkillWorkflowAdmission,
@@ -480,7 +478,7 @@ async function createSkillRunFailedWorkItem(
 		const organization = await getOrganizationById(context.db, input.orgId);
 		if (organization?.slug) {
 			const osOrigin = buildSurfaceUrl("os", organization.slug, {
-				platformDomain: platformDomainForEnvironment(context.env.ENVIRONMENT),
+				platformDomain: platformDomain(context.env),
 			});
 			if (osOrigin) {
 				runUrl = `${osOrigin.replace(/\/+$/, "")}/activity/runs/${input.run.id}`;

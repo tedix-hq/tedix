@@ -1,4 +1,5 @@
-/** Optional self-hosting override; unset keeps `{slug}.tedi.tedix.dev`. */
+/** Optional self-hosting overrides; unset keeps Tedix Cloud's hostnames. */
 interface CloudflareEnv {
+	PLATFORM_DOMAIN?: string;
 	TEDI_HOST_SUFFIX?: string;
 }

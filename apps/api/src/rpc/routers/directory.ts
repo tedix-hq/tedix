@@ -22,6 +22,7 @@ import {
 	withAuth,
 	withAuthorization,
 } from "../orpc";
+import { platformDomain as platformDomainOf } from "@tedix/worker-kit/platform-hosts";
 
 /**
  * Cross-surface workspace directory for the tenant-neutral launcher.
@@ -68,11 +69,6 @@ type SurfaceRecord = {
 	handoffUrl: string | null;
 	customDomain?: string;
 };
-
-/** `tedix.dev` in production, `tedix.tech` everywhere else. */
-function platformDomainFor(environment: string | undefined): string {
-	return environment === "production" ? "tedix.dev" : "tedix.tech";
-}
 
 function tenantSurfaceHandoffUrl(
 	surface: "os" | "cms",
@@ -226,7 +222,7 @@ const listMyWorkspaces = authed.listMyWorkspaces
 			getOrganizationSurfaceSignals(db, organizationIds),
 			getOrganizationAggregatorGateways(db, organizationIds),
 		]);
-		const platformDomain = platformDomainFor(context.env.ENVIRONMENT);
+		const platformDomain = platformDomainOf(context.env);
 
 		const records = memberships.map((m) =>
 			buildWorkspaceRecord(
@@ -299,7 +295,7 @@ const resolveWorkspace = authed.resolveWorkspace
 			getOrganizationSurfaceSignals(db, [organization.id]),
 			getOrganizationAggregatorGateways(db, [organization.id]),
 		]);
-		const platformDomain = platformDomainFor(context.env.ENVIRONMENT);
+		const platformDomain = platformDomainOf(context.env);
 
 		return buildWorkspaceRecord(
 			{

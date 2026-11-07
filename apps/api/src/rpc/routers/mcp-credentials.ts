@@ -43,6 +43,7 @@ import type { BaseContext } from "../orpc";
 import { withTediAuth } from "../orpc";
 import { evaluateExternalMcpCatalogGate } from "./mcp-credential-catalog-gate";
 import { authorizeTediCredentialExchange } from "./mcp-credential-policy";
+import { platformDomain } from "@tedix/worker-kit/platform-hosts";
 
 const JWT_CACHE_MARGIN = 0.8;
 const SLOW_MCP_CREDENTIALS_CALL_MS = 5_000;
@@ -225,7 +226,7 @@ async function resolveTediForServerUrl(
 }
 
 export function getMcpBaseDomain(
-	env: Pick<CloudflareEnv, "ENVIRONMENT" | "MCP_URL">,
+	env: Pick<CloudflareEnv, "ENVIRONMENT" | "MCP_URL" | "PLATFORM_DOMAIN">,
 ): string {
 	// The installation's own edge decides tenant MCP hostnames: MCP_URL arrives
 	// through the installation manifest's worker vars, so `{app}.mcp.{domain}`
@@ -237,7 +238,7 @@ export function getMcpBaseDomain(
 	} catch {
 		/* fall through to the environment default */
 	}
-	return env.ENVIRONMENT === "production" ? "tedix.dev" : "tedix.tech";
+	return platformDomain(env);
 }
 
 async function getOrExchangeAihToken(params: {
