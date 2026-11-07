@@ -129,7 +129,8 @@ try {
 			assert(await button.isEnabled(), "a refused request can be retried");
 			assert.match(
 				await page.getByRole("alert").innerText(),
-				/try again or ask an owner/,
+				/Couldn't turn this skill back on: Only an owner or admin can turn this skill back on/,
+				"a refusal names its real reason",
 			);
 			fail = "untested";
 			await page.reload();
