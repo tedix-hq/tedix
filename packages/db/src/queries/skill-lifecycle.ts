@@ -301,6 +301,25 @@ export interface SkillUsageSignals {
  */
 const PLATFORM_REFUSAL_MARKER = "WORKFLOW_TOOLS_REFUSED";
 
+/**
+ * Platform failures that say nothing about the skill: the tool-refusal marker
+ * above, and the platform database being overloaded or unavailable (on 7 Nov
+ * a D1 overload after an account move failed a daily run and the
+ * streak turned the skill off). They stay in the ledger and counters.
+ */
+const PLATFORM_FAILURE_MARKERS = [
+	PLATFORM_REFUSAL_MARKER,
+	"D1 DB is overloaded",
+	"Database temporarily unavailable",
+	"D1_ERROR: Network connection lost",
+] as const;
+
+export function isPlatformSkillFailure(error: string | null | undefined) {
+	return (
+		!!error && PLATFORM_FAILURE_MARKERS.some((marker) => error.includes(marker))
+	);
+}
+
 /** Read the promotion signals for a skill from the canonical usage ledger. */
 export async function loadSkillUsageSignals(
 	db: DbClient,
@@ -345,12 +364,12 @@ export async function loadSkillUsageSignals(
 	return {
 		verifiedSuccessCount: Number(successRows[0]?.count ?? 0),
 		// Unverified successes cannot recover a failure or reset a demotion
-		// streak. Keep every failure except a platform refusal, but only
+		// streak. Keep every failure except a platform failure, but only
 		// canonical workflow successes.
 		recentOutcomes: recentRows
 			.filter((row) =>
 				row.outcome === "failure"
-					? !row.error?.includes(PLATFORM_REFUSAL_MARKER)
+					? !isPlatformSkillFailure(row.error)
 					: row.source === "workflow_run",
 			)
 			.map((row) => row.outcome),
