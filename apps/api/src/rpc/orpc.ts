@@ -164,19 +164,6 @@ export function createError(
 	return new ORPCError(code, { message, cause });
 }
 
-/**
- * A typed error whose details the client can read as `error.data`, for
- * example a lifecycle rule the page explains. Server callers keep reading
- * `error.cause`. Pass only details that are safe to show the caller.
- */
-export function createErrorWithData<TData extends Record<string, unknown>>(
-	code: ErrorCode,
-	message: string,
-	data: TData,
-): ORPCError<ErrorCode, TData> {
-	return new ORPCError(code, { message, cause: data, data });
-}
-
 export function isAuthInfrastructureError(
 	error: unknown,
 ): error is ORPCError<"SERVICE_UNAVAILABLE", undefined> {

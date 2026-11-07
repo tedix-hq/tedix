@@ -237,10 +237,7 @@ export function SkillDetailLayout() {
 						<Text role="label" tone="error">
 							{needsTest
 								? "This version hasn't passed a test run yet; run a test first, then turn it back on."
-								: `Couldn't turn this skill back on: ${
-										(turnBackOn.error as Error).message ||
-										"try again or ask an owner for help."
-									}`}
+								: "Couldn't turn this skill back on; try again or ask an owner for help."}
 						</Text>
 						{needsTest && executable && canRun && canTurnBackOn ? (
 							<Button
