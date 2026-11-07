@@ -37,9 +37,16 @@ vi.mock("@/lib/api", () => ({
 		},
 		workInteractions: { outbound: { profile: vi.fn() } },
 		workItems: {
+			listAttemptProjection: vi
+				.fn()
+				.mockResolvedValue({ data: [], hasMore: false, nextCursor: null }),
 			listEvidence: vi.fn().mockResolvedValue({ data: [] }),
 			previewEvidence: vi.fn(),
 		},
+		dispatcherHealth: { list: vi.fn().mockResolvedValue({ data: [] }) },
+		tedis: { list: vi.fn().mockResolvedValue({ data: [] }) },
+		members: { listMembers: vi.fn().mockResolvedValue({ data: [] }) },
+		externalAgentIdentity: { listPrincipals: vi.fn().mockResolvedValue([]) },
 		learningFeedback: {
 			recordInteraction: vi.fn(),
 			listInteractions: vi.fn(),

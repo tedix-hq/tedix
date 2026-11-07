@@ -181,24 +181,13 @@ export function TodayPost({
 				</div>
 			</CardHeader>
 			<CardContent className="grid gap-4">
-				{deck.isPending ? (
-					<Skeleton
-						role="status"
-						aria-label="Checking Decisions"
-						className="h-5 w-28"
-						data-today-deck-pending
-					/>
-				) : (
-					<Link
-						variant="record"
-						className="tap-target-y"
-						href="/work?view=deck"
-					>
-						{deck.data?.complete && !deck.isError
-							? OS_COPY.feed.decisionsWaiting(String(deck.data.count))
+				<Link variant="record" className="tap-target-y" href="/work?view=deck">
+					{deck.data?.complete && !deck.isError
+						? OS_COPY.feed.decisionsWaiting(String(deck.data.count))
+						: deck.isPending
+							? "Open Decisions"
 							: "Open Decisions · count unavailable"}
-					</Link>
-				)}
+				</Link>
 				{(!compact || expanded) && <LearnedToday timeZone={config.timeZone} />}
 				<WeeklyCardContext />
 				{output.isPending ? (
