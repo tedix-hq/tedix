@@ -414,11 +414,16 @@ export async function runWork(args: string, ctx: WorkContext): Promise<number> {
 			getTimeoutMs: ctx.client.getTimeoutMs.bind(ctx.client),
 		},
 	};
+	const parentDeadline = Number(process.env.TEDIX_CLI_READ_DEADLINE_AT);
 	nativeCommands.set(ctx, {
 		protocolSequence: {},
 		// The last renewal at the watch horizon still gets a full call timeout.
-		deadlineAt:
+		deadlineAt: Math.min(
 			Date.now() + ctx.client.getTimeoutMs() + (ctx.work.watch ?? 0) * 1000,
+			Number.isFinite(parentDeadline) && parentDeadline > 0
+				? parentDeadline
+				: Infinity,
+		),
 	});
 	const [verb, rest] = firstToken(args ?? "");
 	if (!verb || verb === "help") {

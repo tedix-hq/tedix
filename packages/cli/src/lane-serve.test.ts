@@ -55,7 +55,9 @@ import { DecisionCardPresentationSchema } from "@tedix/api-contract/schemas/deci
 
 const projectId = "11111111-1111-4111-8111-111111111111";
 const dirs: string[] = [];
-afterEach(() => {
+const fixtureCleanup: Array<() => Promise<void>> = [];
+afterEach(async () => {
+	await Promise.all(fixtureCleanup.splice(0).map((cleanup) => cleanup()));
 	for (const dir of dirs.splice(0))
 		rmSync(dir, { recursive: true, force: true });
 });
@@ -188,6 +190,7 @@ function fixture({
 			| undefined,
 	};
 	let threadNumber = 0;
+	let cleaning = false;
 	const config = { ...options, executor, coordinated, acceptProposed, max };
 	const deps: NonNullable<ConstructorParameters<typeof LaneDispatcher>[2]> = {
 		darkWake: () => dark,
@@ -431,7 +434,10 @@ function fixture({
 			const completed = completedResult(
 				items.find((row) => row.id === args[args.indexOf("--work-item") + 1])!,
 			);
-			await new Promise<void>((done) => releases.push(done));
+			await new Promise<void>((done) => {
+				releases.push(done);
+				if (cleaning) done();
+			});
 			if (control.deliverNote) {
 				const bridge = deps!.devinWorkBridge!;
 				expect((await bridge.context()).binding.externalSessionKey).toBe(
@@ -469,7 +475,18 @@ function fixture({
 			return control.exitCode;
 		},
 	};
-	const restart = () => new LaneDispatcher(config, dir, deps);
+	const dispatchers: LaneDispatcher[] = [];
+	const restart = () => {
+		const dispatcher = new LaneDispatcher(config, dir, deps);
+		dispatchers.push(dispatcher);
+		return dispatcher;
+	};
+	fixtureCleanup.push(async () => {
+		cleaning = true;
+		for (const dispatcher of dispatchers) dispatcher.stop();
+		for (const release of releases) release();
+		await Promise.all(dispatchers.map((dispatcher) => dispatcher.drain()));
+	});
 	const dispatcher = restart();
 	return {
 		dispatcher,
@@ -3639,16 +3656,17 @@ describe("dispatcher admission", () => {
 		},
 	);
 	it.each([
-		{ retryDeadlineAt: Date.now() + 60_000 },
-		{ admissionState: "unknown" },
-		{
+		() => ({ retryDeadlineAt: Date.now() + 60_000 }),
+		() => ({ admissionState: "unknown" }),
+		() => ({
 			attemptId: "retained-attempt",
 			session: "codex:retained",
 			executorKey: "retained",
-		},
+		}),
 	])(
 		"preserves admission holds with a live or unknown fence or unexpired window: %j",
-		async (fence) => {
+		async (createFence) => {
+			const fence = createFence();
 			const { dispatcher, dir, items, events, releases } = fixture();
 			items.splice(1);
 			writeFileSync(
@@ -5810,4 +5828,46 @@ it("keeps a slow but progressing pass from looking hung to the supervisor", asyn
 	// read ceiling ahead instead of at the end of the previous pass.
 	expect(seen.length).toBeGreaterThan(0);
 	expect(Math.max(...seen)).toBeGreaterThan(4 * 60_000);
+});
+
+it("retries claim preflight deadlines inside one logged budget before admission", async () => {
+	const f = fixture({ max: 20 });
+	f.items.splice(1);
+	const cli = f.deps.cli!;
+	let readiness = 0;
+	const timeouts: number[] = [];
+	f.deps.cli = async (args, ...rest) => {
+		if (args[5] === "readiness") {
+			timeouts.push(rest[3]!);
+			if (++readiness === 1) throw new Error("Tedix CLI read deadline elapsed");
+		}
+		return cli(args, ...rest);
+	};
+	const dispatcher = f.restart();
+	try {
+		await dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		expect(readiness).toBe(2);
+		expect(timeouts).toEqual([20_000, 40_000]);
+		expect(
+			f.events.filter((row) => row.verb === "start" && row.input),
+		).toHaveLength(1);
+		const logs = readFileSync(join(f.dir, "dispatcher.log"), "utf8")
+			.trim()
+			.split("\n")
+			.map((line) => JSON.parse(line))
+			.filter((row) => row.event === "read-budget")
+			.map((row) => JSON.parse(row.reason))
+			.filter((row) => row.operation === "work.readiness");
+		expect(new Set(logs.map((row) => row.budgetId)).size).toBe(1);
+		expect(logs[0].budgetMs).toBe(300_000);
+		expect(logs.map((row) => row.event)).toEqual([
+			"read-budget",
+			"read-retry",
+			"read-succeeded",
+		]);
+	} finally {
+		for (const release of f.releases) release();
+		await dispatcher.drain();
+	}
 });

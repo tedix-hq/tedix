@@ -90,6 +90,7 @@ import {
 import { fileGatewayCooldown } from "./gateway-cooldown";
 import { installLaneService } from "./lane-service";
 import { CliReadError, readJsonChild } from "./hooks/hook-io";
+import { readBudgetMs, retryRead } from "./read-retry";
 import { prefixLaneBrief } from "./lane";
 import { acquireCredentialLock } from "./credential-lock";
 import {
@@ -577,19 +578,26 @@ async function cli<T>(
 	env: NodeJS.ProcessEnv,
 	cwd = homedir(),
 	cooldownUntil: () => number = () => 0,
+	readLimit?: number,
 ): Promise<T> {
 	const [executable, prefix] = selfCommand();
 	return (await readJsonChild(
 		executable,
 		[...prefix, ...args, "--json"],
-		READ_BUDGET_MS,
+		readLimit ?? READ_BUDGET_MS,
 		undefined,
 		{
 			cwd,
-			env,
+			env:
+				readLimit === undefined
+					? env
+					: {
+							...env,
+							TEDIX_CLI_READ_DEADLINE_AT: String(Date.now() + readLimit),
+						},
 			includeErrorMessage: true,
 			deadlineGraceMs: () => cooldownGraceMs(cooldownUntil()),
-			maxTimeoutMs: READ_CEILING_MS,
+			maxTimeoutMs: readLimit ?? READ_CEILING_MS,
 		},
 	)) as T;
 }
@@ -1388,11 +1396,13 @@ export class LaneDispatcher {
 		args: string[],
 		session?: string,
 		executorKey?: string,
+		attemptId?: string,
 	): Promise<T> {
 		const env: NodeJS.ProcessEnv = {
 			...this.ownerEnv,
 			...(session ? { TEDIX_AGENT_SESSION: session } : {}),
 			...(executorKey ? { TEDIX_EXTERNAL_AGENT: executorKey } : {}),
+			...(attemptId ? { TEDIX_CLI_EXPECTED_ATTEMPT_ID: attemptId } : {}),
 		};
 		// Explicit MCP credentials outrank the agent selector in resolveAuth.
 		// Attempt calls must use the admitted executor, never an owner's override.
@@ -1400,11 +1410,34 @@ export class LaneDispatcher {
 			delete env.TEDIX_MCP_BEARER_TOKEN;
 			delete env.TEDIX_MCP_API_KEY;
 		}
+		const invoke = (input: string[], timeoutMs?: number) =>
+			this.deps.cli<T>(
+				[...this.options.scope, ...input],
+				env,
+				undefined,
+				() => this.cooldownUntil(),
+				timeoutMs,
+			);
+		const safe =
+			args[0] === "work" &&
+			["readiness", "dispatch-get", "dispatch-attempts", "heartbeat"].includes(
+				args[1] ?? "",
+			);
 		return this.queue(
 			() =>
-				this.deps.cli<T>([...this.options.scope, ...args], env, undefined, () =>
-					this.cooldownUntil(),
-				),
+				safe
+					? retryRead((timeoutMs) => invoke(args, timeoutMs), {
+							operation: `work.${args[1]}`,
+							budgetMs: readBudgetMs(READ_BUDGET_MS, this.options.max),
+							attemptMs: READ_BUDGET_MS / 3,
+							log: (line) => this.log("read-budget", args[2], line),
+						})
+					: invoke(
+							args,
+							args[0] === "work" && args[1] === "start"
+								? readBudgetMs(READ_BUDGET_MS, this.options.max)
+								: undefined,
+						),
 			args[0] === "work" &&
 				["heartbeat", "settle", "complete"].includes(args[1] ?? ""),
 		).finally(() => this.notePassProgress());
@@ -2346,6 +2379,7 @@ export class LaneDispatcher {
 					["work", "heartbeat", item.id],
 					receipt.session,
 					receipt.executorKey,
+					receipt.attemptId,
 				)
 					.then((renewed) => {
 						const expiry = Date.parse(renewed.expiresAt);
@@ -3190,6 +3224,7 @@ export class LaneDispatcher {
 					["work", "heartbeat", receipt.itemId],
 					receipt.session,
 					receipt.executorKey,
+					receipt.attemptId,
 				);
 			} catch (error) {
 				this.log("proof-heartbeat-retained", receipt.itemId, String(error));

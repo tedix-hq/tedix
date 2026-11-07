@@ -28,6 +28,7 @@
  */
 import { createHash, randomUUID } from "node:crypto";
 import { CLI_VERSION } from "./shared";
+import { readBudgetMs } from "./read-retry";
 import { holdAwake } from "./supervise-awake";
 import type { OfficeObservation } from "@tedix/api-contract/schemas/office-activity";
 import {
@@ -879,7 +880,7 @@ export class Supervisor {
 				this.hookDeps(group.cwd),
 				group.binding,
 				{},
-				DETAIL_TIMEOUT_MS,
+				readBudgetMs(3 * DETAIL_TIMEOUT_MS, group.sessions.size),
 				(reason) => {
 					why = reason;
 				},
