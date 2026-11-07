@@ -51,6 +51,24 @@ describe("public-egress secret scanning", () => {
 		expect(catalogTransport).not.toHaveBeenCalled();
 	});
 
+	it("scans a third-party transport even when the tool is not flagged publicEgress", async () => {
+		const { ctx } = context("block");
+		(ctx as { publicEgress?: boolean }).publicEgress = false;
+		(ctx as { config: ToolConfig }).config = {
+			transport: "mcp",
+			endpoint: "search_repositories",
+		} as unknown as ToolConfig;
+		const token = ["ghp", "0123456789abcdefghij0123"].join("_");
+		const result = await new ToolHandler().execute(
+			{ query: `tedix ${token}` },
+			ctx,
+		);
+		expect(result).toMatchObject({
+			status: 403,
+			data: { code: "SECRET_EGRESS_DENIED" },
+		});
+	});
+
 	it("allows the call in warn mode and ignores a normal UUID", async () => {
 		const warned = context("warn");
 		const token = ["ghp", "0123456789abcdefghij0123"].join("_");
