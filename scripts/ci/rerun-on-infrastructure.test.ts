@@ -3,7 +3,10 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { infrastructureFailure } from "./rerun-on-infrastructure.mjs";
+import {
+	flakyFailure,
+	infrastructureFailure,
+} from "./rerun-on-infrastructure.mjs";
 
 test("treats only fixture start failures and slow-runner timeouts as infrastructure", () => {
 	for (const fixture of [
@@ -109,7 +112,41 @@ test("reruns once on an infrastructure failure and records it, never on a test f
 
 		const passing = runSuite("exit 0");
 		expect(passing).toMatchObject({ status: 0, attempts: 1, summary: "" });
+
+		// A narrow spec failure is rerun once and, when it passes, named as a flake.
+		const narrow =
+			'echo "AssertionError: wrong colour" >&2; echo "[run-specs] FAIL (exit 1) 5.8s  browser-tests/a.spec.ts"';
+		const flake = runSuite(`if [ "$n" = 1 ]; then ${narrow}; exit 1; fi`);
+		expect(flake).toMatchObject({ status: 0, attempts: 2 });
+		expect(flake.stdout).toContain("::warning title=Flake check::");
+		expect(flake.stdout).toContain("FLAKY browser-tests/a.spec.ts");
+		expect(flake.summary).toContain("Flake check passed: FLAKY");
+		const regression = runSuite(`${narrow}; exit 1`);
+		expect(regression).toMatchObject({ status: 1, attempts: 2 });
+		expect(regression.summary).toContain("failed again (exit 1)");
+		const broad = runSuite(
+			'for s in a b c d; do echo "[run-specs] FAIL (exit 1) 1s  browser-tests/$s.spec.ts"; done; exit 1',
+		);
+		expect(broad).toMatchObject({ status: 1, attempts: 1, summary: "" });
 	} finally {
 		rmSync(dir, { recursive: true });
 	}
+});
+
+test("names one to three failed specs as a possible flake, never a broad failure", () => {
+	const line = (name: string) =>
+		`[run-specs] FAIL (exit 1) 2.1s  browser-tests/${name}.spec.ts`;
+	expect(flakyFailure(`${line("a")}\n${line("a")}`)?.specs).toEqual([
+		"browser-tests/a.spec.ts",
+	]);
+	expect(
+		flakyFailure([line("a"), line("b"), line("c")].join("\n"))?.specs,
+	).toHaveLength(3);
+	expect(
+		flakyFailure([line("a"), line("b"), line("c"), line("d")].join("\n")),
+	).toBeUndefined();
+	expect(flakyFailure("AssertionError: wrong colour")).toBeUndefined();
+	expect(
+		flakyFailure("[run-specs] PASS 1.0s  browser-tests/a.spec.ts"),
+	).toBeUndefined();
 });
