@@ -3,6 +3,21 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.19.9 — 2026-11-07
+
+### Patch Changes
+
+- Login renewal keeps a refresh token fenced after an HTTP error or malformed
+  reply, because the issuer may already have rotated it. Only a proven
+  pre-connect failure retries the same token. Recovering a lost successor
+  without sign-in still requires issuer support.
+- Parallel runners cache credentials separately for each agent session, so
+  they no longer force one another to exchange credentials before every Work read.
+- Permission cards name the agent and task and explain Allow, No and Later.
+  Allow records permission for the current Work version with an editable scope.
+- `tedix supervise` keeps a Mac awake while it runs. Closing the lid on battery
+  still puts the Mac to sleep.
+
 ## 0.19.8 — 2026-11-06
 
 ### Patch Changes
