@@ -298,6 +298,50 @@ async function workItemProjectMovePurpose(
 export const updateSpecificationProcedure =
 	factoryOs.updateSpecification.handler(async ({ input, context }) => {
 		const workItem = await assertWorkItemAccess(context, input.id);
+		if (input.idleReassignment) {
+			await requireOwnerAdminWorkItemAuthor(
+				context,
+				workItem.orgId,
+				"Idle runner reassignment",
+			);
+			if (
+				!input.executor ||
+				!input.expectedWorkItemVersion ||
+				Object.keys(input).some(
+					(key) =>
+						![
+							"id",
+							"executor",
+							"expectedWorkItemVersion",
+							"idleReassignment",
+						].includes(key),
+				)
+			)
+				throw createError(
+					ErrorCodes.BAD_REQUEST,
+					"Idle reassignment requires an executor and exact version, without specification edits",
+				);
+			const readiness = await deriveWorkItemReadiness(context.db, {
+				orgId: workItem.orgId,
+				workItemId: workItem.id,
+				derivedAt: new Date().toISOString(),
+			});
+			if (!readiness.ready)
+				throw createError(ErrorCodes.CONFLICT, "Work is not startable");
+			const { reassignIdleWork } =
+				await import("@tedix/db/queries/work-items/idle-reassignment");
+			try {
+				return await reassignIdleWork(context.db, {
+					orgId: workItem.orgId,
+					workItemId: workItem.id,
+					expectedVersion: input.expectedWorkItemVersion,
+					executor: input.executor,
+					...input.idleReassignment,
+				});
+			} catch (error) {
+				rethrowWorkItemWriteError(error);
+			}
+		}
 		const { workItemSpecificationActor } =
 			await import("./specification-policy");
 		const actor = await workItemSpecificationActor(context, workItem, input);

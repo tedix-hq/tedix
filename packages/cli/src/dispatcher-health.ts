@@ -19,6 +19,7 @@ import {
 	type SupervisorActivity,
 	type SupervisorDutyHealth,
 	type DispatcherReliability,
+	type DispatcherIdle,
 } from "@tedix/api-contract/schemas/dispatcher-health";
 import { UUID_RE } from "./work-identity";
 import {
@@ -71,6 +72,7 @@ export interface DispatcherHealthSource {
 	nextCheckAt?: string;
 	lastCompleted?: { id: string; completedAt: string };
 	reliability?: z.infer<typeof ReliabilityJournalSchema>;
+	idle?: DispatcherIdle;
 }
 
 export interface LocalDispatcherHealth {
@@ -129,6 +131,10 @@ export function writeDispatcherHealthSource(
 	}
 	writeFileSync(`${path}.tmp`, JSON.stringify(source), { mode: 0o600 });
 	renameSync(`${path}.tmp`, path);
+}
+
+export function recordDispatcherIdle(directory: string, idle: DispatcherIdle) {
+	updateSource(directory, { idle }, process.pid);
 }
 
 /** A bounded journal in the existing health source, independent of rotated logs. */
@@ -586,6 +592,7 @@ export function collectDispatcherHealth(
 	const reports: LocalDispatcherHealth[] = [];
 	const activities = new Map<string, SupervisorActivity>();
 	const reliability = new Map<string, DispatcherReliability>();
+	const idle = new Map<string, DispatcherIdle>();
 	for (const name of existsSync(root) ? readdirSync(root) : []) {
 		const directory = join(root, name);
 		try {
@@ -597,6 +604,7 @@ export function collectDispatcherHealth(
 			activities.set(name, activity.activity);
 			const counts = dispatcherReliability(source, now);
 			if (counts) reliability.set(name, counts);
+			if (source.idle) idle.set(name, source.idle);
 			reports.push({
 				workspace: source.workspace,
 				organization: source.organization,
@@ -638,6 +646,7 @@ export function collectDispatcherHealth(
 						...duty,
 						activity: activities.get(row.id),
 						reliability: reliability.get(row.id),
+						idle: idle.get(row.id),
 					};
 			} else {
 				reports.push({

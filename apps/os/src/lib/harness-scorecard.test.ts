@@ -53,10 +53,40 @@ it("sums fully covered fleet observations and withholds stale, warming or legacy
 			failed: 0,
 			orphaned: 0,
 			commits: 0,
+			idle: null,
 			held: 4,
 			supervisorKills: 6,
 		},
 	]);
+	const idle = {
+		observedAt: at,
+		held: 3,
+		waitingOnPerson: 2,
+		noCoordinator: 4,
+		other: 1,
+		complete: true,
+	};
+	const idleReport = { ...report, duty: { ...report.duty!, idle } };
+	expect(
+		aggregateHarnessScorecard([], [idleReport, idleReport], now)[0]!.idle,
+	).toEqual({ held: 3, waitingOnPerson: 2, noCoordinator: 4, other: 1 });
+	for (const unavailable of [
+		{ ...idleReport, stale: true },
+		{
+			...idleReport,
+			duty: { ...idleReport.duty, idle: { ...idle, complete: false } },
+		},
+		{
+			...idleReport,
+			duty: {
+				...idleReport.duty,
+				idle: { ...idle, observedAt: new Date(now - 61_000).toISOString() },
+			},
+		},
+	])
+		expect(
+			aggregateHarnessScorecard([], [unavailable], now)[0]!.idle,
+		).toBeNull();
 	const warming = {
 		...second,
 		duty: {
@@ -78,6 +108,7 @@ it("sums fully covered fleet observations and withholds stale, warming or legacy
 		expect(result.supervisorKills).toBeNull();
 	}
 	const coordinated = {
+		// An any-local source cannot attribute idle capacity to one harness.
 		...report,
 		executor: "any-local",
 		duty: {
@@ -154,6 +185,7 @@ it("uses a bounded start-time cohort and deduplicates Attempts across scopes", (
 		{
 			runner: "codex",
 			started: 6,
+			idle: null,
 			succeeded: 1,
 			failed: 1,
 			orphaned: 2,
@@ -259,6 +291,7 @@ it("includes recently reported idle runners without treating supervisor duties a
 	).toEqual([
 		{
 			runner: "claude",
+			idle: null,
 			started: 0,
 			succeeded: 0,
 			failed: 0,

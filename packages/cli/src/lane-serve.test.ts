@@ -193,6 +193,7 @@ function fixture({
 	let cleaning = false;
 	const config = { ...options, executor, coordinated, acceptProposed, max };
 	const deps: NonNullable<ConstructorParameters<typeof LaneDispatcher>[2]> = {
+		health: () => [],
 		darkWake: () => dark,
 		gatewayCooldownUntil: (workspace) => {
 			control.cooldownWorkspaces.push(workspace);
@@ -3002,6 +3003,7 @@ describe("dispatcher admission", () => {
 			expect(events.slice(count).map((e) => e.verb)).toEqual(["dispatch-list"]);
 			// The held decision is durable, even without the original dispatcher object.
 			const restarted = new LaneDispatcher(options, dir, {
+				health: () => [],
 				darkWake: () => false,
 				available: () => true,
 				devinAvailable: () => true,
