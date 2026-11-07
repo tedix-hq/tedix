@@ -31,6 +31,7 @@ import {
 	osWorkspaceShareLinks,
 } from "../../schema/os-collaborators";
 import { userConfigs } from "../../schema/user-configs";
+import { workspaceOutputIndex } from "../../schema/workspace-feed";
 
 export interface OsWorkspaceScopeParams {
 	organizationId: string;
@@ -367,23 +368,29 @@ export async function deleteOsWorkspace(
 				),
 			),
 	);
+	const movedToRetained = exists(
+		db
+			.select({ id: osWorkspaces.id })
+			.from(osWorkspaces)
+			.where(
+				and(
+					eq(osWorkspaces.organizationId, params.organizationId),
+					eq(osWorkspaces.id, retainedWorkspaceId),
+				),
+			),
+	);
 	const movePrivateOutputs = db
 		.update(osOutputs)
 		.set({ workspaceId: retainedWorkspaceId })
+		.where(and(scopedOutputs, movedToRetained));
+	const movePrivateOutputIndex = db
+		.update(workspaceOutputIndex)
+		.set({ workspaceId: retainedWorkspaceId })
 		.where(
 			and(
-				scopedOutputs,
-				exists(
-					db
-						.select({ id: osWorkspaces.id })
-						.from(osWorkspaces)
-						.where(
-							and(
-								eq(osWorkspaces.organizationId, params.organizationId),
-								eq(osWorkspaces.id, retainedWorkspaceId),
-							),
-						),
-				),
+				eq(workspaceOutputIndex.organizationId, params.organizationId),
+				eq(workspaceOutputIndex.workspaceId, params.workspaceId),
+				movedToRetained,
 			),
 		);
 	const deleteWorkspace = db
@@ -404,6 +411,7 @@ export async function deleteOsWorkspace(
 	const statements: [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]] = [
 		retainPrivateWorkspace,
 		movePrivateOutputs,
+		movePrivateOutputIndex,
 		deleteWorkspace,
 		db.delete(osWorkspaceShareKeys).where(
 			// bound-params: a subquery, not a bound list (two parameters).
@@ -444,7 +452,8 @@ export async function deleteOsWorkspace(
 					),
 				),
 		);
-	const [, , result] = (await db.batch(statements)) as [
+	const [, , , result] = (await db.batch(statements)) as [
+		unknown,
 		unknown,
 		unknown,
 		{ id: string }[],
