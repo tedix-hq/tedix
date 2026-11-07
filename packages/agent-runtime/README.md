@@ -1,49 +1,54 @@
-# @tedix/workspace-runtime
+# @tedix/agent-runtime
 
-The runtime a workspace object codes against. A workspace is one object that
-keeps its own data and runs its own agent loop. This package gives that object
-five things through one interface, so the same object runs on Tedix Cloud, on
-a self-hosted workerd process, and later on other hosts:
+The runtime a single-writer agent object codes against. An agent object keeps
+its own data and runs its own loop: a workspace is one such object, a tedi can
+be another. This package gives that object five things through one interface,
+so the same object runs on Tedix Cloud, on a self-hosted workerd process, and
+later on other hosts. It is runtime-neutral: nothing in it knows what a
+workspace or a tedi is, and it imports nothing from `apps/*`. Policy, approvals
+and the change ledger are the sibling package `@tedix/agent-governance`
+(`GovernanceAdapters`); wrap a binding's stub with it before registering the
+binding here.
 
-- `storage`: single-writer SQL for the workspace, with migrations.
+- `storage`: single-writer SQL for the object, with migrations.
 - `sandbox`: runs agent-written code with no network, only named bindings.
 - `bindings`: the `env.NAME` capabilities that code can reach, each described
   in full with one call.
 - `events`: a feed connected clients read over WebSocket, with a cursor they
   can resume from.
-- `alarms`: timers with payloads, many per workspace.
+- `alarms`: timers with payloads, many per object.
 
 Import the contract from the package root and an implementation from its
 subpath:
 
 ```ts
-import type { WorkspaceRuntime } from "@tedix/workspace-runtime";
+import type { AgentRuntime } from "@tedix/agent-runtime";
 import {
-	CloudflareWorkspaceRuntime,
-	cloudflareWorkspaceStub,
-} from "@tedix/workspace-runtime/cloudflare";
+	CloudflareAgentRuntime,
+	cloudflareAgentObjectStub,
+} from "@tedix/agent-runtime/cloudflare";
 import {
-	WorkerdWorkspaceRuntime,
-	workerdWorkspaceStub,
-} from "@tedix/workspace-runtime/workerd";
+	WorkerdAgentRuntime,
+	workerdAgentObjectStub,
+} from "@tedix/agent-runtime/workerd";
 ```
 
-## Using it from a workspace object
+## Using it from an agent object
 
 The object constructs the runtime once and delegates the four host hooks to
 it. Nothing else in the object needs to know which host it runs on.
 
 ```ts
 import { DurableObject } from "cloudflare:workers";
-import { CloudflareWorkspaceRuntime } from "@tedix/workspace-runtime/cloudflare";
+import { CloudflareAgentRuntime } from "@tedix/agent-runtime/cloudflare";
 
-export class WorkspaceObject extends DurableObject<Env> {
-	readonly runtime: CloudflareWorkspaceRuntime;
+export class AgentObject extends DurableObject<Env> {
+	readonly runtime: CloudflareAgentRuntime;
 
 	constructor(ctx: DurableObjectState, env: Env) {
 		super(ctx, env);
-		this.runtime = new CloudflareWorkspaceRuntime(ctx, env, {
-			workspaceId: ctx.id.name!,
+		this.runtime = new CloudflareAgentRuntime(ctx, env, {
+			objectId: ctx.id.name!,
 			jurisdiction: "eu", // from the organization's residency
 		});
 		this.runtime.alarms.onAlarm(async (alarm) => {
@@ -69,13 +74,13 @@ export class WorkspaceObject extends DurableObject<Env> {
 }
 ```
 
-Open a workspace with the address helper, never with the raw namespace. For an
+Open an object with the address helper, never with the raw namespace. For an
 EU organization the object is created inside the EU jurisdiction, and the same
 id addressed without it would be a different, empty object:
 
 ```ts
-const stub = cloudflareWorkspaceStub(env.WORKSPACE, {
-	workspaceId,
+const stub = cloudflareAgentObjectStub(env.WORKSPACE, {
+	objectId,
 	jurisdiction: organization.residency === "eu" ? "eu" : "global",
 });
 ```
@@ -143,41 +148,41 @@ WebSockets and the object's alarm. The Worker declares:
 ```jsonc
 {
 	"durable_objects": {
-		"bindings": [{ "name": "WORKSPACE", "class_name": "WorkspaceObject" }],
+		"bindings": [{ "name": "WORKSPACE", "class_name": "AgentObject" }],
 	},
-	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["WorkspaceObject"] }],
+	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["AgentObject"] }],
 	"worker_loaders": [{ "binding": "LOADER" }],
 }
 ```
 
-`cloudflareWorkspaceStub` selects `jurisdiction("eu")` for an EU workspace
+`cloudflareAgentObjectStub` selects `jurisdiction("eu")` for an EU object
 through `@tedix/worker-kit/durable-objects`, the one module allowed to address
 objects.
 
 ### Self-hosted workerd (`./workerd`)
 
 The same object storage, loader, WebSocket and alarm APIs on a workerd process
-you run yourself. State is file-backed: `workerd/workspace.capnp` points the
-object namespace at a directory on disk, so each workspace's SQLite file lives
+you run yourself. State is file-backed: `workerd/agent-object.capnp` points the
+object namespace at a directory on disk, so each object's SQLite file lives
 there and survives restarts. The jurisdiction is `local`: residency is where
 the process runs, and the implementation refuses any narrower claim. The
-config compiles with workerd 1.20261101.1 (`workerd compile workspace.capnp`);
+config compiles with workerd 1.20261101.1 (`workerd compile agent-object.capnp`);
 it has not been run as a service from this repository, so check it on your
 own workerd before relying on it.
 
 ### Kubernetes and Postgres (sketch, not implemented)
 
 The contract is deliberately host-neutral so a customer on Kubernetes can run
-the same workspace object. What such an implementation needs:
+the same agent object. What such an implementation needs:
 
-- **Single writer.** One process owns one workspace at a time. A lease row in
-  Postgres (`workspace_leases(workspace_id, holder, expires_at)`) renewed by
+- **Single writer.** One process owns one object at a time. A lease row in
+  Postgres (`agent_object_leases(object_id, holder, expires_at)`) renewed by
   the holder gives the same guarantee a Durable Object gives for free; every
   method checks the lease before touching data.
-- **Storage.** One Postgres schema per workspace (`ws_<id>`), `batch` as a
+- **Storage.** One Postgres schema per object (`obj_<id>`), `batch` as a
   transaction, migrations recorded in the same table shape as here.
 - **Sandbox.** A local workerd process beside the service, started with a
-  config like `workerd/workspace.capnp` minus the disk, with the bindings
+  config like `workerd/agent-object.capnp` minus the disk, with the bindings
   served back to it over a loopback socket. Nothing in the contract depends on
   the loader being in-process.
 - **Events.** The events table in Postgres plus `LISTEN/NOTIFY` for live
@@ -191,13 +196,13 @@ implementation.
 ## Checking it
 
 ```bash
-bun run --cwd packages/workspace-runtime test:run
+bun run --cwd packages/agent-runtime test:run
 ```
 
 ```bash
-bun run --cwd packages/workspace-runtime type-check
+bun run --cwd packages/agent-runtime type-check
 ```
 
 The suite runs inside workerd and exercises both implementations against real
-object storage, a real loader and real WebSockets. `describeWorkspaceRuntimeConformance`
+object storage, a real loader and real WebSockets. `describeAgentRuntimeConformance`
 from `./conformance` takes a harness, so a new host runs the same suite.

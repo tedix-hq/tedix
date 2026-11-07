@@ -1,22 +1,22 @@
 import {
-	assertWorkspaceBindingName,
-	formatWorkspaceBindingDescription,
-	type WorkspaceBinding,
-	type WorkspaceBindingSummary,
-	type WorkspaceBindings,
+	assertAgentBindingName,
+	formatAgentBindingDescription,
+	type AgentBinding,
+	type AgentBindingSummary,
+	type AgentBindings,
 } from "./index";
 
 /**
- * The registry of `env.NAME` capabilities a workspace exposes to sandboxed
+ * The registry of `env.NAME` capabilities an agent object exposes to sandboxed
  * code. Registration validates the name once; `env()` builds the plain object
  * the loader accepts (never a null-prototype object: the loader's serializer
  * rejects it).
  */
-export class WorkspaceBindingRegistry implements WorkspaceBindings {
-	private readonly bindings = new Map<string, WorkspaceBinding>();
+export class AgentBindingRegistry implements AgentBindings {
+	private readonly bindings = new Map<string, AgentBinding>();
 
-	register(binding: WorkspaceBinding): void {
-		assertWorkspaceBindingName(binding.name);
+	register(binding: AgentBinding): void {
+		assertAgentBindingName(binding.name);
 		if (!binding.declaration.trim()) {
 			throw new Error(`Binding ${binding.name} needs a declaration`);
 		}
@@ -31,7 +31,7 @@ export class WorkspaceBindingRegistry implements WorkspaceBindings {
 		return this.bindings.has(name);
 	}
 
-	list(): WorkspaceBindingSummary[] {
+	list(): AgentBindingSummary[] {
 		return [...this.bindings.values()]
 			.map(({ name, description }) => ({ name, description }))
 			.sort((a, b) => a.name.localeCompare(b.name));
@@ -47,7 +47,7 @@ export class WorkspaceBindingRegistry implements WorkspaceBindings {
 				`No binding named ${JSON.stringify(name)}. Registered: ${known || "none"}`,
 			);
 		}
-		return formatWorkspaceBindingDescription(binding);
+		return formatAgentBindingDescription(binding);
 	}
 
 	catalog(): string {

@@ -1,12 +1,12 @@
 import type {
-	WorkspaceEvent,
-	WorkspaceEventInput,
-	WorkspaceEventListener,
-	WorkspaceEvents,
-	WorkspaceJson,
-	WorkspaceSubscribeOptions,
+	AgentEvent,
+	AgentEventInput,
+	AgentEventListener,
+	AgentEvents,
+	AgentJson,
+	AgentSubscribeOptions,
 } from "./index";
-import type { SqliteWorkspaceStorage } from "./sql-storage";
+import type { SqliteAgentStorage } from "./sql-storage";
 
 /** The WebSocket side of a Durable Object this module uses. */
 export interface WebSocketHost {
@@ -15,18 +15,18 @@ export interface WebSocketHost {
 }
 
 /** What a connected client receives, one JSON message per event. */
-export interface WorkspaceEventMessage extends WorkspaceEvent {
+export interface AgentEventMessage extends AgentEvent {
 	readonly kind: "event";
 }
 
 /** A client asks for the stored events after a cursor (after a reconnect). */
-export interface WorkspaceReplayRequest {
+export interface AgentReplayRequest {
 	readonly kind: "replay";
 	readonly after: number;
 }
 
-const EVENTS_TABLE = "workspace_runtime_events";
-const SOCKET_TAG = "workspace-events";
+const EVENTS_TABLE = "agent_runtime_events";
+const SOCKET_TAG = "agent-events";
 const DEFAULT_RETAINED = 10_000;
 const DEFAULT_REPLAY_LIMIT = 1_000;
 
@@ -37,33 +37,33 @@ type EventRow = {
 	event_at: number;
 };
 
-function rowToEvent(row: EventRow): WorkspaceEvent {
+function rowToEvent(row: EventRow): AgentEvent {
 	return {
 		cursor: row.event_cursor,
 		type: row.event_type,
-		payload: JSON.parse(row.event_payload) as WorkspaceJson,
+		payload: JSON.parse(row.event_payload) as AgentJson,
 		at: row.event_at,
 	};
 }
 
-export interface SqliteWorkspaceEventsOptions {
+export interface SqliteAgentEventsOptions {
 	/** Oldest events are dropped past this many. */
 	readonly retained?: number;
 }
 
 /**
- * The event feed, stored in the workspace's SQLite so a cursor survives
+ * The event feed, stored in the object's SQLite so a cursor survives
  * restarts and hibernation. Live delivery goes to in-object listeners and to
  * every accepted WebSocket; replay reads the table.
  */
-export class SqliteWorkspaceEvents implements WorkspaceEvents {
-	private readonly listeners = new Set<WorkspaceEventListener>();
+export class SqliteAgentEvents implements AgentEvents {
+	private readonly listeners = new Set<AgentEventListener>();
 	private readonly retained: number;
 
 	constructor(
-		private readonly storage: SqliteWorkspaceStorage,
+		private readonly storage: SqliteAgentStorage,
 		private readonly sockets: WebSocketHost,
-		options: SqliteWorkspaceEventsOptions = {},
+		options: SqliteAgentEventsOptions = {},
 	) {
 		this.retained = options.retained ?? DEFAULT_RETAINED;
 		void storage.exec(
@@ -75,7 +75,7 @@ export class SqliteWorkspaceEvents implements WorkspaceEvents {
 		);
 	}
 
-	async publish(input: WorkspaceEventInput): Promise<WorkspaceEvent> {
+	async publish(input: AgentEventInput): Promise<AgentEvent> {
 		if (!input.type.trim()) throw new Error("An event needs a type");
 		const at = Date.now();
 		const payload = JSON.stringify(input.payload ?? null);
@@ -91,7 +91,7 @@ export class SqliteWorkspaceEvents implements WorkspaceEvents {
 			`DELETE FROM ${EVENTS_TABLE} WHERE event_cursor <= ?`,
 			[cursor - this.retained],
 		);
-		const event: WorkspaceEvent = {
+		const event: AgentEvent = {
 			cursor,
 			type: input.type,
 			payload: input.payload ?? null,
@@ -102,8 +102,8 @@ export class SqliteWorkspaceEvents implements WorkspaceEvents {
 	}
 
 	async subscribe(
-		listener: WorkspaceEventListener,
-		options: WorkspaceSubscribeOptions = {},
+		listener: AgentEventListener,
+		options: AgentSubscribeOptions = {},
 	): Promise<() => void> {
 		if (options.after !== undefined) {
 			for (const event of await this.replay(options.after)) listener(event);
@@ -117,7 +117,7 @@ export class SqliteWorkspaceEvents implements WorkspaceEvents {
 	async replay(
 		after: number,
 		limit = DEFAULT_REPLAY_LIMIT,
-	): Promise<WorkspaceEvent[]> {
+	): Promise<AgentEvent[]> {
 		const rows = await this.storage.query<EventRow>(
 			`SELECT event_cursor, event_type, event_payload, event_at FROM ${EVENTS_TABLE} ` +
 				"WHERE event_cursor > ? ORDER BY event_cursor ASC LIMIT ?",
@@ -165,7 +165,7 @@ export class SqliteWorkspaceEvents implements WorkspaceEvents {
 		} catch {
 			return;
 		}
-		const request = parsed as Partial<WorkspaceReplayRequest> | null;
+		const request = parsed as Partial<AgentReplayRequest> | null;
 		if (
 			request?.kind === "replay" &&
 			typeof request.after === "number" &&
@@ -181,7 +181,7 @@ export class SqliteWorkspaceEvents implements WorkspaceEvents {
 		}
 	}
 
-	private deliver(event: WorkspaceEvent): void {
+	private deliver(event: AgentEvent): void {
 		for (const listener of this.listeners) {
 			try {
 				listener(event);

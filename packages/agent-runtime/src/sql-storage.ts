@@ -1,9 +1,9 @@
 import type {
-	WorkspaceMigration,
-	WorkspaceSqlResult,
-	WorkspaceSqlStatement,
-	WorkspaceSqlValue,
-	WorkspaceStorage,
+	AgentMigration,
+	AgentSqlResult,
+	AgentSqlStatement,
+	AgentSqlValue,
+	AgentStorage,
 } from "./index";
 
 /**
@@ -14,25 +14,25 @@ export interface SqliteHost {
 	readonly sql: {
 		exec(
 			sql: string,
-			...params: WorkspaceSqlValue[]
+			...params: AgentSqlValue[]
 		): {
-			toArray(): Record<string, WorkspaceSqlValue>[];
+			toArray(): Record<string, AgentSqlValue>[];
 			readonly rowsWritten: number;
 		};
 	};
 	transactionSync<T>(callback: () => T): T;
 }
 
-const MIGRATIONS_TABLE = "workspace_runtime_migrations";
+const MIGRATIONS_TABLE = "agent_runtime_migrations";
 
 /**
- * `WorkspaceStorage` over a Durable Object's SQLite. The object is the single
+ * `AgentStorage` over a Durable Object's SQLite. The object is the single
  * writer by construction; `batch` uses the host's synchronous transaction so a
  * failing statement rolls the whole batch back.
  */
-export class SqliteWorkspaceStorage implements WorkspaceStorage {
+export class SqliteAgentStorage implements AgentStorage {
 	constructor(
-		readonly workspaceId: string,
+		readonly objectId: string,
 		private readonly host: SqliteHost,
 	) {
 		host.sql.exec(
@@ -45,22 +45,22 @@ export class SqliteWorkspaceStorage implements WorkspaceStorage {
 
 	async exec(
 		sql: string,
-		params: readonly WorkspaceSqlValue[] = [],
-	): Promise<WorkspaceSqlResult> {
+		params: readonly AgentSqlValue[] = [],
+	): Promise<AgentSqlResult> {
 		const cursor = this.host.sql.exec(sql, ...params);
 		// Reads need their rows consumed before `rowsWritten` is final.
 		cursor.toArray();
 		return { rowsWritten: cursor.rowsWritten };
 	}
 
-	async query<Row extends Record<string, WorkspaceSqlValue>>(
+	async query<Row extends Record<string, AgentSqlValue>>(
 		sql: string,
-		params: readonly WorkspaceSqlValue[] = [],
+		params: readonly AgentSqlValue[] = [],
 	): Promise<Row[]> {
 		return this.host.sql.exec(sql, ...params).toArray() as Row[];
 	}
 
-	async batch(statements: readonly WorkspaceSqlStatement[]): Promise<void> {
+	async batch(statements: readonly AgentSqlStatement[]): Promise<void> {
 		this.host.transactionSync(() => {
 			for (const statement of statements) {
 				this.host.sql
@@ -80,7 +80,7 @@ export class SqliteWorkspaceStorage implements WorkspaceStorage {
 		).map((row) => row.migration_name);
 	}
 
-	async migrate(migrations: readonly WorkspaceMigration[]): Promise<string[]> {
+	async migrate(migrations: readonly AgentMigration[]): Promise<string[]> {
 		const seen = new Set<string>();
 		for (const migration of migrations) {
 			if (seen.has(migration.name)) {

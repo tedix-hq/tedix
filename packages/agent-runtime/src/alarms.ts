@@ -1,10 +1,10 @@
 import type {
-	WorkspaceAlarm,
-	WorkspaceAlarmHandler,
-	WorkspaceAlarms,
-	WorkspaceJson,
+	AgentAlarm,
+	AgentAlarmHandler,
+	AgentAlarms,
+	AgentJson,
 } from "./index";
-import type { SqliteWorkspaceStorage } from "./sql-storage";
+import type { SqliteAgentStorage } from "./sql-storage";
 
 /** The alarm side of a Durable Object's storage this module uses. */
 export interface AlarmHost {
@@ -13,7 +13,7 @@ export interface AlarmHost {
 	getAlarm(): Promise<number | null>;
 }
 
-const ALARMS_TABLE = "workspace_runtime_alarms";
+const ALARMS_TABLE = "agent_runtime_alarms";
 
 type AlarmRow = {
 	alarm_id: string;
@@ -21,11 +21,11 @@ type AlarmRow = {
 	alarm_payload: string;
 };
 
-function rowToAlarm(row: AlarmRow): WorkspaceAlarm {
+function rowToAlarm(row: AlarmRow): AgentAlarm {
 	return {
 		id: row.alarm_id,
 		at: row.alarm_at,
-		payload: JSON.parse(row.alarm_payload) as WorkspaceJson,
+		payload: JSON.parse(row.alarm_payload) as AgentJson,
 	};
 }
 
@@ -34,11 +34,11 @@ function rowToAlarm(row: AlarmRow): WorkspaceAlarm {
  * row; the host timer is always armed for the soonest one, and `dispatchDue`
  * delivers everything that has come due and re-arms for the rest.
  */
-export class SqliteWorkspaceAlarms implements WorkspaceAlarms {
-	private handler: WorkspaceAlarmHandler = async () => {};
+export class SqliteAgentAlarms implements AgentAlarms {
+	private handler: AgentAlarmHandler = async () => {};
 
 	constructor(
-		private readonly storage: SqliteWorkspaceStorage,
+		private readonly storage: SqliteAgentStorage,
 		private readonly host: AlarmHost,
 	) {
 		void storage.exec(
@@ -52,17 +52,14 @@ export class SqliteWorkspaceAlarms implements WorkspaceAlarms {
 		);
 	}
 
-	onAlarm(handler: WorkspaceAlarmHandler): void {
+	onAlarm(handler: AgentAlarmHandler): void {
 		this.handler = handler;
 	}
 
-	async schedule(
-		at: number | Date,
-		payload: WorkspaceJson,
-	): Promise<WorkspaceAlarm> {
+	async schedule(at: number | Date, payload: AgentJson): Promise<AgentAlarm> {
 		const when = at instanceof Date ? at.getTime() : at;
 		if (!Number.isFinite(when)) throw new Error("Alarm time must be finite");
-		const alarm: WorkspaceAlarm = {
+		const alarm: AgentAlarm = {
 			id: crypto.randomUUID(),
 			at: Math.floor(when),
 			payload: payload ?? null,
@@ -84,14 +81,14 @@ export class SqliteWorkspaceAlarms implements WorkspaceAlarms {
 		return result.rowsWritten > 0;
 	}
 
-	async list(): Promise<WorkspaceAlarm[]> {
+	async list(): Promise<AgentAlarm[]> {
 		const rows = await this.storage.query<AlarmRow>(
 			`SELECT alarm_id, alarm_at, alarm_payload FROM ${ALARMS_TABLE} ORDER BY alarm_at ASC, alarm_id ASC`,
 		);
 		return rows.map(rowToAlarm);
 	}
 
-	async dispatchDue(now = Date.now()): Promise<WorkspaceAlarm[]> {
+	async dispatchDue(now = Date.now()): Promise<AgentAlarm[]> {
 		const rows = await this.storage.query<AlarmRow>(
 			`SELECT alarm_id, alarm_at, alarm_payload FROM ${ALARMS_TABLE} ` +
 				"WHERE alarm_at <= ? ORDER BY alarm_at ASC, alarm_id ASC",

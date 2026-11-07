@@ -1,22 +1,22 @@
 /**
  * The test Worker the conformance suite runs against: one Durable Object per
- * implementation, wired the way `apps/workspace-do` wires its object.
+ * implementation, wired the way `apps/workspace-do` wires its workspace object.
  */
 import { DurableObject, RpcTarget } from "cloudflare:workers";
-import { CloudflareWorkspaceRuntime } from "../src/cloudflare";
-import type { DurableObjectWorkspaceRuntime } from "../src/durable-object-runtime";
-import type { WorkspaceAlarm } from "../src/index";
+import { CloudflareAgentRuntime } from "../src/cloudflare";
+import type { DurableObjectAgentRuntime } from "../src/durable-object-runtime";
+import type { AgentAlarm } from "../src/index";
 import type { SandboxLoader } from "../src/sandbox";
-import { WorkerdWorkspaceRuntime } from "../src/workerd";
+import { WorkerdAgentRuntime } from "../src/workerd";
 
 export interface TestEnv {
 	LOADER: SandboxLoader;
-	CLOUDFLARE_WORKSPACE: DurableObjectNamespace<CloudflareWorkspaceObject>;
-	WORKERD_WORKSPACE: DurableObjectNamespace<WorkerdWorkspaceObject>;
+	CLOUDFLARE_AGENT: DurableObjectNamespace<CloudflareAgentObject>;
+	WORKERD_AGENT: DurableObjectNamespace<WorkerdAgentObject>;
 }
 
 export const ADDER_BINDING = "ADDER";
-const FIRED_TABLE = "workspace_runtime_test_fired";
+const FIRED_TABLE = "agent_runtime_test_fired";
 
 /** A binding stub whose call has to cross the sandbox boundary to work. */
 class Adder extends RpcTarget {
@@ -25,10 +25,10 @@ class Adder extends RpcTarget {
 	}
 }
 
-abstract class WorkspaceObject extends DurableObject<TestEnv> {
-	abstract readonly runtime: DurableObjectWorkspaceRuntime;
+abstract class AgentObject extends DurableObject<TestEnv> {
+	abstract readonly runtime: DurableObjectAgentRuntime;
 
-	protected wire(runtime: DurableObjectWorkspaceRuntime): void {
+	protected wire(runtime: DurableObjectAgentRuntime): void {
 		runtime.bindings.register({
 			name: ADDER_BINDING,
 			description: "Adds two numbers.",
@@ -47,11 +47,11 @@ abstract class WorkspaceObject extends DurableObject<TestEnv> {
 		});
 	}
 
-	async firedAlarms(): Promise<WorkspaceAlarm[]> {
+	async firedAlarms(): Promise<AgentAlarm[]> {
 		const rows = await this.runtime.storage.query<{ alarm_json: string }>(
 			`SELECT alarm_json FROM ${FIRED_TABLE} ORDER BY fired_order ASC`,
 		);
-		return rows.map((row) => JSON.parse(row.alarm_json) as WorkspaceAlarm);
+		return rows.map((row) => JSON.parse(row.alarm_json) as AgentAlarm);
 	}
 
 	override fetch(request: Request): Promise<Response> {
@@ -70,26 +70,26 @@ abstract class WorkspaceObject extends DurableObject<TestEnv> {
 	}
 }
 
-export class CloudflareWorkspaceObject extends WorkspaceObject {
-	readonly runtime: CloudflareWorkspaceRuntime;
+export class CloudflareAgentObject extends AgentObject {
+	readonly runtime: CloudflareAgentRuntime;
 
 	constructor(ctx: DurableObjectState, env: TestEnv) {
 		super(ctx, env);
-		this.runtime = new CloudflareWorkspaceRuntime(ctx, env, {
-			workspaceId: ctx.id.name ?? ctx.id.toString(),
+		this.runtime = new CloudflareAgentRuntime(ctx, env, {
+			objectId: ctx.id.name ?? ctx.id.toString(),
 			jurisdiction: "global",
 		});
 		this.wire(this.runtime);
 	}
 }
 
-export class WorkerdWorkspaceObject extends WorkspaceObject {
-	readonly runtime: WorkerdWorkspaceRuntime;
+export class WorkerdAgentObject extends AgentObject {
+	readonly runtime: WorkerdAgentRuntime;
 
 	constructor(ctx: DurableObjectState, env: TestEnv) {
 		super(ctx, env);
-		this.runtime = new WorkerdWorkspaceRuntime(ctx, env, {
-			workspaceId: ctx.id.name ?? ctx.id.toString(),
+		this.runtime = new WorkerdAgentRuntime(ctx, env, {
+			objectId: ctx.id.name ?? ctx.id.toString(),
 		});
 		this.wire(this.runtime);
 	}
@@ -97,6 +97,6 @@ export class WorkerdWorkspaceObject extends WorkspaceObject {
 
 export default {
 	fetch(): Response {
-		return new Response("workspace-runtime test worker", { status: 200 });
+		return new Response("agent-runtime test worker", { status: 200 });
 	},
 };

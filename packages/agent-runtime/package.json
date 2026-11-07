@@ -1,8 +1,8 @@
 {
-	"name": "@tedix/workspace-runtime",
+	"name": "@tedix/agent-runtime",
 	"version": "0.0.1",
-	"private": true,
-	"description": "The runtime a workspace object codes against: single-writer SQL, a network-less sandbox, named bindings, a replayable event feed and alarms, on Cloudflare or on a self-hosted workerd.",
+	"private": false,
+	"description": "The runtime a single-writer agent object codes against: SQL storage, a network-less sandbox, named bindings, a replayable event feed and alarms, on Cloudflare or a self-hosted workerd.",
 	"license": "Apache-2.0",
 	"type": "module",
 	"exports": {

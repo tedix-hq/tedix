@@ -2,10 +2,10 @@ import type {
 	SandboxLimits,
 	SandboxRunInput,
 	SandboxRunResult,
-	WorkspaceJson,
-	WorkspaceSandbox,
+	AgentJson,
+	AgentSandbox,
 } from "./index";
-import type { WorkspaceBindingRegistry } from "./bindings";
+import type { AgentBindingRegistry } from "./bindings";
 
 /**
  * The Worker Loader surface this module uses. Cloudflare's `LOADER` binding
@@ -109,10 +109,10 @@ export function moduleForSnippet(code: string): string {
  * here and nowhere else in this package, so `globalOutbound: null` and the
  * model-code isolation flag cannot be forgotten by a caller.
  */
-export class LoaderWorkspaceSandbox implements WorkspaceSandbox {
+export class LoaderAgentSandbox implements AgentSandbox {
 	constructor(
 		private readonly loader: SandboxLoader,
-		private readonly bindings: WorkspaceBindingRegistry,
+		private readonly bindings: AgentBindingRegistry,
 	) {}
 
 	async run(input: SandboxRunInput): Promise<SandboxRunResult> {
@@ -208,12 +208,12 @@ export class LoaderWorkspaceSandbox implements WorkspaceSandbox {
 function decodeResult(
 	serialized: string | undefined,
 	maxResultChars: number,
-): { value: WorkspaceJson | undefined; truncated: boolean } {
+): { value: AgentJson | undefined; truncated: boolean } {
 	if (serialized === undefined) return { value: undefined, truncated: false };
 	if (serialized.length > maxResultChars) {
 		return { value: serialized.slice(0, maxResultChars), truncated: true };
 	}
-	return { value: JSON.parse(serialized) as WorkspaceJson, truncated: false };
+	return { value: JSON.parse(serialized) as AgentJson, truncated: false };
 }
 
 function describeError(error: unknown): string {
