@@ -1119,7 +1119,10 @@ describe("proactive session refresh", () => {
 			Parameters<typeof refreshStoredSession>[1]
 		>["fetchFn"];
 
-		const outcome = await refreshStoredSession(provider, { fetchFn });
+		const outcome = await refreshStoredSession(provider, {
+			fetchFn,
+			isDarkWake: () => false,
+		});
 
 		expect(outcome).toBe("refreshed");
 		expect(refreshRequestScope).toBe(scope);
@@ -1204,9 +1207,12 @@ describe("proactive session refresh", () => {
 			Parameters<typeof refreshStoredSession>[1]
 		>["fetchFn"];
 
-		expect(await refreshStoredSession(provider, { fetchFn })).toBe(
-			"scope-expanded",
-		);
+		expect(
+			await refreshStoredSession(provider, {
+				fetchFn,
+				isDarkWake: () => false,
+			}),
+		).toBe("scope-expanded");
 		expect(provider.tokens()?.access_token).toBe("stale-access-token");
 		expect(provider.tokens()?.refresh_token).toBe("refresh-token");
 	});
@@ -1323,7 +1329,12 @@ describe("proactive session refresh", () => {
 			}) as unknown as NonNullable<
 				Parameters<typeof refreshStoredSession>[1]
 			>["fetchFn"];
-			expect(await refreshStoredSession(provider, { fetchFn })).toBe(expected);
+			expect(
+				await refreshStoredSession(provider, {
+					fetchFn,
+					isDarkWake: () => false,
+				}),
+			).toBe(expected);
 			expect(provider.tokens()?.access_token).toBe(
 				expected === "refreshed" ? renewedToken : oldToken,
 			);
@@ -1383,7 +1394,11 @@ describe("proactive session refresh", () => {
 			>["fetchFn"];
 
 			expect(
-				await refreshStoredSession(provider, { fetchFn, workspace: "tedix" }),
+				await refreshStoredSession(provider, {
+					fetchFn,
+					workspace: "tedix",
+					isDarkWake: () => false,
+				}),
 			).toBe("not-needed");
 			// The decisive assertion: no token request was made at all.
 			expect(called).toBe(false);
@@ -1516,6 +1531,7 @@ describe("proactive session refresh", () => {
 				if (timing === "before-refresh") removeWorkspace("race");
 				let requests = 0;
 				const outcome = await refreshStoredSession(provider, {
+					isDarkWake: () => false,
 					workspace: "race",
 					fetchFn: async () => {
 						requests += 1;
@@ -1579,9 +1595,12 @@ describe("proactive session refresh", () => {
 			Parameters<typeof refreshStoredSession>[1]
 		>["fetchFn"];
 
-		expect(await refreshStoredSession(provider, { fetchFn })).toBe(
-			"invalidated",
-		);
+		expect(
+			await refreshStoredSession(provider, {
+				fetchFn,
+				isDarkWake: () => false,
+			}),
+		).toBe("invalidated");
 		expect(provider.tokens()?.access_token).toBe("stale-access-token");
 	});
 
@@ -1611,7 +1630,12 @@ describe("proactive session refresh", () => {
 
 		// Never throws: the caller still makes the request so the server reports
 		// the real problem rather than this step masking it.
-		expect(await refreshStoredSession(provider, { fetchFn })).toBe("failed");
+		expect(
+			await refreshStoredSession(provider, {
+				fetchFn,
+				isDarkWake: () => false,
+			}),
+		).toBe("failed");
 		expect(provider.tokens()?.access_token).toBe("stale-access-token");
 	});
 
@@ -1647,7 +1671,11 @@ describe("proactive session refresh", () => {
 
 		const startedAt = Date.now();
 		expect(
-			await refreshStoredSession(provider, { fetchFn, timeoutMs: 5 }),
+			await refreshStoredSession(provider, {
+				fetchFn,
+				timeoutMs: 5,
+				isDarkWake: () => false,
+			}),
 		).toBe("failed");
 		expect(Date.now() - startedAt).toBeLessThan(250);
 		expect(SESSION_REFRESH_TIMEOUT_MS).toBe(60_000);
@@ -1798,6 +1826,7 @@ describe("canonical token deadlines", () => {
 		});
 		let calls = 0;
 		await refreshStoredSession(provider, {
+			isDarkWake: () => false,
 			fetchFn: async () => {
 				calls++;
 				throw new Error("unexpected network");
@@ -1859,6 +1888,7 @@ describe("renewal applies login grant invariants", () => {
 			Parameters<typeof refreshStoredSession>[1]
 		>["fetchFn"];
 		const outcome = await refreshStoredSession(provider, {
+			isDarkWake: () => false,
 			fetchFn,
 			workspace: "renewal",
 		});

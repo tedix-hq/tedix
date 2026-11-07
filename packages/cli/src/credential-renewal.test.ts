@@ -322,9 +322,9 @@ for (const [status, body, oauthError, terminal] of [
 					fetchFn,
 					isDarkWake: () => false,
 				}),
-			).toBe(terminal ? "invalidated" : "failed");
+			).toBe(terminal ? "invalidated" : "uncertain");
 			const stored = readWorkspaceCredentials(WORKSPACE)!;
-			expect(stored.oauthRefreshPending).toBeUndefined();
+			expect(stored.oauthRefreshPending).toBe(terminal ? undefined : true);
 			expect(stored.oauthRefreshInvalidated).toBe(terminal ? true : undefined);
 			const entry = JSON.parse(
 				readFileSync(join(dir, "renewals.log"), "utf8").trim(),
@@ -332,7 +332,7 @@ for (const [status, body, oauthError, terminal] of [
 			expect(entry.httpStatus).toBe(status);
 			expect(entry.oauthError).toBe(oauthError);
 			expect(entry.failure).toBe(
-				terminal ? "oauth-error" : "retryable-response",
+				terminal ? "oauth-error" : "unconfirmed-response",
 			);
 			if (!oauthError) expect(entry.responsePreview).toBe(body);
 			expect(
@@ -340,12 +340,11 @@ for (const [status, body, oauthError, terminal] of [
 					fetchFn,
 					isDarkWake: () => false,
 				}),
-			).toBe(terminal ? "invalidated" : "refreshed");
-			expect(posts).toBe(terminal ? 1 : 2);
-			if (!terminal)
-				expect(
-					readWorkspaceCredentials(WORKSPACE)?.oauthTokens?.refresh_token,
-				).toBe("refresh-1");
+			).toBe(terminal ? "invalidated" : "uncertain");
+			expect(posts).toBe(1);
+			expect(
+				readWorkspaceCredentials(WORKSPACE)?.oauthTokens?.refresh_token,
+			).toBe("refresh-0");
 		} finally {
 			if (previous === undefined) delete process.env.TEDIX_CONFIG_DIR;
 			else process.env.TEDIX_CONFIG_DIR = previous;
@@ -372,7 +371,7 @@ test("renewal journal redacts before truncating unexpected replies to 120 bytes"
 				isDarkWake: () => false,
 				fetchFn: async () => new Response(body, { status: 502 }),
 			}),
-		).toBe("failed");
+		).toBe("uncertain");
 		const journal = readFileSync(join(dir, "renewals.log"), "utf8");
 		expect(journal).not.toContain("refresh-0");
 		expect(journal).not.toContain(stored.oauthTokens!.access_token);
@@ -406,7 +405,7 @@ test("a new login saved during a transient response is never overwritten", async
 					return new Response("unavailable", { status: 503 });
 				},
 			}),
-		).toBe("failed");
+		).toBe("uncertain");
 		expect(
 			readWorkspaceCredentials(WORKSPACE)?.oauthTokens?.refresh_token,
 		).toBe("new-human-grant");
@@ -523,6 +522,68 @@ test.each([false, true])(
 			expect(
 				readWorkspaceCredentials(WORKSPACE)?.oauthRefreshPending,
 			).toBeUndefined();
+		} finally {
+			server.stop(true);
+		}
+	},
+);
+
+test.each(["exchange-error", "http-error", "malformed"] as const)(
+	"failed pre-connect attempts followed by a rotated %s never replay the token",
+	async (failure) => {
+		const { server, state } = rotatingServer(0);
+		const base = `http://127.0.0.1:${server.port}`;
+		try {
+			storeExpiredLogin(base, state.current);
+			const provider = new WorkspaceOAuthProvider({
+				workspace: WORKSPACE,
+				mcpUrl: `${base}/mcp`,
+			});
+			let attempts = 0;
+			expect(
+				await refreshStoredSession(provider, {
+					isDarkWake: () => false,
+					fetchFn: async () => {
+						attempts++;
+						throw Object.assign(new Error("offline"), { code: "ECONNREFUSED" });
+					},
+				}),
+			).toBe("failed");
+			expect(attempts).toBe(2);
+			expect(
+				readWorkspaceCredentials(WORKSPACE)?.oauthRefreshPending,
+			).toBeUndefined();
+			expect(state.rotations).toBe(0);
+
+			expect(
+				await refreshStoredSession(provider, {
+					isDarkWake: () => false,
+					fetchFn: async (input, init) => {
+						const response = await fetch(input, init);
+						await response.text();
+						if (failure === "exchange-error")
+							throw Object.assign(new Error("socket closed after rotation"), {
+								code: "ECONNRESET",
+							});
+						return new Response(
+							failure === "http-error" ? "upstream unavailable" : "{",
+							{
+								status: failure === "http-error" ? 503 : 200,
+							},
+						);
+					},
+				}),
+			).toBe("uncertain");
+			for (let n = 0; n < 4; n++)
+				expect(await refreshStoredSession(provider)).toBe("uncertain");
+			expect(state.rotations).toBe(1);
+			expect(state.invalidated).toBe(false);
+			expect(readWorkspaceCredentials(WORKSPACE)?.oauthRefreshPending).toBe(
+				true,
+			);
+			expect(
+				readWorkspaceCredentials(WORKSPACE)?.oauthTokens?.refresh_token,
+			).toBe("refresh-0");
 		} finally {
 			server.stop(true);
 		}
