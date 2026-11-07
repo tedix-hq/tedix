@@ -15,6 +15,7 @@ import { storeOutputBody } from "../src/data-port-tenant";
 import type { WorkspaceEnv, WorkspaceScope } from "../src/env";
 import type { WorkspaceRpc } from "../src/do";
 import type { ScriptStep } from "./worker";
+import wranglerConfig from "../wrangler.jsonc?raw";
 
 const scope: WorkspaceScope = {
 	organizationId: "org_test",
@@ -35,8 +36,39 @@ type Stub = WorkspaceRpc & {
 		},
 	): Promise<unknown>;
 };
-function workspace(): Stub {
-	return tenantStoreStub(testEnv.WORKSPACE, testEnv, scope) as unknown as Stub;
+function workspace(workspaceScope = scope): Stub {
+	return tenantStoreStub(
+		testEnv.WORKSPACE,
+		testEnv,
+		workspaceScope,
+	) as unknown as Stub;
+}
+
+function percentile(values: number[], quantile: number): number {
+	const sorted = values.toSorted((a, b) => a - b);
+	return sorted[Math.ceil(sorted.length * quantile) - 1] ?? 0;
+}
+
+async function socketFramesUntil(
+	socket: WebSocket,
+	done: (frame: Record<string, unknown>) => boolean,
+): Promise<Record<string, unknown>[]> {
+	const frames: Record<string, unknown>[] = [];
+	return new Promise((resolve, reject) => {
+		const timer = setTimeout(
+			() => reject(new Error("WebSocket replay timed out")),
+			5_000,
+		);
+		socket.addEventListener("message", (event) => {
+			const frame = JSON.parse(String(event.data)) as Record<string, unknown>;
+			frames.push(frame);
+			if (done(frame)) {
+				clearTimeout(timer);
+				resolve(frames);
+			}
+		});
+		socket.accept();
+	});
 }
 
 /** CREATE TABLE from the Drizzle definition, so inserts can use every column. */
@@ -91,6 +123,23 @@ async function seedCore() {
 			`INSERT OR REPLACE INTO tedis (id, organization_id, name, slug, isolate_agent_id, created_at, updated_at) VALUES ('tedi1', ?, 'Guest', 'guest', 'tedi-object-1', ?, ?)`,
 		).bind(scope.organizationId, now, now),
 	]);
+}
+
+async function seedWorkspaceRows(scopes: WorkspaceScope[]) {
+	const now = "2026-11-07T10:00:00.000Z";
+	await testEnv.DB.batch(
+		scopes.map((workspaceScope, index) =>
+			testEnv.DB.prepare(
+				`INSERT OR REPLACE INTO os_workspaces (id, organization_id, name, description, status, created_by_kind, created_by_id, created_at, updated_at, visibility) VALUES (?, ?, ?, '', 'active', 'service', 'load-test', ?, ?, 'org')`,
+			).bind(
+				workspaceScope.workspaceId,
+				workspaceScope.organizationId,
+				`Load workspace ${index}`,
+				now,
+				now,
+			),
+		),
+	);
 }
 
 async function seedOutputs(ws: Stub) {
@@ -203,6 +252,16 @@ const READ_ONLY_CODE = `export default async (env) => {
 }`;
 
 describe("WorkspaceDO", () => {
+	test("production keeps workspace objects and their bodies in the EU jurisdiction", () => {
+		const production = wranglerConfig.slice(
+			wranglerConfig.indexOf('"production"'),
+		);
+		expect(production).toContain('"DO_JURISDICTION": "eu"');
+		expect(production).toMatch(
+			/"bucket_name": "public-installation-bucket",\s*"jurisdiction": "eu"/,
+		);
+	});
+
 	test("answers the read-only benchmark question from its own bindings and records every read", async () => {
 		await seedCore();
 		const ws = workspace();
@@ -271,6 +330,97 @@ describe("WorkspaceDO", () => {
 		expect((await ws.listConversations(scope))[0]?.id).toBe(conversationId);
 		// Loop overhead without a real model: well inside the 30 s budget.
 		expect(elapsed).toBeLessThan(10_000);
+	});
+
+	test("two isolated turns in one workspace remain in flight together", async () => {
+		const ws = workspace();
+		await ws.scriptModel(scope, [
+			{
+				text: "one two three four five six seven eight",
+				tokensPerSecond: 5,
+			},
+		]);
+		const [first, second] = await Promise.all([
+			ws.sendTurn(scope, {
+				actorId: "u1",
+				actorKind: "user",
+				text: "first isolated turn",
+				isolate: true,
+			}),
+			ws.sendTurn(scope, {
+				actorId: "u1",
+				actorKind: "user",
+				text: "second isolated turn",
+				isolate: true,
+			}),
+		]);
+
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		const inFlight = await Promise.all([
+			ws.readTurn(scope, first.turnId),
+			ws.readTurn(scope, second.turnId),
+		]);
+		expect(inFlight.map((turn) => turn?.status)).toEqual([
+			"running",
+			"running",
+		]);
+
+		const outcomes = await Promise.all([
+			ws.awaitTurn(scope, first.turnId, 20_000),
+			ws.awaitTurn(scope, second.turnId, 20_000),
+		]);
+		expect(outcomes.map((outcome) => outcome.status)).toEqual([
+			"finished",
+			"finished",
+		]);
+	});
+
+	test("runs five concurrent turns in each of 50 local workerd workspaces", async () => {
+		await seedCore();
+		const loadScopes = Array.from(
+			{ length: 50 },
+			(_, index): WorkspaceScope => ({
+				organizationId: scope.organizationId,
+				workspaceId: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+			}),
+		);
+		await seedWorkspaceRows(loadScopes);
+		const workspaces = await Promise.all(
+			loadScopes.map(async (workspaceScope, index) => {
+				const ws = workspace(workspaceScope);
+				await ws.scriptModel(workspaceScope, [{ text: `workspace ${index}` }]);
+				return { scope: workspaceScope, ws };
+			}),
+		);
+		const latencies: number[] = [];
+
+		await Promise.all(
+			workspaces.flatMap(({ scope: workspaceScope, ws }) =>
+				Array.from({ length: 5 }, async (_, turn) => {
+					const startedAt = performance.now();
+					const started = await ws.sendTurn(workspaceScope, {
+						actorId: "load-test",
+						actorKind: "service",
+						text: `turn ${turn}`,
+					});
+					const outcome = await ws.awaitTurn(
+						workspaceScope,
+						started.turnId,
+						20_000,
+					);
+					latencies.push(performance.now() - startedAt);
+					expect(outcome.status).toBe("finished");
+				}),
+			),
+		);
+
+		const p50 = percentile(latencies, 0.5);
+		const p95 = percentile(latencies, 0.95);
+		console.info(
+			`workspace-do load: turns=${latencies.length} p50=${p50.toFixed(1)}ms p95=${p95.toFixed(1)}ms`,
+		);
+		expect(latencies).toHaveLength(250);
+		expect(p95).toBeLessThan(20_000);
 	});
 
 	test("a write holds for approval; approving runs it with a receipt and the turn continues", async () => {
@@ -355,6 +505,100 @@ describe("WorkspaceDO", () => {
 		);
 		const history = await ws.readLedger(scope, conversationId, { limit: 10 });
 		expect(history.map((event) => event.type)).toContain("turn.started");
+	});
+
+	test("a WebSocket reconnect replays events after its cursor", async () => {
+		const ws = workspace();
+		await ws.scriptModel(scope, [{ text: "replayed answer" }]);
+		const started = await ws.sendTurn(scope, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "replay this turn",
+		});
+		await ws.awaitTurn(scope, started.turnId, 20_000);
+
+		const response = await ws.fetch(
+			new Request(
+				`https://workspace.test/subscribe?conversation=${started.conversationId}&after=${started.seq}`,
+				{
+					headers: {
+						Upgrade: "websocket",
+						"X-Workspace-Org": scope.organizationId,
+						"X-Workspace-Id": scope.workspaceId,
+						"X-Workspace-Actor-Id": "u1",
+					},
+				},
+			),
+		);
+		expect(response.status).toBe(101);
+		const socket = response.webSocket;
+		if (!socket) throw new Error("upgrade did not return a WebSocket");
+		const frames = await socketFramesUntil(
+			socket,
+			(frame) => frame.type === "caught_up",
+		);
+		socket.close(1000, "test complete");
+
+		expect(frames[0]?.type).toBe("hello");
+		expect(frames.at(-1)?.type).toBe("caught_up");
+		expect(frames.map((frame) => frame.type)).toContain("assistant.done");
+		expect(
+			frames
+				.filter((frame) => typeof frame.seq === "number")
+				.every((frame) => Number(frame.seq) > started.seq),
+		).toBe(true);
+	});
+
+	test("the MCP entry lists tools and completes a workspace turn", async () => {
+		const ws = workspace();
+		const headers = {
+			"Content-Type": "application/json",
+			"X-Workspace-Org": scope.organizationId,
+			"X-Workspace-Id": scope.workspaceId,
+			"X-Workspace-Actor-Id": "outside-agent",
+			"X-Workspace-Actor-Kind": "external_agent",
+		};
+		const listed = await ws.fetch(
+			new Request("https://workspace.test/mcp", {
+				method: "POST",
+				headers,
+				body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+			}),
+		);
+		const listBody = (await listed.json()) as {
+			result: { tools: Array<{ name: string }> };
+		};
+		expect(listBody.result.tools.map((tool) => tool.name)).toContain(
+			"send_turn",
+		);
+
+		await ws.scriptModel(scope, [{ text: "answer through MCP" }]);
+		const called = await ws.fetch(
+			new Request("https://workspace.test/mcp", {
+				method: "POST",
+				headers,
+				body: JSON.stringify({
+					jsonrpc: "2.0",
+					id: 2,
+					method: "tools/call",
+					params: {
+						name: "send_turn",
+						arguments: { text: "answer from outside", waitSeconds: 10 },
+					},
+				}),
+			}),
+		);
+		const callBody = (await called.json()) as {
+			result: { content: Array<{ text: string }> };
+		};
+		const outcome = JSON.parse(callBody.result.content[0]?.text ?? "{}") as {
+			status?: string;
+			text?: string;
+		};
+		expect(outcome).toMatchObject({
+			status: "finished",
+			text: "answer through MCP",
+		});
 	});
 
 	test("a long conversation runs its turn in a facet", async () => {
