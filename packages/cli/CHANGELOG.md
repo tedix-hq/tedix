@@ -3,6 +3,17 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.19.12 — 2026-11-07
+
+### Patch Changes
+
+- `tedix lane serve` no longer settles a waiting lane as a failed Attempt.
+  When an agent reports its Work is waiting on a date, an approval, a person
+  or production access it can declare `outcome=deferred` with the reason and
+  an optional recheck time. The Attempt settles as cancelled and the runner
+  revisits the Work after the wait, so these items no longer pile up on the
+  three-failure hold.
+
 ## 0.19.11 — 2026-11-07
 
 ### Patch Changes
