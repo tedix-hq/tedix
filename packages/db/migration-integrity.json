@@ -1392,6 +1392,10 @@
 		{
 			"name": "20261107184435_work_events_org_occurred/migration.sql",
 			"sha256": "e39e39b072bb9bc5202b99f1d32d11977c7567a9ea798edfe9a98ff06107772b"
+		},
+		{
+			"name": "20261107194203_memory_facts_expertise_live/migration.sql",
+			"sha256": "e43eddef48c5844fa2d461c257f6f492f70481ca0d0c83fcba35f1f728e848f8"
 		}
 	]
 }

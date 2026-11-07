@@ -175,6 +175,9 @@ export const memoryFacts = sqliteTable(
 		index("idx_memory_facts_use_policy").on(table.usePolicy),
 		index("idx_memory_facts_review_status").on(table.reviewStatus),
 		index("memory_facts_tedi_domain_idx").on(table.tediId, table.domainId),
+		index("idx_memory_facts_expertise_live")
+			.on(table.organizationId, table.tediId, table.domainId, table.confidence)
+			.where(sql`archived_at IS NULL`),
 	],
 );
 

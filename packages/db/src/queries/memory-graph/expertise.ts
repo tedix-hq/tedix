@@ -140,6 +140,43 @@ function calculateExpertiseLevel(
 	if (factCount >= 6) return "familiar";
 	return "novice";
 }
+/** Full recounts stay correct but cost one index walk per fact learned; a
+ * row refreshed within this window is advanced arithmetically instead. */
+const EXPERTISE_RECOUNT_AFTER_MS = 60 * 60 * 1000;
+
+/**
+ * Record one newly learned, unarchived fact in the tedi's expertise for its
+ * domain. A row recounted within the last hour moves by one fact (running
+ * average); older or missing rows get the full recount, which also corrects
+ * any drift from archived or re-scored facts in between.
+ */
+export async function noteFactLearned(
+	db: DbClient,
+	tenantScope: TenantScope,
+	tediId: string,
+	domainId: string,
+	confidence: number,
+): Promise<TediExpertise> {
+	const existing = await db.query.tediExpertise.findFirst({
+		where: { tediId, domainId },
+	});
+	const refreshedAt = existing?.updatedAt
+		? Date.parse(existing.updatedAt)
+		: Number.NaN;
+	if (!existing || Date.now() - refreshedAt > EXPERTISE_RECOUNT_AFTER_MS)
+		return recalculateExpertise(db, tenantScope, tediId, domainId);
+	const factCount = existing.factCount + 1;
+	const avgConfidence =
+		(existing.avgConfidence * existing.factCount + confidence) / factCount;
+	return upsertExpertise(db, tenantScope, {
+		tediId,
+		domainId,
+		factCount,
+		avgConfidence,
+		expertiseLevel: calculateExpertiseLevel(factCount, avgConfidence),
+	});
+}
+
 export async function recalculateExpertise(
 	db: DbClient,
 	tenantScope: TenantScope,
