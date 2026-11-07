@@ -282,6 +282,93 @@ describe("Home approval dispatch receipt", () => {
 				credentialBindingId: "agent-owner",
 			});
 		});
+		it("consumes a policy-approved agent receipt once without a human identity", async () => {
+			mocks.approval.mockResolvedValue({
+				...approval,
+				resolvedBy: "policy",
+				payload: {
+					...payload,
+					initiatedByUserId: null,
+					initiatedByAgentPrincipalId: agentPrincipalId,
+				},
+			});
+			const policyInput = { ...asApprover, userId: undefined };
+			expect(await client().resolveHomeToolApproval(policyInput)).toEqual({
+				approved: true,
+			});
+			expect(await client().resolveHomeToolApproval(policyInput)).toEqual({
+				approved: false,
+			});
+			expect(mocks.member).not.toHaveBeenCalledWith(
+				expect.anything(),
+				"org-1",
+				undefined,
+			);
+		});
+		it.each([
+			{ label: "personal credential", input: { credential: "user" as const } },
+			{
+				label: "changed arguments",
+				input: { args: { ...input.args, title: "Changed" } },
+			},
+			{ label: "wrong tool", input: { toolName: "os.revise_os_output" } },
+			{ label: "human-approved receipt", approval: { resolvedBy: "owner-1" } },
+			{ label: "pending receipt", approval: { status: "pending" } },
+			{
+				label: "missing agent",
+				payload: { initiatedByAgentPrincipalId: undefined },
+			},
+			{ label: "human initiator", payload: { initiatedByUserId: "user-1" } },
+			{ label: "terminal run", run: { status: "completed" } },
+			{
+				label: "revoked owner",
+				member: { status: "suspended", role: "owner" },
+			},
+		])("refuses policy replay with $label", async (patch) => {
+			mocks.approval.mockResolvedValue({
+				...approval,
+				resolvedBy: "policy",
+				...patch.approval,
+				payload: {
+					...payload,
+					initiatedByUserId: null,
+					initiatedByAgentPrincipalId: agentPrincipalId,
+					...patch.payload,
+				},
+			});
+			if (patch.run) mocks.run.mockResolvedValue({ ...run, ...patch.run });
+			if (patch.member) mocks.member.mockResolvedValue(patch.member);
+			expect(
+				await client().resolveHomeToolApproval({
+					...asApprover,
+					userId: undefined,
+					...patch.input,
+				}),
+			).toEqual({ approved: false });
+			expect(mocks.consume).not.toHaveBeenCalled();
+		});
+		it.each(["revoked", "suspended"])(
+			"refuses a policy receipt for a %s starting agent",
+			async (status) => {
+				mocks.approval.mockResolvedValue({
+					...approval,
+					resolvedBy: "policy",
+					payload: {
+						...payload,
+						initiatedByUserId: null,
+						initiatedByAgentPrincipalId: agentPrincipalId,
+					},
+				});
+				mocks.principal.mockResolvedValue({ status });
+				expect(
+					await client().resolveHomeToolApproval({
+						...asApprover,
+						userId: undefined,
+					}),
+				).toEqual({ approved: false });
+				expect(mocks.consume).not.toHaveBeenCalled();
+			},
+		);
 		it("keeps the exact approver-bound receipt and consumes it once", async () => {
 			expect(await client().resolveHomeToolApproval(asApprover)).toEqual({
 				approved: true,

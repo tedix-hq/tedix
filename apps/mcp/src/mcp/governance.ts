@@ -968,11 +968,8 @@ export function isHomeApprovalCall(
 			"string" &&
 		agent.callerIdentity?.kernel === true &&
 		agent.callerIdentity.authType === "service" &&
-		// A tenant-credential retry carries the initiating member separately, so
-		// it can match the receipt without switching to their personal credential.
-		Boolean(
-			agent.callerIdentity.userId ?? agent.callerIdentity.approvedHomeUserId,
-		) &&
+		// Agent-started policy approvals have no human. The API verifies their
+		// stored starting agent and claimed run before consuming the exact call.
 		Boolean(agent.app?.organizationId)
 	);
 }
@@ -1167,7 +1164,6 @@ export async function requireDestructiveToolApproval(
 	if (
 		isHomeApprovalCall(agent, options) &&
 		typeof homeApprovalId === "string" &&
-		homeUserId &&
 		agent.app?.organizationId
 	) {
 		try {
@@ -1212,7 +1208,9 @@ export async function requireDestructiveToolApproval(
 					"home_tool_approval",
 					{
 						approvalRequestId: homeApprovalId,
-						actor: `kernel on behalf of user:${homeUserId}`,
+						actor: homeUserId
+							? `kernel on behalf of user:${homeUserId}`
+							: "kernel",
 						delegationMode: "kernel",
 						subjectUserId: homeUserId,
 					},
