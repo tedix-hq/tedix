@@ -131,11 +131,14 @@ bun changeset   # pick @tedix/cli, patch or minor, one plain-language line
 To cut a CLI release, a maintainer, deliberately and not as part of a fix:
 
 1. `bun changeset status` lists what is pending.
-2. `bun changeset version` bumps `packages/cli/package.json` and moves every
-   pending note into `packages/cli/CHANGELOG.md`. Edit the new entry into
-   plain user language and add the date to its heading.
-3. Commit as `chore(cli): release X.Y.Z`, push, tag `cli-vX.Y.Z` on that
-   commit, and push the tag.
+2. `bun run release:version` bumps `packages/cli/package.json`, moves every
+   pending note into `packages/cli/CHANGELOG.md`, and runs `bun install` so
+   `bun.lock` records the new version in the same commit. Edit the new entry
+   into plain user language and add the date to its heading.
+3. Commit everything the version step changed — `packages/cli/package.json`,
+   `packages/cli/CHANGELOG.md`, the consumed `.changeset/` files, and
+   `bun.lock` — as `chore(cli): release X.Y.Z`, push, tag `cli-vX.Y.Z` on
+   that commit, and push the tag.
 
 The CLI publishes to `downloads.tedix.dev`: `latest.json` is the stable channel
 and `beta.json` the beta channel, which alone receives prereleases. Each tagged

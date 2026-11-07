@@ -67,6 +67,7 @@
 		"prepare": "bun run hooks:install",
 		"push": "bun scripts/dev/push-queue.ts",
 		"release:notes": "bun scripts/release/generate-release-notes.ts",
+		"release:version": "bun scripts/release/version.ts",
 		"run-local": "bun scripts/run-local.ts",
 		"scan:secrets": "bun scripts/oss/secret-scan.ts",
 		"tedix": "bun packages/cli/src/index.ts",
