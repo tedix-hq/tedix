@@ -269,6 +269,11 @@
 			"licenseClass": "apache-ecosystem"
 		},
 		{
+			"path": "packages/workspace-adapters",
+			"decision": "public-ecosystem",
+			"licenseClass": "apache-ecosystem"
+		},
+		{
 			"path": "packages/workers-ai",
 			"decision": "public-product",
 			"licenseClass": "agpl-product"
