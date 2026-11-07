@@ -75,7 +75,7 @@ export function ActivityFeedSources({
 		[work.data, results.data, projectId, locale, names],
 	);
 	const queries = [work, results];
-	const loading = queries.some((q) => q.isFetching);
+	const loading = queries.some((q) => q.isLoading || q.isFetchingNextPage);
 	const failed = queries.some((q) => q.isError);
 	const more = queries.some((q) => q.hasNextPage);
 	useEffect(

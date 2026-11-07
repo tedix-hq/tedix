@@ -166,7 +166,7 @@ it.each([true, false])(
 	},
 );
 
-it("renders skeleton lines while Today and the Deck count open, never a status sentence", async () => {
+it("keeps Decisions usable while its count is pending and the digest opens", async () => {
 	const render = await mount();
 	vi.mocked(osApi.osWorkspaces.outputs.get).mockReturnValue(
 		new Promise(() => {}),
@@ -179,7 +179,10 @@ it("renders skeleton lines while Today and the Deck count open, never a status s
 	expect(
 		host.querySelectorAll('[data-today-pending] [data-slot="skeleton"]').length,
 	).toBeGreaterThanOrEqual(3);
-	expect(host.querySelector("[data-today-deck-pending]")).not.toBeNull();
+	expect(host.querySelector("[data-today-deck-pending]")).toBeNull();
+	expect(host.querySelector('a[href="/work?view=deck"]')?.textContent).toBe(
+		"Open Decisions",
+	);
 	for (const text of ["Checking Decisions…", "Opening Today…"])
 		expect(host.textContent).not.toContain(text);
 });

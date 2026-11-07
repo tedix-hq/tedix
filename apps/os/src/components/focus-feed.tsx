@@ -73,6 +73,7 @@ import {
 } from "@tedix/api-contract/utils/feed-story";
 import { buildActivityFeedTools } from "./activity-feed-webmcp-tools";
 import { useAppWebMcpTools } from "@/lib/webmcp/use-app-webmcp-tools";
+import { ActivityRunningNow } from "./activity-running-now";
 
 export function FocusFeed({
 	config,
@@ -311,7 +312,9 @@ export function FocusFeed({
 	const states = sourceIds.map((id) => sources[id]);
 	const loading =
 		factories.pending ||
-		states.some((s) => !s || s.loading) ||
+		sourceIds.some(
+			(id) => id !== "today-receipts" && (!sources[id] || sources[id].loading),
+		) ||
 		preferences.isPending ||
 		history.isPending ||
 		model.isPending ||
@@ -698,6 +701,7 @@ export function FocusFeed({
 				/>
 			))}
 			<DecisionContextToolbar />
+			<ActivityRunningNow config={config} projectId={navigation?.projectId} />
 			{filtered ? (
 				<div className="focus-filter-heading">
 					<h2>{filterLabel}</h2>
@@ -830,7 +834,9 @@ export function FocusFeed({
 					</>
 				)}
 			</div>
-			{loading && <Text>Opening your activity…</Text>}
+			{loading && !failed && !items.length && (
+				<Text>Opening your activity…</Text>
+			)}
 			{!loading && !failed && !visible.length && timeline && (
 				<div role="status">
 					<Text>{filtered ? emptyMessage : OS_COPY.feed.timeline.empty}</Text>

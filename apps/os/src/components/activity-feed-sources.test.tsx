@@ -171,6 +171,28 @@ async function mount(scope?: string) {
 const resultId = "66666666-6666-4666-8666-666666666666";
 const nextResultId = "77777777-7777-4777-8777-777777777777";
 
+it("keeps loaded activity ready while its background refresh is in flight", async () => {
+	api.listActivity.mockResolvedValueOnce(workPage("first"));
+	api.listAttemptProjection.mockResolvedValueOnce(resultPage(resultId));
+	const view = await mount();
+	expect(view.state().loading).toBe(false);
+	const work = deferred<ReturnType<typeof workPage>>();
+	const results = deferred<ReturnType<typeof resultPage>>();
+	api.listActivity.mockReturnValueOnce(work.promise);
+	api.listAttemptProjection.mockReturnValueOnce(results.promise);
+	await act(async () => {
+		await vi.advanceTimersByTimeAsync(120_000);
+	});
+	expect(api.listActivity).toHaveBeenCalledTimes(2);
+	expect(api.listAttemptProjection).toHaveBeenCalledTimes(2);
+	expect(view.ids()).toEqual(["work:first", `attempt:${resultId}`]);
+	expect(view.state().loading).toBe(false);
+	work.resolve(workPage("refreshed"));
+	results.resolve(resultPage(nextResultId));
+	await flush();
+	expect(view.ids()).toEqual(["work:refreshed", `attempt:${nextResultId}`]);
+});
+
 it.each([
 	{ scope: undefined, first: "work" },
 	{ scope: projectId, first: "results" },
