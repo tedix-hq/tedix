@@ -1907,6 +1907,100 @@ describe("dispatcher admission", () => {
 		},
 	);
 
+	it("re-admits a lease-expired Attempt with a retained result on the same Work revision", async () => {
+		const { dispatcher, restart, items, control, events, releases, dir } =
+			fixture();
+		items.splice(1);
+		let now = Date.now();
+		const clock = spyOn(Date, "now").mockImplementation(() => now);
+		try {
+			const session = "codex:33333333-3333-4333-8333-000000000099";
+			const path = join(dir, `${item().id}-2.json`);
+			writeFileSync(
+				path,
+				JSON.stringify({
+					itemId: item().id,
+					version: 2,
+					phase: "settling",
+					outcome: "succeeded",
+					admissionState: "admitted",
+					attemptId: "old-attempt",
+					session,
+					executorKey: "local-acme",
+					laneResult: completedResult(),
+					retryAt: 0,
+					note: "Retained result",
+				}),
+			);
+			control.history.data = [
+				{
+					id: "old-attempt",
+					externalSessionKey: session,
+					outcome: null,
+					expiresAt: new Date(now - 1).toISOString(),
+					metadata: { dispatchVersion: 2 },
+				},
+			];
+			await dispatcher.tick();
+			const expired = JSON.parse(readFileSync(path, "utf8"));
+			expect(expired).toMatchObject({
+				phase: "deferred",
+				outcome: "expired",
+				attemptId: "old-attempt",
+				retries: 1,
+			});
+			// An elapsed lease is an interruption, not an identical execution
+			// failure: it never feeds the hold that waits for a human edit.
+			expect(expired.identicalFailures).toBeUndefined();
+			expect(expired.held).not.toBe(true);
+			expect(
+				events.filter((e) => e.verb === "start" || e.verb === "settle"),
+			).toHaveLength(0);
+			// Canonical history now shows two earlier failed or expired
+			// Attempts on this revision plus the retained one the sweeper
+			// retired: the retained expiry must not count as a third
+			// execution failure, or the same revision would hold for a
+			// person instead of being re-admitted.
+			const repo = join(dir, "runs", `${item().id}-2`, "repo");
+			mkdirSync(repo, { recursive: true });
+			const deferred = { ...expired, repo };
+			writeFileSync(path, JSON.stringify(deferred));
+			control.history.data = [
+				{
+					id: "earlier-failed",
+					outcome: "failed",
+					metadata: { dispatchVersion: 2 },
+				},
+				{
+					id: "earlier-expired",
+					outcome: "expired",
+					metadata: { dispatchVersion: 2 },
+				},
+				{
+					id: "old-attempt",
+					externalSessionKey: session,
+					outcome: "expired",
+					expiresAt: new Date(now - 1).toISOString(),
+					metadata: { dispatchVersion: 2 },
+				},
+			];
+			now = expired.retryAt + 1;
+			const resumed = restart();
+			await resumed.tick();
+			await until(() => releases.length === 1);
+			releases[0]!();
+			await resumed.drain();
+			expect(events.filter((e) => e.verb === "start" && e.input)).toHaveLength(
+				1,
+			);
+			const saved = JSON.parse(readFileSync(path, "utf8"));
+			expect(saved.attemptId).toBe("fictional-attempt");
+			expect(saved.held).not.toBe(true);
+		} finally {
+			clock.mockRestore();
+		}
+	});
+
 	it("uses a fresh OpenCode session after a proven provider stall and then picks up the next task", async () => {
 		const { dispatcher, deps, items, control, events, releases, dir } = fixture(
 			{
