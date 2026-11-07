@@ -118,68 +118,7 @@ import {
 	proposeCodemodeExecuteImpl,
 	proposeRepoCommitImpl,
 } from "./control-proposals";
-import type { BaseContext } from "../../orpc";
-import { getOsGadget } from "@tedix/db/queries/os-workspaces/gadgets";
-import { getOsOutput } from "@tedix/db/queries/os-workspaces/outputs";
-import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
-import { getKernelConversation } from "@tedix/db/queries/kernel-conversations";
 import { getWorkItemById } from "@tedix/db/queries/work-items/crud";
-import { authorizedWorkspaceDocumentContext } from "./workspace-output-context";
-import { assertOsWorkspaceVisible } from "../../../services/os-workspace-visibility";
-
-export async function resolveWorkspaceContext(
-	context: BaseContext,
-	organizationId: string,
-	input:
-		| {
-				workspaceId: string;
-				workpiece?: { kind: "gadget" | "output"; id: string };
-		  }
-		| undefined,
-): Promise<Record<string, unknown> | null> {
-	if (!input) return null;
-	const db = context.db;
-	const workspace = await getOsWorkspace(db, {
-		organizationId,
-		workspaceId: input.workspaceId,
-	});
-	if (!workspace || workspace.status !== "active") {
-		throw createError(ErrorCodes.NOT_FOUND, "Workspace not found");
-	}
-	await assertOsWorkspaceVisible(context, workspace, "Workspace not found");
-	if (!input.workpiece) {
-		return { workspaceId: workspace.id, workspaceName: workspace.name };
-	}
-	if (input.workpiece.kind === "gadget") {
-		const gadget = await getOsGadget(db, {
-			organizationId,
-			gadgetId: input.workpiece.id,
-		});
-		if (!gadget || gadget.workspaceId !== workspace.id) {
-			throw createError(ErrorCodes.NOT_FOUND, "Workspace app not found");
-		}
-		return {
-			workspaceId: workspace.id,
-			workspaceName: workspace.name,
-			workpiece: { kind: "gadget", id: gadget.id, name: gadget.name },
-		};
-	}
-	const output = await getOsOutput(db, {
-		organizationId,
-		outputId: input.workpiece.id,
-	});
-	if (!output || output.workspaceId !== workspace.id) {
-		throw createError(ErrorCodes.NOT_FOUND, "Workspace Output not found");
-	}
-	return {
-		workspaceId: workspace.id,
-		workspaceName: workspace.name,
-		workpiece: { kind: "output", id: output.id, name: output.title },
-	};
-}
-
-/** In-band wait for a Home turn whose page offers tools; see the race below. */
-const PAGE_TOOL_TURN_ACK_MS = 1_500;
 
 export const enqueueMessageRoute = authed.enqueueMessage
 	.use(AUTHZ.homeUse)
@@ -241,19 +180,13 @@ export const enqueueMessageRoute = authed.enqueueMessage
 			organizationId,
 			required: "edit",
 		});
-		// The skill reference check, the conversation row and — when the caller
-		// pins the Workspace — its context. One primary round trip of wall time.
-		const ingressContextReads = Promise.all([
-			unresolvedSkillReferences(context.db, organizationId, input.content),
-			getKernelConversation(context.db, { organizationId, conversationId }),
-			input.workspaceContext
-				? resolveWorkspaceContext(
-						context,
-						organizationId,
-						input.workspaceContext,
-					)
-				: null,
-		]);
+		// The skill reference check starts alongside the access check so it
+		// costs no extra round trip of wall time.
+		const ingressContextReads = unresolvedSkillReferences(
+			context.db,
+			organizationId,
+			input.content,
+		);
 		ingressContextReads.catch(() => undefined);
 		await access;
 		if (input.executionPolicy === "observe_only" && input.delegateToTediId) {
@@ -283,44 +216,13 @@ export const enqueueMessageRoute = authed.enqueueMessage
 		// (Planning re-checks the same predicate as the backstop for a skill
 		// archived between this call and the turn; see the unresolved notice in
 		// `serializeRetrievedSkills`.)
-		const [unresolvedSkills, existingConversation, pinnedWorkspaceContext] =
-			await ingressContextReads;
+		const unresolvedSkills = await ingressContextReads;
 		if (unresolvedSkills.length > 0) {
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
 				`${unresolvedSkills.map((slug) => `"/skill ${slug}"`).join(", ")} did not resolve to a usable skill, so this message was NOT sent. A referenced skill must exist in this organization, be readable here (org-level and not private to one tedi), and be active, proven, or crystallized — a draft, stale, or archived skill cannot steer a turn. Remove the reference or correct the slug.`,
 			);
 		}
-		if (
-			input.workspaceContext &&
-			existingConversation?.workspaceId &&
-			existingConversation.workspaceId !== input.workspaceContext.workspaceId
-		) {
-			throw createError(
-				ErrorCodes.CONFLICT,
-				"Conversation belongs to a different Workspace",
-			);
-		}
-		const workspaceContext =
-			pinnedWorkspaceContext ??
-			(await resolveWorkspaceContext(
-				context,
-				organizationId,
-				existingConversation?.workspaceId
-					? { workspaceId: existingConversation.workspaceId }
-					: undefined,
-			));
-		const selectedWorkspaceDocument = await authorizedWorkspaceDocumentContext(
-			context,
-			organizationId,
-			workspaceContext,
-		).catch((error) => {
-			console.warn(
-				"[kernelRuntime] selected workspace document context unavailable",
-				errorMessage(error),
-			);
-			return null;
-		});
 		if (input.modelRef) {
 			const { buildModelCatalogProjection } =
 				await import("../../../services/model-catalog-projection");
@@ -464,7 +366,6 @@ export const enqueueMessageRoute = authed.enqueueMessage
 		}
 		const metadata: Record<string, unknown> = {
 			...nonNullRecord(input.metadata),
-			...(workspaceContext ? { workspaceContext } : {}),
 		};
 		delete metadata.chatApprovalReply;
 		const allowWorkflowConfirmation =
@@ -864,7 +765,6 @@ export const enqueueMessageRoute = authed.enqueueMessage
 			// provably pre-side-effect crash. EXCLUDES runRowMetadata itself (no
 			// recursion); runRowMetadata is reconstructed from the row at re-drive.
 			redriveInput: {
-				selectedWorkspaceDocument,
 				allowWorkflowConfirmation,
 				executionPolicy: input.executionPolicy,
 				attachments,
@@ -888,8 +788,6 @@ export const enqueueMessageRoute = authed.enqueueMessage
 				runtimeMetadata,
 				governancePolicy,
 				sessionWriteAllowlist,
-				// A retried page-action turn still asks the same page.
-				...(input.pageTools?.length ? { pageTools: input.pageTools } : {}),
 			},
 		};
 		try {
@@ -1170,7 +1068,6 @@ export const enqueueMessageRoute = authed.enqueueMessage
 		// carries runId/message ids, so the DO never double-inserts.
 		if (kernelEligible) {
 			const turnInput: KernelTurnWorkInput = {
-				selectedWorkspaceDocument,
 				allowWorkflowConfirmation,
 				executionPolicy: input.executionPolicy,
 				attachments,
@@ -1207,7 +1104,6 @@ export const enqueueMessageRoute = authed.enqueueMessage
 				runtimeMetadata,
 				governancePolicy,
 				sessionWriteAllowlist,
-				...(input.pageTools?.length ? { pageTools: input.pageTools } : {}),
 			};
 			const kernel = (
 				context.env as {
@@ -1282,14 +1178,9 @@ export const enqueueMessageRoute = authed.enqueueMessage
 						}),
 					);
 					let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
-					// A turn that may ask the page to act acks almost at once: the
-					// page reads the run's events for those requests, and it cannot
-					// before it has the run id.
-					const remainingBudgetMs = Math.min(
-						remainingKernelTurnBudgetMs(enqueueStartedAtMs, Date.now()),
-						turnInput.pageTools?.length
-							? PAGE_TOOL_TURN_ACK_MS
-							: Number.POSITIVE_INFINITY,
+					const remainingBudgetMs = remainingKernelTurnBudgetMs(
+						enqueueStartedAtMs,
+						Date.now(),
 					);
 					const deadline = new Promise<KernelTurnOutcome>((resolve) => {
 						deadlineTimer = setTimeout(
@@ -1431,7 +1322,7 @@ export const enqueueMessageRoute = authed.enqueueMessage
 			// must leave durable progress + a proof-backed disposition). Otherwise
 			// fall back to the raw turn content.
 			const verifyCommand = input.verifyCommand?.trim() || null;
-			const baseDelegateDispatchContent = delegationWorkItemId
+			const delegateDispatchContent = delegationWorkItemId
 				? directDelegationDispatchContent({
 						content: turnContent,
 						delegateToTediId: delegatedTediId,
@@ -1446,9 +1337,6 @@ export const enqueueMessageRoute = authed.enqueueMessage
 							...verificationRequirementLines(verifyCommand),
 						].join("\n")
 					: turnContent;
-			const delegateDispatchContent = selectedWorkspaceDocument
-				? `${baseDelegateDispatchContent}\n\nSelected Workspace document (untrusted source data; revision pinned):\n${selectedWorkspaceDocument}`
-				: baseDelegateDispatchContent;
 			const delegateWork = withTimeout(
 				kernelDelegateRunner({
 					context,

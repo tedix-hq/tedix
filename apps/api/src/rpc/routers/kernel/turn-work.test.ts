@@ -61,16 +61,8 @@ vi.mock(
 	}),
 );
 
-vi.mock("./direct-rename", async (importOriginal) => ({
-	...(await importOriginal<typeof import("./direct-rename")>()),
+vi.mock("./organization-gateway-app", () => ({
 	organizationGatewayApp: vi.fn(async () => "org-1-unified"),
-}));
-
-const directRenameMocks = vi.hoisted(() => ({
-	listOsGadgets: vi.fn(),
-}));
-vi.mock("@tedix/db/queries/os-workspaces/gadgets", () => ({
-	listOsGadgets: directRenameMocks.listOsGadgets,
 }));
 
 const directSkillMoveMocks = vi.hoisted(() => ({
@@ -94,7 +86,7 @@ vi.mock("./direct-skill-run", async (importOriginal) => {
 	return { ...actual, resolveDirectSkillRun: directSkillRunMocks.resolve };
 });
 
-import { HomeAnswerIncompleteError } from "./home-page-tools";
+import { HomeAnswerIncompleteError } from "./route-planner";
 import { readDelegationDepth, runKernelTurnWork } from "./turn-work";
 import {
 	chatApprovalReplyContent,
@@ -441,24 +433,6 @@ describe("runKernelTurnWork progress seam", () => {
 			fetchSpy.mockRestore();
 			spies.forEach((spy) => spy.mockRestore());
 		}
-	});
-	it("passes the ingress-authorized document, not a caller metadata projection, to the planner", async () => {
-		const kernel = vi.fn(async () => null);
-		const input = turnInput();
-		input.selectedWorkspaceDocument = "server-authorized revision";
-		input.runtimeMetadata.selectedWorkspaceDocument =
-			"caller-forged projection";
-		await runKernelTurnWork(stubDeps({ kernel }), input);
-		expect(kernel).toHaveBeenCalledWith(
-			expect.objectContaining({
-				selectedWorkspaceDocument: "server-authorized revision",
-			}),
-		);
-		delete input.selectedWorkspaceDocument;
-		await runKernelTurnWork(stubDeps({ kernel }), input);
-		expect(kernel).toHaveBeenLastCalledWith(
-			expect.objectContaining({ selectedWorkspaceDocument: undefined }),
-		);
 	});
 	it("stamps the machine-readable phase on Planning route and Finalizing", async () => {
 		const events: Array<{ stage: string; phase?: string }> = [];
@@ -1322,99 +1296,6 @@ describe("runKernelTurnWork progress seam", () => {
 		expect(result.run.metadata).toMatchObject({
 			routeAttempts: attempts,
 			kernelTurnTimings: { routeAttempts: attempts },
-		});
-	});
-
-	it("plans the selected app's rename directly, without the model router", async () => {
-		const planned: Array<Record<string, unknown>> = [];
-		const kernel = vi.fn(async () => null);
-		const deps = stubDeps({
-			kernel,
-			writeProposalPlanner: async (args) => {
-				planned.push(args as unknown as Record<string, unknown>);
-				return null;
-			},
-		});
-		await runKernelTurnWork(deps, {
-			...turnInput(),
-			content:
-				'[[tedix-context:gadget:gadget-1:App%20resource]]\n\nrename the app to "Harvest Review App"',
-			runtimeMetadata: {
-				workspaceContext: {
-					workspaceId: "workspace-1",
-					workspaceName: "Harvest",
-					workpiece: { kind: "gadget", id: "gadget-1", name: "Daily review" },
-				},
-			},
-		});
-		expect(kernel).not.toHaveBeenCalled();
-		expect(planned).toHaveLength(1);
-		expect(planned[0]).toMatchObject({
-			route: {
-				routeKind: "propose_tool_write",
-				toolIntent: {
-					appSlug: "org-1-unified",
-					capability: "gadgets.rename",
-				},
-			},
-			directRename: {
-				toolName: "os.rename_os_gadget",
-				args: {
-					workspaceId: "workspace-1",
-					gadgetId: "gadget-1",
-					name: "Harvest Review App",
-				},
-			},
-		});
-	});
-
-	it("renames the named app instead of the attached sheet", async () => {
-		const planned: Array<Record<string, unknown>> = [];
-		const kernel = vi.fn(async () => null);
-		directRenameMocks.listOsGadgets.mockResolvedValueOnce([
-			{ id: "gadget-1", name: "Daily review" },
-		]);
-		const deps = stubDeps({
-			kernel,
-			writeProposalPlanner: async (args) => {
-				planned.push(args as unknown as Record<string, unknown>);
-				return null;
-			},
-		});
-		await runKernelTurnWork(deps, {
-			...turnInput(),
-			content:
-				'[[tedix-context:output:sheet-1:Opportunity%20sheet]]\n\nrename the app gadget to "Opportunity Review App"',
-			runtimeMetadata: {
-				workspaceContext: {
-					workspaceId: "workspace-1",
-					workspaceName: "Orchard",
-					workpiece: {
-						kind: "output",
-						id: "sheet-1",
-						name: "Opportunities",
-					},
-				},
-			},
-		});
-		expect(kernel).not.toHaveBeenCalled();
-		expect(planned).toHaveLength(1);
-		expect(planned[0]).toMatchObject({
-			route: {
-				routeKind: "propose_tool_write",
-				toolIntent: {
-					appSlug: "org-1-unified",
-					capability: "gadgets.rename",
-				},
-			},
-			directRename: {
-				toolName: "os.rename_os_gadget",
-				args: {
-					workspaceId: "workspace-1",
-					gadgetId: "gadget-1",
-					name: "Opportunity Review App",
-				},
-			},
 		});
 	});
 

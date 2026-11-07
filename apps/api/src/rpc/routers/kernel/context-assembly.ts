@@ -16,10 +16,6 @@ import { readDraftPreferences } from "../../../services/decision-learning";
 import { type ContextCandidateRanker } from "./jev-context-ranking";
 import type { DbClient } from "@tedix/db/client";
 import { getAppsByOrganization } from "@tedix/db/queries/apps";
-import {
-	listOsWorkspaceLinkedTediIds,
-	listOsWorkspaceResources,
-} from "@tedix/db/queries/os-workspaces/resources";
 import { getCapabilityByIdForOrganization } from "@tedix/db/queries/capabilities";
 import { listKernelWorkflowCatalog } from "@tedix/db/queries/cognitive/skill-catalog";
 import {
@@ -129,24 +125,8 @@ export interface KernelContext {
 	operatorUserId?: string;
 	/** Installation capability, independent of a worker's standby/running state. */
 	delegationAvailable?: boolean;
-	/** Server-authorized bounded snapshot of the explicitly selected document. */
-	selectedWorkspaceDocument?: string | null;
 	savedToday?: string | null;
 	personalCalendar?: string | null;
-	/** Server-validated Workspace selection for this turn. Context only; never authority. */
-	workspace?: {
-		id: string;
-		name: string;
-		workpiece?: { kind: "gadget" | "output"; id: string; name: string };
-		/** Active references only. These labels and ids grant no file access. */
-		resources?: {
-			id: string;
-			name: string;
-			providerId: string;
-			resourceType: string;
-		}[];
-		moreResources?: boolean;
-	} | null;
 	tedis: {
 		id: string;
 		slug: string;
@@ -172,11 +152,6 @@ export interface KernelContext {
 		 * renders exactly as before (zero regression).
 		 */
 		selectionPrior?: { successRate: number; total: number };
-		/**
-		 * This tedi runs a skill linked to the selected workspace. Linked tedis
-		 * rank first for delegation from that workspace's chat.
-		 */
-		workspaceLinked?: boolean;
 	}[];
 	apps: {
 		slug: string;
@@ -237,9 +212,6 @@ export interface KernelContext {
 		title: string | null;
 		lastMessageAt: string | null;
 	}[];
-	/** Whether {@link recentConversations} is this workspace's list or the
-	 * whole organization's; unset reads as the organization's. */
-	recentConversationsScope?: "workspace" | "organization";
 	/**
 	 * Open Work requests (handoffs, questions, proposals) addressed to the
 	 * operator, with the requestId and version a response needs. Read only when
@@ -364,21 +336,6 @@ const ACTIVE_WORK_ITEM_STATUSES = new Set(["proposed", "accepted"]);
 // Helpers
 // ============================================================================
 
-/**
- * Tedis linked to the selected workspace come first, in their ranked order,
- * so they survive the roster render cap and lead the delegation candidates.
- * Without a workspace, or with no linked tedi, the order is unchanged.
- */
-export function prioritizeWorkspaceTedis<
-	T extends { workspaceLinked?: boolean },
->(tedis: readonly T[]): T[] {
-	if (!tedis.some((tedi) => tedi.workspaceLinked)) return [...tedis];
-	return [
-		...tedis.filter((tedi) => tedi.workspaceLinked),
-		...tedis.filter((tedi) => !tedi.workspaceLinked),
-	];
-}
-
 type ContextReadSource =
 	| "tedis"
 	| "apps"
@@ -394,8 +351,6 @@ type ContextReadSource =
 	| "selectionPriors"
 	| "conversationCapabilities"
 	| "conversationArtifactPins"
-	| "workspaceResources"
-	| "workspaceTedis"
 	| "recentConversations"
 	| "openWorkRequests"
 	| "personalCalendar";
@@ -644,23 +599,6 @@ export function asksAboutConversations(message: string | undefined): boolean {
 	return Boolean(message && CONVERSATION_LIST_REQUEST_RE.test(message));
 }
 
-const THIS_WORKSPACE_RE =
-	/\b(?:(?:this|the|current|our)\s+workspace|in\s+here)\b/i;
-
-/**
- * The workspace a conversation list is scoped to: the selected workspace when
- * the message asks about "this workspace", otherwise none (the whole
- * organization).
- */
-export function conversationListWorkspaceId(
-	message: string | undefined,
-	selectedWorkspaceId: string | undefined,
-): string | undefined {
-	return selectedWorkspaceId && message && THIS_WORKSPACE_RE.test(message)
-		? selectedWorkspaceId
-		: undefined;
-}
-
 export async function assembleHomeContext(
 	db: DbClient,
 	organizationId: string,
@@ -754,13 +692,6 @@ export async function assembleHomeContext(
 		operatorMessage?: string;
 		/** Optional paid relevance ordering; never changes candidate eligibility. */
 		candidateRanker?: ContextCandidateRanker;
-		/** Canonical ids/names resolved at Home ingress, never raw browser metadata. */
-		workspaceContext?: {
-			workspaceId: string;
-			workspaceName: string;
-			workpiece?: { kind: "gadget" | "output"; id: string; name: string };
-		};
-		selectedWorkspaceDocument?: string | null;
 		readPersonalCalendar?: (apps: App[]) => Promise<string>;
 		/**
 		 * Per-org TTL cache for the slow-changing inputs (roster, apps, workflow
@@ -825,16 +756,6 @@ export async function assembleHomeContext(
 	const extraPromptChars = Math.max(0, opts?.extraPromptChars ?? 0);
 	const operatorMessage = opts?.operatorMessage;
 	const agentMemory = opts?.agentMemory;
-	const selectedWorkspaceId = opts?.workspaceContext?.workspaceId;
-	const workspace: KernelContext["workspace"] = opts?.workspaceContext
-		? {
-				id: opts.workspaceContext.workspaceId,
-				name: opts.workspaceContext.workspaceName,
-				...(opts.workspaceContext.workpiece
-					? { workpiece: opts.workspaceContext.workpiece }
-					: {}),
-			}
-		: null;
 
 	// Start every independent read in the first D1 wave. Capability cards still
 	// depend on tedis + apps, but chaining that one read behind their promises
@@ -1020,10 +941,6 @@ export async function assembleHomeContext(
 
 	// Home has no conversation-list tool; the list rides in context instead,
 	// only on turns that ask about it.
-	const conversationListWorkspace = conversationListWorkspaceId(
-		operatorMessage,
-		selectedWorkspaceId,
-	);
 	const recentConversationsPromise = personalRecallPromise.then(
 		async (personalRecall) => {
 			if (!personalRecall && !asksAboutConversations(operatorMessage))
@@ -1034,9 +951,6 @@ export async function assembleHomeContext(
 						organizationId,
 						cursor: null,
 						limit: personalRecall ? 12 : RECENT_CONVERSATIONS_LIMIT,
-						...(!personalRecall && conversationListWorkspace
-							? { workspaceId: conversationListWorkspace }
-							: {}),
 					}),
 				[],
 				"recentConversations",
@@ -1093,8 +1007,6 @@ export async function assembleHomeContext(
 		conversationCapabilities,
 		conversationArtifactPins,
 		referencedSkillRows,
-		workspaceResourceRows,
-		workspaceLinkedTediIds,
 	] = await Promise.all([
 		visibleTediRowsPromise,
 		appRowsPromise,
@@ -1194,52 +1106,10 @@ export async function assembleHomeContext(
 				)
 			: Promise.resolve([] as KernelContext["conversationArtifactPins"]),
 		referencedSkillRowsPromise,
-		selectedWorkspaceId
-			? safeRead(
-					() =>
-						cached(`workspaceResources:${selectedWorkspaceId}`, () =>
-							listOsWorkspaceResources(db, {
-								organizationId,
-								workspaceId: selectedWorkspaceId,
-								status: "active",
-								limit: 13,
-							}),
-						),
-					[],
-					"workspaceResources",
-				)
-			: Promise.resolve(
-					[] as Awaited<ReturnType<typeof listOsWorkspaceResources>>,
-				),
-		selectedWorkspaceId
-			? safeRead(
-					() =>
-						cached(`workspaceTedis:${selectedWorkspaceId}`, () =>
-							listOsWorkspaceLinkedTediIds(db, {
-								organizationId,
-								workspaceId: selectedWorkspaceId,
-							}),
-						),
-					[] as string[],
-					"workspaceTedis",
-				)
-			: Promise.resolve([] as string[]),
 	]);
 	const recentConversationRows = await recentConversationsPromise;
 	const openWorkRequests = await openWorkRequestsPromise;
 	const contextReadsMs = Date.now() - readsStartedAtMs;
-	if (workspace) {
-		workspace.resources = workspaceResourceRows
-			.slice(0, 12)
-			.map((resource) => ({
-				id: resource.id,
-				name: resource.name,
-				providerId: resource.providerId,
-				resourceType: resource.resourceType,
-			}));
-		workspace.moreResources = workspaceResourceRows.length > 12;
-	}
-
 	/**
 	 * Resolve the operator's references through the shared retrieval seam — the
 	 * same retrieve leg the Agent runtime uses, given a stronger signal, not a
@@ -1288,7 +1158,6 @@ export async function assembleHomeContext(
 	const cardByTediId = new Map(
 		capabilityCards.map((card) => [card.tediId, card]),
 	);
-	const linkedTediIds = new Set(workspaceLinkedTediIds);
 	const tedis: KernelContext["tedis"] = visibleTediRows.map((tedi) => {
 		const capability = cardByTediId.get(tedi.id);
 		const prior = selectionPriors.get(tedi.id);
@@ -1301,7 +1170,6 @@ export async function assembleHomeContext(
 			...(tedi.runtimeKind ? { role: tedi.runtimeKind } : {}),
 			...(tedi.status ? { status: tedi.status } : {}),
 			...(capability ? { capability } : {}),
-			...(linkedTediIds.has(tedi.id) ? { workspaceLinked: true } : {}),
 			...(prior
 				? {
 						selectionPrior: {
@@ -1426,19 +1294,17 @@ export async function assembleHomeContext(
 		...(member?.status === "active" && descopeUserId
 			? { operatorUserId: descopeUserId }
 			: {}),
-		selectedWorkspaceDocument: opts?.selectedWorkspaceDocument ?? null,
 		savedToday: await savedToday,
 		personalCalendar: await personalCalendarPromise,
 		delegationAvailable: opts?.delegationAvailable,
 		...(cacheTrace ? { cache: cacheTrace } : {}),
-		workspace,
 		tedis: (await personalRecallPromise)
-			? [...prioritizeWorkspaceTedis(rankedTedis)].sort(
+			? [...rankedTedis].sort(
 					(a, b) =>
 						Number(b.scope === "personal" && b.ownerUserId === descopeUserId) -
 						Number(a.scope === "personal" && a.ownerUserId === descopeUserId),
 				)
-			: prioritizeWorkspaceTedis(rankedTedis),
+			: rankedTedis,
 		apps,
 		workflows: rankedWorkflows,
 		conversationCapabilities,
@@ -1451,9 +1317,6 @@ export async function assembleHomeContext(
 						title: row.title ?? null,
 						lastMessageAt: row.lastMessageAt ?? null,
 					})),
-					recentConversationsScope: conversationListWorkspace
-						? ("workspace" as const)
-						: ("organization" as const),
 				}
 			: {}),
 		...(openWorkRequests ? { openWorkRequests } : {}),

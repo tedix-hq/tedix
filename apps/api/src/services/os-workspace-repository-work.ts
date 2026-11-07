@@ -59,7 +59,6 @@ export interface PreparedWorkspaceRepositoryWork {
 		content: string;
 		delegateToTediId: string;
 		idempotencyKey: string;
-		workspaceContext: { workspaceId: string };
 		metadata: {
 			executionRequirement: ExecutionRequirement;
 			needsEmbodiedSurface: true;
@@ -162,7 +161,6 @@ function dispatchResult(
 			content: input.task,
 			delegateToTediId: input.tediId,
 			idempotencyKey: input.idempotencyKey,
-			workspaceContext: { workspaceId: input.workspaceId },
 			metadata: {
 				executionRequirement: WORKSPACE_REPOSITORY_EXECUTION_REQUIREMENT,
 				needsEmbodiedSurface: true,

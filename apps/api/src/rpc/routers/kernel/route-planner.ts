@@ -1,22 +1,6 @@
 import { OPERATOR_RECORD_TOOLS } from "@tedix/api-contract/schemas/operator-records";
-import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
 import { ZodError } from "zod";
-import { jsonSchema, NoObjectGeneratedError, stepCountIs, tool } from "ai";
-import { pageToolModelOutput } from "@tedix/chat-transport/page-tools";
-import {
-	HOME_PAGE_TOOL_MAX_OUTPUT_TOKENS,
-	HOME_PAGE_TOOL_MAX_STEPS,
-	HOME_PAGE_TOOLS_INSTRUCTION,
-	HOME_PAGE_WRITE_TOOL,
-	HOME_PAGE_WRITE_TOOL_DESCRIPTION,
-	HOME_PAGE_WRITE_TOOL_SCHEMA,
-	HomeAnswerIncompleteError,
-	homePageToolsRouteNote,
-	pageToolsCoverRequest,
-	parseHomePageWriteRequest,
-	type HomePageTools,
-	type HomePageWriteRequest,
-} from "./home-page-tools";
+import { NoObjectGeneratedError } from "ai";
 import type { SelectedKernelModel } from "./llm";
 import type { ProviderExecutionIdentity } from "@tedix/api-contract/schemas/provider-execution";
 /** Bounded model-backed Home route planning. The selected model is authoritative;
@@ -33,7 +17,7 @@ import {
 	prohibitsDelegation,
 } from "./delegation-intent";
 import type { ContextCandidateRanker } from "./jev-context-ranking";
-import { mentionsNamedTedi, refineDelegationFit } from "./jev-delegation-fit";
+import { refineDelegationFit } from "./jev-delegation-fit";
 import type { KernelContext } from "./context-assembly";
 import {
 	renderHomeStableContext,
@@ -74,48 +58,6 @@ import {
 	routeWriterContext,
 	ROUTE_DETAILS_PROMPT_VERSION,
 } from "./route-decision-writer";
-
-/**
- * In a workspace chat, work the offered page tools cover (this workspace's
- * apps and outputs) stays with Home: it reads and proposes the edit itself.
- * A delegation the planner chose for such a request becomes the page-action
- * answer pass, unless the operator named a tedi. Delegation stays for
- * long-running or specialist work, which the coverage predicate excludes.
- */
-export function guardWorkspacePageToolRoute<T extends KernelRouteDecision>(
-	content: string,
-	context: KernelContext,
-	decision: T,
-	pageTools: HomePageTools | undefined,
-): T {
-	if (
-		!pageTools?.descriptors.length ||
-		!context.workspace ||
-		(decision.routeKind !== "delegate_tedi" &&
-			decision.routeKind !== "suggest_handoff") ||
-		mentionsNamedTedi(content, context.tedis) ||
-		!pageToolsCoverRequest({
-			content,
-			descriptors: pageTools.descriptors,
-			workspace: context.workspace,
-			apps: context.apps,
-			plannedToolIds: decision.plannedToolIds,
-		})
-	)
-		return decision;
-	return {
-		...decision,
-		routeKind: "answer_in_home",
-		answer: null,
-		targetTediId: null,
-		targetTediLabel: null,
-		targetActivityId: null,
-		plannedToolIds: [],
-		toolIntent: null,
-		rationale:
-			"The page offers tools for this workspace's apps and outputs; Home acts on it directly.",
-	};
-}
 
 /** A model or fit rerank cannot send a private recall to another member's tedi. */
 export function guardPersonalRecallRoute<T extends KernelRouteDecision>(
@@ -228,8 +170,6 @@ Examples:
 - "Visualize this" / "render an inline MCP App" → delegate_tedi for a transient visual, not a workflow or durable artifact; keep the requested subject and data in the rationale and evidence expectation (the worker lacks history).
 - "fix it" with no history referent → ask_human with plausible contextual options.
 - "save it in our workspace for <client>", workspace unlisted → delegate_tedi to find it; a described destination is a lookup, not ambiguity.
-
-Workspace-first: in a workspace chat, small work on its apps, files and outputs is Home's own when the page offers tools for it: answer_in_home, read, propose the edit (the person accepts it), say what changed. Delegate only long-running or specialist work: live external provider data, embodied work, multi-step research, or work given to a named tedi.
 
 Conversation and evidence:
 - For personalRecall, answer first-person commitments, people, follow-ups, priorities and schedule from the assembled records when sufficient. If records are missing, delegate a bounded read to the caller's own personal tedi when available. Never select another member's personal tedi. Use dated sources; public web cannot establish a person's private commitments or meetings.
@@ -684,13 +624,6 @@ export type PlanKernelRouteArgs = {
 	 * cancel gate settles it as a clean cancel regardless of this return value.
 	 */
 	abortSignal?: AbortSignal;
-	/**
-	 * Tools the person's page offers for this turn. When present, an
-	 * answer_in_home turn answers in a pass that may ask the page to run them
-	 * (`home-page-tools.ts`); the route pass then streams nothing, so the
-	 * person sees one answer.
-	 */
-	pageTools?: HomePageTools;
 	readSteering?: () => Promise<string[]>;
 };
 
@@ -750,18 +683,7 @@ export async function planKernelRoute(
 async function planKernelRouteWithRecovery(
 	input: PlanKernelRouteArgs,
 ): Promise<PlanKernelRouteResult | null> {
-	const pageTools = input.pageTools?.descriptors.length
-		? input.pageTools
-		: undefined;
-	// With page tools the route pass only routes: its answer field would be a
-	// promise about an action not yet taken. The page-action pass answers.
-	const args: PlanKernelRouteArgs = pageTools
-		? {
-				...input,
-				content: `${input.content}\n${homePageToolsRouteNote(pageTools.descriptors)}`,
-				onAnswerDelta: input.onAnswerDelta ? () => {} : undefined,
-			}
-		: input;
+	const args: PlanKernelRouteArgs = input;
 	const model =
 		args.model?.forRouteOperation?.() ?? args.model?.forOperation() ?? null;
 	const attempts = model?.attempts ?? [];
@@ -1017,28 +939,8 @@ async function planKernelRouteWithRecovery(
 			ranker: args.delegationCandidateRanker,
 			signal: args.abortSignal,
 		});
-		let guarded = guardWorkspacePageToolRoute(
-			args.operatorContent ?? args.content,
-			args.context,
-			guardPersonalRecallRoute(args.context, fitted),
-			pageTools,
-		);
-		if (pageTools && guarded.routeKind === "answer_in_home" && routeModel) {
-			const answerModel = routeModel.forOperation();
-			try {
-				// The page pass answers the person's own message; the routing note
-				// appended for the route pass is not part of it.
-				const write = await streamHomePageAnswer(
-					input,
-					answerModel,
-					guarded,
-					pageTools,
-				);
-				if (write) guarded = pageWriteProposalRoute(guarded, write);
-			} finally {
-				attempts.push(...answerModel.attempts);
-			}
-		} else if (
+		const guarded = guardPersonalRecallRoute(args.context, fitted);
+		if (
 			(autoRouter || retried || args.routeChoice) &&
 			guarded.routeKind === "answer_in_home" &&
 			routeModel
@@ -1210,6 +1112,27 @@ async function planKernelRouteUnguarded(
 const STREAM_SETTLE_BOUND_MS = 2_000;
 
 /** The route stream ended without a single partial object. */
+/**
+ * The Home answer stream ended before its answer did: the model hit its
+ * output limit, the step limit, or produced no text. Text streamed before that
+ * (a preamble such as "I'll read the app files first") is not an answer.
+ */
+export class HomeAnswerIncompleteError extends Error {
+	override readonly name = "HomeAnswerIncompleteError";
+	readonly finishReason: string;
+	constructor(finishReason: string) {
+		super(`Incomplete Home answer stream (finish: ${finishReason})`);
+		this.finishReason = finishReason;
+	}
+}
+
+export function isHomeAnswerIncompleteError(error: unknown): boolean {
+	return (
+		error instanceof HomeAnswerIncompleteError ||
+		(error instanceof Error && error.name === "HomeAnswerIncompleteError")
+	);
+}
+
 class EmptyRouteStreamError extends Error {
 	constructor(cause: unknown) {
 		super("[kernel] route stream produced no object", { cause });
@@ -1632,206 +1555,6 @@ async function streamRoutePlan(args: {
 		traceInput: requestTrace,
 		hedge: null,
 	};
-}
-
-/**
- * A write the page-action pass asked for becomes the normal write proposal:
- * the turn plans the exact call and shows a proposal card for approval.
- */
-export function pageWriteProposalRoute<T extends KernelRouteDecision>(
-	decision: T,
-	write: HomePageWriteRequest,
-): T {
-	return {
-		...decision,
-		routeKind: "propose_tool_write",
-		risk: decision.risk === "high" ? "high" : "medium",
-		targetTediId: null,
-		targetTediLabel: null,
-		targetActivityId: null,
-		plannedToolIds: [],
-		workflowHint: null,
-		clarifyingQuestion: null,
-		toolIntent: {
-			appSlug: write.appSlug,
-			capability: write.capability,
-			connectionStatus: "unknown",
-		},
-		pageWriteRequest: write.request,
-		rationale:
-			"The person asked for a write from the page; it waits for approval.",
-	};
-}
-
-/** Closes a page-action answer that stopped after it already changed the page. */
-export const HOME_PAGE_ANSWER_STOPPED_AFTER_CHANGE =
-	"I stopped before finishing. Check what changed on the page before you ask me again.";
-
-/**
- * The answer pass for a Home turn whose page offers tools: the model may ask
- * the page to run them, one at a time, through `pageTools.relay`, which waits
- * for the page. Nothing here runs a page tool. Results reach the model fenced
- * as untrusted page data (`pageToolModelOutput`). The idle bound pauses while the page (or the person
- * tapping confirm) answers.
- */
-async function streamHomePageAnswer(
-	args: PlanKernelRouteArgs,
-	model: SelectedKernelModel,
-	decision: PlanKernelRouteResult,
-	pageTools: HomePageTools,
-): Promise<HomePageWriteRequest | null> {
-	const idle = withIdleAbort(
-		args.streamIdleMs ?? KERNEL_STREAM_IDLE_TIMEOUT_MS,
-		"[kernel] Home page-action answer stream",
-	);
-	const steeringMessages: Array<{ role: "user"; content: string }> = [];
-	const signal = args.abortSignal
-		? AbortSignal.any([idle.signal, args.abortSignal])
-		: idle.signal;
-	// A successful non-read-only call changed the page; a replay of this turn
-	// would repeat that change.
-	let changedPage = false;
-	let write: HomePageWriteRequest | null = null;
-	// A page tool with the same name wins: then nothing is proposed here.
-	const writeTool = tool({
-		description: HOME_PAGE_WRITE_TOOL_DESCRIPTION,
-		inputSchema: jsonSchema(HOME_PAGE_WRITE_TOOL_SCHEMA as never),
-		execute: async (input: unknown) => {
-			if (write)
-				return "A proposal is already prepared for this message; only one write is proposed per message.";
-			const parsed = parseHomePageWriteRequest(input);
-			if (!parsed)
-				return "Not proposed: give the action as object.verb and describe what to write.";
-			write = parsed;
-			return "Recorded. Nothing has run yet: after your answer the person sees a proposal card with the exact fields and approves or rejects it.";
-		},
-	});
-	const tools = Object.fromEntries([
-		[HOME_PAGE_WRITE_TOOL, writeTool],
-		...pageTools.descriptors.map((descriptor) => [
-			descriptor.name,
-			tool({
-				description: descriptor.description,
-				inputSchema: jsonSchema(descriptor.inputSchema as never),
-				execute: async (input: unknown) => {
-					const keepAlive = setInterval(() => idle.reset(), 5_000);
-					try {
-						const result = await pageTools.relay(
-							{
-								name: descriptor.name,
-								args:
-									input && typeof input === "object" && !Array.isArray(input)
-										? (input as Record<string, unknown>)
-										: {},
-								confirm: descriptor.confirm === true,
-							},
-							args.abortSignal,
-						);
-						if (result.ok && descriptor.annotations?.readOnlyHint !== true)
-							changedPage = true;
-						return pageToolModelOutput(result);
-					} finally {
-						clearInterval(keepAlive);
-						idle.reset();
-					}
-				},
-			}),
-		]),
-	]);
-	try {
-		signal.throwIfAborted();
-		const result = tracedAi.streamText({
-			model: model.model,
-			instructions: `${SYSTEM_PROMPT}\n\n${HOME_PAGE_TOOLS_INSTRUCTION}`,
-			...homeModelPrompt(
-				buildUserPrompt(
-					args.content,
-					args.context,
-					HOME_PAGE_TOOLS_INSTRUCTION,
-				),
-				args.images,
-				args.context.history,
-			),
-			tools,
-			stopWhen: stepCountIs(HOME_PAGE_TOOL_MAX_STEPS),
-			prepareStep: async ({ messages }) => {
-				const steering = (await args.readSteering?.()) ?? [];
-				steeringMessages.push(
-					...steering.map((content) => ({
-						role: "user" as const,
-						content: wrapUntrustedInput(content, "operator_steering"),
-					})),
-				);
-				return steeringMessages.length
-					? {
-							messages: [...messages, ...steeringMessages],
-						}
-					: {};
-			},
-			maxOutputTokens: HOME_PAGE_TOOL_MAX_OUTPUT_TOKENS,
-			maxRetries: 0,
-			abortSignal: signal,
-			runtimeContext: kernelSpanContext({
-				...args.gatewayContext,
-				organizationId:
-					args.organizationId ?? args.gatewayContext?.organizationId,
-				source: "home_page_answer",
-			}),
-		});
-		let answer = "";
-		for await (const part of result.stream) {
-			idle.reset();
-			signal.throwIfAborted();
-			if (part.type === "error") throw part.error;
-			if (part.type === "abort")
-				throw new Error("Home page-action answer stream aborted");
-			if (part.type !== "text-delta") continue;
-			answer += part.text;
-			try {
-				args.onAnswerDelta?.(part.text);
-			} catch {
-				/* Advisory delivery only. */
-			}
-		}
-		signal.throwIfAborted();
-		// The last step must end the answer. A step cut off by its output limit
-		// (or the step limit) leaves only what was streamed before it, often a
-		// preamble like "I'll read the app files first", which is not an answer.
-		const finish = await awaitWithSettleBound(
-			result.finishReason,
-			"Home page-action finish did not settle",
-		);
-		if (finish !== "stop" || !answer.trim()) {
-			// After a page change, a replay would repeat it: keep the turn and
-			// say plainly that it stopped.
-			if (!changedPage) throw new HomeAnswerIncompleteError(finish);
-			const notice = `${answer.trim() ? "\n\n" : ""}${HOME_PAGE_ANSWER_STOPPED_AFTER_CHANGE}`;
-			answer = `${answer.trim()}${notice}`;
-			try {
-				args.onAnswerDelta?.(notice);
-			} catch {
-				/* Advisory delivery only. */
-			}
-		}
-		const usage = shapeRouteUsage(
-			await awaitWithSettleBound(
-				result.usage,
-				"Home page-action usage did not settle",
-			),
-			model,
-		);
-		const sum = (a: number | null, b: number | null) =>
-			a === null || b === null ? null : a + b;
-		decision.usage = {
-			...decision.usage,
-			inputTokens: sum(decision.usage.inputTokens, usage.inputTokens),
-			outputTokens: sum(decision.usage.outputTokens, usage.outputTokens),
-		};
-		decision.answer = answer;
-		return write;
-	} finally {
-		idle.clear();
-	}
 }
 
 /**

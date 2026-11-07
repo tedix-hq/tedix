@@ -2,24 +2,20 @@ import type { DbClient } from "@tedix/db/client";
 import { beforeEach, expect, it, vi } from "vite-plus/test";
 import {
 	readWorkCreateProjects,
-	workspaceDefaultProjectId,
+	workCreateProjectName,
 } from "./work-create-projects";
 
 const mocks = vi.hoisted(() => ({
 	listProjects: vi.fn(),
-	listOsWorkspaceProjects: vi.fn(),
 }));
 vi.mock("@tedix/db/queries/projects", () => ({
 	listProjects: mocks.listProjects,
-}));
-vi.mock("@tedix/db/queries/os-workspaces/projects", () => ({
-	listOsWorkspaceProjects: mocks.listOsWorkspaceProjects,
 }));
 const db = {} as DbClient;
 
 beforeEach(() => vi.resetAllMocks());
 
-it("reads only the current organization's active projects and workspace links, without private briefs", async () => {
+it("reads only the current organization's active projects, without private briefs", async () => {
 	mocks.listProjects.mockResolvedValue({
 		data: [
 			{
@@ -31,59 +27,26 @@ it("reads only the current organization's active projects and workspace links, w
 		],
 		total: 1,
 	});
-	mocks.listOsWorkspaceProjects.mockResolvedValue([{ projectId: "project-a" }]);
 	const context = JSON.parse(
-		await readWorkCreateProjects(db, {
-			organizationId: "orchard",
-			workspaceId: "accounts-space",
-		}),
+		await readWorkCreateProjects(db, { organizationId: "orchard" }),
 	);
 	expect(mocks.listProjects).toHaveBeenCalledWith(db, {
 		orgId: "orchard",
 		status: "active",
 		limit: 100,
 	});
-	expect(mocks.listOsWorkspaceProjects).toHaveBeenCalledWith(db, {
-		organizationId: "orchard",
-		workspaceId: "accounts-space",
-		status: "active",
-		limit: 100,
-	});
 	expect(context).toEqual({
-		projects: [
-			{
-				projectId: "project-a",
-				name: "Accounts",
-				key: "BOOKS",
-				linkedToSelectedWorkspace: true,
-			},
-		],
+		projects: [{ projectId: "project-a", name: "Accounts", key: "BOOKS" }],
 		truncated: false,
-		workspaceDefaultProjectId: "project-a",
 	});
 	expect(JSON.stringify(context)).not.toContain("private brief");
+	expect(workCreateProjectName(JSON.stringify(context), "project-a")).toBe(
+		"Accounts",
+	);
+	expect(workCreateProjectName(JSON.stringify(context), "missing")).toBeNull();
 });
 
-it("names no default destination when the workspace links several projects", async () => {
-	mocks.listProjects.mockResolvedValue({
-		data: [
-			{ id: "a", name: "Accounts", key: "A" },
-			{ id: "b", name: "Billing", key: "B" },
-		],
-		total: 2,
-	});
-	mocks.listOsWorkspaceProjects.mockResolvedValue([
-		{ projectId: "a" },
-		{ projectId: "b" },
-	]);
-	const context = await readWorkCreateProjects(db, {
-		organizationId: "orchard",
-		workspaceId: "accounts-space",
-	});
-	expect(workspaceDefaultProjectId(context)).toBeNull();
-});
-
-it("keeps ambiguous names distinct and reports a truncated org list without inventing a workspace destination", async () => {
+it("keeps ambiguous names distinct and reports a truncated org list", async () => {
 	mocks.listProjects.mockResolvedValue({
 		data: [
 			{ id: "a", name: "Accounts", key: "A" },
@@ -94,16 +57,9 @@ it("keeps ambiguous names distinct and reports a truncated org list without inve
 	const context = JSON.parse(
 		await readWorkCreateProjects(db, { organizationId: "orchard" }),
 	);
-	expect(mocks.listOsWorkspaceProjects).not.toHaveBeenCalled();
 	expect(
 		context.projects.map((project: { projectId: string }) => project.projectId),
 	).toEqual(["a", "b"]);
-	expect(
-		context.projects.every(
-			(project: { linkedToSelectedWorkspace: boolean }) =>
-				!project.linkedToSelectedWorkspace,
-		),
-	).toBe(true);
 	expect(context.truncated).toBe(true);
 });
 

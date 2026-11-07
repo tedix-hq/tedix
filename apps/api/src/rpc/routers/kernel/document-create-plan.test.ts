@@ -116,19 +116,4 @@ describe("document body generation", () => {
 			}),
 		).toBeNull();
 	});
-
-	it("does not silently replace a conflicting selected workspace", async () => {
-		const draftModel = model([]);
-		const generate = vi.spyOn(draftModel, "doGenerate");
-		expect(
-			await planDocumentCreate({
-				content: `Create a document titled "Welcome" in workspaceId ${workspaceId}.`,
-				toolName: "os.create_os_output",
-				workspaceId: "22222222-2222-4222-8222-222222222222",
-				model: draftModel,
-				abortSignal: new AbortController().signal,
-			}),
-		).toBeUndefined();
-		expect(generate).not.toHaveBeenCalled();
-	});
 });

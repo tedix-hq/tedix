@@ -152,8 +152,8 @@ export function buildKernelTurnWorkDeps(
 			}),
 		writeProposalPlanner: async (args) => {
 			const proposal = await activeKernelWriteProposalPlanner(args);
-			// A chat with no workspace puts a new output in the default one.
-			if (!proposal || args.workspaceContext) return proposal;
+			// A chat has no workspace; a new output goes to the default one.
+			if (!proposal) return proposal;
 			return placeChatOutputInDefaultWorkspace(proposal, () =>
 				ensureDefaultOsWorkspace(context.db, {
 					organizationId: args.organizationId,

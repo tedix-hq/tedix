@@ -109,32 +109,6 @@ describe("refineDelegationFit", () => {
 		});
 	});
 
-	it("tells the ranker which candidate is linked to the current workspace", async () => {
-		const ranker = vi.fn().mockResolvedValue(["finance", "engineering"]);
-		await refineDelegationFit({
-			content: "Find the last five GitHub commits",
-			context: {
-				...context,
-				tedis: tedis.map((tedi) =>
-					tedi.id === "engineering" ? { ...tedi, workspaceLinked: true } : tedi,
-				),
-			},
-			decision: route,
-			ranker,
-		});
-		const candidates = ranker.mock.calls[0]![0].candidates as {
-			id: string;
-			description: string;
-		}[];
-		expect(
-			candidates.find((candidate) => candidate.id === "engineering")
-				?.description,
-		).toContain("linked to the current workspace");
-		expect(
-			candidates.find((candidate) => candidate.id === "finance")?.description,
-		).not.toContain("linked to the current workspace");
-	});
-
 	it("preserves the planner decision when the operator names a tedi", async () => {
 		const ranker = vi.fn();
 		const result = await refineDelegationFit({

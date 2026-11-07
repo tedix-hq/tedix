@@ -749,9 +749,6 @@ export const osWorkspacesContract = oc
 									content: z.string(),
 									delegateToTediId: z.string().uuid(),
 									idempotencyKey: z.string().uuid(),
-									workspaceContext: z
-										.object({ workspaceId: z.string().uuid() })
-										.strict(),
 									metadata: z
 										.object({
 											executionRequirement: ExecutionRequirementSchema,

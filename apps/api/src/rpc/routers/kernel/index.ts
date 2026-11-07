@@ -9,7 +9,6 @@ import {
 	guardKernelRouteDecision,
 	hasExplicitDelegationIntent,
 } from "./delegation-intent";
-import type { HomePageTools } from "./home-page-tools";
 import { createJevContextRanker } from "./jev-context-ranking";
 import { createJevDelegationRanker } from "./jev-delegation-fit";
 import type { KernelExecutionAttempt } from "./gateway-attribution";
@@ -476,8 +475,6 @@ const HOME_DEFERRED_FOLD_TOKEN_BUDGET = 10_000;
 
 export async function runKernel(args: {
 	readSteering?: () => Promise<string[]>;
-	/** Tools the person's page offers for this turn; Home asks, the page runs. */
-	pageTools?: HomePageTools;
 	onExecutionAttempts?: (attempts: readonly KernelExecutionAttempt[]) => void;
 	onRouteAttempts?: PlanKernelRouteArgs["onRouteAttempts"];
 	/** The conversation's persisted compaction checkpoint (KernelDO storage). */
@@ -558,13 +555,6 @@ export async function runKernel(args: {
 	 */
 	parentTediId?: string | null;
 	requesterTediId?: string | null;
-	/** Server-validated Workspace selection; shapes context but grants no capability. */
-	workspaceContext?: {
-		workspaceId: string;
-		workspaceName: string;
-		workpiece?: { kind: "gadget" | "output"; id: string; name: string };
-	};
-	selectedWorkspaceDocument?: string | null;
 	/**
 	 * Semantic recall already started at DO ingress (`KernelDO.processTurn`),
 	 * so the multi-second Agent Memory call overlaps the pre-planning gap.
@@ -602,7 +592,6 @@ export async function runKernel(args: {
 		delegationDepth,
 		parentTediId,
 		requesterTediId,
-		workspaceContext,
 		relevanceCandidates,
 		previousRelevanceRecall,
 	} = args;
@@ -752,9 +741,7 @@ export async function runKernel(args: {
 			...(relevanceRecallBudgetMs !== undefined
 				? { relevanceRecallBudgetMs }
 				: {}),
-			workspaceContext,
 			maxPromptTokens: pass.maxPromptTokens,
-			selectedWorkspaceDocument: args.selectedWorkspaceDocument,
 			...(contextCache ? { contextCache } : {}),
 			...(summarizeHistory ? { summarizeHistory } : {}),
 			...(pass.forceCompaction ? { forceCompaction: true } : {}),
@@ -805,7 +792,6 @@ export async function runKernel(args: {
 			// selected model's default — explicit fixed models may use another lane.
 			budgetTokens,
 			sources: [
-				{ name: "workspace", count: ctx.workspace ? 1 : 0 },
 				{ name: "speaker", count: ctx.speaker ? 1 : 0 },
 				{ name: "tedis", count: ctx.tedis.length },
 				{ name: "apps", count: ctx.apps.length },
@@ -899,7 +885,6 @@ export async function runKernel(args: {
 			organizationId,
 			outputWriteApp(context.apps)!,
 			descopeUserId,
-			context.workspace?.id,
 		),
 	);
 	if (factoryDecision) {
@@ -1057,7 +1042,6 @@ export async function runKernel(args: {
 	const planArgs = {
 		onRouteAttempts: args.onRouteAttempts,
 		readSteering: args.readSteering,
-		...(args.pageTools ? { pageTools: args.pageTools } : {}),
 		...(homeRoutePolicy && homeRoutePolicy.mode !== "off"
 			? {
 					decisionMode: homeRoutePolicy.mode,
@@ -1070,9 +1054,6 @@ export async function runKernel(args: {
 							context,
 							policy: homeRoutePolicy,
 							signal: abortSignal,
-							...(args.pageTools?.descriptors.length
-								? { pageTools: args.pageTools.descriptors }
-								: {}),
 							attachments: routeDecisionAttachments(
 								args.attachments,
 								context.history,
@@ -1366,7 +1347,6 @@ export async function runKernel(args: {
 			executionRequirement,
 			executionEnvironment,
 			authorityMode: earnedDelegationEnforcement,
-			workspace: context.workspace,
 		});
 		workOrder.autonomyPolicyPack = orgPolicy?.autonomy?.policyPack;
 		delegation = {

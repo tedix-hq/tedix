@@ -11,12 +11,6 @@ import {
 } from "@tedix/db/queries/os-workspaces/workspaces";
 import { parseDerivedAccessEnvelope } from "../../../services/os-derived-resource-access";
 
-export type WriteWorkspaceContext = {
-	workspaceId: string;
-	workspaceName: string;
-	workpiece?: { kind: "gadget" | "output"; id: string; name: string };
-};
-
 const UUID_RE =
 	/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
 const MAX_EDIT_TARGET_CHARS = 12_000;
@@ -33,8 +27,8 @@ export function editTargetKind(editTarget: string | null): string | null {
 }
 
 /**
- * The output an edit refers to: the selected workpiece, else the first id named
- * in the request or the route's rationale. Without its current body the planner
+ * The output an edit refers to: the first id named in the request or the
+ * route's rationale. Without its current body the planner
  * cannot address existing blocks, rows or slides ("add a totals row", "make
  * slide 2 two columns") and either declines or rewrites the whole output.
  * Protected revisions (derived from access-checked sources) are never read here.
@@ -44,29 +38,15 @@ export async function readEditTargetOutput(input: {
 	organizationId: string;
 	/** The member the turn acts for; outputs in others' private workspaces are skipped. */
 	viewer: OsWorkspaceViewer;
-	workspaceContext?: WriteWorkspaceContext;
 	texts: Array<string | null | undefined>;
 }): Promise<string | null> {
-	const workpiece = (
-		input.workspaceContext as
-			| { workpiece?: { kind?: unknown; id?: unknown } }
-			| undefined
-	)?.workpiece;
-	const ids = [
-		...(workpiece?.kind === "output" && typeof workpiece.id === "string"
-			? [workpiece.id]
-			: []),
-		...input.texts.flatMap((text) => text?.match(UUID_RE) ?? []),
-	]
+	const ids = input.texts
+		.flatMap((text) => text?.match(UUID_RE) ?? [])
 		.map((id) => id.toLowerCase())
-		.filter(
-			(id, index, all) =>
-				all.indexOf(id) === index &&
-				id !== input.workspaceContext?.workspaceId?.toLowerCase(),
-		)
+		.filter((id, index, all) => all.indexOf(id) === index)
 		.slice(0, 3);
 	// A follow-up can name its sheet only by title ("titled "Social cards …"");
-	// resolve that against active sheets the member can see, workspace first.
+	// resolve that against active sheets the member can see.
 	if (ids.length === 0) {
 		const title = input.texts
 			.map((text) => text?.match(/\btitled "([^"\n]{1,200})"/)?.[1])
@@ -79,10 +59,7 @@ export async function readEditTargetOutput(input: {
 				{ kind: "sheet", status: "active", limit: 200 },
 			).catch(() => []);
 			const named = sheets.filter((row) => row.title.trim() === title.trim());
-			const match =
-				named.find(
-					(row) => row.workspaceId === input.workspaceContext?.workspaceId,
-				) ?? (named.length === 1 ? named[0] : undefined);
+			const match = named.length === 1 ? named[0] : undefined;
 			if (match) ids.push(match.id);
 		}
 	}

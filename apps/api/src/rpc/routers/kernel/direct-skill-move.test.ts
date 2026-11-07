@@ -163,7 +163,6 @@ describe("resolveDirectSkillMove", () => {
 				toolIntent: { capability: "skills.copy" },
 			},
 			"transfer skill watcher to reddit-operator",
-			null,
 			move!.intent,
 		);
 		expect(corrected.toolIntent.capability).toBe("skills.move_to_tedi");

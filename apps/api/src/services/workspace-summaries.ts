@@ -130,39 +130,21 @@ export async function publishOsWorkspaceSummaryForKernelEvent(
 	// never fail because of them.
 	if (!context.env?.AUTOMATION_EVENTS) return;
 	if (!WORKSPACE_SUMMARY_EVENT_KINDS.has(event.kind)) return;
-	// The message.received/completed payload carries the workspace binding
-	// directly; every other kind resolves through the conversation row.
-	const payload =
-		event.payload && typeof event.payload === "object"
-			? (event.payload as Record<string, unknown>)
-			: {};
-	const metadata =
-		payload.metadata && typeof payload.metadata === "object"
-			? (payload.metadata as Record<string, unknown>)
-			: {};
-	const workspaceContext =
-		metadata.workspaceContext && typeof metadata.workspaceContext === "object"
-			? (metadata.workspaceContext as Record<string, unknown>)
-			: {};
-	let workspaceId =
-		typeof workspaceContext.workspaceId === "string"
-			? workspaceContext.workspaceId
-			: null;
-	if (!workspaceId) {
-		try {
-			const conversation = await getKernelConversation(db, {
-				organizationId: event.organizationId,
-				conversationId: event.conversationId,
-			});
-			workspaceId = conversation?.workspaceId ?? null;
-		} catch (error) {
-			console.warn("[workspace-summaries] conversation lookup failed", {
-				organizationId: event.organizationId,
-				conversationId: event.conversationId,
-				error: error instanceof Error ? error.message : String(error),
-			});
-			return;
-		}
+	// The workspace binding lives on the conversation row.
+	let workspaceId: string | null = null;
+	try {
+		const conversation = await getKernelConversation(db, {
+			organizationId: event.organizationId,
+			conversationId: event.conversationId,
+		});
+		workspaceId = conversation?.workspaceId ?? null;
+	} catch (error) {
+		console.warn("[workspace-summaries] conversation lookup failed", {
+			organizationId: event.organizationId,
+			conversationId: event.conversationId,
+			error: error instanceof Error ? error.message : String(error),
+		});
+		return;
 	}
 	if (!workspaceId) return;
 	scheduleOsWorkspaceSummaryPublish(context, {

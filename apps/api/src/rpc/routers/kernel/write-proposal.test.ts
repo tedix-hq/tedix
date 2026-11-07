@@ -3,7 +3,6 @@ import {
 	correctWriteRoute,
 	preferredToolForCapability,
 	renameThisConversationArgs,
-	workpieceRenameIntent,
 } from "./write-tool-intent";
 import {
 	classifyWriteRisk,
@@ -934,12 +933,7 @@ describe("planKernelWriteProposal — editing a selected Tedix output", () => {
 					connectionStatus: "connected",
 				},
 			}),
-			workspaceContext: {
-				workspaceId: "ws-1",
-				workspaceName: "Scratch",
-				workpiece: { kind: "output", id: OUTPUT_ID, name: "Plan" },
-			} as never,
-			content: "Append a paragraph Fourth line. to this document",
+			content: `Append a paragraph Fourth line. to document ${OUTPUT_ID}`,
 			model: objectModel({ toolName: "NONE", args: null, reasoning: null }),
 		});
 		const search = service.calls.find((call) =>
@@ -1077,21 +1071,15 @@ describe("readEditTargetOutput", () => {
 			content: expect.stringContaining("First draft."),
 		});
 	});
-	it("prefers the selected output, deduplicates ids, and excludes the workspace id", async () => {
+	it("deduplicates ids named in different cases", async () => {
 		mocks.getOsOutput.mockClear();
 		mocks.getOsOutput.mockResolvedValueOnce(output as never);
 		mocks.getOsOutputRevision.mockResolvedValueOnce(revision([]) as never);
-		const workspaceId = "00000000-0000-4000-8000-0000000000b1";
 		const target = await readEditTargetOutput({
 			db: DB,
 			organizationId: "org-1",
 			viewer: { userIds: [] },
-			workspaceContext: {
-				workspaceId,
-				workspaceName: "Plans",
-				workpiece: { kind: "output", id: OUTPUT_ID },
-			} as never,
-			texts: [workspaceId, OUTPUT_ID.toUpperCase()],
+			texts: [OUTPUT_ID, OUTPUT_ID.toUpperCase()],
 		});
 		expect(JSON.parse(target!)).toMatchObject({ outputId: OUTPUT_ID });
 		expect(mocks.getOsOutput).toHaveBeenCalledExactlyOnceWith(DB, {
@@ -1138,49 +1126,6 @@ describe("readEditTargetOutput", () => {
 				texts: [OUTPUT_ID],
 			}),
 		).toBeNull();
-	});
-});
-
-describe("Home live-draft snapshot request", () => {
-	it("links to the exact selected editor without generating or executing a write", async () => {
-		const workspaceId = "11111111-1111-4111-8111-111111111111";
-		const outputId = "22222222-2222-4222-8222-222222222222";
-		const service = mcpService(globexProvider);
-		const model = objectModel({
-			toolName: "os.revise_os_output",
-			args: { content: "wrong saved body" },
-		});
-		const onDecline = vi.fn();
-		const route = writeRoute();
-		expect(
-			await planKernelWriteProposal({
-				db: DB,
-				env: baseEnv(service),
-				organizationId: "org-1",
-				route,
-				content: "Snapshot Replies to review rows 21–23 as v12",
-				workspaceContext: {
-					workspaceId,
-					workspaceName: "Review workspace",
-					workpiece: {
-						kind: "output",
-						id: outputId,
-						name: "Replies to review",
-					},
-				},
-				model,
-				onDecline,
-			}),
-		).toBeNull();
-		expect(model.doGenerateCalls).toHaveLength(0);
-		expect(service.calls).toHaveLength(0);
-		expect(mocks.getAppBySlugForOrg).not.toHaveBeenCalled();
-		const declined = onDecline.mock.calls[0]?.[0];
-		expect(declined.stage).toBe("live_draft_save");
-		const response = renderWriteDeclined(declined, route);
-		expect(response).toContain("open Replies to review");
-		expect(response).toContain(`workpiece=output:${outputId}`);
-		expect(response).toContain("Nothing was saved by this chat.");
 	});
 });
 
@@ -1625,35 +1570,6 @@ describe("planKernelWriteProposal — positive path", () => {
 			expect(proposal?.outputTitle).toBe(matches ? "Project plan" : undefined);
 		},
 	);
-
-	it("carries workspace context through the remaining argument generation pass without injecting provider arguments", async () => {
-		const model = objectModel({
-			toolName: "globex__create_invoice",
-			args: { amount: 100 },
-			reasoning: null,
-		});
-		const generate = vi.spyOn(model, "doGenerate");
-		const proposal = await planKernelWriteProposal({
-			db: DB,
-			env: baseEnv(mcpService(globexProvider)),
-			organizationId: "org-1",
-			route: writeRoute(),
-			content: "create an invoice",
-			workspaceContext: {
-				workspaceId: "a6083071-d7f3-4056-881d-e8f9c0df0a13",
-				workspaceName: "Supplier review",
-			},
-			model,
-		});
-		expect(generate).toHaveBeenCalledTimes(1);
-		for (const [options] of generate.mock.calls) {
-			const prompt = JSON.stringify(options.prompt);
-			expect(prompt).toContain("a6083071-d7f3-4056-881d-e8f9c0df0a13");
-			expect(prompt).toContain("Supplier review");
-			expect(prompt).toContain("not authorization");
-		}
-		expect(proposal?.args).toEqual({ amount: 100 });
-	});
 
 	it("tells the argument pass which conversation is 'this conversation'", async () => {
 		const model = objectModel({
@@ -3017,7 +2933,7 @@ describe("factory creation preview", () => {
 		},
 	);
 
-	it("creates the factory in the chat's Workspace and names a refused dry run's reason", async () => {
+	it("previews the factory and names a refused dry run's reason", async () => {
 		const service = mcpService((body) => {
 			if (body.method === "tools/list")
 				return {
@@ -3087,10 +3003,6 @@ describe("factory creation preview", () => {
 				},
 			}),
 			content: "Create a daily factory that writes into Sample digest",
-			workspaceContext: {
-				workspaceId: "abcdef00-ab12-4011-8111-00000000000a",
-				workspaceName: "Sample workspace",
-			},
 			onDecline,
 			model: objectModel({
 				toolName: "projects.create_factory",
@@ -3104,9 +3016,7 @@ describe("factory creation preview", () => {
 				c.method === "tools/call" &&
 				(c.params.arguments as { code: string }).code.includes('"dryRun":true'),
 		);
-		expect((preview!.params.arguments as { code: string }).code).toContain(
-			'"workspaceId":"abcdef00-ab12-4011-8111-00000000000a"',
-		);
+		expect(preview).toBeDefined();
 		const declined = onDecline.mock.calls[0]?.[0];
 		expect(declined.reason).toBe(
 			'Output "Sample digest" is archived. Pass another output.',
@@ -3353,9 +3263,8 @@ it.each([undefined, "external_side_effect", "high_impact_write"])(
 
 describe("member canonical Work discovery", () => {
 	it.each(["id", "name"])(
-		"grounds a project %s while preserving the member, workspace and fresh catalog verdict",
+		"grounds a project %s while preserving the member and fresh catalog verdict",
 		async (destination) => {
-			const workspaceId = "22222222-2222-4222-8222-222222222222";
 			const projectId = "11111111-1111-4111-8111-111111111111";
 			const workProjects = JSON.stringify({
 				projects: [
@@ -3363,7 +3272,6 @@ describe("member canonical Work discovery", () => {
 						projectId,
 						name: "Orchard Accounts",
 						key: "ACCOUNTS",
-						linkedToSelectedWorkspace: true,
 					},
 				],
 				truncated: false,
@@ -3409,7 +3317,7 @@ describe("member canonical Work discovery", () => {
 			}));
 			const model = objectModel({
 				toolName: "work.create_work_items",
-				args: { title: "Validation", projectId, workspaceId },
+				args: { title: "Validation", projectId },
 			});
 			const args = {
 				db: DB,
@@ -3424,20 +3332,18 @@ describe("member canonical Work discovery", () => {
 				}),
 				actingUserId: "member-1",
 				workWriteGateway: "member-gateway",
-				workspaceContext: { workspaceId, workspaceName: "Member workspace" },
-				content: `Create validation Work in project ${destination === "id" ? projectId : "Orchard Accounts"} in this workspace`,
+				content: `Create validation Work in project ${destination === "id" ? projectId : "Orchard Accounts"}`,
 				model,
 			};
 			const first = await planKernelWriteProposal(args);
 			expect(first).toMatchObject({
 				appSlug: "member-gateway",
 				toolName: "work.create_work_items",
-				args: { title: "Validation", projectId, workspaceId },
+				args: { title: "Validation", projectId },
 			});
 			await planKernelWriteProposal(args);
 			expect(mocks.readWorkCreateProjects).toHaveBeenCalledWith(DB, {
 				organizationId: "org-member",
-				workspaceId,
 			});
 			expect(JSON.stringify(model.doGenerateCalls[0]?.prompt)).toContain(
 				workProjects.replaceAll('"', '\\"'),
@@ -3613,266 +3519,6 @@ describe("member canonical Work discovery", () => {
 		expect(
 			renderWriteDeclined(canonicalLookup("unavailable") as never, route),
 		).toContain("No Work item was created");
-	});
-});
-
-describe("selected workspace app rename", () => {
-	const workspaceId = "22222222-2222-4222-8222-222222222222";
-	const gadgetId = "33333333-3333-4333-8333-333333333333";
-	const unusedModel = () =>
-		new MockLanguageModelV3({
-			doGenerate: async () => {
-				throw new Error("a plain rename needs no model");
-			},
-		});
-
-	it("renames the selected app with the direct tool when the router guessed Work creation", async () => {
-		mocks.getAppBySlugForOrg.mockImplementation(async (_db, slug) =>
-			slug === "orchard-unified" ? { slug } : null,
-		);
-		const service = mcpService(() => ({
-			json: {
-				jsonrpc: "2.0",
-				id: 1,
-				result: {
-					structuredContent: {
-						executionId: "catalog",
-						result: [
-							{
-								callable: "os.rename_os_gadget",
-								authorized: true,
-								annotations: { readOnlyHint: false },
-								parameters: {
-									properties: {
-										workspaceId: { type: "string" },
-										gadgetId: { type: "string" },
-										name: { type: "string" },
-									},
-									required: ["workspaceId", "gadgetId", "name"],
-								},
-							},
-						],
-					},
-				},
-			},
-		}));
-		const declined = vi.fn();
-		const proposal = await planKernelWriteProposal({
-			db: DB,
-			env: baseEnv(service),
-			organizationId: "org-orchard",
-			route: writeRoute({
-				toolIntent: {
-					appSlug: "orchard-unified",
-					capability: "work_items.create",
-					connectionStatus: "connected",
-				},
-			}),
-			actingUserId: "member-1",
-			workWriteGateway: "orchard-unified",
-			workspaceContext: {
-				workspaceId,
-				workspaceName: "Harvest",
-				workpiece: { kind: "gadget", id: gadgetId, name: "Daily review" },
-			},
-			content: `[[tedix-context:gadget:${gadgetId}:App%20resource]]\n\nrename the app gadget in this workspace to "Harvest Review App"`,
-			model: unusedModel(),
-			onDecline: declined,
-		});
-		expect(declined).not.toHaveBeenCalled();
-		expect(proposal).toMatchObject({
-			appSlug: "orchard-unified",
-			toolName: "os.rename_os_gadget",
-			args: { workspaceId, gadgetId, name: "Harvest Review App" },
-		});
-		expect(mocks.readWorkCreateProjects).not.toHaveBeenCalled();
-		const sent = JSON.stringify(service.calls.map((call) => call.params));
-		expect(sent).toContain("os.rename_os_gadget");
-		expect(sent).not.toContain("create_work_items");
-	});
-
-	it("keeps the rename capability on the route and leaves other targets alone", () => {
-		const context = {
-			workspaceId,
-			workpiece: { kind: "gadget" as const, id: gadgetId },
-		};
-		const route = writeRoute({
-			toolIntent: {
-				appSlug: "orchard-unified",
-				capability: "work_items.create",
-				connectionStatus: "connected",
-			},
-		});
-		expect(
-			correctWriteRoute(route, "Rename the app to Harvest Review", context)
-				.toolIntent?.capability,
-		).toBe("gadgets.rename");
-		for (const content of [
-			"Rename this conversation to Harvest",
-			"Rename the work item to Harvest",
-			"Rename the workspace to Harvest",
-			"Rename the Google sheet to Harvest",
-			"Create a Work item to rename the app later",
-		])
-			expect(correctWriteRoute(route, content, context)).toBe(route);
-		expect(
-			workpieceRenameIntent("Rename the sheet to Q3", {
-				workspaceId,
-				workpiece: { kind: "output", id: "output-1" },
-			}),
-		).toEqual({
-			capability: "outputs.rename",
-			toolName: "os.rename_os_output",
-			args: { outputId: "output-1", title: "Q3" },
-		});
-		expect(workpieceRenameIntent("Rename the sheet to Q3", context)).toBeNull();
-		expect(workpieceRenameIntent("Rename the app to Q3", undefined)).toBeNull();
-	});
-});
-
-describe("Work creation in a workspace linked to one project", () => {
-	const workspaceId = "22222222-2222-4222-8222-222222222222";
-	const projectId = "11111111-1111-4111-8111-111111111111";
-	const plan = (args: Record<string, unknown>) => {
-		mocks.getAppBySlugForOrg.mockImplementation(async (_db, slug) =>
-			slug === "member-gateway" ? { slug } : null,
-		);
-		mocks.readWorkCreateProjects.mockResolvedValue(
-			JSON.stringify({
-				projects: [
-					{
-						projectId,
-						name: "Orchard Accounts",
-						key: "ACCOUNTS",
-						linkedToSelectedWorkspace: true,
-					},
-				],
-				truncated: false,
-				workspaceDefaultProjectId: projectId,
-			}),
-		);
-		const service = mcpService(() => ({
-			json: {
-				jsonrpc: "2.0",
-				id: 1,
-				result: {
-					structuredContent: {
-						executionId: "catalog",
-						result: [
-							{
-								callable: "work.create_work_items",
-								authorized: true,
-								annotations: { readOnlyHint: false },
-								parameters: {
-									properties: {
-										title: { type: "string" },
-										projectId: { type: "string" },
-										objectiveId: { type: "string" },
-										workspaceId: { type: "string" },
-									},
-									required: ["title"],
-								},
-							},
-						],
-					},
-				},
-			},
-		}));
-		return planKernelWriteProposal({
-			db: DB,
-			env: baseEnv(service),
-			organizationId: "org-member",
-			route: writeRoute({
-				toolIntent: {
-					appSlug: "member-gateway",
-					capability: "work_items.create",
-					connectionStatus: "connected",
-				},
-			}),
-			actingUserId: "member-1",
-			workWriteGateway: "member-gateway",
-			workspaceContext: { workspaceId, workspaceName: "Accounts" },
-			content: "Create a Work item to reconcile the March invoices",
-			model: objectModel({ toolName: "work.create_work_items", args }),
-		});
-	};
-
-	it("defaults the destination to the workspace's project", async () => {
-		const proposal = await plan({ title: "Reconcile March invoices" });
-		expect(proposal?.args).toMatchObject({
-			title: "Reconcile March invoices",
-			projectId,
-			workspaceId,
-		});
-	});
-
-	it("keeps a destination the operator gave", async () => {
-		const objectiveId = "44444444-4444-4444-8444-444444444444";
-		const proposal = await plan({
-			title: "Reconcile March invoices",
-			objectiveId,
-		});
-		expect(proposal?.args).toMatchObject({ objectiveId });
-		expect(proposal?.args).not.toHaveProperty("projectId");
-	});
-});
-
-describe("a mistyped selected Workspace id", () => {
-	it("is replaced by the selected Workspace when the organization has no such Workspace", async () => {
-		const workspaceId = "0c2464ac-201c-4e56-bb40-e1499d4673fe";
-		mocks.getAppBySlugForOrg.mockImplementation(async (_db, slug) =>
-			slug === "orchard-unified" ? { slug } : null,
-		);
-		const service = mcpService(() => ({
-			json: {
-				jsonrpc: "2.0",
-				id: 1,
-				result: {
-					structuredContent: {
-						executionId: "catalog",
-						result: [
-							{
-								callable: "os.create_os_output",
-								authorized: true,
-								annotations: { readOnlyHint: false },
-								parameters: {
-									properties: {
-										kind: { type: "string" },
-										title: { type: "string" },
-										workspaceId: { type: "string" },
-									},
-									required: ["kind", "title"],
-								},
-							},
-						],
-					},
-				},
-			},
-		}));
-		const proposal = await planKernelWriteProposal({
-			db: DB,
-			env: baseEnv(service),
-			organizationId: "org-orchard",
-			route: writeRoute({
-				toolIntent: {
-					appSlug: "orchard-unified",
-					capability: "sheets.create",
-					connectionStatus: "connected",
-				},
-			}),
-			actingUserId: "member-1",
-			workspaceContext: { workspaceId, workspaceName: "Harvest" },
-			content: 'Create a new sheet titled "Check" in this workspace',
-			model: objectModel({
-				toolName: "os.create_os_output",
-				args: {
-					kind: "sheet",
-					title: "Check",
-					workspaceId: "0c2464ac-201c-4e56-bbb4-e1499d4673fe",
-				},
-			}),
-		});
-		expect(proposal?.args).toMatchObject({ workspaceId });
 	});
 });
 

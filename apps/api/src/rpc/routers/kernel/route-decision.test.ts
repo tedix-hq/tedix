@@ -274,19 +274,11 @@ describe("route choice probabilities and policy", () => {
 					},
 				],
 			),
-			pageTools: [
-				{
-					name: "read_app_files",
-					description: "Read the app files.",
-					inputSchema: { type: "object" },
-				},
-			],
 		});
 		expect(result.status).toBe("selected");
 		const call = vi.mocked(executeJevJudgment).mock.calls[0]![0];
 		const state = JSON.parse(call.state.input as string) as {
 			attachments: unknown;
-			pageTools: unknown;
 		};
 		expect(state.attachments).toEqual([
 			{ fileName: "loading.png", mimeType: "image/png", type: "image" },
@@ -296,13 +288,9 @@ describe("route choice probabilities and policy", () => {
 				type: "image (earlier message)",
 			},
 		]);
-		expect(state.pageTools).toEqual([
-			{ name: "read_app_files", description: "Read the app files." },
-		]);
 		expect(call.questions.route.instructions).toContain(
 			"attachments lists files",
 		);
-		expect(JSON.stringify(call.questions.route)).toContain("pageTools");
 	});
 });
 describe("two-step route integration", () => {
