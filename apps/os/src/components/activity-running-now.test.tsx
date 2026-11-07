@@ -237,9 +237,12 @@ it("pages the 24-hour cohort and refreshes scorecard outcomes without navigation
 	expect(cells()).toBe("codex2110UnknownUnknown1");
 });
 
-it("keeps unavailable history unknown and retry available", async () => {
+it("keeps forbidden history unknown and recovers through manual retry", async () => {
 	api.attempts.mockImplementation(async (input) => {
-		if (!input.runtimeStates) throw new Error("History unavailable");
+		if (!input.runtimeStates)
+			throw Object.assign(new Error("History unavailable"), {
+				code: "FORBIDDEN",
+			});
 		return { data: [row()], hasMore: false, nextCursor: null };
 	});
 	await mount();
@@ -256,13 +259,13 @@ it("keeps unavailable history unknown and retry available", async () => {
 		hasMore: false,
 		nextCursor: null,
 	});
-	await act(async () =>
-		host
-			.querySelector<HTMLButtonElement>(
-				'section[aria-label="Runner scorecard"] button',
-			)!
-			.click(),
-	);
+	const retry = [
+		...host.querySelectorAll<HTMLButtonElement>(
+			'section[aria-label="Runner scorecard"] button',
+		),
+	].find((button) => button.textContent === "Retry")!;
+	expect(retry.disabled).toBe(false);
+	await act(async () => retry.click());
 	await flush();
 	expect(host.textContent).not.toContain("Runner scorecard unavailable");
 	expect(
