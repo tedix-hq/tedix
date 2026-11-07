@@ -176,6 +176,7 @@ function fixture({
 			data: [] as Record<string, unknown>[],
 			nextCursor: null as string | null,
 		},
+		comments: [] as Record<string, unknown>[],
 		historyError: undefined as Error | undefined,
 		preparationGate: undefined as
 			| { itemId: string; open: Promise<void> }
@@ -259,7 +260,10 @@ function fixture({
 						...items.find((row) => row.id === args[6]),
 						...(executor === "devin" ? { orgId: devinOrgId } : {}),
 					},
-					comments: devinComments.get(args[6]!) ?? [],
+					comments: [
+						...(devinComments.get(args[6]!) ?? []),
+						...control.comments,
+					],
 				};
 			else if (verb === "dispatch-attempts") {
 				if (control.historyError) throw control.historyError;
@@ -2154,6 +2158,114 @@ describe("dispatcher admission", () => {
 			expect(f.events.some((event) => event.verb === "complete")).toBe(false);
 		},
 	);
+	it.each([
+		"Pushed the fix; checks green.",
+		`Result\nTEDIX_LANE_RESULT {"outcome":"completed","extra":true}`,
+		"Result\nTEDIX_LANE_RESULT not-json",
+	])(
+		"recovers an undeclared result from the Attempt's landed commit: %s",
+		async (message) => {
+			const f = fixture();
+			f.items.splice(1);
+			f.items[0]!.workKind = "coding";
+			const commitSha = "b".repeat(40);
+			f.control.commits = [commitSha];
+			f.control.declareCompleted = false;
+			f.control.finalMessage = message;
+			await f.dispatcher.tick();
+			await until(() => f.releases.length === 1);
+			const saved = JSON.parse(
+				readFileSync(join(f.dir, `${item().id}-2.json`), "utf8"),
+			);
+			f.control.history.data = [
+				{
+					id: saved.attemptId,
+					externalSessionKey: saved.session,
+					outcome: null,
+					expiresAt: new Date(Date.now() + 300000).toISOString(),
+					metadata: { dispatchVersion: 2 },
+				},
+			];
+			f.releases[0]!();
+			await f.dispatcher.drain();
+			const settle = f.events.find((event) => event.verb === "settle")!;
+			expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe(
+				"succeeded",
+			);
+			expect(settle.args).toContain(commitSha);
+			expect(settle.input?.metadata).toMatchObject({
+				laneResult: {
+					outcome: "completed",
+					workItemId: item().id,
+					workVersion: item().version,
+					contractVersion: item().acceptanceContract!.version,
+					outcomeText: item().acceptanceContract!.doneLooksLike,
+				},
+			});
+			expect(f.events.some((event) => event.verb === "complete")).toBe(true);
+		},
+	);
+	it("recovers an undeclared result from the session's result comment", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		f.control.declareCompleted = false;
+		f.control.finalMessage = "Result recorded in OS.";
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		const saved = JSON.parse(
+			readFileSync(join(f.dir, `${item().id}-2.json`), "utf8"),
+		);
+		f.control.comments.push({
+			id: "delivered-note",
+			workItemId: item().id,
+			orgId: "99999999-9999-4999-8999-999999999999",
+			authorType: "external_agent",
+			authorId: saved.executorKey,
+			body: "Result recorded in OS.",
+			metadata: { agentSession: saved.session },
+			createdAt: new Date().toISOString(),
+		});
+		f.control.history.data = [
+			{
+				id: saved.attemptId,
+				externalSessionKey: saved.session,
+				outcome: null,
+				expiresAt: new Date(Date.now() + 300000).toISOString(),
+				metadata: { dispatchVersion: 2 },
+			},
+		];
+		f.releases[0]!();
+		await f.dispatcher.drain();
+		const settle = f.events.find((event) => event.verb === "settle")!;
+		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("succeeded");
+		expect(settle.input?.metadata).toMatchObject({
+			laneResult: { outcome: "completed", workItemId: item().id },
+		});
+		expect(f.events.some((event) => event.verb === "complete")).toBe(true);
+	});
+	it("fails an undeclared result that left no Attempt evidence", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		f.control.declareCompleted = false;
+		f.control.finalMessage = "Result recorded in OS.";
+		f.control.comments.push({
+			id: "foreign-note",
+			workItemId: item().id,
+			orgId: "99999999-9999-4999-8999-999999999999",
+			authorType: "external_agent",
+			authorId: "another-executor",
+			body: "Result recorded in OS.",
+			metadata: { agentSession: "codex:another-session" },
+			createdAt: new Date().toISOString(),
+		});
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		f.releases[0]!();
+		await f.dispatcher.drain();
+		const settle = f.events.find((event) => event.verb === "settle")!;
+		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("failed");
+		expect(f.events.some((event) => event.verb === "complete")).toBe(false);
+	});
 	it("keeps an explicitly incomplete coding result open despite its landed commit", async () => {
 		const f = fixture();
 		f.items.splice(1);
