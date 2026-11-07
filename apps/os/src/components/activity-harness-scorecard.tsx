@@ -122,9 +122,9 @@ export function ActivityHarnessScorecard({
 							["Succeeded", "14%"],
 							["Failed", "8%"],
 							["Orphaned*", "13%"],
-							["Held", "10%"],
+							["Held", "12%"],
 							["Supervisor kills", "17%"],
-							["Commits on main†", "17%"],
+							["Commits on main†", "15%"],
 						].map(([label, width]) => (
 							<TableHead key={label} scope="col" style={{ width }}>
 								{label}
