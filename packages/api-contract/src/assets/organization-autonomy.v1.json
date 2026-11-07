@@ -9,8 +9,8 @@
 		{
 			"id": "workspace_management",
 			"label": "Workspace and app management",
-			"pattern": "^(?:(?:create|update|rename|restore|archive|revise|move|link|unlink|attach|remove|patch|set|install)_os_(?:workspace|workspace_resource|workspace_skill|workspace_project|gadget|output|document|slides|sheet_range)s?|install_work_defaults|(?:create|update|rename)_project(?:_milestone)?)$",
-			"endpointPattern": "^osWorkspaces/(?:workspaces/(?:create|update|archive|restore)|resources/(?:create|rename|remove)|schedules/(?:link|unlink)|work/(?:attachProject|removeProject)|gadgets/(?:create|revise|archive|rename|installWorkDefaults)|outputs/(?:create|rename|move|revise|patchDocument|patchSlides|setSheetRange|archive))$",
+			"pattern": "^(?:(?:create|update|rename|restore|archive|revise|move|link|unlink|attach|remove|patch|set|install)_os_(?:workspace|workspace_resource|workspace_skill|workspace_project|gadget|output|document|slides|sheet_range)s?|(?:request|confirm)_os_workspace_file_upload|install_work_defaults|(?:create|update|rename)_project(?:_milestone)?)$",
+			"endpointPattern": "^osWorkspaces/(?:workspaces/(?:create|update|archive|restore)|resources/(?:create|rename|remove|requestFileUpload|confirmFileUpload)|schedules/(?:link|unlink)|work/(?:attachProject|removeProject)|gadgets/(?:create|revise|archive|rename|installWorkDefaults)|outputs/(?:create|rename|move|revise|patchDocument|patchSlides|setSheetRange|archive))$",
 			"callablePattern": "^$"
 		},
 		{

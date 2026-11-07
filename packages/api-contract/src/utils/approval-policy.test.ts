@@ -855,6 +855,24 @@ describe("platform-default autonomy (organization-autonomy.v1.json)", () => {
 		).toBeNull();
 	});
 
+	it("lets workspace file uploads run without approval", () => {
+		expect(
+			platformAutonomousOperation("os.request_os_workspace_file_upload")?.id,
+		).toBe("workspace_management");
+		expect(
+			platformAutonomousOperation("os.confirm_os_workspace_file_upload")?.id,
+		).toBe("workspace_management");
+		expect(
+			platformAutonomousOperation(
+				"request_file_upload",
+				"osWorkspaces/resources/requestFileUpload",
+			)?.id,
+		).toBe("workspace_management");
+		expect(
+			decide("os.request_os_workspace_file_upload", "low").autoResolve,
+		).toBe(true);
+	});
+
 	it("applies under an explicit autonomy policy without a trusted-tool list", () => {
 		expect(
 			decide("os.rename_os_output", "low", {
