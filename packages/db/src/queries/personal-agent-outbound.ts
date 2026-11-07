@@ -506,7 +506,9 @@ export function listPendingPersonalAgentEmails(db: DbQueryClient, limit = 50) {
 		)
 		.where(
 			and(
-				eq(o.eventType, "personal_agent.outcome_recorded"),
+				// Literal, not a bound value: only then can the planner use the
+				// partial idx_work_events_personal_outcome_sequence.
+				sql`${o.eventType} = 'personal_agent.outcome_recorded'`,
 				sql`json_extract(${cfg.value},'$.active')=1`,
 				sql`json_extract(${cfg.value},'$.delivery.email') IS NOT NULL`,
 				notExists(

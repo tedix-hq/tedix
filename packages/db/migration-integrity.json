@@ -1396,6 +1396,10 @@
 		{
 			"name": "20261107194203_memory_facts_expertise_live/migration.sql",
 			"sha256": "e43eddef48c5844fa2d461c257f6f492f70481ca0d0c83fcba35f1f728e848f8"
+		},
+		{
+			"name": "20261107205003_work_events_personal_outcome/migration.sql",
+			"sha256": "68b0c69e6fb679349c813d239c0c33b507a7887791dec78a6bce7115b534a75c"
 		}
 	]
 }

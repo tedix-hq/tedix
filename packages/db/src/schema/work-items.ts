@@ -773,6 +773,11 @@ export const workEvents = sqliteTable(
 			table.occurredAt,
 		),
 		// The lease sweep reads stopped lanes across tenants in sequence order.
+		// The platform-wide personal-agent email sweep has no org; without this it
+		// scanned every work event on each run (99k rows per call on 7 Nov).
+		index("idx_work_events_personal_outcome_sequence")
+			.on(table.sequence)
+			.where(sql`event_type = 'personal_agent.outcome_recorded'`),
 		index("idx_work_events_stopped_lane_sequence")
 			.on(table.sequence)
 			.where(sql`event_type IN ('lane.stale', 'attempt.expired')`),

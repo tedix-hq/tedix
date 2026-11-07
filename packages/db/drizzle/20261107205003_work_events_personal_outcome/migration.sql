@@ -1,0 +1,1 @@
+CREATE INDEX `idx_work_events_personal_outcome_sequence` ON `work_events` (`sequence`) WHERE event_type = 'personal_agent.outcome_recorded';
