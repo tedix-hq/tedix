@@ -7,7 +7,7 @@ import {
 	PersonalAgentContributionSchema,
 	type PersonalAgentContribution,
 } from "@tedix/api-contract/schemas/personal-agent-inbound";
-import { and, asc, desc, eq, gt, inArray, lt, or } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, lt, or, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import { DelegationFyiSchema } from "@tedix/api-contract/schemas/work-items";
 import type { DelegationFyi } from "./delegation-autonomy";
@@ -122,11 +122,15 @@ export async function listWorkActivity(
 	if (params.workItemId) {
 		conditions.push(eq(workEvents.workItemId, params.workItemId));
 	}
+	// `+column` keeps the planner from starting at the project's or objective's
+	// items and reading every event they ever had: it walks the organization's
+	// events newest first through idx_work_events_org_occurred, joins each item
+	// by key and stops at the page (see activity.plan.test.ts).
 	if (params.projectId) {
-		conditions.push(eq(workItems.projectId, params.projectId));
+		conditions.push(sql`+${workItems.projectId} = ${params.projectId}`);
 	}
 	if (params.objectiveId) {
-		conditions.push(eq(workItems.objectiveId, params.objectiveId));
+		conditions.push(sql`+${workItems.objectiveId} = ${params.objectiveId}`);
 	}
 	if (params.eventTypes && params.eventTypes.length > 0) {
 		// bound-params: API contract caps eventTypes at 50 values
