@@ -1,0 +1,208 @@
+---
+sidebar:
+  order: 145
+title: "Move workspaces into workspace objects"
+topic: "Getting started"
+resource_type: guide
+description: "The cutover day runbook: copy every workspace's data into its own workspace object in one release, prove the copy, remove the old paths, and how to go back."
+summary: "Freeze, snapshot, export, import, reconcile, one deploy, delete the old code, run the feed check, drop the old tables; with rollback and go/no-go checks"
+read_when:
+  - Planning or running the cutover of all workspaces to workspace objects
+  - Deciding whether the cutover can start, continue, or must roll back
+visibility: public
+---
+
+# Move workspaces into workspace objects
+
+On cutover day every workspace's documents, sheets and presentations, their
+revision history, workspace chats with their runs and steps, artifacts,
+memory and connected resources move out of the shared database into one
+object per workspace. The object also runs the workspace's agent, so a
+question asked in a workspace is answered next to its data.
+
+Everything moves in one release. There is no flag, no gradual roll-out and
+no second code path. The old code is removed in the same release. Nothing in
+the shared database is dropped until the reconciler reports zero differences.
+
+The operator runs the steps below from a checkout of this repository with
+access to the installation's Cloudflare account. The commands are in
+`scripts/migrate-workspaces/`; its README is the command reference.
+
+## Before the day
+
+1. **Rehearse on a copy.** Take a snapshot (step 2 below, without the freeze)
+   and run:
+
+   ```bash
+   bun scripts/migrate-workspaces/cli.ts rehearse --snapshot main.sql --logs <one file per log partition> --assignments assignments.json --report rehearsal.json
+   ```
+
+   It must end with `rehearsal OK` and print the time per workspace. Post the
+   report on the migration Work Item. If the total is longer than the freeze
+   window you can afford, the day is not ready.
+
+2. **Write `assignments.json`.** For every organization: which workspace
+   receives the organization's memory, and which receives documents that
+   have no workspace today. `export` refuses to start while an organization
+   is missing from the file. The product owner decides; the file is kept
+   with the Work Item.
+
+3. **Confirm the release is built.** The five changes ship together: the
+   shared adapters, the workspace runtime, the workspace object with its
+   agent loop and the migration routes, the change feed into the core, and
+   the workspace chat screen. Each has its own Work Item under the data
+   layout epic; all five must be on `main` and in the release candidate
+   before the freeze.
+
+4. **Confirm where objects live.** The installation sets `DO_JURISDICTION`
+   to `eu`. The reconciler checks that every workspace object reports `eu`
+   and stops if one does not.
+
+## Cutover
+
+### 1. Freeze writes
+
+Put the platform into read-only mode for workspaces: pause scheduled runs
+and the agent dispatchers, and announce the window. From this point the
+shared database must not change in the tables that move.
+
+### 2. Snapshot the shared database
+
+Export the main database and every log partition with the installation's
+Wrangler configuration. Keep the files; they are the rollback.
+
+```bash
+wrangler d1 export <main database> --remote --output main.sql
+wrangler d1 export <log partition> --remote --output logs-1.sql
+```
+
+Record the file hashes on the Work Item.
+
+### 3. Export every workspace
+
+```bash
+bun scripts/migrate-workspaces/cli.ts export --snapshot main.sql --logs logs-1.sql --assignments assignments.json --bundles r2://<migration bucket>/<release id>
+```
+
+One bundle per workspace lands in the EU bucket. The command stops before
+writing anything if an organization has no assignment.
+
+### 4. Import every workspace
+
+```bash
+MIGRATE_WORKSPACES_TOKEN=<token> bun scripts/migrate-workspaces/cli.ts import --bundles r2://<migration bucket>/<release id> --remote https://<service that hosts the workspace objects>
+```
+
+The service creates each object in the `eu` jurisdiction on first contact.
+If the command stops, run it again: chunks that already landed are skipped.
+
+### 5. Reconcile
+
+```bash
+MIGRATE_WORKSPACES_TOKEN=<token> bun scripts/migrate-workspaces/cli.ts reconcile --bundles r2://<migration bucket>/<release id> --remote https://<service that hosts the workspace objects> --snapshot main.sql --logs logs-1.sql --report reconcile.json
+```
+
+The report must say `OK` for every workspace and every total. Any `DRIFT`
+line stops the cutover; fix the cause, import again, reconcile again. Attach
+`reconcile.json` to the Work Item.
+
+### 6. Deploy the release
+
+One deploy switches every workspace read, write and chat to the objects. It
+contains the five changes and the deletion of the old paths (next step).
+After the deploy, open one workspace per organization, ask a question in
+its chat and open its newest document. Confirm the agent answers from the
+workspace and the document shows its latest revision.
+
+### 7. Remove the old code paths
+
+The deletion is a short series of commits prepared before the day and pushed
+right after the sibling changes are on `main`, so the release never carries
+both paths. It removes:
+
+- the shared-database output code in `apps/api`: the router
+  `src/rpc/routers/os-workspace-outputs.ts` and the output readers in
+  `os-workspaces-shared.ts`, `os-workspace-library.ts`,
+  `os-workspace-files.ts`, `os-workspace-collaboration.ts`,
+  `src/http/exports-and-renders.ts` and `src/lib/os-share-redemption.ts`
+  move to the workspace object's reads; the shared-database query files
+  they used go: `packages/db/src/queries/os-workspaces/outputs.ts`,
+  `output-body-backfill.ts` and `output-body-offload.ts`
+- the in-workspace chat path in `apps/api/src/rpc/routers/kernel-runtime/`:
+  the workspace branches of `conversations-reads.ts`,
+  `run-reads-streams.ts`, `run-steering.ts` and `direct-read.ts` read the
+  object instead of the shared database; the shared-database run and chat
+  query files stay because organization Home threads still use them
+- the delegation hop for in-workspace chat: the workspace delegation in
+  `delegation-context.ts`, `delegation-control.ts` and
+  `delegation-resolution-recovery.ts`, and the narration collapse in
+  `apps/api/src/rpc/routers/kernel/home-narration.ts`
+- in `apps/os`: the polling chat path (`src/components/chat-polling.ts`),
+  the "Response is still being prepared" state in
+  `src/components/chat-message-parts.tsx`, and the Home relay for
+  in-workspace chat in `src/lib/quick-chat-home.ts` and
+  `src/lib/quick-chat-home-adapter.ts`
+
+The exact file list is posted on the Work Item before the day and updated
+as the sibling changes land.
+
+### 8. Run the feed check
+
+The change feed (`packages/workspace-feed`) projects every write in a
+workspace object into the core so Home, search and the Work board see it.
+Run its reconciler against the objects. It must report zero differences
+between the objects and the core projections before the old tables go.
+
+### 9. Drop the old tables
+
+Only after steps 5 and 8 both report zero differences, and after the release
+has served real traffic for the agreed soak time, remove the moved tables
+from the shared database with a migration. Keep the snapshot files from step
+2 for the retention period the organization agreed to.
+
+## Go/no-go
+
+Start the freeze only when all of these are true:
+
+- the rehearsal on a fresh copy ended with `OK` and fits the window
+- `assignments.json` covers every organization
+- the five changes are on `main`, the deletion series is ready, and the
+  release candidate is built from them
+- every workspace object would be created in `eu` (`DO_JURISDICTION`)
+- the people who can decide a rollback are reachable for the whole window
+
+Stop and roll back when any of these happens:
+
+- `reconcile` reports drift that a second import does not clear
+- a workspace object reports a jurisdiction other than `eu`
+- after the deploy, a workspace chat or document check fails in more than
+  one organization
+- the feed check reports differences that do not clear within the window
+
+## Rollback
+
+Until step 6, nothing has changed for users: unfreeze and stop. The objects
+and bundles can stay; a later run reuses the receipts.
+
+After step 6 and before step 9:
+
+1. Redeploy the previous release. It reads and writes the shared database,
+   which is unchanged since the freeze.
+2. Restore the snapshot only if something wrote to the moved tables after
+   the freeze (it should not have): import `main.sql` and the log files with
+   `wrangler d1 execute --remote --file`.
+3. Unfreeze. Workspace changes made on the objects between the deploy and
+   the rollback are lost for users; the objects keep them for a later
+   attempt.
+
+After step 9 there is no quick way back: restoring means recreating the
+tables from the snapshot and the previous release. This is why step 9 waits
+for the soak time.
+
+## What the reconciler proves, and what it does not
+
+It proves that the rows in each object are the rows the snapshot had, that
+every output serves the same revision as before, that nothing that should
+move was left behind, and that every object lives in `eu`. It does not
+prove that the new code reads them correctly; the checks after the deploy
+and the feed check do that.

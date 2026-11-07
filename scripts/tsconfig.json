@@ -10,6 +10,17 @@
 		"types": ["node", "bun-types"]
 	},
 	"include": [
+		"migrate-workspaces/bundle.ts",
+		"migrate-workspaces/cli.ts",
+		"migrate-workspaces/export.ts",
+		"migrate-workspaces/import.ts",
+		"migrate-workspaces/migrate-workspaces.test.ts",
+		"migrate-workspaces/reconcile.ts",
+		"migrate-workspaces/rehearse.ts",
+		"migrate-workspaces/rows.ts",
+		"migrate-workspaces/source.ts",
+		"migrate-workspaces/tables.ts",
+		"migrate-workspaces/target.ts",
 		"db/prepare-audit-index-rebuild.ts",
 		"db/prepare-audit-index-rebuild.test.ts",
 		"db/audit-provider-capabilities.ts",
