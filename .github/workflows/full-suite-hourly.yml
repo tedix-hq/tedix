@@ -1,4 +1,5 @@
-name: Full suite hourly
+name: Deploy gate (push) and full test run (hourly)
+run-name: ${{ github.event_name == 'push' && 'Deploy gate' || 'Full test run' }} @ ${{ github.sha }}
 
 on:
   push:

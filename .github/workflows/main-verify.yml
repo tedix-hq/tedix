@@ -1,4 +1,4 @@
-name: Main verify
+name: Tests after deploy
 
 # The unit, workerd, type and browser suites plus the onboarding and scripts
 # checks, run against main after a push certifies on the gate in

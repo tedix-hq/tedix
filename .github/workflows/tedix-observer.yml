@@ -1,4 +1,4 @@
-name: Repository observer
+name: Report CI results to Tedix
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
       - "docs/**"
       - ".changeset/**"
   workflow_run:
-    workflows: [Full suite hourly]
+    workflows: [Deploy gate (push) and full test run (hourly)]
     branches: [main]
     types: [completed]
 

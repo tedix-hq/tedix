@@ -1,4 +1,4 @@
-name: Shard rerun
+name: Rerun one test shard
 
 # One Full suite shard at one exact commit, on demand. The private ops
 # red-main healer uses it to tell a flake from a regression (same shard on
