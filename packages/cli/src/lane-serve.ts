@@ -69,7 +69,11 @@ import { createCodexLaneThread } from "./codex-lane-thread";
 import { BOOTSTRAP_AWAITING_APPROVAL } from "./external-agent";
 import { UUID_RE } from "./work-identity";
 import { createClaudeLaneThread } from "./claude-lane-thread";
-import { createDevinLaneThread, devinAvailable } from "./devin-lane-thread";
+import {
+	createDevinLaneThread,
+	devinAvailable,
+	isDevinSessionBusy,
+} from "./devin-lane-thread";
 import { createDevinWorkBridge } from "./devin-work-bridge";
 import { laneChildEnv } from "./lane-child-env";
 import { laneProcessIdentity, reapLaneProcess } from "./lane-process-recovery";
@@ -2092,24 +2096,31 @@ export class LaneDispatcher {
 				previousLane?.session?.startsWith(`${executor}:`)
 					? previousLane.session.slice(executor.length + 1)
 					: undefined;
+			let sessionRecovery: string | undefined;
 			const fresh = () => this.deps.thread(repo, executor, selection.model);
 			const thread = await (
 				previousSession
-					? resumeThenFresh(
-							() =>
-								this.deps.thread(
+					? resumeThenFresh(async () => {
+							try {
+								return await this.deps.thread(
 									repo,
 									executor,
 									selection.model,
 									previousSession,
-								),
-							fresh,
-						)
+								);
+							} catch (error) {
+								if (executor !== "devin" || !isDevinSessionBusy(error))
+									throw error;
+								sessionRecovery = `Devin session ${previousSession} is held by another process. Started a fresh session before admission; no Attempt retry was consumed and the other process was left running.`;
+								return fresh();
+							}
+						}, fresh)
 					: fresh()
 			).catch((error) => {
 				this.recordLimit(executor, String(error));
 				throw error;
 			});
+			if (sessionRecovery) this.log("session-busy", item.id, sessionRecovery);
 			const resumed = thread.thread.id === previousSession;
 			receipt.session = `${executor}:${thread.thread.id}`;
 			this.save(path, receipt);
@@ -2268,6 +2279,14 @@ export class LaneDispatcher {
 				item.id,
 				`Attempt ${receipt.attemptId}, ${receipt.session}, rules revision ${rules.revision}`,
 			);
+			if (sessionRecovery)
+				await this.call(
+					["work", "comment", item.id, "--body", sessionRecovery],
+					receipt.session,
+					receipt.executorKey,
+				).catch((error) =>
+					this.log("session-recovery-note-failed", item.id, String(error)),
+				);
 			const exit = await this.deps.launch(
 				[
 					"run",

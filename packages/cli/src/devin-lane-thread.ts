@@ -10,6 +10,12 @@ import { laneChildEnv } from "./lane-child-env";
 import { assertDevinProjectHooks } from "./devin-lane-security";
 import { writeDevinLaneConfig } from "./devin-config";
 
+export function isDevinSessionBusy(error: unknown) {
+	return /Session ['"][^'"\r\n]+['"] is already open in another process \(PID \d+\)/i.test(
+		String(error),
+	);
+}
+
 export function devinAvailable(executable = "devin") {
 	const result = spawnSync(executable, ["auth", "status"], {
 		env: laneChildEnv(),

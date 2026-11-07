@@ -24,7 +24,11 @@ import {
 	setupDevin,
 	writeDevinLaneConfig,
 } from "./devin-config";
-import { createDevinLaneThread, devinAvailable } from "./devin-lane-thread";
+import {
+	createDevinLaneThread,
+	devinAvailable,
+	isDevinSessionBusy,
+} from "./devin-lane-thread";
 import { parseServeOptions } from "./lane-serve";
 import { runLaneProcess } from "./lane-run";
 import { parseLaneResult } from "./lane-result";
@@ -121,6 +125,32 @@ test("Devin is an explicit executor; logged-out installations are unavailable", 
 		]).executor,
 	).toBe("devin");
 	expect(devinAvailable(fakeDevin(dir))).toBe(false);
+});
+
+test("ACP reports a busy recorded session without launching a model prompt", async () => {
+	const dir = temporary();
+	const binary = fakeDevin(dir);
+	writeFileSync(
+		binary,
+		readFileSync(binary, "utf8").replace(
+			"if (!['initialize','session/new'].includes(m.method)) process.exit(42);",
+			`if (m.method === 'session/load') {
+		 console.log(JSON.stringify({jsonrpc:'2.0',id:m.id,error:{code:-32000,message:"Session 'foggy-eggnog' is already open in another process (PID 27850)"}}));
+		 return;
+		}`,
+		),
+	);
+	let failure: unknown;
+	try {
+		await createDevinLaneThread(dir, binary, undefined, 30_000, "foggy-eggnog");
+	} catch (error) {
+		failure = error;
+	}
+	expect(isDevinSessionBusy(failure)).toBe(true);
+	expect(isDevinSessionBusy(new Error("Devin authentication failed"))).toBe(
+		false,
+	);
+	expect(existsSync(join(dir, "invocation.json"))).toBe(false);
 });
 
 test("ACP allocates a persisted native identity without any model prompt", async () => {
