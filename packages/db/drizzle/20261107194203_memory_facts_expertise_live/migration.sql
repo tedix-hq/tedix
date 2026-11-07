@@ -1,0 +1,1 @@
+CREATE INDEX `idx_memory_facts_expertise_live` ON `memory_facts` (`organization_id`,`tedi_id`,`domain_id`,`confidence`) WHERE archived_at IS NULL;

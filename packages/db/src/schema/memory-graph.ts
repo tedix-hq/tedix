@@ -273,6 +273,12 @@ export const memoryFacts = sqliteTable(
 		index("idx_memory_facts_use_policy").on(table.usePolicy),
 		index("idx_memory_facts_review_status").on(table.reviewStatus),
 		index("memory_facts_tedi_domain_idx").on(table.tediId, table.domainId),
+		// Expertise recount: count and average confidence of one tedi's live
+		// facts in one domain from the index alone (through the org+domain
+		// index it read every tedi's facts in the domain, 58k rows per call).
+		index("idx_memory_facts_expertise_live")
+			.on(table.organizationId, table.tediId, table.domainId, table.confidence)
+			.where(sql`archived_at IS NULL`),
 	],
 );
 

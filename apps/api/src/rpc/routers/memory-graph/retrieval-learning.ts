@@ -60,6 +60,7 @@ import {
 import { episodeTraceId } from "../../episode-trace";
 import {
 	getExpertise,
+	noteFactLearned,
 	recalculateExpertise,
 } from "@tedix/db/queries/memory-graph/expertise";
 import { getMemoryGraphStats } from "@tedix/db/queries/memory-graph/stats";
@@ -967,16 +968,17 @@ const learn = authed.learn
 		});
 		if (context.waitUntil) context.waitUntil(loggedProjection);
 		else await loggedProjection;
-		// Auto-recalculate expertise in the background. D1 triggers project the
+		// Advance expertise in the background. D1 triggers project the
 		// resulting expertise row through the durable outbox.
 		if (factTediId) {
 			const expertiseWork = (async () => {
 				try {
-					await recalculateExpertise(
+					await noteFactLearned(
 						context.db,
 						{ organizationId: orgId },
 						factTediId,
 						domain.id,
+						fact.confidence,
 					);
 				} catch (e) {
 					console.warn("[MemoryGraph] Expertise recalculation failed", {
