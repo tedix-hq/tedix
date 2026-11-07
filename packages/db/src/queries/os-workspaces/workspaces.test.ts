@@ -21,6 +21,7 @@ import {
 	osWorkspaces,
 } from "../../schema/os-workspaces";
 import { userConfigs } from "../../schema/user-configs";
+import { workspaceOutputIndex } from "../../schema/workspace-feed";
 import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
 import {
@@ -56,6 +57,7 @@ function fixture(...extraTables: SQLiteTable[]) {
 			osWorkspaceAccessEdges,
 			osWorkspaceShareLinks,
 			osWorkspaceShareKeys,
+			workspaceOutputIndex,
 			...extraTables.filter((table) => table !== osOutputs),
 		),
 	);

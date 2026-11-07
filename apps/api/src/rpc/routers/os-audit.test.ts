@@ -38,6 +38,13 @@ import {
 	osWorkspaces,
 } from "@tedix/db/schema/os-workspaces";
 import { userConfigs } from "@tedix/db/schema/user-configs";
+import {
+	workspaceActivity,
+	workspaceFeedCursors,
+	workspaceFeedLedger,
+	workspaceOutputIndex,
+	workspaceWorkLinks,
+} from "@tedix/db/schema/workspace-feed";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
@@ -74,6 +81,11 @@ function createEnv(): CloudflareEnv {
 			osApprovalRules,
 			userConfigs,
 			auditEvents,
+			workspaceFeedLedger,
+			workspaceFeedCursors,
+			workspaceActivity,
+			workspaceOutputIndex,
+			workspaceWorkLinks,
 		),
 	);
 	sqlite.exec(schemaDdl(organizations));
