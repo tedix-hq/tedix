@@ -242,7 +242,11 @@ export function createWorkspaceChatClient(
 			setConnection({ phase: "connecting", attempt });
 		let candidate: SocketLike;
 		try {
-			candidate = createSocket(url);
+			// The cursor rides on the URL too, so the object can start its replay
+			// before the first frame arrives.
+			candidate = createSocket(
+				state.cursor === null ? url : `${url}?after=${state.cursor}`,
+			);
 		} catch {
 			scheduleReconnect();
 			return;

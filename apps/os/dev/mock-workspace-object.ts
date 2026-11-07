@@ -28,6 +28,8 @@ const TOKEN_GAP_MS = Number(process.env.WORKSPACE_MOCK_TOKEN_GAP_MS ?? 35);
 type Socket = ServerWebSocket<{
 	workspaceId: string;
 	conversationId: string | null;
+	/** Cursor from the URL; a `subscribe` frame's cursor wins when present. */
+	after: number | null;
 }>;
 
 type Workspace = {
@@ -323,7 +325,7 @@ function handle(socket: Socket, raw: string | Buffer): void {
 					b.updatedAt.localeCompare(a.updatedAt),
 				),
 			});
-			const cursor = message.cursor;
+			const cursor = message.cursor ?? socket.data.after;
 			const relevant = ws.ledger.filter(
 				(event) =>
 					message.conversationId === null ||
@@ -424,7 +426,10 @@ Bun.serve<Socket["data"]>({
 	port: PORT,
 	fetch(request, server) {
 		const url = new URL(request.url);
-		const match = /^\/workspace\/([^/]+)\/chat$/.exec(url.pathname);
+		// `/chat` is the browser path; `/subscribe` is what the OS Worker forwards.
+		const match = /^\/workspace\/([^/]+)\/(?:chat|subscribe)$/.exec(
+			url.pathname,
+		);
 		if (!match)
 			return new Response(
 				url.pathname === "/health"
@@ -433,9 +438,14 @@ Bun.serve<Socket["data"]>({
 				{ status: url.pathname === "/health" ? 200 : 404 },
 			);
 		const workspaceId = decodeURIComponent(match[1]!);
+		const after = Number(url.searchParams.get("after"));
 		if (
 			server.upgrade(request, {
-				data: { workspaceId, conversationId: null },
+				data: {
+					workspaceId,
+					conversationId: null,
+					after: Number.isFinite(after) && after > 0 ? after : null,
+				},
 			})
 		)
 			return undefined;
