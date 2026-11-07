@@ -1048,39 +1048,46 @@ const worker = {
 					const mcpServerId = earlyResolvedApp?.metadata?.mcpConfig
 						?.descopeResourceId as string | undefined;
 					let aihM2mTediProfileAuth: TediProfileAuth | null = null;
-					const aihM2mClient = mcpServerId
-						? await resolveAihM2mClientScopeContext(
-								env,
-								jwtPayload,
-								mcpServerId,
-								{
-									bearerToken:
-										request.headers
-											.get("Authorization")
-											?.match(/^Bearer\s+(.+)$/i)?.[1] ??
-										request.headers.get("X-API-Key") ??
-										undefined,
-									// Defense in depth (audit CC-2): bound a tedi client's
-									// baked registration scopes to its current live D1
-									// capability profile at request time, so a stale-broad
-									// Descope client credential — e.g. a capability downgrade
-									// that has not yet propagated to the client registration —
-									// can never exceed the tedi's live profile. Resolved fresh
-									// (uncached) and reused below for the scope header.
-									resolveTediProfileScopes: async (tediId) => {
-										aihM2mTediProfileAuth = await resolveTediProfileAuth(
-											env,
-											tediId,
-										);
-										// A tedi without live authority gets no scopes; the
-										// request is answered with its failure response below.
-										return aihM2mTediProfileAuth.status === "active"
-											? aihM2mTediProfileAuth.scopes
-											: [];
+					let aihM2mClient: Awaited<
+						ReturnType<typeof resolveAihM2mClientScopeContext>
+					>;
+					try {
+						aihM2mClient = mcpServerId
+							? await resolveAihM2mClientScopeContext(
+									env,
+									jwtPayload,
+									mcpServerId,
+									{
+										bearerToken:
+											request.headers
+												.get("Authorization")
+												?.match(/^Bearer\s+(.+)$/i)?.[1] ??
+											request.headers.get("X-API-Key") ??
+											undefined,
+										// Defense in depth (audit CC-2): bound a tedi client's
+										// baked registration scopes to its current live D1
+										// capability profile at request time, so a stale-broad
+										// Descope client credential — e.g. a capability downgrade
+										// that has not yet propagated to the client registration —
+										// can never exceed the tedi's live profile. Resolved fresh
+										// (uncached) and reused below for the scope header.
+										resolveTediProfileScopes: async (tediId) => {
+											aihM2mTediProfileAuth = await resolveTediProfileAuth(
+												env,
+												tediId,
+											);
+											// A tedi without live authority gets no scopes; the
+											// request is answered with its failure response below.
+											return aihM2mTediProfileAuth.status === "active"
+												? aihM2mTediProfileAuth.scopes
+												: [];
+										},
 									},
-								},
-							)
-						: null;
+								)
+							: null;
+					} catch (error) {
+						return externalAgentValidationFailureResponse(error);
+					}
 					if (authResult.m2mAudience) {
 						const policy = decideM2mAudiencePolicy({
 							policy: earlyResolvedApp?.metadata?.mcpConfig?.m2mAudiencePolicy,

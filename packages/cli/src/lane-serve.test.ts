@@ -4190,6 +4190,22 @@ it("validates concurrency and pins selectors without persisting inherited identi
 		}),
 	).toEqual(env);
 });
+it("pins heartbeat auth to the admitted executor despite parent MCP overrides", async () => {
+	const f = fixture();
+	f.dispatcher["ownerEnv"].TEDIX_MCP_BEARER_TOKEN = "owner-token";
+	f.dispatcher["ownerEnv"].TEDIX_MCP_API_KEY = "owner-key";
+	await f.dispatcher["call"](
+		["work", "heartbeat", item().id],
+		"codex:admitted",
+		"admitted-agent",
+	);
+	const heartbeat = f.events.find((event) => event.verb === "heartbeat")!;
+	expect(heartbeat.env.TEDIX_AGENT_SESSION).toBe("codex:admitted");
+	expect(heartbeat.env.TEDIX_EXTERNAL_AGENT).toBe("admitted-agent");
+	expect(heartbeat.env.TEDIX_MCP_BEARER_TOKEN).toBeUndefined();
+	expect(heartbeat.env.TEDIX_MCP_API_KEY).toBeUndefined();
+});
+
 it("runs due heartbeats before queued normal calls without overlapping the current call", async () => {
 	const queue = serialCalls();
 	const events: string[] = [];
