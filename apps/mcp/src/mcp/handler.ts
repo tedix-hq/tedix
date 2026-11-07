@@ -17,6 +17,7 @@ import {
 	type ToolConfig,
 } from "@tedix/api-contract/schemas/tools";
 import { delegatedMachineScopes } from "@tedix/mcp-shared/auth/scopes";
+import { isUntrustedTransport } from "@tedix/mcp-shared/content-sanitize";
 import {
 	resolveMcpToolNamespace,
 	resolveMcpToolRequiredScopes,
@@ -346,7 +347,11 @@ export class ToolHandler {
 		const { _fields, ...upstreamInput } = input;
 		input = upstreamInput;
 		const config = ctx.config;
-		if (ctx.publicEgress) {
+		// Arguments leave Tedix through any external or upstream-MCP transport,
+		// not only tools an owner flagged `publicEgress` (a GitHub search carried
+		// a token pattern unscanned on 7 Nov 2026). The flag stays for tools
+		// whose own transport is internal but forwards to the public internet.
+		if (ctx.publicEgress || isUntrustedTransport(config?.transport)) {
 			const secretPattern = findSecretValuePattern(input);
 			if (secretPattern) {
 				let mode: "block" | "warn" = "block";
