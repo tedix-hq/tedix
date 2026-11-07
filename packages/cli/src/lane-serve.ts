@@ -34,6 +34,7 @@ import {
 	realpathSync,
 	readdirSync,
 	renameSync,
+	statfsSync,
 	statSync,
 	writeFileSync,
 } from "node:fs";
@@ -542,6 +543,11 @@ const PROPOSAL_SWEEP_INTERVAL_MS = 5 * 60_000;
 const COOLDOWN_WAKE_JITTER_MS = 5_000;
 /** A deferred wait with no declared recheck time is revisited after this delay. */
 const DEFERRED_RETRY_MS = 6 * 60 * 60_000;
+/**
+ * Below this much free disk under the dispatcher directory no new Work is
+ * admitted; a lane checkout with dependencies takes about 2.5 GB.
+ */
+export const MIN_FREE_DISK_BYTES = 10 * 1024 ** 3;
 
 /**
  * When a deferred wait runs again: its declared `until`, or the default
@@ -959,7 +965,10 @@ export async function cleanupLaneWorktree(
 					)
 				),
 		);
-	if (changes.length) return false;
+	// A tree whose only changes are deletions holds nothing a commit could
+	// still save; such checkouts are left behind by interrupted removals.
+	const emptied = changes.every((line) => /^(?: D|D )/.test(line));
+	if (!emptied) return false;
 	if (
 		!(await run(source, [
 			"merge-base",
@@ -973,7 +982,14 @@ export async function cleanupLaneWorktree(
 	try {
 		await promisify(execFile)(
 			"git",
-			["-C", source, "worktree", "remove", destination],
+			[
+				"-C",
+				source,
+				"worktree",
+				"remove",
+				...(changes.length ? ["--force"] : []),
+				destination,
+			],
 			{
 				timeout: 30 * 60_000,
 			},
@@ -1241,6 +1257,7 @@ interface DispatcherDeps {
 	landedCommits: typeof landedLaneCommits;
 	verifyExisting: typeof verifyExistingLaneResult;
 	cleanup: (source: string, destination: string) => boolean | Promise<boolean>;
+	freeDiskBytes: (path: string) => number;
 	gatewayCooldownUntil: typeof gatewayCooldownUntil;
 	recall: typeof prefixLaneBrief;
 	confirmLogin: typeof confirmStoredAccess;
@@ -1276,6 +1293,10 @@ const defaultDeps: DispatcherDeps = {
 	launch: runLaneProcess,
 	darkWake: inDarkWake,
 	cleanup: cleanupLaneWorktree,
+	freeDiskBytes: (path) => {
+		const stats = statfsSync(path);
+		return Number(stats.bavail) * Number(stats.bsize);
+	},
 	provision: provisionLaneWorktree,
 	installDependencies: installLaneDependencies,
 	baseCommit: (repo) => gitOutput(repo, ["rev-parse", "HEAD"]),
@@ -1289,6 +1310,7 @@ export class LaneDispatcher {
 	private preparing = new Set<string>();
 	private receipts = new Map<string, { stamp: string; row: Receipt }>();
 	private cleanupCursor = 0;
+	private orphanCursor = 0;
 	private reconciliationCursor = 0;
 	private settlementChecked = new Set<string>();
 	private cleanupAfter = new Map<string, number>();
@@ -1456,6 +1478,14 @@ export class LaneDispatcher {
 			};
 		}
 		this.saveBudgets();
+		const freeDisk = this.deps.freeDiskBytes(this.directory);
+		const diskLow = freeDisk < MIN_FREE_DISK_BYTES;
+		if (diskLow)
+			this.log(
+				"disk-low",
+				undefined,
+				`${(freeDisk / 1024 ** 3).toFixed(1)} GB free under the dispatcher directory is below ${MIN_FREE_DISK_BYTES / 1024 ** 3} GB; new admissions are held until checkouts are reclaimed`,
+			);
 		let offset = 0;
 		this.settlementChecked.clear();
 		let retained: Receipt[];
@@ -1528,7 +1558,11 @@ export class LaneDispatcher {
 				alive(row.pid) &&
 				!this.running.has(row.itemId),
 		).length;
-		while (!this.stopping && this.running.size + orphaned < this.options.max) {
+		while (
+			!this.stopping &&
+			!diskLow &&
+			this.running.size + orphaned < this.options.max
+		) {
 			const page = await this.call<{
 				data: DispatchItem[];
 				pagination: { hasMore: boolean };
@@ -1742,6 +1776,68 @@ export class LaneDispatcher {
 			this.scheduleCleanup(row);
 			break;
 		}
+		if (!this.maintenance.size) this.reclaimOrphanRun(retained);
+	}
+	/**
+	 * One run directory per pass that no receipt of any version refers to. A
+	 * revision bump or a lost receipt leaves the earlier checkout behind, and
+	 * the receipt-driven cleanup above never visits it.
+	 */
+	private reclaimOrphanRun(retained: Receipt[]) {
+		const runs = join(this.directory, "runs");
+		let names: string[];
+		try {
+			names = readdirSync(runs, { withFileTypes: true })
+				.filter((entry) => entry.isDirectory())
+				.map((entry) => entry.name)
+				.sort();
+		} catch {
+			return;
+		}
+		const referenced = retained.flatMap((row) =>
+			row.repo ? [resolve(row.repo)] : [],
+		);
+		const receipts = new Set(
+			retained.map((row) => `${row.itemId}-${row.version}`),
+		);
+		for (let n = 0; n < names.length; n++) {
+			const name = names[this.orphanCursor++ % names.length]!;
+			const run = join(runs, name);
+			const itemId = name.slice(0, 36);
+			if (
+				receipts.has(name) ||
+				this.running.has(itemId) ||
+				this.preparing.has(itemId) ||
+				this.maintenance.has(itemId) ||
+				Date.now() < (this.cleanupAfter.get(run) ?? 0) ||
+				referenced.some(
+					(repo) =>
+						repo === resolve(run) || repo.startsWith(resolve(run) + sep),
+				)
+			)
+				continue;
+			this.cleanupAfter.set(run, Date.now() + 600_000);
+			const task = this.cleanupOrphanRun(run, itemId)
+				.catch((error) => this.log("cleanup-deferred", itemId, String(error)))
+				.finally(() => this.maintenance.delete(itemId));
+			this.maintenance.set(itemId, task);
+			break;
+		}
+	}
+	private async cleanupOrphanRun(run: string, itemId: string) {
+		let kept = false;
+		for (const name of readdirSync(run)) {
+			if (!name.startsWith("repo")) continue;
+			const repo = join(run, name);
+			if (await this.deps.cleanup(this.options.repo, repo))
+				this.log("worktree-cleaned", itemId, repo);
+			else kept = true;
+		}
+		if (kept) return;
+		const archive = join(this.directory, "archive");
+		mkdirSync(archive, { recursive: true, mode: 0o700 });
+		renameSync(run, join(archive, `${basename(run)}-${Date.now()}`));
+		this.log("run-archived", itemId, run);
 	}
 	private async releaseWaits(rows: Receipt[]): Promise<boolean> {
 		for (const row of rows) {

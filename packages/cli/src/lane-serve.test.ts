@@ -16,6 +16,7 @@ import { dirname, join } from "node:path";
 import {
 	LaneDispatcher,
 	LaneCommitFetchError,
+	MIN_FREE_DISK_BYTES,
 	cleanupLaneWorktree,
 	installLaneDependencies,
 	laneFailureSignature,
@@ -157,6 +158,7 @@ function fixture({
 		cleanupRemoves: false,
 		cleanupWait: undefined as Promise<boolean> | undefined,
 		cleanupAfterPickup: [] as boolean[],
+		freeDiskBytes: Number.MAX_SAFE_INTEGER,
 		proofError: undefined as Error | undefined,
 		evidenceError: undefined as Error | undefined,
 		evidence: {
@@ -225,6 +227,7 @@ function fixture({
 			if (control.cleanupRemoves) rmSync(destination, { recursive: true });
 			return control.cleanupWait ?? control.cleanupResult;
 		},
+		freeDiskBytes: () => control.freeDiskBytes,
 		thread: async (repo, executor, _model, resume) => {
 			control.threadSessions.push(resume);
 			if (resume && control.resumeError) throw control.resumeError;
@@ -4918,52 +4921,142 @@ it.each(["succeeded", "failed"])(
 	},
 );
 
-it.each(["dirty", "unlanded", "live", "locked", "ignored", "landed"])(
-	"cleanup protects work and uses origin/main: %s",
-	async (state) => {
-		const { root, repo, git } = gitFixture(true);
-		const destination = join(root, "runs", "finished", "repo");
-		git(["worktree", "add", "--detach", destination]);
-		if (state === "dirty")
-			writeFileSync(join(destination, "unfinished.txt"), "keep");
-		if (state === "unlanded" || state === "landed") {
-			git(
-				[
-					"-c",
-					"commit.gpgsign=false",
-					"commit",
-					"--allow-empty",
-					"-m",
-					"run work",
-				],
-				destination,
-			);
-			if (state === "landed") {
-				git(["push", "origin", "HEAD:main"], destination);
-				git(["fetch", "origin", "main"]);
-				expect(git(["rev-parse", "HEAD"])).not.toBe(
-					git(["rev-parse", "HEAD"], destination),
-				);
-			}
-		}
-		if (state === "locked") git(["worktree", "lock", destination]);
-		if (state === "ignored") {
-			writeFileSync(join(destination, ".gitignore"), ".env\n");
-			git(["add", ".gitignore"], destination);
-			git(
-				["-c", "commit.gpgsign=false", "commit", "-m", "ignore local settings"],
-				destination,
-			);
+it.each([
+	"dirty",
+	"unlanded",
+	"live",
+	"locked",
+	"ignored",
+	"landed",
+	"emptied",
+])("cleanup protects work and uses origin/main: %s", async (state) => {
+	const { root, repo, git } = gitFixture(true);
+	if (state === "emptied") {
+		writeFileSync(join(repo, "tracked.txt"), "committed");
+		git(["add", "tracked.txt"]);
+		git(["-c", "commit.gpgsign=false", "commit", "-m", "track a file"]);
+		git(["push", "origin", "main"]);
+	}
+	const destination = join(root, "runs", "finished", "repo");
+	git(["worktree", "add", "--detach", destination]);
+	if (state === "emptied") rmSync(join(destination, "tracked.txt"));
+	if (state === "dirty")
+		writeFileSync(join(destination, "unfinished.txt"), "keep");
+	if (state === "unlanded" || state === "landed") {
+		git(
+			[
+				"-c",
+				"commit.gpgsign=false",
+				"commit",
+				"--allow-empty",
+				"-m",
+				"run work",
+			],
+			destination,
+		);
+		if (state === "landed") {
 			git(["push", "origin", "HEAD:main"], destination);
 			git(["fetch", "origin", "main"]);
-			writeFileSync(join(destination, ".env"), "LOCAL_SETTING=keep");
+			expect(git(["rev-parse", "HEAD"])).not.toBe(
+				git(["rev-parse", "HEAD"], destination),
+			);
 		}
-		expect(
-			await cleanupLaneWorktree(repo, destination, () => state === "live"),
-		).toBe(state === "landed");
-		expect(existsSync(destination)).toBe(state !== "landed");
-	},
-);
+	}
+	if (state === "locked") git(["worktree", "lock", destination]);
+	if (state === "ignored") {
+		writeFileSync(join(destination, ".gitignore"), ".env\n");
+		git(["add", ".gitignore"], destination);
+		git(
+			["-c", "commit.gpgsign=false", "commit", "-m", "ignore local settings"],
+			destination,
+		);
+		git(["push", "origin", "HEAD:main"], destination);
+		git(["fetch", "origin", "main"]);
+		writeFileSync(join(destination, ".env"), "LOCAL_SETTING=keep");
+	}
+	const removed = state === "landed" || state === "emptied";
+	expect(
+		await cleanupLaneWorktree(repo, destination, () => state === "live"),
+	).toBe(removed);
+	expect(existsSync(destination)).toBe(!removed);
+});
+
+it("reclaims one run directory per pass that no receipt refers to", async () => {
+	const { dispatcher, dir, items, control } = fixture();
+	items.splice(0);
+	const current = item(1);
+	const orphan = join(dir, "runs", `${current.id}-1`);
+	const kept = join(dir, "runs", `${current.id}-2`);
+	const briefOnly = join(dir, "runs", `${item(2).id}-3`);
+	mkdirSync(join(orphan, "repo"), { recursive: true });
+	mkdirSync(join(kept, "repo"), { recursive: true });
+	mkdirSync(briefOnly, { recursive: true });
+	writeFileSync(join(briefOnly, "brief.txt"), "Done");
+	// The current receipt resumes the newer checkout; its directory stays.
+	writeFileSync(
+		join(dir, `${current.id}-3.json`),
+		JSON.stringify({
+			itemId: current.id,
+			version: 3,
+			phase: "deferred",
+			outcome: "expired",
+			admissionState: "admitted",
+			attemptId: "attempt",
+			session: "codex:fictional",
+			repo: join(kept, "repo"),
+		}),
+	);
+	control.cleanupRemoves = true;
+	// The first pass revisits the retained receipt; then one directory per pass.
+	for (let pass = 0; pass < 3; pass++) {
+		await dispatcher.tick();
+		await dispatcher.drain();
+	}
+	expect(control.cleanups).toBe(1);
+	expect(existsSync(orphan)).toBe(false);
+	expect(existsSync(briefOnly)).toBe(false);
+	expect(existsSync(kept)).toBe(true);
+	expect(readdirSync(join(dir, "archive"))).toHaveLength(2);
+	const log = readFileSync(join(dir, "dispatcher.log"), "utf8");
+	expect(log).toContain('"event":"run-archived"');
+	expect(log).not.toContain(kept);
+});
+
+it("keeps a run directory whose checkout cleanup refuses", async () => {
+	const { dispatcher, dir, items, control } = fixture();
+	items.splice(0);
+	const run = join(dir, "runs", `${item(1).id}-1`);
+	mkdirSync(join(run, "repo"), { recursive: true });
+	control.cleanupResult = false;
+	await dispatcher.tick();
+	await dispatcher.drain();
+	await dispatcher.tick();
+	await dispatcher.drain();
+	expect(control.cleanups).toBe(1);
+	expect(existsSync(join(run, "repo"))).toBe(true);
+});
+
+it("holds new admissions on low disk and still reclaims checkouts", async () => {
+	const { dispatcher, dir, items, events, control } = fixture();
+	items.splice(1);
+	const run = join(dir, "runs", `${item(9).id}-1`);
+	mkdirSync(join(run, "repo"), { recursive: true });
+	control.freeDiskBytes = MIN_FREE_DISK_BYTES - 1;
+	control.cleanupRemoves = true;
+	await dispatcher.tick();
+	await dispatcher.drain();
+	expect(events.filter((e) => e.verb === "dispatch-list")).toHaveLength(0);
+	expect(control.cleanups).toBe(1);
+	expect(existsSync(run)).toBe(false);
+	expect(readFileSync(join(dir, "dispatcher.log"), "utf8")).toContain(
+		'"event":"disk-low"',
+	);
+	control.freeDiskBytes = MIN_FREE_DISK_BYTES;
+	items.splice(0);
+	await dispatcher.tick();
+	await dispatcher.drain();
+	expect(events.filter((e) => e.verb === "dispatch-list")).toHaveLength(1);
+});
 
 it("keeps polling and picking up unrelated work while a large worktree is removed", async () => {
 	const { dispatcher, dir, items, control, releases } = fixture();

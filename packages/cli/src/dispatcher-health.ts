@@ -31,6 +31,7 @@ const REASON_EVENTS = new Set([
 	"accept-failed",
 	"admission-check-deferred",
 	"completion-retained",
+	"disk-low",
 	"failed",
 	"heartbeat-failed",
 	"login-blocked",
