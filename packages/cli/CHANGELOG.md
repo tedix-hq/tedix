@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.19.10 — 2026-11-07
+
+### Patch Changes
+
+- a43ecdc: `tedix lane serve` now settles a lane succeeded when the Work's fix is already on `origin/main` and was landed by any admitted Attempt on that Work, such as an interactive session or an earlier dispatch, instead of failing with "No landed commit SHA". A refused commit is logged as `custody-rejected` with the reason.
+
 ## 0.19.9 — 2026-11-07
 
 ### Patch Changes
