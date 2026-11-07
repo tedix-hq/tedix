@@ -269,12 +269,27 @@
 			"licenseClass": "apache-ecosystem"
 		},
 		{
-			"path": "packages/workspace-adapters",
+			"path": "packages/workers-ai",
+			"decision": "public-product",
+			"licenseClass": "agpl-product"
+		},
+		{
+			"path": "packages/agent-governance",
 			"decision": "public-ecosystem",
 			"licenseClass": "apache-ecosystem"
 		},
 		{
-			"path": "packages/workers-ai",
+			"path": "packages/agent-runtime",
+			"decision": "public-ecosystem",
+			"licenseClass": "apache-ecosystem"
+		},
+		{
+			"path": "packages/workspace-feed",
+			"decision": "public-product",
+			"licenseClass": "agpl-product"
+		},
+		{
+			"path": "apps/workspace-do",
 			"decision": "public-product",
 			"licenseClass": "agpl-product"
 		}
