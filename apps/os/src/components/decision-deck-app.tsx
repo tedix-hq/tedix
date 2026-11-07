@@ -366,6 +366,10 @@ function DecisionDeckContent({
 		matchesFilters,
 		filtersActive ? filtered.length : remaining,
 	);
+	// Until every source has answered, a count would climb (1 of 1, then 1 of
+	// 99…), so the counter says it is still counting instead.
+	const counting =
+		mode === "decide" && (decisions.pending || learningQuery.isPending);
 	const selected = waitingMode
 		? undefined
 		: mode === "decide" && focusCard
@@ -858,32 +862,30 @@ function DecisionDeckContent({
 					rows={rows}
 					factories={factories}
 				/>
-				{progress.total > 0 &&
-					!waitingMode &&
-					(selected ||
-						(!decisions.pending &&
-							!decisions.failed &&
-							!learningQuery.isPending &&
-							!learningQuery.isError)) && (
-						<DeckProgress
-							total={progress.total}
-							completed={progress.completed}
-							position={Math.min(
-								progress.total,
-								progress.completed +
-									(selected
-										? filtered.findIndex((row) => row.id === selected.id) + 1
-										: 0),
-							)}
-							filtered={filtersActive}
-							saving={saving}
-							leading={
-								mode === "decide" ? (
-									<DeckAskStrip card={selected} expiresAt={expiresAt} />
-								) : undefined
-							}
-						/>
-					)}
+				{(counting ||
+					(progress.total > 0 &&
+						!waitingMode &&
+						(selected || (!decisions.failed && !learningQuery.isError)))) && (
+					<DeckProgress
+						counting={counting}
+						total={progress.total}
+						completed={progress.completed}
+						position={Math.min(
+							progress.total,
+							progress.completed +
+								(selected
+									? filtered.findIndex((row) => row.id === selected.id) + 1
+									: 0),
+						)}
+						filtered={filtersActive}
+						saving={saving}
+						leading={
+							mode === "decide" ? (
+								<DeckAskStrip card={selected} expiresAt={expiresAt} />
+							) : undefined
+						}
+					/>
+				)}
 				{practiceMode && (
 					<Text role="label" tone="secondary" className="fd-practice-notice">
 						Practice only. Choices below stay in this preview and never approve
@@ -892,17 +894,7 @@ function DecisionDeckContent({
 				)}
 				{!practiceMode && (
 					<WorkReadNotice
-						failed={
-							decisions.failed ||
-							learningQuery.isError ||
-							[
-								inbox,
-								approvals,
-								decisions.approvalRequests,
-								decisions.workApprovals,
-								learningQuery,
-							].some((query) => query.failureCount > 0)
-						}
+						failed={decisions.failed || learningQuery.isError}
 						partial={rows.length > 0}
 						errors={[
 							inbox,

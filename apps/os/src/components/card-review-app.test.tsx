@@ -53,6 +53,14 @@ vi.mock("@/lib/webmcp/use-app-webmcp-tools", () => ({
 vi.mock("@/components/kumo/toast", () => ({
 	toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
 }));
+// The real retry rule decides; only the wait between attempts is shortened.
+vi.mock("@/lib/work-refresh", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("@/lib/work-refresh")>();
+	return {
+		...actual,
+		workRefreshOptions: { ...actual.workRefreshOptions, retryDelay: 10 },
+	};
+});
 
 const outputId = "00000000-0000-4000-8000-000000000001";
 const config = CardReviewConfigSchema.parse({
@@ -381,13 +389,64 @@ describe("CardReviewApp decision interactions", () => {
 				}),
 			);
 			await mount(inDeck);
-			expect(host.textContent).toContain("Cards are unavailable");
-			expect(host.textContent).toContain("workspace or source sheet");
-			expect(host.textContent).toContain("restricted source sheets");
+			expect(host.textContent).toContain("Cards from Practice didn't load");
+			expect(host.textContent).toContain(
+				"You can't open the sheet “Practice cards today”",
+			);
+			expect(host.textContent).toContain("Ask its owner to share it with you");
 			expect(host.textContent).not.toContain("Loading your activity");
 			expect(osApi.osWorkspaces.outputs.setSheetRange).not.toHaveBeenCalled();
 		},
 	);
+	it.each([true, false])(
+		"retries a failed first card read without an error, then shows the cards (deck=%s)",
+		async (inDeck) => {
+			vi.mocked(osApi.osWorkspaces.outputs.get).mockRejectedValueOnce(
+				Object.assign(new Error("Temporary 503"), {
+					code: "SERVICE_UNAVAILABLE",
+				}),
+			);
+			const seen: string[] = [];
+			const watch = new MutationObserver(() =>
+				seen.push(host.textContent ?? ""),
+			);
+			watch.observe(host, {
+				childList: true,
+				subtree: true,
+				characterData: true,
+			});
+			await mount(inDeck);
+			await vi.waitFor(() =>
+				expect(
+					heading(0) ?? host.querySelector("[data-card-review-card]"),
+				).not.toBeNull(),
+			);
+			watch.disconnect();
+			expect(osApi.osWorkspaces.outputs.get).toHaveBeenCalledTimes(2);
+			expect(seen.join("\n")).not.toMatch(/didn't load|couldn't load/);
+		},
+	);
+	it("names a source that is only temporarily unreachable and offers Retry", async () => {
+		vi.mocked(osApi.osWorkspaces.outputs.get).mockRejectedValue(
+			Object.assign(new Error("Temporary 503"), {
+				code: "SERVICE_UNAVAILABLE",
+			}),
+		);
+		await mount(false);
+		await vi.waitFor(() =>
+			expect(host.textContent).toContain("Cards from Practice didn't load"),
+		);
+		expect(osApi.osWorkspaces.outputs.get).toHaveBeenCalledTimes(4);
+		expect(host.textContent).toContain("Try again in a moment");
+		vi.mocked(osApi.osWorkspaces.outputs.get).mockImplementation(
+			async () => detail() as never,
+		);
+		await click("Retry");
+		await vi.waitFor(() =>
+			expect(host.querySelector("[data-card-review-card]")).not.toBeNull(),
+		);
+		expect(host.textContent).not.toContain("didn't load");
+	});
 
 	it.each([
 		["Useful", "yes"],

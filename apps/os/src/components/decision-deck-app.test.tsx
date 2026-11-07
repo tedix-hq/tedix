@@ -931,3 +931,44 @@ it("stops reading a face after a hard error instead of retrying it", async () =>
 	expect(writes.getCard).toHaveBeenCalledTimes(1);
 	expect(writes.save).not.toHaveBeenCalled();
 });
+
+it("keeps a failed-then-successful first read quiet and counts only the full set", async () => {
+	vi.spyOn(globalThis, "fetch").mockImplementation(() => new Promise(() => {}));
+	const row = linkedRow(
+		"11111111-1111-4111-8111-111111111111",
+		"Review the supplier date?",
+	);
+	await mount({ rows: [row] });
+	const approvals = client.getQueryCache().find(
+		osQuery.workApprovals.listInbox.queryOptions({
+			input: { projectId: undefined, limit: 50, statuses: ["pending"] },
+		}),
+	)!;
+	const loaded = { ...approvals.state };
+	const settle = async (state: Partial<typeof loaded>) =>
+		act(async () => {
+			approvals.setState(state);
+			await new Promise((resolve) => setTimeout(resolve, 20));
+		});
+	// First attempt failed; TanStack is waiting to retry it.
+	await settle({
+		data: undefined,
+		dataUpdatedAt: 0,
+		status: "pending",
+		fetchStatus: "fetching",
+		fetchFailureCount: 1,
+		fetchFailureReason: Object.assign(
+			new Error("Database temporarily unavailable; retry shortly"),
+			{ code: "SERVICE_UNAVAILABLE" },
+		),
+	});
+	expect(host.textContent).toContain(`Live request ${row.request.id}`);
+	expect(host.textContent).not.toContain("couldn't load");
+	expect(host.textContent).toContain("Counting cards…");
+	expect(host.textContent).not.toContain("1 of 1");
+	// The retry succeeds.
+	await settle(loaded);
+	expect(host.textContent).not.toContain("couldn't load");
+	expect(host.textContent).not.toContain("Counting cards…");
+	expect(host.textContent).toContain("1 of 1");
+});

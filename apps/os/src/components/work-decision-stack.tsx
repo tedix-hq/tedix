@@ -37,11 +37,11 @@ export function ApprovalDecisionCard({
 		...osQuery.tediApprovals.getById.queryOptions({ input: { id } }),
 		...workRefreshOptions,
 	});
-	const failed = query.isError || query.failureCount > 0;
+	const failed = query.isError;
 	const inRegion = useWorkReadFailure(
 		failed
 			? {
-					error: query.error ?? query.failureReason,
+					error: query.error,
 					retrying: query.isFetching,
 					retry: query.refetch,
 				}

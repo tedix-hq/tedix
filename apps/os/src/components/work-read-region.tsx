@@ -73,15 +73,16 @@ export function WorkReadReporter({
 }: {
 	query: {
 		isError: boolean;
-		failureCount: number;
 		error: unknown;
 		failureReason: unknown;
 		isFetching: boolean;
 		refetch: () => unknown;
 	};
 }) {
+	// A failed attempt that TanStack is still retrying stays quiet; only a
+	// settled error, after the bounded retries, reaches the notice.
 	useWorkReadFailure(
-		query.isError || query.failureCount > 0
+		query.isError
 			? {
 					error: query.error ?? query.failureReason,
 					retrying: query.isFetching,

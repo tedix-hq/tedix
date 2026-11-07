@@ -155,11 +155,11 @@ export function WorkInteractionDecisionCard({
 		placeholderData: detailPreview,
 	});
 	const detail = query.data ?? detailPreview;
-	const readFailed = query.isError || query.failureCount > 0;
+	const readFailed = query.isError;
 	const inRegion = useWorkReadFailure(
 		readFailed
 			? {
-					error: query.error ?? query.failureReason,
+					error: query.error,
 					retrying: query.isFetching,
 					retry: query.refetch,
 				}

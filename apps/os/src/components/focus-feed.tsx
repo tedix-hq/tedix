@@ -320,11 +320,8 @@ export function FocusFeed({
 		factories.failed ||
 		states.some((s) => s?.failed) ||
 		preferences.isError ||
-		preferences.failureCount > 0 ||
 		history.isError ||
-		history.failureCount > 0 ||
 		model.isError ||
-		model.failureCount > 0 ||
 		decisions.queueFailed;
 	const more = states.some((s) => s?.more) || decisions.more;
 	const visible = timeline
