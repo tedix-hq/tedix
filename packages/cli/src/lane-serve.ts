@@ -1251,6 +1251,7 @@ export class LaneDispatcher {
 	private queue = serialCalls();
 	private stopping = false;
 	private proposalsSweptAt = 0;
+	private ticking = false;
 	private delegationRequests = new Map<string, string>();
 	private ownerEnv = laneChildEnv();
 	private deps: DispatcherDeps;
@@ -1333,6 +1334,21 @@ export class LaneDispatcher {
 				),
 			args[0] === "work" &&
 				["heartbeat", "settle", "complete"].includes(args[1] ?? ""),
+		).finally(() => this.notePassProgress());
+	}
+	/**
+	 * A pass walks its items one call at a time, so with slow reads it can
+	 * outlast the supervisor's pass grace while still progressing; the
+	 * supervisor then killed it mid-dispatch and the restart began again at the
+	 * top of the list. Each completed call during a pass moves the due time to
+	 * one read ceiling ahead, so only a pass with no completed call that long
+	 * counts as hung.
+	 */
+	private notePassProgress() {
+		if (!this.ticking || this.stopping) return;
+		recordDispatcherNextCheck(
+			this.directory,
+			new Date(Date.now() + READ_CEILING_MS).toISOString(),
 		);
 	}
 	private cooldownUntil() {
@@ -1348,6 +1364,14 @@ export class LaneDispatcher {
 			: 30_000;
 	}
 	async tick() {
+		this.ticking = true;
+		try {
+			await this.runTick();
+		} finally {
+			this.ticking = false;
+		}
+	}
+	private async runTick() {
 		if (this.stopping || this.deps.darkWake()) {
 			this.log("deferred", undefined, "Stopping or macOS dark wake");
 			return;

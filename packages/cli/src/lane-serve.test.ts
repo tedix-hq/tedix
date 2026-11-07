@@ -38,7 +38,10 @@ import {
 	runnerDutyFromServeOptions,
 	runnerServeArgs,
 } from "./supervise-runners";
-import { writeDispatcherHealthSource } from "./dispatcher-health";
+import {
+	dispatcherNextCheckAt,
+	writeDispatcherHealthSource,
+} from "./dispatcher-health";
 import { laneChildEnv } from "./lane-child-env";
 import { parseOptions } from "./options";
 import { CliReadError } from "./hooks/hook-io";
@@ -5267,4 +5270,24 @@ it("does not count manual or older revision failures against automatic execution
 	f.releases[0]!();
 	await f.dispatcher.drain();
 	expect(f.events.filter((e) => e.verb === "start" && e.input)).toHaveLength(1);
+});
+
+it("keeps a slow but progressing pass from looking hung to the supervisor", async () => {
+	const f = fixture();
+	writeDispatcherHealthSource(f.dir, options);
+	const seen: number[] = [];
+	const cli = f.deps.cli!;
+	f.deps.cli = async (args, ...rest) => {
+		const due = dispatcherNextCheckAt(f.dir, process.pid);
+		if (due !== undefined) seen.push(due - Date.now());
+		return cli(args, ...rest);
+	};
+	const dispatcher = f.restart();
+	const before = dispatcherNextCheckAt(f.dir, process.pid);
+	await dispatcher.tick();
+	expect(before).toBeUndefined();
+	// After the first completed call of the pass, the due time sits about one
+	// read ceiling ahead instead of at the end of the previous pass.
+	expect(seen.length).toBeGreaterThan(0);
+	expect(Math.max(...seen)).toBeGreaterThan(4 * 60_000);
 });
