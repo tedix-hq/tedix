@@ -1,0 +1,30 @@
+{
+	"name": "@tedix/agent-governance-postgres",
+	"version": "0.1.0",
+	"private": false,
+	"description": "Postgres storage for agent governance contracts.",
+	"license": "Apache-2.0",
+	"type": "module",
+	"exports": {
+		"./adapters": "./src/adapters.ts",
+		"./schema": "./src/schema.ts"
+	},
+	"scripts": {
+		"clean": "true",
+		"test:run": "vp test run",
+		"test:ci": "bun run test:run",
+		"type-check": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@tedix/agent-governance": "workspace:*",
+		"drizzle-orm": "catalog:"
+	},
+	"devDependencies": {
+		"@tedix/tsconfig": "workspace:*",
+		"@types/node": "catalog:",
+		"@types/pg": "^8.15.6",
+		"pg": "^8.22.0",
+		"typescript": "catalog:",
+		"vite-plus": "catalog:"
+	}
+}
