@@ -999,6 +999,7 @@ const sendEmail = authed.sendEmail
 			sent: result.sent,
 			messageId: providerMessageId,
 			provider: result.provider,
+			...(result.ok ? {} : { reason: result.reason.slice(0, 500) }),
 			emailMessageId,
 			threadId: storedThreadId,
 		};
@@ -1095,6 +1096,7 @@ const replyEmail = authed.replyEmail
 			ok: result.ok,
 			sent: result.sent,
 			provider: result.provider,
+			...(result.ok ? {} : { reason: result.reason.slice(0, 500) }),
 			providerMessageId,
 			emailMessageId: stored.message.id,
 			threadId: stored.thread.id,
