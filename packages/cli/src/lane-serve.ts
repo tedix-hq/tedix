@@ -2796,19 +2796,37 @@ export class LaneDispatcher {
 					),
 		);
 		const original = originals[0];
-		if (
-			!(
-				originals.length === 1 &&
-				!!original &&
-				original.workItemId === receipt.itemId &&
-				!!original.admissionId &&
-				original.metadata?.dispatchVersion === receipt.version &&
-				(original.id === receipt.attemptId ||
-					original.outcome === "failed" ||
-					original.outcome === "expired")
-			)
-		)
+		// Any admitted Attempt on this Work whose interval covers the commit
+		// vouches for it: a lane of an earlier dispatch, or an interactive
+		// session that pushed the fix before this lane was dispatched. A peer
+		// still running keeps custody of its own commit. Requiring the lane's
+		// own dispatchVersion and a failed or expired original left every such
+		// Work open until an owner completed it (6-7 Nov 2026).
+		const rejected =
+			originals.length !== 1
+				? originals.length === 0
+					? "no admitted Attempt of that session covers the commit time"
+					: "several Attempts of that session cover the commit time"
+				: !original
+					? "no original Attempt"
+					: original.workItemId !== receipt.itemId
+						? "the original Attempt belongs to another Work Item"
+						: !original.admissionId
+							? "the original Attempt was never admitted"
+							: original.id !== receipt.attemptId &&
+								  original.outcome !== "failed" &&
+								  original.outcome !== "expired" &&
+								  original.outcome !== "succeeded"
+								? "the original Attempt is still running"
+								: null;
+		if (rejected || !original) {
+			this.log(
+				"custody-rejected",
+				receipt.itemId,
+				`${commitSha.slice(0, 12)} from ${session}: ${rejected ?? "no original Attempt"}`,
+			);
 			return false;
+		}
 		receipt.recoveredCommits = [
 			...(receipt.recoveredCommits ?? []).filter(
 				(row) => row.commitSha !== commitSha,
