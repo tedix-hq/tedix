@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Invoked by pre-push while holding the machine-wide gate lock.
+set -uo pipefail
+root="$(git rev-parse --show-toplevel)"
+
+status=0
+preflight=(bun "$root/scripts/ci/preflight-gates.mjs")
+profile="$(git config --get tedix.pushGateProfile || true)"
+if [[ -z "$profile" || "$profile" == "fast" ]]; then
+	preflight+=("--local-fast")
+fi
+preflight_ranges=()
+while read -r _localRef localSha remoteRef remoteSha; do
+	# The public repository has one branch. Work happens on main; releases are
+	# tags. A pushed side branch is public at once (GitHub also rejects it).
+	case "$remoteRef" in
+		refs/heads/main | refs/tags/v* | refs/tags/cli-v* | refs/tags/plugin-v*) ;;
+		*)
+			echo "pre-push: refusing to push $remoteRef; only main and release tags are published. Push your commits to main instead." >&2
+			status=1
+			continue
+			;;
+	esac
+	# All-zero local sha = branch deletion; nothing to validate.
+	case "$localSha" in
+		''|*[!0-9a-f]*) continue ;;
+		0000000000000000000000000000000000000000) continue ;;
+	esac
+	for check in "$root"/.githooks/pre-push.d/*; do
+		[[ -x "$check" ]] || continue
+		if ! "$check" "$remoteSha" "$localSha"; then
+			status=1
+		fi
+	done
+	# Give the gates the exact range Git is about to receive. Falling back to
+	# @{upstream} after a rebase can include unrelated commits and run DB gates
+	# for a widget-only push.
+	preflight_ranges+=("--base" "$remoteSha" "--head" "$localSha")
+done
+
+if ((${#preflight_ranges[@]})) && ! "${preflight[@]}" --remote-url "${2:-}" "${preflight_ranges[@]}"; then
+	status=1
+elif ((${#preflight_ranges[@]} == 0)) && ! "${preflight[@]}"; then
+	status=1
+fi
+
+exit "$status"
