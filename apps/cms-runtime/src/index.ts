@@ -39,7 +39,7 @@ import {
 	withCmsRestoreResponsePermit,
 	withSharedCmsRestorePermit,
 } from "./tenant-restore-fence";
-import { withScheduledCmsRestorePermit } from "./scheduled-restore-permits";
+import { runScheduledTenantWithPermit } from "./scheduled-restore-permits";
 import { r2RestHeaders } from "./r2-rest";
 import type {
 	CollectionDeletionGuardInput,
@@ -197,6 +197,7 @@ interface BundleManifest {
 }
 
 interface TenantScheduledFetcher extends Fetcher {
+	ready(): Promise<true>;
 	scheduled?: (
 		controller: ScheduledController,
 	) => Promise<{ ok: true } | { ok: false; error: string }>;
@@ -940,6 +941,12 @@ export default class TenantRuntimeEntrypoint extends WorkerEntrypoint {
 			return new Response("Tenant bundle has no fetch handler", { status: 500 });
 		}
 		return tenantHandler.fetch(request, this.env, this.ctx);
+	}
+
+	// Starting this isolate evaluates only module scope, where Workers forbid
+	// I/O, so the cron fanout can prove the bundle loads before taking a permit.
+	ready() {
+		return true;
 	}
 
 	async scheduled(controller) {
@@ -2229,55 +2236,57 @@ export default {
 					continue;
 				}
 
+				const tenantEntrypoint = getTenantEntrypoint(env, ctx, {
+					invocation: "scheduled",
+					accountId,
+					r2Token,
+					bundle,
+					// Same deterministic derivation as the request path, so a cron
+					// fanout that wins the loader cache miss bakes an identical env.
+					internalAuthToken: await deriveTenantInternalAuthToken(
+						env.CMS_INTERNAL_AUTH_TOKEN,
+						slug,
+						bundle.version,
+						restoreEpoch,
+					),
+					humanAuthKey:
+						org.humanAssertionBundleEtag === bundle.etag
+							? await deriveTenantHumanAuthKey({
+									sharedToken: env.CMS_INTERNAL_AUTH_TOKEN,
+									siteId: org.siteId,
+									slug,
+									bundleEtag: bundle.etag,
+								})
+							: undefined,
+					org,
+					slug,
+					restoreEpoch,
+					// Off-request: there is no response to carry Server-Timing, so
+					// this is a sink for the loader factory's own instrumentation.
+					spans: {},
+				}) as TenantScheduledFetcher;
+				if (typeof tenantEntrypoint.scheduled !== "function") {
+					counters.skipped += 1;
+					console.warn(
+						`[cms-runtime] scheduled fanout skipped ${slug}: tenant entrypoint has no scheduled handler`,
+					);
+					continue;
+				}
+
 				// Cron pauses drain exact scheduled permits separately from shared nested work.
-				const permitted = await withScheduledCmsRestorePermit(
+				const permitted = await runScheduledTenantWithPermit(
 					createDbQueryClient(env.PLATFORM_DB),
 					env.RECOVERY_STORAGE,
 					{ siteId: org.siteId, slug, restoreEpoch },
-					async () => {
-						const tenantEntrypoint = getTenantEntrypoint(env, ctx, {
-							invocation: "scheduled",
-							accountId,
-							r2Token,
-							bundle,
-							// Same deterministic derivation as the request path, so a cron
-							// fanout that wins the loader cache miss bakes an identical env.
-							internalAuthToken: await deriveTenantInternalAuthToken(
-								env.CMS_INTERNAL_AUTH_TOKEN,
-								slug,
-								bundle.version,
-								restoreEpoch,
-							),
-							humanAuthKey:
-								org.humanAssertionBundleEtag === bundle.etag
-									? await deriveTenantHumanAuthKey({
-											sharedToken: env.CMS_INTERNAL_AUTH_TOKEN,
-											siteId: org.siteId,
-											slug,
-											bundleEtag: bundle.etag,
-										})
-									: undefined,
-							org,
-							slug,
-							restoreEpoch,
-							// Off-request: there is no response to carry Server-Timing, so
-							// this is a sink for the loader factory's own instrumentation.
-							spans: {},
-						}) as TenantScheduledFetcher;
-
-						if (typeof tenantEntrypoint.scheduled !== "function") {
-							counters.skipped += 1;
-							console.warn(
-								`[cms-runtime] scheduled fanout skipped ${slug}: tenant entrypoint has no scheduled handler`,
-							);
-							return false;
-						}
-
-						counters.attempted += 1;
-						return await tenantEntrypoint.scheduled({
-							cron: controller.cron,
-							scheduledTime: controller.scheduledTime,
-						} as ScheduledController);
+					{
+						ready: () => tenantEntrypoint.ready(),
+						scheduled: () => {
+							counters.attempted += 1;
+							return tenantEntrypoint.scheduled!({
+								cron: controller.cron,
+								scheduledTime: controller.scheduledTime,
+							} as ScheduledController);
+						},
 					},
 				);
 				if (!permitted.admitted) {
@@ -2285,7 +2294,7 @@ export default {
 					console.warn(
 						`[cms-runtime] scheduled fanout skipped ${slug}: scheduled write permit unavailable`,
 					);
-				} else if (permitted.value) {
+				} else {
 					if (!permitted.value.ok) throw new Error(permitted.value.error);
 					counters.succeeded += 1;
 				}

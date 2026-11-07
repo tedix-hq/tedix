@@ -54,6 +54,22 @@ export async function withScheduledCmsRestorePermit<T>(
 	return { admitted: true, value };
 }
 
+/** Deriving the tenant env, building the loader stub and starting the isolate
+ * through `ready` run no tenant handler: module scope cannot perform I/O. A
+ * failure there (bundle load, module evaluation, loader factory) therefore
+ * proves no scheduled write began and must not leave a permit behind. Only
+ * the handler RPC itself runs under the permit, and its rejection stays
+ * unknown. */
+export async function runScheduledTenantWithPermit<T>(
+	db: DbQueryClient,
+	storage: R2Bucket,
+	identity: CmsRestoreFenceIdentity,
+	tenant: { ready: () => Promise<unknown>; scheduled: () => Promise<T> },
+): Promise<{ admitted: false } | { admitted: true; value: T }> {
+	await tenant.ready();
+	return withScheduledCmsRestorePermit(db, storage, identity, tenant.scheduled);
+}
+
 function isCompletion(value: unknown): value is ScheduledPermitCompletion {
 	if (typeof value !== "object" || value === null) return false;
 	const receipt = value as Record<string, unknown>;
