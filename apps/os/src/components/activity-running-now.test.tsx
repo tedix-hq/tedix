@@ -218,7 +218,7 @@ it("pages the 24-hour cohort and refreshes scorecard outcomes without navigation
 		[...scorecard.querySelectorAll("tbody tr")].find(
 			(tr) => tr.firstElementChild?.textContent === "codex",
 		)?.textContent;
-	expect(cells()).toBe("codex2010UnknownUnknown0");
+	expect(cells()).toBe("codex2010UnknownUnknown0Unknown");
 	expect(scorecard.textContent).not.toContain("Counts are unknown");
 	expect(
 		api.attempts.mock.calls.filter(([input]) => !input.runtimeStates),
@@ -234,7 +234,7 @@ it("pages the 24-hour cohort and refreshes scorecard outcomes without navigation
 		},
 	};
 	await flush(30_020);
-	expect(cells()).toBe("codex2110UnknownUnknown1");
+	expect(cells()).toBe("codex2110UnknownUnknown1Unknown");
 });
 
 it("keeps forbidden history unknown and recovers through manual retry", async () => {
@@ -251,7 +251,7 @@ it("keeps forbidden history unknown and recovers through manual retry", async ()
 	const cells = host.querySelector(
 		'section[aria-label="Runner scorecard"] tbody tr',
 	)?.textContent;
-	expect(cells).toBe(`codex${"Unknown".repeat(7)}`);
+	expect(cells).toBe(`codex${"Unknown".repeat(8)}`);
 	const recovered = row();
 	recovered.attempt.externalSessionKey = "codex:recovered-session";
 	api.attempts.mockResolvedValue({
@@ -271,5 +271,5 @@ it("keeps forbidden history unknown and recovers through manual retry", async ()
 	expect(
 		host.querySelector('section[aria-label="Runner scorecard"] tbody tr')
 			?.textContent,
-	).toBe("codex1000UnknownUnknown0");
+	).toBe("codex1000UnknownUnknown0Unknown");
 });
