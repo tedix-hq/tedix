@@ -1562,7 +1562,10 @@ const worker = {
 			// access, rate limit, origin); the object scopes the call to the app's
 			// organization and records the principal on every change record.
 			const workspaceMatch = url.pathname.match(/^\/mcp\/workspaces\/([^/]+)$/);
-			if (workspaceMatch && app.organizationId && env.WORKSPACE_RUNTIME) {
+			// The binding is declared once the workspace Worker exists in the account.
+			const workspaceRuntime = (env as { WORKSPACE_RUNTIME?: Fetcher })
+				.WORKSPACE_RUNTIME;
+			if (workspaceMatch && app.organizationId && workspaceRuntime) {
 				if (request.method !== "POST") {
 					return new Response("Method not allowed", { status: 405 });
 				}
@@ -1579,7 +1582,7 @@ const worker = {
 							? "user"
 							: "external_agent",
 				});
-				return env.WORKSPACE_RUNTIME.fetch(
+				return workspaceRuntime.fetch(
 					new Request("https://workspace.internal/mcp", {
 						method: "POST",
 						headers,

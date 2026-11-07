@@ -108,12 +108,6 @@ export default defineConfig(({ mode }) => {
 					worker: service("mcp", "public-installation-mcp"),
 					exportName: "InternalEntrypoint",
 				}),
-				// Workspace chat: the pane's WebSocket upgrade is forwarded to the
-				// object that owns the workspace (apps/workspace-do).
-				WORKSPACE_RUNTIME: bindings.worker({
-					worker: service("workspace-do", "public-installation-workspace-do"),
-					exportName: "InternalEntrypoint",
-				}),
 				// The isolated lane has no session broker.
 				...(!local
 					? {
