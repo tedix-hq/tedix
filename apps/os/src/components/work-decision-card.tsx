@@ -307,6 +307,7 @@ export function WorkDecisionCard({
 	title,
 	askedBy,
 	actor,
+	askerActor,
 	source,
 	at,
 	why,
@@ -335,6 +336,8 @@ export function WorkDecisionCard({
 	title: string;
 	askedBy: string;
 	actor?: WorkActorReference;
+	/** Displayed asker when the authenticated submitter only carries the request. */
+	askerActor?: WorkActorReference;
 	source?: WorkContributionSource;
 	at?: string;
 	why?: ReactNode;
@@ -1015,7 +1018,7 @@ export function WorkDecisionCard({
 							{faceState ? (
 								<span>{asker}</span>
 							) : (
-								<ProposerChip name={asker} actor={actor} />
+								<ProposerChip name={asker} actor={askerActor ?? actor} />
 							)}
 							{at ? (
 								<time dateTime={at} title={absoluteTime(at)}>

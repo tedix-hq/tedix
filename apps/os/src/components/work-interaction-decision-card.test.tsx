@@ -1,4 +1,5 @@
 import { act } from "react";
+import { WorkActorDirectoryContext } from "./work-actor-avatar";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, it, vi } from "vite-plus/test";
@@ -73,6 +74,53 @@ const preview = WorkInteractionInboxRowSchema.parse({
 	canCancel: false,
 	workItem: null,
 	responseCount: 0,
+});
+
+it("shows the lane runner as asker and keeps its user carrier in source details", async () => {
+	client = new QueryClient({
+		defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+	});
+	host = document.createElement("div");
+	document.body.append(host);
+	root = createRoot(host);
+	const request = {
+		...preview.request,
+		metadata: {
+			source: "lane-dispatch-blocker",
+			laneBlocker: { executor: "codex", workVersion: 1 },
+		},
+	};
+	client.setQueryData(workInteractionDetailQueryOptions(request.id).queryKey, {
+		request,
+		effectiveState: "open",
+		canRespond: true,
+		canCancel: false,
+		responses: { data: [], nextCursor: null, hasMore: false },
+	});
+	await act(async () =>
+		root.render(
+			<QueryClientProvider client={client}>
+				<WorkActorDirectoryContext.Provider
+					value={new Map([["user:fictional-asker", { name: "Morgan" }]])}
+				>
+					<WorkInteractionDecisionCard
+						requestId={request.id}
+						askedBy="Morgan"
+					/>
+				</WorkActorDirectoryContext.Provider>
+			</QueryClientProvider>,
+		),
+	);
+	expect(host.querySelector(".fd-proposer")?.textContent).toContain(
+		"Codex runner",
+	);
+	expect(host.querySelector(".fd-proposer")?.textContent).not.toContain(
+		"Morgan",
+	);
+	expect(host.textContent).toContain("Submitted by Morgan · User account");
+	expect(host.textContent).toContain(
+		"Authenticated actor: user:fictional-asker",
+	);
 });
 
 it("opens the original lane ask instead of offering a misleading Yes", async () => {
