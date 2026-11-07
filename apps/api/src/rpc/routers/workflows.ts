@@ -10,6 +10,7 @@
  */
 
 import { implement } from "@orpc/server";
+import { isPlatformPrincipal } from "@tedix/auth/types";
 import { dynamicSkillDefinitionId } from "@tedix/api-contract/constants/workflow-definition-keys";
 import {
 	type WorkflowDefinition,
@@ -334,8 +335,13 @@ async function handleListDefinitions(
 	context: BaseContext,
 ) {
 	const orgId = requireOrgId(context);
+	// Tedix's own background jobs run on platform infrastructure; an
+	// organization's members cannot act on them, so only platform operators
+	// see them next to the organization's skills.
 	const includeStatic =
-		input.kind !== "dynamic_skill" && input.lifecycleState == null;
+		input.kind !== "dynamic_skill" &&
+		input.lifecycleState == null &&
+		isPlatformPrincipal(context);
 	const includeDynamic = input.kind !== "static_platform";
 	const query = input.query?.trim().toLowerCase();
 	const staticDefinitions = includeStatic
