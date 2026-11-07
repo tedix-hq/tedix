@@ -207,7 +207,8 @@ export async function readOfficeCanonicalSources(
 				sql`EXISTS (SELECT 1 FROM ${workAgentSessions} s JOIN ${workAttempts} own_attempt ON own_attempt.org_id = s.organization_id AND own_attempt.external_session_key = s.session_key WHERE s.organization_id = ${owner.organizationId} AND s.user_id = ${owner.userId} AND own_attempt.work_item_id = ${workEvents.workItemId})`,
 			),
 		)
-		.orderBy(desc(workEvents.occurredAt), desc(workEvents.id))
+		// Do not trade the event-type/time range for the org-wide ordering index.
+		.orderBy(desc(sql`+${workEvents.occurredAt}`), desc(workEvents.id))
 		.limit(100);
 	return { replies, events };
 }

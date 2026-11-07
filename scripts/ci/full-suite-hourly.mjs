@@ -430,6 +430,7 @@ export async function certificationFiles({
 	sha,
 	runId,
 	request,
+	lane = "full",
 	git = (args) =>
 		execFileSync("git", args, {
 			encoding: "utf8",
@@ -440,7 +441,7 @@ export async function certificationFiles({
 	const green = new Map();
 	for (let page = 1; page <= 10; page++) {
 		const result = await request(
-			`/repos/${repository}/actions/workflows/full-suite-hourly.yml/runs?branch=main&per_page=100&page=${page}`,
+			`/repos/${repository}/actions/workflows/${lane === "verify" ? "main-verify.yml" : "full-suite-hourly.yml"}/runs?branch=main&per_page=100&page=${page}`,
 		);
 		for (const run of result.workflow_runs) {
 			if (String(run.id) === String(runId) || seen.has(run.head_sha)) continue;
@@ -473,8 +474,24 @@ export async function certificationFiles({
 			jobs.push(...result.jobs);
 			if (result.jobs.length < 100) break;
 		}
-		const aggregate = jobs.filter((job) => job.name === "Main CI");
+		const aggregate = jobs.filter(
+			(job) => job.name === (lane === "verify" ? "Main verify" : "Main CI"),
+		);
 		if (aggregate.length !== 1 || aggregate[0].conclusion !== "success")
+			continue;
+		// Older verify plans could inherit a policy-only gate and skip red tests.
+		// Only inherit a baseline that actually ran both test lanes.
+		if (
+			lane === "verify" &&
+			(!jobs.some(
+				(job) =>
+					job.name === "repository (scripts)" && job.conclusion === "success",
+			) ||
+				!jobs.some(
+					(job) =>
+						job.name.startsWith("Workspace ") && job.conclusion === "success",
+				))
+		)
 			continue;
 		return git([
 			"diff",
@@ -796,6 +813,7 @@ if (
 					sha: env.GITHUB_SHA,
 					runId: env.GITHUB_RUN_ID,
 					request: githubRequest,
+					lane: env.SUITE_LANE || "full",
 				})
 			: null;
 	const plan = laneSelection(
