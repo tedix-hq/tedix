@@ -14,7 +14,8 @@
 		"vitest.workers.config.ts",
 		"vitest.app-runtime.config.ts",
 		"worker-configuration.d.ts",
-		"src/agent-memory.env.d.ts"
+		"src/agent-memory.env.d.ts",
+		"src/platform-hosts.env.d.ts"
 	],
 	// Plain-bun harnesses: typechecked through the src tests that import them.
 	"exclude": [

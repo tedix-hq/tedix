@@ -9,6 +9,11 @@ import {
 	type WorkstationSessionKind,
 } from "@tedix/api-contract/schemas/workstation";
 import { compactWorkstationStatusReceipt } from "./workstation-status-receipt";
+import {
+	hostSetting,
+	type PlatformDomainEnv,
+	platformDomain,
+} from "@tedix/worker-kit/platform-hosts";
 
 const WORKSTATION_HEADER = "X-Tedix-Workstation";
 const WORKSTATION_CONVERSATION_HEADER = "X-Tedix-Workstation-Conversation-Id";
@@ -174,18 +179,22 @@ export type WorkstationStatusInput = {
 	workstationId?: string;
 };
 
-export type WorkstationEnv = {
-	ENVIRONMENT?: string;
+export type WorkstationEnv = PlatformDomainEnv & {
+	TEDI_HOST_SUFFIX?: string;
 	TEDI_SERVICE?: Fetcher;
 };
 
-export function platformDomainForTediEnv(environment?: string): string {
-	if (environment === "production") return "tedix.dev";
-	return "tedix.tech";
+/** The platform domain this runtime serves; `PLATFORM_DOMAIN` or the lane default. */
+export function platformDomainForTediEnv(env: PlatformDomainEnv): string {
+	return platformDomain(env);
 }
 
-export function tediHostForSlug(slug: string, environment?: string): string {
-	return `${slug}.tedi.${platformDomainForTediEnv(environment)}`;
+/** `{slug}.<TEDI_HOST_SUFFIX>`, defaulting to `{slug}.tedi.<platform domain>`. */
+export function tediHostForSlug(
+	slug: string,
+	env: PlatformDomainEnv & { TEDI_HOST_SUFFIX?: string },
+): string {
+	return `${slug}.${hostSetting(env.TEDI_HOST_SUFFIX, `tedi.${platformDomain(env)}`)}`;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -350,7 +359,7 @@ async function callWorkstation(
 				headers: {
 					"Content-Type": "application/json",
 					"X-Service-Binding": "true",
-					"X-Tedix-Host": tediHostForSlug(identity.slug, env.ENVIRONMENT),
+					"X-Tedix-Host": tediHostForSlug(identity.slug, env),
 					"X-Tedix-Org-Id": identity.orgId ?? "",
 					"X-Tedix-Tedi-Id": identity.tediId,
 					...(traceId ? { "X-Trace-Id": traceId } : {}),

@@ -80,6 +80,7 @@ import {
 	createWidgetCSP,
 	getAppsSDKCompatibleHtml,
 } from "./utils/widget";
+import { platformDomain } from "@tedix/worker-kit/platform-hosts";
 
 /** Catalog rows need their own configured capability, never a wildcard/namespace fallback. */
 
@@ -470,9 +471,11 @@ function buildCoreCspDomains(env: {
 	MCP_URL: string;
 	API_URL: string;
 	ENVIRONMENT?: string;
+	PLATFORM_DOMAIN?: string;
 }): { connectDomains: string[]; resourceDomains: string[] } {
 	const isProd = env.ENVIRONMENT === "production";
-	const allowDomain = (url: string) => !isProd || url.includes("tedix.dev");
+	const domain = platformDomain(env);
+	const allowDomain = (url: string) => !isProd || url.includes(domain);
 
 	const widgetUrl = allowDomain(env.MCP_UI_URL) ? env.MCP_UI_URL : "";
 	const mcpUrl = allowDomain(env.MCP_URL) ? env.MCP_URL : "";
