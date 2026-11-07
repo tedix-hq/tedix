@@ -512,7 +512,9 @@ export function WorkflowRow({
 						{definition.title}
 					</Text>
 					<SkillChip tone="neutral">
-						{definition.kind === "static_platform" ? "Platform" : "Skill"}
+						{definition.kind === "static_platform"
+							? "Tedix platform job"
+							: "Skill"}
 					</SkillChip>
 					{health ? (
 						<SkillChip tone={healthTone(health.healthStatus)}>

@@ -440,7 +440,7 @@ describe("WorkflowRow", () => {
 				LinkComponent={StubRunLink}
 			/>,
 		);
-		expect(html).toContain(">Platform<");
+		expect(html).toContain(">Tedix platform job<");
 		expect(html).toContain("last run completed");
 		expect(html).not.toContain("href=");
 	});

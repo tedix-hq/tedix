@@ -444,9 +444,21 @@ export function TriggersPanel({
 		},
 	});
 
+	// A switched-off trigger of an archived skill can never run again; it is
+	// history, not a trigger anyone can act on.
 	const rows = useMemo(
-		() => sortTriggers(schedules.data?.schedules ?? []),
-		[schedules.data],
+		() =>
+			sortTriggers(
+				(schedules.data?.schedules ?? []).filter((schedule) => {
+					const definition = definitionsBySkillId[schedule.skillId];
+					return (
+						schedule.enabled ||
+						definition?.kind !== "dynamic_skill" ||
+						definition.lifecycleState !== "archived"
+					);
+				}),
+			),
+		[schedules.data, definitionsBySkillId],
 	);
 
 	return (
