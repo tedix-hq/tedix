@@ -394,6 +394,14 @@ describe("migrate-workspaces", () => {
 				detail: "the object's migration chain does not create it",
 			});
 			const stripped = sharedDatabase();
+			// Keep the search view valid when modelling a snapshot without summary.
+			const view = stripped
+				.prepare(
+					"SELECT sql FROM sqlite_schema WHERE name = 'memory_fact_search_documents'",
+				)
+				.get() as { sql: string };
+			stripped.exec("DROP VIEW memory_fact_search_documents");
+			stripped.exec(view.sql.replaceAll("f.summary", "NULL"));
 			stripped.exec("ALTER TABLE memory_facts DROP COLUMN summary");
 			const findings = checkSchema(Snapshot.fromDatabases(stripped)).findings;
 			expect(
