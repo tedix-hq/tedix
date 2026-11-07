@@ -480,6 +480,12 @@ export const billingUsageReservations = sqliteTable(
 			table.createdAt,
 		),
 		index("idx_billing_reservation_trace").on(table.traceId),
+		// Run spending reads charges by run; without this each read walked every
+		// reservation of the organization.
+		index("idx_billing_reservation_org_run").on(
+			table.organizationId,
+			table.runId,
+		),
 	],
 );
 

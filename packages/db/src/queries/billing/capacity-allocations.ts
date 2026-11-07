@@ -1,7 +1,7 @@
 /** Canonical append-only capacity-allocation journal. */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, desc, eq, gt, isNotNull, sql } from "drizzle-orm";
+import { and, desc, eq, gt, isNotNull, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { DbClient } from "../../client";
 import {
@@ -15,6 +15,22 @@ import {
 } from "../../schema/billing";
 import { tedis } from "../../schema/tedis";
 import { reservationUsedTokensSql } from "./usage-tokens";
+
+/**
+ * One UTC day as an index-friendly range on an ISO timestamp column.
+ * `substr(column, 1, 10) = day` hides the column from its
+ * (organization_id, <time>) index, so each daily gate scanned every row the
+ * organization ever wrote and saturated D1 under load.
+ */
+function nextUtcDay(day: string): string {
+	const next = new Date(`${day}T00:00:00.000Z`);
+	next.setUTCDate(next.getUTCDate() + 1);
+	return next.toISOString().slice(0, 10);
+}
+
+function onUtcDay(column: SQL | unknown, day: string): SQL {
+	return sql`${column} >= ${day} AND ${column} < ${nextUtcDay(day)}`;
+}
 
 export interface RecordCapacityAllocationParams {
 	id: string;
@@ -338,7 +354,7 @@ export async function getInferenceCapacityLedger(
 				isNotNull(reservation.tediId),
 				sql`${reservation.status} IN ('reserved', 'settled')`,
 				sql`(${reservation.status} = 'settled' OR datetime(${reservation.expiresAt}) > datetime(${input.now}))`,
-				sql`substr(${reservation.createdAt}, 1, 10) = ${budgetDay}`,
+				onUtcDay(reservation.createdAt, budgetDay),
 			),
 		)
 		.groupBy(
@@ -507,6 +523,7 @@ export async function transferSponsoredCapacity(
 		createdAt: string;
 	},
 ): Promise<SponsoredCapacityTransfer> {
+	const budgetNextDay = nextUtcDay(input.budgetDay);
 	requireSafeInteger(input.tokenAmount, "tokenAmount");
 	requireSafeInteger(input.spendAmountMicros, "spendAmountMicros");
 	requireSafeInteger(
@@ -583,13 +600,13 @@ export async function transferSponsoredCapacity(
 						eq(billingAccounts.organizationId, input.sponsorOrganizationId),
 						eq(billingAccounts.status, "active"),
 						sql`EXISTS (SELECT 1 FROM billing_accounts customer WHERE customer.organization_id = ${input.customerOrganizationId})`,
-						sql`(COALESCE((SELECT SUM(token_amount) FROM billing_capacity_allocations WHERE organization_id = ${input.customerOrganizationId} AND budget_day = ${input.budgetDay} AND stripe_environment = ${input.stripeEnvironment} AND expires_at > ${input.createdAt}), 0) - COALESCE((SELECT SUM(${reservationUsedTokensSql("reservation")}) FROM billing_usage_reservations AS reservation WHERE reservation.organization_id = ${input.customerOrganizationId} AND reservation.status IN ('reserved', 'settled') AND (reservation.status = 'settled' OR datetime(reservation.expires_at) > datetime(${input.createdAt})) AND substr(reservation.created_at, 1, 10) = ${input.budgetDay}), 0) < ${input.customerLowWatermarkTokens} OR COALESCE((SELECT SUM(spend_amount_micros) FROM billing_capacity_allocations WHERE organization_id = ${input.customerOrganizationId} AND budget_day = ${input.budgetDay} AND stripe_environment = ${input.stripeEnvironment} AND expires_at > ${input.createdAt}), 0) - COALESCE((SELECT SUM(spend_micros) FROM (SELECT estimated_charge_micros AS spend_micros FROM billing_usage_reservations WHERE organization_id = ${input.customerOrganizationId} AND status = 'reserved' AND datetime(expires_at) > datetime(${input.createdAt}) AND substr(created_at, 1, 10) = ${input.budgetDay} UNION ALL SELECT provider_cost_micros AS spend_micros FROM billing_usage_charges WHERE organization_id = ${input.customerOrganizationId} AND substr(occurred_at, 1, 10) = ${input.budgetDay})), 0) < ${input.customerLowWatermarkSpendMicros})`,
+						sql`(COALESCE((SELECT SUM(token_amount) FROM billing_capacity_allocations WHERE organization_id = ${input.customerOrganizationId} AND budget_day = ${input.budgetDay} AND stripe_environment = ${input.stripeEnvironment} AND expires_at > ${input.createdAt}), 0) - COALESCE((SELECT SUM(${reservationUsedTokensSql("reservation")}) FROM billing_usage_reservations AS reservation WHERE reservation.organization_id = ${input.customerOrganizationId} AND reservation.status IN ('reserved', 'settled') AND (reservation.status = 'settled' OR datetime(reservation.expires_at) > datetime(${input.createdAt})) AND reservation.created_at >= ${input.budgetDay} AND reservation.created_at < ${budgetNextDay}), 0) < ${input.customerLowWatermarkTokens} OR COALESCE((SELECT SUM(spend_amount_micros) FROM billing_capacity_allocations WHERE organization_id = ${input.customerOrganizationId} AND budget_day = ${input.budgetDay} AND stripe_environment = ${input.stripeEnvironment} AND expires_at > ${input.createdAt}), 0) - COALESCE((SELECT SUM(spend_micros) FROM (SELECT estimated_charge_micros AS spend_micros FROM billing_usage_reservations WHERE organization_id = ${input.customerOrganizationId} AND status = 'reserved' AND datetime(expires_at) > datetime(${input.createdAt}) AND created_at >= ${input.budgetDay} AND created_at < ${budgetNextDay} UNION ALL SELECT provider_cost_micros AS spend_micros FROM billing_usage_charges WHERE organization_id = ${input.customerOrganizationId} AND occurred_at >= ${input.budgetDay} AND occurred_at < ${budgetNextDay})), 0) < ${input.customerLowWatermarkSpendMicros})`,
 						input.sponsorDailyTokenLimit === null
 							? sql`TRUE`
-							: sql`${input.sponsorDailyTokenLimit} + COALESCE((SELECT SUM(token_amount) FROM billing_capacity_allocations WHERE organization_id = ${input.sponsorOrganizationId} AND budget_day = ${input.budgetDay} AND stripe_environment = ${input.stripeEnvironment} AND expires_at > ${input.createdAt}), 0) - COALESCE((SELECT SUM(${reservationUsedTokensSql("reservation")}) FROM billing_usage_reservations AS reservation WHERE reservation.organization_id = ${input.sponsorOrganizationId} AND reservation.status IN ('reserved', 'settled') AND (reservation.status = 'settled' OR datetime(reservation.expires_at) > datetime(${input.createdAt})) AND substr(reservation.created_at, 1, 10) = ${input.budgetDay}), 0) >= ${input.tokenAmount}`,
+							: sql`${input.sponsorDailyTokenLimit} + COALESCE((SELECT SUM(token_amount) FROM billing_capacity_allocations WHERE organization_id = ${input.sponsorOrganizationId} AND budget_day = ${input.budgetDay} AND stripe_environment = ${input.stripeEnvironment} AND expires_at > ${input.createdAt}), 0) - COALESCE((SELECT SUM(${reservationUsedTokensSql("reservation")}) FROM billing_usage_reservations AS reservation WHERE reservation.organization_id = ${input.sponsorOrganizationId} AND reservation.status IN ('reserved', 'settled') AND (reservation.status = 'settled' OR datetime(reservation.expires_at) > datetime(${input.createdAt})) AND reservation.created_at >= ${input.budgetDay} AND reservation.created_at < ${budgetNextDay}), 0) >= ${input.tokenAmount}`,
 						input.sponsorDailySpendLimitMicros === null
 							? sql`TRUE`
-							: sql`${input.sponsorDailySpendLimitMicros} + COALESCE((SELECT SUM(spend_amount_micros) FROM billing_capacity_allocations WHERE organization_id = ${input.sponsorOrganizationId} AND budget_day = ${input.budgetDay} AND stripe_environment = ${input.stripeEnvironment} AND expires_at > ${input.createdAt}), 0) - COALESCE((SELECT SUM(spend_micros) FROM (SELECT estimated_charge_micros AS spend_micros FROM billing_usage_reservations WHERE organization_id = ${input.sponsorOrganizationId} AND status = 'reserved' AND datetime(expires_at) > datetime(${input.createdAt}) AND substr(created_at, 1, 10) = ${input.budgetDay} UNION ALL SELECT provider_cost_micros AS spend_micros FROM billing_usage_charges WHERE organization_id = ${input.sponsorOrganizationId} AND substr(occurred_at, 1, 10) = ${input.budgetDay})), 0) >= ${input.spendAmountMicros}`,
+							: sql`${input.sponsorDailySpendLimitMicros} + COALESCE((SELECT SUM(spend_amount_micros) FROM billing_capacity_allocations WHERE organization_id = ${input.sponsorOrganizationId} AND budget_day = ${input.budgetDay} AND stripe_environment = ${input.stripeEnvironment} AND expires_at > ${input.createdAt}), 0) - COALESCE((SELECT SUM(spend_micros) FROM (SELECT estimated_charge_micros AS spend_micros FROM billing_usage_reservations WHERE organization_id = ${input.sponsorOrganizationId} AND status = 'reserved' AND datetime(expires_at) > datetime(${input.createdAt}) AND created_at >= ${input.budgetDay} AND created_at < ${budgetNextDay} UNION ALL SELECT provider_cost_micros AS spend_micros FROM billing_usage_charges WHERE organization_id = ${input.sponsorOrganizationId} AND occurred_at >= ${input.budgetDay} AND occurred_at < ${budgetNextDay})), 0) >= ${input.spendAmountMicros}`,
 					),
 				)
 				.limit(1),
@@ -691,7 +708,7 @@ export async function getInferenceCapacityDailyOverview(
 				eq(reservation.organizationId, input.organizationId),
 				sql`${reservation.status} IN ('reserved', 'settled')`,
 				sql`(${reservation.status} = 'settled' OR datetime(${reservation.expiresAt}) > datetime(${input.now}))`,
-				sql`substr(${reservation.createdAt}, 1, 10) = ${budgetDay}`,
+				onUtcDay(reservation.createdAt, budgetDay),
 			),
 		);
 	const spend = db
@@ -707,7 +724,7 @@ export async function getInferenceCapacityDailyOverview(
 				eq(billingUsageReservations.organizationId, input.organizationId),
 				sql`${billingUsageReservations.status} = 'reserved'`,
 				sql`datetime(${billingUsageReservations.expiresAt}) > datetime(${input.now})`,
-				sql`substr(${billingUsageReservations.createdAt}, 1, 10) = ${budgetDay}`,
+				onUtcDay(billingUsageReservations.createdAt, budgetDay),
 			),
 		)
 		.unionAll(
@@ -722,7 +739,7 @@ export async function getInferenceCapacityDailyOverview(
 				.where(
 					and(
 						eq(billingUsageCharges.organizationId, input.organizationId),
-						sql`substr(${billingUsageCharges.occurredAt}, 1, 10) = ${budgetDay}`,
+						onUtcDay(billingUsageCharges.occurredAt, budgetDay),
 					),
 				),
 		)
