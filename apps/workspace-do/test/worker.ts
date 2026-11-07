@@ -23,7 +23,9 @@ import { RUN_CODE_TOOL } from "../src/prompt";
 
 export { WorkspaceBindingLoopback } from "../src/do";
 
-export type ScriptStep = { code: string } | { text: string };
+export type ScriptStep =
+	| { code: string; tokensPerSecond?: number }
+	| { text: string; tokensPerSecond?: number };
 
 export class WorkspaceDO extends ProductionWorkspaceDO {
 	#script: ScriptStep[] = [];
@@ -59,7 +61,9 @@ export class TurnFacet extends ProductionTurnFacet {
 
 function scriptedModel(script: ScriptStep[]): ModelPort {
 	{
-		const core = createFauxCore({ tokensPerSecond: 0 });
+		const core = createFauxCore({
+			tokensPerSecond: script[0]?.tokensPerSecond ?? 0,
+		});
 		core.setResponses(
 			script.map((step) =>
 				"code" in step
