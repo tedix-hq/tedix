@@ -24,7 +24,6 @@ unset GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_CEILING_DIRECTORIES GIT_COMMON_DIR \
 	GIT_DIR GIT_INDEX_FILE GIT_NAMESPACE GIT_OBJECT_DIRECTORY GIT_PREFIX \
 	GIT_WORK_TREE
 
-# One kernel lock per user, shared by independent clones as well as worktrees.
-# Fail closed if Python is missing; no gate may run without the lock.
+# Worktrees share a kernel lock in the Git common directory when writable.
 exec python3 "$root/scripts/dev/push-gate-lock.py" \
 	"$root/.githooks/pre-push-checks" "$@"
