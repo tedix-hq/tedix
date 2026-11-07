@@ -67,6 +67,7 @@ function fixture(configured = true) {
 	let sequence = 0;
 	const create = () =>
 		new LaneDispatcher(options, dir, {
+			health: () => [],
 			darkWake: () => false,
 			available: () => true,
 			devinAvailable: () => true,

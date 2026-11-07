@@ -686,6 +686,22 @@ export const workItemsContract = oc
 			.input(
 				z.strictObject({
 					id: z.uuid(),
+					idleReassignment: z
+						.strictObject({
+							fromExecutor: z.enum([
+								"codex",
+								"claude-code",
+								"opencode",
+								"devin",
+							]),
+							unavailableSince: z.iso.datetime(),
+							minimumIdleMinutes: z.number().int().min(1).max(1440).default(15),
+							reason: z.enum(["busy", "unreachable"]),
+						})
+						.optional()
+						.describe(
+							"Owner/admin dispatcher reassignment. Preserves the Work revision and failure hold; cannot accompany specification edits.",
+						),
 					executor: WorkExecutorSchema.optional().describe(
 						"codex or claude-code on accepted Work queues a fresh session that a connected Mac starts and that claims its own Attempt. Owners, admins and the Work's tedi steward may set it.",
 					),

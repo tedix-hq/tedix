@@ -101,12 +101,20 @@ import {
 } from "./login-recovery";
 import {
 	recordDispatcherAdmission,
+	recordDispatcherIdle,
+	collectDispatcherHealth,
 	recordDispatcherCompletion,
 	recordDispatcherNextCheck,
 	recordDispatcherPreparing,
 	recordDispatcherReliability,
 	writeDispatcherHealthSource,
+	type LocalDispatcherHealth,
 } from "./dispatcher-health";
+import {
+	observeUnavailableRunners,
+	idleReason,
+	type UnavailableRunner,
+} from "./lane-idle";
 
 type WorkAttempt = z.infer<typeof WorkAttemptSchema>;
 
@@ -383,6 +391,7 @@ export interface ServeOptions {
 	max: number;
 	project?: string;
 	routingConfig?: string;
+	idleTakeoverMinutes?: number;
 	rules: string;
 	repo: string;
 	scope: string[];
@@ -430,6 +439,7 @@ export function parseServeOptions(
 				"--executor",
 				"--max",
 				"--routing-config",
+				"--idle-takeover-minutes",
 				"--project",
 				"--rules",
 				"--repo",
@@ -456,6 +466,8 @@ export function parseServeOptions(
 			result.executor = value;
 		}
 		if (key === "--max") result.max = Number(value);
+		if (key === "--idle-takeover-minutes")
+			result.idleTakeoverMinutes = Number(value);
 		if (key === "--routing-config") result.routingConfig = resolve(value);
 		if (key === "--project") result.project = value;
 		if (key === "--rules") result.rules = value;
@@ -471,6 +483,15 @@ export function parseServeOptions(
 		throw new Error("--max must be an integer from 1 to 100");
 	if (result.acceptProposed && !result.project)
 		throw new Error("--accept-proposed requires --project");
+	if (
+		result.idleTakeoverMinutes !== undefined &&
+		(!Number.isSafeInteger(result.idleTakeoverMinutes) ||
+			result.idleTakeoverMinutes < 1 ||
+			result.idleTakeoverMinutes > 1440)
+	)
+		throw new Error(
+			"--idle-takeover-minutes must be an integer from 1 to 1440",
+		);
 	if (!result.scope.includes("--workspace")) {
 		const workspace = env.TEDIX_WORKSPACE || getCurrentWorkspace();
 		if (!workspace) throw new Error("Select a workspace");
@@ -1243,6 +1264,7 @@ export async function installLaneDependencies(repo: string) {
 }
 
 interface DispatcherDeps {
+	health: typeof collectDispatcherHealth;
 	cli: typeof cli;
 	observe: typeof reportLaneObservation;
 	devinAvailable: typeof devinAvailable;
@@ -1272,6 +1294,7 @@ interface DispatcherDeps {
 	confirmLogin: typeof confirmStoredAccess;
 }
 const defaultDeps: DispatcherDeps = {
+	health: collectDispatcherHealth,
 	cli,
 	observe: reportLaneObservation,
 	confirmLogin: confirmStoredAccess,
@@ -1329,6 +1352,17 @@ export class LaneDispatcher {
 	private proposalsSweptAt = 0;
 	private ticking = false;
 	private delegationRequests = new Map<string, string>();
+	private unavailable = new Map<LocalExecutor, UnavailableRunner>();
+	private health: LocalDispatcherHealth[] = [];
+	private healthCheckedAt = 0;
+	private takeoverOffset = new Map<LocalExecutor, number>();
+	private takeoverCheckedAt = 0;
+	private idleItems = new Map<string, ReturnType<typeof idleReason>>();
+	private coordinatorSample = {
+		at: 0,
+		ids: new Set<string>(),
+		complete: false,
+	};
 	private ownerEnv = laneChildEnv();
 	private deps: DispatcherDeps;
 	private policy: RoutingPolicy;
@@ -1370,6 +1404,16 @@ export class LaneDispatcher {
 	}
 	private log(event: string, itemId?: string, reason?: string) {
 		const at = new Date().toISOString();
+		if (
+			itemId &&
+			reason &&
+			["skipped", "waiting-on-user", "execution-held"].includes(event)
+		) {
+			this.idleItems.set(
+				itemId,
+				event === "execution-held" ? "held" : idleReason(reason),
+			);
+		}
 		if (event === "admitted") recordDispatcherAdmission(this.directory, at);
 		const line = JSON.stringify({
 			at,
@@ -1507,6 +1551,23 @@ export class LaneDispatcher {
 				`Gateway rate limit for this login until ${new Date(cooldownUntil).toISOString()}`,
 			);
 			return;
+		}
+		this.idleItems.clear();
+		if (Date.now() - this.healthCheckedAt >= 60_000) {
+			this.health = this.deps.health(this.ownerEnv);
+			this.healthCheckedAt = Date.now();
+			this.unavailable = observeUnavailableRunners(
+				this.health,
+				this.unavailable,
+				{
+					workspace:
+						this.options.scope[this.options.scope.indexOf("--workspace") + 1]!,
+					organization:
+						this.options.scope[
+							this.options.scope.indexOf("--organization") + 1
+						]!,
+				},
+			);
 		}
 		const observed = this.deps.budgets(this.policy);
 		for (const executor of localExecutors) {
@@ -1824,6 +1885,199 @@ export class LaneDispatcher {
 			break;
 		}
 		if (!this.maintenance.size) this.reclaimOrphanRun(retained);
+		const hasCapacity =
+			!this.preparing.size && this.running.size + orphaned < this.options.max;
+		const idle = {
+			observedAt: new Date().toISOString(),
+			held: 0,
+			waitingOnPerson: 0,
+			noCoordinator: 0,
+			other: 0,
+			complete: hasCapacity && !this.options.coordinated,
+		};
+		if (
+			hasCapacity &&
+			this.options.coordinated &&
+			Date.now() - this.coordinatorSample.at >= 60_000 &&
+			existsSync(join(this.directory, "health-source.json"))
+		) {
+			this.coordinatorSample = {
+				at: Date.now(),
+				ids: new Set(),
+				complete: false,
+			};
+			try {
+				for (let offset = 0; offset < 1000; offset += 100) {
+					const page = await this.call<{
+						data: DispatchItem[];
+						pagination: { hasMore: boolean };
+					}>([
+						"work",
+						"dispatch-idle-list",
+						"--input",
+						JSON.stringify({
+							disposition: "accepted",
+							executor:
+								this.options.executor === "any-local"
+									? [...localExecutors, "any-local"]
+									: this.options.executor,
+							...(this.options.project
+								? { projectId: this.options.project }
+								: {}),
+							limit: 100,
+							offset,
+						}),
+					]);
+					if (
+						!Array.isArray(page.data) ||
+						typeof page.pagination?.hasMore !== "boolean"
+					)
+						break;
+					for (const item of page.data) {
+						const reason = dispatchSkip(
+							item,
+							[],
+							this.options.executor,
+							this.options.coordinated,
+						);
+						if (reason === "Work has no ready coordinator selection")
+							this.coordinatorSample.ids.add(item.id);
+					}
+					if (!page.pagination.hasMore) {
+						this.coordinatorSample.complete = true;
+						break;
+					}
+					if (!page.data.length) break;
+				}
+			} catch (error) {
+				this.log("idle-observation-unavailable", undefined, String(error));
+			}
+		}
+		if (hasCapacity && this.options.coordinated && this.coordinatorSample.at) {
+			idle.complete = this.coordinatorSample.complete;
+			idle.observedAt = new Date(this.coordinatorSample.at).toISOString();
+			for (const id of this.coordinatorSample.ids)
+				if (!this.idleItems.has(id)) this.idleItems.set(id, "noCoordinator");
+		}
+		for (const reason of this.idleItems.values()) idle[reason]++;
+		recordDispatcherIdle(this.directory, idle);
+		if (
+			!diskLow &&
+			!this.preparing.size &&
+			this.running.size + orphaned < this.options.max
+		)
+			await this.takeIdleWork();
+	}
+	private async takeIdleWork() {
+		const executor = this.options.executor;
+		if (
+			executor === "any-local" ||
+			this.stopping ||
+			Date.now() - this.takeoverCheckedAt < 60_000
+		)
+			return;
+		this.takeoverCheckedAt = Date.now();
+		try {
+			routeLocalWork(
+				{ executor, tags: [] },
+				this.policy,
+				this.availability,
+				this.budgets,
+			);
+		} catch {
+			return;
+		}
+		for (const [donor, unavailable] of this.unavailable) {
+			const minutes = this.options.idleTakeoverMinutes ?? 15;
+			if (
+				donor === executor ||
+				Date.now() - unavailable.since < minutes * 60_000
+			)
+				continue;
+			const page = await this.call<{
+				data: DispatchItem[];
+				pagination: { hasMore: boolean };
+			}>([
+				"work",
+				"dispatch-list",
+				"--input",
+				JSON.stringify({
+					disposition: "accepted",
+					executor: donor,
+					dispatchReadyOnly: true,
+					...(this.options.project ? { projectId: this.options.project } : {}),
+					limit: 25,
+					offset: this.takeoverOffset.get(donor) ?? 0,
+				}),
+			]);
+			if (
+				!Array.isArray(page.data) ||
+				typeof page.pagination?.hasMore !== "boolean"
+			)
+				throw new Error("Malformed reassignment page");
+			this.takeoverOffset.set(
+				donor,
+				page.pagination.hasMore && page.data.length
+					? (this.takeoverOffset.get(donor) ?? 0) + page.data.length
+					: 0,
+			);
+			for (const item of page.data) {
+				if (dispatchSkip(item, [], donor, true)) continue;
+				try {
+					const donorLanes = this.health.filter(
+						(row) =>
+							row.executor === donor &&
+							this.options.scope.includes(row.workspace) &&
+							this.options.scope.includes(row.organization),
+					);
+					if (
+						donorLanes.some((lane) => {
+							const path = join(
+								dirname(this.directory),
+								lane.lane,
+								`${item.id}-${item.version}.json`,
+							);
+							if (!existsSync(path)) return false;
+							const receipt = JSON.parse(readFileSync(path, "utf8")) as Receipt;
+							return (
+								receipt.held ||
+								receipt.admissionState === "unknown" ||
+								receipt.completionPending ||
+								receipt.pendingCommitProof ||
+								receipt.laneResult?.outcome === "waiting_on_user" ||
+								receipt.laneResult?.outcome === "deferred" ||
+								(receipt.repo && existsSync(receipt.repo))
+							);
+						})
+					)
+						continue;
+					await this.call([
+						"work",
+						"dispatch-reassign",
+						item.id,
+						"--input",
+						JSON.stringify({
+							executor,
+							expectedWorkItemVersion: item.version,
+							idleReassignment: {
+								fromExecutor: donor,
+								unavailableSince: new Date(unavailable.since).toISOString(),
+								minimumIdleMinutes: minutes,
+								reason: unavailable.reason,
+							},
+						}),
+					]);
+					this.log(
+						"reassigned",
+						item.id,
+						`${donor} to ${executor}: ${unavailable.reason} for at least ${minutes} minutes`,
+					);
+					return;
+				} catch (error) {
+					this.log("reassignment-retained", item.id, String(error));
+				}
+			}
+		}
 	}
 	/**
 	 * One run directory per pass that no receipt of any version refers to. A
@@ -3823,7 +4077,7 @@ export const LANE_STOP_DRAIN_MS = 2 * 60_000;
 export async function runLaneServe(args: string[]): Promise<number> {
 	if (args.includes("--help")) {
 		console.log(
-			"tedix lane serve --executor codex|claude-code|opencode|devin|any-local [--max 5] [--project UUID] [--coordinated] [--accept-proposed] [--rules <OS skill UUID|slug>] [--repo path] [--install] [--once]",
+			"tedix lane serve --executor codex|claude-code|opencode|devin|any-local [--max 5] [--project UUID] [--coordinated] [--accept-proposed] [--rules <OS skill UUID|slug>] [--repo path] [--idle-takeover-minutes N] [--install] [--once]",
 		);
 		return 0;
 	}

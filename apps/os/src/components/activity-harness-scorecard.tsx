@@ -118,14 +118,15 @@ export function ActivityHarnessScorecard({
 				<TableHeader>
 					<TableRow>
 						{[
-							["Runner", "12%"],
-							["Started", "9%"],
+							["Runner", "10%"],
+							["Started", "8%"],
 							["Succeeded", "14%"],
-							["Failed", "8%"],
-							["Orphaned*", "13%"],
-							["Held", "12%"],
-							["Supervisor kills", "17%"],
-							["Commits on main†", "15%"],
+							["Failed", "7%"],
+							["Orphaned*", "11%"],
+							["Held", "7%"],
+							["Supervisor kills", "12%"],
+							["Commits on main†", "13%"],
+							["Idle · current blockers", "18%"],
 						].map(([label, width]) => (
 							<TableHead key={label} scope="col" style={{ width }}>
 								{label}
@@ -151,6 +152,11 @@ export function ActivityHarnessScorecard({
 								{fleetScope ? (row.supervisorKills ?? "Unknown") : "Unknown"}
 							</TableCell>
 							<TableCell>{incomplete ? "Unknown" : row.commits}</TableCell>
+							<TableCell>
+								{fleetScope && row.idle
+									? `${row.idle.held} held; ${row.idle.waitingOnPerson} waiting on person; ${row.idle.noCoordinator} no coordinator; ${row.idle.other} other`
+									: "Unknown"}
+							</TableCell>
 						</TableRow>
 					))}
 				</TableBody>
@@ -174,7 +180,8 @@ export function ActivityHarnessScorecard({
 				hold; supervisor kills count lease-guard stop signals. These require
 				fresh health reports covering 24 h; legacy, warming and project-scoped
 				counts are unknown. †Unique dispatcher settlement commit receipts for
-				these Attempts; existing fixes are excluded.
+				these Attempts; existing fixes are excluded. Idle blockers use the
+				latest complete runner report.
 			</Text>
 		</section>
 	);

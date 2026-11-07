@@ -69,6 +69,7 @@ const runnerSchema = z.object({
 	repo: text.refine(isAbsolute, "repo must be an absolute path"),
 	project: text.optional(),
 	routingConfig: text.optional(),
+	idleTakeoverMinutes: z.number().int().min(1).max(1440).optional(),
 	coordinated: z.boolean().default(false),
 	acceptProposed: z.boolean().default(false),
 	enabled: z.boolean().default(true),
@@ -87,6 +88,7 @@ export interface ServeLike {
 	max: number;
 	project?: string;
 	routingConfig?: string;
+	idleTakeoverMinutes?: number;
 	rules: string;
 	repo: string;
 	scope: string[];
@@ -130,6 +132,9 @@ export function runnerServeArgs(runner: RunnerDuty): string[] {
 		runner.repo,
 		...(runner.project ? ["--project", runner.project] : []),
 		...(runner.routingConfig ? ["--routing-config", runner.routingConfig] : []),
+		...(runner.idleTakeoverMinutes
+			? ["--idle-takeover-minutes", String(runner.idleTakeoverMinutes)]
+			: []),
 		...(runner.coordinated ? ["--coordinated"] : []),
 		...(runner.acceptProposed ? ["--accept-proposed"] : []),
 	];
@@ -151,6 +156,9 @@ export function runnerDutyFromServeOptions(options: ServeLike): RunnerDuty {
 		repo: options.repo,
 		...(options.project ? { project: options.project } : {}),
 		...(options.routingConfig ? { routingConfig: options.routingConfig } : {}),
+		...(options.idleTakeoverMinutes
+			? { idleTakeoverMinutes: options.idleTakeoverMinutes }
+			: {}),
 		coordinated: options.coordinated,
 		acceptProposed: options.acceptProposed,
 		enabled: true,

@@ -38,6 +38,7 @@ try {
 					"Held",
 					"Supervisor kills",
 					"Commits on main†",
+					"Idle · current blockers",
 				],
 			);
 			assert.equal(await scorecard.getByText(/Counts are unknown/).count(), 0);

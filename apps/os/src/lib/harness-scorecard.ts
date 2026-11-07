@@ -125,8 +125,31 @@ export function aggregateHarnessScorecard(
 							Date.parse(counts.windowStartedAt)
 					);
 				});
+			const latestIdle = matching
+				.filter(
+					(source) =>
+						!source.stale &&
+						source.executor === row.runner &&
+						source.duty?.idle,
+				)
+				.sort((a, b) =>
+					b.duty!.idle!.observedAt.localeCompare(a.duty!.idle!.observedAt),
+				)[0];
+			const idle = latestIdle?.duty?.idle;
 			return {
 				...row,
+				idle:
+					idle?.complete &&
+					Date.parse(idle.observedAt) <= now &&
+					now - Date.parse(idle.observedAt) <=
+						latestIdle!.staleAfterSeconds * 1000
+						? {
+								held: idle.held,
+								waitingOnPerson: idle.waitingOnPerson,
+								noCoordinator: idle.noCoordinator,
+								other: idle.other,
+							}
+						: null,
 				commits: commits.size,
 				held: complete
 					? matching.reduce(

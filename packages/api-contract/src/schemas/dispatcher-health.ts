@@ -81,6 +81,16 @@ export const DispatcherReliabilitySchema = z
 	);
 export type DispatcherReliability = z.infer<typeof DispatcherReliabilitySchema>;
 
+export const DispatcherIdleSchema = z.object({
+	observedAt: z.iso.datetime(),
+	held: z.number().int().min(0).max(10000),
+	waitingOnPerson: z.number().int().min(0).max(10000),
+	noCoordinator: z.number().int().min(0).max(10000),
+	other: z.number().int().min(0).max(10000),
+	complete: z.boolean(),
+});
+export type DispatcherIdle = z.infer<typeof DispatcherIdleSchema>;
+
 export const SupervisorDutyHealthSchema = z.object({
 	id: z.string().trim().min(1).max(256),
 	kind: z.enum(["service", "task"]),
@@ -96,6 +106,7 @@ export const SupervisorDutyHealthSchema = z.object({
 	problemSince: z.iso.datetime().nullable().optional(),
 	activity: SupervisorActivitySchema.optional(),
 	reliability: DispatcherReliabilitySchema.optional(),
+	idle: DispatcherIdleSchema.optional(),
 });
 export type SupervisorDutyHealth = z.infer<typeof SupervisorDutyHealthSchema>;
 

@@ -453,8 +453,16 @@ a private receipt for idempotent replay under the same lane identity.
 ### Local Work dispatcher
 
 `tedix lane serve --executor codex --max 5 --rules <skill-uuid> --project <project-uuid> --repo <checkout>`
-finds accepted Work with `metadata.executor: "codex"`. Named executors are pinned:
-`codex`, `claude-code`, `opencode` or `devin`. `--executor any-local` serves all four
+finds accepted Work with `metadata.executor: "codex"`. Named executors are
+`codex`, `claude-code`, `opencode` or `devin`. An idle named runner can take
+startable Work after every local runner for its assigned executor has been busy
+or unreachable for 15 minutes. `--idle-takeover-minutes` changes that interval.
+The owner/admin dispatcher records a reassignment comment and preserves the Work
+revision, failure count and admission fences. It never takes held Work, human
+waits, retained working copies, named harness requirements, or Work with required
+capabilities or authorities. Activity reports current idle blockers; incomplete
+or stale observations remain unknown. This requires the matching API update.
+`--executor any-local` serves all four
 with one shared slot limit and routes Work assigned to `metadata.executor: "any-local"`.
 Stop the individual services before switching;
 the combined service preserves their retained receipts and running process slots. `--project` is optional;
