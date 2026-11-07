@@ -388,6 +388,8 @@ type WorkspacePresenceIdentity = {
 	workspaceId: string;
 	displayName: string;
 	role: "owner" | "build" | "use";
+	/** The signed-in person's id, once the presence read returns it. */
+	userId?: string;
 };
 
 /** Provisioned answers are stable; unprovisioned slugs re-check sooner so a fresh activation propagates fast. */
@@ -1637,6 +1639,7 @@ const LOCAL_WORKSPACE_OBJECT_URL = "http://localhost:8793";
 const WORKSPACE_ORG_HEADER = "X-Workspace-Org";
 const WORKSPACE_ID_HEADER = "X-Workspace-Id";
 const WORKSPACE_CHAT_PERSON_HEADER = "X-Tedix-Person";
+const WORKSPACE_ACTOR_HEADER = "X-Workspace-Actor-Id";
 const WORKSPACE_CHAT_ROLE_HEADER = "X-Tedix-Workspace-Role";
 
 /**
@@ -1734,6 +1737,8 @@ async function handleWorkspaceChatUpgrade(
 	headers.set(WORKSPACE_CHAT_PERSON_HEADER, presence.displayName);
 	headers.set(WORKSPACE_CHAT_ROLE_HEADER, presence.role);
 	headers.set(WORKSPACE_ID_HEADER, workspaceId);
+	// The object writes turns under this actor; it never sees a credential.
+	if (presence.userId) headers.set(WORKSPACE_ACTOR_HEADER, presence.userId);
 	if (hostTenantId) headers.set(WORKSPACE_ORG_HEADER, hostTenantId);
 	// The object replays every event after this cursor, then streams live.
 	const query = after && /^\d+$/.test(after) ? `?after=${after}` : "";
