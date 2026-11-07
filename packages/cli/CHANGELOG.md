@@ -3,6 +3,15 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.19.11 — 2026-11-07
+
+### Patch Changes
+
+- `tedix supervise` no longer restarts a runner whose pass is slow but still
+  making progress. A long pass over many items used to be stopped partway and
+  started again from the top, so items further down the list were never
+  started.
+
 ## 0.19.10 — 2026-11-07
 
 ### Patch Changes
