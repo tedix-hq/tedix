@@ -1482,11 +1482,7 @@ export async function listLiveWorkAttemptHolders(
 			heartbeatAt: workAttempts.heartbeatAt,
 			expiresAt: workAttempts.expiresAt,
 		})
-		// Named index: the planner otherwise walks every Attempt the organization
-		// ever made through idx_work_attempt_org_started because that index
-		// already yields started_at order (17k rows read per call on 7 Nov; 29
-		// through this one).
-		.from(sql`${workAttempts} INDEXED BY idx_work_attempt_org_state_started`)
+		.from(workAttempts)
 		.where(
 			and(
 				eq(workAttempts.orgId, params.orgId),
@@ -1495,7 +1491,12 @@ export async function listLiveWorkAttemptHolders(
 				]),
 			),
 		)
-		.orderBy(desc(workAttempts.startedAt))
+		// `+started_at` keeps the planner off idx_work_attempt_org_started, which
+		// it otherwise picks for the sort and then walks every Attempt the
+		// organization ever made (17k rows read per call on 7 Nov). With no index
+		// for the sort it filters through idx_work_attempt_org_state_started and
+		// sorts the few live rows (39 read).
+		.orderBy(sql`+${workAttempts.startedAt} desc`)
 		.limit(limit);
 	const holders = new Map<string, LiveWorkAttemptHolder>();
 	for (const row of rows) {
