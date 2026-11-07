@@ -82,6 +82,9 @@
     "apps/artifact-gateway": {
       "name": "@tedix/artifact-gateway",
       "version": "0.1.0",
+      "dependencies": {
+        "@tedix/deploy-values": "workspace:*",
+      },
       "devDependencies": {
         "@cloudflare/vite-plugin": "catalog:",
         "@tedix/tsconfig": "workspace:*",
@@ -103,6 +106,7 @@
         "@tedix/auth": "workspace:*",
         "@tedix/container-runtime": "workspace:*",
         "@tedix/db": "workspace:*",
+        "@tedix/deploy-values": "workspace:*",
         "@tedix/mcp-shared": "workspace:*",
         "@tedix/provisioning": "workspace:*",
         "@tedix/ssrf-guard": "workspace:*",
@@ -170,6 +174,7 @@
         "@tedix/auth": "workspace:*",
         "@tedix/container-runtime": "workspace:*",
         "@tedix/db": "workspace:*",
+        "@tedix/deploy-values": "workspace:*",
         "@tedix/mcp-shared": "workspace:*",
         "@tedix/ssrf-guard": "workspace:*",
         "@tedix/worker-kit": "workspace:*",
@@ -193,6 +198,7 @@
       "dependencies": {
         "@tedix/auth": "workspace:*",
         "@tedix/db": "workspace:*",
+        "@tedix/deploy-values": "workspace:*",
         "@tedix/worker-kit": "workspace:*",
       },
       "devDependencies": {
@@ -423,6 +429,7 @@
         "@tedix/api-client": "workspace:*",
         "@tedix/api-contract": "workspace:*",
         "@tedix/db": "workspace:*",
+        "@tedix/deploy-values": "workspace:*",
         "@tedix/mcp-shared": "workspace:*",
         "@tedix/tedi-codemode-core": "workspace:*",
         "@tedix/worker-kit": "workspace:*",
@@ -453,6 +460,7 @@
         "@tedix/container-runtime": "workspace:*",
         "@tedix/context-core": "workspace:*",
         "@tedix/db": "workspace:*",
+        "@tedix/deploy-values": "workspace:*",
         "@tedix/worker-kit": "workspace:*",
         "hono": "catalog:",
       },
@@ -522,6 +530,7 @@
       "version": "0.1.1",
       "dependencies": {
         "@tedix/api-client": "workspace:*",
+        "@tedix/deploy-values": "workspace:*",
         "@tedix/ssrf-guard": "workspace:*",
         "@tedix/worker-kit": "workspace:*",
       },
@@ -561,6 +570,7 @@
       "version": "0.0.2",
       "dependencies": {
         "@tedix/chat-transport": "workspace:*",
+        "@tedix/deploy-values": "workspace:*",
         "@tedix/design-tokens": "workspace:*",
         "@tedix/mcp-shared": "workspace:*",
         "@tedix/webmcp-core": "workspace:*",

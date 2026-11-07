@@ -26,8 +26,9 @@ export default defineConfig(({ mode }) => {
 });
 ```
 
-Accessors: `account`, `worker`, `d1`, `kv`, `r2`, `aiSearch`, `analytics`,
-`host`, `routes`, `domains` and `vars`. Each takes the placeholder as its last argument.
+Accessors: `account`, `worker`, `container`, `d1`, `kv`, `r2`, `aiSearch`,
+`analytics`, `artifacts`, `aiGateway`, `host`, `routes`, `domains` and
+`vars`. Each takes the placeholder as its last argument.
 `vars(surface, name, fallback)` looks in the surface's own section first,
 then in `vars.shared`.
 
@@ -41,11 +42,13 @@ then in `vars.shared`.
 	"account": { "id": "", "hash": "", "workersDevSubdomain": "" },
 	"zone": { "name": "", "id": "", "cmsSaasZoneId": "" },
 	"workers": { "<surface>": "<worker name>" },
+	"containers": { "<surface>": "<container application name>" },
 	"d1": { "<key>": { "id": "", "name": "" } },
 	"kv": { "<key>": { "id": "" } },
 	"r2": { "jurisdiction": "eu", "buckets": { "<key>": "<bucket name>" } },
 	"aiSearch": { "<key>": "<AI Search namespace>" },
 	"analytics": { "<key>": "<Analytics Engine dataset>" },
+	"artifacts": { "<key>": "<Artifacts namespace>" },
 	"queues": {},
 	"aiGateway": {
 		"accountId": "",

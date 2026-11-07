@@ -18,6 +18,9 @@
 		"types": "cf workers types --mode production",
 		"type-check": "bun run types && tsc --noEmit"
 	},
+	"dependencies": {
+		"@tedix/deploy-values": "workspace:*"
+	},
 	"devDependencies": {
 		"@cloudflare/vite-plugin": "catalog:",
 		"@tedix/tsconfig": "workspace:*",

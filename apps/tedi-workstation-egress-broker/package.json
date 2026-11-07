@@ -23,6 +23,7 @@
 	},
 	"dependencies": {
 		"@tedix/api-client": "workspace:*",
+		"@tedix/deploy-values": "workspace:*",
 		"@tedix/ssrf-guard": "workspace:*",
 		"@tedix/worker-kit": "workspace:*"
 	},

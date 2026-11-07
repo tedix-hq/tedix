@@ -4,7 +4,9 @@ import {
 	defineContainer,
 	defineWorker,
 	exports,
+	triggers,
 } from "cf/config";
+import { deployValues } from "@tedix/deploy-values";
 
 const runtimeEnv = (
 	globalThis as typeof globalThis & {
@@ -12,6 +14,8 @@ const runtimeEnv = (
 	}
 ).process?.env;
 const releaseSha = runtimeEnv?.GIT_SHA ?? runtimeEnv?.GITHUB_SHA ?? "unknown";
+// Shown wherever production takes a value from the private deploy values.
+const PLACEHOLDER = "configured-via-private-overlay";
 // `bun run dev:remote` opts into shared production data; `bun dev` stays local.
 const remoteDev =
 	runtimeEnv?.TEDIX_DEV_REMOTE_TARGET === "shared-production-data";
@@ -33,11 +37,21 @@ export default defineConfig(({ mode }) => {
 	const production = mode === "production";
 	// Isolated `bun dev` and the test suite: no remote data, no production ids.
 	const local = !production && !remoteDev;
+	// Live production values when Ship sets TEDIX_DEPLOY_VALUES; otherwise
+	// every lookup returns the placeholder beside it.
+	const live = deployValues({ mode });
+	const service = (surface: string, name: string) =>
+		production ? live.worker(surface, name) : name;
+	const workerName = production
+		? live.worker("cms", "public-installation-cms-production")
+		: "public-installation-cms";
 
 	// The builder is a native Sandbox v1 Durable Object. Its image and instance
 	// are selected by SiteBuilderSandboxRuntime at startup.
 	const siteBuilderContainer = defineContainer({
-		name: "public-installation-container",
+		name: production
+			? live.container("cms", "public-installation-container")
+			: "public-installation-container",
 		schedulingPolicy: "durable-object",
 		images: {
 			sandbox: { dockerfile: "./Dockerfile" },
@@ -45,11 +59,10 @@ export default defineConfig(({ mode }) => {
 	});
 
 	return {
+		...(live.active ? { accountId: live.account("") } : {}),
 		containers: [siteBuilderContainer],
 		worker: defineWorker({
-			name: production
-				? "public-installation-cms-production"
-				: "public-installation-cms",
+			name: workerName,
 			entrypoint: "src/index.ts",
 			compatibilityDate: "2026-05-14",
 			// Tenant CMS fallback URLs come from Tedix-owned surface routing, so
@@ -57,6 +70,14 @@ export default defineConfig(({ mode }) => {
 			compatibilityFlags: ["nodejs_compat", "global_fetch_strictly_public"],
 			workersDev: productionIngress.workersDev,
 			previewUrls: productionIngress.previewUrls,
+			...(live.active
+				? {
+						domains: live.domains("cms", []),
+						triggers: live
+							.routes("cms", [])
+							.map((route) => triggers.fetch(route)),
+					}
+				: {}),
 			logpush: true,
 			observability: {
 				enabled: true,
@@ -81,30 +102,28 @@ export default defineConfig(({ mode }) => {
 				},
 				// Local runs use the zero id every local Worker shares.
 				DB: bindings.d1({
-					id: "00000000-0000-0000-0000-000000000000",
-					name: "public-installation-database",
+					...live.d1("main", {
+						id: "00000000-0000-0000-0000-000000000000",
+						name: "public-installation-database",
+					}),
 					dev: { remote: remoteDev },
 				}),
 				SITE_BUILDER_STORAGE: bindings.r2({
-					name: "public-installation-bucket",
+					...live.r2("cms", { name: "public-installation-bucket" }),
 					dev: { remote: remoteDev },
 				}),
 				BUNDLES_BUCKET: bindings.r2({
-					name: "public-installation-bucket",
+					...live.r2("cmsBundles", { name: "public-installation-bucket" }),
 					dev: { remote: remoteDev },
 				}),
 				// Durable, retryable theme deploys: build, snapshot, dispatch, finalize.
 				DEPLOY_WORKFLOW: bindings.workflow({
-					worker: production
-						? "public-installation-cms-production"
-						: "public-installation-cms",
+					worker: workerName,
 					exportName: "DeployWorkflow",
 					name: production ? "cms-deploys-production" : "cms-deploys",
 				}),
 				IMAGE_GENERATION_WORKFLOW: bindings.workflow({
-					worker: production
-						? "public-installation-cms-production"
-						: "public-installation-cms",
+					worker: workerName,
 					exportName: "ImageGenerationWorkflow",
 					name: production
 						? "cms-image-generations-production"
@@ -118,26 +137,34 @@ export default defineConfig(({ mode }) => {
 				...(!local
 					? {
 							ARTIFACTS: bindings.artifacts({
-								namespace: "public-installation-namespace",
+								namespace: live.artifacts(
+									"namespace",
+									"public-installation-namespace",
+								),
 								dev: { remote: true },
 							}),
 							API_SERVICE: bindings.worker({
-								worker: "public-installation-api",
+								worker: service("api", "public-installation-api"),
 								exportName: "InternalEntrypoint",
 							}),
 							CMS_DISPATCH: bindings.worker({
-								worker: "public-installation-cms-runtime",
+								worker: service(
+									"cms-runtime",
+									"public-installation-cms-runtime",
+								),
 							}),
 						}
 					: {}),
 				ENVIRONMENT: bindings.text(production ? "production" : "development"),
 				GIT_SHA: bindings.text(releaseSha),
-				AI_GATEWAY_ACCOUNT_ID: bindings.text("configured-via-private-overlay"),
-				AI_GATEWAY_ID: bindings.text("configured-via-private-overlay"),
+				AI_GATEWAY_ACCOUNT_ID: bindings.text(
+					live.aiGateway("accountId", PLACEHOLDER),
+				),
+				AI_GATEWAY_ID: bindings.text(live.aiGateway("llmId", PLACEHOLDER)),
 				// Provider paths served by the in-account gateway, which ride the AI
 				// binding instead of public HTTPS and CF_AI_GATEWAY_TOKEN.
 				AI_GATEWAY_BINDING_PROVIDERS: bindings.text(
-					"configured-via-private-overlay",
+					live.vars("cms", "AI_GATEWAY_BINDING_PROVIDERS", PLACEHOLDER),
 				),
 				...(local
 					? {

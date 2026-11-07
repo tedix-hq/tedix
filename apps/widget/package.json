@@ -22,6 +22,7 @@
 	},
 	"dependencies": {
 		"@tedix/chat-transport": "workspace:*",
+		"@tedix/deploy-values": "workspace:*",
 		"@tedix/design-tokens": "workspace:*",
 		"@tedix/mcp-shared": "workspace:*",
 		"@tedix/webmcp-core": "workspace:*",

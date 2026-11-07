@@ -9,11 +9,14 @@ const values = {
 	schemaVersion: 1,
 	account: { id: "account-example" },
 	workers: { api: "api-example" },
+	containers: { cms: "cms-container-example" },
 	d1: { core: { id: "d1-id-example", name: "core-example" } },
 	kv: { cache: { id: "kv-id-example" } },
 	r2: { jurisdiction: "eu", buckets: { media: "media-example" } },
 	aiSearch: { sites: "sites-example" },
 	analytics: { events: "events_example" },
+	artifacts: { namespace: "artifacts-example" },
+	aiGateway: { llmId: "gateway-example" },
 	hostnames: { api: "api.example.test" },
 	routes: { api: [{ pattern: "api.example.test/*", zone: "example.test" }] },
 	domains: { os: ["app.example.test"] },
@@ -60,6 +63,7 @@ describe("deployValues", () => {
 		expect(live.active).toBe(true);
 		expect(live.account("p")).toBe("account-example");
 		expect(live.worker("api", "p")).toBe("api-example");
+		expect(live.container("cms", "p")).toBe("cms-container-example");
 		expect(live.d1("core", { id: "p", name: "p" })).toEqual(values.d1.core);
 		expect(live.kv("cache", "p")).toBe("kv-id-example");
 		expect(live.r2("media", { name: "p" })).toEqual({
@@ -68,6 +72,8 @@ describe("deployValues", () => {
 		});
 		expect(live.aiSearch("sites", "p")).toBe("sites-example");
 		expect(live.analytics("events", "p")).toBe("events_example");
+		expect(live.artifacts("namespace", "p")).toBe("artifacts-example");
+		expect(live.aiGateway("llmId", "p")).toBe("gateway-example");
 		expect(live.host("api", "p")).toBe("api.example.test");
 		expect(live.routes("api", [])).toEqual(values.routes.api);
 		expect(live.domains("os", [])).toEqual(["app.example.test"]);

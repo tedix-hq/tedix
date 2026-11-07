@@ -30,6 +30,7 @@
 		"@tedix/container-runtime": "workspace:*",
 		"@tedix/context-core": "workspace:*",
 		"@tedix/db": "workspace:*",
+		"@tedix/deploy-values": "workspace:*",
 		"@tedix/worker-kit": "workspace:*",
 		"hono": "catalog:"
 	},

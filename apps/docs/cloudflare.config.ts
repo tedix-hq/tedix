@@ -4,7 +4,9 @@ import {
 	defineContainer,
 	defineWorker,
 	exports,
+	triggers,
 } from "cf/config";
+import { deployValues } from "@tedix/deploy-values";
 
 const runtimeEnv = (
 	globalThis as typeof globalThis & {
@@ -12,6 +14,8 @@ const runtimeEnv = (
 	}
 ).process?.env;
 const releaseSha = runtimeEnv?.GIT_SHA ?? runtimeEnv?.GITHUB_SHA ?? "unknown";
+// Shown wherever production takes a value from the private deploy values.
+const PLACEHOLDER = "configured-via-private-overlay";
 // `bun run dev:remote` opts into shared production data; `bun dev` stays local.
 const remoteDev =
 	runtimeEnv?.TEDIX_DEV_REMOTE_TARGET === "shared-production-data";
@@ -32,15 +36,20 @@ export default defineConfig(({ mode }) => {
 	const production = mode === "production";
 	// Isolated `bun dev` and the test suite: no remote data, no production ids.
 	const local = !production && !remoteDev;
+	// Live production values when Ship sets TEDIX_DEPLOY_VALUES; otherwise
+	// every lookup returns the placeholder beside it.
+	const live = deployValues({ mode });
 	const workerName = production
-		? "public-installation-docs-production"
+		? live.worker("docs", "public-installation-docs-production")
 		: "public-installation-docs";
 
 	// Checks out tenant source and runs the pinned Nimbus/Astro build. Cloudflare
 	// cannot convert the retired default-policy application in place, so the
 	// native Durable Object-managed runtime has its own canonical name.
 	const docsBuildContainer = defineContainer({
-		name: "public-installation-container",
+		name: production
+			? live.container("docs", "public-installation-container")
+			: "public-installation-container",
 		schedulingPolicy: "durable-object",
 		images: {
 			sandbox: { dockerfile: "./Dockerfile" },
@@ -48,6 +57,7 @@ export default defineConfig(({ mode }) => {
 	});
 
 	return {
+		...(live.active ? { accountId: live.account("") } : {}),
 		containers: [docsBuildContainer],
 		worker: defineWorker({
 			name: workerName,
@@ -56,6 +66,14 @@ export default defineConfig(({ mode }) => {
 			compatibilityFlags: ["nodejs_compat", "global_fetch_strictly_public"],
 			workersDev: productionIngress.workersDev,
 			previewUrls: productionIngress.previewUrls,
+			...(live.active
+				? {
+						domains: live.domains("docs", []),
+						triggers: live
+							.routes("docs", [])
+							.map((route) => triggers.fetch(route)),
+					}
+				: {}),
 			logpush: true,
 			observability: {
 				enabled: true,
@@ -84,31 +102,41 @@ export default defineConfig(({ mode }) => {
 				}),
 				// Local runs use the zero id every local Worker shares.
 				DB: bindings.d1({
-					id: "00000000-0000-0000-0000-000000000000",
-					name: "public-installation-database",
+					...live.d1("main", {
+						id: "00000000-0000-0000-0000-000000000000",
+						name: "public-installation-database",
+					}),
 					dev: { remote: remoteDev },
 				}),
 				DOCS_BUILDS: bindings.r2({
-					name: "public-installation-bucket",
+					...live.r2("docsBuilds", { name: "public-installation-bucket" }),
 					dev: { remote: remoteDev },
 				}),
 				// Remote-only; the isolated lane omits them.
 				...(!local
 					? {
 							DOCS_AI_SEARCH: bindings.aiSearchNamespace({
-								namespace: "public-installation-namespace",
+								namespace: live.aiSearch(
+									"docs",
+									"public-installation-namespace",
+								),
 								dev: { remote: remoteDev },
 							}),
 							ARTIFACTS: bindings.artifacts({
-								namespace: "public-installation-namespace",
+								namespace: live.artifacts(
+									"namespace",
+									"public-installation-namespace",
+								),
 								dev: { remote: true },
 							}),
 						}
 					: {}),
 				ENVIRONMENT: bindings.text(production ? "production" : "development"),
 				GIT_SHA: bindings.text(releaseSha),
-				DOCS_BASE_DOMAIN: bindings.text("configured-via-private-overlay"),
-				DOCS_ADMIN_URL: bindings.text("configured-via-private-overlay"),
+				DOCS_BASE_DOMAIN: bindings.text(live.host("docs", PLACEHOLDER)),
+				DOCS_ADMIN_URL: bindings.text(
+					live.active ? `https://${live.host("docsAdmin", "")}` : PLACEHOLDER,
+				),
 				...(local
 					? {
 							DESCOPE_PROJECT_ID: bindings.text(localLane.descopeProjectId),
