@@ -88,7 +88,6 @@ function mockServer() {
 			withdrawSteering: async () => ({ messages: [] }),
 			cancel: (async () => ({})) as unknown as CapnConversationStub["cancel"],
 			respondApproval: async () => ({}) as never,
-			resolvePageTool: async () => ({ accepted: true }),
 			[Symbol.dispose]: () => {},
 		};
 	};
@@ -191,7 +190,6 @@ function stallableServer() {
 		withdrawSteering: async () => ({ messages: [] }),
 		cancel: (async () => ({})) as unknown as CapnConversationStub["cancel"],
 		respondApproval: async () => ({}) as never,
-		resolvePageTool: async () => ({ accepted: true }),
 		[Symbol.dispose]: () => {},
 	};
 

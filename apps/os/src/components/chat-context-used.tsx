@@ -37,8 +37,6 @@ export function contextUsedItems(
 	)[0];
 	if (!latest) return [];
 	const metadata = asRecord(latest.metadata);
-	const workspace = asRecord(metadata?.workspaceContext);
-	const workpiece = asRecord(workspace?.workpiece);
 	const route = asRecord(metadata?.kernelRoute);
 	const manifest = asRecord(metadata?.contextManifest);
 	const manifestSources = Array.isArray(manifest?.sources)
@@ -55,24 +53,15 @@ export function contextUsedItems(
 	const historyCompaction = asRecord(manifest?.historyCompaction);
 	const modelRef =
 		nonEmptyString(metadata?.modelRef) ?? nonEmptyString(route?.modelRef);
-	const workspaceIdFromRun = nonEmptyString(workspace?.workspaceId);
-	const workspaceName = nonEmptyString(workspace?.workspaceName);
 	const workspaceLabel =
-		workspaceName ??
 		(input.context?.kind === "workspace" ? input.context.label : null) ??
-		input.workspaceId ??
-		workspaceIdFromRun;
+		input.workspaceId;
 	const items: Array<ContextUsedItem | null> = [
 		{ label: "Organization", value: latest.organizationId },
 		workspaceLabel ? { label: "Workspace", value: workspaceLabel } : null,
 		input.context && input.context.kind !== "workspace"
 			? { label: "Workpiece", value: input.context.label }
-			: nonEmptyString(workpiece?.id)
-				? {
-						label: "Workpiece",
-						value: `${nonEmptyString(workpiece?.kind) ?? "resource"}: ${nonEmptyString(workpiece?.id)}`,
-					}
-				: null,
+			: null,
 		modelRef ? { label: "Model", value: modelRef } : null,
 		nonEmptyString(route?.routeKind)
 			? { label: "Route", value: nonEmptyString(route?.routeKind)! }

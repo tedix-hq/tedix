@@ -64,7 +64,6 @@ import {
 	HomeRunSetSchema,
 	ReadHomeRunEventsInputSchema,
 	RespondHomeApprovalInputSchema,
-	ResolveHomePageToolInputSchema,
 } from "@tedix/api-contract/schemas/kernel-runtime";
 import {
 	type RuntimeStreamReadOutput,
@@ -1063,19 +1062,6 @@ export class ConversationCap extends RpcTarget implements CapnConversationApi {
 			"respondApproval params",
 		);
 		return this.#core.call<unknown>("kernelRuntime/respondApproval", payload);
-	}
-
-	async resolvePageTool(
-		input: Parameters<CapnConversationApi["resolvePageTool"]>[0],
-	): Promise<{ accepted: boolean }> {
-		this.#core.ensureLive();
-		this.#core.takeToken();
-		const payload = parseOrThrow(
-			ResolveHomePageToolInputSchema,
-			input,
-			"page tool result",
-		);
-		return this.#core.call("kernelRuntime/resolvePageTool", payload);
 	}
 
 	// No [Symbol.dispose]: subscriptions are owned by the SESSION registry and
