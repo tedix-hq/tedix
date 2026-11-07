@@ -466,6 +466,10 @@ separate actions. `--install` records the runner in
 `~/.tedix/supervisor-runners.json`; `tedix supervise` (`supervise-runners.ts`)
 starts it as a child, restarts it with a backoff and adopts a child that
 outlived a supervisor restart, so the supervisor is the one LaunchAgent.
+When a lane settles, commits already on `origin/main` count as its proof,
+including one landed earlier by another admitted Attempt on the same Work.
+A commit the dispatcher will not count is logged as `custody-rejected` with
+the reason in that dispatcher's `dispatcher.log`.
 
 `--routing-config <file>` (or `TEDIX_LANE_ROUTING_CONFIG`) selects a versioned JSON
 policy. Keep your team's executor order and model choices in a private file;
