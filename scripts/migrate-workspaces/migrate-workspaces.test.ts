@@ -10,7 +10,7 @@ import { importAll } from "./import";
 import { reconcileAll } from "./reconcile";
 import { proposeAssignments } from "./assignments";
 import { rehearse } from "./rehearse";
-import { checkSchema } from "./schema-check";
+import { checkSchema, objectSchemaDatabase } from "./schema-check";
 import { batchIdFor, RowDigest } from "./rows";
 import { Snapshot } from "./source";
 import {
@@ -372,13 +372,20 @@ describe("migrate-workspaces", () => {
 
 	test("schema check reports tables the object does not create yet and matching memory columns", () => {
 		const snapshot = fixtureSnapshot();
+		const object = objectSchemaDatabase();
 		try {
-			const report = checkSchema(snapshot);
+			const report = checkSchema(snapshot, object);
 			expect(
 				report.findings.filter((f) => f.kind === "columns-differ"),
 			).toEqual([]);
-			expect(report.findings.map((f) => f.table)).toContain("os_outputs");
+			expect(report.checked.map((c) => c.table)).toContain("os_outputs");
 			expect(report.checked.map((c) => c.table)).toContain("memory_facts");
+			object.exec("DROP TABLE os_outputs");
+			expect(checkSchema(snapshot, object).findings).toContainEqual({
+				table: "os_outputs",
+				kind: "missing-in-object",
+				detail: "the object's migration chain does not create it",
+			});
 			const stripped = sharedDatabase();
 			stripped.exec("ALTER TABLE memory_facts DROP COLUMN summary");
 			const findings = checkSchema(Snapshot.fromDatabases(stripped)).findings;
@@ -386,6 +393,7 @@ describe("migrate-workspaces", () => {
 				findings.find((f) => f.table === "memory_facts")?.detail,
 			).toContain("only in object: [summary]");
 		} finally {
+			object.close();
 			snapshot.close();
 		}
 	});

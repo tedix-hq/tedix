@@ -42,7 +42,7 @@ beforeAll(async () => {
 			"--env",
 			"POSTGRES_PASSWORD=governance-test",
 			"--health-cmd",
-			"pg_isready -U postgres",
+			"pg_isready -h 127.0.0.1 -U postgres",
 			"--health-interval",
 			"1s",
 			"--health-timeout",
@@ -53,7 +53,7 @@ beforeAll(async () => {
 		],
 		{ stdio: "pipe" },
 	);
-	// Docker health checks distinguish startup from a failed server.
+	// The image's temporary initialization server accepts sockets before TCP.
 	let status = "starting";
 	while (status === "starting") {
 		status = execFileSync(
