@@ -9,7 +9,8 @@
  * `wrangler d1 export` writes SQL; `openSnapshot` loads a `.sql` file into a
  * fresh SQLite database next to it and reuses that file on the next run.
  */
-import { existsSync, statSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, readFileSync, rmSync, statSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { rowKey, splitSqlStatements, type StoredRow } from "./rows";
 import type { SourceStore, TableMapping } from "./tables";
@@ -204,7 +205,12 @@ export function hasTable(db: DatabaseSync, table: string): boolean {
 	);
 }
 
-/** Open a `.sqlite` file, or load a `.sql` export into `<file>.sqlite` once. */
+/**
+ * Open a `.sqlite` file, or load a `.sql` export into `<file>.sqlite` once
+ * and reuse it. A production export is gigabytes, so the load streams
+ * through the `sqlite3` command when it is installed; the in-process path
+ * is for small files and tests.
+ */
 export function openSnapshotFile(path: string): DatabaseSync {
 	if (!existsSync(path)) throw new Error(`Snapshot file not found: ${path}`);
 	if (!path.endsWith(".sql")) return new DatabaseSync(path, { readOnly: true });
@@ -213,13 +219,29 @@ export function openSnapshotFile(path: string): DatabaseSync {
 		!existsSync(target) ||
 		statSync(target).mtimeMs < statSync(path).mtimeMs
 	) {
-		const db = new DatabaseSync(target);
-		db.exec("PRAGMA journal_mode = OFF; PRAGMA synchronous = OFF;");
-		const sql = require("node:fs").readFileSync(path, "utf8") as string;
-		db.exec("BEGIN");
-		for (const statement of splitSqlStatements(sql)) db.exec(statement);
-		db.exec("COMMIT");
-		db.close();
+		rmSync(target, { force: true });
+		const cli = spawnSync("sqlite3", ["-version"], { encoding: "utf8" });
+		if (cli.status === 0) {
+			const load = spawnSync(
+				"sqlite3",
+				[
+					target,
+					"PRAGMA journal_mode=OFF; PRAGMA synchronous=OFF;",
+					`.read ${path}`,
+				],
+				{ encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
+			);
+			if (load.status !== 0)
+				throw new Error(`sqlite3 could not load ${path}: ${load.stderr}`);
+		} else {
+			const db = new DatabaseSync(target);
+			db.exec("PRAGMA journal_mode = OFF; PRAGMA synchronous = OFF;");
+			const sql = readFileSync(path, "utf8");
+			db.exec("BEGIN");
+			for (const statement of splitSqlStatements(sql)) db.exec(statement);
+			db.exec("COMMIT");
+			db.close();
+		}
 	}
 	return new DatabaseSync(target, { readOnly: true });
 }
