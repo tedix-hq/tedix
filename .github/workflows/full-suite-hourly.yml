@@ -28,6 +28,7 @@ jobs:
     outputs:
       workspace: ${{ steps.plan.outputs.workspace }}
       repository: ${{ steps.plan.outputs.repository }}
+      checks: ${{ steps.plan.outputs.checks }}
       matrix: ${{ steps.plan.outputs.matrix }}
       runners: ${{ steps.plan.outputs.runners }}
       high-risk: ${{ steps.plan.outputs.high-risk }}
@@ -46,9 +47,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           FULL_SUITE_RUNNER_LABELS: ${{ vars.FULL_SUITE_RUNNER_LABELS }}
-          # A push certifies on the gate lane (no browser suites); the browser
-          # suites run in main-verify.yml after the deploy. Scheduled and
-          # hand-started runs stay full.
+          # A push certifies on the gate lane: only the policy check, which
+          # guards what a deploy cannot heal (schema and migrations). Every
+          # test runs in main-verify.yml on the same push, after the deploy.
+          # Scheduled and hand-started runs stay full.
           SUITE_LANE: ${{ github.event_name == 'push' && 'gate' || 'full' }}
         run: node scripts/ci/full-suite-hourly.mjs
 
@@ -189,7 +191,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        check: [onboarding, scripts, policy]
+        check: ${{ fromJSON(needs.plan.outputs.checks) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

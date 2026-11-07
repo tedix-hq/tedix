@@ -5,7 +5,10 @@ export function gateInProfile(name, profile) {
 		return !/^tests |^type-check (apps|packages)\//.test(name);
 	if (profile !== "local-fast")
 		throw new Error(`Unknown gate profile: ${profile}`);
-	return /^(node_modules matches|format:check|lint:code|lint:repo|lint:deps|OSS secret|migration order |procedure parity |type-check )/.test(
+	// Since 7 Nov the related tests and the changed workspaces' type checks run
+	// here, before the push: main CI no longer gates a deploy on them; it runs
+	// them after the deploy in Main verify.
+	return /^(node_modules matches|format:check|lint:code|lint:repo|lint:deps|OSS secret|migration order |procedure parity |type-check |tests )/.test(
 		name,
 	);
 }

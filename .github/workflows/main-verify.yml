@@ -1,6 +1,7 @@
 name: Main verify
 
-# The browser suites, run against main after a push certifies on the gate in
+# The unit, workerd, type and browser suites plus the onboarding and scripts
+# checks, run against main after a push certifies on the gate in
 # full-suite-hourly.yml. Nothing here holds a deploy: a red verify files the
 # incident through the observer and Red main heal bisects and reverts the
 # culprit, which the gate then certifies again within minutes.
@@ -31,6 +32,7 @@ jobs:
     outputs:
       workspace: ${{ steps.plan.outputs.workspace }}
       repository: ${{ steps.plan.outputs.repository }}
+      checks: ${{ steps.plan.outputs.checks }}
       matrix: ${{ steps.plan.outputs.matrix }}
       runners: ${{ steps.plan.outputs.runners }}
     steps:
@@ -47,7 +49,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           FULL_SUITE_RUNNER_LABELS: ${{ vars.FULL_SUITE_RUNNER_LABELS }}
-          # Browser suites only; the gate in full-suite-hourly.yml certified.
+          # Every test lane plus the onboarding and scripts checks; the gate in
+          # full-suite-hourly.yml certified on the policy check alone.
           SUITE_LANE: verify
         run: node scripts/ci/full-suite-hourly.mjs
 
@@ -143,23 +146,80 @@ jobs:
           WORKSPACE: ${{ matrix.workspace }}
         run: bun run --cwd "$WORKSPACE" type-check
 
+  repository:
+    needs: plan
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.repository == 'true' }}
+    runs-on: ${{ fromJSON(needs.plan.outputs.runners) }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        check: ${{ fromJSON(needs.plan.outputs.checks) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: "24.22.1"
+          package-manager-cache: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - name: Share the frozen dependency cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-install-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-install-${{ runner.os }}-${{ runner.arch }}-${{ env.BUN_VERSION }}-
+      - run: bun install --frozen-lockfile --ignore-scripts
+      - name: Provide the Vite+ package manager
+        uses: ./.github/actions/vite-plus-package-manager
+      - name: Local onboarding smoke
+        if: matrix.check == 'onboarding'
+        run: bun run-local --smoke --no-install
+      - if: matrix.check == 'scripts'
+        run: bun run test:scripts
+      - if: ${{ !cancelled() && matrix.check == 'scripts' }}
+        run: bun run type-check:scripts
+      - if: ${{ !cancelled() && matrix.check == 'scripts' }}
+        run: bun run docs:public:check
+
+      - name: Fetch canonical main for the migration order gate
+        if: ${{ !cancelled() && matrix.check == 'policy' }}
+        run: git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
+      - if: ${{ !cancelled() && matrix.check == 'policy' }}
+        run: bun run verify --all --ci-policy
+      - name: Require shellcheck
+        if: matrix.check == 'policy'
+        run: command -v shellcheck
+      - name: Lint workflows with shellcheck
+        if: matrix.check == 'policy'
+        uses: ./.github/actions/actionlint
+
   aggregate:
     name: Main verify
-    needs: [plan, workspace]
+    needs: [plan, workspace, repository]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Require every browser shard
+      - name: Require every selected shard
         env:
           PLAN: ${{ needs.plan.result }}
           WORKSPACE_REQUIRED: ${{ needs.plan.outputs.workspace }}
+          REPOSITORY_REQUIRED: ${{ needs.plan.outputs.repository }}
           WORKSPACE: ${{ needs.workspace.result }}
+          REPOSITORY: ${{ needs.repository.result }}
         run: |
           test "$PLAN" = success
-          if [ "$WORKSPACE_REQUIRED" = true ]; then
-            test "$WORKSPACE" = success
-          else
-            test "$WORKSPACE_REQUIRED" = false
-            test "$WORKSPACE" = skipped
-          fi
+          for lane in WORKSPACE REPOSITORY; do
+            required="${lane}_REQUIRED"
+            if [ "${!required}" = true ]; then
+              test "${!lane}" = success
+            else
+              test "${!required}" = false
+              test "${!lane}" = skipped
+            fi
+          done
