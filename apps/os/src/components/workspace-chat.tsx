@@ -163,7 +163,20 @@ export function WorkspaceChat({
 				onCancel={(turnId) => client?.cancelTurn(turnId)}
 				connection={connection}
 			/>
-			{state.lastError ? (
+			{connection.phase === "unavailable" ? (
+				<div
+					className="workspace-chat-unavailable"
+					data-testid="workspace-chat-unavailable"
+					role="status"
+				>
+					<Text role="body">
+						Workspace chat is being upgraded. Home chat still works.
+					</Text>
+					<Button onClick={() => client?.retry()} size="sm" variant="outline">
+						Retry
+					</Button>
+				</div>
+			) : state.lastError ? (
 				<div className="workspace-chat-error" role="alert">
 					<WarningCircle aria-hidden />
 					<Text role="caption" tone="error">
@@ -174,7 +187,11 @@ export function WorkspaceChat({
 			<Composer
 				onSend={send}
 				disabledReason={
-					approval ? "Approve or deny the request above to continue." : null
+					connection.phase === "unavailable"
+						? "Workspace chat is being upgraded. Use Home chat for now."
+						: approval
+							? "Approve or deny the request above to continue."
+							: null
 				}
 				autoFocus={autoFocusComposer}
 				busy={running !== null || state.pendingSend !== null}
@@ -242,9 +259,11 @@ function ConnectionChip({
 	const label =
 		connection.phase === "closed"
 			? "Closed"
-			: connection.phase === "connecting"
-				? "Connecting"
-				: `Reconnecting${connection.attempt > 1 ? ` (${connection.attempt})` : ""}`;
+			: connection.phase === "unavailable"
+				? "Being upgraded"
+				: connection.phase === "connecting"
+					? "Connecting"
+					: `Reconnecting${connection.attempt > 1 ? ` (${connection.attempt})` : ""}`;
 	const since =
 		lastEventAt !== null && connection.phase === "reconnecting"
 			? ` · last update ${elapsedLabel(now - lastEventAt)} ago`
