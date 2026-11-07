@@ -3,7 +3,7 @@
  * Any two runtimes that wrap the same call this way make identical
  * decisions and identical ledger rows for it.
  */
-import { hashValue } from "./hash";
+import { hashArguments } from "./hash";
 import type {
 	AccountabilityAdapter,
 	Actor,
@@ -75,70 +75,86 @@ export async function guardedCall<T>(
 		"compliance" | "accountability" | "onRecorded"
 	> & {
 		before?: RevisionRef;
+		prepareBefore?: () => Promise<RevisionRef | undefined>;
 		after?: (result: T) => Promise<RevisionRef | undefined>;
 		undo?: (result: T) => UndoPlan | undefined;
 		/** Bindings that report failure in their result instead of throwing. */
 		classify?: (result: T) => CallOutcome;
 	},
 ): Promise<{ result: T; decision: ComplianceDecision; record: ChangeRecord }> {
-	const argsHash = await hashValue(call.args);
-	const decision = await deps.compliance.check(call);
-	const common = {
+	const started = Date.now();
+	// An unavailable digest must be explicit rather than silently dropping the call.
+	let argsHash = "unavailable";
+	let decision: ComplianceDecision;
+	let before = deps.before;
+	try {
+		argsHash = await hashArguments(call.args);
+		decision = await deps.compliance.check(call);
+		if (decision.verdict === "allow" && deps.prepareBefore) {
+			before = await deps.prepareBefore();
+		}
+	} catch (error) {
+		decision = {
+			verdict: "deny",
+			gate: "annotation_assertion",
+			reason: `preflight_failed: ${error instanceof Error ? error.message : String(error)}`,
+			riskTier: call.riskTier ?? "unclassified",
+			blastRadius: call.blastRadius ?? "unclassified",
+		};
+	}
+	let outcome: CallOutcome;
+	let thrown: unknown;
+	let result: T | undefined;
+	let after: RevisionRef | undefined;
+	let undo: UndoPlan | undefined;
+	if (decision.verdict !== "allow") {
+		outcome = { status: "not_applied", error: decision.reason };
+	} else {
+		try {
+			result = await execute();
+			const classified = deps.classify?.(result);
+			if (classified && classified.status !== "applied") {
+				outcome = { ...classified, durationMs: Date.now() - started };
+			} else {
+				after = await deps.after?.(result);
+				undo = deps.undo?.(result);
+				outcome = { status: "applied", durationMs: Date.now() - started };
+			}
+		} catch (error) {
+			thrown = error;
+			outcome = {
+				status: "unknown",
+				error: error instanceof Error ? error.message : String(error),
+				durationMs: Date.now() - started,
+			};
+		}
+	}
+	const record = await deps.accountability.append({
 		resource: call.resource,
 		operation: call.operation,
 		actor: call.actor,
 		source: call.source,
 		decision,
 		argsHash,
-		...(deps.before ? { before: deps.before } : {}),
-	};
-	if (decision.verdict !== "allow") {
-		const record = await deps.accountability.append({
-			...common,
-			outcome: decision.verdict === "deny" ? "denied" : "needs_approval",
-		});
-		await deps.compliance.record(call, decision, {
-			status: "not_applied",
-			error: decision.reason,
-		});
-		deps.onRecorded?.(record);
-		throw new CallRefusedError(decision, record);
-	}
-	const started = Date.now();
-	let outcome: CallOutcome;
-	let thrown: unknown;
-	let result: T | undefined;
-	let after: RevisionRef | undefined;
-	let undo: UndoPlan | undefined;
-	try {
-		result = await execute();
-		const classified = deps.classify?.(result);
-		if (classified && classified.status !== "applied") {
-			outcome = { ...classified, durationMs: Date.now() - started };
-		} else {
-			after = await deps.after?.(result);
-			undo = deps.undo?.(result);
-			outcome = { status: "applied", durationMs: Date.now() - started };
-		}
-	} catch (error) {
-		thrown = error;
-		outcome = {
-			status: "unknown",
-			error: error instanceof Error ? error.message : String(error),
-			durationMs: Date.now() - started,
-		};
-	}
-	const record = await deps.accountability.append({
-		...common,
+		...(before ? { before } : {}),
 		...(after ? { after } : {}),
 		...(undo ? { undo } : {}),
-		outcome: outcome.status,
+		outcome:
+			decision.verdict === "allow"
+				? outcome.status
+				: decision.verdict === "deny"
+					? "denied"
+					: "needs_approval",
 	});
 	await deps.compliance.record(call, decision, outcome);
-	deps.onRecorded?.(record);
-	if (outcome.status === "unknown") {
-		throw thrown;
+	try {
+		deps.onRecorded?.(record);
+	} catch {
+		// Observers cannot change the recorded outcome.
 	}
+	if (decision.verdict !== "allow")
+		throw new CallRefusedError(decision, record);
+	if (outcome.status === "unknown") throw thrown;
 	return { result: result as T, decision, record };
 }
 
@@ -169,7 +185,7 @@ export function wrapBinding<B extends object>(
 					...(policy?.blastRadius ? { blastRadius: policy.blastRadius } : {}),
 					...(policy?.destructive ? { destructive: true } : {}),
 				};
-				const before = await policy?.before?.(args);
+				let before: RevisionRef | undefined;
 				const { result } = await guardedCall(
 					call,
 					() => Promise.resolve(Reflect.apply(value, target, args)),
@@ -177,7 +193,10 @@ export function wrapBinding<B extends object>(
 						compliance: options.compliance,
 						accountability: options.accountability,
 						onRecorded: options.onRecorded,
-						before,
+						prepareBefore: async () => {
+							before = await policy?.before?.(args);
+							return before;
+						},
 						after: policy?.after
 							? (result) => policy.after!(args, result)
 							: undefined,
