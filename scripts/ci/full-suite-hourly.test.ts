@@ -11,12 +11,13 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import {
-	workspaceMatrix,
 	ciObservation,
-	sourceBrowsers,
-	scriptBrowsers,
-	reviewPlan,
+	laneSelection,
 	reviewFindings,
+	reviewPlan,
+	scriptBrowsers,
+	sourceBrowsers,
+	workspaceMatrix,
 } from "./full-suite-hourly.mjs";
 
 function fixtureTree(files: Record<string, string>) {
@@ -444,4 +445,39 @@ test("review command attaches unavailable, completed and failed receipts without
 	} finally {
 		rmSync(root, { recursive: true });
 	}
+});
+
+test("lanes split the plan: gate keeps unit and repository checks, verify keeps browser suites", () => {
+	const plan = {
+		matrix: {
+			include: [
+				{ workspace: "apps/api", testScript: "test:run", types: true },
+				{
+					workspace: "apps/os",
+					testScript: "test:unit",
+					shard: "1/2",
+					types: true,
+				},
+				{
+					workspace: "apps/os",
+					testScript: "test:browser:apps",
+					browsers: "chromium",
+				},
+			],
+		},
+		repository: true,
+		scope: "affected",
+	};
+	expect(laneSelection(plan, "full")).toMatchObject({ ...plan, lane: "full" });
+	const gate = laneSelection(plan, "gate");
+	expect(
+		gate.matrix.include.map((job: { testScript: string }) => job.testScript),
+	).toEqual(["test:run", "test:unit"]);
+	expect(gate).toMatchObject({ repository: true, lane: "gate" });
+	const verify = laneSelection(plan, "verify");
+	expect(
+		verify.matrix.include.map((job: { testScript: string }) => job.testScript),
+	).toEqual(["test:browser:apps"]);
+	expect(verify).toMatchObject({ repository: false, lane: "verify" });
+	expect(() => laneSelection(plan, "nope")).toThrow(/Unknown suite lane/);
 });
