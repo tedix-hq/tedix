@@ -387,6 +387,28 @@ export function suiteSelection(root, { eventName, files }) {
 	};
 }
 
+// Which jobs a run owes, by lane. A push certifies on the gate: every
+// selected workspace's unit, workerd and type checks plus the repository
+// checks. The browser suites run in the verify lane after the deploy; a
+// failure there files the incident and hands Red main heal the culprit, it
+// does not hold the deploy. Scheduled and hand-started runs stay full.
+export const SUITE_LANES = ["full", "gate", "verify"];
+export function laneSelection(plan, lane = "full") {
+	if (!SUITE_LANES.includes(lane))
+		throw new Error(`Unknown suite lane: ${lane}`);
+	if (lane === "full") return { ...plan, lane };
+	const browser = (job) => Boolean(job.browsers);
+	const include = plan.matrix.include.filter((job) =>
+		lane === "verify" ? browser(job) : !browser(job),
+	);
+	return {
+		...plan,
+		lane,
+		matrix: { include },
+		repository: lane === "gate" ? plan.repository : false,
+	};
+}
+
 // Compare against a green ancestor, rather than the push parent: a docs push
 // must not certify code from an earlier red or still-running push.
 export async function certificationFiles({
@@ -762,7 +784,10 @@ if (
 					request: githubRequest,
 				})
 			: null;
-	const plan = suiteSelection(".", { eventName: env.GITHUB_EVENT_NAME, files });
+	const plan = laneSelection(
+		suiteSelection(".", { eventName: env.GITHUB_EVENT_NAME, files }),
+		env.SUITE_LANE || "full",
+	);
 	const event = JSON.parse(readFileSync(env.GITHUB_EVENT_PATH, "utf8"));
 	const review = reviewPlan({
 		eventName: env.GITHUB_EVENT_NAME,
@@ -771,7 +796,7 @@ if (
 	});
 	appendFileSync(
 		env.GITHUB_OUTPUT,
-		`matrix=${JSON.stringify(plan.matrix)}\nworkspace=${plan.matrix.include.length > 0}\nrepository=${plan.repository}\nrunners=${JSON.stringify(runners)}\nhigh-risk=${review.highRisk}\nreview-base=${review.base}\n`,
+		`matrix=${JSON.stringify(plan.matrix)}\nworkspace=${plan.matrix.include.length > 0}\nrepository=${plan.repository}\nlane=${plan.lane}\nrunners=${JSON.stringify(runners)}\nhigh-risk=${review.highRisk}\nreview-base=${review.base}\n`,
 	);
 	appendFileSync(
 		env.GITHUB_STEP_SUMMARY,
