@@ -26,10 +26,6 @@ const conversationId = crypto.randomUUID();
 await client.kernelRuntime.enqueueMessage({
 	conversationId,
 	content: "Inspect the app in this workspace.",
-	workspaceContext: {
-		workspaceId,
-		workpiece: { kind: "gadget", id: gadgetId },
-	},
 	idempotencyKey: crypto.randomUUID(),
 });
 const live = await client.osWorkspaces.gadgets.get({ workspaceId, gadgetId });

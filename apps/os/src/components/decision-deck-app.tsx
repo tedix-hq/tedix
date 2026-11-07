@@ -106,10 +106,7 @@ import {
 	decisionFeedbackMetadata,
 	type DecisionLearningReceipt,
 } from "@/lib/decision-deck";
-import {
-	buildDecisionDeckPageChatExtras,
-	buildDecisionDeckWebMcpTools,
-} from "@/components/decision-deck-webmcp-tools";
+import { buildDecisionDeckWebMcpTools } from "@/components/decision-deck-webmcp-tools";
 import { useAppWebMcpTools } from "@/lib/webmcp/use-app-webmcp-tools";
 import {
 	createAgentSlot,
@@ -673,7 +670,6 @@ function DecisionDeckContent({
 		},
 		buildDecisionDeckWebMcpTools,
 		[],
-		{ pageChat: buildDecisionDeckPageChatExtras },
 	);
 	const optimisticDecision = forCard(
 		mode === "decide" ? (selected?.id ?? null) : null,

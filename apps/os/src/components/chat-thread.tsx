@@ -1,6 +1,4 @@
 import "./canvas-page.css";
-import { buildWorkspaceChatTools } from "@/lib/workspace-chat-tools";
-import { WorkspaceChatPageTools } from "@/lib/workspace-chat-page-tools";
 import { usePushConversation } from "@/lib/use-push-conversation";
 import {
 	CHAT_CREATE_OPTIONS,
@@ -327,7 +325,6 @@ export function ChatThread({
 		composerOnly ? null : conversationId,
 	);
 	const queryClient = useQueryClient();
-	const [pageTools] = useState(() => new WorkspaceChatPageTools());
 	const tediNames = useTediNames();
 	const activeTedis = useActiveTedis();
 	// Null sends to Home, which routes the message itself. A picked tedi is
@@ -812,9 +809,6 @@ export function ChatThread({
 		// and fold into the same id-keyed tool-card map — re-delivery across
 		// sources is a plain overwrite, never a duplicate card.
 		onFrame: (event) => {
-			void pageTools.handle(event, (input) =>
-				transportActions.resolvePageTool(input),
-			);
 			if (!TOOL_EVENT_KINDS.has(event.kind)) return;
 			toolFramesRef.current.set(event.id, event);
 			setToolFrameCount(toolFramesRef.current.size);
@@ -1280,29 +1274,7 @@ export function ChatThread({
 		) => {
 			const { enqueueMessage, draftContent, ...request } = input;
 			void draftContent;
-			const tools =
-				request.workspaceContext && !request.delegateToTediId
-					? buildWorkspaceChatTools({
-							workspaceId: request.workspaceContext.workspaceId,
-							conversationId: request.conversationId,
-							workpiece: request.workspaceContext.workpiece,
-							onProposed: () =>
-								queryClient.invalidateQueries({
-									queryKey: osQueryKeys.collaborationProposals(),
-								}),
-						})
-					: [];
-			const descriptors = pageTools.offer(request.idempotencyKey, tools);
-			const result = enqueueMessage({
-				...request,
-				...(descriptors.length ? { pageTools: descriptors } : {}),
-			}).then((output) => {
-				if (descriptors.length && output.status !== "failed")
-					pageTools.bind(request.idempotencyKey, output.run.id, (input) =>
-						transportActions.resolvePageTool(input),
-					);
-				return output;
-			});
+			const result = enqueueMessage(request);
 			// Only bootstrap has no bound conversation capability yet. A timeout
 			// means unknown outcome; the same-key retry never creates a second run.
 			if (conversationId !== null) return result;
@@ -1403,10 +1375,7 @@ export function ChatThread({
 					type: "adopt",
 					conversationId: output.conversationId,
 				});
-				onConversationCreated?.(
-					output.conversationId,
-					variables.workspaceContext?.workspaceId,
-				);
+				onConversationCreated?.(output.conversationId, workspaceId);
 			}
 		},
 		onError: (error, variables) => {
@@ -1512,10 +1481,7 @@ export function ChatThread({
 					type: "adopt",
 					conversationId: variables.conversationId,
 				});
-				onConversationCreated?.(
-					variables.conversationId,
-					variables.workspaceContext?.workspaceId,
-				);
+				onConversationCreated?.(variables.conversationId, workspaceId);
 			}
 		},
 		onError: (error) => {
@@ -1545,30 +1511,11 @@ export function ChatThread({
 				conversationId: targetConversationId,
 				idempotencyKey: key,
 				...(organizationId ? { organizationId } : {}),
-				...(workspaceId
-					? {
-							workspaceContext: {
-								workspaceId: workspaceId,
-								...(context &&
-								includeContext &&
-								(context.kind === "gadget" || context.kind === "output")
-									? { workpiece: { kind: context.kind, id: context.id } }
-									: {}),
-							},
-						}
-					: {}),
 			};
 			directReadRetryRef.current = request;
 			directRead.mutate(request);
 		},
-		[
-			conversationId,
-			context,
-			directRead,
-			includeContext,
-			organizationId,
-			workspaceId,
-		],
+		[conversationId, directRead, organizationId],
 	);
 
 	/**
@@ -1664,18 +1611,6 @@ export function ChatThread({
 				}),
 				metadata:
 					context && includeContext ? { chatContext: context } : undefined,
-				workspaceContext: workspaceId
-					? {
-							workspaceId: workspaceId,
-							...(context &&
-							includeContext &&
-							(context.kind === "gadget" || context.kind === "output")
-								? {
-										workpiece: { kind: context.kind, id: context.id },
-									}
-								: {}),
-						}
-					: undefined,
 				modelRef: localWorkersAi ? undefined : (selectedModelRef ?? undefined),
 				// A tedi that left the active roster falls back to Home.
 				delegateToTediId:

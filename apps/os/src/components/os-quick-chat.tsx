@@ -9,24 +9,15 @@ import { useEffect, useRef } from "react";
 import { osApi, osChatMutationApi, osChatReadApi } from "@/lib/api";
 import { getPageFocus, subscribePageFocus } from "@/lib/page-focus";
 import {
-	listPageChatTools,
-	type PageChatTool,
-	subscribePageChatTools,
-} from "@/lib/page-chat-tools";
-import {
 	abortableSleep,
 	QUICK_CHAT_HOME_LABEL,
 	type QuickChatHomeOpenTurn,
-	type QuickChatPageToolCall,
-	type QuickChatPageToolResult,
 	readQuickChatHomeOpenTurn,
 	readQuickChatHomeTranscript,
 	resumeQuickChatHomeTurn,
+	runQuickChatHomeTurn,
 	type QuickChatHomeDeps,
 } from "@/lib/quick-chat-home";
-import { createQuickChatHomeAdapter } from "@/lib/quick-chat-home-adapter";
-import { buildWorkspaceChatTools } from "@/lib/workspace-chat-tools";
-import type { HomePageToolDescriptor } from "@tedix/api-contract/schemas/kernel-runtime";
 import { reportOsIssue } from "@/lib/error-reporting/install";
 import {
 	defaultTediWidgetConfig,
@@ -94,8 +85,6 @@ type TedixWidgetApi = {
 		prompts: string[];
 		portableTool: PortableToolCaller;
 		requireSignedPortableRoute?: boolean;
-		/** The page's own tools the chat may run for the person, per turn. */
-		pageTools?: { list(): readonly PageChatTool[] };
 		/** Home as the first, default target; its turns use the Home path. */
 		home?: {
 			label: string;
@@ -105,10 +94,6 @@ type TedixWidgetApi = {
 				pageContext?: unknown;
 				modelRef?: string;
 				signal?: AbortSignal;
-				pageTools?: HomePageToolDescriptor[];
-				runPageTool?: (
-					call: QuickChatPageToolCall,
-				) => Promise<QuickChatPageToolResult | null>;
 				onDelta?: (text: string) => void;
 			}): Promise<{ text: string }>;
 			transcript(input: {
@@ -193,17 +178,10 @@ const quickChatHomeDeps: QuickChatHomeDeps = {
 	readRun: (input) => osChatReadApi.kernelRuntime.readRun(input),
 	readMessages: (input) => osApi.kernelRuntime.readMessages(input),
 	readRunEvents: (input) => osChatReadApi.kernelRuntime.readRunEvents(input),
-	resolvePageTool: (input) =>
-		osChatMutationApi.kernelRuntime.resolvePageTool(input),
 	randomUuid: () => crypto.randomUUID(),
 	sleep: abortableSleep,
 	now: () => Date.now(),
 };
-
-const quickChatHomeTurn = createQuickChatHomeAdapter(quickChatHomeDeps, {
-	pathname: () => window.location.pathname,
-	workspaceTools: buildWorkspaceChatTools,
-});
 
 function decoded(value: string): string {
 	try {
@@ -505,21 +483,15 @@ export function OsQuickChat() {
 	}, [pathname]);
 
 	useEffect(() => {
-		// The card on screen and the page's tools both change what the chat can
-		// see and do; republishing the context refreshes the chat's status.
-		const republish = () => {
+		// The card on screen changes what the chat can see; republishing the
+		// context refreshes the chat's status.
+		return subscribePageFocus(() => {
 			if (portableRouteAdapterRef.current)
 				publishOsPortableRouteContext(
 					portableRouteAdapterRef.current,
 					window.location.pathname,
 				);
-		};
-		const disposeFocus = subscribePageFocus(republish);
-		const disposeTools = subscribePageChatTools(republish);
-		return () => {
-			disposeFocus();
-			disposeTools();
-		};
+		});
 	}, []);
 
 	useEffect(() => {
@@ -707,14 +679,14 @@ export function OsQuickChat() {
 					prompts: config.conversationStarters,
 					portableTool,
 					requireSignedPortableRoute: true,
-					pageTools: { list: listPageChatTools },
 					...(preferenceKey ? { preferenceKey } : {}),
 					// Home runs under os:run; without it the chat opens on a tedi.
 					...(canUseQuickChatHome(context.authority)
 						? {
 								home: {
 									label: QUICK_CHAT_HOME_LABEL,
-									turn: quickChatHomeTurn,
+									turn: (input) =>
+										runQuickChatHomeTurn(quickChatHomeDeps, input),
 									transcript: ({ conversationId }) =>
 										readQuickChatHomeTranscript(
 											quickChatHomeDeps,
