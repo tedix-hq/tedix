@@ -153,6 +153,7 @@ async function runLaneProcessWithReporter(
 		cwd?: string;
 		childScope?: { workspace: string; organization: string };
 		detachedChild?: boolean;
+		detachedOutputDirectory?: string;
 		/** A dispatcher drains its children and owns process shutdown itself. */
 		forwardSignals?: boolean;
 		/** The caller already holds an admitted Attempt for this Work. */
@@ -374,6 +375,7 @@ async function runLaneProcessWithReporter(
 	// must not delay its child; heartbeats and the final report carry it later.
 	if (!deps.admitted) await report(sessionKey, telemetry);
 	const dir = mkdtempSync(join(tmpdir(), "tedix-lane-"));
+	const outputDirectory = deps.detachedOutputDirectory ?? dir;
 	const receipt = join(dir, "telemetry.json");
 	const sandboxTemp = join(
 		deps.cwd ?? process.cwd(),
@@ -530,12 +532,12 @@ async function runLaneProcessWithReporter(
 	for (let turn = 0; turn < (bridge ? 2 : 1); turn++) {
 		if (bridge) telemetry.finalMessage = "";
 		const stdout = deps.detachedChild
-			? laneOutput(join(dir, `stdout-${turn}.log`), (chunk) =>
+			? laneOutput(join(outputDirectory, `stdout-${turn}.log`), (chunk) =>
 					receiveStdout(chunk),
 				)
 			: undefined;
 		const stderr = deps.detachedChild
-			? laneOutput(join(dir, `stderr-${turn}.log`), (chunk) =>
+			? laneOutput(join(outputDirectory, `stderr-${turn}.log`), (chunk) =>
 					receiveStderr(chunk),
 				)
 			: undefined;
