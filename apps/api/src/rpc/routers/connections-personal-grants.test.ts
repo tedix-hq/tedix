@@ -251,6 +251,90 @@ describe("credential selection identity", () => {
 		});
 		expect(noSubject.selectedCredential.accountRevisionDigest).toBeUndefined();
 	});
+
+	describe("a personal account pinned on a shared app", () => {
+		const pinOwnerAccount = (f: ReturnType<typeof fixture>) => {
+			f.sqlite
+				.prepare(
+					"INSERT INTO connection_instances(id,owner_user_id,organization_id,provider_id,label,token_ids,token_sub,created_at,updated_at) VALUES(?,'owner-sub',NULL,'example','Owner',?,?,'2026-01-01','2026-01-01')",
+				)
+				.run(instanceId, JSON.stringify(["vault-grant"]), "owner-subject");
+			const requests: Record<string, unknown>[] = [];
+			f.fetch.mockImplementation(async (_input, init) => {
+				const body = JSON.parse(String(init?.body ?? "{}")) as Record<
+					string,
+					unknown
+				>;
+				requests.push(body);
+				return Response.json({
+					token: {
+						id: "vault-grant",
+						accessToken: "opaque",
+						appId: "example",
+						userId: body.userId,
+						externalIdentifier: body.externalIdentifier,
+						tokenSub: "owner-subject",
+					},
+				});
+			});
+			return requests;
+		};
+
+		it("still selects that account for the person who pinned it", async () => {
+			const f = fixture();
+			f.context.tediId = undefined;
+			pinOwnerAccount(f);
+			const result = await resolveCredentialChain(f.context, {
+				...f.args,
+				ownerUserId: undefined,
+				callerUserId: "owner-sub",
+				connectionInstanceId: instanceId,
+			});
+			expect(result.selectedCredential).toMatchObject({
+				scope: "user",
+				userId: "owner-sub",
+				connectionInstanceId: instanceId,
+			});
+		});
+
+		it("uses another member's own default account instead of failing", async () => {
+			const f = fixture();
+			f.context.tediId = undefined;
+			const requests = pinOwnerAccount(f);
+			const result = await resolveCredentialChain(f.context, {
+				...f.args,
+				ownerUserId: undefined,
+				callerUserId: "other-sub",
+				connectionInstanceId: instanceId,
+			});
+			expect(result.selectedCredential).toEqual({
+				organizationId: "org-1",
+				providerId: "example",
+				scope: "user",
+				userId: "other-sub",
+			});
+			expect(requests.map((body) => body.userId)).toEqual(["other-sub"]);
+			expect(requests[0]).not.toHaveProperty("externalIdentifier");
+		});
+
+		it("names the real cause when a tedi reads a pinned account it cannot use", async () => {
+			const f = fixture();
+			pinOwnerAccount(f);
+			const { enforceConnectionConsumerGrants } =
+				await import("./connections/consumer-grant-resolution");
+			await expect(
+				enforceConnectionConsumerGrants(f.context, {
+					organizationId: "org-1",
+					providerId: "example",
+					connectionInstanceId: instanceId,
+					personalUserId: "other-sub",
+				}),
+			).rejects.toMatchObject({
+				code: "FORBIDDEN",
+				message: expect.stringContaining("another person"),
+			});
+		});
+	});
 });
 
 describe.each(["user", "tenant"] as const)(

@@ -705,6 +705,24 @@ export async function resolveCredentialChain(
 				ErrorCodes.BAD_REQUEST,
 				"Choose personal or organization scope for a named account",
 			);
+		// A personal account pinned on a shared app is one person's choice. It
+		// binds only that person; everyone else resolves their own default account.
+		if (args.scope === "user") {
+			const [target] = targets;
+			const pinOwned =
+				target?.kind === "user" &&
+				(await getConnectionInstance(
+					context.db,
+					{ userId: target.userId },
+					args.connectionInstanceId,
+					args.providerId,
+				));
+			if (!pinOwned)
+				return resolveCredentialChain(context, {
+					...args,
+					connectionInstanceId: undefined,
+				});
+		}
 		for (const target of targets) {
 			if (args.scope === "user" && target.kind !== "user") continue;
 			if (args.scope === "tenant" && target.kind !== "tenant") continue;
