@@ -100,7 +100,7 @@ const ALLOWLIST_ENTRIES: readonly AllowlistEntry[] = [
 		runsModelAuthoredCode: true,
 	},
 	{
-		file: "packages/workspace-runtime/src/sandbox.ts",
+		file: "packages/agent-runtime/src/sandbox.ts",
 		reason:
 			"The workspace runtime builds the one manifest every workspace object's sandbox uses (no outbound network, env not importable, only the registered bindings), so the object that runs the agent loop never constructs a loader call itself.",
 		runsModelAuthoredCode: true,

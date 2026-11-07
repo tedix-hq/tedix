@@ -15,12 +15,12 @@ export default defineConfig({
 				compatibilityDate: "2026-10-01",
 				compatibilityFlags: ["nodejs_compat"],
 				durableObjects: {
-					CLOUDFLARE_WORKSPACE: {
-						className: "CloudflareWorkspaceObject",
+					CLOUDFLARE_AGENT: {
+						className: "CloudflareAgentObject",
 						useSQLite: true,
 					},
-					WORKERD_WORKSPACE: {
-						className: "WorkerdWorkspaceObject",
+					WORKERD_AGENT: {
+						className: "WorkerdAgentObject",
 						useSQLite: true,
 					},
 				},

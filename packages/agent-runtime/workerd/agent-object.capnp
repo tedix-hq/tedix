@@ -1,12 +1,12 @@
-# A self-hosted workerd process that runs workspace objects with file-backed
-# state. Every workspace's SQLite file lives under `stateDirectory`, and the
+# A self-hosted workerd process that runs agent objects (workspaces, tedis) with file-backed
+# state. Every object's SQLite file lives under `stateDirectory`, and the
 # sandbox loader is the `LOADER` binding. Build the Worker bundle first
 # (`main.js` below is the bundled `apps/workspace-do` entry).
 #
 # Start it with:
-#   workerd serve workspace.capnp
+#   workerd serve agent-object.capnp
 #
-# Compiles with workerd 1.20261101.1 (`workerd compile workspace.capnp`); it
+# Compiles with workerd 1.20261101.1 (`workerd compile agent-object.capnp`); it
 # has not been run as a service from this repository.
 
 using Workerd = import "/workerd/workerd.capnp";
@@ -28,12 +28,12 @@ const workspaceWorker :Workerd.Worker = (
   compatibilityDate = "2026-10-01",
   compatibilityFlags = ["nodejs_compat"],
   durableObjectNamespaces = [
-    (className = "WorkspaceObject", uniqueKey = "tedix-workspace-v1", enableSql = true),
+    (className = "AgentObject", uniqueKey = "tedix-workspace-v1", enableSql = true),
   ],
   # File-backed: each object's SQLite database is a file in the disk service.
   durableObjectStorage = (localDisk = "workspace-state"),
   bindings = [
-    (name = "WORKSPACE", durableObjectNamespace = "WorkspaceObject"),
+    (name = "WORKSPACE", durableObjectNamespace = "AgentObject"),
     # The sandbox. Every manifest the runtime loads sets globalOutbound to
     # null, so the loaded code reaches only the bindings it is given.
     (name = "LOADER", workerLoader = (id = "workspace-sandbox")),

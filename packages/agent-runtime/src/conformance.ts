@@ -1,30 +1,30 @@
 import { describe, expect, it } from "vite-plus/test";
 import type {
-	WorkspaceAlarm,
-	WorkspaceEvent,
-	WorkspaceJurisdiction,
-	WorkspaceRuntime,
+	AgentAlarm,
+	AgentEvent,
+	AgentJurisdiction,
+	AgentRuntime,
 } from "./index";
 
 /**
  * How the suite reaches one implementation. The runtime lives inside the
- * workspace object, so every step runs there; the harness also opens a client
+ * agent object, so every step runs there; the harness also opens a client
  * WebSocket and fires the host alarm from outside, as a real client and the
  * real host would.
  */
-export interface WorkspaceRuntimeConformanceHarness {
-	readonly jurisdiction: WorkspaceJurisdiction;
-	/** Runs `fn` inside the workspace object named `workspaceId`. */
+export interface AgentRuntimeConformanceHarness {
+	readonly jurisdiction: AgentJurisdiction;
+	/** Runs `fn` inside the agent object named `objectId`. */
 	withRuntime<T>(
-		workspaceId: string,
-		fn: (runtime: WorkspaceRuntime) => Promise<T>,
+		objectId: string,
+		fn: (runtime: AgentRuntime) => Promise<T>,
 	): Promise<T>;
 	/** A client WebSocket on the object's events route, not yet accepted. */
-	connect(workspaceId: string, after?: number): Promise<WebSocket>;
+	connect(objectId: string, after?: number): Promise<WebSocket>;
 	/** Runs the host alarm if one is armed. */
-	fireAlarm(workspaceId: string): Promise<void>;
+	fireAlarm(objectId: string): Promise<void>;
 	/** The alarms the object's handler has received, oldest first. */
-	firedAlarms(workspaceId: string): Promise<WorkspaceAlarm[]>;
+	firedAlarms(objectId: string): Promise<AgentAlarm[]>;
 	/**
 	 * The name of a registered binding whose stub has `add(a, b)` returning
 	 * `a + b`, so the suite can prove a binding call crosses the sandbox.
@@ -86,24 +86,24 @@ async function waitFor<T>(
 
 /**
  * The one behaviour contract every implementation passes. Each test uses its
- * own workspace id, so tests never share state.
+ * own object id, so tests never share state.
  */
-export function describeWorkspaceRuntimeConformance(
+export function describeAgentRuntimeConformance(
 	label: string,
-	harness: WorkspaceRuntimeConformanceHarness,
+	harness: AgentRuntimeConformanceHarness,
 ): void {
 	let counter = 0;
 	const fresh = () => `${label}-${Date.now()}-${(counter += 1)}`;
 
-	describe(`${label} workspace runtime`, () => {
-		it("reports its workspace id and jurisdiction", async () => {
+	describe(`${label} agent runtime`, () => {
+		it("reports its object id and jurisdiction", async () => {
 			const id = fresh();
 			const seen = await harness.withRuntime(id, async (runtime) => ({
-				workspaceId: runtime.workspaceId,
+				objectId: runtime.objectId,
 				jurisdiction: runtime.jurisdiction,
 			}));
 			expect(seen).toEqual({
-				workspaceId: id,
+				objectId: id,
 				jurisdiction: harness.jurisdiction,
 			});
 		});
@@ -410,7 +410,7 @@ export function describeWorkspaceRuntimeConformance(
 					fresh(),
 					async ({ events }) => {
 						await events.publish({ type: "before", payload: 1 });
-						const got: WorkspaceEvent[] = [];
+						const got: AgentEvent[] = [];
 						const stop = await events.subscribe((event) => got.push(event), {
 							after: 0,
 						});
