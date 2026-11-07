@@ -290,6 +290,75 @@ describe("SessionRotationOwner", () => {
 		expect(logs).not.toContain("session-two");
 	});
 
+	it("keeps the newest refresh token for a rotation that arrives while the previous one finishes", async () => {
+		const digest = crypto.subtle.digest.bind(crypto.subtle);
+		let presentedDigests = 0;
+		let releaseSecondDigest: (() => void) | undefined;
+		const secondDigestGate = new Promise<void>((resolve) => {
+			releaseSecondDigest = resolve;
+		});
+		// Hold the second request's fingerprint of the presented token so the
+		// first rotation finishes inside that window.
+		vi.spyOn(crypto.subtle, "digest").mockImplementation(
+			async (...args: Parameters<SubtleCrypto["digest"]>) => {
+				const data = args[1];
+				const bytes =
+					data instanceof ArrayBuffer
+						? new Uint8Array(data)
+						: new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+				if (new TextDecoder().decode(bytes) === "refresh-old") {
+					presentedDigests += 1;
+					if (presentedDigests === 2) await secondDigestGate;
+				}
+				return digest(...args);
+			},
+		);
+		let releaseFirstFetch: (() => void) | undefined;
+		const firstFetchGate = new Promise<void>((resolve) => {
+			releaseFirstFetch = resolve;
+		});
+		const fetchMock = vi
+			.fn()
+			.mockImplementationOnce(async () => {
+				await firstFetchGate;
+				return selectedSession("session-one", "refresh-one");
+			})
+			.mockImplementationOnce(async () =>
+				selectedSession("session-two", "refresh-two"),
+			);
+		vi.stubGlobal("fetch", fetchMock);
+		const stub = sessionStub("arrival-window");
+
+		const first = stub.rotate(rotationInput("tenant-one"));
+		await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+		const second = stub.rotate(rotationInput("tenant-two"));
+		// The second request has reached the owner while the first is still at
+		// Descope. It must count as pending from arrival, before any hashing.
+		await vi.waitFor(async () =>
+			expect(
+				await runInDurableObject(
+					stub,
+					(instance: SessionRotationOwner) =>
+						(instance as unknown as { pendingOperations: number })
+							.pendingOperations,
+				),
+			).toBe(2),
+		);
+		releaseFirstFetch?.();
+		await expect(first).resolves.toMatchObject({
+			ok: true,
+			refreshToken: "refresh-one",
+		});
+		releaseSecondDigest?.();
+
+		await expect(second).resolves.toMatchObject({
+			ok: true,
+			generation: 2,
+			refreshToken: "refresh-two",
+		});
+		expect(cookieHeader(fetchMock.mock.calls[1] ?? [])).toBe("DSR=refresh-one");
+	});
+
 	it("adopts a Descope-validated refresh successor advanced by consent", async () => {
 		const fetchMock = vi
 			.fn()

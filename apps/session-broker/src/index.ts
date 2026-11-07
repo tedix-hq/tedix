@@ -440,13 +440,17 @@ export class SessionRotationOwner extends DurableObject<BrokerEnv> {
 				reason: "invalid_input",
 			};
 		}
-		const presentedFingerprint = await fingerprint(input.refreshToken);
-		const existing = this.logoutInFlight.get(presentedFingerprint);
+		// Count and queue the request before any await. An operation that
+		// finishes while this one hashes its token would otherwise see no pending
+		// work, drop the newest rotated token, and let this request replay the old
+		// one. The in-memory key holds the raw token only for the call's lifetime.
+		const coalescingKey = input.refreshToken;
+		const existing = this.logoutInFlight.get(coalescingKey);
 		if (existing) return existing;
 
 		this.pendingOperations += 1;
-		const operation = this.queueTail.then(() =>
-			this.executeLogout(input, presentedFingerprint),
+		const operation = this.queueTail.then(async () =>
+			this.executeLogout(input, await fingerprint(input.refreshToken)),
 		);
 		this.queueTail = operation.then(
 			() => undefined,
@@ -454,25 +458,25 @@ export class SessionRotationOwner extends DurableObject<BrokerEnv> {
 		);
 		const tracked = operation.finally(() => {
 			this.finishOperation();
-			if (this.logoutInFlight.get(presentedFingerprint) === tracked) {
-				this.logoutInFlight.delete(presentedFingerprint);
+			if (this.logoutInFlight.get(coalescingKey) === tracked) {
+				this.logoutInFlight.delete(coalescingKey);
 			}
 		});
-		this.logoutInFlight.set(presentedFingerprint, tracked);
+		this.logoutInFlight.set(coalescingKey, tracked);
 		return tracked;
 	}
 
-	private async enqueueSessionMutation(
+	private enqueueSessionMutation(
 		input: SessionMutationInput,
 	): Promise<RotateSessionResult> {
-		const presentedFingerprint = await fingerprint(input.refreshToken);
-		const coalescingKey = `${presentedFingerprint}:${input.tenantId ?? "@resume"}`;
+		// Count and queue synchronously; see logout() for why.
+		const coalescingKey = `${input.refreshToken}:${input.tenantId ?? "@resume"}`;
 		const existing = this.inFlight.get(coalescingKey);
 		if (existing) return existing;
 
 		this.pendingOperations += 1;
-		const operation = this.queueTail.then(() =>
-			this.executeRotation(input, presentedFingerprint),
+		const operation = this.queueTail.then(async () =>
+			this.executeRotation(input, await fingerprint(input.refreshToken)),
 		);
 		this.queueTail = operation.then(
 			() => undefined,
