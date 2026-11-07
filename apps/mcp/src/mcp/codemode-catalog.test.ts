@@ -1122,6 +1122,18 @@ describe("progressive disclosure (namespace filter, description budget, schema p
 									lifecycleState: "active",
 								},
 								{
+									id: "s3",
+									slug: "file-the-request",
+									title: "File the request",
+									description: "File an inbox request as a work item.",
+									// Recorded inside a tedi: the body calls a namespace this
+									// gateway mounts under another name.
+									content:
+										"---\nname: file-the-request\n---\nawait tasks.create_work_item({ title });\nawait crm.find_contact({ email });",
+									successCount: 1,
+									lifecycleState: "active",
+								},
+								{
 									id: "s2",
 									slug: "inbox-zero-habits",
 									title: "Inbox zero habits",
@@ -1162,6 +1174,21 @@ describe("progressive disclosure (namespace filter, description budget, schema p
 			);
 			expect(skill?.unresolvedTools).toEqual(["crm.find_contact"]);
 			expect(skill).not.toHaveProperty("toolRefs");
+		});
+
+		it("resolves a body call by tool name when its namespace is not mounted", async () => {
+			const results = await runSearch(
+				buildCatalogProvider(ctx(), undefined),
+				"file the request",
+				10,
+			);
+			const skill = catalogToolEntries(results).find(
+				(row) => row.slug === "file-the-request",
+			);
+			expect(
+				(skill?.tools as Array<{ callable: string }>).map((t) => t.callable),
+			).toEqual(["work.create_work_item"]);
+			expect(skill?.unresolvedTools).toEqual(["crm.find_contact"]);
 		});
 
 		it("leaves a skill without frontmatter tools unchanged", async () => {
