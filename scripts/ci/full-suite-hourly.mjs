@@ -804,7 +804,7 @@ if (
 	});
 	appendFileSync(
 		env.GITHUB_OUTPUT,
-		`matrix=${JSON.stringify(plan.matrix)}\nworkspace=${plan.matrix.include.length > 0}\nrepository=${plan.repository && plan.checks.length > 0}\nchecks=${JSON.stringify(plan.checks)}\nlane=${plan.lane}\nrunners=${JSON.stringify(runners)}\nhigh-risk=${review.highRisk}\nreview-base=${review.base}\n`,
+		`matrix=${JSON.stringify(plan.matrix)}\nworkspace=${plan.matrix.include.length > 0}\nrepository=${plan.repository && plan.checks.length > 0}\nchecks=${JSON.stringify(plan.checks)}\nlane=${plan.lane}\nchanged-files=${JSON.stringify(files ?? [])}\ncertified-range=${files !== null}\nrunners=${JSON.stringify(runners)}\nhigh-risk=${review.highRisk}\nreview-base=${review.base}\n`,
 	);
 	appendFileSync(
 		env.GITHUB_STEP_SUMMARY,

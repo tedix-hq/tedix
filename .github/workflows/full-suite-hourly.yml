@@ -31,6 +31,9 @@ jobs:
       workspace: ${{ steps.plan.outputs.workspace }}
       repository: ${{ steps.plan.outputs.repository }}
       checks: ${{ steps.plan.outputs.checks }}
+      lane: ${{ steps.plan.outputs.lane }}
+      changed-files: ${{ steps.plan.outputs.changed-files }}
+      certified-range: ${{ steps.plan.outputs.certified-range }}
       matrix: ${{ steps.plan.outputs.matrix }}
       runners: ${{ steps.plan.outputs.runners }}
       high-risk: ${{ steps.plan.outputs.high-risk }}
@@ -228,8 +231,23 @@ jobs:
       - name: Fetch canonical main for the migration order gate
         if: ${{ !cancelled() && matrix.check == 'policy' }}
         run: git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
+      # The gate checks only the files the push changed since the last green
+      # main (the plan already diffed them); every other lane keeps --all.
       - if: ${{ !cancelled() && matrix.check == 'policy' }}
-        run: bun run verify --all --ci-policy
+        env:
+          LANE: ${{ needs.plan.outputs.lane }}
+          CERTIFIED_RANGE: ${{ needs.plan.outputs.certified-range }}
+          CHANGED_FILES: ${{ needs.plan.outputs.changed-files }}
+        run: |
+          set -euo pipefail
+          if [ "$LANE" = gate ] && [ "$CERTIFIED_RANGE" = true ]; then
+            files=()
+            while IFS= read -r file; do files+=("$file"); done < <(jq -r '.[]' <<<"$CHANGED_FILES")
+            if [ "${#files[@]}" -eq 0 ]; then echo "no changed files; policy check has nothing to gate"; exit 0; fi
+            bun run verify --ci-policy --files "${files[@]}"
+          else
+            bun run verify --all --ci-policy
+          fi
       - name: Require shellcheck
         if: matrix.check == 'policy'
         run: command -v shellcheck
