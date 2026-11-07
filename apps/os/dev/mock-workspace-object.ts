@@ -427,7 +427,7 @@ Bun.serve<Socket["data"]>({
 	fetch(request, server) {
 		const url = new URL(request.url);
 		// `/chat` is the browser path; `/subscribe` is what the OS Worker forwards.
-		const match = /^\/workspace\/([^/]+)\/(?:chat|subscribe)$/.exec(
+		const match = /^\/workspaces?\/([^/]+)\/(?:chat|subscribe)$/.exec(
 			url.pathname,
 		);
 		if (!match)

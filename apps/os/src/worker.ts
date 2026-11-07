@@ -1669,7 +1669,7 @@ async function handleWorkspaceChatUpgrade(
 	const upstream = env.WORKSPACE_RUNTIME
 		? {
 				fetch: serviceBindingFetch(env.WORKSPACE_RUNTIME),
-				base: "https://workspace",
+				base: "https://workspace.internal",
 			}
 		: localDemo
 			? {
@@ -1743,7 +1743,7 @@ async function handleWorkspaceChatUpgrade(
 	// The object replays every event after this cursor, then streams live.
 	const query = after && /^\d+$/.test(after) ? `?after=${after}` : "";
 	return upstream.fetch(
-		`${upstream.base}/workspace/${encodeURIComponent(workspaceId)}/subscribe${query}`,
+		`${upstream.base}/workspaces/${encodeURIComponent(workspaceId)}/subscribe${query}`,
 		{ headers, method: "GET" },
 	);
 }
