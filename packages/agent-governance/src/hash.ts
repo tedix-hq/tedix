@@ -32,3 +32,26 @@ export async function hashValue(value: unknown): Promise<string> {
 		b.toString(16).padStart(2, "0"),
 	).join("");
 }
+
+/** Preserve JSON hashes, with a tagged structural fallback for non-JSON arguments. */
+export async function hashArguments(value: unknown): Promise<string> {
+	try {
+		return await hashValue(value);
+	} catch {
+		const seen = new Map<object, number>();
+		function encode(inner: unknown): unknown {
+			if (inner === null) return ["null"];
+			if (typeof inner !== "object") return [typeof inner, String(inner)];
+			const ref = seen.get(inner);
+			if (ref !== undefined) return ["ref", ref];
+			seen.set(inner, seen.size);
+			return [
+				Array.isArray(inner) ? "array" : "object",
+				Object.keys(inner)
+					.sort()
+					.map((key) => [key, encode((inner as Record<string, unknown>)[key])]),
+			];
+		}
+		return hashValue(["governance-arguments-v1", encode(value)]);
+	}
+}

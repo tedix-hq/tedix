@@ -59,6 +59,14 @@ A refused call throws `CallRefusedError` carrying the decision and the ledger
 row; the binding is never called. `guardedCall` is the same flow for one call
 without a Proxy.
 
+With working recording adapters, each invocation appends one final ledger row
+and records one compliance outcome, including failures in preflight. Compliance
+is checked before the `before` revision hook runs. A hook or hashing failure
+becomes a recorded denial and never reaches the binding. Cyclic and BigInt
+arguments use a stable structural hash; ordinary JSON arguments keep their
+existing hash. If neither hash can be computed, the denied row uses the explicit
+`unavailable` marker. Errors from `onRecorded` do not change the call's outcome.
+
 ## In-memory implementations (`@tedix/agent-governance/in-memory`)
 
 `createInMemoryAdapters({ policies, callerScopes, approvedRequestIds,
