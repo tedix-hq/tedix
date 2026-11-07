@@ -871,6 +871,20 @@ describe("ChatMessageBubble", () => {
 		expect(html).not.toContain("(no text)");
 	});
 
+	it("renders nothing for blanked delegation narration while the card shows its state", () => {
+		const html = renderToStaticMarkup(
+			<ChatMessageBubble
+				message={message({
+					content: "",
+					runId: RUN_ID,
+					metadata: { homeNarration: "delegation_ack" },
+				})}
+				runActive
+			/>,
+		);
+		expect(html).toBe("");
+	});
+
 	it("does not call a turn finished while its run is still active", () => {
 		const html = renderToStaticMarkup(
 			<ChatMessageBubble

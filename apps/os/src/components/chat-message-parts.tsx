@@ -135,6 +135,20 @@ export function ChatMessageBubble({
 	const structuredResult = directReadResult(message);
 	const readFailure = directReadError(message);
 	const emptyLabel = emptyMessageLabel(message, runActive);
+	// The server blanks Home prose that only restates its delegation card
+	// ("On it — delegating to …"). The card already shows that state, so an
+	// empty-text label here would read as a second, stuck reply.
+	if (
+		!isUser &&
+		!decoded.content &&
+		message.metadata?.homeNarration !== undefined &&
+		!message.attachments?.length &&
+		structuredResult === null &&
+		!readFailure &&
+		chatWidgetTargetsFromMetadata(message.metadata).length === 0
+	) {
+		return null;
+	}
 	return (
 		<li
 			data-role={message.role}
