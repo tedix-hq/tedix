@@ -24,11 +24,14 @@ export type DeployValues = {
 	readonly active: boolean;
 	account(fallback: string): string;
 	worker(surface: string, fallback: string): string;
+	container(surface: string, fallback: string): string;
 	d1(name: string, fallback: D1Value): D1Value;
 	kv(name: string, fallback: string): string;
 	r2(bucketKey: string, fallback: R2Value): R2Value;
 	aiSearch(key: string, fallback: string): string;
 	analytics(key: string, fallback: string): string;
+	artifacts(key: string, fallback: string): string;
+	aiGateway(key: string, fallback: string): string;
 	host(key: string, fallback: string): string;
 	routes(surface: string, fallback: RouteValue[]): RouteValue[];
 	domains(surface: string, fallback: string[]): string[];
@@ -130,6 +133,7 @@ export function deployValues(options: DeployValuesOptions): DeployValues {
 		active: values !== undefined,
 		account: (fallback) => string(["account", "id"], fallback),
 		worker: (surface, fallback) => string(["workers", surface], fallback),
+		container: (surface, fallback) => string(["containers", surface], fallback),
 		d1: (name, fallback) =>
 			values
 				? {
@@ -150,6 +154,8 @@ export function deployValues(options: DeployValuesOptions): DeployValues {
 		},
 		aiSearch: (key, fallback) => string(["aiSearch", key], fallback),
 		analytics: (key, fallback) => string(["analytics", key], fallback),
+		artifacts: (key, fallback) => string(["artifacts", key], fallback),
+		aiGateway: (key, fallback) => string(["aiGateway", key], fallback),
 		host: (key, fallback) => string(["hostnames", key], fallback),
 		routes: (surface, fallback) => {
 			if (!values) return fallback;

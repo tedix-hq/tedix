@@ -30,6 +30,7 @@
 		"@tedix/auth": "workspace:*",
 		"@tedix/container-runtime": "workspace:*",
 		"@tedix/db": "workspace:*",
+		"@tedix/deploy-values": "workspace:*",
 		"@tedix/mcp-shared": "workspace:*",
 		"@tedix/provisioning": "workspace:*",
 		"@tedix/ssrf-guard": "workspace:*",

@@ -21,6 +21,7 @@
 	"dependencies": {
 		"@tedix/auth": "workspace:*",
 		"@tedix/db": "workspace:*",
+		"@tedix/deploy-values": "workspace:*",
 		"@tedix/worker-kit": "workspace:*"
 	},
 	"devDependencies": {

@@ -1,4 +1,5 @@
 import { bindings, defineConfig, defineWorker } from "cf/config";
+import { deployValues } from "@tedix/deploy-values";
 
 const runtimeEnv = (
 	globalThis as typeof globalThis & {
@@ -13,16 +14,21 @@ export const productionIngress = {
 
 export default defineConfig(({ mode }) => {
 	const production = mode === "production";
+	// Live production values when Ship sets TEDIX_DEPLOY_VALUES; otherwise
+	// every lookup returns the placeholder beside it.
+	const live = deployValues({ mode });
 
 	return {
+		...(live.active ? { accountId: live.account("") } : {}),
 		worker: defineWorker({
 			name: production
-				? "public-installation-widget-production"
+				? live.worker("widget", "public-installation-widget-production")
 				: "public-installation-widget",
 			entrypoint: "src/index.ts",
 			compatibilityDate: "2026-05-14",
 			workersDev: productionIngress.workersDev,
 			previewUrls: productionIngress.previewUrls,
+			...(live.active ? { domains: live.domains("widget", []) } : {}),
 			logpush: true,
 			assets: {
 				runWorkerFirst: true,

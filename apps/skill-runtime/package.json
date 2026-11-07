@@ -27,6 +27,7 @@
 		"@tedix/api-client": "workspace:*",
 		"@tedix/api-contract": "workspace:*",
 		"@tedix/db": "workspace:*",
+		"@tedix/deploy-values": "workspace:*",
 		"@tedix/mcp-shared": "workspace:*",
 		"@tedix/tedi-codemode-core": "workspace:*",
 		"@tedix/worker-kit": "workspace:*",

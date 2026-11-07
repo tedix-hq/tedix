@@ -1,4 +1,5 @@
 import { bindings, defineConfig, defineWorker } from "cf/config";
+import { deployValues } from "@tedix/deploy-values";
 
 const runtimeEnv = (
 	globalThis as typeof globalThis & {
@@ -13,11 +14,18 @@ export const productionIngress = {
 
 export default defineConfig(({ mode }) => {
 	const production = mode === "production";
+	// Live production values when Ship sets TEDIX_DEPLOY_VALUES; otherwise
+	// every lookup returns the placeholder beside it.
+	const live = deployValues({ mode });
 
 	return {
+		...(live.active ? { accountId: live.account("") } : {}),
 		worker: defineWorker({
 			name: production
-				? "public-installation-artifact-gateway-production"
+				? live.worker(
+						"artifact-gateway",
+						"public-installation-artifact-gateway-production",
+					)
 				: "public-installation-artifact-gateway",
 			entrypoint: "src/index.ts",
 			compatibilityDate: "2026-08-17",
@@ -33,7 +41,9 @@ export default defineConfig(({ mode }) => {
 			},
 			env: {
 				API_SERVICE: bindings.worker({
-					worker: "public-installation-api",
+					worker: production
+						? live.worker("api", "public-installation-api")
+						: "public-installation-api",
 				}),
 				ENVIRONMENT: bindings.text(production ? "production" : "development"),
 				GIT_SHA: bindings.text(releaseSha),
