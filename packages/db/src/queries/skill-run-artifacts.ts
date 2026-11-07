@@ -308,8 +308,7 @@ export async function recordRunArtifact(
 			)
 			.limit(1),
 	);
-	const existing = existingRows[0];
-	if (existing) {
+	const updateExisting = async (existingId: string) => {
 		const [updated] = await db
 			.update(skillRunArtifacts)
 			.set({
@@ -321,13 +320,46 @@ export async function recordRunArtifact(
 				attempt: row.attempt,
 				outcome: row.outcome,
 			})
-			.where(eq(skillRunArtifacts.id, existing.id))
+			.where(eq(skillRunArtifacts.id, existingId))
 			.returning();
 		return updated!;
-	}
+	};
+	const existing = existingRows[0];
+	if (existing) return updateExisting(existing.id);
 
-	const [created] = await db.insert(skillRunArtifacts).values(row).returning();
-	return created!;
+	try {
+		const [created] = await db
+			.insert(skillRunArtifacts)
+			.values(row)
+			.returning();
+		return created!;
+	} catch (error) {
+		// A concurrent writer (for example a restarted run's earlier attempt)
+		// saved the same (run_id, path) between the read and this insert.
+		if (!isUniqueConstraintError(error)) throw error;
+		const [raced] = await db
+			.select({ id: skillRunArtifacts.id })
+			.from(skillRunArtifacts)
+			.where(
+				and(
+					eq(skillRunArtifacts.runId, input.runId),
+					eq(skillRunArtifacts.path, input.path),
+				),
+			)
+			.limit(1);
+		if (!raced) throw error;
+		return updateExisting(raced.id);
+	}
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+	for (let current = error, depth = 0; current && depth < 4; depth++) {
+		const message =
+			current instanceof Error ? current.message : String(current);
+		if (/UNIQUE constraint failed/i.test(message)) return true;
+		current = current instanceof Error ? current.cause : undefined;
+	}
+	return false;
 }
 
 /** Read one artifact by (runId, path). Returns null if not found. */

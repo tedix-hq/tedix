@@ -122,6 +122,58 @@ export interface ReconcileEnv {
 	ENVIRONMENT: "development" | "staging" | "production";
 }
 
+/** An active run whose engine stays silent this long is treated as lost. */
+const LOST_ENGINE_AFTER_MS = 24 * 60 * 60 * 1000;
+export const LOST_ENGINE_ERROR =
+	"WORKFLOW_INSTANCE_LOST: the run's engine instance no longer exists (for example after a platform move), so the run was ended. Start a new run.";
+
+export function isWorkflowInstanceMissing(error: unknown): boolean {
+	const message = error instanceof Error ? error.message : String(error ?? "");
+	return /instance\.not_found|instance not found|not[_ ]found/i.test(message);
+}
+
+export function runIsOlderThan(
+	startedAt: string | null,
+	ageMs: number,
+	now = Date.now(),
+): boolean {
+	if (!startedAt) return false;
+	const started = Date.parse(
+		/[zZ]|[+-]\d\d:?\d\d$/.test(startedAt)
+			? startedAt
+			: `${startedAt.replace(" ", "T")}Z`,
+	);
+	return Number.isFinite(started) && now - started > ageMs;
+}
+
+async function endRunWithLostEngine(
+	env: ReconcileEnv,
+	row: { runId: string; organizationId: string; executionEpoch: number },
+): Promise<boolean> {
+	const settled = await settleWorkflowSubmissionBeforeTerminal({
+		db: env.DB,
+		runId: row.runId,
+		organizationId: row.organizationId,
+		executionEpoch: row.executionEpoch,
+		status: "failed",
+		error: LOST_ENGINE_ERROR,
+	});
+	if (!settled) return false;
+	const reconciled = await reconcileSkillRun(env.DB, row.runId, {
+		status: "failed",
+		error: LOST_ENGINE_ERROR,
+		expectedExecutionEpoch: row.executionEpoch,
+	});
+	if (reconciled)
+		logRunEvent("run.reconciled", {
+			runId: row.runId,
+			previousStatus: "running",
+			status: "failed",
+			error: LOST_ENGINE_ERROR,
+		});
+	return Boolean(reconciled);
+}
+
 export async function reconcileSkillRuns(env: ReconcileEnv): Promise<{
 	scanned: number;
 	updated: number;
@@ -186,8 +238,17 @@ export async function reconcileSkillRuns(env: ReconcileEnv): Promise<{
 					persistedStatus = "queued";
 				}
 			}
-			let handle = await env.WORKFLOWS.get(row.workflowInstanceId);
-			let engine = (await handle.status()) as EngineStatus;
+			let handle: Awaited<ReturnType<Workflow["get"]>>;
+			let engine: EngineStatus;
+			try {
+				handle = await env.WORKFLOWS.get(row.workflowInstanceId);
+				engine = (await handle.status()) as EngineStatus;
+			} catch (lookupError) {
+				if (!isWorkflowInstanceMissing(lookupError) || row.admissionRecovery)
+					throw lookupError;
+				if (await endRunWithLostEngine(env, row)) updated++;
+				continue;
+			}
 			const abortReconciliation = await reconcileWorkflowAbortIntent({
 				abortRequested,
 				handle,
@@ -233,7 +294,18 @@ export async function reconcileSkillRuns(env: ReconcileEnv): Promise<{
 					engine = (await handle.status()) as EngineStatus;
 				}
 			}
-			if (!engine.status || engine.status === "unknown") continue;
+			if (!engine.status || engine.status === "unknown") {
+				// An active run whose engine has reported nothing for a day lost
+				// its instance (for example in a platform move); end it visibly.
+				if (
+					!row.admissionRecovery &&
+					!row.restartRequestedAt &&
+					runIsOlderThan(row.startedAt, LOST_ENGINE_AFTER_MS) &&
+					(await endRunWithLostEngine(env, row))
+				)
+					updated++;
+				continue;
+			}
 			const nextStatus = mapWorkflowEngineStatus(engine.status);
 			if (!nextStatus) {
 				logSkillRuntimeWarning("workflow.reconciliation_status_unrecognized", {

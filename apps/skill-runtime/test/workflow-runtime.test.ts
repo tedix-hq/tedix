@@ -3226,6 +3226,28 @@ assert.deepEqual(
 	),
 	["stage-run"],
 );
+assert.equal(productionScan[0]?.startedAt, "2026-07-11T00:00:00.000Z");
+{
+	const { isWorkflowInstanceMissing, runIsOlderThan } =
+		await import("../src/reconciler");
+	// A run whose engine instance vanished (for example after a platform move)
+	// is ended instead of being skipped forever.
+	assert.equal(
+		isWorkflowInstanceMissing(new Error("instance.not_found")),
+		true,
+	);
+	assert.equal(
+		isWorkflowInstanceMissing(new Error("Instance not found")),
+		true,
+	);
+	assert.equal(isWorkflowInstanceMissing(new Error("network timeout")), false);
+	const now = Date.parse("2026-07-12T01:00:00.000Z");
+	const day = 24 * 60 * 60 * 1000;
+	assert.equal(runIsOlderThan("2026-07-11T00:00:00.000Z", day, now), true);
+	assert.equal(runIsOlderThan("2026-07-11 00:30:00", day, now), true);
+	assert.equal(runIsOlderThan("2026-07-11T12:00:00.000Z", day, now), false);
+	assert.equal(runIsOlderThan(null, day, now), false);
+}
 await touchSkillRunReconciled(reconcileScanDb, "prod-old");
 assert.equal(
 	(await listNonTerminalRuns(reconcileScanDb, "production", 1))[0]?.runId,

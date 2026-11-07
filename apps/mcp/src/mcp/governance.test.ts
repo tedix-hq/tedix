@@ -1905,7 +1905,7 @@ describe("active skill manifest approval", () => {
 						throw failure;
 					},
 				);
-			} else resolve.mockRejectedValueOnce(failure);
+			} else resolve.mockRejectedValue(failure);
 			try {
 				expect(
 					await requireDestructiveToolApproval(agent, {
@@ -1936,6 +1936,19 @@ describe("active skill manifest approval", () => {
 			}
 		},
 	);
+
+	it("retries one transient manifest lookup failure before failing closed", async () => {
+		const { agent, resolve } = context();
+		resolve.mockRejectedValueOnce(new Error("D1_ERROR: D1 DB is overloaded"));
+		expect(
+			await requireDestructiveToolApproval(agent, {
+				toolId: "tedix__get_os_output",
+				title: "Read output",
+				config: { _sourceAppSlug: "tedix" },
+			} as never),
+		).toBeNull();
+		expect(resolve).toHaveBeenCalledTimes(2);
+	});
 
 	it.each([
 		{
