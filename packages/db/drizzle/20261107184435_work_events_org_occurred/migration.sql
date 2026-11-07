@@ -1,0 +1,1 @@
+CREATE INDEX `idx_work_events_org_occurred` ON `work_events` (`org_id`,`occurred_at`,`id`);

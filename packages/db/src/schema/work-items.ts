@@ -742,6 +742,15 @@ export const workEvents = sqliteTable(
 		}).onDelete("cascade"),
 		// Global commitment polling filters time before joining Work and tedis.
 		index("idx_work_events_occurred").on(table.occurredAt),
+		// Board and project feeds read an organization's newest events first and
+		// stop at their page; through the item index they read every event of
+		// every item in the project and sorted (72k rows per call on 7 Nov). The
+		// id completes the feed's order so no sort step remains.
+		index("idx_work_events_org_occurred").on(
+			table.orgId,
+			table.occurredAt,
+			table.id,
+		),
 		index("idx_work_events_item_sequence").on(
 			table.orgId,
 			table.workItemId,

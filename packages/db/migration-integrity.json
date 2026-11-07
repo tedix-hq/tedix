@@ -1388,6 +1388,10 @@
 		{
 			"name": "20261107171227_workspace_feed/migration.sql",
 			"sha256": "402d38b58bef42013b7ec26f117cdaf7e064c0c2037ecb39687e6b7507fd2849"
+		},
+		{
+			"name": "20261107184435_work_events_org_occurred/migration.sql",
+			"sha256": "e39e39b072bb9bc5202b99f1d32d11977c7567a9ea798edfe9a98ff06107772b"
 		}
 	]
 }
