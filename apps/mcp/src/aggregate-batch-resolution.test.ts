@@ -1143,7 +1143,6 @@ describe("aggregate snapshot context", () => {
 			"gateway",
 			{ value: "policy-test", cacheable: false },
 			false,
-			false,
 			true,
 			"gateway_middle__edit",
 		);
@@ -1169,7 +1168,6 @@ describe("aggregate snapshot context", () => {
 				undefined,
 				{ value: "cached", cacheable: true },
 				true,
-				false,
 				true,
 				"gateway_middle__edit",
 			),
@@ -1191,7 +1189,6 @@ describe("aggregate snapshot context", () => {
 			createExecutionContext(),
 			"gateway",
 			{ value: "policy-test", cacheable: false },
-			false,
 			false,
 			true,
 		);
