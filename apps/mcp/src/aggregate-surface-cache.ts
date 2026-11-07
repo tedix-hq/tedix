@@ -42,6 +42,12 @@ export const aggregateSurfaceInFlight = new Map<
 // and nested gateway (14+ on the Tedix connect surface), so the bound leaves
 // room for one such root without evicting its own members.
 const MAX_AGGREGATE_SURFACE_CACHE_ENTRIES = 32;
+// Entry counts do not bound heap: ten retained organization graphs measured
+// 80-84 MB (about 5 KB per tool row with schemas) and left a 128 MB isolate no
+// room for the request that followed (`exceededMemory`, 6-7 Nov 2026). Rows
+// are the proxy a test can count; the budget keeps retained graphs near 30 MB
+// and releases the least recently used graph first.
+export const MAX_AGGREGATE_SURFACE_RETAINED_ROWS = 6_000;
 export const AGGREGATE_SURFACE_CACHE_TTL_MS = 120_000;
 // An expired entry stays reusable this long: a durable tier holding the same
 // generation then returns it without parsing (see AggregateTierReadOptions).
@@ -79,6 +85,32 @@ export function rememberAggregateSurface(
 		},
 		MAX_AGGREGATE_SURFACE_CACHE_ENTRIES,
 	);
+	// Newest last: release least recently used graphs until the row budget
+	// holds. The entry just written always stays, however large.
+	for (const key of aggregateSurfaceCache.keys()) {
+		if (
+			key === cacheKey ||
+			aggregateSurfaceRetainedRows() <= MAX_AGGREGATE_SURFACE_RETAINED_ROWS
+		)
+			break;
+		aggregateSurfaceCache.delete(key);
+	}
+}
+
+/** Tool rows held by every retained surface in this isolate. */
+export function aggregateSurfaceRetainedRows(): number {
+	let rows = 0;
+	for (const entry of aggregateSurfaceCache.values())
+		rows += entry.result.tools.length;
+	return rows;
+}
+
+/** Mark an L1 entry as recently used so the row budget releases others first. */
+export function touchAggregateSurface(cacheKey: string): void {
+	const entry = aggregateSurfaceCache.get(cacheKey);
+	if (!entry) return;
+	aggregateSurfaceCache.delete(cacheKey);
+	aggregateSurfaceCache.set(cacheKey, entry);
 }
 
 /**

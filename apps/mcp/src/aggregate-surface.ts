@@ -18,6 +18,7 @@ import {
 	aggregateSurfaceCacheKey,
 	claimAggregateRevalidationLease,
 	pruneAggregateSurfaceCache,
+	touchAggregateSurface,
 	rememberAggregateSurface,
 	serializeAggregateSnapshot,
 	readAggregateL2,
@@ -198,7 +199,10 @@ export async function aggregateAndPrefixTools(
 	const cached =
 		cacheSnapshot && retain ? aggregateSurfaceCache.get(cacheKey) : undefined;
 	pruneAggregateSurfaceCache();
-	if (cached && cached.expiresAt > Date.now()) return cached.result;
+	if (cached && cached.expiresAt > Date.now()) {
+		touchAggregateSurface(cacheKey);
+		return cached.result;
+	}
 
 	const inFlight = aggregateSurfaceInFlight.get(cacheKey);
 	if (inFlight) {
