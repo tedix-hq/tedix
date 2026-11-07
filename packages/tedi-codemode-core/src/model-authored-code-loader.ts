@@ -34,7 +34,8 @@ export type ModelAuthoredLoaderHost =
 	| {
 			surface: "tedi_durable_code";
 			reason: "tedi_durable_authored_invocation";
-	  };
+	  }
+	| { surface: "workspace_object_code"; reason: "workspace_turn_code" };
 
 /** Diagnostic-only sites do not acquire the model-authored hardening policy. */
 export type DynamicWorkerLoaderHost =
@@ -76,7 +77,8 @@ function capturedHost(
 			(surface === "tedi_stateless_mcp_code" &&
 				reason === "tedi_stateless_authored_invocation") ||
 			(surface === "tedi_durable_code" &&
-				reason === "tedi_durable_authored_invocation")
+				reason === "tedi_durable_authored_invocation") ||
+			(surface === "workspace_object_code" && reason === "workspace_turn_code")
 		)
 			return { surface, reason } as ModelAuthoredLoaderHost;
 	} catch {

@@ -590,6 +590,31 @@
         "vitest": "catalog:",
       },
     },
+    "apps/workspace-do": {
+      "name": "@tedix/workspace-do",
+      "version": "0.1.0",
+      "dependencies": {
+        "@earendil-works/pi-ai": "catalog:",
+        "@tedix/agent-governance": "workspace:*",
+        "@tedix/api-contract": "workspace:*",
+        "@tedix/chat-transport": "workspace:*",
+        "@tedix/db": "workspace:*",
+        "@tedix/tedi-codemode-core": "workspace:*",
+        "@tedix/worker-kit": "workspace:*",
+        "drizzle-orm": "catalog:",
+        "zod": "catalog:",
+      },
+      "devDependencies": {
+        "@cloudflare/vitest-plugin": "catalog:",
+        "@cloudflare/workers-types": "catalog:",
+        "@tedix/tsconfig": "workspace:*",
+        "typescript": "catalog:",
+        "vite": "catalog:",
+        "vite-plus": "catalog:",
+        "vitest": "catalog:",
+        "wrangler": "catalog:",
+      },
+    },
     "packages/agent-governance": {
       "name": "@tedix/agent-governance",
       "version": "0.1.0",
@@ -2427,6 +2452,8 @@
     "@tedix/worker-kit": ["@tedix/worker-kit@workspace:packages/worker-kit"],
 
     "@tedix/workers-ai": ["@tedix/workers-ai@workspace:packages/workers-ai"],
+
+    "@tedix/workspace-do": ["@tedix/workspace-do@workspace:apps/workspace-do"],
 
     "@tedix/workspace-feed": ["@tedix/workspace-feed@workspace:packages/workspace-feed"],
 

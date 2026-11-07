@@ -2511,6 +2511,28 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		return runtimeParentTurns.getSystemPrompt.call(this.parentTurnsHost());
 	}
 
+	/**
+	 * What a workspace object needs to run a turn as this tedi: its composed
+	 * persona and the per-turn recall (directives, memory digest, skills).
+	 * Nothing is copied; the workspace object asks on every turn.
+	 */
+	async guestProfile(input: {
+		tediId: string;
+		organizationId: string;
+		sessionKey: string;
+		userText: string;
+	}): Promise<{ systemPrompt: string; addenda: string }> {
+		await this.ensureIdentity({
+			tediId: input.tediId,
+			orgId: input.organizationId,
+		});
+		const [systemPrompt, addenda] = await Promise.all([
+			this.getSystemPrompt(),
+			this.cognitiveAddenda(input.sessionKey, input.userText),
+		]);
+		return { systemPrompt, addenda };
+	}
+
 	// ===========================================================================
 	// Tool groups
 	// ===========================================================================

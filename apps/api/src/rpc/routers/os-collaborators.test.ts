@@ -374,6 +374,7 @@ describe("workspace collaborators", () => {
 		expect(opened.capability.actingUserId).toBe(ZOE);
 		expect(await as(env, ZOE).presence({ workspaceId })).toEqual({
 			workspaceId,
+			userId: ZOE,
 			displayName: "Zoe",
 			role: "use",
 		});
@@ -390,6 +391,7 @@ describe("workspace collaborators", () => {
 		expect(kai.capability.operations).toContain("sharing.write");
 		expect(await as(env, ROBIN).presence({ workspaceId })).toEqual({
 			workspaceId,
+			userId: ROBIN,
 			displayName: "Robin",
 			role: "owner",
 		});

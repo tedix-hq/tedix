@@ -1,0 +1,145 @@
+{
+	"$schema": "../../node_modules/wrangler/config-schema.json",
+	"name": "public-installation-workspace-do",
+	"main": "src/index.ts",
+	"minify": true,
+	"keep_names": true,
+	"compatibility_date": "2026-05-14",
+	"logpush": true,
+	"compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+	"workers_dev": false,
+	"preview_urls": false,
+	"observability": {
+		"enabled": true,
+		"logs": {
+			"invocation_logs": true,
+			"head_sampling_rate": 1,
+		},
+		"traces": {
+			"enabled": true,
+			"head_sampling_rate": 0.25,
+		},
+	},
+	"dev": {
+		"port": 3018,
+		"inspector_port": 19246,
+	},
+	"vars": {
+		"ENVIRONMENT": "development",
+		"GIT_SHA": "configured-via-private-overlay",
+		// Every workspace object is created in this jurisdiction. Empty = none (local dev).
+		"DO_JURISDICTION": "",
+		"AZURE_OPENAI_RESOURCE": "configured-via-private-overlay",
+		"AZURE_OPENAI_API_VERSION": "configured-via-private-overlay",
+		"AZURE_CHAT_DEPLOYMENT": "configured-via-private-overlay",
+		"AI_GATEWAY_ACCOUNT_ID": "configured-via-private-overlay",
+		"AI_GATEWAY_LLM_ID": "configured-via-private-overlay",
+	},
+	"secrets": {
+		"required": ["CF_AI_GATEWAY_TOKEN", "MIGRATE_WORKSPACES_TOKEN"],
+	},
+	"worker_loaders": [
+		{
+			"binding": "LOADER",
+		},
+	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"class_name": "WorkspaceDO",
+				"name": "WORKSPACE",
+			},
+			{
+				"class_name": "AgentTediDO",
+				"name": "TEDI_AGENT",
+				"script_name": "public-installation-tedi-runtime",
+			},
+		],
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": ["WorkspaceDO"],
+		},
+	],
+	"r2_buckets": [
+		{
+			"binding": "R2_BUCKET",
+			"bucket_name": "public-installation-bucket",
+			"remote": false,
+		},
+	],
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "public-installation-database",
+			"database_id": "00000000-0000-0000-0000-000000000000",
+			"remote": false,
+		},
+	],
+	"services": [
+		{
+			"binding": "MCP_SERVICE",
+			"service": "public-installation-mcp",
+		},
+	],
+	"env": {
+		"production": {
+			"workers_dev": false,
+			"vars": {
+				"ENVIRONMENT": "production",
+				"GIT_SHA": "configured-via-private-overlay",
+				"DO_JURISDICTION": "eu",
+				"AZURE_OPENAI_RESOURCE": "configured-via-private-overlay",
+				"AZURE_OPENAI_API_VERSION": "configured-via-private-overlay",
+				"AZURE_CHAT_DEPLOYMENT": "configured-via-private-overlay",
+				"AI_GATEWAY_ACCOUNT_ID": "configured-via-private-overlay",
+				"AI_GATEWAY_LLM_ID": "configured-via-private-overlay",
+			},
+			"worker_loaders": [
+				{
+					"binding": "LOADER",
+				},
+			],
+			"durable_objects": {
+				"bindings": [
+					{
+						"class_name": "WorkspaceDO",
+						"name": "WORKSPACE",
+					},
+					{
+						"class_name": "AgentTediDO",
+						"name": "TEDI_AGENT",
+						"script_name": "public-installation-tedi-runtime",
+					},
+				],
+			},
+			"migrations": [
+				{
+					"tag": "v1",
+					"new_sqlite_classes": ["WorkspaceDO"],
+				},
+			],
+			"r2_buckets": [
+				{
+					"binding": "R2_BUCKET",
+					"bucket_name": "public-installation-bucket",
+					"jurisdiction": "eu",
+				},
+			],
+			"d1_databases": [
+				{
+					"binding": "DB",
+					"database_name": "public-installation-database",
+					"database_id": "00000000-0000-0000-0000-000000000000",
+				},
+			],
+			"services": [
+				{
+					"binding": "MCP_SERVICE",
+					"service": "public-installation-mcp",
+				},
+			],
+		},
+	},
+}

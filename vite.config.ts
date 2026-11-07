@@ -85,6 +85,7 @@ export default defineConfig({
 					"apps/skill-runtime/**",
 					"apps/tedi/**",
 					"apps/tedi-runtime/**",
+					"apps/workspace-do/**",
 					"packages/db/**",
 					// The workspace change feed applies workspace events to the core
 					// projections; it is the reviewed owner of those writes.

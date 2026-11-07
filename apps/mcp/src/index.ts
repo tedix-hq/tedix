@@ -1557,6 +1557,37 @@ const worker = {
 				}
 			}
 
+			// A workspace's own agent: forward the JSON-RPC body into the object
+			// that owns the workspace. The caller passed every gate above (auth,
+			// access, rate limit, origin); the object scopes the call to the app's
+			// organization and records the principal on every change record.
+			const workspaceMatch = url.pathname.match(/^\/mcp\/workspaces\/([^/]+)$/);
+			if (workspaceMatch && app.organizationId && env.WORKSPACE_RUNTIME) {
+				if (request.method !== "POST") {
+					return new Response("Method not allowed", { status: 405 });
+				}
+				const tediId = request.headers.get("x-tedix-auth-tedi-id");
+				const userId = request.headers.get("x-tedix-auth-user-id");
+				const headers = new Headers({
+					"content-type": "application/json",
+					"X-Workspace-Org": app.organizationId,
+					"X-Workspace-Id": decodeURIComponent(workspaceMatch[1] ?? ""),
+					"X-Workspace-Actor-Id": tediId ?? userId ?? `app:${app.id}`,
+					"X-Workspace-Actor-Kind": tediId
+						? "tedi"
+						: userId
+							? "user"
+							: "external_agent",
+				});
+				return env.WORKSPACE_RUNTIME.fetch(
+					new Request("https://workspace.internal/mcp", {
+						method: "POST",
+						headers,
+						body: await request.text(),
+					}),
+				);
+			}
+
 			// Route to MCP
 			if (url.pathname === "/mcp" || url.pathname.startsWith("/mcp/")) {
 				if (isDev) {

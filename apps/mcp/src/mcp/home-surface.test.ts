@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
 import { buildHomeSurfaceTools } from "./home-surface-tools";
-import { EnqueueHomeMessageInputSchema } from "@tedix/api-contract/schemas/kernel-runtime";
-import { zodToToolInputJsonSchema } from "@tedix/api-contract/utils/tool-json-schema";
 import {
 	homeQueuedAckText,
 	removeProjectedKernelConversationLifecycleTools,
@@ -16,14 +14,8 @@ describe("home surface tools", () => {
 	const tools = buildHomeSurfaceTools();
 	const byId = new Map(tools.map((tool) => [tool.toolId, tool]));
 
-	it("exposes canonical optional Workspace context without widening Home authority", () => {
+	it("keeps the ask schema narrow: content only, no Home authority widening", () => {
 		const schema = byId.get("ask")!.inputSchema;
-		const canonical = zodToToolInputJsonSchema(
-			EnqueueHomeMessageInputSchema.pick({ workspaceContext: true }),
-		);
-		expect(schema.properties?.workspaceContext).toEqual(
-			canonical.properties?.workspaceContext,
-		);
 		expect(schema.required).toEqual(["content"]);
 		expect(schema.additionalProperties).toBe(false);
 		for (const field of [
@@ -31,22 +23,12 @@ describe("home surface tools", () => {
 			"executionPolicy",
 			"modelRef",
 			"idempotencyKey",
+			"workspaceContext",
+			"pageTools",
 		]) {
 			expect(schema.properties?.[field]).toBeUndefined();
 		}
-		expect(schema.properties?.workspaceContext).toMatchObject({
-			type: "object",
-			required: ["workspaceId"],
-			properties: {
-				workpiece: {
-					type: "object",
-					required: ["kind", "id"],
-					properties: { kind: { enum: ["gadget", "output"] } },
-				},
-			},
-		});
 	});
-
 	it("emits ask as the sole unnamespaced Home entry point", () => {
 		expect([...byId.keys()].sort()).toEqual(
 			[
