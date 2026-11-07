@@ -61,6 +61,7 @@ import {
 } from "./auth/session-broker";
 import { CAPN_ROUTE_PATH } from "./capnweb/contract";
 import { COLLAB_PRESENCE_HEADER } from "./collab/presence";
+import { parseWorkspaceChatPath } from "./lib/workspace-chat-protocol";
 import {
 	RepositoryCandidateDescriptorSchema,
 	type RepositoryCandidateDescriptor,
@@ -129,6 +130,13 @@ export interface OsRouterEnv extends OsSessionBrokerEnv {
 	 */
 	readonly MCP_SERVICE?: FetcherLike;
 	readonly TEDIX_LOCAL_DEMO_ENABLED?: string;
+	/**
+	 * Service binding to the workspace objects worker (`apps/workspace-do`):
+	 * `/workspace/{id}/chat` upgrades are forwarded to it after this Worker
+	 * authorized the caller. Absent on the zero-account local lane, which
+	 * forwards to the mock object at `LOCAL_WORKSPACE_OBJECT_URL` instead.
+	 */
+	readonly WORKSPACE_OBJECTS?: FetcherLike;
 	/** Secret: exact embedded:session provider key; never sent to a browser. */
 	readonly TEDIX_PROVIDER_COHORT_API_KEY?: string;
 	/** Fixed, nonsecret identity and organization target for this bounded cohort. */
@@ -1303,6 +1311,21 @@ export async function handleOsRequest(
 		return handleCollabUpgrade(authenticated, env, url, tenant, hostTenantId);
 	}
 
+	const chatWorkspaceId = parseWorkspaceChatPath(url.pathname);
+	if (chatWorkspaceId !== null) {
+		const authenticated =
+			withLocalDemoAuthorization(request, env) ??
+			withCollabSession(request, env, hostTenantId);
+		if (!authenticated) return refuse(401, "Authentication required.");
+		return handleWorkspaceChatUpgrade(
+			authenticated,
+			env,
+			chatWorkspaceId,
+			tenant,
+			hostTenantId,
+		);
+	}
+
 	// Cap'n Web: a browser-session projection over the same kernelRuntime
 	// handlers the oRPC surface uses — no browser-only business verb. This is
 	// the only event transport (there is no SSE fallback lane; a browser that
@@ -1603,6 +1626,100 @@ export async function handleOsRequest(
 		page,
 		tenant.kind,
 		customResolution?.slug ?? undefined,
+	);
+}
+
+/** The mock workspace object `apps/os/dev/mock-workspace-object.ts` listens here. */
+const LOCAL_WORKSPACE_OBJECT_URL = "http://localhost:8793";
+/** Identity the OS Worker asserts to the workspace object after authorizing the caller. */
+const WORKSPACE_CHAT_PERSON_HEADER = "X-Tedix-Person";
+const WORKSPACE_CHAT_ROLE_HEADER = "X-Tedix-Workspace-Role";
+
+/**
+ * Workspace chat socket: `/workspace/{workspaceId}/chat` upgrades straight into
+ * the workspace object, which runs the agent loop and streams its ledger.
+ *
+ * Authorization happens HERE, per connection, exactly as for `/collab`: the
+ * caller's own credentials must pass the workspace presence read through
+ * apps/api before the socket reaches the object. The object then trusts the
+ * identity headers this Worker sets; a browser can never reach the binding.
+ */
+async function handleWorkspaceChatUpgrade(
+	request: Request,
+	env: OsRouterEnv,
+	workspaceId: string,
+	tenant: ReturnType<typeof resolveOsTenant>,
+	hostTenantId: string | null,
+): Promise<Response> {
+	const localDemo = isLocalDemoOrigin(request, env);
+	if (tenant.kind !== "tenant" && !localDemo) {
+		return refuse(404, "Workspace chat is only served on tenant hosts.");
+	}
+	if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
+		return refuse(426, "Expected a WebSocket upgrade.");
+	}
+	if (!/^[0-9a-f-]{36}$/i.test(workspaceId) && !localDemo) {
+		return refuse(404, "Malformed workspace chat path.");
+	}
+	const upstream = env.WORKSPACE_OBJECTS
+		? {
+				fetch: serviceBindingFetch(env.WORKSPACE_OBJECTS),
+				base: "https://workspace",
+			}
+		: localDemo
+			? {
+					fetch: globalThis.fetch.bind(globalThis),
+					base: LOCAL_WORKSPACE_OBJECT_URL,
+				}
+			: null;
+	if (!upstream || !env.API_SERVICE) {
+		return refuse(503, "Workspace chat is unavailable on this origin.");
+	}
+	const apiHeaders: Record<string, string> = {};
+	const authorization = request.headers.get("Authorization");
+	const cookie = request.headers.get("Cookie");
+	if (authorization) apiHeaders.Authorization = authorization;
+	if (cookie) apiHeaders.Cookie = cookie;
+	if (hostTenantId) apiHeaders["X-Tedix-Tenant-Id"] = hostTenantId;
+	let presence: WorkspacePresenceIdentity;
+	try {
+		presence = await callRpc<WorkspacePresenceIdentity>(
+			"osCollaborators/presence",
+			{ workspaceId },
+			{
+				apiUrl: "https://api",
+				fetch: serviceBindingFetch(env.API_SERVICE),
+				headers: apiHeaders,
+				timeoutMs: 5_000,
+			},
+		);
+		if (presence.workspaceId !== workspaceId)
+			throw new Error("Workspace presence mismatch");
+	} catch {
+		if (!localDemo) {
+			console.warn("Workspace chat upgrade refused: authorization failed");
+			return refuse(403, "You do not have access to this workspace.");
+		}
+		presence = { workspaceId, displayName: "Local owner", role: "owner" };
+	}
+	const headers = new Headers();
+	for (const name of [
+		"Upgrade",
+		"Connection",
+		"Sec-WebSocket-Key",
+		"Sec-WebSocket-Version",
+		"Sec-WebSocket-Protocol",
+		"Sec-WebSocket-Extensions",
+	]) {
+		const value = request.headers.get(name);
+		if (value) headers.set(name, value);
+	}
+	headers.set(WORKSPACE_CHAT_PERSON_HEADER, presence.displayName);
+	headers.set(WORKSPACE_CHAT_ROLE_HEADER, presence.role);
+	if (hostTenantId) headers.set("X-Tedix-Tenant-Id", hostTenantId);
+	return upstream.fetch(
+		`${upstream.base}/workspace/${encodeURIComponent(workspaceId)}/chat`,
+		{ headers, method: "GET" },
 	);
 }
 
