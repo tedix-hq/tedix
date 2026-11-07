@@ -24,15 +24,16 @@ import {
 	buildTediContextWakeRequest,
 	deliverTediContextWake,
 } from "./tedi-context-wake";
+import type { TediHostEnv } from "../lib/platform-hosts";
 
 /** Candidates read per organization; reserved items are recorded and passed over. */
 const ROUTING_WINDOW = 25;
 
 export function buildWorkRoutingRequest(
 	item: RoutableWorkItem,
-	environment: string,
+	env: TediHostEnv,
 ): Request {
-	return buildTediContextWakeRequest(item.tediSlug, environment, {
+	return buildTediContextWakeRequest(item.tediSlug, env, {
 		session_key: `work:${item.id}`,
 		client_request_id: `work-routing:${item.id}`,
 		metadata: { source: "work_routing", workItemId: item.id },
@@ -55,7 +56,7 @@ export async function routeOrganizationWork(
 		orgId: string;
 		policy: unknown;
 		now: string;
-		environment: string;
+		env: TediHostEnv;
 		send: (request: Request) => Promise<Response>;
 	},
 ): Promise<{ delegated: number; reserved: number }> {
@@ -93,7 +94,7 @@ export async function routeOrganizationWork(
 		const receipt = await deliverTediContextWake(db, {
 			orgId: input.orgId,
 			tediId: item.tediId,
-			request: buildWorkRoutingRequest(item, input.environment),
+			request: buildWorkRoutingRequest(item, input.env),
 			send: input.send,
 		});
 		await recordWorkRouting(db, {
@@ -127,7 +128,7 @@ export async function dispatchWorkRouting(
 			const result = await routeOrganizationWork(db, {
 				...org,
 				now,
-				environment: env.ENVIRONMENT,
+				env,
 				send: (request) => env.TEDI_SERVICE.fetch(request),
 			});
 			delegated += result.delegated;

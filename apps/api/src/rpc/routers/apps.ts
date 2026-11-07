@@ -83,6 +83,7 @@ import {
 	relinkConnectionProviderProcedure,
 	renameAppSlugProcedure,
 } from "./app-reference-maintenance";
+import { platformDomain } from "@tedix/worker-kit/platform-hosts";
 
 /**
  * Create the contract implementer with base context
@@ -578,9 +579,7 @@ export const provisionAppProcedure = authedAppsOs.provision
 
 		const pattern = input.pattern ?? "customer";
 		const presets = PROVISION_PATTERN_DEFAULTS[pattern];
-		const platformDomain =
-			(env as { PLATFORM_DOMAIN?: string }).PLATFORM_DOMAIN ?? "tedix.dev";
-		const mcpServerUrl = `https://${slug}.mcp.${platformDomain}/mcp`;
+		const mcpServerUrl = `https://${slug}.mcp.${platformDomain(env)}/mcp`;
 
 		// Hostname follows our standard MCP routing — see docs/engineering/mcp/runtime.md.
 		// Custom domains can be set later via update_app.

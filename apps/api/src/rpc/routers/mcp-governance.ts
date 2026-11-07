@@ -35,10 +35,8 @@ import {
 } from "./kernel/write-executor";
 import { initiatingAgentMayStillAct } from "./kernel/write-approval-settlement";
 import { canonicalDigest, canonicalJson } from "../../lib/blueprint-digest";
-import {
-	buildSurfaceUrl,
-	platformDomainForEnvironment,
-} from "@tedix/tenant-directory";
+import { buildSurfaceUrl } from "@tedix/tenant-directory";
+import { platformDomain } from "@tedix/worker-kit/platform-hosts";
 import { createError, ErrorCodes } from "../orpc";
 import { resolveAgentLifecycleAuthorization } from "@tedix/db/queries/mcp-agent-lifecycle";
 import { implement } from "@orpc/server";
@@ -1106,7 +1104,7 @@ async function requestMachineApproval(
 	const origin =
 		organization &&
 		buildSurfaceUrl("os", organization.slug, {
-			platformDomain: platformDomainForEnvironment(context.env.ENVIRONMENT),
+			platformDomain: platformDomain(context.env),
 		});
 	if (!origin)
 		throw createError(ErrorCodes.NOT_FOUND, "Organization OS is unavailable");
@@ -1514,7 +1512,7 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 			const origin =
 				organization &&
 				buildSurfaceUrl("os", organization.slug, {
-					platformDomain: platformDomainForEnvironment(context.env.ENVIRONMENT),
+					platformDomain: platformDomain(context.env),
 				});
 			if (!origin)
 				throw createError(

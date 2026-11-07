@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { hostSetting, platformDomains } from "./platform-hosts";
+import { hostSetting, platformDomain, platformDomains } from "./platform-hosts";
 
 describe("hostSetting", () => {
 	it("falls back to the Tedix hostname when unset or blank", () => {
@@ -27,5 +27,21 @@ describe("platformDomains", () => {
 				PLATFORM_DOMAINS: "Example.com, example.dev,example.com",
 			}),
 		).toEqual(["example.com", "example.dev"]);
+	});
+});
+
+describe("platformDomain", () => {
+	it("follows the lane when PLATFORM_DOMAIN is unset", () => {
+		expect(platformDomain({ ENVIRONMENT: "production" })).toBe("tedix.dev");
+		expect(platformDomain({ ENVIRONMENT: "development" })).toBe("tedix.tech");
+		expect(platformDomain({})).toBe("tedix.tech");
+	});
+	it("uses PLATFORM_DOMAIN on any lane", () => {
+		expect(
+			platformDomain({
+				ENVIRONMENT: "production",
+				PLATFORM_DOMAIN: " Example.com",
+			}),
+		).toBe("example.com");
 	});
 });

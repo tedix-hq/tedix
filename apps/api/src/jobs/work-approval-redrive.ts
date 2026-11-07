@@ -6,6 +6,7 @@ import {
 	listPendingTediWorkApprovals,
 	type PendingTediWorkApproval,
 } from "@tedix/db/queries/work-items/approvals";
+import { platformDomain } from "@tedix/worker-kit/platform-hosts";
 
 /**
  * A held Home delegation review authorizes exactly one dispatch. Saying so in
@@ -20,7 +21,7 @@ function homeDelegationWakeScope(proposal: Record<string, unknown>): string {
 export function buildWorkApprovalWakeRequest(input: {
 	candidate: PendingTediWorkApproval;
 	tediSlug: string;
-	domain: "tedix.dev" | "tedix.tech";
+	domain: string;
 	nowMs?: number;
 }): Request {
 	const { candidate } = input;
@@ -59,7 +60,7 @@ export function buildWorkApprovalWakeRequest(input: {
 
 export function buildWorkApprovalCapabilityRequest(input: {
 	tediSlug: string;
-	domain: "tedix.dev" | "tedix.tech";
+	domain: string;
 }): Request {
 	return new Request("https://tedi/hooks/review-capabilities", {
 		method: "GET",
@@ -128,7 +129,7 @@ export async function wakePendingWorkApproval(
 	);
 	if (!tedi?.slug || tedi.status !== "active" || !env.TEDI_SERVICE)
 		return false;
-	const domain = env.ENVIRONMENT === "production" ? "tedix.dev" : "tedix.tech";
+	const domain = platformDomain(env);
 	await assertWorkApprovalCapabilities(
 		await env.TEDI_SERVICE.fetch(
 			buildWorkApprovalCapabilityRequest({ tediSlug: tedi.slug, domain }),

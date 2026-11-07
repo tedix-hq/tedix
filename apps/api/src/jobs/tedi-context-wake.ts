@@ -4,10 +4,11 @@ import type { DbClient } from "@tedix/db/client";
 import { listTediRuntimeEvents } from "@tedix/db/queries/kernel-runtime-events";
 import { assertWorkApprovalWakeAccepted } from "./work-approval-redrive";
 import { CALLER_TRUST_HEADER } from "@tedix/mcp-shared/auth/caller-trust";
+import { type TediHostEnv, tediHost } from "../lib/platform-hosts";
 
 export function buildTediContextWakeRequest(
 	slug: string,
-	environment: string,
+	env: TediHostEnv,
 	body: {
 		session_key: string;
 		client_request_id: string;
@@ -19,7 +20,7 @@ export function buildTediContextWakeRequest(
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
-			"X-Tedix-Host": `${slug}.tedi.${environment === "production" ? "tedix.dev" : "tedix.tech"}`,
+			"X-Tedix-Host": tediHost(env, slug),
 			"X-Service-Binding": "true",
 			[CALLER_TRUST_HEADER]: "member",
 		},

@@ -14,6 +14,23 @@ function normalizeHost(value: string): string {
 	return value.trim().toLowerCase().replace(/^\.+/, "");
 }
 
+/** Vars that name the installation's own domain; unset keeps Tedix Cloud's. */
+export interface PlatformDomainEnv {
+	ENVIRONMENT?: string;
+	PLATFORM_DOMAIN?: string;
+}
+
+/**
+ * `PLATFORM_DOMAIN`, or the domain Tedix Cloud serves this lane on today:
+ * `tedix.dev` in production, `tedix.tech` everywhere else.
+ */
+export function platformDomain(env: PlatformDomainEnv): string {
+	return hostSetting(
+		env.PLATFORM_DOMAIN,
+		env.ENVIRONMENT === "production" ? "tedix.dev" : "tedix.tech",
+	);
+}
+
 /** One hostname var, or `fallback` when the var is unset or blank. */
 export function hostSetting(
 	value: string | undefined,

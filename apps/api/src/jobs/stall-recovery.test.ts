@@ -87,7 +87,7 @@ function fixture({ configured = true } = {}) {
 			await assessContinuity(db, s, Date.parse(now)),
 			now,
 			send,
-			"production",
+			{ ENVIRONMENT: "production" },
 		);
 	};
 	return { sqlite, db, scope, send, recover };
@@ -202,11 +202,9 @@ describe("autonomous stall recovery", () => {
 		const { db, scope, send, recover } = fixture();
 		const s = await scope();
 		const assessment = await assessContinuity(db, s, Date.parse(now));
-		const body = (await buildStallResumeRequest(
-			s,
-			assessment,
-			"production",
-		).json()) as { client_request_id: string };
+		const body = (await buildStallResumeRequest(s, assessment, {
+			ENVIRONMENT: "production",
+		}).json()) as { client_request_id: string };
 		await db.insert(tediRuntimeEvents).values({
 			id: "failed-recovery",
 			organizationId: s.orgId,
@@ -294,7 +292,7 @@ describe("autonomous stall recovery", () => {
 		const request = buildStallResumeRequest(
 			s,
 			await assessContinuity(db, s, Date.parse(now)),
-			"production",
+			{ ENVIRONMENT: "production" },
 		);
 		const body = (await request.json()) as {
 			text: string;
@@ -327,14 +325,14 @@ describe("autonomous stall recovery", () => {
 				new Response("temporarily unavailable", { status: 503 }),
 		);
 		await expect(
-			recoverStall(db, s, assessment, now, send, "production"),
+			recoverStall(db, s, assessment, now, send, { ENVIRONMENT: "production" }),
 		).rejects.toThrow();
 		expect(
 			await getStallReceipt(db, s.orgId, `${assessment.incidentKey}:accepted`),
 		).toBeNull();
 		const first = await (send.mock.calls[0]![0] as Request).json();
 		await expect(
-			recoverStall(db, s, assessment, now, send, "production"),
+			recoverStall(db, s, assessment, now, send, { ENVIRONMENT: "production" }),
 		).rejects.toThrow();
 		expect(await (send.mock.calls[1]![0] as Request).json()).toEqual(first);
 	});
@@ -416,7 +414,7 @@ describe("autonomous stall recovery", () => {
 				{ ...assessment, incidentKey: `${assessment.incidentKey}:${suffix}` },
 				now,
 				async () => Response.json({ accepted: true, run_id: suffix }),
-				"production",
+				{ ENVIRONMENT: "production" },
 			);
 		const data = await listLearningImprovementProposals(db, {
 			organizationId: s.orgId,
@@ -608,7 +606,7 @@ describe("autonomous stall recovery", () => {
 			staging,
 			now,
 			async () => Response.json({ accepted: true, run_id: "staging-resume" }),
-			"staging",
+			{ ENVIRONMENT: "staging" },
 		);
 		expect((await readContinuity(db, s.orgId, new Date(now))).stalls).toEqual(
 			[],

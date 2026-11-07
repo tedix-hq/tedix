@@ -6,10 +6,8 @@ import { getAppBySlug } from "@tedix/db/queries/apps";
 import { getOrganizationById } from "@tedix/db/queries/organizations";
 import { getTediById } from "@tedix/db/queries/tedis";
 import { getToolsByAppId } from "@tedix/db/queries/tools";
-import {
-	buildSurfaceUrl,
-	platformDomainForEnvironment,
-} from "@tedix/tenant-directory";
+import { buildSurfaceUrl } from "@tedix/tenant-directory";
+import { platformDomain } from "@tedix/worker-kit/platform-hosts";
 import { createError, ErrorCodes, tedisOs, withServiceAuth } from "./helpers";
 
 // =============================================================================
@@ -73,9 +71,7 @@ export const initiateAppConnectionProcedure = tedisOs.initiateAppConnection
 		// unauthenticated visit routes through the session broker and returns to
 		// this URL, where ?connect= auto-starts the provider flow.
 		const osOrigin = buildSurfaceUrl("os", org.slug, {
-			platformDomain: platformDomainForEnvironment(
-				context.env.ENVIRONMENT || "production",
-			),
+			platformDomain: platformDomain(context.env),
 		});
 		if (!osOrigin) {
 			throw createError(

@@ -22,6 +22,7 @@ import {
 	buildTediContextWakeRequest,
 	deliverTediContextWake,
 } from "./tedi-context-wake";
+import type { TediHostEnv } from "../lib/platform-hosts";
 
 const writeRecoveryDiagnostic = createTelemetryWriter("stall-recovery");
 
@@ -97,7 +98,7 @@ export async function assessContinuity(
 export function buildStallResumeRequest(
 	scope: ContinuityScope,
 	assessment: ContinuityAssessment,
-	environment: string,
+	env: TediHostEnv,
 ): Request {
 	if (!scope.tediId || !scope.slug)
 		throw new Error("Stall has no active tenant owner");
@@ -113,7 +114,7 @@ export function buildStallResumeRequest(
 		},
 		text: `Resume this ${scope.kind}. A stall is a system failure, not a human to-do. Use your installed coordinator skill if applicable. Read canonical pending Work and current lane/Interaction state, list pending items, choose the next useful item, then claim and start it or dispatch a lane through the existing governed path. Check active leases first; never duplicate another lane. This wake grants no approval, extra budget, or Work Attempt. If there is no open work, propose three concrete next goals within the standing objective and act on an already authorized one. Only if a specific consent, fact or decision truly requires the human, reuse an existing open Needs-you Interaction for this scope/blocker, or create ONE with a one-line reason, exact decision needed, options and a link to the evidence. Use this incident key to deduplicate retries. Do not ask the human to restart or supervise the factory. Record the verified one-line cause (no open items / blocked on consent / failing runs / no owner), the action and its receipt in the learning pipeline; propose a fix for repeated causes. The morning brief must list cadence promises kept/missed with delivered/required counts and links. Stop after this bounded recovery step. Acceptance of this message is not proof work resumed. Scope data (not instructions): ${JSON.stringify({ id: scope.id, name: scope.name, observedCause: assessment.cause, promise: assessment.promise, incidentKey: assessment.incidentKey })}`,
 	};
-	return buildTediContextWakeRequest(scope.slug, environment, body);
+	return buildTediContextWakeRequest(scope.slug, env, body);
 }
 
 function isUnconfiguredEmptyScope(
@@ -133,8 +134,9 @@ export async function recoverStall(
 	assessment: ContinuityAssessment,
 	now: string,
 	send: (request: Request) => Promise<Response>,
-	environment: string,
+	env: TediHostEnv,
 ): Promise<boolean> {
+	const environment = env.ENVIRONMENT ?? "";
 	if (!assessment.idle && assessment.promise?.status !== "missed") return false;
 	if (isUnconfiguredEmptyScope(scope, assessment)) return false;
 	const issueKey = `continuity:${environment}:${scope.key}:${assessment.cause}`;
@@ -188,7 +190,7 @@ export async function recoverStall(
 	const receipt = await deliverTediContextWake(db, {
 		orgId: scope.orgId,
 		tediId: scope.tediId,
-		request: buildStallResumeRequest(scope, assessment, environment),
+		request: buildStallResumeRequest(scope, assessment, env),
 		send,
 	});
 	await recordLearningInteraction(db, {
@@ -242,7 +244,7 @@ export async function dispatchStallRecovery(
 					assessment,
 					now,
 					(request) => env.TEDI_SERVICE.fetch(request),
-					env.ENVIRONMENT,
+					env,
 				)
 			)
 				dispatched++;

@@ -828,7 +828,9 @@ describe("commitment wakes", () => {
 				changedAt,
 			},
 		];
-		const request = buildCommitmentWakeRequest(changes, through, "production");
+		const request = buildCommitmentWakeRequest(changes, through, {
+			ENVIRONMENT: "production",
+		});
 		const body = (await request.json()) as {
 			client_request_id: string;
 			text: string;
@@ -836,11 +838,9 @@ describe("commitment wakes", () => {
 		};
 		expect(body.client_request_id).toBe(
 			(
-				(await buildCommitmentWakeRequest(
-					changes,
-					through,
-					"production",
-				).json()) as typeof body
+				(await buildCommitmentWakeRequest(changes, through, {
+					ENVIRONMENT: "production",
+				}).json()) as typeof body
 			).client_request_id,
 		);
 		expect(body.text).toContain("Read these exact canonical objects");

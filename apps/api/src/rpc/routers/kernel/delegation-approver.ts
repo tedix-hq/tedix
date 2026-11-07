@@ -20,6 +20,7 @@ import {
 	buildWorkApprovalCapabilityRequest,
 } from "../../../jobs/work-approval-redrive";
 import type { DelegationApproverDesignation } from "./dispatch-policy";
+import { platformDomain } from "@tedix/worker-kit/platform-hosts";
 
 /** Work admission authority an approved Home delegation review satisfies. */
 export const HOME_DELEGATION_AUTHORITY = "home_delegation";
@@ -110,8 +111,7 @@ export async function resolveDelegationApprover(input: {
 			return unresolved("the designated approver is not active");
 		if (!input.env.TEDI_SERVICE)
 			return unresolved("the tedi runtime is unavailable for agent review");
-		const domain =
-			input.env.ENVIRONMENT === "production" ? "tedix.dev" : "tedix.tech";
+		const domain = platformDomain(input.env);
 		await assertWorkApprovalCapabilities(
 			await input.env.TEDI_SERVICE.fetch(
 				buildWorkApprovalCapabilityRequest({ tediSlug: tedi.slug, domain }),

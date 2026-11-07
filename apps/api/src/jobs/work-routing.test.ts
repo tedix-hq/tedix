@@ -58,7 +58,7 @@ function fixture() {
 			orgId: "orchard",
 			policy,
 			now: NOW,
-			environment: "production",
+			env: { ENVIRONMENT: "production" },
 			send,
 		});
 	return { db, send, route };
@@ -118,7 +118,7 @@ describe("work routing", () => {
 				orgId: "orchard",
 				policy: { ...policy, autoRoute: { enabled: false } },
 				now: NOW,
-				environment: "production",
+				env: { ENVIRONMENT: "production" },
 				send,
 			}),
 		).toEqual({ delegated: 0, reserved: 0 });

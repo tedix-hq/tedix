@@ -87,7 +87,7 @@ export async function dispatchInteractionReviews(
 				const accepted = await deliverTediContextWake(db, {
 					orgId: row.orgId,
 					tediId: tedi.id,
-					request: buildTediContextWakeRequest(tedi.slug, env.ENVIRONMENT, {
+					request: buildTediContextWakeRequest(tedi.slug, env, {
 						session_key:
 							typeof row.metadata.sessionId === "string"
 								? row.metadata.sessionId
