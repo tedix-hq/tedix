@@ -467,12 +467,15 @@ test("lanes: the gate keeps only the policy check, verify runs every test lane",
 		lane: "full",
 		checks: ["onboarding", "scripts", "policy"],
 	});
+	// An affected-scoped push touched no global input: the gate is plan and
+	// aggregate alone. A full-scoped push keeps the policy check.
 	const gate = laneSelection(plan, "gate");
 	expect(gate.matrix.include).toEqual([]);
-	expect(gate).toMatchObject({
+	expect(gate).toMatchObject({ repository: false, checks: [], lane: "gate" });
+	expect(laneSelection({ ...plan, scope: "full" }, "gate")).toMatchObject({
 		repository: true,
 		checks: ["policy"],
-		lane: "gate",
+		matrix: { include: [] },
 	});
 	const verify = laneSelection(plan, "verify");
 	expect(verify.matrix.include).toHaveLength(2);
