@@ -402,14 +402,20 @@ export function laneSelection(plan, lane = "full") {
 		throw new Error(`Unknown suite lane: ${lane}`);
 	const checks = plan.repository ? REPOSITORY_CHECKS : [];
 	if (lane === "full") return { ...plan, lane, checks };
-	if (lane === "gate")
+	// suiteSelection already widens to a full plan whenever a push touches a
+	// global input (schema, migrations, deploy config, workflows, scripts/ci,
+	// lockfiles). An affected- or docs-scoped push therefore changed nothing
+	// the policy check reads, and its gate is plan + aggregate alone.
+	if (lane === "gate") {
+		const policy = plan.scope === "full";
 		return {
 			...plan,
 			lane,
 			matrix: { include: [] },
-			repository: true,
-			checks: ["policy"],
+			repository: policy,
+			checks: policy ? ["policy"] : [],
 		};
+	}
 	return {
 		...plan,
 		lane,
