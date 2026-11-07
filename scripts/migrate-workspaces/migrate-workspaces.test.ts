@@ -1,0 +1,426 @@
+import { describe, expect, test } from "bun:test";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import { LocalBundleStore } from "./bundle";
+import { parseArgs } from "./cli";
+import { checkAssignments, exportAll } from "./export";
+import { importAll } from "./import";
+import { reconcileAll } from "./reconcile";
+import { rehearse } from "./rehearse";
+import { batchIdFor, RowDigest } from "./rows";
+import { Snapshot } from "./source";
+import {
+	TABLES_THAT_STAY,
+	WORKSPACE_TABLES,
+	type WorkspaceAssignments,
+} from "./tables";
+import { LocalWorkspaceStore, localStoreFactory } from "./target";
+
+const D1_MIGRATIONS = join(import.meta.dir, "../../packages/db/drizzle");
+let template: Uint8Array | undefined;
+
+/** A database shaped like the shared one today, from its real migration chain. */
+function sharedDatabase(): DatabaseSync {
+	if (!template) {
+		const db = new DatabaseSync(":memory:");
+		db.exec("PRAGMA foreign_keys=OFF");
+		for (const name of readdirSync(D1_MIGRATIONS)
+			.filter((n) => /^\d{14}_/.test(n))
+			.sort())
+			db.exec(readFileSync(join(D1_MIGRATIONS, name, "migration.sql"), "utf8"));
+		template = db.serialize();
+		db.close();
+	}
+	const db = new DatabaseSync(":memory:");
+	db.deserialize(template);
+	db.exec("PRAGMA foreign_keys=OFF");
+	return db;
+}
+
+const ORG = "org-fixture";
+const WS_A = "ws-a";
+const WS_B = "ws-b";
+const NOW = "2026-11-07T10:00:00.000Z";
+
+/** Two workspaces, one organization, rows in every mapped domain, run events split across stores. */
+function fixtureSnapshot(
+	options: { unassignedOutput?: boolean } = {},
+): Snapshot {
+	const main = sharedDatabase();
+	const logs = sharedDatabase();
+	main.exec(
+		`INSERT INTO organizations (id, name, slug) VALUES ('${ORG}', 'Fixture', 'fixture')`,
+	);
+	for (const ws of [WS_A, WS_B])
+		main
+			.prepare(
+				"INSERT INTO os_workspaces (id, organization_id, name, created_by_kind, created_by_id, created_at) VALUES (?, ?, ?, 'user', 'u1', ?)",
+			)
+			.run(ws, ORG, ws, NOW);
+	const output = main.prepare(
+		"INSERT INTO os_outputs (id, organization_id, workspace_id, kind, title, current_revision_id, created_by_kind, created_by_id) VALUES (?, ?, ?, 'document', ?, ?, 'user', 'u1')",
+	);
+	const revision = main.prepare(
+		"INSERT INTO os_output_revisions (id, organization_id, output_id, revision, content, created_by_kind, created_by_id, content_sha256, body_r2_key) VALUES (?, ?, ?, ?, ?, 'user', 'u1', ?, ?)",
+	);
+	output.run("out-a1", ORG, WS_A, "Plan", "rev-a1-2");
+	revision.run("rev-a1-1", ORG, "out-a1", 1, '{"blocks":[]}', null, null);
+	revision.run("rev-a1-2", ORG, "out-a1", 2, "", "abc", "outputs/out-a1/2");
+	output.run("out-b1", ORG, WS_B, "Sheet", "rev-b1-1");
+	revision.run("rev-b1-1", ORG, "out-b1", 1, '{"rows":[[1,2]]}', null, null);
+	if (options.unassignedOutput) {
+		output.run("out-none", ORG, null, "Loose", "rev-none-1");
+		revision.run("rev-none-1", ORG, "out-none", 1, "{}", null, null);
+	}
+	main
+		.prepare(
+			"INSERT INTO os_workspace_resources (id, organization_id, workspace_id, provider_id, connection_scope, resource_type, provider_resource_id, name, created_by_kind, created_by_id) VALUES (?, ?, ?, 'gmail', 'tenant', 'mailbox', 'inbox', 'Inbox', 'user', 'u1')",
+		)
+		.run("res-a", ORG, WS_A);
+	main
+		.prepare(
+			"INSERT INTO kernel_conversations (id, organization_id, conversation_id, workspace_id, last_message_at) VALUES (?, ?, ?, ?, ?)",
+		)
+		.run("kc-a", ORG, "conv-a", WS_A, NOW);
+	main
+		.prepare(
+			"INSERT INTO kernel_conversations (id, organization_id, conversation_id, workspace_id, last_message_at) VALUES (?, ?, ?, NULL, ?)",
+		)
+		.run("kc-home", ORG, "conv-home", NOW);
+	main
+		.prepare(
+			"INSERT INTO kernel_runtime_runs (id, organization_id, conversation_id, status) VALUES (?, ?, ?, 'completed')",
+		)
+		.run("run-a", ORG, "conv-a");
+	main
+		.prepare(
+			"INSERT INTO kernel_runtime_runs (id, organization_id, conversation_id, status) VALUES (?, ?, ?, 'completed')",
+		)
+		.run("run-home", ORG, "conv-home");
+	const event =
+		"INSERT INTO kernel_runtime_events (id, organization_id, kind, conversation_id, run_id, sequence, payload) VALUES (?, ?, 'message', ?, ?, ?, ?)";
+	main
+		.prepare(event)
+		.run("ev-1", ORG, "conv-a", "run-a", 1, '{"text":"hello"}');
+	main
+		.prepare(event)
+		.run("ev-2", ORG, "conv-a", "run-a", 2, '{"text":"moved"}');
+	logs
+		.prepare(
+			"INSERT INTO kernel_conversations (id, organization_id, conversation_id, workspace_id, last_message_at) VALUES (?, ?, ?, ?, ?)",
+		)
+		.run("kc-a", ORG, "conv-a", WS_A, NOW);
+	logs
+		.prepare(event)
+		.run("ev-2", ORG, "conv-a", "run-a", 2, '{"text":"moved"}');
+	logs
+		.prepare(event)
+		.run("ev-3", ORG, "conv-a", "run-a", 3, '{"text":"only in logs"}');
+	main
+		.prepare(
+			"INSERT INTO kernel_tool_results (id, organization_id, conversation_id, run_id, source_kind, source_id, object_key, sha256, byte_size, created_at, expires_at) VALUES (?, ?, ?, ?, 'tool', 't1', 'k/1', 'sha', 10, ?, ?)",
+		)
+		.run("tr-1", ORG, "conv-a", "run-a", NOW, NOW);
+	main
+		.prepare(
+			"INSERT INTO tedi_artifacts (id, organization_id, tedi_id, conversation_id, run_id, kind, name, metadata) VALUES (?, ?, 'tedi-1', ?, ?, 'file', 'report.pdf', ?)",
+		)
+		.run("art-1", ORG, "conv-a", "run-a", '{"pages":3}');
+	main
+		.prepare(
+			"INSERT INTO memory_domains (id, organization_id, name) VALUES (?, ?, ?)",
+		)
+		.run("dom-1", ORG, "product");
+	main
+		.prepare(
+			"INSERT INTO memory_facts (id, organization_id, domain_id, content, fact_type) VALUES (?, ?, ?, ?, 'preference')",
+		)
+		.run("fact-1", ORG, "dom-1", "Prefers short answers");
+	main
+		.prepare(
+			"INSERT INTO memory_facts (id, organization_id, domain_id, content, fact_type) VALUES (?, ?, ?, ?, 'preference')",
+		)
+		.run("fact-2", ORG, "dom-1", "Works in EU hours");
+	main
+		.prepare(
+			"INSERT INTO memory_edges (id, source_fact_id, target_fact_id, relation_type) VALUES (?, ?, ?, 'related')",
+		)
+		.run("edge-1", "fact-1", "fact-2");
+	return Snapshot.fromDatabases(main, [logs]);
+}
+
+const assignments: WorkspaceAssignments = {
+	[ORG]: { memoryHome: WS_A, unassignedOutputsHome: WS_B },
+};
+
+describe("migrate-workspaces", () => {
+	test("rehearsal moves every workspace with zero drift and reports timings", async () => {
+		const snapshot = fixtureSnapshot();
+		const workDir = mkdtempSync(join(tmpdir(), "mw-test-"));
+		try {
+			const report = await rehearse(snapshot, assignments, { workDir });
+			expect(report.reconcile.problems).toEqual([]);
+			expect(
+				report.reconcile.workspaces.flatMap((w) => [...w.drift, ...w.problems]),
+			).toEqual([]);
+			expect(report.ok).toBe(true);
+			expect(report.workspaces.map((w) => w.workspaceId)).toEqual([WS_A, WS_B]);
+			for (const w of report.workspaces) {
+				expect(w.exportMs).toBeGreaterThan(0);
+				expect(w.importMs).toBeGreaterThan(0);
+				expect(w.reconcileMs).toBeGreaterThan(0);
+			}
+			const a = report.workspaces.find((w) => w.workspaceId === WS_A)!;
+			// outputs 1 + revisions 2 + resource 1 + conversation 1 + run 1 + events 3 (one only in the log partition, one in both) + tool result 1 + artifact 1 + memory 4
+			expect(a.rows).toBe(15);
+			const totals = Object.fromEntries(
+				report.reconcile.totals.map((t) => [t.table, t]),
+			);
+			expect(totals.kernel_runtime_events).toEqual({
+				table: "kernel_runtime_events",
+				source: 3,
+				bundled: 3,
+			});
+			// Home threads and their runs stay in the core: not bundled, not counted as left behind.
+			expect(totals.kernel_conversations!.bundled).toBe(1);
+			expect(
+				report.reconcile.workspaces.every((w) => w.jurisdiction === "eu"),
+			).toBe(true);
+			// Until the object's migration chain creates the ported tables, rehearsal shapes them from the snapshot and says so.
+			expect(report.fallbackTables).toContain("os_outputs");
+			expect(report.fallbackTables).not.toContain("memory_facts");
+			const bundle = await new LocalBundleStore(join(workDir, "bundles")).read({
+				organizationId: ORG,
+				workspaceId: WS_A,
+			});
+			expect(bundle.manifest.outputHeads).toEqual([
+				{
+					outputId: "out-a1",
+					currentRevisionId: "rev-a1-2",
+					latestRevision: 2,
+				},
+			]);
+			expect(
+				bundle.tables.get("kernel_runtime_events")!.map((r) => r.id),
+			).toEqual(["ev-1", "ev-2", "ev-3"]);
+		} finally {
+			rmSync(workDir, { recursive: true, force: true });
+			snapshot.close();
+		}
+	});
+
+	test("the reconciler reports drift when the object differs from the bundle", async () => {
+		const snapshot = fixtureSnapshot();
+		const workDir = mkdtempSync(join(tmpdir(), "mw-test-"));
+		try {
+			const report = await rehearse(snapshot, assignments, { workDir });
+			expect(report.ok).toBe(true);
+			const stores = localStoreFactory(join(workDir, "objects"));
+			const store = (await stores.open({
+				organizationId: ORG,
+				workspaceId: WS_A,
+			})) as LocalWorkspaceStore;
+			store.db.exec(
+				"UPDATE kernel_runtime_events SET payload = '{\"text\":\"edited\"}' WHERE id = 'ev-1'",
+			);
+			store.db.exec("DELETE FROM tedi_artifacts");
+			store.db.exec("UPDATE os_outputs SET current_revision_id = 'rev-a1-1'");
+			await store.close();
+			const again = await reconcileAll(
+				new LocalBundleStore(join(workDir, "bundles")),
+				stores,
+				{ snapshot },
+			);
+			expect(again.ok).toBe(false);
+			const a = again.workspaces.find((w) => w.workspaceId === WS_A)!;
+			expect(
+				a.drift.map((d) => `${d.table}:${d.expectedCount}->${d.actualCount}`),
+			).toEqual([
+				"os_outputs:1->1",
+				"kernel_runtime_events:3->3",
+				"tedi_artifacts:1->0",
+			]);
+			expect(a.problems).toEqual([
+				"output out-a1 serves rev-a1-1, expected rev-a1-2",
+			]);
+			expect(again.workspaces.find((w) => w.workspaceId === WS_B)!.ok).toBe(
+				true,
+			);
+		} finally {
+			rmSync(workDir, { recursive: true, force: true });
+			snapshot.close();
+		}
+	});
+
+	test("a wrong jurisdiction is drift", async () => {
+		const snapshot = fixtureSnapshot();
+		const workDir = mkdtempSync(join(tmpdir(), "mw-test-"));
+		try {
+			const bundles = new LocalBundleStore(join(workDir, "bundles"));
+			await exportAll(snapshot, bundles, assignments);
+			const fallbackDdl = (table: string) =>
+				String(
+					snapshot.main
+						.prepare("SELECT sql FROM sqlite_master WHERE name = ?")
+						.get(table)?.sql ?? "",
+				) || null;
+			const stores = localStoreFactory(join(workDir, "objects"), {
+				jurisdiction: null,
+				fallbackDdl,
+			});
+			await importAll(bundles, stores);
+			const report = await reconcileAll(bundles, stores);
+			expect(report.ok).toBe(false);
+			expect(report.workspaces[0]!.problems).toEqual([
+				"jurisdiction is unset, expected eu",
+			]);
+			expect(
+				(await reconcileAll(bundles, stores, { requiredJurisdiction: null }))
+					.ok,
+			).toBe(true);
+		} finally {
+			rmSync(workDir, { recursive: true, force: true });
+			snapshot.close();
+		}
+	});
+
+	test("a rerun of import skips chunks that already landed", async () => {
+		const snapshot = fixtureSnapshot();
+		const workDir = mkdtempSync(join(tmpdir(), "mw-test-"));
+		try {
+			const bundles = new LocalBundleStore(join(workDir, "bundles"));
+			await exportAll(snapshot, bundles, assignments);
+			const fallbackDdl = (table: string) =>
+				String(
+					snapshot.main
+						.prepare("SELECT sql FROM sqlite_master WHERE name = ?")
+						.get(table)?.sql ?? "",
+				) || null;
+			const stores = localStoreFactory(join(workDir, "objects"), {
+				fallbackDdl,
+			});
+			const first = await importAll(bundles, stores);
+			const second = await importAll(bundles, stores);
+			expect(first.map((r) => r.imported)).toEqual([15, 2]);
+			expect(second.map((r) => [r.imported, r.duplicates])).toEqual([
+				[0, 15],
+				[0, 2],
+			]);
+			expect((await reconcileAll(bundles, stores, { snapshot })).ok).toBe(true);
+			expect(batchIdFor(WS_A, "os_outputs", 0)).toBe(
+				batchIdFor(WS_A, "os_outputs", 0),
+			);
+			expect(batchIdFor(WS_A, "os_outputs", 0)).not.toBe(
+				batchIdFor(WS_B, "os_outputs", 0),
+			);
+		} finally {
+			rmSync(workDir, { recursive: true, force: true });
+			snapshot.close();
+		}
+	});
+
+	test("outputs without a workspace need a home, then move with their revisions", async () => {
+		const snapshot = fixtureSnapshot({ unassignedOutput: true });
+		const workDir = mkdtempSync(join(tmpdir(), "mw-test-"));
+		try {
+			expect(
+				checkAssignments(snapshot, { [ORG]: { memoryHome: WS_A } }),
+			).toEqual([
+				`organization ${ORG}: 1 outputs have no workspace and no unassignedOutputsHome`,
+			]);
+			expect(checkAssignments(snapshot, {})).toEqual([
+				`organization ${ORG}: 1 outputs have no workspace and no unassignedOutputsHome`,
+				`organization ${ORG}: memory rows exist and no memoryHome is assigned`,
+			]);
+			expect(
+				checkAssignments(snapshot, {
+					[ORG]: { memoryHome: "nope", unassignedOutputsHome: WS_B },
+				}),
+			).toEqual([
+				`organization ${ORG}: memoryHome nope is not a workspace of that organization`,
+			]);
+			await expect(
+				exportAll(snapshot, new LocalBundleStore(join(workDir, "x")), {}),
+			).rejects.toThrow("Export refused");
+			const report = await rehearse(snapshot, assignments, { workDir });
+			expect(report.ok).toBe(true);
+			const bundle = await new LocalBundleStore(join(workDir, "bundles")).read({
+				organizationId: ORG,
+				workspaceId: WS_B,
+			});
+			expect(bundle.manifest.tables.os_outputs).toMatchObject({
+				count: 2,
+				reassigned: 1,
+			});
+			expect(
+				bundle.tables.get("os_outputs")!.find((r) => r.id === "out-none")!
+					.workspace_id,
+			).toBe(WS_B);
+			expect(bundle.manifest.tables.os_output_revisions).toMatchObject({
+				count: 2,
+				reassigned: 1,
+			});
+		} finally {
+			rmSync(workDir, { recursive: true, force: true });
+			snapshot.close();
+		}
+	});
+
+	test("the digest orders rows by key and columns by name, and sees blobs", () => {
+		const a = new RowDigest(["id"]);
+		a.add({ id: "2", v: 1, b: new Uint8Array([1, 2]) });
+		a.add({ id: "1", v: null });
+		const b = new RowDigest(["id"]);
+		b.add({ v: null, id: "1" });
+		b.add({ b: new Uint8Array([1, 2]), v: 1, id: "2" });
+		expect(a.hex()).toBe(b.hex());
+		const c = new RowDigest(["id"]);
+		c.add({ id: "1", v: null });
+		c.add({ id: "2", v: 1, b: new Uint8Array([1, 3]) });
+		expect(c.hex()).not.toBe(a.hex());
+		const d = new RowDigest(["id"]);
+		d.add({ id: "1", v: "1" });
+		const e = new RowDigest(["id"]);
+		e.add({ id: "1", v: 1 });
+		expect(d.hex()).not.toBe(e.hex());
+	});
+
+	test("the mapping names every moved table once and the stay list does not overlap", () => {
+		const names = WORKSPACE_TABLES.map((m) => m.table);
+		expect(new Set(names).size).toBe(names.length);
+		for (const stay of TABLES_THAT_STAY)
+			if (!stay.table.includes("(")) expect(names).not.toContain(stay.table);
+		for (const mapping of WORKSPACE_TABLES)
+			expect(mapping.where).toContain(":org");
+	});
+
+	test("the command line takes repeated log partitions", () => {
+		expect(
+			parseArgs([
+				"export",
+				"--snapshot",
+				"main.sql",
+				"--logs",
+				"a.sql",
+				"b.sql",
+				"--bundles",
+				"out",
+			]),
+		).toEqual({
+			command: "export",
+			flags: { snapshot: "main.sql", logs: ["a.sql", "b.sql"], bundles: "out" },
+		});
+		expect(
+			parseArgs([
+				"reconcile",
+				"--bundles",
+				"b",
+				"--remote",
+				"https://example.test",
+				"--allow-any-jurisdiction",
+			]).flags["allow-any-jurisdiction"],
+		).toBe(true);
+	});
+});
