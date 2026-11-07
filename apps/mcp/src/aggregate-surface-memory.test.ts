@@ -768,6 +768,51 @@ describe("aggregate snapshot memory", () => {
 			);
 		});
 
+		it("rewrites a stale shard even when the organization graph object is unchanged", async () => {
+			await loadConnect();
+			await settleBackground();
+			const before = Object.fromEntries(
+				shardKeys().map((key) => [key, r2.objects.get(key)!.customMetadata]),
+			);
+			// The graph stays hot in this isolate (same object, already compiled)
+			// while the stored shards age past the refresh window.
+			for (const key of shardKeys())
+				r2.objects.get(key)!.customMetadata = {
+					builtAt: String(Date.now() - DISCOVERY_SHARD_STALE_AFTER_MS - 1_000),
+				};
+			discoveryShardCache.clear();
+			const shards = await loadDiscoveryShards(
+				env,
+				mounts,
+				new Set(),
+				activation.value,
+			);
+			const refresh = shards!.refresh!;
+			refreshDiscoveryShard(
+				refresh,
+				activation.value,
+				async () => {
+					// Hydration reuses the graph object the first load compiled from.
+					await aggregateAndPrefixTools(
+						[refresh],
+						env,
+						new Set(),
+						ctx,
+						"connect",
+						activation,
+						false,
+					);
+				},
+				ctx,
+			);
+			await settleBackground();
+			const rewritten = shardKeys().filter(
+				(key) =>
+					r2.objects.get(key)!.customMetadata?.builtAt !== before[key]?.builtAt,
+			);
+			expect(rewritten).toHaveLength(1);
+		});
+
 		it("writes shards after the response, one at a time, and skips fresh ones", async () => {
 			let active = 0;
 			let peak = 0;
