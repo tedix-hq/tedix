@@ -912,6 +912,50 @@ describe("aggregate host connection defaults (integration via worker.fetch)", ()
 		expect(buildMcpServer).not.toHaveBeenCalled();
 	});
 
+	it("lists Connect's built-in tools without hydrating any organization graph", async () => {
+		const host = {
+			slug: "connect-bootstrap",
+			mcpConfig: { codeMode: true, multiOrgConsent: true },
+		};
+		const selection = {
+			organizations: [
+				{
+					organizationId: "sample-org-one",
+					descopeTenantId: "sample-tenant-one",
+					gatewaySlug: "sample-one-unified",
+				},
+				{
+					organizationId: "sample-org-two",
+					descopeTenantId: "sample-tenant-two",
+					gatewaySlug: "sample-two-unified",
+				},
+			],
+		};
+		const response = await handleMcpRequest(
+			new Request("https://connect-bootstrap.mcp.example/mcp", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"x-tedix-auth-type": "oauth",
+					"x-tedix-auth-user-id": "sample-user",
+					"x-tedix-auth-org-id": "sample-hosting-org",
+					"x-tedix-auth-scopes": "mcp:work.read",
+				},
+				body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+			}),
+			{
+				...appResponse(host),
+				metadata: { mcpConfig: host.mcpConfig },
+			} as unknown as Parameters<typeof handleMcpRequest>[1],
+			createEnv(),
+			createExecutionContext(),
+			selection,
+		);
+		expect(response.status).toBe(200);
+		// No organization gateway was resolved for the listing.
+		expect(getBySlugWithTools).not.toHaveBeenCalled();
+	});
+
 	it("returns cross-organization Connect metadata without hydrating provider registries", async () => {
 		const host = {
 			slug: "connect",
