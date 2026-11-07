@@ -17,7 +17,6 @@ import {
 	aggregateRevalidateInFlight,
 	aggregateSurfaceCacheKey,
 	claimAggregateRevalidationLease,
-	pruneAggregateSurfaceCache,
 	touchAggregateSurface,
 	rememberAggregateSurface,
 	serializeAggregateSnapshot,
@@ -121,7 +120,7 @@ async function revalidateAggregate(
 	}
 }
 
-export async function aggregateAndPrefixTools(
+export function aggregateAndPrefixTools(
 	entries: AggregateAppEntry[],
 	env: CloudflareEnv,
 	visited: Set<string> = new Set(),
@@ -132,9 +131,34 @@ export async function aggregateAndPrefixTools(
 	rootSlug?: string,
 	activation?: { value: string; cacheable: boolean },
 	cacheSnapshot = true,
+	// Only a fully uncached traversal can produce policy provenance.
+	capturePolicyMountPath = false,
+	policyToolId?: string,
+): Promise<AggregatedMcpSurface> {
+	return aggregateAndPrefixToolsCached(
+		entries,
+		env,
+		visited,
+		ctx,
+		rootSlug,
+		activation,
+		cacheSnapshot,
+		false,
+		capturePolicyMountPath,
+		policyToolId,
+	);
+}
+
+async function aggregateAndPrefixToolsCached(
+	entries: AggregateAppEntry[],
+	env: CloudflareEnv,
+	visited: Set<string> = new Set(),
+	ctx?: ExecutionContext,
+	rootSlug?: string,
+	activation?: { value: string; cacheable: boolean },
+	cacheSnapshot = true,
 	// Set for nested graphs of a transient root; see rememberAggregateSurface.
 	retainNested = false,
-	// Only a fully uncached traversal can produce policy provenance.
 	capturePolicyMountPath = false,
 	policyToolId?: string,
 ): Promise<AggregatedMcpSurface> {
@@ -194,11 +218,12 @@ export async function aggregateAndPrefixTools(
 	// Consent-composed roots duplicate shared schemas across organizations when
 	// serialized. Keep source-app caches and in-flight sharing, but do not retain
 	// or deserialize the combined catalog in any snapshot tier.
-	// An expired entry is still read before pruning: when the durable tier holds
-	// the same generation, the load reuses it instead of parsing the snapshot.
+	// An expired entry stays mapped as a reuse reference: when the durable tier
+	// holds the same generation, the load reuses it instead of parsing the
+	// snapshot. Writes prune expired entries; the row budget releases them
+	// regardless.
 	const cached =
 		cacheSnapshot && retain ? aggregateSurfaceCache.get(cacheKey) : undefined;
-	pruneAggregateSurfaceCache();
 	if (cached && cached.expiresAt > Date.now()) {
 		touchAggregateSurface(cacheKey);
 		return cached.result;
@@ -641,7 +666,7 @@ async function aggregateAndPrefixToolsUncached(
 				if (!entry.appId) nestedVisited.add(entry.slug);
 				nestedVisited.add(sourceSlug);
 				if (sourceAppId) nestedVisited.add(sourceAppId);
-				return aggregateAndPrefixTools(
+				return aggregateAndPrefixToolsCached(
 					nestedEntries,
 					env,
 					nestedVisited,

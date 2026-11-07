@@ -9,10 +9,7 @@ import type {
 } from "./aggregate-types";
 import { internalToolCache } from "./aggregate-internal-tools";
 import { writeAggregateActivationEpoch } from "./aggregate-activation-epoch";
-import {
-	pruneExpiredCacheEntries,
-	setBoundedCacheEntry,
-} from "./lib/bounded-cache";
+import { pruneExpiredCacheEntries } from "./lib/bounded-cache";
 import { hashAggregateCacheKey } from "./lib/cache-key-hash";
 import {
 	CACHE_TIER_BUDGET_MS,
@@ -28,20 +25,31 @@ export type AggregateSurfaceCacheEntry = {
 	/** Content hash of the serialized snapshot this object was built from. */
 	generation?: string;
 };
-export const aggregateSurfaceCache = new Map<
-	string,
-	AggregateSurfaceCacheEntry
->();
+// Counts retained tool rows on every mutation so the budget check stays O(1);
+// summing the map per release multiplied the eviction cost by every entry.
+class RetainedRowsSurfaceCache extends Map<string, AggregateSurfaceCacheEntry> {
+	retainedRows = 0;
+	override set(key: string, entry: AggregateSurfaceCacheEntry): this {
+		this.retainedRows -= this.get(key)?.result.tools.length ?? 0;
+		this.retainedRows += entry.result.tools.length;
+		return super.set(key, entry);
+	}
+	override delete(key: string): boolean {
+		this.retainedRows -= this.get(key)?.result.tools.length ?? 0;
+		return super.delete(key);
+	}
+	override clear(): void {
+		this.retainedRows = 0;
+		super.clear();
+	}
+}
+export const aggregateSurfaceCache = new RetainedRowsSurfaceCache();
 export const aggregateSurfaceInFlight = new Map<
 	string,
 	Promise<AggregatedMcpSurface>
 >();
 // Surfaces retain complete parsed schemas. Bound isolate retention under
 // arbitrary namespace subsets and activation epochs; L2/R2 remain available.
-// A consent-composed connect root retains one entry per mounted organization
-// and nested gateway (14+ on the Tedix connect surface), so the bound leaves
-// room for one such root without evicting its own members.
-const MAX_AGGREGATE_SURFACE_CACHE_ENTRIES = 32;
 // Entry counts do not bound heap: ten retained organization graphs measured
 // 80-84 MB (about 5 KB per tool row with schemas) and left a 128 MB isolate no
 // room for the request that followed (`exceededMemory`, 6-7 Nov 2026). Rows
@@ -49,16 +57,10 @@ const MAX_AGGREGATE_SURFACE_CACHE_ENTRIES = 32;
 // and releases the least recently used graph first.
 export const MAX_AGGREGATE_SURFACE_RETAINED_ROWS = 6_000;
 export const AGGREGATE_SURFACE_CACHE_TTL_MS = 120_000;
-// An expired entry stays reusable this long: a durable tier holding the same
-// generation then returns it without parsing (see AggregateTierReadOptions).
-const AGGREGATE_SURFACE_REUSE_GRACE_MS = AGGREGATE_SURFACE_CACHE_TTL_MS;
 
-/** Release entries past their reuse grace, including keys never read again. */
+/** Release expired entries, including keys never read again. */
 export function pruneAggregateSurfaceCache(now = Date.now()): void {
-	pruneExpiredCacheEntries(
-		aggregateSurfaceCache,
-		now - AGGREGATE_SURFACE_REUSE_GRACE_MS,
-	);
+	pruneExpiredCacheEntries(aggregateSurfaceCache, now);
 }
 
 /**
@@ -75,16 +77,14 @@ export function rememberAggregateSurface(
 ) {
 	if (!retain) return;
 	pruneAggregateSurfaceCache();
-	setBoundedCacheEntry(
-		aggregateSurfaceCache,
-		cacheKey,
-		{
-			result,
-			expiresAt: Date.now() + AGGREGATE_SURFACE_CACHE_TTL_MS,
-			...(generation ? { generation } : {}),
-		},
-		MAX_AGGREGATE_SURFACE_CACHE_ENTRIES,
-	);
+	// Delete first so a rewritten key lands in the newest (most recently used)
+	// position.
+	aggregateSurfaceCache.delete(cacheKey);
+	aggregateSurfaceCache.set(cacheKey, {
+		result,
+		expiresAt: Date.now() + AGGREGATE_SURFACE_CACHE_TTL_MS,
+		...(generation ? { generation } : {}),
+	});
 	// Newest last: release least recently used graphs until the row budget
 	// holds. The entry just written always stays, however large.
 	for (const key of aggregateSurfaceCache.keys()) {
@@ -99,10 +99,7 @@ export function rememberAggregateSurface(
 
 /** Tool rows held by every retained surface in this isolate. */
 export function aggregateSurfaceRetainedRows(): number {
-	let rows = 0;
-	for (const entry of aggregateSurfaceCache.values())
-		rows += entry.result.tools.length;
-	return rows;
+	return aggregateSurfaceCache.retainedRows;
 }
 
 /** Mark an L1 entry as recently used so the row budget releases others first. */

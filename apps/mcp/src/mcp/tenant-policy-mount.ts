@@ -339,7 +339,6 @@ export async function resolvePolicyMountPath(input: PrepareMountInput) {
 		root.app.slug,
 		{ value: "tenant-policy-fresh", cacheable: false },
 		false,
-		false,
 		true,
 		input.mountedToolId,
 	);
@@ -369,7 +368,6 @@ export async function resolvePolicyMountPath(input: PrepareMountInput) {
 					input.ctx,
 					root.app.slug,
 					{ value: "tenant-policy-fresh", cacheable: false },
-					false,
 					false,
 					true,
 					input.mountedToolId,
