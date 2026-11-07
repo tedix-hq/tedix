@@ -82,6 +82,18 @@ export const ResolveRunSensitiveDataLatchInputSchema = z.object({
 	runRef: RunRefSchema,
 });
 
+export const ResolvePersonalDataRedactionInputSchema = z.object({
+	organizationId: z.string().min(1),
+});
+
+export const PersonalDataRedactionPolicySchema = z.object({
+	/** The organization masks personal data in sensitive_data tool results. */
+	enabled: z.boolean(),
+});
+export type PersonalDataRedactionPolicy = z.infer<
+	typeof PersonalDataRedactionPolicySchema
+>;
+
 export const ResolveConnectionSensitivityInputSchema = z.object({
 	organizationId: z.string().min(1),
 	connectionProviderId: z.string().min(1),

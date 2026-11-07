@@ -424,6 +424,12 @@ export const OrganizationMetadataSchema = z.object({
 		.describe(
 			"How the MCP gateway handles detected secrets in public-egress tool arguments; absent defaults to block.",
 		),
+	personalDataRedaction: z
+		.strictObject({ enabled: z.boolean() })
+		.optional()
+		.describe(
+			"When enabled, the MCP gateway masks email addresses, phone numbers and national identifiers in results of tools declared sensitive_data; absent means off.",
+		),
 	agentRequestApprovals: z
 		.strictObject({ approver: z.literal("org_admin") })
 		.nullable()

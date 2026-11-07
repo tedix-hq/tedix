@@ -114,6 +114,8 @@ export interface OrganizationFeatures {
 export interface OrganizationMetadata {
 	/** Public-egress argument scanning policy; absent defaults to block. */
 	secretEgressMode?: "block" | "warn";
+	/** Personal-data masking on sensitive_data tool results; absent means off. */
+	personalDataRedaction?: { enabled: boolean };
 	agentRequestApprovals?: OrganizationContractMetadata["agentRequestApprovals"];
 	sessionProjectBindings?: OrganizationContractMetadata["sessionProjectBindings"];
 	modelFallback?: OrganizationContractMetadata["modelFallback"];
