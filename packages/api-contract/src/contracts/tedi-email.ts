@@ -558,6 +558,8 @@ export const tediEmailContract = oc
 					sent: z.boolean(),
 					messageId: z.string().optional(),
 					provider: z.literal("cloudflare"),
+					/** The mail service's reason when it did not accept the send. */
+					reason: z.string().max(500).optional(),
 					emailMessageId: z.string().optional(),
 					threadId: z.string().optional(),
 				}),
@@ -606,6 +608,8 @@ export const tediEmailContract = oc
 					ok: z.boolean(),
 					sent: z.boolean(),
 					provider: z.literal("cloudflare"),
+					/** The mail service's reason when it did not accept the reply. */
+					reason: z.string().max(500).optional(),
 					providerMessageId: z.string().optional(),
 					emailMessageId: z.string().optional(),
 					threadId: z.string(),
