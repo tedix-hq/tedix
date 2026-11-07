@@ -504,7 +504,8 @@ const MAX_SKILL_TOOL_REFS = 50;
  * is a pointer for search, not a grant: every call is still authorized.
  */
 export function readSkillToolRefs(source: string): string[] {
-	const value = parseSkillFrontmatter(source)?.tools;
+	const frontmatter = parseSkillFrontmatter(source);
+	const value = frontmatter?.tools;
 	const refs = Array.isArray(value)
 		? value.flatMap((item) => (typeof item === "string" ? [item.trim()] : []))
 		: typeof value === "string"
@@ -513,41 +514,13 @@ export function readSkillToolRefs(source: string): string[] {
 	const declared = [
 		...new Set(refs.filter((ref) => SKILL_TOOL_REF_RE.test(ref))),
 	].slice(0, MAX_SKILL_TOOL_REFS);
-	return declared.length > 0 ? declared : readSkillToolMentions(source);
+	return frontmatter && Object.hasOwn(frontmatter, "tools")
+		? declared
+		: readSkillToolMentions(source);
 }
 
 /** `namespace.tool(` as a Code Mode program writes it, in prose or code. */
 const SKILL_TOOL_CALL_RE = /\b([a-z][a-z0-9_]*)\.([a-z][a-z0-9_]*)\s*\(/g;
-/** Common prose and JavaScript left-hand sides that are not namespaces. */
-const SKILL_TOOL_CALL_SKIP = new Set([
-	"e",
-	"i",
-	"vs",
-	"console",
-	"json",
-	"math",
-	"object",
-	"array",
-	"promise",
-	"date",
-	"string",
-	"number",
-	"this",
-	"window",
-	"document",
-	"process",
-	"res",
-	"req",
-	"result",
-	"results",
-	"data",
-	"item",
-	"items",
-	"row",
-	"rows",
-	"err",
-	"error",
-]);
 
 /**
  * Callables a skill's body calls (`work.create_work_item(...)`) when its
@@ -560,10 +533,7 @@ export function readSkillToolMentions(source: string): string[] {
 	const body = fm ? source.slice(source.indexOf(fm) + fm.length) : source;
 	const refs = new Set<string>();
 	for (const match of body.matchAll(SKILL_TOOL_CALL_RE)) {
-		const namespace = match[1]!;
-		if (SKILL_TOOL_CALL_SKIP.has(namespace)) continue;
-		if (match[2]!.length < 3 && !namespace.includes("_")) continue;
-		refs.add(`${namespace}.${match[2]}`);
+		refs.add(`${match[1]}.${match[2]}`);
 		if (refs.size >= MAX_SKILL_TOOL_REFS) break;
 	}
 	return [...refs];

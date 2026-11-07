@@ -1098,14 +1098,26 @@ describe("progressive disclosure (namespace filter, description budget, schema p
 						["gmail__search_messages", "Search inbox messages."],
 						["gmail__label_message", "Apply a label to a message."],
 						["work__create_work_item", "Create a work item."],
+						["requests__create_work_item", "File a work request."],
 						["work__list_work_items", "List work items."],
 						["calendar__list_events", "List calendar events."],
 						["skills__get_skills_for_mcp", "Load one recorded skill."],
 					].map(([toolId, description]) => [
 						toolId!,
-						tool({ toolId, title: toolId, description }),
+						tool({
+							toolId,
+							title: toolId,
+							description,
+							config: [
+								"work__create_work_item",
+								"requests__create_work_item",
+							].includes(toolId!)
+								? { _multiOrgOrganizationId: "org-1" }
+								: null,
+						}),
 					]),
 				),
+				app: { organizationId: "org-1" },
 				apiClient: {
 					skills: {
 						listByOrg: async () => ({
@@ -1176,7 +1188,7 @@ describe("progressive disclosure (namespace filter, description budget, schema p
 			expect(skill).not.toHaveProperty("toolRefs");
 		});
 
-		it("resolves a body call by tool name when its namespace is not mounted", async () => {
+		it("keeps the first canonical tool-name match when the namespace is not mounted", async () => {
 			const results = await runSearch(
 				buildCatalogProvider(ctx(), undefined),
 				"file the request",
