@@ -54,6 +54,33 @@ export const SupervisorActivitySchema = z.object({
 });
 export type SupervisorActivity = z.infer<typeof SupervisorActivitySchema>;
 
+export const DispatcherReliabilitySchema = z
+	.object({
+		coverageStartedAt: z.iso.datetime(),
+		windowStartedAt: z.iso.datetime(),
+		observedAt: z.iso.datetime(),
+		runners: z
+			.array(
+				z.object({
+					runner: z.string().trim().min(1).max(64),
+					held: z.number().int().min(0).max(10_000),
+					supervisorKills: z.number().int().min(0).max(10_000),
+				}),
+			)
+			.max(100),
+	})
+	.refine(
+		(value) =>
+			Date.parse(value.observedAt) - Date.parse(value.windowStartedAt) ===
+				86_400_000 &&
+			Date.parse(value.coverageStartedAt) <= Date.parse(value.observedAt),
+		{
+			message:
+				"Reliability observations must describe a 24-hour window with valid coverage",
+		},
+	);
+export type DispatcherReliability = z.infer<typeof DispatcherReliabilitySchema>;
+
 export const SupervisorDutyHealthSchema = z.object({
 	id: z.string().trim().min(1).max(256),
 	kind: z.enum(["service", "task"]),
@@ -68,6 +95,7 @@ export const SupervisorDutyHealthSchema = z.object({
 	lastProblem: z.string().min(1).max(500).nullable(),
 	problemSince: z.iso.datetime().nullable().optional(),
 	activity: SupervisorActivitySchema.optional(),
+	reliability: DispatcherReliabilitySchema.optional(),
 });
 export type SupervisorDutyHealth = z.infer<typeof SupervisorDutyHealthSchema>;
 

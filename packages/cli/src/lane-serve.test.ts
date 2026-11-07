@@ -1205,6 +1205,11 @@ describe("dispatcher admission", () => {
 			}) as typeof setInterval);
 			const kill = spyOn(process, "kill").mockReturnValue(true);
 			const { dispatcher, items, control, releases, events, dir } = fixture();
+			writeDispatcherHealthSource(dir, {
+				scope: ["--workspace", "fixture", "--organization", "org_fixture"],
+				executor: "codex",
+				max: 1,
+			});
 			items.splice(1);
 			control.spawnPid = 999999;
 			if (scenario === "stopped telemetry")
@@ -1237,6 +1242,14 @@ describe("dispatcher admission", () => {
 					readFileSync(join(dir, `${item().id}-2.json`), "utf8"),
 				);
 				expect(receipt.outcome).toBe(outcome);
+				const health = JSON.parse(
+					readFileSync(join(dir, "health-source.json"), "utf8"),
+				);
+				expect(
+					health.reliability.events.filter(
+						(event: { kind: string }) => event.kind === "supervisor_kill",
+					),
+				).toHaveLength(scenario === "lease expiry" ? 1 : 0);
 				if (scenario === "late timer") {
 					expect(receipt.interrupted).not.toBe(true);
 					expect(readFileSync(join(dir, "dispatcher.log"), "utf8")).toContain(
@@ -2778,6 +2791,11 @@ describe("dispatcher admission", () => {
 
 	it("keeps unavailable-only routing failures held after three checks", async () => {
 		const { restart, deps, items, events, dir } = fixture();
+		writeDispatcherHealthSource(dir, {
+			scope: ["--workspace", "fixture", "--organization", "org_fixture"],
+			executor: "codex",
+			max: 1,
+		});
 		items.splice(1);
 		deps.available = () => false;
 		let now = Date.now();
@@ -2793,6 +2811,15 @@ describe("dispatcher admission", () => {
 				expect(saved.held).toBe(n === 3);
 				now = saved.retryAt + 1;
 			}
+			await restart().tick();
+			const health = JSON.parse(
+				readFileSync(join(dir, "health-source.json"), "utf8"),
+			);
+			expect(
+				health.reliability.events.filter(
+					(event: { kind: string }) => event.kind === "held",
+				),
+			).toHaveLength(1);
 			expect(
 				events.some((event) =>
 					["start", "heartbeat", "settle"].includes(event.verb),

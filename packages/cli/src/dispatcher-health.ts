@@ -12,11 +12,13 @@ import {
 } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { basename, join } from "node:path";
+import * as z from "zod";
 import {
 	NativeProviderActivitySchema,
 	type NativeProviderActivity,
 	type SupervisorActivity,
 	type SupervisorDutyHealth,
+	type DispatcherReliability,
 } from "@tedix/api-contract/schemas/dispatcher-health";
 import { UUID_RE } from "./work-identity";
 import {
@@ -25,6 +27,20 @@ import {
 } from "./supervise-duty-status";
 
 const SOURCE_FILE = "health-source.json";
+const RELIABILITY_WINDOW_MS = 86_400_000;
+const ReliabilityJournalSchema = z.object({
+	coverageStartedAt: z.iso.datetime(),
+	events: z
+		.array(
+			z.object({
+				id: z.string().min(1).max(300),
+				runner: z.string().min(1).max(64),
+				kind: z.enum(["held", "supervisor_kill"]),
+				at: z.iso.datetime(),
+			}),
+		)
+		.max(10_000),
+});
 const LOG_TAIL_BYTES = 256 * 1024;
 const REASON_WINDOW_MS = 30 * 60 * 1000;
 const REASON_EVENTS = new Set([
@@ -54,6 +70,7 @@ export interface DispatcherHealthSource {
 	preparingSlots?: number;
 	nextCheckAt?: string;
 	lastCompleted?: { id: string; completedAt: string };
+	reliability?: z.infer<typeof ReliabilityJournalSchema>;
 }
 
 export interface LocalDispatcherHealth {
@@ -98,6 +115,7 @@ export function writeDispatcherHealthSource(
 		pid,
 		startedAt,
 		preparingSlots: 0,
+		reliability: { coverageStartedAt: startedAt, events: [] },
 	};
 	if (
 		previous?.workspace === source.workspace &&
@@ -106,9 +124,75 @@ export function writeDispatcherHealthSource(
 	) {
 		source.lastAdmissionAt = previous.lastAdmissionAt;
 		source.lastCompleted = previous.lastCompleted;
+		const journal = ReliabilityJournalSchema.safeParse(previous.reliability);
+		if (journal.success) source.reliability = journal.data;
 	}
 	writeFileSync(`${path}.tmp`, JSON.stringify(source), { mode: 0o600 });
 	renameSync(`${path}.tmp`, path);
+}
+
+/** A bounded journal in the existing health source, independent of rotated logs. */
+export function recordDispatcherReliability(
+	directory: string,
+	event: z.infer<typeof ReliabilityJournalSchema>["events"][number],
+	pid = process.pid,
+) {
+	const source = readSource(join(directory, SOURCE_FILE));
+	const parsed = ReliabilityJournalSchema.safeParse(source?.reliability);
+	if (!source || source.pid !== pid || !parsed.success) return;
+	const at = Date.parse(event.at);
+	const events = parsed.data.events.filter(
+		(row) => Date.parse(row.at) >= at - RELIABILITY_WINDOW_MS,
+	);
+	if (events.some((row) => row.id === event.id && row.kind === event.kind))
+		return;
+	events.push(event);
+	events.sort((a, b) => a.at.localeCompare(b.at));
+	const dropped = events.length > 10_000;
+	const retained = events.slice(-10_000);
+	updateSource(
+		directory,
+		{
+			reliability: {
+				coverageStartedAt: dropped
+					? retained[0]!.at
+					: parsed.data.coverageStartedAt,
+				events: retained,
+			},
+		},
+		pid,
+	);
+}
+
+export function dispatcherReliability(
+	source: DispatcherHealthSource,
+	now: number,
+): DispatcherReliability | undefined {
+	const parsed = ReliabilityJournalSchema.safeParse(source.reliability);
+	if (!parsed.success || Date.parse(parsed.data.coverageStartedAt) > now)
+		return;
+	const runners = new Map<
+		string,
+		{ runner: string; held: number; supervisorKills: number }
+	>();
+	for (const event of parsed.data.events) {
+		const at = Date.parse(event.at);
+		if (at < now - RELIABILITY_WINDOW_MS || at > now) continue;
+		const row = runners.get(event.runner) ?? {
+			runner: event.runner,
+			held: 0,
+			supervisorKills: 0,
+		};
+		if (event.kind === "held") row.held++;
+		else row.supervisorKills++;
+		runners.set(event.runner, row);
+	}
+	return {
+		coverageStartedAt: parsed.data.coverageStartedAt,
+		windowStartedAt: new Date(now - RELIABILITY_WINDOW_MS).toISOString(),
+		observedAt: new Date(now).toISOString(),
+		runners: [...runners.values()],
+	};
 }
 
 function updateSource(
@@ -501,6 +585,7 @@ export function collectDispatcherHealth(
 	const observedAt = new Date(now).toISOString();
 	const reports: LocalDispatcherHealth[] = [];
 	const activities = new Map<string, SupervisorActivity>();
+	const reliability = new Map<string, DispatcherReliability>();
 	for (const name of existsSync(root) ? readdirSync(root) : []) {
 		const directory = join(root, name);
 		try {
@@ -510,6 +595,8 @@ export function collectDispatcherHealth(
 			const log = logHealth(directory, now);
 			const activity = receiptActivity(directory, source, now);
 			activities.set(name, activity.activity);
+			const counts = dispatcherReliability(source, now);
+			if (counts) reliability.set(name, counts);
 			reports.push({
 				workspace: source.workspace,
 				organization: source.organization,
@@ -546,7 +633,12 @@ export function collectDispatcherHealth(
 						entry.organization === row.organization &&
 						entry.workspace === row.workspace,
 				);
-				if (report) report.duty = { ...duty, activity: activities.get(row.id) };
+				if (report)
+					report.duty = {
+						...duty,
+						activity: activities.get(row.id),
+						reliability: reliability.get(row.id),
+					};
 			} else {
 				reports.push({
 					workspace: row.workspace,

@@ -94,6 +94,7 @@ export function ActivityHarnessScorecard({
 	);
 	const selected = scopes.map((scope) => sources[scope ?? "organization"]);
 	const incomplete = selected.some((source) => !source || source.incomplete);
+	const fleetScope = scopes.length === 1 && scopes[0] === undefined;
 	const rows = aggregateHarnessScorecard(
 		selected.flatMap((source) => source?.rows ?? []),
 		reports,
@@ -143,8 +144,12 @@ export function ActivityHarnessScorecard({
 									</TableCell>
 								),
 							)}
-							<TableCell>Unknown</TableCell>
-							<TableCell>Unknown</TableCell>
+							<TableCell>
+								{fleetScope ? (row.held ?? "Unknown") : "Unknown"}
+							</TableCell>
+							<TableCell>
+								{fleetScope ? (row.supervisorKills ?? "Unknown") : "Unknown"}
+							</TableCell>
 							<TableCell>{incomplete ? "Unknown" : row.commits}</TableCell>
 						</TableRow>
 					))}
@@ -165,9 +170,11 @@ export function ActivityHarnessScorecard({
 			<Text role="caption" tone="secondary">
 				Attempts started in the last 24 h; outcomes as of now. *Orphaned counts
 				expired Attempts and unsettled Attempts with elapsed leases, not
-				confirmed process exits. Held and supervisor kills are unknown: health
-				reports retain no 24 h history. †Unique dispatcher settlement commit
-				receipts for these Attempts; existing fixes are excluded.
+				confirmed process exits. Fleet held counts Work revisions placed on
+				hold; supervisor kills count lease-guard stop signals. These require
+				fresh health reports covering 24 h; legacy, warming and project-scoped
+				counts are unknown. †Unique dispatcher settlement commit receipts for
+				these Attempts; existing fixes are excluded.
 			</Text>
 		</section>
 	);

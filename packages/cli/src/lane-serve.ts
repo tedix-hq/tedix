@@ -104,6 +104,7 @@ import {
 	recordDispatcherCompletion,
 	recordDispatcherNextCheck,
 	recordDispatcherPreparing,
+	recordDispatcherReliability,
 	writeDispatcherHealthSource,
 } from "./dispatcher-health";
 
@@ -1385,8 +1386,21 @@ export class LaneDispatcher {
 		return join(this.directory, `${item.id}-${item.version}.json`);
 	}
 	private save(path: string, receipt: Receipt) {
+		let previouslyHeld = false;
+		if (receipt.held && existsSync(path)) {
+			try {
+				previouslyHeld = JSON.parse(readFileSync(path, "utf8")).held === true;
+			} catch {}
+		}
 		writeFileSync(`${path}.tmp`, JSON.stringify(receipt), { mode: 0o600 });
 		renameSync(`${path}.tmp`, path);
+		if (receipt.held && !previouslyHeld)
+			recordDispatcherReliability(this.directory, {
+				id: `${receipt.itemId}:${receipt.version}`,
+				runner: receipt.session?.split(":")[0] || this.options.executor,
+				kind: "held",
+				at: new Date().toISOString(),
+			});
 	}
 	private finishPreparation(itemId: string) {
 		if (this.preparing.delete(itemId))
@@ -2363,13 +2377,22 @@ export class LaneDispatcher {
 					item.id,
 					"Stopping the child; the last confirmed Attempt lease expired",
 				);
+				const recordStop = () =>
+					recordDispatcherReliability(this.directory, {
+						id: receipt.attemptId!,
+						runner: receipt.session!.split(":")[0]!,
+						kind: "supervisor_kill",
+						at: new Date().toISOString(),
+					});
 				try {
 					process.kill(-receipt.pid, "SIGTERM");
+					recordStop();
 				} catch {}
 				const pid = receipt.pid;
 				killTimer = setTimeout(() => {
 					try {
 						process.kill(-pid, "SIGKILL");
+						recordStop();
 					} catch {}
 				}, 5000);
 			}, 1000);
