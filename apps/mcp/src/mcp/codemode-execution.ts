@@ -143,6 +143,7 @@ export interface CodeModeExecutionRefs {
 	/** Discovery-option telemetry: how the model actually discovers. */
 	discoverCalls: number;
 	discoverParameterRequests: number;
+	trust: { untrusted: Set<string>; trusted: Set<string> };
 	/**
 	 * EXECUTION RECEIPTS the executor observed itself, one per namespaced tool
 	 * call this program made. Every inner call is already wrapped with
@@ -156,7 +157,6 @@ export interface CodeModeExecutionRefs {
 		status: CompletionEvidence["status"];
 		error?: string;
 		actionReceipt?: ActionReceipt;
-		trust?: "trusted" | "untrusted";
 	}[];
 	/** Exact inner workflow run identities, retained even if JS returns a summary. */
 	skillWorkflowRunIds: Set<string>;
@@ -692,13 +692,14 @@ export function buildNamespaceGroups(
 									? resultRecord.message
 									: undefined
 							: undefined;
+					const { integrity } = resolveToolTrustLabel({
+						transport: tool.config?.transport,
+						sensitiveData: tool.sensitiveData,
+					});
+					executionRefs.trust[integrity].add(`${ns}.${safeName}`);
 					executionRefs.toolReceipts.push({
 						operation: `${ns}.${safeName}`,
 						status: evidence.status,
-						trust: resolveToolTrustLabel({
-							transport: tool.config?.transport,
-							sensitiveData: tool.sensitiveData,
-						}).integrity,
 						...(actionReceipt ? { actionReceipt } : {}),
 						...(resultError ? { error: resultError.slice(0, 300) } : {}),
 					});

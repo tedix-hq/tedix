@@ -123,6 +123,15 @@ vi.mock("@cloudflare/codemode", async () => {
 					const runtime = await runtimeTool({});
 					return { result: runtime, logs: [] };
 				}
+				if (code.includes("mixed_trust_calls")) {
+					await providers.find((entry) => entry.name === "github")!.fns
+						.get_issue!({});
+					await providers.find((entry) => entry.name === "tedix")!.fns
+						.get_work!({});
+					await providers.find((entry) => entry.name === "github")!.fns
+						.get_issue!({});
+					return { result: { summary: "read both tools" }, logs: [] };
+				}
 				if (code.includes("workflow_run_receipt")) {
 					const provider = providers.find((entry) => entry.name === "cto");
 					const run = provider?.fns.run_skill_workflow;
@@ -448,6 +457,62 @@ describe("Code Mode tail telemetry", () => {
 	afterEach(() => {
 		logSpy.mockRestore();
 		executeToolMock.mockReset();
+	});
+
+	it("names external and Tedix callables once in the outer trust summary", async () => {
+		const registered = new Map<string, (args: unknown) => Promise<any>>();
+		const github = tool({
+			toolId: "github__get_issue",
+			config: { transport: "external" },
+			annotations: { readOnlyHint: true, destructiveHint: false },
+		});
+		const tedix = tool({
+			toolId: "tedix__get_work",
+			config: { transport: "rpc", endpoint: "tedix/get" },
+			annotations: { readOnlyHint: true, destructiveHint: false },
+		});
+		const ctx = makeServerCtx(
+			new Map([
+				[github.toolId, github],
+				[tedix.toolId, tedix],
+			]),
+		);
+		ctx.appMetadata!.mcpConfig!.toolScopes = { get_issue: [], get_work: [] };
+		executeToolMock.mockResolvedValue({
+			content: [],
+			structuredContent: { value: "ok" },
+			_meta: {},
+			isError: false,
+		});
+		await registerCodeModeTools(
+			{
+				registerTool: (name: string, _config: unknown, handler: any) =>
+					registered.set(name, handler),
+			} as never,
+			ctx,
+		);
+		const response = await registered.get("code")!({
+			code: `async () => {
+				// mixed_trust_calls
+				await github.get_issue({});
+				await tedix.get_work({});
+				await github.get_issue({});
+				return { summary: "read both tools" };
+			}`,
+		});
+		expect(response.structuredContent.error).toBeUndefined();
+		expect(response.structuredContent.trust).toEqual({
+			untrusted: ["github.get_issue"],
+			trusted: ["tedix.get_work"],
+		});
+		expect(executeToolMock).toHaveBeenCalledTimes(3);
+		const next = await registered.get("code")!({
+			invocation: { callable: "tedix.get_work", args: {} },
+		});
+		expect(next.structuredContent.trust).toEqual({
+			untrusted: [],
+			trusted: ["tedix.get_work"],
+		});
 	});
 
 	it("runs structured calls through the same provider receipts and bounded finalizer without a loader", async () => {

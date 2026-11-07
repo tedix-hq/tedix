@@ -396,13 +396,6 @@ export interface CodeModeToolReceipt {
 	 * Carried on the receipt so the outer result can surface failures[].
 	 */
 	error?: string;
-	/**
-	 * Integrity of the call's result: `untrusted` for external and upstream-MCP
-	 * transports, whose output is third-party content, never instructions.
-	 * The MCP `_meta` label does not reach a program's return value, so the
-	 * receipt carries it beside the result.
-	 */
-	trust?: "trusted" | "untrusted";
 }
 
 const CODE_MODE_RECEIPT_OPERATIONS_SHOWN = 5;

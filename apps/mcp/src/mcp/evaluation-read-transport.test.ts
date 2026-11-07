@@ -128,6 +128,7 @@ it.each([false, true])(
 			discoverCalls: 0,
 			discoverParameterRequests: 0,
 			toolReceipts: [],
+			trust: { untrusted: new Set(), trusted: new Set() },
 			skillWorkflowRunIds: new Set(),
 			readObservations: [],
 			collectionReads: [],
