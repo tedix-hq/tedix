@@ -351,7 +351,19 @@ export class ToolHandler {
 		// not only tools an owner flagged `publicEgress` (a GitHub search carried
 		// a token pattern unscanned on 7 Nov 2026). The flag stays for tools
 		// whose own transport is internal but forwards to the public internet.
-		if (ctx.publicEgress || isUntrustedTransport(config?.transport)) {
+		// A call to one of the organization's own tedis stays inside Tedix, so
+		// neither the transport nor a URL slug that looks like a key makes it
+		// egress. A tool an owner flagged `publicEgress` is still scanned.
+		const ownTediCall =
+			!ctx.publicEgress &&
+			typeof readToolConfigExtension(config, "_aggregateTediId") === "string" &&
+			typeof ctx.app.organizationId === "string" &&
+			readToolConfigExtension(config, "_aggregateTediOrgId") ===
+				ctx.app.organizationId;
+		if (
+			!ownTediCall &&
+			(ctx.publicEgress || isUntrustedTransport(config?.transport))
+		) {
 			const secretPattern = findSecretValuePattern(input);
 			if (secretPattern) {
 				let mode: "block" | "warn" = "block";
