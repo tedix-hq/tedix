@@ -64,13 +64,7 @@ import { readFactoryConstants } from "@tedix/db/queries/cognitive/skill-factory-
 import { measureMiningPhase } from "../../lib/mining-phase-timing";
 import { ownerTediNamespaceIssues } from "../../services/skill-owner-tedi-check";
 import { assertSkillPromotionPremortem } from "../../services/decision-hygiene";
-import {
-	AUTHZ,
-	type BaseContext,
-	createError,
-	createErrorWithData,
-	ErrorCodes,
-} from "../orpc";
+import { AUTHZ, type BaseContext, createError, ErrorCodes } from "../orpc";
 import { requireOrgId } from "../org-scope";
 import {
 	getSkillRunForEnvironment,
@@ -238,7 +232,7 @@ export async function updateSkillEntryGated(
 			error instanceof SkillLifecycleTransitionError ||
 			error instanceof SkillPaceLayerOverrideError
 		) {
-			throw createErrorWithData(ErrorCodes.BAD_REQUEST, error.message, {
+			throw createError(ErrorCodes.BAD_REQUEST, error.message, {
 				code: error.code,
 				...error.details,
 			});
