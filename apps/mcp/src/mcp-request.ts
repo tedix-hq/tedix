@@ -376,8 +376,13 @@ export async function handleMcpRequest(
 	// the tool name or its catalog arguments. Only these are hydrated.
 	// Cross-org Connect metadata uses verified selection, not a native registry.
 	// Explicit organization targets already routed to their gateway above.
+	// On Connect, initialize, tools/list and every other non-call method list
+	// the same built-in tools whatever the organizations hold, so they hydrate
+	// nothing: each client bootstrap otherwise parsed every organization graph
+	// on a cold isolate (4-5 s CPU, exceededMemory, 7 Nov 2026).
 	const aggregateNamespaces =
-		requestedToolName === "get_info" && multiOrgResource
+		multiOrgResource &&
+		(requestedToolName === "get_info" || requestedToolName === undefined)
 			? new Set<string>()
 			: (requestedCodeModeNamespaces ??
 				directToolCallNamespaces(
