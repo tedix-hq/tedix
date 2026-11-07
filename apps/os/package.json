@@ -11,6 +11,7 @@
 		"dev": "bun run clear-port && bun run dev:fixtures",
 		"dev:fixtures": "vp dev --port 3010 --strictPort",
 		"dev:local-demo": "bun run clear-port && bun run dev:fixtures",
+		"dev:workspace-mock": "bun dev/mock-workspace-object.ts",
 		"dev:local-launcher": "TEDIX_OS_LOCAL_DEV=1 bun ../../scripts/dev-local.ts -- vp preview --port 3030 --strictPort",
 		"dev:local-hmr": "TEDIX_LOCAL_COMPATIBILITY_DATE=2026-08-11 bun ../../scripts/dev-local.ts -- vp dev --port 3030 --strictPort",
 		"build": "vp build",

@@ -1,0 +1,327 @@
+/*
+ * The workspace chat pane: a thread that streams straight from the workspace
+ * object. Spacing keeps the canvas rhythm (8px grid, one left edge).
+ */
+.workspace-chat {
+	display: flex;
+	min-height: 0;
+	flex: 1 1 auto;
+	flex-direction: column;
+}
+
+.workspace-chat-header {
+	display: flex;
+	height: 48px;
+	min-height: 48px;
+	box-sizing: border-box;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 12px 8px 8px;
+	border-bottom: 1px solid var(--color-kumo-hairline, var(--border));
+}
+
+.workspace-chat-header strong {
+	min-width: 0;
+	flex: 1 1 auto;
+}
+
+.workspace-chat-connection {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	gap: 6px;
+	padding: 2px 8px;
+	border-radius: 999px;
+	background: var(--color-kumo-tint, rgb(0 0 0 / 0.05));
+	font-size: var(--text-tedix-caption);
+	line-height: var(--text-tedix-caption--line-height);
+	color: var(--color-kumo-subtle, inherit);
+}
+
+.workspace-chat-connection-dot {
+	width: 6px;
+	height: 6px;
+	border-radius: 999px;
+	background: currentcolor;
+	animation: workspace-chat-pulse 1.2s ease-in-out infinite;
+}
+
+.workspace-chat-connection[data-phase="closed"] .workspace-chat-connection-dot {
+	animation: none;
+}
+
+.workspace-chat-thread {
+	display: flex;
+	min-height: 0;
+	flex: 1 1 auto;
+	flex-direction: column;
+	gap: 24px;
+	overflow-y: auto;
+	padding: 24px 20px 16px;
+}
+
+.workspace-chat-empty {
+	margin: auto 0;
+	text-align: center;
+}
+
+.workspace-chat-turn {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.workspace-chat-turn[data-pending="true"] {
+	opacity: 0.85;
+}
+
+.workspace-chat-user {
+	display: flex;
+	justify-content: flex-end;
+}
+
+.workspace-chat-reply {
+	display: flex;
+	min-width: 0;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.workspace-chat-prose[data-streaming="true"] > .chat-markdown::after {
+	content: "";
+	display: inline-block;
+	width: 0.5em;
+	height: 1em;
+	margin-left: 2px;
+	vertical-align: text-bottom;
+	background: currentcolor;
+	animation: workspace-chat-pulse 0.9s steps(2) infinite;
+}
+
+.workspace-chat-thinking {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+}
+
+.workspace-chat-shimmer {
+	font-size: var(--text-tedix-body);
+	color: var(--color-kumo-subtle, inherit);
+	background: linear-gradient(
+		90deg,
+		currentcolor 0%,
+		var(--color-kumo-default, #000) 50%,
+		currentcolor 100%
+	);
+	background-size: 200% 100%;
+	background-clip: text;
+	-webkit-background-clip: text;
+	-webkit-text-fill-color: transparent;
+	animation: workspace-chat-shimmer 1.8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.workspace-chat-shimmer,
+	.workspace-chat-connection-dot,
+	.workspace-chat-step-pulse {
+		animation: none;
+	}
+}
+
+.workspace-chat-activity {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.workspace-chat-activity-summary {
+	display: flex;
+	min-width: 0;
+	align-items: center;
+	gap: 6px;
+	padding: 4px 0;
+	border: 0;
+	background: none;
+	font: inherit;
+	font-size: var(--text-tedix-caption);
+	line-height: var(--text-tedix-caption--line-height);
+	color: var(--color-kumo-subtle, inherit);
+	text-align: left;
+	cursor: pointer;
+}
+
+.workspace-chat-activity[data-live="true"] .workspace-chat-activity-summary {
+	color: var(--color-kumo-default, inherit);
+}
+
+.workspace-chat-caret {
+	flex: none;
+	transition: transform 120ms ease-out;
+}
+
+.workspace-chat-caret[data-open="true"] {
+	transform: rotate(90deg);
+}
+
+.workspace-chat-steps {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	margin: 0;
+	padding: 0 0 0 20px;
+	list-style: none;
+}
+
+.workspace-chat-step {
+	display: flex;
+	min-width: 0;
+	align-items: center;
+	gap: 8px;
+	font-size: var(--text-tedix-caption);
+	line-height: var(--text-tedix-caption--line-height);
+	color: var(--color-kumo-subtle, inherit);
+}
+
+.workspace-chat-step[data-status="running"] {
+	color: var(--color-kumo-default, inherit);
+}
+
+.workspace-chat-step svg {
+	flex: none;
+}
+
+.workspace-chat-step-ok {
+	margin-left: auto;
+	color: var(--color-kumo-success, currentcolor);
+}
+
+.workspace-chat-step-pulse {
+	width: 6px;
+	height: 6px;
+	margin-left: auto;
+	border-radius: 999px;
+	background: currentcolor;
+	animation: workspace-chat-pulse 1.2s ease-in-out infinite;
+}
+
+.workspace-chat-approval {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding: 12px 16px;
+	border: 1px solid var(--color-kumo-brand, currentcolor);
+	border-radius: 16px;
+	background: color-mix(
+		in srgb,
+		var(--color-kumo-brand, currentcolor) 8%,
+		transparent
+	);
+}
+
+.workspace-chat-approval[data-decision="approve"],
+.workspace-chat-approval[data-decision="deny"] {
+	border-color: var(--color-kumo-hairline, var(--border));
+	background: none;
+}
+
+.workspace-chat-approval-head {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.workspace-chat-approval-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+}
+
+.workspace-chat-turn-footer {
+	display: flex;
+	min-height: 24px;
+	align-items: center;
+	gap: 8px;
+}
+
+.workspace-chat-error {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 0 20px;
+	color: var(--color-kumo-error, currentcolor);
+}
+
+.workspace-chat-composer {
+	display: flex;
+	flex: none;
+	flex-direction: column;
+	gap: 8px;
+	padding: 8px 20px 16px;
+	border-top: 1px solid var(--color-kumo-hairline, var(--border));
+}
+
+.workspace-chat-composer-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+}
+
+.workspace-chat-list {
+	display: flex;
+	min-height: 0;
+	flex: 1 1 auto;
+	flex-direction: column;
+	gap: 16px;
+	overflow-y: auto;
+	padding: 16px 20px;
+}
+
+.workspace-chat-list ul {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.workspace-chat-list-row {
+	display: flex;
+	width: 100%;
+	min-width: 0;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 10px 12px;
+	border: 0;
+	border-radius: 12px;
+	background: none;
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+
+.workspace-chat-list-row:hover,
+.workspace-chat-list-row[aria-current="true"] {
+	background: var(--color-kumo-tint, rgb(0 0 0 / 0.05));
+}
+
+@keyframes workspace-chat-pulse {
+	0%,
+	100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.25;
+	}
+}
+
+@keyframes workspace-chat-shimmer {
+	from {
+		background-position: 200% 0;
+	}
+	to {
+		background-position: -200% 0;
+	}
+}

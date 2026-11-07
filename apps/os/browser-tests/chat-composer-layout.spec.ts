@@ -6,21 +6,13 @@ import { startFixtureServer } from "./fixture-server";
 // The composer footer must hold every control on one row at any pane width
 // from 280px up: no control may overlap another, leave the row, or paint its
 // label over its own icon. It sizes from its own width (a container query),
-// so the workspace side chat and a phone get the same compact row.
-const workspacePath =
-	"/workspace/00000030-0000-4000-8000-000000000001?pane=chat";
-const surfaces = [
-	{ name: "chat page", path: "/chat" },
-	{ name: "workspace chat", path: workspacePath },
-] as const;
+// so a phone gets the same compact row. The workspace chat pane has its own
+// composer, fed by the workspace object, and is covered by its own tests.
+const surfaces = [{ name: "chat page", path: "/chat" }] as const;
 // A fixture conversation whose Home run is still running.
 const runningConversation = "00000060-0000-4000-8000-000000000009";
 const runningSurfaces = [
 	{ name: "chat page", path: `/chat?conversation=${runningConversation}` },
-	{
-		name: "workspace chat",
-		path: `${workspacePath}&conversation=${runningConversation}`,
-	},
 ] as const;
 const shots = process.env.CHAT_COMPOSER_LAYOUT_SHOTS;
 const server = await startFixtureServer("/chat");
@@ -224,25 +216,6 @@ try {
 				await openComposer(page, surface.path);
 				const defects = await footerDefects(page);
 				assert.deepEqual(defects, [], label);
-				if (surface.path === workspacePath) {
-					// Scoped to the chat: the library beside it has an Upload file too.
-					const upload = page
-						.locator(".chat-composer-actions")
-						.getByRole("button", { name: "Upload file", exact: true });
-					assert(
-						await upload.isVisible(),
-						`${label}: Upload file is reachable`,
-					);
-					if (!phone) {
-						// Icon-only beside the editor, so the name shows on hover.
-						await upload.hover();
-						await page
-							.locator("[data-base-ui-portal]")
-							.getByText("Upload file", { exact: true })
-							.waitFor();
-						await page.mouse.move(0, 0);
-					}
-				}
 				if (shots) {
 					await mkdir(shots, { recursive: true });
 					await page.locator('[data-slot="chat-composer"]').screenshot({

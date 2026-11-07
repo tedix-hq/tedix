@@ -132,7 +132,6 @@ const outputEditorHarness = vi.hoisted(() => ({
 }));
 
 const chatHarness = vi.hoisted(() => ({
-	onSendStarted: null as (() => void) | null,
 	onSelect: null as ((conversationId: string | null) => void) | null,
 	onConversationCreated: null as ((conversationId: string) => void) | null,
 }));
@@ -241,71 +240,55 @@ vi.mock("@/components/widget-frame", () => ({
 	),
 }));
 
-vi.mock("@/components/chat-thread", () => ({
-	ChatThread: ({
+vi.mock("@/components/workspace-chat", () => ({
+	WorkspaceChat: ({
 		conversationId,
-		composerOnly,
-		context,
-		onSendStarted,
+		listOpen,
+		onOpenList,
+		onSelectConversation,
 		onConversationCreated,
 	}: {
 		conversationId: string | null;
-		composerOnly?: boolean;
-		context?: { kind: string; id: string; label: string };
-		onSendStarted?: () => void;
+		listOpen: boolean;
+		onOpenList: () => void;
+		onSelectConversation: (conversationId: string | null) => void;
 		onConversationCreated?: (conversationId: string) => void;
 	}) => {
-		chatHarness.onSendStarted = onSendStarted ?? null;
+		chatHarness.onSelect = onSelectConversation;
 		chatHarness.onConversationCreated = onConversationCreated ?? null;
 		return (
-			<div
-				data-chat-thread={conversationId ?? "new"}
-				data-composer-only={composerOnly}
-				data-context-kind={context?.kind}
-				data-context-id={context?.id}
-			>
+			<div data-chat-thread={conversationId ?? "new"} data-list-open={listOpen}>
 				Workspace chat
+				{listOpen ? (
+					<nav
+						aria-label="Conversations"
+						data-active-conversation={conversationId ?? "new"}
+					>
+						<button
+							type="button"
+							onClick={() => onSelectConversation("conv-second")}
+						>
+							Second conversation
+						</button>
+						<button type="button" onClick={() => onSelectConversation(null)}>
+							New
+						</button>
+					</nav>
+				) : (
+					<div
+						data-testid="conversation-header"
+						data-conversation={conversationId}
+					>
+						<button
+							aria-label="Back to conversations"
+							onClick={onOpenList}
+							type="button"
+						>
+							All conversations
+						</button>
+					</div>
+				)}
 			</div>
-		);
-	},
-}));
-
-vi.mock("@/components/chat-sidebar", () => ({
-	CHAT_CONVERSATIONS_QUERY_KEY: ["os-chat-conversations"],
-	MAIN_HOME_CONVERSATION_ID: "home:main",
-	ChatConversationHeader: ({
-		conversationId,
-		onBack,
-	}: {
-		conversationId: string | null;
-		onBack: () => void;
-	}) => (
-		<div data-testid="conversation-header" data-conversation={conversationId}>
-			<button aria-label="Back to conversations" onClick={onBack} type="button">
-				back
-			</button>
-		</div>
-	),
-	ChatSidebar: ({
-		activeConversationId,
-		onSelect,
-	}: {
-		activeConversationId: string | null;
-		onSelect: (conversationId: string | null) => void;
-	}) => {
-		chatHarness.onSelect = onSelect;
-		return (
-			<nav
-				aria-label="Conversations"
-				data-active-conversation={activeConversationId ?? "new"}
-			>
-				<button type="button" onClick={() => onSelect("home:os:second")}>
-					Second conversation
-				</button>
-				<button type="button" onClick={() => onSelect(null)}>
-					New
-				</button>
-			</nav>
 		);
 	},
 }));
@@ -1793,25 +1776,6 @@ describe("CanvasPage listing", () => {
 		expect(container.textContent).toContain("Live candidate");
 	});
 
-	it.each([
-		["Weekly report", "output", OUTPUT_ID],
-		["Report gadget", "gadget", GADGET_ID],
-	])(
-		"keeps the selected %s in the list composer's first send context",
-		async (label, kind, id) => {
-			mockLists();
-			const container = await openDoc(label);
-			const composer = container.querySelector('[data-composer-only="true"]');
-			expect(composer?.getAttribute("data-context-kind")).toBe(kind);
-			expect(composer?.getAttribute("data-context-id")).toBe(id);
-			act(() => chatHarness.onSendStarted?.());
-			expect(container.querySelector('[data-composer-only="false"]')).toBe(
-				composer,
-			);
-			expect(composer?.getAttribute("data-context-id")).toBe(id);
-		},
-	);
-
 	it("browses, switches, and starts durable Home conversations inside a workspace", async () => {
 		mockLists();
 		const container = renderPage();
@@ -1826,11 +1790,11 @@ describe("CanvasPage listing", () => {
 			container
 				.querySelector('[aria-label="Conversations"]')
 				?.getAttribute("data-active-conversation"),
-		).toBe("home:main");
+		).toBe("new");
 
 		click(findButton(container, "Second conversation"));
 		expect(
-			container.querySelector('[data-chat-thread="home:os:second"]'),
+			container.querySelector('[data-chat-thread="conv-second"]'),
 		).not.toBeNull();
 		// The selected conversation shows the Cloudflare-style sub-header -- back
 		// chevron, its OWN title, rename and delete -- not a surface label. The
@@ -1843,26 +1807,26 @@ describe("CanvasPage listing", () => {
 			container
 				.querySelector('[data-testid="conversation-header"]')
 				?.getAttribute("data-conversation"),
-		).toBe("home:os:second");
+		).toBe("conv-second");
 
 		click(container.querySelector('[aria-label="Back to conversations"]')!);
-		// The list view keeps a live composer whose first send creates the
-		// conversation -- starting a chat is a send, not a button.
+		// Back reopens the list; the pane shows a fresh thread behind it.
 		expect(container.querySelector('[data-chat-thread="new"]')).not.toBeNull();
-		const priorNewThread = container.querySelector('[data-chat-thread="new"]');
+		expect(
+			container.querySelector('[aria-label="Conversations"]'),
+		).not.toBeNull();
 		click(
 			[...container.querySelectorAll("button")].find(
 				(button) => button.textContent?.trim() === "New",
 			)!,
 		);
+		// "New" closes the list onto a fresh thread; the first send creates it.
+		expect(container.querySelector('[aria-label="Conversations"]')).toBeNull();
 		expect(container.querySelector('[data-chat-thread="new"]')).not.toBeNull();
-		expect(container.querySelector('[data-chat-thread="new"]')).not.toBe(
-			priorNewThread,
-		);
 
-		act(() => chatHarness.onConversationCreated?.("home:os:created"));
+		act(() => chatHarness.onConversationCreated?.("conv-created"));
 		expect(
-			container.querySelector('[data-chat-thread="home:os:created"]'),
+			container.querySelector('[data-chat-thread="conv-created"]'),
 		).not.toBeNull();
 	});
 
@@ -4062,22 +4026,23 @@ describe("CanvasPage chat-first workspace", () => {
 		).not.toBeNull();
 		expect(container.textContent).not.toContain("Workspace conversations");
 		const thread = container.querySelector('[data-chat-thread="new"]');
-		act(() => chatHarness.onSendStarted?.());
+		act(() => chatHarness.onSelect?.(null));
 		expect(container.querySelector('[aria-label="Conversations"]')).toBeNull();
 		expect(container.querySelector('[data-chat-thread="new"]')).toBe(thread);
-		expect(thread?.getAttribute("data-composer-only")).toBe("false");
-		expect(routing.navigate).not.toHaveBeenCalled();
+		const afterNew = routing.navigate.mock.calls.at(-1)?.[0].search;
+		expect(afterNew?.conversation).toBeUndefined();
+		expect(afterNew?.pane).toBeUndefined();
 
-		act(() => chatHarness.onConversationCreated?.("home:os:created"));
+		act(() => chatHarness.onConversationCreated?.("conv-created"));
+		expect(container.querySelector('[data-chat-thread="conv-created"]')).toBe(
+			thread,
+		);
 		expect(
-			container.querySelector('[data-chat-thread="home:os:created"]'),
-		).toBe(thread);
-		expect(
-			container.querySelector('[data-chat-thread="home:os:created"]'),
+			container.querySelector('[data-chat-thread="conv-created"]'),
 		).not.toBeNull();
 		expect(routing.navigate).toHaveBeenCalledWith(
 			expect.objectContaining({
-				search: expect.objectContaining({ conversation: "home:os:created" }),
+				search: expect.objectContaining({ conversation: "conv-created" }),
 			}),
 		);
 		const written = routing.navigate.mock.calls.at(-1)?.[0].search;

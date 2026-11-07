@@ -56,12 +56,7 @@ import { isAppRuntimeManifest } from "@tedix/api-contract/utils/app-runtime";
 import { outputWorkshopKindLabel } from "@/components/output-workshop";
 import { ApprovalNotifications } from "@/components/approval-notifications";
 import { ChatOutputLinkContext } from "@/components/chat-markdown";
-import { ChatThread } from "@/components/chat-thread";
-import {
-	ChatSidebar,
-	MAIN_HOME_CONVERSATION_ID,
-	ChatConversationHeader,
-} from "@/components/chat-sidebar";
+import { WorkspaceChat } from "@/components/workspace-chat";
 import {
 	Empty,
 	EmptyContent,
@@ -126,7 +121,6 @@ import {
 	canvasGadgetsQueryOptions,
 	canvasOutputLibraryQueryOptions,
 	canvasOutputsQueryOptions,
-	homeConversationsQueryKey,
 	osQueryKeys,
 	outputDetailQueryOptions,
 	workspaceResourcesQueryOptions,
@@ -523,7 +517,6 @@ export function CanvasPage({
 	// The header's approvals control is the one entry point to the workspace's
 	// approvals; the Files panel's Approvals row opens that same control.
 	const activityEntryRef = useRef<HTMLSpanElement>(null);
-	const [newConversationKey, setNewConversationKey] = useState(0);
 	const [focusMode, setFocusMode] = useState(requestedFocus === true);
 	// Focus mode hides the top bar, so its Share opens this copy of the dialog.
 	const [focusShareOpen, setFocusShareOpen] = useState(false);
@@ -537,10 +530,9 @@ export function CanvasPage({
 	const [chatWidth, setChatWidth] = useState(() =>
 		restoreCanvasChatWidth(window.localStorage),
 	);
-	const [chatDetailsOpen, setChatDetailsOpen] = useState(false);
 	const [activeConversationId, setActiveConversationId] = useState<
 		string | null
-	>(requestedConversation ?? MAIN_HOME_CONVERSATION_ID);
+	>(requestedConversation ?? null);
 	const widgetFollowUpRef = useRef<((content: string) => void) | null>(null);
 	const registerWidgetFollowUp = useCallback(
 		(send: (content: string) => void) => {
@@ -1472,77 +1464,16 @@ export function CanvasPage({
 					data-simple-mode={simpleMode}
 					style={{ width: simpleMode ? "100%" : chatWidth }}
 				>
-					{!conversationListOpen && (
-						<div className="canvas-chat-header">
-							<ChatConversationHeader
-								conversationId={activeConversationId}
-								workspaceId={workspaceId ?? undefined}
-								detailsOpen={chatDetailsOpen}
-								onToggleDetails={() => setChatDetailsOpen((open) => !open)}
-								onBack={() => setConversationListOpen(true)}
-								onDeleted={() => {
-									setActiveConversationId(null);
-									setConversationListOpen(true);
-								}}
-							/>
-						</div>
-					)}
-					{conversationListOpen && (
-						<div className="canvas-chat-conversations">
-							<ChatSidebar
-								activeConversationId={activeConversationId}
-								workspaceId={workspaceId ?? undefined}
-								onSelect={(conversationId) => {
-									if (conversationId === null)
-										setNewConversationKey((key) => key + 1);
-									setActiveConversationId(conversationId);
-									setConversationListOpen(false);
-									writeCanvasSearch({
-										...canvasSearch,
-										conversation: conversationId ?? undefined,
-										pane: conversationPane,
-									});
-								}}
-							/>
-						</div>
-					)}
-					<div
-						className={
-							conversationListOpen
-								? "canvas-chat-list-composer"
-								: "canvas-chat-thread"
-						}
-					>
-						<ChatOutputLinkContext.Provider value={chatOutputLinks}>
-							<ChatThread
-								key={newConversationKey}
-								composerOnly={conversationListOpen}
-								detailsOpen={chatDetailsOpen}
+					<ChatOutputLinkContext.Provider value={chatOutputLinks}>
+						{workspaceId === null ? (
+							<CanvasStagePending />
+						) : (
+							<WorkspaceChat
+								autoFocusComposer={simpleMode}
 								conversationId={
 									conversationListOpen ? null : activeConversationId
 								}
-								onSendStarted={() => {
-									if (conversationListOpen) setActiveConversationId(null);
-									setConversationListOpen(false);
-								}}
-								workspaceId={workspaceId ?? undefined}
-								autoFocusComposer={simpleMode}
-								context={
-									selectedDoc && selectedDoc.type !== "repository"
-										? {
-												kind: selectedDoc.type,
-												id: selectedDoc.id,
-												label: `${selectedDoc.type === "gadget" ? "App" : "Output"} resource`,
-											}
-										: workspaceId && selectedWorkspace
-											? {
-													kind: "workspace",
-													id: workspaceId,
-													label: selectedWorkspace.name,
-												}
-											: undefined
-								}
-								onSendMessageReady={registerWidgetFollowUp}
+								listOpen={conversationListOpen}
 								onConversationCreated={(conversationId) => {
 									setActiveConversationId(conversationId);
 									setConversationListOpen(false);
@@ -1551,18 +1482,22 @@ export function CanvasPage({
 										conversation: conversationId,
 										pane: conversationPane,
 									});
-									queryClient.invalidateQueries({
-										queryKey: homeConversationsQueryKey(
-											workspaceId ?? undefined,
-										),
+								}}
+								onOpenList={() => setConversationListOpen(true)}
+								onSelectConversation={(conversationId) => {
+									setActiveConversationId(conversationId);
+									setConversationListOpen(false);
+									writeCanvasSearch({
+										...canvasSearch,
+										conversation: conversationId ?? undefined,
+										pane: conversationPane,
 									});
 								}}
-								onOutputCreated={(outputId) =>
-									void openChatOutput(outputId, false)
-								}
+								onSendMessageReady={registerWidgetFollowUp}
+								workspaceId={workspaceId}
 							/>
-						</ChatOutputLinkContext.Provider>
-					</div>
+						)}
+					</ChatOutputLinkContext.Provider>
 				</aside>
 				{simpleMode ? null : (
 					<div

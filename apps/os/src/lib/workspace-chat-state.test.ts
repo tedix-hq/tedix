@@ -1,0 +1,191 @@
+import { describe, expect, it } from "vite-plus/test";
+import type { WorkspaceChatLedgerEvent } from "./workspace-chat-protocol";
+import {
+	activeTurn,
+	applyWorkspaceChatEvent,
+	applyWorkspaceChatEvents,
+	elapsedLabel,
+	formatUsage,
+	initialWorkspaceChatState,
+	markPendingSend,
+	pendingApproval,
+} from "./workspace-chat-state";
+
+const at = (seconds: number) =>
+	new Date(Date.UTC(2026, 10, 7, 12, 0, seconds)).toISOString();
+
+const turn: WorkspaceChatLedgerEvent[] = [
+	{
+		seq: 1,
+		at: at(0),
+		conversationId: "c1",
+		type: "turn.started",
+		turnId: "t1",
+		text: "How many challenges are open?",
+		authorId: "person:aaron",
+		authorKind: "person",
+	},
+	{
+		seq: 2,
+		at: at(1),
+		conversationId: "c1",
+		type: "step.started",
+		turnId: "t1",
+		stepId: "s1",
+		label: "Reading Challenges sheet",
+		kind: "read",
+	},
+	{
+		seq: 3,
+		at: at(2),
+		conversationId: "c1",
+		type: "step.finished",
+		turnId: "t1",
+		stepId: "s1",
+		status: "ok",
+		summary: "12 rows",
+		durationMs: 900,
+	},
+	{
+		seq: 4,
+		at: at(3),
+		conversationId: "c1",
+		type: "assistant.delta",
+		turnId: "t1",
+		messageId: "m1",
+		text: "Twelve ",
+	},
+	{
+		seq: 5,
+		at: at(3),
+		conversationId: "c1",
+		type: "assistant.delta",
+		turnId: "t1",
+		messageId: "m1",
+		text: "are open.",
+	},
+	{
+		seq: 6,
+		at: at(4),
+		conversationId: "c1",
+		type: "assistant.done",
+		turnId: "t1",
+		messageId: "m1",
+		text: "Twelve are open.",
+		usage: { inputTokens: 1000, outputTokens: 20, costCents: 2 },
+		model: "mock",
+	},
+	{
+		seq: 7,
+		at: at(4),
+		conversationId: "c1",
+		type: "turn.finished",
+		turnId: "t1",
+		status: "done",
+		durationMs: 4000,
+	},
+];
+
+describe("applyWorkspaceChatEvent", () => {
+	it("folds a turn's events into one row with steps, prose and usage", () => {
+		const state = applyWorkspaceChatEvents(
+			initialWorkspaceChatState("c1"),
+			turn,
+		);
+		expect(state.turns).toHaveLength(1);
+		const [row] = state.turns;
+		expect(row?.text).toBe("How many challenges are open?");
+		expect(
+			row?.steps.map((step) => [step.label, step.status, step.summary]),
+		).toEqual([["Reading Challenges sheet", "ok", "12 rows"]]);
+		expect(row?.reply).toBe("Twelve are open.");
+		expect(row?.replyDone).toBe(true);
+		expect(row?.status).toBe("done");
+		expect(row?.usage?.costCents).toBe(2);
+		expect(state.cursor).toBe(7);
+		expect(state.lastEventAt).toBe(Date.parse(at(4)));
+		expect(activeTurn(state)).toBeNull();
+	});
+
+	it("ignores a seq it already folded, so a replay after a drop changes nothing", () => {
+		const once = applyWorkspaceChatEvents(
+			initialWorkspaceChatState("c1"),
+			turn,
+		);
+		const twice = applyWorkspaceChatEvents(once, turn.slice(2));
+		expect(twice.turns[0]?.reply).toBe("Twelve are open.");
+		expect(twice.turns[0]?.steps).toHaveLength(1);
+	});
+
+	it("keeps streaming prose growing and marks the turn active until it finishes", () => {
+		const state = applyWorkspaceChatEvents(
+			initialWorkspaceChatState("c1"),
+			turn.slice(0, 5),
+		);
+		expect(state.turns[0]?.reply).toBe("Twelve are open.");
+		expect(state.turns[0]?.replyDone).toBe(false);
+		expect(activeTurn(state)?.turnId).toBe("t1");
+	});
+
+	it("clears the pending send once the object echoes the same text", () => {
+		const pending = markPendingSend(initialWorkspaceChatState("c1"), {
+			clientTurnId: "x",
+			text: "How many challenges are open?",
+			sentAt: 1,
+		});
+		expect(pending.pendingSend).not.toBeNull();
+		const echoed = applyWorkspaceChatEvent(pending, turn[0]!);
+		expect(echoed.pendingSend).toBeNull();
+	});
+
+	it("tracks an approval from request to decision", () => {
+		const base = applyWorkspaceChatEvents(
+			initialWorkspaceChatState("c1"),
+			turn.slice(0, 2),
+		);
+		const asked = applyWorkspaceChatEvent(base, {
+			seq: 10,
+			at: at(5),
+			conversationId: "c1",
+			type: "approval.requested",
+			turnId: "t1",
+			stepId: "s2",
+			approvalId: "a1",
+			title: "Write to the sheet",
+			reason: "Policy requires a person.",
+		});
+		expect(pendingApproval(activeTurn(asked))?.approvalId).toBe("a1");
+		const decided = applyWorkspaceChatEvent(asked, {
+			seq: 11,
+			at: at(6),
+			conversationId: "c1",
+			type: "approval.decided",
+			turnId: "t1",
+			approvalId: "a1",
+			decision: "approve",
+			by: "person:aaron",
+		});
+		expect(pendingApproval(activeTurn(decided))).toBeNull();
+		expect(decided.turns[0]?.approvals[0]?.decision).toBe("approve");
+	});
+
+	it("drops events of another conversation but still advances the cursor", () => {
+		const state = applyWorkspaceChatEvent(initialWorkspaceChatState("c1"), {
+			...turn[0]!,
+			conversationId: "c2",
+			seq: 99,
+		});
+		expect(state.turns).toHaveLength(0);
+		expect(state.cursor).toBe(99);
+	});
+});
+
+describe("labels", () => {
+	it("formats elapsed time and usage plainly", () => {
+		expect(elapsedLabel(4_200)).toBe("4s");
+		expect(elapsedLabel(125_000)).toBe("2m 05s");
+		expect(
+			formatUsage({ inputTokens: 2000, outputTokens: 500, costCents: 2 }),
+		).toBe("2,500 tokens · €0.020");
+	});
+});

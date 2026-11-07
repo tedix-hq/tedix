@@ -97,6 +97,13 @@ the same pack into local D1 and sets `TEDIX_DEMO_SENDING_OFF` on the API. Set
 For isolated API and D1 behavior, run `bun run-local` from the repository root.
 Its default mode uses local state and no model credentials.
 
+The chat inside a workspace talks to that workspace's own object over a
+WebSocket at `/workspace/{id}/chat` (`src/lib/workspace-chat-client.ts`). The
+local lane has no workspace objects, so start the stand-in next to `run-local`:
+`bun run --cwd apps/os dev:workspace-mock`. It answers on port 8793 with the
+same event stream (steps, tokens, approvals) and the OS Worker forwards the
+socket to it.
+
 ## Build configuration
 
 The SPA bakes its public identity into the bundle at build time and has **no
