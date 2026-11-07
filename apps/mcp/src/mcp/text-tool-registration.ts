@@ -16,12 +16,7 @@ import {
 	type ToolAnnotations,
 } from "@tedix/api-contract/schemas/tools";
 import { clientSupportsTasks } from "@tedix/mcp-shared/tasks";
-import {
-	enforceExpectedAnnotations,
-	isApprovedReplayCall,
-	requireDestructiveToolApproval,
-	stripDestructiveApprovalArgs,
-} from "./governance";
+import { isApprovedReplayCall } from "./governance";
 import {
 	type ToolCallback,
 	wrapToolCallTelemetry,
@@ -31,10 +26,8 @@ import { getToolPaymentPolicy } from "./payments-policy";
 import { settleToolPayment } from "./payments-settlement";
 import type { AppTool, ServerContext } from "./server-context";
 import { executeTool } from "./tool-execution";
-import {
-	enforceToolRiskRateLimit,
-	toolApprovalMetadata,
-} from "./tool-risk-policy";
+import { guardGatewayCall } from "./gateway-adapters";
+import { toolApprovalMetadata } from "./tool-risk-policy";
 import {
 	projectNativeOutputEvidence,
 	type ToolInputStandardSchema,
@@ -190,56 +183,48 @@ export async function registerTextOnlyTool(
 		});
 		if (scopeDenial) return scopeDenial;
 
-		const annotationFailure = enforceExpectedAnnotations(
-			agent,
-			tool,
-			annotations,
-			extra,
-		);
-		if (annotationFailure) return annotationFailure;
-
-		const riskRateLimitFailure = await enforceToolRiskRateLimit(agent, tool);
-		if (riskRateLimitFailure) return riskRateLimitFailure;
-
-		const approvalFailure = await requireDestructiveToolApproval(
-			agent,
-			tool,
-			annotations,
+		const guarded = await guardGatewayCall(
 			{
+				agent,
+				tool,
+				annotations,
 				args,
-				extra,
-				tenantPolicyCandidate: effectiveCandidate ?? undefined,
-				nativePolicyCandidate: nativeCandidate ?? undefined,
+				approval: {
+					args,
+					extra,
+					tenantPolicyCandidate: effectiveCandidate ?? undefined,
+					nativePolicyCandidate: nativeCandidate ?? undefined,
+				},
+			},
+			async (executionArgs) => {
+				const payment = await checkToolPayment({
+					agent,
+					tool,
+					args: executionArgs,
+					extra,
+				});
+				if (!payment.paid) return payment.result;
+
+				const result = await executeTool(agent, tool, executionArgs, {
+					adapterScope: parseAdapterScope(tool.adapterScope),
+					resultStrategy: (tool.resultStrategy as ResultStrategy) ?? "merge",
+					clientSupportsTasks: clientSupportsTasks(extra?._meta),
+					homeApprovedCall: isApprovedReplayCall(agent, { extra }),
+					...(nativeCandidate
+						? { expectedNativePolicyRevalidate: nativeCandidate.revalidate }
+						: {}),
+					...(candidate ? { expectedPolicyProbe: candidate.probe } : {}),
+				});
+				if (result.isError) return result;
+				const settlement = await settleToolPayment(agent, payment.settlement);
+				if (!settlement.settled) return settlement.result;
+				return attachPaymentResponseMeta(
+					projectNativeOutputEvidence(result, tool.outputSchema),
+					settlement.paymentResponse ?? payment.paymentResponse,
+				);
 			},
 		);
-		if (approvalFailure) return approvalFailure;
-		const executionArgs = stripDestructiveApprovalArgs(tool, args);
-
-		const payment = await checkToolPayment({
-			agent,
-			tool,
-			args: executionArgs,
-			extra,
-		});
-		if (!payment.paid) return payment.result;
-
-		const result = await executeTool(agent, tool, executionArgs, {
-			adapterScope: parseAdapterScope(tool.adapterScope),
-			resultStrategy: (tool.resultStrategy as ResultStrategy) ?? "merge",
-			clientSupportsTasks: clientSupportsTasks(extra?._meta),
-			homeApprovedCall: isApprovedReplayCall(agent, { extra }),
-			...(nativeCandidate
-				? { expectedNativePolicyRevalidate: nativeCandidate.revalidate }
-				: {}),
-			...(candidate ? { expectedPolicyProbe: candidate.probe } : {}),
-		});
-		if (result.isError) return result;
-		const settlement = await settleToolPayment(agent, payment.settlement);
-		if (!settlement.settled) return settlement.result;
-		return attachPaymentResponseMeta(
-			projectNativeOutputEvidence(result, tool.outputSchema),
-			settlement.paymentResponse ?? payment.paymentResponse,
-		);
+		return guarded.failure ?? guarded.result!;
 	};
 
 	const registeredTool = agent.server.registerTool(

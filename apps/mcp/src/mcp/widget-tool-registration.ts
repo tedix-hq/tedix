@@ -8,15 +8,10 @@ import {
 	type ResultStrategy,
 } from "@tedix/api-contract/schemas/tools";
 import * as z from "zod";
-import {
-	enforceExpectedAnnotations,
-	requireDestructiveToolApproval,
-	stripDestructiveApprovalArgs,
-	withDestructiveApprovalSchema,
-} from "./governance";
+import { withDestructiveApprovalSchema } from "./governance";
+import { guardGatewayCall } from "./gateway-adapters";
 import type { AppTool, ServerContext } from "./server-context";
 import { executeTool } from "./tool-execution";
-import { enforceToolRiskRateLimit } from "./tool-risk-policy";
 import {
 	isExternalOpenApiTool,
 	normalizeOpenApiExternalArgs,
@@ -180,33 +175,26 @@ export async function registerDynamicTool(
 			const extra = {
 				_meta: resolveToolRequestMeta(ctx.mcpReq?._meta, agent.requestMeta),
 			};
-			const annotationFailure = enforceExpectedAnnotations(
-				agent,
-				tool,
-				annotations,
-				extra,
+			const guarded = await guardGatewayCall(
+				{
+					agent,
+					tool,
+					annotations,
+					args,
+					approval: { args, extra },
+					surface: "mcp_widget",
+				},
+				async (executionArgs) =>
+					projectNativeOutputEvidence(
+						await executeTool(agent, tool, executionArgs, {
+							adapterScope,
+							resultStrategy:
+								(tool.resultStrategy as ResultStrategy) ?? "merge",
+						}),
+						tool.outputSchema,
+					),
 			);
-			if (annotationFailure) return annotationFailure;
-
-			const riskRateLimitFailure = await enforceToolRiskRateLimit(agent, tool);
-			if (riskRateLimitFailure) return riskRateLimitFailure;
-
-			const approvalFailure = await requireDestructiveToolApproval(
-				agent,
-				tool,
-				annotations,
-				{ args, extra },
-			);
-			if (approvalFailure) return approvalFailure;
-			const executionArgs = stripDestructiveApprovalArgs(tool, args);
-
-			return projectNativeOutputEvidence(
-				await executeTool(agent, tool, executionArgs, {
-					adapterScope,
-					resultStrategy: (tool.resultStrategy as ResultStrategy) ?? "merge",
-				}),
-				tool.outputSchema,
-			);
+			return guarded.failure ?? guarded.result!;
 		},
 		buildCsp: async (t) => agent.buildAppCsp(t),
 		fetchHtml: async (route, description, hostType) => {
