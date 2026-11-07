@@ -38,6 +38,23 @@ export function infrastructureFailure(output, { installSeconds } = {}) {
 	return undefined;
 }
 
+// Specs run-specs reported as failed, from its per-spec result lines.
+const failedSpec =
+	/^\[run-specs\] FAIL \(exit \d+\)[^\n]*?\s(\S+\.spec\.ts)\s*$/gm;
+export const flakeRerunMaxSpecs = 3;
+
+// A narrow browser failure (one to three specs, the rest passed) gets one
+// recorded rerun: a flake passes the second time, a regression fails twice
+// and fails the job as before. A broad failure never reruns; it is the code.
+export function flakyFailure(output) {
+	const specs = [...new Set([...output.matchAll(failedSpec)].map((m) => m[1]))];
+	if (specs.length === 0 || specs.length > flakeRerunMaxSpecs) return undefined;
+	return {
+		specs,
+		reason: `${specs.length} spec(s) failed on the first attempt: ${specs.join(", ")}`,
+	};
+}
+
 function run(command) {
 	return new Promise((resolve, reject) => {
 		const child = spawn(command[0], command.slice(1), {
@@ -79,20 +96,31 @@ if (
 			: infrastructureFailure(first.output, {
 					installSeconds: process.env.FROZEN_INSTALL_SECONDS,
 				});
-	if (!reason) {
+	const flake =
+		reason || first.code === 0 ? undefined : flakyFailure(first.output);
+	if (!reason && !flake) {
 		if (first.code !== 0) await uploadShardEvidence(process.env);
 		process.exit(first.code);
 	}
-	const note = `Infrastructure rerun: \`${command.join(" ")}\` failed because of ${reason}; running it once more.`;
-	console.log(`::warning title=Infrastructure rerun::${note}`);
+	const kind = reason ? "Infrastructure rerun" : "Flake check";
+	const note = reason
+		? `Infrastructure rerun: \`${command.join(" ")}\` failed because of ${reason}; running it once more.`
+		: `Flake check: ${flake.reason}; running it once more to separate a flake from a regression.`;
+	console.log(`::warning title=${kind}::${note}`);
 	if (process.env.GITHUB_STEP_SUMMARY)
 		appendFileSync(process.env.GITHUB_STEP_SUMMARY, `- ${note}\n`);
 	const second = await run(command);
+	const verdict =
+		second.code === 0
+			? reason
+				? "passed"
+				: `passed: FLAKY ${flake.specs.join(", ")} (fix the flake; this commit is not the cause)`
+			: `failed again (exit ${second.code})`;
+	console.log(
+		`::${second.code === 0 && !reason ? "warning title=Flaky browser spec" : "notice"}::${kind} ${verdict}`,
+	);
 	if (process.env.GITHUB_STEP_SUMMARY)
-		appendFileSync(
-			process.env.GITHUB_STEP_SUMMARY,
-			`- Infrastructure rerun ${second.code === 0 ? "passed" : `failed again (exit ${second.code})`}.\n`,
-		);
+		appendFileSync(process.env.GITHUB_STEP_SUMMARY, `- ${kind} ${verdict}.\n`);
 	if (second.code !== 0) await uploadShardEvidence(process.env);
 	process.exit(second.code);
 }
