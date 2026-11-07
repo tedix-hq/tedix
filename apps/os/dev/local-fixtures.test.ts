@@ -194,6 +194,12 @@ const CALLS = {
 	"mcpGovernance/listTenantToolPolicies": {},
 	"mcpGovernance/listDeletedTenantPolicyFences": {},
 	"mcpGovernance/listLegacyActionTypeInventory": {},
+	"mcpGovernance/getOrganizationAutoApproval": {},
+	"mcpGovernance/setOrganizationAutoApproval": {
+		kind: "group",
+		groupId: "runs",
+		enabled: true,
+	},
 	"mcpGovernance/listMachinePolicyInventory": {},
 	"mcpGovernance/listMachineProviderProbes": {},
 	"mcpGovernance/listProviderIdentityProfiles": {},

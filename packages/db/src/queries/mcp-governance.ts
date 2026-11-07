@@ -407,6 +407,134 @@ export async function setActionTypeOptIn(
 	return undefined;
 }
 
+/**
+ * An organization's changes to the everyday auto-approval default, stored as
+ * organization-wide grant rows like action-type opt-ins:
+ * `auto_approval:group_off:<group>`, `auto_approval:tool_on:<tool>` and
+ * `auto_approval:tool_off:<tool>`. The subject `*` never equals a caller id,
+ * so these rows can never satisfy a per-caller tool grant lookup.
+ */
+export const AUTO_APPROVAL_ENTRY_KINDS = [
+	"group_off",
+	"tool_on",
+	"tool_off",
+] as const;
+export type AutoApprovalEntryKind = (typeof AUTO_APPROVAL_ENTRY_KINDS)[number];
+const AUTO_APPROVAL_SCOPE_PREFIX = "auto_approval:";
+
+function autoApprovalScope(kind: AutoApprovalEntryKind, value: string): string {
+	return `${AUTO_APPROVAL_SCOPE_PREFIX}${kind}:${normalizeScopeSegment(value)}`;
+}
+
+export interface OrganizationAutoApprovalEntries {
+	disabledGroups: string[];
+	addedTools: string[];
+	removedTools: string[];
+}
+
+export async function listOrganizationAutoApproval(
+	db: DbClient,
+	args: { organizationId: string; nowIso?: string },
+): Promise<OrganizationAutoApprovalEntries> {
+	const rows = await db
+		.select({ scope: mcpToolApprovalGrants.toolId })
+		.from(mcpToolApprovalGrants)
+		.where(
+			and(
+				activeActionTypeOptIns(
+					args.organizationId,
+					args.nowIso ?? new Date().toISOString(),
+				),
+				sql`${mcpToolApprovalGrants.toolId} LIKE ${`${AUTO_APPROVAL_SCOPE_PREFIX}%`}`,
+			),
+		)
+		.orderBy(mcpToolApprovalGrants.toolId)
+		.limit(500);
+	const out: OrganizationAutoApprovalEntries = {
+		disabledGroups: [],
+		addedTools: [],
+		removedTools: [],
+	};
+	for (const { scope } of rows) {
+		if (typeof scope !== "string") continue;
+		const rest = scope.slice(AUTO_APPROVAL_SCOPE_PREFIX.length);
+		const split = rest.indexOf(":");
+		const kind = rest.slice(0, split);
+		const value = rest.slice(split + 1);
+		if (split < 1 || !value) continue;
+		const list =
+			kind === "group_off"
+				? out.disabledGroups
+				: kind === "tool_on"
+					? out.addedTools
+					: kind === "tool_off"
+						? out.removedTools
+						: null;
+		if (list && !list.includes(value)) list.push(value);
+	}
+	return out;
+}
+
+/**
+ * Turn one auto-approval change on or off. Callers check the owner/admin and
+ * the critical floor. Turning off expires the row so its history stays
+ * readable; adding a tool clears its removal and the reverse. Idempotent.
+ */
+export async function setOrganizationAutoApprovalEntry(
+	db: DbClient,
+	args: {
+		organizationId: string;
+		kind: AutoApprovalEntryKind;
+		value: string;
+		enabled: boolean;
+		reason: string;
+		nowIso?: string;
+	},
+): Promise<void> {
+	const nowIso = args.nowIso ?? new Date().toISOString();
+	const scope = autoApprovalScope(args.kind, args.value);
+	const opposite =
+		args.kind === "tool_on"
+			? autoApprovalScope("tool_off", args.value)
+			: args.kind === "tool_off"
+				? autoApprovalScope("tool_on", args.value)
+				: null;
+	const expire = (target: string) =>
+		db
+			.update(mcpToolApprovalGrants)
+			.set({ expiresAt: nowIso })
+			.where(
+				and(
+					activeActionTypeOptIns(args.organizationId, nowIso),
+					eq(mcpToolApprovalGrants.toolId, target),
+				),
+			);
+	if (!args.enabled) {
+		await expire(scope);
+		return;
+	}
+	if (opposite) await expire(opposite);
+	const [existing] = await db
+		.select({ id: mcpToolApprovalGrants.id })
+		.from(mcpToolApprovalGrants)
+		.where(
+			and(
+				activeActionTypeOptIns(args.organizationId, nowIso),
+				eq(mcpToolApprovalGrants.toolId, scope),
+			),
+		)
+		.limit(1);
+	if (existing) return;
+	await db.insert(mcpToolApprovalGrants).values({
+		id: crypto.randomUUID(),
+		organizationId: args.organizationId,
+		subjectId: ACTION_TYPE_OPT_IN_SUBJECT,
+		toolId: scope,
+		grantKind: "always",
+		reason: args.reason,
+	});
+}
+
 export const OWNED_CHANNEL_AUTHORIZATION_EVENT =
 	"owned_channel_authorization" as const;
 export const OWNED_CHANNEL_AUTHORIZATION_REVOKED_EVENT =

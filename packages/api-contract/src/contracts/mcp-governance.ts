@@ -85,6 +85,8 @@ import {
 	LegacyActionTypeInventorySchema,
 	SetActionTypeOptInInputSchema,
 	SetActionTypeOptInResponseSchema,
+	OrganizationAutoApprovalSchema,
+	SetOrganizationAutoApprovalInputSchema,
 } from "../schemas/mcp-governance";
 import {
 	ConnectionSensitivitySchema,
@@ -226,6 +228,25 @@ export const mcpGovernanceContract = oc
 			})
 			.input(SetActionTypeOptInInputSchema)
 			.output(SetActionTypeOptInResponseSchema),
+		getOrganizationAutoApproval: oc
+			.route({
+				method: "GET",
+				path: "/auto-approval",
+				summary: "Show what runs without asking",
+				description:
+					"Lists the everyday groups of Tedix operations that run without an approval card, whether each is on for this organization, and the single tools the organization added or set to always ask.",
+			})
+			.output(OrganizationAutoApprovalSchema),
+		setOrganizationAutoApproval: oc
+			.route({
+				method: "POST",
+				path: "/auto-approval",
+				summary: "Change what runs without asking",
+				description:
+					"Organization owners and admins only. Turns a default group on or off, or sets one Tedix tool to run without asking, always ask, or follow the default. Critical actions such as payments, sending messages, publishing, deletion and access changes always ask and are refused.",
+			})
+			.input(SetOrganizationAutoApprovalInputSchema)
+			.output(OrganizationAutoApprovalSchema),
 		listTenantToolPolicies: oc
 			.route({
 				method: "GET",

@@ -500,6 +500,11 @@ export interface KernelGovernancePolicy {
 	 */
 	platformAutonomy?: false;
 	/**
+	 * The organization's changes to the everyday default, read from its
+	 * auto-approval settings, not from the policy pack.
+	 */
+	autoApproval?: OrganizationAutoApproval;
+	/**
 	 * Rollout switch for the MCP gateway's autonomous third-party write gate.
 	 * Absent/false preserves the legacy scoped agent auto-confirm posture;
 	 * true requires each destructive external/non-managed-MCP tool to declare
@@ -730,7 +735,11 @@ export function decideKernelWriteApproval(input: {
 	const platformOperation =
 		input.policy?.platformAutonomy === false
 			? null
-			: platformAutonomousOperation(toolName);
+			: platformAutonomousOperation(
+					toolName,
+					null,
+					input.policy?.autoApproval ?? null,
+				);
 	if (
 		platformOperation &&
 		input.policy?.writeTier?.autoApproveLowRisk !== false &&
@@ -819,31 +828,66 @@ const platformOperations = organizationAutonomy.operations.map((operation) => ({
 	callablePattern: new RegExp(operation.callablePattern),
 }));
 
+/** The default groups of everyday operations, in display order. */
+export const PLATFORM_AUTO_APPROVAL_GROUPS: ReadonlyArray<{
+	id: string;
+	label: string;
+}> = platformOperations.map(({ id, label }) => ({ id, label }));
+
 /**
- * The platform-default operation class a tool belongs to, or null. Classifies
- * the tool itself (its final name segment), never the request text: a Work
- * item whose description mentions money is still a Work item create. A tool
- * whose own name names a critical action is never a platform operation.
+ * An organization's changes to the platform default: default groups it
+ * switched off, and single tools it added or removed. Tool entries are bare
+ * tool names, as {@link autoApprovalToolName} returns them.
+ */
+export interface OrganizationAutoApproval {
+	disabledGroups: string[];
+	addedTools: string[];
+	removedTools: string[];
+}
+
+export const ORGANIZATION_ADDED_AUTO_APPROVAL = {
+	id: "organization_added",
+	label: "Tools your organization added",
+} as const;
+
+/** The bare tool name the default and organization lists match on. */
+export function autoApprovalToolName(toolName: string): string {
+	return (
+		toolName.trim().split(/[.:]/).at(-1)?.split("__").at(-1)?.toLowerCase() ??
+		""
+	);
+}
+
+/**
+ * The everyday operation class a tool belongs to, or null. Classifies the
+ * tool itself (its final name segment), never the request text: a Work item
+ * whose description mentions money is still a Work item create. A tool whose
+ * own name names a critical action is never one, whatever the organization
+ * set. Without `organization`, only the platform default applies.
  */
 export function platformAutonomousOperation(
 	toolName: string,
 	/** Tedix API route (`router/procedure`) when the tool is Tedix's own RPC. */
 	rpcEndpoint?: string | null,
+	organization?: OrganizationAutoApproval | null,
 ): { id: string; label: string } | null {
-	const name =
-		toolName.trim().split(/[.:]/).at(-1)?.split("__").at(-1)?.toLowerCase() ??
-		"";
+	const name = autoApprovalToolName(toolName);
 	if (!name || humanReservedActionClasses(name).length) return null;
 	const endpoint = rpcEndpoint?.trim() ?? "";
 	if (endpoint && humanReservedActionClasses(endpoint).length) return null;
+	if (organization?.removedTools.includes(name)) return null;
 	const callable = toolName.trim();
 	const operation = platformOperations.find(
 		(entry) =>
-			entry.pattern.test(name) ||
-			(callable !== "" && entry.callablePattern.test(callable)) ||
-			(endpoint !== "" && entry.endpointPattern.test(endpoint)),
+			!organization?.disabledGroups.includes(entry.id) &&
+			(entry.pattern.test(name) ||
+				(callable !== "" && entry.callablePattern.test(callable)) ||
+				(endpoint !== "" && entry.endpointPattern.test(endpoint))),
 	);
-	return operation ? { id: operation.id, label: operation.label } : null;
+	if (operation) return { id: operation.id, label: operation.label };
+	return organization?.addedTools.includes(name)
+		? { ...ORGANIZATION_ADDED_AUTO_APPROVAL }
+		: null;
 }
 
 /**

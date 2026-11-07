@@ -1,3 +1,4 @@
+import organizationAutonomy from "@tedix/api-contract/assets/organization-autonomy.v1.json";
 import {
 	attentionFixture,
 	getAttentionFixtureLayout,
@@ -5439,6 +5440,18 @@ function fixtureScheduleControl(
 	};
 }
 
+function localAutoApproval() {
+	return {
+		groups: organizationAutonomy.operations.map(({ id, label }) => ({
+			id,
+			label,
+			enabled: true,
+		})),
+		addedTools: [],
+		removedTools: [],
+	};
+}
+
 const handlers: Record<string, (input: never) => unknown> = {
 	"mcpGovernance/listTenantToolPolicies": () => ({ items: localPolicyRows }),
 	"mcpGovernance/listDeletedTenantPolicyFences": () => ({ items: [] }),
@@ -5447,6 +5460,8 @@ const handlers: Record<string, (input: never) => unknown> = {
 		tools: [],
 		truncated: false,
 	}),
+	"mcpGovernance/getOrganizationAutoApproval": () => localAutoApproval(),
+	"mcpGovernance/setOrganizationAutoApproval": () => localAutoApproval(),
 	"mcpGovernance/listMachinePolicyInventory": () => ({ items: [] }),
 	"mcpGovernance/listMachineProviderProbes": () => ({ items: [] }),
 	"mcpGovernance/listProviderIdentityProfiles": () => ({

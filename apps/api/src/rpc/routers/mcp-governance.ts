@@ -111,7 +111,10 @@ import {
 	listDeclaredActionToolsForOrganization,
 } from "@tedix/db/queries/tools";
 import {
+	autoApprovalToolName,
+	humanReservedActionClasses,
 	isPlatformCriticalActionType,
+	PLATFORM_AUTO_APPROVAL_GROUPS,
 	parseKernelGovernancePolicy,
 } from "@tedix/api-contract/utils/approval-policy";
 import {
@@ -132,9 +135,11 @@ import { getActivePolicyPackDefinition } from "@tedix/db/queries/kernel-runtime-
 import {
 	findActionTypeOptIn,
 	listActionTypeOptIns,
+	listOrganizationAutoApproval,
 	resolveToolApprovalGrant,
 	resolveWorkItemAuthorization,
 	setActionTypeOptIn,
+	setOrganizationAutoApprovalEntry,
 } from "@tedix/db/queries/mcp-governance";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import { readDelegationAutonomyLessons } from "@tedix/db/queries/work-items/delegation-autonomy";
@@ -1893,10 +1898,22 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 				organizationPolicy?.governancePolicy,
 			);
 			const autonomy = organizationGovernance.autonomy;
-			const optOut =
-				organizationGovernance.platformAutonomy === false
+			// The organization's own changes to the default; unreadable settings
+			// fall back to the platform list.
+			const autoApproval = await listOrganizationAutoApproval(context.db, {
+				organizationId: input.organizationId,
+			}).catch(() => null);
+			const optOut = {
+				...(organizationGovernance.platformAutonomy === false
 					? { platformAutonomy: false as const }
-					: {};
+					: {}),
+				...(autoApproval &&
+				(autoApproval.disabledGroups.length > 0 ||
+					autoApproval.addedTools.length > 0 ||
+					autoApproval.removedTools.length > 0)
+					? { autoApproval }
+					: {}),
+			};
 			if (autonomy)
 				autonomy.askForClasses = [
 					...(autonomy.askForClasses ?? []),
@@ -1966,6 +1983,69 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 				organizationId: requireOrgId(context),
 			}),
 		})),
+	getOrganizationAutoApproval: authOs.getOrganizationAutoApproval
+		.use(AUTHZ.settingsRead)
+		.handler(async ({ context }) =>
+			organizationAutoApprovalView(
+				await listOrganizationAutoApproval(context.db, {
+					organizationId: requireOrgId(context),
+				}),
+			),
+		),
+	setOrganizationAutoApproval: authOs.setOrganizationAutoApproval
+		.use(AUTHZ.settingsWrite)
+		.handler(async ({ input, context }) => {
+			const organizationId = requireOrgId(context);
+			// A person decides; a tedi, agent or key holding settings:write cannot
+			// widen its own approvals.
+			if (
+				context.authType !== "user" ||
+				!context.userId ||
+				!(await isActiveOwnerOrAdmin(context, organizationId, context.userId))
+			)
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Only an organization owner or admin can change what runs without asking",
+				);
+			const reason = `set by user:${context.userId}`;
+			if (input.kind === "group") {
+				if (!PLATFORM_AUTO_APPROVAL_GROUPS.some((g) => g.id === input.groupId))
+					throw createError(
+						ErrorCodes.BAD_REQUEST,
+						`Unknown group "${input.groupId}"`,
+					);
+				await setOrganizationAutoApprovalEntry(context.db, {
+					organizationId,
+					kind: "group_off",
+					value: input.groupId,
+					enabled: !input.enabled,
+					reason,
+				});
+			} else {
+				const toolName = autoApprovalToolName(input.toolName);
+				if (
+					input.mode === "auto" &&
+					humanReservedActionClasses(toolName).length
+				)
+					throw createError(
+						ErrorCodes.BAD_REQUEST,
+						`"${toolName}" is a critical action and always asks for approval`,
+					);
+				for (const kind of ["tool_on", "tool_off"] as const)
+					await setOrganizationAutoApprovalEntry(context.db, {
+						organizationId,
+						kind,
+						value: toolName,
+						enabled:
+							(kind === "tool_on" && input.mode === "auto") ||
+							(kind === "tool_off" && input.mode === "ask"),
+						reason,
+					});
+			}
+			return organizationAutoApprovalView(
+				await listOrganizationAutoApproval(context.db, { organizationId }),
+			);
+		}),
 	listLegacyActionTypeInventory: authOs.listLegacyActionTypeInventory
 		.use(AUTHZ.settingsRead)
 		.handler(async ({ context }) => {
@@ -3910,3 +3990,19 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 		},
 	),
 });
+
+function organizationAutoApprovalView(entries: {
+	disabledGroups: string[];
+	addedTools: string[];
+	removedTools: string[];
+}) {
+	return {
+		groups: PLATFORM_AUTO_APPROVAL_GROUPS.map((group) => ({
+			id: group.id,
+			label: group.label,
+			enabled: !entries.disabledGroups.includes(group.id),
+		})),
+		addedTools: entries.addedTools,
+		removedTools: entries.removedTools,
+	};
+}

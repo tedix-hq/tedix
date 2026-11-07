@@ -18,7 +18,9 @@ import {
 	OWNED_CHANNEL_AUTHORIZATION_REVOKED_EVENT,
 	resolveToolApprovalGrant,
 	resolveWorkItemAuthorization,
+	listOrganizationAutoApproval,
 	setActionTypeOptIn,
+	setOrganizationAutoApprovalEntry,
 	signOwnedChannelAuthorizationProof,
 } from "./mcp-governance";
 
@@ -665,6 +667,65 @@ describe("MCP tool-approval grants — real SQLite lifecycle", () => {
 			grantKind: "always",
 		});
 		expect(found?.id).toBe(exact.id);
+	});
+});
+
+describe("organization auto-approval changes — real SQLite", () => {
+	it("records groups and tools per organization, and a tool flips between added and asking", async () => {
+		const db = realDb();
+		const set = (
+			kind: "group_off" | "tool_on" | "tool_off",
+			value: string,
+			enabled: boolean,
+			organizationId = ORG,
+		) =>
+			setOrganizationAutoApprovalEntry(db, {
+				organizationId,
+				kind,
+				value,
+				enabled,
+				reason: "set by user:owner-1",
+				nowIso: NOW,
+			});
+		await set("group_off", "runs", true);
+		await set("group_off", "runs", true);
+		await set("tool_on", "Request_OS_Workspace_File_Upload", true);
+		await set("tool_off", "rename_os_output", true, OTHER_ORG);
+		expect(
+			await listOrganizationAutoApproval(db, {
+				organizationId: ORG,
+				nowIso: NOW,
+			}),
+		).toEqual({
+			disabledGroups: ["runs"],
+			addedTools: ["request_os_workspace_file_upload"],
+			removedTools: [],
+		});
+		await set("tool_off", "request_os_workspace_file_upload", true);
+		await set("group_off", "runs", false);
+		expect(
+			await listOrganizationAutoApproval(db, {
+				organizationId: ORG,
+				nowIso: NOW,
+			}),
+		).toEqual({
+			disabledGroups: [],
+			addedTools: [],
+			removedTools: ["request_os_workspace_file_upload"],
+		});
+		expect(
+			await listOrganizationAutoApproval(db, {
+				organizationId: OTHER_ORG,
+				nowIso: NOW,
+			}),
+		).toEqual({
+			disabledGroups: [],
+			addedTools: [],
+			removedTools: ["rename_os_output"],
+		});
+		expect(
+			await listActionTypeOptIns(db, { organizationId: ORG, nowIso: NOW }),
+		).toEqual([]);
 	});
 });
 

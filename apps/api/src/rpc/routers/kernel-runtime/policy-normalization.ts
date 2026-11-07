@@ -2,6 +2,7 @@ import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import { firstNonSkillReferenceLine } from "@tedix/api-contract/utils/skill-reference";
 import { controlHomeRunSteering } from "./run-steering";
 import { readDelegationAutonomyLessons } from "@tedix/db/queries/work-items/delegation-autonomy";
+import { listOrganizationAutoApproval } from "@tedix/db/queries/mcp-governance";
 import { resolveHomeAttachments } from "./attachment-storage";
 import {
 	type WorkspaceFileSource,
@@ -695,10 +696,19 @@ async function readOrgGovernancePolicy(
 			context.db,
 			organizationId,
 		);
-		if (!definition) return null;
+		// Unreadable settings fall back to the platform default list.
+		const autoApproval = await listOrganizationAutoApproval(context.db, {
+			organizationId,
+		}).catch(() => ({ disabledGroups: [], addedTools: [], removedTools: [] }));
+		const customized =
+			autoApproval.disabledGroups.length > 0 ||
+			autoApproval.addedTools.length > 0 ||
+			autoApproval.removedTools.length > 0;
+		if (!definition) return customized ? { autoApproval } : null;
 		const policy = parseKernelGovernancePolicy(
 			definition.governancePolicy ?? null,
 		);
+		if (customized) policy.autoApproval = autoApproval;
 		if (policy.autonomy) {
 			try {
 				policy.autonomy.askForClasses = [
