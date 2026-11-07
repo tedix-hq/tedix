@@ -531,7 +531,14 @@ holds that Work until its revision changes. The hold survives a restart. Edit
 the Work or fix the cause to release it.
 
 When a coding lane finishes, the dispatcher records the commits that already
-landed on `origin/main` with its settlement. Work accepted with
+landed on `origin/main` with its settlement. A commit that landed before the
+lane started counts too, as long as an admitted Attempt on the same Work
+covered the time it was made, for example a person's own session that pushed
+the fix and left the item open. When the dispatcher will not count a commit a
+lane cited, it writes a `custody-rejected` line with the reason to
+`dispatcher.log` in that dispatcher's folder under `~/.tedix/dispatchers/`.
+Read that line before retrying a lane that settled with "No landed commit".
+Work accepted with
 `metadata.artifactKind` set to `skill_revision`, `metadata.artifactSkillId` set
 to the expected skill UUID and `metadata.artifactSkillRevision` set to the
 expected revision can instead submit `skill_revision` evidence for the held
