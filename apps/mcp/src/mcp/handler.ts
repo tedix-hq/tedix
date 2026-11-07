@@ -103,7 +103,12 @@ const log = createMcpLogger("mcp.tool_handler");
 export interface ToolExecutionContext<TConfig = unknown> {
 	/** Request-local API client used for gateway policy reads. */
 	apiClient?: ApiClient;
-	/** Trusted declaration from the app_tools row. */
+	/**
+	 * Trusted declaration from the app_tools row: an internal tool whose
+	 * transport forwards to the public internet. On external and upstream-MCP
+	 * transports the scan runs anyway; there the flag only vetoes the
+	 * same-organization tedi exemption.
+	 */
 	publicEgress?: boolean;
 	/** Set by the handler when secret-egress scanning makes a gate decision. */
 	secretEgressDecision?: Record<string, string>;
@@ -395,7 +400,7 @@ export class ToolHandler {
 						data: {
 							code: "SECRET_EGRESS_DENIED",
 							retryable: false,
-							error: `Tool call blocked before public egress: arguments matched the ${secretPattern} pattern. Remove the secret and retry.`,
+							error: `Tool call blocked before public egress through the "${config?.transport ?? "rpc"}" transport: arguments matched the ${secretPattern} pattern. Remove the secret and retry.`,
 						},
 					};
 				}

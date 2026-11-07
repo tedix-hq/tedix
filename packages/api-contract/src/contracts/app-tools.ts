@@ -99,7 +99,7 @@ export const CreateAppToolInputSchema = z.object({
 		.boolean()
 		.default(false)
 		.describe(
-			"Declared: this tool sends data outside the organization (publish, share link, post, outbound message). A run locked by a sensitive read may not call it.",
+			"Declared: internal tool whose transport forwards to the public internet (publish, share link, post, outbound message). A run locked by a sensitive read may not call it. On external and upstream-MCP transports the secret scan already runs, but the flag still refuses the call while a run is locked and vetoes the same-organization tedi exemption.",
 		),
 	invocationStatus: ToolInvocationStatusSchema.nullable().optional(),
 	fileParams: z.array(z.string().min(1)).nullable().optional(),
@@ -174,7 +174,7 @@ export const UpdateAppToolInputSchema = z.object({
 		.boolean()
 		.optional()
 		.describe(
-			"Declared: this tool sends data outside the organization (publish, share link, post, outbound message). A run locked by a sensitive read may not call it.",
+			"Declared: internal tool whose transport forwards to the public internet (publish, share link, post, outbound message). A run locked by a sensitive read may not call it. On external and upstream-MCP transports the secret scan already runs, but the flag still refuses the call while a run is locked and vetoes the same-organization tedi exemption.",
 		),
 	invocationStatus: ToolInvocationStatusSchema.nullable().optional(),
 	fileParams: z.array(z.string().min(1)).nullable().optional(),

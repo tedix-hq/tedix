@@ -41,6 +41,9 @@ describe("public-egress secret scanning", () => {
 			status: 403,
 			data: { code: "SECRET_EGRESS_DENIED", retryable: false },
 		});
+		expect((result.data as { error: string }).error).toContain(
+			'"catalog" transport',
+		);
 		expect(JSON.stringify(result)).toContain("GitHub token");
 		expect(JSON.stringify(result)).not.toContain(token);
 		expect(ctx.secretEgressDecision).toMatchObject({
@@ -66,6 +69,52 @@ describe("public-egress secret scanning", () => {
 		expect(result).toMatchObject({
 			status: 403,
 			data: { code: "SECRET_EGRESS_DENIED" },
+		});
+		expect((result.data as { error: string }).error).toContain(
+			'"mcp" transport',
+		);
+	});
+
+	describe("calls to the organization's own tedi", () => {
+		const slugArg = {
+			message:
+				"https://www.reddit.com/r/NintendoDE/comments/1xq7wbp/nintendo_switch_in_media_markt_nuernberg_2026_edition/ evidence",
+		};
+		const tediCall = (tediOrgId: string, publicEgress = false) => {
+			const { ctx } = context("block");
+			(ctx as { publicEgress?: boolean }).publicEgress = publicEgress;
+			(ctx as { config: ToolConfig }).config = {
+				transport: "mcp",
+				mcpToolName: "run_tedi_turn",
+				_aggregateTediId: "tedi-1",
+				_aggregateTediOrgId: tediOrgId,
+			} as unknown as ToolConfig;
+			return ctx;
+		};
+
+		it("does not scan a same-organization tedi call, so a long URL slug is not mistaken for a key", async () => {
+			const ctx = tediCall("org");
+			await new ToolHandler().execute(slugArg, ctx).catch(() => undefined);
+			expect(ctx.secretEgressDecision).toBeUndefined();
+		});
+
+		it("still blocks another organization's tedi and a tool flagged publicEgress", async () => {
+			const token = ["ghp", "0123456789abcdefghij0123"].join("_");
+			for (const ctx of [tediCall("other-org"), tediCall("org", true)]) {
+				const result = await new ToolHandler().execute(
+					{ message: `evidence ${token}` },
+					ctx,
+				);
+				expect(result).toMatchObject({
+					status: 403,
+					data: { code: "SECRET_EGRESS_DENIED" },
+				});
+			}
+			const foreign = tediCall("other-org");
+			await new ToolHandler().execute(slugArg, foreign).catch(() => undefined);
+			expect(foreign.secretEgressDecision).toMatchObject({
+				secretPattern: "long opaque token",
+			});
 		});
 	});
 

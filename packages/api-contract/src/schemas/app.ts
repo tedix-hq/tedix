@@ -1280,7 +1280,7 @@ export const AppToolSchema = z.object({
 		),
 	/** Declared sensitive source; a read through it latches the run. */
 	sensitiveData: z.boolean().catch(false).optional(),
-	/** Declared public egress; refused while the run is latched. */
+	/** Declared public egress on an internal-transport tool; refused while the run is latched. */
 	publicEgress: z.boolean().catch(false).optional(),
 	meta: ToolMetaSchema.nullable(),
 	invocationStatus: ToolInvocationStatusSchema.nullable(),

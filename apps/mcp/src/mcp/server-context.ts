@@ -63,7 +63,10 @@ export interface AppTool {
 	actionType?: string | null;
 	/** Declared sensitive source: a successful read latches the calling run. */
 	sensitiveData?: boolean;
-	/** Declared public egress: refused while the calling run is latched. */
+	/**
+	 * Declared public egress on an internal-transport tool: refused while the
+	 * calling run is latched.
+	 */
 	publicEgress?: boolean;
 	meta: Record<string, JsonValue> | null;
 	invocationStatus: ToolInvocationStatus | null;
