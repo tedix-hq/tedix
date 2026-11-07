@@ -335,11 +335,12 @@ async function handleListDefinitions(
 	context: BaseContext,
 ) {
 	const orgId = requireOrgId(context);
-	// Tedix's own background jobs run on platform infrastructure; an
-	// organization's members cannot act on them, so only platform operators
-	// see them next to the organization's skills.
+	// Tedix's own background jobs belong to the platform, not to any
+	// organization, so an organization's list never contains them — not even
+	// for a platform admin looking at a customer org. Platform operators ask
+	// for them explicitly with kind "static_platform".
 	const includeStatic =
-		input.kind !== "dynamic_skill" &&
+		input.kind === "static_platform" &&
 		input.lifecycleState == null &&
 		isPlatformPrincipal(context);
 	const includeDynamic = input.kind !== "static_platform";
@@ -683,9 +684,19 @@ async function handleListDefinitionHealth(
  * Contract-based getStatus procedure implementation
  * Uses workflowsContract.getStatus schema enforcement
  */
+/** Platform workflow status and run records are platform data, not an org's. */
+function requirePlatformOperator(context: BaseContext): void {
+	if (!isPlatformPrincipal(context))
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"Platform workflow status and runs are available to platform operators only",
+		);
+}
+
 export const getStatusContract = authedWorkflowsOs.getStatus
 	.use(AUTHZ.appsRead)
 	.handler(async ({ input, context }) => {
+		requirePlatformOperator(context);
 		const { workflowId } = input;
 		const workflow = await handleGetStatus(workflowId, context);
 
@@ -708,6 +719,7 @@ export const listDefinitionHealthContract =
 export const listRunsContract = authedWorkflowsOs.listRuns
 	.use(AUTHZ.appsRead)
 	.handler(async ({ input, context }) => {
+		requirePlatformOperator(context);
 		const runs = await getRecentWorkflowRunRecords(context.db, {
 			workflowType: input.workflowType,
 			limit: input.limit,
