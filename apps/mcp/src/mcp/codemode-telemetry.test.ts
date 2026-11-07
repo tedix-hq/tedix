@@ -498,6 +498,11 @@ describe("Code Mode tail telemetry", () => {
 		});
 		expect(response.structuredContent.result).toMatchObject({ value: "ok" });
 		expect(response.structuredContent.completionEvidence).toBeDefined();
+		// The rpc transport is Tedix's own; a program sees that beside the result.
+		expect(response.structuredContent.trust).toEqual({
+			untrusted: [],
+			trusted: ["test.soft_fail"],
+		});
 		expect(response._meta["io.tedix/readObservations"]).toEqual([
 			{
 				innerCallId: `${response.structuredContent.executionId}:0`,
