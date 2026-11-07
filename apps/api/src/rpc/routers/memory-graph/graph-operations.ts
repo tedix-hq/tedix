@@ -637,6 +637,10 @@ export const graphSync = authed.graph.sync
 				db: context.db,
 				env,
 				organizationId: orgId,
+				// The exact inventory counts every fact, edge and rationale of the
+				// organization; per call it was the heaviest D1 read. Hourly matches
+				// the drain workflow.
+				managedCounts: "hourly",
 			});
 			readiness = inspection.readiness;
 			backlog = inspection.backlog;
