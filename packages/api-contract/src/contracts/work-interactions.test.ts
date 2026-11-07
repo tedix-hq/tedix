@@ -97,6 +97,7 @@ describe("Work interactions contract", () => {
 		expect(Object.keys(workInteractionsContract)).toEqual([
 			"outbound",
 			"snooze",
+			"dismissReminders",
 			"rememberCardStyle",
 			"reviewCardStyleRule",
 			"cardHistory",

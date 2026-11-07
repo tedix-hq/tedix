@@ -145,6 +145,7 @@ const RPC_ENDPOINT_CAPABILITY_SCOPES: Record<string, string> = {
 	"workInteractions/create": "mcp:messaging.write",
 	"workInteractions/refreshDecisionSources": "mcp:messaging.write",
 	"workInteractions/regenerateCard": "mcp:messaging.write",
+	"workInteractions/dismissReminders": "mcp:messaging.write",
 	"workInteractions/cardHistory": "mcp:messaging.read",
 	"workInteractions/listCardVersions": "mcp:messaging.read",
 	"workInteractions/rememberCardStyle": "mcp:messaging.write",

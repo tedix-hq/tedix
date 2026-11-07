@@ -69,6 +69,7 @@
 		"./utils/deck-qualification": "./src/utils/deck-qualification.ts",
 		"./utils/deck-ask": "./src/utils/deck-ask.ts",
 		"./utils/deck-projection": "./src/utils/deck-projection.ts",
+		"./utils/commitment-reminder": "./src/utils/commitment-reminder.ts",
 		"./schemas/attention": "./src/schemas/attention.ts",
 		"./contracts/attention": "./src/contracts/attention.ts",
 		"./schemas/personal-agent-inbound": "./src/schemas/personal-agent-inbound.ts",
