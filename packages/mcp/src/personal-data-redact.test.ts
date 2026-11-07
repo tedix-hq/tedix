@@ -46,7 +46,7 @@ describe("value patterns", () => {
 	it("masks email addresses inside free text", () => {
 		expect(
 			redactPersonalDataText(
-				"Reach Jane Doe at jane.doe+work@example.co.uk on Monday",
+				"Reach Jane Doe at jane.doe+work@mail.example.com on Monday",
 			),
 		).toBe("Reach Jane Doe at [REDACTED] on Monday");
 	});
