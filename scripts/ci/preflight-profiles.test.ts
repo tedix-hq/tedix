@@ -154,8 +154,6 @@ exit 0
 
 test("fast local checks retain source safety and owner types while CI retains every other gate", () => {
 	const local = [
-		"tests (packages/cli)",
-		"tests related to the changed files (apps/api)",
 		"node_modules matches the lockfile",
 		"format:check (Oxfmt)",
 		"lint:code (Oxlint errors)",
@@ -167,6 +165,8 @@ test("fast local checks retain source safety and owner types while CI retains ev
 		"migration order against the push base",
 	];
 	const moved = [
+		"tests (packages/cli)",
+		"tests related to the changed files (apps/api)",
 		"changed script tests",
 		"actionlint",
 		"workflow timeouts and pull_request_target safety",

@@ -399,7 +399,7 @@ typeCheckedWorkspaces = [
 		...typeCheckTargets(files, (workspaceDir) =>
 			existsSync(`${repoRoot}/${workspaceDir}`),
 		),
-		...(profile === "ci-policy"
+		...(profile === "local-fast" || profile === "ci-policy"
 			? []
 			: affectedWorkspaces(files, {
 					isRelevantWorkspace: (workspaceDir) =>
