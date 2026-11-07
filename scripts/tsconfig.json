@@ -10,6 +10,7 @@
 		"types": ["node", "bun-types"]
 	},
 	"include": [
+		"migrate-workspaces/assignments.ts",
 		"migrate-workspaces/bundle.ts",
 		"migrate-workspaces/cli.ts",
 		"migrate-workspaces/export.ts",
@@ -18,6 +19,7 @@
 		"migrate-workspaces/reconcile.ts",
 		"migrate-workspaces/rehearse.ts",
 		"migrate-workspaces/rows.ts",
+		"migrate-workspaces/schema-check.ts",
 		"migrate-workspaces/source.ts",
 		"migrate-workspaces/tables.ts",
 		"migrate-workspaces/target.ts",

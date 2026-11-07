@@ -8,7 +8,9 @@ import { parseArgs } from "./cli";
 import { checkAssignments, exportAll } from "./export";
 import { importAll } from "./import";
 import { reconcileAll } from "./reconcile";
+import { proposeAssignments } from "./assignments";
 import { rehearse } from "./rehearse";
+import { checkSchema } from "./schema-check";
 import { batchIdFor, RowDigest } from "./rows";
 import { Snapshot } from "./source";
 import {
@@ -364,6 +366,40 @@ describe("migrate-workspaces", () => {
 			});
 		} finally {
 			rmSync(workDir, { recursive: true, force: true });
+			snapshot.close();
+		}
+	});
+
+	test("schema check reports tables the object does not create yet and matching memory columns", () => {
+		const snapshot = fixtureSnapshot();
+		try {
+			const report = checkSchema(snapshot);
+			expect(
+				report.findings.filter((f) => f.kind === "columns-differ"),
+			).toEqual([]);
+			expect(report.findings.map((f) => f.table)).toContain("os_outputs");
+			expect(report.checked.map((c) => c.table)).toContain("memory_facts");
+			const stripped = sharedDatabase();
+			stripped.exec("ALTER TABLE memory_facts DROP COLUMN summary");
+			const findings = checkSchema(Snapshot.fromDatabases(stripped)).findings;
+			expect(
+				findings.find((f) => f.table === "memory_facts")?.detail,
+			).toContain("only in object: [summary]");
+		} finally {
+			snapshot.close();
+		}
+	});
+
+	test("assignments proposes the oldest workspace as home", () => {
+		const snapshot = fixtureSnapshot({ unassignedOutput: true });
+		try {
+			expect(proposeAssignments(snapshot)).toEqual({
+				assignments: {
+					[ORG]: { memoryHome: WS_A, unassignedOutputsHome: WS_A },
+				},
+				withoutWorkspace: [],
+			});
+		} finally {
 			snapshot.close();
 		}
 	});

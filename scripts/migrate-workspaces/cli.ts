@@ -7,15 +7,19 @@
  *   bun scripts/migrate-workspaces/cli.ts import    --bundles <dir|r2://...> (--objects <dir> | --remote <url>)
  *   bun scripts/migrate-workspaces/cli.ts reconcile --bundles <dir|r2://...> (--objects <dir> | --remote <url>) [--snapshot main.sql --logs ...] [--report report.json]
  *   bun scripts/migrate-workspaces/cli.ts rehearse  --snapshot main.sql [--logs ...] --assignments assignments.json [--work-dir <dir>] [--report report.json]
+ *   bun scripts/migrate-workspaces/cli.ts schema-check --snapshot main.sql [--logs ...]
+ *   bun scripts/migrate-workspaces/cli.ts assignments  --snapshot main.sql --out assignments.json
  *
  * `--remote` reads MIGRATE_WORKSPACES_TOKEN from the environment.
  */
 import { readFileSync, writeFileSync } from "node:fs";
+import { proposeAssignments } from "./assignments";
 import { openBundleStore, R2BundleStore } from "./bundle";
 import { exportAll } from "./export";
 import { importAll } from "./import";
 import { reconcileAll, renderReport } from "./reconcile";
 import { rehearse, renderRehearsal } from "./rehearse";
+import { checkSchema, renderSchemaCheck } from "./schema-check";
 import { Snapshot } from "./source";
 import type { WorkspaceAssignments } from "./tables";
 import {
