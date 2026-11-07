@@ -95,6 +95,11 @@ test("fast pre-push refuses parity failures with actionable messages", () => {
 			`#!/bin/sh
 case "$*" in
   *tool-schema-sync-scope-coverage.test.ts*)
+    i=0
+    while [ "$i" -lt 14 ]; do
+      echo 'test runner output before the failure'
+      i=$((i + 1))
+    done
     echo 'new endpoints without an MCP capability mapping: example/propose'
     exit 1 ;;
   *local-fixtures-parity.test.ts*)
@@ -124,6 +129,7 @@ exit 0
 						...process.env,
 						PATH: `${bin}:${process.env.PATH}`,
 						TEDIX_PUSH_TRAIN_RANGES: "[]",
+						CI: "true",
 					},
 					encoding: "utf8",
 				},

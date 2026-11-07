@@ -684,7 +684,8 @@ const gates = [
 	},
 ];
 
-const SHOWN_LINES = 12;
+// CI runners discard /tmp logs; keep the full failure in the job log.
+const SHOWN_LINES = process.env.CI ? Infinity : 12;
 const isTerminal = Boolean(process.stderr.isTTY);
 const active = gates.filter(
 	(gate) => gate.when && gateInProfile(gate.name, profile),
