@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { osAppRuntimeContract } from "@tedix/api-contract/contracts/os-app-runtime";
 import { webMcpResult } from "@tedix/webmcp-core/model-context";
@@ -7,6 +8,7 @@ import {
 	deriveToolSchema,
 } from "@/lib/webmcp/derive-schema";
 import { useWebMcpTools } from "@/lib/webmcp/use-webmcp-tools";
+import { registerPageChatTools } from "@/lib/page-chat-tools";
 import { toWebMcpFailure } from "@/components/webmcp-execute";
 
 export function buildAppEditTools(
@@ -125,4 +127,8 @@ export function useAppEditTools(
 				})
 			: [];
 	useWebMcpTools("app-edit", build, [workspaceId, conversationId, queryClient]);
+	useEffect(
+		() => registerPageChatTools("app-edit", build()),
+		[workspaceId, conversationId, queryClient],
+	);
 }

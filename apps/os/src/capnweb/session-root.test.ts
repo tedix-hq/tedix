@@ -336,6 +336,30 @@ describe("per-session call rate cap", () => {
 // Mutations
 // -----------------------------------------------------------------------------
 
+describe("workspace page tool results", () => {
+	it("forwards a validated result with the caller's tenant and credentials", async () => {
+		const { service, calls } = mockApiService(() => ({ accepted: true }));
+		const conversation = makeSession(service).openConversation("conv-1");
+		const input = {
+			runId: "run-1",
+			callId: "call_app_123",
+			result: { ok: true, content: "draft-1" },
+		};
+		expect(await conversation.resolvePageTool(input)).toEqual({
+			accepted: true,
+		});
+		expect(calls).toHaveLength(1);
+		expect(calls[0]?.path).toBe("kernelRuntime/resolvePageTool");
+		expect(calls[0]?.input).toEqual(input);
+		expect(calls[0]?.headers.get("X-Tedix-Tenant-Id")).toBe("T-host-org");
+		expect(calls[0]?.headers.get("Cookie")).toBe("DS=abc");
+		await expect(
+			conversation.resolvePageTool({ ...input, callId: "bad" }),
+		).rejects.toThrow();
+		expect(calls).toHaveLength(1);
+	});
+});
+
 describe("enqueue", () => {
 	it("forwards the pinned conversation and idempotency key to enqueueMessage", async () => {
 		const { service, calls } = mockApiService((path) => {

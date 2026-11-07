@@ -46,6 +46,7 @@ import type {
 	EnqueueHomeMessageInput,
 	EnqueueHomeMessageOutput,
 	HomeRun,
+	ResolveHomePageToolInput,
 	SteerHomeRunInput,
 	RunSteeringMessage,
 } from "@tedix/api-contract/schemas/kernel-runtime";
@@ -106,7 +107,13 @@ export type CapnConversationSnapshot = {
 /** Browser-facing enqueue payload (org/conversation/key are pinned server-side). */
 export type CapnEnqueueInput = Pick<
 	EnqueueHomeMessageInput,
-	"content" | "attachments" | "metadata" | "modelRef" | "delegateToTediId"
+	| "pageTools"
+	| "content"
+	| "attachments"
+	| "metadata"
+	| "modelRef"
+	| "workspaceContext"
+	| "delegateToTediId"
 >;
 
 export type CapnRespondApprovalParams = {
@@ -176,6 +183,9 @@ export interface CapnConversationApi {
 	withdrawSteering(runId: string): Promise<{ messages: RunSteeringMessage[] }>;
 	cancel(runId: string, reason?: string): Promise<CapnCancelOutput>;
 	respondApproval(params: CapnRespondApprovalParams): Promise<unknown>;
+	resolvePageTool(
+		input: ResolveHomePageToolInput,
+	): Promise<{ accepted: boolean }>;
 }
 
 export interface CapnSessionApi {
@@ -250,6 +260,9 @@ export type CapnConversationStub = CapnStubLike & {
 	steer(
 		...args: Parameters<CapnConversationApi["steer"]>
 	): Returned<CapnConversationApi["steer"]>;
+	resolvePageTool(
+		...args: Parameters<CapnConversationApi["resolvePageTool"]>
+	): Returned<CapnConversationApi["resolvePageTool"]>;
 	withdrawSteering(
 		...args: Parameters<CapnConversationApi["withdrawSteering"]>
 	): Returned<CapnConversationApi["withdrawSteering"]>;

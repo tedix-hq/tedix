@@ -26,6 +26,10 @@ export type DirectReadRequest = DirectReadCommand & {
 	conversationId: string;
 	idempotencyKey: string;
 	organizationId?: string;
+	workspaceContext?: {
+		workspaceId: string;
+		workpiece?: { kind: "gadget" | "output"; id: string };
+	};
 };
 
 /** Parse only an explicit, fully-qualified direct-read command. Natural-language
