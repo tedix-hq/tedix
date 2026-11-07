@@ -148,7 +148,7 @@ import {
 	modernDiscoverInstructions,
 } from "./codemode-fast-paths";
 import { enforceMcpAccess, extractMcpToolCallName } from "./mcp-access";
-import { platformDomain } from "@tedix/worker-kit/platform-hosts";
+import { resolveRequestHostname } from "./hostname";
 
 const log = createMcpLogger("mcp.router");
 
@@ -257,7 +257,13 @@ export async function handleMcpRequest(
 		// and the exact Connect resource audience were already verified at the edge.
 		const access = await enforceMcpAccess({
 			request: scopedRequest,
-			hostname: `connect.mcp.${platformDomain(env)}`,
+			// The Connect host the edge already verified this token against: the
+			// request's own routed hostname, whatever domain the installation serves.
+			hostname: resolveRequestHostname(
+				scopedRequest.headers,
+				new URL(scopedRequest.url),
+				env,
+			),
 			resolvedApp: gateway,
 			env,
 			oauthJwtPayload: null,
