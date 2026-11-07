@@ -38,6 +38,12 @@ export const LaneResultSchema = z.discriminatedUnion("outcome", [
 	}),
 	z.strictObject({
 		...fence,
+		outcome: z.literal("deferred"),
+		reason: z.string().min(1).max(1800),
+		until: z.iso.datetime().optional(),
+	}),
+	z.strictObject({
+		...fence,
 		outcome: z.literal("already_satisfied"),
 		commitSha: z.string().regex(/^[a-f0-9]{40}$/),
 		runId: z.number().int().positive(),
@@ -48,6 +54,7 @@ export const LaneResultSchema = z.discriminatedUnion("outcome", [
 ]);
 export type LaneResult = z.infer<typeof LaneResultSchema>;
 export type LaneWait = Extract<LaneResult, { outcome: "waiting_on_user" }>;
+export type LaneDeferral = Extract<LaneResult, { outcome: "deferred" }>;
 export type ExistingLaneResult = Extract<
 	LaneResult,
 	{ outcome: "already_satisfied" }
