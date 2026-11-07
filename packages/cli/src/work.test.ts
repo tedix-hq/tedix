@@ -4489,3 +4489,75 @@ describe("comment text options", () => {
 		);
 	});
 });
+
+describe("claim discovery retry budget", () => {
+	test("retries a native discovery deadline before sending admission once", async () => {
+		const fixture = makeContext();
+		const invoke = fixture.ctx.client.callTool.bind(fixture.ctx.client);
+		let discovery = 0;
+		fixture.ctx.client.callTool = async (name, args, options) => {
+			if (name === "get_info" && ++discovery === 1)
+				throw new Error("Native call deadline elapsed");
+			return invoke(name, args, options);
+		};
+		const result = await capture(`start ${ITEM}`, fixture.ctx);
+		expect(result.code).toBe(0);
+		expect(discovery).toBe(2);
+		expect(
+			fixture.sources.filter((source) =>
+				source.includes("start_work_item_attempt"),
+			),
+		).toHaveLength(1);
+		const logs = result.err.map((line) => JSON.parse(line));
+		expect(logs.filter((row) => row.event === "read-retry")).toHaveLength(1);
+		expect(new Set(logs.map((row) => row.budgetId)).size).toBe(1);
+	});
+
+	test("never resends an admission whose response times out", async () => {
+		const fixture = makeContext({}, undefined, () => {
+			throw new Error("Native call deadline elapsed");
+		});
+		expect((await capture(`start ${ITEM}`, fixture.ctx)).code).toBe(
+			WORK_EXIT_FAIL,
+		);
+		expect(
+			fixture.sources.filter((source) =>
+				source.includes("start_work_item_attempt"),
+			),
+		).toHaveLength(1);
+	});
+});
+
+test("dispatcher heartbeat retries cannot touch a replacement cached Attempt", async () => {
+	const previous = process.env.TEDIX_CLI_EXPECTED_ATTEMPT_ID;
+	process.env.TEDIX_CLI_EXPECTED_ATTEMPT_ID = "original-dispatcher-attempt";
+	try {
+		const fixture = makeContext({}, ATTEMPT);
+		const result = await capture(`heartbeat ${ITEM}`, fixture.ctx);
+		expect(result.code).toBe(WORK_EXIT_FAIL);
+		expect(fixture.sources).toEqual([]);
+		expect(result.out.join("\n")).toContain("STALE_ATTEMPT");
+	} finally {
+		if (previous === undefined)
+			delete process.env.TEDIX_CLI_EXPECTED_ATTEMPT_ID;
+		else process.env.TEDIX_CLI_EXPECTED_ATTEMPT_ID = previous;
+	}
+});
+
+test("claim discovery and mutation retain the parent subprocess deadline", async () => {
+	const previous = process.env.TEDIX_CLI_READ_DEADLINE_AT;
+	const parent = Date.now() + 5000;
+	process.env.TEDIX_CLI_READ_DEADLINE_AT = String(parent);
+	try {
+		const fixture = makeContext();
+		expect((await capture(`start ${ITEM}`, fixture.ctx)).code).toBe(0);
+		const deadlines = fixture.nativeCalls.map(
+			(call) => (call.options as { deadlineAt: number }).deadlineAt,
+		);
+		expect(deadlines.every((deadline) => deadline <= parent)).toBe(true);
+		expect(deadlines.at(-1)).toBe(parent);
+	} finally {
+		if (previous === undefined) delete process.env.TEDIX_CLI_READ_DEADLINE_AT;
+		else process.env.TEDIX_CLI_READ_DEADLINE_AT = previous;
+	}
+});

@@ -27,6 +27,7 @@ import {
 } from "@tedix/api-contract/schemas/mcp-native-transport";
 import * as z from "zod";
 import { errorText } from "./format";
+import { retryRead } from "./read-retry";
 import { NATIVE_DESCRIPTOR_CACHE_TTL_MS } from "./native-bootstrap-cache";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import type { NativeToolContext } from "./work";
@@ -531,14 +532,36 @@ export async function boardCall(
 				detail: { ...detail, outputSchema: row.outputSchema },
 			};
 		};
+		const resolveFresh = async () => {
+			try {
+				return await resolve();
+			} catch (error) {
+				// Cache repair shares the current read slice and command deadline.
+				if (!forgetCachedBootstrap(ctx)) throw error;
+				return resolve();
+			}
+		};
 		let resolved: Awaited<ReturnType<typeof resolve>>;
-		try {
-			resolved = await resolve();
-		} catch (error) {
-			// A cached bootstrap may be stale: fetch it fresh and resolve once more.
-			if (!forgetCachedBootstrap(ctx)) throw error;
-			resolved = await resolve();
-		}
+		if (expectedEndpoint === "workItems/startAttempt") {
+			const deadlineAt = state.callDeadlineAt;
+			const budgetMs = Math.max(1, deadlineAt - Date.now());
+			try {
+				resolved = await retryRead(
+					async (timeoutMs) => {
+						state.callDeadlineAt = Math.min(deadlineAt, Date.now() + timeoutMs);
+						return resolveFresh();
+					},
+					{
+						operation: "work.claim-discovery",
+						budgetMs,
+						attemptMs: Math.min(20_000, budgetMs / 3),
+						signal: ctx.signal,
+					},
+				);
+			} finally {
+				state.callDeadlineAt = deadlineAt;
+			}
+		} else resolved = await resolveFresh();
 		const { descriptor, detail } = resolved;
 		recordNativeTool(ctx, callable, descriptor.name);
 		const value = destructiveApprovalReason

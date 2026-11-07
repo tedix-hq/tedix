@@ -201,6 +201,18 @@ export async function workHeartbeat(
 	if (!id) throw new Error("work heartbeat requires a work item id");
 	id = await resolveWorkItemId(ctx, id);
 	const attemptId = cachedAttemptId(ctx, id);
+	const expectedAttemptId = process.env.TEDIX_CLI_EXPECTED_ATTEMPT_ID;
+	if (expectedAttemptId && attemptId !== expectedAttemptId) {
+		return fail(
+			ctx,
+			{
+				code: "STALE_ATTEMPT",
+				message:
+					"The cached Attempt changed during the dispatcher read budget.",
+			},
+			"Heartbeat stopped: the cached Attempt differs from the dispatcher fence.",
+		);
+	}
 	if (!attemptId) {
 		return fail(
 			ctx,

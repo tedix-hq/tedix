@@ -26,6 +26,7 @@ import {
 	writeState,
 } from "./decision-capture";
 import type { HookDeps } from "./hook-io";
+import { retryRead } from "../read-retry";
 
 export interface PendingAnswer {
 	responseId: string;
@@ -141,12 +142,20 @@ export async function undeliveredAnswers(
 	failed?: (reason: string) => void,
 ): Promise<PendingAnswer[] | undefined> {
 	try {
-		const value = await workTool(
-			deps,
-			binding,
-			"list_undelivered_work_interaction_responses",
-			{ ...filter, limit: 50 },
-			timeoutMs,
+		const value = await retryRead(
+			(sliceMs) =>
+				workTool(
+					deps,
+					binding,
+					"list_undelivered_work_interaction_responses",
+					{ ...filter, limit: 50 },
+					sliceMs,
+				),
+			{
+				operation: "work.undelivered-answers",
+				budgetMs: timeoutMs,
+				attemptMs: Math.min(15_000, timeoutMs),
+			},
 		);
 		const parsed =
 			ListUndeliveredWorkInteractionResponsesResultSchema.safeParse(value);
