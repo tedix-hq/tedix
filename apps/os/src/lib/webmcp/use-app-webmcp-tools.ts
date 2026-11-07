@@ -1,5 +1,9 @@
-import { useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import type { WebMcpToolDef } from "@tedix/webmcp-core/model-context";
+import {
+	type PageChatToolExtras,
+	registerPageChatTools,
+} from "@/lib/page-chat-tools";
 import { useWebMcpTools } from "./use-webmcp-tools";
 
 /**
@@ -16,16 +20,36 @@ import { useWebMcpTools } from "./use-webmcp-tools";
  *
  * Tool names start with the app's snake_case id (`card_review_next_card`),
  * which keeps them unique beside the route scopes.
+ *
+ * `pageChat` also offers the same tools to the quick chat on this page, with
+ * the chat's extras per tool (inline confirm, activity wording, undo). Only
+ * apps that pass it are offered; the chat never sees the rest.
  */
 export function useAppWebMcpTools<Controller>(
 	appId: string,
 	controller: Controller,
 	build: (current: () => Controller) => WebMcpToolDef[],
 	deps: readonly unknown[],
+	options: {
+		pageChat?: (
+			current: () => Controller,
+		) => Record<string, PageChatToolExtras>;
+	} = {},
 ): void {
 	const ref = useRef(controller);
 	useLayoutEffect(() => {
 		ref.current = controller;
 	});
 	useWebMcpTools(`app:${appId}`, () => build(() => ref.current), deps);
+	const pageChat = options.pageChat;
+	useEffect(() => {
+		if (!pageChat) return;
+		const current = () => ref.current;
+		const extras = pageChat(current);
+		return registerPageChatTools(
+			`app:${appId}`,
+			build(current).map((tool) => ({ ...tool, ...extras[tool.name] })),
+		);
+		// The builders are deliberately not dependencies: `deps` names their inputs.
+	}, [appId, Boolean(pageChat), ...deps]);
 }

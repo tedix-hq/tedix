@@ -182,6 +182,9 @@ const LOCAL_UNSUPPORTED: Record<string, readonly string[]> = {
 	"Chat direct-read shortcut falls back to normal chat": [
 		"kernelRuntime/listReadOnlyTools",
 	],
+	"OsQuickChat catches tool-resolution failure before send": [
+		"kernelRuntime/resolvePageTool",
+	],
 	"CardContextFeedback: Could not save. Try again.": [
 		"learningFeedback/cardContext",
 	],
