@@ -12,6 +12,8 @@ bun scripts/migrate-workspaces/cli.ts export    --snapshot main.sql --logs logs-
 bun scripts/migrate-workspaces/cli.ts import    --bundles r2://<bucket>/<prefix> --remote https://<worker-host>
 bun scripts/migrate-workspaces/cli.ts reconcile --bundles r2://<bucket>/<prefix> --remote https://<worker-host> --snapshot main.sql --logs logs-1.sql --report reconcile.json
 bun scripts/migrate-workspaces/cli.ts rehearse  --snapshot main.sql --logs logs-1.sql --assignments assignments.json --report rehearsal.json
+bun scripts/migrate-workspaces/cli.ts schema-check --snapshot main.sql --logs logs-1.sql
+bun scripts/migrate-workspaces/cli.ts assignments --snapshot main.sql --out assignments.json
 ```
 
 - `export` reads one snapshot of the shared database (`wrangler d1 export`
@@ -31,6 +33,13 @@ bun scripts/migrate-workspaces/cli.ts rehearse  --snapshot main.sql --logs logs-
 - `rehearse` runs export, import and reconcile against a copy on this
   machine and prints the time each step took per workspace and in total.
   Pass `--work-dir <dir> --keep` to inspect the bundles and objects after.
+
+- `schema-check` compares, for every mapped table, the snapshot's columns
+  with the columns the object's migration chain creates, and lists tables
+  the chain does not create yet. Run it before `import`; it exits non-zero
+  on any finding.
+- `assignments --out assignments.json` proposes the per-organization homes
+  (the oldest active workspace) for a person to review.
 
 `--bundles` is a directory or `r2://bucket/prefix`. R2 objects are written
 with `wrangler r2 object put --jurisdiction eu` through a local staging
