@@ -169,12 +169,16 @@ describe("commitment wakes", () => {
 			runtime: [],
 			now: new Date(through),
 		});
-		expect(cards).toEqual([
+		// The reminder reaches the person's inbox but stays out of the decision deck.
+		expect(inbox.data).toEqual([
 			expect.objectContaining({
-				kind: "question",
-				label: "Follow up: Send proposal",
+				request: expect.objectContaining({
+					kind: "question",
+					subject: "Follow up: Send proposal",
+				}),
 			}),
 		]);
+		expect(cards).toEqual([]);
 		sqlite
 			.prepare("UPDATE work_interactions SET metadata='{}' WHERE id=?")
 			.run(id);

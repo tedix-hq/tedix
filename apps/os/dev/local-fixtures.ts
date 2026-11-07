@@ -5745,6 +5745,8 @@ const handlers: Record<string, (input: never) => unknown> = {
 	"workAgentSessions/listOperations": () => officeActivityFixture(),
 	"workAgentSessions/contributors": (input: { projectId: string }) =>
 		localProjectContributors(input.projectId),
+	// Sample data has no automatic follow-up reminders to close.
+	"workInteractions/dismissReminders": () => ({ dismissed: [] }),
 	"workInteractions/snooze": (input: {
 		requestId: string;
 		expectedVersion: number;

@@ -45,6 +45,7 @@ import {
 	AgentReplyDeliveryGateResultSchema,
 } from "@tedix/api-contract/schemas/agent-turn-triage";
 import { workInteractionsContract } from "@tedix/api-contract/contracts/work-interactions";
+import { dismissCommitmentReminders } from "@tedix/db/queries/work-items/commitment-reminders";
 import {
 	snoozeWorkInteraction,
 	cancelWorkInteraction,
@@ -1880,6 +1881,21 @@ export const workInteractionsContractRouter = interactionsOs.router({
 			return rethrowInteractionError(error);
 		}
 	}),
+	dismissReminders: writeOs.dismissReminders.handler(
+		async ({ input, context }) => {
+			const orgId = requireOrgId(context);
+			const actor = await verifiedActiveWorkActor(context, orgId);
+			return {
+				dismissed: await dismissCommitmentReminders(context.db, {
+					orgId,
+					targetType: actor.type,
+					targetId: actor.id,
+					ids: input.requestIds,
+					now: new Date().toISOString(),
+				}),
+			};
+		},
+	),
 	regenerateCard: writeOs.regenerateCard.handler(async ({ input, context }) => {
 		const orgId = requireOrgId(context);
 		const actor = await verifiedActiveWorkActor(context, orgId);

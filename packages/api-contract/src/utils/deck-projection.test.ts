@@ -611,3 +611,27 @@ it("keeps a person's open asks on the Deck and lets FYI requests go to the Feed"
 		}),
 	]);
 });
+
+describe("commitment reminders", () => {
+	it("keeps automatic follow-up reminders out of the deck and its count", () => {
+		// Critical risk would route any other ask to the deck.
+		const followup = row("reminder", {
+			source: "commitment_followup",
+			decisionClass: "deadline.owner.commitment",
+			riskLevel: "critical",
+		});
+		followup.request.subject = "Follow up: Send proposal";
+		const cards = [
+			project([followup, row("real", { riskLevel: "critical" })]),
+			projectDeckCards({
+				requests: [followup],
+				work: [],
+				runtime: [],
+				now,
+				destination: "all",
+			}),
+		];
+		expect(cards[0]!.map((card) => card.id)).toEqual(["real"]);
+		expect(cards[1]).toEqual([]);
+	});
+});

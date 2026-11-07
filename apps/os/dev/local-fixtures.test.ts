@@ -446,6 +446,9 @@ const CALLS = {
 		until: "2099-10-27T09:00:00.000Z",
 	},
 	"workInteractions/refreshDecisionSources": {},
+	"workInteractions/dismissReminders": {
+		requestIds: ["000000a7-0000-4000-8000-000000000001"],
+	},
 	"workInteractions/get": { requestId: "000000a7-0000-4000-8000-000000000001" },
 	"agentTurnTriage/getReplyDraftAcceptance": {
 		since: "2026-10-08T00:00:00.000Z",

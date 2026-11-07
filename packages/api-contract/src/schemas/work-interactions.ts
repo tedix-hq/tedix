@@ -414,6 +414,14 @@ export const CancelWorkInteractionInputSchema = z.strictObject({
 	expectedRequestVersion: z.number().int().positive(),
 });
 
+export const DismissCommitmentRemindersInputSchema = z.strictObject({
+	requestIds: z.array(z.uuid()).min(1).max(200),
+});
+
+export const DismissCommitmentRemindersResultSchema = z.strictObject({
+	dismissed: z.array(z.uuid()),
+});
+
 export const ReviewWorkInteractionInputSchema = z.strictObject({
 	requestId: z.uuid(),
 	expectedRequestVersion: z.number().int().positive(),

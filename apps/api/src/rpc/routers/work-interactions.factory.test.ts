@@ -150,6 +150,7 @@ describe("Work interactions router", () => {
 			"reviseCard",
 			"requestCardChanges",
 			"snooze",
+			"dismissReminders",
 			"regenerateCard",
 			"create",
 			"review",

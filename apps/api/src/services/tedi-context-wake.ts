@@ -5,6 +5,7 @@ import {
 	type CommitmentChange,
 } from "@tedix/db/queries/work-items/commitment-changes";
 import { createWorkInteraction } from "@tedix/db/queries/work-items/interactions";
+import { COMMITMENT_REMINDER_SOURCE } from "@tedix/api-contract/utils/commitment-reminder";
 
 export async function ensureCommitmentFollowup(
 	db: DbClient,
@@ -51,7 +52,7 @@ export async function ensureCommitmentFollowup(
 		targetType: "user",
 		targetId: work.personId,
 		metadata: {
-			source: "commitment_followup",
+			source: COMMITMENT_REMINDER_SOURCE,
 			commitmentKey,
 			dedupeKey,
 			decisionClass,

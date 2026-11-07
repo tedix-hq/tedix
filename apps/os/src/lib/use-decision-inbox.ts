@@ -16,6 +16,7 @@ import {
 import { useFactoryCardCount } from "@/lib/use-factory-card-count";
 import { useDeckRoutingAudit } from "@/lib/use-deck-routing-audit";
 import { subscribeDecisionSourceRefresh } from "@/lib/decision-source-refresh";
+import { openCommitmentReminders } from "@/lib/commitment-reminders";
 
 /** The header and Deck use the same recipient checks, project scope and bounded pages. */
 export function useDecisionInbox(
@@ -148,6 +149,7 @@ export function useDecisionInbox(
 	);
 	return {
 		inbox,
+		reminders: openCommitmentReminders(candidates),
 		refetch: () =>
 			Promise.all([
 				learning.refetch(),

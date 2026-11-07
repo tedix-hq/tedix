@@ -26,6 +26,8 @@ import {
 	AckWorkInteractionDeliveryResultSchema,
 	CancelWorkInteractionInputSchema,
 	CreateWorkInteractionInputSchema,
+	DismissCommitmentRemindersInputSchema,
+	DismissCommitmentRemindersResultSchema,
 	DelegateWorkInteractionInputSchema,
 	GetWorkInteractionInputSchema,
 	GetWorkInteractionResultSchema,
@@ -54,6 +56,13 @@ export const workInteractionsContract = oc
 			})
 			.input(SnoozeWorkInteractionInputSchema)
 			.output(WorkInteractionRequestSchema),
+		dismissReminders: oc
+			.route({
+				summary:
+					"Close the signed-in person's automatic follow-up reminders in one step",
+			})
+			.input(DismissCommitmentRemindersInputSchema)
+			.output(DismissCommitmentRemindersResultSchema),
 		rememberCardStyle: oc
 			.input(RememberCardStyleInputSchema)
 			.output(CardStyleRuleSchema),

@@ -4,6 +4,7 @@ import { respondConfirmed } from "@/lib/respond-confirmed";
 import { projectDecisionDeck } from "./decision-deck-projection";
 import { DecisionDeckToolbar } from "./decision-deck-toolbar";
 import { DeckWaitingList } from "./decision-deck-waiting";
+import { DeckReminders } from "./decision-deck-reminders";
 import { useCardSourceFilter } from "./use-card-source-filter";
 import {
 	ALL_CARD_SOURCES,
@@ -858,6 +859,9 @@ function DecisionDeckContent({
 					rows={rows}
 					factories={factories}
 				/>
+				{mode === "decide" && (
+					<DeckReminders reminders={decisions.reminders} now={now} />
+				)}
 				{(counting ||
 					(progress.total > 0 &&
 						!waitingMode &&

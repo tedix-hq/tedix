@@ -16,6 +16,7 @@ import { calendarDay, cardIsDue } from "./card-schedule";
 import { compareFactoryScore } from "./card-priority";
 import { deadlineOverdue, deckAsk } from "./deck-ask";
 import { credentialCard } from "./card-secrets";
+import { isCommitmentReminder } from "./commitment-reminder";
 import { humanOnlyAskReasons } from "./human-only-ask";
 import { rowReviewSpec } from "./row-review";
 import { scoreLearning, type LearningCandidate } from "./decision-learning";
@@ -359,6 +360,8 @@ export function projectDeckCards(input: {
 			!cardIsDue(r, now, timeZone)
 		)
 			continue;
+		// Automatic follow-up reminders are listed apart, never as decisions.
+		if (isCommitmentReminder(m)) continue;
 		if (
 			m.schema === "tedix.decision-capture.v1" &&
 			typeof m.attention === "object" &&
