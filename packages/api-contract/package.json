@@ -69,6 +69,8 @@
 		"./utils/email-trusted-recipients": "./src/utils/email-trusted-recipients.ts",
 		"./utils/deck-qualification": "./src/utils/deck-qualification.ts",
 		"./utils/deck-ask": "./src/utils/deck-ask.ts",
+		"./utils/deck-priority": "./src/utils/deck-priority.ts",
+		"./schemas/deck-priority": "./src/schemas/deck-priority.ts",
 		"./utils/deck-projection": "./src/utils/deck-projection.ts",
 		"./utils/commitment-reminder": "./src/utils/commitment-reminder.ts",
 		"./schemas/attention": "./src/schemas/attention.ts",

@@ -29,6 +29,8 @@ import {
 	DismissCommitmentRemindersInputSchema,
 	DismissCommitmentRemindersResultSchema,
 	DelegateWorkInteractionInputSchema,
+	DelegateWorkInteractionToStewardInputSchema,
+	DelegateWorkInteractionToStewardResultSchema,
 	GetWorkInteractionInputSchema,
 	GetWorkInteractionResultSchema,
 	ListWorkInteractionInboxInputSchema,
@@ -123,6 +125,16 @@ export const workInteractionsContract = oc
 			})
 			.input(DelegateWorkInteractionInputSchema)
 			.output(WorkInteractionRequestSchema),
+		delegateToSteward: oc
+			.route({
+				method: "POST",
+				path: "/{requestId}/delegate-to-steward",
+				summary: "Let the organization's steward tedi decide a question",
+				description:
+					"Hands an open question asked of you to the organization's designated steward tedi with your reason. The tedi decides in its own name; nothing is answered for you.",
+			})
+			.input(DelegateWorkInteractionToStewardInputSchema)
+			.output(DelegateWorkInteractionToStewardResultSchema),
 		create: oc
 			.route({
 				method: "POST",

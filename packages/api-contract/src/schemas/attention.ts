@@ -8,6 +8,7 @@ import {
 } from "./card-revisions";
 import { JsonValueSchema } from "./common";
 import { ServedObjectiveSchema } from "./organization-purpose";
+import { DeckPrioritySchema } from "./deck-priority";
 import { DecisionEnvelopeSchema } from "./os-decision-deck";
 import { DecisionCardPresentationSchema } from "./decision-card-presentation";
 import { ActivityFeedItemSchema } from "./os-activity-feed";
@@ -100,6 +101,8 @@ export const DeckCardSchema = z.strictObject({
 	expired: z.boolean().optional(),
 	/** A ready message draft that has waited longer than the Deck's staleDraftHours. */
 	draftedNotSent: z.boolean().optional(),
+	/** The shared priority: score, band and plain reason. The Deck orders by it. */
+	priority: DeckPrioritySchema.optional(),
 	score: z.number(),
 	/** The proposed sheet rows this card asks the person to confirm or correct. */
 	rowReview: RowReviewSpecSchema.optional(),

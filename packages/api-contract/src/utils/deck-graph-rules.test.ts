@@ -133,10 +133,18 @@ describe("graph Deck qualification", () => {
 		expect(
 			compareDecisionFreshness(
 				{ actionable: true, blocksCount: 3 },
-				{ actionable: true, blocksCount: 1, dueAt: "2026-10-20" },
+				{ actionable: true, blocksCount: 1 },
 				now,
 			),
 		).toBeLessThan(0);
+		// A deadline within 48 hours puts the ask in Today, ahead of more blocks.
+		expect(
+			compareDecisionFreshness(
+				{ actionable: true, blocksCount: 3 },
+				{ actionable: true, blocksCount: 1, dueAt: "2026-10-20" },
+				now,
+			),
+		).toBeGreaterThan(0);
 	});
 	it("ranks by the graph's blocks score when present", () => {
 		// A directly blocks one item that blocks three more; B blocks two.

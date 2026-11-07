@@ -906,6 +906,9 @@ export async function delegateWorkInteraction(
 		actor: InteractionActor;
 		tediId: string;
 		now: string;
+		/** Why the person handed it over; the tedi decides in its own name. */
+		reason?: string;
+		via?: "steward";
 	},
 ) {
 	if (p.actor.type !== "user")
@@ -964,6 +967,8 @@ export async function delegateWorkInteraction(
 						fromId: p.actor.id,
 						toTediId: p.tediId,
 						delegatedAt: p.now,
+						...(p.reason ? { reason: p.reason } : {}),
+						...(p.via ? { via: p.via } : {}),
 					},
 				},
 				version: sql`${workInteractions.version}+1`,

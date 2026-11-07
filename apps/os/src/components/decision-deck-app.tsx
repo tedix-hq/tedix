@@ -12,6 +12,11 @@ import {
 	type CardOrigin,
 } from "@/lib/card-source-filter";
 import { CardSnooze } from "@/components/card-snooze";
+import { DeckStewardHandoff } from "@/components/deck-steward-handoff";
+import {
+	DeckPriorityBands,
+	type DeckBandFilter,
+} from "@/components/deck-priority-bands";
 import { DeckAskStrip } from "@/components/deck-ask-strip";
 import { DeckCurationFooter } from "@/components/deck-curation-footer";
 import { DeckNotUseful } from "@/components/deck-not-useful";
@@ -179,6 +184,7 @@ function DecisionDeckContent({
 	const [contextQuestion, setContextQuestion] = useState<string | null>(null);
 	const [project, setProject] = useState("all");
 	const [urgency, setUrgency] = useState("all");
+	const [band, setBand] = useState<DeckBandFilter>("all");
 	const [search, setSearch] = useState("");
 	const [index, setIndex] = useState(0);
 	const [focusCard, setFocusCard] = useState(() =>
@@ -298,14 +304,20 @@ function DecisionDeckContent({
 	)
 		.sort(compare)
 		.filter((row) => !optimisticIds.includes(row.id));
-	const matchesFilters = (row: {
+	type FilterRow = {
 		origin?: CardOrigin;
 		askKind: string;
 		draftedNotSent: boolean;
 		project: string;
 		urgency: string;
 		label: string;
-	}) =>
+		priority?: { band: string };
+	};
+	const matchesFilters = (row: FilterRow) =>
+		(mode !== "decide" || band === "all" || row.priority?.band === band) &&
+		matchesOtherFilters(row);
+	// Every filter but the band: the band header counts these.
+	const matchesOtherFilters = (row: FilterRow) =>
 		(kind === "all" ||
 			(kind === "drafted_not_sent"
 				? row.draftedNotSent
@@ -353,6 +365,7 @@ function DecisionDeckContent({
 			reportRemaining?.(remaining);
 	}, [mode, decisions.pending, decisions.failed, remaining, reportRemaining]);
 	const filtersActive =
+		band !== "all" ||
 		kind !== "all" ||
 		source !== ALL_CARD_SOURCES ||
 		project !== "all" ||
@@ -615,6 +628,11 @@ function DecisionDeckContent({
 				}
 			: null;
 	const show = (cardId: string) => {
+		if (mode === "decide" && band !== "all") {
+			setBand("all");
+			setFocusCard(cardId);
+			return rows.some((row) => row.id === cardId);
+		}
 		const position = filtered.findIndex((row) => row.id === cardId);
 		if (position < 0) return false;
 		if (mode === "decide") setFocusCard(cardId);
@@ -862,6 +880,23 @@ function DecisionDeckContent({
 				{mode === "decide" && (
 					<DeckReminders reminders={decisions.reminders} now={now} />
 				)}
+				{mode === "decide" && !decisions.pending && rows.length > 0 && (
+					<DeckPriorityBands
+						rows={rows.filter(
+							(row) =>
+								matchesOtherFilters(row) && !optimisticIds.includes(row.id),
+						)}
+						band={band}
+						onBandChange={(value) => {
+							setBand(value);
+							clearFocusCard();
+							setIndex(0);
+						}}
+						onOpen={(cardId) => void show(cardId)}
+						now={now}
+						timeZone={timeZone}
+					/>
+				)}
 				{(counting ||
 					(progress.total > 0 &&
 						!waitingMode &&
@@ -1022,6 +1057,23 @@ function DecisionDeckContent({
 								<DeckFooterContext.Provider
 									value={
 										<>
+											{mode === "decide" &&
+												selected?.row?.request.kind === "question" &&
+												selected.row.request.metadata.approvalOperation ===
+													undefined && (
+													<DeckStewardHandoff
+														key={`${selected.row.request.id}:${selected.row.request.version}`}
+														request={selected.row.request}
+														reason={selected.priority.reason}
+														onRouted={async () => {
+															clearFocusCard();
+															setIndex(0);
+															await client.invalidateQueries({
+																queryKey: osQuery.workInteractions.key(),
+															});
+														}}
+													/>
+												)}
 											{mode === "decide" && selected?.row && (
 												<CardSnooze
 													request={selected.row.request}
@@ -1279,6 +1331,7 @@ function DecisionDeckContent({
 							filtered={filtersActive}
 							saving={saving}
 							onClearFilters={() => {
+								setBand("all");
 								setKind("all");
 								setSource(ALL_CARD_SOURCES);
 								setProject("all");

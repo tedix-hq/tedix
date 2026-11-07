@@ -1399,3 +1399,57 @@
 	margin: 0;
 	font-variant-numeric: tabular-nums;
 }
+
+/* For you: a 14-day deadline strip and the three priority bands. */
+.fd-deck-bands {
+	display: grid;
+	gap: 0.5rem;
+	min-width: 0;
+	margin-block-end: 0.5rem;
+}
+.fd-deck-bands [data-kumo-component="SegmentedControl"] {
+	max-width: 100%;
+	overflow-x: auto;
+}
+.fd-deck-timeline {
+	position: relative;
+	height: 2.75rem;
+	min-width: 0;
+}
+.fd-deck-timeline-rail {
+	position: absolute;
+	inset-inline: 0;
+	top: 0.75rem;
+	height: 1px;
+	background: var(--fd-muted);
+	opacity: 0.35;
+}
+.fd-deck-timeline .fd-deck-timeline-dot {
+	position: absolute;
+	translate: -50% 0;
+	min-width: 0;
+	padding: 0;
+}
+.fd-deck-timeline-dot > span {
+	display: block;
+	width: 0.5rem;
+	height: 0.5rem;
+	border-radius: 999px;
+	background: var(--color-kumo-brand, currentColor);
+}
+.fd-deck-timeline-dot[data-overdue="true"] > span {
+	background: var(--color-kumo-warning);
+}
+.fd-deck-timeline-label {
+	position: absolute;
+	bottom: 0;
+	font-size: 0.75rem;
+	line-height: 1rem;
+	color: var(--fd-muted);
+}
+.fd-deck-timeline-label[data-edge="start"] {
+	inset-inline-start: 0;
+}
+.fd-deck-timeline-label[data-edge="end"] {
+	inset-inline-end: 0;
+}

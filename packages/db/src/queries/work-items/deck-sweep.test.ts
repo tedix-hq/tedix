@@ -13,6 +13,7 @@ import { tediObjectives } from "../../schema/tedi-objectives";
 import { decisionEdges } from "../../schema/decision-graph";
 import {
 	listCardObjectives,
+	listCardSourceWorkFacts,
 	listDeckSourceObjectives,
 	listDeckSourceStates,
 } from "./deck-sweep";
@@ -306,6 +307,113 @@ it("resolves the objective each Work item serves, own before project", async () 
 			title: "Keep the cellar dry",
 			priority: 2,
 			top: false,
+		},
+	});
+	sqlite.close();
+});
+
+it("reads each card's Work deadline, risk and accepted Work waiting on it", async () => {
+	const sqlite = new DatabaseSync(":memory:");
+	sqlite.exec("PRAGMA foreign_keys=OFF");
+	sqlite.exec(
+		schemaDdl(workItems, workAttempts, workItemRelations, decisionEdges),
+	);
+	const db = createDbQueryClient(createD1Facade(sqlite));
+	const item = sqlite.prepare(
+		"INSERT INTO work_items(id,org_id,title,disposition,risk_level,due_date,deadline,created_at) VALUES(?,?,?,?,?,?,?,?)",
+	);
+	item.run(
+		"demo",
+		"fictional-maple",
+		"Demo day",
+		"accepted",
+		"high",
+		"2026-11-17",
+		null,
+		now.toISOString(),
+	);
+	for (const [id, disposition] of [
+		["wait-a", "accepted"],
+		["wait-b", "accepted"],
+		["wait-done", "completed"],
+		["wait-proposed", "proposed"],
+	] as const)
+		item.run(
+			id,
+			"fictional-maple",
+			id,
+			disposition,
+			"low",
+			null,
+			null,
+			now.toISOString(),
+		);
+	item.run(
+		"river",
+		"fictional-river",
+		"Other tenant",
+		"accepted",
+		"low",
+		null,
+		null,
+		now.toISOString(),
+	);
+	const relation = sqlite.prepare(
+		"INSERT INTO work_item_relations(id,org_id,from_work_item_id,to_work_item_id,relation_type,created_at) VALUES(?,?,?,?,?,?)",
+	);
+	for (const to of ["wait-a", "wait-b", "wait-done", "wait-proposed"])
+		relation.run(
+			`r-${to}`,
+			"fictional-maple",
+			"demo",
+			to,
+			"blocks",
+			now.toISOString(),
+		);
+	relation.run(
+		"r-ref",
+		"fictional-maple",
+		"wait-a",
+		"demo",
+		"references",
+		now.toISOString(),
+	);
+	sqlite
+		.prepare(
+			"INSERT INTO work_attempts(id,org_id,work_item_id,executor_type,executor_id,runtime_state,attempt_number,started_at,heartbeat_at,expires_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+		)
+		.run(
+			"live",
+			"fictional-maple",
+			"wait-b",
+			"external_agent",
+			"orchard",
+			"running",
+			1,
+			now.toISOString(),
+			now.toISOString(),
+			"2026-10-23T12:00:00Z",
+		);
+	const facts = await listCardSourceWorkFacts(db, "fictional-maple", [
+		{ id: "card-demo", workItemId: "demo" },
+		{ id: "card-waiting", workItemId: "wait-a" },
+		{ id: "card-river", workItemId: "river" },
+		{ id: "card-none" },
+	]);
+	expect(Object.fromEntries(facts)).toEqual({
+		"card-demo": {
+			dueDate: "2026-11-17",
+			deadline: null,
+			riskLevel: "high",
+			blocksCount: 2,
+			blocksRunning: true,
+		},
+		"card-waiting": {
+			dueDate: null,
+			deadline: null,
+			riskLevel: "low",
+			blocksCount: 0,
+			blocksRunning: false,
 		},
 	});
 	sqlite.close();

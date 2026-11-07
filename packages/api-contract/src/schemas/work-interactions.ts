@@ -8,6 +8,7 @@ import { AgentReplyDeliveryGateResultSchema } from "./agent-turn-triage";
 import { BoundedJsonObjectSchema } from "./bounded-json";
 import { OutboundRecordSchema } from "./outbound";
 import { ServedObjectiveSchema } from "./organization-purpose";
+import { DeckSourceWorkFactsSchema } from "./deck-priority";
 import {
 	CredentialWorkActorTypeSchema,
 	WorkFactoryProjectionCursorSchema,
@@ -120,6 +121,17 @@ export const DelegateWorkInteractionInputSchema = z.strictObject({
 	tediId: z.uuid(),
 });
 
+export const DelegateWorkInteractionToStewardInputSchema = z.strictObject({
+	requestId: z.uuid(),
+	expectedRequestVersion: z.number().int().positive(),
+	reason: z
+		.string()
+		.trim()
+		.min(1)
+		.max(300)
+		.describe("Why the person hands the ask over, e.g. its priority reason."),
+});
+
 const metadataSchema = BoundedJsonObjectSchema.describe(
 	"Decision facts must include decisionSources (or decisionDeck.sources): 1-10 observed versions. Work: {kind:'work',id,version,commentCount}; email: {kind:'email_thread',id,tediId,updatedAt,lastMessageAt,messageCount}; output: {kind:'output',id,revisionId}. Read every cited source first. Changed, missing or unsupported sources withhold the card and block its answer. One-way decisions and decisions involving data, money or messages require sources. Refresh the facts and create a new card when a source changes.",
 );
@@ -199,6 +211,16 @@ export const WorkInteractionRequestSchema = z.strictObject({
 		),
 	version: z.number().int().positive(),
 	metadata: metadataSchema,
+});
+
+export const DelegateWorkInteractionToStewardResultSchema = z.strictObject({
+	request: WorkInteractionRequestSchema,
+	steward: z.strictObject({ id: z.uuid(), name: z.string() }),
+	woken: z
+		.boolean()
+		.describe(
+			"The steward tedi acknowledged the wake; when false it still finds the ask in its inbox.",
+		),
 });
 
 export const WorkInteractionResponseSchema = z.strictObject({
@@ -597,6 +619,9 @@ export const WorkInteractionInboxRowSchema = z.strictObject({
 		.describe("Work Item titles for the short ids the ask quotes."),
 	objective: ServedObjectiveSchema.optional().describe(
 		"The active objective the ask's Work serves; absent when none.",
+	),
+	sourceWork: DeckSourceWorkFactsSchema.optional().describe(
+		"Deadline, risk and blocked Work of the ask's Work Item; absent when none. Ranks the ask.",
 	),
 });
 

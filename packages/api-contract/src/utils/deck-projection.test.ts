@@ -103,7 +103,7 @@ describe("canonical Deck projection", () => {
 				row("opportunity", { decisionClass: "opportunity.new" }),
 				row("critical", { riskLevel: "critical" }),
 			]).map((card) => card.id),
-		).toEqual(["customer", "critical", "opportunity"]);
+		).toEqual(["critical", "customer", "opportunity"]);
 	});
 	it("preserves the complete draft and the canonical response version", () => {
 		const original = row("customer", { decisionDeck: decision });
@@ -155,7 +155,7 @@ describe("canonical Deck projection", () => {
 				.sort(),
 		).toEqual(["drafts", "money", "roles", "tax"]);
 	});
-	it("puts overdue asks first, then approvals", () => {
+	it("puts overdue asks first, then critical risk ahead of an undated approval", () => {
 		const expired = row("expired", { riskLevel: "critical" });
 		expired.request.dueAt = "2026-10-18T12:00:00.000Z";
 		expect(
@@ -167,7 +167,7 @@ describe("canonical Deck projection", () => {
 					approvalTarget: "a document",
 				}),
 			]).map((card) => card.id),
-		).toEqual(["expired", "approval", "fresh"]);
+		).toEqual(["expired", "fresh", "approval"]);
 	});
 });
 
@@ -297,7 +297,7 @@ it("retains feed-routed questions and non-critical approvals in the full attenti
 	expect(full).toHaveLength(3);
 });
 
-it("puts overdue first, then a dated factory deadline ahead of learned noise, keeping date-only deadlines current all day", () => {
+it("puts overdue first, then the sooner deadline ahead of learned noise, keeping date-only deadlines current all day", () => {
 	const dueAt = factoryCardDeadline({
 		action: "Review invoice corrections by Tuesday 14:00?",
 		why: "The buyer asks for updates by Tuesday 20 October at 14:00; timezone unstated.",
@@ -315,7 +315,7 @@ it("puts overdue first, then a dated factory deadline ahead of learned noise, ke
 		cards
 			.sort((a, b) => compareDecisionFreshness(a, b, morning, "Europe/Berlin"))
 			.map((c) => c.id),
-	).toEqual(["expired", "invoice", "booth", "noise"]);
+	).toEqual(["expired", "booth", "invoice", "noise"]);
 	const invoice = cards.find((card) => card.id === "invoice")!;
 	expect(
 		compareDecisionFreshness(
@@ -413,7 +413,7 @@ it("applies persisted negative ranking without hiding a card or demoting critica
 	expect(protectedRank.score).toBe(original.score);
 });
 
-it("orders overdue, critical, due today, then the ranker's label ahead of score", () => {
+it("orders overdue, due today, critical, then the ranker's label ahead of score", () => {
 	const ranked = (penalty: number) => ({
 		interaction: {
 			request: {
@@ -444,8 +444,8 @@ it("orders overdue, critical, due today, then the ranker's label ahead of score"
 	] as unknown as Parameters<typeof compareDecisionFreshness>[0][];
 	const order = [
 		"overdue",
-		"critical",
 		"today",
+		"critical",
 		"valuable",
 		"noise-high-score",
 	];
@@ -461,7 +461,7 @@ it("orders overdue, critical, due today, then the ranker's label ahead of score"
 	).toEqual(order);
 });
 
-it("merges Work asks and factory rows: critical first, then factory score, then the existing order", () => {
+it("merges Work asks and factory rows: deadlines today, critical, then factory score ahead of the learned score", () => {
 	const now = new Date("2026-10-20T07:00:00Z");
 	const cards = [
 		{ id: "work-today", kind: "question", dueAt: "2026-10-20T15:00:00Z" },
@@ -482,15 +482,15 @@ it("merges Work asks and factory rows: critical first, then factory score, then 
 		.map((card) => (card as { id: string }).id);
 	expect(order).toEqual([
 		"work-overdue",
+		"work-today",
 		"approval",
 		"factory-critical",
 		"factory-high",
 		"factory-low",
-		"work-today",
 		"work-high-rank",
 		"factory-unscored",
 	]);
-	// Critical-first invariant: no non-critical card, however well scored, precedes a critical one.
+	// Without a near deadline, no non-critical card, however well scored, precedes a critical one.
 	const lastCritical = Math.max(
 		order.indexOf("approval"),
 		order.indexOf("factory-critical"),
@@ -498,7 +498,7 @@ it("merges Work asks and factory rows: critical first, then factory score, then 
 	expect(order.indexOf("factory-high")).toBeGreaterThan(lastCritical);
 });
 
-it("ranks cards serving the top objective ahead of blocks reach, never ahead of settled order", () => {
+it("weighs blocks reach, deadlines and the top objective in one score, never ahead of settled order", () => {
 	const now = new Date("2026-10-20T07:00:00Z");
 	const grow = { id: "grow", title: "Grow sales", priority: 1, top: true };
 	const keep = { id: "keep", title: "Keep dry", priority: 2, top: false };
@@ -514,17 +514,19 @@ it("ranks cards serving the top objective ahead of blocks reach, never ahead of 
 			.sort((a, b) => compareDecisionFreshness(a, b, now, "UTC"))
 			.map((card) => (card as { id: string }).id);
 	expect(order(cards)).toEqual([
+		"overdue",
+		"blocks-many",
 		"top-blocks",
 		"top-plain",
-		"blocks-many",
-		"overdue",
 		"top-settled",
 	]);
-	// Cards with no top objective keep today's order.
-	expect(order(cards.filter((card) => !card.objective?.top))).toEqual([
-		"blocks-many",
-		"overdue",
-	]);
+	// The top objective breaks a tie between equal blocks reach.
+	expect(
+		order([
+			{ id: "plain", blocksScore: 2 },
+			{ id: "top", blocksScore: 2, objective: grow },
+		] as unknown as typeof cards),
+	).toEqual(["top", "plain"]);
 });
 
 it("ignores an out-of-range factory score and falls back to the existing order", () => {

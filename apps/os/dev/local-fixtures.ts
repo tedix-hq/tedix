@@ -5121,6 +5121,8 @@ function localKnockRequest(knock: (typeof LOCAL_KNOCKS)[number]) {
 }
 
 const localSnoozes = new Map<string, string>();
+// Questions handed to the steward tedi leave the person's inbox.
+const localStewardRoutes = new Set<string>();
 
 function localKnockRow(knock: (typeof LOCAL_KNOCKS)[number]) {
 	return {
@@ -5769,11 +5771,46 @@ const handlers: Record<string, (input: never) => unknown> = {
 			},
 		};
 	},
+	"workInteractions/delegateToSteward": (input: {
+		requestId: string;
+		expectedRequestVersion: number;
+		reason: string;
+	}) => {
+		const detail = localKnockDetail(input.requestId);
+		if (
+			!detail ||
+			detail.request.version !== input.expectedRequestVersion ||
+			detail.request.state !== "open" ||
+			localStewardRoutes.has(input.requestId)
+		)
+			throw new RpcError("CONFLICT", "Question is no longer delegatable");
+		localStewardRoutes.add(input.requestId);
+		const steward = "00000000-0000-4000-8000-0000000000c7";
+		return {
+			request: {
+				...detail.request,
+				version: detail.request.version + 1,
+				requestedFromType: "tedi",
+				requestedFromId: steward,
+				metadata: {
+					...detail.request.metadata,
+					delegation: {
+						toTediId: steward,
+						reason: input.reason,
+						via: "steward",
+					},
+				},
+			},
+			steward: { id: steward, name: "CTO" },
+			woken: false,
+		};
+	},
 	"workInteractions/listInbox": (
 		input: { states?: string[]; urgency?: string } | undefined,
 	) => ({
 		data: LOCAL_KNOCKS.filter(
 			(knock) =>
+				!localStewardRoutes.has(fid("a7", knock.n)) &&
 				(knock.state !== "open" ||
 					(localSnoozes.get(fid("a7", knock.n)) ?? "") <=
 						new Date().toISOString()) &&
