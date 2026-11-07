@@ -447,17 +447,11 @@ test("review command attaches unavailable, completed and failed receipts without
 	}
 });
 
-test("lanes split the plan: gate keeps unit and repository checks, verify keeps browser suites", () => {
+test("lanes: the gate keeps only the policy check, verify runs every test lane", () => {
 	const plan = {
 		matrix: {
 			include: [
 				{ workspace: "apps/api", testScript: "test:run", types: true },
-				{
-					workspace: "apps/os",
-					testScript: "test:unit",
-					shard: "1/2",
-					types: true,
-				},
 				{
 					workspace: "apps/os",
 					testScript: "test:browser:apps",
@@ -468,16 +462,27 @@ test("lanes split the plan: gate keeps unit and repository checks, verify keeps 
 		repository: true,
 		scope: "affected",
 	};
-	expect(laneSelection(plan, "full")).toMatchObject({ ...plan, lane: "full" });
+	expect(laneSelection(plan, "full")).toMatchObject({
+		...plan,
+		lane: "full",
+		checks: ["onboarding", "scripts", "policy"],
+	});
 	const gate = laneSelection(plan, "gate");
-	expect(
-		gate.matrix.include.map((job: { testScript: string }) => job.testScript),
-	).toEqual(["test:run", "test:unit"]);
-	expect(gate).toMatchObject({ repository: true, lane: "gate" });
+	expect(gate.matrix.include).toEqual([]);
+	expect(gate).toMatchObject({
+		repository: true,
+		checks: ["policy"],
+		lane: "gate",
+	});
 	const verify = laneSelection(plan, "verify");
+	expect(verify.matrix.include).toHaveLength(2);
+	expect(verify).toMatchObject({
+		repository: true,
+		checks: ["onboarding", "scripts"],
+		lane: "verify",
+	});
 	expect(
-		verify.matrix.include.map((job: { testScript: string }) => job.testScript),
-	).toEqual(["test:browser:apps"]);
-	expect(verify).toMatchObject({ repository: false, lane: "verify" });
+		laneSelection({ ...plan, repository: false }, "verify").checks,
+	).toEqual([]);
 	expect(() => laneSelection(plan, "nope")).toThrow(/Unknown suite lane/);
 });

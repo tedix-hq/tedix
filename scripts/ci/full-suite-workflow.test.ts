@@ -16,7 +16,9 @@ test("repository checks run in parallel and every matrix member gates Main CI", 
 		.split("\n  repository:\n")[1]!
 		.split("\n  aggregate:\n")[0]!;
 	expect(repository).toContain("fail-fast: false");
-	expect(repository).toContain("check: [onboarding, scripts, policy]");
+	expect(repository).toContain(
+		"check: ${{ fromJSON(needs.plan.outputs.checks) }}",
+	);
 	for (const command of [
 		"bun run-local --smoke --no-install",
 		"bun run test:scripts",

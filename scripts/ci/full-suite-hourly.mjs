@@ -387,25 +387,33 @@ export function suiteSelection(root, { eventName, files }) {
 	};
 }
 
-// Which jobs a run owes, by lane. A push certifies on the gate: every
-// selected workspace's unit, workerd and type checks plus the repository
-// checks. The browser suites run in the verify lane after the deploy; a
-// failure there files the incident and hands Red main heal the culprit, it
-// does not hold the deploy. Scheduled and hand-started runs stay full.
+// Which jobs a run owes, by lane. A push certifies on the gate, which holds
+// only what cannot be healed after a deploy: the policy check (migration order,
+// D1 schema and destructive DDL), because Ship refuses to roll a schema back.
+// Every test lane, unit, workerd, type checks and browser suites, runs in the
+// verify lane on the same push after the deploy; the developer's pre-push
+// already ran the related tests and type checks locally. A red verify files
+// the incident and hands Red main heal the culprit. Scheduled and
+// hand-started runs stay full.
 export const SUITE_LANES = ["full", "gate", "verify"];
+export const REPOSITORY_CHECKS = ["onboarding", "scripts", "policy"];
 export function laneSelection(plan, lane = "full") {
 	if (!SUITE_LANES.includes(lane))
 		throw new Error(`Unknown suite lane: ${lane}`);
-	if (lane === "full") return { ...plan, lane };
-	const browser = (job) => Boolean(job.browsers);
-	const include = plan.matrix.include.filter((job) =>
-		lane === "verify" ? browser(job) : !browser(job),
-	);
+	const checks = plan.repository ? REPOSITORY_CHECKS : [];
+	if (lane === "full") return { ...plan, lane, checks };
+	if (lane === "gate")
+		return {
+			...plan,
+			lane,
+			matrix: { include: [] },
+			repository: true,
+			checks: ["policy"],
+		};
 	return {
 		...plan,
 		lane,
-		matrix: { include },
-		repository: lane === "gate" ? plan.repository : false,
+		checks: checks.filter((check) => check !== "policy"),
 	};
 }
 
@@ -796,7 +804,7 @@ if (
 	});
 	appendFileSync(
 		env.GITHUB_OUTPUT,
-		`matrix=${JSON.stringify(plan.matrix)}\nworkspace=${plan.matrix.include.length > 0}\nrepository=${plan.repository}\nlane=${plan.lane}\nrunners=${JSON.stringify(runners)}\nhigh-risk=${review.highRisk}\nreview-base=${review.base}\n`,
+		`matrix=${JSON.stringify(plan.matrix)}\nworkspace=${plan.matrix.include.length > 0}\nrepository=${plan.repository && plan.checks.length > 0}\nchecks=${JSON.stringify(plan.checks)}\nlane=${plan.lane}\nrunners=${JSON.stringify(runners)}\nhigh-risk=${review.highRisk}\nreview-base=${review.base}\n`,
 	);
 	appendFileSync(
 		env.GITHUB_STEP_SUMMARY,
