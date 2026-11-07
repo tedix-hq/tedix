@@ -4786,6 +4786,9 @@ describe("structured dispatcher outcomes", () => {
 	it.each([
 		"recovered",
 		"laterSessionAttempt",
+		"originalVersion",
+		"originalSucceeded",
+		"interactiveOriginal",
 		"work",
 		"version",
 		"contract",
@@ -4794,7 +4797,6 @@ describe("structured dispatcher outcomes", () => {
 		"session",
 		"expired",
 		"dispatchVersion",
-		"originalVersion",
 		"originalWork",
 		"originalAdmission",
 		"outsideInterval",
@@ -4864,7 +4866,15 @@ describe("structured dispatcher outcomes", () => {
 				current.expiresAt = new Date(Date.now() - 1).toISOString();
 			if (state === "dispatchVersion")
 				current.metadata = { dispatchVersion: 1 };
+			// An earlier dispatch of the same Work, an Attempt that already
+			// settled succeeded with the commit, or an interactive session with no
+			// dispatch metadata all vouch for the commit they landed.
 			if (state === "originalVersion") original.metadata.dispatchVersion = 1;
+			if (state === "originalSucceeded") original.outcome = "succeeded";
+			if (state === "interactiveOriginal") {
+				original.outcome = "succeeded";
+				(original as { metadata?: unknown }).metadata = undefined;
+			}
 			if (state === "originalWork") original.workItemId = item(2).id;
 			if (state === "originalAdmission") original.admissionId = "";
 			if (state === "outsideInterval") original.startedAt = original.finishedAt;
@@ -4894,6 +4904,8 @@ describe("structured dispatcher outcomes", () => {
 					"recovered",
 					"laterSessionAttempt",
 					"originalVersion",
+					"originalSucceeded",
+					"interactiveOriginal",
 					"originalWork",
 					"originalAdmission",
 					"outsideInterval",
@@ -4904,7 +4916,14 @@ describe("structured dispatcher outcomes", () => {
 					? 1
 					: 0,
 			);
-			if (state === "recovered" || state === "laterSessionAttempt") {
+			const vouched = [
+				"recovered",
+				"laterSessionAttempt",
+				"originalVersion",
+				"originalSucceeded",
+				"interactiveOriginal",
+			].includes(state);
+			if (vouched) {
 				expect(settled[0]!.args).toContain(sha);
 				expect(settled[0]!.input?.metadata).toMatchObject({
 					laneResult: result,
@@ -4929,6 +4948,10 @@ describe("structured dispatcher outcomes", () => {
 				).toHaveLength(1);
 			} else {
 				expect(settled.some((e) => e.args.includes("succeeded"))).toBe(false);
+				if (settled.length === 1)
+					expect(readFileSync(join(f.dir, "dispatcher.log"), "utf8")).toContain(
+						'"event":"custody-rejected"',
+					);
 			}
 			expect(f.releases).toHaveLength(1);
 			expect(JSON.stringify(original)).not.toContain(sha);
