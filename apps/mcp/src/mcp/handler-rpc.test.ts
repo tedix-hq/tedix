@@ -357,13 +357,17 @@ describe("approved Home write scopes", () => {
 		);
 	}
 
-	it("carries only the approved tool's scopes to the API", async () => {
-		expect(
-			await delegatedScopes("osWorkspaces/outputs/create", {
-				homeApprovedCall: true,
-			}),
-		).toEqual(["apps:write", "mcp:apps.write", "tools:write"]);
-	});
+	it.each(["owner-sub", undefined])(
+		"carries only the approved tool's scopes to the API for user %s",
+		async (userId) => {
+			expect(
+				await delegatedScopes("osWorkspaces/outputs/create", {
+					homeApprovedCall: true,
+					userId,
+				}),
+			).toEqual(["apps:write", "mcp:apps.write", "tools:write"]);
+		},
+	);
 
 	it("carries the runner's machine scope only for an approved skill run", async () => {
 		expect(

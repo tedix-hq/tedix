@@ -1230,16 +1230,22 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 			);
 			const payload = parseHomeToolWritePayload(approval?.payload);
 			const digest = await canonicalDigest(input.args);
-			// The receipt's principal: the member who asked for a Home write, or,
-			// for an agent-started run with no initiator, the human who approved
-			// it. The approver's receipt is only valid on the tenant credential; it
-			// never selects their personal connection or user scopes.
+			// Human receipts name the requester or approver. Policy receipts for
+			// agent-started runs bind to the stored agent on the tenant credential;
+			// neither path borrows a human's personal connection or scopes.
 			const approvedByUserId = approvingUserId(approval?.resolvedBy);
+			const policyAgent =
+				!input.userId &&
+				input.credential === "tenant" &&
+				approval?.resolvedBy === "policy" &&
+				!payload?.initiatedByUserId &&
+				Boolean(payload?.initiatedByAgentPrincipalId);
 			const principalMatches = payload?.initiatedByUserId
 				? payload.initiatedByUserId === input.userId
-				: input.credential === "tenant" &&
-					approvedByUserId !== undefined &&
-					approvedByUserId === input.userId;
+				: policyAgent ||
+					(input.credential === "tenant" &&
+						approvedByUserId !== undefined &&
+						approvedByUserId === input.userId);
 			if (
 				approval?.orgId !== input.organizationId ||
 				approval.actionType !== "home.tool_write" ||
@@ -1267,12 +1273,14 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 				))
 			)
 				return { approved: false };
-			const initiator = await getMemberByUserId(
-				context.db,
-				input.organizationId,
-				input.userId,
-			);
-			if (initiator?.status !== "active") return { approved: false };
+			if (input.userId) {
+				const initiator = await getMemberByUserId(
+					context.db,
+					input.organizationId,
+					input.userId,
+				);
+				if (initiator?.status !== "active") return { approved: false };
+			}
 			// The canonical resolve path already checked os:approve, including
 			// explicit member grants. Recheck membership without narrowing it to roles.
 			if (approval.resolvedBy !== "policy") {

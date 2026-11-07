@@ -19,12 +19,13 @@ import { ToolActionTypeSchema } from "./tools";
 /** Exact Home write receipt, checked again at the MCP dispatch boundary. */
 export const ResolveHomeToolApprovalInputSchema = z.object({
 	organizationId: z.string().min(1),
-	userId: z.string().min(1),
+	/** Absent only for a policy-approved agent-started run on the tenant credential. */
+	userId: z.string().min(1).optional(),
 	appSlug: z.string().min(1),
 	toolName: z.string().min(1),
 	args: z.record(z.string(), JsonValueSchema),
 	approvalRequestId: z.uuid(),
-	/** "tenant" when a user-credential call found no personal connection. */
+	/** "tenant" for agent-started runs or a missing personal connection. */
 	credential: z.enum(["user", "tenant"]).default("user"),
 });
 export const ResolveHomeToolApprovalResponseSchema = z.object({

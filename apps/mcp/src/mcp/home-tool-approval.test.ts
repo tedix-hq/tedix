@@ -110,9 +110,14 @@ describe("Home approval at MCP dispatch", () => {
 			credential: "user",
 		});
 	});
-	it.each([true, false])(
-		"native dispatch executes only after receipt verification (%s)",
-		async (approved) => {
+	it.each([
+		{ approved: true, identity: { userId: "user-1" } },
+		{ approved: false, identity: { userId: "user-1" } },
+		{ approved: true, identity: {} },
+		{ approved: false, identity: {} },
+	])(
+		"native dispatch executes only after receipt verification ($approved, $identity)",
+		async ({ approved, identity }) => {
 			const execute = vi.spyOn(toolExecution, "executeTool").mockResolvedValue({
 				content: [],
 				structuredContent: { ok: true },
@@ -123,7 +128,7 @@ describe("Home approval at MCP dispatch", () => {
 				.mockImplementation(() => {});
 			let callback: ToolCallback | undefined;
 			const resolve = vi.fn().mockResolvedValue({ approved });
-			const agent = context(resolve);
+			const agent = context(resolve, true, "service", identity);
 			Object.assign(agent, {
 				env: {},
 				ctx: { waitUntil: vi.fn() },
@@ -228,15 +233,18 @@ describe("Home approval at MCP dispatch", () => {
 			expect.objectContaining({ userId: "user-1", credential: "tenant" }),
 		);
 	});
-	it("does not look up a receipt without any member identity", async () => {
-		const resolve = vi.fn().mockResolvedValue({ approved: true });
-		await requireDestructiveToolApproval(
+	it("refuses an agent replay when its canonical receipt is rejected", async () => {
+		const resolve = vi.fn().mockResolvedValue({ approved: false });
+		const result = await requireDestructiveToolApproval(
 			context(resolve, true, "service", {}),
 			{ toolId: "tedix__create_os_output", title: "Create output" },
 			{ destructiveHint: true },
 			options,
 		);
-		expect(resolve).not.toHaveBeenCalled();
+		expect(resolve).toHaveBeenCalledWith(
+			expect.objectContaining({ userId: undefined, credential: "tenant" }),
+		);
+		expect(result).toMatchObject({ isError: true });
 	});
 	it.each([false, "error"])(
 		"fails closed when receipt verification returns %s",
@@ -287,9 +295,9 @@ describe("Home approval at MCP dispatch", () => {
 	);
 	it.each([
 		[{ approvedHomeUserId: "approver-1" }, true],
-		[{}, false],
+		[{}, true],
 	])(
-		"an agent-started replay carries the approver's receipt only (%j)",
+		"recognizes an agent-started replay for receipt verification (%j)",
 		(identity, expected) => {
 			expect(
 				isHomeApprovalCall(
@@ -297,6 +305,27 @@ describe("Home approval at MCP dispatch", () => {
 					options,
 				),
 			).toBe(expected);
+		},
+	);
+	it.each([true, false])(
+		"verifies a policy replay without inventing a human (%s)",
+		async (approved) => {
+			const resolve = vi.fn().mockResolvedValue({ approved });
+			const result = await requireDestructiveToolApproval(
+				context(resolve, true, "service", {}),
+				{ toolId: "tedix__create_os_output", title: "Create output" },
+				{ destructiveHint: true },
+				options,
+			);
+			expect(resolve).toHaveBeenCalledWith(
+				expect.objectContaining({
+					userId: undefined,
+					credential: "tenant",
+					args,
+				}),
+			);
+			if (approved) expect(result).toBeNull();
+			else expect(result?.isError).toBe(true);
 		},
 	);
 });
