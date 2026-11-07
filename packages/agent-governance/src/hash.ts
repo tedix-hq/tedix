@@ -1,12 +1,24 @@
 /** Stable JSON serialization with sorted object keys, so equal values hash equal. */
 export function stableStringify(value: unknown): string {
-	return JSON.stringify(value, (_key, inner: unknown) => {
-		if (inner && typeof inner === "object" && !Array.isArray(inner)) {
-			const sorted: Record<string, unknown> = {};
-			for (const key of Object.keys(inner as Record<string, unknown>).sort()) {
-				sorted[key] = (inner as Record<string, unknown>)[key];
+	const ancestors: Array<{ original: object; serialized: object }> = [];
+	return JSON.stringify(value, function (_key, inner: unknown) {
+		while (ancestors.length && ancestors.at(-1)?.serialized !== this) {
+			ancestors.pop();
+		}
+		if (inner && typeof inner === "object") {
+			if (ancestors.some(({ original }) => original === inner)) {
+				throw new TypeError("Cannot serialize cyclic governance arguments");
 			}
-			return sorted;
+			// Sorted copies hide the original cycle from JSON.stringify's own check.
+			const serialized = Array.isArray(inner)
+				? inner
+				: Object.fromEntries(
+						Object.keys(inner)
+							.sort()
+							.map((key) => [key, (inner as Record<string, unknown>)[key]]),
+					);
+			ancestors.push({ original: inner, serialized });
+			return serialized;
 		}
 		return inner;
 	});
