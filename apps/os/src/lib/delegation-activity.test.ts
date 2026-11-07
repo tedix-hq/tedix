@@ -30,6 +30,8 @@ describe("plainToolName", () => {
 		expect(plainToolName("reddit__search_posts")).toBe("Searched Reddit posts");
 		expect(plainToolName("list_threads")).toBe("Listed threads");
 		expect(plainToolName("  ")).toBe("Tool action");
+		expect(plainToolName("tedix_mcp__code")).toBe("Used Tedix tools");
+		expect(plainToolName("tedix_mcp_code")).toBe("Used Tedix tools");
 	});
 
 	it("names tool families a person recognises", () => {

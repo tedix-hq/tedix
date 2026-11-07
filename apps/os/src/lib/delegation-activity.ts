@@ -166,6 +166,11 @@ export function describeTool(name: string): ToolVerb {
 			? { past: "Searched the web", now: "Searching the web" }
 			: { past: "Read a web page", now: "Reading a web page" };
 	}
+	// Tedix code mode runs a short script over several Tedix tools; its raw id
+	// ("tedix_mcp__code") reads as "Tedix mcp code".
+	if (/ (tedix|mcp) /.test(haystack) && words[words.length - 1] === "code") {
+		return { past: "Used Tedix tools", now: "Using Tedix tools" };
+	}
 	if (COMPUTER_TOOLS.test(haystack)) {
 		if (verb && ["Ran", "Called"].includes(verb.past))
 			return { past: "Ran a command", now: "Running a command" };
