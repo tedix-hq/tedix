@@ -2826,31 +2826,53 @@ export class LaneDispatcher {
 		// still running keeps custody of its own commit. Requiring the lane's
 		// own dispatchVersion and a failed or expired original left every such
 		// Work open until an owner completed it (6-7 Nov 2026).
-		const rejected =
-			originals.length !== 1
-				? originals.length === 0
-					? "no admitted Attempt of that session covers the commit time"
-					: "several Attempts of that session cover the commit time"
-				: !original
-					? "no original Attempt"
-					: original.workItemId !== receipt.itemId
-						? "the original Attempt belongs to another Work Item"
-						: !original.admissionId
-							? "the original Attempt was never admitted"
-							: original.id !== receipt.attemptId &&
-								  original.outcome !== "failed" &&
-								  original.outcome !== "expired" &&
-								  original.outcome !== "succeeded"
-								? "the original Attempt is still running"
-								: null;
-		if (rejected || !original) {
-			this.log(
-				"custody-rejected",
-				receipt.itemId,
-				`${commitSha.slice(0, 12)} from ${session}: ${rejected ?? "no original Attempt"}`,
+		if (originals.length === 0)
+			return this.rejectCommitCustody(
+				receipt,
+				session,
+				commitSha,
+				"no admitted Attempt of that session covers the commit time",
 			);
-			return false;
-		}
+		if (originals.length !== 1)
+			return this.rejectCommitCustody(
+				receipt,
+				session,
+				commitSha,
+				"several Attempts of that session cover the commit time",
+			);
+		if (!original)
+			return this.rejectCommitCustody(
+				receipt,
+				session,
+				commitSha,
+				"no original Attempt",
+			);
+		if (original.workItemId !== receipt.itemId)
+			return this.rejectCommitCustody(
+				receipt,
+				session,
+				commitSha,
+				"the original Attempt belongs to another Work Item",
+			);
+		if (!original.admissionId)
+			return this.rejectCommitCustody(
+				receipt,
+				session,
+				commitSha,
+				"the original Attempt was never admitted",
+			);
+		if (
+			original.id !== receipt.attemptId &&
+			original.outcome !== "failed" &&
+			original.outcome !== "expired" &&
+			original.outcome !== "succeeded"
+		)
+			return this.rejectCommitCustody(
+				receipt,
+				session,
+				commitSha,
+				"the original Attempt is still running",
+			);
 		receipt.recoveredCommits = [
 			...(receipt.recoveredCommits ?? []).filter(
 				(row) => row.commitSha !== commitSha,
@@ -2858,6 +2880,19 @@ export class LaneDispatcher {
 			{ commitSha, attemptId: original.id, session },
 		];
 		return true;
+	}
+	private rejectCommitCustody(
+		receipt: Receipt,
+		session: string,
+		commitSha: string,
+		reason: string,
+	) {
+		this.log(
+			"custody-rejected",
+			receipt.itemId,
+			`${commitSha.slice(0, 12)} from ${session}: ${reason}`,
+		);
+		return false;
 	}
 	private async checkResultFence(receipt: Receipt) {
 		const result = receipt.laneResult!;
