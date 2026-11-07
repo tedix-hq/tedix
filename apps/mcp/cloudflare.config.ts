@@ -163,12 +163,6 @@ export default defineConfig(({ mode }) => {
 					worker: service("tedi", "public-installation-tedi"),
 					exportName: "InternalEntrypoint",
 				}),
-				// Workspace objects: `/mcp/workspaces/{id}` forwards into the object
-				// that owns that workspace, after this gateway's own auth gates.
-				WORKSPACE_RUNTIME: bindings.worker({
-					worker: service("workspace-do", "public-installation-workspace-do"),
-					exportName: "InternalEntrypoint",
-				}),
 				CMS: bindings.worker({
 					worker: service("cms", "public-installation-cms"),
 				}),
