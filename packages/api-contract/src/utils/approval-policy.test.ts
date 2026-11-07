@@ -873,6 +873,51 @@ describe("platform-default autonomy (organization-autonomy.v1.json)", () => {
 		).toBe(true);
 	});
 
+	it("follows the organization's own changes, never past the critical floor", () => {
+		const organization = {
+			disabledGroups: ["work_items"],
+			addedTools: ["start_widget_preview", "send_message"],
+			removedTools: ["rename_os_output"],
+		};
+		expect(
+			platformAutonomousOperation("os.rename_os_output", null, organization),
+		).toBeNull();
+		expect(
+			platformAutonomousOperation("work.create_work_items", null, organization),
+		).toBeNull();
+		expect(
+			platformAutonomousOperation("os.revise_os_output", null, organization)
+				?.id,
+		).toBe("workspace_management");
+		expect(
+			platformAutonomousOperation("x.start_widget_preview", null, organization)
+				?.id,
+		).toBe("organization_added");
+		expect(
+			platformAutonomousOperation("gmail.send_message", null, organization),
+		).toBeNull();
+		expect(
+			decideKernelWriteApproval({
+				policy: { autoApproval: organization },
+				proposal: {
+					appSlug: "tedix-unified",
+					toolName: "os.rename_os_output",
+					riskTier: "low",
+				},
+			}).autoResolve,
+		).toBe(false);
+		expect(
+			decideKernelWriteApproval({
+				policy: { autoApproval: organization },
+				proposal: {
+					appSlug: "tedix-unified",
+					toolName: "x.start_widget_preview",
+					riskTier: "low",
+				},
+			}).autoResolve,
+		).toBe(true);
+	});
+
 	it("applies under an explicit autonomy policy without a trusted-tool list", () => {
 		expect(
 			decide("os.rename_os_output", "low", {

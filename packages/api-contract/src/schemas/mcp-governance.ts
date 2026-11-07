@@ -145,7 +145,56 @@ export const ResolveAgentTransportPolicyResponseSchema = z.object({
 	 * (organization-autonomy.v1.json) or the caller's tedi is unknown.
 	 */
 	platformAutonomy: z.literal(false).optional(),
+	/** The organization's changes to the everyday auto-approval default. */
+	autoApproval: z
+		.object({
+			disabledGroups: z.array(z.string()),
+			addedTools: z.array(z.string()),
+			removedTools: z.array(z.string()),
+		})
+		.optional(),
 });
+
+const AutoApprovalToolNameSchema = z
+	.string()
+	.trim()
+	.min(1)
+	.max(200)
+	.regex(/^[a-z0-9_]+$/i, "Use the tool's name, for example rename_os_output");
+
+export const OrganizationAutoApprovalSchema = z.object({
+	groups: z.array(
+		z.object({
+			id: z.string(),
+			label: z.string(),
+			enabled: z.boolean(),
+		}),
+	),
+	addedTools: z.array(z.string()),
+	removedTools: z.array(z.string()),
+});
+
+export const SetOrganizationAutoApprovalInputSchema = z.discriminatedUnion(
+	"kind",
+	[
+		z.object({
+			kind: z.literal("group"),
+			groupId: z.string().min(1).max(100),
+			enabled: z
+				.boolean()
+				.describe("true runs this default group without asking"),
+		}),
+		z.object({
+			kind: z.literal("tool"),
+			toolName: AutoApprovalToolNameSchema,
+			mode: z
+				.enum(["auto", "ask", "default"])
+				.describe(
+					"auto runs this tool without asking, ask always asks, default follows the platform list",
+				),
+		}),
+	],
+);
 
 /**
  * Server-attributed owner/admin user authorization attached to the exact Work

@@ -2035,7 +2035,7 @@ export async function requireDestructiveToolApproval(
 		!identity.kernel &&
 		((identity.authType === "tedi" && !!identity.tediId) ||
 			(callerIsUserPrincipalPath(agent) && !!identity.userId));
-	const platformOperation =
+	const platformOperationCandidate =
 		inOrganizationCaller &&
 		!isOwnedChannelBoundary &&
 		// A person's ordinary skill start is the owner check's decision above;
@@ -2051,18 +2051,13 @@ export async function requireDestructiveToolApproval(
 		tool.config?.transport === "rpc" &&
 		risk !== "external_side_effect" &&
 		humanReservedActionClasses(`${agent.appSlug ?? ""}:${tool.toolId}`)
-			.length === 0
-			? platformAutonomousOperation(
-					tool.toolId,
-					typeof tool.config.endpoint === "string"
-						? tool.config.endpoint
-						: null,
-				)
-			: null;
+			.length === 0;
+	const platformEndpoint =
+		typeof tool.config?.endpoint === "string" ? tool.config.endpoint : null;
 	const resolveTransportPolicy =
 		agent.apiClient?.mcpGovernance?.resolveAgentTransportPolicy;
 	if (
-		platformOperation &&
+		platformOperationCandidate &&
 		agent.app?.organizationId &&
 		resolveTransportPolicy
 	) {
@@ -2073,8 +2068,16 @@ export async function requireDestructiveToolApproval(
 					? { tediId: agent.callerIdentity.tediId }
 					: {}),
 			});
+			// The organization's own changes to the default: groups switched off
+			// and single tools added or set to ask. Critical actions stay out.
+			const platformOperation = platformAutonomousOperation(
+				tool.toolId,
+				platformEndpoint,
+				policy.autoApproval ?? null,
+			);
 			const askForClasses = policy.autonomy?.askForClasses;
 			if (
+				platformOperation &&
 				policy.platformAutonomy !== false &&
 				!askForClasses?.includes("*") &&
 				!askForClasses?.includes(`tool:${agent.appSlug ?? ""}:${tool.toolId}`)

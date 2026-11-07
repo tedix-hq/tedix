@@ -13,6 +13,7 @@ import type { ApprovalRequest } from "@tedix/api-contract/contracts/tedi-approva
 import { type ReactNode, useState } from "react";
 import { isAutomaticApproval } from "@/components/activity-history";
 import { TenantToolPolicies } from "@/components/tenant-tool-policies";
+import { OrganizationAutoApproval } from "@/components/organization-auto-approval";
 import { ProviderIdentityProfiles } from "@/components/provider-identity-profiles";
 import { LegacyActionGrants } from "@/components/legacy-action-grants";
 import { Badge } from "@/components/kumo/badge";
@@ -289,6 +290,7 @@ export function ActivityAutoApproval({ canChange }: { canChange: boolean }) {
 				</ul>
 			)}
 
+			<OrganizationAutoApproval canChange={canChange} />
 			<TenantToolPolicies canChange={canChange} />
 			<ProviderIdentityProfiles canChange={canChange} />
 			<Collapsible className="border-t border-kumo-hairline px-2 py-2">
