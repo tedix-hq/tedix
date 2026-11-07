@@ -1010,6 +1010,22 @@
         "ai": "^7",
       },
     },
+    "packages/workspace-runtime": {
+      "name": "@tedix/workspace-runtime",
+      "version": "0.0.1",
+      "dependencies": {
+        "@tedix/worker-kit": "workspace:*",
+      },
+      "devDependencies": {
+        "@cloudflare/vitest-plugin": "catalog:",
+        "@cloudflare/workers-types": "catalog:",
+        "@tedix/tsconfig": "workspace:*",
+        "typescript": "catalog:",
+        "vite": "catalog:",
+        "vite-plus": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
   },
   "trustedDependencies": [
     "esbuild",
@@ -2391,6 +2407,8 @@
     "@tedix/worker-kit": ["@tedix/worker-kit@workspace:packages/worker-kit"],
 
     "@tedix/workers-ai": ["@tedix/workers-ai@workspace:packages/workers-ai"],
+
+    "@tedix/workspace-runtime": ["@tedix/workspace-runtime@workspace:packages/workspace-runtime"],
 
     "@testing-library/dom": ["@testing-library/dom@10.4.2", "", { "dependencies": { "@babel/code-frame": "^7.10.4", "@babel/runtime": "^7.12.5", "@types/aria-query": "^5.0.1", "aria-query": "5.3.0", "dom-accessibility-api": "^0.5.9", "lz-string": "^1.5.0", "picocolors": "1.1.1", "pretty-format": "^27.0.2" } }, "sha512-yzr2S9HyAIdhz2/6qHgbs665Q7PKVcDF05vsOlHPxG1mo36gKVesdYVeDLnXgfjJ03CrKRk08knc6+E/9m8v2Q=="],
 

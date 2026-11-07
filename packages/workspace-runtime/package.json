@@ -1,0 +1,34 @@
+{
+	"name": "@tedix/workspace-runtime",
+	"version": "0.0.1",
+	"private": true,
+	"description": "The runtime a workspace object codes against: single-writer SQL, a network-less sandbox, named bindings, a replayable event feed and alarms, on Cloudflare or on a self-hosted workerd.",
+	"license": "Apache-2.0",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts",
+		"./cloudflare": "./src/cloudflare.ts",
+		"./workerd": "./src/workerd.ts",
+		"./conformance": "./src/conformance.ts"
+	},
+	"scripts": {
+		"clean": "true",
+		"test": "vp test run",
+		"test:run": "vp test run",
+		"test:ci": "bun run test:run",
+		"test:watch": "vp test",
+		"type-check": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@tedix/worker-kit": "workspace:*"
+	},
+	"devDependencies": {
+		"@cloudflare/vitest-plugin": "catalog:",
+		"@cloudflare/workers-types": "catalog:",
+		"@tedix/tsconfig": "workspace:*",
+		"typescript": "catalog:",
+		"vite": "catalog:",
+		"vite-plus": "catalog:",
+		"vitest": "catalog:"
+	}
+}
