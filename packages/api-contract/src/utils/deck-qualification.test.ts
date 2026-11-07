@@ -21,6 +21,14 @@ describe("Deck ask qualification", () => {
 			).responseKind,
 		).toBe("open");
 	});
+	it("offers yes/no when an agent asks a person to grant access", () => {
+		expect(
+			classifyDeckAsk(
+				{ subject: "Grant read access to the logs database?" },
+				config,
+			).responseOptions.map((o) => o.label),
+		).toEqual(["Yes", "No"]);
+	});
 	it("keeps named options instead of inventing yes/no", () => {
 		expect(
 			classifyDeckAsk(

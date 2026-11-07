@@ -1,4 +1,8 @@
 import * as z from "zod";
+import {
+	AGENT_ADDRESSED_MESSAGES,
+	agentAddressedIssue,
+} from "../utils/agent-addressed-text";
 import { CARD_SECRET_MESSAGE, containsCardSecret } from "../utils/card-secrets";
 import { AgentReplyDeliveryGateResultSchema } from "./agent-turn-triage";
 import { BoundedJsonObjectSchema } from "./bounded-json";
@@ -262,8 +266,12 @@ export const CreateWorkInteractionInputSchema = z
 				"Supply for project context; exactly one context identifier is required.",
 			),
 		kind: WorkInteractionKindSchema,
-		subject: WorkInteractionRequestSchema.shape.subject,
-		prompt: WorkInteractionRequestSchema.shape.prompt,
+		subject: WorkInteractionRequestSchema.shape.subject.describe(
+			"For a person: one plain question they can answer, such as 'Grant read access to the logs database?'. Never instructions about the card or data only an agent can gather.",
+		),
+		prompt: WorkInteractionRequestSchema.shape.prompt.describe(
+			"Background and agent instructions. For a person it appears under 'Details for agents'; put the choices in metadata.decisionCard.options (2-3 concrete options).",
+		),
 		reviewAfterDays: z
 			.number()
 			.int()
@@ -334,6 +342,24 @@ export const CreateWorkInteractionInputSchema = z
 					"Say in one plain line why this needs the person (reason). Agent housekeeping never goes to a person.",
 				path: ["reason"],
 			});
+		}
+		// What a person reads must be a question they can answer, not agent copy.
+		if (
+			(value.kind === "question" || value.kind === "input") &&
+			value.requestedFrom.type === "user" &&
+			value.metadata.schema !== DECISION_CAPTURE_SCHEMA
+		) {
+			for (const field of ["subject", "reason", "prompt"] as const) {
+				const issue = agentAddressedIssue(value[field] ?? "");
+				// The prompt is the agents' detail: only card mechanics are wrong there.
+				if (!issue || (field === "prompt" && issue !== "card_mechanics"))
+					continue;
+				context.addIssue({
+					code: "custom",
+					message: AGENT_ADDRESSED_MESSAGES[issue],
+					path: [field],
+				});
+			}
 		}
 	});
 

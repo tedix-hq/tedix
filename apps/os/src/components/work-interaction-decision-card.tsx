@@ -28,6 +28,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as z from "zod";
 import { WorkProposalMetadataSchema } from "@tedix/api-contract/schemas/work-interactions";
 import { DecisionProposalBody } from "@/components/decision-proposal-body";
+import {
+	plainDecisionSource,
+	plainDecisionText,
+} from "@/lib/plain-decision-text";
 import { DecisionAttentionContext } from "@/components/decision-attention-context";
 import { Button } from "@/components/kumo/button";
 import { Link } from "@/components/kumo/link";
@@ -615,7 +619,10 @@ export function WorkInteractionDecisionCard({
 									</p>
 								</FeedDeckDisclosure>
 							</>
-						) : (
+						) : sourceCopy ||
+						  typeof request.metadata.cardContent === "string" ||
+						  outboundBody ||
+						  presentation ? (
 							<DecisionProposalBody
 								key={request.id}
 								body={
@@ -627,6 +634,23 @@ export function WorkInteractionDecisionCard({
 								}
 								inline={decision?.kind === "outbound"}
 							/>
+						) : (
+							// No written face yet: the asker's plain reason, then the ask
+							// without agent instructions; those stay in Details for agents.
+							<>
+								{typeof request.metadata.reason === "string" &&
+								request.metadata.reason.trim() ? (
+									<p className="fd-card-summary">
+										{plainDecisionText(request.metadata.reason)}
+									</p>
+								) : null}
+								{plainDecisionSource(request.prompt) ? (
+									<DecisionProposalBody
+										key={request.id}
+										body={plainDecisionSource(request.prompt)}
+									/>
+								) : null}
+							</>
 						)}
 						{presentation && (
 							<p className="fd-recommendation">{presentation.recommendation}</p>
@@ -660,17 +684,6 @@ export function WorkInteractionDecisionCard({
 					<div className="grid gap-3">
 						<DeckWhyChain cardId={request.id} />
 						{approval && <p>{OS_COPY.decisionDeck.explicitApproval}</p>}
-						{presentation && !approval && (
-							<FeedDeckDisclosure
-								title={OS_COPY.feed.details}
-								keepMounted={false}
-							>
-								<p className="whitespace-pre-wrap break-words">
-									{request.prompt}
-								</p>
-							</FeedDeckDisclosure>
-						)}
-
 						{draft?.rationale ? <p>{draft.rationale}</p> : null}
 						<p>
 							{capture?.need ??
@@ -707,6 +720,7 @@ export function WorkInteractionDecisionCard({
 					</div>
 				}
 				actions={reminder || choices.externalAction || !active ? [] : actions}
+				agentDetails={sourceCopy || approval ? undefined : request.prompt}
 				suggestedAnswers={choices.suggestedAnswers}
 				initialAnswer={draft && draft.delivery !== "auto" ? draft.body : ""}
 				disabled={!active || Boolean(reminder || choices.externalAction)}

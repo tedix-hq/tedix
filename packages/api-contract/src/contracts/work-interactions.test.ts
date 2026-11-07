@@ -207,6 +207,38 @@ describe("Work interactions contract", () => {
 		).toBe(true);
 	});
 
+	it("rejects card text addressed to agents before it reaches a person", () => {
+		const ask = {
+			workItemId: "00000000-0000-4000-8000-000000000001",
+			kind: "question",
+			requestedFrom: { type: "user", id: "user-fictional-1" },
+			reason: "Only you can grant access to the logs database.",
+			subject: "Grant read access to the logs database?",
+			prompt:
+				"Compare source and target row counts for every logs table with `wrangler d1 execute`.",
+		} as const;
+		expect(CreateWorkInteractionInputSchema.safeParse(ask).success).toBe(true);
+		const mechanics = CreateWorkInteractionInputSchema.safeParse({
+			...ask,
+			prompt:
+				"Please open this Work item and click Reply on this Needs-you card.",
+		});
+		expect(mechanics.error?.issues[0]?.path).toEqual(["prompt"]);
+		const data = CreateWorkInteractionInputSchema.safeParse({
+			...ask,
+			subject: "Provide a read-only comparison of the source and target counts",
+		});
+		expect(data.error?.issues[0]?.path).toEqual(["subject"]);
+		// Agent-to-agent asks keep their own wording.
+		expect(
+			CreateWorkInteractionInputSchema.safeParse({
+				...ask,
+				subject: "Provide the source and target counts",
+				requestedFrom: { type: "tedi", id: "research-lead" },
+			}).success,
+		).toBe(true);
+	});
+
 	it("rejects unroutable team and system strings as direct targets", () => {
 		for (const type of ["team", "system"] as const) {
 			expect(() =>

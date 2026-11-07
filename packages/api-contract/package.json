@@ -36,6 +36,7 @@
 		"./utils/connection-account-mode": "./src/utils/connection-account-mode.ts",
 		"./utils/decision-autonomy": "./src/utils/decision-autonomy.ts",
 		"./utils/card-version-text": "./src/utils/card-version-text.ts",
+		"./utils/agent-addressed-text": "./src/utils/agent-addressed-text.ts",
 		"./utils/card-secrets": "./src/utils/card-secrets.ts",
 		"./utils/card-priority": "./src/utils/card-priority.ts",
 		"./utils/decision-card-copy": "./src/utils/decision-card-copy.ts",
