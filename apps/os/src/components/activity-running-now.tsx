@@ -12,6 +12,7 @@ import { WorkReadFailure } from "./work-surface-primitives";
 import { Card, CardContent, CardHeader, CardTitle } from "./kumo/card";
 import { Link } from "./kumo/link";
 import { Text } from "./kumo/text";
+import { ActivityHarnessScorecard } from "./activity-harness-scorecard";
 
 /** Uses the same canonical attempt and dispatcher projections as Work. */
 export function ActivityRunningNow({
@@ -133,6 +134,11 @@ export function ActivityRunningNow({
 						retrying={queries.some((query) => query.isFetching)}
 					/>
 				)}
+				<ActivityHarnessScorecard
+					scopes={scopes}
+					reports={reports}
+					now={now.getTime()}
+				/>
 				{rows.length > 0 ? (
 					<ul aria-label="Active attempts" className="grid min-w-0 gap-3">
 						{rows.map(({ attempt, workItem }) => {
