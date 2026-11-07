@@ -162,6 +162,7 @@ const RPC_ENDPOINT_CAPABILITY_SCOPES: Record<string, string> = {
 	"workInteractions/respond": "mcp:messaging.write",
 	"workInteractions/review": "mcp:messaging.write",
 	"workInteractions/delegate": "mcp:messaging.write",
+	"workInteractions/delegateToSteward": "mcp:messaging.write",
 	"workInteractions/cancel": "mcp:messaging.write",
 	"workInteractions/get": "mcp:messaging.read",
 	"workInteractions/listInbox": "mcp:messaging.read",

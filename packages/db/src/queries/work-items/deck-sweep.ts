@@ -12,6 +12,7 @@ import { tediObjectives } from "../../schema/tedi-objectives";
 import { listCardSourceWork } from "../decision-graph";
 import { topActiveObjectiveQuery } from "../tedi-objectives";
 import type { ServedObjective } from "@tedix/api-contract/schemas/organization-purpose";
+import type { DeckSourceWorkFacts } from "@tedix/api-contract/schemas/deck-priority";
 import { workInteractions } from "../../schema/work-factory";
 import {
 	workItems,
@@ -220,6 +221,70 @@ export async function listCardObjectives(
 	for (const [cardId, workId] of work) {
 		const objective = workId && objectives.get(workId);
 		if (objective) result.set(cardId, objective);
+	}
+	return result;
+}
+
+/**
+ * The Work facts that rank each card: its Work's due date, deadline and risk,
+ * how many accepted Work items wait on it through a `blocks` relation, and
+ * whether one of those has a live Attempt. Cards without Work are absent.
+ */
+export async function listCardSourceWorkFacts(
+	db: DbQueryClient,
+	orgId: string,
+	cards: readonly { id: string; workItemId?: string | null }[],
+) {
+	const edges = await listCardSourceWork(
+		db,
+		orgId,
+		cards.filter((card) => !card.workItemId).map((card) => card.id),
+	);
+	const work = new Map(
+		cards.map((card) => [card.id, card.workItemId ?? edges.get(card.id)]),
+	);
+	const unique = [
+		...new Set([...work.values()].filter((id): id is string => Boolean(id))),
+	];
+	const facts = new Map<string, DeckSourceWorkFacts>();
+	const waiting = sql`FROM ${workItemRelations} r JOIN ${workItems} waiting ON waiting.id=r.to_work_item_id AND waiting.org_id=r.org_id WHERE r.org_id=${orgId} AND r.from_work_item_id=${workItems}.${sql.identifier("id")} AND r.relation_type='blocks' AND waiting.disposition='accepted'`;
+	for (let offset = 0; offset < unique.length; offset += 50) {
+		const rows = await db
+			.select({
+				id: workItems.id,
+				dueDate: workItems.dueDate,
+				deadline: workItems.deadline,
+				riskLevel: workItems.riskLevel,
+				blocksCount:
+					sql<number>`(SELECT count(DISTINCT waiting.id) ${waiting})`.as(
+						"blocks_count",
+					),
+				blocksRunning:
+					sql<number>`EXISTS (SELECT 1 ${waiting} AND EXISTS (SELECT 1 FROM ${workAttempts} a WHERE a.org_id=r.org_id AND a.work_item_id=waiting.id AND a.runtime_state IN ('queued','running','waiting','retrying')))`.as(
+						"blocks_running",
+					),
+			})
+			.from(workItems)
+			.where(
+				and(
+					eq(workItems.orgId, orgId),
+					inArray(workItems.id, unique.slice(offset, offset + 50)),
+				),
+			)
+			.limit(50);
+		for (const row of rows)
+			facts.set(row.id, {
+				dueDate: row.dueDate,
+				deadline: row.deadline,
+				riskLevel: row.riskLevel,
+				blocksCount: Number(row.blocksCount ?? 0),
+				blocksRunning: Boolean(row.blocksRunning),
+			});
+	}
+	const result = new Map<string, DeckSourceWorkFacts>();
+	for (const [cardId, workId] of work) {
+		const fact = workId && facts.get(workId);
+		if (fact) result.set(cardId, fact);
 	}
 	return result;
 }

@@ -9,6 +9,7 @@ import { workItems } from "../../schema/work-items";
 import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
 import { createWorkItem } from "./crud";
+import { resolveDecisionSteward } from "./stewardship";
 
 const orgId = "fictional-org";
 const lead = "11111111-1111-4111-8111-111111111111";
@@ -54,7 +55,7 @@ function fixture(policy?: Partial<Policy>) {
 			createdAt: now,
 			...input,
 		});
-	return { sqlite, create };
+	return { sqlite, db, create };
 }
 
 describe("organization Work stewardship on creation", () => {
@@ -150,5 +151,38 @@ describe("organization Work stewardship on creation", () => {
 				workStewardship: { enabled: true, projectStewards: { invalid: area } },
 			}).success,
 		).toBe(false);
+	});
+});
+
+describe("the designated steward tedi for an ask", () => {
+	it("prefers the project steward, then the lead, then the default tedi", async () => {
+		const { sqlite, db } = fixture({
+			projectStewards: { [projectId]: area },
+			defaultTediId: fallback,
+		});
+		expect((await resolveDecisionSteward(db, { orgId, projectId }))?.id).toBe(
+			area,
+		);
+		expect((await resolveDecisionSteward(db, { orgId }))?.id).toBe(fallback);
+		sqlite.exec(`UPDATE tedis SET status='paused' WHERE id='${area}'`);
+		expect((await resolveDecisionSteward(db, { orgId, projectId }))?.id).toBe(
+			lead,
+		);
+		sqlite.close();
+	});
+
+	it("finds the project through the ask's Work and refuses without a designated tedi", async () => {
+		const { sqlite, db, create } = fixture({ useProjectLead: true });
+		const work = await create({ projectId });
+		expect(
+			await resolveDecisionSteward(db, { orgId, workItemId: work.id }),
+		).toEqual({ id: lead, slug: lead, name: lead });
+		expect(await resolveDecisionSteward(db, { orgId })).toBeNull();
+		sqlite.close();
+		const empty = fixture();
+		expect(
+			await resolveDecisionSteward(empty.db, { orgId, projectId }),
+		).toBeNull();
+		empty.sqlite.close();
 	});
 });

@@ -125,7 +125,7 @@ describe("projectDecisionDeck objective ranking", () => {
 		...(objective ? { objective } : {}),
 	});
 
-	it("puts cards serving the organization's top objective first and keeps the rest in order", () => {
+	it("weighs the objective a card serves: the top goal first, then any goal, then the rest", () => {
 		const grow = {
 			id: "grow",
 			title: "Grow orchard sales",
@@ -158,9 +158,12 @@ describe("projectDecisionDeck objective ranking", () => {
 		const order = [...deck.rows].sort(deck.compare);
 		expect(order.map((row) => row.id)).toEqual([
 			"top-goal",
-			"newest",
 			"other-goal",
+			"newest",
 		]);
-		expect(order[0]).toMatchObject({ objective: grow });
+		expect(order[0]).toMatchObject({
+			objective: grow,
+			priority: { band: "week", reason: "Serves the top goal" },
+		});
 	});
 });

@@ -18,6 +18,8 @@ export function DeckAskStrip({
 		handled?: boolean;
 		expired?: boolean;
 		draftedNotSent: boolean;
+		/** The shared priority; its reason leads the line. */
+		priority?: { reason: string; factor: string; band: string };
 	};
 	/** Shown only when the card has no deadline of its own. */
 	expiresAt?: string | null;
@@ -25,7 +27,13 @@ export function DeckAskStrip({
 	useOsFormattingPreferences();
 	if (!card) return null;
 	const ask = OS_COPY.decisionDeck.ask;
+	// A deadline reason is the due line, in the viewer's own date format.
+	const datedReason =
+		card.priority?.factor === "deadline" || card.priority?.factor === "overdue";
 	const parts = [
+		!card.expired && !card.handled && !datedReason
+			? card.priority?.reason
+			: null,
 		card.expired
 			? ask.expired
 			: card.handled
@@ -44,6 +52,8 @@ export function DeckAskStrip({
 		<span
 			className="fd-deck-ask"
 			data-deck-ask={card.askKind}
+			data-priority-band={card.priority?.band}
+			data-priority-factor={card.priority?.factor}
 			data-overdue={card.overdue && !card.expired && !card.handled}
 		>
 			{parts.join(" · ")}

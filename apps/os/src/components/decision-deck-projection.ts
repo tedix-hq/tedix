@@ -4,7 +4,10 @@ import type { DecisionLearningModel } from "@tedix/api-contract/schemas/decision
 import {
 	rankDeckCard,
 	compareDecisionFreshness,
+	deckCardPriorityInput,
 } from "@tedix/api-contract/utils/deck-projection";
+import { isCriticalDeckCard } from "@tedix/api-contract/utils/deck-curator";
+import { deckPriority } from "@tedix/api-contract/utils/deck-priority";
 import { factoryCardDeadline } from "@tedix/api-contract/utils/card-schedule";
 import { routeFactoryCard } from "@tedix/api-contract/utils/card-review";
 import { deckAsk } from "@tedix/api-contract/utils/deck-ask";
@@ -143,6 +146,7 @@ export function projectDecisionDeck({
 							decision: null,
 							row: undefined,
 							objective: row.objective,
+							workApproval: row,
 							sourceLabel: "Work",
 							costOfWaiting: null,
 							...ask({ kind: "approval" }),
@@ -159,6 +163,7 @@ export function projectDecisionDeck({
 							decision: null,
 							row: undefined,
 							sourceLabel: "Approval",
+							runtimeApproval: approval,
 							costOfWaiting: null,
 							...ask({ kind: "approval", runtimeApproval: approval }),
 						}))
@@ -185,44 +190,51 @@ export function projectDecisionDeck({
 			},
 		),
 	);
-	// Critical detection sees the same card facts as the server projection.
-	const priorityContext = (row: (typeof rows)[number]) =>
-		mode === "decide" || browsing
+	// Critical detection and priority see the same card facts as the server projection.
+	const priorityCard = (row: (typeof rows)[number]) => ({
+		...(mode === "decide" || browsing
 			? {
 					kind: row.kind,
 					label: row.label,
 					decision: row.decision,
 					interaction: row.row,
 					factory: factoryPriority.get(row.id),
+					workApproval: "workApproval" in row ? row.workApproval : undefined,
+					runtimeApproval:
+						"runtimeApproval" in row ? row.runtimeApproval : undefined,
 				}
-			: {};
-	const compare = (a: (typeof rows)[number], b: (typeof rows)[number]) =>
-		compareDecisionFreshness(
-			{
-				...priorityContext(a),
-				dueAt:
-					"dueAt" in a && typeof a.dueAt === "string"
-						? a.dueAt
-						: a.row?.request.dueAt,
-				deadline: a.deadline,
-				requestedAt: a.requestedAt,
-				objective: "objective" in a ? a.objective : undefined,
-				score: learningModel?.config.enabled ? rank(a).score : undefined,
-			},
-			{
-				...priorityContext(b),
-				dueAt:
-					"dueAt" in b && typeof b.dueAt === "string"
-						? b.dueAt
-						: b.row?.request.dueAt,
-				deadline: b.deadline,
-				requestedAt: b.requestedAt,
-				objective: "objective" in b ? b.objective : undefined,
-				score: learningModel?.config.enabled ? rank(b).score : undefined,
-			},
+			: {}),
+		dueAt:
+			"dueAt" in row && typeof row.dueAt === "string"
+				? row.dueAt
+				: row.row?.request.dueAt,
+		deadline: row.deadline,
+		requestedAt: row.requestedAt,
+		objective: "objective" in row ? row.objective : undefined,
+		score: learningModel?.config.enabled ? rank(row).score : undefined,
+	});
+	const ranked = rows.map((row) => {
+		const card = priorityCard(row);
+		return {
+			...row,
+			priority: deckPriority(
+				deckCardPriorityInput(card, isCriticalDeckCard(card)),
+				now,
+				timeZone,
+			),
+		};
+	});
+	const cards = new Map(ranked.map((row) => [row, priorityCard(row)]));
+	const compare = (a: (typeof ranked)[number], b: (typeof ranked)[number]) => {
+		const left = cards.get(a) ?? priorityCard(a);
+		return compareDecisionFreshness(
+			left,
+			cards.get(b) ?? priorityCard(b),
 			now,
 			timeZone,
+			(card) => (card === left ? a.priority : b.priority),
 		);
+	};
 
-	return { rows, rank, compare };
+	return { rows: ranked, rank, compare };
 }

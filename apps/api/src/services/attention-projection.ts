@@ -16,6 +16,7 @@ import {
 	annotateDeckAsk,
 	rankDeckCard,
 	sortByDecisionFreshness,
+	applyDeckPriority,
 	type DeckRoutingReceipt,
 } from "@tedix/api-contract/utils/deck-projection";
 import {
@@ -477,6 +478,8 @@ async function loadConfiguredDeckProjection(
 			}
 		}
 	}
+	// Blocked counts and factory rows arrived after the first pass.
+	applyDeckPriority(cards, now, timeZone);
 	sortByDecisionFreshness(cards, now, timeZone);
 	return {
 		cards,

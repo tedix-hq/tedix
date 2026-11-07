@@ -12,9 +12,14 @@ import type { ApprovalRequest } from "../contracts/tedi-approvals";
 import type { DecisionLearningModel } from "../schemas/decision-learning";
 import { DecisionCardPresentationSchema } from "../schemas/decision-card-presentation";
 import type { DeckCard } from "../schemas/attention";
-import { calendarDay, cardIsDue } from "./card-schedule";
-import { compareFactoryScore } from "./card-priority";
-import { deadlineOverdue, deckAsk } from "./deck-ask";
+import { cardIsDue } from "./card-schedule";
+import { deckAsk } from "./deck-ask";
+import {
+	compareDeckPriority,
+	deckPriority,
+	type DeckPriorityInput,
+} from "./deck-priority";
+import type { DeckPriority } from "../schemas/deck-priority";
 import { credentialCard } from "./card-secrets";
 import { isCommitmentReminder } from "./commitment-reminder";
 import { humanOnlyAskReasons } from "./human-only-ask";
@@ -114,90 +119,118 @@ function rankedNoise(card: { interaction?: DeckCard["interaction"] }) {
 	return Boolean(state && state.status === "open" && state.penalty < 0);
 }
 
-/** The graph's reach score when present, else the direct blocked count. */
-function blockingWeight(card: { blocksCount?: number; blocksScore?: number }) {
-	return card.blocksScore ?? card.blocksCount ?? 0;
+type FreshnessInput = {
+	id?: string;
+	kind?: string;
+	label?: string;
+	dueAt?: string | null;
+	deadline?: string | null;
+	actionable?: boolean;
+	blocksCount?: number;
+	blocksScore?: number;
+	objective?: DeckCard["objective"];
+	handled?: boolean;
+	expired?: boolean;
+	requestedAt?: string;
+	score?: number;
+	priority?: DeckPriority;
+	decision?: DeckCard["decision"];
+	interaction?: DeckCard["interaction"];
+	workApproval?: DeckCard["workApproval"];
+	runtimeApproval?: DeckCard["runtimeApproval"];
+	factory?: { policyCritical?: boolean; score?: number };
+};
+
+function moneyEffect(card: FreshnessInput) {
+	const effects = card.interaction?.request.metadata.protectedEffects;
+	return (
+		Boolean(card.decision?.protectedEffects.includes("money")) ||
+		(Array.isArray(effects) && effects.includes("money"))
+	);
+}
+
+/** The priority inputs a projected card carries, from its ask and its Work. */
+export function deckCardPriorityInput(
+	card: FreshnessInput,
+	critical: boolean,
+): DeckPriorityInput {
+	const work = card.interaction?.sourceWork;
+	const approvalWork = card.workApproval?.workItem;
+	const metadataRisk = card.interaction?.request.metadata.riskLevel;
+	const runtimeRisk = card.runtimeApproval?.payload.riskLevel;
+	return {
+		deadline: card.deadline ?? card.dueAt,
+		workDeadline:
+			work?.deadline ??
+			work?.dueDate ??
+			approvalWork?.deadline ??
+			approvalWork?.dueDate,
+		blocks: Math.max(
+			card.blocksScore ?? 0,
+			card.blocksCount ?? 0,
+			work?.blocksCount ?? 0,
+		),
+		blocksRunning: work?.blocksRunning,
+		costs: moneyEffect(card),
+		riskLevel:
+			work?.riskLevel ??
+			approvalWork?.riskLevel ??
+			(typeof metadataRisk === "string"
+				? metadataRisk
+				: typeof runtimeRisk === "string"
+					? runtimeRisk
+					: null),
+		critical,
+		objective: card.objective,
+		requestedAt: card.requestedAt,
+		factoryScore: card.factory?.score,
+		learnedScore: card.score,
+	};
+}
+
+/** Sets the shared priority on every card; call again after blocked counts change. */
+export function applyDeckPriority<T extends FreshnessInput>(
+	cards: T[],
+	now: Date,
+	timeZone?: string,
+): T[] {
+	for (const card of cards)
+		card.priority = deckPriority(
+			deckCardPriorityInput(card, isCriticalDeckCard(card)),
+			now,
+			timeZone,
+		);
+	return cards;
 }
 
 /**
- * Actionable asks rank by the organization's top objective, blocked Work, then overdue,
- * critical policy, the factory's own score, then due today, the curator's
- * label, ranker score and age.
+ * Settled asks go last; the rest order by band (Today, This week, Whenever),
+ * then the shared priority score. The curator's NOISE label, the learned
+ * score, the deadline and age only break ties.
  */
 export function compareDecisionFreshness(
-	a: {
-		kind?: string;
-		label?: string;
-		dueAt?: string | null;
-		deadline?: string | null;
-		actionable?: boolean;
-		blocksCount?: number;
-		blocksScore?: number;
-		objective?: DeckCard["objective"];
-		handled?: boolean;
-		expired?: boolean;
-		requestedAt?: string;
-		score?: number;
-		decision?: DeckCard["decision"];
-		interaction?: DeckCard["interaction"];
-		factory?: { policyCritical?: boolean; score?: number };
-	},
-	b: {
-		kind?: string;
-		label?: string;
-		dueAt?: string | null;
-		deadline?: string | null;
-		actionable?: boolean;
-		blocksCount?: number;
-		blocksScore?: number;
-		objective?: DeckCard["objective"];
-		handled?: boolean;
-		expired?: boolean;
-		requestedAt?: string;
-		score?: number;
-		decision?: DeckCard["decision"];
-		interaction?: DeckCard["interaction"];
-		factory?: { policyCritical?: boolean; score?: number };
-	},
+	a: FreshnessInput,
+	b: FreshnessInput,
 	now: Date,
 	timeZone?: string,
-	critical: (card: typeof a) => boolean = isCriticalDeckCard,
+	priorityOf: (card: FreshnessInput) => DeckPriority = (card) =>
+		card.priority ??
+		deckPriority(
+			deckCardPriorityInput(card, isCriticalDeckCard(card)),
+			now,
+			timeZone,
+		),
 ) {
 	const due = (value?: string | null) =>
 		value && Number.isFinite(Date.parse(value)) ? Date.parse(value) : Infinity;
-	const aDeadline = a.deadline ?? a.dueAt;
-	const bDeadline = b.deadline ?? b.dueAt;
-	const aDue = due(aDeadline);
-	const bDue = due(bDeadline);
-	const today = calendarDay(now, timeZone);
+	const aDue = due(a.deadline ?? a.dueAt);
+	const bDue = due(b.deadline ?? b.dueAt);
 	// Handled or expired asks wait for retirement at the end, never as overdue.
 	const aSettled = Boolean(a.handled || a.expired || a.actionable === false);
 	const bSettled = Boolean(b.handled || b.expired || b.actionable === false);
-	const aOverdue = !aSettled && deadlineOverdue(aDeadline, now, timeZone);
-	const bOverdue = !bSettled && deadlineOverdue(bDeadline, now, timeZone);
-	const dueToday = (value: string | null | undefined, timestamp: number) =>
-		Boolean(value) &&
-		Number.isFinite(timestamp) &&
-		(value!.length === 10
-			? value === today
-			: calendarDay(new Date(timestamp), timeZone) === today);
 	return (
 		Number(aSettled) - Number(bSettled) ||
-		// Only settledness ranks above blocks reach, so serving the top
-		// objective slots between them: it beats blocks, never settledness.
-		(!aSettled && !bSettled
-			? Number(Boolean(b.objective?.top)) - Number(Boolean(a.objective?.top))
-			: 0) ||
-		(!aSettled && !bSettled ? blockingWeight(b) - blockingWeight(a) : 0) ||
-		Number(bOverdue) - Number(aOverdue) ||
-		(aOverdue && bOverdue ? aDue - bDue : 0) ||
-		Number(critical(b)) - Number(critical(a)) ||
-		Number(b.kind === "approval") - Number(a.kind === "approval") ||
-		compareFactoryScore(a.factory, b.factory) ||
-		Number(dueToday(bDeadline, bDue)) - Number(dueToday(aDeadline, aDue)) ||
-		(dueToday(aDeadline, aDue) && dueToday(bDeadline, bDue)
-			? aDue - bDue
-			: 0) ||
+		compareDeckPriority(priorityOf(a), priorityOf(b)) ||
 		// Then the ranker's label: a card it called NOISE follows the rest.
 		Number(rankedNoise(a)) - Number(rankedNoise(b)) ||
 		(b.score ?? 0) - (a.score ?? 0) ||
@@ -489,27 +522,32 @@ export function projectDeckCards(input: {
 		timeZone,
 		staleDraftHours: input.staleDraftHours,
 	});
+	applyDeckPriority(cards, now, timeZone);
 	return sortByDecisionFreshness(cards, now, timeZone);
 }
 
 type FreshnessCard = Parameters<typeof compareDecisionFreshness>[0];
 
-/** Sorts in place, checking each card's critical policy text once, not per comparison. */
+/** Sorts in place, computing each card's critical policy and priority once, not per comparison. */
 export function sortByDecisionFreshness<T extends FreshnessCard>(
 	cards: T[],
 	now: Date,
 	timeZone?: string,
 ): T[] {
-	const critical = new Map<FreshnessCard, boolean>();
-	const isCritical = (card: FreshnessCard) => {
-		let value = critical.get(card);
-		if (value === undefined) {
-			value = isCriticalDeckCard(card);
-			critical.set(card, value);
-		}
-		return value;
-	};
+	const priorities = new Map<FreshnessCard, DeckPriority>();
+	for (const card of cards)
+		priorities.set(
+			card,
+			card.priority ??
+				deckPriority(
+					deckCardPriorityInput(card, isCriticalDeckCard(card)),
+					now,
+					timeZone,
+				),
+		);
 	return cards.sort((a, b) =>
-		compareDecisionFreshness(a, b, now, timeZone, isCritical),
+		compareDecisionFreshness(a, b, now, timeZone, (card) =>
+			priorities.get(card as T)!,
+		),
 	);
 }
