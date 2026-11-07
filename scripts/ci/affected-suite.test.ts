@@ -288,6 +288,61 @@ test("diff includes all uncertified commits, ignores current run and newer pendi
 	).toBeNull();
 });
 
+test("verify inherits executed test lanes, never a policy gate or a skipped verify", async () => {
+	const head = "a".repeat(40),
+		base = "b".repeat(40);
+	for (const jobs of [
+		[{ name: "Main CI", conclusion: "success" }],
+		[
+			{ name: "Main verify", conclusion: "success" },
+			{ name: "repository (scripts)", conclusion: "skipped" },
+			{ name: "Workspace packages/db", conclusion: "skipped" },
+		],
+		[
+			{ name: "Main verify", conclusion: "success" },
+			{ name: "repository (scripts)", conclusion: "success" },
+			{ name: "Workspace packages/db", conclusion: "success" },
+		],
+	]) {
+		const paths: string[] = [];
+		const files = await certificationFiles({
+			repository: "example/product",
+			sha: head,
+			runId: "9",
+			lane: "verify",
+			request: async (path: string) => {
+				paths.push(path);
+				return path.includes("/jobs?")
+					? { jobs }
+					: {
+							workflow_runs: [
+								{
+									id: 8,
+									head_sha: base,
+									status: "completed",
+									conclusion: "success",
+									head_branch: "main",
+									head_repository: { full_name: "example/product" },
+									run_attempt: 1,
+								},
+							],
+						};
+			},
+			git: (args: string[]) =>
+				args[0] === "rev-list"
+					? `${head}\n${base}\n`
+					: "apps/api/src/broken.ts\0",
+		});
+		expect(paths[0]).toContain("/workflows/main-verify.yml/runs?");
+		expect(files).toEqual(
+			jobs.every((job) => job.conclusion === "success") &&
+				jobs[0]?.name === "Main verify"
+				? ["apps/api/src/broken.ts"]
+				: null,
+		);
+	}
+});
+
 test("certification history is paginated and only a main ancestor with a successful aggregate is inherited", async () => {
 	const head = "a".repeat(40),
 		base = "c".repeat(40),

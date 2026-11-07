@@ -5,11 +5,11 @@ import { defineConfig, lazyPlugins } from "vite-plus";
 export default defineConfig({
 	plugins: lazyPlugins(() => [
 		cloudflare({
-			inspectorPort: 19246,
+			inspectorPort: 19247,
 			persistState: { path: path.resolve(__dirname, "../../.wrangler/state") },
 		}),
 	]),
 	server: {
-		port: 3018,
+		port: 3019,
 	},
 });

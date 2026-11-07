@@ -188,8 +188,8 @@ describe("migrate-workspaces", () => {
 			expect(
 				report.reconcile.workspaces.every((w) => w.jurisdiction === "eu"),
 			).toBe(true);
-			// Until the object's migration chain creates the ported tables, rehearsal shapes them from the snapshot and says so.
-			expect(report.fallbackTables).toContain("os_outputs");
+			// Output and memory tables now come from the object's migration chain.
+			expect(report.fallbackTables).not.toContain("os_outputs");
 			expect(report.fallbackTables).not.toContain("memory_facts");
 			const bundle = await new LocalBundleStore(join(workDir, "bundles")).read({
 				organizationId: ORG,
