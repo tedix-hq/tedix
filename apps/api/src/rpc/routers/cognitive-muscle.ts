@@ -21,7 +21,7 @@ import {
 } from "@tedix/db/queries/skill-lifecycle";
 import { recordSkillUsageEvent } from "@tedix/db/queries/skill-usage";
 import { assertSkillPromotionPremortem } from "../../services/decision-hygiene";
-import { AUTHZ, createError, ErrorCodes } from "../orpc";
+import { AUTHZ, createError, createErrorWithData, ErrorCodes } from "../orpc";
 import {
 	appendRevisionReasoning,
 	authedMuscle,
@@ -179,7 +179,7 @@ export const muscleCrystallize = authedMuscle.crystallize
 			return { entry };
 		} catch (error) {
 			if (error instanceof SkillLifecycleTransitionError) {
-				throw createError(ErrorCodes.BAD_REQUEST, error.message, {
+				throw createErrorWithData(ErrorCodes.BAD_REQUEST, error.message, {
 					code: error.code,
 					...error.details,
 				});
