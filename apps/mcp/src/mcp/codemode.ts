@@ -153,6 +153,7 @@ function createExecutionRefs(): CodeModeExecutionRefs {
 		discoverCalls: 0,
 		discoverParameterRequests: 0,
 		toolReceipts: [],
+		trust: { untrusted: new Set(), trusted: new Set() },
 		skillWorkflowRunIds: new Set(),
 		readObservations: [],
 		collectionReads: [],
@@ -682,6 +683,8 @@ export async function registerCodeModeTools(
 				executionRefs.discoverParameterRequests = 0;
 				executionRefs.failureBudget = new IdenticalFailureBudget();
 				executionRefs.toolReceipts = [];
+				executionRefs.trust.untrusted.clear();
+				executionRefs.trust.trusted.clear();
 				executionRefs.skillWorkflowRunIds.clear();
 				executionRefs.readObservations = [];
 				executionRefs.collectionReads = [];
@@ -892,7 +895,15 @@ export async function registerCodeModeTools(
 					...(resultIdentity ? { resultIdentity } : {}),
 					...(resultProjection ? { resultProjection } : {}),
 					...(executionReceipt ? { completionEvidence: executionReceipt } : {}),
-					...codeModeTrustSummary(executionRefs.toolReceipts),
+					...(executionRefs.trust.untrusted.size ||
+					executionRefs.trust.trusted.size
+						? {
+								trust: {
+									untrusted: [...executionRefs.trust.untrusted],
+									trusted: [...executionRefs.trust.trusted],
+								},
+							}
+						: {}),
 					...(executionRefs.toolReceipts.some(
 						(receipt) => receipt.actionReceipt,
 					)
@@ -1005,6 +1016,8 @@ export async function registerCodeModeTools(
 					executionRefs.discoverCalls = 0;
 					executionRefs.discoverParameterRequests = 0;
 					executionRefs.toolReceipts = [];
+					executionRefs.trust.untrusted.clear();
+					executionRefs.trust.trusted.clear();
 					executionRefs.readObservations = [];
 					executionRefs.collectionReads = [];
 					executionRefs.skillWorkflowRunIds.clear();
@@ -1021,26 +1034,4 @@ export async function registerCodeModeTools(
 	);
 
 	return true;
-}
-
-/**
- * Which inner calls returned third-party content. The gateway's `_meta` trust
- * label never reaches a program's hand-built return value, so the outer result
- * names the calls whose output is data to read, never instructions to follow.
- */
-function codeModeTrustSummary(
-	receipts: readonly { operation: string; trust?: "trusted" | "untrusted" }[],
-): { trust?: { untrusted: string[]; trusted: string[] } } {
-	const labelled = receipts.filter((receipt) => receipt.trust);
-	if (labelled.length === 0) return {};
-	const names = (integrity: "trusted" | "untrusted") => [
-		...new Set(
-			labelled
-				.filter((receipt) => receipt.trust === integrity)
-				.map((receipt) => receipt.operation),
-		),
-	];
-	return {
-		trust: { untrusted: names("untrusted"), trusted: names("trusted") },
-	};
 }
