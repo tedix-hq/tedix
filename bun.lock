@@ -256,6 +256,7 @@
         "@json-render/yaml": "^0.21.3",
         "@modelcontextprotocol/client": "catalog:",
         "@modelcontextprotocol/server": "catalog:",
+        "@tedix/agent-governance": "workspace:*",
         "@tedix/api-client": "workspace:*",
         "@tedix/api-contract": "workspace:*",
         "@tedix/auth": "workspace:*",
@@ -266,7 +267,6 @@
         "@tedix/tedi-codemode-core": "workspace:*",
         "@tedix/tenant-directory": "workspace:*",
         "@tedix/worker-kit": "workspace:*",
-        "@tedix/workspace-adapters": "workspace:*",
         "@x402/core": "catalog:",
         "@x402/evm": "catalog:",
         "acorn": "8.19.0",
@@ -587,6 +587,16 @@
         "vite": "catalog:",
         "vite-plus": "catalog:",
         "vitest": "catalog:",
+      },
+    },
+    "packages/agent-governance": {
+      "name": "@tedix/agent-governance",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@tedix/tsconfig": "workspace:*",
+        "typescript": "catalog:",
+        "vite": "catalog:",
+        "vite-plus": "catalog:",
       },
     },
     "packages/api-client": {
@@ -998,16 +1008,6 @@
       },
       "peerDependencies": {
         "ai": "^7",
-      },
-    },
-    "packages/workspace-adapters": {
-      "name": "@tedix/workspace-adapters",
-      "version": "0.1.0",
-      "devDependencies": {
-        "@tedix/tsconfig": "workspace:*",
-        "typescript": "catalog:",
-        "vite": "catalog:",
-        "vite-plus": "catalog:",
       },
     },
   },
@@ -2306,6 +2306,8 @@
 
     "@tanstack/virtual-file-routes": ["@tanstack/virtual-file-routes@1.162.0", "", {}, "sha512-uhOeFyxLcU41HzvrxsGpiWdcMbScY1EDgbZ5K7DVRMYInbLYWAC0EA/kx9wXAoSM8q82bUG2hRl8+EAjE6XAbA=="],
 
+    "@tedix/agent-governance": ["@tedix/agent-governance@workspace:packages/agent-governance"],
+
     "@tedix/api": ["@tedix/api@workspace:apps/api"],
 
     "@tedix/api-client": ["@tedix/api-client@workspace:packages/api-client"],
@@ -2389,8 +2391,6 @@
     "@tedix/worker-kit": ["@tedix/worker-kit@workspace:packages/worker-kit"],
 
     "@tedix/workers-ai": ["@tedix/workers-ai@workspace:packages/workers-ai"],
-
-    "@tedix/workspace-adapters": ["@tedix/workspace-adapters@workspace:packages/workspace-adapters"],
 
     "@testing-library/dom": ["@testing-library/dom@10.4.2", "", { "dependencies": { "@babel/code-frame": "^7.10.4", "@babel/runtime": "^7.12.5", "@types/aria-query": "^5.0.1", "aria-query": "5.3.0", "dom-accessibility-api": "^0.5.9", "lz-string": "^1.5.0", "picocolors": "1.1.1", "pretty-format": "^27.0.2" } }, "sha512-yzr2S9HyAIdhz2/6qHgbs665Q7PKVcDF05vsOlHPxG1mo36gKVesdYVeDLnXgfjJ03CrKRk08knc6+E/9m8v2Q=="],
 

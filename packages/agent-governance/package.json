@@ -1,8 +1,8 @@
 {
-	"name": "@tedix/workspace-adapters",
+	"name": "@tedix/agent-governance",
 	"version": "0.1.0",
-	"private": true,
-	"description": "Runtime-neutral memory, accountability and compliance contracts shared by workspace objects and the MCP gateway.",
+	"private": false,
+	"description": "Runtime-neutral memory, accountability and compliance contracts for any agent runtime that calls tools or data.",
 	"license": "Apache-2.0",
 	"type": "module",
 	"exports": {

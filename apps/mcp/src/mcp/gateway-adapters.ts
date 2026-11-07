@@ -20,7 +20,7 @@ import type {
 import {
 	evaluateCall,
 	type ApprovalState,
-} from "@tedix/workspace-adapters/compliance";
+} from "@tedix/agent-governance/compliance";
 import type {
 	AccountabilityAdapter,
 	Actor,
@@ -31,12 +31,12 @@ import type {
 	ComplianceAdapter,
 	ComplianceDecision,
 	LedgerQuery,
-} from "@tedix/workspace-adapters/types";
-import { hashValue } from "@tedix/workspace-adapters/hash";
+} from "@tedix/agent-governance/types";
+import { hashValue } from "@tedix/agent-governance/hash";
 import {
 	CallRefusedError,
 	guardedCall,
-} from "@tedix/workspace-adapters/wrap-binding";
+} from "@tedix/agent-governance/wrap-binding";
 import {
 	enforceExpectedAnnotations,
 	requireDestructiveToolApproval,

@@ -1,7 +1,7 @@
 /**
  * Enforce check -> call -> record around every async method of a binding.
- * A workspace object binding and an MCP gateway tool wrapped this way make
- * identical decisions and identical ledger rows for the same call.
+ * Any two runtimes that wrap the same call this way make identical
+ * decisions and identical ledger rows for it.
  */
 import { hashValue } from "./hash";
 import type {

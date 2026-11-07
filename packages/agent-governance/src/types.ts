@@ -1,13 +1,14 @@
 /**
- * Shared contracts for a workspace that owns its data and runs its own
- * agent loop. Every binding call (a workspace object method or an MCP
- * gateway tool) passes the same three adapters, so one call produces one
- * decision and one ledger row whichever path carried it.
+ * Contracts for any agent runtime that calls tools or data. Every call
+ * passes the same three adapters (memory, accountability, compliance), so
+ * one call produces one decision and one ledger row whichever runtime
+ * carried it. Tedix's workspace object and its MCP gateway are two
+ * consumers; neither defines the contract.
  *
- * This module is runtime-neutral: no Durable Object, D1 or Worker imports.
- * The vocabulary reuses what the gateway already audits
- * (`riskTier`, `blastRadius`, `gate`, `disposition`) and what delegation
- * dispatch already decides (`needs_approval`).
+ * This package is runtime-neutral: plain TypeScript with no platform,
+ * database or application imports. The vocabulary (`riskTier`,
+ * `blastRadius`, `gate`, `disposition`, `needs_approval`) is the one the
+ * consumers already audit and decide with.
  */
 
 /** Operational enforcement tier of a tool or binding method. */
@@ -47,16 +48,21 @@ export type ComplianceVerdict = "allow" | "needs_approval" | "deny";
 
 /** Who performed or requested an action. */
 export interface Actor {
-	/** Stable id of the user, tedi, service or agent session. */
+	/** Stable id of the person, agent, service or session acting. */
 	id: string;
-	kind: "user" | "tedi" | "service" | "agent" | "system";
+	/** Open union: runtimes may add their own kinds (Tedix uses `tedi`). */
+	kind: "user" | "agent" | "service" | "system" | (string & {});
 	/** Organization the actor acted in. */
 	organizationId?: string;
 }
 
-/** Where a value or action came from: the surface and request that carried it. */
+/** Where a value or action came from: the enforcement point and request that carried it. */
 export interface Source {
-	/** `workspace_object`, `mcp_gateway`, `migration`, a run id, ... */
+	/**
+	 * Free string naming the enforcement point. Examples: `mcp_gateway`,
+	 * `mcp_codemode`, `mcp_widget`, `workspace_object`, `migration`,
+	 * `cli`, `cron`.
+	 */
 	surface: string;
 	/** Request, run or trace id for correlation. */
 	traceId?: string;
@@ -263,7 +269,7 @@ export interface MemoryAdapter {
 	): Promise<MemoryRevision>;
 }
 
-export interface WorkspaceAdapters {
+export interface GovernanceAdapters {
 	memory: MemoryAdapter;
 	accountability: AccountabilityAdapter;
 	compliance: ComplianceAdapter;
