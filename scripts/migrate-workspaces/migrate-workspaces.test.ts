@@ -175,8 +175,8 @@ describe("migrate-workspaces", () => {
 				expect(w.reconcileMs).toBeGreaterThan(0);
 			}
 			const a = report.workspaces.find((w) => w.workspaceId === WS_A)!;
-			// outputs 1 + revisions 2 + resource 1 + conversation 1 + run 1 + events 3 (one only in the log partition, one in both) + tool result 1 + artifact 1 + memory 4
-			expect(a.rows).toBe(15);
+			// outputs 1 + revisions 2 + resource 1 + conversation 1 + run 1 + events 3 (one only in the log partition, one in both) + tool result 1 + artifact 1 + memory 4 + the workspace's own directory row
+			expect(a.rows).toBe(16);
 			const totals = Object.fromEntries(
 				report.reconcile.totals.map((t) => [t.table, t]),
 			);
@@ -305,10 +305,10 @@ describe("migrate-workspaces", () => {
 			});
 			const first = await importAll(bundles, stores);
 			const second = await importAll(bundles, stores);
-			expect(first.map((r) => r.imported)).toEqual([15, 2]);
+			expect(first.map((r) => r.imported)).toEqual([16, 3]);
 			expect(second.map((r) => [r.imported, r.duplicates])).toEqual([
-				[0, 15],
-				[0, 2],
+				[0, 16],
+				[0, 3],
 			]);
 			expect((await reconcileAll(bundles, stores, { snapshot })).ok).toBe(true);
 			expect(batchIdFor(WS_A, "os_outputs", 0)).toBe(
@@ -378,6 +378,13 @@ describe("migrate-workspaces", () => {
 			expect(
 				report.findings.filter((f) => f.kind === "columns-differ"),
 			).toEqual([]);
+			// Every mapped table the object's chain does not create yet is a finding; the rest match.
+			const missing = WORKSPACE_TABLES.map((m) => m.table).filter(
+				(t) => !report.objectTables.includes(t),
+			);
+			expect(report.findings.map((f) => f.table).sort()).toEqual(
+				[...missing].sort(),
+			);
 			expect(report.checked.map((c) => c.table)).toContain("os_outputs");
 			expect(report.checked.map((c) => c.table)).toContain("memory_facts");
 			object.exec("DROP TABLE os_outputs");

@@ -64,6 +64,15 @@ const CONVERSATION_IN_ANY_WORKSPACE = "conversation_id IN (:anyConversations)";
 
 export const WORKSPACE_TABLES: readonly TableMapping[] = [
 	{
+		// The workspace's own directory row; the core keeps its copy for routing.
+		table: "os_workspaces",
+		domain: "outputs",
+		primaryKey: ["id"],
+		where: "organization_id = :org AND id = :ws",
+		moves: "1 = 1",
+		stores: ["main"],
+	},
+	{
 		table: "os_outputs",
 		domain: "outputs",
 		primaryKey: ["id"],
@@ -197,10 +206,6 @@ export const TABLES_THAT_STAY: ReadonlyArray<{
 	table: string;
 	reason: string;
 }> = [
-	{
-		table: "os_workspaces",
-		reason: "the workspace directory the core routes by",
-	},
 	{
 		table: "skill_runs",
 		reason:

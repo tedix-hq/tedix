@@ -183,9 +183,41 @@ export async function main(
 				snapshot.close();
 			}
 		}
+		case "schema-check": {
+			const snapshot = openSnapshot(flags);
+			if (!snapshot) throw new Error("--snapshot is required");
+			try {
+				const report = checkSchema(snapshot);
+				out(renderSchemaCheck(report));
+				if (reportPath)
+					writeFileSync(reportPath, JSON.stringify(report, null, "\t"));
+				return report.ok ? 0 : 1;
+			} finally {
+				snapshot.close();
+			}
+		}
+		case "assignments": {
+			const snapshot = openSnapshot(flags);
+			if (!snapshot) throw new Error("--snapshot is required");
+			try {
+				const proposal = proposeAssignments(snapshot);
+				writeFileSync(
+					required(flags, "out"),
+					JSON.stringify(proposal.assignments, null, "\t"),
+				);
+				out(
+					`proposed homes for ${Object.keys(proposal.assignments).length} organizations`,
+				);
+				for (const org of proposal.withoutWorkspace)
+					out(`no workspace to place rows of organization ${org}`);
+				return proposal.withoutWorkspace.length ? 1 : 0;
+			} finally {
+				snapshot.close();
+			}
+		}
 		default:
 			out(
-				"usage: cli.ts export|import|reconcile|rehearse [flags]; see the file header",
+				"usage: cli.ts export|import|reconcile|rehearse|schema-check|assignments [flags]; see the file header",
 			);
 			return 2;
 	}
