@@ -1682,6 +1682,7 @@ export default {
 			url.hostname,
 			url,
 			isServiceBinding(request.headers),
+			env,
 		);
 		if (!slug) {
 			return new Response(

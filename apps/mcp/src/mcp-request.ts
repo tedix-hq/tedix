@@ -148,6 +148,7 @@ import {
 	modernDiscoverInstructions,
 } from "./codemode-fast-paths";
 import { enforceMcpAccess, extractMcpToolCallName } from "./mcp-access";
+import { platformDomain } from "@tedix/worker-kit/platform-hosts";
 
 const log = createMcpLogger("mcp.router");
 
@@ -256,7 +257,7 @@ export async function handleMcpRequest(
 		// and the exact Connect resource audience were already verified at the edge.
 		const access = await enforceMcpAccess({
 			request: scopedRequest,
-			hostname: "connect.mcp.tedix.dev",
+			hostname: `connect.mcp.${platformDomain(env)}`,
 			resolvedApp: gateway,
 			env,
 			oauthJwtPayload: null,

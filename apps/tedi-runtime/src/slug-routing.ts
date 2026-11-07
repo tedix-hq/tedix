@@ -4,9 +4,10 @@
  * The runtime serves one tedi per request and must resolve which tedi from the
  * incoming request. The HOSTNAME is the authoritative source: public ingress
  * arrives at `{slug}.tedi.{platformDomain}` and the slug is parsed from it.
+ * The platform domains come from `PLATFORM_DOMAINS`; unset keeps Tedix Cloud's.
  */
 
-export const PLATFORM_DOMAINS = ["tedix.dev", "tedix.tech"];
+import { platformDomains } from "@tedix/worker-kit/platform-hosts";
 
 /**
  * Parse `{slug}.tedi.{platformDomain}` → slug. Returns null if the hostname
@@ -30,9 +31,10 @@ export function resolveSlugFromHost(
 	hostname: string,
 	url: URL,
 	allowQueryFallback: boolean,
+	env: { PLATFORM_DOMAINS?: string } = {},
 ): string | null {
 	const host = hostname.toLowerCase();
-	for (const domain of PLATFORM_DOMAINS) {
+	for (const domain of platformDomains(env)) {
 		const suffix = `.tedi.${domain}`;
 		if (host.endsWith(suffix)) {
 			const prefix = host.slice(0, -suffix.length);

@@ -69,11 +69,34 @@ function canonicalProvision(input: Record<string, unknown> = {}) {
 	};
 }
 
-assert.equal(platformDomainForTediEnv("production"), "tedix.dev");
+assert.equal(
+	platformDomainForTediEnv({ ENVIRONMENT: "production" }),
+	"tedix.dev",
+);
+assert.equal(
+	platformDomainForTediEnv({
+		ENVIRONMENT: "production",
+		PLATFORM_DOMAIN: "example.com",
+	}),
+	"example.com",
+);
 // staging is retired: any non-production env resolves to the dev domain.
-assert.equal(platformDomainForTediEnv("staging"), "tedix.tech");
-assert.equal(platformDomainForTediEnv("development"), "tedix.tech");
-assert.equal(tediHostForSlug("cto", "production"), "cto.tedi.tedix.dev");
+assert.equal(
+	platformDomainForTediEnv({ ENVIRONMENT: "staging" }),
+	"tedix.tech",
+);
+assert.equal(
+	platformDomainForTediEnv({ ENVIRONMENT: "development" }),
+	"tedix.tech",
+);
+assert.equal(
+	tediHostForSlug("cto", { ENVIRONMENT: "production" }),
+	"cto.tedi.tedix.dev",
+);
+assert.equal(
+	tediHostForSlug("cto", { TEDI_HOST_SUFFIX: "agents.example.com" }),
+	"cto.agents.example.com",
+);
 
 let seenRequest: Request | undefined;
 const env = {
