@@ -26,7 +26,9 @@ export async function enforceConnectionConsumerGrants(
 	if (input.personalUserId && !ownerUserId)
 		throw createError(
 			ErrorCodes.FORBIDDEN,
-			"Personal connection owner is not active in this organization",
+			input.connectionInstanceId
+				? "This personal account belongs to another person, or its owner is no longer an active member of this organization"
+				: "Personal connection owner is not active in this organization",
 		);
 	const readPolicy = (instanceId?: string) =>
 		ownerUserId
