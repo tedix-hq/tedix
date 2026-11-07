@@ -279,6 +279,11 @@
 			"licenseClass": "apache-ecosystem"
 		},
 		{
+			"path": "packages/agent-governance-postgres",
+			"decision": "public-ecosystem",
+			"licenseClass": "apache-ecosystem"
+		},
+		{
 			"path": "packages/agent-runtime",
 			"decision": "public-ecosystem",
 			"licenseClass": "apache-ecosystem"

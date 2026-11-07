@@ -6,6 +6,7 @@
 	"license": "Apache-2.0",
 	"type": "module",
 	"exports": {
+		"./conformance": "./src/conformance.ts",
 		"./types": "./src/types.ts",
 		"./compliance": "./src/compliance.ts",
 		"./hash": "./src/hash.ts",
