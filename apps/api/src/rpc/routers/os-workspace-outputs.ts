@@ -63,6 +63,10 @@ import {
 } from "../../services/os-derived-resource-access";
 import { requireOrgId } from "../org-scope";
 import {
+	outputMetadataChange,
+	publishWorkspaceChangeSafely,
+} from "../../services/workspace-feed";
+import {
 	AUTHZ,
 	hasTedisReadAuthorization,
 	type BaseContext,
@@ -207,6 +211,7 @@ const outputsLibrary = readOs.outputs.library.handler(
 			workspaceId: input.workspaceId,
 			kind: input.kind,
 			status: input.status,
+			search: input.search,
 			limit: input.limit,
 			canReadRevision: (revision) => canReadDerivedRevision(context, revision),
 		});
@@ -421,6 +426,24 @@ const outputsGet = readOs.outputs.get.handler(async ({ input, context }) => {
 	};
 });
 
+/** Publish a metadata-only change (rename, move, archive, restore) for the current revision. */
+async function publishOutputMetadataChange(
+	context: BaseContext,
+	row: OsOutputRow,
+): Promise<void> {
+	const db = queryDb(context);
+	const [current] = await listOsOutputRevisions(
+		db,
+		{ organizationId: row.organizationId, outputId: row.id },
+		{ limit: 1 },
+	);
+	if (!current) return;
+	await publishWorkspaceChangeSafely(
+		{ db, queue: context.env.AUTOMATION_EVENTS },
+		outputMetadataChange(row, current, resolveCreator(context)),
+	);
+}
+
 const outputsRename = authorOs.outputs.rename.handler(
 	async ({ input, context }) => {
 		const output = await requireOutput(context, input.outputId);
@@ -430,6 +453,7 @@ const outputsRename = authorOs.outputs.rename.handler(
 			{ title: input.title },
 		);
 		if (!row) throw createError(ErrorCodes.NOT_FOUND, "OS output not found");
+		await publishOutputMetadataChange(context, row);
 		return { output: mapOsOutputRow(row) };
 	},
 );
@@ -447,6 +471,7 @@ const outputsMove = authorOs.outputs.move.handler(
 			{ workspaceId: target.id },
 		);
 		if (!row) throw createError(ErrorCodes.NOT_FOUND, "OS output not found");
+		await publishOutputMetadataChange(context, row);
 		return {
 			output: mapOsOutputRow(row),
 			previousWorkspaceId: output.workspaceId,
@@ -525,6 +550,7 @@ const outputsArchive = authorOs.outputs.archive.handler(
 		if (!row) {
 			throw createError(ErrorCodes.NOT_FOUND, "OS output not found");
 		}
+		await publishOutputMetadataChange(context, row);
 		return { output: mapOsOutputRow(row) };
 	},
 );
@@ -541,6 +567,7 @@ const outputsRestore = authorOs.outputs.restore.handler(
 		if (!row) {
 			throw createError(ErrorCodes.NOT_FOUND, "OS output not found");
 		}
+		await publishOutputMetadataChange(context, row);
 		return { output: mapOsOutputRow(row) };
 	},
 );

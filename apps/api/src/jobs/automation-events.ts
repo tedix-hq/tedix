@@ -127,6 +127,16 @@ export async function handleAutomationEventMessage(
 			await import("../services/workspace-summaries");
 		return handleWorkspaceSummaryMessage(env, body);
 	}
+	if (
+		body &&
+		typeof body === "object" &&
+		"kind" in body &&
+		body.kind === "workspace_change"
+	) {
+		const { handleWorkspaceChangeMessage } =
+			await import("../services/workspace-feed");
+		return handleWorkspaceChangeMessage(env, body);
+	}
 	const parsed = AutomationEventSchema.safeParse(body);
 	if (!parsed.success) {
 		console.warn(

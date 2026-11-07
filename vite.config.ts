@@ -86,6 +86,9 @@ export default defineConfig({
 					"apps/tedi/**",
 					"apps/tedi-runtime/**",
 					"packages/db/**",
+					// The workspace change feed applies workspace events to the core
+					// projections; it is the reviewed owner of those writes.
+					"packages/workspace-feed/**",
 				],
 				rules: {
 					"no-restricted-imports": [

@@ -13,6 +13,10 @@ import {
 	BlueprintApplyReceiptSchema,
 } from "../schemas/blueprint-provisioning";
 import { JsonValueSchema } from "../schemas/common";
+import {
+	WorkspaceActivityItemSchema,
+	WorkspaceChangeKindSchema,
+} from "../schemas/workspace-feed";
 import { ExecutionRequirementSchema } from "../schemas/execution-evidence";
 import {
 	AppRuntimeCodeSchema,
@@ -333,6 +337,42 @@ export const osWorkspacesContract = oc
 						items: z.array(OsWorkspaceSchema),
 						/** True when more rows exist beyond `limit`. */
 						truncated: z.boolean(),
+					}),
+				),
+			activity: oc
+				.route({
+					method: "GET",
+					path: "/workspace-activity",
+					summary: "List recent changes across workspaces",
+					description:
+						"Recent writes inside workspaces (outputs, runs, artifacts, memory, chat) as the core projection holds them, newest first. Reads the projection only; no workspace is contacted.",
+				})
+				.input(
+					z.object({
+						workspaceId: z
+							.string()
+							.uuid()
+							.optional()
+							.describe("Only changes inside this workspace"),
+						kinds: z
+							.array(WorkspaceChangeKindSchema)
+							.max(5)
+							.optional()
+							.describe("Only these change kinds; omitted returns every kind"),
+						limit: listLimitSchema,
+						before: z
+							.string()
+							.optional()
+							.describe(
+								"Keyset cursor from the previous page's `next`; omitted starts at the newest change",
+							),
+					}),
+				)
+				.output(
+					z.object({
+						items: z.array(WorkspaceActivityItemSchema),
+						/** Cursor for the next page; null when this page is the last. */
+						next: z.string().nullable(),
 					}),
 				),
 			create: oc
@@ -1215,6 +1255,14 @@ export const osWorkspacesContract = oc
 						status: OsOutputStatusSchema.optional().describe(
 							"Optional output lifecycle filter; omitted returns active and archived outputs",
 						),
+						search: z
+							.string()
+							.trim()
+							.max(200)
+							.optional()
+							.describe(
+								"Case-insensitive match on the output title and the indexed excerpt of its current revision",
+							),
 						limit: listLimitSchema,
 					}),
 				)

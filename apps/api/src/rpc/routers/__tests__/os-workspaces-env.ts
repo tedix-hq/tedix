@@ -48,6 +48,13 @@ import {
 	osWorkspaceSummaries,
 } from "@tedix/db/schema/os-workspaces";
 import { userConfigs } from "@tedix/db/schema/user-configs";
+import {
+	workspaceActivity,
+	workspaceFeedCursors,
+	workspaceFeedLedger,
+	workspaceOutputIndex,
+	workspaceWorkLinks,
+} from "@tedix/db/schema/workspace-feed";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 // The same digest the export path records, so a lineage assertion compares
@@ -93,6 +100,11 @@ export function createEnv(): CloudflareEnv {
 			skillRunArtifacts,
 			userConfigs,
 			auditEvents,
+			workspaceFeedLedger,
+			workspaceFeedCursors,
+			workspaceActivity,
+			workspaceOutputIndex,
+			workspaceWorkLinks,
 		),
 	);
 	sqlite.exec(`
