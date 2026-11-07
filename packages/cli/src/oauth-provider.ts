@@ -1004,13 +1004,13 @@ export async function refreshStoredSession(
 	let httpStatus: number | undefined;
 	let oauthError: string | undefined;
 	let responsePreview: string | undefined;
-	let retryableResponse = false;
+	let unconfirmedResponse = false;
 	let terminalResponse = false;
 	let failure:
 		| "timeout"
 		| "connection-not-opened"
 		| "exchange-error"
-		| "retryable-response"
+		| "unconfirmed-response"
 		| "oauth-error"
 		| undefined;
 	let expectedCredential: WorkspaceCredential | undefined;
@@ -1140,9 +1140,10 @@ export async function refreshStoredSession(
 					body.get("grant_type") === "refresh_token"
 				) {
 					httpStatus = response.status;
-					retryableResponse = response.status >= 500 || response.status === 429;
+					unconfirmedResponse =
+						response.status >= 500 || response.status === 429;
 					// Inspect before the SDK turns a non-OAuth reply into server_error.
-					// A complete error response is different from a lost rotation reply.
+					// An HTTP failure does not prove that the issuer left the token unused.
 					const raw = await response.clone().text();
 					let parsed: unknown;
 					try {
@@ -1163,15 +1164,15 @@ export async function refreshStoredSession(
 						"errorCode" in parsed &&
 						parsed.errorCode === "E064006";
 					terminalResponse =
-						!retryableResponse &&
+						!unconfirmedResponse &&
 						response.status >= 400 &&
 						response.status < 500 &&
 						(!!oauthError || !!invalidatedFamily);
 					const tokenResponse =
 						parsed && typeof parsed === "object" && "access_token" in parsed;
-					retryableResponse ||=
+					unconfirmedResponse ||=
 						!terminalResponse && !oauthError && !tokenResponse;
-					if (!oauthError && (!response.ok || retryableResponse)) {
+					if (!oauthError && (!response.ok || unconfirmedResponse)) {
 						const secrets = [
 							refreshToken,
 							tokens?.access_token ?? "",
@@ -1188,8 +1189,8 @@ export async function refreshStoredSession(
 							{ stream: true },
 						);
 					}
-					if (retryableResponse)
-						throw new Error("Retryable OAuth exchange response");
+					if (unconfirmedResponse)
+						throw new Error("Unconfirmed OAuth exchange response");
 				}
 				return response;
 			} finally {
@@ -1284,8 +1285,8 @@ export async function refreshStoredSession(
 		return finish("refreshed");
 	} catch (error) {
 		const detail = error instanceof Error ? error.message : String(error);
-		failure = retryableResponse
-			? "retryable-response"
+		failure = unconfirmedResponse
+			? "unconfirmed-response"
 			: terminalResponse
 				? "oauth-error"
 				: /timed out|timeout|abort/i.test(detail)
@@ -1293,30 +1294,11 @@ export async function refreshStoredSession(
 					: connectionNeverOpened(error)
 						? "connection-not-opened"
 						: "exchange-error";
-		if (
-			retryableResponse &&
-			workspace &&
-			expectedCredential?.oauthRefreshPending
-		) {
-			const retryable = {
-				...expectedCredential,
-				oauthRefreshPending: undefined,
-			};
-			try {
-				writeWorkspaceCredentials(
-					workspace,
-					retryable,
-					undefined,
-					expectedCredential,
-				);
-				expectedCredential = retryable;
-			} catch {
-				return finish("failed");
-			}
-		}
+		// A complete HTTP reply can still come from an intermediary after rotation.
+		// Only a proven pre-connect failure above can release the refresh fence.
 		if (
 			terminalResponse ||
-			(!retryableResponse && REFRESH_FAMILY_INVALIDATED.test(detail))
+			(!unconfirmedResponse && REFRESH_FAMILY_INVALIDATED.test(detail))
 		) {
 			if (workspace && expectedCredential) {
 				try {
