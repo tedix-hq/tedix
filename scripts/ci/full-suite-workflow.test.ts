@@ -31,14 +31,16 @@ test("repository checks run in parallel and every matrix member gates Main CI", 
 	expect(aggregate).toContain("for lane in WORKSPACE REPOSITORY; do");
 });
 
-test("scheduled and push runs coalesce without cancelling active certification", () => {
+test("push gates coalesce in their own lane; full runs never displace one", () => {
 	const triggers = workflow.split("\npermissions:")[0]!;
 	const concurrency = workflow
 		.split("\nconcurrency:\n")[1]!
 		.split("\nenv:\n")[0]!;
 	expect(triggers).toMatch(/push:\n\s+branches: \[main\]/);
 	expect(triggers).not.toMatch(/paths(?:-ignore)?:/);
-	expect(concurrency).toMatch(/^\s*group: main-certification$/m);
+	expect(concurrency).toMatch(
+		/^\s*group: main-certification-\$\{\{ github\.event_name == 'push' && 'gate' \|\| 'full' \}\}$/m,
+	);
 	expect(concurrency).toMatch(/^\s*cancel-in-progress: false$/m);
 	expect(aggregate).toContain("if: ${{ always() }}");
 });

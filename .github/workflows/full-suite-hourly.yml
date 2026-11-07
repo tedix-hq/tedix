@@ -12,8 +12,10 @@ permissions:
   actions: read
 
 concurrency:
-  # Finish active certification; coalesce waiting push and scheduled runs.
-  group: main-certification
+  # Push gates coalesce among themselves and never cancel an active one. The
+  # scheduled and hand-started full runs get their own lane, so an hourly full
+  # run can never displace a push's two-minute gate (it did at 16:21 on 7 Nov).
+  group: main-certification-${{ github.event_name == 'push' && 'gate' || 'full' }}
   cancel-in-progress: false
 
 env:
