@@ -1964,10 +1964,16 @@ export class LaneDispatcher {
 				);
 			// Use settled Attempt history rather than agent prose or a local retry
 			// window. A restart, reroute or elapsed delay cannot repair the same brief.
+			// A lease that elapsed with the Attempt's result retained is an
+			// interruption, not a failed execution: fresh admission resumes the
+			// retained work on this same revision, so it does not count toward
+			// the execution hold.
 			const failedExecutions = history.data.filter(
 				(attempt) =>
 					attempt.metadata?.dispatchVersion === item.version &&
-					(attempt.outcome === "failed" || attempt.outcome === "expired"),
+					(attempt.outcome === "failed" ||
+						(attempt.outcome === "expired" &&
+							attempt.id !== interrupted?.attemptId)),
 			).length;
 			if (failedExecutions >= 3) {
 				receipt.held = true;
@@ -3288,24 +3294,29 @@ export class LaneDispatcher {
 			receipt,
 		);
 	}
-	private async recordRunFailure(receipt: Receipt) {
+	private async recordRunFailure(receipt: Receipt, resultRetained = false) {
 		if (
 			receipt.runFailureCounted ||
 			!["failed", "expired"].includes(receipt.outcome ?? "")
 		)
 			return;
-		const signature = laneFailureSignature(receipt.note ?? receipt.outcome);
-		receipt.identicalFailures =
-			receipt.runFailureSignature === signature
-				? (receipt.identicalFailures ?? 0) + 1
-				: 1;
-		receipt.runFailureSignature = signature;
 		receipt.runFailureCounted = true;
 		receipt.retries = (receipt.retries ?? 0) + 1;
 		receipt.runRetryAt = Math.min(
 			Date.now() + 60_000 * 2 ** (receipt.retries - 1),
 			Math.max(receipt.retryDeadlineAt ?? 0, Date.now() + 60_000),
 		);
+		// An elapsed lease with its run's result retained is an interruption,
+		// not an identical execution failure: fresh admission verifies the
+		// retained result again, so expiry alone must not hold the revision
+		// for a human edit.
+		if (receipt.outcome === "expired" && resultRetained) return;
+		const signature = laneFailureSignature(receipt.note ?? receipt.outcome);
+		receipt.identicalFailures =
+			receipt.runFailureSignature === signature
+				? (receipt.identicalFailures ?? 0) + 1
+				: 1;
+		receipt.runFailureSignature = signature;
 		receipt.held = receipt.identicalFailures >= 3;
 		if (receipt.held && !receipt.failureCommented) {
 			receipt.failureCommented = true;
@@ -3494,7 +3505,7 @@ export class LaneDispatcher {
 				);
 			receipt.outcome = "expired";
 			receipt.phase = "deferred";
-			await this.recordRunFailure(receipt);
+			await this.recordRunFailure(receipt, true);
 			receipt.retryAt = receipt.runRetryAt;
 			this.save(
 				this.path({ id: receipt.itemId, version: receipt.version }),
