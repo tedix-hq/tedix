@@ -5861,6 +5861,13 @@ it("retries claim preflight deadlines inside one logged budget before admission"
 	const f = fixture({ max: 20 });
 	f.items.splice(1);
 	const cli = f.deps.cli!;
+	const launch = f.deps.launch!;
+	const launched = Promise.withResolvers<void>();
+	f.deps.launch = (...args) => {
+		const running = launch(...args);
+		launched.resolve();
+		return running;
+	};
 	let readiness = 0;
 	const timeouts: number[] = [];
 	f.deps.cli = async (args, ...rest) => {
@@ -5873,7 +5880,8 @@ it("retries claim preflight deadlines inside one logged budget before admission"
 	const dispatcher = f.restart();
 	try {
 		await dispatcher.tick();
-		await until(() => f.releases.length === 1);
+		await launched.promise;
+		expect(f.releases).toHaveLength(1);
 		expect(readiness).toBe(2);
 		expect(timeouts).toEqual([20_000, 40_000]);
 		expect(
