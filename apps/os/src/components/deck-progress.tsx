@@ -16,6 +16,7 @@ export function DeckProgress({
 	filtered,
 	saving,
 	leading,
+	counting = false,
 }: {
 	total: number;
 	completed: number;
@@ -24,11 +25,16 @@ export function DeckProgress({
 	saving: boolean;
 	/** The card's state and date, on the counter line so the meta is one line. */
 	leading?: ReactNode;
+	/** Some sources are still loading, so the total is not known yet. */
+	counting?: boolean;
 }) {
-	const label = `${position} of ${total}${filtered ? " · filtered" : ""}`;
+	const label = counting
+		? "Counting cards…"
+		: `${position} of ${total}${filtered ? " · filtered" : ""}`;
 	const [announcement, setAnnouncement] = useState("");
 	useEffect(() => {
 		// Search updates the display immediately, but speaks only after typing pauses.
+		if (counting) return;
 		const timer = setTimeout(
 			() =>
 				setAnnouncement(
@@ -41,7 +47,7 @@ export function DeckProgress({
 			600,
 		);
 		return () => clearTimeout(timer);
-	}, [label, completed, total, saving, filtered]);
+	}, [label, completed, total, saving, filtered, counting]);
 	return (
 		<div className="fd-card-progress grid gap-1" data-deck-progress>
 			<div className="fd-deck-meta flex min-w-0 items-center justify-between gap-2">
@@ -55,10 +61,15 @@ export function DeckProgress({
 				</Text>
 			</div>
 			<Progress
-				value={completed}
-				max={total}
+				value={counting ? 0 : completed}
+				max={counting ? 1 : total}
 				aria-label="Decision progress"
-				aria-valuetext={`${completed} of ${total} reviewed${filtered ? " · filtered" : ""}`}
+				aria-busy={counting || undefined}
+				aria-valuetext={
+					counting
+						? label
+						: `${completed} of ${total} reviewed${filtered ? " · filtered" : ""}`
+				}
 			>
 				<ProgressTrack className="h-px">
 					<ProgressIndicator />

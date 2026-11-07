@@ -38,7 +38,12 @@ import {
 	useState,
 } from "react";
 import { isConflictError } from "@/components/blueprints-page";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import {
+	Alert,
+	AlertDescription,
+	AlertTitle,
+	LoadError,
+} from "@/components/kumo/alert";
 import {
 	buildCardReviewWebMcpTools,
 	type CardReviewActionResult,
@@ -155,6 +160,88 @@ function sheetState(
 		body: { columns: content.columns, rows: content.rows },
 		revision,
 	};
+}
+
+type ReadState = { isError: boolean; error: unknown };
+type CardReadFailure = {
+	label: string;
+	/** The sheet title; absent when the source's workspace itself failed. */
+	sheet?: string;
+	denied: boolean;
+	error: unknown;
+};
+
+/** Settled failures of the reads that carry cards, named by their source. */
+function cardReadFailures(
+	sources: readonly CardReviewSource[],
+	outputLists: readonly ReadState[],
+	cardSheets: readonly {
+		sourceIndex: number;
+		title: string;
+		query?: ReadState;
+	}[],
+): CardReadFailure[] {
+	const denied = (error: unknown) =>
+		["FORBIDDEN", "NOT_FOUND"].includes(
+			(error as { code?: string } | null)?.code ?? "",
+		);
+	return [
+		...sources.flatMap((source, index) => {
+			const query = outputLists[index];
+			return query?.isError
+				? [
+						{
+							label: source.label,
+							denied: denied(query.error),
+							error: query.error,
+						},
+					]
+				: [];
+		}),
+		...cardSheets.flatMap(({ sourceIndex, title, query }) =>
+			query?.isError
+				? [
+						{
+							label: sources[sourceIndex]?.label ?? title,
+							sheet: title,
+							denied: denied(query.error),
+							error: query.error,
+						},
+					]
+				: [],
+		),
+	];
+}
+
+function CardReadNotice({
+	failures,
+	retrying,
+	onRetry,
+}: {
+	failures: CardReadFailure[];
+	retrying: boolean;
+	onRetry: () => void;
+}) {
+	const labels = [...new Set(failures.map((f) => f.label))].join(", ");
+	const denied = failures.filter((f) => f.denied);
+	const named = denied
+		.map((f) =>
+			f.sheet ? `the sheet “${f.sheet}”` : `the workspace for ${f.label}`,
+		)
+		.join(", ");
+	return (
+		<LoadError
+			title={`Cards from ${labels} didn't load`}
+			help={
+				denied.length > 0
+					? `You can't open ${named}. Ask its owner to share it with you, or remove it from this app's settings. Access to a workspace does not include its restricted sheets.`
+					: "Tedix couldn't reach them. Try again in a moment."
+			}
+			error={failures[0]?.error}
+			retrying={retrying}
+			onRetry={onRetry}
+		/>
+	);
 }
 
 /** A verdict written into a card row, with the cells it replaced. */
@@ -1066,17 +1153,26 @@ export function CardReviewApp({
 		event.preventDefault();
 	};
 
-	const failed =
-		outputLists.some((q) => q.isError) || details.some((q) => q.isError);
-	const readFailure = (
-		<Alert variant="warning">
-			<AlertTitle>Cards are unavailable</AlertTitle>
-			<AlertDescription>
-				A workspace or source sheet in this app's settings cannot be read. Check
-				that you can open both. Workspace access does not grant access to
-				restricted source sheets.
-			</AlertDescription>
-		</Alert>
+	// Only reads that carry cards block the view, and only once their quiet
+	// retries are spent. A rules sheet adds suggestions; its failure hides them.
+	const unreadable = cardReadFailures(
+		sources,
+		outputLists,
+		sheetRefs.cards.map((ref) => ({
+			...ref,
+			query: details[detailIds.indexOf(ref.id)],
+		})),
+	);
+	const failed = unreadable.length > 0;
+	const readFailure = failed && (
+		<CardReadNotice
+			failures={unreadable}
+			retrying={[...outputLists, ...details].some((q) => q.isFetching)}
+			onRetry={() => {
+				for (const query of [...outputLists, ...details])
+					if (query.isError) void query.refetch();
+			}}
+		/>
 	);
 	const reviewed = tally.useful + tally.notUseful + tally.doIt;
 	if (inDeck)
