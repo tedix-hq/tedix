@@ -131,12 +131,13 @@ export interface OsRouterEnv extends OsSessionBrokerEnv {
 	readonly MCP_SERVICE?: FetcherLike;
 	readonly TEDIX_LOCAL_DEMO_ENABLED?: string;
 	/**
-	 * Service binding to the workspace objects worker (`apps/workspace-do`):
-	 * `/workspace/{id}/chat` upgrades are forwarded to it after this Worker
-	 * authorized the caller. Absent on the zero-account local lane, which
-	 * forwards to the mock object at `LOCAL_WORKSPACE_OBJECT_URL` instead.
+	 * Service binding to the workspace objects worker (`apps/workspace-do`,
+	 * entrypoint `InternalEntrypoint`): `/workspace/{id}/chat` upgrades are
+	 * forwarded to its `/subscribe` after this Worker authorized the caller.
+	 * Absent on the zero-account local lane, which forwards to the mock object
+	 * at `LOCAL_WORKSPACE_OBJECT_URL` instead.
 	 */
-	readonly WORKSPACE_OBJECTS?: FetcherLike;
+	readonly WORKSPACE_RUNTIME?: FetcherLike;
 	/** Secret: exact embedded:session provider key; never sent to a browser. */
 	readonly TEDIX_PROVIDER_COHORT_API_KEY?: string;
 	/** Fixed, nonsecret identity and organization target for this bounded cohort. */
@@ -1323,6 +1324,7 @@ export async function handleOsRequest(
 			chatWorkspaceId,
 			tenant,
 			hostTenantId,
+			url.searchParams.get("after"),
 		);
 	}
 
@@ -1631,7 +1633,9 @@ export async function handleOsRequest(
 
 /** The mock workspace object `apps/os/dev/mock-workspace-object.ts` listens here. */
 const LOCAL_WORKSPACE_OBJECT_URL = "http://localhost:8793";
-/** Identity the OS Worker asserts to the workspace object after authorizing the caller. */
+/** Scope and identity the OS Worker asserts to the workspace object after authorizing the caller. */
+const WORKSPACE_ORG_HEADER = "X-Workspace-Org";
+const WORKSPACE_ID_HEADER = "X-Workspace-Id";
 const WORKSPACE_CHAT_PERSON_HEADER = "X-Tedix-Person";
 const WORKSPACE_CHAT_ROLE_HEADER = "X-Tedix-Workspace-Role";
 
@@ -1650,6 +1654,7 @@ async function handleWorkspaceChatUpgrade(
 	workspaceId: string,
 	tenant: ReturnType<typeof resolveOsTenant>,
 	hostTenantId: string | null,
+	after: string | null,
 ): Promise<Response> {
 	const localDemo = isLocalDemoOrigin(request, env);
 	if (tenant.kind !== "tenant" && !localDemo) {
@@ -1661,9 +1666,9 @@ async function handleWorkspaceChatUpgrade(
 	if (!/^[0-9a-f-]{36}$/i.test(workspaceId) && !localDemo) {
 		return refuse(404, "Malformed workspace chat path.");
 	}
-	const upstream = env.WORKSPACE_OBJECTS
+	const upstream = env.WORKSPACE_RUNTIME
 		? {
-				fetch: serviceBindingFetch(env.WORKSPACE_OBJECTS),
+				fetch: serviceBindingFetch(env.WORKSPACE_RUNTIME),
 				base: "https://workspace",
 			}
 		: localDemo
@@ -1716,9 +1721,12 @@ async function handleWorkspaceChatUpgrade(
 	}
 	headers.set(WORKSPACE_CHAT_PERSON_HEADER, presence.displayName);
 	headers.set(WORKSPACE_CHAT_ROLE_HEADER, presence.role);
-	if (hostTenantId) headers.set("X-Tedix-Tenant-Id", hostTenantId);
+	headers.set(WORKSPACE_ID_HEADER, workspaceId);
+	if (hostTenantId) headers.set(WORKSPACE_ORG_HEADER, hostTenantId);
+	// The object replays every event after this cursor, then streams live.
+	const query = after && /^\d+$/.test(after) ? `?after=${after}` : "";
 	return upstream.fetch(
-		`${upstream.base}/workspace/${encodeURIComponent(workspaceId)}/chat`,
+		`${upstream.base}/workspace/${encodeURIComponent(workspaceId)}/subscribe${query}`,
 		{ headers, method: "GET" },
 	);
 }
