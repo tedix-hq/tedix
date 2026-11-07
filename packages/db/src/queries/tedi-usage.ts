@@ -506,7 +506,10 @@ export async function getCostLedgerFreshness(
 			count24h: sql<number>`SUM(CASE WHEN ${tediCallCosts.snapshotAt} >= ${iso24h} THEN 1 ELSE 0 END)`,
 			count30d: sql<number>`COUNT(*)`,
 		})
-		.from(effectiveCallCostsRelation())
+		// The base table, not the effective-cost relation: freshness is row
+		// arrival, and the relation's CTE made every probe scan the whole
+		// ledger (271k rows per call on 7 Nov) before any filter applied.
+		.from(tediCallCosts)
 		.where(gte(tediCallCosts.snapshotAt, iso30d));
 	const row = rows[0];
 	return {
@@ -774,7 +777,7 @@ export async function getOrgCostLedgerFreshness(
 			count24h: sql<number>`SUM(CASE WHEN ${tediCallCosts.snapshotAt} >= ${iso24h} THEN 1 ELSE 0 END)`,
 			count30d: sql<number>`COUNT(*)`,
 		})
-		.from(effectiveCallCostsRelation())
+		.from(tediCallCosts)
 		.where(
 			and(
 				eq(tediCallCosts.orgId, organizationId),
