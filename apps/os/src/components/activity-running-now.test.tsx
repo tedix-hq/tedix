@@ -140,7 +140,12 @@ it("shows the canonical attempt fields and polls away completed attempts without
 		nextCursor: null,
 	});
 	await flush(30_010);
-	expect(api.attempts).toHaveBeenCalledTimes(2);
+	expect(
+		api.attempts.mock.calls.filter(([input]) => input.runtimeStates),
+	).toHaveLength(2);
+	expect(
+		api.attempts.mock.calls.filter(([input]) => !input.runtimeStates),
+	).toHaveLength(2);
 	expect(api.health).toHaveBeenCalledTimes(2);
 	expect(host.textContent).not.toContain("Prepare Cedar brief");
 	expect(host.textContent).toContain("No active attempts in this scope.");
@@ -173,4 +178,95 @@ it("keeps failures distinct from a quiet fleet and exposes retry controls", asyn
 	expect(host.textContent).not.toContain("No active attempts");
 	expect(host.textContent).not.toContain("Runners up: 0");
 	expect(host.querySelectorAll("button").length).toBeGreaterThan(0);
+});
+
+it("pages the 24-hour cohort and refreshes scorecard outcomes without navigation", async () => {
+	const first = row();
+	first.attempt.externalSessionKey = "codex:cedar-session";
+	const second = row();
+	second.attempt.id = "55555555-5555-4555-8555-555555555555";
+	second.attempt.externalSessionKey = "codex:second-session";
+	second.attempt.startedAt = "2026-11-06T13:00:00.000Z";
+	second.attempt.outcome = "failed";
+	second.attempt.runtimeState = "failed";
+	const old = row();
+	old.attempt.id = "66666666-6666-4666-8666-666666666666";
+	old.attempt.startedAt = "2026-11-06T11:59:59.999Z";
+	api.attempts.mockImplementation(async (input) => {
+		if (input.runtimeStates)
+			return { data: [first], hasMore: false, nextCursor: null };
+		if (!input.cursor)
+			return {
+				data: [first],
+				hasMore: true,
+				nextCursor: { at: first.attempt.startedAt, id: first.attempt.id },
+			};
+		if (input.cursor.id === first.attempt.id)
+			return {
+				data: [second, old],
+				hasMore: true,
+				nextCursor: { at: old.attempt.startedAt, id: old.attempt.id },
+			};
+		throw new Error("Must stop paging at the 24-hour boundary");
+	});
+	await mount(projectId);
+	await flush(20);
+	const scorecard = host.querySelector(
+		'section[aria-label="Runner scorecard"]',
+	)!;
+	const cells = () =>
+		[...scorecard.querySelectorAll("tbody tr")].find(
+			(tr) => tr.firstElementChild?.textContent === "codex",
+		)?.textContent;
+	expect(cells()).toBe("codex2010UnknownUnknown0");
+	expect(scorecard.textContent).not.toContain("Counts are unknown");
+	expect(
+		api.attempts.mock.calls.filter(([input]) => !input.runtimeStates),
+	).toHaveLength(2);
+	first.attempt.outcome = "succeeded";
+	first.attempt.runtimeState = "finished";
+	first.attempt.metadata = {
+		lane: true,
+		settlement: {
+			mode: "commit",
+			commitSha: "a".repeat(40),
+			commitShas: ["a".repeat(40)],
+		},
+	};
+	await flush(30_020);
+	expect(cells()).toBe("codex2110UnknownUnknown1");
+});
+
+it("keeps unavailable history unknown and retry available", async () => {
+	api.attempts.mockImplementation(async (input) => {
+		if (!input.runtimeStates) throw new Error("History unavailable");
+		return { data: [row()], hasMore: false, nextCursor: null };
+	});
+	await mount();
+	expect(host.textContent).toContain("Runner scorecard unavailable");
+	expect(host.textContent).toContain("Counts are unknown");
+	const cells = host.querySelector(
+		'section[aria-label="Runner scorecard"] tbody tr',
+	)?.textContent;
+	expect(cells).toBe(`codex${"Unknown".repeat(7)}`);
+	const recovered = row();
+	recovered.attempt.externalSessionKey = "codex:recovered-session";
+	api.attempts.mockResolvedValue({
+		data: [recovered],
+		hasMore: false,
+		nextCursor: null,
+	});
+	await act(async () =>
+		host
+			.querySelector<HTMLButtonElement>(
+				'section[aria-label="Runner scorecard"] button',
+			)!
+			.click(),
+	);
+	await flush();
+	expect(host.textContent).not.toContain("Runner scorecard unavailable");
+	expect(
+		host.querySelector('section[aria-label="Runner scorecard"] tbody tr')
+			?.textContent,
+	).toBe("codex1000UnknownUnknown0");
 });
