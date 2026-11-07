@@ -48,6 +48,7 @@ import { CliReadError } from "./hooks/hook-io";
 import { beginFileLock } from "./local-file-lock";
 import { LaneOutcomeReadError } from "./lane-result";
 import { runtimeAppEvidenceUri } from "./lane-runtime-app-proof";
+import { laneProcessIdentity } from "./lane-process-recovery";
 import { DecisionEnvelopeSchema } from "@tedix/api-contract/schemas/os-decision-deck";
 import { DecisionCardPresentationSchema } from "@tedix/api-contract/schemas/decision-card-presentation";
 
@@ -353,6 +354,14 @@ function fixture({
 			);
 			expect(deps?.cwd).toBe(
 				join(dirname(args[args.indexOf("--brief") + 1]!), "repo"),
+			);
+			expect(deps?.detachedOutputDirectory).toBe(
+				join(
+					dirname(args[args.indexOf("--brief") + 1]!),
+					nativeExecutor === "devin"
+						? "88888888-8888-4888-8888-888888888888"
+						: "fictional-attempt",
+				),
 			);
 			expect(args.slice(args.indexOf("--") + 1)).toEqual(
 				nativeExecutor === "devin"
@@ -2067,6 +2076,78 @@ describe("dispatcher admission", () => {
 				(event) => event.verb === "start" && event.args[6] === next.id,
 			),
 		).toHaveLength(1);
+	});
+	it("defers an expired orphan with diagnostics and re-admits it on the next eligible pass", async () => {
+		const f = fixture({ max: 1 });
+		f.items.splice(1);
+		const path = join(f.dir, `${item().id}-2.json`);
+		const repo = join(f.dir, "runs", `${item().id}-2`, "repo");
+		const attemptId = "44444444-4444-4444-8444-444444444444";
+		const nativeId = "55555555-5555-4555-8555-555555555555";
+		const session = `codex:${nativeId}`;
+		mkdirSync(join(dirname(repo), attemptId), { recursive: true });
+		mkdirSync(repo, { recursive: true });
+		writeFileSync(
+			join(dirname(repo), attemptId, "stderr-0.log"),
+			"startup detail\nprovider rejected credentials\n",
+		);
+		const child = spawn(
+			process.execPath,
+			["-e", "setInterval(() => {}, 1000)", nativeId],
+			{ cwd: repo, detached: true, stdio: "ignore" },
+		);
+		await once(child, "spawn");
+		const exited = once(child, "exit");
+		writeFileSync(
+			path,
+			JSON.stringify({
+				itemId: item().id,
+				version: 2,
+				phase: "running",
+				admissionState: "admitted",
+				attemptId,
+				session,
+				executorKey: "local-acme",
+				pid: child.pid,
+				processIdentity: laneProcessIdentity(child.pid!, session, repo),
+				repo,
+				retryDeadlineAt: Date.now() + 30 * 60_000,
+			}),
+		);
+		f.control.history.data = [
+			{
+				id: attemptId,
+				externalSessionKey: session,
+				outcome: "expired",
+				metadata: { dispatchVersion: 2 },
+			},
+		];
+		try {
+			await f.dispatcher.tick();
+			await exited;
+			const recovered = JSON.parse(readFileSync(path, "utf8"));
+			expect(recovered).toMatchObject({
+				phase: "deferred",
+				outcome: "expired",
+			});
+			expect(recovered.retryAt).toBeGreaterThan(Date.now());
+			expect(recovered.note).toContain("exit code 143");
+			expect(recovered.note).toContain("provider rejected credentials");
+
+			recovered.retryAt = 0;
+			writeFileSync(path, JSON.stringify(recovered));
+			f.control.history.data = [];
+			await f.dispatcher.tick();
+			await until(() => f.releases.length === 1);
+			expect(
+				f.events.filter((event) => event.verb === "start" && event.input),
+			).toHaveLength(1);
+			f.releases[0]!();
+			await f.dispatcher.drain();
+		} finally {
+			if (child.exitCode === null && child.signalCode === null)
+				process.kill(-child.pid!, "SIGKILL");
+		}
 	});
 
 	it.each(["dispatch-get", "agent-start"])(

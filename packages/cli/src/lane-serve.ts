@@ -24,10 +24,13 @@ import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import {
 	appendFileSync,
+	closeSync,
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	openSync,
 	readFileSync,
+	readSync,
 	realpathSync,
 	readdirSync,
 	renameSync,
@@ -820,6 +823,30 @@ function nativePreparationTimedOut(receipt: Receipt): boolean {
 		receipt.note === "TimeoutError: The operation timed out."
 	);
 }
+function orphanStopNote(receipt: Receipt): string {
+	let tail = "";
+	if (receipt.repo && receipt.attemptId && UUID_RE.test(receipt.attemptId)) {
+		const path = join(dirname(receipt.repo), receipt.attemptId, "stderr-0.log");
+		if (existsSync(path)) {
+			const size = statSync(path).size;
+			const buffer = Buffer.alloc(Math.min(size, 1200));
+			const fd = openSync(path, "r");
+			try {
+				readSync(
+					fd,
+					buffer,
+					0,
+					buffer.length,
+					Math.max(0, size - buffer.length),
+				);
+				tail = buffer.toString().trim();
+			} finally {
+				closeSync(fd);
+			}
+		}
+	}
+	return `Orphan lane stopped after its Attempt expired (exit code 143, SIGTERM). stderr tail: ${tail || "(empty)"}`;
+}
 const alive = (pid: number) => {
 	try {
 		process.kill(-pid, 0);
@@ -1472,12 +1499,15 @@ export class LaneDispatcher {
 				) {
 					if (
 						reapLaneProcess(row.pid, row.session, row.processIdentity, row.repo)
-					)
+					) {
+						row.note = orphanStopNote(row);
+						await this.recoverOrphan(row, history);
 						this.log(
 							"orphan-stopped",
 							row.itemId,
 							"Exact expired process identity verified",
 						);
+					}
 				}
 			}
 		}
@@ -2231,6 +2261,8 @@ export class LaneDispatcher {
 				repo,
 			);
 			writeFileSync(brief, recalled.brief, { mode: 0o600 });
+			const outputDirectory = join(dirname(repo), receipt.attemptId!);
+			mkdirSync(outputDirectory, { recursive: true, mode: 0o700 });
 			this.log(
 				"admitted",
 				item.id,
@@ -2310,6 +2342,7 @@ export class LaneDispatcher {
 							]!,
 					},
 					detachedChild: true,
+					detachedOutputDirectory: outputDirectory,
 					forwardSignals: false,
 					admitted: true,
 					devinWorkBridge:
@@ -3433,7 +3466,7 @@ export class LaneDispatcher {
 			if (!attempt.expiresAt || Date.parse(attempt.expiresAt) > Date.now())
 				return;
 			receipt.outcome = "expired";
-			receipt.note =
+			receipt.note ??=
 				"Dispatcher process interrupted; resume retained native state after fresh admission";
 		} else if (!["failed", "expired"].includes(attempt.outcome)) {
 			receipt.outcome = attempt.outcome;
