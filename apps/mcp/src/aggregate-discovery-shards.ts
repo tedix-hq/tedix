@@ -46,8 +46,6 @@ const log = createMcpLogger("mcp.router");
 const DISCOVERY_SHARD_FORMAT = "discovery-shard-v1";
 /** Past this age a shard is served and one organization is refreshed. */
 export const DISCOVERY_SHARD_STALE_AFTER_MS = 3_600_000;
-/** Past this age a shard is ignored and its organization hydrated in full. */
-const DISCOVERY_SHARD_HARD_TTL_MS = 86_400_000;
 const DISCOVERY_SHARD_L1_TTL_MS = 120_000;
 /** An unchanged graph seen by another isolate does not rewrite its shard. */
 const DISCOVERY_SHARD_REFRESH_MS = 600_000;
@@ -154,10 +152,7 @@ export function compileDiscoveryShard(
 	ctx?.waitUntil(run);
 }
 
-async function readDiscoveryShard(
-	env: CloudflareEnv,
-	key: string,
-): Promise<(DiscoveryShard & { builtAt: number }) | null> {
+async function readDiscoveryShard(env: CloudflareEnv, key: string) {
 	const now = Date.now();
 	const cached = discoveryShardCache.get(key);
 	if (cached && cached.expiresAt > now) return cached;
@@ -166,13 +161,6 @@ async function readDiscoveryShard(
 	const object = await bucket.get(key);
 	if (!object) return null;
 	const builtAt = Number(object.customMetadata?.builtAt);
-	if (
-		!Number.isFinite(builtAt) ||
-		now - builtAt > DISCOVERY_SHARD_HARD_TTL_MS
-	) {
-		await object.body?.cancel();
-		return null;
-	}
 	if (cached?.builtAt === builtAt) {
 		await object.body?.cancel();
 		cached.expiresAt = now + DISCOVERY_SHARD_L1_TTL_MS;
@@ -202,11 +190,11 @@ async function readDiscoveryShard(
 /**
  * Splits a Connect selection for a namespace-free discovery program: the
  * organization mounts serving `namespaces` are hydrated in full; every other
- * mount contributes its shard rows, and a mount whose shard is missing or
- * past the hard ceiling is hydrated too. The oldest shard past its refresh
- * age is still served and returned as `refresh`, for the caller to hydrate
- * after the response (one organization per request, one per isolate at a
- * time). Returns null (load the full catalog) when shards are unreadable, or
+ * mount contributes its shard rows, and a mount whose shard is missing is
+ * hydrated too. The oldest shard past its refresh age is still served and
+ * returned as `refresh`, for the caller to hydrate after the response (one
+ * organization per request, one per isolate at a time). Returns null (load
+ * the full catalog) when shards are unreadable, or
  * when the shard rows are few enough that discovery would still match
  * parameter names (`CATALOG_SCHEMA_SEARCH_MAX_ROWS`), so ranking is unchanged
  * either way.

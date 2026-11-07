@@ -712,61 +712,67 @@ describe("aggregate snapshot memory", () => {
 			).toBe(true);
 		});
 
-		it("serves a shard past its refresh age and names one organization to rebuild", async () => {
-			await loadConnect();
-			await settleBackground();
-			// Every shard of the selection ages together.
-			vi.setSystemTime(Date.now() + DISCOVERY_SHARD_STALE_AFTER_MS + 1_000);
-			discoveryShardCache.clear();
-			resolveUpstreamToolsInternally.mockClear();
+		it.each([
+			DISCOVERY_SHARD_STALE_AFTER_MS + 1_000,
+			7 * 24 * DISCOVERY_SHARD_STALE_AFTER_MS,
+		])(
+			"serves a shard aged %i ms and names one organization to rebuild",
+			async (age) => {
+				await loadConnect();
+				await settleBackground();
+				// Every shard of the selection ages together.
+				vi.setSystemTime(Date.now() + age);
+				discoveryShardCache.clear();
+				resolveUpstreamToolsInternally.mockClear();
 
-			const shards = await loadDiscoveryShards(
-				env,
-				mounts,
-				new Set(),
-				activation.value,
-			);
-			// Nothing is hydrated in the request: stale rows still rank.
-			expect(shards?.hydrate).toEqual([]);
-			expect(shards?.tools).toHaveLength(manyTools.length * 4);
-			expect(shards?.refresh?.slug).toBe("acme-unified");
-			expect(resolveUpstreamToolsInternally).not.toHaveBeenCalled();
-
-			// The refresh hydrates that one organization after the response and
-			// rewrites only its shard; a second request does not start another.
-			const hydrate = vi.fn(() =>
-				aggregateAndPrefixTools(
-					[shards!.refresh!],
+				const shards = await loadDiscoveryShards(
 					env,
+					mounts,
 					new Set(),
-					ctx,
-					"connect",
-					activation,
-					false,
-				),
-			);
-			refreshDiscoveryShard(shards!.refresh!, activation.value, hydrate, ctx);
-			refreshDiscoveryShard(shards!.refresh!, activation.value, hydrate, ctx);
-			expect(hydrate).toHaveBeenCalledTimes(1);
-			const next = await loadDiscoveryShards(
-				env,
-				mounts,
-				new Set(),
-				activation.value,
-			);
-			expect(next?.refresh?.slug).toBe("globex-unified");
-			await settleBackground();
-			expect(discoveryShardRefreshInFlight.size).toBe(0);
-			const rewritten = shardKeys().filter(
-				(key) =>
-					Number(r2.objects.get(key)!.customMetadata?.builtAt) >=
-					Date.now() - 1_000,
-			);
-			expect(rewritten).toHaveLength(1);
-			expect(r2.objects.get(rewritten[0]!)!.body).toContain(
-				'"toolId":"acme_unified_source__read_item_0"',
-			);
-		});
+					activation.value,
+				);
+				// Nothing is hydrated in the request: stale rows still rank.
+				expect(shards?.hydrate).toEqual([]);
+				expect(shards?.tools).toHaveLength(manyTools.length * 4);
+				expect(shards?.refresh?.slug).toBe("acme-unified");
+				expect(resolveUpstreamToolsInternally).not.toHaveBeenCalled();
+
+				// The refresh hydrates that one organization after the response and
+				// rewrites only its shard; a second request does not start another.
+				const hydrate = vi.fn(() =>
+					aggregateAndPrefixTools(
+						[shards!.refresh!],
+						env,
+						new Set(),
+						ctx,
+						"connect",
+						activation,
+						false,
+					),
+				);
+				refreshDiscoveryShard(shards!.refresh!, activation.value, hydrate, ctx);
+				refreshDiscoveryShard(shards!.refresh!, activation.value, hydrate, ctx);
+				expect(hydrate).toHaveBeenCalledTimes(1);
+				const next = await loadDiscoveryShards(
+					env,
+					mounts,
+					new Set(),
+					activation.value,
+				);
+				expect(next?.refresh?.slug).toBe("globex-unified");
+				await settleBackground();
+				expect(discoveryShardRefreshInFlight.size).toBe(0);
+				const rewritten = shardKeys().filter(
+					(key) =>
+						Number(r2.objects.get(key)!.customMetadata?.builtAt) >=
+						Date.now() - 1_000,
+				);
+				expect(rewritten).toHaveLength(1);
+				expect(r2.objects.get(rewritten[0]!)!.body).toContain(
+					'"toolId":"acme_unified_source__read_item_0"',
+				);
+			},
+		);
 
 		it("rewrites a stale shard even when the organization graph object is unchanged", async () => {
 			await loadConnect();
