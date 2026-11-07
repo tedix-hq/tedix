@@ -1,4 +1,5 @@
 import { safeExceptionTopology } from "../../lib/safe-log-metadata";
+import { laneRunnerAsker } from "@tedix/api-contract/utils/lane-runner-asker";
 import { PersonalAgentContributionSchema } from "@tedix/api-contract/schemas/personal-agent-inbound";
 import {
 	ListWorkInteractionCliInboxResultSchema,
@@ -1197,6 +1198,8 @@ function askedBy(
 	}
 	if (request.creatorType === "tedi")
 		return tediNames.get(request.creatorId) ?? "A tedi";
+	const runner = laneRunnerAsker(metadata);
+	if (runner) return runner;
 	const host = creatorHarness(request, sessionHarnesses);
 	if (host) return AGENT_HOSTS[host] ?? host;
 	if (request.creatorType === "external_agent") return "Your coding assistant";

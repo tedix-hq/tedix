@@ -1,4 +1,5 @@
 import { OptimisticDeckDecisionContext } from "@/lib/optimistic-deck-decision";
+import { laneRunnerAsker } from "@tedix/api-contract/utils/lane-runner-asker";
 import { CardFaceContext } from "@/components/deck-presentation-context";
 import { DeckWhyChain } from "@/components/deck-why-chain";
 import { interactionActorReference } from "@/lib/work-actor";
@@ -413,7 +414,9 @@ export function WorkInteractionDecisionCard({
 	const decision = decisionEnvelope(request.metadata);
 	const outboundBody =
 		decision?.kind === "outbound" ? decision.preview?.body : undefined;
+	const runner = laneRunnerAsker(request.metadata);
 	const source =
+		runner ??
 		(capture?.source?.includes("Codex")
 			? "Codex"
 			: capture?.source?.includes("Claude Code")
@@ -547,6 +550,7 @@ export function WorkInteractionDecisionCard({
 				}
 				askedBy={source}
 				actor={interactionActorReference(request, preview?.creatorHarness)}
+				askerActor={runner ? { type: "system", id: null } : undefined}
 				source={{
 					channel: "Decision capture",
 					capturedAt: request.requestedAt,

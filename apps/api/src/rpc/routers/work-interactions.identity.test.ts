@@ -500,6 +500,48 @@ describe("Work interaction canonical actor projections", () => {
 			).not.toContain(request.id);
 		}
 	});
+	it.each([
+		["codex", "Codex runner"],
+		["claude-code", "Claude Code runner"],
+		["opencode", "OpenCode runner"],
+		["devin", "Devin runner"],
+	])(
+		"attributes a %s lane ask separately from its user carrier",
+		async (executor, label) => {
+			const { owner, sqlite } = fixture();
+			sqlite
+				.prepare(
+					"UPDATE work_items SET disposition='accepted', version=1, metadata=? WHERE id=?",
+				)
+				.run(JSON.stringify({ executor }), WORK_ITEM_ID);
+			const metadata = {
+				source: "lane-dispatch-blocker",
+				laneBlocker: { kind: "owner_delegation", executor, workVersion: 1 },
+			};
+			const created = await owner.create({
+				workItemId: WORK_ITEM_ID,
+				kind: "question",
+				subject: "Allow the runner to continue?",
+				prompt: "Only the owner can allow this step.",
+				reason: "Only the accountable owner can allow this reserved step.",
+				requestedFrom: { type: "user", id: "owner-id" },
+				metadata,
+			});
+			expect(created).toMatchObject({
+				creatorType: "user",
+				creatorId: "owner-id",
+				creatorSessionId: null,
+				metadata,
+			});
+			const inbox = await owner.listInbox({ states: ["open"] });
+			expect(
+				inbox.data.find((row) => row.request.id === created.id)?.askedBy,
+			).toBe(label);
+			expect(
+				(await owner.get({ requestId: created.id })).request.metadata,
+			).toMatchObject(metadata);
+		},
+	);
 	it("retains a harness requester under owner login and labels it as the agent", async () => {
 		const { owner } = fixture();
 		const session = "codex:fixture-session";
