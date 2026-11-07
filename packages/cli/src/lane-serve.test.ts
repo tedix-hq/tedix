@@ -147,6 +147,8 @@ function fixture({
 		declareCompleted: true,
 		provisionError: undefined as Error | undefined,
 		threadError: undefined as Error | undefined,
+		resumeError: undefined as Error | undefined,
+		threadSessions: [] as Array<string | undefined>,
 		installError: undefined as Error | undefined,
 		installed: [] as string[],
 		commits: [] as string[],
@@ -223,7 +225,9 @@ function fixture({
 			if (control.cleanupRemoves) rmSync(destination, { recursive: true });
 			return control.cleanupWait ?? control.cleanupResult;
 		},
-		thread: async (repo, executor) => {
+		thread: async (repo, executor, _model, resume) => {
+			control.threadSessions.push(resume);
+			if (resume && control.resumeError) throw control.resumeError;
 			if (control.threadError) throw control.threadError;
 			if (
 				control.preparationGate &&
@@ -1360,6 +1364,72 @@ describe("dispatcher admission", () => {
 			clock.mockRestore();
 		}
 	});
+	it.each([
+		[
+			"devin",
+			"Session 'foggy-eggnog' is already open in another process (PID 27850)",
+			true,
+		],
+		["devin", "Devin authentication failed", false],
+		[
+			"codex",
+			"Session 'foggy-eggnog' is already open in another process (PID 27850)",
+			false,
+		],
+	] as const)(
+		"recovers only Devin session locks: %s / %s",
+		async (executor, error, recover) => {
+			const f = fixture({ executor });
+			f.items.splice(1);
+			const work = f.items[0]!;
+			const repo = join(f.dir, "runs", `${work.id}-${work.version}`, "repo");
+			mkdirSync(repo, { recursive: true });
+			writeFileSync(
+				join(f.dir, "old.json"),
+				JSON.stringify({
+					itemId: work.id,
+					version: 1,
+					phase: "settled",
+					outcome: "failed",
+					attemptId: "old-attempt",
+					session: `${executor}:foggy-eggnog`,
+					repo,
+				}),
+			);
+			f.control.history.data = [{ id: "old-attempt", outcome: "failed" }];
+			f.control.resumeError = new Error(error);
+			const sessions = f.control.threadSessions;
+			await f.dispatcher.tick();
+			if (!recover) {
+				await f.dispatcher.drain();
+				expect(sessions).toEqual(["foggy-eggnog"]);
+				expect(f.events.some((event) => event.verb === "start")).toBe(false);
+				return;
+			}
+			await until(() => f.releases.length === 1);
+			expect(sessions).toEqual(["foggy-eggnog", undefined]);
+			const starts = f.events.filter(
+				(event) => event.verb === "start" && event.args[4] === "work",
+			);
+			expect(starts).toHaveLength(1);
+			const admission = starts[0]!;
+			expect(admission.env.TEDIX_AGENT_SESSION).not.toBe("devin:foggy-eggnog");
+			const note = f.events.find((event) => event.verb === "comment")!;
+			expect(note.args.at(-1)).toContain("held by another process");
+			expect(note.env.TEDIX_AGENT_SESSION).toBe(
+				admission.env.TEDIX_AGENT_SESSION,
+			);
+			expect(f.events.some((event) => event.verb === "settle")).toBe(false);
+			f.releases[0]!();
+			await f.dispatcher.drain();
+			const settlements = f.events.filter((event) => event.verb === "settle");
+			expect(settlements).toHaveLength(1);
+			expect(settlements[0]!.args).toContain("succeeded");
+			expect(settlements[0]!.env.TEDIX_AGENT_SESSION).toBe(
+				admission.env.TEDIX_AGENT_SESSION,
+			);
+		},
+	);
 	it("admits and settles Devin through the same dispatcher", async () => {
 		const { dispatcher, events, releases, control } = fixture({
 			executor: "devin",
