@@ -2389,11 +2389,16 @@ export class LaneDispatcher {
 				receipt.retryable = true;
 			receipt.note = finalMessage.slice(0, 1800);
 			if (exit === 0 && receipt.outcome === "succeeded") {
-				const result = parseLaneResult(finalMessage);
-				if (!result) {
-					receipt.outcome = "failed";
-					receipt.note = `Accepted outcome was not explicitly declared completed. Work remains open. ${receipt.note}`;
+				let result: LaneResult | undefined;
+				try {
+					result = parseLaneResult(finalMessage);
+				} catch (error) {
+					// An unreadable declaration is still no declaration: settlement
+					// recovers the outcome from Attempt evidence when it exists.
+					receipt.note = `${String(error).slice(0, 400)} ${receipt.note}`;
 				}
+				if (!result)
+					receipt.note = `The final answer carried no valid result declaration; Attempt evidence decides settlement. ${receipt.note}`;
 				if (
 					result &&
 					(result.workItemId !== item.id ||
@@ -2936,6 +2941,63 @@ export class LaneDispatcher {
 				"Structured result retained: current Work or original live Attempt fence is unavailable",
 			);
 	}
+	/**
+	 * A finished run without a valid declaration is not automatically a
+	 * failure: a commit already landed under this Attempt's custody or its
+	 * session left a result comment proves the delivery itself. Only then does
+	 * the dispatcher write the declared outcome under the admitted fence; the
+	 * ordinary settlement proof still runs after it.
+	 */
+	private async recoverUndeclaredResult(receipt: Receipt) {
+		let detail: { workItem?: DispatchItem; comments?: WorkItemComment[] };
+		try {
+			detail = await this.call(
+				["work", "dispatch-get", receipt.itemId, "--input", "{}"],
+				receipt.session,
+				receipt.executorKey,
+			);
+		} catch (error) {
+			throw new LaneOutcomeReadError(String(error));
+		}
+		const comment = (detail.comments ?? []).find(
+			(row) =>
+				row.authorType === "external_agent" &&
+				row.authorId === receipt.executorKey &&
+				isRecord(row.metadata) &&
+				row.metadata.agentSession === receipt.session,
+		);
+		const evidence = [
+			receipt.commits?.length
+				? `${receipt.commits.length} landed commit${receipt.commits.length === 1 ? "" : "s"}`
+				: undefined,
+			comment ? `result comment ${comment.id}` : undefined,
+		].filter(Boolean);
+		const contract = detail.workItem?.acceptanceContract;
+		if (
+			!evidence.length ||
+			detail.workItem?.id !== receipt.itemId ||
+			detail.workItem.version !== receipt.version ||
+			detail.workItem.disposition !== "accepted" ||
+			!contract ||
+			!Number.isInteger(contract.version) ||
+			contract.version < 1 ||
+			typeof contract.doneLooksLike !== "string" ||
+			!contract.doneLooksLike
+		) {
+			receipt.outcome = "failed";
+			receipt.note = `Accepted outcome was not explicitly declared completed and no landed commit or session result comment proves this Attempt delivered. Work remains open. ${receipt.note}`;
+			return;
+		}
+		receipt.laneResult = {
+			outcome: "completed",
+			workItemId: receipt.itemId,
+			workVersion: receipt.version,
+			contractVersion: contract.version,
+			outcomeText: contract.doneLooksLike,
+		};
+		await this.checkResultFence(receipt);
+		receipt.note = `Result declaration recovered from Attempt evidence (${evidence.join(", ")}). ${receipt.note}`;
+	}
 	private async settle(receipt: Receipt) {
 		const path = join(
 			this.directory,
@@ -2969,14 +3031,15 @@ export class LaneDispatcher {
 						receipt.note = `Verified preexisting outcome: ${receipt.existingProof.evidenceUri}. Root cause: ${receipt.existingProof.rootCause}`;
 					}
 					receipt.commits = [];
-				} else
+				} else {
 					receipt.commits = await this.deps.landedCommits(
 						receipt.repo!,
 						receipt.baseCommit!,
 						receipt.pendingCommitProof,
 						undefined,
 						receipt.outcome === "succeeded" &&
-							receipt.laneResult?.outcome === "completed"
+							(receipt.laneResult?.outcome === "completed" ||
+								receipt.laneResult === undefined)
 							? {
 									workItemId: receipt.itemId,
 									verifySession: (session, sha, at) =>
@@ -2984,6 +3047,9 @@ export class LaneDispatcher {
 								}
 							: undefined,
 					);
+					if (receipt.outcome === "succeeded" && !receipt.laneResult)
+						await this.recoverUndeclaredResult(receipt);
+				}
 				if (
 					receipt.outcome === "succeeded" &&
 					receipt.expectsCode &&
