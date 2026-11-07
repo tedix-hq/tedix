@@ -1,0 +1,32 @@
+{
+	"name": "@tedix/workspace-feed",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Change feed from workspace objects to the Tedix core: event contract, per-workspace ledger, queue producer and consumer, and the drift reconciler.",
+	"license": "AGPL-3.0-only",
+	"type": "module",
+	"exports": {
+		"./event": "./src/event.ts",
+		"./ledger": "./src/ledger.ts",
+		"./feed": "./src/feed.ts",
+		"./consumer": "./src/consumer.ts",
+		"./reconcile": "./src/reconcile.ts"
+	},
+	"scripts": {
+		"type-check": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
+		"test:run": "vp test run"
+	},
+	"dependencies": {
+		"@tedix/api-contract": "workspace:*",
+		"@tedix/db": "workspace:*",
+		"zod": "catalog:"
+	},
+	"devDependencies": {
+		"@cloudflare/workers-types": "catalog:",
+		"@tedix/tsconfig": "workspace:*",
+		"@types/node": "catalog:",
+		"typescript": "catalog:",
+		"vite": "catalog:",
+		"vite-plus": "catalog:"
+	}
+}

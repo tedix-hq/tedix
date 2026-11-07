@@ -471,6 +471,11 @@ async function run(): Promise<void> {
 				args.push("--local");
 			}
 			args.push("--persist-to", resolveLocalPersistPath());
+			// Several stacks run on this machine at once; Wrangler's fixed default
+			// devtools port (9229) makes the second one fail to boot. 0 picks a
+			// free port.
+			if (args[1] === "dev" && !args.includes("--inspector-port"))
+				args.push("--inspector-port", "0");
 		}
 	}
 

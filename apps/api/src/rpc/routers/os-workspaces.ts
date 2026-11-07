@@ -109,6 +109,7 @@ import { resolveWorkItemExecutionPreflight } from "../../services/work-item-exec
 import { resolveWorkspaceResourceAvailability } from "../../services/os-workspace-resource-availability";
 import * as collaborationProcedures from "./os-workspace-collaboration";
 import * as workspaceLibrary from "./os-workspace-library";
+import * as workspaceActivity from "./os-workspace-activity";
 import * as workspaceResources from "./os-workspace-resources";
 import * as workspaceFiles from "./os-workspace-files";
 import * as workspaceSchedules from "./os-workspace-schedules";
@@ -2332,6 +2333,7 @@ const workspacesDecideBlueprintUpgrade =
 export const osWorkspacesContractRouter = osWorkspacesOs.router({
 	workspaces: {
 		...workspaceLibrary.osWorkspaceProcedures,
+		...workspaceActivity.osWorkspaceActivityProcedures,
 		previewBlueprintUpgrade: workspacesPreviewBlueprintUpgrade,
 		decideBlueprintUpgrade: workspacesDecideBlueprintUpgrade,
 	},

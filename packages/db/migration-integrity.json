@@ -1384,6 +1384,10 @@
 		{
 			"name": "20261107165935_work_attempt_org_state_started/migration.sql",
 			"sha256": "6290b9c0a7a9325a1aabd6422cfc7cb17fafed75c5f41779b93fc7a4796a6344"
+		},
+		{
+			"name": "20261107171227_workspace_feed/migration.sql",
+			"sha256": "402d38b58bef42013b7ec26f117cdaf7e064c0c2037ecb39687e6b7507fd2849"
 		}
 	]
 }

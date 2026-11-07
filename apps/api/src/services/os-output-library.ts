@@ -16,10 +16,12 @@ import {
 	OsDerivedAccessEnvelopeSchema,
 	OsOutputContentSchema,
 } from "@tedix/api-contract/schemas/os-workspaces";
+import type { OsOutputRevisionMetadataRow } from "@tedix/db/queries/os-workspaces/outputs";
 import {
-	listOsOutputLibraryRows,
-	type OsOutputRevisionMetadataRow,
-} from "@tedix/db/queries/os-workspaces/outputs";
+	listWorkspaceOutputLibrary,
+	type WorkspaceOutputLibraryRow,
+} from "@tedix/db/queries/workspace-feed/read";
+import { workspaceIdOfFeedScope } from "@tedix/api-contract/schemas/workspace-feed";
 import type { OsWorkspaceViewer } from "@tedix/db/queries/os-workspaces/workspaces";
 import type { DbQueryClient } from "@tedix/db/query-client";
 import type {
@@ -136,6 +138,54 @@ export function outputLibraryPreview(
 	};
 }
 
+/**
+ * An index row rendered as the output and revision rows the library card
+ * and its access check expect. The projection carries every output-level
+ * and revision-level column except the body.
+ */
+export function outputLibraryRowsFromIndex(row: WorkspaceOutputLibraryRow): {
+	output: OsOutputRow;
+	revision: OsOutputRevisionMetadataRow;
+} {
+	const index = row.index;
+	return {
+		output: {
+			id: index.outputId,
+			organizationId: index.organizationId,
+			workspaceId: workspaceIdOfFeedScope(index.workspaceId),
+			kind: index.outputKind,
+			title: index.title,
+			status: index.status,
+			currentRevisionId: index.revisionId,
+			createdByKind: index.outputCreatedByKind,
+			createdById: index.outputCreatedById,
+			createdAt: index.outputCreatedAt,
+			updatedAt: index.updatedAt,
+		},
+		revision: {
+			id: index.revisionId,
+			organizationId: index.organizationId,
+			outputId: index.outputId,
+			revision: index.revision,
+			note: index.note,
+			createdByKind: index.revisionCreatedByKind,
+			createdById: index.revisionCreatedById,
+			createdAt: index.revisionCreatedAt,
+			skillRunId: index.skillRunId,
+			skillId: index.skillId,
+			accessEnvelope: index.accessEnvelope,
+			contentSha256: index.contentSha256,
+			contentBytes: index.contentBytes,
+			bodyR2Key: index.bodyR2Key,
+		},
+	};
+}
+
+/**
+ * The Outputs library reads the workspace change projection: one indexed
+ * row per current revision, written by the feed consumer. No workspace
+ * object and no workspace-scoped table is read for the listing.
+ */
 export async function buildOsOutputLibrary(
 	db: DbQueryClient,
 	params: {
@@ -145,33 +195,35 @@ export async function buildOsOutputLibrary(
 		workspaceId?: string;
 		kind?: OsOutputKind;
 		status?: OsOutputStatus;
+		search?: string;
 		limit: number;
 		canReadRevision: (
 			revision: OsOutputRevisionMetadataRow,
 		) => Promise<boolean>;
 	},
 ): Promise<{ items: OsOutputLibraryItem[]; truncated: boolean }> {
-	const rows = await listOsOutputLibraryRows(
+	const rows = await listWorkspaceOutputLibrary(
 		db,
-		{ workspaceId: params.workspaceId, organizationId: params.organizationId },
-		params.viewer,
+		{ organizationId: params.organizationId, viewer: params.viewer },
 		{
+			workspaceId: params.workspaceId,
 			kind: params.kind,
 			status: params.status,
+			search: params.search,
 			limit: params.limit + 1,
 		},
 	);
 	return {
 		items: await Promise.all(
-			rows
-				.slice(0, params.limit)
-				.map(async ({ output, revision, workspace }) => ({
+			rows.slice(0, params.limit).map(async (row) => {
+				const { output, revision } = outputLibraryRowsFromIndex(row);
+				return {
 					output: { ...output, currentRevisionId: revision.id },
-					workspace: workspace
+					workspace: row.workspace
 						? {
-								id: workspace.id,
-								name: workspace.name,
-								status: workspace.status,
+								id: row.workspace.id,
+								name: row.workspace.name,
+								status: row.workspace.status as "active" | "archived",
 							}
 						: null,
 					currentRevision: {
@@ -182,15 +234,16 @@ export async function buildOsOutputLibrary(
 					scope:
 						output.createdByKind === params.creator.kind &&
 						output.createdById === params.creator.id
-							? "mine"
-							: "organization",
+							? ("mine" as const)
+							: ("organization" as const),
 					preview: !(await params.canReadRevision(revision))
 						? ({
 								kind: "unavailable",
 								reason: "source_access_unavailable",
 							} as const)
 						: ({ kind: "metadata" } as const),
-				})),
+				};
+			}),
 		),
 		truncated: rows.length > params.limit,
 	};

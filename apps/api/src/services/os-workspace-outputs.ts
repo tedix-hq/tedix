@@ -11,6 +11,10 @@ import {
 	storeOutputRevisionBody,
 	type OutputBodyBucket,
 } from "./os-output-revision-body-store";
+import {
+	outputRevisionChange,
+	publishWorkspaceChangeSafely,
+} from "./workspace-feed";
 
 /**
  * Every writer stores the body in R2 first and leaves this sentinel in the
@@ -133,6 +137,13 @@ export async function createOsOutput(
 			content: INLINE_BODY_OFFLOADED,
 		},
 	);
+	await publishWorkspaceChangeSafely(
+		{ db, queue: env.AUTOMATION_EVENTS },
+		outputRevisionChange(created.output, {
+			...created.revision,
+			content: revision.content,
+		}),
+	);
 	return {
 		...created,
 		revision: { ...created.revision, content: revision.content },
@@ -154,6 +165,21 @@ export async function createOsOutputRevision(
 		...body,
 		content: INLINE_BODY_OFFLOADED,
 	});
+	if (result.ok) {
+		const output = await outputs.getOsOutput(db, {
+			organizationId: params.organizationId,
+			outputId: params.outputId,
+		});
+		if (output) {
+			await publishWorkspaceChangeSafely(
+				{ db, queue: env.AUTOMATION_EVENTS },
+				outputRevisionChange(output, {
+					...result.revision,
+					content: params.content,
+				}),
+			);
+		}
+	}
 	// An unchanged save returns the current revision; its digest equals this
 	// body's, so the caller's bytes are the row's bytes either way.
 	return result.ok

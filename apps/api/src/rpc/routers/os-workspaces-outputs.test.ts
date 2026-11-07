@@ -13,6 +13,7 @@ import { unzipSync } from "fflate";
 import { createRouterClient } from "@orpc/server";
 import { auditEvents } from "@tedix/db/schema/audit-events";
 import { osOutputRevisions } from "@tedix/db/schema/os-workspaces";
+import { workspaceOutputIndex } from "@tedix/db/schema/workspace-feed";
 import { createDbClient } from "@tedix/db/client";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { createOsGadgetExecution } from "@tedix/db/queries/os-workspaces/executions";
@@ -328,22 +329,25 @@ describe("outputs", () => {
 			title: "Legacy closed",
 		});
 		const db = createDbClient(c.env.DB);
-		await db
-			.update(osOutputRevisions)
-			.set({
-				accessEnvelope: null,
-				skillRunId: knownRun,
-				createdByKind: "tedi",
-			})
-			.where(eq(osOutputRevisions.id, readable.revision.id));
-		await db
-			.update(osOutputRevisions)
-			.set({
-				accessEnvelope: null,
-				skillRunId: unknownRun,
-				createdByKind: "tedi",
-			})
-			.where(eq(osOutputRevisions.id, closed.revision.id));
+		// A legacy row predates envelopes in both the source table and the
+		// projection the library reads (the migration copies what the source has).
+		for (const [revisionId, skillRunId] of [
+			[readable.revision.id, knownRun],
+			[closed.revision.id, unknownRun],
+		] as const) {
+			await db
+				.update(osOutputRevisions)
+				.set({ accessEnvelope: null, skillRunId, createdByKind: "tedi" })
+				.where(eq(osOutputRevisions.id, revisionId));
+			await db
+				.update(workspaceOutputIndex)
+				.set({
+					accessEnvelope: null,
+					skillRunId,
+					revisionCreatedByKind: "tedi",
+				})
+				.where(eq(workspaceOutputIndex.revisionId, revisionId));
+		}
 
 		const read = await c.org1.outputs.get({ outputId: readable.output.id });
 		expect(read.currentRevision.content).toEqual(readable.revision.content);

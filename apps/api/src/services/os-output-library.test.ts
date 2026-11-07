@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 const mocks = vi.hoisted(() => ({ list: vi.fn() }));
-vi.mock("@tedix/db/queries/os-workspaces/outputs", () => ({
-	listOsOutputLibraryRows: mocks.list,
+vi.mock("@tedix/db/queries/workspace-feed/read", () => ({
+	listWorkspaceOutputLibrary: mocks.list,
 }));
 import {
 	buildOsOutputLibrary,
@@ -9,21 +9,43 @@ import {
 	outputLibraryPreview,
 } from "./os-output-library";
 
+function indexRow(patch: Record<string, unknown> = {}) {
+	return {
+		index: {
+			id: "out-1:1",
+			organizationId: "org-1",
+			workspaceId: "org:org-1",
+			outputId: "out-1",
+			revision: 1,
+			revisionId: "rev-1",
+			isCurrent: 1,
+			outputKind: "document",
+			title: "Protected",
+			status: "active",
+			searchText: "",
+			note: null,
+			outputCreatedByKind: "user",
+			outputCreatedById: "u-1",
+			outputCreatedAt: "2026-11-04",
+			revisionCreatedByKind: "user",
+			revisionCreatedById: "u-1",
+			revisionCreatedAt: "2026-11-04",
+			skillRunId: null,
+			skillId: null,
+			accessEnvelope: null,
+			contentSha256: null,
+			contentBytes: null,
+			bodyR2Key: null,
+			updatedAt: "2026-11-04",
+			...patch,
+		},
+		workspace: null,
+	};
+}
+
 describe("buildOsOutputLibrary", () => {
-	it("returns openable metadata cards without touching body content or R2", async () => {
-		const revision = { id: "rev-1", revision: 1, createdAt: "2026-11-04" };
-		Object.defineProperty(revision, "content", {
-			get() {
-				throw new Error("Body must not be read");
-			},
-		});
-		mocks.list.mockResolvedValue([
-			{
-				output: { id: "out-1", createdByKind: "user", createdById: "u-1" },
-				revision,
-				workspace: null,
-			},
-		]);
+	it("returns openable metadata cards from the projection, never a body", async () => {
+		mocks.list.mockResolvedValue([indexRow()]);
 		const result = await buildOsOutputLibrary({} as never, {
 			organizationId: "org-1",
 			viewer: { userIds: [] },
@@ -32,41 +54,25 @@ describe("buildOsOutputLibrary", () => {
 			canReadRevision: async () => true,
 		});
 		expect(result.items[0]).toMatchObject({
+			output: { id: "out-1", workspaceId: null, currentRevisionId: "rev-1" },
 			preview: { kind: "metadata" },
 			scope: "mine",
-			currentRevision: { id: "rev-1" },
+			currentRevision: { id: "rev-1", revision: 1 },
 		});
+		expect(mocks.list).toHaveBeenCalledWith(
+			{},
+			{ organizationId: "org-1", viewer: { userIds: [] } },
+			expect.objectContaining({ limit: 21 }),
+		);
 	});
 
-	it("preserves inventory without parsing content when source access is unavailable", async () => {
+	it("preserves inventory when source access is unavailable", async () => {
 		mocks.list.mockResolvedValue([
-			{
-				output: {
-					id: "out-1",
-					organizationId: "org-1",
-					workspaceId: null,
-					kind: "document",
-					title: "Protected",
-					status: "active",
-					currentRevisionId: "rev-1",
-					createdByKind: "service",
-					createdById: "service-1",
-					createdAt: "2026-09-22T00:00:00.000Z",
-					updatedAt: "2026-09-22T00:00:00.000Z",
-				},
-				revision: {
-					id: "rev-1",
-					organizationId: "org-1",
-					outputId: "out-1",
-					revision: 1,
-					content: "this is deliberately invalid JSON",
-					createdAt: "2026-09-22T00:00:00.000Z",
-				},
-				workspace: null,
-			},
+			indexRow({ outputCreatedByKind: "service", outputCreatedById: "s-1" }),
 		]);
 		const result = await buildOsOutputLibrary({} as never, {
 			organizationId: "org-1",
+			viewer: { userIds: [] },
 			creator: { kind: "user", id: "user-1" },
 			limit: 20,
 			canReadRevision: async () => false,
@@ -74,6 +80,7 @@ describe("buildOsOutputLibrary", () => {
 		expect(result).toMatchObject({
 			items: [
 				{
+					scope: "organization",
 					preview: { kind: "unavailable", reason: "source_access_unavailable" },
 				},
 			],

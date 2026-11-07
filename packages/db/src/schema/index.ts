@@ -56,6 +56,7 @@ export * from "./tenant-tool-policy";
 export * from "./provider-probe-receipts";
 export * from "./os-shares";
 export * from "./os-workspaces";
+export * from "./workspace-feed";
 export * from "./skill-run-effects";
 export * from "./external-agent-identity";
 export * from "./graph-projection";
