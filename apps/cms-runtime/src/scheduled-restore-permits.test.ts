@@ -9,12 +9,15 @@ import {
 } from "@tedix/db/queries/cms-restore-fences";
 import {
 	reconcileScheduledCmsRestorePermits,
+	runScheduledTenantWithPermit,
 	withScheduledCmsRestorePermit,
 } from "./scheduled-restore-permits";
+import { tenantRuntimeEntrypointModule } from "./index";
 
 const bindings = env as unknown as {
 	PLATFORM_DB: D1Database;
 	RECOVERY_STORAGE: R2Bucket;
+	LOADER: WorkerLoader;
 };
 const db = createDbQueryClient(bindings.PLATFORM_DB);
 const storage = bindings.RECOVERY_STORAGE;
@@ -232,5 +235,105 @@ describe("scheduled restore permit ownership", () => {
 			else await expect(reconciliation).rejects.toThrow("completion invalid");
 			expect(await countCmsRestorePermitsForSite(db, identity.siteId)).toBe(1);
 		}
+	});
+});
+
+function tenant(source: string) {
+	const worker = bindings.LOADER.get(
+		`scheduled-permit-tenant:${crypto.randomUUID()}`,
+		() => ({
+			compatibilityDate: "2026-05-14",
+			mainModule: "entry.mjs",
+			modules: {
+				"entry.mjs": tenantRuntimeEntrypointModule("./handler.mjs"),
+				"handler.mjs": { js: source },
+			},
+		}),
+	);
+	const entrypoint = worker.getEntrypoint() as unknown as {
+		ready(): Promise<true>;
+		scheduled(
+			controller: ScheduledController,
+		): Promise<{ ok: true } | { ok: false; error: string }>;
+	};
+	return {
+		ready: () => entrypoint.ready(),
+		scheduled: () =>
+			entrypoint.scheduled({
+				cron: "* * * * *",
+				scheduledTime: Date.now(),
+			} as ScheduledController),
+	};
+}
+
+describe("scheduled tenant runs", () => {
+	test("a bundle that fails to start holds no permit and never blocks capture", async () => {
+		const identity = await site();
+		await expect(
+			runScheduledTenantWithPermit(
+				db,
+				storage,
+				identity,
+				tenant(`throw new Error("bundle broken"); export default {};`),
+			),
+		).rejects.toThrow();
+		expect(await countCmsRestorePermitsForSite(db, identity.siteId)).toBe(0);
+		const capture = { ...identity, captureId: "capture" };
+		expect(await claimCmsCaptureCronPause(db, capture)).toBe(true);
+		expect(await drainCmsCaptureCronPause(db, capture)).toBe(true);
+	});
+
+	test("never starts the handler when the isolate is not ready", async () => {
+		const identity = await site();
+		const scheduled = vi.fn();
+		await expect(
+			runScheduledTenantWithPermit(db, storage, identity, {
+				ready: async () => {
+					throw new Error("loader factory failed");
+				},
+				scheduled,
+			}),
+		).rejects.toThrow("loader factory failed");
+		expect(scheduled).not.toHaveBeenCalled();
+		expect(await countCmsRestorePermitsForSite(db, identity.siteId)).toBe(0);
+	});
+
+	test("a throwing handler settles through the envelope and releases its permit", async () => {
+		const identity = await site();
+		await expect(
+			runScheduledTenantWithPermit(
+				db,
+				storage,
+				identity,
+				tenant(`export default {
+  scheduled() { throw new Error("handler failed"); },
+};`),
+			),
+		).resolves.toEqual({
+			admitted: true,
+			value: { ok: false, error: "Error: handler failed" },
+		});
+		const capture = { ...identity, captureId: "capture" };
+		expect(await claimCmsCaptureCronPause(db, capture)).toBe(true);
+		expect(await drainCmsCaptureCronPause(db, capture)).toBe(true);
+	});
+
+	test("keeps blocking capture when the handler RPC itself is lost", async () => {
+		const identity = await site();
+		const started = tenant(`export default { scheduled() {} };`);
+		await expect(
+			runScheduledTenantWithPermit(db, storage, identity, {
+				ready: started.ready,
+				scheduled: async () => {
+					throw new Error("tenant isolate exceeded its CPU limit");
+				},
+			}),
+		).rejects.toThrow("CPU limit");
+		expect(
+			await reconcileScheduledCmsRestorePermits(db, storage, identity),
+		).toBe(0);
+		const capture = { ...identity, captureId: "capture" };
+		expect(await claimCmsCaptureCronPause(db, capture)).toBe(true);
+		expect(await drainCmsCaptureCronPause(db, capture)).toBe(false);
 	});
 });
