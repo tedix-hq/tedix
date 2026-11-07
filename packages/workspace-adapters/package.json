@@ -1,0 +1,29 @@
+{
+	"name": "@tedix/workspace-adapters",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Runtime-neutral memory, accountability and compliance contracts shared by workspace objects and the MCP gateway.",
+	"license": "Apache-2.0",
+	"type": "module",
+	"exports": {
+		"./types": "./src/types.ts",
+		"./compliance": "./src/compliance.ts",
+		"./hash": "./src/hash.ts",
+		"./wrap-binding": "./src/wrap-binding.ts",
+		"./in-memory": "./src/in-memory.ts"
+	},
+	"scripts": {
+		"clean": "true",
+		"test": "vp test run",
+		"test:run": "vp test run",
+		"test:ci": "bun run test:run",
+		"test:watch": "vp test",
+		"type-check": "tsc --noEmit"
+	},
+	"devDependencies": {
+		"@tedix/tsconfig": "workspace:*",
+		"typescript": "catalog:",
+		"vite": "catalog:",
+		"vite-plus": "catalog:"
+	}
+}

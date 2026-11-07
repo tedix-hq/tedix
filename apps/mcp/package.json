@@ -38,6 +38,7 @@
 		"@tedix/tedi-codemode-core": "workspace:*",
 		"@tedix/tenant-directory": "workspace:*",
 		"@tedix/worker-kit": "workspace:*",
+		"@tedix/workspace-adapters": "workspace:*",
 		"@x402/core": "catalog:",
 		"@x402/evm": "catalog:",
 		"acorn": "8.19.0",

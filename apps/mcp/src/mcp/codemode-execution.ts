@@ -56,10 +56,8 @@ import {
 	trackMcpEvent,
 	emitMcpAuditEvent,
 } from "./utils/analytics";
-import {
-	toolRiskAuditMetadata,
-	enforceToolRiskRateLimit,
-} from "./tool-risk-policy";
+import { toolRiskAuditMetadata } from "./tool-risk-policy";
+import { admitGatewayCall } from "./gateway-adapters";
 import { resolveWireAnnotations } from "./tool-registration-policy";
 import { type NamespaceGroup } from "@tedix/mcp-shared/compact-types";
 import { hasNoFundsRestriction, isNoFundsToolDenied } from "./no-funds-policy";
@@ -73,11 +71,8 @@ import {
 	type ResultStrategy,
 } from "@tedix/api-contract/schemas/tools";
 import {
-	enforceExpectedAnnotations,
 	callToolResultText,
 	isApprovedReplayCall,
-	requireDestructiveToolApproval,
-	stripDestructiveApprovalArgs,
 	withDestructiveApprovalSchema,
 } from "./governance";
 import { isModernMcpRequest } from "@tedix/mcp-shared/protocol";
@@ -480,22 +475,6 @@ export function buildNamespaceGroups(
 				// annotations at all. So the declaration was inert on the one path
 				// tedis actually execute on, which is the gateway-native default.
 				const declaredAnnotations = resolveWireAnnotations(tool);
-				const annotationFailure = enforceExpectedAnnotations(
-					serverCtx,
-					tool,
-					declaredAnnotations,
-					inlineExtra,
-				);
-				if (annotationFailure) {
-					throw new Error(callToolResultText(annotationFailure));
-				}
-				const riskRateLimitFailure = await enforceToolRiskRateLimit(
-					serverCtx,
-					tool,
-				);
-				if (riskRateLimitFailure) {
-					throw new Error(callToolResultText(riskRateLimitFailure));
-				}
 				const approvalExtra = {
 					_meta: {
 						...executionRefs.approvalExtra?._meta,
@@ -507,11 +486,14 @@ export function buildNamespaceGroups(
 							: {}),
 					},
 				};
-				const approvalFailure = await requireDestructiveToolApproval(
-					serverCtx,
+				const admission = await admitGatewayCall({
+					agent: serverCtx,
 					tool,
-					declaredAnnotations,
-					{
+					annotations: declaredAnnotations,
+					args: toolArgs,
+					toolName: `${ns}.${safeName}`,
+					surface: "mcp_codemode",
+					approval: {
 						toolName: `${ns}.${safeName}`,
 						// Replaying a partially executed program could repeat writes.
 						allowSyncMrtr:
@@ -531,14 +513,14 @@ export function buildNamespaceGroups(
 								)
 							: undefined,
 					},
-				);
-				if (approvalFailure) {
-					if (approvalFailure._meta?.[INPUT_REQUIRED_META_KEY]) {
-						executionRefs.approvalResult = approvalFailure;
+				});
+				if (admission.failure) {
+					if (admission.failure._meta?.[INPUT_REQUIRED_META_KEY]) {
+						executionRefs.approvalResult = admission.failure;
 					}
-					throw new Error(callToolResultText(approvalFailure));
+					throw new Error(callToolResultText(admission.failure));
 				}
-				const executionArgs = stripDestructiveApprovalArgs(tool, toolArgs);
+				const { executionArgs } = admission;
 
 				const payment = await checkToolPayment({
 					agent: serverCtx,
@@ -641,6 +623,15 @@ export function buildNamespaceGroups(
 					throw err;
 				} finally {
 					const durationMs = Date.now() - rpcStart;
+					await admission.settle(
+						rpcSuccess
+							? { status: "applied", durationMs }
+							: {
+									status: "not_applied",
+									error: "inner_tool_failed",
+									durationMs,
+								},
+					);
 					executionRefs.rpcNamespaces.add(ns);
 					writeCodeModeLog(() =>
 						console.log(
