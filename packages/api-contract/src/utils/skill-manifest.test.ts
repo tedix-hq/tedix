@@ -426,9 +426,26 @@ describe("readSkillToolRefs", () => {
 		).toEqual(["work", "cto.run_skill_workflow"]);
 	});
 
-	test("returns nothing without frontmatter tools", () => {
+	test("returns nothing without frontmatter tools or body calls", () => {
 		expect(readSkillToolRefs("# No frontmatter")).toEqual([]);
 		expect(readSkillToolRefs("---\nname: x\n---\n")).toEqual([]);
 		expect(readSkillToolRefs("---\nname: x…\n[summary view]")).toEqual([]);
+	});
+
+	test("falls back to the callables the body calls when no tools are declared", () => {
+		const body =
+			"---\nname: x\n---\n# Review\n\nRun `work.list_work_items({ limit: 5 })`, then\n" +
+			"```js\nconst r = await tedix_unified_github.create_pull_request({ owner });\nconsole.log(r); JSON.stringify(r); items.map(x => x);\n```\n" +
+			"See e.g. work.list_work_items( again (i.e. once).";
+		expect(readSkillToolRefs(body)).toEqual([
+			"work.list_work_items",
+			"tedix_unified_github.create_pull_request",
+		]);
+		// A declared list is the author's word and wins over mentions.
+		expect(
+			readSkillToolRefs(
+				"---\ntools: google_gmail\n---\nwork.list_work_items()",
+			),
+		).toEqual(["google_gmail"]);
 	});
 });
