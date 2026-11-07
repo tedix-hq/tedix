@@ -11,7 +11,11 @@ import {
 import worker from "./index";
 import { handleMcpRequest } from "./mcp-request";
 import { SIDEBAR_APP_WIDGET_DESCRIPTION } from "./mcp/sidebar-app";
-import { resolveHumanMcpSelection, validateAuth } from "./auth-helpers";
+import {
+	resolveAihM2mClientScopeContext,
+	resolveHumanMcpSelection,
+	validateAuth,
+} from "./auth-helpers";
 
 const { resolveGateway } = vi.hoisted(() => ({ resolveGateway: vi.fn() }));
 vi.mock("./resolution", async (importOriginal) => ({
@@ -48,6 +52,71 @@ function createEnv(overrides: Record<string, unknown> = {}) {
 		...overrides,
 	} as unknown as CloudflareEnv;
 }
+
+it("refuses failed machine hydration before human grant checks or tool dispatch", async () => {
+	resolveGateway.mockResolvedValue({
+		app: {
+			id: "fixture-app",
+			slug: "fixture",
+			name: "Fixture",
+			organizationId: "fixture-org",
+		},
+		metadata: {
+			mcpConfig: {
+				authMode: "authenticated",
+				descopeResourceId: "fixture-resource",
+			},
+		},
+		tools: [],
+	});
+	vi.mocked(validateAuth).mockResolvedValueOnce({
+		type: "oauth",
+		userId: "agent-record",
+		scopes: [],
+		payload: {
+			sub: "agent-record",
+			azp: "agent-client",
+			iss: "fixture-issuer",
+			exp: 2000000000,
+		},
+	});
+	vi.mocked(resolveAihM2mClientScopeContext).mockRejectedValueOnce(
+		new Error("registration unavailable"),
+	);
+	const grantChecks = vi.mocked(resolveHumanMcpSelection).mock.calls.length;
+	const apiFetch = vi.fn();
+	const response = await worker.fetch(
+		new Request("https://fixture.mcp.tedix.dev/mcp", {
+			method: "POST",
+			headers: {
+				Authorization: "Bearer fixture",
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				jsonrpc: "2.0",
+				id: 1,
+				method: "tools/call",
+				params: { name: "heartbeat_work_item_attempt", arguments: {} },
+			}),
+		}),
+		createEnv({
+			ENVIRONMENT: "production",
+			DESCOPE_PROJECT_ID: "Pfixture",
+			MCP_URL: "https://mcp.tedix.dev",
+			API_SERVICE: { fetch: apiFetch },
+		}),
+		{ waitUntil: vi.fn() } as unknown as ExecutionContext,
+	);
+	expect(response.status).toBe(503);
+	expect(response.headers.get("Retry-After")).toBeTruthy();
+	expect(await response.json()).toMatchObject({
+		error: "external_agent_validation_unavailable",
+	});
+	expect(vi.mocked(resolveHumanMcpSelection).mock.calls).toHaveLength(
+		grantChecks,
+	);
+	expect(apiFetch).not.toHaveBeenCalled();
+});
 
 describe("human MCP consent scope ceiling", () => {
 	it("denies an admin tool when the refreshed token exceeds the stored consent", async () => {

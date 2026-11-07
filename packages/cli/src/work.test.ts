@@ -2898,14 +2898,64 @@ describe("heartbeat watch credential revocation", () => {
 		expect(sources).toHaveLength(3);
 	});
 
-	test("does not renew a one-shot heartbeat or a login without a credential cache", async () => {
-		const oneShot = watchContext(inactive);
+	test.each(["external_agent_inactive", "human_mcp_grant_invalid"])(
+		"renews a one-shot heartbeat once after %s with the same Attempt",
+		async (code) => {
+			const oneShot = watchContext((call) => {
+				if (call === 1) throw new Error(`MCP tools/call error: ${code}`);
+				return renewed();
+			});
+			oneShot.ctx.work.watch = undefined;
+			expect((await capture(`heartbeat ${ITEM}`, oneShot.ctx)).code).toBe(0);
+			expect(oneShot.discarded).toEqual([1]);
+			expect(oneShot.sources).toHaveLength(2);
+			for (const source of oneShot.sources) expect(source).toContain(ATTEMPT);
+		},
+	);
+
+	test("replays an hour of heartbeats with invalid grants every five minutes", async () => {
+		let now = 0;
+		let rejectedAt = -1;
+		const discarded: number[] = [];
+		const { ctx, sources } = makeContext({ watch: 3600 }, ATTEMPT, () => {
+			if (now > 0 && now % 300_000 === 0 && rejectedAt !== now) {
+				rejectedAt = now;
+				throw new Error('MCP tools/call error: "human_mcp_grant_invalid"');
+			}
+			return { expiresAt: new Date(now + 300_000).toISOString() };
+		});
+		ctx.heartbeatClock = {
+			now: () => now,
+			wait: async (ms) => {
+				now += ms;
+			},
+		};
+		ctx.discardCredential = () => discarded.push(now);
+		expect((await capture(`heartbeat ${ITEM}`, ctx)).code).toBe(0);
+		expect(now).toBe(3_600_000);
+		expect(discarded).toEqual(
+			Array.from({ length: 11 }, (_, i) => (i + 1) * 300_000),
+		);
+		expect(sources).toHaveLength(131);
+		for (const source of sources) {
+			expect(source).toContain("heartbeat_work_item_attempt");
+			expect(source).toContain(ATTEMPT);
+		}
+	});
+
+	test("stops a one-shot heartbeat after a second invalid grant", async () => {
+		const oneShot = watchContext(() => {
+			throw new Error("human_mcp_grant_invalid");
+		});
 		oneShot.ctx.work.watch = undefined;
 		expect((await capture(`heartbeat ${ITEM}`, oneShot.ctx)).code).toBe(
 			WORK_EXIT_FAIL,
 		);
-		expect(oneShot.discarded).toEqual([]);
+		expect(oneShot.discarded).toEqual([1]);
+		expect(oneShot.sources).toHaveLength(2);
+	});
 
+	test("does not renew a login without an external-agent credential cache", async () => {
 		const login = watchContext((call) => (call === 1 ? renewed() : inactive()));
 		login.ctx.discardCredential = undefined;
 		expect((await capture(`heartbeat ${ITEM}`, login.ctx)).code).toBe(

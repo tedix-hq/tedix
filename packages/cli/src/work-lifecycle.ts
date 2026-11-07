@@ -30,18 +30,13 @@ import {
 } from "./work-queries";
 import type { WorkContext } from "./work";
 
-/**
- * The MCP edge's answer when the presented external-agent credential, its
- * session or its principal binding is no longer active. It reaches the CLI
- * embedded in gateway error text rather than as a typed code.
- */
-function isExternalAgentInactive(error: {
+/** Older gateways can misclassify an unresolved machine token as a human grant. */
+function isHeartbeatCredentialRejected(error: {
 	code?: string;
 	message: string;
 }): boolean {
-	return (
-		error.code === "external_agent_inactive" ||
-		error.message.includes("external_agent_inactive")
+	return ["external_agent_inactive", "human_mcp_grant_invalid"].some(
+		(code) => error.code === code || error.message.includes(code),
 	);
 }
 
@@ -255,20 +250,16 @@ export async function workHeartbeat(
 			// The gateway can revoke a credential before its cached expiry. Drop it
 			// once so the next call exchanges a fresh one for the same session and
 			// Attempt; a second consecutive rejection still stops the watch.
-			if (
-				ctx.work.watch !== undefined &&
-				isExternalAgentInactive(touch.error)
-			) {
+			if (isHeartbeatCredentialRejected(touch.error)) {
 				if (ctx.discardCredential && !credentialRenewed) {
 					credentialRenewed = true;
 					ctx.discardCredential();
 					console.error(
-						"Heartbeat credential was rejected as inactive; retrying the same Attempt with a fresh credential.",
+						"Heartbeat credential was rejected; retrying the same Attempt with a fresh credential.",
 					);
 					continue;
 				}
-				const message =
-					"Heartbeat credential was rejected as inactive again after renewal; watch stopped.";
+				const message = "Heartbeat credential could not be renewed; stopped.";
 				return fail(ctx, { ...touch.error, message }, message);
 			}
 			const rateLimited =

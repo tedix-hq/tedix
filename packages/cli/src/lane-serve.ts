@@ -1367,11 +1367,17 @@ export class LaneDispatcher {
 		session?: string,
 		executorKey?: string,
 	): Promise<T> {
-		const env = {
+		const env: NodeJS.ProcessEnv = {
 			...this.ownerEnv,
 			...(session ? { TEDIX_AGENT_SESSION: session } : {}),
 			...(executorKey ? { TEDIX_EXTERNAL_AGENT: executorKey } : {}),
 		};
+		// Explicit MCP credentials outrank the agent selector in resolveAuth.
+		// Attempt calls must use the admitted executor, never an owner's override.
+		if (executorKey) {
+			delete env.TEDIX_MCP_BEARER_TOKEN;
+			delete env.TEDIX_MCP_API_KEY;
+		}
 		return this.queue(
 			() =>
 				this.deps.cli<T>([...this.options.scope, ...args], env, undefined, () =>

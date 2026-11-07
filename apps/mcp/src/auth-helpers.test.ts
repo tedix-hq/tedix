@@ -1982,12 +1982,13 @@ describe("resolveAihM2mClientScopeContext", () => {
 			API_SERVICE: { fetch },
 		} as unknown as CloudflareEnv & { API_SERVICE: { fetch: typeof fetch } };
 
-		const first = await resolveAihM2mClientScopeContext(
-			env,
-			{ sub: "client-record-err", client_id: "client-err" },
-			"server-err",
-		);
-		expect(first).toBeNull();
+		await expect(
+			resolveAihM2mClientScopeContext(
+				env,
+				{ sub: "client-record-err", client_id: "client-err" },
+				"server-err",
+			),
+		).rejects.toThrow();
 
 		// The error result must not be cached: the next call re-queries and wins.
 		const second = await resolveAihM2mClientScopeContext(
@@ -1997,6 +1998,42 @@ describe("resolveAihM2mClientScopeContext", () => {
 		);
 		expect(second?.clientRecordId).toBe("client-record-err");
 		expect(fetch).toHaveBeenCalledTimes(2);
+	});
+
+	it("preserves machine identity lookup failure after five-minute cache expiry", async () => {
+		let now = Date.now();
+		vi.spyOn(Date, "now").mockImplementation(() => now);
+		const env = envWithClients([
+			{
+				id: "agent-record",
+				clientId: "agent-client",
+				scopes: ["mcp:work.write"],
+				tags: [
+					"external-agent",
+					"external-agent-org:11111111-1111-4111-8111-111111111111",
+					"external-agent-principal:22222222-2222-4222-8222-222222222222",
+					"external-agent-session:33333333-3333-4333-8333-333333333333",
+				],
+			},
+		]);
+		const payload = { sub: "agent-record", azp: "agent-client" };
+		const read = () =>
+			resolveAihM2mClientScopeContext(env, payload, "agent-server");
+		const active = await read();
+		expect(active?.externalAgent?.sessionId).toBe(
+			"33333333-3333-4333-8333-333333333333",
+		);
+		now += 299_999;
+		expect(await read()).toEqual(active);
+		expect(env.API_SERVICE.fetch).toHaveBeenCalledTimes(1);
+		now += 1;
+		env.API_SERVICE.fetch.mockRejectedValueOnce(
+			new Error("registration lookup unavailable"),
+		);
+		await expect(read()).rejects.toThrow("registration lookup unavailable");
+		// No stale authority and no cached null: the next lookup must recover.
+		expect(await read()).toEqual(active);
+		expect(env.API_SERVICE.fetch).toHaveBeenCalledTimes(3);
 	});
 
 	it("caches a genuine miss only briefly, re-querying after the short TTL", async () => {

@@ -1045,11 +1045,9 @@ export async function resolveAihM2mClientScopeContext(
 			outcome: "unavailable",
 			error,
 		});
-		// Transient search failure — the lookup itself failed, which says nothing
-		// about the client. Do not cache: caching null here would poison the
-		// isolate for the full TTL and reject valid CLI-minted M2M credentials
-		// with tenant_mismatch. Same resolved/unresolved rule as lib/tenant-match.ts.
-		return null;
+		// A failed lookup is not a human credential. Propagate without caching so
+		// the edge refuses before dispatch instead of validating a human grant.
+		throw error;
 	}
 
 	// A hit keeps the full TTL; a genuine miss caches only briefly to tolerate
