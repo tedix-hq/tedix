@@ -214,6 +214,7 @@ const QUIET_CONTROLS = {
 	later: "[data-deck-later]",
 	notUseful: "[data-deck-not-useful] > button",
 	why: ".fd-card-why button",
+	steward: "[data-deck-steward]",
 } as const;
 
 /*
@@ -575,6 +576,7 @@ export function WorkDecisionCard({
 		later: false,
 		notUseful: false,
 		why: false,
+		steward: false,
 	});
 	const quietControl = (name: keyof typeof QUIET_CONTROLS) =>
 		footer.current?.querySelector<HTMLElement>(QUIET_CONTROLS[name]) ?? null;
@@ -1654,6 +1656,7 @@ export function WorkDecisionCard({
 												later: Boolean(quietControl("later")),
 												notUseful: Boolean(quietControl("notUseful")),
 												why: Boolean(quietControl("why")),
+												steward: Boolean(quietControl("steward")),
 											});
 									}}
 								>
@@ -1694,6 +1697,13 @@ export function WorkDecisionCard({
 										{!disabled && !secureConnection && !feedbackOpen && (
 											<DropdownMenuItem onClick={() => setFeedbackOpen(true)}>
 												{decisionText("Give feedback")}
+											</DropdownMenuItem>
+										)}
+										{quiet.steward && (
+											<DropdownMenuItem
+												onClick={() => quietControl("steward")?.click()}
+											>
+												{decisionText("Let the CTO tedi decide")}
 											</DropdownMenuItem>
 										)}
 										{quiet.later && !outcomeRow && (
