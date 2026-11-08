@@ -40,7 +40,10 @@ class FakeSocket implements SocketLike {
 
 type Timer = { callback: () => void; at: number; id: number };
 
-function harness(laneAvailable: boolean | null = true) {
+function harness(
+	laneAvailable: boolean | null = true,
+	onOutputChanged?: () => void,
+) {
 	const sockets: FakeSocket[] = [];
 	let now = 1_000_000;
 	let timers: Timer[] = [];
@@ -49,6 +52,7 @@ function harness(laneAvailable: boolean | null = true) {
 		workspaceId: "ws-1",
 		conversationId: "c1",
 		origin: "http://localhost",
+		onOutputChanged,
 		createSocket: () => {
 			const socket = new FakeSocket();
 			sockets.push(socket);
@@ -393,6 +397,136 @@ describe("createWorkspaceChatClient", () => {
 			hasMore: true,
 		});
 		expect(client.getSnapshot().state.hasEarlier).toBe(false);
+	});
+
+	it("refreshes outputs only after an approved write succeeds, including its finished original turn", () => {
+		let changes = 0;
+		const { sockets, hello } = harness(true, () => {
+			changes += 1;
+		});
+		const socket = sockets[0]!;
+		socket.open();
+		hello(socket);
+		const start: Extract<WorkspaceChatServerMessage, { type: "step.started" }> =
+			{
+				type: "step.started",
+				seq: 1,
+				at: "2026-11-07T12:00:00.000Z",
+				conversationId: "c1",
+				turnId: "original",
+				stepId: "held",
+				kind: "write",
+				tool: "outputs.create",
+				label: "Create document",
+			};
+		socket.receive(start);
+		socket.receive({
+			type: "approval.requested",
+			seq: 2,
+			at: start.at,
+			conversationId: "c1",
+			turnId: "original",
+			stepId: "held",
+			approvalId: "a1",
+			title: "Create document",
+			reason: "Approval required",
+		});
+		socket.receive({
+			type: "step.finished",
+			seq: 3,
+			at: start.at,
+			conversationId: "c1",
+			turnId: "original",
+			stepId: "held",
+			status: "error",
+			durationMs: 1,
+		});
+		socket.receive({
+			type: "turn.finished",
+			seq: 4,
+			at: start.at,
+			conversationId: "c1",
+			turnId: "original",
+			status: "done",
+			durationMs: 1,
+		});
+		socket.receive({
+			type: "approval.decided",
+			seq: 5,
+			at: start.at,
+			conversationId: "c1",
+			approvalId: "a1",
+			decision: "approve",
+			by: "person",
+		});
+		expect(changes).toBe(0);
+		socket.receive({ ...start, seq: 6, stepId: "applied" });
+		const finished: Extract<
+			WorkspaceChatServerMessage,
+			{ type: "step.finished" }
+		> = {
+			type: "step.finished",
+			seq: 7,
+			at: start.at,
+			conversationId: "c1",
+			turnId: "original",
+			stepId: "applied",
+			status: "ok",
+			durationMs: 1,
+		};
+		socket.receive(finished);
+		expect(changes).toBe(1);
+		socket.receive(finished);
+		socket.receive({
+			...start,
+			seq: 8,
+			stepId: "read",
+			kind: "read",
+			tool: "outputs.list",
+		});
+		socket.receive({ ...finished, seq: 9, stepId: "read" });
+		expect(changes).toBe(1);
+	});
+
+	it("recognizes successful output writes when earlier pages supply step metadata later", () => {
+		let changes = 0;
+		const { sockets, hello } = harness(true, () => {
+			changes += 1;
+		});
+		const socket = sockets[0]!;
+		socket.open();
+		hello(socket);
+		const at = "2026-11-07T12:00:00.000Z";
+		socket.receive({
+			type: "step.finished",
+			seq: 2,
+			at,
+			conversationId: "c1",
+			turnId: "t1",
+			stepId: "write",
+			status: "ok",
+			durationMs: 1,
+		});
+		expect(changes).toBe(0);
+		socket.receive({
+			type: "ledger.page",
+			conversationId: "c1",
+			hasMore: false,
+			events: [
+				{
+					type: "step.started",
+					seq: 1,
+					at,
+					conversationId: "c1",
+					turnId: "t1",
+					stepId: "write",
+					kind: "write",
+					tool: "outputs.revise",
+					label: "Revise document",
+				},
+			],
+		});
+		expect(changes).toBe(1);
 	});
 
 	it("posts approval decisions and cancellations to the object", () => {

@@ -30,7 +30,10 @@ export function useWorkspaceChat(
 	workspaceId: string,
 	conversationId: string | null,
 	createClient: typeof createWorkspaceChatClient = createWorkspaceChatClient,
+	onOutputChanged?: () => void,
 ): WorkspaceChatHandle {
+	const outputChanged = useRef(onOutputChanged);
+	outputChanged.current = onOutputChanged;
 	const live = useRef<{
 		workspaceId: string;
 		client: WorkspaceChatClient;
@@ -48,7 +51,11 @@ export function useWorkspaceChat(
 		previous?.client.close();
 		live.current = {
 			workspaceId,
-			client: createClient({ workspaceId, conversationId }),
+			client: createClient({
+				workspaceId,
+				conversationId,
+				onOutputChanged: () => outputChanged.current?.(),
+			}),
 		};
 		rerender();
 	}, [workspaceId, conversationId, createClient]);
