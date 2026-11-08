@@ -132,8 +132,23 @@ The core ledger remains the sequence owner while both stores accept output
 writes. Output recovery reads immutable revision history ten revisions at a
 time, so notification coalescing does not drop intermediate file saves. Titles
 and lifecycle metadata describe the output when recovered; revision authors and
-timestamps come from each saved revision. This is not a history of every
-metadata transition, streamed token or conversation step.
+timestamps come from each saved revision.
+
+New workspace-object metadata updates and conversation lifecycle events also
+append sanitized source records beside the chat ledger. These survive chat
+retention and retry from their own checkpoint. `replayActivity` and
+`reconcileActivity` accept `source: "events"` for this independent sequence;
+the default remains binding records. Continue each source separately from its
+returned `lastSequence`. Conversation records include completed messages,
+steps, approvals and turn outcomes, never message text, titles, arguments,
+errors, token deltas or model/usage receipts. Turn starts identify the requester;
+agent execution identifies the tedi when known, otherwise the workspace service.
+Metadata RPCs currently carry no requester identity, so their execution is
+attributed to the service. Metadata values stay private; the activity records
+the operation and revision link, including intermediate updates during outages.
+Delivery runs on the workspace alarm or the next binding/output flush. This
+does not reconstruct transitions or conversation events from before capture,
+cover core-only metadata writers, or prove a universal action history.
 
 The activity API returns `coverage: "recorded_only"`. It filters current
 workspace visibility and checks both the historical and current revision's

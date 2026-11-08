@@ -4,7 +4,10 @@
  * agent turn itself: the model streams here, its code runs in a no-network
  * sandbox whose `env` loops straight back into this object's wrapped bindings.
  */
-import { WorkspaceChangeActorSchema } from "@tedix/api-contract/schemas/workspace-feed";
+import {
+	WorkspaceChangeActorSchema,
+	type WorkspaceChangeInput,
+} from "@tedix/api-contract/schemas/workspace-feed";
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import type { Message } from "@earendil-works/pi-ai";
 import { createDbClient } from "@tedix/db/client";
@@ -42,6 +45,7 @@ import { resolveAttachments } from "./attachments";
 import { TenantDataPort } from "./data-port-tenant";
 import { BINDING_NAMES, type BindingName } from "./declarations";
 import { SqlEventLedger } from "./event-ledger";
+import { SqlActivityRecords } from "./activity-records";
 import type {
 	ActorKind,
 	TurnRequest,
@@ -73,6 +77,12 @@ export const COMPATIBILITY_DATE = "2026-05-14";
 /** Turns with more history than this run in their own facet. */
 export const ISOLATE_AFTER_MESSAGES = 40;
 const KEEPALIVE_MS = 60_000;
+
+interface ActivityPageInput {
+	afterSequence?: number;
+	limit?: number;
+	source?: "bindings" | "events";
+}
 
 const CHAT_SCHEMA = `
 CREATE TABLE IF NOT EXISTS conversations (
@@ -210,6 +220,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	readonly #store: WorkspaceStorage;
 	readonly #events: SqlEventLedger;
 	readonly #ledger: SqlAccountabilityAdapter;
+	readonly #activityRecords: SqlActivityRecords;
 	readonly #compliance: SqlComplianceAdapter;
 	#outputSerial: Promise<void> = Promise.resolve();
 	#activitySerial: Promise<void> = Promise.resolve();
@@ -220,9 +231,11 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		super(ctx, env, tenantStoreDefinition);
 		this.#store = sqlStorage(ctx.storage);
 		this.#store.run(CHAT_SCHEMA);
-		this.#events = new SqlEventLedger(this.#store, (event) =>
-			this.#push(event),
-		);
+		this.#activityRecords = new SqlActivityRecords(this.#store);
+		this.#events = new SqlEventLedger(this.#store, (event) => {
+			this.#recordConversationActivity(event);
+			this.#push(event);
+		});
 		this.#ledger = new SqlAccountabilityAdapter(this.#store);
 		this.#compliance = new SqlComplianceAdapter(this.#store, {
 			writesNeedApproval: true,
@@ -263,8 +276,43 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					: operation.op === "update" || operation.op === "delete"
 						? operation.outputId
 						: null;
-		const write = () =>
-			executeOutputQuery(this.db as TenantStoreDb, scope, query);
+		const write = async () => {
+			const result = await executeOutputQuery(
+				this.db as TenantStoreDb,
+				scope,
+				query,
+			);
+			if (operation.op === "update" && result) {
+				const row = result as OutputQueryResult<"update">;
+				if (row?.currentRevisionId) {
+					// This RPC carries no requesting actor; attribute execution to the service.
+					this.#activityRecords.append({
+						...scope,
+						kind: "run",
+						id: operation.outputId,
+						revision: 1,
+						actor: { kind: "service", id: "workspace_object" },
+						changeRecordId: crypto.randomUUID(),
+						at: row.updatedAt,
+						summary: {
+							action: {
+								resource: "outputs",
+								operation:
+									operation.patch.status === "archived"
+										? "archive"
+										: operation.patch.status === "active"
+											? "restore"
+											: "update_metadata",
+								outcome: "applied",
+								surface: "workspace_object",
+								revisionId: row.currentRevisionId,
+							},
+						},
+					});
+				}
+			}
+			return result;
+		};
 		return outputId ? this.#commitOutput(scope, outputId, write) : write();
 	}
 
@@ -304,6 +352,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				seq: admitted.first_seq ?? this.#events.latestSeq(),
 			};
 		const now = new Date().toISOString();
+		this.#store.put("activity-scope", scope);
 		const conversationId = this.#ensureConversation(
 			input.conversationId ?? null,
 			text,
@@ -798,7 +847,11 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					afterSequence: this.#store.get<number>("activity-sequence") ?? 0,
 					limit: 1,
 				})
-			).length > 0
+			).length > 0 ||
+			this.#activityRecords.list({
+				afterSequence: this.#store.get<number>("event-activity-sequence") ?? 0,
+				limit: 1,
+			}).length > 0
 		) {
 			await this.ctx.storage.setAlarm(Date.now() + KEEPALIVE_MS);
 			return;
@@ -829,8 +882,71 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				await this.projectAction(scope, record);
 				this.#store.put("activity-sequence", record.sequence);
 			}
+			for (const record of this.#activityRecords.list({
+				afterSequence: this.#store.get<number>("event-activity-sequence") ?? 0,
+			})) {
+				await this.projectEvent(record.event);
+				this.#store.put("event-activity-sequence", record.sequence);
+			}
 		}).catch((error) => {
 			console.error("Workspace activity queued for retry", error);
+		});
+	}
+
+	protected projectEvent(event: WorkspaceChangeInput): Promise<void> {
+		return publishWorkspaceAction(createDbQueryClient(this.env.DB), event);
+	}
+
+	#recordConversationActivity(event: WireEvent): void {
+		// Token deltas and model/usage receipts remain in the chat ledger only.
+		if (["assistant.delta", "turn.model", "turn.usage"].includes(event.type))
+			return;
+		const scope = this.#store.get<WorkspaceScope>("activity-scope");
+		if (!scope) return;
+		const approval =
+			"approvalId" in event
+				? this.#store.exec<ApprovalRow>(
+						"SELECT * FROM approvals WHERE approval_id = ?",
+						event.approvalId,
+					)[0]
+				: undefined;
+		const turn = event.turnId
+			? this.#turn(event.turnId)
+			: approval
+				? this.#turn(approval.turn_id)
+				: undefined;
+		const actor =
+			event.type === "approval.decided"
+				? { kind: "user" as const, id: event.by }
+				: event.type === "turn.started" && turn
+					? { kind: turn.actor_kind, id: turn.actor_id }
+					: turn?.tedi_id
+						? { kind: "tedi" as const, id: turn.tedi_id }
+						: { kind: "service" as const, id: "workspace_object" };
+		this.#activityRecords.append({
+			...scope,
+			kind: "run",
+			id: turn?.turn_id ?? event.conversationId,
+			revision: 1,
+			actor,
+			changeRecordId: `workspace-event:${event.seq}`,
+			at: event.at,
+			summary: {
+				action: {
+					resource: "conversation",
+					operation: event.type,
+					outcome:
+						(event.type === "turn.finished" && event.status !== "done") ||
+						(event.type === "step.finished" && event.status === "error") ||
+						(event.type === "approval.executed" && event.status === "failed")
+							? "not_applied"
+							: event.type === "approval.decided" && event.decision === "deny"
+								? "denied"
+								: "applied",
+					surface: "workspace_object",
+					...(turn ? { traceId: turn.turn_id } : {}),
+				},
+			},
 		});
 	}
 
@@ -894,6 +1010,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		write: () => Promise<T>,
 	): Promise<T> {
 		return this.#serializeOutput(async () => {
+			this.#store.put("activity-scope", scope);
 			// Persist retry before mutation; deletion and publication share this queue.
 			this.#store.delete(`output-history-before:${outputId}`);
 			this.#store.put("pending-output-projections", {
@@ -905,17 +1022,23 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				return await write();
 			} finally {
 				await this.#flushOutputProjections();
+				await this.#flushActivity();
 			}
 		});
 	}
 
 	/** Bounded repair from durable source records, independent of the delivery checkpoint. */
-	async replayActivity(
-		scope: WorkspaceScope,
-		input: { afterSequence?: number; limit?: number } = {},
-	) {
+	async replayActivity(scope: WorkspaceScope, input: ActivityPageInput = {}) {
 		this.bindScope(scope);
 		return this.#serializeActivity(async () => {
+			if (input.source === "events") {
+				const records = this.#activityRecords.list(input);
+				for (const record of records) await this.projectEvent(record.event);
+				return {
+					published: records.length,
+					lastSequence: records.at(-1)?.sequence ?? input.afterSequence ?? 0,
+				};
+			}
 			const records = await this.#ledger.list(input);
 			for (const record of records) await this.projectAction(scope, record);
 			return {
@@ -927,10 +1050,16 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 
 	async reconcileActivity(
 		scope: WorkspaceScope,
-		input: { afterSequence?: number; limit?: number } = {},
+		input: ActivityPageInput = {},
 	) {
 		this.bindScope(scope);
-		const records = await this.#ledger.list(input);
+		const records =
+			input.source === "events"
+				? this.#activityRecords.list(input).map((record) => ({
+						sequence: record.sequence,
+						id: record.event.changeRecordId,
+					}))
+				: await this.#ledger.list(input);
 		const missing: string[] = [];
 		for (const record of records) {
 			if (
@@ -945,7 +1074,10 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			checked: records.length,
 			missing,
 			lastSequence: records.at(-1)?.sequence ?? input.afterSequence ?? 0,
-			coverage: "recorded_binding_actions" as const,
+			coverage:
+				input.source === "events"
+					? ("recorded_workspace_events" as const)
+					: ("recorded_binding_actions" as const),
 		};
 	}
 
@@ -1602,16 +1734,16 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 export interface WorkspaceRpc {
 	replayActivity(
 		scope: WorkspaceScope,
-		input?: { afterSequence?: number; limit?: number },
+		input?: ActivityPageInput,
 	): Promise<{ published: number; lastSequence: number }>;
 	reconcileActivity(
 		scope: WorkspaceScope,
-		input?: { afterSequence?: number; limit?: number },
+		input?: ActivityPageInput,
 	): Promise<{
 		checked: number;
 		missing: string[];
 		lastSequence: number;
-		coverage: "recorded_binding_actions";
+		coverage: "recorded_binding_actions" | "recorded_workspace_events";
 	}>;
 
 	refreshOutputProjection(

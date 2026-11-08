@@ -41,7 +41,12 @@ const testEnv = env as unknown as WorkspaceEnv & {
 };
 
 type Stub = WorkspaceRpc & {
+	pruneChatLedger(scope: WorkspaceScope): Promise<void>;
 	failNextProjection(scope: WorkspaceScope): Promise<void>;
+	failEventProjection(
+		scope: WorkspaceScope,
+		when: "before" | "after",
+	): Promise<void>;
 	failActionProjection(
 		scope: WorkspaceScope,
 		when: "before" | "after",
@@ -830,6 +835,32 @@ describe("WorkspaceDO", () => {
 			]);
 			expect(records[1]?.before?.revisionId).toBe(revisionId);
 			expect(records[1]?.after?.revisionId).toBeTruthy();
+			await ws.retryProjections(workspaceScope);
+			const lifecycle = await testEnv.DB.prepare(
+				"SELECT actor_kind, actor_id, summary FROM workspace_feed_ledger WHERE workspace_id = ? AND change_record_id LIKE 'workspace-event:%' ORDER BY seq",
+			)
+				.bind(workspaceScope.workspaceId)
+				.all<{ actor_kind: string; actor_id: string; summary: string }>();
+			const actions = lifecycle.results.map((row) => ({
+				...row,
+				action: JSON.parse(row.summary).action,
+			}));
+			for (const operation of [
+				"step.started",
+				"step.finished",
+				"approval.requested",
+				"approval.executed",
+			]) {
+				expect(actions.some((row) => row.action.operation === operation)).toBe(
+					true,
+				);
+			}
+			expect(
+				actions.find((row) => row.action.operation === "approval.decided"),
+			).toMatchObject({ actor_kind: "user", actor_id: "u1" });
+			expect(JSON.stringify(lifecycle.results)).not.toContain(
+				"Approved gadget edit",
+			);
 		},
 	);
 
@@ -1554,7 +1585,7 @@ test.each(["before", "after"] as const)(
 		expect((await ws.reconcileActivity(actionScope)).missing).toEqual([]);
 		await ws.replayActivity(actionScope);
 		const projected = await testEnv.DB.prepare(
-			"SELECT actor_kind, change_record_id FROM workspace_activity WHERE workspace_id = ? AND kind = 'run'",
+			"SELECT actor_kind, change_record_id FROM workspace_activity WHERE workspace_id = ? AND kind = 'run' AND change_record_id NOT LIKE 'workspace-event:%'",
 		)
 			.bind(actionScope.workspaceId)
 			.all();
@@ -1654,4 +1685,169 @@ test("recovers intermediate file revisions when output notifications coalesce", 
 			})
 		)?.revision,
 	).toBe(2);
+});
+
+test.each(["before", "after"] as const)(
+	"repairs sanitized conversation activity after a %s publication failure",
+	async (when) => {
+		await seedCore();
+		const eventScope = { ...scope, workspaceId: crypto.randomUUID() };
+		await seedWorkspaceRows([eventScope]);
+		const ws = workspace(eventScope);
+		await ws.scriptModel(eventScope, [
+			{ text: "Private answer secret-marker" },
+		]);
+		const started = await ws.sendTurn(eventScope, {
+			actorId: "requesting-agent",
+			actorKind: "external_agent",
+			text: "Private question secret-marker",
+		});
+		expect(
+			(await ws.awaitTurn(eventScope, started.turnId, 20_000)).status,
+		).toBe("finished");
+		const source = { source: "events" as const };
+		const before = await ws.reconcileActivity(eventScope, source);
+		expect(before).toMatchObject({
+			checked: 4,
+			coverage: "recorded_workspace_events",
+		});
+		expect(before.missing).toHaveLength(4);
+		await ws.failEventProjection(eventScope, when);
+		await ws.retryProjections(eventScope);
+		expect(
+			(await ws.reconcileActivity(eventScope, source)).missing,
+		).toHaveLength(when === "before" ? 4 : 3);
+		await ws.retryProjections(eventScope);
+		expect((await ws.reconcileActivity(eventScope, source)).missing).toEqual(
+			[],
+		);
+		const page = await ws.replayActivity(eventScope, { ...source, limit: 2 });
+		expect(page.published).toBe(2);
+		expect(
+			(
+				await ws.replayActivity(eventScope, {
+					...source,
+					afterSequence: page.lastSequence,
+				})
+			).published,
+		).toBe(2);
+		const projected = await testEnv.DB.prepare(
+			"SELECT actor_kind, actor_id, change_record_id, summary FROM workspace_feed_ledger WHERE workspace_id = ? ORDER BY seq",
+		)
+			.bind(eventScope.workspaceId)
+			.all<{
+				actor_kind: string;
+				actor_id: string;
+				change_record_id: string;
+				summary: string;
+			}>();
+		expect(projected.results).toHaveLength(4);
+		expect(
+			projected.results.map((row) => JSON.parse(row.summary).action.operation),
+		).toEqual([
+			"conversation.updated",
+			"turn.started",
+			"assistant.done",
+			"turn.finished",
+		]);
+		expect(projected.results[1]).toMatchObject({
+			actor_kind: "external_agent",
+			actor_id: "requesting-agent",
+		});
+		expect(projected.results[2]).toMatchObject({
+			actor_kind: "service",
+			actor_id: "workspace_object",
+		});
+		expect(JSON.stringify(projected.results)).not.toContain("secret-marker");
+		await ws.pruneChatLedger(eventScope);
+		expect(await ws.readEvents(eventScope)).toEqual([]);
+		await testEnv.DB.prepare(
+			"DELETE FROM workspace_activity WHERE workspace_id = ?",
+		)
+			.bind(eventScope.workspaceId)
+			.run();
+		expect(
+			(await ws.reconcileActivity(eventScope, source)).missing,
+		).toHaveLength(4);
+		await ws.replayActivity(eventScope, source);
+		expect((await ws.reconcileActivity(eventScope, source)).missing).toEqual(
+			[],
+		);
+		let scopeError: unknown;
+		try {
+			await ws.replayActivity(
+				{ ...eventScope, organizationId: "other-org" },
+				source,
+			);
+		} catch (error) {
+			scopeError = error;
+		}
+		expect(scopeError).toBeInstanceOf(Error);
+		expect((scopeError as Error).message).toBe(
+			"TenantStore scope does not match this object",
+		);
+	},
+);
+
+test("retains each metadata operation while publication is unavailable", async () => {
+	await seedCore();
+	const metadataScope = { ...scope, workspaceId: crypto.randomUUID() };
+	await seedWorkspaceRows([metadataScope]);
+	const ws = workspace(metadataScope);
+	await seedOutputs(ws, metadataScope);
+	for (const patch of [
+		{ title: "Private rename secret-marker" },
+		{ status: "archived" as const },
+		{ status: "active" as const },
+	]) {
+		await ws.failEventProjection(metadataScope, "before");
+		expect(
+			await ws.outputQuery(metadataScope, {
+				op: "update",
+				outputId: "out-doc",
+				patch,
+			}),
+		).toBeDefined();
+	}
+	const source = { source: "events" as const };
+	expect(await ws.reconcileActivity(metadataScope, source)).toMatchObject({
+		checked: 3,
+		coverage: "recorded_workspace_events",
+	});
+	expect(
+		(await ws.reconcileActivity(metadataScope, source)).missing,
+	).toHaveLength(3);
+	await ws.retryProjections(metadataScope);
+	expect((await ws.reconcileActivity(metadataScope, source)).missing).toEqual(
+		[],
+	);
+	await ws.replayActivity(metadataScope, source);
+	const projected = await testEnv.DB.prepare(
+		"SELECT actor_kind, actor_id, summary FROM workspace_feed_ledger WHERE workspace_id = ? AND kind = 'run' ORDER BY seq",
+	)
+		.bind(metadataScope.workspaceId)
+		.all<{ actor_kind: string; actor_id: string; summary: string }>();
+	expect(projected.results).toHaveLength(3);
+	expect(
+		projected.results.map((row) => JSON.parse(row.summary).action.operation),
+	).toEqual(["update_metadata", "archive", "restore"]);
+	for (const row of projected.results) {
+		expect(row).toMatchObject({
+			actor_kind: "service",
+			actor_id: "workspace_object",
+		});
+		expect(JSON.parse(row.summary).action).toMatchObject({
+			outcome: "applied",
+			revisionId: "rev-doc",
+		});
+	}
+	expect(JSON.stringify(projected.results)).not.toContain("secret-marker");
+	expect(
+		await ws.outputQuery(metadataScope, {
+			op: "update",
+			outputId: "absent-output",
+			patch: { title: "Absent" },
+		}),
+	).toBeUndefined();
+	expect((await ws.reconcileActivity(metadataScope, source)).checked).toBe(3);
 });

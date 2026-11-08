@@ -1,4 +1,5 @@
 import type { ChangeRecord } from "@tedix/agent-governance/types";
+import type { WorkspaceChangeInput } from "@tedix/api-contract/schemas/workspace-feed";
 /**
  * Test worker: the real WorkspaceDO with a scripted model instead of the AI
  * Gateway, plus a stand-in for the tedi object a guest turn asks for.
@@ -32,6 +33,27 @@ export class WorkspaceDO extends ProductionWorkspaceDO {
 	#script: ScriptStep[] = [];
 	#projectionFailures = 0;
 	#actionFailure: "before" | "after" | null = null;
+	#eventFailure: "before" | "after" | null = null;
+
+	pruneChatLedger(scope: WorkspaceScope) {
+		this.bindScope(scope);
+		this.ctx.storage.sql.exec("DELETE FROM events");
+	}
+
+	failEventProjection(scope: WorkspaceScope, when: "before" | "after") {
+		this.bindScope(scope);
+		this.#eventFailure = when;
+	}
+
+	protected override async projectEvent(event: WorkspaceChangeInput) {
+		const failure = this.#eventFailure;
+		this.#eventFailure = null;
+		if (failure === "before")
+			throw new Error("Injected event projection outage");
+		await super.projectEvent(event);
+		if (failure === "after")
+			throw new Error("Injected lost event projection reply");
+	}
 
 	failNextProjection(scope: WorkspaceScope) {
 		this.bindScope(scope);
