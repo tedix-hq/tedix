@@ -24,7 +24,7 @@ import { fail, ok, truncate, itemsFromList } from "./work-render";
 import {
 	listWorkItems,
 	getWorkItem,
-	projectArg,
+	workParentArgs,
 	resolveWorkItemId,
 	CREATE_EXCEPTION_CLASSES,
 	expiresToIso,
@@ -455,7 +455,7 @@ const DELEGATION_EXPIRES = "14d";
 /**
  * `tedix work delegate "<title>" --done-when "…" --via subagent|session`:
  * the lead session registers work it handed off as one accepted Work Item
- * (reused when an open item has the same title), with the brief as a comment,
+ * (reused for the same lead, destination and parent), with the brief as a comment,
  * and remembers the id locally so its prompt context names it until settled.
  * `--done <id> --note "…"` records the outcome and completes the item.
  */
@@ -484,10 +484,11 @@ export async function workDelegate(
 		...(to ? { to } : {}),
 		leadSession: lead.session,
 	};
+	const parentArgs = await workParentArgs(ctx);
 	const search = await listWorkItems(ctx, {
 		titleContains: t.slice(0, 200),
 		limit: 20,
-		...projectArg(ctx.work.project),
+		...(parentArgs.projectId ? { projectId: parentArgs.projectId } : {}),
 	});
 	if (search.error)
 		return fail(
@@ -495,11 +496,45 @@ export async function workDelegate(
 			search.error,
 			`Could not search work items: ${search.error.message}`,
 		);
-	const existing = itemsFromList(search.value).find(
-		(row) =>
-			String(row.title ?? "").toLowerCase() === t.toLowerCase() &&
-			(row.disposition === "proposed" || row.disposition === "accepted"),
-	);
+	let existing: Record<string, unknown> | undefined;
+	// Resolve rows omit metadata and parent identity. Read at most the 20 candidates.
+	for (const row of itemsFromList(search.value).slice(0, 20)) {
+		if (
+			typeof row.id !== "string" ||
+			String(row.title ?? "").toLowerCase() !== t.toLowerCase() ||
+			(row.disposition !== "proposed" && row.disposition !== "accepted")
+		)
+			continue;
+		const call = await getWorkItem(ctx, row.id);
+		if (call.error)
+			return fail(
+				ctx,
+				call.error,
+				`Could not verify delegation ${row.id}: ${call.error.message}`,
+			);
+		const item =
+			isRecord(call.value) && isRecord(call.value.workItem)
+				? call.value.workItem
+				: call.value;
+		if (!isRecord(item) || item.id !== row.id)
+			throw new Error("Invalid delegation Work record");
+		const meta =
+			isRecord(item.metadata) && isRecord(item.metadata.delegation)
+				? item.metadata.delegation
+				: undefined;
+		if (
+			String(item.title ?? "").toLowerCase() === t.toLowerCase() &&
+			(item.disposition === "proposed" || item.disposition === "accepted") &&
+			item.projectId === (parentArgs.projectId ?? null) &&
+			item.parentWorkItemId === (parentArgs.parentWorkItemId ?? null) &&
+			meta?.leadSession === lead.session &&
+			meta.via === via &&
+			(meta.to ?? undefined) === to
+		) {
+			existing = item;
+			break;
+		}
+	}
 	let id = typeof existing?.id === "string" ? existing.id : "";
 	let disposition = String(existing?.disposition ?? "proposed");
 	if (!id) {
@@ -519,7 +554,7 @@ export async function workDelegate(
 				// time-bounded maintenance exception unless told otherwise.
 				...(objective
 					? { objectiveId: objective.trim() }
-					: workClass || !ctx.work.project
+					: workClass || (!parentArgs.projectId && !parentArgs.parentWorkItemId)
 						? {
 								workClass: workClass ?? "maintenance",
 								purposeExceptionExpiresAt: expiresToIso(
@@ -527,7 +562,7 @@ export async function workDelegate(
 								),
 							}
 						: {}),
-				...projectArg(ctx.work.project),
+				...parentArgs,
 				metadata: { delegation },
 			}),
 		);
@@ -601,6 +636,27 @@ async function settleDelegation(
 			'work delegate --done <id> requires --note "<outcome and evidence>"',
 		);
 	const id = await resolveWorkItemId(ctx, ctx.work.done!.trim());
+	const detail = await getWorkItem(ctx, id);
+	if (detail.error)
+		return fail(
+			ctx,
+			detail.error,
+			`Could not verify delegation ${id}: ${detail.error.message}`,
+		);
+	const item =
+		isRecord(detail.value) && isRecord(detail.value.workItem)
+			? detail.value.workItem
+			: detail.value;
+	const meta =
+		isRecord(item) &&
+		isRecord(item.metadata) &&
+		isRecord(item.metadata.delegation)
+			? item.metadata.delegation
+			: undefined;
+	if (!isRecord(item) || item.id !== id || meta?.leadSession !== leadSession)
+		throw new Error(
+			"Only the originating lead session can settle this delegation",
+		);
 	const settlement = buildSettlementMetadata(ctx.work.commit);
 	const comment = await postComment(ctx, id, `Delegation settled: ${note}`, {
 		delegation: { settled: true },

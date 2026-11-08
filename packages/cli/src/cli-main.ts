@@ -1279,6 +1279,9 @@ export async function main() {
 						? { paths: options.workPaths }
 						: {}),
 					...(options.workProject ? { project: options.workProject } : {}),
+					...(options.workParent !== undefined
+						? { parent: options.workParent }
+						: {}),
 					...(options.workDisposition
 						? { disposition: options.workDisposition }
 						: {}),

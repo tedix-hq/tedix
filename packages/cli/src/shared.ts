@@ -109,6 +109,7 @@ export interface CliOptions {
 	workRepoKey?: string;
 	workPaths?: string[];
 	workProject?: string;
+	workParent?: string;
 	workDisposition?: string;
 	workMine?: boolean;
 	workReason?: string;

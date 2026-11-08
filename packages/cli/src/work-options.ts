@@ -5,6 +5,7 @@ const valueOptions = {
 	"--as": "workAs",
 	"--repo-key": "workRepoKey",
 	"--project": "workProject",
+	"--parent": "workParent",
 	"--disposition": "workDisposition",
 	"--reason": "workReason",
 	"--note": "workNote",

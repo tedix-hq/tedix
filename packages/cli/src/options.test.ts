@@ -77,3 +77,15 @@ describe("comment text aliases", () => {
 		).toThrow("--body, --message and --text are only valid with work comment");
 	});
 });
+
+test.each(["create", "delegate"])("parses --parent for work %s", (verb) => {
+	const { options } = parseOptions([
+		"work",
+		verb,
+		"Child",
+		"--parent",
+		"11111111-1111-4111-8111-111111111111",
+	]);
+	expect(options.workParent).toBe("11111111-1111-4111-8111-111111111111");
+	expect(() => parseOptions(["work", verb, "Child", "--parent"])).toThrow();
+});
