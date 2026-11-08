@@ -160,11 +160,36 @@ export function projectArg(project?: string): Record<string, unknown> {
 	return { projectId: value };
 }
 
-async function resolveProjectArg(
-	_ctx: WorkContext,
-	project?: string,
+/** The owning read enforces organization access; a child stays in its parent's project. */
+export async function workParentArgs(
+	ctx: WorkContext,
 ): Promise<Record<string, unknown>> {
-	return projectArg(project);
+	const project = projectArg(ctx.work.project);
+	if (ctx.work.parent === undefined) return project;
+	const id = ctx.work.parent.trim();
+	if (!isUuid(id)) throw new Error("--parent requires the canonical Work UUID");
+	const call = await getWorkItem(ctx, id);
+	if (call.error)
+		throw new Error(`Could not read --parent ${id}: ${call.error.message}`);
+	const item =
+		isRecord(call.value) && isRecord(call.value.workItem)
+			? call.value.workItem
+			: call.value;
+	if (
+		!isRecord(item) ||
+		item.id !== id ||
+		!(
+			item.projectId === null ||
+			(typeof item.projectId === "string" && isUuid(item.projectId))
+		)
+	)
+		throw new Error("--parent returned an invalid Work record");
+	if (project.projectId && project.projectId !== item.projectId)
+		throw new Error("--parent must belong to --project");
+	return {
+		...(item.projectId ? { projectId: item.projectId } : {}),
+		parentWorkItemId: id,
+	};
 }
 
 // ─── Id resolution (prefix → full id) ──────────────────────────────────────
@@ -480,9 +505,10 @@ export async function workCreate(
 	if (!t) throw new Error('work create requires a "<title>"');
 	const { as, desc, kind, priority, objective, workClass, expires } = ctx.work;
 	const executor = workExecutorArg(ctx.work.executor);
+	const parentArgs = await workParentArgs(ctx);
 
 	// The purpose gate, enforced client-side first.
-	if (!objective && !workClass && !ctx.work.project) {
+	if (!objective && !workClass && !ctx.work.project && !ctx.work.parent) {
 		throw new Error(
 			"work create requires a purpose: pass --objective <objectiveId> for objective work, " +
 				"or --class maintenance|incident|hygiene --expires <duration|iso> for a time-bounded " +
@@ -546,7 +572,7 @@ export async function workCreate(
 		...(priority ? { priority } : {}),
 		...(objective ? { objectiveId: objective.trim() } : {}),
 		...(workClass ? { workClass, purposeExceptionExpiresAt } : {}),
-		...(await resolveProjectArg(ctx, ctx.work.project)),
+		...parentArgs,
 	};
 	const call = await boardCall(
 		ctx,

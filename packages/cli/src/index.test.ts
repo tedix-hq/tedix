@@ -696,6 +696,47 @@ describe("parseOptions", () => {
 		);
 	});
 
+	test.each(["create", "delegate"])(
+		"the executable forwards --parent into %s validation",
+		async (verb) => {
+			const child = Bun.spawn(
+				[
+					process.execPath,
+					`${import.meta.dir}/index.ts`,
+					"work",
+					verb,
+					"Child",
+					"--parent",
+					"invalid",
+					"--via",
+					"session",
+					"--done-when",
+					"Checked",
+					"--session",
+					"codex:33333333-3333-4333-8333-333333333333",
+					"--url",
+					"http://127.0.0.1:1/mcp",
+					"--json",
+				],
+				{
+					env: { TEDIX_MCP_BEARER_TOKEN: "synthetic-local-validation-token" },
+					stdout: "pipe",
+					stderr: "pipe",
+				},
+			);
+			const [stdout, stderr, code] = await Promise.all([
+				new Response(child.stdout).text(),
+				new Response(child.stderr).text(),
+				child.exited,
+			]);
+			expect(code).toBe(1);
+			expect(stdout).toBe("");
+			expect(JSON.parse(stderr).error).toContain(
+				"--parent requires the canonical Work UUID",
+			);
+		},
+	);
+
 	test("work claim-files options require values", () => {
 		for (const flag of ["--repo-key", "--path"]) {
 			expect(() =>

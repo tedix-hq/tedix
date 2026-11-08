@@ -199,9 +199,16 @@ run yourself:
   server in the tedi's name, so it leaves your "For you" inbox. A later reply
   of your own is still recorded and delivered to the session as a correction.
 - `tedix work delegate "<title>" --done-when "…" --via subagent|session`:
-  registers a lead session's hand-off as an accepted Work Item;
+  registers a lead session's hand-off as an accepted Work Item. Reuse requires
+  the same lead session, title, `--via`, `--to`, project and parent Work.
   `tedix work delegate --done <id> --note "…"` records the outcome and
-  completes it.
+  completes that lead's delegation.
+
+Use `--parent <work-id>` with `work create` or `work delegate` to link a child
+Work Item. The parent must be accessible in the selected organization; the
+child inherits its project, and an explicit `--project` must match it. The
+server resolves inherited purpose from the parent or project. Completing a
+child does not complete its parent; the lead assesses the parent's outcome.
 
 `tedix work interaction-respond <id> --input "…" --no-deliver` answers a
 question without delivering it to the asking session, for closures such as

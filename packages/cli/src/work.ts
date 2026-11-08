@@ -80,6 +80,8 @@ export interface WorkOptions {
 	input?: string;
 	as?: string;
 	project?: string;
+	/** `create`/`delegate`: existing parent Work UUID. */
+	parent?: string;
 	disposition?: string;
 	mine?: boolean;
 	reason?: string;
@@ -232,7 +234,7 @@ export function workUsage(): string {
 Usage: tedix work <verb> [args] [options]
 
 Lifecycle:
-  create "<title>" --kind <kind> (--project <id> | --objective <id> | --class <class> --expires <duration>)
+  create "<title>" --kind <kind> (--parent <id> | --project <id> | --objective <id> | --class <class> --expires <duration>)
               [--project <id>] [--desc|--description <text>] [--owner tedi:<id>] [--executor <exec>]
   accept <id> --done-when "<what done looks like>" [--executor <exec>]
   readiness <id>
@@ -247,7 +249,7 @@ Lifecycle:
 
 Delegation (a lead session's hand-offs; open ones appear in its prompt context):
   delegate "<title>" --done-when "<what done looks like>" --via subagent|session
-           [--to <session or subagent name>] [--project <id>] [--session <lead id>]
+           [--to <session or subagent name>] [--parent <id>] [--project <id>] [--session <lead id>]
   delegate --done <id> --note "<outcome and evidence>" [--commit <sha> ...]
 
 Ledger (historical rows on in-flight items stay readable; nothing reviews them):
@@ -267,6 +269,8 @@ Collaboration: comment <id> [text] [--body|--message|--text <text>]
 Choose the parent before creating. --project files the item under a portfolio
 project and inherits its objective. For example:
   tedix work create "<title>" --kind coding --project <project-id>
+--parent <work-id> links create/delegate to existing Work and inherits its project.
+An explicit --project must match the parent. Parent access is checked in the selected organization.
 Inherited objectives override --class and --expires defaults.
 A Work Item joins an epic afterwards with case-attach, not at creation.
 

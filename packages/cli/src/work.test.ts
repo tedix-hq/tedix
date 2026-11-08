@@ -3845,7 +3845,22 @@ describe("native dispatcher coverage", () => {
 						};
 					if (source.includes("get_work_items_by_id"))
 						return {
-							workItem: { id: ITEM, disposition: "accepted", title: "Example" },
+							workItem: {
+								id: ITEM,
+								disposition: "accepted",
+								title: "Example",
+								...(verb === "delegate"
+									? {
+											metadata: {
+												delegation: {
+													leadSession:
+														"codex:33333333-3333-4333-8333-333333333333",
+													via: "session",
+												},
+											},
+										}
+									: {}),
+							},
 						};
 					if (source.includes("start_work_item_attempt"))
 						return {
@@ -4108,7 +4123,7 @@ describe("delegation ledger", () => {
 		]);
 	});
 
-	test("reuses an open item with the same title instead of filing a duplicate", async () => {
+	test("does not reuse another lead session's same-title delegation", async () => {
 		const { ctx, sources } = makeContext(
 			{ via: "session", doneWhen: "Shipped" },
 			undefined,
@@ -4118,28 +4133,240 @@ describe("delegation ledger", () => {
 							data: [
 								{
 									id: ITEM,
-									title: "rewrite the cli docs",
+									title: "Rewrite the CLI docs",
 									disposition: "accepted",
 								},
 							],
 						}
-					: { id: ITEM },
+					: source.includes("get_work_items_by_id")
+						? {
+								workItem: {
+									id: ITEM,
+									title: "Rewrite the CLI docs",
+									disposition: "accepted",
+									projectId: null,
+									parentWorkItemId: null,
+									metadata: {
+										delegation: {
+											via: "session",
+											leadSession: "codex:44444444-4444-4444-8444-444444444444",
+										},
+									},
+								},
+							}
+						: { id: ATTEMPT, disposition: "proposed" },
 		);
 		const result = await capture("delegate Rewrite the CLI docs", ctx);
 		expect(result.code).toBe(0);
-		expect(sources.some((s) => s.includes("create_work_items"))).toBe(false);
-		expect(sources.some((s) => s.includes("accept_work_item"))).toBe(false);
-		expect(sources[1]).toContain("work.add_comment");
-		expect(result.out.join("\n")).toContain(`"reused":true`);
+		expect(sources.some((s) => s.includes("create_work_items"))).toBe(true);
+		expect(
+			sources
+				.filter((s) =>
+					/work\.(add_comment|accept_work_item|complete_work_item)/.test(s),
+				)
+				.every((s) => !s.includes(ITEM)),
+		).toBe(true);
+		expect(result.out.join("\n")).toContain('"reused":false');
 	});
 
-	test("--done records the outcome, completes the item and forgets it locally", async () => {
-		const { ctx, sources } = makeContext({ done: ITEM, note: "Docs merged" });
+	test.each([
+		["same session", {}, {}, true],
+		[
+			"different destination",
+			{},
+			{
+				metadata: {
+					delegation: {
+						leadSession: `codex:${LEAD}`,
+						via: "session",
+						to: "other",
+					},
+				},
+			},
+			false,
+		],
+		[
+			"different via",
+			{},
+			{
+				metadata: {
+					delegation: { leadSession: `codex:${LEAD}`, via: "subagent" },
+				},
+			},
+			false,
+		],
+		["missing metadata", {}, { metadata: null }, false],
+		["different project", {}, { projectId: ATTEMPT }, false],
+		["parented versus root", {}, { parentWorkItemId: ATTEMPT }, false],
+		["same parent", { parent: ATTEMPT }, { parentWorkItemId: ATTEMPT }, true],
+		[
+			"different parent",
+			{ parent: ATTEMPT },
+			{ parentWorkItemId: LEAD },
+			false,
+		],
+		["root versus parented", { parent: ATTEMPT }, {}, false],
+		["terminal detail", {}, { disposition: "completed" }, false],
+		["renamed detail", {}, { title: "Other work" }, false],
+	] as const)(
+		"scopes same-title reuse: %s",
+		async (_name, options, changes, reused) => {
+			const item = {
+				id: ITEM,
+				title: "rewrite the cli docs",
+				disposition: "accepted",
+				projectId: null,
+				parentWorkItemId: null,
+				metadata: {
+					delegation: { via: "session", leadSession: `codex:${LEAD}` },
+				},
+				...changes,
+			};
+			const { ctx, sources } = makeContext(
+				{ via: "session", doneWhen: "Shipped", ...options },
+				undefined,
+				(source) =>
+					source.includes("list_work_item_cli_rows")
+						? {
+								data: [
+									{
+										id: ITEM,
+										title: "rewrite the cli docs",
+										disposition: "accepted",
+									},
+								],
+							}
+						: source.includes("get_work_items_by_id")
+							? {
+									workItem: source.includes(ATTEMPT)
+										? { id: ATTEMPT, projectId: null }
+										: item,
+								}
+							: { id: LEAD, disposition: "proposed" },
+			);
+			const result = await capture("delegate Rewrite the CLI docs", ctx);
+			expect(result.code).toBe(0);
+			expect(sources.some((s) => s.includes("create_work_items"))).toBe(
+				!reused,
+			);
+			expect(result.out.join("\n")).toContain(`"reused":${reused}`);
+			const writes = sources.filter((s) =>
+				/work\.(add_comment|accept_work_item|complete_work_item)/.test(s),
+			);
+			expect(writes.every((s) => s.includes(reused ? ITEM : LEAD))).toBe(true);
+		},
+	);
+
+	test("--done records the outcome, completes the owned item and forgets it locally", async () => {
+		const remaining = readDelegations(process.env, LEAD).filter(
+			(row) => row.id !== ITEM,
+		);
+		const { ctx, sources } = makeContext(
+			{ done: ITEM, note: "Docs merged" },
+			undefined,
+			() => ({
+				workItem: {
+					id: ITEM,
+					metadata: { delegation: { leadSession: `codex:${LEAD}` } },
+				},
+			}),
+		);
 		expect((await capture("delegate", ctx)).code).toBe(0);
-		expect(sources[0]).toContain("work.add_comment");
-		expect(sources[0]).toContain("Delegation settled: Docs merged");
-		expect(sources[1]).toContain("work.complete_work_item");
-		expect(readDelegations(process.env, LEAD)).toEqual([]);
+		expect(sources[0]).toContain("get_work_items_by_id");
+		expect(sources[1]).toContain("Delegation settled: Docs merged");
+		expect(sources[2]).toContain("work.complete_work_item");
+		expect(readDelegations(process.env, LEAD)).toEqual(remaining);
+	});
+
+	test("--done refuses unrelated Work without writes", async () => {
+		const { ctx, sources } = makeContext(
+			{ done: ITEM, note: "Docs merged" },
+			undefined,
+			() => ({
+				workItem: {
+					id: ITEM,
+					metadata: { delegation: { leadSession: "codex:other" } },
+				},
+			}),
+		);
+		await expect(runWork("delegate", ctx)).rejects.toThrow(
+			"originating lead session",
+		);
+		expect(sources).toHaveLength(1);
+	});
+
+	test.each(["create", "delegate"])(
+		"%s forwards --parent and inherits its project",
+		async (verb) => {
+			const { ctx, sources } = makeContext(
+				{ parent: ATTEMPT, via: "session", doneWhen: "Shipped" },
+				undefined,
+				(source) =>
+					source.includes("get_work_items_by_id")
+						? { workItem: { id: ATTEMPT, projectId: LEAD } }
+						: source.includes("list_work_item_cli_rows")
+							? { data: [] }
+							: { id: ITEM, disposition: "proposed" },
+			);
+			expect((await capture(`${verb} Child`, ctx)).code).toBe(0);
+			const create = sources.find((s) => s.includes("create_work_items"));
+			expect(create).toContain(`"parentWorkItemId":"${ATTEMPT}"`);
+			expect(create).toContain(`"projectId":"${LEAD}"`);
+			expect(create).not.toContain('"workClass":"maintenance"');
+		},
+	);
+
+	test.each(["create", "delegate"])(
+		"%s rejects invalid, missing, denied and conflicting parents before writes",
+		async (verb) => {
+			for (const scenario of [
+				"invalid",
+				"missing",
+				"denied",
+				"project",
+				"malformed",
+			] as const) {
+				const { ctx, sources } = makeContext(
+					{
+						parent: scenario === "invalid" ? "bad-id" : ATTEMPT,
+						...(scenario === "project" ? { project: ITEM } : {}),
+						via: "session",
+						doneWhen: "Shipped",
+					},
+					undefined,
+					() =>
+						scenario === "missing" || scenario === "denied"
+							? {
+									code: scenario === "missing" ? "NOT_FOUND" : "FORBIDDEN",
+									message: scenario,
+									defined: true,
+								}
+							: {
+									workItem: {
+										id: scenario === "malformed" ? ITEM : ATTEMPT,
+										projectId: LEAD,
+									},
+								},
+				);
+				await expect(runWork(`${verb} Child`, ctx)).rejects.toThrow(/parent/);
+				expect(sources.every((s) => s.includes("get_work_items_by_id"))).toBe(
+					true,
+				);
+			}
+		},
+	);
+
+	test("detail-read failure stops reuse before any mutation", async () => {
+		const { ctx, sources } = makeContext(
+			{ via: "session", doneWhen: "Shipped" },
+			undefined,
+			(source) =>
+				source.includes("list_work_item_cli_rows")
+					? { data: [{ id: ITEM, title: "Child", disposition: "accepted" }] }
+					: { code: "FORBIDDEN", message: "denied", defined: true },
+		);
+		expect((await capture("delegate Child", ctx)).code).not.toBe(0);
+		expect(sources).toHaveLength(2);
 	});
 
 	test("refuses a delegation without --via, --done-when or a settlement note", async () => {
