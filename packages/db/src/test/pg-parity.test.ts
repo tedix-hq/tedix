@@ -202,6 +202,105 @@ const actor = { type: "user" as const, id: "owner-1" };
 
 for (const plane of planes) {
 	describe(`Work lifecycle parity [${plane.name}]`, () => {
+		it.each(["omitted", "reset_depth", "weakened_budget"])(
+			"rejects %s child policy through the same ancestry gate",
+			async (mode) => {
+				const { db, close } = await plane.setup();
+				try {
+					const m = plane.modules;
+					const policy = {
+						version: 1,
+						role: "closure",
+						sharedResourceKeys: ["shared"],
+						makerResourceKey: "makers",
+						reservedSlots: 1,
+						budgetEnvelopeIds: ["shared-budget"],
+						maxAttempts: 2,
+						maxDelegationDepth: 1,
+						delegationDepth: 0,
+						executors: [
+							{
+								id: "executor",
+								kind: "tedi",
+								principalType: "tedi",
+								principalId: IDS.tediId,
+								resourceKey: "executor",
+								costMicros: 10,
+								capabilities: [],
+							},
+						],
+					};
+					const parent = await m.crud.createWorkItem(db, {
+						id: "77777777-7777-4777-8777-777777777777",
+						orgId: IDS.orgId,
+						title: "Parent",
+						workClass: "maintenance",
+						purposeExceptionExpiresAt: "2026-11-01T00:00:00.000Z",
+						stewardType: "tedi",
+						stewardId: IDS.tediId,
+						metadata: { laneExecution: policy },
+						createdAt: NOW,
+					});
+					await m.crud.createWorkItem(db, {
+						id: IDS.workItemId,
+						orgId: IDS.orgId,
+						title: "Child",
+						workClass: "maintenance",
+						purposeExceptionExpiresAt: "2026-11-01T00:00:00.000Z",
+						stewardType: "tedi",
+						stewardId: IDS.tediId,
+						parentWorkItemId: parent.id,
+						metadata:
+							mode === "omitted"
+								? {}
+								: {
+										laneExecution: {
+											...policy,
+											delegationDepth: mode === "reset_depth" ? 0 : 1,
+											budgetEnvelopeIds:
+												mode === "weakened_budget"
+													? ["other-budget"]
+													: policy.budgetEnvelopeIds,
+										},
+									},
+						createdAt: NOW,
+					});
+					const child = await m.crud.acceptWorkItem(db, {
+						orgId: IDS.orgId,
+						workItemId: IDS.workItemId,
+						actor,
+						acceptanceContract: { version: 1, doneLooksLike: "Checked" },
+						acceptedAt: NOW,
+					});
+					const admission = await m.admissions.evaluateAndRecordWorkAdmission(
+						db,
+						{
+							id: IDS.admissionId,
+							orgId: IDS.orgId,
+							workItemId: child.id,
+							expectedWorkItemVersion: child.version,
+							expectedAdmissionSpecRevision: child.admissionSpecRevision,
+							executorType: "tedi",
+							executorId: IDS.tediId,
+							leaseTtlMs: 60_000,
+							now: NOW,
+						},
+					);
+					expect(admission.decision).toBe("rejected");
+					expect(admission.rejectionCode).toBe("evaluation_required");
+					expect(admission.rejectionReason).toMatch(
+						mode === "omitted"
+							? /retain/
+							: mode === "reset_depth"
+								? /depth/
+								: /weakens/,
+					);
+				} finally {
+					await close();
+				}
+			},
+		);
+
 		it("create → accept → admit → start → heartbeat → settle → complete → comment", async () => {
 			const { db, close } = await plane.setup();
 			try {

@@ -53,6 +53,20 @@ Key principles:
   issuer/subject tuples in `principal_identities`; provider subjects are never
   used as authority without that binding.
 
+### Bounded Work delegation
+
+Work admission checks `metadata.laneExecution` against the actual parent chain.
+The first Work with a lane policy starts at depth zero, even under an ordinary
+epic. Its descendants must keep a valid policy, the same maker pool, all shared
+resource and budget references, and limits at least as strict as their parent.
+Maker, verification and closure roles may differ. Missing, cyclic,
+cross-organization or oversized ancestry is held for evaluation.
+
+For one budget shared by a delivery task, attach its Work Items to an existing
+case and reference that case's budget envelope in each policy. A parent Work's
+own budget is not inherited. Reservations bound admission allowance; they do
+not establish actual provider billing or independent verification.
+
 ## Usage
 
 ### Creating a Client

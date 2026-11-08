@@ -1,6 +1,7 @@
 import {
 	LaneExecutionPolicySchema,
 	laneResourceKeys,
+	type LaneExecutionPolicy,
 } from "@tedix/api-contract/schemas/lane-execution";
 import { and, eq, inArray, ne, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
@@ -194,6 +195,78 @@ async function loadApplicableEnvelopes(
 	} satisfies BoundedAdmissionFacts<(typeof rows)[number]>;
 }
 
+/** Parent links, not caller-declared depth, determine the delegation boundary. */
+async function loadLanePolicy(
+	db: DbQueryClient,
+	item: Eligibility["item"],
+): Promise<{ policy?: LaneExecutionPolicy; rejection?: string }> {
+	type Node = Pick<Eligibility["item"], "id" | "parentWorkItemId" | "metadata">;
+	const nodes: Node[] = [item];
+	const seen = new Set([item.id]);
+	let parentId = item.parentWorkItemId;
+	while (parentId) {
+		if (seen.has(parentId))
+			return { rejection: "Lane ancestry contains a cycle" };
+		// The existing policy permits at most ten delegation edges.
+		if (nodes.length > 10)
+			return { rejection: "Lane ancestry exceeds the admission depth cap" };
+		const parent = (
+			await db
+				.select({
+					id: workItems.id,
+					parentWorkItemId: workItems.parentWorkItemId,
+					metadata: workItems.metadata,
+				})
+				.from(workItems)
+				.where(and(eq(workItems.orgId, item.orgId), eq(workItems.id, parentId)))
+				.limit(1)
+		)[0];
+		if (!parent)
+			return { rejection: "Lane ancestor is missing from this organization" };
+		nodes.push(parent);
+		seen.add(parent.id);
+		parentId = parent.parentWorkItemId;
+	}
+	let inherited: LaneExecutionPolicy | undefined;
+	let depth = -1;
+	for (const node of nodes.reverse()) {
+		if (node.metadata?.laneExecution === undefined) {
+			if (inherited)
+				return {
+					rejection: "Delegated Work must retain its ancestor lane policy",
+				};
+			continue;
+		}
+		const parsed = LaneExecutionPolicySchema.safeParse(
+			node.metadata.laneExecution,
+		);
+		if (!parsed.success) return { rejection: "Invalid lane execution policy" };
+		const policy = parsed.data;
+		depth++;
+		if (policy.delegationDepth !== depth || depth > policy.maxDelegationDepth)
+			return {
+				rejection:
+					"Lane delegation depth does not match its ancestry or is exhausted",
+			};
+		if (
+			inherited &&
+			(policy.maxDelegationDepth > inherited.maxDelegationDepth ||
+				policy.maxAttempts > inherited.maxAttempts ||
+				policy.makerResourceKey !== inherited.makerResourceKey ||
+				policy.reservedSlots < inherited.reservedSlots ||
+				inherited.sharedResourceKeys.some(
+					(key) => !policy.sharedResourceKeys.includes(key),
+				) ||
+				inherited.budgetEnvelopeIds.some(
+					(id) => !policy.budgetEnvelopeIds.includes(id),
+				))
+		)
+			return { rejection: "Delegated Work weakens its ancestor lane controls" };
+		inherited = policy;
+	}
+	return { policy: inherited };
+}
+
 async function evaluate(
 	db: DbQueryClient,
 	p: EvaluateWorkAdmissionParams,
@@ -215,6 +288,12 @@ async function evaluate(
 		return {
 			...empty,
 			rejection: { code: "not_accepted", reason: "Work Item is not accepted" },
+		};
+	const lane = await loadLanePolicy(db, item);
+	if (lane.rejection)
+		return {
+			...empty,
+			rejection: { code: "evaluation_required", reason: lane.rejection },
 		};
 	const running = (
 		await db
@@ -408,18 +487,14 @@ async function evaluate(
 			},
 		};
 	const envelopes = envelopeFacts.rows;
-	if (item.metadata?.laneExecution !== undefined) {
-		const parsed = LaneExecutionPolicySchema.safeParse(
-			item.metadata.laneExecution,
-		);
+	if (lane.policy) {
 		const reject = (reason: string): Eligibility => ({
 			item,
 			requirements,
 			envelopes,
 			rejection: { code: "evaluation_required", reason },
 		});
-		if (!parsed.success) return reject("Invalid lane execution policy");
-		const policy = parsed.data;
+		const policy = lane.policy;
 		const makerPool = (
 			await db
 				.select({ capacity: workResourcePools.capacity })
@@ -452,8 +527,6 @@ async function evaluate(
 		);
 		if (!executor || executor.costMicros === null)
 			return reject("Lane executor or its pricing is unavailable");
-		if (policy.delegationDepth > policy.maxDelegationDepth)
-			return reject("Lane delegation depth exhausted");
 		const attempts = await db
 			.select({ id: workAttempts.id })
 			.from(workAttempts)

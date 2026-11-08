@@ -98,10 +98,158 @@ function fixture() {
 			startedAt: now,
 		});
 	}
-	return { sqlite, db, seed, admit, start };
+	function link(child: string, parent: string) {
+		sqlite
+			.prepare("UPDATE work_items SET parent_work_item_id=? WHERE id=?")
+			.run(parent, child);
+	}
+	function setPolicy(id: string, policy: LaneExecutionPolicy | undefined) {
+		sqlite
+			.prepare("UPDATE work_items SET metadata=? WHERE id=?")
+			.run(JSON.stringify(policy ? { laneExecution: policy } : {}), id);
+	}
+	return { sqlite, db, seed, admit, start, link, setPolicy };
 }
 
 describe("shared lane admission on migrated D1", () => {
+	it.each([
+		"omitted",
+		"invalid",
+		"reset_depth",
+		"raised_depth",
+		"raised_attempts",
+		"shared_resource",
+		"maker_resource",
+		"reserved_slots",
+		"budget",
+	])("rejects a governed child that weakens %s", async (mode) => {
+		const f = fixture();
+		f.seed("parent", "closure", { budgetEnvelopeIds: ["org-budget"] });
+		const child = f.seed("child", "verification", { delegationDepth: 1 });
+		f.link("child", "parent");
+		if (mode === "reset_depth") child.delegationDepth = 0;
+		if (mode === "raised_depth") child.maxDelegationDepth = 3;
+		if (mode === "raised_attempts") child.maxAttempts = 4;
+		if (mode === "shared_resource") child.sharedResourceKeys = ["replacement"];
+		if (mode === "maker_resource") child.makerResourceKey = "replacement";
+		if (mode === "reserved_slots") child.reservedSlots = 1;
+		if (mode === "budget") child.budgetEnvelopeIds = ["budget-child"];
+		f.setPolicy("child", mode === "omitted" ? undefined : child);
+		if (mode === "invalid")
+			f.sqlite.exec(
+				"UPDATE work_items SET metadata='{\"laneExecution\":{}}' WHERE id='child'",
+			);
+		const result = await f.admit("child");
+		expect(result.decision).toBe("rejected");
+		expect(result.rejectionCode).toBe("evaluation_required");
+		expect(
+			f.sqlite
+				.prepare("SELECT COUNT(*) AS count FROM work_budget_reservations")
+				.get(),
+		).toEqual({ count: 0 });
+	});
+
+	it("keeps verification eligible under the same case budget and enforces its shared ceiling", async () => {
+		const f = fixture();
+		f.sqlite
+			.exec(`INSERT INTO work_cases(id,org_id,title,kind,accountable_owner_type,accountable_owner_id,opened_at,created_at) VALUES('case','org','Task','delivery','tedi','tedi','${now}','${now}');
+		INSERT INTO work_budget_envelopes(id,org_id,scope_type,scope_id,limit_micros,reservation_micros,currency,created_at) VALUES('task-budget','org','case','case',20,10,'USD','${now}');`);
+		f.seed("parent", "closure", { budgetEnvelopeIds: ["task-budget"] });
+		for (const [id, role] of [
+			["implement", "maker"],
+			["verify", "verification"],
+			["overflow", "verification"],
+		] as const) {
+			f.seed(id, role, {
+				delegationDepth: 1,
+				maxAttempts: 2,
+				budgetEnvelopeIds: ["task-budget"],
+			});
+			f.link(id, "parent");
+		}
+		for (const id of ["parent", "implement", "verify", "overflow"])
+			f.sqlite
+				.prepare(
+					"INSERT INTO work_case_items(id,org_id,case_id,work_item_id,discovered_at) VALUES(?,'org','case',?,?)",
+				)
+				.run(`case-${id}`, id, now);
+		expect((await f.admit("implement")).decision).toBe("admitted");
+		expect((await f.admit("verify")).decision).toBe("admitted");
+		expect((await f.admit("overflow")).decision).toBe("rejected");
+		expect(
+			f.sqlite
+				.prepare(
+					"SELECT SUM(amount_micros) AS reserved FROM work_budget_reservations WHERE envelope_id='task-budget'",
+				)
+				.get(),
+		).toEqual({ reserved: 20 });
+	});
+
+	it.each(["missing", "cross_org", "cycle", "over_cap"])(
+		"fails closed for %s ancestry even without a leaf policy",
+		async (mode) => {
+			const f = fixture();
+			f.seed("child");
+			f.setPolicy("child", undefined);
+			if (mode === "missing") f.link("child", "missing");
+			if (mode === "cross_org") {
+				f.sqlite.exec(
+					`INSERT INTO organizations(id,name,slug) VALUES('other','Other','other'); INSERT INTO work_items(id,org_id,title,admission_spec_revision,created_at) VALUES('foreign','other','Foreign','foreign-revision','${now}')`,
+				);
+				f.link("child", "foreign");
+			}
+			if (mode === "cycle") {
+				f.seed("parent");
+				f.setPolicy("parent", undefined);
+				f.link("child", "parent");
+				f.link("parent", "child");
+			}
+			if (mode === "over_cap") {
+				let child = "child";
+				for (let i = 0; i < 11; i++) {
+					const parent = `ancestor-${i}`;
+					f.seed(parent);
+					f.setPolicy(parent, undefined);
+					f.link(child, parent);
+					child = parent;
+				}
+			}
+			expect((await f.admit("child")).rejectionCode).toBe(
+				"evaluation_required",
+			);
+		},
+	);
+
+	it("cannot restart a policy below an ungoverned intermediate Work", async () => {
+		const f = fixture();
+		f.seed("parent", "closure", { budgetEnvelopeIds: ["org-budget"] });
+		f.seed("middle");
+		f.setPolicy("middle", undefined);
+		f.seed("child");
+		f.link("middle", "parent");
+		f.link("child", "middle");
+		expect((await f.admit("child")).rejectionReason).toContain("retain");
+	});
+
+	it("starts a governed delivery at depth zero below an ordinary parent", async () => {
+		const f = fixture();
+		f.seed("ordinary");
+		f.setPolicy("ordinary", undefined);
+		f.seed("delivery");
+		f.link("delivery", "ordinary");
+		expect((await f.admit("delivery")).decision).toBe("admitted");
+	});
+
+	it("does not impose lane policy on unrelated shallow Work", async () => {
+		const f = fixture();
+		for (const id of ["parent", "child"]) {
+			f.seed(id);
+			f.setPolicy(id, undefined);
+		}
+		f.link("child", "parent");
+		expect((await f.admit("child")).decision).toBe("admitted");
+	});
+
 	it("admits only 18 racing makers while preserving verification and closure slots", async () => {
 		const f = fixture();
 		const makers = Array.from({ length: 19 }, (_, index) => `maker-${index}`);

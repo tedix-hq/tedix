@@ -43,10 +43,12 @@ describe("lane policy boundary", () => {
 				LaneExecutorSchema.safeParse({ ...executor, costMicros }).success,
 			).toBe(false);
 	});
-	it.each(["codex", "claude", "tedi", "skill"] as const)(
+	it.each(["codex", "claude", "opencode", "devin", "tedi", "skill"] as const)(
 		"binds %s to the correct principal type",
 		(kind) => {
-			const principalType = ["codex", "claude"].includes(kind)
+			const principalType = ["codex", "claude", "opencode", "devin"].includes(
+				kind,
+			)
 				? "external_agent"
 				: "tedi";
 			expect(

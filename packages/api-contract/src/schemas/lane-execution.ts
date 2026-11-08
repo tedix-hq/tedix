@@ -6,7 +6,7 @@ const micros = z.number().int().safe().positive();
 export const LaneExecutorSchema = z
 	.object({
 		id: key,
-		kind: z.enum(["codex", "claude", "tedi", "skill"]),
+		kind: z.enum(["codex", "claude", "opencode", "devin", "tedi", "skill"]),
 		principalType: z.enum(["external_agent", "tedi"]),
 		principalId: key,
 		resourceKey: key,
@@ -17,7 +17,7 @@ export const LaneExecutorSchema = z
 	.strict()
 	.superRefine((value, ctx) => {
 		if (
-			(value.kind === "codex" || value.kind === "claude") !==
+			["codex", "claude", "opencode", "devin"].includes(value.kind) !==
 			(value.principalType === "external_agent")
 		)
 			ctx.addIssue({
@@ -40,6 +40,7 @@ export const LaneExecutionPolicySchema = z
 		executors: z.array(LaneExecutorSchema).min(1).max(20),
 		maxAttempts: z.number().int().min(1).max(20),
 		maxDelegationDepth: z.number().int().min(0).max(10),
+		/** Checked against parent links, starting at the first ancestor with a lane policy. */
 		delegationDepth: z.number().int().min(0).max(10),
 	})
 	.strict()

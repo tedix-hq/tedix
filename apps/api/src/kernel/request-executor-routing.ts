@@ -150,7 +150,7 @@ export async function routeKernelRequest(
 				"Continuation receipt does not match the canonical Work and admission",
 			);
 		if (
-			(executor.kind === "codex" || executor.kind === "claude") &&
+			executor.principalType === "external_agent" &&
 			!receipt.hostAcknowledgmentRef
 		)
 			return row;
