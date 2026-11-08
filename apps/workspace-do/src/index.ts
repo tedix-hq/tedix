@@ -5,6 +5,12 @@
  * token-guarded migration routes.
  */
 import { WorkerEntrypoint } from "cloudflare:workers";
+import type {
+	OutputOperation,
+	OutputQuery,
+	OutputQueryResult,
+	WorkspaceOutputRuntime,
+} from "@tedix/db/queries/durable-sqlite/output-rpc";
 import { tenantStoreStub } from "@tedix/db/tenant-store/router";
 import { readDurableObjectJurisdiction } from "@tedix/worker-kit/durable-objects";
 import type { MemoryOwnerScope } from "@tedix/api-contract/schemas/memory-graph";
@@ -25,6 +31,22 @@ function stubFor(env: WorkspaceEnv, scope: WorkspaceScope): WorkspaceRpc {
 }
 
 export class InternalEntrypoint extends WorkerEntrypoint<WorkspaceEnv> {
+	refreshOutputProjection(
+		scope: WorkspaceScope,
+		outputId: string,
+	): Promise<void> {
+		return (
+			stubFor(this.env, scope) as WorkspaceRpc & WorkspaceOutputRuntime
+		).refreshOutputProjection(scope, outputId);
+	}
+	outputQuery<K extends OutputOperation>(
+		scope: WorkspaceScope,
+		query: OutputQuery<K>,
+	): Promise<OutputQueryResult<K>> {
+		return (
+			stubFor(this.env, scope) as WorkspaceRpc & WorkspaceOutputRuntime
+		).outputQuery(scope, query);
+	}
 	/** Storage port; the gateway retains operation and per-fact authorization. */
 	ownedMemory<K extends MemoryOperation>(
 		owner: MemoryOwnerScope,

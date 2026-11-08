@@ -40,7 +40,7 @@ import {
 import {
 	getOsOutput,
 	listOsOutputs,
-} from "@tedix/db/queries/os-workspaces/outputs";
+} from "../services/workspace-output-storage";
 import { getOsOutputRevision } from "../services/os-workspace-outputs";
 import { listOsWorkspaceResources } from "@tedix/db/queries/os-workspaces/resources";
 import { approvedGuestSkillRead } from "../services/os-share-skill-read-grants";

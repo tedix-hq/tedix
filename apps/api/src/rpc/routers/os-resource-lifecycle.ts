@@ -16,7 +16,7 @@ import {
 import {
 	deleteOsOutput,
 	getOsOutput,
-} from "@tedix/db/queries/os-workspaces/outputs";
+} from "../../services/workspace-output-storage";
 import { listOsShareLinks } from "@tedix/db/queries/os-shares";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import type { OsBlueprintRow } from "@tedix/db/schema/os-workspaces";

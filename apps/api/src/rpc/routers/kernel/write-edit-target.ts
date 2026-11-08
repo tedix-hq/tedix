@@ -2,7 +2,7 @@ import type { DbClient } from "@tedix/db/client";
 import {
 	getOsOutput,
 	listOsOutputs,
-} from "@tedix/db/queries/os-workspaces/outputs";
+} from "../../../services/workspace-output-storage";
 import { getOsOutputRevision } from "../../../services/os-workspace-outputs";
 import {
 	getOsWorkspace,

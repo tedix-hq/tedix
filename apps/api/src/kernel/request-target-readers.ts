@@ -9,7 +9,7 @@ import { getKernelRuntimeRun } from "@tedix/db/queries/kernel-runtime-runs";
 import { listKernelRuntimeEvents } from "@tedix/db/queries/kernel-runtime-events";
 import { getWorkItemById } from "@tedix/db/queries/work-items/crud";
 import { listWorkItemAttempts } from "@tedix/db/queries/work-items/attempts";
-import { getOsOutput } from "@tedix/db/queries/os-workspaces/outputs";
+import { getOsOutput } from "../services/workspace-output-storage";
 import {
 	getOsWorkspace,
 	isOsWorkspaceVisibleTo,

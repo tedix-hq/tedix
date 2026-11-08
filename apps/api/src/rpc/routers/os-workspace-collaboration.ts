@@ -26,7 +26,7 @@ import {
 	getOsGadgetRevision,
 	listOsGadgetRevisions,
 } from "@tedix/db/queries/os-workspaces/gadgets";
-import { listOsOutputRevisions } from "@tedix/db/queries/os-workspaces/outputs";
+import { listOsOutputRevisions } from "../../services/workspace-output-storage";
 import type {
 	OsCollaborationProposalRow,
 	OsGadgetRevisionRow,

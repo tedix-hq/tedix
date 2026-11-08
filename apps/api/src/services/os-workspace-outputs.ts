@@ -1,4 +1,6 @@
-import * as outputs from "@tedix/db/queries/os-workspaces/outputs";
+import * as outputs from "./workspace-output-storage";
+import { getOsOutput as getLegacyOutput } from "@tedix/db/queries/os-workspaces/outputs";
+import { ORPCError } from "@orpc/server";
 import { confirmOsWorkspaceFile as confirmFile } from "@tedix/db/queries/os-workspaces/files";
 import { instantiateOsBlueprint as instantiateBlueprint } from "@tedix/db/queries/os-workspaces/instantiate";
 import { env } from "cloudflare:workers";
@@ -200,6 +202,17 @@ export async function mergeOsCollaborationProposal(
 		proposal.sequence !== params.expectedSequence
 	)
 		return mergeProposal(db, params);
+	if (
+		!(await getLegacyOutput(db, {
+			organizationId: proposal.organizationId,
+			outputId: proposal.documentId,
+		}))
+	) {
+		throw new ORPCError("NOT_IMPLEMENTED", {
+			message:
+				"Collaboration proposal merges for workspace-object outputs require the workspace merge protocol; direct editor revisions remain available",
+		});
+	}
 	const body = await storeOutputRevisionBody(
 		bucket,
 		proposal.organizationId,

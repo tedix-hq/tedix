@@ -1,4 +1,5 @@
 import type { DbClient } from "@tedix/db/client";
+import { env } from "cloudflare:workers";
 import { getOrganizationById } from "@tedix/db/queries/organizations";
 import { referencedOutputBodyHashes } from "@tedix/db/queries/os-workspaces/outputs";
 import { outputRevisionBodyKey } from "./os-output-revision-body-store";
@@ -14,6 +15,15 @@ export async function sweepOutputRevisionBodies(input: {
 	now: Date;
 	dryRun: boolean;
 }) {
+	// D1 reachability cannot prove a body is orphaned while workspace objects own revisions.
+	// Keep cleanup conservative until their complete historical inventories participate.
+	if (env.WORKSPACE_RUNTIME)
+		return {
+			scanned: 0,
+			eligible: 0,
+			removed: 0,
+			paused: "workspace-output-inventory-incomplete" as const,
+		};
 	const { db, bucket, organizationId, dryRun } = input;
 	const prefix = outputRevisionBodyKey(organizationId, "0".repeat(64)).replace(
 		/[^/]+$/,

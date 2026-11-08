@@ -12,7 +12,7 @@ import {
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import { getMemberByUserId } from "@tedix/db/queries/organization-members";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
-import { listOsOutputs } from "@tedix/db/queries/os-workspaces/outputs";
+import { listOsOutputs } from "../../services/workspace-output-storage";
 import { extractBearerToken } from "@tedix/worker-kit/request-auth";
 import {
 	AUTHZ,

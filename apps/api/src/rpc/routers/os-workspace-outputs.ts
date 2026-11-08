@@ -31,7 +31,7 @@ import {
 	listOsOutputRevisions,
 	listOsOutputs,
 	updateOsOutput,
-} from "@tedix/db/queries/os-workspaces/outputs";
+} from "../../services/workspace-output-storage";
 import {
 	createOsOutput,
 	createOsOutputRevision,
