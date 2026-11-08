@@ -432,23 +432,23 @@ export async function ensureOrganizationUnifiedGateway(
 			provisioningStatus: "ready",
 		},
 	};
-	const updated = await updateApp(db, app.id, {
+	// A ready gateway is unusable to its first tedi until both FGA and the AIH
+	// client exist, so converge those effects BEFORE persisting "ready": a
+	// failed grant or sync then leaves the gateway undiscovered, and the next
+	// onboarding retry re-enters this reconciler instead of skipping it.
+	const assignedApp = {
+		...app,
 		name: gatewayName,
 		description: gatewayDescription,
 		metadata: finalMetadata,
-	});
-	if (!updated) {
-		throw new Error(`Failed to finalize MCP gateway ${gatewaySlug}`);
-	}
-	// A ready gateway is unusable to its first tedi until both FGA and the AIH
-	// client exist. Converge those effects on every onboarding retry.
+	};
 	if (firstTedi && !localDemo) {
 		const assignment = resolveManagedAssignmentForApp(
 			{
-				id: updated.id,
-				name: updated.name,
-				slug: updated.slug,
-				metadata: getAppMetadataJson(updated),
+				id: assignedApp.id,
+				name: assignedApp.name,
+				slug: assignedApp.slug,
+				metadata: getAppMetadataJson(assignedApp),
 			},
 			firstTedi,
 		);
@@ -458,21 +458,23 @@ export async function ensureOrganizationUnifiedGateway(
 			}
 			const mgmt = getManagementClient(env);
 			const currentRole = (
-				await getAssignedAppRoles(mgmt, firstTedi.descopeUserId, [updated.id])
-			)[updated.id];
+				await getAssignedAppRoles(mgmt, firstTedi.descopeUserId, [
+					assignedApp.id,
+				])
+			)[assignedApp.id];
 			if (currentRole !== assignment.role) {
 				if (currentRole) {
-					await revokeAppAccess(mgmt, firstTedi.descopeUserId, updated.id);
+					await revokeAppAccess(mgmt, firstTedi.descopeUserId, assignedApp.id);
 				}
 				await (assignment.role === "operator"
-					? grantAppOperator(mgmt, firstTedi.descopeUserId, updated.id)
-					: grantAppObserver(mgmt, firstTedi.descopeUserId, updated.id));
+					? grantAppOperator(mgmt, firstTedi.descopeUserId, assignedApp.id)
+					: grantAppObserver(mgmt, firstTedi.descopeUserId, assignedApp.id));
 			}
 			const synced = await syncTediAihClientForAssignment({
 				db,
 				env,
 				tedi: firstTedi,
-				app: updated,
+				app: assignedApp,
 				role: assignment.role,
 			});
 			if (synced.status === "skipped") {
@@ -481,6 +483,15 @@ export async function ensureOrganizationUnifiedGateway(
 				);
 			}
 		}
+	}
+
+	const updated = await updateApp(db, app.id, {
+		name: gatewayName,
+		description: gatewayDescription,
+		metadata: finalMetadata,
+	});
+	if (!updated) {
+		throw new Error(`Failed to finalize MCP gateway ${gatewaySlug}`);
 	}
 
 	return {

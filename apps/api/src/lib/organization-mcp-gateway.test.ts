@@ -257,6 +257,42 @@ describe("ensureOrganizationUnifiedGateway", () => {
 				organizationSlug: "acme",
 			}),
 		).rejects.toThrow("First tedi MCP access was not provisioned");
+		// "ready" is only persisted after the tedi is assigned and synced, so a
+		// failed sync leaves the gateway undiscovered and a retry re-enters.
+		expect(mocks.updateApp).not.toHaveBeenCalled();
+	});
+
+	it("converges assignment and readiness on retry after a failed tedi sync", async () => {
+		mocks.getAppBySlug.mockResolvedValue(app());
+		mocks.syncTediAihClientForAssignment
+			.mockResolvedValueOnce({ status: "skipped", reason: "descope down" })
+			.mockResolvedValueOnce({ status: "created" });
+		mocks.getAssignedAppRoles
+			.mockResolvedValueOnce({})
+			.mockResolvedValueOnce({ "app-1": "operator" });
+		const { ensureOrganizationUnifiedGateway } =
+			await import("./organization-mcp-gateway");
+		const input = {
+			organizationId: "org-1",
+			organizationName: "Acme",
+			organizationSlug: "acme",
+		};
+
+		await expect(
+			ensureOrganizationUnifiedGateway({} as never, ENV, input),
+		).rejects.toThrow("First tedi MCP access was not provisioned");
+		await expect(
+			ensureOrganizationUnifiedGateway({} as never, ENV, input),
+		).resolves.toMatchObject({ gatewaySlug: "acme-unified" });
+
+		expect(mocks.grantAppOperator).toHaveBeenCalledOnce();
+		expect(mocks.updateApp).toHaveBeenCalledOnce();
+		expect(mocks.updateApp.mock.calls[0]?.[2].metadata.mcpConfig).toMatchObject(
+			{
+				provisioningStatus: "ready",
+				aggregateTedis: [{ slug: "tedi-first", surface: "full" }],
+			},
+		);
 	});
 
 	it("repairs an older gateway without dropping its existing scope groups", async () => {

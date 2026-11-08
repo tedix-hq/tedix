@@ -459,15 +459,19 @@ export const getMyOrganizationContract = authedOrganizationsOs.getMyOrganization
 			);
 		}
 
-		// Repair organizations created before the default-tedi invariant. Their
-		// unified gateway already exists, but its aggregateTedis projection was
-		// finalized while the organization had no worker. Re-running the idempotent
-		// gateway reconciler only when this request created the missing tedi keeps
-		// ordinary launcher reads cheap while making the repair immediately usable.
-		if (defaultTediCreated && orgResult.organization.features?.os === true) {
-			const existingGateway = (
-				await getOrganizationAggregatorGateways(db, [orgResult.organization.id])
-			).get(orgResult.organization.id);
+		// Assign the first tedi to the organization's unified gateway before OS is
+		// enabled — the aggregator is the worker's Work bridge, not an OS feature.
+		// ensureOrganizationUnifiedGateway only marks a gateway ready after the
+		// assignment and AIH client sync succeed, so "no ready gateway" is also
+		// the retry signal for a partial previous attempt. Re-running it when this
+		// request created the missing tedi repairs organizations whose gateway was
+		// finalized before the default-tedi invariant existed. Skipping the
+		// reconcile when a ready gateway already exists keeps ordinary launcher
+		// reads cheap.
+		const existingGateway = (
+			await getOrganizationAggregatorGateways(db, [orgResult.organization.id])
+		).get(orgResult.organization.id);
+		if (!existingGateway || defaultTediCreated) {
 			try {
 				await ensureOrganizationUnifiedGateway(db, context.env, {
 					organizationId: orgResult.organization.id,
@@ -476,9 +480,12 @@ export const getMyOrganizationContract = authedOrganizationsOs.getMyOrganization
 					gatewaySlug: existingGateway?.slug,
 				});
 			} catch (error) {
-				console.error("[Organizations] Default tedi gateway repair failed", {
-					exception: safeExceptionTopology(error),
-				});
+				console.error(
+					"[Organizations] Default tedi gateway assignment failed",
+					{
+						exception: safeExceptionTopology(error),
+					},
+				);
 				throw createError(
 					ErrorCodes.SERVICE_UNAVAILABLE,
 					"Workspace gateway assignment is incomplete. Please retry sign-in.",
