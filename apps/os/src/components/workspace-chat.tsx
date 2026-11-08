@@ -46,13 +46,17 @@ import { osQueryKeys } from "@/lib/os-query-options";
 import { useNow } from "@/lib/use-now";
 import { useWorkspaceChat } from "@/lib/use-workspace-chat";
 import type { createWorkspaceChatClient } from "@/lib/workspace-chat-client";
-import type { WorkspaceChatConnection } from "@/lib/workspace-chat-client";
+import type {
+	WorkspaceChatClient,
+	WorkspaceChatConnection,
+} from "@/lib/workspace-chat-client";
 import type { ConversationSummary } from "@/lib/workspace-chat-protocol";
 import {
 	activeTurn,
 	type ChatApproval,
 	type ChatStep,
 	type ChatTurn,
+	type WorkspaceChatState,
 	elapsedLabel,
 	formatUsage,
 	pendingApproval,
@@ -147,7 +151,7 @@ export function WorkspaceChat({
 		(text: string, attachments?: Array<{ outputId: string }>) => {
 			const trimmed = text.trim();
 			if (!trimmed || !client) return;
-			client.sendTurn({
+			return client.sendTurn({
 				text: trimmed,
 				...(modelId ? { modelId } : {}),
 				...(attachments?.length ? { attachments } : {}),
@@ -173,12 +177,15 @@ export function WorkspaceChat({
 					onSelect={onSelectConversation}
 				/>
 				<Composer
+					key="composer"
+					client={client}
+					state={state}
 					modelControl={modelControl}
 					workspaceId={workspaceId}
 					onBrowseResources={onBrowseResources}
 					onSend={(text, attachments) => {
 						onSelectConversation(null);
-						client?.sendTurn({
+						return client?.sendTurn({
 							text,
 							newConversation: true,
 							...(modelId ? { modelId } : {}),
@@ -248,6 +255,9 @@ export function WorkspaceChat({
 				</div>
 			) : null}
 			<Composer
+				key="composer"
+				client={client}
+				state={state}
 				modelControl={modelControl}
 				workspaceId={workspaceId}
 				onBrowseResources={onBrowseResources}
@@ -915,6 +925,8 @@ function ApprovalCard({
 }
 
 function Composer({
+	client,
+	state,
 	workspaceId,
 	onBrowseResources,
 	onSend,
@@ -925,12 +937,22 @@ function Composer({
 }: {
 	workspaceId: string;
 	onBrowseResources?: () => void;
-	onSend: (text: string, attachments?: Array<{ outputId: string }>) => void;
+	onSend: (
+		text: string,
+		attachments?: Array<{ outputId: string }>,
+	) => string | undefined;
+	state: WorkspaceChatState;
+	client: WorkspaceChatClient | null;
 	disabledReason: string | null;
 	autoFocus: boolean;
 	busy: boolean;
 	modelControl: ReactNode;
 }) {
+	const [submitted, setSubmitted] = useState<{
+		id: string;
+		text: string;
+		files: string[];
+	} | null>(null);
 	const [draft, setDraft] = useState("");
 	const [selected, setSelected] = useState<
 		Array<{ outputId: string; title: string }>
@@ -938,20 +960,38 @@ function Composer({
 	useEffect(() => {
 		setSelected([]);
 		setDraft("");
+		setSubmitted(null);
 	}, [workspaceId]);
+	useEffect(() => setSubmitted(null), [client]);
+	useEffect(() => {
+		if (!submitted) return;
+		if (state.turns.some((turn) => turn.turnId === submitted.id)) {
+			setDraft((text) => (text === submitted.text ? "" : text));
+			setSelected((files) =>
+				files.filter((file) => !submitted.files.includes(file.outputId)),
+			);
+			setSubmitted(null);
+		} else if (state.lastError?.clientTurnId === submitted.id) {
+			setSubmitted(null);
+		}
+	}, [state.turns, state.lastError, submitted]);
 	const textarea = useRef<HTMLTextAreaElement | null>(null);
 	useEffect(() => {
 		if (autoFocus) textarea.current?.focus();
 	}, [autoFocus]);
 	const submit = (event?: FormEvent) => {
 		event?.preventDefault();
-		if (disabledReason || !draft.trim()) return;
-		onSend(
+		if (disabledReason || submitted || !draft.trim()) return;
+		const id = onSend(
 			draft,
 			selected.map(({ outputId }) => ({ outputId })),
 		);
-		setDraft("");
-		setSelected([]);
+		if (id)
+			setSubmitted({
+				id,
+				text: draft,
+				files: selected.map((file) => file.outputId),
+			});
 	};
 	const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
 		if (event.key === "Enter" && !event.shiftKey && !isImeComposing(event)) {
@@ -1020,7 +1060,9 @@ function Composer({
 				</Text>
 				<Button
 					aria-label="Send"
-					disabled={disabledReason !== null || !draft.trim()}
+					disabled={
+						disabledReason !== null || submitted !== null || !draft.trim()
+					}
 					size="icon-sm"
 					type="submit"
 				>

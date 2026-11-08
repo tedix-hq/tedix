@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
 import { startFixtureServer } from "./fixture-server";
+import {
+	controlSelector,
+	describeControl,
+	focusClipAudit,
+} from "./focus-clip-page";
 
 const server = await startFixtureServer("/browser-tests/workspace-chat.html");
 const browser = await chromium.launch({ headless: true });
@@ -38,6 +43,18 @@ try {
 								);
 							} else if (frame.type === "send_turn") {
 								sent.push(frame);
+								if (sent.length === 1) {
+									socket.send(
+										JSON.stringify({
+											type: "error",
+											code: "failed",
+											message:
+												"The selected file is unavailable. Remove it and try again.",
+											clientTurnId: frame.clientTurnId,
+										}),
+									);
+									return;
+								}
 								const base = {
 									at: new Date().toISOString(),
 									conversationId: "c1",
@@ -115,9 +132,24 @@ try {
 				await page
 					.getByRole("button", { name: "Workspace resources", exact: true })
 					.click();
-				await page
-					.getByRole("button", { name: "Planning notes", exact: true })
-					.click();
+				const file = page.getByRole("button", {
+					name: "Planning notes",
+					exact: true,
+				});
+				await file.waitFor();
+				await page.keyboard.press("Shift");
+				const clipped = await page.evaluate(`(() => {
+${describeControl}
+${controlSelector}
+${focusClipAudit}
+return focusClipAudit();
+})()`);
+				assert.deepEqual(
+					clipped,
+					[],
+					`${width} ${theme}: resource picker focus rings fit`,
+				);
+				await file.click();
 				await page
 					.getByRole("button", { name: "Remove Planning notes", exact: true })
 					.waitFor();
@@ -125,8 +157,35 @@ try {
 					.getByRole("textbox", { name: "Message the workspace" })
 					.fill("Show usage");
 				await page.getByRole("button", { name: "Send", exact: true }).click();
+				await page
+					.getByRole("alert")
+					.getByText(/selected file is unavailable/)
+					.waitFor();
+				assert.equal(
+					await page
+						.getByRole("textbox", { name: "Message the workspace" })
+						.inputValue(),
+					"Show usage",
+				);
+				await page
+					.getByRole("button", { name: "Remove Planning notes", exact: true })
+					.waitFor();
+				await page.getByRole("button", { name: "Send", exact: true }).click();
 				const footer = page.locator(".workspace-chat-turn-footer");
 				await footer.getByText(/provider-model-snapshot/).waitFor();
+				assert.equal(sent.length, 2);
+				assert.equal(
+					await page
+						.getByRole("textbox", { name: "Message the workspace" })
+						.inputValue(),
+					"",
+				);
+				assert.equal(
+					await page
+						.getByRole("button", { name: "Remove Planning notes", exact: true })
+						.count(),
+					0,
+				);
 				assert.equal(sent[0]?.modelId, "azure-openai/configured");
 				assert.deepEqual(sent[0]?.attachments, [{ outputId: "native-doc" }]);
 				await page

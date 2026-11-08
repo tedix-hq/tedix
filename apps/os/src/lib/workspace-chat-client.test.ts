@@ -335,6 +335,38 @@ describe("createWorkspaceChatClient", () => {
 		expect(client.getSnapshot().state.pendingSend).toBeNull();
 	});
 
+	it("correlates a rejected send with its draft without resending it", () => {
+		const { client, sockets, hello, advance } = harness();
+		const socket = sockets[0]!;
+		socket.open();
+		hello(socket);
+		const clientTurnId = client.sendTurn({
+			text: "Read this",
+			attachments: [{ outputId: "unavailable" }],
+		});
+		socket.receive({
+			type: "error",
+			code: "failed",
+			message: "File unavailable",
+			clientTurnId,
+		});
+		expect(client.getSnapshot().state.lastError).toEqual({
+			code: "failed",
+			message: "File unavailable",
+			clientTurnId,
+		});
+		expect(client.getSnapshot().state.pendingSend).toBeNull();
+		advance(6_000);
+		socket.drop();
+		advance(0);
+		const replacement = sockets[1]!;
+		replacement.open();
+		hello(replacement);
+		expect(replacement.sent.some((frame) => frame.type === "send_turn")).toBe(
+			false,
+		);
+	});
+
 	it("holds a turn written during a drop and sends it once the object is back", () => {
 		const { client, sockets, hello, advance } = harness();
 		const first = sockets[0]!;

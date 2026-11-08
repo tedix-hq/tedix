@@ -446,6 +446,7 @@ export function createWorkspaceChatClient(
 				state = markSendFailed(state, {
 					code: message.code,
 					message: message.message,
+					clientTurnId: message.clientTurnId,
 				});
 				publish();
 				return;
