@@ -20,10 +20,29 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version-file: package.json
-          no-cache: true
+      # setup-bun downloads bun from github.com/.../releases/download; a
+      # release-file outage failed every cli-v0.20.0 attempt. The pinned bun
+      # ships on npm, which `bun install` below already depends on, so this
+      # adds no new failure domain.
+      - name: Install the pinned Bun from npm
+        run: |
+          set -euo pipefail
+          version="$(node -p 'require("./package.json").packageManager.match(/^bun@(.+)$/)[1]')"
+          prefix="${RUNNER_TEMP}/bun-npm"
+          for attempt in 1 2 3; do
+            if npm install --prefix "$prefix" --ignore-scripts --no-save --no-audit --no-fund "@oven/bun-linux-x64@${version}"; then
+              break
+            fi
+            echo "::warning title=Infrastructure retry::Bun npm install failed (attempt $attempt of 3); retrying"
+            if [ "$attempt" -eq 3 ]; then exit 1; fi
+            sleep $((attempt * 10))
+          done
+          bin_dir="${prefix}/node_modules/@oven/bun-linux-x64/bin"
+          test -x "${bin_dir}/bun"
+          ln -sf "${bin_dir}/bun" "${bin_dir}/bunx"
+          echo "$bin_dir" >> "$GITHUB_PATH"
+          command -v bun
+          test "$(bun --version)" = "$version"
       - run: bun install --frozen-lockfile
       - name: Validate release version
         run: |
@@ -51,10 +70,25 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version-file: package.json
-          no-cache: true
+      - name: Install the pinned Bun from npm
+        run: |
+          set -euo pipefail
+          version="$(node -p 'require("./package.json").packageManager.match(/^bun@(.+)$/)[1]')"
+          prefix="${RUNNER_TEMP}/bun-npm"
+          for attempt in 1 2 3; do
+            if npm install --prefix "$prefix" --ignore-scripts --no-save --no-audit --no-fund "@oven/bun-linux-x64@${version}"; then
+              break
+            fi
+            echo "::warning title=Infrastructure retry::Bun npm install failed (attempt $attempt of 3); retrying"
+            if [ "$attempt" -eq 3 ]; then exit 1; fi
+            sleep $((attempt * 10))
+          done
+          bin_dir="${prefix}/node_modules/@oven/bun-linux-x64/bin"
+          test -x "${bin_dir}/bun"
+          ln -sf "${bin_dir}/bun" "${bin_dir}/bunx"
+          echo "$bin_dir" >> "$GITHUB_PATH"
+          command -v bun
+          test "$(bun --version)" = "$version"
       - run: bun install --frozen-lockfile
       - name: Validate release version
         run: |
