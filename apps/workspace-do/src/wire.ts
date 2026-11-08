@@ -18,6 +18,7 @@ export type WireEventBody =
 			type: "turn.started";
 			turnId: string;
 			text: string;
+			displayText?: string;
 			authorId: string;
 			authorKind: AuthorKind;
 	  }

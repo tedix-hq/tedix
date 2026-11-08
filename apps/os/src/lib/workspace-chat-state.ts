@@ -86,6 +86,10 @@ export type WorkspaceChatState = {
 	lastError: { code: string; message: string } | null;
 	/** Seqs already folded; shared between successive states, grows only. */
 	seen: Set<number>;
+	approvalDecisions: Record<
+		string,
+		{ decision: ApprovalDecision; decidedBy: string; decidedAt: string }
+	>;
 };
 
 export function initialWorkspaceChatState(
@@ -101,6 +105,7 @@ export function initialWorkspaceChatState(
 		pendingSend: null,
 		lastError: null,
 		seen: new Set(),
+		approvalDecisions: {},
 	};
 }
 
@@ -113,7 +118,7 @@ function newTurn(
 		startedAt: event.at,
 		authorId: event.authorId,
 		authorKind: event.authorKind,
-		text: event.text,
+		text: event.displayText ?? event.text,
 		reply: "",
 		replyMessageId: null,
 		replyDone: false,
@@ -198,6 +203,7 @@ export function applyWorkspaceChatEvent(
 	const at = event.at;
 	let turns = state.turns;
 	let pendingSend = state.pendingSend;
+	let approvalDecisions = state.approvalDecisions;
 	const place = (turnId: string) => (patch: (turn: ChatTurn) => ChatTurn) =>
 		upsertTurn(
 			turns,
@@ -215,7 +221,7 @@ export function applyWorkspaceChatEvent(
 				(turn) => ({
 					...turn,
 					startedAt: event.at,
-					text: event.text,
+					text: event.displayText ?? event.text,
 					authorId: event.authorId,
 					authorKind: event.authorKind,
 				}),
@@ -318,13 +324,22 @@ export function applyWorkspaceChatEvent(
 									input: event.input,
 									requestedAt: event.at,
 									decision: null,
+									...approvalDecisions[event.approvalId],
 								},
 							],
 						},
 			);
 			break;
 		case "approval.decided":
-			turns = place(event.turnId)((turn) => ({
+			approvalDecisions = {
+				...approvalDecisions,
+				[event.approvalId]: {
+					decision: event.decision,
+					decidedBy: event.by,
+					decidedAt: event.at,
+				},
+			};
+			turns = turns.map((turn) => ({
 				...turn,
 				approvals: turn.approvals.map((approval) =>
 					approval.approvalId === event.approvalId
@@ -366,6 +381,7 @@ export function applyWorkspaceChatEvent(
 		lastEventAt: Math.max(state.lastEventAt ?? 0, Date.parse(event.at) || 0),
 		turns,
 		pendingSend,
+		approvalDecisions,
 	};
 }
 

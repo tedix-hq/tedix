@@ -234,6 +234,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	async sendTurn(
 		scope: WorkspaceScope,
 		input: TurnRequest,
+		displayText?: string,
 	): Promise<{ turnId: string; conversationId: string; seq: number }> {
 		this.bindScope(scope);
 		const turnId = input.turnId ?? crypto.randomUUID();
@@ -266,6 +267,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			type: "turn.started",
 			turnId,
 			text,
+			...(displayText ? { displayText } : {}),
 			authorId: input.tediId ?? input.actorId,
 			authorKind:
 				input.tediId || input.actorKind === "tedi" ? "tedi" : "person",
@@ -464,13 +466,19 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		} else {
 			summary = `Denied by ${input.by}${input.note ? `: ${input.note}` : ""}. Do not retry this action.`;
 		}
-		const { turnId } = await this.sendTurn(scope, {
-			conversationId: approval.conversation_id,
-			actorId: input.by,
-			actorKind: "user",
-			text: summary,
-			...(approval.tedi_id ? { tediId: approval.tedi_id } : {}),
-		});
+		const { turnId } = await this.sendTurn(
+			scope,
+			{
+				conversationId: approval.conversation_id,
+				actorId: input.by,
+				actorKind: "user",
+				text: summary,
+				...(approval.tedi_id ? { tediId: approval.tedi_id } : {}),
+			},
+			input.decision === "approve"
+				? "Approved the requested action."
+				: "Denied the requested action.",
+		);
 		return { applied: input.decision === "approve", turnId };
 	}
 

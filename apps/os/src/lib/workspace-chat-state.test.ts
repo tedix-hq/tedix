@@ -160,13 +160,65 @@ describe("applyWorkspaceChatEvent", () => {
 			at: at(6),
 			conversationId: "c1",
 			type: "approval.decided",
-			turnId: "t1",
 			approvalId: "a1",
 			decision: "approve",
 			by: "person:aaron",
 		});
 		expect(pendingApproval(activeTurn(decided))).toBeNull();
+		expect(decided.turns).toHaveLength(1);
 		expect(decided.turns[0]?.approvals[0]?.decision).toBe("approve");
+	});
+
+	it.each(["approve", "deny"] as const)(
+		"replays a %s decision before an older approval page without a phantom turn",
+		(decision) => {
+			const decided: WorkspaceChatLedgerEvent = {
+				seq: 11,
+				at: at(6),
+				conversationId: "c1",
+				type: "approval.decided",
+				approvalId: "a1",
+				decision,
+				by: "person:aaron",
+			};
+			const requested: WorkspaceChatLedgerEvent = {
+				seq: 3,
+				at: at(2),
+				conversationId: "c1",
+				type: "approval.requested",
+				turnId: "t1",
+				stepId: "s2",
+				approvalId: "a1",
+				title: "Create a document",
+				reason: "Review required",
+			};
+			const events = [turn[0]!, requested, turn[6]!, decided];
+			const live = applyWorkspaceChatEvents(
+				initialWorkspaceChatState("c1"),
+				events,
+			);
+			const paged = applyWorkspaceChatEvents(initialWorkspaceChatState("c1"), [
+				decided,
+				...events.slice(0, 3),
+			]);
+			for (const state of [live, paged]) {
+				expect(state.turns).toHaveLength(1);
+				expect(state.turns[0]?.approvals[0]?.decision).toBe(decision);
+				expect(activeTurn(state)).toBeNull();
+			}
+		},
+	);
+
+	it("shows the continuation label while preserving its model context on the wire", () => {
+		const state = applyWorkspaceChatEvent(initialWorkspaceChatState("c1"), {
+			...(turn[0] as Extract<
+				WorkspaceChatLedgerEvent,
+				{ type: "turn.started" }
+			>),
+			text: 'Approved by person:aaron; outputs.create applied: {"id":"private-id"}',
+			displayText: "Approved the requested action.",
+		});
+		expect(state.turns[0]?.text).toBe("Approved the requested action.");
 	});
 
 	it("drops events of another conversation but still advances the cursor", () => {
