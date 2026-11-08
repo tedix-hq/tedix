@@ -103,6 +103,16 @@ export function createAzureGatewayModel(
 		stream(context, options) {
 			const streamOptions: SimpleStreamOptions = {
 				apiKey: "cloudflare-ai-gateway-byok",
+				fetch: (input, init) => {
+					const headers = new Headers(
+						init?.headers ??
+							(input instanceof Request ? input.headers : undefined),
+					);
+					// Provider credentials override the Gateway's stored BYOK key.
+					headers.delete("api-key");
+					headers.delete("authorization");
+					return fetch(input, { ...init, headers });
+				},
 				signal: options?.signal,
 				maxTokens: options?.maxTokens ?? model.maxTokens,
 				azureBaseUrl: baseUrl,
