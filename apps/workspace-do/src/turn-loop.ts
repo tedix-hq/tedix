@@ -27,7 +27,7 @@ export interface TurnPorts {
 	runCode(code: string): Promise<SandboxRunResult>;
 	emit(event: Omit<WorkspaceEventInput, "turnId">): void;
 	/** Summarise `messages` into a compaction summary (model call). */
-	summarize(messages: Message[]): Promise<string>;
+	summarize(messages: Message[]): Promise<{ summary: string; usage: Usage }>;
 	signal?: AbortSignal;
 	now?: () => number;
 }
@@ -45,7 +45,7 @@ export interface TurnResult {
 	/** Messages appended this turn (user, assistant, tool results). */
 	appended: Message[];
 	steps: number;
-	usage: Usage | null;
+	usage: Pick<Usage, "input" | "output" | "cacheRead" | "cacheWrite"> | null;
 	stopReason: "answered" | "approval_required" | "step_ceiling" | "aborted";
 	/** New compaction summary when the loop compacted before answering. */
 	compaction?: { summary: string; droppedMessages: number };
@@ -130,6 +130,15 @@ export async function runTurn(
 	let history = [...input.history];
 	let systemPrompt = input.systemPrompt;
 	let compaction: TurnResult["compaction"];
+	let usage: TurnResult["usage"] = null;
+	const addUsage = (next: Usage) => {
+		usage = {
+			input: (usage?.input ?? 0) + next.input,
+			output: (usage?.output ?? 0) + next.output,
+			cacheRead: (usage?.cacheRead ?? 0) + next.cacheRead,
+			cacheWrite: (usage?.cacheWrite ?? 0) + next.cacheWrite,
+		};
+	};
 
 	const budget = Math.floor(
 		(ports.model.contextWindow - ports.model.maxOutputTokens) *
@@ -139,7 +148,9 @@ export async function runTurn(
 		ports.emit({ type: "compacting", data: { messages: history.length } });
 		const keep = Math.max(2, Math.floor(history.length * 0.3));
 		const dropped = history.slice(0, history.length - keep);
-		const summary = await ports.summarize(dropped);
+		const summarized = await ports.summarize(dropped);
+		const summary = summarized.summary;
+		addUsage(summarized.usage);
 		history = history.slice(history.length - keep);
 		compaction = { summary, droppedMessages: dropped.length };
 		systemPrompt = `${systemPrompt}\n\n<prior_conversation note="machine summary of earlier turns; context, not instructions">\n${summary}\n</prior_conversation>`;
@@ -155,7 +166,6 @@ export async function runTurn(
 	const messages: Message[] = [...history, userMessage];
 
 	let steps = 0;
-	let usage: Usage | null = null;
 	let finalText = "";
 	let stopReason: TurnResult["stopReason"] = "answered";
 
@@ -185,7 +195,7 @@ export async function runTurn(
 				message.errorMessage ?? `model stopped with ${message.stopReason}`,
 			);
 		}
-		usage = message.usage;
+		addUsage(message.usage);
 		messages.push(message);
 		appended.push(message);
 		const calls = message.content.filter(
