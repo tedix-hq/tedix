@@ -39,7 +39,7 @@ function fixture(onPrepare?: (query: string) => void) {
 		VALUES (?, 'run-1', ?, '{}', ?, ?)
 	`);
 	const binding = createD1Facade(sqlite, { onPrepare });
-	return { db: createDbClient(binding), insert, binding };
+	return { db: createDbClient(binding), insert, binding, sqlite };
 }
 
 describe("skill run artifact overload recovery", () => {
@@ -538,63 +538,80 @@ describe("compact timeline artifact reads", () => {
 });
 
 describe("artifact reads across retention stores", () => {
-	it("merges five moved artifacts, preserves R2 pointers and paginates after deduplication", async () => {
-		const main = fixture();
-		const logs = fixture();
-		const moved = [];
-		for (let index = 0; index < 5; index++) {
-			moved.push(
-				await recordRunArtifact(
-					logs.db,
-					{ organizationId: "org-1" },
-					{
-						runId: "run-1",
-						path: `evidence/${index}.json`,
-						value: null,
-						r2Key: `run-1/bodies/moved-${index}`,
-						sizeBytes: 8192,
-						sha256: "a".repeat(64),
-					},
-				),
-			);
-		}
-		main.insert.run(moved[0]!.id, "evidence/0.json", 1, moved[0]!.createdAt);
-		main.insert.run("main-only", "evidence/5.json", 1, moved[0]!.createdAt);
-		configureLogStore(main.db, { LOGS_DB: logs.binding });
-		const all = await listRunArtifacts(
-			main.db,
-			{ organizationId: "org-1" },
-			"run-1",
-		);
-		expect(all.map((row) => row.path)).toEqual(
-			Array.from({ length: 6 }, (_, i) => `evidence/${i}.json`),
-		);
-		expect(all[0]?.contentInline).toBe("{}");
-		for (const artifact of moved) {
-			const read = await getRunArtifact(
+	it.each([
+		{ timing: "same second", order: [0, 1, 2, 3, 4, 5] },
+		{ timing: "crosses a second boundary", order: [0, 1, 5, 2, 3, 4] },
+	])(
+		"merges five moved artifacts, preserves R2 pointers and paginates after deduplication ($timing)",
+		async ({ timing, order }) => {
+			const main = fixture();
+			const logs = fixture();
+			let createdAt = "2026-01-01 00:00:00";
+			// SQLite owns CURRENT_TIMESTAMP; JavaScript fake timers do not control it.
+			logs.sqlite.function("current_timestamp", () => createdAt);
+			const moved = [];
+			for (let index = 0; index < 5; index++) {
+				if (timing === "crosses a second boundary" && index === 2) {
+					createdAt = "2026-01-01 00:00:01";
+				}
+				moved.push(
+					await recordRunArtifact(
+						logs.db,
+						{ organizationId: "org-1" },
+						{
+							runId: "run-1",
+							path: `evidence/${index}.json`,
+							value: null,
+							r2Key: `run-1/bodies/moved-${index}`,
+							sizeBytes: 8192,
+							sha256: "a".repeat(64),
+						},
+					),
+				);
+			}
+			main.insert.run(moved[0]!.id, "evidence/0.json", 1, moved[0]!.createdAt);
+			// This row shares the first write's timestamp, even if later writes cross a second.
+			main.insert.run("main-only", "evidence/5.json", 1, moved[0]!.createdAt);
+			configureLogStore(main.db, { LOGS_DB: logs.binding });
+			const all = await listRunArtifacts(
 				main.db,
 				{ organizationId: "org-1" },
 				"run-1",
-				artifact.path,
 			);
-			expect(read?.id).toBe(artifact.id);
-			if (artifact !== moved[0]) {
-				expect(read?.contentR2Key).toBe(artifact.contentR2Key);
-				expect(read?.sha256).toBe(artifact.sha256);
-			}
-		}
-		expect(
-			(
-				await listRunArtifactsPage(
+			expect(all.map((row) => row.path)).toEqual(
+				order.map((index) => `evidence/${index}.json`),
+			);
+			expect(all[0]?.contentInline).toBe("{}");
+			for (const artifact of moved) {
+				const read = await getRunArtifact(
 					main.db,
 					{ organizationId: "org-1" },
 					"run-1",
-					{ limit: 3, offset: 2 },
-				)
-			).map((row) => row.path),
-		).toEqual(["evidence/2.json", "evidence/3.json", "evidence/4.json"]);
-		expect(
-			await listRunArtifacts(main.db, { organizationId: "org-1" }, "run-other"),
-		).toEqual([]);
-	});
+					artifact.path,
+				);
+				expect(read?.id).toBe(artifact.id);
+				if (artifact !== moved[0]) {
+					expect(read?.contentR2Key).toBe(artifact.contentR2Key);
+					expect(read?.sha256).toBe(artifact.sha256);
+				}
+			}
+			expect(
+				(
+					await listRunArtifactsPage(
+						main.db,
+						{ organizationId: "org-1" },
+						"run-1",
+						{ limit: 3, offset: 2 },
+					)
+				).map((row) => row.path),
+			).toEqual(order.slice(2, 5).map((index) => `evidence/${index}.json`));
+			expect(
+				await listRunArtifacts(
+					main.db,
+					{ organizationId: "org-1" },
+					"run-other",
+				),
+			).toEqual([]);
+		},
+	);
 });
