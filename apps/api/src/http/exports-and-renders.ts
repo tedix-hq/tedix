@@ -260,7 +260,7 @@ export function registerExportsAndRenders(
 
 		const { createDbQueryClient } = await import("@tedix/db/query-client");
 		const { getOsOutput } =
-			await import("@tedix/db/queries/os-workspaces/outputs");
+			await import("../services/workspace-output-storage");
 		const { getOsOutputRevisionByNumber } =
 			await import("../services/os-workspace-outputs");
 		const db = createDbQueryClient(c.env.DB);

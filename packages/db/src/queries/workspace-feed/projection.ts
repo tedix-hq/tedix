@@ -176,6 +176,8 @@ function outputStatements(
 	const createdBy = summary.createdBy ?? event.actor;
 	const searchText = searchTextOf(summary);
 	const rowId = `${event.id}:${event.revision}`;
+	// Publication can arrive out of revision order even though feed sequence is contiguous.
+	const isCurrent = sql<number>`CASE WHEN EXISTS (SELECT 1 FROM workspace_output_index WHERE organization_id = ${event.organizationId} AND output_id = ${event.id} AND is_current = 1 AND revision > ${event.revision}) THEN 0 ELSE 1 END`;
 	const statements: BatchStatement[] = [
 		// Only one row per output serves the library and search.
 		db
@@ -184,6 +186,7 @@ function outputStatements(
 			.where(
 				and(
 					eq(workspaceOutputIndex.outputId, event.id),
+					sql`${workspaceOutputIndex.revision} <= ${event.revision}`,
 					ne(workspaceOutputIndex.id, rowId),
 				),
 			),
@@ -196,7 +199,7 @@ function outputStatements(
 				outputId: event.id,
 				revision: event.revision,
 				revisionId: event.changeRecordId,
-				isCurrent: 1,
+				isCurrent,
 				outputKind: summary.outputKind ?? "document",
 				title: summary.title ?? "",
 				status: summary.status ?? "active",
@@ -223,7 +226,7 @@ function outputStatements(
 				set: {
 					workspaceId: event.workspaceId,
 					revisionId: event.changeRecordId,
-					isCurrent: 1,
+					isCurrent,
 					title: summary.title ?? sql`${workspaceOutputIndex.title}`,
 					status: summary.status ?? sql`${workspaceOutputIndex.status}`,
 					outputKind:

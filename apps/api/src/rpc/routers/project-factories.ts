@@ -20,7 +20,7 @@ import {
 import {
 	getOsOutput,
 	listOsOutputs,
-} from "@tedix/db/queries/os-workspaces/outputs";
+} from "../../services/workspace-output-storage";
 import {
 	getOsWorkspace,
 	isOsWorkspaceVisibleTo,

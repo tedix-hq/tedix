@@ -5,7 +5,7 @@ import {
 	getArtifactRedactionCandidate,
 	getArtifactReleaseReviewHead,
 } from "@tedix/db/queries/artifact-policy/releases";
-import { getOsOutput } from "@tedix/db/queries/os-workspaces/outputs";
+import { getOsOutput } from "./workspace-output-storage";
 import {
 	getOsOutputRevision,
 	getOsOutputRevisionByNumber,

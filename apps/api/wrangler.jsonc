@@ -389,6 +389,11 @@
 	],
 	"services": [
 		{
+			"binding": "WORKSPACE_RUNTIME",
+			"service": "public-installation-workspace-do",
+			"entrypoint": "InternalEntrypoint",
+		},
+		{
 			"binding": "TEDI_SERVICE",
 			"service": "public-installation-tedi",
 			"entrypoint": "InternalEntrypoint",
@@ -770,6 +775,11 @@
 				},
 			],
 			"services": [
+				{
+					"binding": "WORKSPACE_RUNTIME",
+					"service": "public-installation-workspace-do",
+					"entrypoint": "InternalEntrypoint",
+				},
 				{
 					"binding": "TEDI_SERVICE",
 					"service": "public-installation-tedi",

@@ -20,7 +20,7 @@ import {
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { getOsBlueprint } from "@tedix/db/queries/os-workspaces/blueprints";
 import { getOsGadget } from "@tedix/db/queries/os-workspaces/gadgets";
-import { getOsOutput } from "@tedix/db/queries/os-workspaces/outputs";
+import { getOsOutput } from "../../services/workspace-output-storage";
 import {
 	createOsWorkspaceProject,
 	getOsWorkspaceProject,

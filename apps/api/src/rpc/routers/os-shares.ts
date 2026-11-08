@@ -23,7 +23,7 @@ import {
 	getOsGadgetRevision,
 	listOsGadgets,
 } from "@tedix/db/queries/os-workspaces/gadgets";
-import { getOsOutput } from "@tedix/db/queries/os-workspaces/outputs";
+import { getOsOutput } from "../../services/workspace-output-storage";
 import { getOsOutputRevision } from "../../services/os-workspace-outputs";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import { assertOsWorkspaceVisible } from "../../services/os-workspace-visibility";

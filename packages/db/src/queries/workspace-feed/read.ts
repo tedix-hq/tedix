@@ -187,6 +187,38 @@ export async function getWorkspaceOutputIndexCurrent(
 	return row;
 }
 
+export async function getWorkspaceOutputIndexRevision(
+	db: DbQueryClient,
+	params: { organizationId: string; revisionId: string },
+): Promise<WorkspaceOutputIndexRow | undefined> {
+	const [row] = await db
+		.select()
+		.from(workspaceOutputIndex)
+		.where(
+			and(
+				eq(workspaceOutputIndex.organizationId, params.organizationId),
+				eq(workspaceOutputIndex.revisionId, params.revisionId),
+			),
+		)
+		.limit(1);
+	return row;
+}
+
+export async function retireWorkspaceOutputIndex(
+	db: DbQueryClient,
+	params: { organizationId: string; outputId: string },
+): Promise<void> {
+	await db
+		.update(workspaceOutputIndex)
+		.set({ isCurrent: 0 })
+		.where(
+			and(
+				eq(workspaceOutputIndex.organizationId, params.organizationId),
+				eq(workspaceOutputIndex.outputId, params.outputId),
+			),
+		);
+}
+
 /** Active links from a Work Item to outputs, newest confirmation first. */
 export async function listWorkspaceWorkLinksForWorkItem(
 	db: DbQueryClient,
