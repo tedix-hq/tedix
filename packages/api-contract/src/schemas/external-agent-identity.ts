@@ -22,8 +22,20 @@ export const ExternalAgentPlatformSchema = z.enum([
 	"other",
 ]);
 
+export const ExternalAgentWorkManagementGrantSchema = z.strictObject({
+	sourceIntentPrefixes: z
+		.array(z.string().regex(/^[a-z][a-z0-9_-]{1,199}:$/))
+		.min(1)
+		.max(10),
+	actions: z
+		.array(z.enum(["specification", "assignment", "cancellation"]))
+		.min(1)
+		.max(3),
+});
+
 export const ExternalAgentPrincipalMetadataSchema = z
 	.object({
+		workManagement: ExternalAgentWorkManagementGrantSchema.optional(),
 		platform: ExternalAgentPlatformSchema.optional(),
 		representedUserId: z.string().trim().min(1).max(200).optional(),
 		allowedScopes: z
