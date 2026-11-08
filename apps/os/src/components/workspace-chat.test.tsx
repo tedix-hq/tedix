@@ -20,7 +20,7 @@ import {
 	initialWorkspaceChatState,
 } from "@/lib/workspace-chat-state";
 import { WorkspaceChat } from "./workspace-chat";
-import { osQueryKeys } from "@/lib/os-query-options";
+import { osQueryKeys, canvasOutputsQueryOptions } from "@/lib/os-query-options";
 
 (
 	globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -178,7 +178,7 @@ beforeEach(() => {
 	document.body.append(host);
 	root = createRoot(host);
 	queryClient = new QueryClient({
-		defaultOptions: { queries: { retry: false } },
+		defaultOptions: { queries: { retry: false, staleTime: Infinity } },
 	});
 });
 
@@ -211,6 +211,105 @@ function mount(
 }
 
 describe("WorkspaceChat", () => {
+	it.each([false, true])(
+		"sends selected native files from the composer (list=%s)",
+		async (listOpen) => {
+			queryClient.setQueryData<unknown>(
+				canvasOutputsQueryOptions("ws-1").queryKey,
+				{
+					items: [{ id: "doc-1", title: "Budget notes", status: "active" }],
+					truncated: false,
+				},
+			);
+			const fake = fakeClient("c1");
+			mount(fake, "c1", listOpen, () => {});
+			await act(async () =>
+				host
+					.querySelector<HTMLButtonElement>(
+						'[aria-label="Workspace resources"]',
+					)
+					?.click(),
+			);
+			const file = [...document.querySelectorAll("button")].find(
+				(button) => button.textContent === "Budget notes",
+			);
+			expect(file).toBeDefined();
+			await act(async () => file?.click());
+			expect(
+				host.querySelector('[aria-label="Selected message files"]')
+					?.textContent,
+			).toContain("Budget notes");
+			await act(async () =>
+				host
+					.querySelector<HTMLButtonElement>(
+						'[aria-label="Remove Budget notes"]',
+					)
+					?.click(),
+			);
+			expect(
+				host.querySelector('[aria-label="Selected message files"]'),
+			).toBeNull();
+			await act(async () =>
+				host
+					.querySelector<HTMLButtonElement>(
+						'[aria-label="Workspace resources"]',
+					)
+					?.click(),
+			);
+			await act(async () =>
+				[...document.querySelectorAll("button")]
+					.find((button) => button.textContent === "Budget notes")
+					?.click(),
+			);
+			const textarea = host.querySelector("textarea")!;
+			await act(async () => {
+				Object.getOwnPropertyDescriptor(
+					HTMLTextAreaElement.prototype,
+					"value",
+				)!.set!.call(textarea, "Summarize this");
+				textarea.dispatchEvent(new Event("input", { bubbles: true }));
+			});
+			await act(async () =>
+				host
+					.querySelector("form")
+					?.dispatchEvent(
+						new Event("submit", { bubbles: true, cancelable: true }),
+					),
+			);
+			expect(fake.calls).toContainEqual([
+				"sendTurn",
+				{
+					text: "Summarize this",
+					attachments: [{ outputId: "doc-1" }],
+					...(listOpen ? { newConversation: true } : {}),
+				},
+			]);
+		},
+	);
+
+	it("replays attachment titles and revision links beside the original message", () => {
+		const fake = fakeClient("c1");
+		mount(fake);
+		act(() =>
+			fake.feed([
+				{
+					...started,
+					attachments: [
+						{
+							outputId: "doc-1",
+							title: "Budget notes",
+							revision: 3,
+							revisionId: "r3",
+						},
+					],
+				},
+			]),
+		);
+		expect(
+			host.querySelector('[aria-label="Message files"]')?.textContent,
+		).toContain("Budget notes · Revision 3");
+		expect(host.querySelector('a[href="/outputs/doc-1"]')).not.toBeNull();
+	});
 	it("opens workspace resources from both the thread and conversation list", async () => {
 		const browse = vi.fn();
 		const fake = fakeClient("c1");

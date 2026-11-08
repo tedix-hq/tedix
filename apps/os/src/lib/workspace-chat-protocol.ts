@@ -110,6 +110,12 @@ export type WorkspaceChatLedgerEvent =
 			type: "turn.started";
 			turnId: string;
 			displayText?: string;
+			attachments?: Array<{
+				outputId: string;
+				title: string;
+				revision: number;
+				revisionId: string;
+			}>;
 			text: string;
 			authorId: string;
 			authorKind: "person" | "tedi";
