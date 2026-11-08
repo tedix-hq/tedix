@@ -688,6 +688,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					return;
 				case "send_turn": {
 					const started = await this.sendTurn(scope, {
+						turnId: frame.clientTurnId,
 						conversationId: frame.conversationId,
 						actorId: ws.deserializeAttachment()?.actorId ?? "person",
 						actorKind: "user",
