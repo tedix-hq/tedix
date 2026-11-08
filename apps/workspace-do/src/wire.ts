@@ -161,11 +161,19 @@ export function stepLabel(
 			create: "Creating a new output",
 			revise: "Saving a new revision",
 		},
+		documents: {
+			read: "Reading a document",
+			replace: "Saving a document revision",
+			edit: "Editing document blocks",
+		},
 		apps: { list: "Listing apps" },
 		resources: { list: "Listing resources" },
 		work: { list: "Reading Work items", listOpen: "Reading open Work items" },
 	};
-	const write = method === "create" || method === "revise";
+	const write =
+		method === "create" ||
+		method === "revise" ||
+		(binding === "documents" && (method === "replace" || method === "edit"));
 	return {
 		label: table[binding]?.[method] ?? `${binding}.${method}`,
 		kind: write ? "write" : "read",
