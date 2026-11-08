@@ -178,7 +178,12 @@ export async function mountDocClient(
 	}
 	function renderContent() {
 		const content = draft!;
-		if (!content.richText)
+		const source =
+			content.richText ??
+			(content.blocks.length === 0 && !content.file
+				? { type: "doc" as const, content: [] }
+				: undefined);
+		if (!source)
 			throw new Error(
 				"This legacy document needs its rich editor state initialized. Open the native editor once; the saved content has not changed.",
 			);
@@ -218,9 +223,9 @@ export async function mountDocClient(
 				if (node.content) validateNodes(node.content);
 			}
 		};
-		validateNodes(content.richText.content);
-		const richText = content.richText.content.length
-			? content.richText
+		validateNodes(source.content);
+		const richText = source.content.length
+			? source
 			: { type: "doc" as const, content: [{ type: "paragraph" }] };
 		editor.schema.nodeFromJSON(richText).check();
 		editor
