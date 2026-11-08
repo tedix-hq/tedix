@@ -214,6 +214,43 @@ Do not repeat an unchanged failed plan: read the Attempt, rejection,
 interaction, and events, then change the plan or open an interaction. A
 conflict means recompute from current state, never bypass the fence.
 
+## Bounded recursive delivery
+
+A delivery lead can divide one accepted outcome into child Work Items through
+`parentWorkItemId`. Start with one lead, one implementation child, and one
+verification child, executed sequentially. Each child keeps the original goal,
+its narrower acceptance criterion, its execution limits, and the parent link.
+The lead assesses the original outcome after reading the child results;
+completing children does not complete their parent.
+
+Use the existing dispatcher for independently executing children. Each obtains
+its own Agent-Session, admitted Attempt, and isolated checkout. A harness
+subagent instead works inside the lead's Attempt and does not own a second
+Attempt. Never send the same task through both paths.
+
+The local supervisor already runs dispatchers and an explicitly configured
+periodic Lead duty. An active lead can read the exact child's Work and Attempt
+until it finishes; an unattended lead needs an existing configured continuation.
+The delegation prompt hook supplies status on the next prompt, but does not
+wake an idle session. User-answer delivery is not an agent-result channel.
+
+Hierarchy is context, not an inherited permission or spending limit. Admission
+loads budget envelopes for the organization, project, case, or exact Work;
+it does not traverse parent Work. Use an authorized common project or case
+envelope when several children must share a spending limit. Registered
+`laneExecution` policies can check attempt counts, declared delegation depth,
+executor pricing, and reserved verification capacity. A parent link or a
+written instruction alone does not configure those checks or prove a hard
+provider spending cutoff.
+
+For a first pilot, record the child count, order, retry allowance, and stopping
+conditions on the parent. Do not let children delegate again. Keep constraints
+enforced by admission distinct from limits followed by the lead. Record actual
+dispatch, admission, result, and parent-assessment evidence separately; a
+healthy runner or a launch receipt is not a completed outcome. Proposals to
+change the agents' own permissions, budgets, routing, or acceptance criteria
+remain separate Work under their existing authorization rules.
+
 ## Deliberately not implemented
 
 - A writable universal status mixing portfolio, readiness, execution, and
