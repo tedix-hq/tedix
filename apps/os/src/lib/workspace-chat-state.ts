@@ -41,6 +41,7 @@ export type ChatApproval = {
 	decision: ApprovalDecision | null;
 	decidedBy?: string;
 	decidedAt?: string;
+	execution?: { status: "applied" | "failed"; error?: string };
 };
 
 export type ChatTurn = {
@@ -91,6 +92,7 @@ export type WorkspaceChatState = {
 		string,
 		{ decision: ApprovalDecision; decidedBy: string; decidedAt: string }
 	>;
+	approvalExecutions: Record<string, NonNullable<ChatApproval["execution"]>>;
 };
 
 export function initialWorkspaceChatState(
@@ -107,6 +109,7 @@ export function initialWorkspaceChatState(
 		lastError: null,
 		seen: new Set(),
 		approvalDecisions: {},
+		approvalExecutions: {},
 	};
 }
 
@@ -212,6 +215,7 @@ export function applyWorkspaceChatEvent(
 	let turns = state.turns;
 	let pendingSend = state.pendingSend;
 	let approvalDecisions = state.approvalDecisions;
+	let approvalExecutions = state.approvalExecutions;
 	const place = (turnId: string) => (patch: (turn: ChatTurn) => ChatTurn) =>
 		upsertTurn(
 			turns,
@@ -343,6 +347,7 @@ export function applyWorkspaceChatEvent(
 									requestedAt: event.at,
 									decision: null,
 									...approvalDecisions[event.approvalId],
+									execution: approvalExecutions[event.approvalId],
 								},
 							],
 						},
@@ -371,6 +376,22 @@ export function applyWorkspaceChatEvent(
 				),
 			}));
 			break;
+		case "approval.executed": {
+			const execution = { status: event.status, error: event.error };
+			approvalExecutions = {
+				...approvalExecutions,
+				[event.approvalId]: execution,
+			};
+			turns = turns.map((turn) => ({
+				...turn,
+				approvals: turn.approvals.map((approval) =>
+					approval.approvalId === event.approvalId
+						? { ...approval, execution }
+						: approval,
+				),
+			}));
+			break;
+		}
 		case "turn.finished":
 			turns = place(event.turnId)((turn) => ({
 				...turn,
@@ -400,6 +421,7 @@ export function applyWorkspaceChatEvent(
 		turns,
 		pendingSend,
 		approvalDecisions,
+		approvalExecutions,
 	};
 }
 
