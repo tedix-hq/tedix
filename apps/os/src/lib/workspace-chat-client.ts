@@ -149,10 +149,13 @@ export function createWorkspaceChatClient(
 	let livenessTimer: unknown = null;
 	let pongTimer: unknown = null;
 	/**
-	 * Turns written while the socket is away. They go out in order as soon as
-	 * the object says hello again, so a send during a blink is never lost.
+	 * Keep sends until acceptance, including when the socket drops after commit.
+	 * The object uses clientTurnId as its idempotent turn id on a retry.
 	 */
-	const outbox: WorkspaceChatClientMessage[] = [];
+	const outbox = new Map<
+		string,
+		Extract<WorkspaceChatClientMessage, { type: "send_turn" }>
+	>();
 	let draftEvents: WorkspaceChatLedgerEvent[] = [];
 	const completedSteps = new Map<
 		string,
@@ -375,14 +378,20 @@ export function createWorkspaceChatClient(
 				if (state.cursor !== null && message.cursor < state.cursor) {
 					// The object's ledger is shorter than what this tab folded: it
 					// was reset or replaced. Local state is stale, start over.
-					state = initialWorkspaceChatState(conversationId);
+					state = {
+						...initialWorkspaceChatState(conversationId),
+						pendingSend: state.pendingSend,
+					};
+					draftEvents = [];
+					completedSteps.clear();
+					notifiedOutputSteps.clear();
 					send({ type: "subscribe", conversationId, cursor: null });
 				}
 				state = setConversations(state, message.conversations);
 				if (state.lastError?.code === "not_connected")
 					state = { ...state, lastError: null };
 				setConnection({ phase: "open", since: openedAt });
-				for (const queued of outbox.splice(0)) send(queued);
+				for (const queued of outbox.values()) send(queued);
 				return;
 			}
 			case "caught_up":
@@ -391,6 +400,7 @@ export function createWorkspaceChatClient(
 				publish();
 				return;
 			case "turn.accepted": {
+				outbox.delete(message.clientTurnId);
 				if (
 					conversationId === null &&
 					state.pendingSend?.clientTurnId === message.clientTurnId
@@ -420,6 +430,14 @@ export function createWorkspaceChatClient(
 			case "pong":
 				return;
 			case "error":
+				if (message.clientTurnId) {
+					outbox.delete(message.clientTurnId);
+					if (
+						state.pendingSend &&
+						state.pendingSend.clientTurnId !== message.clientTurnId
+					)
+						return;
+				}
 				state = markSendFailed(state, {
 					code: message.code,
 					message: message.message,
@@ -456,7 +474,10 @@ export function createWorkspaceChatClient(
 				sentAt: nowFn(),
 			});
 			publish();
-			const message: WorkspaceChatClientMessage = {
+			const message: Extract<
+				WorkspaceChatClientMessage,
+				{ type: "send_turn" }
+			> = {
 				type: "send_turn",
 				clientTurnId,
 				conversationId,
@@ -464,8 +485,8 @@ export function createWorkspaceChatClient(
 				tediId: input.tediId,
 				attachments: input.attachments,
 			};
+			outbox.set(clientTurnId, message);
 			if (!send(message)) {
-				outbox.push(message);
 				state = {
 					...state,
 					lastError: {
