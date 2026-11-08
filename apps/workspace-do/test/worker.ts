@@ -29,6 +29,28 @@ export type ScriptStep =
 
 export class WorkspaceDO extends ProductionWorkspaceDO {
 	#script: ScriptStep[] = [];
+	#projectionFailures = 0;
+
+	failNextProjection(scope: WorkspaceScope) {
+		this.bindScope(scope);
+		this.#projectionFailures = 1;
+	}
+
+	retryProjections(scope: WorkspaceScope) {
+		this.bindScope(scope);
+		return this.alarm();
+	}
+
+	protected override async projectOutput(
+		scope: WorkspaceScope,
+		outputId: string,
+	) {
+		if (this.#projectionFailures > 0) {
+			this.#projectionFailures -= 1;
+			throw new Error("Injected projection outage");
+		}
+		return super.projectOutput(scope, outputId);
+	}
 
 	/** Script the next turn's model responses, in order. */
 	scriptModel(scope: WorkspaceScope, steps: ScriptStep[]) {

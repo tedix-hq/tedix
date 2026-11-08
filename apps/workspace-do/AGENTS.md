@@ -14,8 +14,11 @@ Read `README.md` first. Rules that are easy to break:
   `staticPromptPrefix()`; anything that varies goes in the suffix. Do not
   put the time, the user or the tedi into the prefix.
 - Workspace rows are read through `@tedix/db/queries/durable-sqlite/*` over
-  `this.db`; core rows (apps, resources, Work, tedis) through the `DB`
-  binding. The object never reads another workspace's rows.
+  `this.db`. Existing output IDs with core rows retain their core revisions;
+  the output port resolves those before its own rows so browser and agent
+  reads agree without an implicit migration. Core rows (apps, resources,
+  Work, tedis) use the `DB` binding. The object never reads another
+  workspace's rows.
 - Tests: `test:unit` (bun) for the loop, prompt and bindings;
   `test:workers` (workerd) for the object with the scripted model in
   `test/worker.ts`. Never bare `bun test`.

@@ -9,7 +9,15 @@ import type { Message } from "@earendil-works/pi-ai";
 import { createDbClient } from "@tedix/db/client";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import type { TenantStoreDb } from "@tedix/db/queries/durable-sqlite/tenant-store";
+import {
+	executeOutputQuery,
+	type OutputQuery,
+	type OutputQueryResult,
+} from "@tedix/db/queries/durable-sqlite/output-rpc";
 import { getTediById } from "@tedix/db/queries/tedis";
+import * as coreOutputs from "@tedix/db/queries/os-workspaces/outputs";
+import { retireWorkspaceOutputIndex } from "@tedix/db/queries/workspace-feed/read";
+import { publishOutputProjection } from "@tedix/db/queries/workspace-feed/output-publication";
 import {
 	TenantStore,
 	tenantStoreDefinition,
@@ -194,6 +202,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	readonly #events: SqlEventLedger;
 	readonly #ledger: SqlAccountabilityAdapter;
 	readonly #compliance: SqlComplianceAdapter;
+	#outputSerial: Promise<void> = Promise.resolve();
 	readonly #running = new Map<string, AbortController>();
 	readonly #waiters = new Map<string, Array<() => void>>();
 
@@ -229,6 +238,25 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	}
 
 	// ------------------------------------------------------------------ RPC
+
+	async outputQuery<K extends OutputQuery["op"]>(
+		scope: WorkspaceScope,
+		query: OutputQuery<K>,
+	): Promise<OutputQueryResult<K>> {
+		this.bindScope(scope);
+		const operation = query as OutputQuery;
+		const outputId =
+			operation.op === "create"
+				? operation.output.id
+				: operation.op === "revise"
+					? operation.params.outputId
+					: operation.op === "update" || operation.op === "delete"
+						? operation.outputId
+						: null;
+		const write = () =>
+			executeOutputQuery(this.db as TenantStoreDb, scope, query);
+		return outputId ? this.#commitOutput(scope, outputId, write) : write();
+	}
 
 	/** Start a turn. Returns at once; follow it through the event stream. */
 	async sendTurn(
@@ -703,7 +731,11 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	}
 
 	override async alarm() {
-		if (this.#running.size > 0) {
+		await this.#serializeOutput(() => this.#flushOutputProjections());
+		if (
+			this.#running.size > 0 ||
+			Object.keys(this.#pendingOutputProjections()).length > 0
+		) {
 			await this.ctx.storage.setAlarm(Date.now() + KEEPALIVE_MS);
 			return;
 		}
@@ -711,6 +743,97 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	}
 
 	// ------------------------------------------------------------- internals
+
+	#pendingOutputProjections() {
+		return (
+			this.#store.get<
+				Record<string, { scope: WorkspaceScope; generation: string }>
+			>("pending-output-projections") ?? {}
+		);
+	}
+
+	#serializeOutput<T>(operation: () => Promise<T>): Promise<T> {
+		const next = this.#outputSerial.then(operation);
+		this.#outputSerial = next.then(
+			() => {},
+			() => {},
+		);
+		return next;
+	}
+
+	async #commitOutput<T>(
+		scope: WorkspaceScope,
+		outputId: string,
+		write: () => Promise<T>,
+	): Promise<T> {
+		return this.#serializeOutput(async () => {
+			// Persist retry before mutation; deletion and publication share this queue.
+			this.#store.put("pending-output-projections", {
+				...this.#pendingOutputProjections(),
+				[outputId]: { scope, generation: crypto.randomUUID() },
+			});
+			await this.ctx.storage.setAlarm(Date.now() + KEEPALIVE_MS);
+			try {
+				return await write();
+			} finally {
+				await this.#flushOutputProjections();
+			}
+		});
+	}
+
+	refreshOutputProjection(
+		scope: WorkspaceScope,
+		outputId: string,
+	): Promise<void> {
+		this.bindScope(scope);
+		return this.#commitOutput(scope, outputId, async () => {});
+	}
+
+	async #flushOutputProjections() {
+		for (const [outputId, pending] of Object.entries(
+			this.#pendingOutputProjections(),
+		)) {
+			try {
+				await this.projectOutput(pending.scope, outputId);
+				const current = this.#pendingOutputProjections();
+				if (current[outputId]?.generation === pending.generation) {
+					delete current[outputId];
+					this.#store.put("pending-output-projections", current);
+				}
+			} catch (error) {
+				console.error("Workspace output projection queued for retry", error);
+			}
+		}
+	}
+
+	protected async projectOutput(scope: WorkspaceScope, outputId: string) {
+		const core = createDbQueryClient(this.env.DB);
+		const legacy = await coreOutputs.getOsOutput(core, { ...scope, outputId });
+		const row =
+			legacy ??
+			(await executeOutputQuery(this.db as TenantStoreDb, scope, {
+				op: "get",
+				outputId,
+			}));
+		if (!row) {
+			await retireWorkspaceOutputIndex(core, {
+				organizationId: scope.organizationId,
+				outputId,
+			});
+			return;
+		}
+		if (row.workspaceId !== scope.workspaceId || !row.currentRevisionId) return;
+		const revision = legacy
+			? await coreOutputs.getOsOutputRevision(core, {
+					...scope,
+					revisionId: row.currentRevisionId,
+				})
+			: await executeOutputQuery(this.db as TenantStoreDb, scope, {
+					op: "revision",
+					revisionId: row.currentRevisionId,
+				});
+		if (revision) await publishOutputProjection(core, row, revision);
+	}
 
 	#subscribe(
 		ws: WebSocket,
@@ -842,6 +965,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			core: createDbQueryClient(this.env.DB),
 			bucket: this.env.R2_BUCKET,
 			actorKind,
+			commitOutput: (outputId, write) =>
+				this.#commitOutput(scope, outputId, write),
 		});
 	}
 
@@ -1236,6 +1361,14 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 
 /** The RPC surface other workers call; typed by hand so callers avoid deep stub inference. */
 export interface WorkspaceRpc {
+	refreshOutputProjection(
+		scope: WorkspaceScope,
+		outputId: string,
+	): Promise<void>;
+	outputQuery<K extends OutputQuery["op"]>(
+		scope: WorkspaceScope,
+		query: OutputQuery<K>,
+	): Promise<OutputQueryResult<K>>;
 	sendTurn(
 		scope: WorkspaceScope,
 		input: TurnRequest,
