@@ -38,6 +38,7 @@ export type ChatApproval = {
 	policy?: string;
 	input?: unknown;
 	requestedAt: string;
+	target?: { id: string; title: string };
 	decision: ApprovalDecision | null;
 	decidedBy?: string;
 	decidedAt?: string;
@@ -359,6 +360,7 @@ export function applyWorkspaceChatEvent(
 									policy: event.policy,
 									input: event.input,
 									requestedAt: event.at,
+									target: event.target,
 									decision: null,
 									...approvalDecisions[event.approvalId],
 									execution: approvalExecutions[event.approvalId],

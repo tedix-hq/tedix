@@ -153,8 +153,13 @@ describe("applyWorkspaceChatEvent", () => {
 			approvalId: "a1",
 			title: "Write to the sheet",
 			reason: "Policy requires a person.",
+			target: { id: "sheet-1", title: "Challenges" },
 		});
 		expect(pendingApproval(activeTurn(asked))?.approvalId).toBe("a1");
+		expect(pendingApproval(activeTurn(asked))?.target).toEqual({
+			id: "sheet-1",
+			title: "Challenges",
+		});
 		const decided = applyWorkspaceChatEvent(asked, {
 			seq: 11,
 			at: at(6),
