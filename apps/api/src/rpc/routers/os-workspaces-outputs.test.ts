@@ -1345,6 +1345,60 @@ describe("output patch verbs", () => {
 		});
 	});
 
+	it("preserves untouched rich writing when an agent patches another paragraph", async () => {
+		const untouched = {
+			type: "paragraph",
+			attrs: { textAlign: "right", indent: 2 },
+			content: [
+				{
+					type: "text",
+					text: "Keep the formatting",
+					marks: [
+						{ type: "bold" },
+						{ type: "textStyle", attrs: { color: "#123456" } },
+					],
+				},
+			],
+		};
+		const { output } = await c.org1.outputs.create({
+			kind: "document",
+			title: "Rich writing",
+			content: {
+				kind: "document",
+				blocks: [],
+				richText: {
+					type: "doc",
+					content: [
+						{
+							type: "paragraph",
+							content: [{ type: "text", text: "Agent target" }],
+						},
+						untouched,
+					],
+				},
+			},
+		});
+		const patched = await c.org1.outputs.patchDocument({
+			outputId: output.id,
+			expectedRevision: 1,
+			ops: [
+				{
+					op: "replace",
+					index: 0,
+					block: { type: "paragraph", text: "Agent changed this paragraph" },
+				},
+			],
+		});
+		const content = patched.revision.content;
+		if (content.kind !== "document") throw new Error("expected a document");
+		expect(content.richText?.content[1]).toEqual(untouched);
+		expect(content.blocks).toEqual([
+			{ type: "paragraph", text: "Agent changed this paragraph" },
+			{ type: "paragraph", text: "**Keep the formatting**" },
+		]);
+		expect(patched.revision.revision).toBe(2);
+	});
+
 	it("keeps a document's file reference and re-derives richText on patch", async () => {
 		const file = {
 			workspaceId: "00000000-0000-4000-8000-000000000001",
