@@ -1,7 +1,10 @@
 import { DatabaseSync } from "node:sqlite";
 import { fictionalPolicyProvider } from "../../../../mcp/src/mcp/fictional-policy-provider.test-helper";
 import { callUpstreamMcpTool } from "../../../../mcp/src/mcp/upstream-mcp-client";
-import { buildNamespaceGroups } from "../../../../mcp/src/mcp/codemode-execution";
+import {
+	buildNamespaceGroups,
+	type CodeModeExecutionRefs,
+} from "../../../../mcp/src/mcp/codemode-execution";
 import { ToolHandler } from "../../../../mcp/src/mcp/handler";
 import { IdenticalFailureBudget } from "../../../../../packages/tedi-codemode-core/src/failure-budget";
 import { tediApprovalRequests } from "@tedix/db/schema/approvals";
@@ -509,7 +512,7 @@ describe("owner policy against a real local D1 facade", () => {
 				exampleArgs,
 			);
 			expect(resolved?.effect.disposition).toBe("allow");
-			const refs = {
+			const refs: CodeModeExecutionRefs = {
 				authorizationDenial: undefined,
 				approvalResult: undefined,
 				approvalExtra: undefined,
@@ -525,6 +528,7 @@ describe("owner policy against a real local D1 facade", () => {
 				discoverCalls: 0,
 				discoverParameterRequests: 0,
 				toolReceipts: [],
+				trust: { untrusted: new Set(), trusted: new Set() },
 				skillWorkflowRunIds: new Set(),
 				readObservations: [],
 				collectionReads: [],
@@ -538,6 +542,7 @@ describe("owner policy against a real local D1 facade", () => {
 			);
 			await groups.get("sample")!.fns.write!(exampleArgs);
 			expect(provider.writes).toBe(1);
+			expect(refs.trust.untrusted).toEqual(new Set(["sample.write"]));
 			const call = {
 				...upstream,
 				toolName: "write",
@@ -682,13 +687,14 @@ describe("owner policy against a real local D1 facade", () => {
 			);
 			expect(replay?.revisionId).toBe(policy.policy.id);
 			expect(readApproval().consumedAt).toBeUndefined();
-			const replayRefs = {
+			const replayRefs: CodeModeExecutionRefs = {
 				...refs,
 				approvalExtra: { _meta: { "com.tedix/approvalRequestId": approvalId } },
 				rpcCallCount: 0,
 				sideEffectQueue: Promise.resolve(),
 				failureBudget: new IdenticalFailureBudget(),
 				toolReceipts: [],
+				trust: { untrusted: new Set(), trusted: new Set() },
 			};
 			const replayGroups = buildNamespaceGroups(
 				replayAgent as never,
@@ -698,6 +704,7 @@ describe("owner policy against a real local D1 facade", () => {
 			);
 			await replayGroups.get("sample")!.fns.write!(reviewArgs);
 			expect(provider.writes).toBe(3);
+			expect(replayRefs.trust.untrusted).toEqual(new Set(["sample.write"]));
 			expect(readApproval().consumedAt).toEqual(expect.any(String));
 			await expect(
 				replayGroups.get("sample")!.fns.write!(reviewArgs),
