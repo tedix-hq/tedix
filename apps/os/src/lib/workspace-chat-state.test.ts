@@ -419,3 +419,43 @@ it("model and cumulative usage converge when progress arrives after completion",
 		}),
 	).toBe("20 input · 4 output tokens · 10 cached input · partial usage");
 });
+
+it("keeps final receipts authoritative when facet progress gets a later ledger sequence", () => {
+	const base = { at: at(0), conversationId: "c1", turnId: "t1" };
+	const done: WorkspaceChatLedgerEvent = {
+		...base,
+		type: "assistant.done",
+		seq: 3,
+		messageId: "m1",
+		text: "Done",
+		model: "provider-snapshot",
+		usage: { inputTokens: 100, outputTokens: 10, partial: false },
+	};
+	const late: WorkspaceChatLedgerEvent[] = [
+		{
+			...base,
+			type: "turn.usage",
+			seq: 4,
+			usage: { inputTokens: 50, outputTokens: 5 },
+		},
+		{ ...base, type: "turn.model", seq: 5, model: "configured-deployment" },
+	];
+	for (const events of [[done, ...late], [...late].reverse().concat(done)]) {
+		const state = applyWorkspaceChatEvents(
+			initialWorkspaceChatState("c1"),
+			events,
+		);
+		expect(state.turns[0]?.usage).toEqual({
+			inputTokens: 100,
+			outputTokens: 10,
+			partial: false,
+		});
+		expect(state.turns[0]?.model).toBe("provider-snapshot");
+	}
+	expect(formatUsage({ inputTokens: 0, outputTokens: 0 })).toBe(
+		"Usage unavailable",
+	);
+	expect(formatUsage({ inputTokens: 0, outputTokens: 0, partial: false })).toBe(
+		"0 input · 0 output tokens",
+	);
+});

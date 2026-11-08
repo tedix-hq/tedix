@@ -272,16 +272,17 @@ export function applyWorkspaceChatEvent(
 			if (pendingSend && pendingSend.text === event.text) pendingSend = null;
 			break;
 		}
+		// A completed reply is authoritative even if a facet progress RPC arrives late.
 		case "turn.usage":
 			turns = place(event.turnId)((turn) =>
-				event.seq > (turn.usageSeq ?? -1)
+				!turn.replyDone && event.seq > (turn.usageSeq ?? -1)
 					? { ...turn, usage: event.usage, usageSeq: event.seq }
 					: turn,
 			);
 			break;
 		case "turn.model":
 			turns = place(event.turnId)((turn) =>
-				event.seq > (turn.modelSeq ?? -1)
+				!turn.replyDone && event.seq > (turn.modelSeq ?? -1)
 					? { ...turn, model: event.model, modelSeq: event.seq }
 					: turn,
 			);
@@ -313,12 +314,8 @@ export function applyWorkspaceChatEvent(
 				replyMessageId: event.messageId,
 				replyDone: true,
 				replyDeltas: undefined,
-				...(event.usage && event.seq > (turn.usageSeq ?? -1)
-					? { usage: event.usage, usageSeq: event.seq }
-					: {}),
-				...(event.model && event.seq > (turn.modelSeq ?? -1)
-					? { model: event.model, modelSeq: event.seq }
-					: {}),
+				...(event.usage ? { usage: event.usage, usageSeq: event.seq } : {}),
+				...(event.model ? { model: event.model, modelSeq: event.seq } : {}),
 			}));
 			break;
 		case "step.started":
@@ -559,6 +556,13 @@ export function elapsedLabel(ms: number): string {
 }
 
 export function formatUsage(usage: TurnUsage): string {
+	// Older runtimes wrote zeroes when no provider usage was available.
+	if (
+		usage.partial === undefined &&
+		usage.inputTokens === 0 &&
+		usage.outputTokens === 0
+	)
+		return "Usage unavailable";
 	const parts = [
 		`${usage.inputTokens.toLocaleString()} input · ${usage.outputTokens.toLocaleString()} output tokens`,
 	];
