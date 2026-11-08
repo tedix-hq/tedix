@@ -99,6 +99,78 @@ describe("os blueprints", () => {
 		).toHaveLength(0);
 	});
 
+	it.each([null, "missing-revision"])(
+		"treats an unselected base %s as revision zero without reusing history numbers",
+		async (currentRevisionId) => {
+			const db = fixture();
+			await createOsBlueprint(db, { ...blueprint, currentRevisionId });
+			await db.insert(osBlueprintRevisions).values({
+				id: "historical",
+				organizationId: "org-1",
+				blueprintId: "bp-1",
+				revision: 7,
+				definition: "{}",
+				createdByKind: "user",
+				createdById: "u-1",
+			});
+			const created = await createOsBlueprintRevision(
+				db,
+				revisionParams("selected", 0),
+			);
+			expect(created).toMatchObject({ ok: true, revision: { revision: 8 } });
+			expect(
+				await getOsBlueprint(db, {
+					organizationId: "org-1",
+					blueprintId: "bp-1",
+				}),
+			).toMatchObject({ currentRevisionId: "selected" });
+			expect(
+				await createOsBlueprintRevision(db, revisionParams("stale-zero", 0)),
+			).toEqual({ ok: false, reason: "revision_conflict" });
+			expect(
+				await getOsBlueprint(db, {
+					organizationId: "org-1",
+					blueprintId: "bp-1",
+				}),
+			).toMatchObject({ currentRevisionId: "selected" });
+			expect(
+				await listOsBlueprintRevisions(db, {
+					organizationId: "org-1",
+					blueprintId: "bp-1",
+				}),
+			).toHaveLength(2);
+		},
+	);
+	it("allows one concurrent author to replace the selected base and keeps the losing draft uncommitted", async () => {
+		const db = fixture();
+		await createOsBlueprint(db, blueprint);
+		await createOsBlueprintRevision(db, revisionParams("base", 0));
+		const results = await Promise.all([
+			createOsBlueprintRevision(db, revisionParams("writer-a", 1)),
+			createOsBlueprintRevision(db, revisionParams("writer-b", 1)),
+		]);
+		const winners = results.filter((result) => result.ok);
+		expect(winners).toHaveLength(1);
+		expect(results.filter((result) => !result.ok)).toEqual([
+			{ ok: false, reason: "revision_conflict" },
+		]);
+		const winner = winners[0];
+		if (!winner?.ok) throw new Error("Expected one committed revision");
+		expect(winner.revision.revision).toBe(2);
+		expect(
+			await getOsBlueprint(db, {
+				organizationId: "org-1",
+				blueprintId: "bp-1",
+			}),
+		).toMatchObject({ currentRevisionId: winner.revision.id });
+		expect(
+			await listOsBlueprintRevisions(db, {
+				organizationId: "org-1",
+				blueprintId: "bp-1",
+			}),
+		).toHaveLength(2);
+	});
+
 	it("appends revisions with max+1, honours the CAS, and moves the pointer", async () => {
 		const db = fixture();
 		await createOsBlueprint(db, blueprint);

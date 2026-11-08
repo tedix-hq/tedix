@@ -205,6 +205,33 @@ describe("workspace app installation", () => {
 		expect((await db.select().from(osBlueprints))[0]?.currentRevisionId).toBe(
 			"custom-current",
 		);
+		const authored = await createOsBlueprintRevision(db, {
+			id: "custom-after-hidden-history",
+			organizationId: "org",
+			blueprintId: "blueprint",
+			definition: templateDefinition(3, true),
+			createdByKind: "user",
+			createdById: "user",
+			expectedRevision: 3,
+		});
+		expect(authored).toMatchObject({ ok: true, revision: { revision: 5 } });
+		expect((await db.select().from(osBlueprints))[0]?.currentRevisionId).toBe(
+			"custom-after-hidden-history",
+		);
+		expect(
+			await createOsBlueprintRevision(db, {
+				id: "stale-custom",
+				organizationId: "org",
+				blueprintId: "blueprint",
+				definition: templateDefinition(3, true),
+				createdByKind: "user",
+				createdById: "user",
+				expectedRevision: 3,
+			}),
+		).toEqual({ ok: false, reason: "revision_conflict" });
+		expect((await db.select().from(osBlueprints))[0]?.currentRevisionId).toBe(
+			"custom-after-hidden-history",
+		);
 	});
 	it("refuses a stale or archived gadget revision when attaching its output editor", async () => {
 		const { db, params } = fixture();
