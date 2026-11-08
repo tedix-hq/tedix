@@ -140,6 +140,7 @@ async function installEditor(input: EditorInput, context: BaseContext) {
 				workspaceId: workspace.id,
 				resourceId: resource.id,
 				outputId: output.id,
+				expectedSlot: slot,
 				gadgetId: gadget.id,
 				kind: input.kind,
 				now: new Date().toISOString(),

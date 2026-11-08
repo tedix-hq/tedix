@@ -83,6 +83,7 @@ export async function linkWorkspaceOutputEditor(
 		workspaceId: string;
 		resourceId: string;
 		outputId: string;
+		expectedSlot: string;
 		gadgetId: string;
 		kind: string;
 		now: string;
@@ -102,6 +103,8 @@ export async function linkWorkspaceOutputEditor(
 				eq(osWorkspaceResources.providerId, "tedix"),
 				eq(osWorkspaceResources.resourceType, "output"),
 				eq(osWorkspaceResources.providerResourceId, params.outputId),
+				eq(osWorkspaceResources.slot, params.expectedSlot),
+				eq(osWorkspaceResources.connectionScope, "tenant"),
 				eq(osWorkspaceResources.status, "active"),
 			),
 		)
