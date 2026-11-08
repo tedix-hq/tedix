@@ -202,7 +202,7 @@ it("puts today's deadline before learned preference, then uses recency", () => {
 	expect(
 		compareDecisionFreshness(
 			recent,
-			{ requestedAt: "2026-10-12T20:00:00Z" },
+			{ requestedAt: "2026-10-17T20:00:00Z" },
 			now,
 		),
 	).toBeLessThan(0);
@@ -213,6 +213,14 @@ it("puts today's deadline before learned preference, then uses recency", () => {
 			now,
 		),
 	).toBeGreaterThan(0);
+});
+
+it("puts an ageing ask ahead of a fresh ask before breaking equal-priority ties by recency", () => {
+	const now = new Date("2026-10-18T00:30:00Z");
+	const ageing = { requestedAt: "2026-10-12T20:00:00Z" };
+	const fresh = { requestedAt: "2026-10-17T23:00:00Z" };
+	expect(compareDecisionFreshness(ageing, fresh, now)).toBeLessThan(0);
+	expect(compareDecisionFreshness(fresh, ageing, now)).toBeGreaterThan(0);
 });
 
 it("correlates only canonical effect receipts, including Outbound's pre-send revision", () => {

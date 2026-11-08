@@ -166,7 +166,8 @@ try {
 			projectId: null,
 			creatorSessionId: null,
 			state: "open",
-			requestedAt: "2026-10-17T10:00:00Z",
+			// Keep the native ask fresh so age priority does not overtake the opportunities.
+			requestedAt: new Date(stamp).toISOString(),
 			dueAt: null,
 			expiresAt: null,
 			resolvedAt: null,

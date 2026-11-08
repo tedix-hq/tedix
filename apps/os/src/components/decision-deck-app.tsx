@@ -876,26 +876,30 @@ function DecisionDeckContent({
 					projectLabel={projectLabel}
 					rows={rows}
 					factories={factories}
+					priorityControls={
+						mode === "decide" &&
+						!decisions.pending &&
+						rows.length > 0 && (
+							<DeckPriorityBands
+								rows={rows.filter(
+									(row) =>
+										matchesOtherFilters(row) && !optimisticIds.includes(row.id),
+								)}
+								band={band}
+								onBandChange={(value) => {
+									setBand(value);
+									clearFocusCard();
+									setIndex(0);
+								}}
+								onOpen={(cardId) => void show(cardId)}
+								now={now}
+								timeZone={timeZone}
+							/>
+						)
+					}
 				/>
 				{mode === "decide" && (
 					<DeckReminders reminders={decisions.reminders} now={now} />
-				)}
-				{mode === "decide" && !decisions.pending && rows.length > 0 && (
-					<DeckPriorityBands
-						rows={rows.filter(
-							(row) =>
-								matchesOtherFilters(row) && !optimisticIds.includes(row.id),
-						)}
-						band={band}
-						onBandChange={(value) => {
-							setBand(value);
-							clearFocusCard();
-							setIndex(0);
-						}}
-						onOpen={(cardId) => void show(cardId)}
-						now={now}
-						timeZone={timeZone}
-					/>
 				)}
 				{(counting ||
 					(progress.total > 0 &&
