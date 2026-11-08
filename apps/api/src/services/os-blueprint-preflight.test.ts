@@ -543,6 +543,48 @@ describe("resolveOsBlueprintPreflight", () => {
 		expect(result.status).toBe("needs_consent");
 	});
 
+	it("requires internal resource bindings without asking for a Tedix connection", async () => {
+		const reqs = requirements({
+			resources: [
+				{
+					slot: "plan",
+					label: "plan",
+					providerId: "tedix",
+					resourceType: "output",
+					tokenScope: "tenant",
+					scopes: [],
+				},
+			],
+		} as Partial<OsBlueprintRequirements>);
+		const unbound = await preflight(reqs);
+		expect(unbound).toMatchObject({
+			status: "needs_configuration",
+			instantiateAllowed: false,
+		});
+		expect(unbound.decisions).toMatchObject([
+			{ kind: "workspace_resource", verdict: "missing" },
+		]);
+		expect(world.connectionCalls).toHaveLength(0);
+		const bound = await preflight(reqs, {
+			resourceBindings: [
+				{
+					slot: "plan",
+					selection: {
+						providerId: "tedix",
+						resourceType: "output",
+						connectionScope: "tenant",
+						requiredScopes: [],
+						name: "Plan",
+					},
+				},
+			] as unknown as OsBlueprintResourceBinding[],
+		});
+		expect(bound).toMatchObject({ status: "ready", instantiateAllowed: true });
+		expect(bound.decisions).toMatchObject([
+			{ kind: "workspace_resource", verdict: "allowed" },
+		]);
+	});
+
 	it("needs configuration for unbound or mismatched resource slots and dedupes their connection check", async () => {
 		const resource = {
 			slot: "repo",
