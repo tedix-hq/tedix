@@ -13,6 +13,66 @@ import {
 	workspaceOutputsPanelItems,
 } from "./workspace-outputs-panel";
 
+vi.mock("./create-doc-app-dialog", () => ({
+	CreateOutputAppDialog: ({
+		workspaceId,
+		kind = "document",
+		onCreated,
+		onOpenOutput,
+		onClose,
+	}: Parameters<
+		typeof import("./create-doc-app-dialog").CreateOutputAppDialog
+	>[0]) => (
+		<div
+			role="dialog"
+			data-create-workspace={workspaceId}
+			data-create-kind={kind}
+		>
+			<button
+				onClick={() => {
+					onCreated({
+						id: `created-${kind}`,
+						organizationId: "org",
+						workspaceId: workspaceId!,
+						name: "Created gadget",
+						description: null,
+						status: "active",
+						currentRevisionId: "revision",
+						sourceBlueprintRevisionId: null,
+						createdByKind: "user",
+						createdById: "user",
+						createdAt: "2026-11-08",
+						updatedAt: "2026-11-08",
+					});
+					onClose();
+				}}
+			>
+				Create gadget
+			</button>
+			<button
+				onClick={() => {
+					onOpenOutput({
+						id: "created-output",
+						organizationId: "org",
+						workspaceId: workspaceId!,
+						kind,
+						title: "Created file",
+						status: "active",
+						currentRevisionId: "revision",
+						createdByKind: "user",
+						createdById: "user",
+						createdAt: "2026-11-08",
+						updatedAt: "2026-11-08",
+					});
+					onClose();
+				}}
+			>
+				Open file
+			</button>
+		</div>
+	),
+}));
+
 const outputs = [
 	{
 		id: "old-doc",
@@ -173,6 +233,108 @@ function renderPanel(
 }
 
 describe("WorkspaceOutputsPanel", () => {
+	it.each([
+		["Doc", "document"],
+		["Sheet", "sheet"],
+		["Slides", "presentation"],
+	])(
+		"creates %s from the Files header and selects its gadget",
+		async (label, kind) => {
+			const workspaceId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+				onSelect = vi.fn();
+			const host = document.createElement("div");
+			document.body.append(host);
+			const root = createRoot(host);
+			await act(async () =>
+				root.render(
+					<WorkspaceOutputsPanel
+						workspaceId={workspaceId}
+						expanded
+						items={[]}
+						loading={false}
+						error={false}
+						selectedDoc={{ type: "output", id: "open-file" }}
+						onSelect={onSelect}
+						onBrowseLibrary={() => {}}
+						onOpenWork={() => {}}
+						onOpenActivity={() => {}}
+					/>,
+				),
+			);
+			try {
+				const trigger = host.querySelector<HTMLButtonElement>("header button")!;
+				expect(trigger.textContent).toContain("New");
+				await act(async () => trigger.click());
+				const choice = [
+					...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+				].find((item) => item.textContent?.trim() === label)!;
+				expect(choice).toBeTruthy();
+				await act(async () => choice.click());
+				const dialog = document.querySelector("[data-create-workspace]")!;
+				expect(dialog.getAttribute("data-create-workspace")).toBe(workspaceId);
+				expect(dialog.getAttribute("data-create-kind")).toBe(kind);
+				await act(async () =>
+					dialog.querySelector<HTMLButtonElement>("button")!.click(),
+				);
+				expect(onSelect).toHaveBeenCalledWith({
+					type: "gadget",
+					id: `created-${kind}`,
+				});
+			} finally {
+				await act(async () => root.unmount());
+				host.remove();
+			}
+		},
+	);
+	it("keeps the created file fallback on the same selection callback", async () => {
+		const onSelect = vi.fn(),
+			host = document.createElement("div");
+		document.body.append(host);
+		const root = createRoot(host);
+		await act(async () =>
+			root.render(
+				<WorkspaceOutputsPanel
+					workspaceId="workspace"
+					expanded
+					items={[]}
+					loading={false}
+					error={false}
+					selectedDoc={null}
+					onSelect={onSelect}
+					onBrowseLibrary={() => {}}
+					onOpenWork={() => {}}
+					onOpenActivity={() => {}}
+				/>,
+			),
+		);
+		try {
+			await act(async () =>
+				host.querySelector<HTMLButtonElement>("header button")!.click(),
+			);
+			await act(async () =>
+				[...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+					.find((item) => item.textContent?.trim() === "Doc")!
+					.click(),
+			);
+			await act(async () =>
+				[
+					...document.querySelectorAll<HTMLButtonElement>(
+						'[role="dialog"] button',
+					),
+				]
+					.find((button) => button.textContent === "Open file")!
+					.click(),
+			);
+			expect(onSelect).toHaveBeenCalledWith({
+				type: "output",
+				id: "created-output",
+			});
+		} finally {
+			await act(async () => root.unmount());
+			host.remove();
+		}
+	});
+
 	it("renders a labelled list with a type icon per row and the selection", () => {
 		const doc = renderPanel();
 		const panel = doc.querySelector('aside[aria-label="Workspace files"]');
