@@ -1,4 +1,6 @@
 import { implement } from "@orpc/server";
+import { ExternalAgentWorkManagementGrantSchema } from "@tedix/api-contract/schemas/external-agent-identity";
+import { getExternalAgentPrincipal } from "@tedix/db/queries/external-agent-identity/principals";
 import { workItemsContract } from "@tedix/api-contract/contracts/work-items";
 import type { WorkItem } from "@tedix/db/schema/work-items";
 import {
@@ -146,6 +148,39 @@ export async function workItemStewardActor(
 		(await canCompleteOwnSucceededAttempt(context, item, actor))
 	)
 		return actor;
+	if (actor.type === "external_agent" && action !== "completion") {
+		const principal = await getExternalAgentPrincipal(context.db, {
+			organizationId: item.orgId,
+			principalId: actor.id,
+		});
+		const grant = ExternalAgentWorkManagementGrantSchema.safeParse(
+			principal?.metadata?.workManagement,
+		);
+		if (
+			principal?.status === "active" &&
+			grant.success &&
+			grant.data.actions.includes(action) &&
+			item.sourceIntentId &&
+			grant.data.sourceIntentPrefixes.some((prefix) =>
+				item.sourceIntentId!.startsWith(prefix),
+			)
+		) {
+			const { data: attempts } = await listWorkItemAttempts(context.db, {
+				orgId: item.orgId,
+				workItemId: item.id,
+				limit: 1,
+			});
+			if (
+				!["queued", "running", "waiting", "retrying"].includes(
+					attempts[0]?.runtimeState ?? "",
+				)
+			)
+				return {
+					...actor,
+					canAssignExecutor: grant.data.actions.includes("assignment"),
+				};
+		}
+	}
 	if (actor.type === "tedi") {
 		if (action === "cancellation") {
 			const project = item.projectId

@@ -356,7 +356,10 @@ export const updateSpecificationProcedure =
 		if (
 			actor.type !== "user" &&
 			[
-				actor.type === "tedi" ? undefined : input.executor,
+				actor.type === "tedi" ||
+				("canAssignExecutor" in actor && actor.canAssignExecutor)
+					? undefined
+					: input.executor,
 				input.projectId,
 				input.riskLevel,
 				input.workClass,
