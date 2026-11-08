@@ -48,6 +48,14 @@ try {
 										type: "turn.started",
 										seq: 1,
 										text: frame.text,
+										attachments: [
+											{
+												outputId: "native-doc",
+												title: "Planning notes",
+												revision: 2,
+												revisionId: "r2",
+											},
+										],
 										authorId: "person",
 										authorKind: "person",
 									},
@@ -105,12 +113,31 @@ try {
 				assert.equal(await page.getByRole("option").count(), 1);
 				await option.click();
 				await page
+					.getByRole("button", { name: "Workspace resources", exact: true })
+					.click();
+				await page
+					.getByRole("button", { name: "Planning notes", exact: true })
+					.click();
+				await page
+					.getByRole("button", { name: "Remove Planning notes", exact: true })
+					.waitFor();
+				await page
 					.getByRole("textbox", { name: "Message the workspace" })
 					.fill("Show usage");
 				await page.getByRole("button", { name: "Send", exact: true }).click();
 				const footer = page.locator(".workspace-chat-turn-footer");
 				await footer.getByText(/provider-model-snapshot/).waitFor();
 				assert.equal(sent[0]?.modelId, "azure-openai/configured");
+				assert.deepEqual(sent[0]?.attachments, [{ outputId: "native-doc" }]);
+				await page
+					.getByRole("link", { name: "Planning notes", exact: true })
+					.waitFor();
+				assert.match(
+					await page
+						.getByRole("list", { name: "Message files", exact: true })
+						.innerText(),
+					/Revision 2/,
+				);
 				assert.match(
 					await footer.innerText(),
 					/120 input · 20 output tokens · 40 cached input · partial usage · Cost unavailable · provider-model-snapshot/,

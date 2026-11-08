@@ -39,6 +39,7 @@ import {
 } from "@/components/kumo/select";
 import { Text } from "@/components/kumo/text";
 import { Textarea } from "@/components/kumo/textarea";
+import { Link } from "@/components/kumo/link";
 import { WorkspaceChatResources } from "@/components/workspace-chat-resources";
 import { isImeComposing } from "@/lib/keyboard";
 import { osQueryKeys } from "@/lib/os-query-options";
@@ -143,10 +144,14 @@ export function WorkspaceChat({
 	}, [client, conversationId, onConversationCreated, state.conversationId]);
 
 	const send = useCallback(
-		(text: string) => {
+		(text: string, attachments?: Array<{ outputId: string }>) => {
 			const trimmed = text.trim();
 			if (!trimmed || !client) return;
-			client.sendTurn({ text: trimmed, ...(modelId ? { modelId } : {}) });
+			client.sendTurn({
+				text: trimmed,
+				...(modelId ? { modelId } : {}),
+				...(attachments?.length ? { attachments } : {}),
+			});
 		},
 		[client, modelId],
 	);
@@ -171,12 +176,13 @@ export function WorkspaceChat({
 					modelControl={modelControl}
 					workspaceId={workspaceId}
 					onBrowseResources={onBrowseResources}
-					onSend={(text) => {
+					onSend={(text, attachments) => {
 						onSelectConversation(null);
 						client?.sendTurn({
 							text,
 							newConversation: true,
 							...(modelId ? { modelId } : {}),
+							...(attachments?.length ? { attachments } : {}),
 						});
 					}}
 					disabledReason={null}
@@ -440,6 +446,20 @@ function TurnView({
 			data-testid="workspace-chat-turn"
 		>
 			{turn.text ? <UserBubble text={turn.text} /> : null}
+			{turn.attachments?.length ? (
+				<ul aria-label="Message files" className="m-0 grid list-none gap-1 p-0">
+					{turn.attachments.map((file) => (
+						<li key={file.outputId}>
+							<Link href={`/outputs/${encodeURIComponent(file.outputId)}`}>
+								{file.title}
+							</Link>{" "}
+							<Text as="span" role="caption">
+								· Revision {file.revision}
+							</Text>
+						</li>
+					))}
+				</ul>
+			) : null}
 			<div className="workspace-chat-reply" key={turn.replyKey}>
 				{turn.steps.length > 0 ? (
 					<Activity steps={turn.steps} approvals={turn.approvals} />
@@ -905,13 +925,20 @@ function Composer({
 }: {
 	workspaceId: string;
 	onBrowseResources?: () => void;
-	onSend: (text: string) => void;
+	onSend: (text: string, attachments?: Array<{ outputId: string }>) => void;
 	disabledReason: string | null;
 	autoFocus: boolean;
 	busy: boolean;
 	modelControl: ReactNode;
 }) {
 	const [draft, setDraft] = useState("");
+	const [selected, setSelected] = useState<
+		Array<{ outputId: string; title: string }>
+	>([]);
+	useEffect(() => {
+		setSelected([]);
+		setDraft("");
+	}, [workspaceId]);
 	const textarea = useRef<HTMLTextAreaElement | null>(null);
 	useEffect(() => {
 		if (autoFocus) textarea.current?.focus();
@@ -919,8 +946,12 @@ function Composer({
 	const submit = (event?: FormEvent) => {
 		event?.preventDefault();
 		if (disabledReason || !draft.trim()) return;
-		onSend(draft);
+		onSend(
+			draft,
+			selected.map(({ outputId }) => ({ outputId })),
+		);
 		setDraft("");
+		setSelected([]);
 	};
 	const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
 		if (event.key === "Enter" && !event.shiftKey && !isImeComposing(event)) {
@@ -930,6 +961,30 @@ function Composer({
 	};
 	return (
 		<form className="workspace-chat-composer" onSubmit={submit}>
+			{selected.length ? (
+				<ul
+					aria-label="Selected message files"
+					className="m-0 grid list-none gap-1 p-0"
+				>
+					{selected.map((file) => (
+						<li key={file.outputId} className="flex min-w-0 items-center gap-2">
+							<span className="truncate">{file.title}</span>
+							<Button
+								size="sm"
+								variant="ghost"
+								aria-label={`Remove ${file.title}`}
+								onClick={() =>
+									setSelected((files) =>
+										files.filter((item) => item.outputId !== file.outputId),
+									)
+								}
+							>
+								Remove
+							</Button>
+						</li>
+					))}
+				</ul>
+			) : null}
 			<Textarea
 				aria-label="Message the workspace"
 				disabled={disabledReason !== null}
@@ -949,6 +1004,15 @@ function Composer({
 					<WorkspaceChatResources
 						workspaceId={workspaceId}
 						onBrowseResources={onBrowseResources}
+						selectedIds={selected.map((file) => file.outputId)}
+						onSelect={(file) =>
+							setSelected((files) =>
+								files.some((item) => item.outputId === file.outputId) ||
+								files.length >= 5
+									? files
+									: [...files, file],
+							)
+						}
 					/>
 				) : null}
 				<Text role="caption" tone="secondary">

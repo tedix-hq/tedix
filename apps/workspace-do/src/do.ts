@@ -33,6 +33,7 @@ import type {
 import { CallRefusedError } from "@tedix/agent-governance/wrap-binding";
 import { SqlAccountabilityAdapter, SqlComplianceAdapter } from "./adapters";
 import { buildWorkspaceBindings } from "./bindings";
+import { resolveAttachments } from "./attachments";
 import { TenantDataPort } from "./data-port-tenant";
 import { BINDING_NAMES, type BindingName } from "./declarations";
 import { SqlEventLedger } from "./event-ledger";
@@ -284,6 +285,18 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			throw new Error("This model is not configured for workspace chat");
 		const text = input.text.trim();
 		if (!text) throw new Error("A turn needs text");
+		const selected = await resolveAttachments(
+			this.#dataPort(scope, input.actorKind),
+			input.attachments,
+		);
+		// Resolving file bodies yields; a retried frame may have admitted this id.
+		const admitted = this.#turn(turnId);
+		if (admitted)
+			return {
+				turnId,
+				conversationId: admitted.conversation_id,
+				seq: admitted.first_seq ?? this.#events.latestSeq(),
+			};
 		const now = new Date().toISOString();
 		const conversationId = this.#ensureConversation(
 			input.conversationId ?? null,
@@ -304,6 +317,9 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			turnId,
 			text,
 			...(displayText ? { displayText } : {}),
+			...(selected.attachments.length
+				? { attachments: selected.attachments }
+				: {}),
 			authorId: input.tediId ?? input.actorId,
 			authorKind:
 				input.tediId || input.actorKind === "tedi" ? "tedi" : "person",
@@ -321,7 +337,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				scope,
 				turnId,
 				conversationId,
-				{ ...input, text },
+				{ ...input, text: text + selected.context },
 				controller,
 			),
 		);
@@ -702,6 +718,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 						actorKind: "user",
 						text: frame.text,
 						modelId: frame.modelId,
+						attachments: frame.attachments,
 						...(frame.tediId ? { tediId: frame.tediId } : {}),
 					});
 					this.#control(ws, {

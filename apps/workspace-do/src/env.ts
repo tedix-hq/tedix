@@ -21,6 +21,7 @@ export interface TurnRequest {
 	text: string;
 	/** Must name a deployment supported by this runtime. */
 	modelId?: string;
+	attachments?: Array<{ outputId: string }>;
 	/** Run as this tedi: its persona and recall come from its own object. */
 	tediId?: string;
 	/** Force the turn into its own facet (long or risky work). */

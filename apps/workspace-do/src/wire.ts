@@ -26,6 +26,12 @@ export type WireEventBody =
 			turnId: string;
 			text: string;
 			displayText?: string;
+			attachments?: Array<{
+				outputId: string;
+				title: string;
+				revision: number;
+				revisionId: string;
+			}>;
 			authorId: string;
 			authorKind: AuthorKind;
 	  }

@@ -88,6 +88,44 @@ async function socketFramesUntil(
 	});
 }
 
+async function rejectedSocketTurn(
+	ws: Stub,
+	attachments: unknown,
+	turnId: string,
+) {
+	const socket = (
+		await ws.fetch(
+			new Request("https://workspace.test/subscribe", {
+				headers: {
+					Upgrade: "websocket",
+					"X-Workspace-Org": scope.organizationId,
+					"X-Workspace-Id": scope.workspaceId,
+					"X-Workspace-Actor-Id": "u1",
+				},
+			}),
+		)
+	).webSocket;
+	if (!socket) throw new Error("No socket");
+	try {
+		const rejected = socketFramesUntil(
+			socket,
+			(frame) => frame.type === "error",
+		);
+		socket.send(
+			JSON.stringify({
+				type: "send_turn",
+				clientTurnId: turnId,
+				conversationId: null,
+				text: "Read this",
+				attachments,
+			}),
+		);
+		return (await rejected).at(-1)!;
+	} finally {
+		socket.close(1000, "test complete");
+	}
+}
+
 /** CREATE TABLE from the Drizzle definition, so inserts can use every column. */
 function ddl(table: SQLiteTable): string {
 	const columns = Object.values(getTableColumns(table)).map((column) => {
@@ -101,7 +139,7 @@ function ddl(table: SQLiteTable): string {
 
 async function seedCore() {
 	const now = "2026-11-07T10:00:00.000Z";
-	for (const table of [
+	const tables = [
 		osWorkspaces,
 		osOutputs,
 		osOutputRevisions,
@@ -115,10 +153,9 @@ async function seedCore() {
 		osGadgets,
 		tedis,
 		workItems,
-	]) {
-		await testEnv.DB.exec(ddl(table));
-	}
+	];
 	await testEnv.DB.batch([
+		...tables.map((table) => testEnv.DB.prepare(ddl(table))),
 		testEnv.DB.prepare(
 			`INSERT OR REPLACE INTO os_workspaces (id, organization_id, name, description, status, created_by_kind, created_by_id, created_at, updated_at, visibility) VALUES (?, ?, ?, ?, 'active', 'user', 'u1', ?, ?, 'org')`,
 		).bind(
@@ -166,7 +203,7 @@ async function seedWorkspaceRows(scopes: WorkspaceScope[]) {
 	);
 }
 
-async function seedOutputs(ws: Stub) {
+async function seedOutputs(ws: Stub, outputScope = scope) {
 	const now = "2026-11-07T10:00:00.000Z";
 	const sheet = {
 		kind: "sheet",
@@ -191,22 +228,22 @@ async function seedOutputs(ws: Stub) {
 	};
 	const sheetBody = await storeOutputBody(
 		testEnv.R2_BUCKET,
-		scope.organizationId,
+		outputScope.organizationId,
 		JSON.stringify(sheet),
 	);
 	const docBody = await storeOutputBody(
 		testEnv.R2_BUCKET,
-		scope.organizationId,
+		outputScope.organizationId,
 		JSON.stringify(doc),
 	);
-	await ws.importRows(scope, {
+	await ws.importRows(outputScope, {
 		batchId: "b-outputs",
 		table: "os_outputs",
 		rows: [
 			{
 				id: "out-sheet",
-				organization_id: scope.organizationId,
-				workspace_id: scope.workspaceId,
+				organization_id: outputScope.organizationId,
+				workspace_id: outputScope.workspaceId,
 				kind: "sheet",
 				title: "Challenges",
 				status: "active",
@@ -218,8 +255,8 @@ async function seedOutputs(ws: Stub) {
 			},
 			{
 				id: "out-doc",
-				organization_id: scope.organizationId,
-				workspace_id: scope.workspaceId,
+				organization_id: outputScope.organizationId,
+				workspace_id: outputScope.workspaceId,
 				kind: "document",
 				title: "Priorities",
 				status: "active",
@@ -231,13 +268,13 @@ async function seedOutputs(ws: Stub) {
 			},
 		],
 	});
-	await ws.importRows(scope, {
+	await ws.importRows(outputScope, {
 		batchId: "b-revisions",
 		table: "os_output_revisions",
 		rows: [
 			{
 				id: "rev-sheet",
-				organization_id: scope.organizationId,
+				organization_id: outputScope.organizationId,
 				output_id: "out-sheet",
 				revision: 1,
 				content: "",
@@ -251,7 +288,7 @@ async function seedOutputs(ws: Stub) {
 			},
 			{
 				id: "rev-doc",
-				organization_id: scope.organizationId,
+				organization_id: outputScope.organizationId,
 				output_id: "out-doc",
 				revision: 1,
 				content: "",
@@ -1019,7 +1056,14 @@ describe("WorkspaceDO", () => {
 	});
 
 	test("a retried socket send keeps one turn and conversation", async () => {
-		const ws = workspace();
+		await seedCore();
+		const scope = {
+			organizationId: "org_attachment_retry",
+			workspaceId: crypto.randomUUID(),
+		};
+		await seedWorkspaceRows([scope]);
+		const ws = workspace(scope);
+		await seedOutputs(ws, scope);
 		await ws.scriptModel(scope, [{ text: "One answer." }]);
 		const request = new Request("https://workspace.test/subscribe", {
 			headers: {
@@ -1035,6 +1079,7 @@ describe("WorkspaceDO", () => {
 			clientTurnId,
 			conversationId: null,
 			text: "Send once despite retry",
+			attachments: [{ outputId: "out-doc" }],
 		});
 		const accepted = async () => {
 			const socket = (await ws.fetch(request.clone())).webSocket;
@@ -1059,7 +1104,137 @@ describe("WorkspaceDO", () => {
 		expect(
 			events.filter((event) => event.type === "turn.started"),
 		).toHaveLength(1);
+		expect(events.find((event) => event.type === "turn.started")).toMatchObject(
+			{
+				text: "Send once despite retry",
+				attachments: [
+					{
+						outputId: "out-doc",
+						title: "Priorities",
+						revision: 1,
+						revisionId: "rev-doc",
+					},
+				],
+			},
+		);
+		const messages = await ws.readMessages(scope, String(first.conversationId));
+		expect(
+			JSON.stringify(messages.filter((message) => message.role === "user")),
+		).toContain("Battery recycling");
+		expect(JSON.stringify(messages)).toContain("rev-doc");
 	});
+
+	test("rejects unavailable and malformed attachments before recording a turn", async () => {
+		await seedCore();
+		const ws = workspace();
+		await seedOutputs(ws);
+		for (const attachments of [
+			[{ outputId: "not-in-this-workspace" }],
+			Array.from({ length: 6 }, () => ({ outputId: "out-doc" })),
+			[{ outputId: 42 }],
+		]) {
+			const turnId = crypto.randomUUID();
+			expect(await rejectedSocketTurn(ws, attachments, turnId)).toMatchObject({
+				type: "error",
+				clientTurnId: turnId,
+				message: expect.any(String),
+			});
+			expect(await ws.readTurn(scope, turnId)).toBeNull();
+		}
+	});
+
+	test("includes selected file contents when a turn runs in a facet", async () => {
+		await seedCore();
+		const ws = workspace();
+		await seedOutputs(ws);
+		await ws.scriptModel(scope, [{ text: "Read the selected sheet." }]);
+		const turn = await ws.sendTurn(scope, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "Read the sheet",
+			attachments: [{ outputId: "out-sheet" }],
+			isolate: true,
+		});
+		expect((await ws.awaitTurn(scope, turn.turnId, 20_000)).status).toBe(
+			"finished",
+		);
+		expect(
+			JSON.stringify(await ws.readMessages(scope, turn.conversationId)),
+		).toContain("Supply chain");
+	});
+
+	test.each(["uploaded", "large", "restricted", "foreign"])(
+		"refuses %s attachment contents without starting a turn",
+		async (kind) => {
+			await seedCore();
+			const ws = workspace();
+			const outputId = crypto.randomUUID();
+			const revisionId = crypto.randomUUID();
+			const content = {
+				kind: "document",
+				blocks:
+					kind === "large"
+						? Array.from({ length: 4 }, () => ({
+								type: "paragraph",
+								text: "x".repeat(17_000),
+							}))
+						: [],
+				...(kind === "uploaded"
+					? {
+							file: {
+								workspaceId: scope.workspaceId,
+								resourceId: crypto.randomUUID(),
+							},
+						}
+					: {}),
+			};
+			const body = await storeOutputBody(
+				testEnv.R2_BUCKET,
+				scope.organizationId,
+				JSON.stringify(content),
+			);
+			await createCoreOutput(
+				createDbQueryClient(testEnv.DB),
+				{ organizationId: scope.organizationId },
+				{
+					id: outputId,
+					organizationId: scope.organizationId,
+					workspaceId:
+						kind === "foreign" ? crypto.randomUUID() : scope.workspaceId,
+					title: "Unavailable attachment",
+					kind: "document",
+					currentRevisionId: revisionId,
+					createdByKind: "user",
+					createdById: "u1",
+				},
+				{
+					id: revisionId,
+					organizationId: scope.organizationId,
+					outputId,
+					revision: 1,
+					content: "",
+					...body,
+					createdByKind: "user",
+					createdById: "u1",
+					accessEnvelope:
+						kind === "restricted"
+							? null
+							: JSON.stringify({ version: 1, sources: [] }),
+				},
+			);
+			const turnId = crypto.randomUUID();
+			expect(
+				(await rejectedSocketTurn(ws, [{ outputId }], turnId)).message,
+			).toContain(
+				kind === "large"
+					? "64 KB"
+					: kind === "uploaded"
+						? "cannot be read"
+						: "unavailable",
+			);
+			expect(await ws.readTurn(scope, turnId)).toBeNull();
+		},
+	);
 
 	test("a WebSocket reconnect replays events after its cursor", async () => {
 		const ws = workspace();

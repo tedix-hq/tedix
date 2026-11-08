@@ -54,6 +54,12 @@ export type ChatTurn = {
 	authorId: string;
 	authorKind: "person" | "tedi";
 	text: string;
+	attachments?: Array<{
+		outputId: string;
+		title: string;
+		revision: number;
+		revisionId: string;
+	}>;
 	/** Assistant prose so far; grows with every delta and settles on done. */
 	reply: string;
 	replyDeltas?: Array<{ seq: number; text: string }>;
@@ -128,6 +134,7 @@ function newTurn(
 		authorId: event.authorId,
 		authorKind: event.authorKind,
 		text: event.displayText ?? event.text,
+		attachments: event.attachments,
 		reply: "",
 		replyMessageId: null,
 		replyDone: false,
@@ -265,6 +272,7 @@ export function applyWorkspaceChatEvent(
 					...turn,
 					startedAt: event.at,
 					text: event.displayText ?? event.text,
+					attachments: event.attachments,
 					authorId: event.authorId,
 					authorKind: event.authorKind,
 				}),

@@ -34,6 +34,19 @@ store.
 Open a workspace in Tedix OS and use its chat. An agent connected to your
 organization can ask the same workspace through its workspace tools.
 
+Use **Workspace resources** beside the message box to select up to five
+native documents, sheets or presentations for your next message. You can
+remove a selection before sending. The workspace checks access again when
+you send and includes the saved contents, up to 64 KB in total. The message
+records the selected file names and revision numbers; opening a file shows
+its current version. The conversation retains the contents used for that turn.
+
+Uploading a file saves it to the workspace but does not attach its bytes to
+your message. Workspace chat cannot yet read uploaded file bytes, videos or
+connected-source content through this selector. Selecting an unsupported or
+unavailable file shows an error and does not start a turn. Use a native file
+containing the material you want the workspace to read.
+
 When you send a message, the workspace's agent answers in steps:
 
 1. It reads your message and decides what it needs: the workspace's
@@ -50,10 +63,11 @@ When you send a message, the workspace's agent answers in steps:
 
 ## What the workspace records
 
-The workspace writes down what happens next to the data, and reports each
-change to the organization's shared timeline, so Home, search, Activity and
-the Work board see it. The workspace stays the source of truth for its own
-data.
+The workspace keeps its conversations and change records next to its data.
+Its Activity view shows recent recorded file changes that you can access.
+That list can be incomplete; it does not show every agent action. Open the
+conversation to review its steps and approval results. The workspace stays
+the source of truth for its own data.
 
 - **Conversations and turns.** Each question, the steps the agent took and
   the answer, with who asked: a person, a tedi or an external agent.
@@ -87,7 +101,9 @@ installation that serves Tedix OS hosts them. An installation needs:
   [Self-hosting and the managed service boundary](./self-hosted-boundary.md);
 - a region for workspace objects, set by the installation
   (`DO_JURISDICTION`; Tedix Cloud uses `eu`);
-- a model provider for answers — Workers AI by default;
+- a configured Azure OpenAI deployment and an authenticated AI Gateway for
+  workspace chat. The model selector offers only the configured deployment;
+  reliable cost estimates are not available;
 - for the one-time move of existing workspaces, the runbook and the
   migration token in
   [Move workspaces into workspace objects](./workspace-migration.md).
