@@ -4,7 +4,11 @@ import { tenantStoreMigrations } from "../../tenant-store/migrations";
 import { createMigratedSqlite } from "../../test/migrated-sqlite";
 import { createDbClient } from "../../client";
 import { createD1Facade } from "../../test/d1-facade";
-import { queryMemory, type MemoryQueryConfig } from "./tenant-rpc";
+import {
+	queryMemory,
+	queryOwnedMemory,
+	type MemoryQueryConfig,
+} from "./tenant-rpc";
 import { SearchResultSchema } from "@tedix/api-contract/schemas/memory-graph";
 import { createFact, findCurrentFactsByTopicKey } from "./facts";
 import { hydrateRecall, lexicalRecall, temporalRecall } from "./hybrid-recall";
@@ -41,6 +45,94 @@ const memoryTables = [
 ];
 
 describe("workspace memory migration contract", () => {
+	it("binds immutable memory owners without permitting workspace reclassification or foreign rows", () => {
+		const local = tenant();
+		local.exec(
+			"INSERT INTO memory_store_identity VALUES (1,'fictional-org','organization','fictional-org','2026-11-08')",
+		);
+		local.exec(
+			"INSERT INTO memory_facts(id,organization_id,content,fact_type) VALUES ('owned','fictional-org','unchanged','technical')",
+		);
+		expect(() =>
+			local.exec(
+				"INSERT INTO memory_facts(id,organization_id,content,fact_type) VALUES ('foreign','fictional-other','private','technical')",
+			),
+		).toThrow("outside this workspace");
+		expect(() =>
+			local.exec(
+				"INSERT INTO tenant_store_identity VALUES (1,'fictional-org','workspace-a','2026-11-08')",
+			),
+		).toThrow("cannot become workspaces");
+		expect(() =>
+			local.exec(
+				"UPDATE memory_store_identity SET owner_id='another-owner',kind='personal'",
+			),
+		).toThrow("immutable");
+		expect(() => local.exec("DELETE FROM memory_store_identity")).toThrow(
+			"immutable",
+		);
+		expect(() =>
+			local.exec(
+				"INSERT OR REPLACE INTO memory_store_identity VALUES (1,'fictional-org','personal','principal-b','2026-11-08')",
+			),
+		).toThrow("immutable");
+		const legacy = tenant();
+		legacy.exec(
+			"INSERT INTO tenant_store_identity VALUES (1,'fictional-org','workspace-a','2026-11-08')",
+		);
+		expect(() =>
+			legacy.exec(
+				"INSERT INTO memory_store_identity VALUES (1,'fictional-org','organization','fictional-org','2026-11-08')",
+			),
+		).toThrow("silently reclassified");
+	});
+
+	it("serves organization-only D1 memory and rejects unsupported scoped fallback", async () => {
+		const sqlite = createMigratedSqlite({ foreignKeys: false });
+		databases.push(sqlite);
+		const db = createDbClient(createD1Facade(sqlite));
+		const config = { plane: "platform-d1", db } as const;
+		const owner = {
+			kind: "organization",
+			organizationId: "fictional-org",
+		} as const;
+		const access = {
+			organizationId: owner.organizationId,
+			principalId: "principal-a",
+			workspaceIds: ["workspace-a"],
+		};
+		await queryOwnedMemory(config, owner, access, {
+			operation: "createFact",
+			input: {
+				id: "org-owned",
+				content: "unchanged org policy",
+				factType: "technical",
+				visibility: "private",
+				tediId: "tedi-a",
+			},
+		});
+		expect(
+			(
+				await queryOwnedMemory(
+					config,
+					owner,
+					{ ...access, workspaceIds: [] },
+					{ operation: "getFact", input: { factId: "org-owned" } },
+				)
+			)?.tediId,
+		).toBe("tedi-a");
+		for (const scoped of [
+			{ ...owner, kind: "workspace", workspaceId: "workspace-a" },
+			{ ...owner, kind: "personal", principalId: "principal-a" },
+		] as const)
+			await expect(
+				queryOwnedMemory(config, scoped, access, {
+					operation: "getFact",
+					input: { factId: "org-owned" },
+				}),
+			).rejects.toThrow("owner-partitioned store");
+	});
+
 	it("retains stored policies and per-tedi recall after copying unchanged rows into the real tenant schema", async () => {
 		const platform = createMigratedSqlite({ foreignKeys: false });
 		databases.push(platform);

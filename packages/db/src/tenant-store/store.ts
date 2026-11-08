@@ -47,7 +47,16 @@ import {
 	tenantStoreName,
 	type WorkspaceTenantScope,
 } from "./router";
-import { tenantStoreIdentity, tenantStoreImportBatches } from "./schema";
+import {
+	tenantStoreIdentity,
+	tenantStoreImportBatches,
+	memoryStoreIdentity,
+} from "./schema";
+import { memoryOwnerId, memoryStoreName } from "./memory-owner";
+import {
+	MemoryOwnerScopeSchema,
+	type MemoryOwnerScope,
+} from "@tedix/api-contract/schemas/memory-graph";
 import {
 	tenantOsOutputRevisions,
 	tenantOsOutputs,
@@ -152,6 +161,46 @@ export class TenantStore<Env = unknown> extends DurableObject<Env> {
 				storage: this.ctx.storage,
 			}),
 			bound,
+			query,
+		);
+	}
+
+	/** Internal data RPC; gateway callers must authorize the owner and fact policy first. */
+	ownedMemory(
+		requested: MemoryOwnerScope,
+		query: MemoryQuery,
+	): Promise<unknown> {
+		const owner = MemoryOwnerScopeSchema.parse(requested);
+		if (this.ctx.id.name !== memoryStoreName(owner))
+			throw new Error("Memory owner does not match this object");
+		if (this.db.select().from(tenantStoreIdentity).get())
+			throw new Error("Workspace data cannot be reclassified as owned memory");
+		const identity = this.db.select().from(memoryStoreIdentity).get();
+		if (identity) {
+			if (
+				identity.organizationId !== owner.organizationId ||
+				identity.kind !== owner.kind ||
+				identity.ownerId !== memoryOwnerId(owner)
+			)
+				throw new Error("Memory owner does not match the stored identity");
+		} else {
+			this.db
+				.insert(memoryStoreIdentity)
+				.values({
+					slot: 1,
+					organizationId: owner.organizationId,
+					kind: owner.kind,
+					ownerId: memoryOwnerId(owner),
+					createdAt: new Date().toISOString(),
+				})
+				.run();
+		}
+		return executeMemoryQuery(
+			selectMemoryStore({
+				plane: "do-local-sqlite",
+				storage: this.ctx.storage,
+			}),
+			{ organizationId: owner.organizationId },
 			query,
 		);
 	}

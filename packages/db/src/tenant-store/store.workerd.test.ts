@@ -64,6 +64,7 @@ describe("TenantStore", () => {
 			"20261107171152_workspace_outputs",
 			"20261107194341_memory_facts_expertise_live",
 			"20261108100233_workspace_chat_tables",
+			"20261108164524_memory_owner_identity",
 		]);
 		// A second call is served by the same object and keeps its identity.
 		const again = await tenantStoreStub(

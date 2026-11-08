@@ -2,6 +2,35 @@ import * as z from "zod";
 import { MEMORY_FACT_TYPES, MEMORY_FEEDBACK_SIGNALS } from "../constants/enums";
 import { JsonValueSchema } from "./common";
 
+/** Ownership is separate from a fact's visibility, memoryScope and usePolicy. */
+export const MemoryOwnerScopeSchema = z.discriminatedUnion("kind", [
+	z.strictObject({
+		kind: z.literal("organization"),
+		organizationId: z
+			.string()
+			.refine((value) => value.trim().length > 0, "Owner ID must be non-empty"),
+	}),
+	z.strictObject({
+		kind: z.literal("workspace"),
+		organizationId: z
+			.string()
+			.refine((value) => value.trim().length > 0, "Owner ID must be non-empty"),
+		workspaceId: z
+			.string()
+			.refine((value) => value.trim().length > 0, "Owner ID must be non-empty"),
+	}),
+	z.strictObject({
+		kind: z.literal("personal"),
+		organizationId: z
+			.string()
+			.refine((value) => value.trim().length > 0, "Owner ID must be non-empty"),
+		principalId: z
+			.string()
+			.refine((value) => value.trim().length > 0, "Owner ID must be non-empty"),
+	}),
+]);
+export type MemoryOwnerScope = z.infer<typeof MemoryOwnerScopeSchema>;
+
 // ============================================================================
 // Enums
 // ============================================================================

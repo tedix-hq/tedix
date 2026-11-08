@@ -7,6 +7,14 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { tenantStoreStub } from "@tedix/db/tenant-store/router";
 import { readDurableObjectJurisdiction } from "@tedix/worker-kit/durable-objects";
+import type { MemoryOwnerScope } from "@tedix/api-contract/schemas/memory-graph";
+import type { MemoryOwnerAccess } from "@tedix/db/tenant-store/memory-owner";
+import {
+	queryOwnedMemory,
+	type MemoryOperation,
+	type MemoryQuery,
+	type MemoryQueryResult,
+} from "@tedix/db/queries/memory-graph/tenant-rpc";
 import type { ExportRowsInput, WorkspaceRpc } from "./do";
 import type { TurnRequest, WorkspaceEnv, WorkspaceScope } from "./env";
 
@@ -17,6 +25,24 @@ function stubFor(env: WorkspaceEnv, scope: WorkspaceScope): WorkspaceRpc {
 }
 
 export class InternalEntrypoint extends WorkerEntrypoint<WorkspaceEnv> {
+	/** Storage port; the gateway retains operation and per-fact authorization. */
+	ownedMemory<K extends MemoryOperation>(
+		owner: MemoryOwnerScope,
+		access: MemoryOwnerAccess,
+		query: MemoryQuery<K>,
+	): Promise<MemoryQueryResult<K>> {
+		return queryOwnedMemory(
+			{
+				plane: "do-local-sqlite",
+				namespace: this.env.WORKSPACE,
+				env: this.env,
+			},
+			owner,
+			access,
+			query,
+		);
+	}
+
 	sendTurn(scope: WorkspaceScope, input: TurnRequest) {
 		return stubFor(this.env, scope).sendTurn(scope, input);
 	}
