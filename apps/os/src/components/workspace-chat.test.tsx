@@ -1,8 +1,16 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vite-plus/test";
 import type {
+	createWorkspaceChatClient,
 	WorkspaceChatClient,
 	WorkspaceChatSnapshot,
 } from "@/lib/workspace-chat-client";
@@ -12,6 +20,7 @@ import {
 	initialWorkspaceChatState,
 } from "@/lib/workspace-chat-state";
 import { WorkspaceChat } from "./workspace-chat";
+import { osQueryKeys } from "@/lib/os-query-options";
 
 (
 	globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -26,6 +35,7 @@ function fakeClient(conversationId: string | null) {
 	};
 	const listeners = new Set<() => void>();
 	const calls: unknown[] = [];
+	let onOutputChanged: (() => void) | undefined;
 	const client: WorkspaceChatClient = {
 		getSnapshot: () => snapshot,
 		getConversationId: () => snapshot.state.conversationId,
@@ -60,7 +70,18 @@ function fakeClient(conversationId: string | null) {
 	};
 	const feed = (events: WorkspaceChatLedgerEvent[]) =>
 		set({ state: applyWorkspaceChatEvents(snapshot.state, events) });
-	return { client, calls, set, feed };
+	const createClient: typeof createWorkspaceChatClient = (options) => {
+		onOutputChanged = options.onOutputChanged;
+		return client;
+	};
+	return {
+		client,
+		calls,
+		set,
+		feed,
+		createClient,
+		notifyOutputs: () => onOutputChanged?.(),
+	};
 }
 
 const at = "2026-11-07T12:00:00.000Z";
@@ -74,6 +95,79 @@ const started: WorkspaceChatLedgerEvent = {
 	authorId: "p",
 	authorKind: "person",
 };
+
+function heldChange(input: unknown): WorkspaceChatLedgerEvent[] {
+	return [
+		started,
+		{
+			type: "step.started",
+			seq: 2,
+			at,
+			conversationId: "c1",
+			turnId: "t1",
+			stepId: "code",
+			label: "Running code",
+			kind: "code",
+			tool: "run_code",
+		},
+		{
+			type: "step.started",
+			seq: 3,
+			at,
+			conversationId: "c1",
+			turnId: "t1",
+			stepId: "write",
+			label: "Edit document",
+			kind: "write",
+			tool: "documents.edit",
+		},
+		{
+			type: "approval.requested",
+			seq: 4,
+			at,
+			conversationId: "c1",
+			turnId: "t1",
+			stepId: "write",
+			approvalId: "approval",
+			title: "Edit document",
+			reason: "approval_pending",
+			policy: "writes_need_approval",
+			input,
+			target: { id: "opaque-document-id", title: "Meeting notes" },
+		},
+		{
+			type: "step.finished",
+			seq: 5,
+			at,
+			conversationId: "c1",
+			turnId: "t1",
+			stepId: "write",
+			status: "error",
+			durationMs: 1,
+			error: "Approval required: approval_pending",
+		},
+		{
+			type: "step.finished",
+			seq: 6,
+			at,
+			conversationId: "c1",
+			turnId: "t1",
+			stepId: "code",
+			status: "error",
+			durationMs: 1,
+			error: "Approval required: approval_pending",
+		},
+		{
+			type: "turn.finished",
+			seq: 7,
+			at,
+			conversationId: "c1",
+			turnId: "t1",
+			status: "done",
+			durationMs: 1,
+		},
+	];
+}
 
 let host: HTMLDivElement;
 let root: Root;
@@ -93,14 +187,18 @@ afterEach(() => {
 	host.remove();
 });
 
-function mount(fake: ReturnType<typeof fakeClient>, conversationId = "c1") {
+function mount(
+	fake: ReturnType<typeof fakeClient>,
+	conversationId = "c1",
+	listOpen = false,
+) {
 	act(() => {
 		root.render(
 			<QueryClientProvider client={queryClient}>
 				<WorkspaceChat
 					conversationId={conversationId}
-					createClient={() => fake.client}
-					listOpen={false}
+					createClient={fake.createClient}
+					listOpen={listOpen}
 					onOpenList={() => {}}
 					onSelectConversation={() => {}}
 					workspaceId="ws-1"
@@ -275,8 +373,243 @@ describe("WorkspaceChat", () => {
 				},
 			]),
 		);
-		expect(card?.textContent).toContain("Approved by person:aaron");
+		expect(
+			card?.querySelector('[data-testid="workspace-chat-approval-status"]')
+				?.textContent,
+		).toBe("Approved");
+		expect(card?.textContent).not.toContain("person:aaron");
+		expect(card?.textContent).not.toContain("Applied");
 		expect(host.querySelector("textarea")?.disabled).toBe(false);
+	});
+
+	it("labels a paged approval hold plainly before its request arrives", () => {
+		const fake = fakeClient("c1");
+		mount(fake);
+		act(() =>
+			fake.feed(
+				heldChange({}).filter((event) => event.type !== "approval.requested"),
+			),
+		);
+		act(() =>
+			host
+				.querySelector<HTMLButtonElement>(".workspace-chat-activity-summary")
+				?.click(),
+		);
+		expect(
+			host.querySelector(".workspace-chat-activity")?.textContent,
+		).toContain("Waiting for approval");
+		expect(
+			host.querySelector(".workspace-chat-activity")?.textContent,
+		).not.toContain("approval_pending");
+		expect(
+			host.querySelector(".workspace-chat-activity")?.textContent,
+		).not.toContain("Failed");
+	});
+
+	it("previews the document change and hides exact input and policy behind Technical details", () => {
+		const fake = fakeClient("c1");
+		mount(fake);
+		act(() =>
+			fake.feed(
+				heldChange({
+					outputId: "opaque-document-id",
+					expectedRevision: 3,
+					ops: [
+						{
+							op: "insert",
+							index: 1,
+							block: { type: "paragraph", text: "Discuss the launch" },
+						},
+						{ op: "delete", index: 2 },
+					],
+				}),
+			),
+		);
+		const card = host.querySelector('[data-testid="workspace-chat-approval"]');
+		expect(card?.textContent).toContain("Meeting notes");
+		expect(card?.textContent).toContain(
+			"Insert a block at position 2: Discuss the launch",
+		);
+		expect(card?.textContent).toContain("Delete a block at position 3");
+		expect(card?.textContent).not.toContain("opaque-document-id");
+		expect(card?.textContent).not.toContain("writes_need_approval");
+		expect(
+			host.querySelector(".workspace-chat-activity")?.textContent,
+		).toContain("Waiting for approval");
+		expect(
+			host.querySelector(".workspace-chat-activity")?.textContent,
+		).not.toContain("Error");
+		act(() =>
+			host
+				.querySelector<HTMLButtonElement>(".workspace-chat-activity-summary")
+				?.click(),
+		);
+		expect(
+			host.querySelector(".workspace-chat-steps")?.textContent,
+		).not.toContain("approval_pending");
+		const details = [...(card?.querySelectorAll("button") ?? [])].find(
+			(button) => button.textContent === "Technical details",
+		);
+		expect(details?.getAttribute("aria-expanded")).toBe("false");
+		act(() => details?.click());
+		expect(card?.textContent).toContain("opaque-document-id");
+		expect(card?.textContent).toContain('"expectedRevision": 3');
+		expect(card?.textContent).toContain("writes_need_approval");
+	});
+
+	it.each(["applied", "failed"] as const)(
+		"shows the actual %s outcome separately from human approval",
+		(status) => {
+			const fake = fakeClient("c1");
+			mount(fake);
+			act(() =>
+				fake.feed([
+					...heldChange({
+						outputId: "opaque-document-id",
+						content: {
+							kind: "document",
+							blocks: [{ type: "paragraph", text: "Updated notes" }],
+						},
+					}),
+					{
+						type: "approval.decided",
+						seq: 8,
+						at,
+						conversationId: "c1",
+						approvalId: "approval",
+						decision: "approve",
+						by: "user-private-id",
+					},
+				]),
+			);
+			const card = host.querySelector(
+				'[data-testid="workspace-chat-approval"]',
+			);
+			expect(card?.textContent).toContain("Updated notes");
+			expect(
+				card?.querySelector('[data-testid="workspace-chat-approval-status"]')
+					?.textContent,
+			).toBe("Approved");
+			expect(card?.textContent).not.toContain("Applied");
+			act(() =>
+				fake.feed([
+					{
+						type: "approval.executed",
+						seq: 9,
+						at,
+						conversationId: "c1",
+						approvalId: "approval",
+						status,
+						...(status === "failed" ? { error: "revision_conflict" } : {}),
+					},
+				]),
+			);
+			expect(
+				card?.querySelector('[data-testid="workspace-chat-approval-status"]')
+					?.textContent,
+			).toBe(status === "applied" ? "Applied" : "Failed");
+			expect(card?.textContent).not.toContain("user-private-id");
+			expect(
+				host.querySelector(".workspace-chat-activity")?.textContent,
+			).toContain(status === "applied" ? "Applied" : "Failed");
+			if (status === "failed")
+				expect(card?.textContent).not.toContain(
+					"The workspace applied this change.",
+				);
+		},
+	);
+
+	it("does not offer another decision when replay supplies an execution outcome first", () => {
+		const fake = fakeClient("c1");
+		mount(fake);
+		act(() =>
+			fake.feed([
+				...heldChange({ outputId: "opaque-document-id" }),
+				{
+					type: "approval.executed",
+					seq: 9,
+					at,
+					conversationId: "c1",
+					approvalId: "approval",
+					status: "applied",
+				},
+			]),
+		);
+		const card = host.querySelector('[data-testid="workspace-chat-approval"]');
+		expect(
+			card?.querySelector('[data-testid="workspace-chat-approval-status"]')
+				?.textContent,
+		).toBe("Applied");
+		expect(
+			[...(card?.querySelectorAll("button") ?? [])].some(
+				(button) =>
+					button.textContent === "Approve" || button.textContent === "Deny",
+			),
+		).toBe(false);
+	});
+
+	it("posts a denial without presenting the held action as applied", () => {
+		const fake = fakeClient("c1");
+		mount(fake);
+		act(() => fake.feed(heldChange({ outputId: "opaque-document-id" })));
+		const card = host.querySelector('[data-testid="workspace-chat-approval"]');
+		const deny = [...(card?.querySelectorAll("button") ?? [])].find(
+			(button) => button.textContent === "Deny",
+		);
+		act(() => deny?.click());
+		expect(fake.calls).toContainEqual(["decideApproval", "approval", "deny"]);
+		act(() =>
+			fake.feed([
+				{
+					type: "approval.decided",
+					seq: 8,
+					at,
+					conversationId: "c1",
+					approvalId: "approval",
+					decision: "deny",
+					by: "person",
+				},
+			]),
+		);
+		expect(
+			card?.querySelector('[data-testid="workspace-chat-approval-status"]')
+				?.textContent,
+		).toBe("Denied");
+		expect(card?.textContent).not.toContain("Applied");
+	});
+
+	it("invalidates the generated output query family after a successful write notification", () => {
+		const fake = fakeClient("c1");
+		const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+		mount(fake);
+		act(() => fake.notifyOutputs());
+		expect(invalidate).toHaveBeenCalledWith({
+			queryKey: osQueryKeys.outputs(),
+		});
+	});
+
+	it("sends from the conversation list as a new conversation", () => {
+		const fake = fakeClient("c1");
+		mount(fake, "c1", true);
+		const textarea = host.querySelector("textarea");
+		act(() => {
+			Object.getOwnPropertyDescriptor(
+				HTMLTextAreaElement.prototype,
+				"value",
+			)?.set?.call(textarea, "New topic");
+			textarea?.dispatchEvent(new Event("input", { bubbles: true }));
+		});
+		act(() =>
+			host
+				.querySelector("form")
+				?.dispatchEvent(
+					new Event("submit", { bubbles: true, cancelable: true }),
+				),
+		);
+		expect(fake.calls).toContainEqual([
+			"sendTurn",
+			{ text: "New topic", newConversation: true },
+		]);
 	});
 
 	it("shows the settled footer with duration and usage", () => {

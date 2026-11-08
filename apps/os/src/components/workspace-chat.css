@@ -249,6 +249,33 @@
 	gap: 8px;
 }
 
+.workspace-chat-approval-target {
+	overflow-wrap: anywhere;
+}
+
+.workspace-chat-approval-preview {
+	display: grid;
+	min-width: 0;
+	gap: 4px;
+	padding: 10px 12px;
+	border-radius: 8px;
+	background: var(--color-kumo-tint, rgb(0 0 0 / 0.05));
+}
+
+.workspace-chat-approval-preview pre,
+.workspace-chat-approval-details pre {
+	max-height: 180px;
+	margin: 0;
+	overflow: auto;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	font-size: var(--text-tedix-caption);
+}
+
+.workspace-chat-approval-preview pre {
+	font-family: inherit;
+}
+
 .workspace-chat-turn-footer {
 	display: flex;
 	min-height: 24px;
