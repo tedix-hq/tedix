@@ -3,6 +3,38 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.20.0 — 2026-11-08
+
+### Minor Changes
+
+- A runner with nothing to do can now take work that another runner has not
+  been able to start for 15 minutes, and Tedix says why on the Work. Work held
+  after repeated failures, Work waiting on a person, and Work that needs a
+  specific tool are never moved. Runner health reports now show what is keeping
+  each runner idle, so the Activity view can display it.
+
+### Patch Changes
+
+- Runners retry reads that fail while Tedix is busy, with random pauses and a
+  single logged time limit. Writes are not resent.
+- A runner whose sign-in is rejected during a heartbeat refreshes it once and
+  keeps the same run.
+- A Devin run starts a fresh session when its recorded session is open in
+  another process, instead of stopping that process.
+- Runner health shows how many items are on hold and how many runs were
+  stopped by the lease guard, and keeps the counts across restarts.
+- A run whose lease ran out while its result was kept is restarted
+  automatically. It counts as an interruption, not a failure, so it no longer
+  moves the item toward the three-failure hold.
+- A run that finished and delivered its result no longer fails because the
+  agent's last message lacked the result block. The runner reads the outcome
+  from a commit on main or from the result comment the run posted. A run with
+  no such evidence still fails.
+- `tedix lane serve` cleans up run folders nothing refers to and stops taking
+  new work when free disk drops below 10 GB.
+- Runs left behind by a stopped process are recovered so the Work can be
+  retried.
+
 ## 0.19.12 — 2026-11-07
 
 ### Patch Changes
