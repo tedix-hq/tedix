@@ -32,6 +32,33 @@ function resolve(
 }
 
 describe("reviewed RPC endpoint scopes", () => {
+	it("requires app write access for all output editor installation and upgrade", () => {
+		expect(
+			resolve("osWorkspaces/gadgets/installOutputEditor", {
+				readOnlyHint: false,
+			}),
+		).toEqual(["mcp:apps.write"]);
+		const tool = {
+			toolId: "os__install_output_editor",
+			toolTypeId: "rpc",
+			authRequired: true,
+			config: { endpoint: "osWorkspaces/gadgets/installOutputEditor" },
+			annotations: { readOnlyHint: false },
+		};
+		expect(
+			isMcpToolVisibleToCaller(tool, "os", undefined, {
+				authType: "oauth",
+				scopes: ["mcp:apps.read"],
+			}),
+		).toBe(false);
+		expect(
+			isMcpToolVisibleToCaller(tool, "os", undefined, {
+				authType: "oauth",
+				scopes: ["mcp:apps.write"],
+			}),
+		).toBe(true);
+	});
+
 	it("keeps runtime app discovery readable and invocation behind app write access", () => {
 		expect(resolve("osAppRuntime/listOperations")).toEqual(["mcp:apps.read"]);
 		expect(

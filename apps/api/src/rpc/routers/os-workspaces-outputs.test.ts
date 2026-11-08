@@ -883,6 +883,47 @@ describe("outputs", () => {
 				ops: [{ op: "delete", index: 0 }],
 			}),
 		).rejects.toMatchObject({ code: "CONFLICT" });
+		const outlineEdit = await c.org1.outputs.patchSlides({
+			outputId,
+			expectedRevision: 3,
+			ops: [
+				{
+					op: "replace",
+					index: 0,
+					slide: {
+						title: "Outline edit",
+						bullets: ["Preserve artwork"],
+						notes: "Speaker note",
+					},
+				},
+			],
+		});
+		expect(outlineEdit.revision.content).toMatchObject({
+			slides: [
+				{
+					title: "Outline edit",
+					bullets: ["Preserve artwork"],
+					notes: "Speaker note",
+				},
+			],
+			deck: {
+				slides: [
+					{
+						background: "linear-gradient(120deg, #123456, #abcdef)",
+						backgroundImage: "https://example.org/cover.png",
+						elements: expect.arrayContaining([
+							expect.objectContaining({
+								...element,
+								props: expect.objectContaining({
+									...element.props,
+									title: "Changed",
+								}),
+							}),
+						]),
+					},
+				],
+			},
+		});
 	});
 	it("patches a presentation slide by slide and never drops its deck", async () => {
 		const created = await c.org1.outputs.create({

@@ -1,3 +1,4 @@
+import { sheetCsvText } from "@tedix/api-contract/utils/sheet-csv";
 import type {
 	OsOutputContent,
 	OsSheetCell,
@@ -6,29 +7,7 @@ import { createZip } from "./ooxml/zip";
 
 /** Formula-injection-safe CSV (CRLF rows), shared by every CSV export. */
 export function encodeCsv(rows: OsSheetCell[][]): Uint8Array {
-	return new TextEncoder().encode(
-		rows
-			.map((row) =>
-				row
-					.map((value) => {
-						let text = value === null ? "" : String(value);
-						// CSV quoting alone does not stop spreadsheet formula evaluation.
-						// Prefix text (including headers) with an apostrophe for = + - @
-						// and fullwidth equivalents, even after whitespace/control characters,
-						// or for a leading tab/CR/LF. Preserve the original text and typed numbers.
-						if (
-							typeof value === "string" &&
-							/^[\s\p{Cc}]*[=+\-@＝＋－＠]|^[\t\r\n]/u.test(value)
-						)
-							text = `'${value}`;
-						return /[",\r\n]/.test(text)
-							? `"${text.replaceAll('"', '""')}"`
-							: text;
-					})
-					.join(","),
-			)
-			.join("\r\n") + (rows.length ? "\r\n" : ""),
-	);
+	return new TextEncoder().encode(sheetCsvText(rows));
 }
 
 export async function buildOsSheetCsv(

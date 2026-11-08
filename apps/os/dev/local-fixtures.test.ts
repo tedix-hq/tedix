@@ -809,6 +809,11 @@ const CALLS = {
 		workspaceId: IDS.workspaceRevenue,
 		dryRun: true,
 	},
+	"osWorkspaces/gadgets/installOutputEditor": {
+		workspaceId: IDS.workspaceRevenue,
+		outputId: IDS.outputDocument,
+		kind: "document",
+	},
 	"osWorkspaces/gadgets/installDocument": {
 		workspaceId: IDS.workspaceRevenue,
 		outputId: IDS.outputDocument,
@@ -2275,6 +2280,68 @@ describe("fixture bootstrap parity", () => {
 			}).status,
 		).toBe(409);
 	});
+
+	it.each([
+		["document", IDS.outputDocument],
+		["sheet", IDS.outputSheet],
+		["presentation", IDS.outputDeck],
+	] as const)(
+		"attaches %s editor without changing canonical content and checks upgrade CAS",
+		async (kind, outputId) => {
+			if (kind === "presentation")
+				outputId = (
+					callLocalOk("osWorkspaces/outputs/create", {
+						workspaceId: IDS.workspaceRevenue,
+						kind,
+						title: "Fictional slide editor",
+						content: { kind, slides: [{ title: "First", bullets: [] }] },
+					}) as { output: { id: typeof outputId } }
+				).output.id;
+			const key = "osWorkspaces/gadgets/installOutputEditor",
+				input = { workspaceId: IDS.workspaceRevenue, outputId, kind };
+			const before = callLocalOk("osWorkspaces/outputs/get", { outputId });
+			const installed = callLocalOk(key, input) as {
+				gadget: {
+					id: string;
+					currentRevisionId: string;
+					sourceBlueprintRevisionId: string;
+				};
+			};
+			await expectParsesAgainstContract(key, installed);
+			expect(callLocalOk(key, input)).toEqual(installed);
+			expect(
+				callLocalOk(key, {
+					...input,
+					upgradeFromRevisionId: installed.gadget.currentRevisionId,
+				}),
+			).toEqual(installed);
+			expect(
+				callLocal(key, {
+					...input,
+					upgradeFromRevisionId: "ffffffff-0000-4000-8000-000000000001",
+				}).status,
+			).toBe(409);
+			expect(
+				callLocal(key, { ...input, workspaceId: IDS.workspaceSupport }).status,
+			).toBe(404);
+			expect(
+				callLocal(key, {
+					...input,
+					kind: kind === "document" ? "sheet" : "document",
+				}).status,
+			).toBe(404);
+			const client = callLocalOk("osAppRuntime/client", {
+				workspaceId: input.workspaceId,
+				gadgetId: installed.gadget.id,
+			}) as { session: string; settings: { slot: string; editor?: string } };
+			if (kind === "document")
+				expect(client.settings.editor).toBe("document-v2");
+			expect(callLocalOk("osWorkspaces/outputs/get", { outputId })).toEqual(
+				before,
+			);
+			expect(installed.gadget.sourceBlueprintRevisionId).toBeTruthy();
+		},
+	);
 
 	it("installs Doc once and reads subsequent canonical output revisions", async () => {
 		const key = "osWorkspaces/gadgets/installDocument";

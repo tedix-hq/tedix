@@ -376,6 +376,17 @@ export const OS_WORKSPACES_AUDIT: OsAuditRegistry = {
 		resourceType: "os_workspace",
 		resourceId: ({ output }) => text(output.workspaceId),
 	},
+	"gadgets.installOutputEditor": {
+		action: "os.output_editor.installed",
+		resourceType: "os_gadget",
+		resourceId: ({ output }) => nestedId(output, "gadget"),
+		metadata: ({ input }) => ({
+			workspaceId: input.workspaceId,
+			outputId: input.outputId,
+			kind: input.kind,
+			upgradeFromRevisionId: input.upgradeFromRevisionId,
+		}),
+	},
 	"gadgets.installDocument": {
 		action: "os.doc_app.installed",
 		resourceType: "os_gadget",

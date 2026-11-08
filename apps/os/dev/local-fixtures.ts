@@ -4404,6 +4404,228 @@ const findOutput = (outputId: string): OsOutput => {
 	return output;
 };
 
+const LOCAL_EDITORS = {
+	document: {
+		version: 2,
+		label: "Doc",
+		slot: "doc",
+		family: "d0",
+	},
+	sheet: {
+		version: 1,
+		label: "Sheet",
+		slot: "sheet",
+		family: "d1",
+	},
+	presentation: {
+		version: 1,
+		label: "Slides",
+		slot: "slides",
+		family: "d2",
+	},
+};
+function localEditorDefinition(
+	kind: keyof typeof LOCAL_EDITORS,
+	slot: string,
+): OsBlueprintRevision["definition"] {
+	const editor = LOCAL_EDITORS[kind];
+	return {
+		gadgets: [
+			{
+				name: editor.label,
+				manifest: {
+					entry: APP_RUNTIME_ENTRY,
+					capabilities: [],
+					config: {
+						version: 1,
+						settings: {
+							slot,
+							...(kind === "document" ? { editor: "document-v2" } : {}),
+						},
+					},
+					resourceGrants: [
+						{
+							slot,
+							operations: ["outputs.read", "outputs.write", "outputs.patch"],
+						},
+					],
+				},
+				files: {
+					"client.js":
+						"document.getElementById('app').textContent = 'Local editor preview';",
+					"server.js": "export class App {}",
+				},
+			},
+		],
+		requirements: {
+			version: 1,
+			skills: [],
+			connections: [],
+			policies: [],
+			runtime: null,
+			layout: null,
+			outputs: [
+				{ gadget: editor.label, kind, title: `Untitled ${kind}`, slot },
+			],
+		},
+	};
+}
+function installLocalOutputEditor(input: {
+	workspaceId: string;
+	outputId: string;
+	kind: keyof typeof LOCAL_EDITORS;
+	upgradeFromRevisionId?: string;
+}) {
+	findWorkspace(input.workspaceId);
+	const output = findOutput(input.outputId);
+	if (
+		output.workspaceId !== input.workspaceId ||
+		output.kind !== input.kind ||
+		output.status !== "active" ||
+		!output.currentRevisionId
+	)
+		throw new RpcError("NOT_FOUND", "Active workspace output not found");
+	const currentOutputRevision = state.outputRevisions.find(
+		(row) => row.id === output.currentRevisionId,
+	);
+	if (!currentOutputRevision)
+		throw new RpcError("NOT_FOUND", "Output revision not found");
+	// Local fixtures have no connected provider authority.
+	if (currentOutputRevision.accessEnvelope?.sources.length)
+		throw new RpcError(
+			"FORBIDDEN",
+			"Output source access is unavailable locally",
+		);
+	const editor = LOCAL_EDITORS[input.kind];
+	const resource = state.workspaceResources.find(
+		(row) =>
+			row.workspaceId === input.workspaceId &&
+			row.resourceType === "output" &&
+			row.providerResourceId === output.id,
+	);
+	if (resource && (resource.status !== "active" || !resource.slot)) {
+		throw new RpcError(
+			"CONFLICT",
+			"The output resource must have an active slot before attaching an editor",
+		);
+	}
+	const slot =
+		resource?.slot ?? `${editor.slot}_${output.id.replaceAll("-", "")}`;
+	const blueprintId = fid(editor.family, 1);
+	const blueprintRevisionId = fid(editor.family, editor.version + 1);
+	const existing = state.gadgets.find(
+		(gadget) =>
+			gadget.workspaceId === input.workspaceId &&
+			state.blueprintRevisions.some(
+				(revision) =>
+					revision.id === gadget.sourceBlueprintRevisionId &&
+					revision.blueprintId === blueprintId,
+			) &&
+			state.gadgetRevisions.some(
+				(revision) =>
+					revision.id === gadget.currentRevisionId &&
+					revision.manifest.resourceGrants?.some(
+						(grant) => grant.slot === slot,
+					),
+			),
+	);
+	if (existing?.status !== undefined && existing.status !== "active")
+		throw new RpcError("CONFLICT", "The editor app is archived");
+	if (existing && !input.upgradeFromRevisionId) return { gadget: existing };
+	if (
+		input.upgradeFromRevisionId &&
+		existing?.currentRevisionId !== input.upgradeFromRevisionId
+	)
+		throw new RpcError(
+			"CONFLICT",
+			"The editor changed. Reload before upgrading it.",
+		);
+	if (existing?.sourceBlueprintRevisionId === blueprintRevisionId)
+		return { gadget: existing };
+	const createdAt = now();
+	const base = {
+		organizationId: ORG_ID,
+		createdByKind: "user" as const,
+		createdById: "dev-operator",
+		createdAt,
+	};
+	let blueprint = state.blueprints.find((row) => row.id === blueprintId);
+	if (!blueprint) {
+		blueprint = {
+			...base,
+			id: blueprintId,
+			name: `${editor.label} editor`,
+			description: `Reusable ${editor.label} editor`,
+			status: "published",
+			visibility: "org",
+			currentRevisionId: blueprintRevisionId,
+			lineage: null,
+			updatedAt: createdAt,
+		};
+		state.blueprints.push(blueprint);
+	}
+	if (!state.blueprintRevisions.some((row) => row.id === blueprintRevisionId)) {
+		state.blueprintRevisions.push({
+			...base,
+			id: blueprintRevisionId,
+			blueprintId,
+			revision: editor.version,
+			definition: localEditorDefinition(input.kind, input.kind),
+			publishedAt: createdAt,
+		});
+		blueprint.currentRevisionId = blueprintRevisionId;
+		blueprint.updatedAt = createdAt;
+	}
+	const declared = localEditorDefinition(input.kind, slot).gadgets[0]!;
+	const revisionId = nextId();
+	const previous =
+		existing &&
+		state.gadgetRevisions.find((row) => row.id === existing.currentRevisionId);
+	const gadget: OsGadget = {
+		...base,
+		id: existing?.id ?? nextId(),
+		workspaceId: input.workspaceId,
+		name: `${editor.label} · ${output.title.slice(0, 140)} (${output.id.slice(0, 8)})`,
+		description: `Edit this workspace ${input.kind}`,
+		status: "active",
+		currentRevisionId: revisionId,
+		sourceBlueprintRevisionId: blueprintRevisionId,
+		updatedAt: createdAt,
+	};
+	if (existing) Object.assign(existing, gadget);
+	else state.gadgets.push(gadget);
+	state.gadgetRevisions.push({
+		...base,
+		id: revisionId,
+		gadgetId: gadget.id,
+		revision: (previous?.revision ?? 0) + 1,
+		manifest: declared.manifest,
+		sourceArtifactRef: null,
+	});
+	state.gadgetCode[revisionId] = declared.files!;
+	if (!resource)
+		state.workspaceResources.push({
+			...base,
+			id: nextId(),
+			workspaceId: input.workspaceId,
+			slot,
+			providerId: "tedix",
+			connectionScope: "tenant",
+			personalOwnerUserId: null,
+			connectionInstanceId: null,
+			providerAccess: null,
+			requiredScopes: [],
+			resourceType: "output",
+			providerResourceId: output.id,
+			name: output.title,
+			metadata: { gadgetId: gadget.id, kind: input.kind },
+			status: "active",
+			updatedAt: createdAt,
+			removedAt: null,
+		});
+	return { gadget };
+}
+
 const findCollaborationProposal = (
 	proposalId: string,
 ): OsCollaborationProposal => {
@@ -9552,163 +9774,8 @@ const handlers: Record<string, (input: never) => unknown> = {
 	"osWorkspaces/gadgets/installDocument": (input: {
 		workspaceId: string;
 		outputId: string;
-	}) => {
-		findWorkspace(input.workspaceId);
-		const output = findOutput(input.outputId);
-		if (
-			output.workspaceId !== input.workspaceId ||
-			output.kind !== "document" ||
-			output.status !== "active" ||
-			!output.currentRevisionId
-		)
-			throw new RpcError("NOT_FOUND", "Active workspace document not found");
-		const resource = state.workspaceResources.find(
-			(row) =>
-				row.workspaceId === input.workspaceId &&
-				row.resourceType === "output" &&
-				row.providerResourceId === output.id,
-		);
-		if (resource && (resource.status !== "active" || !resource.slot)) {
-			throw new RpcError(
-				"CONFLICT",
-				"The document resource must have an active slot before attaching a Doc app",
-			);
-		}
-		const slot = resource?.slot ?? `doc_${output.id.replaceAll("-", "")}`;
-		const blueprintId = fid("d0", 1);
-		const blueprintRevisionId = fid("d0", 2);
-		const existing = state.gadgets.find(
-			(gadget) =>
-				gadget.workspaceId === input.workspaceId &&
-				gadget.sourceBlueprintRevisionId === blueprintRevisionId &&
-				state.gadgetRevisions.some(
-					(revision) =>
-						revision.id === gadget.currentRevisionId &&
-						revision.manifest.resourceGrants?.some(
-							(grant) => grant.slot === slot,
-						),
-				),
-		);
-		if (existing) {
-			if (existing.status !== "active")
-				throw new RpcError("CONFLICT", "The Doc app is archived");
-			return { gadget: existing };
-		}
-		const createdAt = now();
-		const base = {
-			organizationId: ORG_ID,
-			createdByKind: "user" as const,
-			createdById: "dev-operator",
-			createdAt,
-		};
-		const docDefinition = (
-			documentSlot: string,
-		): OsBlueprintRevision["definition"] => ({
-			gadgets: [
-				{
-					name: "Doc",
-					manifest: {
-						entry: APP_RUNTIME_ENTRY,
-						capabilities: [],
-						config: { version: 1, settings: { slot: documentSlot } },
-						resourceGrants: [
-							{
-								slot: documentSlot,
-								operations: ["outputs.read", "outputs.write", "outputs.patch"],
-							},
-						],
-					},
-					files: {
-						"client.js":
-							"export default { render() { return { type: 'text', text: 'Local document preview' }; } };",
-						"server.js":
-							"export default { async readDocument() { return this.env.TEDIX.outputsRead(this.env.settings.slot, {}); } };",
-					},
-				},
-			],
-			requirements: {
-				version: 1,
-				skills: [],
-				connections: [],
-				policies: [],
-				runtime: null,
-				layout: null,
-				outputs: [
-					{
-						gadget: "Doc",
-						kind: "document",
-						title: "Untitled document",
-						slot: documentSlot,
-					},
-				],
-			},
-		});
-		if (!state.blueprints.some((row) => row.id === blueprintId)) {
-			state.blueprints.push({
-				...base,
-				id: blueprintId,
-				name: "Doc editor",
-				description: "Reusable document editor",
-				status: "published",
-				visibility: "org",
-				currentRevisionId: blueprintRevisionId,
-				lineage: null,
-				updatedAt: createdAt,
-			});
-			state.blueprintRevisions.push({
-				...base,
-				id: blueprintRevisionId,
-				blueprintId,
-				revision: 1,
-				definition: docDefinition("document"),
-				publishedAt: createdAt,
-			});
-		}
-		const declared = docDefinition(slot).gadgets[0]!;
-		const revisionId = nextId();
-		const gadget: OsGadget = {
-			...base,
-			id: nextId(),
-			workspaceId: input.workspaceId,
-			name: `Doc · ${output.title.slice(0, 140)} (${output.id.slice(0, 8)})`,
-			description: "Edit this workspace document",
-			status: "active",
-			currentRevisionId: revisionId,
-			sourceBlueprintRevisionId: blueprintRevisionId,
-			updatedAt: createdAt,
-		};
-		state.gadgets.push(gadget);
-		state.gadgetRevisions.push({
-			...base,
-			id: revisionId,
-			gadgetId: gadget.id,
-			revision: 1,
-			manifest: declared.manifest,
-			sourceArtifactRef: null,
-		});
-		state.gadgetCode[revisionId] = declared.files!;
-		if (!resource)
-			state.workspaceResources.push({
-				...base,
-				id: nextId(),
-				workspaceId: input.workspaceId,
-				slot,
-				providerId: "tedix",
-				connectionScope: "tenant",
-				personalOwnerUserId: null,
-				connectionInstanceId: null,
-				providerAccess: null,
-				requiredScopes: [],
-				resourceType: "output",
-				providerResourceId: output.id,
-				name: output.title,
-				metadata: { gadgetId: gadget.id, kind: "document" },
-				status: "active",
-				updatedAt: createdAt,
-				removedAt: null,
-			});
-		return { gadget };
-	},
+	}) => installLocalOutputEditor({ ...input, kind: "document" }),
+	"osWorkspaces/gadgets/installOutputEditor": installLocalOutputEditor,
 	"osWorkspaces/gadgets/installWorkDefaults": () => {
 		const installed = state.gadgets.flatMap((gadget) => {
 			const revision = state.gadgetRevisions.find(
