@@ -59,11 +59,16 @@ network cannot reach the local stack.
 time), Activity (a timeline of what happened) and a saved Today digest.
 To run beside another local stack, choose unused ports with
 `TEDIX_LOCAL_API_PORT`, `TEDIX_LOCAL_OS_PORT` and `TEDIX_LOCAL_MCP_PORT`.
-For example:
+Their defaults are `8790`, `3030` and `3000`. Worker inspectors, including OS
+and MCP, automatically use free ports. Use separate checkouts so each stack
+has its own state, service registry and build output. In the second checkout,
+for example:
 
 ```bash
 TEDIX_LOCAL_API_PORT=8890 TEDIX_LOCAL_OS_PORT=3042 TEDIX_LOCAL_MCP_PORT=3043 bun run-local --demo
 ```
+
+Stop each stack with `Ctrl+C` in its terminal.
 
 The [Tedix CLI](./cli.md) wraps this launcher: `tedix setup` runs it in a
 checkout, or clones the source release matching your CLI version when one is

@@ -52,7 +52,8 @@ const browserSpecServer = fixtureLane || specOwnedServer;
 // Builds always emit the Worker so `cf deploy --prebuilt` has a Build Output.
 const workerPlugin = () =>
 	cloudflare({
-		inspectorPort: 19238,
+		// Let the runtime allocate a free inspector port for concurrent stacks.
+		inspectorPort: 0,
 		...(useRemoteWorker
 			? {}
 			: {
