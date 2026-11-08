@@ -50,6 +50,23 @@ function memoryStorage(initial: Record<string, string> = {}) {
 }
 
 describe("workspaceOutputsPanelItems", () => {
+	it("shows a canonical file once and opens its bound gadget, while native deep links remain selected", () => {
+		const items = workspaceOutputsPanelItems(
+			outputs,
+			gadgets,
+			new Map([["old-doc", "app"]]),
+		);
+		expect(items.map((item) => item.key)).toEqual([
+			"output:new-deck",
+			"output:old-doc",
+		]);
+		const doc = items.find((item) => item.key === "output:old-doc")!;
+		expect(doc.doc).toEqual({ type: "gadget", id: "app" });
+		expect(doc.kindLabel).toBe("Doc");
+		expect(
+			isWorkspaceOutputsItemSelected(doc, { type: "output", id: "old-doc" }),
+		).toBe(true);
+	});
 	it("lists apps first, then active outputs newest first", () => {
 		const items = workspaceOutputsPanelItems(outputs, gadgets);
 		expect(items.map((item) => item.key)).toEqual([

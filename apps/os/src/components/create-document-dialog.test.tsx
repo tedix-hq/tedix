@@ -15,12 +15,18 @@ const api = vi.hoisted(() => ({
 	create: vi.fn(),
 	list: vi.fn(),
 	outputsList: vi.fn(),
+	install: vi.fn(),
+	gadgetsList: vi.fn(),
+	resourcesList: vi.fn(),
 }));
 vi.mock("@/lib/api", () => ({
 	osApi: {
 		osWorkspaces: {
 			outputs: { create: api.create, list: api.outputsList },
 			workspaces: { list: api.list },
+			gadgets: { installOutputEditor: api.install, list: api.gadgetsList },
+			resources: { list: api.resourcesList },
+			blueprints: { list: vi.fn() },
 		},
 	},
 }));
@@ -38,6 +44,7 @@ const WORKSPACE_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const cleanups: Array<() => void> = [];
 function renderButton(workspaceId?: string) {
 	const onCreated = vi.fn();
+	const onAppCreated = vi.fn();
 	const client = new QueryClient({
 		defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
 	});
@@ -48,7 +55,11 @@ function renderButton(workspaceId?: string) {
 	act(() =>
 		root.render(
 			<QueryClientProvider client={client}>
-				<NewResourceMenu workspaceId={workspaceId} onCreated={onCreated} />
+				<NewResourceMenu
+					workspaceId={workspaceId}
+					onCreated={onCreated}
+					onAppCreated={onAppCreated}
+				/>
 			</QueryClientProvider>,
 		),
 	);
@@ -57,7 +68,7 @@ function renderButton(workspaceId?: string) {
 		container.remove();
 		client.clear();
 	});
-	return { onCreated, invalidate, client };
+	return { onCreated, onAppCreated, invalidate, client };
 }
 async function flush() {
 	await act(async () => {
@@ -82,6 +93,7 @@ function submit() {
 }
 beforeEach(() => {
 	api.create.mockReset();
+	api.install.mockReset();
 	api.list.mockReset();
 	api.list.mockResolvedValue({ items: [] });
 });
@@ -90,13 +102,108 @@ afterEach(() => {
 });
 
 describe("document creation", () => {
+	for (const [label, kind] of [
+		["Doc", "document"],
+		["Sheet", "sheet"],
+		["Slides", "presentation"],
+	] as const) {
+		it(`creates ${label} through the shared installer and opens the returned gadget`, async () => {
+			const output = { id: `file-${kind}`, workspaceId: WORKSPACE_ID };
+			const gadget = { id: `editor-${kind}`, workspaceId: WORKSPACE_ID };
+			api.create.mockResolvedValue({ output });
+			api.install.mockResolvedValue({ gadget });
+			const { onCreated, onAppCreated } = renderButton(WORKSPACE_ID);
+			click("New");
+			await flush();
+			click(label);
+			await flush();
+			click(`Create ${label}`);
+			await flush();
+			expect(api.create.mock.calls[0]![0]).toMatchObject({
+				workspaceId: WORKSPACE_ID,
+				kind,
+				content: { kind },
+			});
+			expect(
+				OsOutputContentSchema.safeParse(api.create.mock.calls[0]![0].content)
+					.success,
+			).toBe(true);
+			expect(api.install).toHaveBeenCalledWith(
+				{ workspaceId: WORKSPACE_ID, outputId: output.id, kind },
+				expect.anything(),
+			);
+			expect(onAppCreated).toHaveBeenCalledWith(gadget);
+			expect(onCreated).not.toHaveBeenCalled();
+		});
+	}
+	it("retries gadget installation against the same file without creating another body", async () => {
+		const output = { id: "retained-file", workspaceId: WORKSPACE_ID };
+		const gadget = { id: "retained-gadget", workspaceId: WORKSPACE_ID };
+		api.create.mockResolvedValue({ output });
+		api.install
+			.mockRejectedValueOnce(new Error("Install temporarily unavailable"))
+			.mockResolvedValueOnce({ gadget });
+		const { onAppCreated } = renderButton(WORKSPACE_ID);
+		click("New");
+		await flush();
+		click("Doc");
+		await flush();
+		click("Create Doc");
+		await flush();
+		expect(document.body.textContent).toContain("Your file was created");
+		expect(onAppCreated).not.toHaveBeenCalled();
+		click("Retry app installation");
+		await flush();
+		expect(api.create).toHaveBeenCalledTimes(1);
+		expect(api.install.mock.calls.map((call) => call[0].outputId)).toEqual([
+			output.id,
+			output.id,
+		]);
+		expect(onAppCreated).toHaveBeenCalledWith(gadget);
+	});
+	it("keeps the native editor an explicit recovery choice after installation fails", async () => {
+		const output = { id: "retained-file", workspaceId: WORKSPACE_ID };
+		api.create.mockResolvedValue({ output });
+		api.install.mockRejectedValue(new Error("Unavailable"));
+		const { onCreated, onAppCreated } = renderButton(WORKSPACE_ID);
+		click("New");
+		await flush();
+		click("Doc");
+		await flush();
+		click("Create Doc");
+		await flush();
+		expect(onCreated).not.toHaveBeenCalled();
+		click("Open native editor");
+		expect(onCreated).toHaveBeenCalledWith(output);
+		expect(onAppCreated).not.toHaveBeenCalled();
+	});
+	it("chooses the available workspace for gadget creation from the global Files page", async () => {
+		api.list.mockResolvedValue({
+			items: [{ id: WORKSPACE_ID, name: "Project" }],
+		});
+		const output = { id: "global-file", workspaceId: WORKSPACE_ID },
+			gadget = { id: "global-gadget", workspaceId: WORKSPACE_ID };
+		api.create.mockResolvedValue({ output });
+		api.install.mockResolvedValue({ gadget });
+		const { onAppCreated } = renderButton();
+		click("New");
+		await flush();
+		click("Sheet");
+		await flush();
+		expect(document.body.textContent).toContain("Project");
+		click("Create Sheet");
+		await flush();
+		expect(api.create.mock.calls[0]![0].workspaceId).toBe(WORKSPACE_ID);
+		expect(onAppCreated).toHaveBeenCalledWith(gadget);
+	});
+
 	it("creates a blank document in the current workspace and opens only the returned output", async () => {
 		const output = { id: "new-output", workspaceId: WORKSPACE_ID };
 		api.create.mockResolvedValue({ output, revision: {} });
 		const { onCreated, invalidate } = renderButton(WORKSPACE_ID);
 		click("New");
 		await flush();
-		click("Document");
+		click("Native document");
 		await flush();
 		submit();
 		await flush();
@@ -157,7 +264,7 @@ describe("document creation", () => {
 		});
 		click("New");
 		await flush();
-		click("Document");
+		click("Native document");
 		await flush();
 		submit();
 		await flush();
@@ -176,7 +283,7 @@ describe("document creation", () => {
 		renderButton(WORKSPACE_ID);
 		click("New");
 		await flush();
-		click("Document");
+		click("Native document");
 		await flush();
 		const input = document.querySelector<HTMLInputElement>(
 			"#new-document-title",
@@ -213,7 +320,7 @@ describe("document creation", () => {
 		const { onCreated } = renderButton(WORKSPACE_ID);
 		click("New");
 		await flush();
-		click("Document");
+		click("Native document");
 		await flush();
 		submit();
 		await flush();
@@ -230,7 +337,7 @@ describe("document creation", () => {
 		renderButton();
 		click("New");
 		await flush();
-		click("Document");
+		click("Native document");
 		await flush();
 		expect(document.body.textContent).toContain(
 			"Workspaces could not be loaded",
@@ -265,7 +372,7 @@ describe("document creation", () => {
 			const { onCreated } = renderButton(WORKSPACE_ID);
 			click("New");
 			await flush();
-			click(label);
+			click(`Native ${label.toLowerCase()}`);
 			await flush();
 			expect(document.querySelector("#new-document-template")).toBeNull();
 			submit();
@@ -278,7 +385,7 @@ describe("document creation", () => {
 			expect(onCreated).toHaveBeenCalledWith(output);
 		});
 	}
-	it("offers the same four creation choices with a link to the template gallery", async () => {
+	it("offers gadgets first and names the native editor fallbacks explicitly", async () => {
 		renderButton(WORKSPACE_ID);
 		click("New");
 		await flush();
@@ -286,7 +393,15 @@ describe("document creation", () => {
 			[...document.querySelectorAll('[role="menuitem"]')].map((item) =>
 				item.textContent?.trim(),
 			),
-		).toEqual(["Document", "Sheet", "Slides", "App from template"]);
+		).toEqual([
+			"Doc",
+			"Sheet",
+			"Slides",
+			"App from template",
+			"Native document",
+			"Native sheet",
+			"Native slides",
+		]);
 		expect(
 			document.querySelector('a[role="menuitem"]')?.getAttribute("href"),
 		).toBe("/blueprints");

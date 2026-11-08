@@ -751,6 +751,16 @@ export function OutputsPage() {
 					</PageHeading>
 					<PageActions>
 						<NewResourceMenu
+							onAppCreated={(gadget) =>
+								void navigate({
+									to: "/workspace/$workspaceId",
+									params: { workspaceId: gadget.workspaceId },
+									search: {
+										pane: "workpiece",
+										workpiece: `gadget:${gadget.id}`,
+									},
+								})
+							}
 							onCreated={(output) => {
 								if (output.workspaceId)
 									void navigate({

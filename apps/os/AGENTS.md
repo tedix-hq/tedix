@@ -262,10 +262,12 @@ The native Output layer stays small on purpose. `document`, `sheet`, and
 `output-editor*.tsx` component fails the gate unless it carries the decision
 that allowed it.
 
-Revisit rebuilding an editor as an app only when **both** are true: a paying
-tenant needs to fork an editor's behavior, **and** a spike shows the
-app-rendered editor's typing latency within 10% of native. Either one alone is
-not enough.
+Doc, Sheet, and Slides are reusable workspace gadgets and the normal creation
+and opening experience. Their typed Outputs own content, revisions, source
+access and compare-and-swap writes; gadgets must not store another body.
+Sharing an OS editor component is an implementation detail. A host-rendered
+editor is not a fully portable gadget client artifact. Native editors remain
+explicit compatibility and recovery paths, including existing output links.
 
 ## Validation and deployment
 

@@ -1304,6 +1304,85 @@ describe("CanvasPage listing", () => {
 		expect(avatar?.textContent).toBe("OR");
 		expect(container.querySelector(".canvas-workspace-header img")).toBeNull();
 	});
+	it("shows a bound file once in Files and the library, and opens its gadget from both", async () => {
+		mockLists();
+		const sources = await osWorkspacesApi.resources.list();
+		osWorkspacesApi.resources.list.mockResolvedValue({
+			items: [
+				{
+					...sources.items[0],
+					providerId: "tedix",
+					resourceType: "output",
+					providerResourceId: OUTPUT_ID,
+					name: "Weekly report",
+					slot: "document",
+					metadata: { gadgetId: GADGET_ID, kind: "document" },
+				},
+			],
+			truncated: false,
+		});
+		osWorkspacesApi.gadgets.get.mockResolvedValue({
+			gadget: gadgetFixture(),
+			currentRevision: gadgetRevisionFixture(),
+		});
+		mockCollab({ initial: docJson(gadgetRevisionFixture().manifest) });
+		routing.search = { pane: "resources" };
+		const container = renderPage();
+		await flush();
+		expect(
+			container.querySelectorAll('ul[aria-label="Files"] button'),
+		).toHaveLength(1);
+		expect(container.querySelector(".canvas-resource-apps")).toBeNull();
+		expect(
+			container.querySelectorAll(
+				".canvas-resource-outputs [data-workspace-output-preview]",
+			),
+		).toHaveLength(1);
+		click(findButton(container, "Weekly report"));
+		await flush();
+		expect(routing.navigate).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				search: expect.objectContaining({ workpiece: `gadget:${GADGET_ID}` }),
+			}),
+		);
+		routing.navigate.mockClear();
+		click(filesPanelRow(container, "Weekly report"));
+		await flush();
+		expect(routing.navigate).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				search: expect.objectContaining({ workpiece: `gadget:${GADGET_ID}` }),
+			}),
+		);
+	});
+
+	it("keeps an explicit native output deep link even when the file has a gadget editor", async () => {
+		mockLists();
+		const sources = await osWorkspacesApi.resources.list();
+		osWorkspacesApi.resources.list.mockResolvedValue({
+			items: [
+				{
+					...sources.items[0],
+					providerId: "tedix",
+					resourceType: "output",
+					providerResourceId: OUTPUT_ID,
+					slot: "document",
+					metadata: { gadgetId: GADGET_ID, kind: "document" },
+				},
+			],
+			truncated: false,
+		});
+		osWorkspacesApi.outputs.get.mockResolvedValue({
+			output: outputFixture(),
+			currentRevision: outputRevisionFixture(),
+		});
+		mockCollab({ initial: docJson(baseContent) });
+		routing.search = { workpiece: `output:${OUTPUT_ID}`, pane: "workpiece" };
+		const container = renderPage();
+		await flush();
+		expect(routing.search.workpiece).toBe(`output:${OUTPUT_ID}`);
+		expect(container.querySelector("[data-output-editor]")).not.toBeNull();
+	});
+
 	it("keeps multiple workpieces open as closeable deterministic tabs", async () => {
 		mockLists();
 		osWorkspacesApi.outputs.get.mockResolvedValue({
