@@ -13,7 +13,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, rmSync, statSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { rowKey, splitSqlStatements, type StoredRow } from "./rows";
-import type { SourceStore, TableMapping } from "./tables";
+import type { SourceStore, TableMapping, WorkspaceAssignments } from "./tables";
 
 export interface SnapshotPaths {
 	main: string;
@@ -53,9 +53,12 @@ export class Snapshot {
 		for (const db of [this.main, ...this.logs]) if (db.isOpen) db.close();
 	}
 
-	/** Every workspace the directory knows, in a stable order. */
-	listWorkspaces(): WorkspaceRef[] {
-		return this.main
+	/**
+	 * Every workspace the directory knows plus the Home workspaces the
+	 * assignments ask to create, in a stable order.
+	 */
+	listWorkspaces(assignments: WorkspaceAssignments = {}): WorkspaceRef[] {
+		const refs = this.main
 			.prepare(
 				"SELECT id AS workspace_id, organization_id FROM os_workspaces ORDER BY organization_id, created_at, id",
 			)
@@ -64,6 +67,35 @@ export class Snapshot {
 				organizationId: String(row.organization_id),
 				workspaceId: String(row.workspace_id),
 			}));
+		for (const [organizationId, choice] of Object.entries(assignments))
+			if (choice.createHome)
+				refs.push({ organizationId, workspaceId: choice.memoryHome });
+		return refs.sort((a, b) =>
+			`${a.organizationId}/${a.workspaceId}` <
+			`${b.organizationId}/${b.workspaceId}`
+				? -1
+				: 1,
+		);
+	}
+
+	/** Organizations that still exist; rows of any other organization stay behind. */
+	liveOrganizations(): Set<string> {
+		return new Set(
+			this.main
+				.prepare("SELECT id FROM organizations")
+				.all()
+				.map((row) => String(row.id)),
+		);
+	}
+
+	/** Rows of a table outside `moves`: left behind on purpose, counted for the report. */
+	countStaying(mapping: TableMapping): number {
+		const sql = `SELECT count(*) AS n FROM "${mapping.table}" WHERE NOT (${this.expand(mapping.moves)})`;
+		let n = 0;
+		for (const db of this.storesFor(mapping.stores))
+			if (hasTable(db, mapping.table))
+				n += Number(db.prepare(sql).get()?.n ?? 0);
+		return n;
 	}
 
 	/**

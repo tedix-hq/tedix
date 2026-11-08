@@ -60,6 +60,10 @@ export interface TableMapping {
 }
 
 const CONVERSATION_IN_WORKSPACE = "conversation_id IN (:conversations)";
+/** Memory rows whose organization no longer exists stay behind and go with the old tables. */
+const LIVE_ORGANIZATION = "organization_id IN (SELECT id FROM organizations)";
+const LIVE_FACT =
+	"IN (SELECT id FROM memory_facts WHERE organization_id IN (SELECT id FROM organizations))";
 const CONVERSATION_IN_ANY_WORKSPACE = "conversation_id IN (:anyConversations)";
 
 export const WORKSPACE_TABLES: readonly TableMapping[] = [
@@ -152,12 +156,13 @@ function memoryTables(): TableMapping[] {
 		table: string,
 		where: string = orgOnly,
 		primaryKey: readonly string[] = ["id"],
+		moves: string = LIVE_ORGANIZATION,
 	) => ({
 		table,
 		domain: "memory" as const,
 		primaryKey,
 		where,
-		moves: "1 = 1",
+		moves,
 		stores: ["main"] as const,
 	});
 	// Three tables carry no organization column; their owner row does.
@@ -166,7 +171,12 @@ function memoryTables(): TableMapping[] {
 	return [
 		memory("memory_domains"),
 		memory("memory_facts"),
-		memory("memory_edges", viaFacts("source_fact_id")),
+		memory(
+			"memory_edges",
+			viaFacts("source_fact_id"),
+			["id"],
+			`source_fact_id ${LIVE_FACT}`,
+		),
 		memory("memory_entities"),
 		memory("memory_entity_mentions"),
 		memory("memory_entity_aliases"),
@@ -181,6 +191,8 @@ function memoryTables(): TableMapping[] {
 		memory(
 			"tedi_expertise",
 			"domain_id IN (SELECT id FROM memory_domains WHERE organization_id = :org)",
+			["id"],
+			"domain_id IN (SELECT id FROM memory_domains WHERE organization_id IN (SELECT id FROM organizations))",
 		),
 		memory("tedi_curiosity_queue"),
 		memory("tedi_optimization_signals"),
@@ -198,6 +210,11 @@ export interface WorkspaceAssignments {
 		memoryHome: string;
 		/** Workspace that receives outputs whose `workspace_id` is null. */
 		unassignedOutputsHome?: string;
+		/**
+		 * The organization has rows to place but no workspace: create one
+		 * named `memoryHome` (a Home workspace) during the export.
+		 */
+		createHome?: boolean;
 	};
 }
 

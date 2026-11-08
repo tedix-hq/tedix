@@ -34,8 +34,13 @@ export interface ReconcileReport {
 	ok: boolean;
 	checkedAt: string;
 	workspaces: WorkspaceReport[];
-	/** Source totals against bundle totals, when a snapshot was given. */
-	totals: Array<{ table: string; source: number; bundled: number }>;
+	/** Source totals against bundle totals, when a snapshot was given; `staying` rows are left behind on purpose. */
+	totals: Array<{
+		table: string;
+		source: number;
+		bundled: number;
+		staying: number;
+	}>;
 	problems: string[];
 }
 
@@ -74,14 +79,26 @@ export async function reconcileWorkspace(
 				continue;
 			}
 			const actualRows = await readAllRows(store, mapping.table);
+			// Compare the columns the bundle carried: a row the export created
+			// (a Home workspace) names only the columns it sets, and the object
+			// fills the rest with defaults.
+			const bundledRows = tables.get(mapping.table) ?? [];
+			const carried = new Set(bundledRows.flatMap((row) => Object.keys(row)));
 			const digest = new RowDigest(mapping.primaryKey);
-			for (const row of actualRows) digest.add(row);
+			for (const row of actualRows)
+				digest.add(
+					carried.size === 0
+						? row
+						: Object.fromEntries(
+								Object.entries(row).filter(([column]) => carried.has(column)),
+							),
+				);
 			rows += digest.count;
 			const actualSha256 = digest.hex();
 			// The bundle's own rows are hashed again rather than trusting the
 			// manifest, so a bundle edited after export is caught too.
 			const bundled = new RowDigest(mapping.primaryKey);
-			for (const row of tables.get(mapping.table) ?? []) bundled.add(row);
+			for (const row of bundledRows) bundled.add(row);
 			if (bundled.hex() !== expected.sha256 || bundled.count !== expected.count)
 				problems.push(
 					`bundle rows for ${mapping.table} no longer match its manifest`,
@@ -169,6 +186,7 @@ export async function reconcileAll(
 ): Promise<ReconcileReport> {
 	const workspaces: WorkspaceReport[] = [];
 	const bundled = new Map<string, number>();
+	let createdHomes = 0;
 	const refs = await bundles.list();
 	for (const ref of refs) {
 		const report = await reconcileWorkspace(
@@ -180,6 +198,11 @@ export async function reconcileAll(
 		options.onWorkspace?.(report);
 		workspaces.push(report);
 		const { manifest } = await bundles.read(ref);
+		if (
+			manifest.assignments?.createHome &&
+			manifest.assignments.memoryHome === ref.workspaceId
+		)
+			createdHomes += 1;
 		for (const [table, summary] of Object.entries(manifest.tables))
 			bundled.set(table, (bundled.get(table) ?? 0) + summary.count);
 	}
@@ -193,9 +216,17 @@ export async function reconcileAll(
 			if (!known.has(`${ref.organizationId}/${ref.workspaceId}`))
 				problems.push(`workspace ${ref.workspaceId} has no bundle`);
 		for (const mapping of WORKSPACE_TABLES) {
-			const source = options.snapshot.countAll(mapping);
+			// A Home created during the export is in its bundle but not in the snapshot.
+			const source =
+				options.snapshot.countAll(mapping) +
+				(mapping.table === "os_workspaces" ? createdHomes : 0);
 			const inBundles = bundled.get(mapping.table) ?? 0;
-			totals.push({ table: mapping.table, source, bundled: inBundles });
+			totals.push({
+				table: mapping.table,
+				source,
+				bundled: inBundles,
+				staying: options.snapshot.countStaying(mapping),
+			});
 			if (source !== inBundles)
 				problems.push(
 					`${mapping.table}: ${source} rows in the snapshot, ${inBundles} in bundles`,
@@ -228,7 +259,7 @@ export function renderReport(report: ReconcileReport): string {
 	}
 	for (const t of report.totals)
 		lines.push(
-			`${t.source === t.bundled ? "ok   " : "DRIFT"} total ${t.table}: snapshot=${t.source} bundles=${t.bundled}`,
+			`${t.source === t.bundled ? "ok   " : "DRIFT"} total ${t.table}: snapshot=${t.source} bundles=${t.bundled}${t.staying ? ` staying=${t.staying}` : ""}`,
 		);
 	for (const p of report.problems) lines.push(`DRIFT ${p}`);
 	return lines.join("\n");

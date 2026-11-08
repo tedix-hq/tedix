@@ -30,6 +30,15 @@ export function collectWorkspaceRows(
 	const tables = new Map<string, StoredRow[]>();
 	const reassigned = new Map<string, number>();
 	for (const mapping of WORKSPACE_TABLES) {
+		if (
+			mapping.table === "os_workspaces" &&
+			choice?.createHome &&
+			choice.memoryHome === ref.workspaceId
+		) {
+			tables.set(mapping.table, [homeWorkspaceRow(ref)]);
+			reassigned.set(mapping.table, 1);
+			continue;
+		}
 		if (mapping.domain === "memory") {
 			tables.set(
 				mapping.table,
@@ -45,6 +54,23 @@ export function collectWorkspaceRows(
 		tables.set(mapping.table, rows);
 	}
 	return { tables, reassigned };
+}
+
+/** The directory row of a Home workspace created for an organization that had none. */
+export function homeWorkspaceRow(ref: WorkspaceRef): StoredRow {
+	const now = new Date().toISOString();
+	return {
+		id: ref.workspaceId,
+		organization_id: ref.organizationId,
+		name: "Home",
+		description:
+			"Created by the workspace migration for this organization's memory",
+		status: "active",
+		created_by_kind: "system",
+		created_by_id: "workspace-migration",
+		created_at: now,
+		updated_at: now,
+	};
 }
 
 /** Outputs with `workspace_id IS NULL` and their revisions, rewritten to `ref`. */
@@ -75,10 +101,11 @@ export function checkAssignments(
 	assignments: WorkspaceAssignments,
 ): string[] {
 	const problems: string[] = [];
-	const workspaces = snapshot.listWorkspaces();
+	const workspaces = snapshot.listWorkspaces(assignments);
 	const known = new Set(
 		workspaces.map((w) => `${w.organizationId}/${w.workspaceId}`),
 	);
+	const live = snapshot.liveOrganizations();
 	for (const [org, ids] of snapshot.unassignedOutputs()) {
 		const home = assignments[org]?.unassignedOutputsHome;
 		if (!home)
@@ -96,6 +123,7 @@ export function checkAssignments(
 		),
 	);
 	for (const org of [...organizationsWithMemory].sort()) {
+		if (!live.has(org)) continue; // orphaned rows of a deleted organization stay behind
 		const home = assignments[org]?.memoryHome;
 		if (!home)
 			problems.push(
@@ -173,7 +201,7 @@ export async function exportAll(
 	if (problems.length)
 		throw new Error(`Export refused:\n  ${problems.join("\n  ")}`);
 	const results: ExportResult[] = [];
-	for (const ref of snapshot.listWorkspaces()) {
+	for (const ref of snapshot.listWorkspaces(assignments)) {
 		const result = await exportWorkspace(snapshot, bundles, ref, assignments);
 		onWorkspace?.(result);
 		results.push(result);
