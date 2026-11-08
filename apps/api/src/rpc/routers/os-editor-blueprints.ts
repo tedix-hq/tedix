@@ -1,5 +1,6 @@
 import { implement } from "@orpc/server";
 import { osWorkspacesContract } from "@tedix/api-contract/contracts/os-workspaces";
+import { AppRuntimeConfigSchema } from "@tedix/api-contract/schemas/os-app-runtime";
 import {
 	buildDocBlueprint,
 	DOC_BLUEPRINT_VERSION,
@@ -41,6 +42,7 @@ import {
 import { OS_WORKSPACES_AUDIT, osAudit } from "../os-audit";
 import {
 	mapGadget,
+	mapGadgetRevision,
 	queryDb,
 	requireOutput,
 	requireWorkspace,
@@ -133,6 +135,11 @@ async function installEditor(input: EditorInput, context: BaseContext) {
 	const finish = async (
 		gadget: NonNullable<Awaited<ReturnType<typeof getOsGadget>>>,
 	) => {
+		if (!gadget.currentRevisionId)
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"The editor revision is unavailable",
+			);
 		if (
 			resource &&
 			!(await linkWorkspaceOutputEditor(db, {
@@ -142,6 +149,7 @@ async function installEditor(input: EditorInput, context: BaseContext) {
 				outputId: output.id,
 				expectedSlot: slot,
 				gadgetId: gadget.id,
+				expectedGadgetRevisionId: gadget.currentRevisionId,
 				kind: input.kind,
 				now: new Date().toISOString(),
 			}))
@@ -170,6 +178,25 @@ async function installEditor(input: EditorInput, context: BaseContext) {
 			: undefined);
 	if (existing?.status === "archived")
 		throw createError(ErrorCodes.CONFLICT, "The editor app is archived");
+	const previous = existing?.currentRevisionId
+		? await getOsGadgetRevision(db, {
+				organizationId: workspace.organizationId,
+				revisionId: existing.currentRevisionId,
+			})
+		: undefined;
+	const existingConfig = previous
+		? AppRuntimeConfigSchema.safeParse(
+				mapGadgetRevision(previous).manifest.config,
+			)
+		: undefined;
+	if (
+		existing &&
+		(!existingConfig?.success || existingConfig.data.settings?.slot !== slot)
+	)
+		throw createError(
+			ErrorCodes.CONFLICT,
+			"The editor now uses a different file binding. Restore its binding or create a separate editor.",
+		);
 	if (existing && !input.upgradeFromRevisionId) return finish(existing);
 	if (!existing && input.upgradeFromRevisionId)
 		throw createError(ErrorCodes.CONFLICT, "The editor app no longer exists");
@@ -203,9 +230,21 @@ async function installEditor(input: EditorInput, context: BaseContext) {
 	};
 	const definition = editor.build(slot);
 	const template = editor.build();
+	for (const versioned of [definition, template]) {
+		const manifest = versioned.gadgets[0]!.manifest;
+		const config = AppRuntimeConfigSchema.parse(manifest.config);
+		manifest.config = {
+			...config,
+			settings: {
+				...config.settings,
+				blueprintVersion: editor.version,
+			},
+		};
+	}
 	const declared = definition.gadgets[0]!;
 	const files = declared.files!;
 	const publication = {
+		templateVersion: editor.version,
 		blueprint: {
 			...base,
 			id: blueprintId,
@@ -220,18 +259,11 @@ async function installEditor(input: EditorInput, context: BaseContext) {
 			...base,
 			id: blueprintRevisionId,
 			blueprintId,
-			revision: editor.version,
 			definition: JSON.stringify(template),
 			publishedAt: now,
 		},
 	};
 	if (existing) {
-		const previous = existing.currentRevisionId
-			? await getOsGadgetRevision(db, {
-					organizationId: workspace.organizationId,
-					revisionId: existing.currentRevisionId,
-				})
-			: undefined;
 		if (!previous)
 			throw createError(
 				ErrorCodes.CONFLICT,

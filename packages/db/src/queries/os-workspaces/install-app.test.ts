@@ -120,15 +120,13 @@ function publication(params: InstallWorkspaceAppParams, version: number) {
 }
 
 async function seedWorkspace(db: ReturnType<typeof createDbQueryClient>) {
-	await db
-		.insert(osWorkspaces)
-		.values({
-			id: "workspace",
-			organizationId: "org",
-			name: "Docs",
-			createdByKind: "user",
-			createdById: "user",
-		});
+	await db.insert(osWorkspaces).values({
+		id: "workspace",
+		organizationId: "org",
+		name: "Docs",
+		createdByKind: "user",
+		createdById: "user",
+	});
 }
 
 describe("workspace app installation", () => {
