@@ -1143,7 +1143,9 @@ export function CanvasPage({
 	);
 	const outputsPanelList = {
 		items: outputsPanelItems,
-		loading: workspaceId !== null && (outputs.isPending || gadgets.isPending),
+		loading:
+			workspaceId !== null &&
+			(outputs.isPending || gadgets.isPending || resources.isPending),
 		error: outputs.isError,
 		selectedDoc: selectedDoc?.type === "repository" ? null : selectedDoc,
 	};
