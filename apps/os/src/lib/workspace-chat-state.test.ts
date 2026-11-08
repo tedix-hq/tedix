@@ -209,6 +209,63 @@ describe("applyWorkspaceChatEvent", () => {
 		},
 	);
 
+	it.each(["applied", "failed"] as const)(
+		"retains a %s execution before an older approval request without a phantom turn",
+		(status) => {
+			const requested: WorkspaceChatLedgerEvent = {
+				type: "approval.requested",
+				seq: 2,
+				at: at(1),
+				conversationId: "c1",
+				turnId: "t1",
+				stepId: "write",
+				approvalId: "a1",
+				title: "Create document",
+				reason: "Review required",
+			};
+			const decided: WorkspaceChatLedgerEvent = {
+				type: "approval.decided",
+				seq: 3,
+				at: at(2),
+				conversationId: "c1",
+				approvalId: "a1",
+				decision: "approve",
+				by: "person",
+			};
+			const executed: WorkspaceChatLedgerEvent = {
+				type: "approval.executed",
+				seq: 4,
+				at: at(3),
+				conversationId: "c1",
+				approvalId: "a1",
+				status,
+				...(status === "failed" ? { error: "Revision conflict" } : {}),
+			};
+			const approved = applyWorkspaceChatEvents(
+				initialWorkspaceChatState("c1"),
+				[turn[0]!, requested, decided],
+			);
+			expect(approved.turns[0]?.approvals[0]?.execution).toBeUndefined();
+			const live = applyWorkspaceChatEvent(approved, executed);
+			const paged = applyWorkspaceChatEvents(initialWorkspaceChatState("c1"), [
+				executed,
+				decided,
+				turn[0]!,
+				requested,
+			]);
+			for (const state of [live, paged]) {
+				expect(state.turns).toHaveLength(1);
+				expect(state.turns[0]?.approvals[0]).toMatchObject({
+					decision: "approve",
+					execution: { status },
+				});
+				expect(state.turns[0]?.approvals[0]?.execution?.error).toBe(
+					status === "failed" ? "Revision conflict" : undefined,
+				);
+			}
+		},
+	);
+
 	it("shows the continuation label while preserving its model context on the wire", () => {
 		const state = applyWorkspaceChatEvent(initialWorkspaceChatState("c1"), {
 			...(turn[0] as Extract<
