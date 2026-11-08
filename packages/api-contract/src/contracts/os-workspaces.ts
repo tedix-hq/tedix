@@ -986,6 +986,26 @@ export const osWorkspacesContract = oc
 				.output(z.object({ link: OsWorkspaceProjectSchema })),
 		}),
 		gadgets: oc.router({
+			installOutputEditor: oc
+				.route({
+					method: "POST",
+					summary: "Attach or explicitly upgrade a workspace output editor app",
+				})
+				.input(
+					z.strictObject({
+						workspaceId: z.string().uuid(),
+						outputId: z.string().uuid(),
+						kind: z.enum(["document", "sheet", "presentation"]),
+						upgradeFromRevisionId: z
+							.string()
+							.uuid()
+							.optional()
+							.describe(
+								"Explicitly replace the editor program only if this app revision is still current. Document content and history are preserved.",
+							),
+					}),
+				)
+				.output(z.object({ gadget: OsGadgetSchema })),
 			installDocument: oc
 				.route({
 					method: "POST",
