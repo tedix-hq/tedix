@@ -178,6 +178,25 @@ const assignments: WorkspaceAssignments = {
 };
 
 describe("migrate-workspaces", () => {
+	test("rejects conflicting event copies across the main and log snapshots", () => {
+		const snapshot = fixtureSnapshot();
+		try {
+			const events = WORKSPACE_TABLES.find(
+				(mapping) => mapping.table === "kernel_runtime_events",
+			)!;
+			const ref = { organizationId: ORG, workspaceId: WS_A };
+			expect(snapshot.readRows(events, ref)).toHaveLength(3);
+			snapshot.logs[0]!.prepare(
+				"UPDATE kernel_runtime_events SET payload = ? WHERE id = ?",
+			).run('{"text":"different"}', "ev-2");
+			expect(() => snapshot.readRows(events, ref)).toThrow(
+				"Conflicting duplicate rows in kernel_runtime_events across snapshot stores",
+			);
+		} finally {
+			snapshot.close();
+		}
+	});
+
 	test("blocks remote imports before contacting a target in either authentication mode", async () => {
 		const ref = { organizationId: ORG, workspaceId: WS_A };
 		const bundles = new LocalBundleStore("unused-remote-import-bundles");
