@@ -236,6 +236,10 @@ describe("inline export image validation", () => {
 		"<svg><script>alert(1)</script></svg>",
 		'<svg><image href="https://example.org/a.png"/></svg>',
 		'<svg><rect fill="url(https://example.org/a.svg)"/></svg>',
+		'<?xml version="1.0"?><!-- Creator --><svg onload="alert(1)"/>',
+		'<!-- Logo --><svg><image href="https://example.org/a.png"/></svg>',
+		'<!-- Logo --><!DOCTYPE svg [<!ENTITY x "value">]><svg/>',
+		"<!-- Unclosed comment <svg/>",
 	])("rejects embedded active SVG: %s", async (svg) => {
 		for (const source of [
 			`data:image/svg+xml;base64,${btoa(svg)}`,
@@ -294,6 +298,9 @@ describe("inline export image validation", () => {
 	);
 
 	it.each([
+		'<?xml version="1.0" encoding="UTF-8"?>\n<!-- Created with Inkscape -->\n<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0h10v10z"/></svg>',
+		'\uFEFF<?xml version="1.0"?>\n<!-- Creator -->\n<!-- Source -->\n<svg/>',
+		"<!-- Logo -->\n<svg/>",
 		'<svg><defs><linearGradient id="paint"/></defs><rect fill="url(#paint)"/></svg>',
 		`<svg><style>rect { fill: url( '#paint' ); }</style><defs><linearGradient id="paint"/></defs><rect style="filter: url(&quot;#blur&quot;)"/><filter id="blur"/></svg>`,
 		'<svg><path id="shape"/><use href="#shape"/><text>&#71;r&#xfc;&#223;e &amp; hello</text></svg>',
