@@ -31,6 +31,7 @@ import {
 } from "@/components/kumo/collapsible";
 import { Text } from "@/components/kumo/text";
 import { Textarea } from "@/components/kumo/textarea";
+import { WorkspaceChatResources } from "@/components/workspace-chat-resources";
 import { isImeComposing } from "@/lib/keyboard";
 import { osQueryKeys } from "@/lib/os-query-options";
 import { useNow } from "@/lib/use-now";
@@ -60,6 +61,7 @@ export type WorkspaceChatProps = {
 	onConversationCreated?: (conversationId: string) => void;
 	/** Lets an adjacent control enqueue a message through this chat. */
 	onSendMessageReady?: (send: (content: string) => void) => void;
+	onBrowseResources?: () => void;
 	autoFocusComposer?: boolean;
 	/** Test seam. */
 	createClient?: typeof createWorkspaceChatClient;
@@ -73,6 +75,7 @@ export function WorkspaceChat({
 	onSelectConversation,
 	onConversationCreated,
 	onSendMessageReady,
+	onBrowseResources,
 	autoFocusComposer = false,
 	createClient,
 }: WorkspaceChatProps) {
@@ -130,6 +133,8 @@ export function WorkspaceChat({
 					onSelect={onSelectConversation}
 				/>
 				<Composer
+					workspaceId={workspaceId}
+					onBrowseResources={onBrowseResources}
 					onSend={(text) => {
 						onSelectConversation(null);
 						client?.sendTurn({ text, newConversation: true });
@@ -197,6 +202,8 @@ export function WorkspaceChat({
 				</div>
 			) : null}
 			<Composer
+				workspaceId={workspaceId}
+				onBrowseResources={onBrowseResources}
 				onSend={send}
 				disabledReason={
 					connection.phase === "unavailable"
@@ -841,11 +848,15 @@ function ApprovalCard({
 }
 
 function Composer({
+	workspaceId,
+	onBrowseResources,
 	onSend,
 	disabledReason,
 	autoFocus,
 	busy,
 }: {
+	workspaceId: string;
+	onBrowseResources?: () => void;
 	onSend: (text: string) => void;
 	disabledReason: string | null;
 	autoFocus: boolean;
@@ -884,6 +895,12 @@ function Composer({
 				value={draft}
 			/>
 			<div className="workspace-chat-composer-row">
+				{onBrowseResources ? (
+					<WorkspaceChatResources
+						workspaceId={workspaceId}
+						onBrowseResources={onBrowseResources}
+					/>
+				) : null}
 				<Text role="caption" tone="secondary">
 					Enter to send · Shift+Enter for a new line
 				</Text>

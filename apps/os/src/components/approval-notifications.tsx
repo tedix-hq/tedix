@@ -11,6 +11,7 @@ import { useContext, useState } from "react";
 import { createPortal } from "react-dom";
 import { ActivityAutoApproval } from "@/components/activity-auto-approval";
 import { ActivityHistory } from "@/components/activity-history";
+import { WorkspaceActivity } from "@/components/workspace-activity";
 import { MachineApprovalReview } from "@/components/machine-approval-review";
 import {
 	type ApprovalChoice,
@@ -55,7 +56,7 @@ import { WORK_COUNT_DEFINITIONS } from "@/lib/work-counts";
 import { absoluteTime, relativeTime } from "@/lib/time";
 import { sanitizeUntrustedText } from "@/lib/untrusted-text";
 
-export type ActivityTab = "review" | "auto" | "history";
+export type ActivityTab = "review" | "auto" | "history" | "workspace";
 
 export const approvalGroupHeadingClassName =
 	"m-0 flex min-w-0 items-center gap-2 break-words px-4 pb-1 pt-3 text-kumo-subtle type-tedix-caption font-semibold";
@@ -63,9 +64,11 @@ export const approvalGroupHeadingClassName =
 export function ApprovalNotifications({
 	conversationId = null,
 	topbar = false,
+	workspaceId = null,
 }: {
 	conversationId?: string | null;
 	topbar?: boolean;
+	workspaceId?: string | null;
 }) {
 	const topbarMenu = useContext(OsTopbarMenuContext);
 	const menu = topbar ? topbarMenu : null;
@@ -81,7 +84,8 @@ export function ApprovalNotifications({
 				createPortal(
 					<DropdownMenuItem onClick={() => setOpen(true)}>
 						<ShieldCheck aria-hidden size={18} />
-						Approvals{count > 0 ? <Badge>{count} waiting</Badge> : null}
+						Activity and approvals
+						{count > 0 ? <Badge>{count} waiting</Badge> : null}
 					</DropdownMenuItem>,
 					menu.target,
 				)
@@ -91,12 +95,12 @@ export function ApprovalNotifications({
 						<Button
 							aria-label={
 								count === 0
-									? "Action approvals: none waiting"
-									: `Action approvals: ${count} waiting`
+									? "Activity and approvals: none waiting"
+									: `Activity and approvals: ${count} waiting`
 							}
 							className="relative"
 							size="icon-sm"
-							title={WORK_COUNT_DEFINITIONS.approvals}
+							title={`Activity and approvals. ${WORK_COUNT_DEFINITIONS.approvals}`}
 							variant={count > 0 ? "secondary" : "ghost"}
 						>
 							<ShieldCheck size={16} weight={count > 0 ? "bold" : "regular"} />
@@ -125,7 +129,7 @@ export function ApprovalNotifications({
 					<header className="sticky top-0 z-10 grid gap-2 border-b border-kumo-hairline bg-kumo-base px-4 pt-3">
 						<div className="grid min-w-0 gap-0.5">
 							<PopoverTitle className="m-0 font-semibold text-kumo-default type-tedix-body">
-								Approvals
+								Activity and approvals
 							</PopoverTitle>
 							<PopoverDescription className="m-0 text-kumo-subtle type-tedix-label">
 								{count === 0
@@ -137,7 +141,7 @@ export function ApprovalNotifications({
 							</Text>
 						</div>
 						<TabsList
-							aria-label="Approvals sections"
+							aria-label="Activity and approvals sections"
 							className="-mx-1 border-b-0"
 							variant="line"
 						>
@@ -155,11 +159,18 @@ export function ApprovalNotifications({
 							<TabsTrigger className="px-2!" value="history">
 								History
 							</TabsTrigger>
+							{workspaceId ? (
+								<TabsTrigger className="px-2!" value="workspace">
+									Workspace
+								</TabsTrigger>
+							) : null}
 						</TabsList>
 					</header>
 
 					<TabsContent value={tab}>
-						{tab === "auto" ? (
+						{tab === "workspace" && workspaceId ? (
+							<WorkspaceActivity workspaceId={workspaceId} />
+						) : tab === "auto" ? (
 							<ActivityAutoApproval canChange={inbox.canDecide} />
 						) : tab === "history" ? (
 							<ActivityHistory tediNames={inbox.tediNames} />

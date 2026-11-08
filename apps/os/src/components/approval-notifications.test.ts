@@ -125,8 +125,8 @@ describe("approval popover authority", () => {
 			);
 			expect(html).toContain(
 				count === 0
-					? "Action approvals: none waiting"
-					: `Action approvals: ${count} waiting`,
+					? "Activity and approvals: none waiting"
+					: `Activity and approvals: ${count} waiting`,
 			);
 			client.clear();
 		},

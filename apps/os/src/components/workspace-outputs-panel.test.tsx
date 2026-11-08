@@ -173,8 +173,8 @@ describe("WorkspaceOutputsPanel", () => {
 		// The fold is the top bar's job: the panel carries no toggle of its own.
 		expect(doc.querySelector("header button")).toBeNull();
 		expect(
-			doc.querySelector("[data-workspace-outputs-activity]"),
-		).not.toBeNull();
+			doc.querySelector("[data-workspace-outputs-activity]")?.textContent,
+		).toContain("Activity and approvals");
 		expect(
 			doc.querySelector("[data-workspace-outputs-library]"),
 		).not.toBeNull();

@@ -81,11 +81,11 @@ try {
 				// module graph is discovered, then restart from a settled
 				// navigation: no optimizer reload can land inside an open menu.
 				await page
-					.getByRole("button", { name: /^Action approvals: / })
+					.getByRole("button", { name: /^Activity and approvals: / })
 					.waitFor();
 				await page.reload();
 				const trigger = page.getByRole("button", {
-					name: "Action approvals: 3 waiting",
+					name: "Activity and approvals: 3 waiting",
 					exact: true,
 				});
 				await trigger.click();
@@ -159,14 +159,14 @@ try {
 					await page.evaluate(() =>
 						document.activeElement?.getAttribute("aria-label"),
 					),
-					"Action approvals: 3 waiting",
+					"Activity and approvals: 3 waiting",
 					"Focus returns to the trigger",
 				);
 
 				await page.goto(`${server.origin}${fixturePath}?theme=${theme}&empty`);
 				await page
 					.getByRole("button", {
-						name: "Action approvals: none waiting",
+						name: "Activity and approvals: none waiting",
 						exact: true,
 					})
 					.click();
@@ -194,7 +194,7 @@ try {
 				);
 				await page
 					.getByRole("button", {
-						name: "Action approvals: 1 waiting",
+						name: "Activity and approvals: 1 waiting",
 						exact: true,
 					})
 					.click();
@@ -216,7 +216,7 @@ try {
 				);
 				await page
 					.getByRole("button", {
-						name: "Action approvals: 6 waiting",
+						name: "Activity and approvals: 6 waiting",
 						exact: true,
 					})
 					.click();
@@ -322,7 +322,7 @@ try {
 				// History: decisions and tool calls, newest first, with filters.
 				await activity.getByRole("tab", { name: "History" }).click();
 				const history = activity.getByRole("list", {
-					name: "Approvals history",
+					name: "Activity and approvals history",
 				});
 				await history.waitFor();
 				assert.equal(await history.locator(":scope > li").count(), 4);

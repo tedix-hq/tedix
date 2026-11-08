@@ -172,6 +172,10 @@ export function CanvasResourceRail({
 	const visibleHistory = showHistory
 		? earlierIterations
 		: earlierIterations.slice(0, 5);
+	const emptyWorkspace =
+		workspaceId !== null &&
+		gadgets.data?.items.length === 0 &&
+		outputs.data?.items.length === 0;
 
 	return (
 		<aside aria-label="Workspace library" className="canvas-resource-rail">
@@ -180,9 +184,11 @@ export function CanvasResourceRail({
 					<div className="grid gap-3">
 						<SectionTitle>{OS_COPY.workspace.overview}</SectionTitle>
 						<p className="type-tedix-body">
-							{shownGadgets.length > 0
-								? "Open an app to work through this workspace, or a file to read or edit it. Use the conversation to ask for changes."
-								: "Start with a file below. Open it in the Editor to read or edit it, or use the conversation to ask for changes."}
+							{emptyWorkspace
+								? "Choose New to create a document, sheet or slides, upload a file, or add a source below. You can also ask this workspace to help."
+								: shownGadgets.length > 0
+									? "Open an app to work through this workspace, or a file to read or edit it. Use the conversation to ask for changes."
+									: "Start with a file below. Open it in the Editor to read or edit it, or use the conversation to ask for changes."}
 						</p>
 					</div>
 					{workspaceId && (

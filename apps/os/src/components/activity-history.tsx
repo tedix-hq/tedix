@@ -247,7 +247,7 @@ export function filterHistory(
 const EMPTY_COPY: Record<HistoryFilter, { title: string; body: string }> = {
 	all: {
 		title: "No activity yet",
-		body: "Every decision and every action an agent takes is recorded here.",
+		body: "Recent approval decisions and recorded app tool calls appear here.",
 	},
 	approvals: {
 		title: "No decisions yet",
@@ -286,7 +286,7 @@ export function ActivityHistory({
 		refetchInterval: 15_000,
 	});
 	// Tool activity needs analytics access; without it History still shows
-	// every decision.
+	// available approval decisions.
 	const actions = useQuery({
 		...recentToolActivityQueryOptions(),
 		retry: false,
@@ -315,6 +315,12 @@ export function ActivityHistory({
 		return null;
 	return (
 		<div className="grid min-w-0">
+			{!attentionOnly ? (
+				<Text as="p" className="m-0 px-4 pt-3" role="caption" tone="secondary">
+					Recent decisions and app tool calls across your organization. For
+					steps in a workspace conversation, open that conversation.
+				</Text>
+			) : null}
 			{attentionOnly ? (
 				<Text as="h2" className="m-0 px-4 pt-3" role="label" tone="strong">
 					Approved calls waiting or failed
@@ -364,7 +370,10 @@ export function ActivityHistory({
 					title={EMPTY_COPY[filter].title}
 				/>
 			) : (
-				<ol aria-label="Approvals history" className="m-0 grid list-none p-0">
+				<ol
+					aria-label="Activity and approvals history"
+					className="m-0 grid list-none p-0"
+				>
 					{entries.map((entry) => (
 						<HistoryRow canRetry={canRetry} entry={entry} key={entry.key} />
 					))}

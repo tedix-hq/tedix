@@ -191,6 +191,7 @@ function mount(
 	fake: ReturnType<typeof fakeClient>,
 	conversationId = "c1",
 	listOpen = false,
+	onBrowseResources?: () => void,
 ) {
 	act(() => {
 		root.render(
@@ -199,6 +200,7 @@ function mount(
 					conversationId={conversationId}
 					createClient={fake.createClient}
 					listOpen={listOpen}
+					onBrowseResources={onBrowseResources}
 					onOpenList={() => {}}
 					onSelectConversation={() => {}}
 					workspaceId="ws-1"
@@ -209,6 +211,28 @@ function mount(
 }
 
 describe("WorkspaceChat", () => {
+	it("opens workspace resources from both the thread and conversation list", async () => {
+		const browse = vi.fn();
+		const fake = fakeClient("c1");
+		mount(fake, "c1", false, browse);
+		const trigger = host.querySelector<HTMLButtonElement>(
+			'[aria-label="Workspace resources"]',
+		);
+		expect(trigger).not.toBeNull();
+		await act(async () => trigger?.click());
+		expect(document.body.textContent).toContain(
+			"Uploads are not automatically added to your message.",
+		);
+		const browseButton = [...document.querySelectorAll("button")].find(
+			(button) => button.textContent === "Browse files, sources and skills",
+		);
+		await act(async () => browseButton?.click());
+		expect(browse).toHaveBeenCalledOnce();
+		mount(fake, "c1", true, browse);
+		expect(
+			host.querySelector('[aria-label="Workspace resources"]'),
+		).not.toBeNull();
+	});
 	it("shows the thinking state the moment a turn starts, then streams prose", () => {
 		const fake = fakeClient("c1");
 		mount(fake);
