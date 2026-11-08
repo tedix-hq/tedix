@@ -303,6 +303,29 @@ describe("applyWorkspaceChatEvent", () => {
 		expect(state.seen.size).toBe(0);
 	});
 
+	it("updates summaries from new turns without replaying older metadata over them", () => {
+		const first = turn[0]!;
+		const state = applyWorkspaceChatEvents(initialWorkspaceChatState("c1"), [
+			first,
+			{
+				...first,
+				seq: 20,
+				at: at(20),
+				turnId: "t2",
+				text: "A follow-up",
+			} as WorkspaceChatLedgerEvent,
+			{ ...first, seq: 0, at: at(0) },
+		]);
+		expect(state.conversations).toEqual([
+			{
+				id: "c1",
+				title: "How many challenges are open?",
+				updatedAt: at(20),
+				lastTurnAt: at(20),
+			},
+		]);
+	});
+
 	it("upserts conversation titles without replacing them with older history", () => {
 		const event: WorkspaceChatLedgerEvent = {
 			type: "conversation.updated",

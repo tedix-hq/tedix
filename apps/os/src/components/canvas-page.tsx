@@ -1470,9 +1470,7 @@ export function CanvasPage({
 						) : (
 							<WorkspaceChat
 								autoFocusComposer={simpleMode}
-								conversationId={
-									conversationListOpen ? null : activeConversationId
-								}
+								conversationId={activeConversationId}
 								listOpen={conversationListOpen}
 								onConversationCreated={(conversationId) => {
 									setActiveConversationId(conversationId);

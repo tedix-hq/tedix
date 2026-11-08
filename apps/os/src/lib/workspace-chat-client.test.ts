@@ -116,6 +116,44 @@ const delta = (
 });
 
 describe("createWorkspaceChatClient", () => {
+	it("restores persisted conversation summaries on reconnect without needing their creation events", () => {
+		const { client, sockets, advance } = harness();
+		const conversations = [
+			{
+				id: "c1",
+				title: "Saved chat",
+				updatedAt: "2026-11-07T12:00:00.000Z",
+				lastTurnAt: "2026-11-07T12:00:00.000Z",
+			},
+		];
+		const hello = {
+			type: "hello" as const,
+			cursor: 40,
+			serverTime: "2026-11-07T12:00:00.000Z",
+			conversations,
+		};
+		const first = sockets[0]!;
+		first.open();
+		first.receive(hello);
+		expect(client.getSnapshot().state.conversations).toEqual(conversations);
+		advance(6_000);
+		first.drop();
+		advance(0);
+		const second = sockets[1]!;
+		second.open();
+		second.receive({
+			...hello,
+			conversations: [
+				...conversations,
+				{ ...conversations[0]!, id: "c2", title: "Another saved chat" },
+			],
+		});
+		expect(
+			client.getSnapshot().state.conversations.map((row) => row.title),
+		).toEqual(["Saved chat", "Another saved chat"]);
+		expect(client.getSnapshot().state.turns).toEqual([]);
+	});
+
 	it("subscribes with no cursor first, and only counts as open after hello", () => {
 		const { client, sockets, hello } = harness();
 		expect(client.getSnapshot().connection.phase).toBe("connecting");
