@@ -1304,6 +1304,44 @@ describe("CanvasPage listing", () => {
 		expect(avatar?.textContent).toBe("OR");
 		expect(container.querySelector(".canvas-workspace-header img")).toBeNull();
 	});
+	it("waits for file bindings before presenting duplicate or native navigation choices", async () => {
+		mockLists();
+		const sources = await osWorkspacesApi.resources.list();
+		const bound = {
+			...sources,
+			items: [
+				{
+					...sources.items[0],
+					providerId: "tedix",
+					resourceType: "output",
+					providerResourceId: OUTPUT_ID,
+					slot: "document",
+					metadata: { gadgetId: GADGET_ID, kind: "document" },
+				},
+			],
+		};
+		let finish!: (value: typeof bound) => void;
+		osWorkspacesApi.resources.list.mockReturnValue(
+			new Promise<typeof bound>((resolve) => {
+				finish = resolve;
+			}),
+		);
+		routing.search = { pane: "resources" };
+		const container = renderPage();
+		await flush();
+		expect(
+			container.querySelectorAll('ul[aria-label="Files"] button'),
+		).toHaveLength(0);
+		expect(container.querySelector(".canvas-resource-apps")).toBeNull();
+		expect(container.querySelector(".canvas-resource-outputs")).toBeNull();
+		await act(async () => finish(bound));
+		await flush();
+		expect(
+			container.querySelectorAll('ul[aria-label="Files"] button'),
+		).toHaveLength(1);
+		expect(container.querySelector(".canvas-resource-apps")).toBeNull();
+	});
+
 	it("shows a bound file once in Files and the library, and opens its gadget from both", async () => {
 		mockLists();
 		const sources = await osWorkspacesApi.resources.list();

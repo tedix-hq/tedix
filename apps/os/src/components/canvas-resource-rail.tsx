@@ -214,6 +214,12 @@ export function CanvasResourceRail({
 		workspaceId !== null &&
 		gadgets.data?.items.length === 0 &&
 		outputs.data?.items.length === 0;
+	if (workspaceId !== null && (resources.isPending || gadgets.isPending))
+		return (
+			<aside aria-label="Workspace library" className="canvas-resource-rail">
+				<ListSkeleton rows={3} />
+			</aside>
+		);
 
 	return (
 		<aside aria-label="Workspace library" className="canvas-resource-rail">
