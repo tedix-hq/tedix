@@ -52,7 +52,7 @@ try {
 			await page.goto(`${server.origin}${path}`);
 			await page
 				.getByRole("button", {
-					name: "Action approvals: 1 waiting",
+					name: "Activity and approvals: 1 waiting",
 					exact: true,
 				})
 				.click();

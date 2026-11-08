@@ -959,12 +959,12 @@ describe("Canvas workbench state", () => {
 		expect(primaryCanvasDoc([], [])).toBeNull();
 	});
 
-	it("offers Edit and History only for Gadgets, and a menu view only while it shows", () => {
+	it("keeps app views visible and shows other menu views when opened", () => {
 		expect(
 			canvasWorkpieceModeOptions({ type: "gadget", id: GADGET_ID }).map(
 				(option) => option.value,
 			),
-		).toEqual(["workpiece", "edit", "history"]);
+		).toEqual(["workpiece", "edit", "history", "connections"]);
 		expect(
 			canvasWorkpieceModeOptions(
 				{ type: "output", id: OUTPUT_ID },
@@ -2337,18 +2337,15 @@ describe("CanvasPage listing", () => {
 		expect(container.querySelector("[data-widget-frame]")).not.toBeNull();
 		expect(container.querySelector("[data-gadget-executions]")).toBeNull();
 
-		// Connections has no tab of its own; it opens from the workspace menu
-		// and joins the row only while it shows.
+		// App resources are available directly from the workpiece view switcher.
 		expect(
 			[
 				...container.querySelectorAll(
 					'[aria-label="Active workpiece view"] button',
 				),
 			].map((button) => button.textContent?.trim()),
-		).toEqual(["App", "Edit", "History"]);
-		click(container.querySelector('[aria-label="Workspace actions"]')!);
-		await flush();
-		click(findMenuItem("Connections"));
+		).toEqual(["App", "Edit", "History", "Connections"]);
+		click(findButton(container, "Connections"));
 		await flush();
 		expect(
 			findButton(container, "Connections").getAttribute("aria-pressed"),
@@ -3940,6 +3937,18 @@ describe("clampCanvasChatWidth viewport floor", () => {
 });
 
 describe("CanvasPage chat-first workspace", () => {
+	it("offers concrete next steps in an empty workspace overview", async () => {
+		mockEmptyWorkspace();
+		routing.search = { pane: "resources" };
+		const container = renderPage();
+		await flush();
+
+		const overview = container.querySelector(".canvas-resource-library-header");
+		expect(overview?.textContent).toContain("Choose New to create a document");
+		expect(overview?.textContent).toContain("upload a file, or add a source");
+		expect(overview?.textContent).toContain("ask this workspace to help");
+	});
+
 	it("gives chat the whole workbench and collapses the stage on a fresh workspace", async () => {
 		mockEmptyWorkspace();
 		routing.search = {

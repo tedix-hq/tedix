@@ -1379,7 +1379,10 @@ export function CanvasPage({
 						data-workspace-activity-entry=""
 						ref={activityEntryRef}
 					>
-						<ApprovalNotifications conversationId={activeConversationId} />
+						<ApprovalNotifications
+							conversationId={activeConversationId}
+							workspaceId={workspaceId}
+						/>
 					</span>
 					<TransportStatus />
 					{/* The chat and Files panel toggles on a wide screen; phones
@@ -1413,10 +1416,12 @@ export function CanvasPage({
 							className="canvas-workspace-focus"
 							icon={<ArrowsOut size={16} />}
 							onClick={enterFocusMode}
-							size="icon-sm"
+							size="sm"
 							title="Focus on the open item"
 							variant="ghost"
-						/>
+						>
+							Focus
+						</Button>
 					) : null}
 					<CanvasWorkspaceControls
 						workspace={selectedWorkspace as OsWorkspace | undefined}
@@ -1471,6 +1476,7 @@ export function CanvasPage({
 						) : (
 							<WorkspaceChat
 								autoFocusComposer={simpleMode}
+								onBrowseResources={showCanvasResources}
 								conversationId={activeConversationId}
 								listOpen={conversationListOpen}
 								onConversationCreated={(conversationId) => {

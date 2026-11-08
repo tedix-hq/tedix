@@ -26,9 +26,8 @@ import {
 
 /**
  * The open item's views: the item, then for an app Edit (its code, counting
- * the drafts waiting there) and History (its runs). Connections and Review
- * open from the workspace menu; while one is showing it joins the row so the
- * person can see where they are and get back.
+ * the drafts waiting there), History (its runs), and Connections. For other
+ * items, Connections and Review join the row when opened from the menu.
  */
 export function canvasWorkpieceModeOptions(
 	doc: CanvasWorkpieceSelection,
@@ -64,11 +63,12 @@ export function canvasWorkpieceModeOptions(
 					{ value: "history" as const, label: "History" },
 				]
 			: []),
-		...(activeMode === "connections"
+		...(doc.type === "gadget" || activeMode === "connections"
 			? [{ value: "connections" as const, label: "Connections" }]
-			: activeMode === "activity"
-				? [{ value: "activity" as const, label: "Review" }]
-				: []),
+			: []),
+		...(activeMode === "activity"
+			? [{ value: "activity" as const, label: "Review" }]
+			: []),
 	];
 }
 

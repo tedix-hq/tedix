@@ -344,7 +344,7 @@ export function WorkspaceOutputsList({
 					data-workspace-outputs-work=""
 				/>
 				<FooterRow
-					label="Approvals"
+					label="Activity and approvals"
 					icon={
 						<ShieldCheck
 							aria-hidden
