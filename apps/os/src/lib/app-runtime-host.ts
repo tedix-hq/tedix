@@ -12,6 +12,9 @@ import type {
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { appRuntimePermission } from "@tedix/api-contract/utils/app-runtime";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import { OsOutputContentSchema } from "@tedix/api-contract/schemas/os-workspaces";
+import { evaluateWorkbook } from "./workbook-formulas";
+import { normalizeSheetContent, projectWorkbook } from "./output-models";
 
 /**
  * The browser half of the workspace app host. `client.js` runs in the OS
@@ -104,6 +107,57 @@ export async function handleAppRuntimeCall(
 	switch (method) {
 		case "context":
 			return { ok: true, value: context };
+		case "sheet.evaluate": {
+			if (context.role === "viewer")
+				return { ok: false, error: "not_permitted" };
+			const parsed = OsOutputContentSchema.safeParse(
+				isRecord(args) ? args.content : null,
+			);
+			if (!parsed.success || parsed.data.kind !== "sheet")
+				return { ok: false, error: "bad_arguments" };
+			const content = normalizeSheetContent(parsed.data);
+			return {
+				ok: true,
+				value: projectWorkbook(evaluateWorkbook(content.workbook!)),
+			};
+		}
+		case "app.download": {
+			if (context.role === "viewer")
+				return { ok: false, error: "not_permitted" };
+			if (
+				!isRecord(args) ||
+				typeof args.filename !== "string" ||
+				!args.filename ||
+				args.filename.length > 200 ||
+				typeof args.text !== "string" ||
+				args.text.length > 8_000_000 ||
+				typeof args.mimeType !== "string"
+			)
+				return { ok: false, error: "bad_arguments" };
+			const mimeType = args.mimeType.split(";")[0]?.trim().toLowerCase();
+			if (
+				!mimeType ||
+				![
+					"text/plain",
+					"text/markdown",
+					"text/csv",
+					"application/json",
+				].includes(mimeType)
+			)
+				return { ok: false, error: "bad_arguments", detail: "mimeType" };
+			const filename = args.filename.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_");
+			const url = URL.createObjectURL(
+				new Blob([args.text], { type: `${mimeType};charset=utf-8` }),
+			);
+			const link = document.createElement("a");
+			link.href = url;
+			link.download = filename;
+			document.body.append(link);
+			link.click();
+			link.remove();
+			setTimeout(() => URL.revokeObjectURL(url), 1000);
+			return { ok: true, value: { filename } };
+		}
 		case "outputs.read": {
 			if (!isRecord(args) || typeof args.slot !== "string")
 				return { ok: false, error: "bad_arguments", detail: "slot" };
