@@ -12,7 +12,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, rmSync, statSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
-import { rowKey, splitSqlStatements, type StoredRow } from "./rows";
+import { RowDigest, rowKey, splitSqlStatements, type StoredRow } from "./rows";
 import type { SourceStore, TableMapping, WorkspaceAssignments } from "./tables";
 
 export interface SnapshotPaths {
@@ -100,22 +100,33 @@ export class Snapshot {
 
 	/**
 	 * One workspace's rows of one table, main store first and log partitions
-	 * after it, deduplicated by primary key (a moved row can sit in two stores
-	 * for a moment; the main copy wins). Rows come back as stored.
+	 * after it, deduplicated by primary key. A row can sit in two stores for a
+	 * moment, but both copies must agree or the snapshot is unsafe to export.
 	 */
 	readRows(mapping: TableMapping, ref: WorkspaceRef): StoredRow[] {
 		const sql = `SELECT * FROM "${mapping.table}" WHERE ${this.expand(mapping.where, ref)}`;
 		const params: Record<string, string> = { org: ref.organizationId };
 		if (sql.includes("@ws")) params.ws = ref.workspaceId;
-		const seen = new Set<string>();
+		const seen = new Map<string, StoredRow>();
 		const rows: StoredRow[] = [];
 		for (const db of this.storesFor(mapping.stores)) {
 			if (!hasTable(db, mapping.table)) continue;
 			for (const raw of db.prepare(sql).all(params)) {
 				const row = raw as StoredRow;
 				const key = rowKey(row, mapping.primaryKey);
-				if (seen.has(key)) continue;
-				seen.add(key);
+				const previous = seen.get(key);
+				if (previous) {
+					const first = new RowDigest(mapping.primaryKey);
+					const second = new RowDigest(mapping.primaryKey);
+					first.add(previous);
+					second.add(row);
+					if (first.hex() !== second.hex())
+						throw new Error(
+							`Conflicting duplicate rows in ${mapping.table} across snapshot stores`,
+						);
+					continue;
+				}
+				seen.set(key, row);
 				rows.push(row);
 			}
 		}
