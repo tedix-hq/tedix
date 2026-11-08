@@ -144,7 +144,7 @@ interface ApprovalRow {
 	actor_id: string;
 	actor_kind: ActorKind;
 	tedi_id: string | null;
-	status: "pending" | "approved" | "denied";
+	status: "pending" | "approved" | "denied" | "applied" | "failed";
 }
 
 /** Thin `WorkspaceStorage` over the object's synchronous SQLite and KV. */
@@ -453,7 +453,11 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		);
 		if (!approval) throw new Error("Unknown approval");
 		if (approval.status !== "pending")
-			return { applied: approval.status === "approved" };
+			return (
+				this.#store.get<{ applied: boolean; turnId?: string }>(
+					`approval-result:${input.approvalId}`,
+				) ?? { applied: approval.status === "applied" }
+			);
 		const now = new Date().toISOString();
 		const state = input.decision === "approve" ? "approved" : "denied";
 		this.#compliance.recordApproval(input.approvalId, state, input.by, {
@@ -476,6 +480,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			at: now,
 		});
 		let summary: string;
+		let applied = false;
 		if (input.decision === "approve") {
 			const outcome = await this.#invokeBinding(
 				scope,
@@ -487,13 +492,30 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				approval.binding,
 				approval.method,
 				JSON.parse(approval.args) as unknown[],
+			).catch((error: unknown) => ({
+				ok: false as const,
+				error: error instanceof Error ? error.message : String(error),
+			}));
+			applied = outcome.ok;
+			const status = applied ? "applied" : "failed";
+			this.#store.run(
+				"UPDATE approvals SET status = ? WHERE approval_id = ?",
+				status,
+				input.approvalId,
 			);
+			this.#events.append(approval.conversation_id, {
+				type: "approval.executed",
+				approvalId: input.approvalId,
+				status,
+				...(!outcome.ok ? { error: outcome.error } : {}),
+			});
 			summary = outcome.ok
 				? `Approved by ${input.by}; ${approval.binding}.${approval.method} applied: ${JSON.stringify(outcome.value).slice(0, 2_000)}`
 				: `Approved by ${input.by} but ${approval.binding}.${approval.method} failed: ${outcome.error}`;
 		} else {
 			summary = `Denied by ${input.by}${input.note ? `: ${input.note}` : ""}. Do not retry this action.`;
 		}
+		this.#store.put(`approval-result:${input.approvalId}`, { applied });
 		const { turnId } = await this.sendTurn(
 			scope,
 			{
@@ -507,7 +529,9 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				? "Approved the requested action."
 				: "Denied the requested action.",
 		);
-		return { applied: input.decision === "approve", turnId };
+		const result = { applied, turnId };
+		this.#store.put(`approval-result:${input.approvalId}`, result);
+		return result;
 	}
 
 	/**

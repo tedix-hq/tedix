@@ -623,6 +623,12 @@ describe("WorkspaceDO", () => {
 			after: requested.seq,
 		});
 		expect(after.map((event) => event.type)).toContain("approval.decided");
+		expect(
+			after.find((event) => event.type === "approval.executed"),
+		).toMatchObject({
+			approvalId: requested.approvalId,
+			status: "applied",
+		});
 		const continuation = after.find(
 			(event) =>
 				event.type === "turn.started" && event.turnId === decided.turnId,
@@ -645,6 +651,75 @@ describe("WorkspaceDO", () => {
 		);
 		const created = events.length;
 		expect(created).toBeGreaterThan(0);
+		expect(
+			await ws.decideApproval(scope, {
+				approvalId: requested.approvalId,
+				decision: "approve",
+				by: "u1",
+			}),
+		).toEqual(decided);
+		expect(
+			await ws.readEvents(scope, { conversationId, after: requested.seq }),
+		).toEqual(after);
+	});
+
+	test("an approved revision conflict remains failed on repeated decisions", async () => {
+		await seedCore();
+		const ws = workspace();
+		await seedOutputs(ws);
+		await ws.scriptModel(scope, [
+			{
+				code: `export default async (env) => env.outputs.revise({
+			outputId: "out-doc", expectedRevision: 0,
+			content: { kind: "document", blocks: [{ type: "paragraph", text: "stale edit" }] }
+		})`,
+			},
+		]);
+		const started = await ws.sendTurn(scope, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "Try the stale edit",
+		});
+		await ws.awaitTurn(scope, started.turnId, 20_000);
+		const requested = (
+			await ws.readEvents(scope, { conversationId: started.conversationId })
+		).find((event) => event.type === "approval.requested");
+		if (requested?.type !== "approval.requested")
+			throw new Error("No held write");
+		await ws.scriptModel(scope, [
+			{ text: "The approved write failed because its revision was stale." },
+		]);
+		const result = await ws.decideApproval(scope, {
+			approvalId: requested.approvalId,
+			decision: "approve",
+			by: "u1",
+		});
+		expect(result.applied).toBe(false);
+		await ws.awaitTurn(scope, result.turnId!, 20_000);
+		const events = await ws.readEvents(scope, {
+			conversationId: started.conversationId,
+		});
+		expect(
+			events.find((event) => event.type === "approval.executed"),
+		).toMatchObject({
+			approvalId: requested.approvalId,
+			status: "failed",
+			error: expect.stringContaining("revision_conflict"),
+		});
+		expect(
+			await ws.decideApproval(scope, {
+				approvalId: requested.approvalId,
+				decision: "approve",
+				by: "u1",
+			}),
+		).toEqual(result);
+		expect(
+			await ws.readEvents(scope, { conversationId: started.conversationId }),
+		).toEqual(events);
+		expect(
+			(await ws.outputQuery(scope, { op: "get", outputId: "out-doc" }))
+				?.currentRevisionId,
+		).toBe("rev-doc");
 	});
 
 	test("events replay from a cursor and a guest tedi's profile comes from its own object", async () => {
