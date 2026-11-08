@@ -654,6 +654,11 @@ const CALLS = {
 	"analytics/getHumanActivityReview": { appId: IDS.appStorefront, limit: 20 },
 	"appGating/installedEligibility": undefined,
 	"osWorkspaces/workspaces/list": { status: "active", limit: 50 },
+	"osWorkspaces/workspaces/activity": {
+		workspaceId: IDS.workspaceRevenue,
+		kinds: ["output"],
+		limit: 50,
+	},
 	"osWorkspaces/workspaces/create": { name: "Test Workspace" },
 	"osWorkspaces/workspaces/createFromConversation": {
 		conversationId: IDS.conversationHome,
@@ -2279,6 +2284,67 @@ describe("fixture bootstrap parity", () => {
 				conversationId: "home:other-fixture",
 			}).status,
 		).toBe(409);
+	});
+
+	it("pages local workspace activity and reflects a canonical output revision", async () => {
+		const key = "osWorkspaces/workspaces/activity",
+			input = {
+				workspaceId: IDS.workspaceRevenue,
+				kinds: ["output"],
+				limit: 1,
+			};
+		type Page = {
+			items: Array<{
+				id: string;
+				workspaceId: string | null;
+				entityId: string;
+				revision: number;
+				kind: string;
+			}>;
+			next: string | null;
+		};
+		const first = callLocalOk(key, input) as Page;
+		await expectParsesAgainstContract(key, first);
+		expect(first.items).toHaveLength(1);
+		expect(first.next).toBeTruthy();
+		const second = callLocalOk(key, { ...input, before: first.next }) as Page;
+		await expectParsesAgainstContract(key, second);
+		expect(second.items[0]?.id).not.toBe(first.items[0]?.id);
+		expect(
+			[...first.items, ...second.items].every(
+				(row) => row.workspaceId === input.workspaceId && row.kind === "output",
+			),
+		).toBe(true);
+		expect(callLocalOk(key, { ...input, kinds: ["memory"] })).toEqual({
+			items: [],
+			next: null,
+		});
+		expect(
+			callLocalOk(key, {
+				...input,
+				workspaceId: "ffffffff-0000-4000-8000-000000000001",
+			}),
+		).toEqual({ items: [], next: null });
+		callLocalOk("osWorkspaces/outputs/revise", {
+			outputId: IDS.outputDocument,
+			content: {
+				kind: "document",
+				blocks: [
+					{
+						id: "activity-marker",
+						type: "paragraph",
+						text: "Fictional activity update",
+					},
+				],
+			},
+		});
+		const updated = callLocalOk(key, { ...input, limit: 50 }) as Page;
+		expect(updated.items).toContainEqual(
+			expect.objectContaining({ entityId: IDS.outputDocument, revision: 2 }),
+		);
+		expect(
+			callLocalOk(key, { ...input, limit: 50, before: "invalid-cursor" }),
+		).toEqual(updated);
 	});
 
 	it.each([

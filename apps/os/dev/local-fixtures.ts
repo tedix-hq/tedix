@@ -8971,6 +8971,66 @@ const handlers: Record<string, (input: never) => unknown> = {
 	"appGating/installedEligibility": () => ELIGIBILITY,
 
 	// --- Tedix OS workspaces ---
+	"osWorkspaces/workspaces/activity": (input: {
+		workspaceId?: string;
+		kinds?: Array<"output" | "run" | "artifact" | "memory" | "chat">;
+		limit?: number;
+		before?: string;
+	}) => {
+		// This local projection models saved output revisions, without connected sources.
+		const rows = state.outputRevisions
+			.flatMap((revision, index) => {
+				const output = state.outputs.find(
+					(row) => row.id === revision.outputId,
+				);
+				if (
+					!output ||
+					revision.accessEnvelope?.sources.length ||
+					(input.workspaceId && output.workspaceId !== input.workspaceId) ||
+					(input.kinds?.length && !input.kinds.includes("output"))
+				)
+					return [];
+				return [
+					{
+						id: revision.id,
+						workspaceId: output.workspaceId,
+						seq: index + 1,
+						kind: "output" as const,
+						entityId: output.id,
+						revision: revision.revision,
+						actor: { kind: revision.createdByKind, id: revision.createdById },
+						changeRecordId: revision.id,
+						title: output.title,
+						summary: revision.note,
+						occurredAt: revision.createdAt,
+					},
+				];
+			})
+			.sort(
+				(a, b) => b.occurredAt.localeCompare(a.occurredAt) || b.seq - a.seq,
+			);
+		const separator = input.before?.lastIndexOf("|") ?? -1;
+		const seq = Number(input.before?.slice(separator + 1));
+		const occurredAt = input.before?.slice(0, separator);
+		const filtered =
+			separator > 0 && Number.isInteger(seq) && occurredAt
+				? rows.filter(
+						(row) =>
+							row.occurredAt < occurredAt ||
+							(row.occurredAt === occurredAt && row.seq < seq),
+					)
+				: rows;
+		const limit = input.limit ?? 50,
+			items = filtered.slice(0, limit),
+			last = items.at(-1);
+		return {
+			items,
+			next:
+				filtered.length > limit && last
+					? `${last.occurredAt}|${last.seq}`
+					: null,
+		};
+	},
 	"osWorkspaces/workspaces/list": (
 		input:
 			| { status?: OsWorkspace["status"]; limit?: number; offset?: number }
