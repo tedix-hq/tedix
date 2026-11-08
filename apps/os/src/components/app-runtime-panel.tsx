@@ -20,6 +20,7 @@ import {
 import {
 	appRuntimeCodeQueryOptions,
 	outputDetailQueryOptions,
+	osQueryKeys,
 	workspaceOpenQueryOptions,
 	workspaceResourcesQueryOptions,
 } from "@/lib/os-query-options";
@@ -189,6 +190,12 @@ export function AppRuntimeSandbox({
 				{
 					context,
 					callServer,
+					operations: manifest.operations,
+					onWrite: () => {
+						void queryClient.invalidateQueries({
+							queryKey: osQueryKeys.outputs(),
+						});
+					},
 					resources: resourceRows ?? [],
 					readOutput: async (outputId) =>
 						(await queryClient.fetchQuery(outputDetailQueryOptions(outputId)))
@@ -197,7 +204,7 @@ export function AppRuntimeSandbox({
 				method,
 				args,
 			),
-		[context, callServer, queryClient, resourceRows],
+		[context, callServer, queryClient, resourceRows, manifest.operations],
 	);
 	const html = useMemo(() => buildAppRuntimeDocument(files), [files]);
 	if (resources.isPending || role === null)

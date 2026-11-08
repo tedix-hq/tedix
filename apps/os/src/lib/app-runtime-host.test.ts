@@ -1,3 +1,5 @@
+import { QueryClient } from "@tanstack/react-query";
+import { osQueryKeys, outputDetailQueryOptions } from "./os-query-options";
 import type { OsWorkspaceResource } from "@tedix/api-contract/schemas/os-workspaces";
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
@@ -59,6 +61,68 @@ function deps(role: AppRuntimeContext["role"], reads: string[] = []) {
 }
 
 describe("app runtime host", () => {
+	it("invalidates canonical output caches only after successful declared writes", async () => {
+		const client = new QueryClient();
+		const key: readonly unknown[] = outputDetailQueryOptions(outputId).queryKey;
+		client.setQueryData(key, { test: "cached document" });
+		const onWrite = vi.fn(() => {
+			void client.invalidateQueries({ queryKey: osQueryKeys.outputs() });
+		});
+		const callServer = vi.fn(async () => ({ revision: 2 }));
+		const host = {
+			...deps("build"),
+			callServer,
+			onWrite,
+			operations: [
+				{
+					name: "readDocument",
+					description: "Read",
+					input: { type: "object" as const },
+					effect: "read" as const,
+				},
+				{
+					name: "editDocument",
+					description: "Edit",
+					input: { type: "object" as const },
+					effect: "write" as const,
+				},
+				{
+					name: "deleteDocument",
+					description: "Delete",
+					input: { type: "object" as const },
+					effect: "destructive" as const,
+				},
+			],
+		};
+		await handleAppRuntimeCall(host, "app.call", {
+			method: "readDocument",
+			args: [],
+		});
+		expect(client.getQueryState(key)?.isInvalidated).toBe(false);
+		callServer.mockRejectedValueOnce(new Error("Conflict"));
+		await expect(
+			handleAppRuntimeCall(host, "app.call", {
+				method: "editDocument",
+				args: [],
+			}),
+		).rejects.toThrow("Conflict");
+		expect(onWrite).not.toHaveBeenCalled();
+		expect(client.getQueryState(key)?.isInvalidated).toBe(false);
+		expect(
+			await handleAppRuntimeCall(host, "app.call", {
+				method: "editDocument",
+				args: [],
+			}),
+		).toEqual({ ok: true, value: { revision: 2 } });
+		expect(client.getQueryState(key)?.isInvalidated).toBe(true);
+		await handleAppRuntimeCall(host, "app.call", {
+			method: "deleteDocument",
+			args: [],
+		});
+		expect(onWrite).toHaveBeenCalledTimes(2);
+		client.clear();
+	});
+
 	it("hands the app its context: settings and grants from the manifest, role from the host", async () => {
 		const result = await handleAppRuntimeCall(deps("use"), "context", null);
 		expect(result).toMatchObject({
