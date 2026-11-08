@@ -62,14 +62,16 @@ try {
 				await library.locator("[data-resource-card]").first().waitFor();
 				await library.getByRole("button", { name: "New", exact: true }).click();
 				await page
-					.getByRole("menuitem", { name: "Document", exact: true })
+					.getByRole("menuitem", { name: "Doc", exact: true })
 					.waitFor();
 				assert.deepEqual(await page.getByRole("menuitem").allTextContents(), [
-					...(surface === "workspace" ? ["Doc app"] : []),
-					"Document",
+					"Doc",
 					"Sheet",
 					"Slides",
 					"App from template",
+					"Native document",
+					"Native sheet",
+					"Native slides",
 				]);
 				assert.equal(
 					await page
@@ -82,25 +84,25 @@ try {
 					fullPage: true,
 				});
 				await page.keyboard.press("Escape");
-				if (surface === "workspace") {
+				for (const choice of ["Doc", "Sheet", "Slides"]) {
 					await library
 						.getByRole("button", { name: "New", exact: true })
 						.click();
 					await page
-						.getByRole("menuitem", { name: "Doc app", exact: true })
+						.getByRole("menuitem", { name: choice, exact: true })
 						.click();
 					const dialog = page.getByRole("dialog");
 					await dialog
-						.getByRole("heading", { name: "New Doc app", exact: true })
+						.getByRole("heading", { name: `New ${choice}`, exact: true })
 						.waitFor();
 					await dialog
 						.getByRole("button", { name: "Close", exact: true })
 						.click();
 				}
 				for (const [choice, heading] of [
-					["Document", "New document"],
-					["Sheet", "New sheet"],
-					["Slides", "New slides"],
+					["Native document", "New document"],
+					["Native sheet", "New sheet"],
+					["Native slides", "New slides"],
 				]) {
 					await library
 						.getByRole("button", { name: "New", exact: true })
@@ -114,7 +116,7 @@ try {
 						.waitFor();
 					assert.equal(
 						await dialog.getByText("Template", { exact: true }).count(),
-						choice === "Document" ? 1 : 0,
+						choice === "Native document" ? 1 : 0,
 					);
 					await dialog
 						.getByRole("button", { name: "Cancel", exact: true })

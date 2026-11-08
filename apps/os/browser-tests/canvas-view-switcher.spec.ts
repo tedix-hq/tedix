@@ -2,17 +2,17 @@ import assert from "node:assert/strict";
 import { chromium, webkit } from "playwright";
 import { startFixtureServer } from "./fixture-server";
 
-// The workpiece view switcher (App / Edit / History) is shell chrome shared by
-// every workspace gadget. On a phone its labels must never overlap or clip,
-// and every view must stay reachable. Connections and Review open from the
-// workspace menu and join the row only while they show; when the row is too
+// The workpiece view switcher (App / Edit / History / Connections) is shell
+// chrome shared by every workspace gadget. On a phone its labels must never
+// overlap or clip, and every view must stay reachable. Review opens from the
+// workspace menu and joins the row only while it shows; when the row is too
 // narrow for every segment (chat open beside the app), the selected view
 // stays scrolled into sight. Below the 820px tablet line the switcher
 // segments and the workspace header actions keep a 44px hit target, and
 // keyboard focus stays visible inside the scrolling row.
 const workpiecePath =
 	"/workspace/00000030-0000-4000-8000-000000000001?workpiece=gadget%3A00000031-0000-4000-8000-00000000000a&pane=workpiece";
-const views = ["App", "Edit", "History"];
+const views = ["App", "Edit", "History", "Connections"];
 const server = await startFixtureServer("/work");
 
 try {
