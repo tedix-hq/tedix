@@ -161,6 +161,12 @@ export type WorkspaceChatLedgerEvent =
 			by: string;
 	  })
 	| (Stamped & {
+			type: "approval.executed";
+			approvalId: string;
+			status: "applied" | "failed";
+			error?: string;
+	  })
+	| (Stamped & {
 			type: "turn.finished";
 			turnId: string;
 			status: TurnStatus;
@@ -210,6 +216,7 @@ const LEDGER_TYPES = new Set<WorkspaceChatLedgerEvent["type"]>([
 	"step.finished",
 	"approval.requested",
 	"approval.decided",
+	"approval.executed",
 	"turn.finished",
 	"conversation.updated",
 ]);
