@@ -1181,3 +1181,154 @@ describe("WorkspaceDO", () => {
 		expect(outcome.text).toBe("isolated reply");
 	});
 });
+
+describe("workspace model request to turn", () => {
+	test.each([false, true])(
+		"a selected configured model reaches execution and durable replay (isolate=%s)",
+		async (isolate) => {
+			await seedCore();
+			const ws = workspace();
+			await ws.scriptModel(scope, [
+				{ code: "export default () => 1" },
+				{ text: "Configured answer" },
+			]);
+			const { turnId, conversationId } = await ws.sendTurn(scope, {
+				actorId: "u1",
+				actorKind: "user",
+				text: "Use configured model",
+				modelId: "faux",
+				isolate,
+			});
+			await ws.awaitTurn(scope, turnId, 20_000);
+			const events = await ws.readEvents(scope, { conversationId });
+			const done = events.find((event) => event.type === "assistant.done");
+			expect(done?.type === "assistant.done" && done.model).toBe("faux");
+			if (done?.type !== "assistant.done")
+				throw new Error("No completed answer");
+			const messages = await ws.readMessages(scope, conversationId);
+			const expected = messages
+				.filter((message) => message.role === "assistant")
+				.reduce(
+					(total, message) =>
+						total +
+						(message.role === "assistant"
+							? message.usage.input +
+								message.usage.cacheRead +
+								message.usage.cacheWrite
+							: 0),
+					0,
+				);
+			expect(done.usage?.inputTokens).toBe(expected);
+			expect(done.usage?.partial).toBe(false);
+			expect(done.usage).not.toHaveProperty("costCents");
+			const history = await ws.readLedger(scope, conversationId, {
+				limit: 100,
+			});
+			expect(history.find((event) => event.type === "assistant.done")).toEqual(
+				done,
+			);
+		},
+	);
+
+	test("an unsupported socket model is rejected before a conversation or turn is written", async () => {
+		const ws = workspace();
+		const before = await ws.readEvents(scope, { after: 0, limit: 5000 });
+		const socket = (
+			await ws.fetch(
+				new Request("https://workspace.test/subscribe", {
+					headers: {
+						Upgrade: "websocket",
+						"X-Workspace-Org": scope.organizationId,
+						"X-Workspace-Id": scope.workspaceId,
+						"X-Workspace-Actor-Id": "u1",
+					},
+				}),
+			)
+		).webSocket;
+		if (!socket) throw new Error("No socket");
+		try {
+			const rejected = socketFramesUntil(
+				socket,
+				(frame) => frame.type === "error",
+			);
+			socket.send(
+				JSON.stringify({
+					type: "send_turn",
+					clientTurnId: crypto.randomUUID(),
+					conversationId: null,
+					text: "Override",
+					modelId: "unconfigured/provider",
+				}),
+			);
+			expect((await rejected).at(-1)).toMatchObject({
+				type: "error",
+				message: "This model is not configured for workspace chat",
+			});
+			expect(
+				await ws.readEvents(scope, { after: before.at(-1)?.seq ?? 0 }),
+			).toEqual([]);
+		} finally {
+			socket.close(1000, "test complete");
+		}
+	});
+
+	test("socket catalog and selected model use the same server configuration", async () => {
+		await seedCore();
+		const ws = workspace();
+		await ws.scriptModel(scope, [{ text: "Socket answer" }]);
+		const socket = (
+			await ws.fetch(
+				new Request("https://workspace.test/subscribe", {
+					headers: {
+						Upgrade: "websocket",
+						"X-Workspace-Org": scope.organizationId,
+						"X-Workspace-Id": scope.workspaceId,
+						"X-Workspace-Actor-Id": "u1",
+					},
+				}),
+			)
+		).webSocket;
+		if (!socket) throw new Error("No socket");
+		try {
+			const replay = socketFramesUntil(
+				socket,
+				(frame) => frame.type === "caught_up",
+			);
+			socket.send(
+				JSON.stringify({
+					type: "subscribe",
+					conversationId: null,
+					cursor: null,
+				}),
+			);
+			const hello = (await replay).find((frame) => frame.type === "hello");
+			expect(hello?.models).toEqual([
+				{ id: "faux", label: "Scripted test model" },
+			]);
+			const clientTurnId = crypto.randomUUID();
+			const accepted = socketFramesUntil(
+				socket,
+				(frame) => frame.type === "turn.accepted",
+			);
+			socket.send(
+				JSON.stringify({
+					type: "send_turn",
+					clientTurnId,
+					conversationId: null,
+					text: "Selected",
+					modelId: "faux",
+				}),
+			);
+			const receipt = (await accepted).at(-1)!;
+			await ws.awaitTurn(scope, clientTurnId, 20_000);
+			const events = await ws.readEvents(scope, {
+				conversationId: String(receipt.conversationId),
+			});
+			expect(
+				events.find((event) => event.type === "assistant.done"),
+			).toMatchObject({ model: "faux" });
+		} finally {
+			socket.close(1000, "test complete");
+		}
+	});
+});

@@ -13,6 +13,13 @@ export interface WireEventBase {
 	turnId?: string;
 }
 
+export interface TurnUsage {
+	inputTokens: number;
+	outputTokens: number;
+	cachedInputTokens?: number;
+	partial?: boolean;
+}
+
 export type WireEventBody =
 	| {
 			type: "turn.started";
@@ -22,17 +29,15 @@ export type WireEventBody =
 			authorId: string;
 			authorKind: AuthorKind;
 	  }
+	| { type: "turn.model"; turnId: string; model: string }
+	| { type: "turn.usage"; turnId: string; usage: TurnUsage }
 	| { type: "assistant.delta"; turnId: string; messageId: string; text: string }
 	| {
 			type: "assistant.done";
 			turnId: string;
 			messageId: string;
 			text: string;
-			usage?: {
-				inputTokens: number;
-				outputTokens: number;
-				cachedInputTokens?: number;
-			};
+			usage?: TurnUsage;
 			model?: string;
 	  }
 	| {
@@ -100,6 +105,7 @@ export type WireControlFrame =
 			cursor: number;
 			serverTime: string;
 			conversations: ConversationSummary[];
+			models?: Array<{ id: string; label: string }>;
 	  }
 	| { type: "caught_up"; cursor: number; conversationId: string | null }
 	| {
@@ -125,6 +131,7 @@ export type ClientFrame =
 			conversationId: string | null;
 			text: string;
 			tediId?: string;
+			modelId?: string;
 			attachments?: Array<{ outputId: string }>;
 	  }
 	| {

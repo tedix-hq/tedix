@@ -363,6 +363,59 @@ describe("labels", () => {
 		expect(elapsedLabel(125_000)).toBe("2m 05s");
 		expect(
 			formatUsage({ inputTokens: 2000, outputTokens: 500, costCents: 2 }),
-		).toBe("2,500 tokens · €0.020");
+		).toBe("2,000 input · 500 output tokens");
 	});
+});
+
+it("model and cumulative usage converge when progress arrives after completion", () => {
+	const events: WorkspaceChatLedgerEvent[] = [
+		{
+			type: "turn.model",
+			seq: 1,
+			at: at(0),
+			conversationId: "c1",
+			turnId: "t1",
+			model: "configured-deployment",
+		},
+		{
+			type: "turn.usage",
+			seq: 2,
+			at: at(0),
+			conversationId: "c1",
+			turnId: "t1",
+			usage: { inputTokens: 10, outputTokens: 2 },
+		},
+		{
+			type: "assistant.done",
+			seq: 3,
+			at: at(0),
+			conversationId: "c1",
+			turnId: "t1",
+			messageId: "m1",
+			text: "Done",
+			model: "provider-snapshot",
+			usage: { inputTokens: 20, outputTokens: 4, partial: true },
+		},
+	];
+	for (const order of [events, [...events].reverse()]) {
+		const state = applyWorkspaceChatEvents(
+			initialWorkspaceChatState("c1"),
+			order,
+		);
+		expect(state.turns[0]?.model).toBe("provider-snapshot");
+		expect(state.turns[0]?.usage).toEqual({
+			inputTokens: 20,
+			outputTokens: 4,
+			partial: true,
+		});
+	}
+	expect(
+		formatUsage({
+			inputTokens: 20,
+			outputTokens: 4,
+			cachedInputTokens: 10,
+			partial: true,
+			costCents: 100,
+		}),
+	).toBe("20 input · 4 output tokens · 10 cached input · partial usage");
 });

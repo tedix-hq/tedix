@@ -708,7 +708,9 @@ describe("WorkspaceChat", () => {
 			]),
 		);
 		const footer = host.querySelector(".workspace-chat-turn-footer");
-		expect(footer?.textContent).toBe("4s · 2,500 tokens · €0.020 · mock");
+		expect(footer?.textContent).toBe(
+			"4s · 2,000 input · 500 output tokens · Cost unavailable · mock",
+		);
 	});
 
 	it("sends the composer's text to the object", () => {

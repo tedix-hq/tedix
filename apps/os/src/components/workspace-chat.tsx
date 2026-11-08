@@ -16,6 +16,7 @@ import {
 import {
 	type FormEvent,
 	type KeyboardEvent,
+	type ReactNode,
 	useCallback,
 	useEffect,
 	useRef,
@@ -29,6 +30,13 @@ import {
 	CollapsibleDefaultContent,
 	CollapsibleDefaultTrigger,
 } from "@/components/kumo/collapsible";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/kumo/select";
 import { Text } from "@/components/kumo/text";
 import { Textarea } from "@/components/kumo/textarea";
 import { WorkspaceChatResources } from "@/components/workspace-chat-resources";
@@ -90,6 +98,33 @@ export function WorkspaceChat({
 		onOutputChanged,
 	);
 	const { state, connection, catchingUp } = snapshot;
+	const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
+	const selectedModel =
+		state.models.find((model) => model.id === selectedModelId) ??
+		state.models[0];
+	const modelId = selectedModel?.id;
+	const modelControl = state.models.length ? (
+		<Select
+			value={modelId}
+			onValueChange={(value) => setSelectedModelId(value)}
+			disabled={connection.phase !== "open"}
+		>
+			<SelectTrigger aria-label="Workspace chat model" size="sm">
+				<SelectValue>{selectedModel?.label}</SelectValue>
+			</SelectTrigger>
+			<SelectContent>
+				{state.models.map((model) => (
+					<SelectItem key={model.id} value={model.id}>
+						{model.label}
+					</SelectItem>
+				))}
+			</SelectContent>
+		</Select>
+	) : (
+		<Text role="caption" tone="secondary">
+			Model unavailable
+		</Text>
+	);
 	const running = activeTurn(state);
 	const approval = pendingApproval(running);
 
@@ -111,9 +146,9 @@ export function WorkspaceChat({
 		(text: string) => {
 			const trimmed = text.trim();
 			if (!trimmed || !client) return;
-			client.sendTurn({ text: trimmed });
+			client.sendTurn({ text: trimmed, ...(modelId ? { modelId } : {}) });
 		},
-		[client],
+		[client, modelId],
 	);
 	useEffect(() => {
 		onSendMessageReady?.(send);
@@ -133,11 +168,16 @@ export function WorkspaceChat({
 					onSelect={onSelectConversation}
 				/>
 				<Composer
+					modelControl={modelControl}
 					workspaceId={workspaceId}
 					onBrowseResources={onBrowseResources}
 					onSend={(text) => {
 						onSelectConversation(null);
-						client?.sendTurn({ text, newConversation: true });
+						client?.sendTurn({
+							text,
+							newConversation: true,
+							...(modelId ? { modelId } : {}),
+						});
 					}}
 					disabledReason={null}
 					autoFocus={autoFocusComposer}
@@ -202,6 +242,7 @@ export function WorkspaceChat({
 				</div>
 			) : null}
 			<Composer
+				modelControl={modelControl}
 				workspaceId={workspaceId}
 				onBrowseResources={onBrowseResources}
 				onSend={send}
@@ -384,6 +425,9 @@ function TurnView({
 	onCancel: (turnId: string) => void;
 	connection: WorkspaceChatConnection;
 }) {
+	const modelLabel = turn.model?.startsWith("azure-openai/")
+		? `Azure deployment: ${turn.model.slice("azure-openai/".length)}`
+		: turn.model;
 	const running = turn.status === "running";
 	const startedAt = Date.parse(turn.startedAt);
 	const now = useNow(running);
@@ -443,6 +487,8 @@ function TurnView({
 										? "Working"
 										: "Working · reconnecting"}{" "}
 								· {elapsedLabel(now - startedAt)}
+								{modelLabel ? ` · ${modelLabel}` : ""}
+								{turn.usage ? ` · ${formatUsage(turn.usage)}` : ""}
 							</Text>
 							<Button
 								aria-label="Stop this turn"
@@ -459,8 +505,9 @@ function TurnView({
 								turn.durationMs !== undefined
 									? elapsedLabel(turn.durationMs)
 									: null,
-								turn.usage ? formatUsage(turn.usage) : null,
-								turn.model ?? null,
+								turn.usage ? formatUsage(turn.usage) : "Usage unavailable",
+								"Cost unavailable",
+								modelLabel ?? "Model unavailable",
 							]
 								.filter(Boolean)
 								.join(" · ")}
@@ -854,6 +901,7 @@ function Composer({
 	disabledReason,
 	autoFocus,
 	busy,
+	modelControl,
 }: {
 	workspaceId: string;
 	onBrowseResources?: () => void;
@@ -861,6 +909,7 @@ function Composer({
 	disabledReason: string | null;
 	autoFocus: boolean;
 	busy: boolean;
+	modelControl: ReactNode;
 }) {
 	const [draft, setDraft] = useState("");
 	const textarea = useRef<HTMLTextAreaElement | null>(null);
@@ -894,6 +943,7 @@ function Composer({
 				rows={2}
 				value={draft}
 			/>
+			<div className="workspace-chat-model">{modelControl}</div>
 			<div className="workspace-chat-composer-row">
 				{onBrowseResources ? (
 					<WorkspaceChatResources

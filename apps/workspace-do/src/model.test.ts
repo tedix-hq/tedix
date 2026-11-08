@@ -77,3 +77,76 @@ test.each(["v1", "2025-03-01-preview"])(
 		expect(body.stream).toBe(true);
 	},
 );
+
+const configuredEnv = {
+	AZURE_OPENAI_RESOURCE: "fixture-resource",
+	AZURE_CHAT_DEPLOYMENT: "fixture-deployment",
+	AI_GATEWAY_ACCOUNT_ID: "fixture-account",
+	AI_GATEWAY_LLM_ID: "fixture-gateway",
+	CF_AI_GATEWAY_TOKEN: "fixture-token",
+};
+
+test("the model catalog exposes only a fully configured supported deployment", async () => {
+	const { configuredWorkspaceModels } = await import("./model");
+	expect(configuredWorkspaceModels({})).toEqual([]);
+	expect(
+		configuredWorkspaceModels({
+			...configuredEnv,
+			CF_AI_GATEWAY_TOKEN: "configured-via-private-overlay",
+		}),
+	).toEqual([]);
+	expect(configuredWorkspaceModels(configuredEnv)).toEqual([
+		{
+			id: "azure-openai/fixture-deployment",
+			label: "Azure deployment: fixture-deployment",
+		},
+	]);
+});
+
+test.each([true, false])(
+	"provider model and usage receipts survive the real SDK (usage=%s)",
+	async (hasUsage) => {
+		spyOn(globalThis, "fetch").mockImplementation(async () => {
+			const event = {
+				type: "response.completed",
+				response: {
+					id: "fixture-response",
+					status: "completed",
+					model: "fixture-provider-snapshot",
+					output: [],
+					...(hasUsage
+						? {
+								usage: {
+									input_tokens: 120,
+									output_tokens: 15,
+									total_tokens: 135,
+									input_tokens_details: { cached_tokens: 40 },
+								},
+							}
+						: {}),
+				},
+			};
+			return new Response(`data: ${JSON.stringify(event)}\n\n`, {
+				headers: { "Content-Type": "text/event-stream" },
+			});
+		});
+		const model = createAzureGatewayModel(configuredEnv, {
+			workspaceId: "ws",
+			turnId: "turn",
+			actorId: "user",
+		});
+		const message = await model
+			.stream({ messages: [{ role: "user", content: "Hi", timestamp: 0 }] })
+			.result();
+		expect(message.stopReason).toBe("stop");
+		expect(model.responseMetadata?.()).toEqual({
+			model: "fixture-provider-snapshot",
+			usageReported: hasUsage,
+		});
+		if (hasUsage) {
+			expect(message.usage.input).toBe(80);
+			expect(message.usage.cacheRead).toBe(40);
+			expect(message.usage.output).toBe(15);
+		}
+	},
+);

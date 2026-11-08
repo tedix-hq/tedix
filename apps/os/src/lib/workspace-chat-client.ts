@@ -96,6 +96,7 @@ export type WorkspaceChatClient = {
 		text: string;
 		newConversation?: boolean;
 		tediId?: string;
+		modelId?: string;
 		attachments?: Array<{ outputId: string }>;
 	}): string;
 	decideApproval(approvalId: string, decision: ApprovalDecision): void;
@@ -388,7 +389,10 @@ export function createWorkspaceChatClient(
 					notifiedOutputSteps.clear();
 					send({ type: "subscribe", conversationId, cursor: null });
 				}
-				state = setConversations(state, message.conversations);
+				state = {
+					...setConversations(state, message.conversations),
+					models: message.models ?? [],
+				};
 				if (state.lastError?.code === "not_connected")
 					state = { ...state, lastError: null };
 				setConnection({ phase: "open", since: openedAt });
@@ -465,6 +469,7 @@ export function createWorkspaceChatClient(
 					...initialWorkspaceChatState(null),
 					cursor: state.cursor,
 					conversations: state.conversations,
+					models: state.models,
 				};
 				send({ type: "subscribe", conversationId: null, cursor: state.cursor });
 			}
@@ -484,6 +489,7 @@ export function createWorkspaceChatClient(
 				conversationId,
 				text: input.text,
 				tediId: input.tediId,
+				...(input.modelId !== undefined ? { modelId: input.modelId } : {}),
 				attachments: input.attachments,
 			};
 			outbox.set(clientTurnId, message);

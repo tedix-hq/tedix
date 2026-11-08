@@ -63,6 +63,7 @@ export type WorkspaceChatClientMessage =
 			conversationId: string | null;
 			text: string;
 			tediId?: string;
+			modelId?: string;
 			attachments?: Array<{ outputId: string }>;
 	  }
 	| {
@@ -92,7 +93,9 @@ export type TurnUsage = {
 	inputTokens: number;
 	outputTokens: number;
 	cachedInputTokens?: number;
+	/** Legacy amounts have no trustworthy currency or attribution. Never display. */
 	costCents?: number;
+	partial?: boolean;
 };
 
 type Stamped = {
@@ -111,6 +114,8 @@ export type WorkspaceChatLedgerEvent =
 			authorId: string;
 			authorKind: "person" | "tedi";
 	  })
+	| (Stamped & { type: "turn.model"; turnId: string; model: string })
+	| (Stamped & { type: "turn.usage"; turnId: string; usage: TurnUsage })
 	| (Stamped & {
 			type: "assistant.delta";
 			turnId: string;
@@ -187,6 +192,7 @@ export type WorkspaceChatControlMessage =
 			cursor: number;
 			serverTime: string;
 			conversations: ConversationSummary[];
+			models?: Array<{ id: string; label: string }>;
 	  }
 	| { type: "caught_up"; conversationId: string | null }
 	| {
@@ -211,6 +217,8 @@ export type WorkspaceChatServerMessage =
 
 const LEDGER_TYPES = new Set<WorkspaceChatLedgerEvent["type"]>([
 	"turn.started",
+	"turn.model",
+	"turn.usage",
 	"assistant.delta",
 	"assistant.done",
 	"step.started",
