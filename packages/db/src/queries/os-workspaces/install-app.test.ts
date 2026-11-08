@@ -14,6 +14,8 @@ import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
 import {
 	installWorkspaceApp,
+	publishWorkspaceAppTemplate,
+	findWorkspaceOutputEditor,
 	type InstallWorkspaceAppParams,
 } from "./install-app";
 
@@ -90,6 +92,60 @@ function fixture() {
 }
 
 describe("workspace app installation", () => {
+	it("publishes newer template versions without moving existing app pins or regressing publication", async () => {
+		const { db, params } = fixture();
+		await db.insert(osWorkspaces).values({
+			id: "workspace",
+			organizationId: "org",
+			name: "Docs",
+			createdByKind: "user",
+			createdById: "user",
+		});
+		params.revision.manifest = JSON.stringify({
+			config: { settings: { slot: "document" } },
+		});
+		await installWorkspaceApp(db, params);
+		const next = {
+			blueprint: params.blueprint,
+			blueprintRevision: {
+				...params.blueprintRevision,
+				id: "blueprint-v2",
+				revision: 2,
+			},
+		};
+		await publishWorkspaceAppTemplate(db, next);
+		await publishWorkspaceAppTemplate(db, params);
+		expect((await db.select().from(osBlueprints))[0]?.currentRevisionId).toBe(
+			"blueprint-v2",
+		);
+		expect(
+			(await db.select().from(osGadgets))[0]?.sourceBlueprintRevisionId,
+		).toBe("blueprint-revision");
+		expect(
+			await findWorkspaceOutputEditor(db, {
+				organizationId: "org",
+				workspaceId: "workspace",
+				blueprintId: "blueprint",
+				slot: "document",
+			}),
+		).toMatchObject({ id: "app" });
+		expect(
+			await findWorkspaceOutputEditor(db, {
+				organizationId: "other-org",
+				workspaceId: "workspace",
+				blueprintId: "blueprint",
+				slot: "document",
+			}),
+		).toBeUndefined();
+		expect(
+			await findWorkspaceOutputEditor(db, {
+				organizationId: "org",
+				workspaceId: "workspace",
+				blueprintId: "blueprint",
+				slot: "other",
+			}),
+		).toBeUndefined();
+	});
 	it("installs the template, code and capability atomically and retries by stable identity", async () => {
 		const { db, params } = fixture();
 		await db.insert(osWorkspaces).values({

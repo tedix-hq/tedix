@@ -406,6 +406,49 @@ describe("WorkspaceChat", () => {
 		).not.toContain("Failed");
 	});
 
+	it.each([
+		{
+			input: {
+				ops: [
+					{
+						op: "replace",
+						index: 0,
+						slide: {
+							title: "Pilot launch",
+							bullets: ["Review costs"],
+							notes: "Speaker note",
+						},
+					},
+				],
+			},
+			text: "Replace a slide at position 1: Pilot launch\nReview costs\nSpeaker note",
+		},
+		{
+			input: { ops: [{ op: "move", from: 2, to: 0 }] },
+			text: "Move slide 3 to position 1",
+		},
+		{
+			input: { startRow: 2, startColumn: 1, cells: [["Marker", 42]] },
+			text: "Edit cells at row 3, column 2:\nMarker · 42",
+		},
+	])(
+		"previews office edits before a person decides: $text",
+		({ input, text }) => {
+			const fake = fakeClient("c1");
+			mount(fake);
+			act(() => fake.feed(heldChange(input)));
+			expect(
+				host.querySelector('[data-testid="workspace-chat-approval"]')
+					?.textContent,
+			).toContain(text);
+			expect(fake.calls).not.toContainEqual([
+				"decideApproval",
+				"approval",
+				"approve",
+			]);
+		},
+	);
+
 	it("previews the document change and hides exact input and policy behind Technical details", () => {
 		const fake = fakeClient("c1");
 		mount(fake);

@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq, getColumns, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import {
 	osBlueprints,
@@ -39,20 +39,116 @@ export interface InstallWorkspaceAppParams {
 	resource?: typeof osWorkspaceResources.$inferInsert;
 }
 
+type WorkspaceAppTemplate = Pick<
+	InstallWorkspaceAppParams,
+	"blueprint" | "blueprintRevision"
+>;
+
+function templateStatements(db: DbQueryClient, params: WorkspaceAppTemplate) {
+	return [
+		db.insert(osBlueprints).values(params.blueprint).onConflictDoNothing({
+			target: osBlueprints.id,
+		}),
+		db
+			.insert(osBlueprintRevisions)
+			.values(params.blueprintRevision)
+			.onConflictDoNothing({ target: osBlueprintRevisions.id }),
+		db
+			.update(osBlueprints)
+			.set({
+				currentRevisionId: params.blueprintRevision.id,
+				updatedAt: params.blueprint.updatedAt,
+			})
+			.where(
+				and(
+					eq(osBlueprints.organizationId, params.blueprint.organizationId),
+					eq(osBlueprints.id, params.blueprint.id),
+					sql`coalesce((select ${osBlueprintRevisions.revision} from ${osBlueprintRevisions} where ${osBlueprintRevisions.id} = ${osBlueprints.currentRevisionId}), 0) < ${params.blueprintRevision.revision}`,
+				),
+			),
+	] as const;
+}
+
+export async function publishWorkspaceAppTemplate(
+	db: DbQueryClient,
+	params: WorkspaceAppTemplate,
+) {
+	await db.batch(templateStatements(db, params));
+}
+
+export async function linkWorkspaceOutputEditor(
+	db: DbQueryClient,
+	params: {
+		organizationId: string;
+		workspaceId: string;
+		resourceId: string;
+		outputId: string;
+		gadgetId: string;
+		kind: string;
+		now: string;
+	},
+) {
+	const [row] = await db
+		.update(osWorkspaceResources)
+		.set({
+			metadata: sql`json_set(coalesce(${osWorkspaceResources.metadata}, '{}'), '$.gadgetId', ${params.gadgetId}, '$.kind', ${params.kind})`,
+			updatedAt: params.now,
+		})
+		.where(
+			and(
+				eq(osWorkspaceResources.organizationId, params.organizationId),
+				eq(osWorkspaceResources.workspaceId, params.workspaceId),
+				eq(osWorkspaceResources.id, params.resourceId),
+				eq(osWorkspaceResources.providerId, "tedix"),
+				eq(osWorkspaceResources.resourceType, "output"),
+				eq(osWorkspaceResources.providerResourceId, params.outputId),
+				eq(osWorkspaceResources.status, "active"),
+			),
+		)
+		.returning({ id: osWorkspaceResources.id });
+	return row;
+}
+
+export async function findWorkspaceOutputEditor(
+	db: DbQueryClient,
+	scope: {
+		organizationId: string;
+		workspaceId: string;
+		blueprintId: string;
+		slot: string;
+	},
+) {
+	const [row] = await db
+		.select(getColumns(osGadgets))
+		.from(osGadgets)
+		.innerJoin(
+			osBlueprintRevisions,
+			eq(osBlueprintRevisions.id, osGadgets.sourceBlueprintRevisionId),
+		)
+		.innerJoin(
+			osGadgetRevisions,
+			eq(osGadgetRevisions.id, osGadgets.currentRevisionId),
+		)
+		.where(
+			and(
+				eq(osGadgets.organizationId, scope.organizationId),
+				eq(osGadgets.workspaceId, scope.workspaceId),
+				eq(osBlueprintRevisions.blueprintId, scope.blueprintId),
+				sql`json_extract(${osGadgetRevisions.manifest}, '$.config.settings.slot') = ${scope.slot}`,
+			),
+		)
+		.orderBy(desc(osGadgets.updatedAt), osGadgets.id)
+		.limit(1);
+	return row;
+}
+
 /** Pin the template, program and capability together; no output body is copied. */
 export async function installWorkspaceApp(
 	db: DbQueryClient,
 	params: InstallWorkspaceAppParams,
 ) {
 	await db.batch([
-		db
-			.insert(osBlueprints)
-			.values(params.blueprint)
-			.onConflictDoNothing({ target: osBlueprints.id }),
-		db
-			.insert(osBlueprintRevisions)
-			.values(params.blueprintRevision)
-			.onConflictDoNothing({ target: osBlueprintRevisions.id }),
+		...templateStatements(db, params),
 		db
 			.insert(osGadgets)
 			.values(params.gadget)

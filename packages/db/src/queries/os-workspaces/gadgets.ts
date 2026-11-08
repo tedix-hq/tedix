@@ -42,6 +42,7 @@ export interface CreateOsGadgetRevisionParams {
 	/** JSON string: declared capabilities, entry, notes. */
 	manifest: string;
 	sourceArtifactRef?: string | null;
+	sourceBlueprintRevisionId?: string;
 	createdByKind: OsGadgetRevisionRow["createdByKind"];
 	createdById: string;
 	/**
@@ -250,7 +251,13 @@ export async function createOsGadgetRevision(
 		.returning();
 	const advancePointer = db
 		.update(osGadgets)
-		.set({ currentRevisionId: params.id, updatedAt: now })
+		.set({
+			currentRevisionId: params.id,
+			updatedAt: now,
+			...(params.sourceBlueprintRevisionId
+				? { sourceBlueprintRevisionId: params.sourceBlueprintRevisionId }
+				: {}),
+		})
 		.where(
 			and(
 				eq(osGadgets.id, params.gadgetId),

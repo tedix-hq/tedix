@@ -110,7 +110,7 @@ describe("Doc blueprint installation", () => {
 				workspaceId: workspace.id,
 				outputId: made.output.id,
 			}),
-		).rejects.toThrow("Document source access is unavailable");
+		).rejects.toThrow("Output source access is unavailable");
 		expect(
 			(await c.org1.gadgets.list({ workspaceId: workspace.id })).items,
 		).toHaveLength(0);

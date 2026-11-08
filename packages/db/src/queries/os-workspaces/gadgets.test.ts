@@ -136,6 +136,7 @@ describe("os gadgets", () => {
 		const files = JSON.stringify({ "server.js": "export {}", "client.js": "" });
 		const first = await createOsGadgetRevision(db, {
 			...revisionParams("rev-1", 0),
+			sourceBlueprintRevisionId: "template-1",
 			code: { files, codeLength: 9 },
 		});
 		expect(first.ok).toBe(true);
@@ -153,9 +154,16 @@ describe("os gadgets", () => {
 		).toBeUndefined();
 		const stale = await createOsGadgetRevision(db, {
 			...revisionParams("rev-2", 0),
+			sourceBlueprintRevisionId: "template-2",
 			code: { files, codeLength: 9 },
 		});
 		expect(stale).toEqual({ ok: false, reason: "revision_conflict" });
+		expect(
+			await getOsGadget(db, { organizationId: "org-1", gadgetId: "gd-1" }),
+		).toMatchObject({
+			currentRevisionId: "rev-1",
+			sourceBlueprintRevisionId: "template-1",
+		});
 		expect(
 			await getOsGadgetCode(db, {
 				organizationId: "org-1",

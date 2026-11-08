@@ -61,6 +61,78 @@ function deps(role: AppRuntimeContext["role"], reads: string[] = []) {
 }
 
 describe("app runtime host", () => {
+	it("calculates a sheet locally without reading or writing a workspace output", async () => {
+		const reads: string[] = [];
+		const callServer = vi.fn();
+		const result = await handleAppRuntimeCall(
+			{ ...deps("use", reads), callServer },
+			"sheet.evaluate",
+			{ content: { kind: "sheet", columns: ["Value"], rows: [[3], [4]] } },
+		);
+		expect(result).toMatchObject({
+			ok: true,
+			value: {
+				kind: "sheet",
+				rows: [[3], [4]],
+				workbook: { sheets: expect.any(Array) },
+			},
+		});
+		expect(reads).toEqual([]);
+		expect(callServer).not.toHaveBeenCalled();
+		expect(
+			await handleAppRuntimeCall(deps("viewer"), "sheet.evaluate", {
+				content: { kind: "sheet", columns: [], rows: [] },
+			}),
+		).toMatchObject({ ok: false, error: "not_permitted" });
+		expect(
+			await handleAppRuntimeCall(deps("use"), "sheet.evaluate", {
+				content: { kind: "document", blocks: [] },
+			}),
+		).toMatchObject({ ok: false, error: "bad_arguments" });
+	});
+
+	it("exports text through the host without granting the sandbox navigation or HTML downloads", async () => {
+		const click = vi
+			.spyOn(HTMLAnchorElement.prototype, "click")
+			.mockImplementation(() => {});
+		const create = vi
+			.spyOn(URL, "createObjectURL")
+			.mockReturnValue("blob:export");
+		const revoke = vi
+			.spyOn(URL, "revokeObjectURL")
+			.mockImplementation(() => {});
+		vi.useFakeTimers();
+		try {
+			expect(
+				await handleAppRuntimeCall(deps("use"), "app.download", {
+					filename: "../sheet.csv",
+					mimeType: "text/csv;charset=utf-8",
+					text: "Value\r\n42",
+				}),
+			).toEqual({ ok: true, value: { filename: ".._sheet.csv" } });
+			expect(create).toHaveBeenCalledOnce();
+			expect(click).toHaveBeenCalledOnce();
+			expect(document.querySelector("a[download]")).toBeNull();
+			await vi.runAllTimersAsync();
+			expect(revoke).toHaveBeenCalledWith("blob:export");
+			for (const [role, mimeType] of [
+				["viewer", "text/plain"],
+				["use", "text/html"],
+			] as const) {
+				expect(
+					await handleAppRuntimeCall(deps(role), "app.download", {
+						filename: "test",
+						mimeType,
+						text: "test",
+					}),
+				).toMatchObject({ ok: false });
+			}
+			expect(click).toHaveBeenCalledOnce();
+		} finally {
+			vi.useRealTimers();
+			vi.restoreAllMocks();
+		}
+	});
 	it("invalidates canonical output caches only after successful declared writes", async () => {
 		const client = new QueryClient();
 		const key: readonly unknown[] = outputDetailQueryOptions(outputId).queryKey;

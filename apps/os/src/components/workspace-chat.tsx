@@ -646,23 +646,42 @@ function blockPreview(value: unknown): string {
 
 function approvalPreview(input: Record<string, unknown> | null): string {
 	if (!input) return "";
+	if (Array.isArray(input.cells))
+		return `Edit cells at row ${Number(input.startRow ?? 0) + 1}, column ${Number(input.startColumn ?? 0) + 1}:\n${input.cells
+			.slice(0, 6)
+			.filter(Array.isArray)
+			.map((row) => row.join(" · "))
+			.join("\n")}`.slice(0, 2_000);
 	if (Array.isArray(input.ops))
 		return input.ops
 			.slice(0, 6)
 			.map((value) => {
 				const operation = objectValue(value);
 				if (!operation) return "";
+				if (operation.op === "move")
+					return `Move slide ${Number(operation.from) + 1} to position ${Number(operation.to) + 1}`;
 				const position =
 					typeof operation.index === "number"
 						? ` at position ${operation.index + 1}`
 						: "";
+				const unit =
+					operation.slide || input.kind === "presentation" ? "slide" : "block";
 				const action =
 					operation.op === "delete"
-						? `Delete a block${position}`
+						? `Delete a ${unit}${position}`
 						: operation.op === "insert"
-							? `Insert a block${position}`
-							: `Replace a block${position}`;
-				const text = blockPreview(operation.block);
+							? `Insert a ${unit}${position}`
+							: `Replace a ${unit}${position}`;
+				const slide = objectValue(operation.slide);
+				const text = slide
+					? [
+							slide.title,
+							...(Array.isArray(slide.bullets) ? slide.bullets : []),
+							slide.notes,
+						]
+							.filter((value) => typeof value === "string")
+							.join("\n")
+					: blockPreview(operation.block);
 				return text ? `${action}: ${text}` : action;
 			})
 			.join("\n")

@@ -1,4 +1,4 @@
-import { installDocument } from "./os-doc-blueprint";
+import { installDocument, installOutputEditor } from "./os-editor-blueprints";
 import { validateAppSource } from "../../services/os-app-validation";
 import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { saveWorkspaceBlueprint } from "./os-blueprint-save";
@@ -2349,6 +2349,7 @@ export const osWorkspacesContractRouter = osWorkspacesOs.router({
 	work: workspaceWork.osWorkspaceWorkProcedures,
 	gadgets: {
 		installDocument,
+		installOutputEditor,
 		installWorkDefaults,
 		workApps,
 		list: gadgetsList,
