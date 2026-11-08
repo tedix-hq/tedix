@@ -7,6 +7,8 @@ import {
 	buildAppRuntimeDocument,
 	handleAppRuntimeCall,
 	type AppRuntimeContext,
+	type AppRuntimeHostDeps,
+	type AppRuntimeDraft,
 } from "./app-runtime-host";
 
 const outputId = "aaaaaaaa-0000-4000-8000-000000000001";
@@ -61,6 +63,127 @@ function deps(role: AppRuntimeContext["role"], reads: string[] = []) {
 }
 
 describe("app runtime host", () => {
+	it("keeps drafts only in panel memory, scoped to workspace, gadget, app revision and output", async () => {
+		const drafts = new Map<string, AppRuntimeDraft>();
+		const base = deps("owner");
+		const host: AppRuntimeHostDeps = {
+			...base,
+			drafts,
+			appRevisionId: "app-r1",
+			context: {
+				...base.context,
+				grants: [
+					{
+						slot: "opportunities",
+						operations: ["outputs.read", "outputs.write"],
+					},
+				],
+			},
+		};
+		const args = { slot: "opportunities", outputId };
+		const content = {
+			kind: "sheet" as const,
+			columns: ["Draft"],
+			rows: [["Unsaved"]],
+		};
+		expect(
+			await handleAppRuntimeCall(host, "app.draft.write", {
+				...args,
+				revision: 2,
+				content,
+			}),
+		).toEqual({ ok: true, value: null });
+		expect(drafts.size).toBe(1);
+		expect(await handleAppRuntimeCall(host, "app.draft.read", args)).toEqual({
+			ok: true,
+			value: { revision: 2, content },
+		});
+		for (const scoped of [
+			{ ...host, appRevisionId: "app-r2" },
+			{
+				...host,
+				context: {
+					...host.context,
+					gadget: { ...host.context.gadget, id: "another-gadget" },
+				},
+			},
+		])
+			expect(
+				await handleAppRuntimeCall(scoped, "app.draft.read", args),
+			).toEqual({ ok: true, value: null });
+		expect(
+			await handleAppRuntimeCall(
+				{
+					...host,
+					context: { ...host.context, workspaceId: "another-workspace" },
+				},
+				"app.draft.read",
+				args,
+			),
+		).toMatchObject({ ok: false, error: "slot_unbound" });
+		expect(
+			await handleAppRuntimeCall(host, "app.draft.read", {
+				...args,
+				outputId: "another-output",
+			}),
+		).toMatchObject({ ok: false, error: "slot_unbound" });
+		await handleAppRuntimeCall(host, "app.draft.clear", args);
+		expect(drafts.size).toBe(0);
+	});
+
+	it("authorizes a fresh source read before restoring a draft and clears it on access failure", async () => {
+		const drafts = new Map<string, AppRuntimeDraft>();
+		const base = deps("owner");
+		const host: AppRuntimeHostDeps = {
+			...base,
+			drafts,
+			appRevisionId: "app-r1",
+			context: {
+				...base.context,
+				grants: [
+					{
+						slot: "opportunities",
+						operations: ["outputs.read", "outputs.write"],
+					},
+				],
+			},
+			readOutput: vi.fn(base.readOutput),
+		};
+		const args = { slot: "opportunities", outputId };
+		await handleAppRuntimeCall(host, "app.draft.write", {
+			...args,
+			revision: 1,
+			content: { kind: "sheet", columns: ["Draft"], rows: [] },
+		});
+		await handleAppRuntimeCall(host, "app.draft.read", args);
+		expect(host.readOutput).toHaveBeenCalledWith(outputId);
+		host.readOutput = vi.fn().mockRejectedValue(new Error("Source denied"));
+		await expect(
+			handleAppRuntimeCall(host, "app.draft.read", args),
+		).rejects.toThrow("Source denied");
+		expect(drafts.size).toBe(0);
+	});
+
+	it("rejects readonly and ungranted drafts without invoking app code or persisting another body", async () => {
+		const drafts = new Map<string, AppRuntimeDraft>();
+		const callServer = vi.fn();
+		const args = {
+			slot: "opportunities",
+			outputId,
+			revision: 1,
+			content: { kind: "sheet", columns: ["Draft"], rows: [] },
+		};
+		for (const role of ["viewer", "use", "owner"] as const)
+			expect(
+				await handleAppRuntimeCall(
+					{ ...deps(role), drafts, callServer },
+					"app.draft.write",
+					args,
+				),
+			).toMatchObject({ ok: false, error: "not_permitted" });
+		expect(drafts.size).toBe(0);
+		expect(callServer).not.toHaveBeenCalled();
+	});
 	it("calculates a sheet locally without reading or writing a workspace output", async () => {
 		const reads: string[] = [];
 		const callServer = vi.fn();

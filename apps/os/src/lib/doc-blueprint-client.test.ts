@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
-import { DOC_CLIENT_SOURCE } from "@tedix/api-contract/assets/doc-blueprint";
+import { DOC_LEGACY_CLIENT_SOURCE as DOC_CLIENT_SOURCE } from "@tedix/api-contract/assets/doc-blueprint";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {

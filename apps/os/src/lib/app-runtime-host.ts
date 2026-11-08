@@ -64,6 +64,8 @@ export type AppRuntimeHostResult =
 	| { ok: true; value: unknown }
 	| { ok: false; error: AppRuntimeHostError; detail?: string };
 
+export type AppRuntimeDraft = { revision: number; content: OsOutputContent };
+
 export interface AppRuntimeHostDeps {
 	context: AppRuntimeContext;
 	resources: readonly OsWorkspaceResource[];
@@ -76,6 +78,8 @@ export interface AppRuntimeHostDeps {
 	callServer?: (method: string, args: JsonValue[]) => Promise<JsonValue>;
 	operations?: OsGadgetManifest["operations"];
 	onWrite?: () => void;
+	appRevisionId?: string;
+	drafts?: Map<string, AppRuntimeDraft>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -107,6 +111,74 @@ export async function handleAppRuntimeCall(
 	switch (method) {
 		case "context":
 			return { ok: true, value: context };
+		case "app.draft.read":
+		case "app.draft.write":
+		case "app.draft.clear": {
+			if (
+				!isRecord(args) ||
+				typeof args.slot !== "string" ||
+				typeof args.outputId !== "string"
+			)
+				return { ok: false, error: "bad_arguments" };
+			const outputId = outputIdForSlot(
+				deps.resources.filter(
+					(resource) => resource.workspaceId === context.workspaceId,
+				),
+				args.slot,
+			);
+			if (!outputId || outputId !== args.outputId)
+				return { ok: false, error: "slot_unbound" };
+			const key = `${context.workspaceId}:${context.gadget.id}:${deps.appRevisionId ?? context.gadget.revision}:${outputId}`;
+			if (
+				!appRuntimePermission({
+					role: context.role,
+					operation: "outputs.write",
+					grants: context.grants,
+					slot: args.slot,
+				}).allowed ||
+				!appRuntimePermission({
+					role: context.role,
+					operation: "outputs.read",
+					grants: context.grants,
+					slot: args.slot,
+				}).allowed
+			) {
+				deps.drafts?.delete(key);
+				return { ok: false, error: "not_permitted" };
+			}
+			if (!deps.drafts) return { ok: false, error: "host_unavailable" };
+			if (method === "app.draft.clear") {
+				deps.drafts.delete(key);
+				return { ok: true, value: null };
+			}
+			if (method === "app.draft.read") {
+				try {
+					const current = await deps.readOutput(outputId);
+					const draft = deps.drafts.get(key);
+					if (draft && draft.content.kind !== current.kind) {
+						deps.drafts.delete(key);
+						return { ok: true, value: null };
+					}
+					return { ok: true, value: draft ? structuredClone(draft) : null };
+				} catch (error) {
+					deps.drafts.delete(key);
+					throw error;
+				}
+			}
+			if (
+				!Number.isInteger(args.revision) ||
+				Number(args.revision) < 1 ||
+				(JSON.stringify(args.content) ?? "").length > 1_000_000
+			)
+				return { ok: false, error: "bad_arguments" };
+			const content = OsOutputContentSchema.safeParse(args.content);
+			if (!content.success) return { ok: false, error: "bad_arguments" };
+			deps.drafts.set(key, {
+				revision: Number(args.revision),
+				content: content.data,
+			});
+			return { ok: true, value: null };
+		}
 		case "sheet.evaluate": {
 			if (context.role === "viewer")
 				return { ok: false, error: "not_permitted" };

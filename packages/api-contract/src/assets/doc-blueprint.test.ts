@@ -1,10 +1,14 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import { z } from "zod";
+import { createHash } from "node:crypto";
+import { AppRuntimeFilesSchema } from "../schemas/os-app-runtime";
 import { OsBlueprintDefinitionSchema } from "../schemas/os-workspaces";
 import { normalizeOsOutputInput } from "../utils/os-document";
 import {
 	buildDocBlueprint,
 	DOC_CLIENT_SOURCE,
+	DOC_CLIENT_SHA256,
+	DOC_BLUEPRINT_VERSION,
 	DOC_SERVER_SOURCE,
 } from "./doc-blueprint";
 
@@ -65,6 +69,20 @@ function runtime(content: Document = { kind: "document", blocks: [] }) {
 }
 
 describe("Doc blueprint", () => {
+	it("pins a self-contained version-3 client with a checked digest and complete code under the runtime limit", () => {
+		const files = buildDocBlueprint().gadgets[0]!.files!;
+		expect(DOC_BLUEPRINT_VERSION).toBe(3);
+		expect(createHash("sha256").update(DOC_CLIENT_SOURCE).digest("hex")).toBe(
+			DOC_CLIENT_SHA256,
+		);
+		expect(AppRuntimeFilesSchema.parse(files)).toEqual(files);
+		expect(
+			Object.values(files).reduce((sum, text) => sum + text.length, 0),
+		).toBeLessThanOrEqual(512_000);
+		expect(DOC_CLIENT_SOURCE).toMatch(
+			/Bundled license information|@license|Copyright/i,
+		);
+	});
 	it("ships a portable runtime app with one canonical document slot", () => {
 		const definition = buildDocBlueprint("project_doc");
 		expect(OsBlueprintDefinitionSchema.parse(definition)).toEqual(definition);
@@ -79,7 +97,7 @@ describe("Doc blueprint", () => {
 		const gadget = definition.gadgets[0]!;
 		expect(gadget.manifest.config).toEqual({
 			version: 1,
-			settings: { slot: "project_doc", editor: "document-v2" },
+			settings: { slot: "project_doc", editor: "document-v3" },
 		});
 		expect(gadget.manifest.resourceGrants).toEqual([
 			{
