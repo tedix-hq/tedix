@@ -226,14 +226,21 @@ export async function getActiveSheetByTitle(
 	...args: Parameters<typeof legacy.getActiveSheetByTitle>
 ) {
 	const existing = await legacy.getActiveSheetByTitle(...args);
-	if (existing || !runtime()) return existing;
-	return runtime()!.outputQuery(
+	if (!runtime()) return existing;
+	const object = await runtime()!.outputQuery(
 		{
 			organizationId: args[1].organizationId,
 			workspaceId: args[1].workspaceId,
 		},
 		{ op: "activeSheet", title: args[1].title },
 	);
+	if (!object || object.output.id === existing?.output.id) return existing;
+	return !existing ||
+		object.output.updatedAt > existing.output.updatedAt ||
+		(object.output.updatedAt === existing.output.updatedAt &&
+			object.output.id > existing.output.id)
+		? object
+		: existing;
 }
 
 export async function deleteOsOutput(
@@ -253,6 +260,16 @@ export async function deleteOsOutput(
 			});
 		}
 		const removed = await legacy.deleteOsOutput(...args);
+		if (removed && existing.workspaceId && runtime()) {
+			await refreshCommittedOutput(
+				runtime()!,
+				{
+					organizationId: existing.organizationId,
+					workspaceId: existing.workspaceId,
+				},
+				existing.id,
+			);
+		}
 		return removed;
 	}
 	const scope = runtime()
