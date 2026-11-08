@@ -552,11 +552,18 @@ async function resolveConnectionDecisions(input: {
 	const decisions: Decision[] = [];
 	const requirements = [
 		...input.requirements.connections,
-		...(input.requirements.resources ?? []).map((resource) => ({
-			providerId: resource.providerId,
-			tokenScope: resource.tokenScope,
-			scopes: resource.scopes,
-		})),
+		...(input.requirements.resources ?? [])
+			.filter(
+				(resource) =>
+					resource.providerId !== "tedix" ||
+					resource.tokenScope !== "tenant" ||
+					resource.scopes.length !== 0,
+			)
+			.map((resource) => ({
+				providerId: resource.providerId,
+				tokenScope: resource.tokenScope,
+				scopes: resource.scopes,
+			})),
 	].filter(
 		(requirement, index, all) =>
 			all.findIndex(
