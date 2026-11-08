@@ -5853,10 +5853,13 @@ it("keeps a slow but progressing pass from looking hung to the supervisor", asyn
 	const before = dispatcherNextCheckAt(f.dir, process.pid);
 	await dispatcher.tick();
 	expect(before).toBeUndefined();
-	// After the first completed call of the pass, the due time sits about one
-	// read ceiling ahead instead of at the end of the previous pass.
+	// From the start of the pass, and so before its first call has returned,
+	// the due time sits about one read ceiling ahead instead of at the process
+	// start; a first call slower than the supervisor's grace no longer looks
+	// like a hung startup.
 	expect(seen.length).toBeGreaterThan(0);
-	expect(Math.max(...seen)).toBeGreaterThan(4 * 60_000);
+	expect(Math.min(...seen)).toBeGreaterThan(4 * 60_000);
+	expect(Math.max(...seen)).toBeLessThanOrEqual(5 * 60_000);
 });
 
 it("retries claim preflight deadlines inside one logged budget before admission", async () => {
