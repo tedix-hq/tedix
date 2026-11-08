@@ -2,8 +2,9 @@
 
 The artifact gateway is the public, cookie-isolated byte boundary for content
 authored by agents. It accepts only `GET`/`HEAD` requests on the signed artifact
-and skill-media routes plus the authority-free `GET /health` deployment proof,
-removes ambient browser and Tedix authority headers, and streams the API
+and skill-media routes, public catalog assets under `/catalog-assets/`, and
+the authority-free `GET /health` deployment proof. It removes ambient browser
+and Tedix authority headers, and streams the API
 service-binding response without buffering it.
 
 The API remains the authority for URL signatures, organization checks, object

@@ -83,7 +83,12 @@ export async function handleArtifactGatewayRequest(
 		return health(env.GIT_SHA);
 	if (request.method !== "GET" && request.method !== "HEAD")
 		return notFound(env.GIT_SHA);
-	if (!isSignedBytePath(url.pathname)) return notFound(env.GIT_SHA);
+	// authz: public — the API allows only catalog asset prefixes on this route.
+	if (
+		!isSignedBytePath(url.pathname) &&
+		!url.pathname.startsWith("/catalog-assets/")
+	)
+		return notFound(env.GIT_SHA);
 
 	const response = await env.API_SERVICE.fetch(
 		requestWithoutAuthority(request),

@@ -1,8 +1,10 @@
 import type { Hono } from "hono";
+import { registerCatalogAssets } from "./catalog-assets";
 import { resolveUntrustedContentOrigin } from "../lib/untrusted-origin";
 import { resolveMediaRouteOrgId, untrustedContentRedirect } from "./shared";
 
 export function registerArtifactRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
+	registerCatalogAssets(app);
 	// =============================================================================
 	// ARTIFACT SERVING
 	// =============================================================================

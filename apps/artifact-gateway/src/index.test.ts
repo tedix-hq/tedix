@@ -34,7 +34,8 @@ describe("artifact gateway", () => {
 		"https://artifacts.example/artifacts/s/tedi-1/artifact-1?exp=1&token=x",
 		"https://artifacts.example/artifacts/s/tedi-1/artifact-1/index.html?exp=1&token=x",
 		"https://artifacts.example/skill-media/run-1/image.png?exp=1&token=x",
-	])("forwards only signed byte route %s", async (url) => {
+		"https://artifacts.example/catalog-assets/app_catalog/example/app/logo.png",
+	])("forwards an allowed byte route %s", async (url) => {
 		const fetch = vi.fn(async () => new Response("bytes", { status: 200 }));
 		const response = await handleArtifactGatewayRequest(
 			new Request(url),
