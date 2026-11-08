@@ -152,6 +152,7 @@ export type WorkspaceChatLedgerEvent =
 			reason: string;
 			policy?: string;
 			input?: unknown;
+			target?: { id: string; title: string };
 	  })
 	| (Stamped & {
 			type: "approval.decided";

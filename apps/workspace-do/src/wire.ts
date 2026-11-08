@@ -62,6 +62,7 @@ export type WireEventBody =
 			reason: string;
 			policy?: string;
 			input?: unknown;
+			target?: { id: string; title: string };
 	  }
 	| {
 			type: "approval.decided";
