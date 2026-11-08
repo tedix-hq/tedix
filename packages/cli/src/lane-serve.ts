@@ -1481,6 +1481,7 @@ export class LaneDispatcher {
 			["readiness", "dispatch-get", "dispatch-attempts", "heartbeat"].includes(
 				args[1] ?? "",
 			);
+		this.notePassProgress();
 		return this.queue(
 			() =>
 				safe
@@ -1504,9 +1505,11 @@ export class LaneDispatcher {
 	 * A pass walks its items one call at a time, so with slow reads it can
 	 * outlast the supervisor's pass grace while still progressing; the
 	 * supervisor then killed it mid-dispatch and the restart began again at the
-	 * top of the list. Each completed call during a pass moves the due time to
-	 * one read ceiling ahead, so only a pass with no completed call that long
-	 * counts as hung.
+	 * top of the list. The start of a pass and the start and end of every call
+	 * move the due time to one read ceiling ahead, so only a pass that neither
+	 * starts nor finishes a call for that long counts as hung. Before this also
+	 * covered the start, a first call slower than the grace was measured from
+	 * the process start and the runner was killed during its own startup.
 	 */
 	private notePassProgress() {
 		if (!this.ticking || this.stopping) return;
@@ -1529,6 +1532,7 @@ export class LaneDispatcher {
 	}
 	async tick() {
 		this.ticking = true;
+		this.notePassProgress();
 		try {
 			await this.runTick();
 		} finally {
