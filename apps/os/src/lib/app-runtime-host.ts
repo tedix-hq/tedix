@@ -71,6 +71,8 @@ export interface AppRuntimeHostDeps {
 	 */
 	readSlot?: (slot: string) => Promise<OsOutputContent>;
 	callServer?: (method: string, args: JsonValue[]) => Promise<JsonValue>;
+	operations?: OsGadgetManifest["operations"];
+	onWrite?: () => void;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -133,10 +135,12 @@ export async function handleAppRuntimeCall(
 			if (!name.success || !parameters.success)
 				return { ok: false, error: "bad_arguments" };
 			if (!deps.callServer) return { ok: false, error: "host_unavailable" };
-			return {
-				ok: true,
-				value: await deps.callServer(name.data, parameters.data),
-			};
+			const value = await deps.callServer(name.data, parameters.data);
+			const operation = deps.operations?.find(
+				(entry) => entry.name === name.data,
+			);
+			if (operation && operation.effect !== "read") deps.onWrite?.();
+			return { ok: true, value };
 		}
 		default:
 			return { ok: false, error: "unknown_method" };
