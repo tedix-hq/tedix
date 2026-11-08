@@ -725,6 +725,10 @@ describe("WorkspaceDO", () => {
 		await seedCore();
 		const ws = workspace();
 		await seedOutputs(ws);
+		const before = await ws.outputQuery(scope, {
+			op: "get",
+			outputId: "out-doc",
+		});
 		await ws.scriptModel(scope, [
 			{
 				code: `export default async (env) => env.outputs.revise({
@@ -777,7 +781,7 @@ describe("WorkspaceDO", () => {
 		expect(
 			(await ws.outputQuery(scope, { op: "get", outputId: "out-doc" }))
 				?.currentRevisionId,
-		).toBe("rev-doc");
+		).toBe(before?.currentRevisionId);
 	});
 
 	test("events replay from a cursor and a guest tedi's profile comes from its own object", async () => {
