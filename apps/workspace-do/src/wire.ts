@@ -28,7 +28,7 @@ export type WireEventBody =
 			turnId: string;
 			messageId: string;
 			text: string;
-			usage: {
+			usage?: {
 				inputTokens: number;
 				outputTokens: number;
 				cachedInputTokens?: number;

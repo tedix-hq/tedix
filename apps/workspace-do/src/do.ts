@@ -1311,13 +1311,20 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				turnId,
 				messageId: turnId,
 				text: result.text,
-				usage: {
-					inputTokens: result.usage?.input ?? 0,
-					outputTokens: result.usage?.output ?? 0,
-					...(result.usage?.cacheRead
-						? { cachedInputTokens: result.usage.cacheRead }
-						: {}),
-				},
+				...(result.usage
+					? {
+							usage: {
+								inputTokens:
+									result.usage.input +
+									result.usage.cacheRead +
+									result.usage.cacheWrite,
+								outputTokens: result.usage.output,
+								...(result.usage.cacheRead
+									? { cachedInputTokens: result.usage.cacheRead }
+									: {}),
+							},
+						}
+					: {}),
 			});
 			this.#events.append(conversationId, {
 				type: "turn.finished",
@@ -1509,13 +1516,16 @@ export async function executeTurn(
 					],
 				});
 				const summary = await stream.result();
-				return summary.content
-					.filter(
-						(block): block is { type: "text"; text: string } =>
-							block.type === "text",
-					)
-					.map((block) => block.text)
-					.join("");
+				return {
+					summary: summary.content
+						.filter(
+							(block): block is { type: "text"; text: string } =>
+								block.type === "text",
+						)
+						.map((block) => block.text)
+						.join(""),
+					usage: summary.usage,
+				};
 			},
 		},
 		{

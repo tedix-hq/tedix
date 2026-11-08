@@ -5,11 +5,27 @@ import {
 	fauxText,
 	fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
-import type { Context } from "@earendil-works/pi-ai";
+import type { Context, Usage } from "@earendil-works/pi-ai";
 import type { ModelPort } from "./model";
 import { RUN_CODE_TOOL } from "./prompt";
 import type { SandboxRunResult } from "./runtime";
 import { runTurn } from "./turn-loop";
+
+function tokenUsage(
+	input: number,
+	output: number,
+	cacheRead = 0,
+	cacheWrite = 0,
+): Usage {
+	return {
+		input,
+		output,
+		cacheRead,
+		cacheWrite,
+		totalTokens: input + output + cacheRead + cacheWrite,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+	};
+}
 
 function fauxModel(core: ReturnType<typeof createFauxCore>): ModelPort {
 	const model = core.getModel();
@@ -59,7 +75,7 @@ describe("runTurn", () => {
 					return { ok: true, result: 3, logs: [], durationMs: 2 };
 				},
 				emit: (event) => events.push(event.type),
-				summarize: async () => "n/a",
+				summarize: async () => ({ summary: "n/a", usage: tokenUsage(0, 0) }),
 			},
 			{
 				turnId: "t1",
@@ -71,6 +87,16 @@ describe("runTurn", () => {
 		expect(result.text).toBe("There are 3 open Work items.");
 		expect(result.stopReason).toBe("answered");
 		expect(result.steps).toBe(2);
+		const calls = result.appended.filter(
+			(message) => message.role === "assistant",
+		);
+		expect(calls).toHaveLength(2);
+		expect(result.usage?.input).toBe(
+			calls[0]!.usage.input + calls[1]!.usage.input,
+		);
+		expect(result.usage?.output).toBe(
+			calls[0]!.usage.output + calls[1]!.usage.output,
+		);
 		expect(ran).toHaveLength(1);
 		expect(result.appended.map((m) => m.role)).toEqual([
 			"user",
@@ -110,7 +136,7 @@ describe("runTurn", () => {
 					durationMs: 1,
 				}),
 				emit: (event) => events.push(event.type),
-				summarize: async () => "n/a",
+				summarize: async () => ({ summary: "n/a", usage: tokenUsage(0, 0) }),
 			},
 			{
 				turnId: "t2",
@@ -144,13 +170,22 @@ describe("runTurn", () => {
 				emit: () => {},
 				summarize: async () => {
 					summarized += 1;
-					return "summary";
+					return { summary: "summary", usage: tokenUsage(17, 3, 4, 1) };
 				},
 			},
 			{ turnId: "t3", systemPrompt: "sys", history, userText: "hi" },
 		);
 		expect(summarized).toBe(1);
 		expect(result.compaction?.summary).toBe("summary");
+		const answer = result.appended.find(
+			(message) => message.role === "assistant",
+		);
+		expect(result.usage).toEqual({
+			input: 17 + answer!.usage.input,
+			output: 3 + answer!.usage.output,
+			cacheRead: 4 + answer!.usage.cacheRead,
+			cacheWrite: 1 + answer!.usage.cacheWrite,
+		});
 		expect(result.compaction?.droppedMessages).toBe(42);
 	});
 });

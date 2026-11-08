@@ -22,7 +22,10 @@ import { workItems } from "@tedix/db/schema/work-items";
 import { tenantStoreStub } from "@tedix/db/tenant-store/router";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { createOsOutput as createCoreOutput } from "@tedix/db/queries/os-workspaces/outputs";
-import { getWorkspaceOutputIndexCurrent } from "@tedix/db/queries/workspace-feed/read";
+import {
+	getWorkspaceOutputIndexCurrent,
+	listWorkspaceActivity,
+} from "@tedix/db/queries/workspace-feed/read";
 import { storeOutputBody } from "../src/data-port-tenant";
 import type { WorkspaceEnv, WorkspaceScope } from "../src/env";
 import type { WorkspaceRpc } from "../src/do";
@@ -334,6 +337,25 @@ describe("WorkspaceDO", () => {
 		expect(finished?.type === "turn.finished" && finished.status).toBe("done");
 		// The sandbox returned the real numbers, not the scripted text.
 		const messages = await ws.readMessages(scope, conversationId);
+		const modelCalls = messages.filter(
+			(message) => message.role === "assistant",
+		);
+		expect(modelCalls).toHaveLength(2);
+		const done = events.find((event) => event.type === "assistant.done");
+		expect(done?.type === "assistant.done" && done.usage).toMatchObject({
+			inputTokens: modelCalls.reduce(
+				(sum, message) =>
+					sum +
+					message.usage.input +
+					message.usage.cacheRead +
+					message.usage.cacheWrite,
+				0,
+			),
+			outputTokens: modelCalls.reduce(
+				(sum, message) => sum + message.usage.output,
+				0,
+			),
+		});
 		const toolText = JSON.stringify(
 			messages.find((m) => m.role === "toolResult"),
 		);
@@ -469,6 +491,58 @@ describe("WorkspaceDO", () => {
 			},
 		});
 		expect(stale).toEqual({ ok: false, reason: "revision_conflict" });
+		const activity = await listWorkspaceActivity(
+			db,
+			{ organizationId: scope.organizationId, viewer: { userIds: ["u1"] } },
+			{ workspaceId: scope.workspaceId, kinds: ["output"] },
+		);
+		expect(
+			activity
+				.filter((row) => row.entityId === "object-browser")
+				.map((row) => row.changeRecordId),
+		).toEqual(["object-browser-r2", "object-browser-r1"]);
+		expect(
+			await listWorkspaceActivity(
+				db,
+				{ organizationId: "other-org", viewer: { userIds: ["u1"] } },
+				{ workspaceId: scope.workspaceId, kinds: ["output"] },
+			),
+		).toEqual([]);
+		await testEnv.DB.prepare(
+			"UPDATE os_workspaces SET visibility = 'private', owner_user_id = 'u1' WHERE id = ? AND organization_id = ?",
+		)
+			.bind(scope.workspaceId, scope.organizationId)
+			.run();
+		try {
+			expect(
+				await listWorkspaceActivity(
+					db,
+					{
+						organizationId: scope.organizationId,
+						viewer: { userIds: ["other"] },
+					},
+					{ workspaceId: scope.workspaceId, kinds: ["output"] },
+				),
+			).toEqual([]);
+			expect(
+				(
+					await listWorkspaceActivity(
+						db,
+						{
+							organizationId: scope.organizationId,
+							viewer: { userIds: ["u1"] },
+						},
+						{ workspaceId: scope.workspaceId, kinds: ["output"] },
+					)
+				).some((row) => row.entityId === "object-browser"),
+			).toBe(true);
+		} finally {
+			await testEnv.DB.prepare(
+				"UPDATE os_workspaces SET visibility = 'org', owner_user_id = NULL WHERE id = ? AND organization_id = ?",
+			)
+				.bind(scope.workspaceId, scope.organizationId)
+				.run();
+		}
 		await ws.scriptModel(scope, [
 			{
 				code: `export default async (env) => ({
