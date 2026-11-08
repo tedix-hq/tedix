@@ -80,6 +80,8 @@ export type WorkspaceChatClientOptions = {
 	fetchFn?: (url: string) => Promise<{ ok: boolean; json(): Promise<unknown> }>;
 	/** Batches token renders; defaults to an animation frame. */
 	scheduleFrame?: (callback: () => void) => void;
+	/** A committed output write completed, including a resumed approval. */
+	onOutputChanged?: () => void;
 };
 
 export type WorkspaceChatClient = {
@@ -152,6 +154,11 @@ export function createWorkspaceChatClient(
 	 */
 	const outbox: WorkspaceChatClientMessage[] = [];
 	let draftEvents: WorkspaceChatLedgerEvent[] = [];
+	const completedSteps = new Map<
+		string,
+		Extract<WorkspaceChatLedgerEvent, { type: "step.finished" }>
+	>();
+	const notifiedOutputSteps = new Set<string>();
 	/** Frames folded between animation frames; one render per frame. */
 	let frameScheduled = false;
 	let dirty = false;
@@ -315,6 +322,29 @@ export function createWorkspaceChatClient(
 		};
 	}
 
+	function notifyOutputChanges(events: readonly WorkspaceChatLedgerEvent[]) {
+		for (const event of events) {
+			if (
+				event.conversationId !== conversationId ||
+				event.type !== "step.finished"
+			)
+				continue;
+			const key = `${event.turnId}:${event.stepId}`;
+			if ((completedSteps.get(key)?.seq ?? -1) < event.seq)
+				completedSteps.set(key, event);
+		}
+		for (const [key, event] of completedSteps) {
+			if (event.status !== "ok" || notifiedOutputSteps.has(key)) continue;
+			const step = state.turns
+				.find((turn) => turn.turnId === event.turnId)
+				?.steps.find((item) => item.stepId === event.stepId);
+			if (step?.kind === "write" && step.tool?.startsWith("outputs.")) {
+				notifiedOutputSteps.add(key);
+				options.onOutputChanged?.();
+			}
+		}
+	}
+
 	function handle(message: WorkspaceChatServerMessage): void {
 		armLiveness();
 		if (isLedgerEvent(message)) {
@@ -324,6 +354,7 @@ export function createWorkspaceChatClient(
 			const next = applyWorkspaceChatEvent(state, message);
 			if (next !== state) {
 				state = next;
+				notifyOutputChanges([message]);
 				if (message.type === "assistant.delta") scheduleRender();
 				else publish();
 			}
@@ -365,6 +396,7 @@ export function createWorkspaceChatClient(
 						{ ...state, conversationId },
 						draftEvents,
 					);
+					notifyOutputChanges(draftEvents);
 					draftEvents = [];
 					send({ type: "subscribe", conversationId, cursor: state.cursor });
 				}
@@ -377,6 +409,7 @@ export function createWorkspaceChatClient(
 					applyWorkspaceChatEvents(state, message.events),
 					message.hasMore,
 				);
+				notifyOutputChanges(message.events);
 				publish();
 				return;
 			}

@@ -275,7 +275,21 @@ export function applyWorkspaceChatEvent(
 		case "step.started":
 			turns = place(event.turnId)((turn) =>
 				turn.steps.some((step) => step.stepId === event.stepId)
-					? turn
+					? {
+							...turn,
+							steps: turn.steps.map((step) =>
+								step.stepId === event.stepId
+									? {
+											...step,
+											label: event.label,
+											kind: event.kind,
+											tool: event.tool,
+											input: event.input,
+											startedAt: event.at,
+										}
+									: step,
+							),
+						}
 					: {
 							...turn,
 							steps: [
