@@ -584,6 +584,135 @@ describe("WorkspaceDO", () => {
 		expect(p95).toBeLessThan(20_000);
 	});
 
+	test.each(["sheets", "presentations"] as const)(
+		"%s edits round-trip through the sandbox and approval receipt",
+		async (binding) => {
+			await seedCore();
+			const workspaceScope = { ...scope, workspaceId: crypto.randomUUID() };
+			await seedWorkspaceRows([workspaceScope]);
+			const ws = workspace(workspaceScope);
+			const now = "2026-11-08T12:00:00.000Z";
+			const outputId = `typed-${binding}`,
+				revisionId = `${outputId}-r1`;
+			const content =
+				binding === "sheets"
+					? { kind: "sheet" as const, columns: ["A"], rows: [[1]] }
+					: {
+							kind: "presentation" as const,
+							slides: [{ title: "Before", bullets: [] }],
+						};
+			const body = await storeOutputBody(
+				testEnv.R2_BUCKET,
+				workspaceScope.organizationId,
+				JSON.stringify(content),
+			);
+			await ws.outputQuery(workspaceScope, {
+				op: "create",
+				output: {
+					id: outputId,
+					...workspaceScope,
+					kind: content.kind,
+					title: binding,
+					currentRevisionId: revisionId,
+					createdByKind: "user",
+					createdById: "u1",
+					createdAt: now,
+					updatedAt: now,
+				},
+				revision: {
+					id: revisionId,
+					organizationId: workspaceScope.organizationId,
+					outputId,
+					revision: 1,
+					content: "",
+					...body,
+					accessEnvelope: JSON.stringify({ version: 1, sources: [] }),
+					createdByKind: "user",
+					createdById: "u1",
+					createdAt: now,
+				},
+			});
+			const edit =
+				binding === "sheets"
+					? { startRow: 0, startColumn: 0, cells: [["Approved gadget edit"]] }
+					: {
+							ops: [
+								{
+									op: "replace",
+									index: 0,
+									slide: { title: "Approved gadget edit", bullets: [] },
+								},
+							],
+						};
+			await ws.scriptModel(workspaceScope, [
+				{
+					code: `export default async env=>{const output=await env.${binding}.read({outputId:${JSON.stringify(outputId)}});return env.${binding}.edit({outputId:output.id,expectedRevision:output.revision,...${JSON.stringify(edit)}});}`,
+				},
+			]);
+			const started = await ws.sendTurn(workspaceScope, {
+				actorId: "u1",
+				actorKind: "user",
+				text: "Edit the gadget output",
+			});
+			await ws.awaitTurn(workspaceScope, started.turnId, 20000);
+			const events = await ws.readEvents(workspaceScope, {
+				conversationId: started.conversationId,
+				after: 0,
+			});
+			const approval = events.find(
+				(event) => event.type === "approval.requested",
+			);
+			if (approval?.type !== "approval.requested")
+				throw new Error("Missing typed-output approval");
+			expect(approval.title).toBe(
+				binding === "sheets" ? "Editing sheet cells" : "Editing slides",
+			);
+			expect(
+				events.some(
+					(event) =>
+						event.type === "step.started" &&
+						event.tool === `${binding}.edit` &&
+						event.kind === "write",
+				),
+			).toBe(true);
+			expect(
+				(await ws.outputQuery(workspaceScope, { op: "get", outputId }))
+					?.currentRevisionId,
+			).toBe(revisionId);
+			await ws.scriptModel(workspaceScope, [
+				{
+					code: `export default async env=>env.${binding}.read({outputId:${JSON.stringify(outputId)}})`,
+				},
+				{ text: "Saved" },
+			]);
+			const decided = await ws.decideApproval(workspaceScope, {
+				approvalId: approval.approvalId,
+				decision: "approve",
+				by: "u1",
+			});
+			expect(decided.applied).toBe(true);
+			await ws.awaitTurn(workspaceScope, decided.turnId!, 20000);
+			const messages = await ws.readMessages(
+				workspaceScope,
+				started.conversationId,
+			);
+			expect(
+				JSON.stringify(
+					messages.filter((message) => message.role === "toolResult"),
+				),
+			).toContain("Approved gadget edit");
+			const records = (
+				await ws.readChangeRecords(workspaceScope, { resource: "output" })
+			).filter((record) => record.operation === "edit");
+			expect(records.map((record) => record.outcome)).toEqual([
+				"needs_approval",
+				"applied",
+			]);
+			expect(records[1]?.before?.revisionId).toBe(revisionId);
+			expect(records[1]?.after?.revisionId).toBeTruthy();
+		},
+	);
+
 	test("typed Doc edits use the canonical document and cannot run before approval", async () => {
 		await seedCore();
 		const ws = workspace();

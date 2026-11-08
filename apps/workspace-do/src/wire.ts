@@ -166,6 +166,16 @@ export function stepLabel(
 			replace: "Saving a document revision",
 			edit: "Editing document blocks",
 		},
+		sheets: {
+			read: "Reading a sheet",
+			replace: "Saving a sheet revision",
+			edit: "Editing sheet cells",
+		},
+		presentations: {
+			read: "Reading slides",
+			replace: "Saving a presentation revision",
+			edit: "Editing slides",
+		},
 		apps: { list: "Listing apps" },
 		resources: { list: "Listing resources" },
 		work: { list: "Reading Work items", listOpen: "Reading open Work items" },
@@ -173,7 +183,8 @@ export function stepLabel(
 	const write =
 		method === "create" ||
 		method === "revise" ||
-		(binding === "documents" && (method === "replace" || method === "edit"));
+		(["documents", "sheets", "presentations"].includes(binding) &&
+			(method === "replace" || method === "edit"));
 	return {
 		label: table[binding]?.[method] ?? `${binding}.${method}`,
 		kind: write ? "write" : "read",

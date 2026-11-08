@@ -343,8 +343,9 @@ export function createWorkspaceChatClient(
 				?.steps.find((item) => item.stepId === event.stepId);
 			if (
 				step?.kind === "write" &&
-				(step.tool?.startsWith("outputs.") ||
-					step.tool?.startsWith("documents."))
+				["outputs.", "documents.", "sheets.", "presentations."].some((prefix) =>
+					step.tool?.startsWith(prefix),
+				)
 			) {
 				notifiedOutputSteps.add(key);
 				options.onOutputChanged?.();

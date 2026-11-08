@@ -20,6 +20,8 @@ import {
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { applyDocumentBlockPatch } from "@tedix/api-contract/utils/document-patch";
 import type { BindingName } from "./declarations";
+import { buildSheetBinding } from "./sheet-binding";
+import { buildPresentationBinding } from "./presentation-bindings";
 import type {
 	OutputDetail,
 	OutputSummary,
@@ -146,6 +148,8 @@ export function buildWorkspaceBindings(
 	};
 
 	return {
+		sheets: buildSheetBinding(deps),
+		presentations: buildPresentationBinding(deps),
 		documents: wrapBinding(documents, {
 			...common,
 			resource: "output",

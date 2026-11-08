@@ -1,3 +1,4 @@
+import { stepLabel } from "./wire";
 import { describe, expect, test } from "bun:test";
 import {
 	BINDING_NAMES,
@@ -11,6 +12,19 @@ import {
 } from "./prompt";
 
 describe("prompt", () => {
+	test("typed sheet and presentation methods are discoverable and writes are labeled", () => {
+		for (const [binding, type] of [
+			["sheets", "Sheets"],
+			["presentations", "Presentations"],
+		] as const) {
+			expect(describeBinding(binding)).toContain(`interface ${type}`);
+			expect(renderEnvDeclarations()).toContain(`${binding}: ${type}`);
+			expect(stepLabel(binding, "read").kind).toBe("read");
+			for (const method of ["replace", "edit"])
+				expect(stepLabel(binding, method).kind).toBe("write");
+		}
+	});
+
 	test("static prefix is identical across turns and carries every binding", () => {
 		const a = staticPromptPrefix();
 		const b = staticPromptPrefix();
