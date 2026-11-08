@@ -1,4 +1,5 @@
 import { z } from "zod";
+import portableDocClient from "./doc-client.v3.generated.json";
 import {
 	OsBlueprintDefinitionSchema,
 	OsDocumentBlockSchema,
@@ -7,7 +8,9 @@ import {
 	type OsBlueprintDefinition,
 } from "../schemas/os-workspaces";
 
-export const DOC_BLUEPRINT_VERSION = 2;
+export const DOC_BLUEPRINT_VERSION = 3;
+export const DOC_CLIENT_SOURCE = portableDocClient.source;
+export const DOC_CLIENT_SHA256 = portableDocClient.sha256;
 
 export const DOC_SERVER_SOURCE = String.raw`
 function supportsBlockEditing(content) {
@@ -89,7 +92,7 @@ export class App {
 }
 `;
 
-export const DOC_CLIENT_SOURCE = String.raw`
+export const DOC_LEGACY_CLIENT_SOURCE = String.raw`
 const root = document.getElementById("app");
 const style = document.createElement("style");
 style.textContent = ":root{font:15px system-ui,sans-serif;color:#1c2330;background:#f6f7f9}*{box-sizing:border-box}body{margin:0}main{max-width:860px;margin:auto;padding:24px}header{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px}h1{font-size:23px;margin:0;flex:1}button,select{font:inherit;border:1px solid #c9cfd8;background:white;border-radius:7px;padding:8px 12px;color:inherit;cursor:pointer}button.primary{background:#2855bb;color:white;border-color:#2855bb}button:disabled{opacity:.5;cursor:default}.status{min-height:24px;font-size:13px;color:#536174}.status.error{color:#a31c30}.block{background:white;border:1px solid #dce1e8;border-radius:9px;padding:14px;margin:12px 0}.block header{margin:0 0 8px;font-size:12px;color:#536174}.block textarea{width:100%;min-height:64px;resize:vertical;padding:8px;border:1px solid #dde2e9;border-radius:5px;font:inherit;line-height:1.6}.block input[type=text]{width:100%;padding:8px;border:1px solid #dde2e9;border-radius:5px;font:inherit}.block[data-type=heading] textarea{font-size:22px;font-weight:650}.block[data-type=code] textarea{font:13px monospace}.block table{width:100%;border-collapse:collapse}.block td,.block th{padding:3px;min-width:100px}.table-wrap{overflow-x:auto}.check{display:flex;gap:8px;align-items:center;margin:6px 0}.check textarea{min-height:42px}.note{background:#fff5d7;padding:12px;border-radius:7px;margin:12px 0}.add{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0}pre{white-space:pre-wrap;overflow-wrap:anywhere}@media(max-width:500px){main{padding:14px}header{gap:8px}button{padding:8px}}";
@@ -219,11 +222,15 @@ Save uses the revision you loaded. A conflict keeps your draft on screen;
 copy your edits before explicitly discarding the draft and reloading.
 Saved updates load automatically when the editor is clean. With unsaved
 edits, a newer-revision notice appears and your draft stays on screen.
-Doc version 2 uses the workspace's rich document editor, preserving inline
-formatting, block structure and file references. Its document revision and
-app version are shown separately. Open native editor is an explicit fallback.
-On hosts without this editor, the portable client edits plain blocks and
-keeps additional rich formatting or attached files read-only.
+Doc version 3 runs a self-contained rich editor from its own client.js in the
+gadget sandbox. It uses the same rich document JSON as the workspace editor,
+preserving inline formatting, block structure and file references. Document
+revision and app version are shown separately. Native editing is an explicit
+fallback for compatibility and large saves, not the normal editing surface.
+Unsaved drafts stay only in the authenticated workspace panel's memory and
+are restored after an authorized source read, with their original revision.
+Full-document saves currently fit within the app call's 64 KiB argument limit.
+Larger saves keep the draft and explain the limit. No remote scripts are loaded.
 
 Agent methods: readDocument({}), replaceDocument({content, expectedRevision}),
 editDocument({ops, expectedRevision}) and exportMarkdown({}). Edits use the
@@ -244,7 +251,7 @@ export function buildDocBlueprint(slot = "document"): OsBlueprintDefinition {
 					entry: "tedix:runtime/v1",
 					description: "Write and review a document with revision history.",
 					capabilities: [],
-					config: { version: 1, settings: { slot, editor: "document-v2" } },
+					config: { version: 1, settings: { slot, editor: "document-v3" } },
 					resourceGrants: [
 						{
 							slot,

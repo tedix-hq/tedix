@@ -44,10 +44,10 @@ export function DocEditorUpgrade({
 	return (
 		<>
 			<Alert>
-				<AlertTitle>Rich document editing is available</AlertTitle>
+				<AlertTitle>Doc version 3 is available</AlertTitle>
 				<AlertDescription>
-					Upgrade this editor for inline formatting and block movement. Your
-					saved document and its history stay in place.
+					Upgrade to the latest reusable Doc editor. Your saved document and its
+					history stay in place.
 				</AlertDescription>
 				<Button size="sm" variant="secondary" onClick={() => setOpen(true)}>
 					Upgrade Doc editor

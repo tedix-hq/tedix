@@ -10,7 +10,10 @@ import { osApi, osAppRuntimeCall } from "@/lib/api";
 import { createAppRuntimeServerCall } from "@/lib/app-runtime-session";
 import { AppRuntimeFrame } from "@/components/app-runtime-frame";
 import { DocEditorUpgrade } from "@/components/doc-editor-upgrade";
-import { useDocWritingDrafts } from "@/components/doc-writing-drafts";
+import {
+	useDocWritingDrafts,
+	useAppRuntimeDrafts,
+} from "@/components/doc-writing-drafts";
 import type { AppRuntimeTranslationChannel } from "@/lib/app-runtime-translation";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Skeleton } from "@/components/kumo/skeleton";
@@ -141,6 +144,7 @@ export function AppRuntimeSandbox({
 	const queryClient = useQueryClient();
 	const resources = useQuery(workspaceResourcesQueryOptions(workspaceId));
 	const drafts = useDocWritingDrafts();
+	const appDrafts = useAppRuntimeDrafts();
 	const opened = useQuery(workspaceOpenQueryOptions(workspaceId, gadget.id));
 	const role = roleFromOpen(opened.data, opened.isError);
 	const context = useMemo(
@@ -201,6 +205,8 @@ export function AppRuntimeSandbox({
 					context,
 					callServer,
 					operations: manifest.operations,
+					appRevisionId: revisionId,
+					drafts: appDrafts ?? undefined,
 					onWrite: () => {
 						void queryClient.invalidateQueries({
 							queryKey: osQueryKeys.outputs(),
@@ -208,28 +214,47 @@ export function AppRuntimeSandbox({
 					},
 					resources: resourceRows ?? [],
 					readOutput: async (outputId) =>
-						(await queryClient.fetchQuery(outputDetailQueryOptions(outputId)))
-							.currentRevision.content,
+						(
+							await queryClient.fetchQuery({
+								...outputDetailQueryOptions(outputId),
+								staleTime: 0,
+							})
+						).currentRevision.content,
 				},
 				method,
 				args,
 			),
-		[context, callServer, queryClient, resourceRows, manifest.operations],
+		[
+			context,
+			callServer,
+			queryClient,
+			resourceRows,
+			manifest.operations,
+			revisionId,
+			appDrafts,
+		],
 	);
 	const html = useMemo(() => buildAppRuntimeDocument(files), [files]);
 	const docResourceAvailable = boundOutputs.some(
 		(row) => row.slot === context.settings.slot,
 	);
+	const sourceUnavailable = outputReads.some((read) => read.isError);
 	useEffect(() => {
 		if (
 			role === "viewer" ||
+			role === "use" ||
+			sourceUnavailable ||
 			resources.isError ||
-			(context.settings.editor === "document-v2" &&
+			((context.settings.editor === "document-v2" ||
+				context.settings.editor === "document-v3") &&
 				!resources.isPending &&
 				!docResourceAvailable)
 		) {
 			for (const key of drafts?.keys() ?? [])
 				if (key.startsWith(gadget.id + ":")) drafts?.delete(key);
+			for (const key of appDrafts?.keys() ?? [])
+				if (key.startsWith(`${workspaceId}:${gadget.id}:`))
+					appDrafts?.delete(key);
 		}
 	}, [
 		role,
@@ -238,6 +263,9 @@ export function AppRuntimeSandbox({
 		context.settings.editor,
 		docResourceAvailable,
 		drafts,
+		appDrafts,
+		workspaceId,
+		sourceUnavailable,
 		gadget.id,
 	]);
 	if (resources.isPending || role === null)
@@ -257,21 +285,32 @@ export function AppRuntimeSandbox({
 			);
 		const read = outputReads[boundOutputs.indexOf(resource)];
 		return (
-			<Suspense fallback={<Skeleton className="h-80" />}>
-				<DocWritingEditor
-					key={`${gadget.id}:${revision}:${resource.providerResourceId}`}
-					workspaceId={workspaceId}
-					outputId={resource.providerResourceId}
-					appVersion={revision}
-					draftKey={`${gadget.id}:${revisionId ?? revision}:${resource.providerResourceId}`}
-					role={role}
-					onCall={onCall}
-					savedRevision={
-						outputRevisions.find((row) => row.slot === resource.slot)?.revision
-					}
-					sourceUnavailable={read?.isError ?? false}
-				/>
-			</Suspense>
+			<>
+				{revisionId && (role === "owner" || role === "build") && (
+					<DocEditorUpgrade
+						workspaceId={workspaceId}
+						outputId={resource.providerResourceId}
+						gadgetId={gadget.id}
+						revisionId={revisionId}
+					/>
+				)}
+				<Suspense fallback={<Skeleton className="h-80" />}>
+					<DocWritingEditor
+						key={`${gadget.id}:${revision}:${resource.providerResourceId}`}
+						workspaceId={workspaceId}
+						outputId={resource.providerResourceId}
+						appVersion={revision}
+						draftKey={`${gadget.id}:${revisionId ?? revision}:${resource.providerResourceId}`}
+						role={role}
+						onCall={onCall}
+						savedRevision={
+							outputRevisions.find((row) => row.slot === resource.slot)
+								?.revision
+						}
+						sourceUnavailable={read?.isError ?? false}
+					/>
+				</Suspense>
+			</>
 		);
 	}
 	const legacyDoc =
@@ -281,8 +320,52 @@ export function AppRuntimeSandbox({
 	const legacyResource = boundOutputs.find(
 		(row) => row.slot === context.settings.slot,
 	);
+	if (
+		context.settings.editor === "document-v3" &&
+		(resources.isError ||
+			role === "viewer" ||
+			!legacyResource ||
+			sourceUnavailable)
+	)
+		return (
+			<Alert variant="warning">
+				<AlertTitle>Document unavailable</AlertTitle>
+				<AlertDescription>
+					Document source access or its slot is unavailable.
+				</AlertDescription>
+			</Alert>
+		);
+	const officeFile =
+		legacyResource &&
+		manifest.operations?.some((operation) =>
+			["readDocument", "readSheet", "readPresentation"].includes(
+				operation.name,
+			),
+		) &&
+		outputRevisions.some(
+			(output) => output.outputId === legacyResource.providerResourceId,
+		)
+			? legacyResource
+			: null;
+	const nativeHref = officeFile
+		? `/workspace/${encodeURIComponent(workspaceId)}?${new URLSearchParams({ workpiece: `output:${officeFile.providerResourceId}`, pane: "workpiece" })}`
+		: null;
 	return (
 		<>
+			{nativeHref && (
+				<div className="flex items-center justify-end gap-3 px-3 py-1 text-xs text-kumo-subtle">
+					<span>App version {revision}</span>
+					<a
+						className="underline"
+						href={nativeHref}
+						target="_blank"
+						rel="noopener noreferrer"
+						title="Open the native editor in another tab; keep this gadget and its draft open"
+					>
+						Open native editor
+					</a>
+				</div>
+			)}
 			{legacyDoc &&
 				legacyResource &&
 				revisionId &&
@@ -295,6 +378,11 @@ export function AppRuntimeSandbox({
 					/>
 				)}
 			<AppRuntimeFrame
+				key={
+					context.settings.editor === "document-v3"
+						? `${workspaceId}:${gadget.id}:${revisionId ?? revision}:${role}`
+						: undefined
+				}
 				html={html}
 				title={title}
 				onCall={onCall}
