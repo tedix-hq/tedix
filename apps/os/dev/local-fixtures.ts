@@ -9000,6 +9000,7 @@ const handlers: Record<string, (input: never) => unknown> = {
 						revision: revision.revision,
 						actor: { kind: revision.createdByKind, id: revision.createdById },
 						changeRecordId: revision.id,
+						artifact: { outputId: output.id, revisionId: revision.id },
 						title: output.title,
 						summary: revision.note,
 						occurredAt: revision.createdAt,
@@ -9025,6 +9026,7 @@ const handlers: Record<string, (input: never) => unknown> = {
 			last = items.at(-1);
 		return {
 			items,
+			coverage: "recorded_only" as const,
 			next:
 				filtered.length > limit && last
 					? `${last.occurredAt}|${last.seq}`

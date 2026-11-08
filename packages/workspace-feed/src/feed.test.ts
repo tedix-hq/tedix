@@ -165,3 +165,21 @@ describe("workspace feed", () => {
 		expect(settled.drift).toEqual([]);
 	});
 });
+
+it("reports missing history below the cursor as requiring rebuild, not successful replay", async () => {
+	const ledger = createWorkspaceFeedLedger(
+		sqlStorage(new DatabaseSync(":memory:")),
+		{ workspaceId: WS },
+	);
+	const { queue, sent } = fakeQueue();
+	const feed = createWorkspaceFeed({ ledger, queue });
+	await feed.emit(change(1));
+	await feed.emit(change(2));
+	const db = coreDb();
+	await createWorkspaceFeedConsumer({ db }).consume(asMessages(sent).messages);
+	await db.delete(workspaceActivity);
+	const report = await reconcileWorkspaceFeed(db, await feed.snapshot());
+	expect(report.drift.length).toBeGreaterThan(0);
+	expect(report.rebuildRequired).toBe(true);
+	expect(report.replayFromSeq).toBeNull();
+});

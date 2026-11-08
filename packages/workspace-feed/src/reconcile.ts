@@ -38,6 +38,8 @@ export interface WorkspaceFeedReconcileReport {
 	drift: WorkspaceFeedDrift[];
 	/** Where `replayFrom` should start to close the gap, when the projection is behind. */
 	replayFromSeq: number | null;
+	/** Drift below the applied cursor cannot be repaired by ordinary redelivery. */
+	rebuildRequired: boolean;
 }
 
 const KINDS: WorkspaceChangeKind[] = [
@@ -108,8 +110,7 @@ export async function reconcileWorkspaceFeed(
 		projection,
 		drift,
 		replayFromSeq:
-			drift.length === 0
-				? null
-				: Math.min(projection.lastSeq + 1, Math.max(object.lastSeq, 1)),
+			object.lastSeq > projection.lastSeq ? projection.lastSeq + 1 : null,
+		rebuildRequired: drift.length > 0 && object.lastSeq <= projection.lastSeq,
 	};
 }

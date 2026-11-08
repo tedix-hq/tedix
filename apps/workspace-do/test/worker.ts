@@ -1,3 +1,4 @@
+import type { ChangeRecord } from "@tedix/agent-governance/types";
 /**
  * Test worker: the real WorkspaceDO with a scripted model instead of the AI
  * Gateway, plus a stand-in for the tedi object a guest turn asks for.
@@ -30,10 +31,29 @@ export type ScriptStep =
 export class WorkspaceDO extends ProductionWorkspaceDO {
 	#script: ScriptStep[] = [];
 	#projectionFailures = 0;
+	#actionFailure: "before" | "after" | null = null;
 
 	failNextProjection(scope: WorkspaceScope) {
 		this.bindScope(scope);
 		this.#projectionFailures = 1;
+	}
+
+	failActionProjection(scope: WorkspaceScope, when: "before" | "after") {
+		this.bindScope(scope);
+		this.#actionFailure = when;
+	}
+
+	protected override async projectAction(
+		scope: WorkspaceScope,
+		record: ChangeRecord,
+	) {
+		const failure = this.#actionFailure;
+		this.#actionFailure = null;
+		if (failure === "before")
+			throw new Error("Injected action projection outage");
+		await super.projectAction(scope, record);
+		if (failure === "after")
+			throw new Error("Injected lost action projection reply");
 	}
 
 	retryProjections(scope: WorkspaceScope) {

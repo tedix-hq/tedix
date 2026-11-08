@@ -1,3 +1,7 @@
+import {
+	WORKSPACE_ACTIVITY_ENTRY,
+	WorkspaceActivityConfigSchema,
+} from "@tedix/api-contract/schemas/workspace-feed";
 import { ORGANIZATION_DOMAIN_ENTRY } from "@tedix/api-contract/schemas/organization-domains";
 import {
 	WORK_DISPATCH_ENTRY,
@@ -64,6 +68,11 @@ const OutboundReviewApp = lazy(() =>
 );
 const AttentionApp = lazy(() =>
 	import("./work-attention-page").then((m) => ({ default: m.AttentionApp })),
+);
+const WorkspaceActivity = lazy(() =>
+	import("./workspace-activity").then((m) => ({
+		default: m.WorkspaceActivity,
+	})),
 );
 const ActivityFeedApp = lazy(() =>
 	import("./activity-feed-app").then((m) => ({ default: m.ActivityFeedApp })),
@@ -163,6 +172,14 @@ function InstalledApp({
 		const config = DecisionDeckConfigSchema.safeParse(manifest.config);
 		if (config.success)
 			return <DecisionDeckApp config={config.data} workspaceId={workspaceId} />;
+	}
+	if (entry === WORKSPACE_ACTIVITY_ENTRY) {
+		const config = WorkspaceActivityConfigSchema.safeParse(manifest.config);
+		if (
+			config.success &&
+			(!workspaceId || config.data.workspaceId === workspaceId)
+		)
+			return <WorkspaceActivity workspaceId={config.data.workspaceId} />;
 	}
 	if (entry === ACTIVITY_FEED_ENTRY) {
 		const config = ActivityFeedConfigSchema.safeParse(manifest.config);

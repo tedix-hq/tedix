@@ -293,6 +293,7 @@
 		"./queries/os-workspaces/files": "./src/queries/os-workspaces/files.ts",
 		"./queries/os-workspaces/projects": "./src/queries/os-workspaces/projects.ts",
 		"./queries/os-workspaces/summaries": "./src/queries/os-workspaces/summaries.ts",
+		"./queries/workspace-feed/action-publication": "./src/queries/workspace-feed/action-publication.ts",
 		"./queries/workspace-feed/ledger": "./src/queries/workspace-feed/ledger.ts",
 		"./queries/workspace-feed/projection": "./src/queries/workspace-feed/projection.ts",
 		"./queries/workspace-feed/read": "./src/queries/workspace-feed/read.ts",

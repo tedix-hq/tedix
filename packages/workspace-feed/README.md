@@ -102,7 +102,8 @@ import { reconcileWorkspaceFeed } from "@tedix/workspace-feed/reconcile";
 
 const report = await reconcileWorkspaceFeed(db, await feed.snapshot());
 report.drift; // [] when the projection matches the object
-report.replayFromSeq; // where to replay from when it does not
+report.replayFromSeq; // missing tail, or null when ordinary replay cannot repair it
+report.rebuildRequired; // drift below the applied cursor needs a rebuild
 ```
 
 Both sides fold their records into the same `WorkspaceFeedSnapshot`
@@ -115,3 +116,34 @@ The core API still writes outputs. `apps/api/src/services/workspace-feed.ts`
 appends to the core-side ledger (`workspace_feed_ledger`) and sends the same
 message after each output write, so the projections fill now and the
 workspace object only has to switch the ledger to its own SQLite.
+
+## Recorded workspace activity
+
+Workspace objects publish binding accountability records as `run` events with
+`summary.action`. Each entry keeps its actor, source record, turn id, operation,
+outcome and optional revision link. Arguments, results and provider errors stay
+in the object. A persisted delivery checkpoint and alarm retry failed delivery;
+`replayActivity` republishes a bounded source page, and `reconcileActivity`
+compares a bounded page of durable binding records with the core projection.
+Continue these calls from `lastSequence`; a matching page proves only that page.
+Action replay also restores missing activity rows below the applied cursor.
+
+The core ledger remains the sequence owner while both stores accept output
+writes. Output recovery reads immutable revision history ten revisions at a
+time, so notification coalescing does not drop intermediate file saves. Titles
+and lifecycle metadata describe the output when recovered; revision authors and
+timestamps come from each saved revision. This is not a history of every
+metadata transition, streamed token or conversation step.
+
+The activity API returns `coverage: "recorded_only"`. It filters current
+workspace visibility and checks both the historical and current revision's
+source access before returning file metadata or links. Missing source records,
+invalid access metadata, unavailable revisions and moved files are hidden.
+Requests examine at most five rows and reserve at most fifty source checks;
+continue from `next`, including when a filtered page is empty. These bounds do
+not establish production latency or provider-call cost.
+
+The generic app renderer accepts `tedix:app/workspace-activity` with
+`{ "version": 1, "workspaceId": "<workspace UUID>" }` in an organization's
+installed gadget manifest. The view retains its incomplete-history notice.
+Source support is separate from installing that revision and verifying it live.

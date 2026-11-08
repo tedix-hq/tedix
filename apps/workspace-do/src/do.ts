@@ -4,6 +4,7 @@
  * agent turn itself: the model streams here, its code runs in a no-network
  * sandbox whose `env` loops straight back into this object's wrapped bindings.
  */
+import { WorkspaceChangeActorSchema } from "@tedix/api-contract/schemas/workspace-feed";
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import type { Message } from "@earendil-works/pi-ai";
 import { createDbClient } from "@tedix/db/client";
@@ -17,6 +18,10 @@ import {
 import { getTediById } from "@tedix/db/queries/tedis";
 import * as coreOutputs from "@tedix/db/queries/os-workspaces/outputs";
 import { retireWorkspaceOutputIndex } from "@tedix/db/queries/workspace-feed/read";
+import {
+	hasWorkspaceActionProjection,
+	publishWorkspaceAction,
+} from "@tedix/db/queries/workspace-feed/action-publication";
 import { publishOutputProjection } from "@tedix/db/queries/workspace-feed/output-publication";
 import {
 	TenantStore,
@@ -207,6 +212,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	readonly #ledger: SqlAccountabilityAdapter;
 	readonly #compliance: SqlComplianceAdapter;
 	#outputSerial: Promise<void> = Promise.resolve();
+	#activitySerial: Promise<void> = Promise.resolve();
 	readonly #running = new Map<string, AbortController>();
 	readonly #waiters = new Map<string, Array<() => void>>();
 
@@ -783,9 +789,16 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 
 	override async alarm() {
 		await this.#serializeOutput(() => this.#flushOutputProjections());
+		await this.#flushActivity();
 		if (
 			this.#running.size > 0 ||
-			Object.keys(this.#pendingOutputProjections()).length > 0
+			Object.keys(this.#pendingOutputProjections()).length > 0 ||
+			(
+				await this.#ledger.list({
+					afterSequence: this.#store.get<number>("activity-sequence") ?? 0,
+					limit: 1,
+				})
+			).length > 0
 		) {
 			await this.ctx.storage.setAlarm(Date.now() + KEEPALIVE_MS);
 			return;
@@ -794,6 +807,69 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	}
 
 	// ------------------------------------------------------------- internals
+
+	#serializeActivity<T>(operation: () => Promise<T>): Promise<T> {
+		const next = this.#activitySerial.then(operation);
+		this.#activitySerial = next.then(
+			() => {},
+			() => {},
+		);
+		return next;
+	}
+
+	#flushActivity(): Promise<void> {
+		return this.#serializeActivity(async () => {
+			const scope = this.#store.get<WorkspaceScope>("activity-scope");
+			if (!scope) return;
+			const records = await this.#ledger.list({
+				afterSequence: this.#store.get<number>("activity-sequence") ?? 0,
+				limit: 100,
+			});
+			for (const record of records) {
+				await this.projectAction(scope, record);
+				this.#store.put("activity-sequence", record.sequence);
+			}
+		}).catch((error) => {
+			console.error("Workspace activity queued for retry", error);
+		});
+	}
+
+	protected async projectAction(
+		scope: WorkspaceScope,
+		record: ChangeRecord,
+	): Promise<void> {
+		if (
+			record.actor.organizationId !== scope.organizationId ||
+			record.source.surface !== "workspace_object"
+		) {
+			throw new Error("Workspace action provenance mismatch");
+		}
+		const actor = WorkspaceChangeActorSchema.parse({
+			kind:
+				record.actor.kind === "agent" ? "external_agent" : record.actor.kind,
+			id: record.actor.id,
+		});
+		const revisionId = (record.after ?? record.before)?.revisionId;
+		await publishWorkspaceAction(createDbQueryClient(this.env.DB), {
+			...scope,
+			kind: "run",
+			id: record.id,
+			revision: 1,
+			actor,
+			changeRecordId: record.id,
+			at: record.recordedAt,
+			summary: {
+				action: {
+					resource: record.resource,
+					operation: record.operation,
+					outcome: record.outcome,
+					surface: "workspace_object",
+					...(record.source.traceId ? { traceId: record.source.traceId } : {}),
+					...(revisionId ? { revisionId } : {}),
+				},
+			},
+		});
+	}
 
 	#pendingOutputProjections() {
 		return (
@@ -819,6 +895,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	): Promise<T> {
 		return this.#serializeOutput(async () => {
 			// Persist retry before mutation; deletion and publication share this queue.
+			this.#store.delete(`output-history-before:${outputId}`);
 			this.#store.put("pending-output-projections", {
 				...this.#pendingOutputProjections(),
 				[outputId]: { scope, generation: crypto.randomUUID() },
@@ -830,6 +907,46 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				await this.#flushOutputProjections();
 			}
 		});
+	}
+
+	/** Bounded repair from durable source records, independent of the delivery checkpoint. */
+	async replayActivity(
+		scope: WorkspaceScope,
+		input: { afterSequence?: number; limit?: number } = {},
+	) {
+		this.bindScope(scope);
+		return this.#serializeActivity(async () => {
+			const records = await this.#ledger.list(input);
+			for (const record of records) await this.projectAction(scope, record);
+			return {
+				published: records.length,
+				lastSequence: records.at(-1)?.sequence ?? input.afterSequence ?? 0,
+			};
+		});
+	}
+
+	async reconcileActivity(
+		scope: WorkspaceScope,
+		input: { afterSequence?: number; limit?: number } = {},
+	) {
+		this.bindScope(scope);
+		const records = await this.#ledger.list(input);
+		const missing: string[] = [];
+		for (const record of records) {
+			if (
+				!(await hasWorkspaceActionProjection(createDbQueryClient(this.env.DB), {
+					...scope,
+					changeRecordId: record.id,
+				}))
+			)
+				missing.push(record.id);
+		}
+		return {
+			checked: records.length,
+			missing,
+			lastSequence: records.at(-1)?.sequence ?? input.afterSequence ?? 0,
+			coverage: "recorded_binding_actions" as const,
+		};
 	}
 
 	refreshOutputProjection(
@@ -845,7 +962,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			this.#pendingOutputProjections(),
 		)) {
 			try {
-				await this.projectOutput(pending.scope, outputId);
+				const complete = await this.projectOutput(pending.scope, outputId);
+				if (complete === false) continue;
 				const current = this.#pendingOutputProjections();
 				if (current[outputId]?.generation === pending.generation) {
 					delete current[outputId];
@@ -884,6 +1002,36 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					revisionId: row.currentRevisionId,
 				});
 		if (revision) await publishOutputProjection(core, row, revision);
+		// Immutable revisions recover every file save even when notifications coalesced.
+		const beforeRevision = this.#store.get<number>(
+			`output-history-before:${outputId}`,
+		);
+		const options = {
+			limit: 10,
+			...(beforeRevision ? { beforeRevision } : {}),
+		};
+		const history = legacy
+			? await coreOutputs.listOsOutputRevisions(
+					core,
+					{ ...scope, outputId },
+					options,
+				)
+			: await executeOutputQuery(this.db as TenantStoreDb, scope, {
+					op: "history",
+					outputId,
+					options,
+				});
+		for (const saved of [...history].reverse())
+			await publishOutputProjection(core, row, saved, { historical: true });
+		if (history.length === options.limit) {
+			this.#store.put(
+				`output-history-before:${outputId}`,
+				history.at(-1)!.revision,
+			);
+			return false;
+		}
+		this.#store.delete(`output-history-before:${outputId}`);
+		return true;
 	}
 
 	#subscribe(
@@ -1042,7 +1190,18 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		return buildWorkspaceBindings({
 			data: this.#dataPort(scope, turn.actor.kind),
 			compliance: this.#compliance,
-			accountability: this.#ledger,
+			accountability: {
+				append: async (input) => {
+					this.#store.put("activity-scope", scope);
+					const record = await this.#ledger.append(input);
+					await this.ctx.storage.setAlarm(Date.now() + KEEPALIVE_MS);
+					await this.#flushActivity();
+					return record;
+				},
+				list: (query) => this.#ledger.list(query),
+				get: (id) => this.#ledger.get(id),
+				export: () => this.#ledger.export(),
+			},
 			actor,
 			source,
 		});
@@ -1441,6 +1600,20 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 
 /** The RPC surface other workers call; typed by hand so callers avoid deep stub inference. */
 export interface WorkspaceRpc {
+	replayActivity(
+		scope: WorkspaceScope,
+		input?: { afterSequence?: number; limit?: number },
+	): Promise<{ published: number; lastSequence: number }>;
+	reconcileActivity(
+		scope: WorkspaceScope,
+		input?: { afterSequence?: number; limit?: number },
+	): Promise<{
+		checked: number;
+		missing: string[];
+		lastSequence: number;
+		coverage: "recorded_binding_actions";
+	}>;
+
 	refreshOutputProjection(
 		scope: WorkspaceScope,
 		outputId: string,
