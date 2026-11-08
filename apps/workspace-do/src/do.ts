@@ -1089,6 +1089,17 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					turn.actor.kind,
 					turn.tediId ?? null,
 				);
+				const request = args[0];
+				const outputId =
+					request && typeof request === "object" && "outputId" in request
+						? request.outputId
+						: null;
+				const target =
+					typeof outputId === "string"
+						? await this.#dataPort(scope, turn.actor.kind)
+								.getOutput(outputId)
+								.catch(() => null)
+						: null;
 				this.#events.append(turn.conversationId, {
 					type: "approval.requested",
 					turnId: turn.turnId,
@@ -1098,6 +1109,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					reason: error.decision.reason,
 					policy: error.decision.gate,
 					input: args[0],
+					...(target ? { target: { id: target.id, title: target.title } } : {}),
 				});
 			}
 			this.#events.append(turn.conversationId, {
