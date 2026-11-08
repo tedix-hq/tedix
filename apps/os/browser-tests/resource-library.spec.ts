@@ -65,6 +65,7 @@ try {
 					.getByRole("menuitem", { name: "Document", exact: true })
 					.waitFor();
 				assert.deepEqual(await page.getByRole("menuitem").allTextContents(), [
+					...(surface === "workspace" ? ["Doc app"] : []),
 					"Document",
 					"Sheet",
 					"Slides",
@@ -81,6 +82,21 @@ try {
 					fullPage: true,
 				});
 				await page.keyboard.press("Escape");
+				if (surface === "workspace") {
+					await library
+						.getByRole("button", { name: "New", exact: true })
+						.click();
+					await page
+						.getByRole("menuitem", { name: "Doc app", exact: true })
+						.click();
+					const dialog = page.getByRole("dialog");
+					await dialog
+						.getByRole("heading", { name: "New Doc app", exact: true })
+						.waitFor();
+					await dialog
+						.getByRole("button", { name: "Close", exact: true })
+						.click();
+				}
 				for (const [choice, heading] of [
 					["Document", "New document"],
 					["Sheet", "New sheet"],
