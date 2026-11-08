@@ -49,6 +49,7 @@ import { WorkspaceRunners } from "@/components/workspace-runners";
 import { WorkspaceSchedules } from "@/components/workspace-schedules";
 import { WorkspaceSourceCards } from "@/components/workspace-source-cards";
 import type { WorkspaceSource } from "@/lib/workspace-sources";
+import { workspaceOutputEditors } from "@/lib/workspace-output-editors";
 import { WorkspaceFileUpload } from "./workspace-file-upload";
 
 /**
@@ -140,6 +141,34 @@ export function CanvasResourceRail({
 	const [query, setQuery] = useState("");
 	const [showHistory, setShowHistory] = useState(false);
 	const [stateFilter, setStateFilter] = useState<OutputStateFilter>("active");
+	const editors = workspaceOutputEditors(
+		resources.data?.items ?? [],
+		gadgets.data?.items ?? [],
+	);
+	const pairedOutputs = new Set(
+		outputs.data?.items
+			.filter(
+				(item) =>
+					item.output.status === "active" && editors.has(item.output.id),
+			)
+			.map((item) => item.output.id),
+	);
+	const pairedGadgets = new Set(
+		[...pairedOutputs].map((id) => editors.get(id)),
+	);
+	const openFile = (outputId: string) => {
+		const gadgetId = pairedOutputs.has(outputId)
+			? editors.get(outputId)
+			: undefined;
+		if (gadgetId) onSelectGadget(gadgetId);
+		else onSelectOutput(outputId);
+	};
+	const fileSelected = (outputId: string) =>
+		selectedDoc?.type === "output"
+			? selectedDoc.id === outputId
+			: selectedDoc?.type === "gadget" &&
+				pairedOutputs.has(outputId) &&
+				selectedDoc.id === editors.get(outputId);
 	const normalizedQuery = query.trim().toLocaleLowerCase();
 	const matches = (value: string) =>
 		normalizedQuery.length === 0 ||
@@ -148,16 +177,25 @@ export function CanvasResourceRail({
 		resources.data?.items.filter(
 			(item) =>
 				!isWorkspaceLinkResource(item) &&
+				!(
+					item.providerId === "tedix" &&
+					item.resourceType === "output" &&
+					pairedOutputs.has(item.providerResourceId)
+				) &&
 				matches(`${item.name} ${item.providerId} ${item.resourceType}`),
 		) ?? [];
 	const shownGadgets =
-		gadgets.data?.items.filter((item) => matches(item.name)) ?? [];
+		gadgets.data?.items.filter(
+			(item) => !pairedGadgets.has(item.id) && matches(item.name),
+		) ?? [];
 	// Search first, then state. Chip counts are computed over the search-matched
 	// set so each chip honors the search but ignores itself, and active +
 	// archived always sums to all.
 	const searchedOutputs =
 		outputs.data?.items.filter((item) =>
-			matches(`${item.output.title} ${fileLabel(item)}`),
+			matches(
+				`${item.output.title} ${fileLabel(item)} ${gadgets.data?.items.find((gadget) => gadget.id === editors.get(item.output.id))?.name ?? ""}`,
+			),
 		) ?? [];
 	const stateCounts = outputStateCounts(searchedOutputs);
 	const shownOutputs = searchedOutputs.filter((item) =>
@@ -344,11 +382,8 @@ export function CanvasResourceRail({
 											<li key={item.output.id}>
 												<DocButton
 													item={item}
-													selected={
-														selectedDoc?.type === "output" &&
-														selectedDoc.id === item.output.id
-													}
-													onSelect={() => onSelectOutput(item.output.id)}
+													selected={fileSelected(item.output.id)}
+													onSelect={() => openFile(item.output.id)}
 												>
 													<span className="min-w-0 flex-1 truncate">
 														{item.output.title}
@@ -373,13 +408,8 @@ export function CanvasResourceRail({
 										<li key={latestCandidate.output.id}>
 											<DocButton
 												item={latestCandidate}
-												selected={
-													selectedDoc?.type === "output" &&
-													selectedDoc.id === latestCandidate.output.id
-												}
-												onSelect={() =>
-													onSelectOutput(latestCandidate.output.id)
-												}
+												selected={fileSelected(latestCandidate.output.id)}
+												onSelect={() => openFile(latestCandidate.output.id)}
 											>
 												<span className="min-w-0 flex-1 truncate">
 													{latestCandidate.output.title}
@@ -403,11 +433,8 @@ export function CanvasResourceRail({
 												<li key={item.output.id}>
 													<DocButton
 														item={item}
-														selected={
-															selectedDoc?.type === "output" &&
-															selectedDoc.id === item.output.id
-														}
-														onSelect={() => onSelectOutput(item.output.id)}
+														selected={fileSelected(item.output.id)}
+														onSelect={() => openFile(item.output.id)}
 													>
 														<span className="min-w-0 flex-1 truncate">
 															{item.output.title}
@@ -448,11 +475,8 @@ export function CanvasResourceRail({
 											<li key={item.output.id}>
 												<DocButton
 													item={item}
-													selected={
-														selectedDoc?.type === "output" &&
-														selectedDoc.id === item.output.id
-													}
-													onSelect={() => onSelectOutput(item.output.id)}
+													selected={fileSelected(item.output.id)}
+													onSelect={() => openFile(item.output.id)}
 												>
 													<span className="min-w-0 flex-1 truncate">
 														{item.output.title}
@@ -526,7 +550,7 @@ export function CanvasResourceRail({
 							{resources.data && shownResources.length > 0 && (
 								<WorkspaceSourceCards
 									sources={shownResources}
-									onOpenOutput={onSelectOutput}
+									onOpenOutput={openFile}
 									workspaceId={workspaceId!}
 								/>
 							)}

@@ -1,5 +1,6 @@
 import { EntityAvatar } from "@/shared/entity-avatar";
 import { DocWritingDraftProvider } from "@/components/doc-writing-drafts";
+import { workspaceOutputEditors } from "@/lib/workspace-output-editors";
 import "./canvas-page.css";
 import "./output-editor.css";
 import { OrganizationMark } from "@/shared/organization-mark";
@@ -1133,8 +1134,12 @@ export function CanvasPage({
 			workspaceOutputsPanelItems(
 				outputs.data?.items ?? [],
 				gadgets.data?.items ?? [],
+				workspaceOutputEditors(
+					resources.data?.items ?? [],
+					gadgets.data?.items ?? [],
+				),
 			),
-		[gadgets.data?.items, outputs.data?.items],
+		[gadgets.data?.items, outputs.data?.items, resources.data?.items],
 	);
 	const outputsPanelList = {
 		items: outputsPanelItems,

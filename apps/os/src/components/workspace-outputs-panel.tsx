@@ -87,12 +87,12 @@ export type WorkspaceOutputsPanelItem = {
 	kind: OsOutputKind | "app";
 	kindLabel: string;
 	updatedAt: string;
+	outputId?: string;
 };
 
 /**
- * Apps lead, because an app is the workspace's front door and stays put; then
- * every active output, most recently changed first. Archived outputs stay in
- * the Resources library.
+ * A bound file and its editor appear once. Other apps lead the active files;
+ * archived outputs stay in the Resources library.
  */
 export function workspaceOutputsPanelItems(
 	outputs: readonly Pick<
@@ -100,10 +100,18 @@ export function workspaceOutputsPanelItems(
 		"id" | "title" | "kind" | "status" | "updatedAt"
 	>[],
 	gadgets: readonly Pick<OsGadget, "id" | "name" | "updatedAt">[],
+	editors: ReadonlyMap<string, string> = new Map(),
 ): WorkspaceOutputsPanelItem[] {
 	const byNewest = <T extends { updatedAt: string }>(a: T, b: T) =>
 		Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
+	const boundGadgets = new Set(
+		outputs
+			.filter((output) => output.status === "active")
+			.map((output) => editors.get(output.id))
+			.filter(Boolean),
+	);
 	const apps = [...gadgets]
+		.filter((gadget) => !boundGadgets.has(gadget.id))
 		.sort(byNewest)
 		.map((gadget): WorkspaceOutputsPanelItem => ({
 			doc: { type: "gadget", id: gadget.id },
@@ -117,11 +125,17 @@ export function workspaceOutputsPanelItems(
 		.filter((output) => output.status === "active")
 		.sort(byNewest)
 		.map((output): WorkspaceOutputsPanelItem => ({
-			doc: { type: "output", id: output.id },
+			doc: editors.has(output.id)
+				? { type: "gadget", id: editors.get(output.id)! }
+				: { type: "output", id: output.id },
 			key: `output:${output.id}`,
+			outputId: output.id,
 			title: output.title,
 			kind: output.kind,
-			kindLabel: outputWorkshopKindLabel(output.kind),
+			kindLabel:
+				editors.has(output.id) && output.kind === "document"
+					? "Doc"
+					: outputWorkshopKindLabel(output.kind),
 			updatedAt: output.updatedAt,
 		}));
 	return [...apps, ...files];
@@ -133,6 +147,8 @@ export function isWorkspaceOutputsItemSelected(
 ): boolean {
 	if (!selectedDoc) return false;
 	if (item.doc.type === "gadget") {
+		if (selectedDoc.type === "output" && item.outputId === selectedDoc.id)
+			return true;
 		return selectedDoc.type === "gadget"
 			? selectedDoc.id === item.doc.id
 			: selectedDoc.linkedGadgetId === item.doc.id;

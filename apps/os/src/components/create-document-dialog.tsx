@@ -1,10 +1,11 @@
-import { CreateDocAppDialog } from "./create-doc-app-dialog";
+import { CreateOutputAppDialog } from "./create-doc-app-dialog";
 import { Text } from "@/components/kumo/text";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
 	DropdownMenuLinkItem,
+	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/kumo/dropdown-menu";
 import { Plus } from "@phosphor-icons/react";
@@ -60,7 +61,7 @@ type CreationKind = "document" | "sheet" | "presentation";
 
 export function NewResourceMenu(props: Props) {
 	const [kind, setKind] = useState<CreationKind | null>(null);
-	const [docApp, setDocApp] = useState(false);
+	const [appKind, setAppKind] = useState<CreationKind | null>(null);
 	return (
 		<>
 			<DropdownMenu>
@@ -69,31 +70,43 @@ export function NewResourceMenu(props: Props) {
 					New
 				</DropdownMenuTrigger>
 				<DropdownMenuContent align="end">
-					{props.workspaceId && props.onAppCreated && (
-						<DropdownMenuItem onClick={() => setDocApp(true)}>
-							Doc app
-						</DropdownMenuItem>
-					)}
-					<DropdownMenuItem onClick={() => setKind("document")}>
-						Document
+					<DropdownMenuItem onClick={() => setAppKind("document")}>
+						Doc
 					</DropdownMenuItem>
-					<DropdownMenuItem onClick={() => setKind("sheet")}>
+					<DropdownMenuItem onClick={() => setAppKind("sheet")}>
 						Sheet
 					</DropdownMenuItem>
-					<DropdownMenuItem onClick={() => setKind("presentation")}>
+					<DropdownMenuItem onClick={() => setAppKind("presentation")}>
 						Slides
 					</DropdownMenuItem>
 					<DropdownMenuLinkItem href="/blueprints">
 						App from template
 					</DropdownMenuLinkItem>
+					<DropdownMenuSeparator />
+					<DropdownMenuItem onClick={() => setKind("document")}>
+						Native document
+					</DropdownMenuItem>
+					<DropdownMenuItem onClick={() => setKind("sheet")}>
+						Native sheet
+					</DropdownMenuItem>
+					<DropdownMenuItem onClick={() => setKind("presentation")}>
+						Native slides
+					</DropdownMenuItem>
 				</DropdownMenuContent>
 			</DropdownMenu>
-			{docApp && props.workspaceId && props.onAppCreated && (
-				<CreateDocAppDialog
+			{appKind && (
+				<CreateOutputAppDialog
 					workspaceId={props.workspaceId}
-					onCreated={props.onAppCreated}
+					kind={appKind}
+					onCreated={(gadget) => {
+						if (props.onAppCreated) props.onAppCreated(gadget);
+						else
+							window.location.assign(
+								`/workspace/${encodeURIComponent(gadget.workspaceId)}?${new URLSearchParams({ workpiece: `gadget:${gadget.id}`, pane: "workpiece" })}`,
+							);
+					}}
 					onOpenOutput={props.onCreated}
-					onClose={() => setDocApp(false)}
+					onClose={() => setAppKind(null)}
 				/>
 			)}
 			{kind && (
