@@ -36,6 +36,7 @@ export function useWorkspaceChat(
 	outputChanged.current = onOutputChanged;
 	const live = useRef<{
 		workspaceId: string;
+		conversationId: string | null;
 		client: WorkspaceChatClient;
 	} | null>(null);
 	const [, rerender] = useReducer((count: number) => count + 1, 0);
@@ -46,11 +47,14 @@ export function useWorkspaceChat(
 			previous.workspaceId === workspaceId &&
 			previous.client.getSnapshot().connection.phase !== "closed" &&
 			previous.client.getConversationId() === conversationId
-		)
+		) {
+			previous.conversationId = conversationId;
 			return;
+		}
 		previous?.client.close();
 		live.current = {
 			workspaceId,
+			conversationId,
 			client: createClient({
 				workspaceId,
 				conversationId,
@@ -66,7 +70,13 @@ export function useWorkspaceChat(
 		},
 		[],
 	);
-	const client = live.current?.client ?? null;
+	const current = live.current;
+	const client =
+		current?.workspaceId === workspaceId &&
+		(current.conversationId === conversationId ||
+			current.client.getConversationId() === conversationId)
+			? current.client
+			: null;
 	const snapshot = useSyncExternalStore(
 		client?.subscribe ?? noSubscribe,
 		client?.getSnapshot ?? idle,
