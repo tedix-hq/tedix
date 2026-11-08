@@ -5,10 +5,12 @@ import type {
 } from "@tedix/api-contract/schemas/os-workspaces";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useMemo } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo } from "react";
 import { osApi, osAppRuntimeCall } from "@/lib/api";
 import { createAppRuntimeServerCall } from "@/lib/app-runtime-session";
 import { AppRuntimeFrame } from "@/components/app-runtime-frame";
+import { DocEditorUpgrade } from "@/components/doc-editor-upgrade";
+import { useDocWritingDrafts } from "@/components/doc-writing-drafts";
 import type { AppRuntimeTranslationChannel } from "@/lib/app-runtime-translation";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Skeleton } from "@/components/kumo/skeleton";
@@ -28,6 +30,10 @@ import type {
 	AppRuntimeFiles,
 	AppRuntimeRole,
 } from "@tedix/api-contract/schemas/os-app-runtime";
+
+const DocWritingEditor = lazy(async () => ({
+	default: (await import("./doc-writing-editor")).DocWritingEditor,
+}));
 
 /**
  * A runtime app in the workspace panel: loads the current revision's files
@@ -94,6 +100,7 @@ export function AppRuntimePreview({
 			gadget={gadget}
 			manifest={revision.manifest}
 			revision={revision.revision}
+			revisionId={revision.id}
 			files={code.data.code.files}
 			callServer={callServer}
 			layout={layout}
@@ -113,6 +120,7 @@ export function AppRuntimeSandbox({
 	gadget,
 	manifest,
 	revision,
+	revisionId,
 	files,
 	callServer,
 	title = gadget.name,
@@ -123,6 +131,7 @@ export function AppRuntimeSandbox({
 	gadget: Pick<OsGadget, "id" | "name">;
 	manifest: OsGadgetManifest;
 	revision: number;
+	revisionId?: string;
 	files: AppRuntimeFiles;
 	callServer?: (method: string, args: JsonValue[]) => Promise<JsonValue>;
 	title?: string;
@@ -131,6 +140,7 @@ export function AppRuntimeSandbox({
 }) {
 	const queryClient = useQueryClient();
 	const resources = useQuery(workspaceResourcesQueryOptions(workspaceId));
+	const drafts = useDocWritingDrafts();
 	const opened = useQuery(workspaceOpenQueryOptions(workspaceId, gadget.id));
 	const role = roleFromOpen(opened.data, opened.isError);
 	const context = useMemo(
@@ -207,16 +217,91 @@ export function AppRuntimeSandbox({
 		[context, callServer, queryClient, resourceRows, manifest.operations],
 	);
 	const html = useMemo(() => buildAppRuntimeDocument(files), [files]);
+	const docResourceAvailable = boundOutputs.some(
+		(row) => row.slot === context.settings.slot,
+	);
+	useEffect(() => {
+		if (
+			role === "viewer" ||
+			resources.isError ||
+			(context.settings.editor === "document-v2" &&
+				!resources.isPending &&
+				!docResourceAvailable)
+		) {
+			for (const key of drafts?.keys() ?? [])
+				if (key.startsWith(gadget.id + ":")) drafts?.delete(key);
+		}
+	}, [
+		role,
+		resources.isError,
+		resources.isPending,
+		context.settings.editor,
+		docResourceAvailable,
+		drafts,
+		gadget.id,
+	]);
 	if (resources.isPending || role === null)
 		return <Skeleton className="h-40 w-full" aria-label="Loading app" />;
+	if (context.settings.editor === "document-v2") {
+		const resource = boundOutputs.find(
+			(row) => row.slot === context.settings.slot,
+		);
+		if (resources.isError || !resource || role === "viewer")
+			return (
+				<Alert variant="warning">
+					<AlertTitle>Document unavailable</AlertTitle>
+					<AlertDescription>
+						The document slot or your workspace access is unavailable.
+					</AlertDescription>
+				</Alert>
+			);
+		const read = outputReads[boundOutputs.indexOf(resource)];
+		return (
+			<Suspense fallback={<Skeleton className="h-80" />}>
+				<DocWritingEditor
+					key={`${gadget.id}:${revision}:${resource.providerResourceId}`}
+					workspaceId={workspaceId}
+					outputId={resource.providerResourceId}
+					appVersion={revision}
+					draftKey={`${gadget.id}:${revisionId ?? revision}:${resource.providerResourceId}`}
+					role={role}
+					onCall={onCall}
+					savedRevision={
+						outputRevisions.find((row) => row.slot === resource.slot)?.revision
+					}
+					sourceUnavailable={read?.isError ?? false}
+				/>
+			</Suspense>
+		);
+	}
+	const legacyDoc =
+		!context.settings.editor &&
+		manifest.operations?.some((op) => op.name === "readDocument") &&
+		manifest.operations.some((op) => op.name === "replaceDocument");
+	const legacyResource = boundOutputs.find(
+		(row) => row.slot === context.settings.slot,
+	);
 	return (
-		<AppRuntimeFrame
-			html={html}
-			title={title}
-			onCall={onCall}
-			layout={layout}
-			translation={translation}
-			outputRevisions={outputRevisions}
-		/>
+		<>
+			{legacyDoc &&
+				legacyResource &&
+				revisionId &&
+				(role === "owner" || role === "build") && (
+					<DocEditorUpgrade
+						workspaceId={workspaceId}
+						outputId={legacyResource.providerResourceId}
+						gadgetId={gadget.id}
+						revisionId={revisionId}
+					/>
+				)}
+			<AppRuntimeFrame
+				html={html}
+				title={title}
+				onCall={onCall}
+				layout={layout}
+				translation={translation}
+				outputRevisions={outputRevisions}
+			/>
+		</>
 	);
 }

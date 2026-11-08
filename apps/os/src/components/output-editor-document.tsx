@@ -9,6 +9,8 @@ import {
 import { Node, mergeAttributes } from "@tiptap/core";
 import {
 	ArrowCounterClockwise,
+	ArrowUp,
+	ArrowDown,
 	CaretDown,
 	DotsThree,
 	Keyboard,
@@ -132,6 +134,8 @@ export interface DocumentCollab {
 }
 import {
 	applyDocumentStyle,
+	canMoveDocumentBlock,
+	moveDocumentBlock,
 	canChangeIndent,
 	changeIndent,
 	currentDocumentStyle,
@@ -835,6 +839,20 @@ export function DocumentEditor({
 					onClick={() => editor.chain().focus().redo().run()}
 				>
 					<ArrowUDownRight size={15} />
+				</EditorToolbarButton>
+				<EditorToolbarButton
+					label="Move block up"
+					disabled={disabled || !canMoveDocumentBlock(editor, -1)}
+					onClick={() => moveDocumentBlock(editor, -1)}
+				>
+					<ArrowUp size={15} />
+				</EditorToolbarButton>
+				<EditorToolbarButton
+					label="Move block down"
+					disabled={disabled || !canMoveDocumentBlock(editor, 1)}
+					onClick={() => moveDocumentBlock(editor, 1)}
+				>
+					<ArrowDown size={15} />
 				</EditorToolbarButton>
 				<EditorToolbarDivider />
 				<Select

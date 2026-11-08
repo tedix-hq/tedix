@@ -734,11 +734,11 @@ export function CanvasDocPanel({
 	const revisionLabel = isGadget
 		? gadgetDetail.data
 			? gadgetDetail.data.currentRevision
-				? `Revision ${gadgetDetail.data.currentRevision.revision}`
-				: "No revision yet"
+				? `App version ${gadgetDetail.data.currentRevision.revision}`
+				: "No app version yet"
 			: null
 		: outputDetail.data
-			? `Revision ${outputDetail.data.currentRevision.revision}`
+			? `${outputKind === "document" ? "Document revision" : "Revision"} ${outputDetail.data.currentRevision.revision}`
 			: null;
 	const gadgetWidgetTarget = isGadget
 		? gadgetWidgetTargetFromManifest(

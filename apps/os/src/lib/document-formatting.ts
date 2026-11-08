@@ -1,4 +1,5 @@
 import { Extension, type Editor } from "@tiptap/core";
+import { TextSelection } from "@tiptap/pm/state";
 import type { OsRichTextNode } from "@tedix/api-contract/schemas/os-workspaces";
 import { INDENT_STEP_PX, MAX_INDENT } from "@/lib/output-models";
 
@@ -11,6 +12,47 @@ import { INDENT_STEP_PX, MAX_INDENT } from "@/lib/output-models";
  */
 
 const INDENTABLE = ["paragraph", "heading", "codeBlock"];
+
+export function canMoveDocumentBlock(
+	editor: Editor,
+	direction: -1 | 1,
+): boolean {
+	const { $from, $to } = editor.state.selection;
+	const index = $from.index(0);
+	return (
+		editor.isEditable &&
+		$to.index(0) === index &&
+		index + direction >= 0 &&
+		index + direction < editor.state.doc.childCount
+	);
+}
+
+/** Move the complete top-level block, preserving its nested nodes and marks. */
+export function moveDocumentBlock(editor: Editor, direction: -1 | 1): boolean {
+	if (!canMoveDocumentBlock(editor, direction)) return false;
+	const { doc, selection, tr } = editor.state;
+	const index = selection.$from.index(0);
+	const node = doc.child(index),
+		adjacent = doc.child(index + direction);
+	let start = 0;
+	for (let i = 0; i < index; i++) start += doc.child(i).nodeSize;
+	const from = direction === -1 ? start - adjacent.nodeSize : start;
+	tr.replaceWith(
+		from,
+		from + node.nodeSize + adjacent.nodeSize,
+		direction === -1 ? [node, adjacent] : [adjacent, node],
+	);
+	const offset = direction * adjacent.nodeSize;
+	tr.setSelection(
+		TextSelection.between(
+			tr.doc.resolve(selection.from + offset),
+			tr.doc.resolve(selection.to + offset),
+		),
+	);
+	editor.view.dispatch(tr.scrollIntoView());
+	editor.view.focus();
+	return true;
+}
 
 export const DocumentFormatting = Extension.create({
 	name: "documentFormatting",
