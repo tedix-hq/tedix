@@ -32,7 +32,8 @@ export async function findWorkspaceOutputResource(
 
 export interface InstallWorkspaceAppParams {
 	blueprint: typeof osBlueprints.$inferInsert;
-	blueprintRevision: typeof osBlueprintRevisions.$inferInsert;
+	blueprintRevision: Omit<typeof osBlueprintRevisions.$inferInsert, "revision">;
+	templateVersion: number;
 	gadget: typeof osGadgets.$inferInsert;
 	revision: typeof osGadgetRevisions.$inferInsert;
 	code: typeof osGadgetCode.$inferInsert;
@@ -41,29 +42,67 @@ export interface InstallWorkspaceAppParams {
 
 type WorkspaceAppTemplate = Pick<
 	InstallWorkspaceAppParams,
-	"blueprint" | "blueprintRevision"
+	"blueprint" | "blueprintRevision" | "templateVersion"
 >;
 
 function templateStatements(db: DbQueryClient, params: WorkspaceAppTemplate) {
+	const revision = params.blueprintRevision;
+	const sequence = sql<number>`coalesce((select max(${osBlueprintRevisions.revision}) from ${osBlueprintRevisions} where ${osBlueprintRevisions.blueprintId} = ${revision.blueprintId}), 0) + 1`;
+	// Bundled versions and user-authored revisions share history, not a sequence.
+	const priorBundleVersion = sql<number>`coalesce((select max(case when json_type(${osBlueprintRevisions.definition}, '$.gadgets[0].manifest.config.settings.blueprintVersion') = 'integer' then json_extract(${osBlueprintRevisions.definition}, '$.gadgets[0].manifest.config.settings.blueprintVersion') else 1 end) from ${osBlueprintRevisions} where ${osBlueprintRevisions.organizationId} = ${revision.organizationId} and ${osBlueprintRevisions.blueprintId} = ${revision.blueprintId} and ${osBlueprintRevisions.id} <> ${revision.id}), 0)`;
 	return [
-		db.insert(osBlueprints).values(params.blueprint).onConflictDoNothing({
-			target: osBlueprints.id,
-		}),
+		db
+			.insert(osBlueprints)
+			.values(params.blueprint)
+			.onConflictDoNothing({ target: osBlueprints.id }),
 		db
 			.insert(osBlueprintRevisions)
-			.values(params.blueprintRevision)
+			.select(
+				db
+					.select({
+						id: sql<string>`${revision.id}`.as("id"),
+						organizationId: sql<string>`${revision.organizationId}`.as(
+							"organization_id",
+						),
+						blueprintId: sql<string>`${revision.blueprintId}`.as(
+							"blueprint_id",
+						),
+						revision: sequence.as("revision"),
+						definition: sql<string>`${revision.definition}`.as("definition"),
+						createdByKind: sql<string>`${revision.createdByKind}`.as(
+							"created_by_kind",
+						),
+						createdById: sql<string>`${revision.createdById}`.as(
+							"created_by_id",
+						),
+						createdAt:
+							sql<string>`${revision.createdAt ?? new Date().toISOString()}`.as(
+								"created_at",
+							),
+						publishedAt: sql<string | null>`${revision.publishedAt ?? null}`.as(
+							"published_at",
+						),
+					})
+					.from(osBlueprints)
+					.where(
+						and(
+							eq(osBlueprints.id, revision.blueprintId),
+							eq(osBlueprints.organizationId, revision.organizationId),
+						),
+					),
+			)
 			.onConflictDoNothing({ target: osBlueprintRevisions.id }),
 		db
 			.update(osBlueprints)
 			.set({
-				currentRevisionId: params.blueprintRevision.id,
+				currentRevisionId: revision.id,
 				updatedAt: params.blueprint.updatedAt,
 			})
 			.where(
 				and(
 					eq(osBlueprints.organizationId, params.blueprint.organizationId),
 					eq(osBlueprints.id, params.blueprint.id),
-					sql`coalesce((select ${osBlueprintRevisions.revision} from ${osBlueprintRevisions} where ${osBlueprintRevisions.id} = ${osBlueprints.currentRevisionId}), 0) < ${params.blueprintRevision.revision}`,
+					sql`${priorBundleVersion} < ${params.templateVersion}`,
 				),
 			),
 	] as const;
@@ -84,6 +123,7 @@ export async function linkWorkspaceOutputEditor(
 		resourceId: string;
 		outputId: string;
 		expectedSlot: string;
+		expectedGadgetRevisionId: string;
 		gadgetId: string;
 		kind: string;
 		now: string;
@@ -106,6 +146,7 @@ export async function linkWorkspaceOutputEditor(
 				eq(osWorkspaceResources.slot, params.expectedSlot),
 				eq(osWorkspaceResources.connectionScope, "tenant"),
 				eq(osWorkspaceResources.status, "active"),
+				sql`exists (select 1 from ${osGadgets} where ${osGadgets.organizationId} = ${params.organizationId} and ${osGadgets.workspaceId} = ${params.workspaceId} and ${osGadgets.id} = ${params.gadgetId} and ${osGadgets.currentRevisionId} = ${params.expectedGadgetRevisionId} and ${osGadgets.status} = 'active')`,
 			),
 		)
 		.returning({ id: osWorkspaceResources.id });
