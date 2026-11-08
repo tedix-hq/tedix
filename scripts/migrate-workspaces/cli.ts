@@ -102,10 +102,15 @@ export async function tedixAdminHeaders(
 				`No stored Tedix login for workspace "${workspace}". Run: tedix login -w ${workspace}`,
 		);
 	}
-	return async () => ({
-		...auth.headers,
-		...(auth.credentialProvider ? await auth.credentialProvider() : {}),
-	});
+	return async () => {
+		const headers = {
+			...auth.headers,
+			...(auth.credentialProvider ? await auth.credentialProvider() : {}),
+		};
+		const token = (await auth.oauthProvider?.tokens())?.access_token;
+		if (token) headers.Authorization = `Bearer ${token}`;
+		return headers;
+	};
 }
 
 export async function openStores(
