@@ -106,6 +106,7 @@ export type WorkspaceChatLedgerEvent =
 	| (Stamped & {
 			type: "turn.started";
 			turnId: string;
+			displayText?: string;
 			text: string;
 			authorId: string;
 			authorKind: "person" | "tedi";
@@ -154,7 +155,7 @@ export type WorkspaceChatLedgerEvent =
 	  })
 	| (Stamped & {
 			type: "approval.decided";
-			turnId: string;
+			turnId?: string;
 			approvalId: string;
 			decision: ApprovalDecision;
 			by: string;

@@ -462,6 +462,16 @@ describe("WorkspaceDO", () => {
 			after: requested.seq,
 		});
 		expect(after.map((event) => event.type)).toContain("approval.decided");
+		const continuation = after.find(
+			(event) =>
+				event.type === "turn.started" && event.turnId === decided.turnId,
+		);
+		expect(
+			continuation?.type === "turn.started" && continuation.displayText,
+		).toBe("Approved the requested action.");
+		expect(
+			continuation?.type === "turn.started" && continuation.text,
+		).toContain("outputs.create applied:");
 		const applied = (
 			await ws.readChangeRecords(scope, { resource: "output" })
 		).filter((record) => record.operation === "create");

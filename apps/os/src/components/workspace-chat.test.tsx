@@ -262,7 +262,6 @@ describe("WorkspaceChat", () => {
 					at,
 					conversationId: "c1",
 					type: "approval.decided",
-					turnId: "t1",
 					approvalId: "a1",
 					decision: "approve",
 					by: "person:aaron",
