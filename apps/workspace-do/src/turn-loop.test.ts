@@ -5,6 +5,10 @@ import {
 	fauxText,
 	fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
+import {
+	AssistantMessageEventStream,
+	type AssistantMessage,
+} from "@earendil-works/pi-ai";
 import type { Context, Usage } from "@earendil-works/pi-ai";
 import type { ModelPort } from "./model";
 import { RUN_CODE_TOOL } from "./prompt";
@@ -104,9 +108,11 @@ describe("runTurn", () => {
 			"toolResult",
 			"assistant",
 		]);
-		expect(events.slice(0, 3)).toEqual([
+		expect(events.slice(0, 5)).toEqual([
+			"model_started",
 			"step_started",
 			"tool_call_started",
+			"usage_updated",
 			"step_finished",
 		]);
 		expect(events).toContain("code_started");
@@ -185,7 +191,202 @@ describe("runTurn", () => {
 			output: 3 + answer!.usage.output,
 			cacheRead: 4 + answer!.usage.cacheRead,
 			cacheWrite: 1 + answer!.usage.cacheWrite,
+			partial: false,
 		});
 		expect(result.compaction?.droppedMessages).toBe(42);
 	});
+});
+
+function measuredModel(messages: AssistantMessage[]): ModelPort {
+	return {
+		id: "faux",
+		contextWindow: 128_000,
+		maxOutputTokens: 4000,
+		stream() {
+			const message = messages.shift();
+			if (!message) throw new Error("No scripted response remains");
+			const stream = new AssistantMessageEventStream();
+			stream.end(message);
+			return stream;
+		},
+	};
+}
+
+function measuredMessage(
+	content: Parameters<typeof fauxAssistantMessage>[0],
+	input: number,
+	output: number,
+	cached: number,
+) {
+	return {
+		...fauxAssistantMessage(content),
+		usage: {
+			input,
+			output,
+			cacheRead: cached,
+			cacheWrite: 0,
+			totalTokens: input + output + cached,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+		},
+	};
+}
+
+test("turn totals include every model step and compaction without double-counting cache", async () => {
+	const model = measuredModel([
+		{
+			...measuredMessage(
+				fauxToolCall(RUN_CODE_TOOL, { code: "export default () => 1" }),
+				100,
+				10,
+				40,
+			),
+			stopReason: "toolUse",
+		},
+		measuredMessage(fauxText("Done"), 200, 20, 60),
+	]);
+	const events: Array<{ type: string; data?: Record<string, unknown> }> = [];
+	const result = await runTurn(
+		{
+			model: { ...model, contextWindow: 1000 },
+			runCode: async () => ({ ok: true, logs: [], result: 1, durationMs: 0 }),
+			emit: (event) => events.push(event),
+			summarize: async () => ({
+				text: "Earlier context",
+				usage: measuredMessage("summary", 50, 5, 10).usage,
+			}),
+		},
+		{
+			turnId: "totals",
+			systemPrompt: "sys",
+			history: Array.from({ length: 4 }, (_, i) => ({
+				role: "user",
+				content: "x".repeat(2000),
+				timestamp: i,
+			})),
+			userText: "Go",
+		},
+	);
+	expect(result.usage).toEqual({
+		input: 350,
+		output: 35,
+		cacheRead: 110,
+		cacheWrite: 0,
+		partial: false,
+	});
+	expect(result.model).toBe("faux");
+	expect(events.filter((event) => event.type === "usage_updated")).toHaveLength(
+		3,
+	);
+});
+
+test.each([true, false])(
+	"SDK default zeroes are unknown; provider-reported zeroes are real (receipt=%s)",
+	async (usageReported) => {
+		const model = measuredModel([measuredMessage("Done", 0, 0, 0)]);
+		const result = await runTurn(
+			{
+				model: {
+					...model,
+					responseMetadata: () => ({
+						model: "provider-snapshot",
+						usageReported,
+					}),
+				},
+				runCode: async () => ({ ok: true, logs: [], durationMs: 0 }),
+				emit: () => {},
+				summarize: async () => ({ summary: "", usage: null }),
+			},
+			{ turnId: "zero", systemPrompt: "sys", history: [], userText: "Hi" },
+		);
+		expect(result.model).toBe("provider-snapshot");
+		expect(result.usage).toEqual(
+			usageReported
+				? {
+						input: 0,
+						output: 0,
+						cacheRead: 0,
+						cacheWrite: 0,
+						partial: false,
+					}
+				: null,
+		);
+	},
+);
+
+test("a failed later request retains available usage as partial", async () => {
+	const model = measuredModel([
+		{
+			...measuredMessage(
+				fauxToolCall(RUN_CODE_TOOL, { code: "export default () => 1" }),
+				100,
+				10,
+				40,
+			),
+			stopReason: "toolUse",
+		},
+		fauxAssistantMessage("", {
+			stopReason: "error",
+			errorMessage: "Provider failed",
+		}),
+	]);
+	const events: Array<{ type: string; data?: Record<string, unknown> }> = [];
+	await expect(
+		runTurn(
+			{
+				model,
+				runCode: async () => ({ ok: true, logs: [], durationMs: 0 }),
+				emit: (event) => events.push(structuredClone(event)),
+				summarize: async () => ({ summary: "", usage: null }),
+			},
+			{ turnId: "failed", systemPrompt: "sys", history: [], userText: "Hi" },
+		),
+	).rejects.toThrow("Provider failed");
+	expect(
+		events.filter((event) => event.type === "usage_updated").at(-1)?.data
+			?.usage,
+	).toEqual({
+		inputTokens: 140,
+		outputTokens: 10,
+		cachedInputTokens: 40,
+		partial: true,
+	});
+});
+
+test("model transparency preserves the tool-step and output-token limits", async () => {
+	const model = measuredModel(
+		Array.from({ length: 24 }, () => ({
+			...measuredMessage(
+				fauxToolCall(RUN_CODE_TOOL, { code: "export default () => 1" }),
+				10,
+				2,
+				0,
+			),
+			stopReason: "toolUse",
+		})),
+	);
+	let calls = 0;
+	let runs = 0;
+	const result = await runTurn(
+		{
+			model: {
+				...model,
+				stream(context, options) {
+					calls += 1;
+					expect(options?.maxTokens).toBe(4000);
+					return model.stream(context, options);
+				},
+			},
+			runCode: async () => {
+				runs += 1;
+				return { ok: true, logs: [], durationMs: 0 };
+			},
+			emit: () => {},
+			summarize: async () => ({ summary: "", usage: null }),
+		},
+		{ turnId: "limits", systemPrompt: "sys", history: [], userText: "Go" },
+	);
+	expect(calls).toBe(24);
+	expect(runs).toBe(24);
+	expect(result.stopReason).toBe("step_ceiling");
+	expect(result.usage?.input).toBe(240);
 });

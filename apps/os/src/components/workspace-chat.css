@@ -300,6 +300,10 @@
 	border-top: 1px solid var(--color-kumo-hairline, var(--border));
 }
 
+.workspace-chat-model > button {
+	max-width: 100%;
+}
+
 .workspace-chat-composer-row {
 	display: flex;
 	align-items: center;

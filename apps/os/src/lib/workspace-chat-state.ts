@@ -66,7 +66,9 @@ export type ChatTurn = {
 	finishedAt: string | null;
 	durationMs?: number;
 	usage?: TurnUsage;
+	usageSeq?: number;
 	model?: string;
+	modelSeq?: number;
 	/**
 	 * Stable key for the assistant row from first token to settled message, so
 	 * React never remounts it (the reference runtime's `answerKey`).
@@ -82,6 +84,7 @@ export type WorkspaceChatState = {
 	conversationId: string | null;
 	turns: ChatTurn[];
 	conversations: ConversationSummary[];
+	models: Array<{ id: string; label: string }>;
 	/** Older events exist before the first turn shown. */
 	hasEarlier: boolean;
 	/** A turn sent from this tab, not yet echoed by the object. */
@@ -105,6 +108,7 @@ export function initialWorkspaceChatState(
 		conversationId,
 		turns: [],
 		conversations: [],
+		models: [],
 		hasEarlier: false,
 		pendingSend: null,
 		lastError: null,
@@ -268,6 +272,20 @@ export function applyWorkspaceChatEvent(
 			if (pendingSend && pendingSend.text === event.text) pendingSend = null;
 			break;
 		}
+		case "turn.usage":
+			turns = place(event.turnId)((turn) =>
+				event.seq > (turn.usageSeq ?? -1)
+					? { ...turn, usage: event.usage, usageSeq: event.seq }
+					: turn,
+			);
+			break;
+		case "turn.model":
+			turns = place(event.turnId)((turn) =>
+				event.seq > (turn.modelSeq ?? -1)
+					? { ...turn, model: event.model, modelSeq: event.seq }
+					: turn,
+			);
+			break;
 		case "assistant.delta":
 			turns = place(event.turnId)((turn) => {
 				if (
@@ -295,8 +313,12 @@ export function applyWorkspaceChatEvent(
 				replyMessageId: event.messageId,
 				replyDone: true,
 				replyDeltas: undefined,
-				usage: event.usage ?? turn.usage,
-				model: event.model ?? turn.model,
+				...(event.usage && event.seq > (turn.usageSeq ?? -1)
+					? { usage: event.usage, usageSeq: event.seq }
+					: {}),
+				...(event.model && event.seq > (turn.modelSeq ?? -1)
+					? { model: event.model, modelSeq: event.seq }
+					: {}),
 			}));
 			break;
 		case "step.started":
@@ -538,11 +560,10 @@ export function elapsedLabel(ms: number): string {
 
 export function formatUsage(usage: TurnUsage): string {
 	const parts = [
-		`${(usage.inputTokens + usage.outputTokens).toLocaleString()} tokens`,
+		`${usage.inputTokens.toLocaleString()} input · ${usage.outputTokens.toLocaleString()} output tokens`,
 	];
-	if (usage.costCents !== undefined)
-		parts.push(
-			`€${(usage.costCents / 100).toFixed(usage.costCents < 100 ? 3 : 2)}`,
-		);
+	if (usage.cachedInputTokens !== undefined)
+		parts.push(`${usage.cachedInputTokens.toLocaleString()} cached input`);
+	if (usage.partial) parts.push("partial usage");
 	return parts.join(" · ");
 }

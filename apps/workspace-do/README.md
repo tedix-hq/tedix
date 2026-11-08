@@ -70,3 +70,17 @@ bun scripts/lint-loader-sandbox.ts --strict
 
 `scripts/bench.ts` times one question against a live workspace through the
 MCP gateway and prints time to first text and total time.
+
+## Model and usage in chat
+
+The chat picker offers only the configured Azure deployment this runtime can
+execute. The object rejects other model IDs before writing a turn and carries
+the selected ID into both local and isolated execution. Workspace chat still
+requires build access through the OS gateway.
+
+Chat labels the executing Azure deployment until the provider reports its model
+name. Input and output totals include all model calls and compaction; cached
+input is a subset of input. Missing provider usage stays unavailable, and totals
+with missing calls are marked partial. Model and usage events replay with the
+turn, including available receipts before a later failure. Cost stays unavailable:
+the adapter's zero pricing is a placeholder, not a price or a provider receipt.

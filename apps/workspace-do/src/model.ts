@@ -17,6 +17,7 @@ export interface ModelPort {
 	id: string;
 	contextWindow: number;
 	maxOutputTokens: number;
+	responseMetadata?(): { model?: string; usageReported: boolean };
 	stream(
 		context: Context,
 		options?: { signal?: AbortSignal; maxTokens?: number },
@@ -48,6 +49,25 @@ export function azureGatewayConfigured(env: AzureGatewayEnv): boolean {
 		configured(env.AI_GATEWAY_LLM_ID) &&
 		configured(env.CF_AI_GATEWAY_TOKEN),
 	);
+}
+
+export interface WorkspaceModelChoice {
+	id: string;
+	label: string;
+}
+
+/** Only the deployment this runtime can execute is selectable. */
+export function configuredWorkspaceModels(
+	env: AzureGatewayEnv,
+): WorkspaceModelChoice[] {
+	if (!azureGatewayConfigured(env)) return [];
+	const deployment = configured(env.AZURE_CHAT_DEPLOYMENT)!;
+	return [
+		{
+			id: `azure-openai/${deployment}`,
+			label: `Azure deployment: ${deployment}`,
+		},
+	];
 }
 
 /** Per-request attribution; the gateway caps this at five flat entries. */
@@ -96,13 +116,39 @@ export function createAzureGatewayModel(
 			}),
 		},
 	};
+	let responseMetadata: { model?: string; usageReported: boolean } = {
+		usageReported: false,
+	};
 	return {
+		responseMetadata: () => responseMetadata,
 		id: `azure-openai/${deployment}`,
 		contextWindow: model.contextWindow,
 		maxOutputTokens: model.maxTokens,
 		stream(context, options) {
+			responseMetadata = { usageReported: false };
 			const streamOptions: SimpleStreamOptions = {
 				apiKey: "cloudflare-ai-gateway-byok",
+				onProviderStreamEvent: (data) => {
+					const event = data as {
+						response?: {
+							model?: string;
+							usage?: { input_tokens?: number; output_tokens?: number };
+						};
+					};
+					if (typeof event.response?.model === "string")
+						responseMetadata.model = event.response.model;
+					const usage = event.response?.usage;
+					if (
+						usage &&
+						[usage.input_tokens, usage.output_tokens].every(
+							(count) =>
+								typeof count === "number" &&
+								Number.isFinite(count) &&
+								count >= 0,
+						)
+					)
+						responseMetadata.usageReported = true;
+				},
 				fetch: (input, init) => {
 					const request = new Request(input, init);
 					const url = new URL(request.url);

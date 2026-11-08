@@ -46,16 +46,18 @@ import { handleMcpRequest } from "./mcp";
 import {
 	azureGatewayConfigured,
 	createAzureGatewayModel,
+	configuredWorkspaceModels,
 	type ModelPort,
 } from "./model";
 import { buildSystemPrompt } from "./prompt";
 import type { WorkspaceStorage } from "./runtime";
 import { createLoaderSandbox } from "./sandbox";
-import { runTurn, type TurnResult } from "./turn-loop";
+import { runTurn, toTurnUsage, type TurnResult } from "./turn-loop";
 import {
 	type ClientFrame,
 	type ConversationSummary,
 	stepLabel,
+	type TurnUsage,
 	type WireControlFrame,
 	type WireEvent,
 	type WireEventBody,
@@ -185,6 +187,7 @@ export interface TurnPlan {
 	systemPrompt: string;
 	history: Message[];
 	userText: string;
+	modelId?: string;
 }
 
 /** What the loop reports while it runs; the object turns it into wire events. */
@@ -274,6 +277,11 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				seq: existing.first_seq ?? this.#events.latestSeq(),
 			};
 		}
+		if (
+			input.modelId !== undefined &&
+			!this.configuredModels().some((model) => model.id === input.modelId)
+		)
+			throw new Error("This model is not configured for workspace chat");
 		const text = input.text.trim();
 		if (!text) throw new Error("A turn needs text");
 		const now = new Date().toISOString();
@@ -693,6 +701,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 						actorId: ws.deserializeAttachment()?.actorId ?? "person",
 						actorKind: "user",
 						text: frame.text,
+						modelId: frame.modelId,
 						...(frame.tediId ? { tediId: frame.tediId } : {}),
 					});
 					this.#control(ws, {
@@ -874,6 +883,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			cursor: latest,
 			serverTime: new Date().toISOString(),
 			conversations: this.listConversations(scope),
+			models: this.configuredModels(),
 		});
 		for (const event of this.#events.replay(cursor, conversationId)) {
 			ws.send(JSON.stringify(event));
@@ -1129,6 +1139,16 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		const data = event.data ?? {};
 		let body: WireEventBody | null = null;
 		switch (event.type) {
+			case "model_started":
+				body = { type: "turn.model", turnId, model: String(data.model) };
+				break;
+			case "usage_updated":
+				body = {
+					type: "turn.usage",
+					turnId,
+					usage: data.usage as TurnUsage,
+				};
+				break;
 			case "text_delta":
 				body = {
 					type: "assistant.delta",
@@ -1258,6 +1278,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				organizationId: scope.organizationId,
 			},
 			actorKind,
+			modelId: input.modelId,
 			systemPrompt,
 			history,
 			userText:
@@ -1267,12 +1288,22 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		};
 	}
 
+	protected configuredModels() {
+		return configuredWorkspaceModels(this.env);
+	}
+
 	/** The model a turn streams from; a test subclass returns a scripted one. */
 	protected modelFor(
 		scope: WorkspaceScope,
 		turnId: string,
 		actorId: string,
+		modelId?: string,
 	): ModelPort {
+		if (
+			modelId !== undefined &&
+			!this.configuredModels().some((model) => model.id === modelId)
+		)
+			throw new Error("This model is not configured for workspace chat");
 		if (!azureGatewayConfigured(this.env))
 			throw new Error(
 				"No model configured for this workspace (set the Azure OpenAI and AI Gateway variables)",
@@ -1300,7 +1331,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				? await this.#runIsolated(plan)
 				: await executeTurn(plan, {
 						env: this.env,
-						model: this.modelFor(scope, turnId, plan.actor.id),
+						model: this.modelFor(scope, turnId, plan.actor.id, plan.modelId),
 						sandboxEnv: this.sandboxEnv(scope, turnId),
 						emit: (event) => this.#emitLoopEvent(conversationId, turnId, event),
 						signal: controller.signal,
@@ -1311,20 +1342,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				turnId,
 				messageId: turnId,
 				text: result.text,
-				...(result.usage
-					? {
-							usage: {
-								inputTokens:
-									result.usage.input +
-									result.usage.cacheRead +
-									result.usage.cacheWrite,
-								outputTokens: result.usage.output,
-								...(result.usage.cacheRead
-									? { cachedInputTokens: result.usage.cacheRead }
-									: {}),
-							},
-						}
-					: {}),
+				model: result.model,
+				...(result.usage ? { usage: toTurnUsage(result.usage) } : {}),
 			});
 			this.#events.append(conversationId, {
 				type: "turn.finished",
@@ -1503,20 +1522,24 @@ export async function executeTurn(
 			emit: host.emit,
 			signal: host.signal,
 			summarize: async (messages) => {
-				const stream = host.model.stream({
-					systemPrompt:
-						"Summarise this conversation for an agent that continues it: goal, constraints, progress, decisions, open items. Be concrete. Do not continue the conversation.",
-					messages: [
-						...messages,
-						{
-							role: "user",
-							content: "Write the summary now.",
-							timestamp: Date.now(),
-						},
-					],
-				});
+				const stream = host.model.stream(
+					{
+						systemPrompt:
+							"Summarise this conversation for an agent that continues it: goal, constraints, progress, decisions, open items. Be concrete. Do not continue the conversation.",
+						messages: [
+							...messages,
+							{
+								role: "user",
+								content: "Write the summary now.",
+								timestamp: Date.now(),
+							},
+						],
+					},
+					{ signal: host.signal, maxTokens: host.model.maxOutputTokens },
+				);
 				const summary = await stream.result();
 				return {
+					usage: summary.usage,
 					summary: summary.content
 						.filter(
 							(block): block is { type: "text"; text: string } =>
@@ -1524,7 +1547,6 @@ export async function executeTurn(
 						)
 						.map((block) => block.text)
 						.join(""),
-					usage: summary.usage,
 				};
 			},
 		},
@@ -1545,6 +1567,13 @@ export async function executeTurn(
 export class TurnFacet extends DurableObject<WorkspaceEnv> {
 	/** The model this facet streams from; a test subclass returns a scripted one. */
 	protected async modelFor(plan: TurnPlan): Promise<ModelPort> {
+		if (
+			plan.modelId !== undefined &&
+			!configuredWorkspaceModels(this.env).some(
+				(model) => model.id === plan.modelId,
+			)
+		)
+			throw new Error("This model is not configured for workspace chat");
 		return createAzureGatewayModel(this.env, {
 			workspaceId: plan.scope.workspaceId,
 			turnId: plan.turnId,

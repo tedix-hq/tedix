@@ -269,6 +269,40 @@ describe("createWorkspaceChatClient", () => {
 		expect(client.getSnapshot().connection.phase).toBe("reconnecting");
 	});
 
+	it("keeps the configured model on a request and its reconnect retry", () => {
+		const { client, sockets, hello, advance } = harness();
+		const first = sockets[0]!;
+		first.open();
+		first.receive({
+			type: "hello",
+			cursor: 0,
+			serverTime: "2026-11-07T12:00:00Z",
+			conversations: [],
+			models: [
+				{ id: "azure-openai/configured", label: "Configured deployment" },
+			],
+		});
+		expect(client.getSnapshot().state.models).toEqual([
+			{ id: "azure-openai/configured", label: "Configured deployment" },
+		]);
+		client.sendTurn({
+			text: "Use this model",
+			modelId: "azure-openai/configured",
+		});
+		const request = first.sent.at(-1);
+		expect(request).toMatchObject({
+			type: "send_turn",
+			modelId: "azure-openai/configured",
+		});
+		first.drop();
+		advance(60_000);
+		const second = sockets[1]!;
+		second.open();
+		hello(second);
+		expect(second.sent.at(-1)).toEqual(request);
+		client.close();
+	});
+
 	it("sends a turn with a client id and shows it as pending until echoed", () => {
 		const { client, sockets, hello } = harness();
 		const socket = sockets[0]!;

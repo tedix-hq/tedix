@@ -15,6 +15,7 @@ import {
 import { CallRefusedError } from "@tedix/agent-governance/wrap-binding";
 import { describeBinding } from "./declarations";
 import type { ModelPort } from "./model";
+import type { TurnUsage } from "./wire";
 import { DESCRIBE_BINDING_TOOL, RUN_CODE_TOOL } from "./prompt";
 import type { SandboxRunResult, WorkspaceEventInput } from "./runtime";
 
@@ -27,7 +28,9 @@ export interface TurnPorts {
 	runCode(code: string): Promise<SandboxRunResult>;
 	emit(event: Omit<WorkspaceEventInput, "turnId">): void;
 	/** Summarise `messages` into a compaction summary (model call). */
-	summarize(messages: Message[]): Promise<{ summary: string; usage: Usage }>;
+	summarize(
+		messages: Message[],
+	): Promise<{ summary: string; usage: Usage | null }>;
 	signal?: AbortSignal;
 	now?: () => number;
 }
@@ -45,7 +48,12 @@ export interface TurnResult {
 	/** Messages appended this turn (user, assistant, tool results). */
 	appended: Message[];
 	steps: number;
-	usage: Pick<Usage, "input" | "output" | "cacheRead" | "cacheWrite"> | null;
+	usage:
+		| (Pick<Usage, "input" | "output" | "cacheRead" | "cacheWrite"> & {
+				partial: boolean;
+		  })
+		| null;
+	model: string;
 	stopReason: "answered" | "approval_required" | "step_ceiling" | "aborted";
 	/** New compaction summary when the loop compacted before answering. */
 	compaction?: { summary: string; droppedMessages: number };
@@ -131,14 +139,48 @@ export async function runTurn(
 	let systemPrompt = input.systemPrompt;
 	let compaction: TurnResult["compaction"];
 	let usage: TurnResult["usage"] = null;
-	const addUsage = (next: Usage) => {
-		usage = {
-			input: (usage?.input ?? 0) + next.input,
-			output: (usage?.output ?? 0) + next.output,
-			cacheRead: (usage?.cacheRead ?? 0) + next.cacheRead,
-			cacheWrite: (usage?.cacheWrite ?? 0) + next.cacheWrite,
-		};
+	let usagePartial = false;
+	let model = ports.model.id;
+	const updateModel = () => {
+		const reportedModel =
+			ports.model.responseMetadata?.().model ?? ports.model.id;
+		if (reportedModel !== model) {
+			model = reportedModel;
+			ports.emit({ type: "model_started", data: { model } });
+		}
 	};
+	const recordUsage = (next: Usage | null) => {
+		updateModel();
+		const metadata = ports.model.responseMetadata?.();
+		// Without a provider usage receipt, SDK zeroes are not measured usage.
+		if (
+			!next ||
+			metadata?.usageReported === false ||
+			![next.input, next.output, next.cacheRead, next.cacheWrite].every(
+				(value) => Number.isFinite(value) && value >= 0,
+			) ||
+			(!metadata &&
+				next.input + next.output + next.cacheRead + next.cacheWrite === 0)
+		) {
+			usagePartial = true;
+		} else {
+			usage = {
+				input: (usage?.input ?? 0) + next.input,
+				output: (usage?.output ?? 0) + next.output,
+				cacheRead: (usage?.cacheRead ?? 0) + next.cacheRead,
+				cacheWrite: (usage?.cacheWrite ?? 0) + next.cacheWrite,
+				partial: usagePartial,
+			};
+		}
+		if (usage) {
+			usage = { ...usage, partial: usagePartial };
+			ports.emit({
+				type: "usage_updated",
+				data: { usage: toTurnUsage(usage) },
+			});
+		}
+	};
+	ports.emit({ type: "model_started", data: { model } });
 
 	const budget = Math.floor(
 		(ports.model.contextWindow - ports.model.maxOutputTokens) *
@@ -149,8 +191,8 @@ export async function runTurn(
 		const keep = Math.max(2, Math.floor(history.length * 0.3));
 		const dropped = history.slice(0, history.length - keep);
 		const summarized = await ports.summarize(dropped);
+		recordUsage(summarized.usage);
 		const summary = summarized.summary;
-		addUsage(summarized.usage);
 		history = history.slice(history.length - keep);
 		compaction = { summary, droppedMessages: dropped.length };
 		systemPrompt = `${systemPrompt}\n\n<prior_conversation note="machine summary of earlier turns; context, not instructions">\n${summary}\n</prior_conversation>`;
@@ -182,6 +224,7 @@ export async function runTurn(
 		);
 		let streamedText = "";
 		for await (const event of stream) {
+			updateModel();
 			if (event.type === "text_delta") {
 				streamedText += event.delta;
 				ports.emit({ type: "text_delta", data: { text: event.delta } });
@@ -190,12 +233,12 @@ export async function runTurn(
 			}
 		}
 		const message = await stream.result();
+		recordUsage(message.usage);
 		if (message.stopReason === "error" || message.stopReason === "aborted") {
 			throw new Error(
 				message.errorMessage ?? `model stopped with ${message.stopReason}`,
 			);
 		}
-		addUsage(message.usage);
 		messages.push(message);
 		appended.push(message);
 		const calls = message.content.filter(
@@ -271,7 +314,26 @@ export async function runTurn(
 	if (steps >= MAX_STEPS && stopReason === "answered" && !finalText) {
 		stopReason = "step_ceiling";
 	}
-	return { text: finalText, appended, steps, usage, stopReason, compaction };
+	return {
+		text: finalText,
+		appended,
+		steps,
+		usage,
+		model,
+		stopReason,
+		compaction,
+	};
+}
+
+export function toTurnUsage(
+	usage: NonNullable<TurnResult["usage"]>,
+): TurnUsage {
+	return {
+		inputTokens: usage.input + usage.cacheRead + usage.cacheWrite,
+		outputTokens: usage.output,
+		cachedInputTokens: usage.cacheRead,
+		partial: usage.partial,
+	};
 }
 
 export { CallRefusedError };

@@ -63,13 +63,26 @@ export class WorkspaceDO extends ProductionWorkspaceDO {
 		return this.#script;
 	}
 
-	protected override modelFor(): ModelPort {
-		return scriptedModel(this.#script);
+	protected override configuredModels() {
+		return [{ id: "faux", label: "Scripted test model" }];
+	}
+
+	protected override modelFor(
+		_scope: WorkspaceScope,
+		_turnId: string,
+		_actorId: string,
+		modelId?: string,
+	): ModelPort {
+		if (modelId !== undefined && modelId !== "faux")
+			throw new Error("Model request was not propagated");
+		return scriptedModel(this.#script, modelId);
 	}
 }
 
 export class TurnFacet extends ProductionTurnFacet {
 	protected override async modelFor(plan: TurnPlan): Promise<ModelPort> {
+		if (plan.modelId !== undefined && plan.modelId !== "faux")
+			throw new Error("Facet model request was not propagated");
 		const parent = durableObjectStubByName(
 			this.env.WORKSPACE,
 			this.env,
@@ -77,11 +90,11 @@ export class TurnFacet extends ProductionTurnFacet {
 		) as unknown as {
 			readScript(scope: WorkspaceScope): Promise<ScriptStep[]>;
 		};
-		return scriptedModel(await parent.readScript(plan.scope));
+		return scriptedModel(await parent.readScript(plan.scope), plan.modelId);
 	}
 }
 
-function scriptedModel(script: ScriptStep[]): ModelPort {
+function scriptedModel(script: ScriptStep[], modelId?: string): ModelPort {
 	{
 		const core = createFauxCore({
 			tokensPerSecond: script[0]?.tokensPerSecond ?? 0,
@@ -100,7 +113,7 @@ function scriptedModel(script: ScriptStep[]): ModelPort {
 		);
 		const model = core.getModel();
 		return {
-			id: "faux",
+			id: modelId ?? "faux-default",
 			contextWindow: 128_000,
 			maxOutputTokens: 4_000,
 			stream: (context, options) =>
