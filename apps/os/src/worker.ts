@@ -1072,6 +1072,7 @@ export async function handleOsRequest(
 	// tenant.kind === "launcher" (os.tedix.dev) resolves no tenant and falls
 	// through to asset serving below — it is the central login/launcher surface.
 	let hostTenantId: string | null = null;
+	let hostOrganizationId: string | null = null;
 	let oidcOrganization = false;
 	if (tenant.kind === "tenant" && env.API_SERVICE) {
 		const resolution =
@@ -1083,6 +1084,7 @@ export async function handleOsRequest(
 			return refuse(404, "No Tedix OS workspace at this hostname.");
 		}
 		oidcOrganization = resolution.identityProvider === "oidc";
+		hostOrganizationId = resolution.organizationId ?? null;
 		hostTenantId = oidcOrganization
 			? (resolution.organizationId ?? null)
 			: (resolution.descopeTenantId ?? null);
@@ -1326,6 +1328,7 @@ export async function handleOsRequest(
 			chatWorkspaceId,
 			tenant,
 			hostTenantId,
+			hostOrganizationId,
 			url.searchParams.get("after"),
 		);
 	}
@@ -1657,6 +1660,7 @@ async function handleWorkspaceChatUpgrade(
 	workspaceId: string,
 	tenant: ReturnType<typeof resolveOsTenant>,
 	hostTenantId: string | null,
+	organizationId: string | null,
 	after: string | null,
 ): Promise<Response> {
 	const localDemo = isLocalDemoOrigin(request, env);
@@ -1695,6 +1699,9 @@ async function handleWorkspaceChatUpgrade(
 	if (!upstream || !env.API_SERVICE) {
 		return refuse(503, "Workspace chat is unavailable on this origin.");
 	}
+	if (!organizationId && !localDemo) {
+		return refuse(503, "Workspace organization is unavailable.");
+	}
 	const apiHeaders: Record<string, string> = {};
 	const authorization = request.headers.get("Authorization");
 	const cookie = request.headers.get("Cookie");
@@ -1722,6 +1729,9 @@ async function handleWorkspaceChatUpgrade(
 		}
 		presence = { workspaceId, displayName: "Local owner", role: "owner" };
 	}
+	if (presence.role === "use") {
+		return refuse(403, "Workspace chat requires build access.");
+	}
 	const headers = new Headers();
 	for (const name of [
 		"Upgrade",
@@ -1739,7 +1749,7 @@ async function handleWorkspaceChatUpgrade(
 	headers.set(WORKSPACE_ID_HEADER, workspaceId);
 	// The object writes turns under this actor; it never sees a credential.
 	if (presence.userId) headers.set(WORKSPACE_ACTOR_HEADER, presence.userId);
-	if (hostTenantId) headers.set(WORKSPACE_ORG_HEADER, hostTenantId);
+	if (organizationId) headers.set(WORKSPACE_ORG_HEADER, organizationId);
 	// The object replays every event after this cursor, then streams live.
 	const query = after && /^\d+$/.test(after) ? `?after=${after}` : "";
 	return upstream.fetch(
