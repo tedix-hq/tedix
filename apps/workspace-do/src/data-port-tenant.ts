@@ -1,6 +1,7 @@
 /**
  * Data port over the workspace's own store. Outputs and revisions are rows
- * in this object's SQLite (the tenant-store plane); bodies are gzip objects
+ * in this object's SQLite (the tenant-store plane); pre-cutover outputs retain
+ * their core rows and revisions. Bodies are gzip objects
  * in R2 addressed by digest. Apps, resources and Work items still live in
  * the core database and are read there directly, no HTTP hop.
  */
@@ -12,6 +13,7 @@ import {
 	getOsOutputRevision,
 	listOsOutputs,
 } from "@tedix/db/queries/durable-sqlite/os-outputs";
+import * as coreOutputs from "@tedix/db/queries/os-workspaces/outputs";
 import type { TenantStoreDb } from "@tedix/db/queries/durable-sqlite/tenant-store";
 import { listOsGadgets } from "@tedix/db/queries/os-workspaces/gadgets";
 import { listOsWorkspaceProjects } from "@tedix/db/queries/os-workspaces/projects";
@@ -26,6 +28,7 @@ import { sha256Hex } from "@tedix/worker-kit/crypto";
 import {
 	OsOutputContentInputSchema,
 	OsOutputContentSchema,
+	OsDerivedAccessEnvelopeSchema,
 	type OsOutputContent,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import type {
@@ -93,6 +96,7 @@ export interface TenantDataPortDeps {
 	core: DbQueryClient;
 	bucket: OutputBodyBucket;
 	actorKind: "user" | "tedi" | "external_agent" | "service";
+	commitOutput: <T>(outputId: string, write: () => Promise<T>) => Promise<T>;
 }
 
 export class TenantDataPort implements WorkspaceDataPort {
@@ -121,13 +125,30 @@ export class TenantDataPort implements WorkspaceDataPort {
 		};
 	}
 
-	private async summary(row: OsOutputRow): Promise<OutputSummary> {
+	private async locate(outputId: string) {
+		const params = { ...this.scope, outputId };
+		const legacy = await coreOutputs.getOsOutput(this.deps.core, params);
+		const row = legacy ?? (await getOsOutput(this.deps.tenant, params));
+		if (!row || row.workspaceId !== this.deps.workspaceId) return null;
 		const revision = row.currentRevisionId
-			? await getOsOutputRevision(this.deps.tenant, {
-					organizationId: row.organizationId,
-					revisionId: row.currentRevisionId,
-				})
+			? await (legacy
+					? coreOutputs.getOsOutputRevision(this.deps.core, {
+							...this.scope,
+							revisionId: row.currentRevisionId,
+						})
+					: getOsOutputRevision(this.deps.tenant, {
+							...this.scope,
+							revisionId: row.currentRevisionId,
+						}))
 			: undefined;
+		if (revision && revision.outputId !== row.id) return null;
+		return { row, revision, legacy: Boolean(legacy) };
+	}
+
+	private summary(
+		row: OsOutputRow,
+		revision?: OsOutputRevisionRow,
+	): OutputSummary {
 		return {
 			id: row.id,
 			kind: row.kind,
@@ -139,33 +160,56 @@ export class TenantDataPort implements WorkspaceDataPort {
 		};
 	}
 
+	private canRead(revision: OsOutputRevisionRow | undefined): boolean {
+		if (!revision?.accessEnvelope) return false;
+		let envelope: unknown;
+		try {
+			envelope = JSON.parse(revision.accessEnvelope);
+		} catch {
+			return false;
+		}
+		const parsed = OsDerivedAccessEnvelopeSchema.safeParse(envelope);
+		// This port has no provider credential authority. Derived sources require
+		// the API's source checks before their content can be released.
+		return parsed.success && parsed.data.sources.length === 0;
+	}
+
 	async listOutputs(options?: {
 		kind?: OutputSummary["kind"];
 		status?: OutputSummary["status"];
 	}): Promise<OutputSummary[]> {
-		const rows = await listOsOutputs(
-			this.deps.tenant,
-			this.deps.organizationId,
-			// The object serves one workspace; visibility was checked at the door.
-			{ userIds: [], workspaceIds: [this.deps.workspaceId] },
-			{ workspaceId: this.deps.workspaceId, ...options, limit: 500 },
-		);
-		return Promise.all(rows.map((row) => this.summary(row)));
+		const viewer = { userIds: [], workspaceIds: [this.deps.workspaceId] };
+		const [legacy, local] = await Promise.all([
+			coreOutputs.listOsOutputs(this.deps.core, this.scope, viewer, {
+				...options,
+				limit: 500,
+			}),
+			listOsOutputs(this.deps.tenant, this.deps.organizationId, viewer, {
+				workspaceId: this.deps.workspaceId,
+				...options,
+				limit: 500,
+			}),
+		]);
+		const ids = new Set([...legacy, ...local].map((row) => row.id));
+		const rows = await Promise.all([...ids].map((id) => this.locate(id)));
+		return rows
+			.filter(
+				(value) =>
+					value &&
+					this.canRead(value.revision) &&
+					(!options?.kind || value.row.kind === options.kind) &&
+					(!options?.status || value.row.status === options.status),
+			)
+			.map((value) => this.summary(value!.row, value!.revision))
+			.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 	}
 
 	async getOutput(outputId: string): Promise<OutputDetail | null> {
-		const row = await getOsOutput(this.deps.tenant, {
-			organizationId: this.deps.organizationId,
-			outputId,
-		});
-		if (!row || row.workspaceId !== this.deps.workspaceId) return null;
-		const summary = await this.summary(row);
-		if (!row.currentRevisionId) return { ...summary, content: null };
-		const revision = await getOsOutputRevision(this.deps.tenant, {
-			organizationId: row.organizationId,
-			revisionId: row.currentRevisionId,
-		});
-		if (!revision) return { ...summary, content: null };
+		const located = await this.locate(outputId);
+		if (!located) return null;
+		const { row, revision } = located;
+		if (!revision || !this.canRead(revision)) return null;
+		const summary = this.summary(row, revision);
 		const body = await readOutputBody(this.deps.bucket, revision);
 		return {
 			...summary,
@@ -188,36 +232,37 @@ export class TenantDataPort implements WorkspaceDataPort {
 		const outputId = crypto.randomUUID();
 		const revisionId = crypto.randomUUID();
 		const now = new Date().toISOString();
-		await createOsOutput(
-			this.deps.tenant,
-			{
-				id: outputId,
-				organizationId: this.deps.organizationId,
-				workspaceId: this.deps.workspaceId,
-				kind: content.kind,
-				title: input.title,
-				status: "active",
-				currentRevisionId: revisionId,
-				createdByKind: this.deps.actorKind,
-				createdById: input.actorId,
-				createdAt: now,
-				updatedAt: now,
-			},
-			{
-				id: revisionId,
-				organizationId: this.deps.organizationId,
-				outputId,
-				revision: 1,
-				content: "",
-				createdByKind: this.deps.actorKind,
-				createdById: input.actorId,
-				createdAt: now,
-				...stored,
-			},
+		const created = await this.deps.commitOutput(outputId, () =>
+			createOsOutput(
+				this.deps.tenant,
+				{
+					id: outputId,
+					organizationId: this.deps.organizationId,
+					workspaceId: this.deps.workspaceId,
+					kind: content.kind,
+					title: input.title,
+					status: "active",
+					currentRevisionId: revisionId,
+					createdByKind: this.deps.actorKind,
+					createdById: input.actorId,
+					createdAt: now,
+					updatedAt: now,
+				},
+				{
+					id: revisionId,
+					organizationId: this.deps.organizationId,
+					outputId,
+					revision: 1,
+					content: "",
+					accessEnvelope: JSON.stringify({ version: 1, sources: [] }),
+					createdByKind: this.deps.actorKind,
+					createdById: input.actorId,
+					createdAt: now,
+					...stored,
+				},
+			),
 		);
-		const created = await this.getOutput(outputId);
-		if (!created) throw new Error("Output vanished after create");
-		return created;
+		return { ...this.summary(created.output, created.revision), content };
 	}
 
 	async reviseOutput(input: {
@@ -239,20 +284,36 @@ export class TenantDataPort implements WorkspaceDataPort {
 			this.deps.organizationId,
 			JSON.stringify(content),
 		);
-		const result = await createOsOutputRevision(this.deps.tenant, {
+		const located = await this.locate(input.outputId);
+		if (!located) throw new Error("Output not found");
+		const params = {
 			id: crypto.randomUUID(),
 			organizationId: this.deps.organizationId,
 			outputId: input.outputId,
 			...stored,
+			content: "",
+			accessEnvelope: JSON.stringify({ version: 1, sources: [] }),
 			note: input.note ?? null,
 			createdByKind: this.deps.actorKind,
 			createdById: input.actorId,
 			expectedRevision: input.expectedRevision,
-		});
+		};
+		const result = await this.deps.commitOutput(input.outputId, () =>
+			located.legacy
+				? coreOutputs.createOsOutputRevision(this.deps.core, params)
+				: createOsOutputRevision(this.deps.tenant, params),
+		);
 		if (!result.ok) throw new Error(`Revise failed: ${result.reason}`);
-		const revised = await this.getOutput(input.outputId);
-		if (!revised) throw new Error("Output vanished after revise");
-		return revised;
+		return {
+			...existing,
+			content,
+			revision: result.revision.revision,
+			revisionId: result.revision.id,
+			updatedAt:
+				result.revision.revision === existing.revision
+					? existing.updatedAt
+					: result.revision.createdAt,
+		};
 	}
 
 	async listApps() {

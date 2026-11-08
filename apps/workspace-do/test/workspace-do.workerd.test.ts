@@ -4,13 +4,25 @@ import type { SQLiteTable } from "drizzle-orm/sqlite-core";
 import { describe, expect, test } from "vite-plus/test";
 import {
 	osGadgets,
+	osOutputs,
+	osOutputRevisions,
 	osWorkspaceProjects,
 	osWorkspaceResources,
 	osWorkspaces,
 } from "@tedix/db/schema/os-workspaces";
 import { tedis } from "@tedix/db/schema/tedis";
+import {
+	workspaceFeedLedger,
+	workspaceFeedCursors,
+	workspaceActivity,
+	workspaceOutputIndex,
+	workspaceWorkLinks,
+} from "@tedix/db/schema/workspace-feed";
 import { workItems } from "@tedix/db/schema/work-items";
 import { tenantStoreStub } from "@tedix/db/tenant-store/router";
+import { createDbQueryClient } from "@tedix/db/query-client";
+import { createOsOutput as createCoreOutput } from "@tedix/db/queries/os-workspaces/outputs";
+import { getWorkspaceOutputIndexCurrent } from "@tedix/db/queries/workspace-feed/read";
 import { storeOutputBody } from "../src/data-port-tenant";
 import type { WorkspaceEnv, WorkspaceScope } from "../src/env";
 import type { WorkspaceRpc } from "../src/do";
@@ -26,6 +38,8 @@ const testEnv = env as unknown as WorkspaceEnv & {
 };
 
 type Stub = WorkspaceRpc & {
+	failNextProjection(scope: WorkspaceScope): Promise<void>;
+	retryProjections(scope: WorkspaceScope): Promise<void>;
 	scriptModel(scope: WorkspaceScope, steps: ScriptStep[]): Promise<void>;
 	importRows(
 		scope: WorkspaceScope,
@@ -86,6 +100,13 @@ async function seedCore() {
 	const now = "2026-11-07T10:00:00.000Z";
 	for (const table of [
 		osWorkspaces,
+		osOutputs,
+		osOutputRevisions,
+		workspaceFeedLedger,
+		workspaceFeedCursors,
+		workspaceActivity,
+		workspaceOutputIndex,
+		workspaceWorkLinks,
 		osWorkspaceProjects,
 		osWorkspaceResources,
 		osGadgets,
@@ -217,6 +238,7 @@ async function seedOutputs(ws: Stub) {
 				output_id: "out-sheet",
 				revision: 1,
 				content: "",
+				access_envelope: JSON.stringify({ version: 1, sources: [] }),
 				created_by_kind: "user",
 				created_by_id: "u1",
 				created_at: now,
@@ -230,6 +252,7 @@ async function seedOutputs(ws: Stub) {
 				output_id: "out-doc",
 				revision: 1,
 				content: "",
+				access_envelope: JSON.stringify({ version: 1, sources: [] }),
 				created_by_kind: "user",
 				created_by_id: "u1",
 				created_at: now,
@@ -330,6 +353,144 @@ describe("WorkspaceDO", () => {
 		expect((await ws.listConversations(scope))[0]?.id).toBe(conversationId);
 		// Loop overhead without a real model: well inside the 30 s budget.
 		expect(elapsed).toBeLessThan(10_000);
+	});
+
+	test("agent reads browser revisions from both stores and refuses unverified source content", async () => {
+		await seedCore();
+		const ws = workspace();
+		const now = new Date().toISOString();
+		const body = await storeOutputBody(
+			testEnv.R2_BUCKET,
+			scope.organizationId,
+			JSON.stringify({
+				kind: "document",
+				blocks: [{ type: "paragraph", text: "browser-marker" }],
+			}),
+		);
+		const output = {
+			id: "legacy-browser",
+			...scope,
+			kind: "document" as const,
+			title: "Browser document",
+			currentRevisionId: "legacy-browser-r1",
+			createdByKind: "user" as const,
+			createdById: "u1",
+			createdAt: now,
+			updatedAt: now,
+		};
+		const revision = {
+			id: "legacy-browser-r1",
+			organizationId: scope.organizationId,
+			outputId: output.id,
+			revision: 1,
+			content: "",
+			...body,
+			accessEnvelope: JSON.stringify({ version: 1, sources: [] }),
+			createdByKind: "user" as const,
+			createdById: "u1",
+			createdAt: now,
+		};
+		await createCoreOutput(
+			createDbQueryClient(testEnv.DB),
+			scope,
+			output,
+			revision,
+		);
+		await ws.failNextProjection(scope);
+		await ws.outputQuery(scope, {
+			op: "create",
+			output: {
+				...output,
+				id: "object-browser",
+				currentRevisionId: "object-browser-r1",
+			},
+			revision: {
+				...revision,
+				id: "object-browser-r1",
+				outputId: "object-browser",
+			},
+		});
+		const db = createDbQueryClient(testEnv.DB);
+		expect(
+			await getWorkspaceOutputIndexCurrent(db, {
+				organizationId: scope.organizationId,
+				outputId: "object-browser",
+			}),
+		).toBeUndefined();
+		await ws.retryProjections(scope);
+		expect(
+			(
+				await getWorkspaceOutputIndexCurrent(db, {
+					organizationId: scope.organizationId,
+					outputId: "object-browser",
+				})
+			)?.revisionId,
+		).toBe("object-browser-r1");
+		await ws.outputQuery(scope, {
+			op: "create",
+			output: {
+				...output,
+				id: "unverified",
+				currentRevisionId: "unverified-r1",
+			},
+			revision: {
+				...revision,
+				id: "unverified-r1",
+				outputId: "unverified",
+				accessEnvelope: null,
+			},
+		});
+		const editedBody = await storeOutputBody(
+			testEnv.R2_BUCKET,
+			scope.organizationId,
+			JSON.stringify({
+				kind: "document",
+				blocks: [{ type: "paragraph", text: "browser-edit-marker" }],
+			}),
+		);
+		const revised = await ws.outputQuery(scope, {
+			op: "revise",
+			params: {
+				...revision,
+				...editedBody,
+				id: "object-browser-r2",
+				outputId: "object-browser",
+				expectedRevision: 1,
+			},
+		});
+		expect(revised.ok).toBe(true);
+		const stale = await ws.outputQuery(scope, {
+			op: "revise",
+			params: {
+				...revision,
+				id: "stale-r2",
+				outputId: "object-browser",
+				expectedRevision: 1,
+			},
+		});
+		expect(stale).toEqual({ ok: false, reason: "revision_conflict" });
+		await ws.scriptModel(scope, [
+			{
+				code: `export default async (env) => ({
+			legacy: await env.outputs.get("legacy-browser"),
+			object: await env.outputs.get("object-browser"),
+			unverified: await env.outputs.get("unverified")
+		})`,
+			},
+			{ text: "Read checked." },
+		]);
+		const turn = await ws.sendTurn(scope, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "Read browser outputs",
+		});
+		await ws.awaitTurn(scope, turn.turnId, 20_000);
+		const messages = await ws.readMessages(scope, turn.conversationId);
+		const tool = messages.find((message) => message.role === "toolResult");
+		const rendered = JSON.stringify(tool);
+		expect(rendered).toContain("browser-marker");
+		expect(rendered).toContain('\\"revision\\": 2');
+		expect(rendered).toContain('\\"unverified\\": null');
 	});
 
 	test("two isolated turns in one workspace remain in flight together", async () => {
