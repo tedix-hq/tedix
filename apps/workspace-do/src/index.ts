@@ -67,6 +67,12 @@ export class InternalEntrypoint extends WorkerEntrypoint<WorkspaceEnv> {
 	}
 	/** WebSocket subscribe and MCP: forwarded with the scope headers set by the caller. */
 	override fetch(request: Request): Promise<Response> {
+		const migration = new URL(request.url).pathname.match(MIGRATION_PATH);
+		if (migration) {
+			return handleMigration(request, this.env, migration).catch(
+				migrationErrorResponse,
+			);
+		}
 		const organizationId = request.headers.get("X-Workspace-Org");
 		const workspaceId = request.headers.get("X-Workspace-Id");
 		if (!organizationId || !workspaceId)
@@ -151,6 +157,13 @@ async function handleMigration(
 	return new Response("Not found", { status: 404 });
 }
 
+function migrationErrorResponse(error: unknown): Response {
+	return Response.json(
+		{ error: error instanceof Error ? error.message : String(error) },
+		{ status: 400 },
+	);
+}
+
 export default {
 	async fetch(request: Request, env: WorkspaceEnv): Promise<Response> {
 		const url = new URL(request.url);
@@ -163,14 +176,9 @@ export default {
 		}
 		const migration = url.pathname.match(MIGRATION_PATH);
 		if (migration) {
-			try {
-				return await handleMigration(request, env, migration);
-			} catch (error) {
-				return Response.json(
-					{ error: error instanceof Error ? error.message : String(error) },
-					{ status: 400 },
-				);
-			}
+			return handleMigration(request, env, migration).catch(
+				migrationErrorResponse,
+			);
 		}
 		return new Response("Not found", { status: 404 });
 	},
