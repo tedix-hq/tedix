@@ -46,6 +46,18 @@ describe("memory through the runtime service entrypoint", () => {
 			memoryScope: "tedi",
 			usePolicy: "can_use_as_evidence",
 		});
+		expect(
+			await runtime.ownedMemory(owner, access, {
+				operation: "browse",
+				input: { view: "stale", orderBy: "updated", limit: 20, offset: 0 },
+			}),
+		).toEqual({ facts: [], nextOffset: null });
+		expect(
+			await runtime.ownedMemory(owner, access, {
+				operation: "fallbackRecall",
+				input: {},
+			}),
+		).toEqual([expect.objectContaining({ id: "org-fact" })]);
 	});
 
 	test("denies foreign organization, workspace and personal owners before touching the namespace", async () => {

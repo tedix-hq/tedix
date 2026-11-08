@@ -6,21 +6,17 @@ import { FactSchema } from "@tedix/api-contract/schemas/memory-graph";
 import { AUTHZ, ErrorCodes, createError, type BaseContext } from "../../orpc";
 import { requireOrgId } from "../../org-scope";
 import { authed } from "./policy-operations";
-import { browseMemory } from "@tedix/db/queries/memory-graph/browse";
+import { readOwnedMemory } from "../../../services/memory-owner-read";
 
 export const browse = authed.browse
 	.use(AUTHZ.memoryRead)
 	.handler(async ({ input, context }) => {
-		if (context.authType === "tedi" && !context.tediId)
-			throw createError(
-				ErrorCodes.FORBIDDEN,
-				"Authenticated tedi identity is required",
-			);
-		const result = await browseMemory(context.db, {
-			...input,
-			organizationId: requireOrgId(context),
-			tediId: context.tediId,
-		});
+		const result = await readOwnedMemory(
+			context,
+			{ plane: "platform-d1", db: context.db },
+			{ kind: "organization", organizationId: requireOrgId(context) },
+			{ operation: "browse", input },
+		);
 		return {
 			...result,
 			facts: result.facts.map((fact) =>

@@ -16,6 +16,7 @@ import type { TenantStorePlane } from "../durable-sqlite/tenant-store";
 import { auditMemoryGraph, type BrainAuditInput } from "../memory-audit";
 import * as entities from "../memory-entities";
 import * as facts from "./facts";
+import { browseMemory } from "./browse";
 import * as recall from "./hybrid-recall";
 import * as citations from "./fact-citations";
 import * as links from "./auto-linking";
@@ -75,6 +76,16 @@ const operations = {
 		scope: TenantScope,
 		input: NonNullable<Parameters<typeof listOptimizationSignals>[2]>,
 	) => listOptimizationSignals(store.db, scope, input),
+	browse: (
+		store: Store,
+		scope: TenantScope,
+		input: Omit<Parameters<typeof browseMemory>[1], keyof TenantScope>,
+	) => browseMemory(store.db, { ...input, ...scope }),
+	fallbackRecall: (
+		store: Store,
+		scope: TenantScope,
+		input: Omit<recall.RecallScope, keyof TenantScope>,
+	) => recall.fallbackRecall(store.db, { ...input, ...scope }),
 	createFact: (
 		store: Store,
 		scope: TenantScope,
