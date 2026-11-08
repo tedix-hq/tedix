@@ -97,7 +97,10 @@ function harness(laneAvailable: boolean | null = true) {
 	return { client, sockets, advance, hello, timers: () => timers };
 }
 
-const delta = (seq: number, text: string): WorkspaceChatServerMessage => ({
+const delta = (
+	seq: number,
+	text: string,
+): Extract<WorkspaceChatServerMessage, { type: "assistant.delta" }> => ({
 	type: "assistant.delta",
 	seq,
 	at: "2026-11-07T12:00:00.000Z",
@@ -314,14 +317,82 @@ describe("createWorkspaceChatClient", () => {
 			clearTimeoutFn: () => {},
 		});
 		sockets[0]!.open();
-		client.sendTurn({ text: "First" });
+		const clientTurnId = client.sendTurn({ text: "First" });
 		sockets[0]!.receive({
 			type: "turn.accepted",
-			clientTurnId: "x",
+			clientTurnId,
 			turnId: "t1",
 			conversationId: "conv-new",
 		});
 		expect(client.getConversationId()).toBe("conv-new");
+	});
+
+	it("keeps a new conversation blank and retains events emitted before acceptance", () => {
+		const { client, sockets, hello, advance } = harness();
+		const socket = sockets[0]!;
+		socket.open();
+		hello(socket);
+		socket.receive(delta(1, "Old conversation"));
+		advance(20);
+		client.sendTurn({ text: "First prompt", newConversation: true });
+		expect(client.getSnapshot().state.turns).toEqual([]);
+		expect(socket.sent.at(-1)).toMatchObject({
+			type: "send_turn",
+			conversationId: null,
+		});
+		socket.receive({ ...delta(2, "Unrelated"), conversationId: "other" });
+		socket.receive({
+			type: "turn.started",
+			seq: 3,
+			at: "2026-11-07T12:00:00.000Z",
+			conversationId: "new",
+			turnId: "t-new",
+			text: "First prompt",
+			authorId: "p",
+			authorKind: "person",
+		});
+		socket.receive({
+			...delta(4, "First reply"),
+			conversationId: "new",
+			turnId: "t-new",
+		});
+		socket.receive({
+			type: "turn.accepted",
+			clientTurnId: "someone-else",
+			conversationId: "other",
+			turnId: "other",
+		});
+		expect(client.getConversationId()).toBeNull();
+		expect(client.getSnapshot().state.turns).toEqual([]);
+		socket.receive({
+			type: "turn.accepted",
+			clientTurnId: "client-turn",
+			conversationId: "new",
+			turnId: "t-new",
+		});
+		expect(
+			client.getSnapshot().state.turns.map((turn) => [turn.text, turn.reply]),
+		).toEqual([["First prompt", "First reply"]]);
+		expect(client.getSnapshot().state.pendingSend).toBeNull();
+		expect(socket.sent.at(-1)).toEqual({
+			type: "subscribe",
+			conversationId: "new",
+			cursor: 4,
+		});
+	});
+
+	it("ignores history pages for another selected conversation", () => {
+		const { client, sockets, hello } = harness();
+		const socket = sockets[0]!;
+		socket.open();
+		hello(socket);
+		socket.receive({
+			type: "ledger.page",
+			conversationId: "other",
+			events: [],
+			hasMore: true,
+		});
+		expect(client.getSnapshot().state.hasEarlier).toBe(false);
 	});
 
 	it("posts approval decisions and cancellations to the object", () => {

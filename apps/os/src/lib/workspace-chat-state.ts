@@ -54,6 +54,7 @@ export type ChatTurn = {
 	text: string;
 	/** Assistant prose so far; grows with every delta and settles on done. */
 	reply: string;
+	replyDeltas?: Array<{ seq: number; text: string }>;
 	replyMessageId: string | null;
 	replyDone: boolean;
 	steps: ChatStep[];
@@ -168,6 +169,7 @@ function upsertTurn(
 	}
 	const next = turns.slice();
 	next[index] = patch(turns[index]!);
+	next.sort((a, b) => a.startedAt.localeCompare(b.startedAt));
 	return next;
 }
 
@@ -176,29 +178,35 @@ export function applyWorkspaceChatEvent(
 	state: WorkspaceChatState,
 	event: WorkspaceChatLedgerEvent,
 ): WorkspaceChatState {
+	if (state.seen.has(event.seq)) return state;
 	if (event.type === "conversation.updated") {
-		state.seen.add(event.seq);
+		if (event.conversationId === state.conversationId)
+			state.seen.add(event.seq);
+		const previous = state.conversations.find(
+			(conversation) => conversation.id === event.conversationId,
+		);
+		if (previous && previous.updatedAt > event.at)
+			return withCursor(state, event);
+		const conversation = {
+			id: event.conversationId,
+			title:
+				event.title === undefined ? (previous?.title ?? null) : event.title,
+			updatedAt: event.at,
+			lastTurnAt: previous?.lastTurnAt ?? null,
+		};
 		return {
 			...state,
 			cursor: Math.max(state.cursor ?? -1, event.seq),
-			conversations: state.conversations.map((conversation) =>
-				conversation.id === event.conversationId
-					? {
-							...conversation,
-							title:
-								event.title === undefined ? conversation.title : event.title,
-							updatedAt: event.at,
-						}
-					: conversation,
-			),
+			conversations: [
+				...state.conversations.filter(
+					(item) => item.id !== event.conversationId,
+				),
+				conversation,
+			].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
 		};
 	}
-	if (
-		state.conversationId !== null &&
-		event.conversationId !== state.conversationId
-	)
+	if (event.conversationId !== state.conversationId)
 		return withCursor(state, event);
-	if (state.seen.has(event.seq)) return state;
 
 	const at = event.at;
 	let turns = state.turns;
@@ -230,15 +238,24 @@ export function applyWorkspaceChatEvent(
 			break;
 		}
 		case "assistant.delta":
-			turns = place(event.turnId)((turn) =>
-				turn.replyDone && turn.replyMessageId === event.messageId
-					? turn
-					: {
-							...turn,
-							reply: turn.reply + event.text,
-							replyMessageId: event.messageId,
-						},
-			);
+			turns = place(event.turnId)((turn) => {
+				if (
+					turn.replyDone &&
+					turn.replyDeltas === undefined &&
+					turn.replyMessageId === event.messageId
+				)
+					return turn;
+				const replyDeltas = [
+					...(turn.replyDeltas ?? []),
+					{ seq: event.seq, text: event.text },
+				].sort((a, b) => a.seq - b.seq);
+				return {
+					...turn,
+					replyDeltas,
+					reply: replyDeltas.map((delta) => delta.text).join(""),
+					replyMessageId: event.messageId,
+				};
+			});
 			break;
 		case "assistant.done":
 			turns = place(event.turnId)((turn) => ({
@@ -246,6 +263,7 @@ export function applyWorkspaceChatEvent(
 				reply: event.text,
 				replyMessageId: event.messageId,
 				replyDone: true,
+				replyDeltas: undefined,
 				usage: event.usage ?? turn.usage,
 				model: event.model ?? turn.model,
 			}));
