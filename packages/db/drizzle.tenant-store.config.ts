@@ -12,6 +12,7 @@ export default defineConfig({
 		"./src/tenant-store/schema.ts",
 		"./src/tenant-store/memory-schema/*.ts",
 		"./src/tenant-store/outputs-schema.ts",
+		"./src/tenant-store/chat-schema.ts",
 	],
 	out: "./tenant-store-drizzle",
 	dialect: "sqlite",

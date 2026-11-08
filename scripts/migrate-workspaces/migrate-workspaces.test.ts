@@ -398,23 +398,17 @@ describe("migrate-workspaces", () => {
 		}
 	});
 
-	test("schema check reports tables the object does not create yet and matching memory columns", () => {
+	test("schema check accepts every mapped table and reports missing tables and columns", () => {
 		const snapshot = fixtureSnapshot();
 		const object = objectSchemaDatabase();
 		try {
 			const report = checkSchema(snapshot, object);
-			expect(
-				report.findings.filter((f) => f.kind === "columns-differ"),
-			).toEqual([]);
-			// Every mapped table the object's chain does not create yet is a finding; the rest match.
-			const missing = WORKSPACE_TABLES.map((m) => m.table).filter(
-				(t) => !report.objectTables.includes(t),
+			// The object's chain creates every mapped table with the snapshot's columns.
+			expect(report.findings).toEqual([]);
+			expect(report.ok).toBe(true);
+			expect(report.checked.map((c) => c.table).sort()).toEqual(
+				WORKSPACE_TABLES.map((m) => m.table).sort(),
 			);
-			expect(report.findings.map((f) => f.table).sort()).toEqual(
-				[...missing].sort(),
-			);
-			expect(report.checked.map((c) => c.table)).toContain("os_outputs");
-			expect(report.checked.map((c) => c.table)).toContain("memory_facts");
 			object.exec("DROP TABLE os_outputs");
 			expect(checkSchema(snapshot, object).findings).toContainEqual({
 				table: "os_outputs",
