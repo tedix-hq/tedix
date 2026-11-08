@@ -1758,6 +1758,7 @@ export function CanvasPage({
 				{workspaceId !== null ? (
 					<WorkspaceOutputsPanel
 						{...outputsPanelList}
+						workspaceId={workspaceId}
 						expanded={outputsPanelExpanded}
 						canvasView={
 							canvasView === "library" || canvasView === "work"
