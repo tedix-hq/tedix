@@ -238,10 +238,13 @@ Hierarchy is context, not an inherited permission or spending limit. Admission
 loads budget envelopes for the organization, project, case, or exact Work;
 it does not traverse parent Work. Use an authorized common project or case
 envelope when several children must share a spending limit. Registered
-`laneExecution` policies can check attempt counts, declared delegation depth,
-executor pricing, and reserved verification capacity. A parent link or a
-written instruction alone does not configure those checks or prove a hard
-provider spending cutoff.
+`laneExecution` policies check attempt counts, actual delegation depth,
+executor pricing, and reserved verification capacity. A governed descendant
+must retain its ancestor's shared budget and resource references and cannot
+weaken its limits. Depth starts at the first governed Work, and ancestry
+reads are bounded. These checks do not establish verifier independence or a
+hard provider spending cutoff; the lead assigns a separate verifier and
+records the evidence.
 
 For a first pilot, record the child count, order, retry allowance, and stopping
 conditions on the parent. Do not let children delegate again. Keep constraints

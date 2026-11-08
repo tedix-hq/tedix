@@ -349,27 +349,30 @@ describe("credit exhaustion continuation", () => {
 		expect(f.state.writes).toBe(1);
 	});
 
-	it("requires host acknowledgment for a local successor and rechecks authority on recovery", async () => {
-		const f = await routingFixture();
-		f.state.reconciled = true;
-		f.state.ack = null;
-		Object.assign(f.policy.executors[1]!, {
-			kind: "claude",
-			principalType: "external_agent",
-			principalId: "claude-one",
-		});
-		let row = await f.drive();
-		expect(row?.snapshot.attemptId).toBe("attempt-one");
-		expect(row?.snapshot.laneCheckpoint?.status).toBe("dispatching");
-		f.state.authorized = false;
-		await f.drive();
-		expect(f.router.continue).toHaveBeenCalledTimes(1);
-		f.state.authorized = true;
-		f.state.ack = "host:ack";
-		row = await f.drive();
-		expect(row?.snapshot.attemptId).toBe("attempt-two");
-		expect(f.state.writes).toBe(1);
-	});
+	it.each(["codex", "claude", "opencode", "devin"] as const)(
+		"requires host acknowledgment for a %s successor and rechecks authority on recovery",
+		async (kind) => {
+			const f = await routingFixture();
+			f.state.reconciled = true;
+			f.state.ack = null;
+			Object.assign(f.policy.executors[1]!, {
+				kind,
+				principalType: "external_agent",
+				principalId: "claude-one",
+			});
+			let row = await f.drive();
+			expect(row?.snapshot.attemptId).toBe("attempt-one");
+			expect(row?.snapshot.laneCheckpoint?.status).toBe("dispatching");
+			f.state.authorized = false;
+			await f.drive();
+			expect(f.router.continue).toHaveBeenCalledTimes(1);
+			f.state.authorized = true;
+			f.state.ack = "host:ack";
+			row = await f.drive();
+			expect(row?.snapshot.attemptId).toBe("attempt-two");
+			expect(f.state.writes).toBe(1);
+		},
+	);
 
 	it.each(["price", "capability", "budget", "depth", "attempts"])(
 		"withholds continuation when %s is unavailable",
