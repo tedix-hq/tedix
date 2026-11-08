@@ -30,6 +30,11 @@ its code runs beside the data.
   `cancelTurn`, `readEvents`, `readLedger` (history paging),
   `listConversations`, `readTurn`, `awaitTurn`, `readChangeRecords`,
   `readMessages`, `decideApproval`.
+  Its `ownedMemory` storage port routes organization, workspace and personal
+  memory by explicit owner. It checks container access from the gateway's
+  authenticated context; operation permissions and per-fact visibility and
+  use-policy checks belong to the gateway. Organization memory does not
+  require membership in a project workspace.
 - WebSocket: forward the upgrade to `InternalEntrypoint.fetch` with
   `X-Workspace-Org`, `X-Workspace-Id`, `X-Workspace-Actor-Id` and a path
   ending in `/subscribe`. Frames follow `src/wire.ts`: the client sends

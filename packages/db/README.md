@@ -123,6 +123,30 @@ await createApp(db, {
 });
 ```
 
+### Memory ownership
+
+`queryOwnedMemory` routes an explicit `MemoryOwnerScope`: `organization`,
+`workspace` or `personal`. The authenticated caller supplies the organization,
+principal and authorized workspace IDs separately from request input.
+Organization memory does not require project workspace membership. Workspace
+memory requires access to its workspace; personal memory requires the exact
+owner principal in the same organization. Operation permissions and per-fact
+visibility and use-policy checks remain the caller's responsibility.
+
+Each owner has a separate named object with an immutable
+`memory_store_identity`. Its organization guards cover facts, entities,
+citations, expertise and projection state. A workspace object cannot acquire
+a memory-owner identity, and a memory-only object cannot become a workspace.
+Changing ownership requires a separately reviewed conversion; this interface
+does not perform conversions or reinterpret existing records.
+
+Shared D1 supports organization ownership only. Workspace and personal
+requests fail rather than falling back to organization data. The owner
+contract does not change `tediId`, `visibility`, `memoryScope` or `usePolicy`.
+Public gateway adoption, migration routing and live parity remain
+separate integration work. Remote imports remain blocked until the recovery
+and authorization prerequisites in the migration runbook are proven.
+
 ## Development
 
 ### Versioned D1 migrations

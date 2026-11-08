@@ -57,6 +57,7 @@
 		"./queries/os-workspaces/gadget-state": "./src/queries/os-workspaces/gadget-state.ts",
 		"./client": "./src/client.ts",
 		"./tenant-store/router": "./src/tenant-store/router.ts",
+		"./tenant-store/memory-owner": "./src/tenant-store/memory-owner.ts",
 		"./tenant-store/schema": "./src/tenant-store/schema.ts",
 		"./tenant-store/store": "./src/tenant-store/store.ts",
 		"./query-client": "./src/query-client.ts",

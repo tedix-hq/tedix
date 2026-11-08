@@ -4,8 +4,11 @@ import { describe, expect, it } from "vite-plus/test";
 import { SearchResultSchema } from "@tedix/api-contract/schemas/memory-graph";
 import type { TenantStore } from "../../tenant-store/store";
 import { tenantStoreStub } from "../../tenant-store/router";
+import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
+import { memoryStoreName } from "../../tenant-store/memory-owner";
 import {
 	queryMemory,
+	queryOwnedMemory,
 	type MemoryOperation,
 	type MemoryQuery,
 } from "./tenant-rpc";
@@ -50,6 +53,202 @@ function fact(id: string) {
 }
 
 describe("memory TenantStore RPC in workerd", () => {
+	it("routes organization memory without workspace membership and keeps workspace/personal owners separate", async () => {
+		const organizationId = `fictional-owners-${++counter}`;
+		const access = {
+			organizationId,
+			principalId: "principal-a",
+			workspaceIds: ["workspace-a"],
+		};
+		const organization = { kind: "organization", organizationId } as const;
+		const workspace = {
+			kind: "workspace",
+			organizationId,
+			workspaceId: "workspace-a",
+		} as const;
+		const personal = {
+			kind: "personal",
+			organizationId,
+			principalId: "principal-a",
+		} as const;
+		for (const owner of [organization, workspace, personal]) {
+			const created = await queryOwnedMemory(config, owner, access, {
+				operation: "createFact",
+				input: {
+					...fact("same-id"),
+					content: `${owner.kind} cobalt decision`,
+					visibility: "private",
+					memoryScope: "tedi",
+					usePolicy: "requires_user_confirmation",
+					topicKey: "storage/cobalt",
+				},
+			});
+			expect(created).toMatchObject({
+				organizationId,
+				tediId: "tedi-a",
+				visibility: "private",
+				memoryScope: "tedi",
+				usePolicy: "requires_user_confirmation",
+			});
+		}
+		for (const owner of [organization, workspace, personal]) {
+			const found = await queryOwnedMemory(config, owner, access, {
+				operation: "getFact",
+				input: { factId: "same-id" },
+			});
+			expect(found?.content).toBe(`${owner.kind} cobalt decision`);
+			expect(
+				(
+					await queryOwnedMemory(config, owner, access, {
+						operation: "topicFacts",
+						input: { topicKey: "storage/cobalt" },
+					})
+				).map((row) => row.id),
+			).toEqual(["same-id"]);
+			expect(
+				(
+					await queryOwnedMemory(config, owner, access, {
+						operation: "temporalRecall",
+						input: { query: "what changed yesterday", now, tediId: "tedi-a" },
+					})
+				).map((row) => row.factId),
+			).toEqual(["same-id"]);
+			await queryOwnedMemory(config, owner, access, {
+				operation: "createFact",
+				input: {
+					...fact("citation"),
+					source: "consolidation://observation",
+					usePolicy: "do_not_inject_automatically",
+					metadata: {
+						consolidation: { evidence: { sources: [{ id: "same-id" }] } },
+					},
+				},
+			});
+			expect(
+				await queryOwnedMemory(config, owner, access, {
+					operation: "citationDependents",
+					input: { factIds: ["same-id"] },
+				}),
+			).toEqual(["citation"]);
+		}
+		const withoutWorkspace = { ...access, workspaceIds: [] };
+		expect(
+			(
+				await queryOwnedMemory(config, organization, withoutWorkspace, {
+					operation: "getFact",
+					input: { factId: "same-id" },
+				})
+			)?.content,
+		).toBe("organization cobalt decision");
+		const candidates = await queryOwnedMemory(
+			config,
+			organization,
+			withoutWorkspace,
+			{
+				operation: "lexicalRecall",
+				input: { query: "cobalt", now, tediId: "tedi-a" },
+			},
+		);
+		expect(candidates.map((row) => row.factId)).toEqual(["same-id"]);
+		const hydrated = await queryOwnedMemory(
+			config,
+			organization,
+			withoutWorkspace,
+			{
+				operation: "hydrateRecall",
+				input: { factIds: ["same-id"], now, tediId: "tedi-a" },
+			},
+		);
+		expect(
+			SearchResultSchema.parse({
+				factId: "same-id",
+				score: candidates[0]!.score,
+				fact: hydrated[0],
+			}).fact?.visibility,
+		).toBe("private");
+		expect(
+			await queryOwnedMemory(config, organization, withoutWorkspace, {
+				operation: "hydrateRecall",
+				input: { factIds: ["same-id"], now, tediId: "tedi-b" },
+			}),
+		).toEqual([]);
+		for (const operation of ["getFact", "updateFact"] as const) {
+			const request =
+				operation === "getFact"
+					? { operation, input: { factId: "same-id" } }
+					: {
+							operation,
+							input: {
+								factId: "same-id",
+								updates: { content: "unauthorized" },
+							},
+						};
+			await expect(
+				queryOwnedMemory(config, workspace, withoutWorkspace, request),
+			).rejects.toThrow("requires workspace access");
+			await expect(
+				queryOwnedMemory(
+					config,
+					personal,
+					{ ...access, principalId: "principal-b" },
+					request,
+				),
+			).rejects.toThrow("another principal");
+			await expect(
+				queryOwnedMemory(
+					config,
+					organization,
+					{ ...access, organizationId: "fictional-foreign" },
+					request,
+				),
+			).rejects.toThrow("authenticated organization");
+		}
+		expect(
+			(
+				await queryOwnedMemory(config, personal, access, {
+					operation: "getFact",
+					input: { factId: "same-id" },
+				})
+			)?.content,
+		).toBe("personal cobalt decision");
+		await queryOwnedMemory(config, organization, withoutWorkspace, {
+			operation: "updateFact",
+			input: {
+				factId: "same-id",
+				updates: { summary: "updated by the authorized owner" },
+			},
+		});
+		expect(
+			(
+				await queryOwnedMemory(config, organization, withoutWorkspace, {
+					operation: "getFact",
+					input: { factId: "same-id" },
+				})
+			)?.summary,
+		).toBe("updated by the authorized owner");
+		const stub = durableObjectStubByName(
+			namespace,
+			env,
+			memoryStoreName(organization),
+		);
+		expect(
+			await failure(() =>
+				stub.ownedMemory(personal, {
+					operation: "getFact",
+					input: { factId: "same-id" },
+				}),
+			),
+		).toContain("does not match this object");
+		expect(
+			await failure(() =>
+				stub.memory(
+					{ organizationId, workspaceId: "workspace-a" },
+					{ operation: "getFact", input: { factId: "same-id" } },
+				),
+			),
+		).toContain("scope does not match this object");
+	});
+
 	it("migrates from empty and preserves ordinary, exact-topic, date-cued recall and the public schema", async () => {
 		const { query } = fixture("recall");
 		await query({

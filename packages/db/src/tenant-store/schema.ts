@@ -22,6 +22,31 @@ export const tenantStoreIdentity = sqliteTable(
 	],
 );
 
+/** Memory-only objects cannot acquire a workspace identity or change owners. */
+export const memoryStoreIdentity = sqliteTable(
+	"memory_store_identity",
+	{
+		slot: integer("slot").primaryKey(),
+		organizationId: text("organization_id").notNull(),
+		kind: text("kind", {
+			enum: ["organization", "workspace", "personal"],
+		}).notNull(),
+		ownerId: text("owner_id").notNull(),
+		createdAt: text("created_at").notNull(),
+	},
+	(table) => [
+		check("memory_store_identity_single_row", sql`${table.slot} = 1`),
+		check(
+			"memory_store_identity_kind",
+			sql`${table.kind} IN ('organization','workspace','personal')`,
+		),
+		check(
+			"memory_store_identity_owner",
+			sql`length(trim(${table.ownerId})) > 0 AND (${table.kind} != 'organization' OR ${table.ownerId} = ${table.organizationId})`,
+		),
+	],
+);
+
 /** Receipts that make bulk-import batches idempotent for the migration pipeline. */
 export const tenantStoreImportBatches = sqliteTable(
 	"tenant_store_import_batches",
