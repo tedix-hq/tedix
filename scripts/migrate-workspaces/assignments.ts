@@ -9,8 +9,10 @@ import { WORKSPACE_TABLES, type WorkspaceAssignments } from "./tables";
 
 export interface AssignmentProposal {
 	assignments: WorkspaceAssignments;
-	/** Organizations that have rows to place and no workspace to place them in. */
+	/** Live organizations with rows to place and no workspace: a Home is proposed for each. */
 	withoutWorkspace: string[];
+	/** Organizations that no longer exist but left memory rows; those rows stay behind. */
+	orphaned: string[];
 }
 
 export function proposeAssignments(snapshot: Snapshot): AssignmentProposal {
@@ -28,15 +30,26 @@ export function proposeAssignments(snapshot: Snapshot): AssignmentProposal {
 			snapshot.organizationsWithRows(m.table),
 		),
 	]);
+	const live = snapshot.liveOrganizations();
 	const assignments: WorkspaceAssignments = {};
 	const withoutWorkspace: string[] = [];
+	const orphaned: string[] = [];
 	for (const org of [...needs].sort()) {
 		const home = oldest.get(org);
-		if (!home) {
-			withoutWorkspace.push(org);
+		if (home) {
+			assignments[org] = { memoryHome: home, unassignedOutputsHome: home };
 			continue;
 		}
-		assignments[org] = { memoryHome: home, unassignedOutputsHome: home };
+		if (!live.has(org)) {
+			orphaned.push(org);
+			continue;
+		}
+		withoutWorkspace.push(org);
+		assignments[org] = {
+			memoryHome: `home-${org}`,
+			unassignedOutputsHome: `home-${org}`,
+			createHome: true,
+		};
 	}
-	return { assignments, withoutWorkspace };
+	return { assignments, withoutWorkspace, orphaned };
 }

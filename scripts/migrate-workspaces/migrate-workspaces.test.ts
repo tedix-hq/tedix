@@ -184,6 +184,7 @@ describe("migrate-workspaces", () => {
 				table: "kernel_runtime_events",
 				source: 3,
 				bundled: 3,
+				staying: 0,
 			});
 			// Home threads and their runs stay in the core: not bundled, not counted as left behind.
 			expect(totals.kernel_conversations!.bundled).toBe(1);
@@ -413,16 +414,75 @@ describe("migrate-workspaces", () => {
 		}
 	});
 
-	test("assignments proposes the oldest workspace as home", () => {
+	test("assignments proposes the oldest workspace as home, a new Home for a live organization without one, and leaves deleted organizations' rows behind", async () => {
 		const snapshot = fixtureSnapshot({ unassignedOutput: true });
+		snapshot.main.exec(
+			"INSERT INTO organizations (id, name, slug) VALUES ('org-live-no-ws', 'Live', 'live')",
+		);
+		snapshot.main.exec(
+			"INSERT INTO memory_domains (id, organization_id, name) VALUES ('dom-live', 'org-live-no-ws', 'x')",
+		);
+		snapshot.main.exec(
+			"INSERT INTO memory_facts (id, organization_id, domain_id, content, fact_type) VALUES ('fact-live', 'org-live-no-ws', 'dom-live', 'kept', 'preference')",
+		);
+		snapshot.main.exec(
+			"INSERT INTO memory_facts (id, organization_id, content, fact_type) VALUES ('fact-orphan', 'org-deleted', 'orphan', 'preference')",
+		);
+		const workDir = mkdtempSync(join(tmpdir(), "mw-test-"));
 		try {
-			expect(proposeAssignments(snapshot)).toEqual({
+			const proposal = proposeAssignments(snapshot);
+			expect(proposal).toEqual({
 				assignments: {
 					[ORG]: { memoryHome: WS_A, unassignedOutputsHome: WS_A },
+					"org-live-no-ws": {
+						memoryHome: "home-org-live-no-ws",
+						unassignedOutputsHome: "home-org-live-no-ws",
+						createHome: true,
+					},
 				},
-				withoutWorkspace: [],
+				withoutWorkspace: ["org-live-no-ws"],
+				orphaned: ["org-deleted"],
 			});
+			const withHome = {
+				...assignments,
+				"org-live-no-ws": proposal.assignments["org-live-no-ws"]!,
+			};
+			expect(checkAssignments(snapshot, withHome)).toEqual([]);
+			const report = await rehearse(snapshot, withHome, { workDir });
+			expect(report.reconcile.problems).toEqual([]);
+			expect(
+				report.reconcile.workspaces.flatMap((w) => [
+					...w.drift.map((d) => `${w.workspaceId} ${d.table}`),
+					...w.problems,
+				]),
+			).toEqual([]);
+			expect(report.ok).toBe(true);
+			expect(report.workspaces.map((w) => w.workspaceId)).toEqual([
+				WS_A,
+				WS_B,
+				"home-org-live-no-ws",
+			]);
+			const totals = Object.fromEntries(
+				report.reconcile.totals.map((t) => [t.table, t]),
+			);
+			expect(totals.os_workspaces).toMatchObject({ source: 3, bundled: 3 });
+			expect(totals.memory_facts).toMatchObject({
+				source: 3,
+				bundled: 3,
+				staying: 1,
+			});
+			const home = await new LocalBundleStore(join(workDir, "bundles")).read({
+				organizationId: "org-live-no-ws",
+				workspaceId: "home-org-live-no-ws",
+			});
+			expect(
+				home.tables.get("os_workspaces")!.map((r) => [r.id, r.name]),
+			).toEqual([["home-org-live-no-ws", "Home"]]);
+			expect(home.tables.get("memory_facts")!.map((r) => r.id)).toEqual([
+				"fact-live",
+			]);
 		} finally {
+			rmSync(workDir, { recursive: true, force: true });
 			snapshot.close();
 		}
 	});
