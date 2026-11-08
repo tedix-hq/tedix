@@ -338,7 +338,11 @@ export function createWorkspaceChatClient(
 			const step = state.turns
 				.find((turn) => turn.turnId === event.turnId)
 				?.steps.find((item) => item.stepId === event.stepId);
-			if (step?.kind === "write" && step.tool?.startsWith("outputs.")) {
+			if (
+				step?.kind === "write" &&
+				(step.tool?.startsWith("outputs.") ||
+					step.tool?.startsWith("documents."))
+			) {
 				notifiedOutputSteps.add(key);
 				options.onOutputChanged?.();
 			}
