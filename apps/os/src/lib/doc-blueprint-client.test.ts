@@ -12,21 +12,22 @@ async function editor() {
 	document.body.innerHTML = '<div id="app"></div>';
 	let revision = 1,
 		text = "Original";
-	const call = vi.fn(
-		async (method: string, args?: { method: string; args: unknown[] }) => {
-			if (method === "context")
-				return { role: "owner", settings: { slot: "document" } };
-			if (args?.method !== "readDocument") throw new Error("Unexpected write");
-			return {
-				output: { id: "output", title: "Doc" },
-				revision: {
-					revision,
-					content: { kind: "document", blocks: [{ type: "paragraph", text }] },
-				},
-				blockEditingSupported: true,
-			};
-		},
-	);
+	const call = vi.fn(async (method: string, args?: Record<string, unknown>) => {
+		if (method === "context")
+			return { role: "owner", settings: { slot: "document" } };
+		if (method === "app.download") return { downloaded: true };
+		if (args?.method === "exportMarkdown")
+			return { title: "Doc", revision, text, mimeType: "text/markdown" };
+		if (args?.method !== "readDocument") throw new Error("Unexpected write");
+		return {
+			output: { id: "output", title: "Doc" },
+			revision: {
+				revision,
+				content: { kind: "document", blocks: [{ type: "paragraph", text }] },
+			},
+			blockEditingSupported: true,
+		};
+	});
 	let onMessage: EventListener | undefined;
 	const add = window.addEventListener.bind(window);
 	vi.spyOn(window, "addEventListener").mockImplementation(
@@ -71,6 +72,21 @@ async function editor() {
 }
 
 describe("Doc external revisions", () => {
+	it("downloads saved Markdown through the host instead of a sandbox Blob navigation", async () => {
+		const app = await editor();
+		document.querySelector<HTMLButtonElement>("#export")!.click();
+		await vi.waitFor(() =>
+			expect(app.call).toHaveBeenCalledWith("app.download", {
+				filename: "Doc.md",
+				mimeType: "text/markdown",
+				text: "Original",
+			}),
+		);
+		expect(document.querySelector(".status")?.textContent).toBe(
+			"Exported saved revision 1",
+		);
+	});
+
 	it("refreshes clean content through the canonical read and ignores unrelated senders and slots", async () => {
 		const app = await editor();
 		expect(document.querySelector("textarea")?.value).toBe("Original");

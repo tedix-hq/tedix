@@ -7,6 +7,8 @@ import {
 	type OsBlueprintDefinition,
 } from "../schemas/os-workspaces";
 
+export const DOC_BLUEPRINT_VERSION = 2;
+
 export const DOC_SERVER_SOURCE = String.raw`
 function supportsBlockEditing(content) {
   if (content.file) return false;
@@ -200,7 +202,7 @@ add.onclick = () => {
   draft.blocks.push({type,...defaults[type]}); changed(); render();
 };
 main.querySelector("#export").onclick = async () => {
-  try { const result = await call("exportMarkdown"); const link = document.createElement("a"), url = URL.createObjectURL(new Blob([result.text], {type:result.mimeType})); link.href = url; link.download = (result.title || "Document").replace(/[\\/:*?"<>|]/g, "_") + ".md"; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); message("Exported saved revision " + result.revision + (result.projection === "semantic_blocks" ? " as semantic Markdown; rich formatting is not included." : "") + (dirty ? " · unsaved edits are not included." : "")); }
+  try { const result = await call("exportMarkdown"); await tedix.call("app.download", {filename:(result.title || "Document").replace(/[\\/:*?"<>|]/g, "_") + ".md",mimeType:result.mimeType,text:result.text}); message("Exported saved revision " + result.revision + (result.projection === "semantic_blocks" ? " as semantic Markdown; rich formatting is not included." : "") + (dirty ? " · unsaved edits are not included." : "")); }
   catch (error) { message(error.message || String(error), true); }
 };
 try { const context = await tedix.call("context"); canEdit = context.role === "owner" || context.role === "build"; docSlot = context.settings?.slot; await load(); }
@@ -217,9 +219,11 @@ Save uses the revision you loaded. A conflict keeps your draft on screen;
 copy your edits before explicitly discarding the draft and reloading.
 Saved updates load automatically when the editor is clean. With unsaved
 edits, a newer-revision notice appears and your draft stays on screen.
-Plain block documents, including their derived rich text, stay editable.
-Documents with additional rich formatting or attached files remain read-only
-here; use their workspace output editor to preserve that content.
+Doc version 2 uses the workspace's rich document editor, preserving inline
+formatting, block structure and file references. Its document revision and
+app version are shown separately. Open native editor is an explicit fallback.
+On hosts without this editor, the portable client edits plain blocks and
+keeps additional rich formatting or attached files read-only.
 
 Agent methods: readDocument({}), replaceDocument({content, expectedRevision}),
 editDocument({ops, expectedRevision}) and exportMarkdown({}). Edits use the
@@ -240,7 +244,7 @@ export function buildDocBlueprint(slot = "document"): OsBlueprintDefinition {
 					entry: "tedix:runtime/v1",
 					description: "Write and review a document with revision history.",
 					capabilities: [],
-					config: { version: 1, settings: { slot } },
+					config: { version: 1, settings: { slot, editor: "document-v2" } },
 					resourceGrants: [
 						{
 							slot,

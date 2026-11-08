@@ -79,7 +79,7 @@ describe("Doc blueprint", () => {
 		const gadget = definition.gadgets[0]!;
 		expect(gadget.manifest.config).toEqual({
 			version: 1,
-			settings: { slot: "project_doc" },
+			settings: { slot: "project_doc", editor: "document-v2" },
 		});
 		expect(gadget.manifest.resourceGrants).toEqual([
 			{

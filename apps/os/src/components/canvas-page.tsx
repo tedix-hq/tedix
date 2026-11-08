@@ -1,4 +1,5 @@
 import { EntityAvatar } from "@/shared/entity-avatar";
+import { DocWritingDraftProvider } from "@/components/doc-writing-drafts";
 import "./canvas-page.css";
 import "./output-editor.css";
 import { OrganizationMark } from "@/shared/organization-mark";
@@ -1285,7 +1286,7 @@ export function CanvasPage({
 		</>
 	);
 
-	return (
+	const page = (
 		<Page
 			fullHeight
 			width="bleed"
@@ -1795,5 +1796,10 @@ export function CanvasPage({
 				/>
 			) : null}
 		</Page>
+	);
+	return (
+		<DocWritingDraftProvider scope={workspaceId ?? "none"}>
+			{page}
+		</DocWritingDraftProvider>
 	);
 }

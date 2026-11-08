@@ -1480,7 +1480,7 @@ describe("CanvasPage listing", () => {
 		).toBe("true");
 		expect(
 			container.querySelector("[data-canvas-revision-status]")?.textContent,
-		).toContain("Revision 2");
+		).toContain("Document revision 2");
 		expect(container.querySelectorAll('[aria-label="Share"]')).toHaveLength(1);
 		// No "Resources" control anywhere: the library opens from the Files
 		// panel, and the one Files toggle lives in the top bar.
