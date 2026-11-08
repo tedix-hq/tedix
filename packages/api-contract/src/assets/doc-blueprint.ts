@@ -93,11 +93,12 @@ const style = document.createElement("style");
 style.textContent = ":root{font:15px system-ui,sans-serif;color:#1c2330;background:#f6f7f9}*{box-sizing:border-box}body{margin:0}main{max-width:860px;margin:auto;padding:24px}header{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px}h1{font-size:23px;margin:0;flex:1}button,select{font:inherit;border:1px solid #c9cfd8;background:white;border-radius:7px;padding:8px 12px;color:inherit;cursor:pointer}button.primary{background:#2855bb;color:white;border-color:#2855bb}button:disabled{opacity:.5;cursor:default}.status{min-height:24px;font-size:13px;color:#536174}.status.error{color:#a31c30}.block{background:white;border:1px solid #dce1e8;border-radius:9px;padding:14px;margin:12px 0}.block header{margin:0 0 8px;font-size:12px;color:#536174}.block textarea{width:100%;min-height:64px;resize:vertical;padding:8px;border:1px solid #dde2e9;border-radius:5px;font:inherit;line-height:1.6}.block input[type=text]{width:100%;padding:8px;border:1px solid #dde2e9;border-radius:5px;font:inherit}.block[data-type=heading] textarea{font-size:22px;font-weight:650}.block[data-type=code] textarea{font:13px monospace}.block table{width:100%;border-collapse:collapse}.block td,.block th{padding:3px;min-width:100px}.table-wrap{overflow-x:auto}.check{display:flex;gap:8px;align-items:center;margin:6px 0}.check textarea{min-height:42px}.note{background:#fff5d7;padding:12px;border-radius:7px;margin:12px 0}.add{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0}pre{white-space:pre-wrap;overflow-wrap:anywhere}@media(max-width:500px){main{padding:14px}header{gap:8px}button{padding:8px}}";
 document.head.append(style);
 const main = document.createElement("main");
-main.innerHTML = '<header><h1>Doc</h1><button class="primary" id="save">Save</button><button id="reload">Reload</button><button id="export">Markdown</button></header><div class="status" role="status" aria-live="polite"></div><div id="notice"></div><section aria-label="Document blocks"></section><div class="add"><select aria-label="New block type"><option value="paragraph">Paragraph</option><option value="heading">Heading</option><option value="list">List</option><option value="checklist">Checklist</option><option value="quote">Quote</option><option value="code">Code</option><option value="table">Table</option><option value="callout">Callout</option><option value="toggle">Toggle</option><option value="divider">Divider</option></select><button id="add">Add block</button></div>';
+main.innerHTML = '<header><h1>Doc</h1><button class="primary" id="save">Save</button><button id="reload">Reload</button><button id="export">Markdown</button></header><div class="status" role="status" aria-live="polite"></div><div id="notice"></div><div id="updates" role="status" aria-live="polite"></div><section aria-label="Document blocks"></section><div class="add"><select aria-label="New block type"><option value="paragraph">Paragraph</option><option value="heading">Heading</option><option value="list">List</option><option value="checklist">Checklist</option><option value="quote">Quote</option><option value="code">Code</option><option value="table">Table</option><option value="callout">Callout</option><option value="toggle">Toggle</option><option value="divider">Divider</option></select><button id="add">Add block</button></div>';
 root.replaceChildren(main);
 const status = main.querySelector(".status"), blocks = main.querySelector("section"), notice = main.querySelector("#notice");
 const save = main.querySelector("#save"), reload = main.querySelector("#reload"), add = main.querySelector("#add");
-let loaded, draft, dirty = false, busy = false, editable = false, canEdit = false, discardPending = false;
+let loaded, draft, dirty = false, busy = false, editable = false, canEdit = false, discardPending = false, docSlot, pendingRevision = 0;
+const updates = main.querySelector("#updates");
 const call = (method, input = {}) => tedix.call("app.call", { method, args: [input] });
 function message(text, error = false) { status.textContent = text; status.classList.toggle("error", error); }
 function controls() { save.disabled = busy || !editable || !dirty; reload.disabled = busy; add.disabled = busy || !editable; main.querySelector("select").disabled = busy || !editable; blocks.querySelectorAll("input,textarea,select,button").forEach(node => node.disabled = busy || !editable); }
@@ -145,6 +146,21 @@ function render() {
   if (!draft.blocks.length) { const empty = document.createElement("p"); empty.textContent = "Start with a paragraph, heading or list."; blocks.append(empty); }
   controls();
 }
+function refreshExternal() {
+  if (!loaded || busy) return;
+  if (pendingRevision <= loaded.revision.revision) { pendingRevision = 0; updates.textContent = ""; return; }
+  updates.textContent = "Revision " + pendingRevision + " is available." + (dirty ? " Your unsaved edits are preserved. Reload to review the saved document." : " Loading the saved document…");
+  if (dirty) return;
+  pendingRevision = 0;
+  void load();
+}
+window.addEventListener("message", event => {
+  if (event.source !== window.parent || event.data?.jsonrpc !== "2.0" || event.data.method !== "tedix/outputs-changed" || !Array.isArray(event.data.params?.outputs)) return;
+  for (const output of event.data.params.outputs) {
+    if (output.slot === docSlot && (!loaded || output.outputId === loaded.output.id) && Number.isInteger(output.revision) && output.revision > 0) pendingRevision = Math.max(pendingRevision, output.revision);
+  }
+  refreshExternal();
+});
 async function load() {
   busy = true; controls(); message("Loading document…");
   try {
@@ -157,7 +173,7 @@ async function load() {
     else if (!canEdit) notice.textContent = "You have read-only access to this document.";
     message("Revision " + result.revision.revision); render();
   } catch (error) { message(error.message || String(error), true); }
-  finally { busy = false; controls(); }
+  finally { busy = false; controls(); refreshExternal(); }
 }
 save.onclick = async () => {
   if (busy || !editable || !dirty) return;
@@ -174,7 +190,7 @@ save.onclick = async () => {
     if (!result.blockEditingSupported) notice.textContent = "Saved. This document now includes rich formatting. Use its workspace output editor for further edits.";
     message("Saved · revision " + result.revision.revision); render();
   } catch (error) { message((error.message || String(error)) + ". Your draft is still here. Copy your edits before reloading a newer revision.", true); }
-  finally { busy = false; controls(); }
+  finally { busy = false; controls(); refreshExternal(); }
 };
 reload.onclick = () => { if (dirty && !discardPending) { discardPending = true; reload.textContent = "Discard draft & reload"; message("Reload will discard your unsaved edits. Click again to confirm.", true); return; } load(); };
 add.onclick = () => {
@@ -187,7 +203,7 @@ main.querySelector("#export").onclick = async () => {
   try { const result = await call("exportMarkdown"); const link = document.createElement("a"), url = URL.createObjectURL(new Blob([result.text], {type:result.mimeType})); link.href = url; link.download = (result.title || "Document").replace(/[\\/:*?"<>|]/g, "_") + ".md"; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); message("Exported saved revision " + result.revision + (result.projection === "semantic_blocks" ? " as semantic Markdown; rich formatting is not included." : "") + (dirty ? " · unsaved edits are not included." : "")); }
   catch (error) { message(error.message || String(error), true); }
 };
-try { const context = await tedix.call("context"); canEdit = context.role === "owner" || context.role === "build"; await load(); }
+try { const context = await tedix.call("context"); canEdit = context.role === "owner" || context.role === "build"; docSlot = context.settings?.slot; await load(); }
 catch (error) { message(error.message || String(error), true); controls(); }
 `;
 
@@ -199,6 +215,8 @@ storage never holds a second copy of the document.
 
 Save uses the revision you loaded. A conflict keeps your draft on screen;
 copy your edits before explicitly discarding the draft and reloading.
+Saved updates load automatically when the editor is clean. With unsaved
+edits, a newer-revision notice appears and your draft stays on screen.
 Plain block documents, including their derived rich text, stay editable.
 Documents with additional rich formatting or attached files remain read-only
 here; use their workspace output editor to preserve that content.

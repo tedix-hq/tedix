@@ -31,6 +31,14 @@ export const APP_RUNTIME_OUTPUT_RESOURCE = {
 } as const;
 
 export const APP_RUNTIME_CALL_METHOD = "tedix/call";
+export const APP_RUNTIME_OUTPUTS_CHANGED_METHOD = "tedix/outputs-changed";
+
+export interface AppRuntimeOutputRevision {
+	slot: string;
+	outputId: string;
+	revisionId: string;
+	revision: number;
+}
 
 export interface AppRuntimeContext {
 	workspaceId: string;
