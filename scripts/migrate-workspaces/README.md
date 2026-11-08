@@ -72,6 +72,14 @@ workspace-less outputs and no assignment, or names a workspace the
 organization does not have. Reassigned outputs get the home workspace
 written into `workspace_id`; the bundle manifest records how many.
 
+Two more cases the production data has: a live organization with memory
+but no workspace at all gets one when its entry carries `"createHome":
+true` (the export writes the directory row of a workspace named Home with
+the id in `memoryHome`); and memory rows of an organization that no longer
+exists stay in the shared database, counted as `staying` in the
+reconciler's totals, and go with the old tables. `assignments` proposes
+both.
+
 What stays in the shared core, with the reason, is `TABLES_THAT_STAY` in the
 same file: the workspace directory, factory runs and their artifacts, a
 tedi's own ledger, and organization Home threads (conversations with no
