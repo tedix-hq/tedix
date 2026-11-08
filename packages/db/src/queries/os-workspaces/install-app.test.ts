@@ -16,6 +16,7 @@ import {
 	installWorkspaceApp,
 	publishWorkspaceAppTemplate,
 	findWorkspaceOutputEditor,
+	linkWorkspaceOutputEditor,
 	type InstallWorkspaceAppParams,
 } from "./install-app";
 
@@ -92,6 +93,40 @@ function fixture() {
 }
 
 describe("workspace app installation", () => {
+	it("refuses to link an editor after its resource slot was renamed", async () => {
+		const { db, params } = fixture();
+		await db
+			.insert(osWorkspaces)
+			.values({
+				id: "workspace",
+				organizationId: "org",
+				name: "Docs",
+				createdByKind: "user",
+				createdById: "user",
+			});
+		await installWorkspaceApp(db, params);
+		const link = {
+			organizationId: "org",
+			workspaceId: "workspace",
+			resourceId: "resource",
+			outputId: "output",
+			gadgetId: "app",
+			kind: "document",
+			now: new Date().toISOString(),
+		};
+		expect(
+			await linkWorkspaceOutputEditor(db, { ...link, expectedSlot: "renamed" }),
+		).toBeUndefined();
+		expect((await db.select().from(osWorkspaceResources))[0]?.metadata).toBe(
+			"{}",
+		);
+		expect(
+			await linkWorkspaceOutputEditor(db, {
+				...link,
+				expectedSlot: "document",
+			}),
+		).toEqual({ id: "resource" });
+	});
 	it("publishes newer template versions without moving existing app pins or regressing publication", async () => {
 		const { db, params } = fixture();
 		await db.insert(osWorkspaces).values({
