@@ -1810,8 +1810,10 @@ describe("CanvasPage listing", () => {
 		).toBe("conv-second");
 
 		click(container.querySelector('[aria-label="Back to conversations"]')!);
-		// Back reopens the list; the pane shows a fresh thread behind it.
-		expect(container.querySelector('[data-chat-thread="new"]')).not.toBeNull();
+		// Opening the list preserves the subscription and its loaded summaries.
+		expect(
+			container.querySelector('[data-chat-thread="conv-second"]'),
+		).not.toBeNull();
 		expect(
 			container.querySelector('[aria-label="Conversations"]'),
 		).not.toBeNull();

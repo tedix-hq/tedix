@@ -183,6 +183,32 @@ export function applyWorkspaceChatEvent(
 	event: WorkspaceChatLedgerEvent,
 ): WorkspaceChatState {
 	if (state.seen.has(event.seq)) return state;
+	if (event.type === "turn.started") {
+		const previous = state.conversations.find(
+			(row) => row.id === event.conversationId,
+		);
+		const conversation: ConversationSummary = {
+			id: event.conversationId,
+			title:
+				previous?.title ??
+				(event.displayText ?? event.text).replace(/\s+/g, " ").slice(0, 80),
+			updatedAt:
+				previous && previous.updatedAt > event.at
+					? previous.updatedAt
+					: event.at,
+			lastTurnAt:
+				previous?.lastTurnAt && previous.lastTurnAt > event.at
+					? previous.lastTurnAt
+					: event.at,
+		};
+		state = {
+			...state,
+			conversations: [
+				...state.conversations.filter((row) => row.id !== conversation.id),
+				conversation,
+			].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+		};
+	}
 	if (event.type === "conversation.updated") {
 		if (event.conversationId === state.conversationId)
 			state.seen.add(event.seq);
