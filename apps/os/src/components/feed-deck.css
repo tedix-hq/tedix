@@ -1256,7 +1256,7 @@
  */
 .feed-deck
 	[data-decision-actions][data-outcome-row]
-	> :is([data-deck-overflow], .fd-card-why),
+	> :is([data-deck-overflow], [data-deck-steward], .fd-card-why),
 .feed-deck
 	[data-decision-actions][data-outcome-row]
 	> [data-deck-not-useful]:not(:has([role="group"])) {
@@ -1296,6 +1296,7 @@
 			[data-deck-overflow],
 			[data-phone-overflow],
 			[data-deck-later],
+			[data-deck-steward],
 			.fd-card-why
 		),
 	.feed-deck

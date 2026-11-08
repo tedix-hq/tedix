@@ -283,8 +283,14 @@ try {
 			),
 			`bands and timeline fit at ${width}px`,
 		);
+		// The handoff is a quiet control: it lives in the card's "⋯" menu so the
+		// action row stays within the lean Deck budget on a phone.
 		await page
-			.getByRole("button", { name: "Let the CTO tedi decide", exact: true })
+			.locator(".fd-deck-current")
+			.getByRole("button", { name: "More actions", exact: true })
+			.click();
+		await page
+			.getByRole("menuitem", { name: "Let the CTO tedi decide", exact: true })
 			.click();
 		await band("This week 0").waitFor();
 		assert.equal(handoff?.requestId, asks[1]!.request.id);
