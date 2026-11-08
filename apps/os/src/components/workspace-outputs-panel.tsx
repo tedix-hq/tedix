@@ -1,3 +1,4 @@
+import { NewResourceMenu } from "./create-document-dialog";
 import { OS_COPY } from "@/shared/os-copy";
 import "./workspace-outputs-panel.css";
 import {
@@ -381,9 +382,11 @@ export const WORKSPACE_OUTPUTS_PANEL_ID = "workspace-outputs-panel";
 
 export function WorkspaceOutputsPanel({
 	expanded,
+	workspaceId,
 	...list
 }: Omit<WorkspaceOutputsListProps, "railed"> & {
 	expanded: boolean;
+	workspaceId?: string;
 }) {
 	const count = list.loading || list.error ? null : list.items.length;
 	return (
@@ -400,6 +403,19 @@ export function WorkspaceOutputsPanel({
 						<span className="workspace-outputs-count">{count}</span>
 					) : null}
 				</h2>
+				{expanded && workspaceId && (
+					<div className="ml-auto">
+						<NewResourceMenu
+							workspaceId={workspaceId}
+							onCreated={(output) =>
+								list.onSelect({ type: "output", id: output.id })
+							}
+							onAppCreated={(gadget) =>
+								list.onSelect({ type: "gadget", id: gadget.id })
+							}
+						/>
+					</div>
+				)}
 			</header>
 			<WorkspaceOutputsList {...list} railed={!expanded} />
 		</aside>
