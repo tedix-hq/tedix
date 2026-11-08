@@ -91,6 +91,22 @@ function fixtureSnapshot(
 			"INSERT INTO kernel_conversations (id, organization_id, conversation_id, workspace_id, last_message_at) VALUES (?, ?, ?, NULL, ?)",
 		)
 		.run("kc-home", ORG, "conv-home", NOW);
+	// Another organization's Home thread reuses the same conversation id as ws-a's thread; its runs stay.
+	main
+		.prepare(
+			"INSERT INTO organizations (id, name, slug) VALUES ('org-other', 'Other', 'other')",
+		)
+		.run();
+	main
+		.prepare(
+			"INSERT INTO kernel_conversations (id, organization_id, conversation_id, workspace_id, last_message_at) VALUES (?, ?, ?, NULL, ?)",
+		)
+		.run("kc-other", "org-other", "conv-a", NOW);
+	main
+		.prepare(
+			"INSERT INTO kernel_runtime_runs (id, organization_id, conversation_id, status) VALUES (?, ?, ?, 'completed')",
+		)
+		.run("run-other", "org-other", "conv-a");
 	main
 		.prepare(
 			"INSERT INTO kernel_runtime_runs (id, organization_id, conversation_id, status) VALUES (?, ?, ?, 'completed')",

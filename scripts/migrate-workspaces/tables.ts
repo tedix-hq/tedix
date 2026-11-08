@@ -70,7 +70,12 @@ const CONVERSATION_IN_WORKSPACE = "conversation_id IN (:conversations)";
 const LIVE_ORGANIZATION = "organization_id IN (SELECT id FROM organizations)";
 const LIVE_FACT =
 	"IN (SELECT id FROM memory_facts WHERE organization_id IN (SELECT id FROM organizations))";
-const CONVERSATION_IN_ANY_WORKSPACE = "conversation_id IN (:anyConversations)";
+/**
+ * Conversation ids are unique per organization, not globally: another
+ * organization's Home thread may carry the same id, so the pair is matched.
+ */
+const CONVERSATION_IN_ANY_WORKSPACE =
+	"(organization_id || '|' || conversation_id) IN (:anyConversations)";
 
 export const WORKSPACE_TABLES: readonly TableMapping[] = [
 	{
