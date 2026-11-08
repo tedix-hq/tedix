@@ -653,63 +653,67 @@ describe("createWorkspaceChatClient", () => {
 		expect(changes).toBe(1);
 	});
 
-	it.each(["replace", "edit"])(
-		"refreshes files after documents.%s but not document reads",
-		(method) => {
-			let changes = 0;
-			const { sockets, hello } = harness(true, () => {
-				changes += 1;
-			});
-			const socket = sockets[0]!;
-			socket.open();
-			hello(socket);
-			const at = "2026-11-07T12:00:00.000Z";
-			socket.receive({
-				type: "step.started",
-				seq: 1,
-				at,
-				conversationId: "c1",
-				turnId: "t1",
-				stepId: "read",
-				kind: "read",
-				tool: "documents.read",
-				label: "Read document",
-			});
-			socket.receive({
-				type: "step.finished",
-				seq: 2,
-				at,
-				conversationId: "c1",
-				turnId: "t1",
-				stepId: "read",
-				status: "ok",
-				durationMs: 1,
-			});
-			expect(changes).toBe(0);
-			socket.receive({
-				type: "step.started",
-				seq: 3,
-				at,
-				conversationId: "c1",
-				turnId: "t1",
-				stepId: "write",
-				kind: "write",
-				tool: `documents.${method}`,
-				label: "Edit document",
-			});
-			socket.receive({
-				type: "step.finished",
-				seq: 4,
-				at,
-				conversationId: "c1",
-				turnId: "t1",
-				stepId: "write",
-				status: "ok",
-				durationMs: 1,
-			});
-			expect(changes).toBe(1);
-		},
-	);
+	it.each([
+		["documents", "replace"],
+		["documents", "edit"],
+		["sheets", "replace"],
+		["sheets", "edit"],
+		["presentations", "replace"],
+		["presentations", "edit"],
+	])("refreshes files after %s.%s but not reads", (binding, method) => {
+		let changes = 0;
+		const { sockets, hello } = harness(true, () => {
+			changes += 1;
+		});
+		const socket = sockets[0]!;
+		socket.open();
+		hello(socket);
+		const at = "2026-11-07T12:00:00.000Z";
+		socket.receive({
+			type: "step.started",
+			seq: 1,
+			at,
+			conversationId: "c1",
+			turnId: "t1",
+			stepId: "read",
+			kind: "read",
+			tool: `${binding}.read`,
+			label: "Read document",
+		});
+		socket.receive({
+			type: "step.finished",
+			seq: 2,
+			at,
+			conversationId: "c1",
+			turnId: "t1",
+			stepId: "read",
+			status: "ok",
+			durationMs: 1,
+		});
+		expect(changes).toBe(0);
+		socket.receive({
+			type: "step.started",
+			seq: 3,
+			at,
+			conversationId: "c1",
+			turnId: "t1",
+			stepId: "write",
+			kind: "write",
+			tool: `${binding}.${method}`,
+			label: "Edit document",
+		});
+		socket.receive({
+			type: "step.finished",
+			seq: 4,
+			at,
+			conversationId: "c1",
+			turnId: "t1",
+			stepId: "write",
+			status: "ok",
+			durationMs: 1,
+		});
+		expect(changes).toBe(1);
+	});
 
 	it("posts approval decisions and cancellations to the object", () => {
 		const { client, sockets, hello } = harness();

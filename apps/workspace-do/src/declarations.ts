@@ -1,3 +1,6 @@
+import { SHEETS_DECLARATION } from "./sheet-declarations";
+import { PRESENTATION_BINDING_DECLARATION } from "./presentation-bindings";
+
 /**
  * TypeScript declarations of the sandbox `env` the model writes code against.
  * One string, stable per workspace, so it sits in the cached part of the
@@ -7,6 +10,8 @@
 export const BINDING_NAMES = [
 	"outputs",
 	"documents",
+	"sheets",
+	"presentations",
 	"apps",
 	"resources",
 	"work",
@@ -40,6 +45,8 @@ interface OutputDetail extends OutputSummary { content: OutputContent | null }
 `.trim();
 
 export const BINDING_DECLARATIONS: Record<BindingName, string> = {
+	sheets: SHEETS_DECLARATION,
+	presentations: PRESENTATION_BINDING_DECLARATION,
 	documents: `
 /** Typed document operations on the same canonical outputs used by Doc apps. */
 interface Documents {
@@ -87,7 +94,7 @@ export function renderEnvDeclarations(): string {
 	return [
 		SHARED_TYPES,
 		...BINDING_NAMES.map((name) => BINDING_DECLARATIONS[name]),
-		`interface Env { documents: Documents; outputs: Outputs; apps: Apps; resources: Resources; work: Work; }`,
+		`interface Env { documents: Documents; sheets: Sheets; presentations: Presentations; outputs: Outputs; apps: Apps; resources: Resources; work: Work; }`,
 	].join("\n\n");
 }
 
