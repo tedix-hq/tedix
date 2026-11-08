@@ -1,3 +1,4 @@
+import { applyPresentationPatch } from "@tedix/api-contract/utils/presentation-patch";
 import { applyDocumentBlockPatch } from "@tedix/api-contract/utils/document-patch";
 import { normalizeOsOutputInput } from "@tedix/api-contract/utils/os-document";
 import { applySheetRange } from "@tedix/api-contract/utils/sheet-range";
@@ -13,10 +14,6 @@ import { implement } from "@orpc/server";
 import { osWorkspacesContract } from "@tedix/api-contract/contracts/os-workspaces";
 import {
 	type OsOutput,
-	type OsPresentationCanvasSlide,
-	type OsPresentationElement,
-	type OsPresentationDeck,
-	type OsPresentationSlide,
 	type OsOutputContent,
 	type OsOutputExportFormat,
 	type OsOutputKind,
@@ -643,120 +640,6 @@ async function persistEditedOutputRevision(
 	};
 }
 
-/**
- * Slide patching keeps the visual deck and its semantic projection consistent.
- *
- * A presentation body carries `slides` (the headless outline) and an optional
- * `deck` (the 1200x675 canvas that is actually rendered). The schema is explicit
- * that the deck is primary and `slides` is "its semantic/headless projection",
- * so patching the projection and dropping the deck would delete every author's
- * layout. These helpers instead patch the deck and re-derive the projection, so
- * a patch is never destructive and a deckless presentation gains one.
- */
-const SLIDE_TITLE_ID = () => `title-${crypto.randomUUID()}`;
-const SLIDE_BULLET_ID = () => `bullet-${crypto.randomUUID()}`;
-
-type SlideOutline = {
-	title: string;
-	bullets: string[];
-	notes?: string;
-	canvas?: Partial<Omit<OsPresentationCanvasSlide, "id" | "name" | "notes">>;
-};
-
-/** Lay out one canvas slide from an outline, in the deck's own coordinates. */
-function canvasSlideFromOutline(
-	outline: SlideOutline,
-): OsPresentationCanvasSlide {
-	const elements: OsPresentationElement[] = [
-		{
-			id: SLIDE_TITLE_ID(),
-			type: "title",
-			x: 72,
-			y: 72,
-			width: 1_056,
-			height: 96,
-			text: outline.title,
-			style: { fontSize: 44, fontWeight: "semibold" },
-		},
-	];
-	if (outline.bullets.length > 0) {
-		elements.push({
-			id: SLIDE_BULLET_ID(),
-			type: "bullet",
-			x: 72,
-			y: 200,
-			width: 1_056,
-			height: 380,
-			text: outline.bullets.join("\n"),
-			style: { fontSize: 24 },
-		});
-	}
-	return {
-		id: `slide-${crypto.randomUUID()}`,
-		name: outline.title.slice(0, 200),
-		layout: outline.bullets.length > 0 ? "title-content" : "title",
-		background: "#ffffff",
-		elements,
-		...outline.canvas,
-		...(outline.notes ? { notes: outline.notes } : {}),
-	};
-}
-
-/**
- * Rewrite an existing canvas slide from an outline, preserving its identity,
- * background and layout so a replace does not reset the author's styling.
- */
-function applyOutlineToCanvasSlide(
-	slide: OsPresentationCanvasSlide,
-	outline: SlideOutline,
-): OsPresentationCanvasSlide {
-	const rebuilt = canvasSlideFromOutline(outline);
-	return {
-		...slide,
-		name: outline.title.slice(0, 200),
-		elements: rebuilt.elements,
-		...outline.canvas,
-		...(outline.notes ? { notes: outline.notes } : { notes: undefined }),
-	};
-}
-
-/** The semantic projection of a deck, mirroring the client's `projectDeck`. */
-function projectDeckToSlides(deck: OsPresentationDeck): OsPresentationSlide[] {
-	return deck.slides.map((slide) => {
-		const ordered = [...slide.elements].sort((a, b) => a.y - b.y || a.x - b.x);
-		const title =
-			ordered.find((element) => element.type === "title")?.text ?? slide.name;
-		const bullets = ordered
-			.filter((element) => element.type === "bullet")
-			.flatMap((element) => (element.text ?? "").split("\n"))
-			.map((item) => item.trim())
-			.filter(Boolean)
-			.slice(0, 30);
-		return {
-			title: title.slice(0, 300),
-			bullets,
-			...(slide.notes ? { notes: slide.notes } : {}),
-		};
-	});
-}
-
-/** Build a deck from a body that only ever had the outline. */
-function deckFromSlides(slides: OsPresentationSlide[]): OsPresentationDeck {
-	const canvas = slides.map((slide) =>
-		canvasSlideFromOutline({
-			title: slide.title,
-			bullets: slide.bullets,
-			...(slide.notes ? { notes: slide.notes } : {}),
-		}),
-	);
-	return {
-		width: 1_200,
-		height: 675,
-		activeSlideId: canvas[0]?.id ?? `slide-${crypto.randomUUID()}`,
-		slides: canvas,
-	};
-}
-
 const outputsPatchSlides = authorOs.outputs.patchSlides.handler(
 	async ({ input, context }) => {
 		const output = await requireOutput(context, input.outputId);
@@ -780,53 +663,20 @@ const outputsPatchSlides = authorOs.outputs.patchSlides.handler(
 				"Presentation output carries a non-presentation current revision body",
 			);
 		}
-		const deck = content.deck ?? deckFromSlides(content.slides);
-		const slides = [...deck.slides];
-		for (const [position, op] of input.ops.entries()) {
-			const limit = op.op === "insert" ? slides.length : slides.length - 1;
-			const index = op.op === "move" ? op.from : op.index;
-			if (index > limit || (op.op === "move" && op.to > slides.length - 1)) {
-				throw createError(
-					ErrorCodes.BAD_REQUEST,
-					`ops[${position}]: ${op.op} index ${index} is out of range (the deck holds ${slides.length} slides at that step)`,
-				);
-			}
-			if (op.op === "insert") {
-				slides.splice(op.index, 0, canvasSlideFromOutline(op.slide));
-			} else if (op.op === "replace") {
-				const existing = slides[op.index];
-				if (existing) {
-					slides[op.index] = applyOutlineToCanvasSlide(existing, op.slide);
-				}
-			} else if (op.op === "delete") {
-				slides.splice(op.index, 1);
-			} else {
-				const [moved] = slides.splice(op.from, 1);
-				if (moved) slides.splice(op.to, 0, moved);
-			}
-		}
-		const activeSlideId = slides.some(
-			(slide) => slide.id === deck.activeSlideId,
-		)
-			? deck.activeSlideId
-			: (slides[0]?.id ?? deck.activeSlideId);
-		const nextDeck: OsPresentationDeck = { ...deck, slides, activeSlideId };
-		const next = OsOutputContentSchema.safeParse({
-			kind: "presentation",
-			slides: projectDeckToSlides(nextDeck),
-			deck: nextDeck,
-		});
-		if (!next.success) {
+		let next: Extract<OsOutputContent, { kind: "presentation" }>;
+		try {
+			next = applyPresentationPatch(content, input.ops);
+		} catch (error) {
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
-				`Patched presentation violates the content schema: ${next.error.issues[0]?.message ?? "invalid"}`,
+				error instanceof Error ? error.message : "Invalid slide edits",
 			);
 		}
 		return persistEditedOutputRevision(
 			context,
 			output,
 			base.revision,
-			next.data,
+			next,
 			input.note,
 		);
 	},
