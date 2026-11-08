@@ -23,7 +23,13 @@ bun scripts/migrate-workspaces/cli.ts assignments --snapshot main.sql --out assi
   reused. Rows are copied as stored.
 - `import` loads each bundle into the workspace's object in chunks of 1000
   rows. Every chunk has a stable batch id, so a rerun skips chunks that
-  already landed. Tables are loaded in the order of the mapping file.
+  already landed. Before opening the target, it checks every table's count
+  and full-row hash against the manifest and rejects memory reassignment.
+  Tables are loaded in the order of the mapping file. Remote import is
+  blocked until organization memory authorization parity, a validated full
+  snapshot and historical log coverage are established. There is no override
+  flag; local rehearsal remains available. Bundle hashes detect changed
+  content, but do not establish source completeness or access parity.
 - `reconcile` compares each bundle with its object: row count and one
   content hash per table, the serving revision and latest revision of every
   output, the object's identity and its jurisdiction (`eu` is required; pass

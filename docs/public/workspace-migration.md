@@ -14,6 +14,12 @@ visibility: public
 
 # Move workspaces into workspace objects
 
+Remote import is currently blocked in the command and the workspace worker.
+Local rehearsal is available. Before enabling customer-data moves, establish
+a full validated snapshot, historical log coverage and per-principal memory
+access and recall parity. The steps below describe the intended cutover;
+they are not evidence that these prerequisites have passed.
+
 A workspace object is one place per workspace that holds the workspace's
 own data and runs its agent, instead of rows in the shared database. On
 cutover day every workspace's documents, sheets and presentations, their
@@ -52,6 +58,12 @@ access to the installation's Cloudflare account. The commands are in
    file. `bun scripts/migrate-workspaces/cli.ts assignments --snapshot
    main.sql --out assignments.json` proposes the file; the product owner
    reviews it and it is kept with the Work Item.
+
+   The memory home is a physical storage assignment only. Existing memory
+   remains owned by the organization, with the same tedi/private visibility
+   and use policy. Workspace membership must not grant or remove access to
+   it. Workspace and personal ownership need explicit scope and a reviewed
+   conversion; migration must not silently classify existing records.
 
 3. **Confirm the release is built.** The five changes ship together: the
    shared adapters, the workspace runtime, the workspace object with its
@@ -217,5 +229,7 @@ for the soak time.
 It proves that the rows in each object are the rows the snapshot had, that
 every output serves the same revision as before, that nothing that should
 move was left behind, and that every object lives in `eu`. It does not
-prove that the new code reads them correctly; the checks after the deploy
-and the feed check do that.
+prove the snapshot is complete, that historical logs and archives are
+covered, or that the same principals can read, write and recall memory.
+Establish those separately before customer data moves. Checks after the
+deploy and the feed check verify the serving paths and projections.

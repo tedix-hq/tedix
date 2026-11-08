@@ -4,7 +4,7 @@
  * what already landed and finishes the rest.
  */
 import type { BundleStore } from "./bundle";
-import { batchIdFor } from "./rows";
+import { batchIdFor, RowDigest } from "./rows";
 import type { WorkspaceRef } from "./source";
 import { WORKSPACE_TABLES } from "./tables";
 import { IMPORT_CHUNK_ROWS, type WorkspaceStoreFactory } from "./target";
@@ -20,6 +20,12 @@ export async function importWorkspace(
 	stores: WorkspaceStoreFactory,
 	ref: WorkspaceRef,
 ): Promise<ImportResult> {
+	// Local copies can establish parity; the current workspace-only protocol
+	// cannot yet preserve organization memory authorization for a live move.
+	if (stores.kind === "remote")
+		throw new Error(
+			"Remote workspace import is blocked: organization memory authorization parity, a validated full snapshot and historical log coverage must be established before customer data moves",
+		);
 	const started = performance.now();
 	const { manifest, tables } = await bundles.read(ref);
 	if (
@@ -27,6 +33,30 @@ export async function importWorkspace(
 		manifest.workspaceId !== ref.workspaceId
 	)
 		throw new Error(`bundle for ${ref.workspaceId} names another workspace`);
+	for (const table of new Set([
+		...Object.keys(manifest.tables),
+		...tables.keys(),
+	]))
+		if (!WORKSPACE_TABLES.some((mapping) => mapping.table === table))
+			throw new Error(`bundle contains unmapped table ${table}`);
+	// Validate every table before opening the target, including derived tables:
+	// post-import reconciliation is too late to catch changed policy columns.
+	for (const mapping of WORKSPACE_TABLES) {
+		const summary = manifest.tables[mapping.table];
+		const rows = tables.get(mapping.table);
+		if (!summary || !rows)
+			throw new Error(`bundle has no rows or summary for ${mapping.table}`);
+		const digest = new RowDigest(mapping.primaryKey);
+		for (const row of rows) digest.add(row);
+		if (digest.count !== summary.count || digest.hex() !== summary.sha256)
+			throw new Error(
+				`bundle rows for ${mapping.table} do not match its manifest`,
+			);
+		if (mapping.domain === "memory" && summary.reassigned !== 0)
+			throw new Error(
+				`bundle cannot reassign organization memory: ${mapping.table}`,
+			);
+	}
 	const store = await stores.open(ref);
 	let imported = 0;
 	let duplicates = 0;

@@ -5,6 +5,10 @@ import { createMigratedSqlite } from "../../test/migrated-sqlite";
 import { createDbClient } from "../../client";
 import { createD1Facade } from "../../test/d1-facade";
 import { queryMemory, type MemoryQueryConfig } from "./tenant-rpc";
+import { SearchResultSchema } from "@tedix/api-contract/schemas/memory-graph";
+import { createFact, findCurrentFactsByTopicKey } from "./facts";
+import { hydrateRecall, lexicalRecall, temporalRecall } from "./hybrid-recall";
+import { findCitationDependents } from "./fact-citations";
 
 const databases: DatabaseSync[] = [];
 afterEach(() => {
@@ -37,6 +41,117 @@ const memoryTables = [
 ];
 
 describe("workspace memory migration contract", () => {
+	it("retains stored policies and per-tedi recall after copying unchanged rows into the real tenant schema", async () => {
+		const platform = createMigratedSqlite({ foreignKeys: false });
+		databases.push(platform);
+		const local = tenant();
+		local.exec(
+			"INSERT INTO tenant_store_identity VALUES (1,'fictional-org','physical-home','2026-11-08')",
+		);
+		const source = createDbClient(createD1Facade(platform));
+		const target = createDbClient(createD1Facade(local));
+		const organizationId = "fictional-org";
+		const now = "2026-11-08T12:00:00.000Z";
+		for (const [id, visibility, tediId, usePolicy, memoryScope] of [
+			["org", "org", "tedi-a", "can_use_as_evidence", "org"],
+			["shared", "shared", "tedi-a", "can_use_as_instruction", "tedi"],
+			["private-a", "private", "tedi-a", "requires_user_confirmation", "tedi"],
+			["private-b", "private", "tedi-b", "can_use_as_evidence", "tedi"],
+			["excluded", "org", "tedi-a", "do_not_inject_automatically", "org"],
+		] as const) {
+			await createFact(source, {
+				id,
+				organizationId,
+				tediId,
+				visibility,
+				usePolicy,
+				memoryScope,
+				content: "Cobalt migration decision",
+				factType: "decision",
+				topicKey: "storage/cobalt",
+				reviewStatus: "confirmed",
+				validFrom: "2026-11-07T10:00:00.000Z",
+				createdAt: "2026-11-07T10:00:00.000Z",
+				source: id === "excluded" ? "consolidation://observation" : null,
+				metadata:
+					id === "excluded"
+						? {
+								consolidation: { evidence: { sources: [{ id: "org" }] } },
+							}
+						: null,
+			});
+		}
+		const sourceRows = platform
+			.prepare("SELECT * FROM memory_facts ORDER BY id")
+			.all();
+		for (const row of sourceRows) {
+			const columns = Object.keys(row);
+			local
+				.prepare(
+					`INSERT INTO memory_facts (${columns.join(",")}) VALUES (${columns.map(() => "?").join(",")})`,
+				)
+				.run(...Object.values(row));
+		}
+		expect(
+			local.prepare("SELECT * FROM memory_facts ORDER BY id").all(),
+		).toEqual(sourceRows);
+		for (const db of [source, target]) {
+			for (const [tediId, privateId] of [
+				["tedi-a", "private-a"],
+				["tedi-b", "private-b"],
+				[undefined, undefined],
+			] as const) {
+				const scope = { organizationId, tediId, now };
+				const expected = [
+					"org",
+					"shared",
+					...(privateId ? [privateId] : []),
+				].sort();
+				const topicFacts = await findCurrentFactsByTopicKey(
+					db,
+					scope,
+					"storage/cobalt",
+				);
+				const candidates = await lexicalRecall(db, scope, "cobalt migration");
+				const temporal = await temporalRecall(
+					db,
+					scope,
+					"what changed yesterday",
+				);
+				for (const ids of [
+					candidates.map((row) => row.factId),
+					temporal.map((row) => row.factId),
+					topicFacts.map((row) => row.id),
+				]) {
+					const facts = await hydrateRecall(db, scope, ids);
+					expect(facts.map((row) => row.id).sort()).toEqual(expected);
+					for (const fact of facts)
+						expect(
+							SearchResultSchema.parse({ factId: fact.id, score: 1, fact })
+								.factId,
+						).toBe(fact.id);
+				}
+			}
+			const foreign = {
+				organizationId: "fictional-other",
+				tediId: "tedi-a",
+				now,
+			};
+			expect(await lexicalRecall(db, foreign, "cobalt migration")).toEqual([]);
+			expect(
+				await hydrateRecall(
+					db,
+					foreign,
+					sourceRows.map((row) => String(row.id)),
+				),
+			).toEqual([]);
+			expect(
+				await findCitationDependents(db, { organizationId }, ["org"]),
+			).toEqual(["excluded"]);
+			expect(await findCitationDependents(db, foreign, ["org"])).toEqual([]);
+		}
+	});
+
 	it("matches canonical columns, indexes, local foreign keys and all memory triggers/views", () => {
 		const platform = createMigratedSqlite();
 		const local = tenant();

@@ -1,12 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { getMigratedSqliteTemplate } from "../../packages/db/src/test/migrated-sqlite-template";
 import { LocalBundleStore } from "./bundle";
 import { openStores, parseArgs } from "./cli";
 import { checkAssignments, exportAll } from "./export";
-import { importAll } from "./import";
+import { importAll, importWorkspace } from "./import";
 import { reconcileAll } from "./reconcile";
 import { proposeAssignments } from "./assignments";
 import { rehearse } from "./rehearse";
@@ -21,21 +22,12 @@ import {
 } from "./tables";
 import { LocalWorkspaceStore, localStoreFactory } from "./target";
 
-const D1_MIGRATIONS = join(import.meta.dir, "../../packages/db/drizzle");
-let template: Uint8Array | undefined;
+// Use the shared exact-ledger cache; full migration replay is fixture setup,
+// not part of the importer's five-second behavior checks.
+const template = getMigratedSqliteTemplate({ foreignKeys: false });
 
 /** A database shaped like the shared one today, from its real migration chain. */
 function sharedDatabase(): DatabaseSync {
-	if (!template) {
-		const db = new DatabaseSync(":memory:");
-		db.exec("PRAGMA foreign_keys=OFF");
-		for (const name of readdirSync(D1_MIGRATIONS)
-			.filter((n) => /^\d{14}_/.test(n))
-			.sort())
-			db.exec(readFileSync(join(D1_MIGRATIONS, name, "migration.sql"), "utf8"));
-		template = db.serialize();
-		db.close();
-	}
 	const db = new DatabaseSync(":memory:");
 	db.deserialize(template);
 	db.exec("PRAGMA foreign_keys=OFF");
@@ -186,6 +178,95 @@ const assignments: WorkspaceAssignments = {
 };
 
 describe("migrate-workspaces", () => {
+	test("blocks remote imports before contacting a target in either authentication mode", async () => {
+		const ref = { organizationId: ORG, workspaceId: WS_A };
+		const bundles = new LocalBundleStore("unused-remote-import-bundles");
+		let requests = 0;
+		const fetchImplementation = Object.assign(
+			async () => {
+				requests += 1;
+				throw new Error("remote import contacted the target");
+			},
+			{ preconnect: fetch.preconnect },
+		);
+		for (const auth of [
+			"object-token",
+			{ mode: "tedix" as const, headers: async () => ({}) },
+		]) {
+			const stores = remoteStoreFactory(
+				"https://objects.example",
+				auth,
+				fetchImplementation,
+			);
+			await expect(importWorkspace(bundles, stores, ref)).rejects.toThrow(
+				"Remote workspace import is blocked",
+			);
+			await expect(
+				importAll(
+					{
+						read: bundles.read.bind(bundles),
+						write: bundles.write.bind(bundles),
+						list: async () => [ref],
+					},
+					stores,
+				),
+			).rejects.toThrow("Remote workspace import is blocked");
+		}
+		expect(requests).toBe(0);
+	});
+
+	test.each([
+		"visibility",
+		"tedi_id",
+		"memory_scope",
+		"use_policy",
+		"organization_id",
+		"missing-summary",
+		"missing-rows",
+		"derived-citation",
+		"reassigned",
+		"unmapped",
+	])("rejects bundle damage before opening a target: %s", async (damage) => {
+		const snapshot = fixtureSnapshot();
+		const workDir = mkdtempSync(join(tmpdir(), "mw-preflight-"));
+		try {
+			const bundles = new LocalBundleStore(join(workDir, "bundles"));
+			await exportAll(snapshot, bundles, assignments);
+			const ref = { organizationId: ORG, workspaceId: WS_A };
+			const { manifest, tables } = await bundles.read(ref);
+			if (damage === "missing-summary") delete manifest.tables.memory_facts;
+			else if (damage === "missing-rows") tables.delete("memory_facts");
+			else if (damage === "derived-citation")
+				tables.get("memory_fact_citations")!.pop();
+			else if (damage === "reassigned")
+				manifest.tables.memory_facts!.reassigned = 1;
+			else if (damage === "unmapped") tables.set("unmapped_memory", []);
+			else tables.get("memory_facts")![0]![damage] = "changed-policy";
+			let opens = 0;
+			await expect(
+				importWorkspace(
+					{
+						write: bundles.write.bind(bundles),
+						list: bundles.list.bind(bundles),
+						read: async () => ({ manifest, tables }),
+					},
+					{
+						kind: "local",
+						open: async () => {
+							opens += 1;
+							throw new Error("target opened");
+						},
+					},
+					ref,
+				),
+			).rejects.toThrow(/bundle/);
+			expect(opens).toBe(0);
+		} finally {
+			snapshot.close();
+			rmSync(workDir, { recursive: true, force: true });
+		}
+	});
+
 	test("rehearsal moves every workspace with zero drift and reports timings", async () => {
 		const snapshot = fixtureSnapshot();
 		const workDir = mkdtempSync(join(tmpdir(), "mw-test-"));
