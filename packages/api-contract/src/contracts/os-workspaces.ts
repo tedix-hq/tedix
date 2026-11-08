@@ -986,6 +986,19 @@ export const osWorkspacesContract = oc
 				.output(z.object({ link: OsWorkspaceProjectSchema })),
 		}),
 		gadgets: oc.router({
+			installDocument: oc
+				.route({
+					method: "POST",
+					summary:
+						"Attach a Doc blueprint app to an existing workspace document",
+				})
+				.input(
+					z.strictObject({
+						workspaceId: z.string().uuid(),
+						outputId: z.string().uuid(),
+					}),
+				)
+				.output(z.object({ gadget: OsGadgetSchema })),
 			installWorkDefaults: oc
 				.route({
 					method: "POST",

@@ -6,6 +6,7 @@
 	"license": "AGPL-3.0-only",
 	"type": "module",
 	"exports": {
+		"./queries/os-workspaces/install-app": "./src/queries/os-workspaces/install-app.ts",
 		"./tenant-scope": "./src/tenant-scope.ts",
 		"./queries/office-activity": "./src/queries/office-activity.ts",
 		"./queries/control-plane/system-policy": "./src/queries/control-plane/system-policy.ts",

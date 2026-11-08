@@ -189,6 +189,7 @@ export function CanvasResourceRail({
 						<NewResourceMenu
 							workspaceId={workspaceId}
 							onCreated={(output) => onSelectOutput(output.id)}
+							onAppCreated={(gadget) => onSelectGadget(gadget.id)}
 						/>
 					)}
 					<label className="canvas-resource-search">

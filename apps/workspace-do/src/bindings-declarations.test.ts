@@ -63,6 +63,104 @@ function fakeData(): WorkspaceDataPort {
 }
 
 describe("workspace bindings", () => {
+	test("document writes share canonical CAS, revisions and approval policy", async () => {
+		const data = fakeData();
+		let current = {
+			id: "doc",
+			kind: "document" as const,
+			title: "Doc",
+			status: "active" as const,
+			revision: 3,
+			revisionId: "r3",
+			updatedAt: "t",
+			content: {
+				kind: "document" as const,
+				blocks: [{ type: "paragraph" as const, text: "Before" }],
+			},
+		};
+		let writes = 0;
+		data.getOutput = async (id) => (id === current.id ? current : null);
+		data.reviseOutput = async (input) => {
+			if (input.expectedRevision !== current.revision)
+				throw new Error("Revision conflict");
+			if (input.content.kind !== "document")
+				throw new Error("Expected document");
+			writes++;
+			current = {
+				...current,
+				revision: current.revision + 1,
+				revisionId: `r${current.revision + 1}`,
+				content: input.content,
+			};
+			return current;
+		};
+		const make = (ask = false) => {
+			const adapters = createInMemoryAdapters(
+				ask ? { policies: { output: { disposition: "ask" } } } : {},
+			);
+			const env = buildWorkspaceBindings({
+				data,
+				...adapters,
+				actor: { id: "agent", kind: "tedi", organizationId: "o" },
+				source: { surface: "workspace_object", traceId: "t" },
+			});
+			return {
+				adapters,
+				documents: env.documents as {
+					read(input: unknown): Promise<unknown>;
+					edit(input: unknown): Promise<unknown>;
+					replace(input: unknown): Promise<unknown>;
+				},
+			};
+		};
+		const denied = make(true);
+		await expect(
+			denied.documents.edit({
+				outputId: "doc",
+				expectedRevision: 3,
+				ops: [
+					{
+						op: "replace",
+						index: 0,
+						block: { type: "paragraph", text: "After" },
+					},
+				],
+			}),
+		).rejects.toThrow("Approval required");
+		expect(writes).toBe(0);
+		const allowed = make();
+		await allowed.documents.edit({
+			outputId: "doc",
+			expectedRevision: 3,
+			ops: [
+				{
+					op: "replace",
+					index: 0,
+					block: { type: "paragraph", text: "After" },
+				},
+			],
+		});
+		expect(current.content.blocks[0]).toEqual({
+			type: "paragraph",
+			text: "After",
+		});
+		const [record] = await allowed.adapters.accountability.list();
+		expect(record?.before?.revisionId).toBe("r3");
+		expect(record?.after?.revisionId).toBe("r4");
+		expect(record?.undo?.kind).toBe("rollback_revision");
+		await expect(
+			allowed.documents.replace({
+				outputId: "doc",
+				expectedRevision: 3,
+				content: { kind: "document", blocks: [] },
+			}),
+		).rejects.toThrow("Revision conflict");
+		await expect(
+			allowed.documents.read({ outputId: "another-workspace" }),
+		).rejects.toThrow("Document not found");
+		expect(writes).toBe(1);
+	});
+
 	test("reads pass and are recorded; listOpen filters closed items", async () => {
 		const adapters = createInMemoryAdapters();
 		const env = buildWorkspaceBindings({

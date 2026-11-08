@@ -1,3 +1,4 @@
+import { applyDocumentBlockPatch } from "@tedix/api-contract/utils/document-patch";
 import { normalizeOsOutputInput } from "@tedix/api-contract/utils/os-document";
 import { applySheetRange } from "@tedix/api-contract/utils/sheet-range";
 import { getSkillRun } from "@tedix/db/queries/skill-runs";
@@ -854,48 +855,20 @@ const outputsPatchDocument = authorOs.outputs.patchDocument.handler(
 				"Document output carries a non-document current revision body",
 			);
 		}
-		const blocks = [...content.blocks];
-		for (const [position, op] of input.ops.entries()) {
-			const limit = op.op === "insert" ? blocks.length : blocks.length - 1;
-			if (op.index > limit) {
-				throw createError(
-					ErrorCodes.BAD_REQUEST,
-					`ops[${position}]: ${op.op} index ${op.index} is out of range (the list holds ${blocks.length} blocks at that step)`,
-				);
-			}
-			if (op.op === "insert") {
-				blocks.splice(op.index, 0, op.block);
-			} else if (op.op === "replace") {
-				blocks[op.index] = op.block;
-			} else {
-				blocks.splice(op.index, 1);
-			}
-		}
-		// A document body is richText-primary — blocks are its headless
-		// projection — so a block patch rebuilds the whole body through the
-		// same normalization a revise applies: richText is re-derived from the
-		// patched blocks instead of going stale or being dropped, and the file
-		// preview reference carries through. Formatting the block vocabulary
-		// cannot express is simplified exactly as revising to that block list
-		// would simplify it.
-		const next = OsOutputContentSchema.safeParse(
-			normalizeOsOutputInput({
-				kind: "document",
-				...(content.file ? { file: content.file } : {}),
-				blocks,
-			}),
-		);
-		if (!next.success) {
+		let next: Extract<OsOutputContent, { kind: "document" }>;
+		try {
+			next = applyDocumentBlockPatch(content, input.ops);
+		} catch (error) {
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
-				`Patched document violates the content schema: ${next.error.issues[0]?.message ?? "invalid"}`,
+				error instanceof Error ? error.message : "Invalid document patch",
 			);
 		}
 		return persistEditedOutputRevision(
 			context,
 			output,
 			base.revision,
-			next.data,
+			next,
 			input.note,
 		);
 	},

@@ -1627,4 +1627,13 @@ export class WorkspaceBindingLoopback extends WorkerEntrypoint<
 	revise(...args: unknown[]) {
 		return this.#call("revise", args);
 	}
+	read(...args: unknown[]) {
+		return this.#call("read", args);
+	}
+	replace(...args: unknown[]) {
+		return this.#call("replace", args);
+	}
+	edit(...args: unknown[]) {
+		return this.#call("edit", args);
+	}
 }

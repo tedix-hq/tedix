@@ -4,7 +4,13 @@
  * system prompt; `describe(name)` returns one binding's section whole.
  */
 
-export const BINDING_NAMES = ["outputs", "apps", "resources", "work"] as const;
+export const BINDING_NAMES = [
+	"outputs",
+	"documents",
+	"apps",
+	"resources",
+	"work",
+] as const;
 export type BindingName = (typeof BINDING_NAMES)[number];
 
 const SHARED_TYPES = `
@@ -14,20 +20,35 @@ interface OutputSummary {
   revision: number; revisionId: string | null; updatedAt: string;
 }
 /** Body shapes follow the workspace output content schema. */
-type DocumentBlock = { type: "heading"; level: 1 | 2 | 3; text: string }
-  | { type: "paragraph"; text: string }
+type DocumentBlock = { type: "heading"; level: 1 | 2 | 3 | 4; text: string }
+  | { type: "paragraph" | "quote" | "callout"; text: string }
   | { type: "list"; ordered?: boolean; items: string[] }
-  | { type: "table"; rows: string[][] }
+  | { type: "checklist"; items: Array<{text:string;checked:boolean}> }
+  | { type: "toggle"; summary:string; text:string }
+  | { type: "divider" }
+  | { type: "table"; headers:string[]; rows: string[][]; align?:Array<"left" | "center" | "right" | null>; widths?:number[] }
   | { type: "code"; language?: string; text: string };
+/** Preserve richText/file fields when replacing a body; edit() rebuilds rich text from semantic blocks. */
+interface DocumentContent { kind:"document"; blocks:DocumentBlock[]; richText?:{type:"doc";content:unknown[]}; file?:{workspaceId:string;resourceId:string} }
+interface DocumentDetail extends OutputSummary {content:DocumentContent}
 type SheetCell = string | number | boolean | null;
 type OutputContent =
-  | { kind: "document"; blocks: DocumentBlock[] }
+  | DocumentContent
   | { kind: "sheet"; columns: string[]; rows: SheetCell[][] }
   | { kind: "presentation"; slides: Array<{ title: string; bullets?: string[]; notes?: string }> };
 interface OutputDetail extends OutputSummary { content: OutputContent | null }
 `.trim();
 
 export const BINDING_DECLARATIONS: Record<BindingName, string> = {
+	documents: `
+/** Typed document operations on the same canonical outputs used by Doc apps. */
+interface Documents {
+  read(input: { outputId: string }): Promise<DocumentDetail>;
+  /** Replaces content; recorded and may need approval. */
+  replace(input: { outputId: string; expectedRevision: number; content: DocumentContent }): Promise<DocumentDetail>;
+  /** Applies ordered block edits; recorded and may need approval. */
+  edit(input: { outputId: string; expectedRevision: number; ops: Array<{op:"insert" | "replace"; index:number; block:DocumentBlock} | {op:"delete"; index:number}> }): Promise<DocumentDetail>;
+}`.trim(),
 	outputs: `
 /** Documents, sheets and presentations that belong to this workspace. */
 interface Outputs {
@@ -66,7 +87,7 @@ export function renderEnvDeclarations(): string {
 	return [
 		SHARED_TYPES,
 		...BINDING_NAMES.map((name) => BINDING_DECLARATIONS[name]),
-		`interface Env { outputs: Outputs; apps: Apps; resources: Resources; work: Work; }`,
+		`interface Env { documents: Documents; outputs: Outputs; apps: Apps; resources: Resources; work: Work; }`,
 	].join("\n\n");
 }
 
