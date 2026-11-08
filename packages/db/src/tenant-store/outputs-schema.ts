@@ -128,3 +128,67 @@ export const tenantOsOutputRevisions = sqliteTable(
 		),
 	],
 );
+
+/**
+ * Provider resources attached to the workspace, mirroring
+ * `osWorkspaceResources`. Only the organization reference is dropped; the
+ * workspace reference points at this store's own `os_workspaces` row.
+ */
+export const tenantOsWorkspaceResources = sqliteTable(
+	"os_workspace_resources",
+	{
+		id: text("id").primaryKey(),
+		organizationId: text("organization_id").notNull(),
+		workspaceId: text("workspace_id")
+			.notNull()
+			.references(() => tenantOsWorkspaces.id, { onDelete: "cascade" }),
+		slot: text("slot"),
+		providerId: text("provider_id").notNull(),
+		connectionScope: text("connection_scope", {
+			enum: ["tenant", "user"],
+		}).notNull(),
+		personalOwnerUserId: text("personal_owner_user_id"),
+		connectionInstanceId: text("connection_instance_id"),
+		providerAccess: text("provider_access", { mode: "json" }).$type<{
+			canRead: boolean;
+			canWrite: boolean;
+		}>(),
+		requiredScopes: text("required_scopes").notNull().default("[]"),
+		resourceType: text("resource_type").notNull(),
+		providerResourceId: text("provider_resource_id").notNull(),
+		name: text("name").notNull(),
+		metadata: text("metadata").notNull().default("{}"),
+		status: text("status", { enum: ["active", "removed"] })
+			.notNull()
+			.default("active"),
+		createdByKind: text("created_by_kind", { enum: createdByKinds }).notNull(),
+		createdById: text("created_by_id").notNull(),
+		createdAt: text("created_at")
+			.notNull()
+			.default(sql`(datetime('now'))`),
+		updatedAt: text("updated_at")
+			.notNull()
+			.default(sql`(datetime('now'))`),
+		removedAt: text("removed_at"),
+	},
+	(table) => [
+		uniqueIndex("os_workspace_resources_workspace_slot_unique").on(
+			table.workspaceId,
+			table.slot,
+		),
+		uniqueIndex("os_workspace_resources_provider_object_unique").on(
+			table.workspaceId,
+			table.providerId,
+			table.connectionScope,
+			sql`coalesce(${table.personalOwnerUserId}, '')`,
+			sql`coalesce(${table.connectionInstanceId}, '')`,
+			table.resourceType,
+			table.providerResourceId,
+		),
+		index("os_workspace_resources_org_workspace_idx").on(
+			table.organizationId,
+			table.workspaceId,
+			table.status,
+		),
+	],
+);
