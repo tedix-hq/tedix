@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { registerCatalogAssets } from "./catalog-assets";
+import { registerCorsAndLimits } from "./cors-and-limits";
 
 function setup(allowed = true) {
 	const object = {
@@ -13,6 +14,7 @@ function setup(allowed = true) {
 	const head = vi.fn(async () => ({ ...object, body: undefined }));
 	const limit = vi.fn(async () => ({ success: allowed }));
 	const env = {
+		API_URL: "https://api.example",
 		R2_BUCKET: { get, head },
 		API_RATE_LIMITER: { limit },
 	} as unknown as CloudflareEnv;
@@ -22,6 +24,33 @@ function setup(allowed = true) {
 }
 
 describe("public catalog assets", () => {
+	it("serves through the production origin middleware without admitting private paths", async () => {
+		const { env, get } = setup();
+		env.UNTRUSTED_CONTENT_ORIGIN = "https://artifacts.example";
+		const app = new Hono<{ Bindings: CloudflareEnv }>();
+		registerCorsAndLimits(app);
+		registerCatalogAssets(app);
+		expect(
+			(
+				await app.request(
+					"https://artifacts.example/catalog-assets/app-assets/icon.png",
+					{},
+					env,
+				)
+			).status,
+		).toBe(200);
+		get.mockClear();
+		expect(
+			(
+				await app.request(
+					"https://artifacts.example/catalog-assets/os-output-revisions/private.gz",
+					{},
+					env,
+				)
+			).status,
+		).toBe(404);
+		expect(get).not.toHaveBeenCalled();
+	});
 	it("serves a public logo with sandbox and cache headers", async () => {
 		const { app, env, get } = setup();
 		const r = await app.request(

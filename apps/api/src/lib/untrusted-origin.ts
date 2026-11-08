@@ -44,6 +44,7 @@
  */
 
 import { installationOrigins } from "./cors-origins";
+import { catalogAssetKey } from "./catalog-asset-key";
 
 /** The `wrangler.jsonc` var that names the origin. Empty/absent = unset. */
 export const UNTRUSTED_CONTENT_ORIGIN_VAR = "UNTRUSTED_CONTENT_ORIGIN";
@@ -179,15 +180,15 @@ export function resolveUntrustedContentOrigin(
 }
 
 /**
- * The only paths the untrusted origin serves: the two SIGNED byte routes.
+ * The untrusted origin serves signed byte routes and public catalog assets.
  *
- * Signed-only is load-bearing. Both routes are pure token gates — the URL IS
- * the capability, org-ownership was proven upstream at mint time — so the
- * untrusted origin never reads a session cookie, and the session-authed
+ * Signed routes are pure token gates; catalog assets use a public key allowlist.
+ * The untrusted origin never reads a session cookie, and the session-authed
  * variants (`GET /artifacts/:tediId/:artifactId`,
  * `GET /skill-runs/:runId/media/*`) stay off it entirely.
  */
 export function isUntrustedContentPath(pathname: string): boolean {
+	if (catalogAssetKey(pathname)) return true;
 	// Segment-shaped, not prefix-shaped. `/artifacts/s/<x>` is THREE segments and
 	// matches the SESSION route `/artifacts/:tediId/:artifactId` with
 	// tediId="s" — a prefix test would wave a cookie-reading handler onto this

@@ -1,21 +1,11 @@
 import type { Hono } from "hono";
+import { catalogAssetKey } from "../lib/catalog-asset-key";
 
 export function registerCatalogAssets(app: Hono<{ Bindings: CloudflareEnv }>) {
 	// authz: public — only catalog assets, never the bucket's tenant prefixes.
 	app.on(["GET", "HEAD"], "/catalog-assets/*", async (c) => {
-		let key: string;
-		try {
-			key = decodeURIComponent(
-				new URL(c.req.url).pathname.slice("/catalog-assets/".length),
-			);
-		} catch {
-			return c.text("Not found", 404);
-		}
-		if (
-			!/^(app_catalog|app-assets)\/[A-Za-z0-9_./-]+$/.test(key) ||
-			key.split("/").some((part) => !part || part === "." || part === "..")
-		)
-			return c.text("Not found", 404);
+		const key = catalogAssetKey(new URL(c.req.url).pathname);
+		if (!key) return c.text("Not found", 404);
 		if (!c.env.API_RATE_LIMITER) return c.text("Unavailable", 503);
 		const limit = await c.env.API_RATE_LIMITER.limit({
 			key: `catalog-assets:${c.req.header("CF-Connecting-IP") ?? "unknown"}`,

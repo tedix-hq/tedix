@@ -170,7 +170,13 @@ describe("untrustedContentBaseUrl", () => {
 });
 
 describe("path classification", () => {
-	it("the untrusted origin serves ONLY the two signed lanes", () => {
+	it("the untrusted origin serves signed lanes and public catalog assets", () => {
+		expect(isUntrustedContentPath("/catalog-assets/app-assets/icon.png")).toBe(
+			true,
+		);
+		expect(
+			isUntrustedContentPath("/catalog-assets/os-output-revisions/private.gz"),
+		).toBe(false);
 		expect(isUntrustedContentPath("/artifacts/s/tedi-1/art-1")).toBe(true);
 		expect(isUntrustedContentPath("/artifacts/s/tedi-1/art-1/js/app.js")).toBe(
 			true,

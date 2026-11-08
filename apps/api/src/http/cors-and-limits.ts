@@ -74,8 +74,8 @@ export function registerCorsAndLimits(app: Hono<{ Bindings: CloudflareEnv }>) {
 	 *    must not silently fall back to serving from the shared origin — that
 	 *    would be a config claiming a boundary it does not have. The rest of the
 	 *    API does not depend on it and is left alone.
-	 *  - `configured` + request arrived ON that origin: serve ONLY the two signed
-	 *    byte routes, GET/HEAD. Everything else is an ordinary 404, so the origin
+	 *  - `configured` + request arrived ON that origin: serve signed bytes and
+	 *    public catalog assets, GET/HEAD. Everything else is a 404, so the origin
 	 *    can never act as a second authenticated API surface and never reads a
 	 *    session cookie.
 	 */

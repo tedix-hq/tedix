@@ -93,12 +93,15 @@ describe("artifact gateway", () => {
 		expect(fetch).not.toHaveBeenCalled();
 	});
 
-	it("strips every ambient authority header before the service binding", async () => {
-		let forwarded: Request | undefined;
-		const response = await handleArtifactGatewayRequest(
-			new Request(
-				"https://artifacts.example/artifacts/s/tedi-1/artifact-1?exp=1&token=x",
-				{
+	it.each([
+		"https://artifacts.example/artifacts/s/tedi-1/artifact-1?exp=1&token=x",
+		"https://artifacts.example/catalog-assets/app_catalog/example/app/logo.png",
+	])(
+		"strips every ambient authority header before forwarding %s",
+		async (url) => {
+			let forwarded: Request | undefined;
+			const response = await handleArtifactGatewayRequest(
+				new Request(url, {
 					headers: {
 						Authorization: "Bearer secret",
 						Cookie: "DS=session; DSR=refresh",
@@ -113,33 +116,33 @@ describe("artifact gateway", () => {
 						"X-Tedix-Tenant-Id": "tenant-secret",
 						"X-Trace-Id": "trace-safe",
 					},
-				},
-			),
-			gateway(async (request) => {
-				forwarded = request;
-				return new Response("bytes");
-			}),
-		);
+				}),
+				gateway(async (request) => {
+					forwarded = request;
+					return new Response("bytes");
+				}),
+			);
 
-		expect(response.status).toBe(200);
-		expect(forwarded).toBeDefined();
-		for (const name of [
-			"Authorization",
-			"Cookie",
-			"Proxy-Authorization",
-			"X-API-Key",
-			"X-Service-Binding",
-			"X-Tedix-External-Agent-Principal-Id",
-			"X-Tedix-Org-Id",
-			"X-Tedix-Service-Binding",
-			"X-Tedix-Tedi-Id",
-			"X-Tedix-Tedi-Scopes",
-			"X-Tedix-Tenant-Id",
-		]) {
-			expect(forwarded?.headers.has(name)).toBe(false);
-		}
-		expect(forwarded?.headers.get("X-Trace-Id")).toBe("trace-safe");
-	});
+			expect(response.status).toBe(200);
+			expect(forwarded).toBeDefined();
+			for (const name of [
+				"Authorization",
+				"Cookie",
+				"Proxy-Authorization",
+				"X-API-Key",
+				"X-Service-Binding",
+				"X-Tedix-External-Agent-Principal-Id",
+				"X-Tedix-Org-Id",
+				"X-Tedix-Service-Binding",
+				"X-Tedix-Tedi-Id",
+				"X-Tedix-Tedi-Scopes",
+				"X-Tedix-Tenant-Id",
+			]) {
+				expect(forwarded?.headers.has(name)).toBe(false);
+			}
+			expect(forwarded?.headers.get("X-Trace-Id")).toBe("trace-safe");
+		},
+	);
 
 	it("strips authority-bearing response headers without buffering the body", async () => {
 		const body = new ReadableStream({
