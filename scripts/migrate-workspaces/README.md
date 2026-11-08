@@ -80,6 +80,11 @@ exists stay in the shared database, counted as `staying` in the
 reconciler's totals, and go with the old tables. `assignments` proposes
 both.
 
+A table the object derives itself (`memory_fact_citations`, rebuilt from
+each fact's consolidation metadata by the object's own trigger) is marked
+`derivedInObject`: `import` skips it and `reconcile` compares what the
+object built with the source on the key columns.
+
 What stays in the shared core, with the reason, is `TABLES_THAT_STAY` in the
 same file: the workspace directory, factory runs and their artifacts, a
 tedi's own ledger, and organization Home threads (conversations with no

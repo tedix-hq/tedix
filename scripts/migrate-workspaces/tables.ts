@@ -57,6 +57,12 @@ export interface TableMapping {
 	 * is assigned to a workspace it did not name (outputs without a workspace).
 	 */
 	workspaceColumn?: string;
+	/**
+	 * The object builds these rows itself from other imported rows (a
+	 * trigger on insert). `import` skips the table; `reconcile` still
+	 * compares what the object built with the source, on these columns.
+	 */
+	derivedInObject?: readonly string[];
 }
 
 const CONVERSATION_IN_WORKSPACE = "conversation_id IN (:conversations)";
@@ -183,11 +189,19 @@ function memoryTables(): TableMapping[] {
 		memory("memory_entity_resolution_heads", orgOnly, ["mention_id"]),
 		memory("memory_entity_resolution_decisions"),
 		memory("memory_entity_resolutions"),
-		memory("memory_fact_citations", orgOnly, [
-			"consolidated_fact_id",
-			"cited_fact_id",
-		]),
-		memory("memory_fact_citation_backfills", orgOnly, ["organization_id"]),
+		{
+			...memory("memory_fact_citations", orgOnly, [
+				"consolidated_fact_id",
+				"cited_fact_id",
+			]),
+			// The object rebuilds citations from each fact's consolidation
+			// metadata when the fact is inserted; `created_at` is the rebuild time.
+			derivedInObject: [
+				"organization_id",
+				"consolidated_fact_id",
+				"cited_fact_id",
+			],
+		},
 		memory(
 			"tedi_expertise",
 			"domain_id IN (SELECT id FROM memory_domains WHERE organization_id = :org)",
@@ -239,6 +253,15 @@ export const TABLES_THAT_STAY: ReadonlyArray<{
 	{
 		table: "kernel_conversations (workspace_id IS NULL)",
 		reason: "organization Home threads stay org-wide",
+	},
+	{
+		table: "memory_* (organization deleted)",
+		reason: "orphaned rows of organizations that no longer exist",
+	},
+	{
+		table: "memory_fact_citation_backfills",
+		reason:
+			"bookkeeping of a one-time backfill in the shared database; the object derives citations itself",
 	},
 ];
 
