@@ -92,15 +92,13 @@ function fixture() {
 describe("workspace app installation", () => {
 	it("installs the template, code and capability atomically and retries by stable identity", async () => {
 		const { db, params } = fixture();
-		await db
-			.insert(osWorkspaces)
-			.values({
-				id: "workspace",
-				organizationId: "org",
-				name: "Docs",
-				createdByKind: "user",
-				createdById: "user",
-			});
+		await db.insert(osWorkspaces).values({
+			id: "workspace",
+			organizationId: "org",
+			name: "Docs",
+			createdByKind: "user",
+			createdById: "user",
+		});
 		await installWorkspaceApp(db, params);
 		await installWorkspaceApp(db, params);
 		expect(await db.select().from(osGadgets)).toHaveLength(1);
@@ -110,22 +108,18 @@ describe("workspace app installation", () => {
 	});
 	it("rolls back every app and template row when the output slot conflicts", async () => {
 		const { db, params } = fixture();
-		await db
-			.insert(osWorkspaces)
-			.values({
-				id: "workspace",
-				organizationId: "org",
-				name: "Docs",
-				createdByKind: "user",
-				createdById: "user",
-			});
-		await db
-			.insert(osWorkspaceResources)
-			.values({
-				...params.resource!,
-				id: "other",
-				providerResourceId: "other-output",
-			});
+		await db.insert(osWorkspaces).values({
+			id: "workspace",
+			organizationId: "org",
+			name: "Docs",
+			createdByKind: "user",
+			createdById: "user",
+		});
+		await db.insert(osWorkspaceResources).values({
+			...params.resource!,
+			id: "other",
+			providerResourceId: "other-output",
+		});
 		await expect(installWorkspaceApp(db, params)).rejects.toThrow();
 		expect(await db.select().from(osGadgets)).toHaveLength(0);
 		expect(await db.select().from(osGadgetCode)).toHaveLength(0);
