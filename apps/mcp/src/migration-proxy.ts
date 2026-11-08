@@ -85,6 +85,13 @@ export async function handleMigrationProxy(
 	}
 	const started = Date.now();
 	const headers = new Headers({ authorization: `Bearer ${token}` });
+	const parts = plan.path.split("/");
+	try {
+		headers.set("X-Workspace-Org", decodeURIComponent(parts[3]!));
+		headers.set("X-Workspace-Id", decodeURIComponent(parts[4]!));
+	} catch {
+		return new Response(null, { status: 400 });
+	}
 	const contentType = request.headers.get("content-type");
 	if (contentType) headers.set("content-type", contentType);
 	const upstream = await env.WORKSPACE_RUNTIME.fetch(

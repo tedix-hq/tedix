@@ -111,6 +111,8 @@ describe("handleMigrationProxy", () => {
 				headers: {
 					"content-type": "application/json",
 					authorization: "Bearer caller-token",
+					"X-Workspace-Org": "other-org",
+					"X-Workspace-Id": "other-workspace",
 				},
 				body: JSON.stringify({ batchId: "b1", table: "os_outputs", rows: [] }),
 			}),
@@ -125,6 +127,8 @@ describe("handleMigrationProxy", () => {
 			"/migration/workspaces/org/ws/import",
 		);
 		expect(forwarded.headers.get("authorization")).toBe("Bearer object-token");
+		expect(forwarded.headers.get("X-Workspace-Org")).toBe("org");
+		expect(forwarded.headers.get("X-Workspace-Id")).toBe("ws");
 		expect(forwarded.headers.get("content-type")).toBe("application/json");
 		expect((await response.json()) as { body: string }).toMatchObject({
 			body: expect.stringContaining('"batchId":"b1"'),
@@ -133,6 +137,19 @@ describe("handleMigrationProxy", () => {
 			{ shape: "import", status: 200, durationMs: expect.any(Number) },
 		]);
 		expect(JSON.stringify(logs)).not.toContain("token");
+	});
+
+	it("provides workspace scope for describe without caller scope headers", async () => {
+		const seen: Request[] = [];
+		const response = await handleMigrationProxy(
+			new Request(`${base}/admin/migration/workspaces/org/ws`),
+			env(seen),
+			ADMIN,
+			() => {},
+		);
+		expect(response.status).toBe(200);
+		expect(seen[0]!.headers.get("X-Workspace-Org")).toBe("org");
+		expect(seen[0]!.headers.get("X-Workspace-Id")).toBe("ws");
 	});
 
 	it("answers 403 with no body to a non-admin and never touches the binding", async () => {
