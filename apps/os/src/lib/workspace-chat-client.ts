@@ -20,6 +20,7 @@ import {
 	isLedgerEvent,
 	parseWorkspaceChatServerMessage,
 	type WorkspaceChatClientMessage,
+	type WorkspaceChatLedgerEvent,
 	type WorkspaceChatServerMessage,
 	workspaceChatSocketUrl,
 } from "./workspace-chat-protocol";
@@ -91,6 +92,7 @@ export type WorkspaceChatClient = {
 	/** Returns the client turn id; the object echoes it in `turn.accepted`. */
 	sendTurn(input: {
 		text: string;
+		newConversation?: boolean;
 		tediId?: string;
 		attachments?: Array<{ outputId: string }>;
 	}): string;
@@ -149,6 +151,7 @@ export function createWorkspaceChatClient(
 	 * the object says hello again, so a send during a blink is never lost.
 	 */
 	const outbox: WorkspaceChatClientMessage[] = [];
+	let draftEvents: WorkspaceChatLedgerEvent[] = [];
 	/** Frames folded between animation frames; one render per frame. */
 	let frameScheduled = false;
 	let dirty = false;
@@ -315,6 +318,9 @@ export function createWorkspaceChatClient(
 	function handle(message: WorkspaceChatServerMessage): void {
 		armLiveness();
 		if (isLedgerEvent(message)) {
+			// sendTurn persists and broadcasts before turn.accepted names the draft.
+			if (conversationId === null && state.pendingSend)
+				draftEvents.push(message);
 			const next = applyWorkspaceChatEvent(state, message);
 			if (next !== state) {
 				state = next;
@@ -345,18 +351,28 @@ export function createWorkspaceChatClient(
 				return;
 			}
 			case "caught_up":
+				if (message.conversationId !== conversationId) return;
 				catchingUp = false;
 				publish();
 				return;
 			case "turn.accepted": {
-				if (conversationId === null) {
+				if (
+					conversationId === null &&
+					state.pendingSend?.clientTurnId === message.clientTurnId
+				) {
 					conversationId = message.conversationId;
-					state = { ...state, conversationId };
+					state = applyWorkspaceChatEvents(
+						{ ...state, conversationId },
+						draftEvents,
+					);
+					draftEvents = [];
+					send({ type: "subscribe", conversationId, cursor: state.cursor });
 				}
 				publish();
 				return;
 			}
 			case "ledger.page": {
+				if (message.conversationId !== conversationId) return;
 				state = setHasEarlier(
 					applyWorkspaceChatEvents(state, message.events),
 					message.hasMore,
@@ -386,6 +402,16 @@ export function createWorkspaceChatClient(
 			return () => listeners.delete(listener);
 		},
 		sendTurn(input) {
+			if (input.newConversation) {
+				conversationId = null;
+				draftEvents = [];
+				state = {
+					...initialWorkspaceChatState(null),
+					cursor: state.cursor,
+					conversations: state.conversations,
+				};
+				send({ type: "subscribe", conversationId: null, cursor: state.cursor });
+			}
 			const clientTurnId = newId();
 			state = markPendingSend(state, {
 				clientTurnId,

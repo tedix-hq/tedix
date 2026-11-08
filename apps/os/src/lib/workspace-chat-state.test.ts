@@ -230,6 +230,46 @@ describe("applyWorkspaceChatEvent", () => {
 		expect(state.turns).toHaveLength(0);
 		expect(state.cursor).toBe(99);
 	});
+
+	it("keeps an unassigned draft empty while workspace replay advances", () => {
+		const state = applyWorkspaceChatEvents(
+			initialWorkspaceChatState(null),
+			turn,
+		);
+		expect(state.turns).toEqual([]);
+		expect(state.cursor).toBe(7);
+		expect(state.seen.size).toBe(0);
+	});
+
+	it("upserts conversation titles without replacing them with older history", () => {
+		const event: WorkspaceChatLedgerEvent = {
+			type: "conversation.updated",
+			seq: 10,
+			at: at(5),
+			conversationId: "new",
+			title: "New conversation",
+		};
+		const state = applyWorkspaceChatEvents(initialWorkspaceChatState("c1"), [
+			event,
+			{ ...event, seq: 1, at: at(0), title: "Old title" },
+		]);
+		expect(
+			state.conversations.map((conversation) => conversation.title),
+		).toEqual(["New conversation"]);
+		expect(state.seen.size).toBe(0);
+	});
+
+	it("assembles earlier delta pages in sequence order after a terminal event", () => {
+		const state = applyWorkspaceChatEvents(initialWorkspaceChatState("c1"), [
+			turn[6]!,
+			turn[4]!,
+			turn[0]!,
+			turn[3]!,
+		]);
+		expect(state.turns[0]?.text).toBe("How many challenges are open?");
+		expect(state.turns[0]?.reply).toBe("Twelve are open.");
+		expect(state.turns[0]?.status).toBe("done");
+	});
 });
 
 describe("labels", () => {
