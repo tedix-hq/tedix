@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { LocalBundleStore } from "./bundle";
-import { parseArgs } from "./cli";
+import { openStores, parseArgs } from "./cli";
 import { checkAssignments, exportAll } from "./export";
 import { importAll } from "./import";
 import { reconcileAll } from "./reconcile";
@@ -13,6 +13,7 @@ import { rehearse } from "./rehearse";
 import { checkSchema, objectSchemaDatabase } from "./schema-check";
 import { batchIdFor, RowDigest } from "./rows";
 import { Snapshot } from "./source";
+import { remoteStoreFactory } from "./target";
 import {
 	TABLES_THAT_STAY,
 	WORKSPACE_TABLES,
@@ -562,5 +563,80 @@ describe("migrate-workspaces", () => {
 				"--allow-any-jurisdiction",
 			]).flags["allow-any-jurisdiction"],
 		).toBe(true);
+	});
+});
+
+describe("remote store authentication modes", () => {
+	const ref = { organizationId: "org_1", workspaceId: "ws-1" };
+	function capture() {
+		const calls: Array<{
+			url: string;
+			headers: Record<string, string>;
+			method: string;
+		}> = [];
+		const fetchImplementation = (async (
+			input: string | URL | Request,
+			init?: RequestInit,
+		) => {
+			calls.push({
+				url: String(input),
+				headers: Object.fromEntries(new Headers(init?.headers).entries()),
+				method: init?.method ?? "GET",
+			});
+			return Response.json({
+				rows: [],
+				next: null,
+				organizationId: ref.organizationId,
+			});
+		}) as typeof fetch;
+		return { calls, fetchImplementation };
+	}
+
+	test("bearer mode talks to the hosting worker directly with the objects' token", async () => {
+		const { calls, fetchImplementation } = capture();
+		const store = await remoteStoreFactory(
+			"https://objects.example/",
+			"object-token",
+			fetchImplementation,
+		).open(ref);
+		await store.describe();
+		expect(calls[0]?.url).toBe(
+			"https://objects.example/migration/workspaces/org_1/ws-1",
+		);
+		expect(calls[0]?.headers.authorization).toBe("Bearer object-token");
+	});
+
+	test("tedix mode goes through the gateway's admin door with the login headers", async () => {
+		const { calls, fetchImplementation } = capture();
+		const store = await remoteStoreFactory(
+			"https://tedix.mcp.example",
+			{
+				mode: "tedix",
+				headers: async () => ({ authorization: "Bearer login-token" }),
+			},
+			fetchImplementation,
+		).open(ref);
+		await store.readRows("os_outputs", null, 10);
+		expect(calls[0]?.url).toBe(
+			"https://tedix.mcp.example/admin/migration/workspaces/org_1/ws-1/rows",
+		);
+		expect(calls[0]?.method).toBe("POST");
+		expect(calls[0]?.headers.authorization).toBe("Bearer login-token");
+		expect(calls[0]?.headers["content-type"]).toBe("application/json");
+	});
+
+	test("openStores refuses an unknown --auth mode", async () => {
+		const { flags } = parseArgs([
+			"import",
+			"--bundles",
+			"b",
+			"--remote",
+			"https://x",
+			"--auth",
+			"magic",
+		]);
+		await expect(openStores(flags, {})).rejects.toThrow(
+			'--auth must be "bearer" or "tedix"',
+		);
 	});
 });

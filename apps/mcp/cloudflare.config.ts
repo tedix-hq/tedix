@@ -229,6 +229,9 @@ export default defineConfig(({ mode }) => {
 							// Signs the destructive-approval request state and authenticates
 							// service-binding calls; key resolution fails closed without it.
 							PLATFORM_SERVICE_TOKEN: bindings.secret(),
+							// Bearer the workspace objects' migration routes expect; the
+							// /admin/migration proxy attaches it for platform administrators.
+							MIGRATE_WORKSPACES_TOKEN: bindings.secret(),
 							// Payload-capture stream; the feature is a no-op wherever they
 							// are unset. Removed from the live production Worker on
 							// 6 Nov 2026, so a deploy with live values leaves them out.

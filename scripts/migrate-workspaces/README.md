@@ -9,8 +9,8 @@ file is the reference for the commands and their contracts.
 
 ```bash
 bun scripts/migrate-workspaces/cli.ts export    --snapshot main.sql --logs logs-1.sql logs-2.sql --assignments assignments.json --bundles r2://<bucket>/<prefix>
-bun scripts/migrate-workspaces/cli.ts import    --bundles r2://<bucket>/<prefix> --remote https://<worker-host>
-bun scripts/migrate-workspaces/cli.ts reconcile --bundles r2://<bucket>/<prefix> --remote https://<worker-host> --snapshot main.sql --logs logs-1.sql --report reconcile.json
+bun scripts/migrate-workspaces/cli.ts import    --bundles r2://<bucket>/<prefix> --remote https://<mcp-host> --auth tedix
+bun scripts/migrate-workspaces/cli.ts reconcile --bundles r2://<bucket>/<prefix> --remote https://<mcp-host> --auth tedix --snapshot main.sql --logs logs-1.sql --report reconcile.json
 bun scripts/migrate-workspaces/cli.ts rehearse  --snapshot main.sql --logs logs-1.sql --assignments assignments.json --report rehearsal.json
 bun scripts/migrate-workspaces/cli.ts schema-check --snapshot main.sql --logs logs-1.sql
 bun scripts/migrate-workspaces/cli.ts assignments --snapshot main.sql --out assignments.json
@@ -45,7 +45,12 @@ bun scripts/migrate-workspaces/cli.ts assignments --snapshot main.sql --out assi
 with `wrangler r2 object put --jurisdiction eu` through a local staging
 directory; `export` also writes `index.json` listing the bundles.
 
-`--remote` needs `MIGRATE_WORKSPACES_TOKEN` in the environment. `--objects
+`--remote` with `--auth tedix` signs each call with the Tedix login that
+`tedix login -w connect` stored (a platform administrator) and goes through the
+MCP gateway's `/admin/migration/...` door, which forwards to the workspace
+objects and adds their own token; `--workspace <name>` picks another stored
+login. Without `--auth tedix`, `--remote` talks to the hosting worker directly
+and needs `MIGRATE_WORKSPACES_TOKEN` in the environment. `--objects
 <dir>` targets local SQLite files instead, one per workspace, shaped by the
 object's own migration chain (`packages/db/tenant-store-drizzle`).
 
