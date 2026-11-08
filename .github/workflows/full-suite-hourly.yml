@@ -251,7 +251,12 @@ jobs:
           fi
       - name: Require shellcheck
         if: matrix.check == 'policy'
-        run: command -v shellcheck
+        run: |
+          if ! command -v shellcheck; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends shellcheck
+          fi
+          command -v shellcheck
       - name: Lint workflows with shellcheck
         if: matrix.check == 'policy'
         uses: ./.github/actions/actionlint

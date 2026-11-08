@@ -1,31 +1,75 @@
 name: Run Actionlint
-description: Download, verify, and run the repository-pinned Actionlint release
+description: Install the repository-pinned Actionlint without depending on GitHub release downloads, then run it
+
+# The pinned release tarball comes from github.com/.../releases/download, so a
+# release-file outage failed this gate outright (curl exit 22 on 8 Nov 2026).
+# Restore a cached binary first; on a miss, build the same pinned version from
+# the checksum-verified Go module proxy when the toolchain is present, and only
+# then fall back to the checksum-pinned tarball. A fresh install is saved so
+# the next run needs no download at all.
 
 runs:
   using: composite
   steps:
-    - name: Install and run checksum-pinned Actionlint
+    - name: Restore the pinned Actionlint binary
+      id: restore
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/actionlint
+        key: actionlint-1.7.12-${{ runner.os }}-${{ runner.arch }}
+
+    - name: Install the pinned Actionlint
+      if: steps.restore.outputs.cache-hit != 'true'
       shell: bash
       run: |
         set -euo pipefail
 
         readonly version="1.7.12"
-        readonly archive_name="actionlint_${version}_linux_amd64.tar.gz"
-        readonly archive_sha256="8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
-        readonly release_url="https://github.com/rhysd/actionlint/releases/download/v${version}/${archive_name}"
+        readonly install_dir="$HOME/.cache/actionlint"
+        mkdir -p "$install_dir"
 
-        install_dir="$(mktemp -d "${RUNNER_TEMP}/actionlint.XXXXXX")"
-        trap 'rm -rf "$install_dir"' EXIT
-        archive_path="${install_dir}/${archive_name}"
+        installed=0
+        # `go install` fetches the module from proxy.golang.org and verifies it
+        # against the checksum database, never a GitHub release asset.
+        if command -v go >/dev/null 2>&1; then
+          for attempt in 1 2 3; do
+            if GOBIN="$install_dir" go install "github.com/rhysd/actionlint/cmd/actionlint@v${version}"; then
+              installed=1
+              break
+            fi
+            echo "::warning title=Infrastructure retry::Actionlint go install failed (attempt $attempt of 3); retrying"
+            sleep $((attempt * 10))
+          done
+        fi
 
-        curl --fail --silent --show-error --location \
-          --retry 3 --retry-all-errors --retry-delay 2 \
-          --connect-timeout 10 --max-time 60 \
-          "$release_url" --output "$archive_path"
+        # Last resort: the pinned release tarball, still checksum-verified.
+        if [ "$installed" -eq 0 ]; then
+          readonly archive_name="actionlint_${version}_linux_amd64.tar.gz"
+          readonly archive_sha256="8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+          readonly release_url="https://github.com/rhysd/actionlint/releases/download/v${version}/${archive_name}"
+          readonly archive_path="${install_dir}/${archive_name}"
 
-        printf '%s  %s\n' "$archive_sha256" "$archive_path" \
-          | sha256sum --check --strict -
-        tar --extract --gzip --file "$archive_path" \
-          --directory "$install_dir" actionlint
+          curl --fail --silent --show-error --location \
+            --retry 3 --retry-all-errors --retry-delay 2 \
+            --connect-timeout 10 --max-time 60 \
+            "$release_url" --output "$archive_path"
 
-        "$install_dir/actionlint" -color=false
+          printf '%s  %s\n' "$archive_sha256" "$archive_path" \
+            | sha256sum --check --strict -
+          tar --extract --gzip --file "$archive_path" \
+            --directory "$install_dir" actionlint
+          rm -f "$archive_path"
+        fi
+
+        test -x "$install_dir/actionlint"
+
+    - name: Save the pinned Actionlint binary
+      if: steps.restore.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/actionlint
+        key: actionlint-1.7.12-${{ runner.os }}-${{ runner.arch }}
+
+    - name: Lint workflows
+      shell: bash
+      run: "$HOME/.cache/actionlint/actionlint -color=false"
