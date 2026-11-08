@@ -815,6 +815,49 @@ describe("WorkspaceDO", () => {
 		expect(history.map((event) => event.type)).toContain("turn.started");
 	});
 
+	test("a retried socket send keeps one turn and conversation", async () => {
+		const ws = workspace();
+		await ws.scriptModel(scope, [{ text: "One answer." }]);
+		const request = new Request("https://workspace.test/subscribe", {
+			headers: {
+				Upgrade: "websocket",
+				"X-Workspace-Org": scope.organizationId,
+				"X-Workspace-Id": scope.workspaceId,
+				"X-Workspace-Actor-Id": "u1",
+			},
+		});
+		const clientTurnId = crypto.randomUUID();
+		const frame = JSON.stringify({
+			type: "send_turn",
+			clientTurnId,
+			conversationId: null,
+			text: "Send once despite retry",
+		});
+		const accepted = async () => {
+			const socket = (await ws.fetch(request.clone())).webSocket;
+			if (!socket) throw new Error("No socket");
+			const frames = socketFramesUntil(
+				socket,
+				(value) => value.type === "turn.accepted",
+			);
+			socket.send(frame);
+			const result = (await frames).at(-1)!;
+			socket.close(1000, "test complete");
+			return result;
+		};
+		const first = await accepted();
+		await ws.awaitTurn(scope, clientTurnId, 20_000);
+		const second = await accepted();
+		expect(first.turnId).toBe(clientTurnId);
+		expect(second).toEqual(first);
+		const events = await ws.readEvents(scope, {
+			conversationId: String(first.conversationId),
+		});
+		expect(
+			events.filter((event) => event.type === "turn.started"),
+		).toHaveLength(1);
+	});
+
 	test("a WebSocket reconnect replays events after its cursor", async () => {
 		const ws = workspace();
 		await ws.scriptModel(scope, [{ text: "replayed answer" }]);
