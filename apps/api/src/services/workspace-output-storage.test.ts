@@ -5,6 +5,7 @@ import { createDbClient } from "@tedix/db/client";
 import { appendWorkspaceFeedLedger } from "@tedix/db/queries/workspace-feed/ledger";
 import { applyWorkspaceChangeEvents } from "@tedix/db/queries/workspace-feed/projection";
 import { publishOutputProjection } from "@tedix/db/queries/workspace-feed/output-publication";
+import { retireWorkspaceOutputIndex } from "@tedix/db/queries/workspace-feed/read";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { createDurableSqliteFixture } from "@tedix/db/test/durable-sqlite-fixture";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
@@ -79,7 +80,13 @@ async function fixture() {
 				op: "get",
 				outputId,
 			});
-			if (!output?.currentRevisionId) return;
+			if (!output?.currentRevisionId) {
+				await retireWorkspaceOutputIndex(core, {
+					organizationId: bound.organizationId,
+					outputId,
+				});
+				return;
+			}
 			const revision = await executeOutputQuery(tenant, bound, {
 				op: "revision",
 				revisionId: output.currentRevisionId,
@@ -243,6 +250,35 @@ describe("workspace output storage authority", () => {
 		).toBe("Legacy title");
 	});
 
+	it("finds a newer same-title object sheet", async () => {
+		const { core, tenant, output, revision } = await fixture();
+		await legacy.createOsOutput(
+			core,
+			scope,
+			{ ...output, kind: "sheet" },
+			revision,
+		);
+		await executeOutputQuery(tenant, scope, {
+			op: "create",
+			output: {
+				...output,
+				id: "newer-sheet",
+				kind: "sheet",
+				currentRevisionId: "sheet-revision",
+				updatedAt: "2026-11-09T12:00:00.000Z",
+			},
+			revision: { ...revision, id: "sheet-revision", outputId: "newer-sheet" },
+		});
+		expect(
+			(
+				await storage.getActiveSheetByTitle(core, {
+					...scope,
+					title: output.title,
+				})
+			)?.output.id,
+		).toBe("newer-sheet");
+	});
+
 	it("does not list private object rows for a viewer without workspace access", async () => {
 		const { core, tenant, output, revision } = await fixture();
 		await executeOutputQuery(tenant, scope, { op: "create", output, revision });
@@ -328,6 +364,11 @@ describe("workspace output storage authority", () => {
 		const { core, tenant, output, revision } = await fixture();
 		await legacy.createOsOutput(core, scope, output, revision);
 		await executeOutputQuery(tenant, scope, { op: "create", output, revision });
+		const storedRevision = await executeOutputQuery(tenant, scope, {
+			op: "revision",
+			revisionId: revision.id,
+		});
+		await publishOutputProjection(core, output, storedRevision!);
 		expect(
 			await storage.deleteOsOutput(core, {
 				organizationId: scope.organizationId,
@@ -346,6 +387,11 @@ describe("workspace output storage authority", () => {
 				outputId: output.id,
 			}),
 		).toBeUndefined();
+		expect(
+			(await core.select().from(workspaceOutputIndex)).filter(
+				(row) => row.isCurrent,
+			),
+		).toEqual([]);
 	});
 
 	it("rejects RPC row access through a different workspace scope", async () => {
