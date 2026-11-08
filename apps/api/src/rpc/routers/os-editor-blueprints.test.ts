@@ -128,6 +128,62 @@ describe("workspace editor blueprints", () => {
 		expect(output.currentRevision?.content).toEqual(made.revision.content);
 	});
 
+	it("rejects reopening a gadget retargeted to another slot without overwriting its custom revision", async () => {
+		const c = clients();
+		const { workspace } = await c.org1.workspaces.create({ name: "Docs" });
+		const made = await c.org1.outputs.create({
+			workspaceId: workspace.id,
+			kind: "document",
+			title: "Original",
+		});
+		const input = {
+			workspaceId: workspace.id,
+			outputId: made.output.id,
+			kind: "document" as const,
+		};
+		const installed = await c.org1.gadgets.installOutputEditor(input);
+		const current = await c.org1.gadgets.get({
+			workspaceId: workspace.id,
+			gadgetId: installed.gadget.id,
+		});
+		const revised = await c.org1.gadgets.revise({
+			workspaceId: workspace.id,
+			gadgetId: installed.gadget.id,
+			files: (
+				await c.org1.gadgets.getCode({
+					workspaceId: workspace.id,
+					gadgetId: installed.gadget.id,
+				})
+			).code!.files,
+			manifest: {
+				...current.currentRevision!.manifest,
+				config: { version: 1, settings: { slot: "different" } },
+			},
+			expectedRevision: 1,
+		});
+		await expect(
+			c.org1.gadgets.installOutputEditor(input),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+		await expect(
+			c.org1.gadgets.installOutputEditor({
+				...input,
+				upgradeFromRevisionId: revised.revision.id,
+			}),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+		expect(
+			(
+				await c.org1.gadgets.get({
+					workspaceId: workspace.id,
+					gadgetId: installed.gadget.id,
+				})
+			).currentRevision?.id,
+		).toBe(revised.revision.id);
+		expect(
+			(await c.org1.outputs.get({ outputId: made.output.id })).currentRevision
+				?.id,
+		).toBe(made.revision.id);
+	});
+
 	it("links an existing resource without losing its metadata or rebinding its output", async () => {
 		const c = clients();
 		const { workspace } = await c.org1.workspaces.create({ name: "Docs" });
