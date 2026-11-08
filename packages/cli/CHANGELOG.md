@@ -3,6 +3,20 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.21.0 — 2026-11-08
+
+### Minor Changes
+
+- `work create` and `work delegate` accept `--parent <work-id>` to keep
+  related Work together in the same project. Delegation reuse checks the
+  originating session, destination, project and parent, and only the
+  originating session can settle its delegation.
+
+### Patch Changes
+
+- Runners record progress when a pass and each gateway call start, so a slow
+  first call no longer makes the supervisor stop a runner during startup.
+
 ## 0.20.0 — 2026-11-08
 
 ### Minor Changes
