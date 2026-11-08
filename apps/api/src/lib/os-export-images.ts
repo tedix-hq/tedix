@@ -91,7 +91,7 @@ function validateExportImage(bytes: Buffer, type: string): void {
 			.replace(/&quot;/g, '"')
 			.replace(/&apos;/g, "'");
 		if (
-			!/^\s*(?:<\?xml[^>]*>\s*)?<svg\b/i.test(svg) ||
+			!/^\s*(?:<\?xml[^>]*>\s*)?(?:<!--[\s\S]*?-->\s*)*<svg\b/i.test(svg) ||
 			// CSS escapes are outside the export subset, even for local references.
 			svg.includes("\\") ||
 			/<!DOCTYPE|<!ENTITY|<(?:script|foreignObject|iframe|object|embed)\b|\son\w+\s*=|javascript:|@import/i.test(
