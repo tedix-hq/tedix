@@ -299,27 +299,54 @@ export function localStoreFactory(
 }
 
 /**
+ * How the remote store signs each call.
+ * - `bearer`: the workspace objects' own migration token, sent straight to
+ *   the worker that hosts them (local objects, tests).
+ * - `tedix`: a Tedix platform-administrator login, sent to the MCP gateway's
+ *   `/admin/migration/...` door, which attaches the objects' token itself.
+ */
+export type RemoteAuth =
+	| { mode: "bearer"; token: string }
+	| { mode: "tedix"; headers: () => Promise<Record<string, string>> };
+
+function remotePathPrefix(auth: RemoteAuth): string {
+	return auth.mode === "tedix" ? "/admin" : "";
+}
+
+/**
  * The deployed objects, through the worker that hosts them. The worker
  * implements three routes under `/migration/workspaces/:org/:ws`:
- * `GET` (describe), `POST /import` and `POST /rows`.
+ * `GET` (describe), `POST /import` and `POST /rows`. With `tedix` auth the
+ * same three routes sit under `/admin/migration/...` on the MCP gateway.
  */
 export class RemoteWorkspaceStore implements WorkspaceStore {
+	private readonly auth: RemoteAuth;
+
 	constructor(
 		private readonly base: string,
-		private readonly token: string,
+		auth: RemoteAuth | string,
 		private readonly ref: WorkspaceRef,
 		private readonly fetchImplementation: typeof fetch = fetch,
-	) {}
+	) {
+		this.auth =
+			typeof auth === "string" ? { mode: "bearer", token: auth } : auth;
+	}
 
 	private url(suffix = ""): string {
-		return `${this.base.replace(/\/$/, "")}/migration/workspaces/${encodeURIComponent(this.ref.organizationId)}/${encodeURIComponent(this.ref.workspaceId)}${suffix}`;
+		return `${this.base.replace(/\/$/, "")}${remotePathPrefix(this.auth)}/migration/workspaces/${encodeURIComponent(this.ref.organizationId)}/${encodeURIComponent(this.ref.workspaceId)}${suffix}`;
+	}
+
+	private async authHeaders(): Promise<Record<string, string>> {
+		return this.auth.mode === "bearer"
+			? { authorization: `Bearer ${this.auth.token}` }
+			: await this.auth.headers();
 	}
 
 	private async call<T>(suffix: string, body?: unknown): Promise<T> {
 		const response = await this.fetchImplementation(this.url(suffix), {
 			method: body === undefined ? "GET" : "POST",
 			headers: {
-				authorization: `Bearer ${this.token}`,
+				...(await this.authHeaders()),
 				...(body === undefined ? {} : { "content-type": "application/json" }),
 			},
 			body: body === undefined ? undefined : JSON.stringify(body),
@@ -356,13 +383,13 @@ export class RemoteWorkspaceStore implements WorkspaceStore {
 
 export function remoteStoreFactory(
 	base: string,
-	token: string,
+	auth: RemoteAuth | string,
 	fetchImplementation: typeof fetch = fetch,
 ): WorkspaceStoreFactory {
 	return {
 		kind: "remote",
 		async open(ref) {
-			return new RemoteWorkspaceStore(base, token, ref, fetchImplementation);
+			return new RemoteWorkspaceStore(base, auth, ref, fetchImplementation);
 		},
 	};
 }

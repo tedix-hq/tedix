@@ -97,16 +97,20 @@ writing anything if an organization has no assignment.
 ### 4. Import every workspace
 
 ```bash
-MIGRATE_WORKSPACES_TOKEN=<token> bun scripts/migrate-workspaces/cli.ts import --bundles r2://<migration bucket>/<release id> --remote https://<service that hosts the workspace objects>
+bun scripts/migrate-workspaces/cli.ts import --bundles r2://<migration bucket>/<release id> --remote https://<your MCP address> --auth tedix
 ```
 
-The service creates each object in the `eu` jurisdiction on first contact.
+`--auth tedix` uses the sign-in that `tedix login -w connect` saved. That
+sign-in must belong to a platform administrator; anyone else is refused. The
+MCP address forwards the three migration calls to the workspace objects and
+adds their own key for you, so you never handle it. The objects are created
+in the `eu` jurisdiction on first contact.
 If the command stops, run it again: chunks that already landed are skipped.
 
 ### 5. Reconcile
 
 ```bash
-MIGRATE_WORKSPACES_TOKEN=<token> bun scripts/migrate-workspaces/cli.ts reconcile --bundles r2://<migration bucket>/<release id> --remote https://<service that hosts the workspace objects> --snapshot main.sql --logs logs-1.sql --report reconcile.json
+bun scripts/migrate-workspaces/cli.ts reconcile --bundles r2://<migration bucket>/<release id> --remote https://<your MCP address> --auth tedix --snapshot main.sql --logs logs-1.sql --report reconcile.json
 ```
 
 The report must say `OK` for every workspace and every total. Any `DRIFT`

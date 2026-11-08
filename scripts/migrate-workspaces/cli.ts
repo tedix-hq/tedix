@@ -10,7 +10,10 @@
  *   bun scripts/migrate-workspaces/cli.ts schema-check --snapshot main.sql [--logs ...]
  *   bun scripts/migrate-workspaces/cli.ts assignments  --snapshot main.sql --out assignments.json
  *
- * `--remote` reads MIGRATE_WORKSPACES_TOKEN from the environment.
+ * `--remote` reads MIGRATE_WORKSPACES_TOKEN from the environment, or with
+ * `--auth tedix [--workspace <cli workspace>]` signs in as the Tedix platform
+ * administrator stored by `tedix login` and goes through the MCP gateway's
+ * /admin/migration door instead.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { proposeAssignments } from "./assignments";
@@ -86,12 +89,40 @@ function readAssignments(flags: ParsedArgs["flags"]): WorkspaceAssignments {
 		: {};
 }
 
-function openStores(
+/** The stored Tedix login's request headers, refreshed by the CLI's own code. */
+export async function tedixAdminHeaders(
+	workspace: string,
+): Promise<() => Promise<Record<string, string>>> {
+	const { resolveStoredLoginAuth } =
+		await import("../../packages/cli/src/auth-resolve.ts");
+	const { auth, loginError } = await resolveStoredLoginAuth(workspace);
+	if (!auth) {
+		throw new Error(
+			loginError ??
+				`No stored Tedix login for workspace "${workspace}". Run: tedix login -w ${workspace}`,
+		);
+	}
+	return async () => ({
+		...auth.headers,
+		...(auth.credentialProvider ? await auth.credentialProvider() : {}),
+	});
+}
+
+export async function openStores(
 	flags: ParsedArgs["flags"],
 	env: NodeJS.ProcessEnv,
-): WorkspaceStoreFactory {
+): Promise<WorkspaceStoreFactory> {
 	const remote = text(flags, "remote");
 	if (remote) {
+		const authMode = text(flags, "auth") ?? "bearer";
+		if (authMode === "tedix") {
+			const headers = await tedixAdminHeaders(
+				text(flags, "workspace") ?? "connect",
+			);
+			return remoteStoreFactory(remote, { mode: "tedix", headers });
+		}
+		if (authMode !== "bearer")
+			throw new Error(`--auth must be "bearer" or "tedix", not "${authMode}"`);
 		const token = env.MIGRATE_WORKSPACES_TOKEN;
 		if (!token) throw new Error("Set MIGRATE_WORKSPACES_TOKEN for --remote");
 		return remoteStoreFactory(remote, token);
@@ -137,7 +168,7 @@ export async function main(
 		case "import": {
 			const results = await importAll(
 				openBundleStore(required(flags, "bundles")),
-				openStores(flags, env),
+				await openStores(flags, env),
 				(r) =>
 					out(
 						`imported ${r.organizationId}/${r.workspaceId} rows=${r.imported} skipped=${r.duplicates} ${r.ms.toFixed(0)}ms`,
@@ -151,7 +182,7 @@ export async function main(
 			try {
 				const report = await reconcileAll(
 					openBundleStore(required(flags, "bundles")),
-					openStores(flags, env),
+					await openStores(flags, env),
 					{
 						snapshot,
 						requiredJurisdiction:
