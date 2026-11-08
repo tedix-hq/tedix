@@ -44,9 +44,14 @@ access to the installation's Cloudflare account. The commands are in
 
 2. **Write `assignments.json`.** For every organization: which workspace
    receives the organization's memory, and which receives documents that
-   have no workspace today. `export` refuses to start while an organization
-   is missing from the file. The product owner decides; the file is kept
-   with the Work Item.
+   have no workspace today. An organization that has memory but no
+   workspace gets a new workspace named Home, created during the export.
+   Memory left behind by organizations that were deleted stays in the
+   shared database and goes with the old tables; the reconciler counts it.
+   `export` refuses to start while a live organization is missing from the
+   file. `bun scripts/migrate-workspaces/cli.ts assignments --snapshot
+   main.sql --out assignments.json` proposes the file; the product owner
+   reviews it and it is kept with the Work Item.
 
 3. **Confirm the release is built.** The five changes ship together: the
    shared adapters, the workspace runtime, the workspace object with its
