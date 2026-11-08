@@ -21,11 +21,13 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { ChatMarkdown } from "@/components/chat-markdown";
 import { Button } from "@/components/kumo/button";
 import { Text } from "@/components/kumo/text";
 import { Textarea } from "@/components/kumo/textarea";
 import { isImeComposing } from "@/lib/keyboard";
+import { osQueryKeys } from "@/lib/os-query-options";
 import { useNow } from "@/lib/use-now";
 import { useWorkspaceChat } from "@/lib/use-workspace-chat";
 import type { createWorkspaceChatClient } from "@/lib/workspace-chat-client";
@@ -69,10 +71,15 @@ export function WorkspaceChat({
 	autoFocusComposer = false,
 	createClient,
 }: WorkspaceChatProps) {
+	const queryClient = useQueryClient();
+	const onOutputChanged = useCallback(() => {
+		void queryClient.invalidateQueries({ queryKey: osQueryKeys.outputs() });
+	}, [queryClient]);
 	const { snapshot, client } = useWorkspaceChat(
 		workspaceId,
 		conversationId,
 		createClient,
+		onOutputChanged,
 	);
 	const { state, connection, catchingUp } = snapshot;
 	const running = activeTurn(state);
@@ -120,7 +127,7 @@ export function WorkspaceChat({
 				<Composer
 					onSend={(text) => {
 						onSelectConversation(null);
-						send(text);
+						client?.sendTurn({ text, newConversation: true });
 					}}
 					disabledReason={null}
 					autoFocus={autoFocusComposer}

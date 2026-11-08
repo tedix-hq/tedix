@@ -1,5 +1,6 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 import type {
 	WorkspaceChatClient,
@@ -76,11 +77,15 @@ const started: WorkspaceChatLedgerEvent = {
 
 let host: HTMLDivElement;
 let root: Root;
+let queryClient: QueryClient;
 
 beforeEach(() => {
 	host = document.createElement("div");
 	document.body.append(host);
 	root = createRoot(host);
+	queryClient = new QueryClient({
+		defaultOptions: { queries: { retry: false } },
+	});
 });
 
 afterEach(() => {
@@ -91,14 +96,16 @@ afterEach(() => {
 function mount(fake: ReturnType<typeof fakeClient>, conversationId = "c1") {
 	act(() => {
 		root.render(
-			<WorkspaceChat
-				conversationId={conversationId}
-				createClient={() => fake.client}
-				listOpen={false}
-				onOpenList={() => {}}
-				onSelectConversation={() => {}}
-				workspaceId="ws-1"
-			/>,
+			<QueryClientProvider client={queryClient}>
+				<WorkspaceChat
+					conversationId={conversationId}
+					createClient={() => fake.client}
+					listOpen={false}
+					onOpenList={() => {}}
+					onSelectConversation={() => {}}
+					workspaceId="ws-1"
+				/>
+			</QueryClientProvider>,
 		);
 	});
 }
