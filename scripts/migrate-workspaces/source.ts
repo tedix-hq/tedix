@@ -160,7 +160,7 @@ export class Snapshot {
 				literalList(
 					this.main
 						.prepare(
-							"SELECT conversation_id AS c FROM kernel_conversations WHERE workspace_id IS NOT NULL",
+							"SELECT organization_id || '|' || conversation_id AS c FROM kernel_conversations WHERE workspace_id IS NOT NULL",
 						)
 						.all()
 						.map((row) => String(row.c)),
