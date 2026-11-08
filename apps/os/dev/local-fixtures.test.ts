@@ -2317,6 +2317,7 @@ describe("fixture bootstrap parity", () => {
 		).toBe(true);
 		expect(callLocalOk(key, { ...input, kinds: ["memory"] })).toEqual({
 			items: [],
+			coverage: "recorded_only",
 			next: null,
 		});
 		expect(
@@ -2324,7 +2325,7 @@ describe("fixture bootstrap parity", () => {
 				...input,
 				workspaceId: "ffffffff-0000-4000-8000-000000000001",
 			}),
-		).toEqual({ items: [], next: null });
+		).toEqual({ items: [], coverage: "recorded_only", next: null });
 		callLocalOk("osWorkspaces/outputs/revise", {
 			outputId: IDS.outputDocument,
 			content: {

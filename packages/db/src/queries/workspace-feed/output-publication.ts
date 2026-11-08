@@ -8,21 +8,34 @@ import {
 	applyWorkspaceChangeEvents,
 	getWorkspaceFeedCursor,
 } from "./projection";
-import { getWorkspaceOutputIndexCurrent } from "./read";
+import {
+	getWorkspaceOutputIndexCurrent,
+	getWorkspaceOutputIndexRevision,
+} from "./read";
 
 /** The core ledger retains sequence ownership while existing D1 outputs remain writable. */
 export async function publishOutputProjection(
 	db: DbQueryClient,
 	output: OsOutputRow,
 	revision: Omit<OsOutputRevisionRow, "content">,
+	options: { historical?: boolean } = {},
 ): Promise<void> {
 	if (!output.workspaceId) return;
-	if (output.currentRevisionId !== revision.id) return;
+	if (!options.historical && output.currentRevisionId !== revision.id) return;
+	if (
+		options.historical &&
+		(await getWorkspaceOutputIndexRevision(db, {
+			organizationId: output.organizationId,
+			revisionId: revision.id,
+		}))
+	)
+		return;
 	const current = await getWorkspaceOutputIndexCurrent(db, {
 		organizationId: output.organizationId,
 		outputId: output.id,
 	});
-	if (current && current.revision > revision.revision) return;
+	if (!options.historical && current && current.revision > revision.revision)
+		return;
 	if (
 		current?.revisionId === revision.id &&
 		current.title === output.title &&
@@ -38,7 +51,7 @@ export async function publishOutputProjection(
 		revision: revision.revision,
 		actor: { kind: revision.createdByKind, id: revision.createdById },
 		changeRecordId: revision.id,
-		at: output.updatedAt,
+		at: options.historical ? revision.createdAt : output.updatedAt,
 		summary: {
 			title: output.title,
 			outputKind: output.kind,

@@ -165,7 +165,12 @@ export function buildWorkspaceBindings(
 			methods: {
 				list: { riskTier: "read", blastRadius: "none" },
 				get: { riskTier: "read", blastRadius: "none" },
-				create: { riskTier: "bounded_write", blastRadius: "single_resource" },
+				create: {
+					riskTier: "bounded_write",
+					blastRadius: "single_resource",
+					after: async (_args: unknown[], result: unknown) =>
+						revisionRef(result as OutputDetail),
+				},
 				revise: {
 					riskTier: "bounded_write",
 					blastRadius: "single_resource",

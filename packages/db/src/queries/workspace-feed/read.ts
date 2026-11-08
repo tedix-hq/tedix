@@ -3,7 +3,7 @@
  * touches a workspace object or the workspace-scoped source tables.
  */
 
-import { and, desc, eq, inArray, like, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, exists, inArray, like, lt, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { osWorkspaces } from "../../schema/os-workspaces";
 import {
@@ -12,6 +12,7 @@ import {
 	type WorkspaceOutputIndexRow,
 	type WorkspaceWorkLinkRow,
 	workspaceActivity,
+	workspaceFeedLedger,
 	workspaceOutputIndex,
 	workspaceWorkLinks,
 } from "../../schema/workspace-feed";
@@ -24,6 +25,7 @@ import {
 export interface WorkspaceActivityCursor {
 	occurredAt: string;
 	seq: number;
+	id?: string;
 }
 
 export interface ListWorkspaceActivityOptions {
@@ -41,6 +43,20 @@ export async function listWorkspaceActivity(
 ): Promise<WorkspaceActivityRow[]> {
 	const conditions = [
 		eq(workspaceActivity.organizationId, params.organizationId),
+		or(
+			eq(workspaceActivity.workspaceId, `org:${params.organizationId}`),
+			exists(
+				db
+					.select({ id: osWorkspaces.id })
+					.from(osWorkspaces)
+					.where(
+						and(
+							eq(osWorkspaces.organizationId, params.organizationId),
+							eq(osWorkspaces.id, workspaceActivity.workspaceId),
+						),
+					),
+			),
+		)!,
 		osWorkspaceChildVisibleToPredicate(
 			db,
 			params.organizationId,
@@ -59,7 +75,15 @@ export async function listWorkspaceActivity(
 				lt(workspaceActivity.occurredAt, options.before.occurredAt),
 				and(
 					eq(workspaceActivity.occurredAt, options.before.occurredAt),
-					lt(workspaceActivity.seq, options.before.seq),
+					or(
+						lt(workspaceActivity.seq, options.before.seq),
+						options.before.id
+							? and(
+									eq(workspaceActivity.seq, options.before.seq),
+									lt(workspaceActivity.id, options.before.id),
+								)
+							: undefined,
+					),
 				),
 			)!,
 		);
@@ -68,7 +92,11 @@ export async function listWorkspaceActivity(
 		.select()
 		.from(workspaceActivity)
 		.where(and(...conditions))
-		.orderBy(desc(workspaceActivity.occurredAt), desc(workspaceActivity.seq))
+		.orderBy(
+			desc(workspaceActivity.occurredAt),
+			desc(workspaceActivity.seq),
+			desc(workspaceActivity.id),
+		)
 		.limit(Math.min(Math.max(options.limit ?? 50, 1), 500));
 }
 
@@ -253,4 +281,29 @@ export async function listWorkspaceWorkLinksForOutput(
 			),
 		)
 		.orderBy(desc(workspaceWorkLinks.linkedAt));
+}
+
+/** Exact immutable source metadata; no event body leaves the query owner. */
+export async function getWorkspaceActivitySource(
+	db: DbQueryClient,
+	params: {
+		organizationId: string;
+		workspaceId: string;
+		seq: number;
+		changeRecordId: string;
+	},
+) {
+	const [row] = await db
+		.select({ summary: workspaceFeedLedger.summary })
+		.from(workspaceFeedLedger)
+		.where(
+			and(
+				eq(workspaceFeedLedger.organizationId, params.organizationId),
+				eq(workspaceFeedLedger.workspaceId, params.workspaceId),
+				eq(workspaceFeedLedger.seq, params.seq),
+				eq(workspaceFeedLedger.changeRecordId, params.changeRecordId),
+			),
+		)
+		.limit(1);
+	return row ?? null;
 }

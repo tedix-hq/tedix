@@ -82,9 +82,7 @@ export async function applyWorkspaceChangeEvents(
 	const appliedAt = options.appliedAt ?? new Date().toISOString();
 	const sorted = [...events].sort((a, b) => a.seq - b.seq);
 	let cursor = await getWorkspaceFeedCursor(db, workspaceId);
-	// A workspace the core has never seen starts wherever its ledger starts:
-	// history written before the cut-over may be replayed from a later seq.
-	let expected = cursor === 0 ? sorted[0]!.seq : cursor + 1;
+	let expected = cursor + 1;
 	const run: WorkspaceChangeEvent[] = [];
 	for (const event of sorted) {
 		if (outcomes.has(event.seq)) continue;

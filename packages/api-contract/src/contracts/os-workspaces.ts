@@ -371,6 +371,7 @@ export const osWorkspacesContract = oc
 				.output(
 					z.object({
 						items: z.array(WorkspaceActivityItemSchema),
+						coverage: z.literal("recorded_only"),
 						/** Cursor for the next page; null when this page is the last. */
 						next: z.string().nullable(),
 					}),

@@ -1,3 +1,6 @@
+import { eq } from "drizzle-orm";
+import { createDbQueryClient } from "@tedix/db/query-client";
+import { publishWorkspaceAction } from "@tedix/db/queries/workspace-feed/action-publication";
 /**
  * Private workspaces: one member owns one; nobody else in the organization can
  * list, read, search, export or share it or its outputs. There is no admin
@@ -736,4 +739,122 @@ it("keeps a fictional member's private Inbox and Social sources out of every oth
 				notFound,
 			);
 	}
+});
+
+it("filters recorded workspace activity on the server and preserves safe action provenance", async () => {
+	const env = createEnv();
+	const { workspace: privateWorkspace, team, teamOutput } = await seed(env);
+	const db = createDbQueryClient(env.DB);
+	const publish = (workspaceId: string, id: string, revisionId?: string) =>
+		publishWorkspaceAction(db, {
+			organizationId: "org-1",
+			workspaceId,
+			kind: "run",
+			id,
+			revision: 1,
+			actor: { kind: "external_agent", id: "agent-fixture" },
+			changeRecordId: id,
+			at: "2026-11-08T10:00:00Z",
+			summary: {
+				action: {
+					resource: "output",
+					operation: "revise",
+					outcome: "applied",
+					surface: "workspace_object",
+					traceId: "turn-fixture",
+					...(revisionId ? { revisionId } : {}),
+				},
+			},
+		});
+	await publish(privateWorkspace.id, "private-action");
+	await publish(team.id, "team-action", teamOutput.currentRevisionId!);
+	await publish(team.id, "missing-artifact", "missing-revision");
+	await publish(team.id, "recorded-hold");
+	const other = member(env, OTHER);
+	const page = await other.workspaces.activity({ limit: 50 });
+	expect(page.coverage).toBe("recorded_only");
+	expect(page.items.some((item) => item.entityId === "private-action")).toBe(
+		false,
+	);
+	expect(page.items.some((item) => item.entityId === "missing-artifact")).toBe(
+		false,
+	);
+	expect(
+		page.items.find((item) => item.entityId === "team-action"),
+	).toMatchObject({
+		actor: { kind: "external_agent", id: "agent-fixture" },
+		changeRecordId: "team-action",
+		action: { surface: "workspace_object", traceId: "turn-fixture" },
+		artifact: {
+			outputId: teamOutput.id,
+			revisionId: teamOutput.currentRevisionId,
+		},
+	});
+	expect(
+		(
+			await member(env, OWNER).workspaces.activity({
+				workspaceId: privateWorkspace.id,
+				limit: 50,
+			})
+		).items.some((item) => item.entityId === "private-action"),
+	).toBe(true);
+	await db
+		.update(workspaceOutputIndex)
+		.set({ accessEnvelope: null })
+		.where(eq(workspaceOutputIndex.outputId, teamOutput.id));
+	const restricted = await other.workspaces.activity({
+		workspaceId: team.id,
+		limit: 50,
+	});
+	expect(restricted.items.map((item) => item.entityId)).not.toContain(
+		"team-action",
+	);
+	expect(restricted.items.map((item) => item.entityId)).not.toContain(
+		teamOutput.id,
+	);
+	expect(restricted.items.map((item) => item.entityId)).toContain(
+		"recorded-hold",
+	);
+});
+
+it("continues beyond an empty filtered page without skipping recorded activity", async () => {
+	const env = createEnv();
+	const owner = member(env, OWNER);
+	const { workspace } = await owner.workspaces.create({ name: "History" });
+	const db = createDbQueryClient(env.DB);
+	for (let index = 0; index < 7; index += 1) {
+		await publishWorkspaceAction(db, {
+			organizationId: "org-1",
+			workspaceId: workspace.id,
+			kind: "run",
+			id: `page-${index}`,
+			revision: 1,
+			actor: { kind: "external_agent", id: "fixture-agent" },
+			changeRecordId: `page-${index}`,
+			at: "2026-11-08T10:00:00Z",
+			summary: {
+				action: {
+					resource: "output",
+					operation: "revise",
+					outcome: "applied",
+					surface: "workspace_object",
+					...(index ? { revisionId: "unavailable" } : {}),
+				},
+			},
+		});
+	}
+	const first = await owner.workspaces.activity({
+		workspaceId: workspace.id,
+		limit: 50,
+	});
+	expect(first.items).toEqual([]);
+	expect(first.next).toBeTruthy();
+	const second = await owner.workspaces.activity({
+		workspaceId: workspace.id,
+		limit: 50,
+		before: first.next!,
+	});
+	expect(second.items.map((item) => item.entityId)).toEqual(["page-0"]);
+	expect(second.next).toBeNull();
+	expect(second.coverage).toBe("recorded_only");
 });

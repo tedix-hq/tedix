@@ -1,3 +1,4 @@
+import { publishWorkspaceAction } from "./action-publication";
 import { DatabaseSync } from "node:sqlite";
 import type { WorkspaceChangeEvent } from "@tedix/api-contract/schemas/workspace-feed";
 import { describe, expect, it } from "vite-plus/test";
@@ -275,5 +276,87 @@ describe("applyWorkspaceChangeEvents", () => {
 				memory: { records: 1, events: 1, latest: { "fact-1": 1 } },
 			},
 		});
+	});
+});
+
+describe("activity coverage", () => {
+	it("requires the first event before advancing a new projection", async () => {
+		const db = await fixture();
+		const gap = await applyWorkspaceChangeEvents(db, [event(3)]);
+		expect(gap.outcomes.get(3)).toBe("gap");
+		expect(gap.lastSeq).toBe(0);
+		await applyWorkspaceChangeEvents(db, [event(1), event(2), event(3)]);
+		expect(await getWorkspaceFeedCursor(db, WS)).toBe(3);
+	});
+
+	it("publishes an action once after a lost reply and catches up earlier file events", async () => {
+		const db = await fixture();
+		await appendWorkspaceFeedLedger(
+			db,
+			event(1, { summary: { title: "Plan" } }),
+		);
+		const action = event(2, {
+			kind: "run",
+			id: "action-1",
+			changeRecordId: "action-1",
+			actor: { kind: "external_agent", id: "agent-1" },
+			summary: {
+				action: {
+					resource: "output",
+					operation: "revise",
+					outcome: "applied",
+					surface: "workspace_object",
+					traceId: "turn-1",
+					revisionId: "rev-1",
+				},
+			},
+		});
+		await publishWorkspaceAction(db, action);
+		await publishWorkspaceAction(db, action);
+		const ledger = await snapshotWorkspaceFeedLedger(db, WS);
+		expect(ledger.lastSeq).toBe(2);
+		expect(await snapshotWorkspaceProjection(db, WS)).toEqual(ledger);
+		const rows = await listWorkspaceActivity(db, {
+			organizationId: ORG,
+			viewer,
+		});
+		expect(rows.map((row) => row.kind)).toEqual(["run", "output"]);
+		expect(rows[0]).toMatchObject({
+			actorKind: "external_agent",
+			changeRecordId: "action-1",
+		});
+	});
+
+	it("excludes orphaned workspace scopes and keeps equal timestamp/sequence pages complete", async () => {
+		const db = await fixture();
+		const second = "00000000-0000-4000-8000-000000000003";
+		await db.insert(osWorkspaces).values({
+			id: second,
+			organizationId: ORG,
+			name: "Other",
+			visibility: "org",
+			createdByKind: "user",
+			createdById: "user-1",
+		});
+		await applyWorkspaceChangeEvents(db, [event(1)]);
+		await applyWorkspaceChangeEvents(db, [event(1, { workspaceId: second })]);
+		await applyWorkspaceChangeEvents(db, [event(1, { workspaceId: "orphan" })]);
+		const first = (
+			await listWorkspaceActivity(
+				db,
+				{ organizationId: ORG, viewer },
+				{ limit: 1 },
+			)
+		)[0]!;
+		const rest = await listWorkspaceActivity(
+			db,
+			{ organizationId: ORG, viewer },
+			{
+				before: { occurredAt: first.occurredAt, seq: first.seq, id: first.id },
+			},
+		);
+		expect(rest).toHaveLength(1);
+		expect(rest[0]?.workspaceId).not.toBe("orphan");
+		expect(rest[0]?.id).not.toBe(first.id);
 	});
 });

@@ -28,6 +28,28 @@ export const WorkspaceChangeActorSchema = z.strictObject({
 });
 export type WorkspaceChangeActor = z.infer<typeof WorkspaceChangeActorSchema>;
 
+/** Safe metadata only; arguments, results and provider errors stay in the object. */
+export const WorkspaceActionSchema = z.strictObject({
+	resource: z.string().min(1).max(80),
+	operation: z.string().min(1).max(80),
+	outcome: z.enum([
+		"applied",
+		"not_applied",
+		"unknown",
+		"denied",
+		"needs_approval",
+	]),
+	surface: z.literal("workspace_object"),
+	traceId: z.string().min(1).max(200).optional(),
+	revisionId: z.string().min(1).max(200).optional(),
+});
+
+export const WORKSPACE_ACTIVITY_ENTRY = "tedix:app/workspace-activity";
+export const WorkspaceActivityConfigSchema = z.strictObject({
+	version: z.literal(1),
+	workspaceId: z.string().uuid(),
+});
+
 /** Longest excerpt an event may carry; search indexes this, never the body. */
 export const WORKSPACE_CHANGE_EXCERPT_MAX = 2_000;
 
@@ -66,6 +88,7 @@ export const WorkspaceChangeSummarySchema = z
 		channel: z.string().max(60).nullable().optional(),
 		/** Run fields (kind `run`). */
 		runStatus: z.string().max(40).optional(),
+		action: WorkspaceActionSchema.optional(),
 	})
 	.strict();
 export type WorkspaceChangeSummary = z.infer<
@@ -129,6 +152,10 @@ export const WorkspaceActivityItemSchema = z.object({
 	title: z.string().nullable(),
 	summary: z.string().nullable(),
 	occurredAt: z.string(),
+	action: WorkspaceActionSchema.optional(),
+	artifact: z
+		.strictObject({ outputId: z.string(), revisionId: z.string() })
+		.optional(),
 });
 export type WorkspaceActivityItem = z.infer<typeof WorkspaceActivityItemSchema>;
 

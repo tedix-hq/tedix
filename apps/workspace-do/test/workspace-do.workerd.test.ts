@@ -42,6 +42,10 @@ const testEnv = env as unknown as WorkspaceEnv & {
 
 type Stub = WorkspaceRpc & {
 	failNextProjection(scope: WorkspaceScope): Promise<void>;
+	failActionProjection(
+		scope: WorkspaceScope,
+		when: "before" | "after",
+	): Promise<void>;
 	retryProjections(scope: WorkspaceScope): Promise<void>;
 	scriptModel(scope: WorkspaceScope, steps: ScriptStep[]): Promise<void>;
 	importRows(
@@ -400,6 +404,11 @@ describe("WorkspaceDO", () => {
 		expect(toolText).toContain('\\"openWork\\": 3');
 
 		const ledger = await ws.readChangeRecords(scope, {});
+		expect(await ws.reconcileActivity(scope)).toMatchObject({
+			checked: 4,
+			missing: [],
+			coverage: "recorded_binding_actions",
+		});
 		expect(
 			ledger.map((record) => `${record.resource}.${record.operation}`),
 		).toEqual(["output.list", "output.get", "output.get", "work.listOpen"]);
@@ -1506,4 +1515,143 @@ describe("workspace model request to turn", () => {
 			socket.close(1000, "test complete");
 		}
 	});
+});
+
+test.each(["before", "after"] as const)(
+	"replays durable actions after a %s publication failure without duplicates",
+	async (when) => {
+		await seedCore();
+		const actionScope = { ...scope, workspaceId: crypto.randomUUID() };
+		await createDbQueryClient(testEnv.DB).insert(osWorkspaces).values({
+			id: actionScope.workspaceId,
+			organizationId: actionScope.organizationId,
+			name: "Action replay",
+			visibility: "org",
+			createdByKind: "user",
+			createdById: "u1",
+		});
+		const ws = workspace(actionScope);
+		await ws.failActionProjection(actionScope, when);
+		await ws.scriptModel(actionScope, [
+			{ code: "export default async (env) => env.work.listOpen()" },
+			{ text: "Read the Work list." },
+		]);
+		const { turnId } = await ws.sendTurn(actionScope, {
+			actorId: "u1",
+			actorKind: "external_agent",
+			text: "List open Work",
+		});
+		expect((await ws.awaitTurn(actionScope, turnId, 20_000)).status).toBe(
+			"finished",
+		);
+		const records = await ws.readChangeRecords(actionScope);
+		expect(records).toHaveLength(1);
+		if (when === "before")
+			expect((await ws.reconcileActivity(actionScope)).missing).toEqual([
+				records[0]!.id,
+			]);
+		await ws.retryProjections(actionScope);
+		expect((await ws.reconcileActivity(actionScope)).missing).toEqual([]);
+		await ws.replayActivity(actionScope);
+		const projected = await testEnv.DB.prepare(
+			"SELECT actor_kind, change_record_id FROM workspace_activity WHERE workspace_id = ? AND kind = 'run'",
+		)
+			.bind(actionScope.workspaceId)
+			.all();
+		expect(projected.results).toEqual([
+			{ actor_kind: "external_agent", change_record_id: records[0]!.id },
+		]);
+		await testEnv.DB.prepare(
+			"DELETE FROM workspace_activity WHERE workspace_id = ?",
+		)
+			.bind(actionScope.workspaceId)
+			.run();
+		expect((await ws.reconcileActivity(actionScope)).missing).toEqual([
+			records[0]!.id,
+		]);
+		await ws.replayActivity(actionScope);
+		expect((await ws.reconcileActivity(actionScope)).missing).toEqual([]);
+	},
+);
+
+test("recovers intermediate file revisions when output notifications coalesce", async () => {
+	await seedCore();
+	const ws = workspace();
+	const id = "coalesced-file";
+	const now = new Date().toISOString();
+	const body = await storeOutputBody(
+		testEnv.R2_BUCKET,
+		scope.organizationId,
+		JSON.stringify({ kind: "document", blocks: [] }),
+	);
+	await ws.failNextProjection(scope);
+	await ws.outputQuery(scope, {
+		op: "create",
+		output: {
+			id,
+			...scope,
+			kind: "document",
+			title: "Recovery file",
+			currentRevisionId: "coalesced-r1",
+			createdByKind: "user",
+			createdById: "u1",
+			createdAt: now,
+			updatedAt: now,
+		},
+		revision: {
+			id: "coalesced-r1",
+			organizationId: scope.organizationId,
+			outputId: id,
+			revision: 1,
+			content: "",
+			...body,
+			accessEnvelope: JSON.stringify({ version: 1, sources: [] }),
+			createdByKind: "user",
+			createdById: "u1",
+			createdAt: now,
+		},
+	});
+	const changed = await storeOutputBody(
+		testEnv.R2_BUCKET,
+		scope.organizationId,
+		JSON.stringify({
+			kind: "document",
+			blocks: [{ type: "paragraph", text: "Second save" }],
+		}),
+	);
+	const revised = await ws.outputQuery(scope, {
+		op: "revise",
+		params: {
+			id: "coalesced-r2",
+			organizationId: scope.organizationId,
+			outputId: id,
+			expectedRevision: 1,
+			...changed,
+			accessEnvelope: JSON.stringify({ version: 1, sources: [] }),
+			createdByKind: "external_agent",
+			createdById: "agent-fixture",
+		},
+	});
+	expect(revised.ok).toBe(true);
+	const activity = await testEnv.DB.prepare(
+		"SELECT revision, change_record_id, actor_kind FROM workspace_activity WHERE entity_id = ? AND kind = 'output' ORDER BY revision",
+	)
+		.bind(id)
+		.all();
+	expect(activity.results).toEqual([
+		{ revision: 1, change_record_id: "coalesced-r1", actor_kind: "user" },
+		{
+			revision: 2,
+			change_record_id: "coalesced-r2",
+			actor_kind: "external_agent",
+		},
+	]);
+	expect(
+		(
+			await getWorkspaceOutputIndexCurrent(createDbQueryClient(testEnv.DB), {
+				organizationId: scope.organizationId,
+				outputId: id,
+			})
+		)?.revision,
+	).toBe(2);
 });
