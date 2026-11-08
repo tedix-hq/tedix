@@ -3763,6 +3763,18 @@ describe("output commit", () => {
 		});
 	}
 
+	it("closes the save dialog when the shared draft is already saved", async () => {
+		mockOutputDoc();
+		const container = await openDoc("Weekly report");
+		click(findButton(container, "Save version"));
+		click(findButton(document.body, "Save version now"));
+		await flush();
+
+		expect(osWorkspacesApi.outputs.revise).not.toHaveBeenCalled();
+		expect(document.body.textContent).not.toContain("Save version now");
+		expect(container.textContent).toContain("Already saved");
+	});
+
 	it("sends the parsed content, note, and loaded revision as the CAS guard", async () => {
 		const session = mockOutputDoc();
 		osWorkspacesApi.outputs.revise.mockResolvedValue({

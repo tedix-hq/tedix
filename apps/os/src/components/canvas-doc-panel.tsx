@@ -606,10 +606,10 @@ export function CanvasDocPanel({
 			// Same grounding as the gadget path, for the same reason.
 			groundCommit(basis, result.revision, result.revisionId);
 			setCommittedRevision(result.revision);
-			if (!auto) {
-				setConfirming(false);
-				setNote("");
-			}
+		}
+		if (!auto && (result.kind === "saved" || result.kind === "unchanged")) {
+			setConfirming(false);
+			setNote("");
 		}
 		return true;
 	};
