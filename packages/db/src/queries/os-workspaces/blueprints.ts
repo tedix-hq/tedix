@@ -40,7 +40,8 @@ export interface CreateOsBlueprintRevisionParams {
 	createdById: string;
 	/**
 	 * Optimistic concurrency guard: when set, the write lands only if the
-	 * blueprint's highest revision still equals this value.
+	 * blueprint's selected revision still equals this value. An unset or unknown
+	 * pointer is treated as base revision 0.
 	 */
 	expectedRevision?: number;
 }
@@ -231,13 +232,14 @@ export async function createOsBlueprintRevision(
 ): Promise<CreateOsBlueprintRevisionResult> {
 	const now = new Date().toISOString();
 	const currentMaxRevision = sql<number>`coalesce((select max(${osBlueprintRevisions.revision}) from ${osBlueprintRevisions} where ${osBlueprintRevisions.blueprintId} = ${params.blueprintId}), 0)`;
+	const selectedRevision = sql<number>`coalesce((select ${osBlueprintRevisions.revision} from ${osBlueprintRevisions} where ${osBlueprintRevisions.id} = ${osBlueprints.currentRevisionId} and ${osBlueprintRevisions.blueprintId} = ${osBlueprints.id} and ${osBlueprintRevisions.organizationId} = ${osBlueprints.organizationId}), 0)`;
 	const sourceConditions = [
 		eq(osBlueprints.id, params.blueprintId),
 		eq(osBlueprints.organizationId, params.organizationId),
 	];
 	if (params.expectedRevision !== undefined) {
 		sourceConditions.push(
-			sql`${currentMaxRevision} = ${params.expectedRevision}`,
+			sql`${selectedRevision} = ${params.expectedRevision}`,
 		);
 	}
 	const insertRevision = db
