@@ -128,8 +128,8 @@ try {
 					.getByRole("group", { name: "Active workpiece view" })
 					.getByRole("button")
 					.allInnerTexts(),
-				["App", "Edit", "History"],
-				`${label}: three plain tabs for the open app`,
+				["App", "Edit", "History", "Connections"],
+				`${label}: four plain tabs for the open app`,
 			);
 
 			// One control per job: a single chat toggle and a single Files toggle,
@@ -197,7 +197,7 @@ try {
 				name: "Active workpiece view",
 			});
 			const tabX: number[] = [];
-			for (const view of ["App", "Edit", "History"]) {
+			for (const view of ["App", "Edit", "History", "Connections"]) {
 				await viewTabs.getByRole("button", { name: view, exact: true }).click();
 				await page.waitForTimeout(150);
 				tabX.push(Math.round((await viewTabs.boundingBox())?.x ?? -1));
@@ -205,7 +205,7 @@ try {
 			assert.equal(
 				new Set(tabX).size,
 				1,
-				`${label}: view tabs stay put across App, Edit and History (${tabX})`,
+				`${label}: view tabs stay put across App, Edit, History and Connections (${tabX})`,
 			);
 			await viewTabs.getByRole("button", { name: "App", exact: true }).click();
 
