@@ -93,6 +93,23 @@ describe("local Wrangler config", () => {
 			});
 		}
 	});
+	test("OS and MCP allocate inspectors automatically without reserving a cleanup port", () => {
+		const inventory = collectDevPorts(repoRoot);
+		for (const app of ["os", "mcp"]) {
+			const config = readFileSync(
+				join(repoRoot, "apps", app, "vite.config.ts"),
+				"utf8",
+			);
+			expect(config.match(/\binspectorPort:\s*(\d+)/)?.[1], app).toBe("0");
+			expect(
+				inventory.filter(
+					(port) => port.app === app && port.kind === "inspector",
+				),
+			).toEqual([]);
+			expect(portsForApp(inventory, app).every((port) => port > 0)).toBe(true);
+		}
+	});
+
 	// The old shape of this test cross-checked two hand-kept copies of the port
 	// table (each package.json's `clear-port` args against cleanup-dev.sh's
 	// `PORTS=(...)` arrays). Both copies are gone: scripts/dev/ports.ts derives

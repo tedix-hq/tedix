@@ -117,9 +117,9 @@ function devBlockPort(config: unknown, field: string): number | undefined {
  * Vite binds `server.port` and the Cloudflare plugin binds the `inspectorPort`
  * passed to `cloudflare({ ... })`. Neither reads the wrangler `dev` block —
  * `vite-plus` does not mention wrangler at all, and the plugin defaults its
- * inspector to 9229 when the option is absent. These apps mirror both numbers
- * into wrangler.jsonc for deploy shape, so they agree today; read them here
- * anyway so a conflict message points at the file that actually binds.
+ * inspector to 9229 when the option is absent. An explicit 0 requests runtime
+ * allocation rather than a fixed reservation. Read the Vite options first so
+ * a Wrangler mirror cannot override that choice.
  */
 function viteConfigPorts(path: string): {
 	service?: number;
@@ -188,7 +188,7 @@ function collectApp(root: string, app: string): DevPortReservation[] {
 	}
 
 	const inspector = vite.inspector ?? devBlockPort(wrangler, "inspector_port");
-	if (inspector !== undefined) {
+	if (inspector !== undefined && inspector !== 0) {
 		reservations.push({
 			app,
 			port: inspector,

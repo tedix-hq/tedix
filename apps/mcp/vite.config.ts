@@ -5,7 +5,8 @@ import { defineConfig, lazyPlugins } from "vite-plus";
 export default defineConfig({
 	plugins: lazyPlugins(() => [
 		cloudflare({
-			inspectorPort: 19229,
+			// Let the runtime allocate a free inspector port for concurrent stacks.
+			inspectorPort: 0,
 			// Local D1 state is shared with apps/api; a launcher may relocate it.
 			persistState: {
 				path: path.resolve(

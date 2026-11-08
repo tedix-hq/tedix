@@ -39,7 +39,10 @@ Requires Bun and genuine Node.js 22.23.4+, 24.22+, or 26.12+ on PATH (within tho
   --help                            Print this help without starting anything
 
 Concurrent local stacks: set TEDIX_LOCAL_API_PORT, TEDIX_LOCAL_OS_PORT and
-TEDIX_LOCAL_MCP_PORT to unused ports.
+TEDIX_LOCAL_MCP_PORT to unused ports (defaults: 8790, 3030, 3000).
+Worker inspectors automatically use free ports, including OS and MCP.
+Use separate checkouts for separate state, service registries and build output.
+Stop each stack with Ctrl+C in its terminal.
 
 For AI: bunx wrangler login, then bunx wrangler whoami to find your account ID.
 Example: bun run-local --inference --workers-ai-account=<account-id>

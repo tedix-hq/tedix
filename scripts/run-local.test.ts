@@ -345,12 +345,12 @@ describe("run-local options", () => {
 		});
 	});
 
-	test("uses isolated API and OS ports for concurrent launchers", () => {
+	test("uses isolated API, OS and MCP ports for concurrent launchers", () => {
 		const result = Bun.spawnSync(
 			[
 				process.execPath,
 				"-e",
-				'import { LOCAL_API_URL, LOCAL_OS_URL } from "./scripts/run-local"; console.log(JSON.stringify([LOCAL_API_URL, LOCAL_OS_URL]));',
+				'import { LOCAL_API_URL, LOCAL_OS_URL, LOCAL_MCP_URL } from "./scripts/run-local"; console.log(JSON.stringify([LOCAL_API_URL, LOCAL_OS_URL, LOCAL_MCP_URL]));',
 			],
 			{
 				cwd: join(import.meta.dir, ".."),
@@ -358,6 +358,7 @@ describe("run-local options", () => {
 					...process.env,
 					TEDIX_LOCAL_API_PORT: "8890",
 					TEDIX_LOCAL_OS_PORT: "3042",
+					TEDIX_LOCAL_MCP_PORT: "3043",
 				},
 			},
 		);
@@ -365,6 +366,7 @@ describe("run-local options", () => {
 		expect(JSON.parse(result.stdout.toString())).toEqual([
 			"http://localhost:8890",
 			"http://localhost:3042",
+			"http://localhost:3043",
 		]);
 	});
 
@@ -534,6 +536,9 @@ describe("run-local options", () => {
 		);
 		expect(result.exitCode).toBe(0);
 		expect(result.stdout.toString()).toContain("Usage: bun run-local");
+		expect(result.stdout.toString()).toContain(
+			"Worker inspectors automatically use free ports, including OS and MCP.",
+		);
 		expect(result.stdout.toString()).not.toContain("gateway bridge");
 		expect(result.stderr.toString()).toBe("");
 		expect(readdirSync(cwd)).toEqual([]);
