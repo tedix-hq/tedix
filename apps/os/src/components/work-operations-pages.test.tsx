@@ -450,7 +450,12 @@ describe("Decision-capture questions", () => {
 				urgentLabels: ["blocker_or_failure"],
 			}),
 		);
-		const text = container.textContent ?? "";
+		const humanCardText = () => {
+			const face = container.cloneNode(true) as HTMLElement;
+			face.querySelector(".fd-agent-details")?.remove();
+			return face.textContent ?? "";
+		};
+		const text = humanCardText();
 		expect(container.querySelector("h2")?.textContent).toBe(
 			"acme-app · claude-code waiting: It's deployed. The live API runs the referenced version",
 		);
@@ -480,6 +485,10 @@ describe("Decision-capture questions", () => {
 		expect(container.querySelectorAll(".chat-markdown li")).toHaveLength(2);
 		expect(container.querySelector(".chat-markdown b")).toBeNull();
 		expect(text).not.toContain("**");
+		expect(humanCardText()).not.toContain("**");
+		expect(container.querySelector(".fd-agent-details")?.textContent).toContain(
+			"**It's deployed.**",
+		);
 	});
 
 	it("leads with the one-line need and calls an update an update", async () => {

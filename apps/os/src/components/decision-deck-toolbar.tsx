@@ -11,8 +11,10 @@ import { OS_COPY, decisionText } from "@/shared/os-copy";
 import type { DecisionDeckConfig } from "@tedix/api-contract/schemas/os-decision-deck";
 import type { useVisibleCardSources } from "@/lib/use-visible-card-sources";
 import type { projectDecisionDeck } from "./decision-deck-projection";
+import type { ReactNode } from "react";
 
 type Props = {
+	priorityControls?: ReactNode;
 	config: DecisionDeckConfig;
 	mode: string;
 	kind: string;
@@ -34,6 +36,7 @@ type Props = {
 	>;
 };
 export function DecisionDeckToolbar({
+	priorityControls,
 	config,
 	mode,
 	kind,
@@ -56,36 +59,39 @@ export function DecisionDeckToolbar({
 	return (
 		<DecisionContextToolbar
 			children={
-				<div
-					className="fd-deck-toolbar"
-					data-focus-ring="inset"
-					aria-label={decisionText("Decisions view")}
-				>
-					{[
-						"decide",
-						"waiting",
-						"history",
-						...(config.examples.length ? ["practice"] : []),
-					].map((value) => (
-						<Button
-							key={value}
-							aria-pressed={mode === value}
-							variant="ghost"
-							onClick={() => {
-								setMode(value);
-								setIndex(0);
-							}}
-						>
-							{value === "decide"
-								? decisionText("For you")
-								: value === "waiting"
-									? decisionText("Everything waiting")
-									: value === "history"
-										? decisionText("What you decided")
-										: decisionText("Try examples")}
-						</Button>
-					))}
-				</div>
+				<>
+					<div
+						className="fd-deck-toolbar min-w-0"
+						data-focus-ring="inset"
+						aria-label={decisionText("Decisions view")}
+					>
+						{[
+							"decide",
+							"waiting",
+							"history",
+							...(config.examples.length ? ["practice"] : []),
+						].map((value) => (
+							<Button
+								key={value}
+								aria-pressed={mode === value}
+								variant="ghost"
+								onClick={() => {
+									setMode(value);
+									setIndex(0);
+								}}
+							>
+								{value === "decide"
+									? decisionText("For you")
+									: value === "waiting"
+										? decisionText("Everything waiting")
+										: value === "history"
+											? decisionText("What you decided")
+											: decisionText("Try examples")}
+							</Button>
+						))}
+					</div>
+					{priorityControls}
+				</>
 			}
 			filters={
 				<div className="fd-deck-filters">

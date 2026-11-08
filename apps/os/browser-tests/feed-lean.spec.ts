@@ -38,6 +38,7 @@ try {
 			if (metadata.size > 13 || metadata.clipped)
 				throw new Error(`Unreadable byline: ${JSON.stringify(metadata)}`);
 			const source = row.locator(".ft-post-link");
+			await source.scrollIntoViewIfNeeded();
 			const before = await row.boundingBox();
 			await source.focus();
 			const focus = await row.evaluate((node) => ({
@@ -55,7 +56,7 @@ try {
 				JSON.stringify(before) !== JSON.stringify(after)
 			)
 				throw new Error(
-					`Feed focus changed geometry or lost its border: ${JSON.stringify(focus)}`,
+					`Feed focus changed geometry or lost its border: ${JSON.stringify({ ...focus, before, after })}`,
 				);
 			// Source attribution stays one tap away, behind More.
 			await row.getByRole("button", { name: "More", exact: true }).click();

@@ -120,7 +120,7 @@ const asks = [
 
 const browser = await chromium.launch({ headless: true });
 try {
-	for (const width of [800, 1280]) {
+	for (const width of [320, 390, 800, 1280]) {
 		const routed = new Set<string>();
 		let handoff: { requestId?: string; reason?: string } | undefined;
 		const page = await browser.newPage({ viewport: { width, height: 900 } });
@@ -234,6 +234,19 @@ try {
 			return route.continue();
 		});
 		await page.goto(`${origin}/work?view=deck`);
+		const priority = page.getByRole("button", {
+			name: "Priority",
+			exact: true,
+		});
+		const priorityBox = await priority.boundingBox();
+		assert(
+			priorityBox &&
+				priorityBox.x >= 0 &&
+				priorityBox.x + priorityBox.width <= width,
+			`priority stays visible at ${width}px`,
+		);
+		await priority.focus();
+		await page.keyboard.press("Enter");
 		const bands = page.getByRole("group", { name: "Priority band" });
 		await bands.waitFor();
 		const band = (label: string) =>
@@ -283,6 +296,13 @@ try {
 			),
 			`bands and timeline fit at ${width}px`,
 		);
+		await page.keyboard.press("Escape");
+		await bands.waitFor({ state: "hidden" });
+		assert.equal(
+			await bands.isVisible(),
+			false,
+			"Escape closes priority controls",
+		);
 		// The handoff is a quiet control: it lives in the card's "⋯" menu so the
 		// action row stays within the lean Deck budget on a phone.
 		await page
@@ -292,6 +312,7 @@ try {
 		await page
 			.getByRole("menuitem", { name: "Let the CTO tedi decide", exact: true })
 			.click();
+		await priority.click();
 		await band("This week 0").waitFor();
 		assert.equal(handoff?.requestId, asks[1]!.request.id);
 		assert.equal(handoff?.reason, "Blocks 5 tasks");
@@ -306,7 +327,7 @@ try {
 		await page.close();
 	}
 	console.log(
-		"Deck priority bands, timeline and CTO tedi routing at 800px and 1280px passed.",
+		"Deck priority bands, timeline and CTO tedi routing at 320px, 390px, 800px and 1280px passed.",
 	);
 } finally {
 	await browser.close();
