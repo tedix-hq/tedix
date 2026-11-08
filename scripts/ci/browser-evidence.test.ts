@@ -158,12 +158,20 @@ test("discard keeps only failing specs with evidence", () => {
 
 const osDir = new URL("../../apps/os", import.meta.url).pathname;
 
-function runSpec(source: string, evidence: string) {
+function runSpec(
+	source: string,
+	evidence: string,
+	env: Record<string, string> = {},
+) {
 	const spec = join(evidence, "evidence-check.spec.ts");
 	writeFileSync(spec, source);
 	return spawnSync(process.execPath, [spec], {
 		cwd: osDir,
-		env: { ...process.env, [evidenceDirVariable]: join(evidence, "out") },
+		env: {
+			...process.env,
+			[evidenceDirVariable]: join(evidence, "out"),
+			...env,
+		},
 		encoding: "utf8",
 	});
 }
@@ -188,6 +196,27 @@ test("a passing spec leaves no diagnostics behind", () => {
 		const run = runSpec(`console.log("clean");\n`, root);
 		expect(run.status).toBe(0);
 		expect(existsSync(join(root, "out", "evidence-check"))).toBe(false);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("spec processes get separate protocol files before Playwright imports", () => {
+	const root = mkdtempSync(join(tmpdir(), "browser-protocol-"));
+	try {
+		const source = `console.log(process.env.DEBUG_FILE);`;
+		const env = { TEDIX_BROWSER_PROTOCOL_DIR: join(root, "protocol") };
+		const first = runSpec(source, root, env);
+		const second = runSpec(source, root, env);
+		expect(first.status, first.stderr).toBe(0);
+		expect(second.status, second.stderr).toBe(0);
+		for (const run of [first, second])
+			expect(run.stdout.trim()).toMatch(
+				new RegExp(
+					`^${env.TEDIX_BROWSER_PROTOCOL_DIR}/evidence-check-\\d+\\.log$`,
+				),
+			);
+		expect(first.stdout).not.toBe(second.stdout);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}

@@ -35,6 +35,11 @@ on:
         description: "Run title suffix: <workspace> <script> <shard> @ <sha12>"
         required: true
         type: string
+      capture_browser_state:
+        description: "Capture browser protocol and Linux thread state in one run, without retries"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -113,9 +118,32 @@ jobs:
           TEST_SHARD: ${{ inputs.shard }}
           BROWSERS: ${{ steps.plan.outputs.browsers }}
           TEDIX_SCREENSHOT_DIR: ${{ runner.temp }}/browser-evidence
+          CAPTURE_BROWSER_STATE: ${{ inputs.capture_browser_state }}
+          BROWSER_DIAGNOSTICS_DIR: ${{ runner.temp }}/browser-diagnostics
         run: |
           command=(bun run --cwd "$WORKSPACE" "$TEST_SCRIPT")
           if [ -n "$TEST_SHARD" ]; then command+=(--shard "$TEST_SHARD"); fi
+          if [ "$CAPTURE_BROWSER_STATE" = true ]; then
+            mkdir -p "$BROWSER_DIAGNOSTICS_DIR"
+            (
+              uname -a
+              cat /etc/os-release
+              while true; do
+                date -u +%FT%TZ
+                ps -eLo pid,ppid,tid,stat,pcpu,wchan:40,comm
+                sleep 5
+              done
+            ) > "$BROWSER_DIAGNOSTICS_DIR/process-state.log" 2>&1 &
+            monitor=$!
+            trap 'kill "$monitor" 2>/dev/null || true; wait "$monitor" 2>/dev/null || true' EXIT
+            status=0
+            DEBUG=pw:protocol,pw:browser \
+              TEDIX_BROWSER_PROTOCOL_DIR="$BROWSER_DIAGNOSTICS_DIR/protocol" \
+              TEDIX_BROWSER_EVIDENCE_DIR="$BROWSER_DIAGNOSTICS_DIR/traces" \
+              "${command[@]}" > "$BROWSER_DIAGNOSTICS_DIR/protocol.log" 2>&1 || status=$?
+            echo "Diagnostic shard exited $status; protocol and process state are in the artifact."
+            exit "$status"
+          fi
           # Same infrastructure-only rerun as certification, so a fixture
           # crash does not read as a regression.
           if [ -n "$BROWSERS" ]; then
@@ -123,3 +151,11 @@ jobs:
           else
             "${command[@]}"
           fi
+      - name: Retain browser protocol and process state
+        if: always() && inputs.capture_browser_state
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.0
+        with:
+          name: browser-state-${{ inputs.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/browser-diagnostics
+          include-hidden-files: true
+          retention-days: 3
