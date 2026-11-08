@@ -71,6 +71,12 @@ export type WireEventBody =
 			at: string;
 	  }
 	| {
+			type: "approval.executed";
+			approvalId: string;
+			status: "applied" | "failed";
+			error?: string;
+	  }
+	| {
 			type: "turn.finished";
 			turnId: string;
 			status: "done" | "error" | "cancelled";
