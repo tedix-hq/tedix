@@ -95,6 +95,11 @@ export interface EvaluateWorkAdmissionParams {
 	leaseTtlMs: number;
 	now: string;
 }
+export type PreviewWorkAdmissionParams = Omit<
+	EvaluateWorkAdmissionParams,
+	"id" | "leaseTtlMs"
+>;
+
 type Eligibility = {
 	item: Awaited<ReturnType<typeof requireWorkItem>>;
 	requirements: Awaited<ReturnType<typeof loadRequirements>>["rows"];
@@ -269,7 +274,7 @@ async function loadLanePolicy(
 
 async function evaluate(
 	db: PgQueryClient,
-	p: EvaluateWorkAdmissionParams,
+	p: PreviewWorkAdmissionParams,
 ): Promise<Eligibility> {
 	const item = await requireWorkItem(db, p.orgId, p.workItemId);
 	const empty = { item, requirements: [], envelopes: [] };
@@ -600,6 +605,32 @@ async function evaluate(
 	return { item, requirements, envelopes };
 }
 
+/** Read current executor eligibility without creating admission or reservation records. */
+export async function previewWorkAdmission(
+	db: PgQueryClient,
+	p: PreviewWorkAdmissionParams,
+): Promise<Eligibility> {
+	await requireActivePrincipal(db, {
+		orgId: p.orgId,
+		type: p.executorType,
+		id: p.executorId,
+	});
+	if (p.executorType === "external_agent") {
+		if (!p.executorSessionId || !p.externalSessionKey)
+			throw new WorkAdmissionError(
+				"stale_specification",
+				"External admission requires exact session key",
+			);
+		await requireExternalSession(db, {
+			orgId: p.orgId,
+			principalId: p.executorId,
+			sessionId: p.executorSessionId,
+			externalSessionKey: p.externalSessionKey,
+		});
+	}
+	return evaluate(db, p);
+}
+
 function rejectionKey(
 	p: EvaluateWorkAdmissionParams,
 	code: WorkAdmissionRejectionCode,
@@ -620,25 +651,7 @@ export async function evaluateAndRecordWorkAdmission(
 			"stale_specification",
 			"leaseTtlMs must be 1000..3600000",
 		);
-	await requireActivePrincipal(db, {
-		orgId: p.orgId,
-		type: p.executorType,
-		id: p.executorId,
-	});
-	if (p.executorType === "external_agent") {
-		if (!p.executorSessionId || !p.externalSessionKey)
-			throw new WorkAdmissionError(
-				"stale_specification",
-				"External admission requires exact session key",
-			);
-		await requireExternalSession(db, {
-			orgId: p.orgId,
-			principalId: p.executorId,
-			sessionId: p.executorSessionId,
-			externalSessionKey: p.externalSessionKey,
-		});
-	}
-	const eligibility = await evaluate(db, p);
+	const eligibility = await previewWorkAdmission(db, p);
 	const expiresAt = new Date(Date.parse(p.now) + p.leaseTtlMs).toISOString();
 	if (eligibility.rejection) {
 		const key = rejectionKey(p, eligibility.rejection.code);

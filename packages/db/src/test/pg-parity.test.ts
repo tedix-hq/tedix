@@ -102,7 +102,11 @@ INSERT INTO tedis(id,organization_id,name,slug,status) VALUES('${IDS.tediId}','$
 
 interface Plane {
 	name: string;
-	setup: () => Promise<{ db: any; close: () => Promise<void> | void }>;
+	setup: () => Promise<{
+		db: any;
+		close: () => Promise<void> | void;
+		counts: () => Promise<number[]>;
+	}>;
 	modules: {
 		crud: typeof d1Crud | typeof pgCrud;
 		attempts: typeof d1Attempts | typeof pgAttempts;
@@ -146,6 +150,18 @@ const planes: Plane[] = [
 			);
 			return {
 				db: createDbQueryClient(createD1Facade(sqlite)),
+				counts: async () =>
+					[
+						"work_admissions",
+						"work_resource_reservations",
+						"work_budget_reservations",
+						"work_attempts",
+					].map((table) =>
+						Number(
+							sqlite.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get()
+								?.count,
+						),
+					),
 				close: () => sqlite.close(),
 			};
 		},
@@ -187,7 +203,22 @@ const planes: Plane[] = [
 					pgWorkMilestones,
 				) + SEED,
 			);
-			return { db: t.db, close: t.close };
+			return {
+				db: t.db,
+				close: t.close,
+				counts: async () =>
+					Promise.all(
+						[
+							pgWorkAdmissions,
+							pgWorkResourceReservations,
+							pgWorkBudgetReservations,
+							pgWorkAttempts,
+						].map(
+							async (table) =>
+								(await t.db.select({ id: table.id }).from(table)).length,
+						),
+					),
+			};
 		},
 		modules: {
 			crud: pgCrud,
@@ -205,7 +236,7 @@ for (const plane of planes) {
 		it.each(["omitted", "reset_depth", "weakened_budget"])(
 			"rejects %s child policy through the same ancestry gate",
 			async (mode) => {
-				const { db, close } = await plane.setup();
+				const { db, close, counts } = await plane.setup();
 				try {
 					const m = plane.modules;
 					const policy = {
@@ -272,6 +303,17 @@ for (const plane of planes) {
 						acceptanceContract: { version: 1, doneLooksLike: "Checked" },
 						acceptedAt: NOW,
 					});
+					const preview = await m.admissions.previewWorkAdmission(db, {
+						orgId: IDS.orgId,
+						workItemId: child.id,
+						expectedWorkItemVersion: child.version,
+						expectedAdmissionSpecRevision: child.admissionSpecRevision,
+						executorType: "tedi",
+						executorId: IDS.tediId,
+						now: NOW,
+					});
+					expect(preview.rejection?.code).toBe("evaluation_required");
+					expect(await counts()).toEqual([0, 0, 0, 0]);
 					const admission = await m.admissions.evaluateAndRecordWorkAdmission(
 						db,
 						{
@@ -302,7 +344,7 @@ for (const plane of planes) {
 		);
 
 		it("create → accept → admit → start → heartbeat → settle → complete → comment", async () => {
-			const { db, close } = await plane.setup();
+			const { db, close, counts } = await plane.setup();
 			try {
 				const m = plane.modules;
 				const item = await m.crud.createWorkItem(db, {
@@ -328,6 +370,17 @@ for (const plane of planes) {
 				});
 				expect(accepted.disposition).toBe("accepted");
 				expect(accepted.version).toBe(2);
+				const preview = await m.admissions.previewWorkAdmission(db, {
+					orgId: IDS.orgId,
+					workItemId: IDS.workItemId,
+					expectedWorkItemVersion: accepted.version,
+					expectedAdmissionSpecRevision: accepted.admissionSpecRevision,
+					executorType: "tedi",
+					executorId: IDS.tediId,
+					now: NOW,
+				});
+				expect(preview.rejection).toBeUndefined();
+				expect(await counts()).toEqual([0, 0, 0, 0]);
 
 				const admission = await m.admissions.evaluateAndRecordWorkAdmission(
 					db,
