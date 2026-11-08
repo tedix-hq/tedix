@@ -43,6 +43,7 @@ type Timer = { callback: () => void; at: number; id: number };
 function harness(
 	laneAvailable: boolean | null = true,
 	onOutputChanged?: () => void,
+	newId = () => "client-turn",
 ) {
 	const sockets: FakeSocket[] = [];
 	let now = 1_000_000;
@@ -68,7 +69,7 @@ function harness(
 		},
 		nowFn: () => now,
 		randomFn: () => 0.5,
-		newId: () => "client-turn",
+		newId,
 		fetchFn: async () =>
 			laneAvailable === null
 				? { ok: false, json: async () => ({}) }
@@ -329,6 +330,91 @@ describe("createWorkspaceChatClient", () => {
 			conversationId: "conv-new",
 		});
 		expect(client.getConversationId()).toBe("conv-new");
+	});
+
+	it("resends the same turn id after a lost acceptance without losing its first prompt", () => {
+		const { client, sockets, hello, advance } = harness();
+		const first = sockets[0]!;
+		first.open();
+		hello(first);
+		client.sendTurn({ text: "First prompt", newConversation: true });
+		const original = first.sent.at(-1);
+		first.receive({
+			type: "turn.started",
+			seq: 1,
+			at: "2026-11-07T12:00:00.000Z",
+			conversationId: "new",
+			turnId: "client-turn",
+			text: "First prompt",
+			authorId: "person",
+			authorKind: "person",
+		});
+		first.receive({
+			...delta(2, "Reply"),
+			conversationId: "new",
+			turnId: "client-turn",
+		});
+		advance(6000);
+		first.drop();
+		advance(0);
+		const second = sockets[1]!;
+		second.open();
+		hello(second, 2);
+		expect(second.sent.at(-1)).toEqual(original);
+		second.receive({
+			type: "turn.accepted",
+			clientTurnId: "client-turn",
+			turnId: "client-turn",
+			conversationId: "new",
+		});
+		expect(
+			client.getSnapshot().state.turns.map((turn) => [turn.text, turn.reply]),
+		).toEqual([["First prompt", "Reply"]]);
+		advance(6000);
+		second.drop();
+		advance(0);
+		const third = sockets[2]!;
+		third.open();
+		hello(third, 2);
+		expect(
+			third.sent.filter((message) => message.type === "send_turn"),
+		).toEqual([]);
+	});
+
+	it("does not adopt or fail an older send after the person starts another draft", () => {
+		let nextId = 0;
+		const { client, sockets, hello } = harness(
+			true,
+			undefined,
+			() => `client-${++nextId}`,
+		);
+		const socket = sockets[0]!;
+		socket.open();
+		hello(socket);
+		client.sendTurn({ text: "Older draft", newConversation: true });
+		client.sendTurn({ text: "Selected draft", newConversation: true });
+		socket.receive({
+			type: "turn.accepted",
+			clientTurnId: "client-1",
+			turnId: "client-1",
+			conversationId: "older",
+		});
+		socket.receive({
+			type: "error",
+			clientTurnId: "client-1",
+			code: "old",
+			message: "Older send failed",
+		});
+		expect(client.getConversationId()).toBeNull();
+		expect(client.getSnapshot().state.pendingSend?.text).toBe("Selected draft");
+		expect(client.getSnapshot().state.lastError).toBeNull();
+		socket.receive({
+			type: "turn.accepted",
+			clientTurnId: "client-2",
+			turnId: "client-2",
+			conversationId: "selected",
+		});
+		expect(client.getConversationId()).toBe("selected");
 	});
 
 	it("keeps a new conversation blank and retains events emitted before acceptance", () => {
