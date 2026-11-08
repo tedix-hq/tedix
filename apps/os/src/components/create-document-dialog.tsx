@@ -1,3 +1,4 @@
+import { CreateDocAppDialog } from "./create-doc-app-dialog";
 import { Text } from "@/components/kumo/text";
 import {
 	DropdownMenu,
@@ -8,7 +9,10 @@ import {
 } from "@/components/kumo/dropdown-menu";
 import { Plus } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { OsOutput } from "@tedix/api-contract/schemas/os-workspaces";
+import type {
+	OsGadget,
+	OsOutput,
+} from "@tedix/api-contract/schemas/os-workspaces";
 import { useState } from "react";
 import {
 	LoadError,
@@ -46,12 +50,17 @@ import {
 	osQueryKeys,
 } from "@/lib/os-query-options";
 
-type Props = { workspaceId?: string; onCreated: (output: OsOutput) => void };
+type Props = {
+	workspaceId?: string;
+	onCreated: (output: OsOutput) => void;
+	onAppCreated?: (gadget: OsGadget) => void;
+};
 
 type CreationKind = "document" | "sheet" | "presentation";
 
 export function NewResourceMenu(props: Props) {
 	const [kind, setKind] = useState<CreationKind | null>(null);
+	const [docApp, setDocApp] = useState(false);
 	return (
 		<>
 			<DropdownMenu>
@@ -60,6 +69,11 @@ export function NewResourceMenu(props: Props) {
 					New
 				</DropdownMenuTrigger>
 				<DropdownMenuContent align="end">
+					{props.workspaceId && props.onAppCreated && (
+						<DropdownMenuItem onClick={() => setDocApp(true)}>
+							Doc app
+						</DropdownMenuItem>
+					)}
 					<DropdownMenuItem onClick={() => setKind("document")}>
 						Document
 					</DropdownMenuItem>
@@ -74,6 +88,14 @@ export function NewResourceMenu(props: Props) {
 					</DropdownMenuLinkItem>
 				</DropdownMenuContent>
 			</DropdownMenu>
+			{docApp && props.workspaceId && props.onAppCreated && (
+				<CreateDocAppDialog
+					workspaceId={props.workspaceId}
+					onCreated={props.onAppCreated}
+					onOpenOutput={props.onCreated}
+					onClose={() => setDocApp(false)}
+				/>
+			)}
 			{kind && (
 				<CreateDocumentDialog
 					{...props}

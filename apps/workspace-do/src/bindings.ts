@@ -14,7 +14,11 @@ import type {
 	UndoPlan,
 } from "@tedix/agent-governance/types";
 import { wrapBinding } from "@tedix/agent-governance/wrap-binding";
-import type { OsOutputContent } from "@tedix/api-contract/schemas/os-workspaces";
+import {
+	OsOutputContentSchema,
+	type OsOutputContent,
+} from "@tedix/api-contract/schemas/os-workspaces";
+import { applyDocumentBlockPatch } from "@tedix/api-contract/utils/document-patch";
 import type { BindingName } from "./declarations";
 import type {
 	OutputDetail,
@@ -70,6 +74,60 @@ export function buildWorkspaceBindings(
 			note?: string;
 		}) => data.reviseOutput({ ...input, actorId: deps.actor.id }),
 	};
+	const readDocument = async (input: { outputId: string }) => {
+		const output = await data.getOutput(input.outputId);
+		if (!output || output.content?.kind !== "document")
+			throw new Error("Document not found or unavailable");
+		return { ...output, content: output.content };
+	};
+	const documents = {
+		read: readDocument,
+		replace: async (input: {
+			outputId: string;
+			expectedRevision: number;
+			content: unknown;
+		}) => {
+			await readDocument(input);
+			const content = OsOutputContentSchema.parse(input.content);
+			if (content.kind !== "document")
+				throw new Error("Expected document content");
+			return data.reviseOutput({
+				outputId: input.outputId,
+				expectedRevision: input.expectedRevision,
+				content,
+				actorId: deps.actor.id,
+			});
+		},
+		edit: async (input: {
+			outputId: string;
+			expectedRevision: number;
+			ops: unknown;
+		}) => {
+			const output = await readDocument(input);
+			return data.reviseOutput({
+				outputId: input.outputId,
+				expectedRevision: input.expectedRevision,
+				content: applyDocumentBlockPatch(output.content, input.ops),
+				actorId: deps.actor.id,
+			});
+		},
+	};
+	const documentWrite = {
+		riskTier: "bounded_write" as const,
+		blastRadius: "single_resource" as const,
+		before: async (args: unknown[]) =>
+			revisionRef(
+				await data.getOutput((args[0] as { outputId: string }).outputId),
+			),
+		after: async (_args: unknown[], result: unknown) =>
+			revisionRef(result as OutputDetail),
+		undo: (
+			_args: unknown[],
+			_result: unknown,
+			before?: RevisionRef,
+		): UndoPlan | undefined =>
+			before ? { kind: "rollback_revision", toRevision: before } : undefined,
+	};
 	const apps = { list: () => data.listApps() };
 	const resources = { list: () => data.listResources() };
 	const work = {
@@ -88,6 +146,15 @@ export function buildWorkspaceBindings(
 	};
 
 	return {
+		documents: wrapBinding(documents, {
+			...common,
+			resource: "output",
+			methods: {
+				read: { riskTier: "read", blastRadius: "none" },
+				replace: documentWrite,
+				edit: documentWrite,
+			},
+		}),
 		outputs: wrapBinding(outputs, {
 			...common,
 			resource: "output",

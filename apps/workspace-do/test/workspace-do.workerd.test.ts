@@ -584,6 +584,64 @@ describe("WorkspaceDO", () => {
 		expect(p95).toBeLessThan(20_000);
 	});
 
+	test("typed Doc edits use the canonical document and cannot run before approval", async () => {
+		await seedCore();
+		const ws = workspace();
+		await seedOutputs(ws);
+		await ws.scriptModel(scope, [
+			{
+				code: `export default async env => { const doc = await env.documents.read({outputId:"out-doc"}); return env.documents.edit({outputId:doc.id,expectedRevision:doc.revision,ops:[{op:"replace",index:0,block:{type:"heading",level:1,text:"Approved Doc edit"}}]}); }`,
+			},
+		]);
+		const started = await ws.sendTurn(scope, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "Edit the document",
+		});
+		await ws.awaitTurn(scope, started.turnId, 20000);
+		const events = await ws.readEvents(scope, {
+			conversationId: started.conversationId,
+			after: 0,
+		});
+		const approval = events.find(
+			(event) => event.type === "approval.requested",
+		);
+		if (approval?.type !== "approval.requested")
+			throw new Error("Doc edit did not request approval");
+		const before = await ws.outputQuery(scope, {
+			op: "get",
+			outputId: "out-doc",
+		});
+		expect(before?.currentRevisionId).toBe("rev-doc");
+		await ws.scriptModel(scope, [
+			{
+				code: `export default async env => env.documents.read({outputId:"out-doc"})`,
+			},
+			{ text: "Saved" },
+		]);
+		const applied = await ws.decideApproval(scope, {
+			approvalId: approval.approvalId,
+			decision: "approve",
+			by: "u1",
+		});
+		expect(applied.applied).toBe(true);
+		await ws.awaitTurn(scope, applied.turnId!, 20000);
+		const messages = await ws.readMessages(scope, started.conversationId);
+		expect(
+			JSON.stringify(
+				messages.filter((message) => message.role === "toolResult"),
+			),
+		).toContain("Approved Doc edit");
+		const records = await ws.readChangeRecords(scope, { resource: "output" });
+		const edits = records.filter((record) => record.operation === "edit");
+		expect(edits.map((record) => record.outcome)).toEqual([
+			"needs_approval",
+			"applied",
+		]);
+		expect(edits[1]?.before?.revisionId).toBe("rev-doc");
+		expect(edits[1]?.after?.revisionId).toBeTruthy();
+	});
+
 	test("a write holds for approval; approving runs it with a receipt and the turn continues", async () => {
 		const ws = workspace();
 		const CREATE = `export default async (env) => env.outputs.create({ title: "New", content: { kind: "document", blocks: [] } })`;
