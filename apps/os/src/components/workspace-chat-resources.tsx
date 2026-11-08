@@ -63,6 +63,7 @@ export function WorkspaceChatResources({
 				) : (
 					<div
 						className="grid max-h-48 gap-1 overflow-y-auto"
+						data-focus-ring="inset"
 						aria-label="Select message files"
 					>
 						{(outputs.data?.items ?? [])

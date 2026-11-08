@@ -284,6 +284,55 @@ describe("WorkspaceChat", () => {
 					...(listOpen ? { newConversation: true } : {}),
 				},
 			]);
+			const send = host.querySelector<HTMLButtonElement>(
+				'[aria-label="Send"]',
+			)!;
+			expect(send.disabled).toBe(true);
+			if (listOpen) mount(fake, "c1", false, () => {});
+			expect(textarea.value).toBe("Summarize this");
+			act(() =>
+				fake.set({
+					state: {
+						...fake.client.getSnapshot().state,
+						lastError: {
+							code: "failed",
+							message: "Remove the unavailable file",
+							clientTurnId: "client-turn",
+						},
+					},
+				}),
+			);
+			expect(send.disabled).toBe(false);
+			expect(textarea.value).toBe("Summarize this");
+			expect(
+				host.querySelector('[aria-label="Remove Budget notes"]'),
+			).not.toBeNull();
+			// A newer draft must survive acceptance of the previous submission.
+			act(() =>
+				fake.set({
+					state: { ...fake.client.getSnapshot().state, lastError: null },
+				}),
+			);
+			await act(async () =>
+				host
+					.querySelector("form")
+					?.dispatchEvent(
+						new Event("submit", { bubbles: true, cancelable: true }),
+					),
+			);
+			await act(async () => {
+				Object.getOwnPropertyDescriptor(
+					HTMLTextAreaElement.prototype,
+					"value",
+				)!.set!.call(textarea, "My next question");
+				textarea.dispatchEvent(new Event("input", { bubbles: true }));
+			});
+			act(() => fake.feed([{ ...started, turnId: "client-turn" }]));
+			expect(textarea.value).toBe("My next question");
+			expect(
+				host.querySelector('[aria-label="Selected message files"]'),
+			).toBeNull();
+			expect(send.disabled).toBe(false);
 		},
 	);
 

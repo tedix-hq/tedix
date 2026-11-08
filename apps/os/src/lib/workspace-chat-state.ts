@@ -95,7 +95,7 @@ export type WorkspaceChatState = {
 	hasEarlier: boolean;
 	/** A turn sent from this tab, not yet echoed by the object. */
 	pendingSend: { clientTurnId: string; text: string; sentAt: number } | null;
-	lastError: { code: string; message: string } | null;
+	lastError: { code: string; message: string; clientTurnId?: string } | null;
 	/** Seqs already folded; shared between successive states, grows only. */
 	seen: Set<number>;
 	approvalDecisions: Record<
@@ -520,7 +520,7 @@ export function markPendingSend(
 
 export function markSendFailed(
 	state: WorkspaceChatState,
-	error: { code: string; message: string },
+	error: { code: string; message: string; clientTurnId?: string },
 ): WorkspaceChatState {
 	return { ...state, pendingSend: null, lastError: error };
 }
