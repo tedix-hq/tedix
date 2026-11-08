@@ -6,12 +6,13 @@ import {
 	readFactoryCycle,
 } from "../../../services/factory-cycle";
 import preset from "../../../services/agent-surface-assurance.fixture.json";
-import { admitWorkAttempt } from "./attempt-admission";
+import { admitWorkAttempt, previewWorkAttempt } from "./attempt-admission";
 import { getWorkItemById } from "@tedix/db/queries/work-items/crud";
 import { listWorkItemAttempts } from "@tedix/db/queries/work-items/attempts";
 import {
 	evaluateAndRecordWorkAdmission,
 	getWorkAdmissionSpecification,
+	previewWorkAdmission,
 } from "@tedix/db/queries/work-items/admissions";
 
 vi.mock("@tedix/db/queries/work-items/crud", () => ({
@@ -23,6 +24,7 @@ vi.mock("@tedix/db/queries/work-items/attempts", () => ({
 vi.mock("@tedix/db/queries/work-items/admissions", () => ({
 	evaluateAndRecordWorkAdmission: vi.fn(),
 	getWorkAdmissionSpecification: vi.fn(),
+	previewWorkAdmission: vi.fn(),
 }));
 
 const id = "e3cfb2ce-cc50-4ca6-a98c-f74b870ffb00";
@@ -76,6 +78,19 @@ async function fixture() {
 
 beforeEach(() => vi.resetAllMocks());
 describe("shared factory admission", () => {
+	it("previews with the same pinned factory checks without recording admission", async () => {
+		const item = await fixture();
+		vi.mocked(previewWorkAdmission).mockResolvedValue({
+			rejection: { code: "budget_blocked", reason: "Budget exhausted" },
+		} as Awaited<ReturnType<typeof previewWorkAdmission>>);
+		expect(await previewWorkAttempt(db, params)).toMatchObject({
+			rejection: { code: "budget_blocked" },
+		});
+		expect(evaluateAndRecordWorkAdmission).not.toHaveBeenCalled();
+		vi.mocked(getWorkItemById).mockResolvedValue({ ...item, riskLevel: "low" });
+		await expect(previewWorkAttempt(db, params)).rejects.toThrow();
+		expect(previewWorkAdmission).toHaveBeenCalledTimes(1);
+	});
 	it("uses canonical admission, including approval denials", async () => {
 		await fixture();
 		vi.mocked(evaluateAndRecordWorkAdmission).mockResolvedValue({

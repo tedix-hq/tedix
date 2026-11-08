@@ -39,12 +39,17 @@ import {
 	submitWorkItemEvidence,
 } from "@tedix/db/queries/work-items/evidence";
 import { listWorkItemEvents } from "@tedix/db/queries/work-items/events";
-import { deriveWorkItemReadiness } from "@tedix/db/queries/work-items/readiness";
+import {
+	deriveWorkItemReadiness,
+	type WorkItemReadinessResult,
+	type WorkItemReadinessGateName,
+} from "@tedix/db/queries/work-items/readiness";
 import {
 	getWorkAdmissionSpecification,
 	replaceWorkAdmissionSpecification,
 	WorkAdmissionError,
 	WorkAdmissionSpecificationError,
+	type WorkAdmissionRejectionCode,
 } from "@tedix/db/queries/work-items/admissions";
 import { ORPCError } from "@orpc/server";
 import { getProjectByIdForOrganization } from "@tedix/db/queries/projects";
@@ -89,7 +94,7 @@ import {
 	workItemStewardActor,
 	rethrowWorkItemWriteError,
 } from "./policy-helpers";
-import { admitWorkAttempt } from "./attempt-admission";
+import { admitWorkAttempt, previewWorkAttempt } from "./attempt-admission";
 import { requireFactoryAcceptance } from "../../../services/factory-cycle";
 import {
 	findAssignedActiveAttempt,
@@ -547,13 +552,103 @@ export const acceptProcedure = factoryOs.accept.handler(
 export const getReadinessProcedure = factoryOs.getReadiness.handler(
 	async ({ input, context }) => {
 		const workItem = await assertWorkItemAccess(context, input.id);
-		return deriveWorkItemReadiness(context.db, {
+		const now = new Date().toISOString();
+		const readiness = await deriveWorkItemReadiness(context.db, {
 			orgId: workItem.orgId,
 			workItemId: workItem.id,
-			derivedAt: new Date().toISOString(),
+			derivedAt: now,
 		});
+		const external = await verifiedExternalAgent(context, workItem.orgId);
+		if (!external && !context.tediId) return readiness;
+		if (!external)
+			await assertTediAccess(context, context.tediId!, workItem.orgId);
+		try {
+			const preview = external
+				? await previewWorkAttempt(context.db, {
+						workItem,
+						executor: external.executor,
+						externalSessionKey: external.externalSessionKey,
+						now,
+					})
+				: await previewWorkAttempt(context.db, {
+						workItem,
+						executor: { type: "tedi", id: context.tediId! },
+						now,
+					});
+			return executorReadiness(readiness, preview.rejection);
+		} catch (error) {
+			rethrowAttemptWriteError(error);
+		}
 	},
 );
+
+function executorReadiness(
+	readiness: WorkItemReadinessResult,
+	rejection: Awaited<ReturnType<typeof previewWorkAttempt>>["rejection"],
+): WorkItemReadinessResult {
+	if (!rejection)
+		return {
+			...readiness,
+			state: "ready",
+			ready: true,
+			reasons: [],
+			gates: readiness.gates.map((gate) => ({
+				...gate,
+				evaluation: "passed",
+				detail:
+					gate.evaluation === "passed"
+						? gate.detail
+						: "Verified executor admission preview passed",
+			})),
+		};
+	const gateByCode: Record<
+		WorkAdmissionRejectionCode,
+		WorkItemReadinessGateName
+	> = {
+		not_accepted: "disposition",
+		stale_specification: "disposition",
+		purpose_blocked: "purpose",
+		dependencies_blocked: "dependencies",
+		capability_blocked: "capabilities",
+		approval_blocked: "approvals",
+		resource_blocked: "resources",
+		budget_blocked: "budget",
+		already_running: "attempt",
+		evaluation_required: "resources",
+	};
+	const state =
+		readiness.state === "terminal"
+			? "terminal"
+			: rejection.code === "stale_specification"
+				? "evaluation_required"
+				: rejection.code;
+	return {
+		...readiness,
+		state,
+		ready: false,
+		reasons: [{ code: state, detail: rejection.reason }],
+		gates: readiness.gates.map((gate) => {
+			if (gate.gate === gateByCode[rejection.code])
+				return {
+					...gate,
+					evaluation: state === "evaluation_required" ? "unknown" : "failed",
+					detail: rejection.reason,
+				};
+			if (
+				["capabilities", "approvals", "risk", "budget", "resources"].includes(
+					gate.gate,
+				)
+			)
+				return {
+					...gate,
+					evaluation: "unknown",
+					detail:
+						"Not established by the unsuccessful executor admission preview",
+				};
+			return gate;
+		}),
+	};
+}
 
 export const startAttemptProcedure = factoryOs.startAttempt.handler(
 	async ({ input, context }) => {

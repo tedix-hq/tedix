@@ -32,6 +32,8 @@ const mocks = vi.hoisted(() => ({
 	start: vi.fn(),
 	admit: vi.fn(),
 	replace: vi.fn(),
+	readiness: vi.fn(),
+	preview: vi.fn(),
 }));
 
 vi.mock("./policy-helpers", async (importOriginal) => ({
@@ -56,11 +58,18 @@ vi.mock("@tedix/db/queries/work-items/admissions", async (importOriginal) => ({
 	>()),
 	replaceWorkAdmissionSpecification: mocks.replace,
 }));
-vi.mock("./attempt-admission", () => ({ admitWorkAttempt: mocks.admit }));
+vi.mock("@tedix/db/queries/work-items/readiness", () => ({
+	deriveWorkItemReadiness: mocks.readiness,
+}));
+vi.mock("./attempt-admission", () => ({
+	admitWorkAttempt: mocks.admit,
+	previewWorkAttempt: mocks.preview,
+}));
 
 import {
 	replaceAdmissionSpecificationProcedure,
 	startAttemptProcedure,
+	getReadinessProcedure,
 } from "./factory-lifecycle";
 
 const workItem = {
@@ -117,6 +126,109 @@ beforeEach(() => {
 	mocks.ownerAdmin.mockResolvedValue("user-1");
 	mocks.external.mockResolvedValue(null);
 	mocks.tediAccess.mockResolvedValue(undefined);
+	mocks.readiness.mockResolvedValue({
+		workItemId: workItem.id,
+		state: "evaluation_required",
+		ready: false,
+		derivedAt: "2026-11-08T00:00:00.000Z",
+		reasons: [
+			{
+				code: "evaluation_required",
+				detail: "Applicable budget envelope was not evaluated",
+			},
+		],
+		gates: [
+			"disposition",
+			"purpose",
+			"dependencies",
+			"capabilities",
+			"approvals",
+			"risk",
+			"budget",
+			"resources",
+			"attempt",
+		].map((gate) => ({
+			gate,
+			evaluation: ["budget", "resources"].includes(gate) ? "unknown" : "passed",
+			detail: "Context-free readiness",
+		})),
+	});
+});
+
+function readiness(context: Partial<BaseContext> = {}) {
+	return getReadinessProcedure["~orpc"].handler!({
+		input: { id: workItem.id },
+		context: { db: {}, ...context } as BaseContext,
+		path: ["workItems", "getReadiness"],
+		procedure: getReadinessProcedure,
+		signal: undefined,
+		lastEventId: undefined,
+	});
+}
+
+describe("verified executor readiness", () => {
+	it("keeps generic owner readiness unevaluated", async () => {
+		expect(await readiness()).toMatchObject({
+			ready: false,
+			state: "evaluation_required",
+		});
+		expect(mocks.preview).not.toHaveBeenCalled();
+	});
+	it("previews the credential-derived external session without accepting caller facts", async () => {
+		mocks.external.mockResolvedValue({
+			executor: { type: "external_agent", id: "agent", sessionId: "session" },
+			externalSessionKey: "codex:session",
+		});
+		mocks.preview.mockResolvedValue({});
+		const result = await readiness();
+		expect(mocks.preview).toHaveBeenCalledWith(
+			{},
+			expect.objectContaining({
+				executor: { type: "external_agent", id: "agent", sessionId: "session" },
+				externalSessionKey: "codex:session",
+				workItem: expect.objectContaining({ version: 3 }),
+			}),
+		);
+		expect(result).toMatchObject({ ready: true, state: "ready", reasons: [] });
+		expect(result.gates.every((gate) => gate.evaluation === "passed")).toBe(
+			true,
+		);
+	});
+	it("checks access before previewing an authenticated tedi", async () => {
+		mocks.preview.mockResolvedValue({});
+		await readiness({ tediId: "tedi-1" });
+		expect(mocks.tediAccess).toHaveBeenCalledWith(
+			expect.anything(),
+			"tedi-1",
+			workItem.orgId,
+		);
+		expect(mocks.preview).toHaveBeenCalledWith(
+			{},
+			expect.objectContaining({ executor: { type: "tedi", id: "tedi-1" } }),
+		);
+	});
+	it("does not fall back when the supplied external session fails verification", async () => {
+		mocks.external.mockRejectedValue(
+			new ORPCError("UNAUTHORIZED", { message: "Inactive session" }),
+		);
+		await expect(readiness()).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+		expect(mocks.preview).not.toHaveBeenCalled();
+	});
+	it.each(["budget_blocked", "resource_blocked", "evaluation_required"])(
+		"retains %s and represents unevaluated actor gates honestly",
+		async (code) => {
+			mocks.preview.mockResolvedValue({
+				rejection: { code, reason: "Canonical evaluator withheld execution" },
+			});
+			const result = await readiness({ tediId: "tedi-1" });
+			expect(result).toMatchObject({ ready: false, state: code });
+			const gate = code === "budget_blocked" ? "budget" : "resources";
+			expect(result.gates.find((g) => g.gate === gate)).toMatchObject({
+				evaluation: code === "evaluation_required" ? "unknown" : "failed",
+				detail: "Canonical evaluator withheld execution",
+			});
+		},
+	);
 });
 
 describe("startAttempt admission rejections", () => {

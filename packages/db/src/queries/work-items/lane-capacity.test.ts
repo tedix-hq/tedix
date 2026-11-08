@@ -2,7 +2,11 @@ import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../../query-client";
 import { createD1Facade } from "../../test/d1-facade";
 import { createMigratedSqlite } from "../../test/migrated-sqlite";
-import { evaluateAndRecordWorkAdmission } from "./admissions";
+import {
+	evaluateAndRecordWorkAdmission,
+	previewWorkAdmission,
+	type PreviewWorkAdmissionParams,
+} from "./admissions";
 import {
 	startWorkItemAttempt,
 	settleWorkItemAttempt,
@@ -108,10 +112,109 @@ function fixture() {
 			.prepare("UPDATE work_items SET metadata=? WHERE id=?")
 			.run(JSON.stringify(policy ? { laneExecution: policy } : {}), id);
 	}
-	return { sqlite, db, seed, admit, start, link, setPolicy };
+	function preview(
+		id: string,
+		change: Partial<PreviewWorkAdmissionParams> = {},
+	) {
+		return previewWorkAdmission(db, {
+			orgId: "org",
+			workItemId: id,
+			expectedWorkItemVersion: 1,
+			expectedAdmissionSpecRevision: "revision",
+			executorType: "tedi",
+			executorId: "tedi",
+			now,
+			...change,
+		});
+	}
+	return { sqlite, db, seed, admit, start, link, setPolicy, preview };
 }
 
 describe("shared lane admission on migrated D1", () => {
+	it.each(["ready", "budget", "resources", "depth"])(
+		"previews %s without recording admission, reservations or an Attempt",
+		async (mode) => {
+			const f = fixture();
+			const policy = f.seed("one");
+			if (mode === "budget")
+				f.sqlite.exec(
+					"UPDATE work_budget_envelopes SET limit_micros=10,version=version+1 WHERE id='org-budget'",
+				);
+			if (mode === "resources")
+				f.sqlite.exec(
+					"UPDATE work_resource_pools SET capacity=1,version=version+1 WHERE id='executor'",
+				);
+			if (mode === "budget" || mode === "resources") {
+				f.seed("competing");
+				expect((await f.admit("competing")).decision).toBe("admitted");
+			}
+			if (mode === "depth") {
+				policy.delegationDepth = 1;
+				f.setPolicy("one", policy);
+			}
+			const tables = [
+				"work_admissions",
+				"work_resource_reservations",
+				"work_budget_reservations",
+				"work_attempts",
+			];
+			const counts = () =>
+				tables.map((table) =>
+					f.sqlite.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get(),
+				);
+			const before = counts();
+			const result = await f.preview("one");
+			expect(result.rejection?.code).toBe(
+				mode === "ready"
+					? undefined
+					: mode === "depth"
+						? "evaluation_required"
+						: mode === "budget"
+							? "budget_blocked"
+							: "resource_blocked",
+			);
+			expect(counts()).toEqual(before);
+			if (mode === "ready") {
+				f.sqlite.exec(
+					"UPDATE work_budget_envelopes SET limit_micros=10,version=version+1 WHERE id='org-budget'",
+				);
+				f.seed("competing");
+				expect((await f.admit("competing")).decision).toBe("admitted");
+				expect((await f.admit("one")).rejectionCode).toBe("budget_blocked");
+			}
+		},
+	);
+
+	it("requires an active exact external principal and session for previews", async () => {
+		const f = fixture();
+		f.seed("one");
+		f.setPolicy("one", undefined);
+		f.sqlite
+			.exec(`INSERT INTO external_agent_principals(id,organization_id,key,display_name,status,credential_binding_type,credential_binding_id,created_by_type,created_by_id) VALUES('agent','org','agent','Agent','active','owner_user','owner','user','owner');
+		INSERT INTO external_agent_sessions(id,organization_id,principal_id,external_session_key,harness,harness_version,model_provider,model_id,model_version,identity_source,status,started_at,last_seen_at) VALUES('session','org','agent','codex:session','codex','fixture','fixture','fixture','fixture','explicit','active','${now}','${now}');`);
+		const actor = {
+			executorType: "external_agent" as const,
+			executorId: "agent",
+			executorSessionId: "session",
+			externalSessionKey: "codex:session",
+		};
+		expect((await f.preview("one", actor)).rejection).toBeUndefined();
+		await expect(
+			f.preview("one", { ...actor, externalSessionKey: "other" }),
+		).rejects.toThrow("session fence");
+		await expect(
+			f.preview("one", { ...actor, executorSessionId: undefined }),
+		).rejects.toThrow("exact session key");
+		f.sqlite.exec(
+			`UPDATE external_agent_sessions SET status='ended',ended_at='${now}' WHERE id='session'`,
+		);
+		await expect(f.preview("one", actor)).rejects.toThrow("session fence");
+		f.sqlite.exec(
+			"UPDATE external_agent_principals SET status='suspended' WHERE id='agent'",
+		);
+		await expect(f.preview("one", actor)).rejects.toThrow("not active");
+	});
+
 	it.each([
 		"omitted",
 		"invalid",

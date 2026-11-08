@@ -1,4 +1,7 @@
-import { evaluateAndRecordWorkAdmission } from "@tedix/db/queries/work-items/admissions";
+import {
+	evaluateAndRecordWorkAdmission,
+	previewWorkAdmission,
+} from "@tedix/db/queries/work-items/admissions";
 import { getWorkAdmissionSpecification } from "@tedix/db/queries/work-items/admissions";
 import { getWorkItemById } from "@tedix/db/queries/work-items/crud";
 import { listWorkItemAttempts } from "@tedix/db/queries/work-items/attempts";
@@ -37,14 +40,10 @@ type AttemptAdmissionParams = {
 	  }
 );
 
-/**
- * Mint a fresh immutable admission receipt from the current Work Item and
- * credential-derived executor. Callers never select or replay a receipt id.
- */
-export async function admitWorkAttempt(
+async function assertWorkAttemptPolicy(
 	db: BaseContext["db"],
-	params: AttemptAdmissionParams,
-): Promise<{ id: string; expiresAt: string }> {
+	params: Omit<AttemptAdmissionParams, "leaseTtlMs">,
+) {
 	// Kernel delegation and direct starts resolve the same persisted policy.
 	const current = await getWorkItemById(
 		db,
@@ -94,6 +93,39 @@ export async function admitWorkAttempt(
 			},
 		});
 	}
+}
+
+/** The same actor and factory checks as start, without a persisted admission. */
+export async function previewWorkAttempt(
+	db: BaseContext["db"],
+	params: Omit<AttemptAdmissionParams, "leaseTtlMs">,
+) {
+	await assertWorkAttemptPolicy(db, params);
+	return previewWorkAdmission(db, {
+		orgId: params.workItem.orgId,
+		workItemId: params.workItem.id,
+		expectedWorkItemVersion: params.workItem.version,
+		expectedAdmissionSpecRevision: params.workItem.admissionSpecRevision,
+		executorType: params.executor.type,
+		executorId: params.executor.id,
+		executorSessionId:
+			params.executor.type === "external_agent"
+				? params.executor.sessionId
+				: undefined,
+		externalSessionKey: params.externalSessionKey,
+		now: params.now,
+	});
+}
+
+/**
+ * Mint a fresh immutable admission receipt from the current Work Item and
+ * credential-derived executor. Callers never select or replay a receipt id.
+ */
+export async function admitWorkAttempt(
+	db: BaseContext["db"],
+	params: AttemptAdmissionParams,
+): Promise<{ id: string; expiresAt: string }> {
+	await assertWorkAttemptPolicy(db, params);
 	const admission = await evaluateAndRecordWorkAdmission(db, {
 		id: crypto.randomUUID(),
 		orgId: params.workItem.orgId,
