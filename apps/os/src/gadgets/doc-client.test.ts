@@ -166,6 +166,20 @@ const click = (root: HTMLElement, label: string) => {
 };
 
 describe("portable rich Doc client", () => {
+	it("starts a fresh empty canonical document without requiring native initialization", async () => {
+		const test = fixture();
+		test.content({ kind: "document", blocks: [] });
+		const { root, editor, mounted } = await test.mount();
+		expect(mounted.dirty).toBe(false);
+		editor.commands.insertContent("Fresh gadget document");
+		click(root, "Save document");
+		await vi.waitFor(() => expect(mounted.dirty).toBe(false));
+		expect(test.persisted().blocks).toEqual([
+			{ type: "paragraph", text: "Fresh gadget document" },
+		]);
+		expect(test.persisted().richText?.content[0]?.type).toBe("paragraph");
+	});
+
 	it("owns typing and inline formatting, then saves the same rich JSON and file through app CAS", async () => {
 		const test = fixture(),
 			{ root, editor, mounted } = await test.mount();
