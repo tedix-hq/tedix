@@ -150,6 +150,17 @@ function fixtureSnapshot(
 			"INSERT INTO memory_edges (id, source_fact_id, target_fact_id, relation_type) VALUES (?, ?, ?, 'related')",
 		)
 		.run("edge-1", "fact-1", "fact-2");
+	main
+		.prepare(
+			"INSERT INTO memory_facts (id, organization_id, domain_id, content, fact_type, metadata) VALUES (?, ?, ?, ?, 'preference', ?)",
+		)
+		.run(
+			"fact-3",
+			ORG,
+			"dom-1",
+			"Consolidated",
+			'{"consolidation":{"evidence":{"sources":[{"id":"fact-1"},{"id":"fact-2"}]}}}',
+		);
 	return Snapshot.fromDatabases(main, [logs]);
 }
 
@@ -175,8 +186,8 @@ describe("migrate-workspaces", () => {
 				expect(w.reconcileMs).toBeGreaterThan(0);
 			}
 			const a = report.workspaces.find((w) => w.workspaceId === WS_A)!;
-			// outputs 1 + revisions 2 + resource 1 + conversation 1 + run 1 + events 3 (one only in the log partition, one in both) + tool result 1 + artifact 1 + memory 4 + the workspace's own directory row
-			expect(a.rows).toBe(16);
+			// outputs 1 + revisions 2 + resource 1 + conversation 1 + run 1 + events 3 (one only in the log partition, one in both) + tool result 1 + artifact 1 + memory 7 (one domain, three facts, one edge, two citations the object derives itself) + the workspace's own directory row
+			expect(a.rows).toBe(19);
 			const totals = Object.fromEntries(
 				report.reconcile.totals.map((t) => [t.table, t]),
 			);
@@ -306,9 +317,9 @@ describe("migrate-workspaces", () => {
 			});
 			const first = await importAll(bundles, stores);
 			const second = await importAll(bundles, stores);
-			expect(first.map((r) => r.imported)).toEqual([16, 3]);
+			expect(first.map((r) => r.imported)).toEqual([17, 3]);
 			expect(second.map((r) => [r.imported, r.duplicates])).toEqual([
-				[0, 16],
+				[0, 17],
 				[0, 3],
 			]);
 			expect((await reconcileAll(bundles, stores, { snapshot })).ok).toBe(true);
@@ -467,8 +478,8 @@ describe("migrate-workspaces", () => {
 			);
 			expect(totals.os_workspaces).toMatchObject({ source: 3, bundled: 3 });
 			expect(totals.memory_facts).toMatchObject({
-				source: 3,
-				bundled: 3,
+				source: 4,
+				bundled: 4,
 				staying: 1,
 			});
 			const home = await new LocalBundleStore(join(workDir, "bundles")).read({

@@ -41,6 +41,7 @@ export async function importWorkspace(
 			);
 		// Parents before children: the order of the mapping file is the insert order.
 		for (const mapping of WORKSPACE_TABLES) {
+			if (mapping.derivedInObject) continue; // the object builds these rows itself
 			const rows = tables.get(mapping.table) ?? [];
 			for (let index = 0; index * IMPORT_CHUNK_ROWS < rows.length; index += 1) {
 				const receipt = await store.importRows({

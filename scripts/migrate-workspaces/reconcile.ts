@@ -8,7 +8,7 @@
  * Any difference is drift. The command prints the report and exits non-zero.
  */
 import type { BundleStore } from "./bundle";
-import { RowDigest } from "./rows";
+import { RowDigest, type StoredRow } from "./rows";
 import type { Snapshot, WorkspaceRef } from "./source";
 import { REQUIRED_JURISDICTION, WORKSPACE_TABLES } from "./tables";
 import { readAllRows, type WorkspaceStoreFactory } from "./target";
@@ -83,16 +83,22 @@ export async function reconcileWorkspace(
 			// (a Home workspace) names only the columns it sets, and the object
 			// fills the rest with defaults.
 			const bundledRows = tables.get(mapping.table) ?? [];
-			const carried = new Set(bundledRows.flatMap((row) => Object.keys(row)));
+			// Compare the columns the bundle carried: a row the export created
+			// (a Home workspace) names only the columns it sets and the object
+			// fills the rest with defaults; a table the object derives itself is
+			// compared on its key columns only.
+			const carried = new Set(
+				mapping.derivedInObject ??
+					bundledRows.flatMap((row) => Object.keys(row)),
+			);
+			const project = (row: StoredRow): StoredRow =>
+				carried.size === 0
+					? row
+					: Object.fromEntries(
+							Object.entries(row).filter(([column]) => carried.has(column)),
+						);
 			const digest = new RowDigest(mapping.primaryKey);
-			for (const row of actualRows)
-				digest.add(
-					carried.size === 0
-						? row
-						: Object.fromEntries(
-								Object.entries(row).filter(([column]) => carried.has(column)),
-							),
-				);
+			for (const row of actualRows) digest.add(project(row));
 			rows += digest.count;
 			const actualSha256 = digest.hex();
 			// The bundle's own rows are hashed again rather than trusting the
@@ -103,12 +109,17 @@ export async function reconcileWorkspace(
 				problems.push(
 					`bundle rows for ${mapping.table} no longer match its manifest`,
 				);
-			if (digest.count !== expected.count || actualSha256 !== expected.sha256)
+			const projected = new RowDigest(mapping.primaryKey);
+			for (const row of bundledRows) projected.add(project(row));
+			const expectedSha256 = mapping.derivedInObject
+				? projected.hex()
+				: expected.sha256;
+			if (digest.count !== expected.count || actualSha256 !== expectedSha256)
 				drift.push({
 					table: mapping.table,
 					expectedCount: expected.count,
 					actualCount: digest.count,
-					expectedSha256: expected.sha256,
+					expectedSha256,
 					actualSha256,
 				});
 			if (mapping.table === "os_outputs")
