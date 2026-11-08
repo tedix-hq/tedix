@@ -6,6 +6,8 @@
 	"license": "Apache-2.0",
 	"type": "module",
 	"exports": {
+		"./assets/sheet-blueprint": "./src/assets/sheet-blueprint.ts",
+		"./utils/sheet-csv": "./src/utils/sheet-csv.ts",
 		"./assets/doc-blueprint": "./src/assets/doc-blueprint.ts",
 		"./utils/document-patch": "./src/utils/document-patch.ts",
 		"./utils/lane-runner-asker": "./src/utils/lane-runner-asker.ts",
