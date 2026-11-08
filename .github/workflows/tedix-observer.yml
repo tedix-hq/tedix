@@ -8,7 +8,7 @@ on:
       - "docs/**"
       - ".changeset/**"
   workflow_run:
-    workflows: [Deploy gate (push) and full test run (hourly)]
+    workflows: [Deploy gate (push) and full test run (every 8 hours)]
     branches: [main]
     types: [completed]
 

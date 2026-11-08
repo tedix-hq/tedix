@@ -1,11 +1,11 @@
-name: Deploy gate (push) and full test run (hourly)
+name: Deploy gate (push) and full test run (every 8 hours)
 run-name: ${{ github.event_name == 'push' && 'Deploy gate' || 'Full test run' }} @ ${{ github.sha }}
 
 on:
   push:
     branches: [main]
   schedule:
-    - cron: "17 * * * *"
+    - cron: "17 */8 * * *"
   workflow_dispatch:
 
 permissions:
@@ -14,7 +14,7 @@ permissions:
 
 concurrency:
   # Push gates coalesce among themselves and never cancel an active one. The
-  # scheduled and hand-started full runs get their own lane, so an hourly full
+  # scheduled and hand-started full runs get their own lane, so a scheduled full
   # run can never displace a push's two-minute gate (it did at 16:21 on 7 Nov).
   group: main-certification-${{ github.event_name == 'push' && 'gate' || 'full' }}
   cancel-in-progress: false
