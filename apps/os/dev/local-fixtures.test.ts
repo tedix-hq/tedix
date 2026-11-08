@@ -809,6 +809,10 @@ const CALLS = {
 		workspaceId: IDS.workspaceRevenue,
 		dryRun: true,
 	},
+	"osWorkspaces/gadgets/installDocument": {
+		workspaceId: IDS.workspaceRevenue,
+		outputId: IDS.outputDocument,
+	},
 	"osWorkspaces/gadgets/installWorkDefaults": {},
 	"osWorkspaces/gadgets/workApps": { limit: 100 },
 	"osWorkspaces/gadgets/list": { workspaceId: IDS.workspaceRevenue, limit: 50 },
@@ -2270,6 +2274,58 @@ describe("fixture bootstrap parity", () => {
 				conversationId: "home:other-fixture",
 			}).status,
 		).toBe(409);
+	});
+
+	it("installs Doc once and reads subsequent canonical output revisions", async () => {
+		const key = "osWorkspaces/gadgets/installDocument";
+		const input = {
+			workspaceId: IDS.workspaceRevenue,
+			outputId: IDS.outputDocument,
+		};
+		const before = callLocalOk("osWorkspaces/outputs/get", {
+			outputId: input.outputId,
+		});
+		const installed = callLocalOk(key, input) as {
+			gadget: { id: string; sourceBlueprintRevisionId: string };
+		};
+		await expectParsesAgainstContract(key, installed);
+		expect(callLocalOk(key, input)).toEqual(installed);
+		expect(installed.gadget.sourceBlueprintRevisionId).toBeTruthy();
+		expect(
+			callLocalOk("osWorkspaces/outputs/get", { outputId: input.outputId }),
+		).toEqual(before);
+		const client = callLocalOk("osAppRuntime/client", {
+			workspaceId: input.workspaceId,
+			gadgetId: installed.gadget.id,
+		}) as { session: string; settings: { slot: string } };
+		const content = {
+			kind: "document",
+			blocks: [
+				{
+					id: "updated",
+					type: "paragraph",
+					text: "Canonical document changed after installation",
+				},
+			],
+		};
+		callLocalOk("osWorkspaces/outputs/revise", {
+			outputId: input.outputId,
+			content,
+		});
+		expect(
+			callLocalOk("osAppRuntime/readOutput", {
+				workspaceId: input.workspaceId,
+				gadgetId: installed.gadget.id,
+				session: client.session,
+				slot: client.settings.slot,
+			}),
+		).toEqual(content);
+		expect(callLocal(key, { ...input, outputId: IDS.outputSheet }).status).toBe(
+			404,
+		);
+		expect(
+			callLocal(key, { ...input, workspaceId: IDS.workspaceSupport }).status,
+		).toBe(404);
 	});
 
 	it("keeps Office available while installing Feed and Deck once", async () => {

@@ -9549,6 +9549,166 @@ const handlers: Record<string, (input: never) => unknown> = {
 		findWorkspace(input.workspaceId);
 		return { status: "not_connected" as const, providerId: "google-gmail" };
 	},
+	"osWorkspaces/gadgets/installDocument": (input: {
+		workspaceId: string;
+		outputId: string;
+	}) => {
+		findWorkspace(input.workspaceId);
+		const output = findOutput(input.outputId);
+		if (
+			output.workspaceId !== input.workspaceId ||
+			output.kind !== "document" ||
+			output.status !== "active" ||
+			!output.currentRevisionId
+		)
+			throw new RpcError("NOT_FOUND", "Active workspace document not found");
+		const resource = state.workspaceResources.find(
+			(row) =>
+				row.workspaceId === input.workspaceId &&
+				row.resourceType === "output" &&
+				row.providerResourceId === output.id,
+		);
+		if (resource && (resource.status !== "active" || !resource.slot)) {
+			throw new RpcError(
+				"CONFLICT",
+				"The document resource must have an active slot before attaching a Doc app",
+			);
+		}
+		const slot = resource?.slot ?? `doc_${output.id.replaceAll("-", "")}`;
+		const blueprintId = fid("d0", 1);
+		const blueprintRevisionId = fid("d0", 2);
+		const existing = state.gadgets.find(
+			(gadget) =>
+				gadget.workspaceId === input.workspaceId &&
+				gadget.sourceBlueprintRevisionId === blueprintRevisionId &&
+				state.gadgetRevisions.some(
+					(revision) =>
+						revision.id === gadget.currentRevisionId &&
+						revision.manifest.resourceGrants?.some(
+							(grant) => grant.slot === slot,
+						),
+				),
+		);
+		if (existing) {
+			if (existing.status !== "active")
+				throw new RpcError("CONFLICT", "The Doc app is archived");
+			return { gadget: existing };
+		}
+		const createdAt = now();
+		const base = {
+			organizationId: ORG_ID,
+			createdByKind: "user" as const,
+			createdById: "dev-operator",
+			createdAt,
+		};
+		const docDefinition = (
+			documentSlot: string,
+		): OsBlueprintRevision["definition"] => ({
+			gadgets: [
+				{
+					name: "Doc",
+					manifest: {
+						entry: APP_RUNTIME_ENTRY,
+						capabilities: [],
+						config: { version: 1, settings: { slot: documentSlot } },
+						resourceGrants: [
+							{
+								slot: documentSlot,
+								operations: ["outputs.read", "outputs.write", "outputs.patch"],
+							},
+						],
+					},
+					files: {
+						"client.js":
+							"export default { render() { return { type: 'text', text: 'Local document preview' }; } };",
+						"server.js":
+							"export default { async readDocument() { return this.env.TEDIX.outputsRead(this.env.settings.slot, {}); } };",
+					},
+				},
+			],
+			requirements: {
+				version: 1,
+				skills: [],
+				connections: [],
+				policies: [],
+				runtime: null,
+				layout: null,
+				outputs: [
+					{
+						gadget: "Doc",
+						kind: "document",
+						title: "Untitled document",
+						slot: documentSlot,
+					},
+				],
+			},
+		});
+		if (!state.blueprints.some((row) => row.id === blueprintId)) {
+			state.blueprints.push({
+				...base,
+				id: blueprintId,
+				name: "Doc editor",
+				description: "Reusable document editor",
+				status: "published",
+				visibility: "org",
+				currentRevisionId: blueprintRevisionId,
+				lineage: null,
+				updatedAt: createdAt,
+			});
+			state.blueprintRevisions.push({
+				...base,
+				id: blueprintRevisionId,
+				blueprintId,
+				revision: 1,
+				definition: docDefinition("document"),
+				publishedAt: createdAt,
+			});
+		}
+		const declared = docDefinition(slot).gadgets[0]!;
+		const revisionId = nextId();
+		const gadget: OsGadget = {
+			...base,
+			id: nextId(),
+			workspaceId: input.workspaceId,
+			name: `Doc · ${output.title.slice(0, 140)} (${output.id.slice(0, 8)})`,
+			description: "Edit this workspace document",
+			status: "active",
+			currentRevisionId: revisionId,
+			sourceBlueprintRevisionId: blueprintRevisionId,
+			updatedAt: createdAt,
+		};
+		state.gadgets.push(gadget);
+		state.gadgetRevisions.push({
+			...base,
+			id: revisionId,
+			gadgetId: gadget.id,
+			revision: 1,
+			manifest: declared.manifest,
+			sourceArtifactRef: null,
+		});
+		state.gadgetCode[revisionId] = declared.files!;
+		if (!resource)
+			state.workspaceResources.push({
+				...base,
+				id: nextId(),
+				workspaceId: input.workspaceId,
+				slot,
+				providerId: "tedix",
+				connectionScope: "tenant",
+				personalOwnerUserId: null,
+				connectionInstanceId: null,
+				providerAccess: null,
+				requiredScopes: [],
+				resourceType: "output",
+				providerResourceId: output.id,
+				name: output.title,
+				metadata: { gadgetId: gadget.id, kind: "document" },
+				status: "active",
+				updatedAt: createdAt,
+				removedAt: null,
+			});
+		return { gadget };
+	},
 	"osWorkspaces/gadgets/installWorkDefaults": () => {
 		const installed = state.gadgets.flatMap((gadget) => {
 			const revision = state.gadgetRevisions.find(
