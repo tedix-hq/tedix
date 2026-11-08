@@ -3,6 +3,8 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Skeleton } from "@/components/kumo/skeleton";
 import {
 	APP_RUNTIME_CALL_METHOD,
+	APP_RUNTIME_OUTPUTS_CHANGED_METHOD,
+	type AppRuntimeOutputRevision,
 	APP_RUNTIME_LANGUAGE_METHOD,
 	APP_RUNTIME_TRANSLATE_TEXT_METHOD,
 	APP_RUNTIME_TRANSLATION_METHOD,
@@ -26,6 +28,7 @@ export interface AppRuntimeFrameProps {
 	layout?: "content" | "fill";
 	/** The host's Translate, wired to the app document once it is ready. */
 	translation?: AppRuntimeTranslationChannel;
+	outputRevisions?: readonly AppRuntimeOutputRevision[];
 }
 
 const PROXY_READY = "ui/notifications/sandbox-proxy-ready";
@@ -51,10 +54,12 @@ export function AppRuntimeFrame({
 	onCall,
 	layout = "content",
 	translation,
+	outputRevisions = [],
 }: AppRuntimeFrameProps) {
 	const container = useRef<HTMLDivElement>(null);
-	const latest = useRef({ html, onCall, translation });
-	latest.current = { html, onCall, translation };
+	const latest = useRef({ html, onCall, translation, outputRevisions });
+	latest.current = { html, onCall, translation, outputRevisions };
+	const outputRevisionKey = JSON.stringify(outputRevisions);
 	const [state, setState] = useState<"loading" | "ready" | "failed">("loading");
 
 	useEffect(() => {
@@ -199,6 +204,18 @@ export function AppRuntimeFrame({
 		// The document is re-sent through the ref when it changes; the iframe is
 		// re-created only when the app identity (title) or layout changes.
 	}, [title, layout]);
+
+	useEffect(() => {
+		if (state !== "ready") return;
+		container.current?.querySelector("iframe")?.contentWindow?.postMessage(
+			{
+				jsonrpc: "2.0",
+				method: APP_RUNTIME_OUTPUTS_CHANGED_METHOD,
+				params: { outputs: latest.current.outputRevisions },
+			},
+			window.location.origin,
+		);
+	}, [outputRevisionKey, state]);
 
 	// A new revision replaces the running document in place.
 	useEffect(() => {

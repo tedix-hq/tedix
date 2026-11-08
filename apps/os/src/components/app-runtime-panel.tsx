@@ -4,7 +4,7 @@ import type {
 	OsGadgetRevision,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
 import { osApi, osAppRuntimeCall } from "@/lib/api";
 import { createAppRuntimeServerCall } from "@/lib/app-runtime-session";
@@ -142,6 +142,47 @@ export function AppRuntimeSandbox({
 		[gadget.id, gadget.name, manifest, revision, role, workspaceId],
 	);
 	const resourceRows = resources.data?.items;
+	const boundOutputs = useMemo(
+		() =>
+			(resourceRows ?? []).filter(
+				(resource) =>
+					resource.status === "active" &&
+					resource.providerId === "tedix" &&
+					resource.resourceType === "output" &&
+					context.grants.some(
+						(grant) =>
+							grant.slot === resource.slot &&
+							grant.operations.includes("outputs.read"),
+					),
+			),
+		[resourceRows, context.grants],
+	);
+	const outputReads = useQueries({
+		queries: boundOutputs.map((resource) => ({
+			...outputDetailQueryOptions(resource.providerResourceId),
+			enabled: role !== null && role !== "viewer",
+		})),
+	});
+	const outputRevisions = outputReads.flatMap((read, index) => {
+		const resource = boundOutputs[index];
+		const current = read.data?.currentRevision;
+		return role !== null &&
+			role !== "viewer" &&
+			resource?.slot &&
+			read.isSuccess &&
+			read.data.output.workspaceId === workspaceId &&
+			current
+			? [
+					{
+						slot: resource.slot,
+						outputId: resource.providerResourceId,
+						revisionId: current.id,
+						revision: current.revision,
+					},
+				]
+			: [];
+	});
+
 	const onCall = useCallback(
 		(method: unknown, args: unknown) =>
 			handleAppRuntimeCall(
@@ -168,6 +209,7 @@ export function AppRuntimeSandbox({
 			onCall={onCall}
 			layout={layout}
 			translation={translation}
+			outputRevisions={outputRevisions}
 		/>
 	);
 }
