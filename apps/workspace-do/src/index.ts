@@ -88,22 +88,6 @@ export class InternalEntrypoint extends WorkerEntrypoint<WorkspaceEnv> {
 const MIGRATION_PATH =
 	/^\/migration\/workspaces\/([^/]+)\/([^/]+)(\/import|\/rows)?$/;
 
-/** Blobs travel as `{ "$b64": … }`; everything else is JSON as stored. */
-function decodeRow(row: Record<string, unknown>) {
-	return Object.fromEntries(
-		Object.entries(row).map(([key, value]) => {
-			if (value && typeof value === "object" && "$b64" in value) {
-				const bytes = Uint8Array.from(
-					atob(String((value as { $b64: string }).$b64)),
-					(c) => c.charCodeAt(0),
-				);
-				return [key, bytes.buffer];
-			}
-			return [key, value];
-		}),
-	);
-}
-
 /** The migration tool's three routes, guarded by `MIGRATE_WORKSPACES_TOKEN`. */
 async function handleMigration(
 	request: Request,
@@ -117,6 +101,18 @@ async function handleMigration(
 		.trim();
 	if (!token || !presented || presented !== token) {
 		return new Response("Unauthorized", { status: 401 });
+	}
+	// Keep this fence at the worker as well as the importer: an older client
+	// must not move customer data through either public or service fetch.
+	if (match[3] === "/import" && request.method === "POST") {
+		return Response.json(
+			{
+				code: "MEMORY_MIGRATION_PREREQUISITES_UNPROVEN",
+				error:
+					"Organization memory authorization parity, a validated full snapshot and historical log coverage must be established before customer data moves",
+			},
+			{ status: 409 },
+		);
 	}
 	const scope: WorkspaceScope = {
 		organizationId: decodeURIComponent(match[1] ?? ""),
@@ -134,18 +130,6 @@ async function handleMigration(
 	if (request.method !== "POST")
 		return new Response("Method not allowed", { status: 405 });
 	const body = (await request.json()) as Record<string, unknown>;
-	if (route === "/import") {
-		const rows = Array.isArray(body.rows)
-			? (body.rows as Record<string, unknown>[])
-			: [];
-		return Response.json(
-			await stub.importRows(scope, {
-				batchId: String(body.batchId ?? ""),
-				table: String(body.table ?? ""),
-				rows: rows.map(decodeRow),
-			}),
-		);
-	}
 	if (route === "/rows") {
 		const input: ExportRowsInput = {
 			table: String(body.table ?? ""),

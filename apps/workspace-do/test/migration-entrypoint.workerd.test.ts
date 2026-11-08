@@ -1,6 +1,6 @@
 import { createExecutionContext, env } from "cloudflare:test";
 import { describe, expect, test } from "vite-plus/test";
-import { InternalEntrypoint } from "../src/index";
+import worker, { InternalEntrypoint } from "../src/index";
 import type { WorkspaceEnv } from "../src/env";
 
 const scope = {
@@ -18,6 +18,42 @@ function entrypoint() {
 }
 
 describe("migration through the RPC service entrypoint", () => {
+	test("blocks authenticated imports through public and service fetch before addressing an object", async () => {
+		const guardedEnv = {
+			MIGRATE_WORKSPACES_TOKEN: token,
+			// An absent namespace proves rejection precedes even an object wake.
+		} as WorkspaceEnv;
+		const service = new InternalEntrypoint(
+			createExecutionContext(),
+			guardedEnv,
+		);
+		for (const fetch of [
+			(request: Request) => worker.fetch(request, guardedEnv),
+			(request: Request) => service.fetch(request),
+		]) {
+			for (const authorization of [
+				"",
+				"Bearer incorrect-test-token",
+				`Bearer ${token}`,
+			]) {
+				const response = await fetch(
+					new Request(`${base}/import`, {
+						method: "POST",
+						headers: { authorization },
+						body: "invalid JSON",
+					}),
+				);
+				expect(response.status).toBe(
+					authorization === `Bearer ${token}` ? 409 : 401,
+				);
+				if (response.status === 409)
+					expect(await response.json()).toMatchObject({
+						code: "MEMORY_MIGRATION_PREREQUISITES_UNPROVEN",
+					});
+			}
+		}
+	});
+
 	test("describes the real workspace schema through the bound entrypoint", async () => {
 		const response = await entrypoint().fetch(
 			new Request(base, {
