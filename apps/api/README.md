@@ -29,6 +29,16 @@ Contracts and schemas live in
 Import contracts for typed clients; the `@tedix/api/rpc` export points to the
 server implementation tree.
 
+The memory browser reads organization memory through
+`src/services/memory-owner-read.ts`. This boundary derives reader identity
+from the authenticated request context, checks read permission and current
+workspace visibility for scoped reads, and replaces caller-supplied tedi IDs
+before dispatch. It accepts only browse and recall operations; raw fact
+access and mutations require their own policy integration. Browse retains
+inspection visibility, while recall applies the existing review and use
+policies. The browser still uses shared D1; the runtime port is available
+for the coordinated cutover, with no automatic storage fallback.
+
 ## HTTP surfaces
 
 HTTP modules in `src/http` register routes and middleware;

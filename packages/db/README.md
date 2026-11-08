@@ -143,8 +143,9 @@ does not perform conversions or reinterpret existing records.
 Shared D1 supports organization ownership only. Workspace and personal
 requests fail rather than falling back to organization data. The owner
 contract does not change `tediId`, `visibility`, `memoryScope` or `usePolicy`.
-Public gateway adoption, migration routing and live parity remain
-separate integration work. Remote imports remain blocked until the recovery
+The API memory browser uses the authenticated owner read boundary; other
+gateway operations, migration routing and live parity remain integration
+work. Remote imports remain blocked until the recovery
 and authorization prerequisites in the migration runbook are proven.
 
 ## Development
