@@ -49,6 +49,7 @@
 		"ci/full-suite-shards.test.ts",
 		"ci/affected-suite.test.ts",
 		"ci/full-suite-workflow.test.ts",
+		"ci/shard-rerun.test.ts",
 		"ci/backfill-commit-watch.mjs",
 		"ci/backfill-commit-watch.test.ts",
 		"ci/high-risk-paths.test.ts",
