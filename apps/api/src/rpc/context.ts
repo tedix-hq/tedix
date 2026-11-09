@@ -95,6 +95,8 @@ export interface BaseContext {
 	 */
 	dbBookmark?: () => string | null;
 	dbMetrics?: DbSession["metrics"];
+	/** `Server-Timing` entries a procedure adds, e.g. `app-runtime;dur=812`. */
+	serverTiming?: string[];
 	/**
 	 * Authenticated user (Descope JWT payload)
 	 * Present when authenticated via Descope SSO (Tedix OS and user-facing endpoints)
@@ -250,6 +252,7 @@ export function createContext(
 		db: session.db,
 		dbBookmark: session.getBookmark,
 		dbMetrics: session.metrics,
+		serverTiming: [],
 		headers: request.headers,
 		serviceBindingPrincipal: getServiceBindingPrincipal(request),
 		url: new URL(request.url),

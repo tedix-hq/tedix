@@ -54,11 +54,22 @@ function getOpenApiHandler(): OpenAPIHandler<BaseContext> {
 	return openApiHandlerInstance;
 }
 
-function withDbBookmark(response: Response, context: BaseContext): Response {
+function withResponseMetadata(
+	response: Response,
+	context: BaseContext,
+): Response {
 	const bookmark = context.dbBookmark?.();
-	if (!bookmark) return response;
+	const metrics = context.dbMetrics;
+	const timing = [
+		...(context.serverTiming ?? []),
+		...(metrics
+			? [`db;desc="queries=${metrics.queries} rows=${metrics.rowsRead}"`]
+			: []),
+	];
+	if (!bookmark && timing.length === 0) return response;
 	const headers = new Headers(response.headers);
-	headers.set(D1_BOOKMARK_HEADER, bookmark);
+	if (bookmark) headers.set(D1_BOOKMARK_HEADER, bookmark);
+	if (timing.length) headers.append("Server-Timing", timing.join(", "));
 	return new Response(response.body, {
 		status: response.status,
 		statusText: response.statusText,
@@ -173,7 +184,7 @@ export function registerRpcRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 			}
 		}
 
-		return withDbBookmark(response, context);
+		return withResponseMetadata(response, context);
 	});
 
 	// =============================================================================
@@ -240,6 +251,6 @@ export function registerRpcRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 			}
 		}
 
-		return withDbBookmark(response, context);
+		return withResponseMetadata(response, context);
 	});
 }

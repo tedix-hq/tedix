@@ -72,7 +72,14 @@ export async function handleWorkspaceAppCall(
 		env,
 		`${session.organizationId}:${session.workspaceId}`,
 	);
-	return Response.json(await host.call(input));
+	const started = Date.now();
+	const { value, capabilityMs } = await host.callTimed(input);
+	// The API forwards these so a slow app call names its slow hop.
+	return Response.json(value, {
+		headers: {
+			"Server-Timing": `rt-host;dur=${Date.now() - started}, rt-capability;dur=${capabilityMs}`,
+		},
+	});
 }
 
 export const WORKSPACE_APP_CLOSE_DRAFT_PATH =
