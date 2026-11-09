@@ -80,7 +80,7 @@ import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { INPUT_REQUIRED_META_KEY } from "./mrtr";
 import { checkToolPayment, attachPaymentResponseMeta } from "./payments";
 import { settleToolPayment } from "./payments-settlement";
-import { executeTool } from "./tool-execution";
+import { executeTool, preflightSecretEgress } from "./tool-execution";
 import {
 	collectCodeModeCollectionRead,
 	collectCodeModeReadObservation,
@@ -395,6 +395,12 @@ export function buildNamespaceGroups(
 				if (executionRefs.approvalResult)
 					throw new Error("Destructive approval pending");
 				const { toolArgs, inlineExtra } = splitToolArgs(args);
+				const secretEgress = await preflightSecretEgress(
+					serverCtx,
+					tool,
+					toolArgs,
+				);
+				if (secretEgress.denial) throw innerToolError(secretEgress.denial);
 				if (
 					isNonPayingConnection(
 						serverCtx.connectionAppSlug ?? serverCtx.appSlug,
@@ -542,6 +548,7 @@ export function buildNamespaceGroups(
 						adapterScope,
 						resultStrategy,
 						executionId: executionRefs.executionId,
+						secretEgressDecision: secretEgress.decision,
 						ownerHostSession: executionRefs.ownerHostSession,
 						...(nativeCandidate
 							? { expectedNativePolicyRevalidate: nativeCandidate.revalidate }

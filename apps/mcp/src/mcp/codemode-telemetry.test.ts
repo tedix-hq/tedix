@@ -264,6 +264,10 @@ vi.mock("@cloudflare/codemode", async () => {
 
 vi.mock("./tool-execution", () => ({
 	executeTool: vi.fn(),
+	preflightSecretEgress: vi.fn(async () => ({
+		denial: null,
+		decision: undefined,
+	})),
 }));
 
 import { executeCatalogOperation } from "./codemode-catalog";
@@ -274,7 +278,7 @@ import { registerCodeModeTools as registerStateless } from "@tedix/tedi-codemode
 import { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod";
 import type { AppTool, ServerContext } from "./server-context";
-import { executeTool } from "./tool-execution";
+import { executeTool, preflightSecretEgress } from "./tool-execution";
 
 const tediRecord = {
 	id: "11111111-1111-4111-8111-111111111111",
@@ -440,6 +444,7 @@ async function awaitProviderEntry(
 
 describe("Code Mode tail telemetry", () => {
 	const executeToolMock = vi.mocked(executeTool);
+	const preflightSecretEgressMock = vi.mocked(preflightSecretEgress);
 	let logSpy: ReturnType<typeof vi.spyOn>;
 
 	beforeEach(() => {
@@ -451,12 +456,17 @@ describe("Code Mode tail telemetry", () => {
 			_meta: {},
 			isError: true,
 		});
+		preflightSecretEgressMock.mockResolvedValue({
+			denial: null,
+			decision: undefined,
+		});
 		logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 	});
 
 	afterEach(() => {
 		logSpy.mockRestore();
 		executeToolMock.mockReset();
+		preflightSecretEgressMock.mockReset();
 	});
 
 	it("names external and Tedix callables once in the outer trust summary", async () => {
@@ -1532,6 +1542,51 @@ describe("Code Mode tail telemetry", () => {
 			expect.stringContaining("Identical call blocked"),
 			expect.stringContaining("Identical call blocked"),
 		]);
+	});
+
+	it("reports a preflight secret-egress denial without dispatching the tool", async () => {
+		preflightSecretEgressMock.mockResolvedValue({
+			decision: undefined,
+			denial: {
+				content: [
+					{
+						type: "text",
+						text: "Tool call blocked before public egress: arguments matched the GitHub token pattern.",
+					},
+				],
+				structuredContent: {
+					code: "SECRET_EGRESS_DENIED",
+					retryable: false,
+				},
+				_meta: {
+					"tedix/error": {
+						code: "SECRET_EGRESS_DENIED",
+						status: 403,
+						retryable: false,
+					},
+				},
+				isError: true,
+			},
+		});
+		const registered = new Map<string, (args: unknown) => Promise<unknown>>();
+		await registerCodeModeTools(
+			{
+				registerTool: (
+					name: string,
+					_config: unknown,
+					handler: (args: unknown) => Promise<unknown>,
+				) => registered.set(name, handler),
+			} as never,
+			makeServerCtx(),
+		);
+
+		const response = (await registered.get("code")?.({
+			code: "async () => test.soft_fail({ marker: 'fake' })",
+		})) as { structuredContent?: { error?: string } };
+
+		expect(response.structuredContent?.error).toContain("SECRET_EGRESS_DENIED");
+		expect(preflightSecretEgressMock).toHaveBeenCalledOnce();
+		expect(executeToolMock).not.toHaveBeenCalled();
 	});
 
 	it.each(["throw", "reject", "logs"])(

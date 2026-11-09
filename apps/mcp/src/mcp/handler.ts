@@ -242,6 +242,67 @@ export interface RpcToolResult {
 	connectionRecovery?: ConnectionRecovery;
 }
 
+type SecretEgressContext = Pick<
+	ToolExecutionContext<ToolConfig>,
+	"apiClient" | "app" | "config" | "publicEgress" | "secretEgressDecision"
+>;
+
+export async function checkSecretEgress(
+	input: Record<string, unknown>,
+	ctx: SecretEgressContext,
+): Promise<RpcToolResult | null> {
+	if (ctx.secretEgressDecision?.gateDecision === "allow") return null;
+	const config = ctx.config;
+	const ownTediCall =
+		!ctx.publicEgress &&
+		typeof readToolConfigExtension(config, "_aggregateTediId") === "string" &&
+		typeof ctx.app.organizationId === "string" &&
+		readToolConfigExtension(config, "_aggregateTediOrgId") ===
+			ctx.app.organizationId;
+	if (
+		ownTediCall ||
+		(!ctx.publicEgress && !isUntrustedTransport(config?.transport))
+	)
+		return null;
+
+	const secretPattern = findSecretValuePattern(input);
+	if (!secretPattern) return null;
+
+	let mode: "block" | "warn" = "block";
+	const organizationId = ctx.app.organizationId;
+	if (organizationId && ctx.apiClient) {
+		try {
+			mode = (
+				await ctx.apiClient.mcpGovernance.resolveSecretEgressPolicy({
+					organizationId,
+				})
+			).mode;
+		} catch {
+			// A policy read cannot safely weaken the default block.
+		}
+	}
+	ctx.secretEgressDecision = {
+		...gateDecisionMetadata(
+			"secret_egress",
+			mode === "warn" ? "allow" : "deny",
+			mode === "warn" ? "secret_detected_warn" : "secret_detected",
+		),
+		secretPattern,
+		policyMode: mode,
+		...(mode === "block" ? { denialReason: "SECRET_EGRESS_DENIED" } : {}),
+	};
+	if (mode === "warn") return null;
+
+	return {
+		status: 403,
+		data: {
+			code: "SECRET_EGRESS_DENIED",
+			retryable: false,
+			error: `Tool call blocked before public egress through the "${config?.transport ?? "rpc"}" transport: arguments matched the ${secretPattern} pattern. Remove the secret and retry.`,
+		},
+	};
+}
+
 /** The approved tool's required scopes plus their machine translations. */
 function homeApprovedToolScopes(
 	toolId: string,
@@ -359,53 +420,8 @@ export class ToolHandler {
 		// A call to one of the organization's own tedis stays inside Tedix, so
 		// neither the transport nor a URL slug that looks like a key makes it
 		// egress. A tool an owner flagged `publicEgress` is still scanned.
-		const ownTediCall =
-			!ctx.publicEgress &&
-			typeof readToolConfigExtension(config, "_aggregateTediId") === "string" &&
-			typeof ctx.app.organizationId === "string" &&
-			readToolConfigExtension(config, "_aggregateTediOrgId") ===
-				ctx.app.organizationId;
-		if (
-			!ownTediCall &&
-			(ctx.publicEgress || isUntrustedTransport(config?.transport))
-		) {
-			const secretPattern = findSecretValuePattern(input);
-			if (secretPattern) {
-				let mode: "block" | "warn" = "block";
-				const organizationId = ctx.app.organizationId;
-				if (organizationId && ctx.apiClient) {
-					try {
-						mode = (
-							await ctx.apiClient.mcpGovernance.resolveSecretEgressPolicy({
-								organizationId,
-							})
-						).mode;
-					} catch {
-						// A policy read cannot safely weaken the default block.
-					}
-				}
-				ctx.secretEgressDecision = {
-					...gateDecisionMetadata(
-						"secret_egress",
-						mode === "warn" ? "allow" : "deny",
-						mode === "warn" ? "secret_detected_warn" : "secret_detected",
-					),
-					secretPattern,
-					policyMode: mode,
-					...(mode === "block" ? { denialReason: "SECRET_EGRESS_DENIED" } : {}),
-				};
-				if (mode === "block") {
-					return {
-						status: 403,
-						data: {
-							code: "SECRET_EGRESS_DENIED",
-							retryable: false,
-							error: `Tool call blocked before public egress through the "${config?.transport ?? "rpc"}" transport: arguments matched the ${secretPattern} pattern. Remove the secret and retry.`,
-						},
-					};
-				}
-			}
-		}
+		const secretEgressDenial = await checkSecretEgress(input, ctx);
+		if (secretEgressDenial) return secretEgressDenial;
 		// Discovery shard rows have no schema or execution contract.
 		if (isDiscoveryShardTool(config)) {
 			return {
