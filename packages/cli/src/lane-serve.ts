@@ -2208,9 +2208,14 @@ export class LaneDispatcher {
 	): Promise<boolean> {
 		for (const row of rows) {
 			if (row.version === workVersion) {
+				// The run ended while waiting: it settled as a wait, or its lease
+				// elapsed with the wait retained. Either way only the question
+				// decides whether dispatch may resume.
+				const ended =
+					(hasSettledOutcome(row) && row.outcome === "cancelled") ||
+					(row.phase === "deferred" && row.outcome === "expired");
 				if (
-					!hasSettledOutcome(row) ||
-					row.outcome !== "cancelled" ||
+					!ended ||
 					row.admissionState !== "admitted" ||
 					!row.attemptId ||
 					!row.session ||

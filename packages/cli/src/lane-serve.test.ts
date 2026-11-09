@@ -5680,6 +5680,92 @@ describe("structured dispatcher outcomes", () => {
 			expect(f.releases).toHaveLength(2);
 		},
 	);
+	it.each(["cancelled", "open"] as const)(
+		"checks the question of a wait whose lease expired (request %s)",
+		async (state) => {
+			const f = fixture();
+			f.items.splice(1);
+			Object.assign(f.items[0]!, { workKind: "coding", orgId });
+			f.control.finalMessage = `TEDIX_LANE_RESULT ${JSON.stringify(waiting())}`;
+			await f.dispatcher.tick();
+			await until(() => f.releases.length === 1);
+			liveFence(f);
+			f.releases[0]!();
+			await f.dispatcher.drain();
+			// The lease elapsed while the run waited: the receipt keeps the wait
+			// but is deferred and expired rather than settled and cancelled.
+			const path = join(f.dir, `${item().id}-2.json`);
+			const receipt = JSON.parse(readFileSync(path, "utf8"));
+			writeFileSync(
+				path,
+				JSON.stringify({ ...receipt, phase: "deferred", outcome: "expired" }),
+			);
+			f.control.history.data[0]!.outcome = "expired";
+			f.control.history.data[0]!.metadata = {
+				dispatchVersion: 2,
+				laneResult: waiting(),
+			};
+			const at = "2026-10-31T12:00:00.000Z";
+			const cli = f.deps.cli!;
+			f.deps.cli = async <T>(
+				args: string[],
+				env: NodeJS.ProcessEnv,
+			): Promise<T> => {
+				if (args[5] !== "interaction-get") return cli<T>(args, env);
+				return {
+					request: {
+						id: interactionId,
+						orgId,
+						workItemId: item().id,
+						caseId: null,
+						projectId: null,
+						kind: "question",
+						subject: "Confirm controls",
+						prompt: "Confirm controls",
+						requestedFromType: "user",
+						requestedFromId: "fictional-owner",
+						creatorType: "user",
+						creatorId: "requester",
+						creatorSessionId: null,
+						state,
+						requestedAt: at,
+						dueAt: null,
+						expiresAt: null,
+						resolvedAt: state === "cancelled" ? at : null,
+						version: 2,
+						metadata: {},
+					},
+					effectiveState: state,
+					canRespond: false,
+					canCancel: false,
+					responses: { data: [], hasMore: false, nextCursor: null },
+				} as T;
+			};
+			f.control.finalMessage = "The closed request was re-checked.";
+			f.control.commits = ["b".repeat(40)];
+			const restarted = f.restart();
+			await restarted.tick();
+			if (state === "open") {
+				await restarted.drain();
+				expect(f.releases).toHaveLength(1);
+				expect(
+					JSON.parse(readFileSync(path, "utf8")).waitReleasedAt,
+				).toBeUndefined();
+				return;
+			}
+			await until(() => f.releases.length === 2);
+			f.releases[1]!();
+			await restarted.drain();
+			expect(
+				f.events.filter(
+					(e) =>
+						e.verb === "start" &&
+						e.args[4] === "work" &&
+						e.args[6] === item().id,
+				),
+			).toHaveLength(2);
+		},
+	);
 	it("keeps holding while the waited request remains open", async () => {
 		const f = fixture();
 		f.items.splice(1);
