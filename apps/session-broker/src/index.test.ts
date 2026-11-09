@@ -245,6 +245,15 @@ describe("SessionRotationOwner", () => {
 		const first = stub.rotate(rotationInput("tenant-one"));
 		const second = stub.rotate(rotationInput("tenant-two"));
 		await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+		// Both RPCs must reach the owner before the first response is released.
+		await vi.waitFor(async () =>
+			expect(
+				await runInDurableObject(
+					stub,
+					(instance: SessionRotationOwner) => instance["pendingOperations"],
+				),
+			).toBe(2),
+		);
 		releaseFirst?.();
 
 		const [firstResult, secondResult] = await Promise.all([first, second]);
