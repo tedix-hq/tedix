@@ -30,8 +30,14 @@ import {
 
 const config = vi.hoisted(() => ({
 	env: {} as { WORKSPACE_RUNTIME?: WorkspaceOutputRuntime },
+	background: [] as Promise<unknown>[],
 }));
-vi.mock("cloudflare:workers", () => ({ env: config.env }));
+vi.mock("cloudflare:workers", () => ({
+	env: config.env,
+	waitUntil: (work: Promise<unknown>) => config.background.push(work),
+}));
+/** Lists repair projections after responding; wait as the runtime would. */
+const settled = () => Promise.all(config.background.splice(0));
 import * as storage from "./workspace-output-storage";
 import { sweepOutputRevisionBodies } from "./os-output-revision-gc";
 
@@ -198,6 +204,7 @@ describe("workspace output storage authority", () => {
 			}),
 		).toBeUndefined();
 		await storage.listOsOutputs(core, scope, viewer);
+		await settled();
 		expect(
 			(
 				await storage.getOsOutput(core, {

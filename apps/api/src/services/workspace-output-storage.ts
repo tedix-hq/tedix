@@ -1,4 +1,4 @@
-import { env } from "cloudflare:workers";
+import { env, waitUntil } from "cloudflare:workers";
 import * as legacy from "@tedix/db/queries/os-workspaces/outputs";
 import type { WorkspaceOutputRuntime } from "@tedix/db/queries/durable-sqlite/output-rpc";
 import {
@@ -82,16 +82,16 @@ export async function listOsOutputs(
 			{ organizationId: scope.organizationId, workspaceId: scope.workspaceId },
 			{ op: "list", options },
 		);
-		for (const row of objectRows) {
-			if (rows.some((candidate) => candidate.id === row.id)) continue;
-			await store.refreshOutputProjection(
-				{
-					organizationId: scope.organizationId,
-					workspaceId: scope.workspaceId,
-				},
-				row.id,
-			);
-		}
+		// Repair projections a failed write may have left stale, after the
+		// response: awaiting one refresh per file made every list cost seconds.
+		const workspaceScope = {
+			organizationId: scope.organizationId,
+			workspaceId: scope.workspaceId,
+		};
+		const repairs = objectRows
+			.filter((row) => !rows.some((candidate) => candidate.id === row.id))
+			.map((row) => refreshCommittedOutput(store, workspaceScope, row.id));
+		if (repairs.length) waitUntil(Promise.all(repairs));
 	} else {
 		const indexed = await listWorkspaceOutputLibrary(
 			db,
