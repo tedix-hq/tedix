@@ -93,3 +93,22 @@ export const LaneCheckpointSchema = z
 	})
 	.strict();
 export type LaneCheckpoint = z.infer<typeof LaneCheckpointSchema>;
+
+/** An owner's grant of one extra lane Attempt, replacing a named failed one. */
+export const LaneAttemptGrantInputSchema = z
+	.object({
+		id: z.uuid(),
+		attemptId: z.uuid(),
+		reason: z.string().trim().min(1).max(1000),
+	})
+	.strict();
+export const LaneAttemptGrantSchema = z
+	.object({
+		id: z.string(),
+		workItemId: z.string(),
+		attemptId: z.string().nullable(),
+		reason: z.string(),
+		occurredAt: z.string(),
+	})
+	.strict();
+export type LaneAttemptGrant = z.infer<typeof LaneAttemptGrantSchema>;

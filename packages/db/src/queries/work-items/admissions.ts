@@ -8,6 +8,7 @@ import type { DbQueryClient } from "../../query-client";
 import { capabilityLinks, orgCapabilities } from "../../schema/capabilities";
 import {
 	workAttempts,
+	workEvents,
 	workItemRelations,
 	workItems,
 } from "../../schema/work-items";
@@ -532,17 +533,30 @@ async function evaluate(
 		);
 		if (!executor || executor.costMicros === null)
 			return reject("Lane executor or its pricing is unavailable");
-		const attempts = await db
+		// A cancelled Attempt (a deferred or waiting run, or a revision during
+		// preparation) did not execute the brief, so it spends no budget. Each
+		// owner grant restores exactly one Attempt it names.
+		const used = await db
 			.select({ id: workAttempts.id })
 			.from(workAttempts)
 			.where(
 				and(
 					eq(workAttempts.orgId, p.orgId),
 					eq(workAttempts.workItemId, p.workItemId),
+					sql`(${workAttempts.outcome} IS NULL OR ${workAttempts.outcome}<>'cancelled')`,
 				),
-			)
-			.limit(policy.maxAttempts);
-		if (attempts.length >= policy.maxAttempts)
+			);
+		const granted = await db
+			.select({ id: workEvents.id })
+			.from(workEvents)
+			.where(
+				and(
+					eq(workEvents.orgId, p.orgId),
+					eq(workEvents.workItemId, p.workItemId),
+					eq(workEvents.eventType, "lane.attempt_granted"),
+				),
+			);
+		if (used.length >= policy.maxAttempts + granted.length)
 			return reject("Lane retry budget exhausted");
 		if (
 			laneResourceKeys(policy, executor).some(

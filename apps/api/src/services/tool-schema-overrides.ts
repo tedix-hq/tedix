@@ -761,6 +761,7 @@ export const WORK_HIERARCHY_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"workItems/replaceAdmissionSpecification":
 		"replace_work_admission_specification",
 	"workItems/getAdmissionSpecification": "get_work_admission_specification",
+	"workItems/grantLaneAttempt": "grant_work_lane_attempt",
 	"workItems/putResourcePool": "put_work_resource_pool",
 	"workItems/listResourcePools": "list_work_resource_pools",
 	"workItems/putBudgetEnvelope": "put_work_budget_envelope",
@@ -895,6 +896,7 @@ export const WORK_HIERARCHY_KIND_OVERRIDES: Record<
 	"workItems/addCaseDependency": "write",
 	"workItems/replaceAdmissionSpecification": "write",
 	"workItems/getAdmissionSpecification": "read",
+	"workItems/grantLaneAttempt": "write",
 	"workItems/putResourcePool": "write",
 	"workItems/listResourcePools": "read",
 	"workItems/putBudgetEnvelope": "write",
