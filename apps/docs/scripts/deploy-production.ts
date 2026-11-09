@@ -58,12 +58,12 @@ function imageFiles(dockerfile: Buffer): { path: string; contents: Buffer }[] {
 	return files;
 }
 
-async function registryPassword(
+async function registryCredentials(
 	accountId: string,
 	apiToken: string,
-): Promise<string> {
+): Promise<{ username: string; password: string }> {
 	const response = await fetch(
-		`https://api.cloudflare.com/client/v4/accounts/${accountId}/containers/registry/credentials`,
+		`https://api.cloudflare.com/client/v4/accounts/${accountId}/containers/registries/${registryHost}/credentials`,
 		{
 			method: "POST",
 			headers: {
@@ -78,12 +78,14 @@ async function registryPassword(
 	);
 	if (!response.ok) throw new Error(`registry credentials: ${response.status}`);
 	const body = (await response.json()) as {
-		result?: { password?: string };
+		result?: { username?: string; password?: string };
 	};
-	const password = body.result?.password;
+	const { username, password } = body.result ?? {};
+	if (typeof username !== "string" || username === "")
+		throw new Error("registry credentials: empty username");
 	if (typeof password !== "string" || password === "")
 		throw new Error("registry credentials: empty password");
-	return password;
+	return { username, password };
 }
 
 function imageExists(reference: string): boolean {
@@ -115,10 +117,17 @@ async function ensureImage(): Promise<string | undefined> {
 		accountId,
 		imageInputTag(imageFiles(dockerfile)),
 	);
+	const credentials = await registryCredentials(accountId, apiToken);
 	run(
 		"docker",
-		["login", registryHost, "--username", "v1", "--password-stdin"],
-		`${await registryPassword(accountId, apiToken)}\n`,
+		[
+			"login",
+			registryHost,
+			"--username",
+			credentials.username,
+			"--password-stdin",
+		],
+		`${credentials.password}\n`,
 	);
 	if (imageExists(reference)) {
 		console.log(`docs deploy: reusing image ${reference}`);
