@@ -13,6 +13,7 @@ import { skillRunArtifacts } from "../schema/cognitive";
 import { tediRuntimeEvents } from "../schema/cognitive-runtime";
 import {
 	type OutcomeStatus,
+	rationaleOrgCounts,
 	type TediRationaleRecord,
 	tediRationaleRecords,
 } from "../schema/rationale-records";
@@ -305,7 +306,13 @@ export async function listRationaleRecords(
 			.orderBy(desc(tediRationaleRecords.createdAt))
 			.limit(limit)
 			.offset(offset),
-		db.$count(tediRationaleRecords, whereClause),
+		orgId && !options.tediId && !options.category && !options.outcomeStatus
+			? db
+					.select({ total: rationaleOrgCounts.total })
+					.from(rationaleOrgCounts)
+					.where(eq(rationaleOrgCounts.orgId, orgId))
+					.then((rows) => rows[0]?.total ?? 0)
+			: db.$count(tediRationaleRecords, whereClause),
 	]);
 
 	return { data, total };

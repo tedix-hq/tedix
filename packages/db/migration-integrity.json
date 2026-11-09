@@ -1400,6 +1400,10 @@
 		{
 			"name": "20261107205003_work_events_personal_outcome/migration.sql",
 			"sha256": "68b0c69e6fb679349c813d239c0c33b507a7887791dec78a6bce7115b534a75c"
+		},
+		{
+			"name": "20261109122650_main_d1_count_reads/migration.sql",
+			"sha256": "50a9b1022825c6703e439f3441fb5299f429963f4e841cfc12d588425768dace"
 		}
 	]
 }

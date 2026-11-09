@@ -13,11 +13,25 @@ import {
 	type RationaleProofRefKind,
 } from "@tedix/api-contract/constants/enums";
 import type { RationaleRecord } from "@tedix/api-contract/schemas/rationale-records";
-import { index, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import {
+	index,
+	integer,
+	real,
+	sqliteTable,
+	text,
+} from "drizzle-orm/sqlite-core";
 import { organizations } from "./organizations";
 import { tedis } from "./tedis";
 
 export type OutcomeStatus = RationaleOutcomeStatus;
+
+// Database triggers include writes and cascade deletes outside the query helpers.
+export const rationaleOrgCounts = sqliteTable("rationale_org_counts", {
+	orgId: text("org_id")
+		.primaryKey()
+		.references(() => organizations.id, { onDelete: "cascade" }),
+	total: integer("total").notNull().default(0),
+});
 
 // =============================================================================
 // TABLE
