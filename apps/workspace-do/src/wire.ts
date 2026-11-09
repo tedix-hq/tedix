@@ -18,6 +18,10 @@ export interface TurnUsage {
 	outputTokens: number;
 	cachedInputTokens?: number;
 	partial?: boolean;
+	/** Governed-rate price of the finished turn, in US dollars. */
+	costUsd?: number;
+	/** Why the finished turn has no price; set exactly when `costUsd` is absent. */
+	costUnavailable?: string;
 }
 
 export type WireEventBody =

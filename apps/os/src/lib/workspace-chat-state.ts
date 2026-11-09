@@ -563,6 +563,17 @@ export function elapsedLabel(ms: number): string {
 	return `${minutes}m ${rest.toString().padStart(2, "0")}s`;
 }
 
+/** A finished turn's cost, or the reason it has none. Never a made-up zero. */
+export function formatTurnCost(usage: TurnUsage | undefined): string {
+	if (usage?.costUsd !== undefined && Number.isFinite(usage.costUsd))
+		return usage.costUsd > 0 && usage.costUsd < 0.0001
+			? "Cost <$0.0001"
+			: `Cost $${usage.costUsd.toFixed(4)}`;
+	return usage?.costUnavailable
+		? `Cost unavailable: ${usage.costUnavailable}`
+		: "Cost unavailable";
+}
+
 export function formatUsage(usage: TurnUsage): string {
 	// Older runtimes wrote zeroes when no provider usage was available.
 	if (

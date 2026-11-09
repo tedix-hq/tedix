@@ -58,6 +58,7 @@ import {
 	type ChatTurn,
 	type WorkspaceChatState,
 	elapsedLabel,
+	formatTurnCost,
 	formatUsage,
 	pendingApproval,
 } from "@/lib/workspace-chat-state";
@@ -79,6 +80,19 @@ export type WorkspaceChatProps = {
 	/** Test seam. */
 	createClient?: typeof createWorkspaceChatClient;
 };
+
+function chosenModelKey(workspaceId: string) {
+	return `tedix.workspace-chat.model.${workspaceId}`;
+}
+
+/** The model this browser last chose in the workspace; unknown ids fall back to the first. */
+function readChosenModel(workspaceId: string): string | null {
+	try {
+		return window.localStorage.getItem(chosenModelKey(workspaceId));
+	} catch {
+		return null;
+	}
+}
 
 export function WorkspaceChat({
 	workspaceId,
@@ -103,7 +117,23 @@ export function WorkspaceChat({
 		onOutputChanged,
 	);
 	const { state, connection, catchingUp } = snapshot;
-	const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
+	const [selectedModelId, setSelectedModelId] = useState<string | null>(() =>
+		readChosenModel(workspaceId),
+	);
+	useEffect(() => {
+		setSelectedModelId(readChosenModel(workspaceId));
+	}, [workspaceId]);
+	const selectModel = useCallback(
+		(value: string) => {
+			setSelectedModelId(value);
+			try {
+				window.localStorage.setItem(chosenModelKey(workspaceId), value);
+			} catch {
+				// Storage can be unavailable; the choice still applies to this page.
+			}
+		},
+		[workspaceId],
+	);
 	const selectedModel =
 		state.models.find((model) => model.id === selectedModelId) ??
 		state.models[0];
@@ -111,7 +141,9 @@ export function WorkspaceChat({
 	const modelControl = state.models.length ? (
 		<Select
 			value={modelId}
-			onValueChange={(value) => setSelectedModelId(value)}
+			onValueChange={(value) => {
+				if (value) selectModel(value);
+			}}
 			disabled={connection.phase !== "open"}
 		>
 			<SelectTrigger aria-label="Workspace chat model" size="sm">
@@ -536,7 +568,7 @@ function TurnView({
 									? elapsedLabel(turn.durationMs)
 									: null,
 								turn.usage ? formatUsage(turn.usage) : "Usage unavailable",
-								"Cost unavailable",
+								formatTurnCost(turn.usage),
 								modelLabel ?? "Model unavailable",
 							]
 								.filter(Boolean)

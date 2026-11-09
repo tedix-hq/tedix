@@ -1,5 +1,5 @@
 import { z } from "zod";
-import portableSheetClient from "./sheet-client.v2.generated.json";
+import portableSheetClient from "./sheet-client.v3.generated.json";
 import { SHEET_BLUEPRINT_VERSION } from "./office-editor-versions";
 import {
 	OsBlueprintDefinitionSchema,
