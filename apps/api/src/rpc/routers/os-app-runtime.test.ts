@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
+import { appRuntimeCodeDigest } from "@tedix/api-contract/utils/app-runtime";
 import { createDbClient } from "@tedix/db/client";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
@@ -339,7 +340,6 @@ describe("workspace app runtime API admission", () => {
 			expect(Object.keys(body).sort()).toEqual([
 				"args",
 				"callId",
-				"files",
 				"method",
 				"session",
 			]);
@@ -416,11 +416,10 @@ describe("workspace app runtime API admission", () => {
 			"/__internal/workspace-app/call",
 		);
 		expect(request.headers.get("X-Service-Binding")).toBe("true");
-		expect(await request.json()).toMatchObject({
-			callId: receipts[0]!.id,
-			files: { "server.js": "export class App {}" },
-			method: "count",
-		});
+		const body = await request.json();
+		expect(body).toMatchObject({ callId: receipts[0]!.id, method: "count" });
+		// A published revision's code is read by the host, never sent per call.
+		expect(body).not.toHaveProperty("files");
 	});
 	it("records a failed use-role call without claiming a successful write", async () => {
 		const { router, env, db, fetch } = await fixture();
@@ -663,10 +662,21 @@ describe("workspace app runtime API admission", () => {
 		await expect(
 			internal.capability({ ...request, slot: "another-slot" }),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
-		await db
-			.update(osGadgetRevisions)
-			.set({ manifest: JSON.stringify({ ...manifest, resourceGrants: [] }) })
+		// Grants change only with a new revision; a session for the old one is stale.
+		const [current] = await db
+			.select()
+			.from(osGadgetRevisions)
 			.where(eq(osGadgetRevisions.id, revisionId));
+		await db.insert(osGadgetRevisions).values({
+			...current!,
+			id: "00000000-0000-4000-8000-0000000000f2",
+			revision: current!.revision + 1,
+			manifest: JSON.stringify({ ...manifest, resourceGrants: [] }),
+		});
+		await db
+			.update(osGadgets)
+			.set({ currentRevisionId: "00000000-0000-4000-8000-0000000000f2" })
+			.where(eq(osGadgets.id, gadgetId));
 		await expect(internal.capability(request)).rejects.toMatchObject({
 			code: "FORBIDDEN",
 		});
@@ -1433,9 +1443,27 @@ describe("app chat drafts", () => {
 			method: "count",
 			args: [],
 		});
-		expect(await (f.fetch.mock.calls[1]![0] as Request).json()).toMatchObject({
-			files: { "server.js": f.input.edits[0]!.after },
-		});
+		// The host loads the merged revision's code; the new session pins its digest.
+		expect(
+			await (f.fetch.mock.calls[1]![0] as Request).json(),
+		).not.toHaveProperty("files");
+		const signed = await verifyWorkspaceAppSession(
+			f.env.SECRETS_MASTER_KEY,
+			next.session,
+		);
+		expect(signed.revisionId).toBe(merged.revision.id);
+		expect(signed.codeDigest).toBe(
+			await appRuntimeCodeDigest(
+				JSON.parse(
+					(
+						await f.db
+							.select()
+							.from(osGadgetCode)
+							.where(eq(osGadgetCode.revisionId, merged.revision.id))
+					)[0]!.files,
+				),
+			),
+		);
 		await expect(
 			f.client.call({ ...scope, session, method: "count", args: [] }),
 		).rejects.toMatchObject({ code: "NOT_FOUND" });

@@ -148,7 +148,10 @@ export type AppRuntimeLoaderManifest<TTail = never> = ReturnType<
 	typeof appRuntimeLoaderManifest<TTail>
 >;
 
-/** Keep Loader calls at the same approved site as their sandbox policy. */
+/**
+ * Keep Loader calls at the same approved site as their sandbox policy.
+ * `files` may be a loader that runs only when the isolate is not cached.
+ */
 export function loadAppRuntimeWorker<TWorker, TTail>(
 	LOADER: {
 		get(
@@ -157,11 +160,14 @@ export function loadAppRuntimeWorker<TWorker, TTail>(
 		): TWorker;
 	},
 	id: string,
-	files: AppRuntimeFiles,
+	files: AppRuntimeFiles | (() => Promise<AppRuntimeFiles>),
 	options: AppRuntimeLoaderOptions<TTail>,
 ): TWorker {
 	return LOADER.get(id, async () => ({
-		...appRuntimeLoaderManifest(files, options),
+		...appRuntimeLoaderManifest(
+			typeof files === "function" ? await files() : files,
+			options,
+		),
 		compatibilityFlags: ["disallow_importable_env", "nodejs_als"],
 		globalOutbound: null,
 	}));

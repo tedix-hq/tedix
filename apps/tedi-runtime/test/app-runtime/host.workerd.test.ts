@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { mintWorkspaceAppSession } from "@tedix/auth/workspace-app-session";
 import type { WorkspaceAppHostDO } from "../../src/workspace-app-host-do";
 import { appRuntimeCodeDigest } from "@tedix/api-contract/utils/app-runtime";
+import { osGadgetCode } from "@tedix/db/schema/os-workspaces";
+import { tableDdl } from "@tedix/db/test/schema-ddl";
 
 const gadgetId = "22222222-2222-4222-8222-222222222222";
 const revisionId = "33333333-3333-4333-8333-333333333333";
@@ -544,5 +546,45 @@ describe("proposal facet lifecycle", () => {
 		await expect(call(stub, { previewId, version: "v2" })).rejects.toThrow(
 			"App draft closed",
 		);
+	});
+	it("reads a published revision's stored code when a warm call carries none", async () => {
+		const DB = (env as unknown as { DB: D1Database }).DB;
+		for (const ddl of tableDdl(osGadgetCode, { foreignKeys: false }))
+			await DB.prepare(
+				ddl
+					.replace("CREATE TABLE ", "CREATE TABLE IF NOT EXISTS ")
+					.replace(/CREATE INDEX /g, "CREATE INDEX IF NOT EXISTS "),
+			).run();
+		const store = (revision: string, code: Record<string, string>) =>
+			DB.prepare(
+				"INSERT INTO os_gadget_code (revision_id, organization_id, gadget_id, files, code_length, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))",
+			)
+				.bind(revision, "fictional-org", gadgetId, JSON.stringify(code), 1)
+				.run();
+		const stub = createHost();
+		const revision = crypto.randomUUID();
+		await store(revision, files("stored"));
+		const { token } = await mint(stub, files("stored"), { revision });
+		const bare = (method = "count") =>
+			stub.call({ session: token, method, args: [] });
+		expect(await bare()).toEqual({ n: 1, version: "stored" });
+		expect(await bare()).toEqual({ n: 2, version: "stored" });
+
+		// Stored code that does not hash to the signed digest never runs.
+		const tampered = createHost();
+		const other = crypto.randomUUID();
+		await store(other, files("tampered"));
+		const signed = await mint(tampered, files("signed"), { revision: other });
+		await expect(
+			tampered.call({ session: signed.token, method: "count", args: [] }),
+		).rejects.toThrow();
+
+		// A draft always arrives with its files.
+		const draft = await mint(stub, files("draft"), {
+			previewId: crypto.randomUUID(),
+		});
+		await expect(
+			stub.call({ session: draft.token, method: "count", args: [] }),
+		).rejects.toThrow("App code does not match the signed revision");
 	});
 });

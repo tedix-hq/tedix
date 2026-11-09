@@ -225,7 +225,8 @@ describe("workspace app triggers", () => {
 				pending.push(p),
 			),
 		).toEqual({ ok: true });
-		expect(pending).toHaveLength(1);
+		// One for settling the call's receipt, one for the follow-up.
+		expect(pending).toHaveLength(2);
 		await reached;
 		const calls = await f.calls();
 		expect(calls[0]!.session.role).toBe("use");
@@ -288,7 +289,8 @@ describe("workspace app triggers", () => {
 			await interactiveInput(f, "ratings"),
 			pending,
 		);
-		expect(pending).not.toHaveBeenCalled();
+		// Only the receipt settles in the background; no follow-up starts.
+		expect(pending).toHaveBeenCalledOnce();
 		expect(f.fetch).toHaveBeenCalledTimes(1);
 		expect(await dispatchDueAppTriggers(f.env, nineUtc)).toMatchObject({
 			ran: 0,
