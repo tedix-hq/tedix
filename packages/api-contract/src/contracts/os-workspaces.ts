@@ -1464,6 +1464,12 @@ export const osWorkspacesContract = oc
 							.describe(
 								"Exact current revision ID read by the caller; a mismatch returns CONFLICT",
 							),
+						expectedWorkspaceId: z
+							.uuid()
+							.optional()
+							.describe(
+								"Require this output to remain in the bound workspace while saving.",
+							),
 						expectedRevision: z
 							.number()
 							.int()
@@ -1596,6 +1602,14 @@ export const osWorkspacesContract = oc
 				.input(
 					outputIdInput.extend({
 						format: OsOutputExportFormatSchema,
+						expectedRevision: z
+							.number()
+							.int()
+							.positive()
+							.optional()
+							.describe(
+								"Export only this saved revision; a changed current revision fails with CONFLICT.",
+							),
 						sheetId: z
 							.string()
 							.min(1)
