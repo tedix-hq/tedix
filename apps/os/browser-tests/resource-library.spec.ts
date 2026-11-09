@@ -68,16 +68,16 @@ try {
 					"Doc",
 					"Sheet",
 					"Slides",
-					"App from template",
+					"Browse templates",
 					"Native document",
 					"Native sheet",
 					"Native slides",
 				]);
 				assert.equal(
 					await page
-						.getByRole("menuitem", { name: "App from template" })
+						.getByRole("menuitem", { name: "Browse templates" })
 						.getAttribute("href"),
-					"/blueprints",
+					"/blueprints?view=explore",
 				);
 				await page.screenshot({
 					path: `${evidence}/${surface}-new-${width}-${theme}.png`,

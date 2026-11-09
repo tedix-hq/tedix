@@ -56,8 +56,8 @@ function fixture(role = "owner") {
 		async (method: string, args?: unknown): Promise<unknown> => {
 			const input = args as {
 				method?: string;
-				args?: { content: DocumentContent; expectedRevision: number }[];
 				revision: number;
+				expectedRevision?: number;
 				content: DocumentContent;
 			};
 			if (method === "context")
@@ -90,10 +90,10 @@ function fixture(role = "owner") {
 			if (method === "app.download") return { filename: "Doc.md" };
 			if (input.method === "exportMarkdown")
 				return { title: "Doc", revision, text: "Saved semantic content" };
-			if (input.method === "replaceDocument") {
-				if (input.args?.[0]?.expectedRevision !== revision)
+			if (method === "outputs.replace") {
+				if (input.expectedRevision !== revision)
 					throw new Error("Output revision changed");
-				content = structuredClone(input.args[0].content);
+				content = structuredClone(input.content);
 				revision++;
 			}
 			return {
@@ -166,6 +166,32 @@ const click = (root: HTMLElement, label: string) => {
 };
 
 describe("portable rich Doc client", () => {
+	it("names the editable writing surface and keeps advanced controls in a keyboard-accessible disclosure", async () => {
+		const test = fixture();
+		const { root, editor } = await test.mount();
+		expect(
+			root.querySelector(
+				'[role="textbox"][aria-label="Document writing area"][aria-multiline="true"]',
+			),
+		).toBe(editor.view.dom);
+		const disclosure =
+			root.querySelector<HTMLDetailsElement>("details.doc-more")!;
+		expect(disclosure.open).toBe(false);
+		expect(disclosure.querySelector("summary")?.textContent).toBe(
+			"More formatting & insert",
+		);
+		expect(
+			disclosure.querySelector('[aria-label="Insert table"]'),
+		).not.toBeNull();
+		expect(
+			root.querySelector('[aria-label="Bold"]')?.closest("details"),
+		).toBeNull();
+		disclosure.open = true;
+		click(root, "Insert table");
+		expect(
+			editor.getJSON().content?.some((node) => node.type === "table"),
+		).toBe(true);
+	});
 	it("starts a fresh empty canonical document without requiring native initialization", async () => {
 		const test = fixture();
 		test.content({ kind: "document", blocks: [] });
@@ -196,11 +222,10 @@ describe("portable rich Doc client", () => {
 			.run();
 		expect(test.retained()?.revision).toBe(4);
 		await mounted.save();
-		expect(test.calls).toHaveBeenCalledWith("app.call", {
-			method: "replaceDocument",
-			args: [
-				{ expectedRevision: 4, content: expect.objectContaining({ file }) },
-			],
+		expect(test.calls).toHaveBeenCalledWith("outputs.replace", {
+			slot: "document",
+			expectedRevision: 4,
+			content: expect.objectContaining({ file }),
 		});
 		expect(test.persisted().richText!.content[0]!.content![0]!.marks).toEqual(
 			expect.arrayContaining([{ type: "bold" }, { type: "italic" }]),
@@ -326,16 +351,59 @@ describe("portable rich Doc client", () => {
 		).toBe(false);
 		const test = fixture(),
 			{ root, editor, mounted } = await test.mount();
-		editor.commands.insertContentAt(1, "x".repeat(70_000));
+		editor.commands.insertContentAt(1, "é".repeat(510_000));
 		await mounted.save();
-		expect(root.textContent).toContain("64 KiB save limit");
+		expect(root.querySelector(".doc-status")?.textContent).toContain(
+			"1 MB save limit",
+		);
 		expect(mounted.dirty).toBe(true);
 		expect(
-			test.calls.mock.calls.some(
-				([, args]) =>
-					(args as { method?: string })?.method === "replaceDocument",
-			),
+			test.calls.mock.calls.some(([method]) => method === "outputs.replace"),
 		).toBe(false);
+	});
+	it("saves rich content above the app-call argument limit through the fenced output capability", async () => {
+		const test = fixture(),
+			{ editor, mounted } = await test.mount();
+		editor.commands.insertContentAt(1, "x".repeat(70_000));
+		await mounted.save();
+		expect(mounted.dirty).toBe(false);
+		expect(test.calls).toHaveBeenCalledWith(
+			"outputs.replace",
+			expect.objectContaining({ slot: "document", expectedRevision: 4 }),
+		);
+		expect(JSON.stringify(test.persisted()).length).toBeGreaterThan(65_536);
+	});
+	it("exports rich Word and PDF from the saved revision without submitting unsaved edits", async () => {
+		const test = fixture(),
+			{ root, editor, mounted } = await test.mount();
+		editor.commands.insertContentAt(1, "Private draft ");
+		const select = root.querySelector<HTMLSelectElement>(
+			'[aria-label="Export format"]',
+		)!;
+		for (const [format, label] of [
+			["docx", "Word"],
+			["pdf", "PDF"],
+		] as const) {
+			select.value = format;
+			select.dispatchEvent(new Event("change"));
+			click(root, `Export ${label}`);
+			await vi.waitFor(() =>
+				expect(test.calls).toHaveBeenCalledWith("app.exportOutput", {
+					slot: "document",
+					format,
+					expectedRevision: 4,
+				}),
+			);
+			await vi.waitFor(() =>
+				expect(
+					root.querySelector<HTMLButtonElement>("#doc-export")!.disabled,
+				).toBe(false),
+			);
+		}
+		expect(mounted.dirty).toBe(true);
+		expect(root.querySelector(".doc-status")?.textContent).toContain(
+			"unsaved edits are not included",
+		);
 	});
 	it("exports only the saved semantic revision through the host", async () => {
 		const test = fixture(),

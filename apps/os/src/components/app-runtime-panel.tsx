@@ -8,8 +8,13 @@ import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { lazy, Suspense, useCallback, useEffect, useMemo } from "react";
 import { osApi, osAppRuntimeCall } from "@/lib/api";
 import { createAppRuntimeServerCall } from "@/lib/app-runtime-session";
+import { exportAppRuntimeOutput } from "@/lib/app-runtime-export";
+import { replaceAppRuntimeOutput } from "@/lib/app-runtime-output";
 import { AppRuntimeFrame } from "@/components/app-runtime-frame";
-import { DocEditorUpgrade } from "@/components/doc-editor-upgrade";
+import {
+	OfficeEditorUpgrade,
+	officeEditorUpgrade,
+} from "@/components/office-editor-upgrade";
 import {
 	useDocWritingDrafts,
 	useAppRuntimeDrafts,
@@ -204,6 +209,8 @@ export function AppRuntimeSandbox({
 				{
 					context,
 					callServer,
+					exportOutput: exportAppRuntimeOutput,
+					replaceOutput: replaceAppRuntimeOutput,
 					operations: manifest.operations,
 					appRevisionId: revisionId,
 					drafts: appDrafts ?? undefined,
@@ -238,6 +245,10 @@ export function AppRuntimeSandbox({
 	const docResourceAvailable = boundOutputs.some(
 		(row) => row.slot === context.settings.slot,
 	);
+	const editorUpgrade = officeEditorUpgrade(manifest);
+	const portableDoc =
+		typeof context.settings.editor === "string" &&
+		/^document-v(?:[3-9]|\d{2,})$/.test(context.settings.editor);
 	const sourceUnavailable = outputReads.some((read) => read.isError);
 	useEffect(() => {
 		if (
@@ -245,8 +256,7 @@ export function AppRuntimeSandbox({
 			role === "use" ||
 			sourceUnavailable ||
 			resources.isError ||
-			((context.settings.editor === "document-v2" ||
-				context.settings.editor === "document-v3") &&
+			((context.settings.editor === "document-v2" || portableDoc) &&
 				!resources.isPending &&
 				!docResourceAvailable)
 		) {
@@ -261,6 +271,7 @@ export function AppRuntimeSandbox({
 		resources.isError,
 		resources.isPending,
 		context.settings.editor,
+		portableDoc,
 		docResourceAvailable,
 		drafts,
 		appDrafts,
@@ -287,7 +298,8 @@ export function AppRuntimeSandbox({
 		return (
 			<>
 				{revisionId && (role === "owner" || role === "build") && (
-					<DocEditorUpgrade
+					<OfficeEditorUpgrade
+						kind="document"
 						workspaceId={workspaceId}
 						outputId={resource.providerResourceId}
 						gadgetId={gadget.id}
@@ -313,15 +325,11 @@ export function AppRuntimeSandbox({
 			</>
 		);
 	}
-	const legacyDoc =
-		!context.settings.editor &&
-		manifest.operations?.some((op) => op.name === "readDocument") &&
-		manifest.operations.some((op) => op.name === "replaceDocument");
 	const legacyResource = boundOutputs.find(
 		(row) => row.slot === context.settings.slot,
 	);
 	if (
-		context.settings.editor === "document-v3" &&
+		portableDoc &&
 		(resources.isError ||
 			role === "viewer" ||
 			!legacyResource ||
@@ -366,11 +374,12 @@ export function AppRuntimeSandbox({
 					</a>
 				</div>
 			)}
-			{legacyDoc &&
+			{editorUpgrade &&
 				legacyResource &&
 				revisionId &&
 				(role === "owner" || role === "build") && (
-					<DocEditorUpgrade
+					<OfficeEditorUpgrade
+						kind={editorUpgrade.kind}
 						workspaceId={workspaceId}
 						outputId={legacyResource.providerResourceId}
 						gadgetId={gadget.id}
@@ -379,7 +388,7 @@ export function AppRuntimeSandbox({
 				)}
 			<AppRuntimeFrame
 				key={
-					context.settings.editor === "document-v3"
+					portableDoc
 						? `${workspaceId}:${gadget.id}:${revisionId ?? revision}:${role}`
 						: undefined
 				}

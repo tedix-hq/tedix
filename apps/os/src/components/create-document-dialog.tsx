@@ -79,8 +79,8 @@ export function NewResourceMenu(props: Props) {
 					<DropdownMenuItem onClick={() => setAppKind("presentation")}>
 						Slides
 					</DropdownMenuItem>
-					<DropdownMenuLinkItem href="/blueprints">
-						App from template
+					<DropdownMenuLinkItem href="/blueprints?view=explore">
+						Browse templates
 					</DropdownMenuLinkItem>
 					<DropdownMenuSeparator />
 					<DropdownMenuItem onClick={() => setKind("document")}>

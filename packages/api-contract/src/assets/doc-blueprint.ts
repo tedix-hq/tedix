@@ -8,7 +8,7 @@ import {
 	type OsBlueprintDefinition,
 } from "../schemas/os-workspaces";
 
-export const DOC_BLUEPRINT_VERSION = 3;
+import { DOC_BLUEPRINT_VERSION } from "./office-editor-versions";
 export const DOC_CLIENT_SOURCE = portableDocClient.source;
 export const DOC_CLIENT_SHA256 = portableDocClient.sha256;
 
@@ -222,15 +222,17 @@ Save uses the revision you loaded. A conflict keeps your draft on screen;
 copy your edits before explicitly discarding the draft and reloading.
 Saved updates load automatically when the editor is clean. With unsaved
 edits, a newer-revision notice appears and your draft stays on screen.
-Doc version 3 runs a self-contained rich editor from its own client.js in the
+Doc version 4 runs a self-contained rich editor from its own client.js in the
 gadget sandbox. It uses the same rich document JSON as the workspace editor,
 preserving inline formatting, block structure and file references. Document
 revision and app version are shown separately. Native editing is an explicit
 fallback for compatibility and large saves, not the normal editing surface.
 Unsaved drafts stay only in the authenticated workspace panel's memory and
 are restored after an authorized source read, with their original revision.
-Full-document saves currently fit within the app call's 64 KiB argument limit.
-Larger saves keep the draft and explain the limit. No remote scripts are loaded.
+Full-document saves use the scoped output capability with a 1 MB payload limit.
+Larger saves keep the draft and explain the limit. Word, PDF, HTML and PNG
+exports use the saved revision; Markdown exports semantic blocks. Unsaved edits
+are not exported. No remote scripts are loaded.
 
 Agent methods: readDocument({}), replaceDocument({content, expectedRevision}),
 editDocument({ops, expectedRevision}) and exportMarkdown({}). Edits use the
@@ -251,7 +253,14 @@ export function buildDocBlueprint(slot = "document"): OsBlueprintDefinition {
 					entry: "tedix:runtime/v1",
 					description: "Write and review a document with revision history.",
 					capabilities: [],
-					config: { version: 1, settings: { slot, editor: "document-v3" } },
+					config: {
+						version: 1,
+						settings: {
+							slot,
+							editor: "document-v4",
+							blueprintVersion: DOC_BLUEPRINT_VERSION,
+						},
+					},
 					resourceGrants: [
 						{
 							slot,
