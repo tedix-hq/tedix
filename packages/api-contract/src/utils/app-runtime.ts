@@ -89,26 +89,6 @@ export class AppInvocation extends DurableObject {
     };
     return sink ? await consoleContext.run({ sink, ctx: this.ctx, sequence: 0 }, run) : await run();
   }
-  // One-time recovery of storage from the retired account; never overwrites a key.
-  // Without apply it only reads back: present or absent, and equal to the export.
-  importAbsent(entries, apply) {
-    const same = (a, b) => {
-      if (Object.is(a, b)) return true;
-      if (typeof a !== 'object' || typeof b !== 'object' || !a || !b || a.constructor !== b.constructor) return false;
-      if (a instanceof Date) return a.getTime() === b.getTime();
-      if (a instanceof Map || a instanceof Set) return a.size === b.size && same([...a], [...b]);
-      if (ArrayBuffer.isView(a)) return a.byteLength === b.byteLength && a.every((x, i) => x === b[i]);
-      const ka = Object.keys(a), kb = Object.keys(b);
-      return ka.length === kb.length && ka.every((k) => Object.hasOwn(b, k) && same(a[k], b[k]));
-    };
-    return entries.map(({ key, value }) => {
-      const existing = this.ctx.storage.kv.get(key);
-      if (existing !== undefined) return { key, status: apply ? 'skipped' : 'present', matches: same(existing, value) };
-      if (!apply) return { key, status: 'absent', matches: false };
-      this.ctx.storage.kv.put(key, value);
-      return { key, status: 'written', matches: same(this.ctx.storage.kv.get(key), value) };
-    });
-  }
 }`;
 
 interface AppRuntimeLoaderOptions<TTail> {
