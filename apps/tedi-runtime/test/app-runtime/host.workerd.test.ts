@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { mintWorkspaceAppSession } from "@tedix/auth/workspace-app-session";
 import type { WorkspaceAppHostDO } from "../../src/workspace-app-host-do";
 import { appRuntimeCodeDigest } from "@tedix/api-contract/utils/app-runtime";
+import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import {
 	handleWorkspaceAppImport,
 	handleWorkspaceAppImportPlan,
@@ -557,7 +558,7 @@ describe("recovered storage import", () => {
 		expect(await call(stub)).toEqual({ n: 1, version: "v1" });
 		const code = files("v1");
 		const owner = (await mint(stub, code, { role: "owner" })).token;
-		const entries = [
+		const entries: { key: string; value: JsonValue }[] = [
 			{ key: "n", value: 40 },
 			{ key: "tags", value: { $set: ["a", "b"] } },
 			{ key: "seen", value: { $map: [["x", { $date: 0 }]] } },
@@ -695,7 +696,7 @@ describe("recovered archive import route", () => {
 			}),
 			routeEnv,
 		);
-		expect((await imported.json()).results).toEqual([
+		expect(((await imported.json()) as { results: unknown }).results).toEqual([
 			{ key: "n", status: "skipped", matches: false },
 			{ key: "notes", status: "written", matches: true },
 		]);
