@@ -345,3 +345,33 @@ export const AppRuntimeSessionResultSchema = z.object({
 	role: AppRuntimeRoleSchema,
 	revisionId: z.uuid(),
 });
+
+/** One-time import of an app's storage recovered from the retired account. */
+export const AppRuntimeImportRecoveredStorageInputSchema = z
+	.object({
+		organizationId: z.string().min(1).max(200),
+		workspaceId: z.uuid(),
+		gadgetId: z.uuid(),
+		entries: z
+			.array(
+				z
+					.object({ key: z.string().min(1).max(2048), value: JsonValueSchema })
+					.strict(),
+			)
+			.min(1)
+			.max(500),
+		/** False only reads back each key: present or absent, and equal to the export. */
+		apply: z.boolean(),
+	})
+	.strict();
+
+export const AppRuntimeImportRecoveredStorageResultSchema = z.object({
+	revisionId: z.uuid(),
+	results: z.array(
+		z.object({
+			key: z.string(),
+			status: z.enum(["written", "skipped", "present", "absent"]),
+			matches: z.boolean(),
+		}),
+	),
+});

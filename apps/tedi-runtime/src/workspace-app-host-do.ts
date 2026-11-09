@@ -202,6 +202,100 @@ export class WorkspaceAppHostDO extends DurableObject<WorkspaceAppHostEnv> {
 			return cut !== undefined && issuedAt <= cut;
 		});
 	}
+	/**
+	 * One-time import of an app's storage exported from the retired account.
+	 * Opens the app's facet under its current signed revision and writes only
+	 * keys the app does not have yet, so newer state always wins.
+	 */
+	async importRecoveredStorage(input: {
+		session: string;
+		files: Record<string, string>;
+		entries: { key: string; value: JsonValue }[];
+		apply: boolean;
+	}) {
+		const session = await verifyWorkspaceAppSession(
+			this.env.SECRETS_MASTER_KEY,
+			input.session,
+		);
+		if (session.previewId || session.role !== "owner")
+			throw new Error("Storage import requires an owner session");
+		if (
+			(await appRuntimeCodeDigest(AppRuntimeFilesSchema.parse(input.files))) !==
+			session.codeDigest
+		)
+			throw new Error("App code does not match the signed revision");
+		const scope = `${session.organizationId}:${session.workspaceId}`;
+		const currentScope = this.ctx.storage.kv.get<string>("scope");
+		if (currentScope && currentScope !== scope)
+			throw new Error("Workspace host scope mismatch");
+		this.ctx.storage.kv.put("scope", scope);
+		if (
+			this.ctx.storage.kv.get(
+				`retired:${session.gadgetId}:${session.revisionId}`,
+			)
+		)
+			throw new Error("App revision changed");
+		const entries = input.entries.map(({ key, value }) => ({
+			key,
+			value: decodeExportedValue(value),
+		}));
+		const key = `${session.gadgetId}:main`;
+		const previous = this.#calls.get(key) ?? Promise.resolve();
+		const task = previous
+			.catch(() => {})
+			.then(async () => {
+				const name = `app:${session.gadgetId}`;
+				// Restart the facet under the import class; the next call reloads the app.
+				this.ctx.facets.abort(name, new Error("App storage import"));
+				this.ctx.storage.kv.delete(`code:${name}`);
+				const codeId = `${appRuntimeCodeId(session)}:import`;
+				const facet = this.ctx.facets.get(name, () => {
+					const worker = loadAppRuntimeWorker(
+						withDynamicWorkerLoaderDiagnostics(this.env.LOADER, {
+							surface: "workspace_app_runtime",
+							reason: "workspace_app_invocation",
+						}),
+						codeId,
+						input.files,
+						{
+							compatibilityDate: session.compatibilityDate,
+							invocation: { config: session.config ?? {}, tails: [] },
+						},
+					);
+					return { class: worker.getDurableObjectClass("AppInvocation") };
+				});
+				try {
+					return await (
+						facet as unknown as {
+							importAbsent(
+								entries: { key: string; value: unknown }[],
+								apply: boolean,
+							): Promise<
+								{
+									key: string;
+									status: "written" | "skipped" | "present" | "absent";
+									matches: boolean;
+								}[]
+							>;
+						}
+					).importAbsent(entries, input.apply === true);
+				} finally {
+					this.ctx.facets.abort(name, new Error("App storage import done"));
+				}
+			});
+		this.#calls.set(key, task);
+		try {
+			return {
+				organizationId: session.organizationId,
+				workspaceId: session.workspaceId,
+				gadgetId: session.gadgetId,
+				revisionId: session.revisionId,
+				results: await task,
+			};
+		} finally {
+			if (this.#calls.get(key) === task) this.#calls.delete(key);
+		}
+	}
 	async call(input: Parameters<WorkspaceAppHostDO["callTimed"]>[0]) {
 		return (await this.callTimed(input)).value;
 	}
@@ -580,4 +674,34 @@ export class WorkspaceAppTail extends WorkerEntrypoint<
 				],
 			});
 	}
+}
+
+/** Decode the exporter's typed JSON (`$bytes`, `$map`, `$set`, `$date`, `$bigint`). */
+export function decodeExportedValue(value: JsonValue): unknown {
+	if (Array.isArray(value)) return value.map(decodeExportedValue);
+	if (value === null || typeof value !== "object") return value;
+	const keys = Object.keys(value);
+	if (keys.length === 1) {
+		const tagged = value[keys[0]!]!;
+		switch (keys[0]) {
+			case "$bytes":
+				return Uint8Array.from(atob(tagged as string), (c) => c.charCodeAt(0));
+			case "$map":
+				return new Map(
+					(tagged as [JsonValue, JsonValue][]).map(([k, v]) => [
+						decodeExportedValue(k),
+						decodeExportedValue(v),
+					]),
+				);
+			case "$set":
+				return new Set((tagged as JsonValue[]).map(decodeExportedValue));
+			case "$date":
+				return new Date(tagged as string | number);
+			case "$bigint":
+				return BigInt(tagged as string);
+		}
+	}
+	return Object.fromEntries(
+		Object.entries(value).map(([k, v]) => [k, decodeExportedValue(v)]),
+	);
 }
