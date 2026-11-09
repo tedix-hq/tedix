@@ -484,8 +484,14 @@ export const skillSchedulesQueryOptions = (input: number | PagedSearchInput) =>
 		input: normalizePagedSearch(input),
 	});
 
+type WorkflowCatalogInput = PagedSearchInput &
+	Pick<
+		ClientInput<typeof osApi.workflows.listDefinitions>,
+		"excludeImprovements"
+	>;
+
 export const workflowDefinitionsQueryOptions = (
-	input: number | PagedSearchInput,
+	input: number | WorkflowCatalogInput,
 ) =>
 	osQuery.workflows.listDefinitions.queryOptions({
 		input: normalizePagedSearch(input),
@@ -497,7 +503,7 @@ export const workflowDefinitionsQueryOptions = (
  * post-run invalidation reaching all three.
  */
 export const workflowDefinitionHealthQueryOptions = (
-	input: number | PagedSearchInput,
+	input: number | WorkflowCatalogInput,
 ) =>
 	osQuery.workflows.listDefinitionHealth.queryOptions({
 		input: normalizePagedSearch(input),

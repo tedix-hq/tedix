@@ -807,7 +807,7 @@ describe("SkillsPage", () => {
 		await flush();
 
 		expect(workflowsApi.listDefinitions).toHaveBeenCalledWith(
-			{ limit: 20, offset: 20 },
+			{ limit: 20, offset: 20, excludeImprovements: true },
 			expect.objectContaining({ signal: expect.any(AbortSignal) }),
 		);
 		expect(skillsApi.listWorkflowSchedules).toHaveBeenCalledWith(

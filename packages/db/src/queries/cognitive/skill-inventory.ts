@@ -22,6 +22,8 @@ import {
 import type { SkillLifecycleState } from "../skill-lifecycle";
 import { readableSkillCondition } from "./skill-crud";
 
+const improvementTag = sql`EXISTS (SELECT 1 FROM json_each(${skillEntries.tags}) WHERE value = 'workflow-improvement')`;
+
 export async function listAllSkillsForOrg(
 	db: DbClient,
 	orgId: string,
@@ -42,7 +44,6 @@ export async function listAllSkillsForOrg(
 	},
 ): Promise<{ entries: SkillEntry[]; total: number }> {
 	const conditions = [eq(skillEntries.organizationId, orgId)];
-	const improvementTag = sql`EXISTS (SELECT 1 FROM json_each(${skillEntries.tags}) WHERE value = 'workflow-improvement')`;
 	if (options?.excludeImprovements) {
 		conditions.push(
 			sql`(${skillEntries.sourceSkillId} IS NULL OR NOT ${improvementTag})`,
@@ -164,6 +165,7 @@ export async function listExecutableSkillWorkflowsForOrg(
 	orgId: string,
 	options?: {
 		lifecycleState?: SkillLifecycleState;
+		excludeImprovements?: boolean;
 		limit?: number;
 		offset?: number;
 		query?: string;
@@ -176,6 +178,11 @@ export async function listExecutableSkillWorkflowsForOrg(
 		eq(skillEntries.organizationId, orgId),
 		sql`json_type(${skillEntries.files}, '$."scripts/workflow.ts"') = 'text'`,
 	];
+	if (options?.excludeImprovements) {
+		conditions.push(
+			sql`(${skillEntries.sourceSkillId} IS NULL OR NOT ${improvementTag})`,
+		);
+	}
 	if (options?.lifecycleState) {
 		conditions.push(eq(skillEntries.lifecycleState, options.lifecycleState));
 	}

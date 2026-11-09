@@ -328,6 +328,7 @@ async function handleListDefinitions(
 			| "crystallized"
 			| "stale"
 			| "archived";
+		excludeImprovements?: boolean;
 		limit: number;
 		offset: number;
 		query?: string;
@@ -371,6 +372,7 @@ async function handleListDefinitions(
 			orgId,
 			{
 				lifecycleState: input.lifecycleState,
+				excludeImprovements: input.excludeImprovements,
 				limit: Math.max(1, remaining),
 				offset: remaining > 0 ? dynamicOffset : 0,
 				query,
@@ -597,6 +599,7 @@ async function handleListDefinitionHealth(
 			| "crystallized"
 			| "stale"
 			| "archived";
+		excludeImprovements?: boolean;
 		limit: number;
 		offset: number;
 		query?: string;

@@ -680,7 +680,14 @@ export async function prefetchSkillsRoute(
 				]
 			: search.section === "triggers"
 				? [queryClient.ensureQueryData(skillSchedulesQueryOptions(input))]
-				: [queryClient.ensureQueryData(workflowDefinitionsQueryOptions(input))];
+				: [
+						queryClient.ensureQueryData(
+							workflowDefinitionsQueryOptions({
+								...input,
+								excludeImprovements: true,
+							}),
+						),
+					];
 	await Promise.allSettled(reads);
 }
 

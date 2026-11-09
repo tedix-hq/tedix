@@ -130,6 +130,12 @@ const WorkflowDefinitionsInputSchema = z
 		lifecycleState: SkillLifecycleStateSchema.optional().describe(
 			"Dynamic-skill lifecycle filter; static definitions are omitted when set",
 		),
+		excludeImprovements: z
+			.boolean()
+			.optional()
+			.describe(
+				"Exclude skill improvement draft copies from dynamic definitions before counting and paginating",
+			),
 		limit: z.coerce.number().int().min(1).max(200).default(50),
 		offset: z.coerce.number().int().min(0).default(0),
 		query: z

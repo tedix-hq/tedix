@@ -170,6 +170,35 @@ describe("skill inventory search", () => {
 		expect(result.entries.map((entry) => entry.id)).toEqual(["skill-1"]);
 	});
 
+	it("excludes improvement copies from executable workflows before counts", async () => {
+		sqlite.exec(`UPDATE skill_entries
+			SET files = '{"scripts/workflow.ts":"export default {}"}',
+				source_skill_id = 'skill-1', tags = '["workflow-improvement"]'
+			WHERE id = 'skill-5';
+			UPDATE skill_entries
+			SET files = '{"scripts/workflow.ts":"export default {}"}',
+				tags = '["workflow-improvement"]'
+			WHERE id = 'skill-2';`);
+
+		const all = await listExecutableSkillWorkflowsForOrg(db, "org-1");
+		expect(all.entries.map((entry) => entry.id).sort()).toEqual([
+			"skill-1",
+			"skill-2",
+			"skill-5",
+		]);
+
+		const filtered = await listExecutableSkillWorkflowsForOrg(db, "org-1", {
+			excludeImprovements: true,
+		});
+		// skill-5 is an improvement copy (source + tag); skill-2 carries the
+		// tag alone without a source skill, so it is not a copy.
+		expect(filtered.total).toBe(2);
+		expect(filtered.entries.map((entry) => entry.id).sort()).toEqual([
+			"skill-1",
+			"skill-2",
+		]);
+	});
+
 	it("searches folder paths and filters exact, recursive, and root folders", async () => {
 		const searched = await listAllSkillsForOrg(db, "org-1", {
 			query: "reports",

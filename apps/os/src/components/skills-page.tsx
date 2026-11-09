@@ -640,15 +640,24 @@ export function SkillsPage({
 		enabled: search.section === "skills",
 	});
 	const linkageDefinitions = useQuery({
-		...workflowDefinitionsQueryOptions(200),
+		...workflowDefinitionsQueryOptions({
+			limit: 200,
+			excludeImprovements: true,
+		}),
 		enabled: search.section === "skills",
 	});
 	const definitions = useQuery({
-		...workflowDefinitionsQueryOptions(input),
+		...workflowDefinitionsQueryOptions({
+			...input,
+			excludeImprovements: true,
+		}),
 		enabled: search.section === "workflows",
 	});
 	const health = useQuery({
-		...workflowDefinitionHealthQueryOptions(input),
+		...workflowDefinitionHealthQueryOptions({
+			...input,
+			excludeImprovements: true,
+		}),
 		enabled: search.section === "workflows",
 		staleTime: 60_000,
 	});
