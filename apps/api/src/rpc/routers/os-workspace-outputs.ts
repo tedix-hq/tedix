@@ -182,17 +182,27 @@ async function canReadDerivedRevision(
 
 const outputsList = readOs.outputs.list.handler(async ({ input, context }) => {
 	const organizationId = requireOrgId(context);
+	let mark = Date.now();
+	const lap = (name: string) => {
+		const now = Date.now();
+		context.serverTiming?.push(`${name};dur=${now - mark}`);
+		mark = now;
+	};
 	if (input.workspaceId) await requireWorkspace(context, input.workspaceId);
+	lap("workspace");
+	const viewer = await resolveOsWorkspaceViewer(context);
+	lap("viewer");
 	const rows = await listOsOutputs(
 		queryDb(context),
 		{ workspaceId: input.workspaceId, organizationId: organizationId },
-		await resolveOsWorkspaceViewer(context),
+		viewer,
 		{
 			kind: input.kind,
 			status: input.status,
 			limit: input.limit + 1,
 		},
 	);
+	lap("query");
 	return {
 		items: rows.slice(0, input.limit).map(mapOsOutputRow),
 		truncated: rows.length > input.limit,
