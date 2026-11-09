@@ -659,6 +659,14 @@ class WorkRevisedDuringPreparationError extends Error {
 		);
 	}
 }
+/** A stopping runner hands prepared Work back instead of launching it. */
+class DispatcherStoppingError extends Error {
+	constructor() {
+		super(
+			"This runner was told to stop while it prepared the Work; the replacement runner admits it next. No model turn launched",
+		);
+	}
+}
 
 function permanentSkillProofFailure(error: unknown): boolean {
 	if (!(error instanceof CliReadError)) return false;
@@ -2662,6 +2670,7 @@ export class LaneDispatcher {
 					item.version,
 					current.workItem?.version,
 				);
+			if (this.stopping) throw new DispatcherStoppingError();
 			receipt.admissionState = "unknown";
 			this.save(path, receipt);
 			admissionSent = true;
@@ -2792,6 +2801,9 @@ export class LaneDispatcher {
 				).catch((error) =>
 					this.log("session-recovery-note-failed", item.id, String(error)),
 				);
+			// A stop that arrived during preparation must not start a model turn
+			// the drain deadline would then abandon to the next runner.
+			if (this.stopping) throw new DispatcherStoppingError();
 			const exit = await this.deps.launch(
 				[
 					"run",
@@ -3007,7 +3019,8 @@ export class LaneDispatcher {
 		} catch (error) {
 			receipt.outcome = receipt.interrupted
 				? "expired"
-				: error instanceof WorkRevisedDuringPreparationError
+				: error instanceof WorkRevisedDuringPreparationError ||
+					  error instanceof DispatcherStoppingError
 					? "cancelled"
 					: "failed";
 			if (
@@ -3039,11 +3052,13 @@ export class LaneDispatcher {
 				receipt.held =
 					receipt.identicalFailures >= 3 &&
 					!(error instanceof LocalExecutorCapacityError) &&
+					!(error instanceof DispatcherStoppingError) &&
 					!awaitsOwnerApproval(error) &&
 					!nativePreparationTimedOut(receipt);
 			}
 			this.log(
-				error instanceof WorkRevisedDuringPreparationError
+				error instanceof WorkRevisedDuringPreparationError ||
+					error instanceof DispatcherStoppingError
 					? "superseded"
 					: "skipped-or-failed",
 				candidate.id,
