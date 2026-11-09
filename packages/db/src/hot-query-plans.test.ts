@@ -6,6 +6,7 @@ import {
 	findOrphanRuns,
 	listRecentKernelRunsForOrganization,
 } from "./queries/cognitive-runtime";
+import { listPendingAgentSessionEvents } from "./queries/agent-session-requests";
 import { listOwnerLearningInteractionsPage } from "./queries/learning-feedback";
 import { pendingFilingLessons } from "./queries/request-filings";
 import { listRationaleRecords } from "./queries/rationale-records";
@@ -145,6 +146,19 @@ describe("hot production query plans", () => {
 		await findOrphanRuns(db, { now: new Date("2026-10-23T12:00:00.000Z") });
 		expect(lastPlan()).toContain(
 			"SEARCH tedi_runtime_events USING INDEX idx_tedi_runtime_events_global_kind_created (kind=? AND created_at>? AND created_at<?)",
+		);
+	});
+
+	it("checks earlier events in the same session by key, not by re-reading the user's events", async () => {
+		const { query, lastPlan } = fixture();
+		await listPendingAgentSessionEvents(query, {
+			organizationId: "org-1",
+			userId: "user-1",
+			limit: 20,
+			now: "2026-11-09T18:00:00.000Z",
+		});
+		expect(lastPlan("agent_session_events")).toContain(
+			"SEARCH earlier_session_event USING COVERING INDEX idx_agent_session_events_session_order (organization_id=? AND user_id=? AND harness=? AND session_key=? AND status=?",
 		);
 	});
 });

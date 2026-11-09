@@ -198,6 +198,17 @@ export const agentSessionEvents = sqliteTable(
 			table.sourceAt,
 			table.id,
 		),
+		// Serves the per-session "no earlier pending event" check, which runs once
+		// for every pending row a claim or listing considers.
+		index("idx_agent_session_events_session_order").on(
+			table.organizationId,
+			table.userId,
+			table.harness,
+			table.sessionKey,
+			table.status,
+			table.sourceAt,
+			table.id,
+		),
 	],
 );
 
