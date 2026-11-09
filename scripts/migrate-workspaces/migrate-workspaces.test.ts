@@ -12,7 +12,7 @@ import { reconcileAll } from "./reconcile";
 import { proposeAssignments } from "./assignments";
 import { rehearse } from "./rehearse";
 import { checkSchema, objectSchemaDatabase } from "./schema-check";
-import { batchIdFor, RowDigest } from "./rows";
+import { batchIdFor, RowDigest, splitSqlStatements } from "./rows";
 import { Snapshot } from "./source";
 import { remoteStoreFactory } from "./target";
 import {
@@ -20,7 +20,11 @@ import {
 	WORKSPACE_TABLES,
 	type WorkspaceAssignments,
 } from "./tables";
-import { LocalWorkspaceStore, localStoreFactory } from "./target";
+import {
+	LocalWorkspaceStore,
+	localStoreFactory,
+	readTenantStoreMigrations,
+} from "./target";
 
 // Use the shared exact-ledger cache; full migration replay is fixture setup,
 // not part of the importer's five-second behavior checks.
@@ -634,6 +638,45 @@ describe("migrate-workspaces", () => {
 		const e = new RowDigest(["id"]);
 		e.add({ id: "1", v: 1 });
 		expect(d.hex()).not.toBe(e.hex());
+	});
+
+	test("a new local object matches the replayed chain, and an older object gets the migrations it lacks", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "mw-test-"));
+		const chain = readTenantStoreMigrations();
+		const ref = { organizationId: ORG, workspaceId: WS_A };
+		const direct = new DatabaseSync(":memory:");
+		const older = new LocalWorkspaceStore(join(dir, "older.sqlite"), ref, {
+			migrations: chain.slice(0, -1),
+		});
+		await older.close();
+		const fresh = new LocalWorkspaceStore(join(dir, "fresh.sqlite"), ref);
+		const upgraded = new LocalWorkspaceStore(join(dir, "older.sqlite"), ref);
+		try {
+			direct.exec("PRAGMA foreign_keys = OFF");
+			for (const { sql } of chain)
+				for (const statement of splitSqlStatements(sql)) direct.exec(statement);
+			const schema = (db: DatabaseSync) =>
+				db
+					.prepare(
+						"SELECT type, name, sql FROM sqlite_master WHERE name NOT IN ('__drizzle_migrations', 'tenant_store_identity') ORDER BY type, name",
+					)
+					.all();
+			const ledger = (db: DatabaseSync) =>
+				db
+					.prepare("SELECT hash FROM __drizzle_migrations ORDER BY id")
+					.all()
+					.map((row) => row.hash);
+			expect(schema(fresh.db)).toEqual(schema(direct));
+			expect(schema(upgraded.db)).toEqual(schema(direct));
+			expect(ledger(fresh.db)).toEqual(chain.map((m) => m.name));
+			expect(ledger(upgraded.db)).toEqual(chain.map((m) => m.name));
+			expect((await fresh.describe()).workspaceId).toBe(WS_A);
+		} finally {
+			direct.close();
+			await fresh.close();
+			await upgraded.close();
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 
 	test("the mapping names every moved table once and the stay list does not overlap", () => {
