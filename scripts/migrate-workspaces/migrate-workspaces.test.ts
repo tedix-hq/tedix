@@ -111,13 +111,13 @@ function fixtureSnapshot(
 		)
 		.run("run-home", ORG, "conv-home");
 	const event =
-		"INSERT INTO kernel_runtime_events (id, organization_id, kind, conversation_id, run_id, sequence, payload) VALUES (?, ?, 'message', ?, ?, ?, ?)";
+		"INSERT INTO kernel_runtime_events (id, organization_id, kind, conversation_id, run_id, sequence, payload, created_at) VALUES (?, ?, 'message', ?, ?, ?, ?, ?)";
 	main
 		.prepare(event)
-		.run("ev-1", ORG, "conv-a", "run-a", 1, '{"text":"hello"}');
+		.run("ev-1", ORG, "conv-a", "run-a", 1, '{"text":"hello"}', NOW);
 	main
 		.prepare(event)
-		.run("ev-2", ORG, "conv-a", "run-a", 2, '{"text":"moved"}');
+		.run("ev-2", ORG, "conv-a", "run-a", 2, '{"text":"moved"}', NOW);
 	logs
 		.prepare(
 			"INSERT INTO kernel_conversations (id, organization_id, conversation_id, workspace_id, last_message_at) VALUES (?, ?, ?, ?, ?)",
@@ -125,10 +125,10 @@ function fixtureSnapshot(
 		.run("kc-a", ORG, "conv-a", WS_A, NOW);
 	logs
 		.prepare(event)
-		.run("ev-2", ORG, "conv-a", "run-a", 2, '{"text":"moved"}');
+		.run("ev-2", ORG, "conv-a", "run-a", 2, '{"text":"moved"}', NOW);
 	logs
 		.prepare(event)
-		.run("ev-3", ORG, "conv-a", "run-a", 3, '{"text":"only in logs"}');
+		.run("ev-3", ORG, "conv-a", "run-a", 3, '{"text":"only in logs"}', NOW);
 	main
 		.prepare(
 			"INSERT INTO kernel_tool_results (id, organization_id, conversation_id, run_id, source_kind, source_id, object_key, sha256, byte_size, created_at, expires_at) VALUES (?, ?, ?, ?, 'tool', 't1', 'k/1', 'sha', 10, ?, ?)",
@@ -185,6 +185,14 @@ describe("migrate-workspaces", () => {
 				(mapping) => mapping.table === "kernel_runtime_events",
 			)!;
 			const ref = { organizationId: ORG, workspaceId: WS_A };
+			for (const db of [snapshot.main, ...snapshot.logs])
+				expect(
+					db
+						.prepare(
+							"SELECT created_at FROM kernel_runtime_events WHERE id = ?",
+						)
+						.get("ev-2")?.created_at,
+				).toBe(NOW);
 			expect(snapshot.readRows(events, ref)).toHaveLength(3);
 			snapshot.logs[0]!.prepare(
 				"UPDATE kernel_runtime_events SET payload = ? WHERE id = ?",
