@@ -12,9 +12,9 @@ import {
 } from "../gadgets/sheet-client";
 
 type Sheet = Extract<OsOutputContent, { kind: "sheet" }>;
-const cleanups: Array<() => void> = [];
-afterEach(() => {
-	for (const cleanup of cleanups.splice(0)) cleanup();
+const cleanups: Array<() => unknown> = [];
+afterEach(async () => {
+	for (const cleanup of cleanups.splice(0)) await cleanup();
 	document.body.replaceChildren();
 	vi.restoreAllMocks();
 });
@@ -41,9 +41,15 @@ async function editor(role = "owner", transform?: (sheet: Sheet) => Sheet) {
 		name: "Archive",
 	});
 	if (transform) saved = transform(saved);
-	let revision = 1;
+	let revision = 1,
+		outputId = "output";
 	const outputsRead = vi.fn(async () => ({
-		output: { id: "output", title: "Budget" },
+		output: {
+			id: outputId,
+			title: "Budget",
+			workspaceId: "workspace",
+			kind: "sheet",
+		},
 		revision: { revision, content: structuredClone(saved) },
 	}));
 	const outputsWrite = vi.fn(
@@ -68,9 +74,36 @@ async function editor(role = "owner", transform?: (sheet: Sheet) => Sheet) {
 			TEDIX: { outputsRead, outputsWrite },
 		},
 	);
+	const drafts = new Map<string, { revision: number; content: Sheet }>();
 	const download = vi.fn();
 	const call = vi.fn(async (method: string, args?: Record<string, unknown>) => {
-		if (method === "context") return { role, settings: { slot: "sheet" } };
+		if (method === "context")
+			return {
+				role,
+				workspaceId: "workspace",
+				grants: [
+					{ slot: "sheet", operations: ["outputs.read", "outputs.write"] },
+				],
+				settings: { slot: "sheet" },
+			};
+		if (method === "app.draft.read") {
+			await outputsRead();
+			return drafts.get(String(args!.outputId)) ?? null;
+		}
+		if (method === "app.draft.clear") {
+			drafts.delete(String(args!.outputId));
+			return null;
+		}
+		if (method === "app.draft.write") {
+			drafts.set(
+				String(args!.outputId),
+				structuredClone({
+					revision: Number(args!.revision),
+					content: args!.content as Sheet,
+				}),
+			);
+			return null;
+		}
 		if (method === "sheet.evaluate") return calculate(args!.content as Sheet);
 		if (method === "outputs.replace") {
 			await outputsWrite(
@@ -88,12 +121,23 @@ async function editor(role = "owner", transform?: (sheet: Sheet) => Sheet) {
 			return app[args!.method as string](...(args!.args as unknown[]));
 		throw new Error("Unknown host operation");
 	});
-	const mounted = await mountSheetClient(document.getElementById("app")!, {
+	let mounted = await mountSheetClient(document.getElementById("app")!, {
 		call,
 	} as SheetClientBridge);
-	cleanups.push(mounted.dispose);
+	cleanups.push(() => mounted.dispose());
 	return {
 		call,
+		drafts,
+		retarget(id: string) {
+			outputId = id;
+		},
+		async reopen() {
+			await mounted.dispose();
+			document.body.innerHTML = '<div id="app"></div>';
+			mounted = await mountSheetClient(document.getElementById("app")!, {
+				call,
+			} as SheetClientBridge);
+		},
 		calculate,
 		outputsRead,
 		outputsWrite,
@@ -557,6 +601,207 @@ describe("Portable Sheet grid", () => {
 		});
 	});
 
+	it("retains complete formatted workbook drafts across tab unmounts and clears them after Save", async () => {
+		const app = await editor();
+		edit("C1", "=B1*8");
+		select("C1");
+		change("#font-size", "22");
+		change("#fill-color", "#abcdee");
+		change("#tabs", "archive");
+		edit("B2", "Archive draft");
+		await vi.waitFor(() =>
+			expect(app.drafts.get("output")?.content.workbook?.activeSheetId).toBe(
+				"archive",
+			),
+		);
+		expect(app.outputsWrite).not.toHaveBeenCalled();
+		await app.reopen();
+		expect(q(".status").textContent).toContain("Restored draft");
+		expect(q<HTMLSelectElement>("#tabs").value).toBe("archive");
+		expect(display("B2")).toBe("Archive draft");
+		change("#tabs", app.saved().workbook!.sheets[0]!.id);
+		select("C1");
+		expect(q<HTMLInputElement>("#formula").value).toBe("=B1*8");
+		expect(cell("C1").style.fontSize).toBe("22px");
+		await saved(app);
+		await vi.waitFor(() => expect(app.drafts.size).toBe(0));
+		expect(app.saved().workbook!.sheets[0]!.rows[0]![2]!.format).toMatchObject({
+			fontSize: 22,
+			fillColor: "#abcdee",
+		});
+		expect(app.saved().workbook!.sheets[1]!.rows[1]![1]!.input).toBe(
+			"Archive draft",
+		);
+	});
+	it("retains raw cell and formula bar input before Enter and removes canceled raw drafts", async () => {
+		const app = await editor();
+		select("C1");
+		key("=");
+		const input = q<HTMLInputElement>(".cell-edit");
+		input.value = "=B1*9";
+		input.dispatchEvent(new Event("input"));
+		await vi.waitFor(() =>
+			expect(
+				app.drafts.get("output")?.content.workbook!.sheets[0]!.rows[0]![2]!
+					.input,
+			).toBe("=B1*9"),
+		);
+		await app.reopen();
+		expect(display("C1")).toBe("18");
+		click("#reload");
+		click("#reload");
+		await vi.waitFor(() => expect(q(".status").textContent).toContain("Saved"));
+		select("C1");
+		const formula = q<HTMLInputElement>("#formula");
+		formula.focus();
+		formula.value = "=A1*17";
+		formula.dispatchEvent(new Event("input"));
+		await app.reopen();
+		expect(display("C1")).toBe("17");
+		click("#reload");
+		click("#reload");
+		await vi.waitFor(() => expect(q(".status").textContent).toContain("Saved"));
+		select("A2");
+		key("7");
+		key("Escape", {}, q(".cell-edit"));
+		await app.reopen();
+		expect(display("A2")).toBe("");
+		expect(app.drafts.size).toBe(0);
+	});
+	it("does not silently restore or rebase a draft after a concurrent revision", async () => {
+		const app = await editor();
+		edit("A1", "7");
+		await vi.waitFor(() => expect(app.drafts.has("output")).toBe(true));
+		app.changeExternal(9);
+		await app.reopen();
+		expect(display("C1")).toBe("11");
+		expect(q("#updates").textContent).toContain(
+			"retained draft is based on revision 1",
+		);
+		expect(q<HTMLButtonElement>("#save").disabled).toBe(true);
+		expect(q("#review-draft").hidden).toBe(false);
+		click("#review-draft");
+		await vi.waitFor(() => expect(display("C1")).toBe("9"));
+		click("#save");
+		await vi.waitFor(() =>
+			expect(q(".status").textContent).toContain("Revision conflict"),
+		);
+		expect(app.drafts.get("output")?.revision).toBe(1);
+		expect(app.saved().rows[0]![0]).toBe(9);
+		click("#reload");
+		click("#reload");
+		await vi.waitFor(() => expect(display("C1")).toBe("11"));
+		expect(app.drafts.size).toBe(0);
+	});
+	it("never applies a retained draft to a different output binding", async () => {
+		const app = await editor();
+		edit("A1", "7");
+		await vi.waitFor(() => expect(app.drafts.has("output")).toBe(true));
+		app.retarget("different-output");
+		await app.reopen();
+		expect(display("C1")).toBe("3");
+		expect(q(".status").textContent).not.toContain("Restored");
+		expect(q<HTMLButtonElement>("#save").disabled).toBe(true);
+		expect(app.drafts.get("different-output")).toBeUndefined();
+	});
+	it("clears stale content and locks writes, copies and exports after source access is denied", async () => {
+		const app = await editor();
+		edit("A1", "7");
+		await vi.waitFor(() => expect(app.drafts.has("output")).toBe(true));
+		app.outputsRead.mockRejectedValue(
+			new Error("Output source access unavailable"),
+		);
+		click("#reload");
+		click("#reload");
+		await vi.waitFor(() => expect(q(".grid").hidden).toBe(true));
+		await vi.waitFor(() => expect(app.drafts.size).toBe(0));
+		expect(document.querySelectorAll("td[data-row]")).toHaveLength(0);
+		expect(q<HTMLInputElement>("#formula").value).toBe("");
+		expect(q<HTMLInputElement>("#formula").disabled).toBe(true);
+		expect(q<HTMLButtonElement>("#save").disabled).toBe(true);
+		expect(q<HTMLButtonElement>("#export").disabled).toBe(true);
+		expect(q<HTMLButtonElement>("#xlsx").disabled).toBe(true);
+		key("9");
+		clipboard("paste", "secret");
+		expect(clipboard("copy")).toBe("");
+		click("#save");
+		expect(app.outputsWrite).not.toHaveBeenCalled();
+		await app.reopen();
+		expect(q(".grid").hidden).toBe(true);
+		expect(app.drafts.size).toBe(0);
+	});
+	it("orders draft clear after pending retention writes during Save", async () => {
+		const app = await editor(),
+			original = app.call.getMockImplementation()!;
+		let finish: (() => void) | undefined,
+			blocked = false;
+		app.call.mockImplementation(async (method, args) => {
+			if (method === "app.draft.write" && !blocked) {
+				blocked = true;
+				await new Promise<void>((resolve) => {
+					finish = resolve;
+				});
+			}
+			return original(method, args);
+		});
+		edit("A1", "7");
+		await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+		click("#save");
+		await vi.waitFor(() => expect(app.revision()).toBe(2));
+		finish!();
+		await vi.waitFor(() => expect(q(".status").textContent).toContain("Saved"));
+		expect(app.drafts.size).toBe(0);
+		await app.reopen();
+		expect(display("C1")).toBe("9");
+		expect(q(".status").textContent).not.toContain("Restored");
+	});
+	it("locks a draft on Save rejection when a fresh read confirms source revocation", async () => {
+		const app = await editor();
+		edit("A1", "7");
+		await vi.waitFor(() => expect(app.drafts.has("output")).toBe(true));
+		app.outputsWrite.mockRejectedValue(new Error("FORBIDDEN"));
+		app.outputsRead.mockRejectedValue(
+			new Error("Output source access unavailable"),
+		);
+		click("#save");
+		await vi.waitFor(() => expect(q(".grid").hidden).toBe(true));
+		await vi.waitFor(() => expect(app.drafts.size).toBe(0));
+		expect(q(".status").textContent).toContain("source access");
+		expect(q<HTMLButtonElement>("#save").disabled).toBe(true);
+	});
+
+	it("posts each raw input immediately while an earlier retention response is pending", async () => {
+		const app = await editor(),
+			original = app.call.getMockImplementation()!;
+		let finish: (() => void) | undefined,
+			blocked = false;
+		app.call.mockImplementation(async (method, args) => {
+			const result = await original(method, args);
+			if (method === "app.draft.write" && !blocked) {
+				blocked = true;
+				await new Promise<void>((resolve) => {
+					finish = resolve;
+				});
+			}
+			return result;
+		});
+		select("C1");
+		key("=");
+		const input = q<HTMLInputElement>(".cell-edit");
+		input.value = "=A1*19";
+		input.dispatchEvent(new Event("input"));
+		expect(
+			app.call.mock.calls.filter(([method]) => method === "app.draft.write"),
+		).toHaveLength(2);
+		expect(
+			app.drafts.get("output")?.content.workbook!.sheets[0]!.rows[0]![2]!.input,
+		).toBe("=A1*19");
+		await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+		finish!();
+		await app.reopen();
+		expect(display("C1")).toBe("19");
+	});
+
 	it("ships an executable isolated bundle without native editor dispatch or imports", async () => {
 		document.body.innerHTML = '<div id="app"></div>';
 		const calculate = (content: Sheet) =>
@@ -566,11 +811,21 @@ describe("Portable Sheet grid", () => {
 		const bridge = {
 			call: vi.fn(async (method: string) =>
 				method === "context"
-					? { role: "use", settings: { slot: "sheet" } }
+					? {
+							role: "use",
+							workspaceId: "workspace",
+							grants: [],
+							settings: { slot: "sheet" },
+						}
 					: method === "sheet.evaluate"
 						? calculate({ kind: "sheet", columns: ["A"], rows: [[1]] })
 						: {
-								output: { id: "o", title: "Portable" },
+								output: {
+									id: "o",
+									title: "Portable",
+									workspaceId: "workspace",
+									kind: "sheet",
+								},
 								revision: {
 									revision: 7,
 									content: { kind: "sheet", columns: ["A"], rows: [[1]] },

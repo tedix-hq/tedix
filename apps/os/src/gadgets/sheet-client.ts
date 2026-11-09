@@ -41,9 +41,10 @@ import {
 
 type Content = Extract<OsOutputContent, { kind: "sheet" }>;
 type Saved = {
-	output: { id: string; title: string };
+	output: { id: string; title: string; workspaceId: string; kind: string };
 	revision: { revision: number; content: Content };
 };
+type RetainedDraft = { revision: number; content: Content };
 export interface SheetClientBridge {
 	call<T = unknown>(method: string, args?: unknown): Promise<T>;
 }
@@ -62,7 +63,7 @@ export async function mountSheetClient(
 <div class="toolbar" role="toolbar" aria-label="Sheet operations"><button id="add-row">Add row</button><button id="add-column">Add column</button><select id="structure" aria-label="Workbook operation"><option value="">Rows, columns & tabs…</option><option value="insert-row">Insert rows above</option><option value="delete-row">Delete selected rows</option><option value="insert-column">Insert columns before</option><option value="delete-column">Delete selected columns</option><option value="rename-column">Rename column</option><option value="row-height">Row height</option><option value="column-width">Column width</option><option value="add-sheet">Add sheet</option><option value="rename-sheet">Rename sheet</option><option value="duplicate-sheet">Duplicate sheet</option><option value="delete-sheet">Delete sheet</option><option value="move-left">Move sheet left</option><option value="move-right">Move sheet right</option><option value="freeze">Freeze to selection</option><option value="unfreeze">Unfreeze panes</option></select><button id="sum">Σ Sum</button><button id="fill-down">Fill down</button><button id="fill-right">Fill right</button><button id="sort-asc">Sort A–Z</button><button id="sort-desc">Sort Z–A</button><button id="clear">Clear cells</button></div>
 <div class="formula"><input id="range" aria-label="Cell or range" value="A1"><label for="formula">fx</label><input id="formula" aria-label="Formula bar" autocomplete="off" spellcheck="false"></div>
 <div class="command" hidden><label id="command-label" for="command-value"></label><input id="command-value"><button id="command-apply">Apply</button><button id="command-cancel">Cancel</button></div>
-<div class="status" role="status" aria-live="polite"></div><div id="updates" role="status" aria-live="polite"></div><div class="grid" tabindex="0" aria-label="Spreadsheet keyboard navigation"><table role="grid" aria-label="Sheet cells" aria-multiselectable="true"></table></div><div class="tabs"><label>Sheet <select id="tabs" aria-label="Active sheet"></select></label><div id="tab-buttons"></div><button id="add-sheet">+ Sheet</button></div><div class="stats"></div><details><summary>Keyboard shortcuts</summary><p class="help">Arrows move; Shift extends a range; Ctrl/⌘ + arrows jump to data edges. Tab/Enter advance within a range. Type or F2 to edit; Escape cancels. Ctrl/⌘ C/X/V copies, cuts and pastes ranges. Ctrl/⌘ Z/Shift Z undo/redo. Ctrl/⌘ D/R fill down/right. Delete clears cells. Ctrl/⌘ S saves. Select row/column headings or enter A1:C5 in the name box. Double-click a heading to rename it; drag column edges to resize. CSV exports saved values.</p></details>`;
+<div class="status" role="status" aria-live="polite"></div><div id="updates" role="status" aria-live="polite"></div><button id="review-draft" hidden>Review retained draft</button><div class="grid" tabindex="0" aria-label="Spreadsheet keyboard navigation"><table role="grid" aria-label="Sheet cells" aria-multiselectable="true"></table></div><div class="tabs"><label>Sheet <select id="tabs" aria-label="Active sheet"></select></label><div id="tab-buttons"></div><button id="add-sheet">+ Sheet</button></div><div class="stats"></div><details><summary>Keyboard shortcuts</summary><p class="help">Arrows move; Shift extends a range; Ctrl/⌘ + arrows jump to data edges. Tab/Enter advance within a range. Type or F2 to edit; Escape cancels. Ctrl/⌘ C/X/V copies, cuts and pastes ranges. Ctrl/⌘ Z/Shift Z undo/redo. Ctrl/⌘ D/R fill down/right. Delete clears cells. Ctrl/⌘ S saves. Select row/column headings or enter A1:C5 in the name box. Double-click a heading to rename it; drag column edges to resize. CSV exports saved values.</p></details>`;
 	const q = <T extends HTMLElement = HTMLElement>(selector: string) =>
 		root.querySelector<T>(selector)!;
 	const grid = q(".grid"),
@@ -80,7 +81,11 @@ export async function mountSheetClient(
 		discard = false,
 		slot = "",
 		generation = 0,
-		pendingRevision = 0;
+		pendingRevision = 0,
+		basis = 0,
+		available = false,
+		destroyed = false,
+		workspaceId = "";
 	let selection: Selection = {
 			anchor: { row: 0, column: 0 },
 			focus: { row: 0, column: 0 },
@@ -96,6 +101,10 @@ export async function mountSheetClient(
 		| undefined;
 	const undo: Content[] = [],
 		redo: Content[] = [];
+	let retainedConflict: RetainedDraft | undefined;
+	let draftQueue: Promise<unknown> = Promise.resolve(),
+		draftWriteVersion = 0;
+	const pendingDraftWrites = new Set<Promise<unknown>>();
 	let calcTimer: ReturnType<typeof setTimeout> | undefined;
 	const call = <T = Saved>(method: string, input: unknown = {}) =>
 		bridge.call<T>("app.call", { method, args: [input] });
@@ -112,7 +121,8 @@ export async function mountSheetClient(
 		status.textContent = text;
 		status.dataset.error = String(error);
 	};
-	const editable = () => canEdit && !busy && !!draft;
+	const editable = () =>
+		canEdit && available && !busy && !destroyed && !retainedConflict && !!draft;
 	function controls() {
 		q<HTMLButtonElement>("#save").disabled =
 			!editable() || !(dirty || formulaDirty || editing);
@@ -127,16 +137,170 @@ export async function mountSheetClient(
 			.forEach((node) => (node.disabled = !editable()));
 		q<HTMLButtonElement>("#undo").disabled = !editable() || !undo.length;
 		q<HTMLButtonElement>("#redo").disabled = !editable() || !redo.length;
-		tabs.disabled = busy;
+		tabs.disabled = busy || !available;
+		q<HTMLButtonElement>("#export").disabled = busy || !available;
+		q<HTMLButtonElement>("#xlsx").disabled = busy || !available;
+		q<HTMLButtonElement>("#review-draft").disabled = busy || !available;
+		q("#review-draft").hidden = !retainedConflict;
+		grid.hidden = !available;
 		table.setAttribute("aria-readonly", String(!canEdit));
 	}
+	const draftArgs = () => ({ slot, outputId: loaded!.output.id });
+	function draftOperation<T = unknown>(method: string, args: unknown) {
+		if (method === "app.draft.write") {
+			draftWriteVersion++;
+			const result = bridge.call<T>(method, args);
+			pendingDraftWrites.add(result);
+			void result
+				.finally(() => pendingDraftWrites.delete(result))
+				.catch(() => undefined);
+			return result;
+		}
+		const version = draftWriteVersion;
+		const result = draftQueue.then(async () => {
+			await Promise.allSettled([...pendingDraftWrites]);
+			if (method === "app.draft.clear" && version !== draftWriteVersion)
+				return null;
+			const result = await bridge.call<T>(method, args);
+			if (method === "app.draft.clear" && version !== draftWriteVersion)
+				void retainDraft();
+			return result;
+		});
+		draftQueue = result.catch(() => undefined);
+		return result;
+	}
+
+	function snapshotDraft() {
+		const content = structuredClone(draft!);
+		const input = editing?.value ?? (formulaDirty ? formula.value : undefined);
+		if (input !== undefined) {
+			const current = content.workbook!.sheets.find(
+				(item) => item.id === content.workbook!.activeSheetId,
+			)!;
+			const { row, column } = selection.focus;
+			while (current.columns.length <= column)
+				current.columns.push({
+					id: "column-" + crypto.randomUUID(),
+					label: columnLabel(current.columns.length),
+					width: 120,
+				});
+			while (current.rows.length <= row)
+				current.rows.push(current.columns.map(() => null));
+			for (const line of current.rows)
+				while (line.length < current.columns.length) line.push(null);
+			const previous = current.rows[row]![column];
+			current.rows[row]![column] = { ...previous, input, value: null };
+			content.columns = current.columns.map((item) => item.label);
+			content.rows = current.rows.map((line) =>
+				current.columns.map((_, index) => line[index]?.value ?? null),
+			);
+		}
+		return content;
+	}
+	async function retainDraft() {
+		if (
+			!loaded ||
+			!draft ||
+			!available ||
+			!canEdit ||
+			busy ||
+			destroyed ||
+			retainedConflict ||
+			!(dirty || formulaDirty || editing)
+		)
+			return;
+		try {
+			await draftOperation("app.draft.write", {
+				...draftArgs(),
+				revision: basis,
+				content: snapshotDraft(),
+			});
+		} catch (error) {
+			if (!destroyed && available)
+				message(
+					(error instanceof Error ? error.message : "Draft retention failed") +
+						". Save before leaving this tab.",
+					true,
+				);
+		}
+	}
+	function syncRetainedDraft() {
+		if (!available || !loaded || !canEdit || retainedConflict) return;
+		if (dirty || formulaDirty || editing) void retainDraft();
+		else
+			void draftOperation("app.draft.clear", draftArgs()).catch((error) => {
+				if (available && !destroyed)
+					message(
+						(error instanceof Error ? error.message : "Draft cleanup failed") +
+							". Reload to clear the retained draft.",
+						true,
+					);
+			});
+	}
+
+	function parse(value: Saved) {
+		if (
+			value?.output?.workspaceId !== workspaceId ||
+			value.output.kind !== "sheet" ||
+			!value.output.id ||
+			!Number.isInteger(value.revision?.revision) ||
+			value.revision.revision < 1 ||
+			value.revision.content?.kind !== "sheet"
+		)
+			throw new Error("The sheet response does not match this workspace");
+		return value;
+	}
+	async function verifyAccess() {
+		try {
+			const current = parse(await call("readSheet"));
+			if (current.output.id !== loaded?.output.id)
+				throw new Error("The sheet binding changed");
+			pendingRevision = Math.max(pendingRevision, current.revision.revision);
+			return true;
+		} catch (error) {
+			if (!destroyed) await unavailable(error);
+			return false;
+		}
+	}
+
+	async function unavailable(error: unknown) {
+		generation++;
+		available = false;
+		clearTimeout(calcTimer);
+		const args = loaded ? draftArgs() : undefined;
+		editing = undefined;
+		formulaDirty = false;
+		dirty = false;
+		draft = undefined;
+		loaded = undefined;
+		retainedConflict = undefined;
+		copied = undefined;
+		undo.length = redo.length = 0;
+		table.replaceChildren();
+		tabs.replaceChildren();
+		q("#tab-buttons").replaceChildren();
+		formula.value = "";
+		namebox.value = "";
+		q("h1").textContent = "Sheet";
+		q(".stats").textContent = updates.textContent = "";
+		q(".command").hidden = true;
+		message(
+			error instanceof Error ? error.message : "Sheet access is unavailable",
+			true,
+		);
+		controls();
+		if (args && canEdit)
+			await draftOperation("app.draft.clear", args).catch(() => undefined);
+	}
+
 	function mark() {
 		generation++;
 		dirty = true;
 		discard = false;
 		q("#reload").textContent = "Reload";
-		message("Unsaved changes · based on revision " + loaded!.revision.revision);
+		message("Unsaved changes · based on revision " + basis);
 		controls();
+		void retainDraft();
 	}
 	function ensure(row: number, column: number) {
 		const s = sheet();
@@ -182,10 +346,11 @@ export async function mountSheetClient(
 			const content = await bridge.call<Content>("sheet.evaluate", {
 				content: snapshot,
 			});
-			if (version !== generation) return;
+			if (version !== generation || destroyed) return;
 			draft = content;
 			renderValues();
 			selectionUI();
+			void retainDraft();
 		} catch (error) {
 			message(error instanceof Error ? error.message : String(error), true);
 		}
@@ -558,7 +723,8 @@ export async function mountSheetClient(
 		cell.append(input);
 		input.oninput = () => {
 			formula.value = input.value;
-			message("Unsaved cell · based on revision " + loaded!.revision.revision);
+			void retainDraft();
+			message("Unsaved cell · based on revision " + basis);
 			controls();
 		};
 		input.onkeydown = (event) => {
@@ -571,6 +737,7 @@ export async function mountSheetClient(
 				selectionUI();
 				controls();
 				grid.focus();
+				syncRetainedDraft();
 				external();
 			} else if (
 				(event.ctrlKey || event.metaKey) &&
@@ -592,6 +759,7 @@ export async function mountSheetClient(
 		input.onblur = () => commitCell();
 		input.focus();
 		controls();
+		if (initial !== undefined) void retainDraft();
 		if (initial === undefined) input.select();
 	}
 	function commitCell() {
@@ -603,6 +771,7 @@ export async function mountSheetClient(
 		input.remove();
 		if (value !== (sheet().rows[point.row]?.[point.column]?.input ?? ""))
 			edit(() => put(point.row, point.column, value));
+		else syncRetainedDraft();
 	}
 	function advance(axis: "horizontal" | "vertical", direction: 1 | -1) {
 		const b = bounds();
@@ -679,7 +848,7 @@ export async function mountSheetClient(
 		scheduleCalculation();
 	}
 	function switchTab(id: string) {
-		if (busy || !draft) return;
+		if (busy || !draft || !available || destroyed) return;
 		commitCell();
 		commitFormula();
 		tabBounds = undefined;
@@ -687,6 +856,7 @@ export async function mountSheetClient(
 		selection = { anchor: { row: 0, column: 0 }, focus: { row: 0, column: 0 } };
 		grid.scrollTop = grid.scrollLeft = 0;
 		render();
+		void retainDraft();
 	}
 	function command(
 		label: string,
@@ -947,7 +1117,7 @@ export async function mountSheetClient(
 		ArrowRight: { row: 0, column: 1 },
 	};
 	grid.onkeydown = (event) => {
-		if (event.isComposing || editing || !draft || busy) return;
+		if (event.isComposing || editing || !draft || busy || !available) return;
 		const mod = event.ctrlKey || event.metaKey,
 			key = event.key.toLowerCase();
 		if (mod && ["s", "z", "y", "a", "b", "i", "u", "d", "r"].includes(key)) {
@@ -1036,8 +1206,9 @@ export async function mountSheetClient(
 	formula.oninput = () => {
 		if (!editable()) return;
 		formulaDirty = true;
+		void retainDraft();
 		discard = false;
-		message("Unsaved formula · based on revision " + loaded!.revision.revision);
+		message("Unsaved formula · based on revision " + basis);
 		controls();
 	};
 	formula.onkeydown = (event) => {
@@ -1056,6 +1227,7 @@ export async function mountSheetClient(
 			selectionUI();
 			controls();
 			grid.focus();
+			syncRetainedDraft();
 			external();
 		} else if (
 			(event.ctrlKey || event.metaKey) &&
@@ -1202,54 +1374,128 @@ export async function mountSheetClient(
 				sortRange(w, sheet().id, bounds(), selection.focus.column, direction),
 			);
 	function external() {
-		if (!loaded || busy) return;
-		if (pendingRevision <= loaded.revision.revision) {
+		if (!loaded || busy || !available || destroyed) return;
+		if (retainedConflict) {
+			updates.textContent =
+				"A retained draft is based on revision " +
+				retainedConflict.revision +
+				", but the saved sheet is revision " +
+				loaded.revision.revision +
+				". Review it at its original revision, or Reload twice to discard it. No draft has been rebased.";
+			controls();
+			return;
+		}
+		const current = Math.max(pendingRevision, loaded.revision.revision);
+		if (current <= basis) {
 			pendingRevision = 0;
 			updates.textContent = "";
 			return;
 		}
 		updates.textContent =
 			"Revision " +
-			pendingRevision +
+			current +
 			" is available." +
 			(dirty || formulaDirty || editing
-				? " Your unsaved edits are preserved. Reload to review the saved sheet."
+				? " Your unsaved edits are preserved. Save still checks revision " +
+					basis +
+					". Reload to review the saved sheet."
 				: " Loading the saved sheet…");
 		if (dirty || formulaDirty || editing) return;
 		pendingRevision = 0;
 		void load();
 	}
-	async function load() {
+	async function load(discardDraft = false) {
 		busy = true;
+		generation++;
 		controls();
 		message("Loading sheet…");
 		try {
-			const result = await call("readSheet");
-			const content = await bridge.call<Content>("sheet.evaluate", {
-				content: result.revision.content,
-			});
+			const result = parse(await call("readSheet"));
+			if (destroyed) return;
 			loaded = result;
+			let retained: RetainedDraft | null = null;
+			if (canEdit) {
+				if (discardDraft) await draftOperation("app.draft.clear", draftArgs());
+				else
+					retained = await draftOperation<RetainedDraft | null>(
+						"app.draft.read",
+						draftArgs(),
+					);
+			}
+			if (destroyed) return;
+			if (
+				retained &&
+				(retained.content?.kind !== "sheet" ||
+					!Number.isInteger(retained.revision) ||
+					retained.revision < 1)
+			)
+				throw new Error("The retained sheet draft is invalid");
+			retainedConflict =
+				retained && retained.revision !== result.revision.revision
+					? retained
+					: undefined;
+			const matching = retained && !retainedConflict ? retained : null;
+			const content = await bridge.call<Content>("sheet.evaluate", {
+				content: matching?.content ?? result.revision.content,
+			});
+			if (destroyed) return;
 			draft = content;
-			generation++;
-			dirty = false;
+			basis = result.revision.revision;
+			available = true;
+			dirty = !!matching;
+			formulaDirty = false;
 			discard = false;
 			undo.length = redo.length = 0;
 			q("#reload").textContent = "Reload";
 			q("h1").textContent = result.output.title;
 			render();
 			message(
-				"Saved · revision " +
-					result.revision.revision +
-					(canEdit ? "" : " · Read only"),
+				dirty
+					? "Restored draft · based on revision " + basis
+					: "Saved · revision " + basis + (canEdit ? "" : " · Read only"),
 			);
 		} catch (error) {
-			message(error instanceof Error ? error.message : String(error), true);
+			if (!destroyed) await unavailable(error);
 		} finally {
 			busy = false;
 			controls();
 			external();
 		}
 	}
+	q("#review-draft").onclick = async () => {
+		if (!retainedConflict || busy || !available) return;
+		const retained = retainedConflict,
+			outputId = loaded!.output.id;
+		busy = true;
+		controls();
+		try {
+			const result = parse(await call("readSheet"));
+			if (result.output.id !== outputId)
+				throw new Error("The sheet binding changed");
+			const content = await bridge.call<Content>("sheet.evaluate", {
+				content: retained.content,
+			});
+			if (destroyed) return;
+			loaded = result;
+			draft = content;
+			basis = retained.revision;
+			retainedConflict = undefined;
+			dirty = true;
+			generation++;
+			render();
+			message(
+				"Reviewing retained draft · Save still checks original revision " +
+					basis,
+			);
+		} catch (error) {
+			if (!destroyed) await unavailable(error);
+		} finally {
+			busy = false;
+			controls();
+			external();
+		}
+	};
+
 	async function save() {
 		commitCell();
 		commitFormula();
@@ -1266,16 +1512,33 @@ export async function mountSheetClient(
 			const result = await bridge.call<Saved>("outputs.replace", {
 				slot,
 				content,
-				expectedRevision: loaded!.revision.revision,
+				expectedRevision: basis,
 			});
+			parse(result);
+			if (destroyed) return;
 			loaded = result;
+			basis = result.revision.revision;
 			draft = result.revision.content;
 			dirty = false;
+			let cleanupError: unknown;
+			try {
+				await draftOperation("app.draft.clear", draftArgs());
+			} catch (error) {
+				cleanupError = error;
+			}
 			discard = false;
 			q("#reload").textContent = "Reload";
 			render();
-			message("Saved · revision " + result.revision.revision);
+			message(
+				"Saved · revision " +
+					result.revision.revision +
+					(cleanupError
+						? ". The retained draft could not be cleared; Reload before upgrading."
+						: ""),
+				!!cleanupError,
+			);
 		} catch (error) {
+			if (destroyed || !(await verifyAccess())) return;
 			message(
 				(error instanceof Error ? error.message : String(error)) +
 					". Your draft is still here. Reload only when ready to discard it.",
@@ -1292,15 +1555,16 @@ export async function mountSheetClient(
 		if (busy) return;
 		commitCell();
 		commitFormula();
-		if (dirty && !discard) {
+		if ((dirty || retainedConflict) && !discard) {
 			discard = true;
 			q("#reload").textContent = "Discard draft & reload";
 			message("Click Reload again to discard unsaved changes.", true);
 			return;
 		}
-		void load();
+		void load(true);
 	};
 	q("#export").onclick = async () => {
+		if (!available || busy) return;
 		try {
 			const result = await call<{
 				title: string;
@@ -1320,11 +1584,12 @@ export async function mountSheetClient(
 					(dirty ? " · unsaved changes are not included." : ""),
 			);
 		} catch (error) {
+			if (destroyed || !(await verifyAccess())) return;
 			message(error instanceof Error ? error.message : String(error), true);
 		}
 	};
 	q("#xlsx").onclick = async () => {
-		if (!loaded) return;
+		if (!loaded || !available || busy) return;
 		try {
 			await bridge.call("app.exportOutput", {
 				slot,
@@ -1337,6 +1602,7 @@ export async function mountSheetClient(
 					(dirty ? " · unsaved changes are not included." : ""),
 			);
 		} catch (error) {
+			if (destroyed || !(await verifyAccess())) return;
 			message(error instanceof Error ? error.message : String(error), true);
 		}
 	};
@@ -1368,6 +1634,7 @@ export async function mountSheetClient(
 	window.addEventListener("message", onMessage);
 	const beforeUnload = (event: BeforeUnloadEvent) => {
 		if (dirty || formulaDirty || editing) {
+			void retainDraft();
 			event.preventDefault();
 			event.returnValue = "";
 		}
@@ -1376,10 +1643,18 @@ export async function mountSheetClient(
 	try {
 		const context = await bridge.call<{
 			role: string;
+			workspaceId: string;
+			grants: { slot: string; operations: string[] }[];
 			settings?: { slot?: string };
 		}>("context");
-		canEdit = context.role === "owner" || context.role === "build";
+		workspaceId = context.workspaceId;
 		slot = context.settings?.slot ?? "";
+		canEdit =
+			(context.role === "owner" || context.role === "build") &&
+			context.grants?.some(
+				(grant) =>
+					grant.slot === slot && grant.operations.includes("outputs.write"),
+			) === true;
 		await load();
 	} catch (error) {
 		message(error instanceof Error ? error.message : String(error), true);
@@ -1387,11 +1662,17 @@ export async function mountSheetClient(
 	}
 	return {
 		dispose() {
+			if (destroyed)
+				return Promise.allSettled([...pendingDraftWrites, draftQueue]);
+			void retainDraft();
+			destroyed = true;
+			generation++;
 			clearTimeout(calcTimer);
 			document.removeEventListener("mouseup", mouseup);
 			window.removeEventListener("message", onMessage);
 			window.removeEventListener("beforeunload", beforeUnload);
 			style.remove();
+			return Promise.allSettled([...pendingDraftWrites, draftQueue]);
 		},
 		save,
 	};
