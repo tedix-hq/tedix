@@ -56,11 +56,17 @@ export function acceptsObserverClaims(
 	const ci = event.kind === "ci_red" || event.kind === "ci_green";
 	const repo = push || ci ? config.repository : config.shipRepository;
 	const workflow = push || ci ? config.pushWorkflow : config.shipWorkflow;
+	// On chained triggers (workflow_run, workflow_call) GitHub splits the entry
+	// and the executed workflow across workflow_ref and job_workflow_ref; the
+	// executing file may land in either claim, so the configured workflow must
+	// match one of them — a token naming it nowhere is still rejected.
+	const expected = `${repo}/${workflow}@refs/heads/${config.branch}`;
 	return (
 		!!repo &&
 		claims.repository === repo &&
 		claims.ref === `refs/heads/${config.branch}` &&
-		claims.workflow_ref === `${repo}/${workflow}@refs/heads/${config.branch}` &&
+		(claims.workflow_ref === expected ||
+			claims.job_workflow_ref === expected) &&
 		(push
 			? claims.event_name === "push" && claims.sha === event.sha
 			: ci

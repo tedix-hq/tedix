@@ -168,6 +168,22 @@ describe("observer workload binding after signature verification", () => {
 			event_name: "workflow_run",
 		};
 		expect(acceptsObserverClaims(config, red, ops)).toBe(true);
+		// On workflow_run the entry workflow may be the triggering Ship run; the
+		// executed reporting workflow still binds through job_workflow_ref.
+		expect(
+			acceptsObserverClaims(config, red, {
+				...ops,
+				workflow_ref: "example/ops/.github/workflows/ship.yml@refs/heads/main",
+				job_workflow_ref:
+					"example/ops/.github/workflows/tedix-observer.yml@refs/heads/main",
+			}),
+		).toBe(true);
+		expect(
+			acceptsObserverClaims(config, red, {
+				...ops,
+				workflow_ref: "example/ops/.github/workflows/ship.yml@refs/heads/main",
+			}),
+		).toBe(false);
 		expect(
 			acceptsObserverClaims({ ...config, shipRepository: undefined }, red, ops),
 		).toBe(false);
