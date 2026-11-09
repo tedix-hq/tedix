@@ -4659,6 +4659,37 @@ it("reuses a clean registered worktree left by a failed admission at fresh origi
 	expect(existsSync(`${destination}-2`)).toBe(false);
 }, 30_000);
 
+it.each([false, true])(
+	"keeps the checkout locked from provisioning until the dispatcher removes it (reused=%s)",
+	async (reused) => {
+		const { root, repo, git } = gitFixture(true);
+		const destination = join(root, "repo");
+		if (reused) provisionLaneWorktree(repo, destination);
+		expect(provisionLaneWorktree(repo, destination)).toBe(destination);
+		expect(git(["worktree", "list", "--porcelain"])).toContain(
+			"locked Tedix dispatcher checkout",
+		);
+		// A lane worker following worktree-closeout cannot remove it before proof.
+		expect(() => git(["worktree", "remove", destination])).toThrow(/locked/);
+		expect(existsSync(destination)).toBe(true);
+		expect(await cleanupLaneWorktree(repo, destination, () => false)).toBe(
+			true,
+		);
+		expect(existsSync(destination)).toBe(false);
+	},
+	30_000,
+);
+
+it("keeps its own lock when dispatcher cleanup cannot remove the checkout", async () => {
+	const { root, repo, git } = gitFixture(true);
+	const destination = provisionLaneWorktree(repo, join(root, "repo"));
+	writeFileSync(join(destination, "unsaved.txt"), "work");
+	expect(await cleanupLaneWorktree(repo, destination, () => false)).toBe(false);
+	expect(git(["worktree", "list", "--porcelain"])).toContain(
+		"locked Tedix dispatcher checkout",
+	);
+}, 30_000);
+
 it("extracts and deduplicates final-message and local commits, accepting only origin/main ancestors", async () => {
 	const { root, repo, git } = gitFixture();
 	const base = git(["rev-parse", "HEAD"]);
