@@ -14,6 +14,7 @@ import { readAggregateActivationEpoch } from "./aggregate-activation-epoch";
 import {
 	loadDiscoveryShards,
 	refreshDiscoveryShard,
+	loadDiscoveryToolDefinition,
 } from "./aggregate-discovery-shards";
 import { withSelfTediSkills } from "./aggregate-self-tedi";
 import { AggregateAppEntry } from "./aggregate-types";
@@ -775,6 +776,20 @@ export async function handleMcpRequest(
 		requestedCodeModeNamespaces,
 		connectionAppSlug,
 		clientAppsSupported,
+		shardDiscovery
+			? (tool) =>
+					loadDiscoveryToolDefinition(tool, filteredAggregateApps, (entry) =>
+						aggregateAndPrefixTools(
+							[entry],
+							env,
+							new Set(),
+							ctx,
+							resolvedApp.app.slug,
+							activation,
+							false,
+						),
+					)
+			: undefined,
 	);
 	const directoryReadHandler = (
 		server as unknown as {

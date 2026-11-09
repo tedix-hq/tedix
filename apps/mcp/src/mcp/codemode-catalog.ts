@@ -1,3 +1,4 @@
+import { isDiscoveryShardTool } from "../aggregate-discovery-shards";
 import { withFieldSelectionSchema } from "./field-selection";
 import { projectCatalogMeta } from "@tedix/mcp-shared/catalog-projection";
 import { type ServerContext } from "./server-context";
@@ -723,7 +724,34 @@ export function buildCatalogProvider(
 	};
 	const annotateDiscovery = async <T extends { results: unknown[] }>(
 		result: T,
+		includeParameters: boolean,
+		includeOutputSchema: boolean,
 	): Promise<T> => {
+		// Resolve page rows sequentially so schema requests cannot fan out to
+		// every organization graph before pagination.
+		if (includeParameters || includeOutputSchema) {
+			for (const row of result.results) {
+				if (!isRecord(row) || typeof row.callable !== "string") continue;
+				const { namespace, tool: name } = splitCallable(row.callable);
+				const entry = catalog[namespace]?.[name] as
+					| CallerCatalogEntry
+					| undefined;
+				const tool = entry?.[CALLER_CATALOG_STATE]?.tool;
+				if (!tool || !isDiscoveryShardTool(tool.config)) continue;
+				if (!serverCtx.loadDiscoveryTool) {
+					throw new Error("Discovery schema loader is unavailable");
+				}
+				const full = await serverCtx.loadDiscoveryTool(tool);
+				if (includeParameters) {
+					row.parameters = withFieldSelectionSchema(
+						withDestructiveApprovalSchema(full, resolveWireAnnotations(full)),
+					);
+				}
+				if (includeOutputSchema && full.outputSchema) {
+					row.outputSchema = full.outputSchema;
+				}
+			}
+		}
 		await Promise.all(
 			result.results.flatMap((row) => [
 				annotateConditionalAccess(row),
@@ -827,6 +855,8 @@ export function buildCatalogProvider(
 								preferredTediNamespace,
 								includeMetadata,
 							),
+							includeParameters,
+							includeOutputSchema,
 						);
 
 					const rankedByCallable = new Map<string, CatalogPageEntry>();
@@ -1012,6 +1042,8 @@ export function buildCatalogProvider(
 							},
 							includeMetadata,
 						),
+						includeParameters,
+						includeOutputSchema,
 					);
 				},
 			},

@@ -117,6 +117,14 @@ describe("Code Mode discovery shards", () => {
 		expect(namespaces).not.toContain("discover");
 	});
 
+	it.each([
+		`async () => discover.search({ query: "update work item specification", limit: 3, includeParameters: true })`,
+		`async () => discover.search({ query: "x", limit: 1, includeOutputSchema: true })`,
+		`async () => discover.search({ query: "x", includeParameters: true, includeOutputSchema: true })`,
+	])("ranks schema-bearing pages from compact shards: %s", (code) => {
+		expect(extractCodeModeShardDiscoveryNamespaces(code)).toEqual(new Set());
+	});
+
 	it("allows list_namespaces and read_result", () => {
 		expect(
 			extractCodeModeShardDiscoveryNamespaces(
@@ -129,9 +137,6 @@ describe("Code Mode discovery shards", () => {
 		// Already bounded: the normal targeting handles it.
 		`async () => discover.search({ query: "x", namespace: "work" })`,
 		`async () => work.list_work_items({})`,
-		// Shard rows carry no schemas.
-		`async () => discover.search({ query: "x", includeParameters: true })`,
-		`async () => discover.search({ query: "x", includeOutputSchema: true })`,
 		// Opaque arguments, aliasing or dynamic calls cannot be bounded.
 		`async () => { const q = { query: "x" }; return discover.search(q); }`,
 		`async () => { const o = { query: "x" }; return discover.search({ ...o }); }`,

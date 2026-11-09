@@ -2954,3 +2954,79 @@ it("describes the nested TypeScript result and its inferred provenance without r
 		await tools.describe!.execute("records.list_records"),
 	).not.toHaveProperty("outputSchema");
 });
+
+describe("schema-bearing discovery shard pages", () => {
+	it.each([
+		{ query: "thing", limit: 1, offset: 0 },
+		{ query: "thing", limit: 3, offset: 7 },
+		{ query: "", limit: 3, offset: 20 },
+	])(
+		"hydrates only the selected page: %j",
+		async ({ query, limit, offset }) => {
+			const ctx = buildLargeServerCtx(5000);
+			for (const row of ctx.loadedTools.values()) {
+				row.config = { ...row.config, _discoveryShard: true };
+				row.outputSchema = null;
+			}
+			let active = 0;
+			const loadDiscoveryTool = vi.fn(async (row: AppTool) => {
+				expect(active++).toBe(0);
+				await Promise.resolve();
+				active--;
+				return {
+					...row,
+					inputSchema: {
+						type: "object" as const,
+						properties: { value: { const: row.id } },
+					},
+					outputSchema: { type: "string" as const, const: row.id },
+				};
+			});
+			Object.assign(ctx, { loadDiscoveryTool });
+			const provider = buildCatalogProvider(ctx, undefined);
+			const compact = await runSearch(provider, query, limit, { offset });
+			expect(loadDiscoveryTool).not.toHaveBeenCalled();
+			const full = await runSearch(provider, query, limit, {
+				offset,
+				includeParameters: true,
+				includeOutputSchema: true,
+			});
+			expect(full.results.map((row) => row.callable)).toEqual(
+				compact.results.map((row) => row.callable),
+			);
+			expect(full.results).toHaveLength(limit);
+			expect(loadDiscoveryTool).toHaveBeenCalledTimes(limit);
+			for (const [index, row] of full.results.entries()) {
+				const source = loadDiscoveryTool.mock.calls[index]![0];
+				expect(row).toMatchObject({
+					parameters: {
+						properties: {
+							value: { const: source.id },
+							_fields: expect.any(Object),
+						},
+					},
+					outputSchema: { const: source.id },
+					authorized: compact.results[index]!.authorized,
+				});
+				if (source.annotations?.destructiveHint) {
+					expect(row.parameters).toMatchObject({
+						properties: { confirmDestructive: { type: "boolean" } },
+					});
+				}
+				expect(source.inputSchema.properties).toEqual({});
+				expect(full.namespaces.app?.[String(row.tool)]).toEqual(row);
+			}
+		},
+	);
+
+	it("refuses a placeholder schema when the loader is unavailable", async () => {
+		const ctx = buildLargeServerCtx(1);
+		for (const row of ctx.loadedTools.values())
+			row.config = { _discoveryShard: true };
+		await expect(
+			runSearch(buildCatalogProvider(ctx, undefined), "thing", 1, {
+				includeParameters: true,
+			}),
+		).rejects.toThrow("Discovery schema loader is unavailable");
+	});
+});
