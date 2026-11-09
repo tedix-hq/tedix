@@ -22,6 +22,7 @@ const api = vi.hoisted(() => ({
 	getSkillReliability: vi.fn(),
 	listSkillRevisions: vi.fn(),
 	listDefinitionHealth: vi.fn(),
+	listWorkflowDefinitions: vi.fn(),
 	listSchedules: vi.fn(),
 	listCatalog: vi.fn(),
 	listCatalogCategories: vi.fn(),
@@ -110,7 +111,10 @@ vi.mock("@/lib/api", () => ({
 		workFleet: { getControlTower: api.getControlTower },
 		dispatcherHealth: { list: api.listDispatcherHealth },
 		projects: { getPortfolio: api.getProjectPortfolio },
-		workflows: { listDefinitionHealth: api.listDefinitionHealth },
+		workflows: {
+			listDefinitionHealth: api.listDefinitionHealth,
+			listDefinitions: api.listWorkflowDefinitions,
+		},
 		catalog: {
 			list: api.listCatalog,
 			getCategories: api.listCatalogCategories,
@@ -228,6 +232,7 @@ beforeEach(() => {
 	api.getSkillReliability.mockResolvedValue({ runs: [] });
 	api.listSkillRevisions.mockResolvedValue({ revisions: [] });
 	api.listDefinitionHealth.mockResolvedValue(empty);
+	api.listWorkflowDefinitions.mockResolvedValue(empty);
 	api.listSchedules.mockResolvedValue(empty);
 	api.listCatalog.mockResolvedValue({
 		apps: [],
@@ -770,6 +775,28 @@ describe("list-route prefetchers", () => {
 		);
 		expect(api.listSkills).not.toHaveBeenCalled();
 		expect(api.listDefinitionHealth).not.toHaveBeenCalled();
+	});
+
+	it("prefetches Automations with the same improvement exclusion as SkillsPage", async () => {
+		const queryClient = client();
+		await prefetchSkillsRoute(queryClient, {
+			section: "workflows",
+			q: "digest",
+			page: 2,
+			showArchived: false,
+		});
+
+		expect(api.listWorkflowDefinitions).toHaveBeenCalledWith(
+			{
+				limit: 20,
+				offset: 20,
+				query: "digest",
+				excludeImprovements: true,
+			},
+			expect.anything(),
+		);
+		expect(api.listSkills).not.toHaveBeenCalled();
+		expect(api.listSchedules).not.toHaveBeenCalled();
 	});
 
 	it("prefetches the same archive filters, trimmed search and page as SkillsPage", async () => {
