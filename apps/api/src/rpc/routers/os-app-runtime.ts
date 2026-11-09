@@ -22,6 +22,7 @@ import {
 	mintWorkspaceAppSession,
 	verifyWorkspaceAppSession,
 	verifyAppCallGrant,
+	mintAppCallGrant,
 	type WorkspaceAppSession,
 } from "@tedix/auth/workspace-app-session";
 import {
@@ -876,6 +877,13 @@ export function createOsAppRuntimeRouter() {
 				args: input.args,
 				createdBy: scope.principal,
 				timing: context.serverTiming,
+				callGrant: session.proposalId
+					? undefined
+					: await mintAppCallGrant(context.env.SECRETS_MASTER_KEY, {
+							sessionId: session.sessionId,
+							role: scope.role,
+							revisionId: scope.revisionId,
+						}),
 			},
 			context.waitUntil,
 		);

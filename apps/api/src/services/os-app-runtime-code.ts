@@ -122,6 +122,8 @@ export async function runAppRuntimeCall(
 		timing?: string[];
 		/** Settles the receipt after the response instead of before it. */
 		waitUntil?: (work: Promise<unknown>) => void;
+		/** The caller's access check for this call, reused by the app's data reads. */
+		callGrant?: string;
 	},
 ): Promise<JsonValue> {
 	const executionId = input.executionId ?? crypto.randomUUID();
@@ -173,6 +175,7 @@ export async function runAppRuntimeCall(
 					callId: executionId,
 					session: input.session,
 					...(input.code.files ? { files: input.code.files } : {}),
+					...(input.callGrant ? { callGrant: input.callGrant } : {}),
 					method: input.method,
 					args: input.args,
 				}),
