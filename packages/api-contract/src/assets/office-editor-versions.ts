@@ -1,0 +1,9 @@
+export const DOC_BLUEPRINT_VERSION = 4;
+export const SHEET_BLUEPRINT_VERSION = 2;
+export const SLIDES_BLUEPRINT_VERSION = 2;
+
+export const OFFICE_EDITOR_VERSIONS = {
+	document: DOC_BLUEPRINT_VERSION,
+	sheet: SHEET_BLUEPRINT_VERSION,
+	presentation: SLIDES_BLUEPRINT_VERSION,
+} as const;
