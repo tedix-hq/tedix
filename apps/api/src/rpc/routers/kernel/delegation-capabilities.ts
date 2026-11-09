@@ -93,8 +93,22 @@ export function deriveDelegationCapabilityPlan(input: {
 		const outputId = direct ?? workpiece;
 		return outputId ? [{ url, outputId }] : [];
 	});
+	// "Output <uuid>" names an OS Output as plainly as its /outputs/ link.
+	const namedOutputIds = [
+		...content.matchAll(
+			/\b(?:outputs?|documents?|docs?)\s+(?:id\s+)?[`"']?([a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12})\b/gi,
+		),
+	]
+		.map((match) => match[1]!.toLowerCase())
+		.filter(
+			(id) =>
+				!outputReferences.some(
+					(reference) => reference.outputId.toLowerCase() === id,
+				),
+		);
 	const outputRead =
 		outputReferences.length > 0 ||
+		namedOutputIds.length > 0 ||
 		route.plannedToolIds.some((id) => id.endsWith(".get_os_output"));
 	if (
 		route.risk === "low" &&
@@ -126,8 +140,11 @@ export function deriveDelegationCapabilityPlan(input: {
 	const outputIds = outputRead
 		? [
 				...new Set(
-					outputReferences.length
-						? outputReferences.map((reference) => reference.outputId)
+					outputReferences.length || namedOutputIds.length
+						? [
+								...outputReferences.map((reference) => reference.outputId),
+								...namedOutputIds,
+							]
 						: (content.match(
 								/\b[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}\b/gi,
 							) ?? []),
@@ -149,7 +166,14 @@ export function deriveDelegationCapabilityPlan(input: {
 		else tools.add(matches[0]!);
 	};
 	if (outputRead) {
-		providerTool("output.read", /\.get_os_output$/);
+		const mapped = [...route.plannedToolIds, ...activityTools].some((id) =>
+			/\.get_os_output$/.test(id),
+		);
+		if (!mapped && card) {
+			// Canonical platform callable, as for work.add_comment below.
+			capabilities.push("output.read");
+			tools.add("os.get_os_output");
+		} else providerTool("output.read", /\.get_os_output$/);
 		if (outputIds.length === 0) missingCapabilities.push("output.reference");
 	}
 	// Native web search is offered only where the organization enabled it.
