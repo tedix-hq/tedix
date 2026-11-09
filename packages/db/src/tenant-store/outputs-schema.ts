@@ -89,6 +89,11 @@ export const tenantOsOutputs = sqliteTable(
 	},
 	(table) => [
 		index("os_outputs_org_idx").on(table.organizationId, table.updatedAt),
+		index("os_outputs_workspace_idx").on(
+			table.organizationId,
+			table.workspaceId,
+			table.updatedAt,
+		),
 	],
 );
 
