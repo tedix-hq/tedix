@@ -41,8 +41,8 @@ jobs:
           test -x "${bin_dir}/bun"
           ln -sf "${bin_dir}/bun" "${bin_dir}/bunx"
           echo "$bin_dir" >> "$GITHUB_PATH"
-          command -v bun
-          test "$(bun --version)" = "$version"
+          # GITHUB_PATH applies from the next step, so check the binary itself.
+          test "$("${bin_dir}/bun" --version)" = "$version"
       - run: bun install --frozen-lockfile
       - name: Validate release version
         run: |
@@ -87,8 +87,8 @@ jobs:
           test -x "${bin_dir}/bun"
           ln -sf "${bin_dir}/bun" "${bin_dir}/bunx"
           echo "$bin_dir" >> "$GITHUB_PATH"
-          command -v bun
-          test "$(bun --version)" = "$version"
+          # GITHUB_PATH applies from the next step, so check the binary itself.
+          test "$("${bin_dir}/bun" --version)" = "$version"
       - run: bun install --frozen-lockfile
       - name: Validate release version
         run: |
