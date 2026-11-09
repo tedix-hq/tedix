@@ -32,8 +32,12 @@ import type { DbQueryClient } from "@tedix/db/query-client";
 import { getOsCollaborationProposal } from "@tedix/db/queries/os-workspaces/collaboration";
 import { createError, ErrorCodes } from "../rpc/orpc";
 
-/** Load the code, grants and settings of one runtime app revision. */
-export async function loadAppRuntimeRevision(
+/**
+ * A published revision's manifest without its code. Code rows are written
+ * once per revision and never updated, so a signed session's revision id
+ * already pins its code; callers that only need grants skip the code read.
+ */
+export async function loadAppRuntimeManifest(
 	db: DbQueryClient,
 	scope: { organizationId: string; gadgetId: string },
 	revisionId: string,
@@ -47,6 +51,20 @@ export async function loadAppRuntimeRevision(
 	const manifest = OsGadgetManifestSchema.parse(JSON.parse(revision.manifest));
 	if (manifest.entry !== "tedix:runtime/v1")
 		throw createError(ErrorCodes.BAD_REQUEST, "App has no server runtime");
+	return { revision, manifest, grants: manifest.resourceGrants ?? [] };
+}
+
+/** Load the code, grants and settings of one runtime app revision. */
+export async function loadAppRuntimeRevision(
+	db: DbQueryClient,
+	scope: { organizationId: string; gadgetId: string },
+	revisionId: string,
+) {
+	const { revision, manifest } = await loadAppRuntimeManifest(
+		db,
+		scope,
+		revisionId,
+	);
 	const row = await getOsGadgetCode(db, {
 		organizationId: scope.organizationId,
 		revisionId,

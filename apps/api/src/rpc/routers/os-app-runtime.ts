@@ -60,6 +60,7 @@ import {
 	requireWorkspaceCollaboratorAccess,
 } from "../../services/os-workspace-collaborators";
 import {
+	loadAppRuntimeManifest,
 	loadAppRuntimeRevision,
 	loadAppRuntimeDraft,
 	runAppRuntimeCall,
@@ -955,14 +956,26 @@ export function createOsAppRuntimeRouter() {
 			(!session.previewId && scope.revisionId !== session.revisionId)
 		)
 			throw createError(ErrorCodes.FORBIDDEN, "App session is stale");
-		const code = session.proposalId
-			? await loadAppRuntimeDraft(queryDb(acting), scope, session.proposalId)
-			: await load(acting, scope, session.revisionId);
-		if (
-			code.digest !== session.codeDigest ||
-			("sequence" in code && code.sequence !== session.proposalSequence)
-		)
-			throw createError(ErrorCodes.CONFLICT, "App code changed");
+		// A draft can change under its id, so it is re-read and digested; a
+		// published revision's code is immutable and only its grants are needed.
+		let grants;
+		if (session.proposalId) {
+			const draft = await loadAppRuntimeDraft(
+				queryDb(acting),
+				scope,
+				session.proposalId,
+			);
+			if (
+				draft.digest !== session.codeDigest ||
+				draft.sequence !== session.proposalSequence
+			)
+				throw createError(ErrorCodes.CONFLICT, "App code changed");
+			grants = draft.grants;
+		} else {
+			grants = (
+				await loadAppRuntimeManifest(queryDb(acting), scope, session.revisionId)
+			).grants;
+		}
 		if (
 			!appRuntimePermission({
 				...session,
@@ -971,7 +984,7 @@ export function createOsAppRuntimeRouter() {
 			}).allowed ||
 			!appRuntimePermission({
 				role: scope.role,
-				grants: code.grants,
+				grants,
 				operation: input.operation,
 				slot: input.slot,
 			}).allowed
