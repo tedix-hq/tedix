@@ -2202,6 +2202,14 @@ describe("dispatcher admission", () => {
 		);
 		await once(child, "spawn");
 		const exited = once(child, "exit");
+		// Bun emits "spawn" before exec finishes; on Linux /proc/<pid>/cmdline
+		// can still be empty, which leaves no identity to reap the orphan by.
+		let processIdentity: string | undefined;
+		await until(
+			() =>
+				(processIdentity = laneProcessIdentity(child.pid!, session, repo)) !==
+				undefined,
+		);
 		writeFileSync(
 			path,
 			JSON.stringify({
@@ -2213,7 +2221,7 @@ describe("dispatcher admission", () => {
 				session,
 				executorKey: "local-acme",
 				pid: child.pid,
-				processIdentity: laneProcessIdentity(child.pid!, session, repo),
+				processIdentity,
 				repo,
 				retryDeadlineAt: Date.now() + 30 * 60_000,
 			}),
