@@ -82,6 +82,7 @@ CREATE TABLE tedis (
 );
 CREATE TABLE work_attempts (id TEXT PRIMARY KEY, admission_id TEXT, work_item_id TEXT NOT NULL, org_id TEXT NOT NULL, executor_type TEXT NOT NULL, executor_id TEXT NOT NULL, executor_session_id TEXT, external_session_key TEXT, run_id TEXT, runtime_state TEXT NOT NULL DEFAULT 'running', outcome TEXT, attempt_number INTEGER NOT NULL DEFAULT 1, started_at TEXT NOT NULL, heartbeat_at TEXT NOT NULL, expires_at TEXT, finished_at TEXT, summary TEXT, version INTEGER NOT NULL DEFAULT 1, metadata TEXT NOT NULL DEFAULT '{}');
 CREATE TABLE work_events (
+ project_id TEXT, objective_id TEXT,
 	sequence INTEGER PRIMARY KEY AUTOINCREMENT,
 	id TEXT UNIQUE NOT NULL,
 	work_item_id TEXT NOT NULL,

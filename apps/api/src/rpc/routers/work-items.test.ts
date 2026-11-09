@@ -45,7 +45,7 @@ CREATE UNIQUE INDEX uniq_work_item_corroboration_principal ON work_item_corrobor
 CREATE TABLE work_item_projections (id TEXT PRIMARY KEY, work_item_id TEXT NOT NULL, org_id TEXT NOT NULL, provider TEXT NOT NULL, direction TEXT NOT NULL DEFAULT 'projection', status TEXT NOT NULL DEFAULT 'pending', external_id TEXT, external_url TEXT, external_project_id TEXT, external_section_id TEXT, last_synced_at TEXT, last_error TEXT, sync_cursor TEXT, provider_state TEXT DEFAULT '{}', created_at TEXT NOT NULL, updated_at TEXT);
 CREATE TABLE work_attempts (id TEXT PRIMARY KEY, admission_id TEXT, work_item_id TEXT NOT NULL, org_id TEXT NOT NULL, executor_type TEXT NOT NULL, executor_id TEXT NOT NULL, executor_session_id TEXT, external_session_key TEXT, run_id TEXT, runtime_state TEXT NOT NULL, outcome TEXT, attempt_number INTEGER NOT NULL, started_at TEXT NOT NULL, heartbeat_at TEXT NOT NULL, expires_at TEXT, finished_at TEXT, summary TEXT, version INTEGER NOT NULL DEFAULT 1, metadata TEXT NOT NULL DEFAULT '{}');
 CREATE TABLE work_evidence (id TEXT PRIMARY KEY, work_item_id TEXT NOT NULL, org_id TEXT NOT NULL, attempt_id TEXT, claim_key TEXT NOT NULL, kind TEXT NOT NULL, uri TEXT NOT NULL, digest TEXT, media_type TEXT, label TEXT, submitted_by_type TEXT NOT NULL, submitted_by_id TEXT NOT NULL, submitted_by_session_id TEXT, disposition TEXT NOT NULL DEFAULT 'pending', reviewed_by_type TEXT, reviewed_by_id TEXT, reviewed_by_session_id TEXT, review_reason TEXT, submitted_at TEXT NOT NULL, reviewed_at TEXT, version INTEGER NOT NULL DEFAULT 1, metadata TEXT NOT NULL DEFAULT '{}');
-CREATE TABLE work_events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, org_id TEXT NOT NULL, work_item_id TEXT NOT NULL, attempt_id TEXT, event_type TEXT NOT NULL, actor_type TEXT NOT NULL, actor_id TEXT NOT NULL, actor_session_id TEXT, payload TEXT NOT NULL DEFAULT '{}', occurred_at TEXT NOT NULL);
+CREATE TABLE work_events (project_id TEXT, objective_id TEXT, sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, org_id TEXT NOT NULL, work_item_id TEXT NOT NULL, attempt_id TEXT, event_type TEXT NOT NULL, actor_type TEXT NOT NULL, actor_id TEXT NOT NULL, actor_session_id TEXT, payload TEXT NOT NULL DEFAULT '{}', occurred_at TEXT NOT NULL);
 CREATE TABLE external_agent_principals (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, key TEXT NOT NULL, display_name TEXT NOT NULL, status TEXT NOT NULL, credential_binding_type TEXT NOT NULL, credential_binding_id TEXT NOT NULL, created_by_type TEXT NOT NULL, created_by_id TEXT NOT NULL, metadata TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
 CREATE TABLE work_resource_pools (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, resource_key TEXT NOT NULL, allocation_mode TEXT NOT NULL, capacity INTEGER NOT NULL, owner_ref TEXT, enabled INTEGER NOT NULL DEFAULT 1, metadata TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL, updated_at TEXT, version INTEGER NOT NULL DEFAULT 1);
 CREATE UNIQUE INDEX uniq_work_resource_pool_org_key ON work_resource_pools(org_id,resource_key);
@@ -1401,25 +1401,28 @@ describe("Work activity forward polling", () => {
 		seed({ id, projectId: PROJECT_ID, disposition: "accepted" });
 		seed({ id: foreignId, orgId: OTHER_ORG_ID, projectId: PROJECT_ID });
 		const insert = sqlite.prepare(
-			"INSERT INTO work_events(id,org_id,work_item_id,event_type,actor_type,actor_id,payload,occurred_at) VALUES(?,?,?,'comment','external_agent','agent','{}',?)",
+			"INSERT INTO work_events(id,org_id,work_item_id,event_type,actor_type,actor_id,payload,occurred_at,project_id,objective_id) SELECT ?,?,?,'comment','external_agent','agent','{}',?, project_id, objective_id FROM work_items WHERE id = ?",
 		);
 		insert.run(
 			"11111111-1111-4111-8111-111111111111",
 			ORG_ID,
 			id,
 			"2026-10-19T01:00:00.000Z",
+			id,
 		);
 		insert.run(
 			"22222222-2222-4222-8222-222222222222",
 			OTHER_ORG_ID,
 			foreignId,
 			"2026-10-19T01:00:00.000Z",
+			foreignId,
 		);
 		insert.run(
 			"33333333-3333-4333-8333-333333333333",
 			ORG_ID,
 			id,
 			"2026-10-18T01:00:00.000Z",
+			id,
 		);
 		const c = client();
 		const first = await c.listActivity({

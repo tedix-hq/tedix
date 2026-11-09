@@ -724,6 +724,9 @@ export const workEvents = sqliteTable(
 			.notNull()
 			.references(() => organizations.id, { onDelete: "cascade" }),
 		workItemId: text("work_item_id").notNull(),
+		// Maintained from the current item by migration-installed triggers.
+		projectId: text("project_id"),
+		objectiveId: text("objective_id"),
 		attemptId: text("attempt_id").references(() => workAttempts.id, {
 			onDelete: "set null",
 		}),
@@ -747,14 +750,33 @@ export const workEvents = sqliteTable(
 		}).onDelete("cascade"),
 		// Global commitment polling filters time before joining Work and tedis.
 		index("idx_work_events_occurred").on(table.occurredAt),
-		// Board and project feeds read an organization's newest events first and
-		// stop at their page; through the item index they read every event of
-		// every item in the project and sorted (72k rows per call on 7 Nov). The
-		// id completes the feed's order so no sort step remains.
+		// History indexes include the tie breaker to avoid sorting a feed page.
 		index("idx_work_events_org_occurred").on(
 			table.orgId,
 			table.occurredAt,
 			table.id,
+		),
+		index("idx_work_events_project_occurred").on(
+			table.orgId,
+			table.projectId,
+			table.occurredAt,
+			table.id,
+		),
+		index("idx_work_events_objective_occurred").on(
+			table.orgId,
+			table.objectiveId,
+			table.occurredAt,
+			table.id,
+		),
+		index("idx_work_events_project_sequence").on(
+			table.orgId,
+			table.projectId,
+			table.sequence,
+		),
+		index("idx_work_events_objective_sequence").on(
+			table.orgId,
+			table.objectiveId,
+			table.sequence,
 		),
 		index("idx_work_events_item_sequence").on(
 			table.orgId,

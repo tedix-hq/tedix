@@ -9,13 +9,14 @@ function seed(equalTimes = false) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(`
 		CREATE TABLE work_items (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, title TEXT NOT NULL, disposition TEXT NOT NULL, project_id TEXT, objective_id TEXT, work_kind TEXT NOT NULL);
-		CREATE TABLE work_events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, org_id TEXT NOT NULL, work_item_id TEXT NOT NULL, attempt_id TEXT, event_type TEXT NOT NULL, actor_type TEXT NOT NULL, actor_id TEXT NOT NULL, actor_session_id TEXT, payload TEXT NOT NULL, occurred_at TEXT NOT NULL);
+		CREATE TABLE work_events (sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, org_id TEXT NOT NULL, work_item_id TEXT NOT NULL, attempt_id TEXT, project_id TEXT, objective_id TEXT, event_type TEXT NOT NULL, actor_type TEXT NOT NULL, actor_id TEXT NOT NULL, actor_session_id TEXT, payload TEXT NOT NULL, occurred_at TEXT NOT NULL);
 		INSERT INTO work_items VALUES ('sweep','org','Curation sweep','accepted','proj','docs','coding');
 		INSERT INTO work_items VALUES ('other','org','Unrelated work','accepted','proj','other-goal','incident');
 		INSERT INTO work_events (id,org_id,work_item_id,event_type,actor_type,actor_id,payload,occurred_at) VALUES
 			('e1','org','sweep','attempt.started','external_agent','agent','{}','2026-08-28T04:31:00.000Z'),
 			('e2','org','sweep','attempt.settled','external_agent','agent','{}','2026-08-28T04:33:00.000Z'),
 			('e3','org','other','attempt.started','external_agent','agent','{}','2026-08-28T04:32:00.000Z');
+		UPDATE work_events SET (project_id, objective_id) = (SELECT project_id, objective_id FROM work_items WHERE id = work_events.work_item_id AND org_id = work_events.org_id);
 	`);
 	if (equalTimes)
 		sqlite.exec(

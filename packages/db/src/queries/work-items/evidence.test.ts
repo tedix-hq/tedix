@@ -23,7 +23,7 @@ function fixture() {
 	sqlite.exec(`CREATE TABLE work_attempts(id TEXT PRIMARY KEY,work_item_id TEXT,org_id TEXT,runtime_state TEXT,metadata TEXT);
  CREATE TABLE work_evidence(id TEXT PRIMARY KEY,work_item_id TEXT,org_id TEXT,attempt_id TEXT,claim_key TEXT,kind TEXT,uri TEXT,digest TEXT,media_type TEXT,label TEXT,submitted_by_type TEXT,submitted_by_id TEXT,submitted_by_session_id TEXT,disposition TEXT,reviewed_by_type TEXT,reviewed_by_id TEXT,reviewed_by_session_id TEXT,review_reason TEXT,submitted_at TEXT,reviewed_at TEXT,version INTEGER,metadata TEXT);
  CREATE UNIQUE INDEX uniq_work_evidence_observation ON work_evidence(org_id,work_item_id,claim_key,uri,coalesce(digest,''));
- CREATE TABLE work_events(sequence INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE,org_id TEXT,work_item_id TEXT,attempt_id TEXT,event_type TEXT,actor_type TEXT,actor_id TEXT,actor_session_id TEXT,payload TEXT,occurred_at TEXT);`);
+ CREATE TABLE work_events(project_id TEXT,objective_id TEXT,sequence INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE,org_id TEXT,work_item_id TEXT,attempt_id TEXT,event_type TEXT,actor_type TEXT,actor_id TEXT,actor_session_id TEXT,payload TEXT,occurred_at TEXT);`);
 	const person = {
 		name: "Fixture",
 		email: "fixture@example.invalid",
