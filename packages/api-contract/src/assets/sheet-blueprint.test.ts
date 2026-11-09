@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { z } from "zod";
 import {
@@ -9,6 +10,7 @@ import { sheetCsvText } from "../utils/sheet-csv";
 import {
 	buildSheetBlueprint,
 	SHEET_CLIENT_SOURCE,
+	SHEET_CLIENT_SHA256,
 	SHEET_SERVER_SOURCE,
 } from "./sheet-blueprint";
 
@@ -136,7 +138,7 @@ describe("Sheet blueprint", () => {
 		]);
 		expect(definition.gadgets[0]!.manifest.config).toEqual({
 			version: 1,
-			settings: { slot: "budget" },
+			settings: { slot: "budget", blueprintVersion: 2 },
 		});
 		const operations = definition.gadgets[0]!.manifest.operations!;
 		expect(
@@ -247,14 +249,21 @@ describe("Sheet blueprint", () => {
 			'"a,b","a""b","\'\nnext",-3,,\' @cmd\r\n',
 		);
 	});
-	it("routes client calculation and text download through the host", () => {
-		expect(SHEET_CLIENT_SOURCE).toContain(
-			'tedix.call("sheet.evaluate",{content:draft})',
+	it("ships bounded executable client source with generic scoped host operations", () => {
+		expect(() => new Function(SHEET_CLIENT_SOURCE)).not.toThrow();
+		expect(createHash("sha256").update(SHEET_CLIENT_SOURCE).digest("hex")).toBe(
+			SHEET_CLIENT_SHA256,
 		);
-		expect(SHEET_CLIENT_SOURCE).toContain(
-			'call("replaceSheet",{content,expectedRevision:loaded.revision.revision})',
-		);
-		expect(SHEET_CLIENT_SOURCE).toContain('tedix.call("app.download",');
+		expect(
+			SHEET_CLIENT_SOURCE.length + SHEET_SERVER_SOURCE.length,
+		).toBeLessThan(512000);
+		for (const method of [
+			"sheet.evaluate",
+			"outputs.replace",
+			"app.download",
+			"app.exportOutput",
+		])
+			expect(SHEET_CLIENT_SOURCE).toContain(method);
 		expect(SHEET_CLIENT_SOURCE).not.toContain("URL.createObjectURL");
 	});
 });
