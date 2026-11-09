@@ -1,18 +1,14 @@
 import { implement } from "@orpc/server";
 import { osWorkspacesContract } from "@tedix/api-contract/contracts/os-workspaces";
 import { AppRuntimeConfigSchema } from "@tedix/api-contract/schemas/os-app-runtime";
+import { buildDocBlueprint } from "@tedix/api-contract/assets/doc-blueprint";
+import { buildSheetBlueprint } from "@tedix/api-contract/assets/sheet-blueprint";
+import { buildSlidesBlueprint } from "@tedix/api-contract/assets/slides-blueprint";
 import {
-	buildDocBlueprint,
 	DOC_BLUEPRINT_VERSION,
-} from "@tedix/api-contract/assets/doc-blueprint";
-import {
-	buildSheetBlueprint,
 	SHEET_BLUEPRINT_VERSION,
-} from "@tedix/api-contract/assets/sheet-blueprint";
-import {
-	buildSlidesBlueprint,
 	SLIDES_BLUEPRINT_VERSION,
-} from "@tedix/api-contract/assets/slides-blueprint";
+} from "@tedix/api-contract/assets/office-editor-versions";
 import { appRuntimeCodeLength } from "@tedix/api-contract/utils/app-runtime";
 import {
 	createOsGadgetRevision,

@@ -26,13 +26,12 @@ This application renders and operates canonical Tedix API and MCP state. It
 does not own a second planner, agent runtime, workflow engine, connector
 system, or artifact store.
 
-Outputs are edited natively rather than as raw JSON. Documents provide rich
-text and image authoring; sheets provide multi-tab workbooks, formulas,
-selection and formatting; presentations provide templates and a draggable
-16:9 component canvas with notes and presentation mode. The same editors run
-inside Canvas collaborative drafts, while explicit revision commits remain the
-canonical D1 boundary. Rich payloads retain the required semantic projections
-used by CLI/MCP tools and exports.
+Workspace documents, sheets and slides open in reusable blueprint gadgets.
+Their sandboxed clients provide rich text, a workbook grid and a draggable
+slide canvas, and save through the shared Output revision boundary. Rich
+exports use the saved revision, while semantic projections remain available
+to CLI/MCP tools. Native editors are an explicit fallback and also run inside
+Canvas collaborative drafts.
 
 The application is in production as the single multi-tenant `tedix-os` Worker,
 serving every provisioned tenant at `{slug}.os.tedix.dev` plus the central
