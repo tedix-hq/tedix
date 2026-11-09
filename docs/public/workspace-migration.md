@@ -14,17 +14,23 @@ visibility: public
 
 # Move workspaces into workspace objects
 
-Remote import is currently blocked in the command and the workspace worker.
-Local rehearsal is available. Before enabling customer-data moves, establish
-a full validated snapshot, historical log coverage and per-principal memory
-access and recall parity. The steps below describe the intended cutover;
-they are not evidence that these prerequisites have passed.
+The import checks two things before it copies any customer data, and
+stops if either fails. There is no switch to skip them:
+
+- **A complete, fresh snapshot.** You pass the copy of the main database
+  and every log partition. The copy is at most two hours old and is
+  exactly the one the export read.
+- **Complete history.** The log partitions reach back to the oldest chat
+  run, every run that recorded steps has them in the copy, and every row
+  that should move is in its bundle. The reconcile step repeats this.
 
 A workspace object is one place per workspace that holds the workspace's
 own data and runs its agent, instead of rows in the shared database. On
 cutover day every workspace's documents, sheets and presentations, their
-revision history, workspace chats with their runs and steps, artifacts,
-memory and connected resources move into its object. A question asked in a
+revision history, workspace chats with their runs and steps, artifacts
+and connected resources move into its object. Organization memory does not
+move: it stays shared across the organization, with the same access rules
+as today. A question asked in a
 workspace is then answered next to its data.
 
 Everything moves in one release. There is no flag, no gradual roll-out and
@@ -48,22 +54,14 @@ access to the installation's Cloudflare account. The commands are in
    report on the migration Work Item. If the total is longer than the freeze
    window you can afford, the day is not ready.
 
-2. **Write `assignments.json`.** For every organization: which workspace
-   receives the organization's memory, and which receives documents that
-   have no workspace today. An organization that has memory but no
-   workspace gets a new workspace named Home, created during the export.
-   Memory left behind by organizations that were deleted stays in the
-   shared database and goes with the old tables; the reconciler counts it.
-   `export` refuses to start while a live organization is missing from the
-   file. `bun scripts/migrate-workspaces/cli.ts assignments --snapshot
-   main.sql --out assignments.json` proposes the file; the product owner
-   reviews it and it is kept with the Work Item.
-
-   The memory home is a physical storage assignment only. Existing memory
-   remains owned by the organization, with the same tedi/private visibility
-   and use policy. Workspace membership must not grant or remove access to
-   it. Workspace and personal ownership need explicit scope and a reviewed
-   conversion; migration must not silently classify existing records.
+2. **Write `assignments.json`.** For every organization with documents
+   that have no workspace today: which workspace receives them. An
+   organization with such documents but no workspace gets a new workspace
+   named Home, created during the export. `export` refuses to start while
+   such an organization is missing from the file. `bun
+   scripts/migrate-workspaces/cli.ts assignments --snapshot main.sql --out
+   assignments.json` proposes the file; the product owner reviews it and it
+   is kept with the Work Item.
 
 3. **Confirm the release is built.** The five changes ship together: the
    shared adapters, the workspace runtime, the workspace object with its
@@ -95,7 +93,13 @@ wrangler d1 export <main database> --remote --output main.sql
 wrangler d1 export <log partition> --remote --output logs-1.sql
 ```
 
-Record the file hashes on the Work Item.
+Record the file hashes on the Work Item. Export every log partition, not
+only the newest; the import refuses a copy that misses one. Start the
+import within two hours of this step.
+
+To move one workspace at a time instead of all of them, add `--scope
+<organization id>/<workspace id>` to the export, import and reconcile
+commands below, and give the scoped run its own bundle location.
 
 ### 3. Export every workspace
 
@@ -109,8 +113,11 @@ writing anything if an organization has no assignment.
 ### 4. Import every workspace
 
 ```bash
-bun scripts/migrate-workspaces/cli.ts import --bundles r2://<migration bucket>/<release id> --remote https://<your MCP address> --auth tedix
+bun scripts/migrate-workspaces/cli.ts import --bundles r2://<migration bucket>/<release id> --remote https://<your MCP address> --auth tedix --snapshot main.sql --logs logs-1.sql
 ```
+
+The command first checks the snapshot (see the top of this page) and lists
+every problem it finds. It copies nothing until the list is empty.
 
 `--auth tedix` uses the sign-in that `tedix login -w connect` saved. That
 sign-in must belong to a platform administrator; anyone else is refused. The
@@ -228,8 +235,9 @@ for the soak time.
 
 It proves that the rows in each object are the rows the snapshot had, that
 every output serves the same revision as before, that nothing that should
-move was left behind, and that every object lives in `eu`. It does not
-prove the snapshot is complete, that historical logs and archives are
-covered, or that the same principals can read, write and recall memory.
-Establish those separately before customer data moves. Checks after the
-deploy and the feed check verify the serving paths and projections.
+move was left behind, that the log partitions cover every run's history,
+and that every object lives in `eu`. It does not prove that nothing
+changed in the live database after the snapshot; that is what the freeze
+is for. Organization memory is not part of the move, so its access rules
+do not change. Checks after the deploy and the feed check verify the
+serving paths and projections.

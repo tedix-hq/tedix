@@ -28,25 +28,41 @@ export interface WorkspaceRef {
 export class Snapshot {
 	readonly main: DatabaseSync;
 	readonly logs: readonly DatabaseSync[];
+	/** When the oldest of its files was written: the snapshot is no newer than that. */
+	readonly takenAt: Date;
 
-	private constructor(main: DatabaseSync, logs: readonly DatabaseSync[]) {
+	private constructor(
+		main: DatabaseSync,
+		logs: readonly DatabaseSync[],
+		takenAt: Date,
+	) {
 		this.main = main;
 		this.logs = logs;
+		this.takenAt = takenAt;
 	}
 
 	static open(paths: SnapshotPaths): Snapshot {
+		const files = [paths.main, ...(paths.logs ?? [])];
+		for (const file of files)
+			if (!existsSync(file))
+				throw new Error(`Snapshot file not found: ${file}`);
+		const takenAt = new Date(
+			Math.min(...files.map((file) => statSync(file).mtimeMs)),
+		);
 		return new Snapshot(
 			openSnapshotFile(paths.main),
 			(paths.logs ?? []).map(openSnapshotFile),
+			takenAt,
 		);
 	}
 
-	/** In-memory snapshot for tests and rehearsal fixtures. */
+	/** In-memory snapshot for tests and rehearsal fixtures, taken now unless said otherwise. */
 	static fromDatabases(
 		main: DatabaseSync,
 		logs: DatabaseSync[] = [],
+		takenAt: Date = new Date(),
 	): Snapshot {
-		return new Snapshot(main, logs);
+		return new Snapshot(main, logs, takenAt);
 	}
 
 	close(): void {
@@ -69,7 +85,10 @@ export class Snapshot {
 			}));
 		for (const [organizationId, choice] of Object.entries(assignments))
 			if (choice.createHome)
-				refs.push({ organizationId, workspaceId: choice.memoryHome });
+				refs.push({
+					organizationId,
+					workspaceId: choice.unassignedOutputsHome,
+				});
 		return refs.sort((a, b) =>
 			`${a.organizationId}/${a.workspaceId}` <
 			`${b.organizationId}/${b.workspaceId}`
@@ -195,25 +214,6 @@ export class Snapshot {
 		return byOrg;
 	}
 
-	/**
-	 * Organizations that own rows of a table, so memory homes can be checked.
-	 * A table without an organization column (edges, expertise) is owned
-	 * through its parent rows and contributes nothing here.
-	 */
-	organizationsWithRows(table: string): string[] {
-		if (
-			!hasTable(this.main, table) ||
-			!hasColumn(this.main, table, "organization_id")
-		)
-			return [];
-		return this.main
-			.prepare(
-				`SELECT DISTINCT organization_id AS o FROM "${table}" ORDER BY 1`,
-			)
-			.all()
-			.map((row) => String(row.o));
-	}
-
 	private storesFor(stores: readonly SourceStore[]): DatabaseSync[] {
 		return stores.includes("logs") ? [this.main, ...this.logs] : [this.main];
 	}
@@ -224,18 +224,6 @@ function literalList(ids: readonly string[]): string {
 	return ids.length === 0
 		? "NULL"
 		: ids.map((id) => `'${id.replaceAll("'", "''")}'`).join(", ");
-}
-
-export function hasColumn(
-	db: DatabaseSync,
-	table: string,
-	column: string,
-): boolean {
-	return (
-		db
-			.prepare("SELECT 1 AS x FROM pragma_table_info(?) WHERE name = ?")
-			.get(table, column) !== undefined
-	);
 }
 
 export function hasTable(db: DatabaseSync, table: string): boolean {

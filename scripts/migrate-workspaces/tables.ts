@@ -13,8 +13,11 @@
  *
  * Rows that have no workspace column are tied to one by a join on their
  * conversation (runs, run events, tool results, artifacts) or by the
- * organization's assignment (memory, outputs without a workspace); see
+ * organization's assignment (outputs without a workspace); see
  * {@link WorkspaceAssignments}.
+ *
+ * Organization memory does not move: it stays in the organization database
+ * with today's permissions, untouched by the migration.
  */
 
 export type MigrationDomain =
@@ -22,8 +25,7 @@ export type MigrationDomain =
 	| "resources"
 	| "chat"
 	| "runs"
-	| "artifacts"
-	| "memory";
+	| "artifacts";
 
 /** Where a source table's rows can live before the cutover. */
 export type SourceStore = "main" | "logs";
@@ -38,9 +40,7 @@ export interface TableMapping {
 	 * SQL predicate selecting one workspace's rows. `:org` and `:ws` are the
 	 * organization and workspace ids; `:conversations` is the list of the
 	 * workspace's conversation ids, resolved from the main store first so a
-	 * log partition that holds no conversation table still answers. `memory`
-	 * tables are organization-wide and are exported only for the
-	 * organization's memory home workspace.
+	 * log partition that holds no conversation table still answers.
 	 */
 	where: string;
 	/**
@@ -57,19 +57,9 @@ export interface TableMapping {
 	 * is assigned to a workspace it did not name (outputs without a workspace).
 	 */
 	workspaceColumn?: string;
-	/**
-	 * The object builds these rows itself from other imported rows (a
-	 * trigger on insert). `import` skips the table; `reconcile` still
-	 * compares what the object built with the source, on these columns.
-	 */
-	derivedInObject?: readonly string[];
 }
 
 const CONVERSATION_IN_WORKSPACE = "conversation_id IN (:conversations)";
-/** Memory rows whose organization no longer exists stay behind and go with the old tables. */
-const LIVE_ORGANIZATION = "organization_id IN (SELECT id FROM organizations)";
-const LIVE_FACT =
-	"IN (SELECT id FROM memory_facts WHERE organization_id IN (SELECT id FROM organizations))";
 /**
  * Conversation ids are unique per organization, not globally: another
  * organization's Home thread may carry the same id, so the pair is matched.
@@ -153,70 +143,7 @@ export const WORKSPACE_TABLES: readonly TableMapping[] = [
 		where: `organization_id = :org AND ${CONVERSATION_IN_WORKSPACE}`,
 		stores: ["main"],
 	},
-	...memoryTables(),
 ];
-
-/**
- * Memory is organization-wide today (no workspace column). The whole set
- * moves into the organization's memory home workspace; cross-workspace reads
- * go through the gateway after the cutover.
- */
-function memoryTables(): TableMapping[] {
-	const orgOnly = "organization_id = :org";
-	const memory = (
-		table: string,
-		where: string = orgOnly,
-		primaryKey: readonly string[] = ["id"],
-		moves: string = LIVE_ORGANIZATION,
-	) => ({
-		table,
-		domain: "memory" as const,
-		primaryKey,
-		where,
-		moves,
-		stores: ["main"] as const,
-	});
-	// Three tables carry no organization column; their owner row does.
-	const viaFacts = (column: string) =>
-		`${column} IN (SELECT id FROM memory_facts WHERE organization_id = :org)`;
-	return [
-		memory("memory_domains"),
-		memory("memory_facts"),
-		memory(
-			"memory_edges",
-			viaFacts("source_fact_id"),
-			["id"],
-			`source_fact_id ${LIVE_FACT}`,
-		),
-		memory("memory_entities"),
-		memory("memory_entity_mentions"),
-		memory("memory_entity_aliases"),
-		memory("memory_entity_resolution_heads", orgOnly, ["mention_id"]),
-		memory("memory_entity_resolution_decisions"),
-		memory("memory_entity_resolutions"),
-		{
-			...memory("memory_fact_citations", orgOnly, [
-				"consolidated_fact_id",
-				"cited_fact_id",
-			]),
-			// The object rebuilds citations from each fact's consolidation
-			// metadata when the fact is inserted; `created_at` is the rebuild time.
-			derivedInObject: [
-				"organization_id",
-				"consolidated_fact_id",
-				"cited_fact_id",
-			],
-		},
-		memory(
-			"tedi_expertise",
-			"domain_id IN (SELECT id FROM memory_domains WHERE organization_id = :org)",
-			["id"],
-			"domain_id IN (SELECT id FROM memory_domains WHERE organization_id IN (SELECT id FROM organizations))",
-		),
-		memory("tedi_curiosity_queue"),
-		memory("tedi_optimization_signals"),
-	];
-}
 
 /**
  * Per-organization choices the data cannot make by itself. Written by hand
@@ -225,13 +152,11 @@ function memoryTables(): TableMapping[] {
  */
 export interface WorkspaceAssignments {
 	[organizationId: string]: {
-		/** Workspace that receives the organization's memory tables. */
-		memoryHome: string;
 		/** Workspace that receives outputs whose `workspace_id` is null. */
-		unassignedOutputsHome?: string;
+		unassignedOutputsHome: string;
 		/**
-		 * The organization has rows to place but no workspace: create one
-		 * named `memoryHome` (a Home workspace) during the export.
+		 * The organization has outputs to place but no workspace: create one
+		 * named `unassignedOutputsHome` (a Home workspace) during the export.
 		 */
 		createHome?: boolean;
 	};
@@ -260,13 +185,9 @@ export const TABLES_THAT_STAY: ReadonlyArray<{
 		reason: "organization Home threads stay org-wide",
 	},
 	{
-		table: "memory_* (organization deleted)",
-		reason: "orphaned rows of organizations that no longer exist",
-	},
-	{
-		table: "memory_fact_citation_backfills",
+		table: "memory_*",
 		reason:
-			"bookkeeping of a one-time backfill in the shared database; the object derives citations itself",
+			"organization memory stays organization-wide, in the organization database, with today's permissions",
 	},
 ];
 

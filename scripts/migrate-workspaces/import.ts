@@ -2,10 +2,22 @@
  * `import`: load one workspace's bundle into its workspace object, chunk by
  * chunk. Each chunk has a stable batch id, so a rerun after a failure skips
  * what already landed and finishes the rest.
+ *
+ * A remote import first proves its snapshot (see `snapshot-proof.ts`): a
+ * validated full snapshot taken at import time whose manifest equals the
+ * one every bundle recorded, and historical log coverage. Nothing is written
+ * until both hold; there is no override.
  */
 import type { BundleStore } from "./bundle";
+import { scopedRefs, snapshotCoverage } from "./reconcile";
 import { batchIdFor, RowDigest } from "./rows";
-import type { WorkspaceRef } from "./source";
+import type { Scope } from "./scope";
+import {
+	manifestDifferences,
+	snapshotManifest,
+	validateSnapshot,
+} from "./snapshot-proof";
+import type { Snapshot, WorkspaceRef } from "./source";
 import { WORKSPACE_TABLES } from "./tables";
 import { IMPORT_CHUNK_ROWS, type WorkspaceStoreFactory } from "./target";
 
@@ -15,17 +27,11 @@ export interface ImportResult extends WorkspaceRef {
 	ms: number;
 }
 
-export async function importWorkspace(
+async function importWorkspace(
 	bundles: BundleStore,
 	stores: WorkspaceStoreFactory,
 	ref: WorkspaceRef,
 ): Promise<ImportResult> {
-	// Local copies can establish parity; the current workspace-only protocol
-	// cannot yet preserve organization memory authorization for a live move.
-	if (stores.kind === "remote")
-		throw new Error(
-			"Remote workspace import is blocked: organization memory authorization parity, a validated full snapshot and historical log coverage must be established before customer data moves",
-		);
 	const started = performance.now();
 	const { manifest, tables } = await bundles.read(ref);
 	if (
@@ -52,10 +58,6 @@ export async function importWorkspace(
 			throw new Error(
 				`bundle rows for ${mapping.table} do not match its manifest`,
 			);
-		if (mapping.domain === "memory" && summary.reassigned !== 0)
-			throw new Error(
-				`bundle cannot reassign organization memory: ${mapping.table}`,
-			);
 	}
 	const store = await stores.open(ref);
 	let imported = 0;
@@ -71,7 +73,6 @@ export async function importWorkspace(
 			);
 		// Parents before children: the order of the mapping file is the insert order.
 		for (const mapping of WORKSPACE_TABLES) {
-			if (mapping.derivedInObject) continue; // the object builds these rows itself
 			const rows = tables.get(mapping.table) ?? [];
 			for (let index = 0; index * IMPORT_CHUNK_ROWS < rows.length; index += 1) {
 				const receipt = await store.importRows({
@@ -92,13 +93,48 @@ export async function importWorkspace(
 	return { ...ref, imported, duplicates, ms: performance.now() - started };
 }
 
+/**
+ * Both gates, before any target is opened. Every finding is listed; one is
+ * enough to refuse.
+ */
+export async function proveSnapshot(
+	bundles: BundleStore,
+	snapshot: Snapshot,
+	scope?: Scope,
+	now: Date = new Date(),
+): Promise<string[]> {
+	const problems = validateSnapshot(snapshot, now);
+	const manifest = snapshotManifest(snapshot);
+	for (const ref of await scopedRefs(bundles, scope)) {
+		const { manifest: bundle } = await bundles.read(ref);
+		for (const difference of manifestDifferences(bundle.snapshot, manifest))
+			problems.push(`${ref.organizationId}/${ref.workspaceId}: ${difference}`);
+	}
+	problems.push(...(await snapshotCoverage(bundles, snapshot, scope)).problems);
+	return problems;
+}
+
 export async function importAll(
 	bundles: BundleStore,
 	stores: WorkspaceStoreFactory,
-	onWorkspace?: (result: ImportResult) => void,
+	options: {
+		snapshot?: Snapshot;
+		scope?: Scope;
+		onWorkspace?: (result: ImportResult) => void;
+	} = {},
 ): Promise<ImportResult[]> {
+	const { snapshot, scope, onWorkspace } = options;
+	if (stores.kind === "remote" && !snapshot)
+		throw new Error(
+			"Remote import refused: pass the snapshot the bundles were exported from (--snapshot main.sql --logs <every log partition>)",
+		);
+	if (snapshot) {
+		const problems = await proveSnapshot(bundles, snapshot, scope);
+		if (problems.length)
+			throw new Error(`Import refused:\n  ${problems.join("\n  ")}`);
+	}
 	const results: ImportResult[] = [];
-	for (const ref of await bundles.list()) {
+	for (const ref of await scopedRefs(bundles, scope)) {
 		const result = await importWorkspace(bundles, stores, ref);
 		onWorkspace?.(result);
 		results.push(result);

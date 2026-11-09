@@ -18,7 +18,7 @@ function entrypoint() {
 }
 
 describe("migration through the RPC service entrypoint", () => {
-	test("blocks authenticated imports through public and service fetch before addressing an object", async () => {
+	test("refuses organization memory imports through public and service fetch before addressing an object", async () => {
 		const guardedEnv = {
 			MIGRATE_WORKSPACES_TOKEN: token,
 			// An absent namespace proves rejection precedes even an object wake.
@@ -40,7 +40,11 @@ describe("migration through the RPC service entrypoint", () => {
 					new Request(`${base}/import`, {
 						method: "POST",
 						headers: { authorization },
-						body: "invalid JSON",
+						body: JSON.stringify({
+							batchId: "b1",
+							table: "memory_facts",
+							rows: [],
+						}),
 					}),
 				);
 				expect(response.status).toBe(
@@ -48,10 +52,43 @@ describe("migration through the RPC service entrypoint", () => {
 				);
 				if (response.status === 409)
 					expect(await response.json()).toMatchObject({
-						code: "MEMORY_MIGRATION_PREREQUISITES_UNPROVEN",
+						code: "ORGANIZATION_MEMORY_STAYS",
 					});
 			}
 		}
+	});
+
+	test("imports workspace rows through the bound entrypoint, once per batch", async () => {
+		const send = () =>
+			entrypoint().fetch(
+				new Request(`${base}/import`, {
+					method: "POST",
+					headers: { authorization: `Bearer ${token}` },
+					body: JSON.stringify({
+						batchId: "workspace-row-1",
+						table: "os_workspaces",
+						rows: [
+							{
+								id: scope.workspaceId,
+								organization_id: scope.organizationId,
+								name: "Fixture",
+								status: "active",
+								created_by_kind: "user",
+								created_by_id: "u1",
+								created_at: "2026-11-07T10:00:00.000Z",
+								updated_at: "2026-11-07T10:00:00.000Z",
+							},
+						],
+					}),
+				}),
+			);
+		const first = await send();
+		expect(first.status).toBe(200);
+		expect(await first.json()).toMatchObject({
+			rowCount: 1,
+			status: "imported",
+		});
+		expect(await (await send()).json()).toMatchObject({ status: "duplicate" });
 	});
 
 	test("describes the real workspace schema through the bound entrypoint", async () => {

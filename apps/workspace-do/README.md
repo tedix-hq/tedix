@@ -48,10 +48,9 @@ its code runs beside the data.
 - Migration: `/migration/workspaces/{org}/{workspace}` (`GET` describe,
   `POST /import`, `POST /rows`) on the worker, guarded by
   `MIGRATE_WORKSPACES_TOKEN`; see `scripts/migrate-workspaces/README.md`.
-  Authenticated imports return 409 until organization memory authorization
-  parity, a validated full snapshot and historical log coverage are proven.
-  This applies to both public and service fetch; describe and row reads
-  remain available for verification.
+  Organization memory (`memory_*`) never moves: an import of such a table
+  returns 409 on both public and service fetch. The importer proves its
+  snapshot before it sends anything.
 
 ## Data
 

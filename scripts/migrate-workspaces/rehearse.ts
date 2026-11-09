@@ -68,21 +68,27 @@ export async function rehearse(
 		`${r.organizationId}/${r.workspaceId}`;
 	const started = performance.now();
 
-	const exported = await exportAll(snapshot, bundles, assignments, (r) => {
-		timings.set(key(r), {
-			organizationId: r.organizationId,
-			workspaceId: r.workspaceId,
-			rows: Object.values(r.manifest.tables).reduce((n, t) => n + t.count, 0),
-			exportMs: r.ms,
-			importMs: 0,
-			reconcileMs: 0,
-		});
-		log(`export   ${key(r)} ${r.ms.toFixed(0)}ms`);
+	const exported = await exportAll(snapshot, bundles, assignments, {
+		onWorkspace: (r) => {
+			timings.set(key(r), {
+				organizationId: r.organizationId,
+				workspaceId: r.workspaceId,
+				rows: Object.values(r.manifest.tables).reduce((n, t) => n + t.count, 0),
+				exportMs: r.ms,
+				importMs: 0,
+				reconcileMs: 0,
+			});
+			log(`export   ${key(r)} ${r.ms.toFixed(0)}ms`);
+		},
 	});
 	const afterExport = performance.now();
-	await importAll(bundles, stores, (r) => {
-		timings.get(key(r))!.importMs = r.ms;
-		log(`import   ${key(r)} ${r.ms.toFixed(0)}ms (${r.imported} rows)`);
+	// The rehearsal proves its snapshot exactly as a live import must.
+	await importAll(bundles, stores, {
+		snapshot,
+		onWorkspace: (r) => {
+			timings.get(key(r))!.importMs = r.ms;
+			log(`import   ${key(r)} ${r.ms.toFixed(0)}ms (${r.imported} rows)`);
+		},
 	});
 	const afterImport = performance.now();
 	const reconcile = await reconcileAll(bundles, stores, {
