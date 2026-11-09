@@ -3,6 +3,13 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.21.4 — 2026-11-09
+
+### Patch Changes
+
+- Owners can now give a job one more try. Run `tedix work attempt-grant <id> --input '{"attemptId":"<failed try>","reason":"<why>"}'`, naming the failed or timed-out try it replaces. Tedix records who approved it and why, and each try can be replaced only once. Agents cannot grant tries. Runs that paused, because they were deferred or waiting for a person, no longer use up a job's tries.
+- A job waiting for a person no longer stays stuck when that question was cancelled, expired, or belonged to an older version of the job. The dispatcher looks at the job again and asks a fresh question if it still needs someone.
+
 ## 0.21.3 — 2026-11-09
 
 ### Patch Changes
