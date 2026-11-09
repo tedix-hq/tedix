@@ -209,6 +209,15 @@ export const agentSessionEvents = sqliteTable(
 			table.sourceAt,
 			table.id,
 		),
+		index("idx_agent_session_events_pending_heads").on(
+			table.organizationId,
+			table.userId,
+			table.status,
+			table.harness,
+			table.sessionKey,
+			table.sourceAt,
+			table.id,
+		),
 	],
 );
 

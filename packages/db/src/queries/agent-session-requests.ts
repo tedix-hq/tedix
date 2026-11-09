@@ -556,6 +556,7 @@ function noEarlierPendingEvent(db: DbQueryClient) {
 					eq(earlier.harness, agentSessionEvents.harness),
 					eq(earlier.sessionKey, agentSessionEvents.sessionKey),
 					eq(earlier.status, "pending"),
+					lte(earlier.sourceAt, agentSessionEvents.sourceAt),
 					or(
 						lt(earlier.sourceAt, agentSessionEvents.sourceAt),
 						and(
@@ -588,8 +589,17 @@ export async function listPendingAgentSessionEventOwners(
 		.select({ id: agentSessionEvents.id })
 		.from(agentSessionEvents)
 		.where(
-			sql`(${agentSessionEvents.organizationId}, ${agentSessionEvents.userId}) > (owners.organization_id, owners.user_id)`,
+			and(
+				eq(agentSessionEvents.organizationId, sql`owners.organization_id`),
+				gt(agentSessionEvents.userId, sql`owners.user_id`),
+			),
 		)
+		.orderBy(agentSessionEvents.userId)
+		.limit(1);
+	const nextOrganization = db
+		.select({ id: agentSessionEvents.id })
+		.from(agentSessionEvents)
+		.where(gt(agentSessionEvents.organizationId, sql`owners.organization_id`))
 		.orderBy(agentSessionEvents.organizationId, agentSessionEvents.userId)
 		.limit(1);
 	// SQLite permits self-referencing WITH without the optional RECURSIVE keyword.
@@ -601,7 +611,10 @@ export async function listPendingAgentSessionEventOwners(
 				db
 					.select({ organizationId: next.organizationId, userId: next.userId })
 					.from(sql`owners`)
-					.innerJoin(next, eq(next.id, sql`(${successor})`)),
+					.innerJoin(
+						next,
+						eq(next.id, sql`coalesce((${successor}), (${nextOrganization}))`),
+					),
 			),
 	);
 	return db
@@ -640,13 +653,14 @@ export async function listPendingAgentSessionEvents(
 		eq(agentSessionEvents.organizationId, params.organizationId),
 		eq(agentSessionEvents.userId, params.userId),
 	);
+	const pendingOwner = and(owner, eq(agentSessionEvents.status, "pending"));
 	const first = db
 		.select({
 			harness: agentSessionEvents.harness,
 			sessionKey: agentSessionEvents.sessionKey,
 		})
 		.from(agentSessionEvents)
-		.where(owner)
+		.where(pendingOwner)
 		.orderBy(agentSessionEvents.harness, agentSessionEvents.sessionKey)
 		.limit(1)
 		.as("first_session");
@@ -656,9 +670,20 @@ export async function listPendingAgentSessionEvents(
 		.from(agentSessionEvents)
 		.where(
 			and(
-				owner,
-				sql`(${agentSessionEvents.harness}, ${agentSessionEvents.sessionKey}) > (sessions.harness, sessions.session_key)`,
+				pendingOwner,
+				eq(agentSessionEvents.harness, sql`sessions.harness`),
+				gt(agentSessionEvents.sessionKey, sql`sessions.session_key`),
 			),
+		)
+		.orderBy(agentSessionEvents.sessionKey)
+		.limit(1);
+	// SQLite only bounds the first column of a correlated tuple range.
+	// Split the seek so same-harness history is skipped by session_key too.
+	const nextHarness = db
+		.select({ id: agentSessionEvents.id })
+		.from(agentSessionEvents)
+		.where(
+			and(pendingOwner, gt(agentSessionEvents.harness, sql`sessions.harness`)),
 		)
 		.orderBy(agentSessionEvents.harness, agentSessionEvents.sessionKey)
 		.limit(1);
@@ -671,7 +696,10 @@ export async function listPendingAgentSessionEvents(
 				db
 					.select({ harness: next.harness, sessionKey: next.sessionKey })
 					.from(sql`sessions`)
-					.innerJoin(next, eq(next.id, sql`(${successor})`)),
+					.innerJoin(
+						next,
+						eq(next.id, sql`coalesce((${successor}), (${nextHarness}))`),
+					),
 			),
 	);
 	const head = db

@@ -1099,3 +1099,72 @@ it("recovers distinct owners across organizations while excluding fresh leases a
 		{ organizationId: "org-b", userId: "user-b" },
 	]);
 });
+
+it("bounds recursive seeks by owner and session and predecessor reads by source time", async () => {
+	const sqlite = new DatabaseSync(":memory:");
+	sqlite.exec("PRAGMA foreign_keys = OFF");
+	sqlite.exec(schemaDdl(agentSessionEvents));
+	const queries: string[] = [];
+	const db = createDbQueryClient(
+		createD1Facade(sqlite, {
+			onPrepare: (query) => {
+				queries.push(query);
+			},
+		}),
+	);
+	for (const organizationId of [ORG, "org-other"])
+		for (const userId of [USER, OTHER_USER])
+			for (const harness of ["claude-code", "codex"] as const)
+				for (const sessionKey of ["first", "last"])
+					await recordAgentSessionEvents(db, {
+						organizationId,
+						userId,
+						now: T0,
+						events: Array.from({ length: 100 }, (_, i) => ({
+							harness,
+							sessionKey,
+							repository: null,
+							kind: "prompt" as const,
+							body: "Keep this event",
+							activity: null,
+							sourceAt: new Date(Date.parse(T0) + i * 1000).toISOString(),
+							sourceKey: `${harness}-${sessionKey}-${i}`,
+						})),
+					});
+	queries.length = 0;
+	const owner = { organizationId: ORG, userId: USER };
+	const heads = await listPendingAgentSessionEvents(db, {
+		...owner,
+		now: T1,
+		limit: 10,
+	});
+	expect(heads.map((e) => `${e.harness}/${e.sessionKey}`).sort()).toEqual([
+		"claude-code/first",
+		"claude-code/last",
+		"codex/first",
+		"codex/last",
+	]);
+	expect(heads.every((e) => e.sourceAt === T0)).toBe(true);
+	await claimAgentSessionEvent(db, { ...owner, id: heads[0]!.id, now: T1 });
+	expect(await listPendingAgentSessionEventOwners(db, T1)).toHaveLength(4);
+	const plan = (query: string) =>
+		sqlite
+			.prepare(`EXPLAIN QUERY PLAN ${query}`)
+			.all(...Array.from(query.matchAll(/\?/g), () => ""))
+			.map((row) => String(row.detail))
+			.join("\n");
+	const listing = plan(queries[0]!);
+	expect(listing).toContain(
+		"idx_agent_session_events_pending_heads (organization_id=? AND user_id=? AND status=? AND harness=? AND session_key>?",
+	);
+	expect(listing).toContain(
+		"earlier_session_event USING COVERING INDEX idx_agent_session_events_pending_heads (organization_id=? AND user_id=? AND status=? AND harness=? AND session_key=? AND source_at<?)",
+	);
+	const claim = plan(queries[1]!);
+	expect(claim).toContain(
+		"earlier_session_event USING COVERING INDEX idx_agent_session_events_pending_heads (organization_id=? AND user_id=? AND status=? AND harness=? AND session_key=? AND source_at<?)",
+	);
+	const owners = plan(queries[2]!);
+	expect(owners).toContain("organization_id=? AND user_id>?");
+	sqlite.close();
+});
