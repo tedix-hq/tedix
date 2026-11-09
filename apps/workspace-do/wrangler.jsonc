@@ -24,6 +24,7 @@
 		"port": 3018,
 		"inspector_port": 19246,
 	},
+	"ai": { "binding": "AI", "remote": false },
 	"vars": {
 		"ENVIRONMENT": "development",
 		"GIT_SHA": "configured-via-private-overlay",
@@ -34,6 +35,8 @@
 		"AZURE_CHAT_DEPLOYMENT": "configured-via-private-overlay",
 		"AI_GATEWAY_ACCOUNT_ID": "configured-via-private-overlay",
 		"AI_GATEWAY_LLM_ID": "configured-via-private-overlay",
+		"AI_GATEWAY_BINDING_PROVIDERS": "",
+		"AI_GATEWAY_AUTO_ALLOWED_MODELS": "",
 	},
 	"secrets": {
 		"required": ["CF_AI_GATEWAY_TOKEN", "MIGRATE_WORKSPACES_TOKEN"],
@@ -86,6 +89,7 @@
 	"env": {
 		"production": {
 			"workers_dev": false,
+			"ai": { "binding": "AI" },
 			"vars": {
 				"ENVIRONMENT": "production",
 				"GIT_SHA": "configured-via-private-overlay",
@@ -95,6 +99,8 @@
 				"AZURE_CHAT_DEPLOYMENT": "configured-via-private-overlay",
 				"AI_GATEWAY_ACCOUNT_ID": "configured-via-private-overlay",
 				"AI_GATEWAY_LLM_ID": "configured-via-private-overlay",
+				"AI_GATEWAY_BINDING_PROVIDERS": "",
+				"AI_GATEWAY_AUTO_ALLOWED_MODELS": "",
 			},
 			"worker_loaders": [
 				{
