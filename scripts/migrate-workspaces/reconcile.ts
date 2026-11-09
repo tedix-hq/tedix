@@ -3,12 +3,17 @@
  * says was exported with what the object holds: row counts, one content hash
  * per table, the serving revision of every output, and the object's
  * jurisdiction. With the snapshot at hand, also prove nothing was left
- * behind: every source row is in exactly one bundle.
+ * behind: every source row is in exactly one bundle, and the log partitions
+ * cover every run's history ({@link snapshotCoverage}; `import` runs the
+ * same check before it writes).
  *
  * Any difference is drift. The command prints the report and exits non-zero.
  */
 import type { BundleStore } from "./bundle";
+import { collectWorkspaceRows } from "./export";
 import { RowDigest, type StoredRow } from "./rows";
+import { refKey, type Scope } from "./scope";
+import { logCoverageProblems } from "./snapshot-proof";
 import type { Snapshot, WorkspaceRef } from "./source";
 import { REQUIRED_JURISDICTION, WORKSPACE_TABLES } from "./tables";
 import { readAllRows, type WorkspaceStoreFactory } from "./target";
@@ -79,18 +84,11 @@ export async function reconcileWorkspace(
 				continue;
 			}
 			const actualRows = await readAllRows(store, mapping.table);
+			const bundledRows = tables.get(mapping.table) ?? [];
 			// Compare the columns the bundle carried: a row the export created
 			// (a Home workspace) names only the columns it sets, and the object
 			// fills the rest with defaults.
-			const bundledRows = tables.get(mapping.table) ?? [];
-			// Compare the columns the bundle carried: a row the export created
-			// (a Home workspace) names only the columns it sets and the object
-			// fills the rest with defaults; a table the object derives itself is
-			// compared on its key columns only.
-			const carried = new Set(
-				mapping.derivedInObject ??
-					bundledRows.flatMap((row) => Object.keys(row)),
-			);
+			const carried = new Set(bundledRows.flatMap((row) => Object.keys(row)));
 			const project = (row: StoredRow): StoredRow =>
 				carried.size === 0
 					? row
@@ -109,11 +107,7 @@ export async function reconcileWorkspace(
 				problems.push(
 					`bundle rows for ${mapping.table} no longer match its manifest`,
 				);
-			const projected = new RowDigest(mapping.primaryKey);
-			for (const row of bundledRows) projected.add(project(row));
-			const expectedSha256 = mapping.derivedInObject
-				? projected.hex()
-				: expected.sha256;
+			const expectedSha256 = expected.sha256;
 			if (digest.count !== expected.count || actualSha256 !== expectedSha256)
 				drift.push({
 					table: mapping.table,
@@ -191,14 +185,13 @@ export async function reconcileAll(
 	stores: WorkspaceStoreFactory,
 	options: {
 		snapshot?: Snapshot;
+		scope?: Scope;
 		requiredJurisdiction?: string | null;
 		onWorkspace?: (report: WorkspaceReport) => void;
 	} = {},
 ): Promise<ReconcileReport> {
 	const workspaces: WorkspaceReport[] = [];
-	const bundled = new Map<string, number>();
-	let createdHomes = 0;
-	const refs = await bundles.list();
+	const refs = await scopedRefs(bundles, options.scope);
 	for (const ref of refs) {
 		const report = await reconcileWorkspace(
 			bundles,
@@ -208,49 +201,141 @@ export async function reconcileAll(
 		);
 		options.onWorkspace?.(report);
 		workspaces.push(report);
-		const { manifest } = await bundles.read(ref);
+	}
+	const coverage = options.snapshot
+		? await snapshotCoverage(bundles, options.snapshot, options.scope)
+		: { totals: [], problems: [] };
+	return {
+		ok: workspaces.every((w) => w.ok) && coverage.problems.length === 0,
+		checkedAt: new Date().toISOString(),
+		workspaces,
+		totals: coverage.totals,
+		problems: coverage.problems,
+	};
+}
+
+/** The bundles a run covers: all of them, or exactly the scope's workspaces. */
+export async function scopedRefs(
+	bundles: BundleStore,
+	scope?: Scope,
+): Promise<WorkspaceRef[]> {
+	const refs = await bundles.list();
+	if (!scope) return refs;
+	const listed = new Set(refs.map(refKey));
+	for (const key of scope.keys)
+		if (!listed.has(key))
+			throw new Error(`scope names ${key}, which has no bundle`);
+	return refs.filter((ref) => scope.includes(ref));
+}
+
+/**
+ * Prove the bundles hold everything the snapshot says should move, and that
+ * the log partitions cover every run's history.
+ *
+ * Without a scope, every workspace in the snapshot needs a bundle and the
+ * moved rows of each table, summed over bundles, equal the snapshot's. With
+ * a scope, each scoped workspace's rows are collected from the snapshot
+ * again and must match its bundle row for row. Either way a run that
+ * recorded events must have them: none missing from main or the partitions.
+ */
+export async function snapshotCoverage(
+	bundles: BundleStore,
+	snapshot: Snapshot,
+	scope?: Scope,
+): Promise<Pick<ReconcileReport, "totals" | "problems">> {
+	const problems = logCoverageProblems(snapshot);
+	const totals: ReconcileReport["totals"] = [];
+	const refs = await scopedRefs(bundles, scope);
+	const bundled = new Map<string, number>();
+	const expected = new Map<string, number>();
+	let createdHomes = 0;
+	for (const ref of refs) {
+		const { manifest, tables } = await bundles.read(ref);
 		if (
 			manifest.assignments?.createHome &&
-			manifest.assignments.memoryHome === ref.workspaceId
+			manifest.assignments.unassignedOutputsHome === ref.workspaceId
 		)
 			createdHomes += 1;
 		for (const [table, summary] of Object.entries(manifest.tables))
 			bundled.set(table, (bundled.get(table) ?? 0) + summary.count);
-	}
-	const problems: string[] = [];
-	const totals: ReconcileReport["totals"] = [];
-	if (options.snapshot) {
-		const known = new Set(
-			refs.map((r) => `${r.organizationId}/${r.workspaceId}`),
-		);
-		for (const ref of options.snapshot.listWorkspaces())
-			if (!known.has(`${ref.organizationId}/${ref.workspaceId}`))
-				problems.push(`workspace ${ref.workspaceId} has no bundle`);
+		problems.push(...runsWithoutHistory(ref, tables));
+		if (!scope) continue;
+		const fresh = collectWorkspaceRows(snapshot, ref, {
+			...(manifest.assignments
+				? { [ref.organizationId]: manifest.assignments }
+				: {}),
+		}).tables;
 		for (const mapping of WORKSPACE_TABLES) {
-			// A Home created during the export is in its bundle but not in the snapshot.
-			const source =
-				options.snapshot.countAll(mapping) +
-				(mapping.table === "os_workspaces" ? createdHomes : 0);
-			const inBundles = bundled.get(mapping.table) ?? 0;
-			totals.push({
-				table: mapping.table,
-				source,
-				bundled: inBundles,
-				staying: options.snapshot.countStaying(mapping),
-			});
-			if (source !== inBundles)
+			const digest = new RowDigest(mapping.primaryKey);
+			// A created Home's directory row carries the export's clock; compare its id only.
+			for (const row of fresh.get(mapping.table) ?? [])
+				digest.add(
+					mapping.table === "os_workspaces" && manifest.assignments?.createHome
+						? { id: row.id ?? null }
+						: row,
+				);
+			expected.set(
+				mapping.table,
+				(expected.get(mapping.table) ?? 0) + digest.count,
+			);
+			const summary = manifest.tables[mapping.table];
+			const sameRows =
+				mapping.table === "os_workspaces" && manifest.assignments?.createHome
+					? summary?.count === digest.count
+					: summary?.sha256 === digest.hex();
+			if (summary?.count !== digest.count || !sameRows)
 				problems.push(
-					`${mapping.table}: ${source} rows in the snapshot, ${inBundles} in bundles`,
+					`${refKey(ref)} ${mapping.table}: the snapshot holds ${digest.count} rows, the bundle ${summary?.count ?? 0} or other content`,
 				);
 		}
 	}
-	return {
-		ok: workspaces.every((w) => w.ok) && problems.length === 0,
-		checkedAt: new Date().toISOString(),
-		workspaces,
-		totals,
-		problems,
-	};
+	if (!scope) {
+		const known = new Set(refs.map(refKey));
+		for (const ref of snapshot.listWorkspaces())
+			if (!known.has(refKey(ref)))
+				problems.push(`workspace ${ref.workspaceId} has no bundle`);
+	}
+	for (const mapping of WORKSPACE_TABLES) {
+		// A Home created during the export is in its bundle but not in the snapshot.
+		const source = scope
+			? (expected.get(mapping.table) ?? 0)
+			: snapshot.countAll(mapping) +
+				(mapping.table === "os_workspaces" ? createdHomes : 0);
+		const inBundles = bundled.get(mapping.table) ?? 0;
+		totals.push({
+			table: mapping.table,
+			source,
+			bundled: inBundles,
+			staying: scope ? 0 : snapshot.countStaying(mapping),
+		});
+		if (source !== inBundles)
+			problems.push(
+				`${mapping.table}: ${source} rows in the snapshot, ${inBundles} in bundles`,
+			);
+	}
+	return { totals, problems };
+}
+
+/** Runs that recorded events (`latest_event_at`) but whose events are in no store. */
+function runsWithoutHistory(
+	ref: WorkspaceRef,
+	tables: Map<string, StoredRow[]>,
+): string[] {
+	const withEvents = new Set(
+		(tables.get("kernel_runtime_events") ?? []).map((row) =>
+			String(row.run_id),
+		),
+	);
+	return (tables.get("kernel_runtime_runs") ?? [])
+		.filter(
+			(run) =>
+				run.latest_event_at !== null && run.latest_event_at !== undefined,
+		)
+		.filter((run) => !withEvents.has(String(run.id)))
+		.map(
+			(run) =>
+				`${refKey(ref)}: run ${run.id} recorded events (latest ${run.latest_event_at}) but none is in the snapshot; a log partition is missing`,
+		);
 }
 
 export function renderReport(report: ReconcileReport): string {

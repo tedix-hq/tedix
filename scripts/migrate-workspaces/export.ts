@@ -1,14 +1,17 @@
 /**
  * `export`: read one workspace's rows from the snapshot and write its bundle.
  *
- * Outputs without a workspace and the organization's memory go to the
- * workspaces named in the assignments file; an organization with such rows
- * and no assignment stops the export, because a row left behind is a cutover
- * failure, not a warning.
+ * Outputs without a workspace go to the workspace named in the assignments
+ * file; an organization with such rows and no assignment stops the export,
+ * because a row left behind is a cutover failure, not a warning. Every
+ * bundle carries the count and hash manifest of the snapshot it came from,
+ * so `import` can prove it loads exactly that snapshot.
  */
 import type { BundleManifest, BundleStore, TableSummary } from "./bundle";
 import { RowDigest, type StoredRow } from "./rows";
+import { snapshotManifest, type SnapshotManifest } from "./snapshot-proof";
 import type { Snapshot, WorkspaceRef } from "./source";
+import { refKey, type Scope } from "./scope";
 import {
 	WORKSPACE_TABLES,
 	type TableMapping,
@@ -33,19 +36,10 @@ export function collectWorkspaceRows(
 		if (
 			mapping.table === "os_workspaces" &&
 			choice?.createHome &&
-			choice.memoryHome === ref.workspaceId
+			choice.unassignedOutputsHome === ref.workspaceId
 		) {
 			tables.set(mapping.table, [homeWorkspaceRow(ref)]);
 			reassigned.set(mapping.table, 1);
-			continue;
-		}
-		if (mapping.domain === "memory") {
-			tables.set(
-				mapping.table,
-				choice?.memoryHome === ref.workspaceId
-					? snapshot.readRows(mapping, ref)
-					: [],
-			);
 			continue;
 		}
 		const rows = snapshot.readRows(mapping, ref);
@@ -64,7 +58,7 @@ export function homeWorkspaceRow(ref: WorkspaceRef): StoredRow {
 		organization_id: ref.organizationId,
 		name: "Home",
 		description:
-			"Created by the workspace migration for this organization's memory",
+			"Created by the workspace migration for this organization's outputs",
 		status: "active",
 		created_by_kind: "system",
 		created_by_id: "workspace-migration",
@@ -99,14 +93,15 @@ function unassignedRowsFor(
 export function checkAssignments(
 	snapshot: Snapshot,
 	assignments: WorkspaceAssignments,
+	scope?: Scope,
 ): string[] {
 	const problems: string[] = [];
 	const workspaces = snapshot.listWorkspaces(assignments);
 	const known = new Set(
 		workspaces.map((w) => `${w.organizationId}/${w.workspaceId}`),
 	);
-	const live = snapshot.liveOrganizations();
 	for (const [org, ids] of snapshot.unassignedOutputs()) {
+		if (scope && !scope.organizations.has(org)) continue;
 		const home = assignments[org]?.unassignedOutputsHome;
 		if (!home)
 			problems.push(
@@ -115,23 +110,6 @@ export function checkAssignments(
 		else if (!known.has(`${org}/${home}`))
 			problems.push(
 				`organization ${org}: unassignedOutputsHome ${home} is not a workspace of that organization`,
-			);
-	}
-	const organizationsWithMemory = new Set(
-		WORKSPACE_TABLES.filter((m) => m.domain === "memory").flatMap((m) =>
-			snapshot.organizationsWithRows(m.table),
-		),
-	);
-	for (const org of [...organizationsWithMemory].sort()) {
-		if (!live.has(org)) continue; // orphaned rows of a deleted organization stay behind
-		const home = assignments[org]?.memoryHome;
-		if (!home)
-			problems.push(
-				`organization ${org}: memory rows exist and no memoryHome is assigned`,
-			);
-		else if (!known.has(`${org}/${home}`))
-			problems.push(
-				`organization ${org}: memoryHome ${home} is not a workspace of that organization`,
 			);
 	}
 	return problems;
@@ -162,6 +140,7 @@ export async function exportWorkspace(
 	bundles: BundleStore,
 	ref: WorkspaceRef,
 	assignments: WorkspaceAssignments,
+	snapshotProof: SnapshotManifest,
 ): Promise<ExportResult> {
 	const started = performance.now();
 	const { tables, reassigned } = collectWorkspaceRows(
@@ -186,6 +165,7 @@ export async function exportWorkspace(
 		assignments: assignments[ref.organizationId] ?? null,
 		tables: summaries,
 		outputHeads: outputHeads(tables),
+		snapshot: snapshotProof,
 	};
 	await bundles.write(ref, manifest, tables);
 	return { ...ref, manifest, ms: performance.now() - started };
@@ -195,14 +175,32 @@ export async function exportAll(
 	snapshot: Snapshot,
 	bundles: BundleStore,
 	assignments: WorkspaceAssignments,
-	onWorkspace?: (result: ExportResult) => void,
+	options: {
+		scope?: Scope;
+		onWorkspace?: (result: ExportResult) => void;
+	} = {},
 ): Promise<ExportResult[]> {
-	const problems = checkAssignments(snapshot, assignments);
+	const { scope, onWorkspace } = options;
+	const problems = checkAssignments(snapshot, assignments, scope);
+	const refs = snapshot
+		.listWorkspaces(assignments)
+		.filter((ref) => !scope || scope.includes(ref));
+	if (scope)
+		for (const key of scope.keys)
+			if (!refs.some((ref) => refKey(ref) === key))
+				problems.push(`scope names ${key}, which is not a workspace`);
 	if (problems.length)
 		throw new Error(`Export refused:\n  ${problems.join("\n  ")}`);
+	const proof = snapshotManifest(snapshot);
 	const results: ExportResult[] = [];
-	for (const ref of snapshot.listWorkspaces(assignments)) {
-		const result = await exportWorkspace(snapshot, bundles, ref, assignments);
+	for (const ref of refs) {
+		const result = await exportWorkspace(
+			snapshot,
+			bundles,
+			ref,
+			assignments,
+			proof,
+		);
 		onWorkspace?.(result);
 		results.push(result);
 	}

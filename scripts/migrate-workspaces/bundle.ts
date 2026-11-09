@@ -15,6 +15,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fromWire, toWire, type StoredRow, type WireRow } from "./rows";
+import type { SnapshotManifest } from "./snapshot-proof";
 import type { WorkspaceRef } from "./source";
 import type { WorkspaceAssignments } from "./tables";
 
@@ -37,6 +38,8 @@ export interface BundleManifest extends WorkspaceRef {
 		currentRevisionId: string | null;
 		latestRevision: number | null;
 	}>;
+	/** Count and hash manifest of the snapshot this bundle was exported from. */
+	snapshot: SnapshotManifest;
 }
 
 export interface BundleStore {

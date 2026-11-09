@@ -52,6 +52,14 @@ export function rowKey(row: StoredRow, primaryKey: readonly string[]): string {
 		.join("|");
 }
 
+/** One row as the digest sees it: every column in name order. */
+export function renderRow(row: StoredRow): string {
+	return Object.keys(row)
+		.sort()
+		.map((column) => `${column}=${canonicalValue(row[column] ?? null)}`)
+		.join(",");
+}
+
 export function compareKeys(a: string, b: string): number {
 	return a < b ? -1 : a > b ? 1 : 0;
 }
@@ -66,11 +74,7 @@ export class RowDigest {
 	constructor(private readonly primaryKey: readonly string[]) {}
 
 	add(row: StoredRow): void {
-		const columns = Object.keys(row).sort();
-		const rendered = columns
-			.map((column) => `${column}=${canonicalValue(row[column] ?? null)}`)
-			.join(",");
-		this.#lines.push([rowKey(row, this.primaryKey), rendered]);
+		this.#lines.push([rowKey(row, this.primaryKey), renderRow(row)]);
 	}
 
 	get count(): number {

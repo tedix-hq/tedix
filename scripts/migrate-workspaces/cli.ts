@@ -3,9 +3,9 @@
  * Move every workspace's data out of the shared database into its own
  * workspace object, and prove the copy. See README.md for the runbook link.
  *
- *   bun scripts/migrate-workspaces/cli.ts export    --snapshot main.sql [--logs logs-1.sql ...] --assignments assignments.json --bundles <dir|r2://bucket/prefix>
- *   bun scripts/migrate-workspaces/cli.ts import    --bundles <dir|r2://...> (--objects <dir> | --remote <url>)
- *   bun scripts/migrate-workspaces/cli.ts reconcile --bundles <dir|r2://...> (--objects <dir> | --remote <url>) [--snapshot main.sql --logs ...] [--report report.json]
+ *   bun scripts/migrate-workspaces/cli.ts export    --snapshot main.sql --logs logs-1.sql ... [--assignments assignments.json] --bundles <dir|r2://bucket/prefix> [--scope org/ws,...]
+ *   bun scripts/migrate-workspaces/cli.ts import    --bundles <dir|r2://...> (--objects <dir> | --remote <url> --snapshot main.sql --logs ...) [--scope org/ws,...]
+ *   bun scripts/migrate-workspaces/cli.ts reconcile --bundles <dir|r2://...> (--objects <dir> | --remote <url>) [--snapshot main.sql --logs ...] [--scope org/ws,...] [--report report.json]
  *   bun scripts/migrate-workspaces/cli.ts rehearse  --snapshot main.sql [--logs ...] --assignments assignments.json [--work-dir <dir>] [--report report.json]
  *   bun scripts/migrate-workspaces/cli.ts schema-check --snapshot main.sql [--logs ...]
  *   bun scripts/migrate-workspaces/cli.ts assignments  --snapshot main.sql --out assignments.json
@@ -22,6 +22,7 @@ import { exportAll } from "./export";
 import { importAll } from "./import";
 import { reconcileAll, renderReport } from "./reconcile";
 import { rehearse, renderRehearsal } from "./rehearse";
+import { Scope } from "./scope";
 import { checkSchema, renderSchemaCheck } from "./schema-check";
 import { Snapshot } from "./source";
 import type { WorkspaceAssignments } from "./tables";
@@ -80,6 +81,11 @@ function openSnapshot(flags: ParsedArgs["flags"]): Snapshot | undefined {
 	if (!main) return undefined;
 	const logs = flags.logs;
 	return Snapshot.open({ main, logs: Array.isArray(logs) ? logs : [] });
+}
+
+function readScope(flags: ParsedArgs["flags"]): Scope | undefined {
+	const value = text(flags, "scope");
+	return value ? Scope.parse(value) : undefined;
 }
 
 function readAssignments(flags: ParsedArgs["flags"]): WorkspaceAssignments {
@@ -152,10 +158,13 @@ export async function main(
 					snapshot,
 					bundles,
 					readAssignments(flags),
-					(r) =>
-						out(
-							`exported ${r.organizationId}/${r.workspaceId} rows=${Object.values(r.manifest.tables).reduce((n, t) => n + t.count, 0)} ${r.ms.toFixed(0)}ms`,
-						),
+					{
+						scope: readScope(flags),
+						onWorkspace: (r) =>
+							out(
+								`exported ${r.organizationId}/${r.workspaceId} rows=${Object.values(r.manifest.tables).reduce((n, t) => n + t.count, 0)} ${r.ms.toFixed(0)}ms`,
+							),
+					},
 				);
 				if (bundles instanceof R2BundleStore)
 					await bundles.writeIndex(
@@ -171,16 +180,25 @@ export async function main(
 			return 0;
 		}
 		case "import": {
-			const results = await importAll(
-				openBundleStore(required(flags, "bundles")),
-				await openStores(flags, env),
-				(r) =>
-					out(
-						`imported ${r.organizationId}/${r.workspaceId} rows=${r.imported} skipped=${r.duplicates} ${r.ms.toFixed(0)}ms`,
-					),
-			);
-			out(`imported ${results.length} workspaces`);
-			return 0;
+			const snapshot = openSnapshot(flags);
+			try {
+				const results = await importAll(
+					openBundleStore(required(flags, "bundles")),
+					await openStores(flags, env),
+					{
+						snapshot,
+						scope: readScope(flags),
+						onWorkspace: (r) =>
+							out(
+								`imported ${r.organizationId}/${r.workspaceId} rows=${r.imported} skipped=${r.duplicates} ${r.ms.toFixed(0)}ms`,
+							),
+					},
+				);
+				out(`imported ${results.length} workspaces`);
+				return 0;
+			} finally {
+				snapshot?.close();
+			}
 		}
 		case "reconcile": {
 			const snapshot = openSnapshot(flags);
@@ -190,6 +208,7 @@ export async function main(
 					await openStores(flags, env),
 					{
 						snapshot,
+						scope: readScope(flags),
 						requiredJurisdiction:
 							flags["allow-any-jurisdiction"] === true ? null : undefined,
 					},

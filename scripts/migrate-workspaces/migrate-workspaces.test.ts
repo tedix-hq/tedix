@@ -7,12 +7,21 @@ import { getMigratedSqliteTemplate } from "../../packages/db/src/test/migrated-s
 import { LocalBundleStore } from "./bundle";
 import { openStores, parseArgs } from "./cli";
 import { checkAssignments, exportAll } from "./export";
-import { importAll, importWorkspace } from "./import";
+import { importAll, proveSnapshot } from "./import";
 import { reconcileAll } from "./reconcile";
 import { proposeAssignments } from "./assignments";
 import { rehearse } from "./rehearse";
 import { checkSchema, objectSchemaDatabase } from "./schema-check";
-import { batchIdFor, RowDigest, splitSqlStatements } from "./rows";
+import {
+	batchIdFor,
+	fromWire,
+	RowDigest,
+	splitSqlStatements,
+	toWire,
+	type WireRow,
+} from "./rows";
+import { Scope } from "./scope";
+import { SNAPSHOT_MAX_AGE_MS } from "./snapshot-proof";
 import { Snapshot } from "./source";
 import { remoteStoreFactory } from "./target";
 import {
@@ -24,6 +33,7 @@ import {
 	LocalWorkspaceStore,
 	localStoreFactory,
 	readTenantStoreMigrations,
+	type WorkspaceStoreFactory,
 } from "./target";
 
 // Use the shared exact-ledger cache; full migration replay is fixture setup,
@@ -45,10 +55,29 @@ const NOW = "2026-11-07T10:00:00.000Z";
 
 /** Two workspaces, one organization, rows in every mapped domain, run events split across stores. */
 function fixtureSnapshot(
-	options: { unassignedOutput?: boolean } = {},
+	options: {
+		unassignedOutput?: boolean;
+		/** The log partition's own range; none means it holds all dates. */
+		partition?: { fromTs: string; toTs?: string; state?: string };
+		takenAt?: Date;
+	} = {},
 ): Snapshot {
 	const main = sharedDatabase();
 	const logs = sharedDatabase();
+	logs.exec(
+		"CREATE TABLE IF NOT EXISTS log_partition (id text PRIMARY KEY NOT NULL, state text NOT NULL, from_ts text NOT NULL, to_ts text, created_at text NOT NULL)",
+	);
+	if (options.partition)
+		logs
+			.prepare(
+				"INSERT INTO log_partition (id, state, from_ts, to_ts, created_at) VALUES ('logs-1', ?, ?, ?, ?)",
+			)
+			.run(
+				options.partition.state ?? "active",
+				options.partition.fromTs,
+				options.partition.toTs ?? null,
+				NOW,
+			);
 	main.exec(
 		`INSERT INTO organizations (id, name, slug) VALUES ('${ORG}', 'Fixture', 'fixture')`,
 	);
@@ -143,43 +172,50 @@ function fixtureSnapshot(
 			"INSERT INTO tedi_artifacts (id, organization_id, tedi_id, conversation_id, run_id, kind, name, metadata) VALUES (?, ?, 'tedi-1', ?, ?, 'file', 'report.pdf', ?)",
 		)
 		.run("art-1", ORG, "conv-a", "run-a", '{"pages":3}');
-	main
-		.prepare(
-			"INSERT INTO memory_domains (id, organization_id, name) VALUES (?, ?, ?)",
-		)
-		.run("dom-1", ORG, "product");
-	main
-		.prepare(
-			"INSERT INTO memory_facts (id, organization_id, domain_id, content, fact_type) VALUES (?, ?, ?, ?, 'preference')",
-		)
-		.run("fact-1", ORG, "dom-1", "Prefers short answers");
-	main
-		.prepare(
-			"INSERT INTO memory_facts (id, organization_id, domain_id, content, fact_type) VALUES (?, ?, ?, ?, 'preference')",
-		)
-		.run("fact-2", ORG, "dom-1", "Works in EU hours");
-	main
-		.prepare(
-			"INSERT INTO memory_edges (id, source_fact_id, target_fact_id, relation_type) VALUES (?, ?, ?, 'related')",
-		)
-		.run("edge-1", "fact-1", "fact-2");
-	main
-		.prepare(
-			"INSERT INTO memory_facts (id, organization_id, domain_id, content, fact_type, metadata) VALUES (?, ?, ?, ?, 'preference', ?)",
-		)
-		.run(
-			"fact-3",
-			ORG,
-			"dom-1",
-			"Consolidated",
-			'{"consolidation":{"evidence":{"sources":[{"id":"fact-1"},{"id":"fact-2"}]}}}',
-		);
-	return Snapshot.fromDatabases(main, [logs]);
+	return Snapshot.fromDatabases(main, [logs], options.takenAt);
 }
 
 const assignments: WorkspaceAssignments = {
-	[ORG]: { memoryHome: WS_A, unassignedOutputsHome: WS_B },
+	[ORG]: { unassignedOutputsHome: WS_B },
 };
+
+/** The gateway's three migration routes, answered by local objects. */
+function fakeGateway(objects: WorkspaceStoreFactory) {
+	const tables = new Set<string>();
+	const fetchImplementation = (async (
+		input: string | URL | Request,
+		init?: RequestInit,
+	) => {
+		const [, admin, , , org, ws, operation] = new URL(String(input)).pathname
+			.split("/")
+			.map(decodeURIComponent);
+		if (admin !== "admin")
+			return new Response("not the admin door", { status: 404 });
+		const store = await objects.open({
+			organizationId: org!,
+			workspaceId: ws!,
+		});
+		try {
+			const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+			if (!operation) return Response.json(await store.describe());
+			if (operation === "import") {
+				tables.add(body.table);
+				return Response.json(
+					await store.importRows({
+						batchId: body.batchId,
+						table: body.table,
+						rows: (body.rows as WireRow[]).map(fromWire),
+					}),
+				);
+			}
+			const page = await store.readRows(body.table, body.after, body.limit);
+			return Response.json({ rows: page.rows.map(toWire), next: page.next });
+		} finally {
+			await store.close();
+		}
+	}) as typeof fetch;
+	return { fetch: fetchImplementation, tables };
+}
 
 describe("migrate-workspaces", () => {
 	test("rejects conflicting event copies across the main and log snapshots", () => {
@@ -209,53 +245,197 @@ describe("migrate-workspaces", () => {
 		}
 	});
 
-	test("blocks remote imports before contacting a target in either authentication mode", async () => {
-		const ref = { organizationId: ORG, workspaceId: WS_A };
-		const bundles = new LocalBundleStore("unused-remote-import-bundles");
-		let requests = 0;
-		const fetchImplementation = Object.assign(
-			async () => {
-				requests += 1;
-				throw new Error("remote import contacted the target");
-			},
-			{ preconnect: fetch.preconnect },
-		);
-		for (const auth of [
-			"object-token",
-			{ mode: "tedix" as const, headers: async () => ({}) },
-		]) {
-			const stores = remoteStoreFactory(
-				"https://objects.example",
-				auth,
-				fetchImplementation,
+	test("a remote import needs the snapshot and refuses a stale, incomplete or changed one before contacting a target", async () => {
+		const workDir = mkdtempSync(join(tmpdir(), "mw-remote-refusals-"));
+		const exported = fixtureSnapshot();
+		try {
+			const bundles = new LocalBundleStore(join(workDir, "bundles"));
+			await exportAll(exported, bundles, assignments);
+			let requests = 0;
+			const fetchImplementation = Object.assign(
+				async () => {
+					requests += 1;
+					throw new Error("remote import contacted the target");
+				},
+				{ preconnect: fetch.preconnect },
 			);
-			await expect(importWorkspace(bundles, stores, ref)).rejects.toThrow(
-				"Remote workspace import is blocked",
-			);
-			await expect(
-				importAll(
-					{
-						read: bundles.read.bind(bundles),
-						write: bundles.write.bind(bundles),
-						list: async () => [ref],
-					},
-					stores,
-				),
-			).rejects.toThrow("Remote workspace import is blocked");
+			for (const auth of [
+				"object-token",
+				{ mode: "tedix" as const, headers: async () => ({}) },
+			]) {
+				const stores = remoteStoreFactory(
+					"https://objects.example",
+					auth,
+					fetchImplementation,
+				);
+				await expect(importAll(bundles, stores)).rejects.toThrow(
+					"Remote import refused: pass the snapshot",
+				);
+				const stale = fixtureSnapshot({
+					takenAt: new Date(Date.now() - SNAPSHOT_MAX_AGE_MS - 60_000),
+				});
+				await expect(
+					importAll(bundles, stores, { snapshot: stale }),
+				).rejects.toThrow(/take a new one/);
+				stale.close();
+				const changed = fixtureSnapshot({ takenAt: exported.takenAt });
+				changed.logs[0]!.prepare(
+					"INSERT INTO kernel_runtime_events (id, organization_id, kind, conversation_id, run_id, sequence, payload, created_at) VALUES ('ev-late', ?, 'message', 'conv-a', 'run-a', 4, '{}', ?)",
+				).run(ORG, NOW);
+				await expect(
+					importAll(bundles, stores, { snapshot: changed }),
+				).rejects.toThrow("log 1 kernel_runtime_events: count 2 -> 3");
+				changed.close();
+				const withoutLogs = Snapshot.fromDatabases(
+					fixtureSnapshot().main,
+					[],
+					exported.takenAt,
+				);
+				await expect(
+					importAll(bundles, stores, { snapshot: withoutLogs }),
+				).rejects.toThrow("snapshot has no log partition");
+				withoutLogs.close();
+			}
+			expect(requests).toBe(0);
+		} finally {
+			exported.close();
+			rmSync(workDir, { recursive: true, force: true });
 		}
-		expect(requests).toBe(0);
+	});
+
+	test("historical log coverage: partitions must reach the oldest run, and a run's recorded events must be somewhere", async () => {
+		const workDir = mkdtempSync(join(tmpdir(), "mw-log-coverage-"));
+		const snapshot = fixtureSnapshot({
+			partition: { fromTs: "2026-11-01T00:00:00.000Z" },
+		});
+		try {
+			snapshot.main.exec(
+				"UPDATE kernel_runtime_runs SET created_at = '2026-10-01T00:00:00.000Z' WHERE id = 'run-a'",
+			);
+			snapshot.main.exec(
+				"INSERT INTO kernel_runtime_runs (id, organization_id, conversation_id, status, latest_event_at) VALUES ('run-lost', 'org-fixture', 'conv-a', 'completed', '2026-10-02T00:00:00.000Z')",
+			);
+			const bundles = new LocalBundleStore(join(workDir, "bundles"));
+			await exportAll(snapshot, bundles, assignments);
+			const problems = await proveSnapshot(bundles, snapshot);
+			expect(problems).toContain(
+				"log partitions start at 2026-11-01T00:00:00.000Z, after the oldest run (2026-10-01T00:00:00.000Z); a partition is missing",
+			);
+			expect(problems).toContain(
+				`${ORG}/${WS_A}: run run-lost recorded events (latest 2026-10-02T00:00:00.000Z) but none is in the snapshot; a log partition is missing`,
+			);
+			// reconcile --snapshot fails on the same findings.
+			const stores = localStoreFactory(join(workDir, "objects"));
+			expect(
+				(await reconcileAll(bundles, stores, { snapshot })).problems,
+			).toEqual(expect.arrayContaining(problems.slice(0, 1)));
+		} finally {
+			snapshot.close();
+			rmSync(workDir, { recursive: true, force: true });
+		}
+	});
+
+	test("a full snapshot names every log partition once: one active, ranges in order", async () => {
+		const { validateSnapshot } = await import("./snapshot-proof");
+		const partition = (
+			id: string,
+			state: string,
+			fromTs: string,
+			toTs: string | null,
+		) => {
+			const db = sharedDatabase();
+			db.exec(
+				"CREATE TABLE IF NOT EXISTS log_partition (id text PRIMARY KEY NOT NULL, state text NOT NULL, from_ts text NOT NULL, to_ts text, created_at text NOT NULL)",
+			);
+			db.prepare(
+				"INSERT INTO log_partition (id, state, from_ts, to_ts, created_at) VALUES (?, ?, ?, ?, ?)",
+			).run(id, state, fromTs, toTs, NOW);
+			return db;
+		};
+		const main = sharedDatabase();
+		const sealed = partition("logs-1", "sealed", "2026-01-01", "2026-06-30");
+		const active = partition("logs-2", "active", "2026-07-01", null);
+		expect(
+			validateSnapshot(Snapshot.fromDatabases(main, [sealed, active])),
+		).toEqual([]);
+		expect(validateSnapshot(Snapshot.fromDatabases(main, [sealed]))).toEqual([
+			"the newest log partition must be the only active one; the active partition is missing",
+		]);
+		const overlapping = partition("logs-3", "active", "2026-06-01", null);
+		expect(
+			validateSnapshot(Snapshot.fromDatabases(main, [sealed, overlapping])),
+		).toEqual(["log partitions logs-1 and logs-3 overlap"]);
+		const unranged = sharedDatabase();
+		unranged.exec(
+			"CREATE TABLE IF NOT EXISTS log_partition (id text PRIMARY KEY NOT NULL, state text NOT NULL, from_ts text NOT NULL, to_ts text, created_at text NOT NULL)",
+		);
+		expect(
+			validateSnapshot(Snapshot.fromDatabases(main, [unranged, active])),
+		).toEqual([
+			"a log partition without a range holds all dates, so it must be the only one",
+		]);
+		expect(
+			validateSnapshot(Snapshot.fromDatabases(main, [sharedDatabase()])),
+		).toEqual([
+			"log snapshot 1 has no log_partition table; it is not a log partition",
+		]);
+	});
+
+	test("a remote import with a proven snapshot loads one scoped workspace, and reconcile --snapshot shows zero differences", async () => {
+		const workDir = mkdtempSync(join(tmpdir(), "mw-remote-"));
+		const snapshot = fixtureSnapshot();
+		try {
+			const scope = Scope.parse(`${ORG}/${WS_A}`);
+			const bundles = new LocalBundleStore(join(workDir, "bundles"));
+			const exported = await exportAll(snapshot, bundles, assignments, {
+				scope,
+			});
+			expect(exported.map((r) => r.workspaceId)).toEqual([WS_A]);
+			const fallbackDdl = (table: string) =>
+				String(
+					snapshot.main
+						.prepare("SELECT sql FROM sqlite_master WHERE name = ?")
+						.get(table)?.sql ?? "",
+				) || null;
+			const gateway = fakeGateway(
+				localStoreFactory(join(workDir, "objects"), { fallbackDdl }),
+			);
+			const stores = remoteStoreFactory(
+				"https://tedix.mcp.example",
+				{ mode: "tedix", headers: async () => ({}) },
+				gateway.fetch,
+			);
+			const imported = await importAll(bundles, stores, { snapshot, scope });
+			expect(imported.map((r) => [r.workspaceId, r.imported])).toEqual([
+				[WS_A, 12],
+			]);
+			const report = await reconcileAll(bundles, stores, { snapshot, scope });
+			expect(report.problems).toEqual([]);
+			expect(report.ok).toBe(true);
+			expect(
+				Object.fromEntries(
+					report.totals.map((t) => [t.table, [t.source, t.bundled]]),
+				).kernel_runtime_events,
+			).toEqual([3, 3]);
+			// Organization memory is never sent to a workspace object.
+			expect(gateway.tables.has("memory_facts")).toBe(false);
+			await expect(
+				importAll(bundles, stores, {
+					snapshot,
+					scope: Scope.parse(`${ORG}/${WS_B}`),
+				}),
+			).rejects.toThrow(`scope names ${ORG}/${WS_B}, which has no bundle`);
+		} finally {
+			snapshot.close();
+			rmSync(workDir, { recursive: true, force: true });
+		}
 	});
 
 	test.each([
-		"visibility",
-		"tedi_id",
-		"memory_scope",
-		"use_policy",
+		"title",
 		"organization_id",
 		"missing-summary",
 		"missing-rows",
-		"derived-citation",
-		"reassigned",
 		"unmapped",
 	])("rejects bundle damage before opening a target: %s", async (damage) => {
 		const snapshot = fixtureSnapshot();
@@ -265,20 +445,16 @@ describe("migrate-workspaces", () => {
 			await exportAll(snapshot, bundles, assignments);
 			const ref = { organizationId: ORG, workspaceId: WS_A };
 			const { manifest, tables } = await bundles.read(ref);
-			if (damage === "missing-summary") delete manifest.tables.memory_facts;
-			else if (damage === "missing-rows") tables.delete("memory_facts");
-			else if (damage === "derived-citation")
-				tables.get("memory_fact_citations")!.pop();
-			else if (damage === "reassigned")
-				manifest.tables.memory_facts!.reassigned = 1;
-			else if (damage === "unmapped") tables.set("unmapped_memory", []);
-			else tables.get("memory_facts")![0]![damage] = "changed-policy";
+			if (damage === "missing-summary") delete manifest.tables.os_outputs;
+			else if (damage === "missing-rows") tables.delete("os_outputs");
+			else if (damage === "unmapped") tables.set("memory_facts", []);
+			else tables.get("os_outputs")![0]![damage] = "changed";
 			let opens = 0;
 			await expect(
-				importWorkspace(
+				importAll(
 					{
 						write: bundles.write.bind(bundles),
-						list: bundles.list.bind(bundles),
+						list: async () => [ref],
 						read: async () => ({ manifest, tables }),
 					},
 					{
@@ -288,7 +464,6 @@ describe("migrate-workspaces", () => {
 							throw new Error("target opened");
 						},
 					},
-					ref,
 				),
 			).rejects.toThrow(/bundle/);
 			expect(opens).toBe(0);
@@ -315,8 +490,8 @@ describe("migrate-workspaces", () => {
 				expect(w.reconcileMs).toBeGreaterThan(0);
 			}
 			const a = report.workspaces.find((w) => w.workspaceId === WS_A)!;
-			// outputs 1 + revisions 2 + resource 1 + conversation 1 + run 1 + events 3 (one only in the log partition, one in both) + tool result 1 + artifact 1 + memory 7 (one domain, three facts, one edge, two citations the object derives itself) + the workspace's own directory row
-			expect(a.rows).toBe(19);
+			// outputs 1 + revisions 2 + resource 1 + conversation 1 + run 1 + events 3 (one only in the log partition, one in both) + tool result 1 + artifact 1 + the workspace's own directory row; organization memory stays behind
+			expect(a.rows).toBe(12);
 			const totals = Object.fromEntries(
 				report.reconcile.totals.map((t) => [t.table, t]),
 			);
@@ -331,9 +506,11 @@ describe("migrate-workspaces", () => {
 			expect(
 				report.reconcile.workspaces.every((w) => w.jurisdiction === "eu"),
 			).toBe(true);
-			// Output and memory tables now come from the object's migration chain.
+			// Output tables come from the object's migration chain.
 			expect(report.fallbackTables).not.toContain("os_outputs");
-			expect(report.fallbackTables).not.toContain("memory_facts");
+			expect(WORKSPACE_TABLES.some((m) => m.table.startsWith("memory_"))).toBe(
+				false,
+			);
 			const bundle = await new LocalBundleStore(join(workDir, "bundles")).read({
 				organizationId: ORG,
 				workspaceId: WS_A,
@@ -446,9 +623,9 @@ describe("migrate-workspaces", () => {
 			});
 			const first = await importAll(bundles, stores);
 			const second = await importAll(bundles, stores);
-			expect(first.map((r) => r.imported)).toEqual([17, 3]);
+			expect(first.map((r) => r.imported)).toEqual([12, 3]);
 			expect(second.map((r) => [r.imported, r.duplicates])).toEqual([
-				[0, 17],
+				[0, 12],
 				[0, 3],
 			]);
 			expect((await reconcileAll(bundles, stores, { snapshot })).ok).toBe(true);
@@ -468,22 +645,20 @@ describe("migrate-workspaces", () => {
 		const snapshot = fixtureSnapshot({ unassignedOutput: true });
 		const workDir = mkdtempSync(join(tmpdir(), "mw-test-"));
 		try {
-			expect(
-				checkAssignments(snapshot, { [ORG]: { memoryHome: WS_A } }),
-			).toEqual([
-				`organization ${ORG}: 1 outputs have no workspace and no unassignedOutputsHome`,
-			]);
 			expect(checkAssignments(snapshot, {})).toEqual([
 				`organization ${ORG}: 1 outputs have no workspace and no unassignedOutputsHome`,
-				`organization ${ORG}: memory rows exist and no memoryHome is assigned`,
 			]);
 			expect(
 				checkAssignments(snapshot, {
-					[ORG]: { memoryHome: "nope", unassignedOutputsHome: WS_B },
+					[ORG]: { unassignedOutputsHome: "nope" },
 				}),
 			).toEqual([
-				`organization ${ORG}: memoryHome nope is not a workspace of that organization`,
+				`organization ${ORG}: unassignedOutputsHome nope is not a workspace of that organization`,
 			]);
+			// A scope that leaves the organization out does not need its choice.
+			expect(
+				checkAssignments(snapshot, {}, Scope.parse("org-other/ws-x")),
+			).toEqual([]);
 			await expect(
 				exportAll(snapshot, new LocalBundleStore(join(workDir, "x")), {}),
 			).rejects.toThrow("Export refused");
@@ -529,53 +704,41 @@ describe("migrate-workspaces", () => {
 				detail: "the object's migration chain does not create it",
 			});
 			const stripped = sharedDatabase();
-			// Keep the search view valid when modelling a snapshot without summary.
-			const view = stripped
-				.prepare(
-					"SELECT sql FROM sqlite_schema WHERE name = 'memory_fact_search_documents'",
-				)
-				.get() as { sql: string };
-			stripped.exec("DROP VIEW memory_fact_search_documents");
-			stripped.exec(view.sql.replaceAll("f.summary", "NULL"));
-			stripped.exec("ALTER TABLE memory_facts DROP COLUMN summary");
+			stripped.exec("ALTER TABLE tedi_artifacts DROP COLUMN name");
 			const findings = checkSchema(Snapshot.fromDatabases(stripped)).findings;
 			expect(
-				findings.find((f) => f.table === "memory_facts")?.detail,
-			).toContain("only in object: [summary]");
+				findings.find((f) => f.table === "tedi_artifacts")?.detail,
+			).toContain("only in object: [name]");
 		} finally {
 			object.close();
 			snapshot.close();
 		}
 	});
 
-	test("assignments proposes the oldest workspace as home, a new Home for a live organization without one, and leaves deleted organizations' rows behind", async () => {
+	test("assignments proposes the oldest workspace as home, a new Home for a live organization without one, and reports deleted organizations", async () => {
 		const snapshot = fixtureSnapshot({ unassignedOutput: true });
 		snapshot.main.exec(
 			"INSERT INTO organizations (id, name, slug) VALUES ('org-live-no-ws', 'Live', 'live')",
 		);
 		snapshot.main.exec(
-			"INSERT INTO memory_domains (id, organization_id, name) VALUES ('dom-live', 'org-live-no-ws', 'x')",
+			"INSERT INTO os_outputs (id, organization_id, workspace_id, kind, title, created_by_kind, created_by_id) VALUES ('out-live', 'org-live-no-ws', NULL, 'document', 'Loose', 'user', 'u1')",
 		);
 		snapshot.main.exec(
-			"INSERT INTO memory_facts (id, organization_id, domain_id, content, fact_type) VALUES ('fact-live', 'org-live-no-ws', 'dom-live', 'kept', 'preference')",
-		);
-		snapshot.main.exec(
-			"INSERT INTO memory_facts (id, organization_id, content, fact_type) VALUES ('fact-orphan', 'org-deleted', 'orphan', 'preference')",
+			"INSERT INTO memory_facts (id, organization_id, content, fact_type) VALUES ('fact-stays', 'org-fixture', 'kept in the organization', 'preference')",
 		);
 		const workDir = mkdtempSync(join(tmpdir(), "mw-test-"));
 		try {
 			const proposal = proposeAssignments(snapshot);
 			expect(proposal).toEqual({
 				assignments: {
-					[ORG]: { memoryHome: WS_A, unassignedOutputsHome: WS_A },
+					[ORG]: { unassignedOutputsHome: WS_A },
 					"org-live-no-ws": {
-						memoryHome: "home-org-live-no-ws",
 						unassignedOutputsHome: "home-org-live-no-ws",
 						createHome: true,
 					},
 				},
 				withoutWorkspace: ["org-live-no-ws"],
-				orphaned: ["org-deleted"],
+				orphaned: [],
 			});
 			const withHome = {
 				...assignments,
@@ -600,11 +763,7 @@ describe("migrate-workspaces", () => {
 				report.reconcile.totals.map((t) => [t.table, t]),
 			);
 			expect(totals.os_workspaces).toMatchObject({ source: 3, bundled: 3 });
-			expect(totals.memory_facts).toMatchObject({
-				source: 4,
-				bundled: 4,
-				staying: 1,
-			});
+			expect(totals.memory_facts).toBeUndefined();
 			const home = await new LocalBundleStore(join(workDir, "bundles")).read({
 				organizationId: "org-live-no-ws",
 				workspaceId: "home-org-live-no-ws",
@@ -612,9 +771,12 @@ describe("migrate-workspaces", () => {
 			expect(
 				home.tables.get("os_workspaces")!.map((r) => [r.id, r.name]),
 			).toEqual([["home-org-live-no-ws", "Home"]]);
-			expect(home.tables.get("memory_facts")!.map((r) => r.id)).toEqual([
-				"fact-live",
+			expect(home.tables.get("os_outputs")!.map((r) => r.id)).toEqual([
+				"out-live",
 			]);
+			expect([...home.tables.keys()].some((t) => t.startsWith("memory_"))).toBe(
+				false,
+			);
 		} finally {
 			rmSync(workDir, { recursive: true, force: true });
 			snapshot.close();

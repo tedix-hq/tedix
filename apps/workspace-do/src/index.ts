@@ -136,6 +136,22 @@ export class InternalEntrypoint extends WorkerEntrypoint<WorkspaceEnv> {
 const MIGRATION_PATH =
 	/^\/migration\/workspaces\/([^/]+)\/([^/]+)(\/import|\/rows)?$/;
 
+/** Blobs travel as `{ "$b64": … }`; everything else is JSON as stored. */
+function decodeRow(row: Record<string, unknown>) {
+	return Object.fromEntries(
+		Object.entries(row).map(([key, value]) => {
+			if (value && typeof value === "object" && "$b64" in value) {
+				const bytes = Uint8Array.from(
+					atob(String((value as { $b64: string }).$b64)),
+					(c) => c.charCodeAt(0),
+				);
+				return [key, bytes.buffer];
+			}
+			return [key, value];
+		}),
+	);
+}
+
 /** The migration tool's three routes, guarded by `MIGRATE_WORKSPACES_TOKEN`. */
 async function handleMigration(
 	request: Request,
@@ -150,26 +166,13 @@ async function handleMigration(
 	if (!token || !presented || presented !== token) {
 		return new Response("Unauthorized", { status: 401 });
 	}
-	// Keep this fence at the worker as well as the importer: an older client
-	// must not move customer data through either public or service fetch.
-	if (match[3] === "/import" && request.method === "POST") {
-		return Response.json(
-			{
-				code: "MEMORY_MIGRATION_PREREQUISITES_UNPROVEN",
-				error:
-					"Organization memory authorization parity, a validated full snapshot and historical log coverage must be established before customer data moves",
-			},
-			{ status: 409 },
-		);
-	}
 	const scope: WorkspaceScope = {
 		organizationId: decodeURIComponent(match[1] ?? ""),
 		workspaceId: decodeURIComponent(match[2] ?? ""),
 	};
-	const stub = stubFor(env, scope);
 	const route = match[3] ?? "";
 	if (route === "" && request.method === "GET") {
-		const description = await stub.describe(scope);
+		const description = await stubFor(env, scope).describe(scope);
 		return Response.json({
 			...description,
 			jurisdiction: readDurableObjectJurisdiction(env) ?? null,
@@ -178,13 +181,37 @@ async function handleMigration(
 	if (request.method !== "POST")
 		return new Response("Method not allowed", { status: 405 });
 	const body = (await request.json()) as Record<string, unknown>;
+	const stub = () => stubFor(env, scope);
+	if (route === "/import") {
+		const table = String(body.table ?? "");
+		// Organization memory stays in the organization database with its
+		// permissions; no client may move it into a workspace.
+		if (table.startsWith("memory_"))
+			return Response.json(
+				{
+					code: "ORGANIZATION_MEMORY_STAYS",
+					error: `${table} is organization memory and does not move into a workspace`,
+				},
+				{ status: 409 },
+			);
+		const rows = Array.isArray(body.rows)
+			? (body.rows as Record<string, unknown>[])
+			: [];
+		return Response.json(
+			await stub().importRows(scope, {
+				batchId: String(body.batchId ?? ""),
+				table,
+				rows: rows.map(decodeRow),
+			}),
+		);
+	}
 	if (route === "/rows") {
 		const input: ExportRowsInput = {
 			table: String(body.table ?? ""),
 			after: typeof body.after === "string" ? body.after : null,
 			limit: Number(body.limit ?? 500),
 		};
-		return Response.json(await stub.exportRows(scope, input));
+		return Response.json(await stub().exportRows(scope, input));
 	}
 	return new Response("Not found", { status: 404 });
 }
