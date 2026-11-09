@@ -93,6 +93,31 @@ describe("observer subject formats", () => {
 			).toBeNull();
 		expect(observerSubject("example/ops", "main", immutable)).toBeNull();
 	});
+	it("binds environment-scoped subjects to the signed environment claim", () => {
+		const env = {
+			environment: "production",
+			sub: "repo:example/ops:environment:production",
+		};
+		expect(observerSubject("example/ops", "main", env)).toBe(env.sub);
+		const envImmutable = {
+			environment: "production",
+			sub: "repo:example@123/ops@456:environment:production",
+			repository_owner_id: "123",
+			repository_id: "456",
+		};
+		expect(observerSubject("example/ops", "main", envImmutable)).toBe(
+			envImmutable.sub,
+		);
+		for (const changed of [
+			{ environment: "staging" },
+			{ environment: undefined },
+			{ sub: "repo:example/ops:environment:staging" },
+			{ sub: "repo:example/ops:ref:refs/heads/staging" },
+		])
+			expect(
+				observerSubject("example/ops", "main", { ...env, ...changed }),
+			).toBeNull();
+	});
 });
 describe("observer workload binding after signature verification", () => {
 	it.each(["ci_red", "ci_green"] as const)(

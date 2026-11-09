@@ -22,20 +22,29 @@ export function observerSubject(
 	branch: string,
 	claims: Record<string, unknown>,
 ): string | null {
-	const legacy = `repo:${repository}:ref:refs/heads/${branch}`;
-	if (claims.sub === legacy) return legacy;
-	const ownerId = claims.repository_owner_id;
-	const repositoryId = claims.repository_id;
-	if (
-		typeof ownerId !== "string" ||
-		!/^[1-9]\d*$/.test(ownerId) ||
-		typeof repositoryId !== "string" ||
-		!/^[1-9]\d*$/.test(repositoryId)
-	)
-		return null;
-	const [owner, name] = repository.split("/");
-	const immutable = `repo:${owner}@${ownerId}/${name}@${repositoryId}:ref:refs/heads/${branch}`;
-	return claims.sub === immutable ? immutable : null;
+	// Jobs running in a GitHub environment mint environment-scoped subjects.
+	// Both contexts bind the same repository identity; the environment name is
+	// matched exactly against the token's own signed `environment` claim.
+	const contexts = [`ref:refs/heads/${branch}`];
+	if (typeof claims.environment === "string" && claims.environment)
+		contexts.push(`environment:${claims.environment.replaceAll(":", "%3A")}`);
+	for (const context of contexts) {
+		const legacy = `repo:${repository}:${context}`;
+		if (claims.sub === legacy) return legacy;
+		const ownerId = claims.repository_owner_id;
+		const repositoryId = claims.repository_id;
+		if (
+			typeof ownerId !== "string" ||
+			!/^[1-9]\d*$/.test(ownerId) ||
+			typeof repositoryId !== "string" ||
+			!/^[1-9]\d*$/.test(repositoryId)
+		)
+			continue;
+		const [owner, name] = repository.split("/");
+		const immutable = `repo:${owner}@${ownerId}/${name}@${repositoryId}:${context}`;
+		if (claims.sub === immutable) return immutable;
+	}
+	return null;
 }
 /** Verified OIDC claims must bind both the repository and exact reporting workflow. */
 export function acceptsObserverClaims(
