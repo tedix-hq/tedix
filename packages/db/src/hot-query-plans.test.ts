@@ -13,6 +13,7 @@ import {
 import { listOwnerLearningInteractionsPage } from "./queries/learning-feedback";
 import { pendingFilingLessons } from "./queries/request-filings";
 import { listRationaleRecords } from "./queries/rationale-records";
+import { listWorkActivity } from "./queries/work-items/activity";
 import { listWorkApprovalInbox } from "./queries/work-items/approvals";
 import { listPersonalCardStyleRules } from "./queries/work-items/card-style-rules";
 import { listWorkItemsPage } from "./queries/work-items/crud";
@@ -151,6 +152,36 @@ describe("hot production query plans", () => {
 			"SEARCH tedi_runtime_events USING INDEX idx_tedi_runtime_events_global_kind_created (kind=? AND created_at>? AND created_at<?)",
 		);
 	});
+
+	it.each(["first", "cursor", "forward"])(
+		"seeks the project Work feed's %s page without sorting or scanning",
+		async (page) => {
+			const { db, lastPlan } = fixture();
+			await listWorkActivity(db, {
+				orgId: "org-1",
+				projectId: "project-1",
+				limit: 50,
+				...(page === "cursor"
+					? { cursor: { at: "2026-11-09T18:00:00.000Z", id: "event-1" } }
+					: page === "forward"
+						? { afterSequence: 100 }
+						: {}),
+			});
+			const plan = lastPlan();
+			const index = page === "forward" ? "sequence" : "occurred";
+			const range =
+				page === "forward"
+					? " AND sequence>?"
+					: page === "cursor"
+						? " AND (occurred_at,id)<(?,?)"
+						: "";
+			expect(plan).toContain(
+				`SEARCH work_events USING INDEX idx_work_events_project_${index} (org_id=? AND project_id=?${range})`,
+			);
+			expect(plan).not.toMatch(/SCAN (?:work_events|work_items)/);
+			expect(plan).not.toContain("TEMP B-TREE");
+		},
+	);
 
 	it.each(["list", "claim"])(
 		"%s checks earlier session events through the covering index",
