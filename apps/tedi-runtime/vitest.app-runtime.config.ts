@@ -10,6 +10,7 @@ export default defineConfig({
 				compatibilityDate: "2026-10-01",
 				compatibilityFlags: ["nodejs_compat"],
 				workerLoaders: { LOADER: {} },
+				d1Databases: ["DB"],
 				bindings: { SECRETS_MASTER_KEY: "fictional-app-test-key" },
 				serviceBindings: {
 					API_SERVICE: async (request) => {

@@ -43,6 +43,7 @@ import { getLatestReportedSkillRun } from "@tedix/db/queries/skill-runs";
 import {
 	loadAppRuntimeRevision,
 	runAppRuntimeCall,
+	type AppRuntimeRevision,
 } from "./os-app-runtime-code";
 import { readWorkspaceSessionRole } from "./os-workspace-collaborators";
 import { SKIPPED_RUN_RESULT_STATUSES } from "./workspace-schedules";
@@ -227,13 +228,16 @@ export async function runInteractiveAppCall(
 		"TEDI_SERVICE" | "ENVIRONMENT" | "SECRETS_MASTER_KEY"
 	>,
 	db: Db,
-	input: Parameters<typeof runAppRuntimeCall>[2],
+	input: Parameters<typeof runAppRuntimeCall>[2] & {
+		code: Pick<AppRuntimeRevision, "config">;
+	},
 	waitUntil?: (work: Promise<unknown>) => void,
 ): Promise<JsonValue> {
 	const callId = input.executionId ?? crypto.randomUUID();
 	const result = await runAppRuntimeCall(env, db, {
 		...input,
 		executionId: callId,
+		waitUntil,
 	});
 	const triggers = (input.code.config.triggers ?? []).filter(
 		(trigger) =>

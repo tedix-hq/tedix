@@ -25,6 +25,7 @@ export interface WorkspaceAppHostEnv {
 	LOADER: WorkerLoader;
 	SECRETS_MASTER_KEY: string;
 	API_SERVICE: Fetcher;
+	DB: D1Database;
 	WORKSPACE_APP_HOST: DurableObjectNamespace<WorkspaceAppHostDO>;
 }
 type VerifiedSession = Awaited<ReturnType<typeof verifyWorkspaceAppSession>>;
@@ -190,6 +191,19 @@ export class WorkspaceAppHostDO extends DurableObject<WorkspaceAppHostEnv> {
 		}
 		return { restarted };
 	}
+	/** The signed revision's stored code, refused unless it hashes to the session's digest. */
+	async #revisionFiles(session: VerifiedSession) {
+		const { createDbClient } = await import("@tedix/db/client");
+		const { getOsGadgetCode } =
+			await import("@tedix/db/queries/os-workspaces/gadgets");
+		const row = await getOsGadgetCode(createDbClient(this.env.DB), {
+			organizationId: session.organizationId,
+			revisionId: session.revisionId,
+		});
+		if (!row || row.gadgetId !== session.gadgetId)
+			throw new Error("App code does not match the signed revision");
+		return signedFiles(JSON.parse(row.files), session);
+	}
 	#cutOff(session: VerifiedSession): boolean {
 		const issuedAt = session.expiresAt - APP_SESSION_TTL_SECONDS;
 		return [
@@ -209,7 +223,8 @@ export class WorkspaceAppHostDO extends DurableObject<WorkspaceAppHostEnv> {
 	async callTimed(input: {
 		callId?: string;
 		session: string;
-		files: Record<string, string>;
+		/** Required for drafts; a published revision's code is read on a cold start. */
+		files?: Record<string, string>;
 		method: string;
 		args: unknown[];
 	}) {
@@ -232,7 +247,8 @@ export class WorkspaceAppHostDO extends DurableObject<WorkspaceAppHostEnv> {
 	async #call(input: {
 		callId?: string;
 		session: string;
-		files: Record<string, string>;
+		/** Required for drafts; a published revision's code is read on a cold start. */
+		files?: Record<string, string>;
 		method: string;
 		args: unknown[];
 	}) {
@@ -245,13 +261,13 @@ export class WorkspaceAppHostDO extends DurableObject<WorkspaceAppHostEnv> {
 		if (this.#cutOff(session)) throw new Error("App access changed");
 		const method = AppRuntimeMethodSchema.parse(input.method);
 		const args = AppRuntimeArgumentsSchema.parse(input.args);
-		if (
-			!input.files["server.js"] ||
-			Object.hasOwn(input.files, "__tedix_invocation.js") ||
-			(await appRuntimeCodeDigest(AppRuntimeFilesSchema.parse(input.files))) !==
-				session.codeDigest
-		)
+		// A published revision's code is read here only when no isolate holds it,
+		// so a warm call carries no source; a draft always arrives with its files.
+		if (!input.files && (session.previewId || !session.codeDigest))
 			throw new Error("App code does not match the signed revision");
+		const files = input.files
+			? await signedFiles(input.files, session)
+			: () => this.#revisionFiles(session);
 		const scope = `${session.organizationId}:${session.workspaceId}`;
 		const currentScope = this.ctx.storage.kv.get<string>("scope");
 		if (currentScope && currentScope !== scope)
@@ -280,7 +296,7 @@ export class WorkspaceAppHostDO extends DurableObject<WorkspaceAppHostEnv> {
 					reason: "workspace_app_invocation",
 				}),
 				codeId,
-				input.files,
+				files,
 				{
 					compatibilityDate: session.compatibilityDate,
 					invocation: {
@@ -398,6 +414,17 @@ export class WorkspaceAppHostDO extends DurableObject<WorkspaceAppHostEnv> {
 			invocation.close();
 		}
 	}
+}
+
+async function signedFiles(files: unknown, session: VerifiedSession) {
+	const parsed = AppRuntimeFilesSchema.parse(files);
+	if (
+		!parsed["server.js"] ||
+		Object.hasOwn(parsed, "__tedix_invocation.js") ||
+		(await appRuntimeCodeDigest(parsed)) !== session.codeDigest
+	)
+		throw new Error("App code does not match the signed revision");
+	return parsed;
 }
 
 const CAPABILITY_METHODS = new Set([

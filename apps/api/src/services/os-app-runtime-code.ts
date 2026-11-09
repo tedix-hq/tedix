@@ -37,7 +37,7 @@ import { createError, ErrorCodes } from "../rpc/orpc";
  * once per revision and never updated, so a signed session's revision id
  * already pins its code; callers that only need grants skip the code read.
  */
-export async function loadAppRuntimeManifest(
+async function loadAppRuntimeManifest(
 	db: DbQueryClient,
 	scope: { organizationId: string; gadgetId: string },
 	revisionId: string,
@@ -103,7 +103,10 @@ export async function runAppRuntimeCall(
 		workspaceId: string;
 		gadgetId: string;
 		revisionId: string;
-		code: AppRuntimeRevision;
+		/** Files travel only for a draft; the host reads a published revision's code itself. */
+		code: Pick<AppRuntimeRevision, "revision" | "grants"> & {
+			files?: AppRuntimeRevision["files"];
+		};
 		role: AppRuntimeRole;
 		session: string;
 		method: string;
@@ -117,17 +120,15 @@ export async function runAppRuntimeCall(
 		executionId?: string;
 		/** Receives `Server-Timing` entries for each hop of this call. */
 		timing?: string[];
+		/** Settles the receipt after the response instead of before it. */
+		waitUntil?: (work: Promise<unknown>) => void;
 	},
 ): Promise<JsonValue> {
 	const executionId = input.executionId ?? crypto.randomUUID();
-	let mark = Date.now();
-	const lap = (name: string) => {
-		const now = Date.now();
-		input.timing?.push(`${name};dur=${now - mark}`);
-		mark = now;
-	};
+	const started = Date.now();
 	const receiptScope = { organizationId: input.organizationId, executionId };
-	await createOsGadgetExecution(db, {
+	// The receipt is written while the host runs; the call fails if it is not stored.
+	const receipt = createOsGadgetExecution(db, {
 		id: executionId,
 		organizationId: input.organizationId,
 		workspaceId: input.workspaceId,
@@ -147,8 +148,17 @@ export async function runAppRuntimeCall(
 		createdByKind: input.createdBy.kind,
 		createdById: input.createdBy.id,
 		runtimeEnvironment: env.ENVIRONMENT,
+	}).then(() => {
+		input.timing?.push(`receipt;dur=${Date.now() - started}`);
 	});
-	lap("receipt");
+	const settle = (
+		outcome:
+			| { status: "completed"; output: string }
+			| { status: "failed"; error: string },
+	) =>
+		receipt.then(() =>
+			settleOsAppCallExecution(db, { ...receiptScope, ...outcome }),
+		);
 	let result: JsonValue;
 	try {
 		const response = await serviceBindingFetch(env.TEDI_SERVICE)(
@@ -162,7 +172,7 @@ export async function runAppRuntimeCall(
 				body: JSON.stringify({
 					callId: executionId,
 					session: input.session,
-					files: input.code.files,
+					...(input.code.files ? { files: input.code.files } : {}),
 					method: input.method,
 					args: input.args,
 				}),
@@ -171,23 +181,23 @@ export async function runAppRuntimeCall(
 		if (!response.ok)
 			throw createError(ErrorCodes.BAD_GATEWAY, "Workspace app call failed");
 		result = JsonValueSchema.parse(await response.json());
-		lap("runtime");
+		input.timing?.push(`runtime;dur=${Date.now() - started}`);
 		const runtimeTiming = response.headers.get("Server-Timing");
 		if (runtimeTiming) input.timing?.push(runtimeTiming);
+		await receipt;
 	} catch (error) {
-		await settleOsAppCallExecution(db, {
-			...receiptScope,
+		await settle({
 			status: "failed",
 			error: "Workspace app call failed",
-		});
+		}).catch(() => {});
 		throw error;
 	}
-	await settleOsAppCallExecution(db, {
-		...receiptScope,
+	const settled = settle({
 		status: "completed",
 		output: JSON.stringify(result),
 	});
-	lap("settle");
+	if (input.waitUntil) input.waitUntil(settled);
+	else await settled;
 	return result;
 }
 

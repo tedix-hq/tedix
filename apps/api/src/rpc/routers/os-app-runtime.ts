@@ -5,6 +5,7 @@ import type {
 	AppDraftRoomScopeSchema,
 	AppDraftRoomSubmissionSchema,
 } from "@tedix/api-contract/schemas/os-app-runtime";
+import { AppRuntimeConfigSchema } from "@tedix/api-contract/schemas/os-app-runtime";
 import { implement, call as callProcedure } from "@orpc/server";
 import { z } from "zod";
 import { RunWorkspaceSkillNowInputSchema } from "@tedix/api-contract/schemas/os-workspace-schedules";
@@ -60,7 +61,6 @@ import {
 	requireWorkspaceCollaboratorAccess,
 } from "../../services/os-workspace-collaborators";
 import {
-	loadAppRuntimeManifest,
 	loadAppRuntimeRevision,
 	loadAppRuntimeDraft,
 	runAppRuntimeCall,
@@ -608,6 +608,22 @@ export function createOsAppRuntimeRouter() {
 		context: BaseContext,
 		input: { workspaceId: string; gadgetId: string; session: string },
 	) {
+		const { scope, session } = await verifiedSession(context, input);
+		const code = session.proposalId
+			? await loadAppRuntimeDraft(queryDb(context), scope, session.proposalId)
+			: await load(context, scope, session.revisionId);
+		if (
+			code.digest !== session.codeDigest ||
+			("sequence" in code && code.sequence !== session.proposalSequence)
+		)
+			throw createError(ErrorCodes.CONFLICT, "App code changed");
+		return { scope, session, code };
+	}
+	/** The caller's current access checked against a signed session, without reading code. */
+	async function verifiedSession(
+		context: BaseContext,
+		input: { workspaceId: string; gadgetId: string; session: string },
+	) {
 		const scope = await resolve(context, input);
 		let session;
 		try {
@@ -638,15 +654,7 @@ export function createOsAppRuntimeRouter() {
 				ErrorCodes.FORBIDDEN,
 				"App session no longer matches caller access or revision",
 			);
-		const code = session.proposalId
-			? await loadAppRuntimeDraft(queryDb(context), scope, session.proposalId)
-			: await load(context, scope, session.revisionId);
-		if (
-			code.digest !== session.codeDigest ||
-			("sequence" in code && code.sequence !== session.proposalSequence)
-		)
-			throw createError(ErrorCodes.CONFLICT, "App code changed");
-		return { scope, session, code };
+		return { scope, session };
 	}
 	const client = read.client.handler(async ({ context, input }) => {
 		const opened = await callProcedure(open, input, { context });
@@ -823,7 +831,31 @@ export function createOsAppRuntimeRouter() {
 	);
 	const call = read.call.handler(async ({ context, input }) => {
 		const started = Date.now();
-		const { scope, session, code } = await openedSession(context, input);
+		const { scope, session } = await verifiedSession(context, input);
+		// A published revision never changes, so the signed session already
+		// carries its grants and settings and the host reads its code itself.
+		// A draft can change under its id and is re-read with its files.
+		const code = session.proposalId
+			? await (async () => {
+					const draft = await loadAppRuntimeDraft(
+						queryDb(context),
+						scope,
+						session.proposalId!,
+					);
+					if (
+						draft.digest !== session.codeDigest ||
+						draft.sequence !== session.proposalSequence
+					)
+						throw createError(ErrorCodes.CONFLICT, "App code changed");
+					return draft;
+				})()
+			: {
+					revision: session.revision,
+					grants: session.grants,
+					config: AppRuntimeConfigSchema.parse(
+						session.config ?? { version: 1 },
+					),
+				};
 		context.serverTiming?.push(`resolve;dur=${Date.now() - started}`);
 		const run = session.previewId
 			? runAppRuntimeCall
@@ -927,11 +959,23 @@ export function createOsAppRuntimeRouter() {
 				ErrorCodes.FORBIDDEN,
 				"Resource capabilities require a member session",
 			);
-		const member = await getMemberByUserId(
+		// The member row, the caller's current access and the slot list are
+		// independent reads; one round of waiting instead of three.
+		const memberRead = getMemberByUserId(
 			context.db,
 			session.organizationId,
 			session.actorUserId,
 		);
+		const resourcesRead = listOsWorkspaceResources(queryDb(context), {
+			organizationId: session.organizationId,
+			workspaceId: session.workspaceId,
+			status: "active",
+			limit: 200,
+		});
+		// Settle both even when one fails, so neither rejects unobserved.
+		void memberRead.catch(() => {});
+		void resourcesRead.catch(() => {});
+		const member = await memberRead;
 		const acting: BaseContext = {
 			...context,
 			authType: "user",
@@ -957,8 +1001,8 @@ export function createOsAppRuntimeRouter() {
 		)
 			throw createError(ErrorCodes.FORBIDDEN, "App session is stale");
 		// A draft can change under its id, so it is re-read and digested; a
-		// published revision's code is immutable and only its grants are needed.
-		let grants;
+		// published revision is immutable and the signed session carries its grants.
+		let grants = session.grants;
 		if (session.proposalId) {
 			const draft = await loadAppRuntimeDraft(
 				queryDb(acting),
@@ -971,10 +1015,6 @@ export function createOsAppRuntimeRouter() {
 			)
 				throw createError(ErrorCodes.CONFLICT, "App code changed");
 			grants = draft.grants;
-		} else {
-			grants = (
-				await loadAppRuntimeManifest(queryDb(acting), scope, session.revisionId)
-			).grants;
 		}
 		if (
 			!appRuntimePermission({
@@ -1000,12 +1040,7 @@ export function createOsAppRuntimeRouter() {
 				ErrorCodes.FORBIDDEN,
 				"Preview resources are read-only",
 			);
-		const resources = await listOsWorkspaceResources(queryDb(acting), {
-			organizationId: scope.organizationId,
-			workspaceId: scope.workspaceId,
-			status: "active",
-			limit: 200,
-		});
+		const resources = await resourcesRead;
 		const resource = resources.find((row) => row.slot === input.slot);
 		if (!resource)
 			throw createError(ErrorCodes.NOT_FOUND, "App resource slot unavailable");
