@@ -2831,6 +2831,46 @@ describe("dispatcher admission", () => {
 		}
 	});
 
+	it.each(["research", "coding"] as const)(
+		"reruns a %s lane after an incomplete verdict only when it keeps code",
+		async (workKind) => {
+			const { dispatcher, dir, items, events, control, releases } = fixture();
+			items.splice(1);
+			items[0]!.workKind = workKind;
+			// The first run finished and declared the outcome incomplete: a
+			// verdict on the unchanged revision, not a crash.
+			control.history.data = [
+				{
+					id: "verdict-attempt",
+					outcome: "failed",
+					metadata: {
+						dispatchVersion: 2,
+						laneResult: { outcome: "incomplete", remaining: "Gap found" },
+					},
+				},
+			];
+			await dispatcher.tick();
+			const starts = () => events.filter((e) => e.verb === "start" && e.input);
+			if (workKind === "research") {
+				await dispatcher.drain();
+				const saved = JSON.parse(
+					readFileSync(join(dir, `${item().id}-2.json`), "utf8"),
+				);
+				expect(saved.held).toBe(true);
+				expect(saved.note).toContain(
+					"Attempt verdict-attempt reported the accepted outcome incomplete",
+				);
+				expect(starts()).toHaveLength(0);
+				expect(events.filter((e) => e.verb === "comment")).toHaveLength(1);
+				return;
+			}
+			// A coding lane resumes its retained change, so one rerun can progress.
+			await until(() => releases.length === 1);
+			releases[0]!();
+			await dispatcher.drain();
+			expect(starts()).toHaveLength(1);
+		},
+	);
 	it("holds matching failures despite changing request diagnostics", async () => {
 		const { dispatcher, dir, items, events, control } = fixture();
 		items.splice(1);

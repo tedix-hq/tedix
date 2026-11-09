@@ -2470,11 +2470,27 @@ export class LaneDispatcher {
 						(attempt.outcome === "expired" &&
 							attempt.id !== interrupted?.attemptId)),
 			).length;
-			if (failedExecutions >= 3) {
+			// A run that finished and declared the outcome incomplete is a verdict,
+			// not a crash. For work without a retained code change (a review or
+			// verification), rerunning the same brief only repeats that verdict
+			// and spends the Attempt a repaired revision needs.
+			const verdict =
+				item.workKind === "coding"
+					? undefined
+					: history.data.find(
+							(attempt) =>
+								attempt.metadata?.dispatchVersion === item.version &&
+								attempt.outcome === "failed" &&
+								isRecord(attempt.metadata?.laneResult) &&
+								attempt.metadata.laneResult.outcome === "incomplete",
+						);
+			if (failedExecutions >= 3 || verdict) {
 				receipt.held = true;
 				// This is an execution hold, not a timed admission rejection.
 				delete receipt.admissionFailure;
-				receipt.note = `Automatic execution held after ${failedExecutions} failed or expired Attempts on Work revision ${item.version}. Resolve the blocker and revise the Work brief before retrying; elapsed time alone does not release this hold.`;
+				receipt.note = verdict
+					? `Automatic execution held after Attempt ${verdict.id} reported the accepted outcome incomplete on Work revision ${item.version}. Rerunning the same brief repeats that result; route the repair, then revise the Work before retrying.`
+					: `Automatic execution held after ${failedExecutions} failed or expired Attempts on Work revision ${item.version}. Resolve the blocker and revise the Work brief before retrying; elapsed time alone does not release this hold.`;
 				this.save(path, receipt);
 				this.log("execution-held", item.id, receipt.note);
 				if (!receipt.failureCommented) {
