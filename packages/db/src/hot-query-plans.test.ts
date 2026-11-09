@@ -202,8 +202,12 @@ describe("hot production query plans", () => {
 				"SEARCH agent_session_events USING INTEGER PRIMARY KEY (rowid=?)",
 			);
 			expect(plan).toContain(
-				"SEARCH earlier_session_event USING COVERING INDEX idx_agent_session_events_session_order (organization_id=? AND user_id=? AND harness=? AND session_key=? AND status=?",
+				"SEARCH earlier_session_event USING COVERING INDEX idx_agent_session_events_pending_heads (organization_id=? AND user_id=? AND status=? AND harness=? AND session_key=? AND source_at<?)",
 			);
+			if (operation === "list")
+				expect(plan).toContain(
+					"USING COVERING INDEX idx_agent_session_events_pending_heads (organization_id=? AND user_id=? AND status=? AND harness=? AND session_key>?)",
+				);
 			expect(plan).not.toMatch(
 				/SCAN (?:agent_session_events|earlier_session_event)/,
 			);
