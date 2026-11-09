@@ -8,8 +8,10 @@ import {
 } from "./queries/cognitive-runtime";
 import { listOwnerLearningInteractionsPage } from "./queries/learning-feedback";
 import { pendingFilingLessons } from "./queries/request-filings";
+import { listRationaleRecords } from "./queries/rationale-records";
 import { listWorkApprovalInbox } from "./queries/work-items/approvals";
 import { listPersonalCardStyleRules } from "./queries/work-items/card-style-rules";
+import { listWorkItemsPage } from "./queries/work-items/crud";
 import { createD1Facade } from "./test/d1-facade";
 import { createMigratedSqlite } from "./test/migrated-sqlite";
 
@@ -32,7 +34,15 @@ function fixture() {
 		sqlite,
 		db: createDbClient(d1),
 		query: createDbQueryClient(d1),
-		lastPlan: () => queryPlan(sqlite, statements.at(-1)!),
+		lastPlan: (table?: string) =>
+			queryPlan(
+				sqlite,
+				table
+					? statements.findLast((statement) =>
+							statement.includes(`"${table}"`),
+						)!
+					: statements.at(-1)!,
+			),
 	};
 }
 
@@ -47,6 +57,26 @@ function queryPlan(sqlite: DatabaseSync, statement: string): string {
 }
 
 describe("hot production query plans", () => {
+	it("reads the rationale total by organization key without scanning rationale rows", async () => {
+		const { db, lastPlan } = fixture();
+		await listRationaleRecords(db, { orgId: "org-1" });
+		expect(lastPlan("rationale_org_counts")).toContain(
+			"SEARCH rationale_org_counts USING INDEX sqlite_autoindex_rationale_org_counts_1 (org_id=?)",
+		);
+	});
+
+	it("counts a project's Work through a covering project-and-disposition index", async () => {
+		const { query, lastPlan } = fixture();
+		await listWorkItemsPage(query, {
+			orgId: "org-1",
+			projectId: "project-1",
+			disposition: "accepted",
+		});
+		expect(lastPlan()).toContain(
+			"SEARCH work_items USING COVERING INDEX idx_work_items_org_project_disposition (org_id=? AND project_id=? AND disposition=?)",
+		);
+	});
+
 	it("reads pending filing lessons through the surface-and-kind index", async () => {
 		const { query, lastPlan } = fixture();
 		await pendingFilingLessons(query, {
