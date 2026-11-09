@@ -42,6 +42,7 @@ import {
 	mintWorkspaceAppSession,
 	verifyWorkspaceAppSession,
 	mintAppCallGrant,
+	verifyAppCallGrant,
 } from "@tedix/auth/workspace-app-session";
 import { describe, expect, it, vi, onTestFinished } from "vite-plus/test";
 import { userContext, apiKeyContext } from "../test-context";
@@ -340,11 +341,20 @@ describe("workspace app runtime API admission", () => {
 			};
 			expect(Object.keys(body).sort()).toEqual([
 				"args",
+				"callGrant",
 				"callId",
 				"method",
 				"session",
 			]);
 			expect(body.args).toEqual(args);
+			const grantedTo = await verifyWorkspaceAppSession(key, body.session);
+			expect(
+				await verifyAppCallGrant(
+					key,
+					(body as unknown as { callGrant: string }).callGrant,
+					grantedTo.sessionId,
+				),
+			).toMatchObject({ revisionId });
 			const signed = await verifyWorkspaceAppSession(key, body.session);
 			expect(signed.principal).toEqual({
 				kind,

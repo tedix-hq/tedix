@@ -29,7 +29,7 @@ export interface WorkspaceAppHostEnv {
 	WORKSPACE_APP_HOST: DurableObjectNamespace<WorkspaceAppHostDO>;
 }
 type VerifiedSession = Awaited<ReturnType<typeof verifyWorkspaceAppSession>>;
-type CapabilityProps = VerifiedSession & { token: string };
+type CapabilityProps = VerifiedSession & { token: string; callGrant?: string };
 interface PendingAppTrace {
 	tailId: string;
 	callId?: string;
@@ -225,6 +225,8 @@ export class WorkspaceAppHostDO extends DurableObject<WorkspaceAppHostEnv> {
 		session: string;
 		/** Required for drafts; a published revision's code is read on a cold start. */
 		files?: Record<string, string>;
+		/** The API's access check for this call, forwarded with each data read. */
+		callGrant?: string;
 		method: string;
 		args: unknown[];
 	}) {
@@ -249,6 +251,8 @@ export class WorkspaceAppHostDO extends DurableObject<WorkspaceAppHostEnv> {
 		session: string;
 		/** Required for drafts; a published revision's code is read on a cold start. */
 		files?: Record<string, string>;
+		/** The API's access check for this call, forwarded with each data read. */
+		callGrant?: string;
 		method: string;
 		args: unknown[];
 	}) {
@@ -318,7 +322,11 @@ export class WorkspaceAppHostDO extends DurableObject<WorkspaceAppHostEnv> {
 		});
 		const timing = { capabilityMs: 0 };
 		const endpoint = this.ctx.exports.WorkspaceAppCapability({
-			props: { ...session, token: input.session },
+			props: {
+				...session,
+				token: input.session,
+				...(input.callGrant ? { callGrant: input.callGrant } : {}),
+			},
 		});
 		// Times how long the app waits on Tedix, for the caller's Server-Timing.
 		const capability = new Proxy(endpoint, {
@@ -544,7 +552,13 @@ export class WorkspaceAppCapability extends WorkerEntrypoint<
 			throw new Error("App capability denied");
 		return callRpc(
 			["osAppRuntime", "capability"],
-			{ session: props.token, operation, slot, args },
+			{
+				session: props.token,
+				...(props.callGrant ? { callGrant: props.callGrant } : {}),
+				operation,
+				slot,
+				args,
+			},
 			{
 				apiUrl: "https://api",
 				fetch: serviceBindingFetch(this.env.API_SERVICE),
