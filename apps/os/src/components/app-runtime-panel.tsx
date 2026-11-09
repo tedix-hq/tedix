@@ -10,6 +10,7 @@ import { osApi, osAppRuntimeCall } from "@/lib/api";
 import { createAppRuntimeServerCall } from "@/lib/app-runtime-session";
 import { exportAppRuntimeOutput } from "@/lib/app-runtime-export";
 import { replaceAppRuntimeOutput } from "@/lib/app-runtime-output";
+import { isWorkspaceAccessDenied } from "@/lib/workspace-verification";
 import { AppRuntimeFrame } from "@/components/app-runtime-frame";
 import {
 	OfficeEditorUpgrade,
@@ -166,6 +167,7 @@ export function AppRuntimeSandbox({
 		() =>
 			(resourceRows ?? []).filter(
 				(resource) =>
+					resource.workspaceId === workspaceId &&
 					resource.status === "active" &&
 					resource.providerId === "tedix" &&
 					resource.resourceType === "output" &&
@@ -175,7 +177,7 @@ export function AppRuntimeSandbox({
 							grant.operations.includes("outputs.read"),
 					),
 			),
-		[resourceRows, context.grants],
+		[resourceRows, context.grants, workspaceId],
 	);
 	const outputReads = useQueries({
 		queries: boundOutputs.map((resource) => ({
@@ -220,13 +222,17 @@ export function AppRuntimeSandbox({
 						});
 					},
 					resources: resourceRows ?? [],
-					readOutput: async (outputId) =>
-						(
-							await queryClient.fetchQuery({
-								...outputDetailQueryOptions(outputId),
-								staleTime: 0,
-							})
-						).currentRevision.content,
+					readOutput: async (outputId) => {
+						const detail = await queryClient.fetchQuery({
+							...outputDetailQueryOptions(outputId),
+							staleTime: 0,
+						});
+						if (detail.output.workspaceId !== workspaceId)
+							throw new Error(
+								"This file moved to another workspace. Reopen it before continuing.",
+							);
+						return detail.currentRevision.content;
+					},
 				},
 				method,
 				args,
@@ -239,6 +245,7 @@ export function AppRuntimeSandbox({
 			manifest.operations,
 			revisionId,
 			appDrafts,
+			workspaceId,
 		],
 	);
 	const html = useMemo(() => buildAppRuntimeDocument(files), [files]);
@@ -249,16 +256,34 @@ export function AppRuntimeSandbox({
 	const portableDoc =
 		typeof context.settings.editor === "string" &&
 		/^document-v(?:[3-9]|\d{2,})$/.test(context.settings.editor);
-	const sourceUnavailable = outputReads.some((read) => read.isError);
+	const officeEditor =
+		portableDoc ||
+		context.settings.editor === "document-v2" ||
+		(typeof context.settings.slot === "string" &&
+			manifest.operations?.some(
+				(operation) =>
+					["readDocument", "readSheet", "readPresentation"].includes(
+						operation.name,
+					) && operation.outputSlot === context.settings.slot,
+			));
+	const movedSource = outputReads.some(
+		(read) => read.isSuccess && read.data.output.workspaceId !== workspaceId,
+	);
+	const sourceUnavailable =
+		movedSource || outputReads.some((read) => read.isError);
+	const sourceDenied =
+		movedSource ||
+		outputReads.some(
+			(read) => read.isError && isWorkspaceAccessDenied(read.error),
+		);
 	useEffect(() => {
 		if (
-			role === "viewer" ||
+			(role === "viewer" &&
+				(!opened.isError || isWorkspaceAccessDenied(opened.error))) ||
 			role === "use" ||
-			sourceUnavailable ||
-			resources.isError ||
-			((context.settings.editor === "document-v2" || portableDoc) &&
-				!resources.isPending &&
-				!docResourceAvailable)
+			sourceDenied ||
+			(resources.isError && isWorkspaceAccessDenied(resources.error)) ||
+			(officeEditor && resources.isSuccess && !docResourceAvailable)
 		) {
 			for (const key of drafts?.keys() ?? [])
 				if (key.startsWith(gadget.id + ":")) drafts?.delete(key);
@@ -269,14 +294,16 @@ export function AppRuntimeSandbox({
 	}, [
 		role,
 		resources.isError,
-		resources.isPending,
-		context.settings.editor,
-		portableDoc,
+		resources.isSuccess,
+		resources.error,
+		opened.isError,
+		opened.error,
+		officeEditor,
 		docResourceAvailable,
 		drafts,
 		appDrafts,
 		workspaceId,
-		sourceUnavailable,
+		sourceDenied,
 		gadget.id,
 	]);
 	if (resources.isPending || role === null)
@@ -329,7 +356,7 @@ export function AppRuntimeSandbox({
 		(row) => row.slot === context.settings.slot,
 	);
 	if (
-		portableDoc &&
+		officeEditor &&
 		(resources.isError ||
 			role === "viewer" ||
 			!legacyResource ||
@@ -337,9 +364,10 @@ export function AppRuntimeSandbox({
 	)
 		return (
 			<Alert variant="warning">
-				<AlertTitle>Document unavailable</AlertTitle>
+				<AlertTitle>File unavailable</AlertTitle>
 				<AlertDescription>
-					Document source access or its slot is unavailable.
+					File source access or its slot is unavailable. Retry after restoring
+					access.
 				</AlertDescription>
 			</Alert>
 		);
@@ -388,7 +416,7 @@ export function AppRuntimeSandbox({
 				)}
 			<AppRuntimeFrame
 				key={
-					portableDoc
+					officeEditor
 						? `${workspaceId}:${gadget.id}:${revisionId ?? revision}:${role}`
 						: undefined
 				}

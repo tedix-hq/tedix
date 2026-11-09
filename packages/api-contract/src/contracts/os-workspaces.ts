@@ -1602,6 +1602,13 @@ export const osWorkspacesContract = oc
 				.input(
 					outputIdInput.extend({
 						format: OsOutputExportFormatSchema,
+						expectedWorkspaceId: z
+							.string()
+							.uuid()
+							.optional()
+							.describe(
+								"Export only while the file remains in this workspace; a moved file fails with CONFLICT.",
+							),
 						expectedRevision: z
 							.number()
 							.int()

@@ -130,6 +130,7 @@ describe("app runtime host", () => {
 			await handleAppRuntimeCall(host, "app.exportOutput", args),
 		).toMatchObject({ ok: true, value: { revision: 3 } });
 		expect(exportOutput).toHaveBeenCalledWith({
+			workspaceId: host.context.workspaceId,
 			outputId,
 			format: "pptx",
 			expectedRevision: 3,
