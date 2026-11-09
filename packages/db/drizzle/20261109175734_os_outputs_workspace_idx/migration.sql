@@ -1,0 +1,1 @@
+CREATE INDEX `os_outputs_workspace_idx` ON `os_outputs` (`organization_id`,`workspace_id`,`updated_at`);

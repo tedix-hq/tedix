@@ -821,7 +821,9 @@ export function createOsAppRuntimeRouter() {
 		},
 	);
 	const call = read.call.handler(async ({ context, input }) => {
+		const started = Date.now();
 		const { scope, session, code } = await openedSession(context, input);
+		context.serverTiming?.push(`resolve;dur=${Date.now() - started}`);
 		const run = session.previewId
 			? runAppRuntimeCall
 			: (await import("../../services/os-app-triggers")).runInteractiveAppCall;
@@ -839,6 +841,7 @@ export function createOsAppRuntimeRouter() {
 				method: input.method,
 				args: input.args,
 				createdBy: scope.principal,
+				timing: context.serverTiming,
 			},
 			context.waitUntil,
 		);

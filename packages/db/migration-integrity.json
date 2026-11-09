@@ -1408,6 +1408,10 @@
 		{
 			"name": "20261109163733_editor_template_plain_names/migration.sql",
 			"sha256": "23edc393d2c4be38c309e33fe3bcbd82b39f2252b70b89d4d5b59fda66514c89"
+		},
+		{
+			"name": "20261109175734_os_outputs_workspace_idx/migration.sql",
+			"sha256": "76972f28a968705d711b52035f0b1d81cca21b39c164b38653376bf3bbbbd48a"
 		}
 	]
 }

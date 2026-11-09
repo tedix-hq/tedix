@@ -202,7 +202,11 @@ export class WorkspaceAppHostDO extends DurableObject<WorkspaceAppHostEnv> {
 			return cut !== undefined && issuedAt <= cut;
 		});
 	}
-	async call(input: {
+	async call(input: Parameters<WorkspaceAppHostDO["callTimed"]>[0]) {
+		return (await this.callTimed(input)).value;
+	}
+	/** `call` plus how long the app waited on Tedix capabilities. */
+	async callTimed(input: {
 		callId?: string;
 		session: string;
 		files: Record<string, string>;
@@ -296,8 +300,29 @@ export class WorkspaceAppHostDO extends DurableObject<WorkspaceAppHostEnv> {
 			);
 			return { class: worker.getDurableObjectClass("AppInvocation") };
 		});
-		const capability = this.ctx.exports.WorkspaceAppCapability({
+		const timing = { capabilityMs: 0 };
+		const endpoint = this.ctx.exports.WorkspaceAppCapability({
 			props: { ...session, token: input.session },
+		});
+		// Times how long the app waits on Tedix, for the caller's Server-Timing.
+		const capability = new Proxy(endpoint, {
+			get: (target, key) => {
+				if (typeof key !== "string" || !CAPABILITY_METHODS.has(key))
+					return Reflect.get(target, key);
+				return async (...args: unknown[]) => {
+					const started = Date.now();
+					try {
+						return await (
+							target as unknown as Record<
+								string,
+								(...args: unknown[]) => Promise<unknown>
+							>
+						)[key]!(...args);
+					} finally {
+						timing.capabilityMs += Date.now() - started;
+					}
+				};
+			},
 		});
 		const invocation =
 			session.role === "use"
@@ -328,7 +353,7 @@ export class WorkspaceAppHostDO extends DurableObject<WorkspaceAppHostEnv> {
 		}
 		try {
 			if (this.#cutOff(session)) throw new Error("App access changed");
-			return await (
+			const value = await (
 				facet as unknown as {
 					invoke(
 						method: string,
@@ -368,11 +393,22 @@ export class WorkspaceAppHostDO extends DurableObject<WorkspaceAppHostEnv> {
 						})
 					: undefined,
 			);
+			return { value, capabilityMs: timing.capabilityMs };
 		} finally {
 			invocation.close();
 		}
 	}
 }
+
+const CAPABILITY_METHODS = new Set([
+	"outputsRead",
+	"skillsRead",
+	"workRead",
+	"outputsPatch",
+	"outputsWrite",
+	"skillsRun",
+	"connectionsCall",
+]);
 
 class AppConsole extends RpcTarget {
 	#write: (

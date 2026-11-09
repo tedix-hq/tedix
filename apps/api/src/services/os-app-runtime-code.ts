@@ -97,9 +97,17 @@ export async function runAppRuntimeCall(
 		policy?: Record<string, JsonValue>;
 		/** A caller-chosen receipt id; a trigger derives it from the event so a repeat is recognised. */
 		executionId?: string;
+		/** Receives `Server-Timing` entries for each hop of this call. */
+		timing?: string[];
 	},
 ): Promise<JsonValue> {
 	const executionId = input.executionId ?? crypto.randomUUID();
+	let mark = Date.now();
+	const lap = (name: string) => {
+		const now = Date.now();
+		input.timing?.push(`${name};dur=${now - mark}`);
+		mark = now;
+	};
 	const receiptScope = { organizationId: input.organizationId, executionId };
 	await createOsGadgetExecution(db, {
 		id: executionId,
@@ -122,6 +130,7 @@ export async function runAppRuntimeCall(
 		createdById: input.createdBy.id,
 		runtimeEnvironment: env.ENVIRONMENT,
 	});
+	lap("receipt");
 	let result: JsonValue;
 	try {
 		const response = await serviceBindingFetch(env.TEDI_SERVICE)(
@@ -144,6 +153,9 @@ export async function runAppRuntimeCall(
 		if (!response.ok)
 			throw createError(ErrorCodes.BAD_GATEWAY, "Workspace app call failed");
 		result = JsonValueSchema.parse(await response.json());
+		lap("runtime");
+		const runtimeTiming = response.headers.get("Server-Timing");
+		if (runtimeTiming) input.timing?.push(runtimeTiming);
 	} catch (error) {
 		await settleOsAppCallExecution(db, {
 			...receiptScope,
@@ -157,6 +169,7 @@ export async function runAppRuntimeCall(
 		status: "completed",
 		output: JSON.stringify(result),
 	});
+	lap("settle");
 	return result;
 }
 

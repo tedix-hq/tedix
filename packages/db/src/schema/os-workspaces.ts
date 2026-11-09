@@ -555,6 +555,13 @@ export const osOutputs = sqliteTable(
 	},
 	(table) => [
 		index("os_outputs_org_idx").on(table.organizationId, table.updatedAt),
+		// Workspace file lists filter by workspace and sort by recency; without
+		// this they walk every Output in the organization.
+		index("os_outputs_workspace_idx").on(
+			table.organizationId,
+			table.workspaceId,
+			table.updatedAt,
+		),
 	],
 );
 
