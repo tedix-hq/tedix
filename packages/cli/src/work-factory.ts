@@ -218,6 +218,11 @@ export const STRUCTURED_FACTORY_VERBS: Record<string, StructuredFactoryVerb> = {
 		write: true,
 		pathField: "id",
 	},
+	"attempt-grant": {
+		tool: "grant_work_lane_attempt",
+		write: true,
+		pathField: "id",
+	},
 	"resource-list": {
 		tool: "list_work_resource_pools",
 		write: false,

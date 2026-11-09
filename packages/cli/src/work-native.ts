@@ -178,6 +178,7 @@ export const WORK_NATIVE_ENDPOINTS: Record<string, string> = {
 	get_work_item_checkpoint: "workItems/getCheckpointProjection",
 	get_work_item_readiness: "workItems/getReadiness",
 	get_work_items_by_id: "workItems/getById",
+	grant_work_lane_attempt: "workItems/grantLaneAttempt",
 	heartbeat_work_item_attempt: "workItems/heartbeatAttempt",
 	list_project_health_judgments: "projects/listHealthJudgments",
 	list_project_milestones: "projects/listMilestones",

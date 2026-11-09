@@ -52,6 +52,7 @@
 		"workItems/getCase",
 		"workItems/getCheckpointProjection",
 		"workItems/getReadiness",
+		"workItems/grantLaneAttempt",
 		"workItems/heartbeatAttempt",
 		"workItems/list",
 		"workItems/listAttemptCliProjection",

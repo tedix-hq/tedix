@@ -1,3 +1,4 @@
+import { grantLaneAttempt } from "@tedix/db/queries/work-items/lane-attempt-grants";
 import {
 	normalizeNativeStewardCloseoutInput,
 	assertNativeStewardCloseout,
@@ -773,6 +774,42 @@ export const replaceAdmissionSpecificationProcedure =
 			}
 		},
 	);
+
+export const grantLaneAttemptProcedure = factoryOs.grantLaneAttempt.handler(
+	async ({ input, context }) => {
+		const workItem = await assertWorkItemAccess(context, input.id);
+		// Restoring budget is a person's decision: an agent session, including
+		// an owner-host session, never grants its own Attempts.
+		if (
+			context.externalAgentPrincipalId ||
+			context.externalAgentSessionId ||
+			context.externalAgentClientRecordId ||
+			context.ownerHostSessionId
+		)
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Granting a lane Attempt requires the owner, not an agent session",
+			);
+		const userId = await requireOwnerAdminWorkItemAuthor(
+			context,
+			workItem.orgId,
+			"Granting a lane Attempt",
+		);
+		try {
+			return await grantLaneAttempt(context.db, {
+				id: crypto.randomUUID(),
+				orgId: workItem.orgId,
+				workItemId: workItem.id,
+				attemptId: input.attemptId,
+				userId,
+				reason: input.reason,
+				now: new Date().toISOString(),
+			});
+		} catch (error) {
+			rethrowAttemptWriteError(error);
+		}
+	},
+);
 
 export const getAdmissionSpecificationProcedure =
 	factoryOs.getAdmissionSpecification.handler(async ({ input, context }) => {

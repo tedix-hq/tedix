@@ -34,6 +34,7 @@ const mocks = vi.hoisted(() => ({
 	replace: vi.fn(),
 	readiness: vi.fn(),
 	preview: vi.fn(),
+	grant: vi.fn(),
 }));
 
 vi.mock("./policy-helpers", async (importOriginal) => ({
@@ -58,6 +59,9 @@ vi.mock("@tedix/db/queries/work-items/admissions", async (importOriginal) => ({
 	>()),
 	replaceWorkAdmissionSpecification: mocks.replace,
 }));
+vi.mock("@tedix/db/queries/work-items/lane-attempt-grants", () => ({
+	grantLaneAttempt: mocks.grant,
+}));
 vi.mock("@tedix/db/queries/work-items/readiness", () => ({
 	deriveWorkItemReadiness: mocks.readiness,
 }));
@@ -67,6 +71,7 @@ vi.mock("./attempt-admission", () => ({
 }));
 
 import {
+	grantLaneAttemptProcedure,
 	replaceAdmissionSpecificationProcedure,
 	startAttemptProcedure,
 	getReadinessProcedure,
@@ -315,5 +320,52 @@ describe("replaceAdmissionSpecification rejections", () => {
 			),
 		);
 		expect(await caught(replace)).toMatchObject({ code: "CONFLICT" });
+	});
+});
+
+describe("grantLaneAttempt", () => {
+	const attemptId = "22222222-2222-4222-8222-222222222222";
+	function grant(context: Partial<BaseContext>) {
+		return grantLaneAttemptProcedure["~orpc"].handler!({
+			input: { id: workItem.id, attemptId, reason: "Wasted rerun" },
+			context: { db: {}, userId: "user-1", ...context } as BaseContext,
+			path: ["workItems", "grantLaneAttempt"],
+			procedure: grantLaneAttemptProcedure,
+			signal: undefined,
+			lastEventId: undefined,
+		});
+	}
+
+	it.each([
+		{ externalAgentSessionId: "agent-session" },
+		{ ownerHostSessionId: "owner-host-session" },
+	])(
+		"refuses an agent session before recording anything (%o)",
+		async (context) => {
+			const error = await caught(() => grant(context));
+			expect(error).toBeInstanceOf(ORPCError);
+			expect((error as ORPCError<string, unknown>).code).toBe("FORBIDDEN");
+			expect(mocks.grant).not.toHaveBeenCalled();
+		},
+	);
+
+	it("records the owner as the grantor of the named Attempt", async () => {
+		mocks.grant.mockResolvedValue({ id: "grant-1" });
+		await grant({});
+		expect(mocks.ownerAdmin).toHaveBeenCalledWith(
+			expect.anything(),
+			workItem.orgId,
+			"Granting a lane Attempt",
+		);
+		expect(mocks.grant).toHaveBeenCalledWith(
+			{},
+			expect.objectContaining({
+				orgId: workItem.orgId,
+				workItemId: workItem.id,
+				attemptId,
+				userId: "user-1",
+				reason: "Wasted rerun",
+			}),
+		);
 	});
 });

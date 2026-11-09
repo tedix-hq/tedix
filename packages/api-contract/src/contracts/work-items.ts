@@ -1,5 +1,9 @@
 import { CARD_SECRET_MESSAGE, containsCardSecret } from "../utils/card-secrets";
 import {
+	LaneAttemptGrantInputSchema,
+	LaneAttemptGrantSchema,
+} from "../schemas/lane-execution";
+import {
 	GetWorkItemResultSchema,
 	ListWorkItemAttemptsResultSchema,
 	GetWorkItemInputSchema,
@@ -804,6 +808,17 @@ export const workItemsContract = oc
 					.strict(),
 			)
 			.output(WorkAdmissionSpecificationReceiptSchema),
+
+		grantLaneAttempt: oc
+			.route({
+				method: "POST",
+				path: "/{id}/lane-attempt-grants",
+				summary: "Grant one extra lane Attempt",
+				description:
+					"An organization owner or admin restores one lane Attempt on open Work by naming a failed or expired Attempt it replaces. The grant is recorded with who approved it and why; each Attempt can be replaced once. Agents cannot grant Attempts.",
+			})
+			.input(LaneAttemptGrantInputSchema)
+			.output(LaneAttemptGrantSchema),
 
 		getAdmissionSpecification: oc
 			.route({

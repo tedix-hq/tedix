@@ -13,6 +13,7 @@ import {
 	sweepElapsedWorkAttempts,
 } from "./attempts";
 import type { LaneExecutionPolicy } from "@tedix/api-contract/schemas/lane-execution";
+import { grantLaneAttempt } from "./lane-attempt-grants";
 
 const now = "2026-08-20T01:00:00.000Z";
 // Build the full migrated template before timing admission, then clone it per test.
@@ -91,8 +92,8 @@ function fixture() {
 			now,
 		});
 	}
-	async function start(id: string) {
-		const admission = await admit(id);
+	async function start(id: string, suffix = "") {
+		const admission = await admit(id, suffix);
 		return startWorkItemAttempt(db, {
 			orgId: "org",
 			workItemId: id,
@@ -443,6 +444,57 @@ describe("shared lane admission on migrated D1", () => {
 			).toEqual({ state: "consumed", consumed_micros: 4 });
 		},
 	);
+
+	it("restores exactly one Attempt per owner grant and ignores cancelled runs", async () => {
+		const f = fixture();
+		f.seed("one", "maker", { maxAttempts: 1 });
+		const settle = async (attemptId: string, outcome: "failed" | "cancelled") =>
+			settleWorkItemAttempt(f.db, {
+				orgId: "org",
+				workItemId: "one",
+				attemptId,
+				executor: { type: "tedi", id: "tedi" },
+				outcome,
+				settledAt: "2026-08-20T01:00:10.000Z",
+			});
+		const grant = (attemptId: string, id: string) =>
+			grantLaneAttempt(f.db, {
+				id,
+				orgId: "org",
+				workItemId: "one",
+				attemptId,
+				userId: "owner",
+				reason: "The dispatcher wasted this Attempt",
+				now,
+			});
+		// A cancelled run (deferred or waiting) did not execute the brief.
+		const deferred = await f.start("one");
+		await settle(deferred.attempt.id, "cancelled");
+		await expect(grant(deferred.attempt.id, "grant-cancelled")).rejects.toThrow(
+			/failed or expired/,
+		);
+		const failed = (await f.start("one", "-second")).attempt.id;
+		await settle(failed, "failed");
+		expect((await f.admit("one", "-exhausted")).rejectionReason).toBe(
+			"Lane retry budget exhausted",
+		);
+		const recorded = await grant(failed, "grant-1");
+		expect(recorded).toMatchObject({ attemptId: failed, workItemId: "one" });
+		expect(
+			f.sqlite
+				.prepare(
+					"SELECT actor_type, actor_id, json_extract(payload,'$.reason') AS reason FROM work_events WHERE id='grant-1'",
+				)
+				.get(),
+		).toEqual({
+			actor_type: "user",
+			actor_id: "owner",
+			reason: "The dispatcher wasted this Attempt",
+		});
+		// The same Attempt cannot be replaced twice.
+		await expect(grant(failed, "grant-2")).rejects.toThrow(/only once/);
+		expect((await f.admit("one", "-granted")).decision).toBe("admitted");
+	});
 
 	it("expiry releases the original reservation exactly once", async () => {
 		const f = fixture();

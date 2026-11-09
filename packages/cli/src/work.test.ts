@@ -80,6 +80,7 @@ const TEST_ENDPOINTS: Record<string, string> = {
 	get_work_item_checkpoint: "workItems/getCheckpointProjection",
 	get_work_item_readiness: "workItems/getReadiness",
 	get_work_items_by_id: "workItems/getById",
+	grant_work_lane_attempt: "workItems/grantLaneAttempt",
 	heartbeat_work_item_attempt: "workItems/heartbeatAttempt",
 	list_project_health_judgments: "projects/listHealthJudgments",
 	list_project_milestones: "projects/listMilestones",
@@ -3777,6 +3778,7 @@ describe("native dispatcher coverage", () => {
 			"interaction-draft-delivered",
 			"admission-get",
 			"admission-replace",
+			"attempt-grant",
 		]);
 		const covered: string[] = [];
 		for (const verb of workVerbNames()) {
@@ -3915,7 +3917,7 @@ describe("native dispatcher coverage", () => {
 			await fixture.client.close();
 		}
 		expect(covered).toEqual(workVerbNames());
-		expect(covered).toHaveLength(73);
+		expect(covered).toHaveLength(74);
 	});
 });
 

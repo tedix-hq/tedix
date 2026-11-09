@@ -347,6 +347,7 @@ const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
 	list_work_budget_envelopes: "mcp:settings",
 	get_work_admission_specification: "mcp:work",
 	replace_work_admission_specification: "mcp:work",
+	grant_work_lane_attempt: "mcp:work",
 	// Tenant self-service connection management — org-scoped credential/provider
 	// operations a human tenant admin should run without platform-wide authority.
 	// These operations require the corresponding exact tenant-settings tier.
@@ -687,6 +688,7 @@ const ACCESS_LEVEL_OVERRIDES: Record<string, ToolAccessLevel> = {
 	record_agent_session_events: "write",
 	get_work_admission_specification: "read",
 	replace_work_admission_specification: "admin",
+	grant_work_lane_attempt: "admin",
 	run_tedi_turn: "write",
 	put_work_resource_pool: "admin",
 	put_work_budget_envelope: "admin",
