@@ -101,8 +101,8 @@ export async function mountSlidesClient(
 		available = false,
 		destroyed = false,
 		discardPending = false,
-		pendingRevision = 0,
-		draftTimer: ReturnType<typeof setTimeout> | undefined;
+		pendingRevision = 0;
+	let draftWrites: Promise<void> = Promise.resolve();
 	let history: OsPresentationDeck[] = [],
 		future: OsPresentationDeck[] = [];
 	let pointer:
@@ -173,28 +173,41 @@ export async function mountSlidesClient(
 			>("input,select,textarea")
 			.forEach((input) => (input.disabled = !write));
 	}
-	async function retainDraft() {
-		if (!dirty || !deck || !loaded || !editable || destroyed) return;
-		try {
-			await bridge.call("app.draft.write", {
+	function retainDraft() {
+		if (!dirty || !deck || !loaded || !editable || destroyed)
+			return Promise.resolve();
+		// Post immediately: an iframe can disappear before a debounce or cleanup runs.
+		const write = bridge
+			.call("app.draft.write", {
 				...draftArgs(),
 				revision: basis,
-				content: projectDeck(deck),
-			});
-		} catch (error) {
-			message(
-				`Unsaved changes remain in this tab. Draft recovery failed: ${error instanceof Error ? error.message : String(error)}`,
-				true,
+				content: structuredClone(projectDeck(deck)),
+			})
+			.then(
+				() => undefined,
+				(error) => {
+					if (!destroyed)
+						message(
+							`Unsaved changes remain in this tab. Draft recovery failed: ${error instanceof Error ? error.message : String(error)}`,
+							true,
+						);
+				},
 			);
-		}
+		// The host applies messages synchronously in order; clear waits for every receipt.
+		draftWrites = Promise.all([draftWrites, write]).then(() => undefined);
+		return write;
 	}
+	async function clearDraft() {
+		await draftWrites;
+		await bridge.call("app.draft.clear", draftArgs());
+	}
+
 	function changed() {
 		dirty = true;
 		discardPending = false;
 		button("reload").textContent = "Reload saved presentation";
 		message(`Unsaved changes · based on revision ${basis}`);
-		clearTimeout(draftTimer);
-		draftTimer = setTimeout(() => void retainDraft(), 250);
+		void retainDraft();
 		controls();
 	}
 	function remember() {
@@ -831,7 +844,7 @@ export async function mountSlidesClient(
 			loaded = value;
 			let retained: RetainedDraft | null = null;
 			if (editable) {
-				if (discard) await bridge.call("app.draft.clear", draftArgs());
+				if (discard) await clearDraft();
 				else
 					retained = await bridge.call<RetainedDraft | null>(
 						"app.draft.read",
@@ -868,6 +881,14 @@ export async function mountSlidesClient(
 			render();
 		} catch (error) {
 			available = false;
+			if (
+				loaded &&
+				editable &&
+				/denied|forbidden|not_permitted/i.test(
+					error instanceof Error ? error.message : String(error),
+				)
+			)
+				await clearDraft().catch(() => undefined);
 			stage.replaceChildren();
 			nav.replaceChildren();
 			properties.replaceChildren();
@@ -889,7 +910,6 @@ export async function mountSlidesClient(
 		busy = true;
 		controls();
 		message("Saving presentation…");
-		clearTimeout(draftTimer);
 		try {
 			const result = parse(
 				await bridge.call<Saved>("outputs.replace", {
@@ -905,7 +925,7 @@ export async function mountSlidesClient(
 				normalizePresentationContent(result.revision.content).deck!,
 			);
 			dirty = false;
-			await bridge.call("app.draft.clear", draftArgs());
+			await clearDraft();
 			message(`Saved · revision ${basis}`);
 			find(".slides-meta").textContent =
 				`Presentation revision ${basis} · Slides canvas`;
@@ -1214,9 +1234,7 @@ export async function mountSlidesClient(
 	return {
 		save,
 		destroy() {
-			void retainDraft();
 			destroyed = true;
-			clearTimeout(draftTimer);
 			window.removeEventListener("message", onMessage);
 			root.removeEventListener("keydown", onKeyDown);
 			root.removeEventListener("paste", onPaste);
