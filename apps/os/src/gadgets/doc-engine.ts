@@ -37,6 +37,13 @@ export function createDocEngine(options: {
 	return new Editor({
 		...options,
 		content: { type: "doc", content: [{ type: "paragraph" }] },
+		editorProps: {
+			attributes: {
+				role: "textbox",
+				"aria-label": "Document writing area",
+				"aria-multiline": "true",
+			},
+		},
 		extensions: [
 			StarterKit.configure({ link: { openOnClick: false, autolink: true } }),
 			TableKit.configure({ table: { resizable: true } }),

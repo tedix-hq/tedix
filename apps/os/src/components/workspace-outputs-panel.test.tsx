@@ -233,6 +233,14 @@ function renderPanel(
 }
 
 describe("WorkspaceOutputsPanel", () => {
+	it("offers the template catalog directly in the workspace Files header", () => {
+		const panel = renderPanel({ workspaceId: "workspace" });
+		expect(
+			panel
+				.querySelector('a[aria-label="Browse workspace templates"]')
+				?.getAttribute("href"),
+		).toBe("/blueprints?view=explore");
+	});
 	it.each([
 		["Doc", "document"],
 		["Sheet", "sheet"],

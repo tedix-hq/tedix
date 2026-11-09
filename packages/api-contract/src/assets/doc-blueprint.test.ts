@@ -8,9 +8,9 @@ import {
 	buildDocBlueprint,
 	DOC_CLIENT_SOURCE,
 	DOC_CLIENT_SHA256,
-	DOC_BLUEPRINT_VERSION,
 	DOC_SERVER_SOURCE,
 } from "./doc-blueprint";
+import { DOC_BLUEPRINT_VERSION } from "./office-editor-versions";
 
 type Document = {
 	kind: "document";
@@ -69,9 +69,9 @@ function runtime(content: Document = { kind: "document", blocks: [] }) {
 }
 
 describe("Doc blueprint", () => {
-	it("pins a self-contained version-3 client with a checked digest and complete code under the runtime limit", () => {
+	it("pins a self-contained version-4 client with a checked digest and complete code under the runtime limit", () => {
 		const files = buildDocBlueprint().gadgets[0]!.files!;
-		expect(DOC_BLUEPRINT_VERSION).toBe(3);
+		expect(DOC_BLUEPRINT_VERSION).toBe(4);
 		expect(createHash("sha256").update(DOC_CLIENT_SOURCE).digest("hex")).toBe(
 			DOC_CLIENT_SHA256,
 		);
@@ -97,7 +97,11 @@ describe("Doc blueprint", () => {
 		const gadget = definition.gadgets[0]!;
 		expect(gadget.manifest.config).toEqual({
 			version: 1,
-			settings: { slot: "project_doc", editor: "document-v3" },
+			settings: {
+				slot: "project_doc",
+				editor: "document-v4",
+				blueprintVersion: 4,
+			},
 		});
 		expect(gadget.manifest.resourceGrants).toEqual([
 			{

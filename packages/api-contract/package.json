@@ -11,6 +11,7 @@
 		"./assets/slides-blueprint": "./src/assets/slides-blueprint.ts",
 		"./utils/presentation-patch": "./src/utils/presentation-patch.ts",
 		"./assets/doc-blueprint": "./src/assets/doc-blueprint.ts",
+		"./assets/office-editor-versions": "./src/assets/office-editor-versions.ts",
 		"./utils/document-patch": "./src/utils/document-patch.ts",
 		"./utils/lane-runner-asker": "./src/utils/lane-runner-asker.ts",
 		"./utils/output-schema-inference": "./src/utils/output-schema-inference.ts",

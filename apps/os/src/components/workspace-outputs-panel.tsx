@@ -19,6 +19,7 @@ import type {
 } from "@tedix/api-contract/schemas/os-workspaces";
 import type { ReactElement } from "react";
 import { Button } from "@/components/kumo/button";
+import { Link } from "@/components/kumo/link";
 import { Skeleton } from "@/components/kumo/skeleton";
 import {
 	Tooltip,
@@ -404,7 +405,15 @@ export function WorkspaceOutputsPanel({
 					) : null}
 				</h2>
 				{expanded && workspaceId && (
-					<div className="ml-auto">
+					<div className="ml-auto flex items-center gap-1">
+						<Link
+							href="/blueprints?view=explore"
+							aria-label="Browse workspace templates"
+							title="Browse templates"
+							className="inline-flex rounded p-1 text-kumo-subtle hover:text-kumo-default"
+						>
+							<Books size={16} />
+						</Link>
 						<NewResourceMenu
 							workspaceId={workspaceId}
 							onCreated={(output) =>

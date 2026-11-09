@@ -1874,12 +1874,17 @@ function MyBlueprints({
 	);
 }
 
-export function BlueprintsPage({ install }: { install?: string } = {}) {
+export function BlueprintsPage({
+	install,
+	initialView,
+}: { install?: string; initialView?: "explore" } = {}) {
 	const surface = getOsSurface("blueprints");
 	// A shared landing page's "Use this blueprint" arrives with ?install=<id>:
 	// open Explore on that one template so its install form is the next step.
 	const [focusId, setFocusId] = useState<string | null>(install ?? null);
-	const [tab, setTab] = useState<BlueprintsTab>(install ? "explore" : "mine");
+	const [tab, setTab] = useState<BlueprintsTab>(
+		install || initialView === "explore" ? "explore" : "mine",
+	);
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [showCreate, setShowCreate] = useState(false);
 	const [showImport, setShowImport] = useState(false);

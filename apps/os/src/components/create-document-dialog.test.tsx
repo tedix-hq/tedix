@@ -397,13 +397,13 @@ describe("document creation", () => {
 			"Doc",
 			"Sheet",
 			"Slides",
-			"App from template",
+			"Browse templates",
 			"Native document",
 			"Native sheet",
 			"Native slides",
 		]);
 		expect(
 			document.querySelector('a[role="menuitem"]')?.getAttribute("href"),
-		).toBe("/blueprints");
+		).toBe("/blueprints?view=explore");
 	});
 });

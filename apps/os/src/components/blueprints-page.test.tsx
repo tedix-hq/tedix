@@ -250,7 +250,9 @@ function portableExportFixture(): OsBlueprintExport {
 
 const cleanups: Array<() => void> = [];
 
-function renderPage(): HTMLElement {
+function renderPage(
+	props: Parameters<typeof BlueprintsPage>[0] = {},
+): HTMLElement {
 	const client = new QueryClient({
 		defaultOptions: {
 			queries: { retry: false },
@@ -263,7 +265,7 @@ function renderPage(): HTMLElement {
 	act(() => {
 		root.render(
 			<QueryClientProvider client={client}>
-				<BlueprintsPage />
+				<BlueprintsPage {...props} />
 			</QueryClientProvider>,
 		);
 	});
@@ -1404,6 +1406,17 @@ describe("explore tab", () => {
 		);
 	});
 
+	it("opens the catalog directly from a workspace template link", async () => {
+		blueprintsApi.list.mockResolvedValue({ items: [], truncated: false });
+		blueprintsApi.gallery.mockResolvedValue({ items: [galleryItemFixture()] });
+		const container = renderPage({ initialView: "explore" });
+		await flush();
+		expect(blueprintsApi.gallery).toHaveBeenCalled();
+		expect(container.textContent).toContain("Sales Pod");
+		expect(
+			container.querySelector('input[aria-label="Search template gallery"]'),
+		).not.toBeNull();
+	});
 	it("shows the empty gallery state", async () => {
 		blueprintsApi.list.mockResolvedValue({ items: [], truncated: false });
 		blueprintsApi.gallery.mockResolvedValue({ items: [] });
