@@ -58,8 +58,16 @@ import {
 	type MemoryOwnerScope,
 } from "@tedix/api-contract/schemas/memory-graph";
 import {
+	tenantKernelConversations,
+	tenantKernelRuntimeEvents,
+	tenantKernelRuntimeRuns,
+	tenantKernelToolResults,
+	tenantTediArtifacts,
+} from "./chat-schema";
+import {
 	tenantOsOutputRevisions,
 	tenantOsOutputs,
+	tenantOsWorkspaceResources,
 	tenantOsWorkspaces,
 } from "./outputs-schema";
 import type { TenantScope } from "../tenant-scope";
@@ -111,6 +119,12 @@ export const tenantStoreDefinition: TenantStoreDefinition = {
 		os_workspaces: tenantOsWorkspaces,
 		os_outputs: tenantOsOutputs,
 		os_output_revisions: tenantOsOutputRevisions,
+		os_workspace_resources: tenantOsWorkspaceResources,
+		kernel_conversations: tenantKernelConversations,
+		kernel_runtime_runs: tenantKernelRuntimeRuns,
+		kernel_runtime_events: tenantKernelRuntimeEvents,
+		kernel_tool_results: tenantKernelToolResults,
+		tedi_artifacts: tenantTediArtifacts,
 		memory_domains: memoryDomains,
 		tedi_expertise: tediExpertise,
 		tedi_curiosity_queue: tediCuriosityQueue,
