@@ -1,0 +1,6224 @@
+{
+	"version": "7",
+	"dialect": "sqlite",
+	"id": "418721db-13c0-4475-b3e7-854bb8250ad5",
+	"prevIds": ["0a01c9a0-e585-42af-8fa0-6b2d3d13b460"],
+	"ddl": [
+		{
+			"name": "memory_store_identity",
+			"entityType": "tables"
+		},
+		{
+			"name": "tenant_store_identity",
+			"entityType": "tables"
+		},
+		{
+			"name": "tenant_store_import_batches",
+			"entityType": "tables"
+		},
+		{
+			"name": "memory_entities",
+			"entityType": "tables"
+		},
+		{
+			"name": "memory_entity_aliases",
+			"entityType": "tables"
+		},
+		{
+			"name": "memory_entity_mentions",
+			"entityType": "tables"
+		},
+		{
+			"name": "memory_entity_resolution_decisions",
+			"entityType": "tables"
+		},
+		{
+			"name": "memory_entity_resolution_heads",
+			"entityType": "tables"
+		},
+		{
+			"name": "memory_entity_resolutions",
+			"entityType": "tables"
+		},
+		{
+			"name": "memory_fact_citation_backfills",
+			"entityType": "tables"
+		},
+		{
+			"name": "memory_fact_citations",
+			"entityType": "tables"
+		},
+		{
+			"name": "memory_domains",
+			"entityType": "tables"
+		},
+		{
+			"name": "memory_edges",
+			"entityType": "tables"
+		},
+		{
+			"name": "memory_facts",
+			"entityType": "tables"
+		},
+		{
+			"name": "tedi_curiosity_queue",
+			"entityType": "tables"
+		},
+		{
+			"name": "tedi_expertise",
+			"entityType": "tables"
+		},
+		{
+			"name": "tedi_optimization_signals",
+			"entityType": "tables"
+		},
+		{
+			"name": "graph_projection_outbox",
+			"entityType": "tables"
+		},
+		{
+			"name": "os_output_revisions",
+			"entityType": "tables"
+		},
+		{
+			"name": "os_outputs",
+			"entityType": "tables"
+		},
+		{
+			"name": "os_workspace_resources",
+			"entityType": "tables"
+		},
+		{
+			"name": "os_workspaces",
+			"entityType": "tables"
+		},
+		{
+			"name": "kernel_conversations",
+			"entityType": "tables"
+		},
+		{
+			"name": "kernel_runtime_events",
+			"entityType": "tables"
+		},
+		{
+			"name": "kernel_runtime_runs",
+			"entityType": "tables"
+		},
+		{
+			"name": "kernel_tool_results",
+			"entityType": "tables"
+		},
+		{
+			"name": "tedi_artifacts",
+			"entityType": "tables"
+		},
+		{
+			"table": "memory_store_identity",
+			"name": "slot",
+			"type": "integer",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_store_identity",
+			"name": "organization_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_store_identity",
+			"name": "kind",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_store_identity",
+			"name": "owner_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_store_identity",
+			"name": "created_at",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tenant_store_identity",
+			"name": "slot",
+			"type": "integer",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tenant_store_identity",
+			"name": "organization_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tenant_store_identity",
+			"name": "workspace_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tenant_store_identity",
+			"name": "created_at",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tenant_store_import_batches",
+			"name": "batch_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tenant_store_import_batches",
+			"name": "table_name",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tenant_store_import_batches",
+			"name": "row_count",
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tenant_store_import_batches",
+			"name": "imported_at",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entities",
+			"name": "id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entities",
+			"name": "organization_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entities",
+			"name": "entity_type",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entities",
+			"name": "display_name",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entities",
+			"name": "normalized_name",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entities",
+			"name": "status",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "'active'",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entities",
+			"name": "merged_into_entity_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entities",
+			"name": "version",
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "0",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entities",
+			"name": "created_at",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "(CURRENT_TIMESTAMP)",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entities",
+			"name": "updated_at",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "(CURRENT_TIMESTAMP)",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_aliases",
+			"name": "id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_aliases",
+			"name": "organization_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_aliases",
+			"name": "entity_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_aliases",
+			"name": "surface_form",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_aliases",
+			"name": "normalized_form",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_aliases",
+			"name": "alias_kind",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_aliases",
+			"name": "locale",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "'und'",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_aliases",
+			"name": "confidence",
+			"type": "real",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_aliases",
+			"name": "review_status",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "'pending'",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_aliases",
+			"name": "source_mention_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_aliases",
+			"name": "valid_from",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "(CURRENT_TIMESTAMP)",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_aliases",
+			"name": "valid_to",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_aliases",
+			"name": "created_at",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "(CURRENT_TIMESTAMP)",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_mentions",
+			"name": "id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_mentions",
+			"name": "organization_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_mentions",
+			"name": "occurrence_key",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_mentions",
+			"name": "source_fact_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_mentions",
+			"name": "source_uri",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_mentions",
+			"name": "source_content_hash",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_mentions",
+			"name": "source_session_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_mentions",
+			"name": "source_run_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_mentions",
+			"name": "surface_form",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_mentions",
+			"name": "normalized_form",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_mentions",
+			"name": "proposed_type",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_mentions",
+			"name": "char_start",
+			"type": "integer",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_mentions",
+			"name": "char_end",
+			"type": "integer",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_mentions",
+			"name": "extractor",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_mentions",
+			"name": "extractor_version",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_mentions",
+			"name": "model_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_mentions",
+			"name": "harness_version_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_mentions",
+			"name": "confidence",
+			"type": "real",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_mentions",
+			"name": "evidence",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "'{}'",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_mentions",
+			"name": "created_at",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "(CURRENT_TIMESTAMP)",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "organization_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "client_proposal_key",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "operation",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "mention_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "alias_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "source_entity_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "target_entity_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "status",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "'proposed'",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "confidence",
+			"type": "real",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "rationale",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "evidence",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "'{}'",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "proposed_by_type",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "proposed_by_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "reviewed_by_type",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "reviewed_by_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "review_rationale",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "source_run_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "expected_mention_version",
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "expected_head_decision_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "expected_entity_version",
+			"type": "integer",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "version",
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "0",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "supersedes_decision_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "rollback_of_decision_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "inverse",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "proposed_at",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "(CURRENT_TIMESTAMP)",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "reviewed_at",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "applied_at",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolution_heads",
+			"name": "mention_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolution_heads",
+			"name": "organization_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolution_heads",
+			"name": "version",
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "0",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolution_heads",
+			"name": "current_resolution_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolution_heads",
+			"name": "current_entity_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolution_heads",
+			"name": "last_decision_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolution_heads",
+			"name": "updated_at",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "(CURRENT_TIMESTAMP)",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolutions",
+			"name": "id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolutions",
+			"name": "organization_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolutions",
+			"name": "mention_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolutions",
+			"name": "entity_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolutions",
+			"name": "decision_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolutions",
+			"name": "resolution_kind",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolutions",
+			"name": "status",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "'active'",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolutions",
+			"name": "confidence",
+			"type": "real",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolutions",
+			"name": "valid_from",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolutions",
+			"name": "valid_to",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entity_resolutions",
+			"name": "created_at",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "(CURRENT_TIMESTAMP)",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_fact_citation_backfills",
+			"name": "organization_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_fact_citation_backfills",
+			"name": "source",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_fact_citation_backfills",
+			"name": "fact_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_fact_citation_backfills",
+			"name": "done",
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "false",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_fact_citations",
+			"name": "organization_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_fact_citations",
+			"name": "cited_fact_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_fact_citations",
+			"name": "consolidated_fact_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_fact_citations",
+			"name": "created_at",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "(CURRENT_TIMESTAMP)",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_domains",
+			"name": "id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_domains",
+			"name": "organization_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_domains",
+			"name": "name",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_domains",
+			"name": "parent_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_domains",
+			"name": "description",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_domains",
+			"name": "created_at",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": "(CURRENT_TIMESTAMP)",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_edges",
+			"name": "id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_edges",
+			"name": "source_fact_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_edges",
+			"name": "target_fact_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_edges",
+			"name": "relation_type",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_edges",
+			"name": "strength",
+			"type": "real",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "0.5",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_edges",
+			"name": "context",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_edges",
+			"name": "created_at",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": "(CURRENT_TIMESTAMP)",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_facts",
+			"name": "id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_facts",
+			"name": "organization_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_facts",
+			"name": "tedi_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_facts",
+			"name": "domain_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_facts",
+			"name": "content",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_facts",
+			"name": "summary",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_facts",
+			"name": "fact_type",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_facts",
+			"name": "confidence",
+			"type": "real",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "0.8",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_facts",
+			"name": "valid_from",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": "(CURRENT_TIMESTAMP)",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_facts",
+			"name": "valid_to",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_facts",
+			"name": "status",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": "'active'",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_facts",
+			"name": "source",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_facts",
+			"name": "source_session_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_facts",
+			"name": "source_url",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_facts",
+			"name": "source_hash",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_facts",
+			"name": "embedding_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_facts",
+			"name": "topic_key",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_facts",
+			"name": "memory_scope",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": "'tedi'",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_facts",
+			"name": "use_policy",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": "'can_use_as_evidence'",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_facts",
+			"name": "review_status",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": "'pending'",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_facts",
+			"name": "metadata",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_facts",
+			"name": "priority",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": "'active'",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_facts",
+			"name": "visibility",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": "'private'",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_facts",
+			"name": "promoted_from",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_facts",
+			"name": "promoted_at",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_facts",
+			"name": "last_verified_at",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_facts",
+			"name": "last_accessed_at",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_facts",
+			"name": "access_count",
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "0",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_facts",
+			"name": "usage_count",
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "0",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_facts",
+			"name": "archived_at",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_facts",
+			"name": "created_at",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": "(CURRENT_TIMESTAMP)",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_facts",
+			"name": "updated_at",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": "(CURRENT_TIMESTAMP)",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_curiosity_queue",
+			"name": "id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_curiosity_queue",
+			"name": "tedi_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_curiosity_queue",
+			"name": "organization_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_curiosity_queue",
+			"name": "topic",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_curiosity_queue",
+			"name": "domain",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_curiosity_queue",
+			"name": "reason",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_curiosity_queue",
+			"name": "priority",
+			"type": "real",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "0.5",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_curiosity_queue",
+			"name": "source",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_curiosity_queue",
+			"name": "status",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "'queued'",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_curiosity_queue",
+			"name": "facts_learned",
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "0",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_curiosity_queue",
+			"name": "gaps_found",
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "0",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_curiosity_queue",
+			"name": "completed_at",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_curiosity_queue",
+			"name": "created_at",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": "(CURRENT_TIMESTAMP)",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_curiosity_queue",
+			"name": "updated_at",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": "(CURRENT_TIMESTAMP)",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_expertise",
+			"name": "id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_expertise",
+			"name": "tedi_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_expertise",
+			"name": "domain_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_expertise",
+			"name": "fact_count",
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "0",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_expertise",
+			"name": "avg_confidence",
+			"type": "real",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "0",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_expertise",
+			"name": "expertise_level",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "'novice'",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_expertise",
+			"name": "last_activity_at",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_expertise",
+			"name": "created_at",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": "(CURRENT_TIMESTAMP)",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_expertise",
+			"name": "updated_at",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": "(CURRENT_TIMESTAMP)",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_optimization_signals",
+			"name": "id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_optimization_signals",
+			"name": "tedi_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_optimization_signals",
+			"name": "organization_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_optimization_signals",
+			"name": "type",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_optimization_signals",
+			"name": "source",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_optimization_signals",
+			"name": "domain",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_optimization_signals",
+			"name": "evidence",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_optimization_signals",
+			"name": "suggested_action",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_optimization_signals",
+			"name": "estimated_impact",
+			"type": "real",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "0.5",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_optimization_signals",
+			"name": "estimated_effort",
+			"type": "real",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "0.5",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_optimization_signals",
+			"name": "roi",
+			"type": "real",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "1",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_optimization_signals",
+			"name": "status",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "'detected'",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_optimization_signals",
+			"name": "resolved_at",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_optimization_signals",
+			"name": "created_at",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": "(CURRENT_TIMESTAMP)",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_optimization_signals",
+			"name": "updated_at",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": "(CURRENT_TIMESTAMP)",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "graph_projection_outbox",
+			"name": "sequence",
+			"type": "integer",
+			"notNull": false,
+			"autoincrement": true,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "graph_projection_outbox",
+			"name": "event_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "graph_projection_outbox",
+			"name": "organization_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "graph_projection_outbox",
+			"name": "entity_kind",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "graph_projection_outbox",
+			"name": "entity_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "graph_projection_outbox",
+			"name": "operation",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "graph_projection_outbox",
+			"name": "payload",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "graph_projection_outbox",
+			"name": "schema_version",
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "1",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "graph_projection_outbox",
+			"name": "attempt_count",
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "0",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "graph_projection_outbox",
+			"name": "next_attempt_at",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "graph_projection_outbox",
+			"name": "last_error",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "graph_projection_outbox",
+			"name": "poisoned_at",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "graph_projection_outbox",
+			"name": "created_at",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "(CURRENT_TIMESTAMP)",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_output_revisions",
+			"name": "id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_output_revisions",
+			"name": "organization_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_output_revisions",
+			"name": "output_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_output_revisions",
+			"name": "revision",
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_output_revisions",
+			"name": "content",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_output_revisions",
+			"name": "note",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_output_revisions",
+			"name": "created_by_kind",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_output_revisions",
+			"name": "created_by_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_output_revisions",
+			"name": "created_at",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "(datetime('now'))",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_output_revisions",
+			"name": "skill_run_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_output_revisions",
+			"name": "skill_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_output_revisions",
+			"name": "access_envelope",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_output_revisions",
+			"name": "content_sha256",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_output_revisions",
+			"name": "content_bytes",
+			"type": "integer",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_output_revisions",
+			"name": "body_r2_key",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_outputs",
+			"name": "id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_outputs",
+			"name": "organization_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_outputs",
+			"name": "workspace_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_outputs",
+			"name": "kind",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_outputs",
+			"name": "title",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_outputs",
+			"name": "status",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "'active'",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_outputs",
+			"name": "current_revision_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_outputs",
+			"name": "created_by_kind",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_outputs",
+			"name": "created_by_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_outputs",
+			"name": "created_at",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "(datetime('now'))",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_outputs",
+			"name": "updated_at",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "(datetime('now'))",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspace_resources",
+			"name": "id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspace_resources",
+			"name": "organization_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspace_resources",
+			"name": "workspace_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspace_resources",
+			"name": "slot",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspace_resources",
+			"name": "provider_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspace_resources",
+			"name": "connection_scope",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspace_resources",
+			"name": "personal_owner_user_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspace_resources",
+			"name": "connection_instance_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspace_resources",
+			"name": "provider_access",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspace_resources",
+			"name": "required_scopes",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "'[]'",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspace_resources",
+			"name": "resource_type",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspace_resources",
+			"name": "provider_resource_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspace_resources",
+			"name": "name",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspace_resources",
+			"name": "metadata",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "'{}'",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspace_resources",
+			"name": "status",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "'active'",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspace_resources",
+			"name": "created_by_kind",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspace_resources",
+			"name": "created_by_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspace_resources",
+			"name": "created_at",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "(datetime('now'))",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspace_resources",
+			"name": "updated_at",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "(datetime('now'))",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspace_resources",
+			"name": "removed_at",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspaces",
+			"name": "id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspaces",
+			"name": "organization_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspaces",
+			"name": "name",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspaces",
+			"name": "description",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspaces",
+			"name": "status",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "'active'",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspaces",
+			"name": "source_blueprint_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspaces",
+			"name": "source_blueprint_revision_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspaces",
+			"name": "source_blueprint_revision_number",
+			"type": "integer",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspaces",
+			"name": "instantiation_preflight",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspaces",
+			"name": "previous_blueprint_revision_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspaces",
+			"name": "previous_blueprint_revision_number",
+			"type": "integer",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspaces",
+			"name": "previous_instantiation_preflight",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspaces",
+			"name": "blueprint_decision",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspaces",
+			"name": "created_by_kind",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspaces",
+			"name": "created_by_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspaces",
+			"name": "created_at",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "(datetime('now'))",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspaces",
+			"name": "updated_at",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "(datetime('now'))",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspaces",
+			"name": "visibility",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "'org'",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspaces",
+			"name": "owner_user_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "os_workspaces",
+			"name": "icon_url",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_conversations",
+			"name": "id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_conversations",
+			"name": "organization_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_conversations",
+			"name": "conversation_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_conversations",
+			"name": "title",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_conversations",
+			"name": "title_source",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_conversations",
+			"name": "channel",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_conversations",
+			"name": "origin",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_conversations",
+			"name": "workspace_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_conversations",
+			"name": "workpiece_kind",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_conversations",
+			"name": "workpiece_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_conversations",
+			"name": "last_message_at",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_conversations",
+			"name": "message_count",
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "0",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_conversations",
+			"name": "deleted_at",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_conversations",
+			"name": "archived_at",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_conversations",
+			"name": "pinned_at",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_conversations",
+			"name": "created_at",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "(CURRENT_TIMESTAMP)",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_conversations",
+			"name": "updated_at",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "(CURRENT_TIMESTAMP)",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_events",
+			"name": "id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_events",
+			"name": "organization_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_events",
+			"name": "kind",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_events",
+			"name": "conversation_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_events",
+			"name": "run_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_events",
+			"name": "message_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_events",
+			"name": "cause_event_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_events",
+			"name": "delegated_tedi_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_events",
+			"name": "child_run_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_events",
+			"name": "sequence",
+			"type": "integer",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_events",
+			"name": "delta",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_events",
+			"name": "payload",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_events",
+			"name": "runtime_backend",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "'custom'",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_events",
+			"name": "runtime_external_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_events",
+			"name": "runtime_external_url",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_events",
+			"name": "runtime_metadata",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_events",
+			"name": "trace_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_events",
+			"name": "created_at",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "(CURRENT_TIMESTAMP)",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_runs",
+			"name": "id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_runs",
+			"name": "organization_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_runs",
+			"name": "conversation_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_runs",
+			"name": "status",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "'queued'",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_runs",
+			"name": "input_message_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_runs",
+			"name": "output_message_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_runs",
+			"name": "delegated_tedi_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_runs",
+			"name": "child_run_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_runs",
+			"name": "child_conversation_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_runs",
+			"name": "progress_value",
+			"type": "integer",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_runs",
+			"name": "progress_label",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_runs",
+			"name": "progress_detail",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_runs",
+			"name": "latest_event_kind",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_runs",
+			"name": "latest_event_at",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_runs",
+			"name": "preview",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_runs",
+			"name": "runtime_backend",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "'custom'",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_runs",
+			"name": "runtime_external_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_runs",
+			"name": "runtime_external_url",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_runs",
+			"name": "runtime_metadata",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_runs",
+			"name": "metadata",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_runs",
+			"name": "started_at",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_runs",
+			"name": "completed_at",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_runs",
+			"name": "created_at",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "(CURRENT_TIMESTAMP)",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_runs",
+			"name": "updated_at",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "(CURRENT_TIMESTAMP)",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_runs",
+			"name": "output_revision_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_runtime_runs",
+			"name": "sensitive_data_latch",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_tool_results",
+			"name": "id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_tool_results",
+			"name": "organization_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_tool_results",
+			"name": "conversation_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_tool_results",
+			"name": "run_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_tool_results",
+			"name": "source_kind",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_tool_results",
+			"name": "source_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_tool_results",
+			"name": "object_key",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_tool_results",
+			"name": "sha256",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_tool_results",
+			"name": "byte_size",
+			"type": "integer",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_tool_results",
+			"name": "content_type",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "'application/json'",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_tool_results",
+			"name": "created_at",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_tool_results",
+			"name": "expires_at",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_tool_results",
+			"name": "evicted_at",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "kernel_tool_results",
+			"name": "eviction_reason",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_artifacts",
+			"name": "id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_artifacts",
+			"name": "organization_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_artifacts",
+			"name": "tedi_id",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_artifacts",
+			"name": "conversation_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_artifacts",
+			"name": "run_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_artifacts",
+			"name": "message_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_artifacts",
+			"name": "kind",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_artifacts",
+			"name": "name",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_artifacts",
+			"name": "mime_type",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_artifacts",
+			"name": "uri",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_artifacts",
+			"name": "size_bytes",
+			"type": "integer",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_artifacts",
+			"name": "metadata",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_artifacts",
+			"name": "access_classification",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_artifacts",
+			"name": "content_digest",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_artifacts",
+			"name": "producer_execution_id",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_artifacts",
+			"name": "access_envelope",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_artifacts",
+			"name": "publication_state",
+			"type": "text",
+			"notNull": false,
+			"autoincrement": false,
+			"default": null,
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "tedi_artifacts",
+			"name": "created_at",
+			"type": "text",
+			"notNull": true,
+			"autoincrement": false,
+			"default": "(CURRENT_TIMESTAMP)",
+			"generated": null,
+			"entityType": "columns"
+		},
+		{
+			"table": "memory_entities",
+			"name": "uniq_memory_entity_org_id",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "id",
+					"isExpression": false
+				}
+			],
+			"isUnique": true,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_entities",
+			"name": "idx_memory_entity_candidate",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "entity_type",
+					"isExpression": false
+				},
+				{
+					"value": "normalized_name",
+					"isExpression": false
+				},
+				{
+					"value": "status",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_entities",
+			"name": "idx_memory_entity_merge_target",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "merged_into_entity_id",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_entity_aliases",
+			"name": "uniq_memory_entity_alias",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "entity_id",
+					"isExpression": false
+				},
+				{
+					"value": "normalized_form",
+					"isExpression": false
+				},
+				{
+					"value": "locale",
+					"isExpression": false
+				}
+			],
+			"isUnique": true,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_entity_aliases",
+			"name": "idx_memory_entity_alias_lookup",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "normalized_form",
+					"isExpression": false
+				},
+				{
+					"value": "review_status",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_entity_mentions",
+			"name": "uniq_memory_entity_mention_occurrence",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "occurrence_key",
+					"isExpression": false
+				}
+			],
+			"isUnique": true,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_entity_mentions",
+			"name": "idx_memory_entity_mention_source_fact",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "source_fact_id",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_entity_mentions",
+			"name": "idx_memory_entity_mention_candidate",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "proposed_type",
+					"isExpression": false
+				},
+				{
+					"value": "normalized_form",
+					"isExpression": false
+				},
+				{
+					"value": "created_at",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "uniq_memory_entity_resolution_proposal",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "client_proposal_key",
+					"isExpression": false
+				}
+			],
+			"isUnique": true,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "uniq_memory_entity_resolution_rollback",
+			"columns": [
+				{
+					"value": "rollback_of_decision_id",
+					"isExpression": false
+				}
+			],
+			"isUnique": true,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "idx_memory_entity_resolution_mention",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "mention_id",
+					"isExpression": false
+				},
+				{
+					"value": "proposed_at",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "idx_memory_entity_resolution_status",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "status",
+					"isExpression": false
+				},
+				{
+					"value": "proposed_at",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_entity_resolution_heads",
+			"name": "uniq_memory_entity_head_org_mention",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "mention_id",
+					"isExpression": false
+				}
+			],
+			"isUnique": true,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_entity_resolution_heads",
+			"name": "idx_memory_entity_head_current",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "current_entity_id",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_entity_resolutions",
+			"name": "uniq_memory_entity_resolution_decision",
+			"columns": [
+				{
+					"value": "decision_id",
+					"isExpression": false
+				}
+			],
+			"isUnique": true,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_entity_resolutions",
+			"name": "uniq_memory_entity_resolution_active",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "mention_id",
+					"isExpression": false
+				}
+			],
+			"isUnique": true,
+			"where": "\"memory_entity_resolutions\".\"status\" = 'active'",
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_entity_resolutions",
+			"name": "idx_memory_entity_resolution_entity",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "entity_id",
+					"isExpression": false
+				},
+				{
+					"value": "status",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_entity_resolutions",
+			"name": "idx_memory_entity_resolution_temporal",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "mention_id",
+					"isExpression": false
+				},
+				{
+					"value": "valid_from",
+					"isExpression": false
+				},
+				{
+					"value": "valid_to",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_fact_citations",
+			"name": "idx_memory_fact_citations_org_cited",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "cited_fact_id",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_domains",
+			"name": "idx_memory_domains_org",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_domains",
+			"name": "idx_memory_domains_parent",
+			"columns": [
+				{
+					"value": "parent_id",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_edges",
+			"name": "idx_memory_edges_source",
+			"columns": [
+				{
+					"value": "source_fact_id",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_edges",
+			"name": "idx_memory_edges_target",
+			"columns": [
+				{
+					"value": "target_fact_id",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_edges",
+			"name": "idx_memory_edges_type",
+			"columns": [
+				{
+					"value": "relation_type",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_facts",
+			"name": "idx_memory_facts_priority_rank",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "priority",
+					"isExpression": false
+				},
+				{
+					"value": "archived_at",
+					"isExpression": false
+				},
+				{
+					"value": "confidence",
+					"isExpression": false
+				},
+				{
+					"value": "last_accessed_at",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_facts",
+			"name": "idx_memory_facts_domain",
+			"columns": [
+				{
+					"value": "domain_id",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_facts",
+			"name": "idx_memory_facts_type",
+			"columns": [
+				{
+					"value": "fact_type",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_facts",
+			"name": "idx_memory_facts_confidence",
+			"columns": [
+				{
+					"value": "confidence",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_facts",
+			"name": "idx_memory_facts_source",
+			"columns": [
+				{
+					"value": "source",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_facts",
+			"name": "idx_memory_facts_org_source_id",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "source",
+					"isExpression": false
+				},
+				{
+					"value": "id",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_facts",
+			"name": "idx_memory_facts_org_type_rank",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "fact_type",
+					"isExpression": false
+				},
+				{
+					"value": "archived_at",
+					"isExpression": false
+				},
+				{
+					"value": "valid_to",
+					"isExpression": false
+				},
+				{
+					"value": "confidence",
+					"isExpression": false
+				},
+				{
+					"value": "last_accessed_at",
+					"isExpression": false
+				},
+				{
+					"value": "created_at",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_facts",
+			"name": "idx_memory_facts_org_live_rank",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "archived_at",
+					"isExpression": false
+				},
+				{
+					"value": "valid_to",
+					"isExpression": false
+				},
+				{
+					"value": "confidence",
+					"isExpression": false
+				},
+				{
+					"value": "last_accessed_at",
+					"isExpression": false
+				},
+				{
+					"value": "created_at",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_facts",
+			"name": "idx_memory_facts_org_recall_time",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "datetime(coalesce(\"valid_from\", \"created_at\"))",
+					"isExpression": true
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_facts",
+			"name": "idx_memory_facts_org_recall_until",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "datetime(\"valid_to\")",
+					"isExpression": true
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_facts",
+			"name": "idx_memory_facts_status",
+			"columns": [
+				{
+					"value": "status",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_facts",
+			"name": "idx_memory_facts_org_domain",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "domain_id",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_facts",
+			"name": "idx_memory_facts_visibility",
+			"columns": [
+				{
+					"value": "visibility",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_facts",
+			"name": "idx_memory_facts_priority",
+			"columns": [
+				{
+					"value": "priority",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_facts",
+			"name": "idx_memory_facts_topic_key",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "topic_key",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_facts",
+			"name": "idx_memory_facts_scope",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "memory_scope",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_facts",
+			"name": "idx_memory_facts_flywheel_created",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "tedi_id",
+					"isExpression": false
+				},
+				{
+					"value": "created_at",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_facts",
+			"name": "idx_memory_facts_flywheel_accessed",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "last_accessed_at",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_facts",
+			"name": "idx_memory_facts_flywheel_updated",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "updated_at",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_facts",
+			"name": "idx_memory_facts_visibility_policy_updated",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "visibility",
+					"isExpression": false
+				},
+				{
+					"value": "review_status",
+					"isExpression": false
+				},
+				{
+					"value": "use_policy",
+					"isExpression": false
+				},
+				{
+					"value": "updated_at",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_facts",
+			"name": "idx_memory_facts_use_policy",
+			"columns": [
+				{
+					"value": "use_policy",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_facts",
+			"name": "idx_memory_facts_review_status",
+			"columns": [
+				{
+					"value": "review_status",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_facts",
+			"name": "memory_facts_tedi_domain_idx",
+			"columns": [
+				{
+					"value": "tedi_id",
+					"isExpression": false
+				},
+				{
+					"value": "domain_id",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_facts",
+			"name": "idx_memory_facts_expertise_live",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "tedi_id",
+					"isExpression": false
+				},
+				{
+					"value": "domain_id",
+					"isExpression": false
+				},
+				{
+					"value": "confidence",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": "archived_at IS NULL",
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "tedi_curiosity_queue",
+			"name": "idx_curiosity_queue_tedi",
+			"columns": [
+				{
+					"value": "tedi_id",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "tedi_curiosity_queue",
+			"name": "idx_curiosity_queue_org",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "tedi_curiosity_queue",
+			"name": "idx_curiosity_queue_status",
+			"columns": [
+				{
+					"value": "status",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "tedi_curiosity_queue",
+			"name": "idx_curiosity_queue_priority",
+			"columns": [
+				{
+					"value": "priority",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "tedi_expertise",
+			"name": "idx_tedi_expertise_tedi",
+			"columns": [
+				{
+					"value": "tedi_id",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "tedi_expertise",
+			"name": "idx_tedi_expertise_domain",
+			"columns": [
+				{
+					"value": "domain_id",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "tedi_optimization_signals",
+			"name": "idx_optimization_signals_tedi",
+			"columns": [
+				{
+					"value": "tedi_id",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "tedi_optimization_signals",
+			"name": "idx_optimization_signals_org",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "tedi_optimization_signals",
+			"name": "idx_optimization_signals_status",
+			"columns": [
+				{
+					"value": "status",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "tedi_optimization_signals",
+			"name": "idx_optimization_signals_roi",
+			"columns": [
+				{
+					"value": "roi",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "graph_projection_outbox",
+			"name": "idx_graph_projection_outbox_org_sequence",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "sequence",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "graph_projection_outbox",
+			"name": "idx_graph_projection_outbox_entity",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "entity_kind",
+					"isExpression": false
+				},
+				{
+					"value": "entity_id",
+					"isExpression": false
+				},
+				{
+					"value": "sequence",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "graph_projection_outbox",
+			"name": "idx_graph_projection_outbox_retry",
+			"columns": [
+				{
+					"value": "poisoned_at",
+					"isExpression": false
+				},
+				{
+					"value": "next_attempt_at",
+					"isExpression": false
+				},
+				{
+					"value": "sequence",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "os_output_revisions",
+			"name": "os_output_revisions_output_revision_unique",
+			"columns": [
+				{
+					"value": "output_id",
+					"isExpression": false
+				},
+				{
+					"value": "revision",
+					"isExpression": false
+				}
+			],
+			"isUnique": true,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "os_output_revisions",
+			"name": "os_output_revisions_org_idx",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "os_output_revisions",
+			"name": "os_output_revisions_skill_run_idx",
+			"columns": [
+				{
+					"value": "skill_run_id",
+					"isExpression": false
+				},
+				{
+					"value": "created_at",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "os_outputs",
+			"name": "os_outputs_org_idx",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "updated_at",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "os_outputs",
+			"name": "os_outputs_workspace_idx",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "workspace_id",
+					"isExpression": false
+				},
+				{
+					"value": "updated_at",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "os_workspace_resources",
+			"name": "os_workspace_resources_workspace_slot_unique",
+			"columns": [
+				{
+					"value": "workspace_id",
+					"isExpression": false
+				},
+				{
+					"value": "slot",
+					"isExpression": false
+				}
+			],
+			"isUnique": true,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "os_workspace_resources",
+			"name": "os_workspace_resources_provider_object_unique",
+			"columns": [
+				{
+					"value": "workspace_id",
+					"isExpression": false
+				},
+				{
+					"value": "provider_id",
+					"isExpression": false
+				},
+				{
+					"value": "connection_scope",
+					"isExpression": false
+				},
+				{
+					"value": "coalesce(\"personal_owner_user_id\", '')",
+					"isExpression": true
+				},
+				{
+					"value": "coalesce(\"connection_instance_id\", '')",
+					"isExpression": true
+				},
+				{
+					"value": "resource_type",
+					"isExpression": false
+				},
+				{
+					"value": "provider_resource_id",
+					"isExpression": false
+				}
+			],
+			"isUnique": true,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "os_workspace_resources",
+			"name": "os_workspace_resources_org_workspace_idx",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "workspace_id",
+					"isExpression": false
+				},
+				{
+					"value": "status",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "os_workspaces",
+			"name": "os_workspaces_org_id_unique",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "id",
+					"isExpression": false
+				}
+			],
+			"isUnique": true,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "os_workspaces",
+			"name": "os_workspaces_org_name_unique",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "name",
+					"isExpression": false
+				}
+			],
+			"isUnique": true,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "kernel_conversations",
+			"name": "idx_kernel_conversations_org_conversation",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "conversation_id",
+					"isExpression": false
+				}
+			],
+			"isUnique": true,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "kernel_conversations",
+			"name": "idx_kernel_conversations_org_last_message",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "last_message_at",
+					"isExpression": false
+				},
+				{
+					"value": "conversation_id",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "kernel_conversations",
+			"name": "idx_kernel_conversations_org_workspace_last_message",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "workspace_id",
+					"isExpression": false
+				},
+				{
+					"value": "last_message_at",
+					"isExpression": false
+				},
+				{
+					"value": "conversation_id",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "kernel_runtime_events",
+			"name": "idx_kernel_runtime_events_created",
+			"columns": [
+				{
+					"value": "created_at",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "kernel_runtime_events",
+			"name": "idx_kernel_runtime_events_org_created",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "created_at",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "kernel_runtime_events",
+			"name": "idx_kernel_runtime_events_conversation_created",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "conversation_id",
+					"isExpression": false
+				},
+				{
+					"value": "created_at",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "kernel_runtime_events",
+			"name": "idx_kernel_runtime_events_run_created",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "run_id",
+					"isExpression": false
+				},
+				{
+					"value": "created_at",
+					"isExpression": false
+				},
+				{
+					"value": "id",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "kernel_runtime_events",
+			"name": "idx_kernel_runtime_events_child_created",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "child_run_id",
+					"isExpression": false
+				},
+				{
+					"value": "created_at",
+					"isExpression": false
+				},
+				{
+					"value": "id",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "kernel_runtime_events",
+			"name": "idx_kernel_runtime_events_delegated_tedi",
+			"columns": [
+				{
+					"value": "delegated_tedi_id",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "kernel_runtime_events",
+			"name": "idx_kernel_runtime_events_trace",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "trace_id",
+					"isExpression": false
+				},
+				{
+					"value": "created_at",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": "trace_id is not null",
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "kernel_runtime_runs",
+			"name": "idx_kernel_runtime_runs_conversation_updated",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "conversation_id",
+					"isExpression": false
+				},
+				{
+					"value": "updated_at",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "kernel_runtime_runs",
+			"name": "idx_kernel_runtime_runs_status_updated",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "status",
+					"isExpression": false
+				},
+				{
+					"value": "updated_at",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "kernel_runtime_runs",
+			"name": "idx_kernel_runtime_runs_child",
+			"columns": [
+				{
+					"value": "delegated_tedi_id",
+					"isExpression": false
+				},
+				{
+					"value": "child_run_id",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "kernel_runtime_runs",
+			"name": "idx_kernel_runtime_runs_org_child",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "child_run_id",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "kernel_runtime_runs",
+			"name": "idx_kernel_runtime_runs_org_output_revision",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "output_revision_id",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "kernel_runtime_runs",
+			"name": "idx_kernel_runtime_runs_org_updated",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "updated_at",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "kernel_tool_results",
+			"name": "uniq_kernel_tool_results_object_key",
+			"columns": [
+				{
+					"value": "object_key",
+					"isExpression": false
+				}
+			],
+			"isUnique": true,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "kernel_tool_results",
+			"name": "uniq_kernel_tool_results_source",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "source_kind",
+					"isExpression": false
+				},
+				{
+					"value": "source_id",
+					"isExpression": false
+				}
+			],
+			"isUnique": true,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "kernel_tool_results",
+			"name": "idx_kernel_tool_results_conversation_active",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "conversation_id",
+					"isExpression": false
+				},
+				{
+					"value": "evicted_at",
+					"isExpression": false
+				},
+				{
+					"value": "created_at",
+					"isExpression": false
+				},
+				{
+					"value": "id",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "kernel_tool_results",
+			"name": "idx_kernel_tool_results_cleanup",
+			"columns": [
+				{
+					"value": "evicted_at",
+					"isExpression": false
+				},
+				{
+					"value": "expires_at",
+					"isExpression": false
+				},
+				{
+					"value": "id",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "kernel_tool_results",
+			"name": "idx_kernel_tool_results_digest",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				},
+				{
+					"value": "conversation_id",
+					"isExpression": false
+				},
+				{
+					"value": "sha256",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "tedi_artifacts",
+			"name": "idx_tedi_artifacts_org",
+			"columns": [
+				{
+					"value": "organization_id",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "tedi_artifacts",
+			"name": "idx_tedi_artifacts_tedi_created",
+			"columns": [
+				{
+					"value": "tedi_id",
+					"isExpression": false
+				},
+				{
+					"value": "created_at",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "tedi_artifacts",
+			"name": "idx_tedi_artifacts_conversation",
+			"columns": [
+				{
+					"value": "tedi_id",
+					"isExpression": false
+				},
+				{
+					"value": "conversation_id",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "tedi_artifacts",
+			"name": "idx_tedi_artifacts_run",
+			"columns": [
+				{
+					"value": "tedi_id",
+					"isExpression": false
+				},
+				{
+					"value": "run_id",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "tedi_artifacts",
+			"name": "idx_tedi_artifacts_kind",
+			"columns": [
+				{
+					"value": "tedi_id",
+					"isExpression": false
+				},
+				{
+					"value": "kind",
+					"isExpression": false
+				}
+			],
+			"isUnique": false,
+			"where": null,
+			"origin": "manual",
+			"entityType": "indexes"
+		},
+		{
+			"table": "memory_entities",
+			"name": "fk_memory_entities_merged_into_entity_id_memory_entities_id_fk",
+			"columns": ["merged_into_entity_id"],
+			"tableTo": "memory_entities",
+			"columnsTo": ["id"],
+			"onUpdate": "NO ACTION",
+			"onDelete": "RESTRICT",
+			"nameExplicit": false,
+			"entityType": "fks"
+		},
+		{
+			"table": "memory_entity_aliases",
+			"name": "fk_memory_entity_aliases_entity_id_memory_entities_id_fk",
+			"columns": ["entity_id"],
+			"tableTo": "memory_entities",
+			"columnsTo": ["id"],
+			"onUpdate": "NO ACTION",
+			"onDelete": "RESTRICT",
+			"nameExplicit": false,
+			"entityType": "fks"
+		},
+		{
+			"table": "memory_entity_aliases",
+			"name": "fk_memory_entity_aliases_source_mention_id_memory_entity_mentions_id_fk",
+			"columns": ["source_mention_id"],
+			"tableTo": "memory_entity_mentions",
+			"columnsTo": ["id"],
+			"onUpdate": "NO ACTION",
+			"onDelete": "RESTRICT",
+			"nameExplicit": false,
+			"entityType": "fks"
+		},
+		{
+			"table": "memory_entity_mentions",
+			"name": "fk_memory_entity_mentions_source_fact_id_memory_facts_id_fk",
+			"columns": ["source_fact_id"],
+			"tableTo": "memory_facts",
+			"columnsTo": ["id"],
+			"onUpdate": "NO ACTION",
+			"onDelete": "RESTRICT",
+			"nameExplicit": false,
+			"entityType": "fks"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "fk_memory_entity_resolution_decisions_mention_id_memory_entity_mentions_id_fk",
+			"columns": ["mention_id"],
+			"tableTo": "memory_entity_mentions",
+			"columnsTo": ["id"],
+			"onUpdate": "NO ACTION",
+			"onDelete": "RESTRICT",
+			"nameExplicit": false,
+			"entityType": "fks"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "fk_memory_entity_resolution_decisions_alias_id_memory_entity_aliases_id_fk",
+			"columns": ["alias_id"],
+			"tableTo": "memory_entity_aliases",
+			"columnsTo": ["id"],
+			"onUpdate": "NO ACTION",
+			"onDelete": "RESTRICT",
+			"nameExplicit": false,
+			"entityType": "fks"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "fk_memory_entity_resolution_decisions_source_entity_id_memory_entities_id_fk",
+			"columns": ["source_entity_id"],
+			"tableTo": "memory_entities",
+			"columnsTo": ["id"],
+			"onUpdate": "NO ACTION",
+			"onDelete": "RESTRICT",
+			"nameExplicit": false,
+			"entityType": "fks"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "fk_memory_entity_resolution_decisions_target_entity_id_memory_entities_id_fk",
+			"columns": ["target_entity_id"],
+			"tableTo": "memory_entities",
+			"columnsTo": ["id"],
+			"onUpdate": "NO ACTION",
+			"onDelete": "RESTRICT",
+			"nameExplicit": false,
+			"entityType": "fks"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "fk_memory_entity_resolution_decisions_supersedes_decision_id_memory_entity_resolution_decisions_id_fk",
+			"columns": ["supersedes_decision_id"],
+			"tableTo": "memory_entity_resolution_decisions",
+			"columnsTo": ["id"],
+			"onUpdate": "NO ACTION",
+			"onDelete": "RESTRICT",
+			"nameExplicit": false,
+			"entityType": "fks"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "fk_memory_entity_resolution_decisions_rollback_of_decision_id_memory_entity_resolution_decisions_id_fk",
+			"columns": ["rollback_of_decision_id"],
+			"tableTo": "memory_entity_resolution_decisions",
+			"columnsTo": ["id"],
+			"onUpdate": "NO ACTION",
+			"onDelete": "RESTRICT",
+			"nameExplicit": false,
+			"entityType": "fks"
+		},
+		{
+			"table": "memory_entity_resolution_heads",
+			"name": "fk_memory_entity_resolution_heads_mention_id_memory_entity_mentions_id_fk",
+			"columns": ["mention_id"],
+			"tableTo": "memory_entity_mentions",
+			"columnsTo": ["id"],
+			"onUpdate": "NO ACTION",
+			"onDelete": "CASCADE",
+			"nameExplicit": false,
+			"entityType": "fks"
+		},
+		{
+			"table": "memory_entity_resolution_heads",
+			"name": "fk_memory_entity_resolution_heads_current_entity_id_memory_entities_id_fk",
+			"columns": ["current_entity_id"],
+			"tableTo": "memory_entities",
+			"columnsTo": ["id"],
+			"onUpdate": "NO ACTION",
+			"onDelete": "RESTRICT",
+			"nameExplicit": false,
+			"entityType": "fks"
+		},
+		{
+			"table": "memory_entity_resolutions",
+			"name": "fk_memory_entity_resolutions_mention_id_memory_entity_mentions_id_fk",
+			"columns": ["mention_id"],
+			"tableTo": "memory_entity_mentions",
+			"columnsTo": ["id"],
+			"onUpdate": "NO ACTION",
+			"onDelete": "RESTRICT",
+			"nameExplicit": false,
+			"entityType": "fks"
+		},
+		{
+			"table": "memory_entity_resolutions",
+			"name": "fk_memory_entity_resolutions_entity_id_memory_entities_id_fk",
+			"columns": ["entity_id"],
+			"tableTo": "memory_entities",
+			"columnsTo": ["id"],
+			"onUpdate": "NO ACTION",
+			"onDelete": "RESTRICT",
+			"nameExplicit": false,
+			"entityType": "fks"
+		},
+		{
+			"table": "memory_entity_resolutions",
+			"name": "fk_memory_entity_resolutions_decision_id_memory_entity_resolution_decisions_id_fk",
+			"columns": ["decision_id"],
+			"tableTo": "memory_entity_resolution_decisions",
+			"columnsTo": ["id"],
+			"onUpdate": "NO ACTION",
+			"onDelete": "RESTRICT",
+			"nameExplicit": false,
+			"entityType": "fks"
+		},
+		{
+			"table": "memory_fact_citations",
+			"name": "fk_memory_fact_citations_consolidated_fact_id_memory_facts_id_fk",
+			"columns": ["consolidated_fact_id"],
+			"tableTo": "memory_facts",
+			"columnsTo": ["id"],
+			"onUpdate": "NO ACTION",
+			"onDelete": "CASCADE",
+			"nameExplicit": false,
+			"entityType": "fks"
+		},
+		{
+			"table": "memory_edges",
+			"name": "fk_memory_edges_source_fact_id_memory_facts_id_fk",
+			"columns": ["source_fact_id"],
+			"tableTo": "memory_facts",
+			"columnsTo": ["id"],
+			"onUpdate": "NO ACTION",
+			"onDelete": "CASCADE",
+			"nameExplicit": false,
+			"entityType": "fks"
+		},
+		{
+			"table": "memory_edges",
+			"name": "fk_memory_edges_target_fact_id_memory_facts_id_fk",
+			"columns": ["target_fact_id"],
+			"tableTo": "memory_facts",
+			"columnsTo": ["id"],
+			"onUpdate": "NO ACTION",
+			"onDelete": "CASCADE",
+			"nameExplicit": false,
+			"entityType": "fks"
+		},
+		{
+			"table": "memory_facts",
+			"name": "fk_memory_facts_domain_id_memory_domains_id_fk",
+			"columns": ["domain_id"],
+			"tableTo": "memory_domains",
+			"columnsTo": ["id"],
+			"onUpdate": "NO ACTION",
+			"onDelete": "SET NULL",
+			"nameExplicit": false,
+			"entityType": "fks"
+		},
+		{
+			"table": "tedi_expertise",
+			"name": "fk_tedi_expertise_domain_id_memory_domains_id_fk",
+			"columns": ["domain_id"],
+			"tableTo": "memory_domains",
+			"columnsTo": ["id"],
+			"onUpdate": "NO ACTION",
+			"onDelete": "NO ACTION",
+			"nameExplicit": false,
+			"entityType": "fks"
+		},
+		{
+			"table": "os_output_revisions",
+			"name": "fk_os_output_revisions_output_id_os_outputs_id_fk",
+			"columns": ["output_id"],
+			"tableTo": "os_outputs",
+			"columnsTo": ["id"],
+			"onUpdate": "NO ACTION",
+			"onDelete": "CASCADE",
+			"nameExplicit": false,
+			"entityType": "fks"
+		},
+		{
+			"table": "os_workspace_resources",
+			"name": "fk_os_workspace_resources_workspace_id_os_workspaces_id_fk",
+			"columns": ["workspace_id"],
+			"tableTo": "os_workspaces",
+			"columnsTo": ["id"],
+			"onUpdate": "NO ACTION",
+			"onDelete": "CASCADE",
+			"nameExplicit": false,
+			"entityType": "fks"
+		},
+		{
+			"table": "memory_fact_citations",
+			"name": "memory_fact_citations_pk",
+			"columns": ["consolidated_fact_id", "cited_fact_id"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "memory_store_identity",
+			"name": "memory_store_identity_pk",
+			"columns": ["slot"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "tenant_store_identity",
+			"name": "tenant_store_identity_pk",
+			"columns": ["slot"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "tenant_store_import_batches",
+			"name": "tenant_store_import_batches_pk",
+			"columns": ["batch_id"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "memory_entities",
+			"name": "memory_entities_pk",
+			"columns": ["id"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "memory_entity_aliases",
+			"name": "memory_entity_aliases_pk",
+			"columns": ["id"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "memory_entity_mentions",
+			"name": "memory_entity_mentions_pk",
+			"columns": ["id"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "memory_entity_resolution_decisions_pk",
+			"columns": ["id"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "memory_entity_resolution_heads",
+			"name": "memory_entity_resolution_heads_pk",
+			"columns": ["mention_id"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "memory_entity_resolutions",
+			"name": "memory_entity_resolutions_pk",
+			"columns": ["id"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "memory_fact_citation_backfills",
+			"name": "memory_fact_citation_backfills_pk",
+			"columns": ["organization_id"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "memory_domains",
+			"name": "memory_domains_pk",
+			"columns": ["id"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "memory_edges",
+			"name": "memory_edges_pk",
+			"columns": ["id"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "memory_facts",
+			"name": "memory_facts_pk",
+			"columns": ["id"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "tedi_curiosity_queue",
+			"name": "tedi_curiosity_queue_pk",
+			"columns": ["id"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "tedi_expertise",
+			"name": "tedi_expertise_pk",
+			"columns": ["id"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "tedi_optimization_signals",
+			"name": "tedi_optimization_signals_pk",
+			"columns": ["id"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "graph_projection_outbox",
+			"name": "graph_projection_outbox_pk",
+			"columns": ["sequence"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "os_output_revisions",
+			"name": "os_output_revisions_pk",
+			"columns": ["id"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "os_outputs",
+			"name": "os_outputs_pk",
+			"columns": ["id"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "os_workspace_resources",
+			"name": "os_workspace_resources_pk",
+			"columns": ["id"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "os_workspaces",
+			"name": "os_workspaces_pk",
+			"columns": ["id"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "kernel_conversations",
+			"name": "kernel_conversations_pk",
+			"columns": ["id"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "kernel_runtime_events",
+			"name": "kernel_runtime_events_pk",
+			"columns": ["id"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "kernel_runtime_runs",
+			"name": "kernel_runtime_runs_pk",
+			"columns": ["id"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "kernel_tool_results",
+			"name": "kernel_tool_results_pk",
+			"columns": ["id"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "tedi_artifacts",
+			"name": "tedi_artifacts_pk",
+			"columns": ["id"],
+			"nameExplicit": false,
+			"entityType": "pks"
+		},
+		{
+			"table": "memory_domains",
+			"name": "uniq_domain_org_name",
+			"columns": ["organization_id", "name"],
+			"nameExplicit": true,
+			"entityType": "uniques"
+		},
+		{
+			"table": "memory_edges",
+			"name": "uniq_edge",
+			"columns": ["source_fact_id", "target_fact_id", "relation_type"],
+			"nameExplicit": true,
+			"entityType": "uniques"
+		},
+		{
+			"table": "tedi_expertise",
+			"name": "uniq_tedi_domain",
+			"columns": ["tedi_id", "domain_id"],
+			"nameExplicit": true,
+			"entityType": "uniques"
+		},
+		{
+			"table": "graph_projection_outbox",
+			"name": "graph_projection_outbox_event_id_unique",
+			"columns": ["event_id"],
+			"nameExplicit": false,
+			"entityType": "uniques"
+		},
+		{
+			"table": "memory_store_identity",
+			"name": "memory_store_identity_single_row",
+			"value": "\"slot\" = 1",
+			"entityType": "checks"
+		},
+		{
+			"table": "memory_store_identity",
+			"name": "memory_store_identity_kind",
+			"value": "\"kind\" IN ('organization','workspace','personal')",
+			"entityType": "checks"
+		},
+		{
+			"table": "memory_store_identity",
+			"name": "memory_store_identity_owner",
+			"value": "length(trim(\"owner_id\")) > 0 AND (\"kind\" != 'organization' OR \"owner_id\" = \"organization_id\")",
+			"entityType": "checks"
+		},
+		{
+			"table": "tenant_store_identity",
+			"name": "tenant_store_identity_single_row",
+			"value": "\"slot\" = 1",
+			"entityType": "checks"
+		},
+		{
+			"table": "memory_entities",
+			"name": "chk_memory_entity_name",
+			"value": "length(trim(\"display_name\")) > 0 AND length(\"normalized_name\") > 0",
+			"entityType": "checks"
+		},
+		{
+			"table": "memory_entities",
+			"name": "chk_memory_entity_version",
+			"value": "\"version\" >= 0",
+			"entityType": "checks"
+		},
+		{
+			"table": "memory_entities",
+			"name": "chk_memory_entity_merge_state",
+			"value": "(\"status\" = 'merged' AND \"merged_into_entity_id\" IS NOT NULL AND \"merged_into_entity_id\" != \"id\") OR (\"status\" != 'merged' AND \"merged_into_entity_id\" IS NULL)",
+			"entityType": "checks"
+		},
+		{
+			"table": "memory_entity_aliases",
+			"name": "chk_memory_entity_alias_confidence",
+			"value": "\"confidence\" >= 0 AND \"confidence\" <= 1",
+			"entityType": "checks"
+		},
+		{
+			"table": "memory_entity_aliases",
+			"name": "chk_memory_entity_alias_validity",
+			"value": "\"valid_to\" IS NULL OR datetime(\"valid_to\") > datetime(\"valid_from\")",
+			"entityType": "checks"
+		},
+		{
+			"table": "memory_entity_mentions",
+			"name": "chk_memory_entity_mention_surface",
+			"value": "length(trim(\"surface_form\")) > 0 AND length(\"normalized_form\") > 0",
+			"entityType": "checks"
+		},
+		{
+			"table": "memory_entity_mentions",
+			"name": "chk_memory_entity_mention_confidence",
+			"value": "\"confidence\" >= 0 AND \"confidence\" <= 1",
+			"entityType": "checks"
+		},
+		{
+			"table": "memory_entity_mentions",
+			"name": "chk_memory_entity_mention_span",
+			"value": "(\"char_start\" IS NULL AND \"char_end\" IS NULL) OR (\"char_start\" >= 0 AND \"char_end\" > \"char_start\")",
+			"entityType": "checks"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "chk_memory_entity_resolution_confidence",
+			"value": "\"confidence\" >= 0 AND \"confidence\" <= 1",
+			"entityType": "checks"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "chk_memory_entity_resolution_versions",
+			"value": "\"expected_mention_version\" >= 0 AND \"version\" >= 0 AND (\"expected_entity_version\" IS NULL OR \"expected_entity_version\" >= 0)",
+			"entityType": "checks"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "chk_memory_entity_resolution_review_pair",
+			"value": "(\"reviewed_by_type\" IS NULL AND \"reviewed_by_id\" IS NULL) OR (\"reviewed_by_type\" IS NOT NULL AND \"reviewed_by_id\" IS NOT NULL)",
+			"entityType": "checks"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "chk_memory_entity_resolution_independence",
+			"value": "\"reviewed_by_id\" IS NULL OR \"reviewed_by_type\" != \"proposed_by_type\" OR \"reviewed_by_id\" != \"proposed_by_id\"",
+			"entityType": "checks"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "chk_memory_entity_resolution_review_state",
+			"value": "(\"status\" = 'proposed' AND \"reviewed_by_id\" IS NULL AND \"reviewed_at\" IS NULL AND \"applied_at\" IS NULL) OR (\"status\" = 'rejected' AND \"reviewed_by_id\" IS NOT NULL AND \"reviewed_at\" IS NOT NULL AND \"applied_at\" IS NULL) OR (\"status\" = 'accepted' AND \"reviewed_by_id\" IS NOT NULL AND \"reviewed_at\" IS NOT NULL AND \"applied_at\" IS NOT NULL)",
+			"entityType": "checks"
+		},
+		{
+			"table": "memory_entity_resolution_decisions",
+			"name": "chk_memory_entity_resolution_operation_shape",
+			"value": "(\"operation\" IN ('link_mention', 'reassign_mention') AND \"mention_id\" IS NOT NULL AND \"target_entity_id\" IS NOT NULL AND \"rollback_of_decision_id\" IS NULL) OR (\"operation\" = 'rollback' AND \"mention_id\" IS NOT NULL AND \"rollback_of_decision_id\" IS NOT NULL) OR (\"operation\" = 'link_alias' AND \"alias_id\" IS NOT NULL AND \"target_entity_id\" IS NOT NULL) OR (\"operation\" IN ('merge_entities', 'split_entity') AND \"source_entity_id\" IS NOT NULL)",
+			"entityType": "checks"
+		},
+		{
+			"table": "memory_entity_resolution_heads",
+			"name": "chk_memory_entity_head_version",
+			"value": "\"version\" >= 0",
+			"entityType": "checks"
+		},
+		{
+			"table": "memory_entity_resolution_heads",
+			"name": "chk_memory_entity_head_shape",
+			"value": "(\"current_resolution_id\" IS NULL AND \"current_entity_id\" IS NULL AND \"last_decision_id\" IS NULL) OR (\"current_resolution_id\" IS NOT NULL AND \"last_decision_id\" IS NOT NULL)",
+			"entityType": "checks"
+		},
+		{
+			"table": "memory_entity_resolutions",
+			"name": "chk_memory_entity_resolution_shape",
+			"value": "(\"resolution_kind\" = 'linked' AND \"entity_id\" IS NOT NULL) OR (\"resolution_kind\" = 'unresolved' AND \"entity_id\" IS NULL)",
+			"entityType": "checks"
+		},
+		{
+			"table": "memory_entity_resolutions",
+			"name": "chk_memory_entity_resolution_confidence",
+			"value": "\"confidence\" >= 0 AND \"confidence\" <= 1",
+			"entityType": "checks"
+		},
+		{
+			"table": "memory_entity_resolutions",
+			"name": "chk_memory_entity_resolution_validity",
+			"value": "(\"status\" = 'active' AND \"valid_to\" IS NULL) OR (\"status\" = 'revoked' AND \"valid_to\" IS NOT NULL AND datetime(\"valid_to\") >= datetime(\"valid_from\"))",
+			"entityType": "checks"
+		},
+		{
+			"table": "kernel_tool_results",
+			"name": "chk_kernel_tool_result_byte_size",
+			"value": "\"byte_size\" >= 0 AND \"byte_size\" <= 1048576",
+			"entityType": "checks"
+		}
+	],
+	"renames": []
+}
