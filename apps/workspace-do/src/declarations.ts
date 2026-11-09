@@ -79,7 +79,7 @@ interface Resources {
   list(): Promise<Array<{ id: string; name: string; kind: string; status: string }>>;
 }`.trim(),
 	work: `
-/** Work items of the projects this workspace is linked to. Read-only. */
+/** Work items of the projects this workspace is linked to. */
 interface Work {
   /** disposition: "proposed" | "accepted" | "in_progress" | "completed" | "cancelled" | ... ; omit for all. */
   list(options?: { disposition?: string; limit?: number }): Promise<Array<{
@@ -87,6 +87,15 @@ interface Work {
   }>>;
   /** Items that are not completed or cancelled. */
   listOpen(): Promise<Array<{ id: string; title: string; disposition: string; workKind: string; priority: string | null }>>;
+  /**
+   * File a proposed Work Item when the user asks for one. Recorded; needs approval.
+   * projectId is required only when the workspace links more than one project.
+   * workKind: "coding" | "research" | "document" | "design" | "operations" | "other" | ...; default "other".
+   * priority: "low" | "medium" | "high" | "critical"; default "medium".
+   */
+  create(input: { title: string; description?: string; projectId?: string; workKind?: string; priority?: string }): Promise<{
+    id: string; title: string; disposition: string; workKind: string; priority: string | null; projectId: string | null; updatedAt: string;
+  }>;
 }`.trim(),
 };
 

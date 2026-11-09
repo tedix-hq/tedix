@@ -195,7 +195,11 @@ export function stepLabel(
 		},
 		apps: { list: "Listing apps" },
 		resources: { list: "Listing resources" },
-		work: { list: "Reading Work items", listOpen: "Reading open Work items" },
+		work: {
+			list: "Reading Work items",
+			listOpen: "Reading open Work items",
+			create: "Filing a Work Item",
+		},
 	};
 	const write =
 		method === "create" ||

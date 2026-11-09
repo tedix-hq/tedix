@@ -23,6 +23,7 @@ import type { BindingName } from "./declarations";
 import { buildSheetBinding } from "./sheet-binding";
 import { buildPresentationBinding } from "./presentation-bindings";
 import type {
+	CreateWorkInput,
 	OutputDetail,
 	OutputSummary,
 	WorkspaceDataPort,
@@ -145,6 +146,8 @@ export function buildWorkspaceBindings(
 					workKind,
 					priority,
 				})),
+		create: (input: CreateWorkInput) =>
+			data.createWork({ ...input, actorId: deps.actor.id }),
 	};
 
 	return {
@@ -207,6 +210,7 @@ export function buildWorkspaceBindings(
 			methods: {
 				list: { riskTier: "read", blastRadius: "none" },
 				listOpen: { riskTier: "read", blastRadius: "none" },
+				create: { riskTier: "bounded_write", blastRadius: "single_resource" },
 			},
 		}),
 	};

@@ -47,6 +47,9 @@ function fixture(ask = false) {
 		listApps: async () => [],
 		listResources: async () => [],
 		listWork: async () => [],
+		createWork: async () => {
+			throw new Error("unused");
+		},
 	};
 	const adapters = createInMemoryAdapters(
 		ask ? { policies: { output: { disposition: "ask" } } } : {},

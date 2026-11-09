@@ -19,7 +19,19 @@ import { listOsGadgets } from "@tedix/db/queries/os-workspaces/gadgets";
 import { listOsWorkspaceProjects } from "@tedix/db/queries/os-workspaces/projects";
 import { listOsWorkspaceResources } from "@tedix/db/queries/os-workspaces/resources";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
-import { listWorkItems } from "@tedix/db/queries/work-items/crud";
+import { getProjectByIdForOrganization } from "@tedix/db/queries/projects";
+import {
+	createWorkItem,
+	listWorkItems,
+} from "@tedix/db/queries/work-items/crud";
+import { workItemPurposeFor } from "@tedix/db/queries/work-items/purpose";
+import {
+	WORK_ITEM_KIND_VALUES,
+	WORK_ITEM_PRIORITY_VALUES,
+	type WorkItem,
+	type WorkItemKind,
+	type WorkItemPriority,
+} from "@tedix/db/schema/work-items";
 import type {
 	OsOutputRevisionRow,
 	OsOutputRow,
@@ -34,6 +46,8 @@ import {
 import type {
 	OutputDetail,
 	OutputSummary,
+	CreateWorkInput,
+	WorkItemSummary,
 	WorkspaceDataPort,
 	WorkspaceSnapshot,
 } from "./data-port";
@@ -360,16 +374,80 @@ export class TenantDataPort implements WorkspaceDataPort {
 		);
 		return pages
 			.flat()
-			.map((item) => ({
-				id: item.id,
-				title: item.title,
-				disposition: item.disposition,
-				workKind: item.workKind,
-				priority: item.priority ?? null,
-				projectId: item.projectId ?? null,
-				updatedAt: item.updatedAt ?? item.createdAt,
-			}))
+			.map(workSummary)
 			.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
 			.slice(0, limit);
 	}
+
+	async createWork(
+		input: CreateWorkInput & { actorId: string },
+	): Promise<WorkItemSummary> {
+		const title = input.title?.trim();
+		if (!title) throw new Error("A Work Item needs a title");
+		const workKind = input.workKind ?? "other";
+		if (!(WORK_ITEM_KIND_VALUES as readonly string[]).includes(workKind))
+			throw new Error(`Unknown Work kind ${workKind}`);
+		const priority = input.priority ?? "medium";
+		if (!(WORK_ITEM_PRIORITY_VALUES as readonly string[]).includes(priority))
+			throw new Error(`Unknown Work priority ${priority}`);
+		const { projectIds } = await this.workspace();
+		const projectId =
+			input.projectId ?? (projectIds.length === 1 ? projectIds[0] : undefined);
+		if (!projectId)
+			throw new Error(
+				projectIds.length === 0
+					? "This workspace is not linked to a project, so it cannot file Work"
+					: `Choose a projectId: ${projectIds.join(", ")}`,
+			);
+		if (!projectIds.includes(projectId))
+			throw new Error("That project is not linked to this workspace");
+		const project = await getProjectByIdForOrganization(
+			this.deps.core,
+			this.deps.organizationId,
+			projectId,
+		);
+		if (!project) throw new Error("Project not found");
+		const now = new Date();
+		const actorType =
+			this.deps.actorKind === "service" ? "system" : this.deps.actorKind;
+		const item = await createWorkItem(this.deps.core, {
+			id: crypto.randomUUID(),
+			orgId: this.deps.organizationId,
+			createdBy: { type: actorType, id: input.actorId },
+			title,
+			...(input.description?.trim()
+				? { description: input.description.trim() }
+				: {}),
+			workKind: workKind as WorkItemKind,
+			priority: priority as WorkItemPriority,
+			projectId,
+			...(this.deps.actorKind === "user"
+				? { stewardType: "user" as const, stewardId: input.actorId }
+				: {}),
+			...workItemPurposeFor({
+				objectiveId: project.objectiveId,
+				workClass: "maintenance",
+				now,
+			}),
+			sourceSessionKey: this.deps.workspaceId,
+			provenance: {
+				source: "os.workspace.chat",
+				workspaceId: this.deps.workspaceId,
+			},
+			createdAt: now.toISOString(),
+		});
+		return workSummary(item);
+	}
+}
+
+function workSummary(item: WorkItem): WorkItemSummary {
+	return {
+		id: item.id,
+		title: item.title,
+		disposition: item.disposition,
+		workKind: item.workKind,
+		priority: item.priority ?? null,
+		projectId: item.projectId ?? null,
+		updatedAt: item.updatedAt ?? item.createdAt,
+	};
 }
