@@ -5,6 +5,7 @@ import { zodToToolInputJsonSchema } from "@tedix/api-contract/utils/tool-json-sc
 import {
 	LaneOutcomeReadError,
 	laneWaitResponse,
+	laneWaitTerminal,
 	parseLaneResult,
 	verifyExistingLaneResult,
 	type ExistingLaneResult,
@@ -198,6 +199,40 @@ describe("structured lane results", () => {
 			expect(laneWaitResponse(wait, value)).toBeUndefined();
 		}
 		expect(laneWaitResponse(wait, {})).toBeUndefined();
+	});
+	it("treats a wait request as terminal only when closed inside its own fence", () => {
+		for (const state of ["cancelled", "expired", "resolved"] as const) {
+			const value = interaction();
+			value.request.state = state;
+			value.effectiveState = state;
+			value.responses.data = [];
+			expect(laneWaitTerminal(wait, value)).toBe(true);
+		}
+		const lapsed = interaction();
+		lapsed.request.state = "open";
+		lapsed.effectiveState = "expired";
+		lapsed.responses.data = [];
+		expect(laneWaitTerminal(wait, lapsed)).toBe(true);
+		const open = interaction();
+		open.request.state = "open";
+		open.effectiveState = "open";
+		expect(laneWaitTerminal(wait, open)).toBe(false);
+		for (const change of [
+			(v: ReturnType<typeof interaction>) => {
+				v.request.id = responseId;
+			},
+			(v: ReturnType<typeof interaction>) => {
+				v.request.orgId = responseId;
+			},
+			(v: ReturnType<typeof interaction>) => {
+				v.request.workItemId = responseId;
+			},
+		]) {
+			const value = interaction();
+			change(value);
+			expect(laneWaitTerminal(wait, value)).toBe(false);
+		}
+		expect(laneWaitTerminal(wait, {})).toBe(false);
 	});
 });
 

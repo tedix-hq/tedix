@@ -5544,7 +5544,7 @@ describe("structured dispatcher outcomes", () => {
 			expect(JSON.stringify(original)).not.toContain(sha);
 		},
 	);
-	it("retains one human request across ticks, restart and Work edits while fresh Work advances", async () => {
+	it("retains one human request across ticks and restart, then releases it on a Work edit while fresh Work advances", async () => {
 		const f = fixture();
 		f.items.splice(1);
 		Object.assign(f.items[0]!, { workKind: "coding", orgId });
@@ -5579,17 +5579,24 @@ describe("structured dispatcher outcomes", () => {
 		f.control.finalMessage = "Fresh result recorded";
 		const restarted = f.restart();
 		await restarted.tick();
-		await until(() => f.releases.length === 2);
+		await until(() => f.releases.length === 3);
 		f.releases[1]!();
+		f.releases[2]!();
 		await restarted.drain();
 		await restarted.tick();
 		await restarted.drain();
+		// The old revision's wait released without an Interaction read: the
+		// revised Work is admitted and checked on its own.
+		expect(JSON.parse(readFileSync(path, "utf8"))).toMatchObject({
+			phase: "deferred",
+			waitReleasedAt: expect.any(Number),
+		});
 		expect(
 			f.events.filter(
 				(e) =>
 					e.verb === "start" && e.args[4] === "work" && e.args[6] === item().id,
 			),
-		).toHaveLength(1);
+		).toHaveLength(2);
 		expect(
 			f.events.some((e) => e.verb === "complete" && e.args[6] === item(2).id),
 		).toBe(true);
@@ -5598,6 +5605,146 @@ describe("structured dispatcher outcomes", () => {
 				["interaction-create", "interaction-respond"].includes(e.verb),
 			),
 		).toBe(false);
+	});
+	it.each(["cancelled", "expired"] as const)(
+		"re-checks the Work when the waited request is %s without a response",
+		async (state) => {
+			const f = fixture();
+			f.items.splice(1);
+			Object.assign(f.items[0]!, { workKind: "coding", orgId });
+			f.control.finalMessage = `TEDIX_LANE_RESULT ${JSON.stringify(waiting())}`;
+			await f.dispatcher.tick();
+			await until(() => f.releases.length === 1);
+			liveFence(f);
+			f.releases[0]!();
+			await f.dispatcher.drain();
+			f.control.history.data[0]!.outcome = "cancelled";
+			f.control.history.data[0]!.metadata = {
+				dispatchVersion: 2,
+				laneResult: waiting(),
+			};
+			const at = "2026-10-31T12:00:00.000Z";
+			const cli = f.deps.cli!;
+			f.deps.cli = async <T>(
+				args: string[],
+				env: NodeJS.ProcessEnv,
+			): Promise<T> => {
+				if (args[5] !== "interaction-get") return cli<T>(args, env);
+				return {
+					request: {
+						id: interactionId,
+						orgId,
+						workItemId: item().id,
+						caseId: null,
+						projectId: null,
+						kind: "question",
+						subject: "Confirm controls",
+						prompt: "Confirm controls",
+						requestedFromType: "user",
+						requestedFromId: "fictional-owner",
+						creatorType: "user",
+						creatorId: "requester",
+						creatorSessionId: null,
+						state: state === "expired" ? "open" : state,
+						requestedAt: at,
+						dueAt: null,
+						expiresAt: state === "expired" ? at : null,
+						resolvedAt: state === "cancelled" ? at : null,
+						version: 2,
+						metadata: {},
+					},
+					effectiveState: state,
+					canRespond: false,
+					canCancel: false,
+					responses: { data: [], hasMore: false, nextCursor: null },
+				} as T;
+			};
+			f.control.finalMessage = "The closed request was re-checked.";
+			f.control.commits = ["b".repeat(40)];
+			const restarted = f.restart();
+			await restarted.tick();
+			await until(() => f.releases.length === 2);
+			f.releases[1]!();
+			await restarted.drain();
+			expect(
+				f.events.filter(
+					(e) =>
+						e.verb === "start" &&
+						e.args[4] === "work" &&
+						e.args[6] === item().id,
+				),
+			).toHaveLength(2);
+			expect(f.events.filter((e) => e.verb === "complete")).toHaveLength(1);
+			await restarted.tick();
+			await restarted.drain();
+			expect(f.releases).toHaveLength(2);
+		},
+	);
+	it("keeps holding while the waited request remains open", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		Object.assign(f.items[0]!, { workKind: "coding", orgId });
+		f.control.finalMessage = `TEDIX_LANE_RESULT ${JSON.stringify(waiting())}`;
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		liveFence(f);
+		f.releases[0]!();
+		await f.dispatcher.drain();
+		f.control.history.data[0]!.outcome = "cancelled";
+		f.control.history.data[0]!.metadata = {
+			dispatchVersion: 2,
+			laneResult: waiting(),
+		};
+		const at = "2026-10-31T12:00:00.000Z";
+		const cli = f.deps.cli!;
+		f.deps.cli = async <T>(
+			args: string[],
+			env: NodeJS.ProcessEnv,
+		): Promise<T> => {
+			if (args[5] !== "interaction-get") return cli<T>(args, env);
+			return {
+				request: {
+					id: interactionId,
+					orgId,
+					workItemId: item().id,
+					caseId: null,
+					projectId: null,
+					kind: "question",
+					subject: "Confirm controls",
+					prompt: "Confirm controls",
+					requestedFromType: "user",
+					requestedFromId: "fictional-owner",
+					creatorType: "user",
+					creatorId: "requester",
+					creatorSessionId: null,
+					state: "open",
+					requestedAt: at,
+					dueAt: null,
+					expiresAt: null,
+					resolvedAt: null,
+					version: 2,
+					metadata: {},
+				},
+				effectiveState: "open",
+				canRespond: false,
+				canCancel: false,
+				responses: { data: [], hasMore: false, nextCursor: null },
+			} as T;
+		};
+		const restarted = f.restart();
+		await restarted.tick();
+		await restarted.drain();
+		expect(f.releases).toHaveLength(1);
+		expect(
+			f.events.filter(
+				(e) =>
+					e.verb === "start" && e.args[4] === "work" && e.args[6] === item().id,
+			),
+		).toHaveLength(1);
+		expect(
+			JSON.parse(readFileSync(join(f.dir, `${item().id}-2.json`), "utf8"))
+				.waitReleasedAt,
+		).toBeUndefined();
 	});
 	it("consumes a resolving human response once, then uses fresh admission on the same Work revision", async () => {
 		const f = fixture();

@@ -14,6 +14,7 @@ import {
 	LaneOutcomeReadError,
 	parseLaneResult,
 	laneWaitResponse,
+	laneWaitTerminal,
 	verifyExistingLaneResult,
 	type LaneResult,
 	type LaneWait,
@@ -718,6 +719,7 @@ interface Receipt {
 	laneResult?: LaneResult;
 	waitResponseId?: string;
 	waitCheckAt?: number;
+	waitReleasedAt?: number;
 	existingProof?: ReturnType<typeof verifyExistingLaneResult>;
 	expectsCode?: boolean;
 	skillRevisionArtifact?: { skillId: string; skillRevision: number };
@@ -1805,9 +1807,10 @@ export class LaneDispatcher {
 					(row) =>
 						row.itemId === item.id &&
 						row.laneResult?.outcome === "waiting_on_user" &&
-						!row.waitResponseId,
+						!row.waitResponseId &&
+						row.waitReleasedAt === undefined,
 				);
-				if (waits.length && !(await this.releaseWaits(waits))) {
+				if (waits.length && !(await this.releaseWaits(waits, item.version))) {
 					this.log(
 						"waiting-on-user",
 						item.id,
@@ -1842,7 +1845,8 @@ export class LaneDispatcher {
 				const previousProcessFinished =
 					previous &&
 					(hasSettledOutcome(previous) ||
-						(previous.waitResponseId &&
+						((previous.waitResponseId !== undefined ||
+							previous.waitReleasedAt !== undefined) &&
 							previous.outcome === "cancelled" &&
 							previous.admissionState === "admitted"));
 				if (
@@ -2198,39 +2202,47 @@ export class LaneDispatcher {
 		renameSync(run, join(archive, `${basename(run)}-${Date.now()}`));
 		this.log("run-archived", itemId, run);
 	}
-	private async releaseWaits(rows: Receipt[]): Promise<boolean> {
+	private async releaseWaits(
+		rows: Receipt[],
+		workVersion: number,
+	): Promise<boolean> {
 		for (const row of rows) {
-			if (
-				!hasSettledOutcome(row) ||
-				row.outcome !== "cancelled" ||
-				row.admissionState !== "admitted" ||
-				!row.attemptId ||
-				!row.session ||
-				!row.executorKey
-			)
-				return false;
-			if (Date.now() < (row.waitCheckAt ?? 0)) return false;
-			row.waitCheckAt = Date.now() + 60_000;
-			this.save(this.path({ id: row.itemId, version: row.version }), row);
-			try {
-				const wait = row.laneResult as LaneWait;
-				const detail = await this.call([
-					"work",
-					"interaction-get",
-					wait.interactionId,
-					"--input",
-					"{}",
-				]);
-				const responseId = laneWaitResponse(wait, detail);
-				if (!responseId) return false;
-				row.waitResponseId = responseId;
-				row.phase = "deferred";
-				row.retryAt = 0;
+			if (row.version === workVersion) {
+				if (
+					!hasSettledOutcome(row) ||
+					row.outcome !== "cancelled" ||
+					row.admissionState !== "admitted" ||
+					!row.attemptId ||
+					!row.session ||
+					!row.executorKey
+				)
+					return false;
+				if (Date.now() < (row.waitCheckAt ?? 0)) return false;
+				row.waitCheckAt = Date.now() + 60_000;
 				this.save(this.path({ id: row.itemId, version: row.version }), row);
-			} catch (error) {
-				this.log("interaction-read-held", row.itemId, String(error));
-				return false;
+				try {
+					const wait = row.laneResult as LaneWait;
+					const detail = await this.call([
+						"work",
+						"interaction-get",
+						wait.interactionId,
+						"--input",
+						"{}",
+					]);
+					const responseId = laneWaitResponse(wait, detail);
+					if (!responseId && !laneWaitTerminal(wait, detail)) return false;
+					if (responseId) row.waitResponseId = responseId;
+				} catch (error) {
+					this.log("interaction-read-held", row.itemId, String(error));
+					return false;
+				}
 			}
+			// A verified answer, a request that can no longer produce one, or a
+			// newer Work revision each end this receipt's hold on dispatch.
+			row.waitReleasedAt = Date.now();
+			row.phase = "deferred";
+			row.retryAt = 0;
+			this.save(this.path({ id: row.itemId, version: row.version }), row);
 		}
 		return true;
 	}
@@ -2449,7 +2461,8 @@ export class LaneDispatcher {
 								JSON.stringify(attempt.metadata.laneResult) ===
 									JSON.stringify(previous.laneResult) &&
 								((previous.laneResult?.outcome === "waiting_on_user" &&
-									previous.waitResponseId !== undefined) ||
+									(previous.waitResponseId !== undefined ||
+										previous.waitReleasedAt !== undefined)) ||
 									previous.laneResult?.outcome === "deferred")
 							)),
 				)
