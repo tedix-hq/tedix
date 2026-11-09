@@ -118,6 +118,48 @@ describe("app runtime host", () => {
 		expect(replaceOutput).not.toHaveBeenCalled();
 	});
 
+	it("explains a typed newer-revision conflict without exposing server details or retrying the draft", async () => {
+		const failure = Object.assign(
+			new Error("internal compare-and-swap details"),
+			{
+				code: "CONFLICT",
+				data: { expectedRevision: 3, currentRevision: 4 },
+			},
+		);
+		const replaceOutput = vi.fn().mockRejectedValue(failure);
+		const onWrite = vi.fn();
+		const host = { ...deps("owner"), replaceOutput, onWrite };
+		host.context.grants = [
+			{ slot: "opportunities", operations: ["outputs.write"] },
+		];
+		const args = {
+			slot: "opportunities",
+			expectedRevision: 3,
+			content: { kind: "document", blocks: [] },
+		};
+		expect(await handleAppRuntimeCall(host, "outputs.replace", args)).toEqual({
+			ok: false,
+			error: "revision_conflict",
+			detail:
+				"A newer revision (4) has been saved. Your changes have not replaced it",
+		});
+		expect(replaceOutput).toHaveBeenCalledOnce();
+		expect(onWrite).not.toHaveBeenCalled();
+		for (const other of [
+			Object.assign(new Error("File moved"), { code: "CONFLICT" }),
+			Object.assign(new Error("Access denied"), { code: "FORBIDDEN" }),
+			Object.assign(new Error("Unknown revision"), {
+				code: "CONFLICT",
+				data: { expectedRevision: 3, currentRevision: null },
+			}),
+		]) {
+			replaceOutput.mockRejectedValueOnce(other);
+			await expect(
+				handleAppRuntimeCall(host, "outputs.replace", args),
+			).rejects.toBe(other);
+		}
+	});
+
 	it("exports only a granted output slot in this workspace at the loaded revision", async () => {
 		const exportOutput = vi.fn(async () => ({
 			filename: "rev-3.pptx",
