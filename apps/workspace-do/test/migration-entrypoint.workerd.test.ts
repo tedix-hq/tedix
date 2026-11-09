@@ -89,6 +89,46 @@ describe("migration through the RPC service entrypoint", () => {
 			status: "imported",
 		});
 		expect(await (await send()).json()).toMatchObject({ status: "duplicate" });
+		// Workspace chats move too, and can be read back for the reconciler.
+		const chat = await entrypoint().fetch(
+			new Request(`${base}/import`, {
+				method: "POST",
+				headers: { authorization: `Bearer ${token}` },
+				body: JSON.stringify({
+					batchId: "chat-1",
+					table: "kernel_conversations",
+					rows: [
+						{
+							id: "kc-1",
+							organization_id: scope.organizationId,
+							conversation_id: "conv-1",
+							workspace_id: scope.workspaceId,
+							last_message_at: "2026-11-07T10:00:00.000Z",
+						},
+					],
+				}),
+			}),
+		);
+		expect(await chat.json()).toMatchObject({
+			rowCount: 1,
+			status: "imported",
+		});
+		const rows = await entrypoint().fetch(
+			new Request(`${base}/rows`, {
+				method: "POST",
+				headers: { authorization: `Bearer ${token}` },
+				body: JSON.stringify({
+					table: "kernel_conversations",
+					after: null,
+					limit: 10,
+				}),
+			}),
+		);
+		expect(
+			((await rows.json()) as { rows: Array<{ id: string }> }).rows.map(
+				(row) => row.id,
+			),
+		).toEqual(["kc-1"]);
 	});
 
 	test("describes the real workspace schema through the bound entrypoint", async () => {
