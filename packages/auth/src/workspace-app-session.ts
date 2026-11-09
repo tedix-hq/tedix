@@ -109,3 +109,66 @@ export async function verifyWorkspaceAppSession(secret: string, token: string) {
 		sessionId: payload.jti,
 	};
 }
+
+/** How long an app call's access check vouches for the capability reads it makes. */
+export const APP_CALL_GRANT_TTL_SECONDS = 60;
+const callGrantAudience = "tedix:workspace-app-capability";
+
+/**
+ * Minted by the API after it re-checked the caller's workspace access for one
+ * app call, bound to that call's session. The capability reads the call makes
+ * within a minute reuse the check instead of repeating it.
+ */
+export async function mintAppCallGrant(
+	secret: string,
+	grant: {
+		sessionId: string;
+		role: WorkspaceAppSession["role"];
+		revisionId: string;
+	},
+) {
+	const now = Math.floor(Date.now() / 1000);
+	return new SignJWT({ grant })
+		.setProtectedHeader({ alg: "HS256", typ: "tedix.workspace-app-call" })
+		.setIssuer(issuer)
+		.setAudience(callGrantAudience)
+		.setIssuedAt(now)
+		.setExpirationTime(now + APP_CALL_GRANT_TTL_SECONDS)
+		.sign(await signingKey(secret));
+}
+
+/** The grant's checked role and revision, or null when it is not valid for this session. */
+export async function verifyAppCallGrant(
+	secret: string,
+	token: string,
+	sessionId: string,
+) {
+	try {
+		const { payload, protectedHeader } = await jwtVerify(
+			token,
+			await signingKey(secret),
+			{
+				issuer,
+				audience: callGrantAudience,
+				algorithms: ["HS256"],
+				maxTokenAge: APP_CALL_GRANT_TTL_SECONDS,
+			},
+		);
+		const grant = z
+			.object({
+				sessionId: z.string().min(1),
+				role: AppRuntimeRoleSchema,
+				revisionId: z.uuid(),
+			})
+			.strict()
+			.parse(payload.grant);
+		if (
+			protectedHeader.typ !== "tedix.workspace-app-call" ||
+			grant.sessionId !== sessionId
+		)
+			return null;
+		return grant;
+	} catch {
+		return null;
+	}
+}
