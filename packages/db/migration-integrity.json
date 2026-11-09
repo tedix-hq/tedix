@@ -1424,6 +1424,10 @@
 		{
 			"name": "20261109201154_external_agent_attribution_retention/migration.sql",
 			"sha256": "6866694edae4a100a0206839ce38b415789068b5a98fc2f6ce97feb49445a7a4"
+		},
+		{
+			"name": "20261109212310_agent_session_pending_heads/migration.sql",
+			"sha256": "7b9b3ee8d9f28bb43cd3330e0d87ca231969922f84405b3331f54547655c5a55"
 		}
 	]
 }
