@@ -153,6 +153,24 @@ const renameTableStatement =
 	/\bALTER\s+TABLE\s+[`"[]?([A-Za-z0-9_]+)[`"\]]?\s+RENAME\s+TO\b/gi;
 
 /**
+ * Statements that can never change what `pragma_foreign_key_list` reports —
+ * data statements, index/trigger/view DDL, pragmas and transaction control.
+ * The replay only needs the table graph, so these are not executed; anything
+ * unrecognized still runs. This is most of a long chain's cost: index and
+ * trigger creation plus backfill INSERTs are pure overhead here, and every
+ * skipped schema object also makes the next `ALTER TABLE` cheaper, because
+ * SQLite reparses the whole schema on each one.
+ */
+const graphNeutralStatement =
+	/^\s*(?:insert|update|delete|replace|select|with|values|pragma|analyze|reindex|vacuum|begin|commit|end|rollback|savepoint|release|explain|create\s+(?:unique\s+)?index|drop\s+index|create\s+(?:temp(?:orary)?\s+)?trigger|drop\s+trigger|create\s+(?:temp(?:orary)?\s+)?view|drop\s+view)\b/i;
+
+/** Whether `statement` can change the replayed reference graph. */
+export function affectsReferenceGraph(statement: string): boolean {
+	const executableSql = statement.replace(sqlCommentsAndStringLiterals, " ");
+	return !graphNeutralStatement.test(executableSql);
+}
+
+/**
  * The tables a statement removes from under its children. A rename counts:
  * renaming a parent rewrites every child's FK to follow it, so in the rebuild
  * idiom the children end up pointing at the old table the next statement drops.
@@ -227,6 +245,10 @@ export function cascadeReviewedTables(sql: string): Set<string> {
  * cascade would fire. When a chunk holds several statements the graph is read
  * as of the chunk's start — conservative by construction, which is the correct
  * direction for a data-destruction gate.
+ *
+ * Statements that cannot change the graph (`affectsReferenceGraph`) are not
+ * executed at all, so the replay stays proportional to real schema history
+ * instead of to every index, trigger and backfill the chain ever ran.
  */
 export function inspectMigrationCascades(
 	database: DatabaseSync,
@@ -235,6 +257,7 @@ export function inspectMigrationCascades(
 ): CascadeHazard[] {
 	const hazards: CascadeHazard[] = [];
 	for (const statement of splitMigrationStatements(sql)) {
+		if (!affectsReferenceGraph(statement)) continue;
 		for (const { operation, table } of parseCascadeTargets(statement)) {
 			const references = findCascadeChildren(database, table);
 			if (references.length > 0) hazards.push({ operation, table, references });

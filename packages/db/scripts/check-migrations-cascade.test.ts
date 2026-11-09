@@ -4,6 +4,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterAll, describe, expect, it } from "vite-plus/test";
 import {
+	affectsReferenceGraph,
 	checkMigrations as checkWithBaseline,
 	findCascadeChildren,
 } from "./check-migrations";
@@ -212,6 +213,55 @@ describe("D1 cascade safety", () => {
 
 	it("passes the real migration chain", () => {
 		if (realChainError) throw realChainError;
+	});
+
+	it("does not execute statements that cannot change the reference graph", () => {
+		// The backfill and index reference tables that never exist; they would
+		// abort the replay if they ran, and they cannot alter any cascade verdict.
+		const directory = chain(
+			["20260101000000_email_tables", EMAIL_TABLES_MIGRATION],
+			[
+				"20260102000000_drop_threads",
+				[
+					REVIEWED,
+					"-- tedix: cascade-reviewed Work-Item: 00000000-0000-4000-8000-000000000000 Table: tedi_email_threads",
+					"INSERT INTO `missing_backfill_source`(`id`) VALUES ('x');--> statement-breakpoint",
+					"CREATE INDEX `idx_missing` ON `missing_table`(`id`);--> statement-breakpoint",
+					"DROP TABLE `tedi_email_threads`;",
+				].join("\n"),
+			],
+		);
+		expect(() => checkMigrations(directory)).not.toThrow();
+	});
+
+	it("classifies statements by whether they can change the graph", () => {
+		for (const statement of [
+			"CREATE TABLE `t` (`id` text PRIMARY KEY);",
+			"CREATE TABLE `t` AS SELECT `id` FROM `s`;",
+			"CREATE VIRTUAL TABLE `t` USING fts5(`id`);",
+			"ALTER TABLE `t` ADD `c` text;",
+			"ALTER TABLE `t` RENAME TO `u`;",
+			"DROP TABLE `t`;",
+		]) {
+			expect(affectsReferenceGraph(statement), statement).toBe(true);
+		}
+		for (const statement of [
+			"INSERT INTO `t`(`id`) SELECT `id` FROM `s`;",
+			"UPDATE `t` SET `id` = 'x';",
+			"DELETE FROM `t`;",
+			"WITH rows AS (SELECT 1) SELECT * FROM rows;",
+			"CREATE UNIQUE INDEX `i` ON `t`(`id`);",
+			"DROP INDEX `i`;",
+			"CREATE TRIGGER `tr` AFTER INSERT ON `t` BEGIN SELECT 1; END;",
+			"DROP TRIGGER `tr`;",
+			"CREATE VIEW `v` AS SELECT 1;",
+			"PRAGMA foreign_keys=OFF;",
+			"-- comment stripped first\nPRAGMA foreign_keys=ON;",
+			"BEGIN;",
+			"COMMIT;",
+		]) {
+			expect(affectsReferenceGraph(statement), statement).toBe(false);
+		}
 	});
 });
 
