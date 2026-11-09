@@ -8,7 +8,13 @@
  * "Remote protocol"); the object applies each batch through its own
  * `importRows`, so idempotency and scope checks are the object's.
  */
-import { readdirSync, readFileSync, mkdirSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	readdirSync,
+	readFileSync,
+	writeFileSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
@@ -86,6 +92,52 @@ export function readTenantStoreMigrations(
 		}));
 }
 
+type Migration = { name: string; sql: string };
+
+/** Applies each migration not yet recorded, one transaction per migration. */
+function applyMigrations(db: DatabaseSync, migrations: Migration[]): void {
+	db.exec(
+		"CREATE TABLE IF NOT EXISTS __drizzle_migrations (id INTEGER PRIMARY KEY, hash TEXT NOT NULL, created_at INTEGER)",
+	);
+	const applied = new Set(
+		db
+			.prepare("SELECT hash FROM __drizzle_migrations")
+			.all()
+			.map((row) => String(row.hash)),
+	);
+	for (const { name, sql } of migrations) {
+		if (applied.has(name)) continue;
+		db.exec("BEGIN");
+		for (const statement of splitSqlStatements(sql)) db.exec(statement);
+		db.prepare(
+			"INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)",
+		).run(name, Date.now());
+		db.exec("COMMIT");
+	}
+}
+
+// Replaying the chain into a file pays one synced commit per migration for
+// every new object (about 300 ms each, far more under disk contention). A new
+// object instead starts from the same chain replayed once in memory.
+const migratedImages = new Map<string, Uint8Array>();
+
+function migratedImage(migrations: Migration[]): Uint8Array {
+	const key = JSON.stringify(migrations);
+	let image = migratedImages.get(key);
+	if (!image) {
+		const db = new DatabaseSync(":memory:");
+		try {
+			db.exec("PRAGMA foreign_keys = OFF");
+			applyMigrations(db, migrations);
+			image = db.serialize();
+		} finally {
+			db.close();
+		}
+		migratedImages.set(key, image);
+	}
+	return image;
+}
+
 /**
  * A SQLite file shaped like one workspace object. Applies the object's
  * migration chain; a mapped table the chain does not create yet is created
@@ -104,10 +156,16 @@ export class LocalWorkspaceStore implements WorkspaceStore {
 		options: {
 			jurisdiction?: string | null;
 			fallbackDdl?: (table: string) => string | null;
-			migrations?: Array<{ name: string; sql: string }>;
+			migrations?: Migration[];
 		} = {},
 	) {
-		if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
+		const migrations = options.migrations ?? readTenantStoreMigrations();
+		if (path !== ":memory:") {
+			mkdirSync(dirname(path), { recursive: true });
+			// "wx" never overwrites an object another opener created first.
+			if (!existsSync(path))
+				writeFileSync(path, migratedImage(migrations), { flag: "wx" });
+		}
 		this.db = new DatabaseSync(path);
 		// Rows arrive in chunks and tables shaped from the snapshot still name
 		// core tables the object does not hold; the object itself has no
@@ -118,27 +176,8 @@ export class LocalWorkspaceStore implements WorkspaceStore {
 			options.jurisdiction === undefined
 				? REQUIRED_JURISDICTION
 				: options.jurisdiction;
-		this.db.exec(
-			"CREATE TABLE IF NOT EXISTS __drizzle_migrations (id INTEGER PRIMARY KEY, hash TEXT NOT NULL, created_at INTEGER)",
-		);
-		const applied = new Set(
-			this.db
-				.prepare("SELECT hash FROM __drizzle_migrations")
-				.all()
-				.map((row) => String(row.hash)),
-		);
-		for (const { name, sql } of options.migrations ??
-			readTenantStoreMigrations()) {
-			if (applied.has(name)) continue;
-			this.db.exec("BEGIN");
-			for (const statement of splitSqlStatements(sql)) this.db.exec(statement);
-			this.db
-				.prepare(
-					"INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)",
-				)
-				.run(name, Date.now());
-			this.db.exec("COMMIT");
-		}
+		// An existing object still gets any migration it lacks.
+		applyMigrations(this.db, migrations);
 		for (const mapping of WORKSPACE_TABLES) {
 			if (hasTable(this.db, mapping.table)) continue;
 			const ddl = options.fallbackDdl?.(mapping.table);
