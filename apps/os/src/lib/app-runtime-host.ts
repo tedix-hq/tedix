@@ -62,6 +62,7 @@ export type AppRuntimeHostError =
 	| "unknown_method"
 	| "bad_arguments"
 	| "slot_unbound"
+	| "revision_conflict"
 	| "host_unavailable";
 
 export type AppRuntimeHostResult =
@@ -240,12 +241,30 @@ export async function handleAppRuntimeCall(
 			);
 			if (!outputId) return { ok: false, error: "slot_unbound" };
 			if (!deps.replaceOutput) return { ok: false, error: "host_unavailable" };
-			const value = await deps.replaceOutput({
-				workspaceId: context.workspaceId,
-				outputId,
-				content: content.data,
-				expectedRevision: Number(args.expectedRevision),
-			});
+			let value: unknown;
+			try {
+				value = await deps.replaceOutput({
+					workspaceId: context.workspaceId,
+					outputId,
+					content: content.data,
+					expectedRevision: Number(args.expectedRevision),
+				});
+			} catch (error) {
+				if (
+					isRecord(error) &&
+					error.code === "CONFLICT" &&
+					isRecord(error.data) &&
+					error.data.expectedRevision === args.expectedRevision &&
+					Number.isSafeInteger(error.data.currentRevision) &&
+					Number(error.data.currentRevision) > Number(args.expectedRevision)
+				)
+					return {
+						ok: false,
+						error: "revision_conflict",
+						detail: `A newer revision (${error.data.currentRevision}) has been saved. Your changes have not replaced it`,
+					};
+				throw error;
+			}
 			deps.onWrite?.();
 			return { ok: true, value };
 		}
