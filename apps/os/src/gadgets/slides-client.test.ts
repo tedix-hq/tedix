@@ -37,6 +37,8 @@ const clickElement = (id = "title-1") =>
 
 function fixture(role = "owner", write = true) {
 	let denied = false;
+	let draftGate: Promise<void> | undefined;
+	let releaseDraft: (() => void) | undefined;
 	let revision = 3,
 		draft: { revision: number; content: PresentationContent } | null = null;
 	let content = projectDeck({
@@ -122,6 +124,7 @@ function fixture(role = "owner", write = true) {
 				throw new Error("Source access denied");
 			if (method === "app.draft.read") return structuredClone(draft);
 			if (method === "app.draft.write") {
+				await draftGate;
 				draft = structuredClone({
 					revision: input.revision,
 					content: input.content,
@@ -164,6 +167,15 @@ function fixture(role = "owner", write = true) {
 		call,
 		result,
 		draft: () => draft,
+		holdDraftWrites() {
+			draftGate = new Promise((resolve) => {
+				releaseDraft = resolve;
+			});
+			return () => {
+				releaseDraft?.();
+				draftGate = undefined;
+			};
+		},
 		deny() {
 			denied = true;
 		},
@@ -226,6 +238,67 @@ async function save() {
 }
 
 describe("portable Slides canvas", () => {
+	it("posts edits before immediate iframe removal and restores them on reopen without a debounce wait", async () => {
+		const api = await mount();
+		document
+			.querySelector<HTMLElement>('.slides-stage [data-element-id="title-1"]')!
+			.dispatchEvent(new Event("dblclick"));
+		const input = field("Edit canvas text") as HTMLTextAreaElement;
+		input.value = "Immediate draft";
+		input.dispatchEvent(new Event("input"));
+		expect(api.call).toHaveBeenCalledWith(
+			"app.draft.write",
+			expect.objectContaining({
+				revision: 3,
+				content: expect.objectContaining({ kind: "presentation" }),
+			}),
+		);
+		document.body.innerHTML = '<div id="app"></div>';
+		const reopened = await mountSlidesClient(
+			document.getElementById("app")!,
+			api.bridge,
+		);
+		cleanup.push(() => reopened.destroy());
+		expect(
+			document.querySelector('.slides-stage [data-element-id="title-1"]')
+				?.textContent,
+		).toBe("Immediate draft");
+		expect(document.querySelector(".slides-status")?.textContent).toContain(
+			"Restored draft",
+		);
+	});
+	it.each(["save", "discard", "denial"] as const)(
+		"clears drafts after all pending write receipts on %s",
+		async (action) => {
+			const api = await mount(),
+				release = api.holdDraftWrites();
+			clickElement();
+			change("Text", "Pending draft");
+			if (action === "save") button("save").click();
+			else {
+				if (action === "denial") api.deny();
+				button("reload").click();
+				button("reload").click();
+			}
+			await Promise.resolve();
+			await Promise.resolve();
+			expect(
+				api.call.mock.calls.some(([method]) => method === "app.draft.clear"),
+			).toBe(false);
+			release();
+			await vi.waitFor(() =>
+				expect(
+					api.call.mock.calls.some(([method]) => method === "app.draft.clear"),
+				).toBe(true),
+			);
+			expect(api.draft()).toBeNull();
+			if (action === "save")
+				expect(api.result().revision.content.slides[0]?.title).toBe(
+					"Pending draft",
+				);
+		},
+	);
+
 	it("edits styled canvas text and notes without replacing artwork or identities", async () => {
 		const api = await mount();
 		const before = api.result().revision.content.deck!;
