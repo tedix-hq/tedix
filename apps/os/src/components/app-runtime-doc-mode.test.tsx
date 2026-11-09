@@ -187,6 +187,7 @@ describe("Doc gadget client selection", () => {
 				expectedRevision: 7,
 			});
 			expect(capabilities.export).toHaveBeenCalledWith({
+				workspaceId,
 				outputId,
 				format: "pdf",
 				expectedRevision: 7,

@@ -1765,6 +1765,45 @@ describe("output export", () => {
 		return { env, calls, puts, bodies, metadata };
 	}
 
+	it("rejects a moved file before rendering even when its revision is unchanged and both workspaces are readable", async () => {
+		const { env, calls, puts } = exportEnv({
+			pdfBytes: new Uint8Array([37, 80, 68, 70]),
+		});
+		const client = createRouterClient(osWorkspacesContractRouter, {
+			context: userContext({ env, organizationId: "org-1" }),
+		});
+		const { workspace: from } = await client.workspaces.create({
+			name: "Drafts",
+		});
+		const { workspace: to } = await client.workspaces.create({
+			name: "Launch",
+		});
+		const { output, revision } = await client.outputs.create({
+			workspaceId: from.id,
+			kind: "document",
+			title: "Moved brief",
+			content: "Saved revision",
+		});
+		await client.outputs.move({ outputId: output.id, workspaceId: to.id });
+		await expect(
+			client.outputs.export({
+				outputId: output.id,
+				format: "pdf",
+				expectedWorkspaceId: from.id,
+				expectedRevision: revision.revision,
+			}),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+		expect(calls).toHaveLength(0);
+		expect(puts).toHaveLength(0);
+		const exported = await client.outputs.export({
+			outputId: output.id,
+			format: "pdf",
+			expectedWorkspaceId: to.id,
+			expectedRevision: revision.revision,
+		});
+		expect(exported.revision).toBe(revision.revision);
+		expect(calls).toHaveLength(1);
+	});
 	it("renders, prints, stores, and links a PDF export of the current revision", async () => {
 		const { env, calls, puts } = exportEnv({
 			pdfBytes: new Uint8Array([37, 80, 68, 70]),

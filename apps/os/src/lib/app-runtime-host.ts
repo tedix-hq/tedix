@@ -91,6 +91,7 @@ export interface AppRuntimeHostDeps {
 		expectedRevision: number;
 	}) => Promise<unknown>;
 	exportOutput?: (input: {
+		workspaceId: string;
 		outputId: string;
 		format: OsOutputExportFormat;
 		expectedRevision: number;
@@ -281,6 +282,7 @@ export async function handleAppRuntimeCall(
 			return {
 				ok: true,
 				value: await deps.exportOutput({
+					workspaceId: context.workspaceId,
 					outputId,
 					format: format.data,
 					expectedRevision: Number(args.expectedRevision),

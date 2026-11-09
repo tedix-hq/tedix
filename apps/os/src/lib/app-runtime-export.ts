@@ -1,13 +1,18 @@
 import type { OsOutputExportFormat } from "@tedix/api-contract/schemas/os-workspaces";
 
 export async function exportAppRuntimeOutput(input: {
+	workspaceId: string;
 	outputId: string;
 	format: OsOutputExportFormat;
 	expectedRevision: number;
 	sheetId?: string;
 }) {
 	const { osApi, OS_API_URL } = await import("./api");
-	const result = await osApi.osWorkspaces.outputs.export(input);
+	const { workspaceId, ...request } = input;
+	const result = await osApi.osWorkspaces.outputs.export({
+		...request,
+		expectedWorkspaceId: workspaceId,
+	});
 	if (result.revision !== input.expectedRevision)
 		throw new Error("The saved revision changed. Reload before exporting.");
 	const url = new URL(result.url);

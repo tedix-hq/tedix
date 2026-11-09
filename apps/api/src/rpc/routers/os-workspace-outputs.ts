@@ -870,6 +870,14 @@ async function renderExportBytes(
 const outputsExport = authorOs.outputs.export.handler(
 	async ({ input, context }) => {
 		const output = await requireOutput(context, input.outputId);
+		if (
+			input.expectedWorkspaceId !== undefined &&
+			input.expectedWorkspaceId !== output.workspaceId
+		)
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"This file moved to another workspace. Reopen it before exporting.",
+			);
 		// The kind gate runs before anything else is loaded or rendered: a
 		// `.pptx` of a spreadsheet is not a degraded export, it is a category
 		// error, and hiding the button in one client is not a refusal.
