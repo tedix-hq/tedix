@@ -407,7 +407,7 @@ export function WorkspaceOutputsPanel({
 				{expanded && workspaceId && (
 					<div className="ml-auto flex items-center gap-1">
 						<Link
-							href="/blueprints?view=explore"
+							href="/blueprints"
 							aria-label="Browse workspace templates"
 							title="Browse templates"
 							className="inline-flex rounded p-1 text-kumo-subtle hover:text-kumo-default"
