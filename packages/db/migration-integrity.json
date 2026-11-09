@@ -1416,6 +1416,10 @@
 		{
 			"name": "20261109181136_agent_session_event_order/migration.sql",
 			"sha256": "6bc707b2cd24aa4ffc694dbfce177c2e1773012677357838f57bb9573e119005"
+		},
+		{
+			"name": "20261109181953_work_event_feed_scope/migration.sql",
+			"sha256": "568b56427ace889c4c846b4548cfbc7f6d376db38078657b85612c6fdc64a519"
 		}
 	]
 }

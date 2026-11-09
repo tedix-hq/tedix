@@ -79,6 +79,7 @@ CREATE TABLE work_evidence (
 );
 CREATE UNIQUE INDEX uniq_work_evidence_observation ON work_evidence(org_id,work_item_id,claim_key,uri,coalesce(digest,''));
 CREATE TABLE work_events (
+ project_id TEXT, objective_id TEXT,
 	sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, org_id TEXT NOT NULL,
 	work_item_id TEXT NOT NULL, attempt_id TEXT, event_type TEXT NOT NULL, actor_type TEXT NOT NULL,
 	actor_id TEXT NOT NULL, actor_session_id TEXT, payload TEXT NOT NULL DEFAULT '{}', occurred_at TEXT NOT NULL

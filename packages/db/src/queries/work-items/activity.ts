@@ -7,7 +7,7 @@ import {
 	PersonalAgentContributionSchema,
 	type PersonalAgentContribution,
 } from "@tedix/api-contract/schemas/personal-agent-inbound";
-import { and, asc, desc, eq, gt, inArray, lt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import type { DbClient } from "../../client";
 import { DelegationFyiSchema } from "@tedix/api-contract/schemas/work-items";
 import type { DelegationFyi } from "./delegation-autonomy";
@@ -111,26 +111,17 @@ export async function listWorkActivity(
 		conditions.push(gt(workEvents.sequence, params.afterSequence));
 	if (params.cursor)
 		conditions.push(
-			or(
-				lt(workEvents.occurredAt, params.cursor.at),
-				and(
-					eq(workEvents.occurredAt, params.cursor.at),
-					lt(workEvents.id, params.cursor.id),
-				),
-			)!,
+			sql`(${workEvents.occurredAt}, ${workEvents.id}) < (${params.cursor.at}, ${params.cursor.id})`,
 		);
 	if (params.workItemId) {
 		conditions.push(eq(workEvents.workItemId, params.workItemId));
 	}
-	// `+column` keeps the planner from starting at the project's or objective's
-	// items and reading every event they ever had: it walks the organization's
-	// events newest first through idx_work_events_org_occurred, joins each item
-	// by key and stops at the page (see activity.plan.test.ts).
+	// Seek within the scope's event index before joining current item details.
 	if (params.projectId) {
-		conditions.push(sql`+${workItems.projectId} = ${params.projectId}`);
+		conditions.push(eq(workEvents.projectId, params.projectId));
 	}
 	if (params.objectiveId) {
-		conditions.push(sql`+${workItems.objectiveId} = ${params.objectiveId}`);
+		conditions.push(eq(workEvents.objectiveId, params.objectiveId));
 	}
 	if (params.eventTypes && params.eventTypes.length > 0) {
 		// bound-params: API contract caps eventTypes at 50 values
