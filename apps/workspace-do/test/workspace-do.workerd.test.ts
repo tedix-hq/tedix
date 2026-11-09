@@ -18,7 +18,8 @@ import {
 	workspaceOutputIndex,
 	workspaceWorkLinks,
 } from "@tedix/db/schema/workspace-feed";
-import { workItems } from "@tedix/db/schema/work-items";
+import { projects } from "@tedix/db/schema/projects";
+import { workEvents, workItems } from "@tedix/db/schema/work-items";
 import { tenantStoreStub } from "@tedix/db/tenant-store/router";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { createOsOutput as createCoreOutput } from "@tedix/db/queries/os-workspaces/outputs";
@@ -161,7 +162,9 @@ async function seedCore() {
 		osWorkspaceResources,
 		osGadgets,
 		tedis,
+		projects,
 		workItems,
+		workEvents,
 	];
 	await testEnv.DB.batch([
 		...tables.map((table) => testEnv.DB.prepare(ddl(table))),
@@ -189,6 +192,9 @@ async function seedCore() {
 				`INSERT OR REPLACE INTO work_items (id, org_id, project_id, title, disposition, work_kind, created_at, updated_at) VALUES (?, ?, 'proj1', ?, ?, 'coding', ?, ?)`,
 			).bind(id, scope.organizationId, title, disposition, now, now),
 		),
+		testEnv.DB.prepare(
+			`INSERT OR REPLACE INTO projects (id, org_id, key, name, objective_id, created_at, updated_at) VALUES ('proj1', ?, 'PRG', 'Programme', 'obj1', ?, ?)`,
+		).bind(scope.organizationId, now, now),
 		testEnv.DB.prepare(
 			`INSERT OR REPLACE INTO tedis (id, organization_id, name, slug, isolate_agent_id, created_at, updated_at) VALUES ('tedi1', ?, 'Guest', 'guest', 'tedi-object-1', ?, ?)`,
 		).bind(scope.organizationId, now, now),
@@ -999,6 +1005,60 @@ describe("WorkspaceDO", () => {
 		expect(
 			await ws.readEvents(scope, { conversationId, after: requested.seq }),
 		).toEqual(after);
+	});
+
+	test("asking to file a Work Item shows a card and files it only after approval", async () => {
+		const ws = workspace();
+		const FILE = `export default async (env) => env.work.create({ title: "Make the Work tab live", description: "Show live Work in the monitor app." })`;
+		await ws.scriptModel(scope, [{ code: FILE }, { text: "unreachable" }]);
+		const { turnId, conversationId } = await ws.sendTurn(scope, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "File a Work Item to make the Work tab live",
+		});
+		await ws.awaitTurn(scope, turnId, 20_000);
+		const events = await ws.readEvents(scope, { conversationId, after: 0 });
+		const requested = events.find(
+			(event) => event.type === "approval.requested",
+		);
+		if (requested?.type !== "approval.requested")
+			throw new Error("no approval card");
+		expect(requested.title).toBe("Filing a Work Item");
+		expect(requested.input).toMatchObject({ title: "Make the Work tab live" });
+		const filed = () =>
+			testEnv.DB.prepare(
+				"SELECT id, project_id, objective_id, disposition, steward_type, steward_id FROM work_items WHERE title = ?",
+			)
+				.bind("Make the Work tab live")
+				.all();
+		expect((await filed()).results).toHaveLength(0);
+
+		await ws.scriptModel(scope, [{ text: "Filed." }]);
+		const decided = await ws.decideApproval(scope, {
+			approvalId: requested.approvalId,
+			decision: "approve",
+			by: "u1",
+		});
+		expect(decided.applied).toBe(true);
+		await ws.awaitTurn(scope, decided.turnId!, 20_000);
+		const rows = (await filed()).results as Array<Record<string, unknown>>;
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({
+			project_id: "proj1",
+			objective_id: "obj1",
+			disposition: "proposed",
+			steward_type: "user",
+			steward_id: "u1",
+		});
+		const created = await testEnv.DB.prepare(
+			"SELECT actor_type, actor_id FROM work_events WHERE work_item_id = ? AND event_type = 'work.created'",
+		)
+			.bind(rows[0]?.id)
+			.first();
+		expect(created).toMatchObject({ actor_type: "user", actor_id: "u1" });
+		await testEnv.DB.prepare("DELETE FROM work_items WHERE id = ?")
+			.bind(rows[0]?.id)
+			.run();
 	});
 
 	test("an approved revision conflict remains failed on repeated decisions", async () => {

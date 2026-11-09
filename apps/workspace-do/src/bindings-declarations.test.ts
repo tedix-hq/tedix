@@ -59,6 +59,15 @@ function fakeData(): WorkspaceDataPort {
 		listApps: async () => [],
 		listResources: async () => [],
 		listWork: async () => work,
+		createWork: async (input) => ({
+			id: "new",
+			title: input.title,
+			disposition: "proposed",
+			workKind: input.workKind ?? "other",
+			priority: input.priority ?? "medium",
+			projectId: input.projectId ?? "p",
+			updatedAt: input.actorId,
+		}),
 	};
 }
 
@@ -179,6 +188,39 @@ describe("workspace bindings", () => {
 		expect(records[0]?.operation).toBe("listOpen");
 		expect(records[0]?.decision.riskTier).toBe("read");
 		expect(records[0]?.outcome).toBe("applied");
+	});
+
+	test("filing a Work Item is a bounded write that holds for approval", async () => {
+		const make = (ask: boolean) => {
+			const adapters = createInMemoryAdapters(
+				ask ? { policies: { work: { disposition: "ask" } } } : {},
+			);
+			const env = buildWorkspaceBindings({
+				data: fakeData(),
+				...adapters,
+				actor: { id: "u1", kind: "user", organizationId: "o" },
+				source: { surface: "workspace_object", traceId: "t" },
+			});
+			return {
+				adapters,
+				work: env.work as { create(input: unknown): Promise<unknown> },
+			};
+		};
+		const held = make(true);
+		await expect(
+			held.work.create({ title: "Make the Work tab live" }),
+		).rejects.toThrow("Approval required");
+		const [hold] = await held.adapters.accountability.list({
+			resource: "work",
+		});
+		expect(hold?.operation).toBe("create");
+		expect(hold?.outcome).toBe("needs_approval");
+		expect(hold?.decision.riskTier).toBe("bounded_write");
+
+		const allowed = make(false);
+		expect(
+			await allowed.work.create({ title: "Make the Work tab live" }),
+		).toMatchObject({ id: "new", disposition: "proposed", updatedAt: "u1" });
 	});
 
 	test("a write records before/after revisions and an undo plan", async () => {

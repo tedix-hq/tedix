@@ -45,6 +45,17 @@ export interface WorkItemSummary {
 	updatedAt: string;
 }
 
+export interface CreateWorkInput {
+	title: string;
+	description?: string;
+	/** Required when the workspace links more than one project. */
+	projectId?: string;
+	/** A Work kind such as "coding", "research" or "document"; default "other". */
+	workKind?: string;
+	/** "low" | "medium" | "high" | "critical"; default "medium". */
+	priority?: string;
+}
+
 export interface WorkspaceSnapshot {
 	id: string;
 	name: string;
@@ -78,4 +89,8 @@ export interface WorkspaceDataPort {
 		disposition?: string;
 		limit?: number;
 	}): Promise<WorkItemSummary[]>;
+	/** Files a proposed Work Item in a project linked to this workspace. */
+	createWork(
+		input: CreateWorkInput & { actorId: string },
+	): Promise<WorkItemSummary>;
 }

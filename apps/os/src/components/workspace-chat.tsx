@@ -826,6 +826,8 @@ function approvalPreview(input: Record<string, unknown> | null): string {
 			.filter(Boolean)
 			.join("\n")
 			.slice(0, 2_000);
+	if (typeof input.description === "string")
+		return input.description.slice(0, 2_000);
 	return "";
 }
 
