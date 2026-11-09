@@ -579,12 +579,14 @@ JSON line with `outcome: "waiting_on_user"`, the existing `interactionId`,
 observed `requestVersion`, `orgId` and recipient `userId`. Structured
 outcomes also require the exact `workItemId`, `workVersion`, `contractVersion`
 and accepted `outcomeText` supplied in the brief. A wait cancels only the
-Attempt, leaves Work open and retains the same request across runner restarts
-and Work edits. It creates no new question. Missing, forbidden, expired,
-cancelled or partial response reads keep the hold. A resolving answer, input
-or accepted handoff from the exact human permits fresh admission and another
-assessment; it grants no provider consent or permission. A declined handoff
-does not release the hold.
+Attempt, leaves Work open and retains the same request across runner restarts.
+It creates no new question. Missing, forbidden or partial response reads and
+a still-open request keep the hold. A resolving answer, input or accepted
+handoff from the exact human permits fresh admission and another assessment;
+it grants no provider consent or permission. A declined handoff does not
+release the hold. A cancelled, expired or otherwise closed request — or a
+newer Work revision — releases the wait so the lane re-checks the item and
+asks a fresh question when it still needs a person.
 
 Every dispatched final answer ends with one `TEDIX_LANE_RESULT` JSON line using
 the Work, version, contract and accepted-outcome fields supplied in its brief.

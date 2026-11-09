@@ -492,7 +492,9 @@ function receiptActivity(
 		);
 		const result = row.laneResult as { outcome?: string } | undefined;
 		const reason =
-			result?.outcome === "waiting_on_user" && !row.waitResponseId
+			result?.outcome === "waiting_on_user" &&
+			!row.waitResponseId &&
+			row.waitReleasedAt === undefined
 				? "reply"
 				: row.admissionState === "unknown"
 					? "confirmation"

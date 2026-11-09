@@ -109,6 +109,23 @@ export function laneWaitResponse(
 	)?.id;
 }
 
+/**
+ * A request that is no longer open can never produce the verified human
+ * response a wait needs: it was cancelled, expired, or closed some other way.
+ * The wait releases so the lane re-checks the Work instead of holding forever.
+ */
+export function laneWaitTerminal(wait: LaneWait, value: unknown): boolean {
+	const parsed = GetWorkInteractionResultSchema.safeParse(value);
+	if (!parsed.success) return false;
+	const { request, effectiveState } = parsed.data;
+	return (
+		request.id === wait.interactionId &&
+		request.orgId === wait.orgId &&
+		request.workItemId === wait.workItemId &&
+		effectiveState !== "open"
+	);
+}
+
 export class LaneOutcomeReadError extends Error {}
 
 const ciRunSchema = z.object({
