@@ -69,6 +69,8 @@ export interface CreateOsOutputRevisionParams extends TenantScope {
 	 * the exact base revision whose access envelope it inherits.
 	 */
 	expectedRevision?: number;
+	/** Fence a gadget save against the output being moved to another workspace. */
+	expectedWorkspaceId?: string;
 }
 
 export type CreateOsOutputRevisionResult =
@@ -401,6 +403,9 @@ export async function createOsOutputRevision(
 			and(
 				eq(osOutputs.id, params.outputId),
 				eq(osOutputs.organizationId, params.organizationId),
+				params.expectedWorkspaceId === undefined
+					? undefined
+					: eq(osOutputs.workspaceId, params.expectedWorkspaceId),
 			),
 		)
 		.limit(1);
@@ -435,6 +440,9 @@ export async function createOsOutputRevision(
 	const sourceConditions = [
 		eq(osOutputs.id, params.outputId),
 		eq(osOutputs.organizationId, params.organizationId),
+		params.expectedWorkspaceId === undefined
+			? undefined
+			: eq(osOutputs.workspaceId, params.expectedWorkspaceId),
 		eq(osOutputs.currentRevisionId, base.id),
 		sql`${currentMaxRevision} = ${base.revision}`,
 	];

@@ -63,6 +63,101 @@ function deps(role: AppRuntimeContext["role"], reads: string[] = []) {
 }
 
 describe("app runtime host", () => {
+	it("saves bounded rich output bodies without opening the arbitrary app-call argument cap", async () => {
+		const replaceOutput = vi.fn(async () => ({
+			output: { id: outputId },
+			revision: { revision: 4 },
+		}));
+		const onWrite = vi.fn();
+		const host = { ...deps("owner"), replaceOutput, onWrite };
+		host.context.grants = [
+			{ slot: "opportunities", operations: ["outputs.read", "outputs.write"] },
+		];
+		const args = {
+			slot: "opportunities",
+			expectedRevision: 3,
+			content: {
+				kind: "document",
+				blocks: Array.from({ length: 4 }, () => ({
+					type: "paragraph",
+					text: "a".repeat(18_000),
+				})),
+			},
+		};
+		expect(
+			await handleAppRuntimeCall(host, "outputs.replace", args),
+		).toMatchObject({ ok: true, value: { revision: { revision: 4 } } });
+		expect(replaceOutput).toHaveBeenCalledWith({
+			workspaceId: resource.workspaceId,
+			outputId,
+			content: args.content,
+			expectedRevision: 3,
+		});
+		expect(onWrite).toHaveBeenCalledOnce();
+		replaceOutput.mockClear();
+		for (const bad of [
+			{ ...args, expectedRevision: 0 },
+			{
+				...args,
+				content: {
+					kind: "document",
+					blocks: [{ type: "paragraph", text: "é".repeat(510_000) }],
+				},
+			},
+		])
+			expect(
+				await handleAppRuntimeCall(host, "outputs.replace", bad),
+			).toMatchObject({ ok: false, error: "bad_arguments" });
+		for (const denied of [
+			{ ...host, context: context("use") },
+			{ ...host, resources: [{ ...resource, workspaceId: "other" }] },
+		])
+			expect(
+				await handleAppRuntimeCall(denied, "outputs.replace", args),
+			).toMatchObject({ ok: false });
+		expect(replaceOutput).not.toHaveBeenCalled();
+	});
+
+	it("exports only a granted output slot in this workspace at the loaded revision", async () => {
+		const exportOutput = vi.fn(async () => ({
+			filename: "rev-3.pptx",
+			revision: 3,
+			format: "pptx" as const,
+		}));
+		const host = { ...deps("owner"), exportOutput };
+		const args = { slot: "opportunities", format: "pptx", expectedRevision: 3 };
+		expect(
+			await handleAppRuntimeCall(host, "app.exportOutput", args),
+		).toMatchObject({ ok: true, value: { revision: 3 } });
+		expect(exportOutput).toHaveBeenCalledWith({
+			outputId,
+			format: "pptx",
+			expectedRevision: 3,
+		});
+		exportOutput.mockClear();
+		for (const denied of [
+			{ ...host, context: { ...host.context, grants: [] } },
+			{ ...host, resources: [{ ...resource, workspaceId: "other" }] },
+			{ ...host, resources: [{ ...resource, status: "removed" as const }] },
+		])
+			expect(
+				await handleAppRuntimeCall(denied, "app.exportOutput", args),
+			).toMatchObject({ ok: false });
+		expect(exportOutput).not.toHaveBeenCalled();
+		expect(
+			await handleAppRuntimeCall(host, "app.exportOutput", {
+				...args,
+				expectedRevision: 0,
+			}),
+		).toMatchObject({ ok: false, error: "bad_arguments" });
+		expect(
+			await handleAppRuntimeCall(host, "app.exportOutput", {
+				...args,
+				format: "exe",
+			}),
+		).toMatchObject({ ok: false, error: "bad_arguments" });
+	});
+
 	it("keeps drafts only in panel memory, scoped to workspace, gadget, app revision and output", async () => {
 		const drafts = new Map<string, AppRuntimeDraft>();
 		const base = deps("owner");

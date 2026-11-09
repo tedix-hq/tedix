@@ -480,6 +480,14 @@ const outputsMove = authorOs.outputs.move.handler(
 const outputsRevise = authorOs.outputs.revise.handler(
 	async ({ input, context }) => {
 		const output = await requireOutput(context, input.outputId);
+		if (
+			input.expectedWorkspaceId !== undefined &&
+			input.expectedWorkspaceId !== output.workspaceId
+		)
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"This file moved to another workspace. Reopen it before saving.",
+			);
 		const base = await requireCurrentOutputRevision(context, output);
 		if (input.expectedRevisionId && input.expectedRevisionId !== base.id)
 			throw revisionConflict(
@@ -501,6 +509,7 @@ const outputsRevise = authorOs.outputs.revise.handler(
 			id: crypto.randomUUID(),
 			organizationId: output.organizationId,
 			outputId: output.id,
+			expectedWorkspaceId: input.expectedWorkspaceId,
 			content: JSON.stringify(content),
 			note: input.note ?? null,
 			createdByKind: creator.kind,
@@ -874,6 +883,14 @@ const outputsExport = authorOs.outputs.export.handler(
 		}
 		const revisionRow = await requireCurrentOutputRevision(context, output);
 		const revision = mapOsOutputRevisionRow(revisionRow);
+		if (
+			input.expectedRevision !== undefined &&
+			input.expectedRevision !== revision.revision
+		)
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"The saved revision changed. Reload before exporting.",
+			);
 		let selectedSheetIndex: number | undefined;
 		if (input.sheetId) {
 			if (input.format !== "csv") {

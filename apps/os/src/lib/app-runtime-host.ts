@@ -12,7 +12,11 @@ import type {
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { appRuntimePermission } from "@tedix/api-contract/utils/app-runtime";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { OsOutputContentSchema } from "@tedix/api-contract/schemas/os-workspaces";
+import {
+	OsOutputContentSchema,
+	OsOutputExportFormatSchema,
+	type OsOutputExportFormat,
+} from "@tedix/api-contract/schemas/os-workspaces";
 import { evaluateWorkbook } from "./workbook-formulas";
 import { normalizeSheetContent, projectWorkbook } from "./output-models";
 
@@ -80,6 +84,22 @@ export interface AppRuntimeHostDeps {
 	onWrite?: () => void;
 	appRevisionId?: string;
 	drafts?: Map<string, AppRuntimeDraft>;
+	replaceOutput?: (input: {
+		workspaceId: string;
+		outputId: string;
+		content: OsOutputContent;
+		expectedRevision: number;
+	}) => Promise<unknown>;
+	exportOutput?: (input: {
+		outputId: string;
+		format: OsOutputExportFormat;
+		expectedRevision: number;
+		sheetId?: string;
+	}) => Promise<{
+		filename: string;
+		revision: number;
+		format: OsOutputExportFormat;
+	}>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -191,6 +211,83 @@ export async function handleAppRuntimeCall(
 			return {
 				ok: true,
 				value: projectWorkbook(evaluateWorkbook(content.workbook!)),
+			};
+		}
+		case "outputs.replace": {
+			if (
+				!isRecord(args) ||
+				typeof args.slot !== "string" ||
+				!Number.isInteger(args.expectedRevision) ||
+				Number(args.expectedRevision) < 1 ||
+				new TextEncoder().encode(JSON.stringify(args.content) ?? "").length >
+					1_000_000
+			)
+				return { ok: false, error: "bad_arguments" };
+			const content = OsOutputContentSchema.safeParse(args.content);
+			if (!content.success) return { ok: false, error: "bad_arguments" };
+			const permission = appRuntimePermission({
+				role: context.role,
+				operation: "outputs.write",
+				grants: context.grants,
+				slot: args.slot,
+			});
+			if (!permission.allowed)
+				return { ok: false, error: "not_permitted", detail: permission.reason };
+			const outputId = outputIdForSlot(
+				deps.resources.filter((row) => row.workspaceId === context.workspaceId),
+				args.slot,
+			);
+			if (!outputId) return { ok: false, error: "slot_unbound" };
+			if (!deps.replaceOutput) return { ok: false, error: "host_unavailable" };
+			const value = await deps.replaceOutput({
+				workspaceId: context.workspaceId,
+				outputId,
+				content: content.data,
+				expectedRevision: Number(args.expectedRevision),
+			});
+			deps.onWrite?.();
+			return { ok: true, value };
+		}
+		case "app.exportOutput": {
+			const format = OsOutputExportFormatSchema.safeParse(
+				isRecord(args) ? args.format : null,
+			);
+			if (
+				!isRecord(args) ||
+				typeof args.slot !== "string" ||
+				!format.success ||
+				!Number.isInteger(args.expectedRevision) ||
+				Number(args.expectedRevision) < 1 ||
+				(args.sheetId !== undefined &&
+					(typeof args.sheetId !== "string" ||
+						!args.sheetId ||
+						args.sheetId.length > 80))
+			)
+				return { ok: false, error: "bad_arguments" };
+			const permission = appRuntimePermission({
+				role: context.role,
+				operation: "outputs.read",
+				grants: context.grants,
+				slot: args.slot,
+			});
+			if (!permission.allowed)
+				return { ok: false, error: "not_permitted", detail: permission.reason };
+			const outputId = outputIdForSlot(
+				deps.resources.filter((row) => row.workspaceId === context.workspaceId),
+				args.slot,
+			);
+			if (!outputId) return { ok: false, error: "slot_unbound" };
+			if (!deps.exportOutput) return { ok: false, error: "host_unavailable" };
+			return {
+				ok: true,
+				value: await deps.exportOutput({
+					outputId,
+					format: format.data,
+					expectedRevision: Number(args.expectedRevision),
+					...(typeof args.sheetId === "string"
+						? { sheetId: args.sheetId }
+						: {}),
+				}),
 			};
 		}
 		case "app.download": {

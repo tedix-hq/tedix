@@ -92,6 +92,41 @@ async function seedOutput(
 }
 
 describe("os outputs", () => {
+	it("fences a gadget save when the output moves after its base revision was read", async () => {
+		let moveBeforeInsert = false;
+		const state = fixture((query) => {
+			if (
+				moveBeforeInsert &&
+				/^insert into "os_output_revisions"/i.test(query)
+			) {
+				moveBeforeInsert = false;
+				state.sqlite.exec(
+					"UPDATE os_outputs SET workspace_id = 'ws-2' WHERE id = 'out-1'",
+				);
+			}
+		});
+		await seedOutput(state.db);
+		moveBeforeInsert = true;
+		const result = await createOsOutputRevision(state.db, {
+			...accountability,
+			id: "moved-save",
+			outputId: "out-1",
+			expectedWorkspaceId: "ws-1",
+			expectedRevision: 1,
+			content:
+				'{"kind":"document","blocks":[{"type":"paragraph","text":"Stale save"}]}',
+		});
+		expect(result.ok).toBe(false);
+		expect(
+			(
+				await getOsOutput(state.db, {
+					organizationId: "org-1",
+					outputId: "out-1",
+				})
+			)?.currentRevisionId,
+		).toBe("out-1-rev-1");
+	});
+
 	it("lists revision metadata without selecting inline bodies", async () => {
 		const queries: string[] = [];
 		const { db } = fixture((query) => queries.push(query));

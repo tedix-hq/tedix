@@ -1784,6 +1784,7 @@ describe("output export", () => {
 		const exported = await client.outputs.export({
 			outputId: output.id,
 			format: "pdf",
+			expectedRevision: 1,
 		});
 		expect(exported).toMatchObject({
 			key: `os-exports/org-1/${output.id}/rev-1.pdf`,
@@ -1793,6 +1794,14 @@ describe("output export", () => {
 			url: `https://api.tedix.test/os-exports/${output.id}/rev-1.pdf`,
 		});
 
+		expect(calls).toHaveLength(1);
+		await expect(
+			client.outputs.export({
+				outputId: output.id,
+				format: "pdf",
+				expectedRevision: 2,
+			}),
+		).rejects.toMatchObject({ code: "CONFLICT" });
 		expect(calls).toHaveLength(1);
 		expect(calls[0]?.action).toBe("pdf");
 		const html = String(calls[0]?.payload.html);
