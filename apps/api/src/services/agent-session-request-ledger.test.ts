@@ -815,6 +815,37 @@ describe("session event pipeline", () => {
 		text,
 	});
 
+	it("uses the full queue batch even when an event takes more than a second", async () => {
+		const db = fixture();
+		await acceptAgentSessionEvents(db, {
+			...owner,
+			now: T0,
+			events: [
+				event("prompt", "Fix the login page", T0),
+				event("prompt", "Fix the logout page", "2026-10-06T10:01:00Z"),
+			],
+		});
+		let clock = Date.now();
+		const time = vi.spyOn(Date, "now").mockImplementation(() => clock);
+		try {
+			expect(
+				await processAgentSessionEvents(
+					db,
+					scripted('{"requests":[]}', '{"requests":[]}').model,
+					owner,
+					{
+						now: () => T0,
+						onRecorded: async () => {
+							clock += 2000;
+						},
+					},
+				),
+			).toBe(2);
+		} finally {
+			time.mockRestore();
+		}
+	});
+
 	it("skips identical prompts at later ticks without skipping changed messages or other sessions", async () => {
 		const db = fixture();
 		await acceptAgentSessionEvents(db, {

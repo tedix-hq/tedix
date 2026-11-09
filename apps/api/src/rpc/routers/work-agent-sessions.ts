@@ -1,4 +1,3 @@
-import { organizationModelEnv } from "../../services/unrouted-model-egress";
 import {
 	OfficeObservationSchema,
 	OfficeActivityRowSchema,
@@ -62,11 +61,7 @@ import {
 	deriveWorkAgentSessionEffectiveState,
 	sanitizeWorkAgentSessionText,
 } from "../../lib/work-agent-session-board";
-import {
-	acceptAgentSessionEvents,
-	processAgentSessionEvents,
-	workersAiLedgerModel,
-} from "../../services/agent-session-request-ledger";
+import { acceptAgentSessionEvents } from "../../services/agent-session-request-ledger";
 import { requireOrgId } from "../org-scope";
 import {
 	type BaseContext,
@@ -618,8 +613,8 @@ async function readSessionEvents(
 }
 
 /**
- * Store the uploaded events and return at once; the observer and reflector
- * run after the response. Each upload also retries earlier pending events.
+ * Store uploaded events and enqueue the owner's durable observer/reflector
+ * drain. Queue continuations also process earlier pending events.
  */
 const recordEventsProcedure = writeOs.recordEvents.handler(
 	async ({ input, context }) => {
@@ -636,47 +631,9 @@ const recordEventsProcedure = writeOs.recordEvents.handler(
 			(input.retryFailed && !result.accepted && !result.retried)
 		)
 			return result;
-		const model = workersAiLedgerModel(
-			organizationModelEnv(context.env, context.db, requireOrgId(context)),
-			owner.organizationId,
-		);
-		const { enqueueRequestFiling } =
-			await import("../../services/request-filing-queue");
-		model.enqueueFilings = async (owner) => {
-			const { automaticFilingEnabled } =
-				await import("../../services/request-filing-settings");
-			if (await automaticFilingEnabled(context.db, owner))
-				await enqueueRequestFiling(context.env, {
-					...owner,
-					ownerSubject: context.user!.sub!,
-				});
-		};
-		model.learn = async (lessons, scope) => {
-			const ownerUserId = context.user?.sub;
-			if (!lessons.length || !ownerUserId) return;
-			const { recordLedgerLessonCandidates, ledgerLessonNoveltyModel } =
-				await import("../../services/request-ledger-lessons");
-			await recordLedgerLessonCandidates(
-				context.db,
-				lessons,
-				{
-					...scope,
-					ownerUserId,
-				},
-				ledgerLessonNoveltyModel(
-					organizationModelEnv(context.env, context.db, scope.organizationId),
-				),
-			);
-		};
-		context.waitUntil?.(
-			processAgentSessionEvents(context.db, model, owner, {
-				onRecorded: async (scope) => {
-					const { captureLocalKernelRequests } =
-						await import("../../kernel/request-local-source");
-					await captureLocalKernelRequests(context, scope);
-				},
-			}).catch(() => 0),
-		);
+		const { enqueueAgentSessionEvents } =
+			await import("../../services/agent-session-event-queue");
+		await enqueueAgentSessionEvents(context.env, owner);
 		return result;
 	},
 );

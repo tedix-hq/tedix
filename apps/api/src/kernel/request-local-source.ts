@@ -21,7 +21,7 @@ import { readKernelRequestPolicy } from "./request-home-source";
 import { kernelAcceptanceReader } from "./request-target-readers";
 
 async function capture(
-	context: BaseContext,
+	context: Pick<BaseContext, "db">,
 	source: AgentSessionRequestRow,
 	policy: KernelRequestPolicy,
 ) {
@@ -44,7 +44,7 @@ async function capture(
 
 /** Source text remains in its private ledger; only identities enter the coordinator. */
 export async function captureLocalKernelRequests(
-	context: BaseContext,
+	context: Pick<BaseContext, "db" | "userId" | "user" | "descopeUserId">,
 	scope: {
 		organizationId: string;
 		userId: string;
@@ -53,7 +53,10 @@ export async function captureLocalKernelRequests(
 		sourceAt: string;
 	},
 ) {
-	if ((context.user?.sub ?? context.descopeUserId) !== scope.userId)
+	if (
+		(context.userId ?? context.user?.sub ?? context.descopeUserId) !==
+		scope.userId
+	)
 		throw new Error("Private request owner mismatch");
 	const policy = await readKernelRequestPolicy(context, scope.organizationId);
 	if (!policy) return;
@@ -76,7 +79,10 @@ export async function bindLocalKernelRequest(
 	workItemId: string,
 	checks: KernelAcceptanceCheck[],
 ) {
-	if ((context.user?.sub ?? context.descopeUserId) !== source.userId)
+	if (
+		(context.userId ?? context.user?.sub ?? context.descopeUserId) !==
+		source.userId
+	)
 		throw new Error("Private request owner mismatch");
 	const policy = await readKernelRequestPolicy(context, source.organizationId);
 	if (!policy) throw new Error("Kernel request acceptance is not configured");

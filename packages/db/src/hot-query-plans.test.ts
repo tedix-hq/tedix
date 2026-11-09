@@ -199,6 +199,9 @@ describe("hot production query plans", () => {
 			else await claimAgentSessionEvent(query, params);
 			const plan = lastPlan("agent_session_events");
 			expect(plan).toContain(
+				"SEARCH agent_session_events USING INTEGER PRIMARY KEY (rowid=?)",
+			);
+			expect(plan).toContain(
 				"SEARCH earlier_session_event USING COVERING INDEX idx_agent_session_events_session_order (organization_id=? AND user_id=? AND harness=? AND session_key=? AND status=?",
 			);
 			expect(plan).not.toMatch(

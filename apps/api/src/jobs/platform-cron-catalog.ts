@@ -10,6 +10,7 @@ export type PlatformCronFreshnessState =
 	| "disabled";
 
 export const PLATFORM_CRON_IDS = [
+	"agent-session-event-drain",
 	"agent-review-triage",
 	"deck-pipeline-sweep",
 	"factory-weight-update",
@@ -75,6 +76,7 @@ interface PlatformCronDefinition {
 }
 
 const everyTwoMinuteIds = [
+	"agent-session-event-drain",
 	"decision-outcome-labeller",
 	"provider-event-maintenance",
 	"graph-projection-drain",

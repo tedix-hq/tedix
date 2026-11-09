@@ -102,6 +102,23 @@ export async function handleAutomationEventMessage(
 		body &&
 		typeof body === "object" &&
 		"kind" in body &&
+		body.kind === "agent_session_events"
+	) {
+		const { AgentSessionEventQueueSchema, processAgentSessionEventQueue } =
+			await import("../services/agent-session-event-queue");
+		const parsed = AgentSessionEventQueueSchema.safeParse(body);
+		if (!parsed.success) return "ack";
+		try {
+			await processAgentSessionEventQueue(env, parsed.data);
+			return "ack";
+		} catch {
+			return "retry";
+		}
+	}
+	if (
+		body &&
+		typeof body === "object" &&
+		"kind" in body &&
 		body.kind === "request_filing"
 	) {
 		const { RequestFilingQueueSchema, processRequestFilingQueue } =
