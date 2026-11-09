@@ -30,7 +30,10 @@ function psFacts(pid: number): LaneProcessFacts | undefined {
 
 function defaultFactsReader(pid: number): LaneProcessFacts | undefined {
 	const kernel = kernelProcessFacts(pid);
-	if (kernel?.argv.length)
+	// On Linux an empty /proc cmdline means exec is still in progress. Falling
+	// back to ps then would hash its lstart tokens, which never match the
+	// kernel start tick read later, so the same process could not be reaped.
+	if (kernel && (kernel.argv.length || process.platform === "linux"))
 		return { pgid: kernel.pgid, start: kernel.start, argv: kernel.argv };
 	try {
 		return psFacts(pid);
