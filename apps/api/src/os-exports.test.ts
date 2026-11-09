@@ -54,7 +54,7 @@ const request = (
 beforeEach(() => {
 	vi.clearAllMocks();
 	mocks.validate.mockRejectedValue(new Error("invalid token"));
-	mocks.output.mockResolvedValue({ id: "output-1" });
+	mocks.output.mockResolvedValue({ id: "output-1", title: "" });
 	mocks.revision.mockResolvedValue({
 		id: "revision-2",
 		content: '{"kind":"document","blocks":[]}',
@@ -107,6 +107,22 @@ describe("authenticated output exports", () => {
 		);
 		expect(response.headers.get("Cache-Control")).toBe("private, no-store");
 		expect(mocks.validate).not.toHaveBeenCalled();
+	});
+	it("names the saved file after the output, keeping an ASCII fallback", async () => {
+		mocks.output.mockResolvedValue({
+			id: "output-1",
+			title: 'Q3 "Budget": Plan/Draft',
+		});
+		const response = await worker.fetch(
+			new Request("http://api/os-exports/output-1/rev-2-tab-3.csv", {
+				headers: { Authorization: "Bearer tedix-local-demo" },
+			}),
+			env as unknown as CloudflareEnv,
+			{} as ExecutionContext,
+		);
+		expect(response.headers.get("Content-Disposition")).toBe(
+			"attachment; filename=\"rev-2-tab-3.csv\"; filename*=UTF-8''Q3%20Budget%20Plan%20Draft%20%28rev%202%29-tab-3.csv",
+		);
 	});
 	it("serves a per-tab CSV filename from the same authenticated route", async () => {
 		const response = await worker.fetch(

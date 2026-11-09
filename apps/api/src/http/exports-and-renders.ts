@@ -332,12 +332,25 @@ export function registerExportsAndRenders(
 		// A PDF or an image is viewable in place. An Office file is not, and
 		// serving it as an attachment is also what keeps this route inert on the
 		// trusted origin — see isAgentAuthoredBytePath in lib/untrusted-origin.ts.
-		const disposition =
-			extension === "pdf" || extension === "png"
-				? "inline"
-				: // The regex above constrains every character in `file`. `outputId`
-					// remains excluded because it is an unvalidated path parameter.
-					`attachment; filename="${file}"`;
+		// The regex above constrains every character in `file`, so it is the safe
+		// ASCII fallback. The saved name a person sees is the output's title,
+		// RFC 5987-encoded, so "rev-6.xlsx" lands as "Budget (rev 6).xlsx".
+		const title = output.title
+			.replace(/[\p{Cc}\\/:*?"<>|]+/gu, " ")
+			.replace(/\s+/g, " ")
+			.trim()
+			.slice(0, 120);
+		const named = title
+			? `; filename*=UTF-8''${encodeURIComponent(
+					`${title} (rev ${match[1]})${file.slice(`rev-${match[1]}`.length)}`,
+				).replace(
+					/['()*]/g,
+					(char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+				)}`
+			: "";
+		const disposition = `${
+			extension === "pdf" || extension === "png" ? "inline" : "attachment"
+		}; filename="${file}"${named}`;
 		return new Response(object.body, {
 			headers: {
 				"X-Content-Type-Options": "nosniff",
