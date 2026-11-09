@@ -32,6 +32,10 @@ import {
 	type D1RetentionPolicyRow,
 	d1RetentionPolicies,
 } from "../schema/d1-retention";
+import {
+	externalAgentAttributions,
+	externalAgentReviewEvidence,
+} from "../schema/external-agent-identity";
 import { LOGS_DB_TABLE_NAMES } from "../schema/logs-db";
 import { memoryFacts } from "../schema/memory-graph";
 import { osGadgetExecutions } from "../schema/os-workspaces";
@@ -85,6 +89,13 @@ function spec(
 }
 
 /**
+ * Floor for attribution moves. The attribution writers look in the logs
+ * database before inserting a row at least this old (minus a day of clock
+ * slack), so a replay of a moved row is answered from its copy.
+ */
+export const EXTERNAL_AGENT_ATTRIBUTION_MIN_KEEP_DAYS = 30;
+
+/**
  * Tables the engine may touch. A table belongs here only when nothing
  * references its rows with a foreign key (a delete could otherwise fail or
  * cascade) and readers tolerate old rows disappearing.
@@ -129,6 +140,16 @@ export const D1_RETENTION_TABLES: Readonly<
 		tediCallCosts.createdAt,
 		"text",
 		400,
+		true,
+	),
+	// Provenance: only verified-copy moves, and only `mcp_execution` rows that
+	// no review evidence cites (`attributionIsMovable`).
+	external_agent_attributions: spec(
+		"external_agent_attributions",
+		externalAgentAttributions,
+		externalAgentAttributions.occurredAt,
+		"text",
+		EXTERNAL_AGENT_ATTRIBUTION_MIN_KEEP_DAYS,
 		true,
 	),
 });
@@ -493,6 +514,40 @@ async function movableArtifactRowids(
 }
 
 /**
+ * An attribution leaves the main database only as a gateway-recorded MCP
+ * execution that no review evidence cites: reviews reference their execution
+ * with a restricting foreign key, and the other target types are rare and
+ * point at Work. Correlated through the review table's (organization,
+ * execution) unique index.
+ */
+function attributionIsMovable(): SQL {
+	return sql`${externalAgentAttributions.targetType} = 'mcp_execution' AND NOT EXISTS (
+		SELECT 1 FROM ${externalAgentReviewEvidence}
+		WHERE ${externalAgentReviewEvidence.organizationId} = ${externalAgentAttributions.organizationId}
+		AND ${externalAgentReviewEvidence.executionAttributionId} = ${externalAgentAttributions.id}
+	)`;
+}
+
+/** Rowids among `rowids` that `attributionIsMovable` accepts right now. */
+async function movableAttributionRowids(
+	db: DbQueryClient,
+	rowids: readonly number[],
+): Promise<Set<number>> {
+	const movable = new Set<number>();
+	for (let start = 0; start < rowids.length; start += D1_RETENTION_PAGE_ROWS) {
+		const chunk = rowids.slice(start, start + D1_RETENTION_PAGE_ROWS);
+		const rows = await db
+			.select({ rowid: sql<number>`rowid`.as("attribution_rowid") })
+			.from(externalAgentAttributions)
+			.where(
+				sql`rowid IN (SELECT value FROM json_each(${JSON.stringify(chunk)})) AND ${attributionIsMovable()}`,
+			);
+		for (const row of rows) movable.add(Number(row.rowid));
+	}
+	return movable;
+}
+
+/**
  * Filter expired candidates before copying. Keep the raw page's cursor and
  * end marker: an entirely pinned page does not mean the sweep has ended.
  * Callers accumulate referencedRows in the run report.
@@ -502,11 +557,27 @@ export async function filterD1RetentionReferencedRows(
 	tableSpec: D1RetentionTableSpec,
 	rows: D1RetentionRow[],
 ): Promise<{ rows: D1RetentionRow[]; referencedRows: number }> {
-	if (tableSpec.tableName !== "skill_run_artifacts" || rows.length === 0)
-		return { rows, referencedRows: 0 };
-	const movable = await movableArtifactRowids(db, rows);
+	if (rows.length === 0) return { rows, referencedRows: 0 };
+	let movable: Set<number>;
+	if (tableSpec.tableName === "skill_run_artifacts")
+		movable = await movableArtifactRowids(db, rows);
+	else if (tableSpec.tableName === "external_agent_attributions")
+		movable = await movableAttributionRowids(
+			db,
+			rows.map((row) => row.__rowid),
+		);
+	else return { rows, referencedRows: 0 };
 	const filtered = rows.filter((row) => movable.has(row.__rowid));
 	return { rows: filtered, referencedRows: rows.length - filtered.length };
+}
+
+/** Table-specific condition every retention delete repeats. */
+function retentionDeleteGuard(tableSpec: D1RetentionTableSpec): SQL {
+	if (tableSpec.tableName === "skill_run_artifacts")
+		return artifactRunIsTerminal();
+	if (tableSpec.tableName === "external_agent_attributions")
+		return attributionIsMovable();
+	return sql`1 = 1`;
 }
 
 /**
@@ -515,7 +586,8 @@ export async function filterD1RetentionReferencedRows(
  * rowid), and the cutoff is tested again so a row can never be removed while
  * it is still inside the keep window. Artifact rows also require a finished,
  * non-restarting run; `deleteD1RetentionRows` re-applies the reference pins
- * before building these.
+ * before building these. Attribution rows are re-tested against
+ * `attributionIsMovable`, so a review recorded since the copy keeps its row.
  */
 export function buildD1RetentionDeleteStatements(
 	db: DbQueryClient,
@@ -531,7 +603,7 @@ export function buildD1RetentionDeleteStatements(
 				.delete(tableSpec.table)
 				.where(
 					sql`rowid IN (SELECT value FROM json_each(${JSON.stringify(chunk)})) AND ${tableSpec.timestamp} < ${cutoff}
-					AND ${tableSpec.tableName === "skill_run_artifacts" ? artifactRunIsTerminal() : sql`1 = 1`}`,
+					AND ${retentionDeleteGuard(tableSpec)}`,
 				)
 				.returning({ rowid: sql<number>`rowid` }),
 		);

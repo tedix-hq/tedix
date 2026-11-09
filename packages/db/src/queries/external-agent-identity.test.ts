@@ -2,9 +2,11 @@ import { listExternalAgentSessionHarnessesByIds } from "./external-agent-identit
 import { DatabaseSync } from "node:sqlite";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
-import { createDbClient, type DbClient } from "../client";
+import { configureLogStore, createDbClient, type DbClient } from "../client";
+import { externalAgentAttributions } from "../schema/external-agent-identity";
 import { workAttempts } from "../schema/work-items";
 import { createD1Facade } from "../test/d1-facade";
+import { tableDdl } from "../test/schema-ddl";
 import {
 	recordExternalAgentAttribution,
 	resolveExternalAgentAttributionStamp,
@@ -222,6 +224,47 @@ function reviewInput(
 }
 
 describe("external-agent identity", () => {
+	it("answers a replay of an attribution the retention move took to the logs store", async () => {
+		const db = fixture();
+		const actor = await principal(db);
+		await openExternalAgentSession(db, sessionInput(actor.id));
+		const original = await execution(db);
+		const logsSqlite = new DatabaseSync(":memory:");
+		for (const statement of tableDdl(externalAgentAttributions, {
+			foreignKeys: false,
+		}))
+			logsSqlite.exec(statement);
+		const logsBinding = createD1Facade(logsSqlite);
+		await createDbClient(logsBinding)
+			.insert(externalAgentAttributions)
+			.values(original);
+		await db
+			.delete(externalAgentAttributions)
+			.where(eq(externalAgentAttributions.id, original.id));
+		configureLogStore(db, { LOGS_DB: logsBinding });
+
+		await expect(
+			execution(db, { id: "00000000-0000-4000-8000-000000000031" }),
+		).resolves.toEqual(original);
+		expect(await db.select().from(externalAgentAttributions)).toEqual([]);
+		await expect(
+			recordExternalAgentAttribution(db, {
+				id: "00000000-0000-4000-8000-000000000032",
+				organizationId: ORG,
+				principalId: actor.id,
+				sessionId: original.sessionId,
+				targetType: "mcp_execution",
+				targetId: "execution-1",
+				role: "executor",
+				metadata: { changed: true },
+				occurredAt: NOW,
+			}),
+		).rejects.toMatchObject<Partial<ExternalAgentIdentityError>>({
+			reason: "immutable_session_conflict",
+		});
+		expect(await db.select().from(externalAgentAttributions)).toEqual([]);
+	});
+
 	it("matches knowledge Work Item checkouts by the full external-agent identity", async () => {
 		const db = fixture();
 		await db.insert(workAttempts).values({

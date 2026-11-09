@@ -1420,6 +1420,10 @@
 		{
 			"name": "20261109181953_work_event_feed_scope/migration.sql",
 			"sha256": "568b56427ace889c4c846b4548cfbc7f6d376db38078657b85612c6fdc64a519"
+		},
+		{
+			"name": "20261109201154_external_agent_attribution_retention/migration.sql",
+			"sha256": "6866694edae4a100a0206839ce38b415789068b5a98fc2f6ce97feb49445a7a4"
 		}
 	]
 }

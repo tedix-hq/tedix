@@ -13,16 +13,17 @@ feature flag, no configuration row.
 
 ## Where each class goes
 
-| Class                                     | New rows                                                                    | Rows past the keep window                                 |
-| ----------------------------------------- | --------------------------------------------------------------------------- | --------------------------------------------------------- |
-| Known MCP execution telemetry             | `LOGS_DB.audit_events` (`queries/audit.ts`), metadata over 4 KiB in R2      | `move_to_logs_db`                                         |
-| Every other audit action                  | Main D1, including rows composed into a main-database batch                 | `move_to_logs_db`                                         |
-| `tedi_runtime_events`                     | Main D1                                                                     | `move_to_logs_db`                                         |
-| `kernel_runtime_events`                   | Main D1                                                                     | `move_to_logs_db`                                         |
-| `kernel_request_events`                   | Main D1                                                                     | Not moved: request CAS and history append share one batch |
-| `skill_run_artifacts`                     | Pointer row in main D1; body in the private artifact bucket when over 4 KiB | `move_to_logs_db`                                         |
-| Workflow source snapshots                 | Main D1 `skill_workflow_sources`, one row per skill and SHA-256             | n/a                                                       |
-| Financial ledgers, security audit, grants | Main D1                                                                     | `tedi_call_costs` keeps its archive-only policy           |
+| Class                                     | New rows                                                                    | Rows past the keep window                                             |
+| ----------------------------------------- | --------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Known MCP execution telemetry             | `LOGS_DB.audit_events` (`queries/audit.ts`), metadata over 4 KiB in R2      | `move_to_logs_db`                                                     |
+| Every other audit action                  | Main D1, including rows composed into a main-database batch                 | `move_to_logs_db`                                                     |
+| `tedi_runtime_events`                     | Main D1                                                                     | `move_to_logs_db`                                                     |
+| `kernel_runtime_events`                   | Main D1                                                                     | `move_to_logs_db`                                                     |
+| `kernel_request_events`                   | Main D1                                                                     | Not moved: request CAS and history append share one batch             |
+| `skill_run_artifacts`                     | Pointer row in main D1; body in the private artifact bucket when over 4 KiB | `move_to_logs_db`                                                     |
+| `external_agent_attributions`             | Main D1 (credential-checked insert, unique key)                             | `move_to_logs_db`, 30-day floor, unreviewed `mcp_execution` rows only |
+| Workflow source snapshots                 | Main D1 `skill_workflow_sources`, one row per skill and SHA-256             | n/a                                                                   |
+| Financial ledgers, security audit, grants | Main D1                                                                     | `tedi_call_costs` keeps its archive-only policy                       |
 
 The execution telemetry allowlist covers `mcp.tool.execute`, `mcp.tool.error`,
 `mcp.code.execute`, `mcp.code.error`, `mcp.prompt.execute`, `mcp.prompt.error`,

@@ -38,6 +38,13 @@ describe("D1 retention policy migrations", () => {
 			keep_days: 14,
 			max_rows_per_run: 6000,
 		});
+		expect(
+			sqlite
+				.prepare(
+					"SELECT mode, keep_days, max_rows_per_run FROM d1_retention_policies WHERE table_name = 'external_agent_attributions'",
+				)
+				.get(),
+		).toEqual({ mode: "dry_run", keep_days: 30, max_rows_per_run: 5000 });
 		sqlite.close();
 	});
 

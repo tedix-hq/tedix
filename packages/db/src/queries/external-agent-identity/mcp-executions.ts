@@ -8,6 +8,7 @@ import {
 	externalAgentMcpCredentials,
 	externalAgentSessions,
 } from "../../schema/external-agent-identity";
+import { readMovedExternalAgentAttribution } from "./attribution";
 import { ExternalAgentIdentityError } from "./principals";
 
 function stableJson(value: unknown): string {
@@ -53,60 +54,79 @@ export async function recordVerifiedExternalAgentMcpExecution(
 		"authorized_credential",
 	);
 	const authorizedSession = alias(externalAgentSessions, "authorized_session");
-	const inserted = await db
-		.insert(externalAgentAttributions)
-		.select(
-			db
-				.select({
-					id: sql<string>`${input.id}`.as("id"),
-					organizationId: sql<string>`${input.organizationId}`.as(
-						"organization_id",
-					),
-					principalId: sql<string>`${input.principalId}`.as("principal_id"),
-					sessionId: sql<string>`${input.sessionId}`.as("session_id"),
-					targetType: sql<"mcp_execution">`'mcp_execution'`.as("target_type"),
-					targetId: sql<string>`${input.targetId}`.as("target_id"),
-					role: sql<"executor">`'executor'`.as("role"),
-					workItemId: sql<null>`NULL`.as("work_item_id"),
-					metadata: sql<
-						Record<string, JsonValue>
-					>`${JSON.stringify(metadata)}`.as("metadata"),
-					occurredAt: sql<string>`${input.occurredAt}`.as("occurred_at"),
-				})
-				.from(authorizedCredential)
-				.innerJoin(
-					authorizedSession,
-					and(
-						eq(
-							authorizedSession.organizationId,
-							authorizedCredential.organizationId,
+	const key = {
+		organizationId: input.organizationId,
+		targetType: "mcp_execution",
+		targetId: input.targetId,
+		role: "executor",
+		principalId: input.principalId,
+	} as const;
+	const moved = await readMovedExternalAgentAttribution(
+		db,
+		key,
+		input.occurredAt,
+	);
+	const inserted = moved
+		? []
+		: await db
+				.insert(externalAgentAttributions)
+				.select(
+					db
+						.select({
+							id: sql<string>`${input.id}`.as("id"),
+							organizationId: sql<string>`${input.organizationId}`.as(
+								"organization_id",
+							),
+							principalId: sql<string>`${input.principalId}`.as("principal_id"),
+							sessionId: sql<string>`${input.sessionId}`.as("session_id"),
+							targetType: sql<"mcp_execution">`'mcp_execution'`.as(
+								"target_type",
+							),
+							targetId: sql<string>`${input.targetId}`.as("target_id"),
+							role: sql<"executor">`'executor'`.as("role"),
+							workItemId: sql<null>`NULL`.as("work_item_id"),
+							metadata: sql<
+								Record<string, JsonValue>
+							>`${JSON.stringify(metadata)}`.as("metadata"),
+							occurredAt: sql<string>`${input.occurredAt}`.as("occurred_at"),
+						})
+						.from(authorizedCredential)
+						.innerJoin(
+							authorizedSession,
+							and(
+								eq(
+									authorizedSession.organizationId,
+									authorizedCredential.organizationId,
+								),
+								eq(
+									authorizedSession.principalId,
+									authorizedCredential.principalId,
+								),
+								eq(authorizedSession.id, authorizedCredential.sessionId),
+							),
+						)
+						.where(
+							and(
+								eq(authorizedCredential.organizationId, input.organizationId),
+								eq(authorizedCredential.principalId, input.principalId),
+								eq(authorizedCredential.sessionId, input.sessionId),
+								eq(authorizedCredential.clientRecordId, input.clientRecordId),
+								lte(authorizedCredential.issuedAt, input.occurredAt),
+								gte(authorizedCredential.expiresAt, input.occurredAt),
+								or(
+									isNull(authorizedCredential.revokedAt),
+									gte(authorizedCredential.revokedAt, input.occurredAt),
+								),
+								lte(authorizedSession.startedAt, input.occurredAt),
+								or(
+									isNull(authorizedSession.endedAt),
+									gte(authorizedSession.endedAt, input.occurredAt),
+								),
+							),
 						),
-						eq(authorizedSession.principalId, authorizedCredential.principalId),
-						eq(authorizedSession.id, authorizedCredential.sessionId),
-					),
 				)
-				.where(
-					and(
-						eq(authorizedCredential.organizationId, input.organizationId),
-						eq(authorizedCredential.principalId, input.principalId),
-						eq(authorizedCredential.sessionId, input.sessionId),
-						eq(authorizedCredential.clientRecordId, input.clientRecordId),
-						lte(authorizedCredential.issuedAt, input.occurredAt),
-						gte(authorizedCredential.expiresAt, input.occurredAt),
-						or(
-							isNull(authorizedCredential.revokedAt),
-							gte(authorizedCredential.revokedAt, input.occurredAt),
-						),
-						lte(authorizedSession.startedAt, input.occurredAt),
-						or(
-							isNull(authorizedSession.endedAt),
-							gte(authorizedSession.endedAt, input.occurredAt),
-						),
-					),
-				),
-		)
-		.onConflictDoNothing()
-		.returning({ id: externalAgentAttributions.id });
+				.onConflictDoNothing()
+				.returning({ id: externalAgentAttributions.id });
 	if (inserted[0]) {
 		const created = await db
 			.select()
@@ -115,20 +135,23 @@ export async function recordVerifiedExternalAgentMcpExecution(
 			.limit(1);
 		return created[0]!;
 	}
-	const rows = await db
-		.select()
-		.from(externalAgentAttributions)
-		.where(
-			and(
-				eq(externalAgentAttributions.organizationId, input.organizationId),
-				eq(externalAgentAttributions.targetType, "mcp_execution"),
-				eq(externalAgentAttributions.targetId, input.targetId),
-				eq(externalAgentAttributions.role, "executor"),
-				eq(externalAgentAttributions.principalId, input.principalId),
-			),
-		)
-		.limit(1);
-	const existing = rows[0];
+	const existing =
+		moved ??
+		(
+			await db
+				.select()
+				.from(externalAgentAttributions)
+				.where(
+					and(
+						eq(externalAgentAttributions.organizationId, key.organizationId),
+						eq(externalAgentAttributions.targetType, key.targetType),
+						eq(externalAgentAttributions.targetId, key.targetId),
+						eq(externalAgentAttributions.role, key.role),
+						eq(externalAgentAttributions.principalId, key.principalId),
+					),
+				)
+				.limit(1)
+		)[0];
 	if (
 		existing?.sessionId === input.sessionId &&
 		stableJson(existing.metadata) === stableJson(metadata)
