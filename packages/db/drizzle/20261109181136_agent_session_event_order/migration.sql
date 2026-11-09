@@ -1,0 +1,1 @@
+CREATE INDEX `idx_agent_session_events_session_order` ON `agent_session_events` (`organization_id`,`user_id`,`harness`,`session_key`,`status`,`source_at`,`id`);

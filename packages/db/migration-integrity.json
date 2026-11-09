@@ -1412,6 +1412,10 @@
 		{
 			"name": "20261109175734_os_outputs_workspace_idx/migration.sql",
 			"sha256": "76972f28a968705d711b52035f0b1d81cca21b39c164b38653376bf3bbbbd48a"
+		},
+		{
+			"name": "20261109181136_agent_session_event_order/migration.sql",
+			"sha256": "6bc707b2cd24aa4ffc694dbfce177c2e1773012677357838f57bb9573e119005"
 		}
 	]
 }
