@@ -105,6 +105,12 @@ export async function mountDocClient(
 	};
 	const call = <T>(method: string, input: unknown = {}) =>
 		bridge.call<T>("app.call", { method, args: [input] });
+	// The host reads the bound Output directly; the app server is the fallback
+	// for hosts that cannot (share links, older hosts).
+	const read = () =>
+		bridge
+			.call<Saved>("outputs.readRevision", { slot })
+			.catch(() => call<Saved>("readDocument"));
 	const draftArgs = () => ({ slot, outputId: loaded!.output.id });
 	function parse(value: Saved): Saved {
 		if (
@@ -264,7 +270,7 @@ export async function mountDocClient(
 		controls();
 		message("Loading document…");
 		try {
-			const value = parse(await call<Saved>("readDocument"));
+			const value = parse(await read());
 			if (destroyed) return;
 			loaded = value;
 			let retained: Draft | null = null;

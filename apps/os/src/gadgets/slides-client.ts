@@ -118,6 +118,12 @@ export async function mountSlidesClient(
 	let editing: HTMLTextAreaElement | undefined;
 	const call = <T>(method: string, input: unknown = {}) =>
 		bridge.call<T>("app.call", { method, args: [input] });
+	// The host reads the bound Output directly; the app server is the fallback
+	// for hosts that cannot (share links, older hosts).
+	const read = () =>
+		bridge
+			.call<Saved>("outputs.readRevision", { slot })
+			.catch(() => call<Saved>("readPresentation"));
 	const message = (text: string, error = false) => {
 		status.textContent = text;
 		status.dataset.error = String(error);
@@ -839,7 +845,7 @@ export async function mountSlidesClient(
 		controls();
 		message("Loading presentation…");
 		try {
-			const value = parse(await call<Saved>("readPresentation"));
+			const value = parse(await read());
 			if (destroyed) return;
 			loaded = value;
 			let retained: RetainedDraft | null = null;
