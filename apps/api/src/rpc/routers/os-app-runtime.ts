@@ -122,10 +122,22 @@ export function createOsAppRuntimeRouter() {
 		),
 	);
 
+	/**
+	 * `organizationId`, when the caller already knows it from a signed session,
+	 * lets the app row load while access is checked; a wrong guess finds no app.
+	 */
 	async function resolve(
 		context: BaseContext,
 		input: { workspaceId: string; gadgetId: string },
+		organizationId?: string,
 	) {
+		const early = organizationId
+			? getOsGadget(queryDb(context), {
+					organizationId,
+					gadgetId: input.gadgetId,
+				})
+			: undefined;
+		void early?.catch(() => {});
 		const access =
 			context.authType === "user"
 				? await requireWorkspaceCollaboratorAccess(
@@ -136,11 +148,13 @@ export function createOsAppRuntimeRouter() {
 				: null;
 		const workspace =
 			access?.workspace ?? (await requireWorkspace(context, input.workspaceId));
-		const organizationId = workspace.organizationId;
-		const gadget = await getOsGadget(queryDb(context), {
-			organizationId,
-			gadgetId: input.gadgetId,
-		});
+		const gadget =
+			early && organizationId === workspace.organizationId
+				? await early
+				: await getOsGadget(queryDb(context), {
+						organizationId: workspace.organizationId,
+						gadgetId: input.gadgetId,
+					});
 		if (
 			workspace.status !== "active" ||
 			!gadget ||
@@ -153,7 +167,7 @@ export function createOsAppRuntimeRouter() {
 		const principal = { kind: creator.kind, id: creator.id };
 		const role: WorkspaceAppSession["role"] = access?.role ?? "use";
 		return {
-			organizationId,
+			organizationId: workspace.organizationId,
 			workspaceId: workspace.id,
 			gadgetId: gadget.id,
 			revisionId: gadget.currentRevisionId,
@@ -626,7 +640,6 @@ export function createOsAppRuntimeRouter() {
 		context: BaseContext,
 		input: { workspaceId: string; gadgetId: string; session: string },
 	) {
-		const scope = await resolve(context, input);
 		let session;
 		try {
 			session = await verifyWorkspaceAppSession(
@@ -636,6 +649,7 @@ export function createOsAppRuntimeRouter() {
 		} catch {
 			throw createError(ErrorCodes.FORBIDDEN, "Invalid app session");
 		}
+		const scope = await resolve(context, input, session.organizationId);
 		if (
 			context.authType !== "user" &&
 			(session.role === "build" || session.role === "owner") &&
