@@ -20,6 +20,8 @@
 
 import { type TenantScope, normalizeTenantScope } from "../tenant-scope";
 
+import { isTransientD1ReadError } from "../utils/d1-retry";
+
 import { and, asc, eq, inArray, like, notLike, or, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import type { DbQueryClient } from "../query-client";
@@ -64,9 +66,22 @@ export async function resolveRunArtifactTenantScope(
 }
 
 async function withArtifactReadRetry<T>(read: () => Promise<T>): Promise<T> {
+	return withArtifactD1Retry("read", read);
+}
+
+/**
+ * Retry an artifact operation on a transient D1 failure. Reads always qualify.
+ * The only write that qualifies is the (run_id, path) upsert in
+ * recordRunArtifact: replaying it stores the same bytes, and a replayed insert
+ * that already committed hits the unique index and takes the update path.
+ */
+async function withArtifactD1Retry<T>(
+	operation: "read" | "write",
+	run: () => Promise<T>,
+): Promise<T> {
 	for (let attempt = 0; ; attempt++) {
 		try {
-			return await read();
+			return await run();
 		} catch (error) {
 			const seen = new Set<unknown>();
 			let cause: unknown = error;
@@ -78,8 +93,9 @@ async function withArtifactReadRetry<T>(read: () => Promise<T>): Promise<T> {
 			) {
 				seen.add(cause);
 				if (
-					/D1_ERROR/i.test(cause.message) &&
-					/\boverloaded\b/i.test(cause.message)
+					(/D1_ERROR/i.test(cause.message) &&
+						/\boverloaded\b/i.test(cause.message)) ||
+					isTransientD1ReadError(cause)
 				)
 					overloaded = true;
 				cause = cause.cause;
@@ -87,11 +103,11 @@ async function withArtifactReadRetry<T>(read: () => Promise<T>): Promise<T> {
 			if (!overloaded) throw error;
 			if (attempt === 4) {
 				throw new Error(
-					"D1_OVERLOADED: artifact read failed after 5 attempts (15 seconds of backoff)",
+					`D1_OVERLOADED: artifact ${operation} failed after 5 attempts (15 seconds of backoff)`,
 					{ cause: error },
 				);
 			}
-			// Retry only reads: never replay a workflow tool or an ambiguous write.
+			// Never replay a workflow tool or a non-idempotent write here.
 			await new Promise((resolve) => setTimeout(resolve, 1_000 * 2 ** attempt));
 		}
 	}
@@ -309,29 +325,30 @@ export async function recordRunArtifact(
 			.limit(1),
 	);
 	const updateExisting = async (existingId: string) => {
-		const [updated] = await db
-			.update(skillRunArtifacts)
-			.set({
-				mimeType: row.mimeType,
-				sizeBytes: row.sizeBytes,
-				contentInline: row.contentInline,
-				contentR2Key: row.contentR2Key,
-				sha256: row.sha256,
-				attempt: row.attempt,
-				outcome: row.outcome,
-			})
-			.where(eq(skillRunArtifacts.id, existingId))
-			.returning();
+		const [updated] = await withArtifactD1Retry("write", () =>
+			db
+				.update(skillRunArtifacts)
+				.set({
+					mimeType: row.mimeType,
+					sizeBytes: row.sizeBytes,
+					contentInline: row.contentInline,
+					contentR2Key: row.contentR2Key,
+					sha256: row.sha256,
+					attempt: row.attempt,
+					outcome: row.outcome,
+				})
+				.where(eq(skillRunArtifacts.id, existingId))
+				.returning(),
+		);
 		return updated!;
 	};
 	const existing = existingRows[0];
 	if (existing) return updateExisting(existing.id);
 
 	try {
-		const [created] = await db
-			.insert(skillRunArtifacts)
-			.values(row)
-			.returning();
+		const [created] = await withArtifactD1Retry("write", () =>
+			db.insert(skillRunArtifacts).values(row).returning(),
+		);
 		return created!;
 	} catch (error) {
 		// A concurrent writer (for example a restarted run's earlier attempt)

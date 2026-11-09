@@ -615,3 +615,78 @@ describe("artifact reads across retention stores", () => {
 		},
 	);
 });
+
+describe("skill run artifact write recovery", () => {
+	const blip = () =>
+		new Error("Failed query: write artifact", {
+			cause: new Error("D1_ERROR: Network connection lost."),
+		});
+
+	it("replays the idempotent update after one transient D1 failure", async () => {
+		let updates = 0;
+		const { db, insert, sqlite } = fixture((query) => {
+			if (/^update/i.test(query.trim()) && ++updates === 1) throw blip();
+		});
+		insert.run("saved", "timeline.json", 1, "2026-01-01");
+		const result = recordRunArtifact(
+			db,
+			{ organizationId: "org-1" },
+			{ runId: "run-1", path: "timeline.json", value: { step: 2 } },
+		);
+		expect((await result).id).toBe("saved");
+		expect(updates).toBe(2);
+		expect(
+			sqlite.prepare("SELECT content_inline FROM skill_run_artifacts").get(),
+		).toEqual({ content_inline: '{"step":2}' });
+	});
+
+	it("takes the update path when a replayed insert already committed", async () => {
+		let inserts = 0;
+		const state: { sqlite?: DatabaseSync } = {};
+		const { db, sqlite } = fixture((query) => {
+			if (!/^insert/i.test(query.trim()) || ++inserts !== 1) return;
+			// The first insert commits, then its response is lost.
+			state.sqlite
+				?.prepare(
+					"INSERT INTO skill_run_artifacts (id, run_id, path, content_inline) VALUES ('first', 'run-1', 'steps/a.json', '{}')",
+				)
+				.run();
+			throw blip();
+		});
+		state.sqlite = sqlite;
+		const result = recordRunArtifact(
+			db,
+			{ organizationId: "org-1" },
+			{ runId: "run-1", path: "steps/a.json", value: { ok: true } },
+		);
+		expect((await result).id).toBe("first");
+		expect(
+			sqlite
+				.prepare(
+					"SELECT count(*) AS n, max(content_inline) AS c FROM skill_run_artifacts",
+				)
+				.get(),
+		).toEqual({ n: 1, c: '{"ok":true}' });
+	});
+
+	it("does not retry a non-transient write failure", async () => {
+		let updates = 0;
+		const { db, insert } = fixture((query) => {
+			if (/^update/i.test(query.trim())) {
+				updates++;
+				throw new Error("D1_ERROR: no such column");
+			}
+		});
+		insert.run("saved", "timeline.json", 1, "2026-01-01");
+		await expect(
+			recordRunArtifact(
+				db,
+				{ organizationId: "org-1" },
+				{ runId: "run-1", path: "timeline.json", value: {} },
+			),
+		).rejects.toMatchObject({
+			cause: { message: "D1_ERROR: no such column" },
+		});
+		expect(updates).toBe(1);
+	});
+});
