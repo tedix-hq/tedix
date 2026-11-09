@@ -41,6 +41,7 @@ import { eq } from "drizzle-orm";
 import {
 	mintWorkspaceAppSession,
 	verifyWorkspaceAppSession,
+	mintAppCallGrant,
 } from "@tedix/auth/workspace-app-session";
 import { describe, expect, it, vi, onTestFinished } from "vite-plus/test";
 import { userContext, apiKeyContext } from "../test-context";
@@ -618,6 +619,40 @@ describe("workspace app runtime API admission", () => {
 			output: { id: outputId },
 			revision: { content: { kind: "document" } },
 		});
+		// A call's signed access check stands in for repeating it, but only for
+		// the session it was minted for and the revision it checked.
+		const { sessionId } = await verifyWorkspaceAppSession(key, session);
+		const read = (callGrant: string) =>
+			internal.capability({
+				session,
+				callGrant,
+				operation: "outputs.read",
+				slot: "sheet",
+				args: null,
+			});
+		expect(
+			await read(
+				await mintAppCallGrant(key, { sessionId, role: "use", revisionId }),
+			),
+		).toMatchObject({ output: { id: outputId } });
+		expect(
+			await read(
+				await mintAppCallGrant(key, {
+					sessionId: "another-session",
+					role: "build",
+					revisionId,
+				}),
+			),
+		).toMatchObject({ output: { id: outputId } });
+		await expect(
+			read(
+				await mintAppCallGrant(key, {
+					sessionId,
+					role: "use",
+					revisionId: crypto.randomUUID(),
+				}),
+			),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
 		await expect(
 			internal.capability({
 				session,

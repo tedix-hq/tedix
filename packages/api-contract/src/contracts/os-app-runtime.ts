@@ -297,6 +297,8 @@ export const osAppRuntimeContract = oc
 				z
 					.object({
 						session: z.string().max(16000),
+						/** The call's access check, so a read need not repeat it. */
+						callGrant: z.string().max(4000).optional(),
 						operation: AppRuntimeOperationSchema,
 						slot: z.string().min(1).max(160),
 						args: JsonValueSchema,

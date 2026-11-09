@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
 	mintWorkspaceAppSession,
+	mintAppCallGrant,
+	verifyAppCallGrant,
 	verifyWorkspaceAppSession,
 	type WorkspaceAppSession,
 } from "./workspace-app-session";
@@ -57,5 +59,35 @@ describe("workspace app sessions", () => {
 			vi.useRealTimers();
 		}
 		await expect(mintWorkspaceAppSession("", identity)).rejects.toThrow();
+	});
+});
+
+describe("app call grants", () => {
+	it("vouch only for the session they were minted for, within a minute", async () => {
+		const grant = {
+			sessionId: "session-1",
+			role: "use" as const,
+			revisionId: identity.revisionId,
+		};
+		const token = await mintAppCallGrant(secret, grant);
+		expect(await verifyAppCallGrant(secret, token, "session-1")).toEqual(grant);
+		expect(await verifyAppCallGrant(secret, token, "session-2")).toBeNull();
+		expect(
+			await verifyAppCallGrant("another-key", token, "session-1"),
+		).toBeNull();
+		const { token: appSession } = await mintWorkspaceAppSession(
+			secret,
+			identity,
+		);
+		expect(
+			await verifyAppCallGrant(secret, appSession, "session-1"),
+		).toBeNull();
+		vi.useFakeTimers({ toFake: ["Date"] });
+		try {
+			vi.setSystemTime(Date.now() + 61_000);
+			expect(await verifyAppCallGrant(secret, token, "session-1")).toBeNull();
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });

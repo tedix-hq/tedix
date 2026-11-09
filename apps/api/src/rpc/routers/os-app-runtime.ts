@@ -21,6 +21,7 @@ import { JsonValueSchema } from "@tedix/api-contract/schemas/common";
 import {
 	mintWorkspaceAppSession,
 	verifyWorkspaceAppSession,
+	verifyAppCallGrant,
 	type WorkspaceAppSession,
 } from "@tedix/auth/workspace-app-session";
 import {
@@ -994,7 +995,25 @@ export function createOsAppRuntimeRouter() {
 					? session.principal.id
 					: undefined,
 		};
-		const scope = await resolve(acting, session);
+		// The call that made this read re-checked the caller's workspace access
+		// moments ago; its signed grant stands in for repeating that check.
+		const checked =
+			input.callGrant && !session.proposalId
+				? await verifyAppCallGrant(
+						context.env.SECRETS_MASTER_KEY,
+						input.callGrant,
+						session.sessionId,
+					)
+				: null;
+		const scope = checked
+			? {
+					organizationId: session.organizationId,
+					workspaceId: session.workspaceId,
+					gadgetId: session.gadgetId,
+					revisionId: checked.revisionId,
+					role: checked.role,
+				}
+			: await resolve(acting, session);
 		if (
 			scope.organizationId !== session.organizationId ||
 			(!session.previewId && scope.revisionId !== session.revisionId)
