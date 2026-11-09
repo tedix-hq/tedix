@@ -3,6 +3,14 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.21.1 — 2026-11-09
+
+### Patch Changes
+
+- The dispatcher now locks each agent's working copy until it has collected
+  proof of the result, then removes it itself. An agent that tidies up its
+  own working copy can no longer make finished work fail.
+
 ## 0.21.0 — 2026-11-08
 
 ### Minor Changes
