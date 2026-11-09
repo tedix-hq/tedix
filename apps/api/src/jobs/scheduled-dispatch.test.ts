@@ -368,6 +368,7 @@ it("maintains provider notifications without fleet authority and isolates failur
 		} as unknown as ExecutionContext,
 	);
 	expect(catchup.providerEvents).toHaveBeenCalledOnce();
+	expect(catchup.paths).toContain("agent-session-event-drain");
 	expect(catchup.outcomes).toContainEqual({
 		id: "provider-event-maintenance",
 		status: "failure",

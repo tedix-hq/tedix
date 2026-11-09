@@ -1013,11 +1013,8 @@ export async function processAgentSessionEvents(
 	} = {},
 ): Promise<number> {
 	const now = options.now ?? (() => new Date().toISOString());
-	const startedAt = Date.now();
 	let processed = 0;
 	for (let index = 0; index < (options.limit ?? EVENTS_PER_PASS); index++) {
-		// Both model passes run in parallel, leaving D1 time within waitUntil's 30s.
-		if (index > 0 && Date.now() - startedAt >= 1000) break;
 		const [event] = await listPendingAgentSessionEvents(db, {
 			...owner,
 			limit: 1,

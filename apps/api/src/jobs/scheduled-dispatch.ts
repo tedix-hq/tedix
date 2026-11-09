@@ -91,6 +91,18 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 	// so they never join the first-request eval floor.
 	try {
 		if (cron === "*/2 * * * *") {
+			await trackPlatformCronPath(
+				env,
+				event,
+				"agent-session-event-drain",
+				async () => {
+					const { dispatchPendingAgentSessionEvents } =
+						await import("./agent-session-event-drain");
+					return dispatchPendingAgentSessionEvents(env);
+				},
+			);
+		}
+		if (cron === "*/2 * * * *") {
 			const { runDecisionOutcomeLabeller } =
 				await import("./decision-outcome-labeller");
 			await trackPlatformCronPath(env, event, "decision-outcome-labeller", () =>

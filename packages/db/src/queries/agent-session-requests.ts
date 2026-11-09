@@ -568,20 +568,136 @@ function noEarlierPendingEvent(db: DbQueryClient) {
 	);
 }
 
+/** Recovery sweeps seek distinct owners instead of scanning their event history. */
+export async function listPendingAgentSessionEventOwners(
+	db: DbQueryClient,
+	now: string,
+) {
+	const stale = new Date(Date.parse(now) - EVENT_LEASE_MS).toISOString();
+	const first = db
+		.select({
+			organizationId: agentSessionEvents.organizationId,
+			userId: agentSessionEvents.userId,
+		})
+		.from(agentSessionEvents)
+		.orderBy(agentSessionEvents.organizationId, agentSessionEvents.userId)
+		.limit(1)
+		.as("first_owner");
+	const next = alias(agentSessionEvents, "next_owner");
+	const successor = db
+		.select({ id: agentSessionEvents.id })
+		.from(agentSessionEvents)
+		.where(
+			sql`(${agentSessionEvents.organizationId}, ${agentSessionEvents.userId}) > (owners.organization_id, owners.user_id)`,
+		)
+		.orderBy(agentSessionEvents.organizationId, agentSessionEvents.userId)
+		.limit(1);
+	// SQLite permits self-referencing WITH without the optional RECURSIVE keyword.
+	const owners = db.$with("owners").as(
+		db
+			.select({ organizationId: first.organizationId, userId: first.userId })
+			.from(first)
+			.unionAll(
+				db
+					.select({ organizationId: next.organizationId, userId: next.userId })
+					.from(sql`owners`)
+					.innerJoin(next, eq(next.id, sql`(${successor})`)),
+			),
+	);
+	return db
+		.with(owners)
+		.select({ organizationId: owners.organizationId, userId: owners.userId })
+		.from(owners)
+		.where(
+			exists(
+				db
+					.select({ id: agentSessionEvents.id })
+					.from(agentSessionEvents)
+					.where(
+						and(
+							eq(agentSessionEvents.organizationId, owners.organizationId),
+							eq(agentSessionEvents.userId, owners.userId),
+							eq(agentSessionEvents.status, "pending"),
+							or(
+								isNull(agentSessionEvents.claimedAt),
+								lt(agentSessionEvents.claimedAt, stale),
+							),
+						),
+					)
+					.limit(1),
+			),
+		)
+		.limit(100);
+}
+
 /** The caller's first pending event per session, including stale leases. */
 export async function listPendingAgentSessionEvents(
 	db: DbQueryClient,
 	params: AgentSessionRequestOwner & { limit: number; now: string },
 ): Promise<AgentSessionEventRow[]> {
 	const stale = new Date(Date.parse(params.now) - EVENT_LEASE_MS).toISOString();
+	const owner = and(
+		eq(agentSessionEvents.organizationId, params.organizationId),
+		eq(agentSessionEvents.userId, params.userId),
+	);
+	const first = db
+		.select({
+			harness: agentSessionEvents.harness,
+			sessionKey: agentSessionEvents.sessionKey,
+		})
+		.from(agentSessionEvents)
+		.where(owner)
+		.orderBy(agentSessionEvents.harness, agentSessionEvents.sessionKey)
+		.limit(1)
+		.as("first_session");
+	const next = alias(agentSessionEvents, "next_session");
+	const successor = db
+		.select({ id: agentSessionEvents.id })
+		.from(agentSessionEvents)
+		.where(
+			and(
+				owner,
+				sql`(${agentSessionEvents.harness}, ${agentSessionEvents.sessionKey}) > (sessions.harness, sessions.session_key)`,
+			),
+		)
+		.orderBy(agentSessionEvents.harness, agentSessionEvents.sessionKey)
+		.limit(1);
+	// Seek past each session's entire history, then inspect only its pending head.
+	const sessions = db.$with("sessions").as(
+		db
+			.select({ harness: first.harness, sessionKey: first.sessionKey })
+			.from(first)
+			.unionAll(
+				db
+					.select({ harness: next.harness, sessionKey: next.sessionKey })
+					.from(sql`sessions`)
+					.innerJoin(next, eq(next.id, sql`(${successor})`)),
+			),
+	);
+	const head = db
+		.select({ rowid: sql<number>`${agentSessionEvents}.rowid` })
+		.from(agentSessionEvents)
+		.where(
+			and(
+				owner,
+				eq(agentSessionEvents.harness, sessions.harness),
+				eq(agentSessionEvents.sessionKey, sessions.sessionKey),
+				eq(agentSessionEvents.status, "pending"),
+			),
+		)
+		.orderBy(agentSessionEvents.sourceAt, agentSessionEvents.id)
+		.limit(1);
+	const heads = db
+		.with(sessions)
+		.select({ rowid: sql<number>`(${head})` })
+		.from(sessions);
 	return db
 		.select()
 		.from(agentSessionEvents)
 		.where(
 			and(
-				eq(agentSessionEvents.organizationId, params.organizationId),
-				eq(agentSessionEvents.userId, params.userId),
-				eq(agentSessionEvents.status, "pending"),
+				// bound-params: heads is a SQL subquery with fixed owner bindings, not a parameter list.
+				inArray(sql`${agentSessionEvents}.rowid`, heads),
 				noEarlierPendingEvent(db),
 				or(
 					isNull(agentSessionEvents.claimedAt),
@@ -599,6 +715,11 @@ export async function claimAgentSessionEvent(
 	params: AgentSessionRequestOwner & { id: string; now: string },
 ): Promise<boolean> {
 	const stale = new Date(Date.parse(params.now) - EVENT_LEASE_MS).toISOString();
+	const target = db
+		.select({ rowid: sql<number>`${agentSessionEvents}.rowid` })
+		.from(agentSessionEvents)
+		.where(eq(agentSessionEvents.id, params.id))
+		.limit(1);
 	const rows = await db
 		.update(agentSessionEvents)
 		.set({
@@ -609,7 +730,7 @@ export async function claimAgentSessionEvent(
 			and(
 				eq(agentSessionEvents.organizationId, params.organizationId),
 				eq(agentSessionEvents.userId, params.userId),
-				eq(agentSessionEvents.id, params.id),
+				sql`${agentSessionEvents}.rowid = (${target})`,
 				eq(agentSessionEvents.status, "pending"),
 				noEarlierPendingEvent(db),
 				or(

@@ -30,7 +30,7 @@ import {
 import { kernelAcceptanceReader } from "./request-target-readers";
 
 export async function readKernelRequestPolicy(
-	context: BaseContext,
+	context: Pick<BaseContext, "db">,
 	organizationId: string,
 ) {
 	const definition = await getActivePolicyPackDefinition(

@@ -135,6 +135,20 @@ async function fixture() {
 	return { context, db, source };
 }
 describe("private local request adapter", () => {
+	it("captures for a canonical owner whose provider subject differs", async () => {
+		const { context, db } = await fixture();
+		context.userId = owner.userId;
+		context.user = { sub: "provider-subject-ada" };
+		await captureLocalKernelRequests(context, session);
+		expect(await db.select().from(kernelRequests)).toHaveLength(1);
+		await expect(
+			captureLocalKernelRequests(context, {
+				...session,
+				userId: "provider-subject-ada",
+			}),
+		).rejects.toThrow("owner mismatch");
+	});
+
 	it("replays source capture without copying private text or exposing it to another owner", async () => {
 		const { context, db, source } = await fixture();
 		await captureLocalKernelRequests(context, session);

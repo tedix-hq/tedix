@@ -24,6 +24,8 @@ import {
 	retryFailedAgentSessionEvents,
 	rebuildFailedAgentSession,
 	listPendingAgentSessionEvents,
+	listPendingAgentSessionEventOwners,
+	claimAgentSessionEvent,
 	updateAgentSessionRequests,
 	getAgentSessionLessonReflection,
 	recordAgentSessionLessonReflection,
@@ -919,3 +921,105 @@ for (const requestCount of [0, 1])
 		);
 		expect(await rebuildFailedAgentSession(db, options)).toBe(0);
 	});
+
+it("seeks session heads past deep blocked and leased backlogs without overtaking them", async () => {
+	const db = fixture();
+	for (const sessionKey of ["failed", "leased", "ready"]) {
+		await recordAgentSessionEvents(db, {
+			organizationId: ORG,
+			userId: USER,
+			now: T0,
+			events: Array.from(
+				{ length: sessionKey === "ready" ? 2 : 1000 },
+				(_, i) => ({
+					harness: "codex" as const,
+					sessionKey,
+					repository: null,
+					kind: "prompt" as const,
+					body: "Keep this pending event",
+					activity: null,
+					sourceAt: new Date(Date.parse(T0) + i * 1000).toISOString(),
+					sourceKey: `${sessionKey}-${i}`,
+				}),
+			),
+		});
+	}
+	const all = await db.select().from(agentSessionEvents);
+	const head = (sessionKey: string) =>
+		all.find((e) => e.sessionKey === sessionKey && e.sourceAt === T0)!;
+	await db
+		.update(agentSessionEvents)
+		.set({ status: "failed" })
+		.where(eq(agentSessionEvents.id, head("failed").id));
+	expect(
+		await claimAgentSessionEvent(db, {
+			organizationId: ORG,
+			userId: USER,
+			id: head("leased").id,
+			now: T1,
+		}),
+	).toBe(true);
+	const params = { organizationId: ORG, userId: USER, now: T1, limit: 10 };
+	expect(
+		(await listPendingAgentSessionEvents(db, params)).map((e) => e.id),
+	).toEqual([head("ready").id]);
+	expect(await listPendingAgentSessionEventOwners(db, T1)).toEqual([
+		{ organizationId: ORG, userId: USER },
+	]);
+	expect(
+		await listPendingAgentSessionEvents(db, { ...params, userId: OTHER_USER }),
+	).toEqual([]);
+	expect(
+		(
+			await listPendingAgentSessionEvents(db, {
+				...params,
+				now: "2026-10-06T10:08:00.000Z",
+			})
+		)
+			.map((e) => e.sessionKey)
+			.sort(),
+	).toEqual(["leased", "ready"]);
+	expect(await db.select().from(agentSessionEvents)).toHaveLength(2002);
+});
+
+it("recovers distinct owners across organizations while excluding fresh leases and processed history", async () => {
+	const db = fixture();
+	for (const [organizationId, userId, status, claimedAt] of [
+		["org-a", "user-a", "pending", null],
+		["org-a", "user-b", "pending", T1],
+		["org-b", "user-a", "processed", null],
+		["org-b", "user-b", "pending", T0],
+	] as const) {
+		await recordAgentSessionEvents(db, {
+			organizationId,
+			userId,
+			now: T0,
+			events: [
+				{
+					harness: "codex",
+					sessionKey: "session",
+					repository: null,
+					kind: "prompt",
+					body: "Keep this event",
+					activity: null,
+					sourceAt: T0,
+					sourceKey: "event",
+				},
+			],
+		});
+		const [row] = await listPendingAgentSessionEvents(db, {
+			organizationId,
+			userId,
+			limit: 1,
+			now: T1,
+		});
+		await db
+			.update(agentSessionEvents)
+			.set({ status, claimedAt })
+			.where(eq(agentSessionEvents.id, row!.id));
+	}
+	expect(await listPendingAgentSessionEventOwners(db, T1)).toEqual([
+		{ organizationId: "org-a", userId: "user-a" },
+		{ organizationId: "org-b", userId: "user-b" },
+	]);
+});
