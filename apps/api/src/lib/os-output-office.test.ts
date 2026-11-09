@@ -139,7 +139,8 @@ describe("xlsx export", () => {
 						[
 							{ input: "Total", value: "Total", format: { bold: true } },
 							{
-								input: "=SUM(B2:B3)",
+								// Grid coordinates: row 1 is the first data row.
+								input: "=SUM(B1:B2)",
 								value: 2000,
 								format: { numberFormat: "currency" },
 							},
@@ -152,7 +153,15 @@ describe("xlsx export", () => {
 					id: "notes",
 					name: "Notes",
 					columns: [{ id: "note", label: "Note", width: 300 }],
-					rows: [[{ input: "Renewal risk", value: "Renewal risk" }]],
+					rows: [
+						[
+							{ input: "Renewal risk", value: "Renewal risk" },
+							{
+								input: '=IF(Pipeline!$B$1>1000,"A1 big",LOG10(Pipeline!B1:B2))',
+								value: "A1 big",
+							},
+						],
+					],
 					frozenRows: 0,
 					frozenColumns: 0,
 				},
@@ -206,7 +215,9 @@ describe("xlsx export", () => {
 		expect(rows[1]!.c[0]!["@t"]).toBe("inlineStr");
 		expect(textOf(rows[1]!.c[0]!.is.t)).toBe("Acme");
 
-		// The formula survives AS a formula, with its cached value beside it.
+		// The formula survives AS a formula, with its cached value beside it,
+		// and its references move down past the header row so B1 still
+		// means Acme's amount.
 		const total = rows[3]!.c[1]!;
 		expect(total.f).toBe("SUM(B2:B3)");
 		expect(total.v).toBe("2000");
@@ -224,6 +235,11 @@ describe("xlsx export", () => {
 		const second = readPart(file, "xl/worksheets/sheet2.xml");
 		expect(textOf(second.worksheet.sheetData.row[1]!.c[0]!.is.t)).toBe(
 			"Renewal risk",
+		);
+		// Cross-sheet and absolute references shift too; string literals and
+		// function names such as LOG10 do not.
+		expect(second.worksheet.sheetData.row[1]!.c[1]!.f).toBe(
+			'IF(Pipeline!$B$2>1000,"A1 big",LOG10(Pipeline!B2:B3))',
 		);
 	});
 

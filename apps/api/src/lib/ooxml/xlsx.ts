@@ -166,17 +166,64 @@ class StyleTable {
 	}
 }
 
+// The grid's reference grammar (apps/os/src/lib/workbook-structure.ts): string
+// literals stay untouched, and identifiers such as LOG10 are not references.
+const REFERENCE =
+	/("(?:[^"]|"")*")|(?<![\w.])((?:'(?:[^']|'')+'|[A-Za-z_][\w.]*)!)?(\$?[A-Za-z]{1,3}\$?)([1-9]\d*)(?::(\$?[A-Za-z]{1,3}\$?)([1-9]\d*))?(?![\w.(])/g;
+
+/**
+ * The grid numbers its first data row 1, but the file spends row 1 on the
+ * column labels. Move every row reference into a labelled sheet down by one,
+ * as Excel does when a row is inserted above the data.
+ */
+function shiftFormulaForHeader(
+	formula: string,
+	ownSheet: string,
+	headerRows: ReadonlyMap<string, number>,
+): string {
+	return formula.replace(
+		REFERENCE,
+		(
+			whole,
+			literal: string | undefined,
+			prefix: string | undefined,
+			firstColumn: string,
+			firstRow: string,
+			lastColumn: string | undefined,
+			lastRow: string | undefined,
+		) => {
+			if (literal) return whole;
+			const target = prefix
+				? sheetName(
+						prefix
+							.slice(0, -1)
+							.replace(/^'(.*)'$/, "$1")
+							.replaceAll("''", "'"),
+						"",
+					)
+				: ownSheet;
+			const offset = headerRows.get(target.toLowerCase()) ?? 0;
+			if (offset === 0) return whole;
+			const first = `${firstColumn}${Number(firstRow) + offset}`;
+			return `${prefix ?? ""}${first}${
+				lastColumn ? `:${lastColumn}${Number(lastRow) + offset}` : ""
+			}`;
+		},
+	);
+}
+
 /** One `<c>` element, or "" for a cell the sheet should simply not carry. */
 function cellXml(
 	reference: string,
 	styleIndex: number,
 	cell: OsWorkbookCell | null,
+	shiftFormula: (formula: string) => string,
 ): string {
 	if (!cell) return "";
 	const style = styleIndex > 0 ? ` s="${styleIndex}"` : "";
 	const input = cell.input ?? "";
 	if (input.startsWith("=") && cell.format?.numberFormat !== "text") {
-		const formula = xmlEscape(input.slice(1));
+		const formula = xmlEscape(shiftFormula(input.slice(1)));
 		// The cached value is what a reader shows before it recalculates; a
 		// string result needs `t="str"` or Excel reads it as a number.
 		const cached = cachedValueXml(cell.value);
@@ -269,7 +316,13 @@ function normalizeSheets(content: SheetContent): NormalizedSheet[] {
 	];
 }
 
-function worksheetXml(sheet: NormalizedSheet, styles: StyleTable): string {
+function worksheetXml(
+	sheet: NormalizedSheet,
+	styles: StyleTable,
+	headerRows: ReadonlyMap<string, number>,
+): string {
+	const shiftFormula = (formula: string) =>
+		shiftFormulaForHeader(formula, sheet.name, headerRows);
 	const width = Math.max(
 		sheet.columns.length,
 		...sheet.rows.map((row) => row.length),
@@ -293,6 +346,7 @@ function worksheetXml(sheet: NormalizedSheet, styles: StyleTable): string {
 					`${columnName(columnIndex)}${reference}`,
 					styles.indexFor(cell?.format),
 					cell ?? null,
+					shiftFormula,
 				),
 			)
 			.join("");
@@ -339,7 +393,15 @@ function worksheetXml(sheet: NormalizedSheet, styles: StyleTable): string {
 export async function buildXlsx(content: SheetContent): Promise<Uint8Array> {
 	const sheets = normalizeSheets(content);
 	const styles = new StyleTable(content.workbook ?? {});
-	const worksheets = sheets.map((sheet) => worksheetXml(sheet, styles));
+	const headerRows = new Map(
+		sheets.map((sheet) => [
+			sheet.name.toLowerCase(),
+			sheet.columns.length > 0 ? 1 : 0,
+		]),
+	);
+	const worksheets = sheets.map((sheet) =>
+		worksheetXml(sheet, styles, headerRows),
+	);
 
 	const sheetOverrides = sheets
 		.map(
