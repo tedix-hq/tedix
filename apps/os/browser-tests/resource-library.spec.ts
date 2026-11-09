@@ -77,7 +77,7 @@ try {
 					await page
 						.getByRole("menuitem", { name: "Browse templates" })
 						.getAttribute("href"),
-					"/blueprints?view=explore",
+					"/blueprints",
 				);
 				await page.screenshot({
 					path: `${evidence}/${surface}-new-${width}-${theme}.png`,

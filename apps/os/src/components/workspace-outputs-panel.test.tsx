@@ -239,7 +239,7 @@ describe("WorkspaceOutputsPanel", () => {
 			panel
 				.querySelector('a[aria-label="Browse workspace templates"]')
 				?.getAttribute("href"),
-		).toBe("/blueprints?view=explore");
+		).toBe("/blueprints");
 	});
 	it.each([
 		["Doc", "document"],

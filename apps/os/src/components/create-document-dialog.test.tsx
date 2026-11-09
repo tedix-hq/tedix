@@ -404,6 +404,6 @@ describe("document creation", () => {
 		]);
 		expect(
 			document.querySelector('a[role="menuitem"]')?.getAttribute("href"),
-		).toBe("/blueprints?view=explore");
+		).toBe("/blueprints");
 	});
 });
