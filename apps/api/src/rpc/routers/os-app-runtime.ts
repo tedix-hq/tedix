@@ -40,14 +40,6 @@ import {
 	hasAppConflictMarkers,
 } from "@tedix/api-contract/utils/app-draft-merge";
 import { appRuntimePermission } from "@tedix/api-contract/utils/app-runtime";
-import {
-	AppRuntimeImportRecoveredPlanSchema,
-	AppRuntimeImportRecoveredStorageResultSchema,
-} from "@tedix/api-contract/schemas/os-app-runtime";
-import { serviceBindingFetch } from "@tedix/api-client/internal";
-import { isPlatformPrincipal } from "@tedix/auth/types";
-import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
-import { auditActor, emitAuditEvent } from "../audit-helpers";
 import { listOsWorkspaceResources } from "@tedix/db/queries/os-workspaces/resources";
 import { getOsOutput } from "../../services/workspace-output-storage";
 import {
@@ -1219,127 +1211,7 @@ export function createOsAppRuntimeRouter() {
 		});
 		return { recorded: true };
 	});
-	// One-time recovery of app storage from the retired account. The runtime
-	// reads the archive from its own bucket, so app values never pass the API.
-	const importRecoveredStorage = authed.importRecoveredStorage.handler(
-		async ({ context, input }) => {
-			if (!isPlatformPrincipal(context))
-				throw createError(
-					ErrorCodes.FORBIDDEN,
-					"Recovered storage import requires platform-admin authority",
-				);
-			const runtime = async (path: string, body: unknown) => {
-				const response = await serviceBindingFetch(context.env.TEDI_SERVICE)(
-					`https://tedi-runtime/__internal/workspace-app/${path}`,
-					{
-						method: "POST",
-						headers: {
-							"Content-Type": "application/json",
-							"X-Service-Binding": "true",
-						},
-						body: JSON.stringify(body),
-					},
-				);
-				if (!response.ok)
-					throw createError(
-						ErrorCodes.BAD_GATEWAY,
-						`Recovered storage ${path} failed (${response.status})`,
-					);
-				return response.json();
-			};
-			const archive = {
-				prefix: input.prefix,
-				manifestSha256: input.manifestSha256,
-			};
-			const plan = AppRuntimeImportRecoveredPlanSchema.parse(
-				await runtime("import-plan", archive),
-			);
-			const db = queryDb(context);
-			const actor = auditActor(context);
-			const apps = [];
-			for (const app of plan.apps) {
-				const scope = {
-					organizationId: app.organizationId,
-					gadgetId: app.gadgetId,
-				};
-				const workspace = await getOsWorkspace(db, {
-					organizationId: app.organizationId,
-					workspaceId: app.workspaceId,
-				});
-				const gadget = await getOsGadget(db, scope);
-				if (
-					workspace?.status !== "active" ||
-					!gadget ||
-					gadget.workspaceId !== app.workspaceId ||
-					gadget.status !== "active" ||
-					!gadget.currentRevisionId
-				) {
-					apps.push({ ...app, status: "unavailable" as const, results: [] });
-					continue;
-				}
-				const code = await loadAppRuntimeRevision(
-					db,
-					scope,
-					gadget.currentRevisionId,
-				);
-				const creator = resolveCreator(context);
-				const session = await mintWorkspaceAppSession(
-					context.env.SECRETS_MASTER_KEY,
-					{
-						...scope,
-						workspaceId: app.workspaceId,
-						revisionId: gadget.currentRevisionId,
-						principal: { kind: creator.kind, id: creator.id },
-						role: "owner",
-						actorUserId: context.user?.sub,
-						revision: code.revision,
-						grants: code.grants,
-						codeDigest: code.digest,
-						config: code.config,
-						compatibilityDate: code.compatibilityDate,
-					},
-				);
-				const result = AppRuntimeImportRecoveredStorageResultSchema.parse(
-					await runtime("import", {
-						...archive,
-						session: session.token,
-						files: code.files,
-						apply: input.apply,
-					}),
-				);
-				const count = (status: string) =>
-					result.results.filter((r) => r.status === status).length;
-				// Keys and counts only; values are the app's own data.
-				await emitAuditEvent(context.db, {
-					organizationId: app.organizationId,
-					actorId: actor.actorId,
-					actorType: actor.actorType,
-					action: `osAppRuntime.importRecoveredStorage.${input.apply ? "applied" : "checked"}`,
-					resourceType: "os_gadget",
-					resourceId: app.gadgetId,
-					metadata: {
-						...actor.actorMetadata,
-						workspaceId: app.workspaceId,
-						revisionId: result.revisionId,
-						written: count("written"),
-						skipped: count("skipped"),
-						present: count("present"),
-						absent: count("absent"),
-						mismatched: result.results.filter((r) => !r.matches).length,
-					},
-				});
-				apps.push({
-					...app,
-					status: input.apply ? ("imported" as const) : ("checked" as const),
-					revisionId: result.revisionId,
-					results: result.results,
-				});
-			}
-			return { apps };
-		},
-	);
 	return os.router({
-		importRecoveredStorage,
 		open,
 		client,
 		readOutput,

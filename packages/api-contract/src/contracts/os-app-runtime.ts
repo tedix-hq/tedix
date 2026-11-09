@@ -21,8 +21,6 @@ import {
 	AppDraftRoomSubmissionSchema,
 	AppDraftRoomSnapshotSchema,
 	AppDraftRoomSubmitResultSchema,
-	AppRuntimeImportRecoveredStorageInputSchema,
-	AppRuntimeImportRecoveredReportSchema,
 } from "../schemas/os-app-runtime";
 
 export const osAppRuntimeContract = oc
@@ -323,13 +321,4 @@ export const osAppRuntimeContract = oc
 				}).strict(),
 			)
 			.output(z.object({ recorded: z.boolean() })),
-		importRecoveredStorage: oc
-			.route({
-				method: "POST",
-				path: "/import-recovered-storage",
-				summary:
-					"Platform admin, one-time: write recovered app storage keys the app does not have yet",
-			})
-			.input(AppRuntimeImportRecoveredStorageInputSchema)
-			.output(AppRuntimeImportRecoveredReportSchema),
 	});
