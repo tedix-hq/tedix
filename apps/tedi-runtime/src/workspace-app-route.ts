@@ -155,3 +155,34 @@ export async function handleWorkspaceAppValidate(
 		});
 	}
 }
+
+export const WORKSPACE_APP_IMPORT_PATH = "/__internal/workspace-app/import";
+/** One-time import of recovered app storage; writes only absent keys. */
+export async function handleWorkspaceAppImport(
+	request: Request,
+	env: WorkspaceAppRouteEnv,
+) {
+	if (!isServiceBinding(request.headers))
+		return new Response("Forbidden", { status: 403 });
+	if (request.method !== "POST")
+		return new Response("Method not allowed", { status: 405 });
+	if (!env.WORKSPACE_APP_HOST)
+		return new Response("App runtime unavailable", { status: 503 });
+	let input: Parameters<WorkspaceAppHostDO["importRecoveredStorage"]>[0];
+	let session;
+	try {
+		input = await request.json();
+		session = await verifyWorkspaceAppSession(
+			env.SECRETS_MASTER_KEY,
+			input.session,
+		);
+	} catch {
+		return new Response("Invalid app session", { status: 403 });
+	}
+	const host = durableObjectStubByName(
+		env.WORKSPACE_APP_HOST,
+		env,
+		`${session.organizationId}:${session.workspaceId}`,
+	);
+	return Response.json(await host.importRecoveredStorage(input));
+}

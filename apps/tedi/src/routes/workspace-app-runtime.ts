@@ -18,3 +18,5 @@ workspaceAppRuntime.post("/__internal/workspace-app/revoke", relay);
 workspaceAppRuntime.post("/__internal/workspace-app/close-draft", relay);
 // Dry-loads app source before the API saves it.
 workspaceAppRuntime.post("/__internal/workspace-app/validate", relay);
+// One-time import of recovered app storage.
+workspaceAppRuntime.post("/__internal/workspace-app/import", relay);

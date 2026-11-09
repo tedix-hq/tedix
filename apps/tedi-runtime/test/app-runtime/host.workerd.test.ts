@@ -64,7 +64,7 @@ async function call(
 		method?: string;
 		callId?: string;
 		args?: unknown[];
-		role?: "build" | "use" | "viewer";
+		role?: "owner" | "build" | "use" | "viewer";
 		actorUserId?: string;
 		guestName?: string;
 		previewId?: string;
@@ -544,5 +544,78 @@ describe("proposal facet lifecycle", () => {
 		await expect(call(stub, { previewId, version: "v2" })).rejects.toThrow(
 			"App draft closed",
 		);
+	});
+});
+
+describe("recovered storage import", () => {
+	it("writes only absent keys, keeps newer state and reloads the app", async () => {
+		const stub = createHost();
+		expect(await call(stub)).toEqual({ n: 1, version: "v1" });
+		const code = files("v1");
+		const owner = (await mint(stub, code, { role: "owner" })).token;
+		const entries = [
+			{ key: "n", value: 40 },
+			{ key: "tags", value: { $set: ["a", "b"] } },
+			{ key: "seen", value: { $map: [["x", { $date: 0 }]] } },
+		];
+		const dry = await stub.importRecoveredStorage({
+			session: owner,
+			files: code,
+			entries,
+			apply: false,
+		});
+		expect(dry.results.map((r) => r.status)).toEqual([
+			"present",
+			"absent",
+			"absent",
+		]);
+		const applied = await stub.importRecoveredStorage({
+			session: owner,
+			files: code,
+			entries,
+			apply: true,
+		});
+		expect(applied.results).toEqual([
+			{ key: "n", status: "skipped", matches: false },
+			{ key: "tags", status: "written", matches: true },
+			{ key: "seen", status: "written", matches: true },
+		]);
+		const readBack = await stub.importRecoveredStorage({
+			session: owner,
+			files: code,
+			entries,
+			apply: false,
+		});
+		expect(readBack.results.map((r) => [r.status, r.matches])).toEqual([
+			["present", false],
+			["present", true],
+			["present", true],
+		]);
+		expect(await call(stub)).toEqual({ n: 2, version: "v1" });
+	});
+
+	it("refuses a session that is not the owner's or code that does not match", async () => {
+		const stub = createHost();
+		const code = files("v1");
+		const use = (await mint(stub, code)).token;
+		await expect(
+			(async () =>
+				await stub.importRecoveredStorage({
+					session: use,
+					files: code,
+					entries: [{ key: "n", value: 1 }],
+					apply: true,
+				}))(),
+		).rejects.toThrow("owner session");
+		const owner = (await mint(stub, code, { role: "owner" })).token;
+		await expect(
+			(async () =>
+				await stub.importRecoveredStorage({
+					session: owner,
+					files: files("v2"),
+					entries: [{ key: "n", value: 1 }],
+					apply: true,
+				}))(),
+		).rejects.toThrow("signed revision");
 	});
 });

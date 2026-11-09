@@ -40,6 +40,11 @@ import {
 	hasAppConflictMarkers,
 } from "@tedix/api-contract/utils/app-draft-merge";
 import { appRuntimePermission } from "@tedix/api-contract/utils/app-runtime";
+import { AppRuntimeImportRecoveredStorageResultSchema } from "@tedix/api-contract/schemas/os-app-runtime";
+import { serviceBindingFetch } from "@tedix/api-client/internal";
+import { isPlatformPrincipal } from "@tedix/auth/types";
+import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
+import { auditActor, emitAuditEvent } from "../audit-helpers";
 import { listOsWorkspaceResources } from "@tedix/db/queries/os-workspaces/resources";
 import { getOsOutput } from "../../services/workspace-output-storage";
 import {
@@ -1211,7 +1216,105 @@ export function createOsAppRuntimeRouter() {
 		});
 		return { recorded: true };
 	});
+	// One-time recovery of app storage from the retired account.
+	const importRecoveredStorage = authed.importRecoveredStorage.handler(
+		async ({ context, input }) => {
+			if (!isPlatformPrincipal(context))
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Recovered storage import requires platform-admin authority",
+				);
+			const db = queryDb(context);
+			const scope = {
+				organizationId: input.organizationId,
+				gadgetId: input.gadgetId,
+			};
+			const workspace = await getOsWorkspace(db, {
+				organizationId: input.organizationId,
+				workspaceId: input.workspaceId,
+			});
+			const gadget = await getOsGadget(db, scope);
+			if (
+				workspace?.status !== "active" ||
+				!gadget ||
+				gadget.workspaceId !== input.workspaceId ||
+				gadget.status !== "active" ||
+				!gadget.currentRevisionId
+			)
+				throw createError(ErrorCodes.NOT_FOUND, "Workspace app unavailable");
+			const code = await loadAppRuntimeRevision(
+				db,
+				scope,
+				gadget.currentRevisionId,
+			);
+			const creator = resolveCreator(context);
+			const session = await mintWorkspaceAppSession(
+				context.env.SECRETS_MASTER_KEY,
+				{
+					...scope,
+					workspaceId: input.workspaceId,
+					revisionId: gadget.currentRevisionId,
+					principal: { kind: creator.kind, id: creator.id },
+					role: "owner",
+					actorUserId: context.user?.sub,
+					revision: code.revision,
+					grants: code.grants,
+					codeDigest: code.digest,
+					config: code.config,
+					compatibilityDate: code.compatibilityDate,
+				},
+			);
+			const response = await serviceBindingFetch(context.env.TEDI_SERVICE)(
+				"https://tedi-runtime/__internal/workspace-app/import",
+				{
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						"X-Service-Binding": "true",
+					},
+					body: JSON.stringify({
+						session: session.token,
+						files: code.files,
+						entries: input.entries,
+						apply: input.apply,
+					}),
+				},
+			);
+			if (!response.ok)
+				throw createError(
+					ErrorCodes.BAD_GATEWAY,
+					`Recovered storage import failed (${response.status})`,
+				);
+			const result = AppRuntimeImportRecoveredStorageResultSchema.parse(
+				await response.json(),
+			);
+			const actor = auditActor(context);
+			const count = (status: string) =>
+				result.results.filter((r) => r.status === status).length;
+			// Keys and counts only; values are the app's own data.
+			await emitAuditEvent(context.db, {
+				organizationId: input.organizationId,
+				actorId: actor.actorId,
+				actorType: actor.actorType,
+				action: `osAppRuntime.importRecoveredStorage.${input.apply ? "applied" : "checked"}`,
+				resourceType: "os_gadget",
+				resourceId: input.gadgetId,
+				metadata: {
+					...actor.actorMetadata,
+					workspaceId: input.workspaceId,
+					revisionId: result.revisionId,
+					written: count("written"),
+					skipped: count("skipped"),
+					present: count("present"),
+					absent: count("absent"),
+					mismatched: result.results.filter((r) => !r.matches).length,
+				},
+			});
+			return result;
+		},
+	);
 	return os.router({
+		importRecoveredStorage,
 		open,
 		client,
 		readOutput,
