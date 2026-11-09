@@ -6,7 +6,10 @@ import {
 	findOrphanRuns,
 	listRecentKernelRunsForOrganization,
 } from "./queries/cognitive-runtime";
-import { listPendingAgentSessionEvents } from "./queries/agent-session-requests";
+import {
+	claimAgentSessionEvent,
+	listPendingAgentSessionEvents,
+} from "./queries/agent-session-requests";
 import { listOwnerLearningInteractionsPage } from "./queries/learning-feedback";
 import { pendingFilingLessons } from "./queries/request-filings";
 import { listRationaleRecords } from "./queries/rationale-records";
@@ -149,16 +152,27 @@ describe("hot production query plans", () => {
 		);
 	});
 
-	it("checks earlier events in the same session by key, not by re-reading the user's events", async () => {
-		const { query, lastPlan } = fixture();
-		await listPendingAgentSessionEvents(query, {
-			organizationId: "org-1",
-			userId: "user-1",
-			limit: 20,
-			now: "2026-11-09T18:00:00.000Z",
-		});
-		expect(lastPlan("agent_session_events")).toContain(
-			"SEARCH earlier_session_event USING COVERING INDEX idx_agent_session_events_session_order (organization_id=? AND user_id=? AND harness=? AND session_key=? AND status=?",
-		);
-	});
+	it.each(["list", "claim"])(
+		"%s checks earlier session events through the covering index",
+		async (operation) => {
+			const { query, lastPlan } = fixture();
+			const params = {
+				organizationId: "org-1",
+				userId: "user-1",
+				limit: 20,
+				id: "event-1",
+				now: "2026-11-09T18:00:00.000Z",
+			};
+			if (operation === "list")
+				await listPendingAgentSessionEvents(query, params);
+			else await claimAgentSessionEvent(query, params);
+			const plan = lastPlan("agent_session_events");
+			expect(plan).toContain(
+				"SEARCH earlier_session_event USING COVERING INDEX idx_agent_session_events_session_order (organization_id=? AND user_id=? AND harness=? AND session_key=? AND status=?",
+			);
+			expect(plan).not.toMatch(
+				/SCAN (?:agent_session_events|earlier_session_event)/,
+			);
+		},
+	);
 });
