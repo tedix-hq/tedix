@@ -1,8 +1,8 @@
-import type { AzureGatewayEnv } from "./model";
+import type { WorkspaceModelEnv } from "./model";
 
 /** Bindings this worker runs with; `worker-configuration.d.ts` is the generated truth. */
 export type WorkspaceEnv = Cloudflare.Env &
-	AzureGatewayEnv & { MIGRATE_WORKSPACES_TOKEN?: string };
+	WorkspaceModelEnv & { MIGRATE_WORKSPACES_TOKEN?: string };
 
 export type ActorKind = "user" | "tedi" | "external_agent" | "service";
 

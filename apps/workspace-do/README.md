@@ -73,12 +73,19 @@ MCP gateway and prints time to first text and total time.
 
 ## Model and usage in chat
 
-The chat picker offers only the configured Azure deployment this runtime can
-execute. The object rejects other model IDs before writing a turn and carries
-the selected ID into both local and isolated execution. Workspace chat still
-requires build access through the OS gateway.
+The chat picker offers the configured Azure deployment and explicitly allowed
+Workers AI models. Azure needs its resource/deployment and AI Gateway settings.
+Workers AI needs an executable AI Gateway transport and the deployment-owned
+`AI_GATEWAY_AUTO_ALLOWED_MODELS` comma-separated list of exact `@cf/owner/model`
+IDs. An in-account `AI` binding with `AI_GATEWAY_BINDING_PROVIDERS=workers-ai`
+uses the binding transport; otherwise the shared gateway transport needs its
+account and token settings. Gateway credentials stay authoritative; provider
+credentials are stripped from SDK requests. Unconfigured IDs are rejected
+before writing a turn, and the selected ID reaches both local and isolated
+execution. Azure is the default when available; otherwise the first configured
+Workers AI model is the default. Workspace chat still requires build access.
 
-Chat labels the executing Azure deployment until the provider reports its model
+Chat labels the selected model until the provider reports its model
 name. Input and output totals include all model calls and compaction; cached
 input is a subset of input. Missing provider usage stays unavailable, and totals
 with missing calls are marked partial. Model and usage events replay with the
