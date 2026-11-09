@@ -139,6 +139,7 @@ const MAX_INLINE_COMPACT_TYPE_TOOLS = 300;
 function createExecutionRefs(): CodeModeExecutionRefs {
 	return {
 		authorizationDenial: undefined,
+		secretEgressError: undefined,
 		approvalResult: undefined,
 		approvalExtra: undefined,
 		approvalSource: undefined,
@@ -643,6 +644,38 @@ export async function registerCodeModeTools(
 					executionRefs.collectionReads,
 				);
 			};
+			const secretEgressFailure = () => {
+				const detail = executionRefs.secretEgressError;
+				if (!detail) return undefined;
+				const errorMeta = {
+					...(detail.code ? { code: detail.code } : {}),
+					...(detail.status !== undefined ? { status: detail.status } : {}),
+					...(detail.retryable !== undefined
+						? { retryable: detail.retryable }
+						: {}),
+				};
+				return attachCodeModeReadObservations(
+					{
+						content: [
+							{
+								type: "text" as const,
+								text: `Execution error: ${detail.message}`,
+							},
+						],
+						isError: true,
+						structuredContent: {
+							executionId,
+							error: detail.message,
+							...errorMeta,
+						},
+						...(Object.keys(errorMeta).length > 0
+							? { _meta: { "tedix/error": errorMeta } }
+							: {}),
+					},
+					executionRefs.readObservations,
+					executionRefs.collectionReads,
+				);
+			};
 
 			try {
 				executionRefs.ownerHostSession = undefined;
@@ -670,6 +703,7 @@ export async function registerCodeModeTools(
 					};
 				}
 				executionRefs.authorizationDenial = undefined;
+				executionRefs.secretEgressError = undefined;
 				executionRefs.replayUnsafeBuiltinCalls = 0;
 				executionRefs.executionId = executionId;
 				executionRefs.approvalResult = undefined;
@@ -787,6 +821,11 @@ export async function registerCodeModeTools(
 				if (scopeFailure) {
 					emitExecTelemetry(false, executionRefs.authorizationDenial!.message);
 					return scopeFailure;
+				}
+				const secretFailure = secretEgressFailure();
+				if (secretFailure) {
+					emitExecTelemetry(false, executionRefs.secretEgressError!.message);
+					return secretFailure;
 				}
 				const paymentResponses = executionRefs.paymentResponses;
 
@@ -969,6 +1008,11 @@ export async function registerCodeModeTools(
 					emitExecTelemetry(false, executionRefs.authorizationDenial!.message);
 					return scopeFailure;
 				}
+				const secretFailure = secretEgressFailure();
+				if (secretFailure) {
+					emitExecTelemetry(false, executionRefs.secretEgressError!.message);
+					return secretFailure;
+				}
 				const rawError = error instanceof Error ? error.message : String(error);
 				// "Tool not found" guesses get nearest-callable suggestions so the
 				// model self-corrects instead of retrying name variants.
@@ -1007,6 +1051,7 @@ export async function registerCodeModeTools(
 					executionRefs.approvalExtra = undefined;
 					executionRefs.approvalSource = undefined;
 					executionRefs.authorizationDenial = undefined;
+					executionRefs.secretEgressError = undefined;
 					executionRefs.replayUnsafeBuiltinCalls = 0;
 					executionRefs.executionId = undefined;
 					executionRefs.paymentExtra = undefined;

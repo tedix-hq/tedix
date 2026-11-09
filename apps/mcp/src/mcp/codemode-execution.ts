@@ -129,6 +129,12 @@ const CODEMODE_PROVIDER_TYPES = [
 
 export interface CodeModeExecutionRefs {
 	authorizationDenial: CodeModeAuthorizationError | undefined;
+	secretEgressError?: {
+		message: string;
+		code?: string;
+		status?: number;
+		retryable?: boolean;
+	};
 	approvalResult: CallToolResult | undefined;
 	approvalExtra: { _meta?: Record<string, unknown> } | undefined;
 	approvalSource: string | undefined;
@@ -716,6 +722,27 @@ export function buildNamespaceGroups(
 						limit: updatedRetryState.limit,
 					});
 				} catch (error) {
+					if (error instanceof Error) {
+						const detail = error as Error & {
+							code?: unknown;
+							status?: unknown;
+							retryable?: unknown;
+						};
+						if (detail.code === "SECRET_EGRESS_DENIED") {
+							executionRefs.secretEgressError ??= {
+								message: detail.message,
+								...(typeof detail.code === "string"
+									? { code: detail.code }
+									: {}),
+								...(typeof detail.status === "number"
+									? { status: detail.status }
+									: {}),
+								...(typeof detail.retryable === "boolean"
+									? { retryable: detail.retryable }
+									: {}),
+							};
+						}
+					}
 					const retryable =
 						!(error instanceof Error) ||
 						(error as Error & { retryable?: boolean }).retryable !== false;

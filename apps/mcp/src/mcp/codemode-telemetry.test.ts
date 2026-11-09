@@ -1534,14 +1534,14 @@ describe("Code Mode tail telemetry", () => {
 		);
 		const response = (await registered.get("code")?.({
 			code: "async () => repeated_soft_fail()",
-		})) as { structuredContent?: { result?: string[] } };
+		})) as { structuredContent?: Record<string, unknown> };
 
 		expect(executeToolMock).toHaveBeenCalledOnce();
-		expect(response.structuredContent?.result).toEqual([
-			expect.stringContaining("GitHub token pattern"),
-			expect.stringContaining("Identical call blocked"),
-			expect.stringContaining("Identical call blocked"),
-		]);
+		expect(response.structuredContent).toMatchObject({
+			code: "SECRET_EGRESS_DENIED",
+			status: 403,
+			retryable: false,
+		});
 	});
 
 	it("reports a preflight secret-egress denial without dispatching the tool", async () => {
@@ -1582,10 +1582,99 @@ describe("Code Mode tail telemetry", () => {
 
 		const response = (await registered.get("code")?.({
 			code: "async () => test.soft_fail({ marker: 'fake' })",
-		})) as { structuredContent?: { error?: string } };
+		})) as {
+			structuredContent?: {
+				error?: string;
+				code?: string;
+				status?: number;
+				retryable?: boolean;
+			};
+			_meta?: Record<string, unknown>;
+		};
 
-		expect(response.structuredContent?.error).toContain("SECRET_EGRESS_DENIED");
+		expect(response.structuredContent?.error).toContain(
+			"blocked before public egress",
+		);
+		expect(response.structuredContent).toMatchObject({
+			code: "SECRET_EGRESS_DENIED",
+			status: 403,
+			retryable: false,
+		});
+		expect(response._meta?.["tedix/error"]).toEqual({
+			code: "SECRET_EGRESS_DENIED",
+			status: 403,
+			retryable: false,
+		});
 		expect(preflightSecretEgressMock).toHaveBeenCalledOnce();
+		expect(executeToolMock).not.toHaveBeenCalled();
+	});
+
+	it("preserves a structured-read secret-egress denial without dispatching the tool", async () => {
+		const marker = ["ghp", "0123456789abcdefghij0123"].join("_");
+		preflightSecretEgressMock.mockResolvedValue({
+			decision: undefined,
+			denial: {
+				content: [
+					{
+						type: "text",
+						text: "Tool call blocked before public egress: arguments matched a safe fake marker.",
+					},
+				],
+				structuredContent: {
+					code: "SECRET_EGRESS_DENIED",
+					retryable: false,
+				},
+				_meta: {
+					"tedix/error": {
+						code: "SECRET_EGRESS_DENIED",
+						status: 403,
+						retryable: false,
+					},
+				},
+				isError: true,
+			},
+		});
+		const read = tool({
+			toolId: "test__soft_fail",
+			config: { transport: "rpc", endpoint: "test/read" },
+			annotations: { readOnlyHint: true, destructiveHint: false },
+		});
+		const ctx = makeServerCtx(new Map([[read.toolId, read]]));
+		const registered = new Map<string, (args: unknown) => Promise<unknown>>();
+		await registerCodeModeTools(
+			{
+				registerTool: (
+					name: string,
+					_config: unknown,
+					handler: (args: unknown) => Promise<unknown>,
+				) => registered.set(name, handler),
+			} as never,
+			ctx,
+		);
+
+		const response = (await registered.get("code")?.({
+			invocation: {
+				callable: "test.soft_fail",
+				args: { body: `safe fake marker ${marker}` },
+			},
+		})) as {
+			structuredContent?: Record<string, unknown>;
+			_meta?: Record<string, unknown>;
+		};
+
+		expect(response.structuredContent).toMatchObject({
+			code: "SECRET_EGRESS_DENIED",
+			status: 403,
+			retryable: false,
+		});
+		expect(response._meta?.["tedix/error"]).toEqual({
+			code: "SECRET_EGRESS_DENIED",
+			status: 403,
+			retryable: false,
+		});
+		expect(preflightSecretEgressMock).toHaveBeenCalledWith(ctx, read, {
+			body: `safe fake marker ${marker}`,
+		});
 		expect(executeToolMock).not.toHaveBeenCalled();
 	});
 
