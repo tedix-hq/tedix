@@ -53,6 +53,7 @@ export default defineConfig({
 						return Response.json({ json: { recorded: true } });
 					},
 				},
+				r2Buckets: ["TEDI_STORAGE"],
 				durableObjects: {
 					WORKSPACE_APP_HOST: {
 						className: "WorkspaceAppHostDO",

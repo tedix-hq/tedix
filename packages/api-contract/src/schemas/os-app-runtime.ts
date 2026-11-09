@@ -346,20 +346,15 @@ export const AppRuntimeSessionResultSchema = z.object({
 	revisionId: z.uuid(),
 });
 
-/** One-time import of an app's storage recovered from the retired account. */
+/** One-time import of app storage recovered from the retired account. */
 export const AppRuntimeImportRecoveredStorageInputSchema = z
 	.object({
-		organizationId: z.string().min(1).max(200),
-		workspaceId: z.uuid(),
-		gadgetId: z.uuid(),
-		entries: z
-			.array(
-				z
-					.object({ key: z.string().min(1).max(2048), value: JsonValueSchema })
-					.strict(),
-			)
-			.min(1)
-			.max(500),
+		/** Archive folder in the runtime's own bucket, read there; values never pass through here. */
+		prefix: z
+			.string()
+			.max(300)
+			.regex(/^account-recovery\/[A-Za-z0-9._/-]+\/$/),
+		manifestSha256: z.string().regex(/^[0-9a-f]{64}$/),
 		/** False only reads back each key: present or absent, and equal to the export. */
 		apply: z.boolean(),
 	})
@@ -372,6 +367,27 @@ export const AppRuntimeImportRecoveredStorageResultSchema = z.object({
 			key: z.string(),
 			status: z.enum(["written", "skipped", "present", "absent"]),
 			matches: z.boolean(),
+		}),
+	),
+});
+
+export const AppRuntimeImportRecoveredPlanSchema = z.object({
+	apps: z.array(
+		z.object({
+			organizationId: z.string(),
+			workspaceId: z.string(),
+			gadgetId: z.string(),
+			entryCount: z.number().int(),
+		}),
+	),
+});
+
+export const AppRuntimeImportRecoveredReportSchema = z.object({
+	apps: z.array(
+		AppRuntimeImportRecoveredPlanSchema.shape.apps.element.extend({
+			status: z.enum(["imported", "checked", "unavailable"]),
+			revisionId: z.uuid().optional(),
+			results: AppRuntimeImportRecoveredStorageResultSchema.shape.results,
 		}),
 	),
 });

@@ -124,6 +124,8 @@ import {
 	WORKSPACE_APP_REVOKE_PATH,
 	handleWorkspaceAppImport,
 	WORKSPACE_APP_IMPORT_PATH,
+	handleWorkspaceAppImportPlan,
+	WORKSPACE_APP_IMPORT_PLAN_PATH,
 } from "./workspace-app-route";
 
 // @cloudflare/codemode resolves this exported class through the Agent DO's
@@ -1640,6 +1642,11 @@ export default {
 			if (!isServiceBinding(request.headers))
 				return new Response("Forbidden", { status: 403 });
 			return handleWorkspaceAppImport(request, env);
+		}
+		if (url.pathname === WORKSPACE_APP_IMPORT_PLAN_PATH) {
+			if (!isServiceBinding(request.headers))
+				return new Response("Forbidden", { status: 403 });
+			return handleWorkspaceAppImportPlan(request, env);
 		}
 
 		// authz: public — liveness + deployed-sha probe; serves no tenant data.

@@ -4,6 +4,10 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { mintWorkspaceAppSession } from "@tedix/auth/workspace-app-session";
 import type { WorkspaceAppHostDO } from "../../src/workspace-app-host-do";
 import { appRuntimeCodeDigest } from "@tedix/api-contract/utils/app-runtime";
+import {
+	handleWorkspaceAppImport,
+	handleWorkspaceAppImportPlan,
+} from "../../src/workspace-app-route";
 
 const gadgetId = "22222222-2222-4222-8222-222222222222";
 const revisionId = "33333333-3333-4333-8333-333333333333";
@@ -617,5 +621,110 @@ describe("recovered storage import", () => {
 					apply: true,
 				}))(),
 		).rejects.toThrow("signed revision");
+	});
+});
+
+describe("recovered archive import route", () => {
+	const hex = async (text: string) =>
+		[
+			...new Uint8Array(
+				await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)),
+			),
+		]
+			.map((b) => b.toString(16).padStart(2, "0"))
+			.join("");
+	async function putArchive(workspaceId: string, prefix: string) {
+		const bucket = (env as unknown as { TEDI_STORAGE: R2Bucket }).TEDI_STORAGE;
+		const host = "a".repeat(64);
+		const files = {
+			[`${host}/kv.0000.jsonl`]: `${JSON.stringify({ key: "scope", value: `fictional-org:${workspaceId}` })}\n`,
+			[`${host}/facets/app%3A${gadgetId}/kv.0000.jsonl`]: `${JSON.stringify({ key: "n", value: 9 })}\n${JSON.stringify({ key: "notes", value: { text: "kept" } })}\n`,
+		};
+		const manifest = JSON.stringify(
+			await Promise.all(
+				Object.entries(files).map(async ([path, body]) => ({
+					key: `account-recovery/v1/fixture/app-host-export/${path}`,
+					sha256: await hex(body),
+				})),
+			),
+		);
+		for (const [path, body] of Object.entries(files))
+			await bucket.put(`${prefix}${path}`, body);
+		await bucket.put(`${prefix}manifest.json`, manifest);
+		return { bucket, manifestSha256: await hex(manifest), host };
+	}
+	const post = (body: unknown) =>
+		new Request("https://tedi-runtime/", {
+			method: "POST",
+			headers: { "X-Service-Binding": "true" },
+			body: JSON.stringify(body),
+		});
+
+	it("reads the archive from the runtime bucket and imports only absent keys", async () => {
+		const stub = createHost();
+		const workspaceId = hostWorkspaces.get(stub)!;
+		expect(await call(stub)).toEqual({ n: 1, version: "v1" });
+		const prefix = `account-recovery/${workspaceId}/`;
+		const archive = await putArchive(workspaceId, prefix);
+		const routeEnv = env as unknown as Parameters<
+			typeof handleWorkspaceAppImport
+		>[1];
+		const plan = await handleWorkspaceAppImportPlan(
+			post({ prefix, manifestSha256: archive.manifestSha256 }),
+			routeEnv,
+		);
+		expect(await plan.json()).toEqual({
+			apps: [
+				{
+					organizationId: "fictional-org",
+					workspaceId,
+					gadgetId,
+					entryCount: 2,
+				},
+			],
+		});
+		const code = files("v1");
+		const session = (await mint(stub, code, { role: "owner" })).token;
+		const imported = await handleWorkspaceAppImport(
+			post({
+				prefix,
+				manifestSha256: archive.manifestSha256,
+				session,
+				files: code,
+				apply: true,
+			}),
+			routeEnv,
+		);
+		expect((await imported.json()).results).toEqual([
+			{ key: "n", status: "skipped", matches: false },
+			{ key: "notes", status: "written", matches: true },
+		]);
+		expect(await call(stub)).toEqual({ n: 2, version: "v1" });
+	});
+
+	it("refuses an archive whose manifest or file hash does not match", async () => {
+		const stub = createHost();
+		const workspaceId = hostWorkspaces.get(stub)!;
+		const prefix = `account-recovery/${workspaceId}/`;
+		const archive = await putArchive(workspaceId, prefix);
+		const routeEnv = env as unknown as Parameters<
+			typeof handleWorkspaceAppImport
+		>[1];
+		await expect(
+			handleWorkspaceAppImportPlan(
+				post({ prefix, manifestSha256: "0".repeat(64) }),
+				routeEnv,
+			),
+		).rejects.toThrow("manifest hash mismatch");
+		await archive.bucket.put(
+			`${prefix}${archive.host}/facets/app%3A${gadgetId}/kv.0000.jsonl`,
+			"{}\n",
+		);
+		await expect(
+			handleWorkspaceAppImportPlan(
+				post({ prefix, manifestSha256: archive.manifestSha256 }),
+				routeEnv,
+			),
+		).rejects.toThrow("file hash mismatch");
 	});
 });
