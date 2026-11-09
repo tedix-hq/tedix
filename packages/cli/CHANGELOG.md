@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.21.3 — 2026-11-09
+
+### Patch Changes
+
+- When a review or check agent finishes and reports that the work is not done yet, the dispatcher no longer runs it again on the same unchanged work. It holds the item and leaves a comment, so the repair happens first and the remaining try is saved for the repaired version. Coding jobs still get one rerun, because they continue from the change they already made.
+
 ## 0.21.2 — 2026-11-09
 
 ### Patch Changes
