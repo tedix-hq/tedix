@@ -8,6 +8,8 @@ import {
 	externalAgentPrincipals,
 	externalAgentSessions,
 } from "../../schema/external-agent-identity";
+import { readLogStores } from "../../utils/log-store";
+import { EXTERNAL_AGENT_ATTRIBUTION_MIN_KEEP_DAYS } from "../d1-retention";
 import { ExternalAgentIdentityError } from "./principals";
 import { diagnoseMutableSession } from "./session-state";
 
@@ -22,6 +24,47 @@ function stableJson(value: unknown): string {
 			.join(",")}}`;
 	}
 	return JSON.stringify(value) ?? "undefined";
+}
+
+/**
+ * The logs-database copy of an attribution the retention move took out of the
+ * main database, or null. Only a row at least the move floor old (less a day
+ * of clock slack) can have moved, so newer writes skip the extra read.
+ */
+export async function readMovedExternalAgentAttribution(
+	db: DbClient,
+	key: {
+		organizationId: string;
+		targetType: ExternalAgentAttribution["targetType"];
+		targetId: string;
+		role: ExternalAgentAttribution["role"];
+		principalId: string;
+	},
+	occurredAt: string,
+): Promise<ExternalAgentAttribution | null> {
+	const occurredMs = Date.parse(occurredAt);
+	const movableBeforeMs =
+		Date.now() - (EXTERNAL_AGENT_ATTRIBUTION_MIN_KEEP_DAYS - 1) * 86_400_000;
+	if (Number.isFinite(occurredMs) && occurredMs > movableBeforeMs) return null;
+	const found = await readLogStores(
+		db,
+		(store) =>
+			store
+				.select()
+				.from(externalAgentAttributions)
+				.where(
+					and(
+						eq(externalAgentAttributions.organizationId, key.organizationId),
+						eq(externalAgentAttributions.targetType, key.targetType),
+						eq(externalAgentAttributions.targetId, key.targetId),
+						eq(externalAgentAttributions.role, key.role),
+						eq(externalAgentAttributions.principalId, key.principalId),
+					),
+				)
+				.limit(1),
+		{ order: "logs-first" },
+	);
+	return found?.flat()[0] ?? null;
 }
 
 export async function recordExternalAgentAttribution(
@@ -72,67 +115,77 @@ export async function recordExternalAgentAttribution(
 	const activeSession = alias(externalAgentSessions, "active_session");
 	const activePrincipal = alias(externalAgentPrincipals, "active_principal");
 	const historical = input.allowHistoricalSession ? 1 : 0;
-	const inserted = await db
-		.insert(externalAgentAttributions)
-		.select(
-			db
-				.select({
-					id: sql<string>`${input.id}`.as("id"),
-					organizationId: sql<string>`${input.organizationId}`.as(
-						"organization_id",
-					),
-					principalId: sql<string>`${input.principalId}`.as("principal_id"),
-					sessionId: sql<string>`${input.sessionId}`.as("session_id"),
-					targetType: sql<typeof input.targetType>`${input.targetType}`.as(
-						"target_type",
-					),
-					targetId: sql<string>`${input.targetId}`.as("target_id"),
-					role: sql<typeof input.role>`${input.role}`.as("role"),
-					workItemId: sql<string | null>`${workItemId}`.as("work_item_id"),
-					metadata: sql<
-						Record<string, JsonValue>
-					>`${JSON.stringify(metadata)}`.as("metadata"),
-					occurredAt: sql<string>`${input.occurredAt}`.as("occurred_at"),
-				})
-				.from(activeSession)
-				.innerJoin(
-					activePrincipal,
-					and(
-						eq(activePrincipal.organizationId, activeSession.organizationId),
-						eq(activePrincipal.id, activeSession.principalId),
-					),
-				)
-				.where(
-					and(
-						eq(activeSession.organizationId, input.organizationId),
-						eq(activeSession.principalId, input.principalId),
-						eq(activeSession.id, input.sessionId),
-						lte(activeSession.startedAt, input.occurredAt),
-						// A historical acceptance may attribute an event that happened AFTER the
-						// session ended. The bound below only constrains parties who report their
-						// true clock: for a commit, occurredAt is the git committer date, which
-						// the committer sets (GIT_COMMITTER_DATE). It therefore taxed honest
-						// agents and stopped nobody — the dominant cause of human overrides was
-						// an agent whose session ended (or whose lease the reaper reclaimed)
-						// before CI validated its already-pushed commits.
-						or(
-							sql`${historical} = 1`,
-							isNull(activeSession.endedAt),
-							gte(activeSession.endedAt, input.occurredAt),
+	const moved = await readMovedExternalAgentAttribution(
+		db,
+		input,
+		input.occurredAt,
+	);
+	const inserted = moved
+		? []
+		: await db
+				.insert(externalAgentAttributions)
+				.select(
+					db
+						.select({
+							id: sql<string>`${input.id}`.as("id"),
+							organizationId: sql<string>`${input.organizationId}`.as(
+								"organization_id",
+							),
+							principalId: sql<string>`${input.principalId}`.as("principal_id"),
+							sessionId: sql<string>`${input.sessionId}`.as("session_id"),
+							targetType: sql<typeof input.targetType>`${input.targetType}`.as(
+								"target_type",
+							),
+							targetId: sql<string>`${input.targetId}`.as("target_id"),
+							role: sql<typeof input.role>`${input.role}`.as("role"),
+							workItemId: sql<string | null>`${workItemId}`.as("work_item_id"),
+							metadata: sql<
+								Record<string, JsonValue>
+							>`${JSON.stringify(metadata)}`.as("metadata"),
+							occurredAt: sql<string>`${input.occurredAt}`.as("occurred_at"),
+						})
+						.from(activeSession)
+						.innerJoin(
+							activePrincipal,
+							and(
+								eq(
+									activePrincipal.organizationId,
+									activeSession.organizationId,
+								),
+								eq(activePrincipal.id, activeSession.principalId),
+							),
+						)
+						.where(
+							and(
+								eq(activeSession.organizationId, input.organizationId),
+								eq(activeSession.principalId, input.principalId),
+								eq(activeSession.id, input.sessionId),
+								lte(activeSession.startedAt, input.occurredAt),
+								// A historical acceptance may attribute an event that happened AFTER the
+								// session ended. The bound below only constrains parties who report their
+								// true clock: for a commit, occurredAt is the git committer date, which
+								// the committer sets (GIT_COMMITTER_DATE). It therefore taxed honest
+								// agents and stopped nobody — the dominant cause of human overrides was
+								// an agent whose session ended (or whose lease the reaper reclaimed)
+								// before CI validated its already-pushed commits.
+								or(
+									sql`${historical} = 1`,
+									isNull(activeSession.endedAt),
+									gte(activeSession.endedAt, input.occurredAt),
+								),
+								// The session's own ended/active state is forgivable; a REVOKED principal
+								// is not. allowHistoricalSession used to bypass both, which meant
+								// disabling a principal did not stop its pending attributions:
+								// setExternalAgentPrincipalStatus bulk-ends that principal's sessions
+								// (principals.ts, the non-active branch), so every one of
+								// them became "historical" and sailed through this predicate.
+								eq(activePrincipal.status, "active"),
+								or(sql`${historical} = 1`, eq(activeSession.status, "active")),
+							),
 						),
-						// The session's own ended/active state is forgivable; a REVOKED principal
-						// is not. allowHistoricalSession used to bypass both, which meant
-						// disabling a principal did not stop its pending attributions:
-						// setExternalAgentPrincipalStatus bulk-ends that principal's sessions
-						// (principals.ts, the non-active branch), so every one of
-						// them became "historical" and sailed through this predicate.
-						eq(activePrincipal.status, "active"),
-						or(sql`${historical} = 1`, eq(activeSession.status, "active")),
-					),
-				),
-		)
-		.onConflictDoNothing()
-		.returning({ id: externalAgentAttributions.id });
+				)
+				.onConflictDoNothing()
+				.returning({ id: externalAgentAttributions.id });
 	if (inserted[0]) {
 		const created = await db
 			.select()
@@ -141,20 +194,23 @@ export async function recordExternalAgentAttribution(
 			.limit(1);
 		if (created[0]) return created[0];
 	}
-	const rows = await db
-		.select()
-		.from(externalAgentAttributions)
-		.where(
-			and(
-				eq(externalAgentAttributions.organizationId, input.organizationId),
-				eq(externalAgentAttributions.targetType, input.targetType),
-				eq(externalAgentAttributions.targetId, input.targetId),
-				eq(externalAgentAttributions.role, input.role),
-				eq(externalAgentAttributions.principalId, input.principalId),
-			),
-		)
-		.limit(1);
-	const existing = rows[0];
+	const existing =
+		moved ??
+		(
+			await db
+				.select()
+				.from(externalAgentAttributions)
+				.where(
+					and(
+						eq(externalAgentAttributions.organizationId, input.organizationId),
+						eq(externalAgentAttributions.targetType, input.targetType),
+						eq(externalAgentAttributions.targetId, input.targetId),
+						eq(externalAgentAttributions.role, input.role),
+						eq(externalAgentAttributions.principalId, input.principalId),
+					),
+				)
+				.limit(1)
+		)[0];
 	if (existing) {
 		const exactReplay =
 			existing.sessionId === input.sessionId &&

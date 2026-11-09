@@ -5,6 +5,10 @@ import { auditEvents } from "../schema/audit-events";
 import { skillRunArtifacts, skillRuns } from "../schema/cognitive";
 import { tediArtifacts, tediRuntimeEvents } from "../schema/cognitive-runtime";
 import { d1RetentionPolicies } from "../schema/d1-retention";
+import {
+	externalAgentAttributions,
+	externalAgentReviewEvidence,
+} from "../schema/external-agent-identity";
 import { memoryFacts } from "../schema/memory-graph";
 import { osGadgetExecutions } from "../schema/os-workspaces";
 import { workEvidence } from "../schema/work-items";
@@ -396,6 +400,89 @@ describe("d1 logs copy statements", () => {
 			mismatched: ["audit-1"],
 			divergentColumns: { "audit-1": ["timestamp"] },
 		});
+	});
+});
+
+describe("external agent attribution retention", () => {
+	function attributions() {
+		const sqlite = new DatabaseSync(":memory:", {
+			enableForeignKeyConstraints: false,
+		});
+		sqlite.exec(
+			schemaDdl(externalAgentAttributions, externalAgentReviewEvidence),
+		);
+		const db = createDbQueryClient(createD1Facade(sqlite));
+		const spec = getD1RetentionTableSpec("external_agent_attributions")!;
+		const seed = (id: string, targetType: string, org = "org-example") =>
+			sqlite
+				.prepare(`INSERT INTO external_agent_attributions
+				(id, organization_id, principal_id, session_id, target_type, target_id, role, metadata, occurred_at)
+				VALUES (?, ?, 'principal-example', 'session-example', ?, ?, 'executor', '{}', '2026-08-01T10:00:00.000Z')`)
+				.run(id, org, targetType, `target-${id}`);
+		const review = (id: string, executionId: string, org = "org-example") =>
+			sqlite
+				.prepare(`INSERT INTO external_agent_review_evidence
+				(id, organization_id, execution_attribution_id, subject_principal_id, subject_session_id,
+				 reviewer_principal_type, reviewer_principal_id, target_type, target_id, task_family,
+				 repository_key, repository_version, risk_level, environment, outcome, score,
+				 review_method, evidence_refs, context_hash, occurred_at, created_at)
+				VALUES (?, ?, ?, 'principal-example', 'session-example', 'user', 'user-example',
+				 'mcp_execution', 'target', 'change', 'repo', 'v1', 'low', 'production', 'success', 1,
+				 'manual', '[]', 'hash', '2026-08-02', '2026-08-02')`)
+				.run(id, org, executionId);
+		return { db, spec, seed, review };
+	}
+
+	it("keeps at least 30 days and never deletes without a copy", () => {
+		const spec = getD1RetentionTableSpec("external_agent_attributions")!;
+		expect(spec.logsDb).toBe(true);
+		expect(d1RetentionEffectiveKeepDays(spec, { keepDays: 7 })).toBe(30);
+		expect(
+			d1RetentionPolicyProblem({
+				tableName: "external_agent_attributions",
+				mode: "move_to_logs_db",
+				keepDays: 30,
+			}),
+		).toBeNull();
+		expect(
+			d1RetentionPolicyProblem({
+				tableName: "external_agent_attributions",
+				mode: "delete",
+				keepDays: 30,
+			}),
+		).toBe("archive_required");
+	});
+
+	it("moves only unreviewed MCP executions and rechecks reviews at deletion", async () => {
+		const { db, spec, seed, review } = attributions();
+		seed("free", "mcp_execution");
+		seed("reviewed", "mcp_execution");
+		seed("commit", "commit");
+		seed("attempt", "work_item_attempt");
+		seed("late-review", "mcp_execution");
+		seed("other-org-review", "mcp_execution");
+		review("review-1", "reviewed");
+		// A review in another organization does not pin this row.
+		review("review-2", "other-org-review", "org-other");
+		const page = await readD1RetentionPage(db, spec, -1);
+		const filtered = await filterD1RetentionReferencedRows(db, spec, page);
+		expect(filtered.rows.map((row) => row.id)).toEqual([
+			"free",
+			"late-review",
+			"other-org-review",
+		]);
+		expect(filtered.referencedRows).toBe(3);
+		review("review-3", "late-review");
+		const deleted = await deleteD1RetentionRows(
+			db,
+			spec,
+			page.map((row) => row.__rowid),
+			"2026-09-01",
+		);
+		expect(deleted).toBe(2);
+		expect(
+			(await readD1RetentionPage(db, spec, -1)).map((row) => row.id),
+		).toEqual(["reviewed", "commit", "attempt", "late-review"]);
 	});
 });
 

@@ -16,6 +16,11 @@
  *   inserts and compare-and-set reads need them there. The retention job's
  *   `move_to_logs_db` mode copies rows older than the keep window here,
  *   verifies the copy, and only then removes them from the main database.
+ * - `external_agent_attributions`: new rows stay in the main database, where
+ *   the insert checks the issuing credential and the unique key. The retention
+ *   move takes only `mcp_execution` rows past the keep window that no review
+ *   evidence cites; the writers check the logs database before inserting an
+ *   attribution that old, so a replay never creates a second copy.
  *
  * Readers merge both stores through `getLogStores()` in `client.ts`. The
  * checked-in DDL under `packages/db/logs-db/migrations` is derived from this
@@ -26,6 +31,7 @@ import { sqliteTable, text, type SQLiteTable } from "drizzle-orm/sqlite-core";
 import { auditEvents } from "./audit-events";
 import { skillRunArtifacts } from "./cognitive";
 import { kernelRuntimeEvents, tediRuntimeEvents } from "./cognitive-runtime";
+import { externalAgentAttributions } from "./external-agent-identity";
 
 /**
  * Logs-local directory, never part of the main migration chain. Apply the logs
@@ -48,6 +54,7 @@ export const LOGS_DB_TABLES: readonly SQLiteTable[] = [
 	tediRuntimeEvents,
 	kernelRuntimeEvents,
 	skillRunArtifacts,
+	externalAgentAttributions,
 	logPartition,
 ];
 
@@ -80,4 +87,5 @@ export const LOGS_DB_TABLE_NAMES: ReadonlySet<string> = new Set([
 	"tedi_runtime_events",
 	"kernel_runtime_events",
 	"skill_run_artifacts",
+	"external_agent_attributions",
 ]);
