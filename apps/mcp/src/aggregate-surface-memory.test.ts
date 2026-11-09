@@ -47,6 +47,7 @@ import {
 	discoveryShardCache,
 	discoveryShardRefreshInFlight,
 	loadDiscoveryShards,
+	loadDiscoveryToolDefinition,
 	refreshDiscoveryShard,
 } from "./aggregate-discovery-shards";
 
@@ -593,6 +594,57 @@ describe("aggregate snapshot memory", () => {
 			[...r2.objects.keys()].filter((key) =>
 				key.startsWith("aggregate-discovery/v1/"),
 			);
+
+		it("hydrates only a selected shard row's organization and checks its identity", async () => {
+			await loadConnect();
+			await settleBackground();
+			aggregateSurfaceCache.clear();
+			aggregateSurfaceInFlight.clear();
+			const shards = await loadDiscoveryShards(
+				env,
+				mounts,
+				new Set(),
+				activation.value,
+			);
+			const row = shards!.tools.find(
+				(tool) => tool.toolId === "acme_unified_source__read_item_0",
+			)!;
+			const hydrate = vi.fn((entry: AggregateAppEntry) =>
+				aggregateAndPrefixTools(
+					[entry],
+					env,
+					new Set(),
+					ctx,
+					"connect",
+					activation,
+					false,
+				),
+			);
+			const full = await loadDiscoveryToolDefinition(row, mounts, hydrate);
+			expect(hydrate.mock.calls.map(([entry]) => entry.slug)).toEqual([
+				"acme-unified",
+			]);
+			expect(full.id).toBe(row.id);
+			expect(full.toolId).toBe(row.toolId);
+			expect(full.inputSchema).toHaveProperty("properties");
+			expect(full.config?._discoveryShard).not.toBe(true);
+			expect(row.inputSchema).toEqual({ type: "object" });
+			await expect(
+				loadDiscoveryToolDefinition(
+					{ ...row, id: "replaced-row" },
+					mounts,
+					hydrate,
+				),
+			).rejects.toThrow("Discovery schema is unavailable");
+			hydrate.mockClear();
+			await expect(
+				loadDiscoveryToolDefinition(row, [mounts[1]!], hydrate),
+			).rejects.toThrow("no unique organization mount");
+			await expect(
+				loadDiscoveryToolDefinition(row, [mounts[0]!, mounts[0]!], hydrate),
+			).rejects.toThrow("no unique organization mount");
+			expect(hydrate).not.toHaveBeenCalled();
+		});
 
 		it("compiles one compact shard per organization graph", async () => {
 			const surface = await loadConnect();

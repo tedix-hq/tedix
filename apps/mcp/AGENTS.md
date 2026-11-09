@@ -28,7 +28,9 @@ module-level caches below, and tool
 handler closures capture per-request `ServerContext` (fresh caller identity).
 
 Code Mode defers discovery catalog construction until a `discover.*` call and
-projects inline schemas only when needed. Pure tool descriptors are reused by
+projects inline schemas only when needed. Connect searches rank compact shards
+and hydrate schema-bearing pages after pagination, one organization at a time.
+Pure tool descriptors are reused by
 `src/mcp/catalog-projection.ts`, keyed by the source row object from the current
 app/aggregate snapshot plus namespace and skill-enriched description. A refreshed
 snapshot replaces those row objects, so this adds no TTL or stale-data window.

@@ -673,6 +673,7 @@ export function buildServerContext(
 	requestMeta?: Record<string, unknown>,
 	requestedCodeModeNamespaces?: ReadonlySet<string> | null,
 	connectionAppSlug?: string,
+	loadDiscoveryTool?: ServerContext["loadDiscoveryTool"],
 ): ServerContext {
 	const apiClient = getApiClient({
 		serviceFetch: env.API_SERVICE,
@@ -682,6 +683,7 @@ export function buildServerContext(
 	const toolHandler = sharedToolHandler;
 
 	const context: ServerContext = {
+		loadDiscoveryTool,
 		catalogTransport: async (config, input) => {
 			const { executeCatalogOperation } = await import("./codemode-catalog");
 			return executeCatalogOperation(context, config, input);
@@ -928,6 +930,7 @@ export async function buildMcpServer(
 	requestedCodeModeNamespaces?: ReadonlySet<string> | null,
 	connectionAppSlug?: string,
 	clientAppsSupported = false,
+	loadDiscoveryTool?: ServerContext["loadDiscoveryTool"],
 ): Promise<McpServer> {
 	const startTime = Date.now();
 
@@ -989,6 +992,7 @@ export async function buildMcpServer(
 		requestMeta,
 		requestedCodeModeNamespaces,
 		connectionAppSlug,
+		loadDiscoveryTool,
 	);
 
 	// Pre-populate loadedTools from cached data.

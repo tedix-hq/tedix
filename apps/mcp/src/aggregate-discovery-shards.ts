@@ -12,8 +12,9 @@
  * authorizes, nothing it only needs to describe or execute a tool. A program
  * that searches without naming a namespace then reads these shards instead of
  * the organization graphs, and fully hydrates only the namespaces it calls or
- * describes by literal name. Shard rows carry `_discoveryShard` and are never
- * executed (`ToolHandler.execute` refuses them).
+ * describes by literal name. Schema-bearing search hydrates only the returned
+ * page, one organization graph at a time. Shard rows carry `_discoveryShard`
+ * and are never executed (`ToolHandler.execute` refuses them).
  *
  * A schema sync rolls the activation epoch, which changes every shard key.
  * Missing shards are rebuilt one organization at a time, compacting each graph
@@ -84,6 +85,30 @@ export function isDiscoveryShardTool(config: object | null | undefined) {
 	return (
 		(config as { _discoveryShard?: unknown } | null)?._discoveryShard === true
 	);
+}
+
+/** Resolve only a selected row's verified mount; never retain its whole graph. */
+export async function loadDiscoveryToolDefinition(
+	tool: InternalAppTool,
+	entries: AggregateAppEntry[],
+	hydrate: (entry: AggregateAppEntry) => Promise<AggregatedMcpSurface>,
+): Promise<InternalAppTool> {
+	const organizationId = tool.config?._multiOrgOrganizationId;
+	const mounts = entries.filter(
+		(entry) =>
+			entry.organizationMount && entry.organizationId === organizationId,
+	);
+	if (typeof organizationId !== "string" || mounts.length !== 1) {
+		throw new Error("Discovery schema has no unique organization mount");
+	}
+	const surface = await hydrate(mounts[0]!);
+	const full = surface.tools.find(
+		(row) => row.id === tool.id && row.toolId === tool.toolId,
+	);
+	if (!full || isDiscoveryShardTool(full.config)) {
+		throw new Error("Discovery schema is unavailable; search again");
+	}
+	return full;
 }
 
 function compactTool(tool: InternalAppTool): InternalAppTool {

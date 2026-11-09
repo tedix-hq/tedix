@@ -210,6 +210,8 @@ export interface ServerContext {
 	readonly apiClient: ApiClient;
 	readonly toolHandler: ToolHandler;
 	readonly catalogTransport?: CatalogueTransportCallback;
+	/** Resolve a compact shard row after discovery has selected its page. */
+	readonly loadDiscoveryTool?: (tool: AppTool) => Promise<AppTool>;
 
 	// Caller identity (per-request, from JWT headers)
 	readonly callerIdentity: CallerIdentity | undefined;

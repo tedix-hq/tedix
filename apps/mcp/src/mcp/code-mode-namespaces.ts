@@ -314,16 +314,12 @@ function literalDiscoveryNamespaces(
 	return references === calls ? namespaces : null;
 }
 
-const SHARD_UNSAFE_SEARCH_KEYS = new Set([
-	"namespace",
-	"includeParameters",
-	"includeOutputSchema",
-]);
+const SHARD_UNSAFE_SEARCH_KEYS = new Set(["namespace"]);
 
 /**
  * A search a shard catalog answers like the full one: a query string, or an
  * object literal whose values may vary (a query from a loop) but whose keys
- * name no namespace and request no schemas.
+ * name no namespace. Schemas are hydrated only after pagination.
  */
 function isUnscopedSearchArgument(node: Expression): boolean {
 	if (node.type === "Literal") return typeof node.value === "string";
