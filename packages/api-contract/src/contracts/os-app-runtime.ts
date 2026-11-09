@@ -22,7 +22,7 @@ import {
 	AppDraftRoomSnapshotSchema,
 	AppDraftRoomSubmitResultSchema,
 	AppRuntimeImportRecoveredStorageInputSchema,
-	AppRuntimeImportRecoveredStorageResultSchema,
+	AppRuntimeImportRecoveredReportSchema,
 } from "../schemas/os-app-runtime";
 
 export const osAppRuntimeContract = oc
@@ -331,5 +331,5 @@ export const osAppRuntimeContract = oc
 					"Platform admin, one-time: write recovered app storage keys the app does not have yet",
 			})
 			.input(AppRuntimeImportRecoveredStorageInputSchema)
-			.output(AppRuntimeImportRecoveredStorageResultSchema),
+			.output(AppRuntimeImportRecoveredReportSchema),
 	});
