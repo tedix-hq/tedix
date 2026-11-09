@@ -67,7 +67,7 @@ import {
 	newGenericTaskId,
 	setGenericTaskWorkflowId,
 } from "./generic-task-store";
-import type { ToolExecutionContext } from "./handler";
+import { checkSecretEgress, type ToolExecutionContext } from "./handler";
 import {
 	READ_COLLECTION_META_KEY,
 	READ_OBSERVATION_META_KEY,
@@ -116,6 +116,45 @@ import { validateStructuredContentAgainstOutputSchema } from "./utils/schema";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 
 const log = createMcpLogger("mcp.tool_execution");
+
+export async function preflightSecretEgress(
+	agent: ServerContext,
+	tool: AppTool,
+	args: Record<string, unknown>,
+) {
+	const context: Pick<
+		ToolExecutionContext<ToolConfig>,
+		"apiClient" | "app" | "config" | "publicEgress" | "secretEgressDecision"
+	> = {
+		apiClient: agent.apiClient,
+		app: agent.app,
+		config: (tool.config ?? {}) as unknown as ToolConfig,
+		publicEgress: tool.publicEgress === true,
+	};
+	const denial = await checkSecretEgress(args, context);
+	if (!denial) return { denial: null, decision: context.secretEgressDecision };
+	const data = isRecord(denial.data) ? denial.data : {};
+	const error =
+		typeof data.error === "string" ? data.error : "Secret egress denied";
+	return {
+		decision: context.secretEgressDecision,
+		denial: {
+			content: [{ type: "text" as const, text: error }],
+			structuredContent: denial.data,
+			isError: true as const,
+			_meta: {
+				...(context.secretEgressDecision
+					? { "com.tedix/security": context.secretEgressDecision }
+					: {}),
+				"tedix/error": {
+					code: typeof data.code === "string" ? data.code : undefined,
+					status: denial.status,
+					retryable: data.retryable === false ? false : undefined,
+				},
+			} as OpenAiWidgetMeta,
+		},
+	};
+}
 
 function connectedCollectionRead(agent: ServerContext, tool: AppTool) {
 	const config = tool.config;
@@ -226,6 +265,7 @@ export async function executeTool(
 		expectedPolicyCredential?: SelectedConnectionCredential;
 		expectedPolicyProbe?: ToolExecutionContext<ToolConfig>["expectedPolicyProbe"];
 		expectedNativePolicyRevalidate?: () => Promise<boolean>;
+		secretEgressDecision?: Record<string, string>;
 	},
 ): Promise<{
 	content: Array<{ type: "text"; text: string }>;
@@ -298,6 +338,7 @@ export async function executeTool(
 				options.expectedPolicyCredential,
 				options.expectedPolicyProbe,
 				options.expectedNativePolicyRevalidate,
+				options.secretEgressDecision,
 			),
 		);
 	}
@@ -344,6 +385,7 @@ export async function executeTool(
 					options.expectedPolicyCredential,
 					options.expectedPolicyProbe,
 					options.expectedNativePolicyRevalidate,
+					options.secretEgressDecision,
 				),
 		);
 		const errorMessage = result.isError
@@ -497,6 +539,7 @@ async function executeWithHandler(
 	expectedPolicyCredential?: SelectedConnectionCredential,
 	expectedPolicyProbe?: ToolExecutionContext<ToolConfig>["expectedPolicyProbe"],
 	expectedNativePolicyRevalidate?: () => Promise<boolean>,
+	secretEgressDecision?: Record<string, string>,
 ): Promise<{
 	content: Array<{ type: "text"; text: string }>;
 	structuredContent: unknown;
@@ -746,6 +789,7 @@ async function executeWithHandler(
 		expectedPolicyCredential,
 		expectedPolicyProbe,
 		expectedNativePolicyRevalidate,
+		secretEgressDecision,
 		noFunds: hasNoFundsRestriction(agent),
 		appId: agent.appId,
 		app: agent.app,

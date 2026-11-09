@@ -38,7 +38,7 @@ vi.mock("./generic-task-store", async (importOriginal) => {
 	};
 });
 
-import { executeTool } from "./tool-execution";
+import { executeTool, preflightSecretEgress } from "./tool-execution";
 import { emitMcpAuditEvent, trackMcpEvent } from "./utils/analytics";
 
 interface FakeRpcResult {
@@ -246,6 +246,58 @@ function makeAgent(result: FakeRpcResult): ServerContext {
 		toolOutputTemplates: new Map(),
 	} as unknown as ServerContext;
 }
+
+describe("secret-egress preflight", () => {
+	it("returns the structured denial before a downstream handler can run", async () => {
+		const agent = {
+			...makeAgent({ status: 200, data: { executed: true } }),
+			apiClient: {
+				mcpGovernance: {
+					resolveSecretEgressPolicy: vi.fn(async () => ({ mode: "block" })),
+				},
+			},
+		} as unknown as ServerContext;
+		const tool = {
+			...makeTool(),
+			config: { transport: "external", endpoint: "tickets" },
+		};
+		const marker = ["ghp", "0123456789abcdefghij0123"].join("_");
+
+		const result = await preflightSecretEgress(agent, tool, {
+			body: `safe fake marker ${marker}`,
+		});
+
+		expect(result.denial).toMatchObject({
+			isError: true,
+			structuredContent: {
+				code: "SECRET_EGRESS_DENIED",
+				retryable: false,
+			},
+			_meta: {
+				"tedix/error": {
+					code: "SECRET_EGRESS_DENIED",
+					status: 403,
+					retryable: false,
+				},
+			},
+		});
+		expect(agent.toolHandler.execute).not.toHaveBeenCalled();
+	});
+
+	it("leaves ordinary arguments for the existing policy and execution path", async () => {
+		const agent = makeAgent({ status: 200, data: { executed: true } });
+		const tool = {
+			...makeTool(),
+			config: { transport: "external", endpoint: "tickets" },
+		};
+
+		expect(
+			(await preflightSecretEgress(agent, tool, { body: "ordinary request" }))
+				.denial,
+		).toBeNull();
+		expect(agent.toolHandler.execute).not.toHaveBeenCalled();
+	});
+});
 
 it("traces native and Code Mode tool calls without recording tenant input", async () => {
 	const agent = makeAgent({ status: 200, data: { content: "private result" } });

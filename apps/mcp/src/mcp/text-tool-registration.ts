@@ -25,7 +25,7 @@ import { attachPaymentResponseMeta, checkToolPayment } from "./payments";
 import { getToolPaymentPolicy } from "./payments-policy";
 import { settleToolPayment } from "./payments-settlement";
 import type { AppTool, ServerContext } from "./server-context";
-import { executeTool } from "./tool-execution";
+import { executeTool, preflightSecretEgress } from "./tool-execution";
 import { guardGatewayCall } from "./gateway-adapters";
 import { toolApprovalMetadata } from "./tool-risk-policy";
 import {
@@ -128,6 +128,8 @@ export async function registerTextOnlyTool(
 		const extra = {
 			_meta: resolveToolRequestMeta(ctx.mcpReq?._meta, agent.requestMeta),
 		};
+		const secretEgress = await preflightSecretEgress(agent, tool, args);
+		if (secretEgress.denial) return secretEgress.denial;
 		const candidate =
 			(await resolveTenantProfileCandidate(agent, tool, args)) ??
 			(await resolveHumanPolicyReplay(
@@ -210,6 +212,7 @@ export async function registerTextOnlyTool(
 					resultStrategy: (tool.resultStrategy as ResultStrategy) ?? "merge",
 					clientSupportsTasks: clientSupportsTasks(extra?._meta),
 					homeApprovedCall: isApprovedReplayCall(agent, { extra }),
+					secretEgressDecision: secretEgress.decision,
 					...(nativeCandidate
 						? { expectedNativePolicyRevalidate: nativeCandidate.revalidate }
 						: {}),
