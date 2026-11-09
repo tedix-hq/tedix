@@ -542,7 +542,7 @@ export async function rebuildFailedAgentSession(
 		: 0;
 }
 
-/** A later event cannot overtake an earlier pending or failed event in the same session. */
+/** Pending retries and leases preserve order; terminal failures do not block the session. */
 function noEarlierPendingEvent(db: DbQueryClient) {
 	const earlier = alias(agentSessionEvents, "earlier_session_event");
 	return notExists(
@@ -555,7 +555,7 @@ function noEarlierPendingEvent(db: DbQueryClient) {
 					eq(earlier.userId, agentSessionEvents.userId),
 					eq(earlier.harness, agentSessionEvents.harness),
 					eq(earlier.sessionKey, agentSessionEvents.sessionKey),
-					inArray(earlier.status, ["pending", "failed"]),
+					eq(earlier.status, "pending"),
 					or(
 						lt(earlier.sourceAt, agentSessionEvents.sourceAt),
 						and(

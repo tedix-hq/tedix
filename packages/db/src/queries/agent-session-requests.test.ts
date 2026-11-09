@@ -26,6 +26,7 @@ import {
 	listPendingAgentSessionEvents,
 	listPendingAgentSessionEventOwners,
 	claimAgentSessionEvent,
+	settleAgentSessionEvent,
 	updateAgentSessionRequests,
 	getAgentSessionLessonReflection,
 	recordAgentSessionLessonReflection,
@@ -856,13 +857,17 @@ for (const requestCount of [0, 1])
 			expectedRequests: requestCount,
 		};
 		expect(
-			await listPendingAgentSessionEvents(db, {
-				organizationId: ORG,
-				userId: USER,
-				limit: 10,
-				now: T1,
-			}),
-		).toEqual([]);
+			(
+				await listPendingAgentSessionEvents(db, {
+					organizationId: ORG,
+					userId: USER,
+					limit: 10,
+					now: T1,
+				})
+			)
+				.map((event) => event.sessionKey)
+				.sort(),
+		).toEqual(["other-session", "session-1"]);
 		expect(
 			await rebuildFailedAgentSession(db, { ...options, expectedEvents: 3 }),
 		).toBe(0);
@@ -922,7 +927,75 @@ for (const requestCount of [0, 1])
 		expect(await rebuildFailedAgentSession(db, options)).toBe(0);
 	});
 
-it("seeks session heads past deep blocked and leased backlogs without overtaking them", async () => {
+it("unblocks a session only after bounded retries, retaining the failed event", async () => {
+	const db = fixture();
+	const owner = { organizationId: ORG, userId: USER };
+	await recordAgentSessionEvents(db, {
+		...owner,
+		now: T0,
+		events: [T0, T1].map((sourceAt, index) => ({
+			harness: "codex" as const,
+			sessionKey: "poison-session",
+			repository: null,
+			kind: "prompt" as const,
+			body: index ? "Later request" : "Poison event retained for audit",
+			activity: null,
+			sourceAt,
+			sourceKey: `poison-${index}`,
+		})),
+	});
+	const all = await db.select().from(agentSessionEvents);
+	const first = all.find((event) => event.sourceAt === T0)!;
+	const second = all.find((event) => event.sourceAt === T1)!;
+	const list = () =>
+		listPendingAgentSessionEvents(db, { ...owner, now: T1, limit: 10 });
+	for (let attempt = 1; attempt <= 3; attempt++) {
+		expect((await list()).map((event) => event.id)).toEqual([first.id]);
+		expect(
+			await claimAgentSessionEvent(db, { ...owner, id: second.id, now: T1 }),
+		).toBe(false);
+		expect(
+			await claimAgentSessionEvent(db, { ...owner, id: first.id, now: T1 }),
+		).toBe(true);
+		expect(await list()).toEqual([]);
+		await settleAgentSessionEvent(db, {
+			...owner,
+			id: first.id,
+			now: T1,
+			processed: false,
+		});
+	}
+	const terminal = { ...first, status: "failed", attempts: 3 };
+	expect((await list()).map((event) => event.id)).toEqual([second.id]);
+	expect(
+		await claimAgentSessionEvent(db, { ...owner, id: first.id, now: T1 }),
+	).toBe(false);
+	expect(
+		await claimAgentSessionEvent(db, { ...owner, id: second.id, now: T1 }),
+	).toBe(true);
+	expect(
+		await retryFailedAgentSessionEvents(db, {
+			...owner,
+			sourceKeys: [first.sourceKey],
+		}),
+	).toBe(0);
+	await settleAgentSessionEvent(db, {
+		...owner,
+		id: second.id,
+		now: T1,
+		processed: true,
+	});
+	expect(await list()).toEqual([]);
+	expect(await db.select().from(agentSessionEvents)).toEqual(
+		expect.arrayContaining([
+			terminal,
+			{ ...second, status: "processed", attempts: 1, processedAt: T1 },
+		]),
+	);
+	expect(await db.select().from(agentSessionEvents)).toHaveLength(2);
+});
+
+it("seeks past terminal failures but not pending retries or fresh leases in deep backlogs", async () => {
 	const db = fixture();
 	for (const sessionKey of ["failed", "leased", "ready"]) {
 		await recordAgentSessionEvents(db, {
@@ -949,7 +1022,7 @@ it("seeks session heads past deep blocked and leased backlogs without overtaking
 		all.find((e) => e.sessionKey === sessionKey && e.sourceAt === T0)!;
 	await db
 		.update(agentSessionEvents)
-		.set({ status: "failed" })
+		.set({ status: "failed", attempts: 3 })
 		.where(eq(agentSessionEvents.id, head("failed").id));
 	expect(
 		await claimAgentSessionEvent(db, {
@@ -962,7 +1035,10 @@ it("seeks session heads past deep blocked and leased backlogs without overtaking
 	const params = { organizationId: ORG, userId: USER, now: T1, limit: 10 };
 	expect(
 		(await listPendingAgentSessionEvents(db, params)).map((e) => e.id),
-	).toEqual([head("ready").id]);
+	).toEqual([
+		head("ready").id,
+		all.find((e) => e.sourceKey === "failed-1")!.id,
+	]);
 	expect(await listPendingAgentSessionEventOwners(db, T1)).toEqual([
 		{ organizationId: ORG, userId: USER },
 	]);
@@ -978,7 +1054,7 @@ it("seeks session heads past deep blocked and leased backlogs without overtaking
 		)
 			.map((e) => e.sessionKey)
 			.sort(),
-	).toEqual(["leased", "ready"]);
+	).toEqual(["failed", "leased", "ready"]);
 	expect(await db.select().from(agentSessionEvents)).toHaveLength(2002);
 });
 
