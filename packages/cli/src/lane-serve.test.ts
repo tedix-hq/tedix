@@ -3812,6 +3812,60 @@ describe("dispatcher admission", () => {
 		releases[0]!();
 		await dispatcher.drain();
 	});
+	it("hands Work back without admission when told to stop during preparation", async () => {
+		const { dispatcher, dir, items, control, events } = fixture();
+		items.splice(1);
+		let openGate!: () => void;
+		control.preparationGate = {
+			itemId: item(1).id,
+			open: new Promise<void>((done) => {
+				openGate = done;
+			}),
+		};
+		await dispatcher.tick();
+		await until(() =>
+			events.some((e) => e.verb === "show" && e.args.includes("--file")),
+		);
+		// The supervisor restarts while this runner is still preparing.
+		dispatcher.stop();
+		openGate();
+		await dispatcher.drain();
+		expect(
+			events.filter((e) => e.verb === "start" && e.args[4] === "work"),
+		).toHaveLength(0);
+		const receipt = JSON.parse(
+			readFileSync(join(dir, `${item(1).id}-2.json`), "utf8"),
+		);
+		expect(receipt).toMatchObject({
+			phase: "deferred",
+			admissionState: "not_sent",
+		});
+		expect(receipt.held).not.toBe(true);
+		expect(readFileSync(join(dir, "dispatcher.log"), "utf8")).toContain(
+			"told to stop while it prepared",
+		);
+	});
+	it("cancels an admitted Attempt instead of launching it once the runner is stopping", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		const recall = f.deps.recall!;
+		let runner!: ReturnType<typeof f.restart>;
+		f.deps.recall = async (...args) => {
+			// The stop lands after admission, while the brief is being built.
+			runner.stop();
+			return recall(...args);
+		};
+		runner = f.restart();
+		await runner.tick();
+		await runner.drain();
+		expect(
+			f.events.filter((e) => e.verb === "start" && e.args[4] === "work"),
+		).toHaveLength(1);
+		expect(f.releases).toHaveLength(0);
+		const settle = f.events.filter((e) => e.verb === "settle");
+		expect(settle).toHaveLength(1);
+		expect(settle[0]!.args).toContain("cancelled");
+	});
 	it("cancels, not fails, an Attempt admitted on a revision that landed during start, then admits it", async () => {
 		const { restart, deps, items, events, releases } = fixture();
 		items.splice(1);
