@@ -373,6 +373,32 @@ describe("request-derived capability plans", () => {
 				.capabilityPlanDecision?.reason,
 		).toContain("output.reference");
 	});
+	it("reads an Output named by its bare id, not only by its link", () => {
+		const result = buildDelegationWorkOrder({
+			userContent:
+				"Ask the Research tedi to read the evaluation research questions in Output 11111111-1111-4111-8111-111111111111 and answer them. Read-only; use the Work history too.",
+			card: readerCard,
+			route,
+		});
+		expect(result.capabilityPlan?.requiredCapabilities).toContain(
+			"output.read",
+		);
+		expect(result.capabilityPlan?.allowedToolIds).toContain("os.get_os_output");
+		expect(result.capabilityPlan?.outputIds).toEqual([
+			"11111111-1111-4111-8111-111111111111",
+		]);
+		expect(result.capabilityPlan?.missingCapabilities).toEqual([]);
+	});
+	it("grants output readback for an Output link when the planner chose a page reader", () => {
+		const result = buildDelegationWorkOrder({
+			userContent:
+				"Ask Research to read https://os.example.com/outputs/11111111-1111-4111-8111-111111111111 (read-only).",
+			card: readerCard,
+			route: { ...route, plannedToolIds: ["browser_markdown"] },
+		});
+		expect(result.capabilityPlan?.allowedToolIds).toEqual(["os.get_os_output"]);
+		expect(result.capabilityPlan?.missingCapabilities).toEqual([]);
+	});
 	it("runs an app-level Code Mode grant under the executor ceiling instead of an unsatisfiable plan", () => {
 		const content =
 			"Draft a customer invoice in the accounting app for Example Customer GmbH, EUR 8,000 net. Draft only: do not finalize, send or book.";

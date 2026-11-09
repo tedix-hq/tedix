@@ -382,3 +382,46 @@ it.each(["I will delegate this to CTO.", "I’ll prepare a work order for CTO."]
 		).toBe("I’ll respond here without delegating.");
 	},
 );
+
+describe("undispatched delegation promises", () => {
+	const request =
+		"Ask the Research tedi to read https://os.example.com/outputs/11111111-1111-4111-8111-111111111111 and answer its questions (read-only).";
+	const promise =
+		"I'll ask Research to read the document and answer the questions.";
+	it("dispatches the delegation an answer_in_home reply promised", () => {
+		const result = guardKernelRouteDecision(
+			request,
+			decision({
+				routeKind: "answer_in_home",
+				answer: promise,
+				targetTediId: "tedi-research",
+				effortClass: null,
+			}),
+		);
+		expect(result.routeKind).toBe("delegate_tedi");
+		expect(result.targetTediId).toBe("tedi-research");
+		expect(result.answer).toBeNull();
+		expect(result.effortClass).toBe("single_read");
+		expect(result.explicitDelegationIntent).toBe(true);
+	});
+	it("drops the promise when the operator did not ask for a handoff", () => {
+		const result = guardKernelRouteDecision(
+			"What does the evaluation research say?",
+			decision({ routeKind: "answer_in_home", answer: promise }),
+		);
+		expect(result.routeKind).toBe("answer_in_home");
+		expect(result.answer).toBeNull();
+	});
+	it.each([
+		"ask the Research tedi to read the output",
+		"tell CFO to review it",
+	])("treats an ask-to-read as explicit delegation: %s", (content) => {
+		expect(hasExplicitDelegationIntent(content)).toBe(true);
+	});
+	it.each(["let me read the output first", "how do I get the sync to run?"])(
+		"keeps ordinary phrasing as no delegation: %s",
+		(content) => {
+			expect(hasExplicitDelegationIntent(content)).toBe(false);
+		},
+	);
+});

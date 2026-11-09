@@ -30,13 +30,20 @@ import type { KernelRouteDecision } from "./route-schema";
 // Verb-led delegation asks. `have/let/get/make <name> do|handle|…` covers the
 // "have the CTO do it" family without naming a roster (the planner already
 // resolves the target). Spanish mirrors: delega/asigna/encarga/que lo haga.
+const TEDI_TASK_VERBS =
+	"do|handle|take|run|own|build|work|fetch|pull|check|verify|fix|write|draft|prepare|investigate|look";
+// Only after "ask/tell <name> to": "let me read" is not a handoff.
+const ASKED_TEDI_TASK_VERBS = `${TEDI_TASK_VERBS}|read|review|summari[sz]e|research|analy[sz]e`;
 const NAMED_TEDI_TASK_PATTERN =
 	/^(?:please\s+)?(?:coding\s+)?(?:task|trial|goal)\s+for\s+(?:(?:a|an|the)\s+)?(?:[\w-]+\s+){0,3}tedi\b/i;
 const EXPLICIT_DELEGATION_PATTERNS: readonly RegExp[] = [
 	NAMED_TEDI_TASK_PATTERN,
 	/\bdelegat(?:e|es|ed|ing|ion)\b/i,
 	/\bassign(?:s|ed|ing)?\b/i,
-	/\b(?:have|let|get|make|ask|tell)\s+(?:the\s+)?[\w-]+(?:\s+tedi)?\s+(?:do|handle|take|run|own|build|work|fetch|pull|check|verify|fix|write|draft|prepare|investigate|look)\b/i,
+	new RegExp(
+		`\\b(?:(?:have|let|get|make|ask|tell)\\s+(?:the\\s+)?[\\w-]+(?:\\s+tedi)?)\\s+(?:${TEDI_TASK_VERBS})\\b|\\b(?:ask|tell)\\s+(?:the\\s+)?[\\w-]+(?:\\s+tedi)?\\s+to\\s+(?:${ASKED_TEDI_TASK_VERBS})\\b`,
+		"i",
+	),
 	/\bcreate\s+(?:a\s+|an\s+|new\s+)?(?:task|ticket|work\s*item|job)\b/i,
 	/\b(?:open|file|log|add)\s+(?:a\s+|an\s+|new\s+)?(?:task|ticket|work\s*item)\b/i,
 	/\bwork\s*item\b/i,
@@ -151,10 +158,12 @@ export function prohibitsDelegation(content: string): boolean {
 }
 
 /** Answer prose is not an operator request: nouns alone are never promises. */
+const DELEGATION_PROMISE = new RegExp(
+	`\\b(?:I(?:['’]ll|\\s+will|\\s+am\\s+going\\s+to)|we(?:['’]ll|\\s+will|\\s+are\\s+going\\s+to))\\s+(?:delegate|assign|hand\\s*(?:off|over)|(?:have|ask|tell)\\s+(?:the\\s+)?[\\w-]+(?:\\s+tedi)?\\s+(?:to\\s+)?(?:${ASKED_TEDI_TASK_VERBS})|(?:prepare|create|open)\\s+[^.?!\\n]{0,40}\\b(?:work\\s*(?:order|item)|task))\\b`,
+	"i",
+);
 function promisesDelegation(answer: string): boolean {
-	return /\b(?:I(?:['’]ll|\s+will|\s+am\s+going\s+to)|we(?:['’]ll|\s+will|\s+are\s+going\s+to))\s+(?:delegate|assign|hand\s*(?:off|over)|(?:have|ask|tell)\s+(?:the\s+)?[\w-]+(?:\s+tedi)?\s+(?:do|handle|take|run|own|build|work|fetch|pull|check|verify|fix|write|draft|prepare|investigate|look)|(?:prepare|create|open)\s+[^.?!\n]{0,40}\b(?:work\s*(?:order|item)|task))\b/i.test(
-		answer,
-	);
+	return DELEGATION_PROMISE.test(answer);
 }
 
 /**
@@ -235,6 +244,31 @@ export function guardKernelRouteDecision<T extends KernelRouteDecision>(
 			answer: null,
 			rationale: `${decision.rationale} [kernel guard: explicitly requested tedi implementation; dispatch policy still applies]`,
 			effortClass: decision.effortClass ?? "embodied",
+			explicitDelegationIntent,
+		};
+	}
+	// A Home answer may not promise a handoff that no route dispatches. When
+	// the operator asked for it and the planner named the tedi, the promise
+	// becomes the delegation (dispatch policy and approval still apply);
+	// otherwise the answer pass rewrites the copy from context.
+	if (
+		decision.routeKind === "answer_in_home" &&
+		decision.answer &&
+		promisesDelegation(decision.answer)
+	) {
+		if (decision.targetTediId && explicitDelegationIntent)
+			return {
+				...decision,
+				routeKind: "delegate_tedi",
+				answer: null,
+				rationale: `${decision.rationale} [kernel guard: Home answer promised a delegation to the planned tedi; dispatched instead]`,
+				effortClass: decision.effortClass ?? "single_read",
+				explicitDelegationIntent,
+			};
+		return {
+			...decision,
+			answer: null,
+			rationale: `${decision.rationale} [kernel guard: removed an undispatched delegation promise]`,
 			explicitDelegationIntent,
 		};
 	}
