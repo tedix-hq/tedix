@@ -1,7 +1,6 @@
 /**
- * The one way the loop talks to a model. Production streams the Azure
- * OpenAI Responses API through the authenticated AI Gateway (same vars and
- * headers as the tedi runtime); tests plug in pi's faux provider.
+ * The model port streams configured Azure or Workers AI deployments through
+ * the authenticated AI Gateway; tests can substitute a scripted provider.
  */
 import type {
 	AssistantMessageEventStream,
@@ -10,6 +9,11 @@ import type {
 	SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
 import { streamSimple } from "@earendil-works/pi-ai/api/azure-openai-responses";
+import { streamSimple as streamCompletions } from "@earendil-works/pi-ai/api/openai-completions";
+import {
+	resolveAiGatewayTransport,
+	type AiGatewayTransportEnv,
+} from "@tedix/workers-ai/gateway-transport";
 import { normalizeContext } from "@earendil-works/pi-ai/utils/transcript";
 
 export interface ModelPort {
@@ -56,18 +60,70 @@ export interface WorkspaceModelChoice {
 	label: string;
 }
 
-/** Only the deployment this runtime can execute is selectable. */
+export type WorkspaceModelEnv = AzureGatewayEnv & AiGatewayTransportEnv;
+
+function workersAiTransport(env: WorkspaceModelEnv) {
+	const gateway = configured(env.AI_GATEWAY_LLM_ID);
+	return gateway
+		? resolveAiGatewayTransport(
+				{
+					...env,
+					AI_GATEWAY_ACCOUNT_ID: configured(env.AI_GATEWAY_ACCOUNT_ID),
+					CF_AI_GATEWAY_TOKEN: configured(env.CF_AI_GATEWAY_TOKEN),
+				},
+				gateway,
+				"workers-ai",
+			)
+		: null;
+}
+
+function workersAiModels(env: WorkspaceModelEnv): string[] {
+	const raw = env.AI_GATEWAY_AUTO_ALLOWED_MODELS;
+	if (!raw || !configured(raw) || !workersAiTransport(env)) return [];
+	const ids = raw.split(",").map((id) => id.trim());
+	if (
+		/[\r\n]/.test(raw) ||
+		ids.some(
+			(id) => !/^@cf\/[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*$/.test(id),
+		)
+	)
+		throw new Error("Invalid Workers AI workspace model allowlist");
+	return [...new Set(ids)];
+}
+
+/** Selectable models come only from this deployment's executable configuration. */
 export function configuredWorkspaceModels(
-	env: AzureGatewayEnv,
+	env: WorkspaceModelEnv,
 ): WorkspaceModelChoice[] {
-	if (!azureGatewayConfigured(env)) return [];
-	const deployment = configured(env.AZURE_CHAT_DEPLOYMENT)!;
-	return [
-		{
+	const models: WorkspaceModelChoice[] = [];
+	if (azureGatewayConfigured(env)) {
+		const deployment = configured(env.AZURE_CHAT_DEPLOYMENT)!;
+		models.push({
 			id: `azure-openai/${deployment}`,
 			label: `Azure deployment: ${deployment}`,
-		},
-	];
+		});
+	}
+	for (const id of workersAiModels(env))
+		models.push({ id, label: `Workers AI: ${id}` });
+	return models;
+}
+
+export function createWorkspaceModel(
+	env: WorkspaceModelEnv,
+	metadata: GatewayMetadata,
+	requestedId?: string,
+): ModelPort {
+	const choices = configuredWorkspaceModels(env);
+	const modelId = requestedId ?? choices[0]?.id;
+	if (!modelId || !choices.some((model) => model.id === modelId))
+		throw new Error(
+			requestedId === undefined
+				? "No model is configured for workspace chat"
+				: "This model is not configured for workspace chat",
+		);
+	return modelId.startsWith("@cf/")
+		? createWorkersAiGatewayModel(env, metadata, modelId)
+		: createAzureGatewayModel(env, metadata);
 }
 
 /** Per-request attribution; the gateway caps this at five flat entries. */
@@ -166,6 +222,93 @@ export function createAzureGatewayModel(
 				azureApiVersion: configured(env.AZURE_OPENAI_API_VERSION) ?? "v1",
 			} as SimpleStreamOptions;
 			return streamSimple(model, normalizeContext(context), streamOptions);
+		},
+	};
+}
+
+function createWorkersAiGatewayModel(
+	env: WorkspaceModelEnv,
+	metadata: GatewayMetadata,
+	modelId: string,
+): ModelPort {
+	const transport = workersAiTransport(env);
+	if (!transport)
+		throw new Error("Workers AI gateway transport is not configured");
+	const model: Model<"openai-completions"> = {
+		id: modelId,
+		name: modelId,
+		api: "openai-completions",
+		provider: "cloudflare-workers-ai",
+		baseUrl: `${transport.providerRoot}/v1`,
+		input: ["text"],
+		reasoning: false,
+		contextWindow: 128_000,
+		maxTokens: 16_000,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		compat: {
+			supportsStore: false,
+			supportsDeveloperRole: false,
+			supportsLongCacheRetention: false,
+		},
+		headers: {
+			"cf-aig-authorization": `Bearer ${transport.authorization}`,
+			"cf-aig-no-wholesale": "true",
+			"cf-aig-metadata": JSON.stringify({
+				surface: "workspace_object",
+				workspaceId: metadata.workspaceId,
+				turnId: metadata.turnId,
+				actorId: metadata.actorId,
+			}),
+		},
+	};
+	let responseMetadata: { model?: string; usageReported: boolean } = {
+		usageReported: false,
+	};
+	return {
+		id: modelId,
+		contextWindow: model.contextWindow,
+		maxOutputTokens: model.maxTokens,
+		responseMetadata: () => responseMetadata,
+		stream(context, options) {
+			responseMetadata = { usageReported: false };
+			return streamCompletions(model, normalizeContext(context), {
+				apiKey: "cloudflare-ai-gateway-byok",
+				signal: options?.signal,
+				maxTokens: options?.maxTokens ?? model.maxTokens,
+				onProviderStreamEvent(data) {
+					const event = data as {
+						model?: unknown;
+						usage?: { prompt_tokens?: unknown; completion_tokens?: unknown };
+						choices?: Array<{
+							usage?: { prompt_tokens?: unknown; completion_tokens?: unknown };
+						}>;
+					};
+					if (typeof event.model === "string")
+						responseMetadata.model = event.model;
+					for (const usage of [
+						event.usage,
+						...(event.choices ?? []).map((choice) => choice.usage),
+					]) {
+						if (
+							usage &&
+							[usage.prompt_tokens, usage.completion_tokens].every(
+								(count) =>
+									typeof count === "number" &&
+									Number.isFinite(count) &&
+									count >= 0,
+							)
+						)
+							responseMetadata.usageReported = true;
+					}
+				},
+				fetch(input, init) {
+					const request = new Request(input, init);
+					request.headers.delete("authorization");
+					request.headers.delete("api-key");
+					request.headers.delete("x-api-key");
+					return transport.fetch(request);
+				},
+			});
 		},
 	};
 }

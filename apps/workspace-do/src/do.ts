@@ -54,8 +54,7 @@ import type {
 } from "./env";
 import { handleMcpRequest } from "./mcp";
 import {
-	azureGatewayConfigured,
-	createAzureGatewayModel,
+	createWorkspaceModel,
 	configuredWorkspaceModels,
 	type ModelPort,
 } from "./model";
@@ -1607,20 +1606,11 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		actorId: string,
 		modelId?: string,
 	): ModelPort {
-		if (
-			modelId !== undefined &&
-			!this.configuredModels().some((model) => model.id === modelId)
-		)
-			throw new Error("This model is not configured for workspace chat");
-		if (!azureGatewayConfigured(this.env))
-			throw new Error(
-				"No model configured for this workspace (set the Azure OpenAI and AI Gateway variables)",
-			);
-		return createAzureGatewayModel(this.env, {
-			workspaceId: scope.workspaceId,
-			turnId,
-			actorId,
-		});
+		return createWorkspaceModel(
+			this.env,
+			{ workspaceId: scope.workspaceId, turnId, actorId },
+			modelId,
+		);
 	}
 
 	async #execute(
@@ -1889,18 +1879,15 @@ export async function executeTurn(
 export class TurnFacet extends DurableObject<WorkspaceEnv> {
 	/** The model this facet streams from; a test subclass returns a scripted one. */
 	protected async modelFor(plan: TurnPlan): Promise<ModelPort> {
-		if (
-			plan.modelId !== undefined &&
-			!configuredWorkspaceModels(this.env).some(
-				(model) => model.id === plan.modelId,
-			)
-		)
-			throw new Error("This model is not configured for workspace chat");
-		return createAzureGatewayModel(this.env, {
-			workspaceId: plan.scope.workspaceId,
-			turnId: plan.turnId,
-			actorId: plan.actor.id,
-		});
+		return createWorkspaceModel(
+			this.env,
+			{
+				workspaceId: plan.scope.workspaceId,
+				turnId: plan.turnId,
+				actorId: plan.actor.id,
+			},
+			plan.modelId,
+		);
 	}
 
 	async run(plan: TurnPlan, objectName: string): Promise<TurnResult> {
