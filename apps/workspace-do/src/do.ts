@@ -62,6 +62,7 @@ import { buildSystemPrompt } from "./prompt";
 import type { WorkspaceStorage } from "./runtime";
 import { createLoaderSandbox } from "./sandbox";
 import { runTurn, toTurnUsage, type TurnResult } from "./turn-loop";
+import { priceTurn } from "./pricing";
 import {
 	type ClientFrame,
 	type ConversationSummary,
@@ -1635,13 +1636,25 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 						signal: controller.signal,
 					});
 			this.#persist(conversationId, turnId, result);
+			const usage = result.usage
+				? {
+						...toTurnUsage(result.usage),
+						...(await priceTurn(
+							this.env.DB,
+							this.env,
+							plan.modelId ?? this.configuredModels()[0]?.id,
+							result.usage,
+							new Date().toISOString(),
+						)),
+					}
+				: null;
 			this.#events.append(conversationId, {
 				type: "assistant.done",
 				turnId,
 				messageId: turnId,
 				text: result.text,
 				model: result.model,
-				...(result.usage ? { usage: toTurnUsage(result.usage) } : {}),
+				...(usage ? { usage } : {}),
 			});
 			this.#events.append(conversationId, {
 				type: "turn.finished",

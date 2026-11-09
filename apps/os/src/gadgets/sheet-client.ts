@@ -108,6 +108,12 @@ export async function mountSheetClient(
 	let calcTimer: ReturnType<typeof setTimeout> | undefined;
 	const call = <T = Saved>(method: string, input: unknown = {}) =>
 		bridge.call<T>("app.call", { method, args: [input] });
+	// The host reads the bound Output directly; the app server is the fallback
+	// for hosts that cannot (share links, older hosts).
+	const readSheet = () =>
+		bridge
+			.call<Saved>("outputs.readRevision", { slot })
+			.catch(() => call("readSheet"));
 	const sheet = () =>
 		draft!.workbook!.sheets.find(
 			(s) => s.id === draft!.workbook!.activeSheetId,
@@ -252,7 +258,7 @@ export async function mountSheetClient(
 	}
 	async function verifyAccess() {
 		try {
-			const current = parse(await call("readSheet"));
+			const current = parse(await readSheet());
 			if (current.output.id !== loaded?.output.id)
 				throw new Error("The sheet binding changed");
 			pendingRevision = Math.max(pendingRevision, current.revision.revision);
@@ -1410,7 +1416,7 @@ export async function mountSheetClient(
 		controls();
 		message("Loading sheet…");
 		try {
-			const result = parse(await call("readSheet"));
+			const result = parse(await readSheet());
 			if (destroyed) return;
 			loaded = result;
 			let retained: RetainedDraft | null = null;
@@ -1469,7 +1475,7 @@ export async function mountSheetClient(
 		busy = true;
 		controls();
 		try {
-			const result = parse(await call("readSheet"));
+			const result = parse(await readSheet());
 			if (result.output.id !== outputId)
 				throw new Error("The sheet binding changed");
 			const content = await bridge.call<Content>("sheet.evaluate", {

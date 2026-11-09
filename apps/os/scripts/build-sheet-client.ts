@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 const osRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const destination = resolve(
 	osRoot,
-	"../../packages/api-contract/src/assets/sheet-client.v2.generated.json",
+	"../../packages/api-contract/src/assets/sheet-client.v3.generated.json",
 );
 const result = await build({
 	absWorkingDir: osRoot,

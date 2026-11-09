@@ -80,6 +80,10 @@ export interface AppRuntimeHostDeps {
 	 * rows (a share-link guest): the server resolves the slot itself.
 	 */
 	readSlot?: (slot: string) => Promise<OsOutputContent>;
+	/** The bound Output and its current revision, read without a server round trip. */
+	readOutputRevision?: (
+		outputId: string,
+	) => Promise<{ output: unknown; revision: unknown }>;
 	callServer?: (method: string, args: JsonValue[]) => Promise<JsonValue>;
 	operations?: OsGadgetManifest["operations"];
 	onWrite?: () => void;
@@ -364,6 +368,26 @@ export async function handleAppRuntimeCall(
 			const outputId = outputIdForSlot(deps.resources, args.slot);
 			if (!outputId) return { ok: false, error: "slot_unbound" };
 			return { ok: true, value: await deps.readOutput(outputId) };
+		}
+		case "outputs.readRevision": {
+			if (!isRecord(args) || typeof args.slot !== "string")
+				return { ok: false, error: "bad_arguments", detail: "slot" };
+			const permission = appRuntimePermission({
+				role: context.role,
+				operation: "outputs.read",
+				grants: context.grants,
+				slot: args.slot,
+			});
+			if (!permission.allowed)
+				return { ok: false, error: "not_permitted", detail: permission.reason };
+			if (!deps.readOutputRevision)
+				return { ok: false, error: "host_unavailable" };
+			const outputId = outputIdForSlot(
+				deps.resources.filter((row) => row.workspaceId === context.workspaceId),
+				args.slot,
+			);
+			if (!outputId) return { ok: false, error: "slot_unbound" };
+			return { ok: true, value: await deps.readOutputRevision(outputId) };
 		}
 		case "app.call": {
 			const permission = appRuntimePermission({

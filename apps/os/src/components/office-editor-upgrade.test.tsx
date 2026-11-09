@@ -162,7 +162,7 @@ describe("explicit office editor upgrade", () => {
 			).toMatchObject({ kind: "document", version, currentVersion: 4 });
 		expect(
 			officeEditorUpgrade(manifest(["readSheet", "replaceSheet"])),
-		).toMatchObject({ kind: "sheet", version: 1, currentVersion: 2 });
+		).toMatchObject({ kind: "sheet", version: 1, currentVersion: 3 });
 		expect(
 			officeEditorUpgrade(
 				manifest(["readPresentation", "replacePresentation"]),

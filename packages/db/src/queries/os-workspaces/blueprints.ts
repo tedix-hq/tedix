@@ -469,3 +469,21 @@ export async function setCatalogOsBlueprintFeatured(
 		.returning();
 	return row;
 }
+
+/** The blueprint that already holds `name` in the organization, if any. */
+export async function findOsBlueprintIdByName(
+	db: DbQueryClient,
+	params: { organizationId: string; name: string },
+): Promise<string | null> {
+	const [row] = await db
+		.select({ id: osBlueprints.id })
+		.from(osBlueprints)
+		.where(
+			and(
+				eq(osBlueprints.organizationId, params.organizationId),
+				eq(osBlueprints.name, params.name),
+			),
+		)
+		.limit(1);
+	return row?.id ?? null;
+}

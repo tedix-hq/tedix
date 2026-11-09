@@ -63,6 +63,32 @@ function deps(role: AppRuntimeContext["role"], reads: string[] = []) {
 }
 
 describe("app runtime host", () => {
+	it("reads a granted slot's current revision without the app server", async () => {
+		const readOutputRevision = vi.fn(async (id: string) => ({
+			output: { id },
+			revision: { revision: 7 },
+		}));
+		const host = { ...deps("owner"), readOutputRevision };
+		expect(
+			await handleAppRuntimeCall(host, "outputs.readRevision", {
+				slot: "opportunities",
+			}),
+		).toEqual({
+			ok: true,
+			value: { output: { id: outputId }, revision: { revision: 7 } },
+		});
+		expect(
+			await handleAppRuntimeCall(host, "outputs.readRevision", {
+				slot: "other",
+			}),
+		).toMatchObject({ ok: false, error: "not_permitted" });
+		expect(
+			await handleAppRuntimeCall(deps("owner"), "outputs.readRevision", {
+				slot: "opportunities",
+			}),
+		).toEqual({ ok: false, error: "host_unavailable" });
+		expect(readOutputRevision).toHaveBeenCalledOnce();
+	});
 	it("saves bounded rich output bodies without opening the arbitrary app-call argument cap", async () => {
 		const replaceOutput = vi.fn(async () => ({
 			output: { id: outputId },

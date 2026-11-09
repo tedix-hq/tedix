@@ -96,6 +96,10 @@ export type TurnUsage = {
 	/** Legacy amounts have no trustworthy currency or attribution. Never display. */
 	costCents?: number;
 	partial?: boolean;
+	/** Governed-rate price of the finished turn, in US dollars. */
+	costUsd?: number;
+	/** Why the finished turn has no price. */
+	costUnavailable?: string;
 };
 
 type Stamped = {

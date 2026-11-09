@@ -40,7 +40,7 @@ export interface AzureGatewayEnv {
 /** Placeholder that an unconfigured local checkout carries. */
 const PLACEHOLDER = "configured-via-private-overlay";
 
-function configured(value: string | undefined): string | undefined {
+export function configured(value: string | undefined): string | undefined {
 	const trimmed = value?.trim();
 	return trimmed && trimmed !== PLACEHOLDER ? trimmed : undefined;
 }

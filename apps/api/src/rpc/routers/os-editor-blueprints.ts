@@ -22,6 +22,7 @@ import {
 	publishWorkspaceAppTemplate,
 	linkWorkspaceOutputEditor,
 } from "@tedix/db/queries/os-workspaces/install-app";
+import { findOsBlueprintIdByName } from "@tedix/db/queries/os-workspaces/blueprints";
 import { canonicalDigest } from "../../lib/blueprint-digest";
 import { getOsOutputRevision } from "../../services/workspace-output-storage";
 import {
@@ -239,12 +240,23 @@ async function installEditor(input: EditorInput, context: BaseContext) {
 	}
 	const declared = definition.gadgets[0]!;
 	const files = declared.files!;
+	// A plain name unless someone in the organization already uses it.
+	const templateName = async () => {
+		const plain = `${editor.label} editor`;
+		const holder = await findOsBlueprintIdByName(db, {
+			organizationId: workspace.organizationId,
+			name: plain,
+		});
+		return holder === null || holder === blueprintId
+			? plain
+			: `${plain} (${blueprintId.slice(0, 8)})`;
+	};
 	const publication = {
 		templateVersion: editor.version,
 		blueprint: {
 			...base,
 			id: blueprintId,
-			name: `${editor.label} editor (${blueprintId.slice(0, 8)})`,
+			name: await templateName(),
 			description: `Reusable ${editor.label} editor. The template contains code and settings, without document content.`,
 			status: "published" as const,
 			visibility: "org" as const,

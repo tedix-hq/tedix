@@ -233,6 +233,17 @@ export function AppRuntimeSandbox({
 							);
 						return detail.currentRevision.content;
 					},
+					readOutputRevision: async (outputId) => {
+						const detail = await queryClient.fetchQuery({
+							...outputDetailQueryOptions(outputId),
+							staleTime: 0,
+						});
+						if (detail.output.workspaceId !== workspaceId)
+							throw new Error(
+								"This file moved to another workspace. Reopen it before continuing.",
+							);
+						return { output: detail.output, revision: detail.currentRevision };
+					},
 				},
 				method,
 				args,
