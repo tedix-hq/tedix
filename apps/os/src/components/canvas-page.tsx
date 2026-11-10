@@ -26,6 +26,7 @@ import type {
 import {
 	isCancelledError,
 	useMutation,
+	useQueries,
 	useQuery,
 	useQueryClient,
 } from "@tanstack/react-query";
@@ -291,8 +292,9 @@ export function nextCanvasDocAfterClose(
 export function primaryCanvasDoc(
 	outputs: readonly Pick<OsOutput, "id">[],
 	gadgets: readonly Pick<OsGadget, "id">[],
+	preferredAppId?: string,
 ): CanvasDocSelection | null {
-	const gadget = gadgets[0];
+	const gadget = gadgets.find((app) => app.id === preferredAppId) ?? gadgets[0];
 	if (gadget) return { type: "gadget", id: gadget.id };
 	const output = outputs[0];
 	return output ? { type: "output", id: output.id } : null;
@@ -733,6 +735,24 @@ export function CanvasPage({
 		...canvasGadgetsQueryOptions(workspaceId ?? ""),
 		enabled: workspaceId !== null,
 	});
+	const appNavigation = useQueries({
+		queries:
+			(gadgets.data?.items.length ?? 0) > 1
+				? gadgets.data!.items.map((app) => ({
+						...canvasGadgetDetailQueryOptions(workspaceId ?? "", app.id),
+						enabled:
+							workspaceId !== null &&
+							!requestedDoc &&
+							requestedPane === undefined,
+					}))
+				: [],
+	});
+	const preferredAppId = appNavigation.find(
+		(app) => app.data?.currentRevision?.manifest.navigation?.workspaceDefault,
+	)?.data?.gadget.id;
+	const appNavigationPending = appNavigation.some(
+		(app) => app.isPending && app.fetchStatus !== "idle",
+	);
 	const outputs = useQuery({
 		...canvasOutputsQueryOptions(workspaceId ?? ""),
 		enabled: workspaceId !== null,
@@ -964,11 +984,16 @@ export function CanvasPage({
 			workspaceId === null ||
 			!gadgets.data ||
 			!outputs.data ||
+			appNavigationPending ||
 			primaryWorkpieceWorkspaceRef.current === workspaceId
 		) {
 			return;
 		}
-		const primary = primaryCanvasDoc(outputs.data.items, gadgets.data.items);
+		const primary = primaryCanvasDoc(
+			outputs.data.items,
+			gadgets.data.items,
+			preferredAppId,
+		);
 		if (!primary) return;
 
 		primaryWorkpieceWorkspaceRef.current = workspaceId;
@@ -1016,6 +1041,8 @@ export function CanvasPage({
 				// The app's own view stays open; its detail query surfaces the failure.
 			});
 	}, [
+		appNavigationPending,
+		preferredAppId,
 		gadgets.data,
 		outputs.data,
 		queryClient,

@@ -691,6 +691,17 @@ repository. It includes tabs, ratings, reload, reset and a README for the next
 editor. It reads the source sheet and stores shared ratings in app-local KV;
 it does not write verdicts back to the sheet or execute card instructions.
 
+A workspace opens its first accessible app before its files. To choose the
+start app when there are several, set `navigation.workspaceDefault: true` on
+that app's manifest. The public workspace link uses the same choice. Explicit
+file or app selections inside OS still win.
+
+Guests open runtime apps without entering a name by default. An app that
+records guest input declares `config.recordsGuestInput: true`; Tedix then asks
+for a name before showing it. The review starter declares this. Read-only apps
+leave it unset. A name is self-reported attribution, not verified identity;
+an unnamed guest's calls and writes use the name `Guest`.
+
 ### Files and manifest
 
 Set `entry: "tedix:runtime/v1"`. `revise_os_gadget` takes `files` separately
@@ -817,7 +828,8 @@ from the verified session. It contains `principal: {kind, id}`, `actorUserId`
 when an acting user is present, `role`, `organizationId`, `workspaceId`,
 `gadgetId` and `preview`. For a share-link guest it also contains
 `guest: {name, selfReported: true}`; that name is attribution supplied by the
-guest, never a verified user identity. It contains no session tokens.
+guest, or `Guest` when no name was supplied, never a verified user identity.
+It contains no session tokens.
 Validate each method's arguments and use `env.CALLER` for ownership and role
 checks. Ordinary feedback may write app-local state with `use` access; keep
 import, export and recovery behind explicit `build` or `owner` checks. Never

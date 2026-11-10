@@ -12292,7 +12292,14 @@ export function handleLocalGuestShare(
 							id: row.id,
 							name: row.name,
 							description: row.description,
-							revision: null,
+							revision:
+								row.id === app?.gadget.id
+									? {
+											id: app.revision.id,
+											revision: app.revision.revision,
+											manifest: { entry: app.revision.manifest.entry },
+										}
+									: null,
 							opensWithoutSignIn: row.id === app?.gadget.id,
 						})),
 					files: workspaceFiles.map((row) => ({
@@ -12382,6 +12389,10 @@ export function handleLocalGuestShare(
 						workspaceId: app.gadget.workspaceId,
 						revision: app.revision.revision,
 						client: app.files["client.js"] ?? "",
+						workspaceName: workspace?.name,
+						recordsGuestInput:
+							"recordsGuestInput" in config &&
+							config.recordsGuestInput === true,
 						settings:
 							"settings" in config && typeof config.settings === "object"
 								? config.settings

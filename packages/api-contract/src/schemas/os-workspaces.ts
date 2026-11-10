@@ -544,6 +544,12 @@ export const OsGadgetManifestSchema = z
 		navigation: z
 			.strictObject({
 				board: z.boolean().optional(),
+				workspaceDefault: z
+					.boolean()
+					.optional()
+					.describe(
+						"Open this accessible app when the workspace has no explicit selection",
+					),
 				work: z.enum(["deck", "feed"]).optional(),
 				workDefault: z
 					.boolean()

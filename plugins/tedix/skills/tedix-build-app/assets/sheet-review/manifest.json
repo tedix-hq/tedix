@@ -10,6 +10,7 @@
 	],
 	"config": {
 		"version": 1,
+		"recordsGuestInput": true,
 		"settings": {
 			"slot": "cards",
 			"locale": "en",

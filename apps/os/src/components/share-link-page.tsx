@@ -192,7 +192,24 @@ export function ShareLinkPage({ id }: { id: string }) {
 					return;
 				}
 				lastReady.current = opened;
-				setState({ status: "ready", ...opened });
+				const resource = opened.payload.resource;
+				const guestApps =
+					resource.type === "workspace"
+						? resource.gadgets.filter((app) => app.opensWithoutSignIn)
+						: [];
+				const firstApp =
+					guestApps.find(
+						(app) => app.revision?.manifest.navigation?.workspaceDefault,
+					) ?? guestApps[0];
+				if (firstApp && resource.type === "workspace") {
+					const guest = await openGuestApp(
+						opened.payload,
+						opened.sessionToken,
+						firstApp.id,
+					);
+					if (!alive) return;
+					setState({ status: "guest", guest, from: resource.workspace.name });
+				} else setState({ status: "ready", ...opened });
 				// The readable suffix makes the permanent address tell people what
 				// it opens; only the id resolves it.
 				if (opened.payload.share?.slug)
@@ -250,21 +267,44 @@ export function ShareLinkPage({ id }: { id: string }) {
 			</main>
 		);
 	}
-	if (state.status === "guest")
-		return (
+	if (state.status === "guest") {
+		const appView = (
 			<GuestAppScreen
 				state={state.guest}
+				embedded={Boolean(state.from)}
 				setState={(guest) =>
 					setState({ status: "guest", guest, from: state.from })
 				}
 				forget={() => storeShareLinkSession(id, null)}
 				back={
 					state.from
-						? { label: state.from, onBack: () => window.history.back() }
+						? {
+								label: state.from,
+								onBack: () => {
+									const ready = lastReady.current;
+									if (ready) setState({ status: "ready", ...ready });
+								},
+							}
 						: undefined
 				}
 			/>
 		);
+		const ready = lastReady.current;
+		if (state.from && ready)
+			return (
+				<SharedResourceView
+					payload={ready.payload}
+					sessionToken={ready.sessionToken}
+					subtitle={subtitle(
+						ready.payload.access ?? ready.payload.share.access,
+					)}
+					onOpenApp={(appId) => void openWorkspaceApp(appId)}
+					appView={appView}
+				/>
+			);
+		return appView;
+	}
+
 	return (
 		<SharedResourceView
 			payload={state.payload}

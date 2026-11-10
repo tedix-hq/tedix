@@ -1,6 +1,6 @@
 import { WIDGET_CATALOGS } from "@tedix/widget-i18n/catalogs";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
-import { guestCopy } from "@/components/guest-app-page";
+import { guestCopy, openGuestApp } from "@/components/guest-app-page";
 
 const de = WIDGET_CATALOGS.de as Record<string, string>;
 const en = WIDGET_CATALOGS.en as Record<string, string>;
@@ -56,5 +56,39 @@ describe("guestCopy", () => {
 		const keys = Object.keys(en).filter((key) => key.startsWith("share_"));
 		for (const catalog of Object.values(WIDGET_CATALOGS))
 			for (const key of keys) expect(catalog).toHaveProperty(key);
+	});
+});
+
+describe("openGuestApp", () => {
+	afterEach(() => vi.unstubAllGlobals());
+	const share = { share: { note: null, policyReason: null } };
+	function response(recordsGuestInput: boolean) {
+		vi.stubGlobal("window", { sessionStorage: { getItem: () => null } });
+		vi.stubGlobal(
+			"fetch",
+			vi
+				.fn()
+				.mockResolvedValue(
+					new Response(
+						JSON.stringify({ app: { name: "Research", recordsGuestInput } }),
+					),
+				),
+		);
+	}
+	it("opens a read-only app without asking for or sending a name", async () => {
+		response(false);
+		expect(
+			await openGuestApp(share, "share-session", "research"),
+		).toMatchObject({ status: "ready", guestName: "Guest" });
+		expect(
+			JSON.parse(vi.mocked(fetch).mock.calls[0]![1]!.body as string),
+		).toEqual({ sessionToken: "share-session", appId: "research" });
+	});
+	it("asks for a name only when the app declares that it records guest input", async () => {
+		response(true);
+		expect(await openGuestApp(share, "share-session")).toMatchObject({
+			status: "identify",
+			app: { app: { name: "Research" } },
+		});
 	});
 });

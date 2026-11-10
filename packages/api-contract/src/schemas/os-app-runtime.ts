@@ -197,6 +197,12 @@ export type AppRuntimeTrigger = z.infer<typeof AppRuntimeTriggerSchema>;
 /** Non-secret settings of a runtime app; the code reads them as `env.CONFIG`. */
 export const AppRuntimeConfigSchema = z.strictObject({
 	version: z.literal(1),
+	recordsGuestInput: z
+		.boolean()
+		.optional()
+		.describe(
+			"Ask guests for a name before opening an app that records their input",
+		),
 	compatibilityDate: z
 		.string()
 		.regex(/^\d{4}-\d{2}-\d{2}$/)

@@ -82,6 +82,7 @@ export interface GuestAppScope {
 	revisionId: string;
 	shareLinkId: string;
 	shareSessionId: string;
+	workspaceName: string;
 	app: { id: string; name: string; description: string | null };
 }
 
@@ -224,6 +225,7 @@ async function resolveGuestAppLinkScope(
 	return {
 		organizationId: link.organizationId,
 		workspaceId: workspace.id,
+		workspaceName: workspace.name,
 		gadgetId: gadget.id,
 		revisionId,
 		shareLinkId: link.id,
@@ -262,7 +264,8 @@ export async function handleGuestAppOpen(
 	const guestName = AppRuntimeGuestNameSchema.safeParse(
 		field(body, "guestName"),
 	);
-	if (!guestName.success) return notFound();
+	if (field(body, "guestName") !== undefined && !guestName.success)
+		return notFound();
 	let code;
 	try {
 		code = await loadAppRuntimeRevision(db, scope, scope.revisionId);
@@ -283,7 +286,7 @@ export async function handleGuestAppOpen(
 		config: code.config,
 		compatibilityDate: code.compatibilityDate,
 		shareLinkId: scope.shareLinkId,
-		guestName: guestName.data,
+		guestName: guestName.success ? guestName.data : "Guest",
 	});
 	return noStoreJson({
 		session: session.token,
@@ -293,9 +296,11 @@ export async function handleGuestAppOpen(
 		app: {
 			...scope.app,
 			workspaceId: scope.workspaceId,
+			workspaceName: scope.workspaceName,
 			revision: code.revision,
 			client: code.files["client.js"] ?? "",
 			settings: code.config.settings ?? {},
+			recordsGuestInput: code.config.recordsGuestInput ?? false,
 			grants: code.grants,
 		},
 	});
@@ -345,8 +350,7 @@ export async function handleGuestAppCall(
 		session.shareLinkId !== scope.shareLinkId ||
 		session.role !== GUEST_ROLE ||
 		session.previewId !== undefined ||
-		session.actorUserId !== undefined ||
-		!session.guestName
+		session.actorUserId !== undefined
 	)
 		return notFound();
 	try {
@@ -376,7 +380,7 @@ export async function handleGuestAppCall(
 				policy: {
 					shareLinkId: scope.shareLinkId,
 					shareSessionId: scope.shareSessionId,
-					guestName: session.guestName,
+					guestName: session.guestName ?? "Guest",
 					guestIdentity: "self_reported",
 				},
 			},

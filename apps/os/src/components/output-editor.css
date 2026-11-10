@@ -335,6 +335,9 @@
 
 /* Outline entries: indented by level, the current section marked. */
 .document-outline-link {
+	height: auto;
+	min-height: 32px;
+	white-space: normal;
 	position: relative;
 	width: 100%;
 	justify-content: flex-start;
@@ -2506,4 +2509,15 @@
 		opacity: 0;
 		transform: translateY(-4px) scale(0.98);
 	}
+}
+
+.shared-reader-output .document-read-frame {
+	--tedix-document-paper: var(--color-kumo-base);
+	--tedix-document-ink: var(--text-color-kumo-default);
+	--tedix-document-muted: var(--text-color-kumo-subtle);
+	background: var(--color-kumo-base);
+}
+
+.shared-reader-output .sheet-read-desk {
+	padding: 16px;
 }

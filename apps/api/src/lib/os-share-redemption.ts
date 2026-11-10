@@ -569,9 +569,15 @@ function exposedManifest(manifest: string, role: OsShareRole) {
 		capabilities?: unknown;
 		skillSlug?: unknown;
 		notes?: unknown;
+		navigation?: { workspaceDefault?: unknown };
 	};
 	if (role === "build") return parsed;
-	return { entry: typeof parsed.entry === "string" ? parsed.entry : "" };
+	return {
+		entry: typeof parsed.entry === "string" ? parsed.entry : "",
+		...(parsed.navigation?.workspaceDefault === true
+			? { navigation: { workspaceDefault: true } }
+			: {}),
+	};
 }
 
 async function readGadget(
@@ -718,10 +724,10 @@ async function readWorkspace(
 			revision: gadget.revision
 				? {
 						...gadget.revision,
-						manifest:
-							role === "build"
-								? gadget.revision.manifest
-								: { entry: gadget.revision.manifest?.entry ?? "" },
+						manifest: exposedManifest(
+							JSON.stringify(gadget.revision.manifest),
+							role,
+						),
 					}
 				: null,
 		})),
