@@ -191,7 +191,49 @@ async function until(
 // -----------------------------------------------------------------------------
 
 describe("/capn client↔Worker roundtrip over a real WebSocket", () => {
-	it.each([403, 503])(
+	it("keeps the socket through overloaded authority checks and closes only on revocation", async () => {
+		let status = 200;
+		let unavailableReads = 0;
+		const response = await mountCapnChat(
+			upgradeRequest(),
+			{
+				API_SERVICE: {
+					fetch: async () => {
+						if (status === 503) unavailableReads += 1;
+						return status === 200
+							? Response.json({ json: { conversations: [] } })
+							: new Response(null, { status });
+					},
+				},
+			},
+			HOST_TENANT,
+		);
+		const socket = (response as Response & { webSocket: WorkerdSocket })
+			.webSocket;
+		socket.accept();
+		let closeEvent: CloseEvent | undefined;
+		const closed = new Promise<CloseEvent>((resolve) =>
+			socket.addEventListener(
+				"close",
+				(event) => {
+					closeEvent = event;
+					resolve(event);
+				},
+				{ once: true },
+			),
+		);
+		try {
+			status = 503;
+			await until(() => unavailableReads >= 2, "overloaded authority checks");
+			expect(closeEvent).toBeUndefined();
+			status = 403;
+			expect((await closed).code).toBe(4003);
+		} finally {
+			socket.close();
+		}
+	}, 15_000);
+
+	it.each([401, 403])(
 		"closes an idle socket when the live authority answers %s",
 		async (status) => {
 			let suspended = false;
