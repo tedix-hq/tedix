@@ -57,7 +57,7 @@ function createEnv(): CloudflareEnv {
 		),
 	);
 	sqlite.exec(`
-		CREATE TABLE organizations (id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL);
+		CREATE TABLE organizations (id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, slug TEXT DEFAULT 'fictional', type TEXT DEFAULT 'organization', descope_tenant_id TEXT, logo_url TEXT);
 		INSERT INTO organizations (id, name) VALUES ('org-1', 'First Org');
 	`);
 	sqlite
