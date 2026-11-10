@@ -90,3 +90,26 @@ input is a subset of input. Missing provider usage stays unavailable, and totals
 with missing calls are marked partial. Model and usage events replay with the
 turn, including available receipts before a later failure. Cost stays unavailable:
 the adapter's zero pricing is a placeholder, not a price or a provider receipt.
+
+## Workflow steps
+
+`src/workflow-manifest.ts` defines a versioned skill-revision manifest with
+`tool`, `agent` and `code` steps. `runWorkflow` in `src/workflow-runner.ts`
+runs the list through explicit workspace ports. Inputs name earlier steps;
+the runner passes pinned Output revision references and writes each result
+through the Output port. An agent step makes one turn and validates its
+declared JSON Schema. Code runs through the workspace sandbox port.
+
+Each attempted step appends a running receipt before execution and a terminal
+receipt afterwards. Tool calls use the shared governance adapters and trusted
+catalog policy. `ok: false`, `isError: true`, exceptions and schema mismatches
+stop the list. A held approval produces `needs_approval`, never completion.
+`approval: required` accepts only an adapter decision from the approval gate;
+supplying a request ID alone cannot authorize a call. Failed tool results are
+saved as Output revisions, with uncertain external effects recorded as unknown.
+
+This is the source runner contract, exercised with both Reddit skill examples
+in `src/workflow-runner.test.ts`. Production tool/model/Output port wiring,
+skill revision publication, restart recovery and alarm scheduling are separate
+integration work. Existing skill lifecycle, certification and cron dispatch are
+unchanged; these tests do not activate schedules or send messages.
