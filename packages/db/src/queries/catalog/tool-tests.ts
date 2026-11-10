@@ -257,7 +257,12 @@ export interface GetToolsNeedingTestOptions {
 export async function getToolsNeedingTest(
 	db: Database,
 	options: GetToolsNeedingTestOptions = {},
-): Promise<CatalogMcpTool[]> {
+): Promise<
+	Pick<
+		CatalogMcpTool,
+		"id" | "catalogAppId" | "toolName" | "description" | "inputSchema"
+	>[]
+> {
 	const {
 		limit = 50,
 		maxAgeHours = 24,
@@ -306,7 +311,13 @@ export async function getToolsNeedingTest(
 
 	const results = await db
 		.select({
-			tool: appCatalogMcpTools,
+			tool: {
+				id: appCatalogMcpTools.id,
+				catalogAppId: appCatalogMcpTools.catalogAppId,
+				toolName: appCatalogMcpTools.toolName,
+				description: appCatalogMcpTools.description,
+				inputSchema: appCatalogMcpTools.inputSchema,
+			},
 		})
 		.from(appCatalogMcpTools)
 		.innerJoin(appCatalog, eq(appCatalogMcpTools.catalogAppId, appCatalog.id))

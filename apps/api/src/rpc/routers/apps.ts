@@ -1374,18 +1374,25 @@ function hasUnscopedAppDiscoveryAuthority(context: BaseContext): boolean {
 export const getBySlugWithToolsProcedure = mcpAppsOs.getBySlugWithTools.handler(
 	async ({ input, context }) => {
 		const { db } = context;
-		const { slug, endpointPrefixes, toolIds } = input;
+		const { slug, endpointPrefixes, toolIds, projection } = input;
 
 		const hostOrganizationId = hasUnscopedAppDiscoveryAuthority(context)
 			? input.hostOrganizationId
 			: requireOrgId(context);
-		const result = hostOrganizationId
-			? (
-					await getAppsBySlugsWithTools(db, [
-						{ slug, endpointPrefixes, toolIds, hostOrganizationId },
-					])
-				)[0]
-			: await getAppBySlugWithTools(db, slug, { endpointPrefixes, toolIds });
+		const result =
+			hostOrganizationId || projection === "contract"
+				? (
+						await getAppsBySlugsWithTools(db, [
+							{
+								slug,
+								endpointPrefixes,
+								toolIds,
+								hostOrganizationId,
+								...(projection ? { projection } : {}),
+							},
+						])
+					)[0]
+				: await getAppBySlugWithTools(db, slug, { endpointPrefixes, toolIds });
 
 		if (!result) {
 			return { app: null, tools: [] };

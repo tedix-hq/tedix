@@ -27,6 +27,7 @@ export const internalToolInFlight = new Map<
 	Promise<InternalResolveResult>
 >();
 export const MAX_INTERNAL_TOOL_CACHE_ENTRIES = 64;
+export const MAX_INTERNAL_TOOL_CACHE_ROWS = 4_000;
 export const INTERNAL_TOOL_CACHE_TTL_MS = 120_000;
 /**
  * Wedge-eviction bounds for the shared in-flight dedupe maps: a never-settling
@@ -76,10 +77,21 @@ export function isAggregateSourceVisited(
 
 export function internalToolCacheKey(
 	source: AggregateSourceRef,
-	selection?: { endpointPrefixes?: string[]; toolIds?: string[] },
+	selection?: {
+		endpointPrefixes?: string[];
+		toolIds?: string[];
+		projection?: "contract";
+	},
 	activationEpoch = "direct",
 ): string {
-	return `internal:${activationEpoch}:${aggregateSourceKey(source)}:${JSON.stringify(selection ?? {})}`;
+	const normalized = {
+		...(selection?.endpointPrefixes?.length
+			? { endpointPrefixes: selection.endpointPrefixes }
+			: {}),
+		...(selection?.toolIds?.length ? { toolIds: selection.toolIds } : {}),
+		...(selection?.projection ? { projection: selection.projection } : {}),
+	};
+	return `internal:${activationEpoch}:${aggregateSourceKey(source)}:${JSON.stringify(normalized)}`;
 }
 
 /** App exists but resolves to nothing — not a failure, so never `degraded`. */
@@ -110,6 +122,18 @@ export function rememberInternalTools(
 	cacheKey: string,
 	result: InternalResolveResult,
 ): void {
+	// Index rebuilds visit organizations sequentially; retaining their source
+	// schemas must not accumulate the entire selection behind the index.
+	internalToolCache.delete(cacheKey);
+	if (result.tools.length > MAX_INTERNAL_TOOL_CACHE_ROWS) return;
+	let rows = result.tools.length;
+	for (const cached of internalToolCache.values())
+		rows += cached.result.tools.length;
+	for (const [key, cached] of internalToolCache) {
+		if (rows <= MAX_INTERNAL_TOOL_CACHE_ROWS) break;
+		internalToolCache.delete(key);
+		rows -= cached.result.tools.length;
+	}
 	setBoundedExpiringCacheEntry(
 		internalToolCache,
 		cacheKey,
@@ -264,6 +288,7 @@ export async function resolveUpstreamToolsInternally(
 	selection?: {
 		endpointPrefixes?: string[];
 		toolIds?: string[];
+		projection?: "contract";
 	},
 	activationEpoch = "direct",
 	cacheable = true,
@@ -293,6 +318,7 @@ export async function resolveUpstreamToolsInternally(
 			// attempt; a trip throws → the catch below degrades (`resolutionFailed`)
 			// and the settled promise is evicted so the next request retries fresh.
 			const selectionInput = {
+				...(selection?.projection ? { projection: selection.projection } : {}),
 				...(selection?.endpointPrefixes?.length
 					? { endpointPrefixes: selection.endpointPrefixes }
 					: {}),

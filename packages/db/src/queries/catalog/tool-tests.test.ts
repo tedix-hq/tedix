@@ -62,6 +62,13 @@ describe("getToolsNeedingTest", () => {
 
 		const unfiltered = await getToolsNeedingTest(db, { limit: 1 });
 		expect(unfiltered.map((tool) => tool.id)).toEqual(["global-never-tested"]);
+		expect(Object.keys(unfiltered[0]!).sort()).toEqual([
+			"catalogAppId",
+			"description",
+			"id",
+			"inputSchema",
+			"toolName",
+		]);
 
 		const targeted = await getToolsNeedingTest(db, {
 			limit: 1,

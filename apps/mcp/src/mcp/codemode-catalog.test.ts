@@ -1337,7 +1337,7 @@ describe("progressive disclosure (namespace filter, description budget, schema p
 		expect(await skillRowsFor([], "org-tedix")).toHaveLength(0);
 	});
 
-	it("defaults schema-bearing searches to a small page; explicit limit wins", async () => {
+	it("bounds schema-bearing pages even with an explicit broad limit", async () => {
 		const provider = buildCatalogProvider(buildLargeServerCtx(40), undefined);
 		const tools = provider.tools as Record<
 			string,
@@ -1355,7 +1355,8 @@ describe("progressive disclosure (namespace filter, description budget, schema p
 			includeParameters: true,
 			limit: 20,
 		})) as CatalogSearchResult;
-		expect(resultMeta(explicit).pagination).toMatchObject({ limit: 20 });
+		expect(resultMeta(explicit).pagination).toMatchObject({ limit: 5 });
+		expect(catalogToolEntries(explicit)).toHaveLength(5);
 
 		const compactDefault = (await tools.search?.execute?.({
 			query: "thing",

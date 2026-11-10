@@ -21,8 +21,7 @@ const MAX_DISCOVERY_LIMIT = 100;
 // includeParameters search at the normal default limit is the single largest
 // discovery payload (measured ~62k est. tokens over a 223-tool namespace).
 
-// When the caller opts into schemas but does not name a limit, default small;
-// an explicit limit is always honored up to MAX_DISCOVERY_LIMIT.
+// Full definitions stay bounded even when the caller asks for a broad page.
 export const SCHEMA_DISCOVERY_DEFAULT_LIMIT = 5;
 
 const DISCOVERY_SEARCH_ARGUMENT_TYPES = {
@@ -106,7 +105,9 @@ export function normalizeDiscoverySearchInput(input: unknown): {
 					? SCHEMA_DISCOVERY_DEFAULT_LIMIT
 					: DEFAULT_DISCOVERY_LIMIT,
 			1,
-			MAX_DISCOVERY_LIMIT,
+			includeParameters || includeOutputSchema
+				? SCHEMA_DISCOVERY_DEFAULT_LIMIT
+				: MAX_DISCOVERY_LIMIT,
 		),
 		offset: clampCatalogNumber(
 			typeof rawOffset === "number" ? rawOffset : 0,

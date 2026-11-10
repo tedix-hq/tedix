@@ -280,7 +280,7 @@ describe("aggregate entry resolution is batched", () => {
 	});
 
 	it("keeps consent-composed catalogs transient while sharing source caches and concurrent loads", async () => {
-		const cache = { match: vi.fn(), put: vi.fn() };
+		const cache = { match: vi.fn(), put: vi.fn(async () => undefined) };
 		vi.stubGlobal("caches", { default: cache });
 		try {
 			const env = createEnv();
@@ -334,7 +334,7 @@ describe("aggregate entry resolution is batched", () => {
 	});
 
 	it("retains shared aggregate snapshots for ordinary roots", async () => {
-		const cache = { match: vi.fn(), put: vi.fn() };
+		const cache = { match: vi.fn(), put: vi.fn(async () => undefined) };
 		vi.stubGlobal("caches", { default: cache });
 		try {
 			const env = createEnv();
@@ -511,6 +511,42 @@ describe("aggregate entry resolution is batched", () => {
 			aggregateSurfaceCacheKey([
 				{ slug: "selected-gateway", organizationId: "different-org" },
 			]),
+		);
+	});
+
+	it("requests schema-free source projections throughout an index rebuild", async () => {
+		installFixtures([
+			{
+				slug: "index-gateway",
+				mcpConfig: { aggregateApps: [{ slug: "index-source" }] },
+			},
+			{ slug: "index-source", tools: [tool("read_record")] },
+		]);
+		const surface = await aggregateAndPrefixTools(
+			[
+				{
+					slug: "index-gateway",
+					organizationMount: true,
+					organizationId: "org-index",
+					projection: "contract",
+				},
+			],
+			createEnv(),
+			new Set(),
+			createExecutionContext(),
+			"connect",
+			undefined,
+			false,
+		);
+		expect(
+			surface.tools.some((row) => row.toolId.endsWith("__read_record")),
+		).toBe(true);
+		const requests = getBySlugsWithTools.mock.calls.flatMap(
+			([input]) => input.apps,
+		);
+		expect(requests.map((request) => request.slug)).toContain("index-source");
+		expect(requests.every((request) => request.projection === "contract")).toBe(
+			true,
 		);
 	});
 

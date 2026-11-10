@@ -10,15 +10,14 @@
  * epoch fenced) graph, it also writes that mount's rows to R2 without input
  * or output schemas, templates or icons: everything discovery ranks and
  * authorizes, nothing it only needs to describe or execute a tool. A program
- * that searches without naming a namespace then reads these shards instead of
- * the organization graphs, and fully hydrates only the namespaces it calls or
- * describes by literal name. Schema-bearing search hydrates only the returned
- * page, one organization graph at a time. Shard rows carry `_discoveryShard`
- * and are never executed (`ToolHandler.execute` refuses them).
+ * always reads these shards instead of the organization graphs. Describe,
+ * execution and schema-bearing search fetch individual source rows after
+ * pagination. Shard rows carry `_discoveryShard`; dispatch replaces them with
+ * current definitions before authorization and execution.
  *
  * A schema sync rolls the activation epoch, which changes every shard key.
- * Missing shards are rebuilt one organization at a time, compacting each graph
- * before loading the next so cold discovery never holds the full selection.
+ * Missing shards are rebuilt one organization at a time in waitUntil. Connect
+ * returns a retryable error until its prebuilt index is available.
  *
  * Shards of one selection are written together, so they age together. A shard
  * past its refresh age is still served (its epoch key fences tool contracts)
@@ -43,12 +42,12 @@ import {
 	withStepBudget,
 } from "./lib/step-budget";
 import { contentFreeMcpException, createMcpLogger } from "./log";
-import { CATALOG_SCHEMA_SEARCH_MAX_ROWS } from "./mcp/codemode-discovery";
+import type { getApiClient } from "./lib/api-client";
 import { filterAggregateAppsForCodeNamespaces } from "./codemode-targeting";
 
 const log = createMcpLogger("mcp.router");
 
-const DISCOVERY_SHARD_FORMAT = "discovery-shard-v1";
+const DISCOVERY_SHARD_FORMAT = "discovery-shard-v2";
 /** Past this age a shard is served and one organization is refreshed. */
 export const DISCOVERY_SHARD_STALE_AFTER_MS = 3_600_000;
 const DISCOVERY_SHARD_L1_TTL_MS = 120_000;
@@ -76,8 +75,9 @@ export function discoveryShardR2Key(
 	entry: AggregateAppEntry,
 	activationEpoch: string,
 ): string {
+	const { projection: _projection, ...mount } = entry;
 	return `${DISCOVERY_SHARD_PREFIX}${hashAggregateCacheKey(
-		aggregateSurfaceCacheKey([entry], DISCOVERY_SHARD_FORMAT, activationEpoch),
+		aggregateSurfaceCacheKey([mount], DISCOVERY_SHARD_FORMAT, activationEpoch),
 	)}`;
 }
 
@@ -87,11 +87,11 @@ export function isDiscoveryShardTool(config: object | null | undefined) {
 	);
 }
 
-/** Resolve only a selected row's verified mount; never retain its whole graph. */
+/** Fetch one definition under its verified organization, never its graph. */
 export async function loadDiscoveryToolDefinition(
 	tool: InternalAppTool,
 	entries: AggregateAppEntry[],
-	hydrate: (entry: AggregateAppEntry) => Promise<AggregatedMcpSurface>,
+	client: Pick<ReturnType<typeof getApiClient>, "apps">,
 ): Promise<InternalAppTool> {
 	const organizationId = tool.config?._multiOrgOrganizationId;
 	const mounts = entries.filter(
@@ -101,25 +101,96 @@ export async function loadDiscoveryToolDefinition(
 	if (typeof organizationId !== "string" || mounts.length !== 1) {
 		throw new Error("Discovery schema has no unique organization mount");
 	}
-	const surface = await hydrate(mounts[0]!);
-	const full = surface.tools.find(
-		(row) => row.id === tool.id && row.toolId === tool.toolId,
+	const sourceAppId = tool.config?._sourceAppId;
+	const sourceAppSlug = tool.config?._sourceAppSlug;
+	const sourceToolId = tool.config?._discoverySourceToolId;
+	if (
+		typeof sourceAppId !== "string" ||
+		typeof sourceAppSlug !== "string" ||
+		typeof sourceToolId !== "string"
+	) {
+		throw new Error("Discovery schema has no source identity; search again");
+	}
+	const { results } = await client.apps.getBySlugsWithTools({
+		apps: [
+			{
+				slug: sourceAppSlug,
+				appId: sourceAppId,
+				hostOrganizationId: organizationId,
+				toolIds: [sourceToolId],
+			},
+		],
+	});
+	const full = results[0]?.tools.find(
+		(row) => row.id === tool.id && row.toolId === sourceToolId,
 	);
-	if (!full || isDiscoveryShardTool(full.config)) {
+	if (!full || full.enabled === false || results[0]?.app?.id !== sourceAppId) {
 		throw new Error("Discovery schema is unavailable; search again");
 	}
-	return full;
+	const { _discoveryShard, _discoverySourceToolId, ...mountConfig } =
+		tool.config ?? {};
+	// Only mount-owned routing survives the index. Execution uses the fresh
+	// source configuration; indexed endpoint/payment hints never override it.
+	const overrides = Object.fromEntries(
+		Object.entries(mountConfig).filter(
+			([key]) =>
+				key.startsWith("_aggregate") ||
+				key.startsWith("_source") ||
+				key === "_multiOrgOrganizationId" ||
+				key === "_forwardedQueryParams" ||
+				key === "auth",
+		),
+	);
+	return {
+		...full,
+		toolId: tool.toolId,
+		title: tool.title,
+		config: { ...full.config, ...overrides },
+	} as InternalAppTool;
 }
 
 function compactTool(tool: InternalAppTool): InternalAppTool {
+	const config = Object.fromEntries(
+		Object.entries(tool.config ?? {}).filter(
+			([key]) =>
+				key.startsWith("_aggregate") ||
+				key.startsWith("_source") ||
+				[
+					"_multiOrgOrganizationId",
+					"_forwardedQueryParams",
+					"auth",
+					"transport",
+					"endpoint",
+					"method",
+					"mcpToolName",
+					"nativeDirect",
+					"payment",
+					"x-tedix/payment",
+				].includes(key),
+		),
+	);
+	const prefix = tool.config?._aggregateNamespace;
+	const sourceToolId =
+		typeof prefix === "string" && tool.toolId.startsWith(`${prefix}__`)
+			? tool.toolId.slice(prefix.length + 2)
+			: tool.toolId;
 	return {
 		...tool,
 		inputSchema: EMPTY_INPUT_SCHEMA as InternalAppTool["inputSchema"],
 		outputSchema: null,
 		outputTemplate: null,
 		icons: null,
+		meta: Object.fromEntries(
+			Object.entries(tool.meta ?? {}).filter(([key]) =>
+				["source", "com.tedix/policy", "x-tedix/payment"].includes(key),
+			),
+		),
 		toolCspDomains: undefined,
-		config: { ...tool.config, _discoveryShard: true },
+		config: {
+			...config,
+			_discoveryShard: true,
+			_discoverySourceToolId: sourceToolId,
+		},
 	};
 }
 
@@ -223,11 +294,9 @@ async function readDiscoveryShard(env: CloudflareEnv, key: string) {
  * shards sequentially, compacting each graph before loading the next. The
  * oldest shard past its refresh age is still served and
  * returned as `refresh`, for the caller to hydrate after the response (one
- * organization per request, one per isolate at a time). Returns null (load
- * the full catalog) when shards are unreadable without a hydrator, or
- * when the shard rows are few enough that discovery would still match
- * parameter names (`CATALOG_SCHEMA_SEARCH_MAX_ROWS`), so ranking is unchanged
- * either way.
+ * organization per request, one per isolate at a time). Unreadable shards
+ * return null. Connect treats this as a retryable index miss, never permission
+ * to load the full catalog. Small catalogs use the same index path.
  */
 export async function loadDiscoveryShards(
 	env: CloudflareEnv,
@@ -317,7 +386,6 @@ export async function loadDiscoveryShards(
 			...(refresh ? { refreshSlug: refresh.entry.slug } : {}),
 		}),
 	);
-	if (tools.length <= CATALOG_SCHEMA_SEARCH_MAX_ROWS) return null;
 	return {
 		hydrate: [
 			...hydrate,
@@ -335,6 +403,8 @@ export async function loadDiscoveryShards(
  * (`compileDiscoveryShard` runs inside the uncached build). One refresh per
  * shard key per isolate; a failure only leaves the stale shard in place.
  */
+let shardRefreshes: Promise<unknown> = Promise.resolve();
+
 export function refreshDiscoveryShard(
 	entry: AggregateAppEntry,
 	activationEpoch: string,
@@ -344,7 +414,8 @@ export function refreshDiscoveryShard(
 	const key = discoveryShardR2Key(entry, activationEpoch);
 	if (discoveryShardRefreshInFlight.has(key)) return;
 	discoveryShardRefreshInFlight.add(key);
-	const run = hydrate()
+	const run = shardRefreshes
+		.then(hydrate)
 		.catch((error: unknown) => {
 			log.warn("Discovery shard refresh failed", {
 				event: "aggregate.discovery_shard_refresh_failed",
@@ -355,5 +426,6 @@ export function refreshDiscoveryShard(
 		.finally(() => {
 			discoveryShardRefreshInFlight.delete(key);
 		});
+	shardRefreshes = run;
 	if (ctx) ctx.waitUntil(run);
 }

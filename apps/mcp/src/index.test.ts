@@ -381,6 +381,71 @@ describe("Connect compact protocol organization routing", () => {
 			}),
 		});
 	}
+	it.each([
+		'async () => { const query = "read"; return discover.search({ query }); }',
+		'async () => { const options = { query: "read" }; return discover.search(options); }',
+		'async () => { const d = discover; return d.search({ query: "read" }); }',
+		'async () => { await discover.search({ query: "read" }); return globalThis["acme"]["read"]({}); }',
+	])("never falls back to full catalog hydration for %s", async (code) => {
+		const aggregate = await import("./aggregate-surface");
+		const factory = await import("./mcp/server-factory");
+		const build = vi
+			.spyOn(aggregate, "aggregateAndPrefixTools")
+			.mockResolvedValue({
+				tools: [],
+				resources: [],
+				resourceTemplates: [],
+				prompts: [],
+			});
+		const context = vi
+			.spyOn(factory, "getAppContext")
+			.mockResolvedValue(connect);
+		const pending: Promise<unknown>[] = [];
+		try {
+			const original = request("tools/call");
+			const headers = new Headers(original.headers);
+			headers.set("Mcp-Name", "code");
+			const body = (await original.json()) as {
+				params: Record<string, unknown>;
+			};
+			Object.assign(body.params, { name: "code", arguments: { code } });
+			const response = await handleMcpRequest(
+				new Request(original.url, {
+					method: "POST",
+					headers,
+					body: JSON.stringify(body),
+				}),
+				connect,
+				createEnv({ AGGREGATE_CACHE: { get: async () => null } }),
+				{
+					waitUntil: (job: Promise<unknown>) => {
+						pending.push(job);
+					},
+				} as ExecutionContext,
+				{
+					organizations: [
+						organization,
+						{
+							...organization,
+							organizationId: "org-other",
+							gatewaySlug: "other-unified",
+						},
+					],
+				},
+			);
+			expect(response.status, await response.clone().text()).toBe(503);
+			expect(response.headers.get("Retry-After")).toBeTruthy();
+			await Promise.all(pending);
+			expect(build).toHaveBeenCalledTimes(2);
+			expect(build.mock.calls.every(([entries]) => entries.length === 1)).toBe(
+				true,
+			);
+		} finally {
+			build.mockRestore();
+			context.mockRestore();
+		}
+	});
+
 	it("lists and calls configured discovery only in the selected Connect organization", async () => {
 		// The selected gateway stores no catalog rows; it builds the pair itself.
 		const row = NATIVE_CATALOG_TOOLS[0]!;

@@ -182,7 +182,11 @@ export async function snapshotOrganizationGatewayToolContracts(
 
 	for (const [organizationId, selected] of gateways) {
 		const [gatewaySurface] = await getAppsBySlugsWithTools(db, [
-			{ slug: selected.slug, hostOrganizationId: organizationId },
+			{
+				slug: selected.slug,
+				hostOrganizationId: organizationId,
+				projection: "contract",
+			},
 		]);
 		if (!gatewaySurface) continue;
 		const gateway = gatewaySurface.app;
@@ -194,6 +198,7 @@ export async function snapshotOrganizationGatewayToolContracts(
 				slug: entry.slug,
 				appId: entry.appId,
 				hostOrganizationId: organizationId,
+				projection: "contract",
 				toolIds: entry.toolIds,
 				endpointPrefixes: entry.endpointPrefixes,
 			})),

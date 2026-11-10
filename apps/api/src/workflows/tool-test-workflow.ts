@@ -142,7 +142,9 @@ export class McpToolTestWorkflow extends WorkflowEntrypoint<
 							await Promise.all(
 								targetGroups.map(async ({ catalogAppId, toolNames }) => {
 									const requestedNames = new Set(toolNames);
-									const appTools = await getCatalogMcpTools(db, catalogAppId);
+									const appTools = await getCatalogMcpTools(db, catalogAppId, {
+										toolNames,
+									});
 									return appTools.filter((tool) =>
 										requestedNames.has(tool.toolName),
 									);

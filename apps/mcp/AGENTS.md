@@ -28,8 +28,11 @@ module-level caches below, and tool
 handler closures capture per-request `ServerContext` (fresh caller identity).
 
 Code Mode defers discovery catalog construction until a `discover.*` call and
-projects inline schemas only when needed. Connect searches rank compact shards
-and hydrate schema-bearing pages after pagination, one organization at a time.
+projects inline schemas only when needed. Connect always reads compact shards.
+Calls and schema-bearing discovery pages fetch individual source definitions;
+schema pages contain at most five tools. Missing indexes rebuild serially in
+`waitUntil` from schema-free D1 projections; requests return a retryable error
+until the index exists. Program syntax never enables full catalog hydration.
 Pure tool descriptors are reused by
 `src/mcp/catalog-projection.ts`, keyed by the source row object from the current
 app/aggregate snapshot plus namespace and skill-enriched description. A refreshed

@@ -49,6 +49,7 @@ type AggregatePrefetchRequest = {
 	hostOrganizationId?: string;
 	endpointPrefixes?: string[];
 	toolIds?: string[];
+	projection?: "contract";
 	cacheable: boolean;
 	/** Keeps the durable cache write alive past its budget; see writeToolDefinitionsL2. */
 	ctx?: Pick<ExecutionContext, "waitUntil">;
@@ -179,6 +180,7 @@ export async function prefetchAggregateEntries(
 	for (const entry of entries) {
 		if (isAggregateSourceVisited(visited, entry)) continue;
 		const selection = {
+			...(entry.projection ? { projection: entry.projection } : {}),
 			...(entry.endpointPrefixes?.length
 				? { endpointPrefixes: entry.endpointPrefixes }
 				: {}),

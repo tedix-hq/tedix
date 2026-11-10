@@ -1043,6 +1043,41 @@ describe("connectMcpServer", () => {
 		);
 	});
 
+	it("reports oversized vendor results as a failed test before parsing", async () => {
+		const result = await callMcpTool(
+			"https://oversized.example/mcp",
+			"read",
+			{},
+			{
+				fetchFn: async (_url, init) => {
+					const body = JSON.parse(String(init?.body)) as {
+						id: number;
+						method: string;
+					};
+					if (body.method === "server/discover")
+						return Response.json({
+							jsonrpc: "2.0",
+							id: body.id,
+							result: {
+								supportedVersions: ["2026-07-28"],
+								capabilities: { tools: {} },
+							},
+						});
+					return new Response(
+						new ReadableStream({
+							pull(controller) {
+								controller.enqueue(new Uint8Array(1024 * 1024));
+							},
+						}),
+						{ headers: { "Content-Type": "application/json" } },
+					);
+				},
+			},
+		);
+		expect(result.success).toBe(false);
+		expect(result.error).toContain("MCP response exceeds");
+	});
+
 	it("reports an unanswered tool call as TIMEOUT", async () => {
 		const fetchFn = async (
 			_url: string,

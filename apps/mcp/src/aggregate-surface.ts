@@ -48,6 +48,7 @@ const log = createMcpLogger("mcp.router");
 // instead of stalling discovery to the ~100s edge 524.
 const AGGREGATE_ENTRY_TIMEOUT_MS = 12_000;
 const AGGREGATE_LOAD_WEDGE_EVICT_MS = 45_000;
+const requestRevalidations = new WeakMap<object, Set<string>>();
 
 // Background rebuild after a stale L2/L3 serve; refreshes L1 + L2 + L3. Single-
 // flight per key; failures are swallowed (the stale entry remains until hard TTL).
@@ -61,7 +62,16 @@ async function revalidateAggregate(
 	ctx?: ExecutionContext,
 	retain = visited.size === 0,
 	retainNested = false,
+	cacheEvent:
+		| "l2_stale_revalidate"
+		| "r2_stale_revalidate" = "l2_stale_revalidate",
 ): Promise<void> {
+	if (ctx) {
+		const seen = requestRevalidations.get(ctx) ?? new Set<string>();
+		if (seen.has(cacheKey)) return;
+		seen.add(cacheKey);
+		requestRevalidations.set(ctx, seen);
+	}
 	// One background rebuild per isolate at a time. Each rebuild holds a fresh
 	// graph plus its serialized snapshot beside the surfaces being served; on
 	// 2026-10-27 one connect request started seven at once and crossed 128 MB.
@@ -71,6 +81,8 @@ async function revalidateAggregate(
 	try {
 		// Another isolate in this colo is already rebuilding this key.
 		if (!(await claimAggregateRevalidationLease(cacheKey))) return;
+		console.log(JSON.stringify({ _cm: "aggregate", event: cacheEvent }));
+		emitAggregateCacheMetric(env, { cacheEvent, appSlug: rootSlug });
 		const fresh = await aggregateAndPrefixToolsUncached(
 			entries,
 			env,
@@ -211,10 +223,8 @@ async function aggregateAndPrefixToolsCached(
 		);
 	}
 	const retain = visited.size === 0 || retainNested;
-	// A transient root is recomposed from its nested graphs on every request.
-	// Without L1 for them, each connect request re-parsed every organization's
-	// snapshot (~25 MB in total) and could start one rebuild per stale graph.
-	const nestedRetained = retainNested || (visited.size === 0 && !cacheSnapshot);
+	// Transient index builders release nested schema graphs between organizations.
+	const nestedRetained = retainNested && cacheSnapshot;
 	// Consent-composed roots duplicate shared schemas across organizations when
 	// serialized. Keep source-app caches and in-flight sharing, but do not retain
 	// or deserialize the combined catalog in any snapshot tier.
@@ -252,13 +262,6 @@ async function aggregateAndPrefixToolsCached(
 			rememberAggregateSurface(cacheKey, l2.surface, retain, l2.generation);
 			if (l2.stale) {
 				// Stale-while-revalidate: serve now, refresh in the background.
-				console.log(
-					JSON.stringify({ _cm: "aggregate", event: "l2_stale_revalidate" }),
-				);
-				emitAggregateCacheMetric(env, {
-					cacheEvent: "l2_stale_revalidate",
-					appSlug: rootSlug,
-				});
 				const job = revalidateAggregate(
 					cacheKey,
 					entries,
@@ -291,13 +294,6 @@ async function aggregateAndPrefixToolsCached(
 		if (l3) {
 			rememberAggregateSurface(cacheKey, l3.surface, retain, l3.generation);
 			if (l3.stale) {
-				console.log(
-					JSON.stringify({ _cm: "aggregate", event: "r2_stale_revalidate" }),
-				);
-				emitAggregateCacheMetric(env, {
-					cacheEvent: "r2_stale_revalidate",
-					appSlug: rootSlug,
-				});
 				const job = revalidateAggregate(
 					cacheKey,
 					entries,
@@ -308,6 +304,7 @@ async function aggregateAndPrefixToolsCached(
 					ctx,
 					retain,
 					nestedRetained,
+					"r2_stale_revalidate",
 				);
 				if (ctx) ctx.waitUntil(job);
 				else void job.catch(() => {});
@@ -471,6 +468,7 @@ async function aggregateAndPrefixToolsUncached(
 					{
 						endpointPrefixes: entry.endpointPrefixes,
 						toolIds: entry.toolIds,
+						...(entry.projection ? { projection: entry.projection } : {}),
 					},
 					activationEpoch,
 					cacheable,
@@ -592,6 +590,7 @@ async function aggregateAndPrefixToolsUncached(
 					organizationId: entry.organizationId,
 					toolIds: sub.toolIds,
 					endpointPrefixes: sub.endpointPrefixes,
+					...(entry.projection ? { projection: entry.projection } : {}),
 					readOnly: entry.readOnly === true || sub.readOnly === true,
 					// Apps inside a Connect organization mount keep their own
 					// namespace; deeper nesting still groups under its parent.

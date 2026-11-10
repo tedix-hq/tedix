@@ -393,6 +393,7 @@ export const appsContract = oc
 			})
 			.input(
 				SlugParamSchema.extend({
+					projection: z.enum(["definition", "contract"]).optional(),
 					hostOrganizationId: z.string().min(1).optional(),
 					endpointPrefixes: z
 						.array(z.string().min(1))
@@ -445,6 +446,7 @@ export const appsContract = oc
 						.array(
 							z.object({
 								slug: z.string().min(1),
+								projection: z.enum(["definition", "contract"]).optional(),
 								appId: z
 									.string()
 									.uuid()

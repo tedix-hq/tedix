@@ -147,7 +147,6 @@ import { getAllowedMcpOrigins, normalizeOrigin } from "./mcp-origin";
 import {
 	extractDirectToolCallArguments,
 	extractRequestedCodeModeNamespaces,
-	extractShardDiscoveryNamespaces,
 	maybeHandleCodeModeCompactMcp,
 	modernDiscoverInstructions,
 } from "./codemode-fast-paths";
@@ -494,14 +493,14 @@ export async function handleMcpRequest(
 			| Record<string, string>
 			| undefined,
 	);
-	// A Connect program whose only unbounded step is a namespace-free search
-	// ranks the other organizations from compact shards instead of parsing
-	// every organization graph into this isolate (1102, 26 Oct-5 Nov 2026).
-	const shardNamespaces =
-		multiOrgResource && aggregateNamespaces === null && !directHomeKernelCall
-			? await extractShardDiscoveryNamespaces(request)
-			: null;
-	const activation = shardNamespaces
+	// Connect always reads the compact index. Program syntax can select SDK
+	// bindings, but must never select a full cross-organization schema graph.
+	const useDiscoveryIndex =
+		multiOrgResource &&
+		!!requestedToolName &&
+		requestedToolName !== "get_info" &&
+		!directHomeKernelCall;
+	const activation = useDiscoveryIndex
 		? await readAggregateActivationEpoch(env)
 		: undefined;
 	// Emit before loading graphs: an exceededMemory kill never reaches the
@@ -513,51 +512,48 @@ export async function handleMcpRequest(
 				event: "hydration_plan",
 				mode: directHomeKernelCall
 					? "home"
-					: aggregateNamespaces !== null
-						? "targeted"
-						: shardNamespaces !== null && activation?.cacheable
-							? "shards"
-							: "full",
+					: useDiscoveryIndex
+						? "shards"
+						: "targeted",
 				configuredAppCount: aggregateApps.length,
-				filteredAppCount: filteredAggregateApps.length,
+				filteredAppCount: useDiscoveryIndex
+					? aggregateApps.length
+					: filteredAggregateApps.length,
 				namespaceCount: aggregateNamespaces?.size ?? null,
-				shardNamespaceCount: shardNamespaces?.size ?? null,
+				shardNamespaceCount: useDiscoveryIndex ? 0 : null,
 				activationCacheable: activation?.cacheable ?? null,
 				retainedToolRows: aggregateSurfaceRetainedRows(),
 			}),
 		);
 	}
 	const shardDiscovery =
-		shardNamespaces && activation?.cacheable
+		useDiscoveryIndex && activation?.cacheable
 			? await loadDiscoveryShards(
 					env,
-					filteredAggregateApps,
-					shardNamespaces,
+					aggregateApps,
+					new Set(),
 					activation.value,
-					(entry) =>
-						aggregateAndPrefixTools(
-							[entry],
-							env,
-							new Set(),
-							ctx,
-							resolvedApp.app.slug,
-							activation,
-							false,
-						),
 				)
 			: null;
-	const hydratedAggregateApps =
-		shardDiscovery?.hydrate ?? filteredAggregateApps;
-	// One organization whose shard aged past its refresh window is rebuilt
-	// after the response; the request itself keeps serving the stale shard.
-	if (shardDiscovery?.refresh && activation) {
-		const { refresh } = shardDiscovery;
+	const hydratedAggregateApps = useDiscoveryIndex ? [] : filteredAggregateApps;
+	// Missing indexes rebuild serially in waitUntil. Fail closed until the
+	// prebuilt index exists instead of falling back to a giant live catalog.
+	const refreshEntries = shardDiscovery
+		? [
+				...shardDiscovery.hydrate,
+				...(shardDiscovery.refresh ? [shardDiscovery.refresh] : []),
+			]
+		: useDiscoveryIndex
+			? aggregateApps
+			: [];
+	for (const refresh of refreshEntries) {
+		if (!activation?.cacheable) break;
 		refreshDiscoveryShard(
 			refresh,
 			activation.value,
 			() =>
 				aggregateAndPrefixTools(
-					[refresh],
+					[{ ...refresh, projection: "contract" }],
 					env,
 					new Set(),
 					ctx,
@@ -566,6 +562,19 @@ export async function handleMcpRequest(
 					false,
 				),
 			ctx,
+		);
+	}
+	if (useDiscoveryIndex && (!shardDiscovery || shardDiscovery.hydrate.length)) {
+		return Response.json(
+			{
+				jsonrpc: "2.0",
+				id: (await readJsonRpcBody(request))?.id ?? null,
+				error: {
+					code: -32000,
+					message: "The discovery index is refreshing. Retry shortly.",
+				},
+			},
+			{ status: 503, headers: { "Retry-After": "5" } },
 		);
 	}
 	if (
@@ -804,16 +813,10 @@ export async function handleMcpRequest(
 		clientAppsSupported,
 		shardDiscovery
 			? (tool) =>
-					loadDiscoveryToolDefinition(tool, filteredAggregateApps, (entry) =>
-						aggregateAndPrefixTools(
-							[entry],
-							env,
-							new Set(),
-							ctx,
-							resolvedApp.app.slug,
-							activation,
-							false,
-						),
+					loadDiscoveryToolDefinition(
+						tool,
+						aggregateApps,
+						getApiClient({ serviceFetch: env.API_SERVICE }),
 					)
 			: undefined,
 	);
