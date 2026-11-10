@@ -49,6 +49,7 @@ import {
 	hashOsShareToken,
 	isActive,
 	linkAdmitsGuest,
+	recipientMayOpen,
 	shareableOutputRevision,
 	TOKEN_SHAPE,
 	workspaceLinkAdmitsGuest,
@@ -83,6 +84,7 @@ export interface GuestAppScope {
 	shareLinkId: string;
 	shareSessionId: string;
 	workspaceName: string;
+	verifiedEmail?: string | null;
 	app: { id: string; name: string; description: string | null };
 }
 
@@ -208,7 +210,18 @@ async function resolveGuestAppLinkScope(
 	appId?: string,
 ): Promise<GuestAppScope | null> {
 	const link = await getOsShareLinkById(db, session.shareLinkId);
-	if (!link || !isActive(link, now)) return null;
+	if (
+		!link ||
+		!isActive(link, now) ||
+		!(await recipientMayOpen(
+			db,
+			link,
+			undefined,
+			undefined,
+			session.verifiedEmail,
+		))
+	)
+		return null;
 	const opened = await guestLinkApp(db, link, appId);
 	if (!opened) return null;
 	const { gadget, revisionId } = opened;
@@ -230,6 +243,7 @@ async function resolveGuestAppLinkScope(
 		revisionId,
 		shareLinkId: link.id,
 		shareSessionId: session.id,
+		verifiedEmail: session.verifiedEmail,
 		app: { id: gadget.id, name: gadget.name, description: gadget.description },
 	};
 }
@@ -286,10 +300,12 @@ export async function handleGuestAppOpen(
 		config: code.config,
 		compatibilityDate: code.compatibilityDate,
 		shareLinkId: scope.shareLinkId,
-		guestName: guestName.success ? guestName.data : "Guest",
+		guestName:
+			scope.verifiedEmail ?? (guestName.success ? guestName.data : "Guest"),
 	});
 	return noStoreJson({
 		session: session.token,
+		verifiedEmail: scope.verifiedEmail,
 		expiresAt: session.expiresAt,
 		role: GUEST_ROLE,
 		revisionId: scope.revisionId,

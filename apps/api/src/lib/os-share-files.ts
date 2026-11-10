@@ -176,6 +176,7 @@ async function openLink(
 	now: string,
 	authorizeRecipient?: AuthorizeOsShareRecipient,
 	identifyRecipient?: IdentifyOsShareRecipient,
+	verifiedEmail?: string | null,
 ): Promise<OsShareLinkRow | null> {
 	const link = await getOsShareLinkById(db, shareLinkId);
 	if (!link || !isActive(link, now)) return null;
@@ -184,6 +185,7 @@ async function openLink(
 		link,
 		authorizeRecipient,
 		identifyRecipient,
+		verifiedEmail,
 	))
 		? link
 		: null;
@@ -213,6 +215,7 @@ export async function handleOsShareFile(
 		now,
 		authorizeRecipient,
 		identifyRecipient,
+		session.verifiedEmail,
 	);
 	if (!link) return notFound();
 	const file = await resolveShareFile(env, db, link, outputId);
@@ -264,6 +267,7 @@ export async function serveOsShareFile(
 		now,
 		authorizeRecipient,
 		identifyRecipient,
+		session.verifiedEmail,
 	);
 	if (!link) return notFound();
 	const file = await resolveShareFile(env, db, link, outputId);

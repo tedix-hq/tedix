@@ -14,6 +14,7 @@ import {
 	osShareLinkInvitees,
 	osShareLinks,
 	osShareSessions,
+	osShareEmailCodes,
 	osShareSkillReadGrants,
 	type NewOsShareSkillReadGrantRow,
 } from "../schema/os-shares";
@@ -398,6 +399,7 @@ export async function createOsShareSession(
 	params: {
 		id: string;
 		sessionTokenHash: string;
+		verifiedEmail?: string | null;
 		createdAt: string;
 		lastSeenAt: string;
 		expiresAt: string;
@@ -415,6 +417,9 @@ export async function createOsShareSession(
 					shareLinkId: sql<string>`${osShareLinks.id}`.as("share_link_id"),
 					sessionTokenHash: sql<string>`${params.sessionTokenHash}`.as(
 						"session_token_hash",
+					),
+					verifiedEmail: sql<string | null>`${params.verifiedEmail ?? null}`.as(
+						"verified_email",
 					),
 					createdAt: sql<string>`${params.createdAt}`.as("created_at"),
 					lastSeenAt: sql<string>`${params.lastSeenAt}`.as("last_seen_at"),
@@ -668,4 +673,118 @@ export async function countActiveOsShareSessions(
 			),
 		);
 	return row?.value ?? 0;
+}
+
+/** Atomic rolling-window reservation: concurrent sends cannot exceed either limit. */
+export async function reserveOsShareEmailCode(
+	db: DbQueryClient,
+	params: typeof osShareEmailCodes.$inferInsert & { windowStart: string },
+): Promise<boolean> {
+	const { windowStart, ...code } = params;
+	const rows = await db
+		.insert(osShareEmailCodes)
+		.select(
+			db
+				.select({
+					id: sql<string>`${code.id}`.as("id"),
+					shareLinkId: sql<string>`${code.shareLinkId}`.as("share_link_id"),
+					email: sql<string>`${code.email}`.as("email"),
+					codeHash: sql<string>`${code.codeHash}`.as("code_hash"),
+					ipHash: sql<string>`${code.ipHash}`.as("ip_hash"),
+					createdAt: sql<string>`${code.createdAt}`.as("created_at"),
+					expiresAt: sql<string>`${code.expiresAt}`.as("expires_at"),
+					attempts: sql<number>`0`.as("attempts"),
+					consumedAt: sql<string | null>`null`.as("consumed_at"),
+				})
+				.from(osShareLinks)
+				.where(
+					and(
+						eq(osShareLinks.id, code.shareLinkId),
+						eq(osShareLinks.access, "invited"),
+						isNull(osShareLinks.revokedAt),
+						isNull(osShareLinks.disabledAt),
+						sql`(${osShareLinks.expiresAt} is null or ${osShareLinks.expiresAt} > ${code.createdAt})`,
+						sql`(select count(*) from ${osShareEmailCodes} where share_link_id = ${code.shareLinkId} and email = ${code.email} and created_at > ${windowStart}) < 3`,
+						sql`(select count(*) from ${osShareEmailCodes} where ip_hash = ${code.ipHash} and created_at > ${windowStart}) < 20`,
+					),
+				),
+		)
+		.returning({ id: osShareEmailCodes.id });
+	return rows.length === 1;
+}
+
+/** Increment every guess and consume only a matching, unexpired challenge, once. */
+export async function consumeOsShareEmailCode(
+	db: DbQueryClient,
+	params: { linkId: string; email: string; codeHash: string; now: string },
+): Promise<boolean> {
+	const latest = db
+		.select({ id: osShareEmailCodes.id })
+		.from(osShareEmailCodes)
+		.where(
+			and(
+				eq(osShareEmailCodes.shareLinkId, params.linkId),
+				eq(osShareEmailCodes.email, params.email),
+			),
+		)
+		.orderBy(desc(osShareEmailCodes.createdAt), desc(osShareEmailCodes.id))
+		.limit(1);
+	const [row] = await db
+		.update(osShareEmailCodes)
+		.set({
+			attempts: sql`${osShareEmailCodes.attempts} + 1`,
+			consumedAt: sql`case when ${osShareEmailCodes.codeHash} = ${params.codeHash} then ${params.now} else null end`,
+		})
+		.where(
+			and(
+				eq(osShareEmailCodes.id, sql`(${latest})`),
+				isNull(osShareEmailCodes.consumedAt),
+				gt(osShareEmailCodes.expiresAt, params.now),
+				sql`${osShareEmailCodes.attempts} < 5`,
+			),
+		)
+		.returning({ consumedAt: osShareEmailCodes.consumedAt });
+	return row?.consumedAt === params.now;
+}
+
+/** Email-only admission for guests; no user or workspace-collaborator fallback. */
+export async function isOsShareEmailInvited(
+	db: DbQueryClient,
+	linkId: string,
+	email: string,
+): Promise<boolean> {
+	const rows = await db
+		.select({ id: osShareLinkInvitees.id })
+		.from(osShareLinkInvitees)
+		.where(
+			and(
+				eq(osShareLinkInvitees.shareLinkId, linkId),
+				eq(osShareLinkInvitees.email, email),
+			),
+		)
+		.limit(1);
+	return rows.length > 0;
+}
+
+/** Owner-visible open history, scoped through the link's organization. */
+export async function listOsShareEmailOpens(
+	db: DbQueryClient,
+	params: OsShareLinkScopeParams,
+) {
+	return db
+		.select({
+			email: osShareSessions.verifiedEmail,
+			openedAt: osShareSessions.createdAt,
+		})
+		.from(osShareSessions)
+		.innerJoin(osShareLinks, eq(osShareLinks.id, osShareSessions.shareLinkId))
+		.where(
+			and(
+				eq(osShareLinks.organizationId, params.organizationId),
+				eq(osShareLinks.id, params.shareLinkId),
+				sql`${osShareSessions.verifiedEmail} is not null`,
+			),
+		)
+		.orderBy(desc(osShareSessions.createdAt))
+		.limit(100);
 }

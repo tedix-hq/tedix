@@ -657,6 +657,9 @@ function InviteList(props: { shareId: string }) {
 			<Text as="h3" role="label" tone="strong" className="m-0">
 				Invited people
 			</Text>
+			<Text as="p" tone="secondary" className="m-0">
+				Invitees need no account. They enter a code sent to their email.
+			</Text>
 			<form
 				className="flex gap-2"
 				onSubmit={(event) => {
@@ -722,6 +725,25 @@ function InviteList(props: { shareId: string }) {
 						);
 					})}
 				</ul>
+			) : null}
+			{invitees.data?.opens?.length ? (
+				<div className="grid gap-1" aria-label="Link opens">
+					<Text as="h3" role="label">
+						Opened by
+					</Text>
+					{invitees.data.opens.map((open, index) => (
+						<Text
+							as="p"
+							key={`${open.email}-${open.openedAt}-${index}`}
+							className="m-0"
+						>
+							{open.email} ·{" "}
+							<time dateTime={open.openedAt}>
+								{new Date(open.openedAt).toLocaleString()}
+							</time>
+						</Text>
+					))}
+				</div>
 			) : null}
 			{remove.isError ? (
 				<Text role="label" tone="error" className="m-0" aria-live="polite">

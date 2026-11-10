@@ -1432,6 +1432,10 @@
 		{
 			"name": "20261110161346_learning_event_surface_occurred/migration.sql",
 			"sha256": "651633e315c47e2b3d07586036c538ce88b4993e9e02250ec704bda69569d09c"
+		},
+		{
+			"name": "20261110172747_share_email_codes/migration.sql",
+			"sha256": "2e6c06f78208d842f3c1fda7ccd6389093994dba5626948af0a761505e68fa3b"
 		}
 	]
 }

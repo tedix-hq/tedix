@@ -60,6 +60,42 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 		);
 	});
 
+	// authz: public — proof of an invited email; uniform send reply and atomic rate limits.
+	app.post("/os-shared/email/request", async (c) => {
+		const [{ requestOsShareEmailCode }, { createDbQueryClient }] =
+			await Promise.all([
+				import("../lib/os-share-email-code"),
+				import("@tedix/db/query-client"),
+			]);
+		const body = await c.req.json().catch(() => null);
+		return requestOsShareEmailCode(
+			c.env,
+			createDbQueryClient(c.env.DB),
+			{
+				id: bodyString(body, "id"),
+				email: bodyString(body, "email"),
+				ip: c.req.header("CF-Connecting-IP") ?? "unknown",
+				hostTenantId: c.req.header("X-Tedix-Tenant-Id") ?? null,
+			},
+			(work) => c.executionCtx.waitUntil(work),
+		);
+	});
+	// authz: public — single-use email proof bound to this link; creates only a share session.
+	app.post("/os-shared/email/verify", async (c) => {
+		const [{ verifyOsShareEmailCode }, { createDbQueryClient }] =
+			await Promise.all([
+				import("../lib/os-share-email-code"),
+				import("@tedix/db/query-client"),
+			]);
+		const body = await c.req.json().catch(() => null);
+		return verifyOsShareEmailCode(c.env, createDbQueryClient(c.env.DB), {
+			id: bodyString(body, "id"),
+			email: bodyString(body, "email"),
+			code: bodyString(body, "code"),
+			hostTenantId: c.req.header("X-Tedix-Tenant-Id") ?? null,
+		});
+	});
+
 	// The permanent address behind `/s/<id>` on the organization's own host.
 	// The OS Worker asserts the host's tenant; a link answers only there.
 	// authz: public — resolves by unguessable public id; refusals are the same 404 as an unknown link.

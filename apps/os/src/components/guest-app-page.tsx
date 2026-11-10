@@ -41,6 +41,7 @@ import { OrganizationMark } from "@/shared/organization-mark";
  */
 
 type GuestOpen = {
+	verifiedEmail?: string | null;
 	session: string;
 	expiresAt: number;
 	role: "use";
@@ -269,14 +270,14 @@ export async function openGuestApp(
 		...(guestName ? { guestName } : {}),
 		...(appId ? { appId } : {}),
 	});
-	if (!guestName && app.app.recordsGuestInput)
+	if (!guestName && !app.verifiedEmail && app.app.recordsGuestInput)
 		return { status: "identify", share, sessionToken, app, appId };
 	return {
 		status: "ready",
 		share,
 		sessionToken,
 		app,
-		guestName: guestName ?? "Guest",
+		guestName: app.verifiedEmail ?? guestName ?? "Guest",
 		appId,
 	};
 }

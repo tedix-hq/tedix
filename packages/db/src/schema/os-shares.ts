@@ -139,6 +139,8 @@ export const osShareSessions = sqliteTable(
 			.notNull()
 			.references(() => osShareLinks.id, { onDelete: "cascade" }),
 		sessionTokenHash: text("session_token_hash").notNull(),
+		/** Email proved at redemption; this never creates a Tedix account. */
+		verifiedEmail: text("verified_email"),
 		createdAt: text("created_at")
 			.notNull()
 			.default(sql`(datetime('now'))`),
@@ -153,6 +155,32 @@ export const osShareSessions = sqliteTable(
 		uniqueIndex("os_share_sessions_token_hash_unique").on(
 			table.sessionTokenHash,
 		),
+	],
+);
+
+/** One send reservation and HMAC-only challenge; reservations also cover uninvited emails. */
+export const osShareEmailCodes = sqliteTable(
+	"os_share_email_codes",
+	{
+		id: text("id").primaryKey(),
+		shareLinkId: text("share_link_id")
+			.notNull()
+			.references(() => osShareLinks.id, { onDelete: "cascade" }),
+		email: text("email").notNull(),
+		codeHash: text("code_hash").notNull(),
+		ipHash: text("ip_hash").notNull(),
+		createdAt: text("created_at").notNull(),
+		expiresAt: text("expires_at").notNull(),
+		attempts: integer("attempts").notNull().default(0),
+		consumedAt: text("consumed_at"),
+	},
+	(t) => [
+		index("os_share_email_codes_link_email_created_idx").on(
+			t.shareLinkId,
+			t.email,
+			t.createdAt,
+		),
+		index("os_share_email_codes_ip_created_idx").on(t.ipHash, t.createdAt),
 	],
 );
 

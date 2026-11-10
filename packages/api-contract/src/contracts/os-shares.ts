@@ -30,8 +30,8 @@ export const OsShareRevisionModeSchema = z.enum(["living", "pinned"]);
 /**
  * Who may open a link. `anyone_with_link` needs no account (today's guest
  * scope); `organization` needs a signed-in member of the link's organization;
- * `invited` needs a signed-in person on the link's invite list (a workspace
- * link also admits its collaborators).
+ * `invited` accepts an email code or a signed-in person on the invite list
+ * (a workspace link also admits its signed-in collaborators).
  */
 export const OsShareAccessSchema = z.enum([
 	"anyone_with_link",
@@ -161,6 +161,7 @@ export const OsShareGuestRefusalSchema = z.object({
 export type OsShareGuestRefusal = z.infer<typeof OsShareGuestRefusalSchema>;
 
 export const OsShareOpenResultSchema = z.object({
+	needsEmailCode: z.boolean().optional(),
 	needsSignIn: z
 		.boolean()
 		.describe(
@@ -203,7 +204,7 @@ export const OsShareOpenResultSchema = z.object({
 	 * off or delete share links), so the page can offer them the Share dialog.
 	 */
 	canManage: z.boolean().optional(),
-	/** A 12-hour session; keep it in sessionStorage under `tedix.os.share.<id>`. */
+	/** Email-verified sessions last 7 days; other sessions last 12 hours. Keep in sessionStorage. */
 	sessionToken: z.string().optional(),
 });
 export type OsShareOpenInput = z.infer<typeof OsShareOpenInputSchema>;
@@ -708,7 +709,19 @@ export const osSharesContract = oc
 						summary: "List who an invited-only share link admits",
 					})
 					.input(inviteeScopeInput.strict())
-					.output(z.object({ items: z.array(OsShareInviteeSchema) })),
+					.output(
+						z.object({
+							items: z.array(OsShareInviteeSchema),
+							opens: z
+								.array(
+									z.object({
+										email: z.string().nullable(),
+										openedAt: z.string(),
+									}),
+								)
+								.optional(),
+						}),
+					),
 				add: oc
 					.route({
 						method: "POST",
