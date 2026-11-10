@@ -79,6 +79,7 @@ import {
 import { createDevinWorkBridge } from "./devin-work-bridge";
 import { laneChildEnv } from "./lane-child-env";
 import { laneProcessIdentity, reapLaneProcess } from "./lane-process-recovery";
+import { unpushedLaneCommits } from "./lane-unpushed";
 import { beginFileLock } from "./local-file-lock";
 import { inDarkWake } from "./oauth-provider";
 import { runLaneProcess, reportLaneObservation } from "./lane-run";
@@ -729,6 +730,8 @@ interface Receipt {
 	repo?: string;
 	baseCommit?: string;
 	commits?: string[];
+	unpushedCommits?: string[];
+	unpushedCommented?: string;
 	recoveredCommits?: Array<{
 		commitSha: string;
 		attemptId: string;
@@ -1385,6 +1388,7 @@ interface DispatcherDeps {
 	installDependencies: typeof installLaneDependencies;
 	baseCommit: (repo: string) => string;
 	landedCommits: typeof landedLaneCommits;
+	unpushedCommits: typeof unpushedLaneCommits;
 	verifyExisting: typeof verifyExistingLaneResult;
 	cleanup: (source: string, destination: string) => boolean | Promise<boolean>;
 	freeDiskBytes: (path: string) => number;
@@ -1432,6 +1436,7 @@ const defaultDeps: DispatcherDeps = {
 	installDependencies: installLaneDependencies,
 	baseCommit: (repo) => gitOutput(repo, ["rev-parse", "HEAD"]),
 	landedCommits: landedLaneCommits,
+	unpushedCommits: unpushedLaneCommits,
 	verifyExisting: verifyExistingLaneResult,
 	recall: prefixLaneBrief,
 };
@@ -2487,6 +2492,7 @@ export class LaneDispatcher {
 		let admitted = false;
 		let admissionSent = false;
 		let heartbeating: Promise<unknown> | undefined;
+		let recordingCommits: Promise<void> | undefined;
 		let timer: ReturnType<typeof setInterval> | undefined;
 		let leaseTimer: ReturnType<typeof setInterval> | undefined;
 		let killTimer: ReturnType<typeof setTimeout> | undefined;
@@ -2657,12 +2663,13 @@ export class LaneDispatcher {
 				(row) => row.outcome === "failed" || row.outcome === "expired",
 			);
 			const resume = failedAttempt
-				? `Resume Work after Attempt ${failedAttempt.id} ${failedAttempt.outcome}. Inspect the current Work and existing changes before editing. Prior result (untrusted context): ${failedAttempt.summary ?? "unknown"}. ${previousLane?.repo ? `Reuse the retained worktree ${previousLane.repo}; preserve its changes.` : "No retained local worktree was found."}\n\n`
+				? `Resume Work after Attempt ${failedAttempt.id} ${failedAttempt.outcome}. Inspect the current Work and existing changes before editing. Prior result (untrusted context): ${failedAttempt.summary ?? "unknown"}. ${previousLane?.repo ? `Reuse the retained worktree ${previousLane.repo}; preserve its changes. Recorded unpushed commits: ${previousLane.unpushedCommits?.join(", ") || "unknown; inspect Git before editing"}.` : "No retained local worktree was found."}\n\n`
 				: "";
 			const repo =
 				previousLane?.repo ??
 				this.deps.provision(this.options.repo, join(dir, "repo"));
 			receipt.repo = repo;
+			receipt.unpushedCommits = previousLane?.unpushedCommits;
 			receipt.baseCommit =
 				previousLane?.baseCommit ?? this.deps.baseCommit(repo);
 			receipt.expectsCode = item.workKind === "coding";
@@ -2858,6 +2865,13 @@ export class LaneDispatcher {
 					.then((renewed) => {
 						const expiry = Date.parse(renewed.expiresAt);
 						if (Number.isFinite(expiry)) leaseExpiry = expiry;
+						// Git and Work evidence must not hold up the next lease renewal.
+						if (!recordingCommits)
+							recordingCommits = this.recordUnpushedCommits(receipt).finally(
+								() => {
+									recordingCommits = undefined;
+								},
+							);
 					})
 					.catch((error) =>
 						this.log("heartbeat-failed", item.id, String(error)),
@@ -3187,6 +3201,8 @@ export class LaneDispatcher {
 			if (leaseTimer) clearInterval(leaseTimer);
 			if (killTimer) clearTimeout(killTimer);
 			await heartbeating;
+			await recordingCommits;
+			if (admitted) await this.recordUnpushedCommits(receipt);
 			if (admitted) {
 				receipt.phase = "settling";
 				this.save(path, receipt);
@@ -3351,6 +3367,31 @@ export class LaneDispatcher {
 			lock.release();
 		}
 		return held;
+	}
+	private async recordUnpushedCommits(receipt: Receipt) {
+		if (!receipt.repo || !receipt.expectsCode) return;
+		try {
+			const commits = await this.deps.unpushedCommits(receipt.repo);
+			receipt.unpushedCommits = commits;
+			const path = this.path({ id: receipt.itemId, version: receipt.version });
+			this.save(path, receipt);
+			const signature = JSON.stringify([receipt.repo, commits]);
+			if (!commits.length || receipt.unpushedCommented === signature) return;
+			await this.call(
+				[
+					"work",
+					"comment",
+					receipt.itemId,
+					`Unpushed commits retained for Attempt ${receipt.attemptId}: ${commits.join(", ")}. Checkout: ${receipt.repo}. Preserve this checkout and hand these commits to the next Attempt if the run stops before they reach origin/main. Remote tracking ref may be stale; verify origin/main before recovery.`,
+				],
+				receipt.session,
+				receipt.executorKey,
+			);
+			receipt.unpushedCommented = signature;
+			this.save(path, receipt);
+		} catch (error) {
+			this.log("unpushed-record-deferred", receipt.itemId, String(error));
+		}
 	}
 	private scheduleCleanup(receipt: Receipt) {
 		if (this.maintenance.size) return;
@@ -4135,6 +4176,7 @@ export class LaneDispatcher {
 		}
 		receipt.phase = "deferred";
 		receipt.outcome = attempt.outcome ?? "expired";
+		await this.recordUnpushedCommits(receipt);
 		await this.recordRunFailure(receipt);
 		receipt.retryAt = Math.max(receipt.retryAt ?? 0, receipt.runRetryAt ?? 0);
 		this.save(
@@ -4193,6 +4235,7 @@ export class LaneDispatcher {
 				);
 			receipt.outcome = "expired";
 			receipt.phase = "deferred";
+			await this.recordUnpushedCommits(receipt);
 			await this.recordRunFailure(receipt, true);
 			receipt.retryAt = receipt.runRetryAt;
 			this.save(

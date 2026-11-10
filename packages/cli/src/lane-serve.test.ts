@@ -51,6 +51,7 @@ import { beginFileLock } from "./local-file-lock";
 import { LaneOutcomeReadError } from "./lane-result";
 import { runtimeAppEvidenceUri } from "./lane-runtime-app-proof";
 import { laneProcessIdentity } from "./lane-process-recovery";
+import { unpushedLaneCommits } from "./lane-unpushed";
 import { DecisionEnvelopeSchema } from "@tedix/api-contract/schemas/os-decision-deck";
 import { DecisionCardPresentationSchema } from "@tedix/api-contract/schemas/decision-card-presentation";
 
@@ -157,6 +158,9 @@ function fixture({
 		installError: undefined as Error | undefined,
 		installed: [] as string[],
 		commits: [] as string[],
+		unpushedCommits: [] as string[],
+		unpushedWait: undefined as Promise<string[]> | undefined,
+		heartbeatExpiry: false,
 		cleanups: 0,
 		cleanupResult: true,
 		cleanupRemoves: false,
@@ -220,6 +224,8 @@ function fixture({
 			if (control.proofError) throw control.proofError;
 			return control.commits;
 		},
+		unpushedCommits: async () =>
+			control.unpushedWait ?? control.unpushedCommits,
 		recall: async (brief, scope, harness, _organization, cwd) => {
 			recalls.push({ brief, scope, harness, cwd });
 			return {
@@ -350,6 +356,8 @@ function fixture({
 				throw new Error("Transient settlement failure");
 			else if (verb === "complete" && control.completeError)
 				throw control.completeError;
+			else if (verb === "heartbeat" && control.heartbeatExpiry)
+				response = { expiresAt: new Date(Date.now() + 300_000).toISOString() };
 			else response = {};
 			return response as T;
 		},
@@ -1251,6 +1259,114 @@ describe("dispatcher admission", () => {
 			}
 		},
 	);
+	it.each([false, true])(
+		"keeps renewing through a 20-minute push queue with commit reads blocked=%s",
+		async (blocked) => {
+			let now = 1_800_000_000_000;
+			const clock = spyOn(Date, "now").mockImplementation(() => now);
+			let leaseCheck!: () => void;
+			let heartbeat!: () => void;
+			const timer = spyOn(globalThis, "setInterval").mockImplementation(((
+				callback: () => void,
+				ms: number,
+			) => {
+				if (ms === 1000) leaseCheck = callback;
+				if (ms === 60_000) heartbeat = callback;
+				return setTimeout(() => {}, 60_000);
+			}) as typeof setInterval);
+			const kill = spyOn(process, "kill").mockReturnValue(true);
+			const f = fixture();
+			f.items.splice(1);
+			f.items[0]!.workKind = "coding";
+			f.control.spawnPid = 999999;
+			f.control.heartbeatExpiry = true;
+			const sha = "b".repeat(40);
+			f.control.unpushedCommits = [sha];
+			let finishRead: (() => void) | undefined;
+			if (blocked)
+				f.control.unpushedWait = new Promise((done) => {
+					finishRead = () => done([sha]);
+				});
+			const path = join(f.dir, `${item().id}-2.json`);
+			try {
+				await f.dispatcher.tick();
+				await until(() => f.releases.length === 1);
+				for (let minute = 0; minute < 20; minute++) {
+					now += 60_000;
+					heartbeat();
+					await until(
+						() =>
+							f.events.filter((event) => event.verb === "heartbeat").length ===
+							minute + 1,
+					);
+					await new Promise((done) => setTimeout(done, 0));
+					leaseCheck();
+				}
+				finishRead?.();
+				await until(
+					() =>
+						JSON.parse(readFileSync(path, "utf8")).unpushedCommented !==
+						undefined,
+				);
+				f.control.unpushedWait = undefined;
+				const receipt = JSON.parse(readFileSync(path, "utf8"));
+				expect(receipt.interrupted).not.toBe(true);
+				expect(receipt.unpushedCommits).toEqual([sha]);
+				expect(kill).not.toHaveBeenCalledWith(-999999, "SIGTERM");
+				const comments = f.events.filter(
+					(event) =>
+						event.verb === "comment" &&
+						event.args.some((arg) => arg.includes("Unpushed commits retained")),
+				);
+				expect(comments).toHaveLength(1);
+				expect(comments[0]!.args.join(" ")).toContain(sha);
+				expect(comments[0]!.args.join(" ")).toContain(receipt.repo);
+				// The queued push lands before the native turn returns.
+				f.control.unpushedCommits = [];
+				f.control.commits = [sha];
+				f.releases[0]!();
+				await f.dispatcher.drain();
+				expect(JSON.parse(readFileSync(path, "utf8"))).toMatchObject({
+					outcome: "succeeded",
+					commits: [sha],
+					unpushedCommits: [],
+				});
+			} finally {
+				finishRead?.();
+				for (const release of f.releases) release();
+				await f.dispatcher.drain();
+				kill.mockRestore();
+				timer.mockRestore();
+				clock.mockRestore();
+			}
+		},
+	);
+	it("records an interrupted commit and path before settlement", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		f.items[0]!.workKind = "coding";
+		f.control.telemetryOutcome = "stopped";
+		f.control.unpushedCommits = ["c".repeat(40)];
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		f.releases[0]!();
+		await f.dispatcher.drain();
+		const receipt = JSON.parse(
+			readFileSync(join(f.dir, `${item().id}-2.json`), "utf8"),
+		);
+		expect(receipt.unpushedCommits).toEqual(f.control.unpushedCommits);
+		const commentAt = f.events.findIndex(
+			(event) =>
+				event.verb === "comment" &&
+				event.args.some((arg) => arg.includes("Unpushed commits retained")),
+		);
+		expect(commentAt).toBeGreaterThanOrEqual(0);
+		expect(f.events[commentAt]!.args.join(" ")).toContain(receipt.repo);
+		expect(commentAt).toBeLessThan(
+			f.events.findIndex((event) => event.verb === "settle"),
+		);
+		expect(f.control.cleanups).toBe(0);
+	});
 	it.each(["late timer", "lease expiry", "stopped telemetry"])(
 		"records the child outcome after %s",
 		async (scenario) => {
@@ -2086,8 +2202,16 @@ describe("dispatcher admission", () => {
 	);
 
 	it("re-admits a lease-expired Attempt with a retained result on the same Work revision", async () => {
-		const { dispatcher, restart, items, control, events, releases, dir } =
-			fixture();
+		const {
+			dispatcher,
+			restart,
+			items,
+			control,
+			events,
+			releases,
+			dir,
+			briefs,
+		} = fixture();
 		items.splice(1);
 		let now = Date.now();
 		const clock = spyOn(Date, "now").mockImplementation(() => now);
@@ -2141,7 +2265,8 @@ describe("dispatcher admission", () => {
 			// person instead of being re-admitted.
 			const repo = join(dir, "runs", `${item().id}-2`, "repo");
 			mkdirSync(repo, { recursive: true });
-			const deferred = { ...expired, repo };
+			const retainedSha = "d".repeat(40);
+			const deferred = { ...expired, repo, unpushedCommits: [retainedSha] };
 			writeFileSync(path, JSON.stringify(deferred));
 			control.history.data = [
 				{
@@ -2174,6 +2299,9 @@ describe("dispatcher admission", () => {
 			const saved = JSON.parse(readFileSync(path, "utf8"));
 			expect(saved.attemptId).toBe("fictional-attempt");
 			expect(saved.held).not.toBe(true);
+			expect(briefs[0]).toContain(`Recorded unpushed commits: ${retainedSha}`);
+			expect(saved.repo).toBe(repo);
+			expect(saved.unpushedCommits).toEqual([retainedSha]);
 		} finally {
 			clock.mockRestore();
 		}
@@ -4858,6 +4986,29 @@ it("keeps a registered worktree holding unlanded commits and provisions beside i
 	const local = git(["rev-parse", "HEAD"], destination);
 	expect(provisionLaneWorktree(repo, destination)).toBe(`${destination}-2`);
 	expect(git(["rev-parse", "HEAD"], destination)).toBe(local);
+}, 30_000);
+
+it("records and preserves an unpushed commit until origin/main contains it", async () => {
+	const { root, repo, git } = gitFixture(true);
+	const destination = provisionLaneWorktree(repo, join(root, "repo"));
+	git(
+		[
+			"-c",
+			"commit.gpgsign=false",
+			"commit",
+			"--allow-empty",
+			"-m",
+			"queued commit",
+		],
+		destination,
+	);
+	const sha = git(["rev-parse", "HEAD"], destination);
+	expect(await unpushedLaneCommits(destination)).toEqual([sha]);
+	expect(await cleanupLaneWorktree(repo, destination, () => false)).toBe(false);
+	expect(git(["rev-parse", "HEAD"], destination)).toBe(sha);
+	git(["push", "origin", "HEAD:main"], destination);
+	expect(await unpushedLaneCommits(destination)).toEqual([]);
+	expect(await cleanupLaneWorktree(repo, destination, () => false)).toBe(true);
 }, 30_000);
 
 it("reuses a clean registered worktree left by a failed admission at fresh origin/main", () => {
