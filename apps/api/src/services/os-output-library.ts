@@ -1,3 +1,6 @@
+import { env } from "cloudflare:workers";
+import type { WorkspaceOutputRuntime } from "@tedix/db/queries/durable-sqlite/output-rpc";
+import { listOsOutputLibraryRows } from "@tedix/db/queries/os-workspaces/outputs";
 import {
 	documentBlockText,
 	withDerivedDocumentBlocks,
@@ -181,11 +184,7 @@ export function outputLibraryRowsFromIndex(row: WorkspaceOutputLibraryRow): {
 	};
 }
 
-/**
- * The Outputs library reads the workspace change projection: one indexed
- * row per current revision, written by the feed consumer. No workspace
- * object and no workspace-scoped table is read for the listing.
- */
+/** Library metadata comes from the owner of each workspace's outputs. */
 export async function buildOsOutputLibrary(
 	db: DbQueryClient,
 	params: {
@@ -202,7 +201,7 @@ export async function buildOsOutputLibrary(
 		) => Promise<boolean>;
 	},
 ): Promise<{ items: OsOutputLibraryItem[]; truncated: boolean }> {
-	const rows = await listWorkspaceOutputLibrary(
+	const indexed = await listWorkspaceOutputLibrary(
 		db,
 		{ organizationId: params.organizationId, viewer: params.viewer },
 		{
@@ -213,10 +212,60 @@ export async function buildOsOutputLibrary(
 			limit: params.limit + 1,
 		},
 	);
+	const shared = await listOsOutputLibraryRows(
+		db,
+		{ organizationId: params.organizationId, workspaceId: params.workspaceId },
+		params.viewer,
+		{
+			kind: params.kind,
+			status: params.status,
+			search: params.search,
+			limit: params.limit + 1,
+		},
+	);
+	const projected = indexed.map((row) => ({
+		...outputLibraryRowsFromIndex(row),
+		workspace: row.workspace,
+	}));
+	const store = (
+		env as unknown as { WORKSPACE_RUNTIME?: WorkspaceOutputRuntime }
+	).WORKSPACE_RUNTIME;
+	const owners = new Map<string, boolean>();
+	if (store)
+		await Promise.all(
+			[
+				...new Set(
+					[...shared, ...projected]
+						.map((row) => row.output.workspaceId)
+						.filter((id): id is string => Boolean(id)),
+				),
+			].map(async (workspaceId) => {
+				owners.set(
+					workspaceId,
+					(await store.outputQuery(
+						{ organizationId: params.organizationId, workspaceId },
+						{ op: "authority" },
+					)) === "object",
+				);
+			}),
+		);
+	const rowsById = new Map(
+		shared
+			.filter((row) => !owners.get(row.output.workspaceId ?? ""))
+			.map((row) => [row.output.id, row]),
+	);
+	for (const row of projected)
+		if (!store || owners.get(row.output.workspaceId ?? ""))
+			rowsById.set(row.output.id, row);
+	const rows = [...rowsById.values()].sort(
+		(a, b) =>
+			b.output.updatedAt.localeCompare(a.output.updatedAt) ||
+			b.output.id.localeCompare(a.output.id),
+	);
 	return {
 		items: await Promise.all(
 			rows.slice(0, params.limit).map(async (row) => {
-				const { output, revision } = outputLibraryRowsFromIndex(row);
+				const { output, revision } = row;
 				return {
 					output: { ...output, currentRevisionId: revision.id },
 					workspace: row.workspace

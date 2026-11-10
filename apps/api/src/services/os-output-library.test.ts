@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vite-plus/test";
-const mocks = vi.hoisted(() => ({ list: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+	list: vi.fn(),
+	shared: vi.fn(async () => []),
+}));
+vi.mock("@tedix/db/queries/os-workspaces/outputs", () => ({
+	listOsOutputLibraryRows: mocks.shared,
+}));
 vi.mock("@tedix/db/queries/workspace-feed/read", () => ({
 	listWorkspaceOutputLibrary: mocks.list,
 }));
