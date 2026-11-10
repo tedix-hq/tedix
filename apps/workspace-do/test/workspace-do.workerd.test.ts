@@ -1,4 +1,4 @@
-import { env } from "cloudflare:test";
+import { env, evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { getTableColumns, getTableName } from "drizzle-orm";
 import type { SQLiteTable } from "drizzle-orm/sqlite-core";
 import { describe, expect, test } from "vite-plus/test";
@@ -1335,6 +1335,235 @@ describe("WorkspaceDO", () => {
 			expect(await ws.readTurn(scope, turnId)).toBeNull();
 		},
 	);
+
+	test("already copied history converts on wake and survives removal of the copied rows", async () => {
+		const movedScope = {
+			...scope,
+			workspaceId: "11111111-1111-4111-8111-111111111118",
+		};
+		const ws = workspace(movedScope);
+		const stub = ws as unknown as DurableObjectStub;
+		await runInDurableObject(stub, (_instance, state) => {
+			state.storage.sql.exec(
+				"INSERT INTO kernel_conversations (id, organization_id, workspace_id, conversation_id, title, last_message_at) VALUES (?, ?, ?, 'copied', 'Copied chat', '2026-11-03T10:00:00.000Z')",
+				"copied-index",
+				movedScope.organizationId,
+				movedScope.workspaceId,
+			);
+			state.storage.sql.exec(
+				"INSERT INTO kernel_runtime_events (id, organization_id, conversation_id, run_id, kind, payload, created_at) VALUES ('copied-input', ?, 'copied', 'copied-run', 'message.received', ?, '2026-11-03T10:00:00.000Z')",
+				movedScope.organizationId,
+				JSON.stringify({ role: "user", content: "Copied question" }),
+			);
+			state.storage.sql.exec(
+				"INSERT INTO kernel_runtime_events (id, organization_id, conversation_id, run_id, kind, payload, created_at) VALUES ('copied-failure', ?, 'copied', 'copied-run', 'run.failed', ?, '2026-11-03T10:00:02.000Z')",
+				movedScope.organizationId,
+				JSON.stringify({ error: "Earlier failure" }),
+			);
+		});
+		await evictDurableObject(stub);
+		expect(await ws.listConversations(movedScope)).toEqual([
+			expect.objectContaining({ id: "copied", title: "Copied chat" }),
+		]);
+		const events = await ws.readEvents(movedScope);
+		expect(events.map((e) => e.type)).toEqual([
+			"turn.started",
+			"turn.finished",
+		]);
+		expect(await ws.readTurn(movedScope, "copied-run")).toMatchObject({
+			status: "failed",
+			error: "Earlier failure",
+		});
+		await evictDurableObject(stub);
+		expect(await ws.readEvents(movedScope)).toEqual(events);
+		await runInDurableObject(stub, (_instance, state) => {
+			state.storage.sql.exec("DELETE FROM kernel_runtime_events");
+			state.storage.sql.exec("DELETE FROM kernel_conversations");
+		});
+		await evictDurableObject(stub);
+		expect(await ws.readEvents(movedScope)).toEqual(events);
+		expect(await ws.listConversations(movedScope)).toHaveLength(1);
+	});
+
+	test("moved kernel history shares the native socket list and replay ledger", async () => {
+		const scope: WorkspaceScope = {
+			organizationId: "org_test",
+			workspaceId: "11111111-1111-4111-8111-111111111117",
+		};
+		const ws = workspace(scope);
+		await ws.scriptModel(scope, [{ text: "native answer" }]);
+		const native = await ws.sendTurn(scope, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "Native chat",
+		});
+		await ws.awaitTurn(scope, native.turnId, 20_000);
+		for (let i = 0; i < 2; i++) {
+			await ws.scriptModel(scope, [{ text: "another native answer" }]);
+			const turn = await ws.sendTurn(scope, {
+				actorId: "u1",
+				actorKind: "user",
+				text: "Another native chat",
+			});
+			await ws.awaitTurn(scope, turn.turnId, 20_000);
+		}
+		const at = "2026-11-03T10:00:00.000Z";
+		await ws.importRows(scope, {
+			batchId: "moved-conversations",
+			table: "kernel_conversations",
+			rows: [
+				...Array.from({ length: 11 }, (_, i) => ({
+					id: `kc-${i}`,
+					organization_id: scope.organizationId,
+					workspace_id: scope.workspaceId,
+					conversation_id: `moved-${i}`,
+					title: `Moved ${i}`,
+					created_at: at,
+					updated_at: at,
+					last_message_at: at,
+				})),
+				{
+					id: "kc-deleted",
+					organization_id: scope.organizationId,
+					workspace_id: scope.workspaceId,
+					conversation_id: "deleted",
+					last_message_at: at,
+					deleted_at: at,
+				},
+				{
+					id: "kc-archived",
+					organization_id: scope.organizationId,
+					workspace_id: scope.workspaceId,
+					conversation_id: "archived",
+					last_message_at: at,
+					archived_at: at,
+				},
+			],
+		});
+		await ws.importRows(scope, {
+			batchId: "moved-runs",
+			table: "kernel_runtime_runs",
+			rows: [
+				{
+					id: "moved-run",
+					organization_id: scope.organizationId,
+					conversation_id: "moved-0",
+					status: "completed",
+					input_message_id: "moved-question",
+					started_at: at,
+					completed_at: "2026-11-03T10:00:02.000Z",
+				},
+			],
+		});
+		const batch = {
+			batchId: "moved-events",
+			table: "kernel_runtime_events",
+			rows: [
+				{
+					id: "moved-received",
+					organization_id: scope.organizationId,
+					conversation_id: "moved-0",
+					run_id: null,
+					message_id: "moved-question",
+					kind: "message.received",
+					payload: JSON.stringify({
+						role: "user",
+						content: "Earlier question",
+					}),
+					created_at: at,
+				},
+				{
+					id: "moved-answer",
+					organization_id: scope.organizationId,
+					conversation_id: "moved-0",
+					run_id: "moved-run",
+					message_id: "moved-response",
+					kind: "message.completed",
+					payload: JSON.stringify({
+						role: "assistant",
+						content: "Earlier answer",
+					}),
+					created_at: "2026-11-03T10:00:01.000Z",
+				},
+				{
+					id: "moved-finished",
+					organization_id: scope.organizationId,
+					conversation_id: "moved-0",
+					run_id: "moved-run",
+					message_id: null,
+					kind: "run.completed",
+					payload: JSON.stringify({ status: "completed" }),
+					created_at: "2026-11-03T10:00:02.000Z",
+				},
+			],
+		};
+		await ws.importRows(scope, batch);
+		const before = await ws.readEvents(scope, { conversationId: "moved-0" });
+		await ws.importRows(scope, batch);
+		expect(await ws.readEvents(scope, { conversationId: "moved-0" })).toEqual(
+			before,
+		);
+		expect(await ws.readTurn(scope, "moved-run")).toMatchObject({
+			status: "finished",
+			text: "Earlier answer",
+			firstSeq: before[0]!.seq,
+		});
+		const response = await ws.fetch(
+			new Request(
+				"https://workspace.test/subscribe?conversation=moved-0&after=0",
+				{
+					headers: {
+						Upgrade: "websocket",
+						"X-Workspace-Org": scope.organizationId,
+						"X-Workspace-Id": scope.workspaceId,
+						"X-Workspace-Actor-Id": "u1",
+					},
+				},
+			),
+		);
+		const socket = response.webSocket!;
+		let frames: Record<string, unknown>[];
+		try {
+			frames = await socketFramesUntil(
+				socket,
+				(frame) => frame.type === "caught_up",
+			);
+		} finally {
+			socket.close(1000, "test complete");
+		}
+		const conversations = frames[0]!.conversations as Array<{ id: string }>;
+		expect(conversations).toHaveLength(14);
+		expect(conversations.map((c) => c.id)).toContain(native.conversationId);
+		for (let i = 0; i < 11; i++)
+			expect(conversations.map((c) => c.id)).toContain(`moved-${i}`);
+		expect(frames.filter((f) => typeof f.seq === "number")).toEqual(before);
+		expect(frames).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					type: "turn.started",
+					turnId: "moved-run",
+					text: "Earlier question",
+				}),
+				expect.objectContaining({
+					type: "assistant.done",
+					turnId: "moved-run",
+					text: "Earlier answer",
+				}),
+				expect.objectContaining({
+					type: "turn.finished",
+					turnId: "moved-run",
+					status: "done",
+				}),
+			]),
+		);
+		expect(frames.at(-1)!.cursor).toBe(before.at(-1)!.seq);
+		expect(
+			await ws.readLedger(scope, "moved-0", {
+				before: before.at(-1)!.seq,
+				limit: 1,
+			}),
+		).toEqual([before[1]]);
+	});
 
 	test("a WebSocket reconnect replays events after its cursor", async () => {
 		const ws = workspace();

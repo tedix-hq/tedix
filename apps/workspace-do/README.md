@@ -59,6 +59,15 @@ its own SQLite with the workspace's output rows (bodies stay in R2 by
 digest), the memory tables, and `importRows` for the one-shot migration.
 Apps, resources and Work items are read from the core database.
 
+Copied `kernel_conversations`, `kernel_runtime_runs` and
+`kernel_runtime_events` are converted into the object's chat tables on first
+access after wake or import. Conversion and per-event checkpoints commit
+together, preserving existing chat cursors across retries. Archived and deleted
+conversations stay hidden. Chat lists, turn reads and socket replay then use
+only the native tables; the copied rows remain available for reconciliation.
+Imported assistant text is labelled as prior assistant context for subsequent
+model calls, without inventing model or usage receipts.
+
 ## Check it
 
 ```bash
