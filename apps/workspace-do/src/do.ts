@@ -29,7 +29,9 @@ import { publishOutputProjection } from "@tedix/db/queries/workspace-feed/output
 import {
 	TenantStore,
 	tenantStoreDefinition,
+	type TenantStoreImportBatch,
 } from "@tedix/db/tenant-store/store";
+import type { TenantScope } from "@tedix/db/tenant-scope";
 import { tenantStoreName } from "@tedix/db/tenant-store/router";
 import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import { wrapUntrustedInput } from "@tedix/chat-transport/untrusted-input";
@@ -45,6 +47,7 @@ import { resolveAttachments } from "./attachments";
 import { TenantDataPort } from "./data-port-tenant";
 import { BINDING_NAMES, type BindingName } from "./declarations";
 import { SqlEventLedger } from "./event-ledger";
+import { migrateMovedChat } from "./moved-chat";
 import { SqlActivityRecords } from "./activity-records";
 import type {
 	ActorKind,
@@ -224,6 +227,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	readonly #compliance: SqlComplianceAdapter;
 	#outputSerial: Promise<void> = Promise.resolve();
 	#activitySerial: Promise<void> = Promise.resolve();
+	#movedChatReady = false;
 	readonly #running = new Map<string, AbortController>();
 	readonly #waiters = new Map<string, Array<() => void>>();
 
@@ -261,6 +265,23 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	}
 
 	// ------------------------------------------------------------------ RPC
+
+	protected override bindScope(scope: TenantScope) {
+		const bound = super.bindScope(scope);
+		if (!this.#movedChatReady) {
+			this.ctx.storage.transactionSync(() =>
+				migrateMovedChat(this.#store, bound),
+			);
+			this.#movedChatReady = true;
+		}
+		return bound;
+	}
+
+	override importRows(scope: TenantScope, batch: TenantStoreImportBatch) {
+		const result = super.importRows(scope, batch);
+		if (batch.table.startsWith("kernel_")) this.#movedChatReady = false;
+		return result;
+	}
 
 	async outputQuery<K extends OutputQuery["op"]>(
 		scope: WorkspaceScope,
@@ -1172,6 +1193,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		conversationId: string | null,
 		cursor: number,
 	) {
+		this.bindScope(scope);
 		const current = ws.deserializeAttachment() as Record<string, unknown>;
 		ws.serializeAttachment({ ...current, scope, conversationId });
 		const latest = this.#events.latestSeq();
