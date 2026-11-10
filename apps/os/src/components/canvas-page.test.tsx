@@ -3834,12 +3834,49 @@ describe("adopting a newer canonical revision", () => {
 			output: outputFixture(),
 			revision: outputRevisionFixture({ revision: 7 }),
 		});
+		// Timer ticks do not settle WebCrypto. Hold both real hashes until the
+		// pending-save assertion, then await their completion before checking CAS.
+		const hashing = Promise.withResolvers<void>();
+		const digest = crypto.subtle.digest.bind(crypto.subtle);
+		const hashes: Promise<ArrayBuffer>[] = [];
+		const digestSpy = vi
+			.spyOn(crypto.subtle, "digest")
+			.mockImplementation((...args) => {
+				const hash = Promise.all([hashing.promise, digest(...args)]).then(
+					([, result]) => result,
+				);
+				hashes.push(hash);
+				return hash;
+			});
+		cleanups.push(() => {
+			hashing.resolve();
+			digestSpy.mockRestore();
+		});
 		click(findButton(container, "Save as v7"));
 		click(findButton(document.body, "Save as v7 now"));
 		await flush();
-		expect(osWorkspacesApi.outputs.revise).toHaveBeenCalledWith(
-			expect.objectContaining({ expectedRevision: 6 }),
+		expect(hashes).toHaveLength(2);
+		expect(osWorkspacesApi.outputs.revise).not.toHaveBeenCalled();
+		expect(document.body.textContent).toContain("Saving…");
+		await act(async () => {
+			hashing.resolve();
+			await Promise.all(hashes);
+		});
+		await flush();
+		expect(osWorkspacesApi.outputs.revise).toHaveBeenCalledExactlyOnceWith({
+			outputId: OUTPUT_ID,
+			content: {
+				kind: "document",
+				blocks: [{ type: "paragraph", text: "My unsaved change" }],
+			},
+			expectedRevision: 6,
+		});
+		expect(collabCommit.groundCommit).toHaveBeenCalledExactlyOnceWith(
+			collabCommit.basis,
+			7,
+			OUTPUT_REVISION_ID,
 		);
+		expect(document.body.textContent).not.toContain("Save as v7 now");
 	});
 
 	it("keeps the editor mounted and read-only across a transient disconnect", async () => {
