@@ -103,14 +103,15 @@ async function rejectedSocketTurn(
 	ws: Stub,
 	attachments: unknown,
 	turnId: string,
+	requestScope = scope,
 ) {
 	const socket = (
 		await ws.fetch(
 			new Request("https://workspace.test/subscribe", {
 				headers: {
 					Upgrade: "websocket",
-					"X-Workspace-Org": scope.organizationId,
-					"X-Workspace-Id": scope.workspaceId,
+					"X-Workspace-Org": requestScope.organizationId,
+					"X-Workspace-Id": requestScope.workspaceId,
 					"X-Workspace-Actor-Id": "u1",
 				},
 			}),
@@ -1287,7 +1288,9 @@ describe("WorkspaceDO", () => {
 		"refuses %s attachment contents without starting a turn",
 		async (kind) => {
 			await seedCore();
-			const ws = workspace();
+			const attachmentScope = { ...scope, workspaceId: crypto.randomUUID() };
+			await seedWorkspaceRows([attachmentScope]);
+			const ws = workspace(attachmentScope);
 			const outputId = crypto.randomUUID();
 			const revisionId = crypto.randomUUID();
 			const content = {
@@ -1302,7 +1305,7 @@ describe("WorkspaceDO", () => {
 				...(kind === "uploaded"
 					? {
 							file: {
-								workspaceId: scope.workspaceId,
+								workspaceId: attachmentScope.workspaceId,
 								resourceId: crypto.randomUUID(),
 							},
 						}
@@ -1310,17 +1313,19 @@ describe("WorkspaceDO", () => {
 			};
 			const body = await storeOutputBody(
 				testEnv.R2_BUCKET,
-				scope.organizationId,
+				attachmentScope.organizationId,
 				JSON.stringify(content),
 			);
 			await createCoreOutput(
 				createDbQueryClient(testEnv.DB),
-				{ organizationId: scope.organizationId },
+				{ organizationId: attachmentScope.organizationId },
 				{
 					id: outputId,
-					organizationId: scope.organizationId,
+					organizationId: attachmentScope.organizationId,
 					workspaceId:
-						kind === "foreign" ? crypto.randomUUID() : scope.workspaceId,
+						kind === "foreign"
+							? crypto.randomUUID()
+							: attachmentScope.workspaceId,
 					title: "Unavailable attachment",
 					kind: "document",
 					currentRevisionId: revisionId,
@@ -1329,7 +1334,7 @@ describe("WorkspaceDO", () => {
 				},
 				{
 					id: revisionId,
-					organizationId: scope.organizationId,
+					organizationId: attachmentScope.organizationId,
 					outputId,
 					revision: 1,
 					content: "",
@@ -1344,7 +1349,8 @@ describe("WorkspaceDO", () => {
 			);
 			const turnId = crypto.randomUUID();
 			expect(
-				(await rejectedSocketTurn(ws, [{ outputId }], turnId)).message,
+				(await rejectedSocketTurn(ws, [{ outputId }], turnId, attachmentScope))
+					.message,
 			).toContain(
 				kind === "large"
 					? "64 KB"
@@ -1352,7 +1358,7 @@ describe("WorkspaceDO", () => {
 						? "cannot be read"
 						: "unavailable",
 			);
-			expect(await ws.readTurn(scope, turnId)).toBeNull();
+			expect(await ws.readTurn(attachmentScope, turnId)).toBeNull();
 		},
 	);
 

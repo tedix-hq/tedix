@@ -73,17 +73,33 @@ export async function moveOsOutput(
 	targetWorkspaceId: string,
 ): Promise<OutputTransferResult> {
 	const store = runtime();
-	if (
-		!store ||
-		!output.workspaceId ||
+	const objectOwned = Boolean(
+		store &&
+		output.workspaceId &&
 		(await store.outputQuery(
 			{
 				organizationId: output.organizationId,
 				workspaceId: output.workspaceId,
 			},
 			{ op: "authority" },
-		)) !== "object"
-	) {
+		)) === "object",
+	);
+	if (store && targetWorkspaceId !== output.workspaceId) {
+		const targetScope = {
+			organizationId: output.organizationId,
+			workspaceId: targetWorkspaceId,
+		};
+		const targetObjectOwned =
+			(await store.outputQuery(targetScope, { op: "authority" })) === "object";
+		if (
+			(!objectOwned && targetObjectOwned) ||
+			(objectOwned &&
+				!targetObjectOwned &&
+				(await legacy.hasSharedWorkspaceOutputs(db, targetScope)))
+		)
+			return { ok: false, reason: "conflict" };
+	}
+	if (!store || !output.workspaceId || !objectOwned) {
 		const moved = await legacy.updateOsOutput(
 			db,
 			{ organizationId: output.organizationId, outputId: output.id },

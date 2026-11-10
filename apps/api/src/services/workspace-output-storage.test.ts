@@ -288,6 +288,53 @@ describe("workspace output storage authority", () => {
 			)?.id,
 		).toBe(revision.id);
 	});
+	it.each([false, true])(
+		"does not move an output into a workspace owned by the other store (object source: %s)",
+		async (moved) => {
+			const { core, tenant, output, revision } = await fixture(moved);
+			await storage.createOsOutput(core, scope, output, revision);
+			const target = "other-store";
+			if (moved) {
+				await legacy.createOsOutput(
+					core,
+					{ ...scope, workspaceId: target },
+					{
+						...output,
+						workspaceId: target,
+						id: "target-output",
+						currentRevisionId: "target-revision",
+					},
+					{ ...revision, outputId: "target-output", id: "target-revision" },
+				);
+			} else {
+				tenant
+					.insert(osWorkspaces)
+					.values({
+						...(await core.select().from(osWorkspaces))[0]!,
+						id: target,
+						name: "Object target",
+					})
+					.run();
+			}
+			const stored = await storage.getOsOutput(core, {
+				organizationId: scope.organizationId,
+				outputId: output.id,
+			});
+			expect(await storage.moveOsOutput(core, stored!, target)).toEqual({
+				ok: false,
+				reason: "conflict",
+			});
+			expect(
+				(
+					await storage.getOsOutput(core, {
+						organizationId: scope.organizationId,
+						outputId: output.id,
+					})
+				)?.workspaceId,
+			).toBe(scope.workspaceId);
+		},
+	);
+
 	it("uses the indexed object for moves and never reads a stale shared row as fallback", async () => {
 		const { core, tenant, output, revision } = await fixture();
 		await storage.createOsOutput(core, scope, output, revision);
