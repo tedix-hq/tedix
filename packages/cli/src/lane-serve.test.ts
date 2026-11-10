@@ -2492,6 +2492,53 @@ describe("dispatcher admission", () => {
 			expect(f.events.some((event) => event.verb === "complete")).toBe(true);
 		},
 	);
+	it("logs, and does not stop, an expired orphan whose identity was never recorded", async () => {
+		const f = fixture({ max: 1 });
+		f.items.splice(1);
+		const path = join(f.dir, `${item().id}-2.json`);
+		const attemptId = "44444444-4444-4444-8444-444444444444";
+		const session = "codex:55555555-5555-4555-8555-555555555555";
+		const child = spawn(
+			process.execPath,
+			["-e", "setInterval(() => {}, 1000)"],
+			{
+				detached: true,
+				stdio: "ignore",
+			},
+		);
+		await once(child, "spawn");
+		writeFileSync(
+			path,
+			JSON.stringify({
+				itemId: item().id,
+				version: 2,
+				phase: "running",
+				admissionState: "admitted",
+				attemptId,
+				session,
+				executorKey: "local-acme",
+				pid: child.pid,
+			}),
+		);
+		f.control.history.data = [
+			{
+				id: attemptId,
+				externalSessionKey: session,
+				outcome: "expired",
+				metadata: { dispatchVersion: 2 },
+			},
+		];
+		try {
+			await f.dispatcher.tick();
+			expect(readFileSync(join(f.dir, "dispatcher.log"), "utf8")).toContain(
+				`No process identity was recorded for process ${child.pid} at launch; not stopped`,
+			);
+			expect(child.exitCode).toBeNull();
+			expect(child.signalCode).toBeNull();
+		} finally {
+			process.kill(-child.pid!, "SIGKILL");
+		}
+	});
 	it("recovers an undeclared result from the session's result comment", async () => {
 		const f = fixture();
 		f.items.splice(1);

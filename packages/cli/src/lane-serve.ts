@@ -1448,6 +1448,36 @@ export class LaneDispatcher {
 	stop = () => {
 		this.stopping = true;
 	};
+	/**
+	 * A spawn can be reported before exec shows the session in argv on a busy
+	 * host. Without an identity the run could never be stopped as an orphan,
+	 * so keep reading it briefly.
+	 */
+	private captureIdentityLater(
+		path: string,
+		receipt: Receipt,
+		pid: number,
+		repo: string,
+		tries = IDENTITY_CAPTURE_TRIES,
+	) {
+		setTimeout(() => {
+			if (receipt.pid !== pid || receipt.processIdentity || !alive(pid)) return;
+			receipt.processIdentity = laneProcessIdentity(
+				pid,
+				receipt.session!,
+				repo,
+			);
+			if (receipt.processIdentity) this.save(path, receipt);
+			else if (tries > 1)
+				this.captureIdentityLater(path, receipt, pid, repo, tries - 1);
+			else
+				this.log(
+					"identity-unrecorded",
+					receipt.itemId,
+					`Process ${pid} never showed its session; it cannot be stopped as an orphan`,
+				);
+		}, 100).unref();
+	}
 	private saveBudgets() {
 		const path = join(this.directory, "budgets.state");
 		writeFileSync(`${path}.tmp`, JSON.stringify(this.budgets), { mode: 0o600 });
@@ -1690,7 +1720,6 @@ export class LaneDispatcher {
 				!this.running.has(row.itemId) &&
 				row.pid &&
 				alive(row.pid) &&
-				row.processIdentity &&
 				row.session &&
 				row.attemptId
 			) {
@@ -1714,6 +1743,7 @@ export class LaneDispatcher {
 						(attempt.expiresAt && Date.parse(attempt.expiresAt) <= Date.now()))
 				) {
 					if (
+						row.processIdentity &&
 						reapLaneProcess(row.pid, row.session, row.processIdentity, row.repo)
 					) {
 						row.note = orphanStopNote(row);
@@ -1722,6 +1752,16 @@ export class LaneDispatcher {
 							"orphan-stopped",
 							row.itemId,
 							"Exact expired process identity verified",
+						);
+					} else {
+						// Never stop a process we cannot prove is this run's, but say so:
+						// a silent skip leaves an expired run alive with no trace.
+						this.log(
+							"orphan-unverified",
+							row.itemId,
+							row.processIdentity
+								? `Process ${row.pid} no longer matches the identity recorded at launch; not stopped`
+								: `No process identity was recorded for process ${row.pid} at launch; not stopped`,
 						);
 					}
 				}
@@ -2945,6 +2985,8 @@ export class LaneDispatcher {
 						);
 						receipt.phase = "running";
 						this.save(path, receipt);
+						if (!receipt.processIdentity)
+							this.captureIdentityLater(path, receipt, pid, repo);
 					},
 					onTelemetry: (telemetry) => {
 						receipt.telemetry = telemetry;
@@ -4180,6 +4222,8 @@ export function mergeDispatcherReceipts(directory: string, sources: string[]) {
  * lane for a whole model turn (claude-code, 5 Nov 2026: 61 minutes).
  */
 export const LANE_STOP_DRAIN_MS = 2 * 60_000;
+/** Identity reads after spawn, 100 ms apart. */
+const IDENTITY_CAPTURE_TRIES = 30;
 
 export async function runLaneServe(args: string[]): Promise<number> {
 	if (args.includes("--help")) {
