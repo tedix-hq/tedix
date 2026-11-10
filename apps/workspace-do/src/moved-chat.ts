@@ -19,12 +19,26 @@ export function migrateMovedChat(
 ) {
 	store.run(
 		`INSERT INTO conversations (id, title, created_at, updated_at, last_turn_at, archived_at)
-		SELECT conversation_id, title, created_at, updated_at, last_message_at, coalesce(deleted_at, archived_at)
+		SELECT conversation_id, title, created_at, updated_at, last_message_at, deleted_at
 		FROM kernel_conversations WHERE organization_id = ? AND workspace_id = ?
 		ON CONFLICT(id) DO NOTHING`,
 		scope.organizationId,
 		scope.workspaceId,
 	);
+	// The workspace list includes moved archives. Repair the first converter's
+	// archive markers once, without overriding later native archive decisions.
+	if (!store.get("moved-chat-visible-archives")) {
+		store.run(
+			`UPDATE conversations SET archived_at = NULL WHERE EXISTS (
+				SELECT 1 FROM kernel_conversations c WHERE c.conversation_id = conversations.id
+				AND c.organization_id = ? AND c.workspace_id = ? AND c.deleted_at IS NULL
+				AND c.archived_at = conversations.archived_at
+			)`,
+			scope.organizationId,
+			scope.workspaceId,
+		);
+		store.put("moved-chat-visible-archives", true);
+	}
 	store.run(
 		`INSERT INTO turns (turn_id, conversation_id, started_at, finished_at, status, actor_id, actor_kind, text, error)
 		SELECT r.id, r.conversation_id, coalesce(r.started_at, r.created_at), r.completed_at,
