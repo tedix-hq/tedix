@@ -26,6 +26,7 @@ import {
 import { getOsGadgetExecutionByRunId } from "@tedix/db/queries/os-workspaces/executions";
 import {
 	getOsOutput,
+	moveOsOutput,
 	listOsOutputRevisions,
 	listOsOutputs,
 	updateOsOutput,
@@ -472,13 +473,24 @@ const outputsMove = authorOs.outputs.move.handler(
 		const target = await requireWorkspace(context, input.workspaceId);
 		if (output.workspaceId === target.id)
 			return { output: mapOsOutputRow(output), previousWorkspaceId: target.id };
-		// Revisions reference the output id, so moving the row keeps all of them.
-		const row = await updateOsOutput(
-			queryDb(context),
-			{ organizationId: output.organizationId, outputId: output.id },
-			{ workspaceId: target.id },
-		);
-		if (!row) throw createError(ErrorCodes.NOT_FOUND, "OS output not found");
+		let moved;
+		try {
+			moved = await moveOsOutput(queryDb(context), output, target.id);
+		} catch (error) {
+			console.error("OS output transfer pending", error);
+			throw createError(
+				ErrorCodes.SERVICE_UNAVAILABLE,
+				"Output transfer could not finish. Read the output again before retrying.",
+			);
+		}
+		if (!moved.ok && moved.reason === "not_found")
+			throw createError(ErrorCodes.NOT_FOUND, "OS output not found");
+		if (!moved.ok)
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"Output transfer already in progress",
+			);
+		const row = moved.output;
 		await publishOutputMetadataChange(context, row);
 		return {
 			output: mapOsOutputRow(row),

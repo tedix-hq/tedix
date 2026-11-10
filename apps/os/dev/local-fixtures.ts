@@ -9074,6 +9074,7 @@ const handlers: Record<string, (input: never) => unknown> = {
 	},
 	"osWorkspaces/workspaces/get": (input: { workspaceId: string }) => ({
 		workspace: findWorkspace(input.workspaceId),
+		url: `${globalThis.location?.origin ?? "http://localhost:5173"}/workspace/${input.workspaceId}`,
 	}),
 	"osWorkspaces/workspaces/previewBlueprintUpgrade": (input: {
 		workspaceId: string;

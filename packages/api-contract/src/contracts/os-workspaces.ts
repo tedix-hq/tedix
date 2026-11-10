@@ -420,7 +420,12 @@ export const osWorkspacesContract = oc
 					summary: "Get a Tedix OS workspace",
 				})
 				.input(workspaceIdInput)
-				.output(z.object({ workspace: OsWorkspaceSchema })),
+				.output(
+					z.object({
+						workspace: OsWorkspaceSchema,
+						url: z.string().url().nullable(),
+					}),
+				),
 			update: oc
 				.route({
 					method: "PATCH",

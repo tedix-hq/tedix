@@ -1,3 +1,4 @@
+import type { OutputTransferSnapshot } from "@tedix/db/queries/durable-sqlite/output-rpc";
 import type { ChangeRecord } from "@tedix/agent-governance/types";
 import type { WorkspaceChangeInput } from "@tedix/api-contract/schemas/workspace-feed";
 /**
@@ -32,6 +33,27 @@ export type ScriptStep =
 export class WorkspaceDO extends ProductionWorkspaceDO {
 	#script: ScriptStep[] = [];
 	#projectionFailures = 0;
+	#loseTransferReply = false;
+	failTransferReply(scope: WorkspaceScope) {
+		this.bindScope(scope);
+		this.#loseTransferReply = true;
+	}
+	override async receiveOutputTransfer(
+		scope: WorkspaceScope,
+		transferId: string,
+		snapshot: OutputTransferSnapshot,
+	) {
+		const output = await super.receiveOutputTransfer(
+			scope,
+			transferId,
+			snapshot,
+		);
+		if (this.#loseTransferReply) {
+			this.#loseTransferReply = false;
+			throw new Error("Injected lost transfer reply");
+		}
+		return output;
+	}
 	#actionFailure: "before" | "after" | null = null;
 	#eventFailure: "before" | "after" | null = null;
 

@@ -188,7 +188,10 @@ describe("workspaces", () => {
 
 		await expect(
 			c.org1.workspaces.get({ workspaceId: workspace.id }),
-		).resolves.toMatchObject({ workspace: { name: "Operations" } });
+		).resolves.toMatchObject({
+			workspace: { name: "Operations" },
+			url: `https://example.os.tedix.tech/workspace/${workspace.id}`,
+		});
 		// The same UUID resolved from another tenant must not exist.
 		await expect(
 			c.org2.workspaces.get({ workspaceId: workspace.id }),

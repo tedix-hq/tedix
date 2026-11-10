@@ -1,3 +1,6 @@
+import { getOrganizationProfile } from "@tedix/db/queries/organizations";
+import { buildSurfaceUrl } from "@tedix/tenant-directory";
+import { platformDomain } from "@tedix/worker-kit/platform-hosts";
 import { implement } from "@orpc/server";
 import { osWorkspacesContract } from "@tedix/api-contract/contracts/os-workspaces";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
@@ -384,7 +387,17 @@ const get = readOs.workspaces.get.handler(async ({ input, context }) => {
 		organizationId: workspace.organizationId,
 		workspaceId: workspace.id,
 	});
-	return { workspace: mapWorkspace(workspace, summary ?? null) };
+	const organization = await getOrganizationProfile(
+		queryDb(context),
+		workspace.organizationId,
+	);
+	const origin = buildSurfaceUrl("os", organization?.slug, {
+		platformDomain: platformDomain(context.env),
+	});
+	return {
+		workspace: mapWorkspace(workspace, summary ?? null),
+		url: origin ? new URL(`/workspace/${workspace.id}`, origin).href : null,
+	};
 });
 
 const update = authorOs.workspaces.update.handler(

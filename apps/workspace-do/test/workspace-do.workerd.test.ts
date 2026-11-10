@@ -42,6 +42,7 @@ const testEnv = env as unknown as WorkspaceEnv & {
 };
 
 type Stub = WorkspaceRpc & {
+	failTransferReply(scope: WorkspaceScope): Promise<void>;
 	pruneChatLedger(scope: WorkspaceScope): Promise<void>;
 	failNextProjection(scope: WorkspaceScope): Promise<void>;
 	failEventProjection(
@@ -2139,4 +2140,137 @@ test("retains each metadata operation while publication is unavailable", async (
 		}),
 	).toBeUndefined();
 	expect((await ws.reconcileActivity(metadataScope, source)).checked).toBe(3);
+});
+
+test("moves object-owned outputs with every revision, resumes lost replies, and permits moving back", async () => {
+	await seedCore();
+	const source = { ...scope, workspaceId: crypto.randomUUID() };
+	const target = { ...scope, workspaceId: crypto.randomUUID() };
+	await seedWorkspaceRows([source, target]);
+	const from = workspace(source),
+		to = workspace(target);
+	const outputId = crypto.randomUUID(),
+		revisionId = crypto.randomUUID();
+	const body = await storeOutputBody(
+		testEnv.R2_BUCKET,
+		source.organizationId,
+		JSON.stringify({ kind: "document", blocks: [] }),
+	);
+	await from.outputQuery(source, {
+		op: "create",
+		output: {
+			id: outputId,
+			...source,
+			title: "Moving file",
+			kind: "document",
+			status: "active",
+			currentRevisionId: revisionId,
+			createdByKind: "user",
+			createdById: "u1",
+		},
+		revision: {
+			id: revisionId,
+			organizationId: source.organizationId,
+			outputId,
+			revision: 1,
+			content: "",
+			...body,
+			createdByKind: "user",
+			createdById: "u1",
+		},
+	});
+	const revision2 = crypto.randomUUID();
+	await from.outputQuery(source, {
+		op: "revise",
+		params: {
+			id: revision2,
+			organizationId: source.organizationId,
+			outputId,
+			...body,
+			contentSha256: "b".repeat(64),
+			createdByKind: "user",
+			createdById: "u1",
+			expectedRevision: 1,
+		},
+	});
+	await to.failTransferReply(target);
+	let transferError: unknown;
+	try {
+		await from.transferOutput(source, outputId, target.workspaceId);
+	} catch (error) {
+		transferError = error;
+	}
+	expect(transferError).toBeInstanceOf(Error);
+	expect((transferError as Error).message).toBe("Injected lost transfer reply");
+	for (const [stub, bound] of [
+		[from, source],
+		[to, target],
+	] as const) {
+		let editError: unknown;
+		try {
+			await stub.outputQuery(bound, {
+				op: "update",
+				outputId,
+				patch: { title: "Premature edit" },
+			});
+		} catch (error) {
+			editError = error;
+		}
+		expect(editError).toBeInstanceOf(Error);
+		expect((editError as Error).message).toBe(
+			"Output transfer in progress or output moved",
+		);
+	}
+	expect(
+		await from.transferOutput(source, outputId, crypto.randomUUID()),
+	).toEqual({ ok: false, reason: "conflict" });
+	await from.retryProjections(source);
+	expect(
+		await from.outputQuery(source, { op: "get", outputId }),
+	).toBeUndefined();
+	expect(await to.outputQuery(target, { op: "get", outputId })).toMatchObject({
+		workspaceId: target.workspaceId,
+		currentRevisionId: revision2,
+	});
+	for (const id of [revisionId, revision2]) {
+		expect(
+			await to.outputQuery(target, { op: "revision", revisionId: id }),
+		).toMatchObject({ id, bodyR2Key: body.bodyR2Key });
+		const indexed = await testEnv.DB.prepare(
+			"SELECT workspace_id FROM workspace_output_index WHERE revision_id = ?",
+		)
+			.bind(id)
+			.first<{ workspace_id: string }>();
+		expect(indexed?.workspace_id).toBe(target.workspaceId);
+	}
+	await expect(
+		to.outputQuery(target, {
+			op: "update",
+			outputId,
+			patch: { title: "Moved file" },
+		}),
+	).resolves.toMatchObject({ title: "Moved file" });
+	await from.retryProjections(source);
+	expect(
+		await getWorkspaceOutputIndexCurrent(createDbQueryClient(testEnv.DB), {
+			organizationId: source.organizationId,
+			outputId,
+		}),
+	).toMatchObject({ workspaceId: target.workspaceId, revisionId: revision2 });
+	expect(
+		await to.transferOutput(target, outputId, source.workspaceId),
+	).toMatchObject({
+		ok: true,
+		output: { workspaceId: source.workspaceId, title: "Moved file" },
+	});
+	await expect(
+		from.outputQuery(source, {
+			op: "update",
+			outputId,
+			patch: { title: "Back home" },
+		}),
+	).resolves.toMatchObject({ title: "Back home" });
+	expect(
+		await from.transferOutput(source, "missing", target.workspaceId),
+	).toEqual({ ok: false, reason: "not_found" });
 });

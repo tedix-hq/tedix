@@ -13,6 +13,25 @@ const input = {
 };
 
 describe("verified action receipts", () => {
+	it.each(["create", "rename", "archive", "restore", "update"])(
+		"uses the tenant singular route for %s workspace receipts",
+		async (verb) => {
+			const receipt = await verifyAction({
+				...input,
+				operation: `os.${verb}_os_workspace`,
+				args: { workspaceId: "space-1" },
+				result: { workspace: { id: "space-1" } },
+				read: async () => ({
+					workspace: { id: "space-1", status: "active" },
+					url: "https://tenant.os.example.test/workspace/space-1",
+				}),
+			});
+			expect(receipt).toMatchObject({
+				verified: true,
+				url: "https://tenant.os.example.test/workspace/space-1",
+			});
+		},
+	);
 	it("reads the exact private draft without claiming member edit authority", async () => {
 		const entry = {
 			id: "skill-1",
@@ -101,6 +120,11 @@ describe("verified action receipts", () => {
 		const receipt = await verifyAction({
 			...rename,
 			read: async (tool, args, endpoint) => {
+				if (tool === "get_os_workspace") {
+					expect(args).toEqual({ workspaceId: "space-1" });
+					expect(endpoint).toBe("osWorkspaces/workspaces/get");
+					return { url: "https://tenant.os.example.test/workspace/space-1" };
+				}
 				expect(tool).toBe("get_os_gadget");
 				expect(endpoint).toBe("osWorkspaces/gadgets/get");
 				expect(args).toEqual({ workspaceId: "space-1", gadgetId: "app-1" });
@@ -113,7 +137,7 @@ describe("verified action receipts", () => {
 		expect(receipt).toMatchObject({
 			verified: true,
 			state: "active, named “Harvest App”, revision 3",
-			url: "https://os.example.test/workspace/space-1?workpiece=gadget:app-1",
+			url: "https://tenant.os.example.test/workspace/space-1?workpiece=gadget:app-1",
 		});
 		const stale = await verifyAction({
 			...rename,
