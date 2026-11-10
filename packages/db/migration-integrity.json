@@ -1428,6 +1428,10 @@
 		{
 			"name": "20261109212310_agent_session_pending_heads/migration.sql",
 			"sha256": "7b9b3ee8d9f28bb43cd3330e0d87ca231969922f84405b3331f54547655c5a55"
+		},
+		{
+			"name": "20261110161346_learning_event_surface_occurred/migration.sql",
+			"sha256": "651633e315c47e2b3d07586036c538ce88b4993e9e02250ec704bda69569d09c"
 		}
 	]
 }

@@ -98,6 +98,11 @@ export const learningInteractionEvents = sqliteTable(
 		index("idx_learning_event_issue").on(table.organizationId, table.issueKey),
 		// Standalone created_at for the retention sweep (WHERE created_at < cutoff).
 		index("idx_learning_interaction_events_created").on(table.createdAt),
+		// Deferral labelling reads one surface (decision_deck) oldest first.
+		index("idx_learning_event_surface_occurred").on(
+			table.surface,
+			table.occurredAt,
+		),
 		// Producer-surface reads (filing lessons, reflection by surface) used to
 		// walk every event of the tenant through idx_learning_event_issue.
 		index("idx_learning_event_surface_kind_occurred").on(
