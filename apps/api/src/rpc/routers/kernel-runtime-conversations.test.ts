@@ -714,14 +714,14 @@ describe("kernel runtime router: conversations", () => {
 				conversationId: "home:main",
 				limit: 10,
 			}),
-		).rejects.toThrow(/Access denied/);
+		).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
 		await expect(
 			client.enqueueMessage({
 				conversationId: "home:main",
 				content: "This must not bypass the unreadable ACL",
 				idempotencyKey: "home-missing-table-1",
 			}),
-		).rejects.toThrow(/Access denied/);
+		).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
 	});
 
 	it.each(["cancel", "change"] as const)(
