@@ -3,6 +3,14 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.21.6 — 2026-11-10
+
+### Patch Changes
+
+- Devin lanes start work again. The dispatcher waits up to 30 seconds for Devin's login check, because newer Devin versions answer slowly when run in the background, and it now says when that check timed out instead of reporting Devin as logged out.
+- When a lane's push waits a long time in the queue or its run is interrupted, the dispatcher records the unpushed commits and their working copy on the Work item, so nothing is lost and the work can be finished later.
+- A lane whose finished commits were recovered after an interruption can now complete its Work item itself, without an owner stepping in.
+
 ## 0.21.5 — 2026-11-10
 
 ### Patch Changes
