@@ -1,0 +1,29 @@
+{
+	"corpusVersion": "cascade-fictional-v1",
+	"corpusDigest": "893e5637bafe42e826f42b1e9bbfe66d6411bcb4e73a2f6594b6d398779c332e",
+	"policyRevision": "candidate-1",
+	"judgmentModel": "@cf/cloudflare/clef-flash",
+	"observationDigest": "6a2ff7c6a3bd434b880a83033d648c3769ddeebd8e275695f1f387483c65978d",
+	"status": "incomplete",
+	"observations": 0,
+	"repeats": 0,
+	"minConfidence": null,
+	"sweep": [
+		{
+			"minConfidence": 0.5,
+			"retained": 0,
+			"escalated": 0,
+			"errors": 0,
+			"falseSuccesses": 0
+		},
+		{
+			"minConfidence": 1,
+			"retained": 0,
+			"escalated": 0,
+			"errors": 0,
+			"falseSuccesses": 0
+		}
+	],
+	"activation": "off",
+	"holdoutStatus": "not_evaluated"
+}

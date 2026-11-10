@@ -66,7 +66,34 @@ sanitized verified measurements and retain the corpus digest and configuration
 revision in the associated OS evidence. It must not be replaced with test-double
 results described as provider measurements.
 
-Remaining implementation: admitted live adapters, production routing behind
-measured promotion, removal of any remaining caller-owned model policy, and a
-verified optimizer receipt only when an eligible executor/model really changes.
-No optimizer application is implemented or claimed here.
+## Offline threshold selection
+
+Run `bun apps/api/eval/cascade/calibrate.ts observations.json` to select a
+judgment confidence threshold. With no input it reports the current missing
+observations; `calibration.json` records that state. The input follows
+`CascadeCalibrationSchema`: corpus digest, candidate policy revision, judgment
+model, and observations containing case ID, repeat, origin, unique execution ID,
+bounded judgment (null when unavailable), and host-assessed citation support.
+Never substitute model self-certification for semantic citation assessment.
+
+Selection uses only the eight calibration cases that reach the judgment tier;
+synthesis and reserved cases bypass it. At least three matching repeats per
+case are required. Holdout cases, duplicate rows, reused executions and mismatched
+corpus/model/policy identities are rejected. Replay observations can exercise
+the selector but cannot select a threshold for the model policy.
+
+The sweep tests observed confidence cutoffs within the policy's allowed range.
+It maximizes retained judgments with zero observed label errors, preferring a
+higher cutoff on ties. Unsupported, unavailable and low-confidence judgments
+count as escalations. A threshold retaining no judgments cannot qualify. This
+small empirical selection is not a statistical safety guarantee.
+
+Save the selected threshold and observation digest in a new immutable policy
+revision before collecting held-out results. Threshold selection alone does
+not establish held-out cascade quality or authorize activation. The current
+candidate remains off and uncalibrated because observations are absent.
+
+This Work covers configuration and fixed-set calibration. Live adapters,
+production routing and cost attribution are outside its narrowed scope.
+The existing paired measurement report remains available without relaxing its
+checks. No optimizer application is implemented or claimed here.
