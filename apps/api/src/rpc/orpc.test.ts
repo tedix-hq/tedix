@@ -757,6 +757,7 @@ describe("public user-session authentication", () => {
 		token = "header.payload.sig",
 		memberIsActive: boolean | null = true,
 		memberKind?: BaseContext["userMembershipKind"],
+		reviewProject?: BaseContext["agentReviewProject"],
 	) {
 		jwtMocks.validateToken.mockResolvedValue({
 			sub: "U2fictionaluser",
@@ -772,6 +773,7 @@ describe("public user-session authentication", () => {
 			memberKind,
 			memberRole: memberIsActive ? "owner" : null,
 			memberPermissionOverrides: [],
+			reviewProject,
 		});
 		personalAuthMocks.getMemberByCanonicalUserId.mockResolvedValue(
 			memberIsActive === null
@@ -793,13 +795,52 @@ describe("public user-session authentication", () => {
 			});
 		const context = {
 			url: new URL("https://api/rpc/organizations/listMine"),
-			env: { ENVIRONMENT: "production", DESCOPE_PROJECT_ID: "P2fictional" },
+			env: {
+				ENVIRONMENT: "production",
+				DESCOPE_PROJECT_ID: "P2fictional",
+				AGENT_REVIEW_PROJECT_ID: reviewProject?.id,
+			},
 			headers: new Headers({ Authorization: `Bearer ${token}` }),
 			db: {},
 		} as unknown as BaseContext;
 		await call(guarded, undefined, { context });
 		return seen;
 	}
+
+	it("carries the live review policy from authentication into the request guard", async () => {
+		const project = {
+			id: "review-policy",
+			orgId: "org-1",
+			key: "REV",
+			name: "Reviews",
+			description: null,
+			status: "active" as const,
+			leadTediId: null,
+			ownerUserId: null,
+			objectiveId: null,
+			targetDate: null,
+			metadata: {},
+			createdAt: "2026-11-10T00:00:00.000Z",
+			updatedAt: null,
+			archivedAt: null,
+		};
+		const reviewProject = { id: project.id, project };
+		const seen = await authenticate(
+			{ iss: "https://auth.tedix.dev/P2fictional" },
+			undefined,
+			true,
+			"human",
+			reviewProject,
+		);
+		expect(seen?.agentReviewProject).toEqual(reviewProject);
+		expect(
+			shareAuthMocks.resolveUserTenantIdentityContext,
+		).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({ reviewProjectId: project.id }),
+		);
+		expect(personalAuthMocks.getMemberByCanonicalUserId).not.toHaveBeenCalled();
+	});
 
 	it.each(["human", "external_agent"] as const)(
 		"uses the live %s membership without a second membership read",

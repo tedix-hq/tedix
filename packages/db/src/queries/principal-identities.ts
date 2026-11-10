@@ -10,6 +10,7 @@ import type {
 	PrincipalType,
 } from "../schema/principal-identities";
 import { principalIdentities } from "../schema/principal-identities";
+import { projects, type Project } from "../schema/projects";
 
 export interface ExternalIdentity {
 	provider: string;
@@ -60,6 +61,7 @@ export interface UserTenantIdentityContext {
 	memberKind: typeof organizationMembers.$inferSelect.kind | null;
 	memberRole: string | null;
 	memberPermissionOverrides: OrganizationPermission[] | null;
+	reviewProject?: { id: string; project: Project | undefined };
 }
 
 /**
@@ -73,6 +75,7 @@ export async function resolveUserTenantIdentityContext(
 	input: {
 		organizationIdentity: ExternalIdentity;
 		userIdentity: ExternalIdentity;
+		reviewProjectId?: string;
 	},
 ): Promise<UserTenantIdentityContext | undefined> {
 	const organizationIdentity = normalizeExternalIdentity(
@@ -105,7 +108,7 @@ export async function resolveUserTenantIdentityContext(
 				.where(eq(organizations.descopeTenantId, organizationIdentity.subject)),
 		);
 
-	const [row] = await db
+	const identityStatement = db
 		.select({
 			organizationId: sql<string>`${organizations.id}`.as(
 				"identity_context_organization_id",
@@ -179,9 +182,29 @@ export async function resolveUserTenantIdentityContext(
 		)
 		.limit(1);
 
+	// The review policy and identity are independent reads. Keep both live,
+	// but send them to D1 together instead of paying another round trip.
+	const [identityRows, projectRows] = input.reviewProjectId
+		? await db.batch([
+				identityStatement,
+				db
+					.select()
+					.from(projects)
+					.where(eq(projects.id, input.reviewProjectId)),
+			])
+		: [await identityStatement, undefined];
+	const row = identityRows[0];
 	if (!row) return undefined;
 	return {
 		...row,
+		...(input.reviewProjectId
+			? {
+					reviewProject: {
+						id: input.reviewProjectId,
+						project: projectRows?.[0],
+					},
+				}
+			: {}),
 		memberRole: row.memberIsActive ? row.memberRole : null,
 		memberPermissionOverrides: row.memberIsActive
 			? row.memberPermissionOverrides

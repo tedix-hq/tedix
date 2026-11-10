@@ -29,6 +29,17 @@ const project = {
 	id: "private-reviews",
 	orgId: "fictional-org",
 	leadTediId: "fictional-triage",
+	key: "REV",
+	name: "Reviews",
+	description: null,
+	status: "active" as const,
+	ownerUserId: null,
+	objectiveId: null,
+	targetDate: null,
+	metadata: {},
+	createdAt: "2026-11-10T00:00:00.000Z",
+	updatedAt: null,
+	archivedAt: null,
 };
 function context(overrides: Partial<BaseContext> = {}) {
 	return {
@@ -50,6 +61,55 @@ beforeEach(() => {
 });
 
 describe("private review project access", () => {
+	it.each(["owner", "admin", "member", "viewer"])(
+		"reuses the request's live policy and %s membership without extra reads",
+		async (role) => {
+			const caller = context({
+				userRole: role,
+				userMembershipKind: "human",
+				agentReviewProject: {
+					id: project.id,
+					project,
+				},
+			});
+			if (role === "owner" || role === "admin") {
+				expect(
+					await excludedAgentReviewProjectId(caller, project.orgId),
+				).toBeUndefined();
+			} else {
+				expect(await excludedAgentReviewProjectId(caller, project.orgId)).toBe(
+					project.id,
+				);
+			}
+			expect(mocks.project).not.toHaveBeenCalled();
+			expect(mocks.member).not.toHaveBeenCalled();
+		},
+	);
+	it("fails closed when the policy was absent in the identity batch", async () => {
+		await expect(
+			excludedAgentReviewProjectId(
+				context({
+					agentReviewProject: { id: project.id, project: undefined },
+					userMembershipKind: "human",
+					userRole: "owner",
+				}),
+				project.orgId,
+			),
+		).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
+		expect(mocks.project).not.toHaveBeenCalled();
+	});
+	it("does not reuse another policy or grant authority across organizations", async () => {
+		const caller = context({
+			organizationId: "another-org",
+			userMembershipKind: "human",
+			userRole: "owner",
+			agentReviewProject: { id: "other-policy", project: undefined },
+		});
+		expect(await excludedAgentReviewProjectId(caller, project.orgId)).toBe(
+			project.id,
+		);
+		expect(mocks.project).toHaveBeenCalledWith(caller.db, project.id);
+	});
 	it.each(["owner", "admin"])(
 		"allows a fresh active %s membership",
 		async (role) => {

@@ -84,6 +84,7 @@ import {
 	FleetAuthorityUnavailableError,
 } from "../lib/fleet-authority";
 import { auditGatewayInputRejection } from "./gateway-input-validation";
+import { agentReviewProjectId } from "../services/agent-review-config";
 
 // `BaseContext` + `createContext` moved to ./context so the kernel Durable
 // Objects can build a request context without dragging this module's auth
@@ -1832,6 +1833,7 @@ async function authenticateUserJwt(
 					resolveUserTenantIdentityContext(context.db, {
 						organizationIdentity: descopeTenantIdentity(payload, tenantId),
 						userIdentity: descopeUserIdentityForContext(context, payload),
+						reviewProjectId: agentReviewProjectId(context.env),
 					}),
 				{ attempts: 3, timeoutMs: 5_000 },
 			);
@@ -1839,6 +1841,7 @@ async function authenticateUserJwt(
 				`auth-identity;dur=${(performance.now() - identityStartedAt).toFixed(1)}`,
 			);
 			context.userId = identity?.canonicalUserId ?? undefined;
+			context.agentReviewProject = identity?.reviewProject;
 			if (identity) {
 				// Preserve the missing-membership bootstrap, but never restore a
 				// deactivated member's authority from a still-valid session JWT.
