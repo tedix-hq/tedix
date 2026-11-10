@@ -30,6 +30,7 @@ import {
 	getOsShareLinkByPublicId,
 	getOsShareLinkByTokenHash,
 	isOsShareLinkInvitee,
+	isOsShareEmailInvited,
 	touchOsShareSession,
 } from "@tedix/db/queries/os-shares";
 import {
@@ -240,7 +241,7 @@ export async function linkAdmitsGuest(
 export function workspaceLinkAdmitsGuest(link: OsShareLinkRow): boolean {
 	return (
 		link.resourceType === "workspace" &&
-		link.access === "anyone_with_link" &&
+		(link.access === "anyone_with_link" || link.access === "invited") &&
 		effectiveRole(link) !== "build"
 	);
 }
@@ -478,6 +479,7 @@ export async function recipientMayOpen(
 	link: OsShareLinkRow,
 	authorizeRecipient?: AuthorizeOsShareRecipient,
 	identifyRecipient?: IdentifyOsShareRecipient,
+	verifiedEmail?: string | null,
 ): Promise<boolean> {
 	// A link minted before its workspace became private stops working.
 	const workspaceId = await linkWorkspaceId(db, link);
@@ -497,9 +499,14 @@ export async function recipientMayOpen(
 	)
 		return false;
 	if (link.access === "invited") {
-		const identity = identifyRecipient ? await identifyRecipient() : null;
-		if (!identity || !(await isOsShareLinkInvitee(db, { link, ...identity })))
-			return false;
+		if (verifiedEmail) {
+			if (!(await isOsShareEmailInvited(db, link.id, verifiedEmail)))
+				return false;
+		} else {
+			const identity = identifyRecipient ? await identifyRecipient() : null;
+			if (!identity || !(await isOsShareLinkInvitee(db, { link, ...identity })))
+				return false;
+		}
 	}
 	if (link.resourceType !== "output") {
 		// The invite list is the boundary for an invited app or workspace link;
@@ -775,7 +782,13 @@ export async function handleOsShareSessionOutput(
 	)
 		return notFound();
 	if (
-		!(await recipientMayOpen(db, link, authorizeRecipient, identifyRecipient))
+		!(await recipientMayOpen(
+			db,
+			link,
+			authorizeRecipient,
+			identifyRecipient,
+			session.verifiedEmail,
+		))
 	)
 		return notFound();
 	const workspace = await getOsWorkspace(db, {
@@ -918,24 +931,34 @@ async function sessionResponse(
  * concurrent revocation, policy change or resource change cannot keep a
  * session alive on stale approval.
  */
-async function openSession(
+export async function openOsShareSession(
 	db: DbQueryClient,
 	link: OsShareLinkRow,
 	now: string,
 	authorizeRecipient?: AuthorizeOsShareRecipient,
 	identifyRecipient?: IdentifyOsShareRecipient,
 	mayManage?: ManageOsShareCheck,
+	verifiedEmail?: string | null,
 ): Promise<Response> {
+	if (link.access === "invited" && !verifiedEmail) {
+		const email = (await identifyRecipient?.())?.email?.trim().toLowerCase();
+		verifiedEmail =
+			email && (await isOsShareEmailInvited(db, link.id, email)) ? email : null;
+	}
 	const sessionToken = generateOsShareToken();
 	const linkExpiry = link.expiresAt
 		? Date.parse(link.expiresAt)
 		: Number.POSITIVE_INFINITY;
 	const expiresAt = new Date(
-		Math.min(Date.now() + SESSION_TTL_MS, linkExpiry),
+		Math.min(
+			Date.now() + (verifiedEmail ? 7 * 24 * 60 * 60 * 1000 : SESSION_TTL_MS),
+			linkExpiry,
+		),
 	).toISOString();
 	const session = await createOsShareSession(db, {
 		id: crypto.randomUUID(),
 		sessionTokenHash: await hashOsShareToken(sessionToken),
+		verifiedEmail,
 		createdAt: now,
 		lastSeenAt: now,
 		expiresAt,
@@ -952,6 +975,7 @@ async function openSession(
 			currentLink,
 			authorizeRecipient,
 			identifyRecipient,
+			verifiedEmail,
 		))
 	)
 		return notFound();
@@ -977,7 +1001,7 @@ export async function handleOsShareRedemption(
 		!(await recipientMayOpen(db, link, authorizeRecipient, identifyRecipient))
 	)
 		return notFound();
-	return openSession(
+	return openOsShareSession(
 		db,
 		link,
 		now,
@@ -1022,7 +1046,8 @@ export async function handleOsShareOpen(
 		!(identifyRecipient && (await identifyRecipient()))
 	) {
 		const body: OsShareOpenResult = {
-			needsSignIn: true,
+			needsSignIn: link.access !== "invited",
+			...(link.access === "invited" ? { needsEmailCode: true } : {}),
 			access: link.access,
 			organization: await guestOrganization(db, link.organizationId),
 		};
@@ -1032,7 +1057,7 @@ export async function handleOsShareOpen(
 		!(await recipientMayOpen(db, link, authorizeRecipient, identifyRecipient))
 	)
 		return notFound();
-	return openSession(
+	return openOsShareSession(
 		db,
 		link,
 		now,
@@ -1127,7 +1152,13 @@ export async function handleOsShareSessionRead(
 	const link = await getOsShareLinkById(db, session.shareLinkId);
 	if (!link || !isActive(link, now)) return notFound();
 	if (
-		!(await recipientMayOpen(db, link, authorizeRecipient, identifyRecipient))
+		!(await recipientMayOpen(
+			db,
+			link,
+			authorizeRecipient,
+			identifyRecipient,
+			session.verifiedEmail,
+		))
 	)
 		return notFound();
 	return sessionResponse(db, link, undefined, mayManage);

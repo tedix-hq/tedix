@@ -35,8 +35,10 @@ export const WorkspaceAppSessionSchema = z
 		codeDigest: z.string().optional(),
 		/** Set for a guest who opened the app through a share link; revoking the link cuts the session. */
 		shareLinkId: z.uuid().optional(),
-		/** Guest-provided name, bound to this signed session for call receipts. */
-		guestName: AppRuntimeGuestNameSchema.optional(),
+		/** Guest name or verified share email, bound to this signed session for call receipts. */
+		guestName: z
+			.union([AppRuntimeGuestNameSchema, z.email().max(254)])
+			.optional(),
 	})
 	.strict();
 export type WorkspaceAppSession = z.infer<typeof WorkspaceAppSessionSchema>;

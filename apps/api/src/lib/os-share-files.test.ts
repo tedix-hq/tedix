@@ -28,6 +28,7 @@ import {
 	generateOsShareToken,
 	handleOsShareRedemption,
 	hashOsShareToken,
+	openOsShareSession,
 } from "./os-share-redemption";
 import { workspaceFileKey } from "./workspace-files";
 
@@ -330,4 +331,42 @@ describe("share-scoped file endpoint", () => {
 		const { sessionToken } = await shareOutput(f);
 		expect((await fileUrl(f, sessionToken)).status).toBe(404);
 	});
+});
+
+it("rechecks an invited email on file metadata and signed range reads", async () => {
+	const f = await fixture();
+	const { linkId } = await shareOutput(f);
+	await f.db
+		.update(osShareLinks)
+		.set({ access: "invited" })
+		.where(eq(osShareLinks.id, linkId));
+	await f.db.insert(osShareLinkInvitees).values({
+		id: crypto.randomUUID(),
+		organizationId: ORG,
+		shareLinkId: linkId,
+		email: "guest@example.test",
+		addedByKind: "user",
+		addedById: "user-1",
+	});
+	const link = (
+		await f.db.select().from(osShareLinks).where(eq(osShareLinks.id, linkId))
+	)[0]!;
+	const { sessionToken } = (await (
+		await openOsShareSession(
+			f.db,
+			link,
+			new Date().toISOString(),
+			undefined,
+			undefined,
+			undefined,
+			"guest@example.test",
+		)
+	).json()) as { sessionToken: string };
+	const metadata = await fileUrl(f, sessionToken);
+	expect(metadata.status).toBe(200);
+	const { url } = (await metadata.json()) as { url: string };
+	expect((await read(f, url, { Range: "bytes=2-5" })).status).toBe(206);
+	await f.db.delete(osShareLinkInvitees);
+	expect((await fileUrl(f, sessionToken)).status).toBe(404);
+	expect((await read(f, url, { Range: "bytes=2-5" })).status).toBe(404);
 });

@@ -28,6 +28,7 @@ import {
 	type NewOsShareLinkRow,
 	osShareLinks,
 	osShareSessions,
+	osShareLinkInvitees,
 	osShareSkillReadGrants,
 } from "@tedix/db/schema/os-shares";
 import {
@@ -57,6 +58,7 @@ import {
 	handleOsShareRedemption,
 	handleOsShareSessionOutput,
 	hashOsShareToken,
+	openOsShareSession,
 	workspaceGuestLimits,
 } from "./os-share-redemption";
 
@@ -91,6 +93,7 @@ async function fixture(options: { triggers?: unknown[] } = {}) {
 			osOutputRevisions,
 			osShareLinks,
 			osShareSessions,
+			osShareLinkInvitees,
 			osShareSkillReadGrants,
 			osWorkspaceAccessEdges,
 			osWorkspaceCollaborators,
@@ -1390,4 +1393,66 @@ describe("owner-approved guest skill reads", () => {
 			),
 		).toBe(true);
 	});
+});
+
+it("uses the verified email for invited guest apps and cuts app access after removal", async () => {
+	const { db, env } = await fixture();
+	const { id } = await seedLink(db, {
+		access: "invited",
+		resourceType: "workspace",
+		resourceId: workspaceId,
+	});
+	const link = (
+		await db.select().from(osShareLinks).where(eq(osShareLinks.id, id))
+	)[0]!;
+	const email = `${"a".repeat(64)}@${"b".repeat(30)}.example.test`;
+	await db.insert(osShareLinkInvitees).values({
+		id: crypto.randomUUID(),
+		organizationId: "org-1",
+		shareLinkId: id,
+		email,
+		addedByKind: "user",
+		addedById: "user-1",
+	});
+	const opened = (await (
+		await openOsShareSession(
+			db,
+			link,
+			new Date().toISOString(),
+			undefined,
+			undefined,
+			undefined,
+			email,
+		)
+	).json()) as { sessionToken: string };
+	const app = await handleGuestAppOpen(env, db, {
+		sessionToken: opened.sessionToken,
+		appId: gadgetId,
+		guestName: "Spoofed name",
+	});
+	expect(app.status).toBe(200);
+	const body = (await app.json()) as { session: string; verifiedEmail: string };
+	expect(body.verifiedEmail).toBe(email);
+	expect((await verifyWorkspaceAppSession(key, body.session))?.guestName).toBe(
+		email,
+	);
+	await db.delete(osShareLinkInvitees);
+	expect(
+		(
+			await handleGuestAppOpen(env, db, {
+				sessionToken: opened.sessionToken,
+				appId: gadgetId,
+			})
+		).status,
+	).toBe(404);
+	expect(
+		(
+			await handleGuestAppCall(env, db, {
+				sessionToken: opened.sessionToken,
+				session: body.session,
+				method: "submit",
+				arguments: {},
+			})
+		).status,
+	).toBe(404);
 });

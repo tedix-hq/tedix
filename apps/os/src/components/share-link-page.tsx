@@ -9,6 +9,8 @@ import {
 	openGuestApp,
 } from "@/components/guest-app-page";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import { Button } from "@/components/kumo/button";
+import { Input } from "@/components/kumo/input";
 import { Text } from "@/components/kumo/text";
 import { followDeviceTheme } from "@/lib/theme";
 import {
@@ -27,12 +29,14 @@ type OpenedShare = SharePayload &
 		access?: OsShareAccess;
 		/** The link is for signed-in people and this visitor is not signed in. */
 		needsSignIn?: boolean;
+		needsEmailCode?: boolean;
 	};
 
 type Opened = { payload: OpenedShare; sessionToken: string };
 
 type PageState =
 	| { status: "loading" }
+	| { status: "email" }
 	| { status: "unavailable"; signedIn: boolean }
 	| {
 			status: "guest";
@@ -73,6 +77,7 @@ function opensAsGuestApp(payload: SharePayload): boolean {
 function subtitle(access: OsShareAccess | undefined): string {
 	if (access === "anyone_with_link")
 		return "Shared with you · no sign-in needed";
+	if (access === "invited") return "Shared with you · invited by email";
 	if (access) return "Shared with you · opened with your Tedix sign-in";
 	return "Shared with you";
 }
@@ -82,7 +87,9 @@ function subtitle(access: OsShareAccess | undefined): string {
  * session the server refuses is dropped and the link is opened again, so a
  * bookmark keeps working after the session ends.
  */
-async function openShareLink(id: string): Promise<Opened | "sign-in"> {
+async function openShareLink(
+	id: string,
+): Promise<Opened | "sign-in" | "email"> {
 	const stored = readShareLinkSession(id);
 	if (stored) {
 		try {
@@ -95,6 +102,7 @@ async function openShareLink(id: string): Promise<Opened | "sign-in"> {
 		}
 	}
 	const payload = await shareRequest("/api/os-shared/open", { id });
+	if (payload.needsEmailCode) return "email";
 	if (payload.needsSignIn) return "sign-in";
 	if (!payload.sessionToken) throw new Error("Share unavailable");
 	storeShareLinkSession(id, payload.sessionToken);
@@ -104,15 +112,15 @@ async function openShareLink(id: string): Promise<Opened | "sign-in"> {
 /**
  * `/s/<id>` on the organization's own host: one permanent address for a
  * shared app, workspace or file. Links for anyone open without an account;
- * links for the organization or invited people send a signed-out visitor to
- * sign in and back here.
+ * invited links ask for an email code; organization links ask for sign-in.
  */
 export function ShareLinkPage({ id }: { id: string }) {
 	const [state, setState] = useState<PageState>({ status: "loading" });
+	const [verification, setVerification] = useState(0);
 	// One opening survives StrictMode's effect replay.
 	const opening = useRef<{
 		id: string;
-		promise: Promise<Opened | "sign-in">;
+		promise: Promise<Opened | "sign-in" | "email">;
 	} | null>(null);
 	// The latest opened share, so an app opened from a workspace can go back.
 	const lastReady = useRef<Opened | null>(null);
@@ -179,6 +187,11 @@ export function ShareLinkPage({ id }: { id: string }) {
 		opening.current.promise
 			.then(async (opened) => {
 				if (!alive) return;
+				if (opened === "email") {
+					opening.current = null;
+					setState({ status: "email" });
+					return;
+				}
 				if (opened === "sign-in") {
 					opening.current = null;
 					// Signed in and still refused: this account is not on the link.
@@ -237,7 +250,19 @@ export function ShareLinkPage({ id }: { id: string }) {
 			alive = false;
 			if (timer !== undefined) window.clearInterval(timer);
 		};
-	}, [id]);
+	}, [id, verification]);
+
+	if (state.status === "email")
+		return (
+			<ShareEmailForm
+				id={id}
+				onVerified={() => {
+					opening.current = null;
+					setState({ status: "loading" });
+					setVerification((value) => value + 1);
+				}}
+			/>
+		);
 
 	// Before the link opens, the organization is unknown: the guest's own
 	// browser language picks the words.
@@ -312,5 +337,124 @@ export function ShareLinkPage({ id }: { id: string }) {
 			subtitle={subtitle(state.payload.access ?? state.payload.share.access)}
 			onOpenApp={(appId) => void openWorkspaceApp(appId)}
 		/>
+	);
+}
+
+function ShareEmailForm({
+	id,
+	onVerified,
+}: {
+	id: string;
+	onVerified: () => void;
+}) {
+	const [email, setEmail] = useState("");
+	const [code, setCode] = useState("");
+	const [sent, setSent] = useState(false);
+	const [busy, setBusy] = useState(false);
+	const [error, setError] = useState("");
+	const sendCode = async () => {
+		setBusy(true);
+		setError("");
+		try {
+			await shareRequest("/api/os-shared/email/request", { id, email });
+			setSent(true);
+		} catch {
+			setError("Couldn't request a code. Please try again.");
+		} finally {
+			setBusy(false);
+		}
+	};
+	return (
+		<main className="mx-auto grid min-h-dvh w-full max-w-sm content-center gap-4 p-4">
+			<Text as="h1" role="title">
+				Enter your email
+			</Text>
+			<Text as="p" tone="secondary">
+				Open this invitation with an email code. You need no Tedix account.
+			</Text>
+			<form
+				className="grid gap-3"
+				onSubmit={async (event) => {
+					event.preventDefault();
+					if (!sent) {
+						await sendCode();
+						return;
+					}
+					setBusy(true);
+					setError("");
+					try {
+						const result = await shareRequest("/api/os-shared/email/verify", {
+							id,
+							email,
+							code,
+						});
+						if (!result.sessionToken) {
+							setError(
+								"Code invalid or expired. Check the code or request a new one.",
+							);
+							return;
+						}
+						storeShareLinkSession(id, result.sessionToken);
+						onVerified();
+					} catch {
+						setError(
+							"Code invalid or expired. Check the code or request a new one.",
+						);
+					} finally {
+						setBusy(false);
+					}
+				}}
+			>
+				<Input
+					aria-label="Email"
+					type="email"
+					autoComplete="email"
+					required
+					maxLength={254}
+					value={email}
+					disabled={busy}
+					onChange={(event) => {
+						setEmail(event.target.value);
+						setSent(false);
+						setCode("");
+					}}
+				/>
+				{sent ? (
+					<>
+						<Text as="p" role="body" aria-live="polite">
+							If this email is invited, we sent a code
+						</Text>
+						<Input
+							aria-label="6-digit code"
+							inputMode="numeric"
+							autoComplete="one-time-code"
+							pattern="[0-9]{6}"
+							maxLength={6}
+							required
+							value={code}
+							onChange={(event) => setCode(event.target.value)}
+						/>
+					</>
+				) : null}
+				{error ? (
+					<Text as="p" tone="error" aria-live="polite">
+						{error}
+					</Text>
+				) : null}
+				<Button type="submit" disabled={busy}>
+					{sent ? "Open shared link" : "Send code"}
+				</Button>
+				{sent ? (
+					<Button
+						type="button"
+						variant="ghost"
+						disabled={busy}
+						onClick={() => void sendCode()}
+					>
+						Send another code
+					</Button>
+				) : null}
+			</form>
+		</main>
 	);
 }

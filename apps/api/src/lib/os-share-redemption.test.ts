@@ -1,3 +1,8 @@
+import {
+	requestOsShareEmailCode,
+	verifyOsShareEmailCode,
+	hashOsShareEmailCode,
+} from "./os-share-email-code";
 import { organizations } from "@tedix/db/schema/organizations";
 import { apiKeys } from "@tedix/db/schema/api-keys";
 import { externalAgentPrincipals } from "@tedix/db/schema/external-agent-identity";
@@ -7,6 +12,7 @@ import { eq } from "drizzle-orm";
 import { DatabaseSync } from "node:sqlite";
 import {
 	countActiveOsShareSessions,
+	listOsShareEmailOpens,
 	createOsShareLink,
 	getOsShareLinkByTokenHash,
 	restrictOsShareLink,
@@ -26,6 +32,7 @@ import { osWorkspaceCollaborators } from "@tedix/db/schema/os-collaborators";
 import {
 	type NewOsShareLinkRow,
 	osShareLinkInvitees,
+	osShareEmailCodes,
 	osShareLinks,
 	osShareSessions,
 } from "@tedix/db/schema/os-shares";
@@ -39,7 +46,7 @@ import {
 } from "@tedix/db/schema/os-workspaces";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
-import { describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
 	generateOsSharePublicId,
 	generateOsShareToken,
@@ -71,6 +78,7 @@ function fixture() {
 			osShareLinks,
 			osShareSessions,
 			osShareLinkInvitees,
+			osShareEmailCodes,
 			osWorkspaceCollaborators,
 		),
 	);
@@ -367,7 +375,8 @@ describe("handleOsShareOpen", () => {
 		const link = (await db.select().from(osShareLinks).limit(1))[0]!;
 		expect((await openById(db)).status).toBe(200);
 		expect(await (await openById(db)).json()).toMatchObject({
-			needsSignIn: true,
+			needsSignIn: false,
+			needsEmailCode: true,
 			access: "invited",
 		});
 		// Signed in but not invited; membership in the organization changes nothing.
@@ -1030,5 +1039,269 @@ describe("handleOsShareRedemption", () => {
 			).status,
 		).toBe(404);
 		expect(authorizedRoles).toEqual(["build", "build"]);
+	});
+});
+
+describe("invited email codes", () => {
+	afterEach(() => vi.useRealTimers());
+	async function setup(
+		resourceType: "output" | "workspace" | "gadget" = "output",
+	) {
+		const db = fixture();
+		await seedOutput(db);
+		await seedGadget(db);
+		await seedShare(db, {
+			access: "invited",
+			resourceType,
+			resourceId:
+				resourceType === "output"
+					? "out-1"
+					: resourceType === "workspace"
+						? "workspace-1"
+						: "gadget-1",
+		});
+		const link = (await db.select().from(osShareLinks))[0]!;
+		await db.insert(osShareLinkInvitees).values({
+			id: "email-invite",
+			organizationId: "org-1",
+			shareLinkId: link.id,
+			email: "guest@example.test",
+			addedByKind: "user",
+			addedById: "user-1",
+		});
+		const send = vi.fn(async (_message: { text: string }) => ({
+			messageId: "test-message",
+		}));
+		const env = {
+			SECRETS_MASTER_KEY: "test-email-hmac-key",
+			SHARE_EMAIL_FROM: "noreply@example.test",
+			EMAIL: { send },
+		} as unknown as CloudflareEnv;
+		const input = {
+			id: PUBLIC_ID,
+			email: "guest@example.test",
+			ip: "192.0.2.1",
+			hostTenantId: HOST,
+		};
+		const request = (overrides = {}) =>
+			requestOsShareEmailCode(env, db, { ...input, ...overrides });
+		const verify = (code: string, overrides = {}) =>
+			verifyOsShareEmailCode(env, db, { ...input, code, ...overrides });
+		const sentCode = () =>
+			send.mock.calls.at(-1)![0].text.match(/Your code is (\d{6})/)![1]!;
+		return { db, link, env, send, input, request, verify, sentCode };
+	}
+
+	it.each(["output", "workspace", "gadget"] as const)(
+		"opens %s links without creating an account and stores only HMAC proof",
+		async (kind) => {
+			const t = await setup(kind);
+			const beforeMembers = await t.db.select().from(organizationMembers);
+			const beforeWorkspaces = await t.db.select().from(osWorkspaces);
+			expect(
+				await (await t.request({ email: " Guest@Example.test " })).json(),
+			).toEqual({ message: "If this email is invited, we sent a code" });
+			const code = t.sentCode();
+			const [challenge] = await t.db.select().from(osShareEmailCodes);
+			expect(challenge!.codeHash).not.toContain(code);
+			expect(challenge!.codeHash).toBe(
+				await hashOsShareEmailCode(
+					t.env.SECRETS_MASTER_KEY,
+					t.link.id,
+					t.input.email,
+					code,
+				),
+			);
+			expect(
+				await hashOsShareEmailCode("other-key", t.link.id, t.input.email, code),
+			).not.toBe(challenge!.codeHash);
+			expect(
+				await hashOsShareEmailCode(
+					t.env.SECRETS_MASTER_KEY,
+					"other-link",
+					t.input.email,
+					code,
+				),
+			).not.toBe(challenge!.codeHash);
+			expect(t.send.mock.calls[0]![0].text).toContain("Maya Chen");
+			if (kind !== "output")
+				expect(t.send.mock.calls[0]![0].text).toContain("Shared workspace");
+			const opened = (await (await t.verify(code)).json()) as {
+				sessionToken: string;
+			};
+			expect(opened.sessionToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
+			const [session] = await t.db.select().from(osShareSessions);
+			expect(session!.verifiedEmail).toBe(t.input.email);
+			const opens = await listOsShareEmailOpens(t.db, {
+				organizationId: "org-1",
+				shareLinkId: t.link.id,
+			});
+			expect(opens).toEqual([
+				{ email: t.input.email, openedAt: session!.createdAt },
+			]);
+			expect(
+				await listOsShareEmailOpens(t.db, {
+					organizationId: "org-2",
+					shareLinkId: t.link.id,
+				}),
+			).toEqual([]);
+			expect(
+				Date.parse(session!.expiresAt) - Date.parse(session!.createdAt),
+			).toBeGreaterThanOrEqual(7 * 24 * 60 * 60 * 1000);
+			expect(
+				(await handleOsShareSessionRead(t.db, opened.sessionToken)).status,
+			).toBe(200);
+			expect(await (await t.verify(code)).json()).toHaveProperty("error");
+			expect(await t.db.select().from(organizationMembers)).toEqual(
+				beforeMembers,
+			);
+			expect(await t.db.select().from(osWorkspaces)).toEqual(beforeWorkspaces);
+			await t.db.delete(osShareLinkInvitees);
+			expect(
+				(await handleOsShareSessionRead(t.db, opened.sessionToken)).status,
+			).toBe(404);
+		},
+	);
+
+	it("returns the uniform reply before email transport completes", async () => {
+		const t = await setup();
+		let release!: () => void;
+		const pending = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		t.send.mockImplementation(async () => {
+			await pending;
+			return { messageId: "test-message" };
+		});
+		const background: Promise<unknown>[] = [];
+		const reply = await requestOsShareEmailCode(
+			t.env,
+			t.db,
+			t.input,
+			(work) => {
+				background.push(work);
+			},
+		);
+		expect(await reply.json()).toEqual({
+			message: "If this email is invited, we sent a code",
+		});
+		expect(background).toHaveLength(1);
+		release();
+		await Promise.all(background);
+		expect(t.send).toHaveBeenCalledTimes(1);
+	});
+
+	it("uses the configured sender and keeps missing configuration private", async () => {
+		const t = await setup();
+		const expected = await (await t.request()).text();
+		expect(t.send).toHaveBeenCalledWith(
+			expect.objectContaining({
+				from: { email: "noreply@example.test", name: "Tedix" },
+			}),
+		);
+		const log = vi.spyOn(console, "error").mockImplementation(() => {});
+		try {
+			const reply = await requestOsShareEmailCode(
+				{ ...t.env, SHARE_EMAIL_FROM: undefined },
+				t.db,
+				t.input,
+			);
+			expect(await reply.text()).toBe(expected);
+			expect(t.send).toHaveBeenCalledTimes(1);
+			expect(log).toHaveBeenCalledWith(
+				"[os-share-email-code] SHARE_EMAIL_FROM is not configured",
+			);
+		} finally {
+			log.mockRestore();
+		}
+	});
+
+	it("returns identical replies for wrong email, unknown link, wrong host and rate limits", async () => {
+		const t = await setup();
+		const expected = await (await t.request()).text();
+		for (const overrides of [
+			{ email: "stranger@example.test" },
+			{ id: "Z".repeat(22) },
+			{ hostTenantId: "other-tenant" },
+		]) {
+			expect(await (await t.request(overrides)).text()).toBe(expected);
+		}
+		expect(t.send).toHaveBeenCalledTimes(1);
+		expect(
+			await (
+				await t.verify(t.sentCode(), { email: "stranger@example.test" })
+			).json(),
+		).toHaveProperty("error");
+		expect(await t.db.select().from(osShareSessions)).toHaveLength(0);
+	});
+
+	it("expires at ten minutes, limits guesses to five, and invalidates older codes", async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-11-10T18:00:00Z"));
+		const t = await setup();
+		await t.request();
+		const first = t.sentCode();
+		vi.setSystemTime(new Date("2026-11-10T18:10:00Z"));
+		expect(await (await t.verify(first)).json()).toHaveProperty("error");
+		await t.request();
+		const second = t.sentCode();
+		for (let i = 0; i < 5; i++)
+			expect(await (await t.verify("not-a-code")).json()).toHaveProperty(
+				"error",
+			);
+		expect(await (await t.verify(second)).json()).toHaveProperty("error");
+		vi.setSystemTime(new Date("2026-11-10T18:11:00Z"));
+		await t.request();
+		const third = t.sentCode();
+		expect(await (await t.verify(first)).json()).toHaveProperty("error");
+		expect(await (await t.verify(third)).json()).toHaveProperty("sessionToken");
+	});
+
+	it("allows the fifth guess but only one concurrent successful redemption", async () => {
+		const t = await setup();
+		await t.request();
+		for (let i = 0; i < 4; i++) await t.verify("wrong");
+		const replies = await Promise.all([
+			t.verify(t.sentCode()),
+			t.verify(t.sentCode()),
+		]);
+		const bodies = (await Promise.all(replies.map((r) => r.json()))) as Array<{
+			sessionToken?: string;
+		}>;
+		expect(bodies.filter((r) => r.sessionToken)).toHaveLength(1);
+		expect(await t.db.select().from(osShareSessions)).toHaveLength(1);
+	});
+
+	it("limits sends to three per email and twenty per IP in a rolling fifteen minutes", async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-11-10T18:00:00Z"));
+		const t = await setup();
+		await Promise.all(Array.from({ length: 8 }, () => t.request()));
+		expect(t.send).toHaveBeenCalledTimes(3);
+		for (let i = 0; i < 25; i++)
+			await t.request({ email: `stranger${i}@example.test` });
+		expect(await t.db.select().from(osShareEmailCodes)).toHaveLength(20);
+		await t.request({ email: "guest@example.test", ip: "192.0.2.2" });
+		expect(t.send).toHaveBeenCalledTimes(3);
+		vi.setSystemTime(new Date("2026-11-10T18:15:00Z"));
+		await t.request();
+		expect(t.send).toHaveBeenCalledTimes(4);
+	});
+
+	it("refuses a removed invitee's unredeemed code and an expired session", async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-11-10T18:00:00Z"));
+		const t = await setup();
+		await t.request();
+		const opened = (await (await t.verify(t.sentCode())).json()) as {
+			sessionToken: string;
+		};
+		vi.setSystemTime(new Date("2026-11-17T18:00:00Z"));
+		expect(
+			(await handleOsShareSessionRead(t.db, opened.sessionToken)).status,
+		).toBe(404);
+		await t.request();
+		await t.db.delete(osShareLinkInvitees);
+		expect(await (await t.verify(t.sentCode())).json()).toHaveProperty("error");
 	});
 });

@@ -76,6 +76,10 @@ and omits remote-only capabilities.
 
 Non-secret configuration and binding declarations live in
 [wrangler.jsonc](wrangler.jsonc); secrets use the installation's configured secret provider.
+Invited share email codes require `SHARE_EMAIL_FROM` to contain a sender address
+authorized for the installation's `EMAIL` binding. Configure it in the operator
+overlay before releasing the email-code flow; missing configuration logs a delivery
+error while preserving the same public reply for every recipient.
 Own-account deployment requires an installation manifest and operator-owned
 resources; see [installation manifests](../../docs/public/installation-manifests.md)
 and the [self-hosted boundary](../../docs/public/self-hosted-boundary.md).

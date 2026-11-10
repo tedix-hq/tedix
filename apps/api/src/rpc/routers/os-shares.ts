@@ -9,6 +9,7 @@ import {
 	deleteOsShareLink,
 	getScopedOsShareLink,
 	listOsShareLinkInvitees,
+	listOsShareEmailOpens,
 	listOsShareLinks,
 	removeOsShareLinkInvitee,
 	restrictOsShareLink,
@@ -831,7 +832,13 @@ const inviteesList = adminOs.shares.invitees.list.handler(
 			organizationId: link.organizationId,
 			shareLinkId: link.id,
 		});
-		return { items: rows.map(mapInvitee) };
+		return {
+			items: rows.map(mapInvitee),
+			opens: await listOsShareEmailOpens(queryDb(context), {
+				organizationId: link.organizationId,
+				shareLinkId: link.id,
+			}),
+		};
 	},
 );
 

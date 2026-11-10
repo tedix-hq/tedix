@@ -169,3 +169,73 @@ describe("ShareLinkPage", () => {
 		expect(container.querySelector("[data-share-unavailable]")).not.toBeNull();
 	});
 });
+
+it("opens an invited link with an email code and keeps the verified share session", async () => {
+	vi.mocked(fetch).mockImplementation(async (path) => {
+		if (path === "/api/os-shared/open")
+			return json({
+				access: "invited",
+				needsEmailCode: true,
+				needsSignIn: false,
+			});
+		if (path === "/api/os-shared/email/request")
+			return json({ message: "If this email is invited, we sent a code" });
+		if (path === "/api/os-shared/email/verify")
+			return json(opened({ access: "invited" }));
+		return json(opened({ access: "invited" }));
+	});
+	const container = await renderPage();
+	expect(container.textContent).toContain("Enter your email");
+	const input = container.querySelector(
+		'input[type="email"]',
+	) as HTMLInputElement;
+	await act(async () => {
+		Object.getOwnPropertyDescriptor(
+			HTMLInputElement.prototype,
+			"value",
+		)!.set!.call(input, "guest@example.test");
+		input.dispatchEvent(new Event("input", { bubbles: true }));
+	});
+	await act(async () => {
+		container
+			.querySelector("form")!
+			.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+	});
+	expect(container.textContent).toContain(
+		"If this email is invited, we sent a code",
+	);
+	expect(fetch).toHaveBeenCalledWith(
+		"/api/os-shared/email/request",
+		expect.objectContaining({
+			body: JSON.stringify({ id: ID, email: "guest@example.test" }),
+		}),
+	);
+	const code = container.querySelector(
+		'input[autocomplete="one-time-code"]',
+	) as HTMLInputElement;
+	await act(async () => {
+		Object.getOwnPropertyDescriptor(
+			HTMLInputElement.prototype,
+			"value",
+		)!.set!.call(code, "123456");
+		code.dispatchEvent(new Event("input", { bubbles: true }));
+	});
+	await act(async () => {
+		container
+			.querySelector("form")!
+			.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	});
+	expect(fetch).toHaveBeenCalledWith(
+		"/api/os-shared/email/verify",
+		expect.objectContaining({
+			body: JSON.stringify({
+				id: ID,
+				email: "guest@example.test",
+				code: "123456",
+			}),
+		}),
+	);
+	expect(window.sessionStorage.getItem(`tedix.os.share.${ID}`)).toBe(SESSION);
+	expect(container.textContent).toContain("Launch room");
+});

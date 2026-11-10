@@ -944,6 +944,8 @@ describe("Tedix OS origin router", () => {
 		expect(await document.text()).toContain("shell");
 		for (const path of [
 			"/api/os-shared/redeem",
+			"/api/os-shared/email/request",
+			"/api/os-shared/email/verify",
 			"/api/os-shared/session",
 			"/api/os-shared/output",
 			"/api/os-shared/file",
