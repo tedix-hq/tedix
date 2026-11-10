@@ -1,11 +1,15 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
+	closeSync,
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	openSync,
 	readFileSync,
 	rmSync,
+	statSync,
 	writeFileSync,
+	writeSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,6 +22,9 @@ import { parseServeOptions } from "./lane-serve";
 import { readDutyStatuses } from "./supervise-duty-status";
 import {
 	adoptRunnerLaunchAgents,
+	capRunnerLog,
+	RUNNER_LOG_CAP_BYTES,
+	RUNNER_LOG_KEEP_BYTES,
 	RUNNER_PASS_GRACE_MS,
 	RUNNER_RESTART_BASE_MS,
 	RUNNER_RESTART_MAX_MS,
@@ -26,6 +33,7 @@ import {
 	RunnerDuties,
 	type RunnerDuty,
 	runnerKey,
+	runnerLogPath,
 	readRunnerDuties,
 	removeRunnerDuty,
 	writeRunnerDuty,
@@ -124,6 +132,48 @@ describe("the runners file", () => {
 				acceptProposed: true,
 			}),
 		]);
+	});
+});
+
+describe("runner log cap", () => {
+	const overCap = (line: string) =>
+		line.repeat(Math.ceil((RUNNER_LOG_CAP_BYTES + 1) / line.length));
+
+	test("keeps the newest whole lines and a marker once the log passes the cap", () => {
+		const env = { TEDIX_CONFIG_DIR: config };
+		const path = runnerLogPath(env, runner());
+		writeFileSync(path, `stale\n${overCap("new\n")}`);
+		capRunnerLog(path);
+		const kept = readFileSync(path, "utf8");
+		expect(kept.length).toBeLessThanOrEqual(RUNNER_LOG_KEEP_BYTES);
+		expect(kept).not.toContain("stale");
+		expect(kept.startsWith("new\n")).toBe(true);
+		expect(kept).toContain("tedix supervisor capped this log");
+		expect(kept.endsWith("older lines were dropped\n")).toBe(true);
+	});
+
+	test("a runner still writing through its append descriptor lands at the capped end", () => {
+		const env = { TEDIX_CONFIG_DIR: config };
+		const path = runnerLogPath(env, runner());
+		writeFileSync(path, overCap("x".repeat(200) + "\n"));
+		const fd = openSync(path, "a");
+		try {
+			capRunnerLog(path);
+			writeSync(fd, "after the cap\n");
+		} finally {
+			closeSync(fd);
+		}
+		const text = readFileSync(path, "utf8");
+		expect(text.endsWith("after the cap\n")).toBe(true);
+		expect(statSync(path).size).toBeLessThanOrEqual(RUNNER_LOG_KEEP_BYTES + 20);
+	});
+
+	test("leaves a log under the cap alone", () => {
+		const env = { TEDIX_CONFIG_DIR: config };
+		const path = runnerLogPath(env, runner());
+		writeFileSync(path, "short\n");
+		capRunnerLog(path);
+		expect(readFileSync(path, "utf8")).toBe("short\n");
 	});
 });
 
@@ -463,6 +513,15 @@ describe("running the dispatchers", () => {
 		restarted.tick();
 		expect(starts).toBe(0);
 		expect(readDutyStatuses(f.env)[0]?.retryAt).toBe(exited.retryAt);
+	});
+
+	test("caps an over-limit runner log on tick", () => {
+		const f = setup();
+		f.write([runner()]);
+		const path = runnerLogPath(f.env, runner());
+		writeFileSync(path, "x".repeat(RUNNER_LOG_CAP_BYTES + 1));
+		f.duties.tick();
+		expect(statSync(path).size).toBeLessThanOrEqual(RUNNER_LOG_KEEP_BYTES);
 	});
 
 	test("an unreadable runners file is logged once and leaves running runners alone", () => {

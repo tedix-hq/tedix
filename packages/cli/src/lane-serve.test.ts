@@ -16,6 +16,7 @@ import { dirname, join } from "node:path";
 import {
 	LaneDispatcher,
 	LaneCommitFetchError,
+	DISPATCHER_LOG_CAP_BYTES,
 	MIN_FREE_DISK_BYTES,
 	cleanupLaneWorktree,
 	installLaneDependencies,
@@ -601,6 +602,61 @@ describe("dispatcher lock handoff", () => {
 		} finally {
 			await f.cleanup();
 		}
+	});
+});
+
+describe("dispatcher log", () => {
+	const skipped = (dir: string) =>
+		readFileSync(join(dir, "dispatcher.log"), "utf8")
+			.split("\n")
+			.filter((line) => line.includes('"event":"skipped"'));
+
+	it("writes an unchanged skip reason once per item, then hourly", async () => {
+		const f = fixture();
+		for (const row of f.items) row.metadata = { executor: "claude-code" };
+		await f.dispatcher.tick();
+		await f.dispatcher.tick();
+		expect(skipped(f.dir)).toHaveLength(f.items.length);
+		const clock = spyOn(Date, "now").mockReturnValue(Date.now() + 61 * 60_000);
+		try {
+			await f.dispatcher.tick();
+		} finally {
+			clock.mockRestore();
+		}
+		expect(skipped(f.dir)).toHaveLength(2 * f.items.length);
+	});
+
+	it("writes again as soon as an item's skip reason changes", async () => {
+		const f = fixture();
+		for (const row of f.items) row.metadata = { executor: "claude-code" };
+		await f.dispatcher.tick();
+		await f.dispatcher.tick();
+		for (const row of f.items) {
+			row.metadata = { executor: "codex" };
+			row.projectId = null;
+		}
+		await f.dispatcher.tick();
+		const lines = skipped(f.dir);
+		expect(lines).toHaveLength(2 * f.items.length);
+		expect(lines.slice(f.items.length).join("\n")).toContain(
+			"Work has no project",
+		);
+	});
+
+	it("rotates dispatcher.log past the cap and keeps the new lines", async () => {
+		const f = fixture();
+		for (const row of f.items) row.metadata = { executor: "claude-code" };
+		writeFileSync(
+			join(f.dir, "dispatcher.log"),
+			"x".repeat(DISPATCHER_LOG_CAP_BYTES + 1),
+		);
+		await f.dispatcher.tick();
+		expect(readFileSync(join(f.dir, "dispatcher.log.1"), "utf8")).toHaveLength(
+			DISPATCHER_LOG_CAP_BYTES + 1,
+		);
+		expect(readFileSync(join(f.dir, "dispatcher.log"), "utf8")).toContain(
+			'"event":"skipped"',
+		);
 	});
 });
 

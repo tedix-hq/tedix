@@ -3,13 +3,17 @@ import { createHash } from "node:crypto";
 import {
 	closeSync,
 	existsSync,
+	ftruncateSync,
 	mkdirSync,
 	openSync,
 	readdirSync,
 	readFileSync,
+	readSync,
 	renameSync,
 	rmSync,
+	statSync,
 	writeFileSync,
+	writeSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
@@ -111,6 +115,42 @@ export function runnerLogPath(
 	runner: RunnerDuty,
 ): string {
 	return join(configDir(env), `dev.tedix.lane-serve.${runnerKey(runner)}.log`);
+}
+
+/** A runner's log larger than this is cut back to its newest lines. */
+export const RUNNER_LOG_CAP_BYTES = 8 * 1024 * 1024;
+/** How much of an over-cap runner log is kept; the newest lines diagnose best. */
+export const RUNNER_LOG_KEEP_BYTES = 2 * 1024 * 1024;
+
+/**
+ * Caps a runner's log in place. The dispatcher's inherited descriptor stays
+ * open in append mode, so renaming only moves the growth to the rotated file;
+ * rewriting the newest lines onto the same inode is what bounds it. A line
+ * appended mid-rewrite can be lost, the same trade any rotation makes.
+ */
+export function capRunnerLog(path: string): void {
+	try {
+		const size = statSync(path).size;
+		if (size <= RUNNER_LOG_CAP_BYTES) return;
+		const fd = openSync(path, "r+");
+		try {
+			const kept = Math.min(RUNNER_LOG_KEEP_BYTES, size);
+			const marker = Buffer.from(
+				`${new Date().toISOString()} tedix supervisor capped this log past ${RUNNER_LOG_CAP_BYTES} bytes; older lines were dropped\n`,
+			);
+			const buffer = Buffer.alloc(kept - marker.length);
+			readSync(fd, buffer, 0, buffer.length, size - buffer.length);
+			const newline = buffer.indexOf(0x0a);
+			const tail = newline >= 0 ? buffer.subarray(newline + 1) : buffer;
+			ftruncateSync(fd, 0);
+			writeSync(fd, tail, 0, tail.length, 0);
+			writeSync(fd, marker, 0, marker.length, tail.length);
+		} finally {
+			closeSync(fd);
+		}
+	} catch {
+		// Log hygiene is best effort; the runner keeps serving.
+	}
 }
 
 /** The `tedix` arguments that run this dispatcher in the foreground. */
@@ -444,6 +484,8 @@ export class RunnerDuties {
 				.filter((runner) => runner.enabled)
 				.map((runner) => [runnerKey(runner), runner]),
 		);
+		for (const runner of runners)
+			capRunnerLog(runnerLogPath(this.deps.env, runner));
 		for (const [key, entry] of this.running) {
 			if (wanted.has(key)) continue;
 			this.log(
