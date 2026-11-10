@@ -26,7 +26,7 @@ import {
 } from "./devin-config";
 import {
 	createDevinLaneThread,
-	devinAvailable,
+	devinAvailability,
 	isDevinSessionBusy,
 } from "./devin-lane-thread";
 import { parseServeOptions } from "./lane-serve";
@@ -124,7 +124,60 @@ test("Devin is an explicit executor; logged-out installations are unavailable", 
 			"example",
 		]).executor,
 	).toBe("devin");
-	expect(devinAvailable(fakeDevin(dir))).toBe(false);
+	expect(devinAvailability(fakeDevin(dir))).toEqual({
+		available: false,
+		reason: "Devin is logged out",
+	});
+});
+
+test("Devin accepts a signed-in status command slower than ten seconds", () => {
+	const binary = join(temporary(), "devin");
+	writeFileSync(
+		binary,
+		`#!${process.execPath}
+setTimeout(() => console.log('Logged in (via Devin).'), 10_500);
+`,
+	);
+	chmodSync(binary, 0o700);
+	expect(devinAvailability(binary)).toEqual({ available: true });
+}, 15_000);
+
+test("Devin distinguishes a timed-out probe from logged-out and missing installations", () => {
+	const dir = temporary();
+	const binary = join(dir, "devin");
+	writeFileSync(
+		binary,
+		`#!${process.execPath}
+console.log('Logged in (via Devin).');
+setInterval(() => {}, 1000);
+`,
+	);
+	chmodSync(binary, 0o700);
+	expect(devinAvailability(binary, 1000)).toEqual({
+		available: false,
+		reason: "Devin auth status probe timed out after 1000 ms",
+	});
+	expect(devinAvailability(join(dir, "missing"))).toEqual({
+		available: false,
+		reason: "Devin executable not found",
+	});
+});
+
+test.each([
+	[
+		"console.error('provider failure'); process.exit(2);",
+		"Devin auth status probe failed (exit 2)",
+	],
+	["console.log('Welcome');", "Devin auth status did not confirm a login"],
+	[
+		"console.log('Logged in'); console.error('Not authenticated');",
+		"Devin is logged out",
+	],
+])("Devin rejects unconfirmed status: %s", (body, reason) => {
+	const binary = join(temporary(), "devin");
+	writeFileSync(binary, `#!${process.execPath}\n${body}\n`);
+	chmodSync(binary, 0o700);
+	expect(devinAvailability(binary)).toEqual({ available: false, reason });
 });
 
 test("ACP reports a busy recorded session without launching a model prompt", async () => {
