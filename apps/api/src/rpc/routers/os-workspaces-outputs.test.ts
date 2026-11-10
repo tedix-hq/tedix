@@ -629,6 +629,26 @@ describe("outputs", () => {
 			data: { expectedRevision: 1, currentRevision: 2 },
 		});
 
+		// A stale save that touched a different slide merges instead.
+		const merged = await c.org1.outputs.revise({
+			outputId: output.id,
+			content: {
+				kind: "presentation",
+				slides: [{ title: "Q3 results", bullets: ["Revenue"] }],
+			},
+			expectedRevision: 1,
+		});
+		expect(merged.revision).toMatchObject({
+			revision: 3,
+			note: "Saved · merged with revision 2",
+		});
+		expect(merged.revision.content).toMatchObject({
+			slides: [
+				{ title: "Q3 results", bullets: ["Revenue", "Churn"] },
+				{ title: "Q4 plan", bullets: [] },
+			],
+		});
+
 		// The format is fixed at creation.
 		await expect(
 			c.org1.outputs.revise({
@@ -638,7 +658,7 @@ describe("outputs", () => {
 		).rejects.toMatchObject({ code: "BAD_REQUEST" });
 
 		const fetched = await c.org1.outputs.get({ outputId: output.id });
-		expect(fetched.currentRevision.revision).toBe(2);
+		expect(fetched.currentRevision.revision).toBe(3);
 		await expect(
 			c.org2.outputs.get({ outputId: output.id }),
 		).rejects.toMatchObject({ code: "NOT_FOUND" });

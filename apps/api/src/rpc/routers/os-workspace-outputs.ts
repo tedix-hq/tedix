@@ -2,6 +2,7 @@ import { applyPresentationPatch } from "@tedix/api-contract/utils/presentation-p
 import { applyDocumentBlockPatch } from "@tedix/api-contract/utils/document-patch";
 import { normalizeOsOutputInput } from "@tedix/api-contract/utils/os-document";
 import { applySheetRange } from "@tedix/api-contract/utils/sheet-range";
+import { mergeOutputContent } from "@tedix/api-contract/utils/output-merge";
 import { getSkillRun } from "@tedix/db/queries/skill-runs";
 import {
 	getOrganizationProfile,
@@ -517,7 +518,7 @@ const outputsRevise = authorOs.outputs.revise.handler(
 				input.expectedRevision ?? 0,
 				base.revision,
 			);
-		const content = normalizeOutputBody(input.content);
+		let content = normalizeOutputBody(input.content);
 		if (content.kind !== output.kind) {
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
@@ -527,20 +528,41 @@ const outputsRevise = authorOs.outputs.revise.handler(
 		const creator = resolveCreator(context);
 		const accessEnvelope = await resolveAccessEnvelope(context);
 		const db = queryDb(context);
+		let expectedRevision =
+			input.expectedRevision ??
+			(input.expectedRevisionId ? base.revision : undefined);
+		let note = input.note ?? null;
+		if (
+			expectedRevision !== undefined &&
+			expectedRevision < base.revision &&
+			!input.expectedRevisionId
+		) {
+			const merged = await mergeStaleSave(
+				context,
+				output,
+				base,
+				expectedRevision,
+				content,
+				accessEnvelope,
+			);
+			if (merged) {
+				content = merged;
+				note = `${note ?? "Saved"} · merged with revision ${base.revision}`;
+				expectedRevision = base.revision;
+			}
+		}
 		const result = await createOsOutputRevision(db, {
 			id: crypto.randomUUID(),
 			organizationId: output.organizationId,
 			outputId: output.id,
 			expectedWorkspaceId: input.expectedWorkspaceId,
 			content: JSON.stringify(content),
-			note: input.note ?? null,
+			note,
 			createdByKind: creator.kind,
 			createdById: creator.id,
 			...resolveProducer(context),
 			accessEnvelope,
-			expectedRevision:
-				input.expectedRevision ??
-				(input.expectedRevisionId ? base.revision : undefined),
+			expectedRevision,
 		});
 		if (!result.ok) {
 			if (result.reason === "output_not_found") {
@@ -600,6 +622,38 @@ const outputsRestore = authorOs.outputs.restore.handler(
 		return { output: mapOsOutputRow(row) };
 	},
 );
+
+/**
+ * A save made from an older revision: merge it with what was saved since,
+ * when both edited different parts. Returns null when the edits overlap or the
+ * merge cannot be proven safe, and the caller answers with the usual conflict.
+ * The current revision must carry the same source requirements as this write,
+ * so a merge never moves content out from behind a stricter access check.
+ */
+async function mergeStaleSave(
+	context: BaseContext,
+	output: OsOutputRow,
+	current: OsOutputRevisionRow,
+	startedFrom: number,
+	mine: OsOutputContent,
+	accessEnvelope: string | null,
+): Promise<OsOutputContent | null> {
+	if (current.accessEnvelope !== accessEnvelope) return null;
+	const started = await getOsOutputRevisionByNumber(queryDb(context), {
+		organizationId: output.organizationId,
+		outputId: output.id,
+		revision: startedFrom,
+	});
+	if (!started || !(await canReadDerivedRevision(context, started)))
+		return null;
+	const base = OsOutputContentSchema.safeParse(JSON.parse(started.content));
+	const theirs = OsOutputContentSchema.safeParse(JSON.parse(current.content));
+	if (!base.success || !theirs.success) return null;
+	const merged = mergeOutputContent(base.data, mine, theirs.data);
+	if (!merged.ok) return null;
+	const checked = OsOutputContentSchema.safeParse(merged.content);
+	return checked.success ? checked.data : null;
+}
 
 /** Load the revision an output's current pointer names, or fail loudly. */
 async function requireCurrentOutputRevision(
