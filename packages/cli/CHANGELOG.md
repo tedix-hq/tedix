@@ -3,6 +3,16 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.21.5 — 2026-11-10
+
+### Patch Changes
+
+- A job waiting for a person is no longer stuck when its run timed out and the question was then cancelled or expired. The dispatcher looks at the job again and starts it, or asks a fresh question.
+- A Work item is no longer held for a person after three tries that never reached the agent, for example because the dispatcher crashed or the working copy was missing. Those tries are recorded as dispatcher faults, and the item is retried.
+- When the supervisor restarts the dispatchers, a dispatcher that is still preparing a job hands it back instead of starting the agent. The job keeps its try, and the new dispatcher picks it up.
+- A restarted dispatcher can reliably stop an agent run left behind by the previous one. It keeps trying for a few seconds to record each new run's process identity, reads it the same way every time on Linux, and logs why when it cannot prove a stuck process is its own.
+- A runner's log no longer grows without limit. Unchanged skip and wait reasons are logged once an hour, `dispatcher.log` rotates past 4 MB, and the supervisor trims each runner's log past 8 MB, marking where older lines were dropped.
+
 ## 0.21.4 — 2026-11-09
 
 ### Patch Changes
