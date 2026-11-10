@@ -182,6 +182,11 @@ export function deriveDelegationCapabilityPlan(input: {
 		/\b(?:search\s+(?:the\s+)?(?:web|internet)|search\s+online|(?:web|internet)\s+search|on\s+the\s+(?:web|internet)|latest\s+(?:stable\s+)?version\s+of)\b/i.test(
 			content,
 		) ||
+		// "Answer with cited sources" asks for outside sources, not just the
+		// records named in the request.
+		/\bcit(?:e|ed|ing)\s+(?:(?:your|the|its|public|external|web)\s+)*sources?\b/i.test(
+			content,
+		) ||
 		(/\blook\s+(?:(?:it|this|that|them)\s+)?up\b/i.test(content) &&
 			!/\b(?:work\s+items?|emails?|invoices?|repository|codebase)\b/i.test(
 				content,
@@ -194,6 +199,12 @@ export function deriveDelegationCapabilityPlan(input: {
 		tools.add("web_search");
 		tools.add("browser_markdown");
 		tools.add("browser_read_result");
+	} else if (card && webLookup) {
+		// Without native search the tedi may still reach the web through a
+		// connected app (for example a Firecrawl connection). Those callables
+		// differ per organization, so use the supervised ceiling instead of a
+		// plan that silently leaves the web out.
+		missingCapabilities.push("web.search");
 	}
 	if (urls.some((url) => !outputUrls.includes(url))) {
 		capabilities.push("page.read");

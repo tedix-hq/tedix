@@ -389,6 +389,28 @@ describe("request-derived capability plans", () => {
 		]);
 		expect(result.capabilityPlan?.missingCapabilities).toEqual([]);
 	});
+	it("gives sourced research on an Output a web reader, not only the Output", () => {
+		const userContent =
+			"Ask the Research tedi to read the evaluation research questions in Output 11111111-1111-4111-8111-111111111111 (https://os.example.com/outputs/11111111-1111-4111-8111-111111111111) and answer each question with cited sources. Read-only: do not edit the document or any Work item; reply here.";
+		const native = buildDelegationWorkOrder({
+			userContent,
+			card: { ...readerCard, webSearch: true },
+			route,
+		});
+		expect(native.capabilityPlan?.allowedToolIds).toEqual(
+			expect.arrayContaining(["os.get_os_output", "web_search"]),
+		);
+		expect(native.capabilityPlan?.missingCapabilities).toEqual([]);
+
+		// A connected web app (not native search) needs the supervised ceiling.
+		const connected = buildDelegationWorkOrder({
+			userContent,
+			card: readerCard,
+			route,
+		});
+		expect(connected.capabilityPlan).toBeUndefined();
+		expect(connected.capabilityPlanDecision?.reason).toContain("web.search");
+	});
 	it("grants output readback for an Output link when the planner chose a page reader", () => {
 		const result = buildDelegationWorkOrder({
 			userContent:
