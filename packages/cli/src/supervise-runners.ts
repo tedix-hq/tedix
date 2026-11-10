@@ -100,12 +100,23 @@ export interface ServeLike {
 export type ParseServe = (args: string[]) => ServeLike;
 export type RunLaunchctl = (args: string[]) => { status: number };
 
-/** The dispatcher directory name and the former LaunchAgent label suffix. */
+/**
+ * The dispatcher directory name and the former LaunchAgent label suffix. An
+ * any-local runner limited to a project or a repo serves only that slice of
+ * Work, so its key carries the scope and it conflicts only with runners
+ * serving the same scope; an unscoped one replaces the per-executor runners
+ * under their shared `org:any-local` lane.
+ */
 export function runnerKey(
-	runner: Pick<RunnerDuty, "organization" | "executor">,
+	runner: Pick<RunnerDuty, "organization" | "executor"> &
+		Partial<Pick<RunnerDuty, "project" | "repo">>,
 ) {
+	const lane =
+		runner.executor === "any-local" && (runner.project ?? runner.repo)
+			? `${runner.executor}:${runner.project ?? "-"}:${runner.repo ?? "-"}`
+			: runner.executor;
 	return createHash("sha256")
-		.update(`${runner.organization}:${runner.executor}`)
+		.update(`${runner.organization}:${lane}`)
 		.digest("hex")
 		.slice(0, 16);
 }
