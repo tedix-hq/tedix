@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { publishWorkspaceAction } from "@tedix/db/queries/workspace-feed/action-publication";
+import { publishOutputProjection } from "@tedix/db/queries/workspace-feed/output-publication";
 /**
  * Private workspaces: one member owns one; nobody else in the organization can
  * list, read, search, export or share it or its outputs. There is no admin
@@ -745,6 +746,18 @@ it("filters recorded workspace activity on the server and preserves safe action 
 	const env = createEnv();
 	const { workspace: privateWorkspace, team, teamOutput } = await seed(env);
 	const db = createDbQueryClient(env.DB);
+	// Shared-storage writes deliberately leave no object index. Model the object
+	// publisher explicitly so this test exercises artifact provenance filtering.
+	expect(await db.select().from(workspaceOutputIndex)).toEqual([]);
+	const [output] = await db
+		.select()
+		.from(osOutputs)
+		.where(eq(osOutputs.id, teamOutput.id));
+	const [revision] = await db
+		.select()
+		.from(osOutputRevisions)
+		.where(eq(osOutputRevisions.id, teamOutput.currentRevisionId!));
+	await publishOutputProjection(db, output!, revision!);
 	const publish = (workspaceId: string, id: string, revisionId?: string) =>
 		publishWorkspaceAction(db, {
 			organizationId: "org-1",
