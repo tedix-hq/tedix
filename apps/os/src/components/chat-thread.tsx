@@ -585,7 +585,7 @@ export function ChatThread({
 	// with the broad invalidation.
 	// The pump lease only; the reconnect signal below comes from this
 	// conversation's own stream, never from the worst-first aggregate.
-	const realtimeSurface = useRealtimeSurface({ conversationId });
+	useRealtimeSurface({ conversationId });
 	useEffect(() => {
 		toolFramesRef.current = new Map();
 		setToolFrameCount(0);
@@ -597,15 +597,17 @@ export function ChatThread({
 	// Degraded-mode polling: when the Cap'n Web stream cannot establish (WS
 	// blocked, server regression, a dev origin with no `/capn`), the connection
 	// manager flips `degraded` and accelerates the run-set reconciliation below
-	// plus transcript refetch. While the subscription is open its server-side
-	// run-set refresh owns reconciliation; the browser does not duplicate it.
+	// plus transcript refetch — live data keeps flowing, just on a cadence. A
+	// slower run-set reconciliation remains armed while any run is active even
+	// on a healthy stream, because child orphan settlement and other canonical
+	// projection changes do not necessarily emit a parent-run frame. This is the
+	// only event fallback: the SSE lane remains retired.
 	const realtimeDegraded = useRealtimeStatus().degraded;
 
 	const { isActive, activeRunIds, runSet } = useIsRunActive(
 		conversationId,
 		pendingRunId !== null,
 		realtimeDegraded,
-		realtimeSurface.status === "open",
 	);
 	const pendingRun = controllableRun(runSet, pendingRunId);
 	const steeringRunId =

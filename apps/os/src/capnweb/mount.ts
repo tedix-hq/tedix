@@ -42,11 +42,7 @@
  * these forwarded credentials plus the host-asserted tenant.
  */
 
-import {
-	callRpc,
-	RpcCallError,
-	serviceBindingFetch,
-} from "@tedix/api-client/internal";
+import { callRpc, serviceBindingFetch } from "@tedix/api-client/internal";
 import { newWebSocketRpcSession } from "capnweb";
 import {
 	CAPN_REQUEST_ERROR_NAME,
@@ -179,14 +175,9 @@ export async function mountCapnChat(
 		// service-binding claim, which would evaluate the call without the
 		// user's org context. apps/api proves membership in the asserted tenant.
 		await authorize();
-	} catch (error) {
+	} catch {
 		// Unauthenticated, foreign-org, and not-a-member all collapse to one
 		// refusal: tenant existence must not leak at the socket layer.
-		if (!(error instanceof RpcCallError) || ![401, 403].includes(error.status))
-			return refuse(
-				503,
-				"Workspace access is temporarily unavailable. Try again.",
-			);
 		return refuse(403, "You do not have access to this workspace.");
 	}
 	// Keep the server socket so a revoked idle session can actually be closed.
@@ -231,12 +222,8 @@ export async function mountCapnChat(
 		checking = true;
 		try {
 			await authorize();
-		} catch (error) {
-			if (
-				!stopped &&
-				error instanceof RpcCallError &&
-				[401, 403].includes(error.status)
-			) {
+		} catch {
+			if (!stopped) {
 				stop();
 				server.close(4003, "Organization access changed; reconnect.");
 			}

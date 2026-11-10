@@ -104,8 +104,12 @@ export const SUBSCRIBE_IDLE_DELAY_MS = 1_000;
 /** Pause after a failed pump turn before the same turn is retried. */
 export const SUBSCRIBE_ERROR_DELAY_MS = 2_000;
 /**
- * Consecutive non-transient poll failures tolerated before disposal. Transient
- * HTTP failures keep their cursors and retry with capped exponential backoff.
+ * Consecutive failed pump turns (upstream transport or a rejected receipt)
+ * tolerated before the subscription gives up. A single failure used to end the
+ * pump outright, which is the defect this bounds: apps/api restarting, one
+ * long-poll timing out, or one malformed page killed a live subscription while
+ * the browser's socket stayed healthy — so the UI went permanently stale with
+ * no error anywhere.
  */
 export const SUBSCRIBE_MAX_POLL_FAILURES = 5;
 /**
@@ -119,20 +123,6 @@ function isAccessDenied(error: unknown): boolean {
 	return (
 		error instanceof RpcCallError &&
 		(error.status === 401 || error.status === 403)
-	);
-}
-
-function isTransientReadFailure(error: unknown): boolean {
-	return (
-		error instanceof RpcCallError &&
-		(error.status === 429 || error.status >= 500)
-	);
-}
-
-function pollRetryDelay(failures: number): number {
-	return Math.min(
-		30_000,
-		SUBSCRIBE_ERROR_DELAY_MS * 2 ** Math.min(failures - 1, 4),
 	);
 }
 
@@ -598,9 +588,9 @@ export class SubscriptionCap extends RpcTarget implements CapnSubscriptionApi {
 	 *   peer is gone. A skipped frame is not lost: the client only advances its
 	 *   resume cursor for frames it actually received, so its liveness probe
 	 *   sees the lag and the reconnect's snapshot re-serves the gap.
-	 * - Failed poll turns retry the same cursor with capped backoff. Transient
-	 *   HTTP failures never exhaust the subscription; other failures end it at
-	 *   {@link SUBSCRIBE_MAX_POLL_FAILURES} consecutive turns.
+	 * - A failed poll turn (upstream transport, a rejected receipt) sleeps
+	 *   {@link SUBSCRIBE_ERROR_DELAY_MS} and retries the same turn. Only
+	 *   {@link SUBSCRIBE_MAX_POLL_FAILURES} consecutive failures end the pump.
 	 *
 	 * Each counter resets on the first success, so a long-lived subscription
 	 * that hiccups hourly never accumulates its way to death. When the pump does
@@ -708,15 +698,12 @@ export class SubscriptionCap extends RpcTarget implements CapnSubscriptionApi {
 					if (result.kind === "refresh-error") {
 						if (isAccessDenied(result.error)) throw result.error;
 						refreshFailures += 1;
-						if (
-							refreshFailures >= SUBSCRIBE_MAX_POLL_FAILURES &&
-							!isTransientReadFailure(result.error)
-						)
+						if (refreshFailures >= SUBSCRIBE_MAX_POLL_FAILURES)
 							throw result.error;
 						console.warn(
 							`capnweb subscription poll failed (${refreshFailures}/${SUBSCRIBE_MAX_POLL_FAILURES}): ${(result.error as Error).message}`,
 						);
-						scheduleRefresh(pollRetryDelay(refreshFailures));
+						scheduleRefresh(SUBSCRIBE_ERROR_DELAY_MS);
 						continue;
 					}
 
@@ -768,10 +755,7 @@ export class SubscriptionCap extends RpcTarget implements CapnSubscriptionApi {
 					if (isAccessDenied(result.error)) throw result.error;
 					const failures = (runPollFailures.get(result.runId) ?? 0) + 1;
 					runPollFailures.set(result.runId, failures);
-					if (
-						failures >= SUBSCRIBE_MAX_POLL_FAILURES &&
-						!isTransientReadFailure(result.error)
-					) {
+					if (failures >= SUBSCRIBE_MAX_POLL_FAILURES) {
 						if (result.runId === CAPN_CONVERSATION_STREAM_ID) {
 							// The conversation lane is supplementary: an API revision
 							// without the verb (or a persistent read fault on it) must
@@ -788,7 +772,7 @@ export class SubscriptionCap extends RpcTarget implements CapnSubscriptionApi {
 					console.warn(
 						`capnweb subscription poll failed (${failures}/${SUBSCRIBE_MAX_POLL_FAILURES}): ${(result.error as Error).message}`,
 					);
-					schedulePoll(result.runId, pollRetryDelay(failures));
+					schedulePoll(result.runId, SUBSCRIBE_ERROR_DELAY_MS);
 					continue;
 				}
 

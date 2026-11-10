@@ -20,9 +20,7 @@ export function runSetPollInterval(input: {
 	active: boolean;
 	forceActive: boolean;
 	realtimeDegraded: boolean;
-	realtimeOpen?: boolean;
 }): number | false {
-	if (input.realtimeOpen && !input.realtimeDegraded) return false;
 	return canonicalProjectionInterval({
 		active: input.active,
 		urgent: input.forceActive || (input.active && input.realtimeDegraded),
@@ -132,7 +130,6 @@ export function useIsRunActive(
 	conversationId: string | null,
 	forceActive = false,
 	realtimeDegraded = false,
-	realtimeOpen = false,
 ): {
 	isActive: boolean;
 	activeRunIds: string[];
@@ -143,12 +140,7 @@ export function useIsRunActive(
 		enabled: conversationId !== null,
 		refetchInterval: (current) => {
 			const active = (current.state.data?.runSet.activeRunIds.length ?? 0) > 0;
-			return runSetPollInterval({
-				active,
-				forceActive,
-				realtimeDegraded,
-				realtimeOpen,
-			});
+			return runSetPollInterval({ active, forceActive, realtimeDegraded });
 		},
 	});
 	const activeRunIds = query.data?.runSet.activeRunIds ?? [];
