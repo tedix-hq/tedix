@@ -88,6 +88,41 @@ describe("the runners file", () => {
 		expect(() => readRunnerDuties(env)).toThrow("absolute");
 	});
 
+	test("keys an any-local duty by its project and repo scope", () => {
+		const env = { TEDIX_CONFIG_DIR: config };
+		// Per-executor lanes stay organization-wide even with a project filter.
+		expect(runnerKey(runner({ executor: "codex", project: PROJECT }))).toBe(
+			runnerKey(runner()),
+		);
+		const lanes = [
+			runner({ executor: "any-local" }),
+			runner({ executor: "any-local", project: PROJECT }),
+			runner({
+				executor: "any-local",
+				project: PROJECT,
+				repo: "/repo/ops",
+			}),
+		].map(runnerKey);
+		expect(new Set(lanes).size).toBe(3);
+		// Differently scoped any-local duties run beside each other; an identical
+		// scope replaces.
+		expect(
+			writeRunnerDuty(env, runner({ executor: "any-local" })).replaced,
+		).toBe(false);
+		expect(
+			writeRunnerDuty(env, runner({ executor: "any-local", project: PROJECT }))
+				.replaced,
+		).toBe(false);
+		expect(readRunnerDuties(env)).toHaveLength(2);
+		expect(
+			writeRunnerDuty(
+				env,
+				runner({ executor: "any-local", project: PROJECT, max: 2 }),
+			).replaced,
+		).toBe(true);
+		expect(readRunnerDuties(env)).toHaveLength(2);
+	});
+
 	test("lane serve --install writes a duty and says what the supervisor will do", () => {
 		const env = { TEDIX_CONFIG_DIR: config };
 		const lines: string[] = [];
@@ -383,6 +418,53 @@ describe("running the dispatchers", () => {
 				pid: 101,
 			},
 		]);
+	});
+
+	test("a project- and repo-scoped any-local runner passes beside the org-wide runners", () => {
+		const f = setup();
+		const scoped = runner({
+			executor: "any-local",
+			project: PROJECT,
+			repo: "/repo/ops",
+		});
+		f.write([
+			runner(),
+			runner({ executor: "claude-code" }),
+			runner({ executor: "opencode" }),
+			runner({ executor: "devin" }),
+			scoped,
+		]);
+		f.duties.tick();
+		expect(f.spawned).toHaveLength(5);
+		const lane = f.spawned[4]!;
+		expect(lane.args).toEqual(
+			expect.arrayContaining(["--project", PROJECT, "--repo", "/repo/ops"]),
+		);
+		// The scoped runner reports under its own dispatcher lane.
+		const directory = join(config, "dispatchers", runnerKey(scoped));
+		mkdirSync(directory, { recursive: true });
+		writeDispatcherHealthSource(
+			directory,
+			{
+				scope: ["--organization", "org_fixture", "--workspace", "fixture"],
+				executor: "any-local",
+				max: 4,
+			},
+			lane.pid,
+		);
+		const pass = () =>
+			recordDispatcherNextCheck(
+				directory,
+				new Date(f.now() + 30_000).toISOString(),
+				lane.pid,
+			);
+		for (let i = 0; i < RUNNER_PASS_GRACE_MS / 30_000 + 4; i++) {
+			pass();
+			f.advance(30_000);
+			f.duties.tick();
+		}
+		expect(lane.signal).toBeUndefined();
+		expect(f.lines.join("\n")).not.toContain("any-local missed");
 	});
 
 	test("a runner that never passes since starting, e.g. waiting on a draining lock holder, is restarted", () => {

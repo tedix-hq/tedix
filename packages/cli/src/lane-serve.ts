@@ -81,6 +81,7 @@ import { laneChildEnv } from "./lane-child-env";
 import { laneProcessIdentity, reapLaneProcess } from "./lane-process-recovery";
 import { unpushedLaneCommits } from "./lane-unpushed";
 import { beginFileLock } from "./local-file-lock";
+import { runnerKey } from "./supervise-runners";
 import { inDarkWake } from "./oauth-provider";
 import { runLaneProcess, reportLaneObservation } from "./lane-run";
 import type { LaneObservation } from "./lane-telemetry";
@@ -396,6 +397,8 @@ export interface ServeOptions {
 	idleTakeoverMinutes?: number;
 	rules: string;
 	repo: string;
+	/** True when `--repo` was passed; an explicit repo scopes an any-local lane. */
+	repoSpecified?: boolean;
 	scope: string[];
 	install: boolean;
 	once: boolean;
@@ -473,7 +476,10 @@ export function parseServeOptions(
 		if (key === "--routing-config") result.routingConfig = resolve(value);
 		if (key === "--project") result.project = value;
 		if (key === "--rules") result.rules = value;
-		if (key === "--repo") result.repo = resolve(value);
+		if (key === "--repo") {
+			result.repo = resolve(value);
+			result.repoSpecified = true;
+		}
 		if (["-w", "--workspace", "--organization"].includes(key))
 			result.scope.push(key === "-w" ? "--workspace" : key, value);
 	}
@@ -4351,10 +4357,18 @@ export async function runLaneServe(args: string[]): Promise<number> {
 	const options = parseServeOptions(args);
 	if (options.install) return installLaneService(options);
 	const org = options.scope[options.scope.indexOf("--organization") + 1]!;
-	const key = createHash("sha256")
-		.update(`${org}:${options.executor}`)
-		.digest("hex")
-		.slice(0, 16);
+	// An any-local runner limited to a project or a repo serves only that slice
+	// of Work; it keys, locks and reports under its scope so it runs beside the
+	// per-executor runners instead of waiting to replace them.
+	const scoped =
+		options.executor === "any-local" &&
+		(options.project !== undefined || options.repoSpecified === true);
+	const key = runnerKey({
+		organization: org,
+		executor: options.executor,
+		project: options.project,
+		repo: scoped ? options.repo : undefined,
+	});
 	const directory = join(
 		process.env.TEDIX_CONFIG_DIR || join(homedir(), ".tedix"),
 		"dispatchers",
@@ -4374,14 +4388,12 @@ export async function runLaneServe(args: string[]): Promise<number> {
 	try {
 		const waiting = new Set<number>();
 		// Acquire in the same order so overlapping any-local runners cannot deadlock.
-		for (const executor of options.executor === "any-local"
-			? [...localExecutors, "any-local"]
-			: [options.executor]) {
-			const executorKey = createHash("sha256")
-				.update(`${org}:${executor}`)
-				.digest("hex")
-				.slice(0, 16);
-			const lock = beginFileLock(join(directory, "..", executorKey, "lock"));
+		for (const lockKey of options.executor === "any-local" && !scoped
+			? [...localExecutors, "any-local" as const].map((executor) =>
+					runnerKey({ organization: org, executor }),
+				)
+			: [key]) {
+			const lock = beginFileLock(join(directory, "..", lockKey, "lock"));
 			locks.push(lock);
 			while (!stopping && !lock.ready()) {
 				for (const pid of lock.blockingPids()) {
@@ -4397,7 +4409,8 @@ export async function runLaneServe(args: string[]): Promise<number> {
 		}
 		writeDispatcherHealthSource(directory, options);
 		dispatcher = new LaneDispatcher(options, directory);
-		if (options.executor === "any-local")
+		// Only a runner that takes over the per-executor lanes adopts their receipts.
+		if (options.executor === "any-local" && !scoped)
 			mergeDispatcherReceipts(
 				directory,
 				localExecutors.map((executor) =>

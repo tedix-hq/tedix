@@ -38,6 +38,7 @@ import {
 import {
 	runnerDutyFromPlist,
 	runnerDutyFromServeOptions,
+	runnerKey,
 	runnerServeArgs,
 } from "./supervise-runners";
 import {
@@ -522,7 +523,11 @@ async function until(test: () => boolean) {
 }
 
 describe("dispatcher lock handoff", () => {
-	function handoff(executor = "codex") {
+	function handoff(
+		executor = "codex",
+		serveArgs: string[] = [],
+		before?: (directory: string) => void,
+	) {
 		const directory = mkdtempSync(join(tmpdir(), "lane-handoff-"));
 		dirs.push(directory);
 		const previous = process.env.TEDIX_CONFIG_DIR;
@@ -544,13 +549,18 @@ describe("dispatcher lock handoff", () => {
 			process.listenerCount("SIGTERM"),
 			process.listenerCount("SIGINT"),
 		] as const;
+		// Locks are taken synchronously on serve start, so a blocking claim must
+		// exist before runLaneServe is invoked.
+		before?.(directory);
 		const running = runLaneServe([
 			"--executor",
 			executor,
 			"--once",
+			...serveArgs,
 			...options.scope,
 		]);
 		return {
+			directory,
 			predecessor,
 			tick,
 			stderr,
@@ -614,6 +624,74 @@ describe("dispatcher lock handoff", () => {
 		} finally {
 			await f.cleanup();
 		}
+	});
+	describe("a scoped any-local runner", () => {
+		const repo = "/fictional/ops-checkout";
+		const scopedKey = () =>
+			runnerKey({
+				organization: "org_acme",
+				executor: "any-local",
+				project: projectId,
+				repo,
+			});
+		it("passes beside the per-executor runners without touching their locks", async () => {
+			const f = handoff("any-local", ["--project", projectId, "--repo", repo]);
+			const peers = ["claude-code", "opencode", "devin"].map((executor) =>
+				beginFileLock(f.lockDirectory(executor)),
+			);
+			try {
+				expect(await f.running).toBe(0);
+				expect(f.tick).toHaveBeenCalledTimes(1);
+				expect(f.stderr.mock.calls).toEqual([]);
+				for (const executor of ["codex", "claude-code", "opencode", "devin"])
+					expect(readdirSync(f.lockDirectory(executor))).toHaveLength(1);
+				const lane = join(f.directory, "dispatchers", scopedKey());
+				expect(existsSync(join(lane, "health-source.json"))).toBe(true);
+				expect(readdirSync(join(lane, "lock"))).toEqual([]);
+			} finally {
+				for (const peer of peers) peer.release();
+				await f.cleanup();
+			}
+		});
+		it("waits for a runner holding the same scoped lock", async () => {
+			let peer!: ReturnType<typeof beginFileLock>;
+			const f = handoff(
+				"any-local",
+				["--project", projectId, "--repo", repo],
+				(directory) => {
+					peer = beginFileLock(
+						join(directory, "dispatchers", scopedKey(), "lock"),
+					);
+				},
+			);
+			try {
+				await new Promise((done) => setTimeout(done, 550));
+				expect(f.tick).not.toHaveBeenCalled();
+				peer.release();
+				expect(await f.running).toBe(0);
+				expect(f.tick).toHaveBeenCalledTimes(1);
+			} finally {
+				peer.release();
+				await f.cleanup();
+			}
+		});
+		it("leaves per-executor receipts for the runners they belong to", async () => {
+			const f = handoff("any-local", ["--project", projectId, "--repo", repo]);
+			const receipt = "22222222-2222-4222-8222-222222222222-1.json";
+			writeFileSync(join(f.lockDirectory("codex"), "..", receipt), "{}");
+			try {
+				expect(await f.running).toBe(0);
+				expect(f.tick).toHaveBeenCalledTimes(1);
+				expect(existsSync(join(f.lockDirectory("codex"), "..", receipt))).toBe(
+					true,
+				);
+				expect(
+					existsSync(join(f.directory, "dispatchers", scopedKey(), receipt)),
+				).toBe(false);
+			} finally {
+				await f.cleanup();
+			}
+		});
 	});
 });
 

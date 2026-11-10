@@ -464,8 +464,11 @@ capabilities or authorities. Activity reports current idle blockers; incomplete
 or stale observations remain unknown. This requires the matching API update.
 `--executor any-local` serves all four
 with one shared slot limit and routes Work assigned to `metadata.executor: "any-local"`.
-Stop the individual services before switching;
-the combined service preserves their retained receipts and running process slots. `--project` is optional;
+Without `--project` or `--repo` it replaces the per-executor services: stop
+them before switching; the combined service preserves their retained receipts
+and running process slots. With `--project`, `--repo`, or both it serves only
+that slice beside them under its own dispatcher lane, and a same-scoped
+runner is the only one it waits for. `--project` is optional;
 workspace and organization are pinned explicitly. Rules default to the organization's
 `lane-rules` skill; `--rules` selects another skill by UUID or slug. Set the executor on a Work
 item or post it through the Work workspace app (`tedix:app/work`, config
