@@ -4,7 +4,24 @@ import type {
 	OsRichTextNode,
 	OsWorkbookCell,
 } from "../schemas/os-workspaces";
-import { mergeOutputContent } from "./output-merge";
+import { blocksFromRichText } from "./os-document";
+import {
+	mergeOutputContent as mergeWith,
+	type OutputMergePreference,
+} from "./output-merge";
+import { projectPresentationDeck } from "./presentation-patch";
+
+const mergeOutputContent = (
+	base: OsOutputContent,
+	mine: OsOutputContent,
+	theirs: OsOutputContent,
+	prefer?: OutputMergePreference,
+) =>
+	mergeWith(base, mine, theirs, {
+		prefer,
+		documentBlocks: blocksFromRichText,
+		presentationSlides: projectPresentationDeck,
+	});
 
 type Sheet = Extract<OsOutputContent, { kind: "sheet" }>;
 type Deck = Extract<OsOutputContent, { kind: "presentation" }>;
@@ -309,5 +326,63 @@ describe("mergeOutputContent: identities", () => {
 
 	it("refuses mismatched kinds and videos", () => {
 		expect(mergeOutputContent(grid(), doc(["a"]), grid()).ok).toBe(false);
+	});
+});
+
+describe("mergeOutputContent: choosing a side for overlapping edits", () => {
+	it("keeps every non-overlapping edit and takes the chosen side on the overlap", () => {
+		const base = grid();
+		const mine = setCell(setCell(base, 2, 1, "mine"), 0, 0, "only mine");
+		const theirs = setCell(setCell(base, 2, 1, "theirs"), 4, 2, "only theirs");
+		const keepMine = mergeOutputContent(base, mine, theirs, "mine");
+		const keepTheirs = mergeOutputContent(base, mine, theirs, "theirs");
+		const inputs = (result: typeof keepMine) => {
+			if (!result.ok) throw new Error("expected a merge");
+			const rows = (result.content as Sheet).workbook!.sheets[0]!.rows;
+			return [rows[2]![1]!.input, rows[0]![0]!.input, rows[4]![2]!.input];
+		};
+		expect(inputs(keepMine)).toEqual(["mine", "only mine", "only theirs"]);
+		expect(inputs(keepTheirs)).toEqual(["theirs", "only mine", "only theirs"]);
+		expect(keepMine.conflicts.length).toBeGreaterThan(0);
+	});
+
+	it("keeps a slide the chosen side edited after the other deleted it", () => {
+		const base = deck([
+			{ id: "one", title: "One" },
+			{ id: "two", title: "Two" },
+			{ id: "three", title: "Three" },
+		]);
+		const mine = structuredClone(base);
+		mine.deck!.slides.splice(1, 1);
+		const theirs = structuredClone(base);
+		theirs.deck!.slides[1]!.elements[0]!.text = "Two, edited";
+		const kept = mergeOutputContent(base, mine, theirs, "theirs");
+		if (!kept.ok) throw new Error("expected a merge");
+		expect((kept.content as Deck).slides.map((slide) => slide.title)).toEqual([
+			"One",
+			"Two, edited",
+			"Three",
+		]);
+		const dropped = mergeOutputContent(base, mine, theirs, "mine");
+		if (!dropped.ok) throw new Error("expected a merge");
+		expect(
+			(dropped.content as Deck).slides.map((slide) => slide.title),
+		).toEqual(["One", "Three"]);
+	});
+
+	it("takes the chosen paragraph text", () => {
+		const base = doc(["a", "b"]);
+		const result = mergeOutputContent(
+			base,
+			doc(["a", "b mine"]),
+			doc(["a theirs", "b theirs"]),
+			"mine",
+		);
+		if (!result.ok) throw new Error("expected a merge");
+		expect(
+			(result.content as Doc).richText!.content.map(
+				(node) => node.content?.[0]?.text,
+			),
+		).toEqual(["a theirs", "b mine"]);
 	});
 });

@@ -38,6 +38,11 @@ import {
 	resizeRow,
 	sortRange,
 } from "../lib/workbook-structure";
+import {
+	mergeOutputContent,
+	type OutputMergePreference,
+} from "@tedix/api-contract/utils/output-merge";
+import { showMergeChoice } from "./merge-choice";
 
 type Content = Extract<OsOutputContent, { kind: "sheet" }>;
 type Saved = {
@@ -85,7 +90,9 @@ export async function mountSheetClient(
 		basis = 0,
 		available = false,
 		destroyed = false,
-		workspaceId = "";
+		workspaceId = "",
+		// A newer saved revision that overlaps the draft, waiting for a choice.
+		choice = 0;
 	let selection: Selection = {
 			anchor: { row: 0, column: 0 },
 			focus: { row: 0, column: 0 },
@@ -1391,6 +1398,10 @@ export async function mountSheetClient(
 			controls();
 			return;
 		}
+		if (dirty && choice > basis) {
+			showMergeChoice(updates, choice, (prefer) => void mergeLatest(prefer));
+			return;
+		}
 		const current = Math.max(pendingRevision, loaded.revision.revision);
 		if (current <= basis) {
 			pendingRevision = 0;
@@ -1402,13 +1413,80 @@ export async function mountSheetClient(
 			current +
 			" is available." +
 			(dirty || formulaDirty || editing
-				? " Your unsaved edits are preserved. Save still checks revision " +
-					basis +
-					". Reload to review the saved sheet."
+				? " Your unsaved edits are preserved and merge with it once you finish editing the cell."
 				: " Loading the saved sheet…");
-		if (dirty || formulaDirty || editing) return;
+		if (dirty || formulaDirty || editing) {
+			if (!formulaDirty && !editing && current > choice) void mergeLatest();
+			return;
+		}
 		pendingRevision = 0;
 		void load();
+	}
+	/**
+	 * Bring someone else's newer save into the unsaved sheet. Only a draft
+	 * started from the revision this editor loaded can merge here; an older
+	 * retained draft merges on the server when it is saved.
+	 */
+	async function mergeLatest(prefer?: OutputMergePreference) {
+		if (
+			!loaded ||
+			!draft ||
+			!dirty ||
+			formulaDirty ||
+			editing ||
+			busy ||
+			destroyed ||
+			retainedConflict ||
+			basis !== loaded.revision.revision
+		)
+			return;
+		busy = true;
+		clearTimeout(calcTimer);
+		generation++;
+		controls();
+		try {
+			const latest = parse(await readSheet());
+			if (destroyed) return;
+			// Never retry in a loop: the next change notice or save tries again.
+			pendingRevision = 0;
+			if (latest.revision.revision <= basis) return;
+			const evaluate = (content: Content) =>
+				bridge.call<Content>("sheet.evaluate", { content });
+			const [base, theirs] = await Promise.all([
+				evaluate(loaded.revision.content),
+				evaluate(latest.revision.content),
+			]);
+			const result = mergeOutputContent(base, draft, theirs, { prefer });
+			if (!result.ok) {
+				choice = latest.revision.revision;
+				return;
+			}
+			const merged = await evaluate(result.content as Content);
+			if (destroyed) return;
+			choice = 0;
+			loaded = latest;
+			basis = latest.revision.revision;
+			draft = merged;
+			// Undo steps were taken against the old sheet; replaying them would
+			// silently revert the other person's changes.
+			undo.length = redo.length = 0;
+			render();
+			message(
+				`Unsaved changes · merged with revision ${basis}${prefer ? `; kept ${prefer === "mine" ? "your" : "their"} version where you both edited` : ""}`,
+			);
+			void retainDraft();
+		} catch (error) {
+			pendingRevision = 0;
+			message(
+				(error instanceof Error ? error.message : String(error)) +
+					". Your draft is still here.",
+				true,
+			);
+		} finally {
+			busy = false;
+			controls();
+			external();
+		}
 	}
 	async function load(discardDraft = false) {
 		busy = true;
@@ -1419,6 +1497,7 @@ export async function mountSheetClient(
 			const result = parse(await readSheet());
 			if (destroyed) return;
 			loaded = result;
+			choice = 0;
 			let retained: RetainedDraft | null = null;
 			if (canEdit) {
 				if (discardDraft) await draftOperation("app.draft.clear", draftArgs());

@@ -131,12 +131,20 @@ function fixture(role = "owner") {
 		content: (next: DocumentContent) => {
 			content = next;
 		},
-		external(text: string, source: MessageEventSource | null = window.parent) {
+		external(
+			text: string | OsRichTextDocument,
+			source: MessageEventSource | null = window.parent,
+		) {
 			revision++;
-			richText = {
-				type: "doc",
-				content: [{ type: "paragraph", content: [{ type: "text", text }] }],
-			};
+			richText =
+				typeof text === "string"
+					? {
+							type: "doc",
+							content: [
+								{ type: "paragraph", content: [{ type: "text", text }] },
+							],
+						}
+					: text;
 			content = {
 				kind: "document",
 				richText,
@@ -341,6 +349,42 @@ describe("portable rich Doc client", () => {
 		await vi.waitFor(() => expect(root.textContent).toContain("Source denied"));
 		expect(root.querySelector<HTMLElement>(".doc-page")!.hidden).toBe(true);
 		expect(editor.isEditable).toBe(false);
+	});
+	it("merges someone else's save into a draft that changed another paragraph", async () => {
+		const test = fixture(),
+			{ root, editor, mounted } = await test.mount();
+		const second = editor.state.doc.child(0).nodeSize + 1;
+		editor.commands.insertContentAt(second, "Mine: ");
+		const saved = test.persisted().richText!;
+		test.external({
+			...saved,
+			content: [
+				{ type: "paragraph", content: [{ type: "text", text: "Theirs" }] },
+				saved.content[1]!,
+			],
+		});
+		await vi.waitFor(() =>
+			expect(root.textContent).toContain("merged with document revision 5"),
+		);
+		expect(editor.getText()).toContain("Theirs");
+		expect(editor.getText()).toContain("Mine: Keep formatting");
+		await mounted.save();
+		const merged = test.persisted().richText!.content;
+		expect(merged[0]!.content![0]!.text).toBe("Theirs");
+		expect(merged[1]!.content![0]!.text).toBe("Mine: Keep formatting");
+		expect(merged[1]!.attrs).toMatchObject({ textAlign: "right", indent: 2 });
+	});
+	it("asks which version to keep when both edited the same paragraph", async () => {
+		const test = fixture(),
+			{ root, editor } = await test.mount();
+		editor.commands.insertContentAt(1, "Mine ");
+		test.external("Theirs");
+		await vi.waitFor(() => expect(root.textContent).toContain("Keep mine"));
+		click(root, "Use theirs");
+		await vi.waitFor(() =>
+			expect(root.textContent).toContain("kept their version"),
+		);
+		expect(editor.getText()).toBe("Theirs");
 	});
 	it("keeps read-only users out of editing and reports oversized saves without dropping the draft", async () => {
 		const readonly = fixture("use"),

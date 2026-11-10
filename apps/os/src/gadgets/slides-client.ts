@@ -37,6 +37,11 @@ import {
 	type PresentationContent,
 } from "./slides-engine";
 import { SLIDES_CSS } from "./slides-style";
+import {
+	mergeOutputContent,
+	type OutputMergePreference,
+} from "@tedix/api-contract/utils/output-merge";
+import { showMergeChoice } from "./merge-choice";
 
 export interface SlidesClientBridge {
 	call<T = unknown>(method: string, args?: unknown): Promise<T>;
@@ -101,7 +106,9 @@ export async function mountSlidesClient(
 		available = false,
 		destroyed = false,
 		discardPending = false,
-		pendingRevision = 0;
+		pendingRevision = 0,
+		// A newer saved revision that overlaps the draft, waiting for a choice.
+		choice = 0;
 	let draftWrites: Promise<void> = Promise.resolve();
 	let history: OsPresentationDeck[] = [],
 		future: OsPresentationDeck[] = [];
@@ -848,6 +855,7 @@ export async function mountSlidesClient(
 			const value = parse(await read());
 			if (destroyed) return;
 			loaded = value;
+			choice = 0;
 			let retained: RetainedDraft | null = null;
 			if (editable) {
 				if (discard) await clearDraft();
@@ -952,15 +960,86 @@ export async function mountSlidesClient(
 	}
 	function refreshExternal() {
 		if (!loaded || busy || destroyed) return;
+		if (dirty && choice > basis)
+			return showMergeChoice(
+				updates,
+				choice,
+				(prefer) => void mergeLatest(prefer),
+			);
 		if (pendingRevision <= basis) {
 			pendingRevision = 0;
 			updates.textContent = "";
 			return;
 		}
-		updates.textContent = `Revision ${pendingRevision} is available.${dirty ? " Your canvas draft is preserved. Reload to review the saved presentation." : " Loading saved presentation…"}`;
+		updates.textContent = `Revision ${pendingRevision} is available.${dirty ? " Your canvas draft is preserved; it merges with the saved presentation." : " Loading saved presentation…"}`;
 		if (!dirty) {
 			pendingRevision = 0;
 			void load();
+		} else if (pendingRevision > choice) void mergeLatest();
+	}
+	/**
+	 * Bring someone else's newer save into the unsaved canvas. Only a draft
+	 * started from the revision this editor loaded can merge here; an older
+	 * retained draft merges on the server when it is saved.
+	 */
+	async function mergeLatest(prefer?: OutputMergePreference) {
+		if (
+			!loaded ||
+			!deck ||
+			!dirty ||
+			busy ||
+			destroyed ||
+			pointer ||
+			editing ||
+			basis !== loaded.revision.revision
+		)
+			return;
+		busy = true;
+		controls();
+		try {
+			const latest = parse(await read());
+			if (destroyed) return;
+			// Never retry in a loop: the next change notice or save tries again.
+			pendingRevision = 0;
+			if (latest.revision.revision <= basis) return;
+			const result = mergeOutputContent(
+				normalizePresentationContent(loaded.revision.content),
+				projectDeck(deck),
+				normalizePresentationContent(latest.revision.content),
+				{ prefer, presentationSlides: (merged) => projectDeck(merged).slides },
+			);
+			if (!result.ok) {
+				choice = latest.revision.revision;
+				return;
+			}
+			choice = 0;
+			loaded = latest;
+			basis = latest.revision.revision;
+			deck = structuredClone(
+				normalizePresentationContent(result.content as PresentationContent)
+					.deck!,
+			);
+			// Undo steps were taken against the old canvas; replaying them would
+			// silently revert the other person's changes.
+			history = [];
+			future = [];
+			find(".slides-meta").textContent =
+				`Presentation revision ${basis} · Slides canvas`;
+			message(
+				`Unsaved changes · merged with revision ${basis}${prefer ? `; kept ${prefer === "mine" ? "your" : "their"} version where you both edited` : ""}`,
+			);
+			render();
+			void retainDraft();
+		} catch (error) {
+			message(
+				`${error instanceof Error ? error.message : String(error)}. Your canvas draft is preserved.`,
+				true,
+			);
+			pendingRevision = 0;
+		} finally {
+			busy = false;
+			controls();
+			refreshExternal();
 		}
 	}
 	const onMessage = (event: MessageEvent) => {

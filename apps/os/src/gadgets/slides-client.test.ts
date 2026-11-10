@@ -489,6 +489,32 @@ describe("portable Slides canvas", () => {
 			).toBe("External title"),
 		);
 	});
+	it("merges someone else's save into unsaved notes and saves both", async () => {
+		const api = await mount();
+		const notes = document.querySelector<HTMLTextAreaElement>("#notes")!;
+		notes.value = "Merged speaker note";
+		notes.dispatchEvent(new Event("change"));
+		api.external();
+		api.notify();
+		await vi.waitFor(() =>
+			expect(document.querySelector(".slides-status")?.textContent).toContain(
+				"merged with revision",
+			),
+		);
+		expect(
+			document.querySelector('.slides-stage [data-element-id="title-1"]')
+				?.textContent,
+		).toBe("External title");
+		button("save").click();
+		await vi.waitFor(() =>
+			expect(api.result().revision.content.deck!.slides[0]!.notes).toBe(
+				"Merged speaker note",
+			),
+		);
+		expect(
+			api.result().revision.content.deck!.slides[0]!.elements[0],
+		).toMatchObject({ id: "title-1", text: "External title" });
+	});
 	it("clears the visible canvas and disables presentation after source authority is denied", async () => {
 		const api = await mount();
 		api.deny();

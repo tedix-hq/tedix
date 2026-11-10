@@ -12,6 +12,11 @@ import type {
 	OsRichTextDocument,
 	OsRichTextNode,
 } from "@tedix/api-contract/schemas/os-workspaces";
+import {
+	mergeOutputContent,
+	type OutputMergePreference,
+} from "@tedix/api-contract/utils/output-merge";
+import { showMergeChoice } from "./merge-choice";
 
 type DocumentContent = Extract<OsOutputContent, { kind: "document" }>;
 type Context = {
@@ -93,7 +98,9 @@ export async function mountDocClient(
 		available = false,
 		discardPending = false,
 		pendingRevision = 0,
-		destroyed = false;
+		destroyed = false,
+		// A newer saved revision that overlaps the draft, waiting for a choice.
+		choice = 0;
 	const buttons: {
 		button: HTMLButtonElement;
 		active?: () => boolean;
@@ -170,10 +177,85 @@ export async function mountDocClient(
 	}
 	function updateNotice() {
 		const revision = Math.max(pendingRevision, loaded?.revision.revision ?? 0);
+		if (dirty && choice > basis)
+			return showMergeChoice(
+				updates,
+				choice,
+				(prefer) => void mergeLatest(prefer),
+			);
 		updates.textContent =
 			dirty && revision > basis
 				? `Document revision ${revision} is available. Your draft stays based on revision ${basis}; save still checks that revision.`
 				: "";
+	}
+	/**
+	 * Bring someone else's newer save into the unsaved draft. Only a draft
+	 * started from the revision this editor loaded can merge here; an older
+	 * retained draft merges on the server when it is saved.
+	 */
+	async function mergeLatest(prefer?: OutputMergePreference) {
+		if (
+			!loaded ||
+			!draft ||
+			!editor ||
+			!dirty ||
+			busy ||
+			destroyed ||
+			basis !== loaded.revision.revision
+		)
+			return;
+		busy = true;
+		controls();
+		try {
+			const latest = parse(await read());
+			if (destroyed || latest.revision.revision <= basis) return;
+			// Compare documents the way this editor writes them.
+			const normal = (content: DocumentContent): DocumentContent =>
+				content.richText
+					? {
+							...content,
+							richText: editor!.schema
+								.nodeFromJSON(content.richText)
+								.toJSON() as OsRichTextDocument,
+						}
+					: content;
+			const result = mergeOutputContent(
+				normal(loaded.revision.content),
+				normal(draft),
+				normal(latest.revision.content),
+				{ prefer, documentBlocks: blocksFromRichText },
+			);
+			if (!result.ok) {
+				choice = latest.revision.revision;
+				return;
+			}
+			choice = 0;
+			const { from, to } = editor.state.selection;
+			loaded = latest;
+			basis = latest.revision.revision;
+			draft = result.content as DocumentContent;
+			renderContent();
+			const end = editor.state.doc.content.size;
+			editor.commands.setTextSelection({
+				from: Math.min(from, end),
+				to: Math.min(to, end),
+			});
+			get(".doc-meta").textContent =
+				`Document revision ${basis} · Doc app version ${context.gadget.revision}`;
+			message(
+				`Unsaved changes · merged with document revision ${basis}${prefer ? `; kept ${prefer === "mine" ? "your" : "their"} version where you both edited` : ""}`,
+			);
+			void retainDraft();
+		} catch (error) {
+			message(
+				`${error instanceof Error ? error.message : "Merging the newer revision failed"}. Your draft is preserved.`,
+				true,
+			);
+		} finally {
+			busy = false;
+			controls();
+			updateNotice();
+		}
 	}
 	async function retainDraft() {
 		if (!loaded || !draft || !editable) return;
@@ -273,6 +355,7 @@ export async function mountDocClient(
 			const value = parse(await read());
 			if (destroyed) return;
 			loaded = value;
+			choice = 0;
 			let retained: Draft | null = null;
 			if (editable) {
 				if (discard) await bridge.call("app.draft.clear", draftArgs());
@@ -348,6 +431,7 @@ export async function mountDocClient(
 			basis = value.revision.revision;
 			draft = structuredClone(value.revision.content);
 			dirty = false;
+			choice = 0;
 			await bridge.call("app.draft.clear", draftArgs());
 			get(".doc-meta").textContent =
 				`Document revision ${basis} · Doc app version ${context.gadget.revision}`;
@@ -363,6 +447,8 @@ export async function mountDocClient(
 			busy = false;
 			controls();
 		}
+		// A save refused because someone else saved first: bring their changes in.
+		if (dirty) void mergeLatest();
 	}
 	function button(
 		label: string,
@@ -732,7 +818,7 @@ export async function mountDocClient(
 		if (!dirty && !busy && pendingRevision > loaded.revision.revision) {
 			pendingRevision = 0;
 			void load();
-		}
+		} else if (dirty && pendingRevision > basis) void mergeLatest();
 	};
 	window.addEventListener("message", onMessage);
 	window.addEventListener("beforeunload", beforeUnload);

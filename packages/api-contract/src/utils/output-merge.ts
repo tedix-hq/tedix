@@ -1,7 +1,12 @@
 import type { JsonValue } from "../schemas/common";
-import type { OsOutputContent, OsWorkbook } from "../schemas/os-workspaces";
-import { blocksFromRichText } from "./os-document";
-import { projectPresentationDeck } from "./presentation-patch";
+import type {
+	OsDocumentBlock,
+	OsOutputContent,
+	OsPresentationDeck,
+	OsPresentationSlide,
+	OsRichTextDocument,
+	OsWorkbook,
+} from "../schemas/os-workspaces";
 
 /**
  * Three-way merge of two saves made from the same output revision.
@@ -19,8 +24,28 @@ import { projectPresentationDeck } from "./presentation-patch";
  * apply, and an item both sides changed in place merges recursively.
  */
 export type OutputMergeResult =
-	| { ok: true; content: OsOutputContent }
+	| { ok: true; content: OsOutputContent; conflicts: string[] }
 	| { ok: false; conflicts: string[] };
+
+/**
+ * Who wins where both changed the same part. Without it a conflict fails the
+ * merge; with it the merge succeeds, still listing what was overridden.
+ */
+export type OutputMergePreference = "mine" | "theirs";
+
+/**
+ * How to rebuild the simpler copies kept next to a rich body. Each caller
+ * passes the functions it already loads, so a small editor bundle does not pull
+ * in parsers it never uses. Without a function, that copy merges as is.
+ */
+export interface OutputMergeOptions {
+	prefer?: OutputMergePreference;
+	documentBlocks?: (richText: OsRichTextDocument) => OsDocumentBlock[];
+	presentationSlides?: (deck: OsPresentationDeck) => OsPresentationSlide[];
+}
+
+/** Conflict paths found so far, and which side resolves them. */
+type Conflicts = string[] & { prefer?: OutputMergePreference };
 
 /** Keys that record what one viewer had open, never content worth a conflict. */
 const VIEW_STATE_KEYS = new Set(["activeSheetId", "activeSlideId"]);
@@ -34,49 +59,72 @@ export function mergeOutputContent(
 	base: OsOutputContent,
 	mine: OsOutputContent,
 	theirs: OsOutputContent,
+	options: OutputMergeOptions = {},
 ): OutputMergeResult {
+	const { prefer } = options;
 	if (
 		base.kind !== mine.kind ||
 		base.kind !== theirs.kind ||
 		base.kind === "video"
 	)
 		return { ok: false, conflicts: ["kind"] };
-	const derived = derivedKeys(base, mine, theirs);
+	const derived = derivedKeys(options, base, mine, theirs);
 	const strip = (content: OsOutputContent) =>
 		Object.fromEntries(
 			Object.entries(content).filter(([key]) => !derived.includes(key)),
 		) as unknown as Json;
-	const conflicts: string[] = [];
+	const conflicts: Conflicts = Object.assign([], { prefer });
 	const merged = merge(strip(base), strip(mine), strip(theirs), "", conflicts);
-	if (conflicts.length > 0) return { ok: false, conflicts };
-	return { ok: true, content: project(merged as OsOutputContent) };
+	if (conflicts.length > 0 && !prefer) return { ok: false, conflicts };
+	return {
+		ok: true,
+		content: project(merged as OsOutputContent, options),
+		conflicts: [...conflicts],
+	};
 }
 
 /**
  * Fields recomputed from the canonical body. Merging them as well would turn
  * every pair of edits into a conflict on the projection.
  */
-function derivedKeys(...contents: OsOutputContent[]): string[] {
-	if (contents.every((c) => c.kind === "document" && c.richText))
+function derivedKeys(
+	options: OutputMergeOptions,
+	...contents: OsOutputContent[]
+): string[] {
+	if (
+		options.documentBlocks &&
+		contents.every((c) => c.kind === "document" && c.richText)
+	)
 		return ["blocks"];
 	if (contents.every((c) => c.kind === "sheet" && c.workbook))
 		return ["columns", "rows"];
-	if (contents.every((c) => c.kind === "presentation" && c.deck))
+	if (
+		options.presentationSlides &&
+		contents.every((c) => c.kind === "presentation" && c.deck)
+	)
 		return ["slides"];
 	return [];
 }
 
-function project(content: OsOutputContent): OsOutputContent {
-	if (content.kind === "document" && content.richText)
-		return { ...content, blocks: blocksFromRichText(content.richText) };
+function project(
+	content: OsOutputContent,
+	options: OutputMergeOptions,
+): OsOutputContent {
+	if (content.kind === "document" && content.richText && options.documentBlocks)
+		return { ...content, blocks: options.documentBlocks(content.richText) };
 	if (content.kind === "sheet" && content.workbook)
 		return { ...content, ...projectSheet(content.workbook) };
-	if (content.kind === "presentation" && content.deck)
-		return { ...content, slides: projectPresentationDeck(content.deck) };
+	if (
+		content.kind === "presentation" &&
+		content.deck &&
+		options.presentationSlides
+	)
+		return { ...content, slides: options.presentationSlides(content.deck) };
 	return content;
 }
 
-function projectSheet(workbook: OsWorkbook) {
+/** The active sheet's labels and cached values, as the flat sheet fields hold them. */
+export function projectSheet(workbook: OsWorkbook) {
 	const active =
 		workbook.sheets.find((sheet) => sheet.id === workbook.activeSheetId) ??
 		workbook.sheets[0]!;
@@ -105,7 +153,7 @@ function merge(
 	mine: Json,
 	theirs: Json,
 	path: string,
-	conflicts: string[],
+	conflicts: Conflicts,
 ): Json {
 	if (same(mine, theirs) || same(base, theirs)) return mine;
 	if (same(base, mine)) return theirs;
@@ -114,7 +162,7 @@ function merge(
 	if (Array.isArray(base) && Array.isArray(mine) && Array.isArray(theirs))
 		return mergeList(base, mine, theirs, path, conflicts);
 	conflicts.push(path || "/");
-	return theirs;
+	return conflicts.prefer === "mine" ? mine : theirs;
 }
 
 function mergeObject(
@@ -122,7 +170,7 @@ function mergeObject(
 	mine: { [key: string]: JsonValue },
 	theirs: { [key: string]: JsonValue },
 	path: string,
-	conflicts: string[],
+	conflicts: Conflicts,
 ): Json {
 	const result: { [key: string]: JsonValue } = {};
 	for (const name of new Set([
@@ -167,7 +215,7 @@ function mergeList(
 	mine: JsonValue[],
 	theirs: JsonValue[],
 	path: string,
-	conflicts: string[],
+	conflicts: Conflicts,
 ): Json {
 	const lists = [base, mine, theirs];
 	if (
@@ -200,7 +248,7 @@ function mergeById(
 	mine: JsonValue[],
 	theirs: JsonValue[],
 	path: string,
-	conflicts: string[],
+	conflicts: Conflicts,
 ): Json {
 	const byId = (list: JsonValue[]) =>
 		new Map(list.map((item) => [idOf(item)!, item]));
@@ -211,13 +259,16 @@ function mergeById(
 		t.size !== theirs.length
 	) {
 		conflicts.push(`${path}/(duplicate ids)`);
-		return theirs;
+		return conflicts.prefer === "mine" ? mine : theirs;
 	}
 	// Removing an item the other side edited would silently drop that edit.
+	const restore: string[] = [];
 	for (const [id, original] of b) {
 		const kept = m.get(id) ?? t.get(id);
-		if (!m.has(id) !== !t.has(id) && kept && !same(original, kept))
+		if (!m.has(id) !== !t.has(id) && kept && !same(original, kept)) {
 			conflicts.push(`${path}/${id}`);
+			if ((conflicts.prefer === "mine" ? m : t).has(id)) restore.push(id);
+		}
 	}
 	const order = mergeSequence(
 		base.map(idOf) as string[],
@@ -227,6 +278,21 @@ function mergeById(
 		conflicts,
 		false,
 	) as string[];
+	// The preferred side kept an item the other deleted: put it back where
+	// the preferred side has it.
+	const preferred = conflicts.prefer === "mine" ? mine : theirs;
+	for (const id of restore) {
+		if (order.includes(id)) continue;
+		const before = preferred.slice(
+			0,
+			preferred.findIndex((x) => idOf(x) === id),
+		);
+		const anchor = before
+			.map(idOf)
+			.reverse()
+			.find((x) => order.includes(x!));
+		order.splice(anchor ? order.indexOf(anchor) + 1 : 0, 0, id);
+	}
 	return order.map(
 		(id) =>
 			merge(
@@ -286,14 +352,14 @@ function mergeSequence(
 	mine: JsonValue[],
 	theirs: JsonValue[],
 	path: string,
-	conflicts: string[],
+	conflicts: Conflicts,
 	recurse = true,
 ): Json {
 	const left = hunks(base, mine);
 	const right = hunks(base, theirs);
 	if (!left || !right) {
 		conflicts.push(`${path}/(too large)`);
-		return theirs;
+		return conflicts.prefer === "mine" ? mine : theirs;
 	}
 	const touches = (x: Hunk, y: Hunk) =>
 		Math.max(x.start, y.start) < Math.min(x.end, y.end) ||
@@ -313,6 +379,37 @@ function mergeSequence(
 			clash.end === change.end
 		)
 			continue;
+		// Both sides only changed items in place (no inserts or deletes), so each
+		// base position still lines up: merge position by position.
+		const inPlace = (hunk: Hunk) =>
+			hunk.end > hunk.start && hunk.items.length === hunk.end - hunk.start;
+		if (
+			recurse &&
+			inPlace(clash) &&
+			inPlace(change) &&
+			left.filter((edit) => touches(edit, change)).length === 1
+		) {
+			const start = Math.min(clash.start, change.start);
+			const end = Math.max(clash.end, change.end);
+			const at = (hunk: Hunk, i: number) =>
+				i >= hunk.start && i < hunk.end ? hunk.items[i - hunk.start] : base[i];
+			applied[index] = {
+				start,
+				end,
+				items: base
+					.slice(start, end)
+					.map((item, offset) =>
+						merge(
+							item,
+							at(clash, start + offset),
+							at(change, start + offset),
+							`${path}/${start + offset}`,
+							conflicts,
+						),
+					),
+			};
+			continue;
+		}
 		// Both sides only added items at the same spot: keep theirs, then mine.
 		if (
 			clash.start === clash.end &&
@@ -349,6 +446,7 @@ function mergeSequence(
 			continue;
 		}
 		conflicts.push(`${path}/${change.start}`);
+		if (conflicts.prefer === "theirs") applied[index] = change;
 	}
 	applied.sort((x, y) => x.start - y.start || x.end - y.end);
 	const result: JsonValue[] = [];
