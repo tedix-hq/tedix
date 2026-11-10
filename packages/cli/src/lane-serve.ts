@@ -572,6 +572,19 @@ const DEFERRED_RETRY_MS = 6 * 60 * 60_000;
  * admitted; a lane checkout with dependencies takes about 2.5 GB.
  */
 export const MIN_FREE_DISK_BYTES = 10 * 1024 ** 3;
+/**
+ * `dispatcher.log` rotates to `dispatcher.log.1` past this size. The runner's
+ * stderr log is capped in place by the supervisor (supervise-runners), which
+ * owns the file it redirects into.
+ */
+export const DISPATCHER_LOG_CAP_BYTES = 4 * 1024 * 1024;
+/**
+ * A per-item state log repeats at most this often while its reason stays the
+ * same; logging every pass grew a busy lane's log to gigabytes in a day.
+ */
+const STATE_LOG_REPEAT_MS = 60 * 60_000;
+/** The per-pass per-item events the repeat limit applies to. */
+const STATE_LOG_EVENTS = new Set(["skipped", "waiting-on-user"]);
 
 /**
  * When a deferred wait runs again: its declared `until`, or the default
@@ -1422,6 +1435,8 @@ export class LaneDispatcher {
 	private takeoverOffset = new Map<LocalExecutor, number>();
 	private takeoverCheckedAt = 0;
 	private idleItems = new Map<string, ReturnType<typeof idleReason>>();
+	/** The reason and time of each item's last written state log. */
+	private loggedStates = new Map<string, { reason: string; at: number }>();
 	private coordinatorSample = {
 		at: 0,
 		ids: new Set<string>(),
@@ -1497,7 +1512,8 @@ export class LaneDispatcher {
 		return Boolean(next);
 	}
 	private log(event: string, itemId?: string, reason?: string) {
-		const at = new Date().toISOString();
+		const now = Date.now();
+		const at = new Date(now).toISOString();
 		if (
 			itemId &&
 			reason &&
@@ -1509,13 +1525,32 @@ export class LaneDispatcher {
 			);
 		}
 		if (event === "admitted") recordDispatcherAdmission(this.directory, at);
+		// A state that repeats every pass is written once, then again when its
+		// reason changes or the repeat window passes; idle reporting above still
+		// counts it on every pass.
+		if (itemId && reason && STATE_LOG_EVENTS.has(event)) {
+			const key = `${event}:${itemId}`;
+			const prior = this.loggedStates.get(key);
+			if (prior?.reason === reason && now - prior.at < STATE_LOG_REPEAT_MS)
+				return;
+			if (this.loggedStates.size > 2048)
+				for (const [state, last] of this.loggedStates)
+					if (now - last.at >= STATE_LOG_REPEAT_MS)
+						this.loggedStates.delete(state);
+			this.loggedStates.set(key, { reason, at: now });
+		}
 		const line = JSON.stringify({
 			at,
 			event,
 			itemId,
 			reason,
 		});
-		appendFileSync(join(this.directory, "dispatcher.log"), `${line}\n`, {
+		const path = join(this.directory, "dispatcher.log");
+		try {
+			if (statSync(path).size > DISPATCHER_LOG_CAP_BYTES)
+				renameSync(path, `${path}.1`);
+		} catch {}
+		appendFileSync(path, `${line}\n`, {
 			mode: 0o600,
 		});
 		process.stderr.write(`${line}\n`);
