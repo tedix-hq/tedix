@@ -295,6 +295,7 @@ describe("Home approval dispatch receipt", () => {
 			const policyInput = { ...asApprover, userId: undefined };
 			expect(await client().resolveHomeToolApproval(policyInput)).toEqual({
 				approved: true,
+				initiatingAgentPrincipalId: agentPrincipalId,
 			});
 			expect(await client().resolveHomeToolApproval(policyInput)).toEqual({
 				approved: false,
@@ -372,6 +373,7 @@ describe("Home approval dispatch receipt", () => {
 		it("keeps the exact approver-bound receipt and consumes it once", async () => {
 			expect(await client().resolveHomeToolApproval(asApprover)).toEqual({
 				approved: true,
+				initiatingAgentPrincipalId: agentPrincipalId,
 			});
 			expect(mocks.principal).toHaveBeenCalledWith(expect.anything(), {
 				organizationId: "org-1",
@@ -416,6 +418,7 @@ describe("Home approval dispatch receipt", () => {
 			);
 			expect(await client().resolveHomeToolApproval(asApprover)).toEqual({
 				approved: true,
+				initiatingAgentPrincipalId: agentPrincipalId,
 			});
 		});
 		it("does not accept another human or a personal credential for the receipt", async () => {

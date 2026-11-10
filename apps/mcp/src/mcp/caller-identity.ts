@@ -90,6 +90,8 @@ export interface CallerIdentity {
 	 * the approved tool itself requires.
 	 */
 	homeApprovedCall?: boolean;
+	/** Creator from this call's consumed receipt; never an authenticated session. */
+	approvedHomeAgentPrincipalId?: string;
 }
 
 export function shouldBypassCodeModeForCaller(

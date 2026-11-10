@@ -30,6 +30,8 @@ export const ResolveHomeToolApprovalInputSchema = z.object({
 });
 export const ResolveHomeToolApprovalResponseSchema = z.object({
 	approved: z.boolean(),
+	/** Accountable creator from the consumed receipt, not a delegated session. */
+	initiatingAgentPrincipalId: z.uuid().optional(),
 });
 
 export const ResolveSkillManifestAuthorizationInputSchema = z.object({

@@ -93,6 +93,20 @@ export function resolveCreator(context: BaseContext): {
 	if (context.serviceAccount?.clientId) {
 		return { kind: "service", id: context.serviceAccount.clientId };
 	}
+	// Receipt-verified Home replay carries creator provenance, not an agent
+	// session or its authority. Only the internal MCP hop can supply it.
+	const homeAgent = context.headers?.get("X-Tedix-Actor-Id");
+	if (
+		isServiceBinding(context.headers) &&
+		context.headers?.get("X-Tedix-Kernel") === "true" &&
+		context.headers.get("X-Tedix-Actor-Type") === "external_agent" &&
+		homeAgent &&
+		/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+			homeAgent,
+		)
+	) {
+		return { kind: "external_agent", id: homeAgent };
+	}
 	throw createError(
 		ErrorCodes.FORBIDDEN,
 		"No accountable principal for a Tedix OS workspace write",

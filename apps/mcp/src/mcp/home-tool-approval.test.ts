@@ -8,6 +8,7 @@ import type { ServerContext } from "./server-context";
 import { registerTextOnlyTool } from "./text-tool-registration";
 import type { ToolCallback } from "./middleware/telemetry";
 import * as toolExecution from "./tool-execution";
+import { admitGatewayCall } from "./gateway-adapters";
 
 const args = {
 	kind: "sheet",
@@ -41,6 +42,45 @@ function context(
 	} as unknown as ServerContext;
 }
 describe("Home approval at MCP dispatch", () => {
+	it("keeps Code Mode creator provenance isolated across concurrent receipts", async () => {
+		const agent = context(
+			vi.fn(async ({ args: callArgs }) => ({
+				approved: callArgs.allow,
+				initiatingAgentPrincipalId: callArgs.creator,
+			})),
+			true,
+			"service",
+			{},
+		);
+		const creators = [
+			"5eed0015-0000-4000-8000-000000000015",
+			"5eed0015-0000-4000-8000-000000000016",
+		];
+		const admissions = await Promise.all(
+			[true, true, false].map((allow, index) =>
+				admitGatewayCall({
+					agent,
+					tool: {
+						toolId: "tedix__create_os_output",
+						title: "Create output",
+						inputSchema: { type: "object", properties: {} },
+					},
+					annotations: { destructiveHint: true },
+					args: { allow, creator: creators[index % 2] },
+					approval: {
+						...options,
+						args: { allow, creator: creators[index % 2] },
+					},
+				}),
+			),
+		);
+		expect(admissions.map((a) => a.verifiedHomeAgentPrincipalId)).toEqual([
+			...creators,
+			undefined,
+		]);
+		expect(admissions[2]?.failure?.isError).toBe(true);
+		expect(agent.callerIdentity?.approvedHomeAgentPrincipalId).toBeUndefined();
+	});
 	it.each([{ userId: "user-1" }, { approvedHomeUserId: "user-1" }])(
 		"audits the kernel on behalf of the member for %j",
 		async (identity) => {
@@ -127,7 +167,11 @@ describe("Home approval at MCP dispatch", () => {
 				.spyOn(analytics, "emitMcpAuditEvent")
 				.mockImplementation(() => {});
 			let callback: ToolCallback | undefined;
-			const resolve = vi.fn().mockResolvedValue({ approved });
+			const principalId = "5eed0015-0000-4000-8000-000000000015";
+			const resolve = vi.fn().mockResolvedValue({
+				approved,
+				initiatingAgentPrincipalId: principalId,
+			});
 			const agent = context(resolve, true, "service", identity);
 			Object.assign(agent, {
 				env: {},
@@ -173,7 +217,10 @@ describe("Home approval at MCP dispatch", () => {
 						agent,
 						expect.any(Object),
 						args,
-						expect.objectContaining({ homeApprovedCall: true }),
+						expect.objectContaining({
+							homeApprovedCall: true,
+							verifiedHomeAgentPrincipalId: principalId,
+						}),
 					);
 				else expect(execute).not.toHaveBeenCalled();
 			} finally {

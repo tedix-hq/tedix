@@ -1054,6 +1054,12 @@ export class ToolHandler {
 			ctx.callerIdentity.kernel === true &&
 			ctx.callerIdentity.homeApprovedCall === true
 		) {
+			if (ctx.callerIdentity.approvedHomeAgentPrincipalId) {
+				headers["X-Tedix-Kernel"] = "true";
+				headers["X-Tedix-Actor-Type"] = "external_agent";
+				headers["X-Tedix-Actor-Id"] =
+					ctx.callerIdentity.approvedHomeAgentPrincipalId;
+			}
 			const approvedScopes = homeApprovedToolScopes(
 				ctx.toolId,
 				config,

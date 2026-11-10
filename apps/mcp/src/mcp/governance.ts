@@ -783,6 +783,8 @@ async function buildInputRequiredResult(
 }
 
 export interface DestructiveApprovalOptions {
+	/** Per-call receipt provenance, delivered only after successful consumption. */
+	onHomeAgentVerified?: (principalId: string) => void;
 	/** Server-projected callable, rather than an aggregate tool's wire id. */
 	toolName?: string;
 	/** Bind a Code Mode retry to its source and inner arguments. */
@@ -1218,6 +1220,8 @@ export async function requireDestructiveToolApproval(
 					approvalRequestId: homeApprovalId,
 				});
 			if (approval?.approved) {
+				if (approval.initiatingAgentPrincipalId)
+					options?.onHomeAgentVerified?.(approval.initiatingAgentPrincipalId);
 				emitGovernanceAuditEvent(
 					agent,
 					tool,
