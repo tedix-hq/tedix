@@ -1215,6 +1215,28 @@ export function awaitsOwnerApproval(error: unknown): boolean {
 	);
 }
 
+/**
+ * An Attempt that ended before the agent turn started is a dispatcher
+ * fault — a missing checkout, a prepare error, or a crash before the lane
+ * child spawned — not an agent verdict on the Work. A live dispatcher
+ * records `agentTurnStarted: false` at settlement. When the dispatcher
+ * itself died, the Attempt expires with its lease never renewed
+ * (`heartbeatAt` still `startedAt`): no heartbeat ever confirmed a run.
+ */
+export function attemptFailedBeforeAgentTurn(attempt: {
+	outcome: string | null;
+	startedAt?: string;
+	heartbeatAt?: string;
+	metadata?: Record<string, unknown> | null;
+}): boolean {
+	if (attempt.metadata?.agentTurnStarted === false) return true;
+	return (
+		attempt.outcome === "expired" &&
+		typeof attempt.startedAt === "string" &&
+		attempt.startedAt === attempt.heartbeatAt
+	);
+}
+
 export function laneFailureSignature(error: unknown): string {
 	const message = (error instanceof Error ? error.message : String(error))
 		.replace(/\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b/gi, "<uuid>")
@@ -2567,6 +2589,7 @@ export class LaneDispatcher {
 			const failedExecutions = history.data.filter(
 				(attempt) =>
 					attempt.metadata?.dispatchVersion === item.version &&
+					!attemptFailedBeforeAgentTurn(attempt) &&
 					(attempt.outcome === "failed" ||
 						(attempt.outcome === "expired" &&
 							attempt.id !== interrupted?.attemptId)),
@@ -3786,6 +3809,12 @@ export class LaneDispatcher {
 							dispatchVersion: receipt.version,
 							session: receipt.session,
 							usage: receipt.telemetry?.usage ?? null,
+							// No spawned child means the run ended before the agent
+							// turn; the marker keeps it out of the execution hold.
+							...(["failed", "expired"].includes(receipt.outcome ?? "") &&
+							receipt.pid === undefined
+								? { agentTurnStarted: false }
+								: {}),
 							...(receipt.laneResult ? { laneResult: receipt.laneResult } : {}),
 							...(receipt.recoveredCommits?.length
 								? { recoveredCommits: receipt.recoveredCommits }
@@ -3961,6 +3990,10 @@ export class LaneDispatcher {
 		// retained result again, so expiry alone must not hold the revision
 		// for a human edit.
 		if (receipt.outcome === "expired" && resultRetained) return;
+		// A run that never spawned its lane child ended before the agent turn:
+		// a dispatcher fault (missing checkout, prepare error), not an agent
+		// verdict. It still retries above but never feeds the failure hold.
+		if (receipt.pid === undefined) return;
 		const signature = laneFailureSignature(receipt.note ?? receipt.outcome);
 		receipt.identicalFailures =
 			receipt.runFailureSignature === signature

@@ -432,7 +432,7 @@ function fixture({
 			);
 			expect(brief).toContain("Do not pass one -m per trailer");
 			expect(deps?.forwardSignals).toBe(false);
-			if (control.spawnPid) deps?.onSpawn?.(control.spawnPid);
+			deps?.onSpawn?.(control.spawnPid ?? 2_000_000_000);
 			const completed = completedResult(
 				items.find((row) => row.id === args[args.indexOf("--work-item") + 1])!,
 			);
@@ -6283,6 +6283,126 @@ it("holds exhausted canonical execution failures across windows and restarts whi
 	await until(() => f.releases.length === 2);
 	f.releases[1]!();
 	await restarted.drain();
+	expect(f.events.filter((e) => e.verb === "start" && e.input)).toHaveLength(2);
+});
+
+it("does not count Attempts that ended before the agent turn toward the execution hold", async () => {
+	const f = fixture({ max: 1 });
+	f.items.splice(1);
+	// Two dispatcher-fault settlements and a crash: none of the three ran
+	// an agent turn, so the revision must not hold for a human edit.
+	f.control.history.data = [
+		{
+			id: "fault-1",
+			outcome: "failed",
+			metadata: { dispatchVersion: 2, agentTurnStarted: false },
+		},
+		{
+			id: "fault-2",
+			outcome: "failed",
+			metadata: { dispatchVersion: 2, agentTurnStarted: false },
+		},
+		{
+			id: "fault-3",
+			outcome: "expired",
+			metadata: { dispatchVersion: 2, agentTurnStarted: false },
+		},
+	];
+	await f.dispatcher.tick();
+	await until(() => f.releases.length === 1);
+	f.releases[0]!();
+	await f.dispatcher.drain();
+	expect(f.events.filter((e) => e.verb === "start" && e.input)).toHaveLength(1);
+	const saved = JSON.parse(
+		readFileSync(join(f.dir, `${item().id}-2.json`), "utf8"),
+	);
+	expect(saved.held).not.toBe(true);
+	expect(saved.outcome).toBe("succeeded");
+});
+
+it("skips expired Attempts whose lease never renewed when counting the execution hold", async () => {
+	const f = fixture({ max: 1 });
+	f.items.splice(1);
+	// The dispatcher admitted each Attempt then died before any heartbeat —
+	// a crash like the missing-checkout incidents — so the lease stayed at
+	// its initial value. Only the attempt whose run actually renewed counts.
+	const at = "2026-11-10T00:00:00.000Z";
+	f.control.history.data = [
+		{
+			id: "crash-1",
+			outcome: "expired",
+			startedAt: at,
+			heartbeatAt: at,
+			metadata: { dispatchVersion: 2 },
+		},
+		{
+			id: "crash-2",
+			outcome: "expired",
+			startedAt: at,
+			heartbeatAt: at,
+			metadata: { dispatchVersion: 2 },
+		},
+		{
+			id: "ran",
+			outcome: "expired",
+			startedAt: at,
+			heartbeatAt: "2026-11-10T00:05:00.000Z",
+			metadata: { dispatchVersion: 2 },
+		},
+	];
+	await f.dispatcher.tick();
+	await until(() => f.releases.length === 1);
+	f.releases[0]!();
+	await f.dispatcher.drain();
+	expect(f.events.filter((e) => e.verb === "start" && e.input)).toHaveLength(1);
+});
+
+it("holds after three expired Attempts whose leases renewed", async () => {
+	const f = fixture({ max: 1 });
+	f.items.splice(1);
+	const at = "2026-11-10T00:00:00.000Z";
+	f.control.history.data = [0, 1, 2].map((n) => ({
+		id: `expired-${n}`,
+		outcome: "expired",
+		startedAt: at,
+		heartbeatAt: "2026-11-10T00:05:00.000Z",
+		metadata: { dispatchVersion: 2 },
+	}));
+	await f.dispatcher.tick();
+	await f.dispatcher.drain();
+	const saved = JSON.parse(
+		readFileSync(join(f.dir, `${item().id}-2.json`), "utf8"),
+	);
+	expect(saved.held).toBe(true);
+	expect(f.releases).toHaveLength(0);
+});
+
+it("records a pre-agent failure distinctly and retries without feeding the hold", async () => {
+	const f = fixture({ max: 1 });
+	f.items.splice(1);
+	const launch = f.deps.launch!;
+	f.deps.launch = () =>
+		Promise.reject(new Error("spawn ENOENT: the lane checkout is missing"));
+	const dispatcher = f.restart();
+	await dispatcher.tick();
+	await dispatcher.drain();
+	f.deps.launch = launch;
+	const settle = f.events.find((e) => e.verb === "settle")!;
+	expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("failed");
+	expect(settle.input?.metadata).toMatchObject({ agentTurnStarted: false });
+	const path = join(f.dir, `${item().id}-2.json`);
+	const saved = JSON.parse(readFileSync(path, "utf8"));
+	expect(saved.outcome).toBe("failed");
+	expect(saved.identicalFailures).toBe(0);
+	expect(saved.held).not.toBe(true);
+	// A dispatcher fault retries instead of holding the revision for a human.
+	saved.retryAt = 0;
+	writeFileSync(path, JSON.stringify(saved));
+	const resumed = f.restart();
+	await resumed.tick();
+	await until(() => f.releases.length === 1);
+	f.releases[0]!();
+	await resumed.drain();
 	expect(f.events.filter((e) => e.verb === "start" && e.input)).toHaveLength(2);
 });
 
