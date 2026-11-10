@@ -1,4 +1,5 @@
 import { implement } from "@orpc/server";
+import { hasRecoveredCommitCustody } from "./recovered-commit-custody";
 import { ExternalAgentWorkManagementGrantSchema } from "@tedix/api-contract/schemas/external-agent-identity";
 import { getExternalAgentPrincipal } from "@tedix/db/queries/external-agent-identity/principals";
 import { workItemsContract } from "@tedix/api-contract/contracts/work-items";
@@ -113,17 +114,20 @@ export async function canCompleteOwnSucceededAttempt(
 		result.contractVersion === item.acceptanceContract?.version &&
 		result.outcomeText ===
 			(item.acceptanceContract?.doneLooksLike ?? item.title);
-	return Boolean(
-		latest &&
-		latest.executorType === "external_agent" &&
-		latest.executorId === actor.id &&
-		latest.executorSessionId === actor.sessionId &&
-		latest.outcome === "succeeded" &&
-		(latest.metadata?.dispatchVersion === undefined ||
-			(latest.metadata.dispatchVersion === item.version &&
-				declaredCompletion)) &&
-		(item.workKind !== "coding" ||
-			(typeof commitSha === "string" && /^[a-f\d]{40}$/i.test(commitSha))),
+	return (
+		!!latest &&
+		Boolean(
+			latest.executorType === "external_agent" &&
+			latest.executorId === actor.id &&
+			latest.executorSessionId === actor.sessionId &&
+			latest.outcome === "succeeded" &&
+			(latest.metadata?.dispatchVersion === undefined ||
+				(latest.metadata.dispatchVersion === item.version &&
+					declaredCompletion)) &&
+			(item.workKind !== "coding" ||
+				(typeof commitSha === "string" && /^[a-f\d]{40}$/i.test(commitSha))),
+		) &&
+		(await hasRecoveredCommitCustody(context, latest))
 	);
 }
 

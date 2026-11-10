@@ -5679,6 +5679,7 @@ describe("structured dispatcher outcomes", () => {
 				expect(settled[0]!.args).toContain(sha);
 				expect(settled[0]!.input?.metadata).toMatchObject({
 					laneResult: result,
+					settlement: { mode: "commit", commitSha: sha, commitShas: [sha] },
 					recoveredCommits: [
 						{
 							commitSha: sha,

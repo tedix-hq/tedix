@@ -5,6 +5,7 @@ import type { BaseContext } from "../../orpc";
 const attempts = vi.hoisted(() => ({ list: vi.fn() }));
 vi.mock("@tedix/db/queries/work-items/attempts", () => ({
 	listWorkItemAttempts: attempts.list,
+	getRecordedWorkItemAttempt: vi.fn(),
 }));
 
 import {

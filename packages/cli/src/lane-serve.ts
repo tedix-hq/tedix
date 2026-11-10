@@ -3817,7 +3817,14 @@ export class LaneDispatcher {
 								: {}),
 							...(receipt.laneResult ? { laneResult: receipt.laneResult } : {}),
 							...(receipt.recoveredCommits?.length
-								? { recoveredCommits: receipt.recoveredCommits }
+								? {
+										recoveredCommits: receipt.recoveredCommits,
+										settlement: {
+											mode: "commit",
+											commitSha: receipt.commits?.[0],
+											commitShas: receipt.commits,
+										},
+									}
 								: {}),
 							...(receipt.existingProof
 								? { settlement: receipt.existingProof }
