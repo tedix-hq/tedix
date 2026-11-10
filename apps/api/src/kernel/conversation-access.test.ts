@@ -48,27 +48,28 @@ describe("resolveKernelConversationAccess", () => {
 			new Error("D1_ERROR: no such table: kernel_conversation_grants"),
 		);
 
-		await expect(
-			resolveKernelConversationAccess(db, baseInput),
-		).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
+		const decision = await resolveKernelConversationAccess(db, baseInput);
+
+		expect(decision.allowed).toBe(false);
+		expect(decision.access).toBeNull();
 	});
 
 	it("DENIES access on any other DB error", async () => {
 		vi.spyOn(console, "error").mockImplementation(() => {});
 		const db = dbThrowing(new Error("D1_ERROR: something broke"));
 
-		await expect(
-			resolveKernelConversationAccess(db, baseInput),
-		).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
+		const decision = await resolveKernelConversationAccess(db, baseInput);
+
+		expect(decision.allowed).toBe(false);
 	});
 
 	it("DENIES access when the thrown value is not an Error", async () => {
 		vi.spyOn(console, "error").mockImplementation(() => {});
 		const db = dbThrowing("no such table: kernel_conversation_grants");
 
-		await expect(
-			resolveKernelConversationAccess(db, baseInput),
-		).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
+		const decision = await resolveKernelConversationAccess(db, baseInput);
+
+		expect(decision.allowed).toBe(false);
 	});
 
 	it("logs only safe exception topology when denying on a DB error", async () => {
@@ -79,9 +80,9 @@ describe("resolveKernelConversationAccess", () => {
 			}),
 		);
 
-		await expect(
-			resolveKernelConversationAccess(db, baseInput),
-		).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
+		const decision = await resolveKernelConversationAccess(db, baseInput);
+
+		expect(decision).toEqual({ allowed: false, access: null, policy: "grant" });
 		expect(errorSpy).toHaveBeenCalledOnce();
 		expect(errorSpy).toHaveBeenCalledWith({
 			component: "api.kernel.conversation-access",

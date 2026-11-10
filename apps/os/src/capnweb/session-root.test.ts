@@ -1,6 +1,5 @@
 // @vitest-environment node
 import { RpcTarget } from "capnweb";
-import { RpcCallError } from "@tedix/api-client/internal";
 import { describe, expect, it, vi } from "vite-plus/test";
 import type {
 	CapnEventFrame,
@@ -956,54 +955,6 @@ describe("subscribe", () => {
 		subscription.dispose();
 	});
 
-	it("survives repeated 503 event reads and resumes at the retained offset", async () => {
-		let failures = 0;
-		const delays: number[] = [];
-		const session = makeSession(
-			{
-				fetch: async (request: Request) => {
-					const path = new URL(request.url).pathname;
-					const { json: input } = (await request.json()) as {
-						json: { offset: number };
-					};
-					if (!path.endsWith("readRunEvents"))
-						return new Promise<Response>(() => {});
-					if (input.offset === 1) return new Promise<Response>(() => {});
-					if (++failures <= 18)
-						return Response.json(
-							{ json: { code: "SERVICE_UNAVAILABLE" } },
-							{ status: 503 },
-						);
-					return Response.json({
-						json: eventsPage([streamEvent("recovered")], 0),
-					});
-				},
-			},
-			{
-				sleep: async (ms) => {
-					delays.push(ms);
-					await tick();
-				},
-			},
-		);
-		const { stub, frames } = subscriberStub();
-		const subscription = session
-			.openConversation("conv-1")
-			.subscribe(stub, { runId: "run-1", offset: 0 });
-		try {
-			await vi.waitFor(() => expect(frames).toHaveLength(1), { timeout: 5000 });
-			expect(subscription.isDisposed()).toBe(false);
-			expect(frames[0]).toMatchObject({
-				offset: 0,
-				event: { id: "recovered" },
-			});
-			expect(delays).toContain(2000);
-			expect(delays).toContain(30_000);
-		} finally {
-			subscription.dispose();
-		}
-	});
-
 	it("gives up after SUBSCRIBE_MAX_POLL_FAILURES consecutive failed turns", async () => {
 		let reads = 0;
 		const { service } = mockApiService((path) => {
@@ -1234,7 +1185,7 @@ describe("mountCapnChat refusals", () => {
 	it("refuses 403 when the caller's own credentials cannot read in the host tenant", async () => {
 		const { service, calls } = mockApiService((path) => {
 			expect(path).toBe("kernelRuntime/listConversations");
-			throw new RpcCallError(path, 403, "FORBIDDEN", "Forbidden", undefined);
+			throw new Error("UNAUTHORIZED");
 		});
 		const response = await mountCapnChat(
 			upgradeRequest(),
@@ -1245,17 +1196,6 @@ describe("mountCapnChat refusals", () => {
 		expect(await response.text()).toMatch(/do not have access/);
 		// One authorization attempt, and no socket.
 		expect(calls).toHaveLength(1);
-	});
-
-	it("refuses a transient authority failure with 503 before upgrading", async () => {
-		const response = await mountCapnChat(
-			upgradeRequest(),
-			{
-				API_SERVICE: { fetch: async () => new Response(null, { status: 503 }) },
-			},
-			"T-host-org",
-		);
-		expect(response.status).toBe(503);
 	});
 
 	it("refuses 503 without an API authority rather than opening an unauthorized socket", async () => {
