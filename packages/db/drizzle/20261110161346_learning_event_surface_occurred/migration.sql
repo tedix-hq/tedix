@@ -1,0 +1,1 @@
+CREATE INDEX `idx_learning_event_surface_occurred` ON `learning_interaction_events` (`surface`,`occurred_at`);
