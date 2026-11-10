@@ -186,8 +186,9 @@ try {
 		});
 		await route.fulfill({ response, json: body });
 	});
+	const guestNames: (string | undefined)[] = [];
 	await page.route("**/api/os-shared/app/open", async (route) => {
-		assert.equal(route.request().postDataJSON().guestName, undefined);
+		guestNames.push(route.request().postDataJSON().guestName);
 		const response = await route.fetch();
 		const body = await response.json();
 		body.app.recordsGuestInput = false;
@@ -195,6 +196,12 @@ try {
 	});
 	await page.goto(`${server.origin}/s/${PUBLIC_ID}`);
 	await page.locator("[data-guest-app]").waitFor();
+	await page
+		.frameLocator('iframe[title="Opportunity cards"]')
+		.frameLocator("iframe")
+		.getByRole("heading", { name: /opportunities for Maya/ })
+		.waitFor();
+	assert.deepEqual(guestNames, [undefined, "Guest"]);
 	assert.equal(
 		await page.getByRole("textbox", { name: "Your name" }).count(),
 		0,
