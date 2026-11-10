@@ -34,7 +34,39 @@ import {
 	type OsWorkspaceViewer,
 	osWorkspaceChildVisibleToPredicate,
 } from "../os-workspaces/workspaces";
+import { hasSharedWorkspaceOutputs } from "../os-workspaces/outputs";
 import type { TenantStoreDb } from "./tenant-store";
+
+/** Imported workspaces own their rows; transfer destinations may have only output rows. */
+export async function hasWorkspaceOutputAuthority(
+	db: TenantStoreDb,
+	scope: { organizationId: string; workspaceId: string },
+	core: DbQueryClient,
+): Promise<boolean> {
+	const imported = db
+		.select({ id: osWorkspaces.id })
+		.from(osWorkspaces)
+		.where(
+			and(
+				eq(osWorkspaces.organizationId, scope.organizationId),
+				eq(osWorkspaces.id, scope.workspaceId),
+			),
+		)
+		.get();
+	if (imported) return true;
+	const local = db
+		.select({ id: osOutputs.id })
+		.from(osOutputs)
+		.where(
+			and(
+				eq(osOutputs.organizationId, scope.organizationId),
+				eq(osOutputs.workspaceId, scope.workspaceId),
+			),
+		)
+		.limit(1)
+		.get();
+	return Boolean(local) && !(await hasSharedWorkspaceOutputs(core, scope));
+}
 
 export interface OsOutputScopeParams {
 	organizationId: string;

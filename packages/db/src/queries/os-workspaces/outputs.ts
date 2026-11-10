@@ -1,5 +1,5 @@
 import { type TenantScope, normalizeTenantScope } from "../../tenant-scope";
-import { and, desc, eq, getColumns, sql } from "drizzle-orm";
+import { and, desc, eq, getColumns, like, sql } from "drizzle-orm";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import type { DbQueryClient } from "../../query-client";
 import {
@@ -19,6 +19,24 @@ import {
 	type OsWorkspaceViewer,
 	osWorkspaceChildVisibleToPredicate,
 } from "./workspaces";
+
+/** Workspace-wide inventory for selecting a storage owner, without reading content. */
+export async function hasSharedWorkspaceOutputs(
+	db: DbQueryClient,
+	scope: { organizationId: string; workspaceId: string },
+): Promise<boolean> {
+	const [row] = await db
+		.select({ id: osOutputs.id })
+		.from(osOutputs)
+		.where(
+			and(
+				eq(osOutputs.organizationId, scope.organizationId),
+				eq(osOutputs.workspaceId, scope.workspaceId),
+			),
+		)
+		.limit(1);
+	return Boolean(row);
+}
 
 export interface OsOutputScopeParams extends TenantScope {
 	outputId: string;
@@ -211,7 +229,9 @@ export async function listOsOutputLibraryRows(
 	db: DbQueryClient,
 	tenantScope: TenantScope,
 	viewer: OsWorkspaceViewer,
-	options: Pick<ListOsOutputsOptions, "kind" | "status" | "limit"> = {},
+	options: Pick<ListOsOutputsOptions, "kind" | "status" | "limit"> & {
+		search?: string;
+	} = {},
 ): Promise<OsOutputLibraryRow[]> {
 	const { organizationId } = normalizeTenantScope(tenantScope);
 	const conditions = [
@@ -228,6 +248,13 @@ export async function listOsOutputLibraryRows(
 	}
 	if (options.kind) conditions.push(eq(osOutputs.kind, options.kind));
 	if (options.status) conditions.push(eq(osOutputs.status, options.status));
+	if (options.search?.trim())
+		conditions.push(
+			like(
+				sql`lower(${osOutputs.title})`,
+				`%${options.search.trim().toLowerCase()}%`,
+			),
+		);
 	const { content: _content, ...revisionMetadata } = prefixedColumns(
 		osOutputRevisions,
 		"revision",

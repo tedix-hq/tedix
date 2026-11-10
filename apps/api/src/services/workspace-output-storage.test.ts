@@ -13,7 +13,11 @@ import { createTenantStoreDb } from "@tedix/db/queries/durable-sqlite/tenant-sto
 import {
 	executeOutputQuery,
 	type WorkspaceOutputRuntime,
+	type OutputOperation,
+	type OutputQuery,
+	type OutputQueryResult,
 } from "@tedix/db/queries/durable-sqlite/output-rpc";
+import { hasWorkspaceOutputAuthority } from "@tedix/db/queries/durable-sqlite/os-outputs";
 import * as legacy from "@tedix/db/queries/os-workspaces/outputs";
 import {
 	osOutputs,
@@ -39,6 +43,8 @@ vi.mock("cloudflare:workers", () => ({
 /** Lists repair projections after responding; wait as the runtime would. */
 const settled = () => Promise.all(config.background.splice(0));
 import * as storage from "./workspace-output-storage";
+import { publishWorkspaceChange, outputRevisionChange } from "./workspace-feed";
+import { buildOsOutputLibrary } from "./os-output-library";
 import { sweepOutputRevisionBodies } from "./os-output-revision-gc";
 
 const databases: DatabaseSync[] = [];
@@ -49,7 +55,7 @@ afterEach(() => {
 const scope = { organizationId: "org-1", workspaceId: "workspace-1" };
 const viewer = { userIds: ["user-1"] };
 
-async function fixture() {
+async function fixture(moved = true) {
 	const coreSql = new DatabaseSync(":memory:");
 	const objectSql = new DatabaseSync(":memory:");
 	databases.push(coreSql, objectSql);
@@ -79,9 +85,25 @@ async function fixture() {
 		createdByKind: "user",
 		createdById: "user-1",
 	});
+	if (moved)
+		tenant
+			.insert(osWorkspaces)
+			.values((await core.select().from(osWorkspaces))[0]!)
+			.run();
 	config.env.WORKSPACE_RUNTIME = {
 		transferOutput: async () => ({ ok: false, reason: "not_found" }),
-		outputQuery: (bound, query) => executeOutputQuery(tenant, bound, query),
+		outputQuery: async <K extends OutputOperation>(
+			bound: typeof scope,
+			query: OutputQuery<K>,
+		) => {
+			if (query.op === "authority")
+				return (
+					(await hasWorkspaceOutputAuthority(tenant, bound, core))
+						? "object"
+						: "shared"
+				) as OutputQueryResult<K>;
+			return executeOutputQuery(tenant, bound, query);
+		},
 		refreshOutputProjection: async (bound, outputId) => {
 			const output = await executeOutputQuery(tenant, bound, {
 				op: "get",
@@ -131,6 +153,141 @@ async function fixture() {
 }
 
 describe("workspace output storage authority", () => {
+	it("uses shared storage for every read and revision write despite index rows", async () => {
+		const { core, tenant, output, revision } = await fixture(false);
+		await legacy.createOsOutput(core, scope, output, revision);
+		await publishOutputProjection(
+			core,
+			output,
+			(await legacy.getOsOutputRevision(core, {
+				organizationId: scope.organizationId,
+				revisionId: revision.id,
+			}))!,
+		);
+		const query = vi.spyOn(config.env.WORKSPACE_RUNTIME!, "outputQuery");
+		const params = {
+			organizationId: scope.organizationId,
+			outputId: output.id,
+		};
+		expect((await core.select().from(workspaceOutputIndex)).length).toBe(1);
+		expect((await storage.getOsOutput(core, params))?.id).toBe(output.id);
+		expect(
+			(
+				await storage.getOsOutputRevision(core, {
+					organizationId: scope.organizationId,
+					revisionId: revision.id,
+				})
+			)?.id,
+		).toBe(revision.id);
+		expect(
+			(
+				await storage.getOsOutputRevisionByNumber(core, {
+					...params,
+					revision: 1,
+				})
+			)?.id,
+		).toBe(revision.id);
+		expect(
+			(await storage.listOsOutputRevisions(core, params)).map((row) => row.id),
+		).toEqual([revision.id]);
+		expect(
+			(
+				await storage.createOsOutputRevision(core, {
+					...revision,
+					id: "revision-2",
+					contentSha256: "b".repeat(64),
+					expectedRevision: 1,
+				})
+			).ok,
+		).toBe(true);
+		expect(
+			(
+				await storage.getOsOutputRevisionByNumber(core, {
+					...params,
+					revision: 2,
+				})
+			)?.id,
+		).toBe("revision-2");
+		expect(
+			(await storage.listOsOutputs(core, scope, viewer)).map((row) => row.id),
+		).toEqual([output.id]);
+		expect(
+			(
+				await storage.createOsOutput(
+					core,
+					scope,
+					{ ...output, id: "output-2", currentRevisionId: "revision-new" },
+					{ ...revision, id: "revision-new", outputId: "output-2" },
+				)
+			).output.id,
+		).toBe("output-2");
+		expect(
+			(await storage.updateOsOutput(core, params, { title: "Shared edit" }))
+				?.title,
+		).toBe("Shared edit");
+		expect(
+			query.mock.calls.every(([, query]) => query.op === "authority"),
+		).toBe(true);
+		expect(await executeOutputQuery(tenant, scope, { op: "list" })).toEqual([]);
+	});
+
+	it("removes shared projections on publication and keeps them in the Outputs library", async () => {
+		const { core, output, revision } = await fixture(false);
+		const created = await legacy.createOsOutput(core, scope, output, revision);
+		await publishOutputProjection(core, created.output, created.revision);
+		expect(await core.select().from(workspaceOutputIndex)).toHaveLength(1);
+		await publishWorkspaceChange(
+			{ db: core },
+			outputRevisionChange(created.output, created.revision),
+		);
+		expect(await core.select().from(workspaceOutputIndex)).toEqual([]);
+		const library = await buildOsOutputLibrary(core, {
+			organizationId: scope.organizationId,
+			viewer,
+			creator: { kind: "user", id: "user-1" },
+			limit: 10,
+			canReadRevision: async () => true,
+		});
+		expect(library.items.map((item) => item.output.id)).toEqual([output.id]);
+		expect(
+			(
+				await storage.getOsOutput(core, {
+					organizationId: scope.organizationId,
+					outputId: output.id,
+				})
+			)?.id,
+		).toBe(output.id);
+	});
+
+	it("recognizes a transfer destination with object outputs and no imported workspace row", async () => {
+		const { core, tenant, output, revision } = await fixture(false);
+		await executeOutputQuery(tenant, scope, { op: "create", output, revision });
+		await publishOutputProjection(
+			core,
+			output,
+			(await executeOutputQuery(tenant, scope, {
+				op: "revision",
+				revisionId: revision.id,
+			}))!,
+		);
+		expect(
+			(
+				await storage.getOsOutput(core, {
+					organizationId: scope.organizationId,
+					outputId: output.id,
+				})
+			)?.id,
+		).toBe(output.id);
+		expect(
+			(
+				await storage.getOsOutputRevisionByNumber(core, {
+					organizationId: scope.organizationId,
+					outputId: output.id,
+					revision: 1,
+				})
+			)?.id,
+		).toBe(revision.id);
+	});
 	it("uses the indexed object for moves and never reads a stale shared row as fallback", async () => {
 		const { core, tenant, output, revision } = await fixture();
 		await storage.createOsOutput(core, scope, output, revision);
@@ -271,8 +428,8 @@ describe("workspace output storage authority", () => {
 		).toBeUndefined();
 	});
 
-	it("keeps legacy D1 IDs authoritative even when an older object copy exists", async () => {
-		const { core, tenant, output, revision } = await fixture();
+	it("keeps shared workspace outputs authoritative even when an older object copy exists", async () => {
+		const { core, tenant, output, revision } = await fixture(false);
 		await legacy.createOsOutput(
 			core,
 			scope,
@@ -409,7 +566,7 @@ describe("workspace output storage authority", () => {
 		}
 	});
 
-	it("deletes a stale object copy before deleting its authoritative D1 row", async () => {
+	it("deletes only the owning object despite a stale shared copy", async () => {
 		const { core, tenant, output, revision } = await fixture();
 		await legacy.createOsOutput(core, scope, output, revision);
 		await executeOutputQuery(tenant, scope, { op: "create", output, revision });

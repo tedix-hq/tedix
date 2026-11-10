@@ -17,6 +17,9 @@ import {
 	type WorkspaceChangeSummary,
 	organizationFeedScope,
 } from "@tedix/api-contract/schemas/workspace-feed";
+import { env } from "cloudflare:workers";
+import type { WorkspaceOutputRuntime } from "@tedix/db/queries/durable-sqlite/output-rpc";
+import { removeSharedWorkspaceOutputIndex } from "@tedix/db/queries/workspace-feed/read";
 import { appendWorkspaceFeedLedger } from "@tedix/db/queries/workspace-feed/ledger";
 import {
 	createDbQueryClient,
@@ -162,6 +165,20 @@ export async function publishWorkspaceChange(
 ): Promise<WorkspaceChangeEvent> {
 	const event = await appendWorkspaceFeedLedger(publisher.db, input);
 	await createWorkspaceFeedConsumer({ db: publisher.db }).applyEvents([event]);
+	if (input.kind === "output") {
+		const store = (
+			env as unknown as { WORKSPACE_RUNTIME?: WorkspaceOutputRuntime }
+		).WORKSPACE_RUNTIME;
+		const scope = {
+			organizationId: input.organizationId,
+			workspaceId: input.workspaceId,
+		};
+		if (
+			!store ||
+			(await store.outputQuery(scope, { op: "authority" })) === "shared"
+		)
+			await removeSharedWorkspaceOutputIndex(publisher.db, scope);
+	}
 	if (publisher.queue) {
 		await publisher.queue.send(toWorkspaceChangeMessage(event), {
 			contentType: "json",

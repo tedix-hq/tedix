@@ -20,9 +20,12 @@ import {
 	type OutputTransferSnapshot,
 	type OutputTransferResult,
 } from "@tedix/db/queries/durable-sqlite/output-rpc";
+import { hasWorkspaceOutputAuthority } from "@tedix/db/queries/durable-sqlite/os-outputs";
 import { getTediById } from "@tedix/db/queries/tedis";
-import * as coreOutputs from "@tedix/db/queries/os-workspaces/outputs";
-import { retireWorkspaceOutputIndex } from "@tedix/db/queries/workspace-feed/read";
+import {
+	removeSharedWorkspaceOutputIndex,
+	retireWorkspaceOutputIndex,
+} from "@tedix/db/queries/workspace-feed/read";
 import {
 	hasWorkspaceActionProjection,
 	publishWorkspaceAction,
@@ -296,12 +299,31 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		return result;
 	}
 
+	async #ownsOutputs(scope: WorkspaceScope): Promise<boolean> {
+		if (this.#store.get("output-authority") === "object") return true;
+		if (
+			!(await hasWorkspaceOutputAuthority(
+				this.db as TenantStoreDb,
+				scope,
+				createDbQueryClient(this.env.DB),
+			))
+		)
+			return false;
+		// Ownership survives deleting the last output and object eviction.
+		this.#store.put("output-authority", "object");
+		return true;
+	}
+
 	async outputQuery<K extends OutputQuery["op"]>(
 		scope: WorkspaceScope,
 		query: OutputQuery<K>,
 	): Promise<OutputQueryResult<K>> {
 		this.bindScope(scope);
 		const operation = query as OutputQuery;
+		if (operation.op === "authority")
+			return (
+				(await this.#ownsOutputs(scope)) ? "object" : "shared"
+			) as OutputQueryResult<K>;
 		if (operation.op === "snapshot" || operation.op === "import")
 			throw new Error("Use the output transfer RPC");
 		const outputId =
@@ -1329,13 +1351,14 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 
 	protected async projectOutput(scope: WorkspaceScope, outputId: string) {
 		const core = createDbQueryClient(this.env.DB);
-		const legacy = await coreOutputs.getOsOutput(core, { ...scope, outputId });
-		const row =
-			legacy ??
-			(await executeOutputQuery(this.db as TenantStoreDb, scope, {
-				op: "get",
-				outputId,
-			}));
+		if ((await this.outputQuery(scope, { op: "authority" })) === "shared") {
+			await removeSharedWorkspaceOutputIndex(core, scope);
+			return;
+		}
+		const row = await executeOutputQuery(this.db as TenantStoreDb, scope, {
+			op: "get",
+			outputId,
+		});
 		if (!row) {
 			await retireWorkspaceOutputIndex(core, {
 				organizationId: scope.organizationId,
@@ -1344,15 +1367,10 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			return;
 		}
 		if (row.workspaceId !== scope.workspaceId || !row.currentRevisionId) return;
-		const revision = legacy
-			? await coreOutputs.getOsOutputRevision(core, {
-					...scope,
-					revisionId: row.currentRevisionId,
-				})
-			: await executeOutputQuery(this.db as TenantStoreDb, scope, {
-					op: "revision",
-					revisionId: row.currentRevisionId,
-				});
+		const revision = await executeOutputQuery(this.db as TenantStoreDb, scope, {
+			op: "revision",
+			revisionId: row.currentRevisionId,
+		});
 		if (revision) await publishOutputProjection(core, row, revision);
 		// Immutable revisions recover every file save even when notifications coalesced.
 		const beforeRevision = this.#store.get<number>(
@@ -1362,17 +1380,11 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			limit: 10,
 			...(beforeRevision ? { beforeRevision } : {}),
 		};
-		const history = legacy
-			? await coreOutputs.listOsOutputRevisions(
-					core,
-					{ ...scope, outputId },
-					options,
-				)
-			: await executeOutputQuery(this.db as TenantStoreDb, scope, {
-					op: "history",
-					outputId,
-					options,
-				});
+		const history = await executeOutputQuery(this.db as TenantStoreDb, scope, {
+			op: "history",
+			outputId,
+			options,
+		});
 		for (const saved of [...history].reverse())
 			await publishOutputProjection(core, row, saved, { historical: true });
 		if (history.length === options.limit) {
@@ -1518,6 +1530,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			core: createDbQueryClient(this.env.DB),
 			bucket: this.env.R2_BUCKET,
 			actorKind,
+			ownsOutputs: () => this.#ownsOutputs(scope),
 			commitOutput: (outputId, write) =>
 				this.#commitOutput(scope, outputId, write),
 		});

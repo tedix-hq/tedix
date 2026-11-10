@@ -1,7 +1,6 @@
 /**
- * Data port over the workspace's own store. Outputs and revisions are rows
- * in this object's SQLite (the tenant-store plane); pre-cutover outputs retain
- * their core rows and revisions. Bodies are gzip objects
+ * Outputs and revisions use the workspace's selected storage owner:
+ * object SQLite after cutover, otherwise shared D1. Bodies are gzip objects
  * in R2 addressed by digest. Apps, resources and Work items still live in
  * the core database and are read there directly, no HTTP hop.
  */
@@ -110,6 +109,7 @@ export interface TenantDataPortDeps {
 	core: DbQueryClient;
 	bucket: OutputBodyBucket;
 	actorKind: "user" | "tedi" | "external_agent" | "service";
+	ownsOutputs: () => Promise<boolean>;
 	commitOutput: <T>(outputId: string, write: () => Promise<T>) => Promise<T>;
 }
 
@@ -141,8 +141,10 @@ export class TenantDataPort implements WorkspaceDataPort {
 
 	private async locate(outputId: string) {
 		const params = { ...this.scope, outputId };
-		const legacy = await coreOutputs.getOsOutput(this.deps.core, params);
-		const row = legacy ?? (await getOsOutput(this.deps.tenant, params));
+		const legacy = !(await this.deps.ownsOutputs());
+		const row = legacy
+			? await coreOutputs.getOsOutput(this.deps.core, params)
+			: await getOsOutput(this.deps.tenant, params);
 		if (!row || row.workspaceId !== this.deps.workspaceId) return null;
 		const revision = row.currentRevisionId
 			? await (legacy
@@ -193,18 +195,18 @@ export class TenantDataPort implements WorkspaceDataPort {
 		status?: OutputSummary["status"];
 	}): Promise<OutputSummary[]> {
 		const viewer = { userIds: [], workspaceIds: [this.deps.workspaceId] };
-		const [legacy, local] = await Promise.all([
-			coreOutputs.listOsOutputs(this.deps.core, this.scope, viewer, {
-				...options,
-				limit: 500,
-			}),
-			listOsOutputs(this.deps.tenant, this.deps.organizationId, viewer, {
-				workspaceId: this.deps.workspaceId,
-				...options,
-				limit: 500,
-			}),
-		]);
-		const ids = new Set([...legacy, ...local].map((row) => row.id));
+		const owned = (await this.deps.ownsOutputs())
+			? await listOsOutputs(
+					this.deps.tenant,
+					this.deps.organizationId,
+					viewer,
+					{ workspaceId: this.deps.workspaceId, ...options, limit: 500 },
+				)
+			: await coreOutputs.listOsOutputs(this.deps.core, this.scope, viewer, {
+					...options,
+					limit: 500,
+				});
+		const ids = new Set(owned.map((row) => row.id));
 		const rows = await Promise.all([...ids].map((id) => this.locate(id)));
 		return rows
 			.filter(
@@ -246,9 +248,23 @@ export class TenantDataPort implements WorkspaceDataPort {
 		const outputId = crypto.randomUUID();
 		const revisionId = crypto.randomUUID();
 		const now = new Date().toISOString();
+		const create = (await this.deps.ownsOutputs())
+			? (
+					output: Parameters<typeof createOsOutput>[1],
+					revision: Parameters<typeof createOsOutput>[2],
+				) => createOsOutput(this.deps.tenant, output, revision)
+			: (
+					output: Parameters<typeof createOsOutput>[1],
+					revision: Parameters<typeof createOsOutput>[2],
+				) =>
+					coreOutputs.createOsOutput(
+						this.deps.core,
+						this.scope,
+						output,
+						revision,
+					);
 		const created = await this.deps.commitOutput(outputId, () =>
-			createOsOutput(
-				this.deps.tenant,
+			create(
 				{
 					id: outputId,
 					organizationId: this.deps.organizationId,

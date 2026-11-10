@@ -12,6 +12,7 @@ export type OutputTransferResult =
 	| { ok: false; reason: "not_found" | "conflict" };
 
 export interface OutputQueryInputs {
+	authority: unknown;
 	snapshot: { outputId: string };
 	import: { snapshot: OutputTransferSnapshot };
 	list: { options?: outputs.ListOsOutputsOptions };
@@ -30,6 +31,7 @@ export interface OutputQueryInputs {
 }
 
 export interface OutputQueryResults {
+	authority: "object" | "shared";
 	snapshot: Awaited<ReturnType<typeof outputs.snapshotOutput>>;
 	import: Awaited<ReturnType<typeof outputs.importOutput>>;
 	list: Awaited<ReturnType<typeof outputs.listOsOutputs>>;
@@ -99,6 +101,8 @@ async function execute(
 		outputId,
 	});
 	switch (query.op) {
+		case "authority":
+			throw new Error("Workspace authority requires the shared inventory");
 		case "snapshot":
 			if (!(await owned(query.outputId))) return undefined;
 			return outputs.snapshotOutput(db, params(query.outputId));

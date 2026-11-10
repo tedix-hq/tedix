@@ -5,7 +5,7 @@ import type {
 	WorkspaceOutputRuntime,
 } from "@tedix/db/queries/durable-sqlite/output-rpc";
 import {
-	getWorkspaceOutputIndexCurrent,
+	getWorkspaceOutputLocation,
 	getWorkspaceOutputIndexRevision,
 	listWorkspaceOutputLibrary,
 } from "@tedix/db/queries/workspace-feed/read";
@@ -42,14 +42,18 @@ async function location(
 	organizationId: string,
 	outputId: string,
 ) {
-	const index = await getWorkspaceOutputIndexCurrent(db, {
+	const index = await getWorkspaceOutputLocation(db, {
 		organizationId,
 		outputId,
 	});
-	return index ? { organizationId, workspaceId: index.workspaceId } : undefined;
+	if (!index?.workspaceId) return undefined;
+	const scope = { organizationId, workspaceId: index.workspaceId };
+	return (await runtime()!.outputQuery(scope, { op: "authority" })) === "object"
+		? scope
+		: undefined;
 }
 
-/** An indexed workspace output is read only from its owning object. */
+/** The index locates the workspace; the runtime resolves its storage owner. */
 export async function getOsOutput(
 	...args: Parameters<typeof legacy.getOsOutput>
 ) {
@@ -69,7 +73,17 @@ export async function moveOsOutput(
 	targetWorkspaceId: string,
 ): Promise<OutputTransferResult> {
 	const store = runtime();
-	if (!store) {
+	if (
+		!store ||
+		!output.workspaceId ||
+		(await store.outputQuery(
+			{
+				organizationId: output.organizationId,
+				workspaceId: output.workspaceId,
+			},
+			{ op: "authority" },
+		)) !== "object"
+	) {
 		const moved = await legacy.updateOsOutput(
 			db,
 			{ organizationId: output.organizationId, outputId: output.id },
@@ -79,7 +93,6 @@ export async function moveOsOutput(
 			? { ok: true, output: moved }
 			: { ok: false, reason: "not_found" };
 	}
-	if (!output.workspaceId) return { ok: false, reason: "not_found" };
 	return store.transferOutput(
 		{ organizationId: output.organizationId, workspaceId: output.workspaceId },
 		output.id,
@@ -91,9 +104,17 @@ export async function listOsOutputs(
 	...args: Parameters<typeof legacy.listOsOutputs>
 ) {
 	const [db, scope, viewer, options = {}] = args;
-	const rows = await legacy.listOsOutputs(...args);
 	const store = runtime();
-	if (!store) return rows;
+	if (!store) return legacy.listOsOutputs(...args);
+	if (
+		scope.workspaceId &&
+		(await store.outputQuery(
+			{ organizationId: scope.organizationId, workspaceId: scope.workspaceId },
+			{ op: "authority" },
+		)) !== "object"
+	)
+		return legacy.listOsOutputs(...args);
+	const rows = scope.workspaceId ? [] : await legacy.listOsOutputs(...args);
 	let objectRows;
 	if (scope.workspaceId) {
 		const workspace = await getOsWorkspace(db, {
@@ -138,7 +159,11 @@ export async function getOsOutputRevision(
 ) {
 	if (!runtime()) return legacy.getOsOutputRevision(...args);
 	const index = await getWorkspaceOutputIndexRevision(args[0], args[1]);
-	return index
+	return index &&
+		(await runtime()!.outputQuery(
+			{ organizationId: index.organizationId, workspaceId: index.workspaceId },
+			{ op: "authority" },
+		)) === "object"
 		? runtime()!.outputQuery(
 				{
 					organizationId: index.organizationId,
@@ -183,7 +208,15 @@ export async function createOsOutput(
 	...args: Parameters<typeof legacy.createOsOutput>
 ) {
 	const [, scope, output, revision] = args;
-	if (!output.workspaceId || !runtime()) return legacy.createOsOutput(...args);
+	if (
+		!output.workspaceId ||
+		!runtime() ||
+		(await runtime()!.outputQuery(
+			{ organizationId: scope.organizationId, workspaceId: output.workspaceId },
+			{ op: "authority" },
+		)) !== "object"
+	)
+		return legacy.createOsOutput(...args);
 	const created = await runtime()!.outputQuery(
 		{ organizationId: scope.organizationId, workspaceId: output.workspaceId },
 		{ op: "create", output, revision },
@@ -238,60 +271,32 @@ export async function updateOsOutput(
 export async function getActiveSheetByTitle(
 	...args: Parameters<typeof legacy.getActiveSheetByTitle>
 ) {
-	const existing = await legacy.getActiveSheetByTitle(...args);
-	if (!runtime()) return existing;
-	const object = await runtime()!.outputQuery(
+	if (
+		!runtime() ||
+		(await runtime()!.outputQuery(args[1], { op: "authority" })) !== "object"
+	)
+		return legacy.getActiveSheetByTitle(...args);
+	return runtime()!.outputQuery(
 		{
 			organizationId: args[1].organizationId,
 			workspaceId: args[1].workspaceId,
 		},
 		{ op: "activeSheet", title: args[1].title },
 	);
-	if (!object || object.output.id === existing?.output.id) return existing;
-	return !existing ||
-		object.output.updatedAt > existing.output.updatedAt ||
-		(object.output.updatedAt === existing.output.updatedAt &&
-			object.output.id > existing.output.id)
-		? object
-		: existing;
 }
 
 export async function deleteOsOutput(
 	...args: Parameters<typeof legacy.deleteOsOutput>
 ) {
 	const [db, params] = args;
-	const existing = await legacy.getOsOutput(db, params);
-	if (existing) {
-		if (existing.workspaceId && runtime()) {
-			const scope = {
-				organizationId: existing.organizationId,
-				workspaceId: existing.workspaceId,
-			};
-			await runtime()!.outputQuery(scope, {
-				op: "delete",
-				outputId: existing.id,
-			});
-		}
-		const removed = await legacy.deleteOsOutput(...args);
-		if (removed && existing.workspaceId && runtime()) {
-			await refreshCommittedOutput(
-				runtime()!,
-				{
-					organizationId: existing.organizationId,
-					workspaceId: existing.workspaceId,
-				},
-				existing.id,
-			);
-		}
-		return removed;
-	}
 	const scope = runtime()
 		? await location(db, params.organizationId, params.outputId)
 		: undefined;
-	if (!scope) return false;
+	if (!scope) return legacy.deleteOsOutput(...args);
 	const removed = await runtime()!.outputQuery(scope, {
 		op: "delete",
 		outputId: params.outputId,
 	});
+	if (removed) await refreshCommittedOutput(runtime()!, scope, params.outputId);
 	return removed;
 }

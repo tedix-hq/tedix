@@ -435,7 +435,7 @@ describe("WorkspaceDO", () => {
 		expect(elapsed).toBeLessThan(10_000);
 	});
 
-	test("agent reads browser revisions from both stores and refuses unverified source content", async () => {
+	test("agent reads browser revisions from the workspace owner and refuses unverified source content", async () => {
 		await seedCore();
 		const ws = workspace();
 		const now = new Date().toISOString();
@@ -476,6 +476,25 @@ describe("WorkspaceDO", () => {
 			output,
 			revision,
 		);
+		await ws.importRows(scope, {
+			batchId: "browser-workspace-owner",
+			table: "os_workspaces",
+			rows: [
+				{
+					id: scope.workspaceId,
+					organization_id: scope.organizationId,
+					name: "Programme workspace",
+					status: "active",
+					visibility: "org",
+					created_by_kind: "user",
+					created_by_id: "u1",
+					created_at: now,
+					updated_at: now,
+				},
+			],
+		});
+		await ws.outputQuery(scope, { op: "create", output, revision });
+		expect(await ws.outputQuery(scope, { op: "authority" })).toBe("object");
 		await ws.failNextProjection(scope);
 		await ws.outputQuery(scope, {
 			op: "create",

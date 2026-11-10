@@ -5,7 +5,7 @@
 
 import { and, desc, eq, exists, inArray, like, lt, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
-import { osWorkspaces } from "../../schema/os-workspaces";
+import { osOutputs, osWorkspaces } from "../../schema/os-workspaces";
 import {
 	type WorkspaceActivityRow,
 	type WorkspaceChangeKind,
@@ -197,6 +197,39 @@ export async function listWorkspaceOutputLibrary(
 	}));
 }
 
+/** Metadata only: retired projections still locate deleted object-owned IDs. */
+export async function getWorkspaceOutputLocation(
+	db: DbQueryClient,
+	params: { organizationId: string; outputId: string },
+) {
+	const [index] = await db
+		.select({ workspaceId: workspaceOutputIndex.workspaceId })
+		.from(workspaceOutputIndex)
+		.where(
+			and(
+				eq(workspaceOutputIndex.organizationId, params.organizationId),
+				eq(workspaceOutputIndex.outputId, params.outputId),
+			),
+		)
+		.orderBy(
+			desc(workspaceOutputIndex.isCurrent),
+			desc(workspaceOutputIndex.revision),
+		)
+		.limit(1);
+	if (index) return index;
+	const [row] = await db
+		.select({ workspaceId: osOutputs.workspaceId })
+		.from(osOutputs)
+		.where(
+			and(
+				eq(osOutputs.organizationId, params.organizationId),
+				eq(osOutputs.id, params.outputId),
+			),
+		)
+		.limit(1);
+	return row;
+}
+
 export async function getWorkspaceOutputIndexCurrent(
 	db: DbQueryClient,
 	params: { organizationId: string; outputId: string },
@@ -230,6 +263,21 @@ export async function getWorkspaceOutputIndexRevision(
 		)
 		.limit(1);
 	return row;
+}
+
+/** Shared workspaces have no object-owned output projections. */
+export async function removeSharedWorkspaceOutputIndex(
+	db: DbQueryClient,
+	scope: { organizationId: string; workspaceId: string },
+): Promise<void> {
+	await db
+		.delete(workspaceOutputIndex)
+		.where(
+			and(
+				eq(workspaceOutputIndex.organizationId, scope.organizationId),
+				eq(workspaceOutputIndex.workspaceId, scope.workspaceId),
+			),
+		);
 }
 
 export async function retireWorkspaceOutputIndex(
