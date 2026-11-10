@@ -57,6 +57,7 @@ export interface UserTenantIdentityContext {
 	canonicalUserId: string | null;
 	/** Null means no membership row; false means an explicitly inactive row. */
 	memberIsActive: boolean | null;
+	memberKind: typeof organizationMembers.$inferSelect.kind | null;
 	memberRole: string | null;
 	memberPermissionOverrides: OrganizationPermission[] | null;
 }
@@ -121,6 +122,9 @@ export async function resolveUserTenantIdentityContext(
 			memberRole: sql<string | null>`${organizationMembers.role}`.as(
 				"identity_context_member_role",
 			),
+			memberKind: sql<
+				typeof organizationMembers.$inferSelect.kind | null
+			>`${organizationMembers.kind}`.as("identity_context_member_kind"),
 			memberPermissionOverrides: sql<
 				OrganizationPermission[] | null
 			>`${organizationMembers.customPermissions}`

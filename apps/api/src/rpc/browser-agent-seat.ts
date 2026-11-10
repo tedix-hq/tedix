@@ -17,6 +17,13 @@ export async function bindBrowserAgentSeat(
 		!context.user?.sub
 	)
 		return;
+	// JWT authentication already checked this membership's live status. Agent
+	// seats and paths without that read still resolve the full seat and owner.
+	if (
+		context.userMembershipKind === "human" ||
+		context.userMembershipKind === "external_agent"
+	)
+		return;
 	const canonicalMember = context.userId
 		? await getMemberByCanonicalUserId(
 				context.db,

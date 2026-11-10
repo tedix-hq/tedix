@@ -157,28 +157,34 @@ describe("user tenant identity context", () => {
 			organizationId: ORG,
 			canonicalUserId: USER,
 			memberIsActive: true,
+			memberKind: "human",
 			memberRole: "admin",
 			memberPermissionOverrides: ["apps:read"],
 		});
 	});
 
-	it("keeps the read-only Descope compatibility fallback", async () => {
-		await db.insert(organizationMembers).values({
-			id: "00000000-0000-4000-8000-000000000004",
-			organizationId: ORG,
-			descopeUserId: SUBJECT,
-			email: "legacy@example.test",
-			role: "member",
-		});
+	it.each(["human", "external_agent", "browser_agent"] as const)(
+		"keeps the read-only Descope compatibility fallback for %s",
+		async (kind) => {
+			await db.insert(organizationMembers).values({
+				id: "00000000-0000-4000-8000-000000000004",
+				organizationId: ORG,
+				descopeUserId: SUBJECT,
+				email: "legacy@example.test",
+				kind,
+				role: "member",
+			});
 
-		await expect(resolve()).resolves.toEqual({
-			organizationId: ORG,
-			canonicalUserId: null,
-			memberIsActive: true,
-			memberRole: "member",
-			memberPermissionOverrides: null,
-		});
-	});
+			await expect(resolve()).resolves.toEqual({
+				organizationId: ORG,
+				canonicalUserId: null,
+				memberIsActive: true,
+				memberKind: kind,
+				memberRole: "member",
+				memberPermissionOverrides: null,
+			});
+		},
+	);
 
 	it.each(["deactivated", "invited", null] as const)(
 		"removes authority for a %s membership and restores it on reactivation",
@@ -218,6 +224,7 @@ describe("user tenant identity context", () => {
 			organizationId: ORG,
 			canonicalUserId: null,
 			memberIsActive: null,
+			memberKind: null,
 			memberRole: null,
 			memberPermissionOverrides: null,
 		});

@@ -756,6 +756,7 @@ describe("public user-session authentication", () => {
 		claims: Record<string, unknown>,
 		token = "header.payload.sig",
 		memberIsActive: boolean | null = true,
+		memberKind?: BaseContext["userMembershipKind"],
 	) {
 		jwtMocks.validateToken.mockResolvedValue({
 			sub: "U2fictionaluser",
@@ -768,6 +769,7 @@ describe("public user-session authentication", () => {
 			organizationId: "org-1",
 			canonicalUserId: "canonical-user",
 			memberIsActive,
+			memberKind,
 			memberRole: memberIsActive ? "owner" : null,
 			memberPermissionOverrides: [],
 		});
@@ -798,6 +800,27 @@ describe("public user-session authentication", () => {
 		await call(guarded, undefined, { context });
 		return seen;
 	}
+
+	it.each(["human", "external_agent"] as const)(
+		"uses the live %s membership without a second membership read",
+		async (kind) => {
+			const context = await authenticate(
+				{ iss: "https://auth.tedix.dev/P2fictional" },
+				undefined,
+				true,
+				kind,
+			);
+			expect(context?.userMembershipKind).toBe(kind);
+			expect(context?.organizationId).toBe("org-1");
+			expect(
+				personalAuthMocks.getMemberByCanonicalUserId,
+			).not.toHaveBeenCalled();
+			expect(context?.serverTiming).toEqual([
+				expect.stringMatching(/^auth-jwt;dur=\d+\.\d$/),
+				expect.stringMatching(/^auth-identity;dur=\d+\.\d$/),
+			]);
+		},
+	);
 
 	it("recovers transient tenant identity failures before invoking the protected handler", async () => {
 		shareAuthMocks.resolveUserTenantIdentityContext.mockRejectedValueOnce(
@@ -863,11 +886,16 @@ describe("public user-session authentication", () => {
 				status: "active",
 				name: "River",
 			});
-		const context = await authenticate({
-			iss: "https://auth.tedix.dev/P2fictional",
-			roles: ["admin"],
-			permissions: ["team:manage", "os:approve"],
-		});
+		const context = await authenticate(
+			{
+				iss: "https://auth.tedix.dev/P2fictional",
+				roles: ["admin"],
+				permissions: ["team:manage", "os:approve"],
+			},
+			undefined,
+			true,
+			"browser_agent",
+		);
 		expect(context?.browserAgentSeat).toMatchObject({
 			userId: "canonical-user",
 			displayName: "Juniper",
@@ -901,7 +929,7 @@ describe("public user-session authentication", () => {
 			permissions: ["settings:manage"],
 		};
 		await expect(
-			authenticate(claims, "header.payload.sig", false),
+			authenticate(claims, "header.payload.sig", false, "human"),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
 
 		const context = await authenticate(claims);
