@@ -118,6 +118,7 @@ export function describeGatewayCall(gates: GatewayCallGates): CallDescription {
 }
 
 export class GatewayComplianceAdapter implements ComplianceAdapter {
+	verifiedHomeAgentPrincipalId?: string;
 	/** The gate response for the last refusal, in the shape clients expect. */
 	failure: CallToolResult | null = null;
 	constructor(private readonly gates: GatewayCallGates) {}
@@ -125,6 +126,7 @@ export class GatewayComplianceAdapter implements ComplianceAdapter {
 	async check(call: CallDescription): Promise<ComplianceDecision> {
 		const { agent, tool, annotations, approval } = this.gates;
 		this.failure = null;
+		this.verifiedHomeAgentPrincipalId = undefined;
 		const base = {
 			riskTier: call.riskTier,
 			blastRadius: call.blastRadius,
@@ -165,7 +167,12 @@ export class GatewayComplianceAdapter implements ComplianceAdapter {
 			agent,
 			tool,
 			annotations,
-			approval,
+			{
+				...approval,
+				onHomeAgentVerified: (principalId) => {
+					this.verifiedHomeAgentPrincipalId = principalId;
+				},
+			},
 		);
 		let approvalState: ApprovalState;
 		if (!approvalFailure) {
@@ -286,7 +293,10 @@ export interface GuardedGatewayCall {
  */
 export async function guardGatewayCall(
 	gates: GatewayCallGates,
-	execute: (executionArgs: Record<string, unknown>) => Promise<CallToolResult>,
+	execute: (
+		executionArgs: Record<string, unknown>,
+		verifiedHomeAgentPrincipalId?: string,
+	) => Promise<CallToolResult>,
 ): Promise<GuardedGatewayCall> {
 	const compliance = new GatewayComplianceAdapter(gates);
 	const accountability = new GatewayAccountabilityAdapter(gates.agent);
@@ -295,7 +305,7 @@ export async function guardGatewayCall(
 	try {
 		const { result, decision, record } = await guardedCall(
 			call,
-			() => execute(executionArgs),
+			() => execute(executionArgs, compliance.verifiedHomeAgentPrincipalId),
 			{
 				compliance,
 				accountability,
@@ -321,6 +331,7 @@ export async function guardGatewayCall(
 }
 
 export interface AdmittedGatewayCall {
+	verifiedHomeAgentPrincipalId?: string;
 	failure: CallToolResult | null;
 	decision: ComplianceDecision;
 	executionArgs: Record<string, unknown>;
@@ -370,6 +381,7 @@ export async function admitGatewayCall(
 		failure: null,
 		decision,
 		executionArgs,
+		verifiedHomeAgentPrincipalId: compliance.verifiedHomeAgentPrincipalId,
 		settle: async (outcome) => {
 			if (settled) return null;
 			settled = true;

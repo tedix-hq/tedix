@@ -556,6 +556,8 @@ export function buildNamespaceGroups(
 						executionId: executionRefs.executionId,
 						secretEgressDecision: secretEgress.decision,
 						ownerHostSession: executionRefs.ownerHostSession,
+						verifiedHomeAgentPrincipalId:
+							admission.verifiedHomeAgentPrincipalId,
 						...(nativeCandidate
 							? { expectedNativePolicyRevalidate: nativeCandidate.revalidate }
 							: {}),

@@ -1,9 +1,56 @@
 import { describe, expect, it } from "vite-plus/test";
 import { stripServiceBindingMarker } from "@tedix/worker-kit/request-auth";
 import type { BaseContext } from "../context";
-import { resolveProducer } from "./os-workspaces-shared";
+import { resolveCreator, resolveProducer } from "./os-workspaces-shared";
 
 const RUN = "9f1e2d3c-4b5a-4697-8899-aabbccddeeff";
+
+describe("Home receipt creator", () => {
+	it("records the verified agent without granting an agent session", () => {
+		const context = contextWith({
+			"X-Tedix-Kernel": "true",
+			"X-Tedix-Actor-Type": "external_agent",
+			"X-Tedix-Actor-Id": RUN,
+		});
+		expect(resolveCreator(context)).toEqual({
+			kind: "external_agent",
+			id: RUN,
+		});
+		expect(context.externalAgentPrincipalId).toBeUndefined();
+		expect(context.externalAgentSessionId).toBeUndefined();
+	});
+	it.each([
+		{ "X-Service-Binding": "false" },
+		{ "X-Tedix-Kernel": "false" },
+		{ "X-Tedix-Actor-Type": "user" },
+		{ "X-Tedix-Actor-Id": "unknown" },
+	])("refuses untrusted or malformed creator claims: %j", (patch) => {
+		expect(() =>
+			resolveCreator(
+				contextWith({
+					"X-Tedix-Kernel": "true",
+					"X-Tedix-Actor-Type": "external_agent",
+					"X-Tedix-Actor-Id": RUN,
+					...patch,
+				}),
+			),
+		).toThrow("No accountable principal");
+	});
+	it("rejects creator headers after public ingress strips the trust marker", () => {
+		const request = stripServiceBindingMarker(
+			new Request("https://api.example.test/rpc", {
+				headers: contextWith({
+					"X-Tedix-Kernel": "true",
+					"X-Tedix-Actor-Type": "external_agent",
+					"X-Tedix-Actor-Id": RUN,
+				}).headers,
+			}),
+		);
+		expect(() =>
+			resolveCreator({ headers: request.headers } as BaseContext),
+		).toThrow("No accountable principal");
+	});
+});
 
 function contextWith(headers: Record<string, string>): BaseContext {
 	return {

@@ -415,6 +415,41 @@ describe("approved Home write scopes", () => {
 
 describe("Home Work creator provenance", () => {
 	it.each([
+		{ homeApprovedCall: true, kernel: true, expected: true },
+		{ homeApprovedCall: false, kernel: true, expected: false },
+		{ homeApprovedCall: true, kernel: false, expected: false },
+	])(
+		"forwards receipt creator only for an approved kernel call: %j",
+		async ({ expected, ...flags }) => {
+			const apiFetch = vi.fn(async () => Response.json({ json: { ok: true } }));
+			await new ToolHandler().execute(
+				{},
+				{
+					...ctx({ transport: "rpc", endpoint: "osWorkspaces/outputs/create" }),
+					toolId: "tedix__create_os_output",
+					env: { API_SERVICE: { fetch: apiFetch } } as unknown as CloudflareEnv,
+					callerIdentity: {
+						authType: "service",
+						...flags,
+						approvedHomeAgentPrincipalId:
+							"5eed0015-0000-4000-8000-000000000015",
+					},
+				},
+			);
+			const call = apiFetch.mock.calls[0] as unknown as Parameters<
+				typeof fetch
+			>;
+			const headers = headersFromFetch(...call);
+			expect(headers.get("X-Tedix-Actor-Id")).toBe(
+				expected ? "5eed0015-0000-4000-8000-000000000015" : null,
+			);
+			expect(headers.get("X-Tedix-Actor-Type")).toBe(
+				expected ? "external_agent" : null,
+			);
+			expect(headers.get("X-Tedix-External-Agent-Session-Id")).toBeNull();
+		},
+	);
+	it.each([
 		{
 			authType: "service" as const,
 			kernel: true,

@@ -1313,13 +1313,17 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 			)
 				return { approved: false };
 			// While the run is still running, the same call must not run twice.
+			const approved = await consumeHomeToolApprovalCall(context.db, {
+				id: input.approvalRequestId,
+				organizationId: input.organizationId,
+				slot: `${input.credential}_${digest}`,
+				now: new Date().toISOString(),
+			});
 			return {
-				approved: await consumeHomeToolApprovalCall(context.db, {
-					id: input.approvalRequestId,
-					organizationId: input.organizationId,
-					slot: `${input.credential}_${digest}`,
-					now: new Date().toISOString(),
-				}),
+				approved,
+				...(approved && payload.initiatedByAgentPrincipalId
+					? { initiatingAgentPrincipalId: payload.initiatedByAgentPrincipalId }
+					: {}),
 			};
 		},
 	),

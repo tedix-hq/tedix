@@ -475,6 +475,40 @@ describe("outputs", () => {
 		expect(denied.currentRevision.producedBy).toBeNull();
 	});
 
+	it("persists an approved Home agent as document creator on the service hop", async () => {
+		const { workspace } = await c.org1.workspaces.create({ name: "Scratch" });
+		const context = apiKeyContext({ env: c.env, organizationId: "org-1" });
+		context.apiKey = undefined;
+		context.authType = "service-binding";
+		context.headers = new Headers({
+			"X-Service-Binding": "true",
+			"X-Tedix-Org-Id": "org-1",
+			"X-Tedix-Tedi-Scopes": "apps:write apps:read",
+			"X-Tedix-Kernel": "true",
+			"X-Tedix-Actor-Type": "external_agent",
+			"X-Tedix-Actor-Id": "5eed0015-0000-4000-8000-000000000015",
+		});
+		const home = createRouterClient(osWorkspacesContractRouter, { context });
+		const { output } = await home.outputs.create({
+			workspaceId: workspace.id,
+			kind: "document",
+			title: "Welcome",
+			content: {
+				kind: "document",
+				blocks: [{ type: "paragraph", text: "Hello" }],
+			},
+		});
+		const saved = await c.org1.outputs.get({ outputId: output.id });
+		expect(saved.output).toMatchObject({
+			createdByKind: "external_agent",
+			createdById: "5eed0015-0000-4000-8000-000000000015",
+		});
+		expect(saved.currentRevision.content).toMatchObject({
+			kind: "document",
+			blocks: [{ type: "paragraph", text: "Hello" }],
+		});
+	});
+
 	it("creates each format with revision 1 and rejects a mismatched body", async () => {
 		const doc = await c.org1.outputs.create({
 			kind: "document",
