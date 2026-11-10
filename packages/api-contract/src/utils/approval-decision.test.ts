@@ -1,3 +1,4 @@
+import { strict as assert } from "node:assert";
 import { describe, expect, it } from "vite-plus/test";
 import {
 	approvalDecision,
@@ -184,10 +185,11 @@ describe("approval description parsers", () => {
 			for (let j = 0; j < length; j++) {
 				text += PARTS[Math.floor(next() * PARTS.length)];
 			}
-			expect(stripRetryNote(text)).toBe(text.replace(OLD_RETRY_NOTE, ""));
-			expect(stripDashTail(text)).toBe(text.replace(OLD_DASH_TAIL, ""));
+			assert.equal(stripRetryNote(text), text.replace(OLD_RETRY_NOTE, ""));
+			assert.equal(stripDashTail(text), text.replace(OLD_DASH_TAIL, ""));
 			const old = text.match(OLD_SKILL_RUN);
-			expect(parseSkillRunDescription(text)).toEqual(
+			assert.deepEqual(
+				parseSkillRunDescription(text),
 				old ? { name: old[1], detail: old[2] ?? null } : null,
 			);
 		}

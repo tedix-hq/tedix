@@ -86,6 +86,16 @@ export function cardIsDue(card: object, now: Date, timeZone?: string): boolean {
 	});
 }
 
+const months = Array.from({ length: 12 }, (_, month) =>
+	new Intl.DateTimeFormat("en", { month: "long", timeZone: "UTC" })
+		.format(new Date(Date.UTC(2000, month, 1)))
+		.toLowerCase(),
+);
+const deadlinePattern = new RegExp(
+	`\\bby\\s+(?:(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\\s+)?(\\d{1,2})\\s+(${months.join("|")})(?:\\s+(\\d{4}))?\\b`,
+	"gi",
+);
+
 /** Preserve structured deadlines, or an explicit dated "by" clause from a factory source.
  * A source with no timezone establishes a calendar date, never a guessed instant.
  */
@@ -109,17 +119,10 @@ export function factoryCardDeadline(card: {
 	if (legacy.length) return legacy.sort()[0]!;
 	const sourceDate = new Date(card.runCreatedAt);
 	if (!Number.isFinite(sourceDate.getTime())) return null;
-	const months = Array.from({ length: 12 }, (_, month) =>
-		new Intl.DateTimeFormat("en", { month: "long", timeZone: "UTC" })
-			.format(new Date(Date.UTC(2000, month, 1)))
-			.toLowerCase(),
-	);
-	const pattern = new RegExp(
-		`\\bby\\s+(?:(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\\s+)?(\\d{1,2})\\s+(${months.join("|")})(?:\\s+(\\d{4}))?\\b`,
-		"gi",
-	);
 	const dates = new Set<string>();
-	for (const match of `${card.action ?? ""}\n${card.why}`.matchAll(pattern)) {
+	for (const match of `${card.action ?? ""}\n${card.why}`.matchAll(
+		deadlinePattern,
+	)) {
 		const month = months.indexOf(match[2]!.toLowerCase());
 		// Without an explicit year, only accept the source's own calendar month.
 		if (!match[3] && month !== sourceDate.getUTCMonth()) continue;
