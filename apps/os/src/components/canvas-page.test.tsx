@@ -3823,9 +3823,13 @@ describe("adopting a newer canonical revision", () => {
 			"[data-canvas-save-version]",
 		);
 		expect(saveAction?.closest("header")).not.toBeNull();
-		expect(saveAction?.getAttribute("aria-description")).toContain(
-			"Choose whether to keep your changes",
-		);
+		await act(async () => {
+			await vi.waitFor(() =>
+				expect(saveAction?.getAttribute("aria-description")).toContain(
+					"Choose whether to keep your changes",
+				),
+			);
+		});
 		click(findButton(container, "Keep my changes"));
 
 		expect(replaceWithCanonical).not.toHaveBeenCalled();
