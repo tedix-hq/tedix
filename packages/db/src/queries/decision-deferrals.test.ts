@@ -152,8 +152,11 @@ it("matches deferrals by tenant, recipient, time and unlabelled receipt without 
 		.prepare(`EXPLAIN QUERY PLAN ${query}`)
 		.all("personal", "decision_deck", now, 50)
 		.map((row) => String(row.detail));
-	// An exposure-first plan scans the same personal feedback once per exposure.
-	expect(plan[0]).toContain("SCAN learning_interaction_events");
+	// Feedback first (an exposure-first plan rereads it per exposure), reached
+	// through the surface index rather than a scan of every learning event.
+	expect(plan[0]).toContain(
+		"SEARCH learning_interaction_events USING INDEX idx_learning_event_surface_occurred",
+	);
 	expect(
 		plan.some((line) =>
 			line.includes(
