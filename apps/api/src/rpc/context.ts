@@ -106,6 +106,8 @@ export interface BaseContext {
 	factoryOperatorApproval?: { requestId: string; userId: string };
 	/** Stable Tedix user id resolved from the external identity mapping. */
 	userId?: string;
+	/** Active membership kind read during this request's JWT authentication. */
+	userMembershipKind?: "human" | "external_agent" | "browser_agent";
 	/** Browser-login agent identity resolved from the current organization membership. */
 	browserAgentSeat?: import("@tedix/api-contract/schemas/browser-agent-seat").BrowserAgentSeat;
 	/** Bounded external-provider API scopes; absent on the default Descope path. */

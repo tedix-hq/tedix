@@ -1772,6 +1772,7 @@ async function authenticateUserJwt(
 		throw new Error("Missing authorization token");
 	}
 
+	const jwtStartedAt = performance.now();
 	const payload =
 		resolveLocalDemoUser({
 			environment: context.env.ENVIRONMENT,
@@ -1791,6 +1792,9 @@ async function authenticateUserJwt(
 				expected: [context.env.DESCOPE_PROJECT_ID],
 			},
 		}));
+	(context.serverTiming ??= []).push(
+		`auth-jwt;dur=${(performance.now() - jwtStartedAt).toFixed(1)}`,
+	);
 
 	// Verify this is a user token (not M2M)
 	if (!isUserToken(payload)) {
@@ -1821,6 +1825,7 @@ async function authenticateUserJwt(
 	context.crossTenantOverrideActive = isCrossTenantOverride;
 	if (tenantId && payload.sub) {
 		try {
+			const identityStartedAt = performance.now();
 			const identity = await withTransientD1ReadRetry(
 				"auth.user_tenant_context",
 				() =>
@@ -1829,6 +1834,9 @@ async function authenticateUserJwt(
 						userIdentity: descopeUserIdentityForContext(context, payload),
 					}),
 				{ attempts: 3, timeoutMs: 5_000 },
+			);
+			(context.serverTiming ??= []).push(
+				`auth-identity;dur=${(performance.now() - identityStartedAt).toFixed(1)}`,
 			);
 			context.userId = identity?.canonicalUserId ?? undefined;
 			if (identity) {
@@ -1850,6 +1858,9 @@ async function authenticateUserJwt(
 					);
 				} else {
 					context.organizationId = identity.organizationId;
+					context.userMembershipKind = identity.memberIsActive
+						? (identity.memberKind ?? undefined)
+						: undefined;
 					if (identity.memberRole) {
 						context.userRole = identity.memberRole;
 					}
