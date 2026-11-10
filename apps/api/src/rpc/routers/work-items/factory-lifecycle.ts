@@ -1,4 +1,5 @@
 import { grantLaneAttempt } from "@tedix/db/queries/work-items/lane-attempt-grants";
+import { hasRecoveredCommitCustody } from "./recovered-commit-custody";
 import {
 	normalizeNativeStewardCloseoutInput,
 	assertNativeStewardCloseout,
@@ -1047,7 +1048,7 @@ export const settleAttemptProcedure = factoryOs.settleAttempt.handler(
 			workItem.orgId,
 		);
 		try {
-			await getAuthoritativeWorkItemAttempt(context.db, {
+			const attempt = await getAuthoritativeWorkItemAttempt(context.db, {
 				orgId: workItem.orgId,
 				workItemId: workItem.id,
 				attemptId: input.attemptId,
@@ -1056,6 +1057,18 @@ export const settleAttemptProcedure = factoryOs.settleAttempt.handler(
 					executor.type === "external_agent" ? executor.sessionId : undefined,
 				externalSessionKey: external?.externalSessionKey,
 			});
+			if (
+				input.outcome === "succeeded" &&
+				!(await hasRecoveredCommitCustody(context, attempt, {
+					...attempt.metadata,
+					...toJsonRecord(input.metadata ?? {}),
+				}))
+			) {
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Recovered commits require custody from an admitted Attempt of this Work and its recorded session",
+				);
+			}
 			const { summarizeFeedOutcome } =
 				await import("../../../services/feed-outcome-summary");
 			const feedSentence = await summarizeFeedOutcome(context, {
