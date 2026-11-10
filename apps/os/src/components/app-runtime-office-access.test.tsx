@@ -9,6 +9,7 @@ import {
 } from "./doc-writing-drafts";
 import type { AppRuntimeDraft } from "@/lib/app-runtime-host";
 import {
+	canvasOutputsQueryOptions,
 	workspaceResourcesQueryOptions,
 	workspaceOpenQueryOptions,
 	outputDetailQueryOptions,
@@ -75,6 +76,10 @@ function setup(read: string) {
 	});
 	client.setQueryData<unknown>(openKey, { role: "build", isOwner: true });
 	client.setQueryData<unknown>(outputKey, detail);
+	const listKey = canvasOutputsQueryOptions(workspaceId).queryKey;
+	client.setQueryData<unknown>(listKey, {
+		items: [{ id: outputId, workspaceId, currentRevisionId: "revision" }],
+	});
 	let drafts: Map<string, AppRuntimeDraft> | null = null;
 	function Capture() {
 		drafts = useAppRuntimeDrafts();
@@ -132,6 +137,9 @@ function setup(read: string) {
 	return {
 		client,
 		host,
+		listKey,
+		outputId,
+		workspaceId,
 		outputKey,
 		openKey,
 		detail,
@@ -149,6 +157,24 @@ async function settle(change: () => void) {
 describe.each(["readDocument", "readSheet", "readPresentation"])(
 	"%s source and role boundaries",
 	(read) => {
+		it("refreshes the bound file when the workspace list shows someone else's newer save", async () => {
+			const view = setup(read);
+			const invalidate = vi
+				.spyOn(view.client, "invalidateQueries")
+				.mockResolvedValue(undefined);
+			await settle(() =>
+				view.client.setQueryData<unknown>(view.listKey, {
+					items: [
+						{
+							id: view.outputId,
+							workspaceId: view.workspaceId,
+							currentRevisionId: "newer",
+						},
+					],
+				}),
+			);
+			expect(invalidate).toHaveBeenCalledWith({ queryKey: view.outputKey });
+		});
 		it("suspends a temporary source failure while retaining the scoped draft for an authorized retry", async () => {
 			const view = setup(read);
 			expect(view.host.querySelector("[data-office-frame]")).not.toBeNull();

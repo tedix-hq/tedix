@@ -30,6 +30,7 @@ import {
 } from "@/lib/app-runtime-host";
 import {
 	appRuntimeCodeQueryOptions,
+	canvasOutputsQueryOptions,
 	outputDetailQueryOptions,
 	osQueryKeys,
 	workspaceOpenQueryOptions,
@@ -62,6 +63,9 @@ function roleFromOpen(
 	if (!opened) return null;
 	return opened.isOwner ? "owner" : opened.role;
 }
+
+/** How often an open app re-checks its files for someone else's save. */
+const OUTPUT_RECHECK_MS = 4_000;
 export function AppRuntimePreview({
 	workspaceId,
 	gadget,
@@ -204,6 +208,36 @@ export function AppRuntimeSandbox({
 				]
 			: [];
 	});
+	// Nothing pushes another person's save to this tab. While the tab is
+	// visible, re-check the workspace's file list (revision ids, no file
+	// bodies) and refresh a bound file whose revision moved; that refresh
+	// sends the app its outputs-changed notice.
+	const outputList = useQuery({
+		...canvasOutputsQueryOptions(workspaceId),
+		enabled: boundOutputs.length > 0 && role !== null && role !== "viewer",
+		refetchInterval: OUTPUT_RECHECK_MS,
+	});
+	const staleOutputIds = (outputList.data?.items ?? [])
+		.filter((item) => {
+			const index = boundOutputs.findIndex(
+				(resource) => resource.providerResourceId === item.id,
+			);
+			const current = outputReads[index]?.data?.currentRevision;
+			return (
+				index >= 0 &&
+				current &&
+				item.currentRevisionId &&
+				item.currentRevisionId !== current.id
+			);
+		})
+		.map((item) => item.id)
+		.join(",");
+	useEffect(() => {
+		for (const outputId of staleOutputIds.split(",").filter(Boolean))
+			void queryClient.invalidateQueries({
+				queryKey: outputDetailQueryOptions(outputId).queryKey,
+			});
+	}, [staleOutputIds, queryClient]);
 
 	const onCall = useCallback(
 		(method: unknown, args: unknown) =>

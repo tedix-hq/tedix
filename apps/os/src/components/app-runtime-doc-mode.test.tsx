@@ -7,6 +7,7 @@ import {
 	workspaceResourcesQueryOptions,
 	workspaceOpenQueryOptions,
 	outputDetailQueryOptions,
+	canvasOutputsQueryOptions,
 	osQueryKeys,
 } from "@/lib/os-query-options";
 
@@ -80,6 +81,12 @@ describe("Doc gadget client selection", () => {
 			client.setQueryData<unknown>(
 				workspaceOpenQueryOptions(workspaceId, gadgetId).queryKey,
 				{ role: "build", isOwner: true },
+			);
+			client.setQueryData<unknown>(
+				canvasOutputsQueryOptions(workspaceId).queryKey,
+				{
+					items: [{ id: outputId, workspaceId, currentRevisionId: "revision" }],
+				},
 			);
 			client.setQueryData<unknown>(
 				outputDetailQueryOptions(outputId).queryKey,
