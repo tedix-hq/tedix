@@ -26,8 +26,18 @@ it("reads the Office timeline through the time window, not every org event per s
 		"INSERT INTO work_attempts (id, org_id, work_item_id, attempt_number, executor_type, executor_id, executor_session_id, external_session_key, started_at, heartbeat_at, finished_at, runtime_state, outcome, summary) VALUES (?, 'org-example', ?, ?, 'external_agent', 'agent', 'executor-session', ?, ?, ?, ?, 'finished', 'succeeded', 'done')",
 	);
 	attempt.run("attempt-mine-1", "mine", 1, "key-299", old, old, old);
-	attempt.run("attempt-mine-2", "mine", 2, "key-299", at, at, at);
+	// Attempts record the harness-prefixed Agent-Session; hooks record the bare id.
+	attempt.run("attempt-mine-2", "mine", 2, "claude-code:key-299", at, at, at);
 	attempt.run("attempt-theirs", "theirs", 1, "key-other", at, at, at);
+	attempt.run(
+		"attempt-wrong-host",
+		"wrong-host",
+		1,
+		"codex:key-299",
+		at,
+		at,
+		at,
+	);
 	const event = sqlite.prepare(
 		"INSERT INTO work_events (id, org_id, work_item_id, attempt_id, event_type, actor_type, actor_id, payload, occurred_at) VALUES (?, 'org-example', ?, ?, ?, 'system', 'tedix', '{}', ?)",
 	);
@@ -36,6 +46,13 @@ it("reads the Office timeline through the time window, not every org event per s
 	event.run("settled", "mine", "attempt-mine-2", "attempt.settled", at);
 	event.run("completed", "mine", null, "work.completed", at);
 	event.run("theirs", "theirs", "attempt-theirs", "attempt.settled", at);
+	event.run(
+		"wrong-host",
+		"wrong-host",
+		"attempt-wrong-host",
+		"attempt.settled",
+		at,
+	);
 	const plans: string[] = [];
 	const db = createDbQueryClient(
 		createD1Facade({
@@ -62,8 +79,8 @@ it("reads the Office timeline through the time window, not every org event per s
 		since,
 	);
 	expect(events.map((row) => [row.id, row.attemptId, row.sessionKey])).toEqual([
-		["settled", "attempt-mine-2", "key-299"],
-		["completed", "attempt-mine-2", "key-299"],
+		["settled", "attempt-mine-2", "claude-code:key-299"],
+		["completed", "attempt-mine-2", "claude-code:key-299"],
 	]);
 	expect(events.every((row) => row.resultRecorded)).toBe(true);
 	expect(plans[0]).toMatch(
@@ -72,6 +89,11 @@ it("reads the Office timeline through the time window, not every org event per s
 	expect(plans).toContainEqual(
 		expect.stringMatching(
 			/^SEARCH s USING COVERING INDEX idx_work_agent_sessions_org_user_session \(organization_id=\? AND user_id=\? AND session_key=\?\)/,
+		),
+	);
+	expect(plans).toContainEqual(
+		expect.stringMatching(
+			/^SEARCH s USING COVERING INDEX uniq_work_agent_sessions_org_user_harness_session \(organization_id=\? AND user_id=\? AND harness=\? AND session_key=\?\)/,
 		),
 	);
 	expect(plans).toContainEqual(

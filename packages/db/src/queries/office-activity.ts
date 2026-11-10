@@ -204,7 +204,9 @@ export async function readOfficeCanonicalSources(
 				eq(workEvents.orgId, owner.organizationId),
 				inArray(workEvents.eventType, ["work.completed", "attempt.settled"]),
 				gte(workEvents.occurredAt, since),
-				sql`EXISTS (SELECT 1 FROM ${workAgentSessions} s JOIN ${workAttempts} own_attempt ON own_attempt.org_id = s.organization_id AND own_attempt.external_session_key = s.session_key WHERE s.organization_id = ${owner.organizationId} AND s.user_id = ${owner.userId} AND own_attempt.work_item_id = ${workEvents.workItemId})`,
+				// Attempts store `harness:session`; hook-reported sessions store the
+				// bare id under their harness. Older Attempts stored the bare id.
+				sql`(EXISTS (SELECT 1 FROM ${workAttempts} own_attempt JOIN ${workAgentSessions} s ON s.organization_id = own_attempt.org_id AND s.user_id = ${owner.userId} AND s.harness = substr(own_attempt.external_session_key, 1, instr(own_attempt.external_session_key, ':') - 1) AND s.session_key = substr(own_attempt.external_session_key, instr(own_attempt.external_session_key, ':') + 1) WHERE own_attempt.org_id = ${owner.organizationId} AND own_attempt.work_item_id = ${workEvents.workItemId} AND instr(own_attempt.external_session_key, ':') > 0) OR EXISTS (SELECT 1 FROM ${workAgentSessions} s JOIN ${workAttempts} own_attempt ON own_attempt.org_id = s.organization_id AND own_attempt.external_session_key = s.session_key WHERE s.organization_id = ${owner.organizationId} AND s.user_id = ${owner.userId} AND own_attempt.work_item_id = ${workEvents.workItemId}))`,
 			),
 		)
 		// Do not trade the event-type/time range for the org-wide ordering index.
