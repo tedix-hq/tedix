@@ -3,6 +3,7 @@ import { listKernelConversationGrants } from "@tedix/db/queries/kernel-conversat
 import type { KernelConversationGrantAccess } from "@tedix/db/schema";
 import { withTransientD1ReadRetry } from "@tedix/db/utils/d1-retry";
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
+import { createError, ErrorCodes } from "../rpc/orpc";
 
 export type KernelConversationAccessLevel = KernelConversationGrantAccess;
 
@@ -58,7 +59,10 @@ export async function resolveKernelConversationAccess(
 			event: "conversation_access_lookup_failed",
 			exception: safeExceptionTopology(error),
 		});
-		return { allowed: false, access: null, policy: "grant" };
+		throw createError(
+			ErrorCodes.SERVICE_UNAVAILABLE,
+			"Conversation access is temporarily unavailable. Try again.",
+		);
 	}
 
 	if (grantRows.length === 0) {
