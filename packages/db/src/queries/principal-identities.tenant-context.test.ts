@@ -1,11 +1,14 @@
 import { DatabaseSync } from "node:sqlite";
 import type { OrganizationMetadata } from "@tedix/api-contract/schemas/organization";
 import { eq } from "drizzle-orm";
-import { beforeEach, describe, expect, it } from "vite-plus/test";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { createDbClient } from "../client";
 import { organizationMembers } from "../schema/organization-members";
 import { organizations } from "../schema/organizations";
 import { principalIdentities } from "../schema/principal-identities";
+import { projects } from "../schema/projects";
+import { tediObjectives } from "../schema/tedi-objectives";
+import { tedis } from "../schema/tedis";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
 import {
@@ -23,7 +26,14 @@ const NOW = "2026-08-30T00:00:00.000Z";
 function setup(plans: string[] = []) {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(
-		schemaDdl(organizations, organizationMembers, principalIdentities),
+		schemaDdl(
+			organizations,
+			organizationMembers,
+			principalIdentities,
+			projects,
+			tediObjectives,
+			tedis,
+		),
 	);
 	return createDbClient(
 		createD1Facade({
@@ -56,8 +66,9 @@ describe("user tenant identity context", () => {
 		});
 	});
 
-	const resolve = () =>
+	const resolve = (reviewProjectId?: string) =>
 		resolveUserTenantIdentityContext(db, {
+			reviewProjectId,
 			organizationIdentity: {
 				provider: "Descope",
 				issuer: `${ISSUER}/`,
@@ -69,6 +80,37 @@ describe("user tenant identity context", () => {
 				subject: SUBJECT,
 			},
 		});
+
+	it("batches the live review policy with identity and observes subsequent changes", async () => {
+		await db.insert(projects).values({
+			id: "private-reviews",
+			orgId: ORG,
+			key: "REV",
+			name: "Reviews",
+			createdAt: NOW,
+			metadata: { agentReviewTriage: { tediId: "triage-one" } },
+		});
+		const batch = vi.spyOn(db, "batch");
+		const first = await resolve("private-reviews");
+		expect(batch).toHaveBeenCalledTimes(1);
+		expect(batch.mock.calls[0]?.[0]).toHaveLength(2);
+		expect(first?.organizationId).toBe(ORG);
+		expect(first?.reviewProject?.project?.metadata).toEqual({
+			agentReviewTriage: { tediId: "triage-one" },
+		});
+		await db
+			.update(projects)
+			.set({ metadata: { agentReviewTriage: { tediId: "triage-two" } } })
+			.where(eq(projects.id, "private-reviews"));
+		expect(
+			(await resolve("private-reviews"))?.reviewProject?.project?.metadata,
+		).toEqual({ agentReviewTriage: { tediId: "triage-two" } });
+		await db.delete(projects).where(eq(projects.id, "private-reviews"));
+		expect((await resolve("private-reviews"))?.reviewProject).toEqual({
+			id: "private-reviews",
+			project: undefined,
+		});
+	});
 
 	it("seeks candidate organizations instead of scanning every tenant", async () => {
 		const plans: string[] = [];

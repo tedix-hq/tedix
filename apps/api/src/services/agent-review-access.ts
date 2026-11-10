@@ -12,7 +12,10 @@ import { agentReviewProjectId } from "./agent-review-config";
 async function agentReviewProjectScope(context: BaseContext) {
 	const projectId = agentReviewProjectId(context.env);
 	if (!projectId) return undefined;
-	const project = await getProjectById(context.db, projectId);
+	const project =
+		context.agentReviewProject?.id === projectId
+			? context.agentReviewProject.project
+			: await getProjectById(context.db, projectId);
 	if (!project)
 		throw new ORPCError("SERVICE_UNAVAILABLE", {
 			message: "Private review policy unavailable",
@@ -25,6 +28,14 @@ async function agentReviewProjectScope(context: BaseContext) {
 		)
 			return { project, allowed: true };
 		if (context.authType === "user" && context.user?.sub) {
+			// This marker is set only for an active membership read during this
+			// request's authentication. Token roles alone never satisfy it.
+			if (context.userMembershipKind) {
+				return {
+					project,
+					allowed: context.userRole === "owner" || context.userRole === "admin",
+				};
+			}
 			const member = context.userId
 				? ((await getMemberByCanonicalUserId(
 						context.db,

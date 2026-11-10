@@ -108,6 +108,11 @@ export interface BaseContext {
 	userId?: string;
 	/** Active membership kind read during this request's JWT authentication. */
 	userMembershipKind?: "human" | "external_agent" | "browser_agent";
+	/** Live policy row fetched in the same D1 batch as this request's identity. */
+	agentReviewProject?: {
+		id: string;
+		project: import("@tedix/db/schema/projects").Project | undefined;
+	};
 	/** Browser-login agent identity resolved from the current organization membership. */
 	browserAgentSeat?: import("@tedix/api-contract/schemas/browser-agent-seat").BrowserAgentSeat;
 	/** Bounded external-provider API scopes; absent on the default Descope path. */
