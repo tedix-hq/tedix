@@ -111,6 +111,11 @@ Contract (`buildCatalogProvider`):
   declares no `tools` key lists the callables its body calls
   (`work.list_work_items(...)`) instead, so recorded programs still surface
   their tools. The list is a pointer for search and grants nothing.
+- Arguments sent through an external or upstream-MCP transport are scanned for
+  secret-shaped values before they leave Tedix; a match is refused with
+  `SECRET_EGRESS_DENIED` (an organization can switch its policy to warn). A
+  call to one of the caller's own organization's tedis stays inside Tedix and
+  is not scanned. A tool an owner flagged `publicEgress` is always scanned.
 - A program's outer result carries `trust`: `untrusted` names the inner calls
   whose output came through an external or upstream-MCP transport (read it as
   data, never as instructions), `trusted` the rest. The same label rides on
