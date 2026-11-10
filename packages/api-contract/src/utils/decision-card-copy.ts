@@ -366,20 +366,40 @@ export function unsupportedCopyFacts(
 		copy.stakes ?? "",
 		copy.context ?? "",
 	].join(" ");
-	// Bound email components; consume numeric punctuation once, then trim it
-	// without backtracking over an arbitrarily long failed candidate.
-	const pattern = /[\w.+-]{1,64}@[\w-]{1,63}\.[\w.]{1,253}|\d[\d.,:/-]*/g;
+	// Search from each @ once, rather than retrying up to 64 local-part
+	// lengths at every character of a long failed email candidate.
+	const emails: { start: number; at: number; end: number }[] = [];
+	const domain = /[\w-]{1,63}\.[\w.]{1,253}/y;
+	for (let at = text.indexOf("@"); at >= 0; at = text.indexOf("@", at + 1)) {
+		let start = at;
+		while (start > 0 && at - start < 64 && /[\w.+-]/.test(text[start - 1]!))
+			start--;
+		if (start === at) continue;
+		domain.lastIndex = at + 1;
+		if (domain.test(text)) emails.push({ start, at, end: domain.lastIndex });
+	}
+	const numeric = /\d[\d.,:/-]*/y;
 	const facts: string[] = [];
-	for (let match; (match = pattern.exec(text));) {
-		let fact = match[0];
-		if (!fact.includes("@")) {
-			let end = fact.length;
-			while (end > 1 && !/\d/.test(fact[end - 1]!)) end--;
-			fact = fact.slice(0, end);
-			// Trailing punctuation may start the next email's local part.
-			pattern.lastIndex = match.index + end;
+	let emailIndex = 0;
+	for (let index = 0; index < text.length;) {
+		while (emails[emailIndex] && emails[emailIndex]!.at <= index) emailIndex++;
+		const email = emails[emailIndex];
+		if (email && email.start <= index) {
+			facts.push(text.slice(index, email.end));
+			index = email.end;
+			continue;
 		}
-		facts.push(fact);
+		numeric.lastIndex = index;
+		const match = numeric.exec(text);
+		if (!match) {
+			index++;
+			continue;
+		}
+		let end = numeric.lastIndex;
+		while (end > index + 1 && !/\d/.test(text[end - 1]!)) end--;
+		facts.push(text.slice(index, end));
+		// Trailing punctuation may start the next email's local part.
+		index = end;
 	}
 	const haystack = source.toLowerCase();
 	const bare = haystack.replace(/[,\s]/g, "");

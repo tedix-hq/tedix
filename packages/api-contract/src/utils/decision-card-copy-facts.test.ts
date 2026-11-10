@@ -1,3 +1,4 @@
+import { strict as assert } from "node:assert";
 import { describe, expect, it } from "vite-plus/test";
 import { unsupportedCopyFacts } from "./decision-card-copy";
 
@@ -62,4 +63,49 @@ describe("unsupportedCopyFacts", () => {
 		).toEqual(["1", "23"]);
 		expect(performance.now() - started).toBeLessThan(1000);
 	});
+});
+
+it("preserves the bounded regex's facts on generated and overlapping candidates", () => {
+	const oldFacts = (text: string) => {
+		const pattern = /[\w.+-]{1,64}@[\w-]{1,63}\.[\w.]{1,253}|\d[\d.,:/-]*/g;
+		const facts: string[] = [];
+		for (let match; (match = pattern.exec(text));) {
+			let fact = match[0];
+			if (!fact.includes("@")) {
+				let end = fact.length;
+				while (end > 1 && !/\d/.test(fact[end - 1]!)) end--;
+				fact = fact.slice(0, end);
+				pattern.lastIndex = match.index + end;
+			}
+			facts.push(fact);
+		}
+		return [...new Set(facts)];
+	};
+	const parts = [
+		"a",
+		"2",
+		"@",
+		".",
+		"+",
+		"-",
+		" ",
+		"1,--",
+		"9/",
+		"mail.example.com",
+		"_",
+		"b".repeat(65),
+	];
+	let state = 7;
+	for (let i = 0; i < 5000; i++) {
+		let body = "";
+		for (let j = 0; j < 12; j++) {
+			state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+			body += parts[state % parts.length];
+		}
+		assert.deepEqual(
+			unsupportedCopyFacts({ title: "", body, recommendation: "" }, ""),
+			oldFacts(body),
+			body,
+		);
+	}
 });

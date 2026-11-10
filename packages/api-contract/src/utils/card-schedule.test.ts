@@ -69,3 +69,31 @@ it("uses viewer calendar days for timestamps and keeps undated and invalid cards
 	).toBe(true);
 	expect(cardIsDue({ scheduleDates: ["2026-10-22"] }, now, "UTC")).toBe(true);
 });
+
+it("reuses the deadline grammar across months and repeated calls", () => {
+	const months = [
+		"January",
+		"February",
+		"March",
+		"April",
+		"May",
+		"June",
+		"July",
+		"August",
+		"September",
+		"October",
+		"November",
+		"December",
+	];
+	for (let round = 0; round < 2; round++) {
+		for (const [month, name] of months.entries()) {
+			expect(
+				factoryCardDeadline({
+					action: `Finish by 15 ${name} 2026`,
+					why: "",
+					runCreatedAt: now.toISOString(),
+				}),
+			).toBe(`2026-${String(month + 1).padStart(2, "0")}-15`);
+		}
+	}
+});
