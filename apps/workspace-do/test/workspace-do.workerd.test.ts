@@ -1346,10 +1346,13 @@ describe("WorkspaceDO", () => {
 		const stub = ws as unknown as DurableObjectStub;
 		await runInDurableObject(stub, (_instance, state) => {
 			state.storage.sql.exec(
-				"INSERT INTO kernel_conversations (id, organization_id, workspace_id, conversation_id, title, last_message_at) VALUES (?, ?, ?, 'copied', 'Copied chat', '2026-11-03T10:00:00.000Z')",
+				"INSERT INTO kernel_conversations (id, organization_id, workspace_id, conversation_id, title, last_message_at, archived_at) VALUES (?, ?, ?, 'copied', 'Copied chat', '2026-11-03T10:00:00.000Z', '2026-11-04T10:00:00.000Z')",
 				"copied-index",
 				movedScope.organizationId,
 				movedScope.workspaceId,
+			);
+			state.storage.sql.exec(
+				"INSERT INTO conversations (id, title, created_at, updated_at, archived_at) VALUES ('copied', 'Copied chat', '2026-11-03T10:00:00.000Z', '2026-11-03T10:00:00.000Z', '2026-11-04T10:00:00.000Z'), ('native-archive', 'Native archive', '2026-11-03T10:00:00.000Z', '2026-11-03T10:00:00.000Z', '2026-11-04T10:00:00.000Z')",
 			);
 			state.storage.sql.exec(
 				"INSERT INTO kernel_runtime_events (id, organization_id, conversation_id, run_id, kind, payload, created_at) VALUES ('copied-input', ?, 'copied', 'copied-run', 'message.received', ?, '2026-11-03T10:00:00.000Z')",
@@ -1378,6 +1381,16 @@ describe("WorkspaceDO", () => {
 		await evictDurableObject(stub);
 		expect(await ws.readEvents(movedScope)).toEqual(events);
 		await runInDurableObject(stub, (_instance, state) => {
+			state.storage.sql.exec(
+				"UPDATE conversations SET archived_at = '2026-11-04T10:00:00.000Z' WHERE id = 'copied'",
+			);
+		});
+		await evictDurableObject(stub);
+		expect(await ws.listConversations(movedScope)).toEqual([]);
+		await runInDurableObject(stub, (_instance, state) => {
+			state.storage.sql.exec(
+				"UPDATE conversations SET archived_at = NULL WHERE id = 'copied'",
+			);
 			state.storage.sql.exec("DELETE FROM kernel_runtime_events");
 			state.storage.sql.exec("DELETE FROM kernel_conversations");
 		});
@@ -1419,6 +1432,7 @@ describe("WorkspaceDO", () => {
 					workspace_id: scope.workspaceId,
 					conversation_id: `moved-${i}`,
 					title: `Moved ${i}`,
+					archived_at: i < 9 ? at : null,
 					created_at: at,
 					updated_at: at,
 					last_message_at: at,
@@ -1430,14 +1444,6 @@ describe("WorkspaceDO", () => {
 					conversation_id: "deleted",
 					last_message_at: at,
 					deleted_at: at,
-				},
-				{
-					id: "kc-archived",
-					organization_id: scope.organizationId,
-					workspace_id: scope.workspaceId,
-					conversation_id: "archived",
-					last_message_at: at,
-					archived_at: at,
 				},
 			],
 		});
