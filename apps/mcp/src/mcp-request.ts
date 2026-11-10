@@ -8,7 +8,10 @@ import {
 	clientSupportsMcpApps,
 	LEGACY_APPS_SESSION_PREFIX,
 } from "./mcp/client-apps-capability";
-import { AGGREGATE_SURFACE_CACHE_TTL_MS } from "./aggregate-surface-cache";
+import {
+	AGGREGATE_SURFACE_CACHE_TTL_MS,
+	aggregateSurfaceRetainedRows,
+} from "./aggregate-surface-cache";
 import { aggregateAndPrefixTools } from "./aggregate-surface";
 import { readAggregateActivationEpoch } from "./aggregate-activation-epoch";
 import {
@@ -501,6 +504,29 @@ export async function handleMcpRequest(
 	const activation = shardNamespaces
 		? await readAggregateActivationEpoch(env)
 		: undefined;
+	// Emit before loading graphs: an exceededMemory kill never reaches the
+	// aggregate summary. Counts identify the branch without recording programs.
+	if (multiOrgResource) {
+		console.log(
+			JSON.stringify({
+				_cm: "aggregate",
+				event: "hydration_plan",
+				mode: directHomeKernelCall
+					? "home"
+					: aggregateNamespaces !== null
+						? "targeted"
+						: shardNamespaces !== null && activation?.cacheable
+							? "shards"
+							: "full",
+				configuredAppCount: aggregateApps.length,
+				filteredAppCount: filteredAggregateApps.length,
+				namespaceCount: aggregateNamespaces?.size ?? null,
+				shardNamespaceCount: shardNamespaces?.size ?? null,
+				activationCacheable: activation?.cacheable ?? null,
+				retainedToolRows: aggregateSurfaceRetainedRows(),
+			}),
+		);
+	}
 	const shardDiscovery =
 		shardNamespaces && activation?.cacheable
 			? await loadDiscoveryShards(

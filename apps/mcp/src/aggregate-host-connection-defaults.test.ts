@@ -912,6 +912,101 @@ describe("aggregate host connection defaults (integration via worker.fetch)", ()
 		expect(buildMcpServer).not.toHaveBeenCalled();
 	});
 
+	it.each([
+		{
+			code: "async () => sample_one_unified.read({ secret: 'private_argument' })",
+			mode: "targeted",
+			filteredAppCount: 1,
+		},
+		{
+			code: "async () => discover.search({ query: 'private_argument' })",
+			mode: "shards",
+			filteredAppCount: 2,
+		},
+		{
+			code: "async () => { const api = sample_one_unified; return api.read({ secret: 'private_argument' }); }",
+			mode: "full",
+			filteredAppCount: 2,
+		},
+	])(
+		"records the $mode plan before hydrating Connect, without program contents",
+		async ({ code, mode, filteredAppCount }) => {
+			const host = {
+				slug: "connect",
+				mcpConfig: { codeMode: true, multiOrgConsent: true },
+			};
+			const logs = vi.spyOn(console, "log").mockImplementation(() => {});
+			const plan = () =>
+				logs.mock.calls
+					.map(([value]) =>
+						typeof value === "string" && value.startsWith("{")
+							? JSON.parse(value)
+							: null,
+					)
+					.find((value) => value?.event === "hydration_plan");
+			const plansAtRead: unknown[] = [];
+			getBySlugWithTools.mockImplementation(async () => {
+				plansAtRead.push(plan());
+				return { app: null, tools: [] };
+			});
+			try {
+				await handleMcpRequest(
+					new Request("https://connect.mcp.example/mcp", {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+							"x-tedix-auth-type": "oauth",
+							"x-tedix-auth-user-id": "sample-user",
+							"x-tedix-auth-org-id": "sample-hosting-org",
+						},
+						body: JSON.stringify({
+							jsonrpc: "2.0",
+							id: 1,
+							method: "tools/call",
+							params: { name: "code", arguments: { code } },
+						}),
+					}),
+					{
+						...appResponse(host),
+						app: { ...appResponse(host).app, id: `connect-plan-${mode}` },
+						metadata: { mcpConfig: host.mcpConfig },
+					} as unknown as Parameters<typeof handleMcpRequest>[1],
+					{
+						...createEnv(),
+						AGGREGATE_EPOCH_KV: { get: async () => `plan-${mode}` },
+					} as unknown as CloudflareEnv,
+					createExecutionContext(),
+					{
+						organizations: ["one", "two"].map((name) => ({
+							organizationId: `sample-org-${name}`,
+							descopeTenantId: `sample-tenant-${name}`,
+							gatewaySlug: `sample-${name}-unified`,
+						})),
+					},
+				);
+				expect(plansAtRead.length).toBeGreaterThan(0);
+				for (const observed of plansAtRead) {
+					expect(observed).toMatchObject({
+						mode,
+						configuredAppCount: 2,
+						filteredAppCount,
+					});
+				}
+				expect(plan()).toMatchObject({
+					mode,
+					configuredAppCount: 2,
+					filteredAppCount,
+					retainedToolRows: expect.any(Number),
+				});
+				expect(JSON.stringify(plan())).not.toMatch(
+					/private_|secret|sample-user|sample-org/,
+				);
+			} finally {
+				logs.mockRestore();
+			}
+		},
+	);
+
 	it("lists Connect's built-in tools without hydrating any organization graph", async () => {
 		const host = {
 			slug: "connect-bootstrap",
