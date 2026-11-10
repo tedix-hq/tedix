@@ -119,7 +119,7 @@ it("reports no-coordinator items without widening admission reads, and samples o
 		const dispatcher = new LaneDispatcher(options, directory, {
 			darkWake: () => false,
 			health: () => [],
-			devinAvailable: () => true,
+			devinAvailability: () => ({ available: true }),
 			available: () => true,
 			budgets: () => ({}),
 			freeDiskBytes: () => 100 * 1024 ** 3,
@@ -226,7 +226,7 @@ it.each([
 			{
 				darkWake: () => false,
 				health: () => [donor],
-				devinAvailable: () => true,
+				devinAvailability: () => ({ available: true }),
 				available: () => true,
 				freeDiskBytes: () => 100 * 1024 ** 3,
 				budgets: () =>

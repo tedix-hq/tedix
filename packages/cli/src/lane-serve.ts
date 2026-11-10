@@ -73,7 +73,7 @@ import { UUID_RE } from "./work-identity";
 import { createClaudeLaneThread } from "./claude-lane-thread";
 import {
 	createDevinLaneThread,
-	devinAvailable,
+	devinAvailability,
 	isDevinSessionBusy,
 } from "./devin-lane-thread";
 import { createDevinWorkBridge } from "./devin-work-bridge";
@@ -1366,7 +1366,7 @@ interface DispatcherDeps {
 	health: typeof collectDispatcherHealth;
 	cli: typeof cli;
 	observe: typeof reportLaneObservation;
-	devinAvailable: typeof devinAvailable;
+	devinAvailability: typeof devinAvailability;
 	available: (executor: LocalExecutor) => boolean;
 	budgets: typeof readExecutorBudgets;
 	thread: (
@@ -1398,7 +1398,7 @@ const defaultDeps: DispatcherDeps = {
 	observe: reportLaneObservation,
 	confirmLogin: confirmStoredAccess,
 	gatewayCooldownUntil,
-	devinAvailable,
+	devinAvailability,
 	available: (executor) =>
 		spawnSync(executor === "claude-code" ? "claude" : executor, ["--version"], {
 			env: laneChildEnv(),
@@ -1728,7 +1728,7 @@ export class LaneDispatcher {
 		for (const executor of localExecutors) {
 			this.availability[executor] =
 				this.deps.available(executor) &&
-				(executor !== "devin" || this.deps.devinAvailable());
+				(executor !== "devin" || this.deps.devinAvailability().available);
 			const prior = this.budgets[executor];
 			this.budgets[executor] = {
 				...observed[executor]!,
@@ -1882,12 +1882,10 @@ export class LaneDispatcher {
 						this.options.coordinated,
 					);
 				}
-				if (
-					!reason &&
-					item.metadata?.executor === "devin" &&
-					!this.deps.devinAvailable()
-				)
-					reason = "Devin must be installed and logged in before dispatch";
+				if (!reason && item.metadata?.executor === "devin") {
+					const status = this.deps.devinAvailability();
+					if (!status.available) reason = status.reason;
+				}
 				if (reason) {
 					this.log("skipped", item.id, reason);
 					await this.requestDelegation(current, reason);
@@ -2524,10 +2522,10 @@ export class LaneDispatcher {
 				item.id,
 				`${selection.rule}: ${executor}${selection.model ? `/${selection.model}` : ""}`,
 			);
-			if (executor === "devin" && !this.deps.devinAvailable())
-				throw new Error(
-					"Devin must be installed and logged in before dispatch",
-				);
+			if (executor === "devin") {
+				const status = this.deps.devinAvailability();
+				if (!status.available) throw new Error(status.reason);
+			}
 			const reason = dispatchSkip(
 				item,
 				detail.comments ?? [],

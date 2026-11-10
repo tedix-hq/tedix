@@ -16,19 +16,46 @@ export function isDevinSessionBusy(error: unknown) {
 	);
 }
 
-export function devinAvailable(executable = "devin") {
+type DevinAvailability =
+	| { available: true }
+	| { available: false; reason: string };
+
+export function devinAvailability(
+	executable = "devin",
+	timeoutMs = 30_000,
+): DevinAvailability {
+	// Non-TTY status checks can take over ten seconds even when signed in.
 	const result = spawnSync(executable, ["auth", "status"], {
 		env: laneChildEnv(),
 		encoding: "utf8",
-		timeout: 10_000,
+		timeout: timeoutMs,
 	});
-	return (
-		result.status === 0 &&
-		/\blogged in\b|\bauthenticated\b/i.test(result.stdout) &&
-		!/not (?:logged|authenticated)|logged out/i.test(
-			result.stdout + result.stderr,
-		)
-	);
+	if (result.error) {
+		const code = (result.error as NodeJS.ErrnoException).code;
+		return {
+			available: false,
+			reason:
+				code === "ETIMEDOUT"
+					? `Devin auth status probe timed out after ${timeoutMs} ms`
+					: code === "ENOENT"
+						? "Devin executable not found"
+						: `Devin auth status probe failed (${code ?? "unknown error"})`,
+		};
+	}
+	const output = result.stdout + result.stderr;
+	if (/not (?:logged|authenticated)|logged out/i.test(output))
+		return { available: false, reason: "Devin is logged out" };
+	if (result.status !== 0)
+		return {
+			available: false,
+			reason: `Devin auth status probe failed (${result.signal ? `signal ${result.signal}` : `exit ${result.status}`})`,
+		};
+	if (!/\blogged in\b|\bauthenticated\b/i.test(result.stdout))
+		return {
+			available: false,
+			reason: "Devin auth status did not confirm a login",
+		};
+	return { available: true };
 }
 
 export function devinSessionIds(cwd: string, executable = "devin"): string[] {

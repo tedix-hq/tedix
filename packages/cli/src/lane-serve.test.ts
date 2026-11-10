@@ -103,6 +103,7 @@ function fixture({
 	dark = false,
 	failSettle = false,
 	devinReady = true,
+	devinReason = "Devin is logged out",
 	executor = "codex" as ServeOptions["executor"],
 	coordinated = false,
 	acceptProposed = false,
@@ -202,7 +203,10 @@ function fixture({
 		},
 		available: () => true,
 		budgets: () => ({}),
-		devinAvailable: () => devinReady,
+		devinAvailability: () =>
+			devinReady
+				? { available: true }
+				: { available: false, reason: devinReason },
 		provision: (_source, destination) => {
 			if (control.provisionError) throw control.provisionError;
 			return destination;
@@ -1606,15 +1610,20 @@ describe("dispatcher admission", () => {
 		expect(releases).toHaveLength(0);
 		expect(events.some((event) => event.verb === "start")).toBe(false);
 	});
-	it("leaves logged-out Devin work unclaimed for a later tick", async () => {
-		const { dispatcher, events, releases } = fixture({
+	it.each([
+		"Devin is logged out",
+		"Devin auth status probe timed out after 30000 ms",
+	])("leaves Devin work unclaimed and logs %s", async (reason) => {
+		const { dispatcher, events, releases, dir } = fixture({
 			executor: "devin",
 			devinReady: false,
+			devinReason: reason,
 		});
 		await dispatcher.tick();
 		await dispatcher.drain();
 		expect(releases).toHaveLength(0);
 		expect(events.some((event) => event.verb === "start")).toBe(false);
+		expect(readFileSync(join(dir, "dispatcher.log"), "utf8")).toContain(reason);
 	});
 	it("admits only explicit server selections when serving coordinated Work across projects", async () => {
 		const { dispatcher, events, releases } = fixture({ coordinated: true });
@@ -3157,7 +3166,7 @@ describe("dispatcher admission", () => {
 				health: () => [],
 				darkWake: () => false,
 				available: () => true,
-				devinAvailable: () => true,
+				devinAvailability: () => ({ available: true }),
 				budgets: () => ({}),
 				cli: async <T>() =>
 					({ data: items, pagination: { hasMore: false } }) as T,
