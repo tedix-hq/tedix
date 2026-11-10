@@ -249,7 +249,7 @@ export async function buildOsOutputLibrary(
 				);
 			}),
 		);
-	const rowsById = new Map(
+	const rowsById = new Map<string, (typeof projected)[number]>(
 		shared
 			.filter((row) => !owners.get(row.output.workspaceId ?? ""))
 			.map((row) => [row.output.id, row]),
