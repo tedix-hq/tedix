@@ -419,26 +419,49 @@ describe("share-link guests on a runtime app", () => {
 		});
 	});
 
-	it.each([
-		undefined,
-		null,
-		"",
-		"   ",
-		"x".repeat(81),
-		"Maya\u0000",
-		"Maya\u202e",
-		123,
-	])("refuses an invalid guest name: %j", async (guestName) => {
-		const { db, env, fetch } = await fixture();
+	it("opens and calls without a name, attributing the session and receipt to Guest", async () => {
+		const { db, env } = await fixture();
 		const link = await seedLink(db);
 		const sessionToken = await redeem(db, link.token);
+		const response = await handleGuestAppOpen(env, db, { sessionToken });
+		expect(response.status).toBe(200);
+		const opened = (await response.json()) as {
+			session: string;
+			app: { recordsGuestInput: boolean };
+		};
+		expect(opened.app.recordsGuestInput).toBe(false);
 		expect(
-			(await handleGuestAppOpen(env, db, { sessionToken, guestName })).status,
-		).toBe(404);
-		expect(fetch).not.toHaveBeenCalled();
+			(await verifyWorkspaceAppSession(key, opened.session)).guestName,
+		).toBe("Guest");
+		expect(
+			(
+				await handleGuestAppCall(env, db, {
+					sessionToken,
+					session: opened.session,
+					method: "verdicts",
+				})
+			).status,
+		).toBe(200);
+		const receipt = await db.select().from(osGadgetExecutions).get();
+		expect(JSON.parse(receipt!.policyDecision!)).toMatchObject({
+			guestName: "Guest",
+		});
 	});
 
-	it("signs a trimmed guest name and refuses calls from an older unnamed session", async () => {
+	it.each([null, "", "   ", "x".repeat(81), "Maya\u0000", "Maya\u202e", 123])(
+		"refuses an invalid guest name: %j",
+		async (guestName) => {
+			const { db, env, fetch } = await fixture();
+			const link = await seedLink(db);
+			const sessionToken = await redeem(db, link.token);
+			expect(
+				(await handleGuestAppOpen(env, db, { sessionToken, guestName })).status,
+			).toBe(404);
+			expect(fetch).not.toHaveBeenCalled();
+		},
+	);
+
+	it("signs a trimmed guest name and accepts calls from an older unnamed session", async () => {
 		const { db, env, fetch } = await fixture();
 		const link = await seedLink(db);
 		const sessionToken = await redeem(db, link.token);
@@ -465,8 +488,8 @@ describe("share-link guests on a runtime app", () => {
 					guestName: "Maya",
 				})
 			).status,
-		).toBe(404);
-		expect(fetch).not.toHaveBeenCalled();
+		).toBe(200);
+		expect(fetch).toHaveBeenCalled();
 	});
 
 	it("refuses a guest an app that may reach a connected account or an unbound slot", async () => {
@@ -973,6 +996,33 @@ describe("Anyone-with-the-link workspace links", () => {
 		});
 		expect((await readFile(connectedId)).status).toBe(404);
 		expect((await readFile("not-a-file")).status).toBe(404);
+	});
+
+	it("exposes only the owner's workspace default choice from navigation", async () => {
+		const { db } = await fixture();
+		const row = await db
+			.select()
+			.from(osGadgetRevisions)
+			.where(eq(osGadgetRevisions.id, revisionId))
+			.get();
+		const manifest = JSON.parse(row!.manifest);
+		manifest.navigation = { workspaceDefault: true, board: true };
+		manifest.notes = { private: "author notes" };
+		await db
+			.update(osGadgetRevisions)
+			.set({ manifest: JSON.stringify(manifest) })
+			.where(eq(osGadgetRevisions.id, revisionId));
+		const link = await seedLink(db, workspaceLink());
+		const body = (await (
+			await handleOsShareRedemption(db, link.token)
+		).json()) as WorkspacePayload;
+		expect(
+			body.resource.gadgets.find((app) => app.id === gadgetId)?.revision
+				?.manifest,
+		).toEqual({
+			entry: "tedix:runtime/v1",
+			navigation: { workspaceDefault: true },
+		});
 	});
 
 	it("opens only the workspace's own runtime apps for a guest", async () => {

@@ -125,7 +125,9 @@ export function DocumentOutline({
 								title={item.text}
 								onClick={() => onSelect(item)}
 							>
-								<span className="truncate">{item.text}</span>
+								<span className="min-w-0 whitespace-normal break-words">
+									{item.text}
+								</span>
 							</Button>
 						</li>
 					))}

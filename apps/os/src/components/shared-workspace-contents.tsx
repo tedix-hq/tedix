@@ -8,10 +8,12 @@ import {
 	VideoCamera,
 } from "@phosphor-icons/react";
 import type { OsOutputContent } from "@tedix/api-contract/schemas/os-workspaces";
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
 import { Text } from "@/components/kumo/text";
+import { normalizeDocumentContent } from "@tedix/api-contract/utils/os-document";
+import { richTextOutline } from "@/components/document-outline";
 import { OutputContentView } from "@/components/output-content";
 import { SharedFileView } from "@/components/shared-file-view";
 
@@ -73,9 +75,17 @@ export function SharedWorkspaceContents(props: {
 	hiddenFileCount: number;
 	sessionToken: string;
 	onOpenApp?: (appId: string) => void;
+	appView?: ReactNode;
 }) {
 	const [opened, setOpened] = useState<OpenedFile | null>(null);
 	const openedId = opened?.file.id ?? null;
+	const hasDocumentTitle =
+		opened?.status === "ready" &&
+		opened.content.kind === "document" &&
+		richTextOutline(
+			normalizeDocumentContent(opened.content).richText?.content ?? [],
+		).some((heading) => heading.text === opened.file.title.trim());
+	const [showNavigation, setShowNavigation] = useState(false);
 	useEffect(() => {
 		if (!opened || opened.status !== "loading") return;
 		let alive = true;
@@ -129,7 +139,7 @@ export function SharedWorkspaceContents(props: {
 		>
 			<nav
 				aria-label="In this workspace"
-				className={`grid content-start gap-4 lg:w-80 lg:shrink-0 lg:overflow-y-auto${opened ? " max-lg:hidden" : ""}`}
+				className={`grid content-start gap-6 rounded-lg border border-kumo-line p-3 lg:w-80 lg:shrink-0 lg:overflow-y-auto${!showNavigation && (opened || props.appView) ? " max-lg:hidden" : ""}`}
 			>
 				{leftOut ? (
 					<Text
@@ -148,9 +158,48 @@ export function SharedWorkspaceContents(props: {
 						Nothing in this workspace can be shown without signing in yet.
 					</Text>
 				) : null}
+				{props.apps.length > 0 ? (
+					<section className="grid gap-1" aria-label="Apps">
+						<Text as="h2" role="label" tone="strong" className="m-0 px-3">
+							Apps
+						</Text>
+						<ul className="m-0 grid list-none gap-0.5 p-0">
+							{props.apps.map((app) => (
+								<li key={app.id} data-shared-app={app.id}>
+									<Button
+										variant="ghost"
+										className="h-auto min-h-11 w-full justify-start py-2 text-left"
+										disabled={!app.opensWithoutSignIn || !props.onOpenApp}
+										onClick={() => {
+											setOpened(null);
+											setShowNavigation(false);
+											props.onOpenApp?.(app.id);
+										}}
+										aria-label={`Open ${app.name}`}
+									>
+										<AppWindow size={16} aria-hidden className="shrink-0" />
+										<span className="grid min-w-0 flex-1">
+											<span className="truncate">{app.name}</span>
+											<Text
+												as="span"
+												role="label"
+												tone="secondary"
+												className="truncate"
+											>
+												{app.opensWithoutSignIn
+													? (app.description ?? "App")
+													: "Needs a Tedix sign-in to open"}
+											</Text>
+										</span>
+									</Button>
+								</li>
+							))}
+						</ul>
+					</section>
+				) : null}
 				{props.files.length > 0 ? (
 					<section className="grid gap-1" aria-label="Files">
-						<Text as="h2" role="label" tone="strong" className="m-0">
+						<Text as="h2" role="label" tone="strong" className="m-0 px-3">
 							Files
 						</Text>
 						<ul className="m-0 grid list-none gap-0.5 p-0">
@@ -163,7 +212,10 @@ export function SharedWorkspaceContents(props: {
 											variant={selected ? "secondary" : "ghost"}
 											className="h-auto min-h-11 w-full justify-start py-2 text-left"
 											aria-current={selected ? "true" : undefined}
-											onClick={() => setOpened({ status: "loading", file })}
+											onClick={() => {
+												setShowNavigation(false);
+												setOpened({ status: "loading", file });
+											}}
 											data-shared-file={file.id}
 										>
 											<Icon size={16} aria-hidden className="shrink-0" />
@@ -180,74 +232,33 @@ export function SharedWorkspaceContents(props: {
 						</ul>
 					</section>
 				) : null}
-				{props.apps.length > 0 ? (
-					<section className="grid gap-1" aria-label="Apps">
-						<Text as="h2" role="label" tone="strong" className="m-0">
-							Apps
-						</Text>
-						<ul className="m-0 grid list-none gap-0.5 p-0">
-							{props.apps.map((app) => (
-								<li
-									key={app.id}
-									className="flex min-h-11 items-center gap-2 px-3 py-1.5"
-									data-shared-app={app.id}
-								>
-									<AppWindow
-										size={16}
-										aria-hidden
-										className="shrink-0 text-kumo-subtle"
-									/>
-									<span className="grid min-w-0 flex-1">
-										<Text as="span" role="body" className="m-0 truncate">
-											{app.name}
-										</Text>
-										<Text
-											as="span"
-											role="label"
-											tone="secondary"
-											className="m-0 truncate"
-										>
-											{app.opensWithoutSignIn
-												? (app.description ?? "App")
-												: "Needs a Tedix sign-in to open"}
-										</Text>
-									</span>
-									{app.opensWithoutSignIn && props.onOpenApp ? (
-										<Button
-											size="sm"
-											variant="secondary"
-											onClick={() => props.onOpenApp?.(app.id)}
-											aria-label={`Open ${app.name}`}
-										>
-											Open
-										</Button>
-									) : null}
-								</li>
-							))}
-						</ul>
-					</section>
-				) : null}
 			</nav>
 			<section
 				aria-label={opened ? opened.file.title : "Reader"}
-				className={`flex min-w-0 flex-1 flex-col gap-3 lg:min-h-0 lg:overflow-y-auto${opened ? "" : " max-lg:hidden"}`}
+				className={`flex min-w-0 flex-1 flex-col gap-3 lg:min-h-0 lg:overflow-y-auto${!showNavigation && (opened || props.appView) ? "" : " max-lg:hidden"}`}
 				data-shared-reader
 			>
+				{opened || props.appView ? (
+					<Button
+						variant="ghost"
+						size="sm"
+						className="self-start lg:hidden"
+						onClick={() => {
+							setOpened(null);
+							setShowNavigation(true);
+						}}
+						data-shared-back
+					>
+						<ArrowLeft size={14} aria-hidden /> All files and apps
+					</Button>
+				) : null}
 				{opened ? (
 					<>
-						<div className="flex items-center gap-2 lg:hidden">
-							<Button
-								variant="ghost"
-								size="sm"
-								onClick={() => setOpened(null)}
-								data-shared-back
-							>
-								<ArrowLeft size={14} aria-hidden /> All files and apps
-							</Button>
-						</div>
-						<Text as="h2" role="section" className="m-0">
-							{opened.file.title}
-						</Text>
+						{!hasDocumentTitle ? (
+							<Text as="h2" role="section" className="m-0">
+								{opened.file.title}
+							</Text>
+						) : null}
 						{opened.status === "loading" ? (
 							<Text as="p" role="body" tone="secondary" className="m-0">
 								Opening…
@@ -261,7 +272,7 @@ export function SharedWorkspaceContents(props: {
 								</AlertDescription>
 							</Alert>
 						) : (
-							<div data-shared-output>
+							<div className="shared-reader-output" data-shared-output>
 								<OutputContentView
 									content={opened.content}
 									renderFile={() => (
@@ -274,6 +285,8 @@ export function SharedWorkspaceContents(props: {
 							</div>
 						)}
 					</>
+				) : props.appView ? (
+					props.appView
 				) : (
 					<Text
 						as="p"

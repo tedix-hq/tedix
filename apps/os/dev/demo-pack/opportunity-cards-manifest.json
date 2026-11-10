@@ -10,6 +10,7 @@
 	"description": "Review today's Reddit opportunities one card at a time.",
 	"config": {
 		"version": 1,
+		"recordsGuestInput": true,
 		"settings": {
 			"slot": "opportunities",
 			"reviewer": "Maya",

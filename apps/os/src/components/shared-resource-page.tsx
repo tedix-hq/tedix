@@ -4,7 +4,7 @@ import {
 	CollapsibleDefaultContent,
 } from "@/components/kumo/collapsible";
 import { OrganizationMark } from "@/shared/organization-mark";
-import { ArrowRight, ShieldCheck } from "@phosphor-icons/react";
+import { ArrowRight } from "@phosphor-icons/react";
 import type {
 	OsShareAccess,
 	OsShareRole,
@@ -13,7 +13,7 @@ import type {
 	OsGadgetManifest,
 	OsOutputContent,
 } from "@tedix/api-contract/schemas/os-workspaces";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
@@ -24,13 +24,6 @@ import {
 	CardTitle,
 } from "@/components/kumo/card";
 import { CodeBlock } from "@/components/kumo/code";
-import {
-	Popover,
-	PopoverContent,
-	PopoverDescription,
-	PopoverTitle,
-	PopoverTrigger,
-} from "@/components/kumo/popover";
 import { Text } from "@/components/kumo/text";
 import { SharedReviewBatch } from "./shared-review-batch";
 import {
@@ -185,12 +178,6 @@ function SharedGadgetCard({
 		</Card>
 	);
 }
-
-const ROLE_LABEL: Record<OsShareRole, string> = {
-	viewer: "Can view",
-	use: "Can use",
-	build: "Can edit",
-};
 
 /**
  * Before permanent addresses, one tab kept one share session here. A link's
@@ -347,10 +334,12 @@ export function SharedResourceView({
 	sessionToken,
 	subtitle = "Shared with you · opened with your own Tedix sign-in",
 	onOpenApp,
+	appView,
 }: {
 	payload: SharePayload;
 	sessionToken: string;
 	subtitle?: string;
+	appView?: ReactNode;
 	/** Opens one of a shared workspace's apps in the guest sandbox. */
 	onOpenApp?: (appId: string) => void;
 }) {
@@ -397,70 +386,47 @@ export function SharedResourceView({
 		// screens the page scrolls normally. The content is full width below the
 		// header, like a shared artifact.
 		<main className="flex min-h-dvh w-full flex-col gap-3 px-3 py-3 sm:px-6 sm:py-4 lg:h-dvh lg:overflow-hidden">
-			<header className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-kumo-line border-b pb-3">
-				<div className="flex min-w-0 flex-1 items-center gap-2">
-					<OrganizationMark
-						name={payload.organization?.name ?? "Tedix"}
-						logoUrl={payload.organization?.logoUrl}
-						size="sm"
-					/>
+			<header className="flex shrink-0 flex-wrap items-start gap-3 border-b border-kumo-line pb-3">
+				<OrganizationMark
+					name={payload.organization?.name ?? "Tedix"}
+					logoUrl={payload.organization?.logoUrl}
+					size="sm"
+				/>
+				<div className="grid min-w-0 flex-1 gap-1">
 					<Text
-						as="span"
-						role="label"
-						tone="strong"
-						className="m-0 truncate"
+						as="h1"
+						role="section"
+						className="m-0 break-words"
 						data-share-owner
 					>
-						{resource.type === "workspace"
-							? resource.workspace.name
-							: (payload.organization?.name ?? "Tedix")}
-					</Text>
-				</div>
-				<Text
-					as="p"
-					role="label"
-					tone="secondary"
-					className="m-0 shrink-0"
-					data-shared-by
-				>
-					Shared by {sharedBy}
-					{payload.share.createdAt
-						? ` · ${absoluteTime(payload.share.createdAt)}`
-						: ""}
-				</Text>
-				{payload.canManage ? <ShareControls {...shareResource} /> : null}
-			</header>
-			<div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1">
-				<section className="min-w-[12rem] flex-1">
-					<Text as="h1" role="title" className="m-0 truncate">
 						{title}
 					</Text>
-					<Text as="p" role="label" tone="secondary" className="m-0">
-						{subtitle}
+					<Text
+						as="p"
+						role="label"
+						tone="secondary"
+						className="m-0"
+						data-shared-by
+					>
+						Shared by {sharedBy}
+						{payload.share.createdAt
+							? ` · ${absoluteTime(payload.share.createdAt)}`
+							: ""}
 					</Text>
-				</section>
-				<Badge variant="success">
-					<ShieldCheck size={13} /> {ROLE_LABEL[role]}
-				</Badge>
-				<Badge variant="secondary">
-					{payload.share.revisionMode === "pinned"
-						? "Fixed version"
-						: "Latest version"}
-				</Badge>
-				<Popover>
-					<PopoverTrigger render={<Button variant="ghost" size="sm" />}>
-						About access
-					</PopoverTrigger>
-					<PopoverContent align="end" className="w-72">
-						<PopoverTitle className="sr-only">About access</PopoverTitle>
-						<PopoverDescription>
-							This share does not pass on the owner's connections, credentials
-							or private memory. Tedix checks access when you open it and while
-							it stays open.
-						</PopoverDescription>
-					</PopoverContent>
-				</Popover>
-			</div>
+					<Text as="p" role="label" tone="secondary" className="m-0">
+						{subtitle} ·{" "}
+						{role === "build"
+							? "You can edit"
+							: role === "use"
+								? "You can use apps and read files"
+								: "You can read"}
+						{payload.share.revisionMode === "pinned"
+							? " · Saved version"
+							: " · Updates appear here"}
+					</Text>
+				</div>
+				{payload.canManage ? <ShareControls {...shareResource} /> : null}
+			</header>
 			{payload.share.note && (
 				<p className="m-0 shrink-0 text-sm text-kumo-subtle">
 					{payload.share.note}
@@ -493,10 +459,11 @@ export function SharedResourceView({
 					hiddenFileCount={resource.hiddenFileCount ?? 0}
 					sessionToken={sessionToken}
 					onOpenApp={onOpenApp}
+					appView={appView}
 				/>
 			) : resource.type === "output" ? (
 				<div
-					className="flex-1 lg:min-h-0 lg:overflow-y-auto"
+					className="shared-reader-output flex-1 lg:min-h-0 lg:overflow-y-auto"
 					data-shared-output
 				>
 					<OutputContentView

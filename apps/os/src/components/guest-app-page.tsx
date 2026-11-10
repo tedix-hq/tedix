@@ -50,8 +50,10 @@ type GuestOpen = {
 		name: string;
 		description: string | null;
 		workspaceId: string;
+		workspaceName?: string;
 		revision: number;
 		client: string;
+		recordsGuestInput?: boolean;
 		settings: Record<string, JsonValue>;
 		grants: { slot: string; operations: string[] }[];
 	};
@@ -92,6 +94,7 @@ type PageState =
 	| { status: "loading" }
 	| {
 			status: "identify";
+			app: GuestOpen;
 			share: Redeemed;
 			sessionToken: string;
 			appId?: string;
@@ -261,22 +264,32 @@ export async function openGuestApp(
 	appId?: string,
 ): Promise<GuestPageState> {
 	const guestName = storedGuestName();
-	if (!guestName) return { status: "identify", share, sessionToken, appId };
 	const app = await guestRequest<GuestOpen>("/api/os-shared/app/open", {
 		sessionToken,
-		guestName,
+		...(guestName ? { guestName } : {}),
 		...(appId ? { appId } : {}),
 	});
-	return { status: "ready", share, sessionToken, app, guestName, appId };
+	if (!guestName && app.app.recordsGuestInput)
+		return { status: "identify", share, sessionToken, app, appId };
+	return {
+		status: "ready",
+		share,
+		sessionToken,
+		app,
+		guestName: guestName ?? "Guest",
+		appId,
+	};
 }
 
 /** A guest's app once its share session is known, in the organization's words. */
 export function GuestAppScreen({
+	embedded = false,
 	state,
 	setState,
 	forget,
 	back,
 }: {
+	embedded?: boolean;
 	state: GuestPageState;
 	setState: (state: GuestPageState) => void;
 	/** Drops the stored share session after the server refuses it. */
@@ -319,6 +332,17 @@ export function GuestAppScreen({
 		return (
 			<GuestName
 				t={t}
+				embedded={embedded}
+				appName={state.app.app.name}
+				back={
+					back ?? {
+						label:
+							state.app.app.workspaceName ??
+							state.share.organization?.name ??
+							state.app.app.name,
+						onBack: () => window.history.back(),
+					}
+				}
 				onContinue={async (guestName) => {
 					try {
 						const app = await guestRequest<GuestOpen>(
@@ -342,13 +366,27 @@ export function GuestAppScreen({
 				}}
 			/>
 		);
-	return <GuestApp state={state} t={t} locale={locale} back={back} />;
+	return (
+		<GuestApp
+			state={state}
+			t={t}
+			locale={locale}
+			back={back}
+			embedded={embedded}
+		/>
+	);
 }
 
 function GuestName({
+	embedded,
+	appName,
+	back,
 	t,
 	onContinue,
 }: {
+	embedded?: boolean;
+	appName: string;
+	back?: { label: string; onBack: () => void };
 	t: Translate;
 	onContinue: (name: string) => Promise<void>;
 }) {
@@ -356,7 +394,9 @@ function GuestName({
 	const [busy, setBusy] = useState(false);
 	const parsed = AppRuntimeGuestNameSchema.safeParse(name);
 	return (
-		<main className="mx-auto grid min-h-dvh w-full max-w-md place-items-center p-4">
+		<div
+			className={`mx-auto grid w-full max-w-md place-items-center p-4 ${embedded ? "min-h-80" : "min-h-dvh"}`}
+		>
 			<form
 				className="flex w-full flex-col gap-4"
 				onSubmit={(event) => {
@@ -366,6 +406,16 @@ function GuestName({
 					void onContinue(parsed.data);
 				}}
 			>
+				{back ? (
+					<Button type="button" variant="ghost" onClick={back.onBack}>
+						<ArrowLeft size={16} aria-hidden />
+						{t("share_back", { name: back.label })}
+					</Button>
+				) : null}
+				<Text as="p" role="body" className="m-0">
+					{appName}
+					{back ? ` · ${back.label}` : ""}
+				</Text>
 				<Text as="h1" role="section">
 					{t("share_guest_name")}
 				</Text>
@@ -385,22 +435,25 @@ function GuestName({
 				/>
 				<Button
 					className="min-h-11"
+					style={{ color: "var(--primary-foreground)" }}
 					type="submit"
 					disabled={!parsed.success || busy}
 				>
 					{t("share_guest_continue")}
 				</Button>
 			</form>
-		</main>
+		</div>
 	);
 }
 
 function GuestApp({
+	embedded,
 	state,
 	t,
 	locale,
 	back,
 }: {
+	embedded?: boolean;
 	state: Extract<PageState, { status: "ready" }>;
 	t: Translate;
 	locale: string;
@@ -488,87 +541,95 @@ function GuestApp({
 	return (
 		// Like a shared artifact: one thin bar is the only chrome, and the app
 		// fills the rest of the viewport edge to edge on its own background.
-		<main className="flex h-dvh w-full flex-col" data-guest-app>
-			<div
-				className="shrink-0 border-b border-kumo-hairline bg-kumo-base"
-				data-guest-bar
-			>
-				{/* One row, the organization's mark and name only. Viewer tools
+		<div
+			className={`flex w-full flex-col ${embedded ? "min-h-[32rem] flex-1 lg:min-h-0" : "h-dvh"}`}
+			data-guest-app
+		>
+			{!embedded && (
+				<div
+					className="shrink-0 border-b border-kumo-hairline bg-kumo-base"
+					data-guest-bar
+				>
+					{/* One row, the organization's mark and name only. Viewer tools
 				    such as Translate join the trailing group. */}
-				<header className="flex min-h-10 min-w-0 items-center gap-2 px-3 sm:px-4">
-					{back ? (
-						<Button
-							variant="ghost"
-							size="icon-sm"
-							aria-label={t("share_back", { name: back.label })}
-							onClick={back.onBack}
-							data-guest-back
-						>
-							<ArrowLeft size={16} aria-hidden />
-						</Button>
-					) : null}
-					<OrganizationMark
-						name={share.organization?.name ?? app.app.name}
-						logoUrl={share.organization?.logoUrl ?? null}
-					/>
-					<Text
-						as="h1"
-						role="body"
-						weight="semibold"
-						className="m-0 min-w-0 flex-1 truncate"
-					>
-						{share.organization?.name && `${share.organization.name} · `}
-						<Text as="span" tone="secondary">
-							{app.app.name}
-						</Text>
-					</Text>
-					<Text
-						as="p"
-						role="label"
-						tone="secondary"
-						className="m-0 shrink-0 max-sm:hidden"
-						data-shared-by
-					>
-						{t("share_shared_by", {
-							name: share.share.sharedByName ?? t("share_someone"),
-						})}
-						{share.share.createdAt
-							? ` · ${sharedOn(share.share.createdAt, locale)}`
-							: ""}
-					</Text>
-					<div
-						className="flex shrink-0 items-center gap-1"
-						data-guest-bar-tools
-					>
-						{share.canManage && !appId ? (
-							<ShareControls
-								resourceType="gadget"
-								resourceId={app.app.id}
-								currentRevisionId={app.revisionId}
-							/>
+					<header className="flex min-h-10 min-w-0 items-center gap-2 px-3 sm:px-4">
+						{back ? (
+							<Button
+								variant="ghost"
+								size="icon-sm"
+								aria-label={t("share_back", { name: back.label })}
+								onClick={back.onBack}
+								data-guest-back
+							>
+								<ArrowLeft size={16} aria-hidden />
+							</Button>
 						) : null}
-						<Badge variant="success" title={t("share_no_sign_in")}>
-							<ShieldCheck size={13} aria-hidden /> {t("share_can_use")}
-						</Badge>
-						<AppTranslateButton translation={translation} compact />
-					</div>
-				</header>
-				{(share.share.note || share.share.policyReason) && (
-					<div className="grid gap-2 px-3 pb-2 sm:px-4">
-						{share.share.note && (
-							<Text as="p" role="body" tone="secondary" className="m-0">
-								{share.share.note}
+						<OrganizationMark
+							name={share.organization?.name ?? app.app.name}
+							logoUrl={share.organization?.logoUrl ?? null}
+						/>
+						<Text
+							as="h1"
+							role="body"
+							weight="semibold"
+							className="m-0 min-w-0 flex-1 truncate"
+						>
+							{share.organization?.name && `${share.organization.name} · `}
+							<Text as="span" tone="secondary">
+								{app.app.name}
 							</Text>
-						)}
-						{share.share.policyReason && (
-							<Alert variant="warning">
-								<AlertTitle>{t("share_access_narrowed")}</AlertTitle>
-								<AlertDescription>{share.share.policyReason}</AlertDescription>
-							</Alert>
-						)}
-					</div>
-				)}
-			</div>
+						</Text>
+						<Text
+							as="p"
+							role="label"
+							tone="secondary"
+							className="m-0 shrink-0 max-sm:hidden"
+							data-shared-by
+						>
+							{t("share_shared_by", {
+								name: share.share.sharedByName ?? t("share_someone"),
+							})}
+							{share.share.createdAt
+								? ` · ${sharedOn(share.share.createdAt, locale)}`
+								: ""}
+						</Text>
+						<div
+							className="flex shrink-0 items-center gap-1"
+							hidden={embedded}
+							data-guest-bar-tools
+						>
+							{share.canManage && !appId ? (
+								<ShareControls
+									resourceType="gadget"
+									resourceId={app.app.id}
+									currentRevisionId={app.revisionId}
+								/>
+							) : null}
+							<Badge variant="success" title={t("share_no_sign_in")}>
+								<ShieldCheck size={13} aria-hidden /> {t("share_can_use")}
+							</Badge>
+							<AppTranslateButton translation={translation} compact />
+						</div>
+					</header>
+					{(share.share.note || share.share.policyReason) && (
+						<div className="grid gap-2 px-3 pb-2 sm:px-4">
+							{share.share.note && (
+								<Text as="p" role="body" tone="secondary" className="m-0">
+									{share.share.note}
+								</Text>
+							)}
+							{share.share.policyReason && (
+								<Alert variant="warning">
+									<AlertTitle>{t("share_access_narrowed")}</AlertTitle>
+									<AlertDescription>
+										{share.share.policyReason}
+									</AlertDescription>
+								</Alert>
+							)}
+						</div>
+					)}
+				</div>
+			)}
 			<AppRuntimeFrame
 				key={app.revisionId}
 				html={html}
@@ -577,6 +638,6 @@ function GuestApp({
 				layout="fill"
 				translation={translation.channel}
 			/>
-		</main>
+		</div>
 	);
 }

@@ -959,6 +959,16 @@ describe("Canvas workbench state", () => {
 		expect(primaryCanvasDoc([], [])).toBeNull();
 	});
 
+	it("opens the owner's chosen app when several are available", () => {
+		expect(
+			primaryCanvasDoc([], [{ id: "first" }, { id: "chosen" }], "chosen"),
+		).toEqual({ type: "gadget", id: "chosen" });
+		expect(primaryCanvasDoc([], [{ id: "first" }], "unavailable")).toEqual({
+			type: "gadget",
+			id: "first",
+		});
+	});
+
 	it("keeps app views visible and shows other menu views when opened", () => {
 		expect(
 			canvasWorkpieceModeOptions({ type: "gadget", id: GADGET_ID }).map(
