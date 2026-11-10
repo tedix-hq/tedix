@@ -562,3 +562,73 @@ export async function referencedOutputBodyHashes(
 		);
 	return new Set(rows.flatMap((row) => (row.hash ? [row.hash] : [])));
 }
+
+export interface OutputTransferSnapshot {
+	output: OsOutputRow;
+	revisions: OsOutputRevisionRow[];
+}
+
+export async function snapshotOutput(
+	db: TenantStoreDb,
+	params: OsOutputScopeParams,
+): Promise<OutputTransferSnapshot | undefined> {
+	const output = await getOsOutput(db, params);
+	if (!output) return undefined;
+	const revisions = await db
+		.select()
+		.from(osOutputRevisions)
+		.where(
+			and(
+				eq(osOutputRevisions.organizationId, params.organizationId),
+				eq(osOutputRevisions.outputId, params.outputId),
+			),
+		)
+		.orderBy(osOutputRevisions.revision);
+	return { output, revisions };
+}
+
+/** Import all immutable revision pointers together; bodies remain in R2. */
+export async function importOutput(
+	db: TenantStoreDb,
+	snapshot: OutputTransferSnapshot,
+): Promise<OsOutputRow> {
+	const { output, revisions } = snapshot;
+	if (
+		!revisions.length ||
+		!revisions.some((row) => row.id === output.currentRevisionId) ||
+		revisions.some(
+			(row) =>
+				row.organizationId !== output.organizationId ||
+				row.outputId !== output.id ||
+				!row.bodyR2Key,
+		)
+	)
+		throw new Error("Invalid output transfer revisions");
+	return db.transaction((tx) => {
+		const existing = tx
+			.select()
+			.from(osOutputs)
+			.where(eq(osOutputs.id, output.id))
+			.all()[0];
+		if (existing) {
+			const saved = tx
+				.select()
+				.from(osOutputRevisions)
+				.where(eq(osOutputRevisions.outputId, output.id))
+				.orderBy(osOutputRevisions.revision)
+				.all();
+			if (
+				JSON.stringify(existing) !== JSON.stringify(output) ||
+				JSON.stringify(saved) !== JSON.stringify(revisions)
+			)
+				throw new Error("Output transfer conflicts with destination");
+			return existing;
+		}
+		const row = tx.insert(osOutputs).values(output).returning().all()[0]!;
+		for (const revision of revisions)
+			tx.insert(osOutputRevisions)
+				.values({ ...revision, content: "" })
+				.run();
+		return row;
+	});
+}

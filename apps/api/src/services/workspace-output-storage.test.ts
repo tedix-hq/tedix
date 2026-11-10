@@ -80,6 +80,7 @@ async function fixture() {
 		createdById: "user-1",
 	});
 	config.env.WORKSPACE_RUNTIME = {
+		transferOutput: async () => ({ ok: false, reason: "not_found" }),
 		outputQuery: (bound, query) => executeOutputQuery(tenant, bound, query),
 		refreshOutputProjection: async (bound, outputId) => {
 			const output = await executeOutputQuery(tenant, bound, {
@@ -130,6 +131,47 @@ async function fixture() {
 }
 
 describe("workspace output storage authority", () => {
+	it("uses the indexed object for moves and never reads a stale shared row as fallback", async () => {
+		const { core, tenant, output, revision } = await fixture();
+		await storage.createOsOutput(core, scope, output, revision);
+		await legacy.createOsOutput(
+			core,
+			scope,
+			{ ...output, title: "Old shared row" },
+			revision,
+		);
+		const canonical = await storage.getOsOutput(core, {
+			organizationId: scope.organizationId,
+			outputId: output.id,
+		});
+		expect(canonical?.title).toBe(output.title);
+		const move = vi.fn(async () => ({
+			ok: false as const,
+			reason: "not_found" as const,
+		}));
+		config.env.WORKSPACE_RUNTIME!.transferOutput = move;
+		expect(await storage.moveOsOutput(core, canonical!, "target")).toEqual({
+			ok: false,
+			reason: "not_found",
+		});
+		expect(move).toHaveBeenCalledWith(scope, output.id, "target");
+		await executeOutputQuery(tenant, scope, {
+			op: "delete",
+			outputId: output.id,
+		});
+		expect(
+			await storage.getOsOutput(core, {
+				organizationId: scope.organizationId,
+				outputId: output.id,
+			}),
+		).toBeUndefined();
+		expect(
+			await storage.getOsOutputRevision(core, {
+				organizationId: scope.organizationId,
+				revisionId: revision.id,
+			}),
+		).toBeUndefined();
+	});
 	it("creates in the object, resolves from its index, and preserves CAS on browser edits", async () => {
 		const { core, tenant, output, revision } = await fixture();
 		await storage.createOsOutput(core, scope, output, revision);

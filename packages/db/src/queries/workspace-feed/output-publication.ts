@@ -24,10 +24,12 @@ export async function publishOutputProjection(
 	if (!options.historical && output.currentRevisionId !== revision.id) return;
 	if (
 		options.historical &&
-		(await getWorkspaceOutputIndexRevision(db, {
-			organizationId: output.organizationId,
-			revisionId: revision.id,
-		}))
+		(
+			await getWorkspaceOutputIndexRevision(db, {
+				organizationId: output.organizationId,
+				revisionId: revision.id,
+			})
+		)?.workspaceId === output.workspaceId
 	)
 		return;
 	const current = await getWorkspaceOutputIndexCurrent(db, {
@@ -38,6 +40,7 @@ export async function publishOutputProjection(
 		return;
 	if (
 		current?.revisionId === revision.id &&
+		current.workspaceId === output.workspaceId &&
 		current.title === output.title &&
 		current.status === output.status &&
 		current.updatedAt >= output.updatedAt

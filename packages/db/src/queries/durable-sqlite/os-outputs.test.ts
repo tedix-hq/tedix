@@ -107,6 +107,51 @@ async function seedTenant(db: TenantStoreDb) {
 }
 
 describe("os outputs plane parity", () => {
+	it("replays an exact transfer snapshot and rolls back a partial revision import", async () => {
+		const source = tenantDb(),
+			target = tenantDb();
+		try {
+			await seedTenant(source.db);
+			const snapshot = (await tenant.snapshotOutput(source.db, {
+				organizationId: "org-1",
+				outputId: "out-1",
+			}))!;
+			snapshot.output.workspaceId = "ws-2";
+			await tenant.importOutput(target.db, snapshot);
+			expect(await tenant.importOutput(target.db, snapshot)).toEqual(
+				snapshot.output,
+			);
+			await expect(
+				tenant.importOutput(target.db, {
+					...snapshot,
+					output: { ...snapshot.output, title: "Conflicting file" },
+				}),
+			).rejects.toThrow("conflicts");
+			const invalid = {
+				output: { ...snapshot.output, id: "out-2", currentRevisionId: "rev-2" },
+				revisions: [
+					{ ...snapshot.revisions[0]!, outputId: "out-2", id: "rev-2" },
+					{ ...snapshot.revisions[0]!, outputId: "out-2", id: "rev-3" },
+				],
+			};
+			await expect(tenant.importOutput(target.db, invalid)).rejects.toThrow();
+			expect(
+				await tenant.getOsOutput(target.db, {
+					organizationId: "org-1",
+					outputId: "out-2",
+				}),
+			).toBeUndefined();
+			expect(
+				await tenant.getOsOutputRevision(target.db, {
+					organizationId: "org-1",
+					revisionId: "rev-2",
+				}),
+			).toBeUndefined();
+		} finally {
+			source.sqlite.close();
+			target.sqlite.close();
+		}
+	});
 	it("creates output + revision 1 identically; tenant stores no inline body", async () => {
 		const p = platformDb();
 		const t = tenantDb();

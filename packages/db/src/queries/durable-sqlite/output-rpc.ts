@@ -6,7 +6,14 @@ import type {
 import type { TenantStoreDb } from "./tenant-store";
 import * as outputs from "./os-outputs";
 
+export type OutputTransferSnapshot = outputs.OutputTransferSnapshot;
+export type OutputTransferResult =
+	| { ok: true; output: NonNullable<OutputQueryResults["get"]> }
+	| { ok: false; reason: "not_found" | "conflict" };
+
 export interface OutputQueryInputs {
+	snapshot: { outputId: string };
+	import: { snapshot: OutputTransferSnapshot };
 	list: { options?: outputs.ListOsOutputsOptions };
 	activeSheet: { title: string };
 	get: { outputId: string };
@@ -23,6 +30,8 @@ export interface OutputQueryInputs {
 }
 
 export interface OutputQueryResults {
+	snapshot: Awaited<ReturnType<typeof outputs.snapshotOutput>>;
+	import: Awaited<ReturnType<typeof outputs.importOutput>>;
 	list: Awaited<ReturnType<typeof outputs.listOsOutputs>>;
 	activeSheet: Awaited<ReturnType<typeof outputs.getActiveSheetByTitle>>;
 	get: Awaited<ReturnType<typeof outputs.getOsOutput>>;
@@ -45,6 +54,11 @@ export type OutputQueryResult<K extends OutputOperation = OutputOperation> =
 	OutputQueryResults[K];
 
 export interface WorkspaceOutputRuntime {
+	transferOutput(
+		scope: OsWorkspaceScopeParams,
+		outputId: string,
+		targetWorkspaceId: string,
+	): Promise<OutputTransferResult>;
 	refreshOutputProjection(
 		scope: OsWorkspaceScopeParams,
 		outputId: string,
@@ -85,6 +99,16 @@ async function execute(
 		outputId,
 	});
 	switch (query.op) {
+		case "snapshot":
+			if (!(await owned(query.outputId))) return undefined;
+			return outputs.snapshotOutput(db, params(query.outputId));
+		case "import":
+			if (
+				query.snapshot.output.organizationId !== scope.organizationId ||
+				query.snapshot.output.workspaceId !== scope.workspaceId
+			)
+				throw new Error("Output transfer scope mismatch");
+			return outputs.importOutput(db, query.snapshot);
 		case "activeSheet":
 			return outputs.getActiveSheetByTitle(db, {
 				...scope,

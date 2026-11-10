@@ -31,6 +31,17 @@ function stubFor(env: WorkspaceEnv, scope: WorkspaceScope): WorkspaceRpc {
 }
 
 export class InternalEntrypoint extends WorkerEntrypoint<WorkspaceEnv> {
+	transferOutput(
+		scope: WorkspaceScope,
+		outputId: string,
+		targetWorkspaceId: string,
+	) {
+		return stubFor(this.env, scope).transferOutput(
+			scope,
+			outputId,
+			targetWorkspaceId,
+		);
+	}
 	refreshOutputProjection(
 		scope: WorkspaceScope,
 		outputId: string,

@@ -276,8 +276,23 @@ export async function verifyAction(input: {
 					? `/outputs/${plan.id}`
 					: plan.kind === "gadget"
 						? `/workspace/${plan.workspaceId}?workpiece=gadget:${plan.id}`
-						: `/workspaces/${plan.id}`;
-		receipt.url = new URL(path, input.origin).href;
+						: `/workspace/${plan.id}`;
+		let origin = input.origin;
+		if (plan.kind === "workspace" || plan.kind === "gadget") {
+			const workspace =
+				plan.kind === "workspace"
+					? read
+					: asRecord(
+							await input.read(
+								"get_os_workspace",
+								{ workspaceId: plan.workspaceId },
+								"osWorkspaces/workspaces/get",
+							),
+						);
+			if (typeof workspace?.url !== "string") return receipt;
+			origin = new URL(workspace.url).origin;
+		}
+		receipt.url = new URL(path, origin).href;
 		if (plan.kind === "output" && typeof input.args.startRow === "number")
 			receipt.url += `?row=${input.args.startRow + 1}`;
 		if (commentId) receipt.url += `#comment-${commentId}`;

@@ -1,6 +1,9 @@
 import { env, waitUntil } from "cloudflare:workers";
 import * as legacy from "@tedix/db/queries/os-workspaces/outputs";
-import type { WorkspaceOutputRuntime } from "@tedix/db/queries/durable-sqlite/output-rpc";
+import type {
+	OutputTransferResult,
+	WorkspaceOutputRuntime,
+} from "@tedix/db/queries/durable-sqlite/output-rpc";
 import {
 	getWorkspaceOutputIndexCurrent,
 	getWorkspaceOutputIndexRevision,
@@ -46,22 +49,42 @@ async function location(
 	return index ? { organizationId, workspaceId: index.workspaceId } : undefined;
 }
 
-/** Existing D1 IDs retain their authority; newly created workspace IDs belong to the object. */
+/** An indexed workspace output is read only from its owning object. */
 export async function getOsOutput(
 	...args: Parameters<typeof legacy.getOsOutput>
 ) {
-	const row = await legacy.getOsOutput(...args);
-	if (row || !runtime()) return row;
-	const scope = await location(
-		args[0],
-		args[1].organizationId,
-		args[1].outputId,
-	);
-	if (scope && args[1].workspaceId && scope.workspaceId !== args[1].workspaceId)
-		return undefined;
-	return scope
-		? runtime()!.outputQuery(scope, { op: "get", outputId: args[1].outputId })
+	const store = runtime();
+	const scope = store
+		? await location(args[0], args[1].organizationId, args[1].outputId)
 		: undefined;
+	if (!scope) return legacy.getOsOutput(...args);
+	if (args[1].workspaceId && scope.workspaceId !== args[1].workspaceId)
+		return undefined;
+	return store!.outputQuery(scope, { op: "get", outputId: args[1].outputId });
+}
+
+export async function moveOsOutput(
+	db: DbQueryClient,
+	output: NonNullable<Awaited<ReturnType<typeof getOsOutput>>>,
+	targetWorkspaceId: string,
+): Promise<OutputTransferResult> {
+	const store = runtime();
+	if (!store) {
+		const moved = await legacy.updateOsOutput(
+			db,
+			{ organizationId: output.organizationId, outputId: output.id },
+			{ workspaceId: targetWorkspaceId },
+		);
+		return moved
+			? { ok: true, output: moved }
+			: { ok: false, reason: "not_found" };
+	}
+	if (!output.workspaceId) return { ok: false, reason: "not_found" };
+	return store.transferOutput(
+		{ organizationId: output.organizationId, workspaceId: output.workspaceId },
+		output.id,
+		targetWorkspaceId,
+	);
 }
 
 export async function listOsOutputs(
@@ -113,8 +136,7 @@ export async function listOsOutputs(
 export async function getOsOutputRevision(
 	...args: Parameters<typeof legacy.getOsOutputRevision>
 ) {
-	const row = await legacy.getOsOutputRevision(...args);
-	if (row || !runtime()) return row;
+	if (!runtime()) return legacy.getOsOutputRevision(...args);
 	const index = await getWorkspaceOutputIndexRevision(args[0], args[1]);
 	return index
 		? runtime()!.outputQuery(
@@ -124,14 +146,12 @@ export async function getOsOutputRevision(
 				},
 				{ op: "revision", revisionId: args[1].revisionId },
 			)
-		: undefined;
+		: legacy.getOsOutputRevision(...args);
 }
 
 export async function getOsOutputRevisionByNumber(
 	...args: Parameters<typeof legacy.getOsOutputRevisionByNumber>
 ) {
-	if (await legacy.getOsOutput(args[0], args[1]))
-		return legacy.getOsOutputRevisionByNumber(...args);
 	const scope = runtime()
 		? await location(args[0], args[1].organizationId, args[1].outputId)
 		: undefined;
@@ -141,14 +161,12 @@ export async function getOsOutputRevisionByNumber(
 				outputId: args[1].outputId,
 				revision: args[1].revision,
 			})
-		: undefined;
+		: legacy.getOsOutputRevisionByNumber(...args);
 }
 
 export async function listOsOutputRevisions(
 	...args: Parameters<typeof legacy.listOsOutputRevisions>
 ) {
-	if (await legacy.getOsOutput(args[0], args[1]))
-		return legacy.listOsOutputRevisions(...args);
 	const scope = runtime()
 		? await location(args[0], args[1].organizationId, args[1].outputId)
 		: undefined;
@@ -158,7 +176,7 @@ export async function listOsOutputRevisions(
 				outputId: args[1].outputId,
 				options: args[2],
 			})
-		: [];
+		: legacy.listOsOutputRevisions(...args);
 }
 
 export async function createOsOutput(
@@ -182,13 +200,10 @@ export async function createOsOutputRevision(
 	...args: Parameters<typeof legacy.createOsOutputRevision>
 ) {
 	const [db, params] = args;
-	if (await legacy.getOsOutput(db, params))
-		return legacy.createOsOutputRevision(...args);
 	const scope = runtime()
 		? await location(db, params.organizationId, params.outputId)
 		: undefined;
-	if (!scope)
-		return { ok: false as const, reason: "output_not_found" as const };
+	if (!scope) return legacy.createOsOutputRevision(...args);
 	if (!params.bodyR2Key || !params.contentSha256 || params.contentBytes == null)
 		throw new Error("Workspace output revision requires its stored R2 body");
 	const result = await runtime()!.outputQuery(scope, {
@@ -208,8 +223,6 @@ export async function createOsOutputRevision(
 export async function updateOsOutput(
 	...args: Parameters<typeof legacy.updateOsOutput>
 ) {
-	if (await legacy.getOsOutput(args[0], args[1]))
-		return legacy.updateOsOutput(...args);
 	const scope = runtime()
 		? await location(args[0], args[1].organizationId, args[1].outputId)
 		: undefined;
@@ -219,7 +232,7 @@ export async function updateOsOutput(
 				outputId: args[1].outputId,
 				patch: args[2],
 			})
-		: undefined;
+		: legacy.updateOsOutput(...args);
 }
 
 export async function getActiveSheetByTitle(

@@ -17,6 +17,8 @@ import {
 	executeOutputQuery,
 	type OutputQuery,
 	type OutputQueryResult,
+	type OutputTransferSnapshot,
+	type OutputTransferResult,
 } from "@tedix/db/queries/durable-sqlite/output-rpc";
 import { getTediById } from "@tedix/db/queries/tedis";
 import * as coreOutputs from "@tedix/db/queries/os-workspaces/outputs";
@@ -219,6 +221,13 @@ export interface ExportRowsInput {
 	limit: number;
 }
 
+interface PendingOutputTransfer {
+	scope: WorkspaceScope;
+	targetWorkspaceId: string;
+	transferId: string;
+	snapshot: OutputTransferSnapshot;
+}
+
 export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	readonly #store: WorkspaceStorage;
 	readonly #events: SqlEventLedger;
@@ -226,6 +235,10 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	readonly #activityRecords: SqlActivityRecords;
 	readonly #compliance: SqlComplianceAdapter;
 	#outputSerial: Promise<void> = Promise.resolve();
+	#inflightTransfers = new Map<
+		string,
+		Promise<NonNullable<OutputQueryResult<"get">>>
+	>();
 	#activitySerial: Promise<void> = Promise.resolve();
 	#movedChatReady = false;
 	readonly #running = new Map<string, AbortController>();
@@ -289,6 +302,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	): Promise<OutputQueryResult<K>> {
 		this.bindScope(scope);
 		const operation = query as OutputQuery;
+		if (operation.op === "snapshot" || operation.op === "import")
+			throw new Error("Use the output transfer RPC");
 		const outputId =
 			operation.op === "create"
 				? operation.output.id
@@ -335,6 +350,171 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			return result;
 		};
 		return outputId ? this.#commitOutput(scope, outputId, write) : write();
+	}
+
+	#outputTransfers() {
+		return (
+			this.#store.get<Record<string, PendingOutputTransfer>>(
+				"output-transfers",
+			) ?? {}
+		);
+	}
+
+	async transferOutput(
+		scope: WorkspaceScope,
+		outputId: string,
+		targetWorkspaceId: string,
+	): Promise<OutputTransferResult> {
+		this.bindScope(scope);
+		if (scope.workspaceId === targetWorkspaceId) {
+			const output = await executeOutputQuery(this.db as TenantStoreDb, scope, {
+				op: "get",
+				outputId,
+			});
+			return output ? { ok: true, output } : { ok: false, reason: "not_found" };
+		}
+		const prepared = await this.#serializeOutput(async () => {
+			let pending = this.#outputTransfers()[outputId];
+			if (
+				(pending && pending.targetWorkspaceId !== targetWorkspaceId) ||
+				this.#store.get(`incoming-output:${outputId}`)
+			)
+				return { ok: false as const, reason: "conflict" as const };
+			if (!pending) {
+				const snapshot = await executeOutputQuery(
+					this.db as TenantStoreDb,
+					scope,
+					{ op: "snapshot", outputId },
+				);
+				if (!snapshot)
+					return { ok: false as const, reason: "not_found" as const };
+				pending = {
+					scope,
+					targetWorkspaceId,
+					transferId: crypto.randomUUID(),
+					snapshot,
+				};
+				await this.ctx.storage.setAlarm(Date.now() + KEEPALIVE_MS);
+				this.#store.put("output-transfers", {
+					...this.#outputTransfers(),
+					[outputId]: pending,
+				});
+			}
+			return { pending };
+		});
+		if (!prepared.pending) return prepared;
+		return {
+			ok: true,
+			output: await this.#runOutputTransfer(outputId, prepared.pending),
+		};
+	}
+
+	#runOutputTransfer(outputId: string, pending: PendingOutputTransfer) {
+		const running = this.#inflightTransfers.get(outputId);
+		if (running) return running;
+		const next = this.#finishOutputTransfer(outputId, pending).finally(() =>
+			this.#inflightTransfers.delete(outputId),
+		);
+		this.#inflightTransfers.set(outputId, next);
+		return next;
+	}
+
+	async #finishOutputTransfer(
+		outputId: string,
+		pending: PendingOutputTransfer,
+	) {
+		const target = {
+			organizationId: pending.scope.organizationId,
+			workspaceId: pending.targetWorkspaceId,
+		};
+		const destination = durableObjectStubByName(
+			this.env.WORKSPACE,
+			this.env,
+			tenantStoreName(target),
+		) as unknown as WorkspaceRpc;
+		const snapshot = {
+			...pending.snapshot,
+			output: { ...pending.snapshot.output, workspaceId: target.workspaceId },
+		};
+		const output = await destination.receiveOutputTransfer(
+			target,
+			pending.transferId,
+			snapshot,
+		);
+		await this.#serializeOutput(async () => {
+			await executeOutputQuery(this.db as TenantStoreDb, pending.scope, {
+				op: "delete",
+				outputId,
+			});
+			// A delayed source projection must never retire or republish the destination's index.
+			this.#store.put(`transferred-output:${outputId}`, true);
+			const projections = this.#pendingOutputProjections();
+			delete projections[outputId];
+			this.#store.put("pending-output-projections", projections);
+		});
+		await destination.completeOutputTransfer(
+			target,
+			outputId,
+			pending.transferId,
+		);
+		const transfers = this.#outputTransfers();
+		delete transfers[outputId];
+		this.#store.put("output-transfers", transfers);
+		return output;
+	}
+
+	async receiveOutputTransfer(
+		scope: WorkspaceScope,
+		transferId: string,
+		snapshot: OutputTransferSnapshot,
+	) {
+		this.bindScope(scope);
+		if (
+			snapshot.output.organizationId !== scope.organizationId ||
+			snapshot.output.workspaceId !== scope.workspaceId
+		)
+			throw new Error("Output transfer scope mismatch");
+		return this.#serializeOutput(async () => {
+			const outputId = snapshot.output.id;
+			const receiptKey = `received-output:${transferId}`;
+			if (this.#store.get(receiptKey)) {
+				const output = await executeOutputQuery(
+					this.db as TenantStoreDb,
+					scope,
+					{ op: "get", outputId },
+				);
+				if (!output) throw new Error("Transferred output is missing");
+				return output;
+			}
+			const incoming = this.#store.get<string>(`incoming-output:${outputId}`);
+			if (incoming && incoming !== transferId)
+				throw new Error("Output transfer already in progress");
+			this.#store.put(`incoming-output:${outputId}`, transferId);
+			const output = await executeOutputQuery(this.db as TenantStoreDb, scope, {
+				op: "import",
+				snapshot,
+			});
+			for (const revision of snapshot.revisions)
+				await publishOutputProjection(
+					createDbQueryClient(this.env.DB),
+					output,
+					revision,
+					{ historical: revision.id !== output.currentRevisionId },
+				);
+			this.#store.delete(`transferred-output:${outputId}`);
+			this.#store.put(receiptKey, true);
+			return output;
+		});
+	}
+
+	completeOutputTransfer(
+		scope: WorkspaceScope,
+		outputId: string,
+		transferId: string,
+	) {
+		this.bindScope(scope);
+		if (this.#store.get(`incoming-output:${outputId}`) === transferId)
+			this.#store.delete(`incoming-output:${outputId}`);
 	}
 
 	/** Start a turn. Returns at once; follow it through the event stream. */
@@ -858,10 +1038,18 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	}
 
 	override async alarm() {
+		for (const [outputId, pending] of Object.entries(this.#outputTransfers())) {
+			try {
+				await this.#runOutputTransfer(outputId, pending);
+			} catch (error) {
+				console.error("Workspace output transfer pending", error);
+			}
+		}
 		await this.#serializeOutput(() => this.#flushOutputProjections());
 		await this.#flushActivity();
 		if (
 			this.#running.size > 0 ||
+			Object.keys(this.#outputTransfers()).length > 0 ||
 			Object.keys(this.#pendingOutputProjections()).length > 0 ||
 			(
 				await this.#ledger.list({
@@ -1031,6 +1219,12 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		write: () => Promise<T>,
 	): Promise<T> {
 		return this.#serializeOutput(async () => {
+			if (
+				this.#outputTransfers()[outputId] ||
+				this.#store.get(`incoming-output:${outputId}`) ||
+				this.#store.get(`transferred-output:${outputId}`)
+			)
+				throw new Error("Output transfer in progress or output moved");
 			this.#store.put("activity-scope", scope);
 			// Persist retry before mutation; deletion and publication share this queue.
 			this.#store.delete(`output-history-before:${outputId}`);
@@ -1114,6 +1308,11 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		for (const [outputId, pending] of Object.entries(
 			this.#pendingOutputProjections(),
 		)) {
+			if (
+				this.#outputTransfers()[outputId] ||
+				this.#store.get(`transferred-output:${outputId}`)
+			)
+				continue;
 			try {
 				const complete = await this.projectOutput(pending.scope, outputId);
 				if (complete === false) continue;
@@ -1757,6 +1956,21 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 
 /** The RPC surface other workers call; typed by hand so callers avoid deep stub inference. */
 export interface WorkspaceRpc {
+	transferOutput(
+		scope: WorkspaceScope,
+		outputId: string,
+		targetWorkspaceId: string,
+	): Promise<OutputTransferResult>;
+	receiveOutputTransfer(
+		scope: WorkspaceScope,
+		transferId: string,
+		snapshot: OutputTransferSnapshot,
+	): Promise<NonNullable<OutputQueryResult<"get">>>;
+	completeOutputTransfer(
+		scope: WorkspaceScope,
+		outputId: string,
+		transferId: string,
+	): Promise<void>;
 	replayActivity(
 		scope: WorkspaceScope,
 		input?: ActivityPageInput,
