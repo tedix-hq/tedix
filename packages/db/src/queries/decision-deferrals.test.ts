@@ -154,14 +154,28 @@ it("matches deferrals by tenant, recipient, time and unlabelled receipt without 
 		.map((row) => String(row.detail));
 	// Feedback first (an exposure-first plan rereads it per exposure), reached
 	// through the surface index rather than a scan of every learning event.
-	expect(plan[0]).toContain(
-		"SEARCH learning_interaction_events USING INDEX idx_learning_event_surface_occurred",
+	expect(plan[0]).toBe(
+		"SEARCH learning_interaction_events USING INDEX idx_learning_event_surface_occurred (surface=?)",
 	);
+	expect(
+		plan.filter((line) => line.includes("learning_interaction_events")),
+	).toHaveLength(1);
+	expect(
+		plan.some((line) => line.includes("SCAN learning_interaction_events")),
+	).toBe(false);
 	expect(
 		plan.some((line) =>
 			line.includes(
-				"SEARCH decision_exposures USING INDEX idx_decision_exposure_org_actor_card",
+				"SEARCH decision_exposures USING INDEX idx_decision_exposure_org_actor_card (organization_id=? AND actor_id=? AND card_id=?)",
 			),
+		),
+	).toBe(true);
+	expect(plan.some((line) => line.includes("SCAN decision_exposures"))).toBe(
+		false,
+	);
+	expect(
+		plan.some((line) =>
+			/SEARCH l USING (?:COVERING )?INDEX \S+ \(id=\?\)/.test(line),
 		),
 	).toBe(true);
 	expect(plan.some((line) => line.includes("idx_learning_event_scope"))).toBe(
