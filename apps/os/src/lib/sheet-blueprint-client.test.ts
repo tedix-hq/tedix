@@ -410,19 +410,17 @@ describe("Portable Sheet grid", () => {
 				.map((row) => row[1]!.value),
 		).toEqual([4, 3]);
 	});
-	it("refreshes clean editors but preserves dirty drafts through conflicts and explicit discard", async () => {
+	it("refreshes clean editors, asks which value wins when both edited one cell, and allows explicit discard", async () => {
 		const app = await editor();
 		app.changeExternal(3);
 		await vi.waitFor(() => expect(display("C1")).toBe("5"));
 		edit("A1", "8");
 		await vi.waitFor(() => expect(display("C1")).toBe("10"));
 		app.changeExternal(4);
-		expect(q("#updates").textContent).toContain(
-			"Your unsaved edits are preserved",
-		);
-		click("#save");
 		await vi.waitFor(() =>
-			expect(q(".status").textContent).toContain("Revision conflict"),
+			expect(q("#updates").textContent).toContain(
+				"Choose which version to keep",
+			),
 		);
 		expect(app.saved().rows[0]![0]).toBe(4);
 		expect(display("C1")).toBe("10");
@@ -432,7 +430,37 @@ describe("Portable Sheet grid", () => {
 		await vi.waitFor(() => expect(display("C1")).toBe("6"));
 		expect(q("#updates").textContent).toBe("");
 	});
-	it("preserves an uncommitted formula bar draft on external updates", async () => {
+	it("keeps the chosen value for a cell both people edited, then saves the merge", async () => {
+		const app = await editor();
+		edit("A1", "8");
+		await vi.waitFor(() => expect(display("C1")).toBe("10"));
+		app.changeExternal(4);
+		await vi.waitFor(() =>
+			expect(q("#updates").textContent).toContain("Keep mine"),
+		);
+		[...document.querySelectorAll<HTMLButtonElement>("#updates button")]
+			.find((button) => button.textContent === "Keep mine")!
+			.click();
+		await vi.waitFor(() =>
+			expect(q(".status").textContent).toContain("merged with revision 2"),
+		);
+		expect(display("C1")).toBe("10");
+		click("#save");
+		await vi.waitFor(() => expect(app.revision()).toBe(3));
+		expect(app.saved().rows[0]![0]).toBe(8);
+	});
+	it("merges someone else's save into an unsaved draft that changed a different cell", async () => {
+		const app = await editor();
+		edit("B1", "5");
+		await vi.waitFor(() => expect(display("C1")).toBe("6"));
+		app.changeExternal(4);
+		await vi.waitFor(() => expect(display("C1")).toBe("9"));
+		expect(q(".status").textContent).toContain("merged with revision 2");
+		click("#save");
+		await vi.waitFor(() => expect(app.revision()).toBe(3));
+		expect(app.saved().rows[0]).toEqual([4, 5, 9]);
+	});
+	it("preserves an uncommitted formula bar draft on external updates, then merges it", async () => {
 		const app = await editor();
 		select("C1");
 		const formula = q<HTMLInputElement>("#formula");
@@ -445,11 +473,12 @@ describe("Portable Sheet grid", () => {
 		key("Enter", {}, formula);
 		click("#save");
 		await vi.waitFor(() =>
-			expect(q(".status").textContent).toContain("Revision conflict"),
+			expect(q(".status").textContent).toContain("merged with revision 2"),
 		);
-		expect(app.saved().workbook!.sheets[0]!.rows[0]![2]!.input).toBe(
-			"=SUM(A1:B1)",
-		);
+		expect(display("C1")).toBe("90");
+		click("#save");
+		await vi.waitFor(() => expect(app.revision()).toBe(3));
+		expect(app.saved().workbook!.sheets[0]!.rows[0]![2]!.input).toBe("=A1*10");
 	});
 	it("virtualizes a full workbook and rejects an out-of-bounds paste without a partial write", async () => {
 		const app = await editor("owner", (content) => {

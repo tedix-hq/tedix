@@ -1,6 +1,12 @@
-import { applyPresentationPatch } from "@tedix/api-contract/utils/presentation-patch";
+import {
+	applyPresentationPatch,
+	projectPresentationDeck,
+} from "@tedix/api-contract/utils/presentation-patch";
 import { applyDocumentBlockPatch } from "@tedix/api-contract/utils/document-patch";
-import { normalizeOsOutputInput } from "@tedix/api-contract/utils/os-document";
+import {
+	blocksFromRichText,
+	normalizeOsOutputInput,
+} from "@tedix/api-contract/utils/os-document";
 import { applySheetRange } from "@tedix/api-contract/utils/sheet-range";
 import { mergeOutputContent } from "@tedix/api-contract/utils/output-merge";
 import { getSkillRun } from "@tedix/db/queries/skill-runs";
@@ -649,7 +655,10 @@ async function mergeStaleSave(
 	const base = OsOutputContentSchema.safeParse(JSON.parse(started.content));
 	const theirs = OsOutputContentSchema.safeParse(JSON.parse(current.content));
 	if (!base.success || !theirs.success) return null;
-	const merged = mergeOutputContent(base.data, mine, theirs.data);
+	const merged = mergeOutputContent(base.data, mine, theirs.data, {
+		documentBlocks: blocksFromRichText,
+		presentationSlides: projectPresentationDeck,
+	});
 	if (!merged.ok) return null;
 	const checked = OsOutputContentSchema.safeParse(merged.content);
 	return checked.success ? checked.data : null;
