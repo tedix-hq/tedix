@@ -77,7 +77,7 @@ function createEnv(): CloudflareEnv {
 		),
 	);
 	sqlite.exec(`
-		CREATE TABLE organizations (id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL);
+		CREATE TABLE organizations (id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, slug TEXT DEFAULT 'fictional', type TEXT DEFAULT 'organization', descope_tenant_id TEXT, logo_url TEXT);
 		INSERT INTO organizations (id, name) VALUES ('org-1', 'Fictional Org');
 		INSERT INTO tedis (id, organization_id, name, slug, status, scope, owner_user_id, descope_user_id)
 		VALUES ('robin-primary','org-1','Robin helper','robin-primary','active','personal','member-robin','tedi-identity-1'),

@@ -87,7 +87,7 @@ function createEnv() {
 		),
 	);
 	sqlite.exec(`
-		CREATE TABLE organizations (id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL);
+		CREATE TABLE organizations (id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, slug TEXT DEFAULT 'fictional', type TEXT DEFAULT 'organization', descope_tenant_id TEXT, logo_url TEXT);
 		INSERT INTO organizations (id, name) VALUES ('org-1', 'Fictional Org'), ('org-2', 'Other Fictional Org');
 		INSERT INTO organization_members (id, organization_id, descope_user_id, email, name, role, status)
 		VALUES ('m-robin','org-1','member-robin','robin@example.test','Robin','member','active'),

@@ -44,7 +44,14 @@ describe("workspace tool outputs carry the optional icon", () => {
 				label,
 				{ items: [row], truncated: false },
 			],
-			["osWorkspaces/workspaces/get", label, { workspace: row }],
+			[
+				"osWorkspaces/workspaces/get",
+				label,
+				{
+					workspace: row,
+					url: `https://fictional.os.example.test/workspace/${row.id}`,
+				},
+			],
 			["osWorkspaces/workspaces/setIcon", label, { workspace: row }],
 			["osWorkspaces/workspaces/removeIcon", label, { workspace: row }],
 		]),
