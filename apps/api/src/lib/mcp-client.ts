@@ -27,6 +27,7 @@ import type {
 	PriorDiscovery,
 	StandardSchemaV1,
 } from "@modelcontextprotocol/client";
+import { boundMcpResponse } from "./bounded-mcp-response";
 import {
 	type BoundedMcpList,
 	collectBoundedMcpList,
@@ -360,10 +361,12 @@ async function createMcpSession(
 					Array.from(cookies, ([name, value]) => `${name}=${value}`).join("; "),
 				);
 
-			const response = await options.fetchFn(String(input), {
-				...init,
-				headers,
-			});
+			const response = await boundMcpResponse(
+				await options.fetchFn(String(input), {
+					...init,
+					headers,
+				}),
+			);
 
 			for (const header of getSetCookieHeaders(response.headers)) {
 				const [pair] = header.split(";");

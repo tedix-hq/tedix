@@ -69,7 +69,7 @@ import {
 export async function getCatalogMcpTools(
 	db: Database,
 	catalogAppId: string,
-	options: { includeRemoved?: boolean } = {},
+	options: { includeRemoved?: boolean; toolNames?: string[] } = {},
 ): Promise<CatalogMcpTool[]> {
 	const { includeRemoved = false } = options;
 
@@ -77,6 +77,11 @@ export async function getCatalogMcpTools(
 
 	if (!includeRemoved) {
 		conditions.push(isNull(appCatalogMcpTools.removedAt));
+	}
+	if (options.toolNames) {
+		conditions.push(
+			sql`${appCatalogMcpTools.toolName} IN (SELECT value FROM json_each(${JSON.stringify(options.toolNames)}))`,
+		);
 	}
 
 	return db

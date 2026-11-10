@@ -915,22 +915,19 @@ describe("aggregate host connection defaults (integration via worker.fetch)", ()
 	it.each([
 		{
 			code: "async () => sample_one_unified.read({ secret: 'private_argument' })",
-			mode: "targeted",
-			filteredAppCount: 1,
+			label: "literal",
 		},
 		{
 			code: "async () => discover.search({ query: 'private_argument' })",
-			mode: "shards",
-			filteredAppCount: 2,
+			label: "search",
 		},
 		{
 			code: "async () => { const api = sample_one_unified; return api.read({ secret: 'private_argument' }); }",
-			mode: "full",
-			filteredAppCount: 2,
+			label: "alias",
 		},
 	])(
-		"records the $mode plan before hydrating Connect, without program contents",
-		async ({ code, mode, filteredAppCount }) => {
+		"records the index plan before reading Connect shards for $label, without program contents",
+		async ({ code, label }) => {
 			const host = {
 				slug: "connect",
 				mcpConfig: { codeMode: true, multiOrgConsent: true },
@@ -945,9 +942,9 @@ describe("aggregate host connection defaults (integration via worker.fetch)", ()
 					)
 					.find((value) => value?.event === "hydration_plan");
 			const plansAtRead: unknown[] = [];
-			getBySlugWithTools.mockImplementation(async () => {
+			const readShard = vi.fn(async () => {
 				plansAtRead.push(plan());
-				return { app: null, tools: [] };
+				return null;
 			});
 			try {
 				await handleMcpRequest(
@@ -968,12 +965,13 @@ describe("aggregate host connection defaults (integration via worker.fetch)", ()
 					}),
 					{
 						...appResponse(host),
-						app: { ...appResponse(host).app, id: `connect-plan-${mode}` },
+						app: { ...appResponse(host).app, id: `connect-plan-${label}` },
 						metadata: { mcpConfig: host.mcpConfig },
 					} as unknown as Parameters<typeof handleMcpRequest>[1],
 					{
 						...createEnv(),
-						AGGREGATE_EPOCH_KV: { get: async () => `plan-${mode}` },
+						AGGREGATE_EPOCH_KV: { get: async () => `plan-${label}` },
+						AGGREGATE_CACHE: { get: readShard },
 					} as unknown as CloudflareEnv,
 					createExecutionContext(),
 					{
@@ -987,15 +985,15 @@ describe("aggregate host connection defaults (integration via worker.fetch)", ()
 				expect(plansAtRead.length).toBeGreaterThan(0);
 				for (const observed of plansAtRead) {
 					expect(observed).toMatchObject({
-						mode,
+						mode: "shards",
 						configuredAppCount: 2,
-						filteredAppCount,
+						filteredAppCount: 2,
 					});
 				}
 				expect(plan()).toMatchObject({
-					mode,
+					mode: "shards",
 					configuredAppCount: 2,
-					filteredAppCount,
+					filteredAppCount: 2,
 					retainedToolRows: expect.any(Number),
 				});
 				expect(JSON.stringify(plan())).not.toMatch(

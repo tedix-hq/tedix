@@ -5,6 +5,7 @@ import {
 	fieldSelectionSources,
 } from "./field-selection";
 import type { OwnerHostSession } from "./owner-host-session";
+import { isDiscoveryShardTool } from "../aggregate-discovery-shards";
 import type { SelectedConnectionCredential } from "@tedix/api-contract/schemas/connections";
 import {
 	hasNoFundsRestriction,
@@ -275,6 +276,11 @@ export async function executeTool(
 	/** MCP convention — set on handler-thrown errors and upstream status >= 400. */
 	isError?: boolean;
 }> {
+	if (isDiscoveryShardTool(tool.config)) {
+		if (!agent.loadDiscoveryTool)
+			throw new Error("Discovery schema loader is unavailable");
+		tool = await agent.loadDiscoveryTool(tool);
+	}
 	if (options.ownerHostSession && agent.callerIdentity) {
 		const session = options.ownerHostSession;
 		agent = {

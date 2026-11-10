@@ -7,6 +7,8 @@ type InternalCatalogMcpPrompt = import("./mcp/server-context").CatalogMcpPrompt;
 
 export type AggregateAppEntry = {
 	slug: string;
+	/** Background discovery indexes never read source schemas. */
+	projection?: "contract";
 	/**
 	 * Stable app id this entry links to; preferred over slug. Slug remains for
 	 * display and as a fallback for entries written before ids were stored.

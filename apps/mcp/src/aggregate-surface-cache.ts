@@ -65,9 +65,8 @@ export function pruneAggregateSurfaceCache(now = Date.now()): void {
 
 /**
  * Retain a surface in L1. Nested graphs under a cached root are not retained:
- * the root already holds their tools. Nested graphs under a transient
- * (consent-composed) root are retained, because that root is recomposed from
- * them on every request.
+ * the root already holds their tools. Transient index builders also release
+ * nested graphs, so visiting organizations cannot retain the whole selection.
  */
 export function rememberAggregateSurface(
 	cacheKey: string,
@@ -149,6 +148,7 @@ export function aggregateSurfaceCacheKey(
 		...(visited?.size ? { visited: [...visited].sort() } : {}),
 		entries: entries.map((entry) => ({
 			slug: entry.slug,
+			...(entry.projection ? { projection: entry.projection } : {}),
 			// An id-linked entry resolves by id under its host's ownership rule, so
 			// it must never share a snapshot with a slug-keyed entry of that name.
 			appId: entry.appId ?? null,

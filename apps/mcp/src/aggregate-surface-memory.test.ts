@@ -29,7 +29,12 @@ vi.mock("./aggregate-prefetch", () => ({
 	prefetchAggregateEntries: vi.fn(async () => undefined),
 }));
 
-import { toInternalResolveResult } from "./aggregate-internal-tools";
+import {
+	toInternalResolveResult,
+	internalToolCache,
+	rememberInternalTools,
+	MAX_INTERNAL_TOOL_CACHE_ROWS,
+} from "./aggregate-internal-tools";
 import { aggregateAndPrefixTools } from "./aggregate-surface";
 import {
 	AGGREGATE_SURFACE_CACHE_TTL_MS,
@@ -44,6 +49,7 @@ import {
 import { CACHE_TIER_BUDGET_MS } from "./lib/step-budget";
 import {
 	DISCOVERY_SHARD_STALE_AFTER_MS,
+	discoveryShardR2Key,
 	discoveryShardCache,
 	discoveryShardRefreshInFlight,
 	loadDiscoveryShards,
@@ -157,6 +163,7 @@ describe("aggregate snapshot memory", () => {
 		aggregateSurfaceInFlight.clear();
 		aggregateRevalidateInFlight.clear();
 		discoveryShardCache.clear();
+		internalToolCache.clear();
 		resolveUpstreamToolsInternally.mockReset();
 		resolveUpstreamToolsInternally.mockImplementation(async () =>
 			sourceApp(["read_item", "list_items"]),
@@ -434,7 +441,7 @@ describe("aggregate snapshot memory", () => {
 		expect(resolveUpstreamToolsInternally.mock.calls.length - before).toBe(1);
 	});
 
-	it("keeps a consent-composed root's organization graphs in memory", async () => {
+	it("releases schema graphs after a transient organization index build", async () => {
 		resolveUpstreamToolsInternally.mockImplementation(
 			async (source: AggregateAppEntry) =>
 				source.slug === "org-gateway"
@@ -461,8 +468,7 @@ describe("aggregate snapshot memory", () => {
 				organizationMount: true,
 			},
 		];
-		// Connect's multi-organization root is never snapshotted (`cacheSnapshot`
-		// false), so it is recomposed from its organization graphs per request.
+		// A background index build never keeps its nested schema graphs in L1.
 		const loadTransient = () =>
 			aggregateAndPrefixTools(
 				organizationEntries,
@@ -475,25 +481,11 @@ describe("aggregate snapshot memory", () => {
 			);
 		const first = await loadTransient();
 		expect(first.tools).toHaveLength(2);
-		// The root resolves its own entries every request (the internal tool
-		// cache absorbs that in production); the organization graph is reused.
-		const sourceResolves = () =>
-			resolveUpstreamToolsInternally.mock.calls.filter(
-				([source]) => (source as AggregateAppEntry).slug === "source",
-			).length;
-		const resolves = sourceResolves();
-		colo.cache.match.mockClear();
+		expect(aggregateSurfaceRetainedRows()).toBe(0);
 
 		const second = await loadTransient();
 		expect(second.tools).toHaveLength(first.tools.length);
-		expect(sourceResolves()).toBe(resolves);
-		expect(colo.cache.match).not.toHaveBeenCalled();
-
-		// After L1 expiry the unchanged organization snapshot is recognized by
-		// its generation instead of being parsed again.
-		vi.setSystemTime(Date.now() + AGGREGATE_SURFACE_CACHE_TTL_MS + 1_000);
-		await loadTransient();
-		expect(colo.bodyReads.count).toBe(0);
+		expect(aggregateSurfaceRetainedRows()).toBe(0);
 	});
 
 	it("releases the least recently used organization graph once retained rows exceed the budget", async () => {
@@ -533,7 +525,7 @@ describe("aggregate snapshot memory", () => {
 				ctx,
 				"connect",
 				activation,
-				false,
+				true,
 			);
 		await loadOrg("org-a");
 		await loadOrg("org-b");
@@ -542,10 +534,9 @@ describe("aggregate snapshot memory", () => {
 		await loadOrg("org-a");
 		await loadOrg("org-c");
 		expect(aggregateSurfaceRetainedRows()).toBe(rowsPerGraph * 2);
-		// Retained graphs are the organization gateways' nested source graphs,
-		// keyed by the mount they were visited through.
+		// Ordinary cached gateway surfaces still respect the schema row budget.
 		const retainedMounts = [...aggregateSurfaceCache.keys()].map(
-			(key) => JSON.parse(key).visited[0],
+			(key) => JSON.parse(key).entries[0].slug,
 		);
 		expect(retainedMounts).toEqual(["org-a", "org-c"]);
 	});
@@ -595,7 +586,7 @@ describe("aggregate snapshot memory", () => {
 				key.startsWith("aggregate-discovery/v1/"),
 			);
 
-		it("hydrates only a selected shard row's organization and checks its identity", async () => {
+		it("reads exactly one selected source schema and checks its row and organization identity", async () => {
 			await loadConnect();
 			await settleBackground();
 			aggregateSurfaceCache.clear();
@@ -609,21 +600,30 @@ describe("aggregate snapshot memory", () => {
 			const row = shards!.tools.find(
 				(tool) => tool.toolId === "acme_unified_source__read_item_0",
 			)!;
-			const hydrate = vi.fn((entry: AggregateAppEntry) =>
-				aggregateAndPrefixTools(
-					[entry],
-					env,
-					new Set(),
-					ctx,
-					"connect",
-					activation,
-					false,
-				),
-			);
-			const full = await loadDiscoveryToolDefinition(row, mounts, hydrate);
-			expect(hydrate.mock.calls.map(([entry]) => entry.slug)).toEqual([
-				"acme-unified",
-			]);
+			resolveUpstreamToolsInternally.mockClear();
+			const getBySlugsWithTools = vi.fn(async () => ({
+				results: [
+					{
+						app: { id: "source-app" },
+						tools: sourceApp(["read_item_0"]).tools,
+					},
+				],
+			}));
+			const client = { apps: { getBySlugsWithTools } } as unknown as Parameters<
+				typeof loadDiscoveryToolDefinition
+			>[2];
+			const full = await loadDiscoveryToolDefinition(row, mounts, client);
+			expect(getBySlugsWithTools).toHaveBeenCalledExactlyOnceWith({
+				apps: [
+					{
+						slug: "source",
+						appId: "source-app",
+						hostOrganizationId: "org-acme-unified",
+						toolIds: ["read_item_0"],
+					},
+				],
+			});
+			expect(resolveUpstreamToolsInternally).not.toHaveBeenCalled();
 			expect(full.id).toBe(row.id);
 			expect(full.toolId).toBe(row.toolId);
 			expect(full.inputSchema).toHaveProperty("properties");
@@ -633,17 +633,69 @@ describe("aggregate snapshot memory", () => {
 				loadDiscoveryToolDefinition(
 					{ ...row, id: "replaced-row" },
 					mounts,
-					hydrate,
+					client,
 				),
 			).rejects.toThrow("Discovery schema is unavailable");
-			hydrate.mockClear();
+			getBySlugsWithTools.mockClear();
 			await expect(
-				loadDiscoveryToolDefinition(row, [mounts[1]!], hydrate),
+				loadDiscoveryToolDefinition(row, [mounts[1]!], client),
 			).rejects.toThrow("no unique organization mount");
 			await expect(
-				loadDiscoveryToolDefinition(row, [mounts[0]!, mounts[0]!], hydrate),
+				loadDiscoveryToolDefinition(row, [mounts[0]!, mounts[0]!], client),
 			).rejects.toThrow("no unique organization mount");
-			expect(hydrate).not.toHaveBeenCalled();
+			expect(getBySlugsWithTools).not.toHaveBeenCalled();
+		});
+
+		it("queues each organization refresh once and never hydrates two graphs together", async () => {
+			let release!: () => void;
+			const first = vi.fn(
+				() =>
+					new Promise<void>((resolve) => {
+						release = resolve;
+					}),
+			);
+			const second = vi.fn(async () => undefined);
+			refreshDiscoveryShard(mounts[0]!, activation.value, first, ctx);
+			refreshDiscoveryShard(mounts[0]!, activation.value, first, ctx);
+			refreshDiscoveryShard(mounts[1]!, activation.value, second, ctx);
+			await Promise.resolve();
+			expect(first).toHaveBeenCalledOnce();
+			expect(second).not.toHaveBeenCalled();
+			release();
+			await settleBackground();
+			expect(second).toHaveBeenCalledOnce();
+			expect(discoveryShardRefreshInFlight.size).toBe(0);
+		});
+
+		it("shares index keys across metadata-only and definition builds", () => {
+			expect(
+				discoveryShardR2Key(
+					{ ...mounts[0]!, projection: "contract" },
+					activation.value,
+				),
+			).toBe(discoveryShardR2Key(mounts[0]!, activation.value));
+		});
+
+		it("bounds source schema retention by rows across organization builds", () => {
+			const result = sourceApp(["read_item"]);
+			const tools = Array.from(
+				{ length: MAX_INTERNAL_TOOL_CACHE_ROWS },
+				() => result.tools[0]!,
+			);
+			rememberInternalTools("first", { ...result, tools });
+			rememberInternalTools("second", result);
+			expect(internalToolCache.has("first")).toBe(false);
+			rememberInternalTools("oversized", {
+				...result,
+				tools: [...tools, ...tools],
+			});
+			expect(internalToolCache.has("oversized")).toBe(false);
+			expect(
+				[...internalToolCache.values()].reduce(
+					(rows, entry) => rows + entry.result.tools.length,
+					0,
+				),
+			).toBeLessThanOrEqual(MAX_INTERNAL_TOOL_CACHE_ROWS);
 		});
 
 		it("compiles one compact shard per organization graph", async () => {
@@ -734,13 +786,13 @@ describe("aggregate snapshot memory", () => {
 			expect(result.status).toBe(409);
 		});
 
-		it("hydrates organizations whose shard is missing and falls back when none exist", async () => {
+		it("identifies missing indexes without loading organization graphs", async () => {
 			await loadConnect();
 			await settleBackground();
 			// A schema sync rolls the epoch: no shard exists yet.
 			await expect(
 				loadDiscoveryShards(env, mounts, new Set(), "epoch-after-sync"),
-			).resolves.toBeNull();
+			).resolves.toMatchObject({ hydrate: mounts, tools: [] });
 			const acmeKey = shardKeys().find((key) =>
 				r2.objects
 					.get(key)!
@@ -902,6 +954,7 @@ describe("aggregate snapshot memory", () => {
 				);
 				refreshDiscoveryShard(shards!.refresh!, activation.value, hydrate, ctx);
 				refreshDiscoveryShard(shards!.refresh!, activation.value, hydrate, ctx);
+				await Promise.resolve();
 				expect(hydrate).toHaveBeenCalledTimes(1);
 				const next = await loadDiscoveryShards(
 					env,

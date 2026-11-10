@@ -1121,7 +1121,15 @@ export async function buildMcpServer(
 			if (selected) await registerDynamicTool(serverCtx, selected);
 		} else if (directToolAllowSet) {
 			const selected = serverCtx.loadedTools.get(requestedToolName!);
-			if (selected) await registerDynamicTool(serverCtx, selected);
+			if (selected) {
+				const full =
+					selected.config?._discoveryShard === true
+						? await serverCtx.loadDiscoveryTool?.(selected)
+						: selected;
+				if (!full) throw new Error("Discovery schema loader is unavailable");
+				serverCtx.loadedTools.set(full.toolId, full);
+				await registerDynamicTool(serverCtx, full);
+			}
 		} else await registerAppTools(serverCtx);
 		// Skill-discovery tools (`list_skills` / `read_skill` registered by
 		// registerAppSkills) collide with the cognitive D1 `list_skills`

@@ -106,6 +106,44 @@ function makeTool(): AppTool {
 	};
 }
 
+it("loads a shard definition before execution and applies the fresh connection policy", async () => {
+	const full = makeTool();
+	const placeholder = {
+		...full,
+		config: { ...full.config, _discoveryShard: true },
+	};
+	const agent = makeAgent({ status: 200, data: { executed: true } });
+	const loadDiscoveryTool = vi.fn(async () => full);
+	Object.assign(agent, { loadDiscoveryTool });
+	const result = await executeTool(
+		agent,
+		placeholder,
+		{},
+		{ adapterScope: "primary", resultStrategy: "merge" },
+	);
+	expect(result.isError).not.toBe(true);
+	expect(loadDiscoveryTool).toHaveBeenCalledExactlyOnceWith(placeholder);
+	expect(agent.toolHandler.execute).toHaveBeenCalledOnce();
+
+	Object.assign(agent, {
+		appSlug: "connect",
+		connectionAppSlug: "connect",
+		loadDiscoveryTool: vi.fn(async () => ({
+			...full,
+			config: { transport: "rest", method: "POST", endpoint: "payments" },
+		})),
+	});
+	await expect(
+		executeTool(
+			agent,
+			placeholder,
+			{},
+			{ adapterScope: "primary", resultStrategy: "merge" },
+		),
+	).rejects.toThrow(/payment|money|funds/i);
+	expect(agent.toolHandler.execute).toHaveBeenCalledOnce();
+});
+
 it("emits reconnect control only for the canonical unexecuted credential outcome", async () => {
 	const options = {
 		adapterScope: "primary" as const,

@@ -133,6 +133,7 @@ export async function filterAppConnectionResourceTools<
 type ToolSelectionOptions = {
 	endpointPrefixes?: string[];
 	toolIds?: string[];
+	projection?: "definition" | "contract";
 };
 
 type CatalogMcpSurface = {
@@ -524,7 +525,7 @@ function appSurfaceKey(slug: string, options?: ToolSelectionOptions): string {
 	// Sorted so two callers asking for the same set in a different order share.
 	const toolIds = [...(options?.toolIds ?? [])].sort().join(",");
 	const prefixes = [...(options?.endpointPrefixes ?? [])].sort().join(",");
-	return `${slug}\0${toolIds}\0${prefixes}`;
+	return `${slug}\0${toolIds}\0${prefixes}\0${options?.projection ?? "definition"}`;
 }
 
 /**
@@ -867,6 +868,7 @@ export async function getAppsBySlugsWithTools(
 				const options: ToolSelectionOptions = {
 					toolIds: request.toolIds,
 					endpointPrefixes: request.endpointPrefixes,
+					projection: request.projection,
 				};
 				const signature = appSurfaceKey("", options);
 				const group = selectionGroups.get(signature) ?? { options, appIds: [] };
@@ -874,9 +876,16 @@ export async function getAppsBySlugsWithTools(
 				selectionGroups.set(signature, group);
 			}
 
+			const definitionApps = appRows.filter((app) =>
+				requests.some(
+					(request, index) =>
+						request.projection !== "contract" &&
+						resolvedApps[index]?.id === app.id,
+				),
+			);
 			const catalogAppIds = [
 				...new Set(
-					appRows
+					definitionApps
 						.map((app) => app.catalogAppId)
 						.filter((id): id is string => Boolean(id)),
 				),
@@ -909,7 +918,20 @@ export async function getAppsBySlugsWithTools(
 						return chunked(group.appIds, appChunkSize).map((appChunk) => ({
 							signature,
 							query: db
-								.select()
+								.select(
+									group.options.projection === "contract"
+										? {
+												...getColumns(appTools),
+												inputSchema: sql`'{"type":"object"}'`
+													.mapWith(appTools.inputSchema)
+													.as("input_schema"),
+												outputSchema: sql<null>`null`.as("output_schema"),
+												outputTemplate: sql<null>`null`.as("output_template"),
+												icons: sql<null>`null`.as("icons"),
+												reviewDiff: sql<null>`null`.as("review_diff"),
+											}
+										: getColumns(appTools),
+								)
 								.from(appTools)
 								.where(and(inArray(appTools.appId, appChunk), ...conditions))
 								.orderBy(asc(appTools.sortOrder), asc(appTools.createdAt)),
@@ -944,7 +966,7 @@ export async function getAppsBySlugsWithTools(
 					loadTools(),
 					getAppSurfaceCspDomains(
 						db,
-						appRows.map((app) => app.id),
+						definitionApps.map((app) => app.id),
 					),
 					getCatalogMcpSurfacesForApps(db, catalogAppIds),
 				],
@@ -966,6 +988,7 @@ export async function getAppsBySlugsWithTools(
 					const signature = appSurfaceKey("", {
 						toolIds: request.toolIds,
 						endpointPrefixes: request.endpointPrefixes,
+						projection: request.projection,
 					});
 					const tools = toolsBySelection.get(signature)?.get(app.id) ?? [];
 					const toolsWithCsp = tools.map((tool) => ({

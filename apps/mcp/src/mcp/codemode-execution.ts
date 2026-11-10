@@ -1,4 +1,5 @@
 import { resolveToolTrustLabel } from "@tedix/mcp-shared/content-sanitize";
+import { isDiscoveryShardTool } from "../aggregate-discovery-shards";
 import { withFieldSelectionSchema } from "./field-selection";
 import { gateDecisionMetadata } from "./gate-decision";
 import { resolveHumanPolicyReplay } from "./tenant-human-replay";
@@ -389,6 +390,22 @@ export function buildNamespaceGroups(
 
 		// Executable function — routes through the full ToolHandler pipeline
 		group.fns[safeName] = async (args: Record<string, unknown>) => {
+			// Resolve before authorization, approvals and egress checks so all
+			// decisions use the current definition, never the index placeholder.
+			if (isDiscoveryShardTool(tool.config)) {
+				if (!serverCtx.loadDiscoveryTool)
+					throw new Error("Discovery schema loader is unavailable");
+				const full = await serverCtx.loadDiscoveryTool(tool);
+				const scoped = { ...serverCtx, loadedTools: new Map([[toolId, full]]) };
+				const binding = buildNamespaceGroups(
+					scoped,
+					namespaceOverrides,
+					executionRefs,
+					collisionKeys,
+				).get(ns)?.fns[safeName];
+				if (!binding) throw new Error("Discovery tool is no longer callable");
+				return binding(args);
+			}
 			const retryKey = buildIdenticalCallKey(ownerKey, args);
 			const retryState = executionRefs.failureBudget.state(retryKey);
 			if (retryState.blocked) {

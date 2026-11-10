@@ -192,6 +192,59 @@ function db(
 }
 
 describe("getAppsBySlugsWithTools", () => {
+	it("snapshots contract metadata without reading schema, template, review or CSP payloads", async () => {
+		const { client, sqlite, statements } = db();
+		try {
+			const large = JSON.stringify({
+				type: "object",
+				description: "x".repeat(100_000),
+			});
+			sqlite
+				.prepare(
+					"UPDATE app_tools SET input_schema = ?, output_schema = ?, output_template = ?, review_diff = ?",
+				)
+				.run(large, large, large, large);
+			const [surface] = await getAppsBySlugsWithTools(client, [
+				{ slug: "beta", projection: "contract" },
+			]);
+			expect(surface?.tools.length).toBeGreaterThan(0);
+			expect(JSON.stringify(surface)).not.toContain("x".repeat(100));
+			expect(
+				surface?.tools.every(
+					(tool) =>
+						tool.outputSchema === null &&
+						tool.outputTemplate === null &&
+						tool.reviewDiff === null,
+				),
+			).toBe(true);
+			expect(statements().join("\n")).not.toContain("app_tool_csp_domains");
+			expect(statements().join("\n")).not.toContain(
+				'"app_tools"."input_schema"',
+			);
+		} finally {
+			sqlite.close();
+		}
+	});
+
+	it("keeps metadata and definition projections separate within a shared batch", async () => {
+		const { client, sqlite } = db();
+		try {
+			sqlite.exec(
+				`UPDATE app_tools SET input_schema = '{"type":"object","properties":{"recordId":{"type":"string"}}}'`,
+			);
+			const [index, definition] = await getAppsBySlugsWithTools(client, [
+				{ slug: "beta", projection: "contract" },
+				{ slug: "beta" },
+			]);
+			expect(index?.tools[0]?.inputSchema).toEqual({ type: "object" });
+			expect(definition?.tools[0]?.inputSchema).toHaveProperty(
+				"properties.recordId",
+			);
+		} finally {
+			sqlite.close();
+		}
+	});
+
 	it("hydrates twenty distinct selections with catalog data within one second of D1 round trips", async () => {
 		vi.useFakeTimers();
 		const { client, sqlite } = db(20, 250);
