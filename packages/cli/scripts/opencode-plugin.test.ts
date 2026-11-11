@@ -235,6 +235,26 @@ test("subagent prompts, an absent CLI and a failing CLI add nothing", async () =
 	expect(calls().every((call) => call.event.session_id === SESSION)).toBe(true);
 });
 
+test("a tedix found only through a project-relative PATH entry never runs", async () => {
+	fakeCli();
+	const cwd = process.cwd();
+	process.chdir(directory);
+	try {
+		// Relative entries resolve inside the opened project folder.
+		process.env.PATH = `bin:.:/usr/bin:/bin`;
+		const hooks = await plugin();
+		const output = message();
+		await hooks["chat.message"]!(
+			{ sessionID: SESSION } as never,
+			output as never,
+		);
+		expect(output.parts).toHaveLength(1);
+		expect(readdirSync(directory)).not.toContain("calls");
+	} finally {
+		process.chdir(cwd);
+	}
+});
+
 test("edits and commands get advisory recall appended to their result", async () => {
 	fakeCli();
 	const hooks = await plugin();
