@@ -30,6 +30,9 @@ await runShellSpec(
 						const response = await route.fetch();
 						const body = await response.json();
 						body.json.output.title = longTitle;
+						// An output in an active workspace opens in its gadget; outside
+						// one it stays on this page with its breadcrumb.
+						body.json.output.workspaceId = null;
 						await route.fulfill({ response, json: body });
 					},
 				);
