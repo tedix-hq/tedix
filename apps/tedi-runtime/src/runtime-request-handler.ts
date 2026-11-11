@@ -480,7 +480,7 @@ export async function handleRuntimeRequest(
 	request: Request,
 ): Promise<Response> {
 	const url = new URL(request.url);
-	// `/__internal/*` is this DO's privileged control surface. The Worker edge
+	// `/__internal/*` and `/debug/*` are this DO's privileged control surface. The Worker edge
 	// refuses an untrusted caller before the DO wakes, but the DO's `fetch` is
 	// reachable by anything holding the `TEDI_AGENT` binding and by any later
 	// edge rewrite, so the DO checks the hop itself: only a trusted caller
@@ -2362,12 +2362,11 @@ export async function handleRuntimeRequest(
 		);
 	}
 	if (url.pathname === "/debug/daily-log") {
-		// Header-guarded ops probe: read a daily-log file straight from
-		// the per-tedi CF Artifacts repo. Not on a public route — only
-		// reachable via the parent Worker which already gates auth.
-		if (request.headers.get("X-Tedix-Debug") !== "1") {
-			return new Response("forbidden", { status: 403 });
-		}
+		// Ops probe: read a daily-log file straight from the per-tedi CF
+		// Artifacts repo. The log holds chat text, so `/debug/*` is refused
+		// above for anyone but a service-binding caller.
+		if (!(await adminAuthorized()))
+			return new Response("Forbidden", { status: 403 });
 		await host.ensureIdentity(hints);
 		const { tediId, slug } = host.state;
 		if (!tediId) return new Response("no tediId", { status: 412 });
@@ -2392,9 +2391,8 @@ export async function handleRuntimeRequest(
 		return Response.json({ ok: true, tediId, slug, path, content });
 	}
 	if (url.pathname === "/debug/flush-daily-log") {
-		if (request.headers.get("X-Tedix-Debug") !== "1") {
-			return new Response("forbidden", { status: 403 });
-		}
+		if (!(await adminAuthorized()))
+			return new Response("Forbidden", { status: 403 });
 		await host.ensureIdentity(hints);
 		await host.onDailyLogFlush();
 		return Response.json({

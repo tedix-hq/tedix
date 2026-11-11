@@ -105,6 +105,31 @@ for (const route of INTERNAL_ROUTES) {
 }
 assert.ok(externalCases >= INTERNAL_ROUTES.length * 2 * 10);
 
+// --- the daily-log probes hold chat text and are not public ---
+// A fixed `X-Tedix-Debug: 1` header was once their only guard.
+for (const route of ["/debug/daily-log", "/debug/flush-daily-log"]) {
+	for (const path of [
+		route,
+		`/${route}`,
+		`${route}/`,
+		`/%64ebug${route.slice("/debug".length)}`,
+		`/x/..${route}`,
+		`/DEBUG${route.slice("/debug".length)}`,
+		`${route}?date=2026-11-10`,
+	]) {
+		const run = await edgeFetch(
+			tediRequest(path, {
+				headers: { ...FORGED_HEADERS, "X-Tedix-Debug": "1" },
+			}),
+		);
+		assert.equal(run.forwarded.length, 0, `${path} reached the DO`);
+		assert.ok(
+			run.response.status === 403 || run.response.status === 404,
+			`${path} answered ${run.response.status}`,
+		);
+	}
+}
+
 // --- a stray marker on a public hop is not trust by itself ---
 // The edge trusts only the exact service-binding marker value; a forged
 // `X-Service-Binding` with any other value is still an external caller.
