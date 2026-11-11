@@ -6,6 +6,11 @@ import { createDbClient } from "@tedix/db/client";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import {
+	osBlueprintRevisions,
+	osBlueprints,
+	osGadgetCode,
+	osGadgetRevisions,
+	osGadgets,
 	osWorkspaces,
 	osWorkspaceResources,
 	osOutputs,
@@ -57,6 +62,11 @@ function fixture() {
 			osWorkspaceResources,
 			osOutputs,
 			osOutputRevisions,
+			osBlueprints,
+			osBlueprintRevisions,
+			osGadgets,
+			osGadgetRevisions,
+			osGadgetCode,
 			auditEvents,
 		),
 	);
@@ -235,10 +245,24 @@ describe("workspace file uploads", () => {
 			mimeType: "application/octet-stream",
 			size: 6,
 		});
+		// The file, and the document's binding to its Doc editor gadget.
 		expect(
-			f.sqlite.prepare("SELECT COUNT(*) AS n FROM os_workspace_resources").get()
-				?.n,
-		).toBe(1);
+			f.sqlite
+				.prepare(
+					"SELECT resource_type FROM os_workspace_resources ORDER BY resource_type",
+				)
+				.all()
+				.map((row) => row.resource_type),
+		).toEqual(["file", "output"]);
+		const binding = f.sqlite
+			.prepare(
+				"SELECT r.provider_resource_id AS output_id, g.status AS gadget_status FROM os_workspace_resources r JOIN os_gadgets g ON g.id = json_extract(r.metadata, '$.gadgetId') WHERE r.resource_type = 'output'",
+			)
+			.get();
+		expect(binding).toEqual({
+			output_id: first.outputId,
+			gadget_status: "active",
+		});
 		expect(
 			f.sqlite.prepare("SELECT COUNT(*) AS n FROM os_outputs").get()?.n,
 		).toBe(1);
@@ -388,6 +412,13 @@ describe("workspace file uploads", () => {
 		).toBe(0);
 		const published = await f.confirm({ ...input, document: true });
 		expect(published.outputId).toBe(ticket.resourceId);
+		expect(
+			f.sqlite
+				.prepare(
+					"SELECT COUNT(*) AS n FROM os_workspace_resources WHERE resource_type = 'output'",
+				)
+				.get()?.n,
+		).toBe(1);
 		expect(
 			f.sqlite.prepare("SELECT COUNT(*) AS n FROM os_outputs").get()?.n,
 		).toBe(1);

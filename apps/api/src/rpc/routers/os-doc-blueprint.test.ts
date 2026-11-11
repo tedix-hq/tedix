@@ -111,8 +111,9 @@ describe("Doc blueprint installation", () => {
 				outputId: made.output.id,
 			}),
 		).rejects.toThrow("Output source access is unavailable");
+		// Only the editors attached when the two outputs were created.
 		expect(
 			(await c.org1.gadgets.list({ workspaceId: workspace.id })).items,
-		).toHaveLength(0);
+		).toHaveLength(2);
 	});
 });

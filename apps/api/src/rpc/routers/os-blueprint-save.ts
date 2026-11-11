@@ -17,6 +17,7 @@ import {
 	listOsGadgets,
 } from "@tedix/db/queries/os-workspaces/gadgets";
 import { listOsWorkspaceResources } from "@tedix/db/queries/os-workspaces/resources";
+import { boundOutputEditorGadgetId } from "../../services/os-output-editor";
 import {
 	AUTHZ,
 	type BaseContext,
@@ -44,17 +45,21 @@ export const saveWorkspaceBlueprint = os
 		const workspace = await requireWorkspace(context, input.workspaceId);
 		const db = queryDb(context);
 		const organizationId = workspace.organizationId;
-		const [apps, resources, source] = await Promise.all([
+		// Each document, sheet and presentation has its own editor gadget and
+		// output binding. They belong to the workspace's files, not the
+		// template, so they neither count toward the limits nor get copied.
+		const READ_LIMIT = 500;
+		const [allApps, allResources, source] = await Promise.all([
 			listOsGadgets(db, organizationId, {
 				workspaceId: workspace.id,
 				status: "active",
-				limit: 101,
+				limit: READ_LIMIT,
 			}),
 			listOsWorkspaceResources(db, {
 				organizationId,
 				workspaceId: workspace.id,
 				status: "active",
-				limit: 26,
+				limit: READ_LIMIT,
 			}),
 			workspace.sourceBlueprintRevisionId
 				? getOsBlueprintRevision(db, {
@@ -63,7 +68,20 @@ export const saveWorkspaceBlueprint = os
 					})
 				: undefined,
 		]);
-		if (apps.length > 100 || resources.length > 25)
+		const editors = new Set<string>();
+		const resources = [];
+		for (const resource of allResources) {
+			const editor = await boundOutputEditorGadgetId(resource);
+			if (editor) editors.add(editor);
+			else resources.push(resource);
+		}
+		const apps = allApps.filter((app) => !editors.has(app.id));
+		if (
+			allApps.length >= READ_LIMIT ||
+			allResources.length >= READ_LIMIT ||
+			apps.length > 100 ||
+			resources.length > 25
+		)
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
 				"Workspace exceeds the blueprint limit of 100 apps or 25 resource slots",

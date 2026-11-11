@@ -4,9 +4,48 @@ import { eq } from "drizzle-orm";
 import {
 	osGadgets,
 	osGadgetRevisions,
+	osOutputRevisions,
+	osOutputs,
 	osWorkspaceResources,
 } from "@tedix/db/schema/os-workspaces";
 import { clients } from "./__tests__/os-workspaces-env";
+
+async function seedOutputWithoutEditor(
+	db: ReturnType<typeof createDbQueryClient>,
+	workspaceId: string,
+	kind: "document" | "sheet" | "presentation",
+	accessEnvelope: string | null = JSON.stringify({ version: 1, sources: [] }),
+) {
+	const output = { id: crypto.randomUUID() };
+	const revision = { id: crypto.randomUUID() };
+	const content =
+		kind === "document"
+			? { kind, blocks: [] }
+			: kind === "sheet"
+				? { kind, columns: [], rows: [] }
+				: { kind, slides: [] };
+	await db.insert(osOutputs).values({
+		id: output.id,
+		organizationId: "org-1",
+		workspaceId,
+		kind,
+		title: "Keep",
+		currentRevisionId: revision.id,
+		createdByKind: "user",
+		createdById: "user-1",
+	});
+	await db.insert(osOutputRevisions).values({
+		id: revision.id,
+		organizationId: "org-1",
+		outputId: output.id,
+		revision: 1,
+		content: JSON.stringify(content),
+		accessEnvelope,
+		createdByKind: "user",
+		createdById: "user-1",
+	});
+	return { output, revision };
+}
 
 describe("workspace editor blueprints", () => {
 	it.each(["document", "sheet", "presentation"] as const)(
@@ -188,12 +227,9 @@ describe("workspace editor blueprints", () => {
 	it("links an existing resource without losing its metadata or rebinding its output", async () => {
 		const c = clients();
 		const { workspace } = await c.org1.workspaces.create({ name: "Docs" });
-		const made = await c.org1.outputs.create({
-			workspaceId: workspace.id,
-			kind: "sheet",
-			title: "Keep",
-		});
 		const db = createDbQueryClient(c.env.DB);
+		// An output from before attach-on-create: a resource, but no editor.
+		const made = await seedOutputWithoutEditor(db, workspace.id, "sheet");
 		await db.insert(osWorkspaceResources).values({
 			id: crypto.randomUUID(),
 			organizationId: "org-1",
@@ -240,5 +276,119 @@ describe("workspace editor blueprints", () => {
 				kind: "presentation",
 			}),
 		).rejects.toThrow();
+	});
+});
+
+describe("editor gadget attach on create", () => {
+	async function editorBinding(
+		c: ReturnType<typeof clients>,
+		workspaceId: string,
+		outputId: string,
+	) {
+		const resources = await c.org1.resources.list({ workspaceId });
+		const binding = resources.items.find(
+			(item) =>
+				item.resourceType === "output" && item.providerResourceId === outputId,
+		);
+		if (!binding) return null;
+		const gadgetId = (binding.metadata as { gadgetId?: string }).gadgetId;
+		const gadget = gadgetId
+			? await c.org1.gadgets.get({ workspaceId, gadgetId })
+			: null;
+		return { metadata: binding.metadata, gadget: gadget?.gadget };
+	}
+
+	it.each([
+		["a person", "org1"],
+		["a tedi or skill key", "machine"],
+		["an external agent", "machineAgent"],
+	] as const)(
+		"opens every office kind created by %s in its editor gadget",
+		async (_creator, client) => {
+			const c = clients();
+			const { workspace } = await c.org1.workspaces.create({ name: "Office" });
+			for (const kind of ["document", "sheet", "presentation"] as const) {
+				const made = await c[client].outputs.create({
+					workspaceId: workspace.id,
+					kind,
+					title: `New ${kind}`,
+				});
+				const binding = await editorBinding(c, workspace.id, made.output.id);
+				expect(binding?.metadata).toMatchObject({ kind });
+				expect(binding?.gadget).toMatchObject({ status: "active" });
+				// Opening again reuses the attached editor instead of a second one.
+				expect(
+					(
+						await c.org1.gadgets.installOutputEditor({
+							workspaceId: workspace.id,
+							outputId: made.output.id,
+							kind,
+						})
+					).gadget.id,
+				).toBe(binding?.gadget?.id);
+				// The gadget renders the typed Output; its revision is untouched.
+				const read = await c.org1.outputs.get({ outputId: made.output.id });
+				expect(read.currentRevision?.id).toBe(made.revision.id);
+			}
+			expect(
+				(await c.org1.gadgets.list({ workspaceId: workspace.id })).items,
+			).toHaveLength(3);
+			expect((await c.org1.blueprints.list({})).items).toHaveLength(3);
+		},
+	);
+
+	it("attaches an editor when an output without a workspace moves into one", async () => {
+		const c = clients();
+		const made = await c.org1.outputs.create({ kind: "sheet", title: "Loose" });
+		const { workspace } = await c.org1.workspaces.create({ name: "Home" });
+		expect(await editorBinding(c, workspace.id, made.output.id)).toBeNull();
+		await c.org1.outputs.move({
+			outputId: made.output.id,
+			workspaceId: workspace.id,
+		});
+		const binding = await editorBinding(c, workspace.id, made.output.id);
+		expect(binding?.gadget).toMatchObject({ status: "active" });
+	});
+
+	it("still moves an output whose source access cannot be checked, without forcing an editor", async () => {
+		const c = clients();
+		const from = await c.org1.workspaces.create({ name: "From" });
+		const to = await c.org1.workspaces.create({ name: "To" });
+		const db = createDbQueryClient(c.env.DB);
+		const made = await seedOutputWithoutEditor(
+			db,
+			from.workspace.id,
+			"document",
+			null,
+		);
+		const moved = await c.org1.outputs.move({
+			outputId: made.output.id,
+			workspaceId: to.workspace.id,
+		});
+		expect(moved.output.workspaceId).toBe(to.workspace.id);
+		expect(await editorBinding(c, to.workspace.id, made.output.id)).toBeNull();
+		expect(
+			(await c.org1.gadgets.list({ workspaceId: to.workspace.id })).items,
+		).toHaveLength(0);
+	});
+
+	it("keeps per-output editors out of a saved blueprint and its limits", async () => {
+		const c = clients();
+		const { workspace } = await c.org1.workspaces.create({ name: "Files" });
+		for (let index = 0; index < 30; index++)
+			await c.org1.outputs.create({
+				workspaceId: workspace.id,
+				kind: "document",
+				title: `Private title ${index}`,
+			});
+		const saved = await c.org1.blueprints.saveWorkspace({
+			workspaceId: workspace.id,
+			name: "Empty kit",
+		});
+		expect(saved.revision.definition.gadgets).toEqual([]);
+		expect(saved.revision.definition.requirements?.resources).toEqual([]);
+		expect(JSON.stringify(saved.revision.definition)).not.toContain(
+			"Private title",
+		);
 	});
 });
