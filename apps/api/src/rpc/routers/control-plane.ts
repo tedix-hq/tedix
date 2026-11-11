@@ -59,7 +59,7 @@ import type {
 	RuntimeProfileConfig,
 	WorkspaceTemplateSetDefinition,
 } from "@tedix/db/schema/control-plane";
-import { requireOrgId } from "../org-scope";
+import { requireOrganizationAccess, requireOrgId } from "../org-scope";
 import { auditActor } from "../audit-helpers";
 import {
 	AUTHZ,
@@ -207,6 +207,20 @@ export function assertReadableControlPlaneRecord<
 }
 
 /**
+ * The organization a list reads. A caller reads its own; naming another one is
+ * refused unless the caller is a platform principal, so a request field can
+ * never widen an organization credential.
+ */
+function listOrganizationId(
+	context: BaseContext,
+	requested: string | undefined,
+): string {
+	return requested
+		? requireOrganizationAccess(context, requested)
+		: requireOrgId(context);
+}
+
+/**
  * Coerce a caller-supplied create scope: only platform principals may mint
  * `system`-scoped records (which surface to and are assignable by every org).
  */
@@ -268,9 +282,9 @@ async function assertOwnedTedi(
 const listRuntimeProfilesProcedure = authedOs.listRuntimeProfiles
 	.use(AUTHZ.settingsRead)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const organizationId = listOrganizationId(context, input.organizationId);
 		const profiles = await listRuntimeProfiles(context.db, {
-			organizationId: input.organizationId ?? orgId,
+			organizationId,
 			includeSystem: input.includeSystem,
 		});
 		return { data: profiles };
@@ -450,9 +464,9 @@ const deleteRuntimeProfileProcedure = authedOs.deleteRuntimeProfile
 const listPolicyPacksProcedure = authedOs.listPolicyPacks
 	.use(AUTHZ.settingsRead)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const organizationId = listOrganizationId(context, input.organizationId);
 		const packs = await listPolicyPacks(context.db, {
-			organizationId: input.organizationId ?? orgId,
+			organizationId,
 			includeSystem: input.includeSystem,
 			target: input.target,
 		});
@@ -732,9 +746,9 @@ const deletePolicyPackProcedure = authedOs.deletePolicyPack
 const listWorkspaceTemplateSetsProcedure = authedOs.listWorkspaceTemplateSets
 	.use(AUTHZ.settingsRead)
 	.handler(async ({ input, context }) => {
-		const orgId = requireOrgId(context);
+		const organizationId = listOrganizationId(context, input.organizationId);
 		const sets = await listWorkspaceTemplateSets(context.db, {
-			organizationId: input.organizationId ?? orgId,
+			organizationId,
 			includeSystem: input.includeSystem,
 		});
 		return { data: sets };

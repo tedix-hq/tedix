@@ -448,3 +448,41 @@ describe("policy pack publication ownership", () => {
 		expect(system.publishedAt).toBeTruthy();
 	});
 });
+
+describe("control-plane list organization scope", () => {
+	it("refuses another organization's id unless the caller is a platform principal", async () => {
+		const { client, sqlite, context } = setup();
+		sqlite.exec(
+			"INSERT INTO organizations (id, name, slug) VALUES ('org-2', 'Other', 'other');",
+		);
+		const other = createRouterClient(controlPlaneContractRouter, {
+			context: { ...context, organizationId: "org-2" },
+		});
+		const foreign = await other.createRuntimeProfile({
+			name: "Other profile",
+			slug: "other-profile",
+			config: { model: "a" },
+		});
+		expect(foreign.organizationId).toBe("org-2");
+
+		for (const list of [
+			client.listRuntimeProfiles,
+			client.listPolicyPacks,
+			client.listWorkspaceTemplateSets,
+		]) {
+			await expect(list({ organizationId: "org-2" })).rejects.toMatchObject({
+				code: "FORBIDDEN",
+			});
+		}
+		const own = await client.listRuntimeProfiles({});
+		expect(own.data.map((profile) => profile.id)).not.toContain(foreign.id);
+		const named = await client.listRuntimeProfiles({ organizationId: "org-1" });
+		expect(named.data.map((profile) => profile.id)).not.toContain(foreign.id);
+
+		context.user!.scope = "platform:admin";
+		const operator = await client.listRuntimeProfiles({
+			organizationId: "org-2",
+		});
+		expect(operator.data.map((profile) => profile.id)).toContain(foreign.id);
+	});
+});
