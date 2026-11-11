@@ -80,7 +80,7 @@ describe("Slides blueprint", () => {
 		const gadget = definition.gadgets[0]!;
 		expect(gadget.manifest.config?.settings).toEqual({
 			slot: "launch_slides",
-			blueprintVersion: 4,
+			blueprintVersion: 5,
 		});
 		expect(gadget.files!["client.js"].length).toBeGreaterThan(30_000);
 		expect(gadget.manifest.resourceGrants).toEqual([

@@ -122,8 +122,9 @@ manual retry and preserve user input.
 
 Before handing off:
 
-- Own light-theme colours on `:root` (`color-scheme: light`, background, surface,
-  foreground, muted, border, accent and on-accent); the host gives no tokens.
+- Colour with the host's `--tedix-*` variables (`bg`, `fg`, `surface`, `muted`,
+  `muted-fg`, `border`, `primary`, `on-primary`, `font`, `radius`), each with a
+  fallback such as `var(--tedix-surface, Canvas)`; do not set `color-scheme`.
 - Write plain copy in the language the organization or workspace uses (never
   assume one) and keep it in `config.settings`; use semantic buttons, visible
   focus and labelled controls.

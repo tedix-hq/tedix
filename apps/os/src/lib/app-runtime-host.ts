@@ -19,6 +19,11 @@ import {
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { evaluateWorkbook } from "./workbook-formulas";
 import { normalizeSheetContent, projectWorkbook } from "./output-models";
+import {
+	APP_RUNTIME_THEME_METHOD,
+	APP_RUNTIME_THEME_PLACEHOLDER,
+	APP_RUNTIME_THEME_STYLE_ID,
+} from "./app-runtime-theme";
 
 /**
  * The browser half of the workspace app host. `client.js` runs in the OS
@@ -639,12 +644,13 @@ export function buildAppRuntimeDocument(files: AppRuntimeFiles): string {
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <style>
-:root{color-scheme:light dark;font-family:system-ui,sans-serif;font-size:14px;line-height:1.45}
+:root{color-scheme:light dark;font-family:var(--tedix-font,system-ui,sans-serif);font-size:14px;line-height:1.45;accent-color:var(--tedix-primary,auto)}
 *{box-sizing:border-box}
 html,body{margin:0;padding:0;background:transparent;max-width:100%}
-body{padding:12px;color:CanvasText;overflow-wrap:anywhere;overflow-x:hidden}
+body{padding:12px;color:var(--tedix-fg,CanvasText);overflow-wrap:anywhere;overflow-x:hidden}
 button{font:inherit}
 </style>
+${APP_RUNTIME_THEME_PLACEHOLDER}
 </head>
 <body>
 <div id="app"></div>
@@ -653,7 +659,13 @@ button{font:inherit}
 	var pending=new Map();var seq=0;
 	window.addEventListener("message",function(event){
 		var data=event.data;
-		if(!data||typeof data!=="object"||data.jsonrpc!=="2.0"||data.id===undefined)return;
+		if(!data||typeof data!=="object"||data.jsonrpc!=="2.0")return;
+		if(event.source===window.parent&&data.method===${JSON.stringify(APP_RUNTIME_THEME_METHOD)}&&data.params&&typeof data.params.css==="string"){
+			var theme=document.getElementById(${JSON.stringify(APP_RUNTIME_THEME_STYLE_ID)});
+			if(theme)theme.textContent=data.params.css;
+			return;
+		}
+		if(data.id===undefined)return;
 		var entry=pending.get(data.id);if(!entry)return;pending.delete(data.id);
 		if(data.error)entry.reject(Object.assign(new Error(data.error.message||data.error.code),{code:data.error.code,detail:data.error.data}));
 		else entry.resolve(data.result);

@@ -12,6 +12,13 @@ import {
 } from "@/lib/app-runtime-host";
 import type { AppRuntimeTranslationChannel } from "@/lib/app-runtime-translation";
 import { widgetSandboxUrl } from "@/components/widget-frame";
+import {
+	APP_RUNTIME_THEME_METHOD,
+	appRuntimeThemeCss,
+	readAppRuntimeTheme,
+	watchAppRuntimeTheme,
+	withAppRuntimeTheme,
+} from "@/lib/app-runtime-theme";
 
 /**
  * Mounts a runtime app's client document in the OS sandbox: the same
@@ -101,7 +108,13 @@ export function AppRuntimeFrame({
 				post({
 					jsonrpc: "2.0",
 					method: RESOURCE_READY,
-					params: { html: latest.current.html, csp: APP_CSP },
+					params: {
+						html: withAppRuntimeTheme(
+							latest.current.html,
+							readAppRuntimeTheme(),
+						),
+						csp: APP_CSP,
+					},
 				});
 				latest.current.translation?.attach(post);
 				clearTimeout(timer);
@@ -217,6 +230,22 @@ export function AppRuntimeFrame({
 		);
 	}, [outputRevisionKey, state]);
 
+	// A change of light/dark, organization colors or the motion setting
+	// restyles the running app without reloading it.
+	useEffect(() => {
+		if (state !== "ready") return;
+		return watchAppRuntimeTheme(() =>
+			container.current?.querySelector("iframe")?.contentWindow?.postMessage(
+				{
+					jsonrpc: "2.0",
+					method: APP_RUNTIME_THEME_METHOD,
+					params: { css: appRuntimeThemeCss(readAppRuntimeTheme()) },
+				},
+				window.location.origin,
+			),
+		);
+	}, [state]);
+
 	// A new revision replaces the running document in place.
 	useEffect(() => {
 		const iframe = container.current?.querySelector("iframe");
@@ -225,7 +254,10 @@ export function AppRuntimeFrame({
 			{
 				jsonrpc: "2.0",
 				method: RESOURCE_READY,
-				params: { html, csp: APP_CSP },
+				params: {
+					html: withAppRuntimeTheme(html, readAppRuntimeTheme()),
+					csp: APP_CSP,
+				},
 			},
 			window.location.origin,
 		);
