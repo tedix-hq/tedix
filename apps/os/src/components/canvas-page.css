@@ -1220,3 +1220,12 @@
 .card-review-card {
 	animation: card-review-arrive 180ms ease-out;
 }
+
+/* A tab being dragged over shows where the dragged tab will land. */
+.canvas-workpiece-tab[data-drop-target] {
+	box-shadow: inset 2px 0 0 var(--color-kumo-brand, var(--primary));
+}
+
+.canvas-workpiece-tab[draggable="true"] {
+	-webkit-user-drag: element;
+}

@@ -1,4 +1,17 @@
-import { type KeyboardEvent, type ReactNode, useEffect, useRef } from "react";
+import {
+	type KeyboardEvent,
+	type ReactNode,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
+import {
+	ContextMenu,
+	ContextMenuContent,
+	ContextMenuItem,
+	ContextMenuSeparator,
+	ContextMenuTrigger,
+} from "@/components/kumo/context-menu";
 import {
 	FileText,
 	MonitorPlay,
@@ -84,6 +97,8 @@ export function CanvasWorkpieceTabs({
 	gadgets,
 	outputs,
 	onClose,
+	onCloseOthers,
+	onMove,
 	onSelect,
 }: {
 	opened: readonly CanvasWorkpieceSelection[];
@@ -91,9 +106,15 @@ export function CanvasWorkpieceTabs({
 	gadgets: readonly { id: string; name: string }[];
 	outputs: readonly { id: string; title: string; kind: string }[];
 	onClose: (key: string) => void;
+	/** Close every tab except this one. */
+	onCloseOthers?: (key: string) => void;
+	/** Put the tab `key` where the tab `beforeKey` is. */
+	onMove?: (key: string, beforeKey: string) => void;
 	onSelect: (doc: CanvasWorkpieceSelection) => void;
 }) {
 	const stripRef = useRef<HTMLDivElement>(null);
+	const dragging = useRef<string | null>(null);
+	const [dropKey, setDropKey] = useState<string | null>(null);
 	useEffect(() => {
 		const strip = stripRef.current;
 		if (!strip) return;
@@ -118,11 +139,27 @@ export function CanvasWorkpieceTabs({
 	 * neighbour the shell selects next.
 	 */
 	const onListKeyDown = (event: KeyboardEvent<HTMLElement>) => {
-		if (event.key !== "Delete") return;
 		const tabs = Array.from(
 			event.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]'),
 		);
 		const current = tabs.indexOf(document.activeElement as HTMLElement);
+		// Alt+Shift+Left or Right moves the focused tab one place: the keyboard
+		// way to reorder.
+		if (
+			onMove &&
+			event.altKey &&
+			event.shiftKey &&
+			(event.key === "ArrowLeft" || event.key === "ArrowRight")
+		) {
+			const moving = opened[current];
+			const neighbour = opened[current + (event.key === "ArrowLeft" ? -1 : 1)];
+			if (!moving || !neighbour) return;
+			event.preventDefault();
+			event.stopPropagation();
+			onMove(canvasDocKey(moving), canvasDocKey(neighbour));
+			return;
+		}
+		if (event.key !== "Delete") return;
 		const closing = current >= 0 ? opened[current] : undefined;
 		if (!closing) return;
 		event.preventDefault();
@@ -170,39 +207,99 @@ export function CanvasWorkpieceTabs({
 					const accessibleName = `${title ?? "Workpiece"} (${kindLabel}, ${doc.id}${doc.type === "repository" ? `, session ${doc.attemptId}` : ""})`;
 					const selected = key === selectedKey;
 					return (
-						<div
-							className="canvas-workpiece-tab"
-							data-selected={selected || undefined}
-							key={key}
-						>
-							<TabsTrigger
-								aria-label={accessibleName}
-								aria-controls={CANVAS_WORKPIECE_PANEL_ID}
-								id={canvasWorkpieceTabId(doc)}
-								title={title ?? "Workpiece"}
-								className="min-w-0 flex-1 justify-start gap-1.5 px-2"
-								onClick={() => {
-									// Re-tapping the open tab returns to it from the
-									// library or Work pane; the primitive only reports
-									// value changes, so the shell hears this case here.
-									if (selected) onSelect(doc);
+						<ContextMenu key={key}>
+							<ContextMenuTrigger
+								className="canvas-workpiece-tab"
+								data-selected={selected || undefined}
+								data-drop-target={dropKey === key || undefined}
+								draggable={onMove ? true : undefined}
+								onDragStart={(event) => {
+									dragging.current = key;
+									event.dataTransfer.effectAllowed = "move";
+									event.dataTransfer.setData("text/plain", key);
 								}}
-								value={key}
+								onDragOver={(event) => {
+									if (!dragging.current || dragging.current === key) return;
+									event.preventDefault();
+									event.dataTransfer.dropEffect = "move";
+									setDropKey(key);
+								}}
+								onDragLeave={() =>
+									setDropKey((current) => (current === key ? null : current))
+								}
+								onDrop={(event) => {
+									event.preventDefault();
+									const from = dragging.current;
+									dragging.current = null;
+									setDropKey(null);
+									if (from && from !== key) onMove?.(from, key);
+								}}
+								onDragEnd={() => {
+									dragging.current = null;
+									setDropKey(null);
+								}}
 							>
-								<TabKindIcon kind={kind} />
-								<span className="truncate">{title ?? "Workpiece"}</span>
-							</TabsTrigger>
-							<Button
-								aria-label={`Close ${accessibleName}`}
-								className="shrink-0"
-								onClick={() => onClose(key)}
-								size="icon-sm"
-								tabIndex={-1}
-								variant="ghost"
-							>
-								<X size={12} />
-							</Button>
-						</div>
+								<TabsTrigger
+									aria-label={accessibleName}
+									aria-controls={CANVAS_WORKPIECE_PANEL_ID}
+									id={canvasWorkpieceTabId(doc)}
+									title={title ?? "Workpiece"}
+									className="min-w-0 flex-1 justify-start gap-1.5 px-2"
+									onClick={() => {
+										// Re-tapping the open tab returns to it from the
+										// library or Work pane; the primitive only reports
+										// value changes, so the shell hears this case here.
+										if (selected) onSelect(doc);
+									}}
+									value={key}
+								>
+									<TabKindIcon kind={kind} />
+									<span className="truncate">{title ?? "Workpiece"}</span>
+								</TabsTrigger>
+								<Button
+									aria-label={`Close ${accessibleName}`}
+									className="shrink-0"
+									onClick={() => onClose(key)}
+									size="icon-sm"
+									tabIndex={-1}
+									variant="ghost"
+								>
+									<X size={12} />
+								</Button>
+							</ContextMenuTrigger>
+							<ContextMenuContent>
+								<ContextMenuItem onClick={() => onClose(key)}>
+									Close
+								</ContextMenuItem>
+								{onCloseOthers && (
+									<ContextMenuItem
+										disabled={opened.length < 2}
+										onClick={() => onCloseOthers(key)}
+									>
+										Close other tabs
+									</ContextMenuItem>
+								)}
+								{onMove && opened.length > 1 && (
+									<>
+										<ContextMenuSeparator />
+										<ContextMenuItem
+											disabled={opened[0] === doc}
+											onClick={() => onMove(key, canvasDocKey(opened[0]!))}
+										>
+											Move to the start
+										</ContextMenuItem>
+										<ContextMenuItem
+											disabled={opened[opened.length - 1] === doc}
+											onClick={() =>
+												onMove(key, canvasDocKey(opened[opened.length - 1]!))
+											}
+										>
+											Move to the end
+										</ContextMenuItem>
+									</>
+								)}
+							</ContextMenuContent>
+						</ContextMenu>
 					);
 				})}
 			</TabsList>

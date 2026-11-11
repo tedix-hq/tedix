@@ -157,6 +157,9 @@ const CanvasRepositoryWorkpiece = lazy(async () => ({
 	default: (await import("@/components/canvas-repository-workpiece"))
 		.CanvasRepositoryWorkpiece,
 }));
+const OsCommandPalette = lazy(async () => ({
+	default: (await import("@/components/os-command-palette")).OsCommandPalette,
+}));
 const CanvasDocPanel = lazy(async () => ({
 	default: (await import("@/components/canvas-doc-panel")).CanvasDocPanel,
 }));
@@ -650,6 +653,20 @@ export function CanvasPage({
 			window.removeEventListener("pointerup", stop);
 		};
 	}, [resizingChat]);
+
+	// The workspace screen has no OS shell around it, so it opens the command
+	// palette itself.
+	const [paletteOpen, setPaletteOpen] = useState(false);
+	useEffect(() => {
+		const togglePalette = (event: KeyboardEvent) => {
+			if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+				event.preventDefault();
+				setPaletteOpen((open) => !open);
+			}
+		};
+		window.addEventListener("keydown", togglePalette);
+		return () => window.removeEventListener("keydown", togglePalette);
+	}, []);
 
 	useEffect(() => {
 		if (!focusMode) return;
@@ -1269,6 +1286,35 @@ export function CanvasPage({
 		}
 	};
 
+	const closeOtherCanvasDocs = (keepKey: string) => {
+		const keep = openedDocsRef.current.find(
+			(doc) => canvasDocKey(doc) === keepKey,
+		);
+		if (!keep) return;
+		updateOpenedDocs(() => [keep]);
+		setSelectedDoc(keep);
+		setWorkpieceMode("workpiece");
+		writeCanvasSearch({
+			workpiece: keepKey,
+			workpieces: openedDocsSearch([keep]),
+			pane: "workpiece",
+		});
+	};
+	const moveCanvasDoc = (key: string, beforeKey: string) => {
+		const current = openedDocsRef.current;
+		const from = current.findIndex((doc) => canvasDocKey(doc) === key);
+		const to = current.findIndex((doc) => canvasDocKey(doc) === beforeKey);
+		if (from < 0 || to < 0 || from === to) return;
+		const next = [...current];
+		const [moved] = next.splice(from, 1);
+		next.splice(to, 0, moved!);
+		updateOpenedDocs(() => next);
+		writeCanvasSearch({
+			...canvasSearch,
+			workpieces: openedDocsSearch(next),
+		});
+	};
+
 	const canvasView = canvasColumnView({
 		pane: mobilePane,
 		libraryOpen: resourceRailOpen,
@@ -1588,6 +1634,8 @@ export function CanvasPage({
 							<CanvasWorkpieceTabs
 								gadgets={gadgets.data?.items ?? []}
 								onClose={closeCanvasDoc}
+								onCloseOthers={closeOtherCanvasDocs}
+								onMove={moveCanvasDoc}
 								onSelect={openCanvasDoc}
 								opened={openedDocs}
 								outputs={outputs.data?.items ?? []}
@@ -1851,6 +1899,11 @@ export function CanvasPage({
 	return (
 		<DocWritingDraftProvider scope={workspaceId ?? "none"}>
 			<KeepAliveProvider>{page}</KeepAliveProvider>
+			{paletteOpen ? (
+				<Suspense fallback={null}>
+					<OsCommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+				</Suspense>
+			) : null}
 		</DocWritingDraftProvider>
 	);
 }
