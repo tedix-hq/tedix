@@ -21,6 +21,7 @@ import {
 	type ReactNode,
 	useCallback,
 	useEffect,
+	useLayoutEffect,
 	useRef,
 	useState,
 } from "react";
@@ -41,6 +42,11 @@ import {
 } from "@/components/kumo/select";
 import { Text } from "@/components/kumo/text";
 import { Textarea } from "@/components/kumo/textarea";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/kumo/tooltip";
 import { Link } from "@/components/kumo/link";
 import { WorkspaceChatResources } from "@/components/workspace-chat-resources";
 import { isImeComposing } from "@/lib/keyboard";
@@ -61,9 +67,8 @@ import {
 	type ChatTurn,
 	type WorkspaceChatState,
 	elapsedLabel,
-	formatTurnCost,
-	formatUsage,
 	pendingApproval,
+	turnDetails,
 } from "@/lib/workspace-chat-state";
 
 export type WorkspaceChatProps = {
@@ -167,11 +172,7 @@ export function WorkspaceChat({
 				))}
 			</SelectContent>
 		</Select>
-	) : (
-		<Text role="caption" tone="secondary">
-			Model unavailable
-		</Text>
-	);
+	) : null;
 	const running = activeTurn(state);
 	const approval = pendingApproval(running);
 
@@ -237,6 +238,7 @@ export function WorkspaceChat({
 					disabledReason={null}
 					autoFocus={autoFocusComposer}
 					busy={false}
+					onStop={null}
 				/>
 			</div>
 		);
@@ -256,12 +258,10 @@ export function WorkspaceChat({
 				<Text as="strong" role="label" className="truncate">
 					{title ?? (conversationId ? "Conversation" : "New conversation")}
 				</Text>
-				<ConnectionChip
-					connection={connection}
-					lastEventAt={state.lastEventAt}
-				/>
+				<ConnectionChip client={client} connection={connection} />
 			</div>
 			<Thread
+				conversationId={conversationId}
 				turns={state.turns}
 				pendingSend={state.pendingSend}
 				catchingUp={
@@ -272,8 +272,6 @@ export function WorkspaceChat({
 				onDecide={(approvalId, decision) =>
 					client?.decideApproval(approvalId, decision)
 				}
-				onCancel={(turnId) => client?.cancelTurn(turnId)}
-				connection={connection}
 			/>
 			{connection.phase === "unavailable" ? (
 				<div
@@ -313,6 +311,9 @@ export function WorkspaceChat({
 				}
 				autoFocus={autoFocusComposer}
 				busy={running !== null || state.pendingSend !== null}
+				onStop={
+					running && client ? () => client.cancelTurn(running.turnId) : null
+				}
 			/>
 		</div>
 	);
@@ -361,70 +362,83 @@ function ConversationList({
 	);
 }
 
+/** How long a dropped connection stays silent, so a blip shows nothing. */
+export const RECONNECTING_NOTICE_DELAY_MS = 1_500;
+
 /**
- * An inline chip, never a banner: the layout must not jump when the socket
- * blinks. "Reconnecting" is a state we pass through, not a dead end.
+ * The one sign of the connection, and only after it was lost: nothing while
+ * the chat first connects or moves to another conversation. An inline chip,
+ * never a banner, so the layout does not jump.
  */
 function ConnectionChip({
+	client,
 	connection,
-	lastEventAt,
 }: {
+	client: WorkspaceChatClient | null;
 	connection: WorkspaceChatConnection;
-	lastEventAt: number | null;
 }) {
-	const now = useNow(connection.phase !== "open");
-	if (connection.phase === "open") return null;
-	const label =
-		connection.phase === "closed"
-			? "Closed"
-			: connection.phase === "unavailable"
-				? "Being upgraded"
-				: connection.phase === "connecting"
-					? "Connecting"
-					: `Reconnecting${connection.attempt > 1 ? ` (${connection.attempt})` : ""}`;
-	const since =
-		lastEventAt !== null && connection.phase === "reconnecting"
-			? ` · last update ${elapsedLabel(now - lastEventAt)} ago`
-			: "";
+	const opened = useRef<WorkspaceChatClient | null>(null);
+	if (connection.phase === "open") opened.current = client;
+	const dropped =
+		client !== null &&
+		opened.current === client &&
+		(connection.phase === "reconnecting" || connection.phase === "connecting");
+	const [shown, setShown] = useState(false);
+	useEffect(() => {
+		if (!dropped) {
+			setShown(false);
+			return;
+		}
+		const timer = setTimeout(
+			() => setShown(true),
+			RECONNECTING_NOTICE_DELAY_MS,
+		);
+		return () => clearTimeout(timer);
+	}, [dropped]);
+	if (!dropped || !shown) return null;
 	return (
 		<span
 			className="workspace-chat-connection"
-			data-phase={connection.phase}
 			data-testid="workspace-chat-connection"
 			role="status"
 		>
 			<span className="workspace-chat-connection-dot" aria-hidden />
-			{label}
-			{since}
+			Reconnecting…
 		</span>
 	);
 }
 
 function Thread({
+	conversationId,
 	turns,
 	pendingSend,
 	catchingUp,
 	hasEarlier,
 	onLoadEarlier,
 	onDecide,
-	onCancel,
-	connection,
 }: {
+	conversationId: string | null;
 	turns: ChatTurn[];
 	pendingSend: { clientTurnId: string; text: string; sentAt: number } | null;
 	catchingUp: boolean;
 	hasEarlier: boolean;
 	onLoadEarlier: () => void;
 	onDecide: (approvalId: string, decision: "approve" | "deny") => void;
-	onCancel: (turnId: string) => void;
-	connection: WorkspaceChatConnection;
 }) {
 	const scroller = useRef<HTMLDivElement | null>(null);
 	const stick = useRef(true);
-	useEffect(() => {
+	const shownConversation = useRef(conversationId);
+	// Before paint, so a thread never shows its top and then jumps down.
+	useLayoutEffect(() => {
+		if (shownConversation.current !== conversationId) {
+			shownConversation.current = conversationId;
+			stick.current = true;
+		}
 		const node = scroller.current;
 		if (!node || !stick.current) return;
-		node.scrollTop = node.scrollHeight;
+		if (typeof node.scrollTo === "function")
+			node.scrollTo({ top: node.scrollHeight, behavior: "auto" });
+		else node.scrollTop = node.scrollHeight;
 	});
 	return (
 		<div
@@ -454,13 +468,7 @@ function Thread({
 				</div>
 			) : null}
 			{turns.map((turn) => (
-				<TurnView
-					connection={connection}
-					key={turn.turnId}
-					onCancel={onCancel}
-					onDecide={onDecide}
-					turn={turn}
-				/>
+				<TurnView key={turn.turnId} onDecide={onDecide} turn={turn} />
 			))}
 			{pendingSend ? (
 				<div className="workspace-chat-turn" data-pending="true">
@@ -475,13 +483,9 @@ function Thread({
 function TurnView({
 	turn,
 	onDecide,
-	onCancel,
-	connection,
 }: {
 	turn: ChatTurn;
 	onDecide: (approvalId: string, decision: "approve" | "deny") => void;
-	onCancel: (turnId: string) => void;
-	connection: WorkspaceChatConnection;
 }) {
 	const modelLabel = turn.model?.startsWith("azure-openai/")
 		? `Azure deployment: ${turn.model.slice("azure-openai/".length)}`
@@ -545,49 +549,63 @@ function TurnView({
 						Stopped.
 					</Text>
 				) : null}
-				<footer className="workspace-chat-turn-footer">
-					{running ? (
-						<>
-							<Text
-								role="caption"
-								tone="secondary"
-								data-testid="workspace-chat-timer"
-							>
-								{waiting
-									? "Waiting for your decision"
-									: connection.phase === "open"
-										? "Working"
-										: "Working · reconnecting"}{" "}
-								· {elapsedLabel(now - startedAt)}
-								{modelLabel ? ` · ${modelLabel}` : ""}
-								{turn.usage ? ` · ${formatUsage(turn.usage)}` : ""}
-							</Text>
-							<Button
-								aria-label="Stop this turn"
-								onClick={() => onCancel(turn.turnId)}
-								size="icon-xs"
-								variant="ghost"
-							>
-								<Stop aria-hidden />
-							</Button>
-						</>
-					) : (
-						<Text role="caption" tone="secondary">
-							{[
-								turn.durationMs !== undefined
-									? elapsedLabel(turn.durationMs)
-									: null,
-								turn.usage ? formatUsage(turn.usage) : "Usage unavailable",
-								formatTurnCost(turn.usage),
-								modelLabel ?? "Model unavailable",
-							]
-								.filter(Boolean)
-								.join(" · ")}
+				{running ? (
+					<footer className="workspace-chat-turn-footer">
+						<Text
+							role="caption"
+							tone="secondary"
+							data-testid="workspace-chat-timer"
+						>
+							{waiting ? "Waiting for your decision" : "Working"} ·{" "}
+							{elapsedLabel(now - startedAt)}
 						</Text>
-					)}
-				</footer>
+					</footer>
+				) : (
+					<TurnTime
+						details={turnDetails(turn, modelLabel)}
+						startedAt={startedAt}
+					/>
+				)}
 			</div>
 		</article>
+	);
+}
+
+/**
+ * When a finished turn began. It appears while the turn is hovered or holds
+ * focus, and its tooltip carries what was recorded about the turn.
+ */
+function TurnTime({
+	startedAt,
+	details,
+}: {
+	startedAt: number;
+	details: string[];
+}) {
+	if (!Number.isFinite(startedAt)) return null;
+	const time = new Date(startedAt).toLocaleTimeString([], {
+		hour: "2-digit",
+		minute: "2-digit",
+	});
+	const label = (
+		<button
+			className="workspace-chat-turn-time"
+			data-testid="workspace-chat-turn-time"
+			type="button"
+		>
+			{time}
+		</button>
+	);
+	if (details.length === 0) return label;
+	return (
+		<Tooltip>
+			<TooltipTrigger render={label} />
+			<TooltipContent align="start" side="bottom">
+				{details.map((detail) => (
+					<span key={detail}>{detail}</span>
+				))}
+			</TooltipContent>
+		</Tooltip>
 	);
 }
 
@@ -977,6 +995,7 @@ function Composer({
 	disabledReason,
 	autoFocus,
 	busy,
+	onStop,
 	modelControl,
 }: {
 	workspaceId: string;
@@ -990,6 +1009,8 @@ function Composer({
 	disabledReason: string | null;
 	autoFocus: boolean;
 	busy: boolean;
+	/** Stops the running turn; `null` when nothing is running. */
+	onStop: (() => void) | null;
 	modelControl: ReactNode;
 }) {
 	const [submitted, setSubmitted] = useState<{
@@ -1128,17 +1149,29 @@ function Composer({
 						/>
 					) : null}
 					<div className="workspace-chat-model">{modelControl}</div>
-					<Button
-						aria-label="Send"
-						title="Send (Enter). Shift+Enter adds a line."
-						disabled={
-							disabledReason !== null || submitted !== null || !draft.trim()
-						}
-						size="icon-sm"
-						type="submit"
-					>
-						<PaperPlaneRight aria-hidden />
-					</Button>
+					{onStop && !draft.trim() ? (
+						<Button
+							aria-label="Stop"
+							title="Stop"
+							onClick={onStop}
+							size="icon-sm"
+							type="button"
+						>
+							<Stop aria-hidden weight="fill" />
+						</Button>
+					) : (
+						<Button
+							aria-label="Send"
+							title="Send (Enter). Shift+Enter adds a line."
+							disabled={
+								disabledReason !== null || submitted !== null || !draft.trim()
+							}
+							size="icon-sm"
+							type="submit"
+						>
+							<PaperPlaneRight aria-hidden />
+						</Button>
+					)}
 				</div>
 			</div>
 		</form>

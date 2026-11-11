@@ -5,10 +5,12 @@ import {
 	applyWorkspaceChatEvent,
 	applyWorkspaceChatEvents,
 	elapsedLabel,
+	formatTurnCost,
 	formatUsage,
 	initialWorkspaceChatState,
 	markPendingSend,
 	pendingApproval,
+	turnDetails,
 } from "./workspace-chat-state";
 
 const at = (seconds: number) =>
@@ -365,6 +367,31 @@ describe("labels", () => {
 			formatUsage({ inputTokens: 2000, outputTokens: 500, costCents: 2 }),
 		).toBe("2,000 input · 500 output tokens");
 	});
+
+	it("leaves out what a finished turn did not record", () => {
+		expect(formatTurnCost(undefined)).toBeNull();
+		expect(
+			formatTurnCost({ inputTokens: 1, outputTokens: 1, costUsd: 0.0123 }),
+		).toBe("Cost $0.0123");
+		expect(turnDetails({})).toEqual([]);
+		expect(
+			turnDetails({ usage: { inputTokens: 0, outputTokens: 0 } }, null),
+		).toEqual([]);
+		expect(
+			turnDetails(
+				{
+					durationMs: 4_200,
+					usage: { inputTokens: 2000, outputTokens: 500, costUsd: 0.0123 },
+				},
+				"mock",
+			),
+		).toEqual([
+			"Took 4s",
+			"mock",
+			"2,000 input · 500 output tokens",
+			"Cost $0.0123",
+		]);
+	});
 });
 
 it("model and cumulative usage converge when progress arrives after completion", () => {
@@ -452,9 +479,7 @@ it("keeps final receipts authoritative when facet progress gets a later ledger s
 		});
 		expect(state.turns[0]?.model).toBe("provider-snapshot");
 	}
-	expect(formatUsage({ inputTokens: 0, outputTokens: 0 })).toBe(
-		"Usage unavailable",
-	);
+	expect(formatUsage({ inputTokens: 0, outputTokens: 0 })).toBeNull();
 	expect(formatUsage({ inputTokens: 0, outputTokens: 0, partial: false })).toBe(
 		"0 input · 0 output tokens",
 	);

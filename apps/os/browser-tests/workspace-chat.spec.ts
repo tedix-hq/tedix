@@ -171,7 +171,27 @@ return focusClipAudit();
 					.getByRole("button", { name: "Remove Planning notes", exact: true })
 					.waitFor();
 				await page.getByRole("button", { name: "Send", exact: true }).click();
-				const footer = page.locator(".workspace-chat-turn-footer");
+				// A finished answer has no line under it; its time holds the details.
+				await page.getByText("Here is your answer.").waitFor();
+				assert.equal(
+					await page.locator(".workspace-chat-turn-footer").count(),
+					0,
+				);
+				assert.equal(await page.getByText(/unavailable/i).count(), 0);
+				const time = page.getByTestId("workspace-chat-turn-time");
+				assert.equal(
+					await time.evaluate((node) => getComputedStyle(node).opacity),
+					"0",
+				);
+				await time.focus();
+				await page.waitForFunction(
+					() =>
+						getComputedStyle(
+							document.querySelector("[data-testid=workspace-chat-turn-time]")!,
+						).opacity === "1",
+				);
+				await time.hover();
+				const footer = page.getByRole("tooltip");
 				await footer.getByText(/provider-model-snapshot/).waitFor();
 				assert.equal(sent.length, 2);
 				assert.equal(
@@ -199,7 +219,7 @@ return focusClipAudit();
 				);
 				assert.match(
 					await footer.innerText(),
-					/120 input · 20 output tokens · 40 cached input · partial usage · Cost unavailable · provider-model-snapshot/,
+					/Took 2s\s+provider-model-snapshot\s+120 input · 20 output tokens · 40 cached input · partial usage/,
 				);
 				assert(!/[€$]/.test(await footer.innerText()));
 				assert(
