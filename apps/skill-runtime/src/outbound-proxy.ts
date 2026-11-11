@@ -60,7 +60,11 @@ import {
 	veoBackgroundRequest,
 } from "./vertex-product-keyframes";
 import type { SkillRuntimeEnv } from "./env";
-import { isVertexHost, isVertexRegionalHost } from "./vertex-host";
+import {
+	isVertexHost,
+	isVertexInferenceCall,
+	isVertexRegionalHost,
+} from "./vertex-host";
 import {
 	buildVertexCallCostRow,
 	getProviderSpendWindowTotals,
@@ -195,6 +199,20 @@ async function getGoogleAccessToken(
 }
 
 /** Suffix match — `host === suffix` or `host` ends with `.${suffix}`. */
+/** The platform project named in the service-account key, when readable. */
+function serviceAccountProjectId(
+	key: string | null | undefined,
+): string | null {
+	if (!key) return null;
+	try {
+		const projectId = (JSON.parse(key) as { project_id?: unknown }).project_id;
+		return typeof projectId === "string" && projectId ? projectId : null;
+	} catch {
+		// The token exchange reports a malformed key without echoing it.
+		return null;
+	}
+}
+
 export function hostMatches(host: string, suffix: string): boolean {
 	return host === suffix || host.endsWith(`.${suffix}`);
 }
@@ -1385,7 +1403,33 @@ export class OutboundProxy extends WorkerEntrypoint<
 		const isAiStudio = hostMatches(host, "generativelanguage.googleapis.com");
 		if (isVertex || isAiStudio) {
 			const headers = new Headers(request.headers);
+			// A platform credential signs only model inference on Vertex. This
+			// gates the attach itself, so a skill cannot unlock one platform
+			// credential by sending a placeholder for the other.
+			const platformMaySign =
+				!isVertex ||
+				isVertexInferenceCall(
+					request.method,
+					url.pathname,
+					serviceAccountProjectId(props.googleServiceAccountKey),
+				);
+			const tenantCredential =
+				headers.has("authorization") || headers.has("x-goog-api-key");
 			if (
+				!platformMaySign &&
+				!tenantCredential &&
+				(props.googleServiceAccountKey || props.geminiApiKey)
+			) {
+				return Response.json(
+					{
+						error:
+							"Only model inference calls can use the platform Vertex credential",
+					},
+					{ status: 403 },
+				);
+			}
+			if (
+				platformMaySign &&
 				isVertex &&
 				props.googleServiceAccountKey &&
 				!headers.has("authorization")
@@ -1394,7 +1438,11 @@ export class OutboundProxy extends WorkerEntrypoint<
 					"authorization",
 					`Bearer ${await getGoogleAccessToken(props.googleServiceAccountKey)}`,
 				);
-			} else if (props.geminiApiKey && !headers.has("x-goog-api-key")) {
+			} else if (
+				platformMaySign &&
+				props.geminiApiKey &&
+				!headers.has("x-goog-api-key")
+			) {
 				headers.set("x-goog-api-key", props.geminiApiKey);
 				// Strip any `?key=` the tenant may have set so the header wins
 				// and the key never appears in tenant-authored query strings.
