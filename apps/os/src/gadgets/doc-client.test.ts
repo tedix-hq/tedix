@@ -20,11 +20,13 @@ afterEach(() => {
 	for (const cleanup of cleanups.splice(0)) cleanup();
 	document.body.replaceChildren();
 	vi.restoreAllMocks();
+	vi.useRealTimers();
 });
 
 function fixture(role = "owner") {
 	let revision = 4,
-		denied = false;
+		denied = false,
+		gate: Promise<void> | undefined;
 	let richText: OsRichTextDocument = {
 		type: "doc",
 		content: [
@@ -91,6 +93,7 @@ function fixture(role = "owner") {
 			if (input.method === "exportMarkdown")
 				return { title: "Doc", revision, text: "Saved semantic content" };
 			if (method === "outputs.replace") {
+				await gate;
 				if (input.expectedRevision !== revision)
 					throw new Error("Output revision changed");
 				content = structuredClone(input.content);
@@ -128,6 +131,17 @@ function fixture(role = "owner") {
 		deny: () => {
 			denied = true;
 		},
+		/** Hold the next saves open until the returned function is called. */
+		hold() {
+			let open = () => {};
+			gate = new Promise<void>((resolve) => {
+				open = resolve;
+			});
+			return () => {
+				gate = undefined;
+				open();
+			};
+		},
 		content: (next: DocumentContent) => {
 			content = next;
 		},
@@ -164,17 +178,33 @@ function fixture(role = "owner") {
 		},
 	};
 }
+const find = (root: HTMLElement, label: string) =>
+	[...root.querySelectorAll<HTMLButtonElement>("button")].find((node) => {
+		const name = node.getAttribute("aria-label") ?? node.textContent ?? "";
+		return name === label || name.startsWith(`${label} `);
+	});
 const click = (root: HTMLElement, label: string) => {
-	const button = [...root.querySelectorAll<HTMLButtonElement>("button")].find(
-		(node) =>
-			node.getAttribute("aria-label") === label || node.textContent === label,
-	);
+	const button = find(root, label);
 	expect(button, label).toBeDefined();
 	button!.click();
 };
+/** Toolbar state is refreshed once per animation frame. */
+const frame = () =>
+	new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+const press = (target: HTMLElement, init: KeyboardEventInit) =>
+	target.dispatchEvent(
+		new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init }),
+	);
+const fakeClock = () =>
+	vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+const saves = (test: ReturnType<typeof fixture>) =>
+	test.calls.mock.calls.filter(([method]) => method === "outputs.replace")
+		.length;
+const statusText = (root: HTMLElement) =>
+	root.querySelector(".doc-status")!.textContent;
 
 describe("portable rich Doc client", () => {
-	it("names the editable writing surface and keeps advanced controls in a keyboard-accessible disclosure", async () => {
+	it("names the writing surface and keeps one toolbar row with the rest in a menu", async () => {
 		const test = fixture();
 		const { root, editor } = await test.mount();
 		expect(
@@ -182,59 +212,127 @@ describe("portable rich Doc client", () => {
 				'[role="textbox"][aria-label="Document writing area"][aria-multiline="true"]',
 			),
 		).toBe(editor.view.dom);
-		const disclosure =
-			root.querySelector<HTMLDetailsElement>("details.doc-more")!;
-		expect(disclosure.open).toBe(false);
-		expect(disclosure.querySelector("summary")?.textContent).toBe(
-			"More formatting & insert",
-		);
+		const toolbar = root.querySelector('[role="toolbar"]')!;
+		for (const label of [
+			"Undo",
+			"Bold",
+			"Italic",
+			"Bulleted list",
+			"To-do list",
+			"Link",
+			"Image",
+			"Table",
+			"More",
+		])
+			expect(toolbar.contains(find(root, label)!), label).toBe(true);
+		expect(find(root, "Bold")!.title).toMatch(/^Bold (⌘|Ctrl\+)B$/);
+		expect(find(root, "Save document")).toBeUndefined();
+		expect(find(root, "Reload saved document")).toBeUndefined();
+		expect(root.querySelector("h1")).toBeNull();
+		const menu = root.querySelector<HTMLElement>('[role="menu"]')!;
+		expect(menu.hidden).toBe(true);
+		click(root, "More");
+		expect(menu.hidden).toBe(false);
 		expect(
-			disclosure.querySelector('[aria-label="Insert table"]'),
-		).not.toBeNull();
-		expect(
-			root.querySelector('[aria-label="Bold"]')?.closest("details"),
-		).toBeNull();
-		disclosure.open = true;
-		click(root, "Insert table");
+			[...menu.querySelectorAll('[role="menuitem"]')].map(
+				(node) => node.textContent || node.getAttribute("aria-label"),
+			),
+		).toEqual([
+			"Align left",
+			"Align center",
+			"Align right",
+			"Align justify",
+			"Note",
+			"Collapsible section",
+			"Divider",
+			"Export as Markdown",
+			"Export as Word",
+			"Export as PDF",
+			"Export as HTML",
+			"Export as PNG",
+		]);
+		press(menu, { key: "Escape" });
+		expect(menu.hidden).toBe(true);
+		const tableTools = find(root, "Add row below")!.parentElement!;
+		expect(tableTools.hidden).toBe(true);
+		click(root, "Table");
 		expect(
 			editor.getJSON().content?.some((node) => node.type === "table"),
 		).toBe(true);
+		await frame();
+		expect(tableTools.hidden).toBe(false);
+		click(root, "Bold");
+		await frame();
+		expect(find(root, "Bold")!.getAttribute("aria-pressed")).toBe("true");
 	});
 	it("starts a fresh empty canonical document without requiring native initialization", async () => {
 		const test = fixture();
 		test.content({ kind: "document", blocks: [] });
 		const { root, editor, mounted } = await test.mount();
 		expect(mounted.dirty).toBe(false);
+		expect(root.querySelector(".tiptap p")?.getAttribute("data-hint")).toBe(
+			"Start writing…",
+		);
 		editor.commands.insertContent("Fresh gadget document");
-		click(root, "Save document");
-		await vi.waitFor(() => expect(mounted.dirty).toBe(false));
+		expect(root.querySelector(".tiptap [data-hint]")).toBeNull();
+		await mounted.save();
+		expect(mounted.dirty).toBe(false);
 		expect(test.persisted().blocks).toEqual([
 			{ type: "paragraph", text: "Fresh gadget document" },
 		]);
 		expect(test.persisted().richText?.content[0]?.type).toBe("paragraph");
 	});
+	it("names the empty heading or list line the caret is in", async () => {
+		const test = fixture(),
+			{ root, editor } = await test.mount();
+		editor.commands.insertContentAt(editor.state.doc.content.size, {
+			type: "heading",
+			attrs: { level: 2 },
+		});
+		editor.state.doc.forEach((node, offset) => {
+			if (node.type.name === "heading")
+				editor.commands.setTextSelection(offset + 1);
+		});
+		expect(root.querySelector(".tiptap h2")?.getAttribute("data-hint")).toBe(
+			"Heading 2",
+		);
+		editor.commands.setTextSelection(2);
+		expect(root.querySelector(".tiptap [data-hint]")).toBeNull();
+	});
 
-	it("owns typing and inline formatting, then saves the same rich JSON and file through app CAS", async () => {
+	it("saves by itself after a pause without touching the caret, focus or document on screen", async () => {
 		const test = fixture(),
 			{ root, editor, mounted } = await test.mount();
-		expect(root.textContent).toContain(
-			"Document revision 4 · Doc app version 3",
-		);
 		expect(mounted.dirty).toBe(false);
+		expect(statusText(root)).toBe("");
 		const untouched = test.persisted().richText!.content[1];
+		const editableChanges = vi.spyOn(editor, "setEditable");
+		fakeClock();
 		editor
 			.chain()
 			.setTextSelection({ from: 1, to: 9 })
 			.toggleBold()
 			.toggleItalic()
 			.run();
+		expect(mounted.dirty).toBe(true);
+		await vi.advanceTimersByTimeAsync(1000);
 		expect(test.retained()?.revision).toBe(4);
-		await mounted.save();
+		expect(saves(test)).toBe(0);
+		const shown = editor.state.doc,
+			selection = editor.state.selection;
+		await vi.advanceTimersByTimeAsync(600);
 		expect(test.calls).toHaveBeenCalledWith("outputs.replace", {
 			slot: "document",
 			expectedRevision: 4,
 			content: expect.objectContaining({ file }),
 		});
+		expect(mounted.dirty).toBe(false);
+		expect(editor.state.doc).toBe(shown);
+		expect(editor.state.selection).toBe(selection);
+		expect(editableChanges).not.toHaveBeenCalled();
+		expect(editor.isEditable).toBe(true);
+		expect(statusText(root)).toBe("");
+		expect(test.retained()).toBeNull();
 		expect(test.persisted().richText!.content[0]!.content![0]!.marks).toEqual(
 			expect.arrayContaining([{ type: "bold" }, { type: "italic" }]),
 		);
@@ -250,19 +348,80 @@ describe("portable rich Doc client", () => {
 				}),
 			]),
 		);
-		expect(root.querySelector(".doc-status")?.textContent).toBe("Saved");
-		expect(test.retained()).toBeNull();
+		// A second edit builds on the revision the first save produced.
+		editor.commands.insertContentAt(1, "Next ");
+		await vi.advanceTimersByTimeAsync(1600);
+		expect(test.calls).toHaveBeenLastCalledWith(
+			"app.draft.clear",
+			expect.anything(),
+		);
+		expect(saves(test)).toBe(2);
+		expect(mounted.dirty).toBe(false);
 	});
-	it("moves complete blocks with native undo and keeps table, tasks, details and embedded images", async () => {
+	it("does not wait longer than five seconds while someone keeps typing", async () => {
+		const test = fixture(),
+			{ editor } = await test.mount();
+		fakeClock();
+		for (let second = 0; second < 6; second++) {
+			editor.commands.insertContentAt(1, "a");
+			await vi.advanceTimersByTimeAsync(1000);
+		}
+		expect(saves(test)).toBe(1);
+	});
+	it("keeps edits made during a save and saves them next, one save at a time", async () => {
+		const test = fixture(),
+			{ root, editor, mounted } = await test.mount();
+		fakeClock();
+		const release = test.hold();
+		editor.commands.insertContentAt(1, "First ");
+		const saving = mounted.save();
+		await vi.advanceTimersByTimeAsync(1100);
+		expect(statusText(root)).toBe("Saving…");
+		editor.commands.insertContentAt(1, "Second ");
+		void mounted.save();
+		void mounted.save();
+		const typed = editor.state.doc;
+		release();
+		await saving;
+		expect(editor.state.doc).toBe(typed);
+		expect(mounted.dirty).toBe(true);
+		await mounted.save();
+		expect(saves(test)).toBe(2);
+		expect(mounted.dirty).toBe(false);
+		expect(test.persisted().richText!.content[0]!.content![0]!.text).toBe(
+			"Second First Original",
+		);
+		expect(statusText(root)).toBe("Saved");
+		await vi.advanceTimersByTimeAsync(1400);
+		expect(statusText(root)).toBe("");
+	});
+	it("saves when the tab is hidden and on the save shortcut", async () => {
+		const test = fixture(),
+			{ root, editor, mounted } = await test.mount();
+		editor.commands.insertContentAt(1, "Leaving ");
+		window.dispatchEvent(new Event("pagehide"));
+		await vi.waitFor(() => expect(mounted.dirty).toBe(false));
+		expect(statusText(root)).toBe("");
+		editor.commands.insertContentAt(1, "Shortcut ");
+		expect(press(editor.view.dom, { key: "s", metaKey: true })).toBe(false);
+		await vi.waitFor(() => expect(statusText(root)).toBe("Saved"));
+		expect(saves(test)).toBe(2);
+	});
+	it("moves complete blocks from the keyboard with native undo and keeps table, tasks, details and embedded images", async () => {
 		const test = fixture(),
 			{ root, editor } = await test.mount();
 		editor.commands.setTextSelection(2);
-		click(root, "Move block down");
+		expect(find(root, "Move block down")).toBeUndefined();
+		press(editor.view.dom, { key: "ArrowDown", altKey: true, shiftKey: true });
 		expect(editor.state.doc.child(0).textContent).toBe("Keep formatting");
+		await frame();
 		click(root, "Undo");
 		expect(editor.state.doc.child(0).textContent).toBe("Original");
-		editor.commands.setTextSelection(editor.state.doc.content.size - 1);
-		click(root, "Insert table");
+		editor.state.doc.forEach((node, offset) => {
+			if (node.type.name === "heading")
+				editor.commands.setTextSelection(offset + 1);
+		});
+		click(root, "Table");
 		expect(root.querySelectorAll(".tiptap th")).toHaveLength(3);
 		editor
 			.chain()
@@ -317,40 +476,119 @@ describe("portable rich Doc client", () => {
 		expect(types).toContain('"details"');
 		expect(types).toContain('"image"');
 	});
-	it("restores a tab draft after an authorized read and preserves its original CAS basis across conflicts", async () => {
+	it("applies, edits and removes a link from the pop-up", async () => {
+		const test = fixture(),
+			{ root, editor } = await test.mount();
+		const form = root.querySelector<HTMLFormElement>(".doc-link")!,
+			input = form.querySelector("input")!;
+		const submit = () =>
+			form.dispatchEvent(
+				new Event("submit", { bubbles: true, cancelable: true }),
+			);
+		editor.commands.setTextSelection({ from: 1, to: 9 });
+		expect(form.hidden).toBe(true);
+		press(editor.view.dom, { key: "k", ctrlKey: true });
+		expect(form.hidden).toBe(false);
+		input.value = "example.test/page";
+		submit();
+		expect(form.hidden).toBe(true);
+		expect(editor.getAttributes("link").href).toBe("https://example.test/page");
+		click(root, "Link");
+		expect(input.value).toBe("https://example.test/page");
+		press(input, { key: "Escape" });
+		expect(form.hidden).toBe(true);
+		click(root, "Link");
+		input.value = "";
+		submit();
+		expect(editor.isActive("link")).toBe(false);
+	});
+	it("restores a tab draft after an authorized read and asks before it replaces a newer save", async () => {
 		const test = fixture(),
 			first = await test.mount();
+		fakeClock();
 		first.editor.commands.insertContentAt(1, "My draft ");
+		await vi.advanceTimersByTimeAsync(1000);
 		first.mounted.destroy();
 		first.root.remove();
+		vi.useRealTimers();
+		expect(test.retained()?.revision).toBe(4);
 		test.external("Newer saved version");
 		const second = await test.mount();
 		expect(second.editor.getText()).toContain("My draft");
 		expect(second.root.textContent).toContain("Restored your unsaved changes");
 		await second.mounted.save();
-		expect(second.root.textContent).toContain("Output revision changed");
 		expect(second.editor.getText()).toContain("My draft");
-		click(second.root, "Reload saved document");
-		expect(second.editor.getText()).toContain("My draft");
-		click(second.root, "Discard draft & reload");
+		expect(second.mounted.dirty).toBe(true);
+		expect(second.root.textContent).toContain("Keep mine");
+		expect(second.root.textContent).not.toMatch(/revision/i);
+		click(second.root, "Use theirs");
 		await vi.waitFor(() =>
 			expect(second.editor.getText()).toBe("Newer saved version"),
 		);
+		expect(second.mounted.dirty).toBe(false);
+		expect(test.retained()).toBeNull();
+		expect(statusText(second.root)).toBe("");
 	});
-	it("refreshes clean documents only from the parent and fails closed on lost source access", async () => {
+	it("keeps a restored draft over a newer save when asked to", async () => {
+		const test = fixture(),
+			first = await test.mount();
+		fakeClock();
+		first.editor.commands.insertContentAt(1, "My draft ");
+		await vi.advanceTimersByTimeAsync(1000);
+		first.mounted.destroy();
+		first.root.remove();
+		vi.useRealTimers();
+		test.external("Newer saved version");
+		const second = await test.mount();
+		await second.mounted.save();
+		click(second.root, "Keep mine");
+		await vi.waitFor(() => expect(second.mounted.dirty).toBe(true));
+		await second.mounted.save();
+		expect(second.mounted.dirty).toBe(false);
+		expect(test.persisted().richText!.content[0]!.content![0]!.text).toBe(
+			"My draft Original",
+		);
+	});
+	it("refreshes clean documents only from the parent, quietly, and fails closed on lost source access", async () => {
 		const test = fixture(),
 			{ root, editor } = await test.mount();
+		const saved = test.persisted().richText!;
+		const editableChanges = vi.spyOn(editor, "setEditable");
 		test.external("Untrusted", null);
 		expect(editor.getText()).toContain("Original");
-		test.external("Agent edited");
-		await vi.waitFor(() => expect(editor.getText()).toBe("Agent edited"));
+		// The caret sits in the second paragraph while the first one changes.
+		const caret = editor.state.doc.child(0).nodeSize + 5;
+		editor.commands.setTextSelection(caret);
+		test.external({
+			...saved,
+			content: [
+				{
+					type: "paragraph",
+					content: [{ type: "text", text: "Agent edited this" }],
+				},
+				saved.content[1]!,
+			],
+		});
+		await vi.waitFor(() =>
+			expect(editor.getText()).toContain("Agent edited this"),
+		);
+		expect(statusText(root)).toBe("");
+		expect(root.textContent).not.toContain("Loading");
+		expect(editableChanges).not.toHaveBeenCalled();
+		expect(editor.state.selection.from).toBe(
+			editor.state.doc.child(0).nodeSize + 5,
+		);
+		expect(editor.state.doc.child(1).textContent).toBe("Keep formatting");
+		expect(editor.can().undo()).toBe(false);
+		expect(saves(test)).toBe(0);
 		test.deny();
 		test.external("No longer readable");
 		await vi.waitFor(() => expect(root.textContent).toContain("Source denied"));
 		expect(root.querySelector<HTMLElement>(".doc-page")!.hidden).toBe(true);
 		expect(editor.isEditable).toBe(false);
+		expect(find(root, "Try again")).toBeDefined();
 	});
-	it("merges someone else's save into a draft that changed another paragraph", async () => {
+	it("merges someone else's save into a draft that changed another paragraph without saying anything", async () => {
 		const test = fixture(),
 			{ root, editor, mounted } = await test.mount();
 		const second = editor.state.doc.child(0).nodeSize + 1;
@@ -363,10 +601,8 @@ describe("portable rich Doc client", () => {
 				saved.content[1]!,
 			],
 		});
-		await vi.waitFor(() =>
-			expect(root.textContent).toContain("merged with document revision 5"),
-		);
-		expect(editor.getText()).toContain("Theirs");
+		await vi.waitFor(() => expect(editor.getText()).toContain("Theirs"));
+		expect(statusText(root)).toBe("");
 		expect(editor.getText()).toContain("Mine: Keep formatting");
 		await mounted.save();
 		const merged = test.persisted().richText!.content;
@@ -374,22 +610,52 @@ describe("portable rich Doc client", () => {
 		expect(merged[1]!.content![0]!.text).toBe("Mine: Keep formatting");
 		expect(merged[1]!.attrs).toMatchObject({ textAlign: "right", indent: 2 });
 	});
-	it("asks which version to keep when both edited the same paragraph", async () => {
+	it("merges after a save that lost the race to someone else's save", async () => {
 		const test = fixture(),
-			{ root, editor } = await test.mount();
+			{ editor, mounted } = await test.mount();
+		const second = editor.state.doc.child(0).nodeSize + 1;
+		editor.commands.insertContentAt(second, "Mine: ");
+		const saved = test.persisted().richText!;
+		// Their save lands, but its notice has not arrived yet.
+		test.external(
+			{
+				...saved,
+				content: [
+					{ type: "paragraph", content: [{ type: "text", text: "Theirs" }] },
+					saved.content[1]!,
+				],
+			},
+			null,
+		);
+		await mounted.save();
+		expect(mounted.dirty).toBe(false);
+		expect(editor.getText()).toContain("Theirs");
+		const merged = test.persisted().richText!.content;
+		expect(merged[0]!.content![0]!.text).toBe("Theirs");
+		expect(merged[1]!.content![0]!.text).toBe("Mine: Keep formatting");
+	});
+	it("asks which version to keep only when both edited the same paragraph", async () => {
+		const test = fixture(),
+			{ root, editor, mounted } = await test.mount();
 		editor.commands.insertContentAt(1, "Mine ");
 		test.external("Theirs");
 		await vi.waitFor(() => expect(root.textContent).toContain("Keep mine"));
+		expect(root.textContent).not.toMatch(/revision/i);
+		expect(editor.getText()).toContain("Mine Original");
+		await mounted.save();
+		expect(saves(test)).toBe(0);
 		click(root, "Use theirs");
-		await vi.waitFor(() =>
-			expect(root.textContent).toContain("kept their version"),
-		);
-		expect(editor.getText()).toBe("Theirs");
+		await vi.waitFor(() => expect(editor.getText()).toBe("Theirs"));
+		expect(statusText(root)).toBe("");
+		expect(mounted.dirty).toBe(false);
 	});
 	it("keeps read-only users out of editing and reports oversized saves without dropping the draft", async () => {
 		const readonly = fixture("use"),
 			view = await readonly.mount();
 		expect(view.editor.isEditable).toBe(false);
+		expect(find(view.root, "Bold")).toBeUndefined();
+		expect(view.root.textContent).toContain("Read only");
+		expect(find(view.root, "Export as PDF")).toBeDefined();
 		expect(
 			readonly.calls.mock.calls.some(([method]) => method === "app.draft.read"),
 		).toBe(false);
@@ -397,13 +663,9 @@ describe("portable rich Doc client", () => {
 			{ root, editor, mounted } = await test.mount();
 		editor.commands.insertContentAt(1, "é".repeat(510_000));
 		await mounted.save();
-		expect(root.querySelector(".doc-status")?.textContent).toContain(
-			"1 MB save limit",
-		);
+		expect(statusText(root)).toContain("1 MB limit");
 		expect(mounted.dirty).toBe(true);
-		expect(
-			test.calls.mock.calls.some(([method]) => method === "outputs.replace"),
-		).toBe(false);
+		expect(saves(test)).toBe(0);
 	});
 	it("saves rich content above the app-call argument limit through the fenced output capability", async () => {
 		const test = fixture(),
@@ -417,43 +679,35 @@ describe("portable rich Doc client", () => {
 		);
 		expect(JSON.stringify(test.persisted()).length).toBeGreaterThan(65_536);
 	});
-	it("exports rich Word and PDF from the saved revision without submitting unsaved edits", async () => {
+	it("saves pending edits first, then exports rich Word and PDF from the saved document", async () => {
 		const test = fixture(),
 			{ root, editor, mounted } = await test.mount();
-		editor.commands.insertContentAt(1, "Private draft ");
-		const select = root.querySelector<HTMLSelectElement>(
-			'[aria-label="Export format"]',
-		)!;
+		editor.commands.insertContentAt(1, "Late edit ");
 		for (const [format, label] of [
 			["docx", "Word"],
 			["pdf", "PDF"],
 		] as const) {
-			select.value = format;
-			select.dispatchEvent(new Event("change"));
-			click(root, `Export ${label}`);
+			click(root, `Export as ${label}`);
 			await vi.waitFor(() =>
 				expect(test.calls).toHaveBeenCalledWith("app.exportOutput", {
 					slot: "document",
 					format,
-					expectedRevision: 4,
+					expectedRevision: 5,
 				}),
 			);
 			await vi.waitFor(() =>
-				expect(
-					root.querySelector<HTMLButtonElement>("#doc-export")!.disabled,
-				).toBe(false),
+				expect(statusText(root)).toBe(`Exported as ${label}.`),
 			);
 		}
-		expect(mounted.dirty).toBe(true);
-		expect(root.querySelector(".doc-status")?.textContent).toContain(
-			"unsaved edits are not included",
+		expect(mounted.dirty).toBe(false);
+		expect(test.persisted().richText!.content[0]!.content![0]!.text).toBe(
+			"Late edit Original",
 		);
 	});
-	it("exports only the saved semantic revision through the host", async () => {
+	it("exports the saved semantic document through the host", async () => {
 		const test = fixture(),
-			{ root, editor } = await test.mount();
-		editor.commands.insertContentAt(1, "Draft ");
-		click(root, "Export Markdown");
+			{ root } = await test.mount();
+		click(root, "Export as Markdown");
 		await vi.waitFor(() =>
 			expect(test.calls).toHaveBeenCalledWith(
 				"app.download",
@@ -463,7 +717,9 @@ describe("portable rich Doc client", () => {
 				}),
 			),
 		);
-		expect(root.textContent).toContain("unsaved edits are not included");
+		await vi.waitFor(() =>
+			expect(statusText(root)).toContain("Exported as Markdown."),
+		);
 	});
 	it("executes the generated self-contained client artifact, without the native host editor", async () => {
 		const test = fixture(),
@@ -472,15 +728,16 @@ describe("portable rich Doc client", () => {
 		document.body.append(root);
 		const previous = window.tedix;
 		window.tedix = test.bridge;
-		const listeners: [string, EventListener][] = [],
-			add = window.addEventListener.bind(window);
-		vi.spyOn(window, "addEventListener").mockImplementation(
-			(type, listener, options) => {
-				if (type === "message" || type === "beforeunload")
-					listeners.push([type, listener as EventListener]);
-				add(type, listener, options);
-			},
-		);
+		const listeners: [EventTarget, string, EventListener][] = [];
+		for (const target of [window, document]) {
+			const add = target.addEventListener.bind(target);
+			vi.spyOn(target, "addEventListener").mockImplementation(
+				(type: string, listener: unknown, options?: unknown) => {
+					listeners.push([target, type, listener as EventListener]);
+					add(type, listener as EventListener, options as boolean);
+				},
+			);
+		}
 		new Function(DOC_CLIENT_SOURCE)();
 		await vi.waitFor(() =>
 			expect(root.querySelector(".tiptap")?.textContent).toContain("Original"),
@@ -489,18 +746,16 @@ describe("portable rich Doc client", () => {
 			root.querySelector(".tiptap") as HTMLElement & { editor: Editor }
 		).editor;
 		editor.chain().setTextSelection({ from: 1, to: 9 }).toggleBold().run();
-		click(root, "Save document");
-		await vi.waitFor(() =>
-			expect(root.querySelector(".doc-status")?.textContent).toBe("Saved"),
-		);
+		press(editor.view.dom, { key: "s", ctrlKey: true });
+		await vi.waitFor(() => expect(statusText(root)).toBe("Saved"));
 		expect(
 			test.persisted().richText!.content[0]!.content![0]!.marks,
 		).toContainEqual({ type: "bold" });
 		cleanups.push(() => {
 			editor.destroy();
 			window.tedix = previous;
-			for (const [type, listener] of listeners)
-				window.removeEventListener(type, listener);
+			for (const [target, type, listener] of listeners)
+				target.removeEventListener(type, listener);
 		});
 	});
 });

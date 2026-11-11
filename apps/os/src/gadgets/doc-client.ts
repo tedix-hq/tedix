@@ -2,7 +2,6 @@ import {
 	createDocEngine,
 	blocksFromRichText,
 	moveDocumentBlock,
-	canMoveDocumentBlock,
 	applyDocumentStyle,
 	currentDocumentStyle,
 	type Editor,
@@ -16,13 +15,12 @@ import {
 	mergeOutputContent,
 	type OutputMergePreference,
 } from "@tedix/api-contract/utils/output-merge";
-import { showMergeChoice } from "./merge-choice";
+import { editorIcon, type EditorIcon } from "./editor-icons";
 
 type DocumentContent = Extract<OsOutputContent, { kind: "document" }>;
 type Context = {
 	workspaceId: string;
 	role: string;
-	gadget: { revision: number };
 	settings: { slot: string };
 	grants: { slot: string; operations: string[] }[];
 };
@@ -31,88 +29,99 @@ type Saved = {
 	revision: { revision: number; content: DocumentContent };
 };
 type Draft = { revision: number; content: DocumentContent };
+type DocNode = Editor["state"]["doc"];
+type Action = [label: string, run: () => void];
 export interface DocClientBridge {
 	call<T = unknown>(method: string, args?: unknown): Promise<T>;
 }
 
-const css = `:root{font:14px var(--tedix-font,system-ui,sans-serif);color:var(--tedix-fg,CanvasText)}*{box-sizing:border-box}body{margin:0;padding:0!important}button,input,select{font:inherit;color:inherit}button,select,input[type=text]{background:var(--tedix-bg,Canvas);border:1px solid color-mix(in srgb,var(--tedix-fg,CanvasText) 22%,transparent);border-radius:5px;padding:6px 9px}button{cursor:pointer}button:disabled,select:disabled{opacity:.45;cursor:default}button[aria-pressed=true]{background:color-mix(in srgb,var(--tedix-primary,Highlight) 20%,var(--tedix-bg,Canvas))}.doc-header{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:14px 16px}.doc-title{flex:1;min-width:160px}.doc-title h1{font-size:20px;margin:0}.doc-meta,.doc-status,.doc-note{font-size:12px;line-height:1.5}.doc-meta{opacity:.7;margin-top:4px}.doc-status,.doc-note{padding:8px 16px}.doc-status[data-error=true]{color:var(--tedix-fg,CanvasText);background:color-mix(in srgb,var(--tedix-warning,Mark) 30%,var(--tedix-bg,Canvas))}.doc-toolbar{display:flex;gap:5px;align-items:center;overflow-x:auto;padding:8px;border-block:1px solid color-mix(in srgb,var(--tedix-fg,CanvasText) 15%,transparent);position:sticky;top:0;background:var(--tedix-bg,Canvas);z-index:3}.doc-toolbar>*{flex-shrink:0}.doc-toolbar button{min-width:30px}.doc-toolbar input[type=color]{width:30px;height:30px;border:0;padding:3px;background:var(--tedix-bg,Canvas)}.doc-divider{height:22px;width:1px;margin:0 4px;background:color-mix(in srgb,var(--tedix-fg,CanvasText) 20%,transparent)}.doc-workbench{display:flex;gap:16px;padding:20px 16px;background:color-mix(in srgb,var(--tedix-fg,CanvasText) 4%,var(--tedix-bg,Canvas))}.doc-outline{width:150px;flex-shrink:0;padding-top:16px}.doc-outline button{display:block;text-align:left;border:0;font-size:12px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-block:4px}.doc-page{flex:1;min-width:0;max-width:860px;margin-inline:auto;background:var(--tedix-bg,Canvas);box-shadow:0 1px 8px #0001;padding:48px 56px;min-height:500px}.tiptap{outline:none;line-height:1.7;min-height:360px;overflow-wrap:anywhere}.tiptap>p:first-child{margin-top:0}.tiptap h1{font-size:2em}.tiptap h2{font-size:1.5em}.tiptap h3{font-size:1.25em}.tiptap .doc-title{font-size:2.2em;font-weight:650}.tiptap blockquote{margin-inline:0;border-left:3px solid var(--tedix-muted-fg,GrayText);padding-left:16px}.tiptap pre{font:13px ui-monospace,monospace;background:color-mix(in srgb,var(--tedix-fg,CanvasText) 6%,var(--tedix-bg,Canvas));padding:12px;white-space:pre-wrap}.tiptap code{font-family:ui-monospace,monospace}.tiptap ul[data-type=taskList]{list-style:none;padding-left:0}.tiptap li[data-type=taskItem]{display:flex;gap:8px;align-items:baseline}.tiptap li[data-type=taskItem]>div{flex:1}.tiptap li[data-type=taskItem] p{margin:4px 0}.tiptap table{border-collapse:collapse;table-layout:fixed;width:100%;margin:12px 0}.tiptap th,.tiptap td{border:1px solid var(--tedix-muted-fg,GrayText);min-width:60px;padding:7px;position:relative;vertical-align:top}.tiptap th{background:color-mix(in srgb,var(--tedix-fg,CanvasText) 6%,var(--tedix-bg,Canvas))}.tiptap .selectedCell:after{content:"";position:absolute;inset:0;background:color-mix(in srgb,var(--tedix-primary,Highlight) 12%,transparent);pointer-events:none}.tiptap .column-resize-handle{position:absolute;right:-2px;top:0;bottom:0;width:4px;background:var(--tedix-primary,Highlight)}.tiptap img{max-width:100%;height:auto}.tiptap aside{background:color-mix(in srgb,var(--tedix-warning,Mark) 15%,var(--tedix-bg,Canvas));padding:12px}.tiptap details{border:1px solid var(--tedix-muted-fg,GrayText);padding:10px}.tiptap a{color:var(--tedix-primary,LinkText);text-decoration:underline}.doc-link-form{display:flex;gap:6px;align-items:center;padding:8px 16px}.doc-link-form[hidden]{display:none}.doc-link-form input{flex:1;min-width:100px}@media(max-width:650px){.doc-outline{display:none}.doc-page{padding:24px 18px}.doc-workbench{padding:8px}.doc-header{padding:10px}.doc-title{flex-basis:100%}.doc-toolbar button{min-height:36px}}`;
+/** Wait after the last edit before saving, and the longest a save may wait. */
+const SAVE_IDLE_MS = 1500,
+	SAVE_MAX_MS = 5000;
+
+const css = `:root{--ease:cubic-bezier(.2,.8,.2,1);--fg:var(--tedix-fg,CanvasText);--bg:var(--tedix-bg,Canvas);--pri:var(--tedix-primary,Highlight);--mut:var(--tedix-muted-fg,GrayText);--hov:color-mix(in srgb,var(--fg) 5.5%,var(--bg));--act:color-mix(in srgb,var(--fg) 8.5%,var(--bg));--line:color-mix(in srgb,var(--fg) 8%,transparent);--edge:color-mix(in srgb,var(--fg) 15%,transparent);--card:var(--tedix-surface,var(--bg));font:14px var(--tedix-font,system-ui,sans-serif);color:var(--fg);scrollbar-width:thin;scrollbar-color:var(--edge) transparent}*{box-sizing:border-box}body{margin:0;padding:0!important;background:var(--bg)}button,input,select{font:inherit;color:inherit}[hidden]{display:none!important}:focus-visible{outline:2px solid var(--pri);outline-offset:1px}.doc-toolbar{position:sticky;top:0;z-index:3;display:flex;align-items:center;gap:2px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding:6px 10px;background:var(--bg);border-bottom:1px solid transparent;transition:border-color .12s}.doc-toolbar[data-scrolled]{border-color:var(--line)}.doc-toolbar>*{flex:none}.doc-table{display:contents}.doc-toolbar button,.doc-toolbar select,.doc-menu button,.doc-status button{height:29px;min-width:29px;display:inline-grid;place-items:center;padding:0 6px;border:0;border-radius:6px;background:none;cursor:pointer;transition:background .12s var(--ease),transform .12s var(--ease)}:is(button,select):hover:not(:disabled){background:var(--hov)}button:active:not(:disabled){background:var(--act);transform:scale(.94)}:is(button,select):disabled{opacity:.38;cursor:default}button[aria-pressed=true]{background:var(--act);color:var(--pri)}.doc-sep{flex:none;width:1px;height:16px;margin:0 5px;background:var(--edge)}.doc-readonly{padding:0 8px;font-size:12px;color:var(--mut)}.doc-toolbar .doc-more{margin-left:auto;position:sticky;right:0;background:var(--bg)}.doc-page{max-width:calc(700px + 2*clamp(20px,5.5vw,52px));margin:0 auto;padding:22px clamp(20px,5.5vw,52px) min(40vh,300px)}.doc-skel{animation:doc-fade .3s .25s both}.doc-skel i{display:block;height:12px;margin-bottom:15px;border-radius:6px;background:var(--act)}.doc-skel i:first-child{width:45%;height:26px;margin-bottom:24px}.doc-skel i:last-child{width:60%}@keyframes doc-fade{from{opacity:0}}@keyframes doc-in{from{opacity:0;transform:scale(.96)}}.doc-status,.doc-link,.doc-menu{position:fixed;background:var(--card);border:1px solid var(--edge);box-shadow:0 6px 22px #0002;animation:doc-in .16s var(--ease)}.doc-status{top:48px;right:12px;z-index:4;max-width:min(380px,calc(100% - 24px));display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;padding:5px 11px;border-radius:14px;font-size:12px;line-height:1.45;color:var(--mut)}.doc-status:empty{display:none}.doc-status[data-error=true]{color:var(--tedix-danger,#c0262d)}.doc-status button{height:24px;color:var(--fg);background:var(--hov)}.doc-link,.doc-menu{z-index:5;padding:5px;border-radius:10px;transform-origin:0 0}.doc-link{display:flex;gap:4px}.doc-link input{width:min(250px,60vw);height:29px;padding:0 8px;border:0;border-radius:6px;background:var(--hov)}.doc-link button{height:29px;padding:0 10px;border:0;border-radius:6px;background:var(--pri);color:var(--tedix-on-primary,HighlightText);cursor:pointer}.doc-menu{display:grid;min-width:180px}.doc-menu button{justify-content:start;padding:0 9px}.doc-menu div{display:flex;gap:2px}.doc-menu hr{width:100%;height:0;border:0;border-top:1px solid var(--line);margin:4px 0}.tiptap{outline:0;font-size:16px;line-height:1.62;min-height:50vh;caret-color:var(--pri);overflow-wrap:anywhere}.tiptap>:first-child{margin-top:0}.tiptap p{margin:0 0 .8em}.tiptap h1{font-size:1.875em;line-height:1.22;font-weight:680;letter-spacing:-.024em;margin:1.3em 0 .4em}.tiptap h2{font-size:1.4em;line-height:1.3;font-weight:640;letter-spacing:-.016em;margin:1.3em 0 .35em}.tiptap h3{font-size:1.15em;line-height:1.4;font-weight:620;margin:1.2em 0 .3em}.tiptap .doc-title{font-size:2.3em;font-weight:700}.tiptap [data-hint]:before{content:attr(data-hint);float:left;height:0;pointer-events:none;color:var(--mut);opacity:.65}.tiptap blockquote{margin:0 0 .8em;padding-left:14px;border-left:2px solid var(--edge);color:color-mix(in srgb,var(--fg) 72%,transparent)}.tiptap pre{font:13px/1.55 var(--tedix-font-mono,ui-monospace,monospace);background:var(--hov);margin:0 0 1em;padding:12px 14px;border-radius:8px;white-space:pre-wrap}.tiptap code{font-family:var(--tedix-font-mono,ui-monospace,monospace);font-size:.9em}.tiptap :not(pre)>code{background:var(--act);padding:.1em .3em;border-radius:4px}.tiptap hr{border:0;border-top:1px solid var(--edge);margin:1.6em 0}.tiptap ul,.tiptap ol{margin:0 0 .8em;padding-left:1.5em}.tiptap li p{margin:0 0 .2em}.tiptap ul[data-type=taskList]{list-style:none;padding-left:0}.tiptap li[data-checked]{display:flex;gap:9px}.tiptap li[data-checked]>div{flex:1}.tiptap li[data-checked=true]>div{color:var(--mut)}.tiptap input[type=checkbox]{appearance:none;display:grid;place-content:center;width:16px;height:16px;margin:5px 0 0;border:1.5px solid color-mix(in srgb,var(--fg) 34%,transparent);border-radius:4.5px;cursor:pointer;transition:background .12s}.tiptap input:checked{background:var(--pri);border-color:var(--pri)}.tiptap input:checked:after{content:"";width:8px;height:4px;margin-top:-2px;border:solid var(--tedix-on-primary,HighlightText);border-width:0 0 2px 2px;transform:rotate(-45deg)}.tiptap table{border-collapse:separate;border-spacing:0;table-layout:fixed;width:100%;margin:0 0 1em;border:1px solid var(--edge);border-radius:8px;overflow:hidden}.tiptap th,.tiptap td{border:solid var(--line);border-width:0 1px 1px 0;min-width:60px;padding:7px 10px;position:relative;vertical-align:top;text-align:left}.tiptap :is(th,td):last-child{border-right:0}.tiptap tr:last-child>*{border-bottom:0}.tiptap th{background:color-mix(in srgb,var(--fg) 3.5%,transparent);font-weight:600}.tiptap :is(th,td) p{margin:0}.tiptap .selectedCell:after{content:"";position:absolute;inset:0;background:color-mix(in srgb,var(--pri) 12%,transparent);pointer-events:none}.tiptap .column-resize-handle{position:absolute;right:0;top:0;bottom:0;width:3px;background:var(--pri)}.tiptap img{max-width:100%;height:auto;border-radius:6px}.tiptap .ProseMirror-selectednode{outline:2px solid var(--pri)}.tiptap aside,.tiptap [data-type=details]{margin:0 0 1em;padding:11px 14px;border-radius:8px;background:var(--hov)}.tiptap [data-type=details]{display:flex;gap:6px}.tiptap [data-type=details]>button{flex:none;width:22px;height:26px;border:0;border-radius:5px;background:none;cursor:pointer}.tiptap [data-type=details]>button:before{content:"▸"}.tiptap .is-open>button:before{content:"▾"}.tiptap [data-type=details]>div{flex:1;min-width:0}.tiptap summary{list-style:none;font-weight:600}.tiptap :is(aside,[data-type=detailsContent])>:last-child{margin-bottom:0}.tiptap a{color:var(--pri);text-decoration:underline}@media(pointer:coarse){.doc-toolbar button,.doc-toolbar select{height:36px;min-width:36px}}`;
 
 export async function mountDocClient(
 	root: HTMLElement,
 	bridge: DocClientBridge,
 ) {
 	const style = document.createElement("style");
-	style.textContent =
-		css +
-		`.doc-meta{display:none}.doc-header{padding:8px 12px;gap:6px}.doc-title h1{font-size:15px;font-weight:600}.doc-header>button:not(.primary),.doc-header>select{border-color:transparent;background:transparent}.doc-header>button:not(.primary):hover:not(:disabled){background:color-mix(in srgb,var(--tedix-fg,CanvasText) 8%,transparent)}button.primary{background:var(--tedix-primary,Highlight);border-color:transparent;color:var(--tedix-on-primary,HighlightText)}.doc-title{flex:none;min-width:0}.doc-status{flex:1;min-width:0;padding:2px 6px;border-radius:4px;font-size:12px;opacity:.75}.doc-status[data-error=true]{opacity:1}.doc-toolbar{flex-wrap:wrap;overflow:visible;position:relative}.doc-more{flex-basis:100%;min-width:0}.doc-more summary{cursor:pointer;padding:6px;width:fit-content;min-height:32px}.doc-extra{display:flex;flex-wrap:wrap;align-items:center;gap:5px;padding:8px 0}.doc-extra>*{flex-shrink:0}.doc-toolbar select{max-width:100%}.doc-header>button{min-height:36px}@media(max-width:650px){.doc-toolbar{gap:4px}.doc-toolbar select{max-width:145px}.doc-toolbar button{padding:6px}.doc-header>button{flex:1}.doc-workbench{min-width:0}}`;
+	style.textContent = css;
 	document.head.append(style);
 	root.innerHTML =
-		'<main aria-label="Doc gadget"><header class="doc-header"><div class="doc-title"><h1>Doc</h1><div class="doc-meta"></div></div><div class="doc-status" role="status" aria-live="polite"></div><button id="doc-reload" aria-label="Reload saved document">Reload</button><button id="doc-export" aria-label="Export Markdown">Export</button><button id="doc-save" class="primary" aria-label="Save document">Save</button></header><div class="doc-note" id="doc-updates" role="status"></div><div class="doc-note" id="doc-file"></div><div class="doc-toolbar" role="toolbar" aria-label="Document formatting"></div><form class="doc-link-form" hidden><label>Link <input type="text" aria-label="Link URL" placeholder="https://example.test"></label><button type="submit">Apply link</button><button type="button" id="doc-unlink">Remove link</button><button type="button" id="doc-link-close">Close</button></form><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" id="doc-image" hidden><div class="doc-workbench"><nav class="doc-outline" aria-label="Document outline"></nav><section class="doc-page" aria-label="Document page"></section></div></main>';
+		'<main aria-label="Doc gadget"><div class="doc-toolbar" role="toolbar" aria-label="Document formatting"></div><div class="doc-status" role="status" aria-live="polite"></div><form class="doc-link" hidden><input type="text" aria-label="Link URL" placeholder="Paste or type a link"><button type="submit">Apply</button></form><div class="doc-menu" role="menu" aria-label="More" hidden></div><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden><section class="doc-page" aria-label="Document page"><div class="doc-skel"><i></i><i></i><i></i><i></i><i></i></div></section></main>';
 	const get = <T extends HTMLElement>(selector: string) =>
 		root.querySelector<T>(selector)!;
 	const status = get(".doc-status"),
-		updates = get("#doc-updates"),
 		page = get(".doc-page"),
-		toolbar = get(".doc-toolbar");
-	let toolbarTarget = toolbar;
-	const saveButton = get<HTMLButtonElement>("#doc-save"),
-		reloadButton = get<HTMLButtonElement>("#doc-reload"),
-		exportButton = get<HTMLButtonElement>("#doc-export");
-	const exportFormat = document.createElement("select");
-	exportFormat.setAttribute("aria-label", "Export format");
-	for (const [value, label] of [
-		["md", "Markdown"],
-		["docx", "Word"],
-		["pdf", "PDF"],
-		["html", "HTML"],
-		["png", "PNG"],
-	] as const) {
-		const option = document.createElement("option");
-		option.value = value;
-		option.textContent = label;
-		exportFormat.append(option);
-	}
-	exportButton.before(exportFormat);
-	exportFormat.onchange = () => {
-		exportButton.setAttribute(
-			"aria-label",
-			`Export ${exportFormat.selectedOptions[0]!.textContent}`,
-		);
-	};
-	const linkForm = get<HTMLFormElement>(".doc-link-form"),
-		linkInput = get<HTMLInputElement>('[aria-label="Link URL"]'),
-		imageInput = get<HTMLInputElement>("#doc-image");
+		toolbar = get(".doc-toolbar"),
+		menu = get(".doc-menu"),
+		linkForm = get<HTMLFormElement>(".doc-link"),
+		linkInput = get<HTMLInputElement>(".doc-link input"),
+		imageInput = get<HTMLInputElement>("input[type=file]");
 	const context = await bridge.call<Context>("context");
 	const slot = context.settings?.slot;
 	if (!slot || !context.workspaceId)
 		throw new Error("Document slot is not configured");
 	const editable =
 		(context.role === "owner" || context.role === "build") &&
-		context.grants?.some(
+		!!context.grants?.some(
 			(grant) =>
 				grant.slot === slot && grant.operations.includes("outputs.write"),
 		);
+	// `loaded` is the saved copy the draft started from; `draft` carries the
+	// parts of the document the editor does not show, such as an attached file.
 	let loaded: Saved | undefined,
 		draft: DocumentContent | undefined,
-		editor: Editor | undefined;
+		editor: Editor | undefined,
+		// A newer saved copy that overlaps the draft, waiting for a choice.
+		theirs: Saved | undefined,
+		waiting: Promise<void> | undefined,
+		tail: Promise<unknown> = Promise.resolve();
 	let basis = 0,
 		dirty = false,
-		busy = false,
 		available = false,
-		discardPending = false,
-		pendingRevision = 0,
 		destroyed = false,
-		// A newer saved revision that overlaps the draft, waiting for a choice.
-		choice = 0;
+		failed = false,
+		since = 0,
+		frame = 0;
+	let saveTimer: ReturnType<typeof setTimeout> | undefined,
+		draftTimer: typeof saveTimer,
+		statusTimer: typeof saveTimer;
 	const buttons: {
-		button: HTMLButtonElement;
+		node: HTMLButtonElement;
 		active?: () => boolean;
-		available?: () => boolean;
+		can?: () => boolean;
 	}[] = [];
-	const message = (text: string, error = false) => {
+	let blockStyle: HTMLSelectElement | undefined,
+		tableTools: HTMLElement | undefined;
+
+	/** Show a short status. Plain notes fade; anything with a choice stays. */
+	function say(
+		text = "",
+		error = false,
+		actions: Action[] = [],
+		brief = false,
+	) {
+		clearTimeout(statusTimer);
 		status.textContent = text;
 		status.dataset.error = String(error);
-	};
+		for (const [label, run] of actions) {
+			const node = document.createElement("button");
+			node.type = "button";
+			node.textContent = label;
+			node.onclick = run;
+			status.append(node);
+		}
+		// A pending choice comes back once a passing note has been read.
+		if (text && !actions.length)
+			statusTimer = setTimeout(
+				() => (theirs ? ask() : say()),
+				brief ? 1300 : 7000,
+			);
+	}
+	const reason = (error: unknown, fallback: string) =>
+		error instanceof Error && error.message ? error.message : fallback;
 	const call = <T>(method: string, input: unknown = {}) =>
 		bridge.call<T>("app.call", { method, args: [input] });
 	// The host reads the bound Output directly; the app server is the fallback
@@ -122,6 +131,17 @@ export async function mountDocClient(
 			.call<Saved>("outputs.readRevision", { slot })
 			.catch(() => call<Saved>("readDocument"));
 	const draftArgs = () => ({ slot, outputId: loaded!.output.id });
+	const clearDraft = () => {
+		clearTimeout(draftTimer);
+		if (loaded && editable)
+			void bridge.call("app.draft.clear", draftArgs()).catch(() => undefined);
+	};
+	/** One save or refresh at a time, in the order they were asked for. */
+	const queue = <T>(work: () => Promise<T>): Promise<T> => {
+		const next = tail.then(work, work);
+		tail = next.catch(() => undefined);
+		return next;
+	};
 	function parse(value: Saved): Saved {
 		if (
 			value?.output?.workspaceId !== context.workspaceId ||
@@ -135,162 +155,39 @@ export async function mountDocClient(
 			throw new Error("The app returned an invalid document");
 		return value;
 	}
-	function controls() {
-		saveButton.disabled = busy || !editable || !dirty || !editor || !available;
-		reloadButton.disabled = busy;
-		exportButton.disabled = busy || !loaded || !available;
-		exportFormat.disabled = busy || !loaded || !available;
-		toolbar
-			.querySelectorAll<HTMLInputElement | HTMLSelectElement>("input,select")
-			.forEach(
-				(node) => (node.disabled = busy || !editable || !editor || !available),
-			);
-		linkForm
-			.querySelectorAll<HTMLInputElement | HTMLButtonElement>("input,button")
-			.forEach((node) => (node.disabled = busy || !editable || !available));
-		for (const { button, active, available: commandAvailable } of buttons) {
-			button.disabled =
-				busy ||
-				!editable ||
-				!editor ||
-				!available ||
-				(commandAvailable ? !commandAvailable() : false);
-			if (active)
-				button.setAttribute("aria-pressed", String(!!editor && active()));
-		}
-		editor?.setEditable(!!editable && !busy && available, false);
-	}
-	function outline() {
-		const nav = get(".doc-outline");
-		nav.replaceChildren();
-		editor?.state.doc.descendants((node, position) => {
-			if (node.type.name !== "heading") return;
-			const button = document.createElement("button");
-			button.textContent = node.textContent || "Untitled heading";
-			button.style.paddingLeft = `${Math.max(0, Number(node.attrs.level) - 1) * 10}px`;
-			button.onclick = () =>
-				editor
-					?.chain()
-					.focus()
-					.setTextSelection(position + 1)
-					.scrollIntoView()
-					.run();
-			nav.append(button);
-		});
-	}
-	function updateNotice() {
-		const revision = Math.max(pendingRevision, loaded?.revision.revision ?? 0);
-		if (dirty && choice > basis)
-			return showMergeChoice(
-				updates,
-				choice,
-				(prefer) => void mergeLatest(prefer),
-			);
-		updates.textContent =
-			dirty && revision > basis
-				? `Document revision ${revision} is available. Your draft stays based on revision ${basis}; save still checks that revision.`
-				: "";
-	}
-	/**
-	 * Bring someone else's newer save into the unsaved draft. Only a draft
-	 * started from the revision this editor loaded can merge here; an older
-	 * retained draft merges on the server when it is saved.
-	 */
-	async function mergeLatest(prefer?: OutputMergePreference) {
-		if (
-			!loaded ||
-			!draft ||
-			!editor ||
-			!dirty ||
-			busy ||
-			destroyed ||
-			basis !== loaded.revision.revision
-		)
-			return;
-		busy = true;
-		controls();
-		try {
-			const latest = parse(await read());
-			if (destroyed || latest.revision.revision <= basis) return;
-			// Compare documents the way this editor writes them.
-			const normal = (content: DocumentContent): DocumentContent =>
-				content.richText
-					? {
-							...content,
-							richText: editor!.schema
-								.nodeFromJSON(content.richText)
-								.toJSON() as OsRichTextDocument,
-						}
-					: content;
-			const result = mergeOutputContent(
-				normal(loaded.revision.content),
-				normal(draft),
-				normal(latest.revision.content),
-				{ prefer, documentBlocks: blocksFromRichText },
-			);
-			if (!result.ok) {
-				choice = latest.revision.revision;
-				return;
+
+	// Toolbar state is read at most once per frame, however fast someone types.
+	function paint() {
+		frame = 0;
+		if (destroyed) return;
+		const on = !!editor && editable && available;
+		if (editor && editor.isEditable !== on) editor.setEditable(on, false);
+		for (const { node, active, can } of buttons) {
+			const off = !on || (can ? !can() : false);
+			if (node.disabled !== off) node.disabled = off;
+			if (active) {
+				const pressed = String(on && active());
+				if (node.getAttribute("aria-pressed") !== pressed)
+					node.setAttribute("aria-pressed", pressed);
 			}
-			choice = 0;
-			const { from, to } = editor.state.selection;
-			loaded = latest;
-			basis = latest.revision.revision;
-			draft = result.content as DocumentContent;
-			renderContent();
-			const end = editor.state.doc.content.size;
-			editor.commands.setTextSelection({
-				from: Math.min(from, end),
-				to: Math.min(to, end),
-			});
-			get(".doc-meta").textContent =
-				`Document revision ${basis} · Doc app version ${context.gadget.revision}`;
-			message(
-				`Unsaved changes · merged with document revision ${basis}${prefer ? `; kept ${prefer === "mine" ? "your" : "their"} version where you both edited` : ""}`,
-			);
-			void retainDraft();
-		} catch (error) {
-			message(
-				`${error instanceof Error ? error.message : "Merging the newer revision failed"}. Your draft is preserved.`,
-				true,
-			);
-		} finally {
-			busy = false;
-			controls();
-			updateNotice();
 		}
-	}
-	async function retainDraft() {
-		if (!loaded || !draft || !editable) return;
-		try {
-			await bridge.call("app.draft.write", {
-				...draftArgs(),
-				revision: basis,
-				content: draft,
-			});
-		} catch (error) {
-			if (!destroyed)
-				message(
-					`${error instanceof Error ? error.message : "Draft retention failed"}. Save before leaving this tab.`,
-					true,
-				);
+		if (blockStyle) {
+			blockStyle.disabled = !on;
+			if (on) blockStyle.value = currentDocumentStyle(editor!);
 		}
+		if (tableTools) tableTools.hidden = !on || !editor!.isActive("table");
 	}
-	function changed() {
-		if (!editor || !loaded || busy || !editable || !available) return;
-		const richText = editor.getJSON() as OsRichTextDocument;
-		draft = { ...draft!, richText, blocks: blocksFromRichText(richText) };
-		dirty = true;
-		discardPending = false;
-		reloadButton.textContent = "Reload";
-		message("Unsaved changes");
-		updateNotice();
-		controls();
-		outline();
-		void retainDraft();
+	const controls = () => {
+		frame ||= requestAnimationFrame(paint);
+	};
+
+	/** The document as it is on screen, in the shape a save sends. */
+	function snapshot(): DocumentContent {
+		const richText = editor!.getJSON() as OsRichTextDocument;
+		return { ...draft!, richText, blocks: blocksFromRichText(richText) };
 	}
-	function renderContent() {
-		const content = draft!;
+	/** Check that this editor can show and keep everything in a document. */
+	function check(content: DocumentContent): DocNode {
 		const source =
 			content.richText ??
 			(content.blocks.length === 0 && !content.file
@@ -300,74 +197,228 @@ export async function mountDocClient(
 			throw new Error(
 				"This older document cannot be edited here yet. Open it from its workspace; the saved content has not changed.",
 			);
-		if (!editor) {
-			editor = createDocEngine({
-				element: page,
-				editable: !!editable,
-				onUpdate: changed,
-			});
-			editor.on("selectionUpdate", controls);
-			editor.on("transaction", controls);
-		}
-		const validateNodes = (nodes: OsRichTextNode[]) => {
-			for (const node of nodes) {
-				const type = editor!.schema.nodes[node.type];
-				if (
-					!type ||
-					Object.keys(node.attrs ?? {}).some(
-						(key) => !(key in (type.spec.attrs ?? {})),
-					)
+		const { nodes, marks } = editor!.schema;
+		const known = (
+			part: { type: string; attrs?: Record<string, unknown> },
+			types: Record<string, { spec: { attrs?: object } }>,
+		) => {
+			const type = types[part.type];
+			if (
+				!type ||
+				Object.keys(part.attrs ?? {}).some(
+					(key) => !(key in (type.spec.attrs ?? {})),
 				)
-					throw new Error(
-						"This document uses formatting this editor cannot preserve. Its saved content has not changed.",
-					);
-				for (const mark of node.marks ?? []) {
-					const type = editor!.schema.marks[mark.type];
-					if (
-						!type ||
-						Object.keys(mark.attrs ?? {}).some(
-							(key) => !(key in (type.spec.attrs ?? {})),
-						)
-					)
-						throw new Error(
-							"This document uses unsupported inline formatting. Its saved content has not changed.",
-						);
-				}
-				if (node.content) validateNodes(node.content);
+			)
+				throw new Error(
+					"This document uses formatting this editor cannot preserve. Its saved content has not changed.",
+				);
+		};
+		const validate = (list: OsRichTextNode[]) => {
+			for (const node of list) {
+				known(node, nodes);
+				for (const mark of node.marks ?? []) known(mark, marks);
+				if (node.content) validate(node.content);
 			}
 		};
-		validateNodes(source.content);
-		const richText = source.content.length
-			? source
-			: { type: "doc" as const, content: [{ type: "paragraph" }] };
-		editor.schema.nodeFromJSON(richText).check();
-		editor
-			.chain()
-			.setContent(richText, { emitUpdate: false })
-			.setMeta("addToHistory", false)
-			.run();
-		page.hidden = false;
-		outline();
+		validate(source.content);
+		const node = editor!.schema.nodeFromJSON(
+			source.content.length
+				? source
+				: { type: "doc" as const, content: [{ type: "paragraph" }] },
+		);
+		node.check();
+		return node;
+	}
+	/**
+	 * Put a document on screen by changing only the part that differs, as one
+	 * step that undo skips. The caret, the selection and the text in view stay
+	 * where they are.
+	 */
+	function show(next: DocNode) {
+		const { state, view } = editor!,
+			before = state.doc.content;
+		const start = before.findDiffStart(next.content);
+		if (start === null) return;
+		let { a, b } = before.findDiffEnd(next.content)!;
+		const overlap = start - Math.min(a, b);
+		if (overlap > 0) {
+			a += overlap;
+			b += overlap;
+		}
+		const quiet = <T extends { setMeta(key: string, value: unknown): T }>(
+			step: T,
+		) => step.setMeta("addToHistory", false).setMeta("preventUpdate", true);
+		let anchor = state.selection.head,
+			top: number | undefined;
+		try {
+			const box = page.getBoundingClientRect();
+			anchor =
+				view.posAtCoords({ left: box.left + box.width / 2, top: 80 })?.pos ??
+				anchor;
+			// Text that is itself being replaced cannot hold the view in place.
+			if (anchor < start || anchor > a) top = view.coordsAtPos(anchor).top;
+		} catch {
+			// Nothing is laid out yet, so there is no position to keep.
+		}
+		try {
+			const step = quiet(state.tr.replace(start, a, next.slice(start, b)));
+			anchor = step.mapping.map(anchor);
+			view.dispatch(step);
+		} catch {
+			quiet(
+				editor!.chain().setContent(next.toJSON(), { emitUpdate: false }),
+			).run();
+			top = undefined;
+		}
+		try {
+			if (top !== undefined) scrollBy(0, view.coordsAtPos(anchor).top - top);
+		} catch {
+			// As above.
+		}
 		controls();
 	}
-	async function load(discard = false) {
-		busy = true;
+
+	function retain() {
+		clearTimeout(draftTimer);
+		if (!loaded || !editor || !dirty || !editable || destroyed) return;
+		// The plain-block copy is rebuilt on save; a kept draft only needs the text.
+		void bridge
+			.call("app.draft.write", {
+				...draftArgs(),
+				revision: basis,
+				content: {
+					...draft!,
+					richText: editor.getJSON() as OsRichTextDocument,
+				},
+			})
+			.catch(() => undefined);
+	}
+	function schedule() {
+		clearTimeout(saveTimer);
+		if (theirs || destroyed) return;
+		saveTimer = setTimeout(
+			() => void save(false),
+			Math.max(0, Math.min(SAVE_IDLE_MS, since + SAVE_MAX_MS - Date.now())),
+		);
+	}
+	function changed() {
+		if (!loaded || !available) return;
+		if (!dirty) since = Date.now();
+		dirty = true;
+		schedule();
+		clearTimeout(draftTimer);
+		draftTimer = setTimeout(retain, 1000);
+	}
+	function ask() {
+		clearTimeout(saveTimer);
+		say(
+			"Someone else changed the same part. Which version should stay?",
+			false,
+			[
+				["Keep mine", () => void sync("mine")],
+				["Use theirs", () => void sync("theirs")],
+			],
+		);
+	}
+	/**
+	 * Bring a newer saved copy into the editor. Changes to different parts
+	 * are both kept; a choice is asked for only where the same part changed.
+	 * A draft restored from an older copy has nothing to compare against, so
+	 * it is kept or replaced as a whole.
+	 */
+	function absorb(latest: Saved, prefer?: OutputMergePreference) {
+		const saved = latest.revision.content;
+		let content = saved;
+		if (dirty) {
+			const mine = snapshot();
+			// Compare documents the way this editor writes them.
+			const normal = (value: DocumentContent): DocumentContent =>
+				value.richText
+					? {
+							...value,
+							richText: check(value).toJSON() as OsRichTextDocument,
+						}
+					: value;
+			const result =
+				basis !== loaded!.revision.revision
+					? prefer
+						? { ok: true as const, content: prefer === "mine" ? mine : saved }
+						: { ok: false as const }
+					: mergeOutputContent(
+							normal(loaded!.revision.content),
+							mine,
+							normal(saved),
+							{ prefer, documentBlocks: blocksFromRichText },
+						);
+			if (!result.ok) {
+				theirs = latest;
+				return ask();
+			}
+			content = result.content as DocumentContent;
+		}
+		const next = check(content);
+		dirty &&= !next.eq(check(saved));
+		if (theirs) say();
+		theirs = undefined;
+		loaded = latest;
+		basis = latest.revision.revision;
+		draft = content;
+		show(next);
+		if (dirty) {
+			since = Date.now();
+			schedule();
+			retain();
+		} else {
+			clearTimeout(saveTimer);
+			clearDraft();
+		}
+	}
+	/** Stop showing a document this person may no longer read. */
+	function close(error: unknown) {
+		available = false;
+		page.hidden = true;
+		editor?.setEditable(false, false);
+		clearTimeout(saveTimer);
+		say(reason(error, "Document access is unavailable"), true, [
+			["Try again", () => void queue(load)],
+		]);
+		clearDraft();
 		controls();
-		message("Loading document…");
+	}
+	/** Fetch the latest saved copy in the background and fold it in. */
+	async function refresh(prefer?: OutputMergePreference): Promise<boolean> {
+		if (!loaded || !editor || !available || destroyed) return false;
+		try {
+			let latest = parse(await read());
+			if (destroyed) return false;
+			if (latest.revision.revision <= loaded.revision.revision) {
+				if (theirs) latest = theirs;
+				// A draft restored from an older copy still has to be settled.
+				else if (!dirty || basis === loaded.revision.revision) return false;
+			}
+			absorb(latest, prefer);
+		} catch (error) {
+			if (dirty) throw error;
+			close(error);
+		}
+		return true;
+	}
+	const sync = (prefer?: OutputMergePreference) =>
+		queue(() => refresh(prefer)).catch((error) =>
+			say(
+				`${reason(error, "The newer version could not be loaded")}. Your changes are kept here.`,
+				true,
+			),
+		);
+	async function load() {
 		try {
 			const value = parse(await read());
 			if (destroyed) return;
 			loaded = value;
-			choice = 0;
-			let retained: Draft | null = null;
-			if (editable) {
-				if (discard) await bridge.call("app.draft.clear", draftArgs());
-				else
-					retained = await bridge.call<Draft | null>(
-						"app.draft.read",
-						draftArgs(),
-					);
-			}
+			theirs = undefined;
+			const retained = editable
+				? await bridge.call<Draft | null>("app.draft.read", draftArgs())
+				: null;
 			if (destroyed) return;
 			if (
 				retained &&
@@ -376,164 +427,261 @@ export async function mountDocClient(
 					retained.revision < 1)
 			)
 				throw new Error("The retained draft is invalid");
+			if (!editor) {
+				editor = createDocEngine({
+					element: page,
+					editable,
+					onUpdate: changed,
+				});
+				editor.on("transaction", controls);
+			}
+			const content = structuredClone(
+				retained?.content ?? value.revision.content,
+			);
+			show(check(content));
 			basis = retained?.revision ?? value.revision.revision;
-			draft = structuredClone(retained?.content ?? value.revision.content);
+			draft = content;
 			dirty = !!retained;
+			failed = false;
 			available = true;
-			discardPending = false;
-			reloadButton.textContent = "Reload";
-			get("h1").textContent = value.output.title;
-			get(".doc-meta").textContent =
-				`Document revision ${value.revision.revision} · Doc app version ${context.gadget.revision}`;
-			get("#doc-file").textContent = draft.file
-				? "The attached file is preserved."
-				: "";
-			renderContent();
-			message(
-				dirty
-					? "Restored your unsaved changes"
-					: `Saved${editable ? "" : " · Read only"}`,
-			);
-			updateNotice();
+			page.hidden = false;
+			say(dirty ? "Restored your unsaved changes" : "", false, [], true);
+			if (dirty) {
+				since = Date.now();
+				schedule();
+			}
 		} catch (error) {
-			available = false;
-			page.hidden = true;
-			editor?.setEditable(false, false);
-			message(
-				error instanceof Error
-					? error.message
-					: "Document access is unavailable",
-				true,
-			);
-			if (loaded && editable)
-				await bridge
-					.call("app.draft.clear", draftArgs())
-					.catch(() => undefined);
+			close(error);
 		} finally {
-			busy = false;
-			controls();
+			get(".doc-skel")?.remove();
+			paint();
 		}
 	}
-	async function save() {
-		if (!loaded || !draft || !dirty || !editable || busy || !available) return;
-		const input = { slot, content: draft, expectedRevision: basis };
-		if (new TextEncoder().encode(JSON.stringify(draft)).length > 1_000_000) {
-			message(
-				"This document exceeds the editor's 1 MB save limit. Your draft is preserved. Split it into smaller documents, or ask a tedi to make the change.",
-				true,
-			);
+	async function write(asked: boolean, again = true): Promise<void> {
+		clearTimeout(saveTimer);
+		if (
+			!loaded ||
+			!editor ||
+			!dirty ||
+			!editable ||
+			!available ||
+			theirs ||
+			destroyed
+		)
 			return;
-		}
-		busy = true;
-		controls();
-		message("Saving document…");
-		try {
-			const value = parse(await bridge.call<Saved>("outputs.replace", input));
-			if (destroyed) return;
-			loaded = value;
-			basis = value.revision.revision;
-			draft = structuredClone(value.revision.content);
-			dirty = false;
-			choice = 0;
-			await bridge.call("app.draft.clear", draftArgs());
-			get(".doc-meta").textContent =
-				`Document revision ${basis} · Doc app version ${context.gadget.revision}`;
-			renderContent();
-			message("Saved");
-			updateNotice();
-		} catch (error) {
-			message(
-				`${error instanceof Error ? error.message : "Save failed"}. Your draft is preserved; reload only when ready to discard it.`,
+		const sent = editor.state.doc,
+			content = snapshot();
+		if (new TextEncoder().encode(JSON.stringify(content)).length > 1_000_000) {
+			failed = true;
+			return say(
+				"This document is over the 1 MB limit, so new changes are not saved. Remove large images or split it up.",
 				true,
 			);
-		} finally {
-			busy = false;
-			controls();
 		}
-		// A save refused because someone else saved first: bring their changes in.
-		if (dirty) void mergeLatest();
+		let slow = false;
+		const timer = setTimeout(() => {
+			slow = true;
+			say("Saving…");
+		}, 1000);
+		try {
+			const value = parse(
+				await bridge.call<Saved>("outputs.replace", {
+					slot,
+					content,
+					expectedRevision: basis,
+				}),
+			);
+			if (destroyed) return;
+			// Typing carried on while this was saving: the screen is not touched,
+			// only the copy that later saves and merges compare against.
+			const same =
+				!value.revision.content.richText ||
+				check(value.revision.content).eq(sent);
+			basis = value.revision.revision;
+			draft = content;
+			loaded = same
+				? value
+				: { ...value, revision: { revision: basis, content } };
+			dirty = editor.state.doc !== sent;
+			// The saved copy also holds someone else's changes: show them.
+			if (!same) absorb(value);
+			else if (dirty) {
+				since = Date.now();
+				schedule();
+			} else clearDraft();
+			if (!theirs) say(asked || failed || slow ? "Saved" : "", false, [], true);
+			failed = false;
+		} catch (error) {
+			if (destroyed) return;
+			since = Date.now();
+			// A save refused because someone else saved first: bring theirs in.
+			if (await refresh().catch(() => false)) {
+				if (again && dirty && !theirs) await write(asked, false);
+				return;
+			}
+			failed = true;
+			say(
+				`${reason(error, "Saving failed")}. Your changes are kept here.`,
+				true,
+				[["Try again", () => void save()]],
+			);
+		} finally {
+			clearTimeout(timer);
+		}
 	}
+	/** Save now. Edits made while a save is running are saved right after it. */
+	function save(asked = true): Promise<void> {
+		return (waiting ??= queue(() => {
+			waiting = undefined;
+			return write(asked);
+		}));
+	}
+
+	const mac = /Mac|iP(hone|ad)/.test(navigator.platform);
+	const keys = (key: string, shift = false) =>
+		mac
+			? ` ⌘${shift ? "⇧" : ""}${key}`
+			: ` Ctrl+${shift ? "Shift+" : ""}${key}`;
 	function button(
+		target: HTMLElement,
 		label: string,
-		text: string,
+		icon: EditorIcon | undefined,
 		action: () => unknown,
 		active?: () => boolean,
-		available?: () => boolean,
+		can?: () => boolean,
 	) {
 		const node = document.createElement("button");
 		node.type = "button";
-		node.textContent = text;
-		node.title = label;
-		node.setAttribute("aria-label", label);
-		node.addEventListener("mousedown", (event) => event.preventDefault());
+		if (icon) {
+			node.innerHTML = editorIcon(icon);
+			node.title = label;
+			node.setAttribute("aria-label", label);
+		} else node.textContent = label;
+		node.onmousedown = (event) => event.preventDefault();
 		node.onclick = () => {
-			if (!node.disabled) {
-				action();
-				controls();
-			}
-		};
-		toolbarTarget.append(node);
-		buttons.push({ button: node, active, available });
-		return node;
-	}
-	function select(
-		label: string,
-		values: [string, string][],
-		action: (value: string) => void,
-	) {
-		const node = document.createElement("select");
-		node.setAttribute("aria-label", label);
-		for (const [value, text] of values) {
-			const option = document.createElement("option");
-			option.value = value;
-			option.textContent = text;
-			node.append(option);
-		}
-		node.onchange = () => {
-			action(node.value);
+			action();
 			controls();
 		};
-		toolbarTarget.append(node);
+		target.append(node);
+		buttons.push({ node, active, can });
 		return node;
 	}
-	const divider = () => {
-		const line = document.createElement("span");
-		line.className = "doc-divider";
+	const divider = (target: HTMLElement = toolbar) => {
+		const line = document.createElement(target === menu ? "hr" : "span");
+		line.className = "doc-sep";
 		line.setAttribute("aria-hidden", "true");
-		toolbarTarget.append(line);
+		target.append(line);
 	};
-	button(
-		"Undo",
-		"↶",
-		() => editor?.chain().focus().undo().run(),
-		undefined,
-		() => !!editor?.can().undo(),
-	);
-	button(
-		"Redo",
-		"↷",
-		() => editor?.chain().focus().redo().run(),
-		undefined,
-		() => !!editor?.can().redo(),
-	);
-	button(
-		"Move block up",
-		"↑",
-		() => editor && moveDocumentBlock(editor, -1),
-		undefined,
-		() => !!editor && canMoveDocumentBlock(editor, -1),
-	);
-	button(
-		"Move block down",
-		"↓",
-		() => editor && moveDocumentBlock(editor, 1),
-		undefined,
-		() => !!editor && canMoveDocumentBlock(editor, 1),
-	);
-	divider();
-	const blockStyle = select(
-		"Block style",
-		[
+	const run = () => editor!.chain().focus();
+
+	function place(card: HTMLElement, left: number, top: number) {
+		card.hidden = false;
+		card.style.left = `${Math.max(8, Math.min(left, innerWidth - card.offsetWidth - 8))}px`;
+		card.style.top = `${Math.max(8, Math.min(top, innerHeight - card.offsetHeight - 8))}px`;
+	}
+	function openLink() {
+		if (!editor?.isEditable) return;
+		linkInput.value = String(editor.getAttributes("link").href ?? "");
+		let left = 16,
+			top = 52;
+		try {
+			const box = editor.view.coordsAtPos(editor.state.selection.from);
+			left = box.left;
+			top = box.bottom + 8;
+		} catch {
+			// No layout to measure: open under the toolbar.
+		}
+		place(linkForm, left, top);
+		linkInput.select();
+	}
+	function closePopups(focus = false) {
+		if (focus && !(linkForm.hidden && menu.hidden)) editor?.commands.focus();
+		linkForm.hidden = menu.hidden = true;
+	}
+	async function addImage(file: File) {
+		if (!editor?.isEditable) return;
+		try {
+			if (!/^image\/(png|jpeg|gif|webp)$/.test(file.type)) throw 0;
+			let src = "";
+			if (file.size <= 32_000)
+				src = await new Promise<string>((resolve, reject) => {
+					const reader = new FileReader();
+					reader.onload = () => resolve(String(reader.result));
+					reader.onerror = reject;
+					reader.readAsDataURL(file);
+				});
+			else {
+				// Large pictures are scaled down so the document stays quick to save.
+				const picture = await createImageBitmap(file);
+				let scale = Math.min(1, 1200 / Math.max(picture.width, picture.height));
+				do {
+					const canvas = document.createElement("canvas"),
+						pen = canvas.getContext("2d")!;
+					canvas.width = Math.round(picture.width * scale);
+					canvas.height = Math.round(picture.height * scale);
+					pen.fillStyle = "#fff";
+					pen.fillRect(0, 0, canvas.width, canvas.height);
+					pen.drawImage(picture, 0, 0, canvas.width, canvas.height);
+					src = canvas.toDataURL("image/jpeg", 0.8);
+					scale *= 0.75;
+				} while (src.length > 200_000 && scale > 0.05);
+			}
+			if (!destroyed && editor.isEditable)
+				run().setImage({ src, alt: file.name }).run();
+		} catch {
+			say("Use a PNG, JPEG, GIF or WebP image.", true);
+		}
+	}
+	async function exportAs(format: string, name: string) {
+		if (!loaded || !available) return;
+		await save(false);
+		if (destroyed) return;
+		try {
+			if (format === "md") {
+				const result = await call<{ text: string; title: string }>(
+					"exportMarkdown",
+				);
+				await bridge.call("app.download", {
+					filename:
+						(result.title || "Document").replace(/[\\/:*?"<>|]/g, "_") + ".md",
+					mimeType: "text/markdown",
+					text: result.text,
+				});
+			} else
+				await bridge.call("app.exportOutput", {
+					slot,
+					format,
+					expectedRevision: loaded.revision.revision,
+				});
+			say(
+				`Exported as ${name}.${format === "md" ? " Markdown keeps the text and structure, not the styling." : ""}${dirty ? " Your newest changes are not in it yet." : ""}`,
+			);
+		} catch (error) {
+			say(reason(error, "Export failed"), true);
+		}
+	}
+
+	if (editable) {
+		button(
+			toolbar,
+			"Undo" + keys("Z"),
+			"undo",
+			() => run().undo().run(),
+			undefined,
+			() => editor!.can().undo(),
+		);
+		button(
+			toolbar,
+			"Redo" + keys("Z", true),
+			"redo",
+			() => run().redo().run(),
+			undefined,
+			() => editor!.can().redo(),
+		);
+		divider();
+		const styles = (blockStyle = document.createElement("select"));
+		styles.setAttribute("aria-label", "Block style");
+		for (const [value, text] of [
 			["paragraph", "Text"],
 			["title", "Title"],
 			["1", "Heading 1"],
@@ -541,254 +689,206 @@ export async function mountDocClient(
 			["3", "Heading 3"],
 			["quote", "Quote"],
 			["code", "Code block"],
-		],
-		(value) =>
-			editor &&
-			applyDocumentStyle(
-				editor,
-				value as Parameters<typeof applyDocumentStyle>[1],
-			),
-	);
-	for (const [name, text] of [
-		["bold", "B"],
-		["italic", "I"],
-		["underline", "U"],
-		["strike", "S"],
-		["code", "</>"],
-	] as const)
-		button(
-			name === "strike"
-				? "Strikethrough"
-				: name[0]!.toUpperCase() + name.slice(1),
-			text,
-			() => editor?.chain().focus().toggleMark(name).run(),
-			() => !!editor?.isActive(name),
+		]) {
+			const option = document.createElement("option");
+			option.value = value!;
+			option.textContent = text!;
+			styles.append(option);
+		}
+		styles.onchange = () => {
+			if (editor)
+				applyDocumentStyle(
+					editor,
+					styles.value as Parameters<typeof applyDocumentStyle>[1],
+				);
+		};
+		toolbar.append(styles);
+		divider();
+		for (const [name, label, icon] of [
+			["bold", "Bold" + keys("B"), "bold"],
+			["italic", "Italic" + keys("I"), "italic"],
+			["underline", "Underline" + keys("U"), "underline"],
+			["strike", "Strikethrough" + keys("S", true), "strike"],
+			["code", "Code" + keys("E"), "code"],
+		] as const)
+			button(
+				toolbar,
+				label,
+				icon,
+				() => run().toggleMark(name).run(),
+				() => editor!.isActive(name),
+			);
+		divider();
+		for (const [name, label, icon] of [
+			["bulletList", "Bulleted list" + keys("8", true), "bullets"],
+			["orderedList", "Numbered list" + keys("7", true), "numbers"],
+			["taskList", "To-do list" + keys("9", true), "todo"],
+		] as const)
+			button(
+				toolbar,
+				label,
+				icon,
+				() =>
+					run()
+						.toggleList(name, name === "taskList" ? "taskItem" : "listItem")
+						.run(),
+				() => editor!.isActive(name),
+			);
+		divider();
+		button(toolbar, "Link" + keys("K"), "link", openLink, () =>
+			editor!.isActive("link"),
 		);
-	button("Add link", "Link", () => {
-		linkForm.hidden = false;
-		linkInput.value = String(editor?.getAttributes("link").href ?? "");
-		linkInput.focus();
-	});
-	const more = document.createElement("details");
-	more.className = "doc-more";
-	const summary = document.createElement("summary");
-	summary.textContent = "More formatting & insert";
-	const extra = document.createElement("div");
-	extra.className = "doc-extra";
-	more.append(summary, extra);
-	toolbar.append(more);
-	toolbarTarget = extra;
-	divider();
-	button(
-		"Bulleted list",
-		"• List",
-		() => editor?.chain().focus().toggleBulletList().run(),
-		() => !!editor?.isActive("bulletList"),
-	);
-	button(
-		"Numbered list",
-		"1. List",
-		() => editor?.chain().focus().toggleOrderedList().run(),
-		() => !!editor?.isActive("orderedList"),
-	);
-	button(
-		"Checklist",
-		"☑",
-		() => editor?.chain().focus().toggleTaskList().run(),
-		() => !!editor?.isActive("taskList"),
-	);
-	button("Insert table", "Table", () =>
-		editor
-			?.chain()
-			.focus()
-			.insertTable({ rows: 3, cols: 3, withHeaderRow: true })
-			.run(),
-	);
-	button(
-		"Add table row",
-		"+ Row",
-		() => editor?.chain().focus().addRowAfter().run(),
-		undefined,
-		() => !!editor?.can().addRowAfter(),
-	);
-	button(
-		"Add table column",
-		"+ Column",
-		() => editor?.chain().focus().addColumnAfter().run(),
-		undefined,
-		() => !!editor?.can().addColumnAfter(),
-	);
-	button(
-		"Delete table",
-		"− Table",
-		() => editor?.chain().focus().deleteTable().run(),
-		undefined,
-		() => !!editor?.can().deleteTable(),
-	);
-	button("Insert note", "Note", () =>
-		editor
-			?.chain()
-			.focus()
-			.insertContent({ type: "callout", content: [{ type: "paragraph" }] })
-			.run(),
-	);
-	button("Insert details", "Details", () =>
-		editor
-			?.chain()
-			.focus()
-			.insertContent({
-				type: "details",
-				content: [
-					{
-						type: "detailsSummary",
-						content: [{ type: "text", text: "Details" }],
-					},
-					{ type: "detailsContent", content: [{ type: "paragraph" }] },
-				],
-			})
-			.run(),
-	);
-	button("Insert divider", "—", () =>
-		editor?.chain().focus().setHorizontalRule().run(),
-	);
-	button("Insert image", "Image", () => imageInput.click());
-	divider();
-	for (const align of ["left", "center", "right", "justify"])
-		button(`Align ${align}`, align[0]!.toUpperCase() + align.slice(1), () =>
-			editor?.chain().focus().setTextAlign(align).run(),
+		button(toolbar, "Image", "image", () => imageInput.click());
+		button(toolbar, "Table", "table", () =>
+			run().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
 		);
-	select(
-		"Font family",
-		[
-			["", "Sans serif"],
-			["Georgia,serif", "Serif"],
-			["ui-monospace,monospace", "Mono"],
-		],
-		(value) =>
-			value
-				? editor?.chain().focus().setFontFamily(value).run()
-				: editor?.chain().focus().unsetFontFamily().run(),
-	);
-	select(
-		"Font size",
-		[
-			["12pt", "12 pt"],
-			["14pt", "14 pt"],
-			["18pt", "18 pt"],
-			["24pt", "24 pt"],
-			["32pt", "32 pt"],
-		],
-		(value) => editor?.chain().focus().setFontSize(value).run(),
-	);
-	for (const [label, command] of [
-		["Text color", "setColor"],
-		["Highlight color", "highlight"],
-	]) {
-		const color = document.createElement("input");
-		color.type = "color";
-		color.setAttribute("aria-label", label!);
-		color.title = label!;
-		color.oninput = () =>
-			command === "setColor"
-				? editor?.chain().focus().setColor(color.value).run()
-				: editor?.chain().focus().setHighlight({ color: color.value }).run();
-		toolbarTarget.append(color);
+		const table = (tableTools = document.createElement("span"));
+		table.className = "doc-table";
+		table.hidden = true;
+		toolbar.append(table);
+		divider(table);
+		button(table, "Add row below", "addRow", () => run().addRowAfter().run());
+		button(table, "Add column to the right", "addColumn", () =>
+			run().addColumnAfter().run(),
+		);
+		button(table, "Delete table", "trash", () => run().deleteTable().run());
+		const row = document.createElement("div");
+		row.setAttribute("role", "group");
+		menu.append(row);
+		for (const [align, icon] of [
+			["left", "alignLeft"],
+			["center", "alignCenter"],
+			["right", "alignRight"],
+			["justify", "alignJustify"],
+		] as const)
+			button(
+				row,
+				`Align ${align}`,
+				icon,
+				() => run().setTextAlign(align).run(),
+				() => editor!.isActive({ textAlign: align }),
+			);
+		divider(menu);
+		button(menu, "Note", undefined, () =>
+			run()
+				.insertContent({ type: "callout", content: [{ type: "paragraph" }] })
+				.run(),
+		);
+		button(menu, "Collapsible section", undefined, () =>
+			run()
+				.insertContent({
+					type: "details",
+					content: [
+						{
+							type: "detailsSummary",
+							content: [{ type: "text", text: "Details" }],
+						},
+						{ type: "detailsContent", content: [{ type: "paragraph" }] },
+					],
+				})
+				.run(),
+		);
+		button(menu, "Divider", undefined, () => run().setHorizontalRule().run());
+		divider(menu);
+	} else {
+		const note = document.createElement("span");
+		note.className = "doc-readonly";
+		note.textContent = "Read only";
+		toolbar.append(note);
 	}
+	for (const [format, name] of [
+		["md", "Markdown"],
+		["docx", "Word"],
+		["pdf", "PDF"],
+		["html", "HTML"],
+		["png", "PNG"],
+	] as const)
+		button(menu, `Export as ${name}`, undefined, () => exportAs(format, name));
+	// Exporting and the menu itself also work for someone who can only read.
+	buttons.splice(-5);
+	for (const node of menu.querySelectorAll("button"))
+		node.setAttribute("role", "menuitem");
+	const more = button(toolbar, "More", "more", () => {
+		const open = menu.hidden;
+		closePopups();
+		if (!open) return;
+		const box = more.getBoundingClientRect();
+		menu.hidden = false;
+		place(menu, box.right - menu.offsetWidth, box.bottom + 4);
+	});
+	buttons.pop();
+	more.className = "doc-more";
+	more.setAttribute("aria-haspopup", "menu");
+	// Opened from the keyboard: carry on with the keyboard.
+	more.addEventListener("click", (event) => {
+		if (!event.detail && !menu.hidden) menu.querySelector("button")?.focus();
+	});
+	menu.onclick = () => closePopups();
+	menu.onkeydown = (event) => {
+		const items = [...menu.querySelectorAll("button")],
+			step = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
+		if (!step) return;
+		event.preventDefault();
+		items[
+			(items.indexOf(document.activeElement as HTMLButtonElement) +
+				step +
+				items.length) %
+				items.length
+		]!.focus();
+	};
+
 	linkForm.onsubmit = (event) => {
 		event.preventDefault();
-		if (busy || !editable || !available) return;
-		const href = linkInput.value.trim();
-		if (!/^(https?:|mailto:)/i.test(href)) {
-			message("Use an https, http or mailto link.", true);
-			return;
-		}
-		editor?.chain().focus().extendMarkRange("link").setLink({ href }).run();
-		linkForm.hidden = true;
-	};
-	get<HTMLButtonElement>("#doc-unlink").onclick = () => {
-		editor?.chain().focus().extendMarkRange("link").unsetLink().run();
-		linkForm.hidden = true;
-	};
-	get<HTMLButtonElement>("#doc-link-close").onclick = () => {
-		linkForm.hidden = true;
-		editor?.commands.focus();
-	};
-	imageInput.onchange = async () => {
-		const file = imageInput.files?.[0];
-		if (!file) return;
-		if (!/^image\/(png|jpeg|gif|webp)$/.test(file.type) || file.size > 32_000) {
-			message(
-				"Use a PNG, JPEG, GIF or WebP image up to 32 KB so the document can stay within the gadget save limit.",
-				true,
-			);
-			return;
-		}
-		const reader = new FileReader();
-		reader.onload = () => {
-			if (
-				!destroyed &&
-				available &&
-				editable &&
-				!busy &&
-				typeof reader.result === "string"
-			)
-				editor
-					?.chain()
-					.focus()
-					.setImage({ src: reader.result, alt: file.name })
-					.run();
-		};
-		reader.onerror = () => message("The image could not be read.", true);
-		reader.readAsDataURL(file);
-		imageInput.value = "";
-	};
-	saveButton.onclick = () => void save();
-	reloadButton.onclick = () => {
-		if (dirty && !discardPending) {
-			discardPending = true;
-			reloadButton.textContent = "Discard draft & reload";
-			message("Reload will discard your draft. Click again to confirm.", true);
-			return;
-		}
-		void load(true);
-	};
-	exportButton.onclick = async () => {
-		if (busy || !loaded || !available) return;
-		busy = true;
-		controls();
-		try {
-			if (exportFormat.value !== "md") {
-				await bridge.call("app.exportOutput", {
-					slot,
-					format: exportFormat.value,
-					expectedRevision: loaded.revision.revision,
+		if (!editor?.isEditable) return;
+		let href = linkInput.value.trim();
+		const chain = run().extendMarkRange("link");
+		if (!href) chain.unsetLink().run();
+		else {
+			if (!/^(https?:|mailto:)/i.test(href))
+				href = (/^[^/\s]+@[^/\s]+$/.test(href) ? "mailto:" : "https://") + href;
+			if (editor.state.selection.empty && !editor.isActive("link"))
+				chain.insertContent({
+					type: "text",
+					text: href,
+					marks: [{ type: "link", attrs: { href } }],
 				});
-				message(
-					`Exported saved document revision ${loaded.revision.revision}${dirty ? "; unsaved edits are not included" : ""}.`,
-				);
-				return;
-			}
-			const result = await call<{
-				text: string;
-				title: string;
-				revision: number;
-			}>("exportMarkdown");
-			await bridge.call("app.download", {
-				filename:
-					(result.title || "Document").replace(/[\\/:*?"<>|]/g, "_") + ".md",
-				mimeType: "text/markdown",
-				text: result.text,
-			});
-			message(
-				`Exported saved document revision ${result.revision} as semantic Markdown. Rich formatting${dirty ? " and unsaved edits are" : " is"} not included.`,
-			);
-		} catch (error) {
-			message(error instanceof Error ? error.message : "Export failed", true);
-		} finally {
-			busy = false;
-			controls();
+			else chain.setLink({ href });
+			chain.run();
 		}
+		closePopups();
 	};
+	// Pressing Apply must not take focus from the field and close the card.
+	get(".doc-link button").onmousedown = (event) => event.preventDefault();
+	linkForm.addEventListener("focusout", (event) => {
+		if (!linkForm.contains(event.relatedTarget as Node | null))
+			linkForm.hidden = true;
+	});
+	imageInput.onchange = () => {
+		const file = imageInput.files?.[0];
+		imageInput.value = "";
+		if (file) void addImage(file);
+	};
+	const dropped = (event: ClipboardEvent | DragEvent) => {
+		const data =
+			"clipboardData" in event ? event.clipboardData : event.dataTransfer;
+		const file = [...(data?.files ?? [])].find((item) =>
+			item.type.startsWith("image/"),
+		);
+		if (!file || !editor?.isEditable) return;
+		event.preventDefault();
+		event.stopPropagation();
+		if ("clientX" in event) {
+			const at = editor.view.posAtCoords({
+				left: event.clientX,
+				top: event.clientY,
+			});
+			if (at) editor.commands.setTextSelection(at.pos);
+		}
+		void addImage(file);
+	};
+	page.addEventListener("paste", dropped, true);
+	page.addEventListener("drop", dropped, true);
+
 	const beforeUnload = (event: BeforeUnloadEvent) => {
 		if (dirty) {
 			event.preventDefault();
@@ -796,11 +896,37 @@ export async function mountDocClient(
 		}
 	};
 	const keydown = (event: KeyboardEvent) => {
-		if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
-			event.preventDefault();
-			void save();
+		const key = event.key.toLowerCase(),
+			mod = event.metaKey || event.ctrlKey;
+		if (key === "escape") {
+			if (linkForm.hidden && menu.hidden) return;
+			closePopups(true);
+		} else if (mod && key === "s") void save();
+		else if (mod && key === "k") openLink();
+		else if (
+			editor &&
+			event.altKey &&
+			event.shiftKey &&
+			(key === "arrowup" || key === "arrowdown")
+		)
+			moveDocumentBlock(editor, key === "arrowup" ? -1 : 1);
+		else return;
+		event.preventDefault();
+	};
+	const pointerdown = (event: Event) => {
+		const target = event.target as Node;
+		if (!menu.contains(target) && !more.contains(target)) menu.hidden = true;
+	};
+	const flush = (event: Event) => {
+		if (
+			dirty &&
+			(event.type === "pagehide" || document.visibilityState === "hidden")
+		) {
+			retain();
+			void save(false);
 		}
 	};
+	const onScroll = () => toolbar.toggleAttribute("data-scrolled", scrollY > 2);
 	const onMessage = (event: MessageEvent) => {
 		if (
 			event.source !== window.parent ||
@@ -814,22 +940,20 @@ export async function mountDocClient(
 			if (
 				output.slot === slot &&
 				output.outputId === loaded.output.id &&
-				Number.isInteger(output.revision)
+				Number.isInteger(output.revision) &&
+				output.revision > loaded.revision.revision
 			)
-				pendingRevision = Math.max(pendingRevision, output.revision);
-		updateNotice();
-		if (!dirty && !busy && pendingRevision > loaded.revision.revision) {
-			pendingRevision = 0;
-			void load();
-		} else if (dirty && pendingRevision > basis) void mergeLatest();
+				return void sync();
 	};
 	window.addEventListener("message", onMessage);
 	window.addEventListener("beforeunload", beforeUnload);
-	root.addEventListener("keydown", keydown);
-	await load();
-	editor?.on("selectionUpdate", () => {
-		blockStyle.value = currentDocumentStyle(editor!);
-	});
+	window.addEventListener("pagehide", flush);
+	window.addEventListener("scroll", onScroll, { passive: true });
+	document.addEventListener("visibilitychange", flush);
+	document.addEventListener("pointerdown", pointerdown);
+	root.addEventListener("keydown", keydown, true);
+	paint();
+	await queue(load);
 	return {
 		get editor() {
 			return editor;
@@ -838,14 +962,20 @@ export async function mountDocClient(
 			return dirty;
 		},
 		save,
-		reload: () => load(true),
 		destroy() {
 			destroyed = true;
+			for (const timer of [saveTimer, draftTimer, statusTimer])
+				clearTimeout(timer);
+			cancelAnimationFrame(frame);
 			editor?.destroy();
 			style.remove();
 			window.removeEventListener("message", onMessage);
 			window.removeEventListener("beforeunload", beforeUnload);
-			root.removeEventListener("keydown", keydown);
+			window.removeEventListener("pagehide", flush);
+			window.removeEventListener("scroll", onScroll);
+			document.removeEventListener("visibilitychange", flush);
+			document.removeEventListener("pointerdown", pointerdown);
+			root.removeEventListener("keydown", keydown, true);
 		},
 	};
 }
