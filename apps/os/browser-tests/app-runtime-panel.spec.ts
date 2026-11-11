@@ -165,6 +165,9 @@ try {
 			waitUntil: "domcontentloaded",
 		});
 		const tabs = appView(page);
+		await guest(page, "Opportunity cards")
+			.getByRole("heading", { name: /opportunities for Maya/ })
+			.waitFor();
 		await tabs.getByRole("button", { name: /^Edit/ }).click();
 		const draft = page.getByRole("group", { name: "Draft 1" });
 		await draft.getByRole("button", { name: "Accept" }).click();

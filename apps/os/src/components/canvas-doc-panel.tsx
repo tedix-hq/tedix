@@ -1183,9 +1183,10 @@ export function CanvasDocPanel({
 					gadgetDetail.data?.currentRevision ? (
 						// The app owns its surface: no card, edge to edge in the column.
 						// Kept running while another tab or view is shown, so coming
-						// back does not reload the app.
+						// back does not reload the app. One kept app per gadget: a new
+						// revision replaces the old one instead of leaving it running hidden.
 						<KeepAliveSlot
-							id={`app:${workspaceId}:${gadgetDetail.data.gadget.id}:${gadgetDetail.data.currentRevision.id}`}
+							id={`app:${workspaceId}:${gadgetDetail.data.gadget.id}`}
 							data-canvas-gadget-preview
 							data-canvas-runtime-app
 							className={`canvas-runtime-app ${
