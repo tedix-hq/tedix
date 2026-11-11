@@ -410,18 +410,18 @@ These apps should use `@tedix/api-contract` for types and oRPC for data:
 ### Import Examples
 
 ```typescript
-// ✅ CORRECT: apps/api — primary consumer
+// CORRECT: apps/api — primary consumer
 import { createDbClient } from "@tedix/db/client";
 import { getAppById, listApps } from "@tedix/db/queries/app-records";
 
-// ✅ CORRECT: docs-runtime — narrow Core API client and serving projection
+// CORRECT: docs-runtime — narrow Core API client and serving projection
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { getRuntimeDocsSiteBySlug } from "@tedix/db/queries/docs-sites/sites";
 
-// ✅ CORRECT: OS/widget — use api-contract (direct paths, no barrel)
+// CORRECT: OS/widget — use api-contract (direct paths, no barrel)
 import { AppSchema, VerticalSchema } from "@tedix/api-contract/schemas/app";
 
-// ❌ WRONG: OS/widget should NOT import from @tedix/db
+// WRONG: OS/widget should NOT import from @tedix/db
 import { apps } from "@tedix/db/schema"; // Use oRPC client instead
 ```
 

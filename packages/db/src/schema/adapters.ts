@@ -7,8 +7,6 @@
  * Secrets are stored in app_secrets/organization_secrets tables and
  * linked via app_adapter_secret_bindings. The AdapterRegistry hydrates
  * secrets at runtime using explicit bindings.
- *
- * RENAMED FROM: brand_adapters -> app_adapters
  */
 
 // Import canonical AdapterType from api-contract to prevent drift

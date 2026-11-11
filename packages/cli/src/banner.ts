@@ -18,7 +18,7 @@ const visibleWidth = (s: string): number => Bun.stringWidth(s);
 /**
  * Welcome header style. By DEFAULT the spelled-out "TEDIX" wordmark below. Set
  * TEDIX_LOGO to switch to a compact header instead: the value is a
- * small mark before the wordmark (e.g. "✦", "🪐", "▸"); "" shows bare "tedix".
+ * small mark before the wordmark (e.g. "✦", "▸"); "" shows bare "tedix".
  */
 
 /** Spelled-out "TEDIX" — ANSI-Shadow 3D wordmark (36 cols × 6 rows). */
@@ -130,7 +130,7 @@ export function renderBanner(ctx: BannerContext): string[] {
 		: [
 				...TEDIX_WORDMARK.map((line) => accent(line, c)),
 				...wrapDisplay(
-					`v${ctx.version} · persistent AI workers`,
+					`v${ctx.version} · platform for agents, apps, and work`,
 					contentWidth,
 				).map((line) => faint(line, c)),
 			];

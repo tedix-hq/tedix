@@ -71,7 +71,7 @@ import fastDiff from "fast-diff";
  * by "\n"; a one-element array is a pure deletion). Because sections tile the whole text, the
  * change carries its exact before- and after-lengths by construction.
  *
- * Example: `[2, [2, "😀"], 3]` keeps 2 units, replaces the next 2 with "😀", and keeps the final
+ * Example: `[2, [2, "ab"], 3]` keeps 2 units, replaces the next 2 with "ab", and keeps the final
  * 3 -- valid only against a text of exactly 7 UTF-16 code units.
  */
 export type TextChange = (number | [number, ...string[]])[];

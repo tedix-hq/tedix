@@ -384,7 +384,7 @@ export const SPANISH_FEED_DECK_COPY = {
 		details: "Detalles",
 		whileYouSlept: "Mientras dormías",
 		forProject: (name: string, project: string) => `${name} para ${project}`,
-		more: "👍 Más como esto",
+		more: "Más como esto",
 		why: "¿Por qué?",
 		mute: "No es para mí",
 		comment: "Comentar",

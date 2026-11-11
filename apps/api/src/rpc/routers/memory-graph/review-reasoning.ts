@@ -735,7 +735,7 @@ const synthesize = authed.synthesize
 		}
 		if (opinions.length > 0) {
 			sections.push(`### Opinions (${opinions.length})`);
-			for (const f of opinions) sections.push(`- 💭 ${f.summary ?? f.content}`);
+			for (const f of opinions) sections.push(`- ${f.summary ?? f.content}`);
 			sections.push("");
 		}
 		if (other.length > 0) {
@@ -754,7 +754,7 @@ const synthesize = authed.synthesize
 			);
 			for (const f of lowConf)
 				sections.push(
-					`- ❓ ${f.summary ?? f.content} (confidence: ${Math.round(f.confidence * 100)}%)`,
+					`- ${f.summary ?? f.content} (confidence: ${Math.round(f.confidence * 100)}%)`,
 				);
 		}
 		return {
