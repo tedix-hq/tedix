@@ -1,3 +1,4 @@
+import { previewContainerHeaders } from "./preview-headers";
 import { requireUnrestrictedCmsModels } from "./agent/data-residency";
 import { checkUserTenantMembership } from "@tedix/auth/descope";
 import { validateToken } from "@tedix/auth/jwt";
@@ -1502,10 +1503,10 @@ app.all("/preview/:orgSlug/*", async (c) => {
 	const proxyUrl = new URL(proxyPath, "http://container");
 	proxyUrl.search = url.search;
 
-	const headers = new Headers(c.req.raw.headers);
-	if (auth.forwardedAuth) {
-		headers.set("Authorization", `Bearer ${auth.forwardedAuth}`);
-	}
+	const headers = previewContainerHeaders(
+		c.req.raw.headers,
+		auth.forwardedAuth,
+	);
 
 	return sandbox.containerFetch(
 		proxyUrl.toString(),
