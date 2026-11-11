@@ -1,3 +1,7 @@
+import {
+	extractBearerToken,
+	secureEqual,
+} from "@tedix/worker-kit/request-auth";
 import type { Env } from "./env";
 
 export const DATABASE_RUNTIME_ADMIN_PATH = "/_tedix/internal/database-runtime";
@@ -47,11 +51,23 @@ export function errorResponse(
 	);
 }
 
-export function isInternalCmsRequest(request: Request, env: Env): boolean {
+/**
+ * Whether the request carries the internal admin token. Async so the
+ * comparison is constant-time; the name differs from the old synchronous check
+ * so a call site that forgets `await` fails to compile instead of passing.
+ */
+export async function verifyInternalCmsRequest(
+	request: Request,
+	env: Env,
+): Promise<boolean> {
 	const token = env.CMS_INTERNAL_AUTH_TOKEN;
 	if (!token) return false;
-	const header = request.headers.get("X-Tedix-CMS-Internal-Auth");
-	if (header === token) return true;
-	const authorization = request.headers.get("Authorization");
-	return authorization === `Bearer ${token}`;
+	if (
+		await secureEqual(request.headers.get("X-Tedix-CMS-Internal-Auth"), token)
+	)
+		return true;
+	return secureEqual(
+		extractBearerToken(request.headers.get("Authorization")),
+		token,
+	);
 }

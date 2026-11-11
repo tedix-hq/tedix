@@ -293,7 +293,7 @@ export const WORKER_APPS: WorkerAppConfig[] = [
 		app: "apps/cms-runtime",
 		pathnameFiles: ["apps/cms-runtime/src/index.ts"],
 		guards: {
-			"\\bisInternalCmsRequest\\s*\\(":
+			"\\bverifyInternalCmsRequest\\s*\\(":
 				"Database, storage, and media admin paths require the CMS_INTERNAL_AUTH_TOKEN bearer before touching tenant storage.",
 		},
 	},

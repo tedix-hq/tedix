@@ -1,4 +1,5 @@
 import type { Hono } from "hono";
+import { isInertContentType } from "../lib/artifact-serve";
 import { resolveUntrustedContentOrigin } from "../lib/untrusted-origin";
 import { resolveMediaRouteOrgId, untrustedContentRedirect } from "./shared";
 
@@ -8,6 +9,23 @@ import { resolveMediaRouteOrgId, untrustedContentRedirect } from "./shared";
  * because it is a hop, not a share link.
  */
 const SESSION_BYTE_REDIRECT_TTL_SECONDS = 300;
+
+/**
+ * A skill chooses its artifact's media type, and these bytes can be opened on a
+ * signed-in origin. The declared type is never second-guessed by the browser,
+ * and anything that can carry script (SVG, HTML, unknown types) opens in a
+ * sandbox with no script and no access to the origin's cookies or storage.
+ */
+export function skillMediaSecurityHeaders(
+	mimeType: string,
+): Record<string, string> {
+	return {
+		"X-Content-Type-Options": "nosniff",
+		...(isInertContentType(mimeType)
+			? {}
+			: { "Content-Security-Policy": "default-src 'none'; sandbox" }),
+	};
+}
 
 interface StoredSkillMediaArtifact {
 	mimeType: string;
@@ -134,6 +152,7 @@ export function registerSkillMediaRoutes(
 				"Content-Disposition": downloadName
 					? `attachment; filename="${downloadName}"`
 					: "inline",
+				...skillMediaSecurityHeaders(media.mimeType),
 			},
 		});
 	});
@@ -232,6 +251,7 @@ export function registerSkillMediaRoutes(
 				"Content-Length": String(media.bytes.byteLength),
 				"Cache-Control": "private, max-age=300",
 				"Content-Disposition": "inline",
+				...skillMediaSecurityHeaders(media.mimeType),
 			},
 		});
 	});

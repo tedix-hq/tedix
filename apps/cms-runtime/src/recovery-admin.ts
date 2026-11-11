@@ -31,7 +31,7 @@ import {
 	CMS_RECOVERY_ADMIN_PATH,
 	CMS_SITE_RESTORE_ADMIN_PATH,
 	jsonResponse,
-	isInternalCmsRequest,
+	verifyInternalCmsRequest,
 } from "./internal-admin-http";
 
 /** Internal only. Owner responses omit raw bookmarks and private object keys. */
@@ -43,7 +43,7 @@ export async function cmsRecoveryAdminResponse(args: {
 }): Promise<Response | null> {
 	const { env, request, slug, url } = args;
 	if (url.pathname !== CMS_RECOVERY_ADMIN_PATH) return null;
-	if (!isInternalCmsRequest(request, env))
+	if (!(await verifyInternalCmsRequest(request, env)))
 		return jsonResponse({ ok: false, error: "unauthorized" }, { status: 401 });
 	if (!["GET", "POST", "DELETE"].includes(request.method))
 		return jsonResponse(
@@ -407,7 +407,7 @@ export async function cmsSiteRestoreAdminResponse(args: {
 }): Promise<Response | null> {
 	const { env, request, slug, url } = args;
 	if (url.pathname !== CMS_SITE_RESTORE_ADMIN_PATH) return null;
-	if (!isInternalCmsRequest(request, env))
+	if (!(await verifyInternalCmsRequest(request, env)))
 		return jsonResponse({ ok: false, error: "unauthorized" }, { status: 401 });
 	if (request.method !== "GET" && request.method !== "POST")
 		return jsonResponse(

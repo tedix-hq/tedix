@@ -141,7 +141,7 @@ import {
 	DATABASE_SCHEMA_DIAGNOSTIC_PATH,
 	MEDIA_BUCKET_ADMIN_PATH,
 	jsonResponse,
-	isInternalCmsRequest,
+	verifyInternalCmsRequest,
 } from "./internal-admin-http";
 import {
 	databaseDeprovisionAdminResponse,
@@ -1380,7 +1380,7 @@ export async function databaseRuntimeAdminResponse(
 	const { env, request, slug, url } = args;
 	if (url.pathname !== DATABASE_RUNTIME_ADMIN_PATH) return null;
 
-	if (!isInternalCmsRequest(request, env)) {
+	if (!(await verifyInternalCmsRequest(request, env))) {
 		return jsonResponse(
 			{
 				ok: false,
@@ -1522,7 +1522,7 @@ async function fetchCmsSite(
 	if (mediaBucketAdmin) return mediaBucketAdmin;
 
 	if (url.pathname === DATABASE_RECOVERY_BOOKMARK_ADMIN_PATH) {
-		if (!isInternalCmsRequest(request, env)) {
+		if (!(await verifyInternalCmsRequest(request, env))) {
 			return jsonResponse(
 				{ ok: false, error: "unauthorized" },
 				{ status: 401 },

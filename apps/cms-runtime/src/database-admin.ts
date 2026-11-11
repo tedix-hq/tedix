@@ -30,7 +30,7 @@ import {
 	CMS_SITE_ID_HEADER,
 	errorResponse,
 	jsonResponse,
-	isInternalCmsRequest,
+	verifyInternalCmsRequest,
 } from "./internal-admin-http";
 
 export interface RecoveryBundleIdentity {
@@ -101,7 +101,7 @@ export async function databaseDeprovisionAdminResponse(args: {
 }): Promise<Response | null> {
 	const { env, request, slug, url } = args;
 	if (url.pathname !== DATABASE_DEPROVISION_ADMIN_PATH) return null;
-	if (!isInternalCmsRequest(request, env)) {
+	if (!(await verifyInternalCmsRequest(request, env))) {
 		return jsonResponse({ ok: false, error: "unauthorized" }, { status: 401 });
 	}
 	if (request.method !== "DELETE") {
@@ -134,7 +134,7 @@ export async function databaseStorageAdminResponse(args: {
 }): Promise<Response | null> {
 	const { env, request, slug, url } = args;
 	if (url.pathname !== DATABASE_STORAGE_ADMIN_PATH) return null;
-	if (!isInternalCmsRequest(request, env)) {
+	if (!(await verifyInternalCmsRequest(request, env))) {
 		return jsonResponse({ ok: false, error: "unauthorized" }, { status: 401 });
 	}
 	if (request.method !== "GET") {
@@ -174,7 +174,7 @@ export async function databaseRecoveryBookmarkAdminResponse(args: {
 }): Promise<Response | null> {
 	const { env, request, slug, url, siteId, bundle, readCurrentBundle } = args;
 	if (url.pathname !== DATABASE_RECOVERY_BOOKMARK_ADMIN_PATH) return null;
-	if (!isInternalCmsRequest(request, env)) {
+	if (!(await verifyInternalCmsRequest(request, env))) {
 		return jsonResponse({ ok: false, error: "unauthorized" }, { status: 401 });
 	}
 	if (request.method !== "POST") {
@@ -257,7 +257,7 @@ export async function databaseSchemaDiagnosticResponse(args: {
 }): Promise<Response | null> {
 	const { env, request, slug, url } = args;
 	if (url.pathname !== DATABASE_SCHEMA_DIAGNOSTIC_PATH) return null;
-	if (!isInternalCmsRequest(request, env)) {
+	if (!(await verifyInternalCmsRequest(request, env))) {
 		return jsonResponse({ ok: false, error: "unauthorized" }, { status: 401 });
 	}
 	if (request.method !== "GET") {
@@ -375,7 +375,7 @@ export async function mediaBucketAdminResponse(args: {
 }): Promise<Response | null> {
 	const { accountId, env, r2Token, request, slug, url } = args;
 	if (url.pathname !== MEDIA_BUCKET_ADMIN_PATH) return null;
-	if (!isInternalCmsRequest(request, env)) {
+	if (!(await verifyInternalCmsRequest(request, env))) {
 		return jsonResponse(
 			{ success: false, error: "unauthorized" },
 			{ status: 401 },

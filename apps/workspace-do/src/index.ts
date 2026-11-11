@@ -13,6 +13,7 @@ import type {
 } from "@tedix/db/queries/durable-sqlite/output-rpc";
 import { tenantStoreStub } from "@tedix/db/tenant-store/router";
 import { readDurableObjectJurisdiction } from "@tedix/worker-kit/durable-objects";
+import { secureEqual } from "@tedix/worker-kit/request-auth";
 import type { MemoryOwnerScope } from "@tedix/api-contract/schemas/memory-graph";
 import type { MemoryOwnerAccess } from "@tedix/db/tenant-store/memory-owner";
 import {
@@ -174,7 +175,7 @@ async function handleMigration(
 		.get("Authorization")
 		?.replace(/^Bearer\s+/i, "")
 		.trim();
-	if (!token || !presented || presented !== token) {
+	if (!(await secureEqual(presented, token))) {
 		return new Response("Unauthorized", { status: 401 });
 	}
 	const scope: WorkspaceScope = {
