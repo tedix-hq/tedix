@@ -161,7 +161,7 @@ describe("document creation", () => {
 		]);
 		expect(onAppCreated).toHaveBeenCalledWith(gadget);
 	});
-	it("offers the created file read-only after installing its editor fails", async () => {
+	it("keeps the native editor an explicit recovery choice after installation fails", async () => {
 		const output = { id: "retained-file", workspaceId: WORKSPACE_ID };
 		api.create.mockResolvedValue({ output });
 		api.install.mockRejectedValue(new Error("Unavailable"));
@@ -173,7 +173,7 @@ describe("document creation", () => {
 		click("Create Doc");
 		await flush();
 		expect(onCreated).not.toHaveBeenCalled();
-		click("Open file read-only");
+		click("Open native editor");
 		expect(onCreated).toHaveBeenCalledWith(output);
 		expect(onAppCreated).not.toHaveBeenCalled();
 	});
@@ -203,7 +203,7 @@ describe("document creation", () => {
 		const { onCreated, invalidate } = renderButton(WORKSPACE_ID);
 		click("New");
 		await flush();
-		click("Document from a template");
+		click("Native document");
 		await flush();
 		submit();
 		await flush();
@@ -264,7 +264,7 @@ describe("document creation", () => {
 		});
 		click("New");
 		await flush();
-		click("Document from a template");
+		click("Native document");
 		await flush();
 		submit();
 		await flush();
@@ -283,7 +283,7 @@ describe("document creation", () => {
 		renderButton(WORKSPACE_ID);
 		click("New");
 		await flush();
-		click("Document from a template");
+		click("Native document");
 		await flush();
 		const input = document.querySelector<HTMLInputElement>(
 			"#new-document-title",
@@ -320,7 +320,7 @@ describe("document creation", () => {
 		const { onCreated } = renderButton(WORKSPACE_ID);
 		click("New");
 		await flush();
-		click("Document from a template");
+		click("Native document");
 		await flush();
 		submit();
 		await flush();
@@ -337,7 +337,7 @@ describe("document creation", () => {
 		renderButton();
 		click("New");
 		await flush();
-		click("Document from a template");
+		click("Native document");
 		await flush();
 		expect(document.body.textContent).toContain(
 			"Workspaces could not be loaded",
@@ -362,7 +362,30 @@ describe("document creation", () => {
 			JSON.stringify(documentFromTemplate("monthly-close", "September")),
 		).toContain("Status: not assessed");
 	});
-	it("offers the Doc, Sheet and Slides gadgets and a document template", async () => {
+	for (const [label, kind] of [
+		["Sheet", "sheet"],
+		["Slides", "presentation"],
+	] as const) {
+		it(`creates a typed ${label} in the current workspace`, async () => {
+			const output = { id: "typed-output", workspaceId: WORKSPACE_ID };
+			api.create.mockResolvedValue({ output, revision: {} });
+			const { onCreated } = renderButton(WORKSPACE_ID);
+			click("New");
+			await flush();
+			click(`Native ${label.toLowerCase()}`);
+			await flush();
+			expect(document.querySelector("#new-document-template")).toBeNull();
+			submit();
+			await flush();
+			const input = api.create.mock.calls[0]![0];
+			expect(input.kind).toBe(kind);
+			expect(input.workspaceId).toBe(WORKSPACE_ID);
+			expect(input.content.kind).toBe(kind);
+			expect(OsOutputContentSchema.safeParse(input.content).success).toBe(true);
+			expect(onCreated).toHaveBeenCalledWith(output);
+		});
+	}
+	it("offers gadgets first and names the native editor fallbacks explicitly", async () => {
 		renderButton(WORKSPACE_ID);
 		click("New");
 		await flush();
@@ -375,7 +398,9 @@ describe("document creation", () => {
 			"Sheet",
 			"Slides",
 			"Browse templates",
-			"Document from a template",
+			"Native document",
+			"Native sheet",
+			"Native slides",
 		]);
 		expect(
 			document.querySelector('a[role="menuitem"]')?.getAttribute("href"),

@@ -18,7 +18,6 @@ import {
 	type OsOutputExportFormat,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { evaluateWorkbook } from "./workbook-formulas";
-import { richTextFromBlocks } from "@tedix/api-contract/utils/os-document";
 import { normalizeSheetContent, projectWorkbook } from "./output-models";
 import {
 	APP_RUNTIME_THEME_METHOD,
@@ -690,26 +689,4 @@ ${escapeScript(client)}
 </script>
 </body>
 </html>`;
-}
-
-/**
- * Documents written before the rich editor existed carry only blocks. The Doc
- * gadget edits rich text, so the host derives it from the blocks when a
- * revision is read. The saved revision is not changed until someone saves.
- */
-export function withEditableRichText<T extends { content: OsOutputContent }>(
-	revision: T,
-): T {
-	const content = revision.content;
-	if (
-		content.kind !== "document" ||
-		content.richText ||
-		content.file ||
-		content.blocks.length === 0
-	)
-		return revision;
-	return {
-		...revision,
-		content: { ...content, richText: richTextFromBlocks(content.blocks) },
-	};
 }

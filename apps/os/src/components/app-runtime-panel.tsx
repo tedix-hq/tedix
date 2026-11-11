@@ -28,7 +28,6 @@ import {
 	appRuntimeContextFromManifest,
 	buildAppRuntimeDocument,
 	handleAppRuntimeCall,
-	withEditableRichText,
 } from "@/lib/app-runtime-host";
 import {
 	appRuntimeCodeQueryOptions,
@@ -45,9 +44,6 @@ import type {
 
 const DocWritingEditor = lazy(async () => ({
 	default: (await import("./doc-writing-editor")).DocWritingEditor,
-}));
-const FileOutputView = lazy(async () => ({
-	default: (await import("./output-content")).FileOutputView,
 }));
 
 /**
@@ -296,10 +292,7 @@ export function AppRuntimeSandbox({
 							throw new Error(
 								"This file moved to another workspace. Reopen it before continuing.",
 							);
-						return {
-							output: detail.output,
-							revision: withEditableRichText(detail.currentRevision),
-						};
+						return { output: detail.output, revision: detail.currentRevision };
 					},
 				},
 				method,
@@ -450,23 +443,8 @@ export function AppRuntimeSandbox({
 				</Button>
 			</Alert>
 		);
-	// The Doc gadget keeps an attached file but cannot show it; the host
-	// previews it here, read-only.
-	const boundContent = legacyResource
-		? outputReads[boundOutputs.indexOf(legacyResource)]?.data?.currentRevision
-				.content
-		: undefined;
-	const attachedFile =
-		portableDoc && boundContent?.kind === "document"
-			? boundContent.file
-			: undefined;
 	return (
 		<>
-			{attachedFile && (
-				<Suspense fallback={<Skeleton className="h-40 w-full" />}>
-					<FileOutputView {...attachedFile} />
-				</Suspense>
-			)}
 			{editorUpgrade &&
 				legacyResource &&
 				revisionId &&

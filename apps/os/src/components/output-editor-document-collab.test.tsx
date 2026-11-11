@@ -4,7 +4,7 @@ import type { Editor } from "@tiptap/core";
 import { describe, expect, it, vi } from "vite-plus/test";
 import type { DocumentContent } from "@/lib/output-models";
 import type { RemoteCursor } from "@/lib/document-remote-cursors";
-import { type DocumentCollab, DocumentEditor } from "./doc-v2-editor";
+import { type DocumentCollab, DocumentEditor } from "./output-editor-document";
 
 (
 	globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }

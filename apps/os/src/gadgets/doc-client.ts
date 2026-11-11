@@ -298,7 +298,7 @@ export async function mountDocClient(
 				: undefined);
 		if (!source)
 			throw new Error(
-				"This older document cannot be edited here yet. Open it from its workspace; the saved content has not changed.",
+				"This legacy document needs its rich editor state initialized. Open the native editor once; the saved content has not changed.",
 			);
 		if (!editor) {
 			editor = createDocEngine({
@@ -386,7 +386,7 @@ export async function mountDocClient(
 			get(".doc-meta").textContent =
 				`Document revision ${value.revision.revision} · Doc app version ${context.gadget.revision}`;
 			get("#doc-file").textContent = draft.file
-				? "The attached file is preserved."
+				? "The attached file is preserved. Use the native editor to preview it."
 				: "";
 			renderContent();
 			message(
@@ -419,7 +419,7 @@ export async function mountDocClient(
 		const input = { slot, content: draft, expectedRevision: basis };
 		if (new TextEncoder().encode(JSON.stringify(draft)).length > 1_000_000) {
 			message(
-				"This document exceeds the editor's 1 MB save limit. Your draft is preserved. Split it into smaller documents, or ask a tedi to make the change.",
+				"This document exceeds the gadget's 1 MB save limit. Your draft is preserved. Use the native editor for this revision.",
 				true,
 			);
 			return;

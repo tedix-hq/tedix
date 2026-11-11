@@ -1,0 +1,529 @@
+import {
+	ArrowRight,
+	Cards,
+	Circle,
+	FileSvg,
+	ImageSquare,
+	ListBullets,
+	Minus,
+	Plus,
+	Square,
+	Tag,
+	TextAlignLeft,
+	TextH,
+	TextT,
+	UploadSimple,
+	type Icon,
+} from "@phosphor-icons/react";
+import type { OsPresentationElementType } from "@tedix/api-contract/schemas/os-workspaces";
+import { useId, useRef, useState } from "react";
+import { Button } from "@/components/kumo/button";
+import { Input } from "@/components/kumo/input";
+import {
+	PopoverContent,
+	PopoverRoot,
+	PopoverTrigger,
+} from "@/components/kumo/popover";
+import { SearchInput } from "@/components/kumo/search-input";
+import { Text } from "@/components/kumo/text";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/kumo/tooltip";
+import { SLIDE_IMAGE_TYPES } from "@/lib/slide-image-upload";
+
+interface SlideComponent {
+	type: OsPresentationElementType;
+	name: string;
+	description: string;
+	icon: Icon;
+}
+
+/** Every presentation element type, grouped the way the library lists them. */
+export const SLIDE_COMPONENT_CATEGORIES: readonly {
+	name: "Text" | "Containers" | "Decoration" | "Visual";
+	components: readonly SlideComponent[];
+}[] = [
+	{
+		name: "Text",
+		components: [
+			{
+				type: "title",
+				name: "Title",
+				description: "Display headline",
+				icon: TextH,
+			},
+			{
+				type: "subtitle",
+				name: "Subtitle",
+				description: "Supporting line under a title",
+				icon: TextT,
+			},
+			{
+				type: "text",
+				name: "Text block",
+				description: "Free-form paragraph",
+				icon: TextAlignLeft,
+			},
+			{
+				type: "bullet",
+				name: "Bullet list",
+				description: "One point per line",
+				icon: ListBullets,
+			},
+			{
+				type: "label",
+				name: "Section label",
+				description: "Small eyebrow above a title",
+				icon: Tag,
+			},
+		],
+	},
+	{
+		name: "Containers",
+		components: [
+			{
+				type: "card",
+				name: "Card",
+				description: "Bordered panel with text",
+				icon: Cards,
+			},
+			{
+				type: "box",
+				name: "Box",
+				description: "Filled diagram block",
+				icon: Square,
+			},
+		],
+	},
+	{
+		name: "Decoration",
+		components: [
+			{
+				type: "divider",
+				name: "Divider",
+				description: "Horizontal rule",
+				icon: Minus,
+			},
+			{
+				type: "shape",
+				name: "Shape",
+				description: "Filled circle or rectangle",
+				icon: Circle,
+			},
+			{
+				type: "arrow",
+				name: "Arrow",
+				description: "Connector between blocks",
+				icon: ArrowRight,
+			},
+		],
+	},
+	{
+		name: "Visual",
+		components: [
+			{
+				type: "logo",
+				name: "Organization logo",
+				description: "Published organization logo or name",
+				icon: ImageSquare,
+			},
+			{
+				type: "image",
+				name: "Image",
+				description: "Picture from a URL",
+				icon: ImageSquare,
+			},
+			{
+				type: "svg",
+				name: "SVG",
+				description: "Vector graphic from a URL",
+				icon: FileSvg,
+			},
+		],
+	},
+];
+
+const ALL_COMPONENTS = SLIDE_COMPONENT_CATEGORIES.flatMap(
+	(category) => category.components,
+);
+
+/** The library entry for an element type: its plain name and icon. */
+export function slideComponentFor(
+	type: OsPresentationElementType,
+): SlideComponent | undefined {
+	return ALL_COMPONENTS.find((component) => component.type === type);
+}
+
+/** Library rows whose name, description or type contain the query. */
+export function filterSlideComponents(query: string): SlideComponent[] {
+	const needle = query.trim().toLocaleLowerCase();
+	if (!needle) return ALL_COMPONENTS;
+	return ALL_COMPONENTS.filter((component) =>
+		[component.name, component.description, component.type].some((field) =>
+			field.toLocaleLowerCase().includes(needle),
+		),
+	);
+}
+
+/** A button that picks one image file from the device. */
+export function SlideImageUploadButton({
+	label,
+	disabled,
+	onFile,
+}: {
+	label: string;
+	disabled?: boolean;
+	onFile: (file: File) => void;
+}) {
+	const input = useRef<HTMLInputElement>(null);
+	return (
+		<>
+			<Button
+				type="button"
+				size="sm"
+				variant="secondary"
+				disabled={disabled}
+				onClick={() => input.current?.click()}
+			>
+				<UploadSimple size={14} /> {label}
+			</Button>
+			<SlideImageFileInput
+				ref={input}
+				label={label}
+				disabled={disabled}
+				onFile={onFile}
+			/>
+		</>
+	);
+}
+
+function SlideImageFileInput({
+	ref,
+	label,
+	disabled,
+	onFile,
+}: {
+	ref: React.Ref<HTMLInputElement>;
+	label: string;
+	disabled?: boolean;
+	onFile: (file: File) => void;
+}) {
+	return (
+		<Input
+			ref={ref}
+			type="file"
+			aria-label={label}
+			disabled={disabled}
+			accept={SLIDE_IMAGE_TYPES.join(",")}
+			// Kumo's Input is `w-full`, which outranks `sr-only`'s 1px box: the
+			// hidden input spanned the shell and let the page scroll sideways.
+			className="sr-only !size-px !min-w-0"
+			tabIndex={-1}
+			onChange={(event) => {
+				const file = event.target.files?.[0];
+				if (file) onFile(file);
+				event.target.value = "";
+			}}
+		/>
+	);
+}
+
+function ComponentRow({
+	component,
+	onInsert,
+}: {
+	component: SlideComponent;
+	onInsert: (type: OsPresentationElementType) => void;
+}) {
+	const RowIcon = component.icon;
+	return (
+		<li>
+			<Button
+				type="button"
+				variant="ghost"
+				size="sm"
+				multiline
+				className="w-full justify-start gap-2 px-2 py-2 text-left"
+				data-slide-component={component.type}
+				aria-label={`Insert ${component.name}: ${component.description}`}
+				onClick={() => onInsert(component.type)}
+			>
+				<RowIcon size={16} aria-hidden className="shrink-0" />
+				<span className="grid min-w-0">
+					<Text as="span" role="label" weight="medium" truncate>
+						{component.name}
+					</Text>
+					<Text as="span" role="caption" tone="secondary" truncate>
+						{component.description}
+					</Text>
+				</span>
+			</Button>
+		</li>
+	);
+}
+
+/**
+ * The slide component library: a filterable list of every element type behind
+ * the toolbar's Insert control. Typing filters by name and description; Enter
+ * inserts the first match; Escape clears the query before it closes the list.
+ */
+export function SlideInsertLibrary({
+	disabled,
+	onInsert,
+	onUploadImage,
+}: {
+	disabled?: boolean;
+	onInsert: (type: OsPresentationElementType) => void;
+	onUploadImage: (file: File) => void;
+}) {
+	const [open, setOpen] = useState(false);
+	const [query, setQuery] = useState("");
+	const filterInput = useRef<HTMLInputElement>(null);
+	const fileInput = useRef<HTMLInputElement>(null);
+	const listId = useId();
+	const matches = filterSlideComponents(query);
+	const insert = (type: OsPresentationElementType) => {
+		setOpen(false);
+		setQuery("");
+		onInsert(type);
+	};
+	const rows = (components: readonly SlideComponent[]) => (
+		<ul className="m-0 grid list-none gap-0.5 p-0">
+			{components.map((component) => (
+				<ComponentRow
+					key={component.type}
+					component={component}
+					onInsert={insert}
+				/>
+			))}
+		</ul>
+	);
+	return (
+		<>
+			<PopoverRoot
+				open={open}
+				onOpenChange={(next, details) => {
+					if (!next && details.reason === "escape-key" && query) {
+						details.cancel();
+						setQuery("");
+						return;
+					}
+					setOpen(next);
+					if (!next) setQuery("");
+				}}
+			>
+				<PopoverTrigger
+					render={
+						<Button
+							size="sm"
+							variant="ghost"
+							disabled={disabled}
+							aria-label="Insert slide element"
+						/>
+					}
+				>
+					<Plus size={14} /> Insert…
+				</PopoverTrigger>
+				<PopoverContent
+					align="start"
+					aria-label="Component library"
+					className="w-[min(20rem,calc(100vw-2rem))] gap-3 p-3"
+					initialFocus={filterInput}
+				>
+					<Input
+						ref={filterInput}
+						size="sm"
+						aria-label="Filter components"
+						aria-controls={listId}
+						placeholder="Filter components"
+						value={query}
+						onChange={(event) => setQuery(event.target.value)}
+						onKeyDown={(event) => {
+							if (event.key === "Enter") {
+								event.preventDefault();
+								const first = matches[0];
+								if (first) insert(first.type);
+							}
+						}}
+					/>
+					<div id={listId} className="grid max-h-80 gap-3 overflow-y-auto">
+						{matches.length === 0 ? (
+							<Text role="label" tone="secondary" className="m-0 p-2">
+								No matching components
+							</Text>
+						) : query.trim() ? (
+							rows(matches)
+						) : (
+							SLIDE_COMPONENT_CATEGORIES.map((category) => (
+								<section
+									key={category.name}
+									aria-label={category.name}
+									className="grid gap-0.5"
+								>
+									<Text
+										as="h3"
+										role="caption"
+										tone="secondary"
+										weight="semibold"
+										className="m-0 px-2 pt-1"
+									>
+										{category.name}
+									</Text>
+									{rows(category.components)}
+								</section>
+							))
+						)}
+					</div>
+					<Button
+						type="button"
+						size="sm"
+						variant="secondary"
+						onClick={() => {
+							setOpen(false);
+							setQuery("");
+							fileInput.current?.click();
+						}}
+					>
+						<UploadSimple size={14} /> Upload image
+					</Button>
+				</PopoverContent>
+			</PopoverRoot>
+			<SlideImageFileInput
+				ref={fileInput}
+				label="Upload slide image"
+				disabled={disabled}
+				onFile={onUploadImage}
+			/>
+		</>
+	);
+}
+
+function PaletteRow({
+	component,
+	disabled,
+	onInsert,
+}: {
+	component: SlideComponent;
+	disabled?: boolean;
+	onInsert: (type: OsPresentationElementType) => void;
+}) {
+	const RowIcon = component.icon;
+	return (
+		<li>
+			<Tooltip>
+				<TooltipTrigger
+					render={
+						<Button
+							type="button"
+							variant="ghost"
+							size="sm"
+							multiline
+							className="slide-palette-row"
+							data-palette-component={component.type}
+							aria-label={`Add ${component.name}: ${component.description}`}
+							disabled={disabled}
+							onClick={() => onInsert(component.type)}
+						/>
+					}
+				>
+					<span className="slide-palette-icon" aria-hidden>
+						<RowIcon size={16} />
+					</span>
+					<span className="grid min-w-0 flex-1">
+						<Text as="span" role="label" weight="medium" truncate>
+							{component.name}
+						</Text>
+						<Text as="span" role="caption" tone="secondary" truncate>
+							{component.description}
+						</Text>
+					</span>
+					<Plus size={14} aria-hidden className="slide-palette-add" />
+				</TooltipTrigger>
+				<TooltipContent side="left">Add {component.name}</TooltipContent>
+			</Tooltip>
+		</li>
+	);
+}
+
+/**
+ * The component palette in the slides inspector: the toolbar's Insert library
+ * laid out as a searchable list, one row per element type with its icon, name
+ * and a one-line description. A press inserts the element centred on the
+ * slide and selects it; Enter in the search adds the first match.
+ */
+export function SlideComponentPalette({
+	disabled,
+	onInsert,
+	onUploadImage,
+}: {
+	disabled?: boolean;
+	onInsert: (type: OsPresentationElementType) => void;
+	onUploadImage?: (file: File) => void;
+}) {
+	const [query, setQuery] = useState("");
+	const listId = useId();
+	const matches = filterSlideComponents(query);
+	const rows = (components: readonly SlideComponent[]) => (
+		<ul className="m-0 grid list-none gap-0.5 p-0">
+			{components.map((component) => (
+				<PaletteRow
+					key={component.type}
+					component={component}
+					disabled={disabled}
+					onInsert={onInsert}
+				/>
+			))}
+		</ul>
+	);
+	return (
+		<div className="grid gap-2">
+			<SearchInput
+				aria-label="Add component"
+				aria-controls={listId}
+				placeholder="Add component"
+				value={query}
+				onChange={(event) => setQuery(event.target.value)}
+				onKeyDown={(event) => {
+					if (event.key === "Enter") {
+						event.preventDefault();
+						const first = matches[0];
+						if (first && !disabled) onInsert(first.type);
+					} else if (event.key === "Escape" && query) {
+						event.preventDefault();
+						event.stopPropagation();
+						setQuery("");
+					}
+				}}
+			/>
+			<div id={listId} className="grid gap-3">
+				{matches.length === 0 ? (
+					<Text role="label" tone="secondary" className="m-0 px-1 py-2">
+						No component matches “{query.trim()}”
+					</Text>
+				) : query.trim() ? (
+					rows(matches)
+				) : (
+					SLIDE_COMPONENT_CATEGORIES.map((category) => (
+						<section
+							key={category.name}
+							aria-label={category.name}
+							className="grid gap-1"
+						>
+							<h3 className="slide-inspector-heading">{category.name}</h3>
+							{rows(category.components)}
+						</section>
+					))
+				)}
+			</div>
+			{onUploadImage ? (
+				<SlideImageUploadButton
+					label="Add image from device"
+					disabled={disabled}
+					onFile={onUploadImage}
+				/>
+			) : null}
+		</div>
+	);
+}

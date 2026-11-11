@@ -1,4 +1,4 @@
-import "./output-views.css";
+import "./output-editor.css";
 import { CaretDown, CaretUp, Table } from "@phosphor-icons/react";
 import type {
 	OsOutputContent,
@@ -58,7 +58,7 @@ export function sheetCellPaint(cell: OsWorkbookCell | null | undefined) {
 	} as const;
 }
 
-/** `data-kind` drives number, error and wrap styling in `output-views.css`. */
+/** `data-kind` drives number, error and wrap styling in `output-editor.css`. */
 export function sheetCellKind(cell: OsWorkbookCell | null | undefined) {
 	if (isErrorValue(cell?.value)) return "error";
 	if (typeof cell?.value === "number") return "number";

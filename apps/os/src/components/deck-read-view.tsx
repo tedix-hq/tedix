@@ -1,4 +1,4 @@
-import "./output-views.css";
+import "./output-editor.css";
 import type { OsOutputContent } from "@tedix/api-contract/schemas/os-workspaces";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/kumo/button";

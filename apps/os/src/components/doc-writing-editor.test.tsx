@@ -7,10 +7,6 @@ import { DocWritingDraftProvider } from "./doc-writing-drafts";
 import type { DocumentContent } from "@/lib/output-models";
 import type { AppRuntimeHostResult } from "@/lib/app-runtime-host";
 
-vi.mock("@/components/output-content", () => ({
-	FileOutputView: () => <div data-file-preview />,
-}));
-
 (
 	globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
@@ -289,11 +285,15 @@ describe("Doc writing editor", () => {
 		expect(test.editor().getText()).not.toContain("Private draft");
 	});
 
-	it("previews an attached file and disables writing for read-only collaborators", async () => {
+	it("offers an explicit native fallback and disables writing for read-only collaborators", async () => {
 		const test = await mount("use");
 		expect(test.editor().isEditable).toBe(false);
-		expect(test.host.querySelector("[data-file-preview]")).not.toBeNull();
-		expect(test.host.textContent).not.toContain("native editor");
+		expect(test.host.querySelector("a")?.getAttribute("href")).toContain(
+			"workpiece=output%3A",
+		);
+		expect(test.host.querySelector("a")?.textContent).toBe(
+			"Open native editor",
+		);
 		expect(test.onCall).toHaveBeenCalledTimes(1);
 	});
 });

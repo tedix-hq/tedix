@@ -1,4 +1,4 @@
-import "./output-views.css";
+import "./output-editor.css";
 import {
 	ArrowLeft,
 	ArrowRight,

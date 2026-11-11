@@ -15,6 +15,7 @@ import {
 } from "vite-plus/test";
 
 const OUTPUT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const SECOND_OUTPUT_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const WORKSPACE_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const REVISION_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 
@@ -22,6 +23,9 @@ const harness = vi.hoisted(() => ({
 	outputId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
 	detail: null as unknown,
 	workspace: null as unknown,
+	save: vi.fn(),
+	reviseOutput: vi.fn(),
+	clearOutcome: vi.fn(),
 	navigate: vi.fn(),
 }));
 
@@ -56,8 +60,45 @@ vi.mock("@/lib/os-query-options", () => ({
 	}),
 }));
 
+vi.mock("@/lib/use-revise-output", () => ({
+	useReviseOutput: (outputId: string) => {
+		harness.reviseOutput(outputId);
+		return {
+			save: harness.save,
+			saving: false,
+			outcome: null,
+			clearOutcome: harness.clearOutcome,
+		};
+	},
+}));
+
 vi.mock("@/components/output-content", () => ({
 	OutputContentView: () => <div data-output-content>Output preview</div>,
+}));
+
+vi.mock("@/components/output-editor", () => ({
+	OutputEditor: ({
+		value,
+		onChange,
+	}: {
+		value: OsOutputContent;
+		onChange: (next: OsOutputContent) => void;
+	}) => (
+		<div data-editor={value.kind}>
+			Output editor
+			<button
+				type="button"
+				onClick={() =>
+					onChange({
+						kind: "document",
+						blocks: [{ type: "paragraph", text: "Edited body" }],
+					})
+				}
+			>
+				Edit body
+			</button>
+		</div>
+	),
 }));
 
 vi.mock("@/components/output-export-buttons", () => ({
@@ -130,7 +171,18 @@ function renderPage() {
 		act(() => root.unmount());
 		container.remove();
 	});
-	return { container };
+	return {
+		container,
+		rerender: () => act(() => root.render(<OutputDetailPage />)),
+	};
+}
+
+function clickButton(container: Element, label: string) {
+	const button = [...container.querySelectorAll("button")].find((candidate) =>
+		(candidate.textContent ?? "").includes(label),
+	);
+	if (!button) throw new Error(`button not found: ${label}`);
+	act(() => button.click());
 }
 
 beforeEach(() => {
@@ -149,6 +201,10 @@ beforeEach(() => {
 			},
 		},
 	};
+	harness.save.mockReset();
+	harness.save.mockResolvedValue({ kind: "saved" });
+	harness.reviseOutput.mockReset();
+	harness.clearOutcome.mockReset();
 	harness.navigate.mockReset();
 });
 
@@ -226,26 +282,141 @@ describe("OutputDetailPage", () => {
 		expect(container.textContent).not.toContain("dddddddd");
 	});
 
-	it("opens an output of an active workspace in its gadget", () => {
-		renderPage();
-		expect(harness.navigate).toHaveBeenCalledWith({
-			to: "/workspace/$workspaceId",
-			params: { workspaceId: WORKSPACE_ID },
-			search: { workpiece: `output:${OUTPUT_ID}`, pane: "workpiece" },
-			replace: true,
-		});
-	});
-
-	it("keeps an output without an active workspace readable here", () => {
-		harness.workspace = {
-			data: { workspace: { id: WORKSPACE_ID, status: "archived" } },
-		};
+	it("turns edit mode into a full-height edge-to-edge workshop", () => {
 		const { container } = renderPage();
-		expect(harness.navigate).not.toHaveBeenCalled();
+		clickButton(container, "Edit");
+
+		const page = container.querySelector('[data-slot="page"]');
+		expect(page?.className).toContain("max-w-none");
+		expect(page?.className).toContain("output-detail-workshop");
+		expect(page?.getAttribute("data-full-height")).toBe("true");
+		expect(page?.getAttribute("data-output-kind")).toBe("document");
+		expect(container.querySelector('[data-slot="page-header"]')).toBeNull();
+		expect(
+			container.querySelector('[data-slot="output-workshop-command-bar"]'),
+		).not.toBeNull();
+		expect(
+			container.querySelector('[data-slot="output-workshop-stage"]'),
+		).not.toBeNull();
+		expect(
+			container.querySelector('[data-slot="output-workshop-footer"]'),
+		).not.toBeNull();
+		expect(container.querySelector('[data-editor="document"]')).not.toBeNull();
+		expect(container.textContent).toContain("Editing version 3");
+		expect(container.textContent).toContain("Document");
+		expect(
+			container.querySelector('input[aria-label="What changed"]'),
+		).not.toBeNull();
+		expect(container.textContent).toContain("Save");
+
+		clickButton(container, "Cancel");
+		expect(container.querySelector(".output-detail-workshop")).toBeNull();
 		expect(container.querySelector("[data-output-content]")).not.toBeNull();
-		expect(container.textContent).not.toContain("Edit");
+		expect(harness.clearOutcome).toHaveBeenCalledTimes(2);
 	});
 
+	it("discards an active workshop when the output route changes", () => {
+		const { container, rerender } = renderPage();
+		clickButton(container, "Edit");
+		expect(container.querySelector(".output-detail-workshop")).not.toBeNull();
+
+		harness.outputId = SECOND_OUTPUT_ID;
+		harness.detail = {
+			data: {
+				output: { ...output, id: SECOND_OUTPUT_ID, title: "Quarterly plan" },
+				currentRevision: {
+					...currentRevision,
+					id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+					outputId: SECOND_OUTPUT_ID,
+				},
+			},
+			isPending: false,
+			isError: false,
+			error: null,
+		};
+		rerender();
+
+		expect(container.querySelector(".output-detail-workshop")).toBeNull();
+		expect(container.textContent).toContain("Quarterly plan");
+		expect(harness.reviseOutput).toHaveBeenCalledWith(OUTPUT_ID);
+		expect(harness.reviseOutput).toHaveBeenLastCalledWith(SECOND_OUTPUT_ID);
+	});
+
+	function clickAllOutputs(container: Element) {
+		const link = container.querySelector<HTMLAnchorElement>(
+			'a[aria-label="All outputs"]',
+		)!;
+		const event = new MouseEvent("click", { bubbles: true, cancelable: true });
+		act(() => {
+			link.dispatchEvent(event);
+		});
+		return event.defaultPrevented;
+	}
+	function dialogButton(label: string) {
+		const button = [...document.querySelectorAll("button")].find(
+			(candidate) => candidate.textContent?.trim() === label,
+		);
+		if (!button) throw new Error(`dialog button not found: ${label}`);
+		return button;
+	}
+
+	it("leaves an unchanged workshop through All outputs without asking", () => {
+		const { container } = renderPage();
+		clickButton(container, "Edit");
+
+		expect(clickAllOutputs(container)).toBe(false);
+		expect(document.body.textContent).not.toContain("Discard your changes?");
+	});
+
+	it("asks before All outputs discards edits, and honors both choices", async () => {
+		const { container } = renderPage();
+		clickButton(container, "Edit");
+		clickButton(container, "Edit body");
+
+		expect(clickAllOutputs(container)).toBe(true);
+		await vi.waitFor(() =>
+			expect(document.body.textContent).toContain("Discard your changes?"),
+		);
+		act(() => dialogButton("Keep editing").click());
+		await vi.waitFor(() =>
+			expect(document.body.textContent).not.toContain("Discard your changes?"),
+		);
+		expect(harness.navigate).not.toHaveBeenCalled();
+		expect(container.querySelector(".output-detail-workshop")).not.toBeNull();
+
+		expect(clickAllOutputs(container)).toBe(true);
+		await vi.waitFor(() =>
+			expect(document.body.textContent).toContain("Discard your changes?"),
+		);
+		act(() => dialogButton("Discard changes").click());
+		expect(harness.navigate).toHaveBeenCalledWith({ to: "/outputs" });
+		expect(container.querySelector(".output-detail-workshop")).toBeNull();
+	});
+
+	it("treats a revision note alone as unsaved work", async () => {
+		const { container } = renderPage();
+		clickButton(container, "Edit");
+		const note = container.querySelector<HTMLInputElement>(
+			'input[aria-label="What changed"]',
+		)!;
+		act(() => {
+			Object.getOwnPropertyDescriptor(
+				HTMLInputElement.prototype,
+				"value",
+			)!.set!.call(note, "Tightened the summary");
+			note.dispatchEvent(new Event("input", { bubbles: true }));
+		});
+
+		expect(clickAllOutputs(container)).toBe(true);
+		await vi.waitFor(() =>
+			expect(document.body.textContent).toContain("Discard your changes?"),
+		);
+	});
+
+	/*
+	 * The not-found verdict moved out of the route loader,
+	 * which could not tell a 404 from a cold-isolate timeout, into this query.
+	 */
 	it("owns the not-found verdict for a settled NOT_FOUND", () => {
 		harness.detail = {
 			data: undefined,

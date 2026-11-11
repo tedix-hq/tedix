@@ -2316,7 +2316,7 @@
 			"kind": "sheet",
 			"editorScripts": [
 				"/assets/output-editor-sheet-Dc_mSBWj.js",
-				"/assets/editor-toolbar-Do8dfWJB.js"
+				"/assets/output-editor-toolbar-Do8dfWJB.js"
 			],
 			"errors": []
 		},
@@ -2324,7 +2324,7 @@
 			"kind": "slides",
 			"editorScripts": [
 				"/assets/output-editor-slides-55TgjbK2.js",
-				"/assets/editor-toolbar-Do8dfWJB.js"
+				"/assets/output-editor-toolbar-Do8dfWJB.js"
 			],
 			"errors": []
 		}
