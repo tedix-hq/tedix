@@ -52,22 +52,26 @@ Type or press F2 to edit a cell; the formula bar edits its source. Tab and
 Enter move within a selected range. Copy/paste supports quoted multiline
 TSV, formula-relative copies and cell formats. Undo and redo preserve the
 workbook draft. The toolbar provides number/text formats, fills, alignment,
-row/column operations, sorting, filling, sizing and frozen panes. Workbooks
+sorting and filling; More actions and the right-click menus on cells,
+headings and tabs cover row/column operations, sizing and frozen panes. Workbooks
 can contain up to 32 tabs, each with 1000 rows and 64 columns.
 
-The generic host calculates formulas with the existing spreadsheet engine
-before Save. Save writes the entire canonical workbook, including other
-tabs, formats and formula source, at the revision you loaded. The browser
-write limit is 1 MB of UTF-8 content. A conflict or rejected save keeps the
-draft; Reload requires confirmation before discarding it. Clean editors
-refresh after external writes; dirty editors show a newer-revision notice.
+Changes save on their own shortly after you stop editing; Ctrl/⌘ S saves at
+once. The generic host calculates formulas with the existing spreadsheet
+engine before each save, which writes the entire canonical workbook,
+including other tabs, formats and formula source, at the revision you
+loaded. The browser write limit is 1 MB of UTF-8 content. A failed save
+keeps your changes and is tried again. When someone else saves first, their
+changes and yours are merged; you are asked which version to keep only for a
+cell you both changed. Editors with nothing unsaved show external writes in
+place.
 
-Agent range edits retain typed inputs and last-calculated values. Reload
-or Save in an editor recalculates dependent formulas. Agent writes keep the
+Agent range edits retain typed inputs and last-calculated values; an open
+editor recalculates dependent formulas when it saves. Agent writes keep the
 workspace's approval policy. CSV exports saved active-sheet cached values
 with the canonical formula-injection protection. Excel exports the complete
-saved workbook, including formula source, tabs and styles. Unsaved changes
-are excluded from exports.
+saved workbook, including formula source, tabs and styles. A download saves
+your changes first.
 `;
 
 export function buildSheetBlueprint(slot = "sheet"): OsBlueprintDefinition {

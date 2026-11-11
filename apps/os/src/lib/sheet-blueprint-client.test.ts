@@ -230,18 +230,28 @@ function clipboard(type: string, text = "") {
 	return data.text;
 }
 function operation(value: string) {
-	change("#structure", value);
+	click("#more");
+	click(`.menu [data-action="${value}"]`);
 }
 function apply(value: string) {
 	q<HTMLInputElement>("#command-value").value = value;
 	click("#command-apply");
 }
+function download(kind: "csv" | "xlsx") {
+	click("#download");
+	click(`.menu [data-action="${kind}"]`);
+}
 const display = (address: string) =>
 	cell(address)?.querySelector("output")?.textContent;
-async function saved(app: Awaited<ReturnType<typeof editor>>, revision = 2) {
-	click("#save");
-	await vi.waitFor(() => expect(app.revision()).toBe(revision));
+const state = () => q(".status").dataset.state;
+const choose = (name: string) => click(`#updates [data-choice="${name}"]`);
+/** Ask for a save now and wait until the editor reports it. */
+async function saved() {
+	key("s", { ctrlKey: true });
+	await vi.waitFor(() => expect(state()).toBe("saved"));
 }
+const draftWrites = (app: Awaited<ReturnType<typeof editor>>) =>
+	app.call.mock.calls.filter(([method]) => method === "app.draft.write");
 
 describe("Portable Sheet grid", () => {
 	it("recalculates and saves canonical inputs, display values, other tabs and formats", async () => {
@@ -253,7 +263,7 @@ describe("Portable Sheet grid", () => {
 		edit("B1", "4");
 		await vi.waitFor(() => expect(display("C1")).toBe("9"));
 		edit("C1", "=A1*B1");
-		await saved(app);
+		await saved();
 		expect(app.saved().rows[0]).toEqual([5, 4, 20]);
 		expect(app.saved().workbook!.sheets[0]!.rows[0]![2]!.input).toBe("=A1*B1");
 		expect(app.saved().workbook!.sheets[0]!.rows[0]![0]!.format).toEqual({
@@ -267,7 +277,7 @@ describe("Portable Sheet grid", () => {
 			"outputs.replace",
 			expect.objectContaining({ slot: "sheet", expectedRevision: 1 }),
 		);
-		click("#export");
+		download("csv");
 		await vi.waitFor(() =>
 			expect(app.download).toHaveBeenCalledWith({
 				filename: "Budget.csv",
@@ -275,12 +285,12 @@ describe("Portable Sheet grid", () => {
 				text: "Amount,Rate,Total\r\n5,4,20\r\n",
 			}),
 		);
-		click("#xlsx");
+		download("xlsx");
 		await vi.waitFor(() =>
 			expect(app.call).toHaveBeenCalledWith("app.exportOutput", {
 				slot: "sheet",
 				format: "xlsx",
-				expectedRevision: 2,
+				expectedRevision: app.revision(),
 			}),
 		);
 	});
@@ -319,7 +329,7 @@ describe("Portable Sheet grid", () => {
 		const copied = clipboard("copy");
 		select("A4");
 		clipboard("paste", copied);
-		await saved(app);
+		await saved();
 		const s = app.saved().workbook!.sheets[0]!;
 		expect(s.rows[3]![2]!.input).toBe("=SUM(A4:B4)");
 		expect(s.rows[3]![2]!.value).toBe(3);
@@ -337,7 +347,7 @@ describe("Portable Sheet grid", () => {
 		click("#dec-more");
 		click("#undo");
 		click("#redo");
-		await saved(app);
+		await saved();
 		const s = app.saved().workbook!.sheets[0]!;
 		expect(s.rows[1]![1]!.format).toMatchObject({
 			italic: true,
@@ -350,7 +360,7 @@ describe("Portable Sheet grid", () => {
 		expect(s.rows[0]![2]!.input).toBe("=SUM(A1:B1)");
 		range("A1:B2");
 		click("#clear-format");
-		await saved(app, 3);
+		await saved();
 		expect(
 			app.saved().workbook!.sheets[0]!.rows[0]![0]!.format,
 		).toBeUndefined();
@@ -360,7 +370,7 @@ describe("Portable Sheet grid", () => {
 		select("A1");
 		operation("insert-row");
 		operation("insert-column");
-		await saved(app);
+		await saved();
 		let s = app.saved().workbook!.sheets[0]!;
 		expect(s.rows[1]![3]!.input).toBe("=SUM(B2:C2)");
 		operation("delete-row");
@@ -373,7 +383,7 @@ describe("Portable Sheet grid", () => {
 		operation("move-left");
 		operation("add-sheet");
 		apply("Next year");
-		await saved(app, 3);
+		await saved();
 		expect(app.saved().workbook!.sheets.map((s) => s.name)).toEqual([
 			"Forecast copy",
 			"Forecast",
@@ -396,7 +406,7 @@ describe("Portable Sheet grid", () => {
 		operation("row-height");
 		apply("45");
 		operation("freeze");
-		await saved(app);
+		await saved();
 		const s = app.saved().workbook!.sheets[0]!;
 		expect(s.rows[2]![2]!.input).toBe("=SUM(A3:B3)");
 		expect(s.columns[1]!.width).toBe(220);
@@ -405,7 +415,7 @@ describe("Portable Sheet grid", () => {
 		expect(s.frozenColumns).toBe(1);
 		range("A2:B3");
 		click("#sort-desc");
-		await saved(app, 3);
+		await saved();
 		expect(
 			app
 				.saved()
@@ -413,10 +423,16 @@ describe("Portable Sheet grid", () => {
 				.map((row) => row[1]!.value),
 		).toEqual([4, 3]);
 	});
-	it("refreshes clean editors, asks which value wins when both edited one cell, and allows explicit discard", async () => {
+	it("shows another person's save in place, and asks only when both changed one cell", async () => {
 		const app = await editor();
+		const first = cell("A1");
+		select("B2");
 		app.changeExternal(3);
 		await vi.waitFor(() => expect(display("C1")).toBe("5"));
+		// The update lands in the same cells: nothing is rebuilt or deselected.
+		expect(cell("A1")).toBe(first);
+		expect(cell("B2").classList.contains("active")).toBe(true);
+		expect(q("#updates").textContent).toBe("");
 		edit("A1", "8");
 		await vi.waitFor(() => expect(display("C1")).toBe("10"));
 		app.changeExternal(4);
@@ -425,13 +441,13 @@ describe("Portable Sheet grid", () => {
 				"Choose which version to keep",
 			),
 		);
+		expect(q("#updates").textContent).not.toMatch(/revision/i);
 		expect(app.saved().rows[0]![0]).toBe(4);
 		expect(display("C1")).toBe("10");
-		click("#reload");
-		expect(display("C1")).toBe("10");
-		click("#reload");
+		expect(q<HTMLInputElement>("#formula").disabled).toBe(false);
+		choose("theirs");
 		await vi.waitFor(() => expect(display("C1")).toBe("6"));
-		expect(q("#updates").textContent).toBe("");
+		await vi.waitFor(() => expect(q("#updates").textContent).toBe(""));
 	});
 	it("keeps the chosen value for a cell both people edited, then saves the merge", async () => {
 		const app = await editor();
@@ -441,29 +457,23 @@ describe("Portable Sheet grid", () => {
 		await vi.waitFor(() =>
 			expect(q("#updates").textContent).toContain("Keep mine"),
 		);
-		[...document.querySelectorAll<HTMLButtonElement>("#updates button")]
-			.find((button) => button.textContent === "Keep mine")!
-			.click();
-		await vi.waitFor(() =>
-			expect(q(".status").textContent).toContain("merged with revision 2"),
-		);
-		expect(display("C1")).toBe("10");
-		click("#save");
+		choose("mine");
 		await vi.waitFor(() => expect(app.revision()).toBe(3));
+		expect(display("C1")).toBe("10");
 		expect(app.saved().rows[0]![0]).toBe(8);
+		expect(q("#updates").textContent).toBe("");
 	});
-	it("merges someone else's save into an unsaved draft that changed a different cell", async () => {
+	it("merges someone else's save into unsaved changes to a different cell and saves both", async () => {
 		const app = await editor();
 		edit("B1", "5");
 		await vi.waitFor(() => expect(display("C1")).toBe("6"));
 		app.changeExternal(4);
 		await vi.waitFor(() => expect(display("C1")).toBe("9"));
-		expect(q(".status").textContent).toContain("merged with revision 2");
-		click("#save");
+		expect(q("#updates").textContent).toBe("");
 		await vi.waitFor(() => expect(app.revision()).toBe(3));
 		expect(app.saved().rows[0]).toEqual([4, 5, 9]);
 	});
-	it("preserves an uncommitted formula bar draft on external updates, then merges it", async () => {
+	it("leaves text being typed alone when an update arrives, then merges it", async () => {
 		const app = await editor();
 		select("C1");
 		const formula = q<HTMLInputElement>("#formula");
@@ -471,17 +481,14 @@ describe("Portable Sheet grid", () => {
 		formula.value = "=A1*10";
 		formula.dispatchEvent(new Event("input"));
 		app.changeExternal(9);
+		await new Promise((resolve) => setTimeout(resolve, 20));
 		expect(formula.value).toBe("=A1*10");
-		expect(q("#updates").textContent).toContain("preserved");
+		expect(display("C1")).toBe("3");
 		key("Enter", {}, formula);
-		click("#save");
-		await vi.waitFor(() =>
-			expect(q(".status").textContent).toContain("merged with revision 2"),
-		);
-		expect(display("C1")).toBe("90");
-		click("#save");
+		await vi.waitFor(() => expect(display("C1")).toBe("90"));
 		await vi.waitFor(() => expect(app.revision()).toBe(3));
 		expect(app.saved().workbook!.sheets[0]!.rows[0]![2]!.input).toBe("=A1*10");
+		expect(app.saved().rows[0]![0]).toBe(9);
 	});
 	it("virtualizes a full workbook and rejects an out-of-bounds paste without a partial write", async () => {
 		const app = await editor("owner", (content) => {
@@ -498,12 +505,14 @@ describe("Portable Sheet grid", () => {
 		expect(cell("C1000")).toBeTruthy();
 		clipboard("paste", "1\n2");
 		expect(q(".status").textContent).toContain("Paste exceeds");
-		expect(q<HTMLButtonElement>("#save").disabled).toBe(true);
+		expect(state()).toBe("error");
+		key("s", { ctrlKey: true });
 		expect(app.outputsWrite).not.toHaveBeenCalled();
 	});
 	it("keeps use-role sessions read-only while permitting tab navigation and export", async () => {
 		const app = await editor("use");
 		expect(q<HTMLInputElement>("#formula").disabled).toBe(true);
+		expect(q(".status").textContent).toBe("View only");
 		select("A1");
 		key("9");
 		expect(document.querySelector(".cell-edit")).toBeNull();
@@ -511,8 +520,12 @@ describe("Portable Sheet grid", () => {
 		click("#add-row");
 		change("#tabs", "archive");
 		expect(q<HTMLSelectElement>("#tabs").value).toBe("archive");
+		click("#tab-buttons button");
+		expect(q<HTMLSelectElement>("#tabs").value).not.toBe("archive");
+		key("s", { ctrlKey: true });
+		download("csv");
+		await vi.waitFor(() => expect(app.download).toHaveBeenCalled());
 		expect(app.outputsWrite).not.toHaveBeenCalled();
-		expect(q<HTMLButtonElement>("#save").disabled).toBe(true);
 	});
 	it("ignores delayed calculations from older edits and saves the latest formula values", async () => {
 		const app = await editor(),
@@ -535,35 +548,119 @@ describe("Portable Sheet grid", () => {
 		resolveOld!(app.calculate(oldSnapshot!));
 		await new Promise((resolve) => setTimeout(resolve, 0));
 		expect(display("C1")).toBe("11");
-		await saved(app);
+		await saved();
 		expect(app.saved().rows[0]).toEqual([9, 2, 11]);
 	});
-	it("awaits Save recalculation and disables concurrent edits and duplicate saves", async () => {
+	it("shows a typed value at once and keeps a formula's last result until the new one arrives", async () => {
 		const app = await editor(),
 			original = app.call.getMockImplementation()!;
-		let finish: ((content: Sheet) => void) | undefined,
-			snapshot: Sheet | undefined;
+		const held: Array<() => void> = [];
 		app.call.mockImplementation(async (method, args) => {
-			if (method === "sheet.evaluate") {
-				snapshot = args!.content as Sheet;
-				return new Promise<Sheet>((resolve) => {
-					finish = resolve;
-				});
-			}
+			if (method === "sheet.evaluate")
+				await new Promise<void>((resolve) => held.push(resolve));
 			return original(method, args);
 		});
+		edit("B2", "8.50");
+		expect(display("B2")).toBe("8.5");
+		expect(cell("B2").style.textAlign).toBe("right");
+		edit("A2", "hello");
+		expect(display("A2")).toBe("hello");
+		edit("C1", "=A1*B1");
+		expect(display("C1")).toBe("3");
+		app.call.mockImplementation(original);
+		held.forEach((release) => release());
+		await vi.waitFor(() => expect(display("C1")).toBe("2"));
+	});
+	it("moves the selection and applies edits without rebuilding the grid", async () => {
+		await editor();
+		const first = cell("A1"),
+			head = q("thead th:nth-child(2)"),
+			rows = document.querySelectorAll("tbody tr").length;
+		select("B2");
+		key("ArrowDown");
+		key("ArrowRight", { shiftKey: true });
+		expect(cell("A1")).toBe(first);
+		expect(cell("B3").classList.contains("selected")).toBe(true);
+		expect(cell("C3").classList.contains("active")).toBe(true);
+		expect(cell("B2").classList.contains("selected")).toBe(false);
+		expect(cell("B3").getAttribute("aria-selected")).toBe("true");
+		// Headings of the selected rows and columns light up.
+		expect(q("thead th:nth-child(3)").classList.contains("sel")).toBe(true);
+		expect(head.classList.contains("sel")).toBe(false);
+		expect(q('th[data-head="2"]').classList.contains("sel")).toBe(true);
+		edit("A2", "4");
+		await vi.waitFor(() => expect(display("A2")).toBe("4"));
+		expect(cell("A1")).toBe(first);
+		expect(q("thead th:nth-child(2)")).toBe(head);
+		expect(document.querySelectorAll("tbody tr")).toHaveLength(rows);
+		head.click();
+		expect(head.classList.contains("all")).toBe(true);
+		expect(q<HTMLInputElement>("#range").value).toMatch(/^A1:A\d+$/);
+	});
+	it("offers cell actions on right-click and renames a sheet from its tab", async () => {
+		const app = await editor();
+		cell("B1").dispatchEvent(
+			new MouseEvent("contextmenu", { bubbles: true, cancelable: true }),
+		);
+		expect(cell("B1").classList.contains("active")).toBe(true);
+		expect(
+			[...document.querySelectorAll(".menu [role=menuitem]")].map(
+				(item) => item.textContent,
+			),
+		).toEqual(
+			expect.arrayContaining(["Cut", "Copy", "Paste", "Insert rows above"]),
+		);
+		click('.menu [data-action="insert-row"]');
+		expect(document.querySelector(".menu")).toBeNull();
+		q('[data-sheet="archive"]').dispatchEvent(
+			new MouseEvent("dblclick", { bubbles: true }),
+		);
+		apply("Old numbers");
+		await saved();
+		const book = app.saved().workbook!;
+		expect(book.sheets[0]!.rows[1]![2]!.input).toBe("=SUM(A2:B2)");
+		expect(book.sheets[1]!.name).toBe("Old numbers");
+		click("#help");
+		expect(q(".menu.keys").textContent).toContain("Keyboard shortcuts");
+	});
+	it("saves on its own after a pause, quietly", async () => {
+		const app = await editor();
+		edit("A1", "6");
+		expect(state()).toBe("idle");
+		await vi.waitFor(() => expect(app.revision()).toBe(2), { timeout: 4000 });
+		expect(app.saved().rows[0]).toEqual([6, 2, 8]);
+		expect(q(".status").textContent).toBe("");
+		await vi.waitFor(() => expect(app.drafts.size).toBe(0));
+		expect(app.call).toHaveBeenCalledWith(
+			"outputs.replace",
+			expect.objectContaining({ slot: "sheet", expectedRevision: 1 }),
+		);
+	});
+	it("keeps the grid editable during a save, runs one save at a time and sends later edits next", async () => {
+		const app = await editor(),
+			original = app.call.getMockImplementation()!;
 		edit("A1", "12");
-		click("#save");
-		click("#save");
+		await vi.waitFor(() => expect(display("C1")).toBe("14"));
+		let finish: (() => void) | undefined;
+		app.call.mockImplementation(async (method, args) => {
+			if (method === "outputs.replace" && !finish)
+				await new Promise<void>((resolve) => {
+					finish = resolve;
+				});
+			return original(method, args);
+		});
+		key("s", { ctrlKey: true });
+		key("s", { ctrlKey: true });
 		await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
 		expect(app.outputsWrite).not.toHaveBeenCalled();
-		expect(q<HTMLInputElement>("#formula").disabled).toBe(true);
-		key("9");
-		expect(document.querySelector(".cell-edit")).toBeNull();
-		finish!(app.calculate(snapshot!));
-		await vi.waitFor(() => expect(app.revision()).toBe(2));
-		expect(app.outputsWrite).toHaveBeenCalledTimes(1);
-		expect(app.saved().rows[0]).toEqual([12, 2, 14]);
+		expect(q<HTMLInputElement>("#formula").disabled).toBe(false);
+		edit("B1", "5");
+		expect(display("B1")).toBe("5");
+		finish!();
+		await vi.waitFor(() => expect(app.revision()).toBe(3));
+		expect(app.outputsWrite).toHaveBeenCalledTimes(2);
+		expect(app.saved().rows[0]).toEqual([12, 5, 17]);
+		expect(cell("B1").classList.contains("active")).toBe(false);
 	});
 	it("cuts formula source and removes destination styles absent from an internal copy", async () => {
 		const app = await editor();
@@ -571,7 +668,7 @@ describe("Portable Sheet grid", () => {
 		const text = clipboard("cut");
 		select("A2");
 		clipboard("paste", text);
-		await saved(app);
+		await saved();
 		const s = app.saved().workbook!.sheets[0]!;
 		expect(s.rows[0]![2]!.input).toBe("");
 		expect(s.rows[1]![0]!.input).toBe("=SUM(A1:B1)");
@@ -580,12 +677,12 @@ describe("Portable Sheet grid", () => {
 		const copy = clipboard("copy");
 		select("A1");
 		clipboard("paste", copy);
-		await saved(app, 3);
+		await saved();
 		expect(
 			app.saved().workbook!.sheets[0]!.rows[0]![0]!.format,
 		).toBeUndefined();
 	});
-	it("fills a newly addressed range and keeps a rejected large save draft available", async () => {
+	it("fills a newly addressed range, keeps working when a save fails and saves once it can", async () => {
 		const app = await editor();
 		range("C1:C8");
 		click("#fill-down");
@@ -595,20 +692,23 @@ describe("Portable Sheet grid", () => {
 			if (method === "outputs.replace") throw new Error("Content exceeds 1 MB");
 			return original(method, args);
 		});
-		click("#save");
-		await vi.waitFor(() =>
-			expect(q(".status").textContent).toContain("Content exceeds"),
-		);
-		expect(q(".status").textContent).toContain("draft is still here");
+		key("s", { ctrlKey: true });
+		await vi.waitFor(() => expect(state()).toBe("error"));
+		expect(q(".status").textContent).toContain("Couldn't save");
+		expect(q(".status").title).toContain("Content exceeds");
 		expect(app.revision()).toBe(1);
 		expect(display("C8")).toBe("0");
 		range("Z99");
 		key("7");
 		q<HTMLInputElement>(".cell-edit").value = "7";
 		key("Enter", {}, q(".cell-edit"));
-		await vi.waitFor(() => expect(display("Z99")).toBe("7"));
+		expect(display("Z99")).toBe("7");
 		expect(app.outputsWrite).not.toHaveBeenCalled();
-	});
+		app.call.mockImplementation(original);
+		await vi.waitFor(() => expect(app.revision()).toBe(2), { timeout: 8000 });
+		await vi.waitFor(() => expect(q(".status").textContent).toBe("Saved"));
+		expect(app.saved().workbook!.sheets[0]!.rows[98]![25]!.input).toBe("7");
+	}, 12000);
 
 	it("saves an active cell without requiring Enter and commits pending cells before formatting", async () => {
 		const app = await editor();
@@ -617,7 +717,6 @@ describe("Portable Sheet grid", () => {
 		const input = q<HTMLInputElement>(".cell-edit");
 		input.value = "8";
 		input.dispatchEvent(new Event("input"));
-		expect(q<HTMLButtonElement>("#save").disabled).toBe(false);
 		key("s", { ctrlKey: true }, input);
 		await vi.waitFor(() => expect(app.revision()).toBe(2));
 		expect(app.saved().rows[0]).toEqual([8, 2, 10]);
@@ -625,7 +724,7 @@ describe("Portable Sheet grid", () => {
 		key("7");
 		q<HTMLInputElement>(".cell-edit").value = "7";
 		click('[data-format="bold"]');
-		await saved(app, 3);
+		await saved();
 		expect(app.saved().workbook!.sheets[0]!.rows[1]![1]).toMatchObject({
 			input: "7",
 			value: 7,
@@ -633,7 +732,7 @@ describe("Portable Sheet grid", () => {
 		});
 	});
 
-	it("retains complete formatted workbook drafts across tab unmounts and clears them after Save", async () => {
+	it("saves finished changes when the editor closes and leaves no draft behind", async () => {
 		const app = await editor();
 		edit("C1", "=B1*8");
 		select("C1");
@@ -648,15 +747,15 @@ describe("Portable Sheet grid", () => {
 		);
 		expect(app.outputsWrite).not.toHaveBeenCalled();
 		await app.reopen();
-		expect(q(".status").textContent).toContain("Restored your unsaved changes");
+		expect(app.revision()).toBe(2);
+		expect(app.drafts.size).toBe(0);
+		expect(q(".status").textContent).not.toContain("Restored");
 		expect(q<HTMLSelectElement>("#tabs").value).toBe("archive");
 		expect(display("B2")).toBe("Archive draft");
 		change("#tabs", app.saved().workbook!.sheets[0]!.id);
 		select("C1");
 		expect(q<HTMLInputElement>("#formula").value).toBe("=B1*8");
 		expect(cell("C1").style.fontSize).toBe("22px");
-		await saved(app);
-		await vi.waitFor(() => expect(app.drafts.size).toBe(0));
 		expect(app.saved().workbook!.sheets[0]!.rows[0]![2]!.format).toMatchObject({
 			fontSize: 22,
 			fillColor: "#abcdee",
@@ -664,6 +763,24 @@ describe("Portable Sheet grid", () => {
 		expect(app.saved().workbook!.sheets[1]!.rows[1]![1]!.input).toBe(
 			"Archive draft",
 		);
+	});
+	it("restores changes that could not be saved before closing, then saves them", async () => {
+		const app = await editor(),
+			original = app.call.getMockImplementation()!;
+		app.call.mockImplementation(async (method, args) => {
+			if (method === "outputs.replace") throw new Error("Network unreachable");
+			return original(method, args);
+		});
+		edit("A1", "7");
+		await vi.waitFor(() => expect(app.drafts.has("output")).toBe(true));
+		await app.reopen();
+		expect(app.revision()).toBe(1);
+		expect(q(".status").textContent).toContain("Restored your unsaved changes");
+		expect(display("C1")).toBe("9");
+		app.call.mockImplementation(original);
+		await vi.waitFor(() => expect(app.revision()).toBe(2), { timeout: 4000 });
+		await vi.waitFor(() => expect(app.drafts.size).toBe(0));
+		expect(app.saved().rows[0]).toEqual([7, 2, 9]);
 	});
 	it("retains raw cell and formula bar input before Enter and removes canceled raw drafts", async () => {
 		const app = await editor();
@@ -679,20 +796,21 @@ describe("Portable Sheet grid", () => {
 			).toBe("=B1*9"),
 		);
 		await app.reopen();
+		expect(app.revision()).toBe(1);
 		expect(display("C1")).toBe("18");
-		click("#reload");
-		click("#reload");
-		await vi.waitFor(() => expect(q(".status").textContent).toContain("Saved"));
 		select("C1");
 		const formula = q<HTMLInputElement>("#formula");
 		formula.focus();
 		formula.value = "=A1*17";
 		formula.dispatchEvent(new Event("input"));
+		// Closing saves the finished change and keeps the text still being typed.
 		await app.reopen();
+		expect(app.revision()).toBe(2);
+		expect(app.saved().workbook!.sheets[0]!.rows[0]![2]!.input).toBe("=B1*9");
+		expect(q("#updates").textContent).toBe("");
 		expect(display("C1")).toBe("17");
-		click("#reload");
-		click("#reload");
-		await vi.waitFor(() => expect(q(".status").textContent).toContain("Saved"));
+		await saved();
+		await vi.waitFor(() => expect(app.drafts.size).toBe(0));
 		select("A2");
 		key("7");
 		key("Escape", {}, q(".cell-edit"));
@@ -707,33 +825,43 @@ describe("Portable Sheet grid", () => {
 		app.changeExternal(9);
 		await app.reopen();
 		expect(display("C1")).toBe("11");
-		expect(q("#updates").textContent).toContain(
-			"retained draft is based on revision 1",
-		);
-		expect(q<HTMLButtonElement>("#save").disabled).toBe(true);
-		expect(q("#review-draft").hidden).toBe(false);
-		click("#review-draft");
+		expect(q("#updates").textContent).toContain("earlier visit");
+		expect(q<HTMLInputElement>("#formula").disabled).toBe(true);
+		choose("review");
 		await vi.waitFor(() => expect(display("C1")).toBe("9"));
-		click("#save");
-		await vi.waitFor(() =>
-			expect(q(".status").textContent).toContain("Revision conflict"),
-		);
+		expect(q("#updates").textContent).toContain("Keep mine");
+		await new Promise((resolve) => setTimeout(resolve, 20));
 		expect(app.drafts.get("output")?.revision).toBe(1);
 		expect(app.saved().rows[0]![0]).toBe(9);
-		click("#reload");
-		click("#reload");
+		choose("theirs");
 		await vi.waitFor(() => expect(display("C1")).toBe("11"));
 		expect(app.drafts.size).toBe(0);
+		expect(app.revision()).toBe(2);
+		expect(q("#updates").textContent).toBe("");
+	});
+	it("saves earlier unsaved changes over a newer version only when asked to keep them", async () => {
+		const app = await editor();
+		edit("A1", "7");
+		await vi.waitFor(() => expect(app.drafts.has("output")).toBe(true));
+		app.changeExternal(9);
+		await app.reopen();
+		choose("review");
+		await vi.waitFor(() => expect(display("C1")).toBe("9"));
+		choose("mine");
+		await vi.waitFor(() => expect(app.revision()).toBe(3));
+		expect(app.saved().rows[0]).toEqual([7, 2, 9]);
+		await vi.waitFor(() => expect(app.drafts.size).toBe(0));
+		expect(q("#updates").textContent).toBe("");
 	});
 	it("never applies a retained draft to a different output binding", async () => {
 		const app = await editor();
+		app.outputsWrite.mockRejectedValue(new Error("Network unreachable"));
 		edit("A1", "7");
 		await vi.waitFor(() => expect(app.drafts.has("output")).toBe(true));
 		app.retarget("different-output");
 		await app.reopen();
 		expect(display("C1")).toBe("3");
 		expect(q(".status").textContent).not.toContain("Restored");
-		expect(q<HTMLButtonElement>("#save").disabled).toBe(true);
 		expect(app.drafts.get("different-output")).toBeUndefined();
 	});
 	it("clears stale content and locks writes, copies and exports after source access is denied", async () => {
@@ -743,20 +871,18 @@ describe("Portable Sheet grid", () => {
 		app.outputsRead.mockRejectedValue(
 			new Error("Output source access unavailable"),
 		);
-		click("#reload");
-		click("#reload");
+		app.changeExternal(5);
 		await vi.waitFor(() => expect(q(".grid").hidden).toBe(true));
 		await vi.waitFor(() => expect(app.drafts.size).toBe(0));
 		expect(document.querySelectorAll("td[data-row]")).toHaveLength(0);
 		expect(q<HTMLInputElement>("#formula").value).toBe("");
 		expect(q<HTMLInputElement>("#formula").disabled).toBe(true);
-		expect(q<HTMLButtonElement>("#save").disabled).toBe(true);
-		expect(q<HTMLButtonElement>("#export").disabled).toBe(true);
-		expect(q<HTMLButtonElement>("#xlsx").disabled).toBe(true);
+		expect(q<HTMLButtonElement>("#download").disabled).toBe(true);
+		expect(state()).toBe("error");
 		key("9");
 		clipboard("paste", "secret");
 		expect(clipboard("copy")).toBe("");
-		click("#save");
+		key("s", { ctrlKey: true });
 		expect(app.outputsWrite).not.toHaveBeenCalled();
 		await app.reopen();
 		expect(q(".grid").hidden).toBe(true);
@@ -778,11 +904,11 @@ describe("Portable Sheet grid", () => {
 		});
 		edit("A1", "7");
 		await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
-		click("#save");
+		key("s", { ctrlKey: true });
 		await vi.waitFor(() => expect(app.revision()).toBe(2));
 		finish!();
-		await vi.waitFor(() => expect(q(".status").textContent).toContain("Saved"));
-		expect(app.drafts.size).toBe(0);
+		await vi.waitFor(() => expect(q(".status").textContent).toBe("Saved"));
+		await vi.waitFor(() => expect(app.drafts.size).toBe(0));
 		await app.reopen();
 		expect(display("C1")).toBe("9");
 		expect(q(".status").textContent).not.toContain("Restored");
@@ -795,41 +921,26 @@ describe("Portable Sheet grid", () => {
 		app.outputsRead.mockRejectedValue(
 			new Error("Output source access unavailable"),
 		);
-		click("#save");
+		key("s", { ctrlKey: true });
 		await vi.waitFor(() => expect(q(".grid").hidden).toBe(true));
 		await vi.waitFor(() => expect(app.drafts.size).toBe(0));
 		expect(q(".status").textContent).toContain("source access");
-		expect(q<HTMLButtonElement>("#save").disabled).toBe(true);
 	});
 
-	it("posts each raw input immediately while an earlier retention response is pending", async () => {
-		const app = await editor(),
-			original = app.call.getMockImplementation()!;
-		let finish: (() => void) | undefined,
-			blocked = false;
-		app.call.mockImplementation(async (method, args) => {
-			const result = await original(method, args);
-			if (method === "app.draft.write" && !blocked) {
-				blocked = true;
-				await new Promise<void>((resolve) => {
-					finish = resolve;
-				});
-			}
-			return result;
-		});
+	it("writes one safety copy after a burst of typing", async () => {
+		const app = await editor();
 		select("C1");
 		key("=");
 		const input = q<HTMLInputElement>(".cell-edit");
-		input.value = "=A1*19";
-		input.dispatchEvent(new Event("input"));
-		expect(
-			app.call.mock.calls.filter(([method]) => method === "app.draft.write"),
-		).toHaveLength(2);
+		for (const value of ["=A", "=A1", "=A1*1", "=A1*19"]) {
+			input.value = value;
+			input.dispatchEvent(new Event("input"));
+		}
+		expect(draftWrites(app)).toHaveLength(0);
+		await vi.waitFor(() => expect(draftWrites(app)).toHaveLength(1));
 		expect(
 			app.drafts.get("output")?.content.workbook!.sheets[0]!.rows[0]![2]!.input,
 		).toBe("=A1*19");
-		await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
-		finish!();
 		await app.reopen();
 		expect(display("C1")).toBe("19");
 	});
@@ -884,8 +995,9 @@ describe("Portable Sheet grid", () => {
 			Reflect.deleteProperty(window, "tedix");
 		});
 		new Function(SHEET_CLIENT_SOURCE)();
-		await vi.waitFor(() => expect(q(".status").textContent).toContain("Saved"));
-		expect(q("h1").textContent).toBe("Portable");
+		await vi.waitFor(() => expect(q("h1").textContent).toBe("Portable"));
+		expect(q(".status").textContent).toBe("View only");
+		expect(display("A1")).toBe("1");
 		expect(SHEET_CLIENT_SOURCE).not.toContain("OutputSheetEditor");
 		expect(SHEET_CLIENT_SOURCE).not.toMatch(/\bimport\s/);
 	});
