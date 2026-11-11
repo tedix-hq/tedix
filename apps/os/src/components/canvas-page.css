@@ -638,6 +638,17 @@
 	flex: none;
 }
 
+/*
+ * Close sits close to the view tabs and its icon, not its box, lines up with
+ * the bar's edge. That keeps the row inside the bar at the default split when
+ * a view adds its actions, so the view tabs and Close hold their place.
+ */
+@media (min-width: 820px) {
+	.canvas-stage-close {
+		margin-inline: -4px -8px;
+	}
+}
+
 .canvas-workpiece-tabs {
 	display: flex;
 	/* Room for one whole tab; the view tabs scroll before the open tab clips. */
