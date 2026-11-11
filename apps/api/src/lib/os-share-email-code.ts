@@ -21,9 +21,10 @@ import {
 } from "./os-share-redemption";
 import { getOsOutput } from "../services/workspace-output-storage";
 
-type EmailEnv = Pick<CloudflareEnv, "SECRETS_MASTER_KEY" | "EMAIL"> & {
-	SHARE_EMAIL_FROM?: string;
-};
+type EmailEnv = Pick<
+	CloudflareEnv,
+	"SECRETS_MASTER_KEY" | "EMAIL" | "SHARE_EMAIL_FROM"
+>;
 const REPLY = "If this email is invited, we sent a code";
 function json(body: unknown) {
 	return Response.json(body, {
