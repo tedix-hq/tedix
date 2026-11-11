@@ -630,6 +630,10 @@ export const removeSourceProcedure = authedTableOs.removeSource
 		const { db } = context;
 		const { appId, sourceId } = input;
 
+		// Both ids come from the request, so the app must first be the caller's.
+		const app = await getAppForOrg(db, requireOrgId(context), appId);
+		if (!app) throw createError(ErrorCodes.NOT_FOUND, "Source not found");
+
 		const deleted = await deleteContentSource(db, sourceId, appId);
 		if (!deleted) throw createError(ErrorCodes.NOT_FOUND, "Source not found");
 
