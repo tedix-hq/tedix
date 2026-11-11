@@ -218,26 +218,18 @@ Doc reads and edits the document output bound to its named workspace slot.
 The output owns the content, revision history and source access rules. App
 storage never holds a second copy of the document.
 
-Save uses the revision you loaded. A conflict keeps your draft on screen;
-copy your edits before explicitly discarding the draft and reloading.
-Saved updates load automatically when the editor is clean. With unsaved
-edits, a newer-revision notice appears and your draft stays on screen.
-Doc version 4 runs a self-contained rich editor from its own client.js in the
-gadget sandbox. It uses the same rich document JSON as the workspace editor,
-preserving inline formatting, block structure and file references. Document
-revision and app version are shown separately. Native editing is an explicit
-fallback for compatibility and large saves, not the normal editing surface.
-Unsaved drafts stay only in the authenticated workspace panel's memory and
-are restored after an authorized source read, with their original revision.
-Full-document saves use the scoped output capability with a 1 MB payload limit.
-Larger saves keep the draft and explain the limit. Word, PDF, HTML and PNG
-exports use the saved revision; Markdown exports semantic blocks. Unsaved edits
-are not exported. No remote scripts are loaded.
+Changes save by themselves shortly after you stop typing; Cmd/Ctrl+S saves
+at once. When someone else saves, their changes appear without interrupting
+you. If you both changed the same part, Doc asks which version to keep.
+Unsaved changes stay in the workspace panel's memory and are restored after
+an authorized read. Saves use the scoped output capability with a 1 MB limit.
+Word, PDF, HTML and PNG exports use the saved document; Markdown exports its
+text and structure. No remote scripts are loaded.
 
 Agent methods: readDocument({}), replaceDocument({content, expectedRevision}),
 editDocument({ops, expectedRevision}) and exportMarkdown({}). Edits use the
 same output capabilities as the editor and remain subject to access and
-approval policy. Markdown exports use the saved semantic blocks.
+approval policy.
 `;
 
 export function buildDocBlueprint(slot = "document"): OsBlueprintDefinition {

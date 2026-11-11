@@ -1,4 +1,6 @@
-import { Editor, Node, mergeAttributes } from "@tiptap/core";
+import { Editor, Extension, Node, mergeAttributes } from "@tiptap/core";
+import { Plugin } from "@tiptap/pm/state";
+import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import StarterKit from "@tiptap/starter-kit";
 import { TableKit } from "@tiptap/extension-table";
 import { TaskList, TaskItem } from "@tiptap/extension-list";
@@ -29,6 +31,58 @@ export {
 export { blocksFromRichText } from "@tedix/api-contract/utils/os-document";
 export type { Editor };
 
+/**
+ * Hint text for an empty document, and the block name on the empty heading
+ * or list line the caret is in.
+ */
+const Placeholder = Extension.create({
+	name: "placeholder",
+	addProseMirrorPlugins() {
+		const editor = this.editor;
+		return [
+			new Plugin({
+				props: {
+					decorations({ doc, selection }) {
+						if (!editor.isEditable) return null;
+						const hint = (from: number, to: number, text: string) =>
+							DecorationSet.create(doc, [
+								Decoration.node(from, to, { "data-hint": text }),
+							]);
+						const first = doc.firstChild!;
+						if (
+							doc.childCount === 1 &&
+							first.isTextblock &&
+							!first.content.size
+						)
+							return hint(0, first.nodeSize, "Start writing…");
+						const { $from, empty } = selection,
+							node = $from.parent;
+						if (
+							!empty ||
+							!node.isTextblock ||
+							node.content.size ||
+							!$from.depth
+						)
+							return null;
+						const outer = $from.node($from.depth - 1).type.name;
+						const text =
+							node.type.name === "heading"
+								? node.attrs.variant === "title"
+									? "Title"
+									: `Heading ${node.attrs.level}`
+								: outer === "listItem"
+									? "List"
+									: outer === "taskItem"
+										? "To-do"
+										: "";
+						return text ? hint($from.before(), $from.after(), text) : null;
+					},
+				},
+			}),
+		];
+	},
+});
+
 export function createDocEngine(options: {
 	element: HTMLElement;
 	editable: boolean;
@@ -38,6 +92,7 @@ export function createDocEngine(options: {
 		...options,
 		content: { type: "doc", content: [{ type: "paragraph" }] },
 		editorProps: {
+			scrollMargin: 64,
 			attributes: {
 				role: "textbox",
 				"aria-label": "Document writing area",
@@ -53,6 +108,7 @@ export function createDocEngine(options: {
 			DetailsSummary,
 			DetailsContent,
 			DocumentFormatting,
+			Placeholder,
 			TextStyle,
 			FontFamily,
 			FontSize,
