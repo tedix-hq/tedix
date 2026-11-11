@@ -132,6 +132,7 @@ export function registerCorsAndLimits(app: Hono<{ Bindings: CloudflareEnv }>) {
 		rateLimit((env) => env.API_RATE_LIMITER, byCredentialOrIp, {
 			errorMessage: "API rate limit exceeded. Please try again later.",
 			limit: 100,
+			countFailedAuthByIp: true,
 		}),
 	);
 

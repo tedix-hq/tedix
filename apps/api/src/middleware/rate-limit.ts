@@ -73,6 +73,34 @@ export const byCredentialOrIp: RateLimitKeyFn = async (c) => {
 };
 
 /**
+ * Addresses whose failed sign-ins used up their allowance, with the time the
+ * mark lapses. Per isolate: the shared limiter holds the count, so a fresh
+ * isolate relearns the mark on that address's next failed sign-in.
+ */
+const untrustedCredentialAddresses = new Map<string, number>();
+const UNTRUSTED_ADDRESS_MS = 60_000;
+const UNTRUSTED_ADDRESS_CAP = 10_000;
+
+function isUntrustedCredentialAddress(ip: string, now: number): boolean {
+	const until = untrustedCredentialAddresses.get(ip);
+	if (until === undefined) return false;
+	if (until > now) return true;
+	untrustedCredentialAddresses.delete(ip);
+	return false;
+}
+
+function markUntrustedCredentialAddress(ip: string, now: number): void {
+	if (untrustedCredentialAddresses.size >= UNTRUSTED_ADDRESS_CAP)
+		untrustedCredentialAddresses.clear();
+	untrustedCredentialAddresses.set(ip, now + UNTRUSTED_ADDRESS_MS);
+}
+
+/** Test seam: forget every marked address. */
+export function resetUntrustedCredentialAddresses(): void {
+	untrustedCredentialAddresses.clear();
+}
+
+/**
  * Rate limiting middleware options
  */
 export interface RateLimitOptions {
@@ -84,6 +112,14 @@ export interface RateLimitOptions {
 	limit?: number;
 	/** Seconds to wait before retrying (default: 60) */
 	retryAfterSeconds?: number;
+	/**
+	 * For credential-keyed limits. The credential is not verified when the
+	 * bucket is chosen, so a caller could send a new made-up value each time
+	 * and never share a bucket. With this on, every 401 is also counted against
+	 * the caller's address; once that allowance is spent, the address is
+	 * limited by address alone for a minute, whatever credential it sends.
+	 */
+	countFailedAuthByIp?: boolean;
 }
 
 /**
@@ -112,6 +148,7 @@ export function rateLimit(
 		skipOnError = false,
 		limit = 100,
 		retryAfterSeconds = 60,
+		countFailedAuthByIp = false,
 	} = options;
 
 	return async (c: Context<{ Bindings: CloudflareEnv }>, next: Next) => {
@@ -141,7 +178,12 @@ export function rateLimit(
 		}
 
 		try {
-			const key = await keyFn(c);
+			const ip = c.req.header("CF-Connecting-IP");
+			const byAddressOnly =
+				countFailedAuthByIp &&
+				Boolean(ip) &&
+				isUntrustedCredentialAddress(ip!, Date.now());
+			const key = byAddressOnly ? ip! : await keyFn(c);
 			const { success } = await limiter.limit({ key });
 
 			if (!success) {
@@ -195,6 +237,16 @@ export function rateLimit(
 			);
 		}
 
-		return next();
+		await next();
+
+		const ip = c.req.header("CF-Connecting-IP");
+		if (countFailedAuthByIp && ip && c.res.status === 401) {
+			try {
+				const { success } = await limiter.limit({ key: `unauth:${ip}` });
+				if (!success) markUntrustedCredentialAddress(ip, Date.now());
+			} catch {
+				// Counting failed sign-ins is best effort; the request already ran.
+			}
+		}
 	};
 }
