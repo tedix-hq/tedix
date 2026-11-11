@@ -37,6 +37,8 @@ import {
 	reclaimOwnerToolApprovalExecution,
 	listProvisionalOutcomes,
 	promoteProvisionalOutcome,
+	queueOwnerToolApprovalExecution,
+	requeueStaleContinuableOwnerToolApprovals,
 	recordOwnerToolApprovalExecution,
 	rollbackProvisionalOutcome,
 	resolveApprovalRequest,
@@ -811,6 +813,89 @@ describe("exact owner tool approval consumption", () => {
 		).toHaveLength(1);
 		expect(await consumeOwnerToolApproval(db, consume)).toBe(true);
 		expect(await consumeOwnerToolApproval(db, consume)).toBe(false);
+	});
+
+	it("queues an approved purge for the queue and re-queues only stale deleting purge runs", async () => {
+		const { db } = setup();
+		const now = "2026-01-01T01:00:00.000Z";
+		const create = async (id: string, endpoint: string, dryRun: boolean) => {
+			await createApprovalRequest(db, {
+				id,
+				orgId: "org-1",
+				tediId: "tedi-1",
+				actionType: "mcp.tool_call",
+				description: "Purge archived items",
+				payload: {
+					kind: "mcp_tool_call",
+					fingerprint: "exact-input",
+					target: { transport: "rpc", endpoint },
+					args: { kinds: ["workspaces"], dryRun },
+				},
+				createdAt: "2026-01-01T00:00:00.000Z",
+				expiresAt: "2099-01-02T00:00:00.000Z",
+			});
+			await resolveApprovalRequest(db, id, {
+				status: "approved",
+				resolvedBy: "owner-1",
+			});
+		};
+		const purge = "osWorkspaces/workspaces/purgeArchived";
+		await create("purge-1", purge, false);
+		await create("other-1", "clients/delete", false);
+		await create("dry-1", purge, true);
+		const queue = { id: "purge-1", organizationId: "org-1", now };
+		expect(await queueOwnerToolApprovalExecution(db, queue)).toBe(true);
+		expect(await queueOwnerToolApprovalExecution(db, queue)).toBe(false);
+		expect(await listDueOwnerToolApprovals(db, now)).toHaveLength(1);
+		for (const id of ["purge-1", "other-1", "dry-1"]) {
+			await recordOwnerToolApprovalExecution(db, {
+				id,
+				organizationId: "org-1",
+				execution: { status: "running", startedAt: now },
+			});
+		}
+		// purge-1 was queued, so its startedAt matches; the others had none.
+		await claimOwnerToolApprovalExecution(db, {
+			id: "other-1",
+			organizationId: "org-1",
+			now,
+		});
+		await claimOwnerToolApprovalExecution(db, {
+			id: "dry-1",
+			organizationId: "org-1",
+			now,
+		});
+		for (const id of ["purge-1", "other-1", "dry-1"])
+			expect(
+				await consumeOwnerToolApproval(db, {
+					id,
+					organizationId: "org-1",
+					now,
+					fingerprint: "exact-input",
+				}),
+			).toBe(true);
+		const requeue = {
+			now: "2026-01-01T02:00:00.000Z",
+			endpoints: [purge],
+		};
+		expect(
+			await requeueStaleContinuableOwnerToolApprovals(db, {
+				...requeue,
+				staleBefore: "2026-01-01T00:59:00.000Z",
+			}),
+		).toBe(0);
+		expect(
+			await requeueStaleContinuableOwnerToolApprovals(db, {
+				...requeue,
+				staleBefore: "2026-01-01T01:50:00.000Z",
+			}),
+		).toBe(1);
+		const row = await getApprovalRequestById(db, "purge-1");
+		expect(row?.payload).toMatchObject({ execution: { status: "queued" } });
+		expect(row?.payload).not.toHaveProperty("consumedAt");
+		expect(
+			(await getApprovalRequestById(db, "other-1"))?.payload,
+		).toHaveProperty("consumedAt");
 	});
 
 	it("claims once and preserves tenant, fingerprint, expiry and pending fences", async () => {

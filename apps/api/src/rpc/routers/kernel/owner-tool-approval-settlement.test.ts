@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
 	claim: vi.fn(),
 	reclaim: vi.fn(),
 	continueRun: vi.fn(),
+	queue: vi.fn(),
+	requeueStale: vi.fn(),
 	listDue: vi.fn(),
 	record: vi.fn(),
 	receipt: vi.fn(),
@@ -26,6 +28,8 @@ vi.mock("@tedix/db/queries/approvals", async (load) => ({
 	claimOwnerToolApprovalExecution: mocks.claim,
 	reclaimOwnerToolApprovalExecution: mocks.reclaim,
 	continueOwnerToolApprovalExecution: mocks.continueRun,
+	queueOwnerToolApprovalExecution: mocks.queue,
+	requeueStaleContinuableOwnerToolApprovals: mocks.requeueStale,
 	listDueOwnerToolApprovals: mocks.listDue,
 	recordOwnerToolApprovalExecution: mocks.record,
 }));
@@ -104,6 +108,8 @@ beforeEach(() => {
 	mocks.claim.mockResolvedValue(true);
 	mocks.reclaim.mockResolvedValue(true);
 	mocks.continueRun.mockResolvedValue(true);
+	mocks.queue.mockResolvedValue(true);
+	mocks.requeueStale.mockResolvedValue(0);
 	mocks.listDue.mockResolvedValue([]);
 	mocks.record.mockImplementation(async (_db, input) => input.execution);
 	mocks.receipt.mockResolvedValue({});
@@ -770,14 +776,45 @@ describe("continuing an approved purge", () => {
 		).toMatchObject({ kind: "continue" });
 	});
 
-	it("re-arms the approval with the narrowed call instead of finishing", async () => {
-		mocks.executor.mockResolvedValue({ ok: true, data: unfinished });
+	it("queues an approved purge for the approval queue instead of running it in the request", async () => {
 		expect(
 			await settleOwnerToolCallApproval(context, {
 				approval: approval({ payload: purgePayload }),
 				status: "approved",
 			}),
 		).toBe("queued");
+		expect(mocks.queue).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({ id: "11111111-1111-4111-8111-111111111111" }),
+		);
+		expect(mocks.claim).not.toHaveBeenCalled();
+		expect(mocks.executor).not.toHaveBeenCalled();
+	});
+
+	it("re-queues purge runs that were cut off, every tick", async () => {
+		await runQueuedOwnerToolApprovals(context);
+		expect(mocks.requeueStale).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				endpoints: ["osWorkspaces/workspaces/purgeArchived"],
+			}),
+		);
+	});
+
+	it("re-arms the approval with the narrowed call instead of finishing", async () => {
+		mocks.executor.mockResolvedValue({ ok: true, data: unfinished });
+		mocks.listDue.mockResolvedValueOnce([
+			approval({
+				payload: {
+					...purgePayload,
+					execution: {
+						status: "queued",
+						startedAt: "2026-11-11T00:00:00.000Z",
+					},
+				},
+			}),
+		]);
+		expect(await runQueuedOwnerToolApprovals(context)).toBe(1);
 		expect(mocks.continueRun).toHaveBeenCalledWith(
 			expect.anything(),
 			expect.objectContaining({
@@ -913,10 +950,18 @@ describe("continuing an approved purge", () => {
 			status: "approved",
 		});
 		mocks.executor.mockResolvedValue({ ok: false, error: "boom" });
-		await settleOwnerToolCallApproval(context, {
-			approval: approval({ payload: purgePayload }),
-			status: "approved",
-		});
+		mocks.listDue.mockResolvedValueOnce([
+			approval({
+				payload: {
+					...purgePayload,
+					execution: {
+						status: "queued",
+						startedAt: "2026-11-11T00:00:00.000Z",
+					},
+				},
+			}),
+		]);
+		await runQueuedOwnerToolApprovals(context);
 		expect(mocks.continueRun).not.toHaveBeenCalled();
 		expect(mocks.record).toHaveBeenCalledTimes(3);
 	});
