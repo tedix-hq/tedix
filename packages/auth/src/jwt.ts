@@ -45,6 +45,68 @@ async function getValidationClient(
 	return client;
 }
 
+/**
+ * Longest one token validation may wait on the SDK. A healthy key fetch takes
+ * about 10 ms and signature checks are local, so a validation still pending
+ * after this is stuck, not slow.
+ */
+export const VALIDATION_BUDGET_MS = 3_000;
+
+class ValidationBudgetExceeded extends Error {}
+
+function withValidationBudget<T>(promise: Promise<T>): Promise<T> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const deadline = new Promise<never>((_, reject) => {
+		timer = setTimeout(
+			() => reject(new ValidationBudgetExceeded()),
+			VALIDATION_BUDGET_MS,
+		);
+	});
+	promise.catch(() => {});
+	return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * Validate with the cached SDK client, replacing it when it stops answering.
+ *
+ * The SDK shares one key-refresh promise between every validation on a client
+ * and clears it only when the fetch settles. On Workers the fetch belongs to
+ * the request that started it: if that request is cancelled, the fetch is
+ * dropped, the promise never settles, and every later validation in the
+ * isolate waits on it forever. A stuck client is therefore dropped and the
+ * validation retried once on a new one, whose key fetch belongs to this
+ * request.
+ */
+async function validateSessionBounded(
+	projectId: string,
+	baseUrl: string | undefined,
+	validate: (
+		client: DescopeValidationClient,
+	) => ReturnType<DescopeValidationClient["validateSession"]>,
+): ReturnType<DescopeValidationClient["validateSession"]> {
+	const key = `${normalizeDescopeBaseUrl(baseUrl) || "default"}:${projectId}`;
+	for (let attempt = 1; ; attempt += 1) {
+		const client = await getValidationClient(projectId, baseUrl);
+		try {
+			return await withValidationBudget(validate(client));
+		} catch (error) {
+			if (!(error instanceof ValidationBudgetExceeded)) throw error;
+			if (validationClients.get(key) === client) validationClients.delete(key);
+			console.warn({
+				event: "auth.validation_client_replaced",
+				attempt,
+				budgetMs: VALIDATION_BUDGET_MS,
+			});
+			if (attempt === 2) {
+				throw new TokenValidationError(
+					"Token signing keys are temporarily unavailable",
+					"KEYS_UNAVAILABLE",
+				);
+			}
+		}
+	}
+}
+
 // =============================================================================
 // ERRORS
 // =============================================================================
@@ -236,7 +298,6 @@ export async function validateToken(
 	const primaryAudience = audience || projectId;
 
 	try {
-		const client = await getValidationClient(projectId, baseUrl);
 		// Only enforce the `aud` claim when a caller explicitly asks for it
 		// (e.g. the MCP edge scoping AIH tokens to a resource server).
 		// Descope's own SDK treats audience checking as optional — see
@@ -250,9 +311,14 @@ export async function validateToken(
 			audience || allowedAudiences.length > 0
 				? [primaryAudience, ...allowedAudiences]
 				: undefined;
-		const authInfo = await client.validateSession(
-			token,
-			audiences ? { audience: audiences } : undefined,
+		const authInfo = await validateSessionBounded(
+			projectId,
+			baseUrl,
+			(client) =>
+				client.validateSession(
+					token,
+					audiences ? { audience: audiences } : undefined,
+				),
 		);
 		const result = normalizePayload(authInfo.token as Record<string, unknown>);
 
