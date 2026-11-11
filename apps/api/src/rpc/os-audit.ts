@@ -898,6 +898,8 @@ export const OS_APPROVAL_RULES_AUDIT: OsAuditRegistry = {
 export const OS_AUDIT_NON_EMITTING: Readonly<Record<string, string>> = {
 	"osWorkspaces.blueprints.previewApply":
 		"read-only provisioning plan; creates no resources",
+	"osWorkspaces.workspaces.previewArchivedPurge":
+		"read-only purge preview; dryRun is forced and nothing is deleted",
 	// Presentation-only, per-user, and not org state: favorites and recency live
 	// in user_configs and govern nothing.
 	"osWorkspaces.workspacePreferences.setFavorite":

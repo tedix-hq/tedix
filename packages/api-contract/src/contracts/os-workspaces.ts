@@ -510,6 +510,17 @@ export const osWorkspacesContract = oc
 				})
 				.input(OsArchivedPurgeInputSchema)
 				.output(OsArchivedPurgeResultSchema),
+			previewArchivedPurge: oc
+				.route({
+					method: "POST",
+					path: "/archived-items/purge-preview",
+					summary:
+						"Preview which archived Tedix OS workspaces, outputs and conversations a purge would delete",
+					description:
+						"Read-only. Runs the same checks as purgeArchived with dryRun forced on and deletes nothing, so it needs no approval. Requires os:admin; conversations also need the right to delete Home conversations. Returns eligible and skipped counts by reason, sample ids, and `remaining` when the work or time budget stopped the check early.",
+				})
+				.input(OsArchivedPurgeInputSchema.omit({ dryRun: true }))
+				.output(OsArchivedPurgeResultSchema),
 			previewBlueprintUpgrade: oc
 				.route({
 					method: "GET",

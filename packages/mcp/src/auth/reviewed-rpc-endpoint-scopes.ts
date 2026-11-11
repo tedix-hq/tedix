@@ -662,6 +662,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	// Admin tier, like deleting one workspace; the API also requires the
 	// tedis:update right before it deletes Home conversations.
 	"osWorkspaces/workspaces/purgeArchived": "mcp:apps.admin",
+	"osWorkspaces/workspaces/previewArchivedPurge": "mcp:apps.admin",
 	"osWorkspaces/workspaces/previewBlueprintUpgrade": "mcp:apps.read",
 	"osWorkspaces/workspaces/restore": "mcp:apps.write",
 	"osWorkspaces/workspaces/removeIcon": "mcp:apps.write",

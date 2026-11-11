@@ -199,6 +199,25 @@ describe("purge_archived_os_items", () => {
 		);
 	});
 
+	it("preview reports eligible items and never deletes", async () => {
+		const workspace = await archivedWorkspace(t, "Old project");
+		const output = await archivedOutput(t, "Old notes");
+
+		const result = await t.admin.workspaces.previewArchivedPurge({
+			kinds: ["workspaces", "outputs"],
+		});
+
+		expect(result).toMatchObject({
+			dryRun: true,
+			workspaces: { eligible: 1, deleted: 0 },
+			outputs: { eligible: 1, deleted: 0 },
+		});
+		expect(result.workspaces?.sampleIds).toEqual([workspace.id]);
+		expect(result.outputs?.sampleIds).toEqual([output.id]);
+		expect(await t.db.select().from(osWorkspaces)).toHaveLength(1);
+		expect(await t.db.select().from(osOutputs)).toHaveLength(1);
+	});
+
 	it("deletes archived workspaces and outputs but keeps active, shared and reviewed ones", async () => {
 		const active = await t.admin.workspaces.create({ name: "Active" });
 		const activeOutput = await t.admin.outputs.create({
