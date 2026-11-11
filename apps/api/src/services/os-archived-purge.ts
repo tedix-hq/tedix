@@ -67,7 +67,7 @@ export const OS_ARCHIVED_PURGE_WORK_BUDGET = 600;
 export const OS_ARCHIVED_PURGE_TIME_BUDGET_MS = 9_000;
 const PAGE_SIZE = KERNEL_CONVERSATION_PURGE_CHUNK;
 const SAMPLE_LIMIT = 20;
-const OUTPUT_CONCURRENCY = 8;
+const OUTPUT_CONCURRENCY = 24;
 const SOURCE = "osWorkspaces.workspaces.purgeArchived";
 
 const ACCESS_RANK = { read: 1, edit: 2, owner: 3 } as const;
