@@ -641,6 +641,68 @@ describe("migrate-workspaces", () => {
 		}
 	});
 
+	test("a fresh snapshot adds rows to an earlier import without reusing its receipts", async () => {
+		const snapshot = fixtureSnapshot();
+		const workDir = mkdtempSync(join(tmpdir(), "mw-test-"));
+		try {
+			const bundles = new LocalBundleStore(join(workDir, "bundles"));
+			const stores = localStoreFactory(join(workDir, "objects"));
+			await exportAll(snapshot, bundles, assignments);
+			await importAll(bundles, stores);
+			snapshot.main.exec(
+				"INSERT INTO kernel_runtime_events (id, organization_id, kind, conversation_id, run_id, payload, created_at) SELECT 'ev-new', organization_id, kind, conversation_id, run_id, payload, created_at FROM kernel_runtime_events WHERE id = 'ev-1'",
+			);
+			await exportAll(snapshot, bundles, assignments);
+			const results = await importAll(bundles, stores, { snapshot });
+			expect(results.map((r) => [r.imported, r.duplicates])).toEqual([
+				[1, 12],
+				[0, 3],
+			]);
+			expect((await reconcileAll(bundles, stores, { snapshot })).ok).toBe(true);
+		} finally {
+			rmSync(workDir, { recursive: true, force: true });
+			snapshot.close();
+		}
+	});
+
+	test("an existing row conflict stops before any table is imported", async () => {
+		const snapshot = fixtureSnapshot();
+		const workDir = mkdtempSync(join(tmpdir(), "mw-test-"));
+		try {
+			const bundles = new LocalBundleStore(join(workDir, "bundles"));
+			const stores = localStoreFactory(join(workDir, "objects"));
+			await exportAll(snapshot, bundles, assignments);
+			await importAll(bundles, stores);
+			snapshot.main.exec(
+				"UPDATE kernel_runtime_events SET payload = 'changed' WHERE id = 'ev-1'",
+			);
+			await exportAll(snapshot, bundles, assignments);
+			let writes = 0;
+			const guarded: WorkspaceStoreFactory = {
+				kind: "local",
+				async open(ref) {
+					const store = await stores.open(ref);
+					return {
+						describe: () => store.describe(),
+						readRows: (...args) => store.readRows(...args),
+						close: () => store.close(),
+						async importRows(batch) {
+							writes += 1;
+							return store.importRows(batch);
+						},
+					};
+				},
+			};
+			await expect(importAll(bundles, guarded, { snapshot })).rejects.toThrow(
+				"existing kernel_runtime_events row differs",
+			);
+			expect(writes).toBe(0);
+		} finally {
+			rmSync(workDir, { recursive: true, force: true });
+			snapshot.close();
+		}
+	});
+
 	test("outputs without a workspace need a home, then move with their revisions", async () => {
 		const snapshot = fixtureSnapshot({ unassignedOutput: true });
 		const workDir = mkdtempSync(join(tmpdir(), "mw-test-"));

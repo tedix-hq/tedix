@@ -25,9 +25,12 @@ bun scripts/migrate-workspaces/cli.ts assignments --snapshot main.sql --out assi
   per store (main and each log partition, with its `log_partition` row) the
   row count and one hash of every mapped table.
 - `import` loads each bundle into the workspace's object in chunks of 1000
-  rows. Every chunk has a stable batch id, so a rerun skips chunks that
-  already landed. Before opening the target, it checks every table's count
-  and full-row hash against the manifest.
+  rows. Every chunk has a content-based batch id. Before opening the target,
+  it checks every table's count and full-row hash against the manifest.
+  Before writing a workspace, it compares all existing rows: identical rows
+  are counted as duplicates, missing rows are added, and a conflicting row
+  stops the import. Object-native rows are preserved and still appear in
+  the reconcile report.
   Tables are loaded in the order of the mapping file. A remote import
   needs `--snapshot` and `--logs` and refuses, before it contacts any
   object, unless both gates hold (`snapshot-proof.ts`; no override flag):
