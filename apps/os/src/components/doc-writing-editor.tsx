@@ -6,8 +6,8 @@ import {
 import type { AppRuntimeRole } from "@tedix/api-contract/schemas/os-app-runtime";
 import type { AppRuntimeHostResult } from "@/lib/app-runtime-host";
 import type { DocumentContent } from "@/lib/output-models";
-import { canvasDocKey } from "@/lib/canvas-search";
-import { DocumentEditor } from "@/components/output-editor-document";
+import { FileOutputView } from "@/components/output-content";
+import { DocumentEditor } from "@/components/doc-v2-editor";
 import { useDocWritingDrafts } from "@/components/doc-writing-drafts";
 import { Button } from "@/components/kumo/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
@@ -49,7 +49,6 @@ export function DocWritingEditor({
 	const [readError, setReadError] = useState<string | null>(null);
 	const [writeError, setWriteError] = useState<string | null>(null);
 	const [confirmReload, setConfirmReload] = useState(false);
-	const [confirmNative, setConfirmNative] = useState(false);
 	const dirtyRef = useRef(false);
 	const operation = useRef(0);
 	const requestedRevision = useRef(0);
@@ -58,7 +57,6 @@ export function DocWritingEditor({
 	const canWrite = role === "owner" || role === "build";
 	const authorized = useRef(false);
 	authorized.current = canWrite && !sourceUnavailable;
-	const nativeHref = `/workspace/${encodeURIComponent(workspaceId)}?${new URLSearchParams({ workpiece: canvasDocKey({ type: "output", id: outputId }), pane: "workpiece" })}`;
 
 	const parse = useCallback(
 		(value: unknown): SavedDocument => {
@@ -276,17 +274,6 @@ export function DocWritingEditor({
 				>
 					Export Markdown
 				</Button>
-				<a
-					href={nativeHref}
-					onClick={(event) => {
-						if (dirty) {
-							event.preventDefault();
-							setConfirmNative(true);
-						}
-					}}
-				>
-					Open native editor
-				</a>
 			</header>
 			<div className="doc-writing-status" role="status">
 				{dirty
@@ -302,9 +289,7 @@ export function DocWritingEditor({
 				</p>
 			)}
 			{draft?.file && !readError && !sourceUnavailable && (
-				<p className="doc-writing-status">
-					The attached file is preserved. Open the native editor to preview it.
-				</p>
+				<FileOutputView {...draft.file} />
 			)}
 			{saved && savedRevision > saved.revision && dirty && (
 				<Alert variant="warning">
@@ -360,18 +345,6 @@ export function DocWritingEditor({
 				onConfirm={() => {
 					setConfirmReload(false);
 					void read(true);
-				}}
-			/>
-			<ConfirmDialog
-				open={confirmNative}
-				onOpenChange={setConfirmNative}
-				title="Open the native editor?"
-				description="Your unsaved Doc draft will be discarded. Save it first to keep your changes."
-				confirmLabel="Discard draft and open"
-				pendingLabel="Opening…"
-				isPending={false}
-				onConfirm={() => {
-					window.location.assign(nativeHref);
 				}}
 			/>
 		</section>

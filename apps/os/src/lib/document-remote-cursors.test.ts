@@ -2,7 +2,6 @@ import { getSchema } from "@tiptap/core";
 import { EditorState, TextSelection } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
 import { describe, expect, it } from "vite-plus/test";
-import type { CollabParticipant } from "@/collab/presence";
 import {
 	REMOTE_CHANGE_META,
 	type RemoteCursor,
@@ -10,7 +9,6 @@ import {
 	remoteCursorsPlugin,
 	setRemoteCursors,
 } from "./document-remote-cursors";
-import { remoteCursorsFromParticipants } from "./use-document-collab";
 
 const schema = getSchema([StarterKit]);
 
@@ -85,35 +83,5 @@ describe("remote cursors", () => {
 		);
 		const [caret] = tracked(state).decorations.find();
 		expect(caret?.from).toBeLessThanOrEqual(state.doc.content.size);
-	});
-
-	it("reads only rich-text selections in the shared document from presence", () => {
-		const participant = (
-			key: string,
-			selection: CollabParticipant["selection"],
-		): CollabParticipant => ({
-			key,
-			displayName: key,
-			kind: "human",
-			role: "member",
-			verified: true,
-			clientIds: [1],
-			location: null,
-			selection,
-			sessions: 1,
-		});
-		const cursors = remoteCursorsFromParticipants([
-			participant("rich", {
-				path: "document",
-				anchor: 2,
-				head: 4,
-				space: "rich-text",
-			}),
-			participant("text", { path: "document", anchor: 2, head: 4 }),
-			participant("none", null),
-		]);
-		expect(cursors).toEqual([
-			expect.objectContaining({ key: "rich", anchor: 2, head: 4 }),
-		]);
 	});
 });

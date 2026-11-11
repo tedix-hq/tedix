@@ -1,4 +1,4 @@
-import "./output-editor.css";
+import "./output-views.css";
 import type {
 	OsOutputContent,
 	OsRichTextNode,

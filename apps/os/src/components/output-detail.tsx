@@ -1,23 +1,12 @@
-import "./output-editor.css";
+import "./output-views.css";
 import "./output-detail.css";
-import {
-	ArrowLeft,
-	FloppyDisk,
-	PencilSimple,
-	SquaresFour,
-	X,
-} from "@phosphor-icons/react";
+import { SquaresFour } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import type { OsOutputContent } from "@tedix/api-contract/schemas/os-workspaces";
-import { useState } from "react";
-import { ConfirmDialog } from "@/components/confirm-dialog";
+import { useEffect } from "react";
 import { DetailUnavailable } from "@/components/detail-unavailable";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
-import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { DropdownMenuLinkItem } from "@/components/kumo/dropdown-menu";
-import { Input } from "@/components/kumo/input";
 import {
 	Page,
 	PageActions,
@@ -30,27 +19,16 @@ import {
 } from "@/components/kumo/page";
 import { Skeleton } from "@/components/kumo/skeleton";
 import { OutputContentView } from "@/components/output-content";
-import { OutputEditor } from "@/components/output-editor";
 import { OutputExportButtons } from "@/components/output-export-buttons";
 import { useOutputsWebMcpTools } from "@/components/outputs-webmcp-tools";
-import {
-	OutputWorkshopActions,
-	OutputWorkshopCommandBar,
-	OutputWorkshopFooter,
-	OutputWorkshopIdentity,
-	outputWorkshopKindLabel,
-	OutputWorkshopStage,
-	OutputWorkshopStatus,
-} from "@/components/output-workshop";
+import { outputWorkshopKindLabel } from "@/components/output-workshop";
 import { ShareControls } from "@/components/share-controls";
 import {
 	outputDetailQueryOptions,
 	workspaceDetailQueryOptions,
 } from "@/lib/os-query-options";
-import { normalizeOutputContent } from "@/lib/output-models";
 import { useOsFormattingPreferences } from "@/lib/format";
 import { relativeTime } from "@/lib/time";
-import { useReviseOutput } from "@/lib/use-revise-output";
 
 export function OutputDetailPage() {
 	useOsFormattingPreferences();
@@ -61,6 +39,12 @@ export function OutputDetailPage() {
 	return <OutputDetail outputId={outputId} key={outputId} />;
 }
 
+/**
+ * The saved version of an output. Doc, Sheet and Slides are edited only in
+ * their workspace gadget, so an output in an active workspace opens there:
+ * old `/outputs/<id>` links land in the editor. Outputs outside a workspace
+ * stay readable here.
+ */
 function OutputDetail({ outputId }: { outputId: string }) {
 	const detail = useQuery(outputDetailQueryOptions(outputId));
 	const workspaceId = detail.data?.output.workspaceId ?? "";
@@ -72,170 +56,18 @@ function OutputDetail({ outputId }: { outputId: string }) {
 		workspace.data?.workspace.status === "active"
 			? workspace.data.workspace
 			: null;
-	const { save, saving, outcome, clearOutcome } = useReviseOutput(outputId);
 	const navigate = useNavigate();
-	const [draft, setDraft] = useState<OsOutputContent | null>(null);
-	const [draftBaseline, setDraftBaseline] = useState("");
-	const [note, setNote] = useState("");
-	const [confirmLeave, setConfirmLeave] = useState(false);
-
-	const startEditing = () => {
-		if (!detail.data) return;
-		clearOutcome();
-		setNote("");
-		const content = normalizeOutputContent(detail.data.currentRevision.content);
-		setDraftBaseline(JSON.stringify(content));
-		setDraft(content);
-	};
-	const dirty =
-		draft !== null &&
-		(note.trim() !== "" || JSON.stringify(draft) !== draftBaseline);
-
-	const submit = async () => {
-		if (!draft || !detail.data) return;
-		const result = await save({
-			content: draft,
-			baseContent: detail.data.currentRevision.content,
-			expectedRevision: detail.data.currentRevision.revision,
-			note,
+	const openInWorkspace =
+		activeWorkspace !== null && detail.data?.output.status === "active";
+	useEffect(() => {
+		if (!openInWorkspace || !activeWorkspace) return;
+		void navigate({
+			to: "/workspace/$workspaceId",
+			params: { workspaceId: activeWorkspace.id },
+			search: { workpiece: `output:${outputId}`, pane: "workpiece" },
+			replace: true,
 		});
-		if (result.kind === "saved" || result.kind === "unchanged") {
-			setDraft(null);
-		}
-	};
-
-	const editing = draft !== null;
-	const saveFeedback =
-		outcome?.kind === "conflict" ? (
-			<Alert variant="destructive">
-				<AlertTitle>Someone else saved a newer version</AlertTitle>
-				<AlertDescription>
-					Your changes were not saved. Reload the page, make your change again,
-					and save.
-				</AlertDescription>
-			</Alert>
-		) : outcome?.kind === "error" ? (
-			<Alert variant="destructive">
-				<AlertTitle>Couldn't save</AlertTitle>
-				<AlertDescription>{outcome.message}</AlertDescription>
-			</Alert>
-		) : outcome?.kind === "unchanged" && detail.data ? (
-			<Alert>
-				<AlertTitle>No changes to save</AlertTitle>
-				<AlertDescription>
-					Nothing changed since version {detail.data.currentRevision.revision},
-					so nothing new was saved.
-				</AlertDescription>
-			</Alert>
-		) : null;
-
-	if (editing && detail.data) {
-		return (
-			<Page
-				fullHeight
-				width="bleed"
-				className="output-detail-workshop"
-				data-output-kind={detail.data.output.kind}
-			>
-				<OutputWorkshopCommandBar>
-					<OutputWorkshopIdentity>
-						<Button
-							render={<Link to="/outputs" />}
-							variant="ghost"
-							size="icon-sm"
-							aria-label="All outputs"
-							title="All outputs"
-							onClick={(event) => {
-								// Leaving the workshop drops the draft; ask first.
-								if (!dirty) return;
-								event.preventDefault();
-								setConfirmLeave(true);
-							}}
-						>
-							<ArrowLeft size={14} />
-						</Button>
-						<h1 title={detail.data.output.title}>{detail.data.output.title}</h1>
-						<Badge variant="secondary">
-							{outputWorkshopKindLabel(detail.data.output.kind)}
-						</Badge>
-					</OutputWorkshopIdentity>
-					<OutputWorkshopStatus>
-						<Badge
-							variant="info"
-							title="Saving keeps the earlier version and adds a new one."
-						>
-							Editing version {detail.data.currentRevision.revision}
-						</Badge>
-					</OutputWorkshopStatus>
-					<OutputWorkshopActions>
-						<OutputExportButtons
-							outputId={outputId}
-							kind={detail.data.output.kind}
-							content={detail.data.currentRevision.content}
-							compact
-						/>
-						<ShareControls
-							outputId={outputId}
-							currentRevisionId={detail.data.currentRevision.id}
-							compact
-						/>
-					</OutputWorkshopActions>
-				</OutputWorkshopCommandBar>
-				{saveFeedback ? (
-					<div className="output-detail-workshop-feedback">{saveFeedback}</div>
-				) : null}
-				<OutputWorkshopStage>
-					<OutputEditor
-						value={draft}
-						onChange={setDraft}
-						disabled={saving}
-						workspaceId={detail.data.output.workspaceId ?? undefined}
-					/>
-				</OutputWorkshopStage>
-				<OutputWorkshopFooter>
-					<Input
-						aria-label="What changed"
-						value={note}
-						onChange={(event) => setNote(event.target.value)}
-						placeholder="What changed? (optional)"
-						maxLength={2000}
-						className="output-detail-revision-note"
-					/>
-					<Button size="sm" onClick={submit} disabled={saving}>
-						<FloppyDisk size={14} /> {saving ? "Saving…" : "Save"}
-					</Button>
-					<Button
-						variant="ghost"
-						size="sm"
-						disabled={saving}
-						onClick={() => {
-							setDraft(null);
-							clearOutcome();
-						}}
-					>
-						<X size={14} /> Cancel
-					</Button>
-				</OutputWorkshopFooter>
-				<ConfirmDialog
-					open={confirmLeave}
-					onOpenChange={setConfirmLeave}
-					title="Discard your changes?"
-					description="Your edits to this output are not saved. Leaving now discards them."
-					confirmLabel="Discard changes"
-					pendingLabel="Discarding…"
-					cancelLabel="Keep editing"
-					destructive
-					isPending={false}
-					onConfirm={() => {
-						setConfirmLeave(false);
-						setDraft(null);
-						clearOutcome();
-						void navigate({ to: "/outputs" });
-					}}
-				/>
-			</Page>
-		);
-	}
+	}, [activeWorkspace, navigate, openInWorkspace, outputId]);
 
 	return (
 		<Page width="md" className="output-detail-reading">
@@ -303,11 +135,6 @@ function OutputDetail({ outputId }: { outputId: string }) {
 						</PageHeading>
 					</PageHeader>
 					<PageActions className="output-detail-actions ms-0 w-full justify-start sm:w-auto [&>[data-slot=button]:not([data-icon-only])]:max-sm:flex-1">
-						{detail.data.output.status === "active" && (
-							<Button size="sm" onClick={startEditing}>
-								<PencilSimple size={14} /> Edit
-							</Button>
-						)}
 						<ShareControls
 							outputId={outputId}
 							currentRevisionId={detail.data.currentRevision.id}
@@ -357,13 +184,7 @@ function OutputDetail({ outputId }: { outputId: string }) {
 							}
 						/>
 					</PageActions>
-					{saveFeedback}
-					<OutputContentView
-						content={detail.data.currentRevision.content}
-						onEdit={
-							detail.data.output.status === "active" ? startEditing : undefined
-						}
-					/>
+					<OutputContentView content={detail.data.currentRevision.content} />
 				</>
 			)}
 		</Page>
