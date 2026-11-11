@@ -173,6 +173,51 @@ describe("activity timeline", () => {
 		).toBe(true);
 	});
 
+	it("folds the steps one task took into its newest step, wherever they sit", () => {
+		const step = (id: string, classId: string, at: string) =>
+			item({
+				id,
+				classId,
+				at,
+				workItemId: "11111111-1111-4111-8111-111111111111",
+				done: false,
+			});
+		const list = [
+			step("updated", "work:comment", "2026-10-26T12:00:00.000Z"),
+			step("started", "work:attempt.started", "2026-10-26T11:00:00.000Z"),
+			item({ id: "other", actor: "Birch", at: "2026-10-26T10:30:00.000Z" }),
+			step("accepted", "work:work.accepted", "2026-10-26T10:00:00.000Z"),
+			// A finished task, a result and a row that needs the person stay their own rows.
+			{
+				...step("done", "work:work.completed", "2026-10-26T09:30:00.000Z"),
+				done: true,
+			},
+			item({
+				id: "result",
+				kind: "result",
+				workItemId: "11111111-1111-4111-8111-111111111111",
+			}),
+			{
+				...step("ask", "work:blocked", "2026-10-26T09:00:00.000Z"),
+				needsAction: true,
+			},
+		];
+		const entries = collapseActivity(list);
+		expect(
+			entries.map((entry) =>
+				entry.kind === "group"
+					? [entry.by, ...entry.items.map((i) => i.id)]
+					: entry.item.id,
+			),
+		).toEqual([
+			["task", "updated", "started", "accepted"],
+			"other",
+			"done",
+			"result",
+			"ask",
+		]);
+	});
+
 	it("labels days and outcome chips in Spanish for a Spanish reader", () => {
 		setOsFormattingPreferences({ locale: "es-ES", timezone: null });
 		const now = new Date("2026-10-26T15:00:00.000Z");

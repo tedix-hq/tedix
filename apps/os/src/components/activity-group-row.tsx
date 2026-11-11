@@ -3,6 +3,7 @@ import { WorkActorAvatar } from "./work-actor-avatar";
 import { Button } from "./kumo/button";
 import { absoluteTime, relativeTime } from "@/lib/time";
 import { useOsFormattingPreferences } from "@/lib/format";
+import { activityHeadline } from "@/lib/feed-timeline";
 import { OS_COPY } from "@/shared/os-copy";
 
 /** Repeated events by one actor read as one row; the list opens on request. */
@@ -12,12 +13,15 @@ export function ActivityGroupRow({
 	actor,
 	open,
 	onToggle,
+	by = "actor",
 }: {
 	id: string;
 	items: ActivityFeedItem[];
 	actor: string;
 	open: boolean;
 	onToggle: () => void;
+	/** "task": the rows are the steps one task took, newest first. */
+	by?: "actor" | "task";
 }) {
 	useOsFormattingPreferences();
 	const latest = items[0]!;
@@ -38,10 +42,16 @@ export function ActivityGroupRow({
 				<WorkActorAvatar actor={identity} name={actor} className="ft-avatar" />
 				<div className="fd-story-body grid">
 					<span className="ft-sentence">
-						{OS_COPY.feed.timeline.groupSummary(actor, items.length)}
+						{by === "task"
+							? activityHeadline(latest).headline
+							: OS_COPY.feed.timeline.groupSummary(actor, items.length)}
 					</span>
 					<div className="ft-byline">
-						<span className="ft-group-latest">{latest.sentence}</span>
+						<span className="ft-group-latest">
+							{by === "task"
+								? OS_COPY.feed.timeline.taskSteps(actor, items.length - 1)
+								: latest.sentence}
+						</span>
 						<time dateTime={latest.at} title={absoluteTime(latest.at)}>
 							· {relativeTime(latest.at)}
 						</time>

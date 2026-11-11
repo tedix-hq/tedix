@@ -94,15 +94,15 @@ export function FocusFeed({
 	const timeline = filtered || who !== "all" || !!navigation?.day;
 	const filterLabel =
 		filter === "history"
-			? "Finished work"
+			? OS_COPY.feed.timeline.finished
 			: filter === "stalled"
-				? "Stalled work"
+				? OS_COPY.feed.timeline.stalled
 				: OS_COPY.feed.filters[filter];
 	const emptyMessage =
 		filter === "history"
-			? "No finished work matches these filters."
+			? OS_COPY.feed.timeline.noFinished
 			: filter === "stalled"
-				? "No stalled work matches these filters."
+				? OS_COPY.feed.timeline.noStalled
 				: OS_COPY.feed.timeline.noMatch;
 	const [sources, setSources] = useState<Record<string, FeedSourceState>>({});
 	const [cardSource, setCardSource] = useCardSourceFilter();
@@ -399,8 +399,7 @@ export function FocusFeed({
 				],
 			};
 		}).catch(() => {
-			if (active)
-				setStatus("Could not save your Activity preferences. Try again.");
+			if (active) setStatus(OS_COPY.feed.timeline.preferencesFailed);
 		});
 		return () => {
 			active = false;
@@ -454,7 +453,7 @@ export function FocusFeed({
 				if (
 					["pin", "hide", "not_important", "tell_me_earlier"].includes(reaction)
 				) {
-					setStatus("Saved. Activity will learn from this.");
+					setStatus(OS_COPY.feed.timeline.saved);
 					void cache.invalidateQueries({
 						queryKey: osQuery.learningFeedback.model.key(),
 					});
@@ -462,7 +461,7 @@ export function FocusFeed({
 				return true;
 			} catch {
 				if (reaction === "impression") counters.current.delete(impressionKey);
-				if (!observed) setStatus("Could not save your choice. Try again.");
+				if (!observed) setStatus(OS_COPY.feed.timeline.saveFailed);
 				return false;
 			}
 		},
@@ -543,10 +542,10 @@ export function FocusFeed({
 					id: item.workItemId,
 					eventId: item.autonomyFeedback.eventId,
 				});
-				setStatus("Lesson saved. This class of delegation will ask next time.");
+				setStatus(OS_COPY.feed.timeline.lessonSaved);
 				return true;
 			} catch {
-				setStatus("Could not save your correction.");
+				setStatus(OS_COPY.feed.timeline.correctionFailed);
 				return false;
 			}
 		}
@@ -565,10 +564,10 @@ export function FocusFeed({
 			await osApi.learningFeedback.recordInteraction(
 				feedLearningInput(item, reaction, text, crypto.randomUUID()),
 			);
-			setStatus("Correction saved.");
+			setStatus(OS_COPY.feed.timeline.correctionSaved);
 			return true;
 		} catch {
-			setStatus("Could not save your correction.");
+			setStatus(OS_COPY.feed.timeline.correctionFailed);
 			return false;
 		}
 	}
@@ -582,10 +581,10 @@ export function FocusFeed({
 				projectId: item.projectId,
 				workKind: "other",
 			});
-			setStatus("Work created.");
+			setStatus(OS_COPY.feed.timeline.workCreated);
 			void cache.invalidateQueries({ queryKey: osQuery.workItems.key() });
 		} catch {
-			setStatus("Could not create Work.");
+			setStatus(OS_COPY.feed.timeline.workFailed);
 		} finally {
 			setBusy(false);
 		}
@@ -634,6 +633,7 @@ export function FocusFeed({
 									id={entry.key}
 									items={entry.items}
 									actor={feedStoryActor(entry.items[0]!, names)}
+									by={entry.by}
 									open={openGroups.has(entry.key)}
 									onToggle={() => toggleGroup(entry.key)}
 								/>
@@ -670,7 +670,7 @@ export function FocusFeed({
 			ref={root}
 			tabIndex={0}
 			role="region"
-			aria-label="Activity"
+			aria-label={OS_COPY.feed.timeline.region}
 			aria-keyshortcuts="J K"
 			className="feed-deck fd-feed focus-feed mx-auto w-full min-w-0 max-w-3xl pb-8"
 			data-workspace-app-entry="activity-feed"
@@ -812,8 +812,8 @@ export function FocusFeed({
 									onClick={() => reveal(() => setHeldOpen((v) => !v))}
 								>
 									{heldOpen
-										? "Fewer updates"
-										: `${waiting.length} more updates`}
+										? OS_COPY.feed.timeline.lowerPriorityHide
+										: OS_COPY.feed.timeline.lowerPriority(waiting.length)}
 								</Button>
 								{heldOpen && days(waiting)}
 							</>
@@ -826,7 +826,7 @@ export function FocusFeed({
 									aria-expanded={handledOpen}
 									onClick={() => reveal(() => setHandledOpen((v) => !v))}
 								>
-									Handled without you: {handled.length}
+									{OS_COPY.feed.timeline.handled(handled.length)}
 								</Button>
 								{handledOpen && days(handled)}
 							</section>
@@ -835,7 +835,7 @@ export function FocusFeed({
 				)}
 			</div>
 			{loading && !failed && !items.length && (
-				<Text>Opening your activity…</Text>
+				<Text>{OS_COPY.feed.timeline.opening}</Text>
 			)}
 			{!loading && !failed && !visible.length && timeline && (
 				<div role="status">
@@ -849,10 +849,10 @@ export function FocusFeed({
 					onClick={() => setRequest((r) => r + 1)}
 					disabled={loading}
 				>
-					Earlier activity
+					{OS_COPY.feed.timeline.earlier}
 				</Button>
 			)}
-			<DecisionContextSection title="Activity preferences">
+			<DecisionContextSection title={OS_COPY.feed.timeline.preferences}>
 				<Text>{OS_COPY.feed.timeline.hint}</Text>
 				{navigation?.apps}
 			</DecisionContextSection>
