@@ -40,6 +40,7 @@ import {
 	listRationaleRecords,
 	updateRationaleEvidence,
 } from "@tedix/db/queries/rationale-records";
+import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import {
 	type EvidencePayload,
@@ -95,10 +96,6 @@ async function rationaleIdempotencyUuid(input: {
 	return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-function getOrganizationId(context: BaseContext): string | null {
-	return context.organizationId ?? null;
-}
-
 /**
  * Resolve the org a write should be attributed to, enforcing the
  * org-from-context invariant: a non-platform caller may only write records for
@@ -141,6 +138,14 @@ function orgScopeForRead(context: BaseContext): string | undefined {
 		);
 	}
 	return orgId;
+}
+
+/**
+ * The org a record must belong to. The caller's own organization always
+ * applies; only a platform principal with no organization is unscoped.
+ */
+function recordOrgScope(context: BaseContext): string | undefined {
+	return context.organizationId ?? orgScopeForRead(context);
 }
 
 export function isIdempotentRationaleCompletion(
@@ -484,6 +489,16 @@ const createProcedure = authOs.create
 			} catch {}
 		}
 
+		// The read-backs below return a tedi's past decisions, so the tedi must
+		// be the caller's own; the body id alone proves nothing.
+		const historyVisible =
+			isPlatformPrincipal(context) ||
+			Boolean(
+				await getTediByIdForOrganization(context.db, input.tediId, orgId).catch(
+					() => null,
+				),
+			);
+
 		// Retrieve recent completed rationale records in the same category
 		// for contrastive examples (what worked, what failed)
 		let priorDecisions: Array<{
@@ -493,12 +508,14 @@ const createProcedure = authOs.create
 			confidence: number;
 		}> = [];
 		try {
-			const recent = await getRecentCompletedByCategory(
-				context.db,
-				input.tediId,
-				input.category,
-				5,
-			);
+			const recent = historyVisible
+				? await getRecentCompletedByCategory(
+						context.db,
+						input.tediId,
+						input.category,
+						5,
+					)
+				: [];
 			priorDecisions = recent.map((r) => ({
 				action: r.action,
 				outcomeStatus: r.outcomeStatus,
@@ -531,8 +548,17 @@ const createProcedure = authOs.create
 
 		try {
 			const [failures, prior] = await Promise.all([
-				getRecentFailedByCategory(context.db, input.tediId, input.category, 3),
-				getLastAttemptByAction(context.db, input.tediId, input.action),
+				historyVisible
+					? getRecentFailedByCategory(
+							context.db,
+							input.tediId,
+							input.category,
+							3,
+						)
+					: [],
+				historyVisible
+					? getLastAttemptByAction(context.db, input.tediId, input.action)
+					: null,
 			]);
 			recentFailures = failures.map((r) => ({
 				action: r.action,
@@ -563,7 +589,7 @@ const createProcedure = authOs.create
 const listProcedure = authOs.list
 	.use(AUTHZ.memoryRead)
 	.handler(async ({ input, context }) => {
-		const orgId = getOrganizationId(context);
+		const orgId = recordOrgScope(context);
 
 		if (!orgId && !input?.tediId) {
 			throw createError(
@@ -598,7 +624,7 @@ const listProcedure = authOs.list
 const getByIdProcedure = authOs.getById
 	.use(AUTHZ.memoryRead)
 	.handler(async ({ input, context }) => {
-		const orgId = getOrganizationId(context);
+		const orgId = recordOrgScope(context);
 		const record = await getRationaleRecordById(context.db, input.id);
 		if (!record) {
 			throw createError(ErrorCodes.NOT_FOUND, "Rationale record not found");
@@ -638,7 +664,7 @@ const completeProcedure = authOs.complete
 		// caller may only complete its own org's records. Placed BEFORE the
 		// idempotency short-circuit so a foreign-org replay can't read the
 		// record either. Platform principals (no org context) are exempt.
-		const orgId = getOrganizationId(context);
+		const orgId = recordOrgScope(context);
 		if (orgId && existing.orgId !== orgId) {
 			throw createError(
 				ErrorCodes.FORBIDDEN,
@@ -865,7 +891,7 @@ const completeProcedure = authOs.complete
 const deleteProcedure = authOs.delete
 	.use(withAuthorization("tedis:update", "mcp:memory.admin"))
 	.handler(async ({ input, context }) => {
-		const orgId = getOrganizationId(context);
+		const orgId = recordOrgScope(context);
 		const record = await getRationaleRecordById(context.db, input.id);
 		if (!record) {
 			throw createError(ErrorCodes.NOT_FOUND, "Rationale record not found");

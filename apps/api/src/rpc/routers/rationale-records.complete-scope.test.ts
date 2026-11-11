@@ -148,4 +148,34 @@ describe("rationaleRecords.complete cross-tenant guard (A2)", () => {
 			}),
 		).resolves.toMatchObject({ id: RECORD_ID, orgId: "org-2" });
 	});
+
+	it("refuses a caller with no organization that is not a platform operator", async () => {
+		mocks.getRationaleRecordById.mockResolvedValue(recordFixture());
+		const context = createContext(undefined);
+		context.apiKey = {
+			...context.apiKey!,
+			scopes: [
+				"tedis:read",
+				"tedis:write",
+				"mcp:memory.read",
+				"mcp:memory.write",
+				"mcp:memory.admin",
+			],
+		};
+		const client = createClient(context);
+		await expect(
+			client.complete({
+				id: RECORD_ID,
+				outcome: "x",
+				outcomeStatus: "success",
+			}),
+		).rejects.toThrow(/Organization context required/);
+		await expect(client.getById({ id: RECORD_ID })).rejects.toThrow(
+			/Organization context required/,
+		);
+		await expect(client.delete({ id: RECORD_ID })).rejects.toThrow(
+			/Organization context required/,
+		);
+		expect(mocks.completeRationaleRecord).not.toHaveBeenCalled();
+	});
 });
