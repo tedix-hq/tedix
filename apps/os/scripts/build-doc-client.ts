@@ -24,6 +24,7 @@ const result = await build({
 	target: "es2022",
 	charset: "utf8",
 	minify: true,
+	drop: ["console", "debugger"],
 	legalComments: "eof",
 	define: { "process.env.NODE_ENV": '"production"' },
 	write: false,
