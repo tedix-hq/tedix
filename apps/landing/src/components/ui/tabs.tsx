@@ -2,7 +2,6 @@
 
 import {
 	Tabs as KumoTabsPrimitive,
-	type TabsItem,
 	type TabsProps as KumoTabsProps,
 } from "@cloudflare/kumo/components/tabs";
 import { cn } from "@/lib/utils";
@@ -29,4 +28,4 @@ function Tabs({
 	);
 }
 
-export { Tabs, type TabsItem };
+export { Tabs };

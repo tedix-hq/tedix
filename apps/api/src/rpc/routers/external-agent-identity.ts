@@ -2110,6 +2110,3 @@ export const externalAgentIdentityContractRouter = identityOs.router({
 	listSessions,
 	listStaleKnowledgeSessions,
 });
-
-export type ExternalAgentIdentityContractRouter =
-	typeof externalAgentIdentityContractRouter;

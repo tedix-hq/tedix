@@ -244,12 +244,6 @@ export const organizationSecretsContractRouter =
 		masterKeyFingerprints: masterKeyFingerprintsProcedure,
 	});
 
-/**
- * Type export for the organization secrets contract router
- */
-export type OrganizationSecretsContractRouter =
-	typeof organizationSecretsContractRouter;
-
 // =============================================================================
 // HELPERS
 // =============================================================================

@@ -1180,6 +1180,3 @@ export const tediAppAssignmentsContractRouter = assignmentsOs.router({
 	delete: deleteAssignmentProcedure,
 	updateRole: updateRoleProcedure,
 });
-
-export type TediAppAssignmentsContractRouter =
-	typeof tediAppAssignmentsContractRouter;

@@ -53,25 +53,6 @@ import {
 	triggerScanCatalog,
 } from "./catalog/tenant-install";
 export { calculateCatalogInstallability } from "./catalog/policy-quality";
-export { createFromEndpointCatalog } from "./catalog/source-administration";
-export { createTenantOpenApiMcpAppProcedure } from "./catalog/quality-governance";
-export { fetchClaudeRegistry } from "./catalog/install-scan";
-export { getAppChangelogCatalog } from "./catalog/quality-governance";
-export { getBySlugCatalog } from "./catalog/discovery-sync";
-export { getCategoriesCatalog } from "./catalog/discovery-sync";
-export { getHealthSummaryCatalog } from "./catalog/discovery-sync";
-export { getRecentChangesCatalog } from "./catalog/quality-governance";
-export { getStatsCatalog } from "./catalog/discovery-sync";
-export { getSyncLogsCatalog } from "./catalog/discovery-sync";
-export { getToolTestsCatalog } from "./catalog/quality-governance";
-export { getToolTestStatsCatalog } from "./catalog/quality-governance";
-export { installFromCatalogProcedure } from "./catalog/tenant-install";
-export { listCatalog } from "./catalog/discovery-sync";
-export { setScanConnectionCatalog } from "./catalog/tenant-install";
-export { syncClaudeRegistryCatalog } from "./catalog/source-administration";
-export { triggerScanCatalog } from "./catalog/tenant-install";
-export { triggerSyncCatalog } from "./catalog/discovery-sync";
-export { triggerToolTestCatalog } from "./catalog/quality-governance";
 
 // =============================================================================
 // ROUTER EXPORT

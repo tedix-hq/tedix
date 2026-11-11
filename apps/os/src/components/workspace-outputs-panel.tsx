@@ -43,9 +43,6 @@ import { relativeTime } from "@/lib/time";
  */
 
 export const WORKSPACE_OUTPUTS_PANEL_KEY = "tedix-os:workspace-outputs-panel";
-/** Widths in px; the CSS custom properties in workspace-outputs-panel.css match. */
-export const WORKSPACE_OUTPUTS_PANEL_WIDTH = 240;
-export const WORKSPACE_OUTPUTS_RAIL_WIDTH = 48;
 /**
  * Below this viewport width an expanded panel would leave the stage too
  * narrow, so a person who never chose starts with the rail.

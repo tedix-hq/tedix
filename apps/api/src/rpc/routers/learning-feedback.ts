@@ -975,6 +975,3 @@ export const learningFeedbackContractRouter = learningFeedbackOs.router({
 	evaluateImprovement,
 	reviewImprovement,
 });
-
-export type LearningFeedbackContractRouter =
-	typeof learningFeedbackContractRouter;

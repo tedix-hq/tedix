@@ -7,7 +7,8 @@
 		"wrangler",
 		"sandbox-exec",
 		"xdg-open",
-		"codex"
+		"codex",
+		"sqlite3"
 	],
 	"ignoreDependencies": [
 		"cloudflare",
@@ -82,6 +83,8 @@
 			"ignoreDependencies": ["@tedix/design-tokens", "tailwindcss"],
 			"entry": [
 				"src/worker.ts!",
+				"src/gadgets/*-client-entry.ts!",
+				"cloudflare.config.ts!",
 				"src/components/kumo/popover.test.browser.tsx"
 			],
 			"vitest": {
@@ -106,7 +109,8 @@
 				"scripts/**/*.{ts,mjs,js}!",
 				"eval/**/*.{ts,js}!"
 			],
-			"ignoreDependencies": ["@chat-adapter/telegram"]
+			"ignoreDependencies": ["@chat-adapter/telegram"],
+			"ignoreUnresolved": ["scripts/ci/preflight-gates.mjs"]
 		},
 		"packages/*": {
 			"entry": [
@@ -119,6 +123,21 @@
 				"scripts/**/*.{ts,mjs,js}!",
 				"conformance/**/*.{ts,mjs,js}!"
 			]
+		},
+		"packages/db": {
+			"entry": [
+				"src/index.{ts,tsx}!",
+				"scripts/**/*.{ts,mjs,js}!",
+				"conformance/**/*.{ts,mjs,js}!"
+			],
+			"project": [
+				"src/**/*.{ts,tsx}!",
+				"scripts/**/*.{ts,mjs,js}!",
+				"conformance/**/*.{ts,mjs,js}!"
+			],
+			"drizzle": {
+				"config": ["drizzle*.config.ts"]
+			}
 		},
 		"packages/api-contract": {
 			"entry": ["src/contracts/*.ts!"],
