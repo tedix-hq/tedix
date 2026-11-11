@@ -11,7 +11,7 @@ import {
 	recordCardCreationEdges,
 	recordDecisionResolutionEdges,
 } from "./decision-graph-writers";
-import { and, desc, eq, gt, isNull, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, lt, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import { kernelRuntimeRuns } from "../schema/cognitive-runtime";
 import { apps } from "../schema/apps";
@@ -1002,6 +1002,87 @@ export async function claimOwnerToolApprovalExecution(
 		)
 		.returning({ id: tediApprovalRequests.id });
 	return rows.length === 1;
+}
+
+/**
+ * Queue the first run of an approved call that the background approval queue
+ * should run instead of the request that approved it (a long bulk cleanup is
+ * cut off when that request ends). Same guards as the inline claim.
+ */
+export async function queueOwnerToolApprovalExecution(
+	db: DbClient,
+	input: { id: string; organizationId: string; now: string },
+): Promise<boolean> {
+	const execution: OwnerToolApprovalExecution = {
+		status: "queued",
+		startedAt: input.now,
+		nextAttemptAt: input.now,
+	};
+	const rows = await db
+		.update(tediApprovalRequests)
+		.set({
+			payload: sql`json_set(${tediApprovalRequests.payload}, '$.execution', json(${JSON.stringify(execution)}))`,
+		})
+		.where(
+			and(
+				eq(tediApprovalRequests.id, input.id),
+				eq(tediApprovalRequests.orgId, input.organizationId),
+				eq(tediApprovalRequests.status, "approved"),
+				eq(tediApprovalRequests.actionType, "mcp.tool_call"),
+				gt(tediApprovalRequests.expiresAt, input.now),
+				sql`json_extract(${tediApprovalRequests.payload}, '$.kind') = 'mcp_tool_call'`,
+				sql`json_extract(${tediApprovalRequests.payload}, '$.fingerprint') IS NOT NULL`,
+				sql`json_extract(${tediApprovalRequests.payload}, '$.execution') IS NULL`,
+				sql`json_extract(${tediApprovalRequests.payload}, '$.consumedAt') IS NULL`,
+			),
+		)
+		.returning({ id: tediApprovalRequests.id });
+	return rows.length === 1;
+}
+
+/**
+ * Re-queue deleting runs of continuable tools that were cut off mid-run. Only
+ * for endpoints whose every run re-checks the same per-item rules (the
+ * archived-items purge), so running the approved call again cannot do more
+ * than the owner approved. Clears the consumed mark so the gateway admits
+ * one more run; the run limit and approval expiry still bound it.
+ */
+export async function requeueStaleContinuableOwnerToolApprovals(
+	db: DbClient,
+	input: { now: string; staleBefore: string; endpoints: readonly string[] },
+): Promise<number> {
+	if (input.endpoints.length === 0) return 0;
+	const execution: OwnerToolApprovalExecution = {
+		status: "queued",
+		startedAt: input.now,
+		nextAttemptAt: input.now,
+		summary: "Continuing after an interrupted run",
+	};
+	const rows = await db
+		.update(tediApprovalRequests)
+		.set({
+			payload: sql`json_set(json_remove(${tediApprovalRequests.payload}, '$.consumedAt'), '$.execution', json(${JSON.stringify(execution)}))`,
+		})
+		.where(
+			and(
+				eq(tediApprovalRequests.actionType, "mcp.tool_call"),
+				eq(tediApprovalRequests.status, "approved"),
+				gt(tediApprovalRequests.expiresAt, input.now),
+				sql`json_extract(${tediApprovalRequests.payload}, '$.kind') = 'mcp_tool_call'`,
+				sql`json_extract(${tediApprovalRequests.payload}, '$.target.transport') = 'rpc'`,
+				// bound-params: CONTINUABLE_OWNER_TOOL_ENDPOINTS, a fixed one-entry list
+				inArray(
+					sql`json_extract(${tediApprovalRequests.payload}, '$.target.endpoint')`,
+					[...input.endpoints],
+				),
+				sql`json_extract(${tediApprovalRequests.payload}, '$.args.dryRun') = 0`,
+				sql`json_extract(${tediApprovalRequests.payload}, '$.execution.status') = 'running'`,
+				sql`json_extract(${tediApprovalRequests.payload}, '$.execution.startedAt') < ${input.staleBefore}`,
+				sql`json_extract(${tediApprovalRequests.payload}, '$.execution.dismissedAt') IS NULL`,
+			),
+		)
+		.returning({ id: tediApprovalRequests.id });
+	return rows.length;
 }
 
 /**

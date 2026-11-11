@@ -35,8 +35,10 @@ import {
 	claimOwnerToolApprovalExecution,
 	continueOwnerToolApprovalExecution,
 	listDueOwnerToolApprovals,
+	queueOwnerToolApprovalExecution,
 	type OwnerToolApprovalExecution,
 	reclaimOwnerToolApprovalExecution,
+	requeueStaleContinuableOwnerToolApprovals,
 	recordOwnerToolApprovalExecution,
 } from "@tedix/db/queries/approvals";
 import { insertAuditEvent } from "@tedix/db/queries/audit";
@@ -673,6 +675,16 @@ export async function settleOwnerToolCallApproval(
 					? "queued"
 					: "unknown";
 	const startedAt = nowIso();
+	// A continuable call runs from the approval queue; run inside the request
+	// that approved it, it was cut off when that request ended.
+	if (isContinuableCall(payload))
+		return (await queueOwnerToolApprovalExecution(context.db, {
+			id: input.approval.id,
+			organizationId: input.approval.orgId,
+			now: startedAt,
+		}))
+			? "queued"
+			: "unknown";
 	const claimed = await claimOwnerToolApprovalExecution(context.db, {
 		id: input.approval.id,
 		organizationId: input.approval.orgId,
@@ -777,6 +789,12 @@ export async function runQueuedOwnerToolApprovals(
 	const deadline =
 		now() + (options.budgetMs ?? OWNER_TOOL_QUEUE_TICK_BUDGET_MS);
 	const tick = { executed: 0 };
+	const startedAt = Date.now();
+	await requeueStaleContinuableOwnerToolApprovals(context.db, {
+		now: new Date(startedAt).toISOString(),
+		staleBefore: new Date(startedAt - STALE_OWNER_TOOL_RUN_MS).toISOString(),
+		endpoints: [...CONTINUABLE_OWNER_TOOL_ENDPOINTS],
+	});
 	// The first due call always runs; later ones only while time is left.
 	const mayStart = () => tick.executed === 0 || now() < deadline;
 	while (mayStart()) {
