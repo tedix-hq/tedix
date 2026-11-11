@@ -896,6 +896,31 @@ describe("exact owner tool approval consumption", () => {
 		expect(
 			(await getApprovalRequestById(db, "other-1"))?.payload,
 		).toHaveProperty("consumedAt");
+		// A run the busy database failed is re-queued too, a bounded number of times.
+		const failed = {
+			id: "purge-1",
+			organizationId: "org-1",
+			execution: {
+				status: "failed" as const,
+				startedAt: requeue.now,
+				error: "SERVICE_UNAVAILABLE: Database temporarily unavailable",
+			},
+		};
+		const again = { ...requeue, staleBefore: "2026-01-01T01:50:00.000Z" };
+		expect(await recordOwnerToolApprovalExecution(db, failed)).not.toBeNull();
+		expect(
+			await requeueStaleContinuableOwnerToolApprovals(db, {
+				...again,
+				maxTransientRetries: 1,
+			}),
+		).toBe(1);
+		expect(await recordOwnerToolApprovalExecution(db, failed)).not.toBeNull();
+		expect(
+			await requeueStaleContinuableOwnerToolApprovals(db, {
+				...again,
+				maxTransientRetries: 1,
+			}),
+		).toBe(0);
 	});
 
 	it("claims once and preserves tenant, fingerprint, expiry and pending fences", async () => {

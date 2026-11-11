@@ -70,7 +70,7 @@ import { deleteOsOutput, getOsOutput } from "./workspace-output-storage";
  */
 export const OS_ARCHIVED_PURGE_WORK_BUDGET = 600;
 // The MCP gateway gives up on an RPC call after 15 s; stop well before that.
-export const OS_ARCHIVED_PURGE_TIME_BUDGET_MS = 9_000;
+export const OS_ARCHIVED_PURGE_TIME_BUDGET_MS = 5_000;
 const PAGE_SIZE = KERNEL_CONVERSATION_PURGE_CHUNK;
 const SAMPLE_LIMIT = 20;
 // Deletes are D1 writes and D1 runs one query at a time per database: eight
