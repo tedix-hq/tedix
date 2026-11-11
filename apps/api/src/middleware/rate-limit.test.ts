@@ -8,6 +8,7 @@ import {
 	byIp,
 	type RateLimiter,
 	rateLimit,
+	resetUntrustedCredentialAddresses,
 } from "./rate-limit";
 
 function createApp(limiter: RateLimiter) {
@@ -254,5 +255,76 @@ describe("Office RPC rate-limit errors", () => {
 			code: "TOO_MANY_REQUESTS",
 			message: "API rate limit exceeded. Please try again later.",
 		});
+	});
+});
+
+describe("made-up credentials", () => {
+	const IP = "203.0.113.9";
+
+	/** A limiter that allows `allowance` hits per key, like the binding. */
+	function countingLimiter(allowance: number) {
+		const counts = new Map<string, number>();
+		const keys: string[] = [];
+		return {
+			keys,
+			limit: async ({ key }: { key: string }) => {
+				keys.push(key);
+				const next = (counts.get(key) ?? 0) + 1;
+				counts.set(key, next);
+				return { success: next <= allowance };
+			},
+		};
+	}
+
+	function app(limiter: RateLimiter) {
+		const hono = new Hono<{ Bindings: CloudflareEnv }>();
+		hono.use(
+			"*",
+			rateLimit(() => limiter, byCredentialOrIp, { countFailedAuthByIp: true }),
+		);
+		hono.get("/", (c) =>
+			c.req.header("Authorization") === "Bearer real"
+				? c.text("ok")
+				: c.json({ error: "unauthorized" }, 401),
+		);
+		return hono;
+	}
+
+	const call = (hono: ReturnType<typeof app>, token: string, ip = IP) =>
+		hono.request("https://api.tedix.dev/", {
+			headers: { Authorization: `Bearer ${token}`, "CF-Connecting-IP": ip },
+		});
+
+	afterEach(() => resetUntrustedCredentialAddresses());
+
+	it("stops giving one address a fresh bucket per made-up token", async () => {
+		const limiter = countingLimiter(3);
+		const hono = app(limiter);
+		const statuses: number[] = [];
+		for (let i = 0; i < 9; i++)
+			statuses.push((await call(hono, `made-up-${i}`)).status);
+		// Three failures are counted, the fourth marks the address, and from
+		// then on the address shares one bucket, which runs out.
+		expect(statuses.slice(0, 4)).toEqual([401, 401, 401, 401]);
+		expect(statuses.slice(-2)).toEqual([429, 429]);
+		expect(limiter.keys.filter((key) => key === IP).length).toBeGreaterThan(0);
+	});
+
+	it("leaves a caller with a working credential in its own bucket", async () => {
+		const limiter = countingLimiter(3);
+		const hono = app(limiter);
+		for (let i = 0; i < 3; i++)
+			expect((await call(hono, "real", "198.51.100.4")).status).toBe(200);
+		expect(limiter.keys.some((key) => key.startsWith("unauth:"))).toBe(false);
+		expect(limiter.keys.every((key) => key.startsWith("auth:"))).toBe(true);
+	});
+
+	it("does not count failed sign-ins unless asked to", async () => {
+		const limiter = countingLimiter(3);
+		const hono = createCredentialApp(limiter);
+		await hono.request("https://api.tedix.dev/", {
+			headers: { Authorization: "Bearer x", "CF-Connecting-IP": IP },
+		});
+		expect(limiter.keys.some((key) => key.startsWith("unauth:"))).toBe(false);
 	});
 });
