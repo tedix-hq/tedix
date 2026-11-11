@@ -2,6 +2,7 @@ import {
 	Archive,
 	ArrowSquareOut,
 	DotsThree,
+	FileText,
 	PencilSimple,
 } from "@phosphor-icons/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -129,12 +130,15 @@ export function WorkspaceItemMenu({
 	workspaceId,
 	item,
 	onOpen,
+	onOpenFile,
 	onArchived,
 	children,
 }: {
 	workspaceId: string;
 	item: WorkspaceMenuItem;
 	onOpen: () => void;
+	/** For a file shown in its app: open the file in the full editor instead. */
+	onOpenFile?: () => void;
 	/** The item left the workspace; close whatever was showing it. */
 	onArchived?: () => void;
 	children: ReactElement;
@@ -181,6 +185,11 @@ export function WorkspaceItemMenu({
 			<Item onClick={onOpen}>
 				<ArrowSquareOut size={14} /> Open
 			</Item>
+			{onOpenFile && (
+				<Item onClick={onOpenFile}>
+					<FileText size={14} /> Open in full editor
+				</Item>
+			)}
 			<Item onClick={startRename}>
 				<PencilSimple size={14} /> Rename
 			</Item>

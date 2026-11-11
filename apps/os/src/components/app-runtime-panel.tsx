@@ -443,37 +443,8 @@ export function AppRuntimeSandbox({
 				</Button>
 			</Alert>
 		);
-	const officeFile =
-		legacyResource &&
-		manifest.operations?.some((operation) =>
-			["readDocument", "readSheet", "readPresentation"].includes(
-				operation.name,
-			),
-		) &&
-		outputRevisions.some(
-			(output) => output.outputId === legacyResource.providerResourceId,
-		)
-			? legacyResource
-			: null;
-	const nativeHref = officeFile
-		? `/workspace/${encodeURIComponent(workspaceId)}?${new URLSearchParams({ workpiece: `output:${officeFile.providerResourceId}`, pane: "workpiece" })}`
-		: null;
 	return (
 		<>
-			{nativeHref && (
-				<div className="flex items-center justify-end gap-3 px-3 py-1 text-xs text-kumo-subtle">
-					<span>App version {revision}</span>
-					<a
-						className="underline"
-						href={nativeHref}
-						target="_blank"
-						rel="noopener noreferrer"
-						title="Open the native editor in another tab; keep this gadget and its draft open"
-					>
-						Open native editor
-					</a>
-				</div>
-			)}
 			{editorUpgrade &&
 				legacyResource &&
 				revisionId &&

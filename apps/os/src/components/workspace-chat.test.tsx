@@ -225,9 +225,7 @@ describe("WorkspaceChat", () => {
 			mount(fake, "c1", listOpen, () => {});
 			await act(async () =>
 				host
-					.querySelector<HTMLButtonElement>(
-						'[aria-label="Workspace resources"]',
-					)
+					.querySelector<HTMLButtonElement>('[aria-label="Add files"]')
 					?.click(),
 			);
 			const file = [...document.querySelectorAll("button")].find(
@@ -236,7 +234,7 @@ describe("WorkspaceChat", () => {
 			expect(file).toBeDefined();
 			await act(async () => file?.click());
 			expect(
-				host.querySelector('[aria-label="Selected message files"]')
+				host.querySelector('[aria-label="Files added to this message"]')
 					?.textContent,
 			).toContain("Budget notes");
 			await act(async () =>
@@ -247,13 +245,11 @@ describe("WorkspaceChat", () => {
 					?.click(),
 			);
 			expect(
-				host.querySelector('[aria-label="Selected message files"]'),
+				host.querySelector('[aria-label="Files added to this message"]'),
 			).toBeNull();
 			await act(async () =>
 				host
-					.querySelector<HTMLButtonElement>(
-						'[aria-label="Workspace resources"]',
-					)
+					.querySelector<HTMLButtonElement>('[aria-label="Add files"]')
 					?.click(),
 			);
 			await act(async () =>
@@ -284,10 +280,9 @@ describe("WorkspaceChat", () => {
 					...(listOpen ? { newConversation: true } : {}),
 				},
 			]);
-			const send = host.querySelector<HTMLButtonElement>(
-				'[aria-label="Send"]',
-			)!;
-			expect(send.disabled).toBe(true);
+			expect(
+				host.querySelector<HTMLButtonElement>('[aria-label="Send"]')!.disabled,
+			).toBe(true);
 			if (listOpen) mount(fake, "c1", false, () => {});
 			expect(textarea.value).toBe("Summarize this");
 			act(() =>
@@ -302,7 +297,10 @@ describe("WorkspaceChat", () => {
 					},
 				}),
 			);
-			expect(send.disabled).toBe(false);
+			// The button is rendered anew when it becomes available again.
+			expect(
+				host.querySelector<HTMLButtonElement>('[aria-label="Send"]')?.disabled,
+			).toBe(false);
 			expect(textarea.value).toBe("Summarize this");
 			expect(
 				host.querySelector('[aria-label="Remove Budget notes"]'),
@@ -330,9 +328,11 @@ describe("WorkspaceChat", () => {
 			act(() => fake.feed([{ ...started, turnId: "client-turn" }]));
 			expect(textarea.value).toBe("My next question");
 			expect(
-				host.querySelector('[aria-label="Selected message files"]'),
+				host.querySelector('[aria-label="Files added to this message"]'),
 			).toBeNull();
-			expect(send.disabled).toBe(false);
+			expect(
+				host.querySelector<HTMLButtonElement>('[aria-label="Send"]')!.disabled,
+			).toBe(false);
 		},
 	);
 
@@ -364,22 +364,18 @@ describe("WorkspaceChat", () => {
 		const fake = fakeClient("c1");
 		mount(fake, "c1", false, browse);
 		const trigger = host.querySelector<HTMLButtonElement>(
-			'[aria-label="Workspace resources"]',
+			'[aria-label="Add files"]',
 		);
 		expect(trigger).not.toBeNull();
 		await act(async () => trigger?.click());
-		expect(document.body.textContent).toContain(
-			"Uploads are not automatically added to your message.",
-		);
+		expect(document.body.textContent).toContain("cannot be read in chat yet");
 		const browseButton = [...document.querySelectorAll("button")].find(
-			(button) => button.textContent === "Browse files, sources and skills",
+			(button) => button.textContent === "Browse all files",
 		);
 		await act(async () => browseButton?.click());
 		expect(browse).toHaveBeenCalledOnce();
 		mount(fake, "c1", true, browse);
-		expect(
-			host.querySelector('[aria-label="Workspace resources"]'),
-		).not.toBeNull();
+		expect(host.querySelector('[aria-label="Add files"]')).not.toBeNull();
 	});
 	it("shows the thinking state the moment a turn starts, then streams prose", () => {
 		const fake = fakeClient("c1");
