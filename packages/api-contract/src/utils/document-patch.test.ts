@@ -163,7 +163,7 @@ describe("document block patches over rich text", () => {
 		).toThrow("projection does not match");
 		expect(content).toEqual(original);
 		const truncated = document(
-			Array.from({ length: 501 }, (_, i) => paragraph(String(i))),
+			Array.from({ length: 10_001 }, (_, i) => paragraph(String(i))),
 		);
 		expect(() =>
 			applyDocumentBlockPatch(truncated, [{ op: "delete", index: 0 }]),
@@ -172,17 +172,17 @@ describe("document block patches over rich text", () => {
 
 	it("rejects Markdown expansion beyond the block limit instead of truncating the new projection", () => {
 		const content = document(
-			Array.from({ length: 499 }, (_, i) => paragraph(String(i))),
+			Array.from({ length: 9_999 }, (_, i) => paragraph(String(i))),
 		);
 		expect(() =>
 			applyDocumentBlockPatch(content, [
 				{
 					op: "insert",
-					index: 499,
+					index: 9_999,
 					block: { type: "paragraph", text: "One\n\nTwo" },
 				},
 			]),
-		).toThrow("exceeds 500");
+		).toThrow("exceeds 10000");
 	});
 
 	it("keeps legacy block-only documents editable and rejects later invalid indices atomically", () => {

@@ -6,6 +6,7 @@ import {
 	type OsOutputContent,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { applySheetRange } from "@tedix/api-contract/utils/sheet-range";
+import { OS_SHEET_MAX_ROWS } from "@tedix/api-contract/utils/os-output-limits";
 import type { BindingDeps } from "./bindings";
 import type { OutputDetail } from "./data-port";
 
@@ -78,8 +79,10 @@ export function buildSheetBinding(deps: BindingDeps) {
 					throw new Error(
 						"The edited range exceeds the sheet columns; replace content to add columns first",
 					);
-				if (patch.startRow + patch.cells.length > 1000)
-					throw new Error("The edited range exceeds the 1000-row sheet limit");
+				if (patch.startRow + patch.cells.length > OS_SHEET_MAX_ROWS)
+					throw new Error(
+						`The edited range exceeds the ${OS_SHEET_MAX_ROWS}-row sheet limit`,
+					);
 				const content = OsOutputContentSchema.parse(
 					applySheetRange(
 						output.content,

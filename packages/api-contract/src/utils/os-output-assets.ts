@@ -10,6 +10,13 @@ export const OS_OUTPUT_ASSET_SCHEME = "tedix-asset:";
 export const OS_OUTPUT_ASSET_MAX_BYTES = 5 * 1024 * 1024;
 
 /**
+ * The longest embedded `data:` image a writer may send: the largest stored
+ * image as base64 text, with room for the `data:` prefix. A save moves it out
+ * of the content, so this bounds one request, not a stored file.
+ */
+export const OS_OUTPUT_EMBEDDED_IMAGE_MAX_CHARS = 7_100_000;
+
+/**
  * The longest `data:` image a stored file keeps in its content. Longer ones
  * are stored as assets; a tiny inline icon stays where it is.
  */

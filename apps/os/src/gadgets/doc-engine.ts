@@ -1,3 +1,4 @@
+import { OS_EDITOR_UNDO_STEPS } from "@tedix/api-contract/utils/os-output-limits";
 import { Editor, Extension, Node, mergeAttributes } from "@tiptap/core";
 import { Plugin } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
@@ -129,7 +130,10 @@ export function createDocEngine(options: {
 			},
 		},
 		extensions: [
-			StarterKit.configure({ link: { openOnClick: false, autolink: true } }),
+			StarterKit.configure({
+				link: { openOnClick: false, autolink: true },
+				undoRedo: { depth: OS_EDITOR_UNDO_STEPS },
+			}),
 			TableKit.configure({ table: { resizable: true } }),
 			TaskList,
 			TaskItem.configure({ nested: true }),

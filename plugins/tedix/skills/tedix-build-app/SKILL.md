@@ -104,7 +104,7 @@ person to apply in OS; do not call apply/merge/publish to finish this workflow.
 A preview permits resource reads only and has separate storage; saved preview
 ratings are not production results. Never publish or create a share link.
 
-Limits: 24 files, 512,000 UTF-16 code units total; required two JS files,
+Limits: 1,800,000 bytes for all files together; required two JS files,
 optional lowercase single-segment `.js`, `.json`, `.txt` names and the exact
 `README.md`. README counts toward limits and digest but is not loaded as code.
 Browser code is inline `client.js`; extra server modules do not become browser

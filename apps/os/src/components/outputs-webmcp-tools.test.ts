@@ -622,11 +622,11 @@ describe("buildOutputsWebMcpTools", () => {
 			outputId: OUTPUT_ID,
 			startRow: 0,
 			startColumn: 0,
-			cells: [Array.from({ length: 65 }, () => "x")],
+			cells: [Array.from({ length: 703 }, () => "x")],
 			expectedRevision: 1,
 		});
 		expect(wide.isError).toBe(true);
-		expect(wide.content[0]?.text).toContain("64");
+		expect(wide.content[0]?.text).toContain("702");
 		const tall = await byName.get("set_sheet_range")!.execute({
 			outputId: OUTPUT_ID,
 			startRow: 0,

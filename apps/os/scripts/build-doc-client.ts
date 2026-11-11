@@ -7,6 +7,10 @@ import {
 	DOC_SERVER_SOURCE,
 	DOC_README,
 } from "../../../packages/api-contract/src/assets/doc-blueprint";
+import {
+	APP_RUNTIME_MAX_FILES_BYTES,
+	appRuntimeFilesBytes,
+} from "../../../packages/api-contract/src/schemas/os-app-runtime";
 
 const osRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const destination = resolve(
@@ -86,10 +90,14 @@ const legal = [...notices]
 	.sort()
 	.join("\n\n");
 const source = `${result.outputFiles[0]!.text}\n/*! Third-party notices\n${legal}\n*/\n`;
-const total = source.length + DOC_SERVER_SOURCE.length + DOC_README.length;
-if (total > 512_000)
+const total = appRuntimeFilesBytes({
+	"client.js": source,
+	"server.js": DOC_SERVER_SOURCE,
+	"README.md": DOC_README,
+});
+if (total > APP_RUNTIME_MAX_FILES_BYTES)
 	throw new Error(
-		`Doc gadget source is ${total} UTF-16 units; limit is 512000`,
+		`Doc gadget files are ${total} bytes; an app's files may be ${APP_RUNTIME_MAX_FILES_BYTES}`,
 	);
 const sha256 = createHash("sha256").update(source).digest("hex");
 const generated = JSON.stringify({ sha256, source }, null, "\t") + "\n";
@@ -102,5 +110,5 @@ if (process.argv.includes("--check")) {
 	await writeFile(destination, generated);
 }
 console.log(
-	`Doc client ${source.length} units; gadget total ${total}/512000; SHA-256 ${sha256}`,
+	`Doc client ${source.length} units; gadget files ${total}/${APP_RUNTIME_MAX_FILES_BYTES} bytes; SHA-256 ${sha256}`,
 );

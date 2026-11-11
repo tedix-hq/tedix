@@ -18,6 +18,7 @@ import {
 } from "@tedix/api-contract/utils/output-merge";
 import { editorIcon, type EditorIcon } from "./editor-icons";
 import { lastingSaveFailure } from "../lib/save-failure";
+import { fileToStoredImage } from "../lib/image-downscale";
 
 type DocumentContent = Extract<OsOutputContent, { kind: "document" }>;
 type Context = {
@@ -641,30 +642,8 @@ export async function mountDocClient(
 		if (!editor?.isEditable) return;
 		try {
 			if (!/^image\/(png|jpeg|gif|webp)$/.test(file.type)) throw 0;
-			let src = "";
-			if (file.size <= 32_000)
-				src = await new Promise<string>((resolve, reject) => {
-					const reader = new FileReader();
-					reader.onload = () => resolve(String(reader.result));
-					reader.onerror = reject;
-					reader.readAsDataURL(file);
-				});
-			else {
-				// Large pictures are scaled down so the document stays quick to save.
-				const picture = await createImageBitmap(file);
-				let scale = Math.min(1, 1200 / Math.max(picture.width, picture.height));
-				do {
-					const canvas = document.createElement("canvas"),
-						pen = canvas.getContext("2d")!;
-					canvas.width = Math.round(picture.width * scale);
-					canvas.height = Math.round(picture.height * scale);
-					pen.fillStyle = "#fff";
-					pen.fillRect(0, 0, canvas.width, canvas.height);
-					pen.drawImage(picture, 0, 0, canvas.width, canvas.height);
-					src = canvas.toDataURL("image/jpeg", 0.8);
-					scale *= 0.75;
-				} while (src.length > 200_000 && scale > 0.05);
-			}
+			// Large pictures are scaled down so they stay quick to load.
+			let src = await fileToStoredImage(file);
 			// The picture is stored with the file; the document names it.
 			src = (
 				await bridge.call<{ reference: string }>("outputs.uploadImage", {
@@ -674,8 +653,8 @@ export async function mountDocClient(
 			).reference;
 			if (!destroyed && editor.isEditable)
 				run().setImage({ src, alt: file.name }).run();
-		} catch {
-			say("Use a PNG, JPEG, GIF or WebP image.", true);
+		} catch (error) {
+			say(reason(error, "Use a PNG, JPEG, GIF or WebP image."), true);
 		}
 	}
 	async function exportAs(format: string, name: string) {

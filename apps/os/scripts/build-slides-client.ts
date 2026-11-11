@@ -84,9 +84,6 @@ const legal = [...notices]
 	.sort()
 	.join("\n\n");
 const source = `${result.outputFiles[0]!.text}\n/*! Third-party notices\n${legal}\n*/\n`;
-
-if (source.length > 450_000)
-	throw new Error(`Slides client exceeds source budget: ${source.length}`);
 const sha256 = createHash("sha256").update(source).digest("hex");
 const generated = JSON.stringify({ sha256, source }, null, "\t") + "\n";
 if (process.argv.includes("--check")) {

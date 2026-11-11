@@ -24,6 +24,12 @@ import { createSlideLinkedImages } from "../lib/slide-linked-images";
 import { isLargeEmbeddedImage } from "@tedix/api-contract/utils/os-output-assets";
 import { lastingSaveFailure } from "../lib/save-failure";
 import {
+	OS_DECK_MAX_SLIDES,
+	OS_EDITOR_UNDO_STEPS,
+	OS_SLIDE_MAX_ELEMENTS,
+	OS_SLIDE_MAX_TEXT_CHARS,
+} from "@tedix/api-contract/utils/os-output-limits";
+import {
 	fileToSlideImageSource,
 	slideImageFile,
 } from "../lib/slide-image-upload";
@@ -75,6 +81,8 @@ type FieldOptions = {
 };
 
 /** Save this long after the last change, and never later than the maximum. */
+/** Thumbnails drawn at once when a deck opens; the rest wait until seen. */
+const EAGER_THUMBNAILS = 40;
 const SAVE_IDLE_MS = 1500,
 	SAVE_MAX_WAIT_MS = 5000,
 	/** A save quicker than this stays silent. */
@@ -188,7 +196,7 @@ export async function mountSlidesClient(
 	).join("")}</div></span></div></header>
 <div class="slides-updates" role="status" aria-live="polite"></div>
 <div class="slides-layout"><aside class="slides-rail"><nav aria-label="Slides"><div class="slides-skeleton"></div><div class="slides-skeleton"></div><div class="slides-skeleton"></div></nav></aside>
-<section class="slides-workspace"><div class="slides-canvas"><div class="slides-stage" tabindex="0" aria-label="Slide canvas" aria-describedby="slides-help"></div></div><p class="slides-sr" id="slides-help">Select an element to move or resize it. Double-click text to write. Arrow keys move the selected element; Shift moves by 10 pixels. Press Enter to format the selected element. Drop or paste an image onto the canvas.</p><label class="slides-notes"><span class="slides-sr">Speaker notes</span><textarea id="notes" maxlength="10000" placeholder="Speaker notes"></textarea></label></section>
+<section class="slides-workspace"><div class="slides-canvas"><div class="slides-stage" tabindex="0" aria-label="Slide canvas" aria-describedby="slides-help"></div></div><p class="slides-sr" id="slides-help">Select an element to move or resize it. Double-click text to write. Arrow keys move the selected element; Shift moves by 10 pixels. Press Enter to format the selected element. Drop or paste an image onto the canvas.</p><label class="slides-notes"><span class="slides-sr">Speaker notes</span><textarea id="notes" maxlength="${OS_SLIDE_MAX_TEXT_CHARS}" placeholder="Speaker notes"></textarea></label></section>
 <aside class="slides-inspector" id="slides-inspector" aria-label="Slide and element properties" data-open="false"><div class="slides-inspector-body"><div id="properties"></div><h2>Layers</h2><div id="layers"></div></div></aside></div>
 <input type="file" id="image-file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" hidden>
 <section id="presenter" hidden tabindex="-1" aria-label="Presentation"><div class="slides-present-stage"></div><div class="slides-present-pill" id="position" role="status" aria-live="polite"></div><div class="slides-present-controls">${tool("previous", "Previous slide", glyph(GLYPHS.previous), "←")}${tool("next", "Next slide", glyph(GLYPHS.next), "→")}${tool("exit", "Exit presentation", glyph(GLYPHS.close), "Esc")}</div></section></main>`;
@@ -321,8 +329,43 @@ export async function mountSlidesClient(
 			slide?: OsPresentationCanvasSlide;
 			theme?: OsPresentationDeck["theme"];
 			label?: string;
+			/** In or near the visible part of the slide list. */
+			near?: boolean;
 		}
 	>();
+	// A long deck draws the first thumbnails at once and the rest as they
+	// come into view, so opening 500 slides does not draw 500 slides.
+	const thumbWatch =
+		typeof IntersectionObserver === "function"
+			? new IntersectionObserver(
+					(entries) => {
+						for (const { target, isIntersecting } of entries) {
+							const entry = thumbs.get(
+								(target as HTMLElement).dataset.slideId ?? "",
+							);
+							if (!entry) continue;
+							entry.near = isIntersecting;
+							if (isIntersecting) paintThumb(entry);
+						}
+					},
+					{ root: nav, rootMargin: "600px 0px" },
+				)
+			: undefined;
+	function paintThumb(entry: {
+		item: HTMLElement;
+		canvas: HTMLElement;
+		slide?: OsPresentationCanvasSlide;
+		theme?: OsPresentationDeck["theme"];
+	}) {
+		const slide = deck?.slides.find(
+			(row) => row.id === entry.item.dataset.slideId,
+		);
+		if (!slide || (entry.slide === slide && entry.theme === deck?.theme))
+			return;
+		paintCanvas(entry.canvas, slide);
+		entry.slide = slide;
+		entry.theme = deck?.theme;
+	}
 	let railOrder: string | undefined,
 		railCurrent: string | undefined,
 		presentedId: string | undefined;
@@ -576,7 +619,7 @@ export async function mountSlidesClient(
 	function remember() {
 		if (!deck) return;
 		history.push(deck);
-		if (history.length > 50) history.shift();
+		if (history.length > OS_EDITOR_UNDO_STEPS) history.shift();
 		future = [];
 	}
 	function updateSlide(next: OsPresentationCanvasSlide) {
@@ -643,7 +686,7 @@ export async function mountSlidesClient(
 	}
 	function insertElement(type: OsPresentationElementType) {
 		const slide = active();
-		if (!slide || slide.elements.length >= 300) return;
+		if (!slide || slide.elements.length >= OS_SLIDE_MAX_ELEMENTS) return;
 		addElement(newSlideElement(type, slide.elements.length));
 		// Ready for arrow keys and typing shortcuts straight away.
 		stage.focus({ preventScroll: true });
@@ -659,12 +702,12 @@ export async function mountSlidesClient(
 		});
 	}
 	function addSlide() {
-		if ((deck?.slides.length ?? 0) < 200)
+		if ((deck?.slides.length ?? 0) < OS_DECK_MAX_SLIDES)
 			placeSlide(newCanvasSlide(), active()?.id);
 	}
 	function duplicateSlide(id: string) {
 		const slide = deck?.slides.find((row) => row.id === id);
-		if (slide && deck!.slides.length < 200)
+		if (slide && deck!.slides.length < OS_DECK_MAX_SLIDES)
 			placeSlide(duplicateCanvasSlide(slide), id);
 	}
 	function deleteSlide(id: string) {
@@ -975,8 +1018,15 @@ export async function mountSlidesClient(
 				entry = thumb(slide.id);
 				thumbs.set(slide.id, entry);
 				if (animate) entry.item.classList.add("entering");
+				thumbWatch?.observe(entry.item);
 			}
-			if (entry.slide !== slide || entry.theme !== deck?.theme) {
+			if (
+				(entry.slide !== slide || entry.theme !== deck?.theme) &&
+				(!thumbWatch ||
+					index < EAGER_THUMBNAILS ||
+					entry.near ||
+					current === slide.id)
+			) {
 				paintCanvas(entry.canvas, slide);
 				entry.slide = slide;
 				entry.theme = deck?.theme;
@@ -1011,6 +1061,7 @@ export async function mountSlidesClient(
 			const keep = new Set(slides.map((slide) => slide.id));
 			for (const [id, entry] of thumbs)
 				if (!keep.has(id)) {
+					thumbWatch?.unobserve(entry.item);
 					entry.item.remove();
 					thumbs.delete(id);
 				}
@@ -1526,9 +1577,10 @@ export async function mountSlidesClient(
 		markSave();
 		button("undo").disabled = !write || !history.length;
 		button("redo").disabled = !write || !future.length;
-		button("add-slide").disabled = !write || (deck?.slides.length ?? 0) >= 200;
+		button("add-slide").disabled =
+			!write || (deck?.slides.length ?? 0) >= OS_DECK_MAX_SLIDES;
 		button("insert").disabled =
-			!write || !slide || slide.elements.length >= 300;
+			!write || !slide || slide.elements.length >= OS_SLIDE_MAX_ELEMENTS;
 		button("upload").disabled = button("insert").disabled;
 		for (const id of [
 			"duplicate-element",
@@ -2372,6 +2424,7 @@ export async function mountSlidesClient(
 			])
 				clearTimeout(timer);
 			fitObserver?.disconnect();
+			thumbWatch?.disconnect();
 			window.removeEventListener("message", onMessage);
 			window.removeEventListener("pagehide", onLeave);
 			document.removeEventListener("visibilitychange", onHide);

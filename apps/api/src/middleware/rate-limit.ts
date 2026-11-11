@@ -101,6 +101,25 @@ export function resetUntrustedCredentialAddresses(): void {
 }
 
 /**
+ * Calls an open file editor makes while someone works: saving a change and
+ * storing or reading a picture. An editor saves a fraction of a second after
+ * each pause in typing, so several open tabs can make hundreds of these a
+ * minute. They draw on their own allowance, so a busy editing session cannot
+ * use up the allowance the rest of the product needs, and the other way round.
+ */
+const FILE_EDITING_PATHS = new Set([
+	"/rpc/osWorkspaces/outputs/revise",
+	"/rpc/osWorkspaces/outputs/uploadImage",
+	"/rpc/osWorkspaces/outputs/image",
+]);
+
+/** `byCredentialOrIp`, with a separate bucket for file-editing calls. */
+export const byCredentialOrIpWithFileEditing: RateLimitKeyFn = async (c) => {
+	const key = await byCredentialOrIp(c);
+	return FILE_EDITING_PATHS.has(c.req.path) ? `files:${key}` : key;
+};
+
+/**
  * Rate limiting middleware options
  */
 export interface RateLimitOptions {

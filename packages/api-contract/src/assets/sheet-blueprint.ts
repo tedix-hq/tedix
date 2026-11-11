@@ -54,7 +54,7 @@ TSV, formula-relative copies and cell formats. Undo and redo preserve the
 workbook draft. The toolbar provides number/text formats, fills, alignment,
 sorting and filling; More actions and the right-click menus on cells,
 headings and tabs cover row/column operations, sizing and frozen panes. Workbooks
-can contain up to 32 tabs, each with 1000 rows and 64 columns.
+can contain up to 32 tabs, each with 50,000 rows and 702 columns (A to ZZ).
 
 Changes save on their own shortly after you stop editing; Ctrl/⌘ S saves at
 once. The generic host calculates formulas with the existing spreadsheet

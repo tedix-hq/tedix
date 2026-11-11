@@ -7,6 +7,7 @@ import {
 	slidePointFromClient,
 } from "./slide-image-upload";
 import { MAX_MESSAGE_BYTES } from "@/collab/protocol";
+import { OS_OUTPUT_EMBEDDED_IMAGE_MAX_CHARS } from "@tedix/api-contract/utils/os-output-assets";
 
 function decodedImage(width: number, height: number) {
 	vi.stubGlobal(
@@ -79,37 +80,80 @@ describe("fileToSlideImageSource", () => {
 			expect.anything(),
 			0,
 			0,
-			1920,
-			960,
+			1600,
+			800,
 		);
 		expect(context.fillRect).not.toHaveBeenCalled();
 	});
 
-	it("keeps the source budget under the collab frame and schema caps", () => {
+	it("keeps the source budget under the collab frame and what one request may embed", () => {
 		expect(SLIDE_IMAGE_MAX_SOURCE).toBeLessThan(MAX_MESSAGE_BYTES);
-		expect(SLIDE_IMAGE_MAX_SOURCE).toBeLessThan(1_500_000);
+		expect(SLIDE_IMAGE_MAX_SOURCE).toBeLessThan(
+			OS_OUTPUT_EMBEDDED_IMAGE_MAX_CHARS,
+		);
 	});
 
-	it("shrinks until the encoding fits the source budget", async () => {
+	it("lowers the JPEG quality step by step until the picture fits", async () => {
 		decodedImage(4000, 2000);
-		let calls = 0;
-		const { context } = mockCanvas(() =>
-			calls++ === 0
+		const tried: (number | undefined)[] = [];
+		const { context, toDataURL } = mockCanvas(() => "");
+		toDataURL.mockImplementation((_type?: string, quality?: number) => {
+			tried.push(quality);
+			return tried.length < 3
 				? `data:image/jpeg;base64,${"a".repeat(SLIDE_IMAGE_MAX_SOURCE)}`
-				: "data:image/jpeg;base64,YQ==",
-		);
+				: "data:image/jpeg;base64,YQ==";
+		});
 		const src = await fileToSlideImageSource(
 			new File([new Uint8Array(10)], "photo.jpg", { type: "image/jpeg" }),
 		);
 		expect(src).toBe("data:image/jpeg;base64,YQ==");
+		expect(tried).toEqual([0.86, 0.74, 0.62]);
 		expect(context.fillRect).toHaveBeenCalled();
 		expect(context.drawImage).toHaveBeenLastCalledWith(
 			expect.anything(),
 			0,
 			0,
-			1440,
-			720,
+			1600,
+			800,
 		);
+	});
+
+	it("refuses a picture that is too large even at the lowest quality", async () => {
+		decodedImage(4000, 2000);
+		const { toDataURL } = mockCanvas(
+			() => `data:image/jpeg;base64,${"a".repeat(SLIDE_IMAGE_MAX_SOURCE)}`,
+		);
+		await expect(
+			fileToSlideImageSource(
+				new File([new Uint8Array(10)], "photo.jpg", { type: "image/jpeg" }),
+			),
+		).rejects.toThrow(/too large/);
+		expect(toDataURL.mock.calls.map((call) => call[1])).toEqual([
+			0.86, 0.74, 0.62, 0.5,
+		]);
+	});
+
+	it("keeps an animated GIF up to 2.7 MB as uploaded and stills up to 1.4 MB", async () => {
+		decodedImage(800, 600);
+		const { toDataURL } = mockCanvas(() => "data:image/jpeg;base64,YQ==");
+		const gif = await fileToSlideImageSource(
+			new File([new Uint8Array(2_600_000)], "spin.gif", { type: "image/gif" }),
+		);
+		expect(gif.startsWith("data:image/gif;base64,")).toBe(true);
+		const still = await fileToSlideImageSource(
+			new File([new Uint8Array(1_300_000)], "photo.jpg", {
+				type: "image/jpeg",
+			}),
+		);
+		expect(still.startsWith("data:image/jpeg;base64,AAAA")).toBe(true);
+		expect(toDataURL).not.toHaveBeenCalled();
+		// A still above 1.4 MB is encoded again even when it is small on screen.
+		await fileToSlideImageSource(
+			new File([new Uint8Array(1_500_000)], "photo.jpg", {
+				type: "image/jpeg",
+			}),
+		);
+		expect(toDataURL).toHaveBeenCalledWith("image/jpeg", 0.86);
 	});
 
 	it("rejects files that are not images", async () => {

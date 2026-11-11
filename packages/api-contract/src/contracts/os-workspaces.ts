@@ -1,3 +1,4 @@
+import { OS_SHEET_MAX_COLUMNS } from "../utils/os-output-limits";
 import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
 import * as z from "zod";
@@ -1587,7 +1588,7 @@ export const osWorkspacesContract = oc
 					path: "/outputs/{outputId}/slides/patch",
 					summary: "Patch a Tedix OS presentation output slide-by-slide",
 					description:
-						"Edits an existing presentation in place — add, change, reorder or remove slides (for example, turn slide 2 into a two-column layout) — without resending the rest of the deck. Applies ordered insert/replace/delete/move slide operations server-side against the current presentation revision and persists the result as the next revision through the same compare-and-swap write path as outputs.revise. Each operation carries a slide OUTLINE — title, bullets, optional notes — and the router lays out the canvas slide, so an agent describes a slide rather than positioning 300 elements. The visual deck and its semantic projection are kept consistent: a deck is never dropped by a patch, and a presentation that has no deck yet gains one. Indices are bounds-checked against the evolving slide list — an out-of-range index or a non-presentation output fails BAD_REQUEST; a concurrent revision write fails as the typed CONFLICT error. Images: an image source may be an https link, a `tedix-asset:<sha256>` reference this file already holds, or an embedded data:image URL (PNG, JPEG, GIF, WebP or self-contained SVG). Embedded images are accepted and stored separately with the file; the saved content then names them as `tedix-asset:` references, which get_os_output_image reads.",
+						"Edits an existing presentation in place — add, change, reorder or remove slides (for example, turn slide 2 into a two-column layout) — without resending the rest of the deck. Applies ordered insert/replace/delete/move slide operations server-side against the current presentation revision and persists the result as the next revision through the same compare-and-swap write path as outputs.revise. Each operation carries a slide OUTLINE — title, bullets, optional notes — and the router lays out the canvas slide, so an agent describes a slide rather than positioning every element. The visual deck and its semantic projection are kept consistent: a deck is never dropped by a patch, and a presentation that has no deck yet gains one. Indices are bounds-checked against the evolving slide list — an out-of-range index or a non-presentation output fails BAD_REQUEST; a concurrent revision write fails as the typed CONFLICT error. Images: an image source may be an https link, a `tedix-asset:<sha256>` reference this file already holds, or an embedded data:image URL (PNG, JPEG, GIF, WebP or self-contained SVG). Embedded images are accepted and stored separately with the file; the saved content then names them as `tedix-asset:` references, which get_os_output_image reads.",
 				})
 				.input(
 					outputIdInput.extend({
@@ -1620,14 +1621,16 @@ export const osWorkspacesContract = oc
 					path: "/outputs/{outputId}/sheet/range",
 					summary: "Write a cell rectangle into a Tedix OS sheet output",
 					description:
-						"Edits an existing sheet in place — update cells or append rows such as a totals row — without resending the rest of it. Writes the rectangle into the current sheet revision starting at (startRow, startColumn) and persists the result as the next revision through the same compare-and-swap write path as outputs.revise. Rows are extended null-filled up to the 1000-row cap; columns are added by editors, not by range writes, so the rectangle must fit the current column count (BAD_REQUEST otherwise, as is a non-sheet output). A concurrent revision write fails as the typed CONFLICT error.",
+						"Edits an existing sheet in place — update cells or append rows such as a totals row — without resending the rest of it. Writes the rectangle into the current sheet revision starting at (startRow, startColumn) and persists the result as the next revision through the same compare-and-swap write path as outputs.revise. Rows are extended null-filled up to the 50,000-row cap; columns are added by editors, not by range writes, so the rectangle must fit the current column count (BAD_REQUEST otherwise, as is a non-sheet output). A concurrent revision write fails as the typed CONFLICT error.",
 				})
 				.input(
 					outputIdInput.extend({
 						startRow: z.number().int().nonnegative(),
 						startColumn: z.number().int().nonnegative(),
 						cells: z
-							.array(z.array(OsSheetCellSchema).min(1).max(64))
+							.array(
+								z.array(OsSheetCellSchema).min(1).max(OS_SHEET_MAX_COLUMNS),
+							)
 							.min(1)
 							.max(200),
 						note: z

@@ -1,3 +1,7 @@
+import {
+	OS_SHEET_MAX_COLUMNS,
+	OS_SHEET_MAX_ROWS,
+} from "@tedix/api-contract/utils/os-output-limits";
 import type {
 	OsWorkbook,
 	OsWorkbookCell,
@@ -139,7 +143,9 @@ function structure(
 		at < 0 ||
 		at > size ||
 		(remove && (at + count > size || size - count < 1)) ||
-		(!remove && size + count > (axis === "row" ? 1000 : 64))
+		(!remove &&
+			size + count >
+				(axis === "row" ? OS_SHEET_MAX_ROWS : OS_SHEET_MAX_COLUMNS))
 	)
 		return workbook;
 	const splice = <T>(items: T[], create: (index: number) => T): T[] => {
@@ -441,7 +447,7 @@ export function autoSum(
 			toR: number,
 			toC: number,
 		) => {
-			if (r >= 1000) return;
+			if (r >= OS_SHEET_MAX_ROWS) return;
 			while (rows.length <= r) rows.push(sheet.columns.map(emptyCell));
 			rows[r]![c] = {
 				...(rows[r]?.[c] ?? emptyCell()),

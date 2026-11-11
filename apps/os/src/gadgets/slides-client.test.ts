@@ -235,6 +235,9 @@ function fixture(role = "owner", write = true) {
 			draft = structuredClone({ revision: basis, content });
 			draft.content.deck!.slides[0]!.elements[0]!.text = text;
 		},
+		load(next: PresentationContent) {
+			content = next;
+		},
 		deny() {
 			denied = true;
 		},
@@ -294,6 +297,79 @@ async function mount(
 }
 
 describe("portable Slides canvas", () => {
+	it("opens a 500-slide deck, drawing the first thumbnails at once and the rest as they come into view", async () => {
+		let seen: IntersectionObserverCallback | undefined;
+		const watched = new Set<Element>();
+		vi.stubGlobal(
+			"IntersectionObserver",
+			class {
+				constructor(callback: IntersectionObserverCallback) {
+					seen = callback;
+				}
+				observe(target: Element) {
+					watched.add(target);
+				}
+				unobserve(target: Element) {
+					watched.delete(target);
+				}
+				disconnect() {}
+			},
+		);
+		cleanup.push(() => vi.unstubAllGlobals());
+		const deck = projectDeck({
+			width: 1200,
+			height: 675,
+			activeSlideId: "s-0",
+			slides: Array.from({ length: 500 }, (_, index) => ({
+				id: `s-${index}`,
+				name: `Slide ${index + 1}`,
+				layout: "title" as const,
+				background: "#ffffff",
+				elements: [
+					{
+						id: `t-${index}`,
+						type: "title" as const,
+						x: 72,
+						y: 60,
+						width: 800,
+						height: 100,
+						text: `Title ${index + 1}`,
+						style: { fontSize: 46 },
+					},
+				],
+			})),
+		});
+		expect(OsOutputContentSchema.parse(deck).kind).toBe("presentation");
+		await mount("owner", true, (api) => api.load(deck));
+		const drawn = (index: number) =>
+			thumb(`s-${index}`).querySelector(".slides-thumb-canvas")!.children
+				.length > 0;
+		expect(document.querySelectorAll("[data-slide-id]")).toHaveLength(500);
+		expect(watched.size).toBe(500);
+		expect(drawn(0)).toBe(true);
+		expect(drawn(39)).toBe(true);
+		expect(drawn(40)).toBe(false);
+		expect(drawn(450)).toBe(false);
+		expect(
+			[...document.querySelectorAll(".slides-thumb-canvas")].filter(
+				(canvas) => canvas.children.length > 0,
+			),
+		).toHaveLength(40);
+		// Scrolling the list to slide 451 draws it.
+		seen!(
+			[
+				{ target: thumb("s-450"), isIntersecting: true },
+			] as unknown as IntersectionObserverEntry[],
+			{} as IntersectionObserver,
+		);
+		expect(drawn(450)).toBe(true);
+		// Opening a slide far down draws its thumbnail too.
+		thumb("s-300").querySelector<HTMLButtonElement>("button")!.click();
+		expect(drawn(300)).toBe(true);
+		expect(stageElement("t-300").textContent).toContain("Title 301");
+		// 500 is the most a deck holds.
+		expect(button("add-slide").disabled).toBe(true);
+	});
 	it("draws linked images from one embedded copy per link and never stores that copy", async () => {
 		vi.useFakeTimers();
 		const link = "https://example.org/visual.png";
