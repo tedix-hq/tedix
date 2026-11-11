@@ -51,6 +51,8 @@ import {
 	OsOutputExportFormatSchema,
 	OsOutputImageInputSchema,
 	OsOutputImageResultSchema,
+	OsOutputImageUploadInputSchema,
+	OsOutputImageUploadResultSchema,
 	OsOutputKindSchema,
 	OsOutputLibraryItemSchema,
 	OsOutputRevisionSchema,
@@ -1340,7 +1342,7 @@ export const osWorkspacesContract = oc
 					path: "/outputs",
 					summary: "Create a Tedix OS output",
 					description:
-						"Creates the output with its revision-1 semantic body in one atomic write. Omit `content` to start from an empty body of the declared kind and fill it with the granular editing tools; supply it to seed the artifact in one call. The content body's kind must match the declared output kind (BAD_REQUEST otherwise); a given workspaceId must name a workspace in the caller's organization.",
+						"Creates the output with its revision-1 semantic body in one atomic write. Omit `content` to start from an empty body of the declared kind and fill it with the granular editing tools; supply it to seed the artifact in one call. The content body's kind must match the declared output kind (BAD_REQUEST otherwise); a given workspaceId must name a workspace in the caller's organization. Images: an image source may be an https link, a `tedix-asset:<sha256>` reference this file already holds, or an embedded data:image URL (PNG, JPEG, GIF, WebP or self-contained SVG). Embedded images are accepted and stored separately with the file; the saved content then names them as `tedix-asset:` references, which get_os_output_image reads.",
 				})
 				.input(
 					z.object({
@@ -1430,12 +1432,22 @@ export const osWorkspacesContract = oc
 				.route({
 					method: "GET",
 					path: "/outputs/{outputId}/image",
-					summary: "Read one linked image of a Tedix OS output for display",
+					summary: "Read one image of a Tedix OS output",
 					description:
-						"Returns an image the output's current revision links to, as a data URL, so an editor without network access can show it. Only links the current revision uses are fetched: a slide image, a slide background, the organization logo when the deck has a logo element, or a document image. Any other link fails BAD_REQUEST. The image is fetched server-side with the same guards as exports and a 5 MB cap. The stored content keeps the link.",
+						"Returns one image of the output as a data URL, so an editor without network access can show it and an agent can look at it. Pass a `tedix-asset:<sha256>` reference from the content to read an image stored with the file; any reference the file does not hold fails NOT_FOUND. Or pass an https link the current revision uses (a slide image, a slide background, the organization logo when the deck has a logo element, or a document image); any other link fails BAD_REQUEST. Links are fetched server-side with the same guards as exports and a 5 MB cap. The stored content is not changed.",
 				})
 				.input(OsOutputImageInputSchema)
 				.output(OsOutputImageResultSchema),
+			uploadImage: oc
+				.route({
+					method: "POST",
+					path: "/outputs/{outputId}/images",
+					summary: "Store one image with a Tedix OS output",
+					description:
+						"Stores an image with a presentation or document and returns its `tedix-asset:<sha256>` reference. Put the reference where the content takes an image source, then save the content. The same image stored twice gets the same reference. Nothing in the file changes until its content names the reference. Images embedded as data URLs in saved content are stored the same way automatically, so this call is only needed to keep a large image out of the save request.",
+				})
+				.input(OsOutputImageUploadInputSchema)
+				.output(OsOutputImageUploadResultSchema),
 			rename: oc
 				.route({
 					method: "PATCH",
@@ -1480,7 +1492,7 @@ export const osWorkspacesContract = oc
 					path: "/outputs/{outputId}/revisions",
 					summary: "Record a new Tedix OS output revision",
 					description:
-						"Replaces the output's ENTIRE body with the supplied one as the next revision (max+1) and advances currentRevisionId in one D1 batch; content left out of the new body is removed. To add, change or delete part of a document use patchDocument, of a presentation patchSlides, of a sheet setSheetRange. Every append captures the current revision and compare-and-swap fences that exact base, preserving its source-access requirements together with any new producer requirements; editing or redacting content does not implicitly declassify those sources. The body's kind must match the output's kind. For assistant edits to an existing workspace document, prefer collaboration.create and updatePreview so the user can review and apply changes without advancing the saved version behind a live draft. Direct revision writes do not merge with unsaved live editor changes. Supply expectedRevision with the revision this body was edited from: when newer revisions exist and they changed different cells, slides, slide elements or paragraphs, the server merges both into the next revision (note ends with 'merged with revision N') and returns it; overlapping changes, or a newer revision with stricter source-access requirements, fail as typed CONFLICT. Without expectedRevision the server still rejects a concurrent change after its own base capture with typed CONFLICT.",
+						"Replaces the output's ENTIRE body with the supplied one as the next revision (max+1) and advances currentRevisionId in one D1 batch; content left out of the new body is removed. To add, change or delete part of a document use patchDocument, of a presentation patchSlides, of a sheet setSheetRange. Every append captures the current revision and compare-and-swap fences that exact base, preserving its source-access requirements together with any new producer requirements; editing or redacting content does not implicitly declassify those sources. The body's kind must match the output's kind. For assistant edits to an existing workspace document, prefer collaboration.create and updatePreview so the user can review and apply changes without advancing the saved version behind a live draft. Direct revision writes do not merge with unsaved live editor changes. Supply expectedRevision with the revision this body was edited from: when newer revisions exist and they changed different cells, slides, slide elements or paragraphs, the server merges both into the next revision (note ends with 'merged with revision N') and returns it; overlapping changes, or a newer revision with stricter source-access requirements, fail as typed CONFLICT. Without expectedRevision the server still rejects a concurrent change after its own base capture with typed CONFLICT. Images: an image source may be an https link, a `tedix-asset:<sha256>` reference this file already holds, or an embedded data:image URL (PNG, JPEG, GIF, WebP or self-contained SVG). Embedded images are accepted and stored separately with the file; the saved content then names them as `tedix-asset:` references, which get_os_output_image reads.",
 				})
 				.input(
 					outputIdInput.extend({
@@ -1534,7 +1546,7 @@ export const osWorkspacesContract = oc
 					path: "/outputs/{outputId}/document/patch",
 					summary: "Patch a Tedix OS document output block-by-block",
 					description:
-						"Edits an existing document in place — append, insert, update or delete paragraphs, headings and other blocks — without resending the rest of it. Applies ordered insert/replace/delete block operations server-side against the current document revision and persists the result as the next revision through the same compare-and-swap write path as outputs.revise. The document's file preview reference carries through and its rich-text body is re-derived from the patched blocks, so formatting only the editor body can express is simplified to what the block list says. Indices are bounds-checked against the evolving block list — an out-of-range index or a non-document output fails BAD_REQUEST; a concurrent revision write fails as the typed CONFLICT error.",
+						"Edits an existing document in place — append, insert, update or delete paragraphs, headings and other blocks — without resending the rest of it. Applies ordered insert/replace/delete block operations server-side against the current document revision and persists the result as the next revision through the same compare-and-swap write path as outputs.revise. The document's file preview reference carries through and its rich-text body is re-derived from the patched blocks, so formatting only the editor body can express is simplified to what the block list says. Indices are bounds-checked against the evolving block list — an out-of-range index or a non-document output fails BAD_REQUEST; a concurrent revision write fails as the typed CONFLICT error. Images: a document image source may be an https link, a `tedix-asset:<sha256>` reference this file already holds, or an embedded data:image URL (PNG, JPEG, GIF, WebP or self-contained SVG). Embedded images are accepted and stored separately with the file; the saved content then names them as `tedix-asset:` references, which get_os_output_image reads.",
 				})
 				.input(
 					outputIdInput.extend({
@@ -1567,7 +1579,7 @@ export const osWorkspacesContract = oc
 					path: "/outputs/{outputId}/slides/patch",
 					summary: "Patch a Tedix OS presentation output slide-by-slide",
 					description:
-						"Edits an existing presentation in place — add, change, reorder or remove slides (for example, turn slide 2 into a two-column layout) — without resending the rest of the deck. Applies ordered insert/replace/delete/move slide operations server-side against the current presentation revision and persists the result as the next revision through the same compare-and-swap write path as outputs.revise. Each operation carries a slide OUTLINE — title, bullets, optional notes — and the router lays out the canvas slide, so an agent describes a slide rather than positioning 300 elements. The visual deck and its semantic projection are kept consistent: a deck is never dropped by a patch, and a presentation that has no deck yet gains one. Indices are bounds-checked against the evolving slide list — an out-of-range index or a non-presentation output fails BAD_REQUEST; a concurrent revision write fails as the typed CONFLICT error.",
+						"Edits an existing presentation in place — add, change, reorder or remove slides (for example, turn slide 2 into a two-column layout) — without resending the rest of the deck. Applies ordered insert/replace/delete/move slide operations server-side against the current presentation revision and persists the result as the next revision through the same compare-and-swap write path as outputs.revise. Each operation carries a slide OUTLINE — title, bullets, optional notes — and the router lays out the canvas slide, so an agent describes a slide rather than positioning 300 elements. The visual deck and its semantic projection are kept consistent: a deck is never dropped by a patch, and a presentation that has no deck yet gains one. Indices are bounds-checked against the evolving slide list — an out-of-range index or a non-presentation output fails BAD_REQUEST; a concurrent revision write fails as the typed CONFLICT error. Images: an image source may be an https link, a `tedix-asset:<sha256>` reference this file already holds, or an embedded data:image URL (PNG, JPEG, GIF, WebP or self-contained SVG). Embedded images are accepted and stored separately with the file; the saved content then names them as `tedix-asset:` references, which get_os_output_image reads.",
 				})
 				.input(
 					outputIdInput.extend({

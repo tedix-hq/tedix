@@ -34,6 +34,7 @@ import {
 import { listOsWorkspaceResources } from "@tedix/db/queries/os-workspaces/resources";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import type { DbQueryClient } from "@tedix/db/query-client";
+import { parseOutputContentWithImages } from "../services/os-output-assets";
 import type {
 	OsShareLinkRow,
 	OsShareSessionRow,
@@ -495,7 +496,7 @@ export async function readGuestAppSlot(
 		revision: {
 			id: revision.id,
 			revision: revision.revision,
-			content: JSON.parse(revision.content) as unknown,
+			content: await parseOutputContentWithImages(revision),
 		},
 	};
 }

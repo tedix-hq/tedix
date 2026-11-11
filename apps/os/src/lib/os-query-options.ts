@@ -102,9 +102,9 @@ export const canvasOutputLibraryQueryOptions = (workspaceId: string) =>
 export const outputDetailQueryOptions = (outputId: string) =>
 	osQuery.osWorkspaces.outputs.get.queryOptions({ input: { outputId } });
 
-/** A linked image of a saved file. The link's bytes do not change, so one read serves every use. */
+/** An image of a saved file, stored or linked. Its bytes do not change, so one read serves every use. */
 export const outputImageQueryOptions = (input: {
-	workspaceId: string;
+	workspaceId?: string;
 	outputId: string;
 	url: string;
 }) => ({

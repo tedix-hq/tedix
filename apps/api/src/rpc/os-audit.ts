@@ -913,6 +913,10 @@ export const OS_AUDIT_NON_EMITTING: Readonly<Record<string, string>> = {
 	// POST-shaped read: renders the current revision and stores bytes in R2;
 	// nothing in the domain changes.
 	"osWorkspaces.outputs.export": "render-only, mutates no OS state",
+	// Stores image bytes beside the file. The file itself changes only when a
+	// saved revision names the image, and that revision write is audited.
+	"osWorkspaces.outputs.uploadImage":
+		"stores an image no revision names yet; the revision write is the audited change",
 	// POST-shaped read on the edge routing path: the OS Worker asks whether a
 	// hostname is a provisioned tenant. It mutates nothing, runs before any
 	// caller identity exists, and has no org to scope a row to — auditing it

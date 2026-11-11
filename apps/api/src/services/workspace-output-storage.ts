@@ -16,6 +16,7 @@ import {
 	type OsWorkspaceScopeParams,
 } from "@tedix/db/queries/os-workspaces/workspaces";
 import { outputLibraryRowsFromIndex } from "./os-output-library";
+import { deleteOutputAssets } from "./os-output-assets";
 
 async function refreshCommittedOutput(
 	store: WorkspaceOutputRuntime,
@@ -308,11 +309,22 @@ export async function deleteOsOutput(
 	const scope = runtime()
 		? await location(db, params.organizationId, params.outputId)
 		: undefined;
-	if (!scope) return d1Outputs.deleteOsOutput(...args);
-	const removed = await runtime()!.outputQuery(scope, {
-		op: "delete",
-		outputId: params.outputId,
-	});
-	if (removed) await refreshCommittedOutput(runtime()!, scope, params.outputId);
+	const removed = scope
+		? await runtime()!.outputQuery(scope, {
+				op: "delete",
+				outputId: params.outputId,
+			})
+		: await d1Outputs.deleteOsOutput(...args);
+	if (removed && scope)
+		await refreshCommittedOutput(runtime()!, scope, params.outputId);
+	// The file's images have no other owner. A failure leaves objects nothing
+	// can reach, never a file without its images.
+	if (removed)
+		await deleteOutputAssets(params).catch((error) => {
+			console.warn("os_output_assets_delete_failed", {
+				outputId: params.outputId,
+				error: error instanceof Error ? error.message : String(error),
+			});
+		});
 	return removed;
 }

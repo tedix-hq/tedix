@@ -45,6 +45,7 @@ import {
 import { appRuntimePermission } from "@tedix/api-contract/utils/app-runtime";
 import { listOsWorkspaceResources } from "@tedix/db/queries/os-workspaces/resources";
 import { getOsOutput } from "../../services/workspace-output-storage";
+import { parseOutputContentWithImages } from "../../services/os-output-assets";
 import {
 	getOsOutputRevision,
 	createOsOutputRevision,
@@ -792,7 +793,10 @@ export function createOsAppRuntimeRouter() {
 				ErrorCodes.FORBIDDEN,
 				"Output source access unavailable",
 			);
-		return OsOutputContentSchema.parse(JSON.parse(revision.content));
+		// A shared app has no image call to answer a reference with.
+		return OsOutputContentSchema.parse(
+			await parseOutputContentWithImages(revision),
+		);
 	});
 	const listOperations = read.listOperations.handler(
 		async ({ context, input }) => {

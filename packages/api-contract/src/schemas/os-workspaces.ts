@@ -958,18 +958,27 @@ export function osOutputExportFormatsForKind(
 }
 
 /**
- * One linked image of an output's current revision, asked for by an editor
- * that cannot load web images itself.
+ * One image of an output, asked for by an editor that cannot load images
+ * itself or by an agent that wants to look at one.
  */
 export const OsOutputImageInputSchema = z.object({
-	workspaceId: z.string().uuid(),
+	workspaceId: z
+		.string()
+		.uuid()
+		.optional()
+		.describe(
+			"The workspace the caller believes the file is in; a file that has moved fails NOT_FOUND. Omit to skip that check.",
+		),
 	outputId: z.string().uuid(),
 	url: z
 		.string()
 		.max(2_000)
-		.regex(/^https:\/\//i, "Image links must start with https://")
+		.regex(
+			/^(?:https:\/\/|tedix-asset:[a-f0-9]{64}$)/i,
+			"Use an https:// link or a tedix-asset: reference",
+		)
 		.describe(
-			"An image link the current revision uses: a slide image, a slide background, the organization logo of a deck with a logo element, or a document image.",
+			"Either a `tedix-asset:<sha256>` reference from the file's content (an image stored with the file), or an https image link the current revision uses: a slide image, a slide background, the organization logo of a deck with a logo element, or a document image.",
 		),
 });
 
@@ -977,6 +986,33 @@ export const OsOutputImageResultSchema = z.object({
 	dataUrl: z
 		.string()
 		.describe("The image as a data URL, for display only; never store it."),
+});
+
+/** One image to store with an output, so content can name it by reference. */
+export const OsOutputImageUploadInputSchema = z.object({
+	workspaceId: z
+		.string()
+		.uuid()
+		.optional()
+		.describe(
+			"The workspace the caller believes the file is in; a file that has moved fails NOT_FOUND. Omit to skip that check.",
+		),
+	outputId: z.string().uuid(),
+	dataUrl: z
+		.string()
+		.max(7_100_000)
+		.regex(/^data:image\//i, "Send the image as a data:image/... URL")
+		.describe(
+			"The image as a data URL: PNG, JPEG, GIF, WebP or self-contained SVG, at most 5 MB.",
+		),
+});
+
+export const OsOutputImageUploadResultSchema = z.object({
+	reference: z
+		.string()
+		.describe(
+			"`tedix-asset:<sha256>`: put it where the content takes an image source (slide element `src`, slide `backgroundImage`, document image `attrs.src`).",
+		),
 });
 
 /** One semantic block of a OS document output. */
