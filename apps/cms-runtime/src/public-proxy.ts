@@ -732,6 +732,8 @@ export function effectiveRequestHost(
 	);
 }
 
+const SVG_MEDIA_CSP = "default-src 'none'; style-src 'unsafe-inline'; sandbox";
+
 function imageContentTypeFromPath(pathname: string): string | null {
 	const ext = pathname.split(".").pop()?.toLowerCase();
 	switch (ext) {
@@ -775,7 +777,12 @@ export function applyEdgeResponseHeaders(
 		if (imageContentType) {
 			headers.set("Content-Type", imageContentType);
 			headers.delete("Content-Disposition");
-			headers.delete("Content-Security-Policy");
+			// An SVG can carry script and this origin also serves the admin, so
+			// it stays sandboxed when opened directly; `<img>` use is unaffected.
+			if (imageContentType === "image/svg+xml")
+				headers.set("Content-Security-Policy", SVG_MEDIA_CSP);
+			else headers.delete("Content-Security-Policy");
+			headers.set("X-Content-Type-Options", "nosniff");
 			changed = true;
 		}
 	}
