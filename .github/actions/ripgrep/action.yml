@@ -1,0 +1,49 @@
+name: Install ripgrep
+description: Put a pinned, checksum-verified ripgrep on PATH from its GitHub release
+
+# tedi-runtime code search shells out to `rg`. Installing it with apt needs the
+# Ubuntu mirrors; when they stop resolving, `apt-get update` alone stalls for
+# minutes and the shard fails before any test runs. The release binary only
+# needs github.com, which the checkout already depends on.
+
+runs:
+  using: composite
+  steps:
+    - name: Download ripgrep
+      shell: bash
+      run: |
+        set -uo pipefail
+        version=15.1.0
+        case "$RUNNER_ARCH" in
+          X64)
+            target=x86_64-unknown-linux-musl
+            sha=1c9297be4a084eea7ecaedf93eb03d058d6faae29bbc57ecdaf5063921491599
+            ;;
+          ARM64)
+            target=aarch64-unknown-linux-gnu
+            sha=2b661c6ef508e902f388e9098d9c4c5aca72c87b55922d94abdba830b4dc885e
+            ;;
+          *)
+            echo "No pinned ripgrep for $RUNNER_OS/$RUNNER_ARCH" >&2
+            exit 1
+            ;;
+        esac
+        name="ripgrep-${version}-${target}"
+        dir="$RUNNER_TEMP/ripgrep"
+        mkdir -p "$dir"
+        for attempt in 1 2 3; do
+          if curl -fsSL --retry 2 --connect-timeout 15 --max-time 120 \
+              -o "$dir/$name.tar.gz" \
+              "https://github.com/BurntSushi/ripgrep/releases/download/${version}/${name}.tar.gz"; then
+            break
+          fi
+          if [ "$attempt" -eq 3 ]; then exit 1; fi
+          echo "::warning title=Infrastructure retry::ripgrep download failed (attempt $attempt of 3); retrying"
+          echo "- Infrastructure retry: ripgrep download failed (attempt $attempt of 3)" >> "$GITHUB_STEP_SUMMARY"
+          sleep $((attempt * 10))
+        done
+        set -e
+        echo "${sha}  $dir/$name.tar.gz" | sha256sum -c -
+        tar -xzf "$dir/$name.tar.gz" -C "$dir" "$name/rg"
+        echo "$dir/$name" >> "$GITHUB_PATH"
+        "$dir/$name/rg" --version
