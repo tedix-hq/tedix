@@ -675,6 +675,68 @@ describe("dispatcher lock handoff", () => {
 				await f.cleanup();
 			}
 		});
+		it("runs beside differently scoped runners but waits on the same scope", async () => {
+			const otherProject = "33333333-3333-4333-8333-333333333333";
+			const otherRepo = "/fictional/other-checkout";
+			const laneLock = (
+				directory: string,
+				scope: { project?: string; repo?: string },
+			) =>
+				beginFileLock(
+					join(
+						directory,
+						"dispatchers",
+						runnerKey({
+							organization: "org_acme",
+							executor: "any-local",
+							...scope,
+						}),
+						"lock",
+					),
+				);
+			// Runners serving another project, another repo or the whole
+			// organization hold only their own lanes, so this one passes
+			// without waiting on them.
+			let siblings: ReturnType<typeof beginFileLock>[] = [];
+			const f = handoff(
+				"any-local",
+				["--project", projectId, "--repo", repo],
+				(directory) => {
+					siblings = [
+						{ project: otherProject, repo },
+						{ project: projectId, repo: otherRepo },
+						{},
+					].map((scope) => laneLock(directory, scope));
+				},
+			);
+			try {
+				expect(await f.running).toBe(0);
+				expect(f.tick).toHaveBeenCalledTimes(1);
+				expect(f.stderr.mock.calls).toEqual([]);
+			} finally {
+				for (const sibling of siblings) sibling.release();
+				await f.cleanup();
+			}
+			// The same project and repo share one lane: a holder makes us wait.
+			let peer!: ReturnType<typeof beginFileLock>;
+			const same = handoff(
+				"any-local",
+				["--project", projectId, "--repo", repo],
+				(directory) => {
+					peer = laneLock(directory, { project: projectId, repo });
+				},
+			);
+			try {
+				await new Promise((done) => setTimeout(done, 550));
+				expect(same.tick).not.toHaveBeenCalled();
+				peer.release();
+				expect(await same.running).toBe(0);
+				expect(same.tick).toHaveBeenCalledTimes(1);
+			} finally {
+				peer.release();
+				await same.cleanup();
+			}
+		});
 		it("leaves per-executor receipts for the runners they belong to", async () => {
 			const f = handoff("any-local", ["--project", projectId, "--repo", repo]);
 			const receipt = "22222222-2222-4222-8222-222222222222-1.json";

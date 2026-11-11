@@ -482,6 +482,46 @@ including one landed earlier by another admitted Attempt on the same Work.
 A commit the dispatcher will not count is logged as `custody-rejected` with
 the reason in that dispatcher's `dispatcher.log`.
 
+The runners file keeps scoped `any-local` runners beside the per-executor
+runners as ordinary entries. An `any-local` entry's `project` and `repo`
+define the slice it serves and its dispatcher lane: differently scoped
+entries run side by side, and only an entry with the same `project` and
+`repo` shares a lane. This file runs a named runner for the organization
+and an any-local runner limited to one project in its own checkout:
+
+```json
+{
+	"version": 1,
+	"runners": [
+		{
+			"workspace": "acme",
+			"organization": "org_acme",
+			"executor": "codex",
+			"max": 4,
+			"rules": "<skill-uuid>",
+			"repo": "/checkouts/repo",
+			"coordinated": false,
+			"acceptProposed": false,
+			"enabled": true
+		},
+		{
+			"workspace": "acme",
+			"organization": "org_acme",
+			"executor": "any-local",
+			"max": 2,
+			"rules": "<skill-uuid>",
+			"repo": "/checkouts/ops",
+			"project": "<project-uuid>",
+			"coordinated": false,
+			"acceptProposed": false,
+			"enabled": true
+		}
+	]
+}
+```
+
+Leave `project` out to scope a runner to its checkout alone.
+
 `--routing-config <file>` (or `TEDIX_LANE_ROUTING_CONFIG`) selects a versioned JSON
 policy. Keep your team's executor order and model choices in a private file;
 the CLI does not ship a preferred vendor or model list. For example, this policy
