@@ -220,3 +220,109 @@ describe("workpiece tab keyboard operation", () => {
 		unmount();
 	});
 });
+
+describe("workpiece tab reordering and menu", () => {
+	function mount() {
+		const container = document.createElement("div");
+		document.body.appendChild(container);
+		const root = createRoot(container);
+		function Harness() {
+			const [opened, setOpened] = useState<CanvasDocSelection[]>([
+				{ type: "output", id: "doc-one" },
+				{ type: "output", id: "doc-two" },
+				{ type: "output", id: "sheet-one" },
+			]);
+			return (
+				<CanvasWorkpieceTabs
+					opened={opened}
+					selectedKey="output:doc-one"
+					gadgets={[]}
+					outputs={outputs}
+					onClose={() => {}}
+					onCloseOthers={(key) =>
+						setOpened(opened.filter((doc) => canvasDocKey(doc) === key))
+					}
+					onMove={(key, beforeKey) => {
+						const next = [...opened];
+						const from = next.findIndex((doc) => canvasDocKey(doc) === key);
+						const to = next.findIndex((doc) => canvasDocKey(doc) === beforeKey);
+						const [moved] = next.splice(from, 1);
+						next.splice(to, 0, moved!);
+						setOpened(next);
+					}}
+					onSelect={() => {}}
+				/>
+			);
+		}
+		act(() => root.render(<Harness />));
+		const order = () =>
+			[...container.querySelectorAll<HTMLElement>('[role="tab"]')].map((tab) =>
+				tab.id.replace("canvas-workpiece-tab-output%3A", ""),
+			);
+		return {
+			container,
+			order,
+			unmount: () => {
+				act(() => root.unmount());
+				container.remove();
+			},
+		};
+	}
+
+	it("moves the focused tab with Alt+Shift+Arrow", async () => {
+		const view = mount();
+		const first = view.container.querySelector<HTMLElement>('[role="tab"]')!;
+		act(() => first.focus());
+		await act(async () => {
+			first.dispatchEvent(
+				new KeyboardEvent("keydown", {
+					bubbles: true,
+					key: "ArrowRight",
+					altKey: true,
+					shiftKey: true,
+				}),
+			);
+		});
+		expect(view.order()).toEqual(["doc-two", "doc-one", "sheet-one"]);
+		view.unmount();
+	});
+
+	it("moves a tab onto another by drag and drop", async () => {
+		const view = mount();
+		const tabs = [
+			...view.container.querySelectorAll<HTMLElement>(".canvas-workpiece-tab"),
+		];
+		const data = { effectAllowed: "", dropEffect: "", setData() {} };
+		const fire = (node: HTMLElement, type: string) => {
+			const event = new Event(type, { bubbles: true, cancelable: true });
+			Object.defineProperty(event, "dataTransfer", { value: data });
+			node.dispatchEvent(event);
+		};
+		await act(async () => {
+			fire(tabs[2]!, "dragstart");
+			fire(tabs[0]!, "dragover");
+			fire(tabs[0]!, "drop");
+		});
+		expect(view.order()).toEqual(["sheet-one", "doc-one", "doc-two"]);
+		view.unmount();
+	});
+
+	it("closes the other tabs from the right-click menu", async () => {
+		const view = mount();
+		const tab = view.container.querySelectorAll<HTMLElement>(
+			".canvas-workpiece-tab",
+		)[1]!;
+		await act(async () => {
+			tab.dispatchEvent(
+				new MouseEvent("contextmenu", { bubbles: true, cancelable: true }),
+			);
+		});
+		const entry = [
+			...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+		].find((node) => node.textContent === "Close other tabs");
+		expect(entry).toBeDefined();
+		await act(async () => entry!.click());
+		expect(view.order()).toEqual(["doc-two"]);
+		view.unmount();
+	});
+});
