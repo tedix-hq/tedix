@@ -1,5 +1,5 @@
 import { env, waitUntil } from "cloudflare:workers";
-import * as legacy from "@tedix/db/queries/os-workspaces/outputs";
+import * as d1Outputs from "@tedix/db/queries/os-workspaces/outputs";
 import type {
 	OutputTransferResult,
 	WorkspaceOutputRuntime,
@@ -55,13 +55,13 @@ async function location(
 
 /** The index locates the workspace; the runtime resolves its storage owner. */
 export async function getOsOutput(
-	...args: Parameters<typeof legacy.getOsOutput>
+	...args: Parameters<typeof d1Outputs.getOsOutput>
 ) {
 	const store = runtime();
 	const scope = store
 		? await location(args[0], args[1].organizationId, args[1].outputId)
 		: undefined;
-	if (!scope) return legacy.getOsOutput(...args);
+	if (!scope) return d1Outputs.getOsOutput(...args);
 	if (args[1].workspaceId && scope.workspaceId !== args[1].workspaceId)
 		return undefined;
 	return store!.outputQuery(scope, { op: "get", outputId: args[1].outputId });
@@ -95,12 +95,12 @@ export async function moveOsOutput(
 			(!objectOwned && targetObjectOwned) ||
 			(objectOwned &&
 				!targetObjectOwned &&
-				(await legacy.hasSharedWorkspaceOutputs(db, targetScope)))
+				(await d1Outputs.hasSharedWorkspaceOutputs(db, targetScope)))
 		)
 			return { ok: false, reason: "conflict" };
 	}
 	if (!store || !output.workspaceId || !objectOwned) {
-		const moved = await legacy.updateOsOutput(
+		const moved = await d1Outputs.updateOsOutput(
 			db,
 			{ organizationId: output.organizationId, outputId: output.id },
 			{ workspaceId: targetWorkspaceId },
@@ -117,11 +117,11 @@ export async function moveOsOutput(
 }
 
 export async function listOsOutputs(
-	...args: Parameters<typeof legacy.listOsOutputs>
+	...args: Parameters<typeof d1Outputs.listOsOutputs>
 ) {
 	const [db, scope, viewer, options = {}] = args;
 	const store = runtime();
-	if (!store) return legacy.listOsOutputs(...args);
+	if (!store) return d1Outputs.listOsOutputs(...args);
 	if (
 		scope.workspaceId &&
 		(await store.outputQuery(
@@ -129,8 +129,8 @@ export async function listOsOutputs(
 			{ op: "authority" },
 		)) !== "object"
 	)
-		return legacy.listOsOutputs(...args);
-	const rows = scope.workspaceId ? [] : await legacy.listOsOutputs(...args);
+		return d1Outputs.listOsOutputs(...args);
+	const rows = scope.workspaceId ? [] : await d1Outputs.listOsOutputs(...args);
 	let objectRows;
 	if (scope.workspaceId) {
 		const workspace = await getOsWorkspace(db, {
@@ -171,9 +171,9 @@ export async function listOsOutputs(
 }
 
 export async function getOsOutputRevision(
-	...args: Parameters<typeof legacy.getOsOutputRevision>
+	...args: Parameters<typeof d1Outputs.getOsOutputRevision>
 ) {
-	if (!runtime()) return legacy.getOsOutputRevision(...args);
+	if (!runtime()) return d1Outputs.getOsOutputRevision(...args);
 	const index = await getWorkspaceOutputIndexRevision(args[0], args[1]);
 	return index &&
 		(await runtime()!.outputQuery(
@@ -187,11 +187,11 @@ export async function getOsOutputRevision(
 				},
 				{ op: "revision", revisionId: args[1].revisionId },
 			)
-		: legacy.getOsOutputRevision(...args);
+		: d1Outputs.getOsOutputRevision(...args);
 }
 
 export async function getOsOutputRevisionByNumber(
-	...args: Parameters<typeof legacy.getOsOutputRevisionByNumber>
+	...args: Parameters<typeof d1Outputs.getOsOutputRevisionByNumber>
 ) {
 	const scope = runtime()
 		? await location(args[0], args[1].organizationId, args[1].outputId)
@@ -202,11 +202,11 @@ export async function getOsOutputRevisionByNumber(
 				outputId: args[1].outputId,
 				revision: args[1].revision,
 			})
-		: legacy.getOsOutputRevisionByNumber(...args);
+		: d1Outputs.getOsOutputRevisionByNumber(...args);
 }
 
 export async function listOsOutputRevisions(
-	...args: Parameters<typeof legacy.listOsOutputRevisions>
+	...args: Parameters<typeof d1Outputs.listOsOutputRevisions>
 ) {
 	const scope = runtime()
 		? await location(args[0], args[1].organizationId, args[1].outputId)
@@ -217,11 +217,11 @@ export async function listOsOutputRevisions(
 				outputId: args[1].outputId,
 				options: args[2],
 			})
-		: legacy.listOsOutputRevisions(...args);
+		: d1Outputs.listOsOutputRevisions(...args);
 }
 
 export async function createOsOutput(
-	...args: Parameters<typeof legacy.createOsOutput>
+	...args: Parameters<typeof d1Outputs.createOsOutput>
 ) {
 	const [, scope, output, revision] = args;
 	if (
@@ -232,7 +232,7 @@ export async function createOsOutput(
 			{ op: "authority" },
 		)) !== "object"
 	)
-		return legacy.createOsOutput(...args);
+		return d1Outputs.createOsOutput(...args);
 	const created = await runtime()!.outputQuery(
 		{ organizationId: scope.organizationId, workspaceId: output.workspaceId },
 		{ op: "create", output, revision },
@@ -246,13 +246,13 @@ export async function createOsOutput(
 }
 
 export async function createOsOutputRevision(
-	...args: Parameters<typeof legacy.createOsOutputRevision>
+	...args: Parameters<typeof d1Outputs.createOsOutputRevision>
 ) {
 	const [db, params] = args;
 	const scope = runtime()
 		? await location(db, params.organizationId, params.outputId)
 		: undefined;
-	if (!scope) return legacy.createOsOutputRevision(...args);
+	if (!scope) return d1Outputs.createOsOutputRevision(...args);
 	if (!params.bodyR2Key || !params.contentSha256 || params.contentBytes == null)
 		throw new Error("Workspace output revision requires its stored R2 body");
 	const result = await runtime()!.outputQuery(scope, {
@@ -270,7 +270,7 @@ export async function createOsOutputRevision(
 }
 
 export async function updateOsOutput(
-	...args: Parameters<typeof legacy.updateOsOutput>
+	...args: Parameters<typeof d1Outputs.updateOsOutput>
 ) {
 	const scope = runtime()
 		? await location(args[0], args[1].organizationId, args[1].outputId)
@@ -281,17 +281,17 @@ export async function updateOsOutput(
 				outputId: args[1].outputId,
 				patch: args[2],
 			})
-		: legacy.updateOsOutput(...args);
+		: d1Outputs.updateOsOutput(...args);
 }
 
 export async function getActiveSheetByTitle(
-	...args: Parameters<typeof legacy.getActiveSheetByTitle>
+	...args: Parameters<typeof d1Outputs.getActiveSheetByTitle>
 ) {
 	if (
 		!runtime() ||
 		(await runtime()!.outputQuery(args[1], { op: "authority" })) !== "object"
 	)
-		return legacy.getActiveSheetByTitle(...args);
+		return d1Outputs.getActiveSheetByTitle(...args);
 	return runtime()!.outputQuery(
 		{
 			organizationId: args[1].organizationId,
@@ -302,13 +302,13 @@ export async function getActiveSheetByTitle(
 }
 
 export async function deleteOsOutput(
-	...args: Parameters<typeof legacy.deleteOsOutput>
+	...args: Parameters<typeof d1Outputs.deleteOsOutput>
 ) {
 	const [db, params] = args;
 	const scope = runtime()
 		? await location(db, params.organizationId, params.outputId)
 		: undefined;
-	if (!scope) return legacy.deleteOsOutput(...args);
+	if (!scope) return d1Outputs.deleteOsOutput(...args);
 	const removed = await runtime()!.outputQuery(scope, {
 		op: "delete",
 		outputId: params.outputId,

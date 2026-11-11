@@ -45,7 +45,7 @@ vi.mock("@tedix/db/queries/platform-job-storage", () => {
 		}),
 		commitUnsettledBillableGatewayScan: storageMocks.commitScan,
 		listUnrecordedProviderUsageCalls: async () => next(),
-		scanLegacyUnreservedGatewayCalls: async () => ({
+		scanUnreservedGatewayCalls: async () => ({
 			queue: "legacy",
 			mode: "incremental",
 			expected: null,
@@ -59,7 +59,7 @@ vi.mock("@tedix/db/queries/platform-job-storage", () => {
 
 import {
 	drainStripeMeterOutbox,
-	quarantineLegacyGatewayCosts,
+	quarantineUnreservedGatewayCosts,
 	settleUnbilledGatewayCosts,
 } from "./billing-metering";
 
@@ -254,7 +254,7 @@ describe("settleUnbilledGatewayCosts", () => {
 	});
 });
 
-describe("quarantineLegacyGatewayCosts", () => {
+describe("quarantineUnreservedGatewayCosts", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		billingMocks.recordBillingUsageQuarantines.mockImplementation(
@@ -267,7 +267,7 @@ describe("quarantineLegacyGatewayCosts", () => {
 			new Error("write failed"),
 		);
 		await expect(
-			quarantineLegacyGatewayCosts(
+			quarantineUnreservedGatewayCosts(
 				fakeDb([{ call: call("legacy-example", null) }]) as never,
 			),
 		).rejects.toThrow("write failed");
@@ -275,13 +275,13 @@ describe("quarantineLegacyGatewayCosts", () => {
 	});
 
 	it("classifies a bounded legacy batch outside fresh settlement", async () => {
-		const legacy = [
+		const unreserved = [
 			{ call: call("gateway-legacy-1", null) },
 			{ call: call("gateway-legacy-2", null) },
 		];
 
-		const result = await quarantineLegacyGatewayCosts(
-			fakeDb(legacy) as never,
+		const result = await quarantineUnreservedGatewayCosts(
+			fakeDb(unreserved) as never,
 			2,
 		);
 

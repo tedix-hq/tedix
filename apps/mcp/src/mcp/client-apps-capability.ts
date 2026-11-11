@@ -6,7 +6,7 @@ import {
 
 // The legacy client echoes this declaration on subsequent HTTP exchanges. It
 // carries no authority or server state, just like capabilities in request _meta.
-export const LEGACY_APPS_SESSION_PREFIX = "tedix-ui-v1-";
+export const APPS_SESSION_PREFIX = "tedix-ui-v1-";
 
 /** Read declarations from this exchange; never infer UI support from a client name. */
 export function clientSupportsMcpApps(

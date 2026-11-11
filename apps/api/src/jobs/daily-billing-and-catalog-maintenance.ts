@@ -16,19 +16,20 @@ export async function runDailyBillingAndCatalogMaintenance(
 	let legacySelected = 0;
 	let legacyQuarantined = 0;
 	try {
-		const { quarantineLegacyGatewayCosts } = await import("./billing-metering");
-		const legacy = await quarantineLegacyGatewayCosts(db);
-		legacySelected = legacy.selected;
-		legacyQuarantined = legacy.quarantined;
+		const { quarantineUnreservedGatewayCosts } =
+			await import("./billing-metering");
+		const unreserved = await quarantineUnreservedGatewayCosts(db);
+		legacySelected = unreserved.selected;
+		legacyQuarantined = unreserved.quarantined;
 		console.log(
-			`[Scheduled] Legacy billing quarantine: selected=${legacy.selected} quarantined=${legacy.quarantined} remainingAtLeast=${legacy.remainingAtLeast}`,
+			`[Scheduled] Legacy billing quarantine: selected=${unreserved.selected} quarantined=${unreserved.quarantined} remainingAtLeast=${unreserved.remainingAtLeast}`,
 		);
-	} catch (legacyQuarantineError) {
+	} catch (unreservedQuarantineError) {
 		console.warn(
 			"[Scheduled] Legacy billing quarantine failed (non-fatal):",
-			legacyQuarantineError instanceof Error
-				? legacyQuarantineError.message
-				: String(legacyQuarantineError),
+			unreservedQuarantineError instanceof Error
+				? unreservedQuarantineError.message
+				: String(unreservedQuarantineError),
 		);
 	}
 
