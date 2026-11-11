@@ -53,9 +53,9 @@ async function hashRateLimitKey(value: string): Promise<string> {
  * anonymous requests.
  */
 export const byCredentialOrIp: RateLimitKeyFn = async (c) => {
-	const tediId = c.req.header("X-Tedix-Tedi-Id");
-	if (tediId) return `tedi:${tediId}`;
-
+	// No `X-Tedix-Tedi-Id` bucket: service-binding calls skip this limiter, so
+	// here that header is only ever caller-typed. Keying on it let anyone
+	// rotate buckets or drain a named tedi's.
 	const apiKey = c.req.header("X-API-Key");
 	if (apiKey) return `api-key:${await hashRateLimitKey(apiKey)}`;
 
