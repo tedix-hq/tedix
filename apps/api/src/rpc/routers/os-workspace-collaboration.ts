@@ -77,6 +77,8 @@ async function requireCollaborationProposal(
 			"OS collaboration proposal not found",
 		);
 	}
+	// A proposal in a private workspace is as private as the workspace.
+	await requireWorkspace(context, proposal.workspaceId);
 	return proposal;
 }
 
