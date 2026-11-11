@@ -38,23 +38,31 @@ import {
  */
 
 /**
- * The open item's views: the item, then for an app Edit (its code, counting
- * the drafts waiting there), History (its runs), and Connections. For other
- * items, Connections and Review join the row when opened from the menu.
+ * The open item's views: the item, then for an app Code (counting the drafts
+ * waiting there), History (its runs), and Connections. The editor of a Doc,
+ * Sheet or Slides file is named after its file and has no History: editing a
+ * file is not a run. For other items, Connections and Review join the row
+ * when opened from the menu.
  */
 export function canvasWorkpieceModeOptions(
 	doc: CanvasWorkpieceSelection,
 	outputKind?: OsOutputKind | null,
-	/** Open drafts of a runtime app, counted on the Edit tab. */
+	/** Open drafts of a runtime app, counted on the Code tab. */
 	draftCount = 0,
 	activeMode: CanvasWorkpieceMode = "workpiece",
+	/** The kind of file this app edits, when it is a file's editor. */
+	fileEditorKind?: OsOutputKind | null,
 ): { value: CanvasWorkpieceMode; label: ReactNode }[] {
 	return [
 		{
 			value: "workpiece",
 			label:
 				doc.type === "gadget"
-					? "App"
+					? fileEditorKind === "document"
+						? "Doc"
+						: fileEditorKind
+							? outputWorkshopKindLabel(fileEditorKind)
+							: "App"
 					: doc.type === "repository"
 						? "Repository"
 						: outputWorkshopKindLabel(outputKind),
@@ -66,14 +74,16 @@ export function canvasWorkpieceModeOptions(
 						label:
 							draftCount > 0 ? (
 								<span className="inline-flex items-center gap-1.5">
-									Edit
+									Code
 									<Badge variant="info">{draftCount}</Badge>
 								</span>
 							) : (
-								"Edit"
+								"Code"
 							),
 					},
-					{ value: "history" as const, label: "History" },
+					...(fileEditorKind
+						? []
+						: [{ value: "history" as const, label: "History" }]),
 				]
 			: []),
 		...(doc.type === "gadget" || activeMode === "connections"

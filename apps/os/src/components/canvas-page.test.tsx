@@ -988,7 +988,25 @@ describe("Canvas workbench state", () => {
 				0,
 				"connections",
 			).map((option) => option.label),
-		).toEqual(["App", "Edit", "History", "Connections"]);
+		).toEqual(["App", "Code", "History", "Connections"]);
+		expect(
+			canvasWorkpieceModeOptions(
+				{ type: "gadget", id: GADGET_ID },
+				null,
+				0,
+				"workpiece",
+				"sheet",
+			).map((option) => option.label),
+		).toEqual(["Sheet", "Code", "Connections"]);
+		expect(
+			canvasWorkpieceModeOptions(
+				{ type: "gadget", id: GADGET_ID },
+				null,
+				0,
+				"workpiece",
+				"document",
+			)[0]?.label,
+		).toBe("Doc");
 	});
 
 	it("clamps and restores the persisted chat width", () => {
@@ -2382,7 +2400,7 @@ describe("CanvasPage listing", () => {
 			"true",
 		);
 
-		click(findButton(container, "Edit"));
+		click(findButton(container, "Code"));
 		expect(container.querySelector("[data-widget-frame]")).toBeNull();
 		expect(container.querySelector("[data-collab-editor]")).not.toBeNull();
 		expect(
@@ -2419,7 +2437,7 @@ describe("CanvasPage listing", () => {
 					'[aria-label="Active workpiece view"] button',
 				),
 			].map((button) => button.textContent?.trim()),
-		).toEqual(["App", "Edit", "History", "Connections"]);
+		).toEqual(["App", "Code", "History", "Connections"]);
 		click(findButton(container, "Connections"));
 		await flush();
 		expect(
