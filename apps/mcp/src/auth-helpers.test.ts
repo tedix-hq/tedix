@@ -21,6 +21,7 @@ vi.mock("@tedix/auth/jwt", async (importOriginal) => {
 });
 
 import {
+	auditM2mTokenAudience,
 	classifyM2mTokenAudience,
 	decideM2mAudiencePolicy,
 	intersectScopes,
@@ -1252,6 +1253,49 @@ describe("classifyM2mTokenAudience", () => {
 	});
 });
 
+describe("auditM2mTokenAudience", () => {
+	const resource = "https://acme.mcp.tedix.dev/mcp";
+
+	it.each([
+		{ aud: "https://other.mcp.tedix.dev/mcp", reason: "other_tedix_server" },
+		{
+			aud: [resource, "https://other.mcp.tedix.dev/mcp"],
+			reason: "other_tedix_server",
+		},
+		{
+			aud: [resource, "https://elsewhere.example"],
+			reason: "resource_with_extra",
+		},
+		{ aud: "https://acme.mcp.tedix.dev", reason: "same_host_variant" },
+		{ aud: "https://acme.mcp.tedix.dev/mcp/", reason: "same_host_variant" },
+		{ aud: ["client-id", "Pproject"], reason: "client_project_only" },
+		{ aud: "client-id", reason: "client_project_only" },
+		{ aud: "https://elsewhere.example/mcp", reason: "other" },
+	])("names $aud as $reason", ({ aud, reason }) => {
+		expect(
+			auditM2mTokenAudience(
+				{ aud, azp: "client-id", iss: "Pproject" },
+				resource,
+				"current",
+			),
+		).toEqual({
+			outcome: "mismatch",
+			issuerShape: "current",
+			mismatchReason: reason,
+		});
+	});
+
+	it.each([resource, undefined])("gives no reason for %s", (aud) => {
+		expect(
+			auditM2mTokenAudience(
+				{ aud, azp: "client-id", iss: "Pproject" },
+				resource,
+				"legacy",
+			),
+		).not.toHaveProperty("mismatchReason");
+	});
+});
+
 describe("recordM2mTokenAudience", () => {
 	it("writes one bounded event without the token or audience values", () => {
 		const writeDataPoint = vi.fn();
@@ -1262,7 +1306,11 @@ describe("recordM2mTokenAudience", () => {
 		} as unknown as CloudflareEnv;
 
 		recordM2mTokenAudience(env, {
-			audit: { outcome: "mismatch", issuerShape: "legacy" },
+			audit: {
+				outcome: "mismatch",
+				issuerShape: "legacy",
+				mismatchReason: "client_project_only",
+			},
 			payload: {
 				azp: "client-id",
 				sub: "TPAclientRecord",
@@ -1290,6 +1338,7 @@ describe("recordM2mTokenAudience", () => {
 			authType: "m2m",
 			metadata: {
 				audienceOutcome: "mismatch",
+				mismatchReason: "client_project_only",
 				issuerShape: "legacy",
 				credentialMode: "aih-m2m",
 				mcpServerId: "server-id",

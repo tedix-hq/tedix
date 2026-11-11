@@ -25,6 +25,7 @@ import {
 	validateToken,
 } from "@tedix/auth/jwt";
 import { type AuthPrincipal, internalPrincipal } from "@tedix/auth/principal";
+import { parseTedixMcpAudience } from "@tedix/auth/aih-audiences";
 import { hasResourceAudience } from "@tedix/auth/resource-audience";
 import { federatedWorkloadCredentialId } from "@tedix/auth/workload-identity";
 import {
@@ -77,6 +78,8 @@ export interface OAuthUserContext {
 
 export interface M2mAudienceAudit {
 	outcome: M2mAudienceOutcome;
+	/** Set only for a mismatch: which kind, never the audience values. */
+	mismatchReason?: M2mAudienceMismatchReason;
 	issuerShape: AihM2mIssuerShape;
 }
 
@@ -454,6 +457,60 @@ export function classifyM2mTokenAudience(
 	return present ? "mismatch" : "missing";
 }
 
+/**
+ * Why a present `aud` is not this resource. `other_tedix_server` is the replay
+ * signal: a token minted for a different Tedix MCP server.
+ */
+export type M2mAudienceMismatchReason =
+	| "other_tedix_server"
+	| "resource_with_extra"
+	| "same_host_variant"
+	| "client_project_only"
+	| "other";
+
+/** Classify a mismatching `aud` into one bounded reason. Measurement only. */
+export function classifyM2mAudienceMismatch(
+	claims: { aud?: unknown; azp?: unknown },
+	resource: string,
+): M2mAudienceMismatchReason {
+	const values = (Array.isArray(claims.aud) ? claims.aud : [claims.aud]).filter(
+		(value): value is string => typeof value === "string" && value.length > 0,
+	);
+	if (
+		values.some(
+			(value) => value !== resource && parseTedixMcpAudience(value) !== null,
+		)
+	)
+		return "other_tedix_server";
+	if (values.includes(resource)) return "resource_with_extra";
+	const host = URL.parse(resource)?.hostname;
+	if (host && values.some((value) => URL.parse(value)?.hostname === host))
+		return "same_host_variant";
+	if (
+		values.every(
+			(value) => value === claims.azp || /^P[A-Za-z0-9]+$/.test(value),
+		)
+	)
+		return "client_project_only";
+	return "other";
+}
+
+/** One token's audience measurement, with the reason when it mismatches. */
+export function auditM2mTokenAudience(
+	claims: { aud?: unknown; azp?: unknown; iss?: unknown },
+	resource: string,
+	issuerShape: AihM2mIssuerShape,
+): M2mAudienceAudit {
+	const outcome = classifyM2mTokenAudience(claims, resource);
+	return {
+		outcome,
+		issuerShape,
+		...(outcome === "mismatch"
+			? { mismatchReason: classifyM2mAudienceMismatch(claims, resource) }
+			: {}),
+	};
+}
+
 /** What the server's M2M audience policy does with one resolved token. */
 export interface M2mAudiencePolicyDecision {
 	mode: "audit" | "enforce";
@@ -516,7 +573,7 @@ export function recordM2mTokenAudience(
 		policy?: M2mAudiencePolicyDecision;
 	},
 ): void {
-	const { outcome, issuerShape } = input.audit;
+	const { outcome, issuerShape, mismatchReason } = input.audit;
 	const credentialMode = input.clientResolved ? "aih-m2m" : "unresolved";
 	trackMcpEvent(env, {
 		timestamp: new Date().toISOString(),
@@ -532,6 +589,7 @@ export function recordM2mTokenAudience(
 		errorCode: outcome === "match" ? undefined : outcome,
 		metadata: {
 			audienceOutcome: outcome,
+			...(mismatchReason ? { mismatchReason } : {}),
 			issuerShape,
 			credentialMode,
 			...(input.mcpServerId ? { mcpServerId: input.mcpServerId } : {}),
@@ -1381,13 +1439,11 @@ export async function validateAuth(
 			// this resource. The edge records it once the signed client resolves.
 			const m2mAudience: M2mAudienceAudit | undefined =
 				m2mIssuerShape && options?.expectedAudience
-					? {
-							outcome: classifyM2mTokenAudience(
-								payload,
-								options.expectedAudience,
-							),
-							issuerShape: m2mIssuerShape,
-						}
+					? auditM2mTokenAudience(
+							payload,
+							options.expectedAudience,
+							m2mIssuerShape,
+						)
 					: undefined;
 
 			let scopes = extractJwtScopes(payload);
