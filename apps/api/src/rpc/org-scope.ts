@@ -47,14 +47,22 @@ export function requireOrgId(context: BaseContext, detail?: string): string {
  * fallback when the credential carries no scope of its own.
  *
  * The context always wins: a scoped credential cannot be widened by passing a
- * different organization in the request body.
+ * different organization in the request body. The fallback is for callers
+ * that legitimately have no organization of their own: a platform principal
+ * or a trusted internal service-binding call. Anyone else who arrives without
+ * one (a tedi or member whose tenant did not resolve) cannot pick an
+ * organization by naming it.
  */
 export function requireOrgIdOrInput(
 	context: BaseContext,
 	inputOrganizationId?: string,
 	detail?: string,
 ): string {
-	const organizationId = context.organizationId ?? inputOrganizationId;
+	const mayNameOrganization =
+		context.authType === "service-binding" || isPlatformPrincipal(context);
+	const organizationId =
+		context.organizationId ??
+		(mayNameOrganization ? inputOrganizationId : undefined);
 	if (organizationId) return organizationId;
 	throw createError(
 		ErrorCodes.FORBIDDEN,

@@ -46,8 +46,34 @@ describe("requireOrgId", () => {
 });
 
 describe("requireOrgIdOrInput", () => {
-	it("falls back to the input organization when the credential is unscoped", () => {
-		expect(requireOrgIdOrInput(ctx(), "org_from_input")).toBe("org_from_input");
+	it("lets an internal call or a platform principal name the organization", () => {
+		expect(
+			requireOrgIdOrInput(
+				{ authType: "service-binding" } as unknown as BaseContext,
+				"org_from_input",
+			),
+		).toBe("org_from_input");
+		expect(
+			requireOrgIdOrInput(
+				{
+					authType: "apikey",
+					apiKey: { scopes: ["platform:admin"] },
+				} as unknown as BaseContext,
+				"org_from_input",
+			),
+		).toBe("org_from_input");
+	});
+
+	it("refuses a tedi or member with no organization naming one", () => {
+		for (const authType of ["tedi", "user", "apikey"])
+			expect(
+				codeOf(() =>
+					requireOrgIdOrInput(
+						{ authType } as unknown as BaseContext,
+						"org_from_input",
+					),
+				),
+			).toBe("FORBIDDEN");
 	});
 
 	// A scoped credential must not be widened by passing a different org in the
