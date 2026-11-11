@@ -4,9 +4,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { AppRuntimeSandbox } from "./app-runtime-panel";
 import {
-	DocWritingDraftProvider,
+	AppRuntimeDraftProvider,
 	useAppRuntimeDrafts,
-} from "./doc-writing-drafts";
+} from "./app-runtime-draft-store";
 import type { AppRuntimeDraft } from "@/lib/app-runtime-host";
 import {
 	canvasOutputsQueryOptions,
@@ -91,7 +91,7 @@ function setup(read: string) {
 	act(() =>
 		root.render(
 			<QueryClientProvider client={client}>
-				<DocWritingDraftProvider scope="person:workspace">
+				<AppRuntimeDraftProvider scope="person:workspace">
 					<Capture />
 					<AppRuntimeSandbox
 						workspaceId={workspaceId}
@@ -121,7 +121,7 @@ function setup(read: string) {
 						}}
 						files={{ "client.js": "document.body.textContent='Office'" }}
 					/>
-				</DocWritingDraftProvider>
+				</AppRuntimeDraftProvider>
 			</QueryClientProvider>,
 		),
 	);

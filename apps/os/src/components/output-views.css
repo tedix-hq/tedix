@@ -179,158 +179,12 @@
 	}
 }
 
-.editor-toolbar {
-	min-height: 48px;
-	max-width: 100%;
-	flex-wrap: nowrap;
-	overflow-x: auto;
-	padding: 8px 16px;
-	border-radius: 0;
-	overscroll-behavior-inline: contain;
-	scrollbar-width: thin;
-}
-
-.editor-toolbar > * {
-	flex: none;
-}
-
-.editor-toolbar > [data-kumo-component="Toolbar"] {
-	gap: 8px;
-}
-
 @media (min-width: 640px) {
 	/*
 	 * Square icon targets only. The paragraph-style and font-family Selects are
 	 * also direct `button` children of the Toolbar, so an unscoped rule crushed
 	 * them to 28x28 and hid their labels, leaving two bare carets in the row.
 	 */
-	/*
-	 * Descendant, not direct child: Kumo wraps a DISABLED toolbar button in a
-	 * tooltip <span>, which dropped it out of a `>` selector and left disabled
-	 * icons at the 26px Kumo default beside 28px enabled ones in all three
-	 * editors. The `data-toolbar-control` attribute is what keeps a Select
-	 * trigger out of this rule, so the child combinator was never the guard.
-	 */
-	.editor-toolbar
-		[data-kumo-component="Toolbar"]
-		button[data-toolbar-control="icon"] {
-		width: 28px;
-		height: 28px;
-		border-radius: 6px;
-	}
-}
-
-.sheet-editor .editor-toolbar {
-	--sheet-toolbar-control-size: 32px;
-}
-
-.sheet-editor .editor-toolbar [data-kumo-component="Toolbar"] {
-	align-items: center;
-	padding: 4px;
-}
-
-/* Kumo's joined-control borders would duplicate the editor's group dividers. */
-.sheet-editor .editor-toolbar [data-kumo-component="Toolbar"] > * {
-	border-left-width: 0 !important;
-}
-
-.sheet-editor .editor-toolbar [data-history-notice]:empty {
-	display: none;
-}
-
-.sheet-editor
-	.editor-toolbar
-	:is(
-		button[data-toolbar-control="icon"],
-		[data-toolbar-control="color"],
-		[data-kumo-component="Select"][data-kumo-part="trigger"]
-	) {
-	height: var(--sheet-toolbar-control-size);
-	min-height: var(--sheet-toolbar-control-size);
-	flex-shrink: 0;
-}
-
-.sheet-editor
-	.editor-toolbar
-	:is(button[data-toolbar-control="icon"], [data-toolbar-control="color"]) {
-	width: var(--sheet-toolbar-control-size);
-	min-width: var(--sheet-toolbar-control-size);
-	padding: 0;
-}
-
-@media (max-width: 639px), (pointer: coarse) {
-	.sheet-editor .editor-toolbar {
-		--sheet-toolbar-control-size: 44px;
-	}
-}
-
-/*
- * A page on a desk, not a card in an app. The desk is the recessed ground the
- * page floats above; it carries the vertical air that used to be missing
- * between the toolbar and the top of the document.
- */
-.document-editor-desk {
-	min-width: 0;
-	padding: 16px 12px 72px;
-	background: var(--tedix-desk);
-}
-
-@media (min-width: 640px) {
-	.document-editor-desk {
-		padding: 28px 24px 88px;
-	}
-}
-
-/*
- * Editing layout: an optional outline rail, the desk, and an optional block
- * rail, the same three-pane grammar as the slide editor. The rails only render
- * when the editor is wide enough (see ONE_RAIL_WIDTH / TWO_RAIL_WIDTH), so the
- * grid never squeezes the page below a readable measure.
- */
-.document-editor-layout {
-	display: grid;
-	min-width: 0;
-	grid-template-columns: minmax(0, 1fr);
-	background: var(--tedix-desk);
-}
-
-.document-editor-layout[data-show-outline]:not([data-show-blocks]) {
-	grid-template-columns: 13rem minmax(0, 1fr);
-}
-
-.document-editor-layout[data-show-blocks]:not([data-show-outline]) {
-	grid-template-columns: minmax(0, 1fr) 16rem;
-}
-
-.document-editor-layout[data-show-outline][data-show-blocks] {
-	grid-template-columns: 13rem minmax(0, 1fr) 16rem;
-}
-
-/*
- * Rails sit on the shell, not on the desk, and stay in view while the page
- * scrolls beneath them. 49px clears the sticky toolbar.
- */
-.document-editor-rail {
-	position: sticky;
-	top: 49px;
-	display: grid;
-	align-content: start;
-	gap: 12px;
-	max-height: calc(100dvh - 49px);
-	min-width: 0;
-	overflow-y: auto;
-	overscroll-behavior: contain;
-	padding: 16px 10px;
-	background: var(--color-kumo-base);
-	scrollbar-width: thin;
-}
-
-.document-editor-rail-start {
-	border-right: 1px solid var(--color-kumo-line);
-}
-
-.document-editor-rail-end {
-	border-left: 1px solid var(--color-kumo-line);
 }
 
 /* Outline entries: indented by level, the current section marked. */
@@ -375,150 +229,6 @@
 	background: var(--color-kumo-brand);
 }
 
-/* Block rows: a quiet icon tile, the name, a one-line description. */
-.document-block-icon {
-	display: inline-grid;
-	flex: none;
-	place-items: center;
-	width: 30px;
-	height: 30px;
-	border: 1px solid var(--color-kumo-line);
-	border-radius: 7px;
-	background: var(--color-kumo-elevated);
-	color: var(--text-color-kumo-default);
-}
-
-.document-block-markdown {
-	flex: none;
-	padding: 1px 5px;
-	border-radius: 4px;
-	background: var(--color-kumo-fill);
-	color: var(--text-color-kumo-subtle);
-	font-family: ui-monospace, "SF Mono", Menlo, monospace;
-	font-size: 11px;
-}
-
-.document-block-row[data-active] {
-	background: var(--color-kumo-tint);
-}
-
-/* The slash menu floats at the caret, above the page. */
-.document-slash-menu {
-	position: fixed;
-	z-index: var(--tedix-layer-dropdown);
-	display: grid;
-	width: min(19rem, calc(100vw - 16px));
-	max-height: min(340px, calc(100dvh - 32px));
-	grid-template-rows: minmax(0, 1fr) auto;
-	overflow: hidden;
-	border: 1px solid var(--color-kumo-line);
-	border-radius: 10px;
-	background: var(--color-kumo-base);
-	box-shadow: var(--shadow-tedix-floating);
-	color: var(--text-color-kumo-default);
-}
-
-.document-slash-menu > [role="listbox"] {
-	min-height: 0;
-	overflow-y: auto;
-	padding: 4px;
-	scrollbar-width: thin;
-}
-
-.document-slash-hint {
-	padding: 6px 10px;
-	border-top: 1px solid var(--color-kumo-hairline);
-}
-
-/*
- * The status pill floats at the bottom of the editing view: word count,
- * reading time, the slash hint, and the shortcut sheet.
- */
-.document-editor-pill {
-	position: sticky;
-	bottom: 12px;
-	z-index: 5;
-	display: inline-flex;
-	justify-self: center;
-	align-items: center;
-	gap: 10px;
-	margin-top: -56px;
-	margin-bottom: 12px;
-	padding: 2px 4px 2px 14px;
-	border: 1px solid var(--color-kumo-line);
-	border-radius: 999px;
-	background: color-mix(in srgb, var(--color-kumo-base) 92%, transparent);
-	box-shadow: var(--shadow-tedix-floating);
-	white-space: nowrap;
-}
-
-.document-editor-pill-actions {
-	display: inline-flex;
-	align-items: center;
-	gap: 2px;
-	padding-left: 6px;
-	border-left: 1px solid var(--color-kumo-line);
-}
-
-.document-editor-pill-actions button {
-	border-radius: 999px;
-}
-
-.document-editor-pill-actions button[aria-pressed="true"] {
-	background: var(--color-kumo-tint);
-	color: var(--text-color-kumo-strong);
-}
-
-.document-editor-pill-hint {
-	display: none;
-	padding-left: 10px;
-	border-left: 1px solid var(--color-kumo-line);
-}
-
-@media (min-width: 640px) {
-	.document-editor-pill-hint {
-		display: inline;
-	}
-}
-
-.document-shortcuts-grid {
-	display: grid;
-	gap: 20px;
-}
-
-@media (min-width: 640px) {
-	.document-shortcuts-grid {
-		grid-template-columns: repeat(2, minmax(0, 1fr));
-		column-gap: 32px;
-	}
-}
-
-.document-shortcut-row {
-	display: flex;
-	min-height: 28px;
-	align-items: center;
-	justify-content: space-between;
-	gap: 12px;
-	border-bottom: 1px solid var(--color-kumo-hairline);
-}
-
-.document-editor-paper {
-	max-width: 56rem;
-	min-height: min(52rem, calc(100dvh - 12rem));
-	padding: 32px 20px 56px;
-}
-
-@media (min-width: 640px) {
-	.document-editor-paper {
-		padding: 56px clamp(32px, 6%, 72px) 96px;
-	}
-}
-
-/* The whole page is the writing target, not just the lines with text. */
-.document-editor-paper .ProseMirror {
-	min-height: min(40rem, calc(100dvh - 20rem));
-}
-
 /*
  * Page chrome, shared by the editing surface and the committed-revision
  * preview so reading and editing a document are the same object. Square
@@ -527,18 +237,6 @@
 .document-page {
 	border-radius: 0;
 	box-shadow: var(--tedix-document-page-shadow);
-}
-
-/*
- * Document prose measure. The paper keeps its 72rem maximum (see
- * docs/engineering/product/design.md) so desktop Canvas does not become a narrow card, but
- * the text inside it holds a readable column instead of running the full paper
- * width. 48rem matches the preview column (a 52rem paper less its 2 x 2.5rem
- * padding), so editing and reading do not reflow against each other.
- */
-.document-editor-paper .document-prose {
-	margin-inline: auto;
-	max-width: 48rem;
 }
 
 /*
@@ -781,37 +479,6 @@
 		overflow: visible !important;
 		background: #fff !important;
 	}
-	body:has(.document-editor-paper)
-		*:not(:has(.document-editor-paper)):not(.document-editor-paper):not(
-			.document-editor-paper *
-		) {
-		display: none !important;
-	}
-	body:has(.document-editor-paper) *:has(.document-editor-paper) {
-		display: block !important;
-		position: static !important;
-		overflow: visible !important;
-		height: auto !important;
-		min-height: 0 !important;
-		max-height: none !important;
-		width: auto !important;
-		padding: 0 !important;
-		margin: 0 !important;
-		border: 0 !important;
-		box-shadow: none !important;
-		background: #fff !important;
-	}
-	.document-editor-paper {
-		max-width: none !important;
-		min-height: 0 !important;
-		padding: 0 !important;
-		box-shadow: none !important;
-		background: #fff !important;
-	}
-	.document-editor-paper .document-prose {
-		min-height: 0 !important;
-		max-width: none;
-	}
 	.document-prose :is(h1, h2, h3) {
 		break-after: avoid-page;
 	}
@@ -937,8 +604,7 @@
 }
 
 /*
- * A sheet on a desk, the same grammar `.document-editor-desk` gives a document
- * page: recessed ground, page-scale air, then the artifact. The grid used to be
+ * A sheet on a desk: recessed ground, page-scale air, then the artifact. The grid used to be
  * a bare slab butted straight against the toolbar with no framing at all. The
  * desk reuses `--tedix-desk` deliberately -- one desk tone across
  * output editors is the point; a sheet-specific value would only restate it.
@@ -2466,49 +2132,6 @@
 	border: 0;
 	border-top: 1px solid var(--tedix-document-rule);
 	margin-block: 1.5rem;
-}
-
-/*
- * Document editor motion: rails slide in and the slash menu settles at the
- * caret. Reduced motion skips all of it.
- */
-@media (prefers-reduced-motion: no-preference) {
-	.document-editor-rail {
-		animation: document-rail-in var(--duration-tedix-structural)
-			var(--ease-tedix-enter);
-	}
-
-	.document-editor-rail-end {
-		animation-name: document-rail-in-end;
-	}
-}
-
-@keyframes document-rail-in {
-	from {
-		opacity: 0;
-		transform: translateX(-6px);
-	}
-}
-
-@keyframes document-rail-in-end {
-	from {
-		opacity: 0;
-		transform: translateX(6px);
-	}
-}
-
-@media (prefers-reduced-motion: no-preference) {
-	.document-slash-menu {
-		animation: document-menu-in var(--duration-tedix-standard)
-			var(--ease-tedix-enter);
-	}
-}
-
-@keyframes document-menu-in {
-	from {
-		opacity: 0;
-		transform: translateY(-4px) scale(0.98);
-	}
 }
 
 .shared-reader-output .document-read-frame {

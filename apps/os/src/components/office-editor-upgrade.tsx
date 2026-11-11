@@ -2,10 +2,7 @@ import { useEffect, useRef } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { osApi } from "@/lib/api";
 import { osQueryKeys } from "@/lib/os-query-options";
-import {
-	useAppRuntimeDrafts,
-	useDocWritingDrafts,
-} from "@/components/doc-writing-drafts";
+import { useAppRuntimeDrafts } from "@/components/app-runtime-draft-store";
 import type { OsGadgetManifest } from "@tedix/api-contract/schemas/os-workspaces";
 import { OFFICE_EDITOR_VERSIONS } from "@tedix/api-contract/assets/office-editor-versions";
 
@@ -58,7 +55,6 @@ export function OfficeEditorUpgrade({
 	kind: EditorKind;
 }) {
 	const appDrafts = useAppRuntimeDrafts();
-	const documentDrafts = useDocWritingDrafts();
 	const client = useQueryClient();
 	const { mutate } = useMutation({
 		mutationFn: () =>
@@ -77,12 +73,7 @@ export function OfficeEditorUpgrade({
 	const tried = useRef<string | null>(null);
 	useEffect(() => {
 		if (tried.current === revisionId) return;
-		if (
-			appDrafts?.has(`${workspaceId}:${gadgetId}:${revisionId}:${outputId}`) ||
-			[...(documentDrafts?.keys() ?? [])].some((key) =>
-				key.startsWith(`${gadgetId}:${revisionId}:`),
-			)
-		)
+		if (appDrafts?.has(`${workspaceId}:${gadgetId}:${revisionId}:${outputId}`))
 			return;
 		tried.current = revisionId;
 		mutate();

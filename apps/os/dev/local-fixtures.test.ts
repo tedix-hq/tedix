@@ -2399,12 +2399,10 @@ describe("fixture bootstrap parity", () => {
 					kind: kind === "document" ? "sheet" : "document",
 				}).status,
 			).toBe(404);
-			const client = callLocalOk("osAppRuntime/client", {
+			callLocalOk("osAppRuntime/client", {
 				workspaceId: input.workspaceId,
 				gadgetId: installed.gadget.id,
-			}) as { session: string; settings: { slot: string; editor?: string } };
-			if (kind === "document")
-				expect(client.settings.editor).toBe("document-v2");
+			});
 			expect(callLocalOk("osWorkspaces/outputs/get", { outputId })).toEqual(
 				before,
 			);

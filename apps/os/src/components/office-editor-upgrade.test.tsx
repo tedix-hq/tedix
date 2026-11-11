@@ -16,9 +16,9 @@ import {
 import type { OsGadgetManifest } from "@tedix/api-contract/schemas/os-workspaces";
 import { osQueryKeys } from "@/lib/os-query-options";
 import {
-	DocWritingDraftProvider,
+	AppRuntimeDraftProvider,
 	useAppRuntimeDrafts,
-} from "./doc-writing-drafts";
+} from "./app-runtime-draft-store";
 
 const install = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/api", () => ({
@@ -66,7 +66,7 @@ const mount = (kind: "document" | "sheet" | "presentation" = "document") =>
 	act(() =>
 		root.render(
 			<QueryClientProvider client={client}>
-				<DocWritingDraftProvider scope="test">
+				<AppRuntimeDraftProvider scope="test">
 					<DraftFixture />
 					<OfficeEditorUpgrade
 						kind={kind}
@@ -75,7 +75,7 @@ const mount = (kind: "document" | "sheet" | "presentation" = "document") =>
 						gadgetId="gadget"
 						revisionId="pinned-app-revision"
 					/>
-				</DocWritingDraftProvider>
+				</AppRuntimeDraftProvider>
 			</QueryClientProvider>,
 		),
 	);

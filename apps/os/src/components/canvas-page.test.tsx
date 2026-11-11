@@ -2710,29 +2710,6 @@ describe("Canvas Cloudflare-reference composition", () => {
 		expect(styles).toMatch(
 			/\.canvas-document-header\s*\{[\s\S]*?padding:\s*4px 8px;[\s\S]*?border-bottom:\s*1px solid var\(--border\);/,
 		);
-		expect(styles).toMatch(
-			/\.editor-toolbar\s*\{[\s\S]*?min-height:\s*48px;[\s\S]*?padding:\s*8px 16px;[\s\S]*?border-radius:\s*0;/,
-		);
-		expect(styles).toMatch(
-			/\.editor-toolbar > \[data-kumo-component="Toolbar"\]\s*\{[\s\S]*?gap:\s*8px;/,
-		);
-		/*
-		 * Scoped to `[data-toolbar-control="icon"]` on purpose: the paragraph-style
-		 * and font-family Selects are also direct `button` children of the Toolbar,
-		 * so the unscoped rule this used to assert crushed them to 28x28 and hid
-		 * their labels. Keep the square-target guarantee, keep it off the Selects.
-		 */
-		expect(styles).toMatch(
-			// Descendant, not direct child: Kumo wraps a DISABLED toolbar button in a
-			// tooltip <span>, and the `>` form this used to assert dropped those out
-			// of the rule, leaving disabled icons at the 26px Kumo default beside
-			// 28px enabled ones. `data-toolbar-control` is what keeps a Select
-			// trigger out, so the combinator was never the guard.
-			/\.editor-toolbar\s*\[data-kumo-component="Toolbar"\]\s*button\[data-toolbar-control="icon"\]\s*\{[\s\S]*?width:\s*28px;[\s\S]*?height:\s*28px;[\s\S]*?border-radius:\s*6px;/,
-		);
-		expect(styles).not.toMatch(
-			/\[data-kumo-component="Toolbar"\]\s*> button\s*\{/,
-		);
 		const resizerRule = styles.match(
 			/^\.canvas-chat-resizer\s*\{([^}]*)\}/m,
 		)?.[1];
