@@ -957,6 +957,28 @@ export function osOutputExportFormatsForKind(
 	);
 }
 
+/**
+ * One linked image of an output's current revision, asked for by an editor
+ * that cannot load web images itself.
+ */
+export const OsOutputImageInputSchema = z.object({
+	workspaceId: z.string().uuid(),
+	outputId: z.string().uuid(),
+	url: z
+		.string()
+		.max(2_000)
+		.regex(/^https:\/\//i, "Image links must start with https://")
+		.describe(
+			"An image link the current revision uses: a slide image, a slide background, the organization logo of a deck with a logo element, or a document image.",
+		),
+});
+
+export const OsOutputImageResultSchema = z.object({
+	dataUrl: z
+		.string()
+		.describe("The image as a data URL, for display only; never store it."),
+});
+
 /** One semantic block of a OS document output. */
 export const OsDocumentBlockSchema = z.discriminatedUnion("type", [
 	z.object({

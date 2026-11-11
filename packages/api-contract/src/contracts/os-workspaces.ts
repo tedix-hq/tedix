@@ -49,6 +49,8 @@ import {
 	OsCollaborationSourceKindSchema,
 	OsOutputContentInputSchema,
 	OsOutputExportFormatSchema,
+	OsOutputImageInputSchema,
+	OsOutputImageResultSchema,
 	OsOutputKindSchema,
 	OsOutputLibraryItemSchema,
 	OsOutputRevisionSchema,
@@ -1424,6 +1426,16 @@ export const osWorkspacesContract = oc
 							),
 					}),
 				),
+			image: oc
+				.route({
+					method: "GET",
+					path: "/outputs/{outputId}/image",
+					summary: "Read one linked image of a Tedix OS output for display",
+					description:
+						"Returns an image the output's current revision links to, as a data URL, so an editor without network access can show it. Only links the current revision uses are fetched: a slide image, a slide background, the organization logo when the deck has a logo element, or a document image. Any other link fails BAD_REQUEST. The image is fetched server-side with the same guards as exports and a 5 MB cap. The stored content keeps the link.",
+				})
+				.input(OsOutputImageInputSchema)
+				.output(OsOutputImageResultSchema),
 			rename: oc
 				.route({
 					method: "PATCH",

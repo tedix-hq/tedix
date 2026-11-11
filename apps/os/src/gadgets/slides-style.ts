@@ -64,6 +64,7 @@ body{padding:0!important;min-height:560px;overflow:hidden}
 .slides-stage:focus-visible{outline:2px solid var(--primary);outline-offset:3px}
 .slides-background{position:absolute;inset:0;overflow:hidden;border-radius:inherit;pointer-events:none}
 .slides-element{position:absolute;white-space:pre-wrap;overflow-wrap:break-word;overflow:hidden;touch-action:none;user-select:none}
+.slides-app img[data-linked-state="failed"]{background:color-mix(in srgb,currentColor 12%,transparent)}
 .slides-stage .slides-element{cursor:move}
 .slides-stage .slides-element:not(.selected):hover{outline:1px dashed var(--tedix-primary,#3669e8);outline-offset:1px}
 .slides-stage .slides-element.selected{outline:1.5px solid var(--tedix-primary,#3669e8);outline-offset:1px;overflow:visible}

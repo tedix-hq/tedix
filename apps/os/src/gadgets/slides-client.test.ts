@@ -294,6 +294,64 @@ async function mount(
 }
 
 describe("portable Slides canvas", () => {
+	it("draws linked images from one embedded copy per link and never stores that copy", async () => {
+		vi.useFakeTimers();
+		const link = "https://example.org/visual.png";
+		const embedded = "data:image/png;base64,ZW1iZWRkZWQ=";
+		let fail = true;
+		const api = await mount("owner", true, (api) => {
+			api.seedDraft(3, "With artwork");
+			const slide = api.draft()!.content.deck!.slides[0]!;
+			slide.backgroundImage = link;
+			Object.assign(slide.elements[1]!, { type: "image", src: link });
+			const answer = api.call.getMockImplementation()!;
+			api.call.mockImplementation(async (method, args) => {
+				if (method !== "outputs.image") return answer(method, args);
+				expect(args).toEqual({ slot: "slides", url: link });
+				if (fail)
+					throw new Error("This link is not an image of the saved file");
+				return { dataUrl: embedded };
+			});
+		});
+		const images = () => [
+			...document.querySelectorAll<HTMLImageElement>("img[data-linked-image]"),
+		];
+		const requests = () =>
+			api.call.mock.calls.filter(([method]) => method === "outputs.image")
+				.length;
+		// Stage and rail thumbnail, each with the element and the background.
+		expect(images()).toHaveLength(4);
+		expect(document.body.innerHTML).not.toContain('src="https:');
+		expect(requests()).toBe(1);
+		await vi.advanceTimersByTimeAsync(0);
+		expect(images().map((image) => image.dataset.linkedState)).toEqual(
+			Array(4).fill("failed"),
+		);
+		// The restored edits save; the link is readable from then on.
+		fail = false;
+		await vi.advanceTimersByTimeAsync(1600);
+		expect(api.saves()).toBe(1);
+		expect(requests()).toBe(2);
+		expect(images().map((image) => image.getAttribute("src"))).toEqual(
+			Array(4).fill(embedded),
+		);
+		expect(images().some((image) => image.dataset.linkedState)).toBe(false);
+		button("present").click();
+		expect(
+			document
+				.querySelector(".slides-present-stage img[data-linked-image]")
+				?.getAttribute("src"),
+		).toBe(embedded);
+		expect(requests()).toBe(2);
+		const saved = JSON.stringify(api.result().revision.content);
+		expect(saved).toContain(link);
+		expect(saved).not.toContain(embedded);
+		expect(
+			JSON.stringify(
+				api.call.mock.calls.filter(([method]) => method !== "outputs.image"),
+			),
+		).not.toContain(embedded);
+	});
 	it("posts edits before immediate iframe removal, restores them on reopen and saves them", async () => {
 		const api = await mount();
 		stageElement().dispatchEvent(new Event("dblclick"));

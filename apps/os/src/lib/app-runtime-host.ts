@@ -12,6 +12,7 @@ import type {
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { appRuntimePermission } from "@tedix/api-contract/utils/app-runtime";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import type { PresentationAppearance } from "@tedix/api-contract/utils/presentation-style";
 import {
 	OsOutputContentSchema,
 	OsOutputExportFormatSchema,
@@ -57,6 +58,8 @@ export interface AppRuntimeContext {
 	workspaceId: string;
 	gadget: { id: string; name: string; revision: number };
 	role: AppRuntimeRole;
+	/** The organization's name, logo link and theme, so slides look as they do elsewhere. */
+	appearance?: PresentationAppearance;
 	/** `config.settings` from the manifest: the tenant's data, never code. */
 	settings: Record<string, JsonValue>;
 	/** Slots the app may read or write, with the operations each allows. */
@@ -112,6 +115,17 @@ export interface AppRuntimeHostDeps {
 		revision: number;
 		format: OsOutputExportFormat;
 	}>;
+	/**
+	 * One linked image of the bound Output's saved revision as a data URL. The
+	 * app has no network, so the server fetches it; only links the saved file
+	 * uses are served. Supply a cached reader: an app asks once per place it
+	 * shows the image.
+	 */
+	readOutputImage?: (input: {
+		workspaceId: string;
+		outputId: string;
+		url: string;
+	}) => Promise<string>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -319,6 +333,41 @@ export async function handleAppRuntimeCall(
 						? { sheetId: args.sheetId }
 						: {}),
 				}),
+			};
+		}
+		case "outputs.image": {
+			if (
+				!isRecord(args) ||
+				typeof args.slot !== "string" ||
+				typeof args.url !== "string" ||
+				args.url.length > 2_000 ||
+				!/^https:\/\//i.test(args.url)
+			)
+				return { ok: false, error: "bad_arguments" };
+			const permission = appRuntimePermission({
+				role: context.role,
+				operation: "outputs.read",
+				grants: context.grants,
+				slot: args.slot,
+			});
+			if (!permission.allowed)
+				return { ok: false, error: "not_permitted", detail: permission.reason };
+			const outputId = outputIdForSlot(
+				deps.resources.filter((row) => row.workspaceId === context.workspaceId),
+				args.slot,
+			);
+			if (!outputId) return { ok: false, error: "slot_unbound" };
+			if (!deps.readOutputImage)
+				return { ok: false, error: "host_unavailable" };
+			return {
+				ok: true,
+				value: {
+					dataUrl: await deps.readOutputImage({
+						workspaceId: context.workspaceId,
+						outputId,
+						url: args.url,
+					}),
+				},
 			};
 		}
 		case "app.download": {

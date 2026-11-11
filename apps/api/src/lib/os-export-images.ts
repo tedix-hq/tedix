@@ -15,7 +15,11 @@ const IMAGE_TYPES = new Set([
 ]);
 
 /** Inline image bytes so Browser Rendering never visits caller-chosen origins. */
-export async function fetchOsExportImage(source: string): Promise<string> {
+export async function fetchOsExportImage(
+	source: string,
+	maxBytes = MAX_IMAGE_BYTES,
+): Promise<string> {
+	const megabytes = `${maxBytes / (1024 * 1024)} MB`;
 	const response = await guardedFetch(
 		source,
 		{
@@ -46,11 +50,11 @@ export async function fetchOsExportImage(source: string): Promise<string> {
 		!response.ok ||
 		!type ||
 		!IMAGE_TYPES.has(type) ||
-		Number(response.headers.get("content-length")) > MAX_IMAGE_BYTES
+		Number(response.headers.get("content-length")) > maxBytes
 	) {
 		await response.body?.cancel();
 		throw new Error(
-			"Export image must be a public HTTPS raster image of at most 10 MB",
+			`Export image must be a public HTTPS raster image of at most ${megabytes}`,
 		);
 	}
 	const reader = response.body?.getReader();
@@ -62,7 +66,7 @@ export async function fetchOsExportImage(source: string): Promise<string> {
 			const { done, value } = await reader.read();
 			if (done) break;
 			size += value.byteLength;
-			if (size > MAX_IMAGE_BYTES) throw new Error("Export image exceeds 10 MB");
+			if (size > maxBytes) throw new Error(`Export image exceeds ${megabytes}`);
 			chunks.push(value);
 		}
 	} finally {

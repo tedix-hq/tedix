@@ -5,8 +5,6 @@ import type {
 	OsPresentationElementType,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import {
-	slideBackgroundMarkup,
-	slideElementMarkup,
 	slideElementStyle,
 	slideThemeFontFamily,
 	type PresentationAppearance,
@@ -22,6 +20,7 @@ import {
 	type SnapTargets,
 } from "../lib/slide-snap";
 import { ensureSlideFontLoaded } from "../lib/slide-fonts";
+import { createSlideLinkedImages } from "../lib/slide-linked-images";
 import {
 	fileToSlideImageSource,
 	slideImageFile,
@@ -213,6 +212,14 @@ export async function mountSlidesClient(
 	const slot = context.settings?.slot;
 	if (!slot || !context.workspaceId)
 		throw new Error("Presentation slot is not configured");
+	// The frame has no network: linked images are drawn from copies the host
+	// embeds. They are for display only and never enter the presentation.
+	const linked = createSlideLinkedImages(
+		root,
+		async (url) =>
+			(await bridge.call<{ dataUrl: string }>("outputs.image", { slot, url }))
+				.dataUrl,
+	);
 	const editable =
 		(context.role === "owner" || context.role === "build") &&
 		context.grants?.some(
@@ -452,6 +459,8 @@ export async function mountSlidesClient(
 			failures = 0;
 			retryAt = 0;
 			saveError = "";
+			// A link typed since the last save can be read now.
+			linked.retry();
 			if (edits === sent) {
 				dirty = false;
 				unsavedSince = 0;
@@ -668,22 +677,14 @@ export async function mountSlidesClient(
 		if (!slide) return;
 		const background = document.createElement("div");
 		background.className = "slides-background";
-		background.innerHTML = slideBackgroundMarkup(
-			slide,
-			"canvas",
-			context.appearance,
-		);
+		linked.background(background, slide, context.appearance);
 		container.append(background);
 		for (const element of slide.elements) {
 			const node = document.createElement("div");
 			node.className = "slides-element";
 			node.dataset.elementId = element.id;
 			cssBox(node, element);
-			node.innerHTML = slideElementMarkup(
-				element,
-				"canvas",
-				context.appearance,
-			);
+			linked.element(node, element, context.appearance);
 			container.append(node);
 		}
 	}
@@ -758,11 +759,7 @@ export async function mountSlidesClient(
 			stage.append(stageBackground, guides);
 		}
 		if (stageSlide !== slide)
-			stageBackground.innerHTML = slideBackgroundMarkup(
-				slide,
-				"canvas",
-				context.appearance,
-			);
+			linked.background(stageBackground, slide, context.appearance);
 		const restyle = stageTheme !== deck?.theme;
 		const keep = new Set<string>();
 		let previous: Element = stageBackground;
@@ -778,11 +775,7 @@ export async function mountSlidesClient(
 			const typing = editingId === element.id;
 			if ((entry.element !== element || restyle) && !typing) {
 				cssBox(node, element);
-				node.innerHTML = slideElementMarkup(
-					element,
-					"canvas",
-					context.appearance,
-				);
+				linked.element(node, element, context.appearance);
 				node.setAttribute("aria-label", elementLabel(element));
 				entry.element = element;
 			}
@@ -1647,11 +1640,7 @@ export async function mountSlidesClient(
 		// Only the moving node is touched until the gesture ends.
 		cssBox(gesture.node, next);
 		if (next.props !== original.props) {
-			gesture.node.innerHTML = slideElementMarkup(
-				next,
-				"canvas",
-				context.appearance,
-			);
+			linked.element(gesture.node, next, context.appearance);
 			addHandles(gesture.node, next.id);
 		}
 	};

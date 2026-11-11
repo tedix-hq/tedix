@@ -25,6 +25,7 @@ import {
 	type OsOutputExportFormat,
 	type OsOutputKind,
 	type OsOutputRevision,
+	type OsRichTextNode,
 	OS_OUTPUT_EXPORT_FORMAT_KINDS,
 	OsOutputContentSchema,
 	type OsDerivedAccessEnvelope,
@@ -52,7 +53,10 @@ import {
 	isUsableScreenshot,
 	runBrowserQuickAction,
 } from "../../integrations/browser-run/client";
-import { inlineOsExportImages } from "../../lib/os-export-images";
+import {
+	fetchOsExportImage,
+	inlineOsExportImages,
+} from "../../lib/os-export-images";
 import {
 	OS_EXPORT_RESOURCE_WAIT,
 	renderOsOutputHtml,
@@ -1116,12 +1120,79 @@ const outputsExport = authorOs.outputs.export.handler(
 	},
 );
 
+const DISPLAY_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+
+/** Whether the content itself links to this image. A deck's logo element is checked separately. */
+function contentLinksImage(content: OsOutputContent, url: string): boolean {
+	if (content.kind === "presentation")
+		return (content.deck?.slides ?? []).some(
+			(slide) =>
+				slide.backgroundImage === url ||
+				slide.elements.some(
+					(element) =>
+						(element.type === "image" || element.type === "svg") &&
+						element.src === url,
+				),
+		);
+	if (content.kind !== "document") return false;
+	const linked = (node: OsRichTextNode): boolean =>
+		(node.type === "image" && node.attrs?.src === url) ||
+		(node.content ?? []).some(linked);
+	return (content.richText?.content ?? []).some(linked);
+}
+
+/**
+ * One linked image of the current revision, embedded for an editor that has
+ * no network. Only links the saved file uses are fetched, so this reaches
+ * nothing an export of the same file does not.
+ */
+const outputsImage = readOs.outputs.image.handler(
+	async ({ input, context }) => {
+		const output = await requireOutput(context, input.outputId);
+		if (output.workspaceId !== input.workspaceId)
+			throw createError(ErrorCodes.NOT_FOUND, "OS output not found");
+		const { content } = mapOsOutputRevisionRow(
+			await requireCurrentOutputRevision(context, output),
+		);
+		let linked = contentLinksImage(content, input.url);
+		if (
+			!linked &&
+			content.kind === "presentation" &&
+			content.deck?.slides.some((slide) =>
+				slide.elements.some((element) => element.type === "logo"),
+			)
+		) {
+			const profile = await getOrganizationProfile(
+				context.db,
+				output.organizationId,
+			);
+			linked = profile?.logoUrl === input.url;
+		}
+		if (!linked)
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"This link is not an image of the saved file",
+			);
+		try {
+			return {
+				dataUrl: await fetchOsExportImage(input.url, DISPLAY_IMAGE_MAX_BYTES),
+			};
+		} catch {
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				"The image could not be loaded. It must be a public HTTPS image of at most 5 MB.",
+			);
+		}
+	},
+);
+
 export const osOutputProcedures = {
 	history: outputsHistory,
 	list: outputsList,
 	library: outputsLibrary,
 	create: outputsCreate,
 	get: outputsGet,
+	image: outputsImage,
 	rename: outputsRename,
 	move: outputsMove,
 	revise: outputsRevise,
