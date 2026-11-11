@@ -1390,6 +1390,24 @@ export function CanvasPage({
 		workspaceMissing: workspaces.data !== undefined && workspaceId === null,
 	});
 
+	/* The file a selected app edits, when it is a Doc, Sheet or Slides editor. */
+	const selectedFileEditorKind = useMemo(() => {
+		if (selectedDoc?.type !== "gadget") return null;
+		for (const [outputId, gadgetId] of outputEditors) {
+			if (gadgetId !== selectedDoc.id) continue;
+			return (
+				outputs.data?.items.find((output) => output.id === outputId)?.kind ??
+				null
+			);
+		}
+		return null;
+	}, [outputEditors, outputs.data?.items, selectedDoc]);
+	/* A file editor has no History; an old link to it shows the editor. */
+	const shownWorkpieceMode =
+		workpieceMode === "history" && selectedFileEditorKind
+			? "workpiece"
+			: workpieceMode;
+
 	const workpieceViewControls = selectedDoc ? (
 		<SegmentedControl
 			ariaLabel="Active workpiece view"
@@ -1401,8 +1419,9 @@ export function CanvasPage({
 				selectedOutputKind,
 				selectedDraftCount,
 				workpieceMode,
+				selectedFileEditorKind,
 			)}
-			value={workpieceMode}
+			value={shownWorkpieceMode}
 		/>
 	) : null;
 
@@ -1844,7 +1863,7 @@ export function CanvasPage({
 										gadgetViewOverride={
 											workpieceMode === "edit"
 												? "source"
-												: workpieceMode === "history"
+												: shownWorkpieceMode === "history"
 													? "runs"
 													: "preview"
 										}

@@ -128,7 +128,7 @@ try {
 					.getByRole("group", { name: "Active workpiece view" })
 					.getByRole("button")
 					.allInnerTexts(),
-				["App", "Edit", "History", "Connections"],
+				["App", "Code", "History", "Connections"],
 				`${label}: four plain tabs for the open app`,
 			);
 
@@ -197,7 +197,7 @@ try {
 				name: "Active workpiece view",
 			});
 			const tabX: number[] = [];
-			for (const view of ["App", "Edit", "History", "Connections"]) {
+			for (const view of ["App", "Code", "History", "Connections"]) {
 				await viewTabs.getByRole("button", { name: view, exact: true }).click();
 				await page.waitForTimeout(150);
 				tabX.push(Math.round((await viewTabs.boundingBox())?.x ?? -1));

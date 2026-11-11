@@ -12,7 +12,7 @@ import { startFixtureServer } from "./fixture-server";
 // keyboard focus stays visible inside the scrolling row.
 const workpiecePath =
 	"/workspace/00000030-0000-4000-8000-000000000001?workpiece=gadget%3A00000031-0000-4000-8000-00000000000a&pane=workpiece";
-const views = ["App", "Edit", "History", "Connections"];
+const views = ["App", "Code", "History", "Connections"];
 const server = await startFixtureServer("/work");
 
 try {
