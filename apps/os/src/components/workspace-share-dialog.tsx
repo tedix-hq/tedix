@@ -11,11 +11,19 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
 	OsAffectedCollaborator,
+	OsCollaborator,
 	OsCollaboratorLink,
 	OsCollaboratorRole,
 	OsCollaboratorTarget,
 } from "@tedix/api-contract/schemas/os-collaborators";
-import { type FormEvent, type ReactNode, useState } from "react";
+import {
+	type ClipboardEvent,
+	type FormEvent,
+	type ReactNode,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import {
 	LoadError,
 	Alert,
@@ -29,6 +37,7 @@ import { Checkbox } from "@/components/kumo/checkbox";
 import {
 	Dialog,
 	DialogContent,
+	DialogDescription,
 	DialogHeader,
 	DialogTitle,
 } from "@/components/kumo/dialog";
@@ -56,10 +65,12 @@ import {
 } from "@/components/kumo/tooltip";
 import {
 	FreshLink,
+	LinkCopyStatus,
 	PermanentUrl,
 	SHARE_DIALOG_CLASS,
 	ShareLinksPanel,
 	shareStatus,
+	useLinkCopy,
 	workspaceGuestLimitsText,
 } from "@/components/share-controls";
 import { osApi } from "@/lib/api";
@@ -69,7 +80,9 @@ import {
 	osSharesQueryOptions,
 	outputDetailQueryOptions,
 	workspaceCollaboratorsQueryOptions,
+	workspacePresenceQueryOptions,
 } from "@/lib/os-query-options";
+import { relativeTime } from "@/lib/time";
 import { useOsOperationalContext } from "@/lib/use-os-preferences";
 
 export const ROLE_LABEL: Record<OsCollaboratorRole, string> = {
@@ -89,6 +102,53 @@ export function workspaceShareUrl(
 ): string {
 	return `${origin}/shared/workspace/${encodeURIComponent(workspaceId)}#share=${encodeURIComponent(key)}`;
 }
+
+/** The address an invited person opens after signing in; it carries no key. */
+export function workspaceAddress(origin: string, workspaceId: string): string {
+	return `${origin}/shared/workspace/${encodeURIComponent(workspaceId)}`;
+}
+
+/** The addresses typed or pasted into the invite field, each one once. */
+export function parseInviteEmails(text: string): string[] {
+	const seen = new Set<string>();
+	const emails: string[] = [];
+	for (const part of text.split(/[\s,;]+/)) {
+		const key = part.toLowerCase();
+		if (!part || seen.has(key)) continue;
+		seen.add(key);
+		emails.push(part);
+	}
+	return emails;
+}
+
+const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Why one address could not be added, naming that address. */
+export function inviteFailureText(email: string, error: unknown): string {
+	const message = error instanceof Error ? error.message.trim() : "";
+	if (!message) return `Couldn't add ${email}.`;
+	return message.includes("that email")
+		? message.replace("that email", email)
+		: `${email}: ${message}`;
+}
+
+/** "Ana", "Ana and Ben", "Ana, Ben, and Cy". */
+function nameList(names: readonly string[]): string {
+	return new Intl.ListFormat("en", {
+		style: "long",
+		type: "conjunction",
+	}).format(names);
+}
+
+type InviteResult = {
+	added: OsCollaborator[];
+	failed: { email: string; message: string }[];
+};
+
+const HIGHLIGHT_MS = 3000;
+/** A row that was just added stands out, then settles. */
+const ROW_CLASS =
+	"-mx-2 rounded-md px-2 transition-colors duration-700 motion-reduce:transition-none";
 
 function personLabel(person: { name: string | null; email: string | null }) {
 	return person.name ?? person.email ?? "Someone";
@@ -204,11 +264,15 @@ export function WorkspaceShareDialog(props: {
 	/** Private workspaces cannot have a no-sign-in link. */
 	visibility?: "org" | "private";
 	item?: WorkspaceShareItem;
+	/** What the dialog opens on: the item when its own Share was pressed. */
+	initialScope?: Scope;
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 }) {
-	const [scope, setScope] = useState<Scope>("workspace");
 	const item = props.item;
+	const [scope, setScope] = useState<Scope>(
+		props.initialScope === "item" && item ? "item" : "workspace",
+	);
 	const gadget = useQuery({
 		...canvasGadgetDetailQueryOptions(props.workspaceId, item?.id ?? ""),
 		enabled: props.open && item?.type === "gadget",
@@ -224,8 +288,10 @@ export function WorkspaceShareDialog(props: {
 			: output.data?.output.title;
 	const title =
 		scope === "item" && item
-			? `Share ${itemName ?? `this ${itemNoun}`}`
-			: `Share ${props.workspaceName}`;
+			? itemName
+				? `Share “${itemName}”`
+				: `Share this ${itemNoun}`
+			: `Share “${props.workspaceName}”`;
 
 	return (
 		<TooltipProvider>
@@ -233,6 +299,9 @@ export function WorkspaceShareDialog(props: {
 				<DialogContent className={SHARE_DIALOG_CLASS} data-share-dialog>
 					<DialogHeader>
 						<DialogTitle>{title}</DialogTitle>
+						<DialogDescription>
+							Invite people or share a link.
+						</DialogDescription>
 					</DialogHeader>
 					{item ? (
 						<SegmentedControl
@@ -324,6 +393,31 @@ function WorkspaceAccess(props: {
 	const [inviteRole, setInviteRole] = useState<OsCollaboratorRole>("use");
 	const [freshUrl, setFreshUrl] = useState<string | null>(null);
 	const [copiedLinkId, setCopiedLinkId] = useState<string | null>(null);
+	const linkCopy = useLinkCopy();
+	const [invited, setInvited] = useState<InviteResult | null>(null);
+	/** A sign-in link chosen in General access, waiting for its optional name. */
+	const [stagedRole, setStagedRole] = useState<OsCollaboratorRole | null>(null);
+	const [linkName, setLinkName] = useState("");
+	const [highlighted, setHighlighted] = useState<ReadonlySet<string>>(
+		() => new Set(),
+	);
+	const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	useEffect(
+		() => () => {
+			if (highlightTimer.current) clearTimeout(highlightTimer.current);
+		},
+		[],
+	);
+	const highlight = (ids: string[]) => {
+		if (highlightTimer.current) clearTimeout(highlightTimer.current);
+		setHighlighted(new Set(ids));
+		highlightTimer.current = setTimeout(
+			() => setHighlighted(new Set()),
+			HIGHLIGHT_MS,
+		);
+	};
+	const presence = useQuery(workspacePresenceQueryOptions(workspaceId));
+	const you = presence.data;
 	const [pending, setPending] = useState<PendingRemoval | null>(null);
 	const [editingLinkId, setEditingLinkId] = useState<string | null>(null);
 	const [knockOn, setKnockOn] = useState<string | null>(null);
@@ -331,23 +425,61 @@ function WorkspaceAccess(props: {
 		queryClient.invalidateQueries({ queryKey: osQueryKeys.collaborators() });
 	const origin = typeof window === "undefined" ? "" : window.location.origin;
 
+	const inviteEmails = parseInviteEmails(email);
+	// One call per address, so one unknown address never blocks the others.
 	const invite = useMutation({
-		mutationFn: () =>
-			osApi.osCollaborators.add({
-				workspaceId,
-				email: email.trim(),
-				role: inviteRole,
-			}),
-		onSuccess: () => {
-			setEmail("");
-			void refresh();
+		mutationFn: async (emails: string[]): Promise<InviteResult> => {
+			const result: InviteResult = { added: [], failed: [] };
+			for (const address of emails) {
+				if (!EMAIL_SHAPE.test(address)) {
+					result.failed.push({
+						email: address,
+						message: `${address} doesn't look like an email address.`,
+					});
+					continue;
+				}
+				try {
+					const { collaborator } = await osApi.osCollaborators.add({
+						workspaceId,
+						email: address,
+						role: inviteRole,
+					});
+					result.added.push(collaborator);
+				} catch (error) {
+					result.failed.push({
+						email: address,
+						message: inviteFailureText(address, error),
+					});
+				}
+			}
+			return result;
+		},
+		onMutate: () => setInvited(null),
+		onSuccess: (result) => {
+			setInvited(result);
+			// Addresses that failed stay in the field to be corrected.
+			setEmail(result.failed.map((failure) => failure.email).join(", "));
+			if (result.added.length > 0) {
+				highlight(result.added.map((person) => person.userId));
+				void refresh();
+			}
 		},
 	});
 	const createLink = useMutation({
-		mutationFn: (role: OsCollaboratorRole) =>
-			osApi.osCollaborators.createLink({ workspaceId, role }),
+		mutationFn: async (input: { role: OsCollaboratorRole; label: string }) => {
+			// A sign-in link replaces the no-sign-in one; invited people keep theirs.
+			if (activePublic.length > 0) await publicToggle.mutateAsync(false);
+			return osApi.osCollaborators.createLink({
+				workspaceId,
+				role: input.role,
+				...(input.label.trim() ? { label: input.label.trim() } : {}),
+			});
+		},
 		onSuccess: (result) => {
+			setStagedRole(null);
+			setLinkName("");
 			setFreshUrl(workspaceShareUrl(origin, workspaceId, result.key));
+			highlight([result.link.id]);
 			void refresh();
 		},
 	});
@@ -382,12 +514,13 @@ function WorkspaceAccess(props: {
 				workspaceId,
 				linkId,
 			});
-			await navigator.clipboard.writeText(
-				workspaceShareUrl(origin, workspaceId, key),
-			);
-			return linkId;
+			return { linkId, url: workspaceShareUrl(origin, workspaceId, key) };
 		},
-		onSuccess: (linkId) => setCopiedLinkId(linkId),
+		onSuccess: async ({ linkId, url }) => {
+			setCopiedLinkId(linkId);
+			// When the browser refuses, the address is shown to copy by hand.
+			if (!(await linkCopy.copy(url))) setFreshUrl(url);
+		},
 	});
 	const preview = useMutation({
 		mutationFn: async (input: {
@@ -455,7 +588,22 @@ function WorkspaceAccess(props: {
 
 	const submitInvite = (event: FormEvent) => {
 		event.preventDefault();
-		if (email.trim()) invite.mutate();
+		if (inviteEmails.length > 0) invite.mutate(inviteEmails);
+	};
+	// A single-line field drops line breaks, so a pasted column of addresses
+	// would run together; keep them apart.
+	const pasteEmails = (event: ClipboardEvent<HTMLInputElement>) => {
+		const text = event.clipboardData.getData("text");
+		if (!/[\r\n]/.test(text)) return;
+		event.preventDefault();
+		const field = event.currentTarget;
+		const start = field.selectionStart ?? email.length;
+		const end = field.selectionEnd ?? email.length;
+		setEmail(
+			email.slice(0, start) +
+				parseInviteEmails(text).join(", ") +
+				email.slice(end),
+		);
 	};
 	const data = sharing.data;
 	const canGrantBuild = data?.role === "build";
@@ -483,6 +631,8 @@ function WorkspaceAccess(props: {
 		setRole.isPending ||
 		updateLink.isPending;
 	const chooseAccess = (choice: AccessChoice) => {
+		setStagedRole(null);
+		setLinkName("");
 		if (choice === access) return;
 		if (choice === "restricted") {
 			if (activePublic.length > 0) publicToggle.mutate(false);
@@ -497,10 +647,12 @@ function WorkspaceAccess(props: {
 			publicToggle.mutate(true);
 			return;
 		}
-		// A sign-in link replaces the no-sign-in one; invited people keep theirs.
-		if (activePublic.length > 0) publicToggle.mutate(false);
-		createLink.mutate(choice === "link:build" ? "build" : "use");
+		// A sign-in link is made once it has had the chance to get a name.
+		createLink.reset();
+		setFreshUrl(null);
+		setStagedRole(choice === "link:build" ? "build" : "use");
 	};
+	const shownAccess: AccessChoice = stagedRole ? `link:${stagedRole}` : access;
 	const roleOptions: OsCollaboratorRole[] = canGrantBuild
 		? ["use", "build"]
 		: ["use"];
@@ -529,13 +681,18 @@ function WorkspaceAccess(props: {
 				</SectionHeading>
 				<div className="flex flex-col gap-2 sm:flex-row">
 					<Input
-						aria-label="Email address"
-						type="email"
+						aria-label="Email addresses"
+						type="text"
+						inputMode="email"
 						autoComplete="off"
-						placeholder="name@company.com"
+						autoCapitalize="off"
+						spellCheck={false}
+						placeholder="Email addresses, separated by commas"
 						value={email}
 						onChange={(event) => setEmail(event.target.value)}
+						onPaste={pasteEmails}
 						className="min-w-0 flex-1"
+						data-invite-emails
 					/>
 					<div className="flex gap-2">
 						<RoleSelect
@@ -548,17 +705,39 @@ function WorkspaceAccess(props: {
 							type="submit"
 							className="max-sm:flex-1 max-sm:justify-center"
 							loading={invite.isPending}
-							disabled={!email.trim() || invite.isPending}
+							disabled={inviteEmails.length === 0 || invite.isPending}
 						>
-							Invite
+							{inviteEmails.length > 1
+								? `Invite ${inviteEmails.length} people`
+								: "Invite"}
 						</Button>
 					</div>
 				</div>
-				{invite.isError ? (
-					<Text role="label" tone="error" className="m-0" aria-live="polite">
-						{errorText(invite.error, "Couldn't add that person.")}
-					</Text>
-				) : null}
+				<div className="grid gap-2" aria-live="polite">
+					{invited?.failed.length ? (
+						<ul className="m-0 grid list-none gap-1 p-0" data-invite-failures>
+							{invited.failed.map((failure) => (
+								<Text
+									as="li"
+									key={failure.email}
+									role="label"
+									tone="error"
+									className="m-0"
+								>
+									{failure.message}
+								</Text>
+							))}
+						</ul>
+					) : null}
+					{invited?.added.length ? (
+						<div data-invited-link>
+							<FreshLink
+								title={`Added ${nameList(invited.added.map(personLabel))}. Send them this link to open it`}
+								url={workspaceAddress(origin, workspaceId)}
+							/>
+						</div>
+					) : null}
+				</div>
 			</form>
 
 			<section className="grid gap-1" aria-label="People with access">
@@ -566,6 +745,10 @@ function WorkspaceAccess(props: {
 				<ul className="m-0 grid list-none p-0">
 					<PersonRow
 						name={data?.ownerName ?? "Owner"}
+						you={
+							Boolean(data?.isOwner && you) &&
+							you?.displayName === data?.ownerName
+						}
 						trailing={<Badge variant="secondary">Owner</Badge>}
 					/>
 					{props.visibility === "org" ? <EveryoneRow /> : null}
@@ -573,6 +756,8 @@ function WorkspaceAccess(props: {
 						<PersonRow
 							key={person.userId}
 							name={personLabel(person)}
+							you={person.userId === you?.userId}
+							highlighted={highlighted.has(person.userId)}
 							detail={[
 								person.name && person.email ? person.email : null,
 								person.addedBy.length
@@ -695,7 +880,7 @@ function WorkspaceAccess(props: {
 						<Globe size={16} className="shrink-0 text-kumo-subtle" />
 					)}
 					<Select
-						value={access}
+						value={shownAccess}
 						onValueChange={(value) => chooseAccess(value as AccessChoice)}
 					>
 						<SelectTrigger
@@ -703,7 +888,7 @@ function WorkspaceAccess(props: {
 							className="min-w-0 flex-1"
 							disabled={busy || !data || !canManage}
 						>
-							<SelectValue>{accessLabel[access]}</SelectValue>
+							<SelectValue>{accessLabel[shownAccess]}</SelectValue>
 						</SelectTrigger>
 						<SelectContent>
 							<SelectItem value="restricted">
@@ -719,7 +904,7 @@ function WorkspaceAccess(props: {
 							)}
 						</SelectContent>
 					</Select>
-					{newestLink && !freshUrl && access !== "public" ? (
+					{newestLink && !freshUrl && !stagedRole && access !== "public" ? (
 						<Button
 							variant="secondary"
 							size="sm"
@@ -728,10 +913,57 @@ function WorkspaceAccess(props: {
 							onClick={() => copyLink.mutate(newestLink.id)}
 						>
 							<LinkSimple size={14} />{" "}
-							{copiedLinkId === newestLink.id ? "Copied" : "Copy link"}
+							{copiedLinkId === newestLink.id && linkCopy.state === "copied"
+								? "Copied"
+								: "Copy link"}
 						</Button>
 					) : null}
 				</div>
+				{stagedRole ? (
+					<form
+						className="grid gap-2 rounded-md border border-kumo-line p-3"
+						data-new-link
+						onSubmit={(event) => {
+							event.preventDefault();
+							createLink.mutate({ role: stagedRole, label: linkName });
+						}}
+					>
+						<label className="grid gap-1.5">
+							<Text as="span" role="label" tone="strong" className="m-0">
+								Name this link (optional)
+							</Text>
+							<Input
+								aria-label="Name this link (optional)"
+								autoFocus
+								maxLength={120}
+								placeholder="For example: Reviewers"
+								value={linkName}
+								onChange={(event) => setLinkName(event.target.value)}
+							/>
+						</label>
+						<Text role="label" tone="secondary" className="m-0">
+							A name helps you tell your links apart later.
+						</Text>
+						<div className="flex flex-wrap gap-2">
+							<Button type="submit" size="sm" loading={createLink.isPending}>
+								<LinkSimple size={14} /> Create link
+							</Button>
+							<Button
+								type="button"
+								size="sm"
+								variant="ghost"
+								disabled={createLink.isPending}
+								onClick={() => {
+									setStagedRole(null);
+									setLinkName("");
+								}}
+							>
+								Cancel
+							</Button>
+						</div>
+					</form>
+				) : null}
+				<LinkCopyStatus state={linkCopy.state} showCopied />
 				{freshUrl ? (
 					<div data-fresh-link>
 						<FreshLink
@@ -762,8 +994,9 @@ function WorkspaceAccess(props: {
 						{links.map((link) => (
 							<li
 								key={link.id}
-								className="grid gap-2"
+								className={`grid gap-2 ${ROW_CLASS}${highlighted.has(link.id) ? " bg-kumo-tint" : ""}`}
 								data-share-link={link.id}
+								data-highlighted={highlighted.has(link.id) || undefined}
 							>
 								<div className="flex min-h-10 items-center gap-2">
 									<LinkSimple size={14} className="shrink-0 text-kumo-subtle" />
@@ -777,8 +1010,13 @@ function WorkspaceAccess(props: {
 											tone="secondary"
 											className="truncate"
 										>
-											{ROLE_LABEL[link.role]} · made by{" "}
-											{personLabel(link.createdBy)}
+											{[
+												ROLE_LABEL[link.role],
+												`made by ${personLabel(link.createdBy)}`,
+												relativeTime(link.createdAt),
+											]
+												.filter(Boolean)
+												.join(" · ")}
 										</Text>
 									</span>
 									<DropdownMenu>
@@ -846,12 +1084,16 @@ function WorkspaceAccess(props: {
 						))}
 					</ul>
 				) : null}
-				{createLink.isError || copyLink.isError || publicToggle.isError ? (
-					<Text role="label" tone="error" className="m-0">
+				{createLink.isError || publicToggle.isError ? (
+					<Text role="label" tone="error" className="m-0" aria-live="polite">
 						{errorText(
-							createLink.error ?? copyLink.error ?? publicToggle.error,
+							createLink.error ?? publicToggle.error,
 							"Couldn't change the link.",
 						)}
+					</Text>
+				) : copyLink.isError ? (
+					<Text role="label" tone="error" className="m-0" aria-live="polite">
+						{errorText(copyLink.error, "Couldn't get the link. Try again.")}
 					</Text>
 				) : null}
 			</section>
@@ -962,12 +1204,17 @@ function PersonRow(props: {
 	detail?: string;
 	icon?: ReactNode;
 	trailing: ReactNode;
+	/** This row is the person looking at the dialog. */
+	you?: boolean;
+	/** Just added: stands out for a moment. */
+	highlighted?: boolean;
 	"data-collaborator"?: string;
 }) {
 	return (
 		<li
-			className="flex min-h-11 items-center gap-3"
+			className={`flex min-h-11 items-center gap-3 ${ROW_CLASS}${props.highlighted ? " bg-kumo-tint" : ""}`}
 			data-collaborator={props["data-collaborator"]}
+			data-highlighted={props.highlighted || undefined}
 		>
 			<Avatar size="sm">
 				<AvatarFallback>{props.icon ?? initials(props.name)}</AvatarFallback>
@@ -975,6 +1222,7 @@ function PersonRow(props: {
 			<span className="grid min-w-0 flex-1">
 				<Text as="span" role="body" className="truncate">
 					{props.name}
+					{props.you ? " (you)" : ""}
 				</Text>
 				{props.detail ? (
 					<Text as="span" role="label" tone="secondary" className="truncate">

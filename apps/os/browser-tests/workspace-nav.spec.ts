@@ -166,7 +166,7 @@ try {
 				),
 				`${label}: the presence stack sits in the top bar`,
 			);
-			const share = page.getByRole("button", { name: /^Share\b/ });
+			const share = page.getByRole("button", { name: "Share", exact: true });
 			assert.equal(
 				(await roster.boundingBox())?.height,
 				(await share.boundingBox())?.height,
@@ -245,9 +245,13 @@ try {
 				phone ? 0 : 1,
 				`${label}: one Focus control, none on a phone`,
 			);
-			// One Share, in the top bar. Sharing the open app alone is a section
-			// of its dialog, not a second icon beside History.
-			assert.equal(await share.count(), 1, `${label}: one Share control`);
+			// The top bar shares the workspace; the open app's own header shares
+			// that app. Both open the same dialog, on what was clicked.
+			assert.equal(
+				await share.count(),
+				1,
+				`${label}: one workspace Share control`,
+			);
 			assert(
 				await share.evaluate(
 					(button) => !!button.closest(".canvas-workspace-header"),
@@ -281,6 +285,37 @@ try {
 				),
 				`${label}: no sideways page scroll`,
 			);
+			// The open app's Share starts the dialog on that app.
+			const itemShare = page.getByRole("button", {
+				name: "Share this app",
+				exact: true,
+			});
+			assert.equal(await itemShare.count(), 1, `${label}: one app Share`);
+			assert(
+				await itemShare.evaluate(
+					(button) => !button.closest(".canvas-workspace-header"),
+				),
+				`${label}: the app's Share sits in the app's header`,
+			);
+			// Closing the dialog returns focus to the top bar's Share, whose
+			// tooltip can sit over the app's header on a phone.
+			await page.evaluate(() =>
+				(document.activeElement as HTMLElement | null)?.blur(),
+			);
+			await itemShare.click();
+			await dialog
+				.getByRole("radiogroup", { name: "Who can open it" })
+				.waitFor();
+			assert.equal(await dialog.getByText("People with access").count(), 0);
+			assert.equal(await page.getByRole("dialog").count(), 1);
+			await page.keyboard.press("Escape");
+			await dialog.waitFor({ state: "hidden" });
+			assert(
+				await page.evaluate(
+					() => document.documentElement.scrollWidth <= innerWidth + 1,
+				),
+				`${label}: no sideways page scroll with the app's Share`,
+			);
 			// Focus mode (wide screens only) hides the top bar; Share stays
 			// reachable from the panel.
 			if (!phone) {
@@ -295,7 +330,7 @@ try {
 				await focusShare.click();
 				await page
 					.getByRole("dialog")
-					.getByText("People with access")
+					.getByRole("radiogroup", { name: "Who can open it" })
 					.waitFor();
 				assert.equal(await page.getByRole("dialog").count(), 1);
 				await page.keyboard.press("Escape");

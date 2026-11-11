@@ -407,6 +407,29 @@ describe("ShareControls", () => {
 		expect(container.textContent).not.toContain("#token=");
 	});
 
+	it("says so when the browser refuses to copy, and announces it politely", async () => {
+		sharesApi.list.mockResolvedValue({ items: [shareFixture()] });
+		const writeText = vi.fn().mockRejectedValue(new Error("denied"));
+		Object.defineProperty(navigator, "clipboard", {
+			configurable: true,
+			value: { writeText },
+		});
+		const container = await openDialog();
+		const status = () => container.querySelector("[data-link-copy-status]");
+		expect(status()?.getAttribute("aria-live")).toBe("polite");
+		await act(async () => findButton(container, "Copy link").click());
+		expect(status()?.textContent).toBe(
+			"Couldn't copy the link. Select it and copy it yourself.",
+		);
+		expect(container.textContent).not.toContain("Couldn't change the link");
+
+		writeText.mockResolvedValue(undefined);
+		await act(async () => findButton(container, "Copy link").click());
+		expect(writeText).toHaveBeenCalledWith(SHARE_URL);
+		expect(findButton(container, "Copied")).toBeTruthy();
+		expect(status()?.textContent).toBe("Link copied");
+	});
+
 	it("offers the three audiences in plain words, naming the organization", async () => {
 		sharesApi.list.mockResolvedValue({ items: [] });
 		const container = await openDialog();

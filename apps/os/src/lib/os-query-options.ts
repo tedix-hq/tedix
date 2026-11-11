@@ -211,6 +211,10 @@ export const userConnectionsQueryOptions = () =>
 export const workspaceCollaboratorsQueryOptions = (workspaceId: string) =>
 	osQuery.osCollaborators.list.queryOptions({ input: { workspaceId } });
 
+/** The signed-in person's own id and name in a workspace. */
+export const workspacePresenceQueryOptions = (workspaceId: string) =>
+	osQuery.osCollaborators.presence.queryOptions({ input: { workspaceId } });
+
 /** Workspaces other people shared with the caller, once opened. */
 export const sharedWorkspacesQueryOptions = () =>
 	osQuery.osCollaborators.listShared.queryOptions({ input: {} });

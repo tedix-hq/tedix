@@ -23,7 +23,7 @@ import {
 	type OsShareRole,
 } from "@tedix/api-contract/contracts/os-shares";
 import { resolveOsTenant } from "@/shared/os-tenant";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
@@ -290,14 +290,88 @@ export function ShareRow(props: {
 	);
 }
 
+export const COPY_FAILED_TEXT =
+	"Couldn't copy the link. Select it and copy it yourself.";
+
+const COPIED_RESET_MS = 2000;
+
+export type LinkCopyState = "idle" | "copied" | "failed";
+
+/**
+ * Copies a link and says how it went: "copied" for about two seconds, or
+ * "failed" until the next try, so the person knows to copy it by hand.
+ */
+export function useLinkCopy(): {
+	state: LinkCopyState;
+	copy: (url: string) => Promise<boolean>;
+} {
+	const [state, setState] = useState<LinkCopyState>("idle");
+	const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	useEffect(
+		() => () => {
+			if (timer.current) clearTimeout(timer.current);
+		},
+		[],
+	);
+	const settle = (next: LinkCopyState) => {
+		if (timer.current) clearTimeout(timer.current);
+		timer.current =
+			next === "copied"
+				? setTimeout(() => setState("idle"), COPIED_RESET_MS)
+				: null;
+		setState(next);
+	};
+	const copy = async (url: string) => {
+		try {
+			if (!navigator.clipboard) throw new Error("Clipboard unavailable");
+			await navigator.clipboard.writeText(url);
+			settle("copied");
+			return true;
+		} catch {
+			settle("failed");
+			return false;
+		}
+	};
+	return { state, copy };
+}
+
+/**
+ * Announces a copy to screen readers and shows the failure to everyone. The
+ * button already reads "Copied", so success stays hidden unless asked for.
+ */
+export function LinkCopyStatus(props: {
+	state: LinkCopyState;
+	showCopied?: boolean;
+}) {
+	const failed = props.state === "failed";
+	const visible = failed || (props.showCopied && props.state === "copied");
+	return (
+		<Text
+			as="span"
+			role="label"
+			tone={failed ? "error" : "secondary"}
+			className={visible ? "m-0 block" : "sr-only"}
+			aria-live="polite"
+			data-link-copy-status={props.state}
+		>
+			{failed
+				? COPY_FAILED_TEXT
+				: props.state === "copied"
+					? "Link copied"
+					: ""}
+		</Text>
+	);
+}
+
 /** A link's address, shown right where the link was made. */
 export function FreshLink(props: {
 	url: string;
 	title?: string;
-	note: string;
+	note?: string;
 	onDismiss?: () => void;
 }) {
-	const [copied, setCopied] = useState(false);
+	const { state, copy } = useLinkCopy();
+	const copied = state === "copied";
 	return (
 		<Surface className="grid gap-2 p-3" data-share-new-link>
 			<Text as="span" role="label" tone="strong" className="m-0">
@@ -314,16 +388,7 @@ export function FreshLink(props: {
 				{props.url}
 			</Text>
 			<div className="flex flex-wrap items-center gap-2">
-				<Button
-					size="sm"
-					autoFocus
-					onClick={() => {
-						navigator.clipboard?.writeText(props.url).then(
-							() => setCopied(true),
-							() => setCopied(false),
-						);
-					}}
-				>
+				<Button size="sm" autoFocus onClick={() => void copy(props.url)}>
 					<Copy size={14} /> {copied ? "Copied" : "Copy link"}
 				</Button>
 				{props.onDismiss ? (
@@ -332,9 +397,12 @@ export function FreshLink(props: {
 					</Button>
 				) : null}
 			</div>
-			<Text role="label" tone="secondary" className="m-0">
-				{props.note}
-			</Text>
+			<LinkCopyStatus state={state} />
+			{props.note ? (
+				<Text role="label" tone="secondary" className="m-0">
+					{props.note}
+				</Text>
+			) : null}
 		</Surface>
 	);
 }
@@ -592,32 +660,31 @@ const ACCESS_ICON: Record<OsShareAccess, typeof Globe> = {
 
 /** The link's permanent address, always on show, with a copy button. */
 export function PermanentUrl(props: { url: string; off?: boolean }) {
-	const [copied, setCopied] = useState(false);
+	const { state, copy } = useLinkCopy();
+	const copied = state === "copied";
 	return (
-		<div className="flex min-w-0 items-center gap-2" data-share-permanent-url>
-			<Text
-				as="code"
-				role="label"
-				tone={props.off ? "secondary" : "strong"}
-				className={`m-0 min-w-0 flex-1 select-all truncate rounded-md bg-kumo-recessed px-2 py-1.5 font-mono${props.off ? " line-through" : ""}`}
-				aria-label="Link address"
-				data-share-url
-			>
-				{props.url}
-			</Text>
-			<Button
-				size="sm"
-				className="shrink-0"
-				disabled={props.off}
-				onClick={() => {
-					navigator.clipboard?.writeText(props.url).then(
-						() => setCopied(true),
-						() => setCopied(false),
-					);
-				}}
-			>
-				<Copy size={14} /> {copied ? "Copied" : "Copy link"}
-			</Button>
+		<div className="grid min-w-0 gap-1" data-share-permanent-url>
+			<div className="flex min-w-0 items-center gap-2">
+				<Text
+					as="code"
+					role="label"
+					tone={props.off ? "secondary" : "strong"}
+					className={`m-0 min-w-0 flex-1 select-all truncate rounded-md bg-kumo-recessed px-2 py-1.5 font-mono${props.off ? " line-through" : ""}`}
+					aria-label="Link address"
+					data-share-url
+				>
+					{props.url}
+				</Text>
+				<Button
+					size="sm"
+					className="shrink-0"
+					disabled={props.off}
+					onClick={() => void copy(props.url)}
+				>
+					<Copy size={14} /> {copied ? "Copied" : "Copy link"}
+				</Button>
+			</div>
+			<LinkCopyStatus state={state} />
 		</div>
 	);
 }

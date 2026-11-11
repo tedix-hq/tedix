@@ -2365,6 +2365,10 @@ describe("CanvasPage listing", () => {
 		expect(
 			container.querySelectorAll('button[aria-label="Share"]'),
 		).toHaveLength(1);
+		// The open file has its own Share button, outside focus mode too.
+		expect(
+			container.querySelectorAll('button[aria-label="Share this file"]'),
+		).toHaveLength(1);
 	});
 
 	it("previews a standard MCP Apps Gadget and preserves its source editor", async () => {
