@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -214,19 +215,21 @@ function renderPanel(
 ) {
 	return new DOMParser().parseFromString(
 		renderToStaticMarkup(
-			<WorkspaceOutputsPanel
-				error={false}
-				expanded
-				items={workspaceOutputsPanelItems(outputs, gadgets)}
-				loading={false}
-				now={new Date("2026-10-24T12:00:00.000Z")}
-				onBrowseLibrary={() => {}}
-				onOpenActivity={() => {}}
-				onOpenWork={() => {}}
-				onSelect={() => {}}
-				selectedDoc={{ type: "output", id: "new-deck" }}
-				{...props}
-			/>,
+			<QueryClientProvider client={new QueryClient()}>
+				<WorkspaceOutputsPanel
+					error={false}
+					expanded
+					items={workspaceOutputsPanelItems(outputs, gadgets)}
+					loading={false}
+					now={new Date("2026-10-24T12:00:00.000Z")}
+					onBrowseLibrary={() => {}}
+					onOpenActivity={() => {}}
+					onOpenWork={() => {}}
+					onSelect={() => {}}
+					selectedDoc={{ type: "output", id: "new-deck" }}
+					{...props}
+				/>
+			</QueryClientProvider>,
 		),
 		"text/html",
 	);
@@ -235,6 +238,10 @@ function renderPanel(
 describe("WorkspaceOutputsPanel", () => {
 	it("offers the template catalog directly in the workspace Files header", () => {
 		const panel = renderPanel({ workspaceId: "workspace" });
+		// Each row offers its own actions once the panel knows the workspace.
+		expect(
+			panel.querySelectorAll('button[aria-label^="Actions for "]').length,
+		).toBeGreaterThan(0);
 		expect(
 			panel
 				.querySelector('a[aria-label="Browse workspace templates"]')

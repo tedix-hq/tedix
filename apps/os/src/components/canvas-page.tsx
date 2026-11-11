@@ -1797,6 +1797,15 @@ export function CanvasPage({
 						onOpenWork={() => showPane("work")}
 						onOpenActivity={openWorkspaceActivity}
 						onSelect={openOutputsPanelItem}
+						onArchived={(item) => {
+							// Close every tab that was showing the archived item.
+							for (const doc of openedDocsRef.current)
+								if (
+									doc.id === item.doc.id ||
+									(item.outputId && doc.id === item.outputId)
+								)
+									closeCanvasDoc(canvasDocKey(doc));
+						}}
 					/>
 				) : null}
 			</div>

@@ -281,3 +281,42 @@
 		white-space: nowrap;
 	}
 }
+
+/* A row with its actions: the "…" button sits on the row's right edge and
+   shows on hover, on keyboard focus, and always on touch screens. */
+.workspace-outputs-item {
+	position: relative;
+	display: flex;
+	min-width: 0;
+	align-items: center;
+}
+
+.workspace-outputs-item > .workspace-outputs-row {
+	flex: 1 1 0;
+}
+
+.workspace-outputs-more.workspace-outputs-more {
+	position: absolute;
+	right: 4px;
+	opacity: 0;
+	background: var(--color-kumo-control);
+	transition: opacity var(--duration-tedix-fast) var(--ease-tedix-standard);
+}
+
+.workspace-outputs-item:hover .workspace-outputs-more,
+.workspace-outputs-item:focus-within .workspace-outputs-more,
+.workspace-outputs-more[aria-expanded="true"],
+.workspace-outputs-more[data-popup-open] {
+	opacity: 1;
+}
+
+@media (pointer: coarse) {
+	.workspace-outputs-more.workspace-outputs-more {
+		opacity: 1;
+	}
+}
+
+.workspace-outputs-rename {
+	width: 100%;
+	margin: 2px 4px;
+}
