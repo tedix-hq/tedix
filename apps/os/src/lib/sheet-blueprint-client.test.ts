@@ -332,7 +332,9 @@ describe("Portable Sheet grid", () => {
 		change("#number-format", "percent");
 		change("#font-size", "18");
 		change("#fill-color", "#abcdee");
-		change("#align", "right");
+		click('[data-align="right"]');
+		expect(q('[data-align="right"]').getAttribute("aria-pressed")).toBe("true");
+		click("#dec-more");
 		click("#undo");
 		click("#redo");
 		await saved(app);
@@ -343,6 +345,7 @@ describe("Portable Sheet grid", () => {
 			fontSize: 18,
 			fillColor: "#abcdee",
 			horizontalAlign: "right",
+			decimals: 3,
 		});
 		expect(s.rows[0]![2]!.input).toBe("=SUM(A1:B1)");
 		range("A1:B2");
