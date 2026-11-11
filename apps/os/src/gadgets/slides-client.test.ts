@@ -768,21 +768,88 @@ describe("portable Slides canvas", () => {
 		await api.app.save();
 		expect(api.result().revision.content.deck!.slides).toHaveLength(3);
 	});
-	it("retains embedded images beyond the app.call argument limit and edits fit without dropping artwork", async () => {
-		const api = await mount();
+	it("stores a typed embedded image with the file and saves only its reference", async () => {
+		const reference = `tedix-asset:${"a".repeat(64)}`;
+		const src = "data:image/png;base64," + "A".repeat(90_000);
+		const api = await mount("owner", true, (api) => {
+			const answer = api.call.getMockImplementation()!;
+			api.call.mockImplementation(async (method, args) => {
+				if (method === "outputs.uploadImage") {
+					expect(args).toEqual({ slot: "slides", dataUrl: src });
+					return { reference };
+				}
+				if (method === "outputs.image") {
+					expect(args).toEqual({ slot: "slides", url: reference });
+					return { dataUrl: src };
+				}
+				return answer(method, args);
+			});
+		});
 		insert("image");
 		format();
-		const src = "data:image/png;base64," + "A".repeat(90_000);
 		change("Image source", src);
+		await vi.waitFor(() =>
+			expect(
+				document
+					.querySelector<HTMLImageElement>(
+						".slides-stage img[data-linked-image]",
+					)
+					?.getAttribute("src"),
+			).toBe(src),
+		);
 		change("Image fit", "cover");
 		await api.app.save();
 		expect(
 			api.result().revision.content.deck!.slides[0]!.elements.at(-1),
-		).toMatchObject({ type: "image", src, style: { fit: "cover" } });
+		).toMatchObject({ type: "image", src: reference, style: { fit: "cover" } });
 		expect(api.call).toHaveBeenCalledWith(
 			"outputs.replace",
 			expect.objectContaining({ slot: "slides", expectedRevision: 3 }),
 		);
+		// The picture itself travels once, in the upload.
+		expect(
+			JSON.stringify(
+				api.call.mock.calls.filter(
+					([method]) => method !== "outputs.uploadImage",
+				),
+			),
+		).not.toContain(src);
+		expect(api.draft() ? JSON.stringify(api.draft()) : "").not.toContain(src);
+	});
+	it("uploads a dropped image file and inserts its reference", async () => {
+		const reference = `tedix-asset:${"b".repeat(64)}`;
+		const api = await mount("owner", true, (api) => {
+			const answer = api.call.getMockImplementation()!;
+			api.call.mockImplementation(async (method, args) => {
+				if (method === "outputs.uploadImage") return { reference };
+				if (method === "outputs.image")
+					return { dataUrl: "data:image/svg+xml;base64,PHN2Zy8+" };
+				return answer(method, args);
+			});
+		});
+		const file = new File(
+			[`<svg xmlns="http://www.w3.org/2000/svg">${" ".repeat(3_000)}</svg>`],
+			"mark.svg",
+			{ type: "image/svg+xml" },
+		);
+		const drop = new Event("drop", { bubbles: true, cancelable: true });
+		Object.assign(drop, { dataTransfer: { files: [file], items: [] } });
+		document.querySelector(".slides-stage")!.dispatchEvent(drop);
+		await vi.waitFor(() =>
+			expect(
+				api.call.mock.calls.some(
+					([method, args]) =>
+						method === "outputs.uploadImage" &&
+						String((args as { dataUrl: string }).dataUrl).startsWith(
+							"data:image/svg+xml;base64,",
+						),
+				),
+			).toBe(true),
+		);
+		await api.app.save();
+		expect(
+			api.result().revision.content.deck!.slides[0]!.elements.at(-1),
+		).toMatchObject({ type: "svg", src: reference, text: "mark.svg" });
 	});
 	it("keeps inline text through someone else's save and asks before overwriting the same part", async () => {
 		const api = await mount();

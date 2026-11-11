@@ -476,6 +476,42 @@ describe("portable rich Doc client", () => {
 		expect(types).toContain('"details"');
 		expect(types).toContain('"image"');
 	});
+	it("stores an inserted picture with the file and draws it from the host's copy", async () => {
+		const reference = `tedix-asset:${"d".repeat(64)}`;
+		const copy = "data:image/png;base64,Y29weQ==";
+		const test = fixture();
+		const answer = test.calls.getMockImplementation()!;
+		test.calls.mockImplementation(async (method, args) => {
+			if (method === "outputs.uploadImage") return { reference };
+			if (method === "outputs.image") {
+				expect(args).toEqual({ slot: "document", url: reference });
+				return { dataUrl: copy };
+			}
+			return answer(method, args);
+		});
+		const { root, editor } = await test.mount();
+		const input = root.querySelector<HTMLInputElement>("input[type=file]")!;
+		Object.defineProperty(input, "files", {
+			configurable: true,
+			value: [new File(["picture"], "chart.png", { type: "image/png" })],
+		});
+		input.dispatchEvent(new Event("change"));
+		await vi.waitFor(() =>
+			expect(JSON.stringify(editor.getJSON())).toContain(reference),
+		);
+		expect(test.calls).toHaveBeenCalledWith("outputs.uploadImage", {
+			slot: "document",
+			dataUrl: expect.stringMatching(/^data:image\/png;base64,/),
+		});
+		const picture = () => root.querySelector<HTMLImageElement>("img")!;
+		await vi.waitFor(() => expect(picture().getAttribute("src")).toBe(copy));
+		expect(picture().dataset.linkedImage).toBe(reference);
+		// The document keeps the reference: the copy is only what is drawn.
+		expect(JSON.stringify(editor.getJSON())).not.toContain(copy);
+		expect(
+			test.calls.mock.calls.filter(([method]) => method === "outputs.image"),
+		).toHaveLength(1);
+	});
 	it("applies, edits and removes a link from the pop-up", async () => {
 		const test = fixture(),
 			{ root, editor } = await test.mount();

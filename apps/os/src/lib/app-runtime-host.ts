@@ -12,6 +12,10 @@ import type {
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { appRuntimePermission } from "@tedix/api-contract/utils/app-runtime";
 import { OS_OUTPUT_CONTENT_MAX_BYTES } from "@tedix/api-contract/utils/os-output-limits";
+import {
+	OS_OUTPUT_ASSET_MAX_BYTES,
+	outputAssetDigest,
+} from "@tedix/api-contract/utils/os-output-assets";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type { PresentationAppearance } from "@tedix/api-contract/utils/presentation-style";
 import {
@@ -118,15 +122,24 @@ export interface AppRuntimeHostDeps {
 		format: OsOutputExportFormat;
 	}>;
 	/**
-	 * One linked image of the bound Output's saved revision as a data URL. The
-	 * app has no network, so the server fetches it; only links the saved file
-	 * uses are served. Supply a cached reader: an app asks once per place it
-	 * shows the image.
+	 * One image of the bound Output as a data URL: an image stored with the
+	 * file (`tedix-asset:` reference) or a link its saved revision uses. The
+	 * app has no network, so the server reads it. Supply a cached reader: an
+	 * app asks once per place it shows the image.
 	 */
 	readOutputImage?: (input: {
 		workspaceId: string;
 		outputId: string;
 		url: string;
+	}) => Promise<string>;
+	/**
+	 * Store one image with the bound Output and return its `tedix-asset:`
+	 * reference, so the app's edits and saves carry the reference only.
+	 */
+	uploadOutputImage?: (input: {
+		workspaceId: string;
+		outputId: string;
+		dataUrl: string;
 	}) => Promise<string>;
 }
 
@@ -351,7 +364,7 @@ export async function handleAppRuntimeCall(
 				typeof args.slot !== "string" ||
 				typeof args.url !== "string" ||
 				args.url.length > 2_000 ||
-				!/^https:\/\//i.test(args.url)
+				(!/^https:\/\//i.test(args.url) && !outputAssetDigest(args.url))
 			)
 				return { ok: false, error: "bad_arguments" };
 			const permission = appRuntimePermission({
@@ -379,6 +392,54 @@ export async function handleAppRuntimeCall(
 					}),
 				},
 			};
+		}
+		case "outputs.uploadImage": {
+			if (
+				!isRecord(args) ||
+				typeof args.slot !== "string" ||
+				typeof args.dataUrl !== "string" ||
+				!/^data:image\//i.test(args.dataUrl)
+			)
+				return { ok: false, error: "bad_arguments" };
+			// Base64 text is a third longer than the bytes it carries.
+			if (args.dataUrl.length > OS_OUTPUT_ASSET_MAX_BYTES * 1.4)
+				return { ok: false, error: "too_large" };
+			const permission = appRuntimePermission({
+				role: context.role,
+				operation: "outputs.write",
+				grants: context.grants,
+				slot: args.slot,
+			});
+			if (!permission.allowed)
+				return { ok: false, error: "not_permitted", detail: permission.reason };
+			const outputId = outputIdForSlot(
+				deps.resources.filter((row) => row.workspaceId === context.workspaceId),
+				args.slot,
+			);
+			if (!outputId) return { ok: false, error: "slot_unbound" };
+			if (!deps.uploadOutputImage)
+				return { ok: false, error: "host_unavailable" };
+			try {
+				return {
+					ok: true,
+					value: {
+						reference: await deps.uploadOutputImage({
+							workspaceId: context.workspaceId,
+							outputId,
+							dataUrl: args.dataUrl,
+						}),
+					},
+				};
+			} catch (error) {
+				// The server refused the image itself: sending it again cannot work.
+				if (
+					isRecord(error) &&
+					error.code === "BAD_REQUEST" &&
+					typeof error.message === "string"
+				)
+					return { ok: false, error: "bad_arguments", detail: error.message };
+				throw error;
+			}
 		}
 		case "app.download": {
 			if (context.role === "viewer")

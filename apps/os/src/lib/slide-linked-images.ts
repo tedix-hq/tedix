@@ -2,25 +2,29 @@ import type {
 	OsPresentationCanvasSlide,
 	OsPresentationElement,
 } from "@tedix/api-contract/schemas/os-workspaces";
+import { outputAssetDigest } from "@tedix/api-contract/utils/os-output-assets";
 import {
 	slideBackgroundMarkup,
 	slideElementMarkup,
 	type PresentationAppearance,
 } from "@tedix/api-contract/utils/presentation-style";
 
-/** One transparent pixel: what a linked image shows until its embedded copy arrives. */
+/** One transparent pixel: what an image shows until its embedded copy arrives. */
 const BLANK =
 	"data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==";
 
+/** A source the frame cannot draw itself: a web link or an image stored with the file. */
 const isLink = (source: string | null | undefined): source is string =>
-	!!source && /^https:\/\//i.test(source);
+	!!source &&
+	(/^https:\/\//i.test(source) || outputAssetDigest(source) !== null);
 
 /**
- * Puts slide markup on screen where the browser may not load web images. A
- * linked image is drawn from an embedded copy that `read` fetches once per
- * link; until it arrives the image is blank, and if it cannot be read the
- * image is marked `data-linked-state="failed"`. Only the markup changes: the
- * slide, element and appearance passed in keep their links.
+ * Puts slide markup on screen where the browser may not load images itself.
+ * A web link or an image stored with the file (`tedix-asset:` reference) is
+ * drawn from an embedded copy that `read` fetches once per source; until it
+ * arrives the image is blank, and if it cannot be read the image is marked
+ * `data-linked-state="failed"`. Only the markup changes: the slide, element
+ * and appearance passed in keep their links and references.
  */
 export function createSlideLinkedImages(
 	root: ParentNode,
@@ -99,6 +103,9 @@ export function createSlideLinkedImages(
 			);
 			track(node, link);
 		},
+		/** The embedded copy of a source, once it has been read. */
+		copy: (source: string | null | undefined) =>
+			source ? embedded.get(source) : undefined,
 		/** Ask again for the failed links still on screen. */
 		retry() {
 			for (const [link, state] of waiting) {

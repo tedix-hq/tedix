@@ -2,7 +2,6 @@ import type {
 	OsGadget,
 	OsGadgetManifest,
 	OsGadgetRevision,
-	OsOutputContent,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -11,10 +10,6 @@ import { osApi, osAppRuntimeCall } from "@/lib/api";
 import { createAppRuntimeServerCall } from "@/lib/app-runtime-session";
 import { exportAppRuntimeOutput } from "@/lib/app-runtime-export";
 import { replaceAppRuntimeOutput } from "@/lib/app-runtime-output";
-import {
-	outputAssetReferences,
-	withEmbeddedOutputAssets,
-} from "@/lib/output-assets";
 import { isWorkspaceAccessDenied } from "@/lib/workspace-verification";
 import { usePresentationAppearance } from "@/lib/presentation-appearance";
 import { AppRuntimeFrame } from "@/components/app-runtime-frame";
@@ -261,33 +256,6 @@ export function AppRuntimeSandbox({
 			});
 	}, [staleOutputIds, queryClient]);
 
-	// The file editors draw embedded images only, so the host hands them the
-	// stored images embedded; the server stores them apart again on save.
-	const embedImages = useCallback(
-		async <T extends OsOutputContent>(outputId: string, content: T) => {
-			const references = outputAssetReferences(content);
-			const sources = await Promise.all(
-				references.map((url) =>
-					queryClient
-						.fetchQuery(outputImageQueryOptions({ workspaceId, outputId, url }))
-						.then(
-							(image) => image.dataUrl,
-							() => null,
-						),
-				),
-			);
-			return withEmbeddedOutputAssets(
-				content,
-				new Map(
-					references.flatMap((reference, index) =>
-						sources[index] ? [[reference, sources[index]] as const] : [],
-					),
-				),
-			);
-		},
-		[queryClient, workspaceId],
-	);
-
 	const onCall = useCallback(
 		(method: unknown, args: unknown) =>
 			handleAppRuntimeCall(
@@ -295,19 +263,9 @@ export function AppRuntimeSandbox({
 					context,
 					callServer,
 					exportOutput: exportAppRuntimeOutput,
-					replaceOutput: async (input) => {
-						const saved = await replaceAppRuntimeOutput(input);
-						return {
-							...saved,
-							revision: {
-								...saved.revision,
-								content: await embedImages(
-									input.outputId,
-									saved.revision.content,
-								),
-							},
-						};
-					},
+					replaceOutput: replaceAppRuntimeOutput,
+					uploadOutputImage: async (input) =>
+						(await osApi.osWorkspaces.outputs.uploadImage(input)).reference,
 					readOutputImage: async (input) =>
 						(await queryClient.fetchQuery(outputImageQueryOptions(input)))
 							.dataUrl,
@@ -329,7 +287,7 @@ export function AppRuntimeSandbox({
 							throw new Error(
 								"This file moved to another workspace. Reopen it before continuing.",
 							);
-						return embedImages(outputId, detail.currentRevision.content);
+						return detail.currentRevision.content;
 					},
 					readOutputRevision: async (outputId) => {
 						const detail = await queryClient.fetchQuery({
@@ -342,13 +300,7 @@ export function AppRuntimeSandbox({
 							);
 						return {
 							output: detail.output,
-							revision: withEditableRichText({
-								...detail.currentRevision,
-								content: await embedImages(
-									outputId,
-									detail.currentRevision.content,
-								),
-							}),
+							revision: withEditableRichText(detail.currentRevision),
 						};
 					},
 				},
@@ -364,7 +316,6 @@ export function AppRuntimeSandbox({
 			revisionId,
 			appDrafts,
 			workspaceId,
-			embedImages,
 		],
 	);
 	const html = useMemo(() => buildAppRuntimeDocument(files), [files]);

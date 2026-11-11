@@ -82,4 +82,33 @@ describe("slide linked images", () => {
 			expect(target.querySelector("img")!.getAttribute("src")).toBe(embedded),
 		);
 	});
+	it("draws an image stored with the file from its embedded copy and keeps the reference", async () => {
+		const reference = `tedix-asset:${"c".repeat(64)}`;
+		const read = vi.fn(async () => "data:image/png;base64,c3RvcmVk");
+		const linked = createSlideLinkedImages(document.body, read);
+		const target = document.createElement("div");
+		document.body.append(target);
+		const stored = {
+			id: "stored",
+			type: "image",
+			src: reference,
+			x: 0,
+			y: 0,
+			width: 10,
+			height: 10,
+			style: {},
+		} as OsPresentationElement;
+		linked.element(target, stored);
+		expect(linked.copy(reference)).toBeUndefined();
+		await vi.waitFor(() =>
+			expect(target.querySelector("img")!.getAttribute("src")).toBe(
+				"data:image/png;base64,c3RvcmVk",
+			),
+		);
+		expect(read).toHaveBeenCalledExactlyOnceWith(reference);
+		expect(target.querySelector("img")!.dataset.linkedImage).toBe(reference);
+		expect(stored.src).toBe(reference);
+		expect(linked.copy(reference)).toBe("data:image/png;base64,c3RvcmVk");
+		target.remove();
+	});
 });

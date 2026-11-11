@@ -21,6 +21,7 @@ import {
 } from "../lib/slide-snap";
 import { ensureSlideFontLoaded } from "../lib/slide-fonts";
 import { createSlideLinkedImages } from "../lib/slide-linked-images";
+import { isLargeEmbeddedImage } from "@tedix/api-contract/utils/os-output-assets";
 import { lastingSaveFailure } from "../lib/save-failure";
 import {
 	fileToSlideImageSource,
@@ -214,14 +215,32 @@ export async function mountSlidesClient(
 	const slot = context.settings?.slot;
 	if (!slot || !context.workspaceId)
 		throw new Error("Presentation slot is not configured");
-	// The frame has no network: linked images are drawn from copies the host
-	// embeds. They are for display only and never enter the presentation.
+	// The frame has no network: linked images and images stored with the file
+	// are drawn from copies the host embeds. They are for display only and
+	// never enter the presentation.
 	const linked = createSlideLinkedImages(
 		root,
 		async (url) =>
 			(await bridge.call<{ dataUrl: string }>("outputs.image", { slot, url }))
 				.dataUrl,
 	);
+	/** Store an embedded image with the file; the deck names it by reference. */
+	const storeImage = async (source: string) =>
+		isLargeEmbeddedImage(source)
+			? (
+					await bridge.call<{ reference: string }>("outputs.uploadImage", {
+						slot,
+						dataUrl: source,
+					})
+				).reference
+			: source;
+	/** Apply a typed image source; a pasted embedded image is stored first. */
+	const stored = (source: string, apply: (source: string) => void) => {
+		if (!isLargeEmbeddedImage(source)) return apply(source);
+		void storeImage(source).then(apply, (error) =>
+			message(reason(error), true, 6000),
+		);
+	};
 	const editable =
 		(context.role === "owner" || context.role === "build") &&
 		context.grants?.some(
@@ -1163,7 +1182,9 @@ export async function mountSlidesClient(
 				"Background image",
 				() => slide((row) => row.backgroundImage ?? ""),
 				(value) =>
-					edit((row) => ({ ...row, backgroundImage: value || undefined })),
+					stored(value, (source) =>
+						edit((row) => ({ ...row, backgroundImage: source || undefined })),
+					),
 				{ wide: true },
 			);
 			field(
@@ -1387,17 +1408,22 @@ export async function mountSlidesClient(
 				extras,
 				"Image source",
 				() => selected()?.src ?? "",
-				(value) => edit((current) => ({ ...current, src: value })),
+				(value) =>
+					stored(value, (src) => edit((current) => ({ ...current, src }))),
 				{ wide: true },
 			);
 		if (type === "svg")
 			field(
 				extras,
 				"SVG markup",
-				() => svgMarkupFromSource(selected()?.src),
+				() =>
+					svgMarkupFromSource(linked.copy(selected()?.src) ?? selected()?.src),
 				(value) => {
 					const result = svgSourceFromMarkup(value);
-					if (result.ok) edit((current) => ({ ...current, src: result.src }));
+					if (result.ok)
+						stored(result.src ?? "", (src) =>
+							edit((current) => ({ ...current, src: src || undefined })),
+						);
 					else message(result.error, true, 5000);
 				},
 				{ multiline: true },
@@ -2117,7 +2143,7 @@ export async function mountSlidesClient(
 	async function insertImage(file: File) {
 		if (!canWrite() || !active()) return;
 		try {
-			const src = await fileToSlideImageSource(file);
+			const src = await storeImage(await fileToSlideImageSource(file));
 			const slide = active();
 			if (!slide || !canWrite()) return;
 			const element = newSlideElement(
