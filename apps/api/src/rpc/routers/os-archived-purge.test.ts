@@ -203,7 +203,7 @@ describe("purge_archived_os_items", () => {
 		const workspace = await archivedWorkspace(t, "Old project");
 		const output = await archivedOutput(t, "Old notes");
 
-		const result = await t.admin.workspaces.previewArchivedPurge({
+		const result = await t.admin.workspaces.previewArchivedCleanup({
 			kinds: ["workspaces", "outputs"],
 		});
 

@@ -510,10 +510,10 @@ export const osWorkspacesContract = oc
 				})
 				.input(OsArchivedPurgeInputSchema)
 				.output(OsArchivedPurgeResultSchema),
-			previewArchivedPurge: oc
+			previewArchivedCleanup: oc
 				.route({
 					method: "POST",
-					path: "/archived-items/purge-preview",
+					path: "/archived-items/cleanup-preview",
 					summary:
 						"Preview which archived Tedix OS workspaces, outputs and conversations a purge would delete",
 					description:
