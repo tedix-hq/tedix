@@ -14,6 +14,7 @@ import { schemaDdl } from "../../test/schema-ddl";
 import type { TenantStoreDb } from "./tenant-store";
 import { createTenantStoreDb } from "./tenant-store";
 import * as tenant from "./os-outputs";
+import { executeOutputQuery } from "./output-rpc";
 
 const BODY = '{"kind":"document","blocks":[]}';
 const BODY_V2 =
@@ -425,5 +426,50 @@ describe("os outputs plane parity", () => {
 				},
 			),
 		).rejects.toThrow("TENANT_STORE_OUTPUT_BODY_INLINE");
+	});
+	it("points a revision at a rewritten body only from the body it had, inside its workspace", async () => {
+		const t = tenantDb();
+		await seedTenant(t.db);
+		const scope = { organizationId: "org-1", workspaceId: "ws-1" };
+		const previousSha256 = await sha256Hex(BODY);
+		const rewritten = {
+			contentSha256: await sha256Hex(BODY_V2),
+			contentBytes: BODY_V2.length,
+			bodyR2Key: "org-1/outputs/out-1/rewritten",
+		};
+		const rebody = (target: typeof scope, revisionId: string, from: string) =>
+			executeOutputQuery(t.db, target, {
+				op: "rebody",
+				revisionId,
+				previousSha256: from,
+				...rewritten,
+			});
+		expect(await rebody(scope, "rev-1", "0".repeat(64))).toBe(false);
+		expect(await rebody(scope, "missing", previousSha256)).toBe(false);
+		expect(
+			await rebody(
+				{ ...scope, organizationId: "org-2" },
+				"rev-1",
+				previousSha256,
+			),
+		).toBe(false);
+		await expect(
+			rebody({ ...scope, workspaceId: "ws-2" }, "rev-1", previousSha256),
+		).rejects.toThrow("Output is outside this workspace");
+		expect(
+			await tenant.getOsOutputRevision(t.db, {
+				organizationId: "org-1",
+				revisionId: "rev-1",
+			}),
+		).toMatchObject({ contentSha256: previousSha256 });
+		expect(await rebody(scope, "rev-1", previousSha256)).toBe(true);
+		expect(
+			await tenant.getOsOutputRevision(t.db, {
+				organizationId: "org-1",
+				revisionId: "rev-1",
+			}),
+		).toMatchObject({ ...rewritten, content: "", revision: 1 });
+		// A replay finds the body already moved.
+		expect(await rebody(scope, "rev-1", previousSha256)).toBe(false);
 	});
 });

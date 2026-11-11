@@ -403,6 +403,40 @@ export async function getOsOutputRevisionByNumber(
 	return row;
 }
 
+/**
+ * Point one revision at a rewritten copy of its body. Only the migration that
+ * moves embedded images out of stored bodies calls this; the fence is the
+ * digest of the body the revision had.
+ */
+export async function replaceOsOutputRevisionBody(
+	db: TenantStoreDb,
+	params: {
+		organizationId: string;
+		revisionId: string;
+		previousSha256: string;
+		bodyR2Key: string;
+		contentSha256: string;
+		contentBytes: number;
+	},
+): Promise<boolean> {
+	const changed = await db
+		.update(osOutputRevisions)
+		.set({
+			bodyR2Key: params.bodyR2Key,
+			contentSha256: params.contentSha256,
+			contentBytes: params.contentBytes,
+		})
+		.where(
+			and(
+				eq(osOutputRevisions.organizationId, params.organizationId),
+				eq(osOutputRevisions.id, params.revisionId),
+				eq(osOutputRevisions.contentSha256, params.previousSha256),
+			),
+		)
+		.returning({ id: osOutputRevisions.id });
+	return changed.length === 1;
+}
+
 export type OsOutputRevisionMetadataRow = Omit<OsOutputRevisionRow, "content">;
 
 export async function listOsOutputRevisions(

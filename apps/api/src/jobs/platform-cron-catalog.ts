@@ -43,6 +43,7 @@ export const PLATFORM_CRON_IDS = [
 	"retention-cleanup",
 	"output-revision-body-gc",
 	"output-revision-body-offload",
+	"output-asset-migration",
 	"memory-reflection-and-enrichment",
 	"mcp-scan",
 	"tool-test-and-quality",
@@ -207,6 +208,11 @@ export const PLATFORM_CRON_DEFINITIONS: readonly PlatformCronDefinition[] = [
 	},
 	{
 		id: "output-revision-body-offload",
+		cron: "*/2 * * * *",
+		intervalMinutes: 2,
+	},
+	{
+		id: "output-asset-migration",
 		cron: "*/2 * * * *",
 		intervalMinutes: 2,
 	},

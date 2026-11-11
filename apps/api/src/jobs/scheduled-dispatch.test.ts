@@ -45,6 +45,17 @@ const catchup = vi.hoisted(() => ({
 		receiptKey: null,
 		summary: null,
 	}),
+	assetMigration: vi.fn().mockResolvedValue({
+		status: "not_started",
+		phase: "shared",
+		dryRun: false,
+		cursor: 0,
+		scanned: 0,
+		rewritten: 0,
+		embeddedBytes: 0,
+		failures: [],
+		receiptKey: null,
+	}),
 	paths: [] as string[],
 	outcomes: [] as Array<{ id: string; status: "success" | "failure" }>,
 }));
@@ -110,6 +121,9 @@ vi.mock("../services/os-gadget-code-dedupe", () => ({
 }));
 vi.mock("../services/os-output-revision-offload", () => ({
 	runOutputRevisionBodyOffloadTick: catchup.offload,
+}));
+vi.mock("../services/os-output-asset-migration", () => ({
+	runOutputAssetMigrationTick: catchup.assetMigration,
 }));
 vi.mock("./platform-cron-receipts", () => ({
 	runPlatformCronPath: async (
@@ -225,6 +239,14 @@ it("runs bounded gateway-only catch-up on the existing two-minute trigger", asyn
 	expect(catchup.dedupe).toHaveBeenCalledWith(
 		expect.objectContaining({ now: new Date(Date.UTC(2026, 8, 24, 0, 0)) }),
 	);
+	// The one-time stored image migration rides the same tick.
+	expect(catchup.assetMigration).toHaveBeenCalledWith(
+		expect.objectContaining({ now: new Date(Date.UTC(2026, 8, 24, 0, 0)) }),
+	);
+	expect(catchup.outcomes).toContainEqual({
+		id: "output-asset-migration",
+		status: "success",
+	});
 });
 
 it("fails the catch-up receipt on a gateway error but continues sibling cron paths", async () => {

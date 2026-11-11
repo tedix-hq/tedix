@@ -26,6 +26,13 @@ export interface OutputQueryInputs {
 	};
 	create: { output: NewOsOutputRow; revision: NewOsOutputRevisionRow };
 	revise: { params: outputs.CreateOsOutputRevisionParams };
+	rebody: {
+		revisionId: string;
+		previousSha256: string;
+		bodyR2Key: string;
+		contentSha256: string;
+		contentBytes: number;
+	};
 	update: { outputId: string; patch: outputs.UpdateOsOutputPatch };
 	delete: { outputId: string };
 }
@@ -44,6 +51,7 @@ export interface OutputQueryResults {
 	history: Awaited<ReturnType<typeof outputs.listOsOutputRevisions>>;
 	create: Awaited<ReturnType<typeof outputs.createOsOutput>>;
 	revise: Awaited<ReturnType<typeof outputs.createOsOutputRevision>>;
+	rebody: boolean;
 	update: Awaited<ReturnType<typeof outputs.updateOsOutput>>;
 	delete: Awaited<ReturnType<typeof outputs.deleteOsOutput>>;
 }
@@ -162,6 +170,21 @@ async function execute(
 				throw new Error("Output revision scope mismatch");
 			await owned(query.params.outputId);
 			return outputs.createOsOutputRevision(db, query.params);
+		case "rebody": {
+			const revision = await outputs.getOsOutputRevision(db, {
+				organizationId: scope.organizationId,
+				revisionId: query.revisionId,
+			});
+			if (!revision || !(await owned(revision.outputId))) return false;
+			return outputs.replaceOsOutputRevisionBody(db, {
+				organizationId: scope.organizationId,
+				revisionId: query.revisionId,
+				previousSha256: query.previousSha256,
+				bodyR2Key: query.bodyR2Key,
+				contentSha256: query.contentSha256,
+				contentBytes: query.contentBytes,
+			});
+		}
 		case "update":
 			await owned(query.outputId);
 			if (

@@ -59,7 +59,9 @@ function fixture() {
 					objects: [],
 					delimitedPrefixes: [
 						...new Set(
-							matching.map((o) => o.key.slice(0, o.key.lastIndexOf("/") + 1)),
+							matching.map((o) =>
+								o.key.slice(0, o.key.indexOf("/", (prefix ?? "").length) + 1),
+							),
 						),
 					],
 					truncated: false,
@@ -75,8 +77,8 @@ function fixture() {
 			};
 		}),
 		head: vi.fn(async (key: string) => objects.get(key) ?? null),
-		delete: vi.fn(async (key: string) => {
-			objects.delete(key);
+		delete: vi.fn(async (keys: string | string[]) => {
+			for (const key of [keys].flat()) objects.delete(key);
 		}),
 	};
 	const input = {
@@ -132,9 +134,24 @@ describe("output body garbage collection", () => {
 		f.sqlite.exec(
 			`UPDATE organizations SET metadata='{"retiredAt":"2026-11-01"}' WHERE id='org-b'; DELETE FROM organizations WHERE id='org-a';`,
 		);
+		// Images stored with files: only the deleted organization's go.
+		const image = (org: string) => {
+			const key = `os-output-assets/v1/${org}/out-1/${hash(9)}`;
+			f.objects.set(key, { key, uploaded: NOW });
+			return key;
+		};
+		const orphanImage = image("org-a");
+		const keptImage = image("org-b");
 		const log = vi.spyOn(console, "log").mockImplementation(() => {});
 		const result = await runOutputRevisionBodyGc(f.input);
-		expect(result).toEqual({ scanned: 3, eligible: 2, removed: 2 });
+		expect(result).toEqual({
+			scanned: 3,
+			eligible: 2,
+			removed: 2,
+			assetsRemoved: 1,
+		});
+		expect(f.objects.has(orphanImage)).toBe(false);
+		expect(f.objects.has(keptImage)).toBe(true);
 		expect(f.objects.has(old)).toBe(false);
 		expect(f.objects.has(fresh)).toBe(false);
 		expect(f.objects.has(other)).toBe(true);
