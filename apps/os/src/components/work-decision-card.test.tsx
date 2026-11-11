@@ -520,6 +520,31 @@ it("decides for the person with the recommended answer when no tedi can take it"
 	);
 });
 
+it.each([
+	["Review first because the group size changed.", "approve"],
+	["Wait — the room is not confirmed yet.", undefined],
+	["Decline — the group no longer needs a room.", "reject"],
+])(
+	"fills the button the recommendation %j gives",
+	async (recommendation, intent) => {
+		await mountFace(
+			{ presentation: { ...FACE, recommendation }, confidence: null },
+			undefined,
+			{
+				actions: [
+					{ id: "yes", label: "Yes", intent: "approve" },
+					{ id: "no", label: "No", intent: "reject" },
+				],
+			},
+		);
+		expect(
+			host
+				.querySelector("[data-highlighted]")
+				?.getAttribute("data-decision-intent") ?? undefined,
+		).toBe(intent);
+	},
+);
+
 it("leaves out the option list in compact density", async () => {
 	await mountFace({
 		presentation: FACE,
