@@ -401,9 +401,19 @@ export interface ServeOptions {
 	repo: string;
 	/** True when `--repo` was passed; an explicit repo scopes an any-local lane. */
 	repoSpecified?: boolean;
+	/** Retained-checkout ceiling under `runs/`; unset uses the default cap. */
+	checkoutCapBytes?: number;
 	scope: string[];
 	install: boolean;
 	once: boolean;
+}
+
+/** Parses a `--checkout-cap-gb` value or its environment fallback. */
+function checkoutCapBytes(value: string, source: string): number {
+	const gb = Number(value);
+	if (!Number.isFinite(gb) || gb <= 0 || gb > 1024 * 1024)
+		throw new Error(`${source} must be a positive number of GB`);
+	return Math.round(gb * 1024 ** 3);
 }
 export function parseServeOptions(
 	args: string[],
@@ -419,6 +429,14 @@ export function parseServeOptions(
 		scope: [],
 		...(env.TEDIX_LANE_ROUTING_CONFIG
 			? { routingConfig: resolve(env.TEDIX_LANE_ROUTING_CONFIG) }
+			: {}),
+		...(env.TEDIX_LANE_CHECKOUT_CAP_GB
+			? {
+					checkoutCapBytes: checkoutCapBytes(
+						env.TEDIX_LANE_CHECKOUT_CAP_GB,
+						"TEDIX_LANE_CHECKOUT_CAP_GB",
+					),
+				}
 			: {}),
 		install: false,
 		once: false,
@@ -447,6 +465,7 @@ export function parseServeOptions(
 				"--max",
 				"--routing-config",
 				"--idle-takeover-minutes",
+				"--checkout-cap-gb",
 				"--project",
 				"--rules",
 				"--repo",
@@ -475,6 +494,8 @@ export function parseServeOptions(
 		if (key === "--max") result.max = Number(value);
 		if (key === "--idle-takeover-minutes")
 			result.idleTakeoverMinutes = Number(value);
+		if (key === "--checkout-cap-gb")
+			result.checkoutCapBytes = checkoutCapBytes(value, key);
 		if (key === "--routing-config") result.routingConfig = resolve(value);
 		if (key === "--project") result.project = value;
 		if (key === "--rules") result.rules = value;
@@ -581,6 +602,21 @@ const DEFERRED_RETRY_MS = 6 * 60 * 60_000;
  * admitted; a lane checkout with dependencies takes about 2.5 GB.
  */
 export const MIN_FREE_DISK_BYTES = 10 * 1024 ** 3;
+/**
+ * Retained checkouts under `runs/` stay below this ceiling once their runs
+ * settle; `--checkout-cap-gb` or `TEDIX_LANE_CHECKOUT_CAP_GB` overrides it.
+ */
+export const DEFAULT_LANE_CHECKOUT_CAP_BYTES = 10 * 1024 ** 3;
+/**
+ * How often a runner sweeps `runs/` for settled checkouts and enforces the
+ * retained cap; the first pass after start always sweeps.
+ */
+const RUNS_SWEEP_INTERVAL_MS = 10 * 60_000;
+/**
+ * Maintenance key for the runs sweep; receipt maintenance is keyed by Work id,
+ * which is a UUID and can never equal this.
+ */
+const RUNS_SWEEP_KEY = "runs-sweep";
 /**
  * `dispatcher.log` rotates to `dispatcher.log.1` past this size. The runner's
  * stderr log is capped in place by the supervisor (supervise-runners), which
@@ -989,12 +1025,19 @@ async function laneWorktreeInUse(destination: string): Promise<boolean> {
 	}
 }
 
+/**
+ * Removes a lane worktree when nothing in it is still the only copy of the
+ * work: every change is already a deletion or ignored build output, HEAD has
+ * no commit missing from `origin/main` that `recorded` does not account for
+ * (commits whose SHAs were written to the Work), and no live process uses it.
+ */
 export async function cleanupLaneWorktree(
 	source: string,
 	destination: string,
 	inUse: (
 		destination: string,
 	) => boolean | Promise<boolean> = laneWorktreeInUse,
+	recorded?: ReadonlySet<string>,
 ): Promise<boolean> {
 	const run = async (repo: string, args: string[]) => {
 		try {
@@ -1033,13 +1076,20 @@ export async function cleanupLaneWorktree(
 	// still save; such checkouts are left behind by interrupted removals.
 	const emptied = changes.every((line) => /^(?: D|D )/.test(line));
 	if (!emptied) return false;
+	// A commit missing from origin/main is the last copy of its work unless the
+	// dispatcher already recorded the SHA on the Work.
+	const unpushed = await run(destination, [
+		"rev-list",
+		head.stdout.trim(),
+		"--not",
+		"refs/remotes/origin/main",
+	]);
 	if (
-		!(await run(source, [
-			"merge-base",
-			"--is-ancestor",
-			head.stdout.trim(),
-			"refs/remotes/origin/main",
-		]))
+		!unpushed ||
+		unpushed.stdout
+			.split("\n")
+			.filter(Boolean)
+			.some((sha) => !recorded?.has(sha))
 	)
 		return false;
 	if (await inUse(destination)) return false;
@@ -1398,7 +1448,13 @@ interface DispatcherDeps {
 	landedCommits: typeof landedLaneCommits;
 	unpushedCommits: typeof unpushedLaneCommits;
 	verifyExisting: typeof verifyExistingLaneResult;
-	cleanup: (source: string, destination: string) => boolean | Promise<boolean>;
+	cleanup: (
+		source: string,
+		destination: string,
+		recorded?: ReadonlySet<string>,
+	) => boolean | Promise<boolean>;
+	/** Recursive size of a run directory in bytes. */
+	directoryBytes: (path: string) => Promise<number>;
 	freeDiskBytes: (path: string) => number;
 	gatewayCooldownUntil: typeof gatewayCooldownUntil;
 	recall: typeof prefixLaneBrief;
@@ -1430,7 +1486,16 @@ const defaultDeps: DispatcherDeps = {
 					: createCodexLaneThread(cwd, "codex", model, resume),
 	launch: runLaneProcess,
 	darkWake: inDarkWake,
-	cleanup: cleanupLaneWorktree,
+	cleanup: (source, destination, recorded) =>
+		cleanupLaneWorktree(source, destination, undefined, recorded),
+	directoryBytes: async (path) => {
+		const { stdout } = await promisify(execFile)("du", ["-sk", path], {
+			encoding: "utf8",
+			timeout: 300_000,
+			maxBuffer: 1024 * 1024,
+		});
+		return Number.parseInt(stdout, 10) * 1024;
+	},
 	freeDiskBytes: (path) => {
 		const stats = statfsSync(path);
 		return Number(stats.bavail) * Number(stats.bsize);
@@ -1454,6 +1519,7 @@ export class LaneDispatcher {
 	private settlementChecked = new Set<string>();
 	private cleanupAfter = new Map<string, number>();
 	private maintenance = new Map<string, Promise<void>>();
+	private runsSweptAt = 0;
 	private queue = serialCalls();
 	private stopping = false;
 	private proposalsSweptAt = 0;
@@ -2045,6 +2111,20 @@ export class LaneDispatcher {
 			await this.acceptProposedWork();
 		}
 
+		// The first pass and every interval afterwards sweep every settled run
+		// and enforce the retained cap; one task keeps cleanup sequential.
+		if (
+			!this.maintenance.size &&
+			Date.now() - this.runsSweptAt >= RUNS_SWEEP_INTERVAL_MS
+		) {
+			this.runsSweptAt = Date.now();
+			const task = this.sweepRuns(retained)
+				.catch((error) =>
+					this.log("runs-sweep-deferred", undefined, String(error)),
+				)
+				.finally(() => this.maintenance.delete(RUNS_SWEEP_KEY));
+			this.maintenance.set(RUNS_SWEEP_KEY, task);
+		}
 		// One old checkout per pass, after pickup. Retained work is revisited
 		// every ten minutes rather than multiplying Git work by run history.
 		for (let n = 0; !this.maintenance.size && n < retained.length; n++) {
@@ -2256,6 +2336,46 @@ export class LaneDispatcher {
 			}
 		}
 	}
+	private runReferences(retained: Receipt[]) {
+		return {
+			referenced: retained.flatMap((row) =>
+				row.repo ? [resolve(row.repo)] : [],
+			),
+			receipted: new Set(retained.map((row) => `${row.itemId}-${row.version}`)),
+		};
+	}
+	/** The run directory names under `runs/`, empty when it cannot be read. */
+	private runDirectories(runs: string): string[] {
+		try {
+			return readdirSync(runs, { withFileTypes: true })
+				.filter((entry) => entry.isDirectory())
+				.map((entry) => entry.name)
+				.sort();
+		} catch {
+			return [];
+		}
+	}
+	/**
+	 * A run directory is reclaimable only when no receipt refers to it and no
+	 * live or preparing run holds its Work.
+	 */
+	private orphanRun(
+		name: string,
+		itemId: string,
+		run: string,
+		receipted: ReadonlySet<string>,
+		referenced: string[],
+	): boolean {
+		return (
+			!receipted.has(name) &&
+			!this.running.has(itemId) &&
+			!this.preparing.has(itemId) &&
+			!this.maintenance.has(itemId) &&
+			!referenced.some(
+				(repo) => repo === resolve(run) || repo.startsWith(resolve(run) + sep),
+			)
+		);
+	}
 	/**
 	 * One run directory per pass that no receipt of any version refers to. A
 	 * revision bump or a lost receipt leaves the earlier checkout behind, and
@@ -2263,35 +2383,15 @@ export class LaneDispatcher {
 	 */
 	private reclaimOrphanRun(retained: Receipt[]) {
 		const runs = join(this.directory, "runs");
-		let names: string[];
-		try {
-			names = readdirSync(runs, { withFileTypes: true })
-				.filter((entry) => entry.isDirectory())
-				.map((entry) => entry.name)
-				.sort();
-		} catch {
-			return;
-		}
-		const referenced = retained.flatMap((row) =>
-			row.repo ? [resolve(row.repo)] : [],
-		);
-		const receipts = new Set(
-			retained.map((row) => `${row.itemId}-${row.version}`),
-		);
+		const names = this.runDirectories(runs);
+		const { referenced, receipted } = this.runReferences(retained);
 		for (let n = 0; n < names.length; n++) {
 			const name = names[this.orphanCursor++ % names.length]!;
 			const run = join(runs, name);
 			const itemId = name.slice(0, 36);
 			if (
-				receipts.has(name) ||
-				this.running.has(itemId) ||
-				this.preparing.has(itemId) ||
-				this.maintenance.has(itemId) ||
-				Date.now() < (this.cleanupAfter.get(run) ?? 0) ||
-				referenced.some(
-					(repo) =>
-						repo === resolve(run) || repo.startsWith(resolve(run) + sep),
-				)
+				!this.orphanRun(name, itemId, run, receipted, referenced) ||
+				Date.now() < (this.cleanupAfter.get(run) ?? 0)
 			)
 				continue;
 			this.cleanupAfter.set(run, Date.now() + 600_000);
@@ -2306,16 +2406,156 @@ export class LaneDispatcher {
 		let kept = false;
 		for (const name of readdirSync(run)) {
 			if (!name.startsWith("repo")) continue;
+			// A dispatch that began after this run looked orphaned provisions
+			// its checkout here; keep the directory for it.
+			if (this.running.has(itemId) || this.preparing.has(itemId)) return;
 			const repo = join(run, name);
 			if (await this.deps.cleanup(this.options.repo, repo))
 				this.log("worktree-cleaned", itemId, repo);
 			else kept = true;
 		}
 		if (kept) return;
+		if (this.running.has(itemId) || this.preparing.has(itemId)) return;
 		const archive = join(this.directory, "archive");
 		mkdirSync(archive, { recursive: true, mode: 0o700 });
 		renameSync(run, join(archive, `${basename(run)}-${Date.now()}`));
 		this.log("run-archived", itemId, run);
+	}
+	/**
+	 * The startup and interval sweep: every settled receipt and every orphaned
+	 * run directory is revisited, then the retained total is trimmed to the
+	 * configured cap. It runs as one maintenance task so cleanup stays
+	 * sequential; each candidate keeps the same ten-minute retry backoff the
+	 * per-pass cleanup uses. Receipt JSON files are not touched.
+	 */
+	private async sweepRuns(retained: Receipt[]) {
+		const runs = join(this.directory, "runs");
+		for (const row of retained) {
+			if (this.stopping) return;
+			if (
+				!row.repo ||
+				!existsSync(row.repo) ||
+				this.running.has(row.itemId) ||
+				this.preparing.has(row.itemId) ||
+				Date.now() < (this.cleanupAfter.get(row.repo) ?? 0) ||
+				!this.checkoutCleanupReady(row)
+			)
+				continue;
+			this.cleanupAfter.set(row.repo, Date.now() + 600_000);
+			try {
+				await this.cleanupWorktree(row);
+			} catch (error) {
+				this.log("cleanup-deferred", row.itemId, String(error));
+			}
+		}
+		const { referenced, receipted } = this.runReferences(retained);
+		for (const name of this.runDirectories(runs)) {
+			if (this.stopping) return;
+			const run = join(runs, name);
+			const itemId = name.slice(0, 36);
+			if (
+				!this.orphanRun(name, itemId, run, receipted, referenced) ||
+				Date.now() < (this.cleanupAfter.get(run) ?? 0)
+			)
+				continue;
+			this.cleanupAfter.set(run, Date.now() + 600_000);
+			try {
+				await this.cleanupOrphanRun(run, itemId);
+			} catch (error) {
+				this.log("cleanup-deferred", itemId, String(error));
+			}
+		}
+		await this.enforceCheckoutCap(retained);
+	}
+	/**
+	 * Keeps `runs/` under the configured cap by evicting the oldest removable
+	 * checkouts first. Runs a receipt still protects, live process groups and
+	 * checkouts with unrecorded unpushed commits count toward the total but are
+	 * never evicted, so a runner may stay over the cap until they finish.
+	 */
+	private async enforceCheckoutCap(retained: Receipt[]) {
+		const cap =
+			this.options.checkoutCapBytes ?? DEFAULT_LANE_CHECKOUT_CAP_BYTES;
+		const runs = join(this.directory, "runs");
+		const names = this.runDirectories(runs);
+		if (!names.length) return;
+		const { referenced, receipted } = this.runReferences(retained);
+		const receiptFor = new Map<string, Receipt>();
+		for (const row of retained) {
+			if (!row.repo || !basename(row.repo).startsWith("repo")) continue;
+			const run = resolve(dirname(row.repo));
+			if (dirname(run) !== resolve(runs)) continue;
+			const name = basename(run);
+			const existing = receiptFor.get(name);
+			if (!existing || row.version > existing.version)
+				receiptFor.set(name, row);
+		}
+		let total = 0;
+		const candidates: Array<{
+			run: string;
+			itemId: string;
+			at: number;
+			size: number;
+			remove: () => Promise<void>;
+		}> = [];
+		for (const name of names) {
+			if (this.stopping) return;
+			const run = join(runs, name);
+			let at: number;
+			let size: number;
+			try {
+				at = statSync(run).mtimeMs;
+				size = await this.deps.directoryBytes(run);
+			} catch (error) {
+				this.log("run-size-deferred", name.slice(0, 36), String(error));
+				continue;
+			}
+			total += size;
+			const row = receiptFor.get(name);
+			const itemId = name.slice(0, 36);
+			if (row) {
+				if (this.checkoutCleanupReady(row, true))
+					candidates.push({
+						run,
+						itemId: row.itemId,
+						at,
+						size,
+						remove: () => this.cleanupWorktree(row, { retained: true }),
+					});
+			} else if (this.orphanRun(name, itemId, run, receipted, referenced)) {
+				candidates.push({
+					run,
+					itemId,
+					at,
+					size,
+					remove: () => this.cleanupOrphanRun(run, itemId),
+				});
+			}
+		}
+		if (total <= cap) return;
+		this.log(
+			"checkout-cap",
+			undefined,
+			`runs/ holds ${(total / 1024 ** 3).toFixed(1)} GB, above the ${(cap / 1024 ** 3).toFixed(1)} GB retained-checkout cap; evicting oldest first`,
+		);
+		candidates.sort((a, b) => a.at - b.at);
+		for (const candidate of candidates) {
+			if (this.stopping || total <= cap) break;
+			try {
+				await candidate.remove();
+			} catch (error) {
+				this.log("cleanup-deferred", candidate.itemId, String(error));
+				continue;
+			}
+			if (!existsSync(candidate.run)) {
+				total -= candidate.size;
+				this.log(
+					"checkout-evicted",
+					candidate.itemId,
+					`${candidate.run} released ${(candidate.size / 1024 ** 3).toFixed(1)} GB; ${(total / 1024 ** 3).toFixed(1)} GB retained`,
+				);
+			}
+		}
 	}
 	private async releaseWaits(
 		rows: Receipt[],
@@ -3237,7 +3477,8 @@ export class LaneDispatcher {
 					});
 				}
 			}
-			this.scheduleCleanup(receipt);
+			// This run still holds its `running` slot until execute returns.
+			this.scheduleCleanup(receipt, true);
 			this.save(path, receipt);
 		}
 	}
@@ -3400,38 +3641,75 @@ export class LaneDispatcher {
 			this.log("unpushed-record-deferred", receipt.itemId, String(error));
 		}
 	}
-	private scheduleCleanup(receipt: Receipt) {
+	private scheduleCleanup(receipt: Receipt, ownRun = false) {
 		if (this.maintenance.size) return;
-		const task = this.cleanupWorktree(receipt)
+		const task = this.cleanupWorktree(receipt, { ownRun })
 			.catch((error) =>
 				this.log("cleanup-deferred", receipt.itemId, String(error)),
 			)
 			.finally(() => this.maintenance.delete(receipt.itemId));
 		this.maintenance.set(receipt.itemId, task);
 	}
-	private async cleanupWorktree(receipt: Receipt) {
-		if (
+	/**
+	 * A checkout may be removed once its run is terminal, admission is resolved,
+	 * proof collection and reporting finished, and no live process owns it.
+	 * Cap pressure may also evict a checkout retained for a retry
+	 * (`retained`); Git still refuses one holding uncommitted or unrecorded
+	 * unpushed work.
+	 */
+	private checkoutCleanupReady(receipt: Receipt, retained = false): boolean {
+		return (
 			["settled", "deferred", "failed"].includes(receipt.phase) &&
-			!retainsInterruptedWork(receipt) &&
+			(retained || !retainsInterruptedWork(receipt)) &&
 			receipt.admissionState !== "unknown" &&
 			receipt.pendingCommitProof === undefined &&
 			!receipt.pendingObservation &&
-			receipt.repo &&
+			!!receipt.repo &&
 			resolve(receipt.repo).startsWith(resolve(this.directory, "runs") + sep) &&
 			(!receipt.pid || !alive(receipt.pid))
+		);
+	}
+	/**
+	 * The unpushed SHAs the Work already names for this receipt: the recorded
+	 * comment signature covers exactly the receipt's current list, so a commit
+	 * added after the comment keeps the checkout.
+	 */
+	private recordedUnpushed(receipt: Receipt): ReadonlySet<string> | undefined {
+		return receipt.unpushedCommented ===
+			JSON.stringify([receipt.repo, receipt.unpushedCommits ?? []])
+			? new Set(receipt.unpushedCommits ?? [])
+			: undefined;
+	}
+	private async cleanupWorktree(
+		receipt: Receipt,
+		{ retained = false, ownRun = false } = {},
+	) {
+		if (!this.checkoutCleanupReady(receipt, retained)) return;
+		// A settle-time call finishes the running slot it holds; every other
+		// call rechecks that no live or preparing run uses this checkout. An
+		// earlier version can share the checkout a newer run is reusing.
+		if (
+			!ownRun &&
+			(this.running.has(receipt.itemId) || this.preparing.has(receipt.itemId))
+		)
+			return;
+		if (
+			await this.deps.cleanup(
+				this.options.repo,
+				receipt.repo!,
+				this.recordedUnpushed(receipt),
+			)
 		) {
-			if (await this.deps.cleanup(this.options.repo, receipt.repo)) {
-				const run = dirname(receipt.repo);
-				if (
-					existsSync(run) &&
-					!readdirSync(run).some((name) => name.startsWith("repo"))
-				) {
-					const archive = join(this.directory, "archive");
-					mkdirSync(archive, { recursive: true, mode: 0o700 });
-					renameSync(run, join(archive, `${basename(run)}-${Date.now()}`));
-				}
-				this.log("worktree-cleaned", receipt.itemId, receipt.repo);
+			const run = dirname(receipt.repo!);
+			if (
+				existsSync(run) &&
+				!readdirSync(run).some((name) => name.startsWith("repo"))
+			) {
+				const archive = join(this.directory, "archive");
+				mkdirSync(archive, { recursive: true, mode: 0o700 });
+				renameSync(run, join(archive, `${basename(run)}-${Date.now()}`));
 			}
+			this.log("worktree-cleaned", receipt.itemId, receipt.repo);
 		}
 	}
 	private async skillRevisionProof(
@@ -4351,7 +4629,7 @@ const IDENTITY_CAPTURE_TRIES = 30;
 export async function runLaneServe(args: string[]): Promise<number> {
 	if (args.includes("--help")) {
 		console.log(
-			"tedix lane serve --executor codex|claude-code|opencode|devin|any-local [--max 5] [--project UUID] [--coordinated] [--accept-proposed] [--rules <OS skill UUID|slug>] [--repo path] [--idle-takeover-minutes N] [--install] [--once]",
+			"tedix lane serve --executor codex|claude-code|opencode|devin|any-local [--max 5] [--project UUID] [--coordinated] [--accept-proposed] [--rules <OS skill UUID|slug>] [--repo path] [--idle-takeover-minutes N] [--checkout-cap-gb N] [--install] [--once]",
 		);
 		return 0;
 	}

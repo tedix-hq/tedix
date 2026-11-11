@@ -47,7 +47,7 @@ export async function prefixLaneBrief(
 	}
 }
 
-export const laneUsage = `tedix lane serve --executor codex|claude-code|opencode|devin|any-local [--max N] [--project <id>] [--coordinated] [--accept-proposed] [--rules <skill-id|slug>] [--repo <path>] [--routing-config <file>] [--idle-takeover-minutes N] [--install]
+export const laneUsage = `tedix lane serve --executor codex|claude-code|opencode|devin|any-local [--max N] [--project <id>] [--coordinated] [--accept-proposed] [--rules <skill-id|slug>] [--repo <path>] [--routing-config <file>] [--idle-takeover-minutes N] [--checkout-cap-gb N] [--install]
 
 ${laneRunUsage}
 
