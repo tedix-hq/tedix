@@ -37,7 +37,9 @@ import {
 import { hasSharedWorkspaceOutputs } from "../os-workspaces/outputs";
 import type { TenantStoreDb } from "./tenant-store";
 
-/** Imported workspaces own their rows; transfer destinations may have only output rows. */
+/** Pre-protocol ownership only. WorkspaceDO must consult durable staging state first.
+ * Older imports owned their workspace; transfer destinations may have only output rows.
+ */
 export async function hasWorkspaceOutputAuthority(
 	db: TenantStoreDb,
 	scope: { organizationId: string; workspaceId: string },

@@ -151,6 +151,88 @@ describe("migration through the RPC service entrypoint", () => {
 		);
 	});
 
+	test("activation requires its own authenticated operation and current reconciliation generation", async () => {
+		const target = base.replace(scope.workspaceId, crypto.randomUUID());
+		const post = (
+			route: string,
+			body: unknown,
+			authorization = `Bearer ${token}`,
+		) =>
+			entrypoint().fetch(
+				new Request(`${target}${route}`, {
+					method: "POST",
+					headers: { authorization },
+					body: JSON.stringify(body),
+				}),
+			);
+		for (const authorization of ["", "Bearer incorrect-test-token"]) {
+			expect(
+				(
+					await post(
+						"/activate",
+						{ importGeneration: 1, reconciliationRef: "fixture:proof" },
+						authorization,
+					)
+				).status,
+			).toBe(401);
+		}
+		expect((await post("/activate", {})).status).toBe(400);
+		expect(
+			(
+				await post("/import", {
+					batchId: "staged",
+					table: "os_outputs",
+					rows: [],
+				})
+			).status,
+		).toBe(200);
+		expect(
+			(
+				await post("/import", {
+					batchId: "invalid",
+					table: "os_outputs",
+					rows: [{ id: "invalid-row" }],
+				})
+			).status,
+		).toBe(400);
+		const description = await (
+			await entrypoint().fetch(
+				new Request(target, { headers: { authorization: `Bearer ${token}` } }),
+			)
+		).json();
+		expect(description).toMatchObject({
+			outputAuthority: "shared",
+			importGeneration: 1,
+		});
+		expect(
+			(
+				await post("/activate", {
+					importGeneration: 2,
+					reconciliationRef: "fixture:wrong",
+				})
+			).status,
+		).toBe(400);
+		const activation = {
+			importGeneration: 1,
+			reconciliationRef: "fixture:reconciled",
+		};
+		expect(await (await post("/activate", activation)).json()).toEqual(
+			activation,
+		);
+		expect(await (await post("/activate", activation)).json()).toEqual(
+			activation,
+		);
+		expect(
+			await (
+				await entrypoint().fetch(
+					new Request(target, {
+						headers: { authorization: `Bearer ${token}` },
+					}),
+				)
+			).json(),
+		).toMatchObject({ outputAuthority: "object" });
+	});
+
 	test("rejects missing or incorrect migration bearers", async () => {
 		for (const authorization of ["", "Bearer incorrect-test-token"]) {
 			const response = await entrypoint().fetch(

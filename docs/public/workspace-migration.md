@@ -33,9 +33,12 @@ move: it stays shared across the organization, with the same access rules
 as today. A question asked in a
 workspace is then answered next to its data.
 
-Everything moves in one release. There is no flag, no gradual roll-out and
-no second code path. The old code is removed in the same release. Nothing in
-the shared database is dropped until the reconciler reports zero differences.
+Import stages a copy; it does not change who serves outputs. Browser and
+agent reads and writes keep their prior storage owner until an authorized
+operator explicitly activates the reconciled workspace. Workspaces that
+already serve from their object keep doing so. This is durable migration
+state, without a feature flag or a per-call fallback. Nothing in the shared
+database is dropped by import, reconciliation or activation.
 
 The operator runs the steps below from a checkout of this repository with
 access to the installation's Cloudflare account. The commands are in
@@ -136,13 +139,22 @@ The report must say `OK` for every workspace and every total. Any `DRIFT`
 line stops the cutover; fix the cause, import again, reconcile again. Attach
 `reconcile.json` to the Work Item.
 
-### 6. Deploy the release
+### 6. Activate reconciled workspaces
 
-One deploy switches every workspace read, write and chat to the objects. It
-carries the five changes plus the commits that delete the old paths (listed
-next). After the deploy, open one workspace per organization, ask a
-question in its chat and open its newest document. Confirm the agent
-answers from the workspace and the document shows its latest revision.
+The installation release owner must first deploy the staging and activation
+protocol. Deployment alone does not activate copied workspaces. Keep the
+write freeze in place after the final import and zero-difference reconciliation.
+Read each object's `importGeneration` before reconciliation, retain it with
+the report and require the same value afterwards. The authorized operator separately calls
+`POST /activate` with that generation and `reconciliationRef`, the durable
+URI of the frozen reconciliation evidence. See the migration script README
+for the request. A new import batch invalidates an older generation; reconcile
+again before activating it. Import and rehearsal never call activation.
+
+After activation, open one workspace per organization, ask a question in
+its chat and open its newest document. Confirm the agent answers from the
+workspace and the document shows its latest revision before lifting the freeze.
+Stage-1 copy proof alone does not authorize activation or deletion.
 
 ### 7. Remove the old code paths
 
