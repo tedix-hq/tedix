@@ -10,7 +10,6 @@ vi.mock("@/lib/api", () => ({
 	osApi: {
 		osWorkspaces: { outputs: { get: vi.fn() } },
 		organizationPurpose: { getActive: vi.fn() },
-		attention: { listDeckCards: vi.fn() },
 		learningFeedback: {
 			listInteractions: vi.fn().mockResolvedValue({ events: [] }),
 		},
@@ -30,9 +29,19 @@ const config = {
 const outputKey = osQuery.osWorkspaces.outputs.get.queryOptions({
 	input: { outputId: config.outputId },
 }).queryKey;
-const deckKey = osQuery.attention.listDeckCards.queryOptions({
-	input: { limit: 100 },
-}).queryKey;
+const deck = vi.hoisted(() => ({
+	count: 0,
+	more: false,
+	pending: false,
+	failed: false,
+}));
+const deckCount = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/use-work-apps", () => ({
+	useWorkApps: () => ({
+		apps: [{ role: "deck", manifest: { config: { version: 1 } } }],
+	}),
+}));
+vi.mock("@/lib/use-deck-count", () => ({ useDeckCount: deckCount }));
 const revision = (
 	id: string,
 	updated: string,
@@ -76,6 +85,8 @@ afterEach(async () => {
 	client?.clear();
 });
 async function mount() {
+	deckCount.mockImplementation(() => deck);
+	Object.assign(deck, { count: 0, more: false, pending: false, failed: false });
 	client = new QueryClient({
 		defaultOptions: { queries: { retry: false, staleTime: Infinity } },
 	});
@@ -93,15 +104,10 @@ async function mount() {
 }
 
 it.each([true, false])(
-	"shows the saved digest (deck complete: %s), never the saved purpose or a charter blurb, and keeps it visible with a Refreshing chip until a new revision lands",
+	"shows the saved digest (deck read: %s), never the saved purpose or a charter blurb, and keeps it visible with a Refreshing chip until a new revision lands",
 	async (complete) => {
 		const render = await mount();
-		client.setQueryData<unknown>(deckKey, {
-			cards: [],
-			count: 7,
-			complete,
-			observedAt: new Date().toISOString(),
-		});
+		Object.assign(deck, { count: 7, failed: !complete });
 		client.setQueryData<unknown>(
 			osQuery.organizationPurpose.getActive.queryOptions({ input: {} })
 				.queryKey,
@@ -129,6 +135,10 @@ it.each([true, false])(
 			complete
 				? "7 decisions waiting → Decisions"
 				: "Open Decisions · count unavailable",
+		);
+		// The card reads the installed deck's shared queue, like the Work bar and sidebar badge.
+		expect(deckCount).toHaveBeenCalledWith(
+			expect.objectContaining({ version: 1 }),
 		);
 		expect(host.textContent).toContain("Updated today.");
 		await act(async () => {
@@ -171,9 +181,7 @@ it("keeps Decisions usable while its count is pending and the digest opens", asy
 	vi.mocked(osApi.osWorkspaces.outputs.get).mockReturnValue(
 		new Promise(() => {}),
 	);
-	vi.mocked(osApi.attention.listDeckCards).mockReturnValue(
-		new Promise(() => {}),
-	);
+	deck.pending = true;
 	await render();
 	expect(host.querySelector("[data-today-pending]")).not.toBeNull();
 	expect(
@@ -189,12 +197,6 @@ it("keeps Decisions usable while its count is pending and the digest opens", asy
 
 it("shows an honest empty state when no digest exists yet", async () => {
 	const render = await mount();
-	client.setQueryData<unknown>(deckKey, {
-		cards: [],
-		count: 0,
-		complete: true,
-		observedAt: new Date().toISOString(),
-	});
 	client.setQueryData<unknown>(outputKey, { currentRevision: null });
 	await render();
 	expect(host.querySelector("[data-today-empty]")?.textContent).toBe(
@@ -205,12 +207,6 @@ it("shows an honest empty state when no digest exists yet", async () => {
 
 it("warns that refresh is late instead of repeating the saved schedule promise", async () => {
 	const render = await mount();
-	client.setQueryData<unknown>(deckKey, {
-		cards: [],
-		count: 0,
-		complete: true,
-		observedAt: new Date().toISOString(),
-	});
 	client.setQueryData<unknown>(
 		outputKey,
 		revision(

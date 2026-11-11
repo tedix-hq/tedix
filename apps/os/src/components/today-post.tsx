@@ -4,7 +4,10 @@ import { WeeklyCardContext } from "@/components/weekly-card-context";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ActivityFeedConfig } from "@tedix/api-contract/schemas/os-activity-feed";
+import { DecisionDeckConfigSchema } from "@tedix/api-contract/schemas/os-decision-deck";
 import { osApi } from "@/lib/api";
+import { useDeckCount } from "@/lib/use-deck-count";
+import { useWorkApps } from "@/lib/use-work-apps";
 import { osQuery } from "@/lib/os-query-options";
 import { OS_COPY } from "@/shared/os-copy";
 import {
@@ -65,12 +68,12 @@ export function TodayPost({
 		...options,
 		refetchInterval: awaiting ? 10_000 : 60_000,
 	});
-	const deck = useQuery({
-		...osQuery.attention.listDeckCards.queryOptions({
-			input: { limit: 100 },
-		}),
-		refetchInterval: 30_000,
-	});
+	// The same queue read as the Work bar and the sidebar badge, so all three agree.
+	const { apps } = useWorkApps();
+	const deckConfig = DecisionDeckConfigSchema.safeParse(
+		apps.find((app) => app.role === "deck")?.manifest.config,
+	);
+	const deck = useDeckCount(deckConfig.success ? deckConfig.data : undefined);
 	const revisionId = output.data?.currentRevision?.id ?? null;
 	useEffect(() => {
 		if (!awaiting) return;
@@ -182,9 +185,11 @@ export function TodayPost({
 			</CardHeader>
 			<CardContent className="grid gap-4">
 				<Link variant="record" className="tap-target-y" href="/work?view=deck">
-					{deck.data?.complete && !deck.isError
-						? OS_COPY.feed.decisionsWaiting(String(deck.data.count))
-						: deck.isPending
+					{deckConfig.success && !deck.pending && !deck.failed
+						? OS_COPY.feed.decisionsWaiting(
+								`${deck.count}${deck.more ? "+" : ""}`,
+							)
+						: deckConfig.success && deck.pending
 							? "Open Decisions"
 							: "Open Decisions · count unavailable"}
 				</Link>
