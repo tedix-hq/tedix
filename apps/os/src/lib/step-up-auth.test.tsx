@@ -48,13 +48,8 @@ vi.mock("@/shared/os-tenant", () => ({
 // content; substitute a structural stand-in so the hook logic is what's under
 // test.
 vi.mock("@/components/kumo/dialog", () => ({
-	Dialog: ({
-		open,
-		children,
-	}: {
-		open: boolean;
-		children?: React.ReactNode;
-	}) => (open ? <div data-testid="step-up-dialog">{children}</div> : null),
+	Dialog: ({ open, children }: { open: boolean; children?: React.ReactNode }) =>
+		open ? <div data-testid="step-up-dialog">{children}</div> : null,
 	DialogContent: ({ children }: { children?: React.ReactNode }) => (
 		<div>{children}</div>
 	),

@@ -28,10 +28,7 @@ const cleanFontFamily = (value: unknown): string | null => {
 	return raw.replace(/\s+/g, " ");
 };
 
-const cssFontFamily = (
-	value: string | null,
-	fallback: string,
-): string | null =>
+const cssFontFamily = (value: string | null, fallback: string): string | null =>
 	value ? `"${value.replaceAll('"', '\\"')}", ${fallback}` : null;
 
 const cssValue = (value: unknown): string | null => {

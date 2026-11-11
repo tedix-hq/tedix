@@ -469,11 +469,10 @@ describe("WorkspaceLibraryPage", () => {
 			name: "Old Probe",
 			status: "archived",
 		});
-		api.workspaces.list.mockImplementation(
-			async (input: { status?: string }) =>
-				input.status === "archived"
-					? { items: [archivedWorkspace], truncated: false }
-					: { items: [workspace()], truncated: false },
+		api.workspaces.list.mockImplementation(async (input: { status?: string }) =>
+			input.status === "archived"
+				? { items: [archivedWorkspace], truncated: false }
+				: { items: [workspace()], truncated: false },
 		);
 		api.workspaces.restore.mockResolvedValue({
 			workspace: { ...archivedWorkspace, status: "active" },
@@ -509,11 +508,10 @@ describe("WorkspaceLibraryPage", () => {
 	});
 
 	async function openDelete(archivedWorkspace: OsWorkspace) {
-		api.workspaces.list.mockImplementation(
-			async (input: { status?: string }) =>
-				input.status === "archived"
-					? { items: [archivedWorkspace], truncated: false }
-					: { items: [workspace()], truncated: false },
+		api.workspaces.list.mockImplementation(async (input: { status?: string }) =>
+			input.status === "archived"
+				? { items: [archivedWorkspace], truncated: false }
+				: { items: [workspace()], truncated: false },
 		);
 		const rendered = await renderPage();
 		const archivedTab = Array.from(
@@ -647,11 +645,10 @@ describe("WorkspaceLibraryPage", () => {
 	});
 
 	it("explains an empty archive", async () => {
-		api.workspaces.list.mockImplementation(
-			async (input: { status?: string }) =>
-				input.status === "archived"
-					? { items: [], truncated: false }
-					: { items: [workspace()], truncated: false },
+		api.workspaces.list.mockImplementation(async (input: { status?: string }) =>
+			input.status === "archived"
+				? { items: [], truncated: false }
+				: { items: [workspace()], truncated: false },
 		);
 		const { container, root } = await renderPage();
 		const archivedTab = Array.from(container.querySelectorAll("button")).find(

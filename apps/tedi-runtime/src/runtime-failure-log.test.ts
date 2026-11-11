@@ -159,25 +159,31 @@ try {
 		kind: privateText,
 	};
 	const reports: ReportInfo[] = [
-		{ type: "session_failed" },
-		{ type: "task_faulted", task, reason: "threw", extension: privateText },
-		{ type: "task_parked", task, extension: privateText },
-		{ type: "migration_failed", task, extension: privateText },
-		{ type: "task_outdated", task, reason: "missing_task" },
-		{ type: "task_error", task },
+		{ kind: "storage_failed" },
+		{ kind: "task_faulted", task, reason: "threw", extension: privateText },
 		{
-			type: "extension_error",
+			kind: "task_interrupted",
+			task,
+			reason: "interrupted",
+			restarts: 3,
+			extension: privateText,
+		},
+		{ kind: "migration_failed", task, extension: privateText },
+		{ kind: "task_outdated", task, reason: "missing_task" },
+		{ kind: "task_error", task },
+		{
+			kind: "extension_error",
 			extension: privateText,
 			conversationId: task.conversationId,
 		},
-		{ type: "host_error", callback: "settings", task },
-		{ type: "listener_error" },
+		{ kind: "host_error", callback: "settings", task },
+		{ kind: "listener_error" },
 	];
 	for (const report of reports) {
-		logTediPiReport(failure, report);
+		logTediPiReport({ ...report, error: failure });
 		const fields = errors.pop()?.[0] as Record<string, unknown>;
 		assert.equal(fields.event, "tedi.pi.report");
-		assert.equal(fields.reportType, report.type);
+		assert.equal(fields.reportType, report.kind);
 		assert.deepEqual(fields.exception, {
 			type: "UnknownThrown",
 			cause: { type: "TypeError" },
@@ -188,19 +194,19 @@ try {
 			assert.equal(fields.conversationId, task.conversationId);
 		}
 		if ("reason" in report) assert.equal(fields.reason, report.reason);
-		if (report.type === "host_error") assert.equal(fields.callback, "settings");
+		if (report.kind === "host_error") assert.equal(fields.callback, "settings");
 	}
 	console.error = () => {
 		throw new Error(privateText);
 	};
 	assert.doesNotThrow(() =>
-		logTediPiReport(failure, { type: "session_failed" }),
+		logTediPiReport({ kind: "storage_failed", error: failure }),
 	);
 	const unavailable = warnings.pop();
 	assert.ok(JSON.stringify(unavailable).includes("telemetry.write_failed"));
 	assert.ok(!JSON.stringify(unavailable).includes(privateText));
 	console.error = () => Promise.reject(new Error(privateText));
-	logTediPiReport(failure, { type: "listener_error" });
+	logTediPiReport({ kind: "listener_error", error: failure });
 	await new Promise((resolve) => setTimeout(resolve, 0));
 	assert.equal(warnings.length, 0);
 	assert.equal(errors.length, 0);

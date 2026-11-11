@@ -419,7 +419,7 @@ const computerWorkspace = {
 };
 const computerTools = createAITools({
 	workspace: computerWorkspace,
-	exec: { isolate: { description: "Native workspace" } },
+	exec: { backends: { isolate: { description: "Native workspace" } } },
 });
 assert.deepEqual(
 	Object.keys(COMPUTER_TOOL_CAPABILITIES).sort(),

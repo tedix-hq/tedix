@@ -975,15 +975,14 @@ export async function assembleHomeContext(
 			return eligible.filter((_, index) => access[index]?.allowed);
 		},
 	);
-	const openWorkRequestsPromise = personalRecallPromise.then(
-		(personalRecall) =>
-			descopeUserId && (personalRecall || mentionsWorkRequests(operatorMessage))
-				? safeRead(
-						() => readOpenWorkRequests(db, { organizationId, descopeUserId }),
-						[],
-						"openWorkRequests",
-					)
-				: null,
+	const openWorkRequestsPromise = personalRecallPromise.then((personalRecall) =>
+		descopeUserId && (personalRecall || mentionsWorkRequests(operatorMessage))
+			? safeRead(
+					() => readOpenWorkRequests(db, { organizationId, descopeUserId }),
+					[],
+					"openWorkRequests",
+				)
+			: null,
 	);
 	// Its own two serial reads overlap the first wave instead of following it.
 	const draftPreferencesPromise = descopeUserId

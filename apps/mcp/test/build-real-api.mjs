@@ -223,7 +223,7 @@ try {
 		{
 			...baseEnv,
 			WRANGLER_REGISTRY_PATH: baseEnv.TEDIX_LOCAL_REGISTRY_PATH,
-			MINIFLARE_REGISTRY_PATH: baseEnv.TEDIX_LOCAL_REGISTRY_PATH,
+			CLOUDFLARE_DEV_REGISTRY_PATH: baseEnv.TEDIX_LOCAL_REGISTRY_PATH,
 		},
 		[join(repoDir, "node_modules/.bin/wrangler")],
 	);

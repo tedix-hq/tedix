@@ -73,9 +73,7 @@ function fixture(plane: "d1" | "tenant") {
 			plane === "tenant"
 				? tenantRuns.updateKernelRuntimeRunForOrg(tenantDb, input)
 				: platformRuns.updateKernelRuntimeRunForOrg(platformDb, input),
-		listRuns: (
-			input: Parameters<typeof tenantRuns.listKernelRuntimeRuns>[1],
-		) =>
+		listRuns: (input: Parameters<typeof tenantRuns.listKernelRuntimeRuns>[1]) =>
 			plane === "tenant"
 				? tenantRuns.listKernelRuntimeRuns(tenantDb, input)
 				: platformRuns.listKernelRuntimeRuns(platformDb, input),
@@ -97,9 +95,7 @@ function fixture(plane: "d1" | "tenant") {
 			plane === "tenant"
 				? tenantRuns.transitionKernelRuntimeRunStatus(tenantDb, input)
 				: platformRuns.transitionKernelRuntimeRunStatus(platformDb, input),
-		openTurn: (
-			input: Parameters<typeof tenantRuns.openKernelRuntimeTurn>[1],
-		) =>
+		openTurn: (input: Parameters<typeof tenantRuns.openKernelRuntimeTurn>[1]) =>
 			plane === "tenant"
 				? tenantRuns.openKernelRuntimeTurn(tenantDb, input)
 				: platformRuns.openKernelRuntimeTurn(platformDb, {

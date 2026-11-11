@@ -188,13 +188,12 @@ describe("repository event notifier", () => {
 			["private-token", "abcdef0123456789", " [cfRay=abcdef0123456789]"],
 		] as const) {
 			const response = new Response("private-error-body", { status: 500 });
-			const getter = spyOn(response.headers, "get").mockImplementation(
-				(name) =>
-					name === "X-Tedix-Trace-Id"
-						? traceId
-						: name === "CF-Ray"
-							? cfRay
-							: null,
+			const getter = spyOn(response.headers, "get").mockImplementation((name) =>
+				name === "X-Tedix-Trace-Id"
+					? traceId
+					: name === "CF-Ray"
+						? cfRay
+						: null,
 			);
 			try {
 				const fetcher = mock()

@@ -4,7 +4,6 @@
  * the same loop runs inside the Durable Object, in a facet, or in a test.
  */
 import {
-	Type,
 	type AssistantMessage,
 	type Message,
 	type Tool,
@@ -12,6 +11,7 @@ import {
 	type ToolResultMessage,
 	type Usage,
 } from "@earendil-works/pi-ai";
+import { obj, str } from "@earendil-works/pi-schema";
 import { CallRefusedError } from "@tedix/agent-governance/wrap-binding";
 import { describeBinding } from "./declarations";
 import type { ModelPort } from "./model";
@@ -64,15 +64,15 @@ export const TURN_TOOLS: Tool[] = [
 		name: RUN_CODE_TOOL,
 		description:
 			"Run a JavaScript module in the workspace sandbox. The module must `export default async (env) => …` and may return a JSON value. Returns the value and console output.",
-		parameters: Type.Object({
-			code: Type.String({ description: "ES module source" }),
+		parameters: obj({
+			code: str({ description: "ES module source" }),
 		}),
 	},
 	{
 		name: DESCRIBE_BINDING_TOOL,
 		description: "Return the full TypeScript declaration of one env binding.",
-		parameters: Type.Object({
-			name: Type.String({ description: "outputs | apps | resources | work" }),
+		parameters: obj({
+			name: str({ description: "outputs | apps | resources | work" }),
 		}),
 	},
 ];

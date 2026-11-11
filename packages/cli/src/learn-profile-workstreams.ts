@@ -209,8 +209,8 @@ function workstream(
 	parts: Array<{ name: string; sessions: SessionFacts[] }>,
 	summaries: Map<string, SessionSummary>,
 ): Workstream {
-	const sessions = [...new Set(parts.flatMap((p) => p.sessions))].sort(
-		(a, b) => (a.to < b.to ? 1 : -1),
+	const sessions = [...new Set(parts.flatMap((p) => p.sessions))].sort((a, b) =>
+		a.to < b.to ? 1 : -1,
 	);
 	const times = sessions
 		.flatMap((f) => [f.from, f.to])

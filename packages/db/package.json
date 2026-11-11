@@ -545,7 +545,7 @@
 		"db:pg:migrate:generate": "drizzle-kit generate --config drizzle.pg.config.ts"
 	},
 	"dependencies": {
-		"@babel/parser": "^8.0.10",
+		"@babel/parser": "^8.1.0",
 		"@tedix/api-contract": "workspace:*",
 		"@tedix/context-core": "workspace:*",
 		"@tedix/tenant-directory": "workspace:*",
@@ -557,9 +557,9 @@
 	"devDependencies": {
 		"@cloudflare/vitest-plugin": "catalog:",
 		"@cloudflare/workers-types": "catalog:",
-		"@electric-sql/pglite": "^0.3.14",
+		"@electric-sql/pglite": "^0.5.16",
 		"@tedix/tsconfig": "workspace:*",
-		"dotenv": "^18.0.9",
+		"dotenv": "^18.0.10",
 		"drizzle-kit": "1.0.0-rc.5",
 		"jiti": "catalog:",
 		"vite-plus": "catalog:"

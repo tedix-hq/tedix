@@ -65,11 +65,13 @@ import { PiHarness } from "agents/harness/pi";
 import {
 	Harness,
 	createRegistry,
-	watchEvents,
-	type AgentEvent,
 	type UserInput,
 	type AgentChange,
 	type Conversation,
+	type ConversationView,
+	type ConversationWatch,
+	type LiveState,
+	type SubmissionRecord,
 	type EntryId,
 	type EntryRecord,
 	type Extension,
@@ -897,12 +899,8 @@ export abstract class PiAgent<Env extends Cloudflare.Env, State> extends Agent<
 		});
 	}
 
-	async nativeEvents() {
-		return watchEvents(
-			await this.piHarness.pi(),
-			(await this.nativeConversation()).id,
-			BACKGROUND,
-		);
+	async nativeWatch(): Promise<ConversationWatch> {
+		return (await this.nativeConversation()).watch(BACKGROUND);
 	}
 
 	async nativeConversation(): Promise<Conversation> {
@@ -1555,80 +1553,108 @@ export function entrySessionMessage(entry: EntryRecord): SessionMessage | null {
 	return { id, role: "assistant", parts, createdAt: new Date(first.timestamp) };
 }
 
-/** UI SDK transport frames; native terminal receipt remains the sole completion authority. */
+const liveState = (view: ConversationView): LiveState =>
+	(view.docs["pi.live"] ?? {}) as LiveState;
+
+/** Snapshot transport frame of one watched conversation view. */
 export function piEventFrames(
-	event: AgentEvent,
+	view: ConversationView,
+	display: (entry: EntryRecord) => SessionMessage | null = entrySessionMessage,
 ): readonly Record<string, unknown>[] {
-	switch (event.type) {
-		case "message_start":
-			return event.message.role === "assistant" ? [{ type: "start-step" }] : [];
-		case "message_update":
-			return event.changes.flatMap<Record<string, unknown>>((change) => {
-				const id = "contentIndex" in change ? String(change.contentIndex) : "";
-				if (change.type === "text_start") return [{ type: "text-start", id }];
-				if (change.type === "text_delta")
-					return [{ type: "text-delta", id, delta: change.delta }];
-				if (change.type === "thinking_start")
-					return [{ type: "reasoning-start", id }];
-				if (change.type === "thinking_delta")
-					return [{ type: "reasoning-delta", id, delta: change.delta }];
-				if (
-					change.type === "toolcall_start" &&
-					change.block.type === "toolCall"
-				)
-					return [
-						{
-							type: "tool-input-start",
-							toolCallId: change.block.id,
-							toolName: change.block.name,
-						},
-					];
-				// Tool argument deltas are structured paths; serializing them as ordinary
-				// JSON input text would invent a different argument stream. Emit finalized call below.
-				return [];
-			});
-		case "tool_execution_start":
-			return [
-				{
-					type: "tool-input-available",
-					toolCallId: event.toolCallId,
-					toolName: event.toolName,
-					input: event.args,
-				},
-			];
-		case "tool_execution_end":
-			return event.entry
-				? [
-						{
-							type: "tool-output-available",
-							toolCallId: event.toolCallId,
-							output: event.entry.model,
-						},
-					]
-				: [];
-		case "task_failed":
-			return [{ type: "error", errorText: event.message }];
-		default:
-			return [];
-	}
+	const live = liveState(view);
+	const partial = live.generation?.message as AssistantMessage | undefined;
+	const partialMessage: SessionMessage | undefined = partial
+		? {
+				id: `pi-generation:${partial.timestamp}:${live.generation?.attempt ?? 0}`,
+				role: "assistant",
+				createdAt: new Date(partial.timestamp),
+				parts: partial.content.map((block) =>
+					block.type === "text"
+						? { type: "text", text: block.text }
+						: block.type === "thinking"
+							? { type: "reasoning", text: block.thinking }
+							: {
+									type: "dynamic-tool",
+									toolName: block.name,
+									toolCallId: block.id,
+									input: block.arguments,
+									state: "input-available",
+								},
+				),
+			}
+		: undefined;
+	return [
+		{
+			type: "data-pi-snapshot",
+			data: {
+				messages: view.entries.map(display).filter(Boolean),
+				...(partialMessage ? { partialMessage } : {}),
+				tools: (live.tools ?? []).map((tool) => ({
+					toolCallId: tool.callId,
+					toolName: tool.name,
+					status: tool.status,
+					...(tool.output === undefined ? {} : { output: tool.output }),
+				})),
+			},
+		},
+	];
 }
 
-/** One observer owns one projection so retained snapshots do not duplicate deltas. */
+/** Whether a watched view already shows a settled submission: its placement is
+ * in view and the run no longer owns it, so every frame before it was emitted. */
+export function piViewShowsSettlement(
+	view: ConversationView,
+	stored: SubmissionRecord | undefined,
+): boolean {
+	if (!stored || stored.status === "queued" || stored.status === "placed")
+		return false;
+	const entry = "entry" in stored ? stored.entry : undefined;
+	if (entry === undefined) return true;
+	const reached =
+		(view.before !== undefined && view.before >= entry) ||
+		view.entries.some((item) => item.id >= entry);
+	return reached && !liveState(view).run?.inputs.includes(stored.id);
+}
+
+/**
+ * UI SDK transport frames diffed from successive values of one conversation
+ * watch; native terminal receipt remains the sole completion authority. One
+ * watch owns one projection so folded commits never duplicate emitted deltas.
+ */
 export function createPiEventProjection(
 	display: (entry: EntryRecord) => SessionMessage | null = entrySessionMessage,
-): (event: AgentEvent) => readonly Record<string, unknown>[] {
+): (view: ConversationView) => readonly Record<string, unknown>[] {
+	let first = true;
 	let messageId = 0;
+	let partialKey: string | undefined;
+	let streaming = false;
+	let lastEntry = -Infinity;
 	const blocks = new Map<
 		number,
 		{ type: "text" | "thinking"; text: string; ended: boolean }
 	>();
+	const started = new Set<string>();
 	const calls = new Set<string>();
+	const outputs = new Set<string>();
+	const failures = new Set<string>();
 	const projectBlock = (
 		index: number,
 		block: AssistantMessage["content"][number],
 		end = false,
 	): Record<string, unknown>[] => {
 		if (block.type === "toolCall") {
+			// Streamed arguments are partial; the finalized call is emitted at the end.
+			if (!end) {
+				if (started.has(block.id)) return [];
+				started.add(block.id);
+				return [
+					{
+						type: "tool-input-start",
+						toolCallId: block.id,
+						toolName: block.name,
+					},
+				];
+			}
 			if (calls.has(block.id)) return [];
 			calls.add(block.id);
 			return [
@@ -1664,119 +1690,80 @@ export function createPiEventProjection(
 		blocks.set(index, { type, text: value, ended: end || !!prior?.ended });
 		return frames;
 	};
-	return (event) => {
-		if (event.type === "message_start" && event.message.role === "assistant") {
-			messageId++;
-			blocks.clear();
-			return [
-				{ type: "start-step" },
-				...event.message.content.flatMap((block, index) =>
-					block.type === "toolCall" ? [] : projectBlock(index, block),
-				),
-			];
+	const startStep = (): Record<string, unknown>[] => {
+		messageId++;
+		blocks.clear();
+		streaming = true;
+		return [{ type: "start-step" }];
+	};
+	return (view) => {
+		const live = liveState(view);
+		const frames: Record<string, unknown>[] = [];
+		const failureKeys = [
+			live.runFailure && `run:${live.runFailure.taskId}`,
+			live.compactionFailure && `compaction:${live.compactionFailure.taskId}`,
+		];
+		const initial = first;
+		if (initial) {
+			// The snapshot frame carries what is already settled; only the partial streams on.
+			first = false;
+			frames.push(...piEventFrames(view, display));
+			lastEntry = view.entries.at(-1)?.id ?? view.before ?? -Infinity;
+			for (const tool of live.tools ?? [])
+				if (tool.status === "done") outputs.add(tool.callId);
+			for (const key of failureKeys) if (key) failures.add(key);
 		}
-		if (event.type === "snapshot") {
-			const partial = event.generation?.message;
-			const partialMessage: SessionMessage | undefined = partial
-				? {
-						id: `pi-generation:${partial.timestamp}:${event.generation?.attempt ?? 0}`,
-						role: "assistant",
-						createdAt: new Date(partial.timestamp),
-						parts: partial.content.map((block) =>
-							block.type === "text"
-								? { type: "text", text: block.text }
-								: block.type === "thinking"
-									? { type: "reasoning", text: block.thinking }
-									: {
-											type: "dynamic-tool",
-											toolName: block.name,
-											toolCallId: block.id,
-											input: block.arguments,
-											state: "input-available",
-										},
-						),
-					}
-				: undefined;
-			const frames: Record<string, unknown>[] = [
-				{
-					type: "data-pi-snapshot",
-					data: {
-						messages: event.entries.map(display).filter(Boolean),
-						...(partialMessage ? { partialMessage } : {}),
-						tools: event.tools.map((tool) => ({
-							toolCallId: tool.callId,
-							toolName: tool.name,
-							status: tool.status,
-							...(tool.output === undefined ? {} : { output: tool.output }),
-						})),
-					},
-				},
-			];
-			if (partial)
+		for (const entry of view.entries) {
+			if (entry.id <= lastEntry) continue;
+			lastEntry = entry.id;
+			const answers = (entry.model ?? []).filter(
+				(message) => message.role === "assistant",
+			);
+			if (!answers.length) continue;
+			if (!streaming) frames.push(...startStep());
+			for (const message of answers)
+				message.content.forEach((block, index) =>
+					frames.push(...projectBlock(index, block, true)),
+				);
+			frames.push({ type: "finish-step" });
+			streaming = false;
+		}
+		const partial = live.generation?.message as AssistantMessage | undefined;
+		if (partial) {
+			const key = `${partial.timestamp}:${live.generation?.attempt ?? 0}`;
+			if (key !== partialKey) {
+				// A partial already in the first value continues the snapshot's step.
+				if (initial) streaming = true;
+				else frames.push(...startStep());
+				partialKey = key;
+			}
+			if (streaming)
 				partial.content.forEach((block, index) =>
 					frames.push(...projectBlock(index, block)),
 				);
-			return frames;
 		}
-		if (event.type === "message_update") {
-			const frames: Record<string, unknown>[] = [];
-			// Whole blocks already contain every append in this committed batch.
-			const completeBlocks = new Set(
-				event.changes.flatMap((change) =>
-					change.type === "message"
-						? change.message.content.map((_, index) => index)
-						: change.type === "block" ||
-							  change.type === "text_start" ||
-							  change.type === "thinking_start"
-							? [change.contentIndex]
-							: [],
-				),
-			);
-			for (const change of event.changes) {
-				if (change.type === "message")
-					change.message.content.forEach((block, index) =>
-						frames.push(...projectBlock(index, block)),
-					);
-				else if (
-					change.type === "block" ||
-					change.type === "text_start" ||
-					change.type === "thinking_start"
-				)
-					frames.push(...projectBlock(change.contentIndex, change.block));
-				else if (
-					change.type === "text_delta" ||
-					change.type === "thinking_delta"
-				) {
-					if (completeBlocks.has(change.contentIndex)) continue;
-					const prior = blocks.get(change.contentIndex);
-					const type = change.type === "text_delta" ? "text" : "thinking";
-					frames.push(
-						...projectBlock(
-							change.contentIndex,
-							type === "text"
-								? { type: "text", text: (prior?.text ?? "") + change.delta }
-								: {
-										type: "thinking",
-										thinking: (prior?.text ?? "") + change.delta,
-									},
-						),
-					);
-				} else if (change.type === "toolcall_start")
-					frames.push(...piEventFrames({ ...event, changes: [change] }));
-			}
-			return frames;
+		for (const tool of live.tools ?? []) {
+			if (tool.status !== "done" || tool.entry === undefined) continue;
+			if (outputs.has(tool.callId)) continue;
+			const entry = view.entries.find((item) => item.id === tool.entry);
+			if (!entry) continue;
+			outputs.add(tool.callId);
+			frames.push({
+				type: "tool-output-available",
+				toolCallId: tool.callId,
+				output: entry.model,
+			});
 		}
-		if (event.type === "message_end") {
-			const frames: Record<string, unknown>[] = [];
-			for (const message of event.entry.model ?? [])
-				if (message.role === "assistant")
-					message.content.forEach((block, index) =>
-						frames.push(...projectBlock(index, block, true)),
-					);
-			frames.push({ type: "finish-step" });
-			return frames;
+		for (const [index, key] of failureKeys.entries()) {
+			if (!key || failures.has(key)) continue;
+			failures.add(key);
+			const failure =
+				index === 0
+					? (live.runFailure?.detail ?? live.runFailure?.reason)
+					: live.compactionFailure?.error;
+			frames.push({ type: "error", errorText: failure });
 		}
-		return piEventFrames(event);
+		return frames;
 	};
 }
 

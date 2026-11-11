@@ -92,10 +92,8 @@ const OPERATION =
  * spans keep their monospace unless they only name an internal operation.
  */
 export function plainDecisionText(text: string): string {
-	const withoutOperations = text.replace(
-		/`([^`\n]+)`/g,
-		(span, code: string) =>
-			OPERATION.test(code.trim()) ? "the requested change" : span,
+	const withoutOperations = text.replace(/`([^`\n]+)`/g, (span, code: string) =>
+		OPERATION.test(code.trim()) ? "the requested change" : span,
 	);
 	const plain = tidy(
 		formatCardTextDates(

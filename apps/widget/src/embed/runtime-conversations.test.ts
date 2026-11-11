@@ -576,11 +576,10 @@ describe("restoring a conversation", () => {
 
 	it("ignores stale transcript results when the customer switches conversations during hydration", async () => {
 		const reads = new Map<string, (value: unknown) => void>();
-		const transcript = vi.fn(
-			({ conversationId }: { conversationId: string }) =>
-				conversationId === ONE
-					? new Promise((resolve) => reads.set(ONE, resolve))
-					: Promise.resolve([{ role: "user", content: "Second" }]),
+		const transcript = vi.fn(({ conversationId }: { conversationId: string }) =>
+			conversationId === ONE
+				? new Promise((resolve) => reads.set(ONE, resolve))
+				: Promise.resolve([{ role: "user", content: "Second" }]),
 		);
 		const w = await bootWidget({ options: { history: previous, transcript } });
 		await w.open();

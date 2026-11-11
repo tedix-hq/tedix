@@ -434,7 +434,7 @@ export function createTediComputerTools(ws: ComputerWorkspaceSurface): ToolSet {
 			maxBytes: 65_536,
 			maxLines: 1_000,
 		},
-		exec: execBackends,
+		exec: { backends: execBackends },
 	});
 	const nativeGrep = tools.grep!;
 	const nativeRead = tools.read!;

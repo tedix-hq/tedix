@@ -22,8 +22,8 @@
 	"devDependencies": {
 		"@tedix/tsconfig": "workspace:*",
 		"@types/node": "catalog:",
-		"@types/pg": "^8.15.6",
-		"pg": "^8.22.0",
+		"@types/pg": "^8.23.1",
+		"pg": "^8.23.1",
 		"typescript": "catalog:",
 		"vite-plus": "catalog:"
 	}

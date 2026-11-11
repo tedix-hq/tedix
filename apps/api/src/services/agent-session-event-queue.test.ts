@@ -17,11 +17,7 @@ const owner = { organizationId: "org-example", userId: "user-ada" };
 vi.mock("@tedix/db/client", () => ({ createDbClient: () => ({}) }));
 vi.mock("@tedix/db/query-client", () => ({ createDbQueryClient: () => ({}) }));
 vi.mock("@tedix/db/queries/organization-members", () => ({
-	getMemberByCanonicalUserId: async (
-		_db: unknown,
-		org: string,
-		user: string,
-	) =>
+	getMemberByCanonicalUserId: async (_db: unknown, org: string, user: string) =>
 		org === "org-example" && user === "user-ada"
 			? {
 					status: state.active ? "active" : "inactive",
