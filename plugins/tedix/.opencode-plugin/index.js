@@ -8,8 +8,9 @@
  * Both entrypoints share the state and hook calls in `createTedix`.
  *
  * Hook logic runs in the installed Tedix CLI
- * (`tedix hooks <name> --host opencode`); without the CLI, or with a CLI that
- * predates OpenCode support, each hook adds nothing and never blocks a turn.
+ * (`tedix hooks <name> --host opencode`), started by its full path from an
+ * absolute PATH folder; without the CLI, or with a CLI that predates OpenCode
+ * support, each hook adds nothing and never blocks a turn.
  *
  * Options: `{ "hooks": false }` keeps only MCP, skills and identity;
  * `{ "mcp": false }` leaves the MCP entry to your own configuration.
@@ -17,7 +18,7 @@
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { delimiter, join } from "node:path";
+import { delimiter, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const MANIFEST = JSON.parse(
@@ -44,14 +45,31 @@ const RECALL_TOOLS = {
 };
 const BASE62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
-function tedixInstalled(env) {
-	return (env.PATH ?? "").split(delimiter).some((dir) => {
-		try {
-			return dir && statSync(join(dir, "tedix")).isFile();
-		} catch {
-			return false;
+/**
+ * The installed CLI's full path, or null. Hooks start this exact file and
+ * never the bare name: on Windows a bare name is looked up in the working
+ * directory first, which here is the project the user opened, so a planted
+ * `tedix.exe` would run. Only absolute PATH folders count for the same reason.
+ */
+function tedixPath(env) {
+	const names =
+		process.platform === "win32" ? ["tedix.exe", "tedix.com"] : ["tedix"];
+	for (const dir of (env.PATH ?? env.Path ?? "").split(delimiter)) {
+		if (!dir || !isAbsolute(dir)) continue;
+		for (const name of names) {
+			try {
+				const file = join(dir, name);
+				if (statSync(file).isFile()) return file;
+			} catch {
+				// Not in this folder.
+			}
 		}
-	});
+	}
+	return null;
+}
+
+function tedixInstalled(env) {
+	return tedixPath(env) !== null;
 }
 
 /** Returns context, or the framed await-reply wake message; empty on failure. */
@@ -60,8 +78,13 @@ function runHook(name, event, timeout, signal) {
 		let stdout = "";
 		let stderr = "";
 		let child;
+		const cli = tedixPath(process.env);
+		if (!cli) {
+			resolve("");
+			return;
+		}
 		try {
-			child = spawn("tedix", ["hooks", name, "--host", "opencode"], {
+			child = spawn(cli, ["hooks", name, "--host", "opencode"], {
 				cwd: event.cwd,
 				env: { ...process.env, TEDIX_HOOK_CONTEXT_BYTES: "10000" },
 				stdio: ["pipe", "pipe", "pipe"],
