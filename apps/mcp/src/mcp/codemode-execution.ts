@@ -316,7 +316,7 @@ export function buildLazyNamespaceGroups(
 	executionRefs: CodeModeExecutionRefs,
 	collisionKeys: ReadonlySet<string>,
 ): Map<string, NamespaceGroup> {
-	const names = new Map<string, string[]>();
+	const names = new Map<string, Map<string, string>>();
 	for (const [toolId, tool] of serverCtx.loadedTools) {
 		const { namespace, safeName, ownerKey } = projectedToolIdentity(
 			toolId,
@@ -324,26 +324,43 @@ export function buildLazyNamespaceGroups(
 			namespaceOverrides,
 		);
 		if (collisionKeys.has(ownerKey)) continue;
-		if (!names.has(namespace)) names.set(namespace, []);
-		names.get(namespace)!.push(safeName);
+		if (!names.has(namespace)) names.set(namespace, new Map());
+		names.get(namespace)!.set(safeName, toolId);
 	}
 	return new Map(
-		[...names].map(([namespace]) => {
-			let group: NamespaceGroup | undefined;
-			const load = () =>
-				(group ??= buildNamespaceGroups(
-					serverCtx,
-					namespaceOverrides,
-					executionRefs,
-					collisionKeys,
-					new Set([namespace]),
-				).get(namespace)!);
+		[...names].map(([namespace, tools]) => {
+			const bindings = new Map<string, NamespaceGroup>();
+			let schemaGroup: NamespaceGroup | undefined;
+			const load = (name: string) => {
+				let group = bindings.get(name);
+				if (!group) {
+					const toolId = tools.get(name)!;
+					group = buildNamespaceGroups(
+						serverCtx,
+						namespaceOverrides,
+						executionRefs,
+						collisionKeys,
+						undefined,
+						new Map([[toolId, serverCtx.loadedTools.get(toolId)!]]),
+					).get(namespace)!;
+					bindings.set(name, group);
+				}
+				return group;
+			};
+			const toolNames = [...tools.keys()];
 			return [
 				namespace,
 				{
-					fns: lazyRecord(names.get(namespace)!, (name) => load().fns[name]!),
+					fns: lazyRecord(toolNames, (name) => load(name).fns[name]!),
 					get schemas() {
-						return load().schemas;
+						schemaGroup ??= buildNamespaceGroups(
+							serverCtx,
+							namespaceOverrides,
+							executionRefs,
+							collisionKeys,
+							new Set([namespace]),
+						).get(namespace)!;
+						return schemaGroup.schemas;
 					},
 				},
 			];
@@ -359,6 +376,7 @@ export function buildNamespaceGroups(
 		codeModeCollisionOwners(serverCtx, namespaceOverrides).keys(),
 	),
 	namespaceFilter?: ReadonlySet<string>,
+	selectedTools: ReadonlyMap<string, AppTool> = serverCtx.loadedTools,
 ): Map<string, NamespaceGroup> {
 	const groups = new Map<string, NamespaceGroup>();
 	const toolOwners = new Map<string, string>();
@@ -367,7 +385,7 @@ export function buildNamespaceGroups(
 	// per-tool financial check varies.
 	const connectionRestricted = hasNoFundsRestriction(serverCtx);
 
-	for (const [toolId, tool] of serverCtx.loadedTools) {
+	for (const [toolId, tool] of selectedTools) {
 		const {
 			namespace: ns,
 			safeName,

@@ -492,6 +492,11 @@ export async function handleMcpRequest(
 		cachedData?.metadata?.mcpConfig?.codeModeNamespaces as
 			| Record<string, string>
 			| undefined,
+	).map((entry) =>
+		// Bootstrap eligibility needs routing and policy metadata, never schemas.
+		requestedToolName === "get_info"
+			? { ...entry, projection: "contract" as const }
+			: entry,
 	);
 	// Connect always reads the compact index. Program syntax can select SDK
 	// bindings, but must never select a full cross-organization schema graph.

@@ -325,13 +325,17 @@ describe("catalog projection reuse", () => {
 		expect(policyReads.size).toBe(0);
 		const selected = providers.find((provider) => provider.name === "org_2")!;
 		expect(Object.entries(selected.fns)).toHaveLength(160);
-		// The error transport remains lazy too: SDK registration wraps only the
-		// selected provider, and the original namespace is built on first dispatch.
+		// SDK enumeration must not build handlers; selecting one binding builds
+		// only its handler, even when its namespace contains thousands of tools.
 		expect(policyReads.size).toBe(0);
 		const original = groups.get("org_2")!.fns.read_2;
 		expect(typeof original).toBe("function");
 		expect([...policyReads.keys()]).toEqual(["org_2"]);
-		expect(policyReads.get("org_2")).toBe(160);
+		expect(policyReads.get("org_2")).toBe(1);
+		expect(groups.get("org_2")!.fns.read_2).toBe(original);
+		expect(policyReads.get("org_2")).toBe(1);
+		expect(typeof groups.get("org_2")!.fns.read_102).toBe("function");
+		expect(policyReads.get("org_2")).toBe(2);
 	});
 	it("defers error preludes and preserves ambiguous and shadowed legacy aliases", () => {
 		const make = (namespace: string, name: string) =>
