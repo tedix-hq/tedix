@@ -17,6 +17,8 @@ type Props = {
 const SECRET = "platform-secret-fixture";
 const GATE_URL =
 	"https://video-assets.tedix.internal/verify-product-keyframe-gate";
+const VERTEX_INFERENCE_URL =
+	"https://aiplatform.googleapis.com/v1/publishers/google/models/m:generateContent";
 const originalFetch = globalThis.fetch;
 let calls: Request[] = [];
 
@@ -129,7 +131,12 @@ describe("OutboundProxy.fetch", () => {
 			"us-central1-aiplatform.googleapis.com",
 			"UPPER.aiplatform.googleapis.com",
 		]) {
-			await proxy().fetch(new Request(`https://${host}/v1/x`));
+			await proxy().fetch(
+				new Request(
+					`https://${host}/v1/publishers/google/models/m:generateContent`,
+					{ method: "POST", body: "{}" },
+				),
+			);
 		}
 		expect(calls).toHaveLength(3);
 		for (const call of calls)
@@ -239,13 +246,71 @@ describe("OutboundProxy.fetch", () => {
 		expect(calls[0]!.headers.get("x-goog-api-key")).toBe(SECRET);
 	});
 
+	it("refuses the platform credential for Vertex calls that are not model inference", async () => {
+		const serviceAccount = JSON.stringify({ project_id: "platform-project" });
+		const refused: [string, string][] = [
+			["GET", "https://aiplatform.googleapis.com/v1/publishers/google/models"],
+			[
+				"DELETE",
+				"https://us-central1-aiplatform.googleapis.com/v1/projects/platform-project/locations/us-central1/endpoints/1",
+			],
+			[
+				"POST",
+				"https://us-central1-aiplatform.googleapis.com/v1/projects/platform-project/locations/us-central1/batchPredictionJobs",
+			],
+			["GET", VERTEX_INFERENCE_URL],
+			[
+				"POST",
+				`${VERTEX_INFERENCE_URL}/../../../../projects/p/locations/l/datasets`,
+			],
+		];
+		const otherProject: [string, string] = [
+			"POST",
+			"https://us-central1-aiplatform.googleapis.com/v1/projects/other-project/locations/us-central1/publishers/google/models/m:generateContent",
+		];
+		const cases: [Props, [string, string][]][] = [
+			[{ googleServiceAccountKey: serviceAccount }, [...refused, otherProject]],
+			[{ geminiApiKey: SECRET }, refused],
+		];
+		for (const [props, requests] of cases) {
+			for (const [method, target] of requests) {
+				const response = await proxy(props).fetch(
+					new Request(target, {
+						method,
+						body: method === "POST" ? "{}" : undefined,
+					}),
+				);
+				expect(response.status, `${method} ${target}`).toBe(403);
+			}
+		}
+		expect(calls).toHaveLength(0);
+	});
+
+	it("does not sign a non-inference Vertex call when the skill sends a placeholder credential", async () => {
+		const target =
+			"https://aiplatform.googleapis.com/v1/projects/p/locations/l/datasets";
+		await proxy({ geminiApiKey: SECRET }).fetch(
+			new Request(target, { headers: { authorization: "Bearer placeholder" } }),
+		);
+		await proxy({
+			googleServiceAccountKey: JSON.stringify({ project_id: "p" }),
+		}).fetch(
+			new Request(target, { headers: { "x-goog-api-key": "placeholder" } }),
+		);
+		expect(calls).toHaveLength(2);
+		expect(calls[0]!.headers.get("authorization")).toBe("Bearer placeholder");
+		expect(calls[0]!.headers.get("x-goog-api-key")).toBeNull();
+		expect(calls[1]!.headers.get("x-goog-api-key")).toBe("placeholder");
+		expect(calls[1]!.headers.get("authorization")).toBeNull();
+	});
+
 	describe("secrets in thrown errors", () => {
 		it("a malformed service-account key does not echo its content", async () => {
 			const bad = `{"private_key":"${SECRET}" nope`;
 			let message = "";
 			try {
 				await proxy({ googleServiceAccountKey: bad }).fetch(
-					new Request("https://aiplatform.googleapis.com/v1/x"),
+					new Request(VERTEX_INFERENCE_URL, { method: "POST", body: "{}" }),
 				);
 			} catch (error) {
 				message = error instanceof Error ? error.message : String(error);
@@ -258,7 +323,9 @@ describe("OutboundProxy.fetch", () => {
 			await expect(
 				proxy({
 					googleServiceAccountKey: JSON.stringify({ client_email: "a@b.c" }),
-				}).fetch(new Request("https://aiplatform.googleapis.com/v1/x")),
+				}).fetch(
+					new Request(VERTEX_INFERENCE_URL, { method: "POST", body: "{}" }),
+				),
 			).rejects.toThrow("missing client_email or private_key");
 			expect(calls).toHaveLength(0);
 		});
