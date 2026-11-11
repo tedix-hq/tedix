@@ -61,6 +61,7 @@ import { isAppDraftProposal } from "@/lib/app-runtime-drafts";
 import { isAppRuntimeManifest } from "@tedix/api-contract/utils/app-runtime";
 import { useMediaQuery } from "@/lib/use-media-query";
 import { COLLAB_DOC_PATH } from "@/collab/protocol";
+import { AppCodeEditor } from "@/components/app-code-editor-lazy";
 import { AppCodeDraftEditor } from "@/components/app-draft-editor";
 import { CanvasCodeFiles } from "@/components/canvas-code-files";
 import { osApi } from "@/lib/api";
@@ -1072,9 +1073,11 @@ export function CanvasDocPanel({
 													gadgetDetail.data?.currentRevision?.revision}
 											</Text>
 										</div>
-										<pre className="m-0 overflow-auto px-4 py-3 text-xs leading-relaxed">
-											{runtimeCode.data?.code?.files[codeFile] ?? ""}
-										</pre>
+										<AppCodeEditor
+											path={codeFile}
+											value={runtimeCode.data?.code?.files[codeFile] ?? ""}
+											readOnly
+										/>
 									</div>
 								) : (
 									<div className="canvas-code-file">

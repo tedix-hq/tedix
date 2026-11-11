@@ -1234,15 +1234,18 @@
 	font-size: 12px;
 	line-height: 16px;
 }
-.canvas-code-textarea {
-	width: 100%;
-	min-height: 0;
-	flex: 1;
-	resize: none;
-	padding: 12px 16px;
-	border: 0;
-	outline: none;
-	background: transparent;
+/* The file editor fills the column and scrolls inside itself. */
+.app-code-editor {
+	min-width: 0;
+	overflow: hidden;
+}
+.app-code-editor > .cm-editor {
+	height: 100%;
+}
+.app-code-editor-pending {
+	margin: 0;
+	overflow: auto;
+	padding: 12px 16px 12px 62px;
 	color: var(--text-color-kumo-default);
 	font-family: var(--font-mono);
 	font-size: 13px;
