@@ -100,6 +100,8 @@ await runShellSpec(async ({ origin, newPage, rail, capture, pageErrors }) => {
 		await page.mouse.up();
 		await page.waitForURL((url) => url.pathname === "/work");
 		let from = 60;
+		// The tabs hold their row whichever view's toolbar has loaded beside them.
+		let row: number | undefined;
 		for (const [name, view] of [
 			["Decisions", "deck"],
 			["Activity", "feed"],
@@ -112,6 +114,11 @@ await runShellSpec(async ({ origin, newPage, rail, capture, pageErrors }) => {
 			assert(box, `${name} tab has no box at ${width}px`);
 			const x = box.x + box.width / 2;
 			const y = box.y + box.height / 2;
+			assert.equal(
+				y,
+				(row ??= y),
+				`Work tabs moved when the view changed at ${width}px`,
+			);
 			for (let step = 1; step <= 8; step++) {
 				await page.mouse.move(from + ((x - from) * step) / 8, y);
 				await page.waitForTimeout(40);

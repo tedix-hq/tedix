@@ -1135,6 +1135,10 @@
 	display: flex;
 	flex: none;
 	align-items: center;
+	/* Held to the bar's first row: a toolbar that loads later and wraps makes
+	   the bar taller, and centred tabs would slide down under the pointer. */
+	align-self: flex-start;
+	min-height: 3rem;
 	gap: 0.25rem;
 	position: static;
 }
@@ -1346,6 +1350,7 @@
 		padding-top: 0.25rem;
 	}
 	.fd-work-navigation {
+		align-self: stretch;
 		position: sticky;
 		bottom: 0;
 		z-index: 20;
