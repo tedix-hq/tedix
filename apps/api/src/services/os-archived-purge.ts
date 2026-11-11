@@ -40,6 +40,10 @@ import { listOsIdsWithCollaborationProposals } from "@tedix/db/queries/os-worksp
 import { deleteOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import { hasProviderInstallationForWorkspace } from "@tedix/db/queries/provider-installations";
 import { createDbQueryClient } from "@tedix/db/query-client";
+import {
+	D1ReadTimeoutError,
+	isTransientD1ReadError,
+} from "@tedix/db/utils/d1-retry";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import { auditActor } from "../rpc/audit-helpers";
@@ -69,8 +73,10 @@ export const OS_ARCHIVED_PURGE_WORK_BUDGET = 600;
 export const OS_ARCHIVED_PURGE_TIME_BUDGET_MS = 9_000;
 const PAGE_SIZE = KERNEL_CONVERSATION_PURGE_CHUNK;
 const SAMPLE_LIMIT = 20;
-const OUTPUT_CONCURRENCY = 24;
-const WORKSPACE_CONCURRENCY = 8;
+// Deletes are D1 writes and D1 runs one query at a time per database: eight
+// concurrent workspace deletes overloaded it live and failed other requests.
+const OUTPUT_CONCURRENCY = 4;
+const WORKSPACE_CONCURRENCY = 1;
 const SOURCE = "osWorkspaces.workspaces.purgeArchived";
 
 const ACCESS_RANK = { read: 1, edit: 2, owner: 3 } as const;
@@ -222,6 +228,38 @@ async function recordDeletions(
 	}
 }
 
+/** A database that is overloaded or briefly unreachable; the next run retries. */
+function isDatabaseBusy(error: unknown): boolean {
+	return error instanceof D1ReadTimeoutError || isTransientD1ReadError(error);
+}
+
+/**
+ * Waits for a chunk of items checked at once. Items finish out of order, so
+ * the next page starts after the whole chunk. When the database is busy the
+ * run stops and the chunk is examined again next run; anything already
+ * deleted is gone and simply not found again.
+ */
+async function settleChunk(
+	run: PurgeRun,
+	tally: KindTally,
+	ids: string[],
+	pending: Promise<void>[],
+): Promise<boolean> {
+	const before = tally.cursor;
+	const failure = (await Promise.allSettled(pending)).find(
+		(outcome): outcome is PromiseRejectedResult =>
+			outcome.status === "rejected",
+	);
+	if (failure) {
+		if (!isDatabaseBusy(failure.reason)) throw failure.reason;
+		tally.cursor = before;
+		run.budget.stoppedBy = "database_busy";
+		return true;
+	}
+	if (ids.length > 0) tally.cursor = ids[ids.length - 1];
+	return false;
+}
+
 async function canSee(check: () => Promise<void>): Promise<boolean> {
 	try {
 		await check();
@@ -296,6 +334,7 @@ async function purgeWorkspaces(run: PurgeRun, tally: KindTally) {
 						deleted.push(workspace.id);
 					} else tally.unpass(workspace.id, "failed");
 				} catch (error) {
+					if (isDatabaseBusy(error)) throw error;
 					// An installation may have been attached after the check.
 					const reason = (await hasProviderInstallationForWorkspace(
 						db(context),
@@ -323,9 +362,12 @@ async function purgeWorkspaces(run: PurgeRun, tally: KindTally) {
 				}
 				chunk.push(workspace);
 			}
-			await Promise.all(chunk.map(handle));
-			// Items finish out of order; the next page starts after the whole chunk.
-			if (chunk.length > 0) tally.cursor = chunk[chunk.length - 1]!.id;
+			stopped = await settleChunk(
+				run,
+				tally,
+				chunk.map((workspace) => workspace.id),
+				chunk.map(handle),
+			);
 		}
 		await recordDeletions(run, "os.workspace.deleted", "os_workspace", deleted);
 		if (stopped) return;
@@ -406,6 +448,7 @@ async function purgeOutputs(run: PurgeRun, tally: KindTally) {
 						deleted.push(outputId);
 					} else tally.unpass(outputId, "failed");
 				} catch (error) {
+					if (isDatabaseBusy(error)) throw error;
 					console.warn("[OsArchivedPurge] output delete failed", {
 						purgeId: run.purgeId,
 						outputId,
@@ -426,9 +469,7 @@ async function purgeOutputs(run: PurgeRun, tally: KindTally) {
 				}
 				chunk.push(outputId);
 			}
-			await Promise.all(chunk.map(handle));
-			// Items finish out of order; the next page starts after the whole chunk.
-			if (chunk.length > 0) tally.cursor = chunk[chunk.length - 1];
+			stopped = await settleChunk(run, tally, chunk, chunk.map(handle));
 		}
 		await recordDeletions(run, "os.output.deleted", "os_output", deleted);
 		if (stopped) return;
@@ -631,9 +672,14 @@ export async function purgeArchivedOsItems(
 		if (!kinds.has(kind)) continue;
 		const tally = new KindTally();
 		tally.cursor = run.resumeAfter[kind];
-		if (kind === "conversations") await purgeConversations(run, tally);
-		else if (kind === "outputs") await purgeOutputs(run, tally);
-		else await purgeWorkspaces(run, tally);
+		try {
+			if (kind === "conversations") await purgeConversations(run, tally);
+			else if (kind === "outputs") await purgeOutputs(run, tally);
+			else await purgeWorkspaces(run, tally);
+		} catch (error) {
+			if (!isDatabaseBusy(error)) throw error;
+			run.budget.stoppedBy = "database_busy";
+		}
 		const page = {
 			organizationId,
 			afterId: tally.cursor,
@@ -641,18 +687,34 @@ export async function purgeArchivedOsItems(
 		};
 		const remaining = tally.finished
 			? 0
-			: kind === "conversations"
-				? await countArchivedKernelConversationPurgeCandidates(context.db, {
-						organizationId,
-						afterConversationId: tally.cursor,
-						archivedBefore: run.archivedBefore,
-					})
-				: kind === "outputs"
-					? await countArchivedOsOutputPurgeCandidates(db(context), page)
-					: await countArchivedOsWorkspacePurgeCandidates(db(context), page);
+			: await countRemaining(kind, page, tally.cursor).catch((error) => {
+					if (!isDatabaseBusy(error)) throw error;
+					// Unknown while the database is busy; at least one item is left.
+					return 1;
+				});
 		result[kind] = tally.result(remaining);
 		if (remaining > 0) result.complete = false;
 	}
 	result.stoppedBy = result.complete ? "finished" : run.budget.stoppedBy;
 	return result;
+
+	async function countRemaining(
+		kind: (typeof PURGE_ORDER)[number],
+		page: {
+			organizationId: string;
+			afterId: string | undefined;
+			archivedBefore: string | undefined;
+		},
+		cursor: string | undefined,
+	): Promise<number> {
+		if (kind === "conversations")
+			return countArchivedKernelConversationPurgeCandidates(context.db, {
+				organizationId,
+				afterConversationId: cursor,
+				archivedBefore: run.archivedBefore,
+			});
+		if (kind === "outputs")
+			return countArchivedOsOutputPurgeCandidates(db(context), page);
+		return countArchivedOsWorkspacePurgeCandidates(db(context), page);
+	}
 }

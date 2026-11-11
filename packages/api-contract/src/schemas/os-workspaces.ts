@@ -2883,7 +2883,11 @@ export const OsArchivedPurgeResultSchema = z.object({
 	complete: z
 		.boolean()
 		.describe("True when every requested kind was fully examined"),
-	stoppedBy: z.enum(["finished", "time_budget", "work_budget"]),
+	stoppedBy: z
+		.enum(["finished", "time_budget", "work_budget", "database_busy"])
+		.describe(
+			"Why the call stopped; database_busy means the database was overloaded and the next call continues where this one stopped",
+		),
 	workspaces: OsArchivedPurgeKindResultSchema.optional(),
 	outputs: OsArchivedPurgeKindResultSchema.optional(),
 	conversations: OsArchivedPurgeKindResultSchema.optional(),

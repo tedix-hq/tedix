@@ -284,7 +284,7 @@ export function nextOwnerToolContinuation(input: {
 			? "not a deleting run"
 			: record.complete === true || left.length === 0
 				? null
-				: examined === 0
+				: examined === 0 && record.stoppedBy !== "database_busy"
 					? "stopped: the last run could not check any item"
 					: runs >= MAX_OWNER_TOOL_CONTINUATION_RUNS
 						? `stopped after ${runs} runs; approve a new purge for the rest`
