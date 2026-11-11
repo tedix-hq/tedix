@@ -1,5 +1,5 @@
 import { EntityAvatar } from "@/shared/entity-avatar";
-import { DocWritingDraftProvider } from "@/components/doc-writing-drafts";
+import { AppRuntimeDraftProvider } from "@/components/app-runtime-draft-store";
 import { KeepAliveProvider } from "@/components/keep-alive";
 import { workspaceOutputEditors } from "@/lib/workspace-output-editors";
 import "./canvas-page.css";
@@ -2262,13 +2262,13 @@ export function CanvasPage({
 		</Page>
 	);
 	return (
-		<DocWritingDraftProvider scope={workspaceId ?? "none"}>
+		<AppRuntimeDraftProvider scope={workspaceId ?? "none"}>
 			<KeepAliveProvider>{page}</KeepAliveProvider>
 			{paletteOpen ? (
 				<Suspense fallback={null}>
 					<OsCommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
 				</Suspense>
 			) : null}
-		</DocWritingDraftProvider>
+		</AppRuntimeDraftProvider>
 	);
 }

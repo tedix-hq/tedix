@@ -39,9 +39,6 @@ vi.mock("@/components/app-runtime-frame", () => ({
 		return <div data-gadget-client>{html}</div>;
 	},
 }));
-vi.mock("@/components/doc-writing-editor", () => ({
-	DocWritingEditor: () => <div data-native-doc-editor />,
-}));
 (
 	globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
@@ -157,7 +154,6 @@ describe("Doc gadget client selection", () => {
 			expect(host.querySelector("[data-gadget-client]")?.textContent).toContain(
 				'customClient = "first"',
 			);
-			expect(host.querySelector("[data-native-doc-editor]")).toBeNull();
 			render('document.body.dataset.customClient = "customized";');
 			expect(host.querySelector("[data-gadget-client]")?.textContent).toContain(
 				'customClient = "customized"',

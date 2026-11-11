@@ -16,10 +16,7 @@ import {
 	OfficeEditorUpgrade,
 	officeEditorUpgrade,
 } from "@/components/office-editor-upgrade";
-import {
-	useDocWritingDrafts,
-	useAppRuntimeDrafts,
-} from "@/components/doc-writing-drafts";
+import { useAppRuntimeDrafts } from "@/components/app-runtime-draft-store";
 import type { AppRuntimeTranslationChannel } from "@/lib/app-runtime-translation";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Button } from "@/components/kumo/button";
@@ -43,9 +40,6 @@ import type {
 	AppRuntimeRole,
 } from "@tedix/api-contract/schemas/os-app-runtime";
 
-const DocWritingEditor = lazy(async () => ({
-	default: (await import("./doc-writing-editor")).DocWritingEditor,
-}));
 const FileOutputView = lazy(async () => ({
 	default: (await import("./output-content")).FileOutputView,
 }));
@@ -173,7 +167,6 @@ export function AppRuntimeSandbox({
 }) {
 	const queryClient = useQueryClient();
 	const resources = useQuery(workspaceResourcesQueryOptions(workspaceId));
-	const drafts = useDocWritingDrafts();
 	const appDrafts = useAppRuntimeDrafts();
 	const opened = useQuery(workspaceOpenQueryOptions(workspaceId, gadget.id));
 	const role = roleFromOpen(opened.data, opened.isError);
@@ -353,8 +346,6 @@ export function AppRuntimeSandbox({
 			(resources.isError && isWorkspaceAccessDenied(resources.error)) ||
 			(officeEditor && resources.isSuccess && !docResourceAvailable)
 		) {
-			for (const key of drafts?.keys() ?? [])
-				if (key.startsWith(gadget.id + ":")) drafts?.delete(key);
 			for (const key of appDrafts?.keys() ?? [])
 				if (key.startsWith(`${workspaceId}:${gadget.id}:`))
 					appDrafts?.delete(key);
@@ -368,7 +359,6 @@ export function AppRuntimeSandbox({
 		opened.error,
 		officeEditor,
 		docResourceAvailable,
-		drafts,
 		appDrafts,
 		workspaceId,
 		sourceDenied,
@@ -389,34 +379,28 @@ export function AppRuntimeSandbox({
 					</AlertDescription>
 				</Alert>
 			);
-		const read = outputReads[boundOutputs.indexOf(resource)];
+		// The built-in document editor is gone. Someone who can build gets the
+		// current Doc editor installed in its place; the file is not touched.
+		if (!revisionId || role === "use")
+			return (
+				<Alert variant="warning">
+					<AlertTitle>Document unavailable</AlertTitle>
+					<AlertDescription>
+						This document needs the current editor. It is installed the next
+						time someone who can build in this workspace opens it.
+					</AlertDescription>
+				</Alert>
+			);
 		return (
 			<>
-				{revisionId && (role === "owner" || role === "build") && (
-					<OfficeEditorUpgrade
-						kind="document"
-						workspaceId={workspaceId}
-						outputId={resource.providerResourceId}
-						gadgetId={gadget.id}
-						revisionId={revisionId}
-					/>
-				)}
-				<Suspense fallback={<Skeleton className="h-80" />}>
-					<DocWritingEditor
-						key={`${gadget.id}:${revision}:${resource.providerResourceId}`}
-						workspaceId={workspaceId}
-						outputId={resource.providerResourceId}
-						appVersion={revision}
-						draftKey={`${gadget.id}:${revisionId ?? revision}:${resource.providerResourceId}`}
-						role={role}
-						onCall={onCall}
-						savedRevision={
-							outputRevisions.find((row) => row.slot === resource.slot)
-								?.revision
-						}
-						sourceUnavailable={read?.isError ?? false}
-					/>
-				</Suspense>
+				<OfficeEditorUpgrade
+					kind="document"
+					workspaceId={workspaceId}
+					outputId={resource.providerResourceId}
+					gadgetId={gadget.id}
+					revisionId={revisionId}
+				/>
+				<Skeleton className="h-80" aria-label="Loading document" />
 			</>
 		);
 	}

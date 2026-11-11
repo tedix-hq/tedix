@@ -4440,7 +4440,6 @@ function localEditorDefinition(
 						version: 1,
 						settings: {
 							slot,
-							...(kind === "document" ? { editor: "document-v2" } : {}),
 						},
 					},
 					resourceGrants: [
