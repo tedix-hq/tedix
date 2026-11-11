@@ -96,6 +96,7 @@
 		"./utils/mcp-scope-catalog": "./src/utils/mcp-scope-catalog.ts",
 		"./schemas/mcp-grant": "./src/schemas/mcp-grant.ts",
 		"./schemas/kernel-request": "./src/schemas/kernel-request.ts",
+		"./schemas/home-skill-run-request": "./src/schemas/home-skill-run-request.ts",
 		"./utils/approval-decision": "./src/utils/approval-decision.ts",
 		"./utils/approval-edits": "./src/utils/approval-edits.ts",
 		"./schemas/approval-edits": "./src/schemas/approval-edits.ts",
