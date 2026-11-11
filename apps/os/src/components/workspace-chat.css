@@ -292,23 +292,95 @@
 }
 
 .workspace-chat-composer {
-	display: flex;
 	flex: none;
-	flex-direction: column;
-	gap: 8px;
-	padding: 8px 20px 16px;
-	border-top: 1px solid var(--color-kumo-hairline, var(--border));
+	padding: 8px 16px 16px;
 }
 
-.workspace-chat-model > button {
+/* One card holds the files, the message and its controls. The card draws the
+   border and the focus ring; the field inside has none of its own. */
+.workspace-chat-composer-card {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	padding: 8px;
+	border: 1px solid var(--color-kumo-line, var(--border));
+	border-radius: var(--radius-xl, 12px);
+	background: var(--color-kumo-control, var(--card));
+	transition:
+		border-color var(--duration-tedix-fast) var(--ease-tedix-standard),
+		box-shadow var(--duration-tedix-fast) var(--ease-tedix-standard);
+}
+
+.workspace-chat-composer-card:focus-within {
+	border-color: var(--color-kumo-brand, var(--primary));
+	box-shadow: 0 0 0 3px
+		color-mix(in srgb, var(--color-kumo-brand, var(--primary)) 18%, transparent);
+}
+
+.workspace-chat-composer-input.workspace-chat-composer-input {
+	min-height: 44px;
+	max-height: 40vh;
+	padding: 4px 6px;
+	border: 0;
+	background: transparent;
+	box-shadow: none;
+	outline: none;
+	resize: none;
+}
+
+.workspace-chat-composer-input.workspace-chat-composer-input:focus,
+.workspace-chat-composer-input.workspace-chat-composer-input:focus-visible {
+	box-shadow: none;
+	outline: none;
+}
+
+.workspace-chat-composer-files {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	margin: 0;
+	padding: 0 2px 2px;
+	list-style: none;
+}
+
+.workspace-chat-composer-files > li {
+	display: inline-flex;
 	max-width: 100%;
+	min-width: 0;
+	align-items: center;
+	gap: 4px;
+	padding: 0 2px 0 8px;
+	border-radius: var(--radius-full, 9999px);
+	background: var(--color-kumo-tint, var(--muted));
+	color: var(--text-color-kumo-default);
+	font-size: var(--text-tedix-label);
+	line-height: var(--text-tedix-label--line-height);
 }
 
 .workspace-chat-composer-row {
 	display: flex;
 	align-items: center;
-	justify-content: space-between;
-	gap: 8px;
+	gap: 4px;
+}
+
+/* The model name sits quietly beside Send, pushed to the right. */
+.workspace-chat-model {
+	display: flex;
+	min-width: 0;
+	margin-left: auto;
+}
+
+.workspace-chat-model-trigger.workspace-chat-model-trigger {
+	max-width: 100%;
+	border-color: transparent;
+	background: transparent;
+	box-shadow: none;
+	color: var(--text-color-kumo-subtle);
+}
+
+.workspace-chat-model-trigger.workspace-chat-model-trigger:hover {
+	background: var(--color-kumo-tint, var(--muted));
+	color: var(--text-color-kumo-default);
 }
 
 .workspace-chat-list {

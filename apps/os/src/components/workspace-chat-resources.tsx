@@ -1,4 +1,4 @@
-import { Plus } from "@phosphor-icons/react";
+import { FileText, Plus } from "@phosphor-icons/react";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { canvasOutputsQueryOptions } from "@/lib/os-query-options";
@@ -35,7 +35,8 @@ export function WorkspaceChatResources({
 			<PopoverTrigger
 				render={
 					<Button
-						aria-label="Workspace resources"
+						aria-label="Add files"
+						title="Add files"
 						size="icon-sm"
 						variant="ghost"
 					/>
@@ -44,16 +45,12 @@ export function WorkspaceChatResources({
 				<Plus aria-hidden />
 			</PopoverTrigger>
 			<PopoverContent align="start" side="top" className="grid w-72 gap-3 p-4">
-				<PopoverTitle>Workspace resources</PopoverTitle>
+				<PopoverTitle>Add to your message</PopoverTitle>
 				<PopoverDescription>
-					Upload a file to this workspace, or browse its files, sources and
-					skills. Uploads are not automatically added to your message.
+					Pick up to 5 documents, sheets or slides from this workspace for the
+					assistant to read. Files you upload are saved to the workspace but
+					cannot be read in chat yet.
 				</PopoverDescription>
-				<Text role="caption" tone="secondary">
-					Select up to 5 native documents, sheets or slides (64 KB total) for
-					your next message. Uploaded file bytes, connected sources and videos
-					cannot be read here yet.
-				</Text>
 				{outputs.isError ? (
 					<Text role="caption" tone="error">
 						Files could not be loaded.
@@ -71,8 +68,9 @@ export function WorkspaceChatResources({
 							.map((file) => (
 								<Button
 									key={file.id}
+									className="justify-start"
 									size="sm"
-									variant="outline"
+									variant="ghost"
 									disabled={
 										selectedIds.includes(file.id) || selectedIds.length >= 5
 									}
@@ -81,6 +79,7 @@ export function WorkspaceChatResources({
 										setOpen(false);
 									}}
 								>
+									<FileText aria-hidden size={14} />
 									<span className="truncate">{file.title}</span>
 								</Button>
 							))}
@@ -98,7 +97,7 @@ export function WorkspaceChatResources({
 					size="sm"
 					variant="outline"
 				>
-					Browse files, sources and skills
+					Browse all files
 				</Button>
 			</PopoverContent>
 		</PopoverRoot>

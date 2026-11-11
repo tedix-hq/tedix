@@ -6,12 +6,14 @@ import {
 	Code,
 	Eye,
 	Lightbulb,
+	FileText,
 	PaperPlaneRight,
 	PencilSimple,
 	ShieldCheck,
 	Stop,
 	WarningCircle,
 	Wrench,
+	X,
 } from "@phosphor-icons/react";
 import {
 	type FormEvent,
@@ -42,6 +44,7 @@ import { Textarea } from "@/components/kumo/textarea";
 import { Link } from "@/components/kumo/link";
 import { WorkspaceChatResources } from "@/components/workspace-chat-resources";
 import { isImeComposing } from "@/lib/keyboard";
+import { plainModelLabel } from "@/lib/plain-model-label";
 import { osQueryKeys } from "@/lib/os-query-options";
 import { useNow } from "@/lib/use-now";
 import { useWorkspaceChat } from "@/lib/use-workspace-chat";
@@ -146,13 +149,20 @@ export function WorkspaceChat({
 			}}
 			disabled={connection.phase !== "open"}
 		>
-			<SelectTrigger aria-label="Workspace chat model" size="sm">
-				<SelectValue>{selectedModel?.label}</SelectValue>
+			<SelectTrigger
+				aria-label="Model"
+				className="workspace-chat-model-trigger"
+				size="sm"
+				title={selectedModel?.label}
+			>
+				<SelectValue>
+					{selectedModel ? plainModelLabel(selectedModel.label) : null}
+				</SelectValue>
 			</SelectTrigger>
 			<SelectContent>
 				{state.models.map((model) => (
-					<SelectItem key={model.id} value={model.id}>
-						{model.label}
+					<SelectItem key={model.id} value={model.id} title={model.label}>
+						{plainModelLabel(model.label)}
 					</SelectItem>
 				))}
 			</SelectContent>
@@ -986,20 +996,44 @@ function Composer({
 		id: string;
 		text: string;
 		files: string[];
+		draftKey: string;
 	} | null>(null);
-	const [draft, setDraft] = useState("");
+	// An unsent message survives a reload and a switch to another conversation.
+	const draftKey = `tedix.workspace-chat.draft.${workspaceId}.${client?.getConversationId() ?? "new"}`;
+	const [draft, setDraftText] = useState(() => readDraft(draftKey));
+	const setDraft = (next: string | ((text: string) => string)) =>
+		setDraftText((text) => {
+			const value = typeof next === "function" ? next(text) : next;
+			writeDraft(draftKey, value);
+			return value;
+		});
 	const [selected, setSelected] = useState<
 		Array<{ outputId: string; title: string }>
 	>([]);
+	const previousDraftKey = useRef(draftKey);
 	useEffect(() => {
+		const previous = previousDraftKey.current;
+		previousDraftKey.current = draftKey;
+		if (previous === draftKey) return;
+		// A new conversation gets its id with the first message. That is the
+		// same conversation, so what is typed and attached stays.
+		if (previous === `tedix.workspace-chat.draft.${workspaceId}.new`) {
+			setDraftText((text) => {
+				writeDraft(draftKey, text);
+				return text;
+			});
+			return;
+		}
 		setSelected([]);
-		setDraft("");
+		setDraftText(readDraft(draftKey));
 		setSubmitted(null);
-	}, [workspaceId]);
+	}, [draftKey, workspaceId]);
 	useEffect(() => setSubmitted(null), [client]);
 	useEffect(() => {
 		if (!submitted) return;
 		if (state.turns.some((turn) => turn.turnId === submitted.id)) {
+			// The first message names the conversation, which moves the draft key.
+			writeDraft(submitted.draftKey, "");
 			setDraft((text) => (text === submitted.text ? "" : text));
 			setSelected((files) =>
 				files.filter((file) => !submitted.files.includes(file.outputId)),
@@ -1025,6 +1059,7 @@ function Composer({
 				id,
 				text: draft,
 				files: selected.map((file) => file.outputId),
+				draftKey,
 			});
 	};
 	const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1035,76 +1070,96 @@ function Composer({
 	};
 	return (
 		<form className="workspace-chat-composer" onSubmit={submit}>
-			{selected.length ? (
-				<ul
-					aria-label="Selected message files"
-					className="m-0 grid list-none gap-1 p-0"
-				>
-					{selected.map((file) => (
-						<li key={file.outputId} className="flex min-w-0 items-center gap-2">
-							<span className="truncate">{file.title}</span>
-							<Button
-								size="sm"
-								variant="ghost"
-								aria-label={`Remove ${file.title}`}
-								onClick={() =>
-									setSelected((files) =>
-										files.filter((item) => item.outputId !== file.outputId),
-									)
-								}
-							>
-								Remove
-							</Button>
-						</li>
-					))}
-				</ul>
-			) : null}
-			<Textarea
-				aria-label="Message the workspace"
-				disabled={disabledReason !== null}
-				onChange={(event) => setDraft(event.target.value)}
-				onKeyDown={onKeyDown}
-				placeholder={
-					disabledReason ??
-					(busy ? "Add to this turn while it runs…" : "Ask this workspace…")
-				}
-				ref={textarea}
-				rows={2}
-				value={draft}
-			/>
-			<div className="workspace-chat-model">{modelControl}</div>
-			<div className="workspace-chat-composer-row">
-				{onBrowseResources ? (
-					<WorkspaceChatResources
-						workspaceId={workspaceId}
-						onBrowseResources={onBrowseResources}
-						selectedIds={selected.map((file) => file.outputId)}
-						onSelect={(file) =>
-							setSelected((files) =>
-								files.some((item) => item.outputId === file.outputId) ||
-								files.length >= 5
-									? files
-									: [...files, file],
-							)
-						}
-					/>
+			<div className="workspace-chat-composer-card">
+				{selected.length ? (
+					<ul
+						aria-label="Files added to this message"
+						className="workspace-chat-composer-files"
+					>
+						{selected.map((file) => (
+							<li key={file.outputId}>
+								<FileText aria-hidden size={14} />
+								<span className="truncate">{file.title}</span>
+								<Button
+									size="icon-sm"
+									variant="ghost"
+									aria-label={`Remove ${file.title}`}
+									title="Remove"
+									onClick={() =>
+										setSelected((files) =>
+											files.filter((item) => item.outputId !== file.outputId),
+										)
+									}
+								>
+									<X aria-hidden size={12} />
+								</Button>
+							</li>
+						))}
+					</ul>
 				) : null}
-				<Text role="caption" tone="secondary">
-					Enter to send · Shift+Enter for a new line
-				</Text>
-				<Button
-					aria-label="Send"
-					disabled={
-						disabledReason !== null || submitted !== null || !draft.trim()
+				<Textarea
+					aria-label="Message the workspace"
+					className="workspace-chat-composer-input"
+					disabled={disabledReason !== null}
+					onChange={(event) => setDraft(event.target.value)}
+					onKeyDown={onKeyDown}
+					placeholder={
+						disabledReason ??
+						(busy ? "Add to this turn while it runs…" : "Ask this workspace…")
 					}
-					size="icon-sm"
-					type="submit"
-				>
-					<PaperPlaneRight aria-hidden />
-				</Button>
+					ref={textarea}
+					rows={2}
+					value={draft}
+				/>
+				<div className="workspace-chat-composer-row">
+					{onBrowseResources ? (
+						<WorkspaceChatResources
+							workspaceId={workspaceId}
+							onBrowseResources={onBrowseResources}
+							selectedIds={selected.map((file) => file.outputId)}
+							onSelect={(file) =>
+								setSelected((files) =>
+									files.some((item) => item.outputId === file.outputId) ||
+									files.length >= 5
+										? files
+										: [...files, file],
+								)
+							}
+						/>
+					) : null}
+					<div className="workspace-chat-model">{modelControl}</div>
+					<Button
+						aria-label="Send"
+						title="Send (Enter). Shift+Enter adds a line."
+						disabled={
+							disabledReason !== null || submitted !== null || !draft.trim()
+						}
+						size="icon-sm"
+						type="submit"
+					>
+						<PaperPlaneRight aria-hidden />
+					</Button>
+				</div>
 			</div>
 		</form>
 	);
+}
+
+function readDraft(key: string): string {
+	try {
+		return window.sessionStorage.getItem(key) ?? "";
+	} catch {
+		return "";
+	}
+}
+
+function writeDraft(key: string, text: string) {
+	try {
+		if (text) window.sessionStorage.setItem(key, text);
+		else window.sessionStorage.removeItem(key);
+	} catch {
+		// Storage can be unavailable; the draft still lives on this page.
+	}
 }
 
 function relativeTime(iso: string): string {
