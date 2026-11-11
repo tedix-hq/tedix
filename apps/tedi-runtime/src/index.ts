@@ -50,6 +50,7 @@ import {
 	extractWebSocketBearerToken,
 	isServiceBinding,
 	pickEchoableSubprotocol,
+	stripRuntimeStampedHeaders,
 	stripServiceBindingMarker,
 } from "@tedix/worker-kit/request-auth";
 import {
@@ -1615,9 +1616,13 @@ export default {
 		// The tedi DO trusts the service-binding marker on its `/__internal/*`
 		// routes, so only the exact marker a trusted hop stamped may travel on
 		// to it: any other spelling an untrusted caller sent is dropped here.
-		const request = isServiceBinding(inbound.headers)
-			? inbound
-			: stripServiceBindingMarker(inbound);
+		// Chat caller identity is stamped below, after authentication, and by
+		// nothing else: an inbound copy is forged on every hop.
+		const request = stripRuntimeStampedHeaders(
+			isServiceBinding(inbound.headers)
+				? inbound
+				: stripServiceBindingMarker(inbound),
+		);
 		const url = new URL(request.url);
 
 		if (url.pathname === WORKSPACE_APP_VALIDATE_PATH)
@@ -2446,10 +2451,12 @@ export default {
 				),
 			);
 			applyDurableCodeRecoveryAuthority(headersForDo, durableDelegation);
-		} else if (isAcp) {
-			// Only authenticate WS upgrades; plain GET (info response) is allowed.
+		} else {
+			// The DO replays conversation history on every WebSocket connect and
+			// on `/get-messages`, whatever the path, so both are authenticated
+			// here. Other plain requests (the ACP info response) pass through.
 			const upgrade = request.headers.get("Upgrade")?.toLowerCase();
-			if (upgrade === "websocket") {
+			if (upgrade === "websocket" || url.pathname.endsWith("/get-messages")) {
 				const auth = await authenticateAcpUpgrade(request, env, tedi);
 				if (!auth.ok) return auth.response;
 				headersForDo.set("X-Tedi-Auth-Subject", auth.subject);
@@ -2490,7 +2497,7 @@ export default {
 				}
 				return doResponse;
 			}
-			if (env.ENVIRONMENT === "development") {
+			if (isAcp && env.ENVIRONMENT === "development") {
 				console.log(
 					`[isolate.acp-ingress] tedi=${tedi.slug} method=${request.method} upgrade=${request.headers.get("upgrade")}`,
 				);
