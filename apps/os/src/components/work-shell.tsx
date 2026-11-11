@@ -40,10 +40,7 @@ export function WorkShell() {
 	const [remaining, setRemaining] = useState<number | null>(null);
 	const deckApp = apps.find((app) => app.role === "deck");
 	const config = DecisionDeckConfigSchema.safeParse(deckApp?.manifest.config);
-	const decisions = useDeckCount(
-		config.success ? config.data : undefined,
-		deckApp?.gadget.workspaceId,
-	);
+	const decisions = useDeckCount(config.success ? config.data : undefined);
 	const defaultView = (
 		apps.find((app) => app.role && app.manifest.navigation?.workDefault) ??
 		apps.find((app) => app.role === "feed")

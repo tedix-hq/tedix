@@ -102,7 +102,6 @@ export function ActivityHarnessScorecard({
 	);
 	return (
 		<section aria-label="Runner scorecard" className="grid min-w-0 gap-2">
-			<Text>Runner scorecard · Last 24 h</Text>
 			{scopes.map((projectId) => (
 				<ScorecardSource
 					key={projectId ?? "organization"}

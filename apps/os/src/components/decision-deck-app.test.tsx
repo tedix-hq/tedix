@@ -775,7 +775,7 @@ it("keeps an owner question on the Deck and counts it once in the badge and Feed
 	await mount({ rows: [row] });
 	function Counts() {
 		const config = DecisionDeckConfigSchema.parse({ version: 1 });
-		const badge = useDeckCount(config, undefined, "all");
+		const badge = useDeckCount(config, "all");
 		const feed = useDecisionInbox(config, "all");
 		const deck = useDecisionInbox(config);
 		return (

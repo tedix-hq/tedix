@@ -12,6 +12,7 @@ import { factoryCardDeadline } from "@tedix/api-contract/utils/card-schedule";
 import { routeFactoryCard } from "@tedix/api-contract/utils/card-review";
 import { deckAsk } from "@tedix/api-contract/utils/deck-ask";
 import { DecisionCardPresentationSchema } from "@tedix/api-contract/schemas/decision-card-presentation";
+import { decisionCardFallbackTitle } from "@tedix/api-contract/utils/decision-card-copy";
 import { decisionEnvelope } from "@/lib/decision-deck";
 import { interactionCardKind } from "@/lib/interaction-card-kind";
 import { decisionCaptureSummary } from "@/lib/work-interaction-display";
@@ -104,11 +105,17 @@ export function projectDecisionDeck({
 					).data;
 					const metadata = row.request.metadata;
 					const cardKind = interactionCardKind(row.request);
+					// Deadline cards stored before the title fix read "Review <task
+					// name cut at 70 characters>?"; the task's own name replaces it.
+					const taskTitle =
+						metadata.source === "deadline-decisions" && row.workItem?.title
+							? decisionCardFallbackTitle(row.workItem.title)
+							: null;
 					return {
 						id: row.request.id,
 						requestedAt: row.request.requestedAt,
 						kind: cardKind,
-						label: row.request.subject,
+						label: taskTitle ?? row.request.subject,
 						project:
 							row.workItem?.projectId ?? row.request.projectId ?? "Unfiled",
 						urgency: decisionCaptureSummary(metadata)?.urgency ?? "later",
@@ -120,7 +127,9 @@ export function projectDecisionDeck({
 										preview: decision.preview ?? { body: presentation.body },
 										recommendation: presentation.recommendation,
 									}
-								: decision,
+								: decision && taskTitle
+									? { ...decision, proposal: taskTitle }
+									: decision,
 						row,
 						objective: row.objective,
 						sourceLabel: row.askedBy ?? "Decision capture",

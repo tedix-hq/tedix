@@ -172,6 +172,10 @@ export function plainFeedText(
 	const word = (code: string) => copy.codes[code.toLowerCase()] ?? "";
 	return (
 		text
+			// Agents write Markdown; a one-line preview shows its words, not its marks.
+			.replace(/\*\*(?=\S)(.+?)(?<=\S)\*\*/g, "$1")
+			.replace(/`([^`\n]+)`/g, "$1")
+			.replace(/^\s*#{1,6}\s+/gm, "")
 			// "Failed: partial_result" or a bare leading code repeats the chip.
 			.replace(LEADING_CODE, "")
 			// "(reported_partial; The tedi reported …)" is a machine aside.

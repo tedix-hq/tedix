@@ -25,6 +25,10 @@ it.each([
 		"Update skill with the new schedule",
 	],
 	["Run the certification for draft", "Run the certification for draft"],
+	[
+		"**What failed:** in the `apps` job. 2 * 3 stays.",
+		"What failed: in the apps job. 2 * 3 stays.",
+	],
 ])("plainFeedText(%j)", (raw, plain) => {
 	expect(plainFeedText(raw)).toBe(plain);
 	expect(feedHeadlineIssues(plainFeedText(raw))).toEqual([]);

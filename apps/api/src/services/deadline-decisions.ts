@@ -2,6 +2,7 @@ import {
 	DEFAULT_DECK_ROUTING,
 	DecisionEnvelopeSchema,
 } from "@tedix/api-contract/schemas/os-decision-deck";
+import { decisionCardFallbackTitle } from "@tedix/api-contract/utils/decision-card-copy";
 import type { DbQueryClient } from "@tedix/db/query-client";
 import { listWorkItemsPage } from "@tedix/db/queries/work-items/crud";
 import {
@@ -71,7 +72,9 @@ export async function materializeDeadlineDecisions(
 			const supplied = DecisionEnvelopeSchema.safeParse(
 				work.metadata?.deadlineDecision,
 			);
-			const title = `Review ${work.title.slice(0, 70).replace(/[?.]+$/, "")}?`;
+			// The task's own name is the card title: "Review <name cut mid-word>?"
+			// read as a different question than the task asks.
+			const title = decisionCardFallbackTitle(work.title);
 			const decision = supplied.success
 				? { ...supplied.data, classId: "deadline.owner" }
 				: DecisionEnvelopeSchema.parse({
@@ -88,7 +91,8 @@ export async function materializeDeadlineDecisions(
 						protectedEffects: [],
 						blastRadius: "Your task",
 						confidence: null,
-						costOfWaiting: `The deadline is ${deadline}.`,
+						costOfWaiting:
+							"The task passes its deadline with no response from its owner.",
 						reasoning: work.description ?? work.title,
 						options: [
 							{

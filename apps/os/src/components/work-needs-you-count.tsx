@@ -113,10 +113,7 @@ export function WorkNeedsYouCount() {
 	const { apps } = useWorkApps();
 	const deck = apps.find((app) => app.role === "deck");
 	const config = DecisionDeckConfigSchema.safeParse(deck?.manifest.config);
-	const queue = useDeckCount(
-		config.success ? config.data : undefined,
-		deck?.gadget.workspaceId,
-	);
+	const queue = useDeckCount(config.success ? config.data : undefined);
 	const count = queue.count;
 	if (!config.success || queue.pending || queue.failed) return null;
 	if (count === 0) return null;

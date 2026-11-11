@@ -26,7 +26,8 @@ describe("deadline decision producer", () => {
 		});
 		const base = {
 			orgId,
-			title: "Review event video",
+			title:
+				"Ada takes the orchard review live for Cedar, Birch and Maple with daily checks",
 			createdAt: now.toISOString(),
 			accountableOwnerType: "user" as const,
 			accountableOwnerId: "ada",
@@ -61,6 +62,10 @@ describe("deadline decision producer", () => {
 			workItemId: "00000000-0000-4000-8000-000000000002",
 			dueAt: "2026-10-20T23:59:59Z",
 		});
+		// The card carries the task's whole name, never "Review <name cut mid-word>?".
+		expect(cards[0]?.subject).toBe(
+			"Ada takes the orchard review live for Cedar, Birch and Maple with daily checks",
+		);
 		expect(cards[0]?.metadata).toMatchObject({
 			decisionDeck: { classId: "deadline.owner" },
 		});
