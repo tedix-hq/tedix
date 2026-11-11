@@ -198,6 +198,53 @@ describe("payment budget override approval principal", () => {
 	});
 });
 
+describe("a tedi deciding its own approval request", () => {
+	const own = {
+		payload: { kind: "tool_write" },
+		actionType: "tool_write",
+		tediId: "tedi-1",
+	};
+
+	it("refuses the requesting tedi on every machine credential", () => {
+		for (const authType of ["tedi", "service-binding", "m2m", "apikey"]) {
+			expect(() =>
+				resolveApprovalPrincipal({ authType, tediId: "tedi-1" }, own),
+			).toThrow("cannot decide its own approval request");
+		}
+	});
+
+	it("lets a person or a different tedi decide", () => {
+		expect(
+			resolveApprovalPrincipal(
+				{ authType: "user", user: { sub: "human-1" } },
+				own,
+			),
+		).toBe("human-1");
+		expect(() =>
+			resolveApprovalPrincipal({ authType: "tedi", tediId: "tedi-2" }, own),
+		).not.toThrow();
+	});
+
+	it("keeps the embedded chat's relayed person and its own confirmations", () => {
+		expect(
+			resolveApprovalPrincipal(
+				{
+					authType: "service-binding",
+					gatewayEndUserId: "6190",
+					tediId: "tedi-1",
+				},
+				own,
+			),
+		).toBe("user:6190");
+		expect(() =>
+			resolveApprovalPrincipal(
+				{ authType: "service-binding", tediId: "tedi-1" },
+				{ ...own, actionType: "embedded_user_confirmation" },
+			),
+		).not.toThrow();
+	});
+});
+
 describe("embedded host approval principal", () => {
 	it("preserves trusted host-user provenance for ordinary approvals", () => {
 		expect(
