@@ -4,6 +4,9 @@
  * 16px grid that takes the text colour.
  */
 const PATHS = {
+	alignLeft: "M2.5 4h11M2.5 8h7M2.5 12h9",
+	alignCenter: "M2.5 4h11M4.5 8h7M3.5 12h9",
+	alignRight: "M2.5 4h11M6.5 8h7M4.5 12h9",
 	undo: "M5.5 3.5 2.5 6.5l3 3M2.5 6.5H9a3.5 3.5 0 0 1 0 7H6",
 	redo: "M10.5 3.5l3 3-3 3M13.5 6.5H7a3.5 3.5 0 0 0 0 7h3",
 	wrap: "M2.5 4h11M2.5 8H11a2 2 0 0 1 0 4H9l1.5-1.5M9 12l1.5 1.5M2.5 12H6",
