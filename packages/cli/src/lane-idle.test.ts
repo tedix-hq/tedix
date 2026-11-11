@@ -120,7 +120,7 @@ it("reports no-coordinator items without widening admission reads, and samples o
 			darkWake: () => false,
 			health: () => [],
 			devinAvailability: () => ({ available: true }),
-			available: () => true,
+			available: () => ({ available: true }),
 			budgets: () => ({}),
 			freeDiskBytes: () => 100 * 1024 ** 3,
 			cli: async <T>(args: string[]): Promise<T> => {
@@ -227,7 +227,7 @@ it.each([
 				darkWake: () => false,
 				health: () => [donor],
 				devinAvailability: () => ({ available: true }),
-				available: () => true,
+				available: () => ({ available: true }),
 				freeDiskBytes: () => 100 * 1024 ** 3,
 				budgets: () =>
 					state === "quota"

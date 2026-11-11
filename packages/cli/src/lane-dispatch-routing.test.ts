@@ -69,7 +69,7 @@ function fixture(configured = true) {
 		new LaneDispatcher(options, dir, {
 			health: () => [],
 			darkWake: () => false,
-			available: () => true,
+			available: () => ({ available: true }),
 			devinAvailability: () => ({ available: true }),
 			budgets: () => control.budgets,
 			baseCommit: () => "a".repeat(40),

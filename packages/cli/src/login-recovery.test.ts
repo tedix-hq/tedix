@@ -302,7 +302,7 @@ test.each([
 			confirmLogin: (workspace, cred) =>
 				confirmStoredAccess(workspace, cred, async () => access),
 			budgets: () => ({}),
-			available: () => false,
+			available: () => ({ available: false, reason: "fixture unavailable" }),
 			gatewayCooldownUntil: () => 0,
 			cli: async <T>(args: string[], env: NodeJS.ProcessEnv): Promise<T> => {
 				if (args.includes("interaction-create")) {

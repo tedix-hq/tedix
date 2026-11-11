@@ -9,10 +9,10 @@ import {
 import { testRoutingPolicy } from "./lane-routing.fixture";
 
 const available = {
-	codex: true,
-	"claude-code": true,
-	opencode: true,
-	devin: true,
+	codex: { available: true },
+	"claude-code": { available: true },
+	opencode: { available: true },
+	devin: { available: true },
 };
 describe("local capability routing", () => {
 	it("uses the first configured route for small mechanical work", () => {
@@ -91,7 +91,7 @@ describe("local capability routing", () => {
 			routeLocalWork(
 				{ executor: "any-local" },
 				testRoutingPolicy,
-				{ ...available, opencode: false },
+				{ ...available, opencode: { available: false } },
 				{
 					codex: {
 						observedAt: now,
@@ -123,7 +123,12 @@ describe("local capability routing", () => {
 			routeLocalWork(
 				{ executor: "any-local", risk: "high" },
 				testRoutingPolicy,
-				{ ...available, codex: false, "claude-code": false, opencode: false },
+				{
+					...available,
+					codex: { available: false },
+					"claude-code": { available: false },
+					opencode: { available: false },
+				},
 				{},
 			),
 		).toThrow("No eligible");
@@ -162,7 +167,7 @@ describe("local capability routing", () => {
 				routeLocalWork(
 					{ executor },
 					testRoutingPolicy,
-					{ ...available, [executor]: false },
+					{ ...available, [executor]: { available: false } },
 					{ [executor]: budget },
 					now,
 				);
@@ -183,6 +188,76 @@ describe("local capability routing", () => {
 		).not.toThrow(LocalExecutorCapacityError);
 	});
 
+	it("names each rejected route's cause in the skip reason", () => {
+		const now = 1_000_000;
+		let thrown: unknown;
+		try {
+			routeLocalWork(
+				{ executor: "any-local" },
+				testRoutingPolicy,
+				{
+					codex: {
+						available: false,
+						reason: "codex --version exited 1 after 87 ms",
+					},
+					"claude-code": { available: true },
+					opencode: { available: true },
+					devin: {
+						available: false,
+						reason: "devin --version timed out after 5000 ms",
+					},
+				},
+				{
+					"claude-code": {
+						observedAt: now,
+						source: "native",
+						remainingPercent: 2,
+						resetAt: now + 5000,
+					},
+					opencode: {
+						observedAt: now,
+						source: "error",
+						backoffUntil: now + 60_000,
+					},
+				},
+				now,
+			);
+		} catch (error) {
+			thrown = error;
+		}
+		const message = String(thrown);
+		expect(thrown).toBeInstanceOf(LocalExecutorCapacityError);
+		expect(message).toContain("No eligible local executor for general");
+		expect(message).toContain("codex: codex --version exited 1 after 87 ms");
+		expect(message).toContain(
+			`claude-code: 2% remaining is at or below the 10% near-limit until ${new Date(now + 5000).toISOString()}`,
+		);
+		expect(message).toContain(
+			`opencode: budget backoff until ${new Date(now + 60_000).toISOString()}`,
+		);
+		expect(message).toContain("devin: devin --version timed out after 5000 ms");
+		expect(message).toContain(
+			"assignments and capability requirements retained",
+		);
+	});
+	it("names the probe cause when a pinned executor is unavailable", () => {
+		expect(() =>
+			routeLocalWork(
+				{ executor: "codex" },
+				testRoutingPolicy,
+				{
+					...available,
+					codex: {
+						available: false,
+						reason: "codex --version timed out after 5000 ms",
+					},
+				},
+				{},
+			),
+		).toThrow(
+			"No eligible local executor for general (codex: codex --version timed out after 5000 ms); assignments and capability requirements retained",
+		);
+	});
 	it("ignores expired native readings but preserves an explicit cooldown", () => {
 		expect(
 			routeLocalWork(
