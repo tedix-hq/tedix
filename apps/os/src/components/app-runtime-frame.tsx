@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import { Button } from "@/components/kumo/button";
 import { Skeleton } from "@/components/kumo/skeleton";
 import {
 	APP_RUNTIME_CALL_METHOD,
@@ -48,6 +49,9 @@ const APP_CSP = {
 	baseUriDomains: [],
 };
 
+/** The last height each app asked for, so reopening it does not jump. */
+const lastHeights = new Map<string, number>();
+
 type JsonRpcMessage = {
 	jsonrpc?: string;
 	id?: number | string;
@@ -68,6 +72,7 @@ export function AppRuntimeFrame({
 	latest.current = { html, onCall, translation, outputRevisions };
 	const outputRevisionKey = JSON.stringify(outputRevisions);
 	const [state, setState] = useState<"loading" | "ready" | "failed">("loading");
+	const [attempt, setAttempt] = useState(0);
 
 	useEffect(() => {
 		const host = container.current;
@@ -88,7 +93,8 @@ export function AppRuntimeFrame({
 		iframe.style.cssText = "width:100%;border:0;background:transparent";
 		// A filled pane keeps a usable floor on a phone, where the panel scrolls
 		// instead of bounding its height.
-		iframe.style.height = layout === "fill" ? "100%" : "240px";
+		iframe.style.height =
+			layout === "fill" ? "100%" : `${lastHeights.get(title) ?? 240}px`;
 		iframe.style.minHeight = layout === "fill" ? "320px" : "0";
 		iframe.style.flex = layout === "fill" ? "1 1 0px" : "0 0 auto";
 		let alive = true;
@@ -161,8 +167,15 @@ export function AppRuntimeFrame({
 					typeof data.params === "object" && data.params !== null
 						? (data.params as { height?: unknown }).height
 						: undefined;
-				if (typeof height === "number" && Number.isFinite(height) && height > 0)
-					iframe.style.height = `${Math.min(Math.ceil(height) + 2, 4000)}px`;
+				if (
+					typeof height === "number" &&
+					Number.isFinite(height) &&
+					height > 0
+				) {
+					const next = Math.min(Math.ceil(height) + 2, 4000);
+					lastHeights.set(title, next);
+					iframe.style.height = `${next}px`;
+				}
 				return;
 			}
 			if (data.method !== APP_RUNTIME_CALL_METHOD || data.id === undefined)
@@ -216,7 +229,18 @@ export function AppRuntimeFrame({
 		};
 		// The document is re-sent through the ref when it changes; the iframe is
 		// re-created only when the app identity (title) or layout changes.
-	}, [title, layout]);
+	}, [title, layout, attempt]);
+
+	// A kept-alive app can be shown again by a new panel with a new Translate
+	// channel; hand the running document to whichever channel is current.
+	useEffect(() => {
+		if (state !== "ready") return;
+		translation?.attach((data) =>
+			container.current
+				?.querySelector("iframe")
+				?.contentWindow?.postMessage(data, window.location.origin),
+		);
+	}, [translation, state]);
 
 	useEffect(() => {
 		if (state !== "ready") return;
@@ -275,20 +299,39 @@ export function AppRuntimeFrame({
 			style={layout === "fill" ? { flex: "1 1 0px" } : undefined}
 		>
 			{state === "loading" && (
-				<Skeleton className="h-24 w-full" aria-label="Loading app" />
+				<Skeleton
+					className="w-full"
+					style={{
+						height:
+							layout === "fill" ? "100%" : (lastHeights.get(title) ?? 240),
+						minHeight: 96,
+					}}
+					aria-label="Loading app"
+				/>
 			)}
 			{state === "failed" && (
 				<Alert variant="warning">
 					<AlertTitle>{title} did not start</AlertTitle>
 					<AlertDescription>
-						The app sandbox did not answer. Reload the page to try again.
+						The app did not answer in time. Your saved work is not affected.
 					</AlertDescription>
+					<Button
+						size="sm"
+						variant="secondary"
+						onClick={() => setAttempt((n) => n + 1)}
+					>
+						Try again
+					</Button>
 				</Alert>
 			)}
+			{/* The frame loads behind the placeholder, then takes its place. */}
 			<div
 				ref={container}
 				className="flex min-h-0 min-w-0 flex-col"
-				style={layout === "fill" ? { flex: "1 1 0px" } : undefined}
+				style={{
+					...(layout === "fill" ? { flex: "1 1 0px" } : {}),
+					...(state === "ready" ? {} : { display: "none" }),
+				}}
 			/>
 		</div>
 	);

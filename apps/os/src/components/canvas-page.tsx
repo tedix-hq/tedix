@@ -1,5 +1,6 @@
 import { EntityAvatar } from "@/shared/entity-avatar";
 import { DocWritingDraftProvider } from "@/components/doc-writing-drafts";
+import { KeepAliveProvider } from "@/components/keep-alive";
 import { workspaceOutputEditors } from "@/lib/workspace-output-editors";
 import "./canvas-page.css";
 import "./output-editor.css";
@@ -1840,7 +1841,7 @@ export function CanvasPage({
 	);
 	return (
 		<DocWritingDraftProvider scope={workspaceId ?? "none"}>
-			{page}
+			<KeepAliveProvider>{page}</KeepAliveProvider>
 		</DocWritingDraftProvider>
 	);
 }
