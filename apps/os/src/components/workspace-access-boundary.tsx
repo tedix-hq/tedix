@@ -10,9 +10,18 @@ import {
 } from "@/lib/workspace-verification";
 import { osQuery } from "@/lib/os-query-options";
 
+/**
+ * A permission change must close the editors within a few seconds, so the
+ * check stays frequent. It runs in visible tabs, on focus and when the
+ * browser comes back online.
+ */
 export const WORKSPACE_ACCESS_CHECK_MS = 3_000;
 
-/** A permission change retires the mounted editors and chat before reopening. */
+/**
+ * A clear denial retires the mounted editors and chat at once. Any other
+ * failed check is a connection problem: the workspace stays usable, the
+ * check retries, and a small pill shows only if the retries also fail.
+ */
 export function WorkspaceAccessBoundary({
 	workspaceId,
 	children,
@@ -25,8 +34,11 @@ export function WorkspaceAccessBoundary({
 			input: { workspaceId },
 			staleTime: 0,
 			refetchInterval: WORKSPACE_ACCESS_CHECK_MS,
-			refetchIntervalInBackground: true,
-			retry: false,
+			refetchOnWindowFocus: true,
+			refetchOnReconnect: true,
+			retry: (failures, error) =>
+				!isWorkspaceAccessDenied(error) && failures < 3,
+			retryDelay: (attempt) => Math.min(8_000, 1_000 * 2 ** attempt),
 		}),
 	);
 
@@ -55,31 +67,29 @@ export function WorkspaceAccessBoundary({
 				verification succeeds.
 			</div>
 		);
+	// Editing, chat and live sync carry on; only repository saves read this
+	// and wait for a fresh check.
 	const paused = !verified;
 	return (
 		<WorkspaceVerificationPausedContext.Provider value={paused}>
-			<div
-				className="contents"
-				inert={paused}
-				aria-busy={paused}
-				data-workspace-verification-paused={paused || undefined}
-			>
-				{children}
-			</div>
+			{children}
 			{paused && (
 				<div
-					role="alert"
-					className="fixed inset-0 z-50 flex items-start justify-center bg-kumo-base/80 p-6"
+					role="status"
+					data-workspace-access-unverified
+					className="fixed right-4 bottom-4 z-50 flex items-center gap-2 rounded-full border border-kumo-line bg-kumo-elevated py-1 pr-1 pl-3 shadow-tedix-control"
 				>
-					<div className="grid gap-2">
-						<Text>
-							Workspace access could not be verified. Editing is paused; your
-							open work is kept here.
-						</Text>
-						<Button variant="outline" onClick={() => void access.refetch()}>
-							Verify access again
-						</Button>
-					</div>
+					<Text as="span" className="type-tedix-caption">
+						{access.isFetching ? "Reconnecting…" : "Connection lost"}
+					</Text>
+					<Button
+						variant="ghost"
+						size="sm"
+						loading={access.isFetching}
+						onClick={() => void access.refetch()}
+					>
+						Retry
+					</Button>
 				</div>
 			)}
 		</WorkspaceVerificationPausedContext.Provider>

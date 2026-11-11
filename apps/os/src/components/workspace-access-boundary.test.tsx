@@ -34,7 +34,7 @@ afterEach(() => {
 });
 
 describe("open workspace permission changes", () => {
-	it("preserves the Canvas identity and two-file local edits through a transient access failure", async () => {
+	it("keeps the workspace usable through a failed access check and shows a small pill only after retries fail", async () => {
 		vi.useFakeTimers();
 		mocks.access.mockResolvedValue({ role: "build" });
 		const client = new QueryClient({
@@ -84,10 +84,19 @@ describe("open workspace permission changes", () => {
 			await act(async () => {
 				await vi.advanceTimersByTimeAsync(WORKSPACE_ACCESS_CHECK_MS + 1);
 			});
+			// One failed check retries quietly; nothing shows yet.
+			expect(editor?.getAttribute("data-paused")).toBe("false");
+			expect(container.querySelector('[role="status"]')).toBeNull();
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(20_000);
+			});
 			expect(container.querySelector("[data-editor-id]")).toBe(editor);
 			expect(container.textContent).toContain("unsynced first|unsynced second");
 			expect(editor?.getAttribute("data-paused")).toBe("true");
-			expect(container.querySelector("[inert]")).not.toBeNull();
+			expect(container.querySelector("[inert]")).toBeNull();
+			expect(container.querySelector('[role="status"]')?.textContent).toMatch(
+				/Reconnecting…|Connection lost/,
+			);
 			expect(mocks.retired).not.toHaveBeenCalled();
 			expect(mocks.dispose).not.toHaveBeenCalled();
 			mocks.access.mockResolvedValue({ role: "build" });
@@ -97,7 +106,7 @@ describe("open workspace permission changes", () => {
 			expect(container.querySelector("[data-editor-id]")).toBe(editor);
 			expect(container.textContent).toContain("unsynced first|unsynced second");
 			expect(editor?.getAttribute("data-paused")).toBe("false");
-			expect(container.querySelector("[inert]")).toBeNull();
+			expect(container.querySelector('[role="status"]')).toBeNull();
 		} finally {
 			act(() => root.unmount());
 			client.clear();

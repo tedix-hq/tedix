@@ -9,7 +9,6 @@
  * state. Multiple surfaces share the pump and its single publication path.
  */
 
-import { useWorkspaceVerificationPaused } from "@/lib/workspace-verification";
 import type { QueryClient } from "@tanstack/react-query";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useSyncExternalStore } from "react";
@@ -181,8 +180,7 @@ export function useRealtimeSurface(
 	const active = useActiveRealtimeConversation();
 	const conversationId =
 		options.conversationId === undefined ? active : options.conversationId;
-	const verificationPaused = useWorkspaceVerificationPaused();
-	const enabled = (options.enabled ?? true) && !verificationPaused;
+	const enabled = options.enabled ?? true;
 	// Creation-time seams held in refs: re-running the effect on their identity
 	// would tear down a healthy stream on every render.
 	const seamsRef = useRef({ config: options.config, now: options.now });
