@@ -791,6 +791,16 @@ export const withAuth = base.middleware(async (options, input) => {
 			return next({ context });
 		}
 		if (isForwardedMcpUserCall(context.headers)) {
+			// The forwarded token is trusted as already verified, so it is honoured
+			// only from the gateway's own entrypoint. Any other Worker on the
+			// internal binding sending these headers could otherwise act as any
+			// user by forwarding a token it made up.
+			if (context.serviceBindingPrincipal !== "mcp-edge") {
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"A forwarded user identity is accepted only from the MCP gateway",
+				);
+			}
 			try {
 				// Identity resolution only reads D1 and rewrites the same context
 				// fields, so a transient D1 failure is safe to retry as a whole.
