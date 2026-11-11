@@ -49,7 +49,13 @@ const osWorkspacesApi = vi.hoisted(() => ({
 		setFavorite: vi.fn(),
 		touch: vi.fn(),
 	},
-	gadgets: { list: vi.fn(), get: vi.fn(), revise: vi.fn(), getCode: vi.fn() },
+	gadgets: {
+		list: vi.fn(),
+		get: vi.fn(),
+		revise: vi.fn(),
+		getCode: vi.fn(),
+		installOutputEditor: vi.fn(),
+	},
 	outputs: {
 		list: vi.fn(),
 		library: vi.fn(),
@@ -127,10 +133,6 @@ const collabCommit = vi.hoisted(() => ({
 	unacknowledged: false,
 }));
 
-const outputEditorHarness = vi.hoisted(() => ({
-	onChange: null as ((next: OsOutputContent) => void) | null,
-}));
-
 const chatHarness = vi.hoisted(() => ({
 	onSelect: null as ((conversationId: string | null) => void) | null,
 	onConversationCreated: null as ((conversationId: string) => void) | null,
@@ -180,25 +182,6 @@ vi.mock("@/components/canvas-editor", () => ({
 			{props.session.text(props.path)}
 		</div>
 	),
-}));
-
-vi.mock("@/components/output-editor", () => ({
-	OutputEditor: ({
-		value,
-		onChange,
-		disabled,
-	}: {
-		value: OsOutputContent;
-		onChange: (next: OsOutputContent) => void;
-		disabled?: boolean;
-	}) => {
-		outputEditorHarness.onChange = onChange;
-		return (
-			<div data-output-editor data-readonly={disabled ? "true" : undefined}>
-				{JSON.stringify(value)}
-			</div>
-		);
-	},
 }));
 
 vi.mock("@/components/canvas-gadget-executions", () => ({
@@ -1403,7 +1386,7 @@ describe("CanvasPage listing", () => {
 		);
 	});
 
-	it("keeps an explicit native output deep link even when the file has a gadget editor", async () => {
+	it("opens an output deep link in the file's gadget editor", async () => {
 		mockLists();
 		const sources = await osWorkspacesApi.resources.list();
 		osWorkspacesApi.resources.list.mockResolvedValue({
@@ -1425,10 +1408,33 @@ describe("CanvasPage listing", () => {
 		});
 		mockCollab({ initial: docJson(baseContent) });
 		routing.search = { workpiece: `output:${OUTPUT_ID}`, pane: "workpiece" };
+		renderPage();
+		await flush();
+		expect(routing.navigate).toHaveBeenCalledWith(
+			expect.objectContaining({
+				search: expect.objectContaining({
+					workpiece: `gadget:${GADGET_ID}`,
+					pane: "workpiece",
+				}),
+				replace: true,
+			}),
+		);
+	});
+
+	it("opens an output without an editor read-only with an action to attach one", async () => {
+		mockLists();
+		osWorkspacesApi.outputs.get.mockResolvedValue({
+			output: outputFixture(),
+			currentRevision: outputRevisionFixture(),
+		});
+		mockCollab({ initial: docJson(baseContent) });
+		routing.search = { workpiece: `output:${OUTPUT_ID}`, pane: "workpiece" };
 		const container = renderPage();
 		await flush();
 		expect(routing.search.workpiece).toBe(`output:${OUTPUT_ID}`);
-		expect(container.querySelector("[data-output-editor]")).not.toBeNull();
+		expect(container.querySelector("[data-canvas-output-view]")).not.toBeNull();
+		expect(findButton(container, "Open in editor")).not.toBeNull();
+		expect(container.querySelector("[data-collab-editor]")).toBeNull();
 	});
 
 	it("keeps multiple workpieces open as closeable deterministic tabs", async () => {
@@ -1504,7 +1510,7 @@ describe("CanvasPage listing", () => {
 		});
 		mockCollab({ initial: docJson(outputRevisionFixture().content) });
 		const container = await openDoc("Weekly report");
-		const editor = container.querySelector("[data-output-editor]");
+		const editor = container.querySelector("[data-canvas-output-view]");
 		expect(editor).not.toBeNull();
 		const stage = container.querySelector<HTMLElement>(".canvas-stage-content");
 		expect(stage?.hidden).toBe(false);
@@ -1517,20 +1523,20 @@ describe("CanvasPage listing", () => {
 		).toBe("true");
 		expect(container.querySelector(".canvas-resource-library")).not.toBeNull();
 		expect(stage?.hidden).toBe(true);
-		expect(container.querySelector("[data-output-editor]")).toBe(editor);
+		expect(container.querySelector("[data-canvas-output-view]")).toBe(editor);
 		click(container.querySelector("[data-workspace-outputs-work]")!);
 		await flush();
 		expect(
 			container.querySelector("[data-workspace-work-panel]"),
 		).not.toBeNull();
 		expect(container.querySelector(".canvas-resource-library")).toBeNull();
-		expect(container.querySelector("[data-output-editor]")).toBe(editor);
+		expect(container.querySelector("[data-canvas-output-view]")).toBe(editor);
 		// The open item's own tab brings it back.
 		click(container.querySelector('[role="tab"]')!);
 		await flush();
 		expect(stage?.hidden).toBe(false);
 		expect(container.querySelector("[data-workspace-work-panel]")).toBeNull();
-		expect(container.querySelector("[data-output-editor]")).toBe(editor);
+		expect(container.querySelector("[data-canvas-output-view]")).toBe(editor);
 	});
 
 	it("switches between the responsive resource rail and distraction-free editor", async () => {
@@ -1599,15 +1605,14 @@ describe("CanvasPage listing", () => {
 			container.querySelector('[aria-label="Conversations"]'),
 		).not.toBeNull();
 		expect(container.querySelectorAll('[role="tab"]')).toHaveLength(1);
-		await flush();
-		expect(
-			container
-				.querySelector("[data-export-buttons]")
-				?.getAttribute("data-compact"),
-		).toBe("true");
-		expect(
-			container.querySelector("[data-canvas-revision-status]")?.textContent,
-		).toContain("Document revision 2");
+		// The read-only view loads lazily on first use.
+		for (
+			let tries = 0;
+			tries < 20 && !container.querySelector("[data-canvas-output-view]");
+			tries++
+		)
+			await flush();
+		expect(container.querySelector("[data-canvas-output-view]")).not.toBeNull();
 		expect(container.querySelectorAll('[aria-label="Share"]')).toHaveLength(1);
 		// No "Resources" control anywhere: the library opens from the Files
 		// panel, and the one Files toggle lives in the top bar.
@@ -1700,60 +1705,6 @@ describe("CanvasPage listing", () => {
 		expect(container.textContent).toContain("Active1");
 		expect(container.textContent).toContain("Archived0");
 		expect(container.textContent).toContain("Cube Reaction Hybrid Pro 800");
-	});
-
-	it("stops reporting a connection wait when the selected document source is denied", async () => {
-		mockLists();
-		mockCollab({ status: "connecting" });
-		osWorkspacesApi.outputs.get.mockRejectedValue(
-			Object.assign(new Error("Output source access is unavailable"), {
-				code: "FORBIDDEN",
-			}),
-		);
-		routing.search = { workpiece: `output:${OUTPUT_ID}`, pane: "workpiece" };
-		const container = renderPage();
-		await flush();
-		expect(container.textContent).toContain("The document is unavailable");
-		expect(container.textContent).toContain(
-			"This document uses restricted sources",
-		);
-		expect(container.textContent).not.toContain("Connecting");
-		expect(
-			container.querySelector(".canvas-document-status [data-connection]"),
-		).toBeNull();
-		expect(osWorkspacesApi.outputs.revise).not.toHaveBeenCalled();
-	});
-
-	it("shows one connection status for a readable saved document", async () => {
-		mockLists();
-		osWorkspacesApi.outputs.get.mockResolvedValue({
-			output: outputFixture(),
-			currentRevision: outputRevisionFixture(),
-		});
-		mockCollab({ status: "connecting" });
-		routing.search = { workpiece: `output:${OUTPUT_ID}`, pane: "workpiece" };
-		const container = renderPage();
-		await flush();
-		const status = container.querySelector(".canvas-document-status");
-		expect(status?.querySelector("[data-connection]")).toBeNull();
-		expect(status?.textContent?.match(/Connecting/g)).toHaveLength(1);
-		expect(container.textContent).toContain("Connecting to the shared draft");
-	});
-
-	it("says a saved version too large for a room is read-only, without retrying", async () => {
-		mockLists();
-		osWorkspacesApi.outputs.get.mockResolvedValue({
-			output: outputFixture(),
-			currentRevision: outputRevisionFixture(),
-		});
-		mockCollab({ status: "disconnected", tooLarge: true });
-		routing.search = { workpiece: `output:${OUTPUT_ID}`, pane: "workpiece" };
-		const container = renderPage();
-		await flush();
-		expect(container.querySelector("[data-canvas-too-large]")).not.toBeNull();
-		expect(container.textContent).toContain("Read-only");
-		expect(container.textContent).not.toContain("Connecting");
-		expect(() => findButton(container, "Retry connection")).toThrow();
 	});
 
 	it("does not open a file whose source access is unavailable", async () => {
@@ -2354,7 +2305,7 @@ describe("CanvasPage listing", () => {
 		});
 	});
 
-	it("opens a linked first-party Gadget in the semantic output editor", async () => {
+	it("opens a linked first-party Gadget's output read-only until its editor is attached", async () => {
 		mockLists();
 		osWorkspacesApi.gadgets.get.mockResolvedValue({
 			gadget: gadgetFixture(),
@@ -2376,11 +2327,10 @@ describe("CanvasPage listing", () => {
 
 		const container = await openDoc("Report gadget");
 
-		expect(container.textContent).toContain("App editor");
 		expect(
 			container.querySelector(".canvas-workspace-title h1")?.textContent,
 		).toBe("Report gadget");
-		expect(container.querySelector("[data-output-editor]")).not.toBeNull();
+		expect(container.querySelector("[data-canvas-output-view]")).not.toBeNull();
 		expect(osWorkspacesApi.outputs.get).toHaveBeenCalledWith(
 			{ outputId: OUTPUT_ID },
 			// The contract-derived option forwards TanStack Query's AbortSignal, so
@@ -2394,11 +2344,6 @@ describe("CanvasPage listing", () => {
 		expect(
 			container.querySelectorAll('button[aria-label="Share"]'),
 		).toHaveLength(1);
-		expect(
-			container
-				.querySelector("[data-gadget-executions]")
-				?.getAttribute("data-execution-gadget-id"),
-		).toBeUndefined();
 	});
 
 	it("previews a standard MCP Apps Gadget and preserves its source editor", async () => {
@@ -2670,7 +2615,7 @@ describe("Canvas Cloudflare-reference composition", () => {
 	it("keeps selected workpiece tabs and the embedded transcript borderless", () => {
 		const styles =
 			readFileSync("src/components/canvas-page.css", "utf8") +
-			readFileSync("src/components/output-editor.css", "utf8");
+			readFileSync("src/components/output-views.css", "utf8");
 		expect(styles).toMatch(
 			/\.canvas-workpiece-tab\[data-selected\][\s\S]*?background:\s*var\(--color-kumo-tint\);/,
 		);
@@ -2692,10 +2637,10 @@ describe("Canvas Cloudflare-reference composition", () => {
 			/\.canvas-document-header\s*\{[\s\S]*?padding:\s*4px 8px;[\s\S]*?border-bottom:\s*1px solid var\(--border\);/,
 		);
 		expect(styles).toMatch(
-			/\.output-editor-toolbar\s*\{[\s\S]*?min-height:\s*48px;[\s\S]*?padding:\s*8px 16px;[\s\S]*?border-radius:\s*0;/,
+			/\.editor-toolbar\s*\{[\s\S]*?min-height:\s*48px;[\s\S]*?padding:\s*8px 16px;[\s\S]*?border-radius:\s*0;/,
 		);
 		expect(styles).toMatch(
-			/\.output-editor-toolbar > \[data-kumo-component="Toolbar"\]\s*\{[\s\S]*?gap:\s*8px;/,
+			/\.editor-toolbar > \[data-kumo-component="Toolbar"\]\s*\{[\s\S]*?gap:\s*8px;/,
 		);
 		/*
 		 * Scoped to `[data-toolbar-control="icon"]` on purpose: the paragraph-style
@@ -2709,7 +2654,7 @@ describe("Canvas Cloudflare-reference composition", () => {
 			// of the rule, leaving disabled icons at the 26px Kumo default beside
 			// 28px enabled ones. `data-toolbar-control` is what keeps a Select
 			// trigger out, so the combinator was never the guard.
-			/\.output-editor-toolbar\s*\[data-kumo-component="Toolbar"\]\s*button\[data-toolbar-control="icon"\]\s*\{[\s\S]*?width:\s*28px;[\s\S]*?height:\s*28px;[\s\S]*?border-radius:\s*6px;/,
+			/\.editor-toolbar\s*\[data-kumo-component="Toolbar"\]\s*button\[data-toolbar-control="icon"\]\s*\{[\s\S]*?width:\s*28px;[\s\S]*?height:\s*28px;[\s\S]*?border-radius:\s*6px;/,
 		);
 		expect(styles).not.toMatch(
 			/\[data-kumo-component="Toolbar"\]\s*> button\s*\{/,
@@ -2745,73 +2690,6 @@ describe("Canvas Cloudflare-reference composition", () => {
 // ---------------------------------------------------------------------------
 
 describe("room seeding and shared text", () => {
-	it("offers the canonical body as the room's seed instead of writing it as an edit", async () => {
-		mockLists();
-		const currentRevision = outputRevisionFixture();
-		osWorkspacesApi.outputs.get.mockResolvedValue({
-			output: outputFixture(),
-			currentRevision,
-		});
-		const session = mockCollab({ initial: docJson(currentRevision.content) });
-
-		await openDoc("Weekly report");
-
-		// The seed rides the handshake, where the authority accepts the first
-		// offer and ignores every later one. It states WHICH canonical revision it
-		// is, not only what it says. The panel never authors an edit to establish
-		// content.
-		expect(collab.useCollabDoc).toHaveBeenCalledWith(
-			expect.objectContaining({
-				canonical: {
-					text: docJson(currentRevision.content),
-					revision: currentRevision.revision,
-					revisionId: currentRevision.id,
-				},
-			}),
-		);
-		expect(session.local).toEqual([]);
-	});
-
-	it.each(["connecting", "disconnected"])(
-		"shows saved content read-only while the first room is %s",
-		async (status) => {
-			mockLists();
-			osWorkspacesApi.outputs.get.mockResolvedValue({
-				output: outputFixture(),
-				currentRevision: outputRevisionFixture(),
-			});
-			const session = mockCollab({ status, canonicalRevision: null });
-			const retry = vi.fn();
-			const original = collab.useCollabDoc.getMockImplementation()!;
-			collab.useCollabDoc.mockImplementation((...args) => ({
-				...original(...args),
-				retry,
-			}));
-			const container = await openDoc("Weekly report");
-			const view = container.querySelector("[data-canonical-document-view]");
-			expect(view?.textContent).toContain("hello");
-			expect(view?.querySelector('[contenteditable="true"]')).toBeNull();
-			expect(container.querySelector("[data-output-editor]")).toBeNull();
-			expect(findButton(container, "Save version").disabled).toBe(true);
-			click(findButton(container, "Retry connection"));
-			expect(retry).toHaveBeenCalledTimes(1);
-			expect(session.local).toEqual([]);
-			expect(osWorkspacesApi.outputs.revise).not.toHaveBeenCalled();
-		},
-	);
-
-	it("waits for canonical truth before offering a seed at all", async () => {
-		mockLists();
-		osWorkspacesApi.outputs.get.mockReturnValue(new Promise(() => {}));
-		mockCollab({ status: "connecting" });
-
-		await openDoc("Weekly report");
-
-		expect(collab.useCollabDoc).toHaveBeenCalledWith(
-			expect.objectContaining({ canonical: null }),
-		);
-	});
-
 	it("shows a peer's change in the editor", async () => {
 		mockLists();
 		const currentRevision = gadgetRevisionFixture();
@@ -2831,85 +2709,6 @@ describe("room seeding and shared text", () => {
 		expect(container.querySelector("[data-collab-editor]")?.textContent).toBe(
 			docJson(peerManifest),
 		);
-	});
-
-	it("authors no change when an output editor echoes identical bytes", async () => {
-		mockLists();
-		const currentRevision = outputRevisionFixture();
-		osWorkspacesApi.outputs.get.mockResolvedValue({
-			output: outputFixture(),
-			currentRevision,
-		});
-		const session = mockCollab({ initial: docJson(currentRevision.content) });
-		await openDoc("Weekly report");
-
-		act(() => outputEditorHarness.onChange?.(currentRevision.content));
-
-		// A no-op submission is merely wasteful, never dangerous: a change stream
-		// cannot produce the concatenated-duplicate-JSON convergence that a
-		// delete-all-then-insert can.
-		expect(session.local).toEqual([]);
-		expect(session.text(COLLAB_DOC_PATH)).toBe(
-			docJson(currentRevision.content),
-		);
-	});
-
-	it("authors nothing from a structured editor while the room is not live", async () => {
-		mockLists();
-		const currentRevision = outputRevisionFixture();
-		osWorkspacesApi.outputs.get.mockResolvedValue({
-			output: outputFixture(),
-			currentRevision,
-		});
-		const session = mockCollab({
-			initial: docJson(currentRevision.content),
-			status: "disconnected",
-			peers: 0,
-		});
-		const container = await openDoc("Weekly report");
-		const edited: OsOutputContent = {
-			kind: "document",
-			blocks: [{ type: "paragraph", text: "typed while offline" }],
-		};
-
-		act(() => outputEditorHarness.onChange?.(edited));
-
-		// The OT client is gone, so `applyLocal` is inert. Writing the panel's own
-		// text anyway would desync it from what every peer still sees, and the
-		// difference would be silently committed later as if it had been shared.
-		expect(session.local).toEqual([]);
-		expect(session.text(COLLAB_DOC_PATH)).toBe(
-			docJson(currentRevision.content),
-		);
-		expect(
-			container
-				.querySelector("[data-output-editor]")
-				?.getAttribute("data-readonly"),
-		).toBe("true");
-	});
-
-	it("expresses a structured edit as one diff-derived change", async () => {
-		mockLists();
-		const currentRevision = outputRevisionFixture();
-		osWorkspacesApi.outputs.get.mockResolvedValue({
-			output: outputFixture(),
-			currentRevision,
-		});
-		const session = mockCollab({ initial: docJson(currentRevision.content) });
-		await openDoc("Weekly report");
-		const edited: OsOutputContent = {
-			kind: "document",
-			blocks: [{ type: "paragraph", text: "edited by the editor" }],
-		};
-
-		act(() => outputEditorHarness.onChange?.(edited));
-
-		expect(session.local).toHaveLength(1);
-		expect(session.local[0]?.[0]?.[0]).toBe(COLLAB_DOC_PATH);
-		// An edit, not a wholesale replacement: the shared paragraph prefix is
-		// retained rather than deleted and reinserted.
-		expect(session.local[0]?.[0]?.[1]).toHaveProperty("edit");
-		expect(session.text(COLLAB_DOC_PATH)).toBe(docJson(edited));
 	});
 });
 
@@ -2975,47 +2774,6 @@ describe("agent proposal review", () => {
 			evidenceRefs: [],
 		});
 	});
-
-	it("keeps merge separate from acceptance and reports the immutable revision", async () => {
-		mockLists();
-		osWorkspacesApi.outputs.get.mockResolvedValue({
-			output: outputFixture(),
-			currentRevision: outputRevisionFixture(),
-		});
-		osWorkspacesApi.collaboration.list.mockResolvedValue({
-			items: [proposalFixture({ status: "accepted" })],
-			truncated: false,
-		});
-		osWorkspacesApi.collaboration.merge.mockResolvedValue({
-			proposal: proposalFixture({
-				status: "merged",
-				resultRevisionId: "11111111-1111-4111-8111-111111111111",
-				resultRevision: 3,
-			}),
-			revision: outputRevisionFixture({
-				id: "11111111-1111-4111-8111-111111111111",
-				revision: 3,
-			}),
-		});
-		mockCollab({ initial: docJson(outputRevisionFixture().content) });
-		const container = await openDoc("Weekly report");
-		const merge = findButton(container, "Apply change") as HTMLButtonElement;
-		expect(merge.disabled).toBe(true);
-		setFieldValue(
-			fieldByLabel(container, "Reason for change 1"),
-			"Ready for immutable history",
-		);
-		click(merge);
-		await flush();
-
-		expect(osWorkspacesApi.collaboration.merge).toHaveBeenCalledWith({
-			proposalId: PROPOSAL_ID,
-			expectedSequence: 3,
-			rationale: "Ready for immutable history",
-			evidenceRefs: [],
-		});
-		expect(container.textContent).toContain("Saved version 3");
-	});
 });
 
 // ---------------------------------------------------------------------------
@@ -3023,16 +2781,8 @@ describe("agent proposal review", () => {
 // ---------------------------------------------------------------------------
 
 async function commit(container: HTMLElement) {
-	const isOutput = [...container.querySelectorAll("button")].some(
-		(b) => b.textContent?.trim() === "Save version",
-	);
-	click(findButton(container, isOutput ? "Save version" : "Save"));
-	// An output asks for its revision note in a dialog, outside the page.
-	click(
-		isOutput
-			? findButton(document.body, "Save version now")
-			: findButton(container, "Save now"),
-	);
+	click(findButton(container, "Save"));
+	click(findButton(container, "Save now"));
 	await flush();
 }
 
@@ -3157,35 +2907,6 @@ describe("commit pins the compare-and-swap to the ROOM, not the query", () => {
 		);
 	});
 
-	it("pins an output commit to the room's revision when a newer one landed out of band", async () => {
-		mockLists();
-		osWorkspacesApi.outputs.get.mockResolvedValue({
-			output: outputFixture(),
-			currentRevision: outputRevisionFixture({ revision: 6 }),
-		});
-		osWorkspacesApi.outputs.revise.mockRejectedValue(
-			new Error("Revision conflict"),
-		);
-		const session = mockCollab({
-			initial: docJson(baseContent),
-			canonicalRevision: 5,
-		});
-		session.remote(
-			JSON.stringify({
-				kind: "document",
-				blocks: [{ type: "paragraph", text: "room text at revision 5" }],
-			}),
-		);
-
-		const container = await openDoc("Weekly report");
-		await commit(container);
-
-		expect(osWorkspacesApi.outputs.revise).toHaveBeenCalledWith(
-			expect.objectContaining({ expectedRevision: 5 }),
-		);
-		expect(container.textContent).toContain("Someone saved a newer version");
-	});
-
 	it("commits the SESSION's text, not a copy the panel happens to be holding", async () => {
 		mockLists();
 		osWorkspacesApi.gadgets.get.mockResolvedValue({
@@ -3256,112 +2977,6 @@ describe("grounding a commit", () => {
 			4,
 			gadgetRevisionFixture({ revision: 4 }).id,
 		);
-	});
-
-	it("autosaves this client's edits as a version after typing stops", async () => {
-		mockLists();
-		const currentRevision = outputRevisionFixture({ revision: 2 });
-		osWorkspacesApi.outputs.get.mockResolvedValue({
-			output: outputFixture(),
-			currentRevision,
-		});
-		osWorkspacesApi.outputs.revise.mockResolvedValue({
-			output: outputFixture(),
-			revision: outputRevisionFixture({ revision: 3 }),
-		});
-		mockCollab({ initial: docJson(currentRevision.content) });
-		collabCommit.basis = {
-			text: docJson(currentRevision.content),
-			position: { generation: 0, revision: 2 },
-		};
-		await openDoc("Weekly report");
-
-		act(() =>
-			outputEditorHarness.onChange?.({
-				kind: "document",
-				blocks: [{ type: "paragraph", text: "typed, never saved by hand" }],
-			}),
-		);
-
-		await vi.waitFor(
-			() =>
-				expect(osWorkspacesApi.outputs.revise).toHaveBeenCalledWith(
-					expect.objectContaining({
-						expectedRevision: 2,
-						note: "Autosaved",
-					}),
-				),
-			{ timeout: 6_000 },
-		);
-	});
-
-	it("does not autosave edits that arrived from a peer", async () => {
-		mockLists();
-		const currentRevision = outputRevisionFixture({ revision: 2 });
-		osWorkspacesApi.outputs.get.mockResolvedValue({
-			output: outputFixture(),
-			currentRevision,
-		});
-		const session = mockCollab({ initial: docJson(currentRevision.content) });
-		await openDoc("Weekly report");
-
-		act(() =>
-			session.remote(
-				JSON.stringify({
-					kind: "document",
-					blocks: [{ type: "paragraph", text: "a colleague's draft" }],
-				}),
-			),
-		);
-		await new Promise((resolve) => setTimeout(resolve, 3_500));
-
-		expect(osWorkspacesApi.outputs.revise).not.toHaveBeenCalled();
-	});
-
-	it("grounds an output commit on the revision it produced", async () => {
-		mockLists();
-		const currentRevision = outputRevisionFixture({ revision: 2 });
-		osWorkspacesApi.outputs.get.mockResolvedValue({
-			output: outputFixture(),
-			currentRevision,
-		});
-		const saved = outputRevisionFixture({ revision: 3 });
-		osWorkspacesApi.outputs.revise.mockResolvedValue({
-			output: outputFixture(),
-			revision: saved,
-		});
-		const session = mockCollab({ initial: docJson(currentRevision.content) });
-		collabCommit.basis = {
-			text: docJson(currentRevision.content),
-			position: { generation: 0, revision: 2 },
-		};
-
-		const container = await openDoc("Weekly report");
-		// Deliver the peer edit inside act and let it render: unflushed, Save
-		// version can still be disabled when commit() clicks it, which is what
-		// made this test pass only after other tests had warmed the page.
-		act(() =>
-			session.remote(
-				JSON.stringify({
-					kind: "document",
-					blocks: [{ type: "paragraph", text: "edited" }],
-				}),
-			),
-		);
-		await flush();
-		await commit(container);
-
-		// The revise mutation settles, then grounds the room. Under a loaded
-		// test shard that chain can outlast commit()'s fixed flush, so wait for
-		// the grounding itself rather than a number of event-loop ticks.
-		await vi.waitFor(() =>
-			expect(collabCommit.groundCommit).toHaveBeenCalledWith(
-				collabCommit.basis,
-				3,
-				saved.id,
-			),
-		);
-		expect(collabCommit.groundCommit).toHaveBeenCalledTimes(1);
 	});
 
 	it("never commits without a basis: Commit waits while the room is still saving", async () => {
@@ -3476,66 +3091,6 @@ describe("grounding a commit", () => {
 });
 
 describe("live-draft status the panel renders", () => {
-	it.each([
-		[{ initial: docJson(baseContent) }, "Saved"],
-		[
-			{
-				initial: docJson({
-					kind: "document",
-					blocks: [{ type: "paragraph", text: "unsaved draft" }],
-				}),
-			},
-			"Not saved yet",
-		],
-		[
-			{ initial: docJson(baseContent), unacknowledged: true },
-			"Syncing changes…",
-		],
-		[
-			{ initial: docJson(baseContent), status: "disconnected" },
-			"Disconnected · Changes paused",
-		],
-	])("distinguishes the document save state %s", async (options, label) => {
-		mockLists();
-		osWorkspacesApi.outputs.get.mockResolvedValue({
-			output: outputFixture(),
-			currentRevision: outputRevisionFixture(),
-		});
-		mockCollab(options);
-		const container = await openDoc("Weekly report");
-		expect(
-			container.querySelector(".canvas-document-status")?.textContent,
-		).toContain(label);
-	});
-
-	it("blocks proposal application while a shared draft differs and unlocks when it matches the saved version", async () => {
-		mockLists();
-		osWorkspacesApi.outputs.get.mockResolvedValue({
-			output: outputFixture(),
-			currentRevision: outputRevisionFixture(),
-		});
-		osWorkspacesApi.collaboration.list.mockResolvedValue({
-			items: [proposalFixture({ status: "accepted" })],
-			truncated: false,
-		});
-		const session = mockCollab({
-			initial: docJson({
-				kind: "document",
-				blocks: [{ type: "paragraph", text: "my draft" }],
-			}),
-		});
-		const container = await openDoc("Weekly report");
-		setFieldValue(fieldByLabel(container, "Reason for change 1"), "Reviewed");
-		expect(findButton(container, "Apply change").disabled).toBe(true);
-		expect(container.textContent).toContain(
-			"Save your draft as a version before applying a proposal.",
-		);
-		click(findButton(container, "Apply change"));
-		expect(osWorkspacesApi.collaboration.merge).not.toHaveBeenCalled();
-		act(() => session.remote(docJson(baseContent)));
-		expect(findButton(container, "Apply change").disabled).toBe(false);
-	});
-
 	it("says the draft is syncing while unacknowledged edits are stuck", async () => {
 		mockLists();
 		osWorkspacesApi.gadgets.get.mockResolvedValue({
@@ -3634,119 +3189,6 @@ describe("live-draft status the panel renders", () => {
 });
 
 describe("adopting a newer canonical revision", () => {
-	it("keeps recovery pending until acknowledged and leaves a failure visible with the backup", async () => {
-		mockLists();
-		osWorkspacesApi.outputs.get.mockResolvedValue({
-			output: outputFixture(),
-			currentRevision: outputRevisionFixture({ revision: 2 }),
-		});
-		mockCollab({ initial: "invalid json", canonicalRevision: 2 });
-		let answer!: (result: { ok: false; message: string }) => void;
-		replaceWithCanonical.mockReturnValue(
-			new Promise((resolve) => {
-				answer = resolve;
-			}),
-		);
-		const container = await openDoc("Weekly report");
-		click(findButton(container, "Load v2"));
-		click(findButton(container, "Discard my changes and load v2"));
-		expect(findButton(container, "Loading v2…").disabled).toBe(true);
-		await act(async () => {
-			answer({ ok: false, message: "Recovery was not confirmed" });
-		});
-		expect(container.querySelector('[role="alert"]')?.textContent).toContain(
-			"Recovery was not confirmed",
-		);
-		expect(
-			findButton(container, "Download a copy of my changes"),
-		).toBeDefined();
-		expect(
-			findButton(container, "Discard my changes and load v2").disabled,
-		).toBe(false);
-	});
-
-	it("offers draft backup and explicit restore when invalid content cannot open at the current saved version", async () => {
-		mockLists();
-		osWorkspacesApi.outputs.get.mockResolvedValue({
-			output: outputFixture(),
-			currentRevision: outputRevisionFixture({ revision: 2 }),
-		});
-		mockCollab({
-			initial: docJson({
-				kind: "document",
-				blocks: [{ type: "paragraph", text: "x".repeat(20001) }],
-			}),
-			canonicalRevision: 2,
-			recoveryRequired: false,
-		});
-		const container = await openDoc("Weekly report");
-		expect(container.textContent).toContain("This draft can't be opened");
-		expect(
-			container.querySelector(".canvas-document-status")?.textContent,
-		).toContain("Draft can't be opened");
-		expect(
-			container.querySelector(".canvas-document-status")?.textContent,
-		).not.toContain("Not saved yet");
-		expect(
-			findButton(container, "Download a copy of my changes"),
-		).toBeDefined();
-		expect(() => findButton(container, "Keep my changes")).toThrow();
-		expect(replaceWithCanonical).not.toHaveBeenCalled();
-		click(findButton(container, "Load v2"));
-		expect(replaceWithCanonical).not.toHaveBeenCalled();
-		click(findButton(container, "Discard my changes and load v2"));
-		expect(replaceWithCanonical).toHaveBeenCalledTimes(1);
-	});
-
-	it("downloads the changes and loads the newer version only after confirming", async () => {
-		mockLists();
-		osWorkspacesApi.outputs.get.mockResolvedValue({
-			output: outputFixture(),
-			currentRevision: outputRevisionFixture({ revision: 6 }),
-		});
-		mockCollab({
-			initial: docJson({
-				kind: "document",
-				blocks: [{ type: "paragraph", text: "Keep this draft text" }],
-			}),
-			canonicalRevision: 5,
-			recoveryRequired: true,
-		});
-		const container = await openDoc("Weekly report");
-		expect(container.textContent).toContain(
-			"A newer version (v6) was saved while you were editing",
-		);
-		expect(
-			container.querySelector("[data-canvas-newer-version]")?.textContent,
-		).toBe("Newer version saved (v6)");
-		const createUrl = vi
-			.spyOn(URL, "createObjectURL")
-			.mockReturnValue("blob:draft-backup");
-		let downloadName = "";
-		const download = vi
-			.spyOn(HTMLAnchorElement.prototype, "click")
-			.mockImplementation(function (this: HTMLAnchorElement) {
-				downloadName = this.download;
-			});
-		click(findButton(container, "Download a copy of my changes"));
-		expect(createUrl).toHaveBeenCalledOnce();
-		expect(downloadName).toBe("my-changes.json");
-		const backupBlob = createUrl.mock.calls[0]?.[0];
-		if (!(backupBlob instanceof Blob))
-			throw new Error("Expected a full draft backup");
-		expect(await backupBlob.text()).toContain("Keep this draft text");
-		download.mockRestore();
-		createUrl.mockRestore();
-
-		expect(replaceWithCanonical).not.toHaveBeenCalled();
-		click(findButton(container, "Load v6"));
-		click(findButton(container, "Cancel"));
-		expect(replaceWithCanonical).not.toHaveBeenCalled();
-		click(findButton(container, "Load v6"));
-		click(findButton(container, "Discard my changes and load v6"));
-		expect(replaceWithCanonical).toHaveBeenCalledTimes(1);
-	});
-
 	it("just works for an unedited room: no warning, no recovery, Commit live", async () => {
 		mockLists();
 		// The server carried the room forward as one ordinary change and told this
@@ -3800,99 +3242,6 @@ describe("adopting a newer canonical revision", () => {
 		expect(replaceWithCanonical).toHaveBeenCalledTimes(1);
 	});
 
-	it("keeps the user's changes and then saves them on top of the newer version", async () => {
-		mockLists();
-		osWorkspacesApi.outputs.get.mockResolvedValue({
-			output: outputFixture(),
-			currentRevision: outputRevisionFixture({ revision: 6 }),
-		});
-		mockCollab({
-			initial: docJson({
-				kind: "document",
-				blocks: [{ type: "paragraph", text: "My unsaved change" }],
-			}),
-			canonicalRevision: 5,
-			recoveryRequired: true,
-		});
-
-		const container = await openDoc("Weekly report");
-		// The save guard: while the choice is open, Save cannot write the stale
-		// draft over the newer version.
-		expect(findButton(container, "Save version").disabled).toBe(true);
-		const saveAction = container.querySelector<HTMLButtonElement>(
-			"[data-canvas-save-version]",
-		);
-		expect(saveAction?.closest("header")).not.toBeNull();
-		await act(async () => {
-			await vi.waitFor(() =>
-				expect(saveAction?.getAttribute("aria-description")).toContain(
-					"Choose whether to keep your changes",
-				),
-			);
-		});
-		click(findButton(container, "Keep my changes"));
-
-		expect(replaceWithCanonical).not.toHaveBeenCalled();
-		expect(container.textContent).toContain("You're keeping your changes");
-		expect(findButton(container, "Load v6 instead")).toBeDefined();
-		expect(container.textContent).toContain(
-			"Use Save as v7 above the editor to review and save them.",
-		);
-		const saveAsAction = container.querySelector<HTMLButtonElement>(
-			"[data-canvas-save-version]",
-		);
-		expect(saveAsAction?.textContent).toContain("Save as v7");
-		expect(saveAsAction?.disabled).toBe(false);
-		// Now Save is explicit about what it writes and what it writes over.
-		osWorkspacesApi.outputs.revise.mockResolvedValue({
-			output: outputFixture(),
-			revision: outputRevisionFixture({ revision: 7 }),
-		});
-		// Timer ticks do not settle WebCrypto. Hold both real hashes until the
-		// pending-save assertion, then await their completion before checking CAS.
-		const hashing = Promise.withResolvers<void>();
-		const digest = crypto.subtle.digest.bind(crypto.subtle);
-		const hashes: Promise<ArrayBuffer>[] = [];
-		const digestSpy = vi
-			.spyOn(crypto.subtle, "digest")
-			.mockImplementation((...args) => {
-				const hash = Promise.all([hashing.promise, digest(...args)]).then(
-					([, result]) => result,
-				);
-				hashes.push(hash);
-				return hash;
-			});
-		cleanups.push(() => {
-			hashing.resolve();
-			digestSpy.mockRestore();
-		});
-		click(findButton(container, "Save as v7"));
-		click(findButton(document.body, "Save as v7 now"));
-		await flush();
-		expect(hashes).toHaveLength(2);
-		expect(osWorkspacesApi.outputs.revise).not.toHaveBeenCalled();
-		expect(document.body.textContent).toContain("Saving…");
-		await act(async () => {
-			hashing.resolve();
-			await Promise.all(hashes);
-		});
-		await flush();
-		expect(osWorkspacesApi.outputs.revise).toHaveBeenCalledExactlyOnceWith({
-			outputId: OUTPUT_ID,
-			content: {
-				kind: "document",
-				blocks: [{ type: "paragraph", text: "My unsaved change" }],
-			},
-			expectedRevision: 6,
-		});
-		expect(collabCommit.groundCommit).toHaveBeenCalledExactlyOnceWith(
-			collabCommit.basis,
-			7,
-			OUTPUT_REVISION_ID,
-		);
-		expect(document.body.textContent).not.toContain("Save as v7 now");
-	});
-
 	it("keeps the editor mounted and read-only across a transient disconnect", async () => {
 		mockLists();
 		osWorkspacesApi.gadgets.get.mockResolvedValue({
@@ -3914,134 +3263,6 @@ describe("adopting a newer canonical revision", () => {
 		expect(editor?.textContent).toBe(docJson(gadgetRevisionFixture().manifest));
 		expect(editor?.getAttribute("data-read-only")).toBe("true");
 		expect(findButton(container, "Save").disabled).toBe(true);
-	});
-});
-
-describe("output commit", () => {
-	function mockOutputDoc() {
-		mockLists();
-		const currentRevision = outputRevisionFixture({ revision: 2 });
-		osWorkspacesApi.outputs.get.mockResolvedValue({
-			output: outputFixture(),
-			currentRevision,
-		});
-		return mockCollab({
-			initial: docJson(currentRevision.content),
-		});
-	}
-
-	it("closes the save dialog when the shared draft is already saved", async () => {
-		mockOutputDoc();
-		const container = await openDoc("Weekly report");
-		click(findButton(container, "Save version"));
-		click(findButton(document.body, "Save version now"));
-		await flush();
-
-		expect(osWorkspacesApi.outputs.revise).not.toHaveBeenCalled();
-		expect(document.body.textContent).not.toContain("Save version now");
-		expect(container.textContent).toContain("Already saved");
-	});
-
-	it("sends the parsed content, note, and loaded revision as the CAS guard", async () => {
-		const session = mockOutputDoc();
-		osWorkspacesApi.outputs.revise.mockResolvedValue({
-			output: outputFixture(),
-			revision: outputRevisionFixture({ revision: 3 }),
-		});
-		const edited: OsOutputContent = {
-			kind: "document",
-			blocks: [{ type: "paragraph", text: "edited" }],
-		};
-
-		const container = await openDoc("Weekly report");
-		session.remote(JSON.stringify(edited));
-		click(findButton(container, "Save version"));
-		setFieldValue(fieldByLabel(document.body, "Revision note"), "tweak");
-		click(findButton(document.body, "Save version now"));
-		await flush();
-
-		expect(osWorkspacesApi.outputs.revise).toHaveBeenCalledWith({
-			outputId: OUTPUT_ID,
-			content: edited,
-			expectedRevision: 2,
-			note: "tweak",
-		});
-		// The save dialog closes once the version exists.
-		expect(document.body.textContent).not.toContain("Save version now");
-	});
-
-	it("discards unsaved changes back to the saved version only after confirming", async () => {
-		const session = mockOutputDoc();
-		const container = await openDoc("Weekly report");
-		expect(() => findButton(container, "Discard changes")).toThrow();
-		act(() =>
-			session.remote(
-				JSON.stringify({
-					kind: "document",
-					blocks: [{ type: "paragraph", text: "stray edit" }],
-				}),
-			),
-		);
-		await flush();
-		click(findButton(container, "Discard changes"));
-		expect(replaceWithCanonical).not.toHaveBeenCalled();
-		click(findButton(document.body, "Discard and reload v2"));
-		await flush();
-		expect(replaceWithCanonical).toHaveBeenCalledTimes(1);
-		expect(osWorkspacesApi.outputs.revise).not.toHaveBeenCalled();
-	});
-
-	it("refuses a draft whose kind differs from the output's", async () => {
-		const session = mockOutputDoc();
-		const wrongKind = JSON.stringify({
-			kind: "sheet",
-			columns: [],
-			rows: [],
-		});
-
-		const container = await openDoc("Weekly report");
-		act(() => session.remote(wrongKind));
-		await flush();
-
-		expect(osWorkspacesApi.outputs.revise).not.toHaveBeenCalled();
-		expect(container.textContent).toContain(
-			"The shared draft is not a document",
-		);
-		expect(findButton(container, "Save version").disabled).toBe(true);
-	});
-
-	it("surfaces invalid JSON inline and never sends it", async () => {
-		const session = mockOutputDoc();
-
-		const container = await openDoc("Weekly report");
-		act(() => session.remote("not json{"));
-		await flush();
-
-		expect(osWorkspacesApi.outputs.revise).not.toHaveBeenCalled();
-		expect(container.textContent).toContain(
-			"The shared document draft is not valid JSON",
-		);
-		expect(findButton(container, "Save version").disabled).toBe(true);
-	});
-
-	it("renders the reload-and-retry alert on a revision conflict", async () => {
-		const session = mockOutputDoc();
-		osWorkspacesApi.outputs.revise.mockRejectedValue(
-			new Error("Revision conflict"),
-		);
-		const racingEdit = JSON.stringify({
-			kind: "document",
-			blocks: [{ type: "paragraph", text: "racing edit" }],
-		});
-
-		const container = await openDoc("Weekly report");
-		session.remote(racingEdit);
-		await commit(container);
-
-		expect(container.textContent).toContain("Someone saved a newer version");
-		expect(container.textContent).toContain(
-			"Your changes were not saved and are still here",
-		);
 	});
 });
 

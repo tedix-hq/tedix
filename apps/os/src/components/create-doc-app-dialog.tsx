@@ -215,7 +215,7 @@ export function CreateOutputAppDialog({
 					<p role="alert">
 						{error}
 						{output
-							? " Your file was created. Retry installing the gadget, or open the native editor."
+							? " Your file was created. Retry installing its editor, or open the file read-only."
 							: ""}
 					</p>
 				)}
@@ -228,7 +228,7 @@ export function CreateOutputAppDialog({
 								onClose();
 							}}
 						>
-							Open native editor
+							Open file read-only
 						</Button>
 					)}
 					<Button

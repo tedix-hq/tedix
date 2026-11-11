@@ -1,4 +1,4 @@
-import "./output-editor.css";
+import "./output-views.css";
 import { TableKit } from "@tiptap/extension-table";
 import { TaskList, TaskItem } from "@tiptap/extension-list";
 import {
@@ -107,7 +107,7 @@ import {
 	EditorToolbarButton,
 	EditorToolbarColorButton,
 	EditorToolbarDivider,
-} from "@/components/output-editor-toolbar";
+} from "@/components/editor-toolbar";
 import { type DocumentContent } from "@/lib/output-models";
 import {
 	blocksFromRichText,
