@@ -1182,7 +1182,10 @@ describe("aggregate host connection defaults (integration via worker.fetch)", ()
 			body.result.structuredContent.nativeContext.nativeTransportAvailable,
 		).toBe(true);
 		expect(getBySlugWithTools).toHaveBeenCalledWith(
-			expect.objectContaining({ slug: "sample-info-provider" }),
+			expect.objectContaining({
+				slug: "sample-info-provider",
+				projection: "contract",
+			}),
 		);
 		expect(buildMcpServer).not.toHaveBeenCalled();
 	});
