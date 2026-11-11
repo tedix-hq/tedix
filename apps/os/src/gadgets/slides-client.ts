@@ -23,6 +23,7 @@ import { ensureSlideFontLoaded } from "../lib/slide-fonts";
 import { createSlideLinkedImages } from "../lib/slide-linked-images";
 import { isLargeEmbeddedImage } from "@tedix/api-contract/utils/os-output-assets";
 import { lastingSaveFailure } from "../lib/save-failure";
+import { createOutputSync } from "../lib/output-sync";
 import {
 	OS_DECK_MAX_SLIDES,
 	OS_EDITOR_UNDO_STEPS,
@@ -83,12 +84,17 @@ type FieldOptions = {
 /** Save this long after the last change, and never later than the maximum. */
 /** Thumbnails drawn at once when a deck opens; the rest wait until seen. */
 const EAGER_THUMBNAILS = 40;
-const SAVE_IDLE_MS = 1500,
-	SAVE_MAX_WAIT_MS = 5000,
+/**
+ * A save sends only what changed, so it follows a short pause in editing and
+ * never waits long while someone keeps editing. A failed save that may pass
+ * is tried again quickly at first, then less and less often.
+ */
+const SAVE_IDLE_MS = 220,
+	SAVE_MAX_WAIT_MS = 1200,
 	/** A save quicker than this stays silent. */
 	SAVE_SLOW_MS = 900,
-	SAVE_RETRY_MS = 2000,
-	SAVE_RETRY_MAX_MS = 30_000,
+	SAVE_RETRY_MS = 40,
+	SAVE_RETRY_MAX_MS = 10_000,
 	/** While typing, the recovery draft is written at most this often. */
 	DRAFT_TYPING_MS = 500,
 	/** Repeated nudges within this window undo as one step. */
@@ -380,6 +386,10 @@ export async function mountSlidesClient(
 		bridge
 			.call<Saved>("outputs.readRevision", { slot })
 			.catch(() => call<Saved>("readPresentation"));
+	// Saves send only what changed and catching up fetches only what changed.
+	const sync = createOutputSync<PresentationContent, Saved>(bridge, slot, {
+		presentationSlides: (merged) => projectDeck(merged).slides,
+	});
 	const stillMotion = () =>
 		window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 	/** Show a status line; a flash clears itself, anything else stays. */
@@ -484,15 +494,20 @@ export async function mountSlidesClient(
 			reading ||
 			choice ||
 			stale ||
+			// A drag or resize is one change: its save waits for it to end.
+			pointer ||
 			stuck === edits
 		)
 			return;
 		const now = Date.now();
 		unsavedSince ||= now;
+		// After a failed save only the retry delay counts: the pause in editing
+		// it waited for has already passed.
 		const wait = Math.max(
 			0,
-			Math.min(SAVE_IDLE_MS, unsavedSince + SAVE_MAX_WAIT_MS - now),
-			retryAt - now,
+			retryAt > now
+				? retryAt - now
+				: Math.min(SAVE_IDLE_MS, unsavedSince + SAVE_MAX_WAIT_MS - now),
 		);
 		saveTimer = setTimeout(() => void save(), wait);
 	}
@@ -523,7 +538,15 @@ export async function mountSlidesClient(
 		if (asked) stuck = -1;
 		// A save never races a read that is about to change what it builds on,
 		// and a refused save is not sent again unchanged.
-		if (!canWrite() || !deck || reading || choice || stale || stuck === edits)
+		if (
+			!canWrite() ||
+			!deck ||
+			reading ||
+			choice ||
+			stale ||
+			(pointer && !asked) ||
+			stuck === edits
+		)
 			return Promise.resolve(false);
 		const run = send(asked).finally(() => {
 			saving = undefined;
@@ -540,13 +563,7 @@ export async function mountSlidesClient(
 		const sent = edits;
 		const slow = setTimeout(() => message("Saving…"), SAVE_SLOW_MS);
 		try {
-			const result = parse(
-				await bridge.call<Saved>("outputs.replace", {
-					slot,
-					content: projectDeck(deck!),
-					expectedRevision: basis,
-				}),
-			);
+			const result = parse(await sync.save(projectDeck(deck!), basis, read));
 			if (destroyed) return false;
 			loaded = result;
 			basis = result.revision.revision;
@@ -593,7 +610,10 @@ export async function mountSlidesClient(
 				saveError = lasting;
 				stuck = sent;
 				retryAt = 0;
-			} else if (/conflict/i.test(reason(error))) {
+			} else if (
+				(error as { code?: unknown } | null)?.code === "revision_conflict" ||
+				/conflict/i.test(reason(error))
+			) {
 				// Someone else saved first: bring their version in, then save again.
 				pendingRevision = Math.max(pendingRevision, basis + 1);
 			} else
@@ -1780,6 +1800,8 @@ export async function mountSlidesClient(
 			changed();
 			render();
 		}
+		// A save that waited for this gesture goes out now.
+		scheduleSave();
 		refreshExternal();
 	};
 	stage.addEventListener("pointermove", onPointerMove);
@@ -1917,7 +1939,7 @@ export async function mountSlidesClient(
 		loading = true;
 		controls();
 		try {
-			const value = parse(await read());
+			const value = sync.remember(parse(await read()));
 			if (destroyed) return;
 			loaded = value;
 			let retained: RetainedDraft | null = null;
@@ -2008,7 +2030,7 @@ export async function mountSlidesClient(
 	async function pull() {
 		reading = true;
 		try {
-			const latest = parse(await read());
+			const latest = parse(await sync.latest(read));
 			if (destroyed) return;
 			if (latest.revision.revision <= basis) {
 				pendingRevision = 0;
@@ -2054,7 +2076,7 @@ export async function mountSlidesClient(
 		reading = true;
 		let done = false;
 		try {
-			const latest = parse(await read());
+			const latest = parse(await sync.latest(read));
 			if (destroyed) return;
 			if (latest.revision.revision <= basis) {
 				pendingRevision = 0;

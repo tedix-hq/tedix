@@ -72,7 +72,9 @@ import {
 	isOversizedMessage,
 	MAX_MESSAGE_BYTES,
 	parseClientFrame,
+	parseOutputRevisionNotice,
 } from "./protocol";
+import { WORKSPACE_ROOM_OUTPUT_REVISION_PATH } from "@tedix/api-contract/utils/workspace-room";
 import {
 	COLLAB_PRESENCE_HEADER,
 	type CollabVerifiedIdentity,
@@ -257,6 +259,23 @@ export class CollabRoom {
 		// forwards /collab/... upgrades after its own authorization probe.
 		if (new URL(request.url).pathname === "/__internal/app-draft")
 			return this.#appDraftRequest(request);
+		// The API tells a workspace's room that one of its files has a new
+		// revision. Like the route above, only a namespace binding reaches it.
+		if (new URL(request.url).pathname === WORKSPACE_ROOM_OUTPUT_REVISION_PATH) {
+			if (request.method !== "POST") return new Response(null, { status: 405 });
+			const text = await request.text();
+			if (text.length > 1_024) return new Response(null, { status: 413 });
+			let body: unknown;
+			try {
+				body = JSON.parse(text);
+			} catch {
+				return new Response(null, { status: 400 });
+			}
+			const notice = parseOutputRevisionNotice(body);
+			if (!notice) return new Response(null, { status: 400 });
+			this.#broadcast({ t: "output", ...notice });
+			return new Response(null, { status: 204 });
+		}
 		if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
 			return new Response("Expected a WebSocket upgrade.\n", {
 				status: 426,

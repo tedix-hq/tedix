@@ -516,6 +516,21 @@ export const OS_WORKSPACES_AUDIT: OsAuditRegistry = {
 		resourceId: ({ output }) => nestedId(output, "output"),
 		metadata: ({ output }) => ({ revision: revisionNumber(output) }),
 	},
+	"outputs.patch": {
+		action: "os.output.patched",
+		resourceType: "os_output",
+		resourceId: ({ output }) => nestedId(output, "output"),
+		metadata: ({ input, output }) => ({
+			revision: revisionNumber(output),
+			operations:
+				input.patch &&
+				typeof input.patch === "object" &&
+				"ops" in input.patch &&
+				Array.isArray(input.patch.ops)
+					? input.patch.ops.length
+					: 0,
+		}),
+	},
 	"outputs.patchDocument": {
 		action: "os.output.document_patched",
 		resourceType: "os_output",

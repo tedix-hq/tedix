@@ -26,7 +26,17 @@ import {
 import type { OsAppDraftContent } from "@tedix/api-contract/schemas/os-workspaces";
 import type { OrganizationDomainSchema } from "@tedix/api-contract/schemas/organization-domains";
 import type * as z from "zod";
-import { documentBlockText } from "@tedix/api-contract/utils/os-document";
+import {
+	blocksFromRichText,
+	documentBlockText,
+	normalizeDocumentContent,
+} from "@tedix/api-contract/utils/os-document";
+import { mergeOutputContent } from "@tedix/api-contract/utils/output-merge";
+import {
+	applyOutputPatch,
+	diffOutputContent,
+	type OutputPatch,
+} from "@tedix/api-contract/utils/output-patch";
 import { osShareTitleSlug } from "@tedix/api-contract/utils/share-slug";
 import { LOCAL_OUTBOUND } from "./outbound-fixture";
 import { decisionGraphFixture } from "./decision-graph-fixture";
@@ -210,6 +220,15 @@ class RpcError extends Error {
 		super(message);
 	}
 }
+
+/** How the plain block copy of a document follows its rich body here. */
+const LOCAL_OUTPUT_PROJECTIONS = { documentBlocks: blocksFromRichText };
+
+/** Stored content as the editors hold it; see the API's `editableStoredContent`. */
+const editableLocalContent = (content: OsOutputContent): OsOutputContent =>
+	content.kind === "document" && !content.file && content.blocks.length
+		? normalizeDocumentContent(content)
+		: content;
 
 const revisionConflict = (
 	expectedRevision: number,
@@ -10664,6 +10683,111 @@ const handlers: Record<string, (input: never) => unknown> = {
 		output.currentRevisionId = revision.id;
 		output.updatedAt = revision.createdAt;
 		return { output, revision };
+	},
+	"osWorkspaces/outputs/patch": (input: {
+		outputId: string;
+		baseRevision: number;
+		patch: OutputPatch;
+		note?: string;
+	}) => {
+		const output = findOutput(input.outputId);
+		const revisions = state.outputRevisions.filter(
+			(row) => row.outputId === output.id,
+		);
+		const current = latestRevision(revisions);
+		const started = revisions.find(
+			(row) => row.revision === input.baseRevision,
+		);
+		if (!current || !started)
+			throw revisionConflict(input.baseRevision, current?.revision ?? null);
+		if (input.patch.kind !== output.kind)
+			throw new RpcError(
+				"BAD_REQUEST",
+				"The patch kind must match the output kind",
+			);
+		const base = editableLocalContent(started.content);
+		const theirs = editableLocalContent(current.content);
+		let mine: OsOutputContent;
+		try {
+			mine = applyOutputPatch(base, input.patch, LOCAL_OUTPUT_PROJECTIONS);
+		} catch (error) {
+			throw new RpcError(
+				"BAD_REQUEST",
+				error instanceof Error ? error.message : "The patch does not fit",
+			);
+		}
+		let next = mine;
+		if (started !== current) {
+			// Someone saved since: changes to different parts both land.
+			const merged = mergeOutputContent(
+				base,
+				mine,
+				theirs,
+				LOCAL_OUTPUT_PROJECTIONS,
+			);
+			if (!merged.ok)
+				throw new RpcError("CONFLICT", "Revision conflict", {
+					expectedRevision: input.baseRevision,
+					currentRevision: current.revision,
+					parts: merged.conflicts,
+				});
+			next = merged.content;
+		}
+		const revision: OsOutputRevision = {
+			id: nextId(),
+			organizationId: ORG_ID,
+			outputId: output.id,
+			revision: current.revision + 1,
+			content: next,
+			note: input.note ?? null,
+			producedBy: null,
+			accessEnvelope: null,
+			createdByKind: "user",
+			createdById: "dev-operator",
+			createdAt: now(),
+		};
+		state.outputRevisions.push(revision);
+		output.currentRevisionId = revision.id;
+		output.updatedAt = revision.createdAt;
+		return {
+			output,
+			revision: {
+				id: revision.id,
+				revision: revision.revision,
+				createdAt: revision.createdAt,
+			},
+			mergedWith: started === current ? null : current.revision,
+			catchUp: diffOutputContent(mine, next),
+		};
+	},
+	"osWorkspaces/outputs/changes": (input: {
+		outputId: string;
+		sinceRevision: number;
+	}) => {
+		const output = findOutput(input.outputId);
+		const revisions = state.outputRevisions.filter(
+			(row) => row.outputId === output.id,
+		);
+		const current = latestRevision(revisions);
+		if (!current) throw new RpcError("NOT_FOUND", "OS output not found");
+		const answer = {
+			output,
+			revision: {
+				id: current.id,
+				revision: current.revision,
+				createdAt: current.createdAt,
+			},
+		};
+		if (input.sinceRevision >= current.revision)
+			return { ...answer, patch: null };
+		const since = revisions.find((row) => row.revision === input.sinceRevision);
+		const content = editableLocalContent(current.content);
+		if (!since || since.content.kind !== content.kind)
+			return { ...answer, patch: null, content };
+		return {
+			...answer,
+			patch: diffOutputContent(editableLocalContent(since.content), content),
+		};
 	},
 	"osWorkspaces/outputs/setSheetRange": (input: {
 		outputId: string;

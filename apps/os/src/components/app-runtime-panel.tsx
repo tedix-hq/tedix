@@ -5,12 +5,21 @@ import type {
 } from "@tedix/api-contract/schemas/os-workspaces";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { lazy, Suspense, useCallback, useEffect, useMemo } from "react";
+import {
+	lazy,
+	Suspense,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { osApi, osAppRuntimeCall } from "@/lib/api";
 import { createAppRuntimeServerCall } from "@/lib/app-runtime-session";
 import { exportAppRuntimeOutput } from "@/lib/app-runtime-export";
 import { replaceAppRuntimeOutput } from "@/lib/app-runtime-output";
 import { isWorkspaceAccessDenied } from "@/lib/workspace-verification";
+import { subscribeOutputRevisionNotices } from "@/lib/output-revision-notices";
 import { usePresentationAppearance } from "@/lib/presentation-appearance";
 import { AppRuntimeFrame } from "@/components/app-runtime-frame";
 import {
@@ -65,8 +74,15 @@ function roleFromOpen(
 	return opened.isOwner ? "owner" : opened.role;
 }
 
-/** How often an open app re-checks its files for someone else's save. */
-const OUTPUT_RECHECK_MS = 4_000;
+/**
+ * After a changed-only save, the workspace's file lists are refreshed at most
+ * this often. An editor saves several times a second while someone types;
+ * the lists only show that the file changed.
+ */
+const LIST_REFRESH_AFTER_SAVE_MS = 5_000;
+
+/** The newest saved revision of a file this tab has heard of. */
+type KnownRevision = { revisionId: string; revision: number };
 export function AppRuntimePreview({
 	workspaceId,
 	gadget,
@@ -206,9 +222,29 @@ export function AppRuntimeSandbox({
 			enabled: role !== null && role !== "viewer",
 		})),
 	});
+	// The newest revision of each bound file this tab has heard of: from a
+	// change notice, from its own save, or from a re-check after reconnecting.
+	// The file's content is not read again for any of them; the app fetches
+	// only what changed.
+	const [noticed, setNoticed] = useState<Record<string, KnownRevision>>({});
+	// When each was heard, so an older copy of the file list is not mistaken
+	// for news.
+	const noticedAt = useRef<Record<string, number>>({});
+	const notice = useCallback((outputId: string, next: KnownRevision) => {
+		noticedAt.current[outputId] = Date.now();
+		setNoticed((current) =>
+			(current[outputId]?.revision ?? 0) >= next.revision
+				? current
+				: { ...current, [outputId]: next },
+		);
+	}, []);
+	const boundIds = boundOutputs
+		.map((resource) => resource.providerResourceId)
+		.join(",");
 	const outputRevisions = outputReads.flatMap((read, index) => {
 		const resource = boundOutputs[index];
 		const current = read.data?.currentRevision;
+		const heard = resource ? noticed[resource.providerResourceId] : undefined;
 		return role !== null &&
 			role !== "viewer" &&
 			resource?.slot &&
@@ -219,42 +255,80 @@ export function AppRuntimeSandbox({
 					{
 						slot: resource.slot,
 						outputId: resource.providerResourceId,
-						revisionId: current.id,
-						revision: current.revision,
+						...(heard && heard.revision > current.revision
+							? heard
+							: { revisionId: current.id, revision: current.revision }),
 					},
 				]
 			: [];
 	});
-	// Nothing pushes another person's save to this tab. While the tab is
-	// visible, re-check the workspace's file list (revision ids, no file
-	// bodies) and refresh a bound file whose revision moved; that refresh
-	// sends the app its outputs-changed notice.
+	const knownRevisions = useRef<Record<string, KnownRevision>>({});
+	knownRevisions.current = Object.fromEntries(
+		outputRevisions.map((row) => [
+			row.outputId,
+			{ revisionId: row.revisionId, revision: row.revision },
+		]),
+	);
+	// Someone else's save is pushed to this tab through the workspace's live
+	// room. The list of files (revision ids, no bodies) is read again only when
+	// that connection comes back, because notices sent meanwhile are gone.
 	const outputList = useQuery({
 		...canvasOutputsQueryOptions(workspaceId),
 		enabled: boundOutputs.length > 0 && role !== null && role !== "viewer",
-		refetchInterval: OUTPUT_RECHECK_MS,
 	});
-	const staleOutputIds = (outputList.data?.items ?? [])
+	const refetchOutputList = outputList.refetch;
+	useEffect(() => {
+		if (!boundIds || role === null || role === "viewer") return;
+		const bound = new Set(boundIds.split(","));
+		return subscribeOutputRevisionNotices(workspaceId, (event) => {
+			if (event.type === "resync") void refetchOutputList();
+			else if (bound.has(event.outputId))
+				notice(event.outputId, {
+					revisionId: event.revisionId,
+					revision: event.revision,
+				});
+		});
+	}, [boundIds, notice, refetchOutputList, role, workspaceId]);
+	// A re-read list that names a revision this tab has not heard of: ask
+	// which revision that is. The answer is a few bytes, not the file.
+	const listReadAt = outputList.dataUpdatedAt;
+	const movedOutputIds = (outputList.data?.items ?? [])
 		.filter((item) => {
-			const index = boundOutputs.findIndex(
-				(resource) => resource.providerResourceId === item.id,
-			);
-			const current = outputReads[index]?.data?.currentRevision;
+			const known = outputRevisions.find((row) => row.outputId === item.id);
 			return (
-				index >= 0 &&
-				current &&
+				known &&
 				item.currentRevisionId &&
-				item.currentRevisionId !== current.id
+				item.currentRevisionId !== known.revisionId &&
+				listReadAt > (noticedAt.current[item.id] ?? 0)
 			);
 		})
-		.map((item) => item.id)
+		.map((item) => `${item.id}:${item.currentRevisionId}`)
 		.join(",");
 	useEffect(() => {
-		for (const outputId of staleOutputIds.split(",").filter(Boolean))
-			void queryClient.invalidateQueries({
-				queryKey: outputDetailQueryOptions(outputId).queryKey,
-			});
-	}, [staleOutputIds, queryClient]);
+		let active = true;
+		for (const entry of movedOutputIds.split(",").filter(Boolean)) {
+			const [outputId, revisionId] = entry.split(":") as [string, string];
+			const known = knownRevisions.current[outputId];
+			if (!known || known.revisionId === revisionId) continue;
+			void osApi.osWorkspaces.outputs
+				.changes({ outputId, sinceRevision: known.revision })
+				.then(({ revision }) => {
+					if (active)
+						notice(outputId, {
+							revisionId: revision.id,
+							revision: revision.revision,
+						});
+				})
+				.catch(() => undefined);
+		}
+		return () => {
+			active = false;
+		};
+	}, [movedOutputIds, notice]);
+	const listRefresh = useRef<ReturnType<typeof setTimeout> | undefined>(
+		undefined,
+	);
+	useEffect(() => () => clearTimeout(listRefresh.current), []);
 
 	const onCall = useCallback(
 		(method: unknown, args: unknown) =>
@@ -264,6 +338,36 @@ export function AppRuntimeSandbox({
 					callServer,
 					exportOutput: exportAppRuntimeOutput,
 					replaceOutput: replaceAppRuntimeOutput,
+					patchOutput: async (input) => {
+						const saved = await osApi.osWorkspaces.outputs.patch({
+							outputId: input.outputId,
+							expectedWorkspaceId: input.workspaceId,
+							baseRevision: input.baseRevision,
+							patch: input.patch,
+							note: "Saved from workspace app",
+						});
+						// This tab's own save is not news to it.
+						notice(input.outputId, {
+							revisionId: saved.revision.id,
+							revision: saved.revision.revision,
+						});
+						return saved;
+					},
+					readOutputChanges: async (input) => {
+						const changes = await osApi.osWorkspaces.outputs.changes({
+							outputId: input.outputId,
+							sinceRevision: input.sinceRevision,
+						});
+						if (changes.output.workspaceId !== input.workspaceId)
+							throw new Error(
+								"This file moved to another workspace. Reopen it before continuing.",
+							);
+						notice(input.outputId, {
+							revisionId: changes.revision.id,
+							revision: changes.revision.revision,
+						});
+						return changes;
+					},
 					uploadOutputImage: async (input) =>
 						(await osApi.osWorkspaces.outputs.uploadImage(input)).reference,
 					readOutputImage: async (input) =>
@@ -272,10 +376,29 @@ export function AppRuntimeSandbox({
 					operations: manifest.operations,
 					appRevisionId: revisionId,
 					drafts: appDrafts ?? undefined,
-					onWrite: () => {
+					onWrite: (patchedOutputId) => {
+						if (!patchedOutputId)
+							return void queryClient.invalidateQueries({
+								queryKey: osQueryKeys.outputs(),
+							});
+						// A changed-only save: the open file is not read again. Its
+						// cached copy is marked old for whoever opens it next, and the
+						// lists that show files catch up shortly, not on every save.
+						const detailKey = JSON.stringify(
+							outputDetailQueryOptions(patchedOutputId).queryKey,
+						);
 						void queryClient.invalidateQueries({
-							queryKey: osQueryKeys.outputs(),
+							queryKey: outputDetailQueryOptions(patchedOutputId).queryKey,
+							refetchType: "none",
 						});
+						listRefresh.current ??= setTimeout(() => {
+							listRefresh.current = undefined;
+							void queryClient.invalidateQueries({
+								queryKey: osQueryKeys.outputs(),
+								predicate: (query) =>
+									JSON.stringify(query.queryKey) !== detailKey,
+							});
+						}, LIST_REFRESH_AFTER_SAVE_MS);
 					},
 					resources: resourceRows ?? [],
 					readOutput: async (outputId) => {
@@ -289,18 +412,35 @@ export function AppRuntimeSandbox({
 							);
 						return detail.currentRevision.content;
 					},
-					readOutputRevision: async (outputId) => {
+					readOutputRevision: async (outputId, revision) => {
 						const detail = await queryClient.fetchQuery({
 							...outputDetailQueryOptions(outputId),
-							staleTime: 0,
+							// An earlier revision is read on its own; the file's
+							// name and place come from the copy already held.
+							...(revision === undefined ? { staleTime: 0 } : {}),
 						});
 						if (detail.output.workspaceId !== workspaceId)
 							throw new Error(
 								"This file moved to another workspace. Reopen it before continuing.",
 							);
+						if (revision === undefined)
+							return {
+								output: detail.output,
+								revision: withEditableRichText(detail.currentRevision),
+							};
+						const earlier = (
+							await osApi.osWorkspaces.outputs.history({ outputId, revision })
+						).revisions.find((row) => row.revision === revision);
+						if (!earlier?.content)
+							throw new Error(
+								"The version your unsaved changes were made from is no longer available.",
+							);
 						return {
 							output: detail.output,
-							revision: withEditableRichText(detail.currentRevision),
+							revision: withEditableRichText({
+								...earlier,
+								content: earlier.content,
+							}),
 						};
 					},
 				},
@@ -316,6 +456,7 @@ export function AppRuntimeSandbox({
 			revisionId,
 			appDrafts,
 			workspaceId,
+			notice,
 		],
 	);
 	const html = useMemo(() => buildAppRuntimeDocument(files), [files]);

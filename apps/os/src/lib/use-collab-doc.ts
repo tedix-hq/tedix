@@ -21,6 +21,8 @@
  *   round trip after the last keystroke.
  */
 
+import type { WorkspaceOutputRevisionNotice } from "@tedix/api-contract/utils/workspace-room";
+import { publishOutputRevisionNotice } from "@/lib/output-revision-notices";
 import { useCallback, useEffect, useState } from "react";
 import {
 	type CodeChange,
@@ -238,6 +240,8 @@ export function collabSocketUrl(
 type SessionHandlers = {
 	onStatus(status: CollabDocStatus): void;
 	onParticipants(participants: CollabParticipant[]): void;
+	/** A file of this workspace has a new saved revision (workspace room only). */
+	onOutputRevision?(notice: WorkspaceOutputRevisionNotice): void;
 	onBlocked(blocked: OtBlockedState | null): void;
 	onDirty(unsynced: boolean): void;
 	onUnacknowledged(unacknowledged: boolean): void;
@@ -838,6 +842,9 @@ class CollabSession implements OtEditSession {
 			case "row":
 				this.#deliverRows?.([frame.row]);
 				return;
+			case "output":
+				this.handlers.onOutputRevision?.(frame);
+				return;
 			case "canonical":
 				// A peer moved the room's grounding. Every socket is told, so no peer
 				// keeps pinning its commits to a revision the room has left behind.
@@ -1055,6 +1062,17 @@ export function useCollabDoc(input: UseCollabDocInput): UseCollabDocResult {
 			{
 				onStatus: guard(setStatus),
 				onParticipants: guard(setParticipants),
+				...(scope === "workspace"
+					? {
+							onOutputRevision: guard((notice: WorkspaceOutputRevisionNotice) =>
+								publishOutputRevisionNotice({
+									type: "revision",
+									workspaceId: scopeId,
+									...notice,
+								}),
+							),
+						}
+					: {}),
 				onBlocked: guard(setBlocked),
 				onDirty: guard(setUnsynced),
 				onUnacknowledged: guard(setUnacknowledged),

@@ -138,7 +138,7 @@ describe("Sheet blueprint", () => {
 		]);
 		expect(definition.gadgets[0]!.manifest.config).toEqual({
 			version: 1,
-			settings: { slot: "budget", blueprintVersion: 13 },
+			settings: { slot: "budget", blueprintVersion: 14 },
 		});
 		const operations = definition.gadgets[0]!.manifest.operations!;
 		expect(
@@ -256,11 +256,14 @@ describe("Sheet blueprint", () => {
 		);
 		for (const method of [
 			"sheet.evaluate",
-			"outputs.replace",
+			"outputs.patch",
+			"outputs.changes",
 			"app.download",
 			"app.exportOutput",
 		])
 			expect(SHEET_CLIENT_SOURCE).toContain(method);
+		// The editor sends only what changed, never the whole workbook.
+		expect(SHEET_CLIENT_SOURCE).not.toContain("outputs.replace");
 		expect(SHEET_CLIENT_SOURCE).not.toContain("URL.createObjectURL");
 	});
 });

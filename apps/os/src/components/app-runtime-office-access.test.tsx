@@ -8,6 +8,7 @@ import {
 	useAppRuntimeDrafts,
 } from "./app-runtime-draft-store";
 import type { AppRuntimeDraft } from "@/lib/app-runtime-host";
+import { publishOutputRevisionNotice } from "@/lib/output-revision-notices";
 import {
 	canvasOutputsQueryOptions,
 	workspaceResourcesQueryOptions,
@@ -18,14 +19,19 @@ import {
 const lifecycle = vi.hoisted(() => ({
 	mounts: 0,
 	onCall: null as null | ((method: unknown, args: unknown) => Promise<unknown>),
+	// What the frame would tell the app about its files' saved revisions.
+	outputRevisions: [] as unknown[],
 }));
 vi.mock("./app-runtime-frame", () => ({
 	AppRuntimeFrame: ({
 		onCall,
+		outputRevisions,
 	}: {
 		onCall: (method: unknown, args: unknown) => Promise<unknown>;
+		outputRevisions: unknown[];
 	}) => {
 		lifecycle.onCall = onCall;
+		lifecycle.outputRevisions = outputRevisions;
 		useEffect(() => {
 			lifecycle.mounts++;
 		}, []);
@@ -138,6 +144,7 @@ function setup(read: string) {
 		client,
 		host,
 		listKey,
+		gadgetId,
 		outputId,
 		workspaceId,
 		outputKey,
@@ -157,23 +164,189 @@ async function settle(change: () => void) {
 describe.each(["readDocument", "readSheet", "readPresentation"])(
 	"%s source and role boundaries",
 	(read) => {
-		it("refreshes the bound file when the workspace list shows someone else's newer save", async () => {
+		it("tells the app of someone else's save from a pushed notice, without reading the file or polling", async () => {
 			const view = setup(read);
-			const invalidate = vi
-				.spyOn(view.client, "invalidateQueries")
-				.mockResolvedValue(undefined);
+			const noticed = (revisionId: string, revision: number) => [
+				{ slot: "file", outputId: view.outputId, revisionId, revision },
+			];
+			expect(lifecycle.outputRevisions).toEqual(noticed("revision", 7));
+			const fetched = vi.spyOn(view.client, "fetchQuery");
+			const invalidate = vi.spyOn(view.client, "invalidateQueries");
+			const pushed = "44444444-4444-4444-8444-444444444444";
+			await settle(() =>
+				publishOutputRevisionNotice({
+					type: "revision",
+					workspaceId: view.workspaceId,
+					outputId: view.outputId,
+					revisionId: pushed,
+					revision: 8,
+				}),
+			);
+			expect(lifecycle.outputRevisions).toEqual(noticed(pushed, 8));
+			// The app fetches what changed itself; the host reads nothing.
+			expect(fetched).not.toHaveBeenCalled();
+			expect(invalidate).not.toHaveBeenCalled();
+			// An older or repeated notice changes nothing; another workspace's
+			// and another file's notices are not this app's.
+			for (const notice of [
+				{ workspaceId: view.workspaceId, outputId: view.outputId, revision: 6 },
+				{ workspaceId: view.workspaceId, outputId: view.gadgetId, revision: 9 },
+				{ workspaceId: view.gadgetId, outputId: view.outputId, revision: 9 },
+			])
+				await settle(() =>
+					publishOutputRevisionNotice({
+						type: "revision",
+						revisionId: "55555555-5555-4555-8555-555555555555",
+						...notice,
+					}),
+				);
+			expect(lifecycle.outputRevisions).toEqual(noticed(pushed, 8));
+			// Nothing re-checks the file list on a timer.
+			for (const query of view.client.getQueryCache().getAll())
+				for (const observer of query.observers)
+					expect(observer.options.refetchInterval ?? false).toBe(false);
+		});
+		it("asks only which revision a file is at when a re-read list names one it has not heard of", async () => {
+			const view = setup(read);
+			const newer = "66666666-6666-4666-8666-666666666666";
+			const requests: string[] = [];
+			vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+				const url = String(input instanceof Request ? input.url : input);
+				requests.push(url);
+				return new Response(
+					JSON.stringify({
+						json: {
+							output: {
+								id: view.outputId,
+								organizationId: "org",
+								workspaceId: view.workspaceId,
+								kind: "document",
+								title: "File",
+								status: "active",
+								currentRevisionId: newer,
+								createdByKind: "user",
+								createdById: "user",
+								createdAt: "2026-11-11T00:00:00.000Z",
+								updatedAt: "2026-11-11T00:00:00.000Z",
+							},
+							revision: {
+								id: newer,
+								revision: 9,
+								createdAt: "2026-11-11T00:00:00.000Z",
+							},
+							patch: null,
+						},
+					}),
+					{ headers: { "content-type": "application/json" } },
+				);
+			});
+			// The live connection came back and the list was read again.
 			await settle(() =>
 				view.client.setQueryData<unknown>(view.listKey, {
 					items: [
 						{
 							id: view.outputId,
 							workspaceId: view.workspaceId,
-							currentRevisionId: "newer",
+							currentRevisionId: newer,
 						},
 					],
 				}),
 			);
-			expect(invalidate).toHaveBeenCalledWith({ queryKey: view.outputKey });
+			await vi.waitFor(() =>
+				expect(lifecycle.outputRevisions).toEqual([
+					{
+						slot: "file",
+						outputId: view.outputId,
+						revisionId: newer,
+						revision: 9,
+					},
+				]),
+			);
+			expect(requests).toHaveLength(1);
+			expect(requests[0]).toContain("/osWorkspaces/outputs/changes");
+			// The file's cached copy was not thrown away for a full re-read.
+			expect(view.client.getQueryData(view.outputKey)).toBe(view.detail);
+		});
+		it("saves by patch through the host and does not read the open file again", async () => {
+			const view = setup(read);
+			const saved = "77777777-7777-4777-8777-777777777777";
+			const bodies: unknown[] = [];
+			vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+				const request = input instanceof Request ? input : null;
+				bodies.push(
+					JSON.parse(String(request ? await request.text() : init?.body)),
+				);
+				return new Response(
+					JSON.stringify({
+						json: {
+							output: {
+								id: view.outputId,
+								organizationId: "org",
+								workspaceId: view.workspaceId,
+								kind: "document",
+								title: "File",
+								status: "active",
+								currentRevisionId: saved,
+								createdByKind: "user",
+								createdById: "user",
+								createdAt: "2026-11-11T00:00:00.000Z",
+								updatedAt: "2026-11-11T00:00:00.000Z",
+							},
+							revision: {
+								id: saved,
+								revision: 8,
+								createdAt: "2026-11-11T00:00:00.000Z",
+							},
+							mergedWith: null,
+							catchUp: null,
+						},
+					}),
+					{ headers: { "content-type": "application/json" } },
+				);
+			});
+			const fetched = vi.spyOn(view.client, "fetchQuery");
+			const patch = {
+				kind: "document",
+				ops: [{ op: "set", path: ["blocks"], value: [] }],
+			};
+			let answer: unknown;
+			await settle(() => {
+				void lifecycle.onCall!("outputs.patch", {
+					slot: "file",
+					baseRevision: 7,
+					patch,
+				}).then((value) => {
+					answer = value;
+				});
+			});
+			await vi.waitFor(() => expect(answer).toMatchObject({ ok: true }));
+			expect(bodies).toEqual([
+				{
+					json: {
+						outputId: view.outputId,
+						expectedWorkspaceId: view.workspaceId,
+						baseRevision: 7,
+						patch,
+						note: "Saved from workspace app",
+					},
+				},
+			]);
+			// The app is told its own revision, and the file is not fetched.
+			await vi.waitFor(() =>
+				expect(lifecycle.outputRevisions).toEqual([
+					{
+						slot: "file",
+						outputId: view.outputId,
+						revisionId: saved,
+						revision: 8,
+					},
+				]),
+			);
+			expect(fetched).not.toHaveBeenCalled();
+			expect(view.client.getQueryData(view.outputKey)).toBe(view.detail);
+			expect(view.client.getQueryState(view.outputKey)?.isInvalidated).toBe(
+				true,
+			);
 		});
 		it("suspends a temporary source failure while retaining the scoped draft for an authorized retry", async () => {
 			const view = setup(read);

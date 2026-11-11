@@ -959,6 +959,18 @@ const CALLS = {
 		expectedRevision: 1,
 		note: "unit test edit",
 	},
+	"osWorkspaces/outputs/patch": {
+		outputId: IDS.outputSheet,
+		baseRevision: 1,
+		patch: {
+			kind: "sheet",
+			ops: [{ op: "set", path: ["columns"], value: ["Renamed"] }],
+		},
+	},
+	"osWorkspaces/outputs/changes": {
+		outputId: IDS.outputSheet,
+		sinceRevision: 1,
+	},
 	"osWorkspaces/outputs/setSheetRange": {
 		outputId: IDS.outputSheet,
 		startRow: 0,

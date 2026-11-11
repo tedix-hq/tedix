@@ -23,6 +23,10 @@ import {
 	OsOutputExportFormatSchema,
 	type OsOutputExportFormat,
 } from "@tedix/api-contract/schemas/os-workspaces";
+import {
+	OsOutputContentPatchSchema,
+	type OsOutputContentPatch,
+} from "@tedix/api-contract/schemas/os-output-patch";
 import { evaluateWorkbook } from "./workbook-formulas";
 import { richTextFromBlocks } from "@tedix/api-contract/utils/os-document";
 import { normalizeSheetContent, projectWorkbook } from "./output-models";
@@ -95,13 +99,35 @@ export interface AppRuntimeHostDeps {
 	 * rows (a share-link guest): the server resolves the slot itself.
 	 */
 	readSlot?: (slot: string) => Promise<OsOutputContent>;
-	/** The bound Output and its current revision, read without a server round trip. */
+	/**
+	 * The bound Output with its current revision, or with the numbered one an
+	 * editor made unsaved changes against.
+	 */
 	readOutputRevision?: (
 		outputId: string,
+		revision?: number,
 	) => Promise<{ output: unknown; revision: unknown }>;
+	/**
+	 * Save only the changed parts of the bound Output, as a patch against the
+	 * revision they were made from. Resolves to the new revision and what the
+	 * stored content has beyond what was sent.
+	 */
+	patchOutput?: (input: {
+		workspaceId: string;
+		outputId: string;
+		baseRevision: number;
+		patch: OsOutputContentPatch;
+	}) => Promise<unknown>;
+	/** What changed in the bound Output since a revision the app holds. */
+	readOutputChanges?: (input: {
+		workspaceId: string;
+		outputId: string;
+		sinceRevision: number;
+	}) => Promise<unknown>;
 	callServer?: (method: string, args: JsonValue[]) => Promise<JsonValue>;
 	operations?: OsGadgetManifest["operations"];
-	onWrite?: () => void;
+	/** Something was written; `patchedOutputId` names a file saved by patch. */
+	onWrite?: (patchedOutputId?: string) => void;
 	appRevisionId?: string;
 	drafts?: Map<string, AppRuntimeDraft>;
 	replaceOutput?: (input: {
@@ -315,6 +341,105 @@ export async function handleAppRuntimeCall(
 			deps.onWrite?.();
 			return { ok: true, value };
 		}
+		case "outputs.patch": {
+			if (
+				!isRecord(args) ||
+				typeof args.slot !== "string" ||
+				!Number.isInteger(args.baseRevision) ||
+				Number(args.baseRevision) < 1
+			)
+				return { ok: false, error: "bad_arguments" };
+			if (tooLarge(args.patch)) return { ok: false, error: "too_large" };
+			const patch = OsOutputContentPatchSchema.safeParse(args.patch);
+			if (!patch.success) return { ok: false, error: "bad_arguments" };
+			// Whoever may replace a file's whole body may also change part of it.
+			const slot = args.slot;
+			const permission = (["outputs.patch", "outputs.write"] as const)
+				.map((operation) =>
+					appRuntimePermission({
+						role: context.role,
+						operation,
+						grants: context.grants,
+						slot,
+					}),
+				)
+				.sort((a, b) => Number(b.allowed) - Number(a.allowed))[0]!;
+			if (!permission.allowed)
+				return { ok: false, error: "not_permitted", detail: permission.reason };
+			const outputId = outputIdForSlot(
+				deps.resources.filter((row) => row.workspaceId === context.workspaceId),
+				slot,
+			);
+			if (!outputId) return { ok: false, error: "slot_unbound" };
+			if (!deps.patchOutput) return { ok: false, error: "host_unavailable" };
+			let value: unknown;
+			try {
+				value = await deps.patchOutput({
+					workspaceId: context.workspaceId,
+					outputId,
+					baseRevision: Number(args.baseRevision),
+					patch: patch.data,
+				});
+			} catch (error) {
+				if (
+					isRecord(error) &&
+					error.code === "CONFLICT" &&
+					isRecord(error.data) &&
+					Number.isSafeInteger(error.data.currentRevision)
+				) {
+					const parts = Array.isArray(error.data.parts)
+						? error.data.parts.filter((part) => typeof part === "string")
+						: [];
+					return {
+						ok: false,
+						error: "revision_conflict",
+						detail: `A newer revision (${error.data.currentRevision}) has been saved. Your changes have not replaced it${parts.length ? `: both changed ${parts.slice(0, 5).join(", ")}` : ""}`,
+					};
+				}
+				// The server refused the change itself: sending it again cannot work.
+				if (
+					isRecord(error) &&
+					error.code === "BAD_REQUEST" &&
+					typeof error.message === "string"
+				)
+					return { ok: false, error: "bad_arguments", detail: error.message };
+				throw error;
+			}
+			deps.onWrite?.(outputId);
+			return { ok: true, value };
+		}
+		case "outputs.changes": {
+			if (
+				!isRecord(args) ||
+				typeof args.slot !== "string" ||
+				!Number.isInteger(args.sinceRevision) ||
+				Number(args.sinceRevision) < 1
+			)
+				return { ok: false, error: "bad_arguments" };
+			const permission = appRuntimePermission({
+				role: context.role,
+				operation: "outputs.read",
+				grants: context.grants,
+				slot: args.slot,
+			});
+			if (!permission.allowed)
+				return { ok: false, error: "not_permitted", detail: permission.reason };
+			const outputId = outputIdForSlot(
+				deps.resources.filter((row) => row.workspaceId === context.workspaceId),
+				args.slot,
+			);
+			if (!outputId) return { ok: false, error: "slot_unbound" };
+			if (!deps.readOutputChanges)
+				return { ok: false, error: "host_unavailable" };
+			return {
+				ok: true,
+				value: await deps.readOutputChanges({
+					workspaceId: context.workspaceId,
+					outputId,
+					sinceRevision: Number(args.sinceRevision),
+				}),
+			};
+		}
 		case "app.exportOutput": {
 			const format = OsOutputExportFormatSchema.safeParse(
 				isRecord(args) ? args.format : null,
@@ -513,7 +638,18 @@ export async function handleAppRuntimeCall(
 				args.slot,
 			);
 			if (!outputId) return { ok: false, error: "slot_unbound" };
-			return { ok: true, value: await deps.readOutputRevision(outputId) };
+			if (
+				args.revision !== undefined &&
+				(!Number.isInteger(args.revision) || Number(args.revision) < 1)
+			)
+				return { ok: false, error: "bad_arguments", detail: "revision" };
+			return {
+				ok: true,
+				value: await deps.readOutputRevision(
+					outputId,
+					args.revision === undefined ? undefined : Number(args.revision),
+				),
+			};
 		}
 		case "app.call": {
 			const permission = appRuntimePermission({

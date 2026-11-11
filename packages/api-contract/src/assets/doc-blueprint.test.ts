@@ -71,7 +71,7 @@ function runtime(content: Document = { kind: "document", blocks: [] }) {
 describe("Doc blueprint", () => {
 	it("pins a self-contained version-4 client with a checked digest and complete code under the runtime limit", () => {
 		const files = buildDocBlueprint().gadgets[0]!.files!;
-		expect(DOC_BLUEPRINT_VERSION).toBe(16);
+		expect(DOC_BLUEPRINT_VERSION).toBe(17);
 		expect(createHash("sha256").update(DOC_CLIENT_SOURCE).digest("hex")).toBe(
 			DOC_CLIENT_SHA256,
 		);
@@ -97,7 +97,7 @@ describe("Doc blueprint", () => {
 			settings: {
 				slot: "project_doc",
 				editor: "document-v4",
-				blueprintVersion: 16,
+				blueprintVersion: 17,
 			},
 		});
 		expect(gadget.manifest.resourceGrants).toEqual([

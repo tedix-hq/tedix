@@ -109,6 +109,8 @@ export function resetUntrustedCredentialAddresses(): void {
  */
 const FILE_EDITING_PATHS = new Set([
 	"/rpc/osWorkspaces/outputs/revise",
+	"/rpc/osWorkspaces/outputs/patch",
+	"/rpc/osWorkspaces/outputs/changes",
 	"/rpc/osWorkspaces/outputs/uploadImage",
 	"/rpc/osWorkspaces/outputs/image",
 ]);

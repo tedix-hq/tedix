@@ -25,6 +25,7 @@
  * an exception that would tear the room down.
  */
 
+import type { WorkspaceOutputRevisionNotice } from "@tedix/api-contract/utils/workspace-room";
 import type { CodeContent } from "./ot/code-change";
 import {
 	type CodeChangeRow,
@@ -138,6 +139,10 @@ export type CollabClientFrame =
  * - `canonicalResult` answers a `canonical` offer; `canonical` is the broadcast
  *   that tells EVERY socket the room's grounding moved, so no peer keeps
  *   pinning its commits to a revision the room has left behind.
+ * - `output` tells the members of a workspace's room that one of its files
+ *   has a new saved revision. The API posts it after storing the revision; it
+ *   names the file and the revision only, and a tab showing that file fetches
+ *   what changed under its own access check.
  * - `error` reports a request that could not be served at all.
  */
 export type CollabServerFrame =
@@ -161,6 +166,7 @@ export type CollabServerFrame =
 	| { t: "result"; id: number; result: CodeChangeSubmitResult }
 	| { t: "row"; row: CodeChangeRow }
 	| { t: "presence"; peers: [number, unknown][] }
+	| ({ t: "output" } & WorkspaceOutputRevisionNotice)
 	| { t: "error"; id: number | null; message: string };
 
 export function encodeFrame(
@@ -342,6 +348,10 @@ export function parseServerFrame(data: string): CollabServerFrame | null {
 			}
 			return { t: "presence", peers };
 		}
+		case "output": {
+			const notice = parseOutputRevisionNotice(input);
+			return notice ? { t: "output", ...notice } : null;
+		}
 		case "error": {
 			const id = input.id === null ? null : requestId(input.id);
 			return typeof input.message === "string"
@@ -351,6 +361,27 @@ export function parseServerFrame(data: string): CollabServerFrame | null {
 		default:
 			return null;
 	}
+}
+
+/** A change notice's fields, or null when any is missing or malformed. */
+export function parseOutputRevisionNotice(
+	input: unknown,
+): WorkspaceOutputRevisionNotice | null {
+	const value = record(input);
+	const id = /^[0-9a-f-]{36}$/i;
+	return value &&
+		typeof value.outputId === "string" &&
+		id.test(value.outputId) &&
+		typeof value.revisionId === "string" &&
+		id.test(value.revisionId) &&
+		Number.isSafeInteger(value.revision) &&
+		Number(value.revision) > 0
+		? {
+				outputId: value.outputId,
+				revisionId: value.revisionId,
+				revision: Number(value.revision),
+			}
+		: null;
 }
 
 const CANONICAL_OUTCOMES: ReadonlySet<string> = new Set<CollabCanonicalOutcome>(

@@ -928,6 +928,18 @@ behavior across editors and tools. That complexity is not justified for the
 current bounded sheets. On `CONFLICT`, read the latest revision, check that the
 target cells still have the expected values, and retry the range once.
 
+The built-in Doc, Sheet and Slides editors save a different way, and an app
+that edits a file while a person has it open can do the same. From the browser,
+`await tedix.call("outputs.patch", { slot, baseRevision, patch })` sends only
+the parts that changed since the revision the app read: one paragraph, one
+slide element, one cell. The slot needs `outputs.patch` or `outputs.write`.
+Two saves made from the same revision both land when they changed different
+parts. When both changed the same part, the call fails with `revision_conflict`
+and nothing is saved. `await tedix.call("outputs.changes", { slot,
+sinceRevision })` returns only what changed since a revision, so an open app
+catches up without reading the whole file again. Outside the browser the same
+save is `patch_os_output`; its description lists the patch operations.
+
 ### Run app methods after an interaction, schedule, webhook or skill result
 
 An app method can also run without anyone clicking. List the triggers in

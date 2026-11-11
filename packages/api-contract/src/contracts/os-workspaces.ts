@@ -1,4 +1,5 @@
 import { OS_SHEET_MAX_COLUMNS } from "../utils/os-output-limits";
+import { OsOutputContentPatchSchema } from "../schemas/os-output-patch";
 import "@orpc/openapi/extensions/route";
 import { oc } from "@orpc/contract";
 import * as z from "zod";
@@ -50,6 +51,7 @@ import {
 	OsCollaborationProposalStatusSchema,
 	OsCollaborationSourceKindSchema,
 	OsOutputContentInputSchema,
+	OsOutputContentSchema,
 	OsOutputExportFormatSchema,
 	OsOutputImageInputSchema,
 	OsOutputImageResultSchema,
@@ -123,6 +125,32 @@ const revisionConflictErrors = {
 			),
 	},
 } as const;
+
+/** A patch save that touched parts someone else changed since its base. */
+const patchConflictErrors = {
+	CONFLICT: {
+		message: "Revision conflict",
+		data: z
+			.object({
+				expectedRevision: z.number().int(),
+				currentRevision: z.number().int().nullable(),
+				parts: z
+					.array(z.string())
+					.optional()
+					.describe(
+						"The parts both sides changed, as paths such as /deck/slides/slide-2/elements/title/text or /workbook/sheets/sheet-1/rows/4/2/input",
+					),
+			})
+			.optional(),
+	},
+} as const;
+
+/** One stored revision named without its content. */
+const OsOutputRevisionRefSchema = z.object({
+	id: z.string().uuid(),
+	revision: z.number().int().positive(),
+	createdAt: z.string(),
+});
 
 const listLimitSchema = z.number().int().min(1).max(200).default(50);
 
@@ -1546,6 +1574,82 @@ export const osWorkspacesContract = oc
 					z.object({
 						output: OsOutputSchema,
 						revision: OsOutputRevisionSchema,
+					}),
+				),
+			patch: oc
+				.errors(patchConflictErrors)
+				.route({
+					method: "POST",
+					path: "/outputs/{outputId}/patch",
+					summary: "Save only the changed parts of a Tedix OS output",
+					description:
+						'Saves a change to a document, sheet or presentation by sending only the parts that changed, as operations against the revision the caller edited (baseRevision). Parts are addressed by path: a property name, `{id}` for a list item that carries an id (a slide, a slide element, a sheet tab, a column), or a position for sheet rows and cells, e.g. ["workbook","sheets",{"id":"sheet-1"},"rows",4,2]. `set` writes a part, `unset` removes a property, `arrange` reorders, adds to or removes from an id list, and `splice` replaces runs of a document\'s top-level blocks (richText.content) or of sheet rows. When newer revisions exist, the server applies the patch to the base and merges the result with the current revision: changes to different blocks, slides, slide elements or cells all land, and the save succeeds without a conflict. Changes to the same part fail as typed CONFLICT whose data.parts names them; nothing is stored then. Every successful save stores a whole new revision, so version history is unchanged. The answer carries the new revision\'s number and, as catchUp, only what the stored content has beyond what the caller sent (someone else\'s merged changes, or images the server moved out of the content): apply it to the content you sent to hold exactly what is stored. The plain copies next to a rich body (blocks, the flat sheet columns/rows, the slide outline) are rebuilt by the server and are never sent. To replace a whole body use revise; for outline-level edits by description use patchDocument or patchSlides.',
+				})
+				.input(
+					outputIdInput.extend({
+						baseRevision: z
+							.number()
+							.int()
+							.positive()
+							.describe(
+								"The revision number the patch was made against: the one the caller read and edited",
+							),
+						patch: OsOutputContentPatchSchema,
+						expectedWorkspaceId: z
+							.uuid()
+							.optional()
+							.describe(
+								"Require this output to remain in the bound workspace while saving.",
+							),
+						note: z
+							.string()
+							.max(2_000)
+							.optional()
+							.describe("Optional revision message describing the edit"),
+					}),
+				)
+				.output(
+					z.object({
+						output: OsOutputSchema,
+						revision: OsOutputRevisionRefSchema,
+						mergedWith: z
+							.number()
+							.int()
+							.positive()
+							.nullable()
+							.describe(
+								"The newer revision this save was merged with; null when the base was still current",
+							),
+						catchUp: OsOutputContentPatchSchema.nullable().describe(
+							"What the stored content has beyond the content the caller sent, as a patch against that content; null when they are the same",
+						),
+					}),
+				),
+			changes: oc
+				.route({
+					method: "GET",
+					path: "/outputs/{outputId}/changes",
+					summary: "Read what changed in a Tedix OS output since a revision",
+					description:
+						"Returns only what changed between a revision the caller already holds (sinceRevision) and the current one, as a patch against the content of sinceRevision, with the current revision's number and id. patch is null when nothing differs. When the earlier revision can no longer be read, the answer carries the whole current content instead. Source access is checked for the current revision as in get.",
+				})
+				.input(
+					outputIdInput.extend({
+						sinceRevision: z.coerce
+							.number()
+							.int()
+							.positive()
+							.describe("The revision number the caller holds"),
+					}),
+				)
+				.output(
+					z.object({
+						output: OsOutputSchema,
+						revision: OsOutputRevisionRefSchema,
+						patch: OsOutputContentPatchSchema.nullable(),
+						content: OsOutputContentSchema.optional().describe(
+							"The whole current content, only when a patch from sinceRevision cannot be made",
+						),
 					}),
 				),
 			patchDocument: oc

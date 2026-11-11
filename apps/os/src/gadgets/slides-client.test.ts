@@ -3,6 +3,14 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { SLIDES_CLIENT_SOURCE } from "@tedix/api-contract/assets/slides-blueprint";
 import { mountSlidesClient, type SlidesClientBridge } from "./slides-client";
 import { projectDeck, type PresentationContent } from "./slides-engine";
+import {
+	applyOutputPatch,
+	diffOutputContent,
+	type OutputPatch,
+} from "@tedix/api-contract/utils/output-patch";
+import { projectPresentationDeck } from "@tedix/api-contract/utils/presentation-patch";
+
+const projections = { presentationSlides: projectPresentationDeck };
 
 const workspaceId = "11111111-1111-4111-8111-111111111111",
 	outputId = "22222222-2222-4222-8222-222222222222";
@@ -140,10 +148,15 @@ function fixture(role = "owner", write = true) {
 			},
 		],
 	});
-	const result = () => ({
-		output: { id: outputId, workspaceId, title: "Launch canvas" },
-		revision: { revision, content: structuredClone(content) },
-	});
+	// What the server holds at each revision a client has read or saved.
+	const stored = new Map<number, PresentationContent>();
+	const result = () => {
+		stored.set(revision, content);
+		return {
+			output: { id: outputId, workspaceId, title: "Launch canvas" },
+			revision: { revision, content: structuredClone(content) },
+		};
+	};
 	const call = vi.fn(
 		async (method: string, args?: unknown): Promise<unknown> => {
 			const input = args as {
@@ -151,6 +164,9 @@ function fixture(role = "owner", write = true) {
 				content: PresentationContent;
 				revision: number;
 				expectedRevision: number;
+				baseRevision: number;
+				sinceRevision: number;
+				patch: OutputPatch;
 				method: string;
 			};
 			if (method === "context")
@@ -184,17 +200,38 @@ function fixture(role = "owner", write = true) {
 			}
 			if (method === "app.call" && input.method === "readPresentation")
 				return result();
-			if (method === "outputs.replace") {
+			if (method === "outputs.patch") {
 				if (failures-- > 0) throw new Error("Network unreachable");
-				if (input.slot !== "slides" || input.expectedRevision !== revision)
-					throw new Error("Revision conflict");
-				const parsed = OsOutputContentSchema.parse(input.content);
+				if (input.slot !== "slides" || input.baseRevision !== revision)
+					throw Object.assign(new Error("Revision conflict"), {
+						code: "revision_conflict",
+					});
+				// Only the changed parts arrive; the server applies them to its copy.
+				const sent = applyOutputPatch(content, input.patch, projections);
+				const parsed = OsOutputContentSchema.parse(sent);
 				if (parsed.kind !== "presentation")
 					throw new Error("Wrong content kind");
 				content = parsed;
 				revision++;
-				return result();
+				stored.set(revision, content);
+				return {
+					output: result().output,
+					revision: { revision },
+					mergedWith: null,
+					catchUp: diffOutputContent(sent, parsed),
+				};
 			}
+			if (method === "outputs.changes") {
+				const since = stored.get(input.sinceRevision);
+				return {
+					output: result().output,
+					revision: { revision },
+					patch: since ? diffOutputContent(since, content) : null,
+					...(since ? {} : { content: structuredClone(content) }),
+				};
+			}
+			if (method === "outputs.replace")
+				throw new Error("The editor must not send the whole presentation");
 			if (method === "app.exportOutput") {
 				if (input.expectedRevision !== revision)
 					throw new Error("Export revision conflict");
@@ -228,7 +265,11 @@ function fixture(role = "owner", write = true) {
 			failures = count;
 		},
 		saves: () =>
-			call.mock.calls.filter(([method]) => method === "outputs.replace").length,
+			call.mock.calls.filter(([method]) => method === "outputs.patch").length,
+		patches: () =>
+			call.mock.calls
+				.filter(([method]) => method === "outputs.patch")
+				.map(([, args]) => (args as { patch: OutputPatch }).patch),
 		draftWrites: () =>
 			call.mock.calls.filter(([method]) => method === "app.draft.write").length,
 		seedDraft(basis: number, text: string) {
@@ -466,12 +507,12 @@ describe("portable Slides canvas", () => {
 		const answer = api.call.getMockImplementation()!;
 		let refuse = true;
 		api.call.mockImplementation(async (method, args) => {
-			if (method === "outputs.replace" && refuse)
+			if (method === "outputs.patch" && refuse)
 				throw Object.assign(new Error("too_large"), { code: "too_large" });
 			return answer(method, args);
 		});
 		const attempts = () =>
-			api.call.mock.calls.filter(([method]) => method === "outputs.replace")
+			api.call.mock.calls.filter(([method]) => method === "outputs.patch")
 				.length;
 		clickElement();
 		format();
@@ -502,12 +543,13 @@ describe("portable Slides canvas", () => {
 		clickElement();
 		format();
 		change("Text", "Flaky network");
-		await vi.advanceTimersByTimeAsync(1600);
+		await vi.advanceTimersByTimeAsync(230);
 		expect(status()).toContain("saving will try again");
 		expect(
 			document.querySelector<HTMLElement>(".slides-save")!.dataset.state,
 		).toBe("failed");
-		await vi.advanceTimersByTimeAsync(10_000);
+		// Retries follow after 40 ms, then 80 ms.
+		await vi.advanceTimersByTimeAsync(200);
 		expect(api.result().revision.content.slides[0]?.title).toBe(
 			"Flaky network",
 		);
@@ -520,12 +562,46 @@ describe("portable Slides canvas", () => {
 		clickElement();
 		format();
 		change("Text", "First edit");
-		await vi.advanceTimersByTimeAsync(1000);
+		await vi.advanceTimersByTimeAsync(150);
 		change("Font size", "50");
-		await vi.advanceTimersByTimeAsync(1400);
-		expect(api.saves()).toBe(0);
+		// 220 ms after the last edit, not after the first.
 		await vi.advanceTimersByTimeAsync(200);
+		expect(api.saves()).toBe(0);
+		await vi.advanceTimersByTimeAsync(30);
 		expect(api.saves()).toBe(1);
+		// Only the two changed properties of one element travelled.
+		expect(api.patches()).toEqual([
+			{
+				kind: "presentation",
+				ops: [
+					{
+						op: "set",
+						path: [
+							"deck",
+							"slides",
+							{ id: "slide-1" },
+							"elements",
+							{ id: "title-1" },
+							"text",
+						],
+						value: "First edit",
+					},
+					{
+						op: "set",
+						path: [
+							"deck",
+							"slides",
+							{ id: "slide-1" },
+							"elements",
+							{ id: "title-1" },
+							"style",
+							"fontSize",
+						],
+						value: 50,
+					},
+				],
+			},
+		]);
 		expect(status()).toBe("");
 		expect(
 			api.result().revision.content.deck!.slides[0]!.elements[0],
@@ -542,11 +618,37 @@ describe("portable Slides canvas", () => {
 		vi.useFakeTimers();
 		const api = await mount();
 		clickElement();
-		for (let index = 0; index < 6; index++) {
+		// An edit every 200 ms never leaves a 220 ms pause; the save still
+		// goes out 1.2 s after the first of them.
+		for (let index = 0; index < 5; index++) {
 			key(stage(), { key: "ArrowRight" });
-			await vi.advanceTimersByTimeAsync(1000);
+			await vi.advanceTimersByTimeAsync(200);
 		}
+		expect(api.saves()).toBe(0);
+		key(stage(), { key: "ArrowRight" });
+		await vi.advanceTimersByTimeAsync(200);
 		expect(api.saves()).toBe(1);
+	});
+	it("holds a save while a drag is under way and sends it when the drag ends", async () => {
+		vi.useFakeTimers();
+		const api = await mount();
+		fullSizeStage();
+		clickElement();
+		format();
+		change("Text", "Before the drag");
+		// The pointer goes down before the pause that would have saved.
+		await vi.advanceTimersByTimeAsync(100);
+		press("title-1", 100, 80);
+		move(160, 120);
+		await vi.advanceTimersByTimeAsync(3000);
+		expect(api.saves()).toBe(0);
+		release();
+		await vi.advanceTimersByTimeAsync(230);
+		// The text and the move travel in one save.
+		expect(api.saves()).toBe(1);
+		expect(
+			api.result().revision.content.deck!.slides[0]!.elements[0],
+		).toMatchObject({ text: "Before the drag" });
 	});
 	it("keeps trying after a failed save and says so in plain words", async () => {
 		vi.useFakeTimers();
@@ -555,12 +657,17 @@ describe("portable Slides canvas", () => {
 		clickElement();
 		format();
 		change("Text", "Survives a failure");
-		await vi.advanceTimersByTimeAsync(1600);
+		await vi.advanceTimersByTimeAsync(230);
 		expect(status()).toContain("not saved yet");
 		expect(api.draft()?.content.deck!.slides[0]!.elements[0]!.text).toBe(
 			"Survives a failure",
 		);
-		await vi.advanceTimersByTimeAsync(2100);
+		// The first retry follows 40 ms after the failure, not sooner.
+		expect(api.saves()).toBe(1);
+		await vi.advanceTimersByTimeAsync(20);
+		expect(api.saves()).toBe(1);
+		await vi.advanceTimersByTimeAsync(30);
+		expect(api.saves()).toBe(2);
 		expect(api.result().revision.content.slides[0]?.title).toBe(
 			"Survives a failure",
 		);
@@ -646,8 +753,8 @@ describe("portable Slides canvas", () => {
 		});
 		expect(next.slides[0]!.elements[1]).toEqual(before.slides[0]!.elements[1]);
 		expect(api.call).toHaveBeenCalledWith(
-			"outputs.replace",
-			expect.objectContaining({ slot: "slides", expectedRevision: 3 }),
+			"outputs.patch",
+			expect.objectContaining({ slot: "slides", baseRevision: 3 }),
 		);
 	});
 	it("drags and resizes in slide coordinates with one draft and one undo step per gesture", async () => {
@@ -879,8 +986,8 @@ describe("portable Slides canvas", () => {
 			api.result().revision.content.deck!.slides[0]!.elements.at(-1),
 		).toMatchObject({ type: "image", src: reference, style: { fit: "cover" } });
 		expect(api.call).toHaveBeenCalledWith(
-			"outputs.replace",
-			expect.objectContaining({ slot: "slides", expectedRevision: 3 }),
+			"outputs.patch",
+			expect.objectContaining({ slot: "slides", baseRevision: 3 }),
 		);
 		// The picture itself travels once, in the upload.
 		expect(
@@ -962,8 +1069,8 @@ describe("portable Slides canvas", () => {
 		);
 		expect(updates.textContent).toBe("");
 		expect(api.call).toHaveBeenCalledWith(
-			"outputs.replace",
-			expect.objectContaining({ expectedRevision: 4 }),
+			"outputs.patch",
+			expect.objectContaining({ baseRevision: 4 }),
 		);
 	});
 	it("merges someone else's save into unsaved notes and saves both", async () => {
