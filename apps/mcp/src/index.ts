@@ -1,4 +1,8 @@
 import { buildWwwAuthenticate } from "@tedix/mcp-shared/auth";
+import {
+	apiWorkspaceLookup,
+	resolveWorkspaceRouteAccess,
+} from "./workspace-route-access";
 import { purgeAggregateSurfaceCaches } from "./aggregate-surface-cache";
 /**
  * Tedix MCP Worker
@@ -1599,10 +1603,37 @@ const worker = {
 				}
 				const tediId = request.headers.get("x-tedix-auth-tedi-id");
 				const userId = request.headers.get("x-tedix-auth-user-id");
+				const workspaceId = decodeURIComponent(workspaceMatch[1] ?? "");
+				// Passing the app's gates is not access to every workspace in the
+				// organization: a private one is only its owner's.
+				const access = await resolveWorkspaceRouteAccess(
+					apiWorkspaceLookup(env, workspaceId),
+					{
+						organizationId: app.organizationId,
+						workspaceId,
+						authType: request.headers.get("x-tedix-auth-type"),
+						tediId,
+						userId,
+						bearerToken:
+							request.headers
+								.get("Authorization")
+								?.match(/^Bearer\s+(.+)$/i)?.[1] ?? null,
+						scopes: (request.headers.get("x-tedix-auth-scopes") ?? "")
+							.split(/\s+/)
+							.filter(Boolean),
+					},
+				);
+				if (access !== "allow")
+					return Response.json(
+						access === "deny"
+							? { error: "workspace_not_found" }
+							: { error: "workspace_access_unavailable" },
+						{ status: access === "deny" ? 404 : 503 },
+					);
 				const headers = new Headers({
 					"content-type": "application/json",
 					"X-Workspace-Org": app.organizationId,
-					"X-Workspace-Id": decodeURIComponent(workspaceMatch[1] ?? ""),
+					"X-Workspace-Id": workspaceId,
 					"X-Workspace-Actor-Id": tediId ?? userId ?? `app:${app.id}`,
 					"X-Workspace-Actor-Kind": tediId
 						? "tedi"

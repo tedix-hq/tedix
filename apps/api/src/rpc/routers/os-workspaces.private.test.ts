@@ -376,6 +376,40 @@ describe("private OS workspaces", () => {
 		},
 	);
 
+	// The MCP gateway asks exactly this before forwarding `/mcp/workspaces/{id}`.
+	it("shows the gateway's access check shared workspaces only, unless a tedi is named", async () => {
+		const env = createEnv();
+		const { workspace, team } = await seed(env);
+		const gateway = (tediId?: string) =>
+			createRouterClient(osWorkspacesContractRouter, {
+				context: {
+					db: createDbClient(env.DB),
+					env,
+					organizationId: "org-1",
+					url: new URL(
+						"https://api.tedix.test/rpc/osWorkspaces/workspaces/get",
+					),
+					headers: new Headers({
+						"X-Service-Binding": "true",
+						"X-Tedix-Tedi-Scopes": "apps:read",
+						...(tediId ? { "X-Tedix-Tedi-Id": tediId } : {}),
+					}),
+				} as BaseContext,
+			});
+		await expect(
+			gateway().workspaces.get({ workspaceId: team.id }),
+		).resolves.toMatchObject({ workspace: { id: team.id } });
+		await expect(
+			gateway().workspaces.get({ workspaceId: workspace.id }),
+		).rejects.toMatchObject(notFound);
+		await expect(
+			gateway("kai-primary").workspaces.get({ workspaceId: workspace.id }),
+		).rejects.toMatchObject(notFound);
+		await expect(
+			gateway("robin-primary").workspaces.get({ workspaceId: workspace.id }),
+		).resolves.toMatchObject({ workspace: { id: workspace.id } });
+	});
+
 	it("cannot be reached with an organization API key", async () => {
 		const env = createEnv();
 		const { workspace, output } = await seed(env);
