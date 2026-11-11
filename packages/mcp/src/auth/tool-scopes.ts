@@ -120,6 +120,8 @@ const RPC_ENDPOINT_CAPABILITY_SCOPES: Record<string, string> = {
 	"osWorkspaces/outputs/uploadImage": "mcp:apps.write",
 	"osWorkspaces/outputs/create": "mcp:apps.write",
 	"osWorkspaces/outputs/revise": "mcp:apps.write",
+	"osWorkspaces/outputs/patch": "mcp:apps.write",
+	"osWorkspaces/outputs/changes": "mcp:apps.read",
 	"osWorkspaces/outputs/patchDocument": "mcp:apps.write",
 	"osWorkspaces/outputs/setSheetRange": "mcp:apps.write",
 	"osWorkspaces/outputs/patchSlides": "mcp:apps.write",

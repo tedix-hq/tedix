@@ -785,3 +785,218 @@ describe("app runtime host", () => {
 		},
 	);
 });
+
+describe("changed-only saves through the host", () => {
+	const patch = {
+		kind: "sheet",
+		ops: [
+			{
+				op: "set",
+				path: ["workbook", "sheets", { id: "one" }, "rows", 4, 2],
+				value: { input: "x", value: "x" },
+			},
+		],
+	};
+	const host = (
+		role: AppRuntimeContext["role"],
+		operations: string[],
+		extra: Partial<AppRuntimeHostDeps> = {},
+	) => {
+		const base = deps(role);
+		base.context.grants = [{ slot: "opportunities", operations }];
+		return { ...base, ...extra } as AppRuntimeHostDeps;
+	};
+	const saved = {
+		output: { id: outputId },
+		revision: { id: "r5", revision: 5 },
+		mergedWith: null,
+		catchUp: null,
+	};
+
+	it("sends the patch and its base revision, and names the saved file to the host", async () => {
+		const patchOutput = vi.fn(async () => saved);
+		const onWrite = vi.fn();
+		const args = { slot: "opportunities", baseRevision: 4, patch };
+		// A grant to replace the whole body also covers changing part of it.
+		for (const operations of [
+			["outputs.read", "outputs.patch"],
+			["outputs.read", "outputs.write"],
+		]) {
+			patchOutput.mockClear();
+			onWrite.mockClear();
+			expect(
+				await handleAppRuntimeCall(
+					host("build", operations, { patchOutput, onWrite }),
+					"outputs.patch",
+					args,
+				),
+			).toEqual({ ok: true, value: saved });
+			expect(patchOutput).toHaveBeenCalledWith({
+				workspaceId: resource.workspaceId,
+				outputId,
+				baseRevision: 4,
+				patch,
+			});
+			expect(onWrite).toHaveBeenCalledWith(outputId);
+		}
+	});
+
+	it("refuses a patch from a role or grant that may not write, and malformed patches, before any call", async () => {
+		const patchOutput = vi.fn(async () => saved);
+		const args = { slot: "opportunities", baseRevision: 4, patch };
+		expect(
+			await handleAppRuntimeCall(
+				host("use", ["outputs.read", "outputs.write", "outputs.patch"], {
+					patchOutput,
+				}),
+				"outputs.patch",
+				args,
+			),
+		).toMatchObject({ ok: false, error: "not_permitted" });
+		expect(
+			await handleAppRuntimeCall(
+				host("owner", ["outputs.read"], { patchOutput }),
+				"outputs.patch",
+				args,
+			),
+		).toMatchObject({ ok: false, error: "not_permitted" });
+		const owner = host("owner", ["outputs.read", "outputs.write"], {
+			patchOutput,
+		});
+		for (const bad of [
+			{ ...args, baseRevision: 0 },
+			{ ...args, patch: { kind: "sheet", ops: [] } },
+			{ ...args, patch: { kind: "video", ops: patch.ops } },
+			{
+				...args,
+				patch: { kind: "sheet", ops: [{ op: "move", path: ["rows"] }] },
+			},
+			{ ...args, slot: 7 },
+		])
+			expect(
+				await handleAppRuntimeCall(owner, "outputs.patch", bad),
+			).toMatchObject({ ok: false, error: "bad_arguments" });
+		expect(
+			await handleAppRuntimeCall(owner, "outputs.patch", {
+				...args,
+				slot: "elsewhere",
+			}),
+		).toMatchObject({ ok: false, error: "not_permitted" });
+		expect(
+			await handleAppRuntimeCall(
+				host("owner", ["outputs.read", "outputs.write"]),
+				"outputs.patch",
+				args,
+			),
+		).toEqual({ ok: false, error: "host_unavailable" });
+		expect(patchOutput).not.toHaveBeenCalled();
+	});
+
+	it("reports an overlapping change as a conflict that names the parts, and a refused change as lasting", async () => {
+		const args = { slot: "opportunities", baseRevision: 4, patch };
+		const failing = (error: unknown) =>
+			host("owner", ["outputs.read", "outputs.patch"], {
+				patchOutput: vi.fn(async () => {
+					throw error;
+				}),
+			});
+		expect(
+			await handleAppRuntimeCall(
+				failing({
+					code: "CONFLICT",
+					data: {
+						expectedRevision: 4,
+						currentRevision: 6,
+						parts: ["/workbook/sheets/one/rows/4/2/input"],
+					},
+				}),
+				"outputs.patch",
+				args,
+			),
+		).toEqual({
+			ok: false,
+			error: "revision_conflict",
+			detail:
+				"A newer revision (6) has been saved. Your changes have not replaced it: both changed /workbook/sheets/one/rows/4/2/input",
+		});
+		expect(
+			await handleAppRuntimeCall(
+				failing({ code: "BAD_REQUEST", message: "The change does not fit" }),
+				"outputs.patch",
+				args,
+			),
+		).toEqual({
+			ok: false,
+			error: "bad_arguments",
+			detail: "The change does not fit",
+		});
+		await expect(
+			handleAppRuntimeCall(
+				failing(new Error("network")),
+				"outputs.patch",
+				args,
+			),
+		).rejects.toThrow("network");
+	});
+
+	it("reads what changed since a revision, and an earlier revision, for a role that may read", async () => {
+		const readOutputChanges = vi.fn(async () => ({
+			output: { id: outputId },
+			revision: { id: "r6", revision: 6 },
+			patch,
+		}));
+		const readOutputRevision = vi.fn(async () => ({
+			output: { id: outputId },
+			revision: { revision: 3 },
+		}));
+		const reader = host("use", ["outputs.read"], {
+			readOutputChanges,
+			readOutputRevision,
+		});
+		expect(
+			await handleAppRuntimeCall(reader, "outputs.changes", {
+				slot: "opportunities",
+				sinceRevision: 4,
+			}),
+		).toMatchObject({ ok: true, value: { revision: { revision: 6 }, patch } });
+		expect(readOutputChanges).toHaveBeenCalledWith({
+			workspaceId: resource.workspaceId,
+			outputId,
+			sinceRevision: 4,
+		});
+		expect(
+			await handleAppRuntimeCall(reader, "outputs.readRevision", {
+				slot: "opportunities",
+				revision: 3,
+			}),
+		).toMatchObject({ ok: true });
+		expect(readOutputRevision).toHaveBeenLastCalledWith(outputId, 3);
+		await handleAppRuntimeCall(reader, "outputs.readRevision", {
+			slot: "opportunities",
+		});
+		expect(readOutputRevision).toHaveBeenLastCalledWith(outputId, undefined);
+		for (const [method, bad] of [
+			["outputs.changes", { slot: "opportunities", sinceRevision: 0 }],
+			["outputs.changes", { slot: "opportunities" }],
+			["outputs.readRevision", { slot: "opportunities", revision: 1.5 }],
+		] as const)
+			expect(await handleAppRuntimeCall(reader, method, bad)).toMatchObject({
+				ok: false,
+				error: "bad_arguments",
+			});
+		expect(
+			await handleAppRuntimeCall(
+				host("viewer", ["outputs.read"], { readOutputChanges }),
+				"outputs.changes",
+				{ slot: "opportunities", sinceRevision: 4 },
+			),
+		).toMatchObject({ ok: false, error: "not_permitted" });
+		expect(
+			await handleAppRuntimeCall(
+				host("use", ["outputs.read"]),
+				"outputs.changes",
+				{ slot: "opportunities", sinceRevision: 4 },
+			),
+		).toEqual({ ok: false, error: "host_unavailable" });
+	});
+});

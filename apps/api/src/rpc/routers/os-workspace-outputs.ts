@@ -6,8 +6,14 @@ import {
 import { applyDocumentBlockPatch } from "@tedix/api-contract/utils/document-patch";
 import {
 	blocksFromRichText,
+	normalizeDocumentContent,
 	normalizeOsOutputInput,
 } from "@tedix/api-contract/utils/os-document";
+import {
+	applyOutputPatch,
+	diffOutputContent,
+	OutputPatchError,
+} from "@tedix/api-contract/utils/output-patch";
 import { applySheetRange } from "@tedix/api-contract/utils/sheet-range";
 import { mergeOutputContent } from "@tedix/api-contract/utils/output-merge";
 import { getSkillRun } from "@tedix/db/queries/skill-runs";
@@ -18,7 +24,7 @@ import {
 import type { PresentationAppearance } from "@tedix/api-contract/utils/presentation-style";
 import { findKernelRuntimeRunForOutputRevision } from "@tedix/db/queries/kernel-runtime-runs";
 import { resolveKernelConversationAccess } from "../../kernel/conversation-access";
-import { implement } from "@orpc/server";
+import { implement, ORPCError } from "@orpc/server";
 import { osWorkspacesContract } from "@tedix/api-contract/contracts/os-workspaces";
 import {
 	type OsOutput,
@@ -753,6 +759,181 @@ async function persistEditedOutputRevision(
 	};
 }
 
+/** How the plain copies next to a rich body are rebuilt after a patch or merge. */
+const OUTPUT_PROJECTIONS = {
+	documentBlocks: blocksFromRichText,
+	presentationSlides: projectPresentationDeck,
+};
+
+/**
+ * Stored content as the editors hold it. A document written before the rich
+ * editor carries only blocks; its rich body is derived here exactly as the
+ * editor's host derives it, so a patch made in the editor fits.
+ */
+function editableStoredContent(row: OsOutputRevisionRow): OsOutputContent {
+	const content = OsOutputContentSchema.parse(JSON.parse(row.content));
+	return content.kind === "document" && !content.file && content.blocks.length
+		? normalizeDocumentContent(content)
+		: content;
+}
+
+/** Saves that lost the write to a concurrent save are applied again this often. */
+const PATCH_WRITE_ATTEMPTS = 3;
+
+const outputsPatch = authorOs.outputs.patch.handler(
+	async ({ input, context }) => {
+		let output = await requireOutput(context, input.outputId);
+		if (
+			input.expectedWorkspaceId !== undefined &&
+			input.expectedWorkspaceId !== output.workspaceId
+		)
+			throw createError(
+				ErrorCodes.CONFLICT,
+				"This file moved to another workspace. Reopen it before saving.",
+			);
+		if (input.patch.kind !== output.kind)
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				`The patch is for a ${input.patch.kind} but the output is a ${output.kind}`,
+			);
+		const creator = resolveCreator(context);
+		const accessEnvelope = await resolveAccessEnvelope(context);
+		const db = queryDb(context);
+		const conflict = (currentRevision: number | null, parts?: string[]) =>
+			new ORPCError("CONFLICT", {
+				message: parts?.length
+					? "Someone else changed the same part of this file"
+					: "Output revision compare-and-swap lost against a concurrent revision write",
+				data: {
+					expectedRevision: input.baseRevision,
+					currentRevision,
+					...(parts?.length ? { parts } : {}),
+				},
+			});
+		let latest: number | null = null;
+		for (let attempt = 0; attempt < PATCH_WRITE_ATTEMPTS; attempt++) {
+			const current = await requireCurrentOutputRevision(context, output);
+			latest = current.revision;
+			if (input.baseRevision > current.revision)
+				throw conflict(current.revision);
+			const theirs = editableStoredContent(current);
+			let base = theirs;
+			if (input.baseRevision < current.revision) {
+				// A merge never moves content out from behind a stricter access
+				// check, and never builds on a revision this caller cannot read.
+				if (current.accessEnvelope !== accessEnvelope)
+					throw conflict(current.revision);
+				const started = await getOsOutputRevisionByNumber(db, {
+					organizationId: output.organizationId,
+					outputId: output.id,
+					revision: input.baseRevision,
+				});
+				if (!started || !(await canReadDerivedRevision(context, started)))
+					throw conflict(current.revision);
+				base = editableStoredContent(started);
+			}
+			let mine: OsOutputContent;
+			try {
+				mine = applyOutputPatch(base, input.patch, OUTPUT_PROJECTIONS);
+			} catch (error) {
+				if (!(error instanceof OutputPatchError)) throw error;
+				throw createError(ErrorCodes.BAD_REQUEST, error.message);
+			}
+			let next = mine;
+			if (base !== theirs) {
+				const merged = mergeOutputContent(
+					base,
+					mine,
+					theirs,
+					OUTPUT_PROJECTIONS,
+				);
+				if (!merged.ok) throw conflict(current.revision, merged.conflicts);
+				next = merged.content;
+			}
+			const checked = OsOutputContentSchema.safeParse(next);
+			if (!checked.success) {
+				const issue = checked.error.issues[0];
+				throw createError(
+					ErrorCodes.BAD_REQUEST,
+					`The change does not fit this file: ${issue?.path.join("/") ?? ""} ${issue?.message ?? "invalid"}`.trim(),
+				);
+			}
+			const result = await createOsOutputRevision(db, {
+				id: crypto.randomUUID(),
+				organizationId: output.organizationId,
+				outputId: output.id,
+				expectedWorkspaceId: input.expectedWorkspaceId,
+				content: JSON.stringify(checked.data),
+				note:
+					base === theirs
+						? (input.note ?? null)
+						: `${input.note ?? "Saved"} · merged with revision ${current.revision}`,
+				createdByKind: creator.kind,
+				createdById: creator.id,
+				...resolveProducer(context),
+				accessEnvelope,
+				expectedRevision: current.revision,
+			});
+			if (result.ok) {
+				const advanced = await getOsOutput(db, {
+					organizationId: output.organizationId,
+					outputId: output.id,
+				});
+				// What is stored beyond what the caller sent: someone else's merged
+				// changes, schema defaults, images moved out of the content.
+				const stored = OsOutputContentSchema.parse(
+					JSON.parse(result.revision.content),
+				);
+				return {
+					output: mapOsOutputRow(advanced ?? output),
+					revision: {
+						id: result.revision.id,
+						revision: result.revision.revision,
+						createdAt: result.revision.createdAt,
+					},
+					mergedWith: base === theirs ? null : current.revision,
+					catchUp: diffOutputContent(mine, stored),
+				};
+			}
+			if (result.reason === "output_not_found")
+				throw createError(ErrorCodes.NOT_FOUND, "OS output not found");
+			// Someone saved between the read and the write: apply the patch again
+			// on top of their revision.
+			output = await requireOutput(context, input.outputId);
+		}
+		throw conflict(latest);
+	},
+);
+
+const outputsChanges = readOs.outputs.changes.handler(
+	async ({ input, context }) => {
+		const output = await requireOutput(context, input.outputId);
+		const current = await requireCurrentOutputRevision(context, output);
+		const answer = {
+			output: mapOsOutputRow(output),
+			revision: {
+				id: current.id,
+				revision: current.revision,
+				createdAt: current.createdAt,
+			},
+		};
+		if (input.sinceRevision >= current.revision)
+			return { ...answer, patch: null };
+		const content = editableStoredContent(current);
+		const started = await getOsOutputRevisionByNumber(queryDb(context), {
+			organizationId: output.organizationId,
+			outputId: output.id,
+			revision: input.sinceRevision,
+		});
+		if (!started || !(await canReadDerivedRevision(context, started)))
+			return { ...answer, patch: null, content };
+		const since = editableStoredContent(started);
+		if (since.kind !== content.kind || content.kind === "video")
+			return { ...answer, patch: null, content };
+		return { ...answer, patch: diffOutputContent(since, content) };
+	},
+);
+
 const outputsPatchSlides = authorOs.outputs.patchSlides.handler(
 	async ({ input, context }) => {
 		const output = await requireOutput(context, input.outputId);
@@ -1274,6 +1455,8 @@ export const osOutputProcedures = {
 	rename: outputsRename,
 	move: outputsMove,
 	revise: outputsRevise,
+	patch: outputsPatch,
+	changes: outputsChanges,
 	patchDocument: outputsPatchDocument,
 	patchSlides: outputsPatchSlides,
 	setSheetRange: outputsSetSheetRange,

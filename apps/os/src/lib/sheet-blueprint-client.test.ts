@@ -1,3 +1,8 @@
+import {
+	applyOutputPatch,
+	diffOutputContent,
+	type OutputPatch,
+} from "@tedix/api-contract/utils/output-patch";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
 	SHEET_CLIENT_SOURCE,
@@ -42,16 +47,25 @@ async function editor(role = "owner", transform?: (sheet: Sheet) => Sheet) {
 	});
 	if (transform) saved = transform(saved);
 	let revision = 1,
-		outputId = "output";
-	const outputsRead = vi.fn(async () => ({
-		output: {
-			id: outputId,
-			title: "Budget",
-			workspaceId: "workspace",
-			kind: "sheet",
-		},
-		revision: { revision, content: structuredClone(saved) },
-	}));
+		outputId = "output",
+		// Saves follow an edit within a quarter second. A test about changes
+		// that were never saved keeps them unsaved by going offline.
+		offline = false;
+	// What the server holds at each revision a client has read or saved.
+	const stored = new Map<number, Sheet>();
+	const output = () => ({
+		id: outputId,
+		title: "Budget",
+		workspaceId: "workspace",
+		kind: "sheet",
+	});
+	const outputsRead = vi.fn(async () => {
+		stored.set(revision, structuredClone(saved));
+		return {
+			output: output(),
+			revision: { revision, content: structuredClone(saved) },
+		};
+	});
 	const outputsWrite = vi.fn(
 		async (
 			_slot: string,
@@ -76,7 +90,16 @@ async function editor(role = "owner", transform?: (sheet: Sheet) => Sheet) {
 	);
 	const drafts = new Map<string, { revision: number; content: Sheet }>();
 	const download = vi.fn();
+	let inFlight = 0;
 	const call = vi.fn(async (method: string, args?: Record<string, unknown>) => {
+		inFlight++;
+		try {
+			return await answer(method, args);
+		} finally {
+			inFlight--;
+		}
+	});
+	const answer = async (method: string, args?: Record<string, unknown>) => {
 		if (method === "context")
 			return {
 				role,
@@ -104,14 +127,52 @@ async function editor(role = "owner", transform?: (sheet: Sheet) => Sheet) {
 			);
 			return null;
 		}
-		if (method === "sheet.evaluate") return calculate(args!.content as Sheet);
-		if (method === "outputs.replace") {
-			await outputsWrite(
-				String(args!.slot),
-				args as { content: Sheet; expectedRevision: number },
-			);
-			return outputsRead();
+		// The real host answers across a frame boundary, so with a copy.
+		if (method === "sheet.evaluate")
+			return calculate(structuredClone(args!.content as Sheet));
+		if (method === "outputs.patch") {
+			if (offline) throw new Error("Network unreachable");
+			// Only the changed parts arrive; the server applies them to its copy.
+			const { baseRevision, patch } = args as {
+				baseRevision: number;
+				patch: OutputPatch;
+			};
+			await outputsWrite(String(args!.slot), {
+				content: applyOutputPatch(saved, patch),
+				expectedRevision: baseRevision,
+			});
+			stored.set(revision, structuredClone(saved));
+			return {
+				output: output(),
+				revision: { revision },
+				mergedWith: null,
+				catchUp: null,
+			};
 		}
+		if (method === "outputs.changes") {
+			// The same access check as a full read.
+			await outputsRead();
+			const since = stored.get(Number(args!.sinceRevision));
+			return {
+				output: output(),
+				revision: { revision },
+				patch: since ? diffOutputContent(since, saved) : null,
+				...(since ? {} : { content: structuredClone(saved) }),
+			};
+		}
+		if (method === "outputs.readRevision" && args?.revision !== undefined) {
+			const content = stored.get(Number(args.revision));
+			if (!content) throw new Error("That version is no longer available");
+			return {
+				output: output(),
+				revision: {
+					revision: Number(args.revision),
+					content: structuredClone(content),
+				},
+			};
+		}
+		if (method === "outputs.replace")
+			throw new Error("The editor must not send the whole sheet");
 		if (method === "app.exportOutput") return null;
 		if (method === "app.download") {
 			download(args);
@@ -120,7 +181,7 @@ async function editor(role = "owner", transform?: (sheet: Sheet) => Sheet) {
 		if (method === "app.call")
 			return app[args!.method as string](...(args!.args as unknown[]));
 		throw new Error("Unknown host operation");
-	});
+	};
 	let mounted = await mountSheetClient(document.getElementById("app")!, {
 		call,
 	} as SheetClientBridge);
@@ -130,6 +191,14 @@ async function editor(role = "owner", transform?: (sheet: Sheet) => Sheet) {
 		drafts,
 		retarget(id: string) {
 			outputId = id;
+		},
+		offline(on: boolean) {
+			offline = on;
+		},
+		/** Wait until the editor has no call to the host in flight. */
+		async settle() {
+			do await new Promise((resolve) => setTimeout(resolve, 5));
+			while (inFlight > 0);
 		},
 		async reopen() {
 			await mounted.dispose();
@@ -274,8 +343,8 @@ describe("Portable Sheet grid", () => {
 		expect(app.saved().workbook!.sheets[0]!.columns[0]!.width).toBe(180);
 		expect(app.saved().workbook!.sheets[1]).toEqual(archive);
 		expect(app.call).toHaveBeenCalledWith(
-			"outputs.replace",
-			expect.objectContaining({ slot: "sheet", expectedRevision: 1 }),
+			"outputs.patch",
+			expect.objectContaining({ slot: "sheet", baseRevision: 1 }),
 		);
 		download("csv");
 		await vi.waitFor(() =>
@@ -673,8 +742,8 @@ describe("Portable Sheet grid", () => {
 		expect(q(".status").textContent).toBe("");
 		await vi.waitFor(() => expect(app.drafts.size).toBe(0));
 		expect(app.call).toHaveBeenCalledWith(
-			"outputs.replace",
-			expect.objectContaining({ slot: "sheet", expectedRevision: 1 }),
+			"outputs.patch",
+			expect.objectContaining({ slot: "sheet", baseRevision: 1 }),
 		);
 	});
 	it("keeps the grid editable during a save, runs one save at a time and sends later edits next", async () => {
@@ -684,7 +753,7 @@ describe("Portable Sheet grid", () => {
 		await vi.waitFor(() => expect(display("C1")).toBe("14"));
 		let finish: (() => void) | undefined;
 		app.call.mockImplementation(async (method, args) => {
-			if (method === "outputs.replace" && !finish)
+			if (method === "outputs.patch" && !finish)
 				await new Promise<void>((resolve) => {
 					finish = resolve;
 				});
@@ -723,16 +792,67 @@ describe("Portable Sheet grid", () => {
 			app.saved().workbook!.sheets[0]!.rows[0]![0]!.format,
 		).toBeUndefined();
 	});
+	it("saves a quarter second after the last edit, within 1.2 s while edits keep coming, and sends only the changed cells", async () => {
+		const app = await editor();
+		const patches = () =>
+			app.call.mock.calls
+				.filter(([method]) => method === "outputs.patch")
+				.map(([, args]) => (args as { patch: OutputPatch }).patch);
+		vi.useFakeTimers();
+		cleanups.unshift(() => vi.useRealTimers());
+		edit("B1", "5");
+		await vi.advanceTimersByTimeAsync(200);
+		expect(patches()).toHaveLength(0);
+		await vi.advanceTimersByTimeAsync(40);
+		expect(patches()).toHaveLength(1);
+		// The edited cell and the total that depends on it; no other cell, no
+		// other tab and none of the sheet's flat copy.
+		const cells = new Set(
+			patches()[0]!.ops.map((op) => JSON.stringify(op.path.slice(0, 6))),
+		);
+		const tab = { id: app.saved().workbook!.sheets[0]!.id };
+		expect(cells).toEqual(
+			new Set(
+				[1, 2].map((column) =>
+					JSON.stringify(["workbook", "sheets", tab, "rows", 0, column]),
+				),
+			),
+		);
+		expect(app.saved().rows[0]).toEqual([1, 5, 6]);
+		// An edit every 200 ms never leaves a 220 ms pause; the save still goes
+		// out 1.2 s after the first of them.
+		for (let index = 0; index < 5; index++) {
+			edit("A2", String(index));
+			await vi.advanceTimersByTimeAsync(200);
+		}
+		expect(patches()).toHaveLength(1);
+		edit("A2", "last");
+		await vi.advanceTimersByTimeAsync(200);
+		expect(patches()).toHaveLength(2);
+		// A failed save that may pass is tried again 40 ms later, then 80 ms.
+		app.offline(true);
+		edit("A3", "retry");
+		await vi.advanceTimersByTimeAsync(230);
+		expect(patches()).toHaveLength(3);
+		await vi.advanceTimersByTimeAsync(20);
+		expect(patches()).toHaveLength(3);
+		await vi.advanceTimersByTimeAsync(25);
+		expect(patches()).toHaveLength(4);
+		app.offline(false);
+		await vi.advanceTimersByTimeAsync(90);
+		expect(patches()).toHaveLength(5);
+		expect(app.saved().workbook!.sheets[0]!.rows[2]![0]!.input).toBe("retry");
+	});
 	it("says once why a file over the limit is not saved and waits for the next change", async () => {
 		const app = await editor();
 		expect(state()).toBe("idle");
 		expect(q(".status").title).toBe("All changes saved");
 		const original = app.call.getMockImplementation()!;
 		const writes = () =>
-			app.call.mock.calls.filter(([method]) => method === "outputs.replace")
+			app.call.mock.calls.filter(([method]) => method === "outputs.patch")
 				.length;
 		app.call.mockImplementation(async (method, args) => {
-			if (method === "outputs.replace")
+			if (method === "outputs.patch")
 				throw Object.assign(new Error("too_large"), { code: "too_large" });
 			return original(method, args);
 		});
@@ -764,7 +884,7 @@ describe("Portable Sheet grid", () => {
 		await vi.waitFor(() => expect(display("C8")).toBe("0"));
 		const original = app.call.getMockImplementation()!;
 		app.call.mockImplementation(async (method, args) => {
-			if (method === "outputs.replace") throw new Error("Content exceeds 1 MB");
+			if (method === "outputs.patch") throw new Error("Content exceeds 1 MB");
 			return original(method, args);
 		});
 		key("s", { ctrlKey: true });
@@ -809,6 +929,7 @@ describe("Portable Sheet grid", () => {
 
 	it("saves finished changes when the editor closes and leaves no draft behind", async () => {
 		const app = await editor();
+		app.offline(true);
 		edit("C1", "=B1*8");
 		select("C1");
 		change("#font-size", "22");
@@ -821,6 +942,8 @@ describe("Portable Sheet grid", () => {
 			),
 		);
 		expect(app.outputsWrite).not.toHaveBeenCalled();
+		app.offline(false);
+		await app.settle();
 		await app.reopen();
 		expect(app.revision()).toBe(2);
 		expect(app.drafts.size).toBe(0);
@@ -843,7 +966,7 @@ describe("Portable Sheet grid", () => {
 		const app = await editor(),
 			original = app.call.getMockImplementation()!;
 		app.call.mockImplementation(async (method, args) => {
-			if (method === "outputs.replace") throw new Error("Network unreachable");
+			if (method === "outputs.patch") throw new Error("Network unreachable");
 			return original(method, args);
 		});
 		edit("A1", "7");
@@ -894,10 +1017,12 @@ describe("Portable Sheet grid", () => {
 	});
 	it("does not silently restore or rebase a draft after a concurrent revision", async () => {
 		const app = await editor();
+		app.offline(true);
 		edit("A1", "7");
 		await vi.waitFor(() => expect(app.drafts.has("output")).toBe(true));
 		app.changeExternal(9);
 		await app.reopen();
+		app.offline(false);
 		expect(display("C1")).toBe("11");
 		expect(q("#updates").textContent).toContain("earlier visit");
 		expect(q<HTMLInputElement>("#formula").disabled).toBe(true);
@@ -914,10 +1039,12 @@ describe("Portable Sheet grid", () => {
 	});
 	it("saves earlier unsaved changes over a newer version only when asked to keep them", async () => {
 		const app = await editor();
+		app.offline(true);
 		edit("A1", "7");
 		await vi.waitFor(() => expect(app.drafts.has("output")).toBe(true));
 		app.changeExternal(9);
 		await app.reopen();
+		app.offline(false);
 		choose("review");
 		await vi.waitFor(() => expect(display("C1")).toBe("9"));
 		choose("mine");
@@ -938,6 +1065,7 @@ describe("Portable Sheet grid", () => {
 	});
 	it("clears stale content and locks writes, copies and exports after source access is denied", async () => {
 		const app = await editor();
+		app.offline(true);
 		edit("A1", "7");
 		await vi.waitFor(() => expect(app.drafts.has("output")).toBe(true));
 		app.outputsRead.mockRejectedValue(
@@ -974,8 +1102,10 @@ describe("Portable Sheet grid", () => {
 			}
 			return original(method, args);
 		});
+		app.offline(true);
 		edit("A1", "7");
 		await vi.waitFor(() => expect(finish).toBeTypeOf("function"));
+		app.offline(false);
 		key("s", { ctrlKey: true });
 		await vi.waitFor(() => expect(app.revision()).toBe(2));
 		finish!();
@@ -987,8 +1117,10 @@ describe("Portable Sheet grid", () => {
 	});
 	it("locks a draft on Save rejection when a fresh read confirms source revocation", async () => {
 		const app = await editor();
+		app.offline(true);
 		edit("A1", "7");
 		await vi.waitFor(() => expect(app.drafts.has("output")).toBe(true));
+		app.offline(false);
 		app.outputsWrite.mockRejectedValue(new Error("FORBIDDEN"));
 		app.outputsRead.mockRejectedValue(
 			new Error("Output source access unavailable"),

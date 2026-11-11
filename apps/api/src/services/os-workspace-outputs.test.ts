@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
@@ -15,6 +15,9 @@ import {
 	createOsOutputRevision,
 	getOsOutputRevision,
 } from "./os-workspace-outputs";
+
+const notices = vi.hoisted(() => ({ notifyOutputRevision: vi.fn() }));
+vi.mock("./os-output-revision-notice", () => notices);
 
 function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
@@ -93,6 +96,12 @@ describe("output body persistence", () => {
 			expect(next.ok).toBe(true);
 			if (!next.ok) throw new Error("append failed");
 			expect(next.revision.content).toBe(content);
+			// Everyone with the file open is told of the new revision, by id.
+			expect(notices.notifyOutputRevision).toHaveBeenLastCalledWith(
+				expect.objectContaining({ db: f.db }),
+				expect.objectContaining({ id: "out-1", organizationId: "org-1" }),
+				{ outputId: "out-1", revisionId: "rev-2", revision: 2 },
+			);
 			expect(f.objects.has(next.revision.bodyR2Key!)).toBe(true);
 			expect(f.revisionCountsAtWrite).toEqual([0, 1]);
 			const metadata = await listOsOutputRevisions(f.db, {

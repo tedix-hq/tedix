@@ -43,6 +43,7 @@ import {
 } from "@tedix/api-contract/utils/output-merge";
 import { iconButton } from "./editor-icons";
 import { lastingSaveFailure } from "../lib/save-failure";
+import { createOutputSync } from "../lib/output-sync";
 import {
 	OS_EDITOR_UNDO_STEPS,
 	OS_SHEET_MAX_COLUMNS,
@@ -71,12 +72,15 @@ const COLUMN_WINDOW_MIN = 64,
 const MAX_ROWS = OS_SHEET_MAX_ROWS,
 	MAX_COLUMNS = OS_SHEET_MAX_COLUMNS,
 	ROWS_TEXT = MAX_ROWS.toLocaleString("en-US");
-const SAVE_PAUSE = 1500,
-	SAVE_CAP = 5000,
+// A save sends only the changed cells, so it follows a short pause in editing
+// and never waits long while someone keeps editing. A failed save that may
+// pass is tried again quickly at first, then less and less often.
+const SAVE_PAUSE = 220,
+	SAVE_CAP = 1200,
 	SAVE_SLOW = 900,
 	SAVED_FLASH = 1600,
-	RETRY_FIRST = 2000,
-	RETRY_CAP = 30000,
+	RETRY_FIRST = 40,
+	RETRY_CAP = 10000,
 	RETAIN_PAUSE = 400,
 	NOTE_TIME = 6000;
 
@@ -311,6 +315,10 @@ export async function mountSheetClient(
 		bridge
 			.call<Saved>("outputs.readRevision", { slot })
 			.catch(() => call("readSheet"));
+	// Saves send only what changed and catching up fetches only what changed.
+	// The slot is known once the host has answered, hence the late start.
+	let sync: ReturnType<typeof createOutputSync<Content, Saved>>;
+	const readLatest = () => sync.latest(readSheet);
 	const evaluate = (content: Content) =>
 		bridge.call<Content>("sheet.evaluate", { content });
 	const sheet = () =>
@@ -526,7 +534,7 @@ export async function mountSheetClient(
 	 */
 	async function verifyAccess() {
 		try {
-			const current = parse(await readSheet());
+			const current = parse(await readLatest());
 			if (current.output.id !== loaded?.output.id)
 				throw new Error("The sheet binding changed");
 			pendingRevision = Math.max(pendingRevision, current.revision.revision);
@@ -2408,7 +2416,7 @@ export async function mountSheetClient(
 		const version = generation;
 		let again = false;
 		try {
-			const latest = parse(await readSheet());
+			const latest = parse(await readLatest());
 			if (latest.output.id !== loaded?.output.id)
 				throw new Error("The sheet binding changed");
 			if (destroyed) return;
@@ -2463,7 +2471,7 @@ export async function mountSheetClient(
 		const version = generation;
 		let again = false;
 		try {
-			const latest = parse(await readSheet());
+			const latest = parse(await readLatest());
 			if (destroyed) return;
 			// Never retry in a loop: the next change notice or save tries again.
 			pendingRevision = 0;
@@ -2551,7 +2559,9 @@ export async function mountSheetClient(
 		controls();
 		restStatus();
 		try {
-			const result = parse(await readSheet());
+			// Opening reads the whole sheet once; everything after is changes only.
+			sync.forget();
+			const result = sync.remember(parse(await readSheet()));
 			if (destroyed) return;
 			loaded = result;
 			choice = 0;
@@ -2624,7 +2634,7 @@ export async function mountSheetClient(
 		busy = true;
 		controls();
 		try {
-			const result = parse(await readSheet());
+			const result = parse(await readLatest());
 			if (result.output.id !== outputId)
 				throw new Error("The sheet binding changed");
 			const content = await evaluate(retained.content);
@@ -2713,13 +2723,7 @@ export async function mountSheetClient(
 		const version = generation;
 		try {
 			const content = await evaluate(structuredClone(draft!));
-			const result = parse(
-				await bridge.call<Saved>("outputs.replace", {
-					slot,
-					content,
-					expectedRevision: basis,
-				}),
-			);
+			const result = parse(await sync.save(content, basis, readSheet));
 			if (destroyed) {
 				// The editor closed mid-save: leave the next visit a clean start, or
 				// exactly what was still unsaved, on top of what was just saved.
@@ -2740,7 +2744,9 @@ export async function mountSheetClient(
 			saveOutcome = "saved";
 			if (version === generation) {
 				dirty = false;
-				adopt(result.revision.content);
+				// The saved copy stays as stored: later saves compare against it,
+				// and edits here change cells in place.
+				adopt(structuredClone(result.revision.content));
 				paintWindow();
 				syncChrome();
 				syncRetainedDraft();
@@ -2918,6 +2924,7 @@ export async function mountSheetClient(
 		}>("context");
 		workspaceId = context.workspaceId;
 		slot = context.settings?.slot ?? "";
+		sync = createOutputSync<Content, Saved>(bridge, slot);
 		canEdit =
 			(context.role === "owner" || context.role === "build") &&
 			context.grants?.some(

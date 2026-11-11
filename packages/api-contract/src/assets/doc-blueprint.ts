@@ -218,8 +218,9 @@ Doc reads and edits the document output bound to its named workspace slot.
 The output owns the content, revision history and source access rules. App
 storage never holds a second copy of the document.
 
-Changes save by themselves shortly after you stop typing; Cmd/Ctrl+S saves
-at once. When someone else saves, their changes appear without interrupting
+Changes save by themselves a moment after you stop typing, and only the
+paragraphs you changed are sent; Cmd/Ctrl+S saves at once. When someone else
+saves, their changes appear without interrupting
 you. If you both changed the same part, Doc asks which version to keep.
 Unsaved changes stay in the workspace panel's memory and are restored after
 an authorized read. Saves use the scoped output capability with an 8 MB limit.

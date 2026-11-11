@@ -56,11 +56,11 @@ sorting and filling; More actions and the right-click menus on cells,
 headings and tabs cover row/column operations, sizing and frozen panes. Workbooks
 can contain up to 32 tabs, each with 50,000 rows and 702 columns (A to ZZ).
 
-Changes save on their own shortly after you stop editing; Ctrl/⌘ S saves at
+Changes save on their own a moment after you stop editing; Ctrl/⌘ S saves at
 once. The generic host calculates formulas with the existing spreadsheet
-engine before each save, which writes the entire canonical workbook,
-including other tabs, formats and formula source, at the revision you
-loaded. The browser write limit is 8 MB of UTF-8 content. A failed save
+engine before each save, which sends only the cells, formats and tab
+properties that changed since the revision you loaded; the saved workbook
+keeps everything else. A workbook holds up to 8 MB of UTF-8 content. A failed save
 keeps your changes and is tried again, unless trying again cannot help (a
 file over the limit, or lost edit access): then Sheet says why and waits for
 your next change. When someone else saves first, their

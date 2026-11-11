@@ -2569,3 +2569,435 @@ describe("output linked images", () => {
 		expect(fetcher).not.toHaveBeenCalled();
 	});
 });
+
+describe("changed-only saves (outputs.patch and outputs.changes)", () => {
+	let c: ReturnType<typeof clients>;
+	beforeEach(() => {
+		c = clients();
+	});
+
+	const element = (id: string, text: string) => ({
+		id,
+		type: "text" as const,
+		x: 0,
+		y: 0,
+		width: 200,
+		height: 60,
+		text,
+	});
+	const slide = (id: string, ...ids: string[]) => ({
+		id,
+		name: id,
+		layout: "blank" as const,
+		background: "#ffffff",
+		elements: ids.map((item) => element(item, item.toUpperCase())),
+	});
+	async function deck() {
+		const { output } = await c.org1.outputs.create({
+			kind: "presentation",
+			title: "Board deck",
+			content: {
+				kind: "presentation",
+				slides: [],
+				deck: {
+					width: 1200,
+					height: 675,
+					activeSlideId: "s1",
+					slides: [slide("s1", "a", "b"), slide("s2", "c")],
+				},
+			},
+		});
+		return output;
+	}
+	const text = (slideId: string, elementId: string, value: string) => ({
+		kind: "presentation" as const,
+		ops: [
+			{
+				op: "set" as const,
+				path: [
+					"deck",
+					"slides",
+					{ id: slideId },
+					"elements",
+					{ id: elementId },
+					"text",
+				],
+				value,
+			},
+		],
+	});
+	const texts = async (outputId: string) => {
+		const { currentRevision } = await c.org1.outputs.get({ outputId });
+		const content = currentRevision.content;
+		if (content.kind !== "presentation") throw new Error("not a deck");
+		return content.deck!.slides.flatMap((row) =>
+			row.elements.map((item) => item.text),
+		);
+	};
+
+	it("stores a whole new revision from only the changed part and returns no content", async () => {
+		const output = await deck();
+		const saved = await c.org1.outputs.patch({
+			outputId: output.id,
+			baseRevision: 1,
+			patch: text("s1", "a", "Edited"),
+			note: "typed",
+		});
+		expect(saved).toMatchObject({
+			revision: { revision: 2 },
+			mergedWith: null,
+			catchUp: null,
+		});
+		expect(saved.output.currentRevisionId).toBe(saved.revision.id);
+		expect(Object.keys(saved.revision).sort()).toEqual([
+			"createdAt",
+			"id",
+			"revision",
+		]);
+		expect(await texts(output.id)).toEqual(["Edited", "B", "C"]);
+		// The slide outline next to the canvas follows it, and history keeps
+		// every version whole.
+		const history = await c.org1.outputs.history({
+			outputId: output.id,
+			revision: 1,
+		});
+		expect(history.revisions[0]?.content).toMatchObject({
+			deck: { slides: [{ elements: [{ text: "A" }, { text: "B" }] }, {}] },
+		});
+		const stored = await createDbClient(c.env.DB)
+			.select()
+			.from(osOutputRevisions)
+			.where(eq(osOutputRevisions.outputId, output.id));
+		expect(stored.map((row) => [row.revision, row.note])).toEqual([
+			[1, null],
+			[2, "typed"],
+		]);
+	});
+
+	it("lets two people's changes to different parts both land from the same base, and tells each what they lack", async () => {
+		const output = await deck();
+		const first = await c.org1.outputs.patch({
+			outputId: output.id,
+			baseRevision: 1,
+			patch: text("s1", "a", "First"),
+		});
+		// The second person still edits revision 1: another element of the
+		// same slide. No conflict.
+		const second = await c.org1.outputs.patch({
+			outputId: output.id,
+			baseRevision: 1,
+			patch: text("s1", "b", "Second"),
+		});
+		expect(second.revision.revision).toBe(3);
+		expect(second.mergedWith).toBe(first.revision.revision);
+		expect(await texts(output.id)).toEqual(["First", "Second", "C"]);
+		// What the second person lacks is the first person's change, no more.
+		expect(second.catchUp).toEqual(text("s1", "a", "First"));
+		// A third, on another slide, from the oldest base.
+		const third = await c.org1.outputs.patch({
+			outputId: output.id,
+			baseRevision: 1,
+			patch: text("s2", "c", "Third"),
+		});
+		expect(third.revision.revision).toBe(4);
+		expect(await texts(output.id)).toEqual(["First", "Second", "Third"]);
+		const rows = await createDbClient(c.env.DB)
+			.select()
+			.from(osOutputRevisions)
+			.where(eq(osOutputRevisions.outputId, output.id));
+		expect(rows.find((row) => row.revision === 3)?.note).toBe(
+			"Saved · merged with revision 2",
+		);
+	});
+
+	it("refuses a change to a part someone else changed since the base, names the part and stores nothing", async () => {
+		const output = await deck();
+		await c.org1.outputs.patch({
+			outputId: output.id,
+			baseRevision: 1,
+			patch: text("s1", "a", "Theirs"),
+		});
+		await expect(
+			c.org1.outputs.patch({
+				outputId: output.id,
+				baseRevision: 1,
+				patch: text("s1", "a", "Mine"),
+			}),
+		).rejects.toMatchObject({
+			code: "CONFLICT",
+			data: {
+				expectedRevision: 1,
+				currentRevision: 2,
+				parts: ["/deck/slides/s1/elements/a/text"],
+			},
+		});
+		expect(await texts(output.id)).toEqual(["Theirs", "B", "C"]);
+		expect(
+			(await c.org1.outputs.get({ outputId: output.id })).currentRevision
+				.revision,
+		).toBe(2);
+		// The same change from the current revision is an ordinary save.
+		await c.org1.outputs.patch({
+			outputId: output.id,
+			baseRevision: 2,
+			patch: text("s1", "a", "Mine"),
+		});
+		expect(await texts(output.id)).toEqual(["Mine", "B", "C"]);
+	});
+
+	it("refuses a base that does not exist, a patch that does not fit and content the schema rejects", async () => {
+		const output = await deck();
+		await expect(
+			c.org1.outputs.patch({
+				outputId: output.id,
+				baseRevision: 9,
+				patch: text("s1", "a", "Early"),
+			}),
+		).rejects.toMatchObject({
+			code: "CONFLICT",
+			data: { expectedRevision: 9, currentRevision: 1 },
+		});
+		await expect(
+			c.org1.outputs.patch({
+				outputId: output.id,
+				baseRevision: 1,
+				patch: text("gone", "a", "Lost"),
+			}),
+		).rejects.toMatchObject({
+			code: "BAD_REQUEST",
+			message: expect.stringContaining("/deck/slides/gone"),
+		});
+		await expect(
+			c.org1.outputs.patch({
+				outputId: output.id,
+				baseRevision: 1,
+				patch: {
+					kind: "presentation",
+					ops: [
+						{
+							op: "set",
+							path: ["deck", "slides", { id: "s1" }, "name"],
+							value: "",
+						},
+					],
+				},
+			}),
+		).rejects.toMatchObject({
+			code: "BAD_REQUEST",
+			message: expect.stringContaining("does not fit this file"),
+		});
+		await expect(
+			c.org1.outputs.patch({
+				outputId: output.id,
+				baseRevision: 1,
+				patch: {
+					kind: "sheet",
+					ops: [{ op: "set", path: ["columns"], value: [] }],
+				},
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		expect(
+			(await c.org1.outputs.get({ outputId: output.id })).currentRevision
+				.revision,
+		).toBe(1);
+	});
+
+	it("keeps another organization out and refuses a file that moved", async () => {
+		const output = await deck();
+		await expect(
+			c.org2.outputs.patch({
+				outputId: output.id,
+				baseRevision: 1,
+				patch: text("s1", "a", "Intruder"),
+			}),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		await expect(
+			c.org2.outputs.changes({ outputId: output.id, sinceRevision: 1 }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		await expect(
+			c.org1.outputs.patch({
+				outputId: output.id,
+				baseRevision: 1,
+				expectedWorkspaceId: "99999999-9999-4999-8999-999999999999",
+				patch: text("s1", "a", "Elsewhere"),
+			}),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+		expect(await texts(output.id)).toEqual(["A", "B", "C"]);
+	});
+
+	it("answers what changed since a revision with a patch, not the file", async () => {
+		const output = await deck();
+		expect(
+			await c.org1.outputs.changes({ outputId: output.id, sinceRevision: 1 }),
+		).toMatchObject({ revision: { revision: 1 }, patch: null });
+		await c.org1.outputs.patch({
+			outputId: output.id,
+			baseRevision: 1,
+			patch: text("s1", "a", "One"),
+		});
+		const saved = await c.org1.outputs.patch({
+			outputId: output.id,
+			baseRevision: 2,
+			patch: text("s2", "c", "Two"),
+		});
+		const changes = await c.org1.outputs.changes({
+			outputId: output.id,
+			sinceRevision: 1,
+		});
+		expect(changes.revision).toMatchObject({
+			id: saved.revision.id,
+			revision: 3,
+		});
+		expect(changes.content).toBeUndefined();
+		expect(changes.patch).toEqual({
+			kind: "presentation",
+			ops: [...text("s1", "a", "One").ops, ...text("s2", "c", "Two").ops],
+		});
+		expect(
+			(await c.org1.outputs.changes({ outputId: output.id, sinceRevision: 2 }))
+				.patch,
+		).toEqual(text("s2", "c", "Two"));
+		// A revision that was never stored cannot be compared: whole content.
+		const unknown = await c.org1.outputs.changes({
+			outputId: output.id,
+			sinceRevision: 3,
+		});
+		expect(unknown.patch).toBeNull();
+	});
+
+	it("patches a sheet cell by coordinates and a document block by position, rebuilding the plain copies", async () => {
+		const sheet = await c.org1.outputs.create({
+			kind: "sheet",
+			title: "Budget",
+			content: {
+				kind: "sheet",
+				columns: ["A", "B"],
+				rows: [
+					[1, 2],
+					[3, 4],
+				],
+				workbook: {
+					activeSheetId: "one",
+					sheets: [
+						{
+							id: "one",
+							name: "One",
+							columns: [
+								{ id: "a", label: "A" },
+								{ id: "b", label: "B" },
+							],
+							rows: [
+								[
+									{ input: "1", value: 1 },
+									{ input: "2", value: 2 },
+								],
+								[
+									{ input: "3", value: 3 },
+									{ input: "4", value: 4 },
+								],
+							],
+						},
+					],
+				},
+			},
+		});
+		const cell = (row: number, column: number, value: number) => ({
+			kind: "sheet" as const,
+			ops: [
+				{
+					op: "set" as const,
+					path: ["workbook", "sheets", { id: "one" }, "rows", row, column],
+					value: { input: String(value), value },
+				},
+			],
+		});
+		await c.org1.outputs.patch({
+			outputId: sheet.output.id,
+			baseRevision: 1,
+			patch: cell(0, 1, 20),
+		});
+		// A different cell from the same base lands as well.
+		await c.org1.outputs.patch({
+			outputId: sheet.output.id,
+			baseRevision: 1,
+			patch: cell(1, 0, 30),
+		});
+		expect(
+			(await c.org1.outputs.get({ outputId: sheet.output.id })).currentRevision
+				.content,
+		).toMatchObject({
+			rows: [
+				[1, 20],
+				[30, 4],
+			],
+		});
+		await expect(
+			c.org1.outputs.patch({
+				outputId: sheet.output.id,
+				baseRevision: 1,
+				patch: cell(0, 1, 99),
+			}),
+		).rejects.toMatchObject({
+			code: "CONFLICT",
+			data: { parts: ["/workbook/sheets/one/rows/0/1/input"] },
+		});
+
+		// A document written as plain blocks gains its rich body the way the
+		// editor sees it, so the editor's first patch fits.
+		const doc = await c.org1.outputs.create({
+			kind: "document",
+			title: "Notes",
+			content: {
+				kind: "document",
+				blocks: [
+					{ type: "paragraph", text: "One" },
+					{ type: "paragraph", text: "Two" },
+					{ type: "paragraph", text: "Three" },
+				],
+			},
+		});
+		const paragraph = (value: string) => ({
+			type: "paragraph",
+			content: [{ type: "text", text: value }],
+		});
+		const block = (at: number, value: string) => ({
+			kind: "document" as const,
+			ops: [
+				{
+					op: "splice" as const,
+					path: ["richText", "content"],
+					hunks: [{ at, remove: 1, insert: [paragraph(value)] }],
+				},
+			],
+		});
+		await c.org1.outputs.patch({
+			outputId: doc.output.id,
+			baseRevision: 1,
+			patch: block(0, "First"),
+		});
+		await c.org1.outputs.patch({
+			outputId: doc.output.id,
+			baseRevision: 1,
+			patch: block(2, "Third"),
+		});
+		const saved = (await c.org1.outputs.get({ outputId: doc.output.id }))
+			.currentRevision.content;
+		expect(saved).toMatchObject({
+			blocks: [
+				{ type: "paragraph", text: "First" },
+				{ type: "paragraph", text: "Two" },
+				{ type: "paragraph", text: "Third" },
+			],
+		});
+		await expect(
+			c.org1.outputs.patch({
+				outputId: doc.output.id,
+				baseRevision: 1,
+				patch: block(0, "Clash"),
+			}),
+		).rejects.toMatchObject({
+			code: "CONFLICT",
+			data: { parts: [expect.stringContaining("/richText/content/0")] },
+		});
+	});
+});

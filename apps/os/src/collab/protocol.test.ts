@@ -7,6 +7,7 @@ import {
 	isOversizedMessage,
 	MAX_MESSAGE_BYTES,
 	parseClientFrame,
+	parseOutputRevisionNotice,
 	parseServerFrame,
 } from "./protocol";
 import type { CodeChangeRow, CodeChangeSubmission } from "./ot/wire";
@@ -311,5 +312,34 @@ describe("frame size", () => {
 	it("flags only payloads beyond the application frame cap", () => {
 		expect(isOversizedMessage(MAX_MESSAGE_BYTES)).toBe(false);
 		expect(isOversizedMessage(MAX_MESSAGE_BYTES + 1)).toBe(true);
+	});
+});
+
+describe("file change notices", () => {
+	const notice = {
+		outputId: "33333333-3333-4333-8333-333333333333",
+		revisionId: "44444444-4444-4444-8444-444444444444",
+		revision: 8,
+	};
+	it("decodes a notice and keeps only its three fields", () => {
+		expect(
+			parseServerFrame(
+				JSON.stringify({ t: "output", ...notice, content: { secret: true } }),
+			),
+		).toEqual({ t: "output", ...notice });
+		expect(parseOutputRevisionNotice(notice)).toEqual(notice);
+	});
+	it("drops a notice with a missing or malformed field", () => {
+		for (const bad of [
+			{ ...notice, revision: 0 },
+			{ ...notice, revision: 1.5 },
+			{ ...notice, revisionId: 4 },
+			{ ...notice, outputId: "not-an-id" },
+			{ revision: 8 },
+		])
+			expect(
+				parseServerFrame(JSON.stringify({ t: "output", ...bad })),
+			).toBeNull();
+		expect(parseOutputRevisionNotice(null)).toBeNull();
 	});
 });

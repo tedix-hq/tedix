@@ -1,3 +1,8 @@
+import {
+	applyOutputPatch,
+	diffOutputContent,
+	type OutputPatch,
+} from "@tedix/api-contract/utils/output-patch";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { Editor } from "@tiptap/core";
 import type {
@@ -26,6 +31,9 @@ afterEach(() => {
 function fixture(role = "owner") {
 	let revision = 4,
 		denied = false,
+		// Saves follow an edit within a quarter second. A test about changes
+		// that were never saved keeps them unsaved by going offline.
+		offline = false,
 		gate: Promise<void> | undefined;
 	let richText: OsRichTextDocument = {
 		type: "doc",
@@ -54,12 +62,16 @@ function fixture(role = "owner") {
 		file,
 	};
 	let retained: { revision: number; content: DocumentContent } | null = null;
+	// What the server holds at each revision a client has read or saved.
+	const stored = new Map<number, DocumentContent>();
 	const calls = vi.fn(
 		async (method: string, args?: unknown): Promise<unknown> => {
 			const input = args as {
 				method?: string;
 				revision: number;
-				expectedRevision?: number;
+				baseRevision?: number;
+				sinceRevision?: number;
+				patch?: OutputPatch;
 				content: DocumentContent;
 			};
 			if (method === "context")
@@ -92,20 +104,58 @@ function fixture(role = "owner") {
 			if (method === "app.download") return { filename: "Doc.md" };
 			if (input.method === "exportMarkdown")
 				return { title: "Doc", revision, text: "Saved semantic content" };
-			if (method === "outputs.replace") {
+			const output = {
+				id: outputId,
+				title: "Project plan",
+				workspaceId,
+				kind: "document",
+			};
+			if (method === "outputs.replace")
+				throw new Error("The editor must not send the whole document");
+			if (method === "outputs.patch") {
+				if (offline) throw new Error("Network unreachable");
 				await gate;
-				if (input.expectedRevision !== revision)
-					throw new Error("Output revision changed");
-				content = structuredClone(input.content);
+				if (input.baseRevision !== revision)
+					throw Object.assign(new Error("Output revision changed"), {
+						code: "revision_conflict",
+					});
+				// Only the changed blocks arrive; the server applies them to its
+				// copy and rebuilds the plain blocks.
+				content = applyOutputPatch(content, input.patch!, {
+					documentBlocks: blocksFromRichText,
+				});
 				revision++;
+				stored.set(revision, content);
+				return {
+					output,
+					revision: { revision },
+					mergedWith: null,
+					catchUp: null,
+				};
 			}
+			if (method === "outputs.changes") {
+				const since = stored.get(input.sinceRevision!);
+				return {
+					output,
+					revision: { revision },
+					patch: since ? diffOutputContent(since, content) : null,
+					...(since ? {} : { content: structuredClone(content) }),
+				};
+			}
+			if (method === "outputs.readRevision" && input.revision !== undefined) {
+				const earlier = stored.get(input.revision);
+				if (!earlier) throw new Error("That version is no longer available");
+				return {
+					output,
+					revision: {
+						revision: input.revision,
+						content: structuredClone(earlier),
+					},
+				};
+			}
+			stored.set(revision, content);
 			return {
-				output: {
-					id: outputId,
-					title: "Project plan",
-					workspaceId,
-					kind: "document",
-				},
+				output,
 				revision: { revision, content: structuredClone(content) },
 			};
 		},
@@ -130,6 +180,9 @@ function fixture(role = "owner") {
 		retained: () => structuredClone(retained),
 		deny: () => {
 			denied = true;
+		},
+		offline: (on: boolean) => {
+			offline = on;
 		},
 		/** Hold the next saves open until the returned function is called. */
 		hold() {
@@ -198,8 +251,11 @@ const press = (target: HTMLElement, init: KeyboardEventInit) =>
 const fakeClock = () =>
 	vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
 const saves = (test: ReturnType<typeof fixture>) =>
-	test.calls.mock.calls.filter(([method]) => method === "outputs.replace")
-		.length;
+	test.calls.mock.calls.filter(([method]) => method === "outputs.patch").length;
+const patches = (test: ReturnType<typeof fixture>) =>
+	test.calls.mock.calls
+		.filter(([method]) => method === "outputs.patch")
+		.map(([, args]) => (args as { patch: OutputPatch }).patch);
 const statusText = (root: HTMLElement) =>
 	root.querySelector(".doc-status")!.textContent;
 
@@ -315,17 +371,23 @@ describe("portable rich Doc client", () => {
 			.toggleItalic()
 			.run();
 		expect(mounted.dirty).toBe(true);
-		await vi.advanceTimersByTimeAsync(1000);
-		expect(test.retained()?.revision).toBe(4);
+		await vi.advanceTimersByTimeAsync(200);
 		expect(saves(test)).toBe(0);
 		const shown = editor.state.doc,
 			selection = editor.state.selection;
-		await vi.advanceTimersByTimeAsync(600);
-		expect(test.calls).toHaveBeenCalledWith("outputs.replace", {
-			slot: "document",
-			expectedRevision: 4,
-			content: expect.objectContaining({ file }),
-		});
+		// 220 ms after the last edit the change is sent as a patch. This first
+		// save also writes the second paragraph the way the editor spells its
+		// formatting; from then on only edited blocks travel.
+		await vi.advanceTimersByTimeAsync(30);
+		expect(test.calls).toHaveBeenCalledWith(
+			"outputs.patch",
+			expect.objectContaining({ slot: "document", baseRevision: 4 }),
+		);
+		expect(patches(test)[0]!.ops.map((op) => [op.op, op.path])).toEqual([
+			["splice", ["richText", "content"]],
+		]);
+		// The attached file is not part of what the editor sends, and stays.
+		expect(test.persisted().file).toEqual(file);
 		expect(mounted.dirty).toBe(false);
 		expect(editor.state.doc).toBe(shown);
 		expect(editor.state.selection).toBe(selection);
@@ -357,15 +419,41 @@ describe("portable rich Doc client", () => {
 		);
 		expect(saves(test)).toBe(2);
 		expect(mounted.dirty).toBe(false);
+		// Only the edited paragraph travelled: one block in, one block out.
+		expect(patches(test)[1]).toEqual({
+			kind: "document",
+			ops: [
+				{
+					op: "splice",
+					path: ["richText", "content"],
+					hunks: [
+						{
+							at: 0,
+							remove: 1,
+							insert: [expect.objectContaining({ type: "paragraph" })],
+						},
+					],
+				},
+			],
+		});
+		expect(JSON.stringify(patches(test)[1])).not.toContain("Keep formatting");
+		expect(test.calls).toHaveBeenCalledWith(
+			"outputs.patch",
+			expect.objectContaining({ baseRevision: 5 }),
+		);
 	});
-	it("does not wait longer than five seconds while someone keeps typing", async () => {
+	it("does not wait longer than 1.2 seconds while someone keeps typing", async () => {
 		const test = fixture(),
 			{ editor } = await test.mount();
 		fakeClock();
-		for (let second = 0; second < 6; second++) {
+		// A keystroke every 200 ms never leaves a 220 ms pause.
+		for (let stroke = 0; stroke < 5; stroke++) {
 			editor.commands.insertContentAt(1, "a");
-			await vi.advanceTimersByTimeAsync(1000);
+			await vi.advanceTimersByTimeAsync(200);
 		}
+		expect(saves(test)).toBe(0);
+		editor.commands.insertContentAt(1, "a");
+		await vi.advanceTimersByTimeAsync(200);
 		expect(saves(test)).toBe(1);
 	});
 	it("keeps edits made during a save and saves them next, one save at a time", async () => {
@@ -555,11 +643,13 @@ describe("portable rich Doc client", () => {
 		const test = fixture(),
 			first = await test.mount();
 		fakeClock();
+		test.offline(true);
 		first.editor.commands.insertContentAt(1, "My draft ");
 		await vi.advanceTimersByTimeAsync(1000);
 		first.mounted.destroy();
 		first.root.remove();
 		vi.useRealTimers();
+		test.offline(false);
 		expect(test.retained()?.revision).toBe(4);
 		test.external("Newer saved version");
 		const second = await test.mount();
@@ -582,11 +672,13 @@ describe("portable rich Doc client", () => {
 		const test = fixture(),
 			first = await test.mount();
 		fakeClock();
+		test.offline(true);
 		first.editor.commands.insertContentAt(1, "My draft ");
 		await vi.advanceTimersByTimeAsync(1000);
 		first.mounted.destroy();
 		first.root.remove();
 		vi.useRealTimers();
+		test.offline(false);
 		test.external("Newer saved version");
 		const second = await test.mount();
 		await second.mounted.save();
@@ -713,7 +805,7 @@ describe("portable rich Doc client", () => {
 		const answer = test.calls.getMockImplementation()!;
 		let refusal: string | undefined = "too_large";
 		test.calls.mockImplementation(async (method, args) => {
-			if (method === "outputs.replace" && refusal)
+			if (method === "outputs.patch" && refusal)
 				throw Object.assign(new Error(refusal), { code: refusal });
 			return answer(method, args);
 		});
@@ -741,7 +833,7 @@ describe("portable rich Doc client", () => {
 		const answer = test.calls.getMockImplementation()!;
 		let failing = true;
 		test.calls.mockImplementation(async (method, args) => {
-			if (method === "outputs.replace" && failing)
+			if (method === "outputs.patch" && failing)
 				throw Object.assign(new Error("Database temporarily unavailable"), {
 					code: "host_error",
 				});
@@ -749,14 +841,22 @@ describe("portable rich Doc client", () => {
 		});
 		fakeClock();
 		editor.commands.insertContentAt(1, "Retry ");
-		await vi.advanceTimersByTimeAsync(1600);
+		await vi.advanceTimersByTimeAsync(230);
 		expect(saves(test)).toBe(1);
 		expect(statusText(root)).toBe("");
 		expect(find(root, "Try again")).toBeUndefined();
 		expect(mounted.dirty).toBe(true);
-		failing = false;
-		await vi.advanceTimersByTimeAsync(2100);
+		// Tried again after 40 ms, then 80 ms, then 160 ms, saying nothing.
+		await vi.advanceTimersByTimeAsync(20);
+		expect(saves(test)).toBe(1);
+		await vi.advanceTimersByTimeAsync(30);
 		expect(saves(test)).toBe(2);
+		await vi.advanceTimersByTimeAsync(90);
+		expect(saves(test)).toBe(3);
+		expect(statusText(root)).toBe("");
+		failing = false;
+		await vi.advanceTimersByTimeAsync(170);
+		expect(saves(test)).toBe(4);
 		expect(mounted.dirty).toBe(false);
 		expect(statusText(root)).toBe("");
 	});
@@ -768,8 +868,8 @@ describe("portable rich Doc client", () => {
 		await mounted.save();
 		expect(mounted.dirty).toBe(false);
 		expect(test.calls).toHaveBeenCalledWith(
-			"outputs.replace",
-			expect.objectContaining({ slot: "document", expectedRevision: 4 }),
+			"outputs.patch",
+			expect.objectContaining({ slot: "document", baseRevision: 4 }),
 		);
 		expect(JSON.stringify(test.persisted()).length).toBeGreaterThan(65_536);
 	});

@@ -688,6 +688,16 @@ describe("os-workspaces machine plane (unchanged)", () => {
 			}),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
 		await expect(
+			client.outputs.patch({
+				outputId: WORKSPACE_ID,
+				baseRevision: 1,
+				patch: {
+					kind: "document",
+					ops: [{ op: "set", path: ["blocks"], value: [] }],
+				},
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		await expect(
 			client.outputs.patchDocument({
 				outputId: WORKSPACE_ID,
 				ops: [{ op: "delete", index: 0 }],

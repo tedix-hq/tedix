@@ -5,6 +5,7 @@ import { OS_OUTPUT_CONTENT_MAX_BYTES } from "@tedix/api-contract/utils/os-output
 import { confirmOsWorkspaceFile as confirmFile } from "@tedix/db/queries/os-workspaces/files";
 import { instantiateOsBlueprint as instantiateBlueprint } from "@tedix/db/queries/os-workspaces/instantiate";
 import { env } from "cloudflare:workers";
+import { notifyOutputRevision } from "./os-output-revision-notice";
 import {
 	getOsCollaborationProposal,
 	mergeOsCollaborationProposal as mergeProposal,
@@ -196,6 +197,22 @@ export async function createOsOutputRevision(
 				{ db, queue: env.AUTOMATION_EVENTS },
 				outputRevisionChange(output, { ...result.revision, content }),
 			);
+			// Everyone with the file open learns of the new revision at once and
+			// fetches only what changed.
+			await notifyOutputRevision(
+				{
+					db,
+					rooms: env.APP_DRAFT_ROOM,
+					env,
+					development: env.ENVIRONMENT === "development",
+				},
+				output,
+				{
+					outputId: output.id,
+					revisionId: result.revision.id,
+					revision: result.revision.revision,
+				},
+			);
 		}
 	}
 	// An unchanged save returns the current revision; its digest equals this
@@ -240,6 +257,27 @@ export async function mergeOsCollaborationProposal(
 		// only the pointer to the stored body.
 		outputBody: { ...body, content: proposal.content },
 	});
+	if (result.ok && "id" in result.revision) {
+		const output = await outputs.getOsOutput(db, {
+			organizationId: proposal.organizationId,
+			outputId: proposal.documentId,
+		});
+		if (output)
+			await notifyOutputRevision(
+				{
+					db,
+					rooms: env.APP_DRAFT_ROOM,
+					env,
+					development: env.ENVIRONMENT === "development",
+				},
+				output,
+				{
+					outputId: output.id,
+					revisionId: result.revision.id,
+					revision: result.revision.revision,
+				},
+			);
+	}
 	return result.ok
 		? { ...result, revision: { ...result.revision, content } }
 		: result;

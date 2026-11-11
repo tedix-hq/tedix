@@ -1336,3 +1336,54 @@ describe("Work repository candidates", () => {
 		).toBe(0);
 	});
 });
+
+describe("CollabRoom file change notices", () => {
+	const notice = {
+		outputId: "33333333-3333-4333-8333-333333333333",
+		revisionId: "44444444-4444-4444-8444-444444444444",
+		revision: 8,
+	};
+	const post = (room: CollabRoom, body: unknown, method = "POST") =>
+		room.fetch(
+			new Request("https://room.internal/__internal/output-revision", {
+				method,
+				...(method === "POST"
+					? {
+							body: typeof body === "string" ? body : JSON.stringify(body),
+						}
+					: {}),
+			}),
+		);
+
+	it("tells every member of the room that a file has a new revision, with ids only", async () => {
+		const sockets: FakeSocket[] = [];
+		const room = new CollabRoom(state(sockets));
+		const first = await connect(room, sockets);
+		const second = await connect(room, sockets, other);
+		const response = await post(room, { ...notice, content: "never sent on" });
+		expect(response.status).toBe(204);
+		for (const socket of [first, second])
+			expect(socket.of("output")).toEqual([{ t: "output", ...notice }]);
+		// An empty room takes the notice without anyone to tell.
+		expect((await post(new CollabRoom(state([])), notice)).status).toBe(204);
+	});
+
+	it("refuses anything that is not a well-formed notice and tells nobody", async () => {
+		const sockets: FakeSocket[] = [];
+		const room = new CollabRoom(state(sockets));
+		const member = await connect(room, sockets);
+		expect((await post(room, notice, "GET")).status).toBe(405);
+		expect((await post(room, "not json")).status).toBe(400);
+		for (const bad of [
+			{ ...notice, revision: 0 },
+			{ ...notice, revision: "8" },
+			{ ...notice, outputId: "file" },
+			{ outputId: notice.outputId },
+		])
+			expect((await post(room, bad)).status).toBe(400);
+		expect(
+			(await post(room, { ...notice, pad: "x".repeat(2_000) })).status,
+		).toBe(413);
+		expect(member.of("output")).toEqual([]);
+	});
+});
