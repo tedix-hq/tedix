@@ -634,6 +634,19 @@ const purgeArchived = adminOs.workspaces.purgeArchived.handler(
 		}),
 );
 
+const previewArchivedPurge = adminOs.workspaces.previewArchivedPurge.handler(
+	async ({ input, context }) =>
+		purgeArchivedOsItems(
+			context,
+			{ ...input, dryRun: true },
+			{
+				workspacePreferenceNamespace: preferenceNamespace(
+					requireOrgId(context),
+				),
+			},
+		),
+);
+
 function requirePersonalUser(context: BaseContext): string {
 	if (
 		context.authType !== "user" ||
@@ -755,6 +768,7 @@ export const osWorkspaceProcedures = {
 	restore,
 	delete: deleteWorkspace,
 	purgeArchived,
+	previewArchivedPurge,
 };
 export const osWorkspacePreferenceProcedures = {
 	list: listPreferences,
