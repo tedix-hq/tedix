@@ -580,6 +580,12 @@ export function CanvasDocPanel({
 	const builtinAppView =
 		builtinManifest?.entry.trim().startsWith("tedix:app/") &&
 		effectiveGadgetView === "preview";
+	// The room below syncs the app's code, not what the app edits. A runtime app
+	// (Doc, Sheet, Slides) saves its own content, so in App view the room's
+	// connection and draft status would describe something the user is not
+	// editing; a reconnect between attempts would read as "Disconnected".
+	const manifestStatusHidden =
+		builtinAppView || (isRuntimeApp && effectiveGadgetView === "preview");
 	const executionGadgetId = doc.id;
 	useEffect(() => {
 		setPreviewExecution(null);
@@ -595,11 +601,11 @@ export function CanvasDocPanel({
 	const gadgetActionsInSlot = !focusMode && actionsSlot ? actionsSlot : null;
 	const documentStatusActions = (
 		<>
-			{/* A built-in app saves each action itself; the manifest's draft and
-				    sync status belongs to the Code view only. */}
+			{/* A built-in or runtime app saves its own content; the manifest's
+				    draft and sync status belongs to the Code view only. */}
 			<OutputWorkshopStatus
 				className={
-					builtinAppView
+					manifestStatusHidden
 						? "canvas-document-status hidden!"
 						: "canvas-document-status"
 				}

@@ -168,6 +168,9 @@ vi.mock("@tanstack/react-router", async (importOriginal) => ({
 	useSearch: () => routing.search,
 }));
 
+vi.mock("@/components/app-runtime-panel", () => ({
+	AppRuntimePreview: () => <div data-app-runtime-preview />,
+}));
 vi.mock("@/lib/use-collab-doc", () => ({
 	useCollabDoc: collab.useCollabDoc,
 }));
@@ -2567,6 +2570,53 @@ describe("CanvasPage listing", () => {
 				search: expect.objectContaining({ pane: "resources" }),
 			}),
 		);
+	});
+
+	it("keeps the code room's connection out of a runtime app's App view", async () => {
+		mockLists();
+		const currentRevision = gadgetRevisionFixture({
+			manifest: {
+				capabilities: [],
+				entry: "tedix:runtime/v1",
+				config: { version: 1, settings: { slot: "sheet", editor: "sheet-v2" } },
+			},
+		});
+		osWorkspacesApi.gadgets.get.mockResolvedValue({
+			gadget: gadgetFixture(),
+			currentRevision,
+		});
+		// Between reconnect attempts the code room reports "disconnected"; the
+		// sheet itself saves through its output and is unaffected.
+		mockCollab({
+			status: "disconnected",
+			initial: docJson(currentRevision.manifest),
+		});
+		routing.search = { workpiece: `gadget:${GADGET_ID}`, pane: "workpiece" };
+		const container = renderPage();
+		await flush();
+
+		expect(
+			container.querySelector("[data-app-runtime-preview]"),
+		).not.toBeNull();
+		const status = container.querySelector(".canvas-document-status");
+		expect(status?.classList.contains("hidden!")).toBe(true);
+
+		// Edit view is where the code room matters, so its state shows there.
+		routing.search = {
+			workpiece: `gadget:${GADGET_ID}`,
+			pane: "workpiece",
+			view: "edit",
+		};
+		const edit = renderPage();
+		await flush();
+		expect(
+			edit
+				.querySelector(".canvas-document-status")
+				?.classList.contains("hidden!"),
+		).toBe(false);
+		expect(
+			edit.querySelector('[data-connection="disconnected"]'),
+		).not.toBeNull();
 	});
 
 	it("keeps a non-resource Gadget in source mode", async () => {
