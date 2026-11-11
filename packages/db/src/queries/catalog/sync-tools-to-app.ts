@@ -124,6 +124,7 @@ export async function syncCatalogToolsToApp(
 	catalogAppName: string;
 	appId: string;
 	appName: string;
+	organizationId: string;
 	mcpServerUrl: string;
 	dryRun: boolean;
 	results: SyncCatalogToolsToAppResultItem[];
@@ -208,6 +209,7 @@ export async function syncCatalogToolsToApp(
 			catalogAppName: catalogApp.name,
 			appId,
 			appName: targetApp.name,
+			organizationId: targetApp.organizationId,
 			mcpServerUrl,
 			dryRun,
 			results: [],
@@ -741,6 +743,7 @@ export async function syncCatalogToolsToApp(
 		catalogAppName: catalogApp.name,
 		appId,
 		appName: targetApp.name,
+		organizationId: targetApp.organizationId,
 		mcpServerUrl,
 		dryRun,
 		results,

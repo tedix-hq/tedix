@@ -2227,6 +2227,12 @@ export type CreateTenantOpenApiMcpAppOutput = z.infer<
 // ============================================================
 
 export const ReconcileCatalogAppInputSchema = z.object({
+	reviewOnly: z
+		.boolean()
+		.optional()
+		.describe(
+			"Refresh the base app's pending tool-review card from stored tools only. Does not scan, import, change tool definitions, approve or reject tools, or propagate forks.",
+		),
 	catalogAppId: z.string().uuid().optional(),
 	slug: z.string().min(1).optional(),
 	organizationId: z

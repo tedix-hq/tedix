@@ -1,4 +1,5 @@
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
+import { ensurePendingToolReviewApprovals } from "../../../services/tool-review-approvals";
 import { AUTHZ, ErrorCodes, createError, withAuthorization } from "../../orpc";
 import { CatalogProxyAppToolMutationError } from "@tedix/db/queries/catalog/tool-source-policy";
 import type { ConnectionCredentialProfile } from "@tedix/api-contract/schemas/connections";
@@ -846,6 +847,11 @@ const syncCatalogToolsToAppCatalog = fleetCatalogOs.syncCatalogToolsToApp
 		try {
 			const result = await syncCatalogToolsToApp(db, input);
 			if (!result.dryRun) {
+				await ensurePendingToolReviewApprovals(db, {
+					organizationId: result.organizationId,
+					appId: result.appId,
+					appName: result.appName,
+				});
 				publishMcpListChangedEventsSoon(
 					context.waitUntil,
 					context.env,
