@@ -758,6 +758,18 @@ describe("continuing an approved purge", () => {
 		});
 	});
 
+	it("keeps going after a run the busy database stopped before any item", () => {
+		expect(
+			step({
+				...unfinished,
+				stoppedBy: "database_busy",
+				conversations: kind({ examined: 0, remaining: 3 }),
+				outputs: kind({ examined: 0, remaining: 5 }),
+				workspaces: kind({ examined: 0, remaining: 7 }),
+			}).step,
+		).toMatchObject({ kind: "continue" });
+	});
+
 	it("re-arms the approval with the narrowed call instead of finishing", async () => {
 		mocks.executor.mockResolvedValue({ ok: true, data: unfinished });
 		expect(
