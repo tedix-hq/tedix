@@ -83,13 +83,38 @@ const Placeholder = Extension.create({
 	},
 });
 
+/** Embedded copies of linked images by link; "" while loading or after a failure. */
+const embedded = new Map<string, string>();
+let linkedRoot: HTMLElement | undefined,
+	readLinked: ((url: string) => Promise<string>) | undefined;
+
+function requestLinked(link: string) {
+	embedded.set(link, "");
+	void readLinked?.(link).then(
+		(source) => {
+			embedded.set(link, source);
+			for (const image of linkedRoot?.querySelectorAll("img") ?? [])
+				if (image.dataset.linkedImage === link) image.src = source;
+		},
+		() => undefined,
+	);
+}
+/** Ask again for linked images that could not be read. */
+export function retryLinkedImages() {
+	for (const [link, source] of embedded) if (!source) requestLinked(link);
+}
+
 export function createDocEngine(options: {
 	element: HTMLElement;
 	editable: boolean;
 	onUpdate: () => void;
+	readImage?: (url: string) => Promise<string>;
 }) {
+	const { readImage, ...editorOptions } = options;
+	linkedRoot = options.element;
+	readLinked = readImage;
 	return new Editor({
-		...options,
+		...editorOptions,
 		content: { type: "doc", content: [{ type: "paragraph" }] },
 		editorProps: {
 			scrollMargin: 64,
@@ -114,7 +139,33 @@ export function createDocEngine(options: {
 			FontSize,
 			Color,
 			Highlight.configure({ multicolor: true }),
-			Image.configure({
+			Image.extend({
+				addAttributes() {
+					return {
+						...this.parent?.(),
+						// The document keeps the link; only what is drawn changes.
+						src: {
+							default: null,
+							parseHTML: (element: HTMLElement) =>
+								element.getAttribute("data-linked-image") ??
+								element.getAttribute("src"),
+							// The frame may not load web images: draw the embedded copy,
+							// or one transparent pixel until it arrives.
+							renderHTML: ({ src }: { src?: unknown }) => {
+								if (typeof src !== "string" || !/^https:/i.test(src))
+									return { src };
+								if (!embedded.has(src)) requestLinked(src);
+								return {
+									src:
+										embedded.get(src) ||
+										"data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==",
+									"data-linked-image": src,
+								};
+							},
+						},
+					};
+				},
+			}).configure({
 				allowBase64: true,
 				inline: false,
 				resize: {
