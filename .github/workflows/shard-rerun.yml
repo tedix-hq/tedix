@@ -96,7 +96,7 @@ jobs:
         uses: ./.github/actions/vite-plus-package-manager
       - name: Install ripgrep
         if: inputs.workspace == 'apps/tedi-runtime'
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ripgrep
+        uses: ./.github/actions/ripgrep
       - name: Plan the shard's browsers
         id: plan
         env:

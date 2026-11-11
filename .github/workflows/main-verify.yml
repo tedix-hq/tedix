@@ -98,7 +98,7 @@ jobs:
         uses: ./.github/actions/vite-plus-package-manager
       - name: Install ripgrep
         if: matrix.workspace == 'apps/tedi-runtime'
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ripgrep
+        uses: ./.github/actions/ripgrep
       # The plan derives each script's browsers from the specs it runs.
       - name: Install Playwright browsers
         if: matrix.browsers

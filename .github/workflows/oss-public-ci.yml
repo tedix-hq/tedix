@@ -60,7 +60,7 @@ jobs:
       # The tedi computer's code-search tests run rg whenever tedi-runtime or a
       # package it depends on changes.
       - name: Install ripgrep
-        run: sudo apt-get install -y --no-install-recommends ripgrep
+        uses: ./.github/actions/ripgrep
 
       # OS test:run includes real-browser checks, including in this scoped lane.
       - name: Resolve OS browsers
@@ -217,7 +217,7 @@ jobs:
 
       # The tedi computer's code search runs ripgrep; its tests execute it.
       - name: Install ripgrep
-        run: sudo apt-get install -y --no-install-recommends ripgrep
+        uses: ./.github/actions/ripgrep
 
       - name: Test public workspaces
         run: bun run test:ci
