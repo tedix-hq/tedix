@@ -157,6 +157,9 @@ async function checkArchiveAndRestore(page: Page, card: Locator) {
 	await named(items).first().waitFor();
 }
 
+/** A sample document, shown as if it had no workspace. */
+const STANDALONE_OUTPUT_ID = "00000040-0000-4000-8000-000000000001";
+
 export type OutputsSize = "375x667" | "390x844" | "1280x900";
 export type OutputsTheme = "light" | "dark";
 
@@ -263,35 +266,53 @@ export async function runOutputsChecks(size: OutputsSize, theme: OutputsTheme) {
 				path: `${evidenceDir}/after-list-${width}-${theme}.png`,
 			});
 		await checkCardKeyboard(page, row);
+		// Doc, Sheet and Slides are edited only in their workspace gadget, so
+		// "Open standalone" for an output in an active workspace lands there.
 		await row.getByRole("button", { name: /^More actions for/ }).click();
 		await page
 			.getByRole("menuitem", { name: "Open standalone", exact: true })
 			.click();
+		await page.waitForURL(
+			(url) =>
+				url.pathname.startsWith("/workspace/") &&
+				(url.searchParams.get("workpiece") ?? "").startsWith("output:"),
+		);
+		// An output outside a workspace stays readable at /outputs/<id>, with no
+		// Edit button. Every sample output has a workspace, so detach one.
+		await page.route("**/api/rpc/osWorkspaces/outputs/get**", async (route) => {
+			const response = await route.fetch();
+			const body = await response.json();
+			body.json.output.workspaceId = null;
+			await route.fulfill({ response, json: body });
+		});
+		await page.goto(`${origin}/outputs/${STANDALONE_OUTPUT_ID}`);
 		const actions = page.locator(".output-detail-actions");
 		await actions.waitFor();
-		const edit = actions.getByRole("button", { name: "Edit", exact: true });
 		const share = actions.getByRole("button", { name: "Share", exact: true });
 		const overflow = actions.getByRole("button", {
 			name: "Output actions",
 			exact: true,
 		});
-		const editBox = (await edit.boundingBox())!;
+		await share.waitFor();
+		assert.equal(
+			await actions.getByRole("button", { name: "Edit", exact: true }).count(),
+			0,
+			"a standalone output has no Edit button",
+		);
 		const shareBox = (await share.boundingBox())!;
-		assert.equal(editBox.y, shareBox.y, "primary and secondary align");
-		assert.equal(editBox.height, shareBox.height, "action heights match");
 		assert(
-			editBox.x >= 0 && editBox.x + editBox.width <= width,
-			"Edit is fully inside the viewport",
+			shareBox.x >= 0 && shareBox.x + shareBox.width <= width,
+			"Share is fully inside the viewport",
 		);
 		if (width < 640) {
 			assert.equal(
 				await actions.getByRole("button").filter({ visible: true }).count(),
-				3,
-				"phone has Edit, Share and overflow",
+				2,
+				"phone has Share and overflow",
 			);
 			assert.equal(
 				(await overflow.boundingBox())!.y,
-				editBox.y,
+				shareBox.y,
 				"overflow stays on the same row",
 			);
 		}
@@ -303,10 +324,6 @@ export async function runOutputsChecks(size: OutputsSize, theme: OutputsTheme) {
 		await page
 			.getByRole("menuitem", { name: "Document (.docx)", exact: true })
 			.waitFor();
-		if (width < 640)
-			await page
-				.getByRole("menuitem", { name: "Open in workspace", exact: true })
-				.waitFor();
 		await page.keyboard.press("Escape");
 		await share.click();
 		await page.getByRole("heading", { name: "Share this file" }).waitFor();
@@ -366,44 +383,6 @@ export async function runOutputsChecks(size: OutputsSize, theme: OutputsTheme) {
 			"no clipped page content",
 		);
 
-		await edit.click();
-		const editorTitle = page.locator(".output-workshop-identity h1");
-		await page.locator('[data-editor="document-rich-text"]').waitFor();
-		assert(
-			await editorTitle.evaluate((el) => el.scrollWidth <= el.clientWidth),
-			"editor title stays readable without horizontal clipping",
-		);
-		const editorActions = page.locator(".output-workshop-actions");
-		if (width < 640) {
-			const titleBox = (await editorTitle.boundingBox())!;
-			const actionsBox = (await editorActions.boundingBox())!;
-			assert(
-				titleBox.y + titleBox.height <= actionsBox.y,
-				"phone editor gives the title its own row",
-			);
-			const saveBox = (await page
-				.getByRole("button", { name: "Save", exact: true })
-				.boundingBox())!;
-			const cancelBox = (await page
-				.getByRole("button", { name: "Cancel", exact: true })
-				.boundingBox())!;
-			assert(
-				saveBox.height >= 44 && cancelBox.height >= 44,
-				"phone save and cancel have touch-sized targets",
-			);
-			assert(
-				Math.abs(saveBox.width - cancelBox.width) <= 1,
-				"phone save and cancel share the footer width",
-			);
-		}
-		assert(
-			await page.getByRole("button", { name: "Save", exact: true }).isVisible(),
-		);
-		if (evidenceDir)
-			await page.screenshot({
-				path: `${evidenceDir}/after-editor-${width}-${theme}.png`,
-			});
-		await page.getByRole("button", { name: "Cancel", exact: true }).click();
 		await page.close();
 		console.log(`Outputs WebKit passed: ${width}x${height} ${theme}`);
 	} finally {

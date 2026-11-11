@@ -69,9 +69,7 @@ try {
 					"Sheet",
 					"Slides",
 					"Browse templates",
-					"Native document",
-					"Native sheet",
-					"Native slides",
+					"Document from a template",
 				]);
 				assert.equal(
 					await page
@@ -99,29 +97,24 @@ try {
 						.getByRole("button", { name: "Close", exact: true })
 						.click();
 				}
-				for (const [choice, heading] of [
-					["Native document", "New document"],
-					["Native sheet", "New sheet"],
-					["Native slides", "New slides"],
-				]) {
-					await library
-						.getByRole("button", { name: "New", exact: true })
-						.click();
-					await page
-						.getByRole("menuitem", { name: choice, exact: true })
-						.click();
-					const dialog = page.getByRole("dialog");
-					await dialog
-						.getByRole("heading", { name: heading, exact: true })
-						.waitFor();
-					assert.equal(
-						await dialog.getByText("Template", { exact: true }).count(),
-						choice === "Native document" ? 1 : 0,
-					);
-					await dialog
-						.getByRole("button", { name: "Cancel", exact: true })
-						.click();
-				}
+				await library.getByRole("button", { name: "New", exact: true }).click();
+				await page
+					.getByRole("menuitem", {
+						name: "Document from a template",
+						exact: true,
+					})
+					.click();
+				const templateDialog = page.getByRole("dialog");
+				await templateDialog
+					.getByRole("heading", { name: "New document", exact: true })
+					.waitFor();
+				assert.equal(
+					await templateDialog.getByText("Template", { exact: true }).count(),
+					1,
+				);
+				await templateDialog
+					.getByRole("button", { name: "Cancel", exact: true })
+					.click();
 				assert(
 					(await library.locator("[data-workspace-app]").count()) > 0,
 					`${surface} includes apps`,
