@@ -41,29 +41,30 @@ const testEnv = env as unknown as WorkspaceEnv & {
 	TEDI_AGENT: DurableObjectNamespace;
 };
 
-type Stub = WorkspaceRpc & {
-	failTransferReply(scope: WorkspaceScope): Promise<void>;
-	pruneChatLedger(scope: WorkspaceScope): Promise<void>;
-	failNextProjection(scope: WorkspaceScope): Promise<void>;
-	failEventProjection(
-		scope: WorkspaceScope,
-		when: "before" | "after",
-	): Promise<void>;
-	failActionProjection(
-		scope: WorkspaceScope,
-		when: "before" | "after",
-	): Promise<void>;
-	retryProjections(scope: WorkspaceScope): Promise<void>;
-	scriptModel(scope: WorkspaceScope, steps: ScriptStep[]): Promise<void>;
-	importRows(
-		scope: WorkspaceScope,
-		batch: {
-			batchId: string;
-			table: string;
-			rows: Record<string, string | number | null>[];
-		},
-	): Promise<unknown>;
-};
+type Stub = DurableObjectStub &
+	WorkspaceRpc & {
+		failTransferReply(scope: WorkspaceScope): Promise<void>;
+		pruneChatLedger(scope: WorkspaceScope): Promise<void>;
+		failNextProjection(scope: WorkspaceScope): Promise<void>;
+		failEventProjection(
+			scope: WorkspaceScope,
+			when: "before" | "after",
+		): Promise<void>;
+		failActionProjection(
+			scope: WorkspaceScope,
+			when: "before" | "after",
+		): Promise<void>;
+		retryProjections(scope: WorkspaceScope): Promise<void>;
+		scriptModel(scope: WorkspaceScope, steps: ScriptStep[]): Promise<void>;
+		importRows(
+			scope: WorkspaceScope,
+			batch: {
+				batchId: string;
+				table: string;
+				rows: Record<string, string | number | null>[];
+			},
+		): Promise<unknown>;
+	};
 function workspace(workspaceScope = scope): Stub {
 	return tenantStoreStub(
 		testEnv.WORKSPACE,
@@ -220,7 +221,7 @@ async function seedWorkspaceRows(scopes: WorkspaceScope[]) {
 	);
 }
 
-async function seedOutputs(ws: Stub, outputScope = scope) {
+async function seedOutputs(ws: Stub, outputScope = scope, activate = true) {
 	const now = "2026-11-07T10:00:00.000Z";
 	const sheet = {
 		kind: "sheet",
@@ -319,6 +320,14 @@ async function seedOutputs(ws: Stub, outputScope = scope) {
 			},
 		],
 	});
+	if (
+		activate &&
+		(await ws.outputQuery(outputScope, { op: "authority" })) === "shared"
+	)
+		await ws.activateOutputAuthority(outputScope, {
+			importGeneration: (await ws.describe(outputScope)).importGeneration,
+			reconciliationRef: "fixture:reconciled-outputs",
+		});
 }
 
 const READ_ONLY_CODE = `export default async (env) => {
@@ -330,6 +339,172 @@ const READ_ONLY_CODE = `export default async (env) => {
 	const open = await env.work.listOpen();
 	return { challenges, priorities, openWork: open.length };
 }`;
+
+describe("staged output migration", () => {
+	test("directory-only and full imports keep shared reads and approved agent writes until separate activation", async () => {
+		await seedCore();
+		const scope: WorkspaceScope = {
+			organizationId: "org_test",
+			workspaceId: crypto.randomUUID(),
+		};
+		await seedWorkspaceRows([scope]);
+		const ws = workspace(scope);
+		const now = "2026-11-07T10:00:00.000Z";
+		const directory = {
+			batchId: "stage-directory",
+			table: "os_workspaces",
+			rows: [
+				{
+					id: scope.workspaceId,
+					organization_id: scope.organizationId,
+					name: "Staged",
+					status: "active",
+					created_by_kind: "user",
+					created_by_id: "u1",
+					created_at: now,
+					updated_at: now,
+				},
+			],
+		};
+		await expect(
+			async () =>
+				await ws.activateOutputAuthority(scope, {
+					importGeneration: 1,
+					reconciliationRef: "fixture:premature",
+				}),
+		).rejects.toThrow("Import changed");
+		await ws.importRows(scope, directory);
+		for (const phase of ["directory", "full"]) {
+			if (phase === "full") await seedOutputs(ws, scope, false);
+			await evictDurableObject(ws);
+			expect(await ws.outputQuery(scope, { op: "authority" })).toBe("shared");
+			// This is the same authority RPC the browser storage service uses.
+			expect(await ws.describe(scope)).toMatchObject({
+				outputAuthority: "shared",
+				importGeneration: phase === "full" ? 3 : 1,
+			});
+			await ws.scriptModel(scope, [
+				{ code: `export default async env => env.outputs.list()` },
+				{
+					code: `export default async env => env.outputs.create({title: "agent-${phase}", content: {kind: "document", blocks: []}})`,
+				},
+			]);
+			const turn = await ws.sendTurn(scope, {
+				actorId: "u1",
+				actorKind: "user",
+				text: "List and create",
+			});
+			await ws.awaitTurn(scope, turn.turnId, 20_000);
+			const events = await ws.readEvents(scope, {
+				conversationId: turn.conversationId,
+			});
+			const approval = events.find(
+				(event) => event.type === "approval.requested",
+			);
+			if (approval?.type !== "approval.requested")
+				throw new Error("Missing staged-write approval");
+			const reads = await ws.readChangeRecords(scope, { resource: "output" });
+			expect(
+				reads
+					.filter((row) => row.operation === "list")
+					.every((row) => row.outcome === "applied"),
+			).toBe(true);
+			const messages = JSON.stringify(
+				await ws.readMessages(scope, turn.conversationId),
+			);
+			expect(messages).not.toContain("out-sheet");
+			expect(messages).not.toContain("out-doc");
+			if (phase === "full") expect(messages).toContain("agent-directory");
+			await ws.scriptModel(scope, [{ text: "Created on the prior owner" }]);
+			const applied = await ws.decideApproval(scope, {
+				approvalId: approval.approvalId,
+				decision: "approve",
+				by: "u1",
+			});
+			expect(applied.applied).toBe(true);
+			await ws.awaitTurn(scope, applied.turnId!, 20_000);
+			const shared = await testEnv.DB.prepare(
+				"SELECT id FROM os_outputs WHERE workspace_id = ? AND title = ?",
+			)
+				.bind(scope.workspaceId, `agent-${phase}`)
+				.all<{ id: string }>();
+			expect(shared.results).toHaveLength(1);
+			expect(
+				await ws.outputQuery(scope, {
+					op: "get",
+					outputId: shared.results[0]!.id,
+				}),
+			).toBeUndefined();
+		}
+		await expect(
+			async () =>
+				await ws.activateOutputAuthority(scope, {
+					importGeneration: 1,
+					reconciliationRef: "fixture:stale",
+				}),
+		).rejects.toThrow("reconcile again");
+		await expect(
+			async () =>
+				await ws.activateOutputAuthority(scope, {
+					importGeneration: 3,
+					reconciliationRef: "",
+				}),
+		).rejects.toThrow("reconciliation evidence");
+		await ws.importRows(scope, directory); // A retry does not invalidate reconciliation.
+		expect((await ws.describe(scope)).importGeneration).toBe(3);
+		const activation = {
+			importGeneration: 3,
+			reconciliationRef: "fixture:final-frozen-reconcile",
+		};
+		expect(await ws.activateOutputAuthority(scope, activation)).toEqual(
+			activation,
+		);
+		expect(await ws.activateOutputAuthority(scope, activation)).toEqual(
+			activation,
+		);
+		await evictDurableObject(ws);
+		expect(await ws.outputQuery(scope, { op: "authority" })).toBe("object");
+		expect(
+			(await ws.outputQuery(scope, { op: "list" })).map((row) => row.id).sort(),
+		).toEqual(["out-doc", "out-sheet"]);
+	});
+
+	test("retains pre-protocol directory owners and object-only transfer destinations across staging and eviction", async () => {
+		await seedCore();
+		for (const legacy of ["directory", "transfer", "persisted"]) {
+			const target = { ...scope, workspaceId: crypto.randomUUID() };
+			const ws = workspace(target);
+			await runInDurableObject(ws, async (_instance, state) => {
+				if (legacy === "directory")
+					state.storage.sql.exec(
+						"INSERT INTO os_workspaces (id, organization_id, name, created_by_kind, created_by_id, created_at, updated_at) VALUES (?, ?, 'Legacy', 'user', 'u1', 'now', 'now')",
+						target.workspaceId,
+						target.organizationId,
+					);
+				if (legacy === "transfer")
+					state.storage.sql.exec(
+						"INSERT INTO os_outputs (id, organization_id, workspace_id, kind, title, created_by_kind, created_by_id, created_at, updated_at) VALUES ('legacy-transfer', ?, ?, 'document', 'Transferred', 'user', 'u1', 'now', 'now')",
+						target.organizationId,
+						target.workspaceId,
+					);
+				if (legacy === "persisted")
+					state.storage.kv.put("output-authority", "object");
+			});
+			await ws.importRows(target, {
+				batchId: "later-stage",
+				table: "os_outputs",
+				rows: [],
+			});
+			await evictDurableObject(ws);
+			// Even removing the old evidence cannot revoke a preserved owner.
+			await runInDurableObject(ws, async (_instance, state) => {
+				state.storage.sql.exec("DELETE FROM os_outputs");
+				state.storage.sql.exec("DELETE FROM os_workspaces");
+			});
+			expect(await ws.outputQuery(target, { op: "authority" })).toBe("object");
+		}
+	});
+});
 
 describe("WorkspaceDO", () => {
 	test("production keeps workspace objects and their bodies in the EU jurisdiction", () => {
@@ -494,6 +669,12 @@ describe("WorkspaceDO", () => {
 				},
 			],
 		});
+		if ((await ws.outputQuery(scope, { op: "authority" })) === "shared") {
+			await ws.activateOutputAuthority(scope, {
+				importGeneration: (await ws.describe(scope)).importGeneration,
+				reconciliationRef: "fixture:browser-owner",
+			});
+		}
 		await ws.outputQuery(scope, { op: "create", output, revision });
 		expect(await ws.outputQuery(scope, { op: "authority" })).toBe("object");
 		await ws.failNextProjection(scope);

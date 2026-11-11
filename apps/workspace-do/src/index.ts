@@ -146,7 +146,7 @@ export class InternalEntrypoint extends WorkerEntrypoint<WorkspaceEnv> {
 }
 
 const MIGRATION_PATH =
-	/^\/migration\/workspaces\/([^/]+)\/([^/]+)(\/import|\/rows)?$/;
+	/^\/migration\/workspaces\/([^/]+)\/([^/]+)(\/import|\/rows|\/activate)?$/;
 
 /** Blobs travel as `{ "$b64": … }`; everything else is JSON as stored. */
 function decodeRow(row: Record<string, unknown>) {
@@ -164,7 +164,7 @@ function decodeRow(row: Record<string, unknown>) {
 	);
 }
 
-/** The migration tool's three routes, guarded by `MIGRATE_WORKSPACES_TOKEN`. */
+/** The migration tool's routes, guarded by `MIGRATE_WORKSPACES_TOKEN`. */
 async function handleMigration(
 	request: Request,
 	env: WorkspaceEnv,
@@ -194,6 +194,14 @@ async function handleMigration(
 		return new Response("Method not allowed", { status: 405 });
 	const body = (await request.json()) as Record<string, unknown>;
 	const stub = () => stubFor(env, scope);
+	if (route === "/activate") {
+		return Response.json(
+			await stub().activateOutputAuthority(scope, {
+				importGeneration: body.importGeneration as number,
+				reconciliationRef: body.reconciliationRef as string,
+			}),
+		);
+	}
 	if (route === "/import") {
 		const table = String(body.table ?? "");
 		// Organization memory stays in the organization database with its

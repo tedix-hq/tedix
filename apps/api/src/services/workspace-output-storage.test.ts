@@ -153,6 +153,73 @@ async function fixture(moved = true) {
 }
 
 describe("workspace output storage authority", () => {
+	it.each(["directory-only", "full"])(
+		"keeps browser reads and writes on D1 when the runtime reports a %s staged import",
+		async (stage) => {
+			const { core, tenant, output, revision } = await fixture(true);
+			await d1Outputs.createOsOutput(core, scope, output, revision);
+			if (stage === "full")
+				await executeOutputQuery(tenant, scope, {
+					op: "create",
+					output: { ...output, title: "Staged copy" },
+					revision,
+				});
+			const runtime = config.env.WORKSPACE_RUNTIME!;
+			const query = vi
+				.spyOn(runtime, "outputQuery")
+				.mockImplementation(
+					async <K extends OutputOperation>(
+						_bound: typeof scope,
+						query: OutputQuery<K>,
+					) => {
+						if (query.op !== "authority")
+							throw new Error("Browser addressed staged storage");
+						return "shared" as OutputQueryResult<K>;
+					},
+				);
+			expect(
+				(await storage.listOsOutputs(core, scope, viewer)).map(
+					(row) => row.title,
+				),
+			).toEqual([output.title]);
+			expect(
+				(
+					await storage.getOsOutput(core, {
+						organizationId: scope.organizationId,
+						outputId: output.id,
+					})
+				)?.title,
+			).toBe(output.title);
+			expect(
+				(
+					await storage.createOsOutputRevision(core, {
+						...revision,
+						id: "browser-r2",
+						contentSha256: "b".repeat(64),
+						expectedRevision: 1,
+					})
+				).ok,
+			).toBe(true);
+			expect(
+				(
+					await d1Outputs.getOsOutput(core, {
+						organizationId: scope.organizationId,
+						outputId: output.id,
+					})
+				)?.currentRevisionId,
+			).toBe("browser-r2");
+			expect(
+				(
+					await executeOutputQuery(tenant, scope, {
+						op: "get",
+						outputId: output.id,
+					})
+				)?.currentRevisionId,
+			).toBe(stage === "full" ? revision.id : undefined);
+			expect(query.mock.calls.length).toBeGreaterThan(0);
+		},
+	);
+
 	it("uses shared storage for every read and revision write despite index rows", async () => {
 		const { core, tenant, output, revision } = await fixture(false);
 		await d1Outputs.createOsOutput(core, scope, output, revision);

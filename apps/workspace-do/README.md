@@ -46,7 +46,7 @@ its code runs beside the data.
   caller's principal; tools are `send_turn`, `read_turn`, `read_events`,
   `read_change_records`, `describe_binding`.
 - Migration: `/migration/workspaces/{org}/{workspace}` (`GET` describe,
-  `POST /import`, `POST /rows`) on the worker, guarded by
+  `POST /import`, `POST /rows`, separate `POST /activate`) on the worker, guarded by
   `MIGRATE_WORKSPACES_TOKEN`; see `scripts/migrate-workspaces/README.md`.
   Organization memory (`memory_*`) never moves: an import of such a table
   returns 409 on both public and service fetch. The importer proves its

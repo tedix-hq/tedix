@@ -9,7 +9,7 @@ const ADMIN = ["platform:admin"];
 const base = "https://tedix.mcp.example";
 
 describe("planMigrationProxy", () => {
-	it("forwards exactly the three route shapes for a platform admin", () => {
+	it("forwards only the migration route shapes for a platform admin", () => {
 		expect(
 			planMigrationProxy({
 				method: "GET",
@@ -40,6 +40,25 @@ describe("planMigrationProxy", () => {
 				scopes: ["*"],
 			}),
 		).toMatchObject({ kind: "forward", shape: "rows" });
+	});
+
+	it("keeps activation a separate admin-only POST", () => {
+		for (const scopes of [ADMIN, [], ["mcp:work.admin"]]) {
+			expect(
+				planMigrationProxy({
+					method: "POST",
+					pathname: "/admin/migration/workspaces/org/ws/activate",
+					scopes,
+				}).kind,
+			).toBe(scopes === ADMIN ? "forward" : "forbidden");
+		}
+		expect(
+			planMigrationProxy({
+				method: "GET",
+				pathname: "/admin/migration/workspaces/org/ws/activate",
+				scopes: ADMIN,
+			}),
+		).toEqual({ kind: "method_not_allowed" });
 	});
 
 	it("refuses every other caller without detail", () => {

@@ -236,7 +236,15 @@ export class TenantStore<Env = unknown> extends DurableObject<Env> {
 	 * Values are written as stored (no Drizzle mapping), so JSON and boolean
 	 * columns keep their source encoding.
 	 */
-	importRows(
+	async importRows(
+		scope: TenantScope,
+		batch: TenantStoreImportBatch,
+	): Promise<TenantStoreImportResult> {
+		return this.importRowsSync(scope, batch);
+	}
+
+	/** Subclasses can atomically commit migration state with the imported rows. */
+	protected importRowsSync(
 		scope: TenantScope,
 		batch: TenantStoreImportBatch,
 	): TenantStoreImportResult {

@@ -115,7 +115,7 @@ workspace) together with their runs and events.
 
 ## Remote protocol
 
-The worker that hosts the workspace objects serves three routes under
+The worker that hosts the workspace objects serves migration routes under
 `/migration/workspaces/:organizationId/:workspaceId`, each requiring
 `Authorization: Bearer <MIGRATE_WORKSPACES_TOKEN>` and forwarding to the
 object named by `tenantStoreName({ organizationId, workspaceId })` on the
@@ -132,6 +132,47 @@ worker addressed it with (`DO_JURISDICTION`). `import` is the object's
 `importRows(scope, batch)`. `rows` walks a table in a stable order and
 returns an opaque cursor; the local implementation uses `rowid`. Row values
 travel as JSON; a blob is `{ "$b64": "<base64>" }`.
+
+## Stage, reconcile, activate
+
+Import is staging only. The first successful batch atomically preserves the
+workspace's prior output authority with its rows and receipt. Directory-only,
+interrupted and complete staged imports keep browser and agent output reads
+and writes on shared D1. Existing object owners (including pre-protocol
+imports and object-only transfer destinations) stay object owners. Import
+and reconciliation never activate a workspace; neither removes D1 rows.
+
+For a final cutover, the authorized installation operator freezes output
+writes, takes a fresh snapshot, imports it and reconciles every mapped table
+and revision body against that snapshot. Stage-1 additive imports can run
+without a freeze, but their reports are not final cutover evidence: shared
+writes after the snapshot must be included in a fresh frozen copy. The
+importer adds missing rows and refuses changed existing rows; such a conflict
+stops cutover and needs separately scoped staging repair before reconciliation.
+Activation does not repair or overwrite a staged copy.
+
+Read `GET` describe before reconciliation and retain its `importGeneration`
+with the report. After a zero-difference reconciliation, read describe again
+and require the same generation. Every newly imported batch advances that
+generation; duplicate retries do not. An authorized operator then makes
+one separate `POST /activate` with this body:
+
+```json
+{
+	"importGeneration": 12,
+	"reconciliationRef": "<durable frozen reconciliation evidence URI>"
+}
+```
+
+Use the same bearer and scoped base URL as the other migration routes, or
+`/admin/migration/workspaces/<org>/<workspace>/activate` at the admin gateway.
+Activation rejects missing evidence and stale generations. It records the
+operator's reconciliation attestation and object authority atomically;
+repeating the same request returns the receipt. The reference is an operator
+attestation, not automatic verification of an external report. Read authority
+back and verify browser and agent behavior before lifting the freeze. The
+import CLI and rehearsal never issue this operation. A product source change
+or staging report grants no deployment or activation permission.
 
 ## Tests
 

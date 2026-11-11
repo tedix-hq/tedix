@@ -3,7 +3,7 @@
  *
  * tedix-workspace-do has no public address; the one-shot migration tool
  * reaches it through this Worker's WORKSPACE_RUNTIME service binding. Only a
- * platform administrator may pass, only three route shapes are forwarded,
+ * platform administrator may pass, only migration route shapes are forwarded,
  * and the workspace Worker's own bearer is attached from this Worker's
  * secret store. Nothing but route shape, status and duration is logged.
  */
@@ -11,7 +11,7 @@
 export const MIGRATION_PROXY_PREFIX = "/admin/migration/workspaces/";
 
 const ROUTE =
-	/^\/admin\/migration\/workspaces\/([^/]+)\/([^/]+)(\/import|\/rows)?$/;
+	/^\/admin\/migration\/workspaces\/([^/]+)\/([^/]+)(\/import|\/rows|\/activate)?$/;
 
 export type MigrationProxyPlan =
 	| { kind: "not_proxied" }
@@ -30,7 +30,7 @@ export function isPlatformAdminScopes(
 	return Boolean(scopes?.includes("platform:admin") || scopes?.includes("*"));
 }
 
-/** Pure decision: who may pass and which of the three routes this is. */
+/** Pure decision: who may pass and which migration route this is. */
 export function planMigrationProxy(input: {
 	method: string;
 	pathname: string;

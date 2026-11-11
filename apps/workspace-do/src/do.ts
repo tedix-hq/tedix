@@ -293,25 +293,89 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		return bound;
 	}
 
-	override importRows(scope: TenantScope, batch: TenantStoreImportBatch) {
-		const result = super.importRows(scope, batch);
-		if (batch.table.startsWith("kernel_")) this.#movedChatReady = false;
-		return result;
+	override async importRows(scope: TenantScope, batch: TenantStoreImportBatch) {
+		const bound = this.bindScope(scope);
+		return this.#serializeOutput(async () => {
+			// Resolve pre-upgrade imports and transfer destinations before staging new rows.
+			const owned = await this.#ownsOutputs(bound);
+			const result = this.ctx.storage.transactionSync(() => {
+				const receipt = this.importRowsSync(scope, batch);
+				this.#store.put("output-authority", owned ? "object" : "shared");
+				if (receipt.status === "imported")
+					this.#store.put(
+						"output-import-generation",
+						this.#importGeneration() + 1,
+					);
+				return receipt;
+			});
+			if (batch.table.startsWith("kernel_")) this.#movedChatReady = false;
+			return result;
+		});
+	}
+
+	#importGeneration(): number {
+		return this.#store.get<number>("output-import-generation") ?? 0;
+	}
+
+	override describe(scope: TenantScope) {
+		return {
+			...super.describe(scope),
+			outputAuthority:
+				this.#store.get<string>("output-authority") ?? "unresolved",
+			importGeneration: this.#importGeneration(),
+		};
+	}
+
+	/** Operator attestation after reconciliation under a write freeze; never called by import. */
+	async activateOutputAuthority(
+		scope: WorkspaceScope,
+		input: { importGeneration: number; reconciliationRef: string },
+	) {
+		this.bindScope(scope);
+		if (
+			!Number.isSafeInteger(input.importGeneration) ||
+			input.importGeneration < 1 ||
+			typeof input.reconciliationRef !== "string" ||
+			!input.reconciliationRef.trim()
+		)
+			throw new Error(
+				"Activation requires an import generation and reconciliation evidence",
+			);
+		return this.#serializeOutput(async () => {
+			if (input.importGeneration !== this.#importGeneration())
+				throw new Error("Import changed; reconcile again before activation");
+			const previous = this.#store.get<typeof input>("output-activation");
+			if (
+				previous &&
+				previous.importGeneration === input.importGeneration &&
+				previous.reconciliationRef === input.reconciliationRef
+			)
+				return previous;
+			if (this.#store.get("output-authority") !== "shared")
+				throw new Error("Workspace is not staged on shared authority");
+			this.ctx.storage.transactionSync(() => {
+				this.#store.put("output-activation", input);
+				this.#store.put("output-authority", "object");
+			});
+			return input;
+		});
 	}
 
 	async #ownsOutputs(scope: WorkspaceScope): Promise<boolean> {
-		if (this.#store.get("output-authority") === "object") return true;
-		if (
-			!(await hasWorkspaceOutputAuthority(
-				this.db as TenantStoreDb,
-				scope,
-				createDbQueryClient(this.env.DB),
-			))
-		)
-			return false;
-		// Ownership survives deleting the last output and object eviction.
-		this.#store.put("output-authority", "object");
-		return true;
+		const authority = this.#store.get("output-authority");
+		if (authority === "object" || authority === "shared")
+			return authority === "object";
+		const owned = await hasWorkspaceOutputAuthority(
+			this.db as TenantStoreDb,
+			scope,
+			createDbQueryClient(this.env.DB),
+		);
+		// An import or activation may have committed while the legacy check read D1.
+		const resolved = this.#store.get("output-authority");
+		if (resolved === "object" || resolved === "shared")
+			return resolved === "object";
+		if (owned) this.#store.put("output-authority", "object");
+		return owned;
 	}
 
 	async outputQuery<K extends OutputQuery["op"]>(
@@ -2058,7 +2122,13 @@ export interface WorkspaceRpc {
 		workspaceId: string;
 		createdAt: string;
 		migrations: string[];
+		outputAuthority: string;
+		importGeneration: number;
 	}>;
+	activateOutputAuthority(
+		scope: WorkspaceScope,
+		input: { importGeneration: number; reconciliationRef: string },
+	): Promise<{ importGeneration: number; reconciliationRef: string }>;
 	importRows(
 		scope: WorkspaceScope,
 		batch: { batchId: string; table: string; rows: Record<string, unknown>[] },
