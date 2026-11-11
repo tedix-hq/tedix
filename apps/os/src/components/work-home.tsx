@@ -1,14 +1,12 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { osQuery } from "@/lib/os-query-options";
 import { osApi } from "@/lib/api";
-import { DecisionDeckConfigSchema } from "@tedix/api-contract/schemas/os-decision-deck";
 import { WorkspaceAppRenderer } from "@/components/workspace-app-renderer";
 import { Button } from "@/components/kumo/button";
 import { Link } from "@/components/kumo/link";
 import { Page, PageTitle } from "@/components/kumo/page";
 import { Text } from "@/components/kumo/text";
 import { useWorkApps } from "@/lib/use-work-apps";
-import { useDeckCount } from "@/lib/use-deck-count";
 import {
 	selectedWorkApp,
 	type WorkFeedFilter,
@@ -37,12 +35,6 @@ export function WorkHome({
 		: search.view
 			? apps.find((app) => app.role === search.view)
 			: defaultApp;
-	const deck = apps.find((app) => app.role === "deck");
-	const config = DecisionDeckConfigSchema.safeParse(deck?.manifest.config);
-	const decisions = useDeckCount(
-		config.success ? config.data : undefined,
-		deck?.gadget.workspaceId,
-	);
 	const client = useQueryClient();
 	const install = useMutation({
 		mutationFn: () => osApi.osWorkspaces.gadgets.installWorkDefaults({}),
@@ -58,21 +50,6 @@ export function WorkHome({
 				? copy.deck
 				: (selected?.gadget.name ?? copy.feed);
 	useDocumentTitle(`${title} · Work`);
-	const decide = (
-		<Button
-			variant="ghost"
-			render={<a href="/work?view=deck" />}
-			title={decisions.more ? copy.loadedCount : undefined}
-		>
-			{!config.success || decisions.failed
-				? OS_COPY.feed.deck
-				: decisions.pending
-					? copy.deck
-					: decisions.count === 0
-						? OS_COPY.feed.deckClear
-						: OS_COPY.feed.decisionsWaiting(String(decisions.count))}
-		</Button>
-	);
 	const appLinks = (
 		<nav
 			aria-label={copy.apps}
@@ -118,7 +95,6 @@ export function WorkHome({
 						projectId: search.project,
 						day: search.day,
 						onFilterChange,
-						decide,
 						apps: appLinks,
 					}}
 				/>

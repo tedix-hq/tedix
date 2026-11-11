@@ -166,4 +166,28 @@ describe("projectDecisionDeck objective ranking", () => {
 			priority: { band: "week", reason: "Serves the top goal" },
 		});
 	});
+
+	it("titles a stored deadline card with the task's own name", () => {
+		const title =
+			"Ada takes the orchard review live for Cedar, Birch and Maple with daily checks";
+		const stored = {
+			...ask("deadline", "2026-10-17T11:00:00Z"),
+			workItem: { id: "work", title, projectId: null },
+		};
+		stored.request.subject = `Review ${title.slice(0, 70)}?`;
+		stored.request.metadata = { source: "deadline-decisions" };
+		const deck = projectDecisionDeck({
+			config,
+			mode: "decide",
+			decisions: {
+				...decisions([], []),
+				requests: [stored],
+			} as unknown as ReturnType<typeof useDecisionInbox>,
+			history: [],
+			learningModel: undefined,
+			now: new Date("2026-10-17T12:00:00Z"),
+			timeZone: undefined,
+		});
+		expect(deck.rows[0]?.label).toBe(title);
+	});
 });

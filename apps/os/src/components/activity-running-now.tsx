@@ -10,6 +10,11 @@ import {
 } from "./work-operations-shared";
 import { WorkReadFailure } from "./work-surface-primitives";
 import { Card, CardContent, CardHeader, CardTitle } from "./kumo/card";
+import {
+	Collapsible,
+	CollapsibleDefaultContent,
+	CollapsibleDefaultTrigger,
+} from "./kumo/collapsible";
 import { Link } from "./kumo/link";
 import { Text } from "./kumo/text";
 import { ActivityHarnessScorecard } from "./activity-harness-scorecard";
@@ -45,6 +50,7 @@ export function ActivityRunningNow({
 		...workRefreshOptions,
 		refetchInterval: 30_000,
 	});
+	const [scorecard, setScorecard] = useState(false);
 	const [now, setNow] = useState(() => new Date());
 	useEffect(() => {
 		const timer = setInterval(() => setNow(new Date()), 15_000);
@@ -103,7 +109,6 @@ export function ActivityRunningNow({
 					)
 						? " · Supervisor reporting"
 						: " · Supervisor: unknown"}
-					{" · Last renewal: unknown · Sign-in: unknown"}
 					{lastReport && (
 						<>
 							{" "}
@@ -134,11 +139,6 @@ export function ActivityRunningNow({
 						retrying={queries.some((query) => query.isFetching)}
 					/>
 				)}
-				<ActivityHarnessScorecard
-					scopes={scopes}
-					reports={healthFailed ? [] : reports}
-					now={now.getTime()}
-				/>
 				{rows.length > 0 ? (
 					<ul aria-label="Active attempts" className="grid min-w-0 gap-3">
 						{rows.map(({ attempt, workItem }) => {
@@ -214,6 +214,21 @@ export function ActivityRunningNow({
 				{queries.some((query) => query.data?.hasMore) && (
 					<Link href="/work/attempts">More active attempts in Work</Link>
 				)}
+				{/* Runner statistics are for whoever operates the runners; they load on request. */}
+				<Collapsible open={scorecard} onOpenChange={setScorecard}>
+					<CollapsibleDefaultTrigger>
+						Runner scorecard · Last 24 h
+					</CollapsibleDefaultTrigger>
+					<CollapsibleDefaultContent>
+						{scorecard && (
+							<ActivityHarnessScorecard
+								scopes={scopes}
+								reports={healthFailed ? [] : reports}
+								now={now.getTime()}
+							/>
+						)}
+					</CollapsibleDefaultContent>
+				</Collapsible>
 			</CardContent>
 		</Card>
 	);

@@ -20,13 +20,8 @@ vi.mock("@/components/workspace-app-renderer", () => ({
 		activityFeed,
 	}: {
 		manifest: { entry: string };
-		activityFeed?: { decide?: React.ReactNode; apps?: React.ReactNode };
-	}) => (
-		<article data-entry={manifest.entry}>
-			{activityFeed?.decide}
-			{activityFeed?.apps}
-		</article>
-	),
+		activityFeed?: { apps?: React.ReactNode };
+	}) => <article data-entry={manifest.entry}>{activityFeed?.apps}</article>,
 }));
 
 function render(
@@ -202,15 +197,12 @@ function render(
 	return new DOMParser().parseFromString(html, "text/html");
 }
 
-it("opens Feed with the Decide count and configured apps, then opens the same Deck renderer", () => {
+it("opens Feed with the configured apps, then opens the same Deck renderer", () => {
 	const feed = render({});
 	expect(feed.querySelector("article")?.getAttribute("data-entry")).toBe(
 		"tedix:app/activity-feed",
 	);
 	expect(feed.querySelector('nav[aria-label="Work"]')).toBeNull();
-	expect(feed.querySelector('a[href="/work?view=deck"]')?.textContent).toBe(
-		"All decided →",
-	);
 	expect(feed.querySelector('nav[aria-label="Apps"]')?.textContent).toContain(
 		"Cedar portfolio",
 	);

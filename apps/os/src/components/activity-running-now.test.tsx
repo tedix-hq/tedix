@@ -115,6 +115,14 @@ async function mount(selected?: string) {
 	);
 	await flush();
 }
+/** The scorecard reads nothing until someone opens it. */
+async function openScorecard() {
+	const trigger = [...host.querySelectorAll("button")].find((button) =>
+		button.textContent?.includes("Runner scorecard"),
+	)!;
+	await act(async () => trigger.click());
+	await flush();
+}
 it("shows the canonical attempt fields and polls away completed attempts without navigation", async () => {
 	await mount(projectId);
 	expect(api.attempts).toHaveBeenCalledWith(
@@ -133,7 +141,11 @@ it("shows the canonical attempt fields and polls away completed attempts without
 		host.querySelectorAll(`time[datetime="${at}"]`).length,
 	).toBeGreaterThan(0);
 	expect(host.textContent).toContain("Runners up: 1 / 1");
-	expect(host.textContent).toContain("Last renewal: unknown");
+	expect(host.textContent).not.toContain("Last renewal");
+	expect(api.attempts.mock.calls.every(([input]) => input.runtimeStates)).toBe(
+		true,
+	);
+	await openScorecard();
 	api.attempts.mockResolvedValue({
 		data: [],
 		hasMore: false,
@@ -210,6 +222,7 @@ it("pages the 24-hour cohort and refreshes scorecard outcomes without navigation
 		throw new Error("Must stop paging at the 24-hour boundary");
 	});
 	await mount(projectId);
+	await openScorecard();
 	await flush(20);
 	const scorecard = host.querySelector(
 		'section[aria-label="Runner scorecard"]',
@@ -246,6 +259,7 @@ it("keeps forbidden history unknown and recovers through manual retry", async ()
 		return { data: [row()], hasMore: false, nextCursor: null };
 	});
 	await mount();
+	await openScorecard();
 	expect(host.textContent).toContain("Runner scorecard unavailable");
 	expect(host.textContent).toContain("Counts are unknown");
 	const cells = host.querySelector(

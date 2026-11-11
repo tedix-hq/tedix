@@ -109,7 +109,7 @@ afterEach(async () => {
 	sessionStorage.clear();
 });
 function Count() {
-	const queue = useDeckCount(config, "workspace");
+	const queue = useDeckCount(config);
 	return <output>{queue.count}</output>;
 }
 it("sidebar and Decisions count the same routed queue, including factory cards", async () => {

@@ -84,9 +84,19 @@ export function DeckWaitingList({
 										<Badge variant="secondary">{decisionText("Expired")}</Badge>
 									)}
 									<Text as="span" role="caption" tone="secondary">
-										{row.costOfWaiting
-											? `${OS_COPY.feed.waiting}: ${row.costOfWaiting}`
-											: `${decisionText("Due")} ${shortDeadline(row.deadline!, now)}`}
+										{[
+											row.deadline &&
+												`${decisionText("Due")} ${shortDeadline(row.deadline, now)}`,
+											// A cost line that only repeats the date adds nothing.
+											row.costOfWaiting &&
+												!(
+													row.deadline &&
+													row.costOfWaiting.includes(row.deadline.slice(0, 10))
+												) &&
+												`${OS_COPY.feed.waiting}: ${row.costOfWaiting}`,
+										]
+											.filter(Boolean)
+											.join(" · ")}
 									</Text>
 								</span>
 							)}

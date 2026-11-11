@@ -18,6 +18,7 @@ try {
 				document.documentElement.classList.toggle("dark", theme === "dark");
 				document.documentElement.dataset.mode = theme;
 			}, theme);
+			await page.getByRole("button", { name: /Runner scorecard/ }).click();
 			const scorecard = page.getByRole("region", {
 				name: "Runner scorecard",
 				exact: true,

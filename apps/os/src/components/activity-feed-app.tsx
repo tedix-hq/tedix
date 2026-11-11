@@ -13,7 +13,6 @@ export interface ActivityFeedNavigation {
 	projectId?: string;
 	day?: string;
 	onFilterChange?: (filter: Filter) => void;
-	decide?: ReactNode;
 	apps?: ReactNode;
 }
 
