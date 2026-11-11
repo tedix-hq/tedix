@@ -119,18 +119,18 @@ try {
 					`${server.origin}/browser-tests/workspace-chat.html?theme=${theme}`,
 				);
 				const picker = page.getByRole("combobox", {
-					name: "Workspace chat model",
+					name: "Model",
 				});
 				await picker.waitFor();
 				await picker.click();
 				const option = page.getByRole("option", {
-					name: "Azure deployment: configured-workspace-model",
+					name: "Configured Workspace Model",
 				});
 				await option.waitFor();
 				assert.equal(await page.getByRole("option").count(), 1);
 				await option.click();
 				await page
-					.getByRole("button", { name: "Workspace resources", exact: true })
+					.getByRole("button", { name: "Add files", exact: true })
 					.click();
 				const file = page.getByRole("button", {
 					name: "Planning notes",
