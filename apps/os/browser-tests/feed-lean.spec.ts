@@ -95,7 +95,7 @@ try {
 				.getByRole("menuitem", { name: "Comment", exact: true })
 				.waitFor();
 			await page.keyboard.press("Escape");
-			await page.getByRole("button", { name: /Handled without you:/ }).click();
+			await page.getByRole("button", { name: /finished without you/ }).click();
 			const handled = page.locator(".focus-handled .ft-sentence").first();
 			await handled.evaluate((node) => {
 				node.textContent =
@@ -111,7 +111,7 @@ try {
 				)
 			)
 				throw new Error("Handled update text is clipped");
-			await page.getByRole("button", { name: /Handled without you:/ }).click();
+			await page.getByRole("button", { name: /finished without you/ }).click();
 			if (
 				await page.evaluate(
 					() => document.documentElement.scrollWidth > innerWidth,

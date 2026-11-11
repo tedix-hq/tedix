@@ -432,7 +432,7 @@ try {
 			if (forYouCount > 5)
 				throw new Error("For you exceeded its first-screen item limit");
 			const handled = page.getByRole("button", {
-				name: /Handled without you:/,
+				name: /finished without you/,
 			});
 			if (await handled.count()) {
 				await handled.click();
@@ -551,7 +551,7 @@ try {
 			if (records !== 17)
 				throw new Error(`Shipped lost canonical fixture records: ${records}`);
 			if (
-				await page.getByRole("button", { name: /Handled without you:/ }).count()
+				await page.getByRole("button", { name: /finished without you/ }).count()
 			)
 				throw new Error("Shipped hid records behind the attention budget");
 			const everythingStory = page

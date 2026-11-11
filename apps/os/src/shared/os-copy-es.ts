@@ -359,6 +359,30 @@ export const SPANISH_FEED_DECK_COPY = {
 				`${count} actualizaciones de ${actor}`,
 			showAll: (count: number) => `Mostrar las ${count}`,
 			showAllActivity: "Mostrar toda la actividad",
+			taskSteps: (actor: string, earlier: number) =>
+				`${actor} · ${earlier} ${earlier === 1 ? "paso anterior" : "pasos anteriores"} en esta tarea hoy`,
+			finished: "Trabajo terminado",
+			stalled: "Trabajo detenido",
+			noFinished: "Ningún trabajo terminado coincide con estos filtros.",
+			noStalled: "Ningún trabajo detenido coincide con estos filtros.",
+			region: "Actividad",
+			opening: "Abriendo tu actividad…",
+			preferences: "Preferencias de actividad",
+			lowerPriority: (count: number) =>
+				`${count} ${count === 1 ? "actualización" : "actualizaciones"} de menor prioridad`,
+			lowerPriorityHide: "Ocultar actualizaciones de menor prioridad",
+			handled: (count: number) => `${count} terminadas sin ti`,
+			earlier: "Cargar actividad anterior",
+			saved: "Guardado. Actividad aprenderá de esto.",
+			saveFailed: "No se pudo guardar tu elección. Inténtalo de nuevo.",
+			preferencesFailed:
+				"No se pudieron guardar tus preferencias de Actividad. Inténtalo de nuevo.",
+			lessonSaved:
+				"Lección guardada. Este tipo de delegación preguntará la próxima vez.",
+			correctionSaved: "Corrección guardada.",
+			correctionFailed: "No se pudo guardar tu corrección.",
+			workCreated: "Trabajo creado.",
+			workFailed: "No se pudo crear el trabajo.",
 			status: {
 				finished: "Terminado",
 				unfinished: "No terminó",

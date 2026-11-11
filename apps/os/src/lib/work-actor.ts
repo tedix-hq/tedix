@@ -84,6 +84,10 @@ export function interactionActorReference(
 		: base;
 }
 
+/** "Local agents (ada@laptop.test)" names the agents, not the machine. */
+const withoutMachine = (name: string) =>
+	name.replace(/\s*\([^()\s]+@[^()\s]+\)\s*$/, "") || name;
+
 export function resolveWorkActor(
 	ref: WorkActorReference | undefined,
 	fallback: string,
@@ -108,12 +112,14 @@ export function resolveWorkActor(
 				? "Codex"
 				: harness === "claude-code"
 					? "Claude Code"
-					: (profile?.name ??
-						(/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}(?:\s|$)/i.test(
-							fallback,
-						)
-							? "Agent"
-							: fallback));
+					: withoutMachine(
+							profile?.name ??
+								(/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}(?:\s|$)/i.test(
+									fallback,
+								)
+									? "Agent"
+									: fallback),
+						);
 	const represented =
 		personalAgent || profile?.browserAgent || harness
 			? profile?.for

@@ -105,13 +105,41 @@ export function activityHeadline(
 
 export type ActivityEntry<T extends ActivityFeedItem> =
 	| { kind: "item"; item: T }
-	| { kind: "group"; key: string; actor: string; items: T[] };
+	| {
+			kind: "group";
+			key: string;
+			actor: string;
+			items: T[];
+			/** "task": every step one task took that day, newest first. */
+			by: "actor" | "task";
+	  };
 
-/** Three or more back-to-back events of the same kind by the same actor fold into one row. */
+/**
+ * Accepted, started, updated: steps of one task, not separate news. A finished
+ * task is the news itself and stays its own row.
+ */
+const taskStep = (item: ActivityFeedItem) =>
+	item.kind === "work" &&
+	!!item.workItemId &&
+	!item.needsAction &&
+	!item.stalled &&
+	!item.done;
+
+/**
+ * A task's steps within the list fold into its newest step. Then three or
+ * more back-to-back events of the same kind by the same actor fold into one row.
+ */
 export function collapseActivity<T extends ActivityFeedItem>(
 	items: readonly T[],
 	min = 3,
 ): ActivityEntry<T>[] {
+	const steps = new Map<string, T[]>();
+	for (const item of items)
+		if (taskStep(item))
+			steps.set(item.workItemId!, [
+				...(steps.get(item.workItemId!) ?? []),
+				item,
+			]);
 	const entries: ActivityEntry<T>[] = [];
 	let run: T[] = [];
 	const flush = () => {
@@ -121,11 +149,26 @@ export function collapseActivity<T extends ActivityFeedItem>(
 				key: `group:${run[0]!.id}`,
 				actor: run[0]!.actor,
 				items: run,
+				by: "actor",
 			});
 		else for (const item of run) entries.push({ kind: "item", item });
 		run = [];
 	};
 	for (const item of items) {
+		const task = taskStep(item) ? steps.get(item.workItemId!)! : null;
+		if (task && task.length > 1) {
+			flush();
+			// The first one met is the newest; the later ones are already inside it.
+			if (task[0] === item)
+				entries.push({
+					kind: "group",
+					key: `task:${item.id}`,
+					actor: item.actor,
+					items: task,
+					by: "task",
+				});
+			continue;
+		}
 		const previous = run[0];
 		if (
 			previous &&
