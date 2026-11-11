@@ -1,4 +1,5 @@
 import { and, eq, getColumns, sql, Subquery } from "drizzle-orm";
+import { QueryBuilder } from "drizzle-orm/sqlite-core";
 import {
 	ProviderCostEvidenceProjectionSchema,
 	type ProviderCostEvidenceProjection,
@@ -49,7 +50,9 @@ export function normalizeEffectiveCallCost<
 }
 
 /** One row per original call, including retained snapshots whose source was deleted. */
-export function effectiveCallCostsRelation() {
+export function effectiveCallCostsRelation(
+	archivedRows?: readonly (typeof tediCallCosts.$inferSelect)[],
+) {
 	const columns = Object.entries(getColumns(tediCallCosts));
 	const original = sql.join(
 		columns.map(
@@ -68,6 +71,25 @@ export function effectiveCallCostsRelation() {
 		),
 		sql`, `,
 	);
+	// Archived pages are filtered and bounded in their store. Join their original
+	// values to authority in main; authority tables never move to the logs DB.
+	const archiveSource =
+		archivedRows === undefined
+			? null
+			: new QueryBuilder()
+					.select(
+						Object.fromEntries(
+							columns.map(([key, c]) => [
+								c.name,
+								sql`json_extract(value, ${`$.${key}`})`.as(c.name),
+							]),
+						),
+					)
+					.from(sql`json_each(${JSON.stringify(archivedRows)})`);
+	const source =
+		archiveSource === null
+			? sql`tedi_call_costs`
+			: sql`(${archiveSource.getSQL()})`;
 	const query = sql`WITH leaf AS (SELECT version.* FROM billing_provider_cost_evidence_versions version WHERE NOT EXISTS
 	(SELECT 1 FROM billing_provider_cost_evidence_versions child WHERE child.supersedes_evidence_version_id = version.id))
 	SELECT ${original}, leaf.provider_estimated_cost_micros AS reviewed_cost_micros,
@@ -76,14 +98,15 @@ export function effectiveCallCostsRelation() {
 	'sourceSnapshotDigest',leaf.original_source_digest,'effectiveCostBasis','reviewed_provider_estimate',
 	'originalCostBasis',json_extract(leaf.original_source_snapshot,'$.costBasis'), 'originalCostReason',json_extract(leaf.original_source_snapshot,'$.costReason'),
 	'originalDataQuality',json_extract(leaf.original_source_snapshot,'$.dataQuality'),'originalEstimatedCostUsd',json_extract(leaf.original_source_snapshot,'$.estimatedCostUsd')) END AS provider_cost_evidence, 0 AS source_retired
-	FROM tedi_call_costs original LEFT JOIN leaf ON leaf.original_org_id = original.org_id AND leaf.source_call_id = original.id
+	FROM ${source} original LEFT JOIN leaf ON leaf.original_org_id = original.org_id AND leaf.source_call_id = original.id
 	AND leaf.source_gateway_id = original.gateway_id AND leaf.gateway_log_id = original.gateway_log_id
 	UNION ALL SELECT ${retired}, leaf.provider_estimated_cost_micros AS reviewed_cost_micros,
 	json_object('versionId',leaf.id,'pricingBasis',leaf.pricing_basis,'providerEstimatedCostMicros',leaf.provider_estimated_cost_micros,
 	'basisFactsDigest',leaf.basis_facts_digest,'sourceSnapshotDigest',leaf.original_source_digest,'effectiveCostBasis','reviewed_provider_estimate',
 	'originalCostBasis',json_extract(leaf.original_source_snapshot,'$.costBasis'),'originalCostReason',json_extract(leaf.original_source_snapshot,'$.costReason'),
 	'originalDataQuality',json_extract(leaf.original_source_snapshot,'$.dataQuality'),'originalEstimatedCostUsd',json_extract(leaf.original_source_snapshot,'$.estimatedCostUsd')) AS provider_cost_evidence, 1 AS source_retired
-	FROM leaf WHERE NOT EXISTS (SELECT 1 FROM tedi_call_costs original WHERE original.id = leaf.source_call_id)`;
+	FROM leaf WHERE ${Number(archivedRows === undefined)} = 1
+	AND NOT EXISTS (SELECT 1 FROM tedi_call_costs original WHERE original.id = leaf.source_call_id)`;
 	return new Subquery(
 		query,
 		getColumns(tediCallCosts),

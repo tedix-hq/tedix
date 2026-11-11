@@ -22,6 +22,10 @@
  *   evidence cites; the writers check the logs database before inserting an
  *   attribution that old, so a replay never creates a second copy.
  *
+ * - `tedi_call_costs`: settled or quarantined organization-owned rows past
+ *   the financial keep window. Pending settlement and reviewed source rows
+ *   stay beside authority in main. The organization ledger merges archives.
+ *
  * Readers merge both stores through `getLogStores()` in `client.ts`. The
  * checked-in DDL under `packages/db/logs-db/migrations` is derived from this
  * list; `scripts/logs-db-schema.test.ts` keeps the two in step.
@@ -32,6 +36,7 @@ import { auditEvents } from "./audit-events";
 import { skillRunArtifacts } from "./cognitive";
 import { kernelRuntimeEvents, tediRuntimeEvents } from "./cognitive-runtime";
 import { externalAgentAttributions } from "./external-agent-identity";
+import { tediCallCosts } from "./tedis";
 
 /**
  * Logs-local directory, never part of the main migration chain. Apply the logs
@@ -55,6 +60,7 @@ export const LOGS_DB_TABLES: readonly SQLiteTable[] = [
 	kernelRuntimeEvents,
 	skillRunArtifacts,
 	externalAgentAttributions,
+	tediCallCosts,
 	logPartition,
 ];
 
@@ -88,4 +94,5 @@ export const LOGS_DB_TABLE_NAMES: ReadonlySet<string> = new Set([
 	"kernel_runtime_events",
 	"skill_run_artifacts",
 	"external_agent_attributions",
+	"tedi_call_costs",
 ]);

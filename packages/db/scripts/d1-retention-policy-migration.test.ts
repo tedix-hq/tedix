@@ -6,7 +6,7 @@ import { describe, expect, it } from "vite-plus/test";
 const migrationsDirectory = join(import.meta.dirname, "../drizzle");
 
 describe("D1 retention policy migrations", () => {
-	it("activate verified log moves for audit and runtime streams", () => {
+	it("activates verified log moves for telemetry, attributions and costs", () => {
 		const sqlite = new DatabaseSync(":memory:");
 		for (const directory of readdirSync(migrationsDirectory).sort()) {
 			const sql = readFileSync(
@@ -44,7 +44,67 @@ describe("D1 retention policy migrations", () => {
 					"SELECT mode, keep_days, max_rows_per_run FROM d1_retention_policies WHERE table_name = 'external_agent_attributions'",
 				)
 				.get(),
-		).toEqual({ mode: "dry_run", keep_days: 30, max_rows_per_run: 5000 });
+		).toEqual({
+			mode: "move_to_logs_db",
+			keep_days: 30,
+			max_rows_per_run: 5000,
+		});
+		expect(
+			sqlite
+				.prepare(
+					"SELECT mode, keep_days, max_rows_per_run FROM d1_retention_policies WHERE table_name = 'tedi_call_costs'",
+				)
+				.get(),
+		).toEqual({
+			mode: "move_to_logs_db",
+			keep_days: 400,
+			max_rows_per_run: 5000,
+		});
+		sqlite.close();
+	});
+
+	it("preserves configured attribution and cost windows and run caps during activation", () => {
+		const sqlite = new DatabaseSync(":memory:");
+		sqlite.exec(
+			readFileSync(
+				join(
+					migrationsDirectory,
+					"20261021192732_d1_retention_policies/migration.sql",
+				),
+				"utf8",
+			),
+		);
+		sqlite.exec(`INSERT INTO d1_retention_policies(table_name, mode, keep_days, max_rows_per_run)
+			VALUES ('external_agent_attributions','dry_run',60,250), ('tedi_call_costs','off',500,100)`);
+		const activation = readFileSync(
+			join(
+				migrationsDirectory,
+				"20261111205403_move_attribution_and_cost_retention/migration.sql",
+			),
+			"utf8",
+		);
+		sqlite.exec(activation);
+		sqlite.exec(activation);
+		expect(
+			sqlite
+				.prepare(
+					"SELECT table_name, mode, keep_days, max_rows_per_run FROM d1_retention_policies WHERE table_name IN ('external_agent_attributions', 'tedi_call_costs') ORDER BY table_name",
+				)
+				.all(),
+		).toEqual([
+			{
+				table_name: "external_agent_attributions",
+				mode: "move_to_logs_db",
+				keep_days: 60,
+				max_rows_per_run: 250,
+			},
+			{
+				table_name: "tedi_call_costs",
+				mode: "move_to_logs_db",
+				keep_days: 500,
+				max_rows_per_run: 100,
+			},
+		]);
 		sqlite.close();
 	});
 

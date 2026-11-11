@@ -1,6 +1,17 @@
 import { DatabaseSync } from "node:sqlite";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { auditEvents } from "@tedix/db/schema/audit-events";
+import { tediCallCosts } from "@tedix/db/schema/tedis";
+import {
+	billingProviderCostEvidenceVersions,
+	billingProviderUsage,
+	billingUsageCharges,
+	billingUsageQuarantines,
+} from "@tedix/db/schema/billing";
+import {
+	externalAgentAttributions,
+	externalAgentReviewEvidence,
+} from "@tedix/db/schema/external-agent-identity";
 import { skillRunArtifacts, skillRuns } from "@tedix/db/schema/cognitive";
 import {
 	kernelRuntimeEvents,
@@ -87,6 +98,13 @@ function fixture(policies: string) {
 			tediArtifacts,
 			osGadgetExecutions,
 			d1RetentionPolicies,
+			tediCallCosts,
+			billingProviderCostEvidenceVersions,
+			billingProviderUsage,
+			billingUsageCharges,
+			billingUsageQuarantines,
+			externalAgentAttributions,
+			externalAgentReviewEvidence,
 		),
 	);
 	sqlite.exec(
@@ -154,7 +172,14 @@ function fixture(policies: string) {
 function logsFixture() {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(
-		[auditEvents, tediRuntimeEvents, kernelRuntimeEvents, skillRunArtifacts]
+		[
+			auditEvents,
+			tediRuntimeEvents,
+			kernelRuntimeEvents,
+			skillRunArtifacts,
+			tediCallCosts,
+			externalAgentAttributions,
+		]
 			.flatMap((table) => tableDdl(table, { foreignKeys: false }))
 			.join("\n"),
 	);
@@ -1080,6 +1105,95 @@ describe("runD1Retention", () => {
 		expect(count()).toBe(0);
 	});
 
+	it("moves expired attributions and settled costs, retains the financial window and pending settlement, and records counts", async () => {
+		const { db, sqlite, count, policy } = fixture(
+			"('external_agent_attributions','move_to_logs_db',30,5000,'2026-10-21'), ('tedi_call_costs','move_to_logs_db',400,5000,'2026-10-21')",
+		);
+		sqlite.exec(`INSERT INTO external_agent_attributions
+			(id, organization_id, principal_id, session_id, target_type, target_id, role, occurred_at)
+			VALUES ('attribution-old','fictional-lighthouse','principal','session','mcp_execution','execution-old','executor','2024-01-01'),
+			('attribution-new','fictional-lighthouse','principal','session','mcp_execution','execution-new','executor','2026-10-20');`);
+		const insert = sqlite.prepare(`INSERT INTO tedi_call_costs
+			(id,org_id,gateway_log_id,gateway_id,snapshot_at,model,success,created_at)
+			VALUES (?,? ,?,'gateway',?,'fictional-model',?,?)`);
+		insert.run(
+			"cost-old",
+			"fictional-lighthouse",
+			"cost-old",
+			"2024-01-01",
+			0,
+			"2024-01-01",
+		);
+		insert.run(
+			"cost-window",
+			"fictional-lighthouse",
+			"cost-window",
+			"2026-09-01",
+			0,
+			"2026-09-01",
+		);
+		insert.run(
+			"cost-pending",
+			"fictional-lighthouse",
+			"cost-pending",
+			"2024-01-01",
+			1,
+			"2024-01-01",
+		);
+		insert.run(
+			"cost-unattributed",
+			null,
+			"cost-unattributed",
+			"2024-01-01",
+			0,
+			"2024-01-01",
+		);
+		const logs = logsFixture();
+		const bucket = new MemoryBucket();
+		const result = await runD1Retention({
+			db,
+			logsDb: logs.db,
+			bucket: bucket as unknown as R2Bucket,
+			now: NOW,
+		});
+		expect(
+			result.tables.map((table) => ({
+				name: table.tableName,
+				moved: table.movedRows,
+				deleted: table.deletedRows,
+				error: table.error,
+			})),
+		).toEqual([
+			{
+				name: "external_agent_attributions",
+				moved: 1,
+				deleted: 1,
+				error: undefined,
+			},
+			{ name: "tedi_call_costs", moved: 1, deleted: 1, error: undefined },
+		]);
+		expect(count("external_agent_attributions")).toBe(1);
+		expect(count("tedi_call_costs")).toBe(3);
+		expect(logs.count("external_agent_attributions")).toBe(1);
+		expect(logs.count("tedi_call_costs")).toBe(1);
+		expect(JSON.parse(policy("tedi_call_costs").report)).toMatchObject({
+			movedRows: 1,
+			deletedRows: 1,
+			referencedRows: 2,
+			keepDays: 400,
+		});
+		expect(bucket.objects.size).toBe(2);
+		const archived = (
+			await Promise.all([...bucket.objects.values()].map(gunzipLines))
+		)
+			.flat()
+			.map((line) => JSON.parse(line));
+		expect(archived.map((row) => row.id).sort()).toEqual([
+			"attribution-old",
+			"cost-old",
+		]);
+	});
+
 	it("reports a missing logs binding and changes nothing", async () => {
 		const { db, seed, count, policy } = fixture(
 			"('audit_events','move_to_logs_db',30,2000,'2026-10-21'), ('tedi_call_costs','move_to_logs_db',400,2000,'2026-10-21')",
@@ -1092,7 +1206,7 @@ describe("runD1Retention", () => {
 		});
 		expect(result.tables.map((table) => table.problem)).toEqual([
 			"logs_db_missing",
-			"logs_db_unsupported",
+			"logs_db_missing",
 		]);
 		expect(count()).toBe(10);
 		expect(JSON.parse(policy("audit_events").report)).toMatchObject({

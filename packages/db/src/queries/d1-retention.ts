@@ -22,6 +22,12 @@ import { eq, getColumns, type SQL, sql } from "drizzle-orm";
 import type { AnySQLiteColumn, SQLiteTable } from "drizzle-orm/sqlite-core";
 import type { DbQueryClient } from "../query-client";
 import { auditEvents } from "../schema/audit-events";
+import {
+	billingProviderCostEvidenceVersions,
+	billingProviderUsage,
+	billingUsageCharges,
+	billingUsageQuarantines,
+} from "../schema/billing";
 import { skillRunArtifacts, skillRuns } from "../schema/cognitive";
 import {
 	kernelRuntimeEvents,
@@ -139,6 +145,9 @@ export const D1_RETENTION_TABLES: Readonly<
 		tediCallCosts,
 		tediCallCosts.createdAt,
 		"text",
+		// Settlement, reviewed evidence and historical rollup rebuilds join main
+		// authority tables. Keep the existing financial window until those
+		// batch readers can resolve archived sources in the same snapshot.
 		400,
 		true,
 	),
@@ -294,7 +303,9 @@ export async function groupD1RetentionArchiveRows(
 		const org =
 			tableSpec.tableName === "skill_run_artifacts"
 				? runOrganizations.get(String(row.run_id))
-				: row.organization_id;
+				: tableSpec.tableName === "tedi_call_costs"
+					? row.org_id
+					: row.organization_id;
 		if (typeof org !== "string" || !org)
 			throw new Error("Archive row has no valid organization");
 		const group = groups.get(org) ?? [];
@@ -547,6 +558,23 @@ async function movableAttributionRowids(
 	return movable;
 }
 
+/** Pending settlement and reviewed evidence must remain beside main authority. */
+function callCostIsMovable(): SQL {
+	return sql`${tediCallCosts.orgId} IS NOT NULL
+		AND NOT EXISTS (SELECT 1 FROM ${billingProviderCostEvidenceVersions}
+			WHERE ${billingProviderCostEvidenceVersions.originalOrgId} = ${tediCallCosts.orgId}
+			AND ${billingProviderCostEvidenceVersions.sourceCallId} = ${tediCallCosts.id})
+		AND (${tediCallCosts.success} = 0
+			OR EXISTS (SELECT 1 FROM ${billingUsageQuarantines}
+				WHERE ${billingUsageQuarantines.gatewayLogId} = ${tediCallCosts.gatewayLogId})
+			OR (${tediCallCosts.usageKind} IS NULL AND EXISTS
+				(SELECT 1 FROM ${billingUsageCharges}
+				WHERE ${billingUsageCharges.gatewayLogId} = ${tediCallCosts.gatewayLogId}))
+			OR (${tediCallCosts.usageKind} IS NOT NULL AND EXISTS
+				(SELECT 1 FROM ${billingProviderUsage}
+				WHERE ${billingProviderUsage.gatewayLogId} = ${tediCallCosts.gatewayLogId})))`;
+}
+
 /**
  * Filter expired candidates before copying. Keep the raw page's cursor and
  * end marker: an entirely pinned page does not mean the sweep has ended.
@@ -566,7 +594,14 @@ export async function filterD1RetentionReferencedRows(
 			db,
 			rows.map((row) => row.__rowid),
 		);
-	else return { rows, referencedRows: 0 };
+	else if (tableSpec.tableName === "tedi_call_costs") {
+		const candidates = await db
+			.select({ rowid: sql<number>`${tediCallCosts}.rowid`.as("call_rowid") })
+			.from(tediCallCosts).where(sql`${tediCallCosts}.rowid IN
+				(SELECT value FROM json_each(${JSON.stringify(rows.map((row) => row.__rowid))}))
+				AND ${callCostIsMovable()}`);
+		movable = new Set(candidates.map((row) => Number(row.rowid)));
+	} else return { rows, referencedRows: 0 };
 	const filtered = rows.filter((row) => movable.has(row.__rowid));
 	return { rows: filtered, referencedRows: rows.length - filtered.length };
 }
@@ -577,6 +612,7 @@ function retentionDeleteGuard(tableSpec: D1RetentionTableSpec): SQL {
 		return artifactRunIsTerminal();
 	if (tableSpec.tableName === "external_agent_attributions")
 		return attributionIsMovable();
+	if (tableSpec.tableName === "tedi_call_costs") return callCostIsMovable();
 	return sql`1 = 1`;
 }
 

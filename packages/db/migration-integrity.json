@@ -1440,6 +1440,10 @@
 		{
 			"name": "20261111203352_os_gadget_code_blobs/migration.sql",
 			"sha256": "be9e0e0ed095bf9cfce78e02b0fde0628cb4f1aa08502a822c7b3fe1934d121f"
+		},
+		{
+			"name": "20261111205403_move_attribution_and_cost_retention/migration.sql",
+			"sha256": "e76e7b1f71ecbece70b71f438e1c808d8eb8b470260c0ea7ab20cd5449a795f4"
 		}
 	]
 }

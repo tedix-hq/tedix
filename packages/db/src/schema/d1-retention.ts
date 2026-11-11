@@ -18,11 +18,11 @@
  *   run reports a problem and changes nothing.
  * - `delete`: delete expired rows without an archive copy.
  *
- * Progress needs no cursor: every pass starts from the oldest remaining row,
- * so an interrupted run resumes where it stopped. Every policy row starts in
- * `dry_run`; switching a row to a destructive mode is an operator change to
- * the row itself (`UPDATE d1_retention_policies SET mode = ... WHERE
- * table_name = ...`), never a code default.
+ * Runs check the oldest page and resume bounded sweeps past pinned or newer
+ * rows using the cursor in `last_report`. Initial policies start in `dry_run`;
+ * explicit activation migrations or operator updates enable moves only after
+ * the logs schema and binding prerequisites are installed. Modes remain policy
+ * data, never engine defaults.
  */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
