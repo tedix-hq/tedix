@@ -13,6 +13,7 @@
  * Every event derives its receipt id from what happened (fire time, skill run
  * id, signed webhook delivery), so a repeat is recognised and skipped.
  */
+import { readTextCapped } from "@tedix/worker-kit/capped-body";
 import type { Context } from "hono";
 import {
 	JsonValueSchema,
@@ -441,9 +442,10 @@ export async function handleAppTriggerWebhook(
 		Math.abs(Date.now() / 1000 - seconds) > APP_TRIGGER_WEBHOOK_SKEW_SECONDS
 	)
 		return denied();
-	const body = await c.req.text();
-	if (body.length > WEBHOOK_BODY_LIMIT)
-		return c.json({ error: "Payload too large" }, 413);
+	// The signature needs the body, so cap the read itself: nothing here has
+	// been authenticated yet.
+	const body = await readTextCapped(c.req.raw, WEBHOOK_BODY_LIMIT);
+	if (body === null) return c.json({ error: "Payload too large" }, 413);
 	const expected = await appTriggerWebhookSecret(c.env.SECRETS_MASTER_KEY, {
 		organizationId,
 		gadgetId,

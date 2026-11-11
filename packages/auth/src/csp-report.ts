@@ -1,3 +1,4 @@
+import { readTextCapped } from "@tedix/worker-kit/capped-body";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 
 /**
@@ -172,14 +173,15 @@ export async function handleCspReport(
 		return new Response(null, { status: 413 });
 	}
 
-	let raw: string;
+	// content-length is advisory — a chunked body can exceed it, so the read
+	// itself stops at the limit.
+	let raw: string | null;
 	try {
-		raw = await request.text();
+		raw = await readTextCapped(request, maxBodyBytes);
 	} catch {
 		return new Response(null, { status: 204 });
 	}
-	// content-length is advisory — a chunked body can exceed it.
-	if (raw.length > maxBodyBytes) return new Response(null, { status: 204 });
+	if (raw === null) return new Response(null, { status: 204 });
 
 	let payload: unknown;
 	try {
