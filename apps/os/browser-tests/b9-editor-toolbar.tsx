@@ -7,7 +7,7 @@ import {
 	EditorToolbarButton,
 	EditorToolbarColorButton,
 	EditorToolbarDivider,
-} from "../src/components/output-editor-toolbar";
+} from "../src/components/editor-toolbar";
 import {
 	Select,
 	SelectContent,
@@ -16,7 +16,7 @@ import {
 	SelectValue,
 } from "../src/components/kumo/select";
 import "../src/styles.css";
-import "../src/components/output-editor.css";
+import "../src/components/output-views.css";
 
 const theme = new URLSearchParams(location.search).get("theme") ?? "light";
 document.documentElement.classList.toggle("dark", theme === "dark");

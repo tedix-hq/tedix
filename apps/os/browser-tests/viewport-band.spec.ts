@@ -90,7 +90,6 @@ window.Tedix = {
 				}),
 			);
 			for (const [name, path] of [
-				["outputs", "/outputs/00000040-0000-4000-8000-000000000001"],
 				["work-feed", "/work?view=feed"],
 				["settings", "/account/settings"],
 			]) {
@@ -105,7 +104,7 @@ window.Tedix = {
 							).paddingBottom,
 						) >= 80,
 				);
-				if (name === "outputs" || name === "settings")
+				if (name === "settings")
 					await page.locator('[data-slot="page-title"]').waitFor();
 				if (name === "work-feed") {
 					await page.locator(".focus-feed").waitFor();

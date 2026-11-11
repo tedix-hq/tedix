@@ -84,13 +84,7 @@ export function NewResourceMenu(props: Props) {
 					</DropdownMenuLinkItem>
 					<DropdownMenuSeparator />
 					<DropdownMenuItem onClick={() => setKind("document")}>
-						Native document
-					</DropdownMenuItem>
-					<DropdownMenuItem onClick={() => setKind("sheet")}>
-						Native sheet
-					</DropdownMenuItem>
-					<DropdownMenuItem onClick={() => setKind("presentation")}>
-						Native slides
+						Document from a template
 					</DropdownMenuItem>
 				</DropdownMenuContent>
 			</DropdownMenu>

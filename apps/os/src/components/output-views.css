@@ -179,7 +179,7 @@
 	}
 }
 
-.output-editor-toolbar {
+.editor-toolbar {
 	min-height: 48px;
 	max-width: 100%;
 	flex-wrap: nowrap;
@@ -190,11 +190,11 @@
 	scrollbar-width: thin;
 }
 
-.output-editor-toolbar > * {
+.editor-toolbar > * {
 	flex: none;
 }
 
-.output-editor-toolbar > [data-kumo-component="Toolbar"] {
+.editor-toolbar > [data-kumo-component="Toolbar"] {
 	gap: 8px;
 }
 
@@ -211,7 +211,7 @@
 	 * editors. The `data-toolbar-control` attribute is what keeps a Select
 	 * trigger out of this rule, so the child combinator was never the guard.
 	 */
-	.output-editor-toolbar
+	.editor-toolbar
 		[data-kumo-component="Toolbar"]
 		button[data-toolbar-control="icon"] {
 		width: 28px;
@@ -220,26 +220,26 @@
 	}
 }
 
-.sheet-editor .output-editor-toolbar {
+.sheet-editor .editor-toolbar {
 	--sheet-toolbar-control-size: 32px;
 }
 
-.sheet-editor .output-editor-toolbar [data-kumo-component="Toolbar"] {
+.sheet-editor .editor-toolbar [data-kumo-component="Toolbar"] {
 	align-items: center;
 	padding: 4px;
 }
 
 /* Kumo's joined-control borders would duplicate the editor's group dividers. */
-.sheet-editor .output-editor-toolbar [data-kumo-component="Toolbar"] > * {
+.sheet-editor .editor-toolbar [data-kumo-component="Toolbar"] > * {
 	border-left-width: 0 !important;
 }
 
-.sheet-editor .output-editor-toolbar [data-history-notice]:empty {
+.sheet-editor .editor-toolbar [data-history-notice]:empty {
 	display: none;
 }
 
 .sheet-editor
-	.output-editor-toolbar
+	.editor-toolbar
 	:is(
 		button[data-toolbar-control="icon"],
 		[data-toolbar-control="color"],
@@ -251,7 +251,7 @@
 }
 
 .sheet-editor
-	.output-editor-toolbar
+	.editor-toolbar
 	:is(button[data-toolbar-control="icon"], [data-toolbar-control="color"]) {
 	width: var(--sheet-toolbar-control-size);
 	min-width: var(--sheet-toolbar-control-size);
@@ -259,7 +259,7 @@
 }
 
 @media (max-width: 639px), (pointer: coarse) {
-	.sheet-editor .output-editor-toolbar {
+	.sheet-editor .editor-toolbar {
 		--sheet-toolbar-control-size: 44px;
 	}
 }
