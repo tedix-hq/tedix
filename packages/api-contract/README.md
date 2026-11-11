@@ -38,7 +38,7 @@ This package is the **public interface** for API schemas and types. All apps imp
 Import from specific schema files (no barrel imports):
 
 ```typescript
-// ✅ CORRECT: Direct path imports
+// CORRECT: Direct path imports
 import { AppSchema, VerticalSchema } from "@tedix/api-contract/schemas/app";
 import {
 	PaginationSchema,
@@ -56,7 +56,7 @@ const vertical = VerticalSchema.parse("ecommerce");
 Import from specific contract files:
 
 ```typescript
-// ✅ CORRECT: Direct path imports
+// CORRECT: Direct path imports
 import { apiContract } from "@tedix/api-contract/contracts/api";
 import { appsContract } from "@tedix/api-contract/contracts/apps";
 

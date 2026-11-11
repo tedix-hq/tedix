@@ -297,7 +297,7 @@ describe("CLI update lifecycle", () => {
 					expect(text).toContain("100%");
 					expect(text).toContain("Verifying downloaded executable");
 					expect(output).toHaveBeenCalledWith(
-						`\n🎉 Successfully updated Tedix from ${CLI_VERSION} to ${fixtureData.version}!\nRestart any running Tedix sessions to use the new version.`,
+						`\nSuccessfully updated Tedix from ${CLI_VERSION} to ${fixtureData.version}!\nRestart any running Tedix sessions to use the new version.`,
 					);
 				}
 			} finally {
@@ -379,7 +379,7 @@ describe("CLI update lifecycle", () => {
 				`Reinstalling Tedix ${CLI_VERSION} via standalone download…`,
 			);
 			expect(output).toHaveBeenCalledWith(
-				`\n🎉 Successfully reinstalled Tedix ${CLI_VERSION}!\nRestart any running Tedix sessions to use the new version.`,
+				`\nSuccessfully reinstalled Tedix ${CLI_VERSION}!\nRestart any running Tedix sessions to use the new version.`,
 			);
 			expect(readFileSync(data.installPath, "utf8")).toBe(script(CLI_VERSION));
 		} finally {

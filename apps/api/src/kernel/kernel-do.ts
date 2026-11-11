@@ -153,12 +153,12 @@ function kernelErrorMessage(value: unknown): string {
 }
 
 /**
- * Type alias preserving the conceptual `KernelDO` name for type-only imports (`DurableObjectNamespace<KernelDO>`). The
- * RUNTIME class was renamed to `KernelDOv2` in DO migration v9 (apps/api/wrangler.jsonc) — a state-preserving
- * `renamed_classes` rename whose only purpose is to force the continuously-active org-scoped kernel DO to restart onto
- * current code. An active org DO never hibernates (continuous org turns + reconcile alarms), so it otherwise keeps
- * executing stale code across deploys; the rename evicts the old instance and the next `idFromName(org)` boots a fresh
- * DO (new code) over the migrated storage.
+ * Type alias keeping the conceptual `KernelDO` name for type-only imports (`DurableObjectNamespace<KernelDO>`). The
+ * runtime class is the one named on the right-hand side below. It is renamed through state-preserving
+ * `renamed_classes` migrations (apps/api/wrangler.jsonc) to force the always-active org kernel object to restart on
+ * current code: an active org object never hibernates (continuous org turns + reconcile alarms), so it otherwise
+ * keeps running old code across deploys. The rename evicts the old instance, and the next `idFromName(org)` boots a
+ * fresh object over the migrated storage.
  */
 export type KernelDO = KernelDOv4;
 

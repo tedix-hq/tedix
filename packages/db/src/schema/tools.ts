@@ -4,8 +4,6 @@
  *
  * This enables the unified MCP engine where apps can configure
  * MCP tools dynamically via D1 database instead of hardcoding them.
- *
- * RENAMED FROM: brand_tools -> app_tools
  */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";

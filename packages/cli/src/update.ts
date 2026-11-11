@@ -1034,7 +1034,7 @@ export async function runUpdateCommand(
 	console.log(
 		options.json
 			? JSON.stringify(result)
-			: `\n🎉 Successfully ${comparison === 0 ? `reinstalled Tedix ${version}` : `updated Tedix from ${CLI_VERSION} to ${version}`}!\nRestart any running Tedix sessions to use the new version.`,
+			: `\nSuccessfully ${comparison === 0 ? `reinstalled Tedix ${version}` : `updated Tedix from ${CLI_VERSION} to ${version}`}!\nRestart any running Tedix sessions to use the new version.`,
 	);
 	return 0;
 }

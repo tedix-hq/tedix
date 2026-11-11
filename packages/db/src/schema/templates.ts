@@ -9,8 +9,6 @@
  * - Pre-configured MCP tools (search_listings, etc.)
  * - Field mappings for data normalization
  * - Required and optional fields for admin customization
- *
- * RENAMED FROM: brand_templates -> app_templates
  */
 
 import type {
