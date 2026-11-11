@@ -339,7 +339,8 @@ reconciles the Descope user, alias, attributes, roles, and missing key secrets.
 AIH client-credentials tokens carry the client/project `aud`; human OAuth grants
 are bound to the exact MCP resource URL (RFC 8707). The edge logs one
 `auth_audience` event per client-credentials token (`match`, `mismatch` or
-`missing` against the resource URL). A client proven to send the URL can be
+`missing` against the resource URL; a mismatch also carries a bounded
+`mismatchReason`, never the audience values). A client proven to send the URL can be
 held to it per server: list it in `mcpConfig.m2mAudiencePolicy.enforce`
 (matched on the client resolved from this server's registrations, not on the
 token), bump `revision`, and its tokens without the URL get 401. Unlisted
