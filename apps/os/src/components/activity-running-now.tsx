@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import type { ActivityFeedConfig } from "@tedix/api-contract/schemas/os-activity-feed";
+import { plainFeedText } from "@tedix/api-contract/utils/activity-feed";
 import { dispatcherHealthQueryOptions, osQuery } from "@/lib/os-query-options";
 import { workRefreshOptions } from "@/lib/work-refresh";
 import { absoluteTime, relativeTime } from "@/lib/time";
@@ -100,7 +101,7 @@ export function ActivityRunningNow({
 						? "Runners up: unknown"
 						: `Runners up: ${up.length} / ${runners.length}`}
 					{reports.length > fresh.length
-						? ` · ${reports.length - fresh.length} stale reports`
+						? ` · ${reports.length - fresh.length} stale ${reports.length - fresh.length === 1 ? "report" : "reports"}`
 						: ""}
 					{!healthFailed &&
 					fresh.some(
@@ -156,7 +157,8 @@ export function ActivityRunningNow({
 									className="grid min-w-0 gap-1 border-t border-kumo-line pt-3"
 								>
 									<Link variant="record" href={`/work/items/${workItem.id}`}>
-										{workItem.title}
+										{/* "Copy skill <id> (Forum Scout)" reads as "Copy skill Forum Scout". */}
+										{plainFeedText(workItem.title) || workItem.title}
 									</Link>
 									<Text role="caption" className="break-all">
 										Attempt {attempt.attemptNumber} · {attempt.id}

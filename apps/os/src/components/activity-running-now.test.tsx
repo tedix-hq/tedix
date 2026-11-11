@@ -177,7 +177,23 @@ it("ages fleet observations locally and marks elapsed leases without claiming he
 	expect(host.textContent).toContain("More active attempts in Work");
 	await flush(75_010);
 	expect(host.textContent).toContain("Runners up: unknown");
-	expect(host.textContent).toContain("1 stale reports");
+	expect(host.textContent).toContain("1 stale report");
+	expect(host.textContent).not.toContain("1 stale reports");
+});
+it("names records in task titles instead of printing their ids", async () => {
+	const named = row();
+	named.workItem.title =
+		"Copy skill 4f1c2a90-3b7d-4e21-9a55-0c8e7d6b1f42 (Forum Scout) into the pilot workspace";
+	api.attempts.mockResolvedValue({
+		data: [named],
+		hasMore: false,
+		nextCursor: null,
+	});
+	await mount();
+	expect(host.textContent).toContain(
+		"Copy skill Forum Scout into the pilot workspace",
+	);
+	expect(host.textContent).not.toContain("4f1c2a90");
 });
 it("keeps failures distinct from a quiet fleet and exposes retry controls", async () => {
 	const failure = Object.assign(new Error("No access"), { code: "FORBIDDEN" });
