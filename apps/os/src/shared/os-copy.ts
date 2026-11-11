@@ -633,6 +633,8 @@ const ENGLISH_COPY = {
 			correctionFailed: "Could not save your correction.",
 			workCreated: "Work created.",
 			workFailed: "Could not create Work.",
+			sinceLooked: (sentence: string) => `Since you looked: ${sentence}`,
+			nothingSinceLooked: "No new receipts since you looked.",
 			status: {
 				finished: "Finished",
 				unfinished: "Didn't finish",

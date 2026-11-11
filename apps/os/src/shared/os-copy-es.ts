@@ -383,6 +383,8 @@ export const SPANISH_FEED_DECK_COPY = {
 			correctionFailed: "No se pudo guardar tu corrección.",
 			workCreated: "Trabajo creado.",
 			workFailed: "No se pudo crear el trabajo.",
+			sinceLooked: (sentence: string) => `Desde tu última visita: ${sentence}`,
+			nothingSinceLooked: "No hay resultados nuevos desde tu última visita.",
 			status: {
 				finished: "Terminado",
 				unfinished: "No terminó",
