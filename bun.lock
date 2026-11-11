@@ -396,7 +396,6 @@
         "@vitejs/plugin-react": "6.3.0",
         "cf": "catalog:",
         "esbuild": "0.28.2",
-        "fflate": "catalog:",
         "happy-dom": "^21.0.4",
         "playwright": "1.65.0",
         "typescript": "catalog:",
@@ -1080,7 +1079,6 @@
       "dependencies": {
         "@tedix/api-contract": "workspace:*",
         "@tedix/db": "workspace:*",
-        "zod": "catalog:",
       },
       "devDependencies": {
         "@cloudflare/workers-types": "catalog:",

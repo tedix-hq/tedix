@@ -612,6 +612,3 @@ export const graphRetrievalBenchmarksContractRouter = graphBenchmarkOs.router({
 	getRun,
 	getGate,
 });
-
-export type GraphRetrievalBenchmarksContractRouter =
-	typeof graphRetrievalBenchmarksContractRouter;

@@ -2108,6 +2108,3 @@ export const workInteractionsContractRouter = interactionsOs.router({
 	ackDelivery: ackDeliveryProcedure,
 	recordDraftDelivery: recordDraftDeliveryProcedure,
 });
-
-export type WorkInteractionsContractRouter =
-	typeof workInteractionsContractRouter;

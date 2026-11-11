@@ -9,23 +9,6 @@ import { sentenceCase } from "@/lib/format";
 import "./canvas-page.css";
 
 const MAX_VISIBLE = 3;
-const AVATAR_COLORS = [
-	"#2563eb",
-	"#7c3aed",
-	"#c026d3",
-	"#dc2626",
-	"#d97706",
-	"#059669",
-	"#0891b2",
-] as const;
-
-/** Stable per-collaborator colour for document carets and sheet selections. */
-export function collabParticipantColor(key: string): string {
-	let value = 0;
-	for (const character of key)
-		value = (value * 31 + character.charCodeAt(0)) | 0;
-	return AVATAR_COLORS[Math.abs(value) % AVATAR_COLORS.length] as string;
-}
 
 /** The item open on this screen, so the roster can mark who is in it too. */
 export interface CanvasPresenceOpenItem {

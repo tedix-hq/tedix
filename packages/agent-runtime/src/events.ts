@@ -14,11 +14,6 @@ export interface WebSocketHost {
 	getWebSockets(tag?: string): WebSocket[];
 }
 
-/** What a connected client receives, one JSON message per event. */
-export interface AgentEventMessage extends AgentEvent {
-	readonly kind: "event";
-}
-
 /** A client asks for the stored events after a cursor (after a reconnect). */
 export interface AgentReplayRequest {
 	readonly kind: "replay";

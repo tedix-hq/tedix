@@ -220,6 +220,3 @@ export const osApprovalRulesContractRouter = rulesOs.router({
 	delete: deleteProcedure,
 	apply: applyProcedure,
 });
-
-export type OsApprovalRulesContractRouter =
-	typeof osApprovalRulesContractRouter;

@@ -18,8 +18,7 @@
 	},
 	"dependencies": {
 		"@tedix/api-contract": "workspace:*",
-		"@tedix/db": "workspace:*",
-		"zod": "catalog:"
+		"@tedix/db": "workspace:*"
 	},
 	"devDependencies": {
 		"@cloudflare/workers-types": "catalog:",

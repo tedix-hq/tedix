@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import { LoadError } from "@/components/kumo/alert";
-import { Button } from "@/components/kumo/button";
 import {
 	Empty,
 	EmptyContent,
@@ -107,20 +106,6 @@ type ReadQuery = {
 	isFetching: boolean;
 	refetch: () => Promise<unknown>;
 };
-
-export function AppTabReadRetry({ query }: { query: ReadQuery }) {
-	return (
-		<Button
-			variant="outline"
-			size="sm"
-			className="mt-2 w-fit"
-			disabled={query.isFetching}
-			onClick={() => void query.refetch()}
-		>
-			{query.isFetching ? "Trying again…" : "Try again"}
-		</Button>
-	);
-}
 
 export function AppTabError({
 	title,

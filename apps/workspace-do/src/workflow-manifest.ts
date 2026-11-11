@@ -77,4 +77,3 @@ export const WorkflowManifestSchema = z
 			seen.add(step.id);
 		}
 	});
-export type WorkflowManifest = z.infer<typeof WorkflowManifestSchema>;

@@ -146,8 +146,6 @@ import {
 import { OS_WORKSPACES_AUDIT, osAudit } from "../os-audit";
 import { readGalleryBlueprintPage } from "../../lib/blueprint-landing";
 
-export { resolveCreator } from "./os-workspaces-shared";
-
 const osWorkspacesOs = implement(osWorkspacesContract).$context<BaseContext>();
 const authed = osWorkspacesOs.use(withAuth).use(osAudit(OS_WORKSPACES_AUDIT));
 // The OS workspace domain is tenant infrastructure, guarded per verb on

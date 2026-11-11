@@ -97,16 +97,6 @@ function payloadString(
 	return typeof value === "string" && value.trim() ? value : null;
 }
 
-/**
- * What happened after approval of a parked gateway call: the platform runs
- * it once and records the outcome on the request ("Done: …" / "Failed: …").
- */
-export function approvalExecutionOutcome(
-	payload: Record<string, unknown>,
-): string | null {
-	return ownerToolExecutionOutcome(parseOwnerToolExecution(payload.execution));
-}
-
 /** Decided, expired and cancelled requests as History rows (pending stays in Needs review). */
 export function approvalHistoryEntries(
 	approvals: readonly ApprovalRequest[],

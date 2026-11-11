@@ -278,6 +278,3 @@ export const mcpNetworkSecurityContractRouter = os.router({
 			};
 		}),
 });
-
-export type McpNetworkSecurityContractRouter =
-	typeof mcpNetworkSecurityContractRouter;

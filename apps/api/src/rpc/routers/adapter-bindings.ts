@@ -421,12 +421,6 @@ export const adapterBindingsContractRouter = authedAdapterBindingsOs.router({
 	listAdaptersUsingSecret: listAdaptersUsingSecretProcedure,
 });
 
-/**
- * Type export for the adapter bindings contract router
- */
-export type AdapterBindingsContractRouter =
-	typeof adapterBindingsContractRouter;
-
 // =============================================================================
 // HELPERS
 // =============================================================================

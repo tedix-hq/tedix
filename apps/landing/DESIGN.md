@@ -48,7 +48,7 @@ tokens.
 ### Gradients (use these, don't invent new ones)
 
 - **Hero text**: `bg-gradient-to-r from-violet-600 via-fuchsia-500 to-orange-500` (dark: 400-weights)
-- **Primary CTA (ShimmerButton)**: `linear-gradient(135deg, #7c3aed, #c026d3, #ea580c)`
+- **Primary CTA**: `linear-gradient(135deg, #7c3aed, #c026d3, #ea580c)`
 - **Section backdrops**: violet-50 → background fades; dark sections fade between the deep violet-blacks above
 
 ---
@@ -114,8 +114,6 @@ theme is not a reason to recreate card structure, borders, or accessibility.
   and buttons.
 - Preserve the shared focus, touch-target, disabled, and reduced-motion
   behavior; local classes may supply campaign-specific color or shape.
-- Reserve `ShimmerButton` for an intentional, singular hero treatment rather
-  than ordinary actions.
 
 ### Badges
 
@@ -140,10 +138,8 @@ are not substitutes for shared controls or a default decoration layer:
 | Component              | Use For                                            |
 | ---------------------- | -------------------------------------------------- |
 | `Particles`            | Ambient background particles (hero, dark sections) |
-| `ShimmerButton`        | Primary CTAs                                       |
 | `AnimatedGradientText` | Highlighted punchlines                             |
 | `Marquee`              | Logo carousels                                     |
-| `NumberTicker`         | Stats counters                                     |
 | `AnimatedBeam`         | Connection lines in tech flow diagrams             |
 | `BorderBeam`           | Card highlight borders                             |
 | `TextAnimate`          | Text entrance effects                              |
