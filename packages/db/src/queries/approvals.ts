@@ -1046,10 +1046,18 @@ export async function queueOwnerToolApprovalExecution(
  * archived-items purge), so running the approved call again cannot do more
  * than the owner approved. Clears the consumed mark so the gateway admits
  * one more run; the run limit and approval expiry still bound it.
+ *
+ * A run that failed because the database was busy or the gateway timed out
+ * is re-queued the same way, at most `maxTransientRetries` times per approval.
  */
 export async function requeueStaleContinuableOwnerToolApprovals(
 	db: DbClient,
-	input: { now: string; staleBefore: string; endpoints: readonly string[] },
+	input: {
+		now: string;
+		staleBefore: string;
+		endpoints: readonly string[];
+		maxTransientRetries?: number;
+	},
 ): Promise<number> {
 	if (input.endpoints.length === 0) return 0;
 	const execution: OwnerToolApprovalExecution = {
@@ -1061,7 +1069,7 @@ export async function requeueStaleContinuableOwnerToolApprovals(
 	const rows = await db
 		.update(tediApprovalRequests)
 		.set({
-			payload: sql`json_set(json_remove(${tediApprovalRequests.payload}, '$.consumedAt'), '$.execution', json(${JSON.stringify(execution)}))`,
+			payload: sql`json_set(json_remove(${tediApprovalRequests.payload}, '$.consumedAt'), '$.execution', json(${JSON.stringify(execution)}), '$.transientRetries', coalesce(json_extract(${tediApprovalRequests.payload}, '$.transientRetries'), 0) + (json_extract(${tediApprovalRequests.payload}, '$.execution.status') = 'failed'))`,
 		})
 		.where(
 			and(
@@ -1076,8 +1084,14 @@ export async function requeueStaleContinuableOwnerToolApprovals(
 					[...input.endpoints],
 				),
 				sql`json_extract(${tediApprovalRequests.payload}, '$.args.dryRun') = 0`,
-				sql`json_extract(${tediApprovalRequests.payload}, '$.execution.status') = 'running'`,
-				sql`json_extract(${tediApprovalRequests.payload}, '$.execution.startedAt') < ${input.staleBefore}`,
+				sql`(
+					(json_extract(${tediApprovalRequests.payload}, '$.execution.status') = 'running'
+						AND json_extract(${tediApprovalRequests.payload}, '$.execution.startedAt') < ${input.staleBefore})
+					OR (json_extract(${tediApprovalRequests.payload}, '$.execution.status') = 'failed'
+						AND coalesce(json_extract(${tediApprovalRequests.payload}, '$.transientRetries'), 0) < ${input.maxTransientRetries ?? 30}
+						AND (instr(json_extract(${tediApprovalRequests.payload}, '$.execution.error'), 'SERVICE_UNAVAILABLE') > 0
+							OR instr(json_extract(${tediApprovalRequests.payload}, '$.execution.error'), 'timed out') > 0))
+				)`,
 				sql`json_extract(${tediApprovalRequests.payload}, '$.execution.dismissedAt') IS NULL`,
 			),
 		)
