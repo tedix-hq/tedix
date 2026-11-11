@@ -24,7 +24,7 @@ import {
 	applySnap,
 	computeSnapTargets,
 	type SnapTargets,
-} from "@/components/slide-snap";
+} from "@/lib/slide-snap";
 
 /** Screen pixels a press travels before it drags rather than clicks. */
 const DRAG_THRESHOLD = 3;

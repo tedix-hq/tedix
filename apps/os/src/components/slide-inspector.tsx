@@ -32,7 +32,7 @@ import {
 } from "@/components/kumo/select";
 import { Text } from "@/components/kumo/text";
 import { Textarea } from "@/components/kumo/textarea";
-import type { SlideElementAction } from "@/components/slide-element-actions";
+import type { SlideElementAction } from "@/lib/slide-element-actions";
 import {
 	SlideComponentPalette,
 	slideComponentFor,

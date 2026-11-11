@@ -15,8 +15,8 @@ import {
 	applySlideElementAction,
 	slideElementShortcut,
 	type SlideElementAction,
-} from "../components/slide-element-actions";
-import { computeSnapTargets, applySnap } from "../components/slide-snap";
+} from "../lib/slide-element-actions";
+import { computeSnapTargets, applySnap } from "../lib/slide-snap";
 import { ensureSlideFontLoaded } from "../lib/slide-fonts";
 import {
 	fileToSlideImageSource,

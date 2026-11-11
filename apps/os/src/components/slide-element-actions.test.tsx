@@ -3,7 +3,7 @@ import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 import { SlidesEditor } from "./output-editor-slides";
-import { clearSlideElementClipboard } from "./slide-element-actions";
+import { clearSlideElementClipboard } from "@/lib/slide-element-actions";
 
 (
 	globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }

@@ -31,7 +31,7 @@ for (const output of Object.values(result.metafile.outputs))
 		throw new Error("Slides client must have no external imports");
 for (const input of Object.keys(result.metafile.inputs)) {
 	if (
-		/(?:react-dom|node_modules\/react\/|src\/lib\/(?:api|os-query-options|theme)\.|src\/router)/.test(
+		/(?:react-dom|node_modules\/react\/|src\/components\/|src\/lib\/(?:api|os-query-options|theme)\.|src\/router)/.test(
 			input,
 		)
 	)

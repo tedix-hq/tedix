@@ -265,9 +265,15 @@ that allowed it.
 Doc, Sheet, and Slides are reusable workspace gadgets and the normal creation
 and opening experience. Their typed Outputs own content, revisions, source
 access and compare-and-swap writes; gadgets must not store another body.
-Sharing an OS editor component is an implementation detail. A host-rendered
-editor is not a fully portable gadget client artifact. Native editors remain
-explicit compatibility and recovery paths, including existing output links.
+Each gadget runs a bundled, pinned `client.js` built from `src/gadgets/`
+(`bun run --cwd apps/os {doc,sheet,slides}:generate`). The build scripts
+reject `src/components/` and host-only modules, so a client never depends on
+a native editor component; shared pure logic lives in `src/lib/`. Clients use
+host calls for calculation (`sheet.evaluate`), revision-checked saves
+(`outputs.replace`), exports and drafts. Changing a client means bumping its
+version in `office-editor-versions.ts` so existing editors can upgrade.
+Native editors remain explicit compatibility and recovery paths, including
+existing output links.
 
 ## Validation and deployment
 
