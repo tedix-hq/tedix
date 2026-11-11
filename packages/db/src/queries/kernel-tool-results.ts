@@ -216,7 +216,11 @@ export async function getReadableKernelToolResult(
 
 export function buildEvictConversationToolResultsStatement(
 	db: DbQueryClient,
-	input: { organizationId: string; conversationId: string; evictedAt: string },
+	input: {
+		organizationId: string;
+		conversationId: string | string[];
+		evictedAt: string;
+	},
 ) {
 	return db
 		.update(kernelToolResults)
@@ -224,7 +228,10 @@ export function buildEvictConversationToolResultsStatement(
 		.where(
 			and(
 				eq(kernelToolResults.organizationId, input.organizationId),
-				eq(kernelToolResults.conversationId, input.conversationId),
+				typeof input.conversationId === "string"
+					? eq(kernelToolResults.conversationId, input.conversationId)
+					: // bound-params: callers pass at most KERNEL_CONVERSATION_PURGE_CHUNK ids
+						inArray(kernelToolResults.conversationId, input.conversationId),
 				isNull(kernelToolResults.evictedAt),
 			),
 		)

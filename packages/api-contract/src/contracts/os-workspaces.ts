@@ -37,6 +37,8 @@ import {
 	OsGadgetExportDescriptorSchema,
 	OsGadgetManifestWriteSchema,
 	OsGadgetRevisionSchema,
+	OsArchivedPurgeInputSchema,
+	OsArchivedPurgeResultSchema,
 	OsDocumentPatchOpSchema,
 	OsPresentationPatchOpSchema,
 	OsGadgetSchema,
@@ -497,6 +499,17 @@ export const osWorkspacesContract = oc
 				})
 				.input(workspaceIdInput)
 				.output(z.object({ deleted: z.literal(true) })),
+			purgeArchived: oc
+				.route({
+					method: "POST",
+					path: "/archived-items/purge",
+					summary:
+						"Permanently delete archived Tedix OS workspaces, outputs and conversations in bulk",
+					description:
+						"Requires os:admin; conversations also need the right to delete Home conversations. Applies the same rules as deleting one item at a time and never forces an item: a workspace must be archived, visible to the caller, with no partner app installation, no retained collaboration proposals and no unrevoked share links; an output must be archived, visible, with no retained collaboration proposals and no unrevoked share links; a conversation must be archived or deleted, not pinned, not the main Home thread, without a queued or running turn, and editable by the caller. Items that fail a rule are skipped and counted by reason. dryRun defaults to true and deletes nothing. Each call stops at a work or time budget and reports what is left in `remaining`; call again to continue.",
+				})
+				.input(OsArchivedPurgeInputSchema)
+				.output(OsArchivedPurgeResultSchema),
 			previewBlueprintUpgrade: oc
 				.route({
 					method: "GET",

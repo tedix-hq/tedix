@@ -225,6 +225,35 @@ export const OS_WORKSPACES_AUDIT: OsAuditRegistry = {
 		resourceType: "os_workspace",
 		resourceId: ({ input }) => text(input.workspaceId),
 	},
+	// One summary row per call; each deleted item gets its own row from the
+	// purge itself, keyed by the item and carrying this purgeId.
+	"workspaces.purgeArchived": {
+		action: "os.archived_items.purged",
+		resourceType: "os_archived_purge",
+		resourceId: ({ output }) => text(output.purgeId),
+		metadata: ({ output }) => {
+			const counts = (kind: string) => {
+				const tally = fields(output[kind]);
+				return Object.keys(tally).length === 0
+					? undefined
+					: {
+							examined: tally.examined,
+							eligible: tally.eligible,
+							deleted: tally.deleted,
+							skipped: tally.skipped,
+							remaining: tally.remaining,
+						};
+			};
+			return {
+				dryRun: output.dryRun,
+				complete: output.complete,
+				stoppedBy: output.stoppedBy,
+				workspaces: counts("workspaces"),
+				outputs: counts("outputs"),
+				conversations: counts("conversations"),
+			};
+		},
+	},
 	"workspaces.decideBlueprintUpgrade": {
 		action: "os.workspace.blueprint_upgrade_decided",
 		resourceType: "os_workspace",

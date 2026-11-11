@@ -14,6 +14,7 @@ import {
 	osOutputs,
 } from "../../schema/os-workspaces";
 import { mergeOsOutputAccessEnvelopes } from "../../utils/os-output-access-envelope";
+import { chunkForBoundParams } from "../../utils/batch";
 
 export interface OsCollaborationProposalScope {
 	organizationId: string;
@@ -93,6 +94,48 @@ export async function listOsCollaborationProposals(
 			desc(osCollaborationProposals.id),
 		)
 		.limit(Math.min(Math.max(options.limit ?? 50, 1), 200));
+}
+
+/**
+ * Which of `ids` have retained collaboration proposals: workspace ids when
+ * `by` is "workspace", output document ids when it is "output".
+ */
+export async function listOsIdsWithCollaborationProposals(
+	db: DbQueryClient,
+	params: { organizationId: string; by: "workspace" | "output"; ids: string[] },
+): Promise<Set<string>> {
+	const found = new Set<string>();
+	for (const chunk of chunkForBoundParams(params.ids, 90)) {
+		const rows =
+			params.by === "workspace"
+				? await db
+						.selectDistinct({ id: osCollaborationProposals.workspaceId })
+						.from(osCollaborationProposals)
+						.where(
+							and(
+								eq(
+									osCollaborationProposals.organizationId,
+									params.organizationId,
+								),
+								inArray(osCollaborationProposals.workspaceId, chunk),
+							),
+						)
+				: await db
+						.selectDistinct({ id: osCollaborationProposals.documentId })
+						.from(osCollaborationProposals)
+						.where(
+							and(
+								eq(
+									osCollaborationProposals.organizationId,
+									params.organizationId,
+								),
+								eq(osCollaborationProposals.documentType, "output"),
+								inArray(osCollaborationProposals.documentId, chunk),
+							),
+						);
+		for (const row of rows) if (row.id) found.add(row.id);
+	}
+	return found;
 }
 
 export async function updateOsCollaborationProposalPreview(

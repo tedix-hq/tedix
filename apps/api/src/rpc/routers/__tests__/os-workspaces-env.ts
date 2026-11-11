@@ -23,6 +23,7 @@ import {
 
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { DatabaseSync } from "node:sqlite";
+import type { SQLiteTable } from "drizzle-orm/sqlite-core";
 import { createRouterClient } from "@orpc/server";
 import { auditEvents } from "@tedix/db/schema/audit-events";
 import { providerInstallations } from "@tedix/db/schema/provider-installations";
@@ -62,7 +63,7 @@ import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { bindTestContexts } from "../../test-context";
 import { osWorkspacesContractRouter } from "../os-workspaces";
 
-export function createEnv(): CloudflareEnv {
+export function createEnv(extraTables: SQLiteTable[] = []): CloudflareEnv {
 	const sqlite = new DatabaseSync(":memory:");
 	// The router binds the caller's organization into every predicate, so the
 	// fixture keeps FKs off. The gallery join reads organizations.id/name only;
@@ -105,6 +106,7 @@ export function createEnv(): CloudflareEnv {
 			workspaceActivity,
 			workspaceOutputIndex,
 			workspaceWorkLinks,
+			...extraTables,
 		),
 	);
 	sqlite.exec(`

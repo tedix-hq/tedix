@@ -1293,6 +1293,20 @@ export function hasTedisReadAuthorization(context: BaseContext): boolean {
 	}
 }
 
+/** The same authority as AUTHZ.tedisWrite, for handlers that also delete Home conversations. */
+export function hasTedisWriteAuthorization(context: BaseContext): boolean {
+	try {
+		if (context.authType === "user") {
+			if (context.oidcScopes && !context.oidcScopes.includes("tedis:write"))
+				return false;
+			assertUserPermissions(context, ["tedis:update"]);
+		} else assertMachineScope(context, "tedis:write");
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 /** Optional document context uses the same authority as AUTHZ.osRead. */
 export function hasOsReadAuthorization(context: BaseContext): boolean {
 	try {

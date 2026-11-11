@@ -316,6 +316,7 @@
 		"./queries/os-workspaces/output-body-backfill": "./src/queries/os-workspaces/output-body-backfill.ts",
 		"./queries/os-workspaces/output-body-offload": "./src/queries/os-workspaces/output-body-offload.ts",
 		"./queries/os-workspaces/collaboration": "./src/queries/os-workspaces/collaboration.ts",
+		"./queries/os-workspaces/archived-purge": "./src/queries/os-workspaces/archived-purge.ts",
 		"./queries/tedi-secrets": "./src/queries/tedi-secrets.ts",
 		"./queries/organization-sync": "./src/queries/organization-sync.ts",
 		"./queries/app-gating": "./src/queries/app-gating.ts",
