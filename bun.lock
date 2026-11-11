@@ -331,7 +331,9 @@
       "dependencies": {
         "@cloudflare/kumo": "2.18.0",
         "@codemirror/commands": "^6.11.1",
+        "@codemirror/lang-javascript": "^6.2.5",
         "@codemirror/lang-json": "^6.0.2",
+        "@codemirror/lang-markdown": "^6.5.2",
         "@codemirror/language": "^6.13.1",
         "@codemirror/search": "^6.7.2",
         "@codemirror/state": "^6.7.6",
@@ -1518,6 +1520,8 @@
 
     "@codemirror/lang-json": ["@codemirror/lang-json@6.0.2", "", { "dependencies": { "@codemirror/language": "^6.0.0", "@lezer/json": "^1.0.0" } }, "sha512-x2OtO+AvwEHrEwR0FyyPtfDUiloG3rnVTSZV1W8UteaLL8/MajQd8DpvUb2YVzC+/T18aSDv0H9mu+xw0EStoQ=="],
 
+    "@codemirror/lang-markdown": ["@codemirror/lang-markdown@6.5.2", "", { "dependencies": { "@codemirror/autocomplete": "^6.7.1", "@codemirror/lang-html": "^6.0.0", "@codemirror/language": "^6.3.0", "@codemirror/state": "^6.0.0", "@codemirror/view": "^6.0.0", "@lezer/common": "^1.2.1", "@lezer/markdown": "^1.0.0" } }, "sha512-AwBOdkWYuA//WcM0xO5PfHPUcmz/O2i5o0Nsg1U69SII/loCJlFI1Romd9xp2HYb1kYJRGZotyqRghuHH5n8Kw=="],
+
     "@codemirror/language": ["@codemirror/language@6.13.1", "", { "dependencies": { "@codemirror/state": "^6.0.0", "@codemirror/streamparser": "^6.0.0", "@codemirror/view": "^6.23.0", "@lezer/common": "^1.5.0", "@lezer/highlight": "^1.0.0", "@lezer/lr": "^1.0.0", "style-mod": "^4.0.0" } }, "sha512-zfvU2r3TyylQLMj/te+5CnQ0rSqZi8B1oTCBbQkagcLW4Xc6imab6qN+pEJhsuNOLaJqiRyBXp9UhWA1DhVvDw=="],
 
     "@codemirror/lint": ["@codemirror/lint@6.9.7", "", { "dependencies": { "@codemirror/state": "^6.0.0", "@codemirror/view": "^6.42.0", "crelt": "^1.0.5" } }, "sha512-28/+iWLYxKxsvGYhSYL7zaCZqLz5+FFFDq9tVsvGv9kv8RY4fFAchJ5WX9M3YrrRlTIsECjsXPqeNgnSmNP2dg=="],
@@ -1785,6 +1789,8 @@
     "@lezer/json": ["@lezer/json@1.0.3", "", { "dependencies": { "@lezer/common": "^1.2.0", "@lezer/highlight": "^1.0.0", "@lezer/lr": "^1.0.0" } }, "sha512-BP9KzdF9Y35PDpv04r0VeSTKDeox5vVr3efE7eBbx3r4s3oNLfunchejZhjArmeieBH+nVOpgIiBJpEAv8ilqQ=="],
 
     "@lezer/lr": ["@lezer/lr@1.4.10", "", { "dependencies": { "@lezer/common": "^1.0.0" } }, "sha512-rnCpTIBafOx4mRp43xOxDJbFipJm/c0cia/V5TiGlhmMa+wsSdoGmUN3w5Bqrks/09Q/D4tNAmWaT8p6NRi77A=="],
+
+    "@lezer/markdown": ["@lezer/markdown@1.8.1", "", { "dependencies": { "@lezer/common": "^1.5.0", "@lezer/highlight": "^1.0.0" } }, "sha512-M5YmEcKWO4mJ45Y1hECwqyu8cLv25EiXOK554PVOvDOWOP0olwelHHQUWr9sjF+d1bENVhy0nfJ8E57XZUTiXg=="],
 
     "@libsql/client": ["@libsql/client@0.8.1", "", { "dependencies": { "@libsql/core": "^0.8.1", "@libsql/hrana-client": "^0.6.2", "js-base64": "^3.7.5", "libsql": "^0.3.10", "promise-limit": "^2.7.0" } }, "sha512-xGg0F4iTDFpeBZ0r4pA6icGsYa5rG6RAG+i/iLDnpCAnSuTqEWMDdPlVseiq4Z/91lWI9jvvKKiKpovqJ1kZWA=="],
 

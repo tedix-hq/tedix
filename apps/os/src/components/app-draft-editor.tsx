@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { OsAppDraftContentSchema } from "@tedix/api-contract/schemas/os-workspaces";
 import type { OsAppDraftContent } from "@tedix/api-contract/schemas/os-workspaces";
 import { hasAppConflictMarkers } from "@tedix/api-contract/utils/app-draft-merge";
+import { AppCodeEditor } from "@/components/app-code-editor-lazy";
 import { Button } from "@/components/kumo/button";
 import { Textarea } from "@/components/kumo/textarea";
 import { Text } from "@/components/kumo/text";
@@ -67,15 +68,13 @@ export function AppDraftEditor({
 						{saveButton}
 					</div>
 				</div>
-				<textarea
-					aria-label={`Edit ${path}`}
-					className="canvas-code-textarea"
-					spellCheck={false}
+				<AppCodeEditor
+					path={path}
 					value={texts[path] ?? ""}
-					onChange={(event) =>
-						setTexts({ ...texts, [path]: event.target.value })
+					onChange={(value) =>
+						setTexts((current) => ({ ...current, [path]: value }))
 					}
-					disabled={save.isPending}
+					readOnly={save.isPending}
 				/>
 			</div>
 		);
@@ -146,11 +145,20 @@ export function AppCodeDraftEditor({
 	const [base] = useState({ revisionId, content });
 	if (access.data?.capability.role !== "build")
 		return (
-			<pre className="m-0 overflow-auto px-4 py-3 text-xs">
-				{selectedFile === "manifest.json"
-					? JSON.stringify(content.manifest, null, 2)
-					: content.files[selectedFile]}
-			</pre>
+			<div className="canvas-code-file" data-app-draft-editor>
+				<div className="canvas-code-file-header">
+					<code className="canvas-code-file-name">{selectedFile}</code>
+				</div>
+				<AppCodeEditor
+					path={selectedFile}
+					value={
+						selectedFile === "manifest.json"
+							? JSON.stringify(content.manifest, null, 2)
+							: (content.files[selectedFile] ?? "")
+					}
+					readOnly
+				/>
+			</div>
 		);
 	return (
 		<AppDraftEditor

@@ -118,14 +118,17 @@ try {
 				.getByRole("button", { name: "client.js", exact: true })
 				.click();
 			const viewer = page.locator("[data-canvas-app-code-file]");
-			await viewer.getByRole("textbox", { name: "Edit client.js" }).waitFor();
+			// A real code editor: numbered, foldable lines with coloured syntax.
+			const code = viewer.getByRole("textbox", { name: "Edit client.js" });
+			await code.waitFor();
 			assert.match(
-				await viewer
-					.getByRole("textbox", { name: "Edit client.js" })
-					.inputValue(),
+				await code.innerText(),
 				/Opportunity cards/,
 				`${label}: client.js is shown`,
 			);
+			await viewer.locator(".cm-lineNumbers").waitFor();
+			await viewer.locator(".cm-foldGutter").waitFor();
+			await code.locator(".cm-line span[class]").first().waitFor();
 			await noOverflow(page, `${label} code`);
 			// No card around the code: the file list and the open file reach the
 			// canvas column's edges.
@@ -142,6 +145,8 @@ try {
 				`${label}: the code fills the canvas column (${codeEdges})`,
 			);
 			// Each file's "…" menu downloads the text that is on screen.
+			await code.focus();
+			await page.keyboard.insertText("// not saved yet\n");
 			await files.locator('[data-canvas-code-file-row="client.js"]').hover();
 			await files.getByRole("button", { name: "More for client.js" }).click();
 			const [download] = await Promise.all([
@@ -149,12 +154,11 @@ try {
 				page.getByRole("menuitem", { name: "Download" }).click(),
 			]);
 			assert.equal(download.suggestedFilename(), "client.js");
-			assert.equal(
-				await Bun.file((await download.path())!).text(),
-				await viewer
-					.getByRole("textbox", { name: "Edit client.js" })
-					.inputValue(),
-				`${label}: the download is the file as shown`,
+			const downloaded = await Bun.file((await download.path())!).text();
+			assert(
+				downloaded.startsWith("// not saved yet\n") &&
+					/Opportunity cards/.test(downloaded),
+				`${label}: the download is the file as shown, unsaved edits included`,
 			);
 			await page.screenshot({
 				path: `${evidence}/${width}-${theme}-code.png`,
@@ -259,7 +263,9 @@ try {
 			.click();
 		const editor = page.getByRole("textbox", { name: "Edit client.js" });
 		await editor.waitFor();
-		const original = await editor.inputValue();
+		const original: string = (
+			await rpc("osWorkspaces/gadgets/getCode", { workspaceId, gadgetId })
+		).code.files["client.js"];
 		await editor.fill(original + "\n// draft change\n");
 		await page.getByRole("button", { name: "Save as draft" }).click();
 		const draft = page.getByRole("group", { name: "Draft 1" });
