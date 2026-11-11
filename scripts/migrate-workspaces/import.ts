@@ -10,7 +10,13 @@
  */
 import type { BundleStore } from "./bundle";
 import { scopedRefs, snapshotCoverage } from "./reconcile";
-import { batchIdFor, RowDigest } from "./rows";
+import {
+	batchIdFor,
+	renderRow,
+	RowDigest,
+	rowKey,
+	type StoredRow,
+} from "./rows";
 import type { Scope } from "./scope";
 import {
 	manifestDifferences,
@@ -19,7 +25,11 @@ import {
 } from "./snapshot-proof";
 import type { Snapshot, WorkspaceRef } from "./source";
 import { WORKSPACE_TABLES } from "./tables";
-import { IMPORT_CHUNK_ROWS, type WorkspaceStoreFactory } from "./target";
+import {
+	IMPORT_CHUNK_ROWS,
+	readAllRows,
+	type WorkspaceStoreFactory,
+} from "./target";
 
 export interface ImportResult extends WorkspaceRef {
 	imported: number;
@@ -71,17 +81,52 @@ async function importWorkspace(
 			throw new Error(
 				`object for ${ref.workspaceId} is bound to another scope`,
 			);
+		// Existing objects can contain earlier imports and object-native rows.
+		// Check every table before adding anything; never overwrite a conflict.
+		const pending = new Map<string, StoredRow[]>();
+		for (const mapping of WORKSPACE_TABLES) {
+			const existing = new Map(
+				(await readAllRows(store, mapping.table)).map((row) => [
+					rowKey(row, mapping.primaryKey),
+					row,
+				]),
+			);
+			const missing: StoredRow[] = [];
+			for (const row of tables.get(mapping.table) ?? []) {
+				const previous = existing.get(rowKey(row, mapping.primaryKey));
+				if (!previous) {
+					missing.push(row);
+					continue;
+				}
+				const carried = Object.fromEntries(
+					Object.keys(row).map((column) => [column, previous[column] ?? null]),
+				);
+				if (renderRow(carried) !== renderRow(row))
+					throw new Error(
+						`Import refused: existing ${mapping.table} row differs in workspace ${ref.workspaceId}`,
+					);
+				duplicates += 1;
+			}
+			pending.set(mapping.table, missing);
+		}
 		// Parents before children: the order of the mapping file is the insert order.
 		for (const mapping of WORKSPACE_TABLES) {
-			const rows = tables.get(mapping.table) ?? [];
+			const rows = pending.get(mapping.table) ?? [];
 			for (let index = 0; index * IMPORT_CHUNK_ROWS < rows.length; index += 1) {
+				const chunk = rows.slice(
+					index * IMPORT_CHUNK_ROWS,
+					(index + 1) * IMPORT_CHUNK_ROWS,
+				);
+				const digest = new RowDigest(mapping.primaryKey);
+				for (const row of chunk) digest.add(row);
 				const receipt = await store.importRows({
-					batchId: batchIdFor(ref.workspaceId, mapping.table, index),
-					table: mapping.table,
-					rows: rows.slice(
-						index * IMPORT_CHUNK_ROWS,
-						(index + 1) * IMPORT_CHUNK_ROWS,
+					batchId: batchIdFor(
+						ref.workspaceId,
+						`${mapping.table}:${digest.hex()}`,
+						index,
 					),
+					table: mapping.table,
+					rows: chunk,
 				});
 				if (receipt.status === "duplicate") duplicates += receipt.rowCount;
 				else imported += receipt.rowCount;
