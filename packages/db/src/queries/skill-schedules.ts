@@ -3,13 +3,14 @@ import {
 	nextSkillScheduleFireAt,
 	validateSkillSchedulePolicy,
 } from "@tedix/api-contract/utils/skill-schedule";
-import { and, asc, eq, lte, sql } from "drizzle-orm";
+import { and, asc, eq, gte, lte, sql } from "drizzle-orm";
 import { parseDocument } from "yaml";
 import type { DbClient } from "../client";
 import {
 	type SkillEntry,
 	type SkillSchedule,
 	skillEntries,
+	skillRuns,
 	skillSchedules,
 } from "../schema/cognitive";
 import { workItems } from "../schema/work-items";
@@ -369,6 +370,57 @@ export async function recordSkillScheduleSuppressed(
 			and(
 				eq(skillSchedules.id, input.scheduleId),
 				eq(skillSchedules.nextFireAt, input.scheduledFireAt),
+			),
+		);
+}
+
+/** Enabled schedules that fired since `since` and whose latest scheduled run failed. */
+export async function listSchedulesWithFailedLastRun(
+	db: DbClient,
+	since: string,
+	limit = 50,
+) {
+	return db
+		.select({
+			schedule: skillSchedules,
+			runError: skillRuns.error,
+			runStartedAt: skillRuns.startedAt,
+		})
+		.from(skillSchedules)
+		.innerJoin(
+			skillRuns,
+			and(
+				eq(skillRuns.id, skillSchedules.lastRunId),
+				eq(skillRuns.organizationId, skillSchedules.organizationId),
+			),
+		)
+		.where(
+			and(
+				eq(skillSchedules.enabled, true),
+				gte(skillSchedules.lastFireAt, since),
+				eq(skillRuns.status, "failed"),
+				eq(skillRuns.createdBy, "schedule"),
+			),
+		)
+		.limit(Math.min(Math.max(limit, 1), 200));
+}
+
+/** Point the schedule at its retry run, unless another scan already did. */
+export async function recordSkillScheduleRetry(
+	db: DbClient,
+	input: { scheduleId: string; failedRunId: string; runId: string },
+): Promise<void> {
+	await db
+		.update(skillSchedules)
+		.set({
+			lastRunId: input.runId,
+			lastError: null,
+			updatedAt: new Date().toISOString(),
+		})
+		.where(
+			and(
+				eq(skillSchedules.id, input.scheduleId),
+				eq(skillSchedules.lastRunId, input.failedRunId),
 			),
 		);
 }
