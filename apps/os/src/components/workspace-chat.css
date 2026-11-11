@@ -377,6 +377,11 @@
 	color: var(--text-color-kumo-subtle);
 }
 
+/* No border until it is focused: the card already frames the row. */
+.workspace-chat-model-trigger.workspace-chat-model-trigger:not(:focus-visible) {
+	box-shadow: none;
+}
+
 /* Keyboard focus stays visible on the quiet trigger. */
 .workspace-chat-model-trigger.workspace-chat-model-trigger:focus-visible {
 	outline: 2px solid var(--color-kumo-brand, var(--primary));
