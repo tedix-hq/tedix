@@ -23,6 +23,7 @@ import { getAppByIdWithToolsForOrganization } from "./app-records";
 import {
 	claimOwnerToolApprovalExecution,
 	consumeHomeToolApprovalCall,
+	continueOwnerToolApprovalExecution,
 	consumeOwnerToolApproval,
 	createApprovalRequest,
 	createApprovalRequestWithAudit,
@@ -746,6 +747,72 @@ describe("automatic scratch approval", () => {
 });
 
 describe("exact owner tool approval consumption", () => {
+	it("re-arms a consumed run for one more gateway run of the narrowed call, owned by that run only", async () => {
+		const { db } = setup();
+		const now = "2026-01-01T01:00:00.000Z";
+		await createApprovalRequest(db, {
+			id: "purge-1",
+			orgId: "org-1",
+			tediId: "tedi-1",
+			actionType: "mcp.tool_call",
+			description: "Purge archived items",
+			payload: {
+				kind: "mcp_tool_call",
+				fingerprint: "exact-input",
+				args: { kinds: ["workspaces"], dryRun: false },
+			},
+			createdAt: "2026-01-01T00:00:00.000Z",
+			expiresAt: "2099-01-02T00:00:00.000Z",
+		});
+		await resolveApprovalRequest(db, "purge-1", {
+			status: "approved",
+			resolvedBy: "owner-1",
+		});
+		const claim = { id: "purge-1", organizationId: "org-1", now };
+		expect(await claimOwnerToolApprovalExecution(db, claim)).toBe(true);
+		const next = {
+			...claim,
+			startedAt: now,
+			now: "2026-01-01T01:00:10.000Z",
+			args: {
+				kinds: ["workspaces"],
+				dryRun: false,
+				resumeAfter: { workspaces: "ws-9" },
+			},
+			execution: {
+				status: "queued" as const,
+				startedAt: now,
+				nextAttemptAt: "2026-01-01T01:00:10.000Z",
+			},
+			continuation: { runs: 1 },
+		};
+		// Not before the gateway consumed this run.
+		expect(await continueOwnerToolApprovalExecution(db, next)).toBe(false);
+		const consume = { ...claim, fingerprint: "exact-input" };
+		expect(await consumeOwnerToolApproval(db, consume)).toBe(true);
+		expect(
+			await continueOwnerToolApprovalExecution(db, {
+				...next,
+				startedAt: "2026-01-01T00:59:00.000Z",
+			}),
+		).toBe(false);
+		expect(await continueOwnerToolApprovalExecution(db, next)).toBe(true);
+		// Only once: the run is queued now, no longer the running claim.
+		expect(await continueOwnerToolApprovalExecution(db, next)).toBe(false);
+		const row = await getApprovalRequestById(db, "purge-1");
+		expect(row?.payload).toMatchObject({
+			args: next.args,
+			execution: { status: "queued" },
+			continuation: { runs: 1 },
+		});
+		expect(row?.payload).not.toHaveProperty("consumedAt");
+		expect(
+			await listDueOwnerToolApprovals(db, "2026-01-01T01:00:20.000Z"),
+		).toHaveLength(1);
+		expect(await consumeOwnerToolApproval(db, consume)).toBe(true);
+		expect(await consumeOwnerToolApproval(db, consume)).toBe(false);
+	});
+
 	it("claims once and preserves tenant, fingerprint, expiry and pending fences", async () => {
 		const { db } = setup();
 		await createApprovalRequest(db, {

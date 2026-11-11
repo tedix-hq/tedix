@@ -1004,6 +1004,49 @@ export async function claimOwnerToolApprovalExecution(
 	return rows.length === 1;
 }
 
+/**
+ * Re-arm an approved call whose tool reported more work under the same
+ * approval (the archived-items purge stops at a per-call budget). Only the run
+ * that the gateway consumed, identified by its `startedAt`, can re-arm it, and
+ * only while the request is approved, unexpired and not dismissed. It stores
+ * the narrowed arguments for the next run, queues it, and clears the consumed
+ * mark so the gateway admits exactly one more run of those arguments.
+ */
+export async function continueOwnerToolApprovalExecution(
+	db: DbClient,
+	input: {
+		id: string;
+		organizationId: string;
+		/** The finished run's claim. */
+		startedAt: string;
+		now: string;
+		args: Record<string, unknown>;
+		execution: OwnerToolApprovalExecution;
+		continuation: Record<string, unknown>;
+	},
+): Promise<boolean> {
+	const rows = await db
+		.update(tediApprovalRequests)
+		.set({
+			payload: sql`json_set(json_remove(${tediApprovalRequests.payload}, '$.consumedAt'), '$.args', json(${JSON.stringify(input.args)}), '$.execution', json(${JSON.stringify(input.execution)}), '$.continuation', json(${JSON.stringify(input.continuation)}))`,
+		})
+		.where(
+			and(
+				eq(tediApprovalRequests.id, input.id),
+				eq(tediApprovalRequests.orgId, input.organizationId),
+				eq(tediApprovalRequests.status, "approved"),
+				eq(tediApprovalRequests.actionType, "mcp.tool_call"),
+				gt(tediApprovalRequests.expiresAt, input.now),
+				sql`json_extract(${tediApprovalRequests.payload}, '$.execution.status') = 'running'`,
+				sql`json_extract(${tediApprovalRequests.payload}, '$.execution.startedAt') = ${input.startedAt}`,
+				sql`json_extract(${tediApprovalRequests.payload}, '$.consumedAt') IS NOT NULL`,
+				sql`json_extract(${tediApprovalRequests.payload}, '$.execution.dismissedAt') IS NULL`,
+			),
+		)
+		.returning({ id: tediApprovalRequests.id });
+	return rows.length === 1;
+}
+
 /** Record how the claimed execution ended, on the request itself. */
 export async function recordOwnerToolApprovalExecution(
 	db: DbClient,

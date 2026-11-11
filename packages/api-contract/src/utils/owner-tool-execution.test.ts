@@ -114,6 +114,12 @@ describe("owner tool execution record", () => {
 		expect(ownerToolExecutionOutcome(execution)).toContain(
 			"Tedix will retry automatically",
 		);
+		expect(
+			ownerToolExecutionOutcome({
+				status: "queued",
+				summary: "Deleted 40 conversations over 1 run; continuing",
+			}),
+		).toBe("Continuing: Deleted 40 conversations over 1 run; continuing");
 	});
 
 	it("says what happened in words", () => {

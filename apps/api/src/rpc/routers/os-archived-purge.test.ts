@@ -421,6 +421,85 @@ describe("purge_archived_os_items", () => {
 		expect(await t.db.select().from(kernelRuntimeEvents)).toHaveLength(0);
 	});
 
+	it("resumes after the id it reports and never revisits items before it", async () => {
+		for (let index = 0; index < 45; index++) {
+			await seedConversation(t, `chat-${String(index).padStart(2, "0")}`, {
+				archivedAt: "2026-10-02T00:00:00.000Z",
+			});
+		}
+		const options = {
+			workspacePreferenceNamespace: "tedix-os-workspaces:org-1",
+		};
+		const first = await purgeArchivedOsItems(
+			t.adminContext(),
+			{ kinds: ["conversations"], dryRun: false },
+			{ ...options, workBudget: 5 },
+		);
+		expect(first.conversations).toMatchObject({
+			deleted: 40,
+			remaining: 5,
+			nextAfterId: "chat-39",
+		});
+		const narrowed = await purgeArchivedOsItems(
+			t.adminContext(),
+			{
+				kinds: ["conversations"],
+				dryRun: false,
+				resumeAfter: { conversations: "chat-42" },
+			},
+			options,
+		);
+		expect(narrowed).toMatchObject({
+			complete: true,
+			conversations: { examined: 2, deleted: 2, remaining: 0 },
+		});
+		expect(narrowed.conversations?.nextAfterId).toBeUndefined();
+		expect(await conversationRow(t, "chat-40")).toBeDefined();
+	});
+
+	it("leaves eligible conversations it cannot afford to delete for the next call", async () => {
+		for (let index = 0; index < 3; index++) {
+			await seedConversation(t, `chat-${index}`, {
+				archivedAt: "2026-10-02T00:00:00.000Z",
+			});
+		}
+		const result = await purgeArchivedOsItems(
+			t.adminContext(),
+			{ kinds: ["conversations"], dryRun: false },
+			{
+				workspacePreferenceNamespace: "tedix-os-workspaces:org-1",
+				workBudget: 4,
+			},
+		);
+		expect(result).toMatchObject({
+			complete: false,
+			stoppedBy: "work_budget",
+			conversations: {
+				examined: 0,
+				eligible: 0,
+				deleted: 0,
+				skipped: 0,
+				remaining: 3,
+			},
+		});
+		expect(result.conversations?.nextAfterId).toBeUndefined();
+	});
+
+	it("deletes many archived workspaces a few at a time", async () => {
+		for (let index = 0; index < 11; index++)
+			await archivedWorkspace(t, `Old ${index}`);
+		const result = await purgeArchivedOsItems(
+			t.adminContext(),
+			{ kinds: ["workspaces"], dryRun: false },
+			{ workspacePreferenceNamespace: "tedix-os-workspaces:org-1" },
+		);
+		expect(result).toMatchObject({
+			complete: true,
+			workspaces: { examined: 11, deleted: 11, remaining: 0 },
+		});
+		expect(await t.db.select().from(osWorkspaces)).toHaveLength(0);
+	});
+
 	it("stops at the time budget before touching anything", async () => {
 		await archivedWorkspace(t, "Old");
 		let clock = 0;

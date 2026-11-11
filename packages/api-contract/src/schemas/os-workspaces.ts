@@ -2826,6 +2826,16 @@ export const OsArchivedPurgeInputSchema = z.object({
 		.describe(
 			"Default true: check every rule and report counts and sample ids without deleting anything",
 		),
+	resumeAfter: z
+		.object({
+			workspaces: z.string().min(1).optional(),
+			outputs: z.string().min(1).optional(),
+			conversations: z.string().min(1).optional(),
+		})
+		.optional()
+		.describe(
+			"Continue after these ids, one per kind, from a previous result's `nextAfterId`. Only narrows what is checked. An approved purge that stops at its budget sets this itself when it continues",
+		),
 });
 export type OsArchivedPurgeInput = z.infer<typeof OsArchivedPurgeInputSchema>;
 
@@ -2852,7 +2862,13 @@ export const OsArchivedPurgeKindResultSchema = z.object({
 		.int()
 		.nonnegative()
 		.describe(
-			"Archived items this call did not reach. Call again to continue; skipped items are checked again every call",
+			"Archived items this call did not reach. Call again to continue; skipped items are checked again every call unless `resumeAfter` is passed",
+		),
+	nextAfterId: z
+		.string()
+		.optional()
+		.describe(
+			"Present when `remaining` is above zero and this call examined at least one item: pass it as `resumeAfter` to continue after it",
 		),
 });
 export type OsArchivedPurgeKindResult = z.infer<

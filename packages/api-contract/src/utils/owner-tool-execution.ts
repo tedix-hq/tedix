@@ -153,7 +153,9 @@ export function ownerToolExecutionOutcome(
 ): string | null {
 	if (!execution) return null;
 	if (execution.status === "queued")
-		return "Queued: waiting for the tool limit; Tedix will retry automatically";
+		return execution.summary
+			? `Continuing: ${execution.summary}`
+			: "Queued: waiting for the tool limit; Tedix will retry automatically";
 	if (execution.status === "executed")
 		return `Done${execution.summary ? `: ${execution.summary}` : ""}`;
 	if (execution.status === "failed")
