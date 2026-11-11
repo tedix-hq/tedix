@@ -6,6 +6,7 @@
 	"license": "Apache-2.0",
 	"type": "module",
 	"exports": {
+		"./capped-body": "./src/capped-body.ts",
 		"./cors": "./src/cors.ts",
 		"./crypto": "./src/crypto.ts",
 		"./durable-objects": "./src/durable-objects.ts",
