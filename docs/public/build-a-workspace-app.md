@@ -800,8 +800,32 @@ an app's claimed effect cannot lower that tool's access checks.
 ### Browser and server contract
 
 `client.js` renders into `#app` in an isolated sandbox without network, host
-DOM, credentials or inherited theme tokens. It is an inline browser module;
-extra files do not become browser imports. Its bridge has three methods:
+DOM or credentials. It is an inline browser module;
+extra files do not become browser imports.
+
+The app follows the look of Tedix OS. The frame sets these CSS variables on
+`:root` and updates them, without a reload, when the person switches between
+light and dark, when the organization's colours change, or when they turn on
+reduced motion:
+
+| Variable                                               | Use it for                           |
+| ------------------------------------------------------ | ------------------------------------ |
+| `--tedix-bg`, `--tedix-fg`                             | Page background and text             |
+| `--tedix-surface`                                      | Cards and panels                     |
+| `--tedix-muted`, `--tedix-muted-fg`                    | Quiet backgrounds and secondary text |
+| `--tedix-border`                                       | Lines and outlines                   |
+| `--tedix-primary`, `--tedix-on-primary`                | The main action and the text on it   |
+| `--tedix-danger`, `--tedix-warning`, `--tedix-success` | Status colours                       |
+| `--tedix-font`, `--tedix-font-mono`                    | Font stacks                          |
+| `--tedix-radius`                                       | Corner radius                        |
+
+Always give a fallback, for example
+`background: var(--tedix-surface, Canvas)`, so the app still reads well where
+a variable is missing. The frame also sets `color-scheme`, so browser controls
+match. Tedix's own fonts are not loaded inside the frame; the font variable
+falls back to the device's system font.
+
+The bridge has three methods:
 
 ```js
 const { workspaceId, gadget, role, settings, grants } =
@@ -1086,9 +1110,9 @@ cannot be confused with the app manifest; source API edits preserve that file.
 
 Before handing off, check:
 
-- Own light-theme colour tokens on `:root`, including background, surface,
-  foreground, muted, border, accent and on-accent, and `color-scheme: light`.
-  The host frame supplies no app theme tokens.
+- Colour everything with the `--tedix-*` variables above, each with a
+  fallback, and do not set `color-scheme` yourself. Check the app in light and
+  in dark.
 - Write plain copy in the language your organization uses and keep every
   visible word in the app settings. Use visible keyboard focus, labelled
   controls and touch targets of at least 44 × 44 CSS pixels.
