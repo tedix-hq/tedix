@@ -62,8 +62,8 @@ None of these announce themselves when broken.
   false-positived on them and the policy moved to `AGENT_RUNTIME_PROMPT`, which
   makes the delimiter the only structural boundary left.
 - **Code Mode `execute` writes the tedi's live workspace.** `cm-execution-gate.ts`
-  is the gate: session grants in durable KV with a mandatory TTL, legacy
-  perpetual entries treated as already expired, approval replay via a one-shot
+  is the gate: session grants in durable KV with a mandatory TTL, entries
+  without an expiry treated as malformed, approval replay via a one-shot
   grant keyed to session plus code hash, and fail-closed on any read error or
   malformed entry. Do not add a second path to `execute`.
 - **Per-tool earned-delegation checks exist only for a turn that carries an

@@ -179,32 +179,11 @@ function SharedGadgetCard({
 	);
 }
 
-/**
- * Before permanent addresses, one tab kept one share session here. A link's
- * session now lives under its own id (`tedix.os.share.<id>`, see
- * share-link-session.ts); the original share secret never enters storage.
- */
-const LEGACY_SHARE_SESSION_KEY = "tedix.os.share.session.v1";
-/** Read and drop a session an older page kept for this tab, if any. */
-function takeLegacyShareSession(): string | null {
-	try {
-		const token = window.sessionStorage.getItem(LEGACY_SHARE_SESSION_KEY);
-		window.sessionStorage.removeItem(LEGACY_SHARE_SESSION_KEY);
-		return token;
-	} catch {
-		return null;
-	}
-}
-
 export function SharedResourcePage() {
 	const [state, setState] = useState<PageState>({ status: "loading" });
 	// Reuse an in-flight redemption across StrictMode effect replay. No original
-	// link secret is retained here; only the request promise and resume capability.
-	const pendingOpening = useRef<{
-		promise: Promise<SharePayload>;
-		redeeming: boolean;
-		resumeToken: string | null;
-	} | null>(null);
+	// link secret is retained here; only the request promise.
+	const pendingOpening = useRef<Promise<SharePayload> | null>(null);
 
 	useEffect(() => {
 		let stopCurrent = () => {};
@@ -219,11 +198,9 @@ export function SharedResourcePage() {
 				"",
 				window.location.pathname + window.location.search,
 			);
-			// A new link replaces any previous tab session; it never falls back on failure.
+			// A new link replaces any pending redemption; it never falls back on failure.
 			const pending = token ? null : pendingOpening.current;
-			const legacyToken = takeLegacyShareSession();
-			const resumeToken = token ? null : (pending?.resumeToken ?? legacyToken);
-			if (!token && !resumeToken && !pending) {
+			if (!token && !pending) {
 				setState({ status: "unavailable" });
 				return;
 			}
@@ -239,31 +216,22 @@ export function SharedResourcePage() {
 				setState({ status: "unavailable" });
 				stopCurrent();
 			};
-			const opening = pending ?? {
-				promise: token
-					? shareRequest("/api/os-shared/redeem", { token })
-					: shareRequest("/api/os-shared/session", {
-							sessionToken: resumeToken,
-						}),
-				redeeming: Boolean(token),
-				resumeToken,
-			};
+			const opening =
+				pending ?? shareRequest("/api/os-shared/redeem", { token });
 			pendingOpening.current = opening;
-			opening.promise
+			opening
 				.then((payload) => {
 					if (!alive) return;
-					const sessionToken = opening.redeeming
-						? payload.sessionToken
-						: opening.resumeToken;
+					const sessionToken = payload.sessionToken;
 					pendingOpening.current = null;
 					if (!sessionToken) {
 						fail();
 						return;
 					}
-					// Storage is never authority: redemption/resume must succeed on the server.
-					// An old link, or a session an older page kept, moves to the
-					// link's permanent address and its own session key; the router
-					// then shows that page, which resumes this session.
+					// Storage is never authority: redemption must succeed on the server.
+					// An old link moves to the link's permanent address and its own
+					// session key; the router then shows that page, which resumes
+					// this session.
 					if (payload.share.publicId) {
 						adoptShareLinkAddress(
 							payload.share.publicId,

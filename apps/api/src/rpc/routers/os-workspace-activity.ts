@@ -56,13 +56,9 @@ function decodeCursor(
 		)
 			return parsed;
 	} catch {
-		/* Older clients used a timestamp and sequence pair. */
+		return undefined;
 	}
-	const separator = value.lastIndexOf("|");
-	const seq = Number(value.slice(separator + 1));
-	return separator > 0 && Number.isSafeInteger(seq) && seq > 0
-		? { occurredAt: value.slice(0, separator), seq }
-		: undefined;
+	return undefined;
 }
 
 export function mapWorkspaceActivityRow(

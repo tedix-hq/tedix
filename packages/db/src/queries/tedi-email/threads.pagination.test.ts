@@ -55,7 +55,7 @@ describe("email thread keyset pagination", () => {
 		},
 	);
 
-	it("accepts legacy timestamp-only cursors with their strict older-than boundary", async () => {
+	it("starts at the newest thread when the cursor has no id separator", async () => {
 		const { db, sqlite } = fixture();
 		try {
 			const page = await listTediEmailThreads(db, {
@@ -63,8 +63,8 @@ describe("email thread keyset pagination", () => {
 				cursor: AT,
 				limit: 2,
 			});
-			expect(page.threads.map((thread) => thread.id)).toEqual(["oldest"]);
-			expect(page.nextCursor).toBeNull();
+			expect(page.threads.map((thread) => thread.id)).toEqual(["newest", "c"]);
+			expect(page.nextCursor).toBe(`${AT}|c`);
 		} finally {
 			sqlite.close();
 		}
