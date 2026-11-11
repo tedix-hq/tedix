@@ -458,6 +458,13 @@ export const OrganizationMetadataSchema = z.object({
 	githubWorkstationCredentials: z
 		.object({
 			enabled: z.boolean(),
+			allowedInstallationIds: z
+				.array(z.number().int().positive().safe())
+				.max(100)
+				.default([])
+				.describe(
+					"GitHub App installations the operator has verified as this organization's own. A tedi's repository settings cannot name any other.",
+				),
 			disabledInstallationIds: z
 				.array(z.number().int().positive().safe())
 				.max(100)
@@ -469,7 +476,7 @@ export const OrganizationMetadataSchema = z.object({
 		})
 		.optional()
 		.describe(
-			"Operator-owned org, installation and repository kill controls for workstation GitHub App authority.",
+			"Operator-owned workstation GitHub App authority: the organization switch, its verified installations, and installation and repository kill controls. Only platform authority can change it.",
 		),
 	webSearch: WebSearchPolicySchema.optional().describe(
 		"Public web search for tedis through the configured provider; off unless enabled.",

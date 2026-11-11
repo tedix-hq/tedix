@@ -218,6 +218,25 @@ export const createOrganizationContract = authedOrganizationsOs.create
 	)
 	.handler(({ input, context }) => createOrganizationResources(context, input));
 
+/**
+ * Workstation GitHub App authority names which installations belong to an
+ * organization, so the organization cannot grant it to itself.
+ */
+function assertGithubWorkstationCredentialsAuthority(
+	context: BaseContext,
+	metadata: object | null | undefined,
+): void {
+	if (
+		metadata &&
+		"githubWorkstationCredentials" in metadata &&
+		!isPlatformPrincipal(context)
+	)
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"Only platform authority can change workstation GitHub App authority",
+		);
+}
+
 /** Internal provider onboarding; its caller owns provider authorization and defaults. */
 export function createOrganizationForProvider(
 	context: BaseContext,
@@ -258,6 +277,8 @@ async function createOrganizationResources(
 			"Only platform authority can bind provider customer identity",
 		);
 	}
+
+	assertGithubWorkstationCredentialsAuthority(context, input.metadata);
 
 	const { db, user } = context as BaseContext & {
 		user?: JWTPayload;
@@ -525,6 +546,8 @@ export const updateOrganizationContract = authedOrganizationsOs.update
 				"Only platform authority can bind provider customer identity",
 			);
 		}
+
+		assertGithubWorkstationCredentialsAuthority(context, input.metadata);
 
 		const { db } = context;
 		const { organizationId, ...updates } = input;

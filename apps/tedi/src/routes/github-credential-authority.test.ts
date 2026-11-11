@@ -51,7 +51,12 @@ describe("GitHub credential authority", () => {
 		mocks.getAttempt.mockReset().mockResolvedValue({ id: "attempt_test" });
 		mocks.getOrganization.mockReset().mockResolvedValue({
 			id: "org_test",
-			metadata: { githubWorkstationCredentials: { enabled: true } },
+			metadata: {
+				githubWorkstationCredentials: {
+					enabled: true,
+					allowedInstallationIds: [987],
+				},
+			},
 		});
 		mocks.getTedi.mockReset().mockResolvedValue({
 			id: "tedi_test",
@@ -123,13 +128,31 @@ describe("GitHub credential authority", () => {
 	it.each([
 		["organization", { enabled: false }, "organization_disabled"],
 		[
+			"unverified installation (none recorded)",
+			{ enabled: true },
+			"installation_not_verified",
+		],
+		[
+			"unverified installation (another organization's)",
+			{ enabled: true, allowedInstallationIds: [555] },
+			"installation_not_verified",
+		],
+		[
 			"installation",
-			{ enabled: true, disabledInstallationIds: [987] },
+			{
+				enabled: true,
+				allowedInstallationIds: [987],
+				disabledInstallationIds: [987],
+			},
 			"installation_disabled",
 		],
 		[
 			"repository",
-			{ enabled: true, disabledRepositoryIds: [123] },
+			{
+				enabled: true,
+				allowedInstallationIds: [987],
+				disabledRepositoryIds: [123],
+			},
 			"repository_disabled",
 		],
 	] as const)(
