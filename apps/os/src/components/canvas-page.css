@@ -556,19 +556,14 @@
 	padding: 0;
 }
 
+/* Connections and Review start at the pane's edge under the tab bar, like
+   Edit and History; the measure only keeps long rows readable. */
 .canvas-secondary-view {
 	display: grid;
 	width: 100%;
 	max-width: 1024px;
-	margin-inline: auto;
-	gap: 32px;
-	padding: 24px 16px 40px;
-}
-
-@media (min-width: 640px) {
-	.canvas-secondary-view {
-		padding: 32px 40px 48px;
-	}
+	gap: 24px;
+	padding: 16px 16px 40px;
 }
 
 .canvas-workpiece-bar {
@@ -1083,26 +1078,92 @@
 		margin-top: -16px;
 	}
 }
+/* An app's Edit and History views own the whole pane: they start under the
+   tab bar and reach its edges, with hairlines instead of a card. */
+.canvas-document-shell[data-canvas-flush] {
+	display: flex;
+	height: 100%;
+	min-height: 0;
+	flex-direction: column;
+	gap: 0;
+	padding: 0;
+}
+/* Notices that share the pane with the view keep their inset. */
+.canvas-document-shell[data-canvas-flush] > * {
+	flex: none;
+	margin: 16px 16px 0;
+}
+.canvas-document-shell[data-canvas-flush] > :last-child {
+	margin-bottom: 16px;
+}
+.canvas-document-shell[data-canvas-flush] > .canvas-document-header {
+	margin: 0;
+}
+.canvas-document-shell[data-canvas-flush] > .canvas-flush-body {
+	display: flex;
+	min-height: 0;
+	flex: 1 1 0;
+	flex-direction: column;
+	margin: 0;
+	container: canvas-flush / inline-size;
+}
+.canvas-flush-scroll {
+	min-height: 0;
+	flex: 1 1 0;
+	overflow-y: auto;
+	padding: 16px;
+}
+/* Changes waiting for review sit in a band above the code they change. */
+.canvas-flush-body > .canvas-code-drafts {
+	flex: none;
+	padding: 16px;
+	border-bottom: 1px solid var(--border);
+}
 .canvas-code-workbench {
 	display: grid;
-	grid-template-columns: 184px minmax(0, 1fr);
+	grid-template-columns: 200px minmax(0, 1fr);
 	min-height: 480px;
 	height: clamp(480px, 65vh, 900px);
 	overflow: hidden;
 }
+.canvas-flush-body > .canvas-code-workbench.canvas-code-workbench {
+	height: auto;
+	min-height: 0;
+	flex: 1 1 0;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+	box-shadow: none;
+}
+/* With a band above, the pane scrolls; keep the code tall enough to work in. */
+.canvas-flush-body
+	> .canvas-code-drafts
+	+ .canvas-code-workbench.canvas-code-workbench {
+	min-height: 420px;
+}
 .canvas-code-files {
 	display: flex;
 	min-width: 0;
+	min-height: 0;
 	flex-direction: column;
-	gap: 2px;
-	padding: 8px;
+	gap: 1px;
+	overflow-y: auto;
+	padding: 6px;
 	border-right: 1px solid var(--border);
 }
 .canvas-code-files-heading {
 	padding: 4px 8px 6px;
 }
+.canvas-code-file-row {
+	position: relative;
+	display: flex;
+	min-width: 0;
+	flex: none;
+	align-items: center;
+}
 .canvas-code-file-button.canvas-code-file-button {
-	width: 100%;
+	min-width: 0;
+	flex: 1 1 0;
 	justify-content: flex-start;
 	padding-inline: 8px;
 	color: var(--text-color-kumo-subtle);
@@ -1114,6 +1175,25 @@
 	background: var(--color-kumo-tint);
 	color: var(--text-color-kumo-default);
 }
+/* The "…" button appears over the row's end on hover or keyboard focus. */
+.canvas-code-file-more.canvas-code-file-more {
+	position: absolute;
+	right: 2px;
+	opacity: 0;
+	background: var(--color-kumo-control);
+	transition: opacity var(--duration-tedix-fast) var(--ease-tedix-standard);
+}
+.canvas-code-file-row:hover .canvas-code-file-more,
+.canvas-code-file-row:focus-within .canvas-code-file-more,
+.canvas-code-file-more[aria-expanded="true"],
+.canvas-code-file-more[data-popup-open] {
+	opacity: 1;
+}
+@media (pointer: coarse) {
+	.canvas-code-file-more.canvas-code-file-more {
+		opacity: 1;
+	}
+}
 .canvas-code-file {
 	display: flex;
 	min-width: 0;
@@ -1122,12 +1202,13 @@
 }
 .canvas-code-file-header {
 	display: flex;
-	min-height: 44px;
+	min-height: 40px;
 	box-sizing: border-box;
+	flex: none;
 	align-items: center;
 	justify-content: space-between;
 	gap: 12px;
-	padding: 6px 8px 6px 16px;
+	padding: 4px 8px 4px 16px;
 	border-bottom: 1px solid var(--border);
 }
 .canvas-code-file-name {
@@ -1172,6 +1253,8 @@
 	min-height: 0;
 	flex: 1;
 }
+/* A narrow pane or a phone: the files become one scrolling strip above the
+   code, and each "…" button sits beside its file. */
 @media (max-width: 639px) {
 	.canvas-code-workbench {
 		grid-template-columns: minmax(0, 1fr);
@@ -1179,7 +1262,9 @@
 	}
 	.canvas-code-files {
 		flex-direction: row;
+		gap: 4px;
 		overflow-x: auto;
+		overflow-y: hidden;
 		border-right: 0;
 		border-bottom: 1px solid var(--border);
 	}
@@ -1187,9 +1272,65 @@
 		display: none;
 	}
 	.canvas-code-file-button.canvas-code-file-button {
-		width: auto;
 		flex: none;
 	}
+	.canvas-code-file-more.canvas-code-file-more {
+		position: static;
+		opacity: 1;
+		background: transparent;
+	}
+}
+@container canvas-flush (max-width: 519px) {
+	.canvas-code-workbench {
+		grid-template-columns: minmax(0, 1fr);
+		grid-template-rows: auto minmax(0, 1fr);
+	}
+	.canvas-code-files {
+		flex-direction: row;
+		gap: 4px;
+		overflow-x: auto;
+		overflow-y: hidden;
+		border-right: 0;
+		border-bottom: 1px solid var(--border);
+	}
+	.canvas-code-files-heading {
+		display: none;
+	}
+	.canvas-code-file-button.canvas-code-file-button {
+		flex: none;
+	}
+	.canvas-code-file-more.canvas-code-file-more {
+		position: static;
+		opacity: 1;
+		background: transparent;
+	}
+}
+
+/* History: a slim header, then the runs as full-width rows that scroll. */
+.canvas-history {
+	display: flex;
+	min-width: 0;
+	min-height: 0;
+	flex: 1 1 0;
+	flex-direction: column;
+}
+.canvas-history-header {
+	display: flex;
+	min-width: 0;
+	min-height: 40px;
+	box-sizing: border-box;
+	flex: none;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 4px 16px;
+	border-bottom: 1px solid var(--border);
+}
+.canvas-history-body {
+	min-width: 0;
+	min-height: 0;
+	flex: 1 1 0;
+	overflow-y: auto;
 }
 
 /* Keep resource identity in the tab strip; normal save state stays quiet. */

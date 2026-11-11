@@ -9,7 +9,14 @@ import type {
 	OsGadgetManifest,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import {
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { createPortal } from "react-dom";
 import { isConflictError } from "@/components/blueprints-page";
 import { CanvasCodeEditor } from "@/components/canvas-editor";
@@ -55,6 +62,7 @@ import { isAppRuntimeManifest } from "@tedix/api-contract/utils/app-runtime";
 import { useMediaQuery } from "@/lib/use-media-query";
 import { COLLAB_DOC_PATH } from "@/collab/protocol";
 import { AppCodeDraftEditor } from "@/components/app-draft-editor";
+import { CanvasCodeFiles } from "@/components/canvas-code-files";
 import { osApi } from "@/lib/api";
 import { parseDraft } from "@/lib/canvas-draft";
 import { type CanvasDocSelection, canvasDocKey } from "@/lib/canvas-search";
@@ -389,6 +397,14 @@ export function CanvasDocPanel({
 				: "",
 		[gadgetDetail.data],
 	);
+	// Unsaved edits to a runtime app's files, so Download saves what is on screen.
+	const editedCodeTexts = useRef<Record<string, string> | null>(null);
+	const setEditedCodeTexts = useCallback(
+		(texts: Record<string, string> | null) => {
+			editedCodeTexts.current = texts;
+		},
+		[],
+	);
 	const [previewExecution, setPreviewExecution] =
 		useState<OsGadgetExecution | null>(null);
 
@@ -587,6 +603,24 @@ export function CanvasDocPanel({
 	const manifestStatusHidden =
 		builtinAppView || (isRuntimeApp && effectiveGadgetView === "preview");
 	const executionGadgetId = doc.id;
+	// The host's Edit and History views own the whole pane: no inset, no card.
+	const flushView =
+		gadgetViewOverride !== undefined &&
+		!builtinAppView &&
+		(session !== null || isRuntimeApp) &&
+		(effectiveGadgetView === "source" || effectiveGadgetView === "runs");
+	/** A file's text as shown in the Edit view, for Download. */
+	const codeFileText = (path: string) => {
+		const files = runtimeCode.data?.code?.files ?? {};
+		if (path === "README.md" && !Object.hasOwn(files, path)) return appReadme;
+		const edited = editedCodeTexts.current?.[path];
+		if (edited !== undefined) return edited;
+		if (path !== "manifest.json") return files[path] ?? "";
+		if (session && !isRuntimeApp) return docText;
+		return gadgetDetail.data?.currentRevision
+			? canonicalJsonText(gadgetDetail.data.currentRevision.manifest)
+			: "";
+	};
 	useEffect(() => {
 		setPreviewExecution(null);
 	}, [doc.id, workspaceId]);
@@ -721,6 +755,7 @@ export function CanvasDocPanel({
 	return (
 		<div
 			className="canvas-document-shell grid min-w-0 content-start gap-0"
+			data-canvas-flush={flushView ? "" : undefined}
 			style={
 				(gadgetWidgetTarget || runtimeAppFills) &&
 				effectiveGadgetView === "preview"
@@ -817,7 +852,9 @@ export function CanvasDocPanel({
 				// so they render before (or without) the editing room; only the
 				// manifest editor needs the room.
 				<div
-					className="grid min-w-0 gap-3"
+					className={
+						flushView ? "canvas-flush-body min-w-0" : "grid min-w-0 gap-3"
+					}
 					style={
 						(gadgetWidgetTarget || runtimeAppFills) &&
 						effectiveGadgetView === "preview"
@@ -932,10 +969,12 @@ export function CanvasDocPanel({
 					) : effectiveGadgetView === "runs" &&
 					  builtinManifest?.entry.trim().startsWith("tedix:app/") &&
 					  !gadgetDetail.data?.currentRevision?.manifest.skillSlug ? (
-						<WorkspaceAppRunsInfo
-							manifest={builtinManifest!}
-							onShowResources={onShowResources}
-						/>
+						<div className="canvas-flush-scroll">
+							<WorkspaceAppRunsInfo
+								manifest={builtinManifest!}
+								onShowResources={onShowResources}
+							/>
+						</div>
 					) : effectiveGadgetView === "runs" && executionGadgetId ? (
 						<CanvasGadgetExecutions
 							key={`${workspaceId}:${executionGadgetId}`}
@@ -955,46 +994,30 @@ export function CanvasDocPanel({
 								gadgetViewOverride === "source" &&
 								appDrafts.length > 0 &&
 								gadgetDetail.data?.currentRevision && (
-									<AppRuntimeDrafts
-										workspaceId={workspaceId}
-										gadget={gadgetDetail.data.gadget}
-										revision={gadgetDetail.data.currentRevision}
-										drafts={appDrafts}
-										mergeBlockedReason={appDraftMergeBlockedReason}
-										onMerged={(revision) => {
-											onProposalMerged(revision);
-											onAppDraftMerged?.();
-										}}
-									/>
+									<div className="canvas-code-drafts">
+										<AppRuntimeDrafts
+											workspaceId={workspaceId}
+											gadget={gadgetDetail.data.gadget}
+											revision={gadgetDetail.data.currentRevision}
+											drafts={appDrafts}
+											mergeBlockedReason={appDraftMergeBlockedReason}
+											onMerged={(revision) => {
+												onProposalMerged(revision);
+												onAppDraftMerged?.();
+											}}
+										/>
+									</div>
 								)}
 							<Surface
 								className="canvas-code-workbench"
 								data-canvas-code-workbench
 							>
-								<aside className="canvas-code-files" aria-label="Code files">
-									<Text
-										as="h3"
-										role="label"
-										tone="secondary"
-										className="canvas-code-files-heading m-0"
-									>
-										Files
-									</Text>
-									{codeFiles.map((file) => (
-										<Button
-											key={file.path}
-											size="sm"
-											variant="ghost"
-											className="canvas-code-file-button"
-											aria-current={codeFile === file.path ? "page" : undefined}
-											aria-label={file.path}
-											title={file.hint}
-											onClick={() => setCodeFile(file.path)}
-										>
-											{file.path}
-										</Button>
-									))}
-								</aside>
+								<CanvasCodeFiles
+									files={codeFiles}
+									current={codeFile}
+									onSelect={setCodeFile}
+									textFor={codeFileText}
+								/>
 								{codeFile === "README.md" &&
 								!Object.hasOwn(
 									runtimeCode.data?.code?.files ?? {},
@@ -1025,6 +1048,7 @@ export function CanvasDocPanel({
 													files: runtimeCode.data.code.files,
 												}}
 												selectedFile={codeFile}
+												onTextsChange={setEditedCodeTexts}
 												onSaved={() => {
 													setGadgetView("drafts");
 													onAppDraftSaved?.();

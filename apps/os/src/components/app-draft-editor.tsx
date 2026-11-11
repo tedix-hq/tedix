@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { OsAppDraftContentSchema } from "@tedix/api-contract/schemas/os-workspaces";
 import type { OsAppDraftContent } from "@tedix/api-contract/schemas/os-workspaces";
@@ -14,17 +14,24 @@ export function AppDraftEditor({
 	files,
 	selectedFile,
 	onSave,
+	onTextsChange,
 }: {
 	manifest: string;
 	files: Record<string, string>;
 	selectedFile?: string;
 	onSave: (content: OsAppDraftContent) => Promise<unknown>;
+	/** The files as edited so far, or null once the editor has closed. */
+	onTextsChange?: (texts: Record<string, string> | null) => void;
 }) {
 	const [texts, setTexts] = useState<Record<string, string>>({
 		...files,
 		"manifest.json": manifest,
 	});
 	const [selection, setSelection] = useState("manifest.json");
+	useEffect(() => {
+		onTextsChange?.(texts);
+		return () => onTextsChange?.(null);
+	}, [onTextsChange, texts]);
 	const path = selectedFile ?? selection;
 	const save = useMutation({
 		mutationFn: async () => {
@@ -124,6 +131,7 @@ export function AppCodeDraftEditor({
 	content,
 	selectedFile,
 	onSaved,
+	onTextsChange,
 }: {
 	workspaceId: string;
 	gadgetId: string;
@@ -131,6 +139,7 @@ export function AppCodeDraftEditor({
 	content: OsAppDraftContent;
 	selectedFile: string;
 	onSaved: () => void;
+	onTextsChange?: (texts: Record<string, string> | null) => void;
 }) {
 	const queryClient = useQueryClient();
 	const access = useQuery(workspaceOpenQueryOptions(workspaceId, gadgetId));
@@ -148,6 +157,7 @@ export function AppCodeDraftEditor({
 			manifest={JSON.stringify(base.content.manifest, null, 2)}
 			files={base.content.files}
 			selectedFile={selectedFile}
+			onTextsChange={onTextsChange}
 			onSave={async (draft) => {
 				await osApi.osAppRuntime.saveDraft({
 					workspaceId,
