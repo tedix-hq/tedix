@@ -524,6 +524,115 @@ export async function resolveApprovalRequest(
 	return results[0];
 }
 
+export async function supersedeToolReviewApprovals(
+	db: DbClient,
+	input: { organizationId: string; appId: string },
+) {
+	return db
+		.update(tediApprovalRequests)
+		.set({
+			status: "cancelled",
+			resolvedAt: new Date().toISOString(),
+			resolution:
+				"Superseded: upstream tools changed. Review the latest card; no tools were approved.",
+		})
+		.where(
+			and(
+				eq(tediApprovalRequests.orgId, input.organizationId),
+				eq(tediApprovalRequests.actionType, "mcp.tool_catalog_change"),
+				eq(tediApprovalRequests.status, "pending"),
+				sql`json_extract(${tediApprovalRequests.payload}, '$.appId') = ${input.appId}`,
+				sql`not exists (select 1 from ${appTools} where ${appTools.appId} = ${input.appId} and ${appTools.reviewState} = 'pending')`,
+			),
+		)
+		.returning();
+}
+
+/** Snapshot, re-batch and replace the app's queue in one D1 transaction. */
+export async function reconcileToolReviewApproval(
+	db: DbClient,
+	input: {
+		organizationId: string;
+		appId: string;
+		appName: string;
+		tediId: string;
+		createdAt: string;
+		expiresAt: string;
+	},
+) {
+	const id = crypto.randomUUID();
+	const batchId = crypto.randomUUID();
+	const ownedApp = sql`exists (select 1 from ${apps} where ${apps.id} = ${input.appId} and ${apps.organizationId} = ${input.organizationId})`;
+	const pending = sql`pending.app_id = ${input.appId} and pending.review_state = 'pending'`;
+	const count = sql<number>`(select count(*) from ${appTools} pending where ${pending})`;
+	const [, , created] = await db.batch([
+		db
+			.update(appTools)
+			.set({ reviewBatchId: batchId })
+			.where(
+				and(
+					eq(appTools.appId, input.appId),
+					eq(appTools.reviewState, "pending"),
+					ownedApp,
+				),
+			),
+		db
+			.update(tediApprovalRequests)
+			.set({
+				status: "cancelled",
+				resolvedAt: input.createdAt,
+				resolution:
+					"Superseded: upstream tools changed. Review the latest card; no tools were approved.",
+				payload: sql`json_set(${tediApprovalRequests.payload}, '$.supersededBy', case when ${count} > 0 then ${id} else null end)`,
+			})
+			.where(
+				and(
+					eq(tediApprovalRequests.orgId, input.organizationId),
+					eq(tediApprovalRequests.actionType, "mcp.tool_catalog_change"),
+					eq(tediApprovalRequests.status, "pending"),
+					sql`json_extract(${tediApprovalRequests.payload}, '$.appId') = ${input.appId}`,
+					ownedApp,
+				),
+			),
+		db
+			.insert(tediApprovalRequests)
+			.select(
+				db
+					.select({
+						id: sql<string>`${id}`.as("id"),
+						tediId: sql<string>`${input.tediId}`.as("tedi_id"),
+						orgId: apps.organizationId,
+						actionType: sql<string>`'mcp.tool_catalog_change'`.as(
+							"action_type",
+						),
+						description:
+							sql<string>`'Review ' || ${count} || ' upstream tool change' || case when ${count} = 1 then '' else 's' end || ' for ' || ${input.appName}`.as(
+								"description",
+							),
+						payload: sql<
+							Record<string, JsonValue>
+						>`json_object('kind', 'mcp_tool_catalog_change', 'appId', ${input.appId}, 'reviewBatchId', ${batchId}, 'expectedCount', ${count}, 'changes', json((select json_group_array(json_object('rowId', pending.id, 'toolId', pending.tool_id, 'schemaSourceHash', pending.schema_source_hash, 'diff', json(pending.review_diff))) from ${appTools} pending where ${pending})))`.as(
+							"payload",
+						),
+						status: sql<ApprovalStatus>`'pending'`.as("status"),
+						createdAt: sql<string>`${input.createdAt}`.as("created_at"),
+						expiresAt: sql<string>`${input.expiresAt}`.as("expires_at"),
+					})
+					.from(apps)
+					.where(
+						and(
+							eq(apps.id, input.appId),
+							eq(apps.organizationId, input.organizationId),
+							sql`${count} > 0`,
+						),
+					),
+			)
+			.returning(),
+	]);
+	if (created[0]) await recordApprovalCardCreation(db, created[0]);
+	return created;
+}
+
 /** Resolve and activate one exact upstream-definition batch atomically. */
 export async function resolveToolCatalogApprovalRequest(
 	db: DbClient,
@@ -561,8 +670,16 @@ export async function resolveToolCatalogApprovalRequest(
 					select count(*) from ${appTools} pending
 					where pending.app_id = json_extract(${tediApprovalRequests.payload}, '$.appId')
 						and pending.review_state = 'pending'
-						and pending.review_batch_id = json_extract(${tediApprovalRequests.payload}, '$.reviewBatchId')
 				) = json_extract(${tediApprovalRequests.payload}, '$.expectedCount')`,
+				sql`not exists (
+					select 1 from ${appTools} pending
+					where pending.app_id = json_extract(${tediApprovalRequests.payload}, '$.appId')
+						and pending.review_state = 'pending'
+						and (pending.review_batch_id is not json_extract(${tediApprovalRequests.payload}, '$.reviewBatchId')
+							or not exists (select 1 from json_each(${tediApprovalRequests.payload}, '$.changes') change
+								where json_extract(change.value, '$.rowId') = pending.id
+									and json_extract(change.value, '$.schemaSourceHash') = pending.schema_source_hash))
+				)`,
 			),
 		)
 		.returning();

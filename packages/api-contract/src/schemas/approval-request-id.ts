@@ -1,8 +1,8 @@
 import * as z from "zod";
 
 /**
- * Approval request ids are UUIDs, except tool-change reviews, whose id is a
- * stable digest so a rescan reuses the same pending request.
+ * Approval request ids are UUIDs. Historical tool-change reviews used a
+ * prefixed digest; keep those records addressable after they are superseded.
  */
 export const ApprovalRequestIdSchema = z.union([
 	z.uuid(),

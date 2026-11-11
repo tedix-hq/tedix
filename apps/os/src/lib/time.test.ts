@@ -40,6 +40,11 @@ describe("relativeTime", () => {
 		expect(relativeTime("2026-08-16T12:00:00.000Z", NOW)).toBe("in 3d");
 	});
 
+	it("shows the real date for distant future instants", () => {
+		expect(relativeTime("2026-09-12T12:00:00.000Z", NOW)).toBe("Sep 12");
+		expect(relativeTime("2027-01-01T12:00:00.000Z", NOW)).toBe("Jan 1, 2027");
+	});
+
 	it("is empty on garbage input", () => {
 		expect(relativeTime("not-a-date", NOW)).toBe("");
 	});

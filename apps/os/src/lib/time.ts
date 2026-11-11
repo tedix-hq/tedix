@@ -65,12 +65,14 @@ export function relativeTime(iso: string, now: Date = new Date()): string {
 		if (ahead < DAY_MS) return `in ${Math.round(ahead / HOUR_MS)}h`;
 		return `in ${Math.round(ahead / DAY_MS)}d`;
 	}
-	if (delta < 45_000) return "just now";
-	if (delta < HOUR_MS) {
+	if (Math.abs(delta) < 45_000) return "just now";
+	if (delta >= 0 && delta < HOUR_MS) {
 		return `${Math.max(1, Math.round(delta / MINUTE_MS))}m ago`;
 	}
-	if (delta < DAY_MS) return `${Math.round(delta / HOUR_MS)}h ago`;
-	if (delta < WEEK_MS) return `${Math.round(delta / DAY_MS)}d ago`;
+	if (delta >= 0 && delta < DAY_MS)
+		return `${Math.round(delta / HOUR_MS)}h ago`;
+	if (delta >= 0 && delta < WEEK_MS)
+		return `${Math.round(delta / DAY_MS)}d ago`;
 	const date = new Date(then);
 	const options: Intl.DateTimeFormatOptions = {
 		month: "short",
