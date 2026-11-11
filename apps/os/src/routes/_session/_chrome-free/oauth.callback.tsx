@@ -28,6 +28,7 @@ import {
 	CONNECTION_FAILED_MESSAGE,
 	connectionFailureMessage,
 	redeemConnectionFlow,
+	settleOutboundConnection,
 	takeConnectionFlow,
 } from "@/lib/connections-actions";
 
@@ -57,6 +58,11 @@ const oauthCallbackSearchSchema = z.object({
 	status: z.catch(z.optional(z.string()), undefined),
 	reason: z.catch(z.optional(z.string()), undefined),
 	provider: z.catch(z.optional(z.string()), undefined),
+	// A provider response relayed by the API for this page to finish.
+	cimdState: z.catch(z.optional(z.string()), undefined),
+	cimdCode: z.catch(z.optional(z.string()), undefined),
+	cimdIss: z.catch(z.optional(z.string()), undefined),
+	cimdError: z.catch(z.optional(z.string()), undefined),
 });
 
 type OauthCallbackSearch = z.infer<typeof oauthCallbackSearchSchema>;
@@ -67,6 +73,10 @@ function validateOauthCallbackSearch(
 		status?: string;
 		reason?: string;
 		provider?: string;
+		cimdState?: string;
+		cimdCode?: string;
+		cimdIss?: string;
+		cimdError?: string;
 	} & SearchSchemaInput,
 ): OauthCallbackSearch {
 	return oauthCallbackSearchSchema.parse(search);
@@ -78,7 +88,15 @@ export const Route = createFileRoute("/_session/_chrome-free/oauth/callback")({
 });
 
 function OAuthCallbackPage() {
-	const { connectError, status, reason } = Route.useSearch();
+	const {
+		connectError,
+		status,
+		reason,
+		cimdState,
+		cimdCode,
+		cimdIss,
+		cimdError,
+	} = Route.useSearch();
 	const callbackError =
 		connectError ??
 		(status !== undefined && status !== "success"
@@ -89,9 +107,7 @@ function OAuthCallbackPage() {
 	>(undefined);
 
 	// One redemption per page, whatever React's effect replay does.
-	const redemption = useRef<
-		Promise<"ticket_missing" | "ticket_rejected" | null> | undefined
-	>(undefined);
+	const redemption = useRef<Promise<string | null> | undefined>(undefined);
 	const [redeemError, setRedeemError] = useState<string | undefined>();
 	const failure = callbackError ?? redeemError;
 
@@ -128,9 +144,28 @@ function OAuthCallbackPage() {
 		// The consent return completes nothing by itself: the staged ticket is
 		// redeemed here, over this person's own signed-in session, and only
 		// then does the connection count as complete.
-		redemption.current ??= flow
-			? redeemConnectionFlow(flow)
-			: Promise.resolve("ticket_missing" as const);
+		// A relayed provider response is finished first: that is where the
+		// grant is stored, and only for the person who started the connection.
+		// A connection started outside this browser has no staged ticket, so a
+		// finished one is complete without it.
+		redemption.current ??= (
+			cimdState
+				? settleOutboundConnection({
+						state: cimdState,
+						...(cimdCode ? { code: cimdCode } : {}),
+						...(cimdIss ? { iss: cimdIss } : {}),
+						...(cimdError ? { error: cimdError } : {}),
+					})
+				: Promise.resolve(null)
+		).then(
+			(settleFailure) =>
+				settleFailure ??
+				(flow
+					? redeemConnectionFlow(flow)
+					: cimdState
+						? null
+						: "ticket_missing"),
+		);
 		void redemption.current.then((reason) => {
 			if (cancelled) return;
 			if (reason) {
@@ -157,7 +192,7 @@ function OAuthCallbackPage() {
 			cancelled = true;
 			if (timer) clearTimeout(timer);
 		};
-	}, [callbackError]);
+	}, [callbackError, cimdState, cimdCode, cimdIss, cimdError]);
 
 	if (failure) {
 		return (

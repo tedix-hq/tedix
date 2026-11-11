@@ -241,6 +241,7 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	"connections/setConsumerGrants": "mcp:settings.admin",
 	"connections/setProviderAccountMode": "mcp:settings.write",
 	"connections/recordProviderRegistration": "platform:admin",
+	"connections/settleOutboundOAuth": "mcp:settings.write",
 	"connections/stageConnectTicket": "mcp:settings.write",
 	"connections/storeTediApiKey": "mcp:settings.write",
 	"connections/updateProviderMetadata": "platform:admin",

@@ -59,17 +59,6 @@ const defaultDependencies: CallbackDependencies = {
 	insertAudit: insertAuditEvent,
 };
 
-function completionRedirect(
-	redirectUrl: string,
-	params: Record<string, string>,
-): Response {
-	const target = new URL(redirectUrl);
-	for (const [key, value] of Object.entries(params)) {
-		target.searchParams.set(key, value);
-	}
-	return Response.redirect(target.toString(), 302);
-}
-
 async function recordCimdFailure(
 	state: OutboundMcpOAuthState,
 	stage: CimdFailureStage,
@@ -119,12 +108,25 @@ async function recordGrantedAudit(
 	}
 }
 
-/** Settle the public CIMD callback without reading browser cookies or sessions. */
+/** Query parameters the relay hands to the product callback page. */
+export const OUTBOUND_OAUTH_RELAY_PARAMS = {
+	state: "cimdState",
+	code: "cimdCode",
+	iss: "cimdIss",
+	error: "cimdError",
+} as const;
+
+/**
+ * Public provider callback. It stores nothing: it only carries the sealed
+ * state and the authorization response to the product page the flow started
+ * from. The code is useless there without the verifier sealed in the state,
+ * and the grant is stored only when the person who started the flow settles
+ * it over their own sign-in (`settleOutboundMcpOAuth`).
+ */
 export async function handleOutboundMcpOAuthCallback(
 	request: Request,
-	env: CallbackEnv,
-	db: DbClient,
-	dependencies: CallbackDependencies = defaultDependencies,
+	env: Pick<CallbackEnv, "SECRETS_MASTER_KEY">,
+	openState: typeof openOutboundMcpOAuthState = openOutboundMcpOAuthState,
 ): Promise<Response> {
 	const url = new URL(request.url);
 	const encodedState = url.searchParams.get("state");
@@ -133,15 +135,73 @@ export async function handleOutboundMcpOAuthCallback(
 
 	let state;
 	try {
-		state = await dependencies.openState(encodedState, env.SECRETS_MASTER_KEY);
+		state = await openState(encodedState, env.SECRETS_MASTER_KEY);
 	} catch {
 		return new Response("Invalid or expired OAuth state", { status: 400 });
 	}
 
+	const target = new URL(state.redirectUrl);
+	target.searchParams.set(OUTBOUND_OAUTH_RELAY_PARAMS.state, encodedState);
+	for (const name of ["code", "iss", "error"] as const) {
+		const value = url.searchParams.get(name);
+		if (value)
+			target.searchParams.set(OUTBOUND_OAUTH_RELAY_PARAMS[name], value);
+	}
+	return new Response(null, {
+		status: 302,
+		headers: {
+			Location: target.toString(),
+			"Cache-Control": "no-store",
+			"Referrer-Policy": "no-referrer",
+		},
+	});
+}
+
+export type OutboundOAuthSettlement =
+	| { status: "success"; provider: string }
+	| { status: "error"; provider: string; reason: string }
+	| { status: "rejected"; reason: "state_invalid" | "initiator_mismatch" };
+
+/**
+ * Exchange the code and store the grant, for the initiator only. A consent
+ * that someone else completed from a forwarded link reaches this under their
+ * own sign-in, which does not match the sealed initiator, so their provider
+ * account never lands in the initiator's organization.
+ */
+export async function settleOutboundMcpOAuth(
+	input: {
+		state: string;
+		code?: string | null;
+		iss?: string | null;
+		error?: string | null;
+	},
+	caller: { userId: string; organizationId: string },
+	env: CallbackEnv,
+	db: DbClient,
+	dependencies: CallbackDependencies = defaultDependencies,
+): Promise<OutboundOAuthSettlement> {
+	let state;
+	try {
+		state = await dependencies.openState(input.state, env.SECRETS_MASTER_KEY);
+	} catch {
+		return { status: "rejected", reason: "state_invalid" };
+	}
+	if (
+		state.grantedBy !== caller.userId ||
+		state.organizationId !== caller.organizationId
+	)
+		return { status: "rejected", reason: "initiator_mismatch" };
+
+	const failed = (reason: string): OutboundOAuthSettlement => ({
+		status: "error",
+		provider: state.appId,
+		reason,
+	});
+
 	try {
 		dependencies.validateIssuer({
 			expectedIssuer: state.expectedIssuer,
-			responseIss: url.searchParams.get("iss"),
+			responseIss: input.iss ?? null,
 			issSupported: state.issSupported,
 		});
 	} catch (error) {
@@ -151,15 +211,10 @@ export async function handleOutboundMcpOAuthCallback(
 			error instanceof AuthorizationResponseIssError ? error.code : undefined,
 		);
 		await recordCimdFailure(state, "issuer_validation", db, dependencies);
-		return completionRedirect(state.redirectUrl, {
-			status: "error",
-			provider: state.appId,
-			reason: "issuer_validation_failed",
-		});
+		return failed("issuer_validation_failed");
 	}
 
-	const upstreamError = url.searchParams.get("error");
-	if (upstreamError) {
+	if (input.error) {
 		await dependencies.insertAudit(db, {
 			organizationId: state.organizationId,
 			actorId: state.grantedBy,
@@ -167,22 +222,17 @@ export async function handleOutboundMcpOAuthCallback(
 			action: "connection.oauth_cimd_denied",
 			resourceType: "connection_provider",
 			resourceId: state.appId,
-			metadata: { upstreamError },
+			metadata: { upstreamError: input.error },
 		});
-		return completionRedirect(state.redirectUrl, {
-			status: "error",
-			provider: state.appId,
-			reason: "consent_denied",
-		});
+		return failed("consent_denied");
 	}
 
-	const code = url.searchParams.get("code");
-	if (!code) return new Response("Missing authorization code", { status: 400 });
+	if (!input.code) return failed("code_missing");
 	let token;
 	try {
 		token = await dependencies.exchangeCode({
 			tokenUrl: state.tokenUrl,
-			code,
+			code: input.code,
 			codeVerifier: state.codeVerifier,
 			resource: state.resource,
 			redirectUri: TEDIX_OUTBOUND_MCP_OAUTH_REDIRECT_URI,
@@ -191,11 +241,7 @@ export async function handleOutboundMcpOAuthCallback(
 	} catch (error) {
 		logCimdFailure("token_exchange", error);
 		await recordCimdFailure(state, "token_exchange", db, dependencies);
-		return completionRedirect(state.redirectUrl, {
-			status: "error",
-			provider: state.appId,
-			reason: "token_exchange_failed",
-		});
+		return failed("token_exchange_failed");
 	}
 
 	const grantedScopes = token.scopes?.length
@@ -223,16 +269,9 @@ export async function handleOutboundMcpOAuthCallback(
 	} catch (error) {
 		logCimdFailure("vault_upload", error);
 		await recordCimdFailure(state, "vault_upload", db, dependencies);
-		return completionRedirect(state.redirectUrl, {
-			status: "error",
-			provider: state.appId,
-			reason: "vault_upload_failed",
-		});
+		return failed("vault_upload_failed");
 	}
 
 	await recordGrantedAudit(state, grantedScopes?.length ?? 0, db, dependencies);
-	return completionRedirect(state.redirectUrl, {
-		status: "success",
-		provider: state.appId,
-	});
+	return { status: "success", provider: state.appId };
 }

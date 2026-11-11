@@ -362,6 +362,33 @@ export const connectionsContract = oc
 			),
 
 		/**
+		 * Finish an OAuth connection after the provider returned. Only the
+		 * person who started it, in the organization they started it in, can
+		 * finish it; the grant is stored here and nowhere earlier.
+		 */
+		settleOutboundOAuth: oc
+			.route({
+				method: "POST",
+				path: "/connect/settle",
+				summary: "Finish OAuth connection",
+			})
+			.input(
+				z.object({
+					state: z.string().min(1).max(8192),
+					code: z.string().min(1).max(4096).optional(),
+					iss: z.string().min(1).max(2048).optional(),
+					error: z.string().min(1).max(512).optional(),
+				}),
+			)
+			.output(
+				z.object({
+					status: z.enum(["success", "error"]),
+					provider: z.string(),
+					reason: z.string().optional(),
+				}),
+			),
+
+		/**
 		 * Disconnect a user's connection to a provider
 		 * DELETE /connections/{appId}
 		 */

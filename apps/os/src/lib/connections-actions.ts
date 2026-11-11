@@ -35,6 +35,8 @@ export function connectionFailureMessage(reason?: string): string {
 			return "The provider token could not be saved to this organization's credential vault.";
 		case "consent_denied":
 			return "The provider authorization was cancelled or denied.";
+		case "settle_rejected":
+			return "This connection could not be completed from your sign-in: it was started by someone else, or took too long. Start it again from your workspace.";
 		case "ticket_missing":
 			return "This connection was not started from your own sign-in, so it was not completed. Start the connection again from your workspace.";
 		case "ticket_rejected":
@@ -73,6 +75,27 @@ export async function redeemConnectionFlow(
 		return null;
 	} catch {
 		return "ticket_rejected";
+	}
+}
+
+/**
+ * Finish a connection the provider returned to this page. The grant is stored
+ * only here, over this person's own signed-in session, and only for the
+ * person who started the connection. Resolves to the failure reason, or null.
+ */
+export async function settleOutboundConnection(input: {
+	state: string;
+	code?: string;
+	iss?: string;
+	error?: string;
+}): Promise<string | null> {
+	try {
+		const result = await osApi.connections.settleOutboundOAuth(input);
+		return result.status === "success"
+			? null
+			: (result.reason ?? "connection_failed");
+	} catch {
+		return "settle_rejected";
 	}
 }
 

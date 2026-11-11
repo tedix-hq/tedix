@@ -46,6 +46,7 @@ import {
 	redeemConnectTicket,
 	stageConnectTicket,
 } from "./connections/connect-tickets";
+import { settleOutboundOAuth } from "./connections/outbound-oauth-settle";
 import { connectionsOs } from "./connections/policy-resolution";
 
 // =============================================================================
@@ -63,6 +64,7 @@ export const connectionsContractRouter = connectionsOs.router({
 	preparePersonalConnection,
 	stageConnectTicket,
 	redeemConnectTicket,
+	settleOutboundOAuth,
 	bindConnectionInstance,
 	getConnectionsOverview,
 	listProviders,
