@@ -1163,6 +1163,76 @@ describe("invited email codes", () => {
 		},
 	);
 
+	it.each(["external_agent", "tedi", "api_key"] as const)(
+		"attributes %s invitations to the organization",
+		async (createdByKind) => {
+			const t = await setup("workspace");
+			await t.db.insert(externalAgentPrincipals).values({
+				id: "agent-1",
+				organizationId: "org-1",
+				key: "local-agent",
+				displayName: "Local coding agents (user@hostname.local)",
+				credentialBindingType: "owner_user",
+				credentialBindingId: "user-1",
+				createdByType: "user",
+				createdById: "user-1",
+			});
+			await t.db.insert(tedis).values({
+				id: "agent-1",
+				organizationId: "org-1",
+				name: "Internal agent",
+				slug: "internal-agent",
+			});
+			await t.db.insert(apiKeys).values({
+				id: "agent-1",
+				organizationId: "org-1",
+				name: "Internal API client",
+				keyHash: "test-key-hash",
+				keyPreview: "test-key",
+			});
+			await t.db
+				.update(osShareLinks)
+				.set({ createdByKind, createdById: "agent-1" });
+			await t.request();
+			expect(t.send).toHaveBeenCalledTimes(1);
+			expect(t.send.mock.calls[0]![0].text).toMatch(
+				/^Example shared Shared workspace with you\./,
+			);
+			expect(t.send.mock.calls[0]![0].text).not.toContain("hostname.local");
+		},
+	);
+
+	it.each([
+		{ name: null, kind: "human" },
+		{ name: "   ", kind: "human" },
+		{
+			name: "Local coding agents (user@hostname.local)",
+			kind: "external_agent",
+		},
+		{ name: "Browser agent", kind: "browser_agent" },
+	] as const)(
+		"uses the organization for membership $kind with name $name",
+		async (member) => {
+			const t = await setup("workspace");
+			await t.db.update(organizationMembers).set(member);
+			await t.request();
+			expect(t.send).toHaveBeenCalledTimes(1);
+			expect(t.send.mock.calls[0]![0].text).toMatch(
+				/^Example shared Shared workspace with you\./,
+			);
+			expect(t.send.mock.calls[0]![0].text).not.toContain("maya@example.test");
+		},
+	);
+
+	it("uses the organization when the creator membership is missing", async () => {
+		const t = await setup("workspace");
+		await t.db.delete(organizationMembers);
+		await t.request();
+		expect(t.send.mock.calls[0]![0].text).toMatch(
+			/^Example shared Shared workspace with you\./,
+		);
+	});
+
 	it("returns the uniform reply before email transport completes", async () => {
 		const t = await setup();
 		let release!: () => void;

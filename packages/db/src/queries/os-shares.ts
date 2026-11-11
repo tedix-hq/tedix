@@ -592,6 +592,7 @@ export async function isOsShareLinkInvitee(
  * "Shared by <name>" line: a person's membership name, a tedi's display name,
  * an external agent's principal name or an API key's name — org-scoped, and
  * null when the principal can no longer be named.
+ * personOnly limits attribution to a human membership's nonblank name.
  */
 export async function getOsShareCreatorName(
 	db: DbQueryClient,
@@ -599,13 +600,16 @@ export async function getOsShareCreatorName(
 		OsShareLinkRow,
 		"organizationId" | "createdByKind" | "createdById"
 	>,
+	options: { personOnly?: boolean } = {},
 ): Promise<string | null> {
+	if (options.personOnly && link.createdByKind !== "user") return null;
 	const scope = { organizationId: link.organizationId, id: link.createdById };
 	if (link.createdByKind === "user") {
 		const [row] = await db
 			.select({
 				name: organizationMembers.name,
 				email: organizationMembers.email,
+				kind: organizationMembers.kind,
 			})
 			.from(organizationMembers)
 			.where(
@@ -615,6 +619,8 @@ export async function getOsShareCreatorName(
 				),
 			)
 			.limit(1);
+		if (options.personOnly)
+			return row?.kind === "human" ? row.name?.trim() || null : null;
 		return row?.name ?? row?.email ?? null;
 	}
 	if (link.createdByKind === "tedi") {
