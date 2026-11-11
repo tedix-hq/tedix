@@ -17,6 +17,11 @@ const mocks = vi.hoisted(() => ({
 	scanUpstreamCatalogAppNow: vi.fn(),
 	resolveDriftReport: vi.fn(),
 	createBaseAppFromCatalog: vi.fn(),
+	ensurePendingToolReviewApprovals: vi.fn(),
+}));
+
+vi.mock("../../services/tool-review-approvals", () => ({
+	ensurePendingToolReviewApprovals: mocks.ensurePendingToolReviewApprovals,
 }));
 
 vi.mock(
@@ -146,6 +151,7 @@ describe("catalog syncCatalogToolsToApp subscription publishes", () => {
 			catalogAppName: "Peec",
 			appId: TARGET_APP_ID,
 			appName: "Peec base",
+			organizationId: "org-base",
 			mcpServerUrl: "https://api.peec.ai/mcp",
 			dryRun: false,
 			results: [{ toolName: "list_things", action: "updated" }],
@@ -161,6 +167,14 @@ describe("catalog syncCatalogToolsToApp subscription publishes", () => {
 		await flush();
 
 		expect(published.map((p) => p.method)).toEqual(ALL_INVENTORY_METHODS);
+		expect(mocks.ensurePendingToolReviewApprovals).toHaveBeenCalledWith(
+			{},
+			{
+				organizationId: "org-base",
+				appId: TARGET_APP_ID,
+				appName: "Peec base",
+			},
+		);
 		for (const event of published) {
 			expect(event.appId).toBe(TARGET_APP_ID);
 		}
@@ -188,6 +202,7 @@ describe("catalog syncCatalogToolsToApp subscription publishes", () => {
 		await flush();
 
 		expect(published).toHaveLength(0);
+		expect(mocks.ensurePendingToolReviewApprovals).not.toHaveBeenCalled();
 	});
 });
 
@@ -277,6 +292,7 @@ describe("catalog reconcile aggregate cache activation", () => {
 			id: TARGET_APP_ID,
 			name: "CMS",
 			slug: "cms",
+			organizationId: "org-base",
 			metadata: {},
 		});
 		mocks.scanUpstreamCatalogAppNow.mockResolvedValue({
@@ -293,6 +309,50 @@ describe("catalog reconcile aggregate cache activation", () => {
 			summary: "1 updated",
 		});
 		mocks.resolveDriftReport.mockResolvedValue(undefined);
+	});
+	it("refreshes only review cards without scanning or changing stored tool definitions", async () => {
+		const { client, purges } = makeHarness();
+		await client.reconcileApp({
+			catalogAppId: CATALOG_APP_ID,
+			baseAppId: TARGET_APP_ID,
+			reviewOnly: true,
+			dryRun: false,
+			customForkAppIds: [],
+		});
+		expect(mocks.ensurePendingToolReviewApprovals).toHaveBeenCalledWith(
+			{},
+			{ organizationId: "org-base", appId: TARGET_APP_ID, appName: "CMS" },
+		);
+		expect(mocks.scanUpstreamCatalogAppNow).not.toHaveBeenCalled();
+		expect(mocks.syncCatalogToolsToApp).not.toHaveBeenCalled();
+		expect(mocks.propagateTools).not.toHaveBeenCalled();
+		expect(purges).toEqual([]);
+	});
+	it("keeps a review-only preview read-only", async () => {
+		const { client } = makeHarness();
+		await client.reconcileApp({
+			catalogAppId: CATALOG_APP_ID,
+			baseAppId: TARGET_APP_ID,
+			reviewOnly: true,
+			dryRun: true,
+			customForkAppIds: [],
+		});
+		expect(mocks.ensurePendingToolReviewApprovals).not.toHaveBeenCalled();
+		expect(mocks.syncCatalogToolsToApp).not.toHaveBeenCalled();
+	});
+	it("refuses fork changes in review-only mode", async () => {
+		const { client } = makeHarness();
+		await expect(
+			client.reconcileApp({
+				catalogAppId: CATALOG_APP_ID,
+				baseAppId: TARGET_APP_ID,
+				reviewOnly: true,
+				dryRun: false,
+				customForkAppIds: [OTHER_FORK_APP_ID],
+			}),
+		).rejects.toThrow("no custom forks");
+		expect(mocks.ensurePendingToolReviewApprovals).not.toHaveBeenCalled();
+		expect(mocks.propagateTools).not.toHaveBeenCalled();
 	});
 	it("activates refreshed schemas before returning a successful reconciliation", async () => {
 		const { client, flush, purges } = makeHarness();

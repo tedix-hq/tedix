@@ -715,11 +715,12 @@ export class McpScanWorkflow extends WorkflowEntrypoint<
 							drifts: toolSync.drifts,
 							summary: `Drift detected for ${app.name}: ${parts.join(", ")}`,
 						});
-						if (app.toolSource === "upstream_mcp") {
-							await this.syncAutoSyncBaseApps(db, app);
-						}
 					} else {
 						await resolveDriftReport(db, app.id);
+					}
+					// Existing reviews may be stale even when upstream has no new drift.
+					if (app.toolSource === "upstream_mcp") {
+						await this.syncAutoSyncBaseApps(db, app);
 					}
 				}
 

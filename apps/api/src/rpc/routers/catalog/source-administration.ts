@@ -1,4 +1,5 @@
 import { purgeMcpAggregateCache } from "../../../lib/mcp-subscriptions";
+import { ensurePendingToolReviewApprovals } from "../../../services/tool-review-approvals";
 import {
 	getBySlugCatalog,
 	getCategoriesCatalog,
@@ -161,7 +162,20 @@ const reconcileCatalogAppProcedure = fleetCatalogOs.reconcileApp
 				baseAppSlug: baseApp?.slug,
 			}),
 		);
-		if (catalogApp.toolSource === "openapi") {
+		if (input.reviewOnly) {
+			if (!baseApp || input.customForkAppIds.length > 0) {
+				throw createError(
+					ErrorCodes.BAD_REQUEST,
+					"Review-only reconciliation requires an existing base app and no custom forks.",
+				);
+			}
+			pushReconcileStage(
+				stages,
+				"catalog_to_app",
+				dryRun ? "would_run" : "completed",
+				"Refresh pending tool reviews from stored tools; no tool changes are approved or rejected.",
+			);
+		} else if (catalogApp.toolSource === "openapi") {
 			if (!baseApp) {
 				throw createError(
 					ErrorCodes.BAD_REQUEST,
@@ -371,6 +385,13 @@ const reconcileCatalogAppProcedure = fleetCatalogOs.reconcileApp
 					"No linked base app found; pass organizationId to create one or baseAppId to reconcile an existing app.",
 				);
 			}
+		}
+		if (!dryRun && baseApp) {
+			await ensurePendingToolReviewApprovals(db, {
+				organizationId: baseApp.organizationId,
+				appId: baseApp.id,
+				appName: baseApp.name,
+			});
 		}
 		if (input.customForkAppIds.length === 0) {
 			pushReconcileStage(
