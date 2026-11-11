@@ -22,6 +22,7 @@ import {
 	upsertAdapter,
 } from "@tedix/db/queries/adapters";
 import { listBindingsForAdapter } from "@tedix/db/queries/app-adapter-secret-bindings";
+import { isPlatformPrincipal } from "@tedix/auth/types";
 import type { AdapterConfig } from "@tedix/db/schema/adapters";
 import { validateAdapterConfig } from "../../services/mcp-config-validation";
 import { requireAppForOrg } from "../app-scope";
@@ -198,6 +199,8 @@ export const createAppAdapter = manageAppAdaptersOs.create.handler(
 			);
 		}
 
+		assertAdapterGatewayOrganization(context, orgId, config);
+
 		const adapter = await upsertAdapter(db, {
 			appId,
 			name,
@@ -229,6 +232,30 @@ export const createAppAdapter = manageAppAdaptersOs.create.handler(
 		};
 	},
 );
+
+/**
+ * A `service-binding` adapter calls the Tedix gateway as a trusted internal
+ * caller acting for `auth.organizationId`. Only a platform operator may name
+ * an organization other than the app's own.
+ */
+export function assertAdapterGatewayOrganization(
+	context: Parameters<typeof isPlatformPrincipal>[0],
+	organizationId: string,
+	config: unknown,
+): void {
+	const auth = (
+		config as { auth?: { type?: unknown; organizationId?: unknown } }
+	)?.auth;
+	if (
+		auth?.type === "service-binding" &&
+		auth.organizationId !== organizationId &&
+		!isPlatformPrincipal(context)
+	)
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"An adapter can call the gateway only for its own organization",
+		);
+}
 
 /**
  * Update an existing adapter
@@ -303,6 +330,8 @@ export const updateAppAdapter = manageAppAdaptersOs.update.handler(
 				`Invalid adapter config: ${validation.errors.map((e) => `${e.path}: ${e.message}`).join("; ")}`,
 			);
 		}
+
+		assertAdapterGatewayOrganization(context, orgId, nextConfig);
 
 		const adapter = await upsertAdapter(db, {
 			id: adapterId,
