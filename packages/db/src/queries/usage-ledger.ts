@@ -16,7 +16,8 @@ import {
 	getColumns,
 	type SQL,
 } from "drizzle-orm";
-import type { DbClient } from "../client";
+import { getLogStores, type DbClient } from "../client";
+import { mergeLogStoreRows, readLogStores } from "../utils/log-store";
 import { tediCallCosts, tedis, type TediCallCost } from "../schema/tedis";
 
 export interface UsageLedgerFilters {
@@ -38,6 +39,43 @@ export async function listOrgCallCostLedger(
 	db: DbClient,
 	filters: UsageLedgerFilters,
 ) {
+	const stores = getLogStores(db);
+	if (!stores) return readOrgCallCostLedger(db, filters);
+	const conditions = callCostLedgerConditions(filters);
+	const pages = await readLogStores(
+		db,
+		async (store) => {
+			if (store === stores.main) return readOrgCallCostLedger(store, filters);
+			const rows = await store
+				.select()
+				.from(tediCallCosts)
+				.where(and(...conditions))
+				.orderBy(desc(tediCallCosts.snapshotAt), desc(tediCallCosts.id))
+				.limit(filters.limit ?? 500);
+			// Hydrate small pages in main so tedis and reviewed evidence keep their
+			// existing join semantics; a logs partition holds neither parent table.
+			const hydrated: Awaited<ReturnType<typeof readOrgCallCostLedger>> = [];
+			for (let start = 0; start < rows.length; start += 100) {
+				hydrated.push(
+					...(await readOrgCallCostLedger(
+						stores.main,
+						filters,
+						effectiveCallCostsRelation(rows.slice(start, start + 100)),
+					)),
+				);
+			}
+			return hydrated;
+		},
+		{ from: filters.from, to: filters.to },
+	);
+	return mergeLogStoreRows(pages ?? [], {
+		compare: (a, b) =>
+			b.snapshotAt.localeCompare(a.snapshotAt) || b.id.localeCompare(a.id),
+		limit: filters.limit ?? 500,
+	});
+}
+
+function callCostLedgerConditions(filters: UsageLedgerFilters): SQL[] {
 	// Organization attribution is stamped directly on gateway rows. Do not infer
 	// it through tedis: kernel rows and valid org-attributed rows without a tedi
 	// would disappear behind an inner join.
@@ -66,6 +104,15 @@ export async function listOrgCallCostLedger(
 		);
 	}
 
+	return conditions;
+}
+
+async function readOrgCallCostLedger(
+	db: DbClient,
+	filters: UsageLedgerFilters,
+	relation = effectiveCallCostsRelation(),
+) {
+	const conditions = callCostLedgerConditions(filters);
 	const rows = await db
 		.select({
 			...getColumns(tediCallCosts),
@@ -102,7 +149,7 @@ export async function listOrgCallCostLedger(
 			dataQuality: tediCallCosts.dataQuality,
 			createdAt: tediCallCosts.createdAt,
 		})
-		.from(effectiveCallCostsRelation())
+		.from(relation)
 		.leftJoin(tedis, eq(tediCallCosts.tediId, tedis.id))
 		.where(and(...conditions))
 		.orderBy(desc(tediCallCosts.snapshotAt), desc(tediCallCosts.id))

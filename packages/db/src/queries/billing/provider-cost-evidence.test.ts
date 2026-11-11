@@ -23,6 +23,7 @@ import {
 } from "../../schema/external-agent-identity";
 import { providerExecutionAttempts } from "../../schema/provider-executions";
 import {
+	billingProviderUsage,
 	billingUsageReservations,
 	billingUsageQuarantines,
 	billingUsageCharges,
@@ -30,6 +31,12 @@ import {
 	billingProviderReconciliations,
 } from "../../schema/billing";
 import { getCallCosts, getDailySpendRate } from "../tedi-usage";
+import {
+	deleteD1RetentionRows,
+	filterD1RetentionReferencedRows,
+	getD1RetentionTableSpec,
+	readD1RetentionPage,
+} from "../d1-retention";
 import {
 	buildAppendProviderCostEvidenceStatement,
 	getProviderCostEvidenceSource,
@@ -204,6 +211,48 @@ describe("generated immutable evidence constraints", () => {
 		expect(
 			await getProviderCostEvidenceCurrent(db, "other", "call"),
 		).toBeNull();
+	});
+	it("pins a reviewed source even when evidence appears after the retention copy", async () => {
+		const { db, sqlite } = fixture();
+		sqlite.exec("PRAGMA foreign_keys=OFF");
+		sqlite.exec(
+			schemaDdl(
+				tediCallCosts,
+				billingUsageCharges,
+				billingUsageQuarantines,
+				billingProviderUsage,
+			),
+		);
+		await db.insert(tediCallCosts).values({
+			id: "call",
+			orgId: "org",
+			gatewayId: "gateway",
+			gatewayLogId: "log",
+			snapshotAt: "2024-01-01",
+			createdAt: "2024-01-01",
+			model: "native",
+			success: false,
+		});
+		const spec = getD1RetentionTableSpec("tedi_call_costs")!;
+		const page = await readD1RetentionPage(db, spec, -1);
+		expect(
+			(await filterD1RetentionReferencedRows(db, spec, page)).rows,
+		).toHaveLength(1);
+		await db.insert(evidence).values(row());
+		expect(
+			(await filterD1RetentionReferencedRows(db, spec, page)).referencedRows,
+		).toBe(1);
+		expect(
+			await deleteD1RetentionRows(
+				db,
+				spec,
+				page.map((item) => item.__rowid),
+				"2025-01-01",
+			),
+		).toBe(0);
+		expect(
+			await getProviderCostEvidenceSource(db, "org", "call"),
+		).not.toBeNull();
 	});
 	it("retains one exact original source snapshot after source retirement", async () => {
 		const { db, sqlite } = fixture();
