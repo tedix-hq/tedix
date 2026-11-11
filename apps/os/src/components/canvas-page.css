@@ -651,8 +651,8 @@
 
 .canvas-workpiece-tabs {
 	display: flex;
-	/* Room for one whole tab; the view tabs scroll before the open tab clips. */
-	min-width: 176px;
+	/* The open tabs give way first, so the view tabs, Share and Close stay put. */
+	min-width: 96px;
 	min-height: 48px;
 	flex: 1 1 auto;
 	align-items: center;
