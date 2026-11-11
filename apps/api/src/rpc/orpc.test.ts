@@ -381,6 +381,7 @@ describe("forwarded MCP authentication failures", () => {
 				"X-Forwarded-Authorization": `Bearer ${token}`,
 				"X-Tedix-Org-Id": "org_tedix",
 			}),
+			serviceBindingPrincipal: "mcp-edge",
 			db: {
 				select: () => {
 					throw failure;
@@ -633,6 +634,7 @@ describe("forwarded MCP agentic-app user identity", () => {
 				"X-Tedix-Caller-Type": "mcp-edge-user",
 				"X-Forwarded-Authorization": `Bearer ${token}`,
 			}),
+			serviceBindingPrincipal: "mcp-edge",
 			db: {},
 		} as unknown as BaseContext;
 		if (edgeScopes !== undefined)
@@ -2099,6 +2101,36 @@ describe("skipOutputValidation", () => {
 		// The plural schema array is preserved (type inference + OpenAPI still work).
 		expect(Array.isArray(wrapped["~orpc"].outputSchemas)).toBe(true);
 		expect(wrapped["~orpc"].outputSchemas?.length).toBeGreaterThan(0);
+	});
+});
+
+describe("forwarded user identity is the gateway's alone", () => {
+	const handler = vi.fn(async () => "ok");
+	const guarded = os.$context<BaseContext>().use(withAuth).handler(handler);
+	const forged = `e30.${btoa(
+		JSON.stringify({ sub: "U-victim", exp: 4_000_000_000 }),
+	)}.made-up`;
+
+	it("refuses the forwarded-user headers from any other internal caller", async () => {
+		const context = {
+			url: new URL("https://api/rpc/user/getMine"),
+			env: { ENVIRONMENT: "production", DESCOPE_PROJECT_ID: "P2fictional" },
+			headers: new Headers({
+				"X-Service-Binding": "true",
+				"X-Tedix-Caller-Type": "mcp-edge-user",
+				"X-Forwarded-Authorization": `Bearer ${forged}`,
+				"X-Tedix-Org-Id": "org_tedix",
+			}),
+			db: {},
+		} as unknown as BaseContext;
+
+		await expect(call(guarded, undefined, { context })).rejects.toMatchObject({
+			code: "FORBIDDEN",
+			message:
+				"A forwarded user identity is accepted only from the MCP gateway",
+		});
+		expect(handler).not.toHaveBeenCalled();
+		expect(context.user).toBeUndefined();
 	});
 });
 
