@@ -27,6 +27,7 @@ import {
 	TooltipTrigger,
 } from "@/components/kumo/tooltip";
 import { outputWorkshopKindLabel } from "@/components/output-workshop";
+import { WorkspaceItemMenu } from "@/components/workspace-item-menu";
 import type { CanvasDocSelection } from "@/lib/canvas-search";
 import { relativeTime } from "@/lib/time";
 
@@ -228,6 +229,10 @@ type WorkspaceOutputsListProps = {
 	/** The icon-only rail: labels hide and each row names itself in a tooltip. */
 	railed?: boolean;
 	now?: Date;
+	/** With a workspace, each row offers Open, Rename and Archive. */
+	workspaceId?: string;
+	/** A row was archived; close whatever is showing it. */
+	onArchived?: (item: WorkspaceOutputsPanelItem) => void;
 };
 
 /** A footer row: an icon and a label, named in a tooltip when railed. */
@@ -281,6 +286,8 @@ export function WorkspaceOutputsList({
 	canvasView = null,
 	railed = false,
 	now,
+	workspaceId,
+	onArchived,
 }: WorkspaceOutputsListProps) {
 	return (
 		<div className="workspace-outputs-body">
@@ -307,34 +314,57 @@ export function WorkspaceOutputsList({
 					{items.map((item) => {
 						const selected = isWorkspaceOutputsItemSelected(item, selectedDoc);
 						const updated = relativeTime(item.updatedAt, now);
+						const row = (
+							<RailTooltip
+								label={`${item.title} · ${item.kindLabel}`}
+								railed={railed}
+							>
+								<Button
+									aria-current={selected || undefined}
+									aria-label={railed ? item.title : undefined}
+									className="workspace-outputs-row"
+									data-selected={selected || undefined}
+									multiline
+									onClick={() => onSelect(item.doc)}
+									size="sm"
+									variant="ghost"
+								>
+									<OutputKindIcon kind={item.kind} selected={selected} />
+									<span className="workspace-outputs-label">
+										<span className="workspace-outputs-title">
+											{item.title}
+										</span>
+										<span className="workspace-outputs-meta">
+											{item.kindLabel}
+											{updated ? ` · ${updated}` : ""}
+										</span>
+									</span>
+								</Button>
+							</RailTooltip>
+						);
+						const gadgetId =
+							item.doc.type === "gadget" && !item.outputId
+								? item.doc.id
+								: undefined;
 						return (
 							<li key={item.key}>
-								<RailTooltip
-									label={`${item.title} · ${item.kindLabel}`}
-									railed={railed}
-								>
-									<Button
-										aria-current={selected || undefined}
-										aria-label={railed ? item.title : undefined}
-										className="workspace-outputs-row"
-										data-selected={selected || undefined}
-										multiline
-										onClick={() => onSelect(item.doc)}
-										size="sm"
-										variant="ghost"
+								{workspaceId && !railed && (item.outputId || gadgetId) ? (
+									<WorkspaceItemMenu
+										workspaceId={workspaceId}
+										item={{
+											title: item.title,
+											kindLabel: item.kindLabel,
+											outputId: item.outputId,
+											gadgetId,
+										}}
+										onOpen={() => onSelect(item.doc)}
+										onArchived={() => onArchived?.(item)}
 									>
-										<OutputKindIcon kind={item.kind} selected={selected} />
-										<span className="workspace-outputs-label">
-											<span className="workspace-outputs-title">
-												{item.title}
-											</span>
-											<span className="workspace-outputs-meta">
-												{item.kindLabel}
-												{updated ? ` · ${updated}` : ""}
-											</span>
-										</span>
-									</Button>
-								</RailTooltip>
+										{row}
+									</WorkspaceItemMenu>
+								) : (
+									row
+								)}
 							</li>
 						);
 					})}
@@ -426,7 +456,11 @@ export function WorkspaceOutputsPanel({
 					</div>
 				)}
 			</header>
-			<WorkspaceOutputsList {...list} railed={!expanded} />
+			<WorkspaceOutputsList
+				{...list}
+				railed={!expanded}
+				workspaceId={workspaceId}
+			/>
 		</aside>
 	);
 }
