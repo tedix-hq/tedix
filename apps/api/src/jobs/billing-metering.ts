@@ -20,7 +20,7 @@ import {
 import { settleBillingUsage } from "@tedix/db/queries/billing/settlement";
 import {
 	commitUnsettledBillableGatewayScan,
-	scanLegacyUnreservedGatewayCalls,
+	scanUnreservedGatewayCalls,
 	listUnrecordedProviderUsageCalls,
 	scanUnsettledBillableGatewayCalls,
 } from "@tedix/db/queries/platform-job-storage";
@@ -31,7 +31,7 @@ import { getStripe } from "../lib/stripe";
 
 const SETTLEMENT_BATCH_SIZE = 500;
 const PROVIDER_USAGE_BATCH_SIZE = 100;
-const LEGACY_QUARANTINE_BATCH_SIZE = 5_000;
+const UNRESERVED_QUARANTINE_BATCH_SIZE = 5_000;
 const STRIPE_OUTBOX_BATCH_SIZE = 100;
 const STRIPE_LEASE_MS = 5 * 60 * 1_000;
 
@@ -342,35 +342,35 @@ export async function settleUnbilledGatewayCosts(
 	};
 }
 
-export interface LegacyBillingQuarantineResult {
+export interface UnreservedBillingQuarantineResult {
 	selected: number;
 	quarantined: number;
 	remainingAtLeast: number;
 }
 
 /**
- * Classify historical pre-reservation Gateway rows outside the 15-minute
+ * Classify unreserved Gateway rows outside the 15-minute
  * ingestion/settlement hot path. The bounded daily batch lets the permanent
- * quarantine converge without repeatedly scanning legacy history on every
+ * quarantine converge without repeatedly scanning unreserved history on every
  * Gateway poll.
  */
-export async function quarantineLegacyGatewayCosts(
+export async function quarantineUnreservedGatewayCosts(
 	db: DbClient,
-	limit = LEGACY_QUARANTINE_BATCH_SIZE,
-): Promise<LegacyBillingQuarantineResult> {
+	limit = UNRESERVED_QUARANTINE_BATCH_SIZE,
+): Promise<UnreservedBillingQuarantineResult> {
 	const batchSize = Math.max(
 		1,
-		Math.min(LEGACY_QUARANTINE_BATCH_SIZE, Math.floor(limit)),
+		Math.min(UNRESERVED_QUARANTINE_BATCH_SIZE, Math.floor(limit)),
 	);
 	const now = new Date().toISOString();
-	const scan = await scanLegacyUnreservedGatewayCalls(db, {
+	const scan = await scanUnreservedGatewayCalls(db, {
 		limit: batchSize,
 		now,
 	});
-	const legacyRows = scan.calls.map(({ call }) => call);
+	const unreservedRows = scan.calls.map(({ call }) => call);
 	const quarantined = await recordBillingUsageQuarantines(
 		db,
-		legacyRows.map((call) => ({
+		unreservedRows.map((call) => ({
 			gatewayLogId: call.gatewayLogId,
 			organizationId: call.orgId,
 			reason: "missing_reservation" as const,
@@ -392,9 +392,10 @@ export async function quarantineLegacyGatewayCosts(
 	// A failed write throws before this CAS: the next run retries the same range.
 	await commitUnsettledBillableGatewayScan(db, scan, { failedRowids: [], now });
 	return {
-		selected: legacyRows.length,
+		selected: unreservedRows.length,
 		quarantined,
-		remainingAtLeast: legacyRows.length === batchSize || scan.moreAbove ? 1 : 0,
+		remainingAtLeast:
+			unreservedRows.length === batchSize || scan.moreAbove ? 1 : 0,
 	};
 }
 

@@ -18,7 +18,7 @@ import {
 	type OutputQueryResult,
 } from "@tedix/db/queries/durable-sqlite/output-rpc";
 import { hasWorkspaceOutputAuthority } from "@tedix/db/queries/durable-sqlite/os-outputs";
-import * as legacy from "@tedix/db/queries/os-workspaces/outputs";
+import * as d1Outputs from "@tedix/db/queries/os-workspaces/outputs";
 import {
 	osOutputs,
 	osOutputRevisions,
@@ -155,11 +155,11 @@ async function fixture(moved = true) {
 describe("workspace output storage authority", () => {
 	it("uses shared storage for every read and revision write despite index rows", async () => {
 		const { core, tenant, output, revision } = await fixture(false);
-		await legacy.createOsOutput(core, scope, output, revision);
+		await d1Outputs.createOsOutput(core, scope, output, revision);
 		await publishOutputProjection(
 			core,
 			output,
-			(await legacy.getOsOutputRevision(core, {
+			(await d1Outputs.getOsOutputRevision(core, {
 				organizationId: scope.organizationId,
 				revisionId: revision.id,
 			}))!,
@@ -233,7 +233,12 @@ describe("workspace output storage authority", () => {
 
 	it("removes shared projections on publication and keeps them in the Outputs library", async () => {
 		const { core, output, revision } = await fixture(false);
-		const created = await legacy.createOsOutput(core, scope, output, revision);
+		const created = await d1Outputs.createOsOutput(
+			core,
+			scope,
+			output,
+			revision,
+		);
 		await publishOutputProjection(core, created.output, created.revision);
 		expect(await core.select().from(workspaceOutputIndex)).toHaveLength(1);
 		await publishWorkspaceChange(
@@ -295,7 +300,7 @@ describe("workspace output storage authority", () => {
 			await storage.createOsOutput(core, scope, output, revision);
 			const target = "other-store";
 			if (moved) {
-				await legacy.createOsOutput(
+				await d1Outputs.createOsOutput(
 					core,
 					{ ...scope, workspaceId: target },
 					{
@@ -338,7 +343,7 @@ describe("workspace output storage authority", () => {
 	it("uses the indexed object for moves and never reads a stale shared row as fallback", async () => {
 		const { core, tenant, output, revision } = await fixture();
 		await storage.createOsOutput(core, scope, output, revision);
-		await legacy.createOsOutput(
+		await d1Outputs.createOsOutput(
 			core,
 			scope,
 			{ ...output, title: "Old shared row" },
@@ -380,7 +385,7 @@ describe("workspace output storage authority", () => {
 		const { core, tenant, output, revision } = await fixture();
 		await storage.createOsOutput(core, scope, output, revision);
 		expect(
-			await legacy.getOsOutput(core, {
+			await d1Outputs.getOsOutput(core, {
 				organizationId: scope.organizationId,
 				outputId: output.id,
 			}),
@@ -468,7 +473,7 @@ describe("workspace output storage authority", () => {
 			)?.accessEnvelope,
 		).toBeNull();
 		expect(
-			await legacy.getOsOutput(core, {
+			await d1Outputs.getOsOutput(core, {
 				organizationId: scope.organizationId,
 				outputId: output.id,
 			}),
@@ -477,7 +482,7 @@ describe("workspace output storage authority", () => {
 
 	it("keeps shared workspace outputs authoritative even when an older object copy exists", async () => {
 		const { core, tenant, output, revision } = await fixture(false);
-		await legacy.createOsOutput(
+		await d1Outputs.createOsOutput(
 			core,
 			scope,
 			{ ...output, title: "Legacy title" },
@@ -505,7 +510,7 @@ describe("workspace output storage authority", () => {
 
 	it("finds a newer same-title object sheet", async () => {
 		const { core, tenant, output, revision } = await fixture();
-		await legacy.createOsOutput(
+		await d1Outputs.createOsOutput(
 			core,
 			scope,
 			{ ...output, kind: "sheet" },
@@ -615,7 +620,7 @@ describe("workspace output storage authority", () => {
 
 	it("deletes only the owning object despite a stale shared copy", async () => {
 		const { core, tenant, output, revision } = await fixture();
-		await legacy.createOsOutput(core, scope, output, revision);
+		await d1Outputs.createOsOutput(core, scope, output, revision);
 		await executeOutputQuery(tenant, scope, { op: "create", output, revision });
 		const storedRevision = await executeOutputQuery(tenant, scope, {
 			op: "revision",

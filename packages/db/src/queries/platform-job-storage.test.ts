@@ -22,7 +22,7 @@ import {
 	getGatewayLogIngestionCursor,
 	listUnrecordedProviderUsageCalls,
 	listUnsettledBillableGatewayCalls,
-	scanLegacyUnreservedGatewayCalls,
+	scanUnreservedGatewayCalls,
 	scanUnsettledBillableGatewayCalls,
 } from "./platform-job-storage";
 
@@ -54,7 +54,7 @@ it("watermarks legacy quarantine independently, includes late rows and rejects s
 				.run(id, id, reservation);
 		const at = "2026-10-22T00:00:00.000Z";
 		const read = (now = at) =>
-			scanLegacyUnreservedGatewayCalls(db, { limit: 2, now, scanWindow: 3 });
+			scanUnreservedGatewayCalls(db, { limit: 2, now, scanWindow: 3 });
 		insert("legacy-1");
 		insert("reserved", "reservation-example");
 		const first = await read();

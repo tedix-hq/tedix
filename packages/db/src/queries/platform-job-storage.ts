@@ -38,7 +38,7 @@ async function selectUnsettledBillableGatewayCalls(
 	db: DbClient,
 	limit: number,
 	range: { afterRowid: number; throughRowid: number } | null,
-	legacy = false,
+	unreserved = false,
 ): Promise<UnsettledGatewayCall[]> {
 	return db
 		.select({ rowid: callRowid.as("call_rowid"), call: tediCallCosts })
@@ -60,7 +60,7 @@ async function selectUnsettledBillableGatewayCalls(
 						]
 					: []),
 				isNotNull(tediCallCosts.orgId),
-				legacy
+				unreserved
 					? isNull(tediCallCosts.billingReservationId)
 					: isNotNull(tediCallCosts.billingReservationId),
 				isNull(tediCallCosts.usageKind),
@@ -87,7 +87,7 @@ export async function listUnsettledBillableGatewayCalls(
 }
 
 const UNSETTLED_GATEWAY_CURSOR = "unsettled_gateway_calls";
-const LEGACY_GATEWAY_CURSOR = "legacy_unreserved_gateway_calls";
+const UNRESERVED_GATEWAY_CURSOR = "legacy_unreserved_gateway_calls";
 /** Most rowids one incremental tick may walk past the watermark. */
 export const UNSETTLED_GATEWAY_SCAN_WINDOW = 20_000;
 /** How often the tick falls back to the full-ledger read as a backstop. */
@@ -130,8 +130,8 @@ export async function scanUnsettledBillableGatewayCalls(
 	return scanGatewayCalls(db, options, false);
 }
 
-/** Legacy token rows use their own watermark; provider receipts stay excluded. */
-export async function scanLegacyUnreservedGatewayCalls(
+/** Unreserved token rows use their own watermark; provider receipts stay excluded. */
+export async function scanUnreservedGatewayCalls(
 	db: DbClient,
 	options: Parameters<typeof scanUnsettledBillableGatewayCalls>[1],
 ): Promise<UnsettledGatewayCallScan> {
@@ -146,7 +146,7 @@ export async function scanLegacyUnreservedGatewayCalls(
 async function scanGatewayCalls(
 	db: DbClient,
 	options: Parameters<typeof scanUnsettledBillableGatewayCalls>[1],
-	legacy: boolean,
+	unreserved: boolean,
 ): Promise<UnsettledGatewayCallScan> {
 	const scanWindow = options.scanWindow ?? UNSETTLED_GATEWAY_SCAN_WINDOW;
 	const fullSweepMs = options.fullSweepMs ?? UNSETTLED_GATEWAY_FULL_SWEEP_MS;
@@ -159,7 +159,7 @@ async function scanGatewayCalls(
 		.where(
 			eq(
 				billingSettlementCursors.name,
-				legacy ? LEGACY_GATEWAY_CURSOR : UNSETTLED_GATEWAY_CURSOR,
+				unreserved ? UNRESERVED_GATEWAY_CURSOR : UNSETTLED_GATEWAY_CURSOR,
 			),
 		)
 		.limit(1);
@@ -176,7 +176,7 @@ async function scanGatewayCalls(
 		!(Date.parse(options.now) - Date.parse(expected.fullSweepAt) < fullSweepMs)
 	) {
 		return {
-			...(legacy ? { queue: "legacy" as const } : {}),
+			...(unreserved ? { queue: "legacy" as const } : {}),
 			mode: "full",
 			expected,
 			limit: options.limit,
@@ -186,13 +186,13 @@ async function scanGatewayCalls(
 				db,
 				options.limit,
 				null,
-				legacy,
+				unreserved,
 			),
 		};
 	}
 	const throughRowid = Math.min(headRowid, expected.afterRowid + scanWindow);
 	return {
-		...(legacy ? { queue: "legacy" as const } : {}),
+		...(unreserved ? { queue: "legacy" as const } : {}),
 		mode: "incremental",
 		expected,
 		limit: options.limit,
@@ -205,7 +205,7 @@ async function scanGatewayCalls(
 				afterRowid: expected.afterRowid,
 				throughRowid,
 			},
-			legacy,
+			unreserved,
 		),
 	};
 }
@@ -223,7 +223,9 @@ export async function commitUnsettledBillableGatewayScan(
 	input: { failedRowids: number[]; now: string; scanWindow?: number },
 ): Promise<boolean> {
 	const cursorName =
-		scan.queue === "legacy" ? LEGACY_GATEWAY_CURSOR : UNSETTLED_GATEWAY_CURSOR;
+		scan.queue === "legacy"
+			? UNRESERVED_GATEWAY_CURSOR
+			: UNSETTLED_GATEWAY_CURSOR;
 	const complete = scan.calls.length < scan.limit;
 	if (scan.mode === "full" && !complete) return false;
 	const examined = complete

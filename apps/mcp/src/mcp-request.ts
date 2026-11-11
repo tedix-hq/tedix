@@ -6,7 +6,7 @@
 import { createMcpServer } from "@tedix/mcp-shared/server";
 import {
 	clientSupportsMcpApps,
-	LEGACY_APPS_SESSION_PREFIX,
+	APPS_SESSION_PREFIX,
 } from "./mcp/client-apps-capability";
 import {
 	AGGREGATE_SURFACE_CACHE_TTL_MS,
@@ -977,7 +977,7 @@ export async function handleMcpRequest(
 	) {
 		headers.set(
 			"Mcp-Session-Id",
-			`${LEGACY_APPS_SESSION_PREFIX}${crypto.randomUUID()}`,
+			`${APPS_SESSION_PREFIX}${crypto.randomUUID()}`,
 		);
 		headers.append("Access-Control-Expose-Headers", "Mcp-Session-Id");
 	}
