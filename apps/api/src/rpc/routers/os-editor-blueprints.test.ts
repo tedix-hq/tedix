@@ -154,7 +154,7 @@ describe("workspace editor blueprints", () => {
 		expect(current.currentRevision?.revision).toBe(2);
 		expect(current.currentRevision?.manifest.config?.settings).toMatchObject({
 			editor: "document-v4",
-			blueprintVersion: 11,
+			blueprintVersion: 12,
 		});
 		expect((await db.select().from(osGadgetRevisions)).length).toBe(2);
 		await expect(

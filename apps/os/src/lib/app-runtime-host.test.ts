@@ -121,19 +121,46 @@ describe("app runtime host", () => {
 		});
 		expect(onWrite).toHaveBeenCalledOnce();
 		replaceOutput.mockClear();
-		for (const bad of [
-			{ ...args, expectedRevision: 0 },
-			{
+		expect(
+			await handleAppRuntimeCall(host, "outputs.replace", {
 				...args,
-				content: {
-					kind: "document",
-					blocks: [{ type: "paragraph", text: "é".repeat(510_000) }],
-				},
-			},
-		])
-			expect(
-				await handleAppRuntimeCall(host, "outputs.replace", bad),
-			).toMatchObject({ ok: false, error: "bad_arguments" });
+				expectedRevision: 0,
+			}),
+		).toMatchObject({ ok: false, error: "bad_arguments" });
+		// The limit counts UTF-8 bytes: each "é" is two.
+		const sized = (letters: number) => ({
+			...args,
+			content: { kind: "sheet", columns: ["é".repeat(letters)], rows: [] },
+		});
+		expect(
+			await handleAppRuntimeCall(host, "outputs.replace", sized(4_000_000)),
+		).toEqual({ ok: false, error: "too_large" });
+		const drafts = new Map<string, AppRuntimeDraft>();
+		expect(
+			await handleAppRuntimeCall({ ...host, drafts }, "app.draft.write", {
+				slot: args.slot,
+				outputId,
+				revision: 3,
+				content: sized(4_000_000).content,
+			}),
+		).toEqual({ ok: false, error: "too_large" });
+		expect(drafts.size).toBe(0);
+		expect(replaceOutput).not.toHaveBeenCalled();
+		// A file the old 1 MB limit refused is passed on.
+		expect(
+			await handleAppRuntimeCall(host, "outputs.replace", sized(600_000)),
+		).not.toMatchObject({ error: "too_large" });
+		replaceOutput.mockRejectedValueOnce(
+			Object.assign(new Error("This file is over the 8 MB limit."), {
+				code: "BAD_REQUEST",
+			}),
+		);
+		expect(await handleAppRuntimeCall(host, "outputs.replace", args)).toEqual({
+			ok: false,
+			error: "bad_arguments",
+			detail: "This file is over the 8 MB limit.",
+		});
+		replaceOutput.mockClear();
 		for (const denied of [
 			{ ...host, context: context("use") },
 			{ ...host, resources: [{ ...resource, workspaceId: "other" }] },

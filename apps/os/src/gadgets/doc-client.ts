@@ -16,6 +16,7 @@ import {
 	type OutputMergePreference,
 } from "@tedix/api-contract/utils/output-merge";
 import { editorIcon, type EditorIcon } from "./editor-icons";
+import { lastingSaveFailure } from "../lib/save-failure";
 
 type DocumentContent = Extract<OsOutputContent, { kind: "document" }>;
 type Context = {
@@ -471,13 +472,6 @@ export async function mountDocClient(
 			return;
 		const sent = editor.state.doc,
 			content = snapshot();
-		if (new TextEncoder().encode(JSON.stringify(content)).length > 1_000_000) {
-			failed = true;
-			return say(
-				"This document is over the 1 MB limit, so new changes are not saved. Remove large images or split it up.",
-				true,
-			);
-		}
 		let slow = false;
 		const timer = setTimeout(() => {
 			slow = true;
@@ -520,10 +514,13 @@ export async function mountDocClient(
 				return;
 			}
 			failed = true;
+			// A refusal that would repeat has no "Try again"; the next change does.
+			const lasting = lastingSaveFailure(error);
 			say(
-				`${reason(error, "Saving failed")}. Your changes are kept here.`,
+				lasting ||
+					`${reason(error, "Saving failed")}. Your changes are kept here.`,
 				true,
-				[["Try again", () => void save()]],
+				lasting ? [] : [["Try again", () => void save()]],
 			);
 		} finally {
 			clearTimeout(timer);

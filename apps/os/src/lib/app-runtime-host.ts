@@ -11,6 +11,7 @@ import type {
 	OsWorkspaceResource,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { appRuntimePermission } from "@tedix/api-contract/utils/app-runtime";
+import { OS_OUTPUT_CONTENT_MAX_BYTES } from "@tedix/api-contract/utils/os-output-limits";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type { PresentationAppearance } from "@tedix/api-contract/utils/presentation-style";
 import {
@@ -72,6 +73,7 @@ export type AppRuntimeHostError =
 	| "bad_arguments"
 	| "slot_unbound"
 	| "revision_conflict"
+	| "too_large"
 	| "host_unavailable";
 
 export type AppRuntimeHostResult =
@@ -127,6 +129,11 @@ export interface AppRuntimeHostDeps {
 		url: string;
 	}) => Promise<string>;
 }
+
+/** Whether content is more than one save may carry. */
+const tooLarge = (content: unknown) =>
+	new TextEncoder().encode(JSON.stringify(content) ?? "").length >
+	OS_OUTPUT_CONTENT_MAX_BYTES;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -211,12 +218,9 @@ export async function handleAppRuntimeCall(
 					throw error;
 				}
 			}
-			if (
-				!Number.isInteger(args.revision) ||
-				Number(args.revision) < 1 ||
-				(JSON.stringify(args.content) ?? "").length > 1_000_000
-			)
+			if (!Number.isInteger(args.revision) || Number(args.revision) < 1)
 				return { ok: false, error: "bad_arguments" };
+			if (tooLarge(args.content)) return { ok: false, error: "too_large" };
 			const content = OsOutputContentSchema.safeParse(args.content);
 			if (!content.success) return { ok: false, error: "bad_arguments" };
 			deps.drafts.set(key, {
@@ -244,11 +248,10 @@ export async function handleAppRuntimeCall(
 				!isRecord(args) ||
 				typeof args.slot !== "string" ||
 				!Number.isInteger(args.expectedRevision) ||
-				Number(args.expectedRevision) < 1 ||
-				new TextEncoder().encode(JSON.stringify(args.content) ?? "").length >
-					1_000_000
+				Number(args.expectedRevision) < 1
 			)
 				return { ok: false, error: "bad_arguments" };
+			if (tooLarge(args.content)) return { ok: false, error: "too_large" };
 			const content = OsOutputContentSchema.safeParse(args.content);
 			if (!content.success) return { ok: false, error: "bad_arguments" };
 			const permission = appRuntimePermission({
@@ -287,6 +290,13 @@ export async function handleAppRuntimeCall(
 						error: "revision_conflict",
 						detail: `A newer revision (${error.data.currentRevision}) has been saved. Your changes have not replaced it`,
 					};
+				// The server refused the content itself: sending it again cannot work.
+				if (
+					isRecord(error) &&
+					error.code === "BAD_REQUEST" &&
+					typeof error.message === "string"
+				)
+					return { ok: false, error: "bad_arguments", detail: error.message };
 				throw error;
 			}
 			deps.onWrite?.();

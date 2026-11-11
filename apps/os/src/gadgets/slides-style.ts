@@ -24,6 +24,11 @@ body{padding:0!important;min-height:560px;overflow:hidden}
 .slides-bar-right{display:flex;align-items:center;justify-content:flex-end;gap:4px;min-width:0}
 .slides-status{min-width:0;margin-right:4px;font-size:12px;line-height:1.35;color:var(--muted-fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:opacity .16s var(--ease)}
 .slides-status:empty{opacity:0}
+.slides-save{flex:none;width:6px;height:6px;margin-right:8px;border-radius:50%;background:var(--success);opacity:.7}
+.slides-save[data-state=pending]{background:var(--muted-fg)}
+.slides-save[data-state=saving]{background:var(--primary);opacity:1;animation:slides-saving 1.1s ease-in-out infinite}
+.slides-save[data-state=failed]{background:var(--danger);opacity:1}
+@keyframes slides-saving{50%{opacity:.3;transform:scale(.75)}}
 .slides-status[data-error=true]{color:var(--danger);white-space:normal}
 .slides-updates{flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 12px;font-size:13px;line-height:1.45;background:color-mix(in srgb,var(--primary) 10%,var(--bg));border-bottom:1px solid var(--line);animation:slides-drop .2s var(--ease)}
 .slides-updates:empty{display:none}

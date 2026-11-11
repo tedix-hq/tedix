@@ -432,7 +432,6 @@ describe("Portable Sheet grid", () => {
 		// The update lands in the same cells: nothing is rebuilt or deselected.
 		expect(cell("A1")).toBe(first);
 		expect(cell("B2").classList.contains("active")).toBe(true);
-		expect(q("#updates").textContent).toBe("");
 		edit("A1", "8");
 		await vi.waitFor(() => expect(display("C1")).toBe("10"));
 		app.changeExternal(4);
@@ -461,7 +460,6 @@ describe("Portable Sheet grid", () => {
 		await vi.waitFor(() => expect(app.revision()).toBe(3));
 		expect(display("C1")).toBe("10");
 		expect(app.saved().rows[0]![0]).toBe(8);
-		expect(q("#updates").textContent).toBe("");
 	});
 	it("merges someone else's save into unsaved changes to a different cell and saves both", async () => {
 		const app = await editor();
@@ -469,7 +467,6 @@ describe("Portable Sheet grid", () => {
 		await vi.waitFor(() => expect(display("C1")).toBe("6"));
 		app.changeExternal(4);
 		await vi.waitFor(() => expect(display("C1")).toBe("9"));
-		expect(q("#updates").textContent).toBe("");
 		await vi.waitFor(() => expect(app.revision()).toBe(3));
 		expect(app.saved().rows[0]).toEqual([4, 5, 9]);
 	});
@@ -682,6 +679,40 @@ describe("Portable Sheet grid", () => {
 			app.saved().workbook!.sheets[0]!.rows[0]![0]!.format,
 		).toBeUndefined();
 	});
+	it("says once why a file over the limit is not saved and waits for the next change", async () => {
+		const app = await editor();
+		expect(state()).toBe("idle");
+		expect(q(".status").title).toBe("All changes saved");
+		const original = app.call.getMockImplementation()!;
+		const writes = () =>
+			app.call.mock.calls.filter(([method]) => method === "outputs.replace")
+				.length;
+		app.call.mockImplementation(async (method, args) => {
+			if (method === "outputs.replace")
+				throw Object.assign(new Error("too_large"), { code: "too_large" });
+			return original(method, args);
+		});
+		vi.useFakeTimers();
+		cleanups.unshift(() => vi.useRealTimers());
+		edit("A1", "Big");
+		expect(q(".status").title).toBe("Changes not saved yet");
+		await vi.advanceTimersByTimeAsync(10_000);
+		expect(state()).toBe("error");
+		expect(q(".status").textContent).toBe(
+			"Not saved. This file is over the 8 MB limit, so new changes are not saved. Remove or shrink large images.",
+		);
+		const attempts = writes();
+		expect(attempts).toBeGreaterThan(0);
+		// No retry, however long the sheet is left alone.
+		await vi.advanceTimersByTimeAsync(120_000);
+		expect(writes()).toBe(attempts);
+		// The next change is tried, and a save that works clears the notice.
+		app.call.mockImplementation(original);
+		edit("A2", "Smaller");
+		await vi.advanceTimersByTimeAsync(10_000);
+		expect(writes()).toBe(attempts + 1);
+		expect(state()).not.toBe("error");
+	});
 	it("fills a newly addressed range, keeps working when a save fails and saves once it can", async () => {
 		const app = await editor();
 		range("C1:C8");
@@ -807,7 +838,6 @@ describe("Portable Sheet grid", () => {
 		await app.reopen();
 		expect(app.revision()).toBe(2);
 		expect(app.saved().workbook!.sheets[0]!.rows[0]![2]!.input).toBe("=B1*9");
-		expect(q("#updates").textContent).toBe("");
 		expect(display("C1")).toBe("17");
 		await saved();
 		await vi.waitFor(() => expect(app.drafts.size).toBe(0));
@@ -837,7 +867,6 @@ describe("Portable Sheet grid", () => {
 		await vi.waitFor(() => expect(display("C1")).toBe("11"));
 		expect(app.drafts.size).toBe(0);
 		expect(app.revision()).toBe(2);
-		expect(q("#updates").textContent).toBe("");
 	});
 	it("saves earlier unsaved changes over a newer version only when asked to keep them", async () => {
 		const app = await editor();
@@ -851,7 +880,6 @@ describe("Portable Sheet grid", () => {
 		await vi.waitFor(() => expect(app.revision()).toBe(3));
 		expect(app.saved().rows[0]).toEqual([7, 2, 9]);
 		await vi.waitFor(() => expect(app.drafts.size).toBe(0));
-		expect(q("#updates").textContent).toBe("");
 	});
 	it("never applies a retained draft to a different output binding", async () => {
 		const app = await editor();

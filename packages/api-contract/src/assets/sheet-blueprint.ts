@@ -60,8 +60,10 @@ Changes save on their own shortly after you stop editing; Ctrl/⌘ S saves at
 once. The generic host calculates formulas with the existing spreadsheet
 engine before each save, which writes the entire canonical workbook,
 including other tabs, formats and formula source, at the revision you
-loaded. The browser write limit is 1 MB of UTF-8 content. A failed save
-keeps your changes and is tried again. When someone else saves first, their
+loaded. The browser write limit is 8 MB of UTF-8 content. A failed save
+keeps your changes and is tried again, unless trying again cannot help (a
+file over the limit, or lost edit access): then Sheet says why and waits for
+your next change. When someone else saves first, their
 changes and yours are merged; you are asked which version to keep only for a
 cell you both changed. Editors with nothing unsaved show external writes in
 place.
