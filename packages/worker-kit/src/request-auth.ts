@@ -105,6 +105,7 @@ export const INTERNAL_TRUST_HEADERS: readonly string[] = [
 	"X-Tedix-Public-Host",
 	// Runtime / edge authority.
 	"X-Tedix-Can-Manage-Durable-Code",
+	"X-Tedix-Can-Approve-Tools",
 	"X-Tedix-Admin-Token",
 	"X-Tedix-CMS-Internal-Auth",
 ];
@@ -119,7 +120,30 @@ const INTERNAL_TRUST_HEADER_PREFIXES: readonly string[] = [
 	"x-tedix-auth-",
 	// External-agent session identity (…-principal-id/-session-id/-client-record-id).
 	"x-tedix-external-agent-",
+	// Chat caller identity the tedi runtime stamps for its own Durable Object.
+	"x-tedi-auth-",
 ];
+
+/**
+ * Caller identity the tedi-runtime Worker stamps for its Durable Object after
+ * it authenticates a chat caller. The Worker is the only writer, so every
+ * inbound copy is forged, whichever hop carried it.
+ */
+const RUNTIME_STAMPED_HEADERS: readonly string[] = [
+	"X-Tedi-Auth-Subject",
+	"X-Tedi-Auth-TediId",
+	"X-Tedi-Auth-OrgId",
+	"X-Tedix-Can-Approve-Tools",
+];
+
+/** Drop inbound copies of the identity only the tedi runtime may stamp. */
+export function stripRuntimeStampedHeaders(request: Request): Request {
+	if (!RUNTIME_STAMPED_HEADERS.some((name) => request.headers.has(name)))
+		return request;
+	const headers = new Headers(request.headers);
+	for (const name of RUNTIME_STAMPED_HEADERS) headers.delete(name);
+	return new Request(request, { headers });
+}
 
 /**
  * Remove every client-suppliable internal-trust marker before forwarding a

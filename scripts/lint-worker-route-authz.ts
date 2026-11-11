@@ -310,6 +310,8 @@ export const WORKER_APPS: WorkerAppConfig[] = [
 				"Hook and admin routes accept exclusively service-binding calls from apps/tedi or apps/api.",
 			"\\bcreateEmbeddedCapabilityAdapter\\s*\\(":
 				"The embedded Cap'n Web mount authenticates every capability token against the origin and tedi before any conversation access.",
+			"\\bauthenticateAcpUpgrade\\s*\\(":
+				"Chat history routes verify a gateway browser token or Descope JWT for this tedi before the Durable Object sees the request.",
 		},
 	},
 	{
