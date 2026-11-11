@@ -1291,7 +1291,9 @@ export const OsPresentationElementSchema = z.object({
 		.string()
 		.max(1_500_000)
 		.optional()
-		.describe("Image source; omitted for non-image elements"),
+		.describe(
+			"Image source: an https link, a `tedix-asset:<sha256>` reference to an image stored with the file, or an embedded data:image URL, which a save stores with the file and replaces with its reference. Omitted for non-image elements",
+		),
 	props: OsPresentationElementPropsSchema.optional(),
 	style: z
 		.object({
@@ -1397,7 +1399,13 @@ export const OsPresentationCanvasSlideSchema = z.object({
 		.enum(["blank", "title", "title-content", "two-column", "four-card"])
 		.default("blank"),
 	background: z.string().max(2_000).default("#ffffff"),
-	backgroundImage: z.string().max(1_500_000).optional(),
+	backgroundImage: z
+		.string()
+		.max(1_500_000)
+		.optional()
+		.describe(
+			"Background image, in the same forms as an element's image source; omitted for none",
+		),
 	dotGridOpacity: z.number().min(0).max(1).optional(),
 	insetSurface: z
 		.object({
