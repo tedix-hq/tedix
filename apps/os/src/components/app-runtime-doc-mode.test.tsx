@@ -54,7 +54,7 @@ afterEach(() => {
 
 describe("Doc gadget client selection", () => {
 	it.each([3, 4])(
-		"runs the v%s revision's own client file with no native editor link",
+		"runs the v%s revision's own client file and shows no version or editor links above it",
 		async (version) => {
 			const client = new QueryClient({
 				defaultOptions: { queries: { retry: false, staleTime: Infinity } },
@@ -162,7 +162,9 @@ describe("Doc gadget client selection", () => {
 			expect(host.querySelector("[data-gadget-client]")?.textContent).toContain(
 				'customClient = "customized"',
 			);
-			expect(host.textContent).not.toContain("native editor");
+			// The full editor opens from the file's menu in Files, not from a
+			// link above the app.
+			expect(host.querySelector('a[title*="native editor"]')).toBeNull();
 			const content = { kind: "document", blocks: [] };
 			const invalidate = vi
 				.spyOn(client, "invalidateQueries")

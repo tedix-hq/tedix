@@ -3,7 +3,7 @@ import { DocWritingDraftProvider } from "@/components/doc-writing-drafts";
 import { KeepAliveProvider } from "@/components/keep-alive";
 import { workspaceOutputEditors } from "@/lib/workspace-output-editors";
 import "./canvas-page.css";
-import "./output-views.css";
+import "./output-editor.css";
 import { OrganizationMark } from "@/shared/organization-mark";
 import { useOsWorkspaceDirectory } from "@/components/os-organization-identity";
 import {
@@ -162,9 +162,6 @@ const OsCommandPalette = lazy(async () => ({
 }));
 const CanvasDocPanel = lazy(async () => ({
 	default: (await import("@/components/canvas-doc-panel")).CanvasDocPanel,
-}));
-const CanvasOutputView = lazy(async () => ({
-	default: (await import("@/components/canvas-output-view")).CanvasOutputView,
 }));
 const ConnectionsPanel = lazy(async () => ({
 	default: (await import("@/components/apps-page")).ConnectionsPanel,
@@ -788,22 +785,6 @@ export function CanvasPage({
 	});
 	const documentsLoaded =
 		gadgets.data !== undefined && outputs.data !== undefined;
-	/*
-	 * Doc, Sheet and Slides are edited only in their workspace gadget. Every
-	 * way of opening an output (a URL, Resources, chat, the outputs panel)
-	 * resolves through this map; an output without an editor opens read-only.
-	 */
-	const outputEditors = useMemo(
-		() =>
-			workspaceOutputEditors(
-				resources.data?.items ?? [],
-				gadgets.data?.items ?? [],
-			),
-		[gadgets.data?.items, resources.data?.items],
-	);
-	const outputEditorsReady =
-		gadgets.data !== undefined &&
-		(resources.data !== undefined || resources.isError);
 	const selectedAppId =
 		selectedDoc?.type === "gadget"
 			? selectedDoc.id
@@ -902,38 +883,6 @@ export function CanvasPage({
 			return;
 		}
 
-		if (
-			requestedDoc.type === "output" ||
-			requestedDocs.some((doc) => doc.type === "output")
-		) {
-			// An output link names the file; its gadget is where it opens.
-			if (!outputEditorsReady) return;
-			const toEditor = (
-				doc: CanvasWorkpieceSelection,
-			): CanvasWorkpieceSelection => {
-				const gadgetId =
-					doc.type === "output" ? outputEditors.get(doc.id) : undefined;
-				return gadgetId ? { type: "gadget", id: gadgetId } : doc;
-			};
-			const selected = toEditor(requestedDoc);
-			if (
-				canvasDocKey(selected) !== canvasDocKey(requestedDoc) ||
-				requestedDocs.some(
-					(doc) => canvasDocKey(toEditor(doc)) !== canvasDocKey(doc),
-				)
-			) {
-				writeCanvasSearch(
-					{
-						...canvasSearch,
-						workpiece: canvasDocKey(selected),
-						workpieces: canvasDocsSearchValue(requestedDocs.map(toEditor)),
-					},
-					true,
-				);
-				return;
-			}
-		}
-
 		const candidates =
 			requestedDoc.type === "gadget"
 				? gadgets.data?.items
@@ -1029,8 +978,6 @@ export function CanvasPage({
 	}, [
 		canvasSearch,
 		gadgets.data?.items,
-		outputEditors,
-		outputEditorsReady,
 		outputs.data?.items,
 		requestedDoc,
 		requestedDocs,
@@ -1096,11 +1043,11 @@ export function CanvasPage({
 					(output) => output.id === linkedOutputId,
 				);
 				if (!linked) return;
-				const editorId = outputEditors.get(linked.id);
-				if (editorId === primary.id) return;
-				const doc: CanvasWorkpieceSelection = editorId
-					? { type: "gadget", id: editorId }
-					: { type: "output", id: linked.id, linkedGadgetId: primary.id };
+				const doc: CanvasWorkpieceSelection = {
+					type: "output",
+					id: linked.id,
+					linkedGadgetId: primary.id,
+				};
 				setSelectedDoc(doc);
 				updateOpenedDocs(() => [doc]);
 				writeCanvasSearch(
@@ -1115,7 +1062,6 @@ export function CanvasPage({
 		appNavigationPending,
 		preferredAppId,
 		gadgets.data,
-		outputEditors,
 		outputs.data,
 		queryClient,
 		requestedDoc,
@@ -1171,13 +1117,12 @@ export function CanvasPage({
 			const linkedOutput = outputList.items.find(
 				(output) => output.id === linkedOutputId,
 			);
-			const editorId = linkedOutput && outputEditors.get(linkedOutput.id);
-			if (linkedOutput && editorId !== gadgetId) {
-				openCanvasDoc(
-					editorId
-						? { type: "gadget", id: editorId }
-						: { type: "output", id: linkedOutput.id, linkedGadgetId: gadgetId },
-				);
+			if (linkedOutput) {
+				openCanvasDoc({
+					type: "output",
+					id: linkedOutput.id,
+					linkedGadgetId: gadgetId,
+				});
 			}
 		} catch {
 			// The generic Gadget manifest editor remains the safe fallback; its
@@ -1186,11 +1131,6 @@ export function CanvasPage({
 	};
 
 	const selectOutput = (outputId: string) => {
-		const gadgetId = outputEditors.get(outputId);
-		if (gadgetId) {
-			void selectGadget(gadgetId);
-			return;
-		}
 		selectionRequestRef.current += 1;
 		openCanvasDoc({ type: "output", id: outputId });
 	};
@@ -1816,37 +1756,19 @@ export function CanvasPage({
 											<AppReviewRounds gadgetId={selectedDoc.id} />
 										)}
 									</div>
-								) : selectedDoc.type === "output" ? (
-									<CanvasOutputView
-										key={canvasDocKey(selectedDoc)}
-										workspaceId={workspaceId}
-										outputId={selectedDoc.id}
-										onOpenEditor={(gadgetId) => void selectGadget(gadgetId)}
-										focusMode={focusMode}
-										onFocusModeChange={(focused) => {
-											setFocusMode(focused);
-											writeCanvasSearch({
-												...canvasSearch,
-												focus: focused ? true : undefined,
-											});
-										}}
-										onShare={
-											selectedWorkspace
-												? () => setFocusShareOpen(true)
-												: undefined
-										}
-									/>
 								) : (
 									<CanvasDocPanel
 										key={canvasDocKey(selectedDoc)}
 										workspaceId={workspaceId}
 										doc={selectedDoc}
 										gadgetViewOverride={
-											workpieceMode === "edit"
-												? "source"
-												: workpieceMode === "history"
-													? "runs"
-													: "preview"
+											selectedDoc.type === "gadget"
+												? workpieceMode === "edit"
+													? "source"
+													: workpieceMode === "history"
+														? "runs"
+														: "preview"
+												: undefined
 										}
 										focusMode={focusMode}
 										onAppDraftSaved={() => selectWorkpieceMode("edit")}

@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { chromium, type Page } from "playwright";
 import { startFixtureServer } from "./fixture-server";
+import { MAX_FILE_TEXT_LENGTH } from "../src/collab/ot/code-change";
 
 /**
- * A wide, many-tab sheet open read-only in the workspace canvas, because the
- * fixture attaches no editor app. The sheet stays inside its pane: the grid
+ * A wide, many-tab sheet open in the workspace canvas, read-only because the
+ * fixture has no collaboration room. The sheet stays inside its pane: the grid
  * scrolls sideways in its own container, the filter bar and tab strip are as
  * wide as the grid's frame, the tab strip scrolls inside the pane with the row
  * count still visible, and the page itself never scrolls sideways.
@@ -127,6 +128,17 @@ try {
 					geometry.status.left >= geometry.footer.left - 1,
 				`${label}: the row count stays visible ${detail}`,
 			);
+			const status = page.locator(".canvas-document-status");
+			assert.equal(
+				await status.locator("[data-connection]").count(),
+				0,
+				`${label}: no second connection pill`,
+			);
+			assert.equal(
+				((await status.textContent()) ?? "").match(/Connecting/g)?.length,
+				1,
+				`${label}: one connection status`,
+			);
 			await page.screenshot({
 				path: `${evidence}/canvas-wide-sheet-${width}-${theme}.png`,
 			});
@@ -137,6 +149,37 @@ try {
 			await page.close();
 			console.log(`canvas wide sheet ${label}: ok`);
 		}
+	}
+	// A saved version longer than a room can hold opens read-only with one
+	// "Read-only" status and a notice, instead of reconnecting forever.
+	{
+		const page = await browser.newPage({
+			viewport: { width: 1280, height: 820 },
+			colorScheme: "dark",
+		});
+		let rows = 120;
+		while (
+			JSON.stringify(wideWorkbook(rows), null, 2).length <= MAX_FILE_TEXT_LENGTH
+		) {
+			rows += 24;
+		}
+		await widenSheet(page, rows);
+		await page.goto(`${server.origin}${path}`);
+		await page.locator("[data-canvas-too-large]").waitFor();
+		const status =
+			(await page.locator(".canvas-document-status").textContent()) ?? "";
+		assert.match(status, /Read-only/, "too large: the status says read-only");
+		assert.doesNotMatch(status, /Connecting/, "too large: it does not connect");
+		assert.equal(
+			await page.getByRole("button", { name: "Retry connection" }).count(),
+			0,
+			"too large: nothing to retry",
+		);
+		await page.screenshot({
+			path: `${evidence}/canvas-too-large-1280-dark.png`,
+		});
+		await page.close();
+		console.log("canvas too-large sheet: ok");
 	}
 } finally {
 	await browser.close();

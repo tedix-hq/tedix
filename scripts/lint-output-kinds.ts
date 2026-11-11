@@ -4,15 +4,11 @@
  * Output kind boundary (`bun scripts/lint-output-kinds.ts`, part of `lint:repo`).
  *
  * Tedix owns a small native data layer (document, sheet, presentation, video);
- * every other view is a workspace app bound to a slot (Decision 134d3667).
- * Doc, Sheet and Slides are edited only in their reusable workspace gadgets;
- * Tedix OS has no first-party Output editor (Decision 4ddb4693).
- *
- * So a new member of `OsOutputKindSchema`, or a new route under
- * `apps/os/src/routes` naming outputs, must be listed below with the decision
- * that allowed it. An `apps/os/src/components/output-editor*.tsx` module always
- * fails: build the editor as a gadget instead. Removing an entry needs no
- * decision.
+ * every other view is a workspace app bound to a slot (Decision 134d3667). So a
+ * new member of `OsOutputKindSchema`, or a new first-party Output editor in
+ * Tedix OS (a route under `apps/os/src/routes` naming outputs, or an
+ * `apps/os/src/components/output-editor*.tsx` module), must be listed below
+ * with the decision that allowed it. Removing one needs no entry.
  */
 
 import { readdirSync, readFileSync } from "node:fs";
@@ -36,17 +32,17 @@ export const ALLOWED_KINDS: Record<string, string> = {
 	video: "33edadcc",
 };
 
-/**
- * Routes that name outputs, with the decision that allowed each. They list,
- * read and export outputs and send an open request to the output's gadget;
- * none of them edits one.
- */
-export const ALLOWED_OUTPUT_ROUTES: Record<string, string> = {
+/** Every first-party Output editor surface, with the decision that allowed it. */
+export const ALLOWED_EDITOR_FILES: Record<string, string> = {
 	"apps/os/src/routes/_session/_tenant/outputs.tsx": "134d3667",
-	"apps/os/src/routes/_session/_tenant/outputs_.$outputId.tsx": "4ddb4693",
+	"apps/os/src/routes/_session/_tenant/outputs_.$outputId.tsx": "134d3667",
+	"apps/os/src/components/output-editor.tsx": "134d3667",
+	"apps/os/src/components/output-editor-document.tsx": "134d3667",
+	"apps/os/src/components/output-editor-sheet.tsx": "134d3667",
+	"apps/os/src/components/output-editor-slides.tsx": "134d3667",
+	"apps/os/src/components/output-editor-slide-list.tsx": "134d3667",
+	"apps/os/src/components/output-editor-toolbar.tsx": "134d3667",
 };
-
-const EDITOR_MODULE_RE = /^apps\/os\/src\/components\/output-editor[^/]*\.tsx$/;
 
 /** The members of `OsOutputKindSchema`, read from its `z.enum([...])` literal. */
 export function outputKinds(source: string): string[] {
@@ -67,7 +63,7 @@ function files(directory: string): string[] {
 	});
 }
 
-/** Repo-relative paths that are Output routes or native editor modules. */
+/** Repo-relative paths that are Output editor surfaces. */
 export function editorFiles(paths: readonly string[]): string[] {
 	return paths.filter(
 		(path) =>
@@ -76,7 +72,7 @@ export function editorFiles(paths: readonly string[]): string[] {
 				/(?:^|[/._-])outputs?(?:[/._-]|$)/.test(
 					path.slice("apps/os/src/routes/".length),
 				)) ||
-				EDITOR_MODULE_RE.test(path)),
+				/^apps\/os\/src\/components\/output-editor[^/]*\.tsx$/.test(path)),
 	);
 }
 
@@ -87,7 +83,7 @@ export function findings(
 	const problems: string[] = [];
 	for (const [name, decision] of [
 		...Object.entries(ALLOWED_KINDS),
-		...Object.entries(ALLOWED_OUTPUT_ROUTES),
+		...Object.entries(ALLOWED_EDITOR_FILES),
 	])
 		if (!DECISION_RE.test(decision))
 			problems.push(
@@ -99,13 +95,9 @@ export function findings(
 				`${KIND_SCHEMA_FILE}: Output kind "${kind}" has no decision reference. A new view is a workspace app bound to a slot; add the kind to ALLOWED_KINDS in scripts/lint-output-kinds.ts only with the decision that allows it.`,
 			);
 	for (const file of editors)
-		if (EDITOR_MODULE_RE.test(file))
+		if (!Object.hasOwn(ALLOWED_EDITOR_FILES, file))
 			problems.push(
-				`${file}: Tedix OS has no native Output editor. Doc, Sheet and Slides are edited in their workspace gadgets; build the editor as a gadget.`,
-			);
-		else if (!Object.hasOwn(ALLOWED_OUTPUT_ROUTES, file))
-			problems.push(
-				`${file}: new Output route has no decision reference. Open outputs in their gadget, build the view as a workspace app, or add the route to ALLOWED_OUTPUT_ROUTES in scripts/lint-output-kinds.ts with the decision that allows it.`,
+				`${file}: new Output editor surface has no decision reference. Build the view as a workspace app, or add it to ALLOWED_EDITOR_FILES in scripts/lint-output-kinds.ts with the decision that allows it.`,
 			);
 	return problems;
 }
@@ -124,6 +116,6 @@ if (import.meta.main) {
 	for (const problem of problems) console.error(problem);
 	if (problems.length) process.exit(1);
 	console.log(
-		`Output kinds: ${kinds.length} kinds and ${editors.length} output routes, all with a decision reference; no native editor modules.`,
+		`Output kinds: ${kinds.length} kinds and ${editors.length} editor files, all with a decision reference.`,
 	);
 }

@@ -5,11 +5,11 @@ import {
 	blocksFromRichText,
 	markdownDocument,
 } from "@tedix/api-contract/utils/os-document";
-import { DocumentEditor } from "../src/components/doc-v2-editor";
+import { DocumentEditor } from "../src/components/output-editor-document";
 import { OutputContentView } from "../src/components/output-content";
 import type { DocumentContent } from "../src/lib/output-models";
 import "../src/styles.css";
-import "../src/components/output-views.css";
+import "../src/components/output-editor.css";
 
 const params = new URLSearchParams(location.search);
 const theme = params.get("theme") ?? "light";

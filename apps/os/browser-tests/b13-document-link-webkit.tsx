@@ -10,7 +10,7 @@ import { createRoot } from "react-dom/client";
 import { DocumentLinkPopover } from "../src/components/document-link-popover";
 import { Button } from "../src/components/kumo/button";
 import "../src/styles.css";
-import "../src/components/output-views.css";
+import "../src/components/output-editor.css";
 
 const parameters = new URLSearchParams(location.search);
 const dark = parameters.get("theme") === "dark";

@@ -6,7 +6,7 @@ import {
 	EditorToolbar,
 	EditorToolbarButton,
 	EditorToolbarColorButton,
-} from "./editor-toolbar";
+} from "./output-editor-toolbar";
 
 let root: Root;
 let host: HTMLDivElement;

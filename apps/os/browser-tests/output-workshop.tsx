@@ -9,7 +9,7 @@ import {
 	OutputWorkshopStatus,
 } from "../src/components/output-workshop";
 import "../src/styles.css";
-import "../src/components/output-views.css";
+import "../src/components/output-editor.css";
 import "../src/components/output-detail.css";
 import "../src/components/canvas-page.css";
 
