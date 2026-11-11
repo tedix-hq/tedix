@@ -327,7 +327,7 @@ await assert.rejects(
 						if (fails)
 							return Response.json({ message: "unavailable" }, { status: 503 });
 						stored = newEncrypted;
-						return Response.json({ ok: true });
+						return Response.json({ json: { ok: true } });
 					},
 				},
 			} as unknown as Cloudflare.Env;

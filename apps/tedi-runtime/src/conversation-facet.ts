@@ -34,7 +34,6 @@ import {
 	createModels,
 	type Api,
 	type Model,
-	type TSchema,
 	type Message,
 } from "@earendil-works/pi-ai";
 import {
@@ -72,6 +71,7 @@ import {
 	sessionUserInput,
 	legacySessionMessages,
 	createPiEventProjection,
+	piViewShowsSettlement,
 } from "./pi-agent";
 import { PiTurnAccounting, type PiProviderAttempt } from "./pi-turn-accounting";
 import {
@@ -947,7 +947,7 @@ export class ConversationFacet extends PiAgent<
 				return {
 					name: descriptor.name,
 					description: descriptor.description,
-					parameters: descriptor.inputSchema as TSchema,
+					parameters: descriptor.inputSchema as object,
 					replay: "unsafe" as const,
 					execute: async (args, api) => {
 						this.assertToolRegistryAvailable();
@@ -1866,6 +1866,52 @@ export class ConversationFacet extends PiAgent<
 		});
 		return result;
 	}
+	/**
+	 * Stream UI frames from one native conversation watch. `drain` resolves once
+	 * the watch delivered a settled submission, so every frame before it was sent.
+	 */
+	private async streamNativeFrames(send: (frame: unknown) => void) {
+		const projection = createPiEventProjection((entry) =>
+			this.projectDisplayMessage(entry),
+		);
+		const watch = await this.nativeWatch();
+		let view = watch.value;
+		let advanced: Set<() => void> = new Set();
+		for (const frame of projection(view))
+			send({ kind: "chunk", body: JSON.stringify(frame) });
+		watch.start(async (call) => {
+			if (call.kind !== "value") return;
+			view = call.value;
+			for (const frame of projection(view)) {
+				send({ kind: "chunk", body: JSON.stringify(frame) });
+				if (frame.type === "text-delta")
+					send({ kind: "delta", text: frame.delta });
+			}
+			const waiters = advanced;
+			advanced = new Set();
+			for (const resolve of waiters) resolve();
+		});
+		const ended = watch.closed.then((end) => {
+			throw new Error(`Pi conversation watch ended: ${end.kind}`);
+		});
+		ended.catch(() => {});
+		const storage = await this.piHarness.storage();
+		return {
+			stop: () => watch.stop(),
+			drain: async (requestId: string) => {
+				for (;;) {
+					const next = new Promise<void>((resolve) => advanced.add(resolve));
+					const stored = await storage.submissionByRequest(
+						view.conversation.id,
+						requestId,
+						BACKGROUND_CONTEXT,
+					);
+					if (piViewShowsSettlement(view, stored)) return;
+					await Promise.race([next, ended]);
+				}
+			},
+		};
+	}
 	async streamConfiguredConversationTurn(
 		input: ConfiguredConversationTurn,
 	): Promise<ReadableStream<Uint8Array>> {
@@ -1879,7 +1925,7 @@ export class ConversationFacet extends PiAgent<
 						let stopEvents: (() => Promise<unknown>) | undefined;
 						const approvalSink = (frame: Record<string, unknown>) =>
 							send({ kind: "chunk", body: JSON.stringify(frame) });
-						let drained: Promise<void> | undefined;
+						let drained: (() => Promise<void>) | undefined;
 						let reportDrained: (() => Promise<void>) | undefined;
 						const send = (frame: unknown) => {
 							if (!cancelled)
@@ -1896,64 +1942,13 @@ export class ConversationFacet extends PiAgent<
 										throw new Error("Pi stream cancelled before submission");
 									executing = true;
 									this.approvalSinks.add(approvalSink);
-									const terminals = new Set<string>();
-									const waiters = new Map<string, () => void>();
-									reportDrained = () =>
-										terminals.has(`${submissionId}:final-report`)
-											? Promise.resolve()
-											: new Promise<void>((resolve) =>
-													waiters.set(`${submissionId}:final-report`, resolve),
-												);
-									let delivered!: () => void;
-									let failed!: (reason: unknown) => void;
-									drained = new Promise<void>((resolve, reject) => {
-										delivered = resolve;
-										failed = reject;
-									});
 									// Observe every frame through the exact durable terminal submission.
-									// CommittedWatch.stop discards queued frames, so stopping alone is not a drain.
-									const projection = createPiEventProjection((entry) =>
-										this.projectDisplayMessage(entry),
-									);
-									const events = await this.nativeEvents();
-									stopEvents = () => events.stop();
-									for (const frame of projection(events.snapshot))
-										send({ kind: "chunk", body: JSON.stringify(frame) });
-									events.start(async (batch) => {
-										try {
-											let terminal = false;
-											for (const event of batch)
-												if (
-													event.type === "submission" &&
-													event.record.requestId
-												)
-													await this.retainSubmissionDisplay(
-														event.record.requestId,
-													);
-											for (const event of batch) {
-												for (const frame of projection(event))
-													send({ kind: "chunk", body: JSON.stringify(frame) });
-												if (event.type === "message_update")
-													for (const change of event.changes)
-														if (change.type === "text_delta")
-															send({ kind: "delta", text: change.delta });
-												if (
-													event.type === "submission" &&
-													event.record.requestId &&
-													event.record.status !== "queued" &&
-													event.record.status !== "placed"
-												) {
-													terminals.add(event.record.requestId);
-													waiters.get(event.record.requestId)?.();
-													if (event.record.requestId === submissionId)
-														terminal = true;
-												}
-											}
-											if (terminal) delivered();
-										} catch (error) {
-											failed(error);
-										}
-									});
+									// A watch stop discards pending values, so stopping alone is not a drain.
+									const frames = await this.streamNativeFrames(send);
+									stopEvents = frames.stop;
+									drained = () => frames.drain(submissionId);
+									reportDrained = () =>
+										frames.drain(`${submissionId}:final-report`);
 									for (const approval of await this.pendingToolApprovals())
 										approvalSink({
 											type: "tool-approval-request",
@@ -1962,7 +1957,7 @@ export class ConversationFacet extends PiAgent<
 										});
 								},
 							);
-							await drained;
+							await drained?.();
 							if (result.stopReason) await reportDrained?.();
 							await stopEvents?.();
 							stopEvents = undefined;
@@ -2017,68 +2012,10 @@ export class ConversationFacet extends PiAgent<
 						if (!cancelled)
 							controller.enqueue(encoder.encode(JSON.stringify(frame) + "\n"));
 					};
-					const projection = createPiEventProjection((entry) =>
-						this.projectDisplayMessage(entry),
-					);
 					const approvalSink = (frame: Record<string, unknown>) =>
 						send({ kind: "chunk", body: JSON.stringify(frame) });
 					this.approvalSinks.add(approvalSink);
-					let snapshotInputs: ReadonlySet<number> = new Set();
-					const seen = new Set<string>();
-					const waiters = new Map<string, () => void>();
-					let snapshotDelivered!: () => void;
-					const firstFrame = new Promise<void>((resolve) => {
-						snapshotDelivered = resolve;
-					});
-					const events = await this.nativeEvents();
-					snapshotInputs = new Set(events.snapshot.run?.inputs ?? []);
-					for (const frame of projection(events.snapshot))
-						send({ kind: "chunk", body: JSON.stringify(frame) });
-					snapshotDelivered();
-					events.start(async (batch) => {
-						for (const event of batch)
-							if (event.type === "submission" && event.record.requestId)
-								await this.retainSubmissionDisplay(event.record.requestId);
-						for (const event of batch) {
-							if (event.type === "snapshot")
-								snapshotInputs = new Set(event.run?.inputs ?? []);
-							for (const frame of projection(event))
-								send({ kind: "chunk", body: JSON.stringify(frame) });
-							if (event.type === "message_update")
-								for (const change of event.changes)
-									if (change.type === "text_delta")
-										send({ kind: "delta", text: change.delta });
-							if (
-								event.type === "submission" &&
-								event.record.requestId &&
-								event.record.status !== "queued" &&
-								event.record.status !== "placed"
-							) {
-								seen.add(event.record.requestId);
-								waiters.get(event.record.requestId)?.();
-							}
-						}
-						snapshotDelivered();
-					});
-					const drain = async (id: string) => {
-						await firstFrame;
-						const stored = await (
-							await this.piHarness.storage()
-						).submissionByRequest(
-							(await this.nativeConversation()).id,
-							id,
-							context,
-						);
-						if (
-							stored &&
-							stored.status !== "queued" &&
-							stored.status !== "placed" &&
-							!snapshotInputs.has(stored.id)
-						)
-							return;
-						if (seen.has(id)) return;
-						await new Promise<void>((resolve) => waiters.set(id, resolve));
-					};
+					const frames = await this.streamNativeFrames(send);
 					try {
 						for (const approval of await this.pendingToolApprovals())
 							send({
@@ -2105,10 +2042,10 @@ export class ConversationFacet extends PiAgent<
 								result: await this.runSubmittedConversationTurn(active),
 							};
 						});
-						await drain(pending.submissionId);
+						await frames.drain(pending.submissionId);
 						if (completed.result.stopReason)
-							await drain(`${pending.submissionId}:final-report`);
-						await events.stop();
+							await frames.drain(`${pending.submissionId}:final-report`);
+						await frames.stop();
 						const result = completed.result;
 						send({
 							kind: "done",
@@ -2125,7 +2062,7 @@ export class ConversationFacet extends PiAgent<
 							message: error instanceof Error ? error.message : String(error),
 						});
 					} finally {
-						await events.stop();
+						await frames.stop();
 						this.approvalSinks.delete(approvalSink);
 						if (!cancelled) controller.close();
 					}

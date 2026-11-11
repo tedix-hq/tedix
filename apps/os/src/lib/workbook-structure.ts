@@ -574,15 +574,13 @@ export function renameSheet(
 						? {
 								...cell,
 								input: cell.input.startsWith("=")
-									? cell.input.replace(
-											REFERENCE,
-											(whole, literal, qualifier) =>
-												!literal &&
-												qualifier &&
-												sheetName(qualifier).toLowerCase() ===
-													previous.name.toLowerCase()
-													? prefix + whole.slice(qualifier.length)
-													: whole,
+									? cell.input.replace(REFERENCE, (whole, literal, qualifier) =>
+											!literal &&
+											qualifier &&
+											sheetName(qualifier).toLowerCase() ===
+												previous.name.toLowerCase()
+												? prefix + whole.slice(qualifier.length)
+												: whole,
 										)
 									: cell.input,
 							}
@@ -652,14 +650,12 @@ export function deleteSheet(workbook: OsWorkbook, sheetId: string): OsWorkbook {
 					cell?.input.startsWith("=")
 						? {
 								...cell,
-								input: cell.input.replace(
-									REFERENCE,
-									(whole, literal, prefix) =>
-										!literal &&
-										prefix &&
-										sheetName(prefix).toLowerCase() === sheet.name.toLowerCase()
-											? "#REF!"
-											: whole,
+								input: cell.input.replace(REFERENCE, (whole, literal, prefix) =>
+									!literal &&
+									prefix &&
+									sheetName(prefix).toLowerCase() === sheet.name.toLowerCase()
+										? "#REF!"
+										: whole,
 								),
 							}
 						: cell,

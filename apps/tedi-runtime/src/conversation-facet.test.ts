@@ -18,11 +18,17 @@ const {
 	sessionUserInput,
 	legacySessionMessages,
 	createPiEventProjection,
+	piViewShowsSettlement,
 } = await import("./pi-agent");
 import type { SessionMessage } from "agents/sessions";
 import { conversationCompactionSettings } from "./pi-compaction";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import type { EntryRecord } from "@earendil-works/pi-durable";
+import type {
+	ConversationView,
+	EntryRecord,
+	LiveState,
+	SubmissionRecord,
+} from "@earendil-works/pi-durable";
 
 for (const cancelledAt of ["ingress", "dispatch", "never"] as const) {
 	const storage = memoryStorage();
@@ -184,18 +190,33 @@ const partial: AssistantMessage = {
 	usage,
 	stopReason: "stop",
 };
-const project = createPiEventProjection();
-const snapshot = project({
-	type: "snapshot",
-	entries: [],
-	generation: { attempt: 1, message: partial },
-	tools: [],
-	nestedTools: [],
-	compactions: [],
-	inbox: [],
-	agent: {},
-	usage: { models: {}, tools: {} },
+const view = (
+	live: Omit<LiveState, "generation"> & {
+		generation?: { attempt: number; message?: AssistantMessage };
+	},
+	entries: EntryRecord[] = [],
+	before?: number,
+): ConversationView =>
+	({
+		conversation: { id: 1 },
+		entries,
+		...(before === undefined ? {} : { before }),
+		docs: { "pi.live": live },
+	}) as unknown as ConversationView;
+const entry = (
+	id: number,
+	model: EntryRecord["model"],
+	kind = "assistant",
+): EntryRecord => ({
+	id: id as EntryRecord["id"],
+	conversationId: 1 as EntryRecord["conversationId"],
+	kind,
+	model,
 });
+const project = createPiEventProjection();
+const snapshot = project(
+	view({ generation: { attempt: 1, message: partial } }),
+);
 const data = snapshot.find((frame) => frame.type === "data-pi-snapshot")
 	?.data as { partialMessage: SessionMessage };
 assert.equal(data.partialMessage.id, "pi-generation:100:1");
@@ -209,73 +230,49 @@ assert.equal(
 		.join(""),
 	"partial",
 );
-const delta = project({
-	type: "message_update",
-	usage,
-	changes: [{ type: "text_delta", contentIndex: 0, delta: " tail" }],
+assert.equal(snapshot.filter((frame) => frame.type === "start-step").length, 0);
+const tailed = view({
+	generation: {
+		attempt: 1,
+		message: { ...partial, content: [{ type: "text", text: "partial tail" }] },
+	},
 });
-assert.deepEqual(delta, [{ type: "text-delta", id: "0:0", delta: " tail" }]);
+assert.deepEqual(project(tailed), [
+	{ type: "text-delta", id: "0:0", delta: " tail" },
+]);
 assert.equal(
-	project({
-		type: "snapshot",
-		entries: [],
-		generation: {
-			attempt: 1,
-			message: {
-				...partial,
-				content: [{ type: "text", text: "partial tail" }],
-			},
-		},
-		tools: [],
-		nestedTools: [],
-		compactions: [],
-		inbox: [],
-		agent: {},
-		usage: { models: {}, tools: {} },
-	}).filter((frame) => frame.type === "text-delta").length,
+	project(tailed).length,
 	0,
-	"retained snapshot cannot duplicate already emitted text",
+	"retained value cannot duplicate already emitted text",
 );
-// Native committed batches can retain a whole block and its append operations.
+// Watch callbacks fold commits: a partial may arrive grown, or already be an entry.
 for (const type of ["text", "thinking"] as const) {
-	for (const deltaFirst of [false, true]) {
+	for (const seenPartial of [false, true]) {
 		const projection = createPiEventProjection();
 		const block = (value: string) =>
 			type === "text"
 				? { type: "text" as const, text: value }
 				: { type: "thinking" as const, thinking: value };
-		const start = projection({
-			type: "message_start",
-			message: { ...partial, content: [block("prefix")] },
-		});
-		const full = {
-			type:
-				type === "text" ? ("text_start" as const) : ("thinking_start" as const),
-			contentIndex: 0,
-			block: block("prefix tail"),
-		};
-		const append = {
-			type:
-				type === "text" ? ("text_delta" as const) : ("thinking_delta" as const),
-			contentIndex: 0,
-			delta: " tail",
-		};
-		const update = projection({
-			type: "message_update",
-			usage,
-			changes: deltaFirst ? [append, full] : [full, append],
-		});
-		const end = projection({
-			type: "message_end",
-			entry: {
-				id: 1 as EntryRecord["id"],
-				conversationId: 1 as EntryRecord["conversationId"],
-				kind: "assistant",
-				model: [{ ...partial, content: [block("prefix tail")] }],
-			},
-		});
+		const opened = projection(view({}));
+		assert.equal(opened[0]?.type, "data-pi-snapshot");
+		const start = seenPartial
+			? projection(
+					view({
+						generation: {
+							attempt: 1,
+							message: { ...partial, content: [block("prefix")] },
+						},
+					}),
+				)
+			: [];
+		const end = projection(
+			view({}, [entry(1, [{ ...partial, content: [block("prefix tail")] }])]),
+		);
+		const frames = [...start, ...end];
+		assert.equal(frames[0]?.type, "start-step");
+		assert.equal(frames.filter((f) => f.type === "start-step").length, 1);
 		assert.equal(
-			[...start, ...update, ...end]
+			frames
 				.filter(
 					(frame) =>
 						frame.type === (type === "text" ? "text-delta" : "reasoning-delta"),
@@ -284,19 +281,153 @@ for (const type of ["text", "thinking"] as const) {
 				.join(""),
 			"prefix tail",
 		);
+		assert.equal(
+			end.at(-2)?.type,
+			type === "text" ? "text-end" : "reasoning-end",
+		);
 		assert.equal(end.at(-1)?.type, "finish-step");
+		const retry = (value: string) =>
+			view({
+				generation: {
+					attempt: 2,
+					message: { ...partial, content: [block(value)] },
+				},
+			});
+		assert.equal(projection(retry("rewritten"))[0]?.type, "start-step");
 		assert.throws(
-			() =>
-				projection({
-					type: "message_update",
-					usage,
-					changes: [
-						{ type: "block", contentIndex: 0, block: block("rewritten") },
-					],
-				}),
+			() => projection(retry("other")),
 			/rewrote an emitted content block/,
 		);
 	}
+}
+// Tool calls: streamed start, finalized input, settled output, run failure.
+{
+	const projection = createPiEventProjection();
+	projection(view({}));
+	const call = {
+		type: "toolCall" as const,
+		id: "call-1",
+		name: "lookup",
+		arguments: { q: "x" },
+	};
+	assert.deepEqual(
+		projection(
+			view({
+				generation: {
+					attempt: 1,
+					message: { ...partial, content: [{ ...call, arguments: {} }] },
+				},
+			}),
+		),
+		[
+			{ type: "start-step" },
+			{ type: "tool-input-start", toolCallId: "call-1", toolName: "lookup" },
+		],
+	);
+	const answer = entry(1, [
+		{ ...partial, content: [call], stopReason: "toolUse" },
+	]);
+	const running = view(
+		{ tools: [{ callId: "call-1", name: "lookup", status: "running" }] },
+		[answer],
+	);
+	assert.deepEqual(projection(running), [
+		{
+			type: "tool-input-available",
+			toolCallId: "call-1",
+			toolName: "lookup",
+			input: { q: "x" },
+		},
+		{ type: "finish-step" },
+	]);
+	const result = entry(2, [
+		{
+			role: "toolResult",
+			toolCallId: "call-1",
+			toolName: "lookup",
+			content: [{ type: "text", text: "ok" }],
+			isError: false,
+			timestamp: 101,
+		},
+	]);
+	const done = view(
+		{
+			tools: [
+				{
+					callId: "call-1",
+					name: "lookup",
+					status: "done",
+					entry: result.id,
+				},
+			],
+		},
+		[answer, result],
+	);
+	assert.deepEqual(projection(done), [
+		{
+			type: "tool-output-available",
+			toolCallId: "call-1",
+			output: result.model,
+		},
+	]);
+	assert.deepEqual(projection(done), []);
+	const failed = view(
+		{
+			runFailure: {
+				taskId: 7 as never,
+				inputs: [],
+				reason: "model_error",
+				detail: "boom",
+			},
+		},
+		[answer, result],
+	);
+	assert.deepEqual(projection(failed), [{ type: "error", errorText: "boom" }]);
+	assert.deepEqual(projection(failed), []);
+	assert.equal(
+		createPiEventProjection()(failed).some((frame) => frame.type === "error"),
+		false,
+		"a failure already in the first value is snapshot state, not a new error",
+	);
+}
+// Drain: a settled submission is shown once its placement is in view and its run released it.
+{
+	const placed = 5 as EntryRecord["id"];
+	const settled = {
+		id: 3,
+		type: "input",
+		status: "done",
+		entry: placed,
+		answer: 6,
+	} as unknown as SubmissionRecord;
+	const running = { run: { taskId: 1, inputs: [3], turns: 0 } } as never;
+	assert.equal(piViewShowsSettlement(view({}), settled), false);
+	assert.equal(
+		piViewShowsSettlement(view(running, [entry(5, [], "user")]), settled),
+		false,
+	);
+	assert.equal(
+		piViewShowsSettlement(view({}, [entry(5, [], "user")]), settled),
+		true,
+	);
+	assert.equal(piViewShowsSettlement(view({}, [], 9), settled), true);
+	assert.equal(
+		piViewShowsSettlement(view({}, [entry(5, [], "user")]), {
+			...settled,
+			status: "placed",
+		} as SubmissionRecord),
+		false,
+	);
+	assert.equal(
+		piViewShowsSettlement(view({}), {
+			id: 4,
+			type: "input",
+			status: "unanswered",
+			reason: "withdrawn",
+		} as unknown as SubmissionRecord),
+		true,
+	);
+	assert.equal(piViewShowsSettlement(view({}), undefined), false);
 }
 console.log("conversation-facet native projection OK");
 

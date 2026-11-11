@@ -57,11 +57,11 @@ import {
 } from "@earendil-works/pi-durable";
 import {
 	createModels,
-	Type,
 	type Api,
 	type Model,
 	type Message,
 } from "@earendil-works/pi-ai";
+import { obj } from "@earendil-works/pi-schema";
 import { createTedixPiProvider } from "../../src/pi-model";
 import type { LanguageModelV3 } from "@ai-sdk/provider";
 
@@ -139,7 +139,7 @@ export class PiRuntimeFixture extends Agent<Cloudflare.Env, State> {
 	private readonly tool = defineTool({
 		name: "fixture_effect",
 		description: "One durable effect",
-		parameters: Type.Object({}),
+		parameters: obj({}),
 		replay: "unsafe",
 		execute: async () => {
 			this.setState({ ...this.state, effects: this.state.effects + 1 });

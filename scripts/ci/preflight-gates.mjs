@@ -788,6 +788,10 @@ for (const [index, gate] of active.entries()) {
 		stdio: "pipe",
 		encoding: "utf8",
 		env: { ...process.env, NO_COLOR: "1", FORCE_COLOR: "0" },
+		// Node's 1 MiB default kills a whole suite mid-run once its output
+		// grows past it (packages/cli prints ~1.4 MB) and reports a failure
+		// with no failing test.
+		maxBuffer: 64 * 1024 * 1024,
 	});
 	const output = stripAnsi(
 		`${result.stdout ?? ""}${result.stderr ?? ""}`,

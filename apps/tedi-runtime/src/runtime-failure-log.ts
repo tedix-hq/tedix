@@ -1,6 +1,6 @@
 import { exceptionTopology } from "@tedix/worker-kit/exception-topology";
 import { createTelemetryWriter } from "@tedix/worker-kit/telemetry";
-import type { ReportInfo } from "@earendil-works/pi-durable";
+import type { Report, ReportInfo } from "@earendil-works/pi-durable";
 import type { FacetBudgetStopReason } from "./conversation-facet";
 
 type RuntimeFailureEvent =
@@ -115,11 +115,11 @@ export function logTediRuntimeFailure(
 	level: "warn" | "error" = "warn",
 	details?:
 		| {
-				reportType: ReportInfo["type"];
+				reportType: ReportInfo["kind"];
 				taskId?: number;
 				conversationId?: number;
 				reason?: Extract<ReportInfo, { reason: unknown }>["reason"];
-				callback?: Extract<ReportInfo, { type: "host_error" }>["callback"];
+				callback?: Extract<ReportInfo, { kind: "host_error" }>["callback"];
 		  }
 		| { parserCode: (typeof POSTAL_ERROR_CODES)[number] | "unknown" },
 ): void {
@@ -174,18 +174,19 @@ export function logTediEmailParseFailure(error: unknown): void {
 }
 
 /** Extension names, task kinds and thrown payloads may contain tenant content. */
-export function logTediPiReport(error: unknown, info: ReportInfo): void {
+export function logTediPiReport(report: Report): void {
+	const { error, ...info } = report;
 	const task = "task" in info ? info.task : undefined;
 	writePiReport(() =>
 		logTediRuntimeFailure("tedi.pi.report", error, "error", {
-			reportType: info.type,
+			reportType: info.kind,
 			...(task
 				? { taskId: task.id, conversationId: task.conversationId }
 				: "conversationId" in info
 					? { conversationId: info.conversationId }
 					: {}),
 			...("reason" in info ? { reason: info.reason } : {}),
-			...(info.type === "host_error" ? { callback: info.callback } : {}),
+			...(info.kind === "host_error" ? { callback: info.callback } : {}),
 		}),
 	);
 }

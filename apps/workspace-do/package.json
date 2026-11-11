@@ -21,6 +21,7 @@
 	},
 	"dependencies": {
 		"@earendil-works/pi-ai": "catalog:",
+		"@earendil-works/pi-schema": "catalog:",
 		"@tedix/agent-governance": "workspace:*",
 		"@tedix/api-contract": "workspace:*",
 		"@tedix/chat-transport": "workspace:*",

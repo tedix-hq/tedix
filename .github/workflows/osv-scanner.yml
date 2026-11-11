@@ -40,7 +40,7 @@ jobs:
       - name: Scan every bun.lock
         id: scan
         continue-on-error: true
-        uses: google/osv-scanner-action/osv-scanner-action@b1d267aea5211fa648d9d442fa64b90dbdcbdd36 # v2.7.0
+        uses: google/osv-scanner-action/osv-scanner-action@32d3cd482bdadfb38b186c0ad1b031902d55d932 # v2.7.1
         with:
           scan-args: |-
             --lockfile=bun.lock
@@ -56,7 +56,7 @@ jobs:
       - name: Check that the scan wrote results
         run: test -s results.sarif
 
-      - uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+      - uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           sarif_file: results.sarif
           category: osv-scanner

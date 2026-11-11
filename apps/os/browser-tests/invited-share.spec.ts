@@ -51,11 +51,16 @@ try {
 			});
 			await page.route("**/api/os-shared/app/open", async (route) => {
 				const response = await route.fetch();
+				// Playwright 1.65 disposes the fetched response when the page has
+				// already cancelled this request (a re-render reopens the app);
+				// the replacement request reaches this handler again.
+				const body = await response.json().catch((error: Error) => {
+					if (/disposed/.test(error.message)) return null;
+					throw error;
+				});
+				if (body === null) return;
 				await route.fulfill({
-					json: {
-						...(await response.json()),
-						verifiedEmail: "guest@example.test",
-					},
+					json: { ...body, verifiedEmail: "guest@example.test" },
 				});
 			});
 			await page.goto(`${server.origin}/s/${publicId}`);

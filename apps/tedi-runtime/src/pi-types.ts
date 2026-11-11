@@ -1,5 +1,5 @@
 import type {
-	AgentEvent,
+	ConversationView,
 	EntryRecord,
 	Harness,
 	UserInput,
@@ -25,7 +25,7 @@ export interface PiApplicationProjection {
 	legacy(message: SessionMessage): Promise<EntryRecord["model"]>;
 	message(entry: EntryRecord): SessionMessage | null;
 	/** UI transport frames only: this must not drive or settle the native run. */
-	event(event: AgentEvent): readonly Record<string, unknown>[];
+	event(view: ConversationView): readonly Record<string, unknown>[];
 	/** Existing Tedix model-adapter/provider wrapper, including dispatch accounting. */
 	models(): Models;
 }

@@ -27,13 +27,14 @@
 	"dependencies": {
 		"@ai-sdk/azure": "catalog:",
 		"@ai-sdk/provider": "catalog:",
-		"@chat-adapter/telegram": "4.43.0",
+		"@chat-adapter/telegram": "4.44.0",
 		"@cloudflare/codemode": "catalog:",
 		"@cloudflare/computer": "catalog:",
 		"@cloudflare/voice": "catalog:",
 		"@earendil-works/chord": "catalog:",
 		"@earendil-works/pi-ai": "catalog:",
 		"@earendil-works/pi-durable": "catalog:",
+		"@earendil-works/pi-schema": "catalog:",
 		"@platformatic/vfs": "^0.5.0",
 		"@tedix/api-client": "workspace:*",
 		"@tedix/api-contract": "workspace:*",
@@ -55,7 +56,7 @@
 		"fast-xml-parser": "catalog:",
 		"isomorphic-git": "catalog:",
 		"just-bash": "^3.6.0",
-		"postal-mime": "^4.2.0",
+		"postal-mime": "^4.2.1",
 		"zod": "catalog:"
 	},
 	"devDependencies": {

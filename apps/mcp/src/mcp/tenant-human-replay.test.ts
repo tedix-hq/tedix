@@ -93,9 +93,8 @@ beforeEach(() => {
 			probeMount,
 		},
 	});
-	mocks.fresh.mockImplementation(
-		async ({ rootAppId }: { rootAppId: string }) =>
-			rootAppId === "root" ? { sourceAppId: "source", tool } : null,
+	mocks.fresh.mockImplementation(async ({ rootAppId }: { rootAppId: string }) =>
+		rootAppId === "root" ? { sourceAppId: "source", tool } : null,
 	);
 	mocks.app.mockResolvedValue({
 		app: { organizationId: "org" },

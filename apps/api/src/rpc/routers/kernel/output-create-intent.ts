@@ -322,7 +322,8 @@ export function explicitOutputWriteDecision(
 			appSlug,
 			capability: (operation === "create"
 				? CAPABILITY_BY_KIND
-				: EDIT_CAPABILITY_BY_KIND)[kind],
+				: EDIT_CAPABILITY_BY_KIND
+			)[kind],
 			connectionStatus: "connected",
 		},
 		workflowHint: null,
