@@ -419,7 +419,13 @@ export function assertSessionBrokerRedirectPath(
 	} catch {
 		return fail("INVALID_REDIRECT_PATH", "Redirect path is invalid");
 	}
-	if (parsed.origin !== targetOrigin || parsed.hash) {
+	// Dot segments can normalise to a `//host` path ("/.//evil.example"), which
+	// a browser would follow to another site.
+	if (
+		parsed.origin !== targetOrigin ||
+		parsed.hash ||
+		parsed.pathname.startsWith("//")
+	) {
 		return fail(
 			"INVALID_REDIRECT_PATH",
 			"Redirect path must stay on the target origin and omit fragments",

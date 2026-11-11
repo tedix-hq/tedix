@@ -194,6 +194,9 @@ describe("session broker contract", () => {
 		"https://evil.example/steal",
 		"//evil.example/steal",
 		"/\\evil.example/steal",
+		"/.//evil.example/steal",
+		"/a/..//evil.example/steal",
+		"/%2e//evil.example/steal",
 		"/workspace/workspace-1#secret",
 		"canvas",
 	] as const)("rejects unsafe redirect %s", (redirect) => {

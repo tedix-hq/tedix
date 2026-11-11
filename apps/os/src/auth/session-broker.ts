@@ -38,7 +38,10 @@ function redirectPath(value: string | null, origin: string): string {
 	}
 	try {
 		const parsed = new URL(value, origin);
-		return parsed.origin === origin && !parsed.hash
+		// "/.//evil.example" normalises to a `//host` path; never return one.
+		return parsed.origin === origin &&
+			!parsed.hash &&
+			!parsed.pathname.startsWith("//")
 			? `${parsed.pathname}${parsed.search}`
 			: "/";
 	} catch {
