@@ -9,6 +9,7 @@ import {
 	readFileSync,
 	readdirSync,
 	rmSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -110,6 +111,7 @@ function fixture({
 	coordinated = false,
 	acceptProposed = false,
 	max = options.max,
+	capBytes = undefined as number | undefined,
 	proposed = [] as DispatchItem[],
 } = {}) {
 	const dir = mkdtempSync(join(tmpdir(), "lane-dispatch-test-"));
@@ -167,6 +169,9 @@ function fixture({
 		cleanupRemoves: false,
 		cleanupWait: undefined as Promise<boolean> | undefined,
 		cleanupAfterPickup: [] as boolean[],
+		cleanupRecorded: [] as Array<ReadonlySet<string> | undefined>,
+		runSize: 0,
+		runSizes: new Map<string, number>(),
 		freeDiskBytes: Number.MAX_SAFE_INTEGER,
 		proofError: undefined as Error | undefined,
 		evidenceError: undefined as Error | undefined,
@@ -198,7 +203,14 @@ function fixture({
 	};
 	let threadNumber = 0;
 	let cleaning = false;
-	const config = { ...options, executor, coordinated, acceptProposed, max };
+	const config = {
+		...options,
+		executor,
+		coordinated,
+		acceptProposed,
+		max,
+		checkoutCapBytes: capBytes,
+	};
 	const deps: NonNullable<ConstructorParameters<typeof LaneDispatcher>[2]> = {
 		health: () => [],
 		darkWake: () => dark,
@@ -235,14 +247,17 @@ function fixture({
 				recallStatus: control.recall ? "matched" : "none",
 			};
 		},
-		cleanup: (_source, destination) => {
+		cleanup: (_source, destination, recorded) => {
 			control.cleanups++;
+			control.cleanupRecorded.push(recorded);
 			control.cleanupAfterPickup.push(
 				events.some((event) => event.verb === "dispatch-list"),
 			);
 			if (control.cleanupRemoves) rmSync(destination, { recursive: true });
 			return control.cleanupWait ?? control.cleanupResult;
 		},
+		directoryBytes: async (path) =>
+			control.runSizes.get(path) ?? control.runSize,
 		freeDiskBytes: () => control.freeDiskBytes,
 		thread: async (repo, executor, _model, resume) => {
 			control.threadSessions.push(resume);
@@ -5341,9 +5356,9 @@ it.each([false, true])(
 	},
 );
 
-it("queries ready work before bounded cleanup of 715 retained runs", async () => {
-	const { dispatcher, dir, items, control, releases } = fixture();
-	items.splice(1);
+it("queries ready work before sweeping every retained run checkout", async () => {
+	const { dispatcher, dir, items, control } = fixture();
+	items.splice(0);
 	control.cleanupResult = false;
 	for (let n = 10; n < 725; n++) {
 		const old = item(n);
@@ -5361,8 +5376,13 @@ it("queries ready work before bounded cleanup of 715 retained runs", async () =>
 		);
 	}
 	await dispatcher.tick();
-	expect(control.cleanups).toBe(1);
-	expect(control.cleanupAfterPickup).toEqual([true]);
+	await dispatcher.drain();
+	// The startup sweep revisits every settled run in one pass instead of
+	// reclaiming a single checkout per tick.
+	expect(control.cleanups).toBe(715);
+	expect(control.cleanupAfterPickup).toEqual(
+		Array.from({ length: 715 }, () => true),
+	);
 	expect(dispatcher.nextTickDelayMs()).toBe(30_000);
 	expect(
 		existsSync(join(dir, "dispatcher.log")) &&
@@ -5370,9 +5390,6 @@ it("queries ready work before bounded cleanup of 715 retained runs", async () =>
 				"worktree-retained",
 			),
 	).toBe(false);
-	await until(() => releases.length === 1);
-	releases[0]!();
-	await dispatcher.drain();
 });
 
 it("backs off retained cleanup and archives only removed run metadata", async () => {
@@ -5593,7 +5610,8 @@ it("reclaims one run directory per pass that no receipt refers to", async () => 
 		}),
 	);
 	control.cleanupRemoves = true;
-	// The first pass revisits the retained receipt; then one directory per pass.
+	// The first pass sweeps every orphaned run directory; the retained
+	// receipt's checkout keeps its directory.
 	for (let pass = 0; pass < 3; pass++) {
 		await dispatcher.tick();
 		await dispatcher.drain();
@@ -5719,6 +5737,222 @@ it("keeps even an empty pending-proof marker fenced from retry and cleanup", asy
 	expect(releases).toHaveLength(0);
 	expect(control.cleanups).toBe(0);
 	expect(existsSync(repo)).toBe(true);
+});
+
+it("sweeps every settled run in one pass and keeps each receipt", async () => {
+	const { dispatcher, dir, items, control } = fixture();
+	items.splice(0);
+	const rows = [item(1), item(2)].map((work) => {
+		const repo = join(dir, "runs", `${work.id}-2`, "repo");
+		mkdirSync(repo, { recursive: true });
+		const path = join(dir, `${work.id}-2.json`);
+		writeFileSync(
+			path,
+			JSON.stringify({
+				itemId: work.id,
+				version: 2,
+				phase: "settled",
+				outcome: "succeeded",
+				repo,
+			}),
+		);
+		return { repo, path };
+	});
+	control.cleanupRemoves = true;
+	await dispatcher.tick();
+	await dispatcher.drain();
+	expect(control.cleanups).toBe(2);
+	for (const row of rows) {
+		expect(existsSync(row.repo)).toBe(false);
+		expect(JSON.parse(readFileSync(row.path, "utf8")).phase).toBe("settled");
+	}
+	expect(readdirSync(join(dir, "archive"))).toHaveLength(2);
+});
+
+it("passes the Work-recorded unpushed SHAs to checkout cleanup", async () => {
+	const { dispatcher, dir, items, control } = fixture();
+	items.splice(0);
+	const sha = "d".repeat(40);
+	const repo = join(dir, "runs", `${item().id}-2`, "repo");
+	mkdirSync(repo, { recursive: true });
+	writeFileSync(
+		join(dir, `${item().id}-2.json`),
+		JSON.stringify({
+			itemId: item().id,
+			version: 2,
+			phase: "settled",
+			outcome: "succeeded",
+			repo,
+			unpushedCommits: [sha],
+			unpushedCommented: JSON.stringify([repo, [sha]]),
+		}),
+	);
+	const bare = join(dir, "runs", `${item(2).id}-2`, "repo");
+	mkdirSync(bare, { recursive: true });
+	writeFileSync(
+		join(dir, `${item(2).id}-2.json`),
+		JSON.stringify({
+			itemId: item(2).id,
+			version: 2,
+			phase: "settled",
+			outcome: "succeeded",
+			repo: bare,
+			unpushedCommits: ["e".repeat(40)],
+		}),
+	);
+	await dispatcher.tick();
+	await dispatcher.drain();
+	// The recorded signature names the same list the Work comment carried; a
+	// checkout whose unpushed commits were never recorded gets no allowance.
+	expect(control.cleanupRecorded).toHaveLength(2);
+	expect(control.cleanupRecorded).toContainEqual(new Set([sha]));
+	expect(control.cleanupRecorded).toContain(undefined);
+});
+
+it("never sweeps or evicts a checkout whose Attempt process is still live", async () => {
+	const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)"], {
+		detached: true,
+		stdio: "ignore",
+	});
+	await once(child, "spawn");
+	try {
+		const { dispatcher, dir, items, control } = fixture();
+		items.splice(0);
+		const repo = join(dir, "runs", `${item().id}-2`, "repo");
+		mkdirSync(repo, { recursive: true });
+		writeFileSync(
+			join(dir, `${item().id}-2.json`),
+			JSON.stringify({
+				itemId: item().id,
+				version: 2,
+				phase: "settled",
+				outcome: "failed",
+				attemptId: "attempt",
+				session: "codex:live",
+				pid: child.pid,
+				repo,
+			}),
+		);
+		control.cleanupRemoves = true;
+		control.runSize = 100 * 1024 ** 3;
+		await dispatcher.tick();
+		await dispatcher.drain();
+		expect(control.cleanups).toBe(0);
+		expect(existsSync(repo)).toBe(true);
+	} finally {
+		const exited = once(child, "exit");
+		process.kill(-child.pid!, "SIGTERM");
+		await exited;
+	}
+});
+
+it("evicts the oldest removable run checkouts until the retained cap holds", async () => {
+	const { dispatcher, dir, items, control } = fixture({
+		capBytes: 5 * 1024 ** 3,
+	});
+	items.splice(0);
+	const gb = 1024 ** 3;
+	// Checkouts kept for an interrupted run's retry survive the ordinary
+	// sweep; only cap pressure can evict them.
+	const runs = [item(1), item(2), item(3)].map((work, n) => {
+		const run = join(dir, "runs", `${work.id}-2`);
+		const repo = join(run, "repo");
+		mkdirSync(repo, { recursive: true });
+		writeFileSync(
+			join(dir, `${work.id}-2.json`),
+			JSON.stringify({
+				itemId: work.id,
+				version: 2,
+				phase: "deferred",
+				outcome: "expired",
+				admissionState: "admitted",
+				attemptId: `attempt-${n}`,
+				session: "codex:interrupted",
+				repo,
+			}),
+		);
+		utimesSync(run, n + 1, n + 1);
+		control.runSizes.set(run, 3 * gb);
+		return run;
+	});
+	control.cleanupRemoves = true;
+	await dispatcher.tick();
+	await dispatcher.drain();
+	// 9 GB over a 5 GB cap frees the two oldest run directories; the newest
+	// retained checkout stays.
+	expect(existsSync(runs[0]!)).toBe(false);
+	expect(existsSync(runs[1]!)).toBe(false);
+	expect(existsSync(runs[2]!)).toBe(true);
+	const log = readFileSync(join(dir, "dispatcher.log"), "utf8");
+	expect(log).toContain('"event":"checkout-cap"');
+	expect(log).toContain('"event":"checkout-evicted"');
+});
+
+it.each([undefined, "other", "recorded"])(
+	"removes an unpushed checkout only when the Work records its commits: %s",
+	async (state) => {
+		const { root, repo, git } = gitFixture(true);
+		const destination = join(root, "runs", "finished", "repo");
+		git(["worktree", "add", "--detach", destination]);
+		git(
+			[
+				"-c",
+				"commit.gpgsign=false",
+				"commit",
+				"--allow-empty",
+				"-m",
+				"run work",
+			],
+			destination,
+		);
+		const sha = git(["rev-parse", "HEAD"], destination);
+		const recorded =
+			state === "other"
+				? new Set(["0".repeat(40)])
+				: state === "recorded"
+					? new Set([sha])
+					: undefined;
+		expect(
+			await cleanupLaneWorktree(repo, destination, () => false, recorded),
+		).toBe(state === "recorded");
+		expect(existsSync(destination)).toBe(state !== "recorded");
+	},
+);
+
+it("parses a retained-checkout cap from the flag or environment", () => {
+	const args = ["--executor", "codex", "--rules", projectId];
+	const env = { TEDIX_WORKSPACE: "acme", TEDIX_ORGANIZATION: "org_acme" };
+	expect(
+		parseServeOptions([...args, "--checkout-cap-gb", "25"], env)
+			.checkoutCapBytes,
+	).toBe(25 * 1024 ** 3);
+	expect(
+		parseServeOptions([...args, "--checkout-cap-gb", "0.5"], env)
+			.checkoutCapBytes,
+	).toBe(Math.round(0.5 * 1024 ** 3));
+	expect(
+		parseServeOptions(args, {
+			...env,
+			TEDIX_LANE_CHECKOUT_CAP_GB: "2",
+		}).checkoutCapBytes,
+	).toBe(2 * 1024 ** 3);
+	expect(
+		parseServeOptions([...args, "--checkout-cap-gb", "3"], {
+			...env,
+			TEDIX_LANE_CHECKOUT_CAP_GB: "2",
+		}).checkoutCapBytes,
+	).toBe(3 * 1024 ** 3);
+	for (const gb of ["0", "-1", "NaN", "lots"])
+		expect(() =>
+			parseServeOptions([...args, "--checkout-cap-gb", gb], env),
+		).toThrow("positive number of GB");
+	// The cap survives a service-install round trip.
+	const duty = runnerDutyFromServeOptions(
+		parseServeOptions([...args, "--checkout-cap-gb", "25"], env),
+	);
+	expect(duty.checkoutCapGb).toBe(25);
+	expect(runnerServeArgs(duty)).toContain("--checkout-cap-gb");
+	expect(runnerServeArgs(duty)).toContain("25");
 });
 
 it.each(["failed", "stopped"] as const)(

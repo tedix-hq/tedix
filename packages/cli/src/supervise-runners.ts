@@ -74,6 +74,11 @@ const runnerSchema = z.object({
 	project: text.optional(),
 	routingConfig: text.optional(),
 	idleTakeoverMinutes: z.number().int().min(1).max(1440).optional(),
+	checkoutCapGb: z
+		.number()
+		.positive()
+		.max(1024 * 1024)
+		.optional(),
 	coordinated: z.boolean().default(false),
 	acceptProposed: z.boolean().default(false),
 	enabled: z.boolean().default(true),
@@ -93,6 +98,7 @@ export interface ServeLike {
 	project?: string;
 	routingConfig?: string;
 	idleTakeoverMinutes?: number;
+	checkoutCapBytes?: number;
 	rules: string;
 	repo: string;
 	scope: string[];
@@ -186,6 +192,9 @@ export function runnerServeArgs(runner: RunnerDuty): string[] {
 		...(runner.idleTakeoverMinutes
 			? ["--idle-takeover-minutes", String(runner.idleTakeoverMinutes)]
 			: []),
+		...(runner.checkoutCapGb
+			? ["--checkout-cap-gb", String(runner.checkoutCapGb)]
+			: []),
 		...(runner.coordinated ? ["--coordinated"] : []),
 		...(runner.acceptProposed ? ["--accept-proposed"] : []),
 	];
@@ -209,6 +218,9 @@ export function runnerDutyFromServeOptions(options: ServeLike): RunnerDuty {
 		...(options.routingConfig ? { routingConfig: options.routingConfig } : {}),
 		...(options.idleTakeoverMinutes
 			? { idleTakeoverMinutes: options.idleTakeoverMinutes }
+			: {}),
+		...(options.checkoutCapBytes
+			? { checkoutCapGb: options.checkoutCapBytes / 1024 ** 3 }
 			: {}),
 		coordinated: options.coordinated,
 		acceptProposed: options.acceptProposed,
