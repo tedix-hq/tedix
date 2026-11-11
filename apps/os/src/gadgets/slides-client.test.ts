@@ -8,6 +8,7 @@ const workspaceId = "11111111-1111-4111-8111-111111111111",
 	outputId = "22222222-2222-4222-8222-222222222222";
 const cleanup: Array<() => void> = [];
 afterEach(() => {
+	vi.useRealTimers();
 	cleanup.splice(0).forEach((fn) => fn());
 	document.body.replaceChildren();
 	vi.restoreAllMocks();
@@ -18,25 +19,71 @@ const field = (label: string) =>
 	document.querySelector<
 		HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
 	>(`[aria-label="${label}"]`)!;
+const status = () => document.querySelector(".slides-status")?.textContent;
+const stage = () => document.querySelector<HTMLElement>(".slides-stage")!;
+const stageElement = (id = "title-1") =>
+	document.querySelector<HTMLElement>(
+		`.slides-stage [data-element-id="${id}"]`,
+	)!;
+const format = () => {
+	if (button("format").getAttribute("aria-expanded") !== "true")
+		button("format").click();
+};
+const insert = (type: string) =>
+	document.querySelector<HTMLButtonElement>(`[data-insert="${type}"]`)!.click();
+const thumb = (id: string) =>
+	document.querySelector<HTMLElement>(`[data-slide-id="${id}"]`)!;
+const key = (target: Element, init: KeyboardEventInit) =>
+	target.dispatchEvent(
+		new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...init }),
+	);
 const change = (label: string, value: string) => {
 	field(label).value = value;
 	field(label).dispatchEvent(new Event("change"));
 };
-const clickElement = (id = "title-1") =>
-	document
-		.querySelector<HTMLElement>(`.slides-stage [data-element-id="${id}"]`)!
-		.dispatchEvent(
-			new PointerEvent("pointerdown", {
-				bubbles: true,
-				button: 0,
-				pointerId: 1,
-				clientX: 100,
-				clientY: 80,
-			}),
-		);
+const press = (id = "title-1", x = 100, y = 80, pointerId = 1) =>
+	stageElement(id).dispatchEvent(
+		new PointerEvent("pointerdown", {
+			bubbles: true,
+			button: 0,
+			pointerId,
+			clientX: x,
+			clientY: y,
+		}),
+	);
+const move = (x: number, y: number, pointerId = 1, altKey = false) =>
+	stage().dispatchEvent(
+		new PointerEvent("pointermove", {
+			bubbles: true,
+			pointerId,
+			clientX: x,
+			clientY: y,
+			altKey,
+		}),
+	);
+const release = (pointerId = 1) =>
+	stage().dispatchEvent(new PointerEvent("pointerup", { pointerId }));
+const clickElement = (id = "title-1") => {
+	press(id);
+	release();
+};
+function fullSizeStage() {
+	vi.spyOn(stage(), "getBoundingClientRect").mockReturnValue({
+		x: 0,
+		y: 0,
+		width: 1200,
+		height: 675,
+		top: 0,
+		left: 0,
+		right: 1200,
+		bottom: 675,
+		toJSON() {},
+	});
+}
 
 function fixture(role = "owner", write = true) {
-	let denied = false;
+	let denied = false,
+		failures = 0;
 	let draftGate: Promise<void> | undefined;
 	let releaseDraft: (() => void) | undefined;
 	let revision = 3,
@@ -138,6 +185,7 @@ function fixture(role = "owner", write = true) {
 			if (method === "app.call" && input.method === "readPresentation")
 				return result();
 			if (method === "outputs.replace") {
+				if (failures-- > 0) throw new Error("Network unreachable");
 				if (input.slot !== "slides" || input.expectedRevision !== revision)
 					throw new Error("Revision conflict");
 				const parsed = OsOutputContentSchema.parse(input.content);
@@ -175,6 +223,17 @@ function fixture(role = "owner", write = true) {
 				releaseDraft?.();
 				draftGate = undefined;
 			};
+		},
+		failSaves(count: number) {
+			failures = count;
+		},
+		saves: () =>
+			call.mock.calls.filter(([method]) => method === "outputs.replace").length,
+		draftWrites: () =>
+			call.mock.calls.filter(([method]) => method === "app.draft.write").length,
+		seedDraft(basis: number, text: string) {
+			draft = structuredClone({ revision: basis, content });
+			draft.content.deck!.slides[0]!.elements[0]!.text = text;
 		},
 		deny() {
 			denied = true;
@@ -218,9 +277,14 @@ function fixture(role = "owner", write = true) {
 		},
 	};
 }
-async function mount(role = "owner", write = true) {
+async function mount(
+	role = "owner",
+	write = true,
+	prepare?: (api: ReturnType<typeof fixture>) => void,
+) {
 	document.body.innerHTML = '<div id="app"></div>';
 	const api = fixture(role, write);
+	prepare?.(api);
 	const app = await mountSlidesClient(
 		document.getElementById("app")!,
 		api.bridge,
@@ -228,21 +292,11 @@ async function mount(role = "owner", write = true) {
 	cleanup.push(() => app.destroy());
 	return { ...api, app };
 }
-async function save() {
-	button("save").click();
-	await vi.waitFor(() =>
-		expect(document.querySelector(".slides-status")?.textContent).toContain(
-			"Saved",
-		),
-	);
-}
 
 describe("portable Slides canvas", () => {
-	it("posts edits before immediate iframe removal and restores them on reopen without a debounce wait", async () => {
+	it("posts edits before immediate iframe removal, restores them on reopen and saves them", async () => {
 		const api = await mount();
-		document
-			.querySelector<HTMLElement>('.slides-stage [data-element-id="title-1"]')!
-			.dispatchEvent(new Event("dblclick"));
+		stageElement().dispatchEvent(new Event("dblclick"));
 		const input = field("Edit canvas text") as HTMLTextAreaElement;
 		input.value = "Immediate draft";
 		input.dispatchEvent(new Event("input"));
@@ -253,32 +307,100 @@ describe("portable Slides canvas", () => {
 				content: expect.objectContaining({ kind: "presentation" }),
 			}),
 		);
+		api.app.destroy();
+		vi.useFakeTimers();
 		document.body.innerHTML = '<div id="app"></div>';
 		const reopened = await mountSlidesClient(
 			document.getElementById("app")!,
 			api.bridge,
 		);
 		cleanup.push(() => reopened.destroy());
+		expect(stageElement().textContent).toBe("Immediate draft");
+		expect(api.saves()).toBe(0);
+		await vi.advanceTimersByTimeAsync(1600);
+		expect(api.result().revision.content.slides[0]?.title).toBe(
+			"Immediate draft",
+		);
+		expect(api.draft()).toBeNull();
+	});
+	it("saves by itself after a pause, stays quiet and flashes Saved on Ctrl+S", async () => {
+		vi.useFakeTimers();
+		const api = await mount();
+		expect(document.querySelector("#save,#reload")).toBeNull();
+		clickElement();
+		format();
+		change("Text", "First edit");
+		await vi.advanceTimersByTimeAsync(1000);
+		change("Font size", "50");
+		await vi.advanceTimersByTimeAsync(1400);
+		expect(api.saves()).toBe(0);
+		await vi.advanceTimersByTimeAsync(200);
+		expect(api.saves()).toBe(1);
+		expect(status()).toBe("");
 		expect(
-			document.querySelector('.slides-stage [data-element-id="title-1"]')
-				?.textContent,
-		).toBe("Immediate draft");
-		expect(document.querySelector(".slides-status")?.textContent).toContain(
-			"Restored your unsaved changes",
+			api.result().revision.content.deck!.slides[0]!.elements[0],
+		).toMatchObject({ text: "First edit", style: { fontSize: 50 } });
+		expect(api.draft()).toBeNull();
+		key(stage(), { key: "s", ctrlKey: true });
+		await vi.advanceTimersByTimeAsync(0);
+		expect(status()).toBe("Saved");
+		await vi.advanceTimersByTimeAsync(2000);
+		expect(status()).toBe("");
+		expect(api.saves()).toBe(1);
+	});
+	it("never waits longer than the maximum while edits keep coming", async () => {
+		vi.useFakeTimers();
+		const api = await mount();
+		clickElement();
+		for (let index = 0; index < 6; index++) {
+			key(stage(), { key: "ArrowRight" });
+			await vi.advanceTimersByTimeAsync(1000);
+		}
+		expect(api.saves()).toBe(1);
+	});
+	it("keeps trying after a failed save and says so in plain words", async () => {
+		vi.useFakeTimers();
+		const api = await mount();
+		api.failSaves(1);
+		clickElement();
+		format();
+		change("Text", "Survives a failure");
+		await vi.advanceTimersByTimeAsync(1600);
+		expect(status()).toContain("not saved yet");
+		expect(api.draft()?.content.deck!.slides[0]!.elements[0]!.text).toBe(
+			"Survives a failure",
+		);
+		await vi.advanceTimersByTimeAsync(2100);
+		expect(api.result().revision.content.slides[0]?.title).toBe(
+			"Survives a failure",
+		);
+		expect(status()).toBe("");
+		expect(api.draft()).toBeNull();
+	});
+	it("saves when the tab is hidden", async () => {
+		const api = await mount();
+		clickElement();
+		format();
+		change("Text", "Hidden tab");
+		vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+		document.dispatchEvent(new Event("visibilitychange"));
+		await vi.waitFor(() =>
+			expect(api.result().revision.content.slides[0]?.title).toBe("Hidden tab"),
 		);
 	});
-	it.each(["save", "discard", "denial"] as const)(
+	it.each(["save", "denial"] as const)(
 		"clears drafts after all pending write receipts on %s",
 		async (action) => {
 			const api = await mount(),
 				release = api.holdDraftWrites();
 			clickElement();
+			format();
 			change("Text", "Pending draft");
-			if (action === "save") button("save").click();
+			if (action === "save") void api.app.save();
 			else {
-				if (action === "denial") api.deny();
-				button("reload").click();
-				button("reload").click();
+				api.deny();
+				api.external();
+				api.notify();
 			}
 			await Promise.resolve();
 			await Promise.resolve();
@@ -303,13 +425,14 @@ describe("portable Slides canvas", () => {
 		const api = await mount();
 		const before = api.result().revision.content.deck!;
 		clickElement();
+		format();
 		change("Text", "Edited title");
 		change("Font size", "56");
 		change("Fill", "#eefaff");
 		const notes = document.querySelector<HTMLTextAreaElement>("#notes")!;
 		notes.value = "New speaker note";
 		notes.dispatchEvent(new Event("change"));
-		await save();
+		await api.app.save();
 		const next = api.result().revision.content.deck!;
 		expect(next.theme).toEqual(before.theme);
 		expect(next.slides[0]).toMatchObject({
@@ -337,38 +460,36 @@ describe("portable Slides canvas", () => {
 			expect.objectContaining({ slot: "slides", expectedRevision: 3 }),
 		);
 	});
-	it("drags and resizes in slide coordinates with undo redo and layer ordering", async () => {
+	it("drags and resizes in slide coordinates with one draft and one undo step per gesture", async () => {
 		const api = await mount();
-		const stage = document.querySelector<HTMLElement>(".slides-stage")!;
-		vi.spyOn(stage, "getBoundingClientRect").mockReturnValue({
-			x: 0,
-			y: 0,
-			width: 1200,
-			height: 675,
-			top: 0,
-			left: 0,
-			right: 1200,
-			bottom: 675,
-			toJSON() {},
-		});
-		clickElement();
-		stage.dispatchEvent(
-			new PointerEvent("pointermove", {
-				bubbles: true,
-				pointerId: 1,
-				clientX: 130,
-				clientY: 100,
-				altKey: true,
-			}),
-		);
-		stage.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1 }));
+		fullSizeStage();
+		format();
+		press();
+		const node = stageElement();
+		move(102, 80, 1, true);
+		expect(node.style.left).toBe("6%");
+		move(130, 100, 1, true);
+		move(130, 100, 1, true);
+		// Only the moving node changes until the pointer is released.
+		expect(stageElement()).toBe(node);
+		expect(node.style.left).toBe("8.5%");
+		expect(api.draftWrites()).toBe(0);
+		expect(button("undo").disabled).toBe(true);
+		release();
+		expect(api.draftWrites()).toBe(1);
+		expect(stageElement()).toBe(node);
 		expect(field("X").value).toBe("102");
 		expect(field("Y").value).toBe("80");
 		button("undo").click();
 		expect(field("X").value).toBe("72");
+		expect(button("undo").disabled).toBe(true);
 		button("redo").click();
 		expect(field("X").value).toBe("102");
-		document.querySelector<HTMLElement>(".slides-resize")!.dispatchEvent(
+		const grip = (handle: string) =>
+			document.querySelector<HTMLElement>(
+				`.slides-resize[data-handle="${handle}"]`,
+			)!;
+		grip("se").dispatchEvent(
 			new PointerEvent("pointerdown", {
 				bubbles: true,
 				button: 0,
@@ -377,31 +498,103 @@ describe("portable Slides canvas", () => {
 				clientY: 0,
 			}),
 		);
-		stage.dispatchEvent(
-			new PointerEvent("pointermove", {
-				pointerId: 2,
-				clientX: 80,
-				clientY: 20,
+		move(80, 20, 2);
+		release(2);
+		expect(field("Width").value).toBe("880");
+		expect(field("Height").value).toBe("120");
+		// A resize stops at a size that can still be grabbed.
+		grip("se").dispatchEvent(
+			new PointerEvent("pointerdown", {
+				bubbles: true,
+				button: 0,
+				pointerId: 3,
+				clientX: 0,
+				clientY: 0,
 			}),
 		);
-		stage.dispatchEvent(new PointerEvent("pointerup", { pointerId: 2 }));
-		expect(field("WIDTH").value).toBe("880");
+		move(-2000, -2000, 3);
+		release(3);
+		expect(field("Width").value).toBe("40");
+		expect(field("Height").value).toBe("24");
+		button("undo").click();
 		button("forward").click();
-		await save();
+		await api.app.save();
 		expect(
-			api.result().revision.content.deck!.slides[0]!.elements.at(-1)?.id,
-		).toBe("title-1");
+			api.result().revision.content.deck!.slides[0]!.elements.at(-1),
+		).toMatchObject({ id: "title-1", x: 102, y: 80, width: 880, height: 120 });
+	});
+	it("ignores a press that barely moves and draws snap guides while dragging", async () => {
+		const api = await mount();
+		fullSizeStage();
+		press();
+		move(102, 81);
+		release();
+		expect(api.draftWrites()).toBe(0);
+		expect(button("undo").disabled).toBe(true);
+		press();
+		// The title's centre lands two units from the slide's centre and snaps.
+		move(226, 80);
+		expect(document.querySelectorAll(".slides-guide.v")).toHaveLength(1);
+		expect(stageElement().style.left).toBe(`${(200 / 1200) * 100}%`);
+		release();
+		expect(document.querySelectorAll(".slides-guide")).toHaveLength(0);
+		format();
+		expect(field("X").value).toBe("200");
+	});
+	it("folds a run of arrow-key nudges into one undo step", async () => {
+		const api = await mount();
+		clickElement();
+		format();
+		for (let index = 0; index < 3; index++) key(stage(), { key: "ArrowRight" });
+		key(stage(), { key: "ArrowDown", shiftKey: true });
+		expect(field("X").value).toBe("75");
+		expect(field("Y").value).toBe("70");
+		button("undo").click();
+		expect(field("X").value).toBe("72");
+		expect(field("Y").value).toBe("60");
+		expect(button("undo").disabled).toBe(true);
+		expect(api.saves()).toBe(0);
+	});
+	it("repaints only the changed thumbnail and leaves a focused field alone", async () => {
+		await mount();
+		const first = thumb("slide-1").querySelector(".slides-thumb-canvas")!,
+			second = thumb("slide-2").querySelector(".slides-thumb-canvas")!;
+		const firstPaint = first.firstChild,
+			secondPaint = second.firstChild;
+		clickElement();
+		format();
+		const size = field("Font size") as HTMLInputElement,
+			text = field("Text");
+		size.focus();
+		size.value = "9";
+		key(stage(), { key: "ArrowRight" });
+		expect(field("Font size")).toBe(size);
+		expect(size.value).toBe("9");
+		expect(field("Text")).toBe(text);
+		expect(field("X").value).toBe("73");
+		expect(thumb("slide-1").querySelector(".slides-thumb-canvas")).toBe(first);
+		expect(first.firstChild).not.toBe(firstPaint);
+		expect(second.firstChild).toBe(secondPaint);
 	});
 	it("adds shapes and SVG and duplicates or reorders slides with fresh identities", async () => {
 		const api = await mount();
-		field("Element type").value = "shape";
-		button("insert").click();
+		insert("shape");
+		format();
 		change("Shape", "ellipse");
 		change("Fill", "#abcdef");
 		button("duplicate-element").click();
-		button("duplicate-slide").click();
-		button("slide-down").click();
-		await save();
+		thumb("slide-1")
+			.querySelector<HTMLButtonElement>('[data-act="duplicate"]')!
+			.click();
+		const copyThumb = document.querySelector<HTMLElement>(
+			".slides-thumb.current",
+		)!;
+		expect(copyThumb.previousElementSibling).toBe(thumb("slide-1"));
+		key(copyThumb.querySelector(".slides-thumbnail")!, {
+			key: "ArrowDown",
+			altKey: true,
+		});
+		await api.app.save();
 		const slides = api.result().revision.content.deck!.slides;
 		expect(slides.map((slide) => slide.id)).toEqual([
 			"slide-1",
@@ -421,25 +614,54 @@ describe("portable Slides canvas", () => {
 			props: { kind: "ellipse" },
 			style: { background: "#abcdef" },
 		});
-		field("Element type").value = "svg";
-		button("insert").click();
+		insert("svg");
 		change(
 			"SVG markup",
 			'<svg xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10"/></svg>',
 		);
-		await save();
+		await api.app.save();
 		expect(
 			api.result().revision.content.deck!.slides[2]!.elements.at(-1)?.src,
 		).toContain("data:image/svg+xml");
 	});
+	it("adds a slide after the current one and moves through the rail by keyboard", async () => {
+		const api = await mount();
+		button("add-slide").click();
+		const order = () =>
+			Array.from(document.querySelectorAll<HTMLElement>(".slides-thumb")).map(
+				(item) => item.dataset.slideId,
+			);
+		expect(order()).toEqual([
+			"slide-1",
+			expect.stringMatching(/^slide-/),
+			"slide-2",
+		]);
+		const added = order()[1]!;
+		expect(thumb(added).classList.contains("current")).toBe(true);
+		key(thumb(added).querySelector(".slides-thumbnail")!, { key: "End" });
+		expect(thumb("slide-2").classList.contains("current")).toBe(true);
+		key(thumb("slide-2").querySelector(".slides-thumbnail")!, { key: "Home" });
+		key(thumb("slide-1").querySelector(".slides-thumbnail")!, {
+			key: "ArrowDown",
+		});
+		expect(thumb(added).classList.contains("current")).toBe(true);
+		thumb(added)
+			.querySelector<HTMLButtonElement>('[data-act="delete"]')!
+			.click();
+		expect(order()).toEqual(["slide-1", "slide-2"]);
+		button("undo").click();
+		expect(order()).toHaveLength(3);
+		await api.app.save();
+		expect(api.result().revision.content.deck!.slides).toHaveLength(3);
+	});
 	it("retains embedded images beyond the app.call argument limit and edits fit without dropping artwork", async () => {
 		const api = await mount();
-		field("Element type").value = "image";
-		button("insert").click();
+		insert("image");
+		format();
 		const src = "data:image/png;base64," + "A".repeat(90_000);
 		change("Image source", src);
 		change("Image fit", "cover");
-		await save();
+		await api.app.save();
 		expect(
 			api.result().revision.content.deck!.slides[0]!.elements.at(-1),
 		).toMatchObject({ type: "image", src, style: { fit: "cover" } });
@@ -448,45 +670,43 @@ describe("portable Slides canvas", () => {
 			expect.objectContaining({ slot: "slides", expectedRevision: 3 }),
 		);
 	});
-	it("keeps dirty inline text through external updates and CAS conflict until explicit discard", async () => {
+	it("keeps inline text through someone else's save and asks before overwriting the same part", async () => {
 		const api = await mount();
-		const target = document.querySelector<HTMLElement>(
-			'.slides-stage [data-element-id="title-1"]',
-		)!;
+		const target = stageElement();
 		clickElement();
-		document
-			.querySelector(".slides-stage")!
-			.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1 }));
-		expect(
-			document.querySelector('.slides-stage [data-element-id="title-1"]'),
-		).toBe(target);
+		expect(stageElement()).toBe(target);
 		target.dispatchEvent(new Event("dblclick"));
 		const input = field("Edit canvas text") as HTMLTextAreaElement;
 		input.value = "My uncommitted draft";
 		input.dispatchEvent(new Event("input"));
 		api.external();
 		api.notify();
+		await Promise.resolve();
 		expect(field("Edit canvas text")).toBe(input);
-		expect(document.querySelector(".slides-updates")?.textContent).toContain(
-			"draft is preserved",
-		);
-		button("save").click();
+		expect(input.value).toBe("My uncommitted draft");
+		input.dispatchEvent(new FocusEvent("blur"));
+		const updates = document.querySelector<HTMLElement>(".slides-updates")!;
 		await vi.waitFor(() =>
-			expect(document.querySelector(".slides-status")?.textContent).toContain(
-				"Revision conflict",
-			),
+			expect(updates.textContent).toContain("same parts you are editing"),
 		);
+		expect(updates.textContent).not.toMatch(/\d/);
+		expect(stageElement().textContent).toBe("My uncommitted draft");
 		expect(api.draft()?.content.deck!.slides[0]!.elements[0]!.text).toBe(
 			"My uncommitted draft",
 		);
-		button("reload").click();
-		expect(button("reload").textContent).toContain("Discard");
-		button("reload").click();
+		expect(api.saves()).toBe(0);
+		Array.from(updates.querySelectorAll("button"))
+			.find((option) => option.textContent === "Keep mine")!
+			.click();
 		await vi.waitFor(() =>
-			expect(
-				document.querySelector('.slides-stage [data-element-id="title-1"]')
-					?.textContent,
-			).toBe("External title"),
+			expect(api.result().revision.content.slides[0]?.title).toBe(
+				"My uncommitted draft",
+			),
+		);
+		expect(updates.textContent).toBe("");
+		expect(api.call).toHaveBeenCalledWith(
+			"outputs.replace",
+			expect.objectContaining({ expectedRevision: 4 }),
 		);
 	});
 	it("merges someone else's save into unsaved notes and saves both", async () => {
@@ -497,15 +717,8 @@ describe("portable Slides canvas", () => {
 		api.external();
 		api.notify();
 		await vi.waitFor(() =>
-			expect(document.querySelector(".slides-status")?.textContent).toContain(
-				"merged with revision",
-			),
+			expect(stageElement().textContent).toBe("External title"),
 		);
-		expect(
-			document.querySelector('.slides-stage [data-element-id="title-1"]')
-				?.textContent,
-		).toBe("External title");
-		button("save").click();
 		await vi.waitFor(() =>
 			expect(api.result().revision.content.deck!.slides[0]!.notes).toBe(
 				"Merged speaker note",
@@ -515,20 +728,78 @@ describe("portable Slides canvas", () => {
 			api.result().revision.content.deck!.slides[0]!.elements[0],
 		).toMatchObject({ id: "title-1", text: "External title" });
 	});
-	it("clears the visible canvas and disables presentation after source authority is denied", async () => {
+	it("merges after a save is refused because someone else saved first", async () => {
 		const api = await mount();
-		api.deny();
-		button("reload").click();
+		const notes = document.querySelector<HTMLTextAreaElement>("#notes")!;
+		notes.value = "Late note";
+		notes.dispatchEvent(new Event("change"));
+		api.external();
+		await api.app.save();
 		await vi.waitFor(() =>
-			expect(document.querySelector(".slides-status")?.textContent).toContain(
-				"Source access denied",
+			expect(api.result().revision.content.deck!.slides[0]!.notes).toBe(
+				"Late note",
 			),
 		);
 		expect(
+			api.result().revision.content.deck!.slides[0]!.elements[0],
+		).toMatchObject({ text: "External title" });
+		expect(status()).not.toContain("conflict");
+	});
+	it.each(["Keep my edits", "Use the saved version"])(
+		"asks what to keep when restored edits predate the saved presentation (%s)",
+		async (answer) => {
+			vi.useFakeTimers();
+			const api = await mount("owner", true, (fresh) =>
+				fresh.seedDraft(2, "Older unsaved title"),
+			);
+			const updates = document.querySelector<HTMLElement>(".slides-updates")!;
+			expect(stageElement().textContent).toBe("Older unsaved title");
+			expect(updates.textContent).toContain("changed somewhere else");
+			await vi.advanceTimersByTimeAsync(6000);
+			expect(api.saves()).toBe(0);
+			Array.from(updates.querySelectorAll("button"))
+				.find((option) => option.textContent === answer)!
+				.click();
+			await vi.advanceTimersByTimeAsync(0);
+			expect(updates.textContent).toBe("");
+			expect(api.draft()).toBeNull();
+			const mine = answer === "Keep my edits";
+			expect(api.saves()).toBe(mine ? 1 : 0);
+			expect(stageElement().textContent).toBe(
+				mine ? "Older unsaved title" : "Original title",
+			);
+			expect(api.result().revision.content.slides[0]?.title).toBe(
+				mine ? "Older unsaved title" : "Original title",
+			);
+		},
+	);
+	it("applies someone else's save in place and keeps undo history", async () => {
+		const api = await mount();
+		clickElement("artwork");
+		key(stage(), { key: "ArrowRight" });
+		await api.app.save();
+		const node = stageElement("artwork");
+		api.external();
+		api.notify();
+		await vi.waitFor(() =>
+			expect(stageElement().textContent).toBe("External title"),
+		);
+		expect(stageElement("artwork")).toBe(node);
+		expect(node.classList.contains("selected")).toBe(true);
+		expect(button("undo").disabled).toBe(false);
+	});
+	it("clears the visible canvas and disables presentation after source authority is denied", async () => {
+		const api = await mount();
+		api.deny();
+		api.external();
+		api.notify();
+		await vi.waitFor(() => expect(status()).toContain("Source access denied"));
+		expect(
 			document.querySelectorAll(".slides-stage [data-element-id]"),
 		).toHaveLength(0);
+		expect(document.querySelectorAll(".slides-thumb")).toHaveLength(0);
 		expect(button("present").disabled).toBe(true);
-		expect(button("export").disabled).toBe(true);
+		expect(button("more").disabled).toBe(true);
 		expect(button("insert").disabled).toBe(true);
 	});
 	it("refreshes clean canvases only for the trusted parent and bound output", async () => {
@@ -537,21 +808,16 @@ describe("portable Slides canvas", () => {
 		api.notify(null);
 		api.notify(window.parent, "wrong");
 		api.notify(window.parent, "slides", "wrong");
-		expect(
-			document.querySelector('.slides-stage [data-element-id="title-1"]')
-				?.textContent,
-		).toBe("Original title");
+		expect(stageElement().textContent).toBe("Original title");
 		api.notify();
 		await vi.waitFor(() =>
-			expect(
-				document.querySelector('.slides-stage [data-element-id="title-1"]')
-					?.textContent,
-			).toBe("External title"),
+			expect(stageElement().textContent).toBe("External title"),
 		);
 	});
-	it("presents the full canvas and saves before scoped PPTX and PDF export", async () => {
+	it("presents the full canvas and exports the saved edits without a manual save", async () => {
 		const api = await mount();
 		clickElement();
+		format();
 		change("Text", "Exported title");
 		button("present").click();
 		expect(
@@ -559,13 +825,22 @@ describe("portable Slides canvas", () => {
 				'.slides-present-stage [data-element-id="artwork"] [data-slide-part="title"]',
 			)?.textContent,
 		).toBe("Artwork");
-		expect(
-			document.querySelector(".slides-present-status")?.textContent,
-		).toContain("Draft");
+		expect(document.querySelector("#presenter")?.textContent).not.toMatch(
+			/unsaved|draft/i,
+		);
+		expect(document.querySelector("#position")?.textContent).toBe("1 / 2");
+		key(document.querySelector("#presenter")!, { key: " " });
+		expect(document.querySelector("#position")?.textContent).toBe("2 / 2");
+		key(document.querySelector("#presenter")!, { key: "Home" });
+		expect(document.querySelector("#position")?.textContent).toBe("1 / 2");
 		button("next").click();
 		expect(document.querySelector("#position")?.textContent).toBe("2 / 2");
 		button("exit").click();
-		button("export").click();
+		const download = (format: string) =>
+			document
+				.querySelector<HTMLButtonElement>(`[data-export="${format}"]`)!
+				.click();
+		download("pptx");
 		await vi.waitFor(() =>
 			expect(api.call).toHaveBeenCalledWith("app.exportOutput", {
 				slot: "slides",
@@ -576,9 +851,8 @@ describe("portable Slides canvas", () => {
 		expect(api.result().revision.content.slides[0]!.title).toBe(
 			"Exported title",
 		);
-		await vi.waitFor(() => expect(button("export").disabled).toBe(false));
-		field("Export format").value = "pdf";
-		button("export").click();
+		await vi.waitFor(() => expect(button("more").disabled).toBe(false));
+		download("pdf");
 		await vi.waitFor(() =>
 			expect(api.call).toHaveBeenCalledWith("app.exportOutput", {
 				slot: "slides",
@@ -587,24 +861,38 @@ describe("portable Slides canvas", () => {
 			}),
 		);
 	});
+	it("opens Format on demand and with Enter on a selected element", async () => {
+		await mount();
+		const panel = document.querySelector<HTMLElement>(".slides-inspector")!;
+		expect(panel.dataset.open).toBe("false");
+		expect(field("Text")).toBeNull();
+		clickElement();
+		key(stage(), { key: "Enter" });
+		expect(panel.dataset.open).toBe("true");
+		expect(button("format").getAttribute("aria-expanded")).toBe("true");
+		expect(field("Text").value).toBe("Original title");
+		expect(field("X").closest("details")?.open).toBe(false);
+		expect((field("Fill") as HTMLInputElement).type).toBe("color");
+		button("format").click();
+		expect(panel.dataset.open).toBe("false");
+	});
 	it.each([
 		["read", true],
 		["owner", false],
 	])("requires both role and write grant (%s)", async (role, write) => {
 		const api = await mount(role, write);
 		clickElement();
+		format();
 		expect(field("Text").disabled).toBe(true);
-		expect(button("save").disabled).toBe(true);
+		expect(status()).toBe("View only");
 		expect(button("insert").disabled).toBe(true);
+		expect(button("add-slide").disabled).toBe(true);
 		expect(button("present").disabled).toBe(false);
-		document
-			.querySelector(".slides-stage")!
-			.dispatchEvent(
-				new KeyboardEvent("keydown", { key: "Delete", bubbles: true }),
-			);
-		expect(
-			api.call.mock.calls.some(([method]) => method === "outputs.replace"),
-		).toBe(false);
+		key(stage(), { key: "Delete" });
+		key(stage(), { key: "s", ctrlKey: true });
+		await Promise.resolve();
+		expect(api.saves()).toBe(0);
+		expect(api.draftWrites()).toBe(0);
 	});
 	it("runs the standalone bundle without importing a host editor", async () => {
 		document.body.innerHTML = '<div id="app"></div>';
@@ -626,9 +914,9 @@ describe("portable Slides canvas", () => {
 			Object.assign(window, { tedix: api.bridge }),
 		);
 		await vi.waitFor(() =>
-			expect(document.querySelector(".slides-meta")?.textContent).toContain(
-				"revision 3",
-			),
+			expect(
+				document.querySelector<HTMLElement>(".slides-app")?.dataset.revision,
+			).toBe("3"),
 		);
 		expect(SLIDES_CLIENT_SOURCE).not.toMatch(
 			/import\s*\(|from\s*["']react|native-editor/,
