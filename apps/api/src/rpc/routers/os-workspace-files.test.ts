@@ -9,6 +9,7 @@ import {
 	osBlueprintRevisions,
 	osBlueprints,
 	osGadgetCode,
+	osGadgetCodeBlobs,
 	osGadgetRevisions,
 	osGadgets,
 	osWorkspaces,
@@ -67,6 +68,7 @@ function fixture() {
 			osGadgets,
 			osGadgetRevisions,
 			osGadgetCode,
+			osGadgetCodeBlobs,
 			auditEvents,
 		),
 	);

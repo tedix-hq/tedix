@@ -4,7 +4,10 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { mintWorkspaceAppSession } from "@tedix/auth/workspace-app-session";
 import type { WorkspaceAppHostDO } from "../../src/workspace-app-host-do";
 import { appRuntimeCodeDigest } from "@tedix/api-contract/utils/app-runtime";
-import { osGadgetCode } from "@tedix/db/schema/os-workspaces";
+import {
+	osGadgetCode,
+	osGadgetCodeBlobs,
+} from "@tedix/db/schema/os-workspaces";
 import { tableDdl } from "@tedix/db/test/schema-ddl";
 
 const gadgetId = "22222222-2222-4222-8222-222222222222";
@@ -549,7 +552,9 @@ describe("proposal facet lifecycle", () => {
 	});
 	it("reads a published revision's stored code when a warm call carries none", async () => {
 		const DB = (env as unknown as { DB: D1Database }).DB;
-		for (const ddl of tableDdl(osGadgetCode, { foreignKeys: false }))
+		for (const ddl of [osGadgetCode, osGadgetCodeBlobs].flatMap((table) =>
+			tableDdl(table, { foreignKeys: false }),
+		))
 			await DB.prepare(
 				ddl
 					.replace("CREATE TABLE ", "CREATE TABLE IF NOT EXISTS ")

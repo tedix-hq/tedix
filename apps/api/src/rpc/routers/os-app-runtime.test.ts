@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { getOsGadgetCode } from "@tedix/db/queries/os-workspaces/gadgets";
 import { createRouterClient } from "@orpc/server";
 import { appRuntimeCodeDigest } from "@tedix/api-contract/utils/app-runtime";
 import { createDbClient } from "@tedix/db/client";
@@ -10,6 +11,7 @@ import {
 	osGadgets,
 	osGadgetRevisions,
 	osGadgetCode,
+	osGadgetCodeBlobs,
 	osGadgetExecutions,
 	osWorkspaceResources,
 	osOutputs,
@@ -73,6 +75,7 @@ async function fixture(manifestOverrides: Record<string, unknown> = {}) {
 			osGadgets,
 			osGadgetRevisions,
 			osGadgetCode,
+			osGadgetCodeBlobs,
 			osGadgetExecutions,
 			osWorkspaceResources,
 			osOutputs,
@@ -1500,12 +1503,10 @@ describe("app chat drafts", () => {
 		expect(signed.codeDigest).toBe(
 			await appRuntimeCodeDigest(
 				JSON.parse(
-					(
-						await f.db
-							.select()
-							.from(osGadgetCode)
-							.where(eq(osGadgetCode.revisionId, merged.revision.id))
-					)[0]!.files,
+					(await getOsGadgetCode(f.db, {
+						organizationId: "org-1",
+						revisionId: merged.revision.id,
+					}))!.files,
 				),
 			),
 		);
@@ -2107,13 +2108,11 @@ describe("MCP app editing", () => {
 			expectedRevisionId: published.revision.id,
 		});
 		expect(restored.revision.revision).toBe(3);
-		const stored = await f.db
-			.select()
-			.from(osGadgetCode)
-			.where(eq(osGadgetCode.revisionId, restored.revision.id));
-		expect(JSON.parse(stored[0].files)["server.js"]).toBe(
-			"export class App {}",
-		);
+		const stored = await getOsGadgetCode(f.db, {
+			organizationId: "org-1",
+			revisionId: restored.revision.id,
+		});
+		expect(JSON.parse(stored!.files)["server.js"]).toBe("export class App {}");
 		expect(
 			(await f.agent.revisions(scope)).revisions.map((r) => r.revision),
 		).toEqual([3, 2, 1]);

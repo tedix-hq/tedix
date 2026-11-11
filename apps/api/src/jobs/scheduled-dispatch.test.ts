@@ -32,6 +32,7 @@ const catchup = vi.hoisted(() => ({
 	ingest: vi.fn(),
 	billing: vi.fn(),
 	stall: vi.fn().mockResolvedValue(0),
+	dedupe: vi.fn().mockResolvedValue({ status: "off" }),
 	offload: vi.fn().mockResolvedValue({
 		status: "idle",
 		cursor: 0,
@@ -103,6 +104,9 @@ vi.mock("./repository-observer", () => ({
 }));
 vi.mock("./support-maintenance", () => ({
 	maintainSupport: vi.fn().mockResolvedValue({ mirrors: 0 }),
+}));
+vi.mock("../services/os-gadget-code-dedupe", () => ({
+	runGadgetCodeDedupeTick: catchup.dedupe,
 }));
 vi.mock("../services/os-output-revision-offload", () => ({
 	runOutputRevisionBodyOffloadTick: catchup.offload,
@@ -217,6 +221,10 @@ it("runs bounded gateway-only catch-up on the existing two-minute trigger", asyn
 		id: "output-revision-body-offload",
 		status: "success",
 	});
+	// The app code backfill is asked every tick and decides from its own state.
+	expect(catchup.dedupe).toHaveBeenCalledWith(
+		expect.objectContaining({ now: new Date(Date.UTC(2026, 8, 24, 0, 0)) }),
+	);
 });
 
 it("fails the catch-up receipt on a gateway error but continues sibling cron paths", async () => {

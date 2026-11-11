@@ -9,6 +9,7 @@ import {
 	osGadgets,
 	osGadgetRevisions,
 	osGadgetCode,
+	osGadgetCodeBlobs,
 	osGadgetExecutions,
 	osWorkspaceResources,
 } from "@tedix/db/schema/os-workspaces";
@@ -68,6 +69,7 @@ async function fixture(
 			osGadgets,
 			osGadgetRevisions,
 			osGadgetCode,
+			osGadgetCodeBlobs,
 			osGadgetExecutions,
 			osWorkspaceResources,
 			organizations,

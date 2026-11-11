@@ -1436,6 +1436,10 @@
 		{
 			"name": "20261110172747_share_email_codes/migration.sql",
 			"sha256": "2e6c06f78208d842f3c1fda7ccd6389093994dba5626948af0a761505e68fa3b"
+		},
+		{
+			"name": "20261111203352_os_gadget_code_blobs/migration.sql",
+			"sha256": "be9e0e0ed095bf9cfce78e02b0fde0628cb4f1aa08502a822c7b3fe1934d121f"
 		}
 	]
 }

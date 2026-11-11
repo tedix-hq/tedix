@@ -6,7 +6,6 @@ import {
 	type OsGadgetRevisionRow,
 	type OsOutputRevisionRow,
 	osCollaborationProposals,
-	osGadgetCode,
 	osGadgetRevisions,
 	osGadgetExecutions,
 	osGadgets,
@@ -15,6 +14,10 @@ import {
 } from "../../schema/os-workspaces";
 import { mergeOsOutputAccessEnvelopes } from "../../utils/os-output-access-envelope";
 import { chunkForBoundParams } from "../../utils/batch";
+import {
+	buildOsGadgetRevisionCodeStatements,
+	osGadgetCodeSha256,
+} from "./gadget-code";
 
 export interface OsCollaborationProposalScope {
 	organizationId: string;
@@ -411,25 +414,23 @@ export async function mergeOsCollaborationProposal(
 			})
 			.where(and(proposalFence, sql`changes() = 1`))
 			.returning();
-		// The code row selects from the revision just written, so it lands only
-		// when the fenced revision insert did: one batch, no half-recorded app.
-		const insertCode = code
-			? db.insert(osGadgetCode).select(
-					db
-						.select({
-							revisionId: osGadgetRevisions.id,
-							organizationId: osGadgetRevisions.organizationId,
-							gadgetId: osGadgetRevisions.gadgetId,
-							files: sql<string>`${code.files}`.as("files"),
-							codeLength: sql<number>`${code.codeLength}`.as("code_length"),
-							createdAt: sql<string>`${now}`.as("created_at"),
-						})
-						.from(osGadgetRevisions)
-						.where(eq(osGadgetRevisions.id, params.revisionId)),
-				)
+		// The code statements select from the revision just written, so they land
+		// only when the fenced revision insert did: one batch, no half-recorded app.
+		const codeStatements = code
+			? buildOsGadgetRevisionCodeStatements(db, {
+					...code,
+					revisionId: params.revisionId,
+					sha256: await osGadgetCodeSha256(code.files),
+					createdAt: now,
+				})
 			: null;
-		const [revisionRows, , proposalRows] = insertCode
-			? await db.batch([insertRevision, advancePointer, settle, insertCode])
+		const [revisionRows, , proposalRows] = codeStatements
+			? await db.batch([
+					insertRevision,
+					advancePointer,
+					settle,
+					...codeStatements,
+				])
 			: await db.batch([insertRevision, advancePointer, settle]);
 		const revision = revisionRows[0];
 		const mergedProposal = proposalRows[0];

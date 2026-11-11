@@ -63,7 +63,16 @@ function fixture(options: D1FacadeOptions = {}) {
 			gadget_id TEXT NOT NULL REFERENCES os_gadgets(id) ON DELETE CASCADE,
 			files TEXT NOT NULL,
 			code_length INTEGER NOT NULL,
-			created_at TEXT NOT NULL DEFAULT (datetime('now'))
+			created_at TEXT NOT NULL DEFAULT (datetime('now')),
+			files_sha256 TEXT
+		);
+		CREATE TABLE os_gadget_code_blobs (
+			organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+			sha256 TEXT NOT NULL,
+			files TEXT NOT NULL,
+			code_length INTEGER NOT NULL,
+			created_at TEXT NOT NULL DEFAULT (datetime('now')),
+			PRIMARY KEY (organization_id, sha256)
 		);
 		INSERT INTO organizations (id) VALUES ('org-1'), ('org-2');
 		INSERT INTO os_workspaces (id, organization_id, name, created_by_kind, created_by_id)
@@ -170,6 +179,99 @@ describe("os gadgets", () => {
 				revisionId: "rev-2",
 			}),
 		).toBeUndefined();
+	});
+
+	it("stores identical app files once however many revisions carry them", async () => {
+		const { db, sqlite } = fixture();
+		await createOsGadget(db, gadget);
+		const files = JSON.stringify({ "server.js": "export {}", "client.js": "" });
+		for (const [index, id] of ["rev-1", "rev-2", "rev-3"].entries())
+			expect(
+				await createOsGadgetRevision(db, {
+					...revisionParams(id, index),
+					code: { files, codeLength: 9 },
+				}),
+			).toMatchObject({ ok: true });
+		expect(
+			sqlite
+				.prepare(
+					"SELECT revision_id, files, length(files_sha256) AS hash_length FROM os_gadget_code ORDER BY revision_id",
+				)
+				.all(),
+		).toEqual(
+			["rev-1", "rev-2", "rev-3"].map((revision_id) => ({
+				revision_id,
+				files: "",
+				hash_length: 64,
+			})),
+		);
+		expect(
+			sqlite
+				.prepare(
+					"SELECT organization_id, files, code_length FROM os_gadget_code_blobs",
+				)
+				.all(),
+		).toEqual([{ organization_id: "org-1", files, code_length: 9 }]);
+		expect(
+			await getOsGadgetCode(db, {
+				organizationId: "org-1",
+				revisionId: "rev-3",
+			}),
+		).toMatchObject({ gadgetId: "gd-1", files, codeLength: 9 });
+		// Different files are a different blob.
+		const changed = JSON.stringify({ "server.js": "export default 1" });
+		await createOsGadgetRevision(db, {
+			...revisionParams("rev-4", 3),
+			code: { files: changed, codeLength: 16 },
+		});
+		expect(
+			sqlite.prepare("SELECT count(*) AS n FROM os_gadget_code_blobs").get(),
+		).toEqual({ n: 2 });
+		expect(
+			(await getOsGadgetCode(db, {
+				organizationId: "org-1",
+				revisionId: "rev-4",
+			}))!.files,
+		).toBe(changed);
+	});
+
+	it("stores no blob when the guarded revision insert loses", async () => {
+		const { db, sqlite } = fixture();
+		await createOsGadget(db, gadget);
+		await createOsGadgetRevision(db, revisionParams("rev-1"));
+		const stale = await createOsGadgetRevision(db, {
+			...revisionParams("rev-2", 0),
+			code: { files: '{"server.js":"x"}', codeLength: 1 },
+		});
+		expect(stale).toEqual({ ok: false, reason: "revision_conflict" });
+		expect(
+			sqlite.prepare("SELECT count(*) AS n FROM os_gadget_code_blobs").get(),
+		).toEqual({ n: 0 });
+	});
+
+	it("reads a row written before the files were shared, and refuses a dangling pointer", async () => {
+		const { db, sqlite } = fixture();
+		await createOsGadget(db, gadget);
+		await createOsGadgetRevision(db, revisionParams("rev-1"));
+		await createOsGadgetRevision(db, revisionParams("rev-2"));
+		const insert = sqlite.prepare(
+			"INSERT INTO os_gadget_code (revision_id, organization_id, gadget_id, files, code_length, files_sha256) VALUES (?, 'org-1', 'gd-1', ?, 4, ?)",
+		);
+		insert.run("rev-1", '{"server.js":"old!"}', null);
+		insert.run("rev-2", "", "0".repeat(64));
+		expect(
+			await getOsGadgetCode(db, {
+				organizationId: "org-1",
+				revisionId: "rev-1",
+			}),
+		).toMatchObject({
+			files: '{"server.js":"old!"}',
+			codeLength: 4,
+			filesSha256: null,
+		});
+		await expect(
+			getOsGadgetCode(db, { organizationId: "org-1", revisionId: "rev-2" }),
+		).rejects.toThrow("Gadget code files are missing");
 	});
 
 	it("returns a typed CAS failure on a stale expectedRevision without side effects", async () => {

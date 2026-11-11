@@ -302,6 +302,7 @@
 		"./queries/workspace-feed/snapshot": "./src/queries/workspace-feed/snapshot.ts",
 		"./schema/workspace-feed": "./src/schema/workspace-feed.ts",
 		"./queries/os-workspaces/gadgets": "./src/queries/os-workspaces/gadgets.ts",
+		"./queries/os-workspaces/gadget-code": "./src/queries/os-workspaces/gadget-code.ts",
 		"./queries/os-workspaces/blueprints": "./src/queries/os-workspaces/blueprints.ts",
 		"./queries/os-workspaces/executions": "./src/queries/os-workspaces/executions.ts",
 		"./queries/os-workspaces/instantiate": "./src/queries/os-workspaces/instantiate.ts",

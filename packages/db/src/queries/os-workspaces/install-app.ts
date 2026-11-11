@@ -8,6 +8,10 @@ import {
 	osGadgetCode,
 	osWorkspaceResources,
 } from "../../schema/os-workspaces";
+import {
+	buildEnsureOsGadgetCodeBlobStatement,
+	splitOsGadgetCodeRow,
+} from "./gadget-code";
 
 export async function findWorkspaceOutputResource(
 	db: DbQueryClient,
@@ -191,6 +195,7 @@ export async function installWorkspaceApp(
 	db: DbQueryClient,
 	params: InstallWorkspaceAppParams,
 ) {
+	const { blob, code } = await splitOsGadgetCodeRow(params.code);
 	await db.batch([
 		...templateStatements(db, params),
 		db
@@ -201,9 +206,11 @@ export async function installWorkspaceApp(
 			.insert(osGadgetRevisions)
 			.values(params.revision)
 			.onConflictDoNothing({ target: osGadgetRevisions.id }),
+		// The files are stored once per content; this install adds a pointer.
+		buildEnsureOsGadgetCodeBlobStatement(db, blob),
 		db
 			.insert(osGadgetCode)
-			.values(params.code)
+			.values(code)
 			.onConflictDoNothing({ target: osGadgetCode.revisionId }),
 		...(params.resource
 			? [

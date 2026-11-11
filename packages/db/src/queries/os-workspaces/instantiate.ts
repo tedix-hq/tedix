@@ -7,6 +7,10 @@ import type { BatchItem } from "drizzle-orm/batch";
 import type { DbQueryClient } from "../../query-client";
 import { chunkForBoundParams } from "../../utils/batch";
 import {
+	buildEnsureOsGadgetCodeBlobStatement,
+	splitOsGadgetCodeRow,
+} from "./gadget-code";
+import {
 	type NewOsBlueprintRevisionRow,
 	type NewOsBlueprintRow,
 	type NewOsGadgetRevisionRow,
@@ -110,6 +114,11 @@ export async function instantiateOsBlueprint(
 		RESOURCES_PER_STATEMENT,
 	);
 	const copy = params.blueprintCopy;
+	// Apps that share the same files share one blob; each keeps its own pointer.
+	const code = await Promise.all((params.code ?? []).map(splitOsGadgetCodeRow));
+	const blobs = new Map(
+		code.map(({ blob }) => [`${blob.organizationId}:${blob.sha256}`, blob]),
+	);
 	const statements = [
 		...(copy
 			? [
@@ -127,7 +136,10 @@ export async function instantiateOsBlueprint(
 		...revisionChunks.map((rows) =>
 			db.insert(osGadgetRevisions).values(rows).returning(),
 		),
-		...(params.code ?? []).map((row) => db.insert(osGadgetCode).values(row)),
+		...[...blobs.values()].map((blob) =>
+			buildEnsureOsGadgetCodeBlobStatement(db, blob),
+		),
+		...code.map((row) => db.insert(osGadgetCode).values(row.code)),
 		...(params.outputs ?? []).map((row) => db.insert(osOutputs).values(row)),
 		...(params.outputRevisions ?? []).map((row) =>
 			db.insert(osOutputRevisions).values(row),
