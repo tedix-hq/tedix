@@ -184,9 +184,10 @@ try {
 				name: "Workspace files",
 			});
 			await panel.waitFor();
+			// Each row also has an "Actions for …" menu button; count the rows.
 			const rows = panel
 				.getByRole("list", { name: "Files" })
-				.getByRole("button");
+				.locator("button.workspace-outputs-row");
 			await rows.first().waitFor();
 			await page.evaluate(() => document.fonts.ready);
 			assert.equal(
