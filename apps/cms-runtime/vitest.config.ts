@@ -5,7 +5,7 @@ import { emdashVirtualStubs } from "./vite.config";
 export default defineConfig({
 	plugins: [
 		cloudflareTest({
-			experimental: { newConfig: true },
+			config: true,
 			remoteBindings: false,
 			miniflare: {
 				// The config binds the class and Workflows by this Worker's name. The

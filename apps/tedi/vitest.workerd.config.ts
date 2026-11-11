@@ -4,7 +4,7 @@ import { defineConfig } from "vite-plus";
 export default defineConfig({
 	plugins: [
 		cloudflareTest({
-			experimental: { newConfig: true },
+			config: true,
 			remoteBindings: false,
 		}),
 	],
