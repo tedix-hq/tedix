@@ -40,6 +40,8 @@ import {
 	rollbackProvisionalOutcome,
 	resolveApprovalRequest,
 	resolveToolCatalogApprovalRequest,
+	reconcileToolReviewApproval,
+	supersedeToolReviewApprovals,
 } from "./approvals";
 
 function setup() {
@@ -147,7 +149,7 @@ it("keeps a pending upstream tool invisible until its exact approval is resolved
 			appId: "app-review",
 			reviewBatchId: "batch-review",
 			expectedCount: 1,
-			changes: [],
+			changes: [{ rowId: "tool-row", schemaSourceHash: "source-hash" }],
 		},
 		createdAt: "2026-11-06T00:00:00.000Z",
 		expiresAt: "2027-11-06T00:00:00.000Z",
@@ -170,6 +172,148 @@ it("keeps a pending upstream tool invisible until its exact approval is resolved
 		(await getAppByIdWithToolsForOrganization(db, "app-review", "org-review"))
 			?.tools,
 	).toEqual([expect.objectContaining({ toolId: "read_records" })]);
+});
+
+async function setupToolReview() {
+	const { db } = setup();
+	await db
+		.insert(organizations)
+		.values({ id: "org", name: "Org", slug: "org" });
+	await db
+		.insert(apps)
+		.values({ id: "app", organizationId: "org", name: "App", slug: "app" });
+	await db.insert(appTools).values(
+		["a", "b"].map((key) => ({
+			id: key,
+			appId: "app",
+			toolId: `read_${key}`,
+			toolTypeId: "mcp",
+			title: key,
+			schemaSourceHash: `hash-${key}`,
+			reviewState: "pending" as const,
+			reviewBatchId: `batch-${key}`,
+			reviewDiff: {
+				source: "upstream_mcp" as const,
+				before: null,
+				after: {
+					description: null,
+					inputSchema: { type: "object" as const, properties: {} },
+					outputSchema: null,
+					schemaSourceHash: `hash-${key}`,
+				},
+			},
+		})),
+	);
+	const input = {
+		organizationId: "org",
+		appId: "app",
+		appName: "App",
+		tediId: "anchor",
+		createdAt: new Date().toISOString(),
+		expiresAt: "2099-01-01T00:00:00.000Z",
+	};
+	return { db, input };
+}
+
+it("re-batches all pending tools and supersedes older cards without losing history", async () => {
+	const { db, input } = await setupToolReview();
+	const [old] = await reconcileToolReviewApproval(db, input);
+	const [current] = await reconcileToolReviewApproval(db, input);
+	expect(current!.payload).toMatchObject({
+		expectedCount: 2,
+		changes: [
+			expect.objectContaining({ rowId: "a", schemaSourceHash: "hash-a" }),
+			expect.objectContaining({ rowId: "b", schemaSourceHash: "hash-b" }),
+		],
+	});
+	expect(
+		(
+			await listApprovalRequests(db, { orgId: "org", status: "pending" })
+		).data.map((row) => row.id),
+	).toEqual([current!.id]);
+	expect(await getApprovalRequestById(db, old!.id)).toMatchObject({
+		status: "cancelled",
+		resolution: expect.stringContaining("Superseded"),
+		payload: { supersededBy: current!.id, expectedCount: 2 },
+	});
+	expect(
+		await resolveToolCatalogApprovalRequest(db, old!.id, {
+			status: "approved",
+			resolvedBy: "owner",
+		}),
+	).toBeUndefined();
+	expect(
+		await resolveToolCatalogApprovalRequest(db, current!.id, {
+			status: "approved",
+			resolvedBy: "owner",
+		}),
+	).toMatchObject({ status: "approved" });
+	expect(
+		(await db.select().from(appTools)).every(
+			(row) => row.reviewState === "live",
+		),
+	).toBe(true);
+});
+
+it("refuses a count mismatch, then replaces it with an approvable snapshot", async () => {
+	const { db, input } = await setupToolReview();
+	const [old] = await reconcileToolReviewApproval(db, input);
+	await db
+		.update(appTools)
+		.set({ reviewState: "live" })
+		.where(sql`id = 'b'`);
+	expect(
+		await resolveToolCatalogApprovalRequest(db, old!.id, {
+			status: "approved",
+			resolvedBy: "owner",
+		}),
+	).toBeUndefined();
+	expect(
+		(
+			await db
+				.select()
+				.from(appTools)
+				.where(sql`id = 'a'`)
+		)[0]!.reviewState,
+	).toBe("pending");
+	const [current] = await reconcileToolReviewApproval(db, input);
+	expect(current!.payload.expectedCount).toBe(1);
+	expect(
+		await resolveToolCatalogApprovalRequest(db, current!.id, {
+			status: "approved",
+			resolvedBy: "owner",
+		}),
+	).toMatchObject({ status: "approved" });
+});
+
+it("refuses changed hashes with the same count and leaves other tenants untouched", async () => {
+	const { db, input } = await setupToolReview();
+	const [old] = await reconcileToolReviewApproval(db, input);
+	await db
+		.update(appTools)
+		.set({ schemaSourceHash: "changed" })
+		.where(sql`id = 'a'`);
+	expect(
+		await resolveToolCatalogApprovalRequest(db, old!.id, {
+			status: "approved",
+			resolvedBy: "owner",
+		}),
+	).toBeUndefined();
+	expect(
+		await reconcileToolReviewApproval(db, {
+			...input,
+			organizationId: "other",
+		}),
+	).toEqual([]);
+	expect((await getApprovalRequestById(db, old!.id))!.status).toBe("pending");
+	await supersedeToolReviewApprovals(db, {
+		organizationId: "other",
+		appId: "app",
+	});
+	expect((await getApprovalRequestById(db, old!.id))!.status).toBe("pending");
+	await db.update(appTools).set({ reviewState: "live" });
+	expect(await reconcileToolReviewApproval(db, input)).toEqual([]);
+	expect((await getApprovalRequestById(db, old!.id))!.status).toBe("cancelled");
 });
 
 async function seedApproval(

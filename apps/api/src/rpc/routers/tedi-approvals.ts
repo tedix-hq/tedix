@@ -6,6 +6,7 @@ import {
 import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { disposableCleanupApprover } from "../../services/disposable-cleanup-approval";
 import { approvalDecision } from "@tedix/api-contract/utils/approval-decision";
+import { ensurePendingToolReviewApprovals } from "../../services/tool-review-approvals";
 /**
  * oRPC Tedi Approvals Router
  * Human-in-the-loop approval queue for tedi governance
@@ -1386,6 +1387,15 @@ const resolveProcedure = authedOs.resolve
 			);
 		}
 		if (existing.status !== "pending") {
+			if (
+				existing.actionType === "mcp.tool_catalog_change" &&
+				existing.status === "cancelled"
+			) {
+				throw createError(
+					ErrorCodes.CONFLICT,
+					"These tools changed since this card was created. Refresh to review the latest card; no decision was recorded.",
+				);
+			}
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
 				`Cannot resolve request with status "${existing.status}"`,
@@ -1428,6 +1438,26 @@ const resolveProcedure = authedOs.resolve
 				: await resolveApprovalRequest(context.db, input.id, resolutionParams);
 
 		if (!resolved) {
+			if (
+				existing.actionType === "mcp.tool_catalog_change" &&
+				typeof existing.payload.appId === "string"
+			) {
+				const app = await getAppByIdForOrganization(
+					context.db,
+					existing.payload.appId,
+					existing.orgId,
+				);
+				if (app)
+					await ensurePendingToolReviewApprovals(context.db, {
+						organizationId: existing.orgId,
+						appId: app.id,
+						appName: app.name,
+					});
+				throw createError(
+					ErrorCodes.CONFLICT,
+					"These tools changed since this card was created. Refresh to review the latest card; no decision was recorded.",
+				);
+			}
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
 				"Failed to resolve request. It may have already been resolved.",

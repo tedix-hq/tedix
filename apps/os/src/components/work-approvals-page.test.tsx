@@ -158,6 +158,7 @@ describe("expiryLabel", () => {
 		const now = new Date("2026-10-25T22:00:00Z");
 		expect(expiryLabel("2026-10-26T18:00:00Z", now)).toBe("expires in 20h");
 		expect(expiryLabel("2026-10-25T19:00:00Z", now)).toBe("expired 3h ago");
+		expect(expiryLabel("2026-11-24T22:00:00Z", now)).toBe("expires Nov 24");
 	});
 });
 
