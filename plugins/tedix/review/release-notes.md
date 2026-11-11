@@ -1,3 +1,11 @@
+Tedix 0.2.14 — OpenCode hooks start the CLI by its full path.
+
+The OpenCode hooks now find the installed Tedix CLI in your PATH folders and
+start that exact file. Before, on Windows, a file named `tedix.exe` inside a
+project you opened could be started instead. The Workspace app guide also
+covers reading a project's Work board and following the Tedix theme. Installing
+this update does not grant additional access.
+
 Tedix 0.2.13 — quiet Work focus.
 
 Local Claude Code and Codex hooks deliver changed Work focus as plain prompt
