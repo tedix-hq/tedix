@@ -44,6 +44,7 @@ import {
 	NATIVE_CATALOG_REQUIRED_SCOPES,
 } from "./mcp/native-catalog-tools";
 import { createMcpLogger } from "./log";
+import { upstreamUnavailableResponse } from "./upstream";
 import { StepBudgetExceededError, withStepBudget } from "./lib/step-budget";
 import { trackMcpEvent } from "./mcp/utils/analytics";
 import type { AppTool } from "./mcp/server-context";
@@ -1496,6 +1497,13 @@ export async function validateAuth(
 				...(requiredScopes ? { requiredScopes } : {}),
 				error,
 			});
+
+			// The token was never judged: answer retryable, not "sign in again".
+			if (
+				error instanceof TokenValidationError &&
+				error.code === "KEYS_UNAVAILABLE"
+			)
+				return upstreamUnavailableResponse();
 
 			const isScopeError =
 				error instanceof TokenValidationError &&
