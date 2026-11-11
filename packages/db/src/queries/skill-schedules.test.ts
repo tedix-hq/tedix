@@ -13,6 +13,8 @@ import {
 	recordSkillScheduleDispatch,
 	recordSkillScheduleError,
 	recordSkillScheduleSuppressed,
+	listSchedulesWithFailedLastRun,
+	recordSkillScheduleRetry,
 } from "./skill-schedules";
 
 describe("skill schedule budget state", () => {
@@ -72,6 +74,52 @@ describe("skill schedule budget state", () => {
 			);
 		`);
 		db = createDbClient(createD1Facade(sqlite));
+	});
+
+	it("finds a recently fired schedule whose scheduled run failed and repoints it once", async () => {
+		sqlite.exec(`
+			CREATE TABLE skill_runs (
+				id TEXT PRIMARY KEY,
+				organization_id TEXT NOT NULL,
+				status TEXT NOT NULL,
+				error TEXT,
+				started_at TEXT,
+				created_by TEXT
+			);
+			INSERT INTO skill_runs VALUES
+				('run-1', 'org-1', 'failed', 'D1 DB is overloaded', '2026-11-11 08:00:19', 'schedule');
+			UPDATE skill_schedules SET last_fire_at = '2026-11-11T08:00:00.000Z', last_run_id = 'run-1';
+		`);
+		const rows = await listSchedulesWithFailedLastRun(
+			db,
+			"2026-11-11T05:00:00.000Z",
+		);
+		expect(rows).toEqual([
+			expect.objectContaining({
+				schedule: expect.objectContaining({
+					id: "schedule-1",
+					lastRunId: "run-1",
+				}),
+				runError: "D1 DB is overloaded",
+				runStartedAt: "2026-11-11 08:00:19",
+			}),
+		]);
+		expect(
+			await listSchedulesWithFailedLastRun(db, "2026-11-11T09:00:00.000Z"),
+		).toEqual([]);
+		await recordSkillScheduleRetry(db, {
+			scheduleId: "schedule-1",
+			failedRunId: "run-1",
+			runId: "run-2",
+		});
+		await recordSkillScheduleRetry(db, {
+			scheduleId: "schedule-1",
+			failedRunId: "run-1",
+			runId: "run-3",
+		});
+		expect((await getSkillSchedule(db, "skill-1", "org-1"))?.lastRunId).toBe(
+			"run-2",
+		);
 	});
 
 	it("pauses only the owning org timer and resumes it on activation", async () => {

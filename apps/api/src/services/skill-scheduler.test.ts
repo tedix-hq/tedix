@@ -7,6 +7,7 @@ vi.mock("@tedix/db/queries/tedis", () => ({
 
 import {
 	makeTediBudgetProbe,
+	nextOutageRetry,
 	scheduledBudgetClassForSkillSlug,
 	scheduledPersonalResourceEnvelope,
 	scheduledSkillWorkflowIdempotencyKey,
@@ -232,4 +233,60 @@ describe("tedi budget probe (scheduler suppression gate)", () => {
 			"each tedi and admission class needs an independent probe",
 		).toHaveBeenCalledTimes(2);
 	});
+});
+
+describe("outage retries for scheduled runs", () => {
+	const fireAt = "2026-11-11T08:00:00.000Z";
+	const outage =
+		"McpToolError: SERVICE_UNAVAILABLE: Database temporarily unavailable";
+	const at = (minutes: number) => Date.parse(fireAt) + minutes * 60_000;
+
+	it("waits 10, 20, 40 and then 80 minutes between attempts", () => {
+		const offsets = [
+			"2026-11-11 08:00:19",
+			"2026-11-11T08:10:05Z",
+			"2026-11-11T08:30:02Z",
+			"2026-11-11T09:10:01Z",
+		].map(
+			(startedAt) =>
+				nextOutageRetry({
+					scheduledFireAt: fireAt,
+					failedRunStartedAt: startedAt,
+					error: outage,
+					now: at(200),
+				})?.offsetMinutes,
+		);
+		expect(offsets).toEqual([10, 30, 70, 150]);
+	});
+
+	it("gives up after the fourth retry", () =>
+		expect(
+			nextOutageRetry({
+				scheduledFireAt: fireAt,
+				failedRunStartedAt: "2026-11-11T10:30:00Z",
+				error: outage,
+				now: at(200),
+			}),
+		).toBeNull());
+
+	it("does not retry a failure caused by the skill itself", () =>
+		expect(
+			nextOutageRetry({
+				scheduledFireAt: fireAt,
+				failedRunStartedAt: fireAt,
+				error: "TypeError: x is undefined",
+				now: at(20),
+			}),
+		).toBeNull());
+
+	it("names the retry time from the scheduled fire", () =>
+		expect(
+			nextOutageRetry({
+				scheduledFireAt: fireAt,
+				failedRunStartedAt: null,
+				error:
+					"Skill manifest authorization is unavailable; no side effect was executed.",
+				now: at(5),
+			}),
+		).toEqual({ offsetMinutes: 10, dueAt: at(10) }));
 });

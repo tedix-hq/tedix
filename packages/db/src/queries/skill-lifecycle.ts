@@ -312,6 +312,10 @@ const PLATFORM_FAILURE_MARKERS = [
 	"D1 DB is overloaded",
 	"Database temporarily unavailable",
 	"D1_ERROR: Network connection lost",
+	// The gateway's manifest check could not read the database (11 Nov).
+	"Skill manifest authorization is unavailable",
+	// Cloudflare API error 10001 on a storage write.
+	"We encountered an internal error. Please try again.",
 ] as const;
 
 export function isPlatformSkillFailure(error: string | null | undefined) {
