@@ -667,6 +667,7 @@ const CALLS = {
 	},
 	"osWorkspaces/workspaces/get": { workspaceId: IDS.workspaceRevenue },
 	"osCollaborators/access": { workspaceId: IDS.workspaceRevenue },
+	"osCollaborators/presence": { workspaceId: IDS.workspaceRevenue },
 	"osCollaborators/list": { workspaceId: IDS.workspaceRevenue },
 	"osCollaborators/add": {
 		workspaceId: IDS.workspaceRevenue,

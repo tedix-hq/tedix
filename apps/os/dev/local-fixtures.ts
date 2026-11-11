@@ -9194,6 +9194,12 @@ const handlers: Record<string, (input: never) => unknown> = {
 		findWorkspace(input.workspaceId);
 		return { role: "build" };
 	},
+	"osCollaborators/presence": (input: { workspaceId: string }) => ({
+		workspaceId: findWorkspace(input.workspaceId).id,
+		userId: "local-you",
+		displayName: "You",
+		role: "owner",
+	}),
 	"osCollaborators/list": (input: { workspaceId: string }) => {
 		findWorkspace(input.workspaceId);
 		return {
