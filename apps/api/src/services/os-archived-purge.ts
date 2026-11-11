@@ -63,7 +63,8 @@ import { deleteOsOutput, getOsOutput } from "./workspace-output-storage";
  * authentication, auditing and the closing counts.
  */
 export const OS_ARCHIVED_PURGE_WORK_BUDGET = 600;
-export const OS_ARCHIVED_PURGE_TIME_BUDGET_MS = 20_000;
+// The MCP gateway gives up on an RPC call after 15 s; stop well before that.
+export const OS_ARCHIVED_PURGE_TIME_BUDGET_MS = 9_000;
 const PAGE_SIZE = KERNEL_CONVERSATION_PURGE_CHUNK;
 const SAMPLE_LIMIT = 20;
 const SOURCE = "osWorkspaces.workspaces.purgeArchived";
