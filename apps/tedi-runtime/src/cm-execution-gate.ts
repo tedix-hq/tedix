@@ -20,8 +20,8 @@
  * to the exact parked code while preserving the broader explicit preauth route.
  *
  * The gate is fail-closed: any read error, malformed entry, or expired grant →
- * unauthorized. Legacy pre-TTL bare-string entries (no expiry) are treated as
- * already expired — a perpetual grant is exactly what the TTL exists to prevent.
+ * unauthorized. An entry without an expiry is malformed — a perpetual grant is
+ * exactly what the TTL exists to prevent.
  */
 
 const ALLOWLIST_KEY = "cm_session_allowlist";
@@ -89,7 +89,7 @@ export class CmSessionGate {
 
 	/**
 	 * True iff `sessionKey` has a grant that has NOT expired. Fail-closed: a
-	 * missing, malformed, legacy (no-expiry), or expired grant → false.
+	 * missing, malformed (including no-expiry), or expired grant → false.
 	 */
 	async isSessionAuthorized(sessionKey: string): Promise<boolean> {
 		if (!sessionKey) return false;
@@ -228,7 +228,8 @@ export class CmSessionGate {
 			if (!Array.isArray(parsed)) return [];
 			const grants: SessionGrant[] = [];
 			for (const entry of parsed) {
-				// New format: { sessionKey, expiresAt, authorizedBy? }.
+				// Grant shape: { sessionKey, expiresAt, authorizedBy? }. Any other
+				// entry is dropped — fail-closed.
 				if (entry && typeof entry === "object") {
 					const e = entry as Record<string, unknown>;
 					if (
@@ -244,8 +245,6 @@ export class CmSessionGate {
 						});
 					}
 				}
-				// Legacy bare-string entries (pre-TTL) are intentionally dropped —
-				// fail-closed; a perpetual grant is what the TTL prevents.
 			}
 			return grants;
 		} catch {

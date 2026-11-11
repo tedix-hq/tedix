@@ -89,14 +89,10 @@ export async function listTediEmailThreads(
 	if (input.unread) {
 		conditions.push(sql`${tediEmailThreads.unreadCount} > 0`);
 	}
-	if (input.cursor) {
-		// Timestamp-only cursors from older clients retain their strict boundary.
-		const separator = input.cursor.indexOf("|");
-		const at = separator < 0 ? input.cursor : input.cursor.slice(0, separator);
+	const separator = input.cursor?.indexOf("|") ?? -1;
+	if (input.cursor && separator >= 0) {
 		conditions.push(
-			separator < 0
-				? sql`${tediEmailThreads.lastMessageAt} < ${at}`
-				: sql`(${tediEmailThreads.lastMessageAt}, ${tediEmailThreads.id}) < (${at}, ${input.cursor.slice(separator + 1)})`,
+			sql`(${tediEmailThreads.lastMessageAt}, ${tediEmailThreads.id}) < (${input.cursor.slice(0, separator)}, ${input.cursor.slice(separator + 1)})`,
 		);
 	}
 	if (input.query?.trim()) {

@@ -122,16 +122,10 @@ export interface CatalogSearchResult {
 
 /** Options for catalog search */
 export interface CatalogSearchOptions {
-	/** Accepted for compatibility; not pushed into AI Search metadata filters */
-	health?: string;
-	/** Accepted for compatibility; not pushed into AI Search metadata filters */
-	minToolCount?: number;
 	/** Filter by source (e.g., "chatgpt", "claude") */
 	source?: string;
 	/** Filter by connector type */
 	connectorType?: string;
-	/** Accepted for compatibility; not pushed into AI Search metadata filters */
-	category?: string;
 	/** Maximum results to return */
 	topK?: number;
 }

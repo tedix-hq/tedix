@@ -207,15 +207,23 @@ function makeKvStore(): {
 	);
 }
 
-// ── 9c. CmSessionGate: legacy bare-string grants are treated as expired ───────
+// ── 9c. CmSessionGate: malformed grants are unauthorized ─────────────────────
 {
 	const kv = makeKvStore();
-	await kv.put("cm_session_allowlist", JSON.stringify(["legacy-session"]));
+	await kv.put(
+		"cm_session_allowlist",
+		JSON.stringify(["string-session", { sessionKey: "no-expiry-session" }]),
+	);
 	const gate = new CmSessionGate(kv);
 	assert.equal(
-		await gate.isSessionAuthorized("legacy-session"),
+		await gate.isSessionAuthorized("string-session"),
 		false,
-		"legacy no-expiry string entry is fail-closed",
+		"non-object entry is fail-closed",
+	);
+	assert.equal(
+		await gate.isSessionAuthorized("no-expiry-session"),
+		false,
+		"entry without an expiry is fail-closed",
 	);
 }
 

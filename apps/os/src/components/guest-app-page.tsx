@@ -114,8 +114,6 @@ type PageState =
 // (`tedix.os.share.<id>`, see share-link-session.ts); the link secret itself
 // never enters storage.
 const GUEST_NAME_KEY = "tedix.os.guest.name.v1";
-/** Before permanent addresses, one tab kept one guest session here. */
-const LEGACY_GUEST_SESSION_KEY = "tedix.os.guest.session.v1";
 function storedGuestName(): string | null {
 	try {
 		const name = AppRuntimeGuestNameSchema.safeParse(
@@ -126,19 +124,8 @@ function storedGuestName(): string | null {
 		return null;
 	}
 }
-/** Read and drop a session an older page kept for this tab, if any. */
-function takeLegacyGuestSession(): string | null {
-	try {
-		const token = window.sessionStorage.getItem(LEGACY_GUEST_SESSION_KEY);
-		window.sessionStorage.removeItem(LEGACY_GUEST_SESSION_KEY);
-		return token;
-	} catch {
-		return null;
-	}
-}
 function forgetGuest(): void {
 	try {
-		window.sessionStorage.removeItem(LEGACY_GUEST_SESSION_KEY);
 		window.sessionStorage.removeItem(GUEST_NAME_KEY);
 	} catch {
 		/* Nothing was stored. */
@@ -216,35 +203,34 @@ export function GuestAppPage() {
 			"",
 			window.location.pathname + window.location.search,
 		);
-		const resumeToken = takeLegacyGuestSession();
-		if (!token && !resumeToken && !opening.current) {
-			setState({ status: "unavailable" });
-			return;
-		}
-		opening.current ??= (async (): Promise<PageState> => {
-			const share = token
-				? await guestRequest<Redeemed>("/api/os-shared/redeem", { token })
-				: await guestRequest<Redeemed>("/api/os-shared/session", {
-						sessionToken: resumeToken,
-					});
-			const sessionToken = token ? share.sessionToken : resumeToken;
-			if (!sessionToken) throw new Error("Share unavailable");
-			// An old link, or a session an older page kept, moves to the link's
-			// permanent address and its own session key; the router then shows
-			// that page, which resumes this session.
-			if (share.share.publicId) {
-				adoptShareLinkAddress(
-					share.share.publicId,
-					sessionToken,
-					share.share.slug,
-				);
-				return { status: "loading" };
+		if (!opening.current) {
+			if (!token) {
+				setState({ status: "unavailable" });
+				return;
 			}
-			return openGuestApp(share, sessionToken);
-		})().catch((): PageState => {
-			forgetGuest();
-			return { status: "unavailable" };
-		});
+			opening.current = (async (): Promise<PageState> => {
+				const share = await guestRequest<Redeemed>("/api/os-shared/redeem", {
+					token,
+				});
+				const sessionToken = share.sessionToken;
+				if (!sessionToken) throw new Error("Share unavailable");
+				// An old link moves to the link's permanent address and its own
+				// session key; the router then shows that page, which resumes
+				// this session.
+				if (share.share.publicId) {
+					adoptShareLinkAddress(
+						share.share.publicId,
+						sessionToken,
+						share.share.slug,
+					);
+					return { status: "loading" };
+				}
+				return openGuestApp(share, sessionToken);
+			})().catch((): PageState => {
+				forgetGuest();
+				return { status: "unavailable" };
+			});
+		}
 		void opening.current.then((next) => {
 			if (alive) setState(next);
 		});

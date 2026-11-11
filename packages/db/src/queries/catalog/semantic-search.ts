@@ -21,7 +21,7 @@ import {
  *
  * @param vectorClient - AI Search instance (catalog index)
  * @param query - Natural language search query
- * @param options - Optional filters (health, minToolCount, source, etc.)
+ * @param options - Optional filters (source, connectorType) and topK
  * @returns Array of { id, score } ordered by relevance
  */
 export async function semanticSearchCatalogApps(

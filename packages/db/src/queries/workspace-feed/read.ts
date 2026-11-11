@@ -25,7 +25,7 @@ import {
 export interface WorkspaceActivityCursor {
 	occurredAt: string;
 	seq: number;
-	id?: string;
+	id: string;
 }
 
 export interface ListWorkspaceActivityOptions {
@@ -77,12 +77,10 @@ export async function listWorkspaceActivity(
 					eq(workspaceActivity.occurredAt, options.before.occurredAt),
 					or(
 						lt(workspaceActivity.seq, options.before.seq),
-						options.before.id
-							? and(
-									eq(workspaceActivity.seq, options.before.seq),
-									lt(workspaceActivity.id, options.before.id),
-								)
-							: undefined,
+						and(
+							eq(workspaceActivity.seq, options.before.seq),
+							lt(workspaceActivity.id, options.before.id),
+						),
 					),
 				),
 			)!,
