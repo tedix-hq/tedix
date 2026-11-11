@@ -315,6 +315,9 @@ vi.mock("@/components/output-export-buttons", () => ({
 import { ConnectionChip } from "./canvas-doc-panel";
 import {
 	CANVAS_CHAT_WIDTH_DEFAULT,
+	CANVAS_STAGE_CLOSE_SETTLE_MS,
+	persistCanvasStageClosed,
+	restoreCanvasStageClosed,
 	CANVAS_CHAT_COLLAPSED_KEY,
 	CANVAS_CHAT_WIDTH_KEY,
 	persistCanvasChatCollapsed,
@@ -2732,7 +2735,7 @@ describe("Canvas Cloudflare-reference composition", () => {
 			/\[data-kumo-component="Toolbar"\]\s*> button\s*\{/,
 		);
 		const resizerRule = styles.match(
-			/\.canvas-chat-resizer\s*\{([^}]*)\}/,
+			/^\.canvas-chat-resizer\s*\{([^}]*)\}/m,
 		)?.[1];
 		expect(resizerRule).toBeDefined();
 		expect(resizerRule).toContain("width: 1px");
@@ -3428,14 +3431,16 @@ describe("CanvasPage chat-first workspace", () => {
 
 		const chat = container.querySelector(".canvas-chat-pane") as HTMLElement;
 		expect(chat.getAttribute("data-simple-mode")).toBe("true");
-		expect(chat.style.width).toBe("100%");
-		expect(container.querySelector(".canvas-chat-resizer")).toBeNull();
+		// The closed pane is one state, and the stylesheet sizes it.
+		expect(surface?.getAttribute("data-stage-open")).toBe("false");
+		const resizer = container.querySelector(".canvas-chat-resizer");
+		expect(resizer?.getAttribute("aria-hidden")).toBe("true");
+		expect(resizer?.getAttribute("tabindex")).toBe("-1");
 
 		const stage = container.querySelector(".canvas-stage") as HTMLElement;
 		expect(stage.getAttribute("aria-hidden")).toBe("true");
 		expect(stage.hasAttribute("inert")).toBe(true);
-		expect(stage.style.width).toBe("0px");
-		expect(stage.style.opacity).toBe("0");
+		expect(stage.getAttribute("style")).toBeNull();
 		// A fresh workspace has nothing to pick, so it never says so.
 		expect(container.textContent).not.toContain("Pick a document");
 		// The URL-carried conversation lands in the thread, not the list.
@@ -3457,8 +3462,13 @@ describe("CanvasPage chat-first workspace", () => {
 		expect(surface?.getAttribute("data-simple-mode")).toBe("false");
 		expect(surface?.getAttribute("data-canvas-transition")).toBe("true");
 		const chat = container.querySelector(".canvas-chat-pane") as HTMLElement;
-		expect(chat.style.width).toBe(`${CANVAS_CHAT_WIDTH_DEFAULT}px`);
-		expect(container.querySelector(".canvas-chat-resizer")).not.toBeNull();
+		expect(surface?.getAttribute("data-stage-open")).toBe("true");
+		expect(chat.style.getPropertyValue("--canvas-chat-width")).toBe(
+			`${CANVAS_CHAT_WIDTH_DEFAULT}px`,
+		);
+		expect(
+			container.querySelector(".canvas-chat-resizer")?.getAttribute("tabindex"),
+		).toBe("0");
 		expect(
 			container.querySelector(".canvas-stage")?.getAttribute("aria-hidden"),
 		).toBeNull();
@@ -3497,7 +3507,11 @@ describe("CanvasPage chat-first workspace", () => {
 				.querySelector(".canvas-surface")
 				?.getAttribute("data-simple-mode"),
 		).toBe("false");
-		expect(container.querySelector(".canvas-chat-resizer")).not.toBeNull();
+		expect(
+			container
+				.querySelector(".canvas-surface")
+				?.getAttribute("data-stage-open"),
+		).toBe("true");
 		expect(container.textContent).not.toContain("Pick a document");
 	});
 
@@ -3537,5 +3551,139 @@ describe("CanvasPage chat-first workspace", () => {
 				.querySelector(".canvas-surface")
 				?.getAttribute("data-simple-mode"),
 		).toBe("true");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// The item pane opens and closes beside the chat
+// ---------------------------------------------------------------------------
+
+describe("canvas stage closed memory", () => {
+	it("remembers the closed pane per workspace and forgets it on open", () => {
+		const values = new Map<string, string>();
+		const storage = {
+			getItem: (key: string) => values.get(key) ?? null,
+			setItem: (key: string, value: string) => void values.set(key, value),
+			removeItem: (key: string) => void values.delete(key),
+		};
+		expect(restoreCanvasStageClosed(storage, "one")).toBeNull();
+		persistCanvasStageClosed(storage, "one", "output:abc");
+		expect(restoreCanvasStageClosed(storage, "one")).toBe("output:abc");
+		expect(restoreCanvasStageClosed(storage, "two")).toBeNull();
+		persistCanvasStageClosed(storage, "one", null);
+		expect(restoreCanvasStageClosed(storage, "one")).toBeNull();
+	});
+
+	it("treats unavailable storage as an open pane", () => {
+		const broken = {
+			getItem: () => {
+				throw new Error("blocked");
+			},
+			setItem: () => {
+				throw new Error("blocked");
+			},
+			removeItem: () => {
+				throw new Error("blocked");
+			},
+		};
+		expect(restoreCanvasStageClosed(broken, "one")).toBeNull();
+		expect(() => persistCanvasStageClosed(broken, "one", "")).not.toThrow();
+		expect(restoreCanvasStageClosed(null, "one")).toBeNull();
+	});
+});
+
+describe("CanvasPage item pane", () => {
+	const stageOpen = (container: Element) =>
+		container.querySelector(".canvas-surface")?.getAttribute("data-stage-open");
+	const closeButton = (container: Element) =>
+		container.querySelector('.canvas-workpiece-bar [aria-label="Close"]')!;
+
+	async function openWeeklyReport() {
+		mockLists();
+		osWorkspacesApi.outputs.get.mockResolvedValue({
+			output: outputFixture(),
+			currentRevision: outputRevisionFixture(),
+		});
+		mockCollab({ initial: docJson(outputRevisionFixture().content) });
+		return openDoc("Weekly report");
+	}
+
+	it("closes with the Close button, keeps the tabs, and reopens the same item from Files", async () => {
+		const container = await openWeeklyReport();
+		const editor = container.querySelector("[data-canvas-output-view]");
+		expect(editor).not.toBeNull();
+		expect(stageOpen(container)).toBe("true");
+
+		click(closeButton(container));
+		expect(stageOpen(container)).toBe("false");
+		const stage = container.querySelector(".canvas-stage") as HTMLElement;
+		expect(stage.hasAttribute("inert")).toBe(true);
+		expect(stage.getAttribute("aria-hidden")).toBe("true");
+		// The tab and the item stay mounted behind the closed pane.
+		expect(container.querySelectorAll('[role="tab"]')).toHaveLength(1);
+		expect(container.querySelector("[data-canvas-output-view]")).toBe(editor);
+		// Without a composer in this harness, focus lands on the item's Files row.
+		expect(document.activeElement).toBe(
+			filesPanelRow(container, "Weekly report"),
+		);
+
+		click(filesPanelRow(container, "Weekly report"));
+		await flush();
+		expect(stageOpen(container)).toBe("true");
+		expect(stage.hasAttribute("inert")).toBe(false);
+		expect(container.querySelectorAll('[role="tab"]')).toHaveLength(1);
+		expect(container.querySelector("[data-canvas-output-view]")).toBe(editor);
+		expect(
+			container.querySelector('[role="tab"]')?.getAttribute("aria-selected"),
+		).toBe("true");
+	});
+
+	it("closes the pane when the last tab closes, then drops the tab", async () => {
+		const container = await openWeeklyReport();
+		const tabClose = container.querySelector(
+			`[aria-label="Close Weekly report (Document, ${OUTPUT_ID})"]`,
+		)!;
+		routing.navigate.mockClear();
+
+		click(tabClose);
+		// The pane closes around the item; the library does not swap in.
+		expect(stageOpen(container)).toBe("false");
+		expect(container.querySelectorAll('[role="tab"]')).toHaveLength(1);
+		expect(container.querySelector("[data-canvas-output-view]")).not.toBeNull();
+		expect(routing.navigate).not.toHaveBeenCalled();
+
+		await act(async () => {
+			await new Promise((resolve) =>
+				setTimeout(resolve, CANVAS_STAGE_CLOSE_SETTLE_MS + 50),
+			);
+		});
+		expect(container.querySelectorAll('[role="tab"]')).toHaveLength(0);
+		expect(stageOpen(container)).toBe("false");
+		expect(routing.navigate).toHaveBeenLastCalledWith(
+			expect.objectContaining({ search: { conversation: undefined } }),
+		);
+
+		// The library is still one click away, and it opens the pane.
+		click(container.querySelector("[data-workspace-outputs-library]")!);
+		await flush();
+		expect(stageOpen(container)).toBe("true");
+		expect(container.querySelector(".canvas-resource-library")).not.toBeNull();
+	});
+
+	it("keeps an item that is opened again while its last tab is closing", async () => {
+		const container = await openWeeklyReport();
+		click(
+			container.querySelector(
+				`[aria-label="Close Weekly report (Document, ${OUTPUT_ID})"]`,
+			)!,
+		);
+		click(filesPanelRow(container, "Weekly report"));
+		await act(async () => {
+			await new Promise((resolve) =>
+				setTimeout(resolve, CANVAS_STAGE_CLOSE_SETTLE_MS + 50),
+			);
+		});
+		expect(stageOpen(container)).toBe("true");
+		expect(container.querySelectorAll('[role="tab"]')).toHaveLength(1);
 	});
 });

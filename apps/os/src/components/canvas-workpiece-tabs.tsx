@@ -272,6 +272,7 @@ export function CanvasWorkpieceTabs({
 									onClick={() => onClose(key)}
 									size="icon-sm"
 									tabIndex={-1}
+									title="Close tab"
 									variant="ghost"
 								>
 									<X size={12} />

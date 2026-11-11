@@ -223,45 +223,98 @@
 	min-height: 0;
 	min-width: 300px;
 	max-width: 480px;
-	flex: none;
+	flex: 0 0 var(--canvas-chat-width, 420px);
 	flex-direction: column;
 	background: var(--background);
 }
 
 /*
- * Chat-first layout of a workspace with no document yet (`simpleMode` in
- * canvas-page.tsx): the thread takes the whole workbench, reads at a
- * comfortable measure, and the stage is collapsed rather than showing an
- * empty "Pick a document" state for a project that has nothing to pick.
+ * The item pane is closed (`data-stage-open="false"` in canvas-page.tsx): a
+ * workspace with no document yet, or a pane the person closed. The chat takes
+ * the whole workbench and reads at a comfortable measure; the stage stays
+ * mounted at no width, so what is in it keeps running and is there at once
+ * when the pane opens again.
  */
-.canvas-chat-pane[data-simple-mode="true"] {
-	min-width: 0;
-	max-width: none;
-}
-
-.canvas-chat-pane[data-simple-mode="true"] .canvas-chat-thread > *,
-.canvas-chat-pane[data-simple-mode="true"] .canvas-chat-conversations > *,
-.canvas-chat-pane[data-simple-mode="true"] .canvas-chat-list-composer > * {
+.canvas-surface[data-stage-open="false"] .canvas-chat-thread > *,
+.canvas-surface[data-stage-open="false"] .canvas-chat-conversations > *,
+.canvas-surface[data-stage-open="false"] .canvas-chat-list-composer > * {
 	width: 100%;
 	max-width: 920px;
 	margin-inline: auto;
 }
 
-/*
- * Motion is reserved for the LATER reveal of the stage — never the first
- * paint. `data-canvas-transition` arms on the first document or the first
- * manual pane change and drops while a pointer resize is tracking the cursor.
- */
-.canvas-surface[data-canvas-transition="true"] .canvas-chat-pane,
-.canvas-surface[data-canvas-transition="true"] .canvas-stage {
-	transition:
-		width 200ms ease-out,
-		opacity 200ms ease-out;
+@media (min-width: 960px) {
+	/* `max-width: 100%`, not `none`, so the 480px cap animates and never snaps. */
+	.canvas-surface[data-stage-open="false"] .canvas-chat-pane {
+		max-width: 100%;
+		flex-grow: 1;
+	}
+
+	.canvas-surface[data-stage-open="false"] .canvas-chat-resizer {
+		width: 0;
+		pointer-events: none;
+	}
+
+	.canvas-surface[data-stage-open="false"] .canvas-stage {
+		flex-grow: 0;
+		opacity: 0;
+		pointer-events: none;
+	}
 }
 
-.canvas-stage[data-simple-mode="true"] {
-	min-width: 0;
-	pointer-events: none;
+/*
+ * Opening and closing is one motion: the chat and the stage trade the free
+ * room between them. It never runs on the first paint;
+ * `data-canvas-transition` arms once the lists have painted or on the first
+ * manual pane change, and drops while a pointer resize is tracking the cursor.
+ */
+.canvas-surface[data-canvas-transition="true"] .canvas-chat-pane,
+.canvas-surface[data-canvas-transition="true"] .canvas-chat-resizer,
+.canvas-surface[data-canvas-transition="true"] .canvas-stage {
+	transition:
+		flex-grow 200ms cubic-bezier(0, 0, 0.2, 1),
+		width 200ms cubic-bezier(0, 0, 0.2, 1),
+		max-width 200ms cubic-bezier(0, 0, 0.2, 1),
+		opacity 200ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+/* A newly opened item fades in once; switching tabs and reopening do not. */
+@keyframes canvas-stage-content-enter {
+	from {
+		opacity: 0;
+	}
+}
+
+.canvas-stage-content[data-entering] {
+	animation: canvas-stage-content-enter 150ms cubic-bezier(0, 0, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.canvas-surface[data-canvas-transition="true"] .canvas-chat-pane,
+	.canvas-surface[data-canvas-transition="true"] .canvas-chat-resizer,
+	.canvas-surface[data-canvas-transition="true"] .canvas-stage {
+		transition: none;
+	}
+
+	.canvas-stage-content[data-entering] {
+		animation: none;
+	}
+}
+
+:root[data-motion="reduced"]
+	.canvas-surface[data-canvas-transition="true"]
+	.canvas-chat-pane,
+:root[data-motion="reduced"]
+	.canvas-surface[data-canvas-transition="true"]
+	.canvas-chat-resizer,
+:root[data-motion="reduced"]
+	.canvas-surface[data-canvas-transition="true"]
+	.canvas-stage {
+	transition: none;
+}
+
+:root[data-motion="reduced"] .canvas-stage-content[data-entering] {
+	animation: none;
 }
 
 .canvas-chat-header {
@@ -524,6 +577,7 @@
 	display: flex;
 	min-height: 0;
 	min-width: 0;
+	flex: 1 1 0;
 	flex-direction: column;
 	overflow: hidden;
 	background: var(--background);
@@ -579,7 +633,8 @@
 	background: var(--background-lighter);
 }
 
-.canvas-chat-toggle {
+.canvas-chat-toggle,
+.canvas-stage-close {
 	flex: none;
 }
 

@@ -219,21 +219,6 @@
 	}
 }
 
-/* An opened output settles into the stage instead of popping in. */
-@keyframes workspace-stage-enter {
-	from {
-		opacity: 0;
-		transform: translateX(8px);
-	}
-}
-
-.canvas-surface[data-canvas-transition="true"]
-	.canvas-stage-content[data-has-workpiece]
-	> * {
-	animation: workspace-stage-enter var(--duration-tedix-structural)
-		var(--ease-tedix-enter);
-}
-
 @media (prefers-reduced-motion: reduce) {
 	.workspace-outputs-panel,
 	.workspace-outputs-label,
@@ -243,19 +228,6 @@
 
 	.workspace-outputs-row.workspace-outputs-row:active {
 		transform: none;
-	}
-
-	.canvas-surface[data-canvas-transition="true"]
-		.canvas-stage-content[data-has-workpiece]
-		> * {
-		animation: none;
-	}
-}
-
-/* A chat-only workspace still shares its row with the panel. */
-@media (min-width: 960px) {
-	.canvas-chat-pane[data-simple-mode="true"] {
-		flex: 0 1 auto;
 	}
 }
 

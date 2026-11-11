@@ -16,6 +16,7 @@ import {
 	ChatCircle,
 	FolderOpen,
 	Plugs,
+	X,
 } from "@phosphor-icons/react";
 import type {
 	OsGadget,
@@ -34,6 +35,7 @@ import {
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { getOsSurface } from "@/lib/os-navigation";
 import {
+	type CSSProperties,
 	lazy,
 	Suspense,
 	useCallback,
@@ -41,6 +43,7 @@ import {
 	useMemo,
 	useRef,
 	useState,
+	useSyncExternalStore,
 } from "react";
 import { CanvasStagePending } from "@/routes/-pending";
 import { AppReviewRounds } from "@/components/app-review-rounds";
@@ -257,6 +260,75 @@ export function persistCanvasChatCollapsed(
 	} catch {
 		// Remembering the chat's fold is a convenience; the toggle still works.
 	}
+}
+
+/**
+ * Whether the person closed the item pane in this workspace; remembered per
+ * workspace and browser. The stored value is the item that was selected at
+ * the time ("" for none), so a reload stays closed while a link to a
+ * different item opens the pane.
+ */
+export const CANVAS_STAGE_CLOSED_KEY_PREFIX = "tedix-os:canvas-stage-closed:";
+
+/** The item the pane was closed on, or null while the pane is open. */
+export function restoreCanvasStageClosed(
+	storage: Pick<Storage, "getItem"> | null,
+	workspaceId: string,
+): string | null {
+	try {
+		return (
+			storage?.getItem(`${CANVAS_STAGE_CLOSED_KEY_PREFIX}${workspaceId}`) ??
+			null
+		);
+	} catch {
+		return null;
+	}
+}
+
+export function persistCanvasStageClosed(
+	storage: Pick<Storage, "setItem" | "removeItem"> | null,
+	workspaceId: string,
+	closedOn: string | null,
+) {
+	try {
+		const key = `${CANVAS_STAGE_CLOSED_KEY_PREFIX}${workspaceId}`;
+		if (closedOn === null) storage?.removeItem(key);
+		else storage?.setItem(key, closedOn);
+	} catch {
+		// Remembering the pane is a convenience; Close and open still work.
+	}
+}
+
+/** How long the item pane takes to open or close; matches canvas-page.css. */
+const CANVAS_STAGE_MOTION_MS = 200;
+
+/**
+ * When a closed pane drops its last tab: a little after the motion, so the
+ * work of unmounting the item cannot stall the final frames.
+ */
+export const CANVAS_STAGE_CLOSE_SETTLE_MS = CANVAS_STAGE_MOTION_MS + 100;
+
+const CANVAS_NARROW_QUERY = "(max-width: 959px)";
+
+function subscribeCanvasNarrow(onChange: () => void) {
+	const query = window.matchMedia?.(CANVAS_NARROW_QUERY);
+	query?.addEventListener("change", onChange);
+	return () => query?.removeEventListener("change", onChange);
+}
+
+/** A phone-width screen shows one pane at a time from the bottom switcher. */
+function useCanvasNarrow(): boolean {
+	return useSyncExternalStore(
+		subscribeCanvasNarrow,
+		() => window.matchMedia?.(CANVAS_NARROW_QUERY).matches ?? false,
+	);
+}
+
+function canvasMotionReduced(): boolean {
+	return (
+		document.documentElement.dataset.motion === "reduced" ||
+		(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false)
+	);
 }
 
 export function restoreCanvasChatWidth(
@@ -535,6 +607,71 @@ export function CanvasPage({
 		requestedPane ?? (requestedDoc ? "workpiece" : "chat"),
 	);
 	const [openedDocs, setOpenedDocs] = useState<CanvasWorkpieceSelection[]>([]);
+	const narrow = useCanvasNarrow();
+	// The item pane beside the chat. Closing it keeps the tabs and the selected
+	// item mounted, so opening it again shows the same thing at once.
+	const [stagePaneOpen, setStagePaneOpen] = useState(() => {
+		const closedOn = restoreCanvasStageClosed(
+			window.localStorage,
+			requestedWorkspaceId,
+		);
+		return (
+			closedOn === null ||
+			(requestedDoc !== null && canvasDocKey(requestedDoc) !== closedOn)
+		);
+	});
+	// The item the URL last asked for. A different one opens the pane; the same
+	// one (a reload, a conversation change) leaves the pane as the person set it.
+	const paneRequestKeyRef = useRef<string | null>(
+		requestedDoc
+			? canvasDocKey(requestedDoc)
+			: restoreCanvasStageClosed(window.localStorage, requestedWorkspaceId),
+	);
+	const paneWorkspaceRef = useRef(requestedWorkspaceId);
+	const pendingCloseRef = useRef<{
+		key: string;
+		timer: ReturnType<typeof setTimeout>;
+	} | null>(null);
+	const cancelPendingClose = useCallback(() => {
+		if (pendingCloseRef.current) clearTimeout(pendingCloseRef.current.timer);
+		pendingCloseRef.current = null;
+	}, []);
+	const openStagePane = useCallback(() => {
+		setStagePaneOpen(true);
+		persistCanvasStageClosed(window.localStorage, requestedWorkspaceId, null);
+	}, [requestedWorkspaceId]);
+	/** An item the page selected by itself; it never opens a closed pane. */
+	const noteUnaskedSelection = useCallback(
+		(key: string) => {
+			paneRequestKeyRef.current = key;
+			if (
+				restoreCanvasStageClosed(window.localStorage, requestedWorkspaceId) !==
+				null
+			) {
+				persistCanvasStageClosed(
+					window.localStorage,
+					requestedWorkspaceId,
+					key,
+				);
+			}
+		},
+		[requestedWorkspaceId],
+	);
+	// The newly opened item whose content fades in once.
+	const [enteringKey, setEnteringKey] = useState<string | null>(null);
+	const chatPaneRef = useRef<HTMLElement>(null);
+	const [chatFocusRequest, setChatFocusRequest] = useState(0);
+	useEffect(() => {
+		if (chatFocusRequest === 0) return;
+		const target =
+			chatPaneRef.current?.querySelector<HTMLElement>(
+				"textarea:not([disabled])",
+			) ??
+			document.querySelector<HTMLElement>(
+				".workspace-outputs-row[data-selected]",
+			);
+		target?.focus();
+	}, [chatFocusRequest]);
 	const [workpieceMode, setWorkpieceMode] = useState<CanvasWorkpieceMode>(
 		requestedView ?? "workpiece",
 	);
@@ -568,9 +705,22 @@ export function CanvasPage({
 	useEffect(
 		() => () => {
 			mountedRef.current = false;
+			cancelPendingClose();
 		},
-		[],
+		[cancelPendingClose],
 	);
+	// Another workspace has its own remembered pane; it appears without motion.
+	useEffect(() => {
+		if (paneWorkspaceRef.current === requestedWorkspaceId) return;
+		paneWorkspaceRef.current = requestedWorkspaceId;
+		cancelPendingClose();
+		const closedOn = restoreCanvasStageClosed(
+			window.localStorage,
+			requestedWorkspaceId,
+		);
+		paneRequestKeyRef.current = closedOn;
+		setStagePaneOpen(closedOn === null);
+	}, [cancelPendingClose, requestedWorkspaceId]);
 	const visitedWorkspaceRef = useRef<string | null>(null);
 	const primaryWorkpieceWorkspaceRef = useRef<string | null>(null);
 	const openedDocsRef = useRef<CanvasWorkpieceSelection[]>([]);
@@ -714,6 +864,8 @@ export function CanvasPage({
 
 	const selectWorkspace = (nextWorkspaceId?: string) => {
 		selectionRequestRef.current += 1;
+		cancelPendingClose();
+		setTransitionEnabled(false);
 		setSelectedDoc(null);
 		setMissingWorkpiece(null);
 		updateOpenedDocs(() => []);
@@ -886,6 +1038,7 @@ export function CanvasPage({
 	useEffect(() => {
 		if (!requestedDoc) {
 			const pane = requestedPane ?? "chat";
+			paneRequestKeyRef.current = null;
 			setSelectedDoc(null);
 			setWorkpieceMode("workpiece");
 			setFocusMode(false);
@@ -969,6 +1122,10 @@ export function CanvasPage({
 			: "workpiece";
 		const pane = requestedFocus ? "workpiece" : (requestedPane ?? "workpiece");
 
+		if (paneRequestKeyRef.current !== canvasDocKey(resolvedDoc)) {
+			paneRequestKeyRef.current = canvasDocKey(resolvedDoc);
+			openStagePane();
+		}
 		setMissingWorkpiece(null);
 		setSelectedDoc(resolvedDoc);
 		/*
@@ -1029,6 +1186,7 @@ export function CanvasPage({
 	}, [
 		canvasSearch,
 		gadgets.data?.items,
+		openStagePane,
 		outputEditors,
 		outputEditorsReady,
 		outputs.data?.items,
@@ -1069,6 +1227,7 @@ export function CanvasPage({
 
 		primaryWorkpieceWorkspaceRef.current = workspaceId;
 		selectionRequestRef.current += 1;
+		noteUnaskedSelection(canvasDocKey(primary));
 		setSelectedDoc(primary);
 		updateOpenedDocs(() => [primary]);
 		setWorkpieceMode("workpiece");
@@ -1101,6 +1260,7 @@ export function CanvasPage({
 				const doc: CanvasWorkpieceSelection = editorId
 					? { type: "gadget", id: editorId }
 					: { type: "output", id: linked.id, linkedGadgetId: primary.id };
+				noteUnaskedSelection(canvasDocKey(doc));
 				setSelectedDoc(doc);
 				updateOpenedDocs(() => [doc]);
 				writeCanvasSearch(
@@ -1115,6 +1275,7 @@ export function CanvasPage({
 		appNavigationPending,
 		preferredAppId,
 		gadgets.data,
+		noteUnaskedSelection,
 		outputEditors,
 		outputs.data,
 		queryClient,
@@ -1130,6 +1291,17 @@ export function CanvasPage({
 		canvasDocsSearchValue(docs);
 
 	const openCanvasDoc = (doc: CanvasWorkpieceSelection) => {
+		if (pendingCloseRef.current?.key === canvasDocKey(doc))
+			cancelPendingClose();
+		paneRequestKeyRef.current = canvasDocKey(doc);
+		openStagePane();
+		setEnteringKey(
+			openedDocsRef.current.some(
+				(candidate) => canvasDocKey(candidate) === canvasDocKey(doc),
+			)
+				? null
+				: canvasDocKey(doc),
+		);
 		setMissingWorkpiece(null);
 		setSelectedDoc(doc);
 		setWorkpieceMode("workpiece");
@@ -1228,6 +1400,8 @@ export function CanvasPage({
 	};
 
 	const showCanvasResources = () => {
+		setTransitionEnabled(true);
+		openStagePane();
 		setFocusMode(false);
 		setResourceRailOpen(true);
 		setMobilePane("resources");
@@ -1269,6 +1443,7 @@ export function CanvasPage({
 	/** A pane choice from the phone switcher, the Files panel or the menu. */
 	const showPane = (pane: CanvasMobilePane) => {
 		setTransitionEnabled(true);
+		if (pane !== "chat") openStagePane();
 		setMobilePane(pane);
 		setResourceRailOpen(pane === "resources");
 		if (pane !== "workpiece") setFocusMode(false);
@@ -1279,6 +1454,8 @@ export function CanvasPage({
 		});
 	};
 	const selectWorkpieceMode = (mode: CanvasWorkpieceMode) => {
+		setTransitionEnabled(true);
+		openStagePane();
 		setWorkpieceMode(mode);
 		setResourceRailOpen(false);
 		setMobilePane("workpiece");
@@ -1314,7 +1491,68 @@ export function CanvasPage({
 	 */
 	const conversationPane = selectedDoc ? "chat" : canvasSearch.pane;
 
+	const workspaceMissing =
+		workspaces.data !== undefined && workspaceId === null;
+	/*
+	 * One closed state for the item pane: a workspace with nothing to show yet,
+	 * or a pane the person closed. A phone shows one pane at a time instead, and
+	 * a notice the stage has to deliver keeps it open.
+	 */
+	const stageOpen =
+		!simpleMode &&
+		(narrow ||
+			stagePaneOpen ||
+			focusMode ||
+			workspaceMissing ||
+			unresolvedWorkpiece !== null);
+
+	const closeStagePane = (closedOn: string) => {
+		setTransitionEnabled(true);
+		setStagePaneOpen(false);
+		persistCanvasStageClosed(
+			window.localStorage,
+			requestedWorkspaceId,
+			closedOn,
+		);
+	};
+	/** The Close button: the chat takes the room and the tabs stay as they are. */
+	const closeStage = () => {
+		if (narrow) showPane("chat");
+		else closeStagePane(selectedDoc ? canvasDocKey(selectedDoc) : "");
+		setChatFocusRequest((request) => request + 1);
+	};
+
 	const closeCanvasDoc = (closingKey: string) => {
+		const lastTab =
+			openedDocsRef.current.length === 1 &&
+			canvasDocKey(openedDocsRef.current[0]!) === closingKey;
+		if (lastTab && stageOpen && !narrow && !focusMode) {
+			// The pane closes around the item, and the tab goes once it is out of
+			// sight, so nothing else swaps in on the way.
+			cancelPendingClose();
+			const animated = transitionEnabled && !canvasMotionReduced();
+			closeStagePane("");
+			setChatFocusRequest((request) => request + 1);
+			if (animated) {
+				pendingCloseRef.current = {
+					key: closingKey,
+					timer: setTimeout(() => {
+						pendingCloseRef.current = null;
+						if (
+							openedDocsRef.current.some(
+								(doc) => canvasDocKey(doc) === closingKey,
+							)
+						) {
+							removeCanvasDocRef.current(closingKey);
+						}
+					}, CANVAS_STAGE_CLOSE_SETTLE_MS),
+				};
+				return;
+			}
+		}
+		removeCanvasDoc(closingKey);
+	};
+	const removeCanvasDoc = (closingKey: string) => {
 		const nextSelected = nextCanvasDocAfterClose(
 			openedDocs,
 			closingKey,
@@ -1326,6 +1564,8 @@ export function CanvasPage({
 		setSelectedDoc(nextSelected);
 		setWorkpieceMode("workpiece");
 		if (nextSelected === null) {
+			// Closing every tab is a choice; the first-open default stays away.
+			primaryWorkpieceWorkspaceRef.current = workspaceId;
 			setResourceRailOpen(false);
 			setMobilePane("chat");
 			setFocusMode(false);
@@ -1345,6 +1585,11 @@ export function CanvasPage({
 			});
 		}
 	};
+
+	const removeCanvasDocRef = useRef(removeCanvasDoc);
+	useEffect(() => {
+		removeCanvasDocRef.current = removeCanvasDoc;
+	});
 
 	const closeOtherCanvasDocs = (keepKey: string) => {
 		const keep = openedDocsRef.current.find(
@@ -1387,7 +1632,7 @@ export function CanvasPage({
 				requestedPane !== undefined ||
 				primaryWorkpieceWorkspaceRef.current === workspaceId),
 		unresolvedWorkpiece: unresolvedWorkpiece !== null,
-		workspaceMissing: workspaces.data !== undefined && workspaceId === null,
+		workspaceMissing,
 	});
 
 	/* The file a selected app edits, when it is a Doc, Sheet or Slides editor. */
@@ -1453,12 +1698,13 @@ export function CanvasPage({
 			className="canvas-surface"
 			data-canvas-focus={focusMode || undefined}
 			data-chat-collapsed={
-				(chatCollapsed && openedDocs.length > 0 && !simpleMode) || undefined
+				(chatCollapsed && openedDocs.length > 0 && stageOpen) || undefined
 			}
 			data-mobile-pane={mobilePane}
 			data-resource-rail-open={resourceRailOpen}
 			data-resizing-chat={resizingChat || undefined}
 			data-simple-mode={simpleMode}
+			data-stage-open={stageOpen}
 			data-canvas-transition={transitionEnabled && !resizingChat}
 		>
 			<PageHeader className="canvas-workspace-header">
@@ -1547,7 +1793,7 @@ export function CanvasPage({
 					<TransportStatus />
 					{/* The chat and Files panel toggles on a wide screen; phones
 					    switch panes from the bottom switcher instead. */}
-					{openedDocs.length > 0 && !simpleMode ? (
+					{openedDocs.length > 0 && stageOpen ? (
 						<Button
 							aria-expanded={!chatCollapsed}
 							aria-label={chatCollapsed ? "Show chat" : "Hide chat"}
@@ -1570,7 +1816,7 @@ export function CanvasPage({
 						title={outputsPanelExpanded ? "Hide files" : "Show files"}
 						variant="ghost"
 					/>
-					{canvasView === "doc" ? (
+					{canvasView === "doc" && stageOpen ? (
 						<Button
 							aria-label="Focus"
 							className="canvas-workspace-focus"
@@ -1628,7 +1874,8 @@ export function CanvasPage({
 					aria-label="Workspace chat"
 					className="canvas-chat-pane"
 					data-simple-mode={simpleMode}
-					style={{ width: simpleMode ? "100%" : chatWidth }}
+					ref={chatPaneRef}
+					style={{ "--canvas-chat-width": `${chatWidth}px` } as CSSProperties}
 				>
 					<ChatOutputLinkContext.Provider value={chatOutputLinks}>
 						{workspaceId === null ? (
@@ -1664,49 +1911,46 @@ export function CanvasPage({
 						)}
 					</ChatOutputLinkContext.Provider>
 				</aside>
-				{simpleMode ? null : (
-					<div
-						aria-label="Resize workspace chat"
-						aria-orientation="vertical"
-						aria-valuemax={CANVAS_CHAT_WIDTH_MAX}
-						aria-valuemin={CANVAS_CHAT_WIDTH_MIN}
-						aria-valuenow={chatWidth}
-						className="canvas-chat-resizer"
-						onKeyDown={(event) => {
-							if (event.key === "ArrowLeft") {
-								event.preventDefault();
-								persistChatWidth(chatWidth - 24);
-							} else if (event.key === "ArrowRight") {
-								event.preventDefault();
-								persistChatWidth(chatWidth + 24);
-							} else if (event.key === "Home") {
-								event.preventDefault();
-								persistChatWidth(CANVAS_CHAT_WIDTH_MIN);
-							} else if (event.key === "End") {
-								event.preventDefault();
-								persistChatWidth(CANVAS_CHAT_WIDTH_MAX);
-							}
-						}}
-						onPointerDown={(event) => {
-							resizeStartRef.current = {
-								pointerX: event.clientX,
-								width: chatWidth,
-							};
-							setResizingChat(true);
-						}}
-						role="separator"
-						tabIndex={0}
-					/>
-				)}
+				{/* Stays in place while the pane is closed, so its width can animate. */}
+				<div
+					aria-hidden={!stageOpen || undefined}
+					aria-label="Resize workspace chat"
+					aria-orientation="vertical"
+					aria-valuemax={CANVAS_CHAT_WIDTH_MAX}
+					aria-valuemin={CANVAS_CHAT_WIDTH_MIN}
+					aria-valuenow={chatWidth}
+					className="canvas-chat-resizer"
+					onKeyDown={(event) => {
+						if (event.key === "ArrowLeft") {
+							event.preventDefault();
+							persistChatWidth(chatWidth - 24);
+						} else if (event.key === "ArrowRight") {
+							event.preventDefault();
+							persistChatWidth(chatWidth + 24);
+						} else if (event.key === "Home") {
+							event.preventDefault();
+							persistChatWidth(CANVAS_CHAT_WIDTH_MIN);
+						} else if (event.key === "End") {
+							event.preventDefault();
+							persistChatWidth(CANVAS_CHAT_WIDTH_MAX);
+						}
+					}}
+					onPointerDown={(event) => {
+						resizeStartRef.current = {
+							pointerX: event.clientX,
+							width: chatWidth,
+						};
+						setResizingChat(true);
+					}}
+					role="separator"
+					tabIndex={stageOpen ? 0 : -1}
+				/>
 				<section
 					aria-label="Workspace workpiece"
-					aria-hidden={simpleMode || undefined}
-					className="canvas-stage min-w-0 flex-1"
+					aria-hidden={!stageOpen || undefined}
+					className="canvas-stage"
 					data-simple-mode={simpleMode}
-					inert={simpleMode}
-					style={
-						simpleMode ? { width: 0, flex: "0 0 0px", opacity: 0 } : undefined
-					}
+					inert={!stageOpen}
 				>
 					{openedDocs.length > 0 ? (
 						<div className="canvas-workpiece-bar" data-focus-ring="inset">
@@ -1727,6 +1971,15 @@ export function CanvasPage({
 								ref={setWorkpieceActionsSlot}
 							/>
 							{workpieceViewControls}
+							<Button
+								aria-label="Close"
+								className="canvas-stage-close"
+								icon={<X size={16} />}
+								onClick={closeStage}
+								size="icon-sm"
+								title="Close"
+								variant="ghost"
+							/>
 						</div>
 					) : null}
 					{canvasView === "library" ? (
@@ -1760,8 +2013,16 @@ export function CanvasPage({
 							selectedDoc ? canvasWorkpieceTabId(selectedDoc) : undefined
 						}
 						className="canvas-stage-content"
+						data-entering={
+							selectedDoc !== null && enteringKey === canvasDocKey(selectedDoc)
+								? ""
+								: undefined
+						}
 						data-has-workpiece={selectedDoc ? "" : undefined}
 						data-workpiece-mode={workpieceMode}
+						onAnimationEnd={(event) => {
+							if (event.target === event.currentTarget) setEnteringKey(null);
+						}}
 						hidden={canvasView === "library" || canvasView === "work"}
 						id={CANVAS_WORKPIECE_PANEL_ID}
 						role="tabpanel"
