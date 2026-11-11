@@ -686,6 +686,32 @@ describe("portable rich Doc client", () => {
 		await mounted.save();
 		expect(mounted.dirty).toBe(false);
 	});
+	it("tries a passing save failure again by itself before saying anything", async () => {
+		const test = fixture(),
+			{ root, editor, mounted } = await test.mount();
+		const answer = test.calls.getMockImplementation()!;
+		let failing = true;
+		test.calls.mockImplementation(async (method, args) => {
+			if (method === "outputs.replace" && failing)
+				throw Object.assign(new Error("Database temporarily unavailable"), {
+					code: "host_error",
+				});
+			return answer(method, args);
+		});
+		fakeClock();
+		editor.commands.insertContentAt(1, "Retry ");
+		await vi.advanceTimersByTimeAsync(1600);
+		expect(saves(test)).toBe(1);
+		expect(statusText(root)).toBe("");
+		expect(find(root, "Try again")).toBeUndefined();
+		expect(mounted.dirty).toBe(true);
+		failing = false;
+		await vi.advanceTimersByTimeAsync(2100);
+		expect(saves(test)).toBe(2);
+		expect(mounted.dirty).toBe(false);
+		expect(statusText(root)).toBe("");
+	});
+
 	it("saves rich content above the app-call argument limit through the fenced output capability", async () => {
 		const test = fixture(),
 			{ editor, mounted } = await test.mount();
