@@ -163,6 +163,7 @@ githubCredentialAuthority.post(
 			organization.metadata as {
 				githubWorkstationCredentials?: {
 					enabled?: boolean;
+					allowedInstallationIds?: number[];
 					disabledInstallationIds?: number[];
 					disabledRepositoryIds?: number[];
 				};
@@ -171,6 +172,13 @@ githubCredentialAuthority.post(
 		if (controls?.enabled !== true)
 			return c.json(
 				{ authorized: false, reason: "organization_disabled" },
+				403,
+			);
+		// The tedi's repository settings are organization-supplied. Only the
+		// operator's record says an installation is this organization's own.
+		if (!controls.allowedInstallationIds?.includes(installationId))
+			return c.json(
+				{ authorized: false, reason: "installation_not_verified" },
 				403,
 			);
 		if (controls.disabledInstallationIds?.includes(installationId))

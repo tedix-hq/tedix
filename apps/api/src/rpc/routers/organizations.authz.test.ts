@@ -47,6 +47,35 @@ describe("organizations authorization-plane composition", () => {
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
 	});
 
+	it("reserves workstation GitHub App authority to the platform", async () => {
+		const metadata = {
+			githubWorkstationCredentials: {
+				enabled: true,
+				allowedInstallationIds: [987],
+			},
+		};
+		const refusal = {
+			code: "FORBIDDEN",
+			message:
+				"Only platform authority can change workstation GitHub App authority",
+		};
+		const owner = createRouterClient(organizationsContractRouter, {
+			context: userContext({
+				permissions: ["settings:manage"],
+				userRole: "owner",
+			}),
+		});
+		await expect(
+			owner.update({ organizationId: ORGANIZATION_ID, metadata }),
+		).rejects.toMatchObject(refusal);
+		const machine = createRouterClient(organizationsContractRouter, {
+			context: apiKeyContext({ scopes: ["settings:write", "apps:write"] }),
+		});
+		await expect(
+			machine.update({ organizationId: ORGANIZATION_ID, metadata }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+
 	it("rejects ordinary users from the cross-organization inventory", async () => {
 		const client = createRouterClient(organizationsContractRouter, {
 			context: userContext({ permissions: ["apps:read"] }),
