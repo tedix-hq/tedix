@@ -79,65 +79,43 @@ const mount = (kind: "document" | "sheet" | "presentation" = "document") =>
 			</QueryClientProvider>,
 		),
 	);
-const click = (text: string) =>
-	act(async () => {
-		const button = [
-			...document.querySelectorAll<HTMLButtonElement>("button"),
-		].find((node) => node.textContent?.trim() === text);
-		expect(button).toBeDefined();
-		button!.click();
-		await new Promise((resolve) => setTimeout(resolve, 0));
-	});
+const settle = () =>
+	act(() => new Promise<void>((resolve) => setTimeout(resolve, 0)));
 
-describe("explicit office editor upgrade", () => {
-	it("keeps a retained draft on the same app version until explicitly saved or discarded", async () => {
+describe("automatic office editor upgrade", () => {
+	it("waits while the old editor still holds unsaved changes", async () => {
 		keepDraft = true;
 		mount();
-		await click("Upgrade");
-		await click("Upgrade editor");
-		await vi.waitFor(() =>
-			expect(document.body.textContent).toContain(
-				"Save or explicitly discard your current draft before upgrading",
-			),
-		);
+		await settle();
 		expect(install).not.toHaveBeenCalled();
 	});
-	it("never upgrades on load and requires review of what happens to unsaved edits", async () => {
-		mount();
-		expect(install).not.toHaveBeenCalled();
-		await click("Upgrade");
-		expect(document.body.textContent).toContain(
-			"keeping the same file, app and revision history",
-		);
-		expect(document.body.textContent).toContain(
-			"Unsaved drafts stay attached to the old app version",
-		);
-		expect(install).not.toHaveBeenCalled();
-	});
-	for (const [kind, label] of [
-		["sheet", "Sheet"],
-		["presentation", "Slides"],
-	] as const) {
-		it(`requires explicit replacement of custom ${label} code and fences the current app revision`, async () => {
+	for (const kind of ["document", "sheet", "presentation"] as const) {
+		it(`upgrades an open ${kind} editor once, by itself, and shows nothing`, async () => {
 			install.mockResolvedValue({ gadget: { id: "gadget" } });
+			const invalidate = vi
+				.spyOn(client, "invalidateQueries")
+				.mockResolvedValue();
 			mount(kind);
-			expect(install).not.toHaveBeenCalled();
-			await click("Upgrade");
-			expect(document.body.textContent).toContain(
-				"including custom code changes",
-			);
-			await click("Upgrade editor");
-			await vi.waitFor(() =>
-				expect(install).toHaveBeenCalledWith({
-					workspaceId: "workspace",
-					outputId: "output",
-					kind,
-					upgradeFromRevisionId: "pinned-app-revision",
-				}),
-			);
+			await settle();
+			mount(kind);
+			await settle();
+			expect(install).toHaveBeenCalledTimes(1);
+			expect(install).toHaveBeenCalledWith({
+				workspaceId: "workspace",
+				outputId: "output",
+				kind,
+				upgradeFromRevisionId: "pinned-app-revision",
+			});
+			expect(invalidate).toHaveBeenCalledWith({
+				queryKey: osQueryKeys.gadgets(),
+			});
+			expect(invalidate).toHaveBeenCalledWith({
+				queryKey: osQueryKeys.blueprints(),
+			});
+			expect(host.textContent).toBe("");
 		});
 	}
-	it("compares editor bundle versions separately from app revision numbers, including legacy editors", () => {
+	it("compares editor versions separately from app revision numbers", () => {
 		const manifest = (
 			names: string[],
 			settings: Record<string, string | number> = {},
@@ -152,14 +130,9 @@ describe("explicit office editor upgrade", () => {
 				input: { type: "object", properties: {}, additionalProperties: false },
 			})),
 		});
-		for (const version of [1, 2, 3])
-			expect(
-				officeEditorUpgrade(
-					manifest(["readDocument", "replaceDocument"], {
-						editor: `document-v${version}`,
-					}),
-				),
-			).toMatchObject({ kind: "document", version, currentVersion: 11 });
+		expect(
+			officeEditorUpgrade(manifest(["readDocument", "replaceDocument"])),
+		).toMatchObject({ kind: "document", version: 1, currentVersion: 11 });
 		expect(
 			officeEditorUpgrade(manifest(["readSheet", "replaceSheet"])),
 		).toMatchObject({ kind: "sheet", version: 1, currentVersion: 11 });
@@ -180,39 +153,11 @@ describe("explicit office editor upgrade", () => {
 		).toBeNull();
 		expect(officeEditorUpgrade(manifest(["customOperation"]))).toBeNull();
 	});
-	it("guards the app revision and refreshes generated gadget/code and blueprint keys", async () => {
-		install.mockResolvedValue({ gadget: { id: "gadget" } });
-		const invalidate = vi
-			.spyOn(client, "invalidateQueries")
-			.mockResolvedValue();
-		mount();
-		await click("Upgrade");
-		await click("Upgrade editor");
-		await vi.waitFor(() =>
-			expect(install).toHaveBeenCalledWith({
-				workspaceId: "workspace",
-				outputId: "output",
-				kind: "document",
-				upgradeFromRevisionId: "pinned-app-revision",
-			}),
-		);
-		await vi.waitFor(() =>
-			expect(invalidate).toHaveBeenCalledWith({
-				queryKey: osQueryKeys.gadgets(),
-			}),
-		);
-		expect(invalidate).toHaveBeenCalledWith({
-			queryKey: osQueryKeys.blueprints(),
-		});
-	});
-	it("keeps a revision conflict visible for review without claiming the editor upgraded", async () => {
+	it("leaves the editor as it is when the upgrade is refused", async () => {
 		install.mockRejectedValue(new Error("App revision changed"));
 		mount();
-		await click("Upgrade");
-		await click("Upgrade editor");
-		await vi.waitFor(() =>
-			expect(document.body.textContent).toContain("App revision changed"),
-		);
-		expect(document.querySelector('[role="alertdialog"]')).not.toBeNull();
+		await settle();
+		expect(install).toHaveBeenCalledTimes(1);
+		expect(host.textContent).toBe("");
 	});
 });
