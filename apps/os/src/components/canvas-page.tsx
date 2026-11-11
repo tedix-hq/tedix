@@ -529,7 +529,7 @@ export function CanvasPage({
 	// approvals; the Files panel's Approvals row opens that same control.
 	const activityEntryRef = useRef<HTMLSpanElement>(null);
 	const [focusMode, setFocusMode] = useState(requestedFocus === true);
-	// Focus mode hides the top bar, so its Share opens this copy of the dialog.
+	// The open app or file's own Share button opens this copy of the dialog.
 	const [focusShareOpen, setFocusShareOpen] = useState(false);
 	const [mobilePane, setMobilePane] = useState<CanvasMobilePane>(
 		requestedPane ?? (requestedDoc ? "workpiece" : "chat"),
@@ -1987,6 +1987,7 @@ export function CanvasPage({
 								}
 							: undefined
 					}
+					initialScope="item"
 					open
 					onOpenChange={setFocusShareOpen}
 				/>

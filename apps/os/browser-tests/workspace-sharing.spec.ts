@@ -155,6 +155,13 @@ document.querySelector('button').onclick = async () => { const result = await te
 					},
 				],
 			};
+		else if (endpoint === "presence")
+			json = {
+				workspaceId: WORKSPACE_ID,
+				userId: "member-kai",
+				displayName: "Kai Fictional",
+				role: "build",
+			};
 		else if (endpoint === "setRole") json = { affected: [] };
 		else if (endpoint === "updateLink")
 			json = {
@@ -171,7 +178,12 @@ document.querySelector('button').onclick = async () => { const result = await te
 			};
 		else if (endpoint === "add")
 			json = {
-				collaborator: { ...zoe, userId: "member-lee", email: input.email },
+				collaborator: {
+					...zoe,
+					userId: `member-${input.email}`,
+					email: input.email,
+					name: null,
+				},
 			};
 		else if (endpoint === "previewRemove" || endpoint === "remove")
 			json = {
@@ -192,7 +204,7 @@ document.querySelector('button').onclick = async () => { const result = await te
 				link: {
 					id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
 					role: input.role,
-					label: null,
+					label: input.label ?? null,
 					createdBy: { userId: "member-robin", email: null, name: "Robin" },
 					createdAt: "2026-10-25T11:00:00.000Z",
 					canRevoke: true,
@@ -334,23 +346,54 @@ try {
 				const calls = await mockApi(page);
 				await page.goto(`${server.origin}${path}?theme=${theme}`);
 				const dialog = page.getByRole("dialog");
-				await dialog.getByText("Share Reddit research").waitFor();
-				await dialog.getByText("Kai Fictional", { exact: true }).waitFor();
+				await dialog
+					.getByRole("heading", { name: "Share “Reddit research”" })
+					.waitFor();
+				await dialog.getByText("Invite people or share a link.").waitFor();
+				// The person looking at the dialog is marked on their own row.
+				await dialog
+					.getByText("Kai Fictional (you)", { exact: true })
+					.waitFor();
 				await assertFits(page, width, `dialog ${width} ${theme}`);
 
-				await dialog.getByLabel("Email address").fill("lee@example.test");
+				// Several addresses go in at once; each is added on its own.
 				await dialog
-					.getByRole("button", { name: "Invite", exact: true })
+					.getByLabel("Email addresses")
+					.fill("lee@example.test, sam@example.test");
+				await dialog
+					.getByRole("button", { name: "Invite 2 people", exact: true })
 					.click();
-				await page.waitForFunction(
-					() =>
-						(document.querySelector("input[type=email]") as HTMLInputElement)
-							.value === "",
+				const invited = dialog.locator("[data-invited-link]");
+				await invited
+					.getByText(
+						"Added lee@example.test and sam@example.test. Send them this link to open it",
+					)
+					.waitFor();
+				assert.equal(
+					await invited.locator("[data-share-url]").textContent(),
+					`${server.origin}/shared/workspace/${WORKSPACE_ID}`,
 				);
-				assert.deepEqual(calls.add?.[0], {
-					workspaceId: WORKSPACE_ID,
-					email: "lee@example.test",
-					role: "use",
+				await invited.getByRole("button", { name: "Copy link" }).waitFor();
+				assert.equal(
+					await dialog.locator("[data-invite-emails]").inputValue(),
+					"",
+				);
+				assert.deepEqual(calls.add, [
+					{
+						workspaceId: WORKSPACE_ID,
+						email: "lee@example.test",
+						role: "use",
+					},
+					{
+						workspaceId: WORKSPACE_ID,
+						email: "sam@example.test",
+						role: "use",
+					},
+				]);
+				await assertFits(page, width, `invited ${width} ${theme}`);
+				await page.screenshot({
+					path: `${directory}/dialog-invited-${width}-${theme}.png`,
+					fullPage: true,
 				});
 
 				// Owners change a person's role in place from their row.
@@ -430,6 +473,11 @@ try {
 				await page
 					.getByRole("option", { name: "Anyone with the link can build" })
 					.click();
+				// A sign-in link can be named before it is made.
+				const newLink = dialog.locator("[data-new-link]");
+				await newLink.getByLabel("Name this link (optional)").fill("Partners");
+				await assertFits(page, width, `name link ${width} ${theme}`);
+				await newLink.getByRole("button", { name: "Create link" }).click();
 				const fresh = dialog.locator("[data-fresh-link]");
 				await fresh.waitFor();
 				const text = await fresh.textContent();
@@ -441,6 +489,7 @@ try {
 				assert.deepEqual(calls.createLink?.[0], {
 					workspaceId: WORKSPACE_ID,
 					role: "build",
+					label: "Partners",
 				});
 				assert.equal(await page.getByRole("dialog").count(), 1);
 				assert.equal(await page.locator(".kumo-popover-popup").count(), 0);

@@ -248,7 +248,7 @@ export function CanvasDocPanel({
 	 */
 	actionsSlot?: HTMLElement | null;
 	onFocusModeChange: (focused: boolean) => void;
-	/** Opens the workspace Share dialog; focus mode hides the top bar's. */
+	/** Opens the Share dialog on this app or file. */
 	onShare?: () => void;
 	onShowResources: () => void;
 	onWidgetFollowUp?: (message: string) => void;
@@ -686,7 +686,20 @@ export function CanvasDocPanel({
 				)}
 				{/* Entering focus is a workspace top-bar control; leaving it has
 				    to live here, where the top bar is hidden. */}
-				{focusMode && onShare && <ShareButton compact onClick={onShare} />}
+				{onShare && (
+					<ShareButton
+						compact
+						label={
+							doc.type === "gadget"
+								? "Share this app"
+								: doc.type === "output"
+									? "Share this file"
+									: "Share"
+						}
+						title="Share"
+						onClick={onShare}
+					/>
+				)}
 				{focusMode && (
 					<Button
 						variant="ghost"

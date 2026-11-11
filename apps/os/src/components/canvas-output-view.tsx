@@ -98,7 +98,14 @@ export function CanvasOutputView({
 						content={currentRevision.content}
 						compact
 					/>
-					{focusMode && onShare && <ShareButton compact onClick={onShare} />}
+					{onShare && (
+						<ShareButton
+							compact
+							label="Share this file"
+							title="Share"
+							onClick={onShare}
+						/>
+					)}
 					{focusMode && onFocusModeChange && (
 						<Button
 							variant="ghost"
