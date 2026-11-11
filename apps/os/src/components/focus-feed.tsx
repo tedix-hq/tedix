@@ -774,8 +774,8 @@ export function FocusFeed({
 										return [
 											projectId,
 											latest
-												? `Since you looked: ${latest.sentence}`
-												: "No new receipts since you looked.",
+												? OS_COPY.feed.timeline.sinceLooked(latest.sentence)
+												: OS_COPY.feed.timeline.nothingSinceLooked,
 										];
 									}),
 							)
