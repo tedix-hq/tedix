@@ -72,7 +72,7 @@ async function invitedLink(
 	const org = await getOrganizationProfile(db, link.organizationId);
 	return org &&
 		(hostTenantId === org.descopeTenantId || hostTenantId === org.id)
-		? link
+		? { ...link, organizationName: org.name }
 		: null;
 }
 
@@ -139,7 +139,9 @@ export async function requestOsShareEmailCode(
 						workspaceId,
 					})
 				: null;
-			const sharer = (await getOsShareCreatorName(db, link)) ?? "Someone";
+			const sharer =
+				(await getOsShareCreatorName(db, link, { personOnly: true })) ??
+				link.organizationName;
 			await sendTransactionalEmail(env, {
 				from: { email: sender.data, name: "Tedix" },
 				to: [{ email }],
