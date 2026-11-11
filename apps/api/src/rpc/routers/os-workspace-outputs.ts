@@ -56,7 +56,15 @@ import {
 import {
 	fetchOsExportImage,
 	inlineOsExportImages,
+	inlineOsOutputAssets,
+	type OsExportAssetReader,
 } from "../../lib/os-export-images";
+import { outputAssetDigest } from "@tedix/api-contract/utils/os-output-assets";
+import {
+	outputAssetReader,
+	readOutputAsset,
+	storeOutputAsset,
+} from "../../services/os-output-assets";
 import {
 	OS_EXPORT_RESOURCE_WAIT,
 	renderOsOutputHtml,
@@ -910,6 +918,7 @@ async function renderExportBytes(
 	revision: OsOutputRevision,
 	format: "pdf" | "png",
 	organization: PresentationAppearance,
+	readAsset: OsExportAssetReader,
 ): Promise<Uint8Array> {
 	if (!context.env.BROWSER) {
 		throw createError(
@@ -917,7 +926,7 @@ async function renderExportBytes(
 			"Output export requires Browser Rendering; the BROWSER binding is not configured",
 		);
 	}
-	const content = await inlineOsExportImages(revision.content);
+	const content = await inlineOsExportImages(revision.content, readAsset);
 	const html = renderOsOutputHtml(
 		mapOsOutputRow(output),
 		{
@@ -1035,6 +1044,10 @@ const outputsExport = authorOs.outputs.export.handler(
 				}
 			}
 		}
+		const readAsset = outputAssetReader({
+			organizationId: output.organizationId,
+			outputId: output.id,
+		});
 		let bytes: Uint8Array;
 		let extension: string = input.format === "markdown" ? "md" : input.format;
 		let contentType: string = EXPORT_CONTENT_TYPES[input.format];
@@ -1045,6 +1058,7 @@ const outputsExport = authorOs.outputs.export.handler(
 				revision,
 				input.format,
 				organization,
+				readAsset,
 			);
 		} else if (input.format === "csv" && revision.content.kind === "sheet") {
 			const { buildOsSheetCsv } = await import("../../lib/os-output-csv");
@@ -1056,7 +1070,7 @@ const outputsExport = authorOs.outputs.export.handler(
 			(input.format === "markdown" || input.format === "html") &&
 			revision.content.kind === "document"
 		) {
-			const content = await inlineOsExportImages(revision.content);
+			const content = await inlineOsExportImages(revision.content, readAsset);
 			const { renderOsDocumentMarkdown } =
 				await import("../../lib/os-output-markdown");
 			bytes = new TextEncoder().encode(
@@ -1080,8 +1094,12 @@ const outputsExport = authorOs.outputs.export.handler(
 			bytes = await buildOsOutputOfficeExport(
 				input.format,
 				input.format === "pptx"
-					? await prepareOsPptxImages(revision.content, context.env.BROWSER)
-					: revision.content,
+					? await prepareOsPptxImages(
+							revision.content,
+							context.env.BROWSER,
+							readAsset,
+						)
+					: await inlineOsOutputAssets(revision.content, readAsset),
 				output.title,
 				organization,
 			);
@@ -1141,15 +1159,58 @@ function contentLinksImage(content: OsOutputContent, url: string): boolean {
 	return (content.richText?.content ?? []).some(linked);
 }
 
+/** The output an image call names, once the caller may read its current revision. */
+async function requireImageOutput(
+	context: BaseContext,
+	input: { outputId: string; workspaceId?: string },
+): Promise<OsOutputRow> {
+	const output = await requireOutput(context, input.outputId);
+	if (
+		input.workspaceId !== undefined &&
+		output.workspaceId !== input.workspaceId
+	)
+		throw createError(ErrorCodes.NOT_FOUND, "OS output not found");
+	const [current] = await listOsOutputRevisions(
+		queryDb(context),
+		{ organizationId: output.organizationId, outputId: output.id },
+		{ limit: 1 },
+	);
+	if (!current)
+		throw createError(
+			ErrorCodes.INTERNAL_SERVER_ERROR,
+			"OS output current revision was not readable",
+		);
+	await requireDerivedRevisionAccess(context, current);
+	return output;
+}
+
 /**
- * One linked image of the current revision, embedded for an editor that has
- * no network. Only links the saved file uses are fetched, so this reaches
- * nothing an export of the same file does not.
+ * One image of an output, embedded for an editor that has no network or an
+ * agent that wants to see it. A stored image is served when the caller may
+ * read the output and the output holds it. A linked image is fetched only
+ * when the saved file uses the link, so this reaches nothing an export of
+ * the same file does not.
  */
 const outputsImage = readOs.outputs.image.handler(
 	async ({ input, context }) => {
+		if (outputAssetDigest(input.url)) {
+			const output = await requireImageOutput(context, input);
+			const dataUrl = await readOutputAsset(
+				{ organizationId: output.organizationId, outputId: output.id },
+				input.url,
+			);
+			if (!dataUrl)
+				throw createError(
+					ErrorCodes.NOT_FOUND,
+					"This file holds no such image",
+				);
+			return { dataUrl };
+		}
 		const output = await requireOutput(context, input.outputId);
-		if (output.workspaceId !== input.workspaceId)
+		if (
+			input.workspaceId !== undefined &&
+			output.workspaceId !== input.workspaceId
+		)
 			throw createError(ErrorCodes.NOT_FOUND, "OS output not found");
 		const { content } = mapOsOutputRevisionRow(
 			await requireCurrentOutputRevision(context, output),
@@ -1186,6 +1247,24 @@ const outputsImage = readOs.outputs.image.handler(
 	},
 );
 
+/** Store one image with a file so its content can name it by reference. */
+const outputsUploadImage = authorOs.outputs.uploadImage.handler(
+	async ({ input, context }) => {
+		const output = await requireImageOutput(context, input);
+		if (output.kind !== "presentation" && output.kind !== "document")
+			throw createError(
+				ErrorCodes.BAD_REQUEST,
+				`Images are stored with presentations and documents; this output is a ${output.kind}`,
+			);
+		return {
+			reference: await storeOutputAsset(
+				{ organizationId: output.organizationId, outputId: output.id },
+				input.dataUrl,
+			),
+		};
+	},
+);
+
 export const osOutputProcedures = {
 	history: outputsHistory,
 	list: outputsList,
@@ -1193,6 +1272,7 @@ export const osOutputProcedures = {
 	create: outputsCreate,
 	get: outputsGet,
 	image: outputsImage,
+	uploadImage: outputsUploadImage,
 	rename: outputsRename,
 	move: outputsMove,
 	revise: outputsRevise,

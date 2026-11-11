@@ -2437,6 +2437,124 @@ describe("output linked images", () => {
 		).rejects.toMatchObject({ code: "BAD_REQUEST" });
 	});
 
+	const EMBEDDED = `data:image/png;base64,${"QUJD".repeat(800)}`;
+
+	it("stores an embedded image with the file and reads it back by reference", async () => {
+		const target = await deck([{ type: "image", src: EMBEDDED }]);
+		const { currentRevision } = await c.org1.outputs.get({
+			outputId: target.outputId,
+		});
+		const reference = (
+			currentRevision.content as {
+				deck: { slides: Array<{ elements: Array<{ src: string }> }> };
+			}
+		).deck.slides[0]!.elements[0]!.src;
+		expect(reference).toMatch(/^tedix-asset:[a-f0-9]{64}$/);
+		expect(JSON.stringify(currentRevision.content)).not.toContain("base64");
+		await expect(
+			c.org1.outputs.image({ ...target, url: reference }),
+		).resolves.toEqual({ dataUrl: EMBEDDED });
+		await expect(
+			c.org1.outputs.image({ outputId: target.outputId, url: reference }),
+		).resolves.toEqual({ dataUrl: EMBEDDED });
+		// Saving the references back is the same file, not a new image.
+		const saved = await c.org1.outputs.revise({
+			outputId: target.outputId,
+			content: currentRevision.content,
+			expectedRevision: 1,
+		});
+		expect(saved.revision.content).toEqual(currentRevision.content);
+		expect(fetcher).not.toHaveBeenCalled();
+	});
+
+	it("serves a stored image only from the file that holds it", async () => {
+		const target = await deck([{ type: "image", src: EMBEDDED }]);
+		const other = await deck([{ type: "text", text: "No image" }]);
+		const { currentRevision } = await c.org1.outputs.get({
+			outputId: target.outputId,
+		});
+		const reference = (
+			currentRevision.content as {
+				deck: { slides: Array<{ elements: Array<{ src: string }> }> };
+			}
+		).deck.slides[0]!.elements[0]!.src;
+		await expect(
+			c.org2.outputs.image({ ...target, url: reference }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		await expect(
+			c.org1.outputs.image({ ...other, url: reference }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		await expect(
+			c.org1.outputs.image({
+				...target,
+				workspaceId: other.workspaceId,
+				url: reference,
+			}),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		// Another file cannot take the image by naming it.
+		await expect(
+			c.org1.outputs.revise({
+				outputId: other.outputId,
+				content: currentRevision.content,
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+	});
+
+	it("removes a file's images when the file is deleted for good", async () => {
+		const target = await deck([{ type: "image", src: EMBEDDED }]);
+		const kept = await deck([{ type: "image", src: EMBEDDED }]);
+		const { reference } = await c.org1.outputs.uploadImage({
+			...target,
+			dataUrl: EMBEDDED,
+		});
+		const { deleteOutputAssets } =
+			await import("../../services/os-output-assets");
+		await c.org1.outputs.archive({ outputId: target.outputId });
+		await c.org1.outputs.delete({ outputId: target.outputId });
+		// Nothing is left under the deleted file; the other file keeps its copy.
+		expect(
+			await deleteOutputAssets({
+				organizationId: "org-1",
+				outputId: target.outputId,
+			}),
+		).toBe(0);
+		await expect(
+			c.org1.outputs.image({ ...kept, url: reference }),
+		).resolves.toEqual({ dataUrl: EMBEDDED });
+	});
+
+	it("uploads an image for a later save to name", async () => {
+		const target = await deck([{ type: "text", text: "Soon a picture" }]);
+		const { reference } = await c.org1.outputs.uploadImage({
+			...target,
+			dataUrl: EMBEDDED,
+		});
+		expect(reference).toMatch(/^tedix-asset:[a-f0-9]{64}$/);
+		await expect(
+			c.org1.outputs.uploadImage({ ...target, dataUrl: EMBEDDED }),
+		).resolves.toEqual({ reference });
+		await expect(
+			c.org1.outputs.image({ ...target, url: reference }),
+		).resolves.toEqual({ dataUrl: EMBEDDED });
+		await expect(
+			c.org2.outputs.uploadImage({ ...target, dataUrl: EMBEDDED }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		await expect(
+			c.org1.outputs.uploadImage({
+				...target,
+				dataUrl: "data:image/svg+xml,<svg><script>1</script></svg>",
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		const { output: sheet } = await c.org1.outputs.create({
+			kind: "sheet",
+			title: "Numbers",
+			workspaceId: target.workspaceId,
+		});
+		await expect(
+			c.org1.outputs.uploadImage({ outputId: sheet.id, dataUrl: EMBEDDED }),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+	});
+
 	it("gives no image to a caller who cannot read the file", async () => {
 		const target = await deck([{ type: "image", src: LINK }]);
 		await expect(

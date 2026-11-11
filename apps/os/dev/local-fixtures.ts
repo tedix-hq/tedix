@@ -1302,6 +1302,8 @@ const seedState = (): LocalState => ({
 });
 
 let state = seedState();
+/** Images stored with sample files, by `<outputId>:<reference>`. */
+const localOutputAssets = new Map<string, string>();
 /** Automation drafts proposed in this session; the Versions page tests and activates them. */
 const runSteeringMessages = new Map<string, RunSteeringMessage[]>();
 // Staged OAuth connect tickets: each redeems once, like the API's ticket row.
@@ -10550,12 +10552,36 @@ const handlers: Record<string, (input: never) => unknown> = {
 			throw new RpcError("NOT_FOUND", "Output revision not found");
 		return { output, currentRevision, authoringHomeRun: null };
 	},
-	// The sample data makes no network requests: every linked image is one grey stand-in.
-	"osWorkspaces/outputs/image": (input: { outputId: string }) => {
+	// The sample data makes no network requests: every linked image is one grey
+	// stand-in. An image stored with a file is kept in memory and read back.
+	"osWorkspaces/outputs/image": (input: { outputId: string; url: string }) => {
 		findOutput(input.outputId);
+		const stored = localOutputAssets.get(`${input.outputId}:${input.url}`);
+		if (!stored && input.url.startsWith("tedix-asset:"))
+			throw new RpcError("NOT_FOUND", "This file holds no such image");
 		return {
-			dataUrl: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 9"><rect width="16" height="9" fill="#d4d4d4"/></svg>')}`,
+			dataUrl:
+				stored ??
+				`data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 9"><rect width="16" height="9" fill="#d4d4d4"/></svg>')}`,
 		};
+	},
+	"osWorkspaces/outputs/uploadImage": (input: {
+		outputId: string;
+		dataUrl: string;
+	}) => {
+		findOutput(input.outputId);
+		// Sample handlers answer at once, so this is a plain 256-bit mix of the
+		// text and not the SHA-256 the server names an image by.
+		let name = "";
+		for (let seed = 0; seed < 8; seed++) {
+			let hash = 0x811c9dc5 ^ seed;
+			for (let index = 0; index < input.dataUrl.length; index++)
+				hash = Math.imul(hash ^ input.dataUrl.charCodeAt(index), 0x01000193);
+			name += (hash >>> 0).toString(16).padStart(8, "0");
+		}
+		const reference = `tedix-asset:${name}`;
+		localOutputAssets.set(`${input.outputId}:${reference}`, input.dataUrl);
+		return { reference };
 	},
 	"osWorkspaces/outputs/rename": (input: {
 		outputId: string;

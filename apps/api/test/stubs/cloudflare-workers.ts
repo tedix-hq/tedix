@@ -53,15 +53,40 @@ export class WorkflowEntrypoint {
 	}
 }
 const outputBodies = new Map<string, ArrayBuffer>();
+const outputBodyTypes = new Map<string, string | undefined>();
 export const env = {
 	R2_BUCKET: {
-		async put(key: string, value: ArrayBuffer) {
+		async put(
+			key: string,
+			value: ArrayBuffer,
+			options?: { httpMetadata?: { contentType?: string } },
+		) {
 			outputBodies.set(key, value.slice(0));
+			outputBodyTypes.set(key, options?.httpMetadata?.contentType);
 			return {};
 		},
 		async get(key: string) {
 			const bytes = outputBodies.get(key);
-			return bytes ? { arrayBuffer: async () => bytes.slice(0) } : null;
+			return bytes
+				? {
+						arrayBuffer: async () => bytes.slice(0),
+						httpMetadata: { contentType: outputBodyTypes.get(key) },
+					}
+				: null;
+		},
+		async head(key: string) {
+			return outputBodies.has(key) ? { key } : null;
+		},
+		async list(options: { prefix: string }) {
+			return {
+				objects: [...outputBodies.keys()]
+					.filter((key) => key.startsWith(options.prefix))
+					.map((key) => ({ key })),
+				truncated: false,
+			};
+		},
+		async delete(keys: string[]) {
+			for (const key of keys) outputBodies.delete(key);
 		},
 	},
 };

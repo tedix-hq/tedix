@@ -939,6 +939,12 @@ const CALLS = {
 		outputId: IDS.outputDeck,
 		url: "https://example.test/visual.png",
 	},
+	"osWorkspaces/outputs/uploadImage": {
+		workspaceId: IDS.workspaceRevenue,
+		outputId: IDS.outputDeck,
+		dataUrl:
+			"data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==",
+	},
 	"osWorkspaces/outputs/rename": {
 		outputId: IDS.outputDocument,
 		title: "Renamed fixture document",

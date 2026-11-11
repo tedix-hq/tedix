@@ -22,6 +22,7 @@ import { Button } from "@/components/kumo/button";
 import { Empty } from "@/components/kumo/empty";
 import { Text } from "@/components/kumo/text";
 import { DeckReadView } from "@/components/deck-read-view";
+import { useOutputContentWithImages } from "@/lib/use-output-assets";
 import {
 	INDENT_STEP_PX,
 	MAX_INDENT,
@@ -85,6 +86,21 @@ export function OutputContentView({
 		case "video":
 			return <VideoOutputView content={content} />;
 	}
+}
+
+/** A saved file's content, with the images stored with it read for display. */
+export function SavedOutputContentView({
+	outputId,
+	content,
+}: {
+	outputId: string;
+	content: OsOutputContent;
+}) {
+	return (
+		<OutputContentView
+			content={useOutputContentWithImages(outputId, content)}
+		/>
+	);
 }
 
 export function VideoOutputView({

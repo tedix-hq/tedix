@@ -43,6 +43,7 @@ import {
 	listOsOutputs,
 } from "../services/workspace-output-storage";
 import { getOsOutputRevision } from "../services/os-workspace-outputs";
+import { parseOutputContentWithImages } from "../services/os-output-assets";
 import { listOsWorkspaceResources } from "@tedix/db/queries/os-workspaces/resources";
 import { approvedGuestSkillRead } from "../services/os-share-skill-read-grants";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
@@ -811,7 +812,7 @@ export async function handleOsShareSessionOutput(
 		revision: {
 			id: shared.revision.id,
 			revision: shared.revision.revision,
-			content: JSON.parse(shared.revision.content) as unknown,
+			content: await parseOutputContentWithImages(shared.revision),
 		},
 	});
 }
@@ -845,7 +846,7 @@ async function readOutput(db: DbQueryClient, link: OsShareLinkRow) {
 		revision: {
 			id: revision.id,
 			revision: revision.revision,
-			content: JSON.parse(revision.content),
+			content: await parseOutputContentWithImages(revision),
 			createdAt: revision.createdAt,
 		},
 		openPath: null,

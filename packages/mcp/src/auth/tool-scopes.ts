@@ -117,6 +117,7 @@ const RPC_ENDPOINT_CAPABILITY_SCOPES: Record<string, string> = {
 	"osWorkspaces/outputs/get": "mcp:apps.read",
 	"osWorkspaces/outputs/history": "mcp:apps.read",
 	"osWorkspaces/outputs/image": "mcp:apps.read",
+	"osWorkspaces/outputs/uploadImage": "mcp:apps.write",
 	"osWorkspaces/outputs/create": "mcp:apps.write",
 	"osWorkspaces/outputs/revise": "mcp:apps.write",
 	"osWorkspaces/outputs/patchDocument": "mcp:apps.write",

@@ -9,7 +9,7 @@ import { CanvasOutputTitle } from "@/components/canvas-output-title";
 import { CanvasProposals } from "@/components/canvas-proposals";
 import { OutputExportButtons } from "@/components/output-export-buttons";
 import { ShareButton } from "@/components/share-controls";
-import { OutputContentView } from "@/components/output-content";
+import { SavedOutputContentView } from "@/components/output-content";
 import { outputWorkshopKindLabel } from "@/components/output-workshop";
 import {
 	outputDetailQueryOptions,
@@ -143,7 +143,10 @@ export function CanvasOutputView({
 				</Alert>
 			)}
 			<section aria-label="Saved version (read-only)">
-				<OutputContentView content={currentRevision.content} />
+				<SavedOutputContentView
+					outputId={currentRevision.outputId}
+					content={currentRevision.content}
+				/>
 			</section>
 			<CanvasProposals
 				workspaceId={workspaceId}

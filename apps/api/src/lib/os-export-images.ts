@@ -3,6 +3,11 @@ import type {
 	OsOutputContent,
 	OsRichTextNode,
 } from "@tedix/api-contract/schemas/os-workspaces";
+import {
+	listOutputImageSources,
+	outputAssetDigest,
+	visitOutputImageSources,
+} from "@tedix/api-contract/utils/os-output-assets";
 import { guardedFetch, validateUrl } from "@tedix/ssrf-guard";
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -119,7 +124,11 @@ function validateExportImage(bytes: Buffer, type: string): void {
 	}
 }
 
-function validateInlineImage(source: string): void {
+/** The type and bytes of an embedded image, after the export image checks. */
+export function decodeOsExportImage(source: string): {
+	type: string;
+	bytes: Buffer;
+} {
 	const match = /^data:([^;,]+)((?:;[^,]*)?),([\s\S]*)$/i.exec(source);
 	const type = match?.[1]?.toLowerCase();
 	if (!match || !type || !IMAGE_TYPES.has(type))
@@ -135,10 +144,36 @@ function validateInlineImage(source: string): void {
 		"latin1",
 	);
 	validateExportImage(bytes, type);
+	return { type, bytes };
+}
+
+/** Reads one stored image of the file being exported, as a data URL. */
+export type OsExportAssetReader = (reference: string) => Promise<string>;
+
+/**
+ * Replace only the file's stored image references with embedded copies. Web
+ * links stay links: use this where a renderer wants them untouched.
+ */
+export async function inlineOsOutputAssets<T extends OsOutputContent>(
+	content: T,
+	readAsset: OsExportAssetReader,
+): Promise<T> {
+	const references = listOutputImageSources(
+		content,
+		(source) => outputAssetDigest(source) !== null,
+	);
+	if (references.length === 0) return content;
+	const embedded = new Map<string, string>();
+	for (const reference of references)
+		embedded.set(reference, await readAsset(reference));
+	const copy = structuredClone(content);
+	visitOutputImageSources(copy, (source) => embedded.get(source));
+	return copy;
 }
 
 export async function inlineOsExportImages<T extends OsOutputContent>(
 	content: T,
+	readAsset?: OsExportAssetReader,
 ): Promise<T> {
 	const copy = structuredClone(content);
 	const sources = new Map<string, string>();
@@ -146,8 +181,12 @@ export async function inlineOsExportImages<T extends OsOutputContent>(
 		let result = sources.get(source);
 		if (!result) {
 			if (/^data:/i.test(source)) {
-				validateInlineImage(source);
+				decodeOsExportImage(source);
 				result = source;
+			} else if (outputAssetDigest(source)) {
+				if (!readAsset)
+					throw new Error("Export cannot read this file's stored images");
+				result = await readAsset(source);
 			} else {
 				result = await fetchOsExportImage(source);
 			}

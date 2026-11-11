@@ -18,7 +18,7 @@ import {
 	PageTitle,
 } from "@/components/kumo/page";
 import { Skeleton } from "@/components/kumo/skeleton";
-import { OutputContentView } from "@/components/output-content";
+import { SavedOutputContentView } from "@/components/output-content";
 import { OutputExportButtons } from "@/components/output-export-buttons";
 import { useOutputsWebMcpTools } from "@/components/outputs-webmcp-tools";
 import { outputWorkshopKindLabel } from "@/components/output-workshop";
@@ -184,7 +184,10 @@ function OutputDetail({ outputId }: { outputId: string }) {
 							}
 						/>
 					</PageActions>
-					<OutputContentView content={detail.data.currentRevision.content} />
+					<SavedOutputContentView
+						outputId={outputId}
+						content={detail.data.currentRevision.content}
+					/>
 				</>
 			)}
 		</Page>

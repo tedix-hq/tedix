@@ -57,7 +57,7 @@ vi.mock("@/lib/os-query-options", () => ({
 }));
 
 vi.mock("@/components/output-content", () => ({
-	OutputContentView: () => <div data-output-content>Output preview</div>,
+	SavedOutputContentView: () => <div data-output-content>Output preview</div>,
 }));
 
 vi.mock("@/components/output-export-buttons", () => ({

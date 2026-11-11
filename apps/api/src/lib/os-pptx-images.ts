@@ -5,15 +5,19 @@ import {
 	runBrowserQuickAction,
 	isUsableScreenshot,
 } from "../integrations/browser-run/client";
-import { inlineOsExportImages } from "./os-export-images";
+import {
+	inlineOsExportImages,
+	type OsExportAssetReader,
+} from "./os-export-images";
 import { escapeHtml, OS_EXPORT_RESOURCE_WAIT } from "./os-output-html";
 
 /** Keep CDN-negotiated WebP images readable by the native Office writer. */
 export async function prepareOsPptxImages(
 	content: OsOutputContent,
 	browser: unknown,
+	readAsset?: OsExportAssetReader,
 ): Promise<OsOutputContent> {
-	const copy = await inlineOsExportImages(content);
+	const copy = await inlineOsExportImages(content, readAsset);
 	if (copy.kind !== "presentation") return copy;
 	const converted = new Map<string, string>();
 	const png = async (

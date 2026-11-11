@@ -15,6 +15,10 @@ import {
 	type OutputBodyBucket,
 } from "./os-output-revision-body-store";
 import {
+	externalizeOutputAssets,
+	type OutputAssetBucket,
+} from "./os-output-assets";
+import {
 	outputRevisionChange,
 	publishWorkspaceChangeSafely,
 } from "./workspace-feed";
@@ -23,9 +27,12 @@ import {
  * Every writer stores the body in R2 first and leaves this sentinel in the
  * D1 row; `hydrateOutputRevision` reads the pointer. Inline bodies were the
  * largest growth driver of the main database (700 MB in November 2026).
- * Returned rows carry the caller's bytes back so no writer re-reads R2.
+ * Returned rows carry the stored bytes back so no writer re-reads R2.
  */
 const INLINE_BODY_OFFLOADED = "";
+
+type OutputStorageBucket = OutputBodyBucket &
+	Pick<OutputAssetBucket, "put" | "head">;
 
 /** Every new revision passes here, so one file cannot grow without bound. */
 function requireStorableBody(content: string) {
@@ -35,18 +42,39 @@ function requireStorableBody(content: string) {
 		});
 }
 
+/**
+ * The one place a revision body is stored. Images a writer embedded are
+ * stored as assets of the file first, so the body carries references only;
+ * `content` is the body as stored, which is what every caller gets back.
+ */
+async function storeRevisionBody(
+	bucket: OutputStorageBucket,
+	revision: { organizationId: string; outputId: string; content: string },
+) {
+	const content = await externalizeOutputAssets(
+		{ organizationId: revision.organizationId, outputId: revision.outputId },
+		revision.content,
+		bucket,
+	);
+	requireStorableBody(content);
+	return {
+		content,
+		body: await storeOutputRevisionBody(
+			bucket,
+			revision.organizationId,
+			content,
+		),
+	};
+}
+
 export async function confirmOsWorkspaceFile(
 	db: Parameters<typeof confirmFile>[0],
 	params: Parameters<typeof confirmFile>[1],
-	bucket: OutputBodyBucket = env.R2_BUCKET,
+	bucket: OutputStorageBucket = env.R2_BUCKET,
 ) {
 	const revision = params.revision;
 	if (!revision) return confirmFile(db, params);
-	const body = await storeOutputRevisionBody(
-		bucket,
-		revision.organizationId,
-		revision.content,
-	);
+	const { body } = await storeRevisionBody(bucket, revision);
 	return confirmFile(db, {
 		...params,
 		revision: { ...revision, ...body, content: INLINE_BODY_OFFLOADED },
@@ -57,7 +85,7 @@ export async function confirmOsWorkspaceFile(
 export async function instantiateOsBlueprint(
 	db: Parameters<typeof instantiateBlueprint>[0],
 	params: Parameters<typeof instantiateBlueprint>[1],
-	bucket: OutputBodyBucket = env.R2_BUCKET,
+	bucket: OutputStorageBucket = env.R2_BUCKET,
 ) {
 	const storeRevisions = async (
 		revisions: NonNullable<typeof params.outputRevisions>,
@@ -68,11 +96,7 @@ export async function instantiateOsBlueprint(
 				throw new Error("Output revision scope mismatch");
 			stored.push({
 				...revision,
-				...(await storeOutputRevisionBody(
-					bucket,
-					revision.organizationId,
-					revision.content,
-				)),
+				...(await storeRevisionBody(bucket, revision)).body,
 				content: INLINE_BODY_OFFLOADED,
 			});
 		}
@@ -123,19 +147,14 @@ export async function createOsOutput(
 	db: Parameters<typeof outputs.createOsOutput>[0],
 	output: Parameters<typeof outputs.createOsOutput>[2],
 	revision: Parameters<typeof outputs.createOsOutput>[3],
-	bucket: OutputBodyBucket = env.R2_BUCKET,
+	bucket: OutputStorageBucket = env.R2_BUCKET,
 ) {
 	if (
 		output.organizationId !== revision.organizationId ||
 		output.id !== revision.outputId
 	)
 		throw new Error("Output revision scope mismatch");
-	requireStorableBody(revision.content);
-	const body = await storeOutputRevisionBody(
-		bucket,
-		revision.organizationId,
-		revision.content,
-	);
+	const { content, body } = await storeRevisionBody(bucket, revision);
 	const created = await outputs.createOsOutput(
 		db,
 		{
@@ -151,28 +170,17 @@ export async function createOsOutput(
 	);
 	await publishWorkspaceChangeSafely(
 		{ db, queue: env.AUTOMATION_EVENTS },
-		outputRevisionChange(created.output, {
-			...created.revision,
-			content: revision.content,
-		}),
+		outputRevisionChange(created.output, { ...created.revision, content }),
 	);
-	return {
-		...created,
-		revision: { ...created.revision, content: revision.content },
-	};
+	return { ...created, revision: { ...created.revision, content } };
 }
 
 export async function createOsOutputRevision(
 	db: Parameters<typeof outputs.createOsOutputRevision>[0],
 	params: Parameters<typeof outputs.createOsOutputRevision>[1],
-	bucket: OutputBodyBucket = env.R2_BUCKET,
+	bucket: OutputStorageBucket = env.R2_BUCKET,
 ) {
-	requireStorableBody(params.content);
-	const body = await storeOutputRevisionBody(
-		bucket,
-		params.organizationId,
-		params.content,
-	);
+	const { content, body } = await storeRevisionBody(bucket, params);
 	const result = await outputs.createOsOutputRevision(db, {
 		...params,
 		...body,
@@ -186,17 +194,14 @@ export async function createOsOutputRevision(
 		if (output) {
 			await publishWorkspaceChangeSafely(
 				{ db, queue: env.AUTOMATION_EVENTS },
-				outputRevisionChange(output, {
-					...result.revision,
-					content: params.content,
-				}),
+				outputRevisionChange(output, { ...result.revision, content }),
 			);
 		}
 	}
 	// An unchanged save returns the current revision; its digest equals this
-	// body's, so the caller's bytes are the row's bytes either way.
+	// stored body's, so these bytes are the row's bytes either way.
 	return result.ok
-		? { ...result, revision: { ...result.revision, content: params.content } }
+		? { ...result, revision: { ...result.revision, content } }
 		: result;
 }
 
@@ -204,7 +209,7 @@ export async function createOsOutputRevision(
 export async function mergeOsCollaborationProposal(
 	db: Parameters<typeof mergeProposal>[0],
 	params: Parameters<typeof mergeProposal>[1],
-	bucket: OutputBodyBucket = env.R2_BUCKET,
+	bucket: OutputStorageBucket = env.R2_BUCKET,
 ) {
 	const proposal = await getOsCollaborationProposal(db, params);
 	if (
@@ -224,16 +229,18 @@ export async function mergeOsCollaborationProposal(
 				"Collaboration proposal merges for workspace-object outputs require the workspace merge protocol; direct editor revisions remain available",
 		});
 	}
-	const body = await storeOutputRevisionBody(
-		bucket,
-		proposal.organizationId,
-		proposal.content,
-	);
+	const { content, body } = await storeRevisionBody(bucket, {
+		organizationId: proposal.organizationId,
+		outputId: proposal.documentId,
+		content: proposal.content,
+	});
 	const result = await mergeProposal(db, {
 		...params,
+		// The batch fences on the proposal's own bytes; the revision row keeps
+		// only the pointer to the stored body.
 		outputBody: { ...body, content: proposal.content },
 	});
 	return result.ok
-		? { ...result, revision: { ...result.revision, content: proposal.content } }
+		? { ...result, revision: { ...result.revision, content } }
 		: result;
 }
