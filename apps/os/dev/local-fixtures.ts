@@ -1302,6 +1302,22 @@ const seedState = (): LocalState => ({
 });
 
 let state = seedState();
+/**
+ * Stands in for the SHA-256 the API stores with app files: 64 hex characters
+ * that depend only on the files' content. Handlers here are synchronous, so
+ * this is a plain string hash, not a digest.
+ */
+function localFilesHash(files: AppRuntimeFiles): string {
+	const text = JSON.stringify(files);
+	let out = "";
+	for (let seed = 0; seed < 8; seed++) {
+		let hash = (0x811c9dc5 ^ seed) >>> 0;
+		for (let index = 0; index < text.length; index++)
+			hash = Math.imul(hash ^ text.charCodeAt(index), 0x01000193) >>> 0;
+		out += hash.toString(16).padStart(8, "0");
+	}
+	return out;
+}
 /** Images stored with sample files, by `<outputId>:<reference>`. */
 const localOutputAssets = new Map<string, string>();
 /** Automation drafts proposed in this session; the Versions page tests and activates them. */
@@ -10330,6 +10346,7 @@ const handlers: Record<string, (input: never) => unknown> = {
 		workspaceId: string;
 		gadgetId: string;
 		revisionId?: string;
+		knownFilesSha256?: string[];
 	}) => {
 		const gadget = findGadget(input.workspaceId, input.gadgetId);
 		const revisionId = input.revisionId ?? gadget.currentRevisionId;
@@ -10340,11 +10357,13 @@ const handlers: Record<string, (input: never) => unknown> = {
 		if (!revision) throw new RpcError("NOT_FOUND", "OS app revision not found");
 		const files = state.gadgetCode[revision.id];
 		if (!files) return { code: null };
+		const filesSha256 = localFilesHash(files);
 		return {
 			code: {
 				revisionId: revision.id,
 				revision: revision.revision,
-				files,
+				filesSha256,
+				...(input.knownFilesSha256?.includes(filesSha256) ? {} : { files }),
 				codeLength: Object.values(files).reduce(
 					(sum, text) => sum + text.length,
 					0,

@@ -290,10 +290,18 @@ export const AppRuntimeWorkReadSchema = z.strictObject({
 	projectId: z.string().min(1).max(200).optional(),
 });
 
+/** Hex SHA-256 of an app revision's stored files; equal files share it. */
+export const AppRuntimeFilesSha256Schema = z.string().regex(/^[a-f0-9]{64}$/);
+
 export const AppRuntimeCodeSchema = z.object({
 	revisionId: z.string().uuid(),
 	revision: z.number().int().positive(),
-	files: AppRuntimeFilesSchema,
+	filesSha256: AppRuntimeFilesSha256Schema.describe(
+		"Names the files' content. Files with the same hash are identical, so a reader may keep them and skip the download next time.",
+	),
+	files: AppRuntimeFilesSchema.optional().describe(
+		"Omitted only when the request listed this hash in knownFilesSha256",
+	),
 	codeLength: z.number().int().nonnegative(),
 	createdAt: z.string(),
 });
