@@ -1,3 +1,4 @@
+import { HomeSkillRunRequestSchema } from "@tedix/api-contract/schemas/home-skill-run-request";
 import type { DbClient } from "@tedix/db/client";
 import { getSkillEntry } from "@tedix/db/queries/cognitive/skill-crud";
 import { getWorkItemById } from "@tedix/db/queries/work-items/crud";
@@ -18,9 +19,26 @@ const RUN_RE = new RegExp(
 export function parseSkillRunRequest(content: string): {
 	skillId: string;
 	workItemId?: string;
+	tediId?: string;
+	expectedSkillRevision?: number;
+	idempotencyKey?: string;
 	params: Record<string, unknown>;
 } | null {
 	const text = stripContextMarkers(content);
+	const approvalCall =
+		/^Create a pending human approval for one direct skills\.run_workflow call:\s*(\{[^\n]+\})(?:\.\s|\.?$)/i.exec(
+			text,
+		);
+	if (approvalCall?.[1]) {
+		try {
+			const parsed = HomeSkillRunRequestSchema.safeParse(
+				JSON.parse(approvalCall[1]),
+			);
+			return parsed.success ? parsed.data : null;
+		} catch {
+			return null;
+		}
+	}
 	const match = RUN_RE.exec(text);
 	if (!match?.[2] || !match[3]) return null;
 	const params: Record<string, unknown> = Object.create(null);
@@ -51,6 +69,12 @@ export async function resolveDirectSkillRun(
 	if (!request) return null;
 	const skill = await getSkillEntry(db, request.skillId, input.organizationId);
 	if (!skill?.tediId || skill.lifecycleState === "archived") return null;
+	if (request.tediId && request.tediId !== skill.tediId) return null;
+	if (
+		request.expectedSkillRevision !== undefined &&
+		request.expectedSkillRevision !== skill.revision
+	)
+		return null;
 	if (request.workItemId) {
 		const work = await getWorkItemById(
 			db,
@@ -68,7 +92,7 @@ export async function resolveDirectSkillRun(
 				...request,
 				tediId: skill.tediId,
 				expectedSkillRevision: skill.revision,
-				idempotencyKey: `home:${input.runId}`,
+				idempotencyKey: request.idempotencyKey ?? `home:${input.runId}`,
 				confirmDestructive: true,
 				reason:
 					"Operator-requested single run of an existing skill, after approval.",
