@@ -17,7 +17,7 @@ import { Toolbar } from "@/components/kumo/toolbar";
  */
 
 /**
- * The scrolling row itself. `.output-editor-toolbar` in `styles.css` owns its
+ * The scrolling row itself. `.editor-toolbar` in `styles.css` owns its
  * height, padding, and scroll behaviour; the sizing rule inside it is scoped to
  * `button[data-toolbar-control="icon"]` so a Kumo `SelectTrigger` (which also
  * renders as a direct `button` child) keeps its label instead of being crushed
@@ -32,7 +32,7 @@ export function EditorToolbar({
 }) {
 	return (
 		<div
-			className={`output-editor-toolbar overflow-x-auto border-kumo-line border-y bg-kumo-base${
+			className={`editor-toolbar overflow-x-auto border-kumo-line border-y bg-kumo-base${
 				className ? ` ${className}` : ""
 			}`}
 		>

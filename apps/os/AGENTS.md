@@ -255,25 +255,31 @@ never a new Board tab. A new kind of view is a runtime-app blueprint, not a
 new entry in the product's data layer.
 
 The native Output layer stays small on purpose. `document`, `sheet`, and
-`presentation` are the three typed, revisioned kinds with first-party editors
-(`video` is a rendered artifact with no editor). `scripts/lint-output-kinds.ts`
-(runs in `lint:repo`) guards this boundary: a fourth kind in
-`OsOutputKindSchema`, a new route naming outputs, or a new
-`output-editor*.tsx` component fails the gate unless it carries the decision
-that allowed it.
+`presentation` are the three typed, revisioned kinds; `video` is a rendered
+artifact. Tedix OS has no first-party Output editor: Doc, Sheet and Slides
+are edited only in their reusable workspace gadgets.
+`scripts/lint-output-kinds.ts` (runs in `lint:repo`) guards this boundary: a
+fourth kind in `OsOutputKindSchema` or a new route naming outputs fails the
+gate unless it carries the decision that allowed it, and any
+`output-editor*.tsx` component always fails.
 
-Doc, Sheet, and Slides are reusable workspace gadgets and the normal creation
-and opening experience. Their typed Outputs own content, revisions, source
-access and compare-and-swap writes; gadgets must not store another body.
+Doc, Sheet, and Slides gadgets are the normal creation, opening and editing
+experience. Their typed Outputs own content, revisions, source access and
+compare-and-swap writes; gadgets must not store another body. Every way of
+opening an output resolves to its gadget: `?workpiece=output:<id>` in a
+workspace, `/outputs/<id>`, Resources, chat links and receipts. An output with
+no gadget opens read-only with an action that attaches its editor
+(`installOutputEditor`); outputs outside a workspace stay readable at
+`/outputs/<id>`. Read views (`OutputContentView`, share pages, exports) are
+not editors and stay.
+
 Each gadget runs a bundled, pinned `client.js` built from `src/gadgets/`
 (`bun run --cwd apps/os {doc,sheet,slides}:generate`). The build scripts
 reject `src/components/` and host-only modules, so a client never depends on
-a native editor component; shared pure logic lives in `src/lib/`. Clients use
+an OS screen component; shared pure logic lives in `src/lib/`. Clients use
 host calls for calculation (`sheet.evaluate`), revision-checked saves
 (`outputs.replace`), exports and drafts. Changing a client means bumping its
 version in `office-editor-versions.ts` so existing editors can upgrade.
-Native editors remain explicit compatibility and recovery paths, including
-existing output links.
 
 ## Validation and deployment
 

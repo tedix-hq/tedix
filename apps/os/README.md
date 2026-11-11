@@ -30,8 +30,9 @@ Workspace documents, sheets and slides open in reusable blueprint gadgets.
 Their sandboxed clients provide rich text, a workbook grid and a draggable
 slide canvas, and save through the shared Output revision boundary. Rich
 exports use the saved revision, while semantic projections remain available
-to CLI/MCP tools. Native editors are an explicit fallback and also run inside
-Canvas collaborative drafts.
+to CLI/MCP tools. There is no separate built-in editor: links to an output
+open its gadget, and an output without one opens read-only until its editor
+is attached.
 
 The application is in production as the single multi-tenant `tedix-os` Worker,
 serving every provisioned tenant at `{slug}.os.tedix.dev` plus the central

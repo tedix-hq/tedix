@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
-	ALLOWED_EDITOR_FILES,
+	ALLOWED_OUTPUT_ROUTES,
 	ALLOWED_KINDS,
 	editorFiles,
 	findings,
@@ -11,9 +11,9 @@ const kindsSource = (kinds: string[]) =>
 	`export const OsOutputKindSchema = z.enum([\n${kinds.map((kind) => `\t"${kind}",`).join("\n")}\n]);`;
 
 describe("output kind boundary", () => {
-	test("passes the current kinds and editors", () => {
+	test("passes the current kinds and output routes", () => {
 		const kinds = outputKinds(kindsSource(Object.keys(ALLOWED_KINDS)));
-		expect(findings(kinds, Object.keys(ALLOWED_EDITOR_FILES))).toEqual([]);
+		expect(findings(kinds, Object.keys(ALLOWED_OUTPUT_ROUTES))).toEqual([]);
 	});
 
 	test("fails a new Output kind without a decision reference", () => {
@@ -38,5 +38,12 @@ describe("output kind boundary", () => {
 			"apps/os/src/components/output-editor-board.tsx",
 		]);
 		expect(findings([], editors)).toHaveLength(2);
+	});
+
+	test("fails any native editor module", () => {
+		const file = "apps/os/src/components/output-editor.tsx";
+		expect(findings([], [file])).toEqual([
+			expect.stringContaining("no native Output editor"),
+		]);
 	});
 });

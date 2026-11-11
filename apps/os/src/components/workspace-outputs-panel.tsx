@@ -358,11 +358,6 @@ export function WorkspaceOutputsList({
 											gadgetId,
 										}}
 										onOpen={() => onSelect(item.doc)}
-										onOpenFile={
-											item.outputId && item.doc.type === "gadget"
-												? () => onSelect({ type: "output", id: item.outputId! })
-												: undefined
-										}
 										onArchived={() => onArchived?.(item)}
 									>
 										{row}

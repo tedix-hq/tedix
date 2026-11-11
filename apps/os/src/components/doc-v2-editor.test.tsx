@@ -19,7 +19,7 @@ import {
 	fontSizeToPoints,
 	pointsToFontSize,
 } from "@/lib/document-formatting";
-import { DocumentEditor } from "./output-editor-document";
+import { DocumentEditor } from "./doc-v2-editor";
 
 (
 	globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }

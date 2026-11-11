@@ -7,7 +7,6 @@ import { ShareButton } from "@/components/share-controls";
 import type {
 	OsGadgetExecution,
 	OsGadgetManifest,
-	OsOutputContent,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
@@ -19,7 +18,6 @@ import {
 	CanvasGadgetExecutions,
 	gadgetExecutionToolResult,
 } from "@/components/canvas-gadget-executions";
-import { CanvasOutputTitle } from "@/components/canvas-output-title";
 import { CanvasPresence } from "@/components/canvas-presence";
 import { CanvasDocumentRecovery } from "@/components/canvas-document-recovery";
 import { CanvasProposals } from "@/components/canvas-proposals";
@@ -32,15 +30,10 @@ import {
 import { Badge, type BadgeVariant } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { Card, CardContent } from "@/components/kumo/card";
-import { Input } from "@/components/kumo/input";
-import { ConfirmDialog } from "@/components/confirm-dialog";
 import { SegmentedControl } from "@/components/kumo/segmented-control";
 import { Text } from "@/components/kumo/text";
 import { Surface } from "@/components/kumo/surface";
 import { ListSkeleton } from "@/components/list-skeleton";
-import { OutputEditor } from "@/components/output-editor";
-import { OutputContentView } from "@/components/output-content";
-import { OutputExportButtons } from "@/components/output-export-buttons";
 import {
 	OutputWorkshopActions,
 	OutputWorkshopCommandBar,
@@ -60,15 +53,10 @@ import {
 import { isAppDraftProposal } from "@/lib/app-runtime-drafts";
 import { isAppRuntimeManifest } from "@tedix/api-contract/utils/app-runtime";
 import { useMediaQuery } from "@/lib/use-media-query";
-import { diffFiles } from "@/collab/ot/code-change";
 import { COLLAB_DOC_PATH } from "@/collab/protocol";
 import { AppCodeDraftEditor } from "@/components/app-draft-editor";
 import { osApi } from "@/lib/api";
-import {
-	outputKindError,
-	parseDraft,
-	parseOutputDraft,
-} from "@/lib/canvas-draft";
+import { parseDraft } from "@/lib/canvas-draft";
 import { type CanvasDocSelection, canvasDocKey } from "@/lib/canvas-search";
 import { canonicalJsonText } from "@/lib/diff/canonical-json";
 import { sameDraftText } from "@/collab/ot/draft-equivalence";
@@ -79,20 +67,16 @@ import {
 	workAppsQueryOptions,
 	canvasGadgetDetailQueryOptions,
 	canvasGadgetsQueryOptions,
-	outputDetailQueryOptions,
 } from "@/lib/os-query-options";
 import {
 	type CollabCommitBasis,
 	type CollabDocCanonical,
 	useCollabDoc,
 } from "@/lib/use-collab-doc";
-import { AUTOSAVE_NOTE, useDraftAutosave } from "@/lib/draft-autosave";
-import { useReviseOutput } from "@/lib/use-revise-output";
 import { workspaceAppReadme } from "@/lib/workspace-apps";
-import { useDocumentCollab } from "@/lib/use-document-collab";
 
 /**
- * The Canvas document panel: the gadget-detail domain owner, the OutputEditor
+ * The Canvas document panel: the gadget-detail domain owner, the app editor
  * host, and the only place that authors shared changes for a workpiece draft.
  * Extracted whole from canvas-page.tsx — the route shell composes it, this
  * module owns the document lifecycle.
@@ -236,7 +220,7 @@ export function CanvasDocPanel({
 	actionsSlot,
 }: {
 	workspaceId: string;
-	doc: CanvasDocSelection;
+	doc: Extract<CanvasDocSelection, { type: "gadget" }>;
 	/**
 	 * The host's view of an app. "source" is the host's Edit view, where the
 	 * app's waiting drafts render above its code.
@@ -261,54 +245,28 @@ export function CanvasDocPanel({
 	onWidgetFollowUp?: (message: string) => void;
 }) {
 	const queryClient = useQueryClient();
-	const isGadget = doc.type === "gadget";
-
-	const gadgetDetail = useQuery({
-		...canvasGadgetDetailQueryOptions(workspaceId, doc.id),
-		enabled: isGadget,
-	});
-	const outputDetail = useQuery({
-		// Contract-derived, not a hand-written key: `artifact.created` invalidates
-		// the generated `osQueryKeys.outputs()` prefix, and a legacy
-		// `["os-output", id]` literal sits in a disjoint namespace that the prefix
-		// can never reach — so an open document silently kept showing the old
-		// revision. See os-query-options.test.ts for the guard.
-		...outputDetailQueryOptions(doc.id),
-		enabled: !isGadget,
-	});
-	const detail = isGadget ? gadgetDetail : outputDetail;
+	const gadgetDetail = useQuery(
+		canvasGadgetDetailQueryOptions(workspaceId, doc.id),
+	);
 	const builtinManifestEarly = gadgetDetail.data?.currentRevision?.manifest;
-	const title = isGadget
-		? gadgetDetail.data?.gadget.name
-		: outputDetail.data?.output.title;
+	const detail = gadgetDetail;
+	const title = gadgetDetail.data?.gadget.name;
 
 	// Canonical truth as this client just loaded it: the text and which revision
 	// it is. A room with no base yet is seeded from it; an already-grounded room
 	// on an older revision is offered it, and the server decides.
-	const canonicalDoc: CollabDocCanonical | null = isGadget
-		? gadgetDetail.data
-			? {
-					text: JSON.stringify(
-						gadgetDetail.data.currentRevision?.manifest ??
-							DEFAULT_GADGET_MANIFEST,
-						null,
-						2,
-					),
-					revision: gadgetDetail.data.currentRevision?.revision ?? 0,
-					revisionId: gadgetDetail.data.currentRevision?.id ?? null,
-				}
-			: null
-		: outputDetail.data
-			? {
-					text: JSON.stringify(
-						outputDetail.data.currentRevision.content,
-						null,
-						2,
-					),
-					revision: outputDetail.data.currentRevision.revision,
-					revisionId: outputDetail.data.currentRevision.id,
-				}
-			: null;
+	const canonicalDoc: CollabDocCanonical | null = gadgetDetail.data
+		? {
+				text: JSON.stringify(
+					gadgetDetail.data.currentRevision?.manifest ??
+						DEFAULT_GADGET_MANIFEST,
+					null,
+					2,
+				),
+				revision: gadgetDetail.data.currentRevision?.revision ?? 0,
+				revisionId: gadgetDetail.data.currentRevision?.id ?? null,
+			}
+		: null;
 
 	const {
 		session,
@@ -325,8 +283,6 @@ export function CanvasDocPanel({
 		replaceWithCanonical,
 		commitBasis,
 		groundCommit,
-		setSelection,
-		retry,
 	} = useCollabDoc({
 		workspaceId,
 		docKey: canvasDocKey(doc),
@@ -353,67 +309,11 @@ export function CanvasDocPanel({
 		return session.onRemote(() => setDocText(session.text(COLLAB_DOC_PATH)));
 	}, [session]);
 
-	const outputKind = outputDetail.data?.output.kind;
-	// Parse once per document text: re-parsing (and re-validating) a large
-	// workbook on every render also gave editors a fresh object each time,
-	// defeating their memoization.
-	const outputParsed = useMemo(
-		() =>
-			!isGadget && outputKind && docText !== ""
-				? parseOutputDraft(docText, outputKind)
-				: null,
-		[isGadget, outputKind, docText],
-	);
-	const outputDraft = outputParsed?.ok ? outputParsed.content : null;
-	const documentCollab = useDocumentCollab({
-		session,
-		enabled: outputKind === "document",
-		participants,
-		setSelection,
-	});
-	const outputDraftIssue =
-		outputParsed && !outputParsed.ok ? outputParsed.issue : null;
-	// Counts this client's own edits; autosave saves only what this person typed.
-	const [localEditStamp, setLocalEditStamp] = useState(0);
-
-	/**
-	 * Structured editors write the whole document, and expressing that as one
-	 * DIFF-derived change is not a nicety.
-	 *
-	 * Expressed as a destroy-and-rebuild (delete the whole document, insert the
-	 * new one), two peers writing concurrently can converge on concatenated
-	 * duplicate JSON — two independent insert histories at the same position.
-	 *
-	 * A change stream cannot express that failure. This is one ordinary change
-	 * against a named revision; if a peer's change lands first, the server
-	 * transforms this one over it and both replicas converge on the same text.
-	 * The corruption mode is structurally impossible, not merely avoided.
-	 */
-	const updateSharedOutput = (next: OsOutputContent) => {
-		// A disconnected room accepts nothing: the OT client is gone, so writing
-		// `docText` here would desync the panel from what every peer still sees.
-		if (!session || !live) return;
-		const serialized = JSON.stringify(next, null, 2);
-		const current = session.text(COLLAB_DOC_PATH);
-		if (current === serialized) return;
-		const change = diffFiles(
-			new Map([[COLLAB_DOC_PATH, current]]),
-			new Map([[COLLAB_DOC_PATH, serialized]]),
-		);
-		if (change.length === 0) return;
-		session.applyLocal(change, COLLAB_DOC_PATH, serialized);
-		setDocText(serialized);
-		setLocalEditStamp((stamp) => stamp + 1);
-	};
 	const [confirming, setConfirming] = useState(false);
 	const saveFooter = useRef<HTMLDivElement>(null);
 	useEffect(() => {
 		if (confirming) saveFooter.current?.scrollIntoView?.({ block: "nearest" });
 	}, [confirming]);
-	// Discarding unsaved changes asks once before it reloads the saved version.
-	const [discarding, setDiscarding] = useState<"confirm" | "busy" | null>(null);
-	const [discardError, setDiscardError] = useState<string | null>(null);
-	const [note, setNote] = useState("");
 	const [draftError, setDraftError] = useState<string | null>(null);
 	const [committedRevision, setCommittedRevision] = useState<number | null>(
 		null,
@@ -422,7 +322,7 @@ export function CanvasDocPanel({
 		"preview" | "source" | "drafts" | "runs"
 	>("preview");
 	const [codeFile, setCodeFile] = useState<string>("manifest.json");
-	const isRuntimeApp = isGadget && isAppRuntimeManifest(builtinManifestEarly);
+	const isRuntimeApp = isAppRuntimeManifest(builtinManifestEarly);
 	// Drafts of a runtime app: the tab exists only while there is one to review.
 	const appDrafts = useAppDrafts(workspaceId, doc.id, isRuntimeApp);
 	const effectiveGadgetView =
@@ -492,7 +392,6 @@ export function CanvasDocPanel({
 	const [previewExecution, setPreviewExecution] =
 		useState<OsGadgetExecution | null>(null);
 
-	const reviseOutput = useReviseOutput(isGadget ? "" : doc.id);
 	// The newer saved version the user chose to save their changes on top of.
 	// Only that exact version: a later one reopens the choice.
 	const [keptChangesOver, setKeptChangesOver] = useState<number | null>(null);
@@ -547,14 +446,8 @@ export function CanvasDocPanel({
 		},
 	});
 
-	/**
-	 * Saves the shared draft as a version. Resolves `true` when a save request
-	 * was sent, `false` when it declined; autosave retries a declined save.
-	 */
-	const commitDraft = async (
-		mode: "manual" | "auto" = "manual",
-	): Promise<boolean> => {
-		const auto = mode === "auto";
+	/** Saves the shared manifest draft as an app version. */
+	const commitDraft = () => {
 		setDraftError(null);
 		setCommittedRevision(null);
 		// The session is the live buffer: an editor's keystrokes are already in it
@@ -575,56 +468,26 @@ export function CanvasDocPanel({
 		// answer is "try again in a moment", not a failure.
 		const basis = commitBasis();
 		if (basis === null) {
-			if (!auto) setDraftError(UNACKNOWLEDGED_COMMIT_MESSAGE);
-			return false;
+			setDraftError(UNACKNOWLEDGED_COMMIT_MESSAGE);
+			return;
 		}
 		const parsed = parseDraft(text);
 		if (!parsed.ok) {
 			setDraftError(`The draft is not valid JSON: ${parsed.error}`);
-			return false;
+			return;
 		}
-		if (isGadget) {
-			gadgetCommit.mutate({
-				manifest: parsed.value as OsGadgetManifest,
-				basis,
-			});
-			return true;
-		}
-		const loaded = outputDetail.data;
-		if (!loaded) return false;
-		const kindError = outputKindError(parsed.value, loaded.output.kind);
-		if (kindError) {
-			setDraftError(kindError);
-			return false;
-		}
-		const result = await reviseOutput.save({
-			content: parsed.value as OsOutputContent,
-			baseContent: loaded.currentRevision.content,
-			expectedRevision,
-			note: auto ? AUTOSAVE_NOTE : note,
+		gadgetCommit.mutate({
+			manifest: parsed.value as OsGadgetManifest,
+			basis,
 		});
-		if (result.kind === "saved") {
-			// Same grounding as the gadget path, for the same reason.
-			groundCommit(basis, result.revision, result.revisionId);
-			setCommittedRevision(result.revision);
-		}
-		if (!auto && (result.kind === "saved" || result.kind === "unchanged")) {
-			setConfirming(false);
-			setNote("");
-		}
-		return true;
 	};
 
-	const committing = gadgetCommit.isPending || reviseOutput.saving;
+	const committing = gadgetCommit.isPending;
 	const conflicted =
-		(isGadget && gadgetCommit.isError && isConflictError(gadgetCommit.error)) ||
-		(!isGadget && reviseOutput.outcome?.kind === "conflict");
-	const failureMessage = isGadget
-		? gadgetCommit.isError && !isConflictError(gadgetCommit.error)
+		gadgetCommit.isError && isConflictError(gadgetCommit.error);
+	const failureMessage =
+		gadgetCommit.isError && !isConflictError(gadgetCommit.error)
 			? (gadgetCommit.error as Error).message
-			: null
-		: reviseOutput.outcome?.kind === "error"
-			? reviseOutput.outcome.message
 			: null;
 	const draftParsed = parseDraft(docText);
 	const savedParsed = canonicalDoc ? parseDraft(canonicalDoc.text) : null;
@@ -655,15 +518,9 @@ export function CanvasDocPanel({
 				: undefined;
 	const onProposalMerged = (revision: number) => {
 		setCommittedRevision(revision);
-		if (isGadget) {
-			void queryClient.invalidateQueries({
-				queryKey: canvasGadgetDetailQueryOptions(workspaceId, doc.id).queryKey,
-			});
-		} else {
-			void queryClient.invalidateQueries({
-				queryKey: outputDetailQueryOptions(doc.id).queryKey,
-			});
-		}
+		void queryClient.invalidateQueries({
+			queryKey: canvasGadgetDetailQueryOptions(workspaceId, doc.id).queryKey,
+		});
 	};
 	/**
 	 * Commit needs a live room, and a room that is not behind canonical truth.
@@ -691,24 +548,7 @@ export function CanvasDocPanel({
 		!live ||
 		roomCanonical === null ||
 		(recoveryRequired && !keepingChanges) ||
-		unacknowledged ||
-		outputDraftIssue !== null;
-	// Saves this client's edits as a version a few seconds after typing stops,
-	// so the saved output (what reloads, agents and workflows read) never lags
-	// far behind the shared draft. Apps keep explicit saves: a saved app
-	// version changes what runs.
-	const autosave = useDraftAutosave({
-		ready:
-			!isGadget &&
-			!commitDisabled &&
-			!recoveryRequired &&
-			!committing &&
-			!confirming &&
-			!conflicted &&
-			!draftMatchesSaved,
-		editStamp: localEditStamp,
-		save: () => commitDraft("auto"),
-	});
+		unacknowledged;
 	const documentSaveStatus = detail.isError
 		? "Unavailable"
 		: tooLarge
@@ -719,79 +559,40 @@ export function CanvasDocPanel({
 					: "Disconnected · Changes paused"
 				: recoveryRequired && canonicalDoc
 					? `Newer version saved (v${canonicalDoc.revision})`
-					: outputDraftIssue
-						? "Draft can't be opened"
-						: committing
-							? "Saving version…"
-							: unsynced || unacknowledged
-								? "Syncing changes…"
-								: draftMatchesSaved
-									? committedRevision !== null
-										? `Saved version ${committedRevision}`
-										: "Saved"
-									: !isGadget && autosave.pending
-										? "Unsaved · saving shortly"
-										: "Not saved yet";
-	const revisionLabel = isGadget
-		? gadgetDetail.data
-			? gadgetDetail.data.currentRevision
-				? `App version ${gadgetDetail.data.currentRevision.revision}`
-				: "No app version yet"
-			: null
-		: outputDetail.data
-			? `${outputKind === "document" ? "Document revision" : "Revision"} ${outputDetail.data.currentRevision.revision}`
-			: null;
-	const gadgetWidgetTarget = isGadget
-		? gadgetWidgetTargetFromManifest(
-				gadgetDetail.data?.currentRevision?.manifest,
-			)
+					: committing
+						? "Saving version…"
+						: unsynced || unacknowledged
+							? "Syncing changes…"
+							: draftMatchesSaved
+								? committedRevision !== null
+									? `Saved version ${committedRevision}`
+									: "Saved"
+								: "Not saved yet";
+	const revisionLabel = gadgetDetail.data
+		? gadgetDetail.data.currentRevision
+			? `App version ${gadgetDetail.data.currentRevision.revision}`
+			: "No app version yet"
 		: null;
-	const builtinManifest = isGadget
-		? gadgetDetail.data?.currentRevision?.manifest
-		: undefined;
+	const gadgetWidgetTarget = gadgetWidgetTargetFromManifest(
+		gadgetDetail.data?.currentRevision?.manifest,
+	);
+	const builtinManifest = gadgetDetail.data?.currentRevision?.manifest;
 	const builtinAppView =
 		builtinManifest?.entry.trim().startsWith("tedix:app/") &&
 		effectiveGadgetView === "preview";
-	const executionGadgetId = isGadget ? doc.id : doc.linkedGadgetId;
+	const executionGadgetId = doc.id;
 	useEffect(() => {
 		setPreviewExecution(null);
-	}, [doc.id, doc.type, executionGadgetId, workspaceId]);
+	}, [doc.id, workspaceId]);
 
-	const outputKindLabel = outputKind ? sentenceCase(outputKind) : "Output";
-	const saveBlockedReason = !detail.data
-		? "The saved version is still loading."
-		: !session || !live
-			? "Reconnect before saving a version."
-			: roomCanonical === null
-				? "The shared draft is still loading."
-				: outputDraftIssue
-					? "The shared draft cannot be opened. Download a copy or load the saved version."
-					: recoveryRequired && !keepingChanges
-						? "Choose whether to keep your changes or load the newer version."
-						: unacknowledged
-							? "Wait for your latest edits to reach the shared draft."
-							: undefined;
 	const beginSave = () => {
 		setDraftError(null);
 		setCommittedRevision(null);
 		gadgetCommit.reset();
-		reviseOutput.clearOutcome();
 		setConfirming(true);
 	};
 
-	// Discarding is offered while the shared draft differs from the saved version.
-	const discardOffered =
-		!isGadget &&
-		live &&
-		canonicalDoc !== null &&
-		!draftMatchesSaved &&
-		!recoveryRequired &&
-		!outputDraftIssue &&
-		!confirming &&
-		!committing;
-
-	const gadgetActionsInSlot =
-		isGadget && !focusMode && actionsSlot ? actionsSlot : null;
+	const gadgetActionsInSlot = !focusMode && actionsSlot ? actionsSlot : null;
 	const documentStatusActions = (
 		<>
 			{/* A built-in app saves each action itself; the manifest's draft and
@@ -805,9 +606,7 @@ export function CanvasDocPanel({
 			>
 				{detail.data && !detail.isError && (
 					<>
-						{/* An output's status pill below already says how the room is;
-						    a second connection pill would repeat it. */}
-						{isGadget && status !== "connected" && (
+						{status !== "connected" && (
 							<ConnectionChip status={status} peers={peers} />
 						)}
 						{/* Who is here shows once, in the workspace top bar; focus
@@ -831,64 +630,18 @@ export function CanvasDocPanel({
 					>
 						{documentSaveStatus}
 					</Button>
-				) : isGadget && !unsynced ? null : (
+				) : !unsynced ? null : (
 					<Badge
-						className={
-							documentSaveStatus === "Saved" && !isGadget
-								? "bg-transparent! text-kumo-subtle!"
-								: undefined
-						}
-						variant={unsynced ? "warning" : "info"}
-						title={`${revisionLabel ?? "No saved version"} · ${isGadget ? "Edits are shared live. Save a version to keep them." : "Edits are shared live and saved as a version a few seconds after you stop typing."}`}
+						variant="warning"
+						title={`${revisionLabel ?? "No saved version"} · Edits are shared live. Save a version to keep them.`}
 					>
-						{isGadget ? "Draft · Syncing…" : documentSaveStatus}
+						Draft · Syncing…
 					</Badge>
 				)}
 			</OutputWorkshopStatus>
 			<OutputWorkshopActions className="canvas-document-actions">
-				{discardOffered && (
-					<Button
-						size="sm"
-						variant="ghost"
-						onClick={() => {
-							setDiscardError(null);
-							setDiscarding("confirm");
-						}}
-					>
-						Discard changes
-					</Button>
-				)}
-				{!isGadget && !tooLarge && (
-					<Button
-						size="sm"
-						disabled={commitDisabled}
-						title={saveBlockedReason ?? "Review and save this version."}
-						aria-description={saveBlockedReason}
-						aria-label={
-							keepingChanges && canonicalDoc
-								? `Save as v${canonicalDoc.revision + 1}`
-								: "Save version"
-						}
-						onClick={beginSave}
-						data-canvas-save-version
-					>
-						<FloppyDisk size={14} />{" "}
-						{keepingChanges && canonicalDoc
-							? `Save as v${canonicalDoc.revision + 1}`
-							: "Save version"}
-					</Button>
-				)}
 				{isRuntimeApp && effectiveGadgetView === "preview" && (
 					<AppTranslateButton translation={translation} compact />
-				)}
-				{/* Sharing this item lives in the top bar's one Share dialog. */}
-				{!isGadget && outputDetail.data && (
-					<OutputExportButtons
-						outputId={doc.id}
-						kind={outputDetail.data.output.kind}
-						content={outputDetail.data.currentRevision.content}
-						compact
-					/>
 				)}
 				{/* Entering focus is a workspace top-bar control; leaving it has
 				    to live here, where the top bar is hidden. */}
@@ -909,8 +662,7 @@ export function CanvasDocPanel({
 		</>
 	);
 
-	// A gadget saves beside the manifest its Code view edits; an output saves
-	// from its top bar, with the revision note asked in a dialog.
+	// A gadget saves beside the manifest its Code view edits.
 	const saveControls = (
 		<>
 			{unacknowledged && live && !recoveryRequired && (
@@ -959,22 +711,11 @@ export function CanvasDocPanel({
 			)}
 		</>
 	);
-	const saveVersionLabel =
-		keepingChanges && canonicalDoc
-			? `Save as v${canonicalDoc.revision + 1} now`
-			: "Save version now";
-	const saveError =
-		draftError ??
-		failureMessage ??
-		(conflicted
-			? "Someone saved a newer version. Your changes were not saved and are still here."
-			: null);
 
 	return (
 		<div
 			className="canvas-document-shell grid min-w-0 content-start gap-0"
 			style={
-				isGadget &&
 				(gadgetWidgetTarget || runtimeAppFills) &&
 				effectiveGadgetView === "preview"
 					? {
@@ -991,27 +732,16 @@ export function CanvasDocPanel({
 			) : (
 				<OutputWorkshopCommandBar className="canvas-document-header">
 					<OutputWorkshopIdentity className="canvas-document-identity">
-						{!isGadget && outputDetail.data ? (
-							<CanvasOutputTitle
-								outputId={outputDetail.data.output.id}
-								title={outputDetail.data.output.title}
-							/>
-						) : (
-							<Text
-								as="h2"
-								role="body"
-								tone="strong"
-								weight="semibold"
-								className="canvas-document-title m-0 truncate"
-								title={title ?? "Loading…"}
-							>
-								{title ?? "Loading…"}
-							</Text>
-						)}
-
-						{doc.type === "output" && doc.linkedGadgetId && (
-							<Badge variant="info">App editor</Badge>
-						)}
+						<Text
+							as="h2"
+							role="body"
+							tone="strong"
+							weight="semibold"
+							className="canvas-document-title m-0 truncate"
+							title={title ?? "Loading…"}
+						>
+							{title ?? "Loading…"}
+						</Text>
 					</OutputWorkshopIdentity>
 					{documentStatusActions}
 				</OutputWorkshopCommandBar>
@@ -1033,59 +763,22 @@ export function CanvasDocPanel({
 					}
 				/>
 			)}
-			{!isGadget && detail.data && tooLarge && (
-				<Alert variant="info" data-canvas-too-large>
-					<AlertTitle>Too large to edit here</AlertTitle>
-					<AlertDescription>
-						{`Showing saved version ${canonicalDoc?.revision} read-only. This ${outputKind ?? "output"} is larger than a shared draft can hold, so it cannot be edited together here. Move some of it into a separate ${outputKind ?? "output"}, or ask a tedi to make the change.`}
-					</AlertDescription>
-				</Alert>
-			)}
-			{!isGadget && detail.data && !live && !tooLarge && (
-				<Alert variant="warning">
-					<AlertTitle>
-						{status === "connecting"
-							? "Connecting to the shared draft"
-							: "Collaboration is unavailable"}
-					</AlertTitle>
-					<AlertDescription>
-						{roomCanonical === null
-							? `Showing saved version ${canonicalDoc?.revision} read-only. The shared draft may contain newer unsaved changes.`
-							: "Your shared draft remains read-only while disconnected."}{" "}
-						Editing and saving require a ready room. The connection retries
-						automatically.
-					</AlertDescription>
-					<Button
-						variant="outline"
-						className="min-h-11 min-w-11"
-						onClick={retry}
-					>
-						Retry connection
-					</Button>
-				</Alert>
-			)}
 			{blocked && (
 				<Alert variant="warning">
 					<AlertTitle>Editing is paused</AlertTitle>
 					<AlertDescription>{blocked.message}</AlertDescription>
 				</Alert>
 			)}
-			{(recoveryRequired || (!isGadget && outputDraftIssue)) &&
-				canonicalDoc &&
-				roomCanonical && (
-					<CanvasDocumentRecovery
-						draftText={docText}
-						revision={canonicalDoc.revision}
-						invalidDraft={!!outputDraftIssue}
-						keptChanges={keepingChanges}
-						saveActionLabel={
-							!isGadget ? `Save as v${canonicalDoc.revision + 1}` : undefined
-						}
-						disabled={!live || unacknowledged || unsynced}
-						onReplace={replaceWithCanonical}
-						onKeepChanges={() => setKeptChangesOver(canonicalDoc.revision)}
-					/>
-				)}
+			{recoveryRequired && canonicalDoc && roomCanonical && (
+				<CanvasDocumentRecovery
+					draftText={docText}
+					revision={canonicalDoc.revision}
+					keptChanges={keepingChanges}
+					disabled={!live || unacknowledged || unsynced}
+					onReplace={replaceWithCanonical}
+					onKeepChanges={() => setKeptChangesOver(canonicalDoc.revision)}
+				/>
+			)}
 			{discarded > 0 && (
 				<Alert variant="warning">
 					<AlertTitle>Unsent edits were discarded</AlertTitle>
@@ -1093,21 +786,6 @@ export function CanvasDocPanel({
 						The live draft was rebuilt from the room and edits that had not
 						reached the server were lost. The document below is what every
 						connected editor now sees.
-					</AlertDescription>
-				</Alert>
-			)}
-			{!isGadget && outputDraftIssue && (
-				<Alert variant="warning">
-					<AlertTitle>
-						{outputDraftIssue === "invalid_json"
-							? `The shared ${outputKindLabel.toLowerCase()} draft is not valid JSON`
-							: outputDraftIssue === "wrong_kind"
-								? `The shared draft is not a ${outputKind}`
-								: `The shared ${outputKindLabel.toLowerCase()} draft cannot be opened`}
-					</AlertTitle>
-					<AlertDescription>
-						The editor cannot open this draft. The saved version is unchanged:
-						use the choices above to download a copy or load it.
 					</AlertDescription>
 				</Alert>
 			)}
@@ -1128,7 +806,7 @@ export function CanvasDocPanel({
 						workspaceId={workspaceId}
 					/>
 				</div>
-			) : (session || isRuntimeApp) && isGadget ? (
+			) : session || isRuntimeApp ? (
 				// A runtime app's live view, files and drafts come from its revision,
 				// so they render before (or without) the editing room; only the
 				// manifest editor needs the room.
@@ -1406,88 +1084,8 @@ export function CanvasDocPanel({
 						</>
 					)}
 				</div>
-			) : !isGadget && roomCanonical === null && outputDetail.data ? (
-				<section
-					aria-label="Saved document (read-only)"
-					data-canonical-document-view
-				>
-					<OutputContentView
-						content={outputDetail.data.currentRevision.content}
-					/>
-				</section>
-			) : session && !isGadget && outputDraft ? (
-				<OutputEditor
-					value={outputDraft}
-					onChange={updateSharedOutput}
-					disabled={!live}
-					workspaceId={workspaceId}
-					documentCollab={documentCollab.collab}
-					remoteCursors={documentCollab.cursors}
-					presence={
-						outputKind === "sheet"
-							? { participants, onSelectionChange: setSelection }
-							: undefined
-					}
-				/>
 			) : (
 				<ListSkeleton rows={1} rowClassName="h-64" />
-			)}
-			{!isGadget && (
-				<ConfirmDialog
-					open={confirming}
-					onOpenChange={(open) => {
-						if (open) return;
-						setConfirming(false);
-						setDraftError(null);
-					}}
-					title="Save version"
-					description="Records the shared draft in version history. Everyone editing keeps working on it."
-					confirmLabel={saveVersionLabel}
-					pendingLabel="Saving…"
-					isPending={committing}
-					confirmDisabled={commitDisabled}
-					error={saveError}
-					onConfirm={() => void commitDraft()}
-				>
-					<Input
-						aria-label="Revision note"
-						placeholder="Revision note (optional)"
-						value={note}
-						onChange={(event) => setNote(event.target.value)}
-						maxLength={2000}
-					/>
-				</ConfirmDialog>
-			)}
-			{!isGadget && canonicalDoc && (
-				<ConfirmDialog
-					open={discarding !== null}
-					onOpenChange={(open) => {
-						if (!open) setDiscarding(null);
-					}}
-					title="Discard unsaved changes?"
-					description={`Everyone editing loses the unsaved changes, and v${canonicalDoc.revision} reloads.`}
-					confirmLabel={`Discard and reload v${canonicalDoc.revision}`}
-					pendingLabel={`Loading v${canonicalDoc.revision}…`}
-					cancelLabel="Keep editing"
-					destructive
-					isPending={discarding === "busy"}
-					confirmDisabled={unacknowledged || unsynced}
-					error={discardError}
-					onConfirm={async () => {
-						setDiscarding("busy");
-						const result = await replaceWithCanonical().catch(() => ({
-							ok: false as const,
-							message: `v${canonicalDoc.revision} did not load. Try again.`,
-						}));
-						if (result.ok) {
-							setDiscardError(null);
-							setDiscarding(null);
-						} else {
-							setDiscardError(result.message);
-							setDiscarding("confirm");
-						}
-					}}
-				/>
 			)}
 			{draftError && (
 				<Alert variant="destructive">
@@ -1507,15 +1105,6 @@ export function CanvasDocPanel({
 				<Alert variant="destructive">
 					<AlertTitle>Save failed</AlertTitle>
 					<AlertDescription>{failureMessage}</AlertDescription>
-				</Alert>
-			)}
-			{!isGadget && reviseOutput.outcome?.kind === "unchanged" && (
-				<Alert>
-					<AlertTitle>Already saved</AlertTitle>
-					<AlertDescription>
-						The draft matches the loaded revision exactly, so no new revision
-						was recorded.
-					</AlertDescription>
 				</Alert>
 			)}
 			<CanvasProposals

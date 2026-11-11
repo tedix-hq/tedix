@@ -42,9 +42,7 @@ try {
 			await page.getByRole("button", { name: "Bold", exact: true }).waitFor();
 			await page.evaluate(() => document.fonts.ready);
 			const geometry = await page.evaluate(() => {
-				const toolbar = document.querySelector<HTMLElement>(
-					".output-editor-toolbar",
-				)!;
+				const toolbar = document.querySelector<HTMLElement>(".editor-toolbar")!;
 				return {
 					viewport: { width: innerWidth, height: innerHeight },
 					pageWidth: document.documentElement.scrollWidth,
@@ -203,11 +201,11 @@ try {
 			// WebKit completes focus scrolling after the focus call returns.
 			await page.waitForFunction(
 				() =>
-					document.querySelector<HTMLElement>(".output-editor-toolbar")!
-						.scrollLeft > 0,
+					document.querySelector<HTMLElement>(".editor-toolbar")!.scrollLeft >
+					0,
 			);
 			const scroll = await page
-				.locator(".output-editor-toolbar")
+				.locator(".editor-toolbar")
 				.evaluate((element) => ({
 					left: element.scrollLeft,
 					pageLeft: window.scrollX,
