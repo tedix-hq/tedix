@@ -1,4 +1,9 @@
 import { useDeckDecision } from "./use-deck-decision";
+import {
+	decisionLearningReceipts,
+	recordDeckChoice,
+	recordDeckLater,
+} from "./deck-learning-events";
 import { decisionOutcome } from "@/lib/decision-outcome";
 import { respondConfirmed } from "@/lib/respond-confirmed";
 import { projectDecisionDeck } from "./decision-deck-projection";
@@ -51,13 +56,7 @@ import {
 	DeckNoticeContext,
 	CardFaceContext,
 } from "@/components/deck-presentation-context";
-import {
-	cardDecisionTiming,
-	cardFirstView,
-	readCardFirstView,
-	markCardDetails,
-	cardDetailsOpened,
-} from "@/lib/card-first-view";
+import { markCardDetails } from "@/lib/card-first-view";
 import { CardContextFeedback } from "@/components/card-context-feedback";
 import { useDeckViewport } from "@/lib/use-deck-viewport";
 import { useDecisionInstrumentation } from "@/lib/use-decision-instrumentation";
@@ -122,7 +121,7 @@ import {
 } from "@/lib/deck-card-agent";
 import { setPageFocus } from "@/lib/page-focus";
 import { attentionMetrics } from "@/lib/deck-attention";
-import { useDecisionInbox } from "@/lib/use-decision-inbox";
+import { useDeckInbox } from "@/lib/shared-deck-inbox";
 import { WorkApprovalDecisionCard } from "@/components/work-approval-decision-card";
 import { OS_COPY, decisionText } from "@/shared/os-copy";
 import { useVisibleCardSources } from "@/lib/use-visible-card-sources";
@@ -205,7 +204,7 @@ function DecisionDeckContent({
 	const [practice, setPractice] = useState<DecisionLearningReceipt[]>([]);
 	const [skipped, setSkipped] = useState<string[]>([]);
 	const pinnedOrder = useRef({ mode, order: new Map<string, number>() });
-	const decisions = useDecisionInbox(config);
+	const decisions = useDeckInbox(config);
 	const { inbox, approvals } = decisions;
 	const history = useQuery({
 		...osQuery.workInteractions.listInbox.queryOptions({
@@ -233,25 +232,7 @@ function DecisionDeckContent({
 		}),
 		...workRefreshOptions,
 	});
-	const receipts: DecisionLearningReceipt[] = (
-		learningQuery.data?.events ?? []
-	).flatMap((event) => {
-		const meta = event.metadata;
-		return event.surface === "decision_capture" &&
-			meta?.answerSource === "os-decision-card" &&
-			typeof meta.decisionClass === "string"
-			? [
-					{
-						id: event.id,
-						requestId: event.targetId ?? undefined,
-						classId: meta.decisionClass,
-						choice: String(meta.decisionChoice ?? "unknown"),
-						signal: String(meta.feedbackSignal ?? "unknown"),
-						at: event.occurredAt,
-					},
-				]
-			: [];
-	});
+	const receipts = decisionLearningReceipts(learningQuery.data?.events ?? []);
 	const metrics = attentionMetrics(
 		learningQuery.data?.events ?? [],
 		new Date(),
@@ -592,38 +573,24 @@ function DecisionDeckContent({
 			Math.max(0, filtered.findIndex((row) => row.id === selected?.id) - 1),
 		);
 	};
+	// What the learning records need to name the card on screen.
+	const learningCard = (card: NonNullable<typeof selected>) => ({
+		client,
+		cardId: card.id,
+		classId: classId ?? card.kind,
+		sourceVersion: selectedSourceVersion,
+		viewKey: selectedViewKey,
+		railOpened: railOpenedBeforeDecision,
+		onLearningEvent: setSessionLearningId,
+	});
 	const later =
 		mode !== "history" && selected
 			? () => {
 					if (!practiceMode)
-						void osApi.learningFeedback
-							.recordInteraction({
-								clientEventId: crypto.randomUUID(),
-								eventKind: "ignored",
-								scope: { kind: "personal" },
-								surface: "decision_deck",
-								targetType: "work_interaction",
-								targetId: selected.id,
-								metadata: {
-									decisionClass: classId ?? selected.kind,
-									decisionChoice: "later",
-									...cardDecisionTiming(selectedViewKey),
-									sourceVersion: selectedSourceVersion,
-									railOpenedBeforeDecision:
-										railOpenedBeforeDecision ||
-										cardDetailsOpened(selectedViewKey),
-									reaction: "skip",
-									projectId: selected.project,
-								},
-							})
-							.then(async (result) => {
-								if (!result.duplicate && result.event?.id)
-									setSessionLearningId(result.event.id);
-								await client.invalidateQueries({
-									queryKey: osQuery.learningFeedback.key(),
-								});
-							})
-							.catch(() => {});
+						recordDeckLater({
+							...learningCard(selected),
+							projectId: selected.project,
+						});
 					next();
 				}
 			: null;
@@ -744,105 +711,18 @@ function DecisionDeckContent({
 				profile.data?.id
 					? (choice) => {
 							if (mode !== "decide" || !selected) return;
-							const sourceVersion = selectedSourceVersion;
-							const viewKey = selectedViewKey!;
-							if (choice.signal === "opened_details") {
-								markCardDetails(viewKey);
-								return;
-							}
-							const firstViewedAt =
-								choice.signal === "shown"
-									? cardFirstView(viewKey)
-									: readCardFirstView(viewKey);
-							if (
-								choice.signal === "shown" &&
-								faceState?.presentation?.version === 2 &&
-								faceState.presentation.sourceFingerprint
-							)
-								void osApi.learningFeedback
-									.cardContextPrompt({
-										cardId: selected.id,
-										sourceFingerprint: faceState.presentation.sourceFingerprint,
-										projectId: config.projectId,
-										limit: 100,
-									})
-									.then(({ ask }) => {
-										if (ask) setContextQuestion(viewKey);
-									})
-									.catch(() => {});
-							if (choice.learningClientEventId)
-								setSessionLearningId(choice.learningClientEventId);
-							const intent =
-								choice.intent ??
-								current?.options.find((option) => option.id === choice.action)
-									?.intent ??
-								"approve";
-							const eventKey =
-								choice.signal === "shown"
-									? crypto.subtle
-											.digest(
-												"SHA-256",
-												new TextEncoder().encode(
-													`${profile.data?.id}:${selected.id}:${now.toISOString().slice(0, 10)}`,
-												),
-											)
-											.then(
-												(hash) =>
-													`deck-shown:${[...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`,
-											)
-									: Promise.resolve(`deck-action:${crypto.randomUUID()}`);
-							void eventKey
-								.then((clientEventId) =>
-									osApi.learningFeedback.recordInteraction({
-										clientEventId,
-										signalClass:
-											choice.signal === "shown" ? "lifecycle" : "quality",
-										eventKind:
-											choice.signal === "shown"
-												? "delivered"
-												: choice.signal === "rejected"
-													? "rejected"
-													: choice.signal === "edited"
-														? "edited"
-														: "accepted",
-										scope: { kind: "personal" },
-										surface:
-											choice.signal === "shown"
-												? "decision_deck_shown"
-												: "decision_deck_action",
-										targetType: "decision",
-										targetId: selected.id,
-										metadata: {
-											answerSource: "os-decision-card",
-											routingPolicyVersion: DEFAULT_DECK_ROUTING.version,
-											decisionClass: classId ?? selected.kind,
-											decisionChoice: intent,
-											cardAction: choice.action,
-											elapsedMs:
-												choice.signal === "shown"
-													? 0
-													: firstViewedAt === undefined
-														? choice.elapsedMs
-														: Math.max(
-																0,
-																(choice.decidedAt ?? Date.now()) -
-																	firstViewedAt,
-															),
-											...(firstViewedAt === undefined ? {} : { firstViewedAt }),
-											sourceVersion,
-											railOpenedBeforeDecision:
-												railOpenedBeforeDecision ||
-												cardDetailsOpened(viewKey) ||
-												choice.detailsOpened === true,
-										},
-									}),
-								)
-								.then(async () => {
-									await client.invalidateQueries({
-										queryKey: osQuery.learningFeedback.key(),
-									});
-								})
-								.catch(() => {});
+							recordDeckChoice(choice, {
+								...learningCard(selected),
+								viewKey: selectedViewKey!,
+								userId: profile.data!.id,
+								now,
+								deckProjectId: config.projectId,
+								presentation: faceState?.presentation,
+								optionIntent: (action) =>
+									current?.options.find((option) => option.id === action)
+										?.intent,
+								onContextQuestion: setContextQuestion,
+							});
 						}
 					: null
 			}
