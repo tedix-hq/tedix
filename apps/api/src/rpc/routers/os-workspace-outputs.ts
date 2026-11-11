@@ -67,6 +67,7 @@ import {
 	authorizeDerivedOutputSources,
 	parseDerivedAccessEnvelope,
 } from "../../services/os-derived-resource-access";
+import { attachOutputEditor } from "../../services/os-output-editor";
 import { requireOrgId } from "../org-scope";
 import {
 	outputMetadataChange,
@@ -346,6 +347,9 @@ const outputsCreate = authorOs.outputs.create.handler(
 				accessEnvelope,
 			},
 		);
+		// Every creator (people, agents, tedis, skills) lands here; the output
+		// opens in its reusable editor gadget from the first read.
+		await attachOutputEditor(context, created.output);
 		return {
 			output: mapOsOutputRow(created.output),
 			revision: mapOsOutputRevisionRow(created.revision),
@@ -499,6 +503,8 @@ const outputsMove = authorOs.outputs.move.handler(
 			);
 		const row = moved.output;
 		await publishOutputMetadataChange(context, row);
+		// Editor bindings are per workspace; the target needs its own.
+		await attachOutputEditor(context, row);
 		return {
 			output: mapOsOutputRow(row),
 			previousWorkspaceId: output.workspaceId,

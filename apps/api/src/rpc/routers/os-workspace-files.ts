@@ -2,6 +2,7 @@ import { implement } from "@orpc/server";
 import { osWorkspacesContract } from "@tedix/api-contract/contracts/os-workspaces";
 import { WORKSPACE_FILE_PART_BYTES } from "@tedix/api-contract/schemas/workspace-files";
 import { confirmOsWorkspaceFile } from "../../services/os-workspace-outputs";
+import { attachOutputEditor } from "../../services/os-output-editor";
 import { getOsOutput } from "../../services/workspace-output-storage";
 import { getOsWorkspaceResource } from "@tedix/db/queries/os-workspaces/resources";
 import {
@@ -180,7 +181,28 @@ async function ensureWorkspaceFileDocument(
 			),
 		);
 	}
+	await attachFileDocumentEditor(
+		context,
+		manifest.organizationId,
+		workspaceId,
+		resourceId,
+	);
 	return resourceId;
+}
+
+/** A file document opens read-only in the Doc gadget, like any document. */
+function attachFileDocumentEditor(
+	context: BaseContext,
+	organizationId: string,
+	workspaceId: string,
+	outputId: string,
+) {
+	return attachOutputEditor(context, {
+		id: outputId,
+		organizationId,
+		workspaceId,
+		kind: "document",
+	});
 }
 
 export const confirmFileUpload = author.resources.confirmFileUpload.handler(
@@ -311,6 +333,13 @@ export const confirmFileUpload = author.resources.confirmFileUpload.handler(
 			resourceId: input.resourceId,
 		});
 		if (!resource) missing();
+		if (input.document)
+			await attachFileDocumentEditor(
+				context,
+				organizationId,
+				workspace.id,
+				input.resourceId,
+			);
 		return {
 			resource: mapWorkspaceResource(resource),
 			...(input.document ? { outputId: input.resourceId } : {}),

@@ -2556,7 +2556,10 @@ describe("save workspace as blueprint", () => {
 				name: "Counter kit",
 			}),
 		).rejects.toMatchObject({ code: "CONFLICT" });
-		expect((await c.org1.blueprints.list({})).items).toHaveLength(1);
+		// The saved kit, and the Doc editor template the document opens in.
+		expect(
+			(await c.org1.blueprints.list({})).items.map((item) => item.name).sort(),
+		).toEqual(["Counter kit", "Doc editor"]);
 		await expect(
 			c.org2.blueprints.saveWorkspace({
 				workspaceId: workspace.id,

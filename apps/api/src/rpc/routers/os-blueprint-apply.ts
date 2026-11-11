@@ -9,6 +9,7 @@ import {
 import { getOsBlueprintRevision } from "@tedix/db/queries/os-workspaces/blueprints";
 import { getBlueprintApplyReceipt } from "@tedix/db/queries/os-workspaces/provisioning";
 import { instantiateOsBlueprint } from "../../services/os-workspace-outputs";
+import { attachOutputEditor } from "../../services/os-output-editor";
 import { getSkillEntry } from "@tedix/db/queries/cognitive/skill-crud";
 import { getSkillSchedule } from "@tedix/db/queries/skill-schedules";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
@@ -259,6 +260,17 @@ const apply = authed
 				);
 			throw error;
 		}
+		// Template documents get editors; app-bound outputs keep their app.
+		for (const output of [
+			...(params.outputs ?? []),
+			...(params.provisioning?.outputs ?? []),
+		])
+			await attachOutputEditor(context, {
+				id: output.id,
+				organizationId: output.organizationId,
+				workspaceId: output.workspaceId ?? null,
+				kind: output.kind,
+			});
 		return { receipt: plan.receipt, preflight };
 	});
 
