@@ -1340,8 +1340,23 @@ export function resolveApprovalPrincipal(
 		BaseContext,
 		"authType" | "gatewayEndUserId" | "tediId" | "user"
 	>,
-	request: Pick<DbApprovalRequest, "payload">,
+	request: Pick<DbApprovalRequest, "payload"> &
+		Partial<Pick<DbApprovalRequest, "actionType" | "tediId">>,
 ): string {
+	// A tedi never decides its own request: someone else has to. The embedded
+	// chat is the one place its runtime relays a person's click, shown by the
+	// host user it carries or by the confirmation it asked that person for.
+	if (
+		context.tediId &&
+		context.tediId === request.tediId &&
+		!context.gatewayEndUserId &&
+		request.actionType !== "embedded_user_confirmation"
+	) {
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"A tedi cannot decide its own approval request",
+		);
+	}
 	if (
 		request.payload.kind === "product_motion_rig_admission_v1" ||
 		request.payload.kind === "payment_budget_override"
