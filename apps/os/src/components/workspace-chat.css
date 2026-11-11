@@ -46,12 +46,6 @@
 	animation: workspace-chat-pulse 1.2s ease-in-out infinite;
 }
 
-.workspace-chat-connection[data-phase="closed"] .workspace-chat-connection-dot,
-.workspace-chat-connection[data-phase="unavailable"]
-	.workspace-chat-connection-dot {
-	animation: none;
-}
-
 .workspace-chat-unavailable {
 	display: flex;
 	align-items: center;
@@ -71,6 +65,10 @@
 	gap: 24px;
 	overflow-y: auto;
 	padding: 24px 20px 16px;
+	scrollbar-width: thin;
+	scrollbar-color: var(--color-kumo-hairline, var(--border)) transparent;
+	scrollbar-gutter: stable;
+	overscroll-behavior: contain;
 }
 
 .workspace-chat-empty {
@@ -94,6 +92,7 @@
 }
 
 .workspace-chat-reply {
+	position: relative;
 	display: flex;
 	min-width: 0;
 	flex-direction: column;
@@ -283,6 +282,35 @@
 	gap: 8px;
 }
 
+/* Sits in the gap under a finished answer, so showing it moves nothing. */
+.workspace-chat-turn-time {
+	position: absolute;
+	top: 100%;
+	left: 0;
+	padding: 0;
+	border: 0;
+	border-radius: 4px;
+	background: none;
+	font: inherit;
+	font-size: var(--text-tedix-caption);
+	line-height: var(--text-tedix-caption--line-height);
+	color: var(--color-kumo-subtle, inherit);
+	cursor: default;
+	opacity: 0;
+	transition: opacity var(--duration-tedix-fast) var(--ease-tedix-standard);
+}
+
+.workspace-chat-turn:hover .workspace-chat-turn-time,
+.workspace-chat-turn:focus-within .workspace-chat-turn-time,
+.workspace-chat-turn-time:focus-visible {
+	opacity: 1;
+}
+
+.workspace-chat-turn-time:focus-visible {
+	outline: 2px solid var(--color-kumo-brand, var(--primary));
+	outline-offset: 1px;
+}
+
 .workspace-chat-error {
 	display: flex;
 	align-items: center;
@@ -401,6 +429,10 @@
 	gap: 16px;
 	overflow-y: auto;
 	padding: 16px 20px;
+	scrollbar-width: thin;
+	scrollbar-color: var(--color-kumo-hairline, var(--border)) transparent;
+	scrollbar-gutter: stable;
+	overscroll-behavior: contain;
 }
 
 .workspace-chat-list ul {

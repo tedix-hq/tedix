@@ -406,7 +406,111 @@ describe("WorkspaceChat", () => {
 		);
 		expect(
 			host.querySelector('[data-testid="workspace-chat-timer"]')?.textContent,
-		).toMatch(/Working · \d+/);
+		).toMatch(/^Working · (\d+m )?\d+s$/);
+	});
+
+	it("turns Send into Stop while a turn runs, and back when it ends", () => {
+		const fake = fakeClient("c1");
+		mount(fake);
+		expect(host.querySelector('[aria-label="Stop"]')).toBeNull();
+		act(() => fake.feed([started]));
+		// The button is rendered anew when its name changes, so look it up again.
+		expect(host.querySelector('[aria-label="Send"]')).toBeNull();
+		expect(host.querySelectorAll('[aria-label="Stop"]').length).toBe(1);
+		expect(host.querySelector(".workspace-chat-turn-footer button")).toBeNull();
+		act(() =>
+			host.querySelector<HTMLButtonElement>('[aria-label="Stop"]')!.click(),
+		);
+		expect(fake.calls).toContainEqual(["cancelTurn", "t1"]);
+		expect(
+			fake.calls.some((call) => (call as unknown[])[0] === "sendTurn"),
+		).toBe(false);
+
+		// Text typed while the turn runs can still be sent with the button.
+		const textarea = host.querySelector("textarea")!;
+		act(() => {
+			Object.getOwnPropertyDescriptor(
+				HTMLTextAreaElement.prototype,
+				"value",
+			)!.set!.call(textarea, "Also count closed ones");
+			textarea.dispatchEvent(new Event("input", { bubbles: true }));
+		});
+		expect(host.querySelector('[aria-label="Stop"]')).toBeNull();
+		expect(host.querySelector('[aria-label="Send"]')).not.toBeNull();
+		act(() => {
+			Object.getOwnPropertyDescriptor(
+				HTMLTextAreaElement.prototype,
+				"value",
+			)!.set!.call(textarea, "");
+			textarea.dispatchEvent(new Event("input", { bubbles: true }));
+		});
+
+		act(() =>
+			fake.feed([
+				{
+					seq: 2,
+					at,
+					conversationId: "c1",
+					type: "turn.finished",
+					turnId: "t1",
+					status: "cancelled",
+					durationMs: 1000,
+				},
+			]),
+		);
+		expect(host.querySelector('[aria-label="Stop"]')).toBeNull();
+		expect(host.querySelector('[aria-label="Send"]')).not.toBeNull();
+	});
+
+	it("keeps the thread at its end before paint and again after a conversation change", () => {
+		const fake = fakeClient("c1");
+		mount(fake);
+		const thread = host.querySelector<HTMLElement>(".workspace-chat-thread")!;
+		let height = 900;
+		Object.defineProperty(thread, "scrollHeight", {
+			configurable: true,
+			get: () => height,
+		});
+		Object.defineProperty(thread, "clientHeight", {
+			configurable: true,
+			value: 300,
+		});
+		const scrolls: ScrollToOptions[] = [];
+		thread.scrollTo = ((options: ScrollToOptions) => {
+			scrolls.push(options);
+			thread.scrollTop = options.top ?? 0;
+		}) as typeof thread.scrollTo;
+		act(() => fake.feed([started]));
+		expect(scrolls.at(-1)).toEqual({ top: 900, behavior: "auto" });
+
+		// Reading further up stops the thread from following new text.
+		act(() => {
+			thread.scrollTop = 0;
+			thread.dispatchEvent(new Event("scroll", { bubbles: true }));
+		});
+		const before = scrolls.length;
+		height = 1_400;
+		act(() =>
+			fake.feed([
+				{
+					seq: 2,
+					at,
+					conversationId: "c1",
+					type: "assistant.delta",
+					turnId: "t1",
+					messageId: "m1",
+					text: "Twelve",
+				},
+			]),
+		);
+		expect(scrolls.length).toBe(before);
+
+		// Another conversation opens at its end again.
+		mount(fakeClient("c2"), "c2");
+		expect(host.querySelector<HTMLElement>(".workspace-chat-thread")).toBe(
+			thread,
+		);
+		expect(scrolls.at(-1)).toEqual({ top: 1_400, behavior: "auto" });
 	});
 
 	it("lists steps with their plain labels", () => {
@@ -459,24 +563,55 @@ describe("WorkspaceChat", () => {
 		expect(steps[1]?.textContent).toContain("Listing Work");
 	});
 
-	it("keeps the timer running and names the reconnect while the socket is away", () => {
-		const fake = fakeClient("c1");
-		mount(fake);
-		act(() => fake.feed([started]));
-		act(() =>
-			fake.set({
-				connection: { phase: "reconnecting", attempt: 2, nextTryAt: 0 },
-			}),
-		);
-		expect(
-			host.querySelector('[data-testid="workspace-chat-connection"]')
-				?.textContent,
-		).toContain("Reconnecting (2)");
-		expect(
-			host.querySelector('[data-testid="workspace-chat-timer"]')?.textContent,
-		).toContain("reconnecting");
-		expect(host.textContent).not.toContain("Live updates paused");
-		expect(host.textContent).not.toContain("still being prepared");
+	it("says nothing about the connection until it drops, then only Reconnecting", () => {
+		vi.useFakeTimers();
+		try {
+			const fake = fakeClient("c1");
+			const chip = () =>
+				host.querySelector('[data-testid="workspace-chat-connection"]');
+			// First connect: silent, however long it takes.
+			fake.set({ connection: { phase: "connecting", attempt: 0 } });
+			mount(fake);
+			act(() => void vi.advanceTimersByTime(5_000));
+			expect(chip()).toBeNull();
+			act(() => fake.set({ connection: { phase: "open", since: 0 } }));
+			act(() => fake.feed([started]));
+
+			// A blip shorter than the delay stays silent.
+			act(() =>
+				fake.set({
+					connection: { phase: "reconnecting", attempt: 1, nextTryAt: 0 },
+				}),
+			);
+			act(() => void vi.advanceTimersByTime(1_000));
+			expect(chip()).toBeNull();
+			act(() => fake.set({ connection: { phase: "open", since: 0 } }));
+			act(() => void vi.advanceTimersByTime(5_000));
+			expect(chip()).toBeNull();
+
+			// A real drop names itself once, with no count and no clock.
+			act(() =>
+				fake.set({
+					connection: { phase: "reconnecting", attempt: 2, nextTryAt: 0 },
+				}),
+			);
+			act(() => void vi.advanceTimersByTime(1_600));
+			expect(chip()?.textContent).toBe("Reconnecting…");
+			expect(
+				host.querySelector('[data-testid="workspace-chat-timer"]')?.textContent,
+			).toMatch(/^Working · (\d+m )?\d+s$/);
+			expect(host.textContent).not.toContain("last update");
+			expect(host.textContent).not.toContain("Live updates paused");
+
+			// Moving to another conversation is not a drop.
+			const next = fakeClient("c2");
+			next.set({ connection: { phase: "connecting", attempt: 0 } });
+			mount(next, "c2");
+			act(() => void vi.advanceTimersByTime(5_000));
+			expect(chip()).toBeNull();
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("says plainly when this origin has no object lane yet, with a retry", () => {
@@ -823,7 +958,7 @@ describe("WorkspaceChat", () => {
 		]);
 	});
 
-	it("shows the settled footer with duration and usage", () => {
+	it("shows no line under a finished answer; the details sit behind its time", async () => {
 		const fake = fakeClient("c1");
 		mount(fake);
 		act(() =>
@@ -851,10 +986,23 @@ describe("WorkspaceChat", () => {
 				},
 			]),
 		);
-		const footer = host.querySelector(".workspace-chat-turn-footer");
-		expect(footer?.textContent).toBe(
-			"4s · 2,000 input · 500 output tokens · Cost unavailable · mock",
-		);
+		expect(host.querySelector(".workspace-chat-turn-footer")).toBeNull();
+		expect(host.textContent).not.toMatch(/unavailable|tokens|mock/);
+		const time = host.querySelector<HTMLButtonElement>(
+			'[data-testid="workspace-chat-turn-time"]',
+		)!;
+		expect(time.tagName).toBe("BUTTON");
+		expect(time.textContent).toMatch(/\d{1,2}[:.]\d{2}/);
+		await act(async () => {
+			time.focus();
+			await new Promise((resolve) => setTimeout(resolve, 50));
+		});
+		const tip = document.querySelector('[role="tooltip"]');
+		expect(
+			[...(tip?.querySelectorAll("span") ?? [])].map(
+				(part) => part.textContent,
+			),
+		).toEqual(["Took 4s", "mock", "2,000 input · 500 output tokens"]);
 	});
 
 	it("sends the composer's text to the object", () => {

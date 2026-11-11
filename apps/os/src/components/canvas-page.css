@@ -201,17 +201,6 @@
 	text-transform: uppercase;
 }
 
-.canvas-resource-state-filter {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 4px;
-	padding-bottom: 2px;
-}
-
-.canvas-resource-state-filter button {
-	gap: 6px;
-}
-
 .canvas-resource-apps,
 .canvas-resource-schedules,
 .canvas-resource-runners {
@@ -222,7 +211,7 @@
 	display: flex;
 	min-height: 0;
 	min-width: 300px;
-	max-width: 480px;
+	max-width: 720px;
 	flex: 0 0 var(--canvas-chat-width, 420px);
 	flex-direction: column;
 	background: var(--background);
@@ -235,16 +224,16 @@
  * mounted at no width, so what is in it keeps running and is there at once
  * when the pane opens again.
  */
-.canvas-surface[data-stage-open="false"] .canvas-chat-thread > *,
-.canvas-surface[data-stage-open="false"] .canvas-chat-conversations > *,
-.canvas-surface[data-stage-open="false"] .canvas-chat-list-composer > * {
+.canvas-surface[data-stage-open="false"] .workspace-chat-thread > *,
+.canvas-surface[data-stage-open="false"] .workspace-chat-list > *,
+.canvas-surface[data-stage-open="false"] .workspace-chat-composer > * {
 	width: 100%;
 	max-width: 920px;
 	margin-inline: auto;
 }
 
 @media (min-width: 960px) {
-	/* `max-width: 100%`, not `none`, so the 480px cap animates and never snaps. */
+	/* `max-width: 100%`, not `none`, so the width cap animates and never snaps. */
 	.canvas-surface[data-stage-open="false"] .canvas-chat-pane {
 		max-width: 100%;
 		flex-grow: 1;
@@ -315,52 +304,6 @@
 
 :root[data-motion="reduced"] .canvas-stage-content[data-entering] {
 	animation: none;
-}
-
-.canvas-chat-header {
-	display: flex;
-	height: 48px;
-	min-height: 48px;
-	box-sizing: border-box;
-	align-items: center;
-	justify-content: space-between;
-	gap: 8px;
-	padding: 8px 16px;
-	border-bottom: 1px solid var(--border);
-	background: var(--background-lighter);
-}
-
-.canvas-chat-header strong,
-.canvas-chat-header p {
-	display: block;
-	margin: 0;
-}
-
-/*
- * Product copy, so it goes through the semantic scale. The subtitle sat at
- * 10px, below the 11px caption tier and off the scale entirely — a raw CSS
- * literal, so the `type-literal` lint (which scans Tailwind `text-[Npx]`
- * utilities) never saw it.
- */
-.canvas-chat-header strong {
-	font-size: var(--text-tedix-label);
-	line-height: var(--text-tedix-label--line-height);
-}
-
-.canvas-chat-header p {
-	color: var(--muted-foreground);
-	font-size: var(--text-tedix-caption);
-	line-height: var(--text-tedix-caption--line-height);
-}
-
-/*
- * Spacing follows one 8px rhythm: panel padding 16–24px, section gaps 24–32px,
- * rows 48px, and one left edge per panel.
- */
-.canvas-chat-thread {
-	min-height: 0;
-	flex: 1 1 auto;
-	padding: 24px 20px 16px;
 }
 
 .chat-starter-prompts {
@@ -517,33 +460,6 @@
 		opacity 160ms ease-out;
 }
 
-/*
- * The always-live composer starts a conversation by sending. The conversation
- * list scrolls; the composer stays fixed beneath it.
- */
-.canvas-chat-list-composer {
-	flex: none;
-	padding: 12px 20px 20px;
-}
-
-.canvas-chat-conversations {
-	min-height: 0;
-	flex: 1 1 auto;
-	overflow-y: auto;
-	padding: 24px 20px;
-}
-
-.canvas-chat-conversations [aria-label="Conversations"] > :first-child {
-	background: var(--background);
-}
-
-.canvas-chat-thread [data-slot="conversation-transcript"] {
-	border: 0;
-	border-radius: 0;
-	background: transparent;
-	box-shadow: none;
-}
-
 .canvas-chat-resizer {
 	position: relative;
 	width: 1px;
@@ -570,7 +486,13 @@
 }
 
 .canvas-surface[data-resizing-chat] {
+	cursor: col-resize;
 	user-select: none;
+}
+
+/* An open app must not swallow the pointer while the divider is dragged. */
+.canvas-surface[data-resizing-chat] iframe {
+	pointer-events: none;
 }
 
 .canvas-stage {
@@ -784,10 +706,6 @@
 .canvas-document-status,
 .canvas-document-actions {
 	flex: none;
-}
-
-.canvas-document-footer {
-	margin-top: 4px;
 }
 
 /* The workspace canvas hosts the same editor inside a scrolling stage. Without

@@ -1014,7 +1014,7 @@ describe("Canvas workbench state", () => {
 
 	it("clamps and restores the persisted chat width", () => {
 		expect(clampCanvasChatWidth(100)).toBe(CANVAS_CHAT_WIDTH_MIN);
-		expect(clampCanvasChatWidth(1000)).toBe(CANVAS_CHAT_WIDTH_MAX);
+		expect(clampCanvasChatWidth(1000, 3_000)).toBe(CANVAS_CHAT_WIDTH_MAX);
 		expect(
 			restoreCanvasChatWidth({
 				getItem: (key) => (key === CANVAS_CHAT_WIDTH_KEY ? "428" : null),
@@ -2687,20 +2687,19 @@ describe("CanvasPage listing", () => {
 });
 
 describe("Canvas Cloudflare-reference composition", () => {
-	it("keeps selected workpiece tabs and the embedded transcript borderless", () => {
+	it("keeps selected workpiece tabs borderless and the bars one height", () => {
 		const styles =
 			readFileSync("src/components/canvas-page.css", "utf8") +
 			readFileSync("src/components/output-views.css", "utf8");
 		expect(styles).toMatch(
 			/\.canvas-workpiece-tab\[data-selected\][\s\S]*?background:\s*var\(--color-kumo-tint\);/,
 		);
-		expect(styles).toMatch(
-			/\.canvas-chat-thread \[data-slot="conversation-transcript"\][\s\S]*?border:\s*0;[\s\S]*?border-radius:\s*0;/,
-		);
-		expect(styles).toMatch(/\.canvas-chat-thread\s*\{[\s\S]*?padding:\s*16px;/);
 		expect(styles).toMatch(/\.canvas-workbench\s*\{[^}]*?overflow:\s*clip;/);
 		expect(styles).toMatch(
-			/\.canvas-chat-header\s*\{[\s\S]*?height:\s*48px;[\s\S]*?min-height:\s*48px;/,
+			/\.canvas-surface\[data-stage-open="false"\] \.workspace-chat-thread > \*[\s\S]*?max-width:\s*920px;[\s\S]*?margin-inline:\s*auto;/,
+		);
+		expect(styles).toMatch(
+			/\.canvas-surface\[data-resizing-chat\] iframe\s*\{[\s\S]*?pointer-events:\s*none;/,
 		);
 		expect(styles).toMatch(
 			/\.canvas-workpiece-bar\s*\{[\s\S]*?height:\s*48px;[\s\S]*?min-height:\s*48px;/,
@@ -3394,6 +3393,10 @@ describe("clampCanvasChatWidth viewport floor", () => {
 		expect(clampCanvasChatWidth(480, 500)).toBe(CANVAS_CHAT_WIDTH_MIN);
 		// A wide viewport keeps the ordinary cap.
 		expect(clampCanvasChatWidth(9_999, 3_000)).toBe(CANVAS_CHAT_WIDTH_MAX);
+		expect(CANVAS_CHAT_WIDTH_MAX).toBe(720);
+		expect(clampCanvasChatWidth(720, 1_000)).toBe(
+			1_000 - CANVAS_STAGE_MIN_WIDTH,
+		);
 		expect(clampCanvasChatWidth(CANVAS_CHAT_WIDTH_DEFAULT, 1_024)).toBe(
 			CANVAS_CHAT_WIDTH_DEFAULT,
 		);
@@ -3472,6 +3475,62 @@ describe("CanvasPage chat-first workspace", () => {
 		expect(
 			container.querySelector(".canvas-stage")?.getAttribute("aria-hidden"),
 		).toBeNull();
+	});
+
+	it("drags the divider from the handle itself and resets on a double-click", async () => {
+		const innerWidth = window.innerWidth;
+		Object.defineProperty(window, "innerWidth", {
+			configurable: true,
+			value: 1_600,
+		});
+		try {
+			mockLists();
+			const container = renderPage();
+			await flush();
+			const surface = container.querySelector(".canvas-surface")!;
+			const chat = container.querySelector(".canvas-chat-pane") as HTMLElement;
+			const handle = () =>
+				container.querySelector(".canvas-chat-resizer") as HTMLElement;
+			const pointer = (type: string, clientX: number) =>
+				act(() => {
+					handle().dispatchEvent(
+						new MouseEvent(type, { bubbles: true, clientX }),
+					);
+				});
+
+			pointer("pointerdown", 500);
+			expect(surface.hasAttribute("data-resizing-chat")).toBe(true);
+			// Far wider than the old limit, and only the handle hears the move.
+			pointer("pointermove", 500 + 1_000);
+			expect(chat.style.getPropertyValue("--canvas-chat-width")).toBe(
+				`${CANVAS_CHAT_WIDTH_MAX}px`,
+			);
+			pointer("pointerup", 500 + 1_000);
+			expect(surface.hasAttribute("data-resizing-chat")).toBe(false);
+			expect(window.localStorage.getItem(CANVAS_CHAT_WIDTH_KEY)).toBe(
+				String(CANVAS_CHAT_WIDTH_MAX),
+			);
+			// A move after the release changes nothing.
+			pointer("pointermove", 100);
+			expect(chat.style.getPropertyValue("--canvas-chat-width")).toBe(
+				`${CANVAS_CHAT_WIDTH_MAX}px`,
+			);
+
+			pointer("pointerdown", 500);
+			pointer("pointercancel", 500);
+			expect(surface.hasAttribute("data-resizing-chat")).toBe(false);
+
+			pointer("dblclick", 500);
+			expect(chat.style.getPropertyValue("--canvas-chat-width")).toBe(
+				`${CANVAS_CHAT_WIDTH_DEFAULT}px`,
+			);
+		} finally {
+			Object.defineProperty(window, "innerWidth", {
+				configurable: true,
+				value: innerWidth,
+			});
+			window.localStorage.removeItem(CANVAS_CHAT_WIDTH_KEY);
+		}
 	});
 
 	it("removes the inert boundary when revealing the workpiece and restores it when hidden", async () => {

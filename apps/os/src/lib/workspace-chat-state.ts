@@ -563,25 +563,39 @@ export function elapsedLabel(ms: number): string {
 	return `${minutes}m ${rest.toString().padStart(2, "0")}s`;
 }
 
-/** A finished turn's cost, or the reason it has none. Never a made-up zero. */
-export function formatTurnCost(usage: TurnUsage | undefined): string {
-	if (usage?.costUsd !== undefined && Number.isFinite(usage.costUsd))
-		return usage.costUsd > 0 && usage.costUsd < 0.0001
-			? "Cost <$0.0001"
-			: `Cost $${usage.costUsd.toFixed(4)}`;
-	return usage?.costUnavailable
-		? `Cost unavailable: ${usage.costUnavailable}`
-		: "Cost unavailable";
+/** A finished turn's cost, or nothing when none was recorded. Never a made-up zero. */
+export function formatTurnCost(usage: TurnUsage | undefined): string | null {
+	if (usage?.costUsd === undefined || !Number.isFinite(usage.costUsd))
+		return null;
+	return usage.costUsd > 0 && usage.costUsd < 0.0001
+		? "Cost <$0.0001"
+		: `Cost $${usage.costUsd.toFixed(4)}`;
 }
 
-export function formatUsage(usage: TurnUsage): string {
+/** What is known about a finished turn. Missing parts are left out. */
+export function turnDetails(
+	turn: Pick<ChatTurn, "durationMs" | "usage">,
+	modelLabel?: string | null,
+): string[] {
+	return [
+		turn.durationMs !== undefined
+			? `Took ${elapsedLabel(turn.durationMs)}`
+			: null,
+		modelLabel || null,
+		turn.usage ? formatUsage(turn.usage) : null,
+		formatTurnCost(turn.usage),
+	].filter((part): part is string => Boolean(part));
+}
+
+/** Token counts, or nothing when the provider reported none. */
+export function formatUsage(usage: TurnUsage): string | null {
 	// Older runtimes wrote zeroes when no provider usage was available.
 	if (
 		usage.partial === undefined &&
 		usage.inputTokens === 0 &&
 		usage.outputTokens === 0
 	)
-		return "Usage unavailable";
+		return null;
 	const parts = [
 		`${usage.inputTokens.toLocaleString()} input · ${usage.outputTokens.toLocaleString()} output tokens`,
 	];

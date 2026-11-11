@@ -191,7 +191,7 @@ const WorkspaceWorkPanel = lazy(async () => ({
 
 export const CANVAS_CHAT_WIDTH_KEY = "tedix-os:canvas-chat-width";
 export const CANVAS_CHAT_WIDTH_MIN = 300;
-export const CANVAS_CHAT_WIDTH_MAX = 480;
+export const CANVAS_CHAT_WIDTH_MAX = 720;
 export const CANVAS_CHAT_WIDTH_DEFAULT = 420;
 /**
  * The stage can never be squeezed out: whatever the persisted or dragged chat
@@ -784,28 +784,11 @@ export function CanvasPage({
 		return () => window.removeEventListener("resize", reclamp);
 	}, []);
 
-	useEffect(() => {
+	const stopResizingChat = () => {
 		if (!resizingChat) return;
-		const resize = (event: PointerEvent) => {
-			const next = clampCanvasChatWidth(
-				resizeStartRef.current.width +
-					event.clientX -
-					resizeStartRef.current.pointerX,
-			);
-			chatWidthRef.current = next;
-			setChatWidth(next);
-		};
-		const stop = () => {
-			setResizingChat(false);
-			persistChatWidth(chatWidthRef.current);
-		};
-		window.addEventListener("pointermove", resize);
-		window.addEventListener("pointerup", stop, { once: true });
-		return () => {
-			window.removeEventListener("pointermove", resize);
-			window.removeEventListener("pointerup", stop);
-		};
-	}, [resizingChat]);
+		setResizingChat(false);
+		persistChatWidth(chatWidthRef.current);
+	};
 
 	// The workspace screen has no OS shell around it, so it opens the command
 	// palette itself.
@@ -1714,7 +1697,7 @@ export function CanvasPage({
 				>
 					<Button
 						aria-label={OS_COPY.workspace.allWorkspaces}
-						className="canvas-workspace-back"
+						className="canvas-workspace-back sm:hidden"
 						title={OS_COPY.workspace.allWorkspaces}
 						onClick={() => void navigate({ to: "/workspaces" })}
 						size="icon-sm"
@@ -1761,7 +1744,9 @@ export function CanvasPage({
 								]}
 							/>
 						) : null}
-						<h1 className="type-tedix-body">
+						<h1
+							className={`type-tedix-body${selectedWorkspace ? " sm:sr-only" : ""}`}
+						>
 							{selectedApp?.name ?? selectedWorkspace?.name ?? surface.label}
 						</h1>
 						<p className="sr-only">
@@ -1935,13 +1920,34 @@ export function CanvasPage({
 							persistChatWidth(CANVAS_CHAT_WIDTH_MAX);
 						}
 					}}
+					onDoubleClick={() => persistChatWidth(CANVAS_CHAT_WIDTH_DEFAULT)}
 					onPointerDown={(event) => {
 						resizeStartRef.current = {
 							pointerX: event.clientX,
 							width: chatWidth,
 						};
+						// The handle keeps the pointer, so the drag carries on over an
+						// open app and ends wherever the button is let go.
+						try {
+							event.currentTarget.setPointerCapture?.(event.pointerId);
+						} catch {
+							// No such pointer; the handle still follows it while over it.
+						}
 						setResizingChat(true);
 					}}
+					onPointerMove={(event) => {
+						if (!resizingChat) return;
+						const next = clampCanvasChatWidth(
+							resizeStartRef.current.width +
+								event.clientX -
+								resizeStartRef.current.pointerX,
+						);
+						chatWidthRef.current = next;
+						setChatWidth(next);
+					}}
+					onPointerUp={stopResizingChat}
+					onPointerCancel={stopResizingChat}
+					onLostPointerCapture={stopResizingChat}
 					role="separator"
 					tabIndex={stageOpen ? 0 : -1}
 				/>
