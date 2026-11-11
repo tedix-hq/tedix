@@ -114,7 +114,9 @@ try {
 			// Edit: builders can edit the revision files into a draft.
 			await editTab.click();
 			const files = page.getByRole("complementary", { name: "Code files" });
-			await files.getByRole("button", { name: "client.js" }).click();
+			await files
+				.getByRole("button", { name: "client.js", exact: true })
+				.click();
 			const viewer = page.locator("[data-canvas-app-code-file]");
 			await viewer.getByRole("textbox", { name: "Edit client.js" }).waitFor();
 			assert.match(
@@ -125,9 +127,59 @@ try {
 				`${label}: client.js is shown`,
 			);
 			await noOverflow(page, `${label} code`);
+			// No card around the code: the file list and the open file reach the
+			// canvas column's edges.
+			const codeEdges = await page.evaluate(() => {
+				const box = (selector: string) =>
+					document.querySelector(selector)!.getBoundingClientRect();
+				const column = box(".canvas-document-shell");
+				const workbench = box("[data-canvas-code-workbench]");
+				return [column.left, column.right, workbench.left, workbench.right];
+			});
+			assert(
+				Math.abs(codeEdges[0]! - codeEdges[2]!) <= 1 &&
+					Math.abs(codeEdges[1]! - codeEdges[3]!) <= 1,
+				`${label}: the code fills the canvas column (${codeEdges})`,
+			);
+			// Each file's "…" menu downloads the text that is on screen.
+			await files.locator('[data-canvas-code-file-row="client.js"]').hover();
+			await files.getByRole("button", { name: "More for client.js" }).click();
+			const [download] = await Promise.all([
+				page.waitForEvent("download"),
+				page.getByRole("menuitem", { name: "Download" }).click(),
+			]);
+			assert.equal(download.suggestedFilename(), "client.js");
+			assert.equal(
+				await Bun.file((await download.path())!).text(),
+				await viewer
+					.getByRole("textbox", { name: "Edit client.js" })
+					.inputValue(),
+				`${label}: the download is the file as shown`,
+			);
 			await page.screenshot({
 				path: `${evidence}/${width}-${theme}-code.png`,
 			});
+			// History fills the column too: its header and rows have no card.
+			await tabs.getByRole("button", { name: "History" }).click();
+			const history = page.locator("[data-gadget-executions]");
+			await history.getByRole("button", { name: "Run manually" }).waitFor();
+			const historyEdges = await page.evaluate(() => {
+				const box = (selector: string) =>
+					document.querySelector(selector)!.getBoundingClientRect();
+				const column = box(".canvas-document-shell");
+				const runs = box("[data-gadget-executions]");
+				return [column.left, column.right, runs.left, runs.right];
+			});
+			assert(
+				Math.abs(historyEdges[0]! - historyEdges[2]!) <= 1 &&
+					Math.abs(historyEdges[1]! - historyEdges[3]!) <= 1,
+				`${label}: History fills the canvas column (${historyEdges})`,
+			);
+			await noOverflow(page, `${label} history`);
+			await page.screenshot({
+				path: `${evidence}/${width}-${theme}-edit-history.png`,
+			});
+			await editTab.click();
 
 			// The draft sits above the code in Edit: what it changes, and its own
 			// preview.
@@ -203,7 +255,7 @@ try {
 		await tabs.getByRole("button", { name: /^Edit/ }).click();
 		await page
 			.getByRole("complementary", { name: "Code files" })
-			.getByRole("button", { name: "client.js" })
+			.getByRole("button", { name: "client.js", exact: true })
 			.click();
 		const editor = page.getByRole("textbox", { name: "Edit client.js" });
 		await editor.waitFor();
@@ -260,7 +312,7 @@ try {
 		await appView(page).getByRole("button", { name: /^Edit/ }).click();
 		await page
 			.getByRole("complementary", { name: "Code files" })
-			.getByRole("button", { name: "client.js" })
+			.getByRole("button", { name: "client.js", exact: true })
 			.click();
 		await editor.fill(
 			combined.code.files["client.js"].replace(

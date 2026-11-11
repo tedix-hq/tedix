@@ -781,7 +781,7 @@ function RunManuallyForm({
 
 	return (
 		<form
-			className="grid min-w-0 gap-3 rounded-lg border border-kumo-hairline bg-kumo-base p-3"
+			className="grid min-w-0 gap-3 border-kumo-hairline border-b bg-kumo-base px-4 py-3"
 			aria-label="Run manually"
 			onSubmit={(event) => {
 				event.preventDefault();
@@ -1019,9 +1019,9 @@ export function CanvasGadgetExecutions({
 	}, [onSelectedExecutionChange, selectedExecution]);
 
 	return (
-		<section className="grid min-w-0 gap-3" data-gadget-executions>
-			<div className="flex min-w-0 items-center justify-between gap-2">
-				<Text as="h2" role="label" tone="secondary">
+		<section className="canvas-history" data-gadget-executions>
+			<div className="canvas-history-header">
+				<Text as="h2" role="label" tone="secondary" className="m-0">
 					{runs.length > 0
 						? `${runs.length} recent ${runs.length === 1 ? "run" : "runs"}`
 						: "Runs"}
@@ -1032,65 +1032,72 @@ export function CanvasGadgetExecutions({
 					</Button>
 				)}
 			</div>
-			{formOpen && (
-				<RunManuallyForm
-					workspaceId={workspaceId}
-					gadgetId={gadgetId}
-					onClose={() => setFormOpen(false)}
-					onStarted={(execution) => {
-						setStarted(execution);
-						setOpenId(execution.id);
-						setFormOpen(false);
-					}}
-				/>
-			)}
-			{executions.isPending && <ListSkeleton rows={3} />}
-			{executions.isError && (
-				<LoadError
-					title="History is unavailable"
-					error={executions.error}
-					onRetry={() => {
-						void executions.refetch();
-					}}
-					retrying={executions.isFetching}
-				/>
-			)}
-			{executions.data && runs.length === 0 && (
-				<Empty
-					appearance="quiet"
-					title="No runs yet"
-					description="Runs appear here when someone uses the app, a schedule runs, or you run it manually."
-				/>
-			)}
-			{runs.length > 0 && (
-				<ul
-					aria-label="Runs"
-					className="m-0 min-w-0 list-none overflow-hidden rounded-lg border border-kumo-hairline p-0 [&>li:last-child>button]:border-b-0"
-				>
-					{runs.map((execution) => (
-						<RunRow
-							key={execution.id}
-							execution={execution}
-							directory={directory}
-							open={openId === execution.id}
-							onToggle={() =>
-								setOpenId(openId === execution.id ? null : execution.id)
-							}
-						>
-							<RunDetails
+			<div className="canvas-history-body">
+				{formOpen && (
+					<RunManuallyForm
+						workspaceId={workspaceId}
+						gadgetId={gadgetId}
+						onClose={() => setFormOpen(false)}
+						onStarted={(execution) => {
+							setStarted(execution);
+							setOpenId(execution.id);
+							setFormOpen(false);
+						}}
+					/>
+				)}
+				{executions.isPending && (
+					<div className="p-4">
+						<ListSkeleton rows={3} />
+					</div>
+				)}
+				{executions.isError && (
+					<div className="p-4">
+						<LoadError
+							title="History is unavailable"
+							error={executions.error}
+							onRetry={() => {
+								void executions.refetch();
+							}}
+							retrying={executions.isFetching}
+						/>
+					</div>
+				)}
+				{executions.data && runs.length === 0 && (
+					<div className="p-4">
+						<Empty
+							appearance="quiet"
+							title="No runs yet"
+							description="Runs appear here when someone uses the app, a schedule runs, or you run it manually."
+						/>
+					</div>
+				)}
+				{runs.length > 0 && (
+					<ul aria-label="Runs" className="m-0 min-w-0 list-none p-0">
+						{runs.map((execution) => (
+							<RunRow
+								key={execution.id}
 								execution={execution}
 								directory={directory}
-								exportDescriptors={
-									exportRevision === undefined ||
-									execution.revision === exportRevision
-										? exportDescriptors
-										: []
+								open={openId === execution.id}
+								onToggle={() =>
+									setOpenId(openId === execution.id ? null : execution.id)
 								}
-							/>
-						</RunRow>
-					))}
-				</ul>
-			)}
+							>
+								<RunDetails
+									execution={execution}
+									directory={directory}
+									exportDescriptors={
+										exportRevision === undefined ||
+										execution.revision === exportRevision
+											? exportDescriptors
+											: []
+									}
+								/>
+							</RunRow>
+						))}
+					</ul>
+				)}
+			</div>
 		</section>
 	);
 }
