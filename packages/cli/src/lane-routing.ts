@@ -185,10 +185,16 @@ export class LocalExecutorCapacityError extends Error {
 	override name = "LocalExecutorCapacityError";
 }
 
+export interface ExecutorAvailability {
+	available: boolean;
+	/** Why the route was rejected, e.g. a failed `--version` probe. */
+	reason?: string;
+}
+
 export function routeLocalWork(
 	work: { executor: string; tags?: string[]; size?: string; risk?: string },
 	policy: RoutingPolicy,
-	available: Record<LocalExecutor, boolean>,
+	available: Record<LocalExecutor, ExecutorAvailability>,
 	budgets: ExecutorBudgets,
 	now = Date.now(),
 ) {
@@ -208,15 +214,23 @@ export function routeLocalWork(
 			`No routes configured for ${rule.name}; use --routing-config or TEDIX_LANE_ROUTING_CONFIG to choose executors and models`,
 		);
 	let capacityPaused = false;
+	const rejected: string[] = [];
 	for (const route of routes) {
 		const budget = budgets[route.executor];
 		const fresh =
 			budget &&
 			(now - budget.observedAt <= policy.signalMaxAgeMs ||
 				(budget.resetAt ?? 0) > now);
-		if (!available[route.executor]) continue;
+		const probe = available[route.executor];
+		if (!probe?.available) {
+			rejected.push(`${route.executor}: ${probe?.reason ?? "unavailable"}`);
+			continue;
+		}
 		if ((budget?.backoffUntil ?? 0) > now) {
 			capacityPaused = true;
+			rejected.push(
+				`${route.executor}: budget backoff until ${new Date(budget!.backoffUntil!).toISOString()}`,
+			);
 			continue;
 		}
 		// Codex's included allowance excludes backup credits; actual refusals use backoff.
@@ -228,6 +242,12 @@ export function routeLocalWork(
 			budget.remainingPercent <= policy.nearLimitPercent
 		) {
 			capacityPaused = true;
+			rejected.push(
+				`${route.executor}: ${budget.remainingPercent}% remaining is at or below the ${policy.nearLimitPercent}% near-limit` +
+					(budget.resetAt !== undefined
+						? ` until ${new Date(budget.resetAt).toISOString()}`
+						: ""),
+			);
 			continue;
 		}
 		return {
@@ -241,7 +261,10 @@ export function routeLocalWork(
 			rule: rule.name,
 		};
 	}
-	const message = `No eligible local executor for ${rule.name}; assignments and capability requirements retained`;
+	const message =
+		`No eligible local executor for ${rule.name}` +
+		(rejected.length ? ` (${rejected.join("; ")})` : "") +
+		"; assignments and capability requirements retained";
 	throw capacityPaused
 		? new LocalExecutorCapacityError(message)
 		: new Error(message);

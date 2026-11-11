@@ -91,10 +91,10 @@ it("uses an optional launcher-adjacent OpenCode default, with explicit policy ta
 it("does not select an automatic executor without an operator policy, while retaining named assignments", () => {
 	const policy = readRoutingPolicy(undefined, {});
 	const available = {
-		codex: true,
-		"claude-code": true,
-		opencode: true,
-		devin: true,
+		codex: { available: true },
+		"claude-code": { available: true },
+		opencode: { available: true },
+		devin: { available: true },
 	};
 	expect(policy.rules.flatMap((rule) => rule.routes)).toEqual([]);
 	expect(() =>
@@ -129,7 +129,12 @@ it("uses explicit choices without merging managed preferences and fails closed o
 		routeLocalWork(
 			{ executor: "any-local" },
 			policy,
-			{ codex: true, "claude-code": true, opencode: true, devin: true },
+			{
+				codex: { available: true },
+				"claude-code": { available: true },
+				opencode: { available: true },
+				devin: { available: true },
+			},
 			{},
 		).executor,
 	).toBe("devin");

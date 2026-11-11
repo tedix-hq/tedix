@@ -64,9 +64,11 @@ import {
 	isMissingNativeState,
 	LocalExecutorCapacityError,
 	type LocalExecutor,
+	type ExecutorAvailability,
 	type ExecutorBudgets,
 	type RoutingPolicy,
 } from "./lane-routing";
+import { cachedExecutorProbe } from "./lane-executor-probe";
 import { createCodexLaneThread } from "./codex-lane-thread";
 import { BOOTSTRAP_AWAITING_APPROVAL } from "./external-agent";
 import { UUID_RE } from "./work-identity";
@@ -1376,7 +1378,7 @@ interface DispatcherDeps {
 	cli: typeof cli;
 	observe: typeof reportLaneObservation;
 	devinAvailability: typeof devinAvailability;
-	available: (executor: LocalExecutor) => boolean;
+	available: (executor: LocalExecutor) => ExecutorAvailability;
 	budgets: typeof readExecutorBudgets;
 	thread: (
 		cwd: string,
@@ -1409,12 +1411,7 @@ const defaultDeps: DispatcherDeps = {
 	confirmLogin: confirmStoredAccess,
 	gatewayCooldownUntil,
 	devinAvailability,
-	available: (executor) =>
-		spawnSync(executor === "claude-code" ? "claude" : executor, ["--version"], {
-			env: laneChildEnv(),
-			timeout: 5000,
-			stdio: "ignore",
-		}).status === 0,
+	available: cachedExecutorProbe(),
 	budgets: readExecutorBudgets,
 	thread: (cwd, executor, model, resume) =>
 		executor === "devin"
@@ -1480,8 +1477,8 @@ export class LaneDispatcher {
 	private policy: RoutingPolicy;
 	private budgets: ExecutorBudgets = {};
 	private availability = Object.fromEntries(
-		localExecutors.map((key) => [key, true]),
-	) as Record<LocalExecutor, boolean>;
+		localExecutors.map((key) => [key, { available: true }]),
+	) as Record<LocalExecutor, ExecutorAvailability>;
 	constructor(
 		private options: ServeOptions,
 		private directory: string,
@@ -1737,9 +1734,13 @@ export class LaneDispatcher {
 		}
 		const observed = this.deps.budgets(this.policy);
 		for (const executor of localExecutors) {
-			this.availability[executor] =
-				this.deps.available(executor) &&
-				(executor !== "devin" || this.deps.devinAvailability().available);
+			let probe = this.deps.available(executor);
+			if (executor === "devin" && probe.available) {
+				const status = this.deps.devinAvailability();
+				if (!status.available)
+					probe = { available: false, reason: status.reason };
+			}
+			this.availability[executor] = probe;
 			const prior = this.budgets[executor];
 			this.budgets[executor] = {
 				...observed[executor]!,

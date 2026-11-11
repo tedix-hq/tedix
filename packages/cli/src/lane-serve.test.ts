@@ -206,7 +206,7 @@ function fixture({
 			control.cooldownWorkspaces.push(workspace);
 			return control.cooldownUntil;
 		},
-		available: () => true,
+		available: () => ({ available: true }),
 		budgets: () => ({}),
 		devinAvailability: () =>
 			devinReady
@@ -3186,7 +3186,10 @@ describe("dispatcher admission", () => {
 			max: 1,
 		});
 		items.splice(1);
-		deps.available = () => false;
+		deps.available = () => ({
+			available: false,
+			reason: "fixture --version probe failed",
+		});
 		let now = Date.now();
 		const clock = spyOn(Date, "now").mockImplementation(() => now);
 		const dispatcher = restart();
@@ -3433,7 +3436,7 @@ describe("dispatcher admission", () => {
 			const restarted = new LaneDispatcher(options, dir, {
 				health: () => [],
 				darkWake: () => false,
-				available: () => true,
+				available: () => ({ available: true }),
 				devinAvailability: () => ({ available: true }),
 				budgets: () => ({}),
 				cli: async <T>() =>
