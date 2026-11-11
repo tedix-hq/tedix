@@ -1,6 +1,6 @@
 import "./output-editor.css";
 import { SlideCanvas } from "@/components/slide-editor-canvas";
-import { createElement } from "@/components/slide-element-defaults";
+import { createElement } from "@/lib/slide-element-defaults";
 import { slideElementGeometry } from "@tedix/api-contract/utils/presentation-style";
 import {
 	ArrowUDownLeft,
@@ -56,7 +56,7 @@ import {
 	applySlideElementAction,
 	type SlideElementAction,
 	slideElementShortcut,
-} from "@/components/slide-element-actions";
+} from "@/lib/slide-element-actions";
 import { SlideInsertLibrary } from "@/components/slide-insert-library";
 import { SlideMediaPicker } from "@/components/slide-media-picker";
 import {

@@ -5,7 +5,7 @@ import type {
 	OsPresentationElementType,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { slideElementGeometry } from "@tedix/api-contract/utils/presentation-style";
-import { createElement } from "../components/slide-element-defaults";
+import { createElement } from "../lib/slide-element-defaults";
 import {
 	normalizePresentationContent,
 	projectDeck,
