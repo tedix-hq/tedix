@@ -12,7 +12,6 @@ import {
 } from "@tedix/api-contract/contracts/tool-schema-sync";
 import {
 	AUTHZ,
-	withAuthorization,
 	type BaseContext,
 	createError,
 	ErrorCodes,
@@ -27,40 +26,43 @@ type WorkflowBinding = {
 const toolSchemaSyncOs = implement(
 	toolSchemaSyncContract,
 ).$context<BaseContext>();
-const authed = toolSchemaSyncOs.use(withAuth).use(withFleetAuthority);
+// `appId` is caller-supplied and defaults to the shared Tedix admin app, and
+// the sync rewrites and prunes that app's tool rows from platform contracts.
+// An organization permission cannot bound that, so every procedure is
+// platform-admin only, matching the gateway's scope for these tools.
+const authed = toolSchemaSyncOs
+	.use(withAuth)
+	.use(withFleetAuthority)
+	.use(AUTHZ.platformAdmin);
 
 export const toolSchemaSyncContractRouter = toolSchemaSyncOs.router({
-	preview: authed.preview
-		.use(withAuthorization("apps:update", "tools:read"))
-		.handler(async ({ input, context }) => {
-			// Contract projection traverses the complete contract registry. Keep
-			// that work off the startup path for ordinary API isolates.
-			const { runToolSchemaSync } =
-				await import("../../services/tool-schema-sync");
-			return runToolSchemaSync(context.db, { ...input, apply: false });
-		}),
+	preview: authed.preview.handler(async ({ input, context }) => {
+		// Contract projection traverses the complete contract registry. Keep
+		// that work off the startup path for ordinary API isolates.
+		const { runToolSchemaSync } =
+			await import("../../services/tool-schema-sync");
+		return runToolSchemaSync(context.db, { ...input, apply: false });
+	}),
 
-	check: authed.check
-		.use(withAuthorization("apps:update", "tools:read"))
-		.handler(async ({ input, context }) => {
-			const { runToolSchemaSync } =
-				await import("../../services/tool-schema-sync");
-			const result = await runToolSchemaSync(context.db, {
-				...input,
-				apply: false,
-			});
-			const blocking = result.items.filter((item) => item.status !== "inSync");
-			const passed = blocking.length === 0;
-			return {
-				passed,
-				message: passed
-					? `All ${result.inSync} ${result.source} tool schemas are in sync.`
-					: `${blocking.length} ${result.source} tool schema issue(s) found.`,
-				result,
-			};
-		}),
+	check: authed.check.handler(async ({ input, context }) => {
+		const { runToolSchemaSync } =
+			await import("../../services/tool-schema-sync");
+		const result = await runToolSchemaSync(context.db, {
+			...input,
+			apply: false,
+		});
+		const blocking = result.items.filter((item) => item.status !== "inSync");
+		const passed = blocking.length === 0;
+		return {
+			passed,
+			message: passed
+				? `All ${result.inSync} ${result.source} tool schemas are in sync.`
+				: `${blocking.length} ${result.source} tool schema issue(s) found.`,
+			result,
+		};
+	}),
 
-	run: authed.run.use(AUTHZ.toolsWrite).handler(async ({ input, context }) => {
+	run: authed.run.handler(async ({ input, context }) => {
 		const workflow = (
 			context.env as CloudflareEnv & {
 				TOOL_SCHEMA_SYNC_WORKFLOW?: WorkflowBinding;
