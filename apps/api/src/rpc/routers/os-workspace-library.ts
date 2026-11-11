@@ -64,6 +64,7 @@ import {
 import { resolveKernelConversationAccess } from "../../kernel/conversation-access";
 import { DEFAULT_OS_WORKSPACE_NAME } from "../../services/os-default-workspace";
 import { scheduleOsWorkspaceSummaryPublish } from "../../services/workspace-summaries";
+import { purgeArchivedOsItems } from "../../services/os-archived-purge";
 
 const os = implement(osWorkspacesContract).$context<BaseContext>();
 const authed = os.use(withAuth).use(osAudit(OS_WORKSPACES_AUDIT));
@@ -626,6 +627,13 @@ const deleteWorkspace = adminOs.workspaces.delete.handler(
 const preferenceNamespace = (organizationId: string) =>
 	`tedix-os-workspaces:${organizationId}`;
 
+const purgeArchived = adminOs.workspaces.purgeArchived.handler(
+	async ({ input, context }) =>
+		purgeArchivedOsItems(context, input, {
+			workspacePreferenceNamespace: preferenceNamespace(requireOrgId(context)),
+		}),
+);
+
 function requirePersonalUser(context: BaseContext): string {
 	if (
 		context.authType !== "user" ||
@@ -746,6 +754,7 @@ export const osWorkspaceProcedures = {
 	archive,
 	restore,
 	delete: deleteWorkspace,
+	purgeArchived,
 };
 export const osWorkspacePreferenceProcedures = {
 	list: listPreferences,

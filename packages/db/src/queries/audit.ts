@@ -109,6 +109,18 @@ export async function insertAuditEvent(
 	return id;
 }
 
+/** Insert several main-database audit events in one D1 batch. */
+export async function insertAuditEventsBatch(
+	db: DbClient,
+	events: InsertAuditEventParams[],
+): Promise<void> {
+	const [first, ...rest] = events.map(
+		(event) => buildInsertAuditEventStatement(db, event).statement,
+	);
+	if (!first) return;
+	await db.batch([first, ...rest]);
+}
+
 /**
  * MCP telemetry (`mcp.*`) carries about 98% of audit metadata bytes, in rows of
  * about 500 bytes, and most of them repeat two identifiers: `subjectUserId`

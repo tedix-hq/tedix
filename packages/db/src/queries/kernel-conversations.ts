@@ -1,8 +1,13 @@
 import {
 	and,
+	asc,
+	count,
 	desc,
 	eq,
+	exists,
 	gt,
+	inArray,
+	isNotNull,
 	isNull,
 	lt,
 	ne,
@@ -11,6 +16,7 @@ import {
 	sql,
 } from "drizzle-orm";
 import type { DbClient } from "../client";
+import { chunkForBoundParams } from "../utils/batch";
 import { harnessSubjectTraceBundles } from "../schema/harness-versions";
 import { platformCronCheckpoints } from "../schema/platform-cron-executions";
 import {
@@ -27,6 +33,11 @@ import {
 import { runtimeSubmissions } from "../schema/runtime-submissions";
 import { kernelConversationArtifactPins } from "../schema/conversation-artifact-pins";
 import { kernelConversationCapabilities } from "../schema/conversation-capabilities";
+import { kernelConversationSessionPolicies } from "../schema/conversation-session-policies";
+import {
+	buildInsertAuditEventStatement,
+	type InsertAuditEventParams,
+} from "./audit";
 import {
 	buildEvictConversationToolResultsStatement,
 	type EvictedKernelToolResult,
@@ -60,143 +71,184 @@ export async function purgeKernelConversation(
 		deletedAt: string;
 	},
 ): Promise<{ evictedToolResults: EvictedKernelToolResult[] }> {
+	return purgeKernelConversations(db, {
+		organizationId: input.organizationId,
+		conversationIds: [input.conversationId],
+		deletedAt: input.deletedAt,
+	});
+}
+
+/** Largest conversation set one purge batch takes (bound-parameter bound). */
+export const KERNEL_CONVERSATION_PURGE_CHUNK = 40;
+
+/**
+ * {@link purgeKernelConversation} for up to
+ * {@link KERNEL_CONVERSATION_PURGE_CHUNK} conversations in one D1 batch, with
+ * an optional content-free audit receipt per conversation in the same batch.
+ * The same preconditions apply: no conversation may have an active run.
+ */
+export async function purgeKernelConversations(
+	db: DbClient,
+	input: {
+		organizationId: string;
+		conversationIds: string[];
+		deletedAt: string;
+		auditEvents?: InsertAuditEventParams[];
+		/** Also drop conversation session policies, which the single delete route clears itself. */
+		clearSessionPolicies?: boolean;
+	},
+): Promise<{ evictedToolResults: EvictedKernelToolResult[] }> {
+	const ids = [...new Set(input.conversationIds)];
+	if (ids.length === 0) return { evictedToolResults: [] };
+	if (ids.length > KERNEL_CONVERSATION_PURGE_CHUNK) {
+		throw new Error(
+			`purgeKernelConversations takes at most ${KERNEL_CONVERSATION_PURGE_CHUNK} conversations`,
+		);
+	}
+	const org = input.organizationId;
 	const [evictedToolResults] = await db.batch([
 		buildEvictConversationToolResultsStatement(db, {
-			organizationId: input.organizationId,
-			conversationId: input.conversationId,
+			organizationId: org,
+			conversationId: ids,
 			evictedAt: input.deletedAt,
 		}),
-		db
-			.delete(kernelConversationArtifactPins)
-			.where(
-				and(
-					eq(
-						kernelConversationArtifactPins.organizationId,
-						input.organizationId,
+		db.delete(kernelConversationArtifactPins).where(
+			and(
+				eq(kernelConversationArtifactPins.organizationId, org),
+				// bound-params: ids is capped at KERNEL_CONVERSATION_PURGE_CHUNK
+				inArray(kernelConversationArtifactPins.conversationId, ids),
+			),
+		),
+		db.delete(kernelConversationCapabilities).where(
+			and(
+				eq(kernelConversationCapabilities.organizationId, org),
+				// bound-params: ids is capped at KERNEL_CONVERSATION_PURGE_CHUNK
+				inArray(kernelConversationCapabilities.conversationId, ids),
+			),
+		),
+		db.delete(kernelRuntimeEvents).where(
+			and(
+				eq(kernelRuntimeEvents.organizationId, org),
+				// bound-params: ids is capped at KERNEL_CONVERSATION_PURGE_CHUNK
+				inArray(kernelRuntimeEvents.conversationId, ids),
+			),
+		),
+		db.delete(kernelRuntimeRuns).where(
+			and(
+				eq(kernelRuntimeRuns.organizationId, org),
+				// bound-params: ids is capped at KERNEL_CONVERSATION_PURGE_CHUNK
+				inArray(kernelRuntimeRuns.conversationId, ids),
+			),
+		),
+		db.delete(kernelConversationGrants).where(
+			and(
+				eq(kernelConversationGrants.organizationId, org),
+				// bound-params: ids is capped at KERNEL_CONVERSATION_PURGE_CHUNK
+				inArray(kernelConversationGrants.conversationId, ids),
+			),
+		),
+		db.delete(kernelHomeApprovalMirrors).where(
+			and(
+				eq(kernelHomeApprovalMirrors.organizationId, org),
+				// bound-params: ids is capped at KERNEL_CONVERSATION_PURGE_CHUNK
+				inArray(kernelHomeApprovalMirrors.parentConversationId, ids),
+			),
+		),
+		db.delete(kernelWakeQueue).where(
+			and(
+				eq(kernelWakeQueue.organizationId, org),
+				// bound-params: ids is capped at KERNEL_CONVERSATION_PURGE_CHUNK
+				inArray(kernelWakeQueue.parentConversationId, ids),
+			),
+		),
+		db.delete(chatDispatchIdempotency).where(
+			and(
+				eq(chatDispatchIdempotency.organizationId, org),
+				// bound-params: ids is capped at KERNEL_CONVERSATION_PURGE_CHUNK
+				inArray(chatDispatchIdempotency.conversationId, ids),
+			),
+		),
+		db.delete(runtimeSubmissions).where(
+			and(
+				eq(runtimeSubmissions.organizationId, org),
+				// bound-params: ids is capped at KERNEL_CONVERSATION_PURGE_CHUNK
+				inArray(runtimeSubmissions.conversationId, ids),
+			),
+		),
+		db.delete(harnessSubjectTraceBundles).where(
+			and(
+				eq(harnessSubjectTraceBundles.orgId, org),
+				// bound-params: ids is capped at KERNEL_CONVERSATION_PURGE_CHUNK
+				inArray(harnessSubjectTraceBundles.conversationId, ids),
+			),
+		),
+		...(input.clearSessionPolicies
+			? [
+					db.delete(kernelConversationSessionPolicies).where(
+						and(
+							eq(kernelConversationSessionPolicies.organizationId, org),
+							// bound-params: ids is capped at KERNEL_CONVERSATION_PURGE_CHUNK
+							inArray(kernelConversationSessionPolicies.conversationId, ids),
+						),
 					),
-					eq(
-						kernelConversationArtifactPins.conversationId,
-						input.conversationId,
-					),
-				),
-			),
-		db
-			.delete(kernelConversationCapabilities)
-			.where(
-				and(
-					eq(
-						kernelConversationCapabilities.organizationId,
-						input.organizationId,
-					),
-					eq(
-						kernelConversationCapabilities.conversationId,
-						input.conversationId,
-					),
-				),
-			),
-		db
-			.delete(kernelRuntimeEvents)
-			.where(
-				and(
-					eq(kernelRuntimeEvents.organizationId, input.organizationId),
-					eq(kernelRuntimeEvents.conversationId, input.conversationId),
-				),
-			),
-		db
-			.delete(kernelRuntimeRuns)
-			.where(
-				and(
-					eq(kernelRuntimeRuns.organizationId, input.organizationId),
-					eq(kernelRuntimeRuns.conversationId, input.conversationId),
-				),
-			),
-		db
-			.delete(kernelConversationGrants)
-			.where(
-				and(
-					eq(kernelConversationGrants.organizationId, input.organizationId),
-					eq(kernelConversationGrants.conversationId, input.conversationId),
-				),
-			),
-		db
-			.delete(kernelHomeApprovalMirrors)
-			.where(
-				and(
-					eq(kernelHomeApprovalMirrors.organizationId, input.organizationId),
-					eq(
-						kernelHomeApprovalMirrors.parentConversationId,
-						input.conversationId,
-					),
-				),
-			),
-		db
-			.delete(kernelWakeQueue)
-			.where(
-				and(
-					eq(kernelWakeQueue.organizationId, input.organizationId),
-					eq(kernelWakeQueue.parentConversationId, input.conversationId),
-				),
-			),
-		db
-			.delete(chatDispatchIdempotency)
-			.where(
-				and(
-					eq(chatDispatchIdempotency.organizationId, input.organizationId),
-					eq(chatDispatchIdempotency.conversationId, input.conversationId),
-				),
-			),
-		db
-			.delete(runtimeSubmissions)
-			.where(
-				and(
-					eq(runtimeSubmissions.organizationId, input.organizationId),
-					eq(runtimeSubmissions.conversationId, input.conversationId),
-				),
-			),
-		db
-			.delete(harnessSubjectTraceBundles)
-			.where(
-				and(
-					eq(harnessSubjectTraceBundles.orgId, input.organizationId),
-					eq(harnessSubjectTraceBundles.conversationId, input.conversationId),
-				),
-			),
-		db
-			.insert(kernelConversations)
-			.values({
-				id: rowId(input.organizationId, input.conversationId),
-				organizationId: input.organizationId,
-				conversationId: input.conversationId,
-				lastMessageAt: input.deletedAt,
-				messageCount: 0,
+				]
+			: []),
+		...ids.map((conversationId) =>
+			buildKernelConversationTombstoneStatement(db, {
+				organizationId: org,
+				conversationId,
 				deletedAt: input.deletedAt,
-				createdAt: input.deletedAt,
-				updatedAt: input.deletedAt,
-			})
-			.onConflictDoUpdate({
-				target: kernelConversations.id,
-				set: {
-					title: null,
-					titleSource: null,
-					channel: null,
-					origin: null,
-					workspaceId: null,
-					workpieceKind: null,
-					workpieceId: null,
-					lastMessageAt: input.deletedAt,
-					messageCount: 0,
-					deletedAt: sql`COALESCE(${kernelConversations.deletedAt}, ${input.deletedAt})`,
-					archivedAt: null,
-					pinnedAt: null,
-					updatedAt: input.deletedAt,
-				},
 			}),
+		),
+		...(input.auditEvents ?? []).map(
+			(event) => buildInsertAuditEventStatement(db, event).statement,
+		),
 	]);
 	return {
 		evictedToolResults: evictedToolResults.filter(
 			(row): row is EvictedKernelToolResult => row.evictedAt !== null,
 		),
 	};
+}
+
+/**
+ * The tombstone is load-bearing: a late child-complete wake or runtime frame
+ * must never make a deleted conversation visible again.
+ */
+function buildKernelConversationTombstoneStatement(
+	db: DbClient,
+	input: { organizationId: string; conversationId: string; deletedAt: string },
+) {
+	return db
+		.insert(kernelConversations)
+		.values({
+			id: rowId(input.organizationId, input.conversationId),
+			organizationId: input.organizationId,
+			conversationId: input.conversationId,
+			lastMessageAt: input.deletedAt,
+			messageCount: 0,
+			deletedAt: input.deletedAt,
+			createdAt: input.deletedAt,
+			updatedAt: input.deletedAt,
+		})
+		.onConflictDoUpdate({
+			target: kernelConversations.id,
+			set: {
+				title: null,
+				titleSource: null,
+				channel: null,
+				origin: null,
+				workspaceId: null,
+				workpieceKind: null,
+				workpieceId: null,
+				lastMessageAt: input.deletedAt,
+				messageCount: 0,
+				deletedAt: sql`COALESCE(${kernelConversations.deletedAt}, ${input.deletedAt})`,
+				archivedAt: null,
+				pinnedAt: null,
+				updatedAt: input.deletedAt,
+			},
+		});
 }
 
 function rowId(organizationId: string, conversationId: string): string {
@@ -572,4 +624,115 @@ export async function listKernelConversationPage(
 		)
 		.limit(input.limit);
 	return rows.filter((row) => !row.deletedAt && !isHidden(row.conversationId));
+}
+
+export interface ArchivedKernelConversationPurgeParams {
+	organizationId: string;
+	/** Exclusive conversation-id cursor; omitted starts at the beginning. */
+	afterConversationId?: string;
+	/** ISO-8601; only conversations archived or deleted before it. */
+	archivedBefore?: string;
+}
+
+export interface ArchivedKernelConversationPurgeCandidate {
+	conversationId: string;
+	workspaceId: string | null;
+	pinnedAt: string | null;
+}
+
+/**
+ * Archived conversations, and deleted ones whose content was never purged (an
+ * older soft delete left its events behind). A purged tombstone has neither
+ * an archive marker nor events, so it never comes back as a candidate.
+ */
+function archivedConversationFilter(
+	db: DbClient,
+	params: ArchivedKernelConversationPurgeParams,
+) {
+	return and(
+		eq(kernelConversations.organizationId, params.organizationId),
+		params.afterConversationId === undefined
+			? undefined
+			: gt(kernelConversations.conversationId, params.afterConversationId),
+		or(
+			isNotNull(kernelConversations.archivedAt),
+			and(
+				isNotNull(kernelConversations.deletedAt),
+				or(
+					gt(kernelConversations.messageCount, 0),
+					isNotNull(kernelConversations.title),
+					exists(
+						db
+							.select({ id: kernelRuntimeEvents.id })
+							.from(kernelRuntimeEvents)
+							.where(
+								and(
+									eq(kernelRuntimeEvents.organizationId, params.organizationId),
+									eq(
+										kernelRuntimeEvents.conversationId,
+										kernelConversations.conversationId,
+									),
+								),
+							),
+					),
+				),
+			),
+		),
+		params.archivedBefore === undefined
+			? undefined
+			: sql`datetime(COALESCE(${kernelConversations.archivedAt}, ${kernelConversations.deletedAt})) < datetime(${params.archivedBefore})`,
+	);
+}
+
+export async function listArchivedKernelConversationPurgeCandidates(
+	db: DbClient,
+	params: ArchivedKernelConversationPurgeParams & { limit: number },
+): Promise<ArchivedKernelConversationPurgeCandidate[]> {
+	return db
+		.select({
+			conversationId: kernelConversations.conversationId,
+			workspaceId: kernelConversations.workspaceId,
+			pinnedAt: kernelConversations.pinnedAt,
+		})
+		.from(kernelConversations)
+		.where(archivedConversationFilter(db, params))
+		.orderBy(asc(kernelConversations.conversationId))
+		.limit(params.limit);
+}
+
+export async function countArchivedKernelConversationPurgeCandidates(
+	db: DbClient,
+	params: ArchivedKernelConversationPurgeParams,
+): Promise<number> {
+	const [row] = await db
+		.select({ total: count() })
+		.from(kernelConversations)
+		.where(archivedConversationFilter(db, params));
+	return row?.total ?? 0;
+}
+
+/** Which of `conversationIds` have a queued, running or approval-waiting run. */
+export async function listKernelConversationIdsWithActiveRuns(
+	db: DbClient,
+	params: { organizationId: string; conversationIds: string[] },
+): Promise<Set<string>> {
+	const found = new Set<string>();
+	for (const chunk of chunkForBoundParams(params.conversationIds, 90)) {
+		const rows = await db
+			.selectDistinct({ conversationId: kernelRuntimeRuns.conversationId })
+			.from(kernelRuntimeRuns)
+			.where(
+				and(
+					eq(kernelRuntimeRuns.organizationId, params.organizationId),
+					inArray(kernelRuntimeRuns.conversationId, chunk),
+					inArray(kernelRuntimeRuns.status, [
+						"queued",
+						"running",
+						"requires_approval",
+					]),
+				),
+			);
+		for (const row of rows) found.add(row.conversationId);
+	}
+	return found;
 }

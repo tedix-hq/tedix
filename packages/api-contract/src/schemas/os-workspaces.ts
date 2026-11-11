@@ -2780,3 +2780,96 @@ export type OsGadgetRevision = z.infer<typeof OsGadgetRevisionSchema>;
 export type OsBlueprint = z.infer<typeof OsBlueprintSchema>;
 export type OsBlueprintDefinition = z.infer<typeof OsBlueprintDefinitionSchema>;
 export type OsBlueprintRevision = z.infer<typeof OsBlueprintRevisionSchema>;
+
+/** What `purge_archived_os_items` can permanently delete. */
+export const OsArchivedPurgeKindSchema = z.enum([
+	"workspaces",
+	"outputs",
+	"conversations",
+]);
+export type OsArchivedPurgeKind = z.infer<typeof OsArchivedPurgeKindSchema>;
+
+/** Why an archived item was left in place. Each mirrors a per-item delete rule. */
+export const OsArchivedPurgeSkipReasonSchema = z.enum([
+	"not_archived",
+	"not_visible",
+	"partner_installation",
+	"collaboration_history",
+	"active_share_links",
+	"pinned",
+	"main_thread",
+	"active_run",
+	"no_access",
+	"failed",
+]);
+export type OsArchivedPurgeSkipReason = z.infer<
+	typeof OsArchivedPurgeSkipReasonSchema
+>;
+
+export const OsArchivedPurgeInputSchema = z.object({
+	kinds: z
+		.array(OsArchivedPurgeKindSchema)
+		.min(1)
+		.max(3)
+		.describe(
+			"Which archived items to permanently delete: workspaces, outputs (files), conversations (Home chats)",
+		),
+	archivedBefore: z.iso
+		.datetime({ offset: true })
+		.optional()
+		.describe(
+			"Only items archived before this time. Workspaces and outputs use their last change time; conversations use when they were archived or deleted",
+		),
+	dryRun: z
+		.boolean()
+		.default(true)
+		.describe(
+			"Default true: check every rule and report counts and sample ids without deleting anything",
+		),
+});
+export type OsArchivedPurgeInput = z.infer<typeof OsArchivedPurgeInputSchema>;
+
+export const OsArchivedPurgeKindResultSchema = z.object({
+	examined: z.number().int().nonnegative(),
+	eligible: z
+		.number()
+		.int()
+		.nonnegative()
+		.describe(
+			"Items that passed every rule; deleted unless this was a dry run",
+		),
+	deleted: z.number().int().nonnegative(),
+	skipped: z.number().int().nonnegative(),
+	skippedByReason: z.record(z.string(), z.number().int().nonnegative()),
+	sampleIds: z
+		.array(z.string())
+		.describe("Up to 20 ids that were deleted, or would be in a dry run"),
+	sampleSkipped: z.array(
+		z.object({ id: z.string(), reason: OsArchivedPurgeSkipReasonSchema }),
+	),
+	remaining: z
+		.number()
+		.int()
+		.nonnegative()
+		.describe(
+			"Archived items this call did not reach. Call again to continue; skipped items are checked again every call",
+		),
+});
+export type OsArchivedPurgeKindResult = z.infer<
+	typeof OsArchivedPurgeKindResultSchema
+>;
+
+export const OsArchivedPurgeResultSchema = z.object({
+	purgeId: z
+		.string()
+		.describe("Id of this call's audit record; every deletion row carries it"),
+	dryRun: z.boolean(),
+	complete: z
+		.boolean()
+		.describe("True when every requested kind was fully examined"),
+	stoppedBy: z.enum(["finished", "time_budget", "work_budget"]),
+	workspaces: OsArchivedPurgeKindResultSchema.optional(),
+	outputs: OsArchivedPurgeKindResultSchema.optional(),
+	conversations: OsArchivedPurgeKindResultSchema.optional(),
+});
+export type OsArchivedPurgeResult = z.infer<typeof OsArchivedPurgeResultSchema>;

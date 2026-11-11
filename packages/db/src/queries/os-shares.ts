@@ -1,4 +1,5 @@
-import { and, count, desc, eq, gt, isNull, sql } from "drizzle-orm";
+import { and, count, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
+import { chunkForBoundParams } from "../utils/batch";
 import type { DbQueryClient } from "../query-client";
 import { apiKeys } from "../schema/api-keys";
 import { externalAgentPrincipals } from "../schema/external-agent-identity";
@@ -147,6 +148,33 @@ export async function listOsShareLinks(
 			),
 		)
 		.orderBy(desc(osShareLinks.createdAt), desc(osShareLinks.id));
+}
+
+/** Which of `resourceIds` still have at least one unrevoked share link. */
+export async function listOsShareResourceIdsWithActiveLinks(
+	db: DbQueryClient,
+	params: {
+		organizationId: string;
+		resourceType: OsShareLinkRow["resourceType"];
+		resourceIds: string[];
+	},
+): Promise<Set<string>> {
+	const found = new Set<string>();
+	for (const chunk of chunkForBoundParams(params.resourceIds, 90)) {
+		const rows = await db
+			.selectDistinct({ resourceId: osShareLinks.resourceId })
+			.from(osShareLinks)
+			.where(
+				and(
+					eq(osShareLinks.organizationId, params.organizationId),
+					eq(osShareLinks.resourceType, params.resourceType),
+					inArray(osShareLinks.resourceId, chunk),
+					isNull(osShareLinks.revokedAt),
+				),
+			);
+		for (const row of rows) found.add(row.resourceId);
+	}
+	return found;
 }
 
 /**
