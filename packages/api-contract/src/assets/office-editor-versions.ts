@@ -1,5 +1,5 @@
 export const DOC_BLUEPRINT_VERSION = 9;
-export const SHEET_BLUEPRINT_VERSION = 8;
+export const SHEET_BLUEPRINT_VERSION = 9;
 export const SLIDES_BLUEPRINT_VERSION = 7;
 
 export const OFFICE_EDITOR_VERSIONS = {
