@@ -14,7 +14,11 @@ import {
 	isUntrustedContentRequest,
 	resolveUntrustedContentOrigin,
 } from "../lib/untrusted-origin";
-import { byCredentialOrIp, byIp, rateLimit } from "../middleware/rate-limit";
+import {
+	byCredentialOrIpWithFileEditing,
+	byIp,
+	rateLimit,
+} from "../middleware/rate-limit";
 import { redactRequestLogMessage } from "../request-log-redaction";
 
 export function registerCorsAndLimits(app: Hono<{ Bindings: CloudflareEnv }>) {
@@ -125,13 +129,16 @@ export function registerCorsAndLimits(app: Hono<{ Bindings: CloudflareEnv }>) {
 		await next();
 	});
 
-	// Rate limiting for internal RPC routes (100 req/min). Authenticated callers
-	// use credential buckets; anonymous callers fall back to IP buckets.
+	// Rate limiting for internal RPC routes. The allowance is the
+	// API_RATE_LIMITER binding's (1000 requests a minute per bucket in
+	// wrangler.jsonc); `limit` only fills the response header. Authenticated
+	// callers use credential buckets; anonymous callers fall back to IP
+	// buckets. File-editing calls have a bucket of their own.
 	app.use(
 		"/rpc/*",
-		rateLimit((env) => env.API_RATE_LIMITER, byCredentialOrIp, {
+		rateLimit((env) => env.API_RATE_LIMITER, byCredentialOrIpWithFileEditing, {
 			errorMessage: "API rate limit exceeded. Please try again later.",
-			limit: 100,
+			limit: 1000,
 			countFailedAuthByIp: true,
 		}),
 	);

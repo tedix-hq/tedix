@@ -151,11 +151,11 @@ describe("Sheet binding", () => {
 			binding.edit({
 				outputId: "sheet",
 				expectedRevision: 1,
-				startRow: 1000,
+				startRow: 50_000,
 				startColumn: 0,
 				cells: [[1]],
 			}),
-		).rejects.toThrow("1000-row");
+		).rejects.toThrow("50000-row");
 		await expect(
 			binding.edit({
 				outputId: "sheet",

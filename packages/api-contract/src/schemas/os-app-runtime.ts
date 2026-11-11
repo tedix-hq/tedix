@@ -27,9 +27,19 @@ export const AppRuntimeGuestNameSchema = z
 
 export const APP_RUNTIME_SERVER_MODULE = "server.js";
 export const APP_RUNTIME_CLIENT_MODULE = "client.js";
-/** Upper bound for all files of one revision together, in UTF-16 code units. */
-export const APP_RUNTIME_MAX_CODE_LENGTH = 512_000;
-export const APP_RUNTIME_MAX_FILES = 24;
+/**
+ * Upper bound for all files of one revision together, as UTF-8 bytes of the
+ * JSON text that stores them. The files are kept as one database value, and
+ * the database holds at most 2,000,000 bytes per value; a draft keeps the
+ * same files inside a slightly larger value, so this leaves it room. There is
+ * no separate limit on the number of files or on one file.
+ */
+export const APP_RUNTIME_MAX_FILES_BYTES = 1_800_000;
+
+/** The size of a set of files as it is stored: UTF-8 bytes of its JSON text. */
+export function appRuntimeFilesBytes(files: Record<string, string>): number {
+	return new TextEncoder().encode(JSON.stringify(files)).length;
+}
 
 const appRuntimeFilePath = z
 	.string()
@@ -40,22 +50,17 @@ const appRuntimeFilePath = z
 
 /** The source files of one app revision, keyed by file name. */
 export const AppRuntimeFilesSchema = z
-	.record(appRuntimeFilePath, z.string().max(APP_RUNTIME_MAX_CODE_LENGTH))
+	.record(appRuntimeFilePath, z.string())
 	.refine((files) => APP_RUNTIME_SERVER_MODULE in files, {
 		message: `${APP_RUNTIME_SERVER_MODULE} is required`,
 	})
 	.refine((files) => APP_RUNTIME_CLIENT_MODULE in files, {
 		message: `${APP_RUNTIME_CLIENT_MODULE} is required`,
 	})
-	.refine((files) => Object.keys(files).length <= APP_RUNTIME_MAX_FILES, {
-		message: `at most ${APP_RUNTIME_MAX_FILES} files`,
-	})
 	.refine(
-		(files) =>
-			Object.values(files).reduce((sum, text) => sum + text.length, 0) <=
-			APP_RUNTIME_MAX_CODE_LENGTH,
+		(files) => appRuntimeFilesBytes(files) <= APP_RUNTIME_MAX_FILES_BYTES,
 		{
-			message: `all files together must stay under ${APP_RUNTIME_MAX_CODE_LENGTH} characters`,
+			message: `all files together must stay under ${APP_RUNTIME_MAX_FILES_BYTES} bytes`,
 		},
 	);
 export type AppRuntimeFiles = z.infer<typeof AppRuntimeFilesSchema>;

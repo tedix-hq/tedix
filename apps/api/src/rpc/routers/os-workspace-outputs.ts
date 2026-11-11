@@ -1,3 +1,4 @@
+import { OS_SHEET_MAX_ROWS } from "@tedix/api-contract/utils/os-output-limits";
 import {
 	applyPresentationPatch,
 	projectPresentationDeck,
@@ -836,9 +837,6 @@ const outputsPatchDocument = authorOs.outputs.patchDocument.handler(
 	},
 );
 
-/** Wire-schema sheet bound the range write must respect when extending rows. */
-const SHEET_ROW_CAP = 1_000;
-
 const outputsSetSheetRange = authorOs.outputs.setSheetRange.handler(
 	async ({ input, context }) => {
 		const output = await requireOutput(context, input.outputId);
@@ -871,10 +869,10 @@ const outputsSetSheetRange = authorOs.outputs.setSheetRange.handler(
 			);
 		}
 		const endRow = input.startRow + input.cells.length;
-		if (endRow > SHEET_ROW_CAP) {
+		if (endRow > OS_SHEET_MAX_ROWS) {
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
-				`The rectangle ends at row ${endRow}, beyond the ${SHEET_ROW_CAP}-row sheet cap`,
+				`The rectangle ends at row ${endRow}, beyond the ${OS_SHEET_MAX_ROWS}-row sheet cap`,
 			);
 		}
 		const next = OsOutputContentSchema.safeParse(

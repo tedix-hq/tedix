@@ -22,7 +22,7 @@ describe("workbook row heights", () => {
 				.rowHeights,
 		).toEqual([20, 28, 600]);
 	});
-	it.each([[19], [601], [28.5], Array(1001).fill(28)])(
+	it.each([[19], [601], [28.5], Array(50_001).fill(28)])(
 		"rejects invalid heights or excessive dimensions",
 		(...rowHeights) => {
 			expect(

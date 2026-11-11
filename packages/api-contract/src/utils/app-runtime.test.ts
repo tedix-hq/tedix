@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
 	APP_RUNTIME_ENTRY,
+	APP_RUNTIME_MAX_FILES_BYTES,
 	APP_RUNTIME_OPERATIONS,
 	AppRuntimeFilesSchema,
 	AppRuntimeRoleSchema,
@@ -43,14 +44,31 @@ describe("app runtime files", () => {
 		).toBe(false);
 	});
 
-	it("caps the total code length", () => {
-		const big = "x".repeat(300_000);
+	it("caps all files together at what one stored value holds, with no cap on their number", () => {
+		const big = "x".repeat(900_000);
 		expect(
 			AppRuntimeFilesSchema.safeParse({
 				"server.js": big,
 				"client.js": big,
 			}).success,
 		).toBe(false);
+		// Bytes count, not characters: the files are stored as UTF-8 JSON.
+		expect(
+			AppRuntimeFilesSchema.safeParse({
+				"server.js": "export {}",
+				"client.js": "é".repeat(900_000),
+			}).success,
+		).toBe(false);
+		expect(
+			AppRuntimeFilesSchema.safeParse({
+				"server.js": "x".repeat(800_000),
+				"client.js": "x".repeat(800_000),
+				...Object.fromEntries(
+					Array.from({ length: 40 }, (_, index) => [`part-${index}.js`, ""]),
+				),
+			}).success,
+		).toBe(true);
+		expect(APP_RUNTIME_MAX_FILES_BYTES).toBeLessThan(2_000_000);
 	});
 
 	it("validates the runtime config on a manifest write", () => {

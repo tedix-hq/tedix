@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { stripServiceBindingMarker } from "@tedix/worker-kit/request-auth";
 import {
 	byCredentialOrIp,
+	byCredentialOrIpWithFileEditing,
 	byIp,
 	type RateLimiter,
 	rateLimit,
@@ -64,6 +65,33 @@ describe("rateLimit service-binding trust boundary", () => {
 });
 
 describe("byCredentialOrIp", () => {
+	it("gives file-editing calls a bucket apart from the caller's other calls", async () => {
+		const limit = vi.fn(() => Promise.resolve({ success: true }));
+		const app = new Hono<{ Bindings: CloudflareEnv }>();
+		app.use(
+			"*",
+			rateLimit(() => ({ limit }), byCredentialOrIpWithFileEditing),
+		);
+		app.all("*", (c) => c.text("ok"));
+		const headers = { Cookie: "DS=session-one" };
+		for (const path of [
+			"/rpc/osWorkspaces/outputs/revise",
+			"/rpc/osWorkspaces/outputs/uploadImage",
+			"/rpc/osWorkspaces/outputs/get",
+			"/rpc/osWorkspaces/workspaces/list",
+		])
+			await app.request(`https://api.tedix.dev${path}`, {
+				method: "POST",
+				headers,
+			});
+		const keys = limit.mock.calls.map(([options]) => options.key);
+		expect(keys[0]).toMatch(/^files:session:/);
+		expect(keys[1]).toBe(keys[0]);
+		expect(keys[2]).toMatch(/^session:/);
+		expect(keys[3]).toBe(keys[2]);
+		expect(keys[0]).toBe(`files:${keys[2]}`);
+	});
+
 	it("ignores a caller-sent tedi id when choosing the bucket", async () => {
 		const limit = vi.fn(() => Promise.resolve({ success: true }));
 		const app = createCredentialApp({ limit });

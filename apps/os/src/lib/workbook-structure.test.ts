@@ -112,8 +112,17 @@ describe("workbook structure", () => {
 		const value = book();
 		expect(deleteRows(value, "data", 0, 5)).toBe(value);
 		expect(deleteColumns(value, "data", 0, 3)).toBe(value);
-		expect(insertRows(value, "data", 0, 1000)).toBe(value);
-		expect(insertColumns(value, "data", 0, 64)).toBe(value);
+		expect(insertRows(value, "data", 0, 50_000)).toBe(value);
+		expect(insertColumns(value, "data", 0, 702)).toBe(value);
+		// Up to the bounds an insert lands: 50,000 rows and 702 columns (A to ZZ).
+		const rows = value.sheets[0]!.rows.length,
+			columns = value.sheets[0]!.columns.length;
+		expect(
+			insertRows(value, "data", 0, 50_000 - rows).sheets[0]!.rows,
+		).toHaveLength(50_000);
+		expect(
+			insertColumns(value, "data", 0, 702 - columns).sheets[0]!.columns,
+		).toHaveLength(702);
 		expect(deleteRows(value, "data", 1, 2).sheets[0]!.rows).toHaveLength(3);
 	});
 	it("moves row heights and frozen boundaries with structural changes", () => {

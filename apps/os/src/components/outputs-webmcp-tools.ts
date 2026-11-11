@@ -1,3 +1,7 @@
+import {
+	OS_SHEET_MAX_COLUMNS,
+	OS_SHEET_MAX_ROWS,
+} from "@tedix/api-contract/utils/os-output-limits";
 import * as z from "zod";
 import { OsDocumentBlockSchema } from "@tedix/api-contract/schemas/os-workspaces";
 import {
@@ -47,8 +51,8 @@ import { errorMessage } from "@tedix/worker-kit/error-message";
 const DEFAULT_LIST_LIMIT = 25;
 const MAX_LIST_LIMIT = 50;
 const MAX_PATCH_OPS = 100;
-const MAX_SHEET_COLUMNS = 64;
-const MAX_SHEET_ROWS = 1_000;
+const MAX_SHEET_COLUMNS = OS_SHEET_MAX_COLUMNS;
+const MAX_SHEET_ROWS = OS_SHEET_MAX_ROWS;
 const MAX_SHEET_RANGE_ROWS = 200;
 const SHEET_PREVIEW_ROWS = 50;
 
@@ -1051,7 +1055,7 @@ export function buildOutputsWebMcpTools(
 			consequentialHint: true,
 		},
 		description:
-			"Write a rectangle of cells into a sheet output at zero-based numeric coordinates (startRow, startColumn — no A1 notation) as one saved compare-and-swap revision (this does not merge a live shared draft); the rectangle must fit the sheet's existing columns (max 64), at most 200 rows per call within the 1000-row sheet cap, and pass read_output's `revision` as `expectedRevision`.",
+			"Write a rectangle of cells into a sheet output at zero-based numeric coordinates (startRow, startColumn — no A1 notation) as one saved compare-and-swap revision (this does not merge a live shared draft); the rectangle must fit the sheet's existing columns (max 702), at most 200 rows per call within the 50,000-row sheet cap, and pass read_output's `revision` as `expectedRevision`.",
 		inputSchema: SET_SHEET_RANGE_SCHEMA,
 		execute: async (args, executeOptions): Promise<WebMcpToolResult> => {
 			try {

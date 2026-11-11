@@ -489,6 +489,19 @@ describe("portable rich Doc client", () => {
 			}
 			return answer(method, args);
 		});
+		// The picture is measured before it is stored; jsdom loads no images.
+		vi.stubGlobal(
+			"Image",
+			class {
+				naturalWidth = 200;
+				naturalHeight = 100;
+				onload: (() => void) | null = null;
+				set src(_value: string) {
+					queueMicrotask(() => this.onload?.());
+				}
+			},
+		);
+		cleanups.push(() => vi.unstubAllGlobals());
 		const { root, editor } = await test.mount();
 		const input = root.querySelector<HTMLInputElement>("input[type=file]")!;
 		Object.defineProperty(input, "files", {

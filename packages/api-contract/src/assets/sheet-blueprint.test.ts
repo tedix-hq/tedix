@@ -138,7 +138,7 @@ describe("Sheet blueprint", () => {
 		]);
 		expect(definition.gadgets[0]!.manifest.config).toEqual({
 			version: 1,
-			settings: { slot: "budget", blueprintVersion: 12 },
+			settings: { slot: "budget", blueprintVersion: 13 },
 		});
 		const operations = definition.gadgets[0]!.manifest.operations!;
 		expect(
@@ -254,9 +254,6 @@ describe("Sheet blueprint", () => {
 		expect(createHash("sha256").update(SHEET_CLIENT_SOURCE).digest("hex")).toBe(
 			SHEET_CLIENT_SHA256,
 		);
-		expect(
-			SHEET_CLIENT_SOURCE.length + SHEET_SERVER_SOURCE.length,
-		).toBeLessThan(512000);
 		for (const method of [
 			"sheet.evaluate",
 			"outputs.replace",

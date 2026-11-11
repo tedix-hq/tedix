@@ -43,6 +43,11 @@ import {
 } from "@tedix/api-contract/utils/output-merge";
 import { iconButton } from "./editor-icons";
 import { lastingSaveFailure } from "../lib/save-failure";
+import {
+	OS_EDITOR_UNDO_STEPS,
+	OS_SHEET_MAX_COLUMNS,
+	OS_SHEET_MAX_ROWS,
+} from "@tedix/api-contract/utils/os-output-limits";
 
 type Content = Extract<OsOutputContent, { kind: "sheet" }>;
 type Saved = {
@@ -60,6 +65,12 @@ const ROW = 24,
 	INDEX = 40,
 	COLUMN = 100;
 /** Autosave waits for a pause in editing, but never longer than the cap. */
+/** Sheets wider than this draw only the columns near the viewport. */
+const COLUMN_WINDOW_MIN = 64,
+	COLUMN_WINDOW_MARGIN = 12;
+const MAX_ROWS = OS_SHEET_MAX_ROWS,
+	MAX_COLUMNS = OS_SHEET_MAX_COLUMNS,
+	ROWS_TEXT = MAX_ROWS.toLocaleString("en-US");
 const SAVE_PAUSE = 1500,
 	SAVE_CAP = 5000,
 	SAVE_SLOW = 900,
@@ -126,7 +137,7 @@ const css = [
 	`thead th{height:${HEAD}px;position:sticky;top:0;z-index:6;white-space:nowrap;text-overflow:ellipsis;padding:0 6px}thead th:hover,th.index:hover{color:var(--fg)}`,
 	`th.index{width:${INDEX}px;min-width:${INDEX}px;position:sticky;left:0;z-index:3;font-variant-numeric:tabular-nums;padding:0}thead th.index{z-index:8}`,
 	`th.sel{color:var(--fg);background:color-mix(in srgb,var(--primary) 16%,var(--muted))}th.all{color:var(--on-primary);background:var(--primary)}`,
-	`td{background-color:var(--bg);user-select:none;cursor:cell}td output{display:block;padding:0 6px;height:var(--h,${ROW - 1}px);line-height:var(--h,${ROW - 1}px);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:100%}td.wrap output{white-space:pre-wrap;line-height:1.35;padding-block:2px}`,
+	`td{background-color:var(--bg);user-select:none;cursor:cell}:is(td,th).gap{border:0;background:none;cursor:default}td output{display:block;padding:0 6px;height:var(--h,${ROW - 1}px);line-height:var(--h,${ROW - 1}px);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:100%}td.wrap output{white-space:pre-wrap;line-height:1.35;padding-block:2px}`,
 	`td.error{color:var(--danger)}td.selected{background-image:linear-gradient(color-mix(in srgb,var(--primary) 12%,transparent),color-mix(in srgb,var(--primary) 12%,transparent))}`,
 	`td.active{background-image:none;box-shadow:inset 0 0 0 2px var(--primary)}`,
 	`td input.cell-edit{position:absolute;inset:0;width:100%;height:100%;border:0;border-radius:0;padding:0 6px;outline:none;box-shadow:inset 0 0 0 2px var(--primary);background:var(--bg);color:var(--fg);font:inherit;z-index:10}`,
@@ -579,7 +590,7 @@ export async function mountSheetClient(
 		commitCell();
 		commitFormula();
 		undo.push(structuredClone(draft!));
-		if (undo.length > 100) undo.shift();
+		if (undo.length > OS_EDITOR_UNDO_STEPS) undo.shift();
 		redo.length = 0;
 		change();
 		mark();
@@ -682,8 +693,17 @@ export async function mountSheetClient(
 		headerShown = "",
 		tabsShown = "",
 		windowShown = "",
+		// Indexed by column; a column outside the drawn window has no entry.
 		headCells: HTMLTableCellElement[] = [],
 		cols: HTMLTableColElement[] = [],
+		// A wide sheet draws its frozen columns plus [colFrom, colTo), the
+		// columns near the viewport. `slots` maps a drawn column to its place
+		// in a row; `rowSlots` counts the cells of a row, spacers included.
+		colFrom = 0,
+		colTo = 0,
+		rowSlots = 0,
+		slots = new Map<number, number>(),
+		gaps: { slot: number; width: number }[] = [],
 		shownBounds: Bounds | undefined,
 		shownWhole = "",
 		activeCell: Element | undefined,
@@ -698,6 +718,55 @@ export async function mountSheetClient(
 		for (let i = 0; i < column; i++) left += columnWidth(s, i);
 		return left;
 	};
+	const cellAt = (row: number, column: number) => {
+		const slot = slots.get(column);
+		return slot === undefined ? undefined : rowEls.get(row)?.children[slot];
+	};
+	/**
+	 * The columns to draw besides the frozen ones. A sheet of up to
+	 * COLUMN_WINDOW_MIN columns draws them all. A wider one draws those in
+	 * view plus a margin, and keeps that window until the view leaves it.
+	 */
+	function columnWindow(s: OsWorkbookSheet, columns: number): [number, number] {
+		const frozen = Math.min(s.frozenColumns, columns);
+		if (columns <= COLUMN_WINDOW_MIN) return [frozen, columns];
+		if (editing && colTo > colFrom) return [colFrom, Math.min(colTo, columns)];
+		const left = grid.scrollLeft,
+			right = left + (grid.clientWidth || 700);
+		let x = INDEX,
+			first = columns - 1,
+			last = columns - 1,
+			found = false;
+		for (let col = 0; col < columns; col++) {
+			const width = columnWidth(s, col);
+			if (!found && x + width > left) {
+				first = col;
+				found = true;
+			}
+			if (x >= right) {
+				last = col;
+				break;
+			}
+			x += width;
+		}
+		first = Math.max(frozen, first);
+		last = Math.max(first, last);
+		if (colTo > colFrom && first >= colFrom && last < colTo && colTo <= columns)
+			return [colFrom, colTo];
+		return [
+			Math.max(frozen, first - COLUMN_WINDOW_MARGIN),
+			Math.min(columns, last + 1 + COLUMN_WINDOW_MARGIN),
+		];
+	}
+	/** After a scroll: redraw the columns if the view left them, then the rows. */
+	function follow() {
+		if (!draft) return;
+		const [from, to] = columnWindow(sheet(), dimensions().columns);
+		if (from === colFrom && to === colTo) return updateWindow();
+		syncHeader();
+		updateWindow(true);
+		paintSelection(true);
+	}
 	function resetGrid() {
 		colgroup.replaceChildren();
 		thead.replaceChildren();
@@ -707,6 +776,9 @@ export async function mountSheetClient(
 		shownBounds = activeCell = undefined;
 		headCells = [];
 		cols = [];
+		slots = new Map();
+		gaps = [];
+		rowSlots = 0;
 	}
 	function selectAll() {
 		const d = dimensions();
@@ -749,11 +821,14 @@ export async function mountSheetClient(
 	function syncHeader() {
 		const s = sheet(),
 			d = dimensions();
+		const [from, to] = columnWindow(s, d.columns);
 		const shape = JSON.stringify([
 			s.id,
 			d.columns,
 			s.frozenRows,
 			s.frozenColumns,
+			from,
+			to,
 			s.columns.map((item) => [item.label, item.width]),
 		]);
 		if (shape === headerShown) return;
@@ -773,7 +848,28 @@ export async function mountSheetClient(
 			grid.focus();
 		};
 		tr.append(corner);
+		colFrom = from;
+		colTo = to;
+		const frozen = Math.min(s.frozenColumns, d.columns);
+		/** One empty column as wide as the undrawn columns it stands for. */
+		const gap = (start: number, end: number) => {
+			let width = 0;
+			for (let col = start; col < end; col++) width += columnWidth(s, col);
+			if (width <= 0) return;
+			const item = document.createElement("col");
+			item.style.width = width + "px";
+			colgroup.append(item);
+			const th = document.createElement("th");
+			th.className = "gap";
+			th.setAttribute("aria-hidden", "true");
+			tr.append(th);
+			gaps.push({ slot: tr.children.length - 1, width });
+		};
 		for (let col = 0; col < d.columns; col++) {
+			if (col === frozen) gap(frozen, from);
+			if (col >= frozen && col < from) continue;
+			if (col >= to) break;
+			slots.set(col, tr.children.length);
 			const item = document.createElement("col");
 			item.style.width = columnWidth(s, col) + "px";
 			colgroup.append(item);
@@ -829,11 +925,13 @@ export async function mountSheetClient(
 			};
 			th.append(handle);
 			tr.append(th);
-			headCells.push(th);
+			headCells[col] = th;
 		}
+		gap(Math.max(to, frozen), d.columns);
+		rowSlots = tr.children.length - 1;
 		thead.append(tr);
 	}
-	function makeRow(row: number, columns: number) {
+	function makeRow(row: number) {
 		const tr = document.createElement("tr");
 		tr.setAttribute("aria-rowindex", String(row + 1));
 		const index = document.createElement("th");
@@ -842,16 +940,24 @@ export async function mountSheetClient(
 		index.dataset.head = String(row);
 		index.textContent = String(row + 1);
 		tr.append(index);
-		for (let col = 0; col < columns; col++) {
+		const cells: HTMLTableCellElement[] = [];
+		for (const [col, slot] of slots) {
 			const td = document.createElement("td");
+			cells[slot] = td;
 			td.dataset.row = String(row);
 			td.dataset.column = String(col);
 			td.setAttribute("role", "gridcell");
 			td.setAttribute("aria-label", cellLabel({ row, column: col }));
 			td.setAttribute("aria-selected", "false");
 			td.append(document.createElement("output"));
-			tr.append(td);
 		}
+		for (const { slot } of gaps) {
+			const td = document.createElement("td");
+			td.className = "gap";
+			td.setAttribute("aria-hidden", "true");
+			cells[slot] = td;
+		}
+		for (let slot = 1; slot <= rowSlots; slot++) tr.append(cells[slot]!);
 		return tr;
 	}
 	/** Bring one row's values, formats and frozen position up to date. */
@@ -867,8 +973,8 @@ export async function mountSheetClient(
 		const index = tr.firstElementChild as HTMLElement;
 		index.style.top = top < 0 ? "" : top + "px";
 		index.style.zIndex = top < 0 ? "" : "5";
-		for (let col = 0; col < tr.children.length - 1; col++) {
-			const td = tr.children[col + 1] as HTMLTableCellElement,
+		for (const [col, slot] of slots) {
+			const td = tr.children[slot] as HTMLTableCellElement,
 				output = td.firstElementChild as HTMLElement,
 				cell = line?.[col] ?? null,
 				f = cell?.format,
@@ -913,9 +1019,9 @@ export async function mountSheetClient(
 			head = tr.firstElementChild!;
 		head.classList.toggle("sel", inRow);
 		head.classList.toggle("all", inRow && whole);
-		for (let col = from; col <= to; col++) {
-			const td = tr.children[col + 1];
-			if (!td) break;
+		for (const [col, slot] of slots) {
+			if (col < from || col > to) continue;
+			const td = tr.children[slot]!;
 			const selected = inRow && col >= b.columnStart && col <= b.columnEnd;
 			if (td.classList.contains("selected") !== selected) {
 				td.classList.toggle("selected", selected);
@@ -941,14 +1047,12 @@ export async function mountSheetClient(
 				markRow(tr, row, b, from, to, wholeRows);
 		for (let col = from; col <= to; col++) {
 			const th = headCells[col];
-			if (!th) break;
+			if (!th) continue;
 			const inColumn = col >= b.columnStart && col <= b.columnEnd;
 			th.classList.toggle("sel", inColumn);
 			th.classList.toggle("all", inColumn && wholeColumns);
 		}
-		const next = rowEls.get(selection.focus.row)?.children[
-			selection.focus.column + 1
-		];
+		const next = cellAt(selection.focus.row, selection.focus.column);
 		if (next !== activeCell) {
 			activeCell?.classList.remove("active");
 			activeCell = next;
@@ -1010,7 +1114,7 @@ export async function mountSheetClient(
 				if (height <= 0) return;
 				const row = document.createElement("tr"),
 					td = document.createElement("td");
-				td.colSpan = d.columns + 1;
+				td.colSpan = rowSlots + 1;
 				td.style.height = height + "px";
 				td.style.border = "0";
 				row.setAttribute("aria-hidden", "true");
@@ -1021,7 +1125,7 @@ export async function mountSheetClient(
 				let tr = rowEls.get(row);
 				const made = !tr;
 				if (!tr) {
-					tr = makeRow(row, d.columns);
+					tr = makeRow(row);
 					rowEls.set(row, tr);
 				}
 				if (tr === cursor) cursor = cursor.nextSibling;
@@ -1034,9 +1138,7 @@ export async function mountSheetClient(
 				last = row;
 			}
 			gap(offsets[d.rows]! - offsets[last + 1]!, null);
-			const active = rowEls.get(selection.focus.row)?.children[
-				selection.focus.column + 1
-			];
+			const active = cellAt(selection.focus.row, selection.focus.column);
 			if (active !== activeCell) {
 				activeCell?.classList.remove("active");
 				activeCell = active;
@@ -1153,13 +1255,13 @@ export async function mountSheetClient(
 	}
 	/** Let the grid cover the pane, and grow it when the pane does. */
 	function measure() {
-		const rows = Math.min(1000, Math.ceil(grid.clientHeight / ROW) + 2),
-			columns = Math.min(64, Math.ceil(grid.clientWidth / COLUMN) + 1);
+		const rows = Math.min(MAX_ROWS, Math.ceil(grid.clientHeight / ROW) + 2),
+			columns = Math.min(MAX_COLUMNS, Math.ceil(grid.clientWidth / COLUMN) + 1);
 		if (!editing && (rows > viewRows || columns > viewColumns)) {
 			viewRows = Math.max(viewRows, rows);
 			viewColumns = Math.max(viewColumns, columns);
 			syncGrid();
-		} else updateWindow();
+		} else follow();
 	}
 	function choose(row: number, column: number, extend = false) {
 		tabBounds = undefined;
@@ -1167,10 +1269,11 @@ export async function mountSheetClient(
 		const d = draft ? dimensions() : undefined,
 			grow =
 				!!d &&
-				((row >= d.rows && row < 1000) || (column >= d.columns && column < 64));
+				((row >= d.rows && row < MAX_ROWS) ||
+					(column >= d.columns && column < MAX_COLUMNS));
 		if (grow) {
-			viewRows = Math.max(viewRows, Math.min(1000, row + 1));
-			viewColumns = Math.max(viewColumns, Math.min(64, column + 1));
+			viewRows = Math.max(viewRows, Math.min(MAX_ROWS, row + 1));
+			viewColumns = Math.max(viewColumns, Math.min(MAX_COLUMNS, column + 1));
 		}
 		selection = {
 			anchor: extend ? selection.anchor : { row, column },
@@ -1202,13 +1305,13 @@ export async function mountSheetClient(
 			else if (left + width > grid.scrollLeft + view)
 				grid.scrollLeft = left + width - view;
 		}
-		updateWindow();
+		follow();
 	}
 	function startEdit(initial?: string) {
 		if (!editable()) return;
 		const point = selection.focus;
 		reveal();
-		const cell = rowEls.get(point.row)?.children[point.column + 1];
+		const cell = cellAt(point.row, point.column);
 		if (!cell) return;
 		const input = document.createElement("input");
 		input.className = "cell-edit";
@@ -1466,8 +1569,8 @@ export async function mountSheetClient(
 				break;
 			}
 			case "insert-row":
-				if (s.rows.length + countRows > 1000) {
-					note("A sheet can hold up to 1000 rows.", true);
+				if (s.rows.length + countRows > MAX_ROWS) {
+					note(`A sheet can hold up to ${ROWS_TEXT} rows.`, true);
 					return;
 				}
 				apply((w) =>
@@ -1478,8 +1581,8 @@ export async function mountSheetClient(
 				apply((w) => deleteRows(w, id, b.rowStart, countRows));
 				break;
 			case "insert-column":
-				if (s.columns.length + countCols > 64) {
-					note("A sheet can hold up to 64 columns.", true);
+				if (s.columns.length + countCols > MAX_COLUMNS) {
+					note(`A sheet can hold up to ${MAX_COLUMNS} columns.`, true);
 					return;
 				}
 				apply((w) =>
@@ -1546,8 +1649,14 @@ export async function mountSheetClient(
 			origin = selection.focus,
 			internal = copied?.data.tsv === value ? copied : undefined;
 		const width = Math.max(...cells.map((row) => row.length));
-		if (origin.row + cells.length > 1000 || origin.column + width > 64) {
-			note("Paste exceeds the 1000 row × 64 column sheet limit.", true);
+		if (
+			origin.row + cells.length > MAX_ROWS ||
+			origin.column + width > MAX_COLUMNS
+		) {
+			note(
+				`Paste exceeds the ${ROWS_TEXT} row × ${MAX_COLUMNS} column sheet limit.`,
+				true,
+			);
 			return;
 		}
 		if (cells.some((row) => row.some((item) => item.length > 8192))) {
@@ -2056,9 +2165,7 @@ export async function mountSheetClient(
 		) {
 			event.preventDefault();
 			reveal();
-			const cell = rowEls.get(selection.focus.row)?.children[
-					selection.focus.column + 1
-				],
+			const cell = cellAt(selection.focus.row, selection.focus.column),
 				box = cell?.getBoundingClientRect();
 			if (cell && box) gridMenu(cell, { x: box.left + 8, y: box.bottom });
 		} else if (event.key === "Delete" || event.key === "Backspace") {
@@ -2123,12 +2230,12 @@ export async function mountSheetClient(
 	namebox.onkeydown = (event) => {
 		if (event.key !== "Enter" || !draft) return;
 		const d = dimensions(),
-			next = parseRangeLabel(namebox.value, 1000, 64);
+			next = parseRangeLabel(namebox.value, MAX_ROWS, MAX_COLUMNS);
 		if (next) {
 			tabBounds = undefined;
 			selection = next;
-			selection.anchor = clampCoordinate(next.anchor, 1000, 64);
-			selection.focus = clampCoordinate(next.focus, 1000, 64);
+			selection.anchor = clampCoordinate(next.anchor, MAX_ROWS, MAX_COLUMNS);
+			selection.focus = clampCoordinate(next.focus, MAX_ROWS, MAX_COLUMNS);
 			const rows = Math.max(selection.focus.row, selection.anchor.row) + 1,
 				columns = Math.max(selection.focus.column, selection.anchor.column) + 1;
 			if (rows > d.rows || columns > d.columns) {
@@ -2216,16 +2323,16 @@ export async function mountSheetClient(
 	q("#clear").onclick = clear;
 	q("#add-row").onclick = () => {
 		if (!editable()) return;
-		if (sheet().rows.length >= 1000) {
-			note("A sheet can hold up to 1000 rows.", true);
+		if (sheet().rows.length >= MAX_ROWS) {
+			note(`A sheet can hold up to ${ROWS_TEXT} rows.`, true);
 			return;
 		}
 		workbook((w) => insertRows(w, sheet().id, sheet().rows.length, 1));
 	};
 	q("#add-column").onclick = () => {
 		if (!editable()) return;
-		if (sheet().columns.length >= 64) {
-			note("A sheet can hold up to 64 columns.", true);
+		if (sheet().columns.length >= MAX_COLUMNS) {
+			note(`A sheet can hold up to ${MAX_COLUMNS} columns.`, true);
 			return;
 		}
 		workbook((w) => insertColumns(w, sheet().id, sheet().columns.length, 1));
@@ -2730,7 +2837,7 @@ export async function mountSheetClient(
 			// One window update per frame, however many scroll events arrive.
 			frame(() => {
 				scrollQueued = false;
-				if (draft && !destroyed) updateWindow();
+				if (draft && !destroyed) follow();
 			});
 		},
 		{ passive: true },

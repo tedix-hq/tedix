@@ -7,6 +7,7 @@ import {
 } from "../schemas/os-row-review";
 import type { SheetBody } from "./card-review";
 import type { JsonValue } from "../schemas/common";
+import { OS_SHEET_MAX_COLUMNS } from "./os-output-limits";
 
 /**
  * The row-review spec an interaction carries in `metadata.rowReview`, or null
@@ -76,8 +77,10 @@ export function rowReviewWrites(
 		throw new Error("Reviewed rows must fit within one 200-row sheet range");
 	const startColumn = Math.min(status, correction);
 	const endColumn = Math.max(status, correction);
-	if (endColumn - startColumn >= 64)
-		throw new Error("Review columns must fit within one 64-column sheet range");
+	if (endColumn - startColumn >= OS_SHEET_MAX_COLUMNS)
+		throw new Error(
+			`Review columns must fit within one ${OS_SHEET_MAX_COLUMNS}-column sheet range`,
+		);
 	const byRow = new Map(ordered.map((verdict) => [verdict.row, verdict]));
 	const cells: Cell[][] = [];
 	for (let row = startRow; row <= endRow; row += 1) {

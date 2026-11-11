@@ -706,8 +706,8 @@ an unnamed guest's calls and writes use the name `Guest`.
 
 Set `entry: "tedix:runtime/v1"`. `revise_os_gadget` takes `files` separately
 from `manifest`; `get_os_gadget_code` reads them back for the current or a named
-revision. `server.js` and `client.js` are required. Up to 24 files may contain
-512,000 UTF-16 code units in total. Other names are lowercase, single-segment
+revision. `server.js` and `client.js` are required. All files together may be
+up to 1,800,000 bytes, with no limit on how many. Other names are lowercase, single-segment
 `.js`, `.json` or `.txt`, plus the exact optional `README.md`. The README travels
 with the revision and is editable in Code view; it counts toward limits and
 the code digest but is excluded from Worker Loader modules. Without an authored

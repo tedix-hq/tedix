@@ -48,6 +48,16 @@ import {
 } from "./os-session-apps";
 import { ModelRefSchema } from "./model-catalog";
 import {
+	OS_DECK_MAX_SLIDES,
+	OS_DOCUMENT_MAX_BLOCKS,
+	OS_SHEET_CELL_MAX_LENGTH,
+	OS_SHEET_MAX_COLUMNS,
+	OS_SHEET_MAX_ROWS,
+	OS_SLIDE_MAX_ELEMENTS,
+	OS_SLIDE_MAX_TEXT_CHARS,
+} from "../utils/os-output-limits";
+import { OS_OUTPUT_EMBEDDED_IMAGE_MAX_CHARS } from "../utils/os-output-assets";
+import {
 	ExecutionPreflightPinSchema,
 	WorkItemCapabilityConnectionRefSchema,
 	WorkItemExecutionPreflightDecisionSchema,
@@ -1000,7 +1010,7 @@ export const OsOutputImageUploadInputSchema = z.object({
 	outputId: z.string().uuid(),
 	dataUrl: z
 		.string()
-		.max(7_100_000)
+		.max(OS_OUTPUT_EMBEDDED_IMAGE_MAX_CHARS)
 		.regex(/^data:image\//i, "Send the image as a data:image/... URL")
 		.describe(
 			"The image as a data URL: PNG, JPEG, GIF, WebP or self-contained SVG, at most 5 MB.",
@@ -1062,8 +1072,6 @@ export const OsDocumentBlockSchema = z.discriminatedUnion("type", [
 			.max(200),
 	}),
 ]);
-
-export const OS_SHEET_CELL_MAX_LENGTH = 8_192;
 
 export const OsSheetCellSchema = z.union([
 	z.string().max(OS_SHEET_CELL_MAX_LENGTH),
@@ -1205,11 +1213,16 @@ export const OsWorkbookColumnSchema = z.object({
 export const OsWorkbookSheetSchema = z.object({
 	id: z.string().min(1).max(80),
 	name: z.string().min(1).max(120),
-	columns: z.array(OsWorkbookColumnSchema).min(1).max(64),
-	rows: z.array(z.array(OsWorkbookCellSchema.nullable()).max(64)).max(1_000),
-	rowHeights: z.array(z.number().int().min(20).max(600)).max(1_000).optional(),
-	frozenRows: z.number().int().min(0).max(1_000).default(0),
-	frozenColumns: z.number().int().min(0).max(64).default(0),
+	columns: z.array(OsWorkbookColumnSchema).min(1).max(OS_SHEET_MAX_COLUMNS),
+	rows: z
+		.array(z.array(OsWorkbookCellSchema.nullable()).max(OS_SHEET_MAX_COLUMNS))
+		.max(OS_SHEET_MAX_ROWS),
+	rowHeights: z
+		.array(z.number().int().min(20).max(600))
+		.max(OS_SHEET_MAX_ROWS)
+		.optional(),
+	frozenRows: z.number().int().min(0).max(OS_SHEET_MAX_ROWS).default(0),
+	frozenColumns: z.number().int().min(0).max(OS_SHEET_MAX_COLUMNS).default(0),
 });
 
 export const OsWorkbookSchema = z.object({
@@ -1241,7 +1254,7 @@ export const OsPresentationElementTypeSchema = z.enum([
 export const OsPresentationElementPropsSchema = z.object({
 	eyebrow: z.string().max(300).optional(),
 	title: z.string().max(2_000).optional(),
-	body: z.string().max(20_000).optional(),
+	body: z.string().max(OS_SLIDE_MAX_TEXT_CHARS).optional(),
 	tone: z
 		.enum(["neutral", "accent", "success", "warning", "danger", "info"])
 		.optional(),
@@ -1282,14 +1295,14 @@ export const OsPresentationElementSchema = z.object({
 	height: z.number().min(1).max(675),
 	text: z
 		.string()
-		.max(20_000)
+		.max(OS_SLIDE_MAX_TEXT_CHARS)
 		.optional()
 		.describe(
 			"Visible or accessible text; omitted for purely graphical elements",
 		),
 	src: z
 		.string()
-		.max(1_500_000)
+		.max(OS_OUTPUT_EMBEDDED_IMAGE_MAX_CHARS)
 		.optional()
 		.describe(
 			"Image source: an https link, a `tedix-asset:<sha256>` reference to an image stored with the file, or an embedded data:image URL, which a save stores with the file and replaces with its reference. Omitted for non-image elements",
@@ -1401,7 +1414,7 @@ export const OsPresentationCanvasSlideSchema = z.object({
 	background: z.string().max(2_000).default("#ffffff"),
 	backgroundImage: z
 		.string()
-		.max(1_500_000)
+		.max(OS_OUTPUT_EMBEDDED_IMAGE_MAX_CHARS)
 		.optional()
 		.describe(
 			"Background image, in the same forms as an element's image source; omitted for none",
@@ -1414,13 +1427,44 @@ export const OsPresentationCanvasSlideSchema = z.object({
 			radius: z.number().min(0).max(200).default(8),
 		})
 		.optional(),
-	elements: z.array(OsPresentationElementSchema).max(300).default([]),
+	elements: z
+		.array(OsPresentationElementSchema)
+		.max(OS_SLIDE_MAX_ELEMENTS)
+		.default([]),
 	notes: z
 		.string()
-		.max(10_000)
+		.max(OS_SLIDE_MAX_TEXT_CHARS)
 		.optional()
 		.describe("Speaker notes; omitted when the author added none"),
 });
+
+/** All the text one slide carries: its elements' text and its notes. */
+export function presentationSlideTextLength(slide: {
+	elements?: ReadonlyArray<{
+		text?: string;
+		props?: {
+			eyebrow?: string;
+			title?: string;
+			body?: string;
+			label?: string;
+			highlight?: readonly string[];
+		};
+	}>;
+	notes?: string;
+}): number {
+	let total = slide.notes?.length ?? 0;
+	for (const element of slide.elements ?? []) {
+		const props = element.props;
+		total +=
+			(element.text?.length ?? 0) +
+			(props?.eyebrow?.length ?? 0) +
+			(props?.title?.length ?? 0) +
+			(props?.body?.length ?? 0) +
+			(props?.label?.length ?? 0);
+		for (const item of props?.highlight ?? []) total += item.length;
+	}
+	return total;
+}
 
 /**
  * Deck-level typography: the font stacks a whole deck falls back to, named the
@@ -1453,7 +1497,15 @@ export const OsPresentationDeckSchema = z.object({
 	theme: OsPresentationThemeSchema.optional().describe(
 		"Deck-level font defaults shared by every slide; omitted for the presentation default",
 	),
-	slides: z.array(OsPresentationCanvasSlideSchema).max(200),
+	slides: z
+		.array(
+			OsPresentationCanvasSlideSchema.refine(
+				(slide) =>
+					presentationSlideTextLength(slide) <= OS_SLIDE_MAX_TEXT_CHARS,
+				`A slide holds at most ${OS_SLIDE_MAX_TEXT_CHARS} characters of text in all`,
+			),
+		)
+		.max(OS_DECK_MAX_SLIDES),
 });
 
 /** An outline is laid out automatically unless the agent supplies canvas overrides. */
@@ -1469,7 +1521,10 @@ export const OsPresentationSlideOutlineSchema = z.object({
 			backgroundImage: OsPresentationCanvasSlideSchema.shape.backgroundImage,
 			dotGridOpacity: OsPresentationCanvasSlideSchema.shape.dotGridOpacity,
 			insetSurface: OsPresentationCanvasSlideSchema.shape.insetSurface,
-			elements: z.array(OsPresentationElementSchema).max(300).optional(),
+			elements: z
+				.array(OsPresentationElementSchema)
+				.max(OS_SLIDE_MAX_ELEMENTS)
+				.optional(),
 		})
 		.optional()
 		.describe(
@@ -1477,7 +1532,7 @@ export const OsPresentationSlideOutlineSchema = z.object({
 		),
 	notes: z
 		.string()
-		.max(10_000)
+		.max(OS_SLIDE_MAX_TEXT_CHARS)
 		.optional()
 		.describe(
 			"Speaker notes; omitted when the caller has none to set, matching OsPresentationSlideSchema. A replace that omits it clears the slide notes.",
@@ -1554,7 +1609,10 @@ export const OsOutputPatchSchema = z.discriminatedUnion("kind", [
 		kind: z.literal("sheet"),
 		startRow: z.number().int().nonnegative(),
 		startColumn: z.number().int().nonnegative(),
-		cells: z.array(z.array(OsSheetCellSchema).min(1).max(64)).min(1).max(200),
+		cells: z
+			.array(z.array(OsSheetCellSchema).min(1).max(OS_SHEET_MAX_COLUMNS))
+			.min(1)
+			.max(200),
 		expectedRevision: z.number().int().positive(),
 	}),
 ]);
@@ -1565,7 +1623,7 @@ export const OsPresentationSlideSchema = z.object({
 	bullets: z.array(z.string().max(2_000)).max(30).default([]),
 	notes: z
 		.string()
-		.max(10_000)
+		.max(OS_SLIDE_MAX_TEXT_CHARS)
 		.optional()
 		.describe("Speaker notes; omitted when the author added none"),
 });
@@ -1586,22 +1644,24 @@ export const OsOutputContentSchema = z.discriminatedUnion("kind", [
 			.describe(
 				"Workspace file to preview; access is checked independently on every read",
 			),
-		blocks: z.array(OsDocumentBlockSchema).max(500),
+		blocks: z.array(OsDocumentBlockSchema).max(OS_DOCUMENT_MAX_BLOCKS),
 		richText: OsRichTextDocumentSchema.optional().describe(
 			"Rich interactive document body; blocks remain its semantic/headless projection",
 		),
 	}),
 	z.object({
 		kind: z.literal("sheet"),
-		columns: z.array(z.string().min(1).max(200)).max(64),
-		rows: z.array(z.array(OsSheetCellSchema).max(64)).max(1_000),
+		columns: z.array(z.string().min(1).max(200)).max(OS_SHEET_MAX_COLUMNS),
+		rows: z
+			.array(z.array(OsSheetCellSchema).max(OS_SHEET_MAX_COLUMNS))
+			.max(OS_SHEET_MAX_ROWS),
 		workbook: OsWorkbookSchema.optional().describe(
 			"Multi-sheet workbook state; columns/rows mirror the active sheet for compatibility",
 		),
 	}),
 	z.object({
 		kind: z.literal("presentation"),
-		slides: z.array(OsPresentationSlideSchema).max(200),
+		slides: z.array(OsPresentationSlideSchema).max(OS_DECK_MAX_SLIDES),
 		deck: OsPresentationDeckSchema.optional().describe(
 			"Visual 1200x675 slide canvas; slides remain its semantic/headless projection",
 		),

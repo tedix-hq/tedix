@@ -1,3 +1,4 @@
+import { OS_DOCUMENT_MAX_BLOCKS } from "./os-output-limits";
 import { z } from "zod";
 import {
 	OsDocumentBlockSchema,
@@ -95,8 +96,10 @@ export function applyDocumentBlockPatch(
 	const projected = richText.content.flatMap((node) =>
 		blocksFromRichText({ type: "doc", content: [node] }),
 	);
-	if (projected.length > 500)
-		throw new Error("Document block patch exceeds 500 projected blocks");
+	if (projected.length > OS_DOCUMENT_MAX_BLOCKS)
+		throw new Error(
+			`Document block patch exceeds ${OS_DOCUMENT_MAX_BLOCKS} projected blocks`,
+		);
 	const result = OsOutputContentSchema.parse({
 		...content,
 		richText,

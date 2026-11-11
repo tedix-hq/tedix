@@ -8,6 +8,7 @@ import {
 } from "../schemas/os-workspaces";
 
 import { SLIDES_BLUEPRINT_VERSION } from "./office-editor-versions";
+import { OS_DECK_MAX_SLIDES } from "../utils/os-output-limits";
 import portableSlidesClient from "./slides-client.v2.generated.json";
 
 export const SLIDES_SERVER_SOURCE = String.raw`
@@ -104,7 +105,11 @@ export function buildSlidesBlueprint(
 									content: object(
 										{
 											kind: { type: "string", const: "presentation" },
-											slides: { type: "array", items: slide, maxItems: 200 },
+											slides: {
+												type: "array",
+												items: slide,
+												maxItems: OS_DECK_MAX_SLIDES,
+											},
 											deck: { type: "object" },
 										},
 										["kind", "slides"],

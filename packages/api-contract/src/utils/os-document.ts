@@ -1,6 +1,7 @@
 import { fromMarkdown } from "mdast-util-from-markdown";
 import { gfmFromMarkdown } from "mdast-util-gfm";
 import { gfm } from "micromark-extension-gfm";
+import { OS_DOCUMENT_MAX_BLOCKS } from "@tedix/api-contract/utils/os-output-limits";
 import type {
 	OsDocumentBlock,
 	OsRichTextDocument,
@@ -260,7 +261,7 @@ export function blocksFromRichText(
 			}
 		}
 	}
-	return blocks.slice(0, 500);
+	return blocks.slice(0, OS_DOCUMENT_MAX_BLOCKS);
 }
 
 export function normalizeDocumentContent(

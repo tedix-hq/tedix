@@ -35,8 +35,6 @@ for (const input of Object.keys(result.metafile.inputs))
 	)
 		throw new Error(`Sheet client includes a host-only dependency: ${input}`);
 const source = result.outputFiles[0]!.text;
-if (source.length > 480000)
-	throw new Error("Sheet client exceeds its bundled source budget");
 const sha256 = createHash("sha256").update(source).digest("hex");
 const generated = JSON.stringify({ sha256, source }, null, "\t") + "\n";
 if (process.argv.includes("--check")) {

@@ -1718,11 +1718,11 @@ describe("output patch verbs", () => {
 				cells: [["x", "y"]],
 			}),
 		).rejects.toMatchObject({ code: "BAD_REQUEST" });
-		// The write may extend rows only up to the 1000-row cap.
+		// The write may extend rows only up to the 50,000-row cap.
 		await expect(
 			c.org1.outputs.setSheetRange({
 				outputId: output.id,
-				startRow: 1000,
+				startRow: 50_000,
 				startColumn: 0,
 				cells: [["x"]],
 			}),

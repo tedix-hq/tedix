@@ -29,6 +29,13 @@ import { evaluateWorkbook, formatWorkbookValue } from "@/lib/workbook-formulas";
 
 /** Rows above which the read view offers a filter box. */
 const FILTER_FROM_ROWS = 8;
+/**
+ * This read view draws every row and column it shows, so it shows a bounded
+ * part of a very large sheet; filtering and sorting still cover every row.
+ * The editor draws only what is in view and has no such bound.
+ */
+const READ_VIEW_ROWS = 2_000;
+const READ_VIEW_COLUMNS = 128;
 
 type WorkbookContext = Parameters<typeof formatWorkbookValue>[1];
 
@@ -116,6 +123,15 @@ export function WorkbookView({
 	const display = (row: number, column: number) =>
 		formatWorkbookValue(sheet.rows[row]?.[column] ?? null, context);
 	const order = viewRowOrder(sheet, { sort, query, display });
+	const drawnOrder =
+		order.length > READ_VIEW_ROWS ? order.slice(0, READ_VIEW_ROWS) : order;
+	const drawnColumns =
+		sheet.columns.length > READ_VIEW_COLUMNS
+			? sheet.columns.slice(0, READ_VIEW_COLUMNS)
+			: sheet.columns;
+	const clipped =
+		drawnOrder.length < order.length ||
+		drawnColumns.length < sheet.columns.length;
 	const empty = isEmptySheet(sheet);
 	const filterable = sheet.rows.length > FILTER_FROM_ROWS;
 	const filtered = query.trim() !== "";
@@ -183,7 +199,7 @@ export function WorkbookView({
 										>
 											<span className="sr-only">Row</span>
 										</th>
-										{sheet.columns.map((column, columnIndex) => {
+										{drawnColumns.map((column, columnIndex) => {
 											const sorted =
 												sort?.column === columnIndex
 													? sort.direction
@@ -229,7 +245,7 @@ export function WorkbookView({
 									</tr>
 								</thead>
 								<tbody>
-									{order.map((rowIndex) => {
+									{drawnOrder.map((rowIndex) => {
 										const row = sheet.rows[rowIndex] ?? [];
 										return (
 											<tr
@@ -254,7 +270,7 @@ export function WorkbookView({
 												>
 													{rowIndex + 1}
 												</th>
-												{sheet.columns.map((column, columnIndex) => {
+												{drawnColumns.map((column, columnIndex) => {
 													const cell = row[columnIndex] ?? null;
 													return (
 														<td
@@ -321,6 +337,9 @@ export function WorkbookView({
 								: filtered
 									? `${shownRows} of ${bodyRows} rows`
 									: `${sheet.rows.length} ${sheet.rows.length === 1 ? "row" : "rows"} · ${sheet.columns.length} ${sheet.columns.length === 1 ? "column" : "columns"}`}
+							{clipped
+								? ` · showing the first ${drawnOrder.length} rows and ${drawnColumns.length} columns; filter to find the rest`
+								: ""}
 						</span>
 					</div>
 				</div>

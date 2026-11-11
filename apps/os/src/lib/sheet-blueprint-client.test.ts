@@ -487,10 +487,10 @@ describe("Portable Sheet grid", () => {
 		expect(app.saved().workbook!.sheets[0]!.rows[0]![2]!.input).toBe("=A1*10");
 		expect(app.saved().rows[0]![0]).toBe(9);
 	});
-	it("virtualizes a full workbook and rejects an out-of-bounds paste without a partial write", async () => {
+	it("opens a 50,000-row sheet, draws only the rows in view, saves one cell and rejects an out-of-bounds paste", async () => {
 		const app = await editor("owner", (content) => {
 			const s = content.workbook!.sheets[0]!;
-			s.rows = Array.from({ length: 1000 }, (_, i) => [
+			s.rows = Array.from({ length: 50_000 }, (_, i) => [
 				{ input: String(i), value: i },
 				null,
 				null,
@@ -498,13 +498,57 @@ describe("Portable Sheet grid", () => {
 			return content;
 		});
 		expect(document.querySelectorAll("td[data-row]").length).toBeLessThan(400);
-		range("C1000");
-		expect(cell("C1000")).toBeTruthy();
+		range("C50000");
+		expect(cell("C50000")).toBeTruthy();
 		clipboard("paste", "1\n2");
 		expect(q(".status").textContent).toContain("Paste exceeds");
 		expect(state()).toBe("error");
 		key("s", { ctrlKey: true });
 		expect(app.outputsWrite).not.toHaveBeenCalled();
+		edit("C50000", "last");
+		key("s", { ctrlKey: true });
+		await vi.waitFor(() => expect(app.revision()).toBe(2));
+		const rows = app.saved().workbook!.sheets[0]!.rows;
+		expect(rows).toHaveLength(50_000);
+		expect(rows[49_999]![2]!.input).toBe("last");
+		expect(rows[49_998]![0]!.input).toBe("49998");
+		expect(document.querySelectorAll("td[data-row]").length).toBeLessThan(400);
+	}, 60_000);
+	it("draws only the columns near the view of a 702-column sheet and follows the selection", async () => {
+		await editor("owner", (content) => {
+			const s = content.workbook!.sheets[0]!;
+			s.columns = Array.from({ length: 702 }, (_, i) => ({
+				id: `c${i}`,
+				label: `Column ${i + 1}`,
+				width: 120,
+			}));
+			s.rows = Array.from({ length: 40 }, (_, row) =>
+				Array.from({ length: 702 }, (_, column) =>
+					column === 701 ? { input: `end ${row}`, value: `end ${row}` } : null,
+				),
+			);
+			s.frozenColumns = 1;
+			return content;
+		});
+		const drawn = () =>
+			new Set(
+				[...document.querySelectorAll<HTMLElement>("td[data-row]")].map(
+					(td) => td.dataset.column,
+				),
+			);
+		// Far fewer than 702 columns are in the page, with the frozen one kept.
+		expect(drawn().size).toBeLessThan(80);
+		expect(drawn().has("0")).toBe(true);
+		expect(cell("ZZ1")).toBeFalsy();
+		expect(q("table").getAttribute("aria-colcount")).toBe("702");
+		// Jumping to the last column draws it and keeps the frozen column.
+		range("ZZ3");
+		expect(cell("ZZ3")).toBeTruthy();
+		expect(cell("ZZ3").textContent).toBe("end 2");
+		expect(cell("ZZ3").classList.contains("active")).toBe(true);
+		expect(drawn().has("0")).toBe(true);
+		expect(drawn().size).toBeLessThan(80);
+		expect(q<HTMLInputElement>("#range").value).toBe("ZZ3");
 	});
 	it("keeps use-role sessions read-only while permitting tab navigation and export", async () => {
 		const app = await editor("use");
