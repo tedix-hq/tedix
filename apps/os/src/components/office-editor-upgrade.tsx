@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { osApi } from "@/lib/api";
 import { osQueryKeys } from "@/lib/os-query-options";
 import { Button } from "@/components/kumo/button";
-import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import { ArrowCircleUp } from "@phosphor-icons/react";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import {
 	useAppRuntimeDrafts,
@@ -100,18 +100,20 @@ export function OfficeEditorUpgrade({
 	});
 	return (
 		<>
-			<Alert>
-				<AlertTitle>
-					{label} editor version {OFFICE_EDITOR_VERSIONS[kind]} is available
-				</AlertTitle>
-				<AlertDescription>
-					Upgrade this app's editor code. Your saved file and its history stay
-					in place.
-				</AlertDescription>
-				<Button size="sm" variant="secondary" onClick={() => setOpen(true)}>
-					Upgrade {label} editor
+			{/* One quiet line above the app, not a block that pushes it down. */}
+			<div
+				className="flex items-center gap-2 border-b border-kumo-hairline px-3 py-1 text-kumo-subtle type-tedix-label"
+				role="status"
+			>
+				<ArrowCircleUp aria-hidden size={14} />
+				<span className="min-w-0 flex-1 truncate">
+					A newer {label} editor is available. Your file and its history stay as
+					they are.
+				</span>
+				<Button size="sm" variant="ghost" onClick={() => setOpen(true)}>
+					Upgrade
 				</Button>
-			</Alert>
+			</div>
 			<ConfirmDialog
 				open={open}
 				onOpenChange={setOpen}

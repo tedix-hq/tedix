@@ -645,7 +645,7 @@ describe("Portable Sheet grid", () => {
 		);
 		expect(app.outputsWrite).not.toHaveBeenCalled();
 		await app.reopen();
-		expect(q(".status").textContent).toContain("Restored draft");
+		expect(q(".status").textContent).toContain("Restored your unsaved changes");
 		expect(q<HTMLSelectElement>("#tabs").value).toBe("archive");
 		expect(display("B2")).toBe("Archive draft");
 		change("#tabs", app.saved().workbook!.sheets[0]!.id);
@@ -881,9 +881,7 @@ describe("Portable Sheet grid", () => {
 			Reflect.deleteProperty(window, "tedix");
 		});
 		new Function(SHEET_CLIENT_SOURCE)();
-		await vi.waitFor(() =>
-			expect(q(".status").textContent).toContain("revision 7"),
-		);
+		await vi.waitFor(() => expect(q(".status").textContent).toContain("Saved"));
 		expect(q("h1").textContent).toBe("Portable");
 		expect(SHEET_CLIENT_SOURCE).not.toContain("OutputSheetEditor");
 		expect(SHEET_CLIENT_SOURCE).not.toMatch(/\bimport\s/);

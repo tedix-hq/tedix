@@ -44,10 +44,10 @@ export async function mountDocClient(
 	const style = document.createElement("style");
 	style.textContent =
 		css +
-		`.doc-toolbar{flex-wrap:wrap;overflow:visible;position:relative}.doc-more{flex-basis:100%;min-width:0}.doc-more summary{cursor:pointer;padding:6px;width:fit-content;min-height:32px}.doc-extra{display:flex;flex-wrap:wrap;align-items:center;gap:5px;padding:8px 0}.doc-extra>*{flex-shrink:0}.doc-toolbar select{max-width:100%}.doc-header>button{min-height:36px}@media(max-width:650px){.doc-toolbar{gap:4px}.doc-toolbar select{max-width:145px}.doc-toolbar button{padding:6px}.doc-header>button{flex:1}.doc-workbench{min-width:0}}`;
+		`.doc-meta{display:none}.doc-header{padding:8px 12px;gap:6px}.doc-title h1{font-size:15px;font-weight:600}.doc-header>button:not(.primary),.doc-header>select{border-color:transparent;background:transparent}.doc-header>button:not(.primary):hover:not(:disabled){background:color-mix(in srgb,var(--tedix-fg,CanvasText) 8%,transparent)}button.primary{background:var(--tedix-primary,Highlight);border-color:transparent;color:var(--tedix-on-primary,HighlightText)}.doc-status{padding:2px 16px;opacity:.75}.doc-status[data-error=true]{opacity:1}.doc-toolbar{flex-wrap:wrap;overflow:visible;position:relative}.doc-more{flex-basis:100%;min-width:0}.doc-more summary{cursor:pointer;padding:6px;width:fit-content;min-height:32px}.doc-extra{display:flex;flex-wrap:wrap;align-items:center;gap:5px;padding:8px 0}.doc-extra>*{flex-shrink:0}.doc-toolbar select{max-width:100%}.doc-header>button{min-height:36px}@media(max-width:650px){.doc-toolbar{gap:4px}.doc-toolbar select{max-width:145px}.doc-toolbar button{padding:6px}.doc-header>button{flex:1}.doc-workbench{min-width:0}}`;
 	document.head.append(style);
 	root.innerHTML =
-		'<main aria-label="Doc gadget"><header class="doc-header"><div class="doc-title"><h1>Doc</h1><div class="doc-meta"></div></div><button id="doc-save">Save document</button><button id="doc-reload">Reload saved document</button><button id="doc-export">Export Markdown</button></header><div class="doc-status" role="status" aria-live="polite"></div><div class="doc-note" id="doc-updates" role="status"></div><div class="doc-note" id="doc-file"></div><div class="doc-toolbar" role="toolbar" aria-label="Document formatting"></div><form class="doc-link-form" hidden><label>Link <input type="text" aria-label="Link URL" placeholder="https://example.test"></label><button type="submit">Apply link</button><button type="button" id="doc-unlink">Remove link</button><button type="button" id="doc-link-close">Close</button></form><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" id="doc-image" hidden><div class="doc-workbench"><nav class="doc-outline" aria-label="Document outline"></nav><section class="doc-page" aria-label="Document page"></section></div></main>';
+		'<main aria-label="Doc gadget"><header class="doc-header"><div class="doc-title"><h1>Doc</h1><div class="doc-meta"></div></div><button id="doc-reload" aria-label="Reload saved document">Reload</button><button id="doc-save" class="primary" aria-label="Save document">Save</button><button id="doc-export">Export Markdown</button></header><div class="doc-status" role="status" aria-live="polite"></div><div class="doc-note" id="doc-updates" role="status"></div><div class="doc-note" id="doc-file"></div><div class="doc-toolbar" role="toolbar" aria-label="Document formatting"></div><form class="doc-link-form" hidden><label>Link <input type="text" aria-label="Link URL" placeholder="https://example.test"></label><button type="submit">Apply link</button><button type="button" id="doc-unlink">Remove link</button><button type="button" id="doc-link-close">Close</button></form><input type="file" accept="image/png,image/jpeg,image/webp,image/gif" id="doc-image" hidden><div class="doc-workbench"><nav class="doc-outline" aria-label="Document outline"></nav><section class="doc-page" aria-label="Document page"></section></div></main>';
 	const get = <T extends HTMLElement>(selector: string) =>
 		root.querySelector<T>(selector)!;
 	const status = get(".doc-status"),
@@ -279,8 +279,8 @@ export async function mountDocClient(
 		draft = { ...draft!, richText, blocks: blocksFromRichText(richText) };
 		dirty = true;
 		discardPending = false;
-		reloadButton.textContent = "Reload saved document";
-		message(`Unsaved changes · based on document revision ${basis}`);
+		reloadButton.textContent = "Reload";
+		message("Unsaved changes");
 		updateNotice();
 		controls();
 		outline();
@@ -378,7 +378,7 @@ export async function mountDocClient(
 			dirty = !!retained;
 			available = true;
 			discardPending = false;
-			reloadButton.textContent = "Reload saved document";
+			reloadButton.textContent = "Reload";
 			get("h1").textContent = value.output.title;
 			get(".doc-meta").textContent =
 				`Document revision ${value.revision.revision} · Doc app version ${context.gadget.revision}`;
@@ -388,8 +388,8 @@ export async function mountDocClient(
 			renderContent();
 			message(
 				dirty
-					? `Restored draft · based on document revision ${basis}`
-					: `Saved · document revision ${basis}${editable ? "" : " · Read-only access"}`,
+					? "Restored your unsaved changes"
+					: `Saved${editable ? "" : " · Read only"}`,
 			);
 			updateNotice();
 		} catch (error) {
@@ -436,7 +436,7 @@ export async function mountDocClient(
 			get(".doc-meta").textContent =
 				`Document revision ${basis} · Doc app version ${context.gadget.revision}`;
 			renderContent();
-			message(`Saved · document revision ${basis}`);
+			message("Saved");
 			updateNotice();
 		} catch (error) {
 			message(

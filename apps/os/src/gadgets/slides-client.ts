@@ -37,6 +37,7 @@ import {
 	type PresentationContent,
 } from "./slides-engine";
 import { SLIDES_CSS } from "./slides-style";
+import { EDITOR_ICON_CSS, editorIcon, iconButton } from "./editor-icons";
 import {
 	mergeOutputContent,
 	type OutputMergePreference,
@@ -64,13 +65,12 @@ export async function mountSlidesClient(
 	bridge: SlidesClientBridge,
 ) {
 	const style = document.createElement("style");
-	style.textContent = SLIDES_CSS;
+	style.textContent = SLIDES_CSS + EDITOR_ICON_CSS;
 	document.head.append(style);
 	root.innerHTML = `<main class="slides-app" aria-label="Slides gadget">
-<header><div class="slides-heading"><h1>Slides</h1><div class="slides-meta"></div></div><button id="save">Save presentation</button><button id="reload">Reload saved presentation</button><button id="present">Present</button><select id="export-format" aria-label="Export format"><option value="pptx">PowerPoint (.pptx)</option><option value="pdf">PDF (.pdf)</option><option value="outline">Markdown outline</option></select><button id="export">Export</button></header>
-<div class="slides-status" role="status" aria-live="polite"></div><div class="slides-updates" role="status" aria-live="polite"></div>
-<div class="slides-toolbar" role="toolbar" aria-label="Canvas tools"><button id="undo">Undo</button><button id="redo">Redo</button><label>Add <select id="element-type" aria-label="Element type"><option value="text">Text</option><option value="title">Title</option><option value="subtitle">Subtitle</option><option value="bullet">Bullets</option><option value="shape">Shape</option><option value="card">Card</option><option value="box">Box</option><option value="arrow">Arrow</option><option value="label">Label</option><option value="divider">Divider</option><option value="image">Image</option><option value="svg">SVG</option><option value="logo">Logo</option></select></label><button id="insert">Insert element</button><button id="upload">Upload image</button><button id="duplicate-element">Duplicate element</button><button id="delete-element">Delete element</button><button id="backward">Send backward</button><button id="forward">Bring forward</button></div>
-<div class="slides-layout"><aside class="slides-rail"><div class="slides-rail-tools"><button id="add-slide">Add slide</button><button id="duplicate-slide">Duplicate slide</button><button id="delete-slide">Delete slide</button><button id="slide-up">Move slide up</button><button id="slide-down">Move slide down</button></div><nav aria-label="Slides"></nav></aside>
+<header><div class="slides-heading"><h1>Slides</h1><div class="slides-meta" hidden></div></div><div class="slides-status" role="status" aria-live="polite"></div><button id="reload">Reload saved presentation</button><select id="export-format" aria-label="Export format" title="Export format"><option value="pptx">PowerPoint</option><option value="pdf">PDF</option><option value="outline">Outline</option></select>${iconButton('id="export"', "Export", "download")}<button id="present">${editorIcon("play")} Present</button><button id="save" class="primary">Save</button></header><div class="slides-updates" role="status" aria-live="polite"></div>
+<div class="slides-toolbar" role="toolbar" aria-label="Canvas tools">${iconButton('id="undo"', "Undo", "undo")}${iconButton('id="redo"', "Redo", "redo")}<span class="bar-divider" aria-hidden="true"></span><label title="What to add"><select id="element-type" aria-label="Element type"><option value="text">Text</option><option value="title">Title</option><option value="subtitle">Subtitle</option><option value="bullet">Bullets</option><option value="shape">Shape</option><option value="card">Card</option><option value="box">Box</option><option value="arrow">Arrow</option><option value="label">Label</option><option value="divider">Divider</option><option value="image">Image</option><option value="svg">SVG</option><option value="logo">Logo</option></select></label>${iconButton('id="insert"', "Add to slide", "plus")}${iconButton('id="upload"', "Upload image", "image")}<span class="bar-divider" aria-hidden="true"></span>${iconButton('id="duplicate-element"', "Duplicate element", "copy")}${iconButton('id="delete-element"', "Delete element", "trash")}${iconButton('id="backward"', "Send backward", "back")}${iconButton('id="forward"', "Bring forward", "front")}</div>
+<div class="slides-layout"><aside class="slides-rail"><div class="slides-rail-tools">${iconButton('id="add-slide"', "Add slide", "plus")}${iconButton('id="duplicate-slide"', "Duplicate slide", "copy")}${iconButton('id="delete-slide"', "Delete slide", "trash")}${iconButton('id="slide-up"', "Move slide up", "up")}${iconButton('id="slide-down"', "Move slide down", "down")}</div><nav aria-label="Slides"></nav></aside>
 <section class="slides-workspace"><div class="slides-stage" tabindex="0" aria-label="Slide canvas"></div><div class="slides-help">Select an element to move or resize it. Double-click text to write. Arrow keys move the selected element; Shift moves by 10 pixels. Drop or paste an image onto the canvas.</div><label class="slides-notes">Speaker notes<textarea id="notes" maxlength="10000"></textarea></label></section>
 <aside class="slides-inspector" aria-label="Slide and element properties"><div id="properties"></div><h2>Layers</h2><div id="layers"></div></aside></div>
 <input type="file" id="image-file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" hidden>
@@ -219,7 +219,7 @@ export async function mountSlidesClient(
 		dirty = true;
 		discardPending = false;
 		button("reload").textContent = "Reload saved presentation";
-		message(`Unsaved changes · based on revision ${basis}`);
+		message("Unsaved changes");
 		void retainDraft();
 		controls();
 	}
@@ -667,7 +667,7 @@ export async function mountSlidesClient(
 		paintCanvas(find(".slides-present-stage"), active());
 		find(".slides-present-status").textContent = dirty
 			? "Draft presentation · unsaved changes"
-			: `Saved revision ${basis}`;
+			: "Saved";
 		const index = deck!.slides.indexOf(active()!);
 		find("#position").textContent = `${index + 1} / ${deck!.slides.length}`;
 		button("previous").disabled = index <= 0;
@@ -889,8 +889,8 @@ export async function mountSlidesClient(
 				`Presentation revision ${value.revision.revision} · Slides canvas`;
 			message(
 				retained
-					? `Restored draft · based on revision ${basis}`
-					: `Saved revision ${basis}${editable ? "" : " · read-only"}`,
+					? "Restored your unsaved changes"
+					: `Saved${editable ? "" : " · Read only"}`,
 			);
 			render();
 		} catch (error) {
@@ -940,7 +940,7 @@ export async function mountSlidesClient(
 			);
 			dirty = false;
 			await clearDraft();
-			message(`Saved · revision ${basis}`);
+			message("Saved");
 			find(".slides-meta").textContent =
 				`Presentation revision ${basis} · Slides canvas`;
 			render();

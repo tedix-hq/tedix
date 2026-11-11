@@ -250,7 +250,7 @@ describe("portable rich Doc client", () => {
 				}),
 			]),
 		);
-		expect(root.textContent).toContain("Saved · document revision 5");
+		expect(root.querySelector(".doc-status")?.textContent).toBe("Saved");
 		expect(test.retained()).toBeNull();
 	});
 	it("moves complete blocks with native undo and keeps table, tasks, details and embedded images", async () => {
@@ -326,7 +326,7 @@ describe("portable rich Doc client", () => {
 		test.external("Newer saved version");
 		const second = await test.mount();
 		expect(second.editor.getText()).toContain("My draft");
-		expect(second.root.textContent).toContain("based on document revision 4");
+		expect(second.root.textContent).toContain("Restored your unsaved changes");
 		await second.mounted.save();
 		expect(second.root.textContent).toContain("Output revision changed");
 		expect(second.editor.getText()).toContain("My draft");
@@ -491,7 +491,7 @@ describe("portable rich Doc client", () => {
 		editor.chain().setTextSelection({ from: 1, to: 9 }).toggleBold().run();
 		click(root, "Save document");
 		await vi.waitFor(() =>
-			expect(root.textContent).toContain("Saved · document revision 5"),
+			expect(root.querySelector(".doc-status")?.textContent).toBe("Saved"),
 		);
 		expect(
 			test.persisted().richText!.content[0]!.content![0]!.marks,

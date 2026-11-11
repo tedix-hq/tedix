@@ -232,7 +232,7 @@ async function save() {
 	button("save").click();
 	await vi.waitFor(() =>
 		expect(document.querySelector(".slides-status")?.textContent).toContain(
-			"Saved · revision",
+			"Saved",
 		),
 	);
 }
@@ -264,7 +264,7 @@ describe("portable Slides canvas", () => {
 				?.textContent,
 		).toBe("Immediate draft");
 		expect(document.querySelector(".slides-status")?.textContent).toContain(
-			"Restored draft",
+			"Restored your unsaved changes",
 		);
 	});
 	it.each(["save", "discard", "denial"] as const)(

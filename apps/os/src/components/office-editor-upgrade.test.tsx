@@ -93,7 +93,7 @@ describe("explicit office editor upgrade", () => {
 	it("keeps a retained draft on the same app version until explicitly saved or discarded", async () => {
 		keepDraft = true;
 		mount();
-		await click("Upgrade Doc editor");
+		await click("Upgrade");
 		await click("Upgrade editor");
 		await vi.waitFor(() =>
 			expect(document.body.textContent).toContain(
@@ -105,7 +105,7 @@ describe("explicit office editor upgrade", () => {
 	it("never upgrades on load and requires review of what happens to unsaved edits", async () => {
 		mount();
 		expect(install).not.toHaveBeenCalled();
-		await click("Upgrade Doc editor");
+		await click("Upgrade");
 		expect(document.body.textContent).toContain(
 			"keeping the same file, app and revision history",
 		);
@@ -122,7 +122,7 @@ describe("explicit office editor upgrade", () => {
 			install.mockResolvedValue({ gadget: { id: "gadget" } });
 			mount(kind);
 			expect(install).not.toHaveBeenCalled();
-			await click(`Upgrade ${label} editor`);
+			await click("Upgrade");
 			expect(document.body.textContent).toContain(
 				"including custom code changes",
 			);
@@ -159,23 +159,23 @@ describe("explicit office editor upgrade", () => {
 						editor: `document-v${version}`,
 					}),
 				),
-			).toMatchObject({ kind: "document", version, currentVersion: 7 });
+			).toMatchObject({ kind: "document", version, currentVersion: 8 });
 		expect(
 			officeEditorUpgrade(manifest(["readSheet", "replaceSheet"])),
-		).toMatchObject({ kind: "sheet", version: 1, currentVersion: 6 });
+		).toMatchObject({ kind: "sheet", version: 1, currentVersion: 7 });
 		expect(
 			officeEditorUpgrade(
 				manifest(["readPresentation", "replacePresentation"]),
 			),
-		).toMatchObject({ kind: "presentation", version: 1, currentVersion: 6 });
+		).toMatchObject({ kind: "presentation", version: 1, currentVersion: 7 });
 		expect(
 			officeEditorUpgrade(
-				manifest(["readDocument", "replaceDocument"], { blueprintVersion: 7 }),
+				manifest(["readDocument", "replaceDocument"], { blueprintVersion: 8 }),
 			),
 		).toBeNull();
 		expect(
 			officeEditorUpgrade(
-				manifest(["readSheet", "replaceSheet"], { blueprintVersion: 6 }),
+				manifest(["readSheet", "replaceSheet"], { blueprintVersion: 7 }),
 			),
 		).toBeNull();
 		expect(officeEditorUpgrade(manifest(["customOperation"]))).toBeNull();
@@ -186,7 +186,7 @@ describe("explicit office editor upgrade", () => {
 			.spyOn(client, "invalidateQueries")
 			.mockResolvedValue();
 		mount();
-		await click("Upgrade Doc editor");
+		await click("Upgrade");
 		await click("Upgrade editor");
 		await vi.waitFor(() =>
 			expect(install).toHaveBeenCalledWith({
@@ -208,7 +208,7 @@ describe("explicit office editor upgrade", () => {
 	it("keeps a revision conflict visible for review without claiming the editor upgraded", async () => {
 		install.mockRejectedValue(new Error("App revision changed"));
 		mount();
-		await click("Upgrade Doc editor");
+		await click("Upgrade");
 		await click("Upgrade editor");
 		await vi.waitFor(() =>
 			expect(document.body.textContent).toContain("App revision changed"),
