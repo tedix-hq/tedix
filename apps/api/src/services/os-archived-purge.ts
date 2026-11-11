@@ -67,6 +67,7 @@ export const OS_ARCHIVED_PURGE_WORK_BUDGET = 600;
 export const OS_ARCHIVED_PURGE_TIME_BUDGET_MS = 9_000;
 const PAGE_SIZE = KERNEL_CONVERSATION_PURGE_CHUNK;
 const SAMPLE_LIMIT = 20;
+const OUTPUT_CONCURRENCY = 8;
 const SOURCE = "osWorkspaces.workspaces.purgeArchived";
 
 const ACCESS_RANK = { read: 1, edit: 2, owner: 3 } as const;
@@ -314,7 +315,7 @@ async function purgeWorkspaces(run: PurgeRun, tally: KindTally) {
 /** Same rules as `osWorkspaces.outputs.delete`. */
 async function purgeOutputs(run: PurgeRun, tally: KindTally) {
 	const { context, organizationId } = run;
-	const visibleWorkspaces = new Map<string, boolean>();
+	const visibleWorkspaces = new Map<string, Promise<boolean>>();
 	while (run.budget.take(3)) {
 		const ids = await listArchivedOsOutputPurgeCandidateIds(db(context), {
 			organizationId,
@@ -340,23 +341,10 @@ async function purgeOutputs(run: PurgeRun, tally: KindTally) {
 		]);
 		const deleted: string[] = [];
 		let stopped = false;
-		for (const outputId of ids) {
-			if (!run.budget.take(run.dryRun ? 5 : 9)) {
-				stopped = true;
-				break;
-			}
-			const output = await getOsOutput(db(context), {
-				organizationId,
-				outputId,
-			});
-			if (!output || output.status !== "archived") {
-				tally.skip(outputId, "not_archived");
-				continue;
-			}
-			const workspaceId = output.workspaceId;
-			let visible = workspaceId ? visibleWorkspaces.get(workspaceId) : true;
-			if (visible === undefined && workspaceId) {
-				visible = await canSee(() =>
+		const visibleIn = (workspaceId: string) => {
+			let visible = visibleWorkspaces.get(workspaceId);
+			if (!visible) {
+				visible = canSee(() =>
 					assertOsWorkspaceChildVisible(
 						context,
 						organizationId,
@@ -366,6 +354,20 @@ async function purgeOutputs(run: PurgeRun, tally: KindTally) {
 				);
 				visibleWorkspaces.set(workspaceId, visible);
 			}
+			return visible;
+		};
+		const handle = async (outputId: string) => {
+			const output = await getOsOutput(db(context), {
+				organizationId,
+				outputId,
+			});
+			if (!output || output.status !== "archived") {
+				tally.skip(outputId, "not_archived");
+				return;
+			}
+			const visible = output.workspaceId
+				? await visibleIn(output.workspaceId)
+				: true;
 			if (!visible) tally.skip(outputId, "not_visible");
 			else if (withShares.has(outputId))
 				tally.skip(outputId, "active_share_links");
@@ -373,7 +375,7 @@ async function purgeOutputs(run: PurgeRun, tally: KindTally) {
 				tally.skip(outputId, "collaboration_history");
 			else {
 				tally.pass(outputId);
-				if (run.dryRun) continue;
+				if (run.dryRun) return;
 				try {
 					if (await deleteOsOutput(db(context), { organizationId, outputId })) {
 						tally.deleted++;
@@ -388,6 +390,21 @@ async function purgeOutputs(run: PurgeRun, tally: KindTally) {
 					tally.unpass(outputId, "failed");
 				}
 			}
+		};
+		// Each output is confirmed against its storage owner, often a workspace
+		// object, so a few run at once instead of one round trip at a time.
+		for (let i = 0; i < ids.length && !stopped; i += OUTPUT_CONCURRENCY) {
+			const chunk: string[] = [];
+			for (const outputId of ids.slice(i, i + OUTPUT_CONCURRENCY)) {
+				if (!run.budget.take(run.dryRun ? 5 : 9)) {
+					stopped = true;
+					break;
+				}
+				chunk.push(outputId);
+			}
+			await Promise.all(chunk.map(handle));
+			// Items finish out of order; the next page starts after the whole chunk.
+			if (chunk.length > 0) tally.cursor = chunk[chunk.length - 1];
 		}
 		await recordDeletions(run, "os.output.deleted", "os_output", deleted);
 		if (stopped) return;
