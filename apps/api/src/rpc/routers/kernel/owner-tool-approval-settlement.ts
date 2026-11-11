@@ -13,6 +13,15 @@
  * `$.execution` claim on the row is the second, and the gateway's
  * `consumedAt` is the third. A rejected, cancelled or expired request is
  * never claimed, so it never runs.
+ *
+ * One exception, for tools listed in `CONTINUABLE_OWNER_TOOL_ENDPOINTS`: a
+ * bulk purge stops at a per-call budget, so after a run that made progress
+ * but did not finish, the settlement stores narrowed arguments (only the
+ * kinds left, resuming after the last item examined), queues the request and
+ * clears the gateway's consumed mark, all in one conditional update owned by
+ * that run. The approval-queue cron then runs it again, and the gateway admits
+ * and consumes each run as before. It stops when the tool reports it is
+ * complete, examined nothing, the run limit is reached or the approval expires.
  */
 
 import {
@@ -24,6 +33,7 @@ import {
 import { recordApprovalExecutionReceipt } from "@tedix/db/queries/approval-simulations";
 import {
 	claimOwnerToolApprovalExecution,
+	continueOwnerToolApprovalExecution,
 	listDueOwnerToolApprovals,
 	type OwnerToolApprovalExecution,
 	reclaimOwnerToolApprovalExecution,
@@ -140,6 +150,177 @@ export function ownerToolExecutionSummary(
 	return (detail ? `${sentence}: ${detail}` : sentence).slice(0, 200);
 }
 
+/**
+ * Gateway RPC endpoints whose approved call continues under the same approval
+ * until the tool reports it is complete. Each must accept `resumeAfter` and
+ * report `complete`, `dryRun` and, per kind, `examined`, `remaining`,
+ * `nextAfterId`, `deleted` and `skipped`, and must only narrow what it does
+ * when given `resumeAfter`.
+ */
+export const CONTINUABLE_OWNER_TOOL_ENDPOINTS: ReadonlySet<string> = new Set([
+	"osWorkspaces/workspaces/purgeArchived",
+]);
+/** Runs one approval may make, the first included. */
+export const MAX_OWNER_TOOL_CONTINUATION_RUNS = 100;
+/** Purge ids kept on the request; every run's id is also on its receipt and audit rows. */
+const CONTINUATION_PURGE_ID_LIMIT = 100;
+
+interface KindTotals {
+	deleted: number;
+	skipped: number;
+}
+
+/** What `$.continuation` holds on a continuing request. */
+export interface OwnerToolContinuation {
+	/** Runs finished so far. */
+	runs: number;
+	/** The arguments the owner approved; `$.args` holds the narrowed ones. */
+	approvedArgs: Record<string, unknown>;
+	totals: Record<string, KindTotals>;
+	purgeIds: string[];
+}
+
+function isContinuableCall(payload: OwnerToolCallPayload): boolean {
+	return (
+		payload.target.transport === "rpc" &&
+		typeof payload.target.endpoint === "string" &&
+		CONTINUABLE_OWNER_TOOL_ENDPOINTS.has(payload.target.endpoint) &&
+		payload.args.dryRun === false
+	);
+}
+
+function count(value: unknown): number {
+	return typeof value === "number" && Number.isFinite(value) && value > 0
+		? value
+		: 0;
+}
+
+export function parseOwnerToolContinuation(
+	value: unknown,
+): OwnerToolContinuation | null {
+	if (
+		!isRecord(value) ||
+		typeof value.runs !== "number" ||
+		!isRecord(value.approvedArgs)
+	)
+		return null;
+	const totals: Record<string, KindTotals> = {};
+	if (isRecord(value.totals))
+		for (const [kind, total] of Object.entries(value.totals))
+			if (isRecord(total))
+				totals[kind] = {
+					deleted: count(total.deleted),
+					skipped: count(total.skipped),
+				};
+	return {
+		runs: value.runs,
+		approvedArgs: value.approvedArgs,
+		totals,
+		purgeIds: Array.isArray(value.purgeIds)
+			? value.purgeIds.filter((id): id is string => typeof id === "string")
+			: [],
+	};
+}
+
+type ContinuationStep =
+	| { kind: "continue"; args: Record<string, unknown> }
+	| { kind: "done"; reason: string | null };
+
+/**
+ * The state after one run of a continuable call, and whether and with which
+ * arguments it runs again. Arguments only ever narrow: kinds that finished
+ * are dropped and each kind left resumes after the last item it examined.
+ */
+export function nextOwnerToolContinuation(input: {
+	args: Record<string, unknown>;
+	prior: OwnerToolContinuation | null;
+	data: unknown;
+	approvalExpiresAt: string;
+	now: number;
+}): { state: OwnerToolContinuation; step: ContinuationStep } {
+	const { args, prior, data } = input;
+	const runs = (prior?.runs ?? 0) + 1;
+	const totals = { ...(prior?.totals ?? {}) };
+	const purgeIds = [...(prior?.purgeIds ?? [])];
+	const record = isRecord(data) ? data : {};
+	if (
+		typeof record.purgeId === "string" &&
+		purgeIds.length < CONTINUATION_PURGE_ID_LIMIT
+	)
+		purgeIds.push(record.purgeId);
+	const kinds = Array.isArray(args.kinds)
+		? args.kinds.filter((kind): kind is string => typeof kind === "string")
+		: [];
+	const priorResume = isRecord(args.resumeAfter) ? args.resumeAfter : {};
+	const left: string[] = [];
+	const resumeAfter: Record<string, string> = {};
+	let examined = 0;
+	for (const kind of kinds) {
+		const result = isRecord(record[kind]) ? record[kind] : null;
+		if (result) {
+			const total = totals[kind] ?? { deleted: 0, skipped: 0 };
+			totals[kind] = {
+				deleted: total.deleted + count(result.deleted),
+				skipped: total.skipped + count(result.skipped),
+			};
+			examined += count(result.examined);
+		}
+		if (result && count(result.remaining) === 0) continue;
+		left.push(kind);
+		const after =
+			result && typeof result.nextAfterId === "string"
+				? result.nextAfterId
+				: priorResume[kind];
+		if (typeof after === "string" && after) resumeAfter[kind] = after;
+	}
+	const state: OwnerToolContinuation = {
+		runs,
+		approvedArgs: prior?.approvedArgs ?? args,
+		totals,
+		purgeIds,
+	};
+	const reason =
+		record.dryRun !== false
+			? "not a deleting run"
+			: record.complete === true || left.length === 0
+				? null
+				: examined === 0
+					? "stopped: the last run could not check any item"
+					: runs >= MAX_OWNER_TOOL_CONTINUATION_RUNS
+						? `stopped after ${runs} runs; approve a new purge for the rest`
+						: Date.parse(input.approvalExpiresAt) <= input.now
+							? "stopped: the approval expired; approve a new purge for the rest"
+							: undefined;
+	if (reason !== undefined) return { state, step: { kind: "done", reason } };
+	return {
+		state,
+		step: {
+			kind: "continue",
+			args: {
+				...args,
+				kinds: left,
+				...(Object.keys(resumeAfter).length > 0 ? { resumeAfter } : {}),
+			},
+		},
+	};
+}
+
+/** "Deleted 34 workspaces, 120 outputs over 3 runs", for the request and Activity. */
+export function ownerToolContinuationSummary(
+	state: OwnerToolContinuation,
+	note: string | null,
+): string {
+	const parts = Object.entries(state.totals).map(
+		([kind, total]) =>
+			`${total.deleted} ${kind}${total.skipped ? ` (${total.skipped} skipped)` : ""}`,
+	);
+	const runs = `${state.runs} run${state.runs === 1 ? "" : "s"}`;
+	return `Deleted ${parts.join(", ") || "nothing"} over ${runs}${note ? `; ${note}` : ""}`.slice(
+		0,
+		200,
+	);
+}
+
 let activeOwnerToolExecutor: typeof executeApprovedOwnerToolCall =
 	executeApprovedOwnerToolCall;
 
@@ -200,6 +381,10 @@ async function runOwnerToolCall(
 			? { attempt: input.retry.attempt, retriedBy: input.retry.retriedBy }
 			: {};
 
+	const continuable = isContinuableCall(payload);
+	const priorContinuation = parseOwnerToolContinuation(
+		(approval.payload as Record<string, unknown>).continuation,
+	);
 	const finish = async (
 		execution: Omit<
 			OwnerToolApprovalExecution,
@@ -216,14 +401,61 @@ async function runOwnerToolCall(
 			startedAt,
 			finishedAt,
 		};
-		const recorded = await recordOwnerToolApprovalExecution(context.db, {
-			id: approval.id,
-			organizationId,
-			execution: record,
-		});
-		if (!recorded)
-			throw new Error("Approval execution outcome could not be recorded");
-		record = recorded;
+		const progress = continuable
+			? nextOwnerToolContinuation({
+					args: payload.args,
+					prior: priorContinuation,
+					data: observed.outcome === "succeeded" ? observed.data : null,
+					approvalExpiresAt: approval.expiresAt,
+					now: Date.parse(finishedAt),
+				})
+			: null;
+		let continued = false;
+		if (progress && observed.outcome === "succeeded") {
+			const note =
+				progress.step.kind === "continue" ? "continuing" : progress.step.reason;
+			record = {
+				...record,
+				summary: ownerToolContinuationSummary(progress.state, note),
+			};
+			if (progress.step.kind === "continue") {
+				const queued: OwnerToolApprovalExecution = {
+					status: "queued",
+					startedAt,
+					nextAttemptAt: finishedAt,
+					summary: record.summary,
+				};
+				continued = await continueOwnerToolApprovalExecution(context.db, {
+					id: approval.id,
+					organizationId,
+					startedAt,
+					now: finishedAt,
+					args: progress.step.args,
+					execution: queued,
+					continuation: { ...progress.state },
+				});
+				if (continued) record = queued;
+				else
+					record = {
+						...record,
+						summary: ownerToolContinuationSummary(
+							progress.state,
+							"stopped: the next run could not be queued",
+						),
+					};
+			}
+		}
+		if (!continued) {
+			const recorded = await recordOwnerToolApprovalExecution(context.db, {
+				id: approval.id,
+				organizationId,
+				execution: record,
+			});
+			if (!recorded)
+				throw new Error("Approval execution outcome could not be recorded");
+			record = recorded;
+		}
+		const runNumber = (priorContinuation?.runs ?? 0) + 1;
 		const canonicalInputHash = `sha256:${await canonicalDigest({
 			appSlug: payload.appSlug,
 			toolId: payload.toolId,
@@ -256,7 +488,10 @@ async function runOwnerToolCall(
 			await recordApprovalExecutionReceipt(context.db, {
 				id: crypto.randomUUID(),
 				organizationId,
-				idempotencyKey: `owner-tool-call:${approval.id}${input.retry ? ":retry" : ""}`,
+				idempotencyKey:
+					runNumber > 1
+						? `owner-tool-call:${approval.id}:run-${runNumber}`
+						: `owner-tool-call:${approval.id}${input.retry ? ":retry" : ""}`,
 				recordHash: `sha256:${await canonicalDigest(receiptFields)}`,
 				createdAt: finishedAt,
 				...receiptFields,
@@ -287,6 +522,18 @@ async function runOwnerToolCall(
 					? { summary: ownerToolExecutionSummary(payload.toolId, null) }
 					: {}),
 				...(record.error ? { error: "Approved tool execution failed" } : {}),
+				...(progress
+					? {
+							run: runNumber,
+							continued,
+							totals: progress.state.totals,
+							...(observed.outcome === "succeeded" &&
+							isRecord(observed.data) &&
+							typeof observed.data.purgeId === "string"
+								? { purgeId: observed.data.purgeId }
+								: {}),
+						}
+					: {}),
 			}),
 		}).catch((error) => {
 			console.warn("[approvals] owner tool call audit failed", {
@@ -294,7 +541,7 @@ async function runOwnerToolCall(
 				error: errorMessage(error),
 			});
 		});
-		return observed.outcome;
+		return continued ? "queued" : observed.outcome;
 	};
 	const fail = (
 		error: string,
@@ -514,13 +761,46 @@ export async function retryOwnerToolCallExecution(
 	};
 }
 
-/** Reuses the stored call and gateway fences; never manufactures a connection grant. */
-export async function runQueuedOwnerToolApprovals(context: BaseContext) {
+/** How long one approval-queue tick keeps running continuing calls back to back. */
+export const OWNER_TOOL_QUEUE_TICK_BUDGET_MS = 30_000;
+
+/**
+ * Runs due queued calls: those a tool limit deferred, and those continuing
+ * under their approval (which run again in the same tick while time allows).
+ * Reuses the stored call and gateway fences; never manufactures a connection grant.
+ */
+export async function runQueuedOwnerToolApprovals(
+	context: BaseContext,
+	options: { budgetMs?: number; now?: () => number } = {},
+) {
+	const now = options.now ?? Date.now;
+	const deadline =
+		now() + (options.budgetMs ?? OWNER_TOOL_QUEUE_TICK_BUDGET_MS);
+	const tick = { executed: 0 };
+	// The first due call always runs; later ones only while time is left.
+	const mayStart = () => tick.executed === 0 || now() < deadline;
+	while (mayStart()) {
+		const before = tick.executed;
+		await runDueOwnerToolApprovals(context, tick, mayStart);
+		if (tick.executed === before) break;
+	}
+	return tick.executed;
+}
+
+async function runDueOwnerToolApprovals(
+	context: BaseContext,
+	tick: { executed: number },
+	mayStart: () => boolean,
+) {
 	const rows = await listDueOwnerToolApprovals(context.db, nowIso());
-	let executed = 0;
 	for (const approval of rows) {
+		// Expired requests are always closed; new runs start only while time is left.
 		const payload = parseOwnerToolCallPayload(approval.payload);
 		if (!payload?.execution) continue;
+		const continuing =
+			parseOwnerToolContinuation(
+				(approval.payload as Record<string, unknown>).continuation,
+			) !== null;
 		if (Date.parse(approval.expiresAt) <= Date.now()) {
 			await recordOwnerToolApprovalExecution(context.db, {
 				id: approval.id,
@@ -529,20 +809,22 @@ export async function runQueuedOwnerToolApprovals(context: BaseContext) {
 					status: "failed",
 					startedAt: payload.execution.startedAt,
 					finishedAt: nowIso(),
-					error:
-						"The approval expired while waiting for the tool limit. Request a new approval.",
+					error: continuing
+						? "The approval expired before the call finished. Request a new approval for the rest."
+						: "The approval expired while waiting for the tool limit. Request a new approval.",
 					retryable: false,
 				},
 			});
 			continue;
 		}
+		if (!mayStart()) continue;
 		const startedAt = nowIso();
-		const attempt = (payload.execution.attempt ?? 1) + 1;
+		const attempt = continuing ? 1 : (payload.execution.attempt ?? 1) + 1;
 		const claimed = await reclaimOwnerToolApprovalExecution(context.db, {
 			id: approval.id,
 			organizationId: approval.orgId,
 			now: startedAt,
-			retriedBy: "approval-queue",
+			retriedBy: continuing ? "approval-continuation" : "approval-queue",
 			attempt,
 			staleBefore: new Date(Date.now() - STALE_OWNER_TOOL_RUN_MS).toISOString(),
 		});
@@ -551,9 +833,11 @@ export async function runQueuedOwnerToolApprovals(context: BaseContext) {
 			approval,
 			payload,
 			startedAt,
-			retry: { retriedBy: "approval-queue", attempt },
+			// A continuing run is the next step of the approved call, not a retry.
+			...(continuing
+				? {}
+				: { retry: { retriedBy: "approval-queue", attempt } }),
 		});
-		executed++;
+		tick.executed++;
 	}
-	return executed;
 }

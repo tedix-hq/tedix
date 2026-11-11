@@ -12,6 +12,8 @@ import type { tediApprovalRequests } from "@tedix/db/schema/approvals";
 const mocks = vi.hoisted(() => ({
 	claim: vi.fn(),
 	reclaim: vi.fn(),
+	continueRun: vi.fn(),
+	listDue: vi.fn(),
 	record: vi.fn(),
 	receipt: vi.fn(),
 	audit: vi.fn(),
@@ -23,6 +25,8 @@ vi.mock("@tedix/db/queries/approvals", async (load) => ({
 	...(await load<object>()),
 	claimOwnerToolApprovalExecution: mocks.claim,
 	reclaimOwnerToolApprovalExecution: mocks.reclaim,
+	continueOwnerToolApprovalExecution: mocks.continueRun,
+	listDueOwnerToolApprovals: mocks.listDue,
 	recordOwnerToolApprovalExecution: mocks.record,
 }));
 vi.mock("@tedix/db/queries/approval-simulations", async (load) => ({
@@ -42,9 +46,12 @@ vi.mock("@tedix/db/queries/organizations", async (load) => ({
 	getOrganizationById: mocks.organization,
 }));
 import {
+	MAX_OWNER_TOOL_CONTINUATION_RUNS,
+	nextOwnerToolContinuation,
 	ownerToolReplayAppSlug,
 	parseOwnerToolCallPayload,
 	retryOwnerToolCallExecution,
+	runQueuedOwnerToolApprovals,
 	setOwnerToolExecutorForTest,
 	settleOwnerToolCallApproval,
 } from "./owner-tool-approval-settlement";
@@ -96,6 +103,8 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	mocks.claim.mockResolvedValue(true);
 	mocks.reclaim.mockResolvedValue(true);
+	mocks.continueRun.mockResolvedValue(true);
+	mocks.listDue.mockResolvedValue([]);
 	mocks.record.mockImplementation(async (_db, input) => input.execution);
 	mocks.receipt.mockResolvedValue({});
 	mocks.audit.mockResolvedValue(undefined);
@@ -641,3 +650,262 @@ it.each([true, false])(
 		);
 	},
 );
+
+describe("continuing an approved purge", () => {
+	const purgeArgs = {
+		kinds: ["conversations", "outputs", "workspaces"],
+		dryRun: false,
+	};
+	const purgePayload = {
+		...payload,
+		toolId: "example_unified_tedix__purge_archived_os_items",
+		target: {
+			transport: "rpc",
+			endpoint: "osWorkspaces/workspaces/purgeArchived",
+			mcpToolName: null,
+			providerId: null,
+			configHash: "abc",
+		},
+		args: purgeArgs,
+	};
+	const kind = (over: Record<string, unknown> = {}) => ({
+		examined: 10,
+		eligible: 8,
+		deleted: 8,
+		skipped: 2,
+		skippedByReason: { pinned: 2 },
+		sampleIds: [],
+		sampleSkipped: [],
+		remaining: 0,
+		...over,
+	});
+	const unfinished = {
+		purgeId: "purge-1",
+		dryRun: false,
+		complete: false,
+		stoppedBy: "work_budget",
+		conversations: kind(),
+		outputs: kind({ remaining: 5, nextAfterId: "out-9" }),
+		workspaces: kind({ examined: 0, deleted: 0, skipped: 0, remaining: 7 }),
+	};
+	const step = (data: unknown, over: Record<string, unknown> = {}) =>
+		nextOwnerToolContinuation({
+			args: purgeArgs,
+			prior: null,
+			data,
+			approvalExpiresAt: "2099-01-01T00:00:00.000Z",
+			now: Date.parse("2026-11-11T00:00:00.000Z"),
+			...over,
+		});
+
+	it("narrows the next run to the kinds left, resuming after the last item examined", () => {
+		const { state, step: next } = step(unfinished);
+		expect(next).toEqual({
+			kind: "continue",
+			args: {
+				kinds: ["outputs", "workspaces"],
+				dryRun: false,
+				resumeAfter: { outputs: "out-9" },
+			},
+		});
+		expect(state).toMatchObject({
+			runs: 1,
+			approvedArgs: purgeArgs,
+			purgeIds: ["purge-1"],
+			totals: {
+				conversations: { deleted: 8, skipped: 2 },
+				outputs: { deleted: 8, skipped: 2 },
+				workspaces: { deleted: 0, skipped: 0 },
+			},
+		});
+	});
+
+	it("stops when complete, when nothing could be checked, at the run limit and at expiry", () => {
+		expect(
+			step({
+				...unfinished,
+				complete: true,
+				outputs: kind(),
+				workspaces: kind(),
+			}).step,
+		).toEqual({ kind: "done", reason: null });
+		expect(
+			step({
+				...unfinished,
+				conversations: kind({ examined: 0, remaining: 3 }),
+				outputs: kind({ examined: 0, remaining: 5 }),
+				workspaces: kind({ examined: 0, remaining: 7 }),
+			}).step,
+		).toMatchObject({
+			kind: "done",
+			reason: expect.stringContaining("could not check"),
+		});
+		expect(
+			step(unfinished, {
+				prior: {
+					runs: MAX_OWNER_TOOL_CONTINUATION_RUNS - 1,
+					approvedArgs: purgeArgs,
+					totals: {},
+					purgeIds: [],
+				},
+			}).step,
+		).toMatchObject({ kind: "done", reason: expect.stringContaining("runs") });
+		expect(
+			step(unfinished, { approvalExpiresAt: "2026-11-10T00:00:00.000Z" }).step,
+		).toMatchObject({
+			kind: "done",
+			reason: expect.stringContaining("expired"),
+		});
+	});
+
+	it("re-arms the approval with the narrowed call instead of finishing", async () => {
+		mocks.executor.mockResolvedValue({ ok: true, data: unfinished });
+		expect(
+			await settleOwnerToolCallApproval(context, {
+				approval: approval({ payload: purgePayload }),
+				status: "approved",
+			}),
+		).toBe("queued");
+		expect(mocks.continueRun).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				id: "11111111-1111-4111-8111-111111111111",
+				args: {
+					kinds: ["outputs", "workspaces"],
+					dryRun: false,
+					resumeAfter: { outputs: "out-9" },
+				},
+				execution: expect.objectContaining({
+					status: "queued",
+					summary: expect.stringMatching(
+						/^Deleted 8 conversations.*continuing$/,
+					),
+				}),
+				continuation: expect.objectContaining({ runs: 1 }),
+			}),
+		);
+		expect(mocks.record).not.toHaveBeenCalled();
+		expect(mocks.audit).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				action: "approval.executed",
+				metadata: expect.objectContaining({
+					run: 1,
+					continued: true,
+					purgeId: "purge-1",
+				}),
+			}),
+		);
+	});
+
+	it("records the whole run's totals when the last run finishes", async () => {
+		mocks.executor.mockResolvedValue({
+			ok: true,
+			data: {
+				...unfinished,
+				purgeId: "purge-2",
+				complete: true,
+				stoppedBy: "finished",
+				conversations: undefined,
+				outputs: kind({ deleted: 5, skipped: 0 }),
+				workspaces: kind({ deleted: 7, skipped: 0 }),
+			},
+		});
+		const narrowed = {
+			...purgePayload,
+			args: {
+				kinds: ["outputs", "workspaces"],
+				dryRun: false,
+				resumeAfter: { outputs: "out-9" },
+			},
+			execution: { status: "queued", startedAt: "2026-11-11T00:00:00.000Z" },
+			continuation: {
+				runs: 1,
+				approvedArgs: purgeArgs,
+				totals: {
+					conversations: { deleted: 8, skipped: 2 },
+					outputs: { deleted: 8, skipped: 2 },
+				},
+				purgeIds: ["purge-1"],
+			},
+		};
+		mocks.listDue.mockResolvedValueOnce([approval({ payload: narrowed })]);
+		expect(await runQueuedOwnerToolApprovals(context)).toBe(1);
+		// The next step of the approved call, not an owner's retry.
+		expect(mocks.reclaim).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				retriedBy: "approval-continuation",
+				attempt: 1,
+			}),
+		);
+		expect(mocks.executor).toHaveBeenCalledWith(
+			expect.objectContaining({
+				payload: expect.objectContaining({ args: narrowed.args }),
+			}),
+		);
+		expect(mocks.continueRun).not.toHaveBeenCalled();
+		expect(mocks.record).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				execution: expect.objectContaining({
+					status: "executed",
+					summary:
+						"Deleted 8 conversations (2 skipped), 13 outputs (2 skipped), 7 workspaces over 2 runs",
+				}),
+			}),
+		);
+		expect(mocks.receipt).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				idempotencyKey:
+					"owner-tool-call:11111111-1111-4111-8111-111111111111:run-2",
+			}),
+		);
+	});
+
+	it("keeps running continuing calls in the same tick until the time budget", async () => {
+		mocks.executor.mockResolvedValue({ ok: true, data: unfinished });
+		const continuing = approval({
+			payload: {
+				...purgePayload,
+				execution: { status: "queued", startedAt: "2026-11-11T00:00:00.000Z" },
+				continuation: {
+					runs: 1,
+					approvedArgs: purgeArgs,
+					totals: {},
+					purgeIds: [],
+				},
+			},
+		});
+		mocks.listDue.mockResolvedValue([continuing]);
+		let clock = 0;
+		expect(
+			await runQueuedOwnerToolApprovals(context, {
+				budgetMs: 25,
+				now: () => (clock += 10),
+			}),
+		).toBe(2);
+	});
+
+	it("never continues another tool, a dry run or a failed run", async () => {
+		mocks.executor.mockResolvedValue({ ok: true, data: unfinished });
+		await settleOwnerToolCallApproval(context, {
+			approval: approval(),
+			status: "approved",
+		});
+		await settleOwnerToolCallApproval(context, {
+			approval: approval({
+				payload: { ...purgePayload, args: { ...purgeArgs, dryRun: true } },
+			}),
+			status: "approved",
+		});
+		mocks.executor.mockResolvedValue({ ok: false, error: "boom" });
+		await settleOwnerToolCallApproval(context, {
+			approval: approval({ payload: purgePayload }),
+			status: "approved",
+		});
+		expect(mocks.continueRun).not.toHaveBeenCalled();
+		expect(mocks.record).toHaveBeenCalledTimes(3);
+	});
+});

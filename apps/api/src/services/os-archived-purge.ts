@@ -6,7 +6,9 @@
  * Work is read in id-ordered pages and every database or storage call spends
  * from a fixed budget, so one call stays well inside a Worker invocation's
  * limits; when the budget or the time runs out the call stops cleanly and
- * reports how many archived items it did not reach.
+ * reports how many archived items it did not reach and the id to resume
+ * after. An approved call continues from there under the same approval (see
+ * `owner-tool-approval-settlement.ts`).
  */
 import type {
 	OsArchivedPurgeInput,
@@ -68,6 +70,7 @@ export const OS_ARCHIVED_PURGE_TIME_BUDGET_MS = 9_000;
 const PAGE_SIZE = KERNEL_CONVERSATION_PURGE_CHUNK;
 const SAMPLE_LIMIT = 20;
 const OUTPUT_CONCURRENCY = 24;
+const WORKSPACE_CONCURRENCY = 8;
 const SOURCE = "osWorkspaces.workspaces.purgeArchived";
 
 const ACCESS_RANK = { read: 1, edit: 2, owner: 3 } as const;
@@ -125,6 +128,13 @@ class KindTally {
 		if (this.sampleIds.length < SAMPLE_LIMIT) this.sampleIds.push(id);
 	}
 
+	/** An eligible item this call will not reach after all; it stays for the next call. */
+	withdraw(id: string) {
+		this.examined--;
+		this.eligible--;
+		this.sampleIds = this.sampleIds.filter((sample) => sample !== id);
+	}
+
 	/** An eligible item whose delete did not go through. */
 	unpass(id: string, reason: OsArchivedPurgeSkipReason) {
 		this.eligible--;
@@ -143,6 +153,9 @@ class KindTally {
 			sampleIds: this.sampleIds,
 			sampleSkipped: this.sampleSkipped,
 			remaining,
+			...(remaining > 0 && this.cursor !== undefined
+				? { nextAfterId: this.cursor }
+				: {}),
 		};
 	}
 }
@@ -153,6 +166,7 @@ interface PurgeRun {
 	purgeId: string;
 	dryRun: boolean;
 	archivedBefore: string | undefined;
+	resumeAfter: Partial<Record<OsArchivedPurgeKind, string>>;
 	budget: PurgeBudget;
 	workspacePreferenceNamespace: string;
 }
@@ -246,15 +260,10 @@ async function purgeWorkspaces(run: PurgeRun, tally: KindTally) {
 		]);
 		const deleted: string[] = [];
 		let stopped = false;
-		for (const workspace of page) {
-			const isPrivate = workspace.visibility === "private";
-			if (!run.budget.take((isPrivate ? 2 : 0) + (run.dryRun ? 1 : 3))) {
-				stopped = true;
-				break;
-			}
+		const handle = async (workspace: (typeof page)[number]) => {
 			const scope = { organizationId, workspaceId: workspace.id };
 			if (
-				isPrivate &&
+				workspace.visibility === "private" &&
 				!(await canSee(() =>
 					assertOsWorkspaceVisible(
 						context,
@@ -275,7 +284,7 @@ async function purgeWorkspaces(run: PurgeRun, tally: KindTally) {
 				tally.skip(workspace.id, "partner_installation");
 			} else {
 				tally.pass(workspace.id);
-				if (run.dryRun) continue;
+				if (run.dryRun) return;
 				try {
 					if (
 						await deleteOsWorkspace(db(context), {
@@ -302,6 +311,21 @@ async function purgeWorkspaces(run: PurgeRun, tally: KindTally) {
 					tally.unpass(workspace.id, reason);
 				}
 			}
+		};
+		// Each workspace is checked and deleted on its own, so a few run at once.
+		for (let i = 0; i < page.length && !stopped; i += WORKSPACE_CONCURRENCY) {
+			const chunk: typeof page = [];
+			for (const workspace of page.slice(i, i + WORKSPACE_CONCURRENCY)) {
+				const isPrivate = workspace.visibility === "private";
+				if (!run.budget.take((isPrivate ? 2 : 0) + (run.dryRun ? 1 : 3))) {
+					stopped = true;
+					break;
+				}
+				chunk.push(workspace);
+			}
+			await Promise.all(chunk.map(handle));
+			// Items finish out of order; the next page starts after the whole chunk.
+			if (chunk.length > 0) tally.cursor = chunk[chunk.length - 1]!.id;
 		}
 		await recordDeletions(run, "os.workspace.deleted", "os_workspace", deleted);
 		if (stopped) return;
@@ -446,6 +470,8 @@ async function purgeConversations(run: PurgeRun, tally: KindTally) {
 			}),
 		]);
 		const eligible: string[] = [];
+		/** Where this page's eligible items begin, to leave them for the next call. */
+		let beforeEligible = tally.cursor;
 		let stopped = false;
 		for (const row of page) {
 			const id = row.conversationId;
@@ -480,17 +506,21 @@ async function purgeConversations(run: PurgeRun, tally: KindTally) {
 					workspaceChat.set(workspaceId, allowed);
 				}
 				if (allowed) {
+					if (eligible.length === 0) beforeEligible = tally.cursor;
 					tally.pass(id);
 					eligible.push(id);
 				} else tally.skip(id, "no_access");
 			} else {
+				if (eligible.length === 0) beforeEligible = tally.cursor;
 				tally.pass(id);
 				eligible.push(id);
 			}
 		}
 		if (!run.dryRun && eligible.length > 0) {
 			if (!run.budget.take(1)) {
-				for (const id of eligible) tally.unpass(id, "failed");
+				// Nothing was deleted: resume before them instead of passing them by.
+				for (const id of eligible) tally.withdraw(id);
+				tally.cursor = beforeEligible;
 				return;
 			}
 			try {
@@ -583,6 +613,7 @@ export async function purgeArchivedOsItems(
 		purgeId: crypto.randomUUID(),
 		dryRun: input.dryRun,
 		archivedBefore: input.archivedBefore,
+		resumeAfter: input.resumeAfter ?? {},
 		budget: new PurgeBudget(
 			options.workBudget ?? OS_ARCHIVED_PURGE_WORK_BUDGET,
 			now() + (options.timeBudgetMs ?? OS_ARCHIVED_PURGE_TIME_BUDGET_MS),
@@ -599,6 +630,7 @@ export async function purgeArchivedOsItems(
 	for (const kind of PURGE_ORDER) {
 		if (!kinds.has(kind)) continue;
 		const tally = new KindTally();
+		tally.cursor = run.resumeAfter[kind];
 		if (kind === "conversations") await purgeConversations(run, tally);
 		else if (kind === "outputs") await purgeOutputs(run, tally);
 		else await purgeWorkspaces(run, tally);
