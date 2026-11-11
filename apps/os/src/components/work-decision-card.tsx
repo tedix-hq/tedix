@@ -95,6 +95,7 @@ import { useMoreBelow } from "@/lib/use-more-below";
 import { OS_COPY, decisionText } from "@/shared/os-copy";
 import {
 	decisionCardActionLabel,
+	recommendationLean,
 	renderDecisionCardDates,
 	renderCardDateText,
 	withoutListPrefix,
@@ -746,6 +747,16 @@ export function WorkDecisionCard({
 					(action) => action.intent === "approve" && !action.disabled,
 				);
 	const reject = actions.find((action) => action.intent === "reject");
+	// The filled button is the answer the recommendation gives. "Wait — …"
+	// fills none, so Yes never sits highlighted beside advice not to say yes.
+	const lean =
+		recommendedIntent ??
+		recommendationLean(
+			face && "recommendation" in face ? face.recommendation : null,
+		);
+	const highlighted =
+		suggested ??
+		(lean === "reject" ? reject : lean === "later" ? undefined : approve);
 	const reasons = rejectReasons?.length
 		? rejectReasons
 		: kind === "outbound"
@@ -1476,8 +1487,11 @@ export function WorkDecisionCard({
 													: "min-h-11 grow sm:grow-0"
 											}
 											data-suggested={action === suggested || undefined}
+											data-highlighted={
+												(action === highlighted && !stale) || undefined
+											}
 											variant={
-												(action === (suggested ?? approve) && !stale) ||
+												(action === highlighted && !stale) ||
 												action.id === stagedOptionId
 													? "default"
 													: action.intent === "reject"

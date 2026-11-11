@@ -34,7 +34,10 @@ const SENSITIVE = new Set([
 	"external_message",
 	"public_publish",
 ]);
-const CONSENT = /\b(?:authori[sz]e|authori[sz]ation|consent)\b/i;
+// "Authorize the follow-up with Morgan?" asks for a go-ahead; only an access
+// grant (a consent screen, a sign-in, an account or app) is a consent step.
+const CONSENT =
+	/\bconsent\b|\bauthori[sz](?:e|ation)\b[^.?!\n]{0,80}\b(?:access|sign[- ]?in|log[- ]?in|oauth|connect(?:ion|or)?|account|scopes?|permissions?|app|tab)\b/i;
 
 function structuredSubject(
 	metadata: Record<string, unknown>,

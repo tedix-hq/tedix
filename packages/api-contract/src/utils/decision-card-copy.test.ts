@@ -7,6 +7,7 @@ import {
 	withoutListPrefix,
 	renderCardDateText,
 	renderDecisionCardDates,
+	recommendationLean,
 } from "./decision-card-copy";
 const copy = {
 	version: 2,
@@ -189,4 +190,15 @@ it("rejects a face that tells the person how to answer the card", () => {
 		}),
 	).toContain("agent_addressed");
 	expect(checkDecisionCardCopy(copy)).not.toContain("agent_addressed");
+});
+
+it.each([
+	["Wait — the source does not confirm the dates arrived.", "later"],
+	["I recommend: hold until the terms are signed.", "later"],
+	["No — the price is not agreed.", "reject"],
+	["Don't send it; the draft names the wrong person.", "reject"],
+	["No need to wait — approve it.", null],
+	["Yes — nothing is sent until you say so.", null],
+])("recommendationLean(%j)", (text, lean) => {
+	expect(recommendationLean(text)).toBe(lean);
 });

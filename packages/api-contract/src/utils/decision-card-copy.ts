@@ -273,6 +273,26 @@ export function recommendationIssues(
 	return [];
 }
 
+const LEAN_PREFIX = /^\s*(?:(?:I |we )?(?:recommend|suggest)(?:ing)?:?\s+)?/i;
+const LEAN_LATER =
+	/^(?:wait|hold|defer|postpone|pause|snooze|skip|not (?:yet|now)|later)\b/i;
+const LEAN_REJECT =
+	/^(?:no\b(?!\s+(?:need|problem|risk|harm|change))|decline|deny|reject|dismiss|drop|cancel|don['’]t|do not|never)\b/i;
+
+/**
+ * Which answer a written recommendation starts with. "Wait — the dates are
+ * not confirmed" leans "later", so the card must not highlight Yes beside it.
+ * Null when the opening words name neither waiting nor declining.
+ */
+export function recommendationLean(
+	recommendation: string | null | undefined,
+): "reject" | "later" | null {
+	const text = (recommendation ?? "").replace(LEAN_PREFIX, "");
+	if (LEAN_LATER.test(text)) return "later";
+	if (LEAN_REJECT.test(text)) return "reject";
+	return null;
+}
+
 /** The face labels the consequence "If yes:", so generated bodies must not repeat it. */
 function consequenceWithoutIfYes(body: string): string {
 	const rest = body.replace(/^\s*(?:If yes[,:]?\s*)+/i, "");
