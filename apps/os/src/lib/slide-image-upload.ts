@@ -1,9 +1,9 @@
 import { PRESENTATION_HEIGHT, PRESENTATION_WIDTH } from "@/lib/output-models";
 
 /**
- * The element schema allows a 1.5 MB `src` and a whole file may reach
- * `OS_OUTPUT_CONTENT_MAX_BYTES`. Keeping each inserted image well under both
- * leaves a deck room for several images before it reaches the file limit.
+ * An inserted image is stored with the file, apart from its content, so its
+ * size no longer counts against the file. This bound keeps one image a quick
+ * upload and well under the largest image a file may store.
  */
 export const SLIDE_IMAGE_MAX_SOURCE = 900_000;
 const MAX_IMAGE_DIMENSION = 1920;
@@ -52,7 +52,7 @@ function loadImage(src: string) {
 const TOO_LARGE = "This image is too large for a slide. Try a smaller image.";
 
 /**
- * Embed an image file as a data URL that fits the element schema. SVG stays
+ * Read an image file as a data URL ready to store with the file. SVG stays
  * verbatim. A raster image within the size limits is kept as uploaded, so a
  * small GIF keeps its animation. Anything larger is downscaled through a
  * canvas: a PNG stays a PNG (transparency matters more on a slide than the

@@ -665,6 +665,13 @@ export async function mountDocClient(
 					scale *= 0.75;
 				} while (src.length > 200_000 && scale > 0.05);
 			}
+			// The picture is stored with the file; the document names it.
+			src = (
+				await bridge.call<{ reference: string }>("outputs.uploadImage", {
+					slot,
+					dataUrl: src,
+				})
+			).reference;
 			if (!destroyed && editor.isEditable)
 				run().setImage({ src, alt: file.name }).run();
 		} catch {

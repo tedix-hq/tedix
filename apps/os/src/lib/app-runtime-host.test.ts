@@ -304,6 +304,115 @@ describe("app runtime host", () => {
 		expect(readOutputImage).not.toHaveBeenCalled();
 	});
 
+	it("reads an image stored with the file by its reference", async () => {
+		const readOutputImage = vi.fn(async () => "data:image/png;base64,AA==");
+		const host = { ...deps("owner"), readOutputImage };
+		const url = `tedix-asset:${"a".repeat(64)}`;
+		expect(
+			await handleAppRuntimeCall(host, "outputs.image", {
+				slot: "opportunities",
+				url,
+			}),
+		).toEqual({ ok: true, value: { dataUrl: "data:image/png;base64,AA==" } });
+		expect(readOutputImage).toHaveBeenCalledWith({
+			workspaceId: host.context.workspaceId,
+			outputId,
+			url,
+		});
+		for (const bad of ["tedix-asset:abc", `${url}/x`, `tedix-asset:${url}`])
+			expect(
+				await handleAppRuntimeCall(host, "outputs.image", {
+					slot: "opportunities",
+					url: bad,
+				}),
+			).toMatchObject({ ok: false, error: "bad_arguments" });
+	});
+
+	it("stores an image with the bound output for a role that may write it", async () => {
+		const reference = `tedix-asset:${"b".repeat(64)}`;
+		const uploadOutputImage = vi.fn(async () => reference);
+		const writable = (role: AppRuntimeContext["role"]) => ({
+			...deps(role),
+			context: {
+				...context(role),
+				grants: [
+					{
+						slot: "opportunities",
+						operations: ["outputs.read", "outputs.write"],
+					},
+				],
+			},
+		});
+		const host = { ...writable("owner"), uploadOutputImage };
+		const args = {
+			slot: "opportunities",
+			dataUrl: "data:image/png;base64,AA==",
+		};
+		expect(
+			await handleAppRuntimeCall(host, "outputs.uploadImage", args),
+		).toEqual({ ok: true, value: { reference } });
+		expect(uploadOutputImage).toHaveBeenCalledWith({
+			workspaceId: host.context.workspaceId,
+			outputId,
+			dataUrl: args.dataUrl,
+		});
+		uploadOutputImage.mockClear();
+		expect(
+			await handleAppRuntimeCall(
+				{ ...writable("viewer"), uploadOutputImage },
+				"outputs.uploadImage",
+				args,
+			),
+		).toMatchObject({ ok: false, error: "not_permitted" });
+		expect(
+			await handleAppRuntimeCall(
+				{ ...host, resources: [{ ...resource, workspaceId: "other" }] },
+				"outputs.uploadImage",
+				args,
+			),
+		).toMatchObject({ ok: false, error: "slot_unbound" });
+		for (const dataUrl of ["https://example.org/a.png", "data:text/html,x", 7])
+			expect(
+				await handleAppRuntimeCall(host, "outputs.uploadImage", {
+					...args,
+					dataUrl,
+				}),
+			).toMatchObject({ ok: false, error: "bad_arguments" });
+		expect(
+			await handleAppRuntimeCall(host, "outputs.uploadImage", {
+				...args,
+				dataUrl: `data:image/png;base64,${"A".repeat(7_400_000)}`,
+			}),
+		).toMatchObject({ ok: false, error: "too_large" });
+		expect(
+			await handleAppRuntimeCall(
+				writable("owner"),
+				"outputs.uploadImage",
+				args,
+			),
+		).toMatchObject({ ok: false, error: "host_unavailable" });
+		expect(
+			await handleAppRuntimeCall(
+				{ ...deps("owner"), uploadOutputImage },
+				"outputs.uploadImage",
+				args,
+			),
+		).toMatchObject({ ok: false, error: "not_permitted" });
+		expect(uploadOutputImage).not.toHaveBeenCalled();
+		uploadOutputImage.mockRejectedValueOnce(
+			Object.assign(new Error("An image is over the 5 MB limit."), {
+				code: "BAD_REQUEST",
+			}),
+		);
+		expect(
+			await handleAppRuntimeCall(host, "outputs.uploadImage", args),
+		).toEqual({
+			ok: false,
+			error: "bad_arguments",
+			detail: "An image is over the 5 MB limit.",
+		});
+	});
+
 	it("keeps drafts only in panel memory, scoped to workspace, gadget, app revision and output", async () => {
 		const drafts = new Map<string, AppRuntimeDraft>();
 		const base = deps("owner");

@@ -841,6 +841,11 @@ const result = await tedix.call("app.call", {
 content body directly. Calls resolve values and reject errors with `code` and
 `detail`; there is no `{ok, value}` wrapper to unwrap in app code.
 
+A presentation or document does not carry its pictures. Each picture stored
+with the file appears in the content as `tedix-asset:<id>`. To show one, call
+`await tedix.call("outputs.image", { slot: settings.slot, url })` with that
+value; it returns `{ dataUrl }` for display. Do not save the `dataUrl` back.
+
 Export `class App` from `server.js`. An invocation creates a new instance with
 `(ctx, env)` and calls an own public method on `App.prototype`. Use synchronous
 `ctx.storage.kv.get/put/delete/list` for durable state, rather than instance
@@ -1061,15 +1066,15 @@ start with a letter, contain only letters and digits, and have at most 80
 characters; constructor and lifecycle methods are private. Sessions pin access,
 revision and code digest. Reopen after a revision or access change.
 
-| Bridge error code  | What to check                                                  |
-| ------------------ | -------------------------------------------------------------- |
-| `not_permitted`    | Caller role and slot operation grant                           |
-| `slot_unbound`     | Active workspace resource binding                              |
-| `bad_arguments`    | Method name, slot and JSON argument limits                     |
-| `too_large`        | Saved content is over the 8 MB limit; make it smaller          |
-| `unknown_method`   | Only `context`, `outputs.read`, `app.call` are browser methods |
-| `host_unavailable` | Server call bridge is unavailable                              |
-| `host_error`       | Server, capability or transport failure; inspect Runs          |
+| Bridge error code  | What to check                                                |
+| ------------------ | ------------------------------------------------------------ |
+| `not_permitted`    | Caller role and slot operation grant                         |
+| `slot_unbound`     | Active workspace resource binding                            |
+| `bad_arguments`    | Method name, slot and JSON argument limits                   |
+| `too_large`        | Saved content is over the 8 MB limit; make it smaller        |
+| `unknown_method`   | Use `context`, `outputs.read`, `outputs.image` or `app.call` |
+| `host_unavailable` | Server call bridge is unavailable                            |
+| `host_error`       | Server, capability or transport failure; inspect Runs        |
 
 Direct API calls may return `BAD_REQUEST`, `FORBIDDEN`, `NOT_FOUND` or
 `CONFLICT`. Re-read on conflict; never replay a stale write blindly. Show

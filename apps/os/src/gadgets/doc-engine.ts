@@ -83,7 +83,11 @@ const Placeholder = Extension.create({
 	},
 });
 
-/** Embedded copies of linked images by link; "" while loading or after a failure. */
+/**
+ * Embedded copies of the images the frame may not load itself, by source: a
+ * web link or an image stored with the file (`tedix-asset:` reference). ""
+ * while loading or after a failure.
+ */
 const embedded = new Map<string, string>();
 let linkedRoot: HTMLElement | undefined,
 	readLinked: ((url: string) => Promise<string>) | undefined;
@@ -143,16 +147,19 @@ export function createDocEngine(options: {
 				addAttributes() {
 					return {
 						...this.parent?.(),
-						// The document keeps the link; only what is drawn changes.
+						// The document keeps the link or reference; only what is drawn changes.
 						src: {
 							default: null,
 							parseHTML: (element: HTMLElement) =>
 								element.getAttribute("data-linked-image") ??
 								element.getAttribute("src"),
-							// The frame may not load web images: draw the embedded copy,
-							// or one transparent pixel until it arrives.
+							// The frame may not load web or stored images: draw the
+							// embedded copy, or one transparent pixel until it arrives.
 							renderHTML: ({ src }: { src?: unknown }) => {
-								if (typeof src !== "string" || !/^https:/i.test(src))
+								if (
+									typeof src !== "string" ||
+									!/^(https|tedix-asset):/i.test(src)
+								)
 									return { src };
 								if (!embedded.has(src)) requestLinked(src);
 								return {
