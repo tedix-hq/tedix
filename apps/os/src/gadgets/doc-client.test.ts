@@ -661,11 +661,30 @@ describe("portable rich Doc client", () => {
 		).toBe(false);
 		const test = fixture(),
 			{ root, editor, mounted } = await test.mount();
-		editor.commands.insertContentAt(1, "é".repeat(510_000));
+		const answer = test.calls.getMockImplementation()!;
+		let refusal: string | undefined = "too_large";
+		test.calls.mockImplementation(async (method, args) => {
+			if (method === "outputs.replace" && refusal)
+				throw Object.assign(new Error(refusal), { code: refusal });
+			return answer(method, args);
+		});
+		editor.commands.insertContentAt(1, "Large ");
 		await mounted.save();
-		expect(statusText(root)).toContain("1 MB limit");
+		expect(statusText(root)).toBe(
+			"This file is over the 8 MB limit, so new changes are not saved. Remove or shrink large images.",
+		);
+		// Sending the same document again cannot work, so no retry is offered.
+		expect(find(root, "Try again")).toBeUndefined();
 		expect(mounted.dirty).toBe(true);
-		expect(saves(test)).toBe(0);
+		expect(saves(test)).toBe(1);
+		// A failure that may pass keeps its own words and the manual retry.
+		refusal = "host_error";
+		await mounted.save();
+		expect(statusText(root)).toContain("Your changes are kept here.");
+		expect(find(root, "Try again")).toBeDefined();
+		refusal = undefined;
+		await mounted.save();
+		expect(mounted.dirty).toBe(false);
 	});
 	it("saves rich content above the app-call argument limit through the fenced output capability", async () => {
 		const test = fixture(),

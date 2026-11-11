@@ -1,6 +1,7 @@
 import * as outputs from "./workspace-output-storage";
 import { getOsOutput as getLegacyOutput } from "@tedix/db/queries/os-workspaces/outputs";
 import { ORPCError } from "@orpc/server";
+import { OS_OUTPUT_CONTENT_MAX_BYTES } from "@tedix/api-contract/utils/os-output-limits";
 import { confirmOsWorkspaceFile as confirmFile } from "@tedix/db/queries/os-workspaces/files";
 import { instantiateOsBlueprint as instantiateBlueprint } from "@tedix/db/queries/os-workspaces/instantiate";
 import { env } from "cloudflare:workers";
@@ -25,6 +26,14 @@ import {
  * Returned rows carry the caller's bytes back so no writer re-reads R2.
  */
 const INLINE_BODY_OFFLOADED = "";
+
+/** Every new revision passes here, so one file cannot grow without bound. */
+function requireStorableBody(content: string) {
+	if (new TextEncoder().encode(content).length > OS_OUTPUT_CONTENT_MAX_BYTES)
+		throw new ORPCError("BAD_REQUEST", {
+			message: `This file is over the ${OS_OUTPUT_CONTENT_MAX_BYTES / 1_000_000} MB limit. Remove or shrink large images.`,
+		});
+}
 
 export async function confirmOsWorkspaceFile(
 	db: Parameters<typeof confirmFile>[0],
@@ -121,6 +130,7 @@ export async function createOsOutput(
 		output.id !== revision.outputId
 	)
 		throw new Error("Output revision scope mismatch");
+	requireStorableBody(revision.content);
 	const body = await storeOutputRevisionBody(
 		bucket,
 		revision.organizationId,
@@ -157,6 +167,7 @@ export async function createOsOutputRevision(
 	params: Parameters<typeof outputs.createOsOutputRevision>[1],
 	bucket: OutputBodyBucket = env.R2_BUCKET,
 ) {
+	requireStorableBody(params.content);
 	const body = await storeOutputRevisionBody(
 		bucket,
 		params.organizationId,

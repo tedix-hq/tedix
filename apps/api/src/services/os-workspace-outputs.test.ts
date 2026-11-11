@@ -127,6 +127,43 @@ describe("output body persistence", () => {
 		}
 	});
 
+	it("refuses a body over the shared content limit before storing anything", async () => {
+		const f = fixture();
+		try {
+			// Two bytes a letter: 8,000,002 bytes in 4,000,001 characters.
+			const content = "é".repeat(4_000_001);
+			await expect(
+				createOsOutput(f.db, f.output, { ...f.revision, content }, f.storage),
+			).rejects.toMatchObject({
+				code: "BAD_REQUEST",
+				message: expect.stringContaining("over the 8 MB limit"),
+			});
+			await createOsOutput(f.db, f.output, f.revision, f.storage);
+			await expect(
+				createOsOutputRevision(
+					f.db,
+					{ ...f.revision, id: "rev-2", content, expectedRevision: 1 },
+					f.storage,
+				),
+			).rejects.toMatchObject({ code: "BAD_REQUEST" });
+			expect(f.objects.size).toBe(1);
+			expect(
+				await createOsOutputRevision(
+					f.db,
+					{
+						...f.revision,
+						id: "rev-2",
+						content: "é".repeat(4_000_000),
+						expectedRevision: 1,
+					},
+					f.storage,
+				),
+			).toMatchObject({ ok: true });
+		} finally {
+			f.sqlite.close();
+		}
+	});
+
 	it("keeps revision ids and digests on no-op saves and leaves CAS conflicts uncommitted", async () => {
 		const f = fixture();
 		try {

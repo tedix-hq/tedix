@@ -1,9 +1,9 @@
 import { PRESENTATION_HEIGHT, PRESENTATION_WIDTH } from "@/lib/output-models";
 
 /**
- * The element schema allows a 1.5 MB `src`, but the edit that inserts it has
- * to cross the collab socket, whose frames stop at 1 MiB (`MAX_MESSAGE_BYTES`
- * in `src/collab/protocol.ts`). Leave room for the rest of the change.
+ * The element schema allows a 1.5 MB `src` and a whole file may reach
+ * `OS_OUTPUT_CONTENT_MAX_BYTES`. Keeping each inserted image well under both
+ * leaves a deck room for several images before it reaches the file limit.
  */
 export const SLIDE_IMAGE_MAX_SOURCE = 900_000;
 const MAX_IMAGE_DIMENSION = 1920;

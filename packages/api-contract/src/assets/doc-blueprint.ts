@@ -222,7 +222,7 @@ Changes save by themselves shortly after you stop typing; Cmd/Ctrl+S saves
 at once. When someone else saves, their changes appear without interrupting
 you. If you both changed the same part, Doc asks which version to keep.
 Unsaved changes stay in the workspace panel's memory and are restored after
-an authorized read. Saves use the scoped output capability with a 1 MB limit.
+an authorized read. Saves use the scoped output capability with an 8 MB limit.
 Word, PDF, HTML and PNG exports use the saved document; Markdown exports its
 text and structure. No remote scripts are loaded.
 

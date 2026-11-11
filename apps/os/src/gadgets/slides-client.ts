@@ -21,6 +21,7 @@ import {
 } from "../lib/slide-snap";
 import { ensureSlideFontLoaded } from "../lib/slide-fonts";
 import { createSlideLinkedImages } from "../lib/slide-linked-images";
+import { lastingSaveFailure } from "../lib/save-failure";
 import {
 	fileToSlideImageSource,
 	slideImageFile,
@@ -180,7 +181,7 @@ export async function mountSlidesClient(
 	).join(
 		"<hr>",
 	)}</div></span>${tool("upload", "Upload image", icon("image"))}${divider}${tool("duplicate-element", "Duplicate", icon("copy"), keys("D"))}${tool("delete-element", "Delete", icon("trash"), "Delete")}${tool("backward", "Send backward", icon("back"))}${tool("forward", "Bring forward", icon("front"))}</div>
-<div class="slides-bar-right"><div class="slides-status" role="status" aria-live="polite"></div><button id="format" class="ghost" title="Format (Enter)" aria-expanded="false" aria-controls="slides-inspector">${glyph(GLYPHS.format)} Format</button><button id="present" class="ghost primary">${icon("play")} Present</button><span class="slides-menu-anchor">${tool("more", "More", glyph(GLYPHS.more), "", 'aria-haspopup="menu" aria-expanded="false"')}<div class="slides-menu end" id="more-menu" role="menu" aria-label="More" hidden>${EXPORTS.map(
+<div class="slides-bar-right"><span class="slides-save" role="img" hidden></span><div class="slides-status" role="status" aria-live="polite"></div><button id="format" class="ghost" title="Format (Enter)" aria-expanded="false" aria-controls="slides-inspector">${glyph(GLYPHS.format)} Format</button><button id="present" class="ghost primary">${icon("play")} Present</button><span class="slides-menu-anchor">${tool("more", "More", glyph(GLYPHS.more), "", 'aria-haspopup="menu" aria-expanded="false"')}<div class="slides-menu end" id="more-menu" role="menu" aria-label="More" hidden>${EXPORTS.map(
 		([format, name]) =>
 			`<button role="menuitem" data-export="${format}">Download as ${name}</button>`,
 	).join("")}</div></span></div></header>
@@ -205,6 +206,7 @@ export async function mountSlidesClient(
 		pill = find("#position"),
 		notes = find<HTMLTextAreaElement>("#notes"),
 		status = find(".slides-status"),
+		saveMark = find(".slides-save"),
 		updates = find(".slides-updates");
 	const guides = document.createElement("div");
 	guides.className = "slides-guides";
@@ -243,6 +245,8 @@ export async function mountSlidesClient(
 		// presentation; there is no shared starting point to merge from.
 		stale = false;
 	// Counts edits, so a finishing save knows whether newer ones are waiting.
+	// `stuck` is the edit count of a save refused for good; -1 when none is.
+	let stuck = -1;
 	let edits = 0,
 		saving: Promise<boolean> | undefined,
 		saveTimer: ReturnType<typeof setTimeout> | undefined,
@@ -326,6 +330,30 @@ export async function mountSlidesClient(
 	/** Nothing to report: empty unless a save is failing or editing is off. */
 	function quiet() {
 		message(saveError || (editable ? "" : "View only"), !!saveError);
+		markSave();
+	}
+	/** The steady dot beside the status: whether the latest changes are stored. */
+	function markSave() {
+		const state = !canWrite()
+			? ""
+			: saveError
+				? "failed"
+				: saving
+					? "saving"
+					: dirty
+						? "pending"
+						: "saved";
+		saveMark.hidden = !state;
+		saveMark.dataset.state = state;
+		saveMark.title =
+			state === "failed"
+				? `Not saved. ${saveError}`
+				: state === "saving"
+					? "Saving…"
+					: state === "pending"
+						? "Changes not saved yet"
+						: "All changes saved";
+		saveMark.setAttribute("aria-label", saveMark.title);
 	}
 	const canWrite = () => !!editable && available && !loading;
 	const active = () =>
@@ -393,7 +421,8 @@ export async function mountSlidesClient(
 			exporting ||
 			reading ||
 			choice ||
-			stale
+			stale ||
+			stuck === edits
 		)
 			return;
 		const now = Date.now();
@@ -408,6 +437,7 @@ export async function mountSlidesClient(
 	function changed(typing = false) {
 		dirty = true;
 		edits++;
+		markSave();
 		if (!typing || Date.now() - draftAt >= DRAFT_TYPING_MS) void retainDraft();
 		else
 			draftTimer ??= setTimeout(
@@ -428,8 +458,10 @@ export async function mountSlidesClient(
 			if (asked && canWrite() && !saveError) message("Saved", false, 1600);
 			return Promise.resolve(true);
 		}
-		// A save never races a read that is about to change what it builds on.
-		if (!canWrite() || !deck || reading || choice || stale)
+		if (asked) stuck = -1;
+		// A save never races a read that is about to change what it builds on,
+		// and a refused save is not sent again unchanged.
+		if (!canWrite() || !deck || reading || choice || stale || stuck === edits)
 			return Promise.resolve(false);
 		const run = send(asked).finally(() => {
 			saving = undefined;
@@ -439,6 +471,7 @@ export async function mountSlidesClient(
 			refreshExternal();
 		});
 		saving = run;
+		markSave();
 		return run;
 	}
 	async function send(asked: boolean) {
@@ -459,6 +492,7 @@ export async function mountSlidesClient(
 			failures = 0;
 			retryAt = 0;
 			saveError = "";
+			stuck = -1;
 			// A link typed since the last save can be read now.
 			linked.retry();
 			if (edits === sent) {
@@ -488,10 +522,16 @@ export async function mountSlidesClient(
 				Date.now() +
 				Math.min(SAVE_RETRY_MAX_MS, SAVE_RETRY_MS * 2 ** (failures - 1));
 			await retainDraft();
-			if (DENIED.test(reason(error)))
-				saveError =
-					"You can no longer edit this presentation. Your latest changes are kept on this device.";
-			else if (/conflict/i.test(reason(error))) {
+			const lasting = DENIED.test(reason(error))
+				? "You can no longer edit this presentation. Your latest changes are kept on this device."
+				: lastingSaveFailure(error);
+			if (lasting) {
+				// The same presentation would be refused again: say why and wait
+				// for the next change instead of trying again.
+				saveError = lasting;
+				stuck = sent;
+				retryAt = 0;
+			} else if (/conflict/i.test(reason(error))) {
 				// Someone else saved first: bring their version in, then save again.
 				pendingRevision = Math.max(pendingRevision, basis + 1);
 			} else
@@ -1457,6 +1497,7 @@ export async function mountSlidesClient(
 	function controls() {
 		const write = canWrite(),
 			slide = active();
+		markSave();
 		button("undo").disabled = !write || !history.length;
 		button("redo").disabled = !write || !future.length;
 		button("add-slide").disabled = !write || (deck?.slides.length ?? 0) >= 200;

@@ -1066,6 +1066,7 @@ revision and code digest. Reopen after a revision or access change.
 | `not_permitted`    | Caller role and slot operation grant                           |
 | `slot_unbound`     | Active workspace resource binding                              |
 | `bad_arguments`    | Method name, slot and JSON argument limits                     |
+| `too_large`        | Saved content is over the 8 MB limit; make it smaller          |
 | `unknown_method`   | Only `context`, `outputs.read`, `app.call` are browser methods |
 | `host_unavailable` | Server call bridge is unavailable                              |
 | `host_error`       | Server, capability or transport failure; inspect Runs          |

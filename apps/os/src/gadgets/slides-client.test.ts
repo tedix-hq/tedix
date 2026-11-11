@@ -381,6 +381,62 @@ describe("portable Slides canvas", () => {
 		);
 		expect(api.draft()).toBeNull();
 	});
+	it("says once why a file over the limit is not saved, stops retrying and tries the next change", async () => {
+		vi.useFakeTimers();
+		const api = await mount();
+		const mark = () => document.querySelector<HTMLElement>(".slides-save")!;
+		expect(mark().hidden).toBe(false);
+		expect(mark().title).toBe("All changes saved");
+		const answer = api.call.getMockImplementation()!;
+		let refuse = true;
+		api.call.mockImplementation(async (method, args) => {
+			if (method === "outputs.replace" && refuse)
+				throw Object.assign(new Error("too_large"), { code: "too_large" });
+			return answer(method, args);
+		});
+		const attempts = () =>
+			api.call.mock.calls.filter(([method]) => method === "outputs.replace")
+				.length;
+		clickElement();
+		format();
+		change("Text", "Too big");
+		expect(mark().title).toBe("Changes not saved yet");
+		await vi.advanceTimersByTimeAsync(1600);
+		expect(attempts()).toBe(1);
+		expect(status()).toBe(
+			"This file is over the 8 MB limit, so new changes are not saved. Remove or shrink large images.",
+		);
+		expect(mark().dataset.state).toBe("failed");
+		expect(mark().title).toContain("Not saved. This file is over the 8 MB");
+		expect(api.draft()).not.toBeNull();
+		await vi.advanceTimersByTimeAsync(120_000);
+		expect(attempts()).toBe(1);
+		refuse = false;
+		change("Text", "Smaller");
+		await vi.advanceTimersByTimeAsync(1600);
+		expect(attempts()).toBe(2);
+		expect(status()).toBe("");
+		expect(mark().title).toBe("All changes saved");
+		expect(api.result().revision.content.slides[0]?.title).toBe("Smaller");
+	});
+	it("keeps retrying quietly when a save fails for a passing reason", async () => {
+		vi.useFakeTimers();
+		const api = await mount();
+		api.failSaves(2);
+		clickElement();
+		format();
+		change("Text", "Flaky network");
+		await vi.advanceTimersByTimeAsync(1600);
+		expect(status()).toContain("saving will try again");
+		expect(
+			document.querySelector<HTMLElement>(".slides-save")!.dataset.state,
+		).toBe("failed");
+		await vi.advanceTimersByTimeAsync(10_000);
+		expect(api.result().revision.content.slides[0]?.title).toBe(
+			"Flaky network",
+		);
+		expect(status()).toBe("");
+	});
 	it("saves by itself after a pause, stays quiet and flashes Saved on Ctrl+S", async () => {
 		vi.useFakeTimers();
 		const api = await mount();

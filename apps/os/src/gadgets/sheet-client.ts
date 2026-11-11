@@ -42,6 +42,7 @@ import {
 	type OutputMergePreference,
 } from "@tedix/api-contract/utils/output-merge";
 import { iconButton } from "./editor-icons";
+import { lastingSaveFailure } from "../lib/save-failure";
 
 type Content = Extract<OsOutputContent, { kind: "sheet" }>;
 type Saved = {
@@ -107,10 +108,11 @@ const css = [
 	`.toolbar select,.toolbar input[type=number]{flex:none;height:28px;padding:0 6px;border:1px solid transparent;border-radius:6px;background:transparent;transition:background-color .12s var(--ease),border-color .12s var(--ease)}`,
 	`.toolbar select:hover:not(:disabled),.toolbar input[type=number]:hover:not(:disabled){background:var(--hover)}.toolbar select:disabled,.toolbar input:disabled{opacity:.4}`,
 	`#number-format{width:104px}#font-size{width:44px;text-align:center}`,
-	// Status: a dot and a word, hidden while everything is fine.
+	// Status: a dot and a word. While everything is fine an editor sees the dot
+	// alone; its title says the changes are saved.
 	`.status{display:flex;align-items:center;gap:6px;max-width:260px;padding:0 6px;font-size:12px;color:var(--muted-fg);white-space:nowrap;transition:opacity .15s var(--ease)}.status span{overflow:hidden;text-overflow:ellipsis}`,
-	`.status[data-state=idle]{opacity:0;width:0;padding:0;overflow:hidden}.dot{flex:none;width:6px;height:6px;border-radius:50%;background:var(--muted-fg)}`,
-	`.status[data-state=saving] .dot{background:var(--primary);animation:pulse 1.1s ease-in-out infinite}.status[data-state=saved] .dot{background:var(--success)}.status[data-state=error]{color:var(--danger)}.status[data-state=error] .dot{background:var(--danger)}`,
+	`.status[data-state=idle][title=""]{opacity:0;width:0;padding:0;overflow:hidden}.status[data-state=idle] .dot{background:var(--success);opacity:.7}.status[data-state=idle][data-unsaved=true] .dot{background:var(--muted-fg)}.dot{flex:none;width:6px;height:6px;border-radius:50%;background:var(--muted-fg)}`,
+	`.status[data-state=saving] .dot{background:var(--primary);animation:pulse 1.1s ease-in-out infinite}.status[data-state=saved] .dot{background:var(--success)}.status[data-state=error]{max-width:440px;color:var(--danger)}.status[data-state=error] .dot{background:var(--danger)}`,
 	`@keyframes pulse{50%{opacity:.3;transform:scale(.75)}}`,
 	// Formula row.
 	`.formula{flex:none;display:flex;align-items:center;height:28px;border-bottom:1px solid var(--line)}.formula input{height:100%;border:0;border-radius:0;background:transparent;padding:0 8px;outline-offset:-2px}`,
@@ -278,6 +280,8 @@ export async function mountSheetClient(
 		retryDelay = 0,
 		retryAt = 0,
 		saveError = "",
+		// Why the last save cannot succeed as it is; empty while saving may recover.
+		lasting = "",
 		fatal = "",
 		slow = false,
 		flash = false,
@@ -333,15 +337,24 @@ export async function mountSheetClient(
 		else if (saveError)
 			setStatus(
 				"error",
-				typeof navigator !== "undefined" && navigator.onLine === false
-					? "Offline. Your changes will save when you are back online."
-					: "Couldn't save. Trying again…",
+				lasting
+					? "Not saved. " + lasting
+					: typeof navigator !== "undefined" && navigator.onLine === false
+						? "Offline. Your changes will save when you are back online."
+						: "Couldn't save. Trying again…",
 				saveError,
 			);
 		else if (saving && slow) setStatus("saving", "Saving…");
 		else if (busy) setStatus("loading", "Loading…");
 		else if (available && !canEdit) setStatus("readonly", "View only");
-		else setStatus("idle");
+		else {
+			setStatus(
+				"idle",
+				"",
+				!available ? "" : dirty ? "Changes not saved yet" : "All changes saved",
+			);
+			status.dataset.unsaved = String(dirty);
+		}
 	}
 	/** A short message about what just happened; it clears on its own. */
 	function note(value: string, error = false, time = NOTE_TIME) {
@@ -556,6 +569,7 @@ export async function mountSheetClient(
 	function mark() {
 		generation++;
 		dirty = true;
+		if (status.dataset.state === "idle") restStatus();
 		retainSoon();
 		scheduleSave();
 	}
@@ -2629,7 +2643,8 @@ export async function mountSheetClient(
 			if (pendingRevision > basis) saveOutcome = "conflict";
 			else {
 				saveOutcome = "failed";
-				saveError = text(error);
+				lasting = lastingSaveFailure(error);
+				saveError = lasting || text(error);
 			}
 		} finally {
 			clearTimeout(slowTimer);
@@ -2640,7 +2655,7 @@ export async function mountSheetClient(
 		if (destroyed || !available) return;
 		const recovered = !!saveError && saveOutcome === "saved";
 		if (saveOutcome === "saved") {
-			saveError = "";
+			saveError = lasting = "";
 			retryDelay = retryAt = 0;
 			if (flash || recovered || slow) {
 				setStatus("saved", "Saved");
@@ -2648,6 +2663,11 @@ export async function mountSheetClient(
 			} else if (!noting) restStatus();
 			flash = false;
 			if (dirty) scheduleSave(saveQueued ? 0 : SAVE_PAUSE);
+		} else if (saveOutcome === "failed" && lasting) {
+			// Sending the same sheet again cannot work: say why once and wait
+			// for the next change.
+			retryDelay = retryAt = 0;
+			restStatus();
 		} else if (saveOutcome === "failed") {
 			retryDelay = Math.min(
 				RETRY_CAP,
