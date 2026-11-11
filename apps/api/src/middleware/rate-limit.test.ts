@@ -63,6 +63,22 @@ describe("rateLimit service-binding trust boundary", () => {
 });
 
 describe("byCredentialOrIp", () => {
+	it("ignores a caller-sent tedi id when choosing the bucket", async () => {
+		const limit = vi.fn(() => Promise.resolve({ success: true }));
+		const app = createCredentialApp({ limit });
+		for (const tediId of ["tedi-a", "tedi-b"])
+			await app.request("https://api.tedix.dev/", {
+				headers: {
+					"X-Tedix-Tedi-Id": tediId,
+					"CF-Connecting-IP": "203.0.113.7",
+				},
+			});
+		expect(limit.mock.calls.map(([options]) => options.key)).toEqual([
+			"203.0.113.7",
+			"203.0.113.7",
+		]);
+	});
+
 	it.each(["DS", "__Host-tedix-oidc"])(
 		"keeps repeated requests from one %s session in one bucket",
 		async (cookie) => {
