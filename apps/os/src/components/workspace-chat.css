@@ -374,8 +374,13 @@
 	max-width: 100%;
 	border-color: transparent;
 	background: transparent;
-	box-shadow: none;
 	color: var(--text-color-kumo-subtle);
+}
+
+/* Keyboard focus stays visible on the quiet trigger. */
+.workspace-chat-model-trigger.workspace-chat-model-trigger:focus-visible {
+	outline: 2px solid var(--color-kumo-brand, var(--primary));
+	outline-offset: 1px;
 }
 
 .workspace-chat-model-trigger.workspace-chat-model-trigger:hover {
