@@ -227,6 +227,56 @@ describe("app runtime host", () => {
 		).toMatchObject({ ok: false, error: "bad_arguments" });
 	});
 
+	it("reads a linked image only for a granted output slot in this workspace", async () => {
+		const readOutputImage = vi.fn(async () => "data:image/png;base64,AA==");
+		const host = { ...deps("owner"), readOutputImage };
+		const args = {
+			slot: "opportunities",
+			url: "https://example.org/visual.png",
+		};
+		expect(await handleAppRuntimeCall(host, "outputs.image", args)).toEqual({
+			ok: true,
+			value: { dataUrl: "data:image/png;base64,AA==" },
+		});
+		expect(readOutputImage).toHaveBeenCalledWith({
+			workspaceId: host.context.workspaceId,
+			outputId,
+			url: args.url,
+		});
+		readOutputImage.mockClear();
+		expect(
+			await handleAppRuntimeCall(
+				{ ...host, context: { ...host.context, grants: [] } },
+				"outputs.image",
+				args,
+			),
+		).toMatchObject({ ok: false, error: "not_permitted" });
+		for (const resources of [
+			[{ ...resource, workspaceId: "other" }],
+			[{ ...resource, status: "removed" as const }],
+		])
+			expect(
+				await handleAppRuntimeCall(
+					{ ...host, resources },
+					"outputs.image",
+					args,
+				),
+			).toMatchObject({ ok: false, error: "slot_unbound" });
+		for (const url of [
+			"http://example.org/visual.png",
+			"data:image/png;base64,AA==",
+			`https://example.org/${"a".repeat(2_000)}`,
+			7,
+		])
+			expect(
+				await handleAppRuntimeCall(host, "outputs.image", { ...args, url }),
+			).toMatchObject({ ok: false, error: "bad_arguments" });
+		expect(
+			await handleAppRuntimeCall(deps("owner"), "outputs.image", args),
+		).toMatchObject({ ok: false, error: "host_unavailable" });
+		expect(readOutputImage).not.toHaveBeenCalled();
+	});
+
 	it("keeps drafts only in panel memory, scoped to workspace, gadget, app revision and output", async () => {
 		const drafts = new Map<string, AppRuntimeDraft>();
 		const base = deps("owner");

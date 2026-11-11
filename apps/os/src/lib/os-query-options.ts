@@ -102,6 +102,16 @@ export const canvasOutputLibraryQueryOptions = (workspaceId: string) =>
 export const outputDetailQueryOptions = (outputId: string) =>
 	osQuery.osWorkspaces.outputs.get.queryOptions({ input: { outputId } });
 
+/** A linked image of a saved file. The link's bytes do not change, so one read serves every use. */
+export const outputImageQueryOptions = (input: {
+	workspaceId: string;
+	outputId: string;
+	url: string;
+}) => ({
+	...osQuery.osWorkspaces.outputs.image.queryOptions({ input }),
+	staleTime: Number.POSITIVE_INFINITY,
+});
+
 /** Canonical Canvas requests shared by the route loader and mounted surface. */
 export const canvasGadgetsQueryOptions = (workspaceId: string) =>
 	osQuery.osWorkspaces.gadgets.list.queryOptions({

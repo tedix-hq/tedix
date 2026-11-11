@@ -11,6 +11,7 @@ import { createAppRuntimeServerCall } from "@/lib/app-runtime-session";
 import { exportAppRuntimeOutput } from "@/lib/app-runtime-export";
 import { replaceAppRuntimeOutput } from "@/lib/app-runtime-output";
 import { isWorkspaceAccessDenied } from "@/lib/workspace-verification";
+import { usePresentationAppearance } from "@/lib/presentation-appearance";
 import { AppRuntimeFrame } from "@/components/app-runtime-frame";
 import {
 	OfficeEditorUpgrade,
@@ -31,6 +32,7 @@ import {
 	appRuntimeCodeQueryOptions,
 	canvasOutputsQueryOptions,
 	outputDetailQueryOptions,
+	outputImageQueryOptions,
 	osQueryKeys,
 	workspaceOpenQueryOptions,
 	workspaceResourcesQueryOptions,
@@ -170,14 +172,16 @@ export function AppRuntimeSandbox({
 	const appDrafts = useAppRuntimeDrafts();
 	const opened = useQuery(workspaceOpenQueryOptions(workspaceId, gadget.id));
 	const role = roleFromOpen(opened.data, opened.isError);
+	const appearance = usePresentationAppearance();
 	const context = useMemo(
 		() =>
 			appRuntimeContextFromManifest(manifest, {
 				workspaceId,
 				gadget: { id: gadget.id, name: gadget.name, revision },
 				role: role ?? "viewer",
+				appearance,
 			}),
-		[gadget.id, gadget.name, manifest, revision, role, workspaceId],
+		[appearance, gadget.id, gadget.name, manifest, revision, role, workspaceId],
 	);
 	const resourceRows = resources.data?.items;
 	const boundOutputs = useMemo(
@@ -260,6 +264,9 @@ export function AppRuntimeSandbox({
 					callServer,
 					exportOutput: exportAppRuntimeOutput,
 					replaceOutput: replaceAppRuntimeOutput,
+					readOutputImage: async (input) =>
+						(await queryClient.fetchQuery(outputImageQueryOptions(input)))
+							.dataUrl,
 					operations: manifest.operations,
 					appRevisionId: revisionId,
 					drafts: appDrafts ?? undefined,

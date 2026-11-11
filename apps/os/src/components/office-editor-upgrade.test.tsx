@@ -140,7 +140,7 @@ describe("automatic office editor upgrade", () => {
 			officeEditorUpgrade(
 				manifest(["readPresentation", "replacePresentation"]),
 			),
-		).toMatchObject({ kind: "presentation", version: 1, currentVersion: 8 });
+		).toMatchObject({ kind: "presentation", version: 1, currentVersion: 9 });
 		expect(
 			officeEditorUpgrade(
 				manifest(["readDocument", "replaceDocument"], { blueprintVersion: 11 }),

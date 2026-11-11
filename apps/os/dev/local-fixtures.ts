@@ -10550,6 +10550,13 @@ const handlers: Record<string, (input: never) => unknown> = {
 			throw new RpcError("NOT_FOUND", "Output revision not found");
 		return { output, currentRevision, authoringHomeRun: null };
 	},
+	// The sample data makes no network requests: every linked image is one grey stand-in.
+	"osWorkspaces/outputs/image": (input: { outputId: string }) => {
+		findOutput(input.outputId);
+		return {
+			dataUrl: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 9"><rect width="16" height="9" fill="#d4d4d4"/></svg>')}`,
+		};
+	},
 	"osWorkspaces/outputs/rename": (input: {
 		outputId: string;
 		title: string;

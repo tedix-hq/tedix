@@ -22,7 +22,14 @@ import {
 	type CreateSkillRunArgs,
 	createSkillRun,
 } from "@tedix/db/queries/skill-runs";
-import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vite-plus/test";
 // The same digest the export path records, so a lineage assertion compares
 // against the real producer rather than a hand-copied constant.
 import { osWorkspacesContractRouter } from "./os-workspaces";
@@ -2286,5 +2293,161 @@ describe("output export", () => {
 				format: "pdf",
 			}),
 		).rejects.toMatchObject({ code: "NOT_FOUND" });
+	});
+});
+
+describe("output linked images", () => {
+	const LINK = "https://example.org/visual.png";
+	const BACKGROUND = "https://example.org/cover.png";
+	const LOGO = "https://example.org/logo.png";
+	let c: ReturnType<typeof clients>;
+	let fetcher: ReturnType<typeof vi.fn>;
+
+	beforeEach(() => {
+		c = clients();
+		fetcher = vi.fn(
+			async () =>
+				new Response("raster", { headers: { "content-type": "image/png" } }),
+		);
+		vi.stubGlobal("fetch", fetcher);
+	});
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	let decks = 0;
+	async function deck(elements: Array<Record<string, unknown>>) {
+		const { workspace } = await c.org1.workspaces.create({
+			name: `Decks ${++decks}`,
+		});
+		const { output } = await c.org1.outputs.create({
+			kind: "presentation",
+			title: "Linked images",
+			workspaceId: workspace.id,
+			content: {
+				kind: "presentation",
+				slides: [{ title: "Visual", bullets: [] }],
+				deck: {
+					activeSlideId: "slide-1",
+					slides: [
+						{
+							id: "slide-1",
+							name: "Visual",
+							backgroundImage: BACKGROUND,
+							elements: elements.map((element, index) => ({
+								id: `element-${index}`,
+								x: 0,
+								y: 0,
+								width: 100,
+								height: 100,
+								style: {},
+								...element,
+							})),
+						},
+					],
+				},
+			} as never,
+		});
+		return { workspaceId: workspace.id, outputId: output.id };
+	}
+
+	it("embeds an image or background the saved deck links to", async () => {
+		const target = await deck([{ type: "image", src: LINK }]);
+		await expect(
+			c.org1.outputs.image({ ...target, url: LINK }),
+		).resolves.toEqual({ dataUrl: "data:image/png;base64,cmFzdGVy" });
+		await expect(
+			c.org1.outputs.image({ ...target, url: BACKGROUND }),
+		).resolves.toEqual({ dataUrl: "data:image/png;base64,cmFzdGVy" });
+		expect(fetcher.mock.calls.map((call) => call[0])).toEqual([
+			LINK,
+			BACKGROUND,
+		]);
+	});
+
+	it("embeds the organization logo only for a deck with a logo element", async () => {
+		await c.env.DB.prepare(
+			"INSERT OR REPLACE INTO organizations (id, name, logo_url) VALUES (?, ?, ?)",
+		)
+			.bind("org-1", "Example", LOGO)
+			.run();
+		const plain = await deck([{ type: "image", src: LINK }]);
+		await expect(
+			c.org1.outputs.image({ ...plain, url: LOGO }),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		const branded = await deck([{ type: "logo" }]);
+		await expect(
+			c.org1.outputs.image({ ...branded, url: LOGO }),
+		).resolves.toEqual({ dataUrl: "data:image/png;base64,cmFzdGVy" });
+	});
+
+	it("embeds an image a saved document links to", async () => {
+		const { workspace } = await c.org1.workspaces.create({ name: "Docs" });
+		const { output } = await c.org1.outputs.create({
+			kind: "document",
+			title: "Illustrated",
+			workspaceId: workspace.id,
+			content: {
+				kind: "document",
+				blocks: [],
+				richText: {
+					type: "doc",
+					content: [{ type: "image", attrs: { src: LINK } }],
+				},
+			},
+		});
+		await expect(
+			c.org1.outputs.image({
+				workspaceId: workspace.id,
+				outputId: output.id,
+				url: LINK,
+			}),
+		).resolves.toEqual({ dataUrl: "data:image/png;base64,cmFzdGVy" });
+	});
+
+	it("refuses a link the saved file does not use, without fetching it", async () => {
+		const target = await deck([{ type: "image", src: LINK }]);
+		await expect(
+			c.org1.outputs.image({ ...target, url: "https://example.org/other.png" }),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		// A text element's src is not an image source.
+		const text = await deck([{ type: "text", text: "Hello", src: LINK }]);
+		await expect(
+			c.org1.outputs.image({ ...text, url: LINK }),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		expect(fetcher).not.toHaveBeenCalled();
+	});
+
+	it("refuses links that are not https and images above 5 MB", async () => {
+		const target = await deck([{ type: "image", src: LINK }]);
+		await expect(
+			c.org1.outputs.image({ ...target, url: "http://example.org/visual.png" }),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		expect(fetcher).not.toHaveBeenCalled();
+		fetcher.mockResolvedValueOnce(
+			new Response("raster", {
+				headers: {
+					"content-type": "image/png",
+					"content-length": String(5 * 1024 * 1024 + 1),
+				},
+			}),
+		);
+		await expect(
+			c.org1.outputs.image({ ...target, url: LINK }),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+	});
+
+	it("gives no image to a caller who cannot read the file", async () => {
+		const target = await deck([{ type: "image", src: LINK }]);
+		await expect(
+			c.org2.outputs.image({ ...target, url: LINK }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		const { workspace: other } = await c.org1.workspaces.create({
+			name: "Elsewhere",
+		});
+		await expect(
+			c.org1.outputs.image({ ...target, workspaceId: other.id, url: LINK }),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
+		expect(fetcher).not.toHaveBeenCalled();
 	});
 });
