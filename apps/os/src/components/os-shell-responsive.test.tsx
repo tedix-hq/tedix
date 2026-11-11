@@ -73,6 +73,10 @@ vi.mock("@/components/os-workspace-switcher", () => ({
 vi.mock("@/components/work-needs-you-count", () => ({
 	WorkNeedsYouCount: () => null,
 }));
+vi.mock("@/lib/shared-deck-inbox", () => ({
+	SharedDeckInboxProvider: ({ children }: { children: React.ReactNode }) =>
+		children,
+}));
 vi.mock("@/components/transport-status", () => ({
 	TransportStatus: () => <span className="transport-status">Live</span>,
 }));
