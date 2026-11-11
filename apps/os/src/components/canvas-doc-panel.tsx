@@ -49,6 +49,7 @@ import {
 } from "@/components/output-workshop";
 import { WidgetFrame } from "@/components/widget-frame";
 import { AppRuntimePreview } from "@/components/app-runtime-panel";
+import { KeepAliveSlot } from "@/components/keep-alive";
 import { AppTranslateButton } from "@/components/app-translate-button";
 import { appRuntimeSettings } from "@/lib/app-runtime-host";
 import { useAppRuntimeTranslation } from "@/lib/app-runtime-translation";
@@ -1181,7 +1182,10 @@ export function CanvasDocPanel({
 					effectiveGadgetView === "preview" &&
 					gadgetDetail.data?.currentRevision ? (
 						// The app owns its surface: no card, edge to edge in the column.
-						<div
+						// Kept running while another tab or view is shown, so coming
+						// back does not reload the app.
+						<KeepAliveSlot
+							id={`app:${workspaceId}:${gadgetDetail.data.gadget.id}:${gadgetDetail.data.currentRevision.id}`}
 							data-canvas-gadget-preview
 							data-canvas-runtime-app
 							className={`canvas-runtime-app ${
@@ -1196,7 +1200,7 @@ export function CanvasDocPanel({
 								layout={runtimeAppFills ? "fill" : "content"}
 								translation={translation.channel}
 							/>
-						</div>
+						</KeepAliveSlot>
 					) : isRuntimeApp &&
 					  effectiveGadgetView === "drafts" &&
 					  gadgetDetail.data?.currentRevision ? (

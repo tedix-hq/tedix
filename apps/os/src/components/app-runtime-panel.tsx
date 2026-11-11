@@ -22,6 +22,7 @@ import {
 } from "@/components/doc-writing-drafts";
 import type { AppRuntimeTranslationChannel } from "@/lib/app-runtime-translation";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
+import { Button } from "@/components/kumo/button";
 import { Skeleton } from "@/components/kumo/skeleton";
 import {
 	appRuntimeContextFromManifest,
@@ -82,6 +83,10 @@ export function AppRuntimePreview({
 	const code = useQuery(
 		appRuntimeCodeQueryOptions(workspaceId, gadget.id, revision.id),
 	);
+	// The sandbox needs these as soon as the code arrives; ask for all of them
+	// at once instead of one after the other.
+	useQuery(workspaceResourcesQueryOptions(workspaceId));
+	useQuery(workspaceOpenQueryOptions(workspaceId, gadget.id));
 	const callServer = useMemo(
 		() =>
 			createAppRuntimeServerCall(
@@ -94,6 +99,17 @@ export function AppRuntimePreview({
 			),
 		[workspaceId, gadget.id, revision.id],
 	);
+	// The built-in editors read their file through the host, so only apps with
+	// their own server methods gain from an early session.
+	const callsServer = revision.manifest.operations?.some(
+		(operation) =>
+			!["readDocument", "readSheet", "readPresentation"].includes(
+				operation.name,
+			),
+	)
+		? callServer
+		: null;
+	useEffect(() => callsServer?.prime(), [callsServer]);
 	if (code.isPending)
 		return <Skeleton className="h-40 w-full" aria-label="Loading app" />;
 	if (!code.data?.code)
@@ -411,9 +427,20 @@ export function AppRuntimeSandbox({
 			<Alert variant="warning">
 				<AlertTitle>File unavailable</AlertTitle>
 				<AlertDescription>
-					File source access or its slot is unavailable. Retry after restoring
-					access.
+					This app could not open its file. The file may have been removed, or
+					your access to it may have changed.
 				</AlertDescription>
+				<Button
+					size="sm"
+					variant="secondary"
+					onClick={() => {
+						void resources.refetch();
+						void opened.refetch();
+						for (const read of outputReads) void read.refetch();
+					}}
+				>
+					Try again
+				</Button>
 			</Alert>
 		);
 	const officeFile =

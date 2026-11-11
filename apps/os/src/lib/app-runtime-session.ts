@@ -25,7 +25,7 @@ export function createAppRuntimeServerCall(
 ) {
 	let opening: Promise<Session> | undefined;
 	let session: Session | undefined;
-	return async (method: string, args: JsonValue[]): Promise<JsonValue> => {
+	const ensure = async () => {
 		if (!session || session.expiresAt * 1000 <= Date.now() + 5000) {
 			opening ??= api.open({
 				workspaceId: scope.workspaceId,
@@ -37,6 +37,13 @@ export function createAppRuntimeServerCall(
 				opening = undefined;
 			}
 		}
+		return session;
+	};
+	const call = async (
+		method: string,
+		args: JsonValue[],
+	): Promise<JsonValue> => {
+		const session = await ensure();
 		if (session.revisionId !== scope.revisionId)
 			throw new Error("The app revision changed. Reopen the app to continue.");
 		const response = await api.call({
@@ -48,4 +55,10 @@ export function createAppRuntimeServerCall(
 		});
 		return response.result;
 	};
+	/**
+	 * Open the session ahead of the app's first call, while its code is still
+	 * loading. A failure here is ignored; the first real call reports it.
+	 */
+	call.prime = () => void ensure().catch(() => undefined);
+	return call;
 }
