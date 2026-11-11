@@ -383,6 +383,13 @@
 	color: var(--text-color-kumo-default);
 }
 
+/* The rule above drops the trigger's shadow, which also carries its focus
+   ring; draw the ring as an inset outline instead. */
+.workspace-chat-model-trigger.workspace-chat-model-trigger:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: -2px;
+}
+
 .workspace-chat-list {
 	display: flex;
 	min-height: 0;
