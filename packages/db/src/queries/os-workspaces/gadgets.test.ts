@@ -7,10 +7,12 @@ import {
 	createOsGadgetRevision,
 	getOsGadget,
 	getOsGadgetCode,
+	getOsGadgetCodeHash,
 	getOsGadgetRevision,
 	listOsGadgetRevisions,
 	listOsGadgets,
 } from "./gadgets";
+import { osGadgetCodeSha256 } from "./gadget-code";
 
 function fixture(options: D1FacadeOptions = {}) {
 	const sqlite = new DatabaseSync(":memory:");
@@ -157,6 +159,22 @@ describe("os gadgets", () => {
 		).toMatchObject({ gadgetId: "gd-1", files, codeLength: 9 });
 		expect(
 			await getOsGadgetCode(db, {
+				organizationId: "org-2",
+				revisionId: "rev-1",
+			}),
+		).toBeUndefined();
+		// The hash is readable on its own, and only inside the organization.
+		expect(
+			await getOsGadgetCodeHash(db, {
+				organizationId: "org-1",
+				revisionId: "rev-1",
+			}),
+		).toMatchObject({
+			filesSha256: await osGadgetCodeSha256(files),
+			codeLength: 9,
+		});
+		expect(
+			await getOsGadgetCodeHash(db, {
 				organizationId: "org-2",
 				revisionId: "rev-1",
 			}),

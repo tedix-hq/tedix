@@ -209,6 +209,35 @@ export async function getOsGadgetCode(
 	return { ...code, files: blobFiles };
 }
 
+/**
+ * The hash of one revision's files without the files themselves, so a caller
+ * that already holds that content skips the large read. Null for a row
+ * written before the files were shared: it has no stored hash.
+ */
+export async function getOsGadgetCodeHash(
+	db: DbQueryClient,
+	params: { organizationId: string; revisionId: string },
+): Promise<
+	| { filesSha256: string | null; codeLength: number; createdAt: string }
+	| undefined
+> {
+	const [row] = await db
+		.select({
+			filesSha256: osGadgetCode.filesSha256,
+			codeLength: osGadgetCode.codeLength,
+			createdAt: osGadgetCode.createdAt,
+		})
+		.from(osGadgetCode)
+		.where(
+			and(
+				eq(osGadgetCode.organizationId, params.organizationId),
+				eq(osGadgetCode.revisionId, params.revisionId),
+			),
+		)
+		.limit(1);
+	return row;
+}
+
 export async function listOsGadgetRevisions(
 	db: DbQueryClient,
 	params: OsGadgetScopeParams,

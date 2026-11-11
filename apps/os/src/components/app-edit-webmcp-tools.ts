@@ -39,10 +39,15 @@ export function buildAppEditTools(
 					const { gadget, currentRevision } =
 						await osApi.osWorkspaces.gadgets.get(scope);
 					if (!currentRevision) throw new Error("App has no revision");
-					const { code } = await osApi.osWorkspaces.gadgets.getCode({
-						...scope,
-						revisionId: currentRevision.id,
-					});
+					const { loadAppRuntimeCode } =
+						await import("@/lib/app-runtime-code-store");
+					const { code } = await loadAppRuntimeCode((knownFilesSha256) =>
+						osApi.osWorkspaces.gadgets.getCode({
+							...scope,
+							revisionId: currentRevision.id,
+							knownFilesSha256,
+						}),
+					);
 					return webMcpResult(
 						{
 							gadgetId: gadget.id,

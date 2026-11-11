@@ -1,5 +1,10 @@
 import { createTanstackQueryUtils } from "@orpc/tanstack-query";
 import { osApi } from "@/lib/api";
+import {
+	loadAppRuntimeCode,
+	type AppRuntimeLoadedCode,
+} from "@/lib/app-runtime-code-store";
+import type { AppRuntimeCode } from "@tedix/api-contract/schemas/os-app-runtime";
 import type { ListCatalogAppsInput } from "@tedix/api-contract/schemas/catalog";
 
 /**
@@ -300,15 +305,33 @@ export const canvasGadgetDetailQueryOptions = (
 export const workspaceOpenQueryOptions = (workspaceId: string, appId: string) =>
 	osQuery.osCollaborators.open.queryOptions({ input: { workspaceId, appId } });
 
-/** The source files of a runtime app's current or named revision. */
+/**
+ * The source files of a runtime app's current or named revision. The files
+ * are downloaded once per distinct content and reused across apps, tabs and
+ * visits (`app-runtime-code-store.ts`); a named revision never changes, so it
+ * is never read twice in one session.
+ */
 export const appRuntimeCodeQueryOptions = (
 	workspaceId: string,
 	gadgetId: string,
 	revisionId?: string,
-) =>
-	osQuery.osWorkspaces.gadgets.getCode.queryOptions({
+) => ({
+	...osQuery.osWorkspaces.gadgets.getCode.queryOptions({
 		input: { workspaceId, gadgetId, revisionId },
-	});
+		...(revisionId ? { staleTime: Number.POSITIVE_INFINITY } : {}),
+		// The loader below always fills in the files.
+		select: (data) => data as { code: AppRuntimeLoadedCode | null },
+	}),
+	queryFn: (): Promise<{ code: AppRuntimeCode | null }> =>
+		loadAppRuntimeCode((knownFilesSha256) =>
+			osApi.osWorkspaces.gadgets.getCode({
+				workspaceId,
+				gadgetId,
+				revisionId,
+				knownFilesSha256,
+			}),
+		),
+});
 
 export const gadgetExecutionsQueryOptions = (
 	workspaceId: string,

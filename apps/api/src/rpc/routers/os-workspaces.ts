@@ -64,12 +64,14 @@ import {
 	createOsGadgetRevision,
 	getOsGadget,
 	getOsGadgetCode,
+	getOsGadgetCodeHash,
 	getOsGadgetRevision,
 	listOsGadgetRevisions,
 	listOsGadgets,
 	listOsWorkApps,
 	updateOsGadget,
 } from "@tedix/db/queries/os-workspaces/gadgets";
+import { osGadgetCodeSha256 } from "@tedix/db/queries/os-workspaces/gadget-code";
 import { AppRuntimeFilesSchema } from "@tedix/api-contract/schemas/os-app-runtime";
 import {
 	appRuntimeCodeLength,
@@ -332,15 +334,36 @@ const gadgetsGetCode = readOs.gadgets.getCode.handler(
 		});
 		if (!revision || revision.gadgetId !== gadget.id)
 			throw createError(ErrorCodes.NOT_FOUND, "OS app revision not found");
-		const row = await getOsGadgetCode(db, {
+		const scope = {
 			organizationId: gadget.organizationId,
 			revisionId: revision.id,
-		});
+		};
+		// A caller that already holds these files gets the hash alone; the
+		// files themselves are not read from the database.
+		if (input.knownFilesSha256?.length) {
+			const known = await getOsGadgetCodeHash(db, scope);
+			if (!known) return { code: null };
+			if (
+				known.filesSha256 &&
+				input.knownFilesSha256.includes(known.filesSha256)
+			)
+				return {
+					code: {
+						revisionId: revision.id,
+						revision: revision.revision,
+						filesSha256: known.filesSha256,
+						codeLength: known.codeLength,
+						createdAt: known.createdAt,
+					},
+				};
+		}
+		const row = await getOsGadgetCode(db, scope);
 		if (!row) return { code: null };
 		return {
 			code: {
 				revisionId: revision.id,
 				revision: revision.revision,
+				filesSha256: row.filesSha256 ?? (await osGadgetCodeSha256(row.files)),
 				files: AppRuntimeFilesSchema.parse(JSON.parse(row.files)),
 				codeLength: row.codeLength,
 				createdAt: row.createdAt,

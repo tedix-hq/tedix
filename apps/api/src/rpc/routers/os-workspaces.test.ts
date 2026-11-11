@@ -1097,6 +1097,38 @@ describe("gadgets", () => {
 			files: { "server.js": "export class App {}", "client.js": "render()" },
 			codeLength: 27,
 		});
+		// A caller that names the hash it holds gets no files back; an unknown
+		// hash still gets them.
+		const filesSha256 = code.code!.filesSha256;
+		expect(filesSha256).toMatch(/^[a-f0-9]{64}$/);
+		const known = await c.org1.gadgets.getCode({
+			workspaceId,
+			gadgetId: gadget.id,
+			knownFilesSha256: ["0".repeat(64), filesSha256],
+		});
+		expect(known.code).toEqual({
+			revisionId: first.revision.id,
+			revision: 1,
+			filesSha256,
+			codeLength: 27,
+			createdAt: code.code!.createdAt,
+		});
+		expect(
+			(
+				await c.org1.gadgets.getCode({
+					workspaceId,
+					gadgetId: gadget.id,
+					knownFilesSha256: ["0".repeat(64)],
+				})
+			).code?.files,
+		).toEqual(code.code!.files);
+		await expect(
+			c.org2.gadgets.getCode({
+				workspaceId,
+				gadgetId: gadget.id,
+				knownFilesSha256: [filesSha256],
+			}),
+		).rejects.toMatchObject({ code: "NOT_FOUND" });
 		const second = await c.org1.gadgets.revise({
 			workspaceId,
 			gadgetId: gadget.id,
@@ -1118,7 +1150,7 @@ describe("gadgets", () => {
 					gadgetId: gadget.id,
 					revisionId: first.revision.id,
 				})
-			).code?.files["server.js"],
+			).code?.files?.["server.js"],
 		).toBe("export class App {}");
 		expect(second.revision.revision).toBe(2);
 		await expect(

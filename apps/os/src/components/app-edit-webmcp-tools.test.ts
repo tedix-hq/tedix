@@ -24,7 +24,10 @@ describe("workspace Home app editing", () => {
 			},
 		});
 		api.getCode.mockResolvedValue({
-			code: { files: { "client.js": "hello", "server.js": "server" } },
+			code: {
+				filesSha256: "a".repeat(64),
+				files: { "client.js": "hello", "server.js": "server" },
+			},
 		});
 		api.proposeEdit.mockResolvedValue({
 			proposal: { id: "draft-1", status: "open" },
@@ -39,6 +42,7 @@ describe("workspace Home app editing", () => {
 			workspaceId: "workspace-1",
 			gadgetId: "app-1",
 			revisionId: "rev-2",
+			knownFilesSha256: undefined,
 		});
 		const edits = [
 			{ path: "client.js", before: "hello", after: "good morning" },

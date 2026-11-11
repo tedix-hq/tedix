@@ -20,6 +20,7 @@ import {
 import { ExecutionRequirementSchema } from "../schemas/execution-evidence";
 import {
 	AppRuntimeCodeSchema,
+	AppRuntimeFilesSha256Schema,
 	AppRuntimeFilesSchema,
 } from "../schemas/os-app-runtime";
 import {
@@ -1176,6 +1177,13 @@ export const osWorkspacesContract = oc
 							.uuid()
 							.optional()
 							.describe("A past revision; omitted reads the current one"),
+						knownFilesSha256: z
+							.array(AppRuntimeFilesSha256Schema)
+							.max(32)
+							.optional()
+							.describe(
+								"Hashes of files the caller already holds. When the revision's files match one, the answer carries the hash without the files.",
+							),
 					}),
 				)
 				.output(z.object({ code: AppRuntimeCodeSchema.nullable() })),
