@@ -14,8 +14,13 @@ const callbackState = vi.hoisted(() => ({
 	status: undefined as string | undefined,
 	reason: undefined as string | undefined,
 	provider: undefined as string | undefined,
+	cimdState: undefined as string | undefined,
+	cimdCode: undefined as string | undefined,
+	cimdIss: undefined as string | undefined,
+	cimdError: undefined as string | undefined,
 }));
 const redeem = vi.hoisted(() => vi.fn());
+const settle = vi.hoisted(() => vi.fn());
 vi.mock("@tanstack/react-router", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@tanstack/react-router")>()),
 	createFileRoute: () => (options: { component: () => unknown }) => ({
@@ -24,7 +29,9 @@ vi.mock("@tanstack/react-router", async (importOriginal) => ({
 	}),
 }));
 vi.mock("@/lib/api", () => ({
-	osApi: { connections: { redeemConnectTicket: redeem } },
+	osApi: {
+		connections: { redeemConnectTicket: redeem, settleOutboundOAuth: settle },
+	},
 }));
 
 import { Route } from "./_session/_chrome-free/oauth.callback";
@@ -102,6 +109,11 @@ describe("oauth callback correlation", () => {
 		vi.useRealTimers();
 		vi.unstubAllGlobals();
 		redeem.mockReset();
+		settle.mockReset();
+		callbackState.cimdState = undefined;
+		callbackState.cimdCode = undefined;
+		callbackState.cimdIss = undefined;
+		callbackState.cimdError = undefined;
 		callbackState.connectError = undefined;
 		callbackState.status = undefined;
 		callbackState.reason = undefined;
@@ -282,6 +294,92 @@ describe("oauth callback correlation", () => {
 			);
 			act(() => vi.advanceTimersByTime(2000));
 			expect(close).not.toHaveBeenCalled();
+		} finally {
+			act(() => root.unmount());
+		}
+	});
+
+	it("finishes a relayed provider response over the signed-in session before redeeming the ticket", async () => {
+		vi.useFakeTimers();
+		const postMessage = vi.fn();
+		vi.stubGlobal("opener", { postMessage });
+		vi.stubGlobal("close", vi.fn());
+		callbackState.cimdState = "sealed";
+		callbackState.cimdCode = "code";
+		callbackState.cimdIss = "https://auth.example.com";
+		const order: string[] = [];
+		settle.mockImplementation(async () => {
+			order.push("settle");
+			return { status: "success", provider: "provider" };
+		});
+		redeem.mockImplementation(async () => {
+			order.push("redeem");
+			return { appId: "provider", recorded: false };
+		});
+		const flow = {
+			nonce: "relayed",
+			appId: "provider",
+			effectiveScope: "tenant",
+			ticket: "raw-ticket",
+		};
+		window.sessionStorage.setItem(CONNECT_FLOW_KEY, JSON.stringify(flow));
+		const { container, root } = await render();
+		try {
+			await actUntil(() => postMessage.mock.calls.length === 1);
+			expect(settle).toHaveBeenCalledTimes(1);
+			expect(settle).toHaveBeenCalledWith({
+				state: "sealed",
+				code: "code",
+				iss: "https://auth.example.com",
+			});
+			expect(order).toEqual(["settle", "redeem"]);
+			expect(container.textContent).toContain("Authorization returned");
+			expect(postMessage.mock.calls[0]![0]).toMatchObject({
+				type: CONNECTION_COMPLETE_MESSAGE,
+				nonce: "relayed",
+			});
+		} finally {
+			act(() => root.unmount());
+		}
+	});
+
+	it.each([
+		["the API refuses it", () => Promise.reject(new Error("FORBIDDEN"))],
+		[
+			"the provider exchange fails",
+			() =>
+				Promise.resolve({
+					status: "error",
+					provider: "provider",
+					reason: "token_exchange_failed",
+				}),
+		],
+	])("does not complete or redeem when %s", async (_label, outcome) => {
+		vi.useFakeTimers();
+		const postMessage = vi.fn();
+		vi.stubGlobal("opener", { postMessage });
+		vi.stubGlobal("close", vi.fn());
+		callbackState.cimdState = "sealed";
+		callbackState.cimdCode = "code";
+		settle.mockImplementation(outcome);
+		window.sessionStorage.setItem(
+			CONNECT_FLOW_KEY,
+			JSON.stringify({
+				nonce: "refused",
+				appId: "provider",
+				effectiveScope: "tenant",
+				ticket: "raw-ticket",
+			}),
+		);
+		const { container, root } = await render(false);
+		try {
+			await actUntil(() => postMessage.mock.calls.length === 1);
+			expect(redeem).not.toHaveBeenCalled();
+			expect(container.textContent).toContain("Not connected");
+			expect(postMessage.mock.calls[0]![0]).toMatchObject({
+				type: CONNECTION_FAILED_MESSAGE,
+				nonce: "refused",
+			});
 		} finally {
 			act(() => root.unmount());
 		}

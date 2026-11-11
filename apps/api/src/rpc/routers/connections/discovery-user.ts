@@ -70,6 +70,7 @@ import {
 	renameConnectionInstance as renameConnectionInstanceRecord,
 	clearConnectionGrants,
 } from "@tedix/db/queries/connection-instances";
+import { assertConnectReturnUrl } from "./outbound-oauth-settle";
 import {
 	adoptDefaultPersonalConnection,
 	CredentialPreference,
@@ -922,7 +923,9 @@ export const initiateConnection = authedOs.initiateConnection
 			// same-origin, so a tenant-host initiator ({slug}.os.tedix.dev) must
 			// land back on its own host, not on this launcher-host default.
 			const osBase = context.env.OS_URL || "https://os.tedix.dev";
-			const redirectUrl = input.redirectUri ?? `${osBase}/oauth/callback`;
+			const redirectUrl = input.redirectUri
+				? assertConnectReturnUrl(context.env, input.redirectUri)
+				: `${osBase}/oauth/callback`;
 			const requestedScopes = await resolveConnectionConsentScopes({
 				db: context.db,
 				orgId,

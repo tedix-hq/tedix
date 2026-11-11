@@ -8724,6 +8724,10 @@ const handlers: Record<string, (input: never) => unknown> = {
 			expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
 		};
 	},
+	"connections/settleOutboundOAuth": () => ({
+		status: "success" as const,
+		provider: "fixture-provider",
+	}),
 	"connections/redeemConnectTicket": (input: { ticket: string }) => {
 		const staged = localConnectTickets.get(input.ticket);
 		if (!staged)

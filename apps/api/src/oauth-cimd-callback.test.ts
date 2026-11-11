@@ -1,7 +1,48 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import type { OutboundMcpOAuthState } from "@tedix/auth/oauth-cimd-state";
 import { assertAuthorizationResponseIss } from "@tedix/auth/oauth-iss";
-import { handleOutboundMcpOAuthCallback } from "./oauth-cimd-callback";
+import {
+	handleOutboundMcpOAuthCallback as relayOutboundMcpOAuthCallback,
+	settleOutboundMcpOAuth,
+} from "./oauth-cimd-callback";
+
+type SettleArgs = Parameters<typeof settleOutboundMcpOAuth>;
+
+/**
+ * Settle a provider response as the person who started the flow, shaped as the
+ * redirect the product page would show, so the cases below read as one flow.
+ */
+async function handleOutboundMcpOAuthCallback(
+	request: Request,
+	callbackEnv: SettleArgs[2],
+	db: SettleArgs[3],
+	deps: SettleArgs[4],
+	caller = { userId: "user_1", organizationId: state.organizationId },
+): Promise<Response> {
+	const params = new URL(request.url).searchParams;
+	const result = await settleOutboundMcpOAuth(
+		{
+			state: params.get("state") ?? "",
+			code: params.get("code"),
+			iss: params.get("iss"),
+			error: params.get("error"),
+		},
+		caller,
+		callbackEnv,
+		db,
+		deps,
+	);
+	if (result.status === "rejected")
+		return new Response(result.reason, {
+			status: result.reason === "state_invalid" ? 400 : 403,
+		});
+	const target = new URL(state.redirectUrl);
+	target.searchParams.set("status", result.status);
+	target.searchParams.set("provider", result.provider);
+	if (result.status === "error")
+		target.searchParams.set("reason", result.reason);
+	return Response.redirect(target.toString(), 302);
+}
 
 const state: OutboundMcpOAuthState = {
 	v: 1,
@@ -298,5 +339,70 @@ describe("outbound MCP CIMD callback", () => {
 		);
 		expect(response.status).toBe(400);
 		expect(deps.exchangeCode).not.toHaveBeenCalled();
+	});
+});
+
+describe("outbound MCP CIMD relay and initiator binding", () => {
+	it("relays the provider response to the product page and stores nothing", async () => {
+		const openState = vi.fn().mockResolvedValue(state);
+		const response = await relayOutboundMcpOAuthCallback(
+			new Request(
+				"https://api.tedix.dev/oauth/mcp/callback?state=sealed&code=code&iss=https%3A%2F%2Fauth.example.com",
+			),
+			env,
+			openState,
+		);
+
+		expect(response.status).toBe(302);
+		const location = new URL(response.headers.get("location")!);
+		expect(location.origin + location.pathname).toBe(state.redirectUrl);
+		expect(location.searchParams.get("cimdState")).toBe("sealed");
+		expect(location.searchParams.get("cimdCode")).toBe("code");
+		expect(location.searchParams.get("cimdIss")).toBe(
+			"https://auth.example.com",
+		);
+		expect(location.searchParams.has("status")).toBe(false);
+		expect(response.headers.get("cache-control")).toBe("no-store");
+	});
+
+	it("refuses a relay whose state cannot be authenticated", async () => {
+		const response = await relayOutboundMcpOAuthCallback(
+			new Request("https://api.tedix.dev/oauth/mcp/callback?state=tampered"),
+			env,
+			vi.fn().mockRejectedValue(new Error("bad state")),
+		);
+		expect(response.status).toBe(400);
+		expect(response.headers.get("location")).toBeNull();
+	});
+
+	it.each([
+		[
+			"another person",
+			{ userId: "user_2", organizationId: state.organizationId },
+		],
+		[
+			"another organization",
+			{
+				userId: "user_1",
+				organizationId: "00000000-0000-4000-8000-000000000002",
+			},
+		],
+	])("stores nothing when %s finishes the consent", async (_label, caller) => {
+		const deps = dependencies();
+		const response = await handleOutboundMcpOAuthCallback(
+			new Request(
+				"https://api.tedix.dev/oauth/mcp/callback?state=sealed&code=code&iss=https%3A%2F%2Fauth.example.com",
+			),
+			env,
+			{} as never,
+			deps,
+			caller,
+		);
+
+		expect(response.status).toBe(403);
+		expect(deps.validateIssuer).not.toHaveBeenCalled();
+		expect(deps.exchangeCode).not.toHaveBeenCalled();
+		expect(deps.uploadToken).not.toHaveBeenCalled();
+		expect(deps.insertAudit).not.toHaveBeenCalled();
 	});
 });

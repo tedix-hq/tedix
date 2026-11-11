@@ -146,16 +146,9 @@ export function registerOpenApiDocs(app: Hono<{ Bindings: CloudflareEnv }>) {
 	// authenticated, encrypted state binds tenant, operator, issuer, PKCE verifier,
 	// resource, and expiry before any authorization code is redeemed.
 	app.get("/oauth/mcp/callback", async (c) => {
-		const [{ createDbClient }, { handleOutboundMcpOAuthCallback }] =
-			await Promise.all([
-				import("@tedix/db/client"),
-				import("../oauth-cimd-callback"),
-			]);
-		return handleOutboundMcpOAuthCallback(
-			c.req.raw,
-			c.env,
-			createDbClient(c.env.DB),
-		);
+		const { handleOutboundMcpOAuthCallback } =
+			await import("../oauth-cimd-callback");
+		return handleOutboundMcpOAuthCallback(c.req.raw, c.env);
 	});
 
 	/**
