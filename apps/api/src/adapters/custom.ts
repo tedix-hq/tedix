@@ -15,6 +15,7 @@
  * @module @tedix/api/adapters/custom
  */
 
+import { guardedFetch } from "@tedix/ssrf-guard";
 import { isUnsafePathSegment } from "@tedix/api-contract/schemas/adapter-bindings";
 import type {
 	AppAdapter,
@@ -633,12 +634,18 @@ export class CustomAdapter extends BaseAdapter {
 			: controller.signal;
 
 		try {
-			const response = await fetch(url, {
-				method: options.method,
-				headers: options.headers,
-				body: options.body,
-				signal,
-			});
+			// `url` comes from tenant-saved adapter config: no local, private or
+			// Tedix-owned host, and every redirect hop is checked again.
+			const response = await guardedFetch(
+				url,
+				{
+					method: options.method,
+					headers: options.headers,
+					body: options.body,
+					signal,
+				},
+				{ allowHttp: true },
+			);
 
 			clearTimeout(timeoutId);
 			return response;

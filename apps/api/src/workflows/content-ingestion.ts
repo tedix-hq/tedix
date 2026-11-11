@@ -1,3 +1,4 @@
+import { fetchContentSource } from "../lib/content-source-fetch";
 import { requireUnrestrictedModelEgress } from "../services/unrouted-model-egress";
 /**
  * ContentIngestionWorkflow - Cloudflare Workflow for ingesting content sources
@@ -76,7 +77,7 @@ async function extractPdf(
 		throw new NonRetryableError("AI binding not configured");
 	}
 
-	const resp = await fetch(url, {
+	const resp = await fetchContentSource(url, {
 		headers: {
 			"User-Agent": "Tedix-Content-Bot/1.0",
 			Accept: "application/pdf",
@@ -116,7 +117,7 @@ async function extractPdf(
  * Parse a sitemap XML and extract URLs
  */
 async function parseSitemap(sitemapUrl: string): Promise<string[]> {
-	const response = await fetch(sitemapUrl, {
+	const response = await fetchContentSource(sitemapUrl, {
 		headers: { "User-Agent": "Tedix-Content-Bot/1.0" },
 	});
 	if (!response.ok) return [];
@@ -149,7 +150,7 @@ async function parseSitemap(sitemapUrl: string): Promise<string[]> {
  * Parse an RSS feed and extract article URLs
  */
 async function parseRssFeed(feedUrl: string): Promise<string[]> {
-	const response = await fetch(feedUrl, {
+	const response = await fetchContentSource(feedUrl, {
 		headers: { "User-Agent": "Tedix-Content-Bot/1.0" },
 	});
 	if (!response.ok) return [];

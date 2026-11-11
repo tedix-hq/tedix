@@ -1,3 +1,4 @@
+import { fetchContentSource } from "../../lib/content-source-fetch";
 import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { requireUnrestrictedModelEgress } from "../../services/unrouted-model-egress";
 /**
@@ -90,7 +91,7 @@ interface SitemapUrl {
 }
 
 async function parseSitemapXml(sitemapUrl: string): Promise<SitemapUrl[]> {
-	const response = await fetch(sitemapUrl, {
+	const response = await fetchContentSource(sitemapUrl, {
 		headers: {
 			"User-Agent": "Tedix-Content-Bot/1.0",
 			Accept: "application/xml, text/xml, */*",
@@ -240,7 +241,7 @@ async function syncContentSource(
 				break;
 			}
 			case "rss": {
-				const response = await fetch(source.sourceUrl, {
+				const response = await fetchContentSource(source.sourceUrl, {
 					headers: { "User-Agent": "Tedix-Content-Bot/1.0" },
 				});
 				if (!response.ok) {

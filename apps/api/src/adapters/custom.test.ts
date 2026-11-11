@@ -89,4 +89,32 @@ describe("CustomAdapter", () => {
 		expect(result.items).toHaveLength(1);
 		expect(result.items[0]?.id).toBe("product-1");
 	});
+
+	it.each([
+		"http://localhost:8787",
+		"https://api.tedix.dev",
+		"http://169.254.169.254",
+	])("never fetches a tenant-set base URL on %s", async (baseUrl) => {
+		const fetcher = vi.fn().mockResolvedValue(Response.json({ items: [] }));
+		vi.stubGlobal("fetch", fetcher);
+		const adapter = new CustomAdapter({
+			id: "adapter-1",
+			appId: "app-1",
+			name: "example",
+			displayName: null,
+			adapterType: "custom",
+			config: { baseUrl, endpoints: { search: "/search" }, itemsPath: "items" },
+			fieldMappings: null,
+			verticals: null,
+			enabled: true,
+			priority: 0,
+			createdAt: null,
+			updatedAt: null,
+		});
+
+		const result = await adapter.search("example", {}, { env: {} });
+
+		expect(result.success).toBe(false);
+		expect(fetcher).not.toHaveBeenCalled();
+	});
 });
