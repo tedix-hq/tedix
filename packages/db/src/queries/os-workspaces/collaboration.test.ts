@@ -61,7 +61,16 @@ function fixture() {
 			gadget_id TEXT NOT NULL REFERENCES os_gadgets(id) ON DELETE CASCADE,
 			files TEXT NOT NULL,
 			code_length INTEGER NOT NULL,
-			created_at TEXT NOT NULL DEFAULT (datetime('now'))
+			created_at TEXT NOT NULL DEFAULT (datetime('now')),
+			files_sha256 TEXT
+		);
+		CREATE TABLE os_gadget_code_blobs (
+			organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+			sha256 TEXT NOT NULL,
+			files TEXT NOT NULL,
+			code_length INTEGER NOT NULL,
+			created_at TEXT NOT NULL DEFAULT (datetime('now')),
+			PRIMARY KEY (organization_id, sha256)
 		);
 		CREATE TABLE os_outputs (
 			id TEXT PRIMARY KEY NOT NULL,
@@ -683,11 +692,12 @@ describe("OS collaboration proposals", () => {
 		expect(
 			sqlite
 				.prepare(
-					"SELECT gadget_id, files, code_length FROM os_gadget_code WHERE revision_id = ?",
+					"SELECT c.gadget_id, c.files AS inline_files, b.files, c.code_length FROM os_gadget_code c JOIN os_gadget_code_blobs b ON b.organization_id = c.organization_id AND b.sha256 = c.files_sha256 WHERE c.revision_id = ?",
 				)
 				.get("gadget-rev-2"),
 		).toEqual({
 			gadget_id: "gadget-1",
+			inline_files: "",
 			files: JSON.stringify(files),
 			code_length: 27,
 		});

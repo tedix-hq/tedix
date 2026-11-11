@@ -304,6 +304,10 @@ export const osGadgetRevisions = pgTable(
  * per gadget revision. Kept beside the manifest, not inside it: a manifest is
  * settings, a program is code, and the code can be far larger. The row is
  * written in the same D1 batch as its revision and shares its id.
+ *
+ * The files themselves live once per organization in `os_gadget_code_blobs`;
+ * this row points at them with `files_sha256` and keeps `files` empty. A row
+ * written before that split still carries its files inline and has no hash.
  */
 export const osGadgetCode = pgTable(
 	"os_gadget_code",
@@ -318,18 +322,42 @@ export const osGadgetCode = pgTable(
 		gadgetId: text("gadget_id")
 			.notNull()
 			.references(() => osGadgets.id, { onDelete: "cascade" }),
-		/** JSON object: file name -> source text. */
+		/** Empty when `filesSha256` is set; otherwise the JSON object inline. */
 		files: text("files").notNull(),
 		/** Total length of all files; bounds reads before parsing. */
 		codeLength: integer("code_length").notNull(),
 		createdAt: text("created_at")
 			.notNull()
 			.default(sql`(to_char(now(), 'YYYY-MM-DD HH24:MI:SS'))`),
+		/** Key of the shared files in `os_gadget_code_blobs`, same organization. */
+		filesSha256: text("files_sha256"),
 	},
 	(table) => [
 		index("os_gadget_code_gadget_idx").on(table.gadgetId, table.createdAt),
 		index("os_gadget_code_org_idx").on(table.organizationId),
 	],
+);
+
+/**
+ * Source files of runtime apps, stored once per organization and content. An
+ * editor installed on many outputs writes the same files every time; they all
+ * point at one row here. `sha256` is the hex digest of `files` as UTF-8.
+ */
+export const osGadgetCodeBlobs = pgTable(
+	"os_gadget_code_blobs",
+	{
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organizations.id, { onDelete: "cascade" }),
+		sha256: text("sha256").notNull(),
+		/** JSON object: file name -> source text. */
+		files: text("files").notNull(),
+		codeLength: integer("code_length").notNull(),
+		createdAt: text("created_at")
+			.notNull()
+			.default(sql`(to_char(now(), 'YYYY-MM-DD HH24:MI:SS'))`),
+	},
+	(table) => [primaryKey({ columns: [table.organizationId, table.sha256] })],
 );
 
 export const osBlueprints = pgTable(
@@ -765,6 +793,7 @@ export type NewOsGadgetRow = typeof osGadgets.$inferInsert;
 export type OsGadgetRevisionRow = typeof osGadgetRevisions.$inferSelect;
 export type NewOsGadgetRevisionRow = typeof osGadgetRevisions.$inferInsert;
 export type OsGadgetCodeRow = typeof osGadgetCode.$inferSelect;
+export type OsGadgetCodeBlobRow = typeof osGadgetCodeBlobs.$inferSelect;
 export type OsBlueprintRow = typeof osBlueprints.$inferSelect;
 export type NewOsBlueprintRow = typeof osBlueprints.$inferInsert;
 export type OsBlueprintRevisionRow = typeof osBlueprintRevisions.$inferSelect;

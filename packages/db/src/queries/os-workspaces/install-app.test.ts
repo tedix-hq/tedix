@@ -10,6 +10,7 @@ import {
 	osGadgets,
 	osGadgetRevisions,
 	osGadgetCode,
+	osGadgetCodeBlobs,
 	osWorkspaceResources,
 	osWorkspaces,
 } from "../../schema/os-workspaces";
@@ -36,6 +37,7 @@ function fixture() {
 			osGadgets,
 			osGadgetRevisions,
 			osGadgetCode,
+			osGadgetCodeBlobs,
 			osWorkspaceResources,
 		),
 	);
@@ -387,6 +389,40 @@ describe("workspace app installation", () => {
 		expect(await db.select().from(osBlueprintRevisions)).toHaveLength(1);
 		expect(await db.select().from(osWorkspaceResources)).toHaveLength(1);
 	});
+	it("adds only a pointer when another output gets the same editor", async () => {
+		const { db, params } = fixture();
+		await db.insert(osWorkspaces).values({
+			id: "workspace",
+			organizationId: "org",
+			name: "Docs",
+			createdByKind: "user",
+			createdById: "user",
+		});
+		await installWorkspaceApp(db, params);
+		await installWorkspaceApp(db, {
+			...params,
+			gadget: {
+				...params.gadget,
+				id: "app-2",
+				name: "Second editor",
+				currentRevisionId: "app-2-revision",
+			},
+			revision: { ...params.revision, id: "app-2-revision", gadgetId: "app-2" },
+			code: { ...params.code, revisionId: "app-2-revision", gadgetId: "app-2" },
+			resource: undefined,
+		});
+		const code = await db.select().from(osGadgetCode);
+		expect(code).toHaveLength(2);
+		expect(code.every((row) => row.files === "")).toBe(true);
+		expect(new Set(code.map((row) => row.filesSha256)).size).toBe(1);
+		const blobs = await db.select().from(osGadgetCodeBlobs);
+		expect(blobs).toHaveLength(1);
+		expect(blobs[0]).toMatchObject({
+			organizationId: "org",
+			sha256: code[0]!.filesSha256,
+			files: params.code.files,
+		});
+	});
 	it("rolls back every app and template row when the output slot conflicts", async () => {
 		const { db, params } = fixture();
 		await db.insert(osWorkspaces).values({
@@ -404,6 +440,7 @@ describe("workspace app installation", () => {
 		await expect(installWorkspaceApp(db, params)).rejects.toThrow();
 		expect(await db.select().from(osGadgets)).toHaveLength(0);
 		expect(await db.select().from(osGadgetCode)).toHaveLength(0);
+		expect(await db.select().from(osGadgetCodeBlobs)).toHaveLength(0);
 		expect(await db.select().from(osBlueprints)).toHaveLength(0);
 	});
 });

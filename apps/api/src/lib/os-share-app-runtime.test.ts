@@ -33,6 +33,7 @@ import {
 } from "@tedix/db/schema/os-shares";
 import {
 	osGadgetCode,
+	osGadgetCodeBlobs,
 	osGadgetExecutions,
 	osGadgetRevisions,
 	osGadgets,
@@ -87,6 +88,7 @@ async function fixture(options: { triggers?: unknown[] } = {}) {
 			osGadgets,
 			osGadgetRevisions,
 			osGadgetCode,
+			osGadgetCodeBlobs,
 			osGadgetExecutions,
 			osWorkspaceResources,
 			osOutputs,

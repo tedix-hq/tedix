@@ -6,10 +6,15 @@ import {
 	type OsGadgetRevisionRow,
 	type OsGadgetRow,
 	osGadgetCode,
+	osGadgetCodeBlobs,
 	osGadgetRevisions,
 	osGadgets,
 	osWorkspaces,
 } from "../../schema/os-workspaces";
+import {
+	buildOsGadgetRevisionCodeStatements,
+	osGadgetCodeSha256,
+} from "./gadget-code";
 import { prefixedColumns } from "../../utils/select";
 import {
 	osWorkspaceVisibleToPredicate,
@@ -159,14 +164,36 @@ export async function getOsGadgetRevision(
 	return row;
 }
 
-/** The source files recorded with one revision; undefined when it carries no code. */
+/**
+ * The source files recorded with one revision; undefined when it carries no
+ * code. The files come from the shared blob the row points at, or from the
+ * row itself when it was written before the files were shared.
+ */
 export async function getOsGadgetCode(
 	db: DbQueryClient,
 	params: { organizationId: string; revisionId: string },
 ): Promise<OsGadgetCodeRow | undefined> {
 	const [row] = await db
-		.select()
+		.select({
+			revisionId: osGadgetCode.revisionId,
+			organizationId: osGadgetCode.organizationId,
+			gadgetId: osGadgetCode.gadgetId,
+			files: osGadgetCode.files,
+			codeLength: osGadgetCode.codeLength,
+			createdAt: osGadgetCode.createdAt,
+			filesSha256: osGadgetCode.filesSha256,
+			blobFiles: sql<string | null>`${osGadgetCodeBlobs.files}`.as(
+				"blob_files",
+			),
+		})
 		.from(osGadgetCode)
+		.leftJoin(
+			osGadgetCodeBlobs,
+			and(
+				eq(osGadgetCodeBlobs.organizationId, osGadgetCode.organizationId),
+				eq(osGadgetCodeBlobs.sha256, osGadgetCode.filesSha256),
+			),
+		)
 		.where(
 			and(
 				eq(osGadgetCode.organizationId, params.organizationId),
@@ -174,7 +201,12 @@ export async function getOsGadgetCode(
 			),
 		)
 		.limit(1);
-	return row;
+	if (!row) return undefined;
+	const { blobFiles, ...code } = row;
+	if (code.filesSha256 === null) return code;
+	if (blobFiles === null)
+		throw new Error(`Gadget code files are missing for ${code.revisionId}`);
+	return { ...code, files: blobFiles };
 }
 
 export async function listOsGadgetRevisions(
@@ -265,27 +297,18 @@ export async function createOsGadgetRevision(
 				sql`changes() = 1`,
 			),
 		);
-	// The code row selects from the revision just written, so it lands only
-	// when the guarded revision insert did: one batch, no half-recorded app.
-	const insertCode = params.code
-		? db.insert(osGadgetCode).select(
-				db
-					.select({
-						revisionId: osGadgetRevisions.id,
-						organizationId: osGadgetRevisions.organizationId,
-						gadgetId: osGadgetRevisions.gadgetId,
-						files: sql<string>`${params.code.files}`.as("files"),
-						codeLength: sql<number>`${params.code.codeLength}`.as(
-							"code_length",
-						),
-						createdAt: sql<string>`${now}`.as("created_at"),
-					})
-					.from(osGadgetRevisions)
-					.where(eq(osGadgetRevisions.id, params.id)),
-			)
+	// The code statements select from the revision just written, so they land
+	// only when the guarded revision insert did: one batch, no half-recorded app.
+	const codeStatements = params.code
+		? buildOsGadgetRevisionCodeStatements(db, {
+				...params.code,
+				revisionId: params.id,
+				sha256: await osGadgetCodeSha256(params.code.files),
+				createdAt: now,
+			})
 		: null;
-	const [revisionRows] = insertCode
-		? await db.batch([insertRevision, advancePointer, insertCode])
+	const [revisionRows] = codeStatements
+		? await db.batch([insertRevision, advancePointer, ...codeStatements])
 		: await db.batch([insertRevision, advancePointer]);
 	const revision = revisionRows[0];
 	if (revision) {
