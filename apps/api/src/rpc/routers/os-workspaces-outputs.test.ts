@@ -2749,6 +2749,69 @@ describe("changed-only saves (outputs.patch and outputs.changes)", () => {
 		expect(await texts(output.id)).toEqual(["Mine", "B", "C"]);
 	});
 
+	it("keeps two people's changes to different words of one paragraph and refuses the same word", async () => {
+		const paragraph = (value: string) => ({
+			type: "paragraph",
+			content: [{ type: "text", text: value }],
+		});
+		const { output } = await c.org1.outputs.create({
+			kind: "document",
+			title: "Launch note",
+			content: {
+				kind: "document",
+				blocks: [],
+				richText: {
+					type: "doc",
+					content: [paragraph("The launch is on Monday and the owner is Ada.")],
+				},
+			},
+		});
+		const rewrite = (value: string) => ({
+			kind: "document" as const,
+			ops: [
+				{
+					op: "splice" as const,
+					path: ["richText", "content"],
+					hunks: [{ at: 0, remove: 1, insert: [paragraph(value)] }],
+				},
+			],
+		});
+		const stored = async () => {
+			const { currentRevision } = await c.org1.outputs.get({
+				outputId: output.id,
+			});
+			const content = currentRevision.content;
+			if (content.kind !== "document") throw new Error("not a document");
+			return [content.richText!.content, content.blocks];
+		};
+		await c.org1.outputs.patch({
+			outputId: output.id,
+			baseRevision: 1,
+			patch: rewrite("The launch is on Friday and the owner is Ada."),
+		});
+		// The second person still edits revision 1 and changed another word.
+		const second = await c.org1.outputs.patch({
+			outputId: output.id,
+			baseRevision: 1,
+			patch: rewrite("The launch is on Monday and the owner is Bob."),
+		});
+		expect(second.mergedWith).toBe(2);
+		const text = "The launch is on Friday and the owner is Bob.";
+		expect(await stored()).toEqual([
+			[paragraph(text)],
+			[{ type: "paragraph", text }],
+		]);
+		// A third, also from revision 1, changed a word that has changed since.
+		await expect(
+			c.org1.outputs.patch({
+				outputId: output.id,
+				baseRevision: 1,
+				patch: rewrite("The launch is on Sunday and the owner is Ada."),
+			}),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+		expect((await stored())[0]).toEqual([paragraph(text)]);
+	});
+
 	it("refuses a base that does not exist, a patch that does not fit and content the schema rejects", async () => {
 		const output = await deck();
 		await expect(

@@ -779,6 +779,73 @@ describe("portable rich Doc client", () => {
 		expect(merged[0]!.content![0]!.text).toBe("Theirs");
 		expect(merged[1]!.content![0]!.text).toBe("Mine: Keep formatting");
 	});
+	it("keeps both people's changes to different words of one paragraph, formatting included, without asking", async () => {
+		const test = fixture(),
+			{ root, editor, mounted } = await test.mount();
+		const second = editor.state.doc.child(0).nodeSize + 1;
+		// Mine: a word at the start of the bold, coloured run.
+		editor.commands.insertContentAt(second, "Please ");
+		const saved = test.persisted().richText!;
+		const run = saved.content[1]!.content![0]!;
+		// Theirs: the last word of the same run.
+		test.external({
+			...saved,
+			content: [
+				saved.content[0]!,
+				{
+					...saved.content[1]!,
+					content: [{ ...run, text: "Keep styling" }],
+				},
+			],
+		});
+		await vi.waitFor(() =>
+			expect(editor.getText()).toContain("Please Keep styling"),
+		);
+		expect(statusText(root)).toBe("");
+		await mounted.save();
+		const merged = test.persisted().richText!.content[1]!;
+		expect(merged.content!.map((node) => node.text).join("")).toBe(
+			"Please Keep styling",
+		);
+		for (const node of merged.content!)
+			expect(node.marks).toEqual(
+				expect.arrayContaining([
+					{ type: "bold" },
+					expect.objectContaining({
+						type: "textStyle",
+						attrs: expect.objectContaining({ color: "#123456" }),
+					}),
+				]),
+			);
+		expect(merged.attrs).toMatchObject({ textAlign: "right", indent: 2 });
+	});
+	it("asks only about the words both changed and keeps the rest from both", async () => {
+		const test = fixture(),
+			{ root, editor } = await test.mount();
+		const text = (value: string) => ({
+			type: "doc" as const,
+			content: [
+				{ type: "paragraph", content: [{ type: "text", text: value }] },
+			],
+		});
+		test.external(text("The launch is on Monday and the owner is Ada."));
+		await vi.waitFor(() => expect(editor.getText()).toContain("Monday"));
+		const at = (word: string) => editor.getText().indexOf(word) + 1;
+		editor
+			.chain()
+			.insertContentAt({ from: at("Monday"), to: at("Monday") + 6 }, "Friday")
+			.insertContentAt({ from: at("The"), to: at("The") + 3 }, "Our")
+			.run();
+		test.external(text("The launch is on Sunday and the owner is Bob."));
+		await vi.waitFor(() => expect(root.textContent).toContain("Keep mine"));
+		expect(root.textContent).toContain("the same words");
+		click(root, "Keep mine");
+		await vi.waitFor(() =>
+			expect(editor.getText()).toBe(
+				"Our launch is on Friday and the owner is Bob.",
+			),
+		);
+	});
 	it("asks which version to keep only when both edited the same paragraph", async () => {
 		const test = fixture(),
 			{ root, editor, mounted } = await test.mount();

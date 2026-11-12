@@ -348,7 +348,7 @@ export async function mountDocClient(
 	function ask() {
 		clearTimeout(saveTimer);
 		say(
-			"Someone else changed the same part. Which version should stay?",
+			"Someone else changed the same words. Which version should stay there?",
 			false,
 			[
 				["Keep mine", () => void sync("mine")],
@@ -358,7 +358,8 @@ export async function mountDocClient(
 	}
 	/**
 	 * Bring a newer saved copy into the editor. Changes to different parts
-	 * are both kept; a choice is asked for only where the same part changed.
+	 * are both kept, down to different words of one paragraph; a choice is
+	 * asked for only where the same words changed.
 	 * A draft restored from an older copy has nothing to compare against, so
 	 * it is kept or replaced as a whole.
 	 */
