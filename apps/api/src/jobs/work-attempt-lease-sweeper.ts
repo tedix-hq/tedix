@@ -15,6 +15,11 @@ import { sweepStuckOutboundReviews } from "@tedix/db/queries/work-items/outbound
  * instead of turning one cron invocation into an unbounded write burst.
  */
 const MAX_ATTEMPTS_PER_TICK = 100;
+
+/** True on the first two-minute tick of each UTC hour. */
+export function staleDelegationSweepDue(scheduledTime: number): boolean {
+	return new Date(scheduledTime).getUTCMinutes() < 2;
+}
 const MAX_INTERACTION_WRITES_PER_TICK = 100;
 
 /**
@@ -66,15 +71,15 @@ export async function runWorkAttemptLeaseSweeperTick(
 			`[WorkAttemptLeaseSweeper] retired ${result.expired} elapsed attempt lease(s)`,
 		);
 	}
-	// Same tick, same shape: pure D1, idempotent, zero candidates at steady state.
-	// Closes kernel-delegation items whose failed Attempt nobody retried in a week.
-	const stale = await sweepStaleFailedDelegationWorkItems(
-		createDbQueryClient(env.DB),
-		{
-			now: new Date(scheduledTime).toISOString(),
-			limit: MAX_ATTEMPTS_PER_TICK,
-		},
-	);
+	// Closes kernel-delegation items whose failed Attempt nobody retried in a
+	// week. The search reads every Work Item (28k rows, 0.4 s on 2026-11-12), and
+	// a week-long window does not need a two-minute cadence: once an hour.
+	const stale = staleDelegationSweepDue(scheduledTime)
+		? await sweepStaleFailedDelegationWorkItems(createDbQueryClient(env.DB), {
+				now: new Date(scheduledTime).toISOString(),
+				limit: MAX_ATTEMPTS_PER_TICK,
+			})
+		: { observed: 0, cancelled: 0, skipped: 0 };
 	if (stale.cancelled > 0) {
 		console.log(
 			`[WorkAttemptLeaseSweeper] cancelled ${stale.cancelled} stale failed delegation(s)`,
