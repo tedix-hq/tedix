@@ -12,6 +12,9 @@ import { createPortal } from "react-dom";
 import { ActivityAutoApproval } from "@/components/activity-auto-approval";
 import { ActivityHistory } from "@/components/activity-history";
 import { WorkspaceActivity } from "@/components/workspace-activity";
+import { UnreadBadge } from "@/components/unread-badge";
+import { UnreadList } from "@/components/unread-list";
+import { useUnreadTotal } from "@/lib/workspace-unread";
 import { MachineApprovalReview } from "@/components/machine-approval-review";
 import {
 	type ApprovalChoice,
@@ -56,7 +59,12 @@ import { WORK_COUNT_DEFINITIONS } from "@/lib/work-counts";
 import { absoluteTime, relativeTime } from "@/lib/time";
 import { sanitizeUntrustedText } from "@/lib/untrusted-text";
 
-export type ActivityTab = "review" | "auto" | "history" | "workspace";
+export type ActivityTab =
+	| "review"
+	| "unread"
+	| "auto"
+	| "history"
+	| "workspace";
 
 export const approvalGroupHeadingClassName =
 	"m-0 flex min-w-0 items-center gap-2 break-words px-4 pb-1 pt-3 text-kumo-subtle type-tedix-caption font-semibold";
@@ -76,16 +84,23 @@ export function ApprovalNotifications({
 	const inbox = useApprovalInbox({ conversationId });
 	const { items, count, error, loading } = inbox;
 	const [tab, setTab] = useState<ActivityTab>("review");
+	const unread = useUnreadTotal();
+	// Nothing to decide but something new: open on what is new.
+	const openPanel = (next: boolean) => {
+		if (next && count === 0 && unread > 0) setTab("unread");
+		setOpen(next);
+	};
 
 	return (
-		<PopoverRoot open={open} onOpenChange={setOpen}>
+		<PopoverRoot open={open} onOpenChange={openPanel}>
 			{menu ? (
 				menu.target &&
 				createPortal(
-					<DropdownMenuItem onClick={() => setOpen(true)}>
+					<DropdownMenuItem onClick={() => openPanel(true)}>
 						<ShieldCheck aria-hidden size={18} />
 						Activity and approvals
 						{count > 0 ? <Badge>{count} waiting</Badge> : null}
+						{unread > 0 ? <Badge variant="info">{unread} unread</Badge> : null}
 					</DropdownMenuItem>,
 					menu.target,
 				)
@@ -93,11 +108,7 @@ export function ApprovalNotifications({
 				<PopoverTrigger
 					render={
 						<Button
-							aria-label={
-								count === 0
-									? "Activity and approvals: none waiting"
-									: `Activity and approvals: ${count} waiting`
-							}
+							aria-label={`Activity and approvals: ${count === 0 ? "none" : count} waiting${unread > 0 ? `, ${unread} unread` : ""}`}
 							className="relative"
 							size="icon-sm"
 							title={`Activity and approvals. ${WORK_COUNT_DEFINITIONS.approvals}`}
@@ -108,7 +119,13 @@ export function ApprovalNotifications({
 								<Badge className="absolute -right-1 -top-1 h-4 min-w-4 justify-center rounded-full px-1 tabular-nums">
 									{count > 99 ? "99+" : count}
 								</Badge>
-							) : null}
+							) : (
+								<UnreadBadge
+									className="absolute -right-1 -top-1"
+									count={unread}
+									label="unread"
+								/>
+							)}
 						</Button>
 					}
 				/>
@@ -153,6 +170,10 @@ export function ApprovalNotifications({
 									</Badge>
 								) : null}
 							</TabsTrigger>
+							<TabsTrigger className="px-2!" value="unread">
+								Unread
+								<UnreadBadge className="ml-1.5" count={unread} label="unread" />
+							</TabsTrigger>
 							<TabsTrigger className="px-2!" value="auto">
 								Auto-approval
 							</TabsTrigger>
@@ -170,6 +191,8 @@ export function ApprovalNotifications({
 					<TabsContent value={tab}>
 						{tab === "workspace" && workspaceId ? (
 							<WorkspaceActivity workspaceId={workspaceId} />
+						) : tab === "unread" ? (
+							<UnreadList onNavigate={() => setOpen(false)} />
 						) : tab === "auto" ? (
 							<ActivityAutoApproval canChange={inbox.canDecide} />
 						) : tab === "history" ? (

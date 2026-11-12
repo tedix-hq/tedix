@@ -20,6 +20,7 @@ import {
 	type KeyboardEvent,
 	type ReactNode,
 	useCallback,
+	useContext,
 	useEffect,
 	useLayoutEffect,
 	useRef,
@@ -48,6 +49,9 @@ import {
 	TooltipTrigger,
 } from "@/components/kumo/tooltip";
 import { Link } from "@/components/kumo/link";
+import { UnreadBadge } from "@/components/unread-badge";
+import { WorkActorDirectoryContext } from "@/components/work-actor-avatar";
+import { mentionedPeople, notifyChatPosted } from "@/lib/workspace-chat-notify";
 import { WorkspaceChatResources } from "@/components/workspace-chat-resources";
 import { isImeComposing } from "@/lib/keyboard";
 import { plainModelLabel } from "@/lib/plain-model-label";
@@ -85,6 +89,10 @@ export type WorkspaceChatProps = {
 	onSendMessageReady?: (send: (content: string) => void) => void;
 	onBrowseResources?: () => void;
 	autoFocusComposer?: boolean;
+	/** Unread chat rows per conversation id, for the badges in the list. */
+	unreadByConversation?: ReadonlyMap<string, number>;
+	/** Something happened in the open conversation: a turn started, finished or asked for a decision. */
+	onActivity?: () => void;
 	/** Test seam. */
 	createClient?: typeof createWorkspaceChatClient;
 };
@@ -112,6 +120,8 @@ export function WorkspaceChat({
 	onSendMessageReady,
 	onBrowseResources,
 	autoFocusComposer = false,
+	unreadByConversation,
+	onActivity,
 	createClient,
 }: WorkspaceChatProps) {
 	const queryClient = useQueryClient();
@@ -176,6 +186,45 @@ export function WorkspaceChat({
 	const running = activeTurn(state);
 	const approval = pendingApproval(running);
 
+	// Tell the page when the conversation moves, so unread state is re-read
+	// once per turn rather than on every streamed word.
+	const activity = `${state.conversationId ?? ""}:${state.turns.length}:${running ? "running" : "idle"}:${approval ? "asking" : ""}`;
+	const lastActivity = useRef<string | null>(null);
+	// Set when this tab posts; once the post has a conversation, the server is
+	// asked to notify the people it mentions or who took part.
+	const directory = useContext(WorkActorDirectoryContext);
+	const postedMentions = useRef<string[] | null>(null);
+	const notePost = useCallback(
+		(text: string) => {
+			const people: Array<[string, string]> = [];
+			for (const [key, profile] of directory)
+				if (key.startsWith("user:") && profile.name)
+					people.push([key.slice("user:".length), profile.name]);
+			postedMentions.current = mentionedPeople(text, people);
+		},
+		[directory],
+	);
+	const activeConversation = state.conversationId;
+	useEffect(() => {
+		if (!activeConversation || postedMentions.current === null) return;
+		notifyChatPosted({
+			workspaceId,
+			conversationId: activeConversation,
+			mentionedUserIds: postedMentions.current,
+		});
+		postedMentions.current = null;
+	}, [activity, activeConversation, workspaceId]);
+	useEffect(() => {
+		if (catchingUp) return;
+		const previous = lastActivity.current;
+		lastActivity.current = activity;
+		if (previous !== null && previous !== activity) onActivity?.();
+	}, [activity, catchingUp, onActivity]);
+	const unreadElsewhere = [...(unreadByConversation ?? [])].reduce(
+		(sum, [id, count]) => (id === conversationId ? sum : sum + count),
+		0,
+	);
+
 	// The object names the conversation on the first accepted turn.
 	const announced = useRef<string | null>(null);
 	useEffect(() => {
@@ -194,13 +243,14 @@ export function WorkspaceChat({
 		(text: string, attachments?: Array<{ outputId: string }>) => {
 			const trimmed = text.trim();
 			if (!trimmed || !client) return;
+			notePost(trimmed);
 			return client.sendTurn({
 				text: trimmed,
 				...(modelId ? { modelId } : {}),
 				...(attachments?.length ? { attachments } : {}),
 			});
 		},
-		[client, modelId],
+		[client, modelId, notePost],
 	);
 	useEffect(() => {
 		onSendMessageReady?.(send);
@@ -218,6 +268,7 @@ export function WorkspaceChat({
 					conversations={state.conversations}
 					activeId={conversationId}
 					onSelect={onSelectConversation}
+					unread={unreadByConversation}
 				/>
 				<Composer
 					key="composer"
@@ -228,6 +279,7 @@ export function WorkspaceChat({
 					onBrowseResources={onBrowseResources}
 					onSend={(text, attachments) => {
 						onSelectConversation(null);
+						notePost(text);
 						return client?.sendTurn({
 							text,
 							newConversation: true,
@@ -255,6 +307,10 @@ export function WorkspaceChat({
 				>
 					<ArrowLeft aria-hidden />
 				</Button>
+				<UnreadBadge
+					count={unreadElsewhere}
+					label="unread in other conversations"
+				/>
 				<Text as="strong" role="label" className="truncate">
 					{title ?? (conversationId ? "Conversation" : "New conversation")}
 				</Text>
@@ -323,10 +379,12 @@ function ConversationList({
 	conversations,
 	activeId,
 	onSelect,
+	unread,
 }: {
 	conversations: ConversationSummary[];
 	activeId: string | null;
 	onSelect: (conversationId: string | null) => void;
+	unread?: ReadonlyMap<string, number>;
 }) {
 	return (
 		<div className="workspace-chat-list">
@@ -350,6 +408,10 @@ function ConversationList({
 								<Text as="span" role="body" className="truncate">
 									{conversation.title ?? "Untitled conversation"}
 								</Text>
+								<UnreadBadge
+									count={unread?.get(conversation.id) ?? 0}
+									label="unread"
+								/>
 								<Text as="span" role="caption" tone="secondary">
 									{relativeTime(conversation.updatedAt)}
 								</Text>

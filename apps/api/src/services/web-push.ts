@@ -188,6 +188,34 @@ async function deliverToMember(
 		})
 	)
 		return;
+	const template = webPushTemplate(kind);
+	await sendPushToDevices(context, scope, keys, {
+		title: template.title ?? "",
+		body: template.body ?? "",
+		url: template.url,
+		conversationId: event.conversationId,
+		tag: event.id,
+	});
+}
+
+/** What a push message carries; never chat or file content. */
+export interface WebPushPayload {
+	title: string;
+	body: string;
+	/** Where a click on the notification opens Tedix. */
+	url: string;
+	/** A tab showing this already answers for it, so no notification appears. */
+	conversationId: string;
+	tag: string;
+}
+
+/** Send one message to every device the person subscribed; forget devices that are gone. */
+export async function sendPushToDevices(
+	context: Pick<BaseContext, "db">,
+	scope: { organizationId: string; userId: string },
+	keys: NonNullable<ReturnType<typeof webPushKeys>>,
+	payload: WebPushPayload,
+): Promise<void> {
 	for (const row of await listPushConfigs(context.db, scope, "subscription:")) {
 		const parsed = WebPushSubscriptionSchema.safeParse(row.value);
 		if (!parsed.success) continue;
@@ -199,11 +227,6 @@ async function deliverToMember(
 			continue;
 		}
 		try {
-			const payload = {
-				...webPushTemplate(kind),
-				conversationId: event.conversationId,
-				tag: event.id,
-			};
 			const request = await buildPushPayload(
 				{ data: JSON.stringify(payload), options: { ttl: 300 } },
 				{ ...parsed.data, expirationTime: parsed.data.expirationTime ?? null },

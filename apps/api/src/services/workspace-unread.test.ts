@@ -145,6 +145,11 @@ describe("advanceReadMarker", () => {
 			).chat.map((item) => item.id),
 		).toEqual(["7", "5"]);
 	});
+	it("leaves an existing marker alone when the person only opens the workspace", () => {
+		const marker = { floor: 10, chat: 30, chats: {}, files: { a: 20 } };
+		expect(advanceReadMarker(marker, { type: "visit" }, 99)).toBe(marker);
+		expect(advanceReadMarker(null, { type: "visit" }, 99).floor).toBe(99);
+	});
 	it("moves only what the person looked at, and never backwards", () => {
 		const marker = { floor: 10, chat: 30, chats: {}, files: { a: 20 } };
 		expect(advanceReadMarker(marker, { type: "chat" }, 25).chat).toBe(30);

@@ -1,3 +1,4 @@
+import { WorkspaceUnreadBadge } from "@/components/workspace-unread-badge";
 import {
 	ClockCounterClockwise,
 	SquaresFour,
@@ -65,6 +66,10 @@ function SidebarWorkspaceRow({ entry }: { entry: WorkspaceLibraryEntry }) {
 			<span className="min-w-0 flex-1 truncate text-tedix-control">
 				{entry.workspace.name}
 			</span>
+			<WorkspaceUnreadBadge
+				workspaceId={entry.workspace.id}
+				name={entry.workspace.name}
+			/>
 		</SidebarMenuSubButton>
 	);
 }

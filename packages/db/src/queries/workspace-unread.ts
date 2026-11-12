@@ -201,6 +201,8 @@ function buildWorkspaceUnreadFeedStatement(
 		afterSeq: number;
 		/** Every id the reader is recorded under; their own rows are never unread. */
 		readerIds: readonly string[];
+		/** Return only the reader's own rows instead of everyone else's. */
+		own?: boolean;
 		limit?: number;
 	},
 ) {
@@ -239,10 +241,13 @@ function buildWorkspaceUnreadFeedStatement(
 				eq(workspaceActivity.organizationId, params.organizationId),
 				// bound-params: the two feed kinds that can be unread
 				inArray(workspaceActivity.kind, ["output", "run"]),
-				readerIds.length
+				params.own
 					? // bound-params: at most four ids of one person
-						notInArray(workspaceActivity.actorId, readerIds)
-					: undefined,
+						inArray(workspaceActivity.actorId, readerIds)
+					: readerIds.length
+						? // bound-params: at most four ids of one person
+							notInArray(workspaceActivity.actorId, readerIds)
+						: undefined,
 			),
 		)
 		.orderBy(desc(workspaceActivity.seq))
