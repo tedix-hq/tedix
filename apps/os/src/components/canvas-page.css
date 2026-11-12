@@ -901,6 +901,22 @@
 	border-radius: var(--radius-xl);
 }
 
+/*
+ * A phone on its side in Focus view: the app's frame is never taller than the
+ * screen below the Focus bar, so anything the app pins to its own edges (a
+ * slide show's slide and its next and close buttons) is fully on screen. The
+ * frame scrolls its own content instead of the page scrolling the frame.
+ * 4.0625rem is the Focus bar: 64px and its 1px rule.
+ */
+@media (orientation: landscape) and (max-height: 500px) {
+	.canvas-surface[data-canvas-focus] .canvas-stage-content iframe {
+		max-height: calc(
+			var(--viewport-tedix-height) - 4.0625rem -
+				env(safe-area-inset-bottom, 0px)
+		);
+	}
+}
+
 @media (max-width: 959px) {
 	.canvas-pane-switcher {
 		display: flex;
