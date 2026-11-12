@@ -285,6 +285,13 @@ describe("shareStatus", () => {
 	});
 
 	it("maps every status to a badge variant", () => {
+		// A link its workspace's privacy stopped reads as off, not active.
+		expect(
+			shareStatus(
+				shareFixture({ stoppedByPrivateWorkspace: true }),
+				new Date(),
+			),
+		).toBe("off");
 		expect(shareStatusVariant("active")).toBe("success");
 		expect(shareStatusVariant("off")).toBe("secondary");
 		expect(shareStatusVariant("expired")).toBe("warning");

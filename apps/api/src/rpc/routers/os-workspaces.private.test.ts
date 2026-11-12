@@ -14,7 +14,16 @@ import { createDbClient } from "@tedix/db/client";
 import { auditEvents } from "@tedix/db/schema/audit-events";
 import { skillRuns, skillWorkflowSources } from "@tedix/db/schema/cognitive";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
-import { osShareLinks, osShareSessions } from "@tedix/db/schema/os-shares";
+import {
+	osShareLinkInvitees,
+	osShareLinks,
+	osShareSessions,
+} from "@tedix/db/schema/os-shares";
+import {
+	handleOsShareOpen,
+	handleOsShareSessionOutput,
+	handleOsShareSessionRead,
+} from "../../lib/os-share-redemption";
 import {
 	osGadgetExecutions,
 	osGadgetRevisions,
@@ -26,6 +35,7 @@ import {
 	osWorkspaceSummaries,
 } from "@tedix/db/schema/os-workspaces";
 import { userConfigs } from "@tedix/db/schema/user-configs";
+import { kernelRuntimeRuns } from "@tedix/db/schema/cognitive-runtime";
 import {
 	workspaceActivity,
 	workspaceFeedCursors,
@@ -63,6 +73,8 @@ function createEnv(): CloudflareEnv {
 			osOutputRevisions,
 			osShareLinks,
 			osShareSessions,
+			osShareLinkInvitees,
+			kernelRuntimeRuns,
 			userConfigs,
 			auditEvents,
 			organizationMembers,
@@ -78,7 +90,7 @@ function createEnv(): CloudflareEnv {
 		),
 	);
 	sqlite.exec(`
-		CREATE TABLE organizations (id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, slug TEXT DEFAULT 'fictional', type TEXT DEFAULT 'organization', descope_tenant_id TEXT, logo_url TEXT);
+		CREATE TABLE organizations (id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, slug TEXT DEFAULT 'fictional', type TEXT DEFAULT 'organization', descope_tenant_id TEXT, logo_url TEXT, metadata TEXT);
 		INSERT INTO organizations (id, name) VALUES ('org-1', 'Fictional Org');
 		INSERT INTO tedis (id, organization_id, name, slug, status, scope, owner_user_id, descope_user_id)
 		VALUES ('robin-primary','org-1','Robin helper','robin-primary','active','personal','member-robin','tedi-identity-1'),
@@ -439,22 +451,236 @@ describe("private OS workspaces", () => {
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
 	});
 
-	it("cannot be shared by the owner either", async () => {
+	it("has no link of its own, but its owner shares one file from it", async () => {
 		const env = createEnv();
 		const { workspace, output } = await seed(env);
+		const owner = shares(env, OWNER);
 		await expect(
-			shares(env, OWNER).shares.create({
-				resourceType: "output",
-				resourceId: output.id,
-			}),
-		).rejects.toMatchObject({ code: "BAD_REQUEST" });
-		await expect(
-			shares(env, OWNER).shares.create({
+			owner.shares.create({
 				resourceType: "workspace",
 				resourceId: workspace.id,
 				role: "use",
 			}),
 		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		const { share } = await owner.shares.create({
+			resourceType: "output",
+			resourceId: output.id,
+		});
+		expect(share).toMatchObject({ access: "anyone_with_link", role: "viewer" });
+		expect(share.stoppedByPrivateWorkspace).toBeUndefined();
+
+		const db = createDbQueryClient(env.DB);
+		const opened = await handleOsShareOpen(db, share.publicId, "org-1");
+		expect(opened.status).toBe(200);
+		const body = (await opened.json()) as {
+			sessionToken: string;
+			resource: Record<string, unknown>;
+		};
+		expect(body.resource).toMatchObject({
+			type: "output",
+			output: { id: output.id },
+		});
+		// The visitor holds one file: no listing, and no sibling by id.
+		expect(body.resource).not.toHaveProperty("files");
+		expect(body.resource).not.toHaveProperty("gadgets");
+		const { output: sibling } = await member(env, OWNER).outputs.create({
+			kind: "document",
+			title: "Sibling notes",
+			workspaceId: workspace.id,
+			content: { kind: "document", blocks: [] },
+		});
+		expect(
+			(await handleOsShareSessionOutput(db, body.sessionToken, sibling.id))
+				.status,
+		).toBe(404);
+		expect(
+			(await handleOsShareSessionOutput(db, body.sessionToken, output.id))
+				.status,
+		).toBe(404);
+		// Another organization's host never answers for it.
+		expect((await handleOsShareOpen(db, share.publicId, "org-2")).status).toBe(
+			404,
+		);
+
+		// Turning the link off closes the open session and the address.
+		await owner.shares.setDisabled({ shareId: share.id, disabled: true });
+		expect((await handleOsShareSessionRead(db, body.sessionToken)).status).toBe(
+			404,
+		);
+		expect((await handleOsShareOpen(db, share.publicId, "org-1")).status).toBe(
+			404,
+		);
+		await owner.shares.setDisabled({ shareId: share.id, disabled: false });
+		expect((await handleOsShareOpen(db, share.publicId, "org-1")).status).toBe(
+			200,
+		);
+		await owner.shares.revoke({ shareId: share.id });
+		expect((await handleOsShareOpen(db, share.publicId, "org-1")).status).toBe(
+			404,
+		);
+	});
+
+	it("keeps a file's link from everyone who does not run the workspace", async () => {
+		const env = createEnv();
+		const { output } = await seed(env);
+		const { share } = await shares(env, OWNER).shares.create({
+			resourceType: "output",
+			resourceId: output.id,
+			access: "invited",
+		});
+		for (const outsider of [
+			shares(env, OTHER),
+			createRouterClient(osSharesContractRouter, {
+				context: context(env, ADMIN, {
+					permissions: ["settings:manage"],
+					userRole: "admin",
+				}),
+			}),
+		]) {
+			const scope = { shareId: share.id };
+			await expect(
+				outsider.shares.list({
+					resourceType: "output",
+					resourceId: output.id,
+				}),
+			).rejects.toMatchObject(notFound);
+			await expect(outsider.shares.previewRevoke(scope)).rejects.toMatchObject(
+				notFound,
+			);
+			await expect(outsider.shares.revoke(scope)).rejects.toMatchObject(
+				notFound,
+			);
+			await expect(
+				outsider.shares.setDisabled({ ...scope, disabled: true }),
+			).rejects.toMatchObject(notFound);
+			await expect(
+				outsider.shares.update({ ...scope, access: "anyone_with_link" }),
+			).rejects.toMatchObject(notFound);
+			await expect(
+				outsider.shares.restrict({ ...scope, maxRole: "viewer", reason: "x" }),
+			).rejects.toMatchObject(notFound);
+			await expect(outsider.shares.delete(scope)).rejects.toMatchObject(
+				notFound,
+			);
+			await expect(outsider.shares.invitees.list(scope)).rejects.toMatchObject(
+				notFound,
+			);
+			await expect(
+				outsider.shares.invitees.add({ ...scope, email: "kai@example.test" }),
+			).rejects.toMatchObject(notFound);
+		}
+		const [row] = await createDbQueryClient(env.DB)
+			.select()
+			.from(osShareLinks)
+			.where(eq(osShareLinks.id, share.id));
+		expect(row).toMatchObject({
+			access: "invited",
+			revokedAt: null,
+			disabledAt: null,
+			standalone: true,
+		});
+	});
+
+	it("lets the owner, without an admin role, choose and narrow who a file's link reaches", async () => {
+		const env = createEnv();
+		const { output } = await seed(env);
+		const owner = createRouterClient(osSharesContractRouter, {
+			context: context(env, OWNER, { permissions: ["os:read", "os:author"] }),
+		});
+		const { share } = await owner.shares.create({
+			resourceType: "output",
+			resourceId: output.id,
+		});
+		const db = createDbQueryClient(env.DB);
+		const visitor = (await (
+			await handleOsShareOpen(db, share.publicId, "org-1")
+		).json()) as { sessionToken: string };
+		await expect(
+			owner.shares.update({ shareId: share.id, access: "invited" }),
+		).resolves.toMatchObject({
+			share: { access: "invited" },
+			revokedSessionCount: 1,
+		});
+		// The signed-out visitor is cut off; only an invited person opens it.
+		expect(
+			(await handleOsShareSessionRead(db, visitor.sessionToken)).status,
+		).toBe(404);
+		const { invitee } = await owner.shares.invitees.add({
+			shareId: share.id,
+			email: "guest@example.test",
+		});
+		const asGuest = async () => ({
+			userId: "guest-user",
+			email: "guest@example.test",
+		});
+		const stranger = async () => ({
+			userId: "stranger",
+			email: "stranger@example.test",
+		});
+		const open = (identify?: typeof asGuest) =>
+			handleOsShareOpen(db, share.publicId, "org-1", undefined, identify);
+		expect((await open(stranger)).status).toBe(404);
+		const invited = await open(asGuest);
+		expect(invited.status).toBe(200);
+		const session = ((await invited.json()) as { sessionToken: string })
+			.sessionToken;
+		// A removed person loses the file on their next read.
+		await owner.shares.invitees.remove({
+			shareId: share.id,
+			inviteeId: invitee.id,
+		});
+		expect(
+			(await handleOsShareSessionRead(db, session, undefined, asGuest)).status,
+		).toBe(404);
+		expect((await open(asGuest)).status).toBe(404);
+	});
+
+	it("keeps a link made before the workspace turned private off until its owner turns it on", async () => {
+		const env = createEnv();
+		const { team, teamOutput } = await seed(env);
+		const owner = shares(env, OWNER);
+		const { share } = await owner.shares.create({
+			resourceType: "output",
+			resourceId: teamOutput.id,
+		});
+		const { share: workspaceShare } = await owner.shares.create({
+			resourceType: "workspace",
+			resourceId: team.id,
+			role: "use",
+		});
+		const db = createDbQueryClient(env.DB);
+		const open = (publicId: string) => handleOsShareOpen(db, publicId, "org-1");
+		expect((await open(share.publicId)).status).toBe(200);
+		await member(env, OWNER).workspaces.update({
+			workspaceId: team.id,
+			visibility: "private",
+		});
+		expect((await open(share.publicId)).status).toBe(404);
+		expect((await open(workspaceShare.publicId)).status).toBe(404);
+		await expect(
+			owner.shares.list({ resourceType: "output", resourceId: teamOutput.id }),
+		).resolves.toMatchObject({
+			items: [{ id: share.id, stoppedByPrivateWorkspace: true }],
+		});
+		// Only the owner's own choice revives it; the workspace link stays shut.
+		await expect(
+			shares(env, OTHER).shares.setDisabled({
+				shareId: share.id,
+				disabled: false,
+			}),
+		).rejects.toMatchObject(notFound);
+		expect((await open(share.publicId)).status).toBe(404);
+		const on = await owner.shares.setDisabled({
+			shareId: share.id,
+			disabled: false,
+		});
+		expect(on.share.stoppedByPrivateWorkspace).toBeUndefined();
+		expect((await open(share.publicId)).status).toBe(200);
+		await owner.shares.setDisabled({
+			shareId: workspaceShare.id,
+			disabled: false,
+		});
+		expect((await open(workspaceShare.publicId)).status).toBe(404);
 	});
 
 	it("can be made private only by the member who created it", async () => {

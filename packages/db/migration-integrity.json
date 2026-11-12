@@ -1456,6 +1456,10 @@
 		{
 			"name": "20261112154420_memory_facts_lifecycle_index/migration.sql",
 			"sha256": "e1eeabbe64f645528dea80c5d79e6a9ca1e1152995f335a427cb074c8cbdcf7f"
+		},
+		{
+			"name": "20261112223503_share_link_standalone/migration.sql",
+			"sha256": "72b0df0d02162b13c8fbb83e144e50ce1983ae31af253e6cf8598ae3a7078ca9"
 		}
 	]
 }

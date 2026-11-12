@@ -58,12 +58,14 @@ declare const __LOCAL_DEMO_ENABLED__: boolean;
 export type ShareLinkStatus = "active" | "off" | "expired" | "revoked";
 
 export function shareStatus(
-	share: Pick<OsShareLink, "expiresAt" | "revokedAt" | "disabledAt">,
+	share: Pick<OsShareLink, "expiresAt" | "revokedAt" | "disabledAt"> &
+		Pick<Partial<OsShareLink>, "stoppedByPrivateWorkspace">,
 	now: Date = new Date(),
 ): ShareLinkStatus {
 	if (share.revokedAt !== null) return "revoked";
 	// A link from before "off" existed has no disabledAt at all; it is active.
-	if (share.disabledAt) return "off";
+	// A link its workspace's privacy stopped is off until turned back on.
+	if (share.disabledAt || share.stoppedByPrivateWorkspace) return "off";
 	if (
 		share.expiresAt !== null &&
 		Date.parse(share.expiresAt) <= now.getTime()
@@ -1129,8 +1131,9 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 								<LinkSimple size={14} /> Turn link back on
 							</Button>
 							<Text role="label" tone="secondary" className="m-0">
-								The link is off. The address is kept — turning it back on
-								revives the same one.
+								{link.stoppedByPrivateWorkspace
+									? `This link stopped working when the workspace became private. Turn it back on to share this ${noun} on its own; the address stays the same.`
+									: "The link is off. The address is kept — turning it back on revives the same one."}
 							</Text>
 						</div>
 					) : null}

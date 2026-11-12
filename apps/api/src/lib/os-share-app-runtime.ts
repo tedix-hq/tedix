@@ -52,6 +52,7 @@ import {
 	linkAdmitsGuest,
 	recipientMayOpen,
 	shareableOutputRevision,
+	stoppedByPrivateWorkspace,
 	TOKEN_SHAPE,
 	workspaceLinkAdmitsGuest,
 	workspaceLinkAppRevisionId,
@@ -233,13 +234,14 @@ async function resolveGuestAppLinkScope(
 	if (
 		!workspace ||
 		workspace.status !== "active" ||
-		workspace.visibility === "private"
+		stoppedByPrivateWorkspace(link, workspace)
 	)
 		return null;
 	return {
 		organizationId: link.organizationId,
 		workspaceId: workspace.id,
-		workspaceName: workspace.name,
+		// A file-only visitor never learns what a private workspace is called.
+		workspaceName: workspace.visibility === "private" ? "" : workspace.name,
 		gadgetId: gadget.id,
 		revisionId,
 		shareLinkId: link.id,
@@ -313,7 +315,7 @@ export async function handleGuestAppOpen(
 		app: {
 			...scope.app,
 			workspaceId: scope.workspaceId,
-			workspaceName: scope.workspaceName,
+			...(scope.workspaceName ? { workspaceName: scope.workspaceName } : {}),
 			revision: code.revision,
 			client: code.files["client.js"] ?? "",
 			settings: code.config.settings ?? {},

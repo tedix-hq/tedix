@@ -42,7 +42,9 @@ import {
 	generateOsSharePublicId,
 	generateOsShareToken,
 	hashOsShareToken,
+	linkWorkspaceId,
 	osShareUrl,
+	stoppedByPrivateWorkspace,
 	workspaceGuestLimits,
 } from "../../lib/os-share-redemption";
 import { requireOrgId } from "../org-scope";
@@ -51,7 +53,9 @@ import {
 	type BaseContext,
 	createError,
 	ErrorCodes,
+	userHoldsPermission,
 	withAuth,
+	withAuthorization,
 } from "../orpc";
 import { OS_SHARES_AUDIT, osAudit } from "../os-audit";
 import { resolveCreator } from "./os-workspaces-shared";
@@ -68,7 +72,18 @@ const authed = osSharesOs.use(withAuth).use(osAudit(OS_SHARES_AUDIT));
 // apps:write machine scopes.
 const readOs = authed.use(AUTHZ.osRead);
 const authorOs = authed.use(AUTHZ.osAuthor);
-const adminOs = authed.use(AUTHZ.osAdmin);
+// Changing who a live link reaches is for organization owners and admins,
+// and for the people who run the private workspace the link's file is in.
+// `requireAudienceLink` makes that check on the link itself.
+const audienceOs = authed.use(
+	withAuthorization(
+		{
+			handlerOwnedUserAuthorization:
+				"requireAudienceLink: os:admin or settings:manage, or the owner or a build collaborator of the private workspace holding the link's file",
+		},
+		"apps:write",
+	),
+);
 
 function queryDb(context: BaseContext) {
 	return createDbQueryClient(context.env.DB);
@@ -124,6 +139,7 @@ function mapShareLink(
 	row: OsShareLinkRow,
 	urlFor: (publicId: string, slug?: string) => string,
 	title?: string | null,
+	stoppedByPrivacy = false,
 ): OsShareLink {
 	// Every row has a permanent id after the backfill migration; the create
 	// path always sets one.
@@ -149,10 +165,14 @@ function mapShareLink(
 		expiresAt: row.expiresAt,
 		revokedAt: row.revokedAt,
 		disabledAt: row.disabledAt,
+		...(stoppedByPrivacy ? { stoppedByPrivateWorkspace: true } : {}),
 	};
 }
 
-/** Bind the caller's organization into a resource lookup, or 404. */
+/**
+ * Bind the caller's organization into a resource lookup, or 404. `isPrivate`
+ * says the resource sits in a private workspace the caller runs.
+ */
 async function requireResource(
 	context: BaseContext,
 	resourceType: "output" | "gadget" | "workspace",
@@ -166,8 +186,15 @@ async function requireResource(
 			outputId: resourceId,
 		});
 		if (!output) throw createError(ErrorCodes.NOT_FOUND, "OS output not found");
-		await requireShareableWorkspace(context, output.workspaceId);
-		return output;
+		return {
+			resource: output,
+			title: output.title,
+			isPrivate: await requireWorkspaceAuthority(
+				context,
+				output.workspaceId,
+				"OS output not found",
+			),
+		};
 	}
 	if (resourceType === "gadget") {
 		const gadget = await getOsGadget(db, {
@@ -175,8 +202,15 @@ async function requireResource(
 			gadgetId: resourceId,
 		});
 		if (!gadget) throw createError(ErrorCodes.NOT_FOUND, "OS app not found");
-		await requireShareableWorkspace(context, gadget.workspaceId);
-		return gadget;
+		return {
+			resource: gadget,
+			title: gadget.name,
+			isPrivate: await requireWorkspaceAuthority(
+				context,
+				gadget.workspaceId,
+				"OS app not found",
+			),
+		};
 	}
 	const workspace = await getOsWorkspace(db, {
 		organizationId,
@@ -185,30 +219,83 @@ async function requireResource(
 	if (!workspace) {
 		throw createError(ErrorCodes.NOT_FOUND, "OS workspace not found");
 	}
-	await requireShareableWorkspace(context, workspace.id);
-	return workspace;
+	if (
+		await requireWorkspaceAuthority(
+			context,
+			workspace.id,
+			"OS workspace not found",
+		)
+	)
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			"A private workspace has no link of its own. Invite people to it, or share one file or app from it.",
+		);
+	return { resource: workspace, title: workspace.name, isPrivate: false };
 }
 
 /**
- * A share link reaches people outside a private workspace, so nothing in a
- * private workspace is shareable. Non-owners get NOT_FOUND: they cannot learn
- * it exists.
+ * Sharing from a private workspace is for the people who run it: its owner
+ * and its build collaborators. Anyone else gets NOT_FOUND, so they cannot
+ * learn the workspace or its links exist. Returns whether it is private.
  */
-async function requireShareableWorkspace(
+async function requireWorkspaceAuthority(
 	context: BaseContext,
 	workspaceId: string | null,
-): Promise<void> {
-	if (!workspaceId) return;
+	message: string,
+): Promise<boolean> {
+	if (!workspaceId) return false;
 	const workspace = await getOsWorkspace(queryDb(context), {
 		organizationId: requireOrgId(context),
 		workspaceId,
 	});
-	if (!workspace || workspace.visibility !== "private") return;
-	await assertOsWorkspaceVisible(context, workspace);
-	throw createError(
-		ErrorCodes.BAD_REQUEST,
-		"This is in a private workspace. Share the workspace with your organization first, then make a link.",
+	if (!workspace || workspace.visibility !== "private") return false;
+	await assertOsWorkspaceVisible(context, workspace, message);
+	return true;
+}
+
+/**
+ * One link in the caller's organization, or NOT_FOUND. A link to something in
+ * a private workspace answers only the people who run that workspace.
+ * `stopped` says the workspace's privacy keeps the link from opening.
+ */
+async function requireLink(context: BaseContext, shareId: string) {
+	const db = queryDb(context);
+	const link = await getScopedOsShareLink(db, {
+		organizationId: requireOrgId(context),
+		shareLinkId: shareId,
+	});
+	if (!link) throw createError(ErrorCodes.NOT_FOUND, "OS share link not found");
+	const isPrivate = await requireWorkspaceAuthority(
+		context,
+		await linkWorkspaceId(db, link),
+		"OS share link not found",
 	);
+	return {
+		link,
+		isPrivate,
+		stopped:
+			isPrivate && stoppedByPrivateWorkspace(link, { visibility: "private" }),
+	};
+}
+
+/**
+ * `requireLink` for a change to who the link reaches: an organization owner
+ * or admin, or whoever runs the private workspace the link's file is in.
+ */
+async function requireAudienceLink(context: BaseContext, shareId: string) {
+	const found = await requireLink(context, shareId);
+	if (
+		!found.isPrivate &&
+		context.authType === "user" &&
+		!(["os:admin", "settings:manage"] as const).some((permission) =>
+			userHoldsPermission(context, permission),
+		)
+	)
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"Only an organization owner or admin can change who this link reaches",
+		);
+	return found;
 }
 
 async function requirePinnedRevision(
@@ -391,7 +478,7 @@ async function requireUnlatchedAuthoringRun(
 
 const sharesCreate = authorOs.shares.create.handler(
 	async ({ input, context }) => {
-		const resource = await requireResource(
+		const { resource, title, isPrivate } = await requireResource(
 			context,
 			input.resourceType,
 			input.resourceId,
@@ -449,19 +536,21 @@ const sharesCreate = authorOs.shares.create.handler(
 			createdAt: new Date().toISOString(),
 			expiresAt: input.expiresAt ?? null,
 			revokedAt: null,
+			standalone: isPrivate ? true : null,
 		});
 		// The plaintext token exists only in this response — never again.
-		const title = "title" in resource ? resource.title : resource.name;
 		return { share: mapShareLink(row, urlFor, title), token };
 	},
 );
 
 const sharesList = readOs.shares.list.handler(async ({ input, context }) => {
-	const resource = await requireResource(
+	const { resource, title, isPrivate } = await requireResource(
 		context,
 		input.resourceType,
 		input.resourceId,
 	);
+	const stopped = (row: OsShareLinkRow) =>
+		isPrivate && stoppedByPrivateWorkspace(row, { visibility: "private" });
 	const db = queryDb(context);
 	const rows = await listOsShareLinks(db, {
 		organizationId: resource.organizationId,
@@ -469,8 +558,9 @@ const sharesList = readOs.shares.list.handler(async ({ input, context }) => {
 		resourceId: resource.id,
 	});
 	const urlFor = await shareUrlFor(context);
-	const title = "title" in resource ? resource.title : resource.name;
-	const items = rows.map((row) => mapShareLink(row, urlFor, title));
+	const items = rows.map((row) =>
+		mapShareLink(row, urlFor, title, stopped(row)),
+	);
 	if (input.resourceType === "workspace") {
 		return {
 			items,
@@ -501,6 +591,7 @@ const sharesList = readOs.shares.list.handler(async ({ input, context }) => {
 					(row) =>
 						!row.revokedAt &&
 						!row.disabledAt &&
+						!stopped(row) &&
 						(!row.expiresAt || Date.parse(row.expiresAt) > Date.now()),
 				)
 				.map((row) => row.id),
@@ -510,19 +601,14 @@ const sharesList = readOs.shares.list.handler(async ({ input, context }) => {
 
 const sharesPreviewRevoke = readOs.shares.previewRevoke.handler(
 	async ({ input, context }) => {
-		const organizationId = requireOrgId(context);
 		const db = queryDb(context);
-		const row = await getScopedOsShareLink(db, {
-			organizationId,
-			shareLinkId: input.shareId,
-		});
-		if (!row)
-			throw createError(ErrorCodes.NOT_FOUND, "OS share link not found");
+		const { link: row, stopped } = await requireLink(context, input.shareId);
 		return {
 			share: mapShareLink(
 				row,
 				await shareUrlFor(context),
 				await shareLinkTitle(context, row),
+				stopped,
 			),
 			activeSessionCount: await countActiveOsShareSessions(
 				db,
@@ -537,6 +623,7 @@ const sharesRevoke = authorOs.shares.revoke.handler(
 	async ({ input, context }) => {
 		const organizationId = requireOrgId(context);
 		const db = queryDb(context);
+		await requireLink(context, input.shareId);
 		const revokedSessionCount = await countActiveOsShareSessions(
 			db,
 			input.shareId,
@@ -570,12 +657,10 @@ const sharesSetDisabled = authorOs.shares.setDisabled.handler(
 	async ({ input, context }) => {
 		const organizationId = requireOrgId(context);
 		const db = queryDb(context);
-		const current = await getScopedOsShareLink(db, {
-			organizationId,
-			shareLinkId: input.shareId,
-		});
-		if (!current)
-			throw createError(ErrorCodes.NOT_FOUND, "OS share link not found");
+		const { link: current, isPrivate } = await requireLink(
+			context,
+			input.shareId,
+		);
 		if (current.revokedAt)
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
@@ -584,10 +669,16 @@ const sharesSetDisabled = authorOs.shares.setDisabled.handler(
 		const disabledAt = input.disabled
 			? (current.disabledAt ?? new Date().toISOString())
 			: null;
+		// Turning a file's or app's link on inside a private workspace is the
+		// deliberate act that lets it open while the workspace stays private.
+		const standalone =
+			!input.disabled && isPrivate && current.resourceType !== "workspace"
+				? true
+				: current.standalone;
 		const result = await updateOsShareLinkSettings(db, {
 			organizationId,
 			shareLinkId: current.id,
-			set: { disabledAt },
+			set: { disabledAt, standalone },
 			endSessions: input.disabled && current.disabledAt === null,
 		});
 		if (!result)
@@ -608,19 +699,15 @@ const sharesSetDisabled = authorOs.shares.setDisabled.handler(
 const ROLE_RANK = { viewer: 0, use: 1, build: 2 } as const;
 
 /**
- * Edit an active link without minting a new token. Only organization owners
- * and admins (os:admin) may change who a live link reaches.
+ * Edit an active link without minting a new token. Organization owners and
+ * admins may change who a live link reaches, and so may the people who run
+ * the private workspace its file is in.
  */
-const sharesUpdate = adminOs.shares.update.handler(
+const sharesUpdate = audienceOs.shares.update.handler(
 	async ({ input, context }) => {
 		const organizationId = requireOrgId(context);
 		const db = queryDb(context);
-		const current = await getScopedOsShareLink(db, {
-			organizationId,
-			shareLinkId: input.shareId,
-		});
-		if (!current)
-			throw createError(ErrorCodes.NOT_FOUND, "OS share link not found");
+		const { link: current } = await requireAudienceLink(context, input.shareId);
 		if (current.revokedAt)
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
@@ -701,12 +788,7 @@ const sharesRestrict = authorOs.shares.restrict.handler(
 	async ({ input, context }) => {
 		const organizationId = requireOrgId(context);
 		const db = queryDb(context);
-		const current = await getScopedOsShareLink(db, {
-			organizationId,
-			shareLinkId: input.shareId,
-		});
-		if (!current)
-			throw createError(ErrorCodes.NOT_FOUND, "OS share link not found");
+		const { link: current } = await requireLink(context, input.shareId);
 		if (ROLE_RANK[input.maxRole] > ROLE_RANK[current.role]) {
 			throw createError(
 				ErrorCodes.BAD_REQUEST,
@@ -766,16 +848,11 @@ async function cutShareLinkAppSessions(
 	});
 }
 
-const sharesDelete = adminOs.shares.delete.handler(
+const sharesDelete = audienceOs.shares.delete.handler(
 	async ({ input, context }) => {
 		const organizationId = requireOrgId(context);
 		const db = queryDb(context);
-		const row = await getScopedOsShareLink(db, {
-			organizationId,
-			shareLinkId: input.shareId,
-		});
-		if (!row)
-			throw createError(ErrorCodes.NOT_FOUND, "OS share link not found");
+		const { link: row } = await requireAudienceLink(context, input.shareId);
 		// Delete is the permanent counterpart to turning a link off: stamp the
 		// terminal revocation and cut sessions before removing the row.
 		if (!row.revokedAt) {
@@ -810,11 +887,7 @@ function mapInvitee(row: OsShareLinkInviteeRow) {
 
 /** An active link in the caller's organization, or NOT_FOUND. */
 async function requireActiveShareLink(context: BaseContext, shareId: string) {
-	const row = await getScopedOsShareLink(queryDb(context), {
-		organizationId: requireOrgId(context),
-		shareLinkId: shareId,
-	});
-	if (!row) throw createError(ErrorCodes.NOT_FOUND, "OS share link not found");
+	const { link: row } = await requireAudienceLink(context, shareId);
 	if (row.revokedAt)
 		throw createError(
 			ErrorCodes.BAD_REQUEST,
@@ -824,8 +897,8 @@ async function requireActiveShareLink(context: BaseContext, shareId: string) {
 }
 
 // The invite list decides who a live link reaches, so it sits with the other
-// audience edits under os:admin; reading it needs the same authority.
-const inviteesList = adminOs.shares.invitees.list.handler(
+// audience edits; reading it needs the same authority.
+const inviteesList = audienceOs.shares.invitees.list.handler(
 	async ({ input, context }) => {
 		const link = await requireActiveShareLink(context, input.shareId);
 		const rows = await listOsShareLinkInvitees(queryDb(context), {
@@ -842,7 +915,7 @@ const inviteesList = adminOs.shares.invitees.list.handler(
 	},
 );
 
-const inviteesAdd = adminOs.shares.invitees.add.handler(
+const inviteesAdd = audienceOs.shares.invitees.add.handler(
 	async ({ input, context }) => {
 		const link = await requireActiveShareLink(context, input.shareId);
 		const db = queryDb(context);
@@ -863,7 +936,7 @@ const inviteesAdd = adminOs.shares.invitees.add.handler(
 	},
 );
 
-const inviteesRemove = adminOs.shares.invitees.remove.handler(
+const inviteesRemove = audienceOs.shares.invitees.remove.handler(
 	async ({ input, context }) => {
 		const link = await requireActiveShareLink(context, input.shareId);
 		const removed = await removeOsShareLinkInvitee(queryDb(context), {

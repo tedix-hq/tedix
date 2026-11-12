@@ -78,6 +78,13 @@ export const osShareLinks = sqliteTable(
 		 * link, but clearing it revives the same address — no new public id.
 		 */
 		disabledAt: text("disabled_at"),
+		/**
+		 * Set when the link was made, or turned back on, on purpose for one file
+		 * or app in a private workspace: it keeps opening while the workspace
+		 * stays private. Null on every other link, which stops while its
+		 * workspace is private.
+		 */
+		standalone: integer("standalone", { mode: "boolean" }),
 	},
 	(table) => [
 		index("os_share_links_org_resource_idx").on(
