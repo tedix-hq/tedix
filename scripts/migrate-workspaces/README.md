@@ -138,6 +138,19 @@ but no workspace at all gets one when its entry carries `"createHome":
 true` (the export writes the directory row of a workspace named Home with
 the id in `unassignedOutputsHome`). `assignments` proposes the file.
 
+Outputs that name a deleted workspace also need the organization's reviewed
+home; their revisions follow them. Conversations that name a deleted
+workspace and their runs and events stay in the source stores untouched.
+The report lists their conversation IDs and counts them as staying.
+
+When retention removed a run's events before log storage began, a reviewed
+assignment can list `retainedHistory` entries with the exact `runId`,
+`latestEventAt`, `reason` and durable decision `evidenceRef`. The report
+lists each as a known difference. Missing events for any other run or a
+changed latest-event timestamp still block import. Keep these decisions
+outside source control with the capture and the Work evidence. This does
+not bypass snapshot freshness, partition coverage or row/hash validation.
+
 What stays in the shared core, with the reason, is `TABLES_THAT_STAY` in the
 same file: organization memory, factory runs and their artifacts, a tedi's
 own ledger, and organization Home threads (conversations with no
