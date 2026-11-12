@@ -22,6 +22,10 @@ import type {
  * an edit on the other both survive. Other lists (sheet rows, document
  * paragraphs) merge as sequences: inserts and deletes in different places both
  * apply, and an item both sides changed in place merges recursively.
+ *
+ * The text of one paragraph merges word by word: two people who changed
+ * different words of it both keep their change, formatting included. It is a
+ * conflict only where both changed the same words or typed at the same spot.
  */
 export type OutputMergeResult =
 	| { ok: true; content: OsOutputContent; conflicts: string[] }
@@ -223,6 +227,20 @@ function mergeList(
 		lists.every((list) => list.every((item) => idOf(item)))
 	)
 		return mergeById(base, mine, theirs, path, conflicts);
+	const typed = (item: JsonValue) =>
+		isObject(item) && typeof item.type === "string";
+	if (lists.every((list) => list.every(typed)) && lists.some(hasText))
+		return joinWords(
+			mergeSequence(
+				splitWords(base),
+				splitWords(mine),
+				splitWords(theirs),
+				path,
+				conflicts,
+				false,
+				false,
+			) as JsonValue[],
+		);
 	// A grid row or a row of cells keeps its positions: the same cell is the
 	// same index. Typed nodes (document paragraphs) can shift, so they diff.
 	if (
@@ -241,6 +259,38 @@ function mergeList(
 				) ?? null,
 		);
 	return mergeSequence(base, mine, theirs, path, conflicts);
+}
+
+type TextNode = { type: "text"; text: string; [key: string]: JsonValue };
+const isText = (item: Json): item is TextNode =>
+	isObject(item) && item.type === "text" && typeof item.text === "string";
+const hasText = (list: JsonValue[]) => list.some(isText);
+/** A word, a run of spaces, or one punctuation mark. */
+const WORDS = /\s+|[\p{L}\p{N}_]+|[^\s\p{L}\p{N}_]/gu;
+
+/** A line of text as one item per word, each keeping its formatting. */
+function splitWords(line: JsonValue[]): JsonValue[] {
+	return line.flatMap((node) =>
+		isText(node)
+			? (node.text.match(WORDS) ?? []).map((text) => ({ ...node, text }))
+			: [node],
+	);
+}
+
+/** Put neighbouring words with the same formatting back into one run. */
+function joinWords(words: JsonValue[]): JsonValue[] {
+	const line: JsonValue[] = [];
+	for (const word of words) {
+		const last = line[line.length - 1];
+		if (
+			isText(last) &&
+			isText(word) &&
+			same({ ...last, text: "" }, { ...word, text: "" })
+		)
+			line[line.length - 1] = { ...last, text: last.text + word.text };
+		else line.push(word);
+	}
+	return line;
 }
 
 function mergeById(
@@ -354,6 +404,8 @@ function mergeSequence(
 	path: string,
 	conflicts: Conflicts,
 	recurse = true,
+	/** Whether items both sides added at one spot are all kept, theirs first. */
+	stack = true,
 ): Json {
 	const left = hunks(base, mine);
 	const right = hunks(base, theirs);
@@ -412,6 +464,7 @@ function mergeSequence(
 		}
 		// Both sides only added items at the same spot: keep theirs, then mine.
 		if (
+			stack &&
 			clash.start === clash.end &&
 			change.start === change.end &&
 			clash.start === change.start

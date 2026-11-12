@@ -302,6 +302,140 @@ describe("mergeOutputContent: documents", () => {
 	});
 });
 
+describe("mergeOutputContent: one paragraph, word by word", () => {
+	const line = (...content: OsRichTextNode[]): Doc => ({
+		kind: "document",
+		blocks: [],
+		richText: { type: "doc", content: [{ type: "paragraph", content }] },
+	});
+	const t = (text: string, ...marks: string[]): OsRichTextNode => ({
+		type: "text",
+		text,
+		...(marks.length ? { marks: marks.map((type) => ({ type })) } : {}),
+	});
+	const runs = (content: OsOutputContent) =>
+		(content as Doc).richText!.content[0]!.content!;
+	const base = line(t("The launch is on Monday and the owner is Ada."));
+
+	it("keeps both changes when they touch different words", () => {
+		const mine = line(t("The launch is on Friday and the owner is Ada."));
+		const theirs = line(t("The launch is on Monday and the owner is Bob."));
+		const result = merged(mergeOutputContent(base, mine, theirs)) as Doc;
+		expect(runs(result)).toEqual([
+			t("The launch is on Friday and the owner is Bob."),
+		]);
+		expect(result.blocks).toEqual([
+			{
+				type: "paragraph",
+				text: "The launch is on Friday and the owner is Bob.",
+			},
+		]);
+	});
+
+	it("keeps words one added and words the other removed", () => {
+		const mine = line(
+			t("The public launch is on Monday and the owner is Ada."),
+		);
+		const theirs = line(t("The launch is on Monday."));
+		expect(runs(merged(mergeOutputContent(base, mine, theirs)))).toEqual([
+			t("The public launch is on Monday."),
+		]);
+	});
+
+	it("asks when both changed the same word", () => {
+		const mine = line(t("The launch is on Friday and the owner is Ada."));
+		const theirs = line(t("The launch is on Sunday and the owner is Ada."));
+		const result = mergeOutputContent(base, mine, theirs);
+		expect(result.ok).toBe(false);
+		expect(result.conflicts).toHaveLength(1);
+	});
+
+	it("asks when both typed at the same spot", () => {
+		const mine = line(t("The launch is on Monday and the owner is Ada. Mine."));
+		const theirs = line(
+			t("The launch is on Monday and the owner is Ada. Theirs."),
+		);
+		expect(mergeOutputContent(base, mine, theirs).ok).toBe(false);
+	});
+
+	it("takes the chosen side only for the words both changed", () => {
+		const mine = line(t("The launch is on Friday and the owner is Ada!"));
+		const theirs = line(t("Our launch is on Sunday and the owner is Ada."));
+		for (const [prefer, text] of [
+			["mine", "Our launch is on Friday and the owner is Ada!"],
+			["theirs", "Our launch is on Sunday and the owner is Ada!"],
+		] as const) {
+			const result = mergeOutputContent(base, mine, theirs, prefer);
+			if (!result.ok) throw new Error("expected a merge");
+			expect(runs(result.content)).toEqual([t(text)]);
+			expect(result.conflicts).toHaveLength(1);
+		}
+	});
+
+	it("keeps formatting one added next to a word the other changed", () => {
+		const mine = line(
+			t("The launch is on "),
+			t("Monday", "bold"),
+			t(" and the owner is Ada."),
+		);
+		const theirs = line(t("The launch is on Monday and the owner is Bob."));
+		expect(runs(merged(mergeOutputContent(base, mine, theirs)))).toEqual([
+			t("The launch is on "),
+			t("Monday", "bold"),
+			t(" and the owner is Bob."),
+		]);
+	});
+
+	it("keeps existing formatting, links and line breaks around both changes", () => {
+		const link: OsRichTextNode = {
+			type: "text",
+			text: "the plan",
+			marks: [{ type: "link", attrs: { href: "https://example.com" } }],
+		};
+		const formatted = (first: string, last: string) =>
+			line(
+				t(`${first} `),
+				t("important", "bold", "italic"),
+				t(" note in "),
+				link,
+				{ type: "hardBreak" },
+				t(`Second ${last}.`),
+			);
+		const result = merged(
+			mergeOutputContent(
+				formatted("An", "line"),
+				formatted("One", "line"),
+				formatted("An", "row"),
+			),
+		);
+		expect(runs(result)).toEqual(runs(formatted("One", "row")));
+	});
+
+	it("asks when one changed a word the other reformatted", () => {
+		const mine = line(
+			t("The launch is on "),
+			t("Monday", "bold"),
+			t(" and the owner is Ada."),
+		);
+		const theirs = line(t("The launch is on Tuesday and the owner is Ada."));
+		expect(mergeOutputContent(base, mine, theirs).ok).toBe(false);
+	});
+
+	it("merges inside a paragraph while other paragraphs change too", () => {
+		const three = (a: string, b: string, c: string) => doc([a, b, c]);
+		const result = merged(
+			mergeOutputContent(
+				three("one two three", "middle", "end"),
+				three("one 2 three", "middle", "end, mine"),
+				three("one two 3", "centre", "end"),
+			),
+		) as Doc;
+		expect(
+			result.richText!.content.map((node) => node.content![0]!.text),
+		).toEqual(["one 2 3", "centre", "end, mine"]);
+	});
+});
+
 describe("mergeOutputContent: identities", () => {
 	const cases: OsOutputContent[] = [
 		setCell(grid(), 1, 1, "x"),
