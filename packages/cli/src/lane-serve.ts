@@ -1028,8 +1028,7 @@ async function laneWorktreeInUse(destination: string): Promise<boolean> {
 /**
  * Removes a lane worktree when nothing in it is still the only copy of the
  * work: every change is already a deletion or ignored build output, HEAD has
- * no commit missing from `origin/main` that `recorded` does not account for
- * (commits whose SHAs were written to the Work), and no live process uses it.
+ * no commit missing from `origin/main`, and no live process uses it.
  */
 export async function cleanupLaneWorktree(
 	source: string,
@@ -1037,7 +1036,6 @@ export async function cleanupLaneWorktree(
 	inUse: (
 		destination: string,
 	) => boolean | Promise<boolean> = laneWorktreeInUse,
-	recorded?: ReadonlySet<string>,
 ): Promise<boolean> {
 	const run = async (repo: string, args: string[]) => {
 		try {
@@ -1076,22 +1074,14 @@ export async function cleanupLaneWorktree(
 	// still save; such checkouts are left behind by interrupted removals.
 	const emptied = changes.every((line) => /^(?: D|D )/.test(line));
 	if (!emptied) return false;
-	// A commit missing from origin/main is the last copy of its work unless the
-	// dispatcher already recorded the SHA on the Work.
+	// Recording a SHA on Work does not preserve the commit's Git objects.
 	const unpushed = await run(destination, [
 		"rev-list",
 		head.stdout.trim(),
 		"--not",
 		"refs/remotes/origin/main",
 	]);
-	if (
-		!unpushed ||
-		unpushed.stdout
-			.split("\n")
-			.filter(Boolean)
-			.some((sha) => !recorded?.has(sha))
-	)
-		return false;
+	if (!unpushed || unpushed.stdout.trim()) return false;
 	if (await inUse(destination)) return false;
 	const list = await run(source, ["worktree", "list", "--porcelain", "-z"]);
 	if (!list) return false;
@@ -1448,11 +1438,7 @@ interface DispatcherDeps {
 	landedCommits: typeof landedLaneCommits;
 	unpushedCommits: typeof unpushedLaneCommits;
 	verifyExisting: typeof verifyExistingLaneResult;
-	cleanup: (
-		source: string,
-		destination: string,
-		recorded?: ReadonlySet<string>,
-	) => boolean | Promise<boolean>;
+	cleanup: (source: string, destination: string) => boolean | Promise<boolean>;
 	/** Recursive size of a run directory in bytes. */
 	directoryBytes: (path: string) => Promise<number>;
 	freeDiskBytes: (path: string) => number;
@@ -1486,8 +1472,7 @@ const defaultDeps: DispatcherDeps = {
 					: createCodexLaneThread(cwd, "codex", model, resume),
 	launch: runLaneProcess,
 	darkWake: inDarkWake,
-	cleanup: (source, destination, recorded) =>
-		cleanupLaneWorktree(source, destination, undefined, recorded),
+	cleanup: cleanupLaneWorktree,
 	directoryBytes: async (path) => {
 		const { stdout } = await promisify(execFile)("du", ["-sk", path], {
 			encoding: "utf8",
@@ -2470,7 +2455,7 @@ export class LaneDispatcher {
 	/**
 	 * Keeps `runs/` under the configured cap by evicting the oldest removable
 	 * checkouts first. Runs a receipt still protects, live process groups and
-	 * checkouts with unrecorded unpushed commits count toward the total but are
+	 * checkouts with unpushed commits count toward the total but are
 	 * never evicted, so a runner may stay over the cap until they finish.
 	 */
 	private async enforceCheckoutCap(retained: Receipt[]) {
@@ -3654,7 +3639,7 @@ export class LaneDispatcher {
 	 * A checkout may be removed once its run is terminal, admission is resolved,
 	 * proof collection and reporting finished, and no live process owns it.
 	 * Cap pressure may also evict a checkout retained for a retry
-	 * (`retained`); Git still refuses one holding uncommitted or unrecorded
+	 * (`retained`); Git still refuses one holding uncommitted or
 	 * unpushed work.
 	 */
 	private checkoutCleanupReady(receipt: Receipt, retained = false): boolean {
@@ -3669,17 +3654,6 @@ export class LaneDispatcher {
 			(!receipt.pid || !alive(receipt.pid))
 		);
 	}
-	/**
-	 * The unpushed SHAs the Work already names for this receipt: the recorded
-	 * comment signature covers exactly the receipt's current list, so a commit
-	 * added after the comment keeps the checkout.
-	 */
-	private recordedUnpushed(receipt: Receipt): ReadonlySet<string> | undefined {
-		return receipt.unpushedCommented ===
-			JSON.stringify([receipt.repo, receipt.unpushedCommits ?? []])
-			? new Set(receipt.unpushedCommits ?? [])
-			: undefined;
-	}
 	private async cleanupWorktree(
 		receipt: Receipt,
 		{ retained = false, ownRun = false } = {},
@@ -3693,13 +3667,7 @@ export class LaneDispatcher {
 			(this.running.has(receipt.itemId) || this.preparing.has(receipt.itemId))
 		)
 			return;
-		if (
-			await this.deps.cleanup(
-				this.options.repo,
-				receipt.repo!,
-				this.recordedUnpushed(receipt),
-			)
-		) {
+		if (await this.deps.cleanup(this.options.repo, receipt.repo!)) {
 			const run = dirname(receipt.repo!);
 			if (
 				existsSync(run) &&

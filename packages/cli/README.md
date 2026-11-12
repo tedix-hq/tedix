@@ -581,10 +581,9 @@ are reconciled against their exact canonical Attempt. Expired orphan process gro
 are stopped only when their saved OS start identity and native session still match;
 other live groups retain their slots. Cleanup removes only clean, merged worktrees using ordinary
 Git worktree removal; dirty and unverified work stays retained. Once a run
-settles, its checkout is removed as soon as every commit is on `origin/main`
-or recorded on the Work; unpushed SHAs the dispatcher already commented on the
-Work count as recorded. A checkout with a live Attempt or with unrecorded
-unpushed commits is never removed. Each runner keeps `runs/` under a
+settles, its checkout is removed as soon as every commit is on `origin/main`.
+A checkout with a live Attempt or with unpushed commits is never removed,
+even when the dispatcher has recorded their SHAs on Work. Each runner keeps `runs/` under a
 retained-checkout cap, evicting the oldest removable checkouts first; the cap
 defaults to 10 GB and `--checkout-cap-gb` or `TEDIX_LANE_CHECKOUT_CAP_GB`
 changes it. On start and every ten minutes the dispatcher sweeps every

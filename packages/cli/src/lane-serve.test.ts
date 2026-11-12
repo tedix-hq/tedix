@@ -169,7 +169,6 @@ function fixture({
 		cleanupRemoves: false,
 		cleanupWait: undefined as Promise<boolean> | undefined,
 		cleanupAfterPickup: [] as boolean[],
-		cleanupRecorded: [] as Array<ReadonlySet<string> | undefined>,
 		runSize: 0,
 		runSizes: new Map<string, number>(),
 		freeDiskBytes: Number.MAX_SAFE_INTEGER,
@@ -247,9 +246,8 @@ function fixture({
 				recallStatus: control.recall ? "matched" : "none",
 			};
 		},
-		cleanup: (_source, destination, recorded) => {
+		cleanup: (_source, destination) => {
 			control.cleanups++;
-			control.cleanupRecorded.push(recorded);
 			control.cleanupAfterPickup.push(
 				events.some((event) => event.verb === "dispatch-list"),
 			);
@@ -522,6 +520,7 @@ function fixture({
 		dispatcher,
 		restart,
 		deps,
+		config,
 		dir,
 		events,
 		releases,
@@ -5769,45 +5768,54 @@ it("sweeps every settled run in one pass and keeps each receipt", async () => {
 	expect(readdirSync(join(dir, "archive"))).toHaveLength(2);
 });
 
-it("passes the Work-recorded unpushed SHAs to checkout cleanup", async () => {
-	const { dispatcher, dir, items, control } = fixture();
-	items.splice(0);
-	const sha = "d".repeat(40);
-	const repo = join(dir, "runs", `${item().id}-2`, "repo");
-	mkdirSync(repo, { recursive: true });
-	writeFileSync(
-		join(dir, `${item().id}-2.json`),
-		JSON.stringify({
-			itemId: item().id,
-			version: 2,
-			phase: "settled",
-			outcome: "succeeded",
-			repo,
-			unpushedCommits: [sha],
-			unpushedCommented: JSON.stringify([repo, [sha]]),
-		}),
-	);
-	const bare = join(dir, "runs", `${item(2).id}-2`, "repo");
-	mkdirSync(bare, { recursive: true });
-	writeFileSync(
-		join(dir, `${item(2).id}-2.json`),
-		JSON.stringify({
-			itemId: item(2).id,
-			version: 2,
-			phase: "settled",
-			outcome: "succeeded",
-			repo: bare,
-			unpushedCommits: ["e".repeat(40)],
-		}),
-	);
-	await dispatcher.tick();
-	await dispatcher.drain();
-	// The recorded signature names the same list the Work comment carried; a
-	// checkout whose unpushed commits were never recorded gets no allowance.
-	expect(control.cleanupRecorded).toHaveLength(2);
-	expect(control.cleanupRecorded).toContainEqual(new Set([sha]));
-	expect(control.cleanupRecorded).toContain(undefined);
-});
+it.each(["settled", "deferred"])(
+	"keeps Work-recorded unpushed commits through %s cleanup and cap pressure",
+	async (phase) => {
+		const { repo: source, git } = gitFixture(true);
+		const f = fixture({ capBytes: 1 });
+		f.items.splice(0);
+		f.control.runSize = 2;
+		f.config.repo = source;
+		delete f.deps.cleanup;
+		const destination = join(f.dir, "runs", `${item().id}-2`, "repo");
+		git(["worktree", "add", "--detach", destination]);
+		git(
+			[
+				"-c",
+				"commit.gpgsign=false",
+				"commit",
+				"--allow-empty",
+				"-m",
+				"queued work",
+			],
+			destination,
+		);
+		const sha = git(["rev-parse", "HEAD"], destination);
+		const path = join(f.dir, `${item().id}-2.json`);
+		writeFileSync(
+			path,
+			JSON.stringify({
+				itemId: item().id,
+				version: 2,
+				phase,
+				outcome: phase === "settled" ? "succeeded" : "expired",
+				repo: destination,
+				unpushedCommits: [sha],
+				unpushedCommented: JSON.stringify([destination, [sha]]),
+			}),
+		);
+		const dispatcher = f.restart();
+		await dispatcher.tick();
+		await dispatcher.drain();
+		expect(existsSync(destination)).toBe(true);
+		expect(git(["rev-parse", "HEAD"], destination)).toBe(sha);
+		expect(JSON.parse(readFileSync(path, "utf8")).repo).toBe(destination);
+		git(["push", "origin", "HEAD:main"], destination);
+		expect(await cleanupLaneWorktree(source, destination, () => false)).toBe(
+			true,
+		);
+	},
+);
 
 it("never sweeps or evicts a checkout whose Attempt process is still live", async () => {
 	const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)"], {
@@ -5887,37 +5895,6 @@ it("evicts the oldest removable run checkouts until the retained cap holds", asy
 	expect(log).toContain('"event":"checkout-cap"');
 	expect(log).toContain('"event":"checkout-evicted"');
 });
-
-it.each([undefined, "other", "recorded"])(
-	"removes an unpushed checkout only when the Work records its commits: %s",
-	async (state) => {
-		const { root, repo, git } = gitFixture(true);
-		const destination = join(root, "runs", "finished", "repo");
-		git(["worktree", "add", "--detach", destination]);
-		git(
-			[
-				"-c",
-				"commit.gpgsign=false",
-				"commit",
-				"--allow-empty",
-				"-m",
-				"run work",
-			],
-			destination,
-		);
-		const sha = git(["rev-parse", "HEAD"], destination);
-		const recorded =
-			state === "other"
-				? new Set(["0".repeat(40)])
-				: state === "recorded"
-					? new Set([sha])
-					: undefined;
-		expect(
-			await cleanupLaneWorktree(repo, destination, () => false, recorded),
-		).toBe(state === "recorded");
-		expect(existsSync(destination)).toBe(state !== "recorded");
-	},
-);
 
 it("parses a retained-checkout cap from the flag or environment", () => {
 	const args = ["--executor", "codex", "--rules", projectId];
