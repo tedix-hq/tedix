@@ -4,8 +4,8 @@
  * workspace object, and prove the copy. See README.md for the runbook link.
  *
  *   bun scripts/migrate-workspaces/cli.ts export    --snapshot main.sql --logs logs-1.sql ... [--assignments assignments.json] --bundles <dir|r2://bucket/prefix> [--scope org/ws,...]
- *   bun scripts/migrate-workspaces/cli.ts import    --bundles <dir|r2://...> (--objects <dir> | --remote <url> --snapshot main.sql --logs ...) [--scope org/ws,...]
- *   bun scripts/migrate-workspaces/cli.ts reconcile --bundles <dir|r2://...> (--objects <dir> | --remote <url>) [--snapshot main.sql --logs ...] [--scope org/ws,...] [--report report.json]
+ *   bun scripts/migrate-workspaces/cli.ts import    --bundles <dir|r2://...> (--objects <dir> | --remote <url> --snapshot main.sql --logs ...) [--scope org/ws,...] [--merge-object-owned org/ws,... [--plan-only]]
+ *   bun scripts/migrate-workspaces/cli.ts reconcile --bundles <dir|r2://...> (--objects <dir> | --remote <url>) [--snapshot main.sql --logs ...] [--scope org/ws,...] [--approved decisions.json [--merge-object-owned org/ws,...]] [--report report.json]
  *   bun scripts/migrate-workspaces/cli.ts rehearse  --snapshot main.sql [--logs ...] --assignments assignments.json [--work-dir <dir>] [--report report.json]
  *   bun scripts/migrate-workspaces/cli.ts schema-check --snapshot main.sql [--logs ...]
  *   bun scripts/migrate-workspaces/cli.ts assignments  --snapshot main.sql --out assignments.json
@@ -21,11 +21,15 @@ import { proposeAssignments } from "./assignments";
 import { openBundleStore, R2BundleStore } from "./bundle";
 import { exportAll } from "./export";
 import { importAll } from "./import";
-import { reconcileAll, renderReport } from "./reconcile";
+import {
+	reconcileAll,
+	renderReport,
+	type ApprovedAccounting,
+} from "./reconcile";
 import { rehearse, renderRehearsal } from "./rehearse";
-import { Scope } from "./scope";
+import { refKey, Scope } from "./scope";
 import { checkSchema, renderSchemaCheck } from "./schema-check";
-import { Snapshot } from "./source";
+import { Snapshot, type WorkspaceRef } from "./source";
 import type { WorkspaceAssignments } from "./tables";
 import {
 	localStoreFactory,
@@ -87,6 +91,48 @@ function openSnapshot(flags: ParsedArgs["flags"]): Snapshot | undefined {
 function readScope(flags: ParsedArgs["flags"]): Scope | undefined {
 	const value = text(flags, "scope");
 	return value ? Scope.parse(value) : undefined;
+}
+
+function readMergeScope(flags: ParsedArgs["flags"]): Scope | undefined {
+	const value = text(flags, "merge-object-owned");
+	if (flags["merge-object-owned"] === true)
+		throw new Error("--merge-object-owned names the workspaces to merge");
+	return value ? Scope.parse(value) : undefined;
+}
+
+/**
+ * The owner's decision file for `reconcile --approved <file>`:
+ * `{ "evidenceRef": "...", "workspaces": { "<org>/<ws>": { "objectNativeOutputIds": ["..."] } } }`.
+ * Workspaces named by `--merge-object-owned` use the same reference.
+ */
+function readApprovedAccounting(
+	flags: ParsedArgs["flags"],
+): ((ref: WorkspaceRef) => ApprovedAccounting | undefined) | undefined {
+	const merge = readMergeScope(flags);
+	const path = text(flags, "approved");
+	if (!path) {
+		if (merge)
+			throw new Error("--merge-object-owned needs --approved <decision file>");
+		return undefined;
+	}
+	const file = JSON.parse(readFileSync(path, "utf8")) as {
+		evidenceRef?: string;
+		workspaces?: Record<string, { objectNativeOutputIds?: string[] }>;
+	};
+	if (!file.evidenceRef?.trim())
+		throw new Error("The decision file needs an evidenceRef");
+	const evidenceRef = file.evidenceRef;
+	return (ref) => {
+		const key = refKey(ref);
+		const entry = file.workspaces?.[key];
+		const mergeObjectOwned = merge?.keys.has(key) === true;
+		if (!entry && !mergeObjectOwned) return undefined;
+		return {
+			evidenceRef,
+			mergeObjectOwned,
+			objectNativeOutputIds: entry?.objectNativeOutputIds ?? [],
+		};
+	};
 }
 
 function readAssignments(flags: ParsedArgs["flags"]): WorkspaceAssignments {
@@ -213,10 +259,23 @@ export async function main(
 					{
 						snapshot,
 						scope: readScope(flags),
-						onWorkspace: (r) =>
+						mergeObjectOwned: readMergeScope(flags),
+						mergePlanOnly: flags["plan-only"] === true,
+						onWorkspace: (r) => {
 							out(
 								`imported ${r.organizationId}/${r.workspaceId} rows=${r.imported} skipped=${r.duplicates} ${r.ms.toFixed(0)}ms`,
-							),
+							);
+							if (!r.merge) return;
+							for (const row of r.merge.toAdd)
+								out(
+									`      ${r.merge.planOnly ? "WOULD ADD" : "ADDED"} ${row.table} ${row.key}`,
+								);
+							for (const row of r.merge.objectWins)
+								out(`      OBJECT WINS ${row.table} ${row.key}`);
+							for (const row of r.merge.notAdded)
+								out(`      NOT ADDED ${row.table} ${row.key}: ${row.reason}`);
+							out(`      object-only rows kept: ${r.merge.objectOnly.length}`);
+						},
 					},
 				);
 				out(`imported ${results.length} workspaces`);
@@ -234,6 +293,7 @@ export async function main(
 					{
 						snapshot,
 						scope: readScope(flags),
+						approvedAccounting: readApprovedAccounting(flags),
 						requiredJurisdiction:
 							flags["allow-any-jurisdiction"] === true ? null : undefined,
 					},

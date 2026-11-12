@@ -11,6 +11,7 @@
  */
 import type { BundleStore } from "./bundle";
 import { collectWorkspaceRows } from "./export";
+import { planObjectOwnedMerge, type MergePlan } from "./merge";
 import { RowDigest, rowKey, type StoredRow } from "./rows";
 import { refKey, type Scope } from "./scope";
 import { logCoverageProblems } from "./snapshot-proof";
@@ -38,8 +39,32 @@ export interface WorkspaceReport extends WorkspaceRef {
 	drift: TableDrift[];
 	expectedRereads: Array<{ table: string; key: string; reason: string }>;
 	objectNativeRows: Array<{ table: string; key: string; evidenceRef: string }>;
+	/** Set for a merged object-owned workspace: what the object kept and what was left out. */
+	merge?: Pick<MergePlan, "objectWins" | "notAdded"> & { evidenceRef: string };
 	problems: string[];
 	ms: number;
+}
+
+/**
+ * An owner's decision about rows the ordinary comparison cannot explain.
+ * Every row it covers is listed in the report with `evidenceRef`.
+ */
+export interface ApprovedAccounting {
+	/** Where the decision is kept. */
+	evidenceRef: string;
+	/**
+	 * The workspace is object-owned and was merged (`merge.ts`): differing rows
+	 * stay as the object has them, object-only rows stay, and source rows the
+	 * merge leaves out are listed. A source row the merge would still add is a
+	 * problem.
+	 */
+	mergeObjectOwned?: boolean;
+	/**
+	 * Outputs the object holds that neither the source nor its output index
+	 * names. They and their revisions stay as they are. Each must be in the
+	 * object and absent from the bundle.
+	 */
+	objectNativeOutputIds?: readonly string[];
 }
 
 export interface ReconcileReport {
@@ -63,6 +88,7 @@ export async function reconcileWorkspace(
 	ref: WorkspaceRef,
 	requiredJurisdiction: string | null = REQUIRED_JURISDICTION,
 	nativeEvidence?: ObjectNativeEvidence,
+	approved?: ApprovedAccounting,
 ): Promise<WorkspaceReport> {
 	const started = performance.now();
 	const { manifest, tables } = await bundles.read(ref);
@@ -71,10 +97,94 @@ export async function reconcileWorkspace(
 	const expectedRereads: WorkspaceReport["expectedRereads"] = [];
 	const objectNativeRows: WorkspaceReport["objectNativeRows"] = [];
 	const problems: string[] = [];
+	let merge: WorkspaceReport["merge"];
 	let rows = 0;
 	let jurisdiction: string | null = null;
 	try {
 		const description = await store.describe();
+		const objectRows = new Map<string, StoredRow[]>();
+		for (const mapping of WORKSPACE_TABLES)
+			objectRows.set(mapping.table, await readAllRows(store, mapping.table));
+		// Rows an approved decision accounts for, per table, on each side.
+		const accountedInObject = new Map<string, Set<string>>();
+		const accountedInBundle = new Map<string, Set<string>>();
+		const account = (
+			side: Map<string, Set<string>>,
+			table: string,
+			key: string,
+		) => side.set(table, (side.get(table) ?? new Set()).add(key));
+		if (approved) {
+			if (!approved.evidenceRef.trim())
+				throw new Error("Approved accounting requires an evidence reference");
+			if (approved.mergeObjectOwned) {
+				if (description.outputAuthority !== "object")
+					throw new Error(
+						`Merge accounting refused: workspace ${ref.workspaceId} is not object-owned`,
+					);
+				const plan = planObjectOwnedMerge(tables, objectRows);
+				for (const [table, missing] of plan.add)
+					if (missing.length)
+						problems.push(
+							`${missing.length} source rows of ${table} are still to be added by the merge`,
+						);
+				for (const row of plan.objectWins) {
+					account(accountedInObject, row.table, row.key);
+					account(accountedInBundle, row.table, row.key);
+				}
+				for (const row of plan.notAdded)
+					account(accountedInBundle, row.table, row.key);
+				for (const row of plan.objectOnly) {
+					account(accountedInObject, row.table, row.key);
+					objectNativeRows.push({ ...row, evidenceRef: approved.evidenceRef });
+				}
+				merge = {
+					objectWins: plan.objectWins,
+					notAdded: plan.notAdded,
+					evidenceRef: approved.evidenceRef,
+				};
+			}
+			const nativeIds = new Set(approved.objectNativeOutputIds ?? []);
+			if (nativeIds.size) {
+				for (const row of tables.get("os_outputs") ?? [])
+					if (nativeIds.has(String(row.id)))
+						throw new Error(
+							`Approved object-native output ${row.id} is present in source`,
+						);
+				const held = new Set<string>();
+				for (const mapping of WORKSPACE_TABLES) {
+					const column =
+						mapping.table === "os_outputs"
+							? "id"
+							: mapping.table === "os_output_revisions"
+								? "output_id"
+								: null;
+					if (!column) continue;
+					for (const row of objectRows.get(mapping.table) ?? []) {
+						if (
+							!nativeIds.has(String(row[column])) ||
+							row.organization_id !== ref.organizationId ||
+							(column === "id" && row.workspace_id !== ref.workspaceId)
+						)
+							continue;
+						const key = rowKey(row, mapping.primaryKey);
+						if (accountedInObject.get(mapping.table)?.has(key)) continue;
+						if (column === "id") held.add(String(row.id));
+						account(accountedInObject, mapping.table, key);
+						objectNativeRows.push({
+							table: mapping.table,
+							key,
+							evidenceRef: approved.evidenceRef,
+						});
+					}
+				}
+				if (!approved.mergeObjectOwned)
+					for (const id of nativeIds)
+						if (!held.has(id))
+							problems.push(
+								`approved object-native output ${id} is not in the object`,
+							);
+			}
+		}
 		const native = new Map<string, string>();
 		if (nativeEvidence) {
 			if (
@@ -120,8 +230,12 @@ export async function reconcileWorkspace(
 				problems.push(`bundle has no summary for ${mapping.table}`);
 				continue;
 			}
-			const actualRows = (await readAllRows(store, mapping.table)).filter(
-				(row) => {
+			const accountedHere = accountedInObject.get(mapping.table);
+			const accountedSource = accountedInBundle.get(mapping.table);
+			const actualRows = objectRows
+				.get(mapping.table)!
+				.filter((row) => !accountedHere?.has(rowKey(row, mapping.primaryKey)))
+				.filter((row) => {
 					const isNative =
 						mapping.table === "os_outputs"
 							? [...native.values()].includes(String(row.id)) &&
@@ -137,13 +251,19 @@ export async function reconcileWorkspace(
 							evidenceRef: nativeEvidence!.evidenceRef,
 						});
 					return !isNative;
-				},
-			);
-			const bundledRows = tables.get(mapping.table) ?? [];
+				});
+			const everyBundledRow = tables.get(mapping.table) ?? [];
+			const bundledRows = accountedSource
+				? everyBundledRow.filter(
+						(row) => !accountedSource.has(rowKey(row, mapping.primaryKey)),
+					)
+				: everyBundledRow;
 			// Compare the columns the bundle carried: a row the export created
 			// (a Home workspace) names only the columns it sets, and the object
 			// fills the rest with defaults.
-			const carried = new Set(bundledRows.flatMap((row) => Object.keys(row)));
+			const carried = new Set(
+				everyBundledRow.flatMap((row) => Object.keys(row)),
+			);
 			const project = (row: StoredRow): StoredRow =>
 				carried.size === 0
 					? row
@@ -190,7 +310,7 @@ export async function reconcileWorkspace(
 			// The bundle's own rows are hashed again rather than trusting the
 			// manifest, so a bundle edited after export is caught too.
 			const bundled = new RowDigest(mapping.primaryKey);
-			for (const row of bundledRows) bundled.add(row);
+			for (const row of everyBundledRow) bundled.add(row);
 			if (bundled.hex() !== expected.sha256 || bundled.count !== expected.count)
 				problems.push(
 					`bundle rows for ${mapping.table} no longer match its manifest`,
@@ -209,12 +329,12 @@ export async function reconcileWorkspace(
 				});
 			if (mapping.table === "os_outputs")
 				checkOutputHeads(
-					manifest.outputHeads.filter(
-						(head) =>
-							!pending.has(rowKey({ id: head.outputId }, mapping.primaryKey)),
-					),
+					manifest.outputHeads.filter((head) => {
+						const key = rowKey({ id: head.outputId }, mapping.primaryKey);
+						return !pending.has(key) && !accountedSource?.has(key);
+					}),
 					actualRows,
-					await readAllRows(store, "os_output_revisions"),
+					objectRows.get("os_output_revisions")!,
 					problems,
 				);
 		}
@@ -232,6 +352,7 @@ export async function reconcileWorkspace(
 		drift,
 		expectedRereads,
 		objectNativeRows,
+		...(merge ? { merge } : {}),
 		problems,
 		ms: performance.now() - started,
 	};
@@ -303,6 +424,8 @@ export async function reconcileAll(
 		objectNativeEvidence?: (
 			ref: WorkspaceRef,
 		) => Promise<ObjectNativeEvidence | undefined>;
+		/** Owner-approved accounting per workspace; see {@link ApprovedAccounting}. */
+		approvedAccounting?: (ref: WorkspaceRef) => ApprovedAccounting | undefined;
 	} = {},
 ): Promise<ReconcileReport> {
 	const workspaces: WorkspaceReport[] = [];
@@ -314,6 +437,7 @@ export async function reconcileAll(
 			ref,
 			options.requiredJurisdiction,
 			await options.objectNativeEvidence?.(ref),
+			options.approvedAccounting?.(ref),
 		);
 		options.onWorkspace?.(report);
 		workspaces.push(report);
@@ -508,6 +632,14 @@ export function renderReport(report: ReconcileReport): string {
 			lines.push(
 				`      RE-READ ${pending.table} ${pending.key}: ${pending.reason}`,
 			);
+		if (w.objectNativeRows.length)
+			lines.push(
+				`      object-native rows accounted for: ${w.objectNativeRows.length}`,
+			);
+		for (const kept of w.merge?.objectWins ?? [])
+			lines.push(`      OBJECT WINS ${kept.table} ${kept.key}`);
+		for (const left of w.merge?.notAdded ?? [])
+			lines.push(`      NOT ADDED ${left.table} ${left.key}: ${left.reason}`);
 		for (const p of w.problems) lines.push(`      ${p}`);
 	}
 	for (const t of report.totals)
