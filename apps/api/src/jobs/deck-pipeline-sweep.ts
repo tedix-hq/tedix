@@ -56,7 +56,7 @@ function isProtected(row: CardRow) {
 		row.kind === "coordination" ? { ...row, subject: "", prompt: "" } : row;
 	return (
 		criticalDeckRequest(request as Parameters<typeof criticalDeckRequest>[0]) ||
-		credentialCard(`${row.subject} ${row.prompt}`, row.metadata)
+		credentialCard(`${request.subject} ${request.prompt}`, row.metadata)
 	);
 }
 
