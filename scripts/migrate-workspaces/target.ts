@@ -35,6 +35,8 @@ export const IMPORT_CHUNK_ROWS = 1000;
 export interface StoreDescription extends WorkspaceRef {
 	createdAt: string;
 	migrations: string[];
+	outputAuthority?: "object" | "shared" | "unresolved";
+	importGeneration?: number;
 	/** Where the object lives; the reconciler requires `eu`. */
 	jurisdiction: string | null;
 }

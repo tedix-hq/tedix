@@ -37,6 +37,7 @@ export interface WorkspaceReport extends WorkspaceRef {
 	rows: number;
 	drift: TableDrift[];
 	expectedRereads: Array<{ table: string; key: string; reason: string }>;
+	objectNativeRows: Array<{ table: string; key: string; evidenceRef: string }>;
 	problems: string[];
 	ms: number;
 }
@@ -61,17 +62,45 @@ export async function reconcileWorkspace(
 	stores: WorkspaceStoreFactory,
 	ref: WorkspaceRef,
 	requiredJurisdiction: string | null = REQUIRED_JURISDICTION,
+	nativeEvidence?: ObjectNativeEvidence,
 ): Promise<WorkspaceReport> {
 	const started = performance.now();
 	const { manifest, tables } = await bundles.read(ref);
 	const store = await stores.open(ref);
 	const drift: TableDrift[] = [];
 	const expectedRereads: WorkspaceReport["expectedRereads"] = [];
+	const objectNativeRows: WorkspaceReport["objectNativeRows"] = [];
 	const problems: string[] = [];
 	let rows = 0;
 	let jurisdiction: string | null = null;
 	try {
 		const description = await store.describe();
+		const native = new Map<string, string>();
+		if (nativeEvidence) {
+			if (
+				description.outputAuthority !== "object" ||
+				nativeEvidence.authorityBeforeStaging !== "object" ||
+				!nativeEvidence.evidenceRef.trim()
+			)
+				throw new Error(
+					"Object-native evidence requires prior and current object authority",
+				);
+			const bundledOutputs = new Set(
+				(tables.get("os_outputs") ?? []).map((r) => String(r.id)),
+			);
+			for (const row of nativeEvidence.indexRows) {
+				if (
+					row.organizationId !== ref.organizationId ||
+					row.workspaceId !== ref.workspaceId ||
+					bundledOutputs.has(row.outputId) ||
+					nativeEvidence.sourceOutputIds.includes(row.outputId)
+				)
+					throw new Error(
+						"Object-native evidence has wrong scope or an output present in source",
+					);
+				native.set(row.revisionId, row.outputId);
+			}
+		}
 		jurisdiction = description.jurisdiction;
 		if (
 			description.organizationId !== ref.organizationId ||
@@ -91,7 +120,25 @@ export async function reconcileWorkspace(
 				problems.push(`bundle has no summary for ${mapping.table}`);
 				continue;
 			}
-			const actualRows = await readAllRows(store, mapping.table);
+			const actualRows = (await readAllRows(store, mapping.table)).filter(
+				(row) => {
+					const isNative =
+						mapping.table === "os_outputs"
+							? [...native.values()].includes(String(row.id)) &&
+								row.organization_id === ref.organizationId &&
+								row.workspace_id === ref.workspaceId
+							: mapping.table === "os_output_revisions" &&
+								native.get(String(row.id)) === row.output_id &&
+								row.organization_id === ref.organizationId;
+					if (isNative)
+						objectNativeRows.push({
+							table: mapping.table,
+							key: rowKey(row, mapping.primaryKey),
+							evidenceRef: nativeEvidence!.evidenceRef,
+						});
+					return !isNative;
+				},
+			);
 			const bundledRows = tables.get(mapping.table) ?? [];
 			// Compare the columns the bundle carried: a row the export created
 			// (a Home workspace) names only the columns it sets, and the object
@@ -184,6 +231,7 @@ export async function reconcileWorkspace(
 		rows,
 		drift,
 		expectedRereads,
+		objectNativeRows,
 		problems,
 		ms: performance.now() - started,
 	};
@@ -231,6 +279,19 @@ function checkOutputHeads(
 	}
 }
 
+/** Current, scoped source read plus retained authority receipt; never a blanket extra-row exemption. */
+export interface ObjectNativeEvidence {
+	authorityBeforeStaging: "object";
+	evidenceRef: string;
+	sourceOutputIds: string[];
+	indexRows: Array<{
+		organizationId: string;
+		workspaceId: string;
+		outputId: string;
+		revisionId: string;
+	}>;
+}
+
 export async function reconcileAll(
 	bundles: BundleStore,
 	stores: WorkspaceStoreFactory,
@@ -239,6 +300,9 @@ export async function reconcileAll(
 		scope?: Scope;
 		requiredJurisdiction?: string | null;
 		onWorkspace?: (report: WorkspaceReport) => void;
+		objectNativeEvidence?: (
+			ref: WorkspaceRef,
+		) => Promise<ObjectNativeEvidence | undefined>;
 	} = {},
 ): Promise<ReconcileReport> {
 	const workspaces: WorkspaceReport[] = [];
@@ -249,6 +313,7 @@ export async function reconcileAll(
 			stores,
 			ref,
 			options.requiredJurisdiction,
+			await options.objectNativeEvidence?.(ref),
 		);
 		options.onWorkspace?.(report);
 		workspaces.push(report);
