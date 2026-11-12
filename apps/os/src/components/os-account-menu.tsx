@@ -34,6 +34,7 @@ import { useOsOperationalContext } from "@/lib/use-os-preferences";
 import { OS_COPY } from "@/shared/os-copy";
 import { canAccessAdminSection } from "@/components/admin-layout";
 import { OS_LOGOUT_PATH } from "@/shared/session-status";
+import { clearAppRuntimeCodeStore } from "@/lib/app-runtime-code-store";
 
 export function OsAccountMenu({ identity }: { identity: OsIdentity }) {
 	const { state } = useSidebar();
@@ -167,6 +168,9 @@ export function OsAccountMenu({ identity }: { identity: OsIdentity }) {
 							closeOnClick
 							href={OS_LOGOUT_PATH}
 							icon={SignOut}
+							// App files kept on this device go with the session. The
+							// sign-in page clears them again in case this was cut short.
+							onClick={() => void clearAppRuntimeCodeStore()}
 						>
 							{OS_COPY.navigation.signOut}
 						</DropdownMenuLinkItem>

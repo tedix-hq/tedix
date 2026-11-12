@@ -7,6 +7,7 @@ import {
 	vi,
 } from "vite-plus/test";
 import {
+	clearAppRuntimeCodeStore,
 	knownAppRuntimeFiles,
 	loadAppRuntimeCode,
 	resetAppRuntimeCodeStore,
@@ -100,6 +101,28 @@ describe("app files kept by content hash", () => {
 		expect(
 			(await loadAppRuntimeCode(async () => ({ code: full }))).code?.files,
 		).toEqual(files);
+		expect(await knownAppRuntimeFiles()).toEqual([]);
+	});
+
+	it("forgets every stored file on sign-out, in memory and on disk", async () => {
+		const full = await code(true);
+		await loadAppRuntimeCode(async () => ({ code: full }));
+		const deleted: string[] = [];
+		vi.stubGlobal("caches", {
+			...store.caches,
+			delete: async (name: string) => {
+				deleted.push(name);
+				store.entries.clear();
+				return true;
+			},
+		});
+		await clearAppRuntimeCodeStore();
+		expect(deleted).toEqual(["tedix-app-files-v1"]);
+		expect(await knownAppRuntimeFiles()).toEqual([]);
+		// Without Cache Storage there is only memory to clear.
+		vi.stubGlobal("caches", undefined);
+		await loadAppRuntimeCode(async () => ({ code: full }));
+		await clearAppRuntimeCodeStore();
 		expect(await knownAppRuntimeFiles()).toEqual([]);
 	});
 

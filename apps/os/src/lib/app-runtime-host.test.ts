@@ -836,6 +836,7 @@ describe("changed-only saves through the host", () => {
 				outputId,
 				baseRevision: 4,
 				patch,
+				explicit: false,
 			});
 			expect(onWrite).toHaveBeenCalledWith(outputId);
 		}

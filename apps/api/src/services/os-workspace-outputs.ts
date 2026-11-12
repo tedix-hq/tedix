@@ -22,6 +22,7 @@ import {
 import {
 	outputRevisionChange,
 	publishWorkspaceChangeSafely,
+	workspaceOutputsInSharedStore,
 } from "./workspace-feed";
 
 /**
@@ -180,6 +181,13 @@ export async function createOsOutputRevision(
 	db: Parameters<typeof outputs.createOsOutputRevision>[0],
 	params: Parameters<typeof outputs.createOsOutputRevision>[1],
 	bucket: OutputStorageBucket = env.R2_BUCKET,
+	options: {
+		/**
+		 * This revision continues a burst of editor auto-saves whose first
+		 * save is already in the workspace feed: add no feed entry for it.
+		 */
+		continuesBurst?: boolean;
+	} = {},
 ) {
 	const { content, body } = await storeRevisionBody(bucket, params);
 	const result = await outputs.createOsOutputRevision(db, {
@@ -193,10 +201,20 @@ export async function createOsOutputRevision(
 			outputId: params.outputId,
 		});
 		if (output) {
-			await publishWorkspaceChangeSafely(
-				{ db, queue: env.AUTOMATION_EVENTS },
-				outputRevisionChange(output, { ...result.revision, content }),
-			);
+			const change = outputRevisionChange(output, {
+				...result.revision,
+				content,
+			});
+			// A workspace that keeps its files in its own store finds each
+			// revision through the feed's index, so there every save is published.
+			if (
+				!options.continuesBurst ||
+				!(await workspaceOutputsInSharedStore(change))
+			)
+				await publishWorkspaceChangeSafely(
+					{ db, queue: env.AUTOMATION_EVENTS },
+					change,
+				);
 			// Everyone with the file open learns of the new revision at once and
 			// fetches only what changed.
 			await notifyOutputRevision(

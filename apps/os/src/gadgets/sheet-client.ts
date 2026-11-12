@@ -2723,7 +2723,7 @@ export async function mountSheetClient(
 		const version = generation;
 		try {
 			const content = await evaluate(structuredClone(draft!));
-			const result = parse(await sync.save(content, basis, readSheet));
+			const result = parse(await sync.save(content, basis, readSheet, flash));
 			if (destroyed) {
 				// The editor closed mid-save: leave the next visit a clean start, or
 				// exactly what was still unsaved, on top of what was just saved.

@@ -8,6 +8,7 @@ import {
 } from "./output-revision-notices";
 import {
 	useWorkspacePresence,
+	WORKSPACE_ROOM_FALLBACK_RECHECK_MS,
 	workspacePresenceDocKey,
 } from "./workspace-presence";
 
@@ -55,5 +56,40 @@ describe("the workspace room as the carrier of file change notices", () => {
 		expect(events).toHaveLength(2);
 		act(() => root.unmount());
 		leave();
+	});
+
+	it("asks every 30 seconds and on return to the tab while it cannot join the room, and stops once it has", () => {
+		vi.useFakeTimers();
+		const events: OutputRevisionEvent[] = [];
+		const leave = subscribeOutputRevisionNotices("ws-1", (event) =>
+			events.push(event),
+		);
+		const host = document.createElement("div");
+		document.body.append(host);
+		const root = createRoot(host);
+		const render = (status: string) => {
+			room.status = status;
+			act(() => root.render(<Presence workspaceId="ws-1" />));
+		};
+		// The room is full: the connection keeps being refused.
+		render("disconnected");
+		expect(events).toEqual([]);
+		vi.advanceTimersByTime(WORKSPACE_ROOM_FALLBACK_RECHECK_MS);
+		expect(events).toHaveLength(1);
+		vi.advanceTimersByTime(WORKSPACE_ROOM_FALLBACK_RECHECK_MS);
+		expect(events).toHaveLength(2);
+		window.dispatchEvent(new Event("focus"));
+		expect(events).toHaveLength(3);
+		// A place frees up: one check on joining, then pushes only.
+		render("connected");
+		expect(events).toHaveLength(4);
+		vi.advanceTimersByTime(10 * WORKSPACE_ROOM_FALLBACK_RECHECK_MS);
+		window.dispatchEvent(new Event("focus"));
+		expect(events).toHaveLength(4);
+		act(() => root.unmount());
+		vi.advanceTimersByTime(WORKSPACE_ROOM_FALLBACK_RECHECK_MS);
+		expect(events).toHaveLength(4);
+		leave();
+		vi.useRealTimers();
 	});
 });

@@ -519,7 +519,12 @@ export const OS_WORKSPACES_AUDIT: OsAuditRegistry = {
 	"outputs.patch": {
 		action: "os.output.patched",
 		resourceType: "os_output",
-		resourceId: ({ output }) => nestedId(output, "output"),
+		// An editor saves several times a minute while someone types. The first
+		// save of a burst is recorded; the ones that continue it are not.
+		resourceId: ({ output }) =>
+			(output as { continuesBurst?: unknown } | null)?.continuesBurst === true
+				? []
+				: nestedId(output, "output"),
 		metadata: ({ input, output }) => ({
 			revision: revisionNumber(output),
 			operations:

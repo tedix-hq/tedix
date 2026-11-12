@@ -13,11 +13,15 @@ import { unzipSync } from "fflate";
 import { createRouterClient } from "@orpc/server";
 import { auditEvents } from "@tedix/db/schema/audit-events";
 import { osOutputRevisions } from "@tedix/db/schema/os-workspaces";
-import { workspaceOutputIndex } from "@tedix/db/schema/workspace-feed";
+import {
+	workspaceActivity,
+	workspaceFeedLedger,
+	workspaceOutputIndex,
+} from "@tedix/db/schema/workspace-feed";
 import { createDbClient } from "@tedix/db/client";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import { createOsGadgetExecution } from "@tedix/db/queries/os-workspaces/executions";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
 	type CreateSkillRunArgs,
 	createSkillRun,
@@ -2863,6 +2867,147 @@ describe("changed-only saves (outputs.patch and outputs.changes)", () => {
 			sinceRevision: 3,
 		});
 		expect(unknown.patch).toBeNull();
+	});
+
+	it("records one activity and one audit entry per burst of auto-saves, and a new one for anything else", async () => {
+		const output = await deck();
+		const db = createDbClient(c.env.DB);
+		const rows = async () => ({
+			revisions: (
+				await db
+					.select()
+					.from(osOutputRevisions)
+					.where(eq(osOutputRevisions.outputId, output.id))
+			).length,
+			feed: (
+				await db
+					.select()
+					.from(workspaceFeedLedger)
+					.where(eq(workspaceFeedLedger.entityId, output.id))
+			).length,
+			activity: (
+				await db
+					.select()
+					.from(workspaceActivity)
+					.where(eq(workspaceActivity.entityId, output.id))
+			).length,
+			audit: (
+				await db
+					.select()
+					.from(auditEvents)
+					.where(eq(auditEvents.resourceId, output.id))
+			).length,
+		});
+		let revision = 1;
+		const save = async (
+			client: typeof c.org1,
+			value: string,
+			options: { autosave?: boolean; note?: string } = { autosave: true },
+		) => {
+			const saved = await client.outputs.patch({
+				outputId: output.id,
+				baseRevision: revision,
+				patch: text("s1", "a", value),
+				...options,
+			});
+			revision = saved.revision.revision;
+			return saved.continuesBurst;
+		};
+		const before = await rows();
+		// The first auto-save starts a burst: one entry of each kind.
+		expect(await save(c.org1, "t")).toBe(false);
+		expect(await rows()).toEqual({
+			revisions: before.revisions + 1,
+			feed: before.feed + 1,
+			activity: before.activity + 1,
+			audit: before.audit + 1,
+		});
+		// The auto-saves that follow write one row each: the revision.
+		for (const value of ["ty", "typ", "type", "typed"])
+			expect(await save(c.org1, value)).toBe(true);
+		expect(await rows()).toEqual({
+			revisions: before.revisions + 5,
+			feed: before.feed + 1,
+			activity: before.activity + 1,
+			audit: before.audit + 1,
+		});
+		const stored = await db
+			.select()
+			.from(osOutputRevisions)
+			.where(eq(osOutputRevisions.outputId, output.id));
+		expect(stored.at(-1)?.note).toBe("Saved automatically");
+		// A save someone asked for is an entry of its own, with its own note.
+		expect(
+			await save(c.org1, "asked", { note: "Saved from workspace app" }),
+		).toBe(false);
+		// An auto-save after it starts a new burst, and so does another writer.
+		expect(await save(c.org1, "again")).toBe(false);
+		expect(await save(c.org1, "again!")).toBe(true);
+		expect(await save(c.machine, "machine")).toBe(false);
+		expect(await save(c.org1, "back")).toBe(false);
+		expect(await rows()).toMatchObject({
+			revisions: before.revisions + 10,
+			feed: before.feed + 5,
+			audit: before.audit + 5,
+		});
+		// A pause of more than a few minutes ends a burst.
+		await db
+			.update(osOutputRevisions)
+			.set({ createdAt: new Date(Date.now() - 10 * 60_000).toISOString() })
+			.where(eq(osOutputRevisions.outputId, output.id));
+		expect(await save(c.org1, "later")).toBe(false);
+	});
+
+	it("copes with a thinned history: gaps in the numbers, whole content when the base is gone, numbers never reused", async () => {
+		const output = await deck();
+		for (const [index, value] of ["one", "two", "three"].entries())
+			await c.org1.outputs.patch({
+				outputId: output.id,
+				baseRevision: index + 1,
+				patch: text("s1", "a", value),
+				autosave: true,
+			});
+		const db = createDbClient(c.env.DB);
+		// Revisions 2 and 3 are thinned away; 1 and 4 remain.
+		for (const revision of [2, 3])
+			await db
+				.delete(osOutputRevisions)
+				.where(
+					and(
+						eq(osOutputRevisions.outputId, output.id),
+						eq(osOutputRevisions.revision, revision),
+					),
+				);
+		const history = await c.org1.outputs.history({ outputId: output.id });
+		expect(history.revisions.map((row) => row.revision)).toEqual([4, 1]);
+		// A viewer still holding revision 2 gets the whole current content.
+		const changes = await c.org1.outputs.changes({
+			outputId: output.id,
+			sinceRevision: 2,
+		});
+		expect(changes).toMatchObject({ revision: { revision: 4 }, patch: null });
+		expect(changes.content).toMatchObject({
+			deck: { slides: [{ elements: [{ text: "three" }, {}] }, {}] },
+		});
+		// An edit made from the thinned revision is not applied blindly.
+		await expect(
+			c.org1.outputs.patch({
+				outputId: output.id,
+				baseRevision: 2,
+				patch: text("s2", "c", "late"),
+			}),
+		).rejects.toMatchObject({
+			code: "CONFLICT",
+			data: { expectedRevision: 2, currentRevision: 4 },
+		});
+		// The next save takes the next number after the newest, never a gap.
+		const next = await c.org1.outputs.patch({
+			outputId: output.id,
+			baseRevision: 4,
+			patch: text("s2", "c", "late"),
+		});
+		expect(next.revision.revision).toBe(5);
+		expect(await texts(output.id)).toEqual(["three", "B", "late"]);
 	});
 
 	it("patches a sheet cell by coordinates and a document block by position, rebuilding the plain copies", async () => {

@@ -1,5 +1,6 @@
 import { Link } from "@/components/kumo/link";
 import { useEffect } from "react";
+import { clearStoredAppFiles } from "@/shared/app-files-cache";
 import { resolveProductLoginIntent } from "@/account/product-login-routing";
 import { isDescopeFlowContinuation } from "@/shared/session-status";
 import { BrokerLoginPage } from "@/account/account-login";
@@ -28,6 +29,9 @@ function IntentlessLoginRedirect() {
 
 export function ProductLoginPage() {
 	useDocumentTitle("Sign in");
+	// Whoever signs in here next does not start with app files the previous
+	// session left on this device.
+	useEffect(() => void clearStoredAppFiles(), []);
 	const intent = resolveProductLoginIntent(window.location.href);
 	if (!intent) {
 		// A magic-link email lands on the static `/login` with only the

@@ -117,6 +117,8 @@ export interface AppRuntimeHostDeps {
 		outputId: string;
 		baseRevision: number;
 		patch: OsOutputContentPatch;
+		/** Someone asked for this save; otherwise the app saved by itself. */
+		explicit: boolean;
 	}) => Promise<unknown>;
 	/** What changed in the bound Output since a revision the app holds. */
 	readOutputChanges?: (input: {
@@ -379,6 +381,7 @@ export async function handleAppRuntimeCall(
 					outputId,
 					baseRevision: Number(args.baseRevision),
 					patch: patch.data,
+					explicit: args.explicit === true,
 				});
 			} catch (error) {
 				if (

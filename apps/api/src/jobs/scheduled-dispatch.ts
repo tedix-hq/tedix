@@ -368,6 +368,36 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 			}
 		}
 
+		// Thins editor auto-save revisions out of file history. An operator
+		// arms it; unarmed it costs one bucket read and no D1.
+		if (cron === "*/2 * * * *") {
+			try {
+				const { createDbQueryClient } = await import("@tedix/db/query-client");
+				const { runOutputRevisionThinningTick } =
+					await import("../services/os-output-revision-thinning");
+				const result = await runOutputRevisionThinningTick({
+					db: createDbQueryClient(env.DB),
+					bucket: env.R2_BUCKET,
+					now: new Date(event.scheduledTime),
+				});
+				if (result.status !== "off" && result.status !== "waiting")
+					console.log(
+						JSON.stringify({
+							event: "os.output_revision_thinning.tick",
+							...result,
+						}),
+					);
+			} catch (error) {
+				console.error(
+					JSON.stringify({
+						event: "os.output_revision_thinning.failed",
+						exception: safeExceptionTopology(error),
+						...safeErrorClassification(error),
+					}),
+				);
+			}
+		}
+
 		// One-time move of embedded images out of stored presentation and
 		// document bodies. It does nothing until an operator writes its state
 		// object, and a finished migration answers `done` at once.

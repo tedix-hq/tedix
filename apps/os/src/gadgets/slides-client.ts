@@ -563,7 +563,9 @@ export async function mountSlidesClient(
 		const sent = edits;
 		const slow = setTimeout(() => message("Saving…"), SAVE_SLOW_MS);
 		try {
-			const result = parse(await sync.save(projectDeck(deck!), basis, read));
+			const result = parse(
+				await sync.save(projectDeck(deck!), basis, read, asked),
+			);
 			if (destroyed) return false;
 			loaded = result;
 			basis = result.revision.revision;
