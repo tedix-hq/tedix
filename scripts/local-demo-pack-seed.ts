@@ -6,6 +6,7 @@
  * state directory when it is older than a week. Nothing here reads a tenant, and the demo API runs
  * with sending switched off (TEDIX_DEMO_SENDING_OFF).
  */
+import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -61,6 +62,12 @@ export function demoPackSeedSql(nowMs: number = Date.now()): string {
 	const appWorkspace = uid(48, 1);
 	const appId = uid(49, 14);
 	const appRevision = uid(50, 14);
+	const appFiles = JSON.stringify(opportunityCardsApp);
+	const appHash = createHash("sha256").update(appFiles).digest("hex");
+	const codeLength = Object.values(opportunityCardsApp).reduce(
+		(sum, source) => sum + source.length,
+		0,
+	);
 	const sheetId = uid(64, 20);
 	const sheetRevision = uid(65, 20);
 	const sheet = {
@@ -82,7 +89,8 @@ export function demoPackSeedSql(nowMs: number = Date.now()): string {
 		`INSERT OR IGNORE INTO os_workspaces (id, organization_id, name, description, created_by_kind, created_by_id) VALUES (${q(appWorkspace)}, ${q(ORG)}, ${q(demoPackWorkspaces[0]!.name)}, ${q(demoPackWorkspaces[0]!.description)}, 'user', 'local-demo-owner');`,
 		`INSERT OR IGNORE INTO os_gadgets (id, organization_id, workspace_id, name, current_revision_id, created_by_kind, created_by_id) VALUES (${q(appId)}, ${q(ORG)}, ${q(appWorkspace)}, 'Opportunity cards', ${q(appRevision)}, 'user', 'local-demo-owner');`,
 		`INSERT OR IGNORE INTO os_gadget_revisions (id, organization_id, gadget_id, revision, manifest, created_by_kind, created_by_id) VALUES (${q(appRevision)}, ${q(ORG)}, ${q(appId)}, 1, ${json(opportunityCardsManifest)}, 'user', 'local-demo-owner');`,
-		`INSERT OR IGNORE INTO os_gadget_code (revision_id, organization_id, gadget_id, files, code_length) VALUES (${q(appRevision)}, ${q(ORG)}, ${q(appId)}, ${json(opportunityCardsApp)}, ${q(Object.values(opportunityCardsApp).reduce((sum, source) => sum + source.length, 0))});`,
+		`INSERT OR IGNORE INTO os_gadget_code_blobs (organization_id, sha256, files, code_length, created_at) VALUES (${q(ORG)}, ${q(appHash)}, ${q(appFiles)}, ${q(codeLength)}, ${q(now)});`,
+		`INSERT OR IGNORE INTO os_gadget_code (revision_id, organization_id, gadget_id, files, code_length, files_sha256, created_at) VALUES (${q(appRevision)}, ${q(ORG)}, ${q(appId)}, '', ${q(codeLength)}, ${q(appHash)}, ${q(now)});`,
 		`INSERT OR IGNORE INTO os_outputs (id, organization_id, workspace_id, kind, title, current_revision_id, created_by_kind, created_by_id) VALUES (${q(sheetId)}, ${q(ORG)}, ${q(appWorkspace)}, 'sheet', 'Opportunities', ${q(sheetRevision)}, 'user', 'local-demo-owner');`,
 		`INSERT OR IGNORE INTO os_output_revisions (id, organization_id, output_id, revision, content, access_envelope, created_by_kind, created_by_id) VALUES (${q(sheetRevision)}, ${q(ORG)}, ${q(sheetId)}, 1, ${json(sheet)}, ${json({ version: 1, sources: [] })}, 'user', 'local-demo-owner');`,
 		`INSERT OR IGNORE INTO os_workspace_resources (id, organization_id, workspace_id, slot, provider_id, connection_scope, resource_type, provider_resource_id, name, created_by_kind, created_by_id) VALUES (${q(uid(70, 1))}, ${q(ORG)}, ${q(appWorkspace)}, 'opportunities', 'tedix', 'tenant', 'output', ${q(sheetId)}, 'Opportunities sheet', 'user', 'local-demo-owner');`,

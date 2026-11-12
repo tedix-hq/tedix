@@ -166,8 +166,7 @@ export async function getOsGadgetRevision(
 
 /**
  * The source files recorded with one revision; undefined when it carries no
- * code. The files come from the shared blob the row points at, or from the
- * row itself when it was written before the files were shared.
+ * code. The files come from the shared blob the row points at.
  */
 export async function getOsGadgetCode(
 	db: DbQueryClient,
@@ -178,7 +177,6 @@ export async function getOsGadgetCode(
 			revisionId: osGadgetCode.revisionId,
 			organizationId: osGadgetCode.organizationId,
 			gadgetId: osGadgetCode.gadgetId,
-			files: osGadgetCode.files,
 			codeLength: osGadgetCode.codeLength,
 			createdAt: osGadgetCode.createdAt,
 			filesSha256: osGadgetCode.filesSha256,
@@ -203,7 +201,6 @@ export async function getOsGadgetCode(
 		.limit(1);
 	if (!row) return undefined;
 	const { blobFiles, ...code } = row;
-	if (code.filesSha256 === null) return code;
 	if (blobFiles === null)
 		throw new Error(`Gadget code files are missing for ${code.revisionId}`);
 	return { ...code, files: blobFiles };

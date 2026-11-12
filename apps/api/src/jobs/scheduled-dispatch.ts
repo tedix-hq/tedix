@@ -344,34 +344,6 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 			);
 		}
 
-		// App code backfill (shared files for rows written before the split). It
-		// runs only while an operator has armed it in its state object, so it is
-		// not a cataloged cron path: unarmed, this is one bucket read and no D1.
-		if (cron === "*/2 * * * *") {
-			try {
-				const { createDbQueryClient } = await import("@tedix/db/query-client");
-				const { runGadgetCodeDedupeTick } =
-					await import("../services/os-gadget-code-dedupe");
-				const result = await runGadgetCodeDedupeTick({
-					db: createDbQueryClient(env.DB),
-					bucket: env.R2_BUCKET,
-					now: new Date(event.scheduledTime),
-				});
-				if (result.status !== "off")
-					console.log(
-						JSON.stringify({ event: "os.gadget_code_dedupe.tick", ...result }),
-					);
-			} catch (error) {
-				console.error(
-					JSON.stringify({
-						event: "os.gadget_code_dedupe.failed",
-						exception: safeExceptionTopology(error),
-						...safeErrorClassification(error),
-					}),
-				);
-			}
-		}
-
 		// Thins editor auto-save revisions out of file history. An operator
 		// arms it; unarmed it costs one bucket read and no D1.
 		if (cron === "*/2 * * * *") {

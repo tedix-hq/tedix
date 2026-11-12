@@ -413,99 +413,85 @@ describe("runD1Retention", () => {
 		},
 	);
 
-	it.each(["move_to_logs_db", "archive_then_delete"] as const)(
-		"%s skips a newer row and drains later expired rowids over repeated ticks",
-		async (mode) => {
-			const { db, seed, sqlite } = fixture(
-				`('audit_events','${mode}',30,2,'2026-10-21')`,
-			);
-			seed([120, 1, 120, 120]);
-			const logs = logsFixture();
-			const bucket = new MemoryBucket();
-			const tick = () =>
-				runD1Retention({
-					db,
-					logsDb: logs.db,
-					bucket: bucket as unknown as R2Bucket,
-					now: NOW,
-				});
-			const first = await tick();
-			const second = await tick();
-			const third = await tick();
-			expect([
-				first.deletedRows,
-				second.deletedRows,
-				third.deletedRows,
-			]).toEqual([2, 1, 0]);
-			expect(
-				sqlite.prepare("SELECT id FROM audit_events ORDER BY rowid").all(),
-			).toEqual([{ id: "audit-1" }]);
-			const archived = (
-				await Promise.all([...bucket.objects.values()].map(gunzipLines))
-			)
-				.flat()
-				.map((line) => JSON.parse(line).id);
-			expect(archived.sort()).toEqual(["audit-0", "audit-2", "audit-3"]);
-			if (mode === "move_to_logs_db") expect(logs.count()).toBe(3);
-		},
-	);
-
-	it.each(["move_to_logs_db", "archive_then_delete"] as const)(
-		"%s retains an artifact body and its reachable pointer or refuses the policy",
-		async (mode) => {
-			const { db, sqlite, count } = fixture(
-				`('skill_run_artifacts','${mode}',14,10,'2026-10-21')`,
-			);
-			const logs = logsFixture();
-			const key = "fictional-run/bodies/artifact-1";
-			sqlite.exec(`INSERT INTO skill_runs
-				(id, organization_id, skill_id, tedi_id, workflow_instance_id, runtime_environment, status, completed_at)
-				VALUES ('fictional-run', 'fictional-lighthouse', 'skill-example', 'tedi-ada', 'workflow-example', 'production', 'completed', '2026-07-01')`);
-			sqlite
-				.prepare(
-					"INSERT INTO skill_run_artifacts(id,run_id,path,content_r2_key,created_at) VALUES(?,?,?,?,?)",
-				)
-				.run(
-					"artifact-1",
-					"fictional-run",
-					"result.json",
-					key,
-					"2026-07-01 10:00:00",
-				);
-			const bucket = new MemoryBucket();
-			const body = new TextEncoder().encode('{"result":"retained"}');
-			bucket.objects.set(key, body);
-			const result = await runD1Retention({
+	it("skips a newer row and drains later expired rowids over repeated ticks", async () => {
+		const { db, seed, sqlite } = fixture(
+			`('audit_events','move_to_logs_db',30,2,'2026-10-21')`,
+		);
+		seed([120, 1, 120, 120]);
+		const logs = logsFixture();
+		const bucket = new MemoryBucket();
+		const tick = () =>
+			runD1Retention({
 				db,
 				logsDb: logs.db,
 				bucket: bucket as unknown as R2Bucket,
 				now: NOW,
 			});
-			expect(bucket.objects.get(key)).toEqual(body);
-			if (mode === "archive_then_delete") {
-				expect(result.tables[0]?.problem).toBe("logs_copy_required");
-				expect(result.deletedRows).toBe(0);
-				expect(count("skill_run_artifacts")).toBe(1);
-			} else {
-				expect(result.tables[0]?.problem).toBeNull();
-				expect(result.deletedRows).toBe(1);
-				expect(
-					[...bucket.objects.keys()].some((key) =>
-						key.startsWith(
-							`${D1_ARCHIVE_PREFIX}skill_run_artifacts/fictional-lighthouse/`,
-						),
-					),
-				).toBe(true);
-				expect(
-					logs.sqlite
-						.prepare(
-							"SELECT content_r2_key FROM skill_run_artifacts WHERE id = 'artifact-1'",
-						)
-						.get(),
-				).toEqual({ content_r2_key: key });
-			}
-		},
-	);
+		const first = await tick();
+		const second = await tick();
+		const third = await tick();
+		expect([first.deletedRows, second.deletedRows, third.deletedRows]).toEqual([
+			2, 1, 0,
+		]);
+		expect(
+			sqlite.prepare("SELECT id FROM audit_events ORDER BY rowid").all(),
+		).toEqual([{ id: "audit-1" }]);
+		const archived = (
+			await Promise.all([...bucket.objects.values()].map(gunzipLines))
+		)
+			.flat()
+			.map((line) => JSON.parse(line).id);
+		expect(archived.sort()).toEqual(["audit-0", "audit-2", "audit-3"]);
+		expect(logs.count()).toBe(3);
+	});
+
+	it("retains an artifact body and its reachable pointer when moving to logs", async () => {
+		const { db, sqlite } = fixture(
+			`('skill_run_artifacts','move_to_logs_db',14,10,'2026-10-21')`,
+		);
+		const logs = logsFixture();
+		const key = "fictional-run/bodies/artifact-1";
+		sqlite.exec(`INSERT INTO skill_runs
+				(id, organization_id, skill_id, tedi_id, workflow_instance_id, runtime_environment, status, completed_at)
+				VALUES ('fictional-run', 'fictional-lighthouse', 'skill-example', 'tedi-ada', 'workflow-example', 'production', 'completed', '2026-07-01')`);
+		sqlite
+			.prepare(
+				"INSERT INTO skill_run_artifacts(id,run_id,path,content_r2_key,created_at) VALUES(?,?,?,?,?)",
+			)
+			.run(
+				"artifact-1",
+				"fictional-run",
+				"result.json",
+				key,
+				"2026-07-01 10:00:00",
+			);
+		const bucket = new MemoryBucket();
+		const body = new TextEncoder().encode('{"result":"retained"}');
+		bucket.objects.set(key, body);
+		const result = await runD1Retention({
+			db,
+			logsDb: logs.db,
+			bucket: bucket as unknown as R2Bucket,
+			now: NOW,
+		});
+		expect(bucket.objects.get(key)).toEqual(body);
+		expect(result.tables[0]?.problem).toBeNull();
+		expect(result.deletedRows).toBe(1);
+		expect(
+			[...bucket.objects.keys()].some((key) =>
+				key.startsWith(
+					`${D1_ARCHIVE_PREFIX}skill_run_artifacts/fictional-lighthouse/`,
+				),
+			),
+		).toBe(true);
+		expect(
+			logs.sqlite
+				.prepare(
+					"SELECT content_r2_key FROM skill_run_artifacts WHERE id = 'artifact-1'",
+				)
+				.get(),
+		).toEqual({ content_r2_key: key });
+	});
 
 	it("skips pinned pages, moves a later artifact and persists the reference count", async () => {
 		const { db, sqlite, count, policy } = fixture(
@@ -585,8 +571,9 @@ describe("runD1Retention", () => {
 	});
 
 	it("resumes scanning past retained pages after the time budget and wraps to reconsider them", async () => {
+		const logs = logsFixture();
 		const { db, d1, seed, count, policy } = fixture(
-			"('audit_events','archive_then_delete',30,2000,'2026-10-21')",
+			"('audit_events','move_to_logs_db',30,2000,'2026-10-21')",
 		);
 		seed([...Array.from({ length: 1000 }, () => 1), 120]);
 		const bucket = new MemoryBucket();
@@ -602,6 +589,7 @@ describe("runD1Retention", () => {
 			const tick = () =>
 				runD1Retention({
 					db,
+					logsDb: logs.db,
 					bucket: bucket as unknown as R2Bucket,
 					now: NOW,
 					timeBudgetMs: 3,
@@ -631,12 +619,14 @@ describe("runD1Retention", () => {
 		}
 		await runD1Retention({
 			db,
+			logsDb: logs.db,
 			bucket: bucket as unknown as R2Bucket,
 			now: NOW,
 		});
 		expect(JSON.parse(policy("audit_events").report).scanAfterRowid).toBe(-1);
 		const later = await runD1Retention({
 			db,
+			logsDb: logs.db,
 			bucket: bucket as unknown as R2Bucket,
 			now: new Date(NOW.getTime() + 90 * DAY * 1000),
 		});
@@ -645,8 +635,9 @@ describe("runD1Retention", () => {
 	});
 
 	it("moves rows that expired at the head while the sweep is parked in retained rows", async () => {
+		const logs = logsFixture();
 		const { db, sqlite, seed, count, policy } = fixture(
-			"('audit_events','archive_then_delete',30,10000,'2026-10-21')",
+			"('audit_events','move_to_logs_db',30,10000,'2026-10-21')",
 		);
 		// 100 rows expired since the last tick; 1900 newer rows follow them.
 		seed([
@@ -661,6 +652,7 @@ describe("runD1Retention", () => {
 			.run(JSON.stringify({ scanAfterRowid: 1500 }));
 		const result = await runD1Retention({
 			db,
+			logsDb: logs.db,
 			bucket: new MemoryBucket() as unknown as R2Bucket,
 			now: NOW,
 		});
@@ -755,8 +747,9 @@ describe("runD1Retention", () => {
 	});
 
 	it("skips an entire scan window of retained rows and keeps invalid timestamps", async () => {
+		const logs = logsFixture();
 		const { db, seedRuntime, sqlite, count } = fixture(
-			"('tedi_runtime_events','archive_then_delete',14,2000,'2026-10-21')",
+			"('tedi_runtime_events','move_to_logs_db',14,2000,'2026-10-21')",
 		);
 		seedRuntime([...Array.from({ length: 501 }, () => 1), 90, 90]);
 		sqlite
@@ -767,6 +760,7 @@ describe("runD1Retention", () => {
 		const bucket = new MemoryBucket();
 		const result = await runD1Retention({
 			db,
+			logsDb: logs.db,
 			bucket: bucket as unknown as R2Bucket,
 			now: NOW,
 		});
@@ -811,8 +805,9 @@ describe("runD1Retention", () => {
 	});
 
 	it("partitions mixed-tenant archive pages without changing the archived rows", async () => {
+		const logs = logsFixture();
 		const { db, seed, sqlite, count } = fixture(
-			"('audit_events','archive_then_delete',90,2000,'2026-10-21')",
+			"('audit_events','move_to_logs_db',90,2000,'2026-10-21')",
 		);
 		seed([120, 121, 122, 123]);
 		sqlite.exec(
@@ -821,6 +816,7 @@ describe("runD1Retention", () => {
 		const bucket = new MemoryBucket();
 		const result = await runD1Retention({
 			db,
+			logsDb: logs.db,
 			bucket: bucket as unknown as R2Bucket,
 			now: NOW,
 		});
@@ -842,13 +838,15 @@ describe("runD1Retention", () => {
 	});
 
 	it("archives expired rows to R2 before deleting exactly those rows", async () => {
+		const logs = logsFixture();
 		const { db, seed, count, policy } = fixture(
-			"('audit_events','archive_then_delete',30,2000,'2026-10-21')",
+			"('audit_events','move_to_logs_db',30,2000,'2026-10-21')",
 		);
 		seed([...Array.from({ length: 620 }, () => 120), 5, 2]);
 		const bucket = new MemoryBucket();
 		const result = await runD1Retention({
 			db,
+			logsDb: logs.db,
 			bucket: bucket as unknown as R2Bucket,
 			now: NOW,
 		});
@@ -874,14 +872,16 @@ describe("runD1Retention", () => {
 	});
 
 	it("keeps rows when the archive write fails and resumes on the next run", async () => {
+		const logs = logsFixture();
 		const { db, seed, count } = fixture(
-			"('audit_events','archive_then_delete',30,2000,'2026-10-21')",
+			"('audit_events','move_to_logs_db',30,2000,'2026-10-21')",
 		);
 		seed(Array.from({ length: 60 }, () => 120));
 		const bucket = new MemoryBucket();
 		bucket.failPuts = true;
 		const failed = await runD1Retention({
 			db,
+			logsDb: logs.db,
 			bucket: bucket as unknown as R2Bucket,
 			now: NOW,
 		});
@@ -894,6 +894,7 @@ describe("runD1Retention", () => {
 		bucket.failPuts = false;
 		await runD1Retention({
 			db,
+			logsDb: logs.db,
 			bucket: bucket as unknown as R2Bucket,
 			now: NOW,
 		});
@@ -901,12 +902,14 @@ describe("runD1Retention", () => {
 	});
 
 	it("respects the per-run row cap", async () => {
+		const logs = logsFixture();
 		const { db, seed, count } = fixture(
-			"('audit_events','archive_then_delete',30,120,'2026-10-21')",
+			"('audit_events','move_to_logs_db',30,120,'2026-10-21')",
 		);
 		seed(Array.from({ length: 300 }, () => 120));
 		const result = await runD1Retention({
 			db,
+			logsDb: logs.db,
 			bucket: new MemoryBucket() as unknown as R2Bucket,
 			now: NOW,
 		});
@@ -1342,21 +1345,24 @@ describe("runD1Retention", () => {
 		});
 	});
 
-	it("refuses unsafe policies without touching rows", async () => {
-		const { db, seed, count, policy } = fixture(
-			"('audit_events','delete',90,2000,'2026-10-21'), ('organizations','delete',90,2000,'2026-10-21')",
-		);
-		seed(Array.from({ length: 10 }, () => 200));
-		const result = await runD1Retention({ db, now: NOW });
-		expect(result.tables.map((table) => table.problem)).toEqual([
-			"archive_required",
-			"unsupported_table",
-		]);
-		expect(count()).toBe(10);
-		expect(JSON.parse(policy("audit_events").report)).toMatchObject({
-			problem: "archive_required",
-		});
-	});
+	it.each(["delete", "archive_then_delete", "unknown"])(
+		"refuses unsupported %s policies without touching rows",
+		async (mode) => {
+			const { db, seed, count, policy } = fixture(
+				`('audit_events','${mode}',90,2000,'2026-10-21'), ('organizations','${mode}',90,2000,'2026-10-21')`,
+			);
+			seed(Array.from({ length: 10 }, () => 200));
+			const result = await runD1Retention({ db, now: NOW });
+			expect(result.tables.map((table) => table.problem)).toEqual([
+				"unsupported_mode",
+				"unsupported_table",
+			]);
+			expect(count()).toBe(10);
+			expect(JSON.parse(policy("audit_events").report)).toMatchObject({
+				problem: "unsupported_mode",
+			});
+		},
+	);
 });
 
 describe("withOverloadBackoff", () => {
