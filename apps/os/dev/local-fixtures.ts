@@ -10822,6 +10822,7 @@ const handlers: Record<string, (input: never) => unknown> = {
 				id: current.id,
 				revision: current.revision,
 				createdAt: current.createdAt,
+				createdByKind: current.createdByKind,
 			},
 		};
 		if (input.sinceRevision >= current.revision)

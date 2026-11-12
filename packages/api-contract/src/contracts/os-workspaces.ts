@@ -26,6 +26,7 @@ import {
 	AppRuntimeFilesSchema,
 } from "../schemas/os-app-runtime";
 import {
+	OsCreatedByKindSchema,
 	OsBlueprintDefinitionSchema,
 	OsBlueprintResourceBindingSchema,
 	OsBlueprintPreflightSchema,
@@ -1656,7 +1657,11 @@ export const osWorkspacesContract = oc
 				.output(
 					z.object({
 						output: OsOutputSchema,
-						revision: OsOutputRevisionRefSchema,
+						revision: OsOutputRevisionRefSchema.extend({
+							createdByKind: OsCreatedByKindSchema.optional().describe(
+								"Who saved the current revision: a person (user) or an agent (tedi, external_agent, service). An open editor uses it to offer undo for an agent's change",
+							),
+						}),
 						patch: OsOutputContentPatchSchema.nullable(),
 						content: OsOutputContentSchema.optional().describe(
 							"The whole current content, only when a patch from sinceRevision cannot be made",

@@ -953,6 +953,7 @@ const outputsChanges = readOs.outputs.changes.handler(
 				id: current.id,
 				revision: current.revision,
 				createdAt: current.createdAt,
+				createdByKind: current.createdByKind,
 			},
 		};
 		if (input.sinceRevision >= current.revision)

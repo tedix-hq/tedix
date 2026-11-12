@@ -1,5 +1,7 @@
 import {
 	createDocEngine,
+	landedRanges,
+	showLanded,
 	retryLinkedImages,
 	blocksFromRichText,
 	moveDocumentBlock,
@@ -21,6 +23,14 @@ import { lastingSaveFailure } from "../lib/save-failure";
 import { createOutputSync } from "../lib/output-sync";
 import { fileToStoredImage } from "../lib/image-downscale";
 import { richTextToMarkdown } from "../lib/rich-text-markdown";
+import {
+	createLandedChanges,
+	landedDelay,
+	savedByAgent,
+	watchForInput,
+	LANDED_SHOWN_MS,
+	LANDED_UNDO_MS,
+} from "../lib/landed-changes";
 
 type DocumentContent = Extract<OsOutputContent, { kind: "document" }>;
 type Context = {
@@ -52,7 +62,7 @@ const SAVE_IDLE_MS = 220,
 	SAVE_RETRY_MAX_MS = 10_000,
 	SAVE_QUIET_RETRIES = 8;
 
-const css = `:root{--ease:cubic-bezier(.2,.8,.2,1);--fg:var(--tedix-fg,CanvasText);--bg:var(--tedix-bg,Canvas);--pri:var(--tedix-primary,Highlight);--mut:var(--tedix-muted-fg,GrayText);--hov:color-mix(in srgb,var(--fg) 5.5%,var(--bg));--act:color-mix(in srgb,var(--fg) 8.5%,var(--bg));--line:color-mix(in srgb,var(--fg) 8%,transparent);--edge:color-mix(in srgb,var(--fg) 15%,transparent);--card:var(--tedix-surface,var(--bg));font:14px var(--tedix-font,system-ui,sans-serif);color:var(--fg);scrollbar-width:thin;scrollbar-color:var(--edge) transparent}*{box-sizing:border-box}body{margin:0;padding:0!important;background:var(--bg)}button,input,select{font:inherit;color:inherit}[hidden]{display:none!important}:focus-visible{outline:2px solid var(--pri);outline-offset:1px}.doc-toolbar{position:sticky;top:0;z-index:3;display:flex;align-items:center;gap:2px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding:6px 26px 6px 10px;background:var(--bg);border-bottom:1px solid transparent;transition:border-color .12s}.doc-toolbar[data-scrolled]{border-color:var(--line)}.doc-toolbar>*{flex:none}.doc-table{display:contents}.doc-toolbar button,.doc-toolbar select,.doc-menu button,.doc-status button{height:29px;min-width:29px;display:inline-grid;place-items:center;padding:0 6px;border:0;border-radius:6px;background:none;cursor:pointer;transition:background .12s var(--ease),transform .12s var(--ease)}:is(button,select):hover:not(:disabled){background:var(--hov)}button:active:not(:disabled){background:var(--act);transform:scale(.94)}:is(button,select):disabled{opacity:.38;cursor:default}button[aria-pressed=true]{background:var(--act);color:var(--pri)}.doc-sep{flex:none;width:1px;height:16px;margin:0 5px;background:var(--edge)}.doc-readonly{padding:0 8px;font-size:12px;color:var(--mut)}.doc-toolbar .doc-more{margin-left:auto;position:sticky;right:0;background:var(--bg)}.doc-page{max-width:calc(700px + 2*clamp(20px,5.5vw,52px));margin:0 auto;padding:22px clamp(20px,5.5vw,52px) min(40vh,300px)}.doc-skel{animation:doc-fade .3s .25s both}.doc-skel i{display:block;height:12px;margin-bottom:15px;border-radius:6px;background:var(--act)}.doc-skel i:first-child{width:45%;height:26px;margin-bottom:24px}.doc-skel i:last-child{width:60%}@keyframes doc-fade{from{opacity:0}}@keyframes doc-in{from{opacity:0;transform:scale(.96)}}.doc-status,.doc-link,.doc-menu{position:fixed;background:var(--card);border:1px solid var(--edge);box-shadow:0 6px 22px #0002;animation:doc-in .16s var(--ease)}.doc-status{top:48px;right:12px;z-index:4;max-width:min(380px,calc(100% - 24px));display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;padding:5px 11px;border-radius:14px;font-size:12px;line-height:1.45;color:var(--mut)}.doc-status:empty{display:none}.doc-save{position:fixed;top:18px;right:12px;z-index:4;width:7px;height:7px;border-radius:50%;background:var(--mut)}.doc-save[data-s="1"]{background:#1a7f37}.doc-save[data-s="2"]{background:#c0262d}.doc-status[data-error=true]{color:var(--tedix-danger,#c0262d)}.doc-status button{height:24px;color:var(--fg);background:var(--hov)}.doc-link,.doc-menu{z-index:5;padding:5px;border-radius:10px;transform-origin:0 0}.doc-link{display:flex;gap:4px}.doc-link input{width:min(250px,60vw);height:29px;padding:0 8px;border:0;border-radius:6px;background:var(--hov)}.doc-link button{height:29px;padding:0 10px;border:0;border-radius:6px;background:var(--pri);color:var(--tedix-on-primary,HighlightText);cursor:pointer}.doc-menu{display:grid;min-width:180px}.doc-menu button{justify-content:start;padding:0 9px}.doc-menu div{display:flex;gap:2px}.doc-slash{max-height:min(320px,60vh);overflow-y:auto}.doc-slash button[aria-selected=true]{background:var(--act)}.doc-menu hr{width:100%;height:0;border:0;border-top:1px solid var(--line);margin:4px 0}.tiptap{outline:0;font-size:16px;line-height:1.62;min-height:50vh;caret-color:var(--pri);overflow-wrap:anywhere}.tiptap>:first-child{margin-top:0}.tiptap p{margin:0 0 .8em}.tiptap h1{font-size:1.875em;line-height:1.22;font-weight:680;letter-spacing:-.024em;margin:1.3em 0 .4em}.tiptap h2{font-size:1.4em;line-height:1.3;font-weight:640;letter-spacing:-.016em;margin:1.3em 0 .35em}.tiptap h3{font-size:1.15em;line-height:1.4;font-weight:620;margin:1.2em 0 .3em}.tiptap .doc-title{font-size:2.3em;font-weight:700}.tiptap [data-hint]:before{content:attr(data-hint);float:left;height:0;pointer-events:none;color:var(--mut);opacity:.65}.tiptap blockquote{margin:0 0 .8em;padding-left:14px;border-left:2px solid var(--edge);color:color-mix(in srgb,var(--fg) 72%,transparent)}.tiptap pre{font:13px/1.55 var(--tedix-font-mono,ui-monospace,monospace);background:var(--hov);margin:0 0 1em;padding:12px 14px;border-radius:8px;white-space:pre-wrap}.tiptap code{font-family:var(--tedix-font-mono,ui-monospace,monospace);font-size:.9em}.tiptap :not(pre)>code{background:var(--act);padding:.1em .3em;border-radius:4px}.tiptap hr{border:0;border-top:1px solid var(--edge);margin:1.6em 0}.tiptap ul,.tiptap ol{margin:0 0 .8em;padding-left:1.5em}.tiptap li p{margin:0 0 .2em}.tiptap ul[data-type=taskList]{list-style:none;padding-left:0}.tiptap li[data-checked]{display:flex;gap:9px}.tiptap li[data-checked]>div{flex:1}.tiptap li[data-checked=true]>div{color:var(--mut)}.tiptap input[type=checkbox]{appearance:none;display:grid;place-content:center;width:16px;height:16px;margin:5px 0 0;border:1.5px solid color-mix(in srgb,var(--fg) 34%,transparent);border-radius:4.5px;cursor:pointer;transition:background .12s}.tiptap input:checked{background:var(--pri);border-color:var(--pri)}.tiptap input:checked:after{content:"";width:8px;height:4px;margin-top:-2px;border:solid var(--tedix-on-primary,HighlightText);border-width:0 0 2px 2px;transform:rotate(-45deg)}.tiptap table{border-collapse:separate;border-spacing:0;table-layout:fixed;width:100%;margin:0 0 1em;border:1px solid var(--edge);border-radius:8px;overflow:hidden}.tiptap th,.tiptap td{border:solid var(--line);border-width:0 1px 1px 0;min-width:60px;padding:7px 10px;position:relative;vertical-align:top;text-align:left}.tiptap :is(th,td):last-child{border-right:0}.tiptap tr:last-child>*{border-bottom:0}.tiptap th{background:color-mix(in srgb,var(--fg) 3.5%,transparent);font-weight:600}.tiptap :is(th,td) p{margin:0}.tiptap .selectedCell:after{content:"";position:absolute;inset:0;background:color-mix(in srgb,var(--pri) 12%,transparent);pointer-events:none}.tiptap .column-resize-handle{position:absolute;right:0;top:0;bottom:0;width:3px;background:var(--pri)}.tiptap img{max-width:100%;height:auto;border-radius:6px}.tiptap .ProseMirror-selectednode{outline:2px solid var(--pri)}.tiptap aside,.tiptap [data-type=details]{margin:0 0 1em;padding:11px 14px;border-radius:8px;background:var(--hov)}.tiptap [data-type=details]{display:flex;gap:6px}.tiptap [data-type=details]>button{flex:none;width:22px;height:26px;border:0;border-radius:5px;background:none;cursor:pointer}.tiptap [data-type=details]>button:before{content:"▸"}.tiptap .is-open>button:before{content:"▾"}.tiptap [data-type=details]>div{flex:1;min-width:0}.tiptap summary{list-style:none;font-weight:600}.tiptap :is(aside,[data-type=detailsContent])>:last-child{margin-bottom:0}.tiptap a{color:var(--pri);text-decoration:underline}@media(pointer:coarse){.doc-toolbar button,.doc-toolbar select{height:36px;min-width:36px}}`;
+const css = `:root{--ease:cubic-bezier(.2,.8,.2,1);--fg:var(--tedix-fg,CanvasText);--bg:var(--tedix-bg,Canvas);--pri:var(--tedix-primary,Highlight);--mut:var(--tedix-muted-fg,GrayText);--hov:color-mix(in srgb,var(--fg) 5.5%,var(--bg));--act:color-mix(in srgb,var(--fg) 8.5%,var(--bg));--line:color-mix(in srgb,var(--fg) 8%,transparent);--edge:color-mix(in srgb,var(--fg) 15%,transparent);--card:var(--tedix-surface,var(--bg));font:14px var(--tedix-font,system-ui,sans-serif);color:var(--fg);scrollbar-width:thin;scrollbar-color:var(--edge) transparent}*{box-sizing:border-box}body{margin:0;padding:0!important;background:var(--bg)}button,input,select{font:inherit;color:inherit}[hidden]{display:none!important}:focus-visible{outline:2px solid var(--pri);outline-offset:1px}.doc-toolbar{position:sticky;top:0;z-index:3;display:flex;align-items:center;gap:2px;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding:6px 26px 6px 10px;background:var(--bg);border-bottom:1px solid transparent;transition:border-color .12s}.doc-toolbar[data-scrolled]{border-color:var(--line)}.doc-toolbar>*{flex:none}.doc-table{display:contents}.doc-toolbar button,.doc-toolbar select,.doc-menu button,.doc-status button{height:29px;min-width:29px;display:inline-grid;place-items:center;padding:0 6px;border:0;border-radius:6px;background:none;cursor:pointer;transition:background .12s var(--ease),transform .12s var(--ease)}:is(button,select):hover:not(:disabled){background:var(--hov)}button:active:not(:disabled){background:var(--act);transform:scale(.94)}:is(button,select):disabled{opacity:.38;cursor:default}button[aria-pressed=true]{background:var(--act);color:var(--pri)}.doc-sep{flex:none;width:1px;height:16px;margin:0 5px;background:var(--edge)}.doc-readonly{padding:0 8px;font-size:12px;color:var(--mut)}.doc-toolbar .doc-more{margin-left:auto;position:sticky;right:0;background:var(--bg)}.doc-page{max-width:calc(700px + 2*clamp(20px,5.5vw,52px));margin:0 auto;padding:22px clamp(20px,5.5vw,52px) min(40vh,300px)}.doc-skel{animation:doc-fade .3s .25s both}.doc-skel i{display:block;height:12px;margin-bottom:15px;border-radius:6px;background:var(--act)}.doc-skel i:first-child{width:45%;height:26px;margin-bottom:24px}.doc-skel i:last-child{width:60%}@keyframes doc-fade{from{opacity:0}}@keyframes doc-in{from{opacity:0;transform:scale(.96)}}.doc-status,.doc-link,.doc-menu{position:fixed;background:var(--card);border:1px solid var(--edge);box-shadow:0 6px 22px #0002;animation:doc-in .16s var(--ease)}.doc-status{top:48px;right:12px;z-index:4;max-width:min(380px,calc(100% - 24px));display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;padding:5px 11px;border-radius:14px;font-size:12px;line-height:1.45;color:var(--mut)}.doc-status:empty{display:none}.doc-save{position:fixed;top:18px;right:12px;z-index:4;width:7px;height:7px;border-radius:50%;background:var(--mut)}.doc-save[data-s="1"]{background:#1a7f37}.doc-save[data-s="2"]{background:#c0262d}.doc-status[data-error=true]{color:var(--tedix-danger,#c0262d)}.doc-status button{height:24px;color:var(--fg);background:var(--hov)}.doc-link,.doc-menu{z-index:5;padding:5px;border-radius:10px;transform-origin:0 0}.doc-link{display:flex;gap:4px}.doc-link input{width:min(250px,60vw);height:29px;padding:0 8px;border:0;border-radius:6px;background:var(--hov)}.doc-link button{height:29px;padding:0 10px;border:0;border-radius:6px;background:var(--pri);color:var(--tedix-on-primary,HighlightText);cursor:pointer}.doc-menu{display:grid;min-width:180px}.doc-menu button{justify-content:start;padding:0 9px}.doc-menu div{display:flex;gap:2px}.doc-slash{max-height:min(320px,60vh);overflow-y:auto}.doc-slash button[aria-selected=true]{background:var(--act)}.doc-menu hr{width:100%;height:0;border:0;border-top:1px solid var(--line);margin:4px 0}.tiptap{outline:0;font-size:16px;line-height:1.62;min-height:50vh;caret-color:var(--pri);overflow-wrap:anywhere}.tiptap>:first-child{margin-top:0}.tiptap p{margin:0 0 .8em}.tiptap h1{font-size:1.875em;line-height:1.22;font-weight:680;letter-spacing:-.024em;margin:1.3em 0 .4em}.tiptap h2{font-size:1.4em;line-height:1.3;font-weight:640;letter-spacing:-.016em;margin:1.3em 0 .35em}.tiptap h3{font-size:1.15em;line-height:1.4;font-weight:620;margin:1.2em 0 .3em}.tiptap .doc-title{font-size:2.3em;font-weight:700}.tiptap [data-hint]:before{content:attr(data-hint);float:left;height:0;pointer-events:none;color:var(--mut);opacity:.65}.tiptap blockquote{margin:0 0 .8em;padding-left:14px;border-left:2px solid var(--edge);color:color-mix(in srgb,var(--fg) 72%,transparent)}.tiptap pre{font:13px/1.55 var(--tedix-font-mono,ui-monospace,monospace);background:var(--hov);margin:0 0 1em;padding:12px 14px;border-radius:8px;white-space:pre-wrap}.tiptap code{font-family:var(--tedix-font-mono,ui-monospace,monospace);font-size:.9em}.tiptap :not(pre)>code{background:var(--act);padding:.1em .3em;border-radius:4px}.tiptap hr{border:0;border-top:1px solid var(--edge);margin:1.6em 0}.tiptap ul,.tiptap ol{margin:0 0 .8em;padding-left:1.5em}.tiptap li p{margin:0 0 .2em}.tiptap ul[data-type=taskList]{list-style:none;padding-left:0}.tiptap li[data-checked]{display:flex;gap:9px}.tiptap li[data-checked]>div{flex:1}.tiptap li[data-checked=true]>div{color:var(--mut)}.tiptap input[type=checkbox]{appearance:none;display:grid;place-content:center;width:16px;height:16px;margin:5px 0 0;border:1.5px solid color-mix(in srgb,var(--fg) 34%,transparent);border-radius:4.5px;cursor:pointer;transition:background .12s}.tiptap input:checked{background:var(--pri);border-color:var(--pri)}.tiptap input:checked:after{content:"";width:8px;height:4px;margin-top:-2px;border:solid var(--tedix-on-primary,HighlightText);border-width:0 0 2px 2px;transform:rotate(-45deg)}.tiptap table{border-collapse:separate;border-spacing:0;table-layout:fixed;width:100%;margin:0 0 1em;border:1px solid var(--edge);border-radius:8px;overflow:hidden}.tiptap th,.tiptap td{border:solid var(--line);border-width:0 1px 1px 0;min-width:60px;padding:7px 10px;position:relative;vertical-align:top;text-align:left}.tiptap :is(th,td):last-child{border-right:0}.tiptap tr:last-child>*{border-bottom:0}.tiptap th{background:color-mix(in srgb,var(--fg) 3.5%,transparent);font-weight:600}.tiptap :is(th,td) p{margin:0}.tiptap .selectedCell:after{content:"";position:absolute;inset:0;background:color-mix(in srgb,var(--pri) 12%,transparent);pointer-events:none}.tiptap .column-resize-handle{position:absolute;right:0;top:0;bottom:0;width:3px;background:var(--pri)}.tiptap img{max-width:100%;height:auto;border-radius:6px}.tiptap .ProseMirror-selectednode{outline:2px solid var(--pri)}.tiptap aside,.tiptap [data-type=details]{margin:0 0 1em;padding:11px 14px;border-radius:8px;background:var(--hov)}.tiptap [data-type=details]{display:flex;gap:6px}.tiptap [data-type=details]>button{flex:none;width:22px;height:26px;border:0;border-radius:5px;background:none;cursor:pointer}.tiptap [data-type=details]>button:before{content:"▸"}.tiptap .is-open>button:before{content:"▾"}.tiptap [data-type=details]>div{flex:1;min-width:0}.tiptap summary{list-style:none;font-weight:600}.tiptap :is(aside,[data-type=detailsContent])>:last-child{margin-bottom:0}.tiptap a{color:var(--pri);text-decoration:underline}@keyframes doc-land{0%,25%{background:color-mix(in srgb,var(--pri) 24%,transparent)}to{background:transparent}}@keyframes doc-arrive{0%{opacity:0}12%{opacity:1}}.doc-landed,.doc-landed-words{border-radius:3px;animation:doc-land 2.4s var(--ease) both}.doc-landed{animation-name:doc-land,doc-arrive}@media(prefers-reduced-motion:reduce){.doc-landed,.doc-landed-words{animation:none;background:color-mix(in srgb,var(--pri) 14%,transparent)}}@media(pointer:coarse){.doc-toolbar button,.doc-toolbar select{height:36px;min-width:36px}}`;
 
 export async function mountDocClient(
 	root: HTMLElement,
@@ -105,7 +115,14 @@ export async function mountDocClient(
 		frame = 0;
 	let saveTimer: ReturnType<typeof setTimeout> | undefined,
 		draftTimer: typeof saveTimer,
-		statusTimer: typeof saveTimer;
+		statusTimer: typeof saveTimer,
+		landedTimer: typeof saveTimer;
+	// What someone else changed while the document was open here.
+	const landed = createLandedChanges<DocumentContent>({
+			documentBlocks: blocksFromRichText,
+		}),
+		input = watchForInput(window);
+	let offering = false;
 	const buttons: {
 		node: HTMLButtonElement;
 		active?: () => boolean;
@@ -123,6 +140,7 @@ export async function mountDocClient(
 	) {
 		clearTimeout(statusTimer);
 		mark();
+		offering = false;
 		status.textContent = text;
 		status.dataset.error = String(error);
 		for (const [label, run] of actions) {
@@ -135,7 +153,7 @@ export async function mountDocClient(
 		// A pending choice comes back once a passing note has been read.
 		if (text && !actions.length)
 			statusTimer = setTimeout(
-				() => (theirs ? ask() : say()),
+				() => (theirs ? ask() : landed.undoable ? offerUndo() : say()),
 				brief ? 1300 : 7000,
 			);
 	}
@@ -267,9 +285,9 @@ export async function mountDocClient(
 	/**
 	 * Put a document on screen by changing only the part that differs, as one
 	 * step that undo skips. The caret, the selection and the text in view stay
-	 * where they are.
+	 * where they are. With `edit` it is the person's own change instead.
 	 */
-	function show(next: DocNode) {
+	function show(next: DocNode, edit = false) {
 		const { state, view } = editor!,
 			before = state.doc.content;
 		const start = before.findDiffStart(next.content);
@@ -280,9 +298,13 @@ export async function mountDocClient(
 			a += overlap;
 			b += overlap;
 		}
+		// An edit the person asked for is theirs: it saves and can be undone.
 		const quiet = <T extends { setMeta(key: string, value: unknown): T }>(
 			step: T,
-		) => step.setMeta("addToHistory", false).setMeta("preventUpdate", true);
+		) =>
+			edit
+				? step
+				: step.setMeta("addToHistory", false).setMeta("preventUpdate", true);
 		let anchor = state.selection.head,
 			top: number | undefined;
 		try {
@@ -338,12 +360,75 @@ export async function mountDocClient(
 	}
 	function changed() {
 		if (!loaded || !available) return;
+		landed.clear();
+		if (offering) say();
 		if (!dirty) since = Date.now();
 		dirty = true;
 		mark();
 		schedule();
 		clearTimeout(draftTimer);
 		draftTimer = setTimeout(retain, 1000);
+	}
+	/**
+	 * Show what someone else's save changed on screen: each part lights up
+	 * where it is, one after another, and the first comes into view when the
+	 * person is only watching. An agent's change can be taken back.
+	 */
+	function land(before: DocNode, after: DocNode, agent: boolean) {
+		const ranges = landedRanges(before, after);
+		const content = (doc: DocNode): DocumentContent => ({
+			...draft!,
+			richText: doc.toJSON() as OsRichTextDocument,
+		});
+		if (!before.eq(after)) landed.add(content(before), content(after), agent);
+		if (!ranges.length) return;
+		showLanded(editor!, ranges);
+		clearTimeout(landedTimer);
+		landedTimer = setTimeout(
+			() => editor && !destroyed && showLanded(editor, []),
+			LANDED_SHOWN_MS + landedDelay(ranges.length - 1, ranges.length),
+		);
+		if (input.watching && !dirty)
+			try {
+				const box = editor!.view.coordsAtPos(ranges[0]!.from);
+				if (box.top < 56 || box.bottom > innerHeight - 24)
+					scrollTo({
+						top: scrollY + box.top - innerHeight / 3,
+						behavior: matchMedia("(prefers-reduced-motion:reduce)").matches
+							? "auto"
+							: "smooth",
+					});
+			} catch {
+				// Nothing is laid out yet, so there is nowhere to scroll to.
+			}
+		if (agent && editable && !theirs) offerUndo();
+	}
+	function offerUndo() {
+		say("An agent changed this document.", false, [
+			["Undo agent change", undoLanded],
+		]);
+		offering = true;
+		statusTimer = setTimeout(() => offering && say(), LANDED_UNDO_MS);
+	}
+	/**
+	 * Take the agent's change set back out as an edit of the person's own: it
+	 * saves as a new change and their own undo brings the agent's work back.
+	 */
+	function undoLanded() {
+		if (!editor?.isEditable || !landed.undoable) return say();
+		const before = editor.state.doc,
+			content = landed.undo(snapshot());
+		if (!content) return say();
+		const next = check(content);
+		show(next, true);
+		if (!before.eq(editor.state.doc)) changed();
+		showLanded(editor, landedRanges(before, next));
+		clearTimeout(landedTimer);
+		landedTimer = setTimeout(
+			() => editor && !destroyed && showLanded(editor, []),
+			LANDED_SHOWN_MS,
+		);
+		say("Agent change undone.", false, [], true);
 	}
 	function ask() {
 		clearTimeout(saveTimer);
@@ -397,10 +482,12 @@ export async function mountDocClient(
 		dirty &&= !next.eq(check(saved));
 		if (theirs) say();
 		theirs = undefined;
+		const before = editor!.state.doc;
 		loaded = latest;
 		basis = latest.revision.revision;
 		draft = content;
 		show(next);
+		land(before, editor!.state.doc, savedByAgent(latest.revision));
 		if (dirty) {
 			since = Date.now();
 			schedule();
@@ -547,7 +634,9 @@ export async function mountDocClient(
 				since = Date.now();
 				schedule();
 			} else clearDraft();
-			if (!theirs) say(asked || failed || slow ? "Saved" : "", false, [], true);
+			// An offer to undo an agent's change stays up through a quiet save.
+			const note = asked || failed || slow ? "Saved" : "";
+			if (!theirs && (note || !offering)) say(note, false, [], true);
 			failed = false;
 			tries = 0;
 			// A link typed just now can only be fetched once it is saved.
@@ -1059,6 +1148,10 @@ export async function mountDocClient(
 			} else (slash.children[slashPick] as HTMLElement).click();
 			// The editor must not also move the caret or break the line.
 			event.stopPropagation();
+		} else if (mod && key === "z" && !event.shiftKey && offering) {
+			// The agent's change is the newest one: undo takes that back first.
+			undoLanded();
+			event.stopPropagation();
 		} else if (key === "escape") {
 			if (linkForm.hidden && menu.hidden) return;
 			closePopups(true);
@@ -1126,8 +1219,9 @@ export async function mountDocClient(
 		save,
 		destroy() {
 			destroyed = true;
-			for (const timer of [saveTimer, draftTimer, statusTimer])
+			for (const timer of [saveTimer, draftTimer, statusTimer, landedTimer])
 				clearTimeout(timer);
+			input.stop();
 			cancelAnimationFrame(frame);
 			editor?.destroy();
 			style.remove();

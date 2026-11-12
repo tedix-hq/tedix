@@ -62,6 +62,8 @@ function fixture(role = "owner") {
 		file,
 	};
 	let retained: { revision: number; content: DocumentContent } | null = null;
+	// Who saved the newest revision: a person, or an agent.
+	let savedBy = "user";
 	// What the server holds at each revision a client has read or saved.
 	const stored = new Map<number, DocumentContent>();
 	const calls = vi.fn(
@@ -135,7 +137,7 @@ function fixture(role = "owner") {
 				const since = stored.get(input.sinceRevision!);
 				return {
 					output,
-					revision: { revision },
+					revision: { revision, createdByKind: savedBy },
 					patch: since ? diffOutputContent(since, content) : null,
 					...(since ? {} : { content: structuredClone(content) }),
 				};
@@ -199,7 +201,9 @@ function fixture(role = "owner") {
 		external(
 			text: string | OsRichTextDocument,
 			source: MessageEventSource | null = window.parent,
+			by = "user",
 		) {
+			savedBy = by;
 			revision++;
 			richText =
 				typeof text === "string"
@@ -968,6 +972,195 @@ describe("portable rich Doc client", () => {
 		expect(test.persisted().richText!.content[0]!.content![0]!.text).toBe(
 			"Late edit Original",
 		);
+	});
+	describe("changes someone else makes while the document is open", () => {
+		const para = (text: string, marks?: { type: string }[]) => ({
+			type: "paragraph",
+			content: [{ type: "text", text, ...(marks ? { marks } : {}) }],
+		});
+		const body = (...content: object[]) =>
+			({ type: "doc", content }) as OsRichTextDocument;
+		const lit = (root: HTMLElement) =>
+			[...root.querySelectorAll(".doc-landed, .doc-landed-words")].map(
+				(node) =>
+					`${node.className.includes("words") ? "words" : "block"}:${node.textContent}@${(node as HTMLElement).style.animationDelay}`,
+			);
+		const texts = (editor: Editor) => {
+			const all: string[] = [];
+			editor.state.doc.forEach((node) => all.push(node.textContent));
+			return all;
+		};
+		async function opened() {
+			const test = fixture(),
+				view = await test.mount();
+			test.external(body(para("One fine day"), para("Two"), para("Three")));
+			await vi.waitFor(() => expect(view.editor.getText()).toContain("Three"));
+			return { test, ...view };
+		}
+		it("lights the changed words and the new blocks one after another, then lets go", async () => {
+			const { test, root, editor } = await opened();
+			fakeClock();
+			test.external(
+				body(
+					para("One rainy day"),
+					para("Two"),
+					para("New here"),
+					para("Three"),
+					para("And last"),
+				),
+			);
+			await vi.waitFor(() => expect(editor.getText()).toContain("And last"));
+			expect(lit(root)).toEqual([
+				"words:rainy@0ms",
+				"block:New here@140ms",
+				"block:And last@280ms",
+			]);
+			// Someone else's save is not this person's edit: nothing to save or undo.
+			expect(editor.can().undo()).toBe(false);
+			expect(saves(test)).toBe(0);
+			expect(statusText(root)).toBe("");
+			await vi.advanceTimersByTimeAsync(2_700);
+			expect(lit(root)).toEqual([]);
+		});
+		it("lights a changed table cell and list item, not the whole table or list", async () => {
+			const { test, root, editor } = await opened();
+			const list = (...items: string[]) => ({
+				type: "bulletList",
+				content: items.map((item) => ({
+					type: "listItem",
+					content: [para(item)],
+				})),
+			});
+			test.external(body(para("Top"), list("alpha", "beta", "gamma")));
+			await vi.waitFor(() => expect(editor.getText()).toContain("gamma"));
+			test.external(body(para("Top"), list("alpha", "beta two", "gamma")));
+			await vi.waitFor(() => expect(editor.getText()).toContain("beta two"));
+			expect(lit(root)).toEqual(["words: two@0ms"]);
+			test.external(
+				body(para("Top"), list("alpha", "beta two", "gamma", "delta")),
+			);
+			await vi.waitFor(() => expect(editor.getText()).toContain("delta"));
+			expect(lit(root)).toHaveLength(1);
+			expect(lit(root)[0]).toMatch(/^block:.*delta/);
+		});
+		it("keeps the light on the changed words while the person types above them", async () => {
+			const { test, root, editor } = await opened();
+			test.external(
+				body(para("One fine day"), para("Two"), para("Three times")),
+			);
+			await vi.waitFor(() => expect(editor.getText()).toContain("times"));
+			editor.commands.insertContentAt(1, "Mine. ");
+			expect(lit(root)).toEqual(["words: times@0ms"]);
+		});
+		it("offers to undo an agent's change, and undoes it as a new saved change", async () => {
+			const { test, root, editor, mounted } = await opened();
+			test.external(
+				body(para("One fine day"), para("Two, says the agent"), para("Three")),
+				window.parent,
+				"tedi",
+			);
+			await vi.waitFor(() =>
+				expect(statusText(root)).toContain("An agent changed this document."),
+			);
+			const before = saves(test);
+			click(root, "Undo agent change");
+			expect(texts(editor)).toEqual(["One fine day", "Two", "Three"]);
+			expect(statusText(root)).toBe("Agent change undone.");
+			await mounted.save();
+			// The undo is one more saved change; nothing is removed from history.
+			expect(saves(test)).toBe(before + 1);
+			expect(
+				test
+					.persisted()
+					.richText!.content.map((node) => node.content![0]!.text),
+			).toEqual(["One fine day", "Two", "Three"]);
+			// It was the person's own edit: their undo brings the agent's work back.
+			editor.commands.undo();
+			expect(texts(editor)[1]).toBe("Two, says the agent");
+		});
+		it("undoes the agent's change with the undo shortcut while it is the newest change", async () => {
+			const { test, root, editor } = await opened();
+			test.external(
+				body(para("One fine day"), para("Two"), para("Three"), para("Agent")),
+				window.parent,
+				"external_agent",
+			);
+			await vi.waitFor(() =>
+				expect(find(root, "Undo agent change")).toBeDefined(),
+			);
+			const undo = new KeyboardEvent("keydown", {
+				key: "z",
+				ctrlKey: true,
+				bubbles: true,
+				cancelable: true,
+			});
+			editor.view.dom.dispatchEvent(undo);
+			expect(undo.defaultPrevented).toBe(true);
+			expect(texts(editor)).toEqual(["One fine day", "Two", "Three"]);
+		});
+		it("undoes several quick agent saves as one, and keeps what the person wrote since", async () => {
+			const { test, root, editor } = await opened();
+			test.external(
+				body(para("One fine day"), para("Two!"), para("Three")),
+				window.parent,
+				"tedi",
+			);
+			await vi.waitFor(() => expect(editor.getText()).toContain("Two!"));
+			test.external(
+				body(para("One fine day"), para("Two!"), para("Three!")),
+				window.parent,
+				"tedi",
+			);
+			await vi.waitFor(() => expect(editor.getText()).toContain("Three!"));
+			click(root, "Undo agent change");
+			expect(texts(editor)).toEqual(["One fine day", "Two", "Three"]);
+		});
+		it("stops offering once the person edits, and never offers for another person's change", async () => {
+			const { test, root, editor } = await opened();
+			test.external(
+				body(para("One fine day"), para("Two"), para("Three, agent")),
+				window.parent,
+				"tedi",
+			);
+			await vi.waitFor(() =>
+				expect(find(root, "Undo agent change")).toBeDefined(),
+			);
+			editor.commands.insertContentAt(1, "Mine. ");
+			expect(find(root, "Undo agent change")).toBeUndefined();
+			// Their own undo now undoes their own typing, not the agent.
+			press(editor.view.dom, { key: "z", ctrlKey: true });
+			expect(texts(editor)[2]).toBe("Three, agent");
+			test.external(
+				body(para("One fine day"), para("Two"), para("Three, person")),
+			);
+			await vi.waitFor(() => expect(editor.getText()).toContain("person"));
+			expect(find(root, "Undo agent change")).toBeUndefined();
+			expect(lit(root)).toEqual(["words:person@0ms"]);
+		});
+		it("lets the offer go after half a minute and offers nothing to a reader", async () => {
+			const { test, root, editor } = await opened();
+			fakeClock();
+			test.external(
+				body(para("One fine day"), para("Two"), para("Agent")),
+				window.parent,
+				"tedi",
+			);
+			await vi.waitFor(() =>
+				expect(find(root, "Undo agent change")).toBeDefined(),
+			);
+			await vi.advanceTimersByTimeAsync(30_000);
+			expect(statusText(root)).toBe("");
+			expect(editor.getText()).toContain("Agent");
+			vi.useRealTimers();
+			const reader = fixture("use"),
+				view = await reader.mount();
+			reader.external(body(para("For readers")), window.parent, "tedi");
+			await vi.waitFor(() =>
+				expect(view.editor.getText()).toContain("For readers"),
+			);
+			expect(lit(view.root)).toHaveLength(1);
+			expect(statusText(view.root)).toBe("");
+		});
 	});
 	describe("insert list on /", () => {
 		const options = (root: HTMLElement) =>
