@@ -25,6 +25,39 @@ beforeEach(() => {
 });
 
 describe("callApiRpc transport", () => {
+	it("observes trusted service response timing without consuming or changing the response", async () => {
+		const response = new Response('{"json":{"ok":true}}', {
+			headers: { "Server-Timing": "output-editor;dur=123" },
+		});
+		bindingFetch.mockResolvedValueOnce(response);
+		vi.mocked(callRpc).mockImplementationOnce(
+			async (_path, _input, options) => {
+				const actual = await options.fetch!(
+					"https://api/rpc/os/outputs/create",
+					{ method: "POST" },
+				);
+				expect(actual).toBe(response);
+				expect(await actual.text()).toBe('{"json":{"ok":true}}');
+				return { ok: true };
+			},
+		);
+		const onServerTiming = vi.fn();
+		expect(
+			await callApiRpc({ API_URL, API_SERVICE: binding }, PATH, input, {
+				onServerTiming,
+			}),
+		).toEqual({ data: { ok: true }, status: 200 });
+		expect(onServerTiming).toHaveBeenCalledExactlyOnceWith(
+			"output-editor;dur=123",
+		);
+	});
+	it("does not observe timing from the HTTPS fallback", async () => {
+		vi.mocked(callRpc).mockResolvedValueOnce({ ok: true });
+		const onServerTiming = vi.fn();
+		await callApiRpc({ API_URL }, PATH, input, { onServerTiming });
+		expect(vi.mocked(callRpc).mock.calls[0]?.[2].fetch).toBeUndefined();
+		expect(onServerTiming).not.toHaveBeenCalled();
+	});
 	it.each([
 		{
 			name: "default binding",

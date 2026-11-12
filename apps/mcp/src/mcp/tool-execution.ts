@@ -1,3 +1,4 @@
+import { requestPhaseTimings } from "./phase-timings";
 import {
 	readFieldSelectionMetrics,
 	readResponseFields,
@@ -808,6 +809,7 @@ async function executeWithHandler(
 		env: agent.env,
 		config: toolConfig,
 		catalogTransport: agent.catalogTransport,
+		onServerTiming: (value) => requestPhaseTimings(agent.ctx).recordApi(value),
 		toolId: tool.toolId,
 		callable: `${resolveMcpToolNamespace(tool, agent.appMetadata?.mcpConfig?.codeModeNamespaces as Record<string, string> | undefined)}.${sanitizeToolName(tool.toolId.includes("__") ? tool.toolId.split("__").slice(1).join("__") : tool.toolId)}`,
 		toolInputSchema: tool.inputSchema,

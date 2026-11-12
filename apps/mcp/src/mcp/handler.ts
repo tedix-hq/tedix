@@ -103,6 +103,8 @@ const log = createMcpLogger("mcp.tool_handler");
 export interface ToolExecutionContext<TConfig = unknown> {
 	/** Request-local API client used for gateway policy reads. */
 	apiClient?: ApiClient;
+	/** Timing headers from the trusted API service binding only. */
+	onServerTiming?: (value: string) => void;
 	/**
 	 * Trusted declaration from the app_tools row: an internal tool whose
 	 * transport forwards to the public internet. On external and upstream-MCP
@@ -1130,6 +1132,7 @@ export class ToolHandler {
 				const result = await callApiRpc(ctx.env, endpoint, params, {
 					headers,
 					timeoutMs: timeout,
+					onServerTiming: ctx.onServerTiming,
 				});
 				status = result.status;
 				// Keep existing responsePath configuration stable while the official

@@ -34,16 +34,26 @@ export async function callApiRpc(
 		serviceBinding?: boolean;
 		timeoutMs?: number;
 		signal?: AbortSignal;
+		onServerTiming?: (value: string) => void;
 	} = {},
 ): Promise<{ data: unknown; status: number }> {
 	const useServiceBinding =
 		(options.serviceBinding ?? true) && Boolean(env.API_SERVICE);
+	const bindingFetch = useServiceBinding
+		? serviceBindingFetch(env.API_SERVICE!)
+		: undefined;
 	try {
 		const data = await callRpc(path, input, {
 			apiUrl: useServiceBinding ? "https://api" : env.API_URL,
-			fetch: useServiceBinding
-				? serviceBindingFetch(env.API_SERVICE!)
-				: undefined,
+			fetch:
+				bindingFetch && options.onServerTiming
+					? async (input, init) => {
+							const response = await bindingFetch(input, init);
+							const timing = response.headers.get("Server-Timing");
+							if (timing) options.onServerTiming!(timing);
+							return response;
+						}
+					: bindingFetch,
 			headers: {
 				...(useServiceBinding ? { "X-Service-Binding": "true" } : {}),
 				...options.headers,
