@@ -104,7 +104,7 @@ const MAX_FACTS_PER_RUN = 20;
 const MAX_PROPOSALS_PER_RUN = 5;
 const ITEMS_PER_FACT = 5;
 const FACT_CHARS = 1500;
-/** Shorter answers ("yes", "go on") carry no lesson on their own. */
+/** Shorter answers ("yes", "go on") teach only together with their question. */
 const MIN_DECISION_CHARS = 24;
 const MIN_DECISIONS_PER_FACT = 2;
 const MISTAKE_MIN_OCCURRENCES = 3;
@@ -233,6 +233,23 @@ function scopeOf(event: LearningInteractionEventRow): LearningFeedScope {
 	};
 }
 
+const PLAIN_YES =
+	/^\s*(yes|yep|yeah|sure|ok(?:ay)?|do it|go ahead|approved?|confirmed|make it happen)\b/i;
+const PLAIN_NO =
+	/^\s*(no|nope|not now|not yet|don'?t|do not|stop|skip|cancel|hold off)\b/i;
+const ASK_CHARS = 260;
+
+/** The question the agent closed its turn with: the last line that asks one. */
+function askedQuestion(tail: unknown): string | null {
+	if (typeof tail !== "string") return null;
+	const ask = tail
+		.split(/\r?\n/)
+		.map((line) => line.replace(/\s+/g, " ").trim())
+		.findLast((line) => line.includes("?"));
+	if (!ask) return null;
+	return ask.length > ASK_CHARS ? `…${ask.slice(-(ASK_CHARS - 1))}` : ask;
+}
+
 /** One line of a lesson, or null when the event teaches nothing alone. */
 export function decisionLessonLine(
 	event: LearningInteractionEventRow,
@@ -271,8 +288,23 @@ export function decisionLessonLine(
 	if (
 		answer.length < MIN_DECISION_CHARS ||
 		(AUTO_REPLY_FOLLOW_CLASSES as readonly string[]).includes(replyClass)
-	)
-		return null;
+	) {
+		// The reply says little; the question it answers holds the decision.
+		const ask = askedQuestion(rec(meta.question).tail);
+		if (!ask) return null;
+		const said = ` (replied "${clip(answer, 80)}")`;
+		if (PLAIN_NO.test(answer))
+			return { line: `Declined: "${ask}"${said}.`, strong: false };
+		if (PLAIN_YES.test(answer))
+			return { line: `Approved: "${ask}"${said}.`, strong: false };
+		// A short choice between offered options ("the second one first").
+		if (answer.length >= MIN_DECISION_CHARS || !/\S\s+\S/.test(answer))
+			return null;
+		return {
+			line: `Decided: "${answer}" (agent asked: "${ask}").`,
+			strong: false,
+		};
+	}
 	const asked = question ? ` (agent asked: "${clip(question, 160)}")` : "";
 	return { line: `Decided: "${clip(answer, 260)}"${asked}.`, strong: false };
 }

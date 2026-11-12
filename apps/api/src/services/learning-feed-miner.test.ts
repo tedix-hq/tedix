@@ -79,6 +79,7 @@ import {
 	STALE_DAYS,
 	routeCandidates,
 	routingFromChoice,
+	decisionLessonLine,
 } from "./learning-feed-miner";
 
 const db = {} as DbClient;
@@ -238,12 +239,48 @@ describe("buildDecisionLessons", () => {
 		expect(buildDecisionLessons([event("e1")])).toEqual([]);
 		expect(
 			buildDecisionLessons([
-				event("e1", { meta: { answer: "ok go" } }),
+				event("e1", {
+					meta: { answer: "ok go", question: { subject: "s", tail: "Done." } },
+				}),
 				event("e2", { meta: { replyClass: "continue" } }),
 				event("e3"),
 			]),
 		).toEqual([]);
 		expect(buildDecisionLessons([event("e1"), event("e2")])).toHaveLength(1);
+	});
+
+	it("pairs a short reply with the question it answers", () => {
+		const tail =
+			"All checks pass.\n\nPush the fix to main now? (options: Yes, push it / Not now)";
+		const short = (answer: string, replyClass: string) =>
+			decisionLessonLine(
+				event("e1", {
+					meta: { answer, replyClass, question: { subject: "s", tail } },
+				}),
+			)?.line;
+		const ask = "Push the fix to main now? (options: Yes, push it / Not now)";
+		expect(short("Yes, push it", "ship")).toBe(
+			`Approved: "${ask}" (replied "Yes, push it").`,
+		);
+		expect(short("Not now", "instruction")).toBe(
+			`Declined: "${ask}" (replied "Not now").`,
+		);
+		expect(short("Tests first", "instruction")).toBe(
+			`Decided: "Tests first" (agent asked: "${ask}").`,
+		);
+		// One word, or a go-on with nothing asked, still teaches nothing.
+		expect(short("next", "continue")).toBeUndefined();
+		expect(
+			decisionLessonLine(
+				event("e1", {
+					meta: {
+						answer: "yes",
+						replyClass: "approve",
+						question: { subject: "s", tail: "All checks pass." },
+					},
+				}),
+			),
+		).toBeNull();
 	});
 
 	it("does not relearn events a reviewed fact covers", () => {

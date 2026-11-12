@@ -59,7 +59,7 @@ const LABEL_LIMIT = 120;
 export const STATUS_EVENT_LIMIT = 8 * 1024 * 1024;
 const LOG_LIMIT = 1024 * 1024;
 /** Tail of a Claude Code transcript searched for its latest `/rename` title. */
-const TRANSCRIPT_TAIL = 512 * 1024;
+export const TRANSCRIPT_TAIL = 512 * 1024;
 /** Tail of the Codex session index searched for a thread name. */
 const CODEX_INDEX_TAIL = 1024 * 1024;
 const QUESTION =
@@ -536,7 +536,7 @@ export function sessionBinding(
 }
 
 /** Lines of the last `limit` bytes of a file, newest first; [] when unreadable. */
-function tailLines(path: string, limit: number): string[] {
+export function tailLines(path: string, limit: number): string[] {
 	let fd: number | undefined;
 	try {
 		fd = openSync(path, "r");
