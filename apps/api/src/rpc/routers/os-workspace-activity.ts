@@ -34,6 +34,9 @@ const readOs = os
 	.use(osAudit(OS_WORKSPACES_AUDIT))
 	.use(AUTHZ.osRead);
 
+const ACTIVITY_SCAN_BATCH = 5;
+const ACTIVITY_SCAN_LIMIT = 20;
+
 function encodeCursor(row: WorkspaceActivityRow): string {
 	return JSON.stringify({
 		occurredAt: row.occurredAt,
@@ -154,32 +157,46 @@ async function visibleWorkspaceActivity(
 const activity = readOs.workspaces.activity.handler(
 	async ({ input, context }) => {
 		const organizationId = requireOrgId(context);
+		const viewer = await resolveOsWorkspaceViewer(context);
 		// Bound database scans and downstream source authorization independently.
-		const scanLimit = Math.min(input.limit, 5);
-		const rows = await listWorkspaceActivity(
-			queryDb(context),
-			{ organizationId, viewer: await resolveOsWorkspaceViewer(context) },
-			{
-				workspaceId: input.workspaceId,
-				kinds: input.kinds,
-				limit: scanLimit + 1,
-				before: decodeCursor(input.before),
-			},
-		);
+		// Records the viewer may not see are skipped, so keep reading small batches
+		// until the page has something to show or the scan bound is reached.
+		const batchSize = Math.min(input.limit, ACTIVITY_SCAN_BATCH);
 		const items: WorkspaceActivityItem[] = [];
 		const budget = { sources: 50, exhausted: false };
+		let cursor = decodeCursor(input.before);
+		let last: WorkspaceActivityRow | undefined;
 		let examined = 0;
-		for (const row of rows.slice(0, scanLimit)) {
-			const item = await visibleWorkspaceActivity(context, row, budget);
-			if (budget.exhausted) break;
-			examined += 1;
-			if (item) items.push(item);
+		let more = false;
+		while (examined < ACTIVITY_SCAN_LIMIT && items.length < input.limit) {
+			const rows = await listWorkspaceActivity(
+				queryDb(context),
+				{ organizationId, viewer },
+				{
+					workspaceId: input.workspaceId,
+					kinds: input.kinds,
+					limit: batchSize + 1,
+					before: cursor,
+				},
+			);
+			let batchExamined = 0;
+			for (const row of rows.slice(0, batchSize)) {
+				const item = await visibleWorkspaceActivity(context, row, budget);
+				if (budget.exhausted) break;
+				batchExamined += 1;
+				last = row;
+				if (item) items.push(item);
+			}
+			examined += batchExamined;
+			more = rows.length > batchExamined;
+			if (!more || budget.exhausted || batchExamined === 0 || !last) break;
+			if (items.length > 0) break;
+			cursor = { occurredAt: last.occurredAt, seq: last.seq, id: last.id };
 		}
-		const last = rows[examined - 1];
 		return {
 			items,
 			coverage: "recorded_only" as const,
-			next: rows.length > examined && last ? encodeCursor(last) : null,
+			next: more && last ? encodeCursor(last) : null,
 		};
 	},
 );
