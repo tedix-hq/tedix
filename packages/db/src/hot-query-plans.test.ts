@@ -11,6 +11,7 @@ import {
 	listPendingAgentSessionEvents,
 } from "./queries/agent-session-requests";
 import { getGraphProjectionCanonicalLifecycleSample } from "./queries/graph-projection-health";
+import { lexicalRecall } from "./queries/memory-graph/hybrid-recall";
 import { listOwnerLearningInteractionsPage } from "./queries/learning-feedback";
 import { pendingFilingLessons } from "./queries/request-filings";
 import { listRationaleRecords } from "./queries/rationale-records";
@@ -63,6 +64,33 @@ function queryPlan(sqlite: DatabaseSync, statement: string): string {
 }
 
 describe("hot production query plans", () => {
+	it.each([undefined, "2026-11-12T12:00:00.000Z"])(
+		"looks up lexical recall facts by FTS rowid for one organization (clock %s)",
+		async (now) => {
+			const { sqlite, query, lastPlan } = fixture();
+			// A selective relation-type estimate can override the incident-rowid list.
+			sqlite.exec(`ANALYZE;
+				INSERT INTO sqlite_stat1(tbl,idx,stat) VALUES
+				('memory_edges','idx_memory_edges_type','24000 60'),
+				('memory_edges','idx_memory_edges_source','24000 4'),
+				('memory_edges','idx_memory_edges_target','24000 3'),
+				('memory_edges','sqlite_autoindex_memory_edges_2','24000 4 1 1'),
+				('memory_edges','sqlite_autoindex_memory_edges_1','24000 1'),
+				('memory_facts','sqlite_autoindex_memory_facts_1','72000 1');
+				ANALYZE sqlite_schema;`);
+			await lexicalRecall(query, { organizationId: "org-1", now }, "cobalt");
+			const plan = lastPlan();
+			expect(plan).toContain(
+				"SEARCH memory_facts USING INTEGER PRIMARY KEY (rowid=?)",
+			);
+			expect(plan).not.toMatch(/SCAN (memory_facts|e|newer|replacement)\b/);
+			expect(plan).toContain("idx_memory_edges_source");
+			expect(plan).toContain("idx_memory_edges_target");
+			expect(plan).toContain("SEARCH e USING INTEGER PRIMARY KEY (rowid=?)");
+			expect(plan).not.toContain("idx_memory_edges_type");
+		},
+	);
+
 	it("reads the rationale total by organization key without scanning rationale rows", async () => {
 		const { db, lastPlan } = fixture();
 		await listRationaleRecords(db, { orgId: "org-1" });

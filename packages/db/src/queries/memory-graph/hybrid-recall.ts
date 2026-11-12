@@ -75,10 +75,10 @@ function eligible(scope: RecallScope): SQL {
 		sql`(json_extract(${f.metadata}, '$.expiresAt') IS NULL OR datetime(json_extract(${f.metadata}, '$.expiresAt')) > datetime(${now}))`,
 		// Edge direction is newer/source -> older/target for supersedes. For a
 		// contradiction either direction is allowed; actual validity time wins.
-		// Seek incident edges first: the combined relation predicate can otherwise
-		// make SQLite scan every edge or every tenant fact for each FTS match.
+		// NOT INDEXED preserves rowid seeks from the incident-edge list; otherwise
+		// selective relation estimates can make SQLite walk the type index instead.
 		sql`NOT EXISTS (
-			SELECT 1 FROM memory_edges e CROSS JOIN memory_facts newer INDEXED BY sqlite_autoindex_memory_facts_1
+			SELECT 1 FROM memory_edges e NOT INDEXED CROSS JOIN memory_facts newer INDEXED BY sqlite_autoindex_memory_facts_1
 			WHERE e.rowid IN (
 				SELECT rowid FROM memory_edges INDEXED BY idx_memory_edges_source WHERE source_fact_id = ${f.id}
 				UNION SELECT rowid FROM memory_edges INDEXED BY idx_memory_edges_target WHERE target_fact_id = ${f.id}
@@ -114,14 +114,14 @@ export async function lexicalRecall(
 	return (
 		db
 			.select({
-				factId: memoryFacts.id,
+				factId: sql<string>`${memoryFacts.id}`.as("fact_id"),
 				score: sql<number>`-${index}.rank`.as("lexical_score"),
 			})
-			// Native rank streams BM25 matches; CROSS JOIN forces rowid lookups
-			// instead of scanning all active facts. Filter before LIMIT so invalid
+			// Native rank streams BM25 matches; NOT INDEXED keeps the fact rowid
+			// lookup instead of a tenant-index walk. Filter before LIMIT so invalid
 			// high-ranking matches cannot crowd out usable facts.
 			.from(sql`${index}`)
-			.crossJoin(memoryFacts)
+			.crossJoin(sql`${memoryFacts} NOT INDEXED`)
 			.where(
 				and(
 					eligible(scope),
