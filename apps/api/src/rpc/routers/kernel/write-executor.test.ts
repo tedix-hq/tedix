@@ -1767,3 +1767,185 @@ describe("approved owner tool call replay", () => {
 		expect(service.calls.at(-1)?.params.name).toBe("mail__send");
 	});
 });
+
+describe("approved-write catalog versions", () => {
+	it("reuses a complete catalog only after a live version match, then rejects changed write policy", async () => {
+		let version = "v1";
+		const service = mcpService((body) => {
+			if (body.method !== "tools/list")
+				return {
+					json: {
+						jsonrpc: "2.0",
+						result: {
+							structuredContent: { id: "invoice-1" },
+							_meta: { "com.tedix/timings": { unit: "ms", handler: 42 } },
+						},
+					},
+				};
+			const unchanged =
+				body.params._meta &&
+				(body.params._meta as Record<string, unknown>)[
+					"com.tedix/catalogVersion"
+				] === version;
+			return {
+				json: {
+					jsonrpc: "2.0",
+					result: {
+						tools: unchanged
+							? []
+							: [
+									{
+										name: "globex__create_invoice",
+										annotations: { readOnlyHint: version === "v2" },
+									},
+								],
+						_meta: {
+							"com.tedix/catalogVersion": version,
+							...(unchanged ? { "com.tedix/catalogUnchanged": true } : {}),
+						},
+					},
+				},
+			};
+		});
+		const timings: KernelWriteExecutorTimings = {};
+		const run = () =>
+			executeApprovedKernelWrite({
+				env: env(service),
+				payload: payload(),
+				timings,
+			});
+		expect((await run()).ok).toBe(true);
+		expect((await run()).ok).toBe(true);
+		expect(
+			service.calls.filter((c) => c.method === "tools/list")[1]?.params._meta,
+		).toMatchObject({ "com.tedix/catalogVersion": "v1" });
+		expect(timings.gateway).toEqual({ unit: "ms", handler: 42 });
+		version = "v2";
+		expect(await run()).toMatchObject({
+			ok: false,
+			error: expect.stringContaining("read-only"),
+		});
+		expect(service.calls.filter((c) => c.method === "tools/call")).toHaveLength(
+			2,
+		);
+	});
+
+	it("does not reuse catalogs across organizations or acting users", async () => {
+		const service = mcpService((body) =>
+			body.method === "tools/list"
+				? {
+						json: {
+							jsonrpc: "2.0",
+							result: {
+								...LISTED.json.result,
+								_meta: { "com.tedix/catalogVersion": "v1" },
+							},
+						},
+					}
+				: {
+						json: {
+							jsonrpc: "2.0",
+							result: { structuredContent: { id: "invoice-1" } },
+						},
+					},
+		);
+		for (const overrides of [
+			{},
+			{ organizationId: "org-2" },
+			{ initiatedByUserId: "user-2" },
+		]) {
+			expect(
+				(
+					await executeApprovedKernelWrite({
+						env: env(service),
+						payload: payload(overrides),
+					})
+				).ok,
+			).toBe(true);
+		}
+		for (const call of service.calls.filter((c) => c.method === "tools/list"))
+			expect(call.params._meta).not.toHaveProperty("com.tedix/catalogVersion");
+	});
+
+	it("refuses a catalog that changes between pages", async () => {
+		const service = mcpService((body) => ({
+			json: {
+				jsonrpc: "2.0",
+				result: {
+					tools: [{ name: "globex__create_invoice" }],
+					...(body.params.cursor ? {} : { nextCursor: "page2" }),
+					_meta: {
+						"com.tedix/catalogVersion": body.params.cursor ? "v2" : "v1",
+					},
+				},
+			},
+		}));
+		expect(
+			await executeApprovedKernelWrite({
+				env: env(service),
+				payload: payload(),
+			}),
+		).toMatchObject({
+			ok: false,
+			error: expect.stringContaining("changed during pagination"),
+		});
+		expect(service.calls.every((c) => c.method === "tools/list")).toBe(true);
+	});
+});
+
+it("skips all continuation pages when an approved-write catalog version is unchanged", async () => {
+	const service = mcpService((body) => {
+		if (body.method !== "tools/list")
+			return {
+				json: {
+					jsonrpc: "2.0",
+					result: { structuredContent: { id: "invoice-1" } },
+				},
+			};
+		const unchanged =
+			(body.params._meta as Record<string, unknown> | undefined)?.[
+				"com.tedix/catalogVersion"
+			] === "v1";
+		return {
+			json: {
+				jsonrpc: "2.0",
+				result: {
+					tools: unchanged
+						? []
+						: [
+								{
+									name: body.params.cursor
+										? "globex__create_invoice"
+										: "another_tool",
+								},
+							],
+					...(!unchanged && !body.params.cursor ? { nextCursor: "page2" } : {}),
+					_meta: {
+						"com.tedix/catalogVersion": "v1",
+						...(unchanged ? { "com.tedix/catalogUnchanged": true } : {}),
+					},
+				},
+			},
+		};
+	});
+	for (let i = 0; i < 3; i++)
+		expect(
+			(
+				await executeApprovedKernelWrite({
+					env: env(service),
+					payload: payload(),
+				})
+			).ok,
+		).toBe(true);
+	const listings = service.calls.filter((c) => c.method === "tools/list");
+	expect(listings).toHaveLength(4);
+	expect(listings.map((c) => c.params.cursor)).toEqual([
+		undefined,
+		"page2",
+		undefined,
+		undefined,
+	]);
+	expect(service.calls.filter((c) => c.method === "tools/call")).toHaveLength(
+		3,
+	);
+});

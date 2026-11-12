@@ -1,4 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vite-plus/test";
 
 const {
 	getApiClient,
@@ -152,10 +159,21 @@ describe("aggregate surface cache fingerprint", () => {
 	});
 });
 
+// A request's detached shard rebuild must finish before the next test resets
+// the shared API mocks.
+const pendingRequestTasks = new Set<Promise<unknown>>();
+afterEach(async () => {
+	while (pendingRequestTasks.size)
+		await Promise.allSettled(pendingRequestTasks);
+});
+
 function createExecutionContext() {
 	return {
 		waitUntil: vi.fn((promise: Promise<unknown>) => {
-			promise.catch(() => {});
+			pendingRequestTasks.add(promise);
+			void promise
+				.finally(() => pendingRequestTasks.delete(promise))
+				.catch(() => {});
 		}),
 		passThroughOnException: vi.fn(),
 	} as unknown as ExecutionContext;

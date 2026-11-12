@@ -130,6 +130,28 @@ The MCP-to-API credential hop forwards tool id, verified actor, and scopes and
 requires `connections.execute`; service-binding trust alone never releases a
 provider credential.
 
+## Tool Call Timings
+
+Normal `tools/call` results carry `_meta["com.tedix/timings"]` with `unit: "ms"`,
+`auth`, `policy`, `catalogResolution`, `handler`, `persistence`, and `total`.
+Durations are request-local wall times. Unobserved phases are `null`.
+The approved-write receipt retains them as `kernelWriteSettleTimings.gateway`.
+Handler time includes upstream storage; persistence measures gateway payment
+settlement. Detached `waitUntil` work is excluded. Routing and result shaping
+can account for the difference between the phase sum and total.
+
+`tools/list` replies include `_meta["com.tedix/catalogVersion"]`, a hash of the
+resolved source tool rows, configuration, caller scopes, and deployment. A
+first-page request may echo that key in its `_meta`. A matching version returns
+an empty `tools` array and `_meta["com.tedix/catalogUnchanged"]: true`, without
+a continuation cursor. Ordinary clients still receive the paginated catalog.
+
+The approved-write executor retains at most 200 complete catalogs per service
+binding, separated by endpoint, host, organization, and acting user. Every reuse
+requires a live version match. Unversioned replies are never cached, changed
+versions reload all pages, and a version change during pagination aborts the
+write. Tool policy and approval receipts are still checked at dispatch.
+
 ## Tool Execution
 
 `ToolHandler` (`apps/mcp/src/mcp/handler.ts`) executes every row by

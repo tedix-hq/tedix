@@ -229,6 +229,8 @@ export type KernelWriteExecutorTimings = {
 	callMs?: number;
 	/** Action-receipt read-back. */
 	verifyMs?: number;
+	/** Server-owned MCP phase timings retained with the approved-write receipt. */
+	gateway?: Record<string, unknown>;
 };
 
 interface McpTool {
@@ -322,35 +324,81 @@ async function mcpCall(
 	}
 }
 
-/**
- * Read the provider's full live tool catalog under the shared pagination
- * bounds. apps/mcp mints a `tools/list` cursor at 200 entries and the aggregate
- * surface serves several hundred merged tools, so a single page is a partial
- * catalog: reading only page one refused already-approved writes as "no longer
- * available" whenever the tool happened to sort past the cut.
- */
-function listUpstreamTools(
+type CatalogPage = {
+	tools?: McpTool[];
+	nextCursor?: unknown;
+	_meta?: Record<string, unknown>;
+};
+type CatalogSnapshot = { version: string; catalog: BoundedMcpList<McpTool> };
+// Bind snapshots to the service, organization and acting user. Every reuse
+// requires a live version match; authorization is never taken from this cache.
+const catalogs = new WeakMap<
+	NonNullable<WriteExecutorEnv["MCP_SERVICE"]>,
+	Map<string, CatalogSnapshot>
+>();
+
+async function listUpstreamTools(
 	env: WriteExecutorEnv,
 	host: string,
 	organizationId: string,
 	actingUserId?: string,
 ): Promise<BoundedMcpList<McpTool>> {
-	return collectBoundedMcpList<McpTool>(async (cursor) => {
-		const result = (await mcpCall(
+	const service = env.MCP_SERVICE;
+	if (!service) throw new Error("MCP service binding is not configured");
+	let cache = catalogs.get(service);
+	if (!cache) {
+		cache = new Map();
+		catalogs.set(service, cache);
+	}
+	const key = JSON.stringify([
+		env.MCP_URL,
+		host,
+		organizationId,
+		actingUserId ?? null,
+	]);
+	const prior = cache.get(key);
+	const readPage = async (cursor?: string): Promise<CatalogPage> => {
+		const page = (await mcpCall(
 			env,
 			host,
 			organizationId,
 			"tools/list",
-			cursor === undefined ? {} : { cursor },
+			{
+				...(cursor === undefined ? {} : { cursor }),
+				...(cursor === undefined && prior
+					? { _meta: { "com.tedix/catalogVersion": prior.version } }
+					: {}),
+			},
 			actingUserId,
-		)) as { tools?: McpTool[]; nextCursor?: unknown } | null;
-		// A page that never arrived is not an empty page: letting it read as one
-		// would abort the approved write as "no longer available upstream".
-		if (result === null) {
+		)) as CatalogPage | null;
+		if (!page)
 			throw new Error("Provider tool catalog could not be listed (transport)");
-		}
-		return { items: result.tools, nextCursor: result.nextCursor };
+		return page;
+	};
+	const first = await readPage();
+	const version = first._meta?.["com.tedix/catalogVersion"];
+	if (
+		prior &&
+		version === prior.version &&
+		first._meta?.["com.tedix/catalogUnchanged"] === true
+	)
+		return prior.catalog;
+	cache.delete(key);
+
+	const catalog = await collectBoundedMcpList<McpTool>(async (cursor) => {
+		const page = cursor === undefined ? first : await readPage(cursor);
+		if (
+			version !== undefined &&
+			page._meta?.["com.tedix/catalogVersion"] !== version
+		)
+			throw new Error("Provider tool catalog changed during pagination");
+		return { items: page.tools, nextCursor: page.nextCursor };
 	});
+	if (!catalog.truncated && typeof version === "string" && version.length > 0) {
+		if (cache.size >= 200) cache.delete(cache.keys().next().value!);
+		cache.set(key, { version, catalog });
+	}
+	return catalog;
 }
 
 /**
@@ -808,6 +856,13 @@ export async function executeApprovedKernelWrite(args: {
 				)) as ToolCallResult | null;
 			}
 			timings.callMs = (timings.callMs ?? 0) + since(callStartedAt);
+			const gatewayTimings = result?._meta?.["com.tedix/timings"];
+			if (
+				gatewayTimings &&
+				typeof gatewayTimings === "object" &&
+				!Array.isArray(gatewayTimings)
+			)
+				timings.gateway = gatewayTimings as Record<string, unknown>;
 			if (!result) {
 				return { ok: false, error: "Provider tool call failed (transport)" };
 			}

@@ -3,6 +3,9 @@
  * resolution and aggregate runtime-kind hydration. The Worker entry in
  * index.ts routes to it.
  */
+import { isRecord } from "@tedix/api-contract/utils/is-record";
+import { hashValue } from "@tedix/agent-governance/hash";
+import { requestPhaseTimings } from "./mcp/phase-timings";
 import { createMcpServer } from "@tedix/mcp-shared/server";
 import {
 	clientSupportsMcpApps,
@@ -198,6 +201,8 @@ export async function handleMcpRequest(
 	// Server-owned ingress identity: organization selection must not lift its restrictions.
 	connectionAppSlug = resolvedApp.app.slug,
 ): Promise<Response> {
+	const phaseTimings = requestPhaseTimings(ctx);
+	const catalogStartedAt = performance.now();
 	const eventResponse = await maybeHandleInteractionEvents(
 		request,
 		env,
@@ -913,6 +918,24 @@ export async function handleMcpRequest(
 	const hasSubscriptionStream = Boolean(
 		(env as McpSubscriptionBindingEnv).MCP_SUBSCRIPTIONS,
 	);
+	const catalogVersion =
+		requestBody?.method === "tools/list"
+			? await hashValue({
+					deployment: env.GIT_SHA,
+					tools: [...cachedData.tools].sort((a, b) =>
+						a.toolId.localeCompare(b.toolId),
+					),
+					config: cachedData.metadata?.mcpConfig,
+					scopes: callerIdentity?.scopes,
+				})
+			: undefined;
+	phaseTimings.add("catalogResolution", catalogStartedAt);
+	const listTransform = mcpToolsListResultTransform(
+		cachedData.tools,
+		cachedData.metadata?.mcpConfig as Record<string, unknown> | undefined,
+		request.headers,
+		catalogVersion,
+	);
 	const response = await mountMcp(server, request, {
 		toolResponseTimeoutMs: (name) =>
 			toolResponseTimeoutMs(
@@ -959,11 +982,25 @@ export async function handleMcpRequest(
 				},
 			},
 		},
-		resultTransform: mcpToolsListResultTransform(
-			cachedData.tools,
-			cachedData.metadata?.mcpConfig as Record<string, unknown> | undefined,
-			request.headers,
-		),
+		resultTransform: (exchange) => {
+			const response = listTransform(exchange);
+			if (
+				exchange.request.method !== "tools/call" ||
+				!("result" in response) ||
+				!isRecord(response.result)
+			)
+				return response;
+			return {
+				...response,
+				result: {
+					...response.result,
+					_meta: {
+						...(isRecord(response.result._meta) ? response.result._meta : {}),
+						"com.tedix/timings": phaseTimings.snapshot(),
+					},
+				},
+			};
+		},
 		taskHandlers,
 		completionHandler,
 		directoryReadHandler,

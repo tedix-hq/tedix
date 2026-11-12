@@ -160,3 +160,42 @@ it("keeps advisory inferred schemas out of normative tools/list output schemas",
 	expect(result).toMatchObject({ result: { tools: [{ name: "example" }] } });
 	expect(JSON.stringify(result)).not.toContain("outputSchema");
 });
+
+it("returns a version-only reply only for a matching first-page conditional read", () => {
+	const transform = mcpToolsListResultTransform(
+		[],
+		undefined,
+		new Headers(),
+		"v1",
+	);
+	const invoke = (params: Record<string, unknown>) =>
+		transform({
+			request: { jsonrpc: "2.0", id: 1, method: "tools/list", params },
+			response: {
+				jsonrpc: "2.0",
+				id: 1,
+				result: {
+					tools: [{ name: "example", inputSchema: { type: "object" } }],
+				},
+			},
+		} as TransformInput);
+	expect(invoke({ _meta: { "com.tedix/catalogVersion": "v1" } })).toMatchObject(
+		{
+			result: {
+				tools: [],
+				_meta: {
+					"com.tedix/catalogVersion": "v1",
+					"com.tedix/catalogUnchanged": true,
+				},
+			},
+		},
+	);
+	expect(invoke({ _meta: { "com.tedix/catalogVersion": "v0" } })).toMatchObject(
+		{
+			result: {
+				tools: [{ name: "example" }],
+				_meta: { "com.tedix/catalogVersion": "v1" },
+			},
+		},
+	);
+});

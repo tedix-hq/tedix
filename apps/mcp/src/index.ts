@@ -1,3 +1,4 @@
+import { requestPhaseTimings } from "./mcp/phase-timings";
 import { buildWwwAuthenticate } from "@tedix/mcp-shared/auth";
 import {
 	apiWorkspaceLookup,
@@ -284,6 +285,8 @@ const worker = {
 		env: CloudflareEnv,
 		ctx: ExecutionContext,
 	): Promise<Response> {
+		const phaseTimings = requestPhaseTimings(ctx);
+		const authPhaseStartedAt = performance.now();
 		const url = new URL(request.url);
 		if (url.pathname !== "/external-agents/session")
 			request = stripRedundantApiKeyHeader(request);
@@ -822,7 +825,9 @@ const worker = {
 			(hostnameInfo.type === "subdomain" || hostnameInfo.type === "custom")
 		) {
 			try {
-				earlyResolvedApp = await resolveAppFromHostname(hostnameInfo, env);
+				earlyResolvedApp = await phaseTimings.measure("catalogResolution", () =>
+					resolveAppFromHostname(hostnameInfo, env),
+				);
 				markAuth("resolve");
 				earlyAuthMode = earlyResolvedApp?.metadata?.mcpConfig?.authMode as
 					| string
@@ -1374,6 +1379,13 @@ const worker = {
 			}
 		}
 
+		phaseTimings.add("auth", authPhaseStartedAt);
+		phaseTimings.phases.auth = Math.max(
+			0,
+			(phaseTimings.phases.auth ?? 0) -
+				(phaseTimings.phases.catalogResolution ?? 0),
+		);
+
 		// Step 3: Hostname-based routing
 		if (isDev) {
 			console.log(
@@ -1482,15 +1494,17 @@ const worker = {
 			}
 
 			if (url.pathname === "/mcp" || url.pathname.startsWith("/mcp/")) {
-				const accessError = await enforceMcpAccess({
-					request,
-					hostname,
-					resolvedApp,
-					env,
-					oauthJwtPayload,
-					multiOrgSelection,
-					isDev,
-				});
+				const accessError = await phaseTimings.measure("policy", () =>
+					enforceMcpAccess({
+						request,
+						hostname,
+						resolvedApp,
+						env,
+						oauthJwtPayload,
+						multiOrgSelection,
+						isDev,
+					}),
+				);
 				if (accessError) {
 					await recordMcpAccessDenial({
 						request,
@@ -1823,15 +1837,17 @@ const worker = {
 						return mcpRateLimitResponse(rateLimit);
 					}
 
-					const accessError = await enforceMcpAccess({
-						request,
-						hostname,
-						resolvedApp,
-						env,
-						oauthJwtPayload,
-						multiOrgSelection,
-						isDev,
-					});
+					const accessError = await phaseTimings.measure("policy", () =>
+						enforceMcpAccess({
+							request,
+							hostname,
+							resolvedApp,
+							env,
+							oauthJwtPayload,
+							multiOrgSelection,
+							isDev,
+						}),
+					);
 					if (accessError) {
 						await recordMcpAccessDenial({
 							request,
@@ -1940,15 +1956,17 @@ const worker = {
 							return mcpRateLimitResponse(rateLimit);
 						}
 
-						const accessError = await enforceMcpAccess({
-							request,
-							hostname,
-							resolvedApp,
-							env,
-							oauthJwtPayload,
-							multiOrgSelection,
-							isDev,
-						});
+						const accessError = await phaseTimings.measure("policy", () =>
+							enforceMcpAccess({
+								request,
+								hostname,
+								resolvedApp,
+								env,
+								oauthJwtPayload,
+								multiOrgSelection,
+								isDev,
+							}),
+						);
 						if (accessError) {
 							await recordMcpAccessDenial({
 								request,
