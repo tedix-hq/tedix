@@ -203,6 +203,101 @@ async function gunzipLines(bytes: Uint8Array): Promise<string[]> {
 }
 
 describe("runD1Retention", () => {
+	it.each([
+		"audit_events",
+		"tedi_runtime_events",
+		"kernel_runtime_events",
+		"skill_run_artifacts",
+		"tedi_call_costs",
+		"external_agent_attributions",
+	])(
+		"uses only one age query per idle %s tick, without pages or estimates",
+		async (table) => {
+			const { db, d1, seed, seedRuntime } = fixture(
+				`('${table}','move_to_logs_db',400,10000,'2026-10-21')`,
+			);
+			seed(Array.from({ length: 2000 }, () => 1));
+			seedRuntime(Array.from({ length: 2000 }, () => 1));
+			const queries: string[] = [];
+			const prepare = d1.prepare.bind(d1);
+			d1.prepare = (query) => {
+				queries.push(query);
+				return prepare(query);
+			};
+			for (let tick = 0; tick < 2; tick++) {
+				queries.length = 0;
+				const result = await runD1Retention({
+					db,
+					logsDb: logsFixture().db,
+					bucket: new MemoryBucket() as unknown as R2Bucket,
+					now: NOW,
+				});
+				expect(result.tables[0]).toMatchObject({
+					stoppedBy: "done",
+					eligibleRows: 0,
+					eligibleBytes: 0,
+					deletedRows: 0,
+					scanAfterRowid: -1,
+					timings: { pages: 0, estimateMs: 0 },
+				});
+				const dataReads = queries.filter(
+					(query) =>
+						/^select/i.test(query) &&
+						!query.includes('"d1_retention_policies"'),
+				);
+				expect(dataReads).toHaveLength(1);
+				expect(dataReads[0]).toContain('as "retention_age"');
+				expect(dataReads[0]).toContain("limit ?");
+			}
+		},
+	);
+
+	it("gives a backlog between idle policies most of the tick", async () => {
+		const { db, d1, sqlite, seed, seedRuntime } = fixture(
+			"('audit_events','move_to_logs_db',90,50000,'2026-10-21'), ('external_agent_attributions','move_to_logs_db',30,50000,'2026-10-21'), ('tedi_call_costs','move_to_logs_db',400,50000,'2026-10-21'), ('tedi_runtime_events','move_to_logs_db',14,50000,'2026-10-21')",
+		);
+		seed(Array.from({ length: 2000 }, () => 1));
+		seedRuntime(Array.from({ length: 20000 }, () => 1));
+		sqlite.exec(`INSERT INTO external_agent_attributions(id, organization_id, principal_id, session_id, target_type, target_id, role, occurred_at)
+			SELECT id, organization_id, 'agent-ada', 'session-ada', 'mcp_execution', id, 'executor', '2026-08-01' FROM tedi_runtime_events`);
+		const logs = logsFixture();
+		let clock = 0;
+		const mocked = vi.spyOn(Date, "now").mockImplementation(() => clock);
+		const prepare = d1.prepare.bind(d1);
+		d1.prepare = (query) => {
+			if (query.includes('as "retention_age"')) clock += 1;
+			else if (query.includes("__rowid")) clock += 2;
+			else if (/^delete/i.test(query)) clock += 3;
+			return prepare(query);
+		};
+		try {
+			const result = await runD1Retention({
+				db,
+				logsDb: logs.db,
+				bucket: new MemoryBucket() as unknown as R2Bucket,
+				now: NOW,
+				timeBudgetMs: 100,
+			});
+			const backlog = result.tables[1]!;
+			// Four-way allocation would leave this middle policy about 33ms.
+			// Probing all policies first gives it 96ms, enough for 19 pages.
+			expect(backlog.movedRows).toBeGreaterThanOrEqual(9000);
+			expect(backlog.stoppedBy).toBe("time_budget");
+			expect(backlog.archivedRows).toBe(backlog.deletedRows);
+			expect(logs.count("external_agent_attributions")).toBe(backlog.movedRows);
+			for (const idle of result.tables.filter((table) => table !== backlog)) {
+				expect(idle).toMatchObject({
+					eligibleRows: 0,
+					stoppedBy: "done",
+					timings: { pages: 0, readMs: 1, estimateMs: 0 },
+				});
+			}
+		} finally {
+			mocked.mockRestore();
+			d1.prepare = prepare;
+		}
+	});
+
 	it("bounds a slow dry-run estimate so the next ledger still moves", async () => {
 		const { db, d1, seed, seedRuntime, count } = fixture(
 			"('audit_events','dry_run',90,10000,'2026-10-21'), ('tedi_runtime_events','move_to_logs_db',14,10000,'2026-10-21')",
@@ -275,30 +370,31 @@ describe("runD1Retention", () => {
 					expect(table.problem).toBeNull();
 					expect(table.error).toBeUndefined();
 					if (table.mode === "dry_run") {
-						expect(table.timings.estimateMs).toBeGreaterThan(0);
+						expect(table.timings.estimateMs).toBe(0);
 						expect(table.eligibleRows).toBe(0);
 						expect(table.stoppedBy).toBe("done");
 						continue;
 					}
-					expect(table.timings.pages).toBeGreaterThan(0);
 					if (table.tableName !== "audit_events" || auditAge === 120) {
+						expect(table.timings.pages).toBeGreaterThan(0);
 						expect(table.movedRows).toBeGreaterThan(0);
 						expect(logs.count(table.tableName)).toBe(table.movedRows);
 					} else {
+						expect(table.timings.pages).toBe(0);
 						expect(table.deletedRows).toBe(0);
 						expect(count()).toBe(5000);
 					}
 				}
 				expect(result.tables.map((table) => table.eligibleRows)).toEqual([
-					null,
+					auditAge === 1 ? 0 : null,
 					null,
 					0,
 					null,
 				]);
 				expect(result.eligibleBytes).toBeNull();
-				expect(
-					JSON.parse(policy("audit_events").report).eligibleRows,
-				).toBeNull();
+				expect(JSON.parse(policy("audit_events").report).eligibleRows).toBe(
+					auditAge === 1 ? 0 : null,
+				);
 				expect(count("tedi_runtime_events")).toBeGreaterThan(0);
 				const archived = (
 					await Promise.all([...bucket.objects.values()].map(gunzipLines))
@@ -612,8 +708,12 @@ describe("runD1Retention", () => {
 			// (5,000 rows) after the audit sweep spent its half.
 			expect(runtime?.movedRows).toBeGreaterThanOrEqual(8000);
 			expect(logs.count("tedi_runtime_events")).toBe(runtime?.movedRows);
-			expect(audit).toMatchObject({ deletedRows: 0, stoppedBy: "time_budget" });
-			expect(audit?.timings.pages).toBe(1);
+			expect(audit).toMatchObject({
+				deletedRows: 0,
+				stoppedBy: "done",
+				eligibleRows: 0,
+			});
+			expect(audit?.timings.pages).toBe(0);
 			expect(count()).toBe(5000);
 			expect(JSON.parse(policy("audit_events").report).scanAfterRowid).toBe(-1);
 		} finally {
@@ -1011,6 +1111,7 @@ describe("runD1Retention", () => {
 		const logs = logsFixture();
 		const bucket = new MemoryBucket();
 		const main = countCalls(d1);
+		const ageProbe = vi.spyOn(d1, "prepare");
 		const logsCalls = countCalls(logs.d1);
 		const result = await runD1Retention({
 			db,
@@ -1034,7 +1135,11 @@ describe("runD1Retention", () => {
 		// estimate (about eight point reads) and the policy bookkeeping; the
 		// old 50-row pages took ten reads per page alone.
 		expect(main.batches).toBe(3);
-		expect(main.statements).toBeLessThanOrEqual(15);
+		const probes = ageProbe.mock.calls.filter(([query]) =>
+			query.includes('as "retention_age"'),
+		);
+		expect(probes).toHaveLength(1);
+		expect(main.statements - probes.length).toBeLessThanOrEqual(15);
 		const report = JSON.parse(policy("audit_events").report);
 		expect(report.timings).toMatchObject({ pages: 3 });
 		expect(report.eligibleRows).toBe(0);

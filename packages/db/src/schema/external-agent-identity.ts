@@ -342,6 +342,7 @@ export const externalAgentAttributions = sqliteTable(
 			table.sessionId,
 			table.occurredAt,
 		),
+		index("idx_external_agent_attribution_occurred").on(table.occurredAt),
 		index("idx_external_agent_attribution_work_item").on(
 			table.organizationId,
 			table.workItemId,

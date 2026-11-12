@@ -6,8 +6,8 @@
  * each one is timestamped, the minimum window it may never go below, and the
  * bounded statements a run uses.
  *
- * Every read walks the table's own rowid b-tree from the oldest end, so no
- * statement depends on a timestamp index. The engine advances through bounded
+ * An indexed age probe skips tables with no expired candidates. Page reads
+ * walk the table's own rowid b-tree from the oldest end through bounded
  * pages, skipping newer or invalid timestamps instead of assuming rowid order
  * matches timestamp order. Each delete names at most one page of rowids and
  * repeats the cutoff test, so it only removes rows read and judged expired.
@@ -261,6 +261,26 @@ export async function listActiveD1RetentionPolicies(
 
 /** One raw row as stored, plus its rowid, for archiving. */
 export type D1RetentionRow = Record<string, JsonValue> & { __rowid: number };
+
+/**
+ * One covering-index seek; no count, sort or row bodies. A negative result
+ * rules out all expired rows, including out-of-order inserts beyond the sweep
+ * cursor. A positive result is conservative: validation and reference checks
+ * still decide which candidates may move.
+ */
+export async function hasD1RetentionExpiredRows(
+	db: DbQueryClient,
+	tableSpec: D1RetentionTableSpec,
+	cutoff: D1RetentionCutoff,
+): Promise<boolean> {
+	const rows = await db
+		.select({ age: sql`${tableSpec.timestamp}`.as("retention_age") })
+		.from(tableSpec.table)
+		.where(sql`${tableSpec.timestamp} < ${cutoff}`)
+		.orderBy(tableSpec.timestamp)
+		.limit(1);
+	return rows.length > 0;
+}
 
 /**
  * Up to one page of the oldest rows after `afterRowid`, in rowid order. Walks
