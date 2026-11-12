@@ -1,0 +1,1 @@
+CREATE INDEX `idx_memory_facts_org_lifecycle` ON `memory_facts` (`organization_id`,COALESCE(updated_at, created_at),`id`) WHERE valid_to IS NOT NULL OR archived_at IS NOT NULL;
