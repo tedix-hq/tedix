@@ -2407,15 +2407,24 @@ export async function mountSheetClient(
 			before.workbook?.sheets.map((item) => [item.id, item.rows]),
 		);
 		const found = new Map<string, Set<string>>();
+		// A cell with nothing in it is the same as no cell: a grid that grew
+		// has not changed where it is still empty.
+		const print = (
+			cell:
+				| { input?: unknown; format?: unknown; value?: unknown }
+				| null
+				| undefined,
+		) =>
+			cell && (cell.input || cell.format || cell.value != null)
+				? JSON.stringify(cell)
+				: "";
 		let first: { id: string; row: number; column: number } | undefined;
 		for (const item of draft!.workbook!.sheets) {
 			const rows = old.get(item.id);
 			const cells = new Set<string>();
 			item.rows.forEach((line, row) =>
 				line.forEach((cell, column) => {
-					const was = rows?.[row]?.[column] ?? null;
-					if (was === cell || JSON.stringify(was) === JSON.stringify(cell))
-						return;
+					if (print(rows?.[row]?.[column]) === print(cell)) return;
 					cells.add(row + ":" + column);
 					first ??= { id: item.id, row, column };
 				}),
