@@ -200,6 +200,11 @@
 		{
 			"binding": "RUNTIME",
 			"service": "acme-runtime-production"
+		},
+		{
+			"binding": "WORKSPACE_RUNTIME",
+			"service": "acme-workspace-storage",
+			"entrypoint": "InternalEntrypoint"
 		}
 	],
 	"vectorize": [

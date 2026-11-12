@@ -1,0 +1,135 @@
+{
+	"main": "src/index.ts",
+	"compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+	"preview_urls": false,
+	"logpush": true,
+	"observability": {
+		"enabled": true,
+		"logs": {
+			"head_sampling_rate": 1,
+			"invocation_logs": true
+		},
+		"traces": {
+			"enabled": true,
+			"head_sampling_rate": 0.05
+		}
+	},
+	"cache": {
+		"enabled": true
+	},
+	"version_metadata": {
+		"binding": "WORKER_VERSION"
+	},
+	"worker_loaders": [
+		{
+			"binding": "LOADER"
+		}
+	],
+	"ratelimits": [
+		{
+			"name": "MCP_RATE_LIMITER",
+			"namespace_id": "1001",
+			"simple": {
+				"limit": 100,
+				"period": 60
+			}
+		},
+		{
+			"name": "MCP_PRINCIPAL_RATE_LIMITER",
+			"namespace_id": "1004",
+			"simple": {
+				"limit": 600,
+				"period": 60
+			}
+		},
+		{
+			"name": "MCP_WRITE_RATE_LIMITER",
+			"namespace_id": "1002",
+			"simple": {
+				"limit": 30,
+				"period": 60
+			}
+		},
+		{
+			"name": "MCP_HIGH_RISK_RATE_LIMITER",
+			"namespace_id": "1003",
+			"simple": {
+				"limit": 5,
+				"period": 60
+			}
+		}
+	],
+	"exports": {
+		"McpSubscriptionDurableObject": {
+			"type": "durable-object",
+			"storage": "sqlite"
+		}
+	},
+	"account_id": "example-cloudflare-account",
+	"name": "acme-mcp",
+	"compatibility_date": "2026-05-14",
+	"routes": [],
+	"workers_dev": false,
+	"vars": {
+		"API_URL": "https://api.workers.example.invalid",
+		"ENVIRONMENT": "development",
+		"MCP_UI_URL": "https://widget.workers.example.invalid",
+		"MCP_URL": "https://mcp.workers.example.invalid",
+		"TEDIX_BILLING_SETTLEMENT_MODE": "disabled",
+		"TEDIX_FLEET_AUTHORITY_MODE": "disabled",
+		"TEDIX_RUNTIME_ENTITLEMENT_GRANTS": "[{\"key\":\"browser-runtime\",\"status\":\"active\",\"source\":\"operator\"}]"
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_id": "example-d1-database",
+			"database_name": "acme-developer"
+		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "AGGREGATE_CACHE",
+			"bucket_name": "acme-developer-artifacts"
+		}
+	],
+	"services": [
+		{
+			"binding": "API_SERVICE",
+			"service": "acme-control-api",
+			"entrypoint": "McpEntrypoint"
+		},
+		{
+			"binding": "CMS",
+			"service": "acme-cms"
+		},
+		{
+			"binding": "DOCS",
+			"service": "acme-docs"
+		},
+		{
+			"binding": "TEDI_SERVICE",
+			"service": "acme-tedi",
+			"entrypoint": "InternalEntrypoint"
+		},
+		{
+			"binding": "WORKSPACE_RUNTIME",
+			"service": "acme-workspace-storage",
+			"entrypoint": "InternalEntrypoint"
+		}
+	],
+	"workflows": [
+		{
+			"binding": "GENERIC_TASKS_WORKFLOW",
+			"class_name": "GenericTasksWorkflow",
+			"name": "acme-generic-tasks"
+		}
+	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "MCP_SUBSCRIPTIONS",
+				"class_name": "McpSubscriptionDurableObject"
+			}
+		]
+	}
+}

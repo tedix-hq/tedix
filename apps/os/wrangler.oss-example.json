@@ -1,0 +1,78 @@
+{
+	"main": "src/worker.ts",
+	"compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+	"preview_urls": false,
+	"logpush": true,
+	"observability": {
+		"enabled": true,
+		"logs": {
+			"head_sampling_rate": 1,
+			"invocation_logs": true
+		},
+		"traces": {
+			"enabled": true,
+			"head_sampling_rate": 0.05
+		}
+	},
+	"exports": {
+		"CollabRoom": {
+			"type": "durable-object",
+			"storage": "sqlite"
+		}
+	},
+	"account_id": "example-cloudflare-account",
+	"name": "acme-os",
+	"compatibility_date": "2026-05-14",
+	"routes": [],
+	"workers_dev": false,
+	"vars": {
+		"API_URL": "https://api.workers.example.invalid",
+		"DESCOPE_BASE_URL": "https://auth.workers.example.invalid",
+		"DESCOPE_PROJECT_ID": "example-descope-project",
+		"OS_URL": "https://os.workers.example.invalid",
+		"SESSION_BROKER_URL": "https://auth.workers.example.invalid",
+		"TEDIX_BILLING_SETTLEMENT_MODE": "disabled",
+		"TEDIX_FLEET_AUTHORITY_MODE": "disabled",
+		"TEDIX_RUNTIME_ENTITLEMENT_GRANTS": "[{\"key\":\"browser-runtime\",\"status\":\"active\",\"source\":\"operator\"}]"
+	},
+	"assets": {
+		"binding": "ASSETS",
+		"directory": "./dist/client",
+		"run_worker_first": true
+	},
+	"services": [
+		{
+			"binding": "API_SERVICE",
+			"service": "acme-control-api",
+			"entrypoint": "InternalEntrypoint"
+		},
+		{
+			"binding": "CLI_SESSION_BROKER",
+			"service": "acme-session-broker",
+			"entrypoint": "CliSessionBroker"
+		},
+		{
+			"binding": "MCP_SERVICE",
+			"service": "acme-mcp",
+			"entrypoint": "InternalEntrypoint"
+		},
+		{
+			"binding": "OS_SESSION_BROKER",
+			"service": "acme-session-broker",
+			"entrypoint": "OsSessionBroker"
+		},
+		{
+			"binding": "WORKSPACE_RUNTIME",
+			"service": "acme-workspace-storage",
+			"entrypoint": "InternalEntrypoint"
+		}
+	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "COLLAB_ROOM",
+				"class_name": "CollabRoom"
+			}
+		]
+	}
+}

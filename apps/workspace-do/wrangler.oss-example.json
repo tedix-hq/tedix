@@ -1,0 +1,82 @@
+{
+	"$schema": "../../node_modules/wrangler/config-schema.json",
+	"main": "src/index.ts",
+	"minify": true,
+	"keep_names": true,
+	"logpush": true,
+	"compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+	"preview_urls": false,
+	"observability": {
+		"enabled": true,
+		"logs": {
+			"invocation_logs": true,
+			"head_sampling_rate": 1
+		},
+		"traces": {
+			"enabled": true,
+			"head_sampling_rate": 0.25
+		}
+	},
+	"dev": {
+		"port": 3018,
+		"inspector_port": 19246
+	},
+	"worker_loaders": [
+		{
+			"binding": "LOADER"
+		}
+	],
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": ["WorkspaceDO"]
+		}
+	],
+	"account_id": "example-cloudflare-account",
+	"name": "acme-workspace-storage",
+	"compatibility_date": "2026-05-14",
+	"routes": [],
+	"workers_dev": false,
+	"vars": {
+		"DO_JURISDICTION": "",
+		"ENVIRONMENT": "development",
+		"TEDIX_BILLING_SETTLEMENT_MODE": "disabled",
+		"TEDIX_FLEET_AUTHORITY_MODE": "disabled",
+		"TEDIX_RUNTIME_ENTITLEMENT_GRANTS": "[{\"key\":\"browser-runtime\",\"status\":\"active\",\"source\":\"operator\"}]"
+	},
+	"ai": {
+		"binding": "AI"
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_id": "example-d1-database",
+			"database_name": "acme-developer"
+		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "R2_BUCKET",
+			"bucket_name": "acme-developer-artifacts"
+		}
+	],
+	"services": [
+		{
+			"binding": "MCP_SERVICE",
+			"service": "acme-mcp"
+		}
+	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "TEDI_AGENT",
+				"class_name": "AgentTediDO",
+				"script_name": "acme-tedi-runtime"
+			},
+			{
+				"name": "WORKSPACE",
+				"class_name": "WorkspaceDO"
+			}
+		]
+	}
+}

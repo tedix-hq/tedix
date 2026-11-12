@@ -13,7 +13,8 @@
 		"./profiles": "./src/profiles.ts",
 		"./provision": "./src/provision.ts",
 		"./schema": "./src/schema.ts",
-		"./wrangler-overlay": "./src/wrangler-overlay.ts"
+		"./wrangler-overlay": "./src/wrangler-overlay.ts",
+		"./workspace-example": "./src/workspace-example.ts"
 	},
 	"scripts": {
 		"check": "bun run type-check && bun run test:run",

@@ -43,7 +43,7 @@
 		"format:check": "vp fmt --check",
 		"hooks:install": "test \"$(git config --get core.hooksPath)\" = .githooks || git config core.hooksPath .githooks",
 		"installation-manifest:check": "bun run --filter @tedix/installation-manifest check",
-		"installation-manifest:overlay": "bun packages/installation-manifest/src/wrangler-overlay-cli.ts --worker control-api --out apps/api/wrangler.oss-example.json --secrets-out apps/api/wrangler.oss-example.secrets.json",
+		"installation-manifest:overlay": "bun packages/installation-manifest/src/workspace-example-cli.ts",
 		"installation-manifest:overlay:check": "bun run installation-manifest:overlay --check",
 		"lint": "bun run lint:repo && bun run format:check && bun run lint:code && bun run lint:deps && bun run type-check && bun run type-check:scripts && bun run types:check",
 		"lint:authz": "bun scripts/lint-authz.ts",
