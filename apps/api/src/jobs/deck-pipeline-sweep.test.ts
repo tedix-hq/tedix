@@ -525,7 +525,8 @@ it("does not protect a status note for the words in its report", () => {
 			kind,
 			status: "open",
 			subject: "Support digest",
-			prompt: "Two tickets are waiting. Nothing was published or deleted.",
+			prompt:
+				"Two tickets are waiting. Nothing was published or deleted; renew the connection token next week.",
 			creatorType: "tedi",
 			creatorId: "tedi-1",
 			workItemId: null,
@@ -542,6 +543,9 @@ it("does not protect a status note for the words in its report", () => {
 	expect(sweepCard(row("coordination"), none).protected).toBe(false);
 	expect(
 		sweepCard(row("coordination", { riskLevel: "high" }), none).protected,
+	).toBe(true);
+	expect(
+		sweepCard(row("coordination", { secureAction: true }), none).protected,
 	).toBe(true);
 });
 
