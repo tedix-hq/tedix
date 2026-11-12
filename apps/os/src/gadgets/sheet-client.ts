@@ -45,6 +45,13 @@ import { iconButton } from "./editor-icons";
 import { lastingSaveFailure } from "../lib/save-failure";
 import { createOutputSync } from "../lib/output-sync";
 import {
+	createLandedChanges,
+	savedByAgent,
+	watchForInput,
+	LANDED_SHOWN_MS,
+	LANDED_UNDO_MS,
+} from "../lib/landed-changes";
+import {
 	OS_EDITOR_UNDO_STEPS,
 	OS_SHEET_MAX_COLUMNS,
 	OS_SHEET_MAX_ROWS,
@@ -144,6 +151,7 @@ const css = [
 	`td{background-color:var(--bg);user-select:none;cursor:cell}:is(td,th).gap{border:0;background:none;cursor:default}td output{display:block;padding:0 6px;height:var(--h,${ROW - 1}px);line-height:var(--h,${ROW - 1}px);overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:100%}td.wrap output{white-space:pre-wrap;line-height:1.35;padding-block:2px}`,
 	`td.error{color:var(--danger)}td.selected{background-image:linear-gradient(color-mix(in srgb,var(--primary) 12%,transparent),color-mix(in srgb,var(--primary) 12%,transparent))}`,
 	`td.active{background-image:none;box-shadow:inset 0 0 0 2px var(--primary)}`,
+	`@keyframes landed{0%,30%{box-shadow:inset 0 0 0 2px var(--primary),inset 0 0 0 99px color-mix(in srgb,var(--primary) 20%,transparent)}to{box-shadow:inset 0 0 0 2px transparent,inset 0 0 0 99px transparent}}td.landed{animation:landed 2.4s var(--ease) both}@media(prefers-reduced-motion:reduce){td.landed{animation:none;box-shadow:inset 0 0 0 99px color-mix(in srgb,var(--primary) 20%,transparent)}}`,
 	`td input.cell-edit{position:absolute;inset:0;width:100%;height:100%;border:0;border-radius:0;padding:0 6px;outline:none;box-shadow:inset 0 0 0 2px var(--primary);background:var(--bg);color:var(--fg);font:inherit;z-index:10}`,
 	`.resize{position:absolute;right:-1px;top:0;width:7px;height:100%;cursor:col-resize;z-index:1}.resize:hover,.resize.on{background:color-mix(in srgb,var(--primary) 55%,transparent)}`,
 	// Notices and prompts float over the grid instead of pushing it down.
@@ -289,6 +297,21 @@ export async function mountSheetClient(
 		saveTimer: ReturnType<typeof setTimeout> | undefined,
 		slowTimer: ReturnType<typeof setTimeout> | undefined,
 		statusTimer: ReturnType<typeof setTimeout> | undefined;
+	// What someone else changed while the sheet was open here: the cells to
+	// light up, by tab, the one to bring into view, and whether undoing an
+	// agent's change is on offer.
+	const landed = createLandedChanges<Content>(),
+		input = watchForInput(window);
+	let lit = new Map<string, Set<string>>(),
+		shown: { row: number; column: number } | undefined,
+		litTimer: typeof statusTimer,
+		offerTimer: typeof statusTimer,
+		offering = false;
+	/** Bring the first changed cell into view, once the grid shows the change. */
+	const showLanded = () => {
+		if (shown) reveal(shown);
+		shown = undefined;
+	};
 	let saving: Promise<void> | undefined,
 		saveQueued = false,
 		saveDeadline = 0,
@@ -586,6 +609,12 @@ export async function mountSheetClient(
 	// ---- Editing the unsaved sheet --------------------------------------------
 
 	function mark() {
+		// The person's own edit is now the newest change.
+		landed.clear();
+		if (offering) {
+			offering = false;
+			banner();
+		}
 		generation++;
 		dirty = true;
 		if (status.dataset.state === "idle") restStatus();
@@ -978,6 +1007,7 @@ export async function mountSheetClient(
 			tr.style.height = height + "px";
 			tr.style.setProperty("--h", height - 1 + "px");
 		}
+		const here = lit.get(s.id);
 		const index = tr.firstElementChild as HTMLElement;
 		index.style.top = top < 0 ? "" : top + "px";
 		index.style.zIndex = top < 0 ? "" : "5";
@@ -1013,6 +1043,8 @@ export async function mountSheetClient(
 			}
 			td.classList.toggle("wrap", !!f?.wrap);
 			td.classList.toggle("error", isErrorValue(cell?.value));
+			if (here || td.classList.contains("landed"))
+				td.classList.toggle("landed", !!here?.has(row + ":" + col));
 		}
 	}
 	function markRow(
@@ -1292,9 +1324,8 @@ export async function mountSheetClient(
 		else selectionChanged();
 	}
 	/** Scroll just enough to bring the active cell into view. */
-	function reveal() {
-		const s = sheet(),
-			point = selection.focus;
+	function reveal(point = selection.focus) {
+		const s = sheet();
 		if (point.row >= s.frozenRows) {
 			const frozen = offsets[Math.min(s.frozenRows, offsets.length - 1)] ?? 0,
 				top = offsets[point.row] ?? 0,
@@ -2102,6 +2133,9 @@ export async function mountSheetClient(
 		if (mod && ["s", "z", "y", "a", "b", "i", "u", "d", "r"].includes(key)) {
 			event.preventDefault();
 			if (key === "s") void save(true);
+			else if (key === "z" && !event.shiftKey && offering && landed.undoable)
+				// The agent's change is the newest one: undo takes that back first.
+				undoLanded();
 			else if (key === "z")
 				history(event.shiftKey ? redo : undo, event.shiftKey ? undo : redo);
 			else if (key === "y") history(redo, undo);
@@ -2364,6 +2398,73 @@ export async function mountSheetClient(
 	// ---- Other people's saves ---------------------------------------------------
 
 	/** Decide what to do about a newer saved version, if there is one. */
+	/**
+	 * Light up the cells that differ from `before` on screen. Someone who is
+	 * only watching is taken to the first of them, on its tab.
+	 */
+	function light(before: Content) {
+		const old = new Map(
+			before.workbook?.sheets.map((item) => [item.id, item.rows]),
+		);
+		const found = new Map<string, Set<string>>();
+		let first: { id: string; row: number; column: number } | undefined;
+		for (const item of draft!.workbook!.sheets) {
+			const rows = old.get(item.id);
+			const cells = new Set<string>();
+			item.rows.forEach((line, row) =>
+				line.forEach((cell, column) => {
+					const was = rows?.[row]?.[column] ?? null;
+					if (was === cell || JSON.stringify(was) === JSON.stringify(cell))
+						return;
+					cells.add(row + ":" + column);
+					first ??= { id: item.id, row, column };
+				}),
+			);
+			if (cells.size) found.set(item.id, cells);
+		}
+		if (!first) return;
+		lit = found;
+		clearTimeout(litTimer);
+		litTimer = setTimeout(() => {
+			lit = new Map();
+			if (!destroyed && draft) paintWindow();
+		}, LANDED_SHOWN_MS);
+		if (!input.watching || unsaved()) return;
+		const at = found.has(sheet().id)
+			? [...found.get(sheet().id)!][0]!.split(":").map(Number)
+			: [first.row, first.column];
+		if (!found.has(sheet().id)) {
+			tabBounds = undefined;
+			draft!.workbook!.activeSheetId = first.id;
+		}
+		shown = { row: at[0]!, column: at[1]! };
+	}
+	/** Someone else's save replaced `before` on screen: show it, and offer undo for an agent's. */
+	function land(before: Content, agent: boolean) {
+		landed.add(before, structuredClone(draft!), agent);
+		light(before);
+		offering = agent && canEdit;
+		clearTimeout(offerTimer);
+		if (offering)
+			offerTimer = setTimeout(() => {
+				offering = false;
+				external();
+			}, LANDED_UNDO_MS);
+	}
+	/**
+	 * Take the agent's change set back out as an edit of the person's own: it
+	 * saves as a new change and their own undo brings the agent's work back.
+	 */
+	function undoLanded() {
+		if (!editable()) return;
+		const before = draft!,
+			content = landed.undo(structuredClone(before));
+		if (!content) return;
+		edit(() => adopt(content));
+		light(before);
+		paintWindow();
+		note("Agent change undone.");
+	}
 	function external() {
 		if (!loaded || busy || !available || destroyed) return;
 		if (retainedConflict) {
@@ -2396,7 +2497,14 @@ export async function mountSheetClient(
 			);
 			return;
 		}
-		banner();
+		if (offering && landed.undoable)
+			banner("An agent changed this sheet.", [
+				["Undo agent change", "undo", undoLanded],
+			]);
+		else {
+			offering = false;
+			banner();
+		}
 		const current = Math.max(pendingRevision, loaded.revision.revision);
 		if (current <= basis) {
 			pendingRevision = 0;
@@ -2430,6 +2538,7 @@ export async function mountSheetClient(
 				again = true;
 				return;
 			}
+			const before = draft;
 			loaded = latest;
 			basis = latest.revision.revision;
 			adopt(content);
@@ -2437,7 +2546,10 @@ export async function mountSheetClient(
 			// silently revert the other person's changes.
 			undo.length = redo.length = 0;
 			q("h1").textContent = latest.output.title;
+			land(before, savedByAgent(latest.revision));
 			syncGrid();
+			showLanded();
+			external();
 		} catch (error) {
 			pendingRevision = 0;
 			if (!destroyed && denied(error)) await unavailable(error);
@@ -2499,6 +2611,7 @@ export async function mountSheetClient(
 			const merged = await evaluate(result.content as Content);
 			if (destroyed || stale()) return;
 			choice = 0;
+			const before = draft;
 			loaded = latest;
 			basis = latest.revision.revision;
 			adopt(merged);
@@ -2506,7 +2619,9 @@ export async function mountSheetClient(
 			// Undo steps were taken against the old sheet; replaying them would
 			// silently revert the other person's changes.
 			undo.length = redo.length = 0;
+			land(before, savedByAgent(latest.revision));
 			syncGrid();
+			showLanded();
 			void retainDraft();
 			scheduleSave(0);
 		} catch (error) {
@@ -2965,8 +3080,11 @@ export async function mountSheetClient(
 				saveTimer,
 				slowTimer,
 				statusTimer,
+				litTimer,
+				offerTimer,
 			])
 				clearTimeout(timer);
+			input.stop();
 			observer?.disconnect();
 			document.removeEventListener("mouseup", mouseup);
 			document.removeEventListener("visibilitychange", onVisibility);
