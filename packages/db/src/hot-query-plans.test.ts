@@ -10,6 +10,7 @@ import {
 	claimAgentSessionEvent,
 	listPendingAgentSessionEvents,
 } from "./queries/agent-session-requests";
+import { getGraphProjectionCanonicalLifecycleSample } from "./queries/graph-projection-health";
 import { listOwnerLearningInteractionsPage } from "./queries/learning-feedback";
 import { pendingFilingLessons } from "./queries/request-filings";
 import { listRationaleRecords } from "./queries/rationale-records";
@@ -141,6 +142,16 @@ describe("hot production query plans", () => {
 		const plan = lastPlan();
 		expect(plan).toContain(
 			"USING INDEX idx_kernel_runtime_runs_org_updated (organization_id=?)",
+		);
+		expect(plan).not.toContain("USE TEMP B-TREE FOR ORDER BY");
+	});
+
+	it("samples an organization's ended facts from the lifecycle index without a sort", async () => {
+		const { db, lastPlan } = fixture();
+		await getGraphProjectionCanonicalLifecycleSample(db, "org-1");
+		const plan = lastPlan();
+		expect(plan).toContain(
+			"USING INDEX idx_memory_facts_org_lifecycle (organization_id=?)",
 		);
 		expect(plan).not.toContain("USE TEMP B-TREE FOR ORDER BY");
 	});

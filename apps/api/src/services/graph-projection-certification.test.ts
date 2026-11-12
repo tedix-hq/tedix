@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
 	graphProjectionReadAdmission,
 	managedCountsDue,
+	projectionBacklogState,
 } from "./graph-projection-certification";
 
 const checkedAt = "2026-07-27T06:00:00.000Z";
@@ -166,6 +167,19 @@ describe("graph projection read admission", () => {
 });
 
 describe("managed-count cadence", () => {
+	it("rules out certification from stored state while the projection is behind, unrepaired or poisoned", () => {
+		const { readiness, backlog } = inspection();
+		expect(projectionBacklogState(readiness, backlog).certifiable).toBe(true);
+		for (const [state, stats] of [
+			[readiness, { ...backlog, pendingCount: 1 }],
+			[readiness, { ...backlog, poisonedCount: 1 }],
+			[{ ...readiness, repairPhase: "facts" as const }, backlog],
+			[{ ...readiness, projectionEpoch: null }, backlog],
+			[null, backlog],
+		] as const)
+			expect(projectionBacklogState(state, stats).certifiable).toBe(false);
+	});
+
 	it("counts once per UTC hour and whenever no certification exists", () => {
 		expect(managedCountsDue(null, checkedAt)).toBe(true);
 		expect(managedCountsDue("2026-07-27T05:59:00.000Z", checkedAt)).toBe(true);
