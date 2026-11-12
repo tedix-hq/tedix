@@ -1021,17 +1021,22 @@ function withInnerErrorTransport(provider: ResolvedProvider): ResolvedProvider {
 		get prelude() {
 			return [
 				provider.prelude,
+				// Decode once per namespace at the RPC boundary. Touching every SDK
+				// proxy property here pins two closures per tool, including aliases.
 				`
-    for (const name of ${JSON.stringify(names)}) {
-      const call = ${provider.name}[name];
-      Object.defineProperty(${provider.name}, name, { value: async (...args) => {
-        try { return await call(...args); }
-        catch (error) {
-          if (!error.message?.startsWith(${JSON.stringify(INNER_ERROR_PREFIX)})) throw error;
-          const detail = JSON.parse(error.message.slice(${INNER_ERROR_PREFIX.length}));
-          throw Object.assign(new Error(detail.message), { code: detail.code, status: detail.status });
+    {
+      const dispatcher = __dispatchers.${provider.name};
+      __dispatchers.${provider.name} = { async call(...args) {
+        const response = await dispatcher.call(...args);
+        if (response.startsWith('{"error":')) {
+          const data = JSON.parse(response);
+          if (typeof data.error === "string" && data.error.startsWith(${JSON.stringify(INNER_ERROR_PREFIX)})) {
+            const detail = JSON.parse(data.error.slice(${INNER_ERROR_PREFIX.length}));
+            throw Object.assign(new Error(detail.message), { code: detail.code, status: detail.status });
+          }
         }
-      } });
+        return response;
+      } };
     }`,
 			]
 				.filter(Boolean)
