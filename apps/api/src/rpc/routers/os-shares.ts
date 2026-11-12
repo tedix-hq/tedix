@@ -17,7 +17,10 @@ import {
 	updateOsShareLinkSettings,
 	setOsShareSkillReadGrants,
 } from "@tedix/db/queries/os-shares";
-import { findTedixPersonByEmail } from "@tedix/db/queries/os-collaborators";
+import {
+	findTedixPersonByEmail,
+	listOsWorkspaceOrganizationMemberRoles,
+} from "@tedix/db/queries/os-collaborators";
 import { getOrganizationProfile } from "@tedix/db/queries/organizations";
 import {
 	getOsGadget,
@@ -28,6 +31,8 @@ import { getOsOutput } from "../../services/workspace-output-storage";
 import { getOsOutputRevision } from "../../services/os-workspace-outputs";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import { assertOsWorkspaceVisible } from "../../services/os-workspace-visibility";
+import { listWorkspaceAccessHolders } from "../../services/os-workspace-collaborators";
+import { shareAccessChange } from "../../lib/os-share-access-preview";
 import { cutWorkspaceAppSessions } from "../../services/os-app-session-revocation";
 import { getOsWorkspaceResource } from "@tedix/db/queries/os-workspaces/resources";
 import { findKernelRuntimeRunForOutputRevision } from "@tedix/db/queries/kernel-runtime-runs";
@@ -42,6 +47,7 @@ import {
 	generateOsSharePublicId,
 	generateOsShareToken,
 	hashOsShareToken,
+	isActive,
 	linkWorkspaceId,
 	osShareUrl,
 	stoppedByPrivateWorkspace,
@@ -619,6 +625,89 @@ const sharesPreviewRevoke = readOs.shares.previewRevoke.handler(
 	},
 );
 
+/**
+ * Say what a change would do before it is made: who the link stops reaching
+ * and who it starts reaching. Reads only; the change itself goes through its
+ * own procedure and its own checks.
+ */
+const sharesPreviewChange = authorOs.shares.previewChange.handler(
+	async ({ input, context }) => {
+		const db = queryDb(context);
+		const { link, isPrivate, stopped } = await requireLink(
+			context,
+			input.shareId,
+		);
+		const now = new Date().toISOString();
+		const { change } = input;
+		const before = {
+			open: isActive(link, now) && !stopped,
+			access: link.access,
+		};
+		const after =
+			change.kind === "off"
+				? { open: false, access: link.access }
+				: change.kind === "on"
+					? {
+							open:
+								isActive({ ...link, disabledAt: null }, now) &&
+								!(isPrivate && link.resourceType === "workspace"),
+							access: link.access,
+						}
+					: change.kind === "access"
+						? { open: before.open, access: change.access }
+						: before;
+		const invitees = await listOsShareLinkInvitees(db, {
+			organizationId: link.organizationId,
+			shareLinkId: link.id,
+		});
+		const userIds = invitees.flatMap((row) => (row.userId ? [row.userId] : []));
+		const members = new Set(
+			(
+				await listOsWorkspaceOrganizationMemberRoles(db, {
+					organizationId: link.organizationId,
+					userIds,
+				})
+			).map((member) => member.userId),
+		);
+		const workspaceId = await linkWorkspaceId(db, link);
+		const workspace = workspaceId
+			? await getOsWorkspace(db, {
+					organizationId: link.organizationId,
+					workspaceId,
+				})
+			: null;
+		const holders =
+			workspace?.status === "active"
+				? await listWorkspaceAccessHolders(db, workspace, userIds)
+				: new Set<string>();
+		const result = shareAccessChange({
+			before,
+			after,
+			invitees: invitees.map((row) => ({
+				id: row.id,
+				inOrganization: row.userId !== null && members.has(row.userId),
+				inWorkspace: row.userId !== null && holders.has(row.userId),
+			})),
+			removedInviteeId:
+				change.kind === "removeInvitee" ? change.inviteeId : undefined,
+		});
+		// Turning a link off, or tightening who it reaches, ends every open
+		// session; removing one person ends theirs on their next read.
+		const endsSessions =
+			before.open &&
+			(change.kind === "off" ||
+				(change.kind === "access" &&
+					change.access !== link.access &&
+					change.access !== "anyone_with_link"));
+		return {
+			...result,
+			openNow: endsSessions
+				? await countActiveOsShareSessions(db, link.id, now)
+				: 0,
+		};
+	},
+);
+
 const sharesRevoke = authorOs.shares.revoke.handler(
 	async ({ input, context }) => {
 		const organizationId = requireOrgId(context);
@@ -955,6 +1044,7 @@ export const osSharesContractRouter = osSharesOs.router({
 		list: sharesList,
 		update: sharesUpdate,
 		previewRevoke: sharesPreviewRevoke,
+		previewChange: sharesPreviewChange,
 		revoke: sharesRevoke,
 		setDisabled: sharesSetDisabled,
 		restrict: sharesRestrict,

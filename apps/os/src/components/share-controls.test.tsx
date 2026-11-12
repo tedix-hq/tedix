@@ -16,6 +16,7 @@ const sharesApi = vi.hoisted(() => ({
 	create: vi.fn(),
 	list: vi.fn(),
 	previewRevoke: vi.fn(),
+	previewChange: vi.fn(),
 	revoke: vi.fn(),
 	setDisabled: vi.fn(),
 	delete: vi.fn(),
@@ -33,6 +34,9 @@ vi.mock("@/lib/api", () => ({
 }));
 
 import {
+	impactNarrows,
+	type ShareImpact,
+	shareImpactSentences,
 	ShareControls,
 	ShareRow,
 	shareExpiryLabel,
@@ -136,6 +140,24 @@ function linkField(container: Element): { value: string } | null {
 	return field ? { value: field.textContent ?? "" } : null;
 }
 
+const NOBODY = { people: 0, organization: false, anyoneWithLink: false };
+
+/** A server preview: nobody affected unless the test says so. */
+function impact(overrides: Partial<ShareImpact> = {}): ShareImpact {
+	return {
+		loses: NOBODY,
+		gains: NOBODY,
+		remaining: NOBODY,
+		keepThroughWorkspace: 0,
+		openNow: 0,
+		...overrides,
+	};
+}
+
+function confirmPending(container: Element) {
+	click(container.querySelector("[data-share-pending-confirm]")!);
+}
+
 function findButton(container: Element, label: string): HTMLButtonElement {
 	const match = [...container.querySelectorAll("button")].find((button) =>
 		(button.textContent ?? "").includes(label),
@@ -233,6 +255,7 @@ beforeEach(() => {
 		sharesApi.create,
 		sharesApi.list,
 		sharesApi.previewRevoke,
+		sharesApi.previewChange,
 		sharesApi.revoke,
 		sharesApi.setDisabled,
 		sharesApi.delete,
@@ -253,6 +276,55 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 // Pure helpers
 // ---------------------------------------------------------------------------
+
+describe("shareImpactSentences", () => {
+	const options = { noun: "file", organization: "Acme" };
+
+	it("names everyone who loses access in one sentence", () => {
+		expect(
+			shareImpactSentences(
+				impact({
+					loses: { people: 3, organization: false, anyoneWithLink: true },
+				}),
+				options,
+			),
+		).toEqual([
+			"3 people and anyone with the link will no longer be able to open this file.",
+		]);
+		expect(
+			shareImpactSentences(
+				impact({
+					loses: { ...NOBODY, organization: true },
+					gains: { ...NOBODY, people: 1 },
+					remaining: { ...NOBODY, people: 2 },
+					keepThroughWorkspace: 1,
+				}),
+				options,
+			),
+		).toEqual([
+			"People in Acme will no longer be able to open this file.",
+			"1 person will be able to open this file.",
+			"Still able to open it: 2 people.",
+			"1 person on the invite list still opens it through the workspace.",
+		]);
+	});
+
+	it("says so when nothing changes, and reports a finished change in the past tense", () => {
+		expect(shareImpactSentences(impact(), options)).toEqual([
+			"Nobody's access to this file changes.",
+		]);
+		expect(
+			shareImpactSentences(impact({ loses: { ...NOBODY, people: 1 } }), {
+				...options,
+				done: true,
+			}),
+		).toEqual(["1 person can no longer open this file."]);
+		expect(impactNarrows(impact())).toBe(false);
+		expect(impactNarrows(impact({ loses: { ...NOBODY, people: 1 } }))).toBe(
+			true,
+		);
+	});
+});
 
 describe("shareStatus", () => {
 	it("distinguishes active, off, expired, and revoked; revoked wins", () => {
@@ -481,20 +553,78 @@ describe("ShareControls", () => {
 		});
 	});
 
-	it("changes who can open a link without changing its address", async () => {
+	it("says who loses access before narrowing a link, then offers Undo", async () => {
 		sharesApi.list.mockResolvedValue({ items: [shareFixture()] });
+		sharesApi.previewChange.mockResolvedValue(
+			impact({
+				loses: { ...NOBODY, anyoneWithLink: true },
+				remaining: { ...NOBODY, people: 2 },
+				openNow: 1,
+			}),
+		);
 		sharesApi.update.mockResolvedValue({
 			share: shareFixture({ access: "invited" }),
-			revokedSessionCount: 0,
+			revokedSessionCount: 1,
 		});
 		const container = await openDialog();
 		click(findButton(container, "Only people you invite"));
+		await flush();
+		expect(sharesApi.previewChange).toHaveBeenCalledWith({
+			shareId: SHARE_ID,
+			change: { kind: "access", access: "invited" },
+		});
+		// Nothing changes until the person confirms.
+		expect(sharesApi.update).not.toHaveBeenCalled();
+		const pending = container.querySelector("[data-share-pending]");
+		expect(pending?.textContent).toContain(
+			"Anyone with the link will no longer be able to open this file.",
+		);
+		expect(pending?.textContent).toContain("Still able to open it: 2 people.");
+		expect(pending?.textContent).toContain("It is open in 1 place right now");
+		confirmPending(container);
 		await flush();
 		expect(sharesApi.update).toHaveBeenCalledWith({
 			shareId: SHARE_ID,
 			access: "invited",
 		});
 		expect(sharesApi.create).not.toHaveBeenCalled();
+		const undo = container.querySelector("[data-share-undo]");
+		expect(undo?.textContent).toContain(
+			"Anyone with the link can no longer open this file.",
+		);
+		click(findButton(undo!, "Undo"));
+		await flush();
+		// Undo puts back exactly the earlier choice on the same link.
+		expect(sharesApi.update).toHaveBeenLastCalledWith({
+			shareId: SHARE_ID,
+			access: "anyone_with_link",
+		});
+		expect(container.querySelector("[data-share-undo]")).toBeNull();
+	});
+
+	it("says who gains access before widening a link, and can be called off", async () => {
+		sharesApi.list.mockResolvedValue({
+			items: [shareFixture({ access: "invited" })],
+		});
+		sharesApi.invitees.list.mockResolvedValue({ items: [] });
+		sharesApi.previewChange.mockResolvedValue(
+			impact({
+				gains: { ...NOBODY, anyoneWithLink: true },
+				remaining: { ...NOBODY, anyoneWithLink: true },
+			}),
+		);
+		const container = await openDialog();
+		click(findButton(container, "Anyone with the link"));
+		await flush();
+		expect(
+			container.querySelector("[data-share-pending]")?.textContent,
+		).toContain(
+			"Anyone with the link will be able to open this file, without signing in.",
+		);
+		click(findButton(container, "Keep as it is"));
+		await flush();
+		expect(sharesApi.update).not.toHaveBeenCalled();
+		expect(container.querySelector("[data-share-pending]")).toBeNull();
 	});
 
 	it("adds and removes invited people on an invite-only link", async () => {
@@ -526,13 +656,35 @@ describe("ShareControls", () => {
 			shareId: SHARE_ID,
 			email: "zoe@example.test",
 		});
+		sharesApi.previewChange.mockResolvedValue(
+			impact({ loses: { ...NOBODY, people: 1 } }),
+		);
+		sharesApi.invitees.add.mockClear();
 		click(
 			container.querySelector('button[aria-label="Remove kai@example.test"]')!,
 		);
 		await flush();
+		expect(sharesApi.previewChange).toHaveBeenCalledWith({
+			shareId: SHARE_ID,
+			change: { kind: "removeInvitee", inviteeId: invitee.id },
+		});
+		expect(sharesApi.invitees.remove).not.toHaveBeenCalled();
+		const confirm = container.querySelector("[data-share-remove-invitee]");
+		expect(confirm?.textContent).toContain(
+			"1 person will no longer be able to open this file.",
+		);
+		click(findButton(confirm!, "Remove"));
+		await flush();
 		expect(sharesApi.invitees.remove).toHaveBeenCalledWith({
 			shareId: SHARE_ID,
 			inviteeId: invitee.id,
+		});
+		// Undo adds the same address back.
+		click(findButton(container.querySelector("[data-share-undo]")!, "Undo"));
+		await flush();
+		expect(sharesApi.invitees.add).toHaveBeenCalledWith({
+			shareId: SHARE_ID,
+			email: "kai@example.test",
 		});
 	});
 
@@ -568,7 +720,12 @@ describe("ShareControls", () => {
 		expect(note?.textContent).toContain(
 			"People without a Tedix account can't open this app",
 		);
+		sharesApi.previewChange.mockResolvedValue(
+			impact({ loses: { ...NOBODY, anyoneWithLink: true } }),
+		);
 		click(container.querySelector("[data-guest-refusal-switch]")!);
+		await flush();
+		confirmPending(container);
 		await flush();
 		expect(sharesApi.update).toHaveBeenCalledWith({
 			shareId: SHARE_ID,
@@ -594,10 +751,9 @@ describe("ShareControls", () => {
 
 	it("asks before turning a link off, then turns it off in place", async () => {
 		sharesApi.list.mockResolvedValue({ items: [shareFixture()] });
-		sharesApi.previewRevoke.mockResolvedValue({
-			share: shareFixture(),
-			activeSessionCount: 2,
-		});
+		sharesApi.previewChange.mockResolvedValue(
+			impact({ loses: { ...NOBODY, anyoneWithLink: true }, openNow: 2 }),
+		);
 		sharesApi.setDisabled.mockResolvedValue({
 			share: shareFixture({ disabledAt: "2026-08-14T11:00:00.000Z" }),
 			revokedSessionCount: 2,
@@ -605,9 +761,16 @@ describe("ShareControls", () => {
 		const container = await openDialog();
 		const listCallsBefore = sharesApi.list.mock.calls.length;
 		await pickMenuItem(container, "Link options", "Turn off link");
-		expect(sharesApi.previewRevoke).toHaveBeenCalledWith({ shareId: SHARE_ID });
-		expect(container.textContent).toContain("2 people have it open now");
-		click(findButton(container, "Turn off link"));
+		expect(sharesApi.previewChange).toHaveBeenCalledWith({
+			shareId: SHARE_ID,
+			change: { kind: "off" },
+		});
+		const pending = container.querySelector("[data-share-pending]");
+		expect(pending?.textContent).toContain(
+			"Anyone with the link will no longer be able to open this file.",
+		);
+		expect(pending?.textContent).toContain("It is open in 2 places right now");
+		confirmPending(container);
 		await flush();
 		expect(sharesApi.setDisabled).toHaveBeenCalledWith({
 			shareId: SHARE_ID,
@@ -615,6 +778,13 @@ describe("ShareControls", () => {
 		});
 		expect(sharesApi.revoke).not.toHaveBeenCalled();
 		expect(sharesApi.list.mock.calls.length).toBeGreaterThan(listCallsBefore);
+		// Undo turns the same link back on.
+		click(findButton(container.querySelector("[data-share-undo]")!, "Undo"));
+		await flush();
+		expect(sharesApi.setDisabled).toHaveBeenLastCalledWith({
+			shareId: SHARE_ID,
+			disabled: false,
+		});
 	});
 
 	it("keeps the address struck through with Copy off while the link is off", async () => {
@@ -647,11 +817,17 @@ describe("ShareControls", () => {
 		sharesApi.list.mockResolvedValue({ items: [shareFixture()] });
 		sharesApi.delete.mockResolvedValue({ deleted: true });
 		const container = await openDialog();
+		sharesApi.previewChange.mockResolvedValue(
+			impact({ loses: { ...NOBODY, anyoneWithLink: true } }),
+		);
 		await pickMenuItem(container, "Link options", "Delete link");
 		expect(container.textContent).toContain("Delete this link?");
-		click(findButton(container, "Delete link"));
+		expect(container.textContent).toContain("this can't be undone");
+		confirmPending(container);
 		await flush();
 		expect(sharesApi.delete).toHaveBeenCalledWith({ shareId: SHARE_ID });
+		// A deleted link cannot come back, so no Undo is offered.
+		expect(container.querySelector("[data-share-undo]")).toBeNull();
 	});
 
 	it("lets an admin edit a link's settings in place", async () => {

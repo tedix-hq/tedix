@@ -10,6 +10,10 @@ import {
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
+	OsShareInvitee,
+	OsShareLink,
+} from "@tedix/api-contract/contracts/os-shares";
+import type {
 	OsAffectedCollaborator,
 	OsCollaborator,
 	OsCollaboratorLink,
@@ -79,6 +83,7 @@ import {
 	osQueryKeys,
 	osSharesQueryOptions,
 	outputDetailQueryOptions,
+	shareInviteesQueryOptions,
 	workspaceCollaboratorsQueryOptions,
 	workspacePresenceQueryOptions,
 } from "@/lib/os-query-options";
@@ -318,6 +323,7 @@ export function WorkspaceShareDialog(props: {
 					{scope === "item" && item ? (
 						<ItemLinks
 							workspaceId={props.workspaceId}
+							visibility={props.visibility}
 							item={item}
 							onOpenReview={
 								item.onOpenReview
@@ -343,6 +349,7 @@ export function WorkspaceShareDialog(props: {
 /** Links to the open app or file alone, inside the same dialog. */
 function ItemLinks(props: {
 	workspaceId: string;
+	visibility?: "org" | "private";
 	item: WorkspaceShareItem;
 	onOpenReview?: () => void;
 }) {
@@ -378,7 +385,194 @@ function ItemLinks(props: {
 					Loading…
 				</Text>
 			)}
+			<ItemAccess
+				workspaceId={props.workspaceId}
+				visibility={props.visibility}
+				item={item}
+			/>
 		</div>
+	);
+}
+
+const THROUGH_WORKSPACE = "Through the workspace";
+const THROUGH_LINK = "Through this link";
+
+export type ItemAccessRow = {
+	key: string;
+	name: string;
+	detail?: string;
+	group?: "organization" | "anyone";
+	/** How this person or group reaches the file or app. */
+	through: string;
+};
+
+/**
+ * Everyone who can open one file or app, each with how they reach it:
+ * through the workspace it is in, through its own link, or both. A link that
+ * is off, stopped or expired reaches nobody.
+ */
+export function itemAccessRows(input: {
+	itemType: WorkspaceShareItem["type"];
+	visibility?: "org" | "private";
+	organization: string;
+	sharing?: {
+		ownerName: string | null;
+		collaborators: readonly OsCollaborator[];
+	};
+	link?: Pick<OsShareLink, "access" | "role"> | null;
+	invitees?: readonly OsShareInvitee[];
+}): ItemAccessRow[] {
+	const rows: ItemAccessRow[] = [];
+	if (input.sharing?.ownerName)
+		rows.push({
+			key: "owner",
+			name: input.sharing.ownerName,
+			detail: "Owner",
+			through: THROUGH_WORKSPACE,
+		});
+	if (input.visibility === "org")
+		rows.push({
+			key: "organization",
+			name: `Everyone in ${input.organization}`,
+			group: "organization",
+			through: THROUGH_WORKSPACE,
+		});
+	// A person who may only use the workspace's apps does not open its files.
+	const members = (input.sharing?.collaborators ?? []).filter(
+		(person) => input.itemType === "gadget" || person.role === "build",
+	);
+	const invitees =
+		input.link?.access === "invited" ? (input.invitees ?? []) : [];
+	const invited = (person: OsCollaborator) =>
+		invitees.some(
+			(invitee) =>
+				(invitee.userId !== null && invitee.userId === person.userId) ||
+				(invitee.email !== null &&
+					person.email !== null &&
+					invitee.email.toLowerCase() === person.email.toLowerCase()),
+		);
+	for (const person of members)
+		rows.push({
+			key: `member:${person.userId}`,
+			name: personLabel(person),
+			detail: ROLE_LABEL[person.role],
+			through: invited(person)
+				? `${THROUGH_WORKSPACE} and this link`
+				: THROUGH_WORKSPACE,
+		});
+	if (!input.link) return rows;
+	if (input.link.access === "anyone_with_link")
+		rows.push({
+			key: "anyone",
+			name: "Anyone with the link",
+			group: "anyone",
+			through: THROUGH_LINK,
+		});
+	else if (input.link.access === "organization") {
+		if (input.visibility !== "org")
+			rows.push({
+				key: "link-organization",
+				name: `People in ${input.organization}`,
+				group: "organization",
+				through: THROUGH_LINK,
+			});
+	} else
+		for (const invitee of invitees) {
+			if (
+				members.some(
+					(person) =>
+						(invitee.userId !== null && invitee.userId === person.userId) ||
+						(invitee.email !== null &&
+							person.email !== null &&
+							invitee.email.toLowerCase() === person.email.toLowerCase()),
+				)
+			)
+				continue;
+			rows.push({
+				key: `invitee:${invitee.id}`,
+				name: invitee.name ?? invitee.email ?? "Someone",
+				detail: invitee.name && invitee.email ? invitee.email : undefined,
+				through: THROUGH_LINK,
+			});
+		}
+	return rows;
+}
+
+/** The list under an item's link: who can open it, and how. */
+function ItemAccess(props: {
+	workspaceId: string;
+	visibility?: "org" | "private";
+	item: WorkspaceShareItem;
+}) {
+	const { item } = props;
+	const organization =
+		useOsOperationalContext().data?.organization.name ?? "your organization";
+	const sharing = useQuery(
+		workspaceCollaboratorsQueryOptions(props.workspaceId),
+	);
+	const shares = useQuery(
+		osSharesQueryOptions({ resourceType: item.type, resourceId: item.id }),
+	);
+	// Only a link that opens right now gives anyone access.
+	const link =
+		(shares.data?.items ?? []).find(
+			(share) => shareStatus(share) === "active",
+		) ?? null;
+	const invitees = useQuery({
+		...shareInviteesQueryOptions(link?.id ?? ""),
+		enabled: link?.access === "invited",
+	});
+	const noun = item.type === "gadget" ? "app" : "file";
+	const rows = itemAccessRows({
+		itemType: item.type,
+		visibility: props.visibility,
+		organization,
+		sharing: sharing.data,
+		link,
+		invitees: invitees.data?.items,
+	});
+	if (!shares.isSuccess) return null;
+	return (
+		<section
+			className="grid gap-1 border-kumo-line border-t pt-4"
+			aria-label="Who has access"
+			data-item-access
+		>
+			<SectionHeading
+				learnMore={{
+					label: "About access",
+					text: `People in the workspace open this ${noun} there. Its own link lets others open this ${noun} alone: they never see the workspace's other files, its chat or its members.`,
+				}}
+			>
+				Who has access
+			</SectionHeading>
+			<ul className="m-0 grid list-none p-0">
+				{rows.map((row) => (
+					<PersonRow
+						key={row.key}
+						name={row.name}
+						detail={row.detail}
+						icon={
+							row.group === "organization" ? (
+								<UsersThree size={12} />
+							) : row.group === "anyone" ? (
+								<Globe size={12} />
+							) : undefined
+						}
+						trailing={
+							<Text as="span" role="label" tone="secondary">
+								{row.through}
+							</Text>
+						}
+					/>
+				))}
+			</ul>
+			{link ? null : (
+				<Text role="label" tone="secondary" className="m-0">
+					Nobody outside the workspace can open this {noun}.
+				</Text>
+			)}
+		</section>
 	);
 }
 
