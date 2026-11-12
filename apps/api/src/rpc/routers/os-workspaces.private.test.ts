@@ -864,15 +864,16 @@ it("filters recorded workspace activity on the server and preserves safe action 
 	);
 });
 
-it("continues beyond an empty filtered page without skipping recorded activity", async () => {
-	const env = createEnv();
-	const owner = member(env, OWNER);
-	const { workspace } = await owner.workspaces.create({ name: "History" });
+async function publishHiddenActions(
+	env: ReturnType<typeof createEnv>,
+	workspaceId: string,
+	count: number,
+) {
 	const db = createDbQueryClient(env.DB);
-	for (let index = 0; index < 7; index += 1) {
+	for (let index = 0; index < count; index += 1) {
 		await publishWorkspaceAction(db, {
 			organizationId: "org-1",
-			workspaceId: workspace.id,
+			workspaceId,
 			kind: "run",
 			id: `page-${index}`,
 			revision: 1,
@@ -885,11 +886,33 @@ it("continues beyond an empty filtered page without skipping recorded activity",
 					operation: "revise",
 					outcome: "applied",
 					surface: "workspace_object",
+					// Only the oldest action links a revision the viewer can verify.
 					...(index ? { revisionId: "unavailable" } : {}),
 				},
 			},
 		});
 	}
+}
+
+it("reads past hidden records so the first page shows visible activity", async () => {
+	const env = createEnv();
+	const owner = member(env, OWNER);
+	const { workspace } = await owner.workspaces.create({ name: "History" });
+	await publishHiddenActions(env, workspace.id, 7);
+	const first = await owner.workspaces.activity({
+		workspaceId: workspace.id,
+		limit: 50,
+	});
+	expect(first.items.map((item) => item.entityId)).toEqual(["page-0"]);
+	expect(first.next).toBeNull();
+});
+
+it("continues beyond an empty filtered page without skipping recorded activity", async () => {
+	const env = createEnv();
+	const owner = member(env, OWNER);
+	const { workspace } = await owner.workspaces.create({ name: "History" });
+	// More hidden records than one request reads before giving up.
+	await publishHiddenActions(env, workspace.id, 22);
 	const first = await owner.workspaces.activity({
 		workspaceId: workspace.id,
 		limit: 50,

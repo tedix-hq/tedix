@@ -18,34 +18,56 @@ describe("workspace activity", () => {
 			changeRecordId: "record-1",
 		};
 		client.setQueryData<unknown>(
-			osQuery.osWorkspaces.workspaces.activity.queryOptions({
-				input: { workspaceId, limit: 50 },
+			osQuery.osWorkspaces.workspaces.activity.infiniteOptions({
+				input: (before: string | undefined) => ({
+					workspaceId,
+					kinds: ["output", "run"],
+					limit: 50,
+					...(before ? { before } : {}),
+				}),
+				initialPageParam: undefined as string | undefined,
+				getNextPageParam: (page) => page.next ?? undefined,
 			}).queryKey,
 			{
-				items: [
+				pageParams: [undefined],
+				pages: [
 					{
-						...event,
-						id: "one",
-						entityId: "visible",
-						title: "Research notes",
-						artifact: { outputId: "visible", revisionId: "rev-2" },
+						items: [
+							{
+								...event,
+								id: "one",
+								entityId: "visible",
+								title: "Research notes",
+								artifact: { outputId: "visible", revisionId: "rev-2" },
+							},
+							{
+								...event,
+								id: "action",
+								kind: "run",
+								entityId: "action-1",
+								action: {
+									resource: "work",
+									operation: "list",
+									outcome: "applied",
+									surface: "workspace_object",
+								},
+							},
+							{
+								...event,
+								id: "two",
+								entityId: "hidden",
+								title: "Hidden title",
+							},
+							{
+								...event,
+								id: "three",
+								entityId: "visible",
+								workspaceId: "other",
+							},
+						],
+						next: null,
 					},
-					{
-						...event,
-						id: "action",
-						kind: "run",
-						entityId: "action-1",
-						action: {
-							resource: "work",
-							operation: "list",
-							outcome: "applied",
-							surface: "workspace_object",
-						},
-					},
-					{ ...event, id: "two", entityId: "hidden", title: "Hidden title" },
-					{ ...event, id: "three", entityId: "visible", workspaceId: "other" },
 				],
-				next: null,
 			},
 		);
 		const html = renderToStaticMarkup(

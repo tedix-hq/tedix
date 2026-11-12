@@ -1,28 +1,38 @@
-import { useState } from "react";
 import { Button } from "@/components/kumo/button";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { Link } from "@/components/kumo/link";
 import { Text } from "@/components/kumo/text";
 import { osQuery } from "@/lib/os-query-options";
 import { absoluteTime, relativeTime } from "@/lib/time";
 import { sanitizeUntrustedText } from "@/lib/untrusted-text";
 
+/** Only file changes and agent actions are shown; chat steps stay in their conversation. */
+const WORKSPACE_ACTIVITY_KINDS = ["output", "run"] as const;
+
 /** The API filters each record and linked revision for the current viewer. */
 export function WorkspaceActivity({ workspaceId }: { workspaceId: string }) {
-	const [before, setBefore] = useState<string>();
-	const activity = useQuery({
-		...osQuery.osWorkspaces.workspaces.activity.queryOptions({
-			input: { workspaceId, limit: 50, ...(before ? { before } : {}) },
+	const activity = useInfiniteQuery({
+		...osQuery.osWorkspaces.workspaces.activity.infiniteOptions({
+			input: (before: string | undefined) => ({
+				workspaceId,
+				kinds: [...WORKSPACE_ACTIVITY_KINDS],
+				limit: 50,
+				...(before ? { before } : {}),
+			}),
+			initialPageParam: undefined as string | undefined,
+			getNextPageParam: (page) => page.next ?? undefined,
 		}),
 		refetchInterval: 15_000,
 	});
-	const items = (activity.data?.items ?? []).filter(
-		(item) =>
-			item.workspaceId === workspaceId &&
-			(item.kind === "output"
-				? Boolean(item.artifact)
-				: item.kind === "run" && Boolean(item.action)),
-	);
+	const items = (activity.data?.pages ?? [])
+		.flatMap((page) => page.items)
+		.filter(
+			(item) =>
+				item.workspaceId === workspaceId &&
+				(item.kind === "output"
+					? Boolean(item.artifact)
+					: item.kind === "run" && Boolean(item.action)),
+		);
 	return (
 		<div className="grid min-w-0 gap-2 px-4 py-3">
 			<Text as="p" className="m-0" role="caption" tone="secondary">
@@ -40,7 +50,9 @@ export function WorkspaceActivity({ workspaceId }: { workspaceId: string }) {
 				</Text>
 			) : items.length === 0 ? (
 				<Text role="label" tone="secondary">
-					No recorded activity to show.
+					{activity.hasNextPage
+						? "Nothing recent you can see. Load more to look further back."
+						: "No recorded activity to show."}
 				</Text>
 			) : (
 				<ol aria-label="Workspace activity" className="m-0 grid list-none p-0">
@@ -82,12 +94,13 @@ export function WorkspaceActivity({ workspaceId }: { workspaceId: string }) {
 					})}
 				</ol>
 			)}
-			{activity.data?.next && (
+			{activity.hasNextPage && (
 				<Button
 					variant="secondary"
-					onClick={() => setBefore(activity.data.next!)}
+					disabled={activity.isFetchingNextPage}
+					onClick={() => void activity.fetchNextPage()}
 				>
-					Load more
+					{activity.isFetchingNextPage ? "Loading…" : "Load more"}
 				</Button>
 			)}
 		</div>
