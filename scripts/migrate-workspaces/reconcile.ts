@@ -15,7 +15,12 @@ import { RowDigest, rowKey, type StoredRow } from "./rows";
 import { refKey, type Scope } from "./scope";
 import { logCoverageProblems } from "./snapshot-proof";
 import type { Snapshot, WorkspaceRef } from "./source";
-import { REQUIRED_JURISDICTION, WORKSPACE_TABLES } from "./tables";
+import {
+	CONVERSATION_HAS_WORKSPACE,
+	REQUIRED_JURISDICTION,
+	WORKSPACE_TABLES,
+	type WorkspaceAssignments,
+} from "./tables";
 import { readAllRows, type WorkspaceStoreFactory } from "./target";
 
 export interface TableDrift {
@@ -47,6 +52,7 @@ export interface ReconcileReport {
 		bundled: number;
 		staying: number;
 	}>;
+	knownDifferences: string[];
 	problems: string[];
 }
 
@@ -249,12 +255,13 @@ export async function reconcileAll(
 	}
 	const coverage = options.snapshot
 		? await snapshotCoverage(bundles, options.snapshot, options.scope)
-		: { totals: [], problems: [] };
+		: { totals: [], problems: [], knownDifferences: [] };
 	return {
 		ok: workspaces.every((w) => w.ok) && coverage.problems.length === 0,
 		checkedAt: new Date().toISOString(),
 		workspaces,
 		totals: coverage.totals,
+		knownDifferences: coverage.knownDifferences,
 		problems: coverage.problems,
 	};
 }
@@ -287,8 +294,9 @@ export async function snapshotCoverage(
 	bundles: BundleStore,
 	snapshot: Snapshot,
 	scope?: Scope,
-): Promise<Pick<ReconcileReport, "totals" | "problems">> {
+): Promise<Pick<ReconcileReport, "totals" | "problems" | "knownDifferences">> {
 	const problems = logCoverageProblems(snapshot);
+	const knownDifferences: string[] = [];
 	const totals: ReconcileReport["totals"] = [];
 	const refs = await scopedRefs(bundles, scope);
 	const bundled = new Map<string, number>();
@@ -303,7 +311,13 @@ export async function snapshotCoverage(
 			createdHomes += 1;
 		for (const [table, summary] of Object.entries(manifest.tables))
 			bundled.set(table, (bundled.get(table) ?? 0) + summary.count);
-		problems.push(...runsWithoutHistory(ref, tables));
+		const history = runsWithoutHistory(
+			ref,
+			tables,
+			manifest.assignments?.retainedHistory,
+		);
+		problems.push(...history.problems);
+		knownDifferences.push(...history.knownDifferences);
 		if (!scope) continue;
 		const fresh = collectWorkspaceRows(snapshot, ref, {
 			...(manifest.assignments
@@ -358,29 +372,58 @@ export async function snapshotCoverage(
 				`${mapping.table}: ${source} rows in the snapshot, ${inBundles} in bundles`,
 			);
 	}
-	return { totals, problems };
+	for (const row of snapshot.main
+		.prepare(
+			`SELECT id, organization_id, workspace_id FROM kernel_conversations WHERE workspace_id IS NOT NULL AND NOT (${CONVERSATION_HAS_WORKSPACE}) ORDER BY organization_id, id`,
+		)
+		.all()) {
+		if (scope && !scope.organizations.has(String(row.organization_id)))
+			continue;
+		knownDifferences.push(
+			`${row.organization_id}: conversation ${row.id} and its dependent rows stay in main/logs; workspace ${row.workspace_id} no longer exists`,
+		);
+	}
+	return { totals, problems, knownDifferences };
 }
 
 /** Runs that recorded events (`latest_event_at`) but whose events are in no store. */
 function runsWithoutHistory(
 	ref: WorkspaceRef,
 	tables: Map<string, StoredRow[]>,
-): string[] {
+	reviewed: WorkspaceAssignments[string]["retainedHistory"] = [],
+): { problems: string[]; knownDifferences: string[] } {
+	const problems: string[] = [];
+	const knownDifferences: string[] = [];
 	const withEvents = new Set(
 		(tables.get("kernel_runtime_events") ?? []).map((row) =>
 			String(row.run_id),
 		),
 	);
-	return (tables.get("kernel_runtime_runs") ?? [])
+	for (const run of (tables.get("kernel_runtime_runs") ?? [])
 		.filter(
 			(run) =>
 				run.latest_event_at !== null && run.latest_event_at !== undefined,
 		)
-		.filter((run) => !withEvents.has(String(run.id)))
-		.map(
-			(run) =>
+		.filter((run) => !withEvents.has(String(run.id)))) {
+		const decisions = reviewed.filter((entry) => entry.runId === run.id);
+		const decision = decisions[0];
+		if (
+			decisions.length === 1 &&
+			decision &&
+			decision.latestEventAt === run.latest_event_at &&
+			decision.reason.trim() &&
+			decision.evidenceRef.trim()
+		) {
+			knownDifferences.push(
+				`${refKey(ref)}: run ${run.id} has no events (latest ${run.latest_event_at}); ${decision.reason}; reviewed at ${decision.evidenceRef}`,
+			);
+		} else {
+			problems.push(
 				`${refKey(ref)}: run ${run.id} recorded events (latest ${run.latest_event_at}) but none is in the snapshot; a log partition is missing`,
-		);
+			);
+		}
+	}
+	return { problems, knownDifferences };
 }
 
 export function renderReport(report: ReconcileReport): string {
@@ -406,6 +449,8 @@ export function renderReport(report: ReconcileReport): string {
 		lines.push(
 			`${t.source === t.bundled ? "ok   " : "DRIFT"} total ${t.table}: snapshot=${t.source} bundles=${t.bundled}${t.staying ? ` staying=${t.staying}` : ""}`,
 		);
+	for (const difference of report.knownDifferences)
+		lines.push(`KNOWN ${difference}`);
 	for (const p of report.problems) lines.push(`DRIFT ${p}`);
 	return lines.join("\n");
 }

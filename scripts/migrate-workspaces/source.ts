@@ -15,7 +15,13 @@ import { DatabaseSync } from "node:sqlite";
 import { dirname, resolve } from "node:path";
 import type { CaptureManifest } from "./capture-manifest";
 import { RowDigest, rowKey, splitSqlStatements, type StoredRow } from "./rows";
-import type { SourceStore, TableMapping, WorkspaceAssignments } from "./tables";
+import {
+	CONVERSATION_HAS_WORKSPACE,
+	UNASSIGNED_OUTPUT,
+	type SourceStore,
+	type TableMapping,
+	type WorkspaceAssignments,
+} from "./tables";
 
 export interface SnapshotPaths {
 	main: string;
@@ -215,7 +221,7 @@ export class Snapshot {
 				literalList(
 					this.main
 						.prepare(
-							"SELECT organization_id || '|' || conversation_id AS c FROM kernel_conversations WHERE workspace_id IS NOT NULL",
+							`SELECT organization_id || '|' || conversation_id AS c FROM kernel_conversations WHERE ${CONVERSATION_HAS_WORKSPACE}`,
 						)
 						.all()
 						.map((row) => String(row.c)),
@@ -224,12 +230,12 @@ export class Snapshot {
 		return sql;
 	}
 
-	/** Outputs whose `workspace_id` is null, grouped by organization. */
+	/** Outputs without a surviving workspace, grouped by organization. */
 	unassignedOutputs(): Map<string, string[]> {
 		const byOrg = new Map<string, string[]>();
 		for (const row of this.main
 			.prepare(
-				"SELECT id, organization_id FROM os_outputs WHERE workspace_id IS NULL ORDER BY organization_id, id",
+				`SELECT id, organization_id FROM os_outputs WHERE ${UNASSIGNED_OUTPUT} ORDER BY organization_id, id`,
 			)
 			.all()) {
 			const list = byOrg.get(String(row.organization_id)) ?? [];
@@ -247,7 +253,7 @@ export class Snapshot {
 /** `'a', 'b'`; an empty list matches nothing. */
 function literalList(ids: readonly string[]): string {
 	return ids.length === 0
-		? "NULL"
+		? "SELECT NULL WHERE 0"
 		: ids.map((id) => `'${id.replaceAll("'", "''")}'`).join(", ");
 }
 

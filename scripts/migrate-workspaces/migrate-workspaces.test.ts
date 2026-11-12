@@ -218,6 +218,120 @@ function fakeGateway(objects: WorkspaceStoreFactory) {
 }
 
 describe("migrate-workspaces", () => {
+	test("deleted workspace outputs need an approved home and retain every revision; orphan chat stays", async () => {
+		const snapshot = fixtureSnapshot();
+		const workDir = mkdtempSync(join(tmpdir(), "mw-orphan-"));
+		try {
+			snapshot.main.exec(
+				"UPDATE os_outputs SET workspace_id = 'deleted-workspace' WHERE id = 'out-b1'",
+			);
+			snapshot.main.exec(
+				"UPDATE kernel_conversations SET workspace_id = 'deleted-workspace' WHERE id = 'kc-a'",
+			);
+			expect(checkAssignments(snapshot, {})).toHaveLength(1);
+			const report = await rehearse(snapshot, assignments, { workDir });
+			expect(report.ok).toBe(true);
+			const home = await new LocalBundleStore(join(workDir, "bundles")).read({
+				organizationId: ORG,
+				workspaceId: WS_B,
+			});
+			expect(
+				home.tables.get("os_outputs")!.map((r) => [r.id, r.workspace_id]),
+			).toEqual([["out-b1", WS_B]]);
+			expect(home.tables.get("os_output_revisions")!.map((r) => r.id)).toEqual([
+				"rev-b1-1",
+			]);
+			expect(
+				report.reconcile.knownDifferences.some((d) =>
+					d.includes("conversation kc-a"),
+				),
+			).toBe(true);
+			expect(
+				report.reconcile.totals.find(
+					(t) => t.table === "kernel_runtime_events",
+				),
+			).toEqual({
+				table: "kernel_runtime_events",
+				source: 0,
+				bundled: 0,
+				staying: 4,
+			});
+			expect(
+				snapshot.main
+					.prepare("SELECT workspace_id FROM os_outputs WHERE id = 'out-b1'")
+					.get()?.workspace_id,
+			).toBe("deleted-workspace");
+			expect(
+				snapshot.main
+					.prepare(
+						"SELECT count(*) AS n FROM kernel_runtime_runs WHERE id = 'run-a'",
+					)
+					.get()?.n,
+			).toBe(1);
+		} finally {
+			rmSync(workDir, { recursive: true, force: true });
+			snapshot.close();
+		}
+	});
+
+	test("retention decisions explain exact reviewed gaps; new gaps and changed run timestamps still block import", async () => {
+		const snapshot = fixtureSnapshot();
+		const workDir = mkdtempSync(join(tmpdir(), "mw-retention-"));
+		try {
+			snapshot.main.exec(
+				"DELETE FROM kernel_runtime_events; UPDATE kernel_runtime_runs SET latest_event_at = '2026-01-01T00:00:00Z' WHERE id = 'run-a'",
+			);
+			snapshot.logs[0]!.exec("DELETE FROM kernel_runtime_events");
+			const bundles = new LocalBundleStore(join(workDir, "bundles"));
+			await exportAll(snapshot, bundles, assignments);
+			expect(
+				(await proveSnapshot(bundles, snapshot)).some((p) =>
+					p.includes("run run-a recorded events"),
+				),
+			).toBe(true);
+			const reviewed: WorkspaceAssignments = {
+				[ORG]: {
+					...assignments[ORG]!,
+					retainedHistory: [
+						{
+							runId: "run-a",
+							latestEventAt: "2026-01-01T00:00:00Z",
+							reason: "Events expired before log retention began",
+							evidenceRef: "https://example.org/work/retention-decision",
+						},
+					],
+				},
+			};
+			const report = await rehearse(snapshot, reviewed, { workDir });
+			expect(report.ok).toBe(true);
+			expect(report.reconcile.knownDifferences).toHaveLength(1);
+			expect(report.reconcile.knownDifferences[0]).toContain(
+				"retention-decision",
+			);
+			snapshot.main.exec(
+				"UPDATE kernel_runtime_runs SET latest_event_at = '2026-01-02T00:00:00Z' WHERE id = 'run-a'",
+			);
+			await exportAll(snapshot, bundles, reviewed);
+			expect(
+				(await proveSnapshot(bundles, snapshot)).some((p) =>
+					p.includes("run run-a recorded events"),
+				),
+			).toBe(true);
+			snapshot.main.exec(
+				"INSERT INTO kernel_runtime_runs (id, organization_id, conversation_id, status, latest_event_at) VALUES ('run-new', 'org-fixture', 'conv-a', 'completed', '2026-01-01T00:00:00Z')",
+			);
+			await exportAll(snapshot, bundles, reviewed);
+			expect(
+				(await proveSnapshot(bundles, snapshot)).some((p) =>
+					p.includes("run run-new recorded events"),
+				),
+			).toBe(true);
+		} finally {
+			rmSync(workDir, { recursive: true, force: true });
+			snapshot.close();
+		}
+	});
+
 	test("rejects conflicting event copies across the main and log snapshots", () => {
 		const snapshot = fixtureSnapshot();
 		try {

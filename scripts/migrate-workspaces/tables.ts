@@ -67,6 +67,12 @@ const CONVERSATION_IN_WORKSPACE = "conversation_id IN (:conversations)";
 const CONVERSATION_IN_ANY_WORKSPACE =
 	"(organization_id || '|' || conversation_id) IN (:anyConversations)";
 
+export const UNASSIGNED_OUTPUT =
+	"(workspace_id IS NULL OR NOT EXISTS (SELECT 1 FROM os_workspaces w WHERE w.id = os_outputs.workspace_id AND w.organization_id = os_outputs.organization_id))";
+
+export const CONVERSATION_HAS_WORKSPACE =
+	"EXISTS (SELECT 1 FROM os_workspaces w WHERE w.id = kernel_conversations.workspace_id AND w.organization_id = kernel_conversations.organization_id)";
+
 export const WORKSPACE_TABLES: readonly TableMapping[] = [
 	{
 		// The workspace's own directory row; the core keeps its copy for routing.
@@ -108,7 +114,7 @@ export const WORKSPACE_TABLES: readonly TableMapping[] = [
 		domain: "chat",
 		primaryKey: ["id"],
 		where: "organization_id = :org AND workspace_id = :ws",
-		moves: "workspace_id IS NOT NULL",
+		moves: CONVERSATION_HAS_WORKSPACE,
 		stores: ["main"],
 	},
 	{
@@ -159,6 +165,13 @@ export interface WorkspaceAssignments {
 		 * named `unassignedOutputsHome` (a Home workspace) during the export.
 		 */
 		createHome?: boolean;
+		/** Exact retained runs whose missing events were reviewed before import. */
+		retainedHistory?: Array<{
+			runId: string;
+			latestEventAt: string;
+			reason: string;
+			evidenceRef: string;
+		}>;
 	};
 }
 

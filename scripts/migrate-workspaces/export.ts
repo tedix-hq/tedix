@@ -14,6 +14,7 @@ import type { Snapshot, WorkspaceRef } from "./source";
 import { refKey, type Scope } from "./scope";
 import {
 	WORKSPACE_TABLES,
+	UNASSIGNED_OUTPUT,
 	type TableMapping,
 	type WorkspaceAssignments,
 } from "./tables";
@@ -78,8 +79,8 @@ function unassignedRowsFor(
 		return [];
 	const sql =
 		mapping.table === "os_outputs"
-			? "SELECT * FROM os_outputs WHERE organization_id = @org AND workspace_id IS NULL"
-			: "SELECT * FROM os_output_revisions WHERE organization_id = @org AND output_id IN (SELECT id FROM os_outputs WHERE organization_id = @org AND workspace_id IS NULL)";
+			? `SELECT * FROM os_outputs WHERE organization_id = @org AND ${UNASSIGNED_OUTPUT}`
+			: `SELECT * FROM os_output_revisions WHERE organization_id = @org AND output_id IN (SELECT id FROM os_outputs WHERE organization_id = @org AND ${UNASSIGNED_OUTPUT})`;
 	const rows = snapshot.main
 		.prepare(sql)
 		.all({ org: ref.organizationId }) as StoredRow[];
