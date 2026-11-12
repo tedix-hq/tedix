@@ -1,5 +1,5 @@
+import { continuesOutputAutosaveBurst } from "@tedix/api-contract/utils/os-output-autosave";
 import {
-	OS_OUTPUT_AUTOSAVE_BURST_GAP_MS,
 	OS_OUTPUT_AUTOSAVE_NOTE,
 	OS_SHEET_MAX_ROWS,
 } from "@tedix/api-contract/utils/os-output-limits";
@@ -867,16 +867,17 @@ const outputsPatch = authorOs.outputs.patch.handler(
 			// a few minutes ago at most; anything else starts a new entry.
 			const producer = resolveProducer(context);
 			const autosave = input.autosave === true;
+
+			const note = autosave ? OS_OUTPUT_AUTOSAVE_NOTE : (input.note ?? null);
 			const continuesBurst =
 				autosave &&
-				!producer.skillRunId &&
-				!current.skillRunId &&
-				current.note?.startsWith(OS_OUTPUT_AUTOSAVE_NOTE) === true &&
-				current.createdByKind === creator.kind &&
-				current.createdById === creator.id &&
-				Date.now() - Date.parse(current.createdAt) <
-					OS_OUTPUT_AUTOSAVE_BURST_GAP_MS;
-			const note = autosave ? OS_OUTPUT_AUTOSAVE_NOTE : (input.note ?? null);
+				continuesOutputAutosaveBurst(current, {
+					note,
+					createdByKind: creator.kind,
+					createdById: creator.id,
+					skillRunId: producer.skillRunId ?? null,
+					createdAt: new Date().toISOString(),
+				});
 			const result = await createOsOutputRevision(
 				db,
 				{

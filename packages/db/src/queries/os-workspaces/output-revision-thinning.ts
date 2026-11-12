@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql, type SQLWrapper } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { kernelRuntimeRuns } from "../../schema/cognitive-runtime";
 import { osReviewBatches, osShareLinks } from "../../schema/os-shares";
@@ -59,6 +59,7 @@ export async function getOsOutputRevisionMaxRowid(
 export interface OutputThinningCandidate {
 	rowid: number;
 	revisionId: string;
+	workspaceId: string | null;
 	organizationId: string;
 	outputId: string;
 	revision: number;
@@ -79,6 +80,8 @@ export async function listOutputThinningCandidates(
 		/** ISO time; only revisions created before it are considered. */
 		olderThan: string;
 		autosaveNote: string;
+		/** Scan retained migration copies too when runtime authority can be checked. */
+		includeCoreCopies?: boolean;
 	},
 ): Promise<OutputThinningCandidate[]> {
 	if (
@@ -102,6 +105,7 @@ export async function listOutputThinningCandidates(
 		.select({
 			rowid: rowid.as("revision_rowid"),
 			revisionId: r.id,
+			workspaceId: osOutputs.workspaceId,
 			organizationId: r.organizationId,
 			outputId: r.outputId,
 			revision: r.revision,
@@ -138,28 +142,7 @@ export async function listOutputThinningCandidates(
 				AND kept.revision > ${r.revision}
 				AND unixepoch(kept.created_at) / ${window}
 					= unixepoch(${r.createdAt}) / ${window})
-			AND NOT EXISTS (
-				SELECT 1 FROM ${workspaceActivity}
-				WHERE ${workspaceActivity.entityId} = ${r.outputId}
-				AND ${workspaceActivity.revision} = ${r.revision}
-				AND ${workspaceActivity.changeRecordId} = ${r.id})
-			AND NOT EXISTS (
-				SELECT 1 FROM ${osShareLinks}
-				WHERE ${osShareLinks.pinnedRevisionId} = ${r.id})
-			AND NOT EXISTS (
-				SELECT 1 FROM ${osCollaborationProposals}
-				WHERE ${osCollaborationProposals.baseRevisionId} = ${r.id}
-				OR ${osCollaborationProposals.resultRevisionId} = ${r.id})
-			AND NOT EXISTS (
-				SELECT 1 FROM ${kernelRuntimeRuns}
-				WHERE ${kernelRuntimeRuns.outputRevisionId} = ${r.id})
-			AND NOT EXISTS (
-				SELECT 1 FROM ${osReviewBatches}
-				WHERE ${osReviewBatches.sourceRevisionId} = ${r.id})
-			AND NOT EXISTS (
-				SELECT 1 FROM ${workEvidence}
-				WHERE ${workEvidence.uri} = 'output://' || ${r.outputId} || '/revisions/' || ${r.id}
-				OR ${workEvidence.uri} LIKE '/os-exports/' || ${r.outputId} || '/rev-' || ${r.revision} || '.%')`,
+			AND ${outputRevisionUnreferenced(r.id, r.outputId, r.revision)}`,
 		)
 		.orderBy(rowid)
 		.limit(params.limit);
@@ -206,4 +189,137 @@ export async function deleteThinnedOutputRevisions(
 		),
 	]);
 	return removed.map((row) => row.revisionId);
+}
+
+/** Core references protect revisions regardless of which store owns their bodies. */
+function outputRevisionUnreferenced(
+	revisionId: SQLWrapper,
+	outputId: SQLWrapper,
+	revision: SQLWrapper,
+) {
+	return sql`NOT EXISTS (
+				SELECT 1 FROM ${workspaceActivity}
+				WHERE ${workspaceActivity.entityId} = ${outputId}
+				AND ${workspaceActivity.revision} = ${revision}
+				AND ${workspaceActivity.changeRecordId} = ${revisionId})
+			AND NOT EXISTS (
+				SELECT 1 FROM ${osShareLinks}
+				WHERE ${osShareLinks.pinnedRevisionId} = ${revisionId})
+			AND NOT EXISTS (
+				SELECT 1 FROM ${osCollaborationProposals}
+				WHERE ${osCollaborationProposals.baseRevisionId} = ${revisionId}
+				OR ${osCollaborationProposals.resultRevisionId} = ${revisionId})
+			AND NOT EXISTS (
+				SELECT 1 FROM ${kernelRuntimeRuns}
+				WHERE ${kernelRuntimeRuns.outputRevisionId} = ${revisionId})
+			AND NOT EXISTS (
+				SELECT 1 FROM ${osReviewBatches}
+				WHERE ${osReviewBatches.sourceRevisionId} = ${revisionId})
+			AND NOT EXISTS (
+				SELECT 1 FROM ${workEvidence}
+				WHERE ${workEvidence.uri} = 'output://' || ${outputId} || '/revisions/' || ${revisionId}
+				OR ${workEvidence.uri} LIKE '/os-exports/' || ${outputId} || '/rev-' || ${revision} || '.%')`;
+}
+
+export async function getOutputIndexMaxRowid(
+	db: DbQueryClient,
+): Promise<number> {
+	const [row] = await db
+		.select({
+			maxRowid: sql<number>`coalesce(max(${workspaceOutputIndex}.rowid), 0)`.as(
+				"max_rowid",
+			),
+		})
+		.from(workspaceOutputIndex);
+	return row?.maxRowid ?? 0;
+}
+
+export async function listObjectOutputThinningCandidates(
+	db: DbQueryClient,
+	params: Parameters<typeof listOutputThinningCandidates>[1],
+) {
+	if (
+		![params.after, params.through, params.limit].every(Number.isSafeInteger) ||
+		params.after < 0 ||
+		params.through < params.after ||
+		params.through - params.after > OUTPUT_THINNING_MAX_WINDOW ||
+		params.limit < 1 ||
+		params.limit > OUTPUT_THINNING_MAX_LIMIT ||
+		Number.isNaN(Date.parse(params.olderThan)) ||
+		!params.autosaveNote
+	)
+		throw new Error("Invalid output thinning bounds");
+	const i = workspaceOutputIndex;
+	const indexRowid = sql<number>`${i}.rowid`;
+	const window = sql`CAST(${OUTPUT_THINNING_WINDOW_SECONDS} AS INTEGER)`;
+	return db
+		.select({
+			rowid: indexRowid.as("index_rowid"),
+			revisionId: i.revisionId,
+			organizationId: i.organizationId,
+			workspaceId: i.workspaceId,
+			outputId: i.outputId,
+			revision: i.revision,
+			bytes: sql<number>`coalesce(${i.contentBytes}, 0)`.as("revision_bytes"),
+		})
+		.from(i)
+		.where(sql`${indexRowid} > ${params.after} AND ${indexRowid} <= ${params.through}
+ AND (${params.includeCoreCopies ? 1 : 0} = 1 OR NOT EXISTS (SELECT 1 FROM ${osOutputs} WHERE ${osOutputs.id} = ${i.outputId}))
+ AND ${i.revisionCreatedByKind} = 'user' AND ${i.skillRunId} IS NULL
+ AND substr(${i.note}, 1, ${params.autosaveNote.length}) = ${params.autosaveNote}
+ AND unixepoch(${i.revisionCreatedAt}) < ${Math.floor(Date.parse(params.olderThan) / 1000)}
+ AND ${i.isCurrent} = 0
+ AND ${i.revision} > (SELECT min(first.revision) FROM ${i} AS first WHERE first.output_id = ${i.outputId})
+ AND ${i.revision} < (SELECT max(newest.revision) FROM ${i} AS newest WHERE newest.output_id = ${i.outputId})
+ AND EXISTS (SELECT 1 FROM ${i} AS kept WHERE kept.output_id = ${i.outputId}
+ AND kept.revision_created_by_kind = ${i.revisionCreatedByKind} AND kept.revision_created_by_id = ${i.revisionCreatedById}
+ AND kept.revision > ${i.revision} AND unixepoch(kept.revision_created_at) / ${window} = unixepoch(${i.revisionCreatedAt}) / ${window})
+ AND ${outputRevisionUnreferenced(i.revisionId, i.outputId, i.revision)}`)
+		.orderBy(indexRowid)
+		.limit(params.limit);
+}
+
+/** Called only after the owning object confirms deletion; safe to repeat after a lost response. */
+export async function deleteThinnedOutputIndex(
+	db: DbQueryClient,
+	revisionIds: readonly string[],
+) {
+	if (!revisionIds.length) return;
+	if (revisionIds.length > OUTPUT_THINNING_MAX_LIMIT)
+		throw new Error("Too many revisions in one thinning batch");
+	await db.delete(workspaceOutputIndex).where(
+		and(
+			// bound-params: the function rejects more than 40 revision ids.
+			inArray(workspaceOutputIndex.revisionId, [...revisionIds]),
+			eq(workspaceOutputIndex.isCurrent, 0),
+		),
+	);
+}
+
+/** Recheck core references at the owner boundary, including pins added after candidate selection. */
+export async function unreferencedObjectOutputRevisions(
+	db: DbQueryClient,
+	scope: { organizationId: string; workspaceId: string; outputId: string },
+	revisionIds: string[],
+): Promise<string[]> {
+	if (!revisionIds.length) return [];
+	if (revisionIds.length > OUTPUT_THINNING_MAX_LIMIT)
+		throw new Error("Too many revisions in one thinning batch");
+	const i = workspaceOutputIndex;
+	return (
+		await db
+			.select({ id: i.revisionId })
+			.from(i)
+			.where(
+				and(
+					eq(i.organizationId, scope.organizationId),
+					eq(i.workspaceId, scope.workspaceId),
+					eq(i.outputId, scope.outputId),
+					// bound-params: the function rejects more than 40 revision ids.
+					inArray(i.revisionId, revisionIds),
+					eq(i.isCurrent, 0),
+					outputRevisionUnreferenced(i.revisionId, i.outputId, i.revision),
+				),
+			)
+	).map((row) => row.id);
 }

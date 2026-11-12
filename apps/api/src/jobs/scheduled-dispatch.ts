@@ -377,6 +377,13 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 					await import("../services/os-output-revision-thinning");
 				const result = await runOutputRevisionThinningTick({
 					db: createDbQueryClient(env.DB),
+					runtime: (
+						env as unknown as {
+							WORKSPACE_RUNTIME?: Parameters<
+								typeof runOutputRevisionThinningTick
+							>[0]["runtime"];
+						}
+					).WORKSPACE_RUNTIME,
 					bucket: env.R2_BUCKET,
 					now: new Date(event.scheduledTime),
 				});

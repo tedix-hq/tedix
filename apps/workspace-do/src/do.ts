@@ -31,6 +31,8 @@ import {
 	publishWorkspaceAction,
 } from "@tedix/db/queries/workspace-feed/action-publication";
 import { publishOutputProjection } from "@tedix/db/queries/workspace-feed/output-publication";
+import { unreferencedObjectOutputRevisions } from "@tedix/db/queries/os-workspaces/output-revision-thinning";
+import { continuesOutputAutosaveBurst } from "@tedix/api-contract/utils/os-output-autosave";
 import {
 	TenantStore,
 	tenantStoreDefinition,
@@ -388,6 +390,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			return (
 				(await this.#ownsOutputs(scope)) ? "object" : "shared"
 			) as OutputQueryResult<K>;
+		if (operation.op === "thin" && !(await this.#ownsOutputs(scope)))
+			throw new Error("Workspace does not own these outputs");
 		if (operation.op === "snapshot" || operation.op === "import")
 			throw new Error("Use the output transfer RPC");
 		const outputId =
@@ -395,14 +399,27 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				? operation.output.id
 				: operation.op === "revise"
 					? operation.params.outputId
-					: operation.op === "update" || operation.op === "delete"
+					: operation.op === "update" ||
+						  operation.op === "delete" ||
+						  operation.op === "thin"
 						? operation.outputId
 						: null;
 		const write = async () => {
+			const authorizedQuery: OutputQuery =
+				operation.op === "thin"
+					? {
+							...operation,
+							revisionIds: await unreferencedObjectOutputRevisions(
+								createDbQueryClient(this.env.DB),
+								{ ...scope, outputId: operation.outputId },
+								operation.revisionIds,
+							),
+						}
+					: operation;
 			const result = await executeOutputQuery(
 				this.db as TenantStoreDb,
 				scope,
-				query,
+				authorizedQuery,
 			);
 			if (operation.op === "update" && result) {
 				const row = result as OutputQueryResult<"update">;
@@ -433,7 +450,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					});
 				}
 			}
-			return result;
+			return result as OutputQueryResult<K>;
 		};
 		return outputId ? this.#commitOutput(scope, outputId, write) : write();
 	}
@@ -585,7 +602,15 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					createDbQueryClient(this.env.DB),
 					output,
 					revision,
-					{ historical: revision.id !== output.currentRevisionId },
+					{
+						historical: revision.id !== output.currentRevisionId,
+						continuesBurst: continuesOutputAutosaveBurst(
+							snapshot.revisions.find(
+								(row) => row.revision === revision.revision - 1,
+							),
+							revision,
+						),
+					},
 				);
 			this.#store.delete(`transferred-output:${outputId}`);
 			this.#store.put(receiptKey, true);
@@ -1435,7 +1460,25 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			op: "revision",
 			revisionId: row.currentRevisionId,
 		});
-		if (revision) await publishOutputProjection(core, row, revision);
+		const publish = async (
+			saved: Omit<NonNullable<typeof revision>, "content">,
+			historical = false,
+		) => {
+			const [previous] = await executeOutputQuery(
+				this.db as TenantStoreDb,
+				scope,
+				{
+					op: "history",
+					outputId,
+					options: { limit: 1, beforeRevision: saved.revision },
+				},
+			);
+			await publishOutputProjection(core, row, saved, {
+				historical,
+				continuesBurst: continuesOutputAutosaveBurst(previous, saved),
+			});
+		};
+		if (revision) await publish(revision);
 		// Immutable revisions recover every file save even when notifications coalesced.
 		const beforeRevision = this.#store.get<number>(
 			`output-history-before:${outputId}`,
@@ -1449,8 +1492,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			outputId,
 			options,
 		});
-		for (const saved of [...history].reverse())
-			await publishOutputProjection(core, row, saved, { historical: true });
+		for (const saved of [...history].reverse()) await publish(saved, true);
 		if (history.length === options.limit) {
 			this.#store.put(
 				`output-history-before:${outputId}`,

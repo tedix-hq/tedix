@@ -18,7 +18,7 @@ export async function publishOutputProjection(
 	db: DbQueryClient,
 	output: OsOutputRow,
 	revision: Omit<OsOutputRevisionRow, "content">,
-	options: { historical?: boolean } = {},
+	options: { historical?: boolean; continuesBurst?: boolean } = {},
 ): Promise<void> {
 	if (!output.workspaceId) return;
 	if (!options.historical && output.currentRevisionId !== revision.id) return;
@@ -62,6 +62,7 @@ export async function publishOutputProjection(
 			createdBy: { kind: output.createdByKind, id: output.createdById },
 			createdAt: output.createdAt,
 			note: revision.note,
+			continuesBurst: options.continuesBurst,
 			skillRunId: revision.skillRunId,
 			skillId: revision.skillId,
 			accessEnvelope: revision.accessEnvelope,

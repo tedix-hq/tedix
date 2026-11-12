@@ -201,10 +201,14 @@ export async function createOsOutputRevision(
 			outputId: params.outputId,
 		});
 		if (output) {
-			const change = outputRevisionChange(output, {
-				...result.revision,
-				content,
-			});
+			const change = outputRevisionChange(
+				output,
+				{
+					...result.revision,
+					content,
+				},
+				{ continuesBurst: options.continuesBurst },
+			);
 			// A workspace that keeps its files in its own store finds each
 			// revision through the feed's index, so there every save is published.
 			if (
