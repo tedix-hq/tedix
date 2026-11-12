@@ -39,6 +39,30 @@ export async function listHomeRunFinishedEvents(
 		head?: boolean;
 	},
 ) {
+	// The run and conversation are grouping keys, so each branch applies them
+	// before grouping. Filtering only the grouped feed built every finished run
+	// of the organization first (10M rows and 42 s per run lookup, 2026-11-12).
+	// CROSS JOIN reads parents before child events: the planner otherwise walks
+	// every event of the organization to find one parent.
+	const { runId, conversationId } = input;
+	const none = sql``;
+	const own = {
+		run: runId ? sql`AND e.run_id = ${runId}` : none,
+		conversation: conversationId
+			? sql`AND e.conversation_id = ${conversationId}`
+			: none,
+	};
+	const child = {
+		direct: runId
+			? sql`AND p.child_run_id = ${runId} AND e.run_id = ${runId}`
+			: none,
+		planned: runId
+			? sql`AND json_extract(a.value, '$.childRunId') = ${runId} AND e.run_id = ${runId}`
+			: none,
+		conversation: conversationId
+			? sql`AND p.conversation_id = ${conversationId}`
+			: none,
+	};
 	const feed = sql`(
 		SELECT min(event_id) AS id, min(created_at) AS at,
 		       conversation_id, run_id, parent_run_id, status, owner_host_session_id
@@ -56,16 +80,18 @@ export async function listHomeRunFinishedEvents(
 			WHERE e.organization_id = ${input.organizationId} AND e.run_id IS NOT NULL
 			  AND e.kind IN ('run.completed', 'run.failed', 'approval.requested')
 			  AND (e.kind != 'run.completed' OR coalesce(json_extract(e.payload, '$.status'), 'completed') IN ('completed', 'failed', 'requires_approval', 'needs_delegation'))
+			  ${own.run} ${own.conversation}
 			UNION ALL
 			SELECT e.id, e.created_at, p.conversation_id, e.run_id, p.id,
 			       CASE e.kind WHEN 'run.completed' THEN 'completed'
 			         WHEN 'run.failed' THEN 'failed' ELSE 'needs_input' END,
 			       json_extract(p.metadata, '$.ownerHostSessionId')
-			FROM ${kernelRuntimeRuns} p JOIN ${tediRuntimeEvents} e
+			FROM ${kernelRuntimeRuns} p CROSS JOIN ${tediRuntimeEvents} e
 			  ON e.organization_id = p.organization_id
 			    AND e.run_id = p.child_run_id AND e.tedi_id = p.delegated_tedi_id
-			WHERE e.organization_id = ${input.organizationId} AND e.run_id IS NOT NULL
+			WHERE p.organization_id = ${input.organizationId} AND p.child_run_id IS NOT NULL
 			  AND e.kind IN ('run.completed', 'run.failed', 'approval.requested')
+			  ${child.direct} ${child.conversation}
 			UNION ALL
 			SELECT e.id, e.created_at, p.conversation_id, e.run_id, p.id,
 			       CASE e.kind WHEN 'run.completed' THEN 'completed'
@@ -79,6 +105,7 @@ export async function listHomeRunFinishedEvents(
 			  AND e.run_id = json_extract(a.value, '$.childRunId')
 			  AND e.tedi_id = json_extract(a.value, '$.ownerTediId')
 			  AND e.kind IN ('run.completed', 'run.failed', 'approval.requested')
+			  ${child.planned} ${child.conversation}
 		) GROUP BY conversation_id, run_id, parent_run_id, status, owner_host_session_id
 	) AS home_finished`;
 	const order = input.head ? desc : asc;
