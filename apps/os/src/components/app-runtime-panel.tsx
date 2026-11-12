@@ -230,8 +230,19 @@ export function AppRuntimeSandbox({
 	// When each was heard, so an older copy of the file list is not mistaken
 	// for news.
 	const noticedAt = useRef<Record<string, number>>({});
+	const savedRevisions = useRef<Record<string, KnownRevision>>({});
+	const pendingSaves = useRef<Record<string, number>>({});
+	const queuedNotices = useRef<Record<string, KnownRevision>>({});
 	const notice = useCallback((outputId: string, next: KnownRevision) => {
+		// The room can announce a save before its HTTP reply arrives.
+		if (pendingSaves.current[outputId]) {
+			if ((queuedNotices.current[outputId]?.revision ?? 0) < next.revision)
+				queuedNotices.current[outputId] = next;
+			return;
+		}
 		noticedAt.current[outputId] = Date.now();
+		if ((savedRevisions.current[outputId]?.revision ?? 0) >= next.revision)
+			return;
 		setNoticed((current) =>
 			(current[outputId]?.revision ?? 0) >= next.revision
 				? current
@@ -266,7 +277,9 @@ export function AppRuntimeSandbox({
 	knownRevisions.current = Object.fromEntries(
 		outputRevisions.map((row) => [
 			row.outputId,
-			{ revisionId: row.revisionId, revision: row.revision },
+			(savedRevisions.current[row.outputId]?.revision ?? 0) > row.revision
+				? savedRevisions.current[row.outputId]!
+				: { revisionId: row.revisionId, revision: row.revision },
 		]),
 	);
 	// Someone else's save is pushed to this tab through the workspace's live
@@ -294,7 +307,7 @@ export function AppRuntimeSandbox({
 	const listReadAt = outputList.dataUpdatedAt;
 	const movedOutputIds = (outputList.data?.items ?? [])
 		.filter((item) => {
-			const known = outputRevisions.find((row) => row.outputId === item.id);
+			const known = knownRevisions.current[item.id];
 			return (
 				known &&
 				item.currentRevisionId &&
@@ -339,24 +352,40 @@ export function AppRuntimeSandbox({
 					exportOutput: exportAppRuntimeOutput,
 					replaceOutput: replaceAppRuntimeOutput,
 					patchOutput: async (input) => {
-						const saved = await osApi.osWorkspaces.outputs.patch({
-							outputId: input.outputId,
-							expectedWorkspaceId: input.workspaceId,
-							baseRevision: input.baseRevision,
-							patch: input.patch,
-							// The editor's own saves are grouped into one activity
-							// entry per burst and thinned later; a save someone
-							// asked for is a version of its own.
-							...(input.explicit
-								? { note: "Saved from workspace app" }
-								: { autosave: true }),
-						});
-						// This tab's own save is not news to it.
-						notice(input.outputId, {
-							revisionId: saved.revision.id,
-							revision: saved.revision.revision,
-						});
-						return saved;
+						const id = input.outputId;
+						pendingSaves.current[id] = (pendingSaves.current[id] ?? 0) + 1;
+						try {
+							const saved = await osApi.osWorkspaces.outputs.patch({
+								outputId: input.outputId,
+								expectedWorkspaceId: input.workspaceId,
+								baseRevision: input.baseRevision,
+								patch: input.patch,
+								// The editor's own saves are grouped into one activity
+								// entry per burst and thinned later; a save someone
+								// asked for is a version of its own.
+								...(input.explicit
+									? { note: "Saved from workspace app" }
+									: { autosave: true }),
+							});
+							// This tab's own save is not news to it.
+							if (
+								(savedRevisions.current[id]?.revision ?? 0) <
+								saved.revision.revision
+							)
+								savedRevisions.current[id] = {
+									revisionId: saved.revision.id,
+									revision: saved.revision.revision,
+								};
+							noticedAt.current[id] = Date.now();
+							return saved;
+						} finally {
+							pendingSaves.current[id]!--;
+							if (!pendingSaves.current[id]) {
+								const queued = queuedNotices.current[id];
+								delete queuedNotices.current[id];
+								if (queued) notice(id, queued);
+							}
+						}
 					},
 					readOutputChanges: async (input) => {
 						const changes = await osApi.osWorkspaces.outputs.changes({

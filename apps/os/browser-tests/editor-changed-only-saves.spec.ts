@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chromium, type Browser } from "playwright";
+import { chromium, type Browser, type WebSocketRoute } from "playwright";
 import { buildDocBlueprint } from "@tedix/api-contract/assets/doc-blueprint";
 import { startFixtureServer } from "./fixture-server";
 
@@ -49,6 +49,54 @@ try {
 		files: doc.files,
 	});
 	const before = await rpc("osWorkspaces/outputs/get", { outputId });
+	// The fixture API has no live room. Deliver its real save's notice to both
+	// tabs over the same WebSocket frames as the production room, before the
+	// saving tab receives its HTTP reply.
+	const rooms = new Set<WebSocketRoute>();
+	await context.routeWebSocket("**/collab/*/workspace%3A*", (socket) => {
+		rooms.add(socket);
+		socket.onClose(() => rooms.delete(socket));
+		socket.onMessage((data) => {
+			const frame = JSON.parse(String(data));
+			if (frame.t !== "base") return;
+			socket.send(JSON.stringify({ t: "hello", peerId: rooms.size }));
+			socket.send(
+				JSON.stringify({
+					t: "base",
+					id: frame.id,
+					generation: 0,
+					revision: 0,
+					files: [["document", ""]],
+					canonical: { revision: 0, revisionId: null },
+				}),
+			);
+		});
+	});
+	await context.route(
+		"**/api/rpc/osWorkspaces/outputs/patch",
+		async (route) => {
+			const response = await route.fetch();
+			const { json: saved } = await response.json();
+			for (const socket of rooms)
+				socket.send(
+					JSON.stringify({
+						t: "output",
+						outputId,
+						revisionId: saved.revision.id,
+						revision: saved.revision.revision,
+					}),
+				);
+			await route.fulfill({ response });
+		},
+	);
+	const peer = await context.newPage();
+	const peerCalls: string[] = [];
+	peer.on("request", (request) => {
+		const name = /\/api\/rpc\/osWorkspaces\/outputs\/(\w+)/.exec(
+			request.url(),
+		)?.[1];
+		if (name) peerCalls.push(name);
+	});
 
 	const calls: { name: string; bytes: number; at: number }[] = [];
 	page.on("request", (request) => {
@@ -72,6 +120,14 @@ try {
 		.frameLocator("iframe")
 		.locator(".tiptap");
 	await editor.waitFor({ timeout: 60_000 });
+	await peer.goto(page.url(), { waitUntil: "domcontentloaded" });
+	const peerEditor = peer
+		.frameLocator('iframe[title]:not([title=""])')
+		.first()
+		.frameLocator("iframe")
+		.locator(".tiptap");
+	await peerEditor.waitFor({ timeout: 60_000 });
+	const peerOpened = peerCalls.length;
 	const opened = calls.length;
 	await editor.click();
 	await page.keyboard.press("ControlOrMeta+End");
@@ -84,6 +140,12 @@ try {
 		{ timeout: 15_000 },
 	);
 	await page.waitForTimeout(1_500);
+	await peerEditor.getByText(/Typed in the browser\./).waitFor();
+	assert.equal(rooms.size, 2, "both tabs joined the workspace room");
+	assert(
+		peerCalls.slice(peerOpened).includes("changes"),
+		"the other tab fetched the save",
+	);
 	const after = await rpc("osWorkspaces/outputs/get", { outputId });
 	assert(
 		after.currentRevision.revision > before.currentRevision.revision,
@@ -108,6 +170,11 @@ try {
 		"the whole document was not read again after saving",
 	);
 	const whole = JSON.stringify(after.currentRevision.content).length;
+	assert.equal(
+		since.filter((call) => call.name === "changes").length,
+		0,
+		"the saving tab does not fetch its own save",
+	);
 	for (const patch of patches.slice(1))
 		assert(
 			patch.bytes < whole,
