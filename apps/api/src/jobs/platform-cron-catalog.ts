@@ -135,7 +135,7 @@ export const PLATFORM_CRON_DEFINITIONS: readonly PlatformCronDefinition[] = [
 	{
 		id: "stall-recovery",
 		cron: "*/2 * * * *",
-		intervalMinutes: 2,
+		intervalMinutes: 6,
 		requiresBinding: "TEDI_SERVICE",
 	},
 	{
