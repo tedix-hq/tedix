@@ -3,6 +3,16 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.21.7 — 2026-11-12
+
+### Patch Changes
+
+- Decision capture now records a question that Claude desktop shows in its next-step box, together with the answer buttons. Before, such a turn was filed as a status update and your reply to it was never recorded.
+- `lane serve` now says why it counts an agent program as unavailable: the check's exit status, signal or timeout, or the budget pause that stopped it. A passing check is reused for five minutes, so one slow start on a busy machine no longer drops a healthy lane.
+- Lane runners free disk space once a run is finished. A run's working copy is removed when all its commits are on `origin/main` or recorded on the Work item, and kept copies stay under a cap (10 GB per runner by default; change it with `--checkout-cap-gb` or `TEDIX_LANE_CHECKOUT_CAP_GB`). A copy with a running job or unrecorded unpushed commits is never removed.
+- The welcome banner now reads "platform for agents, apps, and work", and the `tedix update` success message no longer starts with an emoji.
+- A project- or repo-scoped `lane serve --executor any-local` can run beside the per-agent runners without being stopped by the supervisor.
+
 ## 0.21.6 — 2026-11-10
 
 ### Patch Changes
