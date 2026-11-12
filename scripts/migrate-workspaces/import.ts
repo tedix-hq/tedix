@@ -95,6 +95,14 @@ async function importWorkspace(
 			for (const row of tables.get(mapping.table) ?? []) {
 				const previous = existing.get(rowKey(row, mapping.primaryKey));
 				if (!previous) {
+					if (
+						description.outputAuthority === "object" &&
+						(mapping.table === "os_outputs" ||
+							mapping.table === "os_output_revisions")
+					)
+						throw new Error(
+							`Import refused: cannot add ${mapping.table} to object-owned workspace ${ref.workspaceId}`,
+						);
 					missing.push(row);
 					continue;
 				}

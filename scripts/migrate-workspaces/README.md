@@ -143,6 +143,16 @@ home; their revisions follow them. Conversations that name a deleted
 workspace and their runs and events stay in the source stores untouched.
 The report lists their conversation IDs and counts them as staying.
 
+For an object that already owned its outputs before staging, the library's
+`objectNativeEvidence` callback can supply a retained authority receipt and
+a current scoped D1 read: output IDs still in source and exact output/revision
+IDs in `workspace_output_index`. Only indexed rows absent from both source
+and bundle are reported as `objectNativeRows`, with their IDs and evidence
+reference. Other extra rows remain drift or pending source reads. Shared
+objects cannot use this accounting. Import refuses to add source outputs or
+revisions to an object-owned workspace, and still refuses conflicting rows
+before any write. Keep these private receipts with the migration report.
+
 When retention removed a run's events before log storage began, a reviewed
 assignment can list `retainedHistory` entries with the exact `runId`,
 `latestEventAt`, `reason` and durable decision `evidenceRef`. The report

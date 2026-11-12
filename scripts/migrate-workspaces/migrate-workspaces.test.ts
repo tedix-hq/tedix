@@ -1114,6 +1114,108 @@ describe("remote store authentication modes", () => {
 		expect(calls[0]?.headers["content-type"]).toBe("application/json");
 	});
 
+	test("only scoped indexed object-native rows are accounted for, and source conflicts still fail", async () => {
+		const snapshot = fixtureSnapshot();
+		const workDir = mkdtempSync(join(tmpdir(), "mw-native-"));
+		try {
+			const bundles = new LocalBundleStore(join(workDir, "bundles"));
+			const stores = localStoreFactory(join(workDir, "objects"));
+			await exportAll(snapshot, bundles, assignments);
+			await importAll(bundles, stores);
+			const ref = { organizationId: ORG, workspaceId: WS_A };
+			const local = (await stores.open(ref)) as LocalWorkspaceStore;
+			local.db.exec(
+				`INSERT INTO os_outputs (id,organization_id,workspace_id,kind,title,current_revision_id,created_by_kind,created_by_id) VALUES ('native','${ORG}','${WS_A}','document','Native','native-rev','user','u1')`,
+			);
+			local.db.exec(
+				`INSERT INTO os_output_revisions (id,organization_id,output_id,revision,content,created_by_kind,created_by_id) VALUES ('native-rev','${ORG}','native',1,'{}','user','u1')`,
+			);
+			await local.close();
+			let writes = 0;
+			const owned: WorkspaceStoreFactory = {
+				kind: "local",
+				async open(scope) {
+					const store = await stores.open(scope);
+					return {
+						describe: async () => ({
+							...(await store.describe()),
+							outputAuthority: "object" as const,
+						}),
+						readRows: (...args) => store.readRows(...args),
+						close: () => store.close(),
+						importRows: async (batch) => {
+							writes++;
+							return store.importRows(batch);
+						},
+					};
+				},
+			};
+			const scope = Scope.parse(`${ORG}/${WS_A}`);
+			const evidence = {
+				authorityBeforeStaging: "object" as const,
+				evidenceRef: "evidence://fixture/source-read",
+				sourceOutputIds: ["out-a1"],
+				indexRows: [{ ...ref, outputId: "native", revisionId: "native-rev" }],
+			};
+			const run = (e = evidence, factory = owned) =>
+				reconcileAll(bundles, factory, {
+					snapshot,
+					scope,
+					objectNativeEvidence: async () => e,
+				});
+			expect((await reconcileAll(bundles, owned, { snapshot, scope })).ok).toBe(
+				false,
+			);
+			const report = await run();
+			expect(report.ok).toBe(true);
+			expect(
+				report.workspaces[0]!.objectNativeRows.map((r) => r.table),
+			).toEqual(["os_outputs", "os_output_revisions"]);
+			expect((await run({ ...evidence, indexRows: [] })).ok).toBe(false);
+			await expect(
+				run({ ...evidence, sourceOutputIds: ["native"] }),
+			).rejects.toThrow("present in source");
+			await expect(
+				run({
+					...evidence,
+					indexRows: [{ ...evidence.indexRows[0]!, workspaceId: WS_B }],
+				}),
+			).rejects.toThrow("wrong scope");
+			await expect(run(evidence, stores)).rejects.toThrow("object authority");
+			await importAll(bundles, owned, { snapshot, scope });
+			expect(writes).toBe(0);
+			const changed = (await stores.open(ref)) as LocalWorkspaceStore;
+			changed.db.exec(
+				"UPDATE os_outputs SET title='Changed' WHERE id='out-a1'",
+			);
+			await changed.close();
+			expect((await run()).ok).toBe(false);
+			await expect(
+				importAll(bundles, owned, { snapshot, scope }),
+			).rejects.toThrow("existing os_outputs row differs");
+			expect(writes).toBe(0);
+			const restored = (await stores.open(ref)) as LocalWorkspaceStore;
+			restored.db.exec("UPDATE os_outputs SET title='Plan' WHERE id='out-a1'");
+			restored.db.exec(
+				`INSERT INTO os_output_revisions (id,organization_id,output_id,revision,content,created_by_kind,created_by_id) VALUES ('unindexed-rev','${ORG}','native',2,'{}','user','u1')`,
+			);
+			await restored.close();
+			expect((await run()).ok).toBe(false);
+			// A D1-only output cannot be added to an object-owned workspace.
+			snapshot.main.exec(
+				`INSERT INTO os_outputs (id,organization_id,workspace_id,kind,title,created_by_kind,created_by_id) VALUES ('new-source','${ORG}','${WS_A}','document','Source','user','u1')`,
+			);
+			await exportAll(snapshot, bundles, assignments);
+			await expect(
+				importAll(bundles, owned, { snapshot, scope }),
+			).rejects.toThrow("cannot add os_outputs");
+			expect(writes).toBe(0);
+		} finally {
+			rmSync(workDir, { recursive: true, force: true });
+			snapshot.close();
+		}
+	});
+
 	test("openStores refuses an unknown --auth mode", async () => {
 		const { flags } = parseArgs([
 			"import",
