@@ -1151,12 +1151,18 @@ async function onStop(
 	const [text, complete] = redact(asked, MESSAGE_LIMIT, "tail");
 	// Triage only the redacted text, then settle the turn status before the
 	// slower create so an urgent turn notifies without waiting on it.
-	const triage = await triageTurn(
+	const classified = await triageTurn(
 		deps,
 		binding,
 		text,
 		options.triageTimeoutMs ?? TRIAGE_TIMEOUT_MS,
 	);
+	// A next-step box question waits on the user whatever the classifier makes
+	// of the long message above it.
+	const triage: TriageResult =
+		ask && classified.status === "ok" && classified.attentionKind === "fyi"
+			? { ...classified, attentionKind: "needs_you" }
+			: classified;
 	await settle(triage);
 	if (triage.status !== "ok" || triage.attentionKind === "fyi") {
 		// Status updates and unclassified turns stay in their chat/private ledger.
