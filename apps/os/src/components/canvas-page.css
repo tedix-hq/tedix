@@ -757,6 +757,13 @@
 	justify-content: center;
 }
 
+/* The open tab has to read at arm's length, in sunlight, in either theme. */
+.canvas-pane-switcher > [aria-pressed="true"] {
+	background: color-mix(in oklch, var(--foreground) 10%, transparent);
+	color: var(--foreground);
+	font-weight: 600;
+}
+
 /* The Files panel's toggle belongs to wide screens; phones use the switcher. */
 @media (max-width: 959px) {
 	.canvas-files-toggle {
