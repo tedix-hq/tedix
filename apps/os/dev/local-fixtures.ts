@@ -10757,6 +10757,7 @@ const handlers: Record<string, (input: never) => unknown> = {
 				createdAt: revision.createdAt,
 			},
 			mergedWith: started === current ? null : current.revision,
+			continuesBurst: false,
 			catchUp: diffOutputContent(mine, next),
 		};
 	},

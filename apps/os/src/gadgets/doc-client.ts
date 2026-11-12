@@ -522,7 +522,7 @@ export async function mountDocClient(
 			say("Saving…");
 		}, 1000);
 		try {
-			const value = parse(await outputSync.save(content, basis, read));
+			const value = parse(await outputSync.save(content, basis, read, asked));
 			if (destroyed) return;
 			// Typing carried on while this was saving: the screen is not touched,
 			// only the copy that later saves and merges compare against.

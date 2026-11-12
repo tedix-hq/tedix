@@ -1,4 +1,8 @@
-import { OS_SHEET_MAX_ROWS } from "@tedix/api-contract/utils/os-output-limits";
+import {
+	OS_OUTPUT_AUTOSAVE_BURST_GAP_MS,
+	OS_OUTPUT_AUTOSAVE_NOTE,
+	OS_SHEET_MAX_ROWS,
+} from "@tedix/api-contract/utils/os-output-limits";
 import {
 	applyPresentationPatch,
 	projectPresentationDeck,
@@ -858,22 +862,42 @@ const outputsPatch = authorOs.outputs.patch.handler(
 					`The change does not fit this file: ${issue?.path.join("/") ?? ""} ${issue?.message ?? "invalid"}`.trim(),
 				);
 			}
-			const result = await createOsOutputRevision(db, {
-				id: crypto.randomUUID(),
-				organizationId: output.organizationId,
-				outputId: output.id,
-				expectedWorkspaceId: input.expectedWorkspaceId,
-				content: JSON.stringify(checked.data),
-				note:
-					base === theirs
-						? (input.note ?? null)
-						: `${input.note ?? "Saved"} · merged with revision ${current.revision}`,
-				createdByKind: creator.kind,
-				createdById: creator.id,
-				...resolveProducer(context),
-				accessEnvelope,
-				expectedRevision: current.revision,
-			});
+			// An editor's own save a moment after an edit. It continues a burst
+			// when the revision it builds on is the same person's auto-save from
+			// a few minutes ago at most; anything else starts a new entry.
+			const producer = resolveProducer(context);
+			const autosave = input.autosave === true;
+			const continuesBurst =
+				autosave &&
+				!producer.skillRunId &&
+				!current.skillRunId &&
+				current.note?.startsWith(OS_OUTPUT_AUTOSAVE_NOTE) === true &&
+				current.createdByKind === creator.kind &&
+				current.createdById === creator.id &&
+				Date.now() - Date.parse(current.createdAt) <
+					OS_OUTPUT_AUTOSAVE_BURST_GAP_MS;
+			const note = autosave ? OS_OUTPUT_AUTOSAVE_NOTE : (input.note ?? null);
+			const result = await createOsOutputRevision(
+				db,
+				{
+					id: crypto.randomUUID(),
+					organizationId: output.organizationId,
+					outputId: output.id,
+					expectedWorkspaceId: input.expectedWorkspaceId,
+					content: JSON.stringify(checked.data),
+					note:
+						base === theirs
+							? note
+							: `${note ?? "Saved"} · merged with revision ${current.revision}`,
+					createdByKind: creator.kind,
+					createdById: creator.id,
+					...producer,
+					accessEnvelope,
+					expectedRevision: current.revision,
+				},
+				undefined,
+				{ continuesBurst },
+			);
 			if (result.ok) {
 				const advanced = await getOsOutput(db, {
 					organizationId: output.organizationId,
@@ -892,6 +916,7 @@ const outputsPatch = authorOs.outputs.patch.handler(
 						createdAt: result.revision.createdAt,
 					},
 					mergedWith: base === theirs ? null : current.revision,
+					continuesBurst,
 					catchUp: diffOutputContent(mine, stored),
 				};
 			}

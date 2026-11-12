@@ -327,10 +327,30 @@ describe.each(["readDocument", "readSheet", "readPresentation"])(
 						expectedWorkspaceId: view.workspaceId,
 						baseRevision: 7,
 						patch,
-						note: "Saved from workspace app",
+						// The editor saved by itself: grouped and thinned later.
+						autosave: true,
 					},
 				},
 			]);
+			// A save someone asked for is sent as a version of its own.
+			await settle(() => {
+				void lifecycle.onCall!("outputs.patch", {
+					slot: "file",
+					baseRevision: 8,
+					patch,
+					explicit: true,
+				});
+			});
+			await vi.waitFor(() => expect(bodies).toHaveLength(2));
+			expect(bodies[1]).toEqual({
+				json: {
+					outputId: view.outputId,
+					expectedWorkspaceId: view.workspaceId,
+					baseRevision: 8,
+					patch,
+					note: "Saved from workspace app",
+				},
+			});
 			// The app is told its own revision, and the file is not fetched.
 			await vi.waitFor(() =>
 				expect(lifecycle.outputRevisions).toEqual([

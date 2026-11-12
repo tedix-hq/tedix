@@ -39,6 +39,7 @@
 		"./queries/memory-graph/browse": "./src/queries/memory-graph/browse.ts",
 		"./queries/today-project": "./src/queries/today-project.ts",
 		"./queries/os-workspaces/provisioning": "./src/queries/os-workspaces/provisioning.ts",
+		"./queries/os-workspaces/output-revision-thinning": "./src/queries/os-workspaces/output-revision-thinning.ts",
 		"./queries/billing/internal-plan": "./src/queries/billing/internal-plan.ts",
 		"./schema/data-residency": "./src/schema/data-residency.ts",
 		"./queries/data-residency": "./src/queries/data-residency.ts",

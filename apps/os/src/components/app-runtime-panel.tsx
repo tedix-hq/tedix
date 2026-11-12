@@ -344,7 +344,12 @@ export function AppRuntimeSandbox({
 							expectedWorkspaceId: input.workspaceId,
 							baseRevision: input.baseRevision,
 							patch: input.patch,
-							note: "Saved from workspace app",
+							// The editor's own saves are grouped into one activity
+							// entry per burst and thinned later; a save someone
+							// asked for is a version of its own.
+							...(input.explicit
+								? { note: "Saved from workspace app" }
+								: { autosave: true }),
 						});
 						// This tab's own save is not news to it.
 						notice(input.outputId, {

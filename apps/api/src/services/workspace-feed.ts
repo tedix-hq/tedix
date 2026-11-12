@@ -142,6 +142,25 @@ export function outputMetadataChange(
 	};
 }
 
+/**
+ * Whether this workspace's files live in the shared database rather than in
+ * the workspace's own store. The same test `publishWorkspaceChange` applies.
+ */
+export async function workspaceOutputsInSharedStore(
+	input: Pick<WorkspaceChangeInput, "organizationId" | "workspaceId">,
+): Promise<boolean> {
+	const store = (
+		env as unknown as { WORKSPACE_RUNTIME?: WorkspaceOutputRuntime }
+	).WORKSPACE_RUNTIME;
+	return (
+		!store ||
+		(await store.outputQuery(
+			{ organizationId: input.organizationId, workspaceId: input.workspaceId },
+			{ op: "authority" },
+		)) === "shared"
+	);
+}
+
 export interface WorkspaceFeedPublisher {
 	/** The client the write used, so ledger and projection land in the same database. */
 	db: DbQueryClient;

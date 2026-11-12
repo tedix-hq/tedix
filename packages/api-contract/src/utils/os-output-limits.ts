@@ -33,6 +33,19 @@ export const OS_SLIDE_MAX_ELEMENTS = 1_000;
 /** Characters of text one slide may hold in all: its elements and its notes. */
 export const OS_SLIDE_MAX_TEXT_CHARS = 900_000;
 
+/**
+ * The note on a revision an editor wrote by itself, a moment after someone
+ * stopped typing. It marks the revision as one of many small steps: only such
+ * revisions are thinned out of a file's history later. A save someone asked
+ * for, an agent's write and a restore never carry it.
+ */
+export const OS_OUTPUT_AUTOSAVE_NOTE = "Saved automatically";
+/**
+ * Auto-saves of one file by one person that follow each other within this
+ * gap are one burst of editing: one activity entry and one audit entry.
+ */
+export const OS_OUTPUT_AUTOSAVE_BURST_GAP_MS = 3 * 60_000;
+
 /** Steps each editor can undo. */
 export const OS_EDITOR_UNDO_STEPS = 50;
 

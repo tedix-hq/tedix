@@ -120,6 +120,11 @@ export function createOutputSync<
 			content: Content,
 			basis: number,
 			readFull: () => Promise<Saved>,
+			/**
+			 * Someone asked for this save (Ctrl/⌘ S). It is kept as a version of
+			 * its own; the editor's own saves are grouped and thinned later.
+			 */
+			explicit = false,
 		): Promise<Saved> {
 			if (!known) remember(await readFull());
 			// Unsaved changes restored from an earlier visit were made against
@@ -142,6 +147,7 @@ export function createOutputSync<
 				slot,
 				baseRevision: basis,
 				patch,
+				...(explicit ? { explicit: true } : {}),
 			});
 			const stored = answer.catchUp
 				? applyOutputPatch(content, answer.catchUp, projections)

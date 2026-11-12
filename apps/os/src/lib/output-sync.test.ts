@@ -110,6 +110,13 @@ describe("editor file sync", () => {
 			patch: { ops: [{ op: "splice", path: ["rows"] }] },
 		});
 		expect(host.readFull).toHaveBeenCalledTimes(1);
+		// A save someone asked for says so; the editor's own saves do not.
+		await sync.save(sheet("a", "B", "c", "d"), 3, host.readFull, true);
+		expect(host.calls("outputs.patch")[2]![1]).toMatchObject({
+			baseRevision: 3,
+			explicit: true,
+		});
+		expect(host.calls("outputs.patch")[1]![1]).not.toHaveProperty("explicit");
 	});
 
 	it("applies what the server stored beyond what was sent", async () => {

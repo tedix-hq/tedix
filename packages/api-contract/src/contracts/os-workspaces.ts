@@ -1595,6 +1595,12 @@ export const osWorkspacesContract = oc
 								"The revision number the patch was made against: the one the caller read and edited",
 							),
 						patch: OsOutputContentPatchSchema,
+						autosave: z
+							.boolean()
+							.optional()
+							.describe(
+								"True when an editor saves by itself shortly after an edit, rather than because someone asked. Such revisions carry a fixed note, are grouped into one activity and audit entry per burst of editing, and are thinned out of history later (one kept per ten minutes after the first hour). Leave it out for a save a person or an agent means as a version.",
+							),
 						expectedWorkspaceId: z
 							.uuid()
 							.optional()
@@ -1619,6 +1625,11 @@ export const osWorkspacesContract = oc
 							.nullable()
 							.describe(
 								"The newer revision this save was merged with; null when the base was still current",
+							),
+						continuesBurst: z
+							.boolean()
+							.describe(
+								"True when this auto-save continued the caller's current burst of editing, so it added no activity or audit entry of its own",
 							),
 						catchUp: OsOutputContentPatchSchema.nullable().describe(
 							"What the stored content has beyond the content the caller sent, as a patch against that content; null when they are the same",

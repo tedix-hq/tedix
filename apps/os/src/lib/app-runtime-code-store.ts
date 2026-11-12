@@ -1,3 +1,7 @@
+import {
+	APP_FILES_CACHE_NAME,
+	clearStoredAppFiles,
+} from "@/shared/app-files-cache";
 import type {
 	AppRuntimeCode,
 	AppRuntimeFiles,
@@ -14,7 +18,7 @@ import type {
  * hashes to its name, so a damaged or altered entry is downloaded again.
  */
 
-const CACHE_NAME = "tedix-app-files-v1";
+const CACHE_NAME = APP_FILES_CACHE_NAME;
 /** Distinct file sets kept on disk; the oldest go first. */
 const MAX_STORED = 24;
 /** The API accepts at most this many known hashes per read. */
@@ -130,6 +134,16 @@ export async function loadAppRuntimeCode(
 	if (!fresh?.files) return { code: null };
 	await storeFiles(fresh.filesSha256, fresh.files);
 	return { code: { ...fresh, files: fresh.files } };
+}
+
+/**
+ * Remove every app file this browser holds, in memory and on disk. Called
+ * when someone signs out, so the next person at this browser starts without
+ * the previous person's apps.
+ */
+export async function clearAppRuntimeCodeStore(): Promise<void> {
+	memory.clear();
+	await clearStoredAppFiles();
 }
 
 /** Forget the in-memory copies; tests start from an empty browser. */
