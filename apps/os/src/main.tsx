@@ -11,6 +11,7 @@ import {
 } from "@/components/os-route-boundaries";
 import { TooltipProvider } from "@/components/kumo/tooltip";
 import { installOsErrorReporting } from "@/lib/error-reporting/install";
+import { captureInstallPrompt } from "@/lib/install-prompt";
 import { captureDescopeContinuation } from "@/lib/step-up-continuation";
 import { applyTedixOsTheme } from "@/lib/theme";
 import { osQueryClient, osRouter } from "@/router";
@@ -21,6 +22,8 @@ import "@/styles.css";
 // is still captured — that is the whole point of a global handler.
 installOsErrorReporting();
 installOsVersionNotice();
+// Android offers its install prompt once, possibly before the first render.
+captureInstallPrompt();
 
 // Snapshot Descope's flow-continuation parameters BEFORE the router mounts. A
 // route's `validateSearch` schema models only its own keys, so normalizing the

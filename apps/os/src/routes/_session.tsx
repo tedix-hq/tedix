@@ -8,6 +8,12 @@ const BrokerLoginPage = lazy(() =>
 	})),
 );
 
+const InstalledAppSupport = lazy(() =>
+	import("@/components/installed-app-support").then((module) => ({
+		default: module.InstalledAppSupport,
+	})),
+);
+
 export const Route = createFileRoute("/_session")({
 	component: ProductSessionLayout,
 });
@@ -22,6 +28,11 @@ function ProductSessionLayout() {
 			)}
 		>
 			<Outlet />
+			{/* After the page: the install notice and icon badge never hold up
+			    first paint. */}
+			<Suspense fallback={null}>
+				<InstalledAppSupport />
+			</Suspense>
 		</SessionBoundary>
 	);
 }
