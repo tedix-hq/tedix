@@ -58,6 +58,13 @@ export type WorkspaceUnreadSummary = z.infer<
 export const WorkspaceUnreadStateSchema = WorkspaceUnreadCountsSchema.extend({
 	/** Ids of the files with unread changes. */
 	fileIds: z.array(z.string()),
+	/** Unread chat rows per conversation; an empty id stands for rows that name none. */
+	conversations: z.array(
+		z.object({
+			conversationId: z.string(),
+			count: z.number().int().positive(),
+		}),
+	),
 });
 export type WorkspaceUnreadState = z.infer<typeof WorkspaceUnreadStateSchema>;
 
@@ -76,7 +83,11 @@ export type WorkspaceUnreadList = z.infer<typeof WorkspaceUnreadListSchema>;
 export const WorkspaceMarkReadInputSchema = z.object({
 	workspaceId: z.string().uuid(),
 	target: z.discriminatedUnion("type", [
-		z.object({ type: z.literal("chat") }),
+		z.object({
+			type: z.literal("chat"),
+			/** One conversation; leave out to mark every conversation read. */
+			conversationId: z.string().min(1).max(200).optional(),
+		}),
 		z.object({ type: z.literal("file"), outputId: z.string().uuid() }),
 		z.object({ type: z.literal("all") }),
 	]),

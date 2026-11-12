@@ -76,9 +76,18 @@ function state(
 	workspaceId: string,
 	unread: WorkspaceUnread,
 ): WorkspaceUnreadState {
+	const conversations = new Map<string, number>();
+	for (const item of unread.chat) {
+		const id = item.conversationId ?? "";
+		conversations.set(id, (conversations.get(id) ?? 0) + 1);
+	}
 	return {
 		...counts(workspaceId, unread),
 		fileIds: unread.files.flatMap((item) => item.outputId ?? []),
+		conversations: [...conversations].map(([conversationId, count]) => ({
+			conversationId,
+			count,
+		})),
 	};
 }
 

@@ -1252,6 +1252,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			changeRecordId: `workspace-event:${event.seq}`,
 			at: event.at,
 			summary: {
+				// Lets an unread row open the conversation it belongs to.
+				conversationId: event.conversationId,
 				action: {
 					resource: "conversation",
 					operation: event.type,
