@@ -17,6 +17,7 @@ import { schemaDdl, tableDdl } from "../test/schema-ddl";
 import {
 	D1_LOGS_COPY_STATEMENT_BYTES,
 	D1_RETENTION_PAGE_ROWS,
+	D1_RETENTION_TABLES,
 	D1RetentionEstimateDeadlineError,
 	buildD1LogsCopyStatements,
 	buildD1RetentionDeleteStatements,
@@ -28,6 +29,7 @@ import {
 	estimateD1RetentionBacklog,
 	filterD1RetentionReferencedRows,
 	getD1RetentionTableSpec,
+	hasD1RetentionExpiredRows,
 	isD1RetentionExpired,
 	listActiveD1RetentionPolicies,
 	readD1RetentionPage,
@@ -147,6 +149,49 @@ describe("d1 retention policy validation", () => {
 });
 
 describe("d1 retention statements", () => {
+	it.each(Object.values(D1_RETENTION_TABLES))(
+		"probes $tableName with one covering index seek and no sort",
+		async (tableSpec) => {
+			const sqlite = new DatabaseSync(":memory:");
+			sqlite.exec(schemaDdl({ foreignKeys: false }, tableSpec.table));
+			const d1 = createD1Facade(sqlite);
+			const reads = vi.spyOn(d1, "prepare");
+			const db = createDbQueryClient(d1);
+			const cutoff = d1RetentionCutoff(tableSpec, NOW, tableSpec.minKeepDays);
+			expect(await hasD1RetentionExpiredRows(db, tableSpec, cutoff)).toBe(
+				false,
+			);
+			expect(reads).toHaveBeenCalledTimes(1);
+			const query = reads.mock.calls[0]![0];
+			const plan = sqlite.prepare(`EXPLAIN QUERY PLAN ${query}`).all(cutoff, 1);
+			expect(plan).toHaveLength(1);
+			expect(plan[0]?.detail).toMatch(
+				/SEARCH .* USING COVERING INDEX .* \(.*<\?\)/,
+			);
+			sqlite.close();
+		},
+	);
+
+	it("finds old rows behind newer rows and rechecks a changing cutoff", async () => {
+		const { db, seedAudit } = fixture();
+		seedAudit([1, 90, 2]);
+		expect(
+			await hasD1RetentionExpiredRows(
+				db,
+				audit(),
+				d1RetentionCutoff(audit(), NOW, 90),
+			),
+		).toBe(false);
+		const later = new Date(NOW.getTime() + DAY * 1000);
+		expect(
+			await hasD1RetentionExpiredRows(
+				db,
+				audit(),
+				d1RetentionCutoff(audit(), later, 90),
+			),
+		).toBe(true);
+	});
+
 	it("reads at most one page per statement from the oldest end", async () => {
 		const { db, seedAudit } = fixture();
 		seedAudit(Array.from({ length: 620 }, (_, i) => 700 - i));

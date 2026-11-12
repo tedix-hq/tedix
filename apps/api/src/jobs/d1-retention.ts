@@ -74,6 +74,9 @@ export async function runD1RetentionTick(
 		d1RetentionMovedRows: result.movedRows,
 		d1RetentionConflictedRows: result.conflictedRows,
 		d1RetentionDeletedRows: result.deletedRows,
+		d1RetentionIdleTables: result.tables.filter(
+			(table) => table.eligibleRows === 0 && table.timings.pages === 0,
+		).length,
 		...(result.eligibleBytes === null
 			? {}
 			: {

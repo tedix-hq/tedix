@@ -63,11 +63,19 @@ database by design; they only ever need rows inside the keep window.
 
 `d1_retention_policies` drives the job (`apps/api/src/jobs/d1-retention.ts`,
 engine in `apps/api/src/services/d1-retention-archive.ts`), which runs every
-15 minutes with a 20 s time budget per run. Initial policies ship in
+15 minutes with a 60 s time budget per run. Initial policies ship in
 `dry_run`; explicit activation migrations enable the attribution and call-cost
 moves after the logs schema and rotation prerequisites are installed. The `move_to_logs_db` mode, oldest rows first and capped per run by
 `max_rows_per_run` (the per-run budget an operator tunes on the row), works in
-pages of 500 rows read with one statement:
+pages of 500 rows read with one statement. Before allocating time, one
+covering-index age probe per policy checks for rows before its cutoff.
+An empty result skips pages and backlog estimates for that table; its report
+has zero eligible rows and zero pages. The remaining time is shared only
+among policies with expired candidates, with unused time passed on. Every
+candidate table still starts at its head before resuming its saved rowid
+sweep, so newly expired head rows and out-of-order old inserts are found.
+Reference pins and timestamp validation still decide which candidates may
+move. Each page then:
 
 1. copies the page into `LOGS_DB` with `INSERT OR IGNORE`. The rows travel as
    one JSON array parameter per statement (about 256 KB each, expanded with

@@ -779,6 +779,7 @@ export const skillRunArtifacts = sqliteTable(
 	},
 	(table) => [
 		uniqueIndex("uniq_skill_run_artifacts_path").on(table.runId, table.path),
+		index("idx_skill_run_artifacts_created").on(table.createdAt),
 	],
 );
 

@@ -3,8 +3,10 @@
  * the core D1 database, driven by `d1_retention_policies` rows (no row =
  * untouched).
  *
- * A pass reads the oldest rows one page (500 rows) per statement, writes one
- * gzip NDJSON object per page to R2, confirms the stored object, and only
+ * One indexed age probe skips tables without expired candidates before time
+ * is shared among the remaining policies. A pass reads the oldest rows one
+ * page (500 rows) per statement, writes one gzip NDJSON object per page to
+ * R2, confirms the stored object, and only
  * then deletes exactly those rows with one statement. The next page is read
  * while the current one is copied, archived and deleted, so a page costs a
  * few round trips instead of one per 50 rows. Every tick starts at the oldest
@@ -47,6 +49,7 @@ import {
 	filterD1RetentionReferencedRows,
 	getD1RetentionTableSpec,
 	groupD1RetentionArchiveRows,
+	hasD1RetentionExpiredRows,
 	isD1RetentionExpired,
 	listActiveD1RetentionPolicies,
 	readD1RetentionPage,
@@ -60,7 +63,7 @@ export const D1_ARCHIVE_PREFIX = "d1-archive/v1/";
 /** Rows per R2 object, per logs copy and per delete statement. */
 export const D1_ARCHIVE_CHUNK_ROWS = D1_RETENTION_PAGE_ROWS;
 /**
- * Shared by every active policy (equal shares, leftovers flow to later
+ * Shared by policies with expired candidates (leftovers flow to later
  * tables). Each 15-minute tick has to move a few 500-row artifact pages, each
  * costing a few seconds of reads, copies and R2 writes, or the main database
  * grows faster than retention drains it.
@@ -354,8 +357,8 @@ interface PolicyTurn {
 	sweepFrom: number | null;
 }
 
-/** Check the policy, then run its head pass (or its dry-run estimate). */
-async function runPolicyHead(
+/** Check prerequisites and probe age before allocating processing time. */
+async function preparePolicyTurn(
 	db: DbQueryClient,
 	logsDb: DbQueryClient | undefined,
 	bucket: R2Bucket | undefined,
@@ -379,10 +382,24 @@ async function runPolicyHead(
 		return turn;
 	}
 	result.stoppedBy = "done";
-	if (policy.mode === "dry_run") {
-		const keepDays = d1RetentionEffectiveKeepDays(tableSpec, policy);
-		const cutoff = d1RetentionCutoff(tableSpec, now, keepDays);
-		await estimateBacklog(db, tableSpec, cutoff, result, deadline);
+	if (Date.now() >= deadline) {
+		result.stoppedBy = "time_budget";
+		return turn;
+	}
+	const cutoff = d1RetentionCutoff(
+		tableSpec,
+		now,
+		d1RetentionEffectiveKeepDays(tableSpec, policy),
+	);
+	const hasExpired = await timed(result.timings, "readMs", () =>
+		withOverloadBackoff(
+			() => hasD1RetentionExpiredRows(db, tableSpec, cutoff),
+			deadline,
+		),
+	);
+	if (!hasExpired) {
+		result.eligibleRows = 0;
+		result.eligibleBytes = 0;
 		return turn;
 	}
 	// Where the previous tick's walk through retained rows stopped; -1 when
@@ -396,7 +413,6 @@ async function runPolicyHead(
 	)
 		sweepAfterRowid = previousCursor;
 	result.scanAfterRowid = sweepAfterRowid;
-	await movePages(db, logsDb, bucket, policy, now, deadline, turn, "head");
 	return turn;
 }
 
@@ -583,8 +599,9 @@ function reportFor(
 }
 
 /**
- * Run active policies serially in two rounds: every table's head pass (or
- * dry-run estimate) first, then the sweeps through retained rows. Each round
+ * Probe every policy first; tables without expired candidates need no pages
+ * or estimates. Run the others in two rounds: head passes (or dry-run
+ * estimates) first, then sweeps through retained rows. Each round
  * reserves an equal share of the remaining processing time for each table it
  * runs, and leftovers flow to later tables.
  * In-flight pages finish their safety fences even when their share expires.
@@ -607,17 +624,16 @@ export async function runD1Retention(params: {
 		return startedAt + Math.max(0, deadline - startedAt) / remainingTables;
 	};
 	const turns: PolicyTurn[] = [];
-	for (const [index, policy] of policies.entries()) {
-		const tableDeadline = shareOf(policies.length - index);
+	for (const policy of policies) {
 		try {
 			turns.push(
-				await runPolicyHead(
+				await preparePolicyTurn(
 					params.db,
 					params.logsDb,
 					params.bucket,
 					policy,
 					params.now,
-					tableDeadline,
+					deadline,
 				),
 			);
 		} catch (error) {
@@ -630,6 +646,38 @@ export async function runD1Retention(params: {
 					error: error instanceof Error ? error.message : String(error),
 				},
 			});
+		}
+	}
+	const processing = turns.filter(
+		({ result }) => result.stoppedBy === "done" && result.eligibleRows !== 0,
+	);
+	for (const [index, turn] of processing.entries()) {
+		const tableDeadline = shareOf(processing.length - index);
+		if (turn.policy.mode === "dry_run") {
+			const tableSpec = getD1RetentionTableSpec(turn.policy.tableName)!;
+			const cutoff = d1RetentionCutoff(
+				tableSpec,
+				params.now,
+				d1RetentionEffectiveKeepDays(tableSpec, turn.policy),
+			);
+			await estimateBacklog(
+				params.db,
+				tableSpec,
+				cutoff,
+				turn.result,
+				tableDeadline,
+			);
+		} else {
+			await movePages(
+				params.db,
+				params.logsDb,
+				params.bucket,
+				turn.policy,
+				params.now,
+				tableDeadline,
+				turn,
+				"head",
+			);
 		}
 	}
 	const sweeping = turns.filter((turn) => turn.sweepFrom !== null);
@@ -651,6 +699,7 @@ export async function runD1Retention(params: {
 		const tableSpec = getD1RetentionTableSpec(policy.tableName);
 		if (
 			policy.mode !== "dry_run" &&
+			result.eligibleRows !== 0 &&
 			!result.problem &&
 			tableSpec &&
 			Date.now() < deadline

@@ -716,6 +716,7 @@ export const tediCallCosts = sqliteTable(
 	},
 	(table) => [
 		index("idx_call_costs_org").on(table.orgId, table.snapshotAt),
+		index("idx_call_costs_created").on(table.createdAt),
 		index("idx_call_costs_window").on(table.tediId, table.snapshotAt),
 		index("idx_call_costs_model").on(
 			table.tediId,
