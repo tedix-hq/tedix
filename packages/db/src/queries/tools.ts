@@ -130,7 +130,10 @@ export async function listPendingToolReviewsForApp(
 		.select({
 			rowId: appTools.id,
 			toolId: appTools.toolId,
-			schemaSourceHash: appTools.schemaSourceHash,
+			// A held change is reviewed by the hash of its new definition.
+			schemaSourceHash: sql<
+				string | null
+			>`coalesce(json_extract(${appTools.reviewPending}, '$.schemaSourceHash'), ${appTools.schemaSourceHash})`,
 			diff: appTools.reviewDiff,
 			reviewBatchId: appTools.reviewBatchId,
 		})

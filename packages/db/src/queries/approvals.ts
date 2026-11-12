@@ -11,7 +11,17 @@ import {
 	recordCardCreationEdges,
 	recordDecisionResolutionEdges,
 } from "./decision-graph-writers";
-import { and, desc, eq, gt, inArray, isNull, lt, sql } from "drizzle-orm";
+import {
+	type AnyColumn,
+	and,
+	desc,
+	eq,
+	gt,
+	inArray,
+	isNull,
+	lt,
+	sql,
+} from "drizzle-orm";
 import type { DbClient } from "../client";
 import { kernelRuntimeRuns } from "../schema/cognitive-runtime";
 import { apps } from "../schema/apps";
@@ -611,7 +621,7 @@ export async function reconcileToolReviewApproval(
 							),
 						payload: sql<
 							Record<string, JsonValue>
-						>`json_object('kind', 'mcp_tool_catalog_change', 'appId', ${input.appId}, 'reviewBatchId', ${batchId}, 'expectedCount', ${count}, 'changes', json((select json_group_array(json_object('rowId', pending.id, 'toolId', pending.tool_id, 'schemaSourceHash', pending.schema_source_hash, 'diff', json(pending.review_diff))) from ${appTools} pending where ${pending})))`.as(
+						>`json_object('kind', 'mcp_tool_catalog_change', 'appId', ${input.appId}, 'reviewBatchId', ${batchId}, 'expectedCount', ${count}, 'changes', json((select json_group_array(json_object('rowId', pending.id, 'toolId', pending.tool_id, 'schemaSourceHash', coalesce(json_extract(pending.review_pending, '$.schemaSourceHash'), pending.schema_source_hash), 'diff', json(pending.review_diff))) from ${appTools} pending where ${pending})))`.as(
 							"payload",
 						),
 						status: sql<ApprovalStatus>`'pending'`.as("status"),
@@ -631,6 +641,36 @@ export async function reconcileToolReviewApproval(
 	]);
 	if (created[0]) await recordApprovalCardCreation(db, created[0]);
 	return created;
+}
+
+/**
+ * Copy a held upstream definition onto the row being approved. Rows without
+ * one (new tools) already carry their reviewed definition and keep it.
+ */
+function approvedPendingDefinition() {
+	const field = (column: AnyColumn, key: string) =>
+		sql`case when ${appTools.reviewPending} is null then ${column} else json_extract(${appTools.reviewPending}, ${`$.${key}`}) end`;
+	return {
+		toolTypeId: field(appTools.toolTypeId, "toolTypeId"),
+		config: field(appTools.config, "config"),
+		inputSchema: field(appTools.inputSchema, "inputSchema"),
+		outputSchema: field(appTools.outputSchema, "outputSchema"),
+		title: field(appTools.title, "title"),
+		description: field(appTools.description, "description"),
+		icons: field(appTools.icons, "icons"),
+		executionTaskSupport: field(
+			appTools.executionTaskSupport,
+			"executionTaskSupport",
+		),
+		annotations: field(appTools.annotations, "annotations"),
+		writeCapability: field(appTools.writeCapability, "writeCapability"),
+		meta: field(appTools.meta, "meta"),
+		schemaDialect: field(appTools.schemaDialect, "schemaDialect"),
+		schemaSource: field(appTools.schemaSource, "schemaSource"),
+		schemaSourceRef: field(appTools.schemaSourceRef, "schemaSourceRef"),
+		schemaSourceHash: field(appTools.schemaSourceHash, "schemaSourceHash"),
+		schemaSyncedAt: field(appTools.schemaSyncedAt, "schemaSyncedAt"),
+	};
 }
 
 /** Resolve and activate one exact upstream-definition batch atomically. */
@@ -678,7 +718,7 @@ export async function resolveToolCatalogApprovalRequest(
 						and (pending.review_batch_id is not json_extract(${tediApprovalRequests.payload}, '$.reviewBatchId')
 							or not exists (select 1 from json_each(${tediApprovalRequests.payload}, '$.changes') change
 								where json_extract(change.value, '$.rowId') = pending.id
-									and json_extract(change.value, '$.schemaSourceHash') = pending.schema_source_hash))
+									and json_extract(change.value, '$.schemaSourceHash') = coalesce(json_extract(pending.review_pending, '$.schemaSourceHash'), pending.schema_source_hash)))
 				)`,
 			),
 		)
@@ -688,9 +728,11 @@ export async function resolveToolCatalogApprovalRequest(
 		db
 			.update(appTools)
 			.set({
+				...approvedPendingDefinition(),
 				reviewState: "live",
 				reviewDiff: null,
 				reviewBatchId: null,
+				reviewPending: null,
 				updatedAt: resolvedAt,
 			})
 			.where(

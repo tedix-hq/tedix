@@ -637,6 +637,7 @@ export async function buildProjectedTool(
 			reviewState: "live",
 			reviewDiff: null,
 			reviewBatchId: null,
+			reviewPending: null,
 		},
 	};
 }

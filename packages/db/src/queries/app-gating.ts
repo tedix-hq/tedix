@@ -9,6 +9,7 @@ import { apps } from "../schema/apps";
 import { organizations } from "../schema/organizations";
 import { appTools } from "../schema/tools";
 import { chunkForBoundParams } from "../utils/batch";
+import { toolDefinitionIsLive } from "./tool-review-visibility";
 
 // =============================================================================
 // ORG STATE
@@ -41,7 +42,7 @@ export async function getInstalledToolIdsForOrg(db: DbClient, orgId: string) {
 			and(
 				eq(apps.organizationId, orgId),
 				eq(appTools.enabled, true),
-				sql`coalesce(${appTools.reviewState}, 'live') = 'live'`,
+				toolDefinitionIsLive(),
 			),
 		);
 	return rows.map((r) => r.toolId);
@@ -74,7 +75,7 @@ export async function getEnabledToolIdsForApp(db: DbClient, appId: string) {
 			and(
 				eq(appTools.appId, appId),
 				eq(appTools.enabled, true),
-				sql`coalesce(${appTools.reviewState}, 'live') = 'live'`,
+				toolDefinitionIsLive(),
 			),
 		);
 	return rows.map((r) => r.toolId);
@@ -136,7 +137,7 @@ export async function getEnabledToolDetailsForApp(db: DbClient, appId: string) {
 			and(
 				eq(appTools.appId, appId),
 				eq(appTools.enabled, true),
-				sql`coalesce(${appTools.reviewState}, 'live') = 'live'`,
+				toolDefinitionIsLive(),
 			),
 		);
 }
@@ -163,7 +164,7 @@ export async function getPortableWebMcpToolAdmissions(
 			and(
 				eq(appTools.appId, appId),
 				eq(appTools.enabled, true),
-				sql`coalesce(${appTools.reviewState}, 'live') = 'live'`,
+				toolDefinitionIsLive(),
 			),
 		);
 }

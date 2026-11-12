@@ -8,6 +8,7 @@ import { apps, appTools, skillEntries } from "../../schema/index";
 import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
 import { batchNonEmpty } from "../../utils/batch";
+import { getEnabledToolIdsForApp } from "../app-gating";
 import {
 	buildCatalogMcpConnectionAuth,
 	syncCatalogToolsToApp,
@@ -295,6 +296,49 @@ describe("buildCatalogMcpConnectionAuth", () => {
 			before: { description: "Old instructions" },
 			after: { description: "New instructions" },
 		});
+		// The approved definition stays live; the new one waits beside it.
+		expect(tool?.description).toBe("Old instructions");
+		expect(tool?.schemaSourceHash).toBe("old-hash");
+		expect(tool?.reviewPending).toMatchObject({
+			description: "New instructions",
+			writeCapability: "read",
+		});
+		expect(await getEnabledToolIdsForApp(db, "app-review")).toEqual([
+			"read_records",
+		]);
+
+		// A repeat sync of the same upstream change raises no new review.
+		const repeat = await syncCatalogToolsToApp(db, {
+			catalogAppId: "catalog-review",
+			appId: "app-review",
+			mcpServerUrl: "https://review.example/mcp",
+			dryRun: false,
+		});
+		expect(repeat.summary).toContain("0 updated");
+		const [after] = await db
+			.select({ batch: appTools.reviewBatchId })
+			.from(appTools)
+			.where(eq(appTools.id, "tool-review"));
+		expect(after?.batch).toBe(tool?.reviewBatchId);
+
+		// A change that lets the tool do more hides it until an owner approves.
+		await db
+			.update(appCatalogMcpTools)
+			.set({ annotations: { destructiveHint: true } })
+			.where(eq(appCatalogMcpTools.id, "catalog-tool-review"));
+		await syncCatalogToolsToApp(db, {
+			catalogAppId: "catalog-review",
+			appId: "app-review",
+			mcpServerUrl: "https://review.example/mcp",
+			dryRun: false,
+		});
+		const [escalated] = await db
+			.select()
+			.from(appTools)
+			.where(eq(appTools.id, "tool-review"));
+		expect(escalated?.writeCapability).toBe("destructive");
+		expect(escalated?.reviewPending ?? null).toBeNull();
+		expect(await getEnabledToolIdsForApp(db, "app-review")).toEqual([]);
 	});
 });
 

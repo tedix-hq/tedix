@@ -37,6 +37,7 @@ import {
 	normalizeVendorName,
 } from "./endpoint-normalization";
 import { getCatalogAppById } from "./get-app";
+import { toolDefinitionIsLive } from "../tool-review-visibility";
 import {
 	type CatalogMcpToolSyncInput,
 	catalogMcpToolSourceHash,
@@ -1186,7 +1187,7 @@ export async function projectCatalogToolsFromBaseApp(
 			and(
 				eq(appTools.appId, baseApp.id),
 				eq(appTools.enabled, true),
-				sql`coalesce(${appTools.reviewState}, 'live') = 'live'`,
+				toolDefinitionIsLive(),
 				sql`coalesce(${appTools.visibility}, 'public') != 'disabled'`,
 			),
 		)
