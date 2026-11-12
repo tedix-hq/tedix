@@ -1,4 +1,4 @@
-export const DOC_BLUEPRINT_VERSION = 18;
+export const DOC_BLUEPRINT_VERSION = 19;
 export const SHEET_BLUEPRINT_VERSION = 14;
 export const SLIDES_BLUEPRINT_VERSION = 12;
 

@@ -902,6 +902,103 @@ describe("portable rich Doc client", () => {
 			"Late edit Original",
 		);
 	});
+	describe("insert list on /", () => {
+		const options = (root: HTMLElement) =>
+			[
+				...root.querySelectorAll('.doc-slash:not([hidden]) [role="option"]'),
+			].map((node) => node.textContent);
+		const picked = (root: HTMLElement) =>
+			root.querySelector('.doc-slash [aria-selected="true"]')?.textContent;
+		/** Start an empty line at the end of the document and type on it. */
+		const emptyLine = (editor: Editor, text = "") => {
+			editor
+				.chain()
+				.insertContentAt(editor.state.doc.content.size, { type: "paragraph" })
+				.focus("end")
+				.run();
+			if (text) editor.commands.insertContent(text);
+		};
+		it("opens on an empty line, filters as you type and inserts with the keyboard", async () => {
+			const { root, editor } = await fixture().mount();
+			emptyLine(editor, "/");
+			expect(options(root)).toEqual([
+				"Heading 1",
+				"Heading 2",
+				"Heading 3",
+				"Bulleted list",
+				"Numbered list",
+				"To-do list",
+				"Table",
+				"Image",
+				"Divider",
+				"Collapsible section",
+			]);
+			expect(picked(root)).toBe("Heading 1");
+			press(editor.view.dom, { key: "ArrowDown" });
+			expect(picked(root)).toBe("Heading 2");
+			press(editor.view.dom, { key: "ArrowUp" });
+			press(editor.view.dom, { key: "ArrowUp" });
+			expect(picked(root)).toBe("Collapsible section");
+			editor.commands.insertContent("to");
+			expect(options(root)).toEqual(["To-do list", "Collapsible section"]);
+			expect(picked(root)).toBe("To-do list");
+			const enter = new KeyboardEvent("keydown", {
+				key: "Enter",
+				bubbles: true,
+				cancelable: true,
+			});
+			editor.view.dom.dispatchEvent(enter);
+			expect(enter.defaultPrevented).toBe(true);
+			expect(options(root)).toEqual([]);
+			const json = JSON.stringify(editor.getJSON());
+			expect(json).toContain('"type":"taskList"');
+			expect(json).not.toContain("/to");
+		});
+		it("inserts each kind of block in place of the typed text", async () => {
+			const { root, editor } = await fixture().mount();
+			for (const [typed, type] of [
+				["/h2", "heading"],
+				["/numbered", "orderedList"],
+				["/table", "table"],
+				["/divider", "horizontalRule"],
+				["/collapsible", "details"],
+			] as const) {
+				emptyLine(editor, typed);
+				expect(options(root)).toHaveLength(1);
+				press(editor.view.dom, { key: "Enter" });
+				const json = JSON.stringify(editor.getJSON());
+				expect(json).toContain(`"type":"${type}"`);
+				expect(json).not.toContain(typed);
+			}
+		});
+		it("stays closed after Escape, in the middle of a line and when nothing matches", async () => {
+			const { root, editor } = await fixture().mount();
+			emptyLine(editor, "/");
+			press(editor.view.dom, { key: "Escape" });
+			expect(options(root)).toEqual([]);
+			editor.commands.insertContent("h");
+			expect(options(root)).toEqual([]);
+			expect(editor.state.doc.lastChild!.textContent).toBe("/h");
+			emptyLine(editor, "/zzz");
+			expect(options(root)).toEqual([]);
+			emptyLine(editor, "and/or");
+			expect(options(root)).toEqual([]);
+			editor.commands.setTextSelection(3);
+			editor.commands.insertContent("/");
+			expect(options(root)).toEqual([]);
+		});
+		it("chooses with a click and offers nothing to someone who can only read", async () => {
+			const { root, editor } = await fixture().mount();
+			emptyLine(editor, "/");
+			click(root, "Divider");
+			expect(JSON.stringify(editor.getJSON())).toContain("horizontalRule");
+			expect(options(root)).toEqual([]);
+			const reader = await fixture("view").mount();
+			expect(
+				reader.root.querySelector(".doc-slash")!.hasAttribute("hidden"),
+			).toBe(true);
+		});
+	});
 	it("downloads Markdown that keeps formatting and embeds stored pictures", async () => {
 		const test = fixture();
 		const answer = test.calls.getMockImplementation()!;
