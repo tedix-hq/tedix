@@ -434,11 +434,16 @@ export async function updateDescopeMcpServer(
 ): Promise<McpServerRecord> {
 	const hardenedServer = hardenDescopeMcpServerRegistration(server, env);
 	const current = await loadDescopeResource(env, server.id);
+	const uri = hardenedServer.audienceWhitelist?.[0] ?? current.uri;
 	const resource = await updateDescopeResource(env, {
 		...current,
 		name: hardenedServer.name,
 		description: hardenedServer.description ?? undefined,
-		uri: hardenedServer.audienceWhitelist?.[0] ?? current.uri,
+		uri,
+		// The provider also returns the address as a `uris` list and keeps that
+		// list on update, so a renamed app stays on its old address unless both
+		// fields carry the new one.
+		...(Array.isArray(current.uris) ? { uris: [uri] } : {}),
 		scopes: hardenedServer.approvedScopes ?? undefined,
 		dynamicRegistrationSettings: {
 			...current.dynamicRegistrationSettings,
