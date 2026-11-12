@@ -760,6 +760,11 @@ function early(state: string): string {
 	return state.replace(/\.json$/, ".early");
 }
 
+/** Replies that failed to upload twice, kept until delivered or expired. */
+function owed(state: string): string {
+	return state.replace(/\.json$/, ".owed.json");
+}
+
 /**
  * The chat's latest open question ({requestId, token, host}), kept beside the
  * claimable turn state so the prompt hook and the wake hook can find it
@@ -1128,14 +1133,26 @@ async function onStop(
 		writeState(autoDeliveryPath(state), { ...auto, judged: true });
 	const previous = claim(state);
 	const kept = previous?.requestId ? claim(early(state)) : undefined;
-	if (kept && kept.token === previous!.token) {
-		// A reply whose upload failed earlier: deliver it now instead of closing.
+	// Replies whose upload failed earlier are delivered now, oldest first. One
+	// that fails again waits for the next turn end until its question expires.
+	const owedAt = (deps.now ?? (() => new Date()))().getTime();
+	const stored: unknown = claim(owed(state))?.replies;
+	const replies: JsonObject[] = Array.isArray(stored)
+		? stored.filter((reply) => isObject(reply) && owedAt - reply.at < EXPIRY_MS)
+		: [];
+	if (kept && kept.token === previous!.token)
+		replies.push({ turn: previous, prompt: kept.prompt, at: owedAt });
+	while (replies.length) {
+		const { prompt, turn } = replies[0]!;
 		try {
-			await onReply(deps, session, binding, kept.prompt, previous!, options);
+			await onReply(deps, session, binding, prompt, turn, options);
 		} catch {
-			// Best effort; the new turn still opens below.
+			// The new turn still opens below.
+			break;
 		}
+		replies.shift();
 	}
+	if (replies.length) writeState(owed(state), { replies });
 	// An earlier turn the agent moved past without a reply is left to expire.
 	// No close is possible from a hook: a question accepts only an answer, which
 	// would put words in the user's name, and cancel needs interactive approval.
