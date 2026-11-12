@@ -59,6 +59,8 @@ async function editor(role = "owner", transform?: (sheet: Sheet) => Sheet) {
 		workspaceId: "workspace",
 		kind: "sheet",
 	});
+	// Who saved the newest revision: a person, or an agent.
+	let savedBy = "user";
 	const outputsRead = vi.fn(async () => {
 		stored.set(revision, structuredClone(saved));
 		return {
@@ -155,7 +157,7 @@ async function editor(role = "owner", transform?: (sheet: Sheet) => Sheet) {
 			const since = stored.get(Number(args!.sinceRevision));
 			return {
 				output: output(),
-				revision: { revision },
+				revision: { revision, createdByKind: savedBy },
 				patch: since ? diffOutputContent(since, saved) : null,
 				...(since ? {} : { content: structuredClone(saved) }),
 			};
@@ -213,7 +215,8 @@ async function editor(role = "owner", transform?: (sheet: Sheet) => Sheet) {
 		download,
 		saved: () => structuredClone(saved),
 		revision: () => revision,
-		changeExternal(value: number) {
+		changeExternal(value: number, by = "user") {
+			savedBy = by;
 			saved.workbook!.sheets[0]!.rows[0]![0]!.input = String(value);
 			saved = calculate(saved);
 			revision++;
@@ -516,6 +519,67 @@ describe("Portable Sheet grid", () => {
 		choose("theirs");
 		await vi.waitFor(() => expect(display("C1")).toBe("6"));
 		await vi.waitFor(() => expect(q("#updates").textContent).toBe(""));
+	});
+	describe("changes someone else makes while the sheet is open", () => {
+		const lit = () =>
+			[...document.querySelectorAll("td.landed")]
+				.map((td) => td.getAttribute("aria-label"))
+				.sort();
+		const offer = () => q("#updates").querySelector('[data-choice="undo"]');
+		it("lights the changed cell and the cells that follow from it, then lets go", async () => {
+			const app = await editor();
+			app.changeExternal(3);
+			await vi.waitFor(() => expect(display("C1")).toBe("5"));
+			expect(lit()).toEqual(
+				[cell("A1"), cell("C1")]
+					.map((td) => td.getAttribute("aria-label"))
+					.sort(),
+			);
+			// A person's change: nothing to undo here.
+			expect(offer()).toBeNull();
+			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+			app.changeExternal(4);
+			await vi.waitFor(() => expect(display("C1")).toBe("6"));
+			expect(lit()).toHaveLength(2);
+			await vi.advanceTimersByTimeAsync(2_500);
+			expect(lit()).toEqual([]);
+			vi.useRealTimers();
+		});
+		it("offers to undo an agent's change and undoes it as a new saved change", async () => {
+			const app = await editor();
+			const before = display("A1");
+			app.changeExternal(7, "tedi");
+			await vi.waitFor(() => expect(display("A1")).toBe("$7.00"));
+			expect(q("#updates").textContent).toContain(
+				"An agent changed this sheet.",
+			);
+			choose("undo");
+			await vi.waitFor(() => expect(display("A1")).toBe(before));
+			expect(offer()).toBeNull();
+			await vi.waitFor(() =>
+				expect(
+					String(app.saved().workbook!.sheets[0]!.rows[0]![0]!.input),
+				).toBe("1"),
+			);
+			// It was the person's own edit: their undo brings the agent's work back.
+			click("#undo");
+			await vi.waitFor(() => expect(display("A1")).toBe("$7.00"));
+		});
+		it("undoes the agent's change with the undo shortcut, and stops offering once the person edits", async () => {
+			const app = await editor();
+			const before = display("A1");
+			app.changeExternal(7, "external_agent");
+			await vi.waitFor(() => expect(offer()).not.toBeNull());
+			key("z", { ctrlKey: true });
+			await vi.waitFor(() => expect(display("A1")).toBe(before));
+			await vi.waitFor(() => expect(q("#updates").textContent).toBe(""));
+			await saved();
+			app.changeExternal(9, "tedi");
+			await vi.waitFor(() => expect(offer()).not.toBeNull());
+			edit("B2", "mine");
+			expect(offer()).toBeNull();
+			expect(display("A1")).toBe("$9.00");
+		});
 	});
 	it("keeps the chosen value for a cell both people edited, then saves the merge", async () => {
 		const app = await editor();
