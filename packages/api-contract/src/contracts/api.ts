@@ -14,6 +14,7 @@ import { oc } from "@orpc/contract";
 import { repositoryObserverContract } from "./repository-observer";
 import { supportContract } from "./support";
 import { webPushContract } from "./web-push";
+import { workspaceUnreadContract } from "./workspace-unread";
 import { tediConsoleContract } from "./tedi-console";
 import { adapterBindingsContract } from "./adapter-bindings";
 import { aeoContract } from "./aeo";
@@ -137,6 +138,7 @@ import { workflowsContract } from "./workflows";
  */
 export const apiContract = oc.route({ prefix: "/v1" }).router({
 	webPush: webPushContract,
+	workspaceUnread: workspaceUnreadContract,
 	tediConsole: tediConsoleContract,
 	// Billing (Stripe checkout, portal, status)
 	billing: billingContract,

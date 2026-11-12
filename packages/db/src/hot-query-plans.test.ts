@@ -19,6 +19,12 @@ import { listWorkActivity } from "./queries/work-items/activity";
 import { listWorkApprovalInbox } from "./queries/work-items/approvals";
 import { listPersonalCardStyleRules } from "./queries/work-items/card-style-rules";
 import { listWorkItemsPage } from "./queries/work-items/crud";
+import {
+	getWorkspaceReadMarker,
+	listWorkspaceFeedPositions,
+	listWorkspaceReadMarkers,
+	listWorkspaceUnreadFeed,
+} from "./queries/workspace-unread";
 import { createD1Facade } from "./test/d1-facade";
 import { createMigratedSqlite } from "./test/migrated-sqlite";
 
@@ -252,4 +258,37 @@ describe("hot production query plans", () => {
 			);
 		},
 	);
+	it("reads a person's unread state through the marker key, the feed position key and the workspace sequence index", async () => {
+		const { query, lastPlan } = fixture();
+		const scope = { organizationId: "org-1", userId: "user-1" };
+		await listWorkspaceReadMarkers(query, scope);
+		const markers = lastPlan();
+		expect(markers).toContain(
+			"SEARCH user_configs USING INDEX sqlite_autoindex_user_configs_2 (user_id=? AND namespace=?)",
+		);
+		expect(markers).not.toContain("TEMP B-TREE");
+		await getWorkspaceReadMarker(query, scope, "workspace-1");
+		expect(lastPlan()).toContain(
+			"SEARCH user_configs USING INDEX sqlite_autoindex_user_configs_2 (user_id=? AND namespace=? AND key=?)",
+		);
+		await listWorkspaceFeedPositions(query, "org-1", ["workspace-1"]);
+		expect(lastPlan()).toContain(
+			"SEARCH workspace_feed_cursors USING INDEX sqlite_autoindex_workspace_feed_cursors_1 (workspace_id=?)",
+		);
+		await listWorkspaceUnreadFeed(query, {
+			organizationId: "org-1",
+			workspaceId: "workspace-1",
+			afterSeq: 10,
+			readerIds: ["user-1"],
+		});
+		const plan = lastPlan();
+		expect(plan).toContain(
+			"SEARCH workspace_activity USING INDEX workspace_activity_workspace_seq_idx (workspace_id=? AND seq>?)",
+		);
+		expect(plan).toContain(
+			"SEARCH workspace_feed_ledger USING INDEX sqlite_autoindex_workspace_feed_ledger_1 (id=?)",
+		);
+		expect(plan).not.toContain("SCAN");
+		expect(plan).not.toContain("TEMP B-TREE");
+	});
 });

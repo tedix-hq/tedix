@@ -14,6 +14,7 @@
 		"./queries/site-routing": "./src/queries/site-routing.ts",
 		"./queries/organization-domains": "./src/queries/organization-domains.ts",
 		"./queries/web-push": "./src/queries/web-push.ts",
+		"./queries/workspace-unread": "./src/queries/workspace-unread.ts",
 		"./queries/work-items/commitment-reminders": "./src/queries/work-items/commitment-reminders.ts",
 		"./queries/work-items/decision-action-recheck": "./src/queries/work-items/decision-action-recheck.ts",
 		"./queries/work-items/decision-review-retirement": "./src/queries/work-items/decision-review-retirement.ts",

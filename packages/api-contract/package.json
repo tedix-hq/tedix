@@ -31,6 +31,8 @@
 		"./schemas/composer-command": "./src/schemas/composer-command.ts",
 		"./schemas/web-push": "./src/schemas/web-push.ts",
 		"./contracts/web-push": "./src/contracts/web-push.ts",
+		"./schemas/workspace-unread": "./src/schemas/workspace-unread.ts",
+		"./contracts/workspace-unread": "./src/contracts/workspace-unread.ts",
 		"./contracts/os-app-runtime": "./src/contracts/os-app-runtime.ts",
 		"./utils/app-draft-merge": "./src/utils/app-draft-merge.ts",
 		"./utils/output-merge": "./src/utils/output-merge.ts",
