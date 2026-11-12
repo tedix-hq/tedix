@@ -271,11 +271,20 @@ describe.each(["readDocument", "readSheet", "readPresentation"])(
 			const view = setup(read);
 			const saved = "77777777-7777-4777-8777-777777777777";
 			const bodies: unknown[] = [];
+			const push = (revision = 8) =>
+				publishOutputRevisionNotice({
+					type: "revision",
+					workspaceId: view.workspaceId,
+					outputId: view.outputId,
+					revisionId: saved,
+					revision,
+				});
 			vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
 				const request = input instanceof Request ? input : null;
 				bodies.push(
 					JSON.parse(String(request ? await request.text() : init?.body)),
 				);
+				push(); // The live room can beat the save reply.
 				return new Response(
 					JSON.stringify({
 						json: {
@@ -320,6 +329,27 @@ describe.each(["readDocument", "readSheet", "readPresentation"])(
 				});
 			});
 			await vi.waitFor(() => expect(answer).toMatchObject({ ok: true }));
+			await settle(() => push());
+			expect(lifecycle.outputRevisions).toEqual([
+				{
+					slot: "file",
+					outputId: view.outputId,
+					revisionId: "revision",
+					revision: 7,
+				},
+			]);
+			// Reconnecting must not turn the acknowledged save into news either.
+			await settle(() =>
+				view.client.setQueryData<unknown>(view.listKey, {
+					items: [
+						{
+							id: view.outputId,
+							workspaceId: view.workspaceId,
+							currentRevisionId: saved,
+						},
+					],
+				}),
+			);
 			expect(bodies).toEqual([
 				{
 					json: {
@@ -330,6 +360,15 @@ describe.each(["readDocument", "readSheet", "readPresentation"])(
 						// The editor saved by itself: grouped and thinned later.
 						autosave: true,
 					},
+				},
+			]);
+			await settle(() => push(9));
+			expect(lifecycle.outputRevisions).toEqual([
+				{
+					slot: "file",
+					outputId: view.outputId,
+					revisionId: saved,
+					revision: 9,
 				},
 			]);
 			// A save someone asked for is sent as a version of its own.
@@ -351,14 +390,14 @@ describe.each(["readDocument", "readSheet", "readPresentation"])(
 					note: "Saved from workspace app",
 				},
 			});
-			// The app is told its own revision, and the file is not fetched.
+			// The peer's newer notice is retained; an older save reply cannot hide it.
 			await vi.waitFor(() =>
 				expect(lifecycle.outputRevisions).toEqual([
 					{
 						slot: "file",
 						outputId: view.outputId,
 						revisionId: saved,
-						revision: 8,
+						revision: 9,
 					},
 				]),
 			);
@@ -367,6 +406,45 @@ describe.each(["readDocument", "readSheet", "readPresentation"])(
 			expect(view.client.getQueryState(view.outputKey)?.isInvalidated).toBe(
 				true,
 			);
+		});
+		it("delivers a peer notice held during a failed save", async () => {
+			const view = setup(read);
+			let fail!: (error: Error) => void;
+			vi.spyOn(globalThis, "fetch").mockImplementation(
+				() =>
+					new Promise((_, reject) => {
+						fail = reject;
+					}),
+			);
+			let saving!: Promise<unknown>;
+			await settle(() => {
+				saving = lifecycle.onCall!("outputs.patch", {
+					slot: "file",
+					baseRevision: 7,
+					patch: {
+						kind: "document",
+						ops: [{ op: "set", path: ["blocks"], value: [] }],
+					},
+				});
+			});
+			await vi.waitFor(() => expect(fail).toBeTypeOf("function"));
+			await settle(() =>
+				publishOutputRevisionNotice({
+					type: "revision",
+					workspaceId: view.workspaceId,
+					outputId: view.outputId,
+					revisionId: "peer-revision",
+					revision: 9,
+				}),
+			);
+			expect(lifecycle.outputRevisions).toMatchObject([{ revision: 7 }]);
+			await act(async () => {
+				fail(new Error("Save failed"));
+				await expect(saving).rejects.toThrow("Save failed");
+			});
+			expect(lifecycle.outputRevisions).toMatchObject([
+				{ revisionId: "peer-revision", revision: 9 },
+			]);
 		});
 		it("suspends a temporary source failure while retaining the scoped draft for an authorized retry", async () => {
 			const view = setup(read);
