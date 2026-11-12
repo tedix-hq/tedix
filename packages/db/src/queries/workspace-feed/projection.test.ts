@@ -360,3 +360,22 @@ describe("activity coverage", () => {
 		expect(rest[0]?.id).not.toBe(first.id);
 	});
 });
+
+it("indexes burst saves without activity and keeps sequence replay idempotent", async () => {
+	const db = await fixture();
+	const saves = [
+		event(1, { revision: 1 }),
+		event(2, { revision: 2, summary: { continuesBurst: true } }),
+		event(3, { revision: 3, summary: { continuesBurst: true } }),
+		event(4, { revision: 4 }),
+	];
+	await applyWorkspaceChangeEvents(db, saves);
+	await applyWorkspaceChangeEvents(db, saves);
+	expect(
+		(await db.select().from(workspaceActivity)).map((row) => row.revision),
+	).toEqual([1, 4]);
+	const index = await db.select().from(workspaceOutputIndex);
+	expect(index.map((row) => row.revision)).toEqual([1, 2, 3, 4]);
+	expect(index.filter((row) => row.isCurrent)).toMatchObject([{ revision: 4 }]);
+	expect(await getWorkspaceFeedCursor(db, WS)).toBe(4);
+});

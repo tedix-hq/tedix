@@ -72,6 +72,8 @@ export const WorkspaceChangeSummarySchema = z
 			.optional(),
 		status: z.enum(["active", "archived"]).optional(),
 		note: z.string().max(2_000).nullable().optional(),
+		/** Index this save without adding another activity entry. */
+		continuesBurst: z.boolean().optional(),
 		createdBy: WorkspaceChangeActorSchema.optional(),
 		createdAt: z.string().optional(),
 		skillRunId: z.string().nullable().optional(),

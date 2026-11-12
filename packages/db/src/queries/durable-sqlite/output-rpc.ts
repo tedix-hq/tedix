@@ -26,6 +26,7 @@ export interface OutputQueryInputs {
 	};
 	create: { output: NewOsOutputRow; revision: NewOsOutputRevisionRow };
 	revise: { params: outputs.CreateOsOutputRevisionParams };
+	thin: Parameters<typeof outputs.thinOsOutputRevisions>[2];
 	rebody: {
 		revisionId: string;
 		previousSha256: string;
@@ -51,6 +52,7 @@ export interface OutputQueryResults {
 	history: Awaited<ReturnType<typeof outputs.listOsOutputRevisions>>;
 	create: Awaited<ReturnType<typeof outputs.createOsOutput>>;
 	revise: Awaited<ReturnType<typeof outputs.createOsOutputRevision>>;
+	thin: string[];
 	rebody: boolean;
 	update: Awaited<ReturnType<typeof outputs.updateOsOutput>>;
 	delete: Awaited<ReturnType<typeof outputs.deleteOsOutput>>;
@@ -170,6 +172,9 @@ async function execute(
 				throw new Error("Output revision scope mismatch");
 			await owned(query.params.outputId);
 			return outputs.createOsOutputRevision(db, query.params);
+		case "thin":
+			await owned(query.outputId);
+			return outputs.thinOsOutputRevisions(db, scope, query);
 		case "rebody": {
 			const revision = await outputs.getOsOutputRevision(db, {
 				organizationId: scope.organizationId,

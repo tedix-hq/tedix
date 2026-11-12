@@ -38,6 +38,7 @@
 		"./utils/workspace-room": "./src/utils/workspace-room.ts",
 		"./schemas/os-output-patch": "./src/schemas/os-output-patch.ts",
 		"./utils/os-output-limits": "./src/utils/os-output-limits.ts",
+		"./utils/os-output-autosave": "./src/utils/os-output-autosave.ts",
 		"./utils/os-output-assets": "./src/utils/os-output-assets.ts",
 		"./utils/app-draft-room": "./src/utils/app-draft-room.ts",
 		"./utils/workflow-timeline-receipt": "./src/utils/workflow-timeline-receipt.ts",

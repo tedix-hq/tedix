@@ -16,7 +16,7 @@
  *   partitioned ledger.
  */
 
-import { and, desc, eq, getColumns, sql } from "drizzle-orm";
+import { and, desc, eq, getColumns, inArray, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import {
 	type NewOsOutputRevisionRow,
@@ -35,6 +35,10 @@ import {
 	osWorkspaceChildVisibleToPredicate,
 } from "../os-workspaces/workspaces";
 import { hasSharedWorkspaceOutputs } from "../os-workspaces/outputs";
+import {
+	OUTPUT_THINNING_MAX_LIMIT,
+	OUTPUT_THINNING_WINDOW_SECONDS,
+} from "../os-workspaces/output-revision-thinning";
 import type { TenantStoreDb } from "./tenant-store";
 
 /** Pre-protocol ownership only. WorkspaceDO must consult durable staging state first.
@@ -699,4 +703,66 @@ export async function importOutput(
 				.run();
 		return row;
 	});
+}
+
+/** The caller checks core references; the owner rechecks its immutable rows and current pointer at deletion. */
+export async function thinOsOutputRevisions(
+	db: TenantStoreDb,
+	scope: { organizationId: string; workspaceId: string },
+	params: {
+		outputId: string;
+		revisionIds: string[];
+		olderThan: string;
+		autosaveNote: string;
+		dryRun: boolean;
+	},
+): Promise<string[]> {
+	if (
+		params.revisionIds.length > OUTPUT_THINNING_MAX_LIMIT ||
+		!params.autosaveNote ||
+		Number.isNaN(Date.parse(params.olderThan))
+	)
+		throw new Error("Invalid output thinning bounds");
+	if (!params.revisionIds.length) return [];
+	const r = osOutputRevisions;
+	const eligible = and(
+		// bound-params: the function rejects more than 40 revision ids.
+		inArray(r.id, params.revisionIds),
+		eq(r.organizationId, scope.organizationId),
+		eq(r.outputId, params.outputId),
+		sql`EXISTS (SELECT 1 FROM ${osOutputs} WHERE ${osOutputs.id} = ${r.outputId} AND ${osOutputs.organizationId} = ${scope.organizationId}
+ AND ${osOutputs.workspaceId} = ${scope.workspaceId} AND ${osOutputs.currentRevisionId} <> ${r.id})
+ AND ${r.createdByKind} = 'user' AND ${r.skillRunId} IS NULL
+ AND substr(${r.note}, 1, ${params.autosaveNote.length}) = ${params.autosaveNote}
+ AND unixepoch(${r.createdAt}) < ${Math.floor(Date.parse(params.olderThan) / 1000)}
+ AND ${r.revision} > (SELECT min(first.revision) FROM ${r} AS first WHERE first.output_id = ${r.outputId})
+ AND ${r.revision} < (SELECT max(newest.revision) FROM ${r} AS newest WHERE newest.output_id = ${r.outputId})
+ AND EXISTS (SELECT 1 FROM ${r} AS kept WHERE kept.output_id = ${r.outputId}
+ AND kept.created_by_kind = ${r.createdByKind} AND kept.created_by_id = ${r.createdById}
+ AND kept.revision > ${r.revision} AND unixepoch(kept.created_at) / CAST(${OUTPUT_THINNING_WINDOW_SECONDS} AS INTEGER) = unixepoch(${r.createdAt}) / CAST(${OUTPUT_THINNING_WINDOW_SECONDS} AS INTEGER))`,
+	);
+	if (params.dryRun)
+		return (await db.select({ id: r.id }).from(r).where(eligible)).map(
+			(row) => row.id,
+		);
+	const existing = new Set(
+		(
+			await db
+				.select({ id: r.id })
+				.from(r)
+				.where(
+					and(
+						eq(r.organizationId, scope.organizationId),
+						eq(r.outputId, params.outputId),
+						// bound-params: the function rejects more than 40 revision ids.
+						inArray(r.id, params.revisionIds),
+					),
+				)
+		).map((row) => row.id),
+	);
+	const removed = (
+		await db.delete(r).where(eligible).returning({ id: r.id })
+	).map((row) => row.id);
+	// The owner may have committed a prior delete whose reply or index cleanup was lost.
+	return [...removed, ...params.revisionIds.filter((id) => !existing.has(id))];
 }

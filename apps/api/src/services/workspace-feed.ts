@@ -85,13 +85,14 @@ export function excerptFromContent(content: string | null | undefined): string {
 export function outputRevisionChange(
 	output: OsOutputRow,
 	revision: Omit<OsOutputRevisionRow, "content"> & { content?: string },
-	options: { workItemIds?: string[] } = {},
+	options: { workItemIds?: string[]; continuesBurst?: boolean } = {},
 ): WorkspaceChangeInput {
 	const summary: WorkspaceChangeSummary = {
 		title: output.title,
 		outputKind: output.kind,
 		status: output.status,
 		note: revision.note ?? null,
+		continuesBurst: options.continuesBurst,
 		createdBy: { kind: output.createdByKind, id: output.createdById },
 		createdAt: output.createdAt,
 		skillRunId: revision.skillRunId ?? null,

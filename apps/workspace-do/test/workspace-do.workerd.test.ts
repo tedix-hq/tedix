@@ -19,6 +19,10 @@ import {
 	workspaceWorkLinks,
 } from "@tedix/db/schema/workspace-feed";
 import { projects } from "@tedix/db/schema/projects";
+import { osShareLinks, osReviewBatches } from "@tedix/db/schema/os-shares";
+import { osCollaborationProposals } from "@tedix/db/schema/os-workspaces";
+import { kernelRuntimeRuns } from "@tedix/db/schema/cognitive-runtime";
+import { workEvidence } from "@tedix/db/schema/work-items";
 import { workEvents, workItems } from "@tedix/db/schema/work-items";
 import { tenantStoreStub } from "@tedix/db/tenant-store/router";
 import { createDbQueryClient } from "@tedix/db/query-client";
@@ -168,6 +172,11 @@ async function seedCore() {
 		projects,
 		workItems,
 		workEvents,
+		osShareLinks,
+		osReviewBatches,
+		osCollaborationProposals,
+		kernelRuntimeRuns,
+		workEvidence,
 	];
 	await testEnv.DB.batch([
 		...tables.map((table) => testEnv.DB.prepare(ddl(table))),
@@ -2485,4 +2494,102 @@ test("moves object-owned outputs with every revision, resumes lost replies, and 
 	expect(
 		await from.transferOutput(source, "missing", target.workspaceId),
 	).toEqual({ ok: false, reason: "not_found" });
+});
+
+test("groups workspace-store auto-saves while indexing every revision and recovering projections", async () => {
+	await seedCore();
+	const scope = {
+		organizationId: "org_test",
+		workspaceId: crypto.randomUUID(),
+	};
+	await seedWorkspaceRows([scope]);
+	const ws = workspace(scope);
+	await seedOutputs(ws, scope);
+	const outputId = "out-doc";
+	for (let revision = 2; revision <= 5; revision++) {
+		const body = await storeOutputBody(
+			testEnv.R2_BUCKET,
+			scope.organizationId,
+			JSON.stringify({
+				kind: "document",
+				blocks: [{ type: "paragraph", text: `save ${revision}` }],
+			}),
+		);
+		if (revision === 3) await ws.failNextProjection(scope);
+		const result = await ws.outputQuery(scope, {
+			op: "revise",
+			params: {
+				...scope,
+				outputId,
+				id: `burst-r${revision}`,
+				...body,
+				createdByKind: "user",
+				createdById: "u1",
+				note: revision === 5 ? "Named milestone" : "Saved automatically",
+				expectedRevision: revision - 1,
+			},
+		});
+		expect(result.ok).toBe(true);
+	}
+	await ws.retryProjections(scope);
+	const db = createDbQueryClient(testEnv.DB);
+	const activity = await listWorkspaceActivity(
+		db,
+		{ organizationId: scope.organizationId, viewer: { userIds: ["u1"] } },
+		{ workspaceId: scope.workspaceId, kinds: ["output"] },
+	);
+	expect(
+		activity
+			.filter((row) => row.entityId === outputId)
+			.map((row) => row.changeRecordId),
+	).toEqual(["burst-r5", "burst-r2", "rev-doc"]);
+	const history = await ws.outputQuery(scope, { op: "history", outputId });
+	expect(history.map((row) => row.revision)).toEqual([5, 4, 3, 2, 1]);
+	const index = await testEnv.DB.prepare(
+		"SELECT revision, is_current FROM workspace_output_index WHERE workspace_id = ? AND output_id = ? ORDER BY revision",
+	)
+		.bind(scope.workspaceId, outputId)
+		.all();
+	expect(index.results).toEqual(
+		[1, 2, 3, 4, 5].map((revision) => ({
+			revision,
+			is_current: revision === 5 ? 1 : 0,
+		})),
+	);
+	await db.insert(osShareLinks).values({
+		id: crypto.randomUUID(),
+		organizationId: scope.organizationId,
+		resourceType: "output",
+		resourceId: outputId,
+		tokenHash: crypto.randomUUID(),
+		revisionMode: "pinned",
+		pinnedRevisionId: "burst-r4",
+		createdByKind: "user",
+		createdById: "u1",
+	});
+	const thinning = {
+		op: "thin" as const,
+		outputId,
+		revisionIds: ["rev-doc", "burst-r2", "burst-r3", "burst-r4", "burst-r5"],
+		olderThan: new Date(Date.now() + 2 * 60 * 60_000).toISOString(),
+		autosaveNote: "Saved automatically",
+		dryRun: true,
+	};
+	expect(await ws.outputQuery(scope, thinning)).toEqual(["burst-r3"]);
+	expect(await ws.outputQuery(scope, { ...thinning, dryRun: false })).toEqual([
+		"burst-r3",
+	]);
+	expect(
+		(await ws.outputQuery(scope, { op: "history", outputId })).map(
+			(row) => row.revision,
+		),
+	).toEqual([5, 4, 2, 1]);
+	// A lost deletion reply can safely be repeated so the caller can clean its index.
+	expect(
+		await ws.outputQuery(scope, {
+			...thinning,
+			revisionIds: ["burst-r3"],
+			dryRun: false,
+		}),
+	).toEqual(["burst-r3"]);
 });

@@ -137,27 +137,29 @@ function projectionStatements(
 	appliedAt: string,
 ): BatchStatement[] {
 	const summary = event.summary;
-	const statements: BatchStatement[] = [
-		db
-			.insert(workspaceActivity)
-			.values({
-				id: `${event.workspaceId}:${event.seq}`,
-				organizationId: event.organizationId,
-				workspaceId: event.workspaceId,
-				seq: event.seq,
-				kind: event.kind,
-				entityId: event.id,
-				revision: event.revision,
-				actorKind: event.actor.kind,
-				actorId: event.actor.id,
-				changeRecordId: event.changeRecordId,
-				title: clip(summary.title, TITLE_MAX),
-				summary: clip(summary.description, 500),
-				occurredAt: event.at,
-				appliedAt,
-			})
-			.onConflictDoNothing({ target: workspaceActivity.id }),
-	];
+	const statements: BatchStatement[] = [];
+	if (event.kind !== "output" || !summary.continuesBurst)
+		statements.push(
+			db
+				.insert(workspaceActivity)
+				.values({
+					id: `${event.workspaceId}:${event.seq}`,
+					organizationId: event.organizationId,
+					workspaceId: event.workspaceId,
+					seq: event.seq,
+					kind: event.kind,
+					entityId: event.id,
+					revision: event.revision,
+					actorKind: event.actor.kind,
+					actorId: event.actor.id,
+					changeRecordId: event.changeRecordId,
+					title: clip(summary.title, TITLE_MAX),
+					summary: clip(summary.description, 500),
+					occurredAt: event.at,
+					appliedAt,
+				})
+				.onConflictDoNothing({ target: workspaceActivity.id }),
+		);
 	if (event.kind === "output") statements.push(...outputStatements(db, event));
 	if (event.kind === "chat") {
 		const chat = chatStatement(db, event);
