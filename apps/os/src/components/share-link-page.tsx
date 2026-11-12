@@ -60,6 +60,37 @@ async function shareRequest(path: string, body: unknown): Promise<OpenedShare> {
 	return (await response.json()) as OpenedShare;
 }
 
+/**
+ * A refresh that says the file is `unchanged` carries no body: the page keeps
+ * the one it already shows. Anything else is taken as sent.
+ */
+export function keepShownContent(
+	payload: OpenedShare,
+	shown: SharePayload["resource"] | undefined,
+): OpenedShare {
+	const resource = payload.resource as SharePayload["resource"] & {
+		revision?: { id?: string; unchanged?: boolean };
+	};
+	if (
+		resource?.type !== "output" ||
+		!resource.revision?.unchanged ||
+		shown?.type !== "output" ||
+		shown.revision.id !== resource.revision.id
+	)
+		return payload;
+	return {
+		...payload,
+		resource: {
+			...resource,
+			revision: {
+				...shown.revision,
+				...resource.revision,
+				content: shown.revision.content,
+			},
+		},
+	};
+}
+
 /** A runtime app shared to use runs in the guest sandbox, with or without an account. */
 function opensAsGuestApp(payload: SharePayload): boolean {
 	const resource = payload.resource;
@@ -234,12 +265,20 @@ export function ShareLinkPage({ id }: { id: string }) {
 				// Every read is rechecked, so turning the link off or narrowing
 				// it reaches an open page within seconds.
 				timer = window.setInterval(() => {
+					const shown = lastReady.current?.payload.resource;
 					shareRequest("/api/os-shared/session", {
 						sessionToken: opened.sessionToken,
+						// A file whose version has not changed is not sent again.
+						...(shown?.type === "output"
+							? { knownRevisionId: shown.revision.id }
+							: {}),
 					}).then((payload) => {
 						if (alive)
 							showReady({
-								payload: { ...payload, access: opened.payload.access },
+								payload: {
+									...keepShownContent(payload, shown),
+									access: opened.payload.access,
+								},
 								sessionToken: opened.sessionToken,
 							});
 					}, fail);

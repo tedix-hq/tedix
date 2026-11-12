@@ -79,7 +79,8 @@ async function resolveShareFile(
 	if (link.resourceType === "output") {
 		if (link.resourceId !== outputId) return null;
 		const resource = await readOsSharedResource(db, link);
-		if (resource?.type !== "output") return null;
+		if (resource?.type !== "output" || !("content" in resource.revision))
+			return null;
 		workspaceId = resource.output.workspaceId;
 		rawContent = resource.revision.content;
 	} else if (
