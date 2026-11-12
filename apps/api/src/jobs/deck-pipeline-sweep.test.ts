@@ -34,7 +34,7 @@ vi.mock("../services/decision-card-copy-model", () => ({
 }));
 vi.mock("../lib/clef", () => ({ runClef: models.clef }));
 
-import { sweepOrganizationDeck } from "./deck-pipeline-sweep";
+import { sweepCard, sweepOrganizationDeck } from "./deck-pipeline-sweep";
 
 beforeEach(() => {
 	models.qwen.mockReset().mockResolvedValue('{"label":"NOISE"}');
@@ -516,6 +516,33 @@ describe("deck pipeline sweep", () => {
 		expect((await status(db, hidden)).status).toBe("cancelled");
 		expect((await status(db, kept)).status).toBe("open");
 	});
+});
+
+it("does not protect a status note for the words in its report", () => {
+	const row = (kind: string, metadata: Record<string, unknown> = {}) =>
+		({
+			id: "card-1",
+			kind,
+			status: "open",
+			subject: "Support digest",
+			prompt: "Two tickets are waiting. Nothing was published or deleted.",
+			creatorType: "tedi",
+			creatorId: "tedi-1",
+			workItemId: null,
+			dueAt: null,
+			expiresAt: null,
+			createdAt: "2026-10-20T08:00:00.000Z",
+			resolvedAt: null,
+			cancelledAt: null,
+			version: 1,
+			metadata,
+		}) as Parameters<typeof sweepCard>[0];
+	const none = new Map<string, string>();
+	expect(sweepCard(row("question"), none).protected).toBe(true);
+	expect(sweepCard(row("coordination"), none).protected).toBe(false);
+	expect(
+		sweepCard(row("coordination", { riskLevel: "high" }), none).protected,
+	).toBe(true);
 });
 
 it("retires graph-linked prior decisions with their evidence; keeps a remaining owner task", async () => {
