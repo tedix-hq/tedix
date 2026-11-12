@@ -75,6 +75,15 @@ Running Tedix yourself makes you the operator: upgrades, migrations, backups
 and restore drills, provider accounts and credentials, monitoring, cost
 control, and incident response are yours.
 
+Workspace storage also needs the separate `apps/workspace-do` Worker. Deploy
+it with its SQLite Durable Object migration, D1 and R2 bindings, and connections
+to the tedi runtime and MCP Worker. Then deploy API, MCP, and OS with their
+`WORKSPACE_RUNTIME` service binding pointing at its `InternalEntrypoint`.
+Existing data must be migrated before old storage is removed. See
+[Workspace storage](./installation-manifests.md#workspace-storage) for the
+deployment order, example configs, and the remaining EU R2 and MCP analytics
+limitations in the manifest tools.
+
 ## What the public product includes
 
 - tedi identity, the agent runtime, memory, skills, and Work Items;

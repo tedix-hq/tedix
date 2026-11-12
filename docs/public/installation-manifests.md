@@ -310,8 +310,72 @@ names are returned separately and secret values are never emitted.
 Preview mode permits an uncertified schema-valid manifest but rejects unresolved
 coordinates. Deploy mode requires a successfully certified manifest at
 `installation-ready` or `operational`. The tracked
-`apps/api/wrangler.oss-example.json` and its matching `.secrets.json` list of
-secret names are regenerated with `bun run installation-manifest:overlay`.
+`wrangler.oss-example.json` files in `apps/api`, `apps/workspace-do`, `apps/mcp`,
+and `apps/os`, and their matching `.secrets.json` lists of secret names, are
+regenerated with `bun run installation-manifest:overlay`. Add `--check` to
+check them without writing. These use the expanded sanitized manifest at
+`@tedix/installation-manifest/workspace-example`; the smaller
+`developer-example` remains a resource-kind reference.
+
+### Workspace storage
+
+Deploy `apps/workspace-do` as a separate Worker. It stores each workspace's
+documents, sheets, presentations, and chat in a SQLite Durable Object, with
+document bodies in R2. D1 is still needed for shared records such as Work and
+apps. An API deployment alone does not provide workspace storage.
+
+The workspace example declares these connections using the existing manifest
+schema; no new resource kind is needed:
+
+| Worker       | Binding                 | Target                                          |
+| ------------ | ----------------------- | ----------------------------------------------- |
+| API, MCP, OS | `WORKSPACE_RUNTIME`     | Workspace Worker's `InternalEntrypoint`         |
+| Workspace    | `WORKSPACE`             | Its own SQLite `WorkspaceDO` class              |
+| Workspace    | `TEDI_AGENT`            | `AgentTediDO` in `apps/tedi-runtime`            |
+| Workspace    | `DB`, `R2_BUCKET`, `AI` | Installation D1, document R2 bucket, Workers AI |
+| Workspace    | `MCP_SERVICE`           | Installation MCP Worker (default entrypoint)    |
+
+Use the same workspace Worker name for its manifest `scriptName`, the
+`workspace-service` resource, and the `workspace-state` resource. The overlay
+keeps the authored `v1` migration with `new_sqlite_classes: ["WorkspaceDO"]`
+and the `LOADER` Worker Loader binding. Do not remove or rename that migration
+on an existing installation. `DO_JURISDICTION` is a Worker variable: the example
+uses an empty string, meaning no jurisdiction restriction. Choose it before
+creating workspace objects and keep it consistent on later deployments.
+
+For an existing installation:
+
+1. Back up the installation. Provision its D1 and R2 resources, and have the
+   tedi runtime and MCP service targets deployed under your chosen names.
+2. Generate your private workspace overlay, inject the secret values listed
+   separately, and deploy the workspace Worker with its SQLite migration.
+   Keep its public routes and `workersDev` disabled; callers use service bindings.
+3. Deploy API, MCP, and OS with `WORKSPACE_RUNTIME` pointing at that Worker.
+   MCP and workspace migration routes need the same operator-held
+   `MIGRATE_WORKSPACES_TOKEN`. Configure model access separately for chat;
+   adding storage does not configure an AI Gateway or choose models.
+4. Before removing old storage, migrate existing workspace data using the
+   import and activation procedure in `scripts/migrate-workspaces/README.md`.
+   Adding a binding does not move data. Verify document reads, saves, and
+   workspace chat against your deployed installation before admitting users.
+
+For a new installation, establish the service targets before applying the final
+bindings. MCP calls workspace storage and workspace storage calls MCP; the
+resource provisioner does not deploy Workers or resolve that deployment cycle.
+These examples describe storage connections, not a complete clean-account
+installer or live installation proof.
+
+Two limits remain in the manifest tools. R2 resources accept only `bucketName`
+in addition to their common fields (`packages/installation-manifest/src/schema.ts`);
+the R2 overlay emits only `binding` and `bucket_name`
+(`packages/installation-manifest/src/wrangler-overlay.ts`). It cannot express
+the EU R2 `jurisdiction` used by `apps/workspace-do/wrangler.jsonc`. Do not use
+this generated overlay for an EU R2 installation: `DO_JURISDICTION=eu` selects
+Durable Objects only and does not fix the bucket binding. Also, the manifest
+has no Analytics Engine resource kind; the generator strips
+`analytics_engine_datasets`, including MCP's optional analytics bindings.
+These examples omit that telemetry. EU R2 deployment still needs manifest
+support for the bucket jurisdiction before its overlay can be used.
 
 These generated files are sanitized examples, not deployment or clean-account
 certification. Managed production coordinates are never published: every

@@ -4,6 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { parse } from "jsonc-parser";
 import { unstable_readConfig } from "wrangler";
 import { developerInstallationManifest } from "./developer-example";
+import { workspaceInstallationManifest } from "./workspace-example";
 import {
 	createWranglerOverlay,
 	renderWranglerSecretNames,
@@ -363,7 +364,7 @@ describe("Wrangler installation overlay", () => {
 
 	test("tracked developer artifacts match generated output", () => {
 		const result = createWranglerOverlay({
-			manifest: developerInstallationManifest,
+			manifest: workspaceInstallationManifest,
 			sourceConfig: source(),
 			workerId: "control-api",
 		});

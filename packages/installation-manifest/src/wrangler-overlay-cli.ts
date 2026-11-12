@@ -2,7 +2,7 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { developerInstallationManifest } from "./developer-example";
+import { workspaceInstallationManifest } from "./workspace-example";
 import type { InstallationManifest } from "./schema";
 import { readWorkerSourceConfig } from "./worker-source-config";
 import {
@@ -47,7 +47,7 @@ function validateArguments(args: string[]): void {
 function readManifest(path: string | undefined): unknown {
 	return path
 		? JSON.parse(readFileSync(resolve(path), "utf8"))
-		: developerInstallationManifest;
+		: workspaceInstallationManifest;
 }
 
 function workerSourcePath(manifest: unknown, workerId: string): string {
