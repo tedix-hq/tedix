@@ -667,6 +667,39 @@ describe("tedix hooks capture-stop / capture-reply", () => {
 		expect(retried.metadata.source).toBe("user-reply");
 	});
 
+	test("a reply whose retry fails too is kept until it is delivered", async () => {
+		await runHook("stop", { last_assistant_message: "first" }, [
+			BINDING,
+			AUTH,
+			CREATED,
+		]);
+		await runHook("reply", { prompt: "make it happen" }, [BINDING, AUTH], {
+			failRespond: true,
+		});
+		const owed = state().replace(/\.json$/, ".owed.json");
+		const second = { id: "88888888-8888-4888-8888-888888888888", version: 1 };
+		await runHook(
+			"stop",
+			{ last_assistant_message: "second" },
+			[BINDING, AUTH, second],
+			{ failRespond: true },
+		);
+		expect(peek(owed)?.replies).toHaveLength(1);
+		const third = { id: "99999999-9999-4999-8999-999999999999", version: 1 };
+		await runHook("stop", { last_assistant_message: "third" }, [
+			BINDING,
+			AUTH,
+			{ request: CREATED },
+			third,
+		]);
+		const delivered = payloads.filter(
+			([, body]) => body.body === "make it happen",
+		);
+		expect(delivered).toHaveLength(1);
+		expect(delivered[0]![0]).toContain(REQUEST);
+		expect(existsSync(owed)).toBe(false);
+	});
+
 	test("Codex identity and failures stay silent", async () => {
 		await runHook(
 			"stop",
