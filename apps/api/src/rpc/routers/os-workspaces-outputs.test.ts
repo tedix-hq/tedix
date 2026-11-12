@@ -2911,9 +2911,11 @@ describe("changed-only saves (outputs.patch and outputs.changes)", () => {
 			outputId: output.id,
 			sinceRevision: 1,
 		});
+		// It also says who saved it, so an editor can offer to undo an agent.
 		expect(changes.revision).toMatchObject({
 			id: saved.revision.id,
 			revision: 3,
+			createdByKind: "user",
 		});
 		expect(changes.content).toBeUndefined();
 		expect(changes.patch).toEqual({
