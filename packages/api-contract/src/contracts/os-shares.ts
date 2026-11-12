@@ -112,6 +112,12 @@ export const OsShareLinkSchema = z.object({
 		.describe(
 			"Set while the link is turned off: it stops redeeming but keeps its address, and turning it back on clears this and revives the same address",
 		),
+	stoppedByPrivateWorkspace: z
+		.boolean()
+		.optional()
+		.describe(
+			"True when the link does not open because its workspace was made private after the link was made. Turning the link back on lets it open again while the workspace stays private.",
+		),
 });
 
 export type OsShareResourceType = z.infer<typeof OsShareResourceTypeSchema>;
@@ -559,7 +565,7 @@ export const osSharesContract = oc
 					path: "/shares/{shareId}",
 					summary: "Change a share link's note, expiry, role or access",
 					description:
-						"Edits an active link in place: the link keeps working at the same permanent URL. Requires os:admin. Narrowing the role, tightening access, or bringing the expiry forward ends live redemption sessions; recipients reopen the same link at the new settings.",
+						"Edits an active link in place: the link keeps working at the same permanent URL. Requires os:admin, or running the private workspace the link's file is in. Narrowing the role, tightening access, or bringing the expiry forward ends live redemption sessions; recipients reopen the same link at the new settings.",
 				})
 				.input(
 					z
@@ -697,7 +703,7 @@ export const osSharesContract = oc
 					path: "/shares/{shareId}",
 					summary: "Permanently delete a Tedix OS share link",
 					description:
-						"Requires os:admin. Revokes the link if needed — the permanent-forever counterpart to turning it off — then deletes its row, so a new link mints a new address.",
+						"Requires os:admin, or running the private workspace the link's file is in. Revokes the link if needed — the permanent-forever counterpart to turning it off — then deletes its row, so a new link mints a new address.",
 				})
 				.input(z.object({ shareId: z.string().uuid() }))
 				.output(z.object({ deleted: z.literal(true) })),

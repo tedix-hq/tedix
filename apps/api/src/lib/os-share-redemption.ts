@@ -169,8 +169,22 @@ export type IdentifyOsShareRecipient = () => Promise<{
  */
 export type ManageOsShareCheck = (link: OsShareLinkRow) => Promise<boolean>;
 
+/**
+ * True when a private workspace stops this link. A link to one file or app
+ * that was made, or turned back on, while its workspace was private
+ * (`standalone`) keeps opening; every other link stops, and a private
+ * workspace never has a link of its own.
+ */
+export function stoppedByPrivateWorkspace(
+	link: Pick<OsShareLinkRow, "resourceType" | "standalone">,
+	workspace: { visibility: string } | null | undefined,
+): boolean {
+	if (workspace?.visibility !== "private") return false;
+	return link.resourceType === "workspace" || link.standalone !== true;
+}
+
 /** The workspace a link's resource lives in, or null for a workspace-less output. */
-async function linkWorkspaceId(
+export async function linkWorkspaceId(
 	db: DbQueryClient,
 	link: OsShareLinkRow,
 ): Promise<string | null> {
@@ -482,14 +496,15 @@ export async function recipientMayOpen(
 	identifyRecipient?: IdentifyOsShareRecipient,
 	verifiedEmail?: string | null,
 ): Promise<boolean> {
-	// A link minted before its workspace became private stops working.
+	// A link minted before its workspace became private stops working; one
+	// made on purpose for a single file or app there keeps opening.
 	const workspaceId = await linkWorkspaceId(db, link);
 	if (workspaceId) {
 		const workspace = await getOsWorkspace(db, {
 			organizationId: link.organizationId,
 			workspaceId,
 		});
-		if (workspace?.visibility === "private") return false;
+		if (stoppedByPrivateWorkspace(link, workspace)) return false;
 	}
 	if (
 		link.access === "organization" &&

@@ -297,7 +297,7 @@ export async function updateOsShareLinkSettings(
 		set: Partial<
 			Pick<
 				OsShareLinkRow,
-				"role" | "access" | "note" | "expiresAt" | "disabledAt"
+				"role" | "access" | "note" | "expiresAt" | "disabledAt" | "standalone"
 			>
 		>;
 		endSessions: boolean;

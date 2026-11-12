@@ -1,0 +1,1 @@
+ALTER TABLE `os_share_links` ADD `standalone` integer;

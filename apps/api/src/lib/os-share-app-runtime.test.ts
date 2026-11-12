@@ -627,6 +627,34 @@ describe("share-link guests on a runtime app", () => {
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
 	});
 
+	it("opens an app shared on purpose from a private workspace, without naming the workspace", async () => {
+		const { db, env } = await fixture();
+		await db
+			.update(osWorkspaces)
+			.set({ visibility: "private" })
+			.where(eq(osWorkspaces.id, workspaceId));
+		const link = await seedLink(db, { standalone: true });
+		const sessionToken = await redeem(db, link.token);
+		expect(sessionToken).not.toBeNull();
+		const opened = await handleGuestAppOpen(env, db, {
+			sessionToken,
+			guestName: "Maya",
+		});
+		expect(opened.status).toBe(200);
+		const body = (await opened.json()) as { app: Record<string, unknown> };
+		expect(body.app).not.toHaveProperty("workspaceName");
+		// The link names its own app: no other app opens through it.
+		expect(
+			(
+				await handleGuestAppOpen(env, db, {
+					sessionToken,
+					appId: widgetGadgetId,
+					guestName: "Maya",
+				})
+			).status,
+		).toBe(404);
+	});
+
 	it("refuses everything identically once the link is revoked or the workspace turns private", async () => {
 		const { db, env } = await fixture();
 		const link = await seedLink(db);
