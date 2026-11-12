@@ -140,6 +140,14 @@ Handler time includes upstream storage; persistence measures gateway payment
 settlement. Detached `waitUntil` work is excluded. Routing and result shaping
 can account for the difference between the phase sum and total.
 
+Native output creates also retain API service-binding diagnostics under `api`:
+`output-workspace`, `output-envelope`, `output-storage`, and `output-editor`.
+These subdivide handler time; do not add them to the top-level phase sum.
+They measure workspace authorization, source-envelope resolution, output
+persistence (including body storage and feed publication), and editor attachment.
+Only these numeric `Server-Timing` entries from the trusted binding are copied;
+HTTPS fallback and caller headers cannot supply them.
+
 `tools/list` replies include `_meta["com.tedix/catalogVersion"]`, a hash of the
 resolved source tool rows, configuration, caller scopes, and deployment. A
 first-page request may echo that key in its `_meta`. A matching version returns

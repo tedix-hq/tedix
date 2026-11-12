@@ -12,6 +12,7 @@ const requests = new WeakMap<object, PhaseTimings>();
  * settlement; detached waitUntil work is excluded. Unobserved phases are null. */
 class PhaseTimings {
 	readonly startedAt = performance.now();
+	private readonly api: Record<string, number> = {};
 	readonly phases: Record<Phase, number | null> = {
 		auth: null,
 		policy: null,
@@ -31,10 +32,24 @@ class PhaseTimings {
 			this.add(phase, startedAt);
 		}
 	}
+	/** Accept only content-free create diagnostics from the API binding. */
+	recordApi(header: string): void {
+		for (const entry of header.split(",")) {
+			const match =
+				/^\s*(output-(?:workspace|envelope|storage|editor));dur=(\d+(?:\.\d+)?)\s*$/.exec(
+					entry,
+				);
+			if (!match) continue;
+			const duration = Number(match[2]);
+			if (Number.isFinite(duration))
+				this.api[match[1]!] = (this.api[match[1]!] ?? 0) + duration;
+		}
+	}
 	snapshot() {
 		return {
 			unit: "ms",
 			...this.phases,
+			...(Object.keys(this.api).length ? { api: { ...this.api } } : {}),
 			total: Math.max(0, performance.now() - this.startedAt),
 		};
 	}

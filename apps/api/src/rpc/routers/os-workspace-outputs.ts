@@ -316,6 +316,14 @@ function normalizeOutputBody(input: OsOutputContent | string): OsOutputContent {
 
 const outputsCreate = authorOs.outputs.create.handler(
 	async ({ input, context }) => {
+		let mark = performance.now();
+		const lap = (name: string) => {
+			const now = performance.now();
+			context.serverTiming?.push(
+				`output-${name};dur=${(now - mark).toFixed(1)}`,
+			);
+			mark = now;
+		};
 		const organizationId = requireOrgId(context);
 		const content = normalizeOutputBody(
 			input.content ?? emptyOutputContent(input.kind),
@@ -336,8 +344,10 @@ const outputsCreate = authorOs.outputs.create.handler(
 				"workspaceId is required when an agent creates an output",
 			);
 		}
+		lap("workspace");
 		const creator = resolveCreator(context);
 		const accessEnvelope = await resolveAccessEnvelope(context);
+		lap("envelope");
 		const now = new Date().toISOString();
 		const outputId = crypto.randomUUID();
 		const revisionId = crypto.randomUUID();
@@ -372,7 +382,9 @@ const outputsCreate = authorOs.outputs.create.handler(
 		);
 		// Every creator (people, agents, tedis, skills) lands here; the output
 		// opens in its reusable editor gadget from the first read.
+		lap("storage");
 		await attachOutputEditor(context, created.output);
+		lap("editor");
 		return {
 			output: mapOsOutputRow(created.output),
 			revision: mapOsOutputRevisionRow(created.revision),
