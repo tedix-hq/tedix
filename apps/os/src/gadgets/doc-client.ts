@@ -20,6 +20,7 @@ import { editorIcon, type EditorIcon } from "./editor-icons";
 import { lastingSaveFailure } from "../lib/save-failure";
 import { createOutputSync } from "../lib/output-sync";
 import { fileToStoredImage } from "../lib/image-downscale";
+import { richTextToMarkdown } from "../lib/rich-text-markdown";
 
 type DocumentContent = Extract<OsOutputContent, { kind: "document" }>;
 type Context = {
@@ -672,14 +673,36 @@ export async function mountDocClient(
 		if (destroyed) return;
 		try {
 			if (format === "md") {
-				const result = await call<{ text: string; title: string }>(
-					"exportMarkdown",
+				const richText = editor!.getJSON() as OsRichTextDocument;
+				// A picture stored with the file is written into the Markdown itself.
+				const stored = new Map<string, string>();
+				const collect = (nodes: OsRichTextNode[] = []) => {
+					for (const node of nodes) {
+						const src = node.type === "image" && node.attrs?.src;
+						if (typeof src === "string" && src.startsWith("tedix-asset:"))
+							stored.set(src, "");
+						collect(node.content);
+					}
+				};
+				collect(richText.content);
+				await Promise.all(
+					[...stored.keys()].map((url) =>
+						bridge
+							.call<{ dataUrl: string }>("outputs.image", { slot, url })
+							.then(
+								(image) => stored.set(url, image.dataUrl),
+								() => undefined,
+							),
+					),
 				);
 				await bridge.call("app.download", {
 					filename:
-						(result.title || "Document").replace(/[\\/:*?"<>|]/g, "_") + ".md",
+						(loaded.output.title || "Document").replace(/[\\/:*?"<>|]/g, "_") +
+						".md",
 					mimeType: "text/markdown",
-					text: result.text,
+					text: richTextToMarkdown(richText, (source) =>
+						stored.has(source) ? stored.get(source) : source,
+					),
 				});
 			} else
 				await bridge.call("app.exportOutput", {
@@ -688,7 +711,7 @@ export async function mountDocClient(
 					expectedRevision: loaded.revision.revision,
 				});
 			say(
-				`Exported as ${name}.${format === "md" ? " Markdown keeps the text and structure, not the styling." : ""}${dirty ? " Your newest changes are not in it yet." : ""}`,
+				`Exported as ${name}.${format === "md" ? " Colours, sizes and alignment are not part of Markdown." : dirty ? " Your newest changes are not in it yet." : ""}`,
 			);
 		} catch (error) {
 			say(reason(error, "Export failed"), true);
