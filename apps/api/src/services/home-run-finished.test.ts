@@ -8,6 +8,7 @@ import {
 	tediRuntimeEvents,
 } from "@tedix/db/schema/cognitive-runtime";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
+import { listHomeRunFinishedEvents } from "@tedix/db/queries/kernel-runtime-events";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { createD1Facade } from "../../../../packages/db/src/test/d1-facade";
 import { schemaDdl } from "../../../../packages/db/src/test/schema-ddl";
@@ -240,6 +241,59 @@ describe("Home completion feed visibility", () => {
 			(await pollHomeRunFinished(context("other-member"), start, "org-example"))
 				.events,
 		).toEqual([]);
+		const { db } = context("owner-example");
+		for (const [runId, parentRunId] of [
+			["direct-child", "direct-parent"],
+			["plan-child", "plan-parent"],
+			["missing-child", undefined],
+		])
+			expect(
+				(
+					await listHomeRunFinishedEvents(db, {
+						organizationId: "org-example",
+						runId,
+						limit: 1,
+						head: true,
+					})
+				)[0]?.parentRunId,
+			).toBe(parentRunId);
+		for (const [conversationId, count] of [
+			["private-chat", 2],
+			["child-chat", 0],
+		] as const)
+			expect(
+				await listHomeRunFinishedEvents(db, {
+					organizationId: "org-example",
+					conversationId,
+					limit: 10,
+				}),
+			).toHaveLength(count);
+	});
+
+	it("seeks one run's finished events by run key instead of grouping the organization's history", async () => {
+		let query = "";
+		const { sqlite, context } = fixture((sql) => {
+			if (sql.includes("AS home_finished")) query = sql;
+		});
+		await listHomeRunFinishedEvents(context("owner-example").db, {
+			organizationId: "org-example",
+			runId: "run-example",
+			limit: 1,
+			head: true,
+		});
+		const details = sqlite
+			.prepare(`EXPLAIN QUERY PLAN ${query}`)
+			.all(...Array(query.match(/\?/g)?.length ?? 0).fill(null))
+			.map((row) => String(row.detail))
+			.join("\n");
+		expect(details).toContain(
+			"idx_kernel_runtime_events_run_created (organization_id=? AND run_id=?)",
+		);
+		expect(details).toContain(
+			"idx_kernel_runtime_runs_org_child (organization_id=? AND child_run_id=?)",
+		);
+		expect(details).not.toContain("idx_tedi_runtime_events_org ");
+		expect(details).not.toMatch(/SCAN (e|p|r)\b/);
 	});
 
 	it("maps Home questions and failed dispatches without announcing queued delegations as finished", async () => {
