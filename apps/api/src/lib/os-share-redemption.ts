@@ -832,7 +832,16 @@ export async function handleOsShareSessionOutput(
 	});
 }
 
-async function readOutput(db: DbQueryClient, link: OsShareLinkRow) {
+/**
+ * `knownRevisionId` is the revision an open page already shows: when it is
+ * still the one the link opens, its body (with every embedded image) is not
+ * read and sent again; the answer says `unchanged` instead.
+ */
+async function readOutput(
+	db: DbQueryClient,
+	link: OsShareLinkRow,
+	knownRevisionId?: string,
+) {
 	const output = await getOsOutput(db, {
 		organizationId: link.organizationId,
 		outputId: link.resourceId,
@@ -861,7 +870,9 @@ async function readOutput(db: DbQueryClient, link: OsShareLinkRow) {
 		revision: {
 			id: revision.id,
 			revision: revision.revision,
-			content: await parseOutputContentWithImages(revision),
+			...(knownRevisionId === revision.id
+				? { unchanged: true as const }
+				: { content: await parseOutputContentWithImages(revision) }),
 			createdAt: revision.createdAt,
 		},
 		openPath: null,
@@ -871,9 +882,11 @@ async function readOutput(db: DbQueryClient, link: OsShareLinkRow) {
 export async function readOsSharedResource(
 	db: DbQueryClient,
 	link: OsShareLinkRow,
+	knownRevisionId?: string,
 ) {
 	const role = effectiveRole(link);
-	if (link.resourceType === "output") return readOutput(db, link);
+	if (link.resourceType === "output")
+		return readOutput(db, link, knownRevisionId);
 	if (link.resourceType === "gadget") return readGadget(db, link, role);
 	return readWorkspace(db, link, role);
 }
@@ -922,8 +935,9 @@ async function sessionResponse(
 	link: OsShareLinkRow,
 	sessionToken?: string,
 	mayManage?: ManageOsShareCheck,
+	knownRevisionId?: string,
 ): Promise<Response> {
-	const resource = await readOsSharedResource(db, link);
+	const resource = await readOsSharedResource(db, link, knownRevisionId);
 	if (!resource) return notFound();
 	const body: OsShareOpenResult = {
 		needsSignIn: false,
@@ -1156,6 +1170,7 @@ export async function handleOsShareSessionRead(
 	authorizeRecipient?: AuthorizeOsShareRecipient,
 	identifyRecipient?: IdentifyOsShareRecipient,
 	mayManage?: ManageOsShareCheck,
+	knownRevisionId?: string,
 ): Promise<Response> {
 	if (!TOKEN_SHAPE.test(sessionToken)) return notFound();
 	const now = new Date().toISOString();
@@ -1177,5 +1192,13 @@ export async function handleOsShareSessionRead(
 		))
 	)
 		return notFound();
-	return sessionResponse(db, link, undefined, mayManage);
+	return sessionResponse(
+		db,
+		link,
+		undefined,
+		mayManage,
+		knownRevisionId && knownRevisionId.length <= 100
+			? knownRevisionId
+			: undefined,
+	);
 }

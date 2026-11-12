@@ -21,7 +21,7 @@ vi.mock("@/components/widget-frame", () => ({
 	),
 }));
 
-import { ShareLinkPage } from "./share-link-page";
+import { keepShownContent, ShareLinkPage } from "./share-link-page";
 
 const ID = "AbCdEfGhIjKlMnOpQrStUv";
 const OTHER_ID = "ZyXwVuTsRqPoNmLkJiHgFe";
@@ -91,6 +91,48 @@ afterEach(() => {
 	while (cleanups.length > 0) cleanups.pop()?.();
 	vi.unstubAllGlobals();
 	vi.restoreAllMocks();
+});
+
+describe("keepShownContent", () => {
+	const shown = {
+		type: "output" as const,
+		output: {
+			id: "out-1",
+			workspaceId: null,
+			title: "Deck",
+			kind: "presentation",
+		},
+		revision: {
+			id: "rev-1",
+			revision: 1,
+			content: { kind: "presentation", slides: [] },
+		},
+		openPath: null,
+	} as unknown as Parameters<typeof keepShownContent>[1];
+	const refresh = (revision: Record<string, unknown>) =>
+		({
+			needsSignIn: false,
+			resource: { type: "output", output: {}, revision },
+		}) as unknown as Parameters<typeof keepShownContent>[0];
+
+	it("keeps the body on screen when the server says the file is unchanged", () => {
+		const kept = keepShownContent(
+			refresh({ id: "rev-1", revision: 1, unchanged: true }),
+			shown,
+		);
+		expect(
+			(kept.resource as { revision: { content: unknown } }).revision.content,
+		).toEqual({ kind: "presentation", slides: [] });
+	});
+
+	it("takes a new version as sent", () => {
+		const next = refresh({
+			id: "rev-2",
+			revision: 2,
+			content: { kind: "presentation", slides: [{}] },
+		});
+		expect(keepShownContent(next, shown)).toBe(next);
+	});
 });
 
 describe("ShareLinkPage", () => {

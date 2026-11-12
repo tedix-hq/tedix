@@ -139,12 +139,15 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 				import("@tedix/db/query-client"),
 				shareRecipient(c.req.raw, c.env),
 			]);
+		const body = await c.req.json().catch(() => null);
 		return handleOsShareSessionRead(
 			createDbQueryClient(c.env.DB),
-			bodyString(await c.req.json().catch(() => null), "sessionToken"),
+			bodyString(body, "sessionToken"),
 			recipient.authorize,
 			recipient.identify,
 			recipient.mayManage,
+			// The file version the page already shows: unchanged, it is not resent.
+			bodyString(body, "knownRevisionId") || undefined,
 		);
 	});
 

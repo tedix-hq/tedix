@@ -267,6 +267,33 @@ describe("handleOsShareOpen", () => {
 			resource: { type: "output" },
 			canManage: false,
 		});
+		// A refresh that names the version on screen gets no body back; a
+		// stale or unknown version gets the current one in full.
+		const refreshed = (knownRevisionId?: string) =>
+			handleOsShareSessionRead(
+				db,
+				body.sessionToken,
+				undefined,
+				undefined,
+				undefined,
+				knownRevisionId,
+			).then(
+				(response) =>
+					response.json() as Promise<{
+						resource: { revision: Record<string, unknown> };
+					}>,
+			);
+		expect((await refreshed("rev-1")).resource.revision).toEqual({
+			id: "rev-1",
+			revision: 1,
+			unchanged: true,
+			createdAt: accountability.createdAt,
+		});
+		expect((await refreshed("rev-0")).resource.revision).toMatchObject({
+			id: "rev-1",
+			content: { kind: "document", blocks: [] },
+		});
+		expect((await refreshed()).resource.revision).toHaveProperty("content");
 		expect((await handleOsShareSessionRead(db, body.sessionToken)).status).toBe(
 			200,
 		);
