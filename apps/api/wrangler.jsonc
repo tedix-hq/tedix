@@ -539,6 +539,13 @@
 					"database_id": "00000000-0000-0000-0000-000000000001",
 					"remote": false,
 				},
+				{
+					// Earlier logs database, kept for reads after a rotation.
+					"binding": "LOGS_DB_1",
+					"database_name": "public-installation-logs",
+					"database_id": "00000000-0000-0000-0000-000000000002",
+					"remote": false,
+				},
 			],
 			"artifacts": [
 				{
