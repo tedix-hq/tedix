@@ -374,7 +374,7 @@ describe("catalog projection reuse", () => {
 			expect(stringify).not.toHaveBeenCalled();
 			const legacy = providers.find((provider) => provider.name === "legacy")!;
 			expect(Object.keys(legacy.fns).sort()).toEqual(["shadowed", "unique"]);
-			expect(legacy.prelude).toContain('"shadowed"');
+			expect(legacy.prelude).toContain("__dispatchers.legacy");
 			expect(stringify).toHaveBeenCalled();
 			expect(
 				legacyNamespaceAliases(ctx, undefined, groups, new Set()).get("legacy")
