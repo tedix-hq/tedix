@@ -12,6 +12,8 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, rmSync, statSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
+import { dirname, resolve } from "node:path";
+import type { CaptureManifest } from "./capture-manifest";
 import { RowDigest, rowKey, splitSqlStatements, type StoredRow } from "./rows";
 import type { SourceStore, TableMapping, WorkspaceAssignments } from "./tables";
 
@@ -30,18 +32,41 @@ export class Snapshot {
 	readonly logs: readonly DatabaseSync[];
 	/** When the oldest of its files was written: the snapshot is no newer than that. */
 	readonly takenAt: Date;
+	readonly capture?: CaptureManifest;
 
 	private constructor(
 		main: DatabaseSync,
 		logs: readonly DatabaseSync[],
 		takenAt: Date,
+		capture?: CaptureManifest,
 	) {
 		this.main = main;
 		this.logs = logs;
 		this.takenAt = takenAt;
+		this.capture = capture;
 	}
 
 	static open(paths: SnapshotPaths): Snapshot {
+		if (paths.main.endsWith(".json")) {
+			if (paths.logs?.length)
+				throw new Error("capture manifest already names its log files");
+			const manifest = JSON.parse(
+				readFileSync(paths.main, "utf8"),
+			) as CaptureManifest;
+			if (
+				manifest.kind !== "paced-workspace-capture" ||
+				manifest.version !== 1 ||
+				!Array.isArray(manifest.logs)
+			)
+				throw new Error("invalid capture manifest");
+			const base = dirname(resolve(paths.main));
+			return new Snapshot(
+				openSnapshotFile(resolve(base, manifest.main)),
+				manifest.logs.map((file) => openSnapshotFile(resolve(base, file))),
+				new Date(manifest.endedAt),
+				manifest,
+			);
+		}
 		const files = [paths.main, ...(paths.logs ?? [])];
 		for (const file of files)
 			if (!existsSync(file))

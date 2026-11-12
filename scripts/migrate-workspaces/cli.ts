@@ -16,6 +16,7 @@
  * /admin/migration door instead.
  */
 import { readFileSync, writeFileSync } from "node:fs";
+import { capture, type CaptureConfig } from "./capture";
 import { proposeAssignments } from "./assignments";
 import { openBundleStore, R2BundleStore } from "./bundle";
 import { exportAll } from "./export";
@@ -90,6 +91,13 @@ function readScope(flags: ParsedArgs["flags"]): Scope | undefined {
 
 function readAssignments(flags: ParsedArgs["flags"]): WorkspaceAssignments {
 	const path = text(flags, "assignments");
+	const snapshotPath = text(flags, "snapshot");
+	if (!path && snapshotPath?.endsWith(".json"))
+		return (
+			JSON.parse(
+				readFileSync(snapshotPath, "utf8"),
+			) as import("./capture-manifest").CaptureManifest
+		).assignments;
 	return path
 		? (JSON.parse(readFileSync(path, "utf8")) as WorkspaceAssignments)
 		: {};
@@ -149,6 +157,23 @@ export async function main(
 	const { command, flags } = parseArgs(argv);
 	const reportPath = text(flags, "report");
 	switch (command) {
+		case "capture": {
+			const config = JSON.parse(
+				readFileSync(required(flags, "config"), "utf8"),
+			) as CaptureConfig;
+			const apiToken = env.CLOUDFLARE_API_TOKEN;
+			if (!apiToken)
+				throw new Error("Set CLOUDFLARE_API_TOKEN for read-only D1 capture");
+			const manifest = await capture(config, required(flags, "out"), {
+				apiToken,
+				pageSize: Number(text(flags, "page-size") ?? 100),
+				delayMs: Number(text(flags, "delay-ms") ?? 2000),
+				delayFile: text(flags, "delay-file"),
+				log: out,
+			});
+			out(JSON.stringify(manifest, null, 2));
+			return 0;
+		}
 		case "export": {
 			const snapshot = openSnapshot(flags);
 			if (!snapshot) throw new Error("--snapshot is required");

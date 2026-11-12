@@ -34,6 +34,7 @@ export interface StoreProof {
 
 export interface SnapshotManifest {
 	takenAt: string;
+	capture?: import("./capture-manifest").CaptureManifest;
 	main: StoreProof;
 	logs: StoreProof[];
 }
@@ -81,6 +82,7 @@ function storeProof(db: DatabaseSync, store: "main" | "logs"): StoreProof {
 export function snapshotManifest(snapshot: Snapshot): SnapshotManifest {
 	return {
 		takenAt: snapshot.takenAt.toISOString(),
+		...(snapshot.capture ? { capture: snapshot.capture } : {}),
 		main: storeProof(snapshot.main, "main"),
 		logs: snapshot.logs.map((db) => storeProof(db, "logs")),
 	};
@@ -93,6 +95,48 @@ export function validateSnapshot(
 ): string[] {
 	const problems: string[] = [];
 	const age = now.getTime() - snapshot.takenAt.getTime();
+	if (snapshot.capture) {
+		const capture = snapshot.capture;
+		if (
+			!Number.isFinite(age) ||
+			age < 0 ||
+			!Number.isFinite(Date.parse(capture.startedAt)) ||
+			Date.parse(capture.startedAt) > snapshot.takenAt.getTime()
+		)
+			problems.push("invalid capture times");
+		if (
+			!capture.logDatabaseIds?.length ||
+			new Set(capture.logDatabaseIds).size !== capture.logDatabaseIds.length ||
+			JSON.stringify(capture.logDatabaseIds) !==
+				JSON.stringify(capture.completedLogDatabaseIds) ||
+			capture.logs.length !== capture.logDatabaseIds.length
+		)
+			problems.push("capture log coverage is incomplete");
+		for (const [index, file] of [capture.main, ...capture.logs].entries()) {
+			for (const mapping of WORKSPACE_TABLES.filter(
+				(m) => index === 0 || m.stores.includes("logs"),
+			)) {
+				const mark = capture.highWater?.[file]?.[mapping.table];
+				if (
+					!mark ||
+					!Number.isSafeInteger(mark.rowid) ||
+					mark.rowid < 0 ||
+					(mark.updatedAt !== null &&
+						!Number.isFinite(Date.parse(mark.updatedAt)))
+				)
+					problems.push(
+						`capture missing high-water mark: ${file} ${mapping.table}`,
+					);
+			}
+		}
+		problems.push(
+			...manifestDifferences(capture.proof, {
+				takenAt: snapshot.takenAt.toISOString(),
+				main: storeProof(snapshot.main, "main"),
+				logs: snapshot.logs.map((db) => storeProof(db, "logs")),
+			}),
+		);
+	}
 	if (age > SNAPSHOT_MAX_AGE_MS)
 		problems.push(
 			`snapshot was taken at ${snapshot.takenAt.toISOString()}, more than ${SNAPSHOT_MAX_AGE_MS / 3_600_000} hours before the import; take a new one`,
@@ -194,6 +238,8 @@ export function manifestDifferences(
 ): string[] {
 	if (!expected) return ["bundle carries no snapshot manifest"];
 	const differences: string[] = [];
+	if (JSON.stringify(expected.capture) !== JSON.stringify(actual.capture))
+		differences.push("capture boundaries differ");
 	if (expected.takenAt !== actual.takenAt)
 		differences.push(
 			`snapshot taken at ${actual.takenAt}, bundle exported from ${expected.takenAt}`,

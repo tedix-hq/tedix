@@ -8,6 +8,7 @@ file is the reference for the commands and their contracts.
 ## Commands
 
 ```bash
+bun scripts/migrate-workspaces/cli.ts capture --config capture-config.json --out /private/capture [--page-size 100] [--delay-ms 2000] [--delay-file /private/delay-ms]
 bun scripts/migrate-workspaces/cli.ts export    --snapshot main.sql --logs logs-1.sql logs-2.sql --assignments assignments.json --bundles r2://<bucket>/<prefix> [--scope <org>/<workspace>]
 bun scripts/migrate-workspaces/cli.ts import    --bundles r2://<bucket>/<prefix> --remote https://<mcp-host> --auth tedix --snapshot main.sql --logs logs-1.sql logs-2.sql [--scope <org>/<workspace>]
 bun scripts/migrate-workspaces/cli.ts reconcile --bundles r2://<bucket>/<prefix> --remote https://<mcp-host> --auth tedix --snapshot main.sql --logs logs-1.sql logs-2.sql [--scope <org>/<workspace>] --report reconcile.json
@@ -16,6 +17,35 @@ bun scripts/migrate-workspaces/cli.ts schema-check --snapshot main.sql --logs lo
 bun scripts/migrate-workspaces/cli.ts assignments --snapshot main.sql --out assignments.json
 ```
 
+- `capture` uses the audited D1 HTTP query API for the nine mapped main
+  tables and only the moved conversations' runtime events in each log store.
+  Its private configuration names `accountId`, `mainDatabaseId`, every
+  `logDatabaseIds` entry and reviewed `assignments` (the home choices below).
+  Set `CLOUDFLARE_API_TOKEN` using the installation's authorized credential.
+  Schema and partition metadata are read separately; organization identities
+  are derived locally from workspace directory rows.
+  Reads are serial keyset pages bounded by a recorded source rowid. The delay
+  defaults to two seconds and cannot be lower. Overload, 7429, temporarily
+  unavailable, 429 and 503 responses back off at least 30 seconds and increase
+  the subsequent delay. A monitor can raise the delay by writing milliseconds
+  to `--delay-file`; it never lowers an existing delay.
+  Restart the same command and directory to resume. `cursor.sqlite` commits
+  each page with its checkpoint; `cursor.json` is its readable mirror.
+  Keep one process per capture directory. Completed captures retain their
+  original end time on rerun and cannot be refreshed by rerunning the command.
+  The resulting `manifest.json` records capture times, per-store counts and
+  hashes, partition coverage, high-water marks and request/backoff totals.
+  Pass it as `--snapshot /private/capture/manifest.json` to the other commands
+  without `--logs`; export and rehearsal use its reviewed assignments unless
+  an explicit assignments file is supplied. Validation recomputes its hashes,
+  checks every recorded partition and keeps the existing historical checks.
+  Freshness uses capture end time. Full-export validation is unchanged.
+  Capture is a moving read for additive staging. For timestamped tables,
+  reconciliation separates rows updated after the mark as expected re-reads.
+  For tables bounded by rowid, new target keys need a source re-read to verify
+  their rowid is above the mark. Both remain unready for cutover until re-read;
+  existing-row changes without a timestamp remain drift. No capture or
+  reconciliation command freezes writes or authorizes activation.
 - `export` reads one snapshot of the shared database (`wrangler d1 export`
   output or a `.sqlite` file) for the main database and every log partition,
   and writes one bundle per workspace: `manifest.json` plus a `<table>.jsonl`
