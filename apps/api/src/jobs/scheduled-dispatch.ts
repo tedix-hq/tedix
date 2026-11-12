@@ -251,18 +251,22 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 			await trackPlatformCronPath(env, event, "work-approval-redrive", () =>
 				dispatchWorkApprovalRedrives(env, event.scheduledTime),
 			);
-			const { createDbClient } = await import("@tedix/db/client");
-			const { dispatchStallRecovery } = await import("./stall-recovery");
-			// Recovery has its own receipt and lifetime; it must not hold replay or later paths.
-			ctx.waitUntil(
-				trackPlatformCronPath(env, event, "stall-recovery", async () => ({
-					resumeRequested: await dispatchStallRecovery(
-						createDbClient(env.DB),
-						env,
-						event.scheduledTime,
-					),
-				})),
-			);
+			// Idle limits start at 15 minutes and each inventory page reads about
+			// 120k history rows, so one page every six minutes is enough.
+			if (minute % 6 < 2) {
+				const { createDbClient } = await import("@tedix/db/client");
+				const { dispatchStallRecovery } = await import("./stall-recovery");
+				// Recovery has its own receipt and lifetime; it must not hold replay or later paths.
+				ctx.waitUntil(
+					trackPlatformCronPath(env, event, "stall-recovery", async () => ({
+						resumeRequested: await dispatchStallRecovery(
+							createDbClient(env.DB),
+							env,
+							event.scheduledTime,
+						),
+					})),
+				);
+			}
 			if (minute % 10 < 2) {
 				// Accepted non-coding Work with no executor goes to its steward tedi.
 				const { dispatchWorkRouting } = await import("./work-routing");
