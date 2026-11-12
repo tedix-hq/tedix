@@ -456,7 +456,17 @@ export function OsCommandPalette({
 					{filteredGroups.reduce((sum, group) => sum + group.items.length, 0)}{" "}
 					results
 				</span>
-				<span className="flex items-center gap-3">
+				{/* A phone has no Escape key, and with its keyboard open the search
+				    covers the page behind it, so closing needs its own button. */}
+				<Button
+					className="sm:hidden"
+					onClick={() => onOpenChange(false)}
+					size="sm"
+					variant="ghost"
+				>
+					Close
+				</Button>
+				<span className="flex items-center gap-3 max-sm:hidden">
 					<span className="flex items-center gap-1">
 						<Kbd>↑↓</Kbd> navigate
 					</span>

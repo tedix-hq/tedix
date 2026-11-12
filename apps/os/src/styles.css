@@ -1052,3 +1052,55 @@ a {
 	);
 	--secondary-foreground: var(--foreground);
 }
+
+/*
+ * On a phone a menu opens as a sheet from the bottom edge instead of a small
+ * box beside its button: every action is full width, in reach of a thumb, and
+ * clear of the home indicator and the keyboard. The positioner's inline
+ * coordinates are the library's, hence `!important`.
+ */
+@media (max-width: 639px) {
+	[data-base-ui-portal] > [role="presentation"]:has(> [role="menu"]) {
+		position: fixed !important;
+		inset: auto 0 0 0 !important;
+		width: 100%;
+		padding-bottom: var(--viewport-tedix-bottom, 0px);
+		transform: none !important;
+	}
+
+	[data-base-ui-portal] > [role="presentation"] > [role="menu"] {
+		width: 100%;
+		max-width: none;
+		/* As tall as it needs, short of the status bar: a long menu on a small
+		   phone shows every action without scrolling where it can. */
+		max-height: calc(
+			var(--viewport-tedix-height) - env(safe-area-inset-top, 0px) - 3rem
+		);
+		box-sizing: border-box;
+		padding: 0.5rem 0.5rem calc(0.5rem + env(safe-area-inset-bottom, 0px));
+		border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+		/* Dims the page behind the sheet without another element. */
+		box-shadow: 0 0 0 100vmax rgb(0 0 0 / 0.4);
+		overscroll-behavior: contain;
+	}
+}
+
+/*
+ * Search on a phone starts under the status bar and never grows taller than
+ * the part of the screen the keyboard leaves visible, so the last result can
+ * always be scrolled into view. (The search box stays at the top: a sheet at
+ * the bottom would put it under the keyboard's own suggestions bar.)
+ */
+@media (max-width: 639px) {
+	[role="dialog"]:has(> div > div > input[role="combobox"]) {
+		top: calc(
+			var(--viewport-tedix-top, 0px) + env(safe-area-inset-top, 0px) + 0.5rem
+		);
+	}
+
+	[role="dialog"]:has(> div > div > input[role="combobox"]) > div {
+		max-height: calc(
+			var(--viewport-tedix-height) - env(safe-area-inset-top, 0px) - 1rem
+		);
+	}
+}

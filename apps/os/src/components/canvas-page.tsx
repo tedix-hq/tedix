@@ -123,6 +123,10 @@ import {
 	type CanvasWorkpieceMode,
 } from "@/lib/canvas-search";
 import {
+	persistCanvasPhonePane,
+	restoreCanvasPhonePane,
+} from "@/lib/canvas-phone-pane";
+import {
 	activeWorkspacesQueryOptions,
 	canvasGadgetDetailQueryOptions,
 	canvasGadgetsQueryOptions,
@@ -1183,6 +1187,27 @@ export function CanvasPage({
 		writeCanvasSearch,
 	]);
 
+	// A phone shows one tab at a time, so it remembers which one per workspace:
+	// every tab the URL names is saved, and a bare workspace URL reopens it.
+	useEffect(() => {
+		if (!narrow || workspaceId === null) return;
+		if (requestedPane !== undefined) {
+			persistCanvasPhonePane(window.localStorage, workspaceId, requestedPane);
+			return;
+		}
+		if (requestedDoc) return;
+		// Chat is where a bare URL already lands once nothing opens by itself
+		// (see the next effect), so only Files needs writing.
+		if (
+			restoreCanvasPhonePane(window.localStorage, workspaceId) !== "resources"
+		) {
+			return;
+		}
+		setMobilePane("resources");
+		setResourceRailOpen(true);
+		writeCanvasSearch({ pane: "resources" }, true);
+	}, [narrow, requestedDoc, requestedPane, workspaceId, writeCanvasSearch]);
+
 	// A bare Workspace URL is a first-open request, not an instruction to leave
 	// a populated project blank. This deliberately follows the URL reconciliation
 	// effect above so its local selection is not cleared in the same commit.
@@ -1200,6 +1225,15 @@ export function CanvasPage({
 			primaryWorkpieceWorkspaceRef.current === workspaceId
 		) {
 			return;
+		}
+		// A phone that last had Chat or Files open goes back there (the effect
+		// above this one writes it to the URL) instead of opening an item.
+		if (narrow) {
+			const remembered = restoreCanvasPhonePane(
+				window.localStorage,
+				workspaceId,
+			);
+			if (remembered === "chat" || remembered === "resources") return;
 		}
 		const primary = primaryCanvasDoc(
 			outputs.data.items,
@@ -1258,6 +1292,7 @@ export function CanvasPage({
 		appNavigationPending,
 		preferredAppId,
 		gadgets.data,
+		narrow,
 		noteUnaskedSelection,
 		outputEditors,
 		outputs.data,
