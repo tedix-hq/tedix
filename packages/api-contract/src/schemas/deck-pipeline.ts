@@ -109,6 +109,12 @@ export const DeckPipelineConfigSchema = z.strictObject({
 				.min(0.5)
 				.max(48)
 				.default(defaults.sweep.staleAfterHours),
+			/** A deadline card is withdrawn this long after its deadline passed. */
+			deadlineGraceHours: z
+				.number()
+				.min(0)
+				.max(720)
+				.default(defaults.sweep.deadlineGraceHours),
 		})
 		.prefault({}),
 	qualification: z

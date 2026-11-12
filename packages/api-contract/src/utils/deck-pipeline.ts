@@ -194,7 +194,7 @@ export type SweepAction = {
 	ruleId?: string;
 };
 
-/** S2 retires only expired asks, settled sources, graph facts and learned rules. */
+/** S2 retires only expired asks, lapsed deadline cards, settled sources, graph facts and learned rules. */
 export function planDeckSweep(input: {
 	cards: readonly SweepCard[];
 	now: Date;
@@ -274,6 +274,26 @@ export function planDeckSweep(input: {
 				cause: "expired",
 				workItemId: card.workItemId ?? undefined,
 				note: "Withdrawn: check the source before asking again. Create a fresh ask only if a decision is still needed.",
+				evidenceRefs: card.workItemId
+					? [`/work/items/${card.workItemId}`]
+					: [`work-interaction:${card.id}`],
+			});
+			continue;
+		}
+		// A deadline card only asks for a response before the date. Once the date
+		// is well past it asks nothing; the task itself stays open and overdue.
+		const deadline = Date.parse(card.dueAt ?? "");
+		if (
+			card.metadata.source === "deadline-decisions" &&
+			Number.isFinite(deadline) &&
+			deadline + config.deadlineGraceHours * 3_600_000 <= now.getTime()
+		) {
+			add({
+				cardId: card.id,
+				reason: "expired",
+				cause: "expired",
+				workItemId: card.workItemId ?? undefined,
+				note: "Withdrawn: the deadline passed with no response. The task is still open; a new deadline on it asks again.",
 				evidenceRefs: card.workItemId
 					? [`/work/items/${card.workItemId}`]
 					: [`work-interaction:${card.id}`],
