@@ -36,6 +36,7 @@ import {
 } from "../schema/cognitive-runtime";
 import {
 	type D1RetentionPolicyRow,
+	D1_RETENTION_MODES,
 	d1RetentionPolicies,
 } from "../schema/d1-retention";
 import {
@@ -69,8 +70,6 @@ export interface D1RetentionTableSpec {
 	format: D1RetentionTimestampFormat;
 	/** A policy window below this is raised to it. */
 	minKeepDays: number;
-	/** Financial or legal evidence: may be archived and removed, never dropped. */
-	archiveRequired: boolean;
 	/** The logs database holds this table, so `move_to_logs_db` may run. */
 	logsDb: boolean;
 }
@@ -81,7 +80,6 @@ function spec(
 	timestamp: AnySQLiteColumn,
 	format: D1RetentionTimestampFormat,
 	minKeepDays: number,
-	archiveRequired = false,
 ): D1RetentionTableSpec {
 	return {
 		tableName,
@@ -89,7 +87,6 @@ function spec(
 		timestamp,
 		format,
 		minKeepDays,
-		archiveRequired,
 		logsDb: LOGS_DB_TABLE_NAMES.has(tableName),
 	};
 }
@@ -116,7 +113,6 @@ export const D1_RETENTION_TABLES: Readonly<
 		"epoch_seconds",
 		// 90 days in D1 covers incident review (decision 5c5512a5).
 		90,
-		true,
 	),
 	tedi_runtime_events: spec(
 		"tedi_runtime_events",
@@ -138,7 +134,6 @@ export const D1_RETENTION_TABLES: Readonly<
 		skillRunArtifacts.createdAt,
 		"text",
 		14,
-		true,
 	),
 	tedi_call_costs: spec(
 		"tedi_call_costs",
@@ -149,7 +144,6 @@ export const D1_RETENTION_TABLES: Readonly<
 		// authority tables. Keep the existing financial window until those
 		// batch readers can resolve archived sources in the same snapshot.
 		400,
-		true,
 	),
 	// Provenance: only verified-copy moves, and only `mcp_execution` rows that
 	// no review evidence cites (`attributionIsMovable`).
@@ -159,7 +153,6 @@ export const D1_RETENTION_TABLES: Readonly<
 		externalAgentAttributions.occurredAt,
 		"text",
 		EXTERNAL_AGENT_ATTRIBUTION_MIN_KEEP_DAYS,
-		true,
 	),
 });
 
@@ -233,16 +226,8 @@ export function d1RetentionPolicyProblem(
 ): string | null {
 	const tableSpec = getD1RetentionTableSpec(policy.tableName);
 	if (!tableSpec) return "unsupported_table";
+	if (!D1_RETENTION_MODES.includes(policy.mode)) return "unsupported_mode";
 	if (!Number.isInteger(policy.keepDays)) return "keep_days_not_integer";
-	// Artifact views need a queryable pointer to their separately stored R2 body.
-	if (
-		policy.tableName === "skill_run_artifacts" &&
-		policy.mode === "archive_then_delete"
-	)
-		return "logs_copy_required";
-	if (policy.mode === "delete" && tableSpec.archiveRequired) {
-		return "archive_required";
-	}
 	if (policy.mode === "move_to_logs_db" && !tableSpec.logsDb) {
 		return "logs_db_unsupported";
 	}

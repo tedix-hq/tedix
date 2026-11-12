@@ -267,7 +267,7 @@ describe("os gadgets", () => {
 		).toEqual({ n: 0 });
 	});
 
-	it("reads a row written before the files were shared, and refuses a dangling pointer", async () => {
+	it("refuses missing and dangling blob pointers", async () => {
 		const { db, sqlite } = fixture();
 		await createOsGadget(db, gadget);
 		await createOsGadgetRevision(db, revisionParams("rev-1"));
@@ -277,16 +277,9 @@ describe("os gadgets", () => {
 		);
 		insert.run("rev-1", '{"server.js":"old!"}', null);
 		insert.run("rev-2", "", "0".repeat(64));
-		expect(
-			await getOsGadgetCode(db, {
-				organizationId: "org-1",
-				revisionId: "rev-1",
-			}),
-		).toMatchObject({
-			files: '{"server.js":"old!"}',
-			codeLength: 4,
-			filesSha256: null,
-		});
+		await expect(
+			getOsGadgetCode(db, { organizationId: "org-1", revisionId: "rev-1" }),
+		).rejects.toThrow("Gadget code files are missing");
 		await expect(
 			getOsGadgetCode(db, { organizationId: "org-1", revisionId: "rev-2" }),
 		).rejects.toThrow("Gadget code files are missing");

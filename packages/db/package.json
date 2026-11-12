@@ -315,7 +315,6 @@
 		"./queries/os-shares": "./src/queries/os-shares.ts",
 		"./queries/os-collaborators": "./src/queries/os-collaborators.ts",
 		"./queries/os-workspaces/outputs": "./src/queries/os-workspaces/outputs.ts",
-		"./queries/os-workspaces/output-body-backfill": "./src/queries/os-workspaces/output-body-backfill.ts",
 		"./queries/os-workspaces/output-asset-migration": "./src/queries/os-workspaces/output-asset-migration.ts",
 		"./queries/os-workspaces/output-body-offload": "./src/queries/os-workspaces/output-body-offload.ts",
 		"./queries/os-workspaces/collaboration": "./src/queries/os-workspaces/collaboration.ts",

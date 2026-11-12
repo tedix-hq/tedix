@@ -371,8 +371,7 @@ async function preparePolicyTurn(
 	result.problem = d1RetentionPolicyProblem(policy);
 	const tableSpec = getD1RetentionTableSpec(policy.tableName);
 	if (result.problem || !tableSpec) return turn;
-	const archives =
-		policy.mode === "archive_then_delete" || policy.mode === "move_to_logs_db";
+	const archives = policy.mode === "move_to_logs_db";
 	if (archives && !bucket) {
 		result.problem = "archive_bucket_missing";
 		return turn;
@@ -435,8 +434,7 @@ async function movePages(
 	const { result } = turn;
 	const tableSpec = getD1RetentionTableSpec(policy.tableName);
 	if (!tableSpec) return;
-	const archives =
-		policy.mode === "archive_then_delete" || policy.mode === "move_to_logs_db";
+	const archives = policy.mode === "move_to_logs_db";
 	const keepDays = d1RetentionEffectiveKeepDays(tableSpec, policy);
 	const cutoff = d1RetentionCutoff(tableSpec, now, keepDays);
 	const { timings } = result;

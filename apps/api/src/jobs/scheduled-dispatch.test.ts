@@ -32,7 +32,6 @@ const catchup = vi.hoisted(() => ({
 	ingest: vi.fn(),
 	billing: vi.fn(),
 	stall: vi.fn().mockResolvedValue(0),
-	dedupe: vi.fn().mockResolvedValue({ status: "off" }),
 	thinning: vi.fn().mockResolvedValue({ status: "off" }),
 	offload: vi.fn().mockResolvedValue({
 		status: "idle",
@@ -116,9 +115,6 @@ vi.mock("./repository-observer", () => ({
 }));
 vi.mock("./support-maintenance", () => ({
 	maintainSupport: vi.fn().mockResolvedValue({ mirrors: 0 }),
-}));
-vi.mock("../services/os-gadget-code-dedupe", () => ({
-	runGadgetCodeDedupeTick: catchup.dedupe,
 }));
 vi.mock("../services/os-output-revision-thinning", () => ({
 	runOutputRevisionThinningTick: catchup.thinning,
@@ -239,10 +235,6 @@ it("runs bounded gateway-only catch-up on the existing two-minute trigger", asyn
 		id: "output-revision-body-offload",
 		status: "success",
 	});
-	// The app code backfill is asked every tick and decides from its own state.
-	expect(catchup.dedupe).toHaveBeenCalledWith(
-		expect.objectContaining({ now: new Date(Date.UTC(2026, 8, 24, 0, 0)) }),
-	);
 	// So is the thinning of auto-save revisions, which an operator arms.
 	expect(catchup.thinning).toHaveBeenCalledWith(
 		expect.objectContaining({ now: new Date(Date.UTC(2026, 8, 24, 0, 0)) }),

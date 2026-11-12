@@ -86,37 +86,23 @@ const audit = () => {
 };
 
 describe("d1 retention policy validation", () => {
-	it("refuses unknown tables and unarchived deletes of evidence, and raises windows below the floor", () => {
+	it("refuses unknown tables and raises windows below the floor", () => {
 		expect(
 			d1RetentionPolicyProblem({
 				tableName: "organizations",
-				mode: "delete",
+				mode: "move_to_logs_db",
 				keepDays: 365,
 			}),
 		).toBe("unsupported_table");
 		expect(
 			d1RetentionPolicyProblem({
 				tableName: "audit_events",
-				mode: "archive_then_delete",
+				mode: "move_to_logs_db",
 				keepDays: 7,
 			}),
 		).toBeNull();
 		expect(d1RetentionEffectiveKeepDays(audit(), { keepDays: 7 })).toBe(90);
 		expect(d1RetentionEffectiveKeepDays(audit(), { keepDays: 120 })).toBe(120);
-		expect(
-			d1RetentionPolicyProblem({
-				tableName: "audit_events",
-				mode: "delete",
-				keepDays: 90,
-			}),
-		).toBe("archive_required");
-		expect(
-			d1RetentionPolicyProblem({
-				tableName: "tedi_runtime_events",
-				mode: "delete",
-				keepDays: 30,
-			}),
-		).toBeNull();
 		expect(getD1RetentionTableSpec("constructor")).toBeNull();
 	});
 
@@ -478,7 +464,7 @@ describe("external agent attribution retention", () => {
 		return { db, spec, seed, review };
 	}
 
-	it("keeps at least 30 days and never deletes without a copy", () => {
+	it("keeps at least 30 days for verified logs moves", () => {
 		const spec = getD1RetentionTableSpec("external_agent_attributions")!;
 		expect(spec.logsDb).toBe(true);
 		expect(d1RetentionEffectiveKeepDays(spec, { keepDays: 7 })).toBe(30);
@@ -489,13 +475,6 @@ describe("external agent attribution retention", () => {
 				keepDays: 30,
 			}),
 		).toBeNull();
-		expect(
-			d1RetentionPolicyProblem({
-				tableName: "external_agent_attributions",
-				mode: "delete",
-				keepDays: 30,
-			}),
-		).toBe("archive_required");
 	});
 
 	it("moves only unreviewed MCP executions and rechecks reviews at deletion", async () => {

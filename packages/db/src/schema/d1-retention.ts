@@ -8,15 +8,12 @@
  * - `off`: do nothing.
  * - `dry_run`: estimate what a real run would archive and free, write the
  *   estimate to `last_report`, change no rows.
- * - `archive_then_delete`: copy expired rows to R2 as gzip NDJSON, verify the
- *   object, then delete exactly those rows.
  * - `move_to_logs_db`: copy expired rows into the logs database (`LOGS_DB`)
  *   with insert-or-ignore, read them back and compare every column, write the
  *   same gzip NDJSON copy to R2, and only then delete exactly those rows from
  *   the main database. The rows stay readable through the merged readers.
  *   Needs the `LOGS_DB` binding and the archive bucket; without either the
  *   run reports a problem and changes nothing.
- * - `delete`: delete expired rows without an archive copy.
  *
  * Runs check the oldest page and resume bounded sweeps past pinned or newer
  * rows using the cursor in `last_report`. Initial policies start in `dry_run`;
@@ -32,9 +29,7 @@ import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 export const D1_RETENTION_MODES = [
 	"off",
 	"dry_run",
-	"archive_then_delete",
 	"move_to_logs_db",
-	"delete",
 ] as const;
 
 export type D1RetentionMode = (typeof D1_RETENTION_MODES)[number];
