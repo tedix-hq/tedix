@@ -50,6 +50,8 @@ import {
 	asciiJson,
 	harnessOf,
 	type StatusDeps,
+	tailLines,
+	TRANSCRIPT_TAIL,
 	type TriageResult,
 } from "./agent-status";
 import { AGENT_IDENTITY_ENV } from "../shared";
@@ -1028,6 +1030,60 @@ async function answerEarlyReply(
 	await onReply(deps, session, binding, reply.prompt, current, options);
 }
 
+/**
+ * The question a host shows outside the closing message: Claude desktop's
+ * next-step box, filled by its `wrap_up` tool. Without it the turn reads as a
+ * status update, so neither the question nor the user's reply is recorded.
+ */
+export function nextStepAsk(transcript: unknown): string | undefined {
+	if (typeof transcript !== "string" || !transcript) return undefined;
+	for (const line of tailLines(transcript, TRANSCRIPT_TAIL)) {
+		let row: unknown;
+		try {
+			row = JSON.parse(line);
+		} catch {
+			// A blank line, or the partial first line of the tail.
+			continue;
+		}
+		if (!isObject(row) || !isObject(row.message)) continue;
+		const content = row.message.content;
+		if (row.type === "user") {
+			// The prompt that started this turn ends the search; tool results do not.
+			if (
+				typeof content === "string" ||
+				(Array.isArray(content) &&
+					content.some((block) => isObject(block) && block.type === "text"))
+			)
+				return undefined;
+			continue;
+		}
+		if (row.type !== "assistant" || !Array.isArray(content)) continue;
+		for (const block of content) {
+			if (
+				!isObject(block) ||
+				block.type !== "tool_use" ||
+				typeof block.name !== "string" ||
+				!/(?:^|__)wrap_up$/.test(block.name) ||
+				!isObject(block.input)
+			)
+				continue;
+			const ask = block.input.ask;
+			if (typeof ask !== "string" || !ask.trim()) return undefined;
+			const options = (
+				Array.isArray(block.input.actions) ? block.input.actions : []
+			).flatMap((action) =>
+				isObject(action) &&
+				typeof action.label === "string" &&
+				action.label.trim()
+					? [action.label.trim()]
+					: [],
+			);
+			return `${ask.trim()}${options.length ? ` (options: ${options.join(" / ")})` : ""}`;
+		}
+	}
+	return undefined;
+}
+
 async function onStop(
 	deps: HookDeps,
 	event: JsonObject,
@@ -1045,6 +1101,10 @@ async function onStop(
 		/^\s*<heartbeat/.test(message)
 	)
 		return;
+	// A question asked in the host's next-step box belongs to this turn too.
+	const ask = nextStepAsk(event.transcript_path);
+	const asked =
+		ask && !message.includes(ask) ? `${message.trimEnd()}\n\n${ask}` : message;
 	// A pending background turn will resume on its own; it is not waiting on the user yet.
 	const background = event.background_tasks;
 	if (
@@ -1088,7 +1148,7 @@ async function onStop(
 	rmSync(questionPath(state), { force: true });
 	rmSync(draftStatusPath(state), { force: true });
 	writeState(state, { pending: token });
-	const [text, complete] = redact(message, MESSAGE_LIMIT, "tail");
+	const [text, complete] = redact(asked, MESSAGE_LIMIT, "tail");
 	// Triage only the redacted text, then settle the turn status before the
 	// slower create so an urgent turn notifies without waiting on it.
 	const triage = await triageTurn(

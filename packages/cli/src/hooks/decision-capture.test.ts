@@ -17,6 +17,7 @@ import {
 	classify,
 	DECLINE_MARKER,
 	draftStatusPath,
+	nextStepAsk,
 	peek,
 	questionPath,
 	repositoryName,
@@ -354,6 +355,69 @@ describe("tedix hooks capture-stop / capture-reply", () => {
 		expect(response.metadata.replyClass).toBe("simplify");
 		expect(response.resolvesRequest).toBe(true);
 		expect(existsSync(state())).toBe(false);
+	});
+
+	test("a question asked in the next-step box is part of the captured turn", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "tedix-next-step-"));
+		const transcript = join(dir, "session.jsonl");
+		const row = (type: string, content: unknown) =>
+			JSON.stringify({ type, message: { role: type, content } });
+		const box = (input: JsonObject) =>
+			row("assistant", [
+				{ type: "tool_use", name: "mcp__ccd_turn__wrap_up", input },
+			]);
+		const closing = row("assistant", [
+			{ type: "text", text: "The fix is committed." },
+		]);
+		try {
+			writeFileSync(
+				transcript,
+				[
+					row("user", "fix the card"),
+					box({
+						recap: "Fixed.",
+						ask: "Push the fix to main now?",
+						actions: [
+							{ label: "Yes, push it" },
+							{ action: "commit" },
+							{ label: "Not now" },
+						],
+					}),
+					row("user", [{ type: "tool_result", content: "ok" }]),
+					closing,
+				].join("\n"),
+			);
+			expect(nextStepAsk(transcript)).toBe(
+				"Push the fix to main now? (options: Yes, push it / Not now)",
+			);
+			await runHook(
+				"stop",
+				{
+					last_assistant_message: "The fix is committed.",
+					transcript_path: transcript,
+				},
+				[BINDING, AUTH, CREATED],
+			);
+			expect(gatewayCalls[0]![1]).toEqual({
+				text: "The fix is committed.\n\nPush the fix to main now? (options: Yes, push it / Not now)",
+			});
+			expect(payloads[0]![1].prompt).toMatch(/Push the fix to main now\?/);
+			// An earlier turn's box, or a box that asks nothing, adds no question.
+			writeFileSync(
+				transcript,
+				[
+					box({ recap: "Old.", ask: "Deploy?" }),
+					row("user", "now fix the card"),
+					closing,
+				].join("\n"),
+			);
+			expect(nextStepAsk(transcript)).toBeUndefined();
+			writeFileSync(transcript, [box({ recap: "Done." }), closing].join("\n"));
+			expect(nextStepAsk(transcript)).toBeUndefined();
+			expect(nextStepAsk(join(dir, "missing.jsonl"))).toBeUndefined();
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 
 	test("outside a bound repository the default organization's inbox gets a repository-free question", async () => {
