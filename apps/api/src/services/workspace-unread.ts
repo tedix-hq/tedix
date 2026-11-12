@@ -93,7 +93,8 @@ export function unreadFromFeed(
 export type WorkspaceReadTarget =
 	| { type: "chat"; conversationId?: string }
 	| { type: "file"; outputId: string }
-	| { type: "all" };
+	| { type: "all" }
+	| { type: "visit" };
 
 /**
  * Move a marker after the person looked at something. `position` is the
@@ -108,6 +109,7 @@ export function advanceReadMarker(
 ): WorkspaceReadMarker {
 	if (!marker || target.type === "all")
 		return { floor: position, chat: position, chats: {}, files: {} };
+	if (target.type === "visit") return marker;
 	if (target.type === "chat") {
 		if (!target.conversationId)
 			return { ...marker, chat: Math.max(marker.chat, position), chats: {} };

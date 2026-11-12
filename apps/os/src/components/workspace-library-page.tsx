@@ -1,3 +1,4 @@
+import { WorkspaceUnreadBadge } from "@/components/workspace-unread-badge";
 import type { OsWorkspace } from "@tedix/api-contract/schemas/os-workspaces";
 import { WorkspaceListRow } from "./workspace-list-row";
 import { EntityAvatar } from "@/shared/entity-avatar";
@@ -734,6 +735,10 @@ function WorkspaceIdentity({
 					>
 						{workspace.name}
 					</Text>
+					<WorkspaceUnreadBadge
+						workspaceId={workspace.id}
+						name={workspace.name}
+					/>
 					{workspace.visibility === "private" ? (
 						<PrivateWorkspaceBadge />
 					) : null}

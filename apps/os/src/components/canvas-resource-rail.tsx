@@ -1,3 +1,4 @@
+import { FileUnreadDot } from "@/components/unread-badge";
 import { SectionTitle } from "@/components/kumo/page";
 import {
 	Collapsible,
@@ -110,6 +111,7 @@ function DocButton({
 			}
 		>
 			<div className="flex min-w-0 flex-wrap items-center gap-2">
+				<FileUnreadDot outputId={item.output.id} />
 				{children}
 			</div>
 		</ResourceCard>

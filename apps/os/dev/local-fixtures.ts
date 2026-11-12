@@ -112,6 +112,17 @@ import type {
 	OsWorkspaceResource,
 } from "@tedix/api-contract/schemas/os-workspaces";
 
+function emptyUnreadState(workspaceId: string) {
+	return {
+		workspaceId,
+		chat: 0,
+		files: 0,
+		total: 0,
+		fileIds: [],
+		conversations: [],
+	};
+}
+
 // ---------------------------------------------------------------------------
 // Deterministic identity + time
 // ---------------------------------------------------------------------------
@@ -7795,6 +7806,16 @@ const handlers: Record<string, (input: never) => unknown> = {
 		};
 		return approval;
 	},
+
+	// Sample data has one signed-in person, so nothing is ever unread.
+	"workspaceUnread/summary": () => ({ total: 0, workspaces: [] }),
+	"workspaceUnread/list": () => ({ total: 0, groups: [] }),
+	"workspaceUnread/workspace": (input: { workspaceId: string }) =>
+		emptyUnreadState(input.workspaceId),
+	"workspaceUnread/markRead": (input: { workspaceId: string }) =>
+		emptyUnreadState(input.workspaceId),
+	"workspaceUnread/markAllRead": () => ({ ok: true }),
+	"workspaceUnread/notifyChat": () => ({ status: "none", notified: 0 }),
 
 	// --- launcher / apps ---
 	// Fixture mode never provisions a real browser subscription.

@@ -139,6 +139,9 @@ import {
 import { outputIdFromHref } from "@/lib/output-navigation";
 import { useLiveWorkspace } from "@/lib/use-live-workspace";
 import { useWorkspacePresence } from "@/lib/workspace-presence";
+import { useWorkspaceUnread } from "@/lib/workspace-unread";
+import { usePushConversation } from "@/lib/use-push-conversation";
+import { UnreadFilesContext } from "@/components/unread-badge";
 import { OS_COPY } from "@/shared/os-copy";
 
 // ---------------------------------------------------------------------------
@@ -541,6 +544,11 @@ export function canvasArtifactPaneLabel(
 	return doc.type === "gadget"
 		? "Automation"
 		: outputWorkshopKindLabel(outputKind);
+}
+
+/** "Chat (2)" when something is unread, the plain label otherwise. */
+function countedLabel(label: string, count: number | undefined): string {
+	return count ? `${label} (${count > 99 ? "99+" : count})` : label;
 }
 
 export function CanvasPage({
@@ -995,6 +1003,12 @@ export function CanvasPage({
 					(item) => item.output.id === selectedDoc.id,
 				)?.output)
 			: null;
+	// While this workspace is on screen, chat notifications for it are not sent.
+	const pushVisibilityRef = usePushConversation(
+		workspaceId ? `workspace:${workspaceId}` : null,
+	);
+	const [chatAt, setChatAt] = useState(0);
+	const reportChatActivity = useCallback(() => setChatAt(Date.now()), []);
 	const workspaceParticipants = useWorkspacePresence({
 		workspaceId,
 		location: {
@@ -1015,6 +1029,7 @@ export function CanvasPage({
 						: mobilePane === "work"
 							? "Work"
 							: "Chat",
+			...(chatAt ? { chatAt } : {}),
 		},
 	});
 
@@ -1523,6 +1538,42 @@ export function CanvasPage({
 			focusMode ||
 			workspaceMissing ||
 			unresolvedWorkpiece !== null);
+	// Unread chat and files for this workspace. It is re-read when this tab or
+	// another person's tab reports chat activity, and when a file is saved.
+	const peerChatAt = workspaceParticipants.reduce(
+		(latest, participant) =>
+			Math.max(latest, participant.location?.chatAt ?? 0),
+		0,
+	);
+	const chatHidden = narrow
+		? mobilePane !== "chat"
+		: chatCollapsed && openedDocs.length > 0 && stageOpen;
+	const unread = useWorkspaceUnread(workspaceId ?? "", {
+		enabled: workspaceId !== null,
+		signal: `${chatAt}:${peerChatAt}`,
+		viewing: {
+			conversationId:
+				chatHidden || conversationListOpen ? null : activeConversationId,
+			outputId:
+				selectedOutput && (!narrow || mobilePane === "workpiece")
+					? selectedOutput.id
+					: null,
+		},
+	});
+	const unreadFiles = useMemo(
+		() => new Set(unread?.fileIds ?? []),
+		[unread?.fileIds],
+	);
+	const unreadByConversation = useMemo(
+		() =>
+			new Map(
+				(unread?.conversations ?? []).map((entry) => [
+					entry.conversationId,
+					entry.count,
+				]),
+			),
+		[unread?.conversations],
+	);
 
 	const closeStagePane = (closedOn: string) => {
 		setTransitionEnabled(true);
@@ -1710,150 +1761,598 @@ export function CanvasPage({
 	);
 
 	const page = (
-		<Page
-			fullHeight
-			width="bleed"
-			className="canvas-surface"
-			data-canvas-focus={focusMode || undefined}
-			data-chat-collapsed={
-				(chatCollapsed && openedDocs.length > 0 && stageOpen) || undefined
-			}
-			data-mobile-pane={mobilePane}
-			data-resource-rail-open={resourceRailOpen}
-			data-resizing-chat={resizingChat || undefined}
-			data-simple-mode={simpleMode}
-			data-stage-open={stageOpen}
-			data-canvas-transition={transitionEnabled && !resizingChat}
-		>
-			<PageHeader className="canvas-workspace-header">
-				<div
-					className="canvas-workspace-identity"
-					data-open-item={selectedApp ? "" : undefined}
-				>
-					<Button
-						aria-label={OS_COPY.workspace.allWorkspaces}
-						className="canvas-workspace-back sm:hidden"
-						title={OS_COPY.workspace.allWorkspaces}
-						onClick={() => void navigate({ to: "/workspaces" })}
-						size="icon-sm"
-						variant="ghost"
+		<UnreadFilesContext.Provider value={unreadFiles}>
+			<Page
+				fullHeight
+				width="bleed"
+				className="canvas-surface"
+				data-canvas-focus={focusMode || undefined}
+				data-chat-collapsed={
+					(chatCollapsed && openedDocs.length > 0 && stageOpen) || undefined
+				}
+				data-mobile-pane={mobilePane}
+				data-resource-rail-open={resourceRailOpen}
+				data-resizing-chat={resizingChat || undefined}
+				data-simple-mode={simpleMode}
+				data-stage-open={stageOpen}
+				data-canvas-transition={transitionEnabled && !resizingChat}
+			>
+				<PageHeader className="canvas-workspace-header">
+					<div
+						className="canvas-workspace-identity"
+						data-open-item={selectedApp ? "" : undefined}
 					>
-						<ArrowLeft size={16} />
-					</Button>
-					{selectedWorkspace ? (
-						<EntityAvatar
-							id={selectedWorkspace.id}
-							name={selectedWorkspace.name}
-							role={
-								selectedWorkspace.visibility === "private"
-									? "private"
-									: undefined
-							}
-							image={selectedWorkspace.iconUrl}
-							imageFit="contain"
-							kind="workspace"
-							className="canvas-workspace-avatar size-6 rounded-md"
-						/>
-					) : (
-						<OrganizationMark
-							className="canvas-workspace-mark"
-							logoUrl={organizationWorkspace?.org.logoUrl}
-							name={organizationWorkspace?.org.name ?? "Tedix"}
-						/>
-					)}
-					<span className="canvas-workspace-separator" aria-hidden="true">
-						/
-					</span>
-					<div className="canvas-workspace-title">
+						<Button
+							aria-label={OS_COPY.workspace.allWorkspaces}
+							className="canvas-workspace-back sm:hidden"
+							title={OS_COPY.workspace.allWorkspaces}
+							onClick={() => void navigate({ to: "/workspaces" })}
+							size="icon-sm"
+							variant="ghost"
+						>
+							<ArrowLeft size={16} />
+						</Button>
 						{selectedWorkspace ? (
-							<Breadcrumbs
-								items={[
-									{ label: "Workspaces", href: "/workspaces" },
-									{
-										label: selectedWorkspace.name,
-										...(selectedApp
-											? { href: `/workspace/${selectedWorkspace.id}` }
-											: {}),
-									},
-									...(selectedApp ? [{ label: selectedApp.name }] : []),
-								]}
+							<EntityAvatar
+								id={selectedWorkspace.id}
+								name={selectedWorkspace.name}
+								role={
+									selectedWorkspace.visibility === "private"
+										? "private"
+										: undefined
+								}
+								image={selectedWorkspace.iconUrl}
+								imageFit="contain"
+								kind="workspace"
+								className="canvas-workspace-avatar size-6 rounded-md"
+							/>
+						) : (
+							<OrganizationMark
+								className="canvas-workspace-mark"
+								logoUrl={organizationWorkspace?.org.logoUrl}
+								name={organizationWorkspace?.org.name ?? "Tedix"}
+							/>
+						)}
+						<span className="canvas-workspace-separator" aria-hidden="true">
+							/
+						</span>
+						<div className="canvas-workspace-title">
+							{selectedWorkspace ? (
+								<Breadcrumbs
+									items={[
+										{ label: "Workspaces", href: "/workspaces" },
+										{
+											label: selectedWorkspace.name,
+											...(selectedApp
+												? { href: `/workspace/${selectedWorkspace.id}` }
+												: {}),
+										},
+										...(selectedApp ? [{ label: selectedApp.name }] : []),
+									]}
+								/>
+							) : null}
+							<h1
+								className={`type-tedix-body${selectedWorkspace ? " sm:sr-only" : ""}`}
+							>
+								{selectedApp?.name ?? selectedWorkspace?.name ?? surface.label}
+							</h1>
+							<p className="sr-only">
+								{selectedWorkspace?.description || surface.description}
+							</p>
+						</div>
+					</div>
+					<PageActions className="canvas-workspace-actions">
+						<CanvasPresence
+							participants={workspaceParticipants}
+							openItem={
+								selectedApp
+									? { kind: "gadget", label: selectedApp.name }
+									: selectedOutput
+										? { kind: "output", label: selectedOutput.title }
+										: null
+							}
+						/>
+						<span
+							className="contents"
+							data-workspace-activity-entry=""
+							ref={activityEntryRef}
+						>
+							<ApprovalNotifications
+								conversationId={activeConversationId}
+								workspaceId={workspaceId}
+							/>
+						</span>
+						<TransportStatus />
+						{/* The chat and Files panel toggles on a wide screen; phones
+					    switch panes from the bottom switcher instead. */}
+						{openedDocs.length > 0 && stageOpen ? (
+							<Button
+								aria-expanded={!chatCollapsed}
+								aria-label={
+									chatCollapsed && unread?.chat
+										? `Show chat, ${unread.chat} unread`
+										: chatCollapsed
+											? "Show chat"
+											: "Hide chat"
+								}
+								className="canvas-chat-toggle"
+								icon={
+									<ChatCircle
+										size={16}
+										weight={chatCollapsed && unread?.chat ? "fill" : "regular"}
+									/>
+								}
+								onClick={toggleChatCollapsed}
+								size="icon-sm"
+								title={chatCollapsed ? "Show chat" : "Hide chat"}
+								variant="ghost"
 							/>
 						) : null}
-						<h1
-							className={`type-tedix-body${selectedWorkspace ? " sm:sr-only" : ""}`}
-						>
-							{selectedApp?.name ?? selectedWorkspace?.name ?? surface.label}
-						</h1>
-						<p className="sr-only">
-							{selectedWorkspace?.description || surface.description}
-						</p>
-					</div>
-				</div>
-				<PageActions className="canvas-workspace-actions">
-					<CanvasPresence
-						participants={workspaceParticipants}
-						openItem={
-							selectedApp
-								? { kind: "gadget", label: selectedApp.name }
-								: selectedOutput
-									? { kind: "output", label: selectedOutput.title }
-									: null
-						}
-					/>
-					<span
-						className="contents"
-						data-workspace-activity-entry=""
-						ref={activityEntryRef}
-					>
-						<ApprovalNotifications
-							conversationId={activeConversationId}
-							workspaceId={workspaceId}
-						/>
-					</span>
-					<TransportStatus />
-					{/* The chat and Files panel toggles on a wide screen; phones
-					    switch panes from the bottom switcher instead. */}
-					{openedDocs.length > 0 && stageOpen ? (
 						<Button
-							aria-expanded={!chatCollapsed}
-							aria-label={chatCollapsed ? "Show chat" : "Hide chat"}
-							className="canvas-chat-toggle"
-							icon={<ChatCircle size={16} />}
-							onClick={toggleChatCollapsed}
+							aria-controls={WORKSPACE_OUTPUTS_PANEL_ID}
+							aria-expanded={outputsPanelExpanded}
+							aria-label={outputsPanelExpanded ? "Hide files" : "Show files"}
+							className="canvas-files-toggle"
+							icon={<FolderOpen size={16} />}
+							onClick={() => changeOutputsPanelExpanded(!outputsPanelExpanded)}
 							size="icon-sm"
-							title={chatCollapsed ? "Show chat" : "Hide chat"}
+							title={outputsPanelExpanded ? "Hide files" : "Show files"}
 							variant="ghost"
 						/>
+						{canvasView === "doc" && stageOpen ? (
+							<Button
+								aria-label="Focus"
+								className="canvas-workspace-focus"
+								icon={<ArrowsOut size={16} />}
+								onClick={enterFocusMode}
+								size="sm"
+								title="Focus on the open item"
+								variant="ghost"
+							>
+								Focus
+							</Button>
+						) : null}
+						<CanvasWorkspaceControls
+							workspace={selectedWorkspace as OsWorkspace | undefined}
+							showCreate={false}
+							compactActions
+							openItem={
+								selectedDoc && selectedDoc.type !== "repository"
+									? {
+											type: selectedDoc.type,
+											id: selectedDoc.id,
+											onOpenReview: () => selectWorkpieceMode("activity"),
+										}
+									: undefined
+							}
+							menuItems={workspaceMenuItems}
+							onSelected={selectWorkspace}
+							onArchived={() => selectWorkspace()}
+						/>
+					</PageActions>
+				</PageHeader>
+				<div className="canvas-workbench min-w-0">
+					{workspaceId !== null ? (
+						<Dialog open={addSourceOpen} onOpenChange={setAddSourceOpen}>
+							<DialogContent size="lg">
+								<DialogHeader>
+									<DialogTitle>Add a connected source</DialogTitle>
+									<DialogDescription>
+										Attach an account or file from a connected app. Tedis still
+										need permission and approval to use it.
+									</DialogDescription>
+								</DialogHeader>
+								{addSourceOpen ? (
+									<Suspense fallback={<CanvasStagePending />}>
+										<WorkspaceConnectionsBody
+											workspaceId={workspaceId}
+											documentType={null}
+										/>
+									</Suspense>
+								) : null}
+							</DialogContent>
+						</Dialog>
 					) : null}
-					<Button
-						aria-controls={WORKSPACE_OUTPUTS_PANEL_ID}
-						aria-expanded={outputsPanelExpanded}
-						aria-label={outputsPanelExpanded ? "Hide files" : "Show files"}
-						className="canvas-files-toggle"
-						icon={<FolderOpen size={16} />}
-						onClick={() => changeOutputsPanelExpanded(!outputsPanelExpanded)}
-						size="icon-sm"
-						title={outputsPanelExpanded ? "Hide files" : "Show files"}
-						variant="ghost"
+					{/* In view whenever this workspace is, whichever pane shows. */}
+					<div
+						aria-hidden
+						className="pointer-events-none absolute size-px"
+						ref={pushVisibilityRef}
 					/>
-					{canvasView === "doc" && stageOpen ? (
-						<Button
-							aria-label="Focus"
-							className="canvas-workspace-focus"
-							icon={<ArrowsOut size={16} />}
-							onClick={enterFocusMode}
-							size="sm"
-							title="Focus on the open item"
-							variant="ghost"
+					<aside
+						aria-label="Workspace chat"
+						className="canvas-chat-pane"
+						data-simple-mode={simpleMode}
+						ref={chatPaneRef}
+						style={{ "--canvas-chat-width": `${chatWidth}px` } as CSSProperties}
+					>
+						<ChatOutputLinkContext.Provider value={chatOutputLinks}>
+							{workspaceId === null ? (
+								<CanvasStagePending />
+							) : (
+								<WorkspaceChat
+									autoFocusComposer={simpleMode}
+									onBrowseResources={showCanvasResources}
+									conversationId={activeConversationId}
+									listOpen={conversationListOpen}
+									onConversationCreated={(conversationId) => {
+										setActiveConversationId(conversationId);
+										setConversationListOpen(false);
+										writeCanvasSearch({
+											...canvasSearch,
+											conversation: conversationId,
+											pane: conversationPane,
+										});
+									}}
+									onOpenList={() => setConversationListOpen(true)}
+									onSelectConversation={(conversationId) => {
+										setActiveConversationId(conversationId);
+										setConversationListOpen(false);
+										writeCanvasSearch({
+											...canvasSearch,
+											conversation: conversationId ?? undefined,
+											pane: conversationPane,
+										});
+									}}
+									onSendMessageReady={registerWidgetFollowUp}
+									onActivity={reportChatActivity}
+									unreadByConversation={unreadByConversation}
+									workspaceId={workspaceId}
+								/>
+							)}
+						</ChatOutputLinkContext.Provider>
+					</aside>
+					{/* Stays in place while the pane is closed, so its width can animate. */}
+					<div
+						aria-hidden={!stageOpen || undefined}
+						aria-label="Resize workspace chat"
+						aria-orientation="vertical"
+						aria-valuemax={CANVAS_CHAT_WIDTH_MAX}
+						aria-valuemin={CANVAS_CHAT_WIDTH_MIN}
+						aria-valuenow={chatWidth}
+						className="canvas-chat-resizer"
+						onKeyDown={(event) => {
+							if (event.key === "ArrowLeft") {
+								event.preventDefault();
+								persistChatWidth(chatWidth - 24);
+							} else if (event.key === "ArrowRight") {
+								event.preventDefault();
+								persistChatWidth(chatWidth + 24);
+							} else if (event.key === "Home") {
+								event.preventDefault();
+								persistChatWidth(CANVAS_CHAT_WIDTH_MIN);
+							} else if (event.key === "End") {
+								event.preventDefault();
+								persistChatWidth(CANVAS_CHAT_WIDTH_MAX);
+							}
+						}}
+						onDoubleClick={() => persistChatWidth(CANVAS_CHAT_WIDTH_DEFAULT)}
+						onPointerDown={(event) => {
+							resizeStartRef.current = {
+								pointerX: event.clientX,
+								width: chatWidth,
+							};
+							// The handle keeps the pointer, so the drag carries on over an
+							// open app and ends wherever the button is let go.
+							try {
+								event.currentTarget.setPointerCapture?.(event.pointerId);
+							} catch {
+								// No such pointer; the handle still follows it while over it.
+							}
+							setResizingChat(true);
+						}}
+						onPointerMove={(event) => {
+							if (!resizingChat) return;
+							const next = clampCanvasChatWidth(
+								resizeStartRef.current.width +
+									event.clientX -
+									resizeStartRef.current.pointerX,
+							);
+							chatWidthRef.current = next;
+							setChatWidth(next);
+						}}
+						onPointerUp={stopResizingChat}
+						onPointerCancel={stopResizingChat}
+						onLostPointerCapture={stopResizingChat}
+						role="separator"
+						tabIndex={stageOpen ? 0 : -1}
+					/>
+					<section
+						aria-label="Workspace workpiece"
+						aria-hidden={!stageOpen || undefined}
+						className="canvas-stage"
+						data-simple-mode={simpleMode}
+						inert={!stageOpen}
+					>
+						{openedDocs.length > 0 ? (
+							<div className="canvas-workpiece-bar" data-focus-ring="inset">
+								<CanvasWorkpieceTabs
+									gadgets={gadgets.data?.items ?? []}
+									onClose={closeCanvasDoc}
+									onCloseOthers={closeOtherCanvasDocs}
+									onMove={moveCanvasDoc}
+									onSelect={openCanvasDoc}
+									opened={openedDocs}
+									outputs={outputs.data?.items ?? []}
+									selectedKey={selectedDoc ? canvasDocKey(selectedDoc) : null}
+								/>
+								{/* Actions that come and go with the view (Translate, Save)
+							    sit before the view tabs, so the tabs keep their place. */}
+								<div
+									className="canvas-workpiece-actions"
+									ref={setWorkpieceActionsSlot}
+								/>
+								{workpieceViewControls}
+								<Button
+									aria-label="Close"
+									className="canvas-stage-close"
+									icon={<X size={16} />}
+									onClick={closeStage}
+									size="icon-sm"
+									title="Close"
+									variant="ghost"
+								/>
+							</div>
+						) : null}
+						{canvasView === "library" ? (
+							<CanvasResourceRail
+								workspaces={workspaces}
+								workspaceId={workspaceId}
+								gadgets={gadgets}
+								outputs={outputLibrary}
+								resources={resources}
+								selectedDoc={
+									selectedDoc?.type === "repository" ? null : selectedDoc
+								}
+								onSelectGadget={(gadgetId) => void selectGadget(gadgetId)}
+								onSelectOutput={selectOutput}
+								onAddSource={() => setAddSourceOpen(true)}
+							/>
+						) : canvasView === "work" && workspaceId ? (
+							<section
+								aria-label="Workspace work"
+								className="canvas-work-view flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+							>
+								<Suspense fallback={<CanvasStagePending />}>
+									<WorkspaceWorkPanel workspaceId={workspaceId} />
+								</Suspense>
+							</section>
+						) : null}
+						{/* The open item stays mounted behind the library or Work, so an
+					    unsaved draft is where the person left it on the way back. */}
+						<div
+							aria-labelledby={
+								selectedDoc ? canvasWorkpieceTabId(selectedDoc) : undefined
+							}
+							className="canvas-stage-content"
+							data-entering={
+								selectedDoc !== null &&
+								enteringKey === canvasDocKey(selectedDoc)
+									? ""
+									: undefined
+							}
+							data-has-workpiece={selectedDoc ? "" : undefined}
+							data-workpiece-mode={workpieceMode}
+							onAnimationEnd={(event) => {
+								if (event.target === event.currentTarget) setEnteringKey(null);
+							}}
+							hidden={canvasView === "library" || canvasView === "work"}
+							id={CANVAS_WORKPIECE_PANEL_ID}
+							role="tabpanel"
 						>
-							Focus
-						</Button>
+							{workspaceId !== null && selectedDoc !== null ? (
+								<Suspense fallback={<CanvasStagePending />}>
+									{selectedDoc.type === "repository" ? (
+										<CanvasRepositoryWorkpiece
+											key={canvasDocKey(selectedDoc)}
+											workspaceId={workspaceId}
+											workItemId={selectedDoc.id}
+											attemptId={selectedDoc.attemptId}
+										/>
+									) : workpieceMode === "connections" ? (
+										<div className="canvas-secondary-view">
+											<SectionHeader className="border-b border-kumo-line pb-4">
+												<SectionHeading>
+													<SectionTitle>Connections</SectionTitle>
+													<SectionDescription className="max-w-3xl">
+														{selectedDoc.type === "gadget"
+															? "What this app can use, then everything attached to the workspace. Workers still need permission and approval to use them."
+															: "Add resources from your connected apps. Workers still need permission and approval to use them."}
+													</SectionDescription>
+												</SectionHeading>
+											</SectionHeader>
+											<WorkspaceConnectionsBody
+												workspaceId={workspaceId}
+												documentType={selectedDoc.type}
+												gadgetId={
+													selectedDoc.type === "gadget"
+														? selectedDoc.id
+														: undefined
+												}
+											/>
+										</div>
+									) : workpieceMode === "activity" ? (
+										<div className="canvas-secondary-view">
+											<SectionHeader className="border-b border-kumo-line pb-4">
+												<SectionHeading>
+													<SectionTitle id="canvas-proposals-title">
+														Review changes
+													</SectionTitle>
+													<SectionDescription className="max-w-3xl">
+														Check suggested edits, then approve and apply them.
+														Your saved version stays unchanged until you apply a
+														change.
+													</SectionDescription>
+												</SectionHeading>
+											</SectionHeader>
+											<PageSection aria-labelledby="canvas-proposals-title">
+												<CanvasProposals
+													showHeading={false}
+													documentId={selectedDoc.id}
+													documentType={selectedDoc.type}
+													onMerged={() => {
+														void queryClient.invalidateQueries({
+															queryKey:
+																selectedDoc.type === "gadget"
+																	? canvasGadgetDetailQueryOptions(
+																			workspaceId,
+																			selectedDoc.id,
+																		).queryKey
+																	: outputDetailQueryOptions(selectedDoc.id)
+																			.queryKey,
+														});
+													}}
+													workspaceId={workspaceId}
+												/>
+											</PageSection>
+											{selectedDoc.type === "gadget" && (
+												<AppReviewRounds gadgetId={selectedDoc.id} />
+											)}
+										</div>
+									) : selectedDoc.type === "output" ? (
+										<CanvasOutputView
+											key={canvasDocKey(selectedDoc)}
+											workspaceId={workspaceId}
+											outputId={selectedDoc.id}
+											onOpenEditor={(gadgetId) => void selectGadget(gadgetId)}
+											focusMode={focusMode}
+											onFocusModeChange={(focused) => {
+												setFocusMode(focused);
+												writeCanvasSearch({
+													...canvasSearch,
+													focus: focused ? true : undefined,
+												});
+											}}
+											onShare={
+												selectedWorkspace
+													? () => setFocusShareOpen(true)
+													: undefined
+											}
+										/>
+									) : (
+										<CanvasDocPanel
+											key={canvasDocKey(selectedDoc)}
+											workspaceId={workspaceId}
+											doc={selectedDoc}
+											gadgetViewOverride={
+												workpieceMode === "edit"
+													? "source"
+													: shownWorkpieceMode === "history"
+														? "runs"
+														: "preview"
+											}
+											focusMode={focusMode}
+											onAppDraftSaved={() => selectWorkpieceMode("edit")}
+											onOpenDrafts={() => selectWorkpieceMode("edit")}
+											onAppDraftMerged={() => selectWorkpieceMode("workpiece")}
+											actionsSlot={workpieceActionsSlot}
+											onFocusModeChange={(focused) => {
+												setFocusMode(focused);
+												if (focused) {
+													setResourceRailOpen(false);
+													setMobilePane("workpiece");
+												}
+												writeCanvasSearch({
+													...canvasSearch,
+													pane: focused ? "workpiece" : canvasSearch.pane,
+													focus: focused ? true : undefined,
+												});
+											}}
+											onShare={
+												selectedWorkspace
+													? () => setFocusShareOpen(true)
+													: undefined
+											}
+											onShowResources={showCanvasResources}
+											onWidgetFollowUp={sendWidgetFollowUp}
+										/>
+									)}
+								</Suspense>
+							) : unresolvedWorkpiece ? (
+								<Empty appearance="quiet" data-canvas-workpiece-missing="">
+									<EmptyHeader>
+										<EmptyMedia variant="icon">
+											<FileX size={20} />
+										</EmptyMedia>
+										<EmptyTitle>
+											{missingWorkpieceCopy(unresolvedWorkpiece).title}
+										</EmptyTitle>
+										<EmptyDescription>
+											{missingWorkpieceCopy(unresolvedWorkpiece).description}
+										</EmptyDescription>
+									</EmptyHeader>
+									<EmptyContent>
+										<div className="flex flex-wrap items-center justify-center gap-2">
+											<Button onClick={showCanvasResources} size="sm">
+												Browse this workspace
+											</Button>
+											{unresolvedWorkpiece.type === "output" ? (
+												<Button
+													onClick={() => void navigate({ to: "/outputs" })}
+													size="sm"
+													variant="secondary"
+												>
+													Search all outputs
+												</Button>
+											) : null}
+										</div>
+									</EmptyContent>
+								</Empty>
+							) : /* A document-less workspace has nothing to show yet: the
+						       stage stays blank (and, in simpleMode, collapsed). */ null}
+						</div>
+					</section>
+					{workspaceId !== null ? (
+						<WorkspaceOutputsPanel
+							{...outputsPanelList}
+							workspaceId={workspaceId}
+							expanded={outputsPanelExpanded}
+							canvasView={
+								canvasView === "library" || canvasView === "work"
+									? canvasView
+									: null
+							}
+							onBrowseLibrary={showCanvasResources}
+							onOpenWork={() => showPane("work")}
+							onOpenActivity={openWorkspaceActivity}
+							onSelect={openOutputsPanelItem}
+							onArchived={(item) => {
+								// Close every tab that was showing the archived item.
+								for (const doc of openedDocsRef.current)
+									if (
+										doc.id === item.doc.id ||
+										(item.outputId && doc.id === item.outputId)
+									)
+										closeCanvasDoc(canvasDocKey(doc));
+							}}
+						/>
 					) : null}
-					<CanvasWorkspaceControls
-						workspace={selectedWorkspace as OsWorkspace | undefined}
-						showCreate={false}
-						compactActions
-						openItem={
+				</div>
+				{/* A phone shows one pane at a time and switches at the bottom, where
+			    the thumb is. Work has no segment of its own: it opens from the
+			    menu and shows here only while it is the pane. */}
+				<SegmentedControl
+					ariaLabel="Canvas pane"
+					className="canvas-pane-switcher"
+					compact
+					fill
+					onValueChange={showPane}
+					options={[
+						{ value: "chat", label: countedLabel("Chat", unread?.chat) },
+						{ value: "workpiece", label: "Canvas" },
+						{ value: "resources", label: countedLabel("Files", unread?.files) },
+						...(mobilePane === "work"
+							? [{ value: "work" as const, label: "Work" }]
+							: []),
+					]}
+					value={mobilePane}
+				/>
+				{focusShareOpen && selectedWorkspace ? (
+					<WorkspaceShareDialog
+						workspaceId={selectedWorkspace.id}
+						workspaceName={selectedWorkspace.name}
+						visibility={selectedWorkspace.visibility}
+						item={
 							selectedDoc && selectedDoc.type !== "repository"
 								? {
 										type: selectedDoc.type,
@@ -1862,439 +2361,13 @@ export function CanvasPage({
 									}
 								: undefined
 						}
-						menuItems={workspaceMenuItems}
-						onSelected={selectWorkspace}
-						onArchived={() => selectWorkspace()}
-					/>
-				</PageActions>
-			</PageHeader>
-			<div className="canvas-workbench min-w-0">
-				{workspaceId !== null ? (
-					<Dialog open={addSourceOpen} onOpenChange={setAddSourceOpen}>
-						<DialogContent size="lg">
-							<DialogHeader>
-								<DialogTitle>Add a connected source</DialogTitle>
-								<DialogDescription>
-									Attach an account or file from a connected app. Tedis still
-									need permission and approval to use it.
-								</DialogDescription>
-							</DialogHeader>
-							{addSourceOpen ? (
-								<Suspense fallback={<CanvasStagePending />}>
-									<WorkspaceConnectionsBody
-										workspaceId={workspaceId}
-										documentType={null}
-									/>
-								</Suspense>
-							) : null}
-						</DialogContent>
-					</Dialog>
-				) : null}
-				<aside
-					aria-label="Workspace chat"
-					className="canvas-chat-pane"
-					data-simple-mode={simpleMode}
-					ref={chatPaneRef}
-					style={{ "--canvas-chat-width": `${chatWidth}px` } as CSSProperties}
-				>
-					<ChatOutputLinkContext.Provider value={chatOutputLinks}>
-						{workspaceId === null ? (
-							<CanvasStagePending />
-						) : (
-							<WorkspaceChat
-								autoFocusComposer={simpleMode}
-								onBrowseResources={showCanvasResources}
-								conversationId={activeConversationId}
-								listOpen={conversationListOpen}
-								onConversationCreated={(conversationId) => {
-									setActiveConversationId(conversationId);
-									setConversationListOpen(false);
-									writeCanvasSearch({
-										...canvasSearch,
-										conversation: conversationId,
-										pane: conversationPane,
-									});
-								}}
-								onOpenList={() => setConversationListOpen(true)}
-								onSelectConversation={(conversationId) => {
-									setActiveConversationId(conversationId);
-									setConversationListOpen(false);
-									writeCanvasSearch({
-										...canvasSearch,
-										conversation: conversationId ?? undefined,
-										pane: conversationPane,
-									});
-								}}
-								onSendMessageReady={registerWidgetFollowUp}
-								workspaceId={workspaceId}
-							/>
-						)}
-					</ChatOutputLinkContext.Provider>
-				</aside>
-				{/* Stays in place while the pane is closed, so its width can animate. */}
-				<div
-					aria-hidden={!stageOpen || undefined}
-					aria-label="Resize workspace chat"
-					aria-orientation="vertical"
-					aria-valuemax={CANVAS_CHAT_WIDTH_MAX}
-					aria-valuemin={CANVAS_CHAT_WIDTH_MIN}
-					aria-valuenow={chatWidth}
-					className="canvas-chat-resizer"
-					onKeyDown={(event) => {
-						if (event.key === "ArrowLeft") {
-							event.preventDefault();
-							persistChatWidth(chatWidth - 24);
-						} else if (event.key === "ArrowRight") {
-							event.preventDefault();
-							persistChatWidth(chatWidth + 24);
-						} else if (event.key === "Home") {
-							event.preventDefault();
-							persistChatWidth(CANVAS_CHAT_WIDTH_MIN);
-						} else if (event.key === "End") {
-							event.preventDefault();
-							persistChatWidth(CANVAS_CHAT_WIDTH_MAX);
-						}
-					}}
-					onDoubleClick={() => persistChatWidth(CANVAS_CHAT_WIDTH_DEFAULT)}
-					onPointerDown={(event) => {
-						resizeStartRef.current = {
-							pointerX: event.clientX,
-							width: chatWidth,
-						};
-						// The handle keeps the pointer, so the drag carries on over an
-						// open app and ends wherever the button is let go.
-						try {
-							event.currentTarget.setPointerCapture?.(event.pointerId);
-						} catch {
-							// No such pointer; the handle still follows it while over it.
-						}
-						setResizingChat(true);
-					}}
-					onPointerMove={(event) => {
-						if (!resizingChat) return;
-						const next = clampCanvasChatWidth(
-							resizeStartRef.current.width +
-								event.clientX -
-								resizeStartRef.current.pointerX,
-						);
-						chatWidthRef.current = next;
-						setChatWidth(next);
-					}}
-					onPointerUp={stopResizingChat}
-					onPointerCancel={stopResizingChat}
-					onLostPointerCapture={stopResizingChat}
-					role="separator"
-					tabIndex={stageOpen ? 0 : -1}
-				/>
-				<section
-					aria-label="Workspace workpiece"
-					aria-hidden={!stageOpen || undefined}
-					className="canvas-stage"
-					data-simple-mode={simpleMode}
-					inert={!stageOpen}
-				>
-					{openedDocs.length > 0 ? (
-						<div className="canvas-workpiece-bar" data-focus-ring="inset">
-							<CanvasWorkpieceTabs
-								gadgets={gadgets.data?.items ?? []}
-								onClose={closeCanvasDoc}
-								onCloseOthers={closeOtherCanvasDocs}
-								onMove={moveCanvasDoc}
-								onSelect={openCanvasDoc}
-								opened={openedDocs}
-								outputs={outputs.data?.items ?? []}
-								selectedKey={selectedDoc ? canvasDocKey(selectedDoc) : null}
-							/>
-							{/* Actions that come and go with the view (Translate, Save)
-							    sit before the view tabs, so the tabs keep their place. */}
-							<div
-								className="canvas-workpiece-actions"
-								ref={setWorkpieceActionsSlot}
-							/>
-							{workpieceViewControls}
-							<Button
-								aria-label="Close"
-								className="canvas-stage-close"
-								icon={<X size={16} />}
-								onClick={closeStage}
-								size="icon-sm"
-								title="Close"
-								variant="ghost"
-							/>
-						</div>
-					) : null}
-					{canvasView === "library" ? (
-						<CanvasResourceRail
-							workspaces={workspaces}
-							workspaceId={workspaceId}
-							gadgets={gadgets}
-							outputs={outputLibrary}
-							resources={resources}
-							selectedDoc={
-								selectedDoc?.type === "repository" ? null : selectedDoc
-							}
-							onSelectGadget={(gadgetId) => void selectGadget(gadgetId)}
-							onSelectOutput={selectOutput}
-							onAddSource={() => setAddSourceOpen(true)}
-						/>
-					) : canvasView === "work" && workspaceId ? (
-						<section
-							aria-label="Workspace work"
-							className="canvas-work-view flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
-						>
-							<Suspense fallback={<CanvasStagePending />}>
-								<WorkspaceWorkPanel workspaceId={workspaceId} />
-							</Suspense>
-						</section>
-					) : null}
-					{/* The open item stays mounted behind the library or Work, so an
-					    unsaved draft is where the person left it on the way back. */}
-					<div
-						aria-labelledby={
-							selectedDoc ? canvasWorkpieceTabId(selectedDoc) : undefined
-						}
-						className="canvas-stage-content"
-						data-entering={
-							selectedDoc !== null && enteringKey === canvasDocKey(selectedDoc)
-								? ""
-								: undefined
-						}
-						data-has-workpiece={selectedDoc ? "" : undefined}
-						data-workpiece-mode={workpieceMode}
-						onAnimationEnd={(event) => {
-							if (event.target === event.currentTarget) setEnteringKey(null);
-						}}
-						hidden={canvasView === "library" || canvasView === "work"}
-						id={CANVAS_WORKPIECE_PANEL_ID}
-						role="tabpanel"
-					>
-						{workspaceId !== null && selectedDoc !== null ? (
-							<Suspense fallback={<CanvasStagePending />}>
-								{selectedDoc.type === "repository" ? (
-									<CanvasRepositoryWorkpiece
-										key={canvasDocKey(selectedDoc)}
-										workspaceId={workspaceId}
-										workItemId={selectedDoc.id}
-										attemptId={selectedDoc.attemptId}
-									/>
-								) : workpieceMode === "connections" ? (
-									<div className="canvas-secondary-view">
-										<SectionHeader className="border-b border-kumo-line pb-4">
-											<SectionHeading>
-												<SectionTitle>Connections</SectionTitle>
-												<SectionDescription className="max-w-3xl">
-													{selectedDoc.type === "gadget"
-														? "What this app can use, then everything attached to the workspace. Workers still need permission and approval to use them."
-														: "Add resources from your connected apps. Workers still need permission and approval to use them."}
-												</SectionDescription>
-											</SectionHeading>
-										</SectionHeader>
-										<WorkspaceConnectionsBody
-											workspaceId={workspaceId}
-											documentType={selectedDoc.type}
-											gadgetId={
-												selectedDoc.type === "gadget"
-													? selectedDoc.id
-													: undefined
-											}
-										/>
-									</div>
-								) : workpieceMode === "activity" ? (
-									<div className="canvas-secondary-view">
-										<SectionHeader className="border-b border-kumo-line pb-4">
-											<SectionHeading>
-												<SectionTitle id="canvas-proposals-title">
-													Review changes
-												</SectionTitle>
-												<SectionDescription className="max-w-3xl">
-													Check suggested edits, then approve and apply them.
-													Your saved version stays unchanged until you apply a
-													change.
-												</SectionDescription>
-											</SectionHeading>
-										</SectionHeader>
-										<PageSection aria-labelledby="canvas-proposals-title">
-											<CanvasProposals
-												showHeading={false}
-												documentId={selectedDoc.id}
-												documentType={selectedDoc.type}
-												onMerged={() => {
-													void queryClient.invalidateQueries({
-														queryKey:
-															selectedDoc.type === "gadget"
-																? canvasGadgetDetailQueryOptions(
-																		workspaceId,
-																		selectedDoc.id,
-																	).queryKey
-																: outputDetailQueryOptions(selectedDoc.id)
-																		.queryKey,
-													});
-												}}
-												workspaceId={workspaceId}
-											/>
-										</PageSection>
-										{selectedDoc.type === "gadget" && (
-											<AppReviewRounds gadgetId={selectedDoc.id} />
-										)}
-									</div>
-								) : selectedDoc.type === "output" ? (
-									<CanvasOutputView
-										key={canvasDocKey(selectedDoc)}
-										workspaceId={workspaceId}
-										outputId={selectedDoc.id}
-										onOpenEditor={(gadgetId) => void selectGadget(gadgetId)}
-										focusMode={focusMode}
-										onFocusModeChange={(focused) => {
-											setFocusMode(focused);
-											writeCanvasSearch({
-												...canvasSearch,
-												focus: focused ? true : undefined,
-											});
-										}}
-										onShare={
-											selectedWorkspace
-												? () => setFocusShareOpen(true)
-												: undefined
-										}
-									/>
-								) : (
-									<CanvasDocPanel
-										key={canvasDocKey(selectedDoc)}
-										workspaceId={workspaceId}
-										doc={selectedDoc}
-										gadgetViewOverride={
-											workpieceMode === "edit"
-												? "source"
-												: shownWorkpieceMode === "history"
-													? "runs"
-													: "preview"
-										}
-										focusMode={focusMode}
-										onAppDraftSaved={() => selectWorkpieceMode("edit")}
-										onOpenDrafts={() => selectWorkpieceMode("edit")}
-										onAppDraftMerged={() => selectWorkpieceMode("workpiece")}
-										actionsSlot={workpieceActionsSlot}
-										onFocusModeChange={(focused) => {
-											setFocusMode(focused);
-											if (focused) {
-												setResourceRailOpen(false);
-												setMobilePane("workpiece");
-											}
-											writeCanvasSearch({
-												...canvasSearch,
-												pane: focused ? "workpiece" : canvasSearch.pane,
-												focus: focused ? true : undefined,
-											});
-										}}
-										onShare={
-											selectedWorkspace
-												? () => setFocusShareOpen(true)
-												: undefined
-										}
-										onShowResources={showCanvasResources}
-										onWidgetFollowUp={sendWidgetFollowUp}
-									/>
-								)}
-							</Suspense>
-						) : unresolvedWorkpiece ? (
-							<Empty appearance="quiet" data-canvas-workpiece-missing="">
-								<EmptyHeader>
-									<EmptyMedia variant="icon">
-										<FileX size={20} />
-									</EmptyMedia>
-									<EmptyTitle>
-										{missingWorkpieceCopy(unresolvedWorkpiece).title}
-									</EmptyTitle>
-									<EmptyDescription>
-										{missingWorkpieceCopy(unresolvedWorkpiece).description}
-									</EmptyDescription>
-								</EmptyHeader>
-								<EmptyContent>
-									<div className="flex flex-wrap items-center justify-center gap-2">
-										<Button onClick={showCanvasResources} size="sm">
-											Browse this workspace
-										</Button>
-										{unresolvedWorkpiece.type === "output" ? (
-											<Button
-												onClick={() => void navigate({ to: "/outputs" })}
-												size="sm"
-												variant="secondary"
-											>
-												Search all outputs
-											</Button>
-										) : null}
-									</div>
-								</EmptyContent>
-							</Empty>
-						) : /* A document-less workspace has nothing to show yet: the
-						       stage stays blank (and, in simpleMode, collapsed). */ null}
-					</div>
-				</section>
-				{workspaceId !== null ? (
-					<WorkspaceOutputsPanel
-						{...outputsPanelList}
-						workspaceId={workspaceId}
-						expanded={outputsPanelExpanded}
-						canvasView={
-							canvasView === "library" || canvasView === "work"
-								? canvasView
-								: null
-						}
-						onBrowseLibrary={showCanvasResources}
-						onOpenWork={() => showPane("work")}
-						onOpenActivity={openWorkspaceActivity}
-						onSelect={openOutputsPanelItem}
-						onArchived={(item) => {
-							// Close every tab that was showing the archived item.
-							for (const doc of openedDocsRef.current)
-								if (
-									doc.id === item.doc.id ||
-									(item.outputId && doc.id === item.outputId)
-								)
-									closeCanvasDoc(canvasDocKey(doc));
-						}}
+						initialScope="item"
+						open
+						onOpenChange={setFocusShareOpen}
 					/>
 				) : null}
-			</div>
-			{/* A phone shows one pane at a time and switches at the bottom, where
-			    the thumb is. Work has no segment of its own: it opens from the
-			    menu and shows here only while it is the pane. */}
-			<SegmentedControl
-				ariaLabel="Canvas pane"
-				className="canvas-pane-switcher"
-				compact
-				fill
-				onValueChange={showPane}
-				options={[
-					{ value: "chat", label: "Chat" },
-					{ value: "workpiece", label: "Canvas" },
-					{ value: "resources", label: "Files" },
-					...(mobilePane === "work"
-						? [{ value: "work" as const, label: "Work" }]
-						: []),
-				]}
-				value={mobilePane}
-			/>
-			{focusShareOpen && selectedWorkspace ? (
-				<WorkspaceShareDialog
-					workspaceId={selectedWorkspace.id}
-					workspaceName={selectedWorkspace.name}
-					visibility={selectedWorkspace.visibility}
-					item={
-						selectedDoc && selectedDoc.type !== "repository"
-							? {
-									type: selectedDoc.type,
-									id: selectedDoc.id,
-									onOpenReview: () => selectWorkpieceMode("activity"),
-								}
-							: undefined
-					}
-					initialScope="item"
-					open
-					onOpenChange={setFocusShareOpen}
-				/>
-			) : null}
-		</Page>
+			</Page>
+		</UnreadFilesContext.Provider>
 	);
 	return (
 		<AppRuntimeDraftProvider scope={workspaceId ?? "none"}>

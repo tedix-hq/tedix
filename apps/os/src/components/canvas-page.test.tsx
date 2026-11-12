@@ -153,6 +153,27 @@ vi.mock("@/lib/api", () => ({
 		osShares: osSharesApi,
 		kernelRuntime: kernelRuntimeApi,
 		webPush: webPushApi,
+		workspaceUnread: {
+			summary: vi.fn(async () => ({ total: 0, workspaces: [] })),
+			list: vi.fn(async () => ({ total: 0, groups: [] })),
+			workspace: vi.fn(async ({ workspaceId }: { workspaceId: string }) => ({
+				workspaceId,
+				chat: 0,
+				files: 0,
+				total: 0,
+				fileIds: [],
+				conversations: [],
+			})),
+			markRead: vi.fn(async ({ workspaceId }: { workspaceId: string }) => ({
+				workspaceId,
+				chat: 0,
+				files: 0,
+				total: 0,
+				fileIds: [],
+				conversations: [],
+			})),
+			markAllRead: vi.fn(async () => ({ ok: true })),
+		},
 		// Connected source cards read app logos from the provider catalog.
 		connections: { listProviders: vi.fn(async () => ({ data: [] })) },
 		// The Review tab asks who is signed in before offering review rounds.

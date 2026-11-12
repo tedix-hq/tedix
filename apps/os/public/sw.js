@@ -2,6 +2,15 @@
 self.addEventListener("activate", (event) =>
 	event.waitUntil(self.clients.claim()),
 );
+// A notification opens Decisions, or the workspace it is about. Anything else
+// a payload names, another site included, falls back to Decisions.
+const DECK_PATH = "/work?view=deck";
+function notificationPath(url) {
+	return typeof url === "string" &&
+		/^\/workspace\/[0-9a-f-]{36}(\?[A-Za-z0-9=&%:._-]*)?$/.test(url)
+		? url
+		: DECK_PATH;
+}
 self.addEventListener("push", (event) => {
 	event.waitUntil(
 		(async () => {
@@ -62,7 +71,7 @@ self.addEventListener("push", (event) => {
 				icon: "/icon-192.png",
 				badge: "/icon-192.png",
 				tag: data.tag,
-				data: { url: "/work?view=deck" },
+				data: { url: notificationPath(data.url) },
 			});
 		})(),
 	);
@@ -71,7 +80,10 @@ self.addEventListener("notificationclick", (event) => {
 	event.notification.close();
 	event.waitUntil(
 		(async () => {
-			const url = new URL("/work?view=deck", self.location.origin).href;
+			const url = new URL(
+				notificationPath(event.notification.data?.url),
+				self.location.origin,
+			).href;
 			const clients = await self.clients.matchAll({
 				type: "window",
 				includeUncontrolled: true,

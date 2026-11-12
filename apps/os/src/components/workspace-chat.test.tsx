@@ -19,6 +19,11 @@ import {
 	applyWorkspaceChatEvents,
 	initialWorkspaceChatState,
 } from "@/lib/workspace-chat-state";
+const notifyChatPosted = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/workspace-chat-notify", async (original) => ({
+	...(await original<typeof import("@/lib/workspace-chat-notify")>()),
+	notifyChatPosted,
+}));
 import { WorkspaceChat } from "./workspace-chat";
 import { osQueryKeys, canvasOutputsQueryOptions } from "@/lib/os-query-options";
 
@@ -1024,5 +1029,22 @@ describe("WorkspaceChat", () => {
 			);
 		});
 		expect(fake.calls).toContainEqual(["sendTurn", { text: "Count them" }]);
+		// Someone else's turn alone asks for nothing; this tab's own post asks once.
+		expect(notifyChatPosted).not.toHaveBeenCalled();
+		act(() => fake.feed([started]));
+		expect(notifyChatPosted).toHaveBeenCalledTimes(1);
+		expect(notifyChatPosted).toHaveBeenCalledWith({
+			workspaceId: "ws-1",
+			conversationId: "c1",
+			mentionedUserIds: [],
+		});
+	});
+
+	it("does not ask to notify anyone for activity this tab did not post", () => {
+		notifyChatPosted.mockClear();
+		const fake = fakeClient("c1");
+		mount(fake);
+		act(() => fake.feed([started]));
+		expect(notifyChatPosted).not.toHaveBeenCalled();
 	});
 });

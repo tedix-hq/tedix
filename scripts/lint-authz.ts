@@ -556,6 +556,8 @@ function walkRouterFiles(dir: string): string[] {
  * supplying only an id is still safe. Each entry must say why.
  */
 export const SCOPED_BY_CONSTRUCTION: Record<string, string> = {
+	getWorkspaceReadMarker:
+		"Reads only the caller's own read marker: the predicate binds user_id and a namespace built from the caller's organization (os.unread:<organizationId>); the workspace id is just the key inside that namespace, so another tenant's or person's marker cannot resolve. Verified in queries/workspace-unread.ts.",
 	loadDeckProjection:
 		"Selects gadgetId only from osWorkspaces.gadgets.workApps' organization- and viewer-scoped inventory. Every interaction, Work approval, runtime approval, preference, model and factory-output read calls its existing authorized router with the original caller context; no caller-supplied identifier reaches an unscoped DB lookup. Verified in services/attention-projection.ts.",
 	getCatalogOsBlueprint:

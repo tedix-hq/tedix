@@ -18,6 +18,19 @@ const identity: CollabVerifiedIdentity = {
 };
 
 describe("collaboration presence", () => {
+	it("passes a chat activity time to peers only as a whole non-negative number", () => {
+		const location = (chatAt: unknown) =>
+			sanitizeCollabPresenceState(
+				{ location: { surface: "canvas", chatAt } },
+				identity,
+			).location;
+		expect(location(1_763_000_000_000)).toEqual({
+			surface: "canvas",
+			chatAt: 1_763_000_000_000,
+		});
+		for (const junk of [-1, 1.5, "12", { at: 1 }, null])
+			expect(location(junk)).toEqual({ surface: "canvas" });
+	});
 	it("fails closed on malformed or unverified room identity", () => {
 		expect(parseCollabPresenceHeader(null)).toBeNull();
 		expect(parseCollabPresenceHeader("not-json")).toBeNull();

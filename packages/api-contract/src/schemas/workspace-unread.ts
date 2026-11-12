@@ -90,5 +90,7 @@ export const WorkspaceMarkReadInputSchema = z.object({
 		}),
 		z.object({ type: z.literal("file"), outputId: z.string().uuid() }),
 		z.object({ type: z.literal("all") }),
+		/** The person opened the workspace: starts their marker on a first visit, changes nothing after. */
+		z.object({ type: z.literal("visit") }),
 	]),
 });

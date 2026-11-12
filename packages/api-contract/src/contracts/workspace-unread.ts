@@ -20,10 +20,30 @@ export const workspaceUnreadContract = oc
 			.input(z.object({ workspaceId: z.string().uuid() }))
 			.output(WorkspaceUnreadStateSchema),
 		/** Everything unread, newest first, grouped by workspace. */
-		list: oc.input(z.object({})).output(WorkspaceUnreadListSchema),
+		list: oc.input(z.strictObject({})).output(WorkspaceUnreadListSchema),
 		markRead: oc
 			.input(WorkspaceMarkReadInputSchema)
 			.output(WorkspaceUnreadStateSchema),
+		/**
+		 * The caller just posted in a workspace chat: notify people who are
+		 * mentioned or took part in that conversation and do not have the
+		 * workspace open. The server checks the post itself; `pending` means it
+		 * has not arrived in the activity feed yet and the call can be repeated.
+		 */
+		notifyChat: oc
+			.input(
+				z.object({
+					workspaceId: z.string().uuid(),
+					conversationId: z.string().min(1).max(200),
+					mentionedUserIds: z.array(z.string().min(1).max(200)).max(10),
+				}),
+			)
+			.output(
+				z.object({
+					status: z.enum(["sent", "pending", "none"]),
+					notified: z.number().int().nonnegative(),
+				}),
+			),
 		markAllRead: oc
 			.input(z.object({}))
 			.output(z.object({ ok: z.literal(true) })),

@@ -44,6 +44,12 @@ export interface CollabLocation {
 	artifactKind?: "gadget" | "output";
 	artifactLabel?: string;
 	selectionLabel?: string;
+	/**
+	 * When this tab last saw something happen in the workspace chat, in
+	 * milliseconds. Peers do not read it as a time: a change tells them to
+	 * check for unread chat now, so nobody has to ask on a timer.
+	 */
+	chatAt?: number;
 }
 
 /**
@@ -151,11 +157,13 @@ function sanitizeLocation(value: unknown): CollabLocation | null {
 			: undefined;
 	const artifactLabel = shortString(input.artifactLabel, 120) ?? undefined;
 	const selectionLabel = shortString(input.selectionLabel, 120) ?? undefined;
+	const chatAt = offset(input.chatAt) ?? undefined;
 	return {
 		surface: "canvas",
 		...(artifactKind ? { artifactKind } : {}),
 		...(artifactLabel ? { artifactLabel } : {}),
 		...(selectionLabel ? { selectionLabel } : {}),
+		...(chatAt ? { chatAt } : {}),
 	};
 }
 

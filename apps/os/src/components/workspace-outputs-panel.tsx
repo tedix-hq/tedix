@@ -1,3 +1,4 @@
+import { FileUnreadDot } from "@/components/unread-badge";
 import { NewResourceMenu } from "./create-document-dialog";
 import { OS_COPY } from "@/shared/os-copy";
 import "./workspace-outputs-panel.css";
@@ -336,6 +337,7 @@ export function WorkspaceOutputsList({
 											{updated ? ` · ${updated}` : ""}
 										</span>
 									</span>
+									<FileUnreadDot outputId={item.outputId} />
 								</Button>
 							</RailTooltip>
 						);

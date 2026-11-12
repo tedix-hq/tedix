@@ -19,6 +19,7 @@ import {
 	authorizeDerivedOutputSources,
 	parseDerivedAccessEnvelope,
 } from "../../services/os-derived-resource-access";
+import { notifyWorkspaceChat } from "../../services/workspace-chat-push";
 import {
 	advanceReadMarker,
 	unreadFromFeed,
@@ -257,11 +258,23 @@ export const workspaceUnreadRouter = os.router({
 			input.target,
 			positions.get(input.workspaceId) ?? 0,
 		);
-		await saveWorkspaceReadMarker(db, scope, input.workspaceId, marker);
+		if (marker !== current)
+			await saveWorkspaceReadMarker(db, scope, input.workspaceId, marker);
 		return state(
 			input.workspaceId,
 			await workspaceUnread(context, input.workspaceId, marker),
 		);
+	}),
+	notifyChat: os.notifyChat.handler(async ({ context, input }) => {
+		const { scope, readerIds } = reader(context);
+		const workspace = await requireWorkspace(context, input.workspaceId);
+		return notifyWorkspaceChat(context, queryDb(context), {
+			caller: scope,
+			callerIds: readerIds,
+			workspace,
+			conversationId: input.conversationId,
+			mentionedUserIds: input.mentionedUserIds,
+		});
 	}),
 	markAllRead: os.markAllRead.handler(async ({ context }) => {
 		const { scope } = reader(context);

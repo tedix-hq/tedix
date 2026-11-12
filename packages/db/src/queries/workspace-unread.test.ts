@@ -161,6 +161,18 @@ describe("workspace unread feed", () => {
 		expect(
 			await listWorkspaceUnreadFeeds(db, [params, { ...params, afterSeq: 4 }]),
 		).toEqual([rows, rows.slice(0, 1)]);
+		expect(
+			(await listWorkspaceUnreadFeed(db, { ...params, own: true })).map(
+				(row) => row.seq,
+			),
+		).toEqual([3]);
+		expect(
+			await listWorkspaceUnreadFeed(db, {
+				...params,
+				own: true,
+				readerIds: [],
+			}),
+		).toEqual([]);
 		sqlite.close();
 	});
 

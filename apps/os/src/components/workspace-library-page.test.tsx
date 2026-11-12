@@ -25,7 +25,31 @@ const navigate = vi.hoisted(() => vi.fn());
 const shares = vi.hoisted(() => ({ list: vi.fn(), revoke: vi.fn() }));
 
 vi.mock("@/lib/api", () => ({
-	osApi: { osWorkspaces: api, osShares: { shares } },
+	osApi: {
+		osWorkspaces: api,
+		osShares: { shares },
+		workspaceUnread: {
+			summary: vi.fn(async () => ({ total: 0, workspaces: [] })),
+			list: vi.fn(async () => ({ total: 0, groups: [] })),
+			workspace: vi.fn(async ({ workspaceId }: { workspaceId: string }) => ({
+				workspaceId,
+				chat: 0,
+				files: 0,
+				total: 0,
+				fileIds: [],
+				conversations: [],
+			})),
+			markRead: vi.fn(async ({ workspaceId }: { workspaceId: string }) => ({
+				workspaceId,
+				chat: 0,
+				files: 0,
+				total: 0,
+				fileIds: [],
+				conversations: [],
+			})),
+			markAllRead: vi.fn(async () => ({ ok: true })),
+		},
+	},
 }));
 vi.mock("@tanstack/react-router", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@tanstack/react-router")>()),

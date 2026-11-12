@@ -509,6 +509,19 @@ const CALLS = {
 	"tediApprovals/retryExecution": { id: IDS.approvalPending },
 	"tediApprovals/dismissExecution": { id: IDS.approvalPending },
 	"tediApprovals/clearExpired": {},
+	"workspaceUnread/summary": {},
+	"workspaceUnread/list": {},
+	"workspaceUnread/workspace": { workspaceId: IDS.workspaceRevenue },
+	"workspaceUnread/markRead": {
+		workspaceId: IDS.workspaceRevenue,
+		target: { type: "visit" },
+	},
+	"workspaceUnread/markAllRead": {},
+	"workspaceUnread/notifyChat": {
+		workspaceId: IDS.workspaceRevenue,
+		conversationId: "fixture-chat",
+		mentionedUserIds: [],
+	},
 	"webPush/getStatus": {},
 	"webPush/subscribe": {
 		endpoint: "https://web.push.apple.com/fixture",

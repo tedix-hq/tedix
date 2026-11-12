@@ -129,6 +129,42 @@ describe("push service worker", () => {
 			"https://team.os.example.test/work?view=deck",
 		);
 	});
+	it("opens the workspace a chat notification is about, and nothing else a payload names", async () => {
+		const w = worker();
+		const path =
+			"/workspace/00000000-0000-4000-8000-0000000000a1?conversation=chat-1&pane=chat";
+		await w.dispatch("push", {
+			data: {
+				json: () => ({
+					title: "Launch",
+					body: "Ada mentioned you.",
+					url: path,
+				}),
+			},
+		});
+		expect(w.showNotification).toHaveBeenCalledWith(
+			"Launch",
+			expect.objectContaining({ data: { url: path } }),
+		);
+		await w.dispatch("notificationclick", {
+			notification: { close: vi.fn(), data: { url: path } },
+		});
+		expect(w.openWindow).toHaveBeenLastCalledWith(
+			`https://team.os.example.test${path}`,
+		);
+		for (const url of [
+			"//evil.example.test/workspace/00000000-0000-4000-8000-0000000000a1",
+			"/workspace/../settings",
+			"/settings",
+		]) {
+			await w.dispatch("notificationclick", {
+				notification: { close: vi.fn(), data: { url } },
+			});
+			expect(w.openWindow).toHaveBeenLastCalledWith(
+				"https://team.os.example.test/work?view=deck",
+			);
+		}
+	});
 	it("ignores malformed push payloads", async () => {
 		const w = worker();
 		await w.dispatch("push", {
