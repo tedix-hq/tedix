@@ -53,7 +53,7 @@ describe("unreadFromFeed", () => {
 				run(5, "turn.started"),
 				run(4, "turn.started", { actorKind: "tedi" }),
 			],
-			{ floor: 0, chat: 0, files: {} },
+			{ floor: 0, chat: 0, chats: {}, files: {} },
 		);
 		expect(unread.chat.map((item) => [item.kind, item.byAgent])).toEqual([
 			["needs_decision", true],
@@ -75,9 +75,14 @@ describe("unreadFromFeed", () => {
 			file(5, "a"),
 		];
 		expect(
-			unreadFromFeed(rows, { floor: 4, chat: 7, files: { a: 6 } }),
+			unreadFromFeed(rows, { floor: 4, chat: 7, chats: {}, files: { a: 6 } }),
 		).toMatchObject({ chat: [], files: [{ outputId: "b", id: "8" }] });
-		const all = unreadFromFeed(rows, { floor: 4, chat: 4, files: {} });
+		const all = unreadFromFeed(rows, {
+			floor: 4,
+			chat: 4,
+			chats: {},
+			files: {},
+		});
 		expect(all.chat).toHaveLength(1);
 		// One entry per file, at its newest change.
 		expect(all.files.map((item) => [item.outputId, item.id])).toEqual([
@@ -104,7 +109,7 @@ describe("unreadFromFeed", () => {
 						}),
 					},
 				],
-				{ floor: 0, chat: 0, files: {} },
+				{ floor: 0, chat: 0, chats: {}, files: {} },
 			),
 		).toEqual({ chat: [], files: [] });
 	});
@@ -115,18 +120,41 @@ describe("advanceReadMarker", () => {
 		expect(advanceReadMarker(null, { type: "chat" }, 40)).toEqual({
 			floor: 40,
 			chat: 40,
+			chats: {},
 			files: {},
 		});
 	});
+	it("marks one conversation read, with the rows that name none, and leaves the others", () => {
+		const marker = advanceReadMarker(
+			{ floor: 0, chat: 0, chats: {}, files: {} },
+			{ type: "chat", conversationId: "chat-1" },
+			6,
+		);
+		expect(marker.chats).toEqual({ "chat-1": 6, "": 6 });
+		const other = {
+			...run(5, "turn.started"),
+			runSummary: run(5, "turn.started").runSummary!.replace(
+				"chat-1",
+				"chat-2",
+			),
+		};
+		expect(
+			unreadFromFeed(
+				[run(7, "turn.started"), other, run(4, "turn.started")],
+				marker,
+			).chat.map((item) => item.id),
+		).toEqual(["7", "5"]);
+	});
 	it("moves only what the person looked at, and never backwards", () => {
-		const marker = { floor: 10, chat: 30, files: { a: 20 } };
+		const marker = { floor: 10, chat: 30, chats: {}, files: { a: 20 } };
 		expect(advanceReadMarker(marker, { type: "chat" }, 25).chat).toBe(30);
 		expect(
 			advanceReadMarker(marker, { type: "file", outputId: "b" }, 35),
-		).toEqual({ floor: 10, chat: 30, files: { a: 20, b: 35 } });
+		).toEqual({ floor: 10, chat: 30, chats: {}, files: { a: 20, b: 35 } });
 		expect(advanceReadMarker(marker, { type: "all" }, 35)).toEqual({
 			floor: 35,
 			chat: 35,
+			chats: {},
 			files: {},
 		});
 	});

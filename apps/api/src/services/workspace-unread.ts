@@ -73,6 +73,8 @@ export function unreadFromFeed(
 		}
 		const action = summary.success ? summary.data.action : undefined;
 		if (!summary.success || action?.resource !== "conversation") continue;
+		const conversationId = summary.data.conversationId;
+		if (row.seq <= (marker.chats[conversationId ?? ""] ?? 0)) continue;
 		const kind = chatKind(row, action.operation, action.outcome);
 		if (!kind) continue;
 		chat.push({
@@ -81,9 +83,7 @@ export function unreadFromFeed(
 			byAgent: kind !== "message",
 			actorId: row.actorId,
 			occurredAt: row.occurredAt,
-			...(summary.data.conversationId
-				? { conversationId: summary.data.conversationId }
-				: {}),
+			...(conversationId ? { conversationId } : {}),
 			...(action.traceId ? { turnId: action.traceId } : {}),
 		});
 	}
@@ -91,7 +91,7 @@ export function unreadFromFeed(
 }
 
 export type WorkspaceReadTarget =
-	| { type: "chat" }
+	| { type: "chat"; conversationId?: string }
 	| { type: "file"; outputId: string }
 	| { type: "all" };
 
@@ -107,9 +107,17 @@ export function advanceReadMarker(
 	position: number,
 ): WorkspaceReadMarker {
 	if (!marker || target.type === "all")
-		return { floor: position, chat: position, files: {} };
-	if (target.type === "chat")
-		return { ...marker, chat: Math.max(marker.chat, position) };
+		return { floor: position, chat: position, chats: {}, files: {} };
+	if (target.type === "chat") {
+		if (!target.conversationId)
+			return { ...marker, chat: Math.max(marker.chat, position), chats: {} };
+		const chats = { ...marker.chats };
+		// Rows written before conversations were recorded have no id; seeing
+		// any conversation clears them too.
+		for (const id of [target.conversationId, ""])
+			chats[id] = Math.max(chats[id] ?? 0, position);
+		return { ...marker, chats };
+	}
 	return {
 		...marker,
 		files: {

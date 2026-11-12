@@ -178,6 +178,7 @@ describe("workspace unread API", () => {
 			files: 1,
 			total: 3,
 			fileIds: [FILE],
+			conversations: [{ conversationId: "chat-1", count: 2 }],
 		});
 		// The other person sees only what they did not do themselves.
 		expect(await client("person-b").summary({})).toEqual({
@@ -191,8 +192,18 @@ describe("workspace unread API", () => {
 				target: { type: "file", outputId: FILE },
 			}),
 		).toMatchObject({ chat: 2, files: 0 });
+		// Looking at another conversation leaves this one unread.
 		expect(
-			await client().markRead({ workspaceId: WS, target: { type: "chat" } }),
+			await client().markRead({
+				workspaceId: WS,
+				target: { type: "chat", conversationId: "chat-2" },
+			}),
+		).toMatchObject({ chat: 2 });
+		expect(
+			await client().markRead({
+				workspaceId: WS,
+				target: { type: "chat", conversationId: "chat-1" },
+			}),
 		).toMatchObject({ total: 0 });
 		await event(WS, { kind: "output", actorId: "person-b", entityId: FILE });
 		expect((await client().summary({})).total).toBe(1);
@@ -257,7 +268,7 @@ describe("workspace unread API", () => {
 			db,
 			{ organizationId: "org-a", userId: "person-a" },
 			PRIVATE,
-			{ floor: 0, chat: 0, files: {} },
+			{ floor: 0, chat: 0, chats: {}, files: {} },
 		);
 		await event(PRIVATE, { kind: "run", actorId: "person-b" });
 		expect(await client().summary({})).toEqual({ total: 0, workspaces: [] });

@@ -77,22 +77,25 @@ describe("workspace read markers", () => {
 		await saveWorkspaceReadMarker(db, a, "ws-1", {
 			floor: 5,
 			chat: 9,
+			chats: {},
 			files: { old: 3, open: 8 },
 		});
 		await saveWorkspaceReadMarker(db, a, "ws-1", {
 			floor: 6,
 			chat: 4,
+			chats: {},
 			files: { open: 8 },
 		});
 		await saveWorkspaceReadMarker(
 			db,
 			{ organizationId: "org-b", userId: "person-a" },
 			"ws-1",
-			{ floor: 1, chat: 1, files: {} },
+			{ floor: 1, chat: 1, chats: {}, files: {} },
 		);
 		expect(await getWorkspaceReadMarker(db, a, "ws-1")).toEqual({
 			floor: 6,
 			chat: 6,
+			chats: {},
 			files: { open: 8 },
 		});
 		expect([...(await listWorkspaceReadMarkers(db, a)).keys()]).toEqual([
@@ -119,11 +122,12 @@ describe("workspace read markers", () => {
 		expect(parseWorkspaceReadMarker(null)).toEqual({
 			floor: 0,
 			chat: 0,
+			chats: {},
 			files: {},
 		});
 		expect(
 			parseWorkspaceReadMarker({ floor: -1, chat: "9", files: { a: 2.5 } }),
-		).toEqual({ floor: 0, chat: 0, files: {} });
+		).toEqual({ floor: 0, chat: 0, chats: {}, files: {} });
 	});
 });
 

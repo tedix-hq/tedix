@@ -19,12 +19,14 @@ import { batchNonEmpty, chunkForBoundParams } from "../utils/batch";
 import { upsertUserConfig } from "./user-configs";
 
 /**
- * Everything at or below `floor` is read. Chat rows are also read up to
- * `chat`, and a file is read up to its entry in `files`.
+ * Everything at or below `floor` is read. All chat is also read up to `chat`,
+ * one conversation up to its entry in `chats`, and one file up to its entry
+ * in `files`.
  */
 export interface WorkspaceReadMarker {
 	floor: number;
 	chat: number;
+	chats: Record<string, number>;
 	files: Record<string, number>;
 }
 
@@ -35,8 +37,8 @@ export interface WorkspaceUnreadScope {
 
 /** Most workspaces one person's unread summary looks at. */
 export const WORKSPACE_READ_MARKER_LIMIT = 200;
-/** Most files a marker remembers above its floor; the oldest entries go first. */
-export const WORKSPACE_READ_MARKER_FILE_LIMIT = 200;
+/** Most files, and most conversations, a marker remembers above its floor. */
+export const WORKSPACE_READ_MARKER_ENTRY_LIMIT = 200;
 /** Most feed rows one unread read looks at per workspace. */
 export const WORKSPACE_UNREAD_ROW_LIMIT = 300;
 
@@ -49,6 +51,30 @@ function integer(value: unknown): number {
 		: 0;
 }
 
+function positions(value: unknown, above: number): Record<string, number> {
+	const result: Record<string, number> = {};
+	if (value && typeof value === "object" && !Array.isArray(value)) {
+		for (const [id, seq] of Object.entries(value)) {
+			const read = integer(seq);
+			if (read > above) result[id] = read;
+		}
+	}
+	return result;
+}
+
+/** Keep the newest entries; the oldest ones fall back to the floor. */
+function newest(
+	entries: Record<string, number>,
+	above: number,
+): Record<string, number> {
+	return Object.fromEntries(
+		Object.entries(entries)
+			.filter(([, seq]) => seq > above)
+			.sort((a, b) => b[1] - a[1])
+			.slice(0, WORKSPACE_READ_MARKER_ENTRY_LIMIT),
+	);
+}
+
 /** Stored JSON is data from an earlier write; anything unexpected reads as zero. */
 export function parseWorkspaceReadMarker(value: unknown): WorkspaceReadMarker {
 	const record =
@@ -56,18 +82,13 @@ export function parseWorkspaceReadMarker(value: unknown): WorkspaceReadMarker {
 			? (value as Record<string, unknown>)
 			: {};
 	const floor = integer(record.floor);
-	const files: Record<string, number> = {};
-	if (
-		record.files &&
-		typeof record.files === "object" &&
-		!Array.isArray(record.files)
-	) {
-		for (const [id, seq] of Object.entries(record.files)) {
-			const read = integer(seq);
-			if (read > floor) files[id] = read;
-		}
-	}
-	return { floor, chat: Math.max(integer(record.chat), floor), files };
+	const chat = Math.max(integer(record.chat), floor);
+	return {
+		floor,
+		chat,
+		chats: positions(record.chats, chat),
+		files: positions(record.files, floor),
+	};
 }
 
 export async function listWorkspaceReadMarkers(
@@ -115,18 +136,16 @@ export async function saveWorkspaceReadMarker(
 	workspaceId: string,
 	marker: WorkspaceReadMarker,
 ): Promise<void> {
-	const files = Object.entries(marker.files)
-		.filter(([, seq]) => seq > marker.floor)
-		.sort((a, b) => b[1] - a[1])
-		.slice(0, WORKSPACE_READ_MARKER_FILE_LIMIT);
+	const chat = Math.max(marker.chat, marker.floor);
 	await upsertUserConfig(db, {
 		userId: scope.userId,
 		namespace: markerNamespace(scope.organizationId),
 		key: workspaceId,
 		value: {
 			floor: marker.floor,
-			chat: Math.max(marker.chat, marker.floor),
-			files: Object.fromEntries(files),
+			chat,
+			chats: newest(marker.chats, chat),
+			files: newest(marker.files, marker.floor),
 		},
 	});
 }
