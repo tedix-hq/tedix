@@ -106,6 +106,179 @@ const RESOURCE_NOUN: Record<OsShareResourceType, string> = {
 	workspace: "workspace",
 };
 
+/** What the server says a change would do, before it is made. */
+export type ShareImpact = Awaited<
+	ReturnType<typeof osApi.osShares.shares.previewChange>
+>;
+
+/** A change to the main link the person asked for. */
+type LinkChangeRequest = { shareId: string } & (
+	| { kind: "access"; access: OsShareAccess; previous: OsShareAccess }
+	| { kind: "off" }
+	| { kind: "delete" }
+);
+
+/** That change with the server's preview, held until the person confirms. */
+type PendingLinkChange = LinkChangeRequest & { impact: ShareImpact };
+
+/** One invited person about to be removed, with what that does. */
+type InviteeRemoval = {
+	inviteeId: string;
+	email: string | null;
+	label: string;
+	impact: ShareImpact;
+};
+
+function countPeople(count: number): string {
+	return count === 1 ? "1 person" : `${count} people`;
+}
+
+/** "3 people and anyone with the link", or null when the set is empty. */
+function audienceText(
+	audience: ShareImpact["loses"],
+	organization: string,
+): string | null {
+	const parts = [
+		audience.people > 0 ? countPeople(audience.people) : null,
+		audience.organization ? `people in ${organization}` : null,
+		audience.anyoneWithLink ? "anyone with the link" : null,
+	].filter((part): part is string => part !== null);
+	if (parts.length === 0) return null;
+	const text = new Intl.ListFormat("en", {
+		style: "long",
+		type: "conjunction",
+	}).format(parts);
+	return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** True when the change takes access away from someone. */
+export function impactNarrows(impact: ShareImpact): boolean {
+	return (
+		impact.loses.people > 0 ||
+		impact.loses.organization ||
+		impact.loses.anyoneWithLink
+	);
+}
+
+/**
+ * The effect of a sharing change in plain sentences: who loses access, who
+ * gains it, who is left, and who keeps it another way. The numbers are the
+ * server's; `done` switches to the past tense for the notice after a change.
+ */
+export function shareImpactSentences(
+	impact: ShareImpact,
+	options: { noun: string; organization: string; done?: boolean },
+): string[] {
+	const { noun, organization, done } = options;
+	const sentences: string[] = [];
+	const loses = audienceText(impact.loses, organization);
+	if (loses)
+		sentences.push(
+			done
+				? `${loses} can no longer open this ${noun}.`
+				: `${loses} will no longer be able to open this ${noun}.`,
+		);
+	const gains = audienceText(impact.gains, organization);
+	if (gains)
+		sentences.push(
+			`${gains} ${done ? "can now" : "will be able to"} open this ${noun}${
+				impact.gains.anyoneWithLink ? ", without signing in" : ""
+			}.`,
+		);
+	if (done) return sentences;
+	const left = loses ? audienceText(impact.remaining, organization) : null;
+	if (left) sentences.push(`Still able to open it: ${left.toLowerCase()}.`);
+	if (impact.keepThroughWorkspace > 0)
+		sentences.push(
+			`${countPeople(impact.keepThroughWorkspace)} on the invite list still ${
+				impact.keepThroughWorkspace === 1 ? "opens" : "open"
+			} it through the workspace.`,
+		);
+	if (impact.openNow > 0)
+		sentences.push(
+			impact.openNow === 1
+				? "It is open in 1 place right now; that closes."
+				: `It is open in ${impact.openNow} places right now; those close.`,
+		);
+	if (sentences.length === 0)
+		sentences.push(`Nobody's access to this ${noun} changes.`);
+	return sentences;
+}
+
+const UNDO_MS = 15_000;
+
+/** What can be put back, for a short while after access was taken away. */
+type UndoOffer = { text: string; run: () => Promise<unknown> };
+
+/**
+ * Holds one Undo offer for a short time. Undo runs the opposite change
+ * through the same guarded calls, then clears itself.
+ */
+function useUndoOffer(onDone: () => void) {
+	const [offer, setOffer] = useState<UndoOffer | null>(null);
+	const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+	useEffect(
+		() => () => {
+			if (timer.current) clearTimeout(timer.current);
+		},
+		[],
+	);
+	const show = (next: UndoOffer | null) => {
+		if (timer.current) clearTimeout(timer.current);
+		timer.current = next ? setTimeout(() => setOffer(null), UNDO_MS) : null;
+		setOffer(next);
+	};
+	const undo = useMutation({
+		mutationFn: (current: UndoOffer) => current.run(),
+		onSuccess: () => show(null),
+		onSettled: onDone,
+	});
+	return { offer, show, undo };
+}
+
+/** What was done, with Undo, right after access was taken away. */
+function UndoNotice(props: { undo: ReturnType<typeof useUndoOffer> }) {
+	const { offer, undo } = props.undo;
+	if (!offer) return null;
+	return (
+		<Surface
+			className="flex flex-wrap items-center gap-2 px-3 py-2"
+			aria-live="polite"
+			data-share-undo
+		>
+			<Text as="span" role="label" className="m-0 min-w-0 flex-1">
+				{undo.isError ? "Couldn't undo that. Try again." : offer.text}
+			</Text>
+			<Button
+				size="sm"
+				variant="secondary"
+				loading={undo.isPending}
+				disabled={undo.isPending}
+				onClick={() => undo.mutate(offer)}
+			>
+				Undo
+			</Button>
+		</Surface>
+	);
+}
+
+/** The server's answer in sentences, inside a confirmation. */
+function ImpactSentences(props: {
+	impact: ShareImpact;
+	noun: string;
+	organization: string;
+}) {
+	return (
+		<div className="grid gap-1" data-share-impact>
+			{shareImpactSentences(props.impact, props).map((sentence) => (
+				<p key={sentence} className="m-0">
+					{sentence}
+				</p>
+			))}
+		</div>
+	);
+}
+
 const ROLE_LABEL: Record<OsShareRole, string> = {
 	viewer: "Can view",
 	use: "Can use",
@@ -692,13 +865,32 @@ export function PermanentUrl(props: { url: string; off?: boolean }) {
 }
 
 /** Who may open an "Only people you invite" link. */
-function InviteList(props: { shareId: string }) {
+function InviteList(props: {
+	shareId: string;
+	noun: string;
+	organization: string;
+}) {
 	const queryClient = useQueryClient();
 	const inviteesQuery = shareInviteesQueryOptions(props.shareId);
 	const invitees = useQuery(inviteesQuery);
 	const [email, setEmail] = useState("");
 	const refresh = () =>
 		queryClient.invalidateQueries({ queryKey: inviteesQuery.queryKey });
+	const undo = useUndoOffer(() => void refresh());
+	/** The person about to be removed, with what the server says it does. */
+	const [removal, setRemoval] = useState<InviteeRemoval | null>(null);
+	const previewRemoval = useMutation({
+		mutationFn: async (
+			invitee: Omit<InviteeRemoval, "impact">,
+		): Promise<InviteeRemoval> => ({
+			...invitee,
+			impact: await osApi.osShares.shares.previewChange({
+				shareId: props.shareId,
+				change: { kind: "removeInvitee", inviteeId: invitee.inviteeId },
+			}),
+		}),
+		onSuccess: setRemoval,
+	});
 	const add = useMutation({
 		mutationFn: () =>
 			osApi.osShares.shares.invitees.add({
@@ -709,11 +901,28 @@ function InviteList(props: { shareId: string }) {
 		onSettled: () => void refresh(),
 	});
 	const remove = useMutation({
-		mutationFn: (inviteeId: string) =>
+		mutationFn: (target: InviteeRemoval) =>
 			osApi.osShares.shares.invitees.remove({
 				shareId: props.shareId,
-				inviteeId,
+				inviteeId: target.inviteeId,
 			}),
+		onSuccess: (_result, target) => {
+			setRemoval(null);
+			const removedEmail = target.email;
+			// Adding the same address back restores exactly what was removed.
+			undo.show(
+				removedEmail
+					? {
+							text: `Removed ${target.label}.`,
+							run: () =>
+								osApi.osShares.shares.invitees.add({
+									shareId: props.shareId,
+									email: removedEmail,
+								}),
+						}
+					: null,
+			);
+		},
 		onSettled: () => void refresh(),
 	});
 	const items = invitees.data?.items ?? [];
@@ -785,8 +994,14 @@ function InviteList(props: { shareId: string }) {
 									variant="ghost"
 									size="sm"
 									aria-label={`Remove ${label}`}
-									disabled={remove.isPending}
-									onClick={() => remove.mutate(invitee.id)}
+									disabled={remove.isPending || previewRemoval.isPending}
+									onClick={() =>
+										previewRemoval.mutate({
+											inviteeId: invitee.id,
+											email: invitee.email,
+											label,
+										})
+									}
 								>
 									Remove
 								</Button>
@@ -814,9 +1029,43 @@ function InviteList(props: { shareId: string }) {
 					))}
 				</div>
 			) : null}
-			{remove.isError ? (
+			{removal ? (
+				<Alert variant="warning" data-share-remove-invitee>
+					<Prohibit aria-hidden />
+					<AlertTitle>Remove {removal.label}?</AlertTitle>
+					<AlertDescription className="space-y-3">
+						<ImpactSentences
+							impact={removal.impact}
+							noun={props.noun}
+							organization={props.organization}
+						/>
+						<div className="flex flex-wrap gap-2">
+							<Button
+								size="sm"
+								variant="destructive"
+								loading={remove.isPending}
+								onClick={() => remove.mutate(removal)}
+							>
+								Remove
+							</Button>
+							<Button
+								size="sm"
+								variant="ghost"
+								onClick={() => setRemoval(null)}
+							>
+								Keep
+							</Button>
+						</div>
+					</AlertDescription>
+				</Alert>
+			) : null}
+			<UndoNotice undo={undo} />
+			{remove.isError || previewRemoval.isError ? (
 				<Text role="label" tone="error" className="m-0" aria-live="polite">
-					{shareErrorText(remove.error, "Couldn't remove that person.")}
+					{shareErrorText(
+						remove.error ?? previewRemoval.error,
+						"Couldn't remove that person.",
+					)}
 				</Text>
 			) : null}
 		</section>
@@ -838,12 +1087,14 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 		shareId: string;
 		activeSessionCount: number;
 	} | null>(null);
-	const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+	/** A change to the main link, waiting for the person to confirm it. */
+	const [pending, setPending] = useState<PendingLinkChange | null>(null);
 	const queryClient = useQueryClient();
 	const sharesQuery = osSharesQueryOptions({ resourceType, resourceId });
 	const shares = useQuery(sharesQuery);
 	const invalidate = () =>
 		queryClient.invalidateQueries({ queryKey: sharesQuery.queryKey });
+	const undo = useUndoOffer(() => void invalidate());
 	const organization =
 		useOsOperationalContext().data?.organization?.name ?? "your organization";
 	const canEditSettings = useCanEditLinkSettings();
@@ -886,14 +1137,58 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 	// Choosing who can open an existing link changes it at once; the address
 	// stays the same.
 	const changeAccess = useMutation({
-		mutationFn: (input: { shareId: string; access: OsShareAccess }) =>
-			osApi.osShares.shares.update(input),
+		mutationFn: (input: {
+			shareId: string;
+			access: OsShareAccess;
+			/** What to offer Undo for, when the change took access away. */
+			undo?: { previous: OsShareAccess; text: string };
+		}) =>
+			osApi.osShares.shares.update({
+				shareId: input.shareId,
+				access: input.access,
+			}),
+		onSuccess: (_result, input) => {
+			setPending(null);
+			const offer = input.undo;
+			// Invited people stay on the link's list, so going back to the
+			// earlier choice restores exactly who could open it.
+			undo.show(
+				offer
+					? {
+							text: offer.text,
+							run: () =>
+								osApi.osShares.shares.update({
+									shareId: input.shareId,
+									access: offer.previous,
+								}),
+						}
+					: null,
+			);
+		},
 		onSettled: () => void invalidate(),
+	});
+	// Every change to who can open the link is put to the server first, so
+	// the dialog can say who loses or gains access before anything changes.
+	const previewChange = useMutation({
+		mutationFn: async (
+			change: LinkChangeRequest,
+		): Promise<PendingLinkChange> => ({
+			...change,
+			impact: await osApi.osShares.shares.previewChange({
+				shareId: change.shareId,
+				change:
+					change.kind === "access"
+						? { kind: "access", access: change.access }
+						: { kind: "off" },
+			}),
+		}),
+		onSuccess: setPending,
 	});
 	// While a change is on its way, the choice already shows as made.
 	const access: OsShareAccess =
 		(link
 			? ((changeAccess.isPending ? changeAccess.variables?.access : null) ??
+				(pending?.kind === "access" ? pending.access : null) ??
 				link.access)
 			: staged) ?? "anyone_with_link";
 	const updateSettings = useMutation({
@@ -920,11 +1215,34 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 	});
 	// Turning a link off keeps its address: the same id comes back on.
 	const setDisabled = useMutation({
-		mutationFn: (input: { shareId: string; disabled: boolean }) =>
-			osApi.osShares.shares.setDisabled(input),
-		onSuccess: () => {
+		mutationFn: (input: {
+			shareId: string;
+			disabled: boolean;
+			/** Said beside Undo after the link was turned off. */
+			undoText?: string;
+		}) =>
+			osApi.osShares.shares.setDisabled({
+				shareId: input.shareId,
+				disabled: input.disabled,
+			}),
+		onSuccess: (_result, input) => {
 			setConfirmOff(null);
+			setPending(null);
 			setStaged(null);
+			// The link keeps its address and invite list while off, so turning
+			// it back on restores exactly who could open it.
+			undo.show(
+				input.disabled && input.undoText
+					? {
+							text: input.undoText,
+							run: () =>
+								osApi.osShares.shares.setDisabled({
+									shareId: input.shareId,
+									disabled: false,
+								}),
+						}
+					: null,
+			);
 		},
 		onSettled: () => void invalidate(),
 	});
@@ -933,15 +1251,17 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 	const deleteLink = useMutation({
 		mutationFn: (shareId: string) => osApi.osShares.shares.delete({ shareId }),
 		onSuccess: () => {
-			setConfirmDelete(null);
 			setConfirmOff(null);
+			setPending(null);
 			setStaged(null);
+			undo.show(null);
 		},
 		onSettled: () => void invalidate(),
 	});
 	const busy =
 		createLink.isPending ||
 		changeAccess.isPending ||
+		previewChange.isPending ||
 		updateSettings.isPending ||
 		previewRevoke.isPending ||
 		setDisabled.isPending ||
@@ -957,11 +1277,41 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 		updateSettings.error ??
 		setDisabled.error ??
 		deleteLink.error ??
+		previewChange.error ??
 		previewRevoke.error;
 	const chooseAccess = (option: OsShareAccess) => {
 		if (!link) setStaged(option);
 		else if (option !== link.access)
-			changeAccess.mutate({ shareId: link.id, access: option });
+			previewChange.mutate({
+				kind: "access",
+				shareId: link.id,
+				access: option,
+				previous: link.access,
+			});
+		else setPending(null);
+	};
+	const impactOptions = { noun, organization };
+	const confirmPending = (change: PendingLinkChange) => {
+		const narrows = impactNarrows(change.impact);
+		const doneText = shareImpactSentences(change.impact, {
+			...impactOptions,
+			done: true,
+		}).join(" ");
+		if (change.kind === "access")
+			changeAccess.mutate({
+				shareId: change.shareId,
+				access: change.access,
+				...(narrows
+					? { undo: { previous: change.previous, text: doneText } }
+					: {}),
+			});
+		else if (change.kind === "off")
+			setDisabled.mutate({
+				shareId: change.shareId,
+				disabled: true,
+				undoText: `Link turned off. ${doneText}`.trim(),
+			});
+		else deleteLink.mutate(change.shareId);
 	};
 	const rowProps = (share: OsShareLink) => ({
 		share,
@@ -1100,7 +1450,9 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 									</DropdownMenuItem>
 								) : (
 									<DropdownMenuItem
-										onClick={() => previewRevoke.mutate(link.id)}
+										onClick={() =>
+											previewChange.mutate({ kind: "off", shareId: link.id })
+										}
 									>
 										<Prohibit size={14} /> Turn off link
 									</DropdownMenuItem>
@@ -1108,7 +1460,12 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 								{canEditSettings ? (
 									<DropdownMenuItem
 										variant="destructive"
-										onClick={() => setConfirmDelete(link.id)}
+										onClick={() =>
+											previewChange.mutate({
+												kind: "delete",
+												shareId: link.id,
+											})
+										}
 									>
 										<Prohibit size={14} /> Delete link
 									</DropdownMenuItem>
@@ -1175,73 +1532,63 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 					{shareErrorText(shares.error, "Can't load the link right now.")}
 				</Text>
 			)}
-			{link?.access === "invited" ? <InviteList shareId={link.id} /> : null}
-			{link && confirmOff?.shareId === link.id ? (
-				<Alert variant="warning" data-share-turn-off>
+			{link && pending?.shareId === link.id ? (
+				<Alert variant="warning" data-share-pending={pending.kind}>
 					<Prohibit aria-hidden />
-					<AlertTitle>Turn off this link?</AlertTitle>
+					<AlertTitle>
+						{pending.kind === "access"
+							? `Change to “${accessLabel(pending.access, organization)}”?`
+							: pending.kind === "off"
+								? "Turn off this link?"
+								: "Delete this link?"}
+					</AlertTitle>
 					<AlertDescription className="space-y-3">
-						<p>
-							It stops working right away but keeps its address — you can turn
-							it back on any time.{" "}
-							{confirmOff.activeSessionCount === 0
-								? "Nobody has it open now."
-								: `${confirmOff.activeSessionCount} ${
-										confirmOff.activeSessionCount === 1
-											? "person has"
-											: "people have"
-									} it open now and will lose access.`}
+						<ImpactSentences impact={pending.impact} {...impactOptions} />
+						<p className="m-0">
+							{pending.kind === "delete"
+								? "The address stops working for good and this can't be undone. A new link would get a new address."
+								: pending.kind === "off"
+									? "The link keeps its address, so you can turn it back on any time."
+									: impactNarrows(pending.impact)
+										? "You can undo this right after."
+										: "The address stays the same."}
 						</p>
 						<div className="flex flex-wrap gap-2">
 							<Button
 								size="sm"
-								variant="destructive"
-								loading={setDisabled.isPending}
-								onClick={() =>
-									setDisabled.mutate({ shareId: link.id, disabled: true })
+								variant={
+									pending.kind === "access" && !impactNarrows(pending.impact)
+										? "default"
+										: "destructive"
 								}
+								loading={
+									changeAccess.isPending ||
+									setDisabled.isPending ||
+									deleteLink.isPending
+								}
+								onClick={() => confirmPending(pending)}
+								data-share-pending-confirm
 							>
-								Turn off link
+								{pending.kind === "access"
+									? "Change access"
+									: pending.kind === "off"
+										? "Turn off link"
+										: "Delete link"}
 							</Button>
 							<Button
 								size="sm"
 								variant="ghost"
-								onClick={() => setConfirmOff(null)}
+								onClick={() => setPending(null)}
 							>
-								Keep link
+								{pending.kind === "access" ? "Keep as it is" : "Keep link"}
 							</Button>
 						</div>
 					</AlertDescription>
 				</Alert>
 			) : null}
-			{link && confirmDelete === link.id ? (
-				<Alert variant="warning" data-share-delete>
-					<Prohibit aria-hidden />
-					<AlertTitle>Delete this link?</AlertTitle>
-					<AlertDescription className="space-y-3">
-						<p>
-							The address stops working for good — unlike turning the link off,
-							this can't be undone. A new link would get a new address.
-						</p>
-						<div className="flex flex-wrap gap-2">
-							<Button
-								size="sm"
-								variant="destructive"
-								loading={deleteLink.isPending}
-								onClick={() => deleteLink.mutate(link.id)}
-							>
-								Delete link
-							</Button>
-							<Button
-								size="sm"
-								variant="ghost"
-								onClick={() => setConfirmDelete(null)}
-							>
-								Keep link
-							</Button>
-						</div>
-					</AlertDescription>
-				</Alert>
+			<UndoNotice undo={undo} />
+			{link?.access === "invited" ? (
+				<InviteList shareId={link.id} noun={noun} organization={organization} />
 			) : null}
 			{listedLinks.length > 1 ? (
 				<section className="grid gap-1" aria-label="Other links">

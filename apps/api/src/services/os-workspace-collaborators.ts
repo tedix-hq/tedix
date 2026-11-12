@@ -265,6 +265,30 @@ export async function readWorkspaceSessionRole(
 }
 
 /**
+ * Which of these people open the workspace itself, whatever any file's link
+ * says: its owner and its collaborators, and for an organization workspace
+ * its active members.
+ */
+export async function listWorkspaceAccessHolders(
+	database: DbQueryClient,
+	workspace: OsWorkspaceRow,
+	userIds: readonly string[],
+): Promise<Set<string>> {
+	const [first] = userIds;
+	if (first === undefined) return new Set();
+	const access = await loadAccess(database, workspace, first);
+	const holders = new Set(userIds.filter((id) => access.roles.has(id)));
+	if (workspace.visibility === "private") return holders;
+	const members = await listOsWorkspaceOrganizationMemberRoles(database, {
+		organizationId: workspace.organizationId,
+		userIds,
+	});
+	for (const member of members)
+		if (ORG_ROLE[member.role]) holders.add(member.userId);
+	return holders;
+}
+
+/**
  * Load the caller's access and require an operation. A caller with no role
  * learns nothing about the workspace; a caller with a role but not this
  * operation gets FORBIDDEN for the operation only.

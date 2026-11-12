@@ -920,6 +920,8 @@ export const OS_AUDIT_NON_EMITTING: Readonly<Record<string, string>> = {
 		"read-only provisioning plan; creates no resources",
 	"osWorkspaces.workspaces.previewArchivedCleanup":
 		"read-only cleanup preview; dryRun is forced and nothing is deleted",
+	"osShares.shares.previewChange":
+		"read-only preview of who a share change would affect; changes nothing",
 	// Presentation-only, per-user, and not org state: favorites and recency live
 	// in user_configs and govern nothing.
 	"osWorkspaces.workspacePreferences.setFavorite":

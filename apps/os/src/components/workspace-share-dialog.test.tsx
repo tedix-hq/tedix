@@ -25,6 +25,7 @@ const shares = vi.hoisted(() => ({
 	list: vi.fn(),
 	create: vi.fn(),
 	revoke: vi.fn(),
+	invitees: { list: vi.fn() },
 }));
 const outputs = vi.hoisted(() => ({ get: vi.fn() }));
 
@@ -56,6 +57,7 @@ vi.mock("@/components/kumo/dialog", async (importOriginal) => ({
 
 import {
 	inviteFailureText,
+	itemAccessRows,
 	parseInviteEmails,
 	WorkspaceShareDialog,
 	type WorkspaceShareItem,
@@ -153,7 +155,10 @@ const writeText = vi.fn();
 
 beforeEach(() => {
 	for (const mock of Object.values(collaborators)) mock.mockReset();
-	for (const mock of Object.values(shares)) mock.mockReset();
+	for (const mock of [shares.list, shares.create, shares.revoke])
+		mock.mockReset();
+	shares.invitees.list.mockReset();
+	shares.invitees.list.mockResolvedValue({ items: [] });
 	outputs.get.mockReset();
 	writeText.mockReset();
 	writeText.mockResolvedValue(undefined);
@@ -223,6 +228,99 @@ describe("invite helpers", () => {
 	});
 });
 
+describe("itemAccessRows", () => {
+	const person = (userId: string, role: "use" | "build", email: string) => ({
+		userId,
+		email,
+		name: null,
+		role,
+		addedBy: [],
+		canRemove: true,
+		canChangeRole: true,
+		lastOpenedAt: null,
+	});
+	const invitee = (
+		id: string,
+		email: string,
+		userId: string | null = null,
+	) => ({
+		id,
+		shareLinkId: "share-1",
+		email,
+		userId,
+		name: null,
+		addedByKind: "user" as const,
+		addedById: "user-1",
+		addedAt: "2026-08-14T10:00:00.000Z",
+	});
+	const sharing = {
+		ownerName: "Robin",
+		collaborators: [
+			person("u-build", "build", "ana@example.test"),
+			person("u-use", "use", "ben@example.test"),
+		],
+	};
+
+	it("says for each person whether the workspace or the file's link lets them in", () => {
+		const rows = itemAccessRows({
+			itemType: "output",
+			visibility: "private",
+			organization: "Acme",
+			sharing,
+			link: { access: "invited", role: "viewer" },
+			invitees: [
+				invitee("i-1", "Ana@Example.test"),
+				invitee("i-2", "guest@example.test"),
+			],
+		});
+		expect(rows.map((row) => [row.name, row.through])).toEqual([
+			["Robin", "Through the workspace"],
+			// Invited as well: listed once, with both ways in.
+			["ana@example.test", "Through the workspace and this link"],
+			["guest@example.test", "Through this link"],
+		]);
+	});
+
+	it("leaves out people who only use the workspace's apps when the item is a file", () => {
+		const names = (itemType: "output" | "gadget") =>
+			itemAccessRows({
+				itemType,
+				visibility: "private",
+				organization: "Acme",
+				sharing,
+				link: null,
+			}).map((row) => row.name);
+		expect(names("output")).toEqual(["Robin", "ana@example.test"]);
+		expect(names("gadget")).toEqual([
+			"Robin",
+			"ana@example.test",
+			"ben@example.test",
+		]);
+	});
+
+	it("names the groups a link or an organization workspace reaches", () => {
+		expect(
+			itemAccessRows({
+				itemType: "output",
+				visibility: "org",
+				organization: "Acme",
+				link: { access: "anyone_with_link", role: "viewer" },
+			}).map((row) => [row.name, row.through]),
+		).toEqual([
+			["Everyone in Acme", "Through the workspace"],
+			["Anyone with the link", "Through this link"],
+		]);
+		expect(
+			itemAccessRows({
+				itemType: "output",
+				visibility: "private",
+				organization: "Acme",
+				link: { access: "organization", role: "viewer" },
+			}).map((row) => [row.name, row.through]),
+		).toEqual([["People in Acme", "Through this link"]]);
+	});
+});
+
 describe("WorkspaceShareDialog", () => {
 	it("quotes the workspace name, explains itself and marks your own row", async () => {
 		const container = renderDialog();
@@ -253,6 +351,12 @@ describe("WorkspaceShareDialog", () => {
 		await flush();
 		expect(onItem.querySelector("h2")?.textContent).toBe("Share “Budget”");
 		expect(onItem.querySelector("[data-share-open-item]")).not.toBeNull();
+		// With no link, the file is open to the workspace's people only.
+		const access = onItem.querySelector("[data-item-access]");
+		expect(access?.textContent).toContain("Through the workspace");
+		expect(access?.textContent).toContain(
+			"Nobody outside the workspace can open this file.",
+		);
 
 		const onWorkspace = renderDialog({ item });
 		await flush();

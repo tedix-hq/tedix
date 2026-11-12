@@ -692,6 +692,10 @@ const CALLS = {
 	"osShares/shares/previewRevoke": {
 		shareId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
 	},
+	"osShares/shares/previewChange": {
+		shareId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+		change: { kind: "off" },
+	},
 	"osShares/shares/revoke": {
 		shareId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
 	},
@@ -1314,6 +1318,7 @@ describe("local fixtures parse through the contract output schemas", () => {
 			// A share link or person exists only once created; act on a real one.
 			const shareInput =
 				key === "osShares/shares/previewRevoke" ||
+				key === "osShares/shares/previewChange" ||
 				key === "osShares/shares/revoke" ||
 				key === "osShares/shares/setDisabled" ||
 				key === "osShares/shares/delete" ||

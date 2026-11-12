@@ -120,6 +120,45 @@ export const OsShareLinkSchema = z.object({
 		),
 });
 
+/**
+ * A set of people a share link reaches, loses or gains. Invited people are
+ * counted; the organization and "anyone with the link" are groups.
+ */
+export const OsShareAudienceSchema = z.object({
+	people: z
+		.number()
+		.int()
+		.nonnegative()
+		.describe("Invited people, counted one by one"),
+	organization: z
+		.boolean()
+		.describe("Everyone signed in to the link's organization"),
+	anyoneWithLink: z
+		.boolean()
+		.describe("Anyone who has the address, without signing in"),
+});
+export type OsShareAudience = z.infer<typeof OsShareAudienceSchema>;
+
+/** A change to a share link whose effect can be previewed before it is made. */
+export const OsShareChangeSchema = z.discriminatedUnion("kind", [
+	z.object({ kind: z.literal("access"), access: OsShareAccessSchema }).strict(),
+	z
+		.object({ kind: z.literal("off") })
+		.strict()
+		.describe("Turn the link off, or delete it"),
+	z
+		.object({ kind: z.literal("on") })
+		.strict()
+		.describe("Turn the link back on"),
+	z
+		.object({
+			kind: z.literal("removeInvitee"),
+			inviteeId: z.string().uuid(),
+		})
+		.strict(),
+]);
+export type OsShareChange = z.infer<typeof OsShareChangeSchema>;
+
 export type OsShareResourceType = z.infer<typeof OsShareResourceTypeSchema>;
 export type OsShareRole = z.infer<typeof OsShareRoleSchema>;
 export type OsShareRevisionMode = z.infer<typeof OsShareRevisionModeSchema>;
@@ -624,6 +663,42 @@ export const osSharesContract = oc
 					z.object({
 						share: OsShareLinkSchema,
 						activeSessionCount: z.number().int().nonnegative(),
+					}),
+				),
+			previewChange: oc
+				.route({
+					method: "POST",
+					path: "/shares/{shareId}/change-impact",
+					summary: "Preview who loses or gains access before a share change",
+					description:
+						"Changes nothing. Says who would no longer be able to open the shared file or app, and who newly could, if the link's audience changed, an invited person were removed, or the link were turned off or on. Invited people who still reach it through the workspace are counted apart.",
+				})
+				.input(
+					z
+						.object({ shareId: z.string().uuid(), change: OsShareChangeSchema })
+						.strict(),
+				)
+				.output(
+					z.object({
+						loses: OsShareAudienceSchema,
+						gains: OsShareAudienceSchema,
+						remaining: OsShareAudienceSchema.describe(
+							"Who the link reaches once the change is made",
+						),
+						keepThroughWorkspace: z
+							.number()
+							.int()
+							.nonnegative()
+							.describe(
+								"Invited people the link would drop who still open it as members of the workspace",
+							),
+						openNow: z
+							.number()
+							.int()
+							.nonnegative()
+							.describe(
+								"Open sessions the change would end; zero when it ends none",
+							),
 					}),
 				),
 			revoke: oc

@@ -9478,6 +9478,51 @@ const handlers: Record<string, (input: never) => unknown> = {
 		if (input.expiresAt !== undefined) share.expiresAt = input.expiresAt;
 		return { share, revokedSessionCount: 0 };
 	},
+	"osShares/shares/previewChange": (input: {
+		shareId: string;
+		change:
+			| { kind: "access"; access: OsShareLink["access"] }
+			| { kind: "off" | "on" }
+			| { kind: "removeInvitee"; inviteeId: string };
+	}) => {
+		const share = findLocalShareLink(input.shareId);
+		const invited = localShareInvitees.get(input.shareId)?.length ?? 0;
+		const reach = (open: boolean, access: OsShareLink["access"]) => ({
+			people: open && access === "invited" ? invited : 0,
+			organization: open && access === "organization",
+			anyoneWithLink: open && access === "anyone_with_link",
+		});
+		const open = !share.revokedAt && !share.disabledAt;
+		const was = reach(open, share.access);
+		const now =
+			input.change.kind === "off"
+				? reach(false, share.access)
+				: input.change.kind === "on"
+					? reach(!share.revokedAt, share.access)
+					: input.change.kind === "access"
+						? reach(open, input.change.access)
+						: {
+								...was,
+								people: Math.max(0, was.people - 1),
+							};
+		return {
+			loses: {
+				people: Math.max(0, was.people - now.people),
+				organization:
+					was.organization && !now.organization && !now.anyoneWithLink,
+				anyoneWithLink: was.anyoneWithLink && !now.anyoneWithLink,
+			},
+			gains: {
+				people: Math.max(0, now.people - was.people),
+				organization:
+					now.organization && !was.organization && !was.anyoneWithLink,
+				anyoneWithLink: now.anyoneWithLink && !was.anyoneWithLink,
+			},
+			remaining: now,
+			keepThroughWorkspace: 0,
+			openNow: 0,
+		};
+	},
 	"osShares/shares/previewRevoke": (input: { shareId: string }) => ({
 		share: findLocalShareLink(input.shareId),
 		activeSessionCount: 0,

@@ -37,6 +37,11 @@ import {
 import { userConfigs } from "@tedix/db/schema/user-configs";
 import { kernelRuntimeRuns } from "@tedix/db/schema/cognitive-runtime";
 import {
+	osWorkspaceAccessEdges,
+	osWorkspaceCollaborators,
+	osWorkspaceShareLinks,
+} from "@tedix/db/schema/os-collaborators";
+import {
 	workspaceActivity,
 	workspaceFeedCursors,
 	workspaceFeedLedger,
@@ -74,6 +79,9 @@ function createEnv(): CloudflareEnv {
 			osShareLinks,
 			osShareSessions,
 			osShareLinkInvitees,
+			osWorkspaceCollaborators,
+			osWorkspaceAccessEdges,
+			osWorkspaceShareLinks,
 			kernelRuntimeRuns,
 			userConfigs,
 			auditEvents,
@@ -633,6 +641,136 @@ describe("private OS workspaces", () => {
 			(await handleOsShareSessionRead(db, session, undefined, asGuest)).status,
 		).toBe(404);
 		expect((await open(asGuest)).status).toBe(404);
+	});
+
+	it("previews who loses and gains access, and the change then does exactly that", async () => {
+		const env = createEnv();
+		const { output } = await seed(env);
+		const owner = createRouterClient(osSharesContractRouter, {
+			context: context(env, OWNER, { permissions: ["os:read", "os:author"] }),
+		});
+		const { share } = await owner.shares.create({
+			resourceType: "output",
+			resourceId: output.id,
+		});
+		const nobody = { people: 0, organization: false, anyoneWithLink: false };
+		const db = createDbQueryClient(env.DB);
+		const signedOut = () => handleOsShareOpen(db, share.publicId, "org-1");
+		const visitor = (await (await signedOut()).json()) as {
+			sessionToken: string;
+		};
+		// Kai is an organization member outside the workspace; the guest is not.
+		const { invitee: kai } = await owner.shares.invitees.add({
+			shareId: share.id,
+			email: "kai@example.test",
+		});
+		await owner.shares.invitees.add({
+			shareId: share.id,
+			email: "guest@example.test",
+		});
+		const preview = (
+			change: Parameters<typeof owner.shares.previewChange>[0]["change"],
+		) => owner.shares.previewChange({ shareId: share.id, change });
+
+		await expect(
+			preview({ kind: "access", access: "invited" }),
+		).resolves.toEqual({
+			loses: { ...nobody, anyoneWithLink: true },
+			gains: nobody,
+			remaining: { ...nobody, people: 2 },
+			keepThroughWorkspace: 0,
+			openNow: 1,
+		});
+		// A preview changes nothing.
+		expect(
+			(await handleOsShareSessionRead(db, visitor.sessionToken)).status,
+		).toBe(200);
+		await owner.shares.update({ shareId: share.id, access: "invited" });
+		expect((await signedOut()).status).toBe(200);
+		expect(await (await signedOut()).json()).toMatchObject({
+			needsEmailCode: true,
+		});
+		expect(
+			(await handleOsShareSessionRead(db, visitor.sessionToken)).status,
+		).toBe(404);
+
+		await expect(
+			preview({ kind: "removeInvitee", inviteeId: kai.id }),
+		).resolves.toMatchObject({
+			loses: { ...nobody, people: 1 },
+			remaining: { ...nobody, people: 1 },
+			openNow: 0,
+		});
+		await expect(
+			preview({ kind: "access", access: "organization" }),
+		).resolves.toMatchObject({
+			loses: { ...nobody, people: 1 },
+			gains: { ...nobody, organization: true },
+		});
+		await expect(preview({ kind: "off" })).resolves.toMatchObject({
+			loses: { ...nobody, people: 2 },
+			gains: nobody,
+			remaining: nobody,
+		});
+		await owner.shares.setDisabled({ shareId: share.id, disabled: true });
+		await expect(preview({ kind: "off" })).resolves.toMatchObject({
+			loses: nobody,
+		});
+		await expect(preview({ kind: "on" })).resolves.toMatchObject({
+			loses: nobody,
+			gains: { ...nobody, people: 2 },
+		});
+
+		// Nobody outside the workspace can ask, admin or not.
+		for (const outsider of [
+			shares(env, OTHER),
+			createRouterClient(osSharesContractRouter, {
+				context: context(env, ADMIN, {
+					permissions: ["settings:manage"],
+					userRole: "admin",
+				}),
+			}),
+		])
+			await expect(
+				outsider.shares.previewChange({
+					shareId: share.id,
+					change: { kind: "off" },
+				}),
+			).rejects.toMatchObject(notFound);
+		await expect(
+			createRouterClient(osSharesContractRouter, {
+				context: context(env, OWNER, { permissions: ["os:read"] }),
+			}).shares.previewChange({ shareId: share.id, change: { kind: "off" } }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+
+	it("does not count an invited person who is in the workspace as losing access", async () => {
+		const env = createEnv();
+		const { teamOutput } = await seed(env);
+		const owner = shares(env, OWNER);
+		const { share } = await owner.shares.create({
+			resourceType: "output",
+			resourceId: teamOutput.id,
+			access: "invited",
+		});
+		await owner.shares.invitees.add({
+			shareId: share.id,
+			email: "kai@example.test",
+		});
+		await owner.shares.invitees.add({
+			shareId: share.id,
+			email: "guest@example.test",
+		});
+		// Kai opens the organization's workspace anyway; only the guest loses.
+		await expect(
+			owner.shares.previewChange({
+				shareId: share.id,
+				change: { kind: "off" },
+			}),
+		).resolves.toMatchObject({
+			loses: { people: 1, organization: false, anyoneWithLink: false },
+			keepThroughWorkspace: 1,
+		});
 	});
 
 	it("keeps a link made before the workspace turned private off until its owner turns it on", async () => {
