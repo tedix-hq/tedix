@@ -87,6 +87,31 @@ export function managedCountsDue(
 	return lastCertifiedAt?.slice(0, 13) !== checkedAt.slice(0, 13);
 }
 
+type ReadState = Awaited<ReturnType<typeof getGraphProjectionReadState>>;
+type BacklogStats = Awaited<ReturnType<typeof getGraphProjectionBacklogStats>>;
+
+/** The stored-state conditions a projection must meet before parity can certify it. */
+export function projectionBacklogState(
+	readiness: ReadState,
+	backlog: BacklogStats,
+) {
+	const caughtUp =
+		backlog.pendingCount === 0 && backlog.cursor >= backlog.highWaterSequence;
+	const baselineComplete =
+		readiness?.repairPhase === "complete" &&
+		readiness.repairHighWater !== null &&
+		backlog.cursor >= readiness.repairHighWater;
+	const generationPresent = Boolean(readiness?.projectionEpoch);
+	const poisoned = backlog.poisonedCount > 0;
+	return {
+		caughtUp,
+		baselineComplete,
+		generationPresent,
+		poisoned,
+		certifiable: caughtUp && baselineComplete && generationPresent && !poisoned,
+	};
+}
+
 export async function inspectGraphProjection(input: {
 	db: DbClient;
 	env: CloudflareEnv;
@@ -100,15 +125,24 @@ export async function inspectGraphProjection(input: {
 		input.db,
 		input.organizationId,
 	);
+	const backlog = await getGraphProjectionBacklogStats(
+		input.db,
+		input.organizationId,
+	);
+	const graphClient = getGraphClient(input.env);
+	const configured = graphClient !== null;
+	// A drain tick cannot certify while the projection is unconfigured, behind
+	// or unrepaired, so the inventory would only repeat a known "not ready".
 	const countManaged =
 		input.managedCounts !== "hourly" ||
-		managedCountsDue(readiness?.lastCertifiedAt, checkedAt);
+		(configured &&
+			projectionBacklogState(readiness, backlog).certifiable &&
+			managedCountsDue(readiness?.lastCertifiedAt, checkedAt));
 	const [
 		canonicalFacts,
 		canonicalEdges,
 		canonicalLifecycle,
 		canonicalManagedCounts,
-		backlog,
 	] = await Promise.all([
 		getGraphProjectionCanonicalSample(
 			input.db,
@@ -128,10 +162,7 @@ export async function inspectGraphProjection(input: {
 		countManaged
 			? getGraphProjectionCanonicalManagedCounts(input.db, input.organizationId)
 			: EMPTY_MANAGED_COUNTS,
-		getGraphProjectionBacklogStats(input.db, input.organizationId),
 	]);
-	const graphClient = getGraphClient(input.env);
-	const configured = graphClient !== null;
 	const transportHealthy = graphClient
 		? await graphClient.isHealthy().catch(() => false)
 		: false;
@@ -235,14 +266,8 @@ export async function certifyGraphProjection(input: {
 }): Promise<GraphProjectionInspection> {
 	const inspection = await inspectGraphProjection(input);
 	const { backlog } = inspection;
-	const poisoned = backlog.poisonedCount > 0;
-	const caughtUp =
-		backlog.pendingCount === 0 && backlog.cursor >= backlog.highWaterSequence;
-	const baselineComplete =
-		inspection.readiness?.repairPhase === "complete" &&
-		inspection.readiness.repairHighWater !== null &&
-		backlog.cursor >= inspection.readiness.repairHighWater;
-	const generationPresent = Boolean(inspection.readiness?.projectionEpoch);
+	const { poisoned, caughtUp, baselineComplete, generationPresent } =
+		projectionBacklogState(inspection.readiness, backlog);
 	const ready =
 		inspection.configured &&
 		inspection.transportHealthy &&

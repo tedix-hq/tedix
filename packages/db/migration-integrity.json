@@ -1452,6 +1452,10 @@
 		{
 			"name": "20261112133533_retention_age_probes/migration.sql",
 			"sha256": "0ed143e44a0a19e7d1e3b5eb9a61f7586411c70a331f631d809a9046e90d73cd"
+		},
+		{
+			"name": "20261112154420_memory_facts_lifecycle_index/migration.sql",
+			"sha256": "e1eeabbe64f645528dea80c5d79e6a9ca1e1152995f335a427cb074c8cbdcf7f"
 		}
 	]
 }
