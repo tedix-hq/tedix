@@ -102,8 +102,6 @@ function fixture(role = "owner") {
 				return null;
 			}
 			if (method === "app.download") return { filename: "Doc.md" };
-			if (input.method === "exportMarkdown")
-				return { title: "Doc", revision, text: "Saved semantic content" };
 			const output = {
 				id: outputId,
 				title: "Project plan",
@@ -339,8 +337,14 @@ describe("portable rich Doc client", () => {
 		expect(test.persisted().richText?.content[0]?.type).toBe("paragraph");
 	});
 	it("names the empty heading or list line the caret is in", async () => {
-		const test = fixture(),
-			{ root, editor } = await test.mount();
+		const test = fixture();
+		const answer = test.calls.getMockImplementation()!;
+		test.calls.mockImplementation(async (method, args) =>
+			method === "outputs.image"
+				? { dataUrl: "data:image/png;base64,AAAA" }
+				: answer(method, args),
+		);
+		const { root, editor } = await test.mount();
 		editor.commands.insertContentAt(editor.state.doc.content.size, {
 			type: "heading",
 			attrs: { level: 2 },
@@ -898,18 +902,26 @@ describe("portable rich Doc client", () => {
 			"Late edit Original",
 		);
 	});
-	it("exports the saved semantic document through the host", async () => {
-		const test = fixture(),
-			{ root } = await test.mount();
+	it("downloads Markdown that keeps formatting and embeds stored pictures", async () => {
+		const test = fixture();
+		const answer = test.calls.getMockImplementation()!;
+		test.calls.mockImplementation(async (method, args) =>
+			method === "outputs.image"
+				? { dataUrl: "data:image/png;base64,AAAA" }
+				: answer(method, args),
+		);
+		const { root, editor } = await test.mount();
+		editor.commands.insertContentAt(editor.state.doc.content.size, {
+			type: "image",
+			attrs: { src: "tedix-asset:chart", alt: "Chart" },
+		});
 		click(root, "Export as Markdown");
 		await vi.waitFor(() =>
-			expect(test.calls).toHaveBeenCalledWith(
-				"app.download",
-				expect.objectContaining({
-					text: "Saved semantic content",
-					mimeType: "text/markdown",
-				}),
-			),
+			expect(test.calls).toHaveBeenCalledWith("app.download", {
+				filename: "Project plan.md",
+				mimeType: "text/markdown",
+				text: "Original\n\n**Keep formatting**\n\n![Chart](data:image/png;base64,AAAA)\n",
+			}),
 		);
 		await vi.waitFor(() =>
 			expect(statusText(root)).toContain("Exported as Markdown."),
