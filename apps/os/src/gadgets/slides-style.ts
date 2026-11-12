@@ -76,6 +76,9 @@ body{padding:0!important;min-height:560px;overflow:hidden}
 .slides-stage .slides-element.selected>img{overflow:hidden}
 .slides-stage .slides-element:focus-visible{outline:2px solid var(--tedix-primary,#3669e8);outline-offset:2px}
 .slides-stage.switching>.slides-element,.slides-stage.switching>.slides-background{animation:slides-swap .22s var(--ease)}
+@keyframes slides-land{0%,30%{box-shadow:0 0 0 3px var(--primary),0 0 0 7px color-mix(in srgb,var(--primary) 28%,transparent)}to{box-shadow:0 0 0 3px transparent,0 0 0 7px transparent}}
+.slides-stage .slides-element.landed,.slides-thumb.landed .slides-thumbnail{animation:slides-land 2.4s var(--ease) both}
+@media(prefers-reduced-motion:reduce){.slides-stage .slides-element.landed,.slides-thumb.landed .slides-thumbnail{animation:none;box-shadow:0 0 0 3px color-mix(in srgb,var(--primary) 60%,transparent)}}
 .slides-stage .slides-element.fresh{animation:slides-rise .26s var(--ease)}
 .slides-app .slides-resize{position:absolute;z-index:2;width:10px;height:10px;padding:0;border:1.5px solid var(--tedix-primary,#3669e8);border-radius:3px;background:#fff;translate:-50% -50%;transform:none;transition:none;touch-action:none}
 .slides-resize[data-handle=nw]{left:0;top:0;cursor:nwse-resize}
