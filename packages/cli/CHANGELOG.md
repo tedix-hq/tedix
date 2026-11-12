@@ -3,6 +3,13 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.21.8 — 2026-11-12
+
+### Patch Changes
+
+- A question in Claude desktop's next-step box is now always captured. Before, a long closing message above the question could make the turn count as a status update, and the question and your reply were not recorded.
+- Lane runners keep a finished run's working copy until its commits are on `origin/main`, even when the commits are already recorded on the Work item.
+
 ## 0.21.7 — 2026-11-12
 
 ### Patch Changes
