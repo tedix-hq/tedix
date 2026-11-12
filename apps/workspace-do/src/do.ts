@@ -257,6 +257,15 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		this.#events = new SqlEventLedger(this.#store, (event) => {
 			this.#recordConversationActivity(event);
 			this.#push(event);
+			// Unread badges and chat notifications read the activity feed. A
+			// post, a finished turn and a question go there now instead of
+			// waiting for the next keepalive alarm.
+			if (
+				event.type === "turn.started" ||
+				event.type === "turn.finished" ||
+				event.type === "approval.requested"
+			)
+				this.ctx.waitUntil(this.#flushActivity());
 		});
 		this.#ledger = new SqlAccountabilityAdapter(this.#store);
 		this.#compliance = new SqlComplianceAdapter(this.#store, {

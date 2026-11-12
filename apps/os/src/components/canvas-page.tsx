@@ -593,6 +593,12 @@ export function CanvasPage({
 	const [chatCollapsed, setChatCollapsed] = useState(() =>
 		restoreCanvasChatCollapsed(window.localStorage),
 	);
+	// A link that asks for a conversation (an unread row, a notification)
+	// shows the chat on a wide screen too, without changing the saved choice.
+	useEffect(() => {
+		if (requestedPane === "chat" && requestedConversation)
+			setChatCollapsed(false);
+	}, [requestedPane, requestedConversation]);
 	const toggleChatCollapsed = () => {
 		setChatCollapsed((value) => {
 			persistCanvasChatCollapsed(window.localStorage, !value);

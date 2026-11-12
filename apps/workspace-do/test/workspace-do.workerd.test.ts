@@ -2208,6 +2208,9 @@ test.each(["before", "after"] as const)(
 		await ws.scriptModel(eventScope, [
 			{ text: "Private answer secret-marker" },
 		]);
+		// A post and a finished turn publish at once, so the failure is set up
+		// before the turn; whatever it left behind is published by the retries.
+		await ws.failEventProjection(eventScope, when);
 		const started = await ws.sendTurn(eventScope, {
 			actorId: "requesting-agent",
 			actorKind: "external_agent",
@@ -2217,17 +2220,11 @@ test.each(["before", "after"] as const)(
 			(await ws.awaitTurn(eventScope, started.turnId, 20_000)).status,
 		).toBe("finished");
 		const source = { source: "events" as const };
-		const before = await ws.reconcileActivity(eventScope, source);
-		expect(before).toMatchObject({
+		await ws.retryProjections(eventScope);
+		expect(await ws.reconcileActivity(eventScope, source)).toMatchObject({
 			checked: 4,
 			coverage: "recorded_workspace_events",
 		});
-		expect(before.missing).toHaveLength(4);
-		await ws.failEventProjection(eventScope, when);
-		await ws.retryProjections(eventScope);
-		expect(
-			(await ws.reconcileActivity(eventScope, source)).missing,
-		).toHaveLength(when === "before" ? 4 : 3);
 		await ws.retryProjections(eventScope);
 		expect((await ws.reconcileActivity(eventScope, source)).missing).toEqual(
 			[],

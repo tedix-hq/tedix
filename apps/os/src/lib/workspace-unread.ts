@@ -43,20 +43,27 @@ export const unreadListQueryOptions = () => ({
 	staleTime: 0,
 });
 
-let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+/** A long agent turn takes a few seconds to reach the feed; look once more. */
+const UNREAD_SECOND_LOOK_MS = 6_000;
+let refreshTimers: ReturnType<typeof setTimeout>[] = [];
 
-/** Re-read every unread query once, shortly after something changed. */
-export function refreshUnread(
-	queryClient: QueryClient,
-	delay = UNREAD_REFRESH_DELAY_MS,
-) {
-	if (refreshTimer) clearTimeout(refreshTimer);
-	refreshTimer = setTimeout(() => {
-		refreshTimer = null;
-		void queryClient.invalidateQueries({
-			queryKey: osQuery.workspaceUnread.key(),
-		});
-	}, delay);
+/**
+ * Re-read every unread query shortly after something changed, and once more
+ * a few seconds later. Calls made in between restart both, so a burst of
+ * activity still costs two reads.
+ */
+export function refreshUnread(queryClient: QueryClient) {
+	for (const timer of refreshTimers) clearTimeout(timer);
+	refreshTimers = [UNREAD_REFRESH_DELAY_MS, UNREAD_SECOND_LOOK_MS].map(
+		(delay) =>
+			setTimeout(
+				() =>
+					void queryClient.invalidateQueries({
+						queryKey: osQuery.workspaceUnread.key(),
+					}),
+				delay,
+			),
+	);
 }
 
 /**
