@@ -23,6 +23,13 @@ try {
 		isMobile: true,
 		hasTouch: true,
 	});
+	// Other specs rely on automation hiding the install notice; this one checks
+	// the notice, so it looks like a person's browser.
+	await context.addInitScript(() =>
+		Object.defineProperty(Navigator.prototype, "webdriver", {
+			get: () => false,
+		}),
+	);
 	const page = await context.newPage();
 	const noSidewaysScroll = async (where: string) =>
 		assert.equal(

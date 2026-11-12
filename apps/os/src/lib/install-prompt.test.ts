@@ -21,6 +21,7 @@ const phone = {
 	seen: false,
 	phoneWidth: true,
 	hasPrompt: false,
+	automated: false,
 };
 
 describe("installHintKind", () => {
@@ -34,8 +35,12 @@ describe("installHintKind", () => {
 		).toBe("prompt");
 	});
 
-	it("stays away once seen, once installed, and on a wide screen", () => {
+	it("stays away once seen, once installed, on a wide screen and under automation", () => {
 		expect(installHintKind({ ...phone, seen: true })).toBeNull();
+		expect(installHintKind({ ...phone, automated: true })).toBeNull();
+		expect(
+			installHintKind({ ...phone, automated: true, hasPrompt: true }),
+		).toBeNull();
 		expect(installHintKind({ ...phone, installed: true })).toBeNull();
 		expect(installHintKind({ ...phone, phoneWidth: false })).toBeNull();
 	});

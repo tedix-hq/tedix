@@ -38,6 +38,7 @@ export function InstalledAppSupport() {
 				seen: restoreInstallHintSeen(window.localStorage),
 				phoneWidth: window.matchMedia?.(PHONE_QUERY).matches ?? false,
 				hasPrompt: currentInstallPrompt() !== null,
+				automated: navigator.webdriver === true,
 			});
 			if (!kind) return;
 			shown = true;

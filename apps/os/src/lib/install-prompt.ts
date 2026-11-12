@@ -70,8 +70,8 @@ export function isInstalledApp(
 
 /**
  * Which hint a phone browser gets, or null for none: an installed app, a
- * desktop, a person who has seen the hint, and an in-app browser that cannot
- * install all get nothing.
+ * desktop, a person who has seen the hint, an in-app browser that cannot
+ * install, and a browser driven by automation all get nothing.
  */
 export function installHintKind(input: {
 	userAgent: string;
@@ -80,8 +80,11 @@ export function installHintKind(input: {
 	seen: boolean;
 	phoneWidth: boolean;
 	hasPrompt: boolean;
+	/** `navigator.webdriver`: nobody is there to add it to a Home Screen. */
+	automated: boolean;
 }): InstallHintKind | null {
-	if (input.installed || input.seen || !input.phoneWidth) return null;
+	if (input.installed || input.seen || input.automated || !input.phoneWidth)
+		return null;
 	if (input.hasPrompt) return "prompt";
 	const ua = input.userAgent;
 	// An iPad asking for the desktop site reports itself as a Mac with touch.

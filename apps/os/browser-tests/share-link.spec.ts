@@ -175,6 +175,10 @@ try {
 			await access
 				.getByRole("radio", { name: "Only people you invite", checked: true })
 				.waitFor();
+			// Narrowing who can open it says who loses access and waits for a yes.
+			const narrow = dialog.locator('[data-share-pending="access"]');
+			await narrow.getByRole("button", { name: "Change access" }).click();
+			await narrow.waitFor({ state: "hidden" });
 			const invitees = dialog.locator("[data-share-invitees]");
 			await invitees.waitFor();
 			assert.equal(
@@ -199,11 +203,15 @@ try {
 			await invitees
 				.getByRole("button", { name: "Remove kai@example.test" })
 				.click();
+			await invitees
+				.locator("[data-share-remove-invitee]")
+				.getByRole("button", { name: "Remove", exact: true })
+				.click();
 			await invitees.getByText("Nobody yet").waitFor();
 
 			await dialog.getByRole("button", { name: "Link options" }).click();
 			await page.getByRole("menuitem", { name: "Turn off link" }).click();
-			const confirm = dialog.locator("[data-share-turn-off]");
+			const confirm = dialog.locator('[data-share-pending="off"]');
 			await confirm.waitFor();
 			await page.screenshot({
 				path: `${evidence}/${width}-${theme}-turn-off.png`,
@@ -236,7 +244,7 @@ try {
 			// Delete link is the permanent one: the address is gone for good.
 			await dialog.getByRole("button", { name: "Link options" }).click();
 			await page.getByRole("menuitem", { name: "Delete link" }).click();
-			const remove = dialog.locator("[data-share-delete]");
+			const remove = dialog.locator('[data-share-pending="delete"]');
 			await remove.waitFor();
 			await remove.getByRole("button", { name: "Delete link" }).click();
 			await create.waitFor();
