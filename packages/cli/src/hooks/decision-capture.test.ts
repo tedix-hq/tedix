@@ -402,6 +402,28 @@ describe("tedix hooks capture-stop / capture-reply", () => {
 				text: "The fix is committed.\n\nPush the fix to main now? (options: Yes, push it / Not now)",
 			});
 			expect(payloads[0]![1].prompt).toMatch(/Push the fix to main now\?/);
+			// The classifier reading a long report as a status update does not drop it.
+			payloads.length = 0;
+			await runHook(
+				"stop",
+				{
+					last_assistant_message: "The fix is committed.",
+					transcript_path: transcript,
+				},
+				[BINDING, AUTH, CREATED],
+				{
+					gateway: {
+						[TRIAGE_CALLABLE]: () => ({
+							...TRIAGE_OK,
+							urgency: "later",
+							attentionKind: "fyi",
+							urgentLabels: [],
+						}),
+					},
+				},
+			);
+			expect(payloads[0]![1].prompt).toMatch(/Push the fix to main now\?/);
+			expect(payloads[0]![1].metadata.triage.attentionKind).toBe("needs_you");
 			// An earlier turn's box, or a box that asks nothing, adds no question.
 			writeFileSync(
 				transcript,
