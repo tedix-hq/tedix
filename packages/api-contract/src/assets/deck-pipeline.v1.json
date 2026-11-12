@@ -12,7 +12,8 @@
 		"maxCardsPerRecipient": 200,
 		"maxRetirementsPerRun": 40,
 		"maxRecipients": 20,
-		"staleAfterHours": 2
+		"staleAfterHours": 2,
+		"deadlineGraceHours": 24
 	},
 	"secondKey": {
 		"model": "@cf/cloudflare/clef-flash",

@@ -194,6 +194,42 @@ describe("S2 sweep", () => {
 		).toEqual([]);
 	});
 
+	it("withdraws a deadline card once its deadline is a day past", () => {
+		const deadlineCard = (dueAt: string) =>
+			card({
+				creatorType: "system",
+				creatorId: "tedix",
+				workItemId: agent,
+				workItemDisposition: "proposed",
+				dueAt,
+				metadata: { source: "deadline-decisions" },
+			});
+		const lapsed = deadlineCard(
+			new Date(now.getTime() - 25 * 3_600_000).toISOString(),
+		);
+		const justMissed = deadlineCard(
+			new Date(now.getTime() - 3_600_000).toISOString(),
+		);
+		const upcoming = deadlineCard(
+			new Date(now.getTime() + 3_600_000).toISOString(),
+		);
+		expect(
+			planDeckSweep({
+				cards: [lapsed, justMissed, upcoming],
+				now,
+				config: config.sweep,
+				rules: [],
+			}).actions,
+		).toMatchObject([
+			{
+				cardId: lapsed.id,
+				reason: "expired",
+				cause: "expired",
+				workItemId: agent,
+			},
+		]);
+	});
+
 	it("retires cards whose Work Item finished", () => {
 		const done = card({ workItemId: agent, workItemDisposition: "completed" });
 		const kept = card({
