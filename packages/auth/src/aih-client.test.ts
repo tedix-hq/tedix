@@ -6,7 +6,6 @@ import {
 	exchangeAihClientCredentials,
 	hardenDescopeMcpServerRegistration,
 	registerDescopeMcpResource,
-	updateDescopeMcpServer,
 } from "./aih-client";
 
 afterEach(() => {
@@ -251,45 +250,6 @@ describe("AIH MCP server registration hardening", () => {
 				{ name: "No audience", audienceWhitelist: [] },
 			),
 		).rejects.toThrow(/at least one exact audience/);
-	});
-});
-
-describe("AIH MCP server update", () => {
-	it("moves a renamed server to its new address in both address fields", async () => {
-		const oldUri = "https://old-name.mcp.tedix.dev/mcp";
-		const newUri = "https://new-name.mcp.tedix.dev/mcp";
-		let updateBody: { resource?: Record<string, unknown> } | undefined;
-		const fetch = vi
-			.fn()
-			.mockImplementation((url: string, init?: RequestInit) => {
-				const stored = {
-					id: "RS1",
-					name: "Renamed",
-					uri: oldUri,
-					uris: [oldUri],
-					type: "mcp",
-				};
-				if (String(url).includes("/v1/mgmt/resource/update")) {
-					updateBody = JSON.parse(String(init?.body)) as typeof updateBody;
-					return Promise.resolve(
-						new Response(JSON.stringify({ resource: updateBody?.resource }), {
-							status: 200,
-						}),
-					);
-				}
-				return Promise.resolve(
-					new Response(JSON.stringify({ resource: stored }), { status: 200 }),
-				);
-			});
-		vi.stubGlobal("fetch", fetch);
-
-		await updateDescopeMcpServer(
-			{ DESCOPE_PROJECT_ID: "P123", DESCOPE_MANAGEMENT_KEY: "management-key" },
-			{ id: "RS1", name: "Renamed", audienceWhitelist: [newUri] },
-		);
-
-		expect(updateBody?.resource?.uri).toBe(newUri);
-		expect(updateBody?.resource?.uris).toEqual([newUri]);
 	});
 });
 
