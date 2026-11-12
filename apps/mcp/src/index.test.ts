@@ -506,7 +506,19 @@ describe("Connect compact protocol organization routing", () => {
 					expect(result.result.isError).not.toBe(true);
 					if (method === "tools/list")
 						expect(JSON.stringify(result)).toContain(row.toolId);
-					else expect(result.result.structuredContent).toBeDefined();
+					else {
+						expect(result.result.structuredContent).toBeDefined();
+						expect(result.result._meta).toMatchObject({
+							"com.tedix/timings": {
+								unit: "ms",
+								catalogResolution: expect.any(Number),
+								policy: expect.any(Number),
+								handler: expect.any(Number),
+								persistence: expect.any(Number),
+								total: expect.any(Number),
+							},
+						});
+					}
 				}
 			}
 		}

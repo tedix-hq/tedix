@@ -13,6 +13,7 @@
  * the telemetry wrapper, keyed by the same trace id, so they are not
  * duplicated here.
  */
+import { requestPhaseTimings } from "./phase-timings";
 import type {
 	CallToolResult,
 	ToolAnnotations,
@@ -124,6 +125,16 @@ export class GatewayComplianceAdapter implements ComplianceAdapter {
 	constructor(private readonly gates: GatewayCallGates) {}
 
 	async check(call: CallDescription): Promise<ComplianceDecision> {
+		const context = this.gates.agent.ctx;
+		return context
+			? requestPhaseTimings(context).measure("policy", () =>
+					this.checkCurrent(call),
+				)
+			: this.checkCurrent(call);
+	}
+	private async checkCurrent(
+		call: CallDescription,
+	): Promise<ComplianceDecision> {
 		const { agent, tool, annotations, approval } = this.gates;
 		this.failure = null;
 		this.verifiedHomeAgentPrincipalId = undefined;

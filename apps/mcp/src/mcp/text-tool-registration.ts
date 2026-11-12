@@ -1,3 +1,4 @@
+import { requestPhaseTimings } from "./phase-timings";
 import { createMcpLogger } from "../log";
 import { nativeCatalogToolMeta } from "./registration/bootstrap";
 import { resolveHumanPolicyReplay } from "./tenant-human-replay";
@@ -125,28 +126,34 @@ export async function registerTextOnlyTool(
 
 	// Standard synchronous tool registration
 	const cb: ToolCallback = async (args, ctx) => {
+		const timings = requestPhaseTimings(agent.ctx);
 		const extra = {
 			_meta: resolveToolRequestMeta(ctx.mcpReq?._meta, agent.requestMeta),
 		};
-		const secretEgress = await preflightSecretEgress(agent, tool, args);
+		const secretEgress = await timings.measure("policy", () =>
+			preflightSecretEgress(agent, tool, args),
+		);
 		if (secretEgress.denial) return secretEgress.denial;
-		const candidate =
-			(await resolveTenantProfileCandidate(agent, tool, args)) ??
-			(await resolveHumanPolicyReplay(
-				agent,
-				tool,
-				args,
-				extra._meta?.["com.tedix/approvalRequestId"],
-			).catch(() => null));
-		const nativeCandidate = await resolveNativePolicyCandidate(
-			agent,
-			tool,
-			args,
-		).catch(() => null);
+		const candidate = await timings.measure(
+			"policy",
+			async () =>
+				(await resolveTenantProfileCandidate(agent, tool, args)) ??
+				(await resolveHumanPolicyReplay(
+					agent,
+					tool,
+					args,
+					extra._meta?.["com.tedix/approvalRequestId"],
+				).catch(() => null)),
+		);
+		const nativeCandidate = await timings.measure("policy", () =>
+			resolveNativePolicyCandidate(agent, tool, args).catch(() => null),
+		);
 		if (
 			!candidate &&
 			!nativeCandidate &&
-			(await tenantMachinePolicyFallbackBlocked(agent, tool))
+			(await timings.measure("policy", () =>
+				tenantMachinePolicyFallbackBlocked(agent, tool),
+			))
 		)
 			return {
 				isError: true,
@@ -207,20 +214,24 @@ export async function registerTextOnlyTool(
 				});
 				if (!payment.paid) return payment.result;
 
-				const result = await executeTool(agent, tool, executionArgs, {
-					adapterScope: parseAdapterScope(tool.adapterScope),
-					resultStrategy: (tool.resultStrategy as ResultStrategy) ?? "merge",
-					clientSupportsTasks: clientSupportsTasks(extra?._meta),
-					homeApprovedCall: isApprovedReplayCall(agent, { extra }),
-					verifiedHomeAgentPrincipalId,
-					secretEgressDecision: secretEgress.decision,
-					...(nativeCandidate
-						? { expectedNativePolicyRevalidate: nativeCandidate.revalidate }
-						: {}),
-					...(candidate ? { expectedPolicyProbe: candidate.probe } : {}),
-				});
+				const result = await timings.measure("handler", () =>
+					executeTool(agent, tool, executionArgs, {
+						adapterScope: parseAdapterScope(tool.adapterScope),
+						resultStrategy: (tool.resultStrategy as ResultStrategy) ?? "merge",
+						clientSupportsTasks: clientSupportsTasks(extra?._meta),
+						homeApprovedCall: isApprovedReplayCall(agent, { extra }),
+						verifiedHomeAgentPrincipalId,
+						secretEgressDecision: secretEgress.decision,
+						...(nativeCandidate
+							? { expectedNativePolicyRevalidate: nativeCandidate.revalidate }
+							: {}),
+						...(candidate ? { expectedPolicyProbe: candidate.probe } : {}),
+					}),
+				);
 				if (result.isError) return result;
-				const settlement = await settleToolPayment(agent, payment.settlement);
+				const settlement = await timings.measure("persistence", () =>
+					settleToolPayment(agent, payment.settlement),
+				);
 				if (!settlement.settled) return settlement.result;
 				return attachPaymentResponseMeta(
 					projectNativeOutputEvidence(result, tool.outputSchema),

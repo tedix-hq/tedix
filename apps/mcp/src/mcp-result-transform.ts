@@ -40,6 +40,7 @@ export function mcpToolsListResultTransform(
 	}>,
 	mcpConfig: Record<string, unknown> | undefined,
 	requestHeaders: Headers,
+	catalogVersion?: string,
 ): McpResultTransform {
 	const outputSchemasByName = new Map(
 		tools.flatMap((tool) =>
@@ -146,6 +147,14 @@ export function mcpToolsListResultTransform(
 		// without this clients see cache-busting tool-list permutations.
 		sortToolsDeterministically(transformed);
 
+		const unchanged =
+			catalogVersion !== undefined &&
+			isRecord(request.params) &&
+			request.params.cursor === undefined &&
+			request.params._meta &&
+			isRecord(request.params._meta) &&
+			request.params._meta["com.tedix/catalogVersion"] === catalogVersion;
+
 		// Server-side cursor pagination: the stable sort makes a tool
 		// name a stable position anchor, so page after filter+sort. Surfaces at
 		// or under the page size return one cursorless page (no behavior change
@@ -171,13 +180,23 @@ export function mcpToolsListResultTransform(
 		const { nextCursor: _innerNextCursor, ...restResult } = result as {
 			tools?: unknown;
 			nextCursor?: unknown;
+			_meta?: Record<string, unknown>;
 		};
 		return {
 			...response,
 			result: {
 				...restResult,
-				tools: page.tools,
-				...(page.nextCursor !== undefined
+				...(catalogVersion
+					? {
+							_meta: {
+								...(isRecord(restResult._meta) ? restResult._meta : {}),
+								"com.tedix/catalogVersion": catalogVersion,
+								...(unchanged ? { "com.tedix/catalogUnchanged": true } : {}),
+							},
+						}
+					: {}),
+				tools: unchanged ? [] : page.tools,
+				...(!unchanged && page.nextCursor !== undefined
 					? { nextCursor: page.nextCursor }
 					: {}),
 			},
