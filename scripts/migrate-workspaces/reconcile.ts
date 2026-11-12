@@ -11,7 +11,7 @@
  */
 import type { BundleStore } from "./bundle";
 import { collectWorkspaceRows } from "./export";
-import { RowDigest, type StoredRow } from "./rows";
+import { RowDigest, rowKey, type StoredRow } from "./rows";
 import { refKey, type Scope } from "./scope";
 import { logCoverageProblems } from "./snapshot-proof";
 import type { Snapshot, WorkspaceRef } from "./source";
@@ -31,6 +31,7 @@ export interface WorkspaceReport extends WorkspaceRef {
 	jurisdiction: string | null;
 	rows: number;
 	drift: TableDrift[];
+	expectedRereads: Array<{ table: string; key: string; reason: string }>;
 	problems: string[];
 	ms: number;
 }
@@ -59,6 +60,7 @@ export async function reconcileWorkspace(
 	const { manifest, tables } = await bundles.read(ref);
 	const store = await stores.open(ref);
 	const drift: TableDrift[] = [];
+	const expectedRereads: WorkspaceReport["expectedRereads"] = [];
 	const problems: string[] = [];
 	let rows = 0;
 	let jurisdiction: string | null = null;
@@ -95,8 +97,41 @@ export async function reconcileWorkspace(
 					: Object.fromEntries(
 							Object.entries(row).filter(([column]) => carried.has(column)),
 						);
+			const mark =
+				manifest.snapshot.capture?.highWater[manifest.snapshot.capture.main]?.[
+					mapping.table
+				];
+			const pending = new Set<string>();
+			if (mark && !mark.updatedAt) {
+				const bundledKeys = new Set(
+					bundledRows.map((row) => rowKey(row, mapping.primaryKey)),
+				);
+				for (const row of actualRows) {
+					const key = rowKey(row, mapping.primaryKey);
+					if (!bundledKeys.has(key)) pending.add(key);
+				}
+			}
+			if (mark?.updatedAt) {
+				for (const row of [...actualRows, ...bundledRows]) {
+					if (
+						typeof row.updated_at === "string" &&
+						Date.parse(row.updated_at) > Date.parse(mark.updatedAt)
+					)
+						pending.add(rowKey(row, mapping.primaryKey));
+				}
+			}
+			for (const key of pending)
+				expectedRereads.push({
+					table: mapping.table,
+					key,
+					reason: mark?.updatedAt
+						? "updated after capture high-water mark; re-read source before cutover"
+						: `row absent from capture; re-read source to verify rowid > ${mark?.rowid} before cutover`,
+				});
 			const digest = new RowDigest(mapping.primaryKey);
-			for (const row of actualRows) digest.add(project(row));
+			for (const row of actualRows)
+				if (!pending.has(rowKey(row, mapping.primaryKey)))
+					digest.add(project(row));
 			rows += digest.count;
 			const actualSha256 = digest.hex();
 			// The bundle's own rows are hashed again rather than trusting the
@@ -107,18 +142,24 @@ export async function reconcileWorkspace(
 				problems.push(
 					`bundle rows for ${mapping.table} no longer match its manifest`,
 				);
-			const expectedSha256 = expected.sha256;
-			if (digest.count !== expected.count || actualSha256 !== expectedSha256)
+			const stable = new RowDigest(mapping.primaryKey);
+			for (const row of bundledRows)
+				if (!pending.has(rowKey(row, mapping.primaryKey))) stable.add(row);
+			const expectedSha256 = stable.hex();
+			if (digest.count !== stable.count || actualSha256 !== expectedSha256)
 				drift.push({
 					table: mapping.table,
-					expectedCount: expected.count,
+					expectedCount: stable.count,
 					actualCount: digest.count,
 					expectedSha256,
 					actualSha256,
 				});
 			if (mapping.table === "os_outputs")
 				checkOutputHeads(
-					manifest.outputHeads,
+					manifest.outputHeads.filter(
+						(head) =>
+							!pending.has(rowKey({ id: head.outputId }, mapping.primaryKey)),
+					),
 					actualRows,
 					await readAllRows(store, "os_output_revisions"),
 					problems,
@@ -129,10 +170,14 @@ export async function reconcileWorkspace(
 	}
 	return {
 		...ref,
-		ok: drift.length === 0 && problems.length === 0,
+		ok:
+			drift.length === 0 &&
+			problems.length === 0 &&
+			expectedRereads.length === 0,
 		jurisdiction,
 		rows,
 		drift,
+		expectedRereads,
 		problems,
 		ms: performance.now() - started,
 	};
@@ -350,6 +395,10 @@ export function renderReport(report: ReconcileReport): string {
 		for (const d of w.drift)
 			lines.push(
 				`      ${d.table}: count ${d.expectedCount} -> ${d.actualCount}, sha ${d.expectedSha256.slice(0, 12)} -> ${d.actualSha256.slice(0, 12)}`,
+			);
+		for (const pending of w.expectedRereads)
+			lines.push(
+				`      RE-READ ${pending.table} ${pending.key}: ${pending.reason}`,
 			);
 		for (const p of w.problems) lines.push(`      ${p}`);
 	}
