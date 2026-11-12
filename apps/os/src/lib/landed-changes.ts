@@ -49,7 +49,7 @@ export function createLandedChanges<Content extends OsOutputContent>(
 		OutputMergeOptions,
 		"documentBlocks" | "presentationSlides"
 	> = {},
-	now: () => number = Date.now,
+	now: () => number = () => Date.now(),
 ) {
 	let last: Landed<Content> | undefined;
 	return {
@@ -98,7 +98,7 @@ export function createLandedChanges<Content extends OsOutputContent>(
  */
 export function watchForInput(
 	target: Pick<Window, "addEventListener" | "removeEventListener">,
-	now: () => number = Date.now,
+	now: () => number = () => Date.now(),
 ) {
 	let touched = 0;
 	const touch = () => {

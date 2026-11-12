@@ -96,6 +96,8 @@ function fixture(role = "owner", write = true) {
 	let releaseDraft: (() => void) | undefined;
 	let revision = 3,
 		draft: { revision: number; content: PresentationContent } | null = null;
+	// Who saved the newest revision: a person, or an agent.
+	let savedBy = "user";
 	let content = projectDeck({
 		width: 1200,
 		height: 675,
@@ -225,7 +227,7 @@ function fixture(role = "owner", write = true) {
 				const since = stored.get(input.sinceRevision);
 				return {
 					output: result().output,
-					revision: { revision },
+					revision: { revision, createdByKind: savedBy },
 					patch: since ? diffOutputContent(since, content) : null,
 					...(since ? {} : { content: structuredClone(content) }),
 				};
@@ -282,7 +284,8 @@ function fixture(role = "owner", write = true) {
 		deny() {
 			denied = true;
 		},
-		external() {
+		external(by = "user", text = "External title") {
+			savedBy = by;
 			revision++;
 			content = {
 				...content,
@@ -293,9 +296,7 @@ function fixture(role = "owner", write = true) {
 							? {
 									...slide,
 									elements: slide.elements.map((element) =>
-										element.id === "title-1"
-											? { ...element, text: "External title" }
-											: element,
+										element.id === "title-1" ? { ...element, text } : element,
 									),
 								}
 							: slide,
@@ -1151,6 +1152,122 @@ describe("portable Slides canvas", () => {
 		expect(stageElement("artwork")).toBe(node);
 		expect(node.classList.contains("selected")).toBe(true);
 		expect(button("undo").disabled).toBe(false);
+	});
+	describe("changes someone else makes while the presentation is open", () => {
+		const banner = () => document.querySelector(".slides-updates")!;
+		const offer = () =>
+			[...banner().querySelectorAll("button")].find(
+				(node) => node.textContent === "Undo agent change",
+			);
+		const landed = async (
+			api: Awaited<ReturnType<typeof mount>>,
+			text: string,
+		) => {
+			api.notify();
+			await vi.waitFor(() => expect(stageElement().textContent).toBe(text));
+		};
+		it("lights the changed element and its slide, leaves the rest alone, then lets go", async () => {
+			const api = await mount();
+			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+			api.external();
+			await landed(api, "External title");
+			expect(stageElement().classList.contains("landed")).toBe(true);
+			expect(stageElement("artwork").classList.contains("landed")).toBe(false);
+			expect(thumb("slide-1").classList.contains("landed")).toBe(true);
+			expect(thumb("slide-2").classList.contains("landed")).toBe(false);
+			// A person's change: nothing to undo here, and nothing to save.
+			expect(offer()).toBeUndefined();
+			expect(button("undo").disabled).toBe(true);
+			expect(api.saves()).toBe(0);
+			await vi.advanceTimersByTimeAsync(4_100);
+			expect(document.querySelector(".landed")).toBeNull();
+		});
+		it("takes someone who is only watching to the changed slide, and nobody else", async () => {
+			const api = await mount();
+			thumb("slide-2").dispatchEvent(
+				new PointerEvent("pointerdown", { bubbles: true }),
+			);
+			thumb("slide-2").querySelector("button")!.click();
+			expect(thumb("slide-2").classList.contains("current")).toBe(true);
+			// They just clicked: the view stays with them.
+			api.external();
+			api.notify();
+			await vi.waitFor(() =>
+				expect(thumb("slide-1").classList.contains("landed")).toBe(true),
+			);
+			expect(thumb("slide-2").classList.contains("current")).toBe(true);
+			const clock = vi.spyOn(Date, "now");
+			clock.mockReturnValue(Date.now() + 10_000);
+			api.external("user", "Second change");
+			api.notify();
+			await vi.waitFor(() =>
+				expect(thumb("slide-1").classList.contains("current")).toBe(true),
+			);
+			expect(stageElement().textContent).toBe("Second change");
+			expect(stageElement().classList.contains("landed")).toBe(true);
+		});
+		it("offers to undo an agent's change and undoes it as a new saved change", async () => {
+			const api = await mount();
+			api.external("tedi");
+			await landed(api, "External title");
+			expect(banner().textContent).toContain(
+				"An agent changed this presentation.",
+			);
+			offer()!.click();
+			expect(stageElement().textContent).toBe("Original title");
+			expect(status()).toBe("Agent change undone.");
+			expect(offer()).toBeUndefined();
+			await api.app.save();
+			expect(api.saves()).toBe(1);
+			expect(JSON.stringify(api.patches()[0])).toContain("Original title");
+			expect(
+				api.result().revision.content.deck!.slides[0]!.elements[0]!.text,
+			).toBe("Original title");
+			// It was the person's own edit: their undo brings the agent's work back.
+			button("undo").click();
+			expect(stageElement().textContent).toBe("External title");
+		});
+		it("undoes the agent's change with the undo shortcut while it is the newest change", async () => {
+			const api = await mount();
+			clickElement("artwork");
+			key(stage(), { key: "ArrowRight" });
+			await api.app.save();
+			api.external("external_agent");
+			await landed(api, "External title");
+			key(stage(), { key: "z", ctrlKey: true });
+			expect(stageElement().textContent).toBe("Original title");
+			// The person's own earlier nudge is still there to undo next.
+			const left = stageElement("artwork").style.left;
+			key(stage(), { key: "z", ctrlKey: true });
+			expect(stageElement().textContent).toBe("External title");
+			key(stage(), { key: "z", ctrlKey: true });
+			expect(stageElement("artwork").style.left).not.toBe(left);
+		});
+		it("stops offering once the person edits, after half a minute, and for a reader", async () => {
+			const api = await mount();
+			api.external("tedi");
+			await landed(api, "External title");
+			expect(offer()).toBeDefined();
+			clickElement("artwork");
+			key(stage(), { key: "ArrowRight" });
+			expect(offer()).toBeUndefined();
+			key(stage(), { key: "z", ctrlKey: true });
+			expect(stageElement().textContent).toBe("External title");
+			await api.app.save();
+			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+			api.external("tedi", "Agent again");
+			await landed(api, "Agent again");
+			expect(offer()).toBeDefined();
+			await vi.advanceTimersByTimeAsync(30_000);
+			expect(offer()).toBeUndefined();
+			vi.useRealTimers();
+			api.app.destroy();
+			const reader = await mount("use", false);
+			reader.external("tedi");
+			await landed(reader, "External title");
+			expect(stageElement().classList.contains("landed")).toBe(true);
+			expect(offer()).toBeUndefined();
+		});
 	});
 	it("clears the visible canvas and disables presentation after source authority is denied", async () => {
 		const api = await mount();

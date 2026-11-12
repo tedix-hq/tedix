@@ -25,6 +25,14 @@ import { isLargeEmbeddedImage } from "@tedix/api-contract/utils/os-output-assets
 import { lastingSaveFailure } from "../lib/save-failure";
 import { createOutputSync } from "../lib/output-sync";
 import {
+	createLandedChanges,
+	landedDelay,
+	savedByAgent,
+	watchForInput,
+	LANDED_SHOWN_MS,
+	LANDED_UNDO_MS,
+} from "../lib/landed-changes";
+import {
 	OS_DECK_MAX_SLIDES,
 	OS_EDITOR_UNDO_STEPS,
 	OS_SLIDE_MAX_ELEMENTS,
@@ -292,6 +300,13 @@ export async function mountSlidesClient(
 		draftTimer: ReturnType<typeof setTimeout> | undefined,
 		draftAt = 0;
 	let statusTimer: ReturnType<typeof setTimeout> | undefined;
+	// What someone else changed while the presentation was open here: the
+	// elements to light up, by slide, and whether undoing it is on offer.
+	let lit = new Map<string, Set<string>>(),
+		litTimer: typeof statusTimer,
+		offerTimer: typeof statusTimer,
+		offering = false;
+	const input = watchForInput(window);
 	let history: OsPresentationDeck[] = [],
 		future: OsPresentationDeck[] = [],
 		group = "",
@@ -388,6 +403,9 @@ export async function mountSlidesClient(
 			.catch(() => call<Saved>("readPresentation"));
 	// Saves send only what changed and catching up fetches only what changed.
 	const sync = createOutputSync<PresentationContent, Saved>(bridge, slot, {
+		presentationSlides: (merged) => projectDeck(merged).slides,
+	});
+	const landed = createLandedChanges<PresentationContent>({
 		presentationSlides: (merged) => projectDeck(merged).slides,
 	});
 	const stillMotion = () =>
@@ -512,6 +530,13 @@ export async function mountSlidesClient(
 		saveTimer = setTimeout(() => void save(), wait);
 	}
 	function changed(typing = false) {
+		// The person's own edit is now the newest change.
+		landed.clear();
+		if (offering) {
+			offering = false;
+			delete updates.dataset.key;
+			updates.replaceChildren();
+		}
 		dirty = true;
 		edits++;
 		markSave();
@@ -584,7 +609,9 @@ export async function mountSlidesClient(
 				if (!dirty && !pointer && !editing && deck) {
 					const stored = deckOf(result.revision.content);
 					if (JSON.stringify(stored) !== JSON.stringify(deck)) {
+						const before = deck;
 						deck = stored;
+						light(before);
 						render();
 					}
 				}
@@ -1643,6 +1670,17 @@ export async function mountSlidesClient(
 		if (destroyed) return;
 		renderStage();
 		renderRail();
+		const here = lit.get(stageSlideId ?? "");
+		let turn = 0;
+		for (const [id, { node }] of stageNodes) {
+			const on = !!here?.has(id);
+			node.classList.toggle("landed", on);
+			node.style.animationDelay = on
+				? `${landedDelay(turn++, here!.size)}ms`
+				: "";
+		}
+		for (const [id, entry] of thumbs)
+			entry.item.classList.toggle("landed", lit.has(id));
 		renderInspector();
 		if (document.activeElement !== notes) notes.value = active()?.notes ?? "";
 		if (!presenter.hidden) renderPresentation();
@@ -1977,6 +2015,89 @@ export async function mountSlidesClient(
 			refreshExternal();
 		}
 	}
+	/**
+	 * Light up what differs from `before` on screen: each changed element on
+	 * its slide, and the slide in the list. Someone who is only watching is
+	 * taken to the first changed slide.
+	 */
+	function light(before: OsPresentationDeck | undefined) {
+		if (!deck || !before) return;
+		const old = new Map(before.slides.map((slide) => [slide.id, slide]));
+		const found = new Map<string, Set<string>>();
+		for (const slide of deck.slides) {
+			const was = old.get(slide.id);
+			if (was && JSON.stringify(was) === JSON.stringify(slide)) continue;
+			const known = new Map(
+				(was?.elements ?? []).map((element) => [
+					element.id,
+					JSON.stringify(element),
+				]),
+			);
+			found.set(
+				slide.id,
+				new Set(
+					slide.elements
+						.filter(
+							(element) => known.get(element.id) !== JSON.stringify(element),
+						)
+						.map((element) => element.id),
+				),
+			);
+		}
+		if (!found.size) return;
+		lit = found;
+		if (
+			input.watching &&
+			!dirty &&
+			!pointer &&
+			!editing &&
+			!found.has(active()?.id ?? "")
+		) {
+			viewedId = found.keys().next().value;
+			selectedId = null;
+		}
+		clearTimeout(litTimer);
+		litTimer = setTimeout(() => {
+			lit = new Map();
+			render();
+		}, LANDED_SHOWN_MS + 1_600);
+	}
+	/** Someone else's save replaced `before` on screen: show it, and offer undo for an agent's. */
+	function land(before: OsPresentationDeck | undefined, agent: boolean) {
+		if (!deck || !before || JSON.stringify(before) === JSON.stringify(deck))
+			return;
+		landed.add(projectDeck(before), projectDeck(deck), agent);
+		light(before);
+		offering = agent && canWrite();
+		clearTimeout(offerTimer);
+		if (offering && !choice && !stale)
+			showChoice("undo", "An agent changed this presentation.", [
+				["Undo agent change", undoLanded],
+			]);
+		if (offering)
+			offerTimer = setTimeout(() => {
+				offering = false;
+				refreshExternal();
+			}, LANDED_UNDO_MS);
+	}
+	/**
+	 * Take the agent's change set back out as an edit of the person's own: it
+	 * saves as a new change and their own undo brings the agent's work back.
+	 */
+	function undoLanded() {
+		if (!deck || !canWrite() || editing) return;
+		const content = landed.undo(projectDeck(deck));
+		if (!content) return;
+		const before = deck;
+		remember();
+		group = "";
+		deck = deckOf(content);
+		if (!selected()) selectedId = null;
+		changed();
+		light(before);
+		render();
+		message("Agent change undone.", false, 1600);
+	}
 	function refreshExternal() {
 		if (!loaded || loading || destroyed || !available) return;
 		if (stale)
@@ -1997,8 +2118,13 @@ export async function mountSlidesClient(
 					["Use theirs", () => void mergeLatest("theirs")],
 				],
 			);
-		delete updates.dataset.key;
-		updates.replaceChildren();
+		if (offering && landed.undoable) {
+			// Already on show.
+		} else {
+			offering = false;
+			delete updates.dataset.key;
+			updates.replaceChildren();
+		}
 		if (pendingRevision <= basis) {
 			pendingRevision = 0;
 			return;
@@ -2041,9 +2167,11 @@ export async function mountSlidesClient(
 			// An edit or gesture began while reading: the merge takes over later.
 			if (dirty || pointer || editing) return;
 			pendingRevision = 0;
+			const before = deck;
 			loaded = latest;
 			basis = latest.revision.revision;
 			deck = deckOf(latest.revision.content);
+			land(before, savedByAgent(latest.revision));
 			find("h1").textContent = latest.output.title;
 			main.dataset.revision = String(basis);
 			if (!selected()) selectedId = null;
@@ -2100,9 +2228,11 @@ export async function mountSlidesClient(
 				return;
 			}
 			choice = 0;
+			const before = deck;
 			loaded = latest;
 			basis = latest.revision.revision;
 			deck = deckOf(result.content as PresentationContent);
+			land(before, savedByAgent(latest.revision));
 			main.dataset.revision = String(basis);
 			if (!selected()) selectedId = null;
 			done = true;
@@ -2370,7 +2500,9 @@ export async function mountSlidesClient(
 		}
 		if (command && event.key.toLowerCase() === "z") {
 			event.preventDefault();
-			button(event.shiftKey ? "redo" : "undo").click();
+			// The agent's change is the newest one: undo takes that back first.
+			if (!event.shiftKey && offering && landed.undoable) undoLanded();
+			else button(event.shiftKey ? "redo" : "undo").click();
 			return;
 		}
 		if (command && event.key.toLowerCase() === "y") {
@@ -2445,8 +2577,11 @@ export async function mountSlidesClient(
 				statusTimer,
 				idleTimer,
 				pillTimer,
+				litTimer,
+				offerTimer,
 			])
 				clearTimeout(timer);
+			input.stop();
 			fitObserver?.disconnect();
 			thumbWatch?.disconnect();
 			window.removeEventListener("message", onMessage);
