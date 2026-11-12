@@ -51,6 +51,17 @@ import { userContext, apiKeyContext } from "../test-context";
 import { createOsAppRuntimeRouter } from "./os-app-runtime";
 import { hydrateOutputRevision } from "../../services/os-output-revision-body-store";
 import { OsDerivedAccessEnvelopeSchema } from "@tedix/api-contract/schemas/os-workspaces";
+import { splitOsGadgetCodeRow } from "@tedix/db/queries/os-workspaces/gadget-code";
+
+/** Store an app revision's files the way the product does: a shared blob and a pointer row. */
+async function insertGadgetCode(
+	db: Pick<ReturnType<typeof createDbQueryClient>, "insert">,
+	row: typeof osGadgetCode.$inferInsert,
+) {
+	const { blob, code } = await splitOsGadgetCodeRow(row);
+	await db.insert(osGadgetCodeBlobs).values(blob).onConflictDoNothing();
+	await db.insert(osGadgetCode).values(code);
+}
 
 const workspaceId = "11111111-1111-4111-8111-111111111111";
 const gadgetId = "22222222-2222-4222-8222-222222222222";
@@ -164,7 +175,7 @@ async function fixture(manifestOverrides: Record<string, unknown> = {}) {
 		},
 	} as unknown as CloudflareEnv;
 	const files = { "server.js": "export class App {}", "client.js": "" };
-	await db.insert(osGadgetCode).values({
+	await insertGadgetCode(db, {
 		revisionId,
 		organizationId: "org-1",
 		gadgetId,
@@ -1429,7 +1440,7 @@ describe("app chat drafts", () => {
 			sourceId: "chat-1",
 			baseRevisionId: revisionId,
 		});
-		expect((await f.db.select().from(osGadgetCode))[0]!.files).toContain(
+		expect((await f.db.select().from(osGadgetCodeBlobs))[0]!.files).toContain(
 			"export class App {}",
 		);
 		expect(await f.db.select().from(osGadgetRevisions)).toHaveLength(1);
@@ -1688,7 +1699,9 @@ describe("Code drafts and rebasing", () => {
 			.select()
 			.from(osGadgetCode)
 			.where(eq(osGadgetCode.revisionId, revisionId));
-		expect(JSON.parse(code[0].files)["client.js"]).toBe("");
+		expect(code).toHaveLength(1);
+		const [blob] = await f.db.select().from(osGadgetCodeBlobs);
+		expect(JSON.parse(blob!.files)["client.js"]).toBe("");
 	});
 	it("admits attributed agent edits to the exact browser room without publishing or forwarding credentials", async () => {
 		const f = await draftFixture();
@@ -1819,7 +1832,7 @@ describe("Code drafts and rebasing", () => {
 			createdByKind: "user",
 			createdById: "user-1",
 		});
-		await f.db.insert(osGadgetCode).values({
+		await insertGadgetCode(f.db, {
 			revisionId: previewId,
 			organizationId: "org-1",
 			gadgetId,
@@ -1886,7 +1899,7 @@ describe("Code drafts and rebasing", () => {
 			createdByKind: "user",
 			createdById: "user-1",
 		});
-		await f.db.insert(osGadgetCode).values({
+		await insertGadgetCode(f.db, {
 			revisionId: previewId,
 			organizationId: "org-1",
 			gadgetId,

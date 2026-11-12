@@ -62,6 +62,17 @@ import {
 	openOsShareSession,
 	workspaceGuestLimits,
 } from "./os-share-redemption";
+import { splitOsGadgetCodeRow } from "@tedix/db/queries/os-workspaces/gadget-code";
+
+/** Store an app revision's files the way the product does: a shared blob and a pointer row. */
+async function insertGadgetCode(
+	db: Pick<ReturnType<typeof createDbQueryClient>, "insert">,
+	row: typeof osGadgetCode.$inferInsert,
+) {
+	const { blob, code } = await splitOsGadgetCodeRow(row);
+	await db.insert(osGadgetCodeBlobs).values(blob).onConflictDoNothing();
+	await db.insert(osGadgetCode).values(code);
+}
 
 const workspaceId = "11111111-1111-4111-8111-111111111111";
 const gadgetId = "22222222-2222-4222-8222-222222222222";
@@ -169,7 +180,7 @@ async function fixture(options: { triggers?: unknown[] } = {}) {
 			createdById: "user-1",
 		},
 	]);
-	await db.insert(osGadgetCode).values({
+	await insertGadgetCode(db, {
 		revisionId,
 		organizationId: "org-1",
 		gadgetId,
@@ -566,7 +577,8 @@ describe("share-link guests on a runtime app", () => {
 		});
 		expect(granted.status).toBe(200);
 		expect(await granted.json()).toMatchObject({
-			output: { id: outputId, kind: "sheet" },
+			// The editors check the file against the workspace they opened in.
+			output: { id: outputId, workspaceId, kind: "sheet" },
 			revision: { content: { kind: "sheet" } },
 		});
 		expect(
@@ -887,7 +899,7 @@ describe("share-link guests on a runtime app", () => {
 				createdByKind: "user",
 				createdById: "user-1",
 			});
-			await db.insert(osGadgetCode).values({
+			await insertGadgetCode(db, {
 				revisionId: nextRevisionId,
 				organizationId: "org-1",
 				gadgetId,
@@ -1410,7 +1422,7 @@ describe("owner-approved guest skill reads", () => {
 				?.currentRevisionId,
 		).toBe(revisionId);
 		expect(await f.db.select().from(osGadgetCode)).toMatchObject([
-			{ files: JSON.stringify(files) },
+			{ revisionId },
 		]);
 		await owner.shares.update({ shareId: f.link.id, guestSkillReadSlots: [] });
 		expect((await listed()).guestRefusal).toMatchObject({ slot: "research" });

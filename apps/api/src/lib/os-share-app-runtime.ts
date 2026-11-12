@@ -494,7 +494,14 @@ export async function readGuestAppSlot(
 	if (!shared) return null;
 	const { output, revision } = shared;
 	return {
-		output: { id: output.id, title: output.title, kind: output.kind },
+		// The Doc, Sheet and Slides editors refuse a file that does not name
+		// the workspace they were opened in, so the read says where it lives.
+		output: {
+			id: output.id,
+			workspaceId: scope.workspaceId,
+			title: output.title,
+			kind: output.kind,
+		},
 		revision: {
 			id: revision.id,
 			revision: revision.revision,
