@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.21.9 — 2026-11-12
+
+### Patch Changes
+
+- A chat reply that could not be sent to Tedix is now kept until it is delivered or its question expires. Before, it was dropped after one failed retry, for example while the gateway was rate-limiting the login.
+
 ## 0.21.8 — 2026-11-12
 
 ### Patch Changes
