@@ -13,7 +13,10 @@ import { deriveToolWriteCapability } from "@tedix/api-contract/schemas/tools";
 import { eq } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { apps, appTools, skillEntries } from "../../schema/index";
-import type { ToolReviewDiff } from "../../schema/tools";
+import type {
+	ToolReviewDiff,
+	ToolReviewPendingDefinition,
+} from "../../schema/tools";
 import { batchNonEmpty } from "../../utils/batch";
 import { getConnectionProviderByDescopeAppId } from "../connection-providers";
 import { getCatalogAppById } from "./get-app";
@@ -38,6 +41,17 @@ import {
 // =============================================================================
 // SYNC CATALOG TOOLS TO APP (catalog → app tool rows)
 // =============================================================================
+
+const WRITE_CAPABILITY_RANK: Record<string, number> = {
+	read: 0,
+	write: 1,
+	destructive: 2,
+};
+
+/** Undeclared capability is treated as write-capable, like every other gate. */
+function writeCapabilityRank(capability: string | null | undefined) {
+	return capability ? (WRITE_CAPABILITY_RANK[capability] ?? 1) : 1;
+}
 
 export interface SyncCatalogToolsToAppOptions {
 	catalogAppId: string;
@@ -253,7 +267,13 @@ export async function syncCatalogToolsToApp(
 	const plannedDisables: string[] = [];
 
 	for (const ct of catalogTools) {
-		const existing = existingByToolId.get(ct.toolName);
+		// The row's columns hold the approved (live) definition. A change still
+		// waiting for review is the newest known definition, so compare against
+		// it; otherwise every sync would re-raise the same review.
+		const liveRow = existingByToolId.get(ct.toolName);
+		const existing = liveRow?.reviewPending
+			? ({ ...liveRow, ...liveRow.reviewPending } as typeof liveRow)
+			: liveRow;
 		const inputSchema = normalizeMcpInputSchema(ct.inputSchema);
 		const title = ct.title ?? titleFromToolName(ct.toolName);
 		const icons = ct.icons ?? null;
@@ -542,13 +562,14 @@ export async function syncCatalogToolsToApp(
 				},
 			});
 		} else {
+			const approved = liveRow ?? existing;
 			const diff: ToolReviewDiff = {
 				source: "upstream_mcp",
 				before: {
-					description: existing.description,
-					inputSchema: existing.inputSchema,
-					outputSchema: existing.outputSchema,
-					schemaSourceHash: existing.schemaSourceHash,
+					description: approved.description,
+					inputSchema: approved.inputSchema,
+					outputSchema: approved.outputSchema,
+					schemaSourceHash: approved.schemaSourceHash,
 				},
 				after: {
 					description: ct.description,
@@ -557,30 +578,61 @@ export async function syncCatalogToolsToApp(
 					schemaSourceHash,
 				},
 			};
+			const definition: ToolReviewPendingDefinition = {
+				toolTypeId: "mcp",
+				config: mergedConfig,
+				inputSchema,
+				outputSchema: effectiveOutputSchema,
+				title,
+				description: ct.description,
+				icons,
+				executionTaskSupport,
+				annotations: (annotations as ToolAnnotations | null) ?? null,
+				writeCapability,
+				meta,
+				schemaDialect: "json-schema-2020-12",
+				schemaSource: "mcp",
+				schemaSourceRef,
+				schemaSourceHash,
+				schemaSyncedAt: now,
+			};
+			// A tool an owner already approved stays usable with that definition
+			// while the change waits for review. Only a change that lets the tool
+			// do more (read -> write -> destructive) takes it offline until then.
+			const keepApprovedLive =
+				(approved.reviewState !== "pending" || approved.reviewPending) &&
+				writeCapabilityRank(writeCapability) <=
+					writeCapabilityRank(approved.writeCapability);
+			const approvedConfig =
+				(approved.config as Record<string, unknown> | null) ?? {};
 			plannedUpdates.push({
 				id: existing.id,
-				set: {
-					toolTypeId: "mcp",
-					config: mergedConfig,
-					inputSchema: inputSchema,
-					outputSchema: effectiveOutputSchema,
-					title,
-					description: ct.description,
-					icons,
-					executionTaskSupport,
-					annotations: (annotations as ToolAnnotations | null) ?? null,
-					writeCapability,
-					meta,
-					schemaDialect: "json-schema-2020-12",
-					schemaSource: "mcp",
-					schemaSourceRef,
-					schemaSourceHash,
-					schemaSyncedAt: now,
-					reviewState: "pending",
-					reviewDiff: diff,
-					reviewBatchId,
-					updatedAt: now,
-				} as Partial<typeof appTools.$inferInsert>,
+				set: (keepApprovedLive
+					? {
+							// Never carry a read-only connection review across a change.
+							...(reviewInvalidated &&
+							approvedConfig.connectionReadOnly === true
+								? {
+										config: {
+											...approvedConfig,
+											connectionReadOnly: false,
+										},
+									}
+								: {}),
+							reviewState: "pending",
+							reviewDiff: diff,
+							reviewBatchId,
+							reviewPending: definition,
+							updatedAt: now,
+						}
+					: {
+							...definition,
+							reviewState: "pending",
+							reviewDiff: diff,
+							reviewBatchId,
+							reviewPending: null,
+							updatedAt: now,
+						}) as Partial<typeof appTools.$inferInsert>,
 			});
 			results.push({
 				toolName: ct.toolName,

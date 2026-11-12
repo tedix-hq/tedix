@@ -41,6 +41,7 @@ import { providerInstallations } from "../schema/provider-installations";
 import { appTools } from "../schema/tools";
 import { withTransientD1ReadRetry } from "../utils/d1-retry";
 import { aggregateAppEntryMatchesSql } from "./aggregate-app-links";
+import { toolDefinitionIsLive } from "./tool-review-visibility";
 
 /** Apply the execution resolver to the tools offered by discovery and skill binding. */
 export async function filterAppConnectionResourceTools<
@@ -323,10 +324,7 @@ async function getCatalogMcpSurfacesForApps(
 }
 
 function buildToolSelectionConditions(options?: ToolSelectionOptions) {
-	const conditions = [
-		eq(appTools.enabled, true),
-		sql`coalesce(${appTools.reviewState}, 'live') = 'live'`,
-	];
+	const conditions = [eq(appTools.enabled, true), toolDefinitionIsLive()];
 	const toolIds = options?.toolIds?.filter(Boolean) ?? [];
 	const endpointPrefixes = options?.endpointPrefixes?.filter(Boolean) ?? [];
 
@@ -431,7 +429,7 @@ export async function getAppPolicyMountMetadataForOrganization(
 			and(
 				eq(appTools.appId, id),
 				eq(appTools.enabled, true),
-				sql`coalesce(${appTools.reviewState}, 'live') = 'live'`,
+				toolDefinitionIsLive(),
 			),
 		)
 		.orderBy(asc(appTools.sortOrder), asc(appTools.createdAt));

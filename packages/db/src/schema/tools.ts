@@ -52,6 +52,29 @@ export interface ToolReviewDiff {
 }
 
 /**
+ * The upstream definition an owner has not approved yet, held beside the
+ * approved one that stays live. Approval copies these fields onto the row.
+ */
+export interface ToolReviewPendingDefinition {
+	toolTypeId: string;
+	config: Record<string, JsonValue>;
+	inputSchema: ToolInputJsonSchema;
+	outputSchema: ToolJsonSchema | null;
+	title: string | null;
+	description: string | null;
+	icons: JsonValue;
+	executionTaskSupport: string | null;
+	annotations: JsonValue;
+	writeCapability: string | null;
+	meta: JsonValue;
+	schemaDialect: string;
+	schemaSource: string;
+	schemaSourceRef: string | null;
+	schemaSourceHash: string | null;
+	schemaSyncedAt: string;
+}
+
+/**
  * App Tools table
  * Stores MCP tool configurations per app for the unified MCP engine.
  *
@@ -236,7 +259,11 @@ export const appTools = sqliteTable(
 
 		// Tool Status
 		enabled: integer("enabled", { mode: "boolean" }).default(true),
-		/** Upstream-discovered definitions stay hidden until an owner approves their diff. */
+		/**
+		 * New upstream tools stay hidden until an owner approves their diff. A
+		 * changed tool keeps its approved definition live and holds the new one
+		 * in `reviewPending` (see toolDefinitionIsLive).
+		 */
 		reviewState: text("review_state", {
 			enum: TOOL_REVIEW_STATE_VALUES,
 		})
@@ -245,6 +272,9 @@ export const appTools = sqliteTable(
 			.default("live"),
 		reviewDiff: text("review_diff", { mode: "json" }).$type<ToolReviewDiff>(),
 		reviewBatchId: text("review_batch_id"),
+		reviewPending: text("review_pending", {
+			mode: "json",
+		}).$type<ToolReviewPendingDefinition>(),
 
 		// Display order in tool listings (lower = earlier)
 		sortOrder: integer("sort_order").default(0),

@@ -1444,6 +1444,10 @@
 		{
 			"name": "20261111205403_move_attribution_and_cost_retention/migration.sql",
 			"sha256": "e76e7b1f71ecbece70b71f438e1c808d8eb8b470260c0ea7ab20cd5449a795f4"
+		},
+		{
+			"name": "20261112132053_tool_review_pending_definition/migration.sql",
+			"sha256": "89831e062b4e401d3d0e0a5134fd88580c75bb8cc5ffde650eafbf5fc2bae182"
 		}
 	]
 }

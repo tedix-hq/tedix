@@ -10,7 +10,7 @@
 
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, onTestFinished, vi } from "vite-plus/test";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { createDbClient } from "../client";
 import { createD1Facade } from "../test/d1-facade";
 import { schemaDdl } from "../test/schema-ddl";
@@ -175,6 +175,114 @@ it("keeps a pending upstream tool invisible until its exact approval is resolved
 		(await getAppByIdWithToolsForOrganization(db, "app-review", "org-review"))
 			?.tools,
 	).toEqual([expect.objectContaining({ toolId: "read_records" })]);
+});
+
+it("keeps an approved tool live during review and applies the held definition on approval", async () => {
+	const { db } = setup();
+	await db.insert(organizations).values({
+		id: "org-held",
+		name: "Held Org",
+		slug: "held-org",
+	});
+	await db.insert(apps).values({
+		id: "app-held",
+		organizationId: "org-held",
+		name: "Held App",
+		slug: "held-app",
+	});
+	const newSchema = {
+		type: "object" as const,
+		properties: { query: { type: "string" } },
+	};
+	await db.insert(appTools).values({
+		id: "held-row",
+		appId: "app-held",
+		toolId: "search_records",
+		toolTypeId: "mcp",
+		title: "Search records",
+		description: "Approved instructions",
+		inputSchema: { type: "object", properties: {} },
+		writeCapability: "read",
+		schemaSourceHash: "approved-hash",
+		reviewState: "pending",
+		reviewBatchId: "batch-held",
+		reviewDiff: {
+			source: "upstream_mcp",
+			before: {
+				description: "Approved instructions",
+				inputSchema: { type: "object", properties: {} },
+				outputSchema: null,
+				schemaSourceHash: "approved-hash",
+			},
+			after: {
+				description: "Changed instructions",
+				inputSchema: newSchema,
+				outputSchema: null,
+				schemaSourceHash: "changed-hash",
+			},
+		},
+		reviewPending: {
+			toolTypeId: "mcp",
+			config: { transport: "mcp", mcpToolName: "search_records" },
+			inputSchema: newSchema,
+			outputSchema: null,
+			title: "Search records",
+			description: "Changed instructions",
+			icons: null,
+			executionTaskSupport: null,
+			annotations: { readOnlyHint: true },
+			writeCapability: "read",
+			meta: null,
+			schemaDialect: "json-schema-2020-12",
+			schemaSource: "mcp",
+			schemaSourceRef: "catalog:search_records",
+			schemaSourceHash: "changed-hash",
+			schemaSyncedAt: "2026-11-12T00:00:00.000Z",
+		},
+		enabled: true,
+	});
+	const [card] = await reconcileToolReviewApproval(db, {
+		organizationId: "org-held",
+		appId: "app-held",
+		appName: "Held App",
+		tediId: "approval-anchor",
+		createdAt: new Date().toISOString(),
+		expiresAt: "2099-01-01T00:00:00.000Z",
+	});
+	expect(card?.payload).toMatchObject({
+		changes: [{ rowId: "held-row", schemaSourceHash: "changed-hash" }],
+	});
+
+	const before = await getAppByIdWithToolsForOrganization(
+		db,
+		"app-held",
+		"org-held",
+	);
+	expect(before?.tools).toEqual([
+		expect.objectContaining({
+			toolId: "search_records",
+			description: "Approved instructions",
+		}),
+	]);
+
+	await resolveToolCatalogApprovalRequest(db, card!.id, {
+		status: "approved",
+		resolvedBy: "owner",
+	});
+	const [row] = await db
+		.select()
+		.from(appTools)
+		.where(eq(appTools.id, "held-row"));
+	expect(row).toMatchObject({
+		reviewState: "live",
+		reviewPending: null,
+		description: "Changed instructions",
+		inputSchema: newSchema,
+		config: { transport: "mcp", mcpToolName: "search_records" },
+		annotations: { readOnlyHint: true },
+		schemaSourceHash: "changed-hash",
+		schemaSourceRef: "catalog:search_records",
+	});
 });
 
 async function setupToolReview() {
