@@ -215,9 +215,19 @@ async function editor(role = "owner", transform?: (sheet: Sheet) => Sheet) {
 		download,
 		saved: () => structuredClone(saved),
 		revision: () => revision,
-		changeExternal(value: number, by = "user") {
+		changeExternal(value: number, by = "user", grow = false) {
 			savedBy = by;
 			saved.workbook!.sheets[0]!.rows[0]![0]!.input = String(value);
+			// Someone wrote a cell beyond the grid: the rows in between are padded.
+			if (grow) {
+				const { rows, columns } = saved.workbook!.sheets[0]!;
+				while (rows.length < 4) rows.push(rows[0]!.map(() => null));
+				// Padding arrives as empty cells or as no cell at all.
+				for (const row of rows) row.push({ input: "", value: null }, null);
+				for (const label of ["D", "E"])
+					columns.push({ ...columns[0]!, id: label, label });
+				rows[3]![4] = { input: "far", value: "far" };
+			}
 			saved = calculate(saved);
 			revision++;
 			window.dispatchEvent(
@@ -544,6 +554,16 @@ describe("Portable Sheet grid", () => {
 			await vi.advanceTimersByTimeAsync(2_500);
 			expect(lit()).toEqual([]);
 			vi.useRealTimers();
+		});
+		it("lights only what changed when the change makes the grid larger", async () => {
+			const app = await editor();
+			app.changeExternal(3, "user", true);
+			await vi.waitFor(() => expect(display("E4")).toBe("far"));
+			expect(lit()).toEqual(
+				[cell("A1"), cell("C1"), cell("E4")]
+					.map((td) => td.getAttribute("aria-label"))
+					.sort(),
+			);
 		});
 		it("offers to undo an agent's change and undoes it as a new saved change", async () => {
 			const app = await editor();
