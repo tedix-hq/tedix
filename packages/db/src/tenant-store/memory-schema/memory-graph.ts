@@ -178,6 +178,10 @@ export const memoryFacts = sqliteTable(
 		index("idx_memory_facts_expertise_live")
 			.on(table.organizationId, table.tediId, table.domainId, table.confidence)
 			.where(sql`archived_at IS NULL`),
+		// Keep parity with the core table's projection lifecycle sample index.
+		index("idx_memory_facts_org_lifecycle")
+			.on(table.organizationId, sql`COALESCE(updated_at, created_at)`, table.id)
+			.where(sql`valid_to IS NOT NULL OR archived_at IS NOT NULL`),
 	],
 );
 
