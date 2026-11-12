@@ -80,6 +80,9 @@ const lazyRouter = <T>(load: () => Promise<T>): T =>
 
 export const apiRouter = {
 	webPush: lazyRouter(() => import("./web-push").then((m) => m.webPushRouter)),
+	workspaceUnread: lazyRouter(() =>
+		import("./workspace-unread").then((m) => m.workspaceUnreadRouter),
+	),
 	tediConsole: lazyRouter(() =>
 		import("./tedi-console").then((m) => m.tediConsoleRouter),
 	),
