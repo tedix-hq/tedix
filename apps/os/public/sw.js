@@ -17,6 +17,15 @@ self.addEventListener("push", (event) => {
 				typeof data.body !== "string"
 			)
 				return;
+			// A push that carries the person's unread total also updates the
+			// number on the installed app's icon, even while the app is closed.
+			if (Number.isFinite(data.unreadCount) && self.navigator.setAppBadge) {
+				await (
+					data.unreadCount > 0
+						? self.navigator.setAppBadge(data.unreadCount)
+						: self.navigator.clearAppBadge()
+				).catch(() => {});
+			}
 			const clients = await self.clients.matchAll({
 				type: "window",
 				includeUncontrolled: true,

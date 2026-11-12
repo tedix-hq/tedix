@@ -2,10 +2,16 @@
 	"id": "/work",
 	"name": "Tedix",
 	"short_name": "Tedix",
+	"lang": "en",
+	"dir": "ltr",
 	"description": "A platform for agents, apps, and work. Shared tasks, project knowledge, apps, and decisions.",
 	"start_url": "/work",
 	"scope": "/",
 	"display": "standalone",
+	"launch_handler": {
+		"client_mode": "navigate-existing"
+	},
+	"categories": ["productivity", "business"],
 	"theme_color": "#fbfbfb",
 	"background_color": "#fbfbfb",
 	"icons": [
@@ -26,6 +32,41 @@
 			"sizes": "512x512",
 			"type": "image/png",
 			"purpose": "maskable"
+		}
+	],
+	"shortcuts": [
+		{
+			"name": "Workspaces",
+			"url": "/workspaces",
+			"icons": [
+				{
+					"src": "/icon-192.png",
+					"sizes": "192x192",
+					"type": "image/png"
+				}
+			]
+		},
+		{
+			"name": "Chat",
+			"url": "/chat",
+			"icons": [
+				{
+					"src": "/icon-192.png",
+					"sizes": "192x192",
+					"type": "image/png"
+				}
+			]
+		},
+		{
+			"name": "Decisions",
+			"url": "/work?view=deck",
+			"icons": [
+				{
+					"src": "/icon-192.png",
+					"sizes": "192x192",
+					"type": "image/png"
+				}
+			]
 		}
 	]
 }
