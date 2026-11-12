@@ -153,6 +153,41 @@ objects cannot use this accounting. Import refuses to add source outputs or
 revisions to an object-owned workspace, and still refuses conflicting rows
 before any write. Keep these private receipts with the migration report.
 
+Two owner decisions can be applied by name, never by default. Keep the
+decision file outside source control with the migration report.
+
+- `import --scope <org>/<ws> --merge-object-owned <org>/<ws>[,...]` merges
+  the source into a named object-owned workspace instead of refusing
+  (`merge.ts`). The object is never changed: a row that differs stays as the
+  object has it and a row only the object holds stays. A source-only row is
+  added when it is active in the source. It is left out, and printed with the
+  reason, when it is archived, removed or deleted there, when its parent is
+  left out, when an object row already holds its place, or when it is a
+  revision at or after the current revision of an output the object owns
+  (the object could no longer save that output). Add `--plan-only` to print
+  the plan and write nothing; review it before the real run. A workspace that
+  is not named, or is not object-owned, keeps the ordinary refusals.
+- `reconcile --approved decisions.json [--merge-object-owned <org>/<ws>]`
+  accounts for rows under such a decision and lists each one with the file's
+  `evidenceRef`. For a merged workspace the report names the rows the object
+  kept, the source rows left out and the object-only rows; a source row the
+  merge would still add is a problem. For any workspace the file can list
+  `objectNativeOutputIds`: outputs the object holds that neither the source
+  nor the output index names. Each must be in the object and absent from the
+  bundle; they and their revisions are reported as `objectNativeRows`. All
+  other rows are compared as usual.
+
+```json
+{
+	"evidenceRef": "<where the owner's decision is kept>",
+	"workspaces": {
+		"<organization id>/<workspace id>": {
+			"objectNativeOutputIds": ["<output id>"]
+		}
+	}
+}
+```
+
 When retention removed a run's events before log storage began, a reviewed
 assignment can list `retainedHistory` entries with the exact `runId`,
 `latestEventAt`, `reason` and durable decision `evidenceRef`. The report

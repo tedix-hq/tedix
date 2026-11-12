@@ -1216,6 +1216,237 @@ describe("remote store authentication modes", () => {
 		}
 	});
 
+	test("an approved merge adds source-only rows to a named object-owned workspace and never changes an object row", async () => {
+		const snapshot = fixtureSnapshot();
+		const workDir = mkdtempSync(join(tmpdir(), "mw-merge-"));
+		try {
+			const bundles = new LocalBundleStore(join(workDir, "bundles"));
+			const stores = localStoreFactory(join(workDir, "objects"));
+			await exportAll(snapshot, bundles, assignments);
+			await importAll(bundles, stores);
+			const ref = { organizationId: ORG, workspaceId: WS_A };
+			const revision = (id: string, output: string, n: number) =>
+				`INSERT INTO os_output_revisions (id,organization_id,output_id,revision,content,created_by_kind,created_by_id) VALUES ('${id}','${ORG}','${output}',${n},'{}','user','u1')`;
+			const output = (id: string, status: string, current: string) =>
+				`INSERT INTO os_outputs (id,organization_id,workspace_id,kind,title,status,current_revision_id,created_by_kind,created_by_id) VALUES ('${id}','${ORG}','${WS_A}','document','${id}','${status}','${current}','user','u1')`;
+			// The object moved on: a new current revision, a new title, its own output.
+			const local = (await stores.open(ref)) as LocalWorkspaceStore;
+			local.db.exec(revision("rev-a1-3", "out-a1", 3));
+			local.db.exec(
+				"UPDATE os_outputs SET title='Object title', current_revision_id='rev-a1-3' WHERE id='out-a1'",
+			);
+			local.db.exec(output("native", "active", "native-rev"));
+			local.db.exec(revision("native-rev", "native", 1));
+			await local.close();
+			// The source diverged: a later revision, a new output, an archived one.
+			snapshot.main.exec(revision("rev-a1-4", "out-a1", 4));
+			snapshot.main.exec(
+				"UPDATE os_outputs SET current_revision_id='rev-a1-4' WHERE id='out-a1'",
+			);
+			snapshot.main.exec(output("src-new", "active", "src-new-1"));
+			snapshot.main.exec(revision("src-new-1", "src-new", 1));
+			snapshot.main.exec(output("src-arch", "archived", "src-arch-1"));
+			snapshot.main.exec(revision("src-arch-1", "src-arch", 1));
+			await exportAll(snapshot, bundles, assignments);
+			let writes = 0;
+			const owned: WorkspaceStoreFactory = {
+				kind: "local",
+				async open(scope) {
+					const store = await stores.open(scope);
+					return {
+						describe: async () => ({
+							...(await store.describe()),
+							outputAuthority: "object" as const,
+						}),
+						readRows: (...args) => store.readRows(...args),
+						close: () => store.close(),
+						importRows: async (batch) => {
+							writes++;
+							return store.importRows(batch);
+						},
+					};
+				},
+			};
+			const scope = Scope.parse(`${ORG}/${WS_A}`);
+			const both = Scope.parse(`${ORG}/${WS_A},${ORG}/${WS_B}`);
+			const other = Scope.parse(`${ORG}/${WS_B}`);
+			// Without the mode, and for a workspace the mode does not name, the refusals stand.
+			await expect(
+				importAll(bundles, owned, { snapshot, scope }),
+			).rejects.toThrow("existing os_outputs row differs");
+			await expect(
+				importAll(bundles, owned, {
+					snapshot,
+					scope: both,
+					mergeObjectOwned: other,
+				}),
+			).rejects.toThrow("existing os_outputs row differs");
+			await expect(
+				importAll(bundles, owned, {
+					snapshot,
+					scope: other,
+					mergeObjectOwned: scope,
+				}),
+			).rejects.toThrow("must also be named in the scope");
+			await expect(
+				importAll(bundles, stores, {
+					snapshot,
+					scope,
+					mergeObjectOwned: scope,
+				}),
+			).rejects.toThrow("is not object-owned");
+			expect(writes).toBe(0);
+			const [plan] = await importAll(bundles, owned, {
+				snapshot,
+				scope,
+				mergeObjectOwned: scope,
+				mergePlanOnly: true,
+			});
+			expect(writes).toBe(0);
+			expect(plan!.merge!.toAdd.map((r) => r.key)).toEqual([
+				's"src-new"',
+				's"src-new-1"',
+			]);
+			const [result] = await importAll(bundles, owned, {
+				snapshot,
+				scope,
+				mergeObjectOwned: scope,
+			});
+			expect(result!.imported).toBe(2);
+			expect(result!.merge!.objectWins).toEqual([
+				{ table: "os_outputs", key: 's"out-a1"' },
+			]);
+			expect(result!.merge!.notAdded.map((r) => r.key).sort()).toEqual([
+				's"rev-a1-4"',
+				's"src-arch"',
+				's"src-arch-1"',
+			]);
+			const after = (await stores.open(ref)) as LocalWorkspaceStore;
+			const ids = (table: string) =>
+				after.db
+					.prepare(`SELECT id FROM ${table} ORDER BY id`)
+					.all()
+					.map((row) => String(row.id));
+			expect(ids("os_outputs")).toEqual(["native", "out-a1", "src-new"]);
+			expect(ids("os_output_revisions")).toEqual([
+				"native-rev",
+				"rev-a1-1",
+				"rev-a1-2",
+				"rev-a1-3",
+				"src-new-1",
+			]);
+			expect(
+				after.db
+					.prepare(
+						"SELECT title, current_revision_id FROM os_outputs WHERE id='out-a1'",
+					)
+					.get(),
+			).toMatchObject({
+				title: "Object title",
+				current_revision_id: "rev-a1-3",
+			});
+			await after.close();
+			// A rerun adds nothing.
+			const [again] = await importAll(bundles, owned, {
+				snapshot,
+				scope,
+				mergeObjectOwned: scope,
+			});
+			expect(again!.imported).toBe(0);
+			expect((await reconcileAll(bundles, owned, { snapshot, scope })).ok).toBe(
+				false,
+			);
+			const approved = (ref: { workspaceId: string }) =>
+				ref.workspaceId === WS_A
+					? { evidenceRef: "evidence://fixture/owner", mergeObjectOwned: true }
+					: undefined;
+			const report = await reconcileAll(bundles, owned, {
+				snapshot,
+				scope,
+				approvedAccounting: approved,
+			});
+			expect(report.ok).toBe(true);
+			const workspace = report.workspaces[0]!;
+			expect(workspace.merge!.objectWins).toHaveLength(1);
+			expect(workspace.merge!.notAdded).toHaveLength(3);
+			expect(workspace.objectNativeRows.map((r) => r.key).sort()).toEqual([
+				's"native"',
+				's"native-rev"',
+				's"rev-a1-3"',
+			]);
+			// A row that differs later is listed as the object's own, never hidden.
+			const changed = (await stores.open(ref)) as LocalWorkspaceStore;
+			changed.db.exec("UPDATE os_outputs SET title='x' WHERE id='src-new'");
+			await changed.close();
+			const drifted = await reconcileAll(bundles, owned, {
+				snapshot,
+				scope,
+				approvedAccounting: approved,
+			});
+			expect(drifted.ok).toBe(true);
+			expect(drifted.workspaces[0]!.merge!.objectWins).toHaveLength(2);
+			await expect(
+				reconcileAll(bundles, stores, {
+					snapshot,
+					scope,
+					approvedAccounting: approved,
+				}),
+			).rejects.toThrow("is not object-owned");
+		} finally {
+			rmSync(workDir, { recursive: true, force: true });
+			snapshot.close();
+		}
+	});
+
+	test("approved object-native outputs are accounted for by exact id on a staged workspace", async () => {
+		const snapshot = fixtureSnapshot();
+		const workDir = mkdtempSync(join(tmpdir(), "mw-approved-"));
+		try {
+			const bundles = new LocalBundleStore(join(workDir, "bundles"));
+			const stores = localStoreFactory(join(workDir, "objects"));
+			await exportAll(snapshot, bundles, assignments);
+			const ref = { organizationId: ORG, workspaceId: WS_A };
+			const local = (await stores.open(ref)) as LocalWorkspaceStore;
+			local.db.exec(
+				`INSERT INTO os_outputs (id,organization_id,workspace_id,kind,title,current_revision_id,created_by_kind,created_by_id) VALUES ('native','${ORG}','${WS_A}','document','Native','native-rev','user','u1'), ('stray','${ORG}','${WS_A}','document','Stray',NULL,'user','u1')`,
+			);
+			local.db.exec(
+				`INSERT INTO os_output_revisions (id,organization_id,output_id,revision,content,created_by_kind,created_by_id) VALUES ('native-rev','${ORG}','native',1,'{}','user','u1')`,
+			);
+			await local.close();
+			const scope = Scope.parse(`${ORG}/${WS_A}`);
+			await importAll(bundles, stores, { snapshot, scope });
+			const run = (ids: string[]) =>
+				reconcileAll(bundles, stores, {
+					snapshot,
+					scope,
+					approvedAccounting: () => ({
+						evidenceRef: "evidence://fixture/owner",
+						objectNativeOutputIds: ids,
+					}),
+				});
+			expect(
+				(await reconcileAll(bundles, stores, { snapshot, scope })).ok,
+			).toBe(false);
+			// Only the listed ids are accounted for.
+			expect((await run(["native"])).ok).toBe(false);
+			const report = await run(["native", "stray"]);
+			expect(report.ok).toBe(true);
+			expect(report.workspaces[0]!.objectNativeRows.map((r) => r.key)).toEqual([
+				's"native"',
+				's"stray"',
+				's"native-rev"',
+			]);
+			expect((await run(["native", "stray", "gone"])).ok).toBe(false);
+			await expect(run(["native", "stray", "out-a1"])).rejects.toThrow(
+				"present in source",
+			);
+		} finally {
+			rmSync(workDir, { recursive: true, force: true });
+			snapshot.close();
+		}
+	});
+
 	test("openStores refuses an unknown --auth mode", async () => {
 		const { flags } = parseArgs([
 			"import",
