@@ -50,8 +50,12 @@ const SWEEP_ACTOR = { type: "system", id: "deck-pipeline" } as const;
 const WEEK_MS = 7 * 86_400_000;
 
 function isProtected(row: CardRow) {
+	// A status note asks for no approval, so the words in its report (a digest
+	// that mentions deleting or publishing) do not protect it; markers still do.
+	const request =
+		row.kind === "coordination" ? { ...row, subject: "", prompt: "" } : row;
 	return (
-		criticalDeckRequest(row as Parameters<typeof criticalDeckRequest>[0]) ||
+		criticalDeckRequest(request as Parameters<typeof criticalDeckRequest>[0]) ||
 		credentialCard(`${row.subject} ${row.prompt}`, row.metadata)
 	);
 }
