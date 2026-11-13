@@ -565,6 +565,7 @@
 		"@tedix/tsconfig": "workspace:*",
 		"dotenv": "^18.0.10",
 		"drizzle-kit": "1.0.0-rc.5",
+		"fast-check": "4.10.2",
 		"jiti": "catalog:",
 		"vite-plus": "catalog:"
 	},
