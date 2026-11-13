@@ -27,6 +27,7 @@ export interface CallbackFixtureOptions {
 	poisonCached?: boolean;
 	freshCallbackError?: string;
 	turnError?: string;
+	turnResetOnce?: boolean;
 	cached?: boolean;
 	dispatchJournal?:
 		| "matching"
@@ -50,6 +51,7 @@ function fixture(
 		poisonCached?: boolean;
 		freshCallbackError?: Error;
 		turnError?: Error;
+		turnResetOnce?: boolean;
 		dispatchJournal?: CallbackFixtureOptions["dispatchJournal"];
 		settled?: boolean;
 	} = {},
@@ -82,6 +84,7 @@ function fixture(
 			};
 			const model = async () => {
 				modelCalls++;
+				if (options.turnResetOnce && modelCalls === 1) throw memoryReset;
 				if (options.turnError) throw options.turnError;
 				return { text: "fixture response", stopReason: "stop", toolCalls: [] };
 			};
@@ -160,6 +163,13 @@ function fixture(
 		...(options.agentName === "missing"
 			? {}
 			: { agentName: options.agentName ?? "original" }),
+		...(options.turnResetOnce
+			? {
+					executionSurface: "workstation" as const,
+					homeRunId: "home-workstation-run",
+					workItemId: "workstation-work-item",
+				}
+			: {}),
 		sessionKey: "agent:main:callback-fixture",
 		userText: "scripted fixture",
 		userTs: 1,
