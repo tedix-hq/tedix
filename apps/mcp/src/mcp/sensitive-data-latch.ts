@@ -40,7 +40,12 @@ export function callerRunRef(
 
 export type LatchLookup =
 	| { status: "clear" }
-	| { status: "latched"; latch: SensitiveDataLatch }
+	| {
+			status: "latched";
+			latch: SensitiveDataLatch;
+			exactFetchApprovalEnabled?: boolean;
+			active?: boolean;
+	  }
 	| { status: "unavailable" };
 
 /** Read the run's latch. Never throws; an API failure reads as unavailable. */
@@ -54,7 +59,12 @@ export async function lookupSensitiveDataLatch(
 	try {
 		const state = await resolve({ organizationId, runRef });
 		return state.latch
-			? { status: "latched", latch: state.latch }
+			? {
+					status: "latched",
+					latch: state.latch,
+					active: state.active,
+					exactFetchApprovalEnabled: state.exactFetchApprovalEnabled,
+				}
 			: { status: "clear" };
 	} catch (error) {
 		console.warn("[governance] sensitive_data_latch_lookup_failed", {

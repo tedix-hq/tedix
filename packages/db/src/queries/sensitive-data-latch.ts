@@ -26,6 +26,7 @@ export interface RunSensitiveDataLatchParams {
 export interface RunSensitiveDataLatchRow {
 	/** False when no run row matches the reference inside the organization. */
 	known: boolean;
+	active?: boolean;
 	latch: SensitiveDataLatch | null;
 }
 
@@ -36,12 +37,16 @@ function runTable(runRef: RunRef) {
 				id: skillRuns.id,
 				organizationId: skillRuns.organizationId,
 				latch: skillRuns.sensitiveDataLatch,
+				completedAt: skillRuns.completedAt,
+				status: skillRuns.status,
 			}
 		: {
 				table: kernelRuntimeRuns,
 				id: kernelRuntimeRuns.id,
 				organizationId: kernelRuntimeRuns.organizationId,
 				latch: kernelRuntimeRuns.sensitiveDataLatch,
+				completedAt: kernelRuntimeRuns.completedAt,
+				status: kernelRuntimeRuns.status,
 			};
 }
 
@@ -56,7 +61,11 @@ export async function getRunSensitiveDataLatch(
 ): Promise<RunSensitiveDataLatchRow> {
 	const run = runTable(params.runRef);
 	const rows = await db
-		.select({ runLatch: run.latch })
+		.select({
+			runLatch: run.latch,
+			completedAt: run.completedAt,
+			runStatus: run.status,
+		})
 		.from(run.table)
 		.where(
 			and(
@@ -67,7 +76,13 @@ export async function getRunSensitiveDataLatch(
 		.limit(1);
 	const row = rows[0];
 	if (!row) return { known: false, latch: null };
-	return { known: true, latch: parseLatch(row.runLatch) };
+	return {
+		known: true,
+		active:
+			row.completedAt === null &&
+			["running", "paused", "requires_approval"].includes(row.runStatus),
+		latch: parseLatch(row.runLatch),
+	};
 }
 
 /**

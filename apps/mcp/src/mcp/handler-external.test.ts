@@ -2,6 +2,8 @@ import type { ToolConfig } from "@tedix/api-contract/schemas/tools";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import { type ToolExecutionContext, ToolHandler } from "./handler";
 import { fetchTediConnectionToken } from "./handler-connection-credentials";
+import { executeExternalTransport } from "./handler-external-transport";
+import { exactEgressFetchUrl } from "./exact-egress-fetch";
 
 const originalFetch = globalThis.fetch;
 
@@ -38,6 +40,40 @@ describe("ToolHandler external transport", () => {
 	afterEach(() => {
 		globalThis.fetch = originalFetch;
 	});
+
+	it.each([200, 302, 502])(
+		"sends the reviewed URL once without following redirects or retrying (%s)",
+		async (status) => {
+			const config: ToolConfig = {
+				transport: "external",
+				method: "GET",
+				baseUrl: "https://example.com",
+				endpoint: "page",
+			};
+			const args = { q: "reviewed & exact" };
+			globalThis.fetch = vi.fn(
+				async () =>
+					new Response("result", {
+						status,
+						headers:
+							status === 302 ? { Location: "https://other.example.com" } : {},
+					}),
+			) as typeof fetch;
+			const context = {
+				...ctx({ ...config }),
+				publicEgress: true,
+				requestMeta: { "com.tedix/approvalRequestId": "approval-1" },
+			};
+			await executeExternalTransport(args, context, config, "page", {
+				fetchConnectionToken: vi.fn(),
+				fetchOrgConnectionToken: vi.fn(),
+			});
+			expect(globalThis.fetch).toHaveBeenCalledExactlyOnceWith(
+				exactEgressFetchUrl(config, args),
+				expect.objectContaining({ method: "GET", redirect: "manual" }),
+			);
+		},
+	);
 
 	it("encodes and consumes hyphenated OpenAPI Graph path parameters", async () => {
 		globalThis.fetch = vi.fn(async (url) => {

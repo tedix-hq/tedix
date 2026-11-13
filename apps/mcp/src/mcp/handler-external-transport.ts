@@ -646,13 +646,21 @@ export async function executeExternalTransport(
 		// processed the request; 4xx and 500 are not retried (they won't
 		// recover / may have taken effect).
 		const RETRYABLE_UPSTREAM = new Set([502, 504, 520, 521, 522, 523, 524]);
+		// A run's public egress (including approval replay) gets one attempt.
+		const singleFetch =
+			ctx.publicEgress === true &&
+			Boolean(
+				ctx.callerIdentity?.skillRunId ||
+				ctx.callerIdentity?.requestRunId ||
+				ctx.requestMeta?.["com.tedix/approvalRequestId"],
+			);
 		let response = await globalThis.fetch(url, {
 			...fetchInit,
 			redirect: "manual",
 		});
 		for (
 			let attempt = 0;
-			attempt < 2 && RETRYABLE_UPSTREAM.has(response.status);
+			attempt < 2 && !singleFetch && RETRYABLE_UPSTREAM.has(response.status);
 			attempt++
 		) {
 			if (isDev) {

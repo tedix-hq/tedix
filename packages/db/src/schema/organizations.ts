@@ -112,6 +112,7 @@ export interface OrganizationFeatures {
  * Additional organization information
  */
 export interface OrganizationMetadata {
+	sensitiveDataEgressApproval?: boolean;
 	/** Public-egress argument scanning policy; absent defaults to block. */
 	secretEgressMode?: "block" | "warn";
 	/** Personal-data masking on sensitive_data tool results; absent means off. */

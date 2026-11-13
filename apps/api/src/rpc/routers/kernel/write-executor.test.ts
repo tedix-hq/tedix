@@ -1710,6 +1710,49 @@ describe("approved owner tool call replay", () => {
 		});
 	});
 
+	it("replays an explicitly approved fetch with its original run binding", async () => {
+		const binding = {
+			runRef: { kind: "kernel_run", id: "run-1" },
+			latchedAt: "2026-11-01T00:00:00Z",
+			url: "https://example.com/page",
+			configHash: "hash",
+		};
+		const service = mcpService((body) => ({
+			json: {
+				jsonrpc: "2.0",
+				id: 1,
+				result:
+					body.method === "tools/list"
+						? {
+								tools: [
+									{
+										name: "web__fetch_page",
+										annotations: { readOnlyHint: true },
+									},
+								],
+							}
+						: { structuredContent: { text: "page" } },
+			},
+		}));
+		const result = await executeApprovedOwnerToolCall({
+			env: env(service),
+			payload: {
+				appSlug: "web",
+				toolId: "web__fetch_page",
+				target: { transport: "external", sensitiveDataEgress: binding },
+				args: {},
+				organizationId: "org-1",
+				initiatedByUserId: "owner-1",
+			},
+			approvalRequestId: "approval-1",
+		});
+		expect(result).toMatchObject({ ok: true });
+		expect(service.calls.at(-1)!.params._meta).toMatchObject({
+			"com.tedix/approvalRequestId": "approval-1",
+			"com.tedix/sensitiveDataEgress": binding,
+		});
+	});
+
 	it("aborts a tool re-published as read-only", async () => {
 		const service = codeModeGateway(
 			[{ ...liveEntry, annotations: { readOnlyHint: true } }],

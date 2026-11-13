@@ -203,6 +203,53 @@ it("tenant administrators cannot forge an automatic provider identity", async ()
 	).rejects.toMatchObject({ code: "FORBIDDEN" });
 });
 
+describe("exact fetch approval settings", () => {
+	it.each(["member", "machine", "external agent"])(
+		"rejects a %s setting change",
+		async (kind) => {
+			const context = adminContext();
+			if (kind === "member") context.userRole = "member";
+			if (kind === "machine") context.authType = "apikey";
+			if (kind === "external agent")
+				context.externalAgentPrincipalId = "agent-1";
+			const { organizationsContractRouter } = await import("./organizations");
+			const client = createRouterClient(organizationsContractRouter, {
+				context,
+			});
+			mocks.updateOrganization.mockClear();
+			await expect(
+				client.update({
+					organizationId: ORGANIZATION_ID,
+					metadata: { sensitiveDataEgressApproval: true },
+				}),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+			expect(mocks.updateOrganization).not.toHaveBeenCalled();
+		},
+	);
+	it.each([true, false])(
+		"includes an atomic audit event when an admin sets enabled=%s",
+		async (enabled) => {
+			mocks.getOrganizationById.mockResolvedValue({
+				id: ORGANIZATION_ID,
+				slug: "acme",
+				metadata: { sensitiveDataEgressApproval: !enabled },
+			});
+			const { organizationsContractRouter } = await import("./organizations");
+			await createRouterClient(organizationsContractRouter, {
+				context: adminContext(),
+			}).update({
+				organizationId: ORGANIZATION_ID,
+				metadata: { sensitiveDataEgressApproval: enabled },
+			});
+			expect(mocks.updateOrganization.mock.calls.at(-1)?.[3]).toMatchObject({
+				action: "organization.sensitive_data_egress_approval_changed",
+				actorId: "user-1",
+				metadata: { previousValue: !enabled, enabled },
+			});
+		},
+	);
+});
+
 describe("provider organization recovery", () => {
 	// Provisioning no longer passes a handle: canonical creation derives it from
 	// the display name, and re-entry resolves on the deterministic tenant id.
