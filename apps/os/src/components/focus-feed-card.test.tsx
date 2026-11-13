@@ -2,6 +2,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vite-plus/test";
 import { ActivityFeedItemSchema } from "@tedix/api-contract/schemas/os-activity-feed";
+import { DecisionEnvelopeSchema } from "@tedix/api-contract/schemas/os-decision-deck";
 import { FeedCard } from "./focus-feed-card";
 
 vi.mock("./feed-outcome-preview", () => ({ FeedOutcomePreview: () => null }));
@@ -212,7 +213,38 @@ it("shows the same story and why-you line beside a pending decision", async () =
 			story: "Morgan needs a room choice. Agreeing saves the proposed room.",
 			whyMe: "You know the group size.",
 			recommendation: "Review first because attendance changed.",
+			recommendedIntent: "reject",
+			actionLabels: { keep: "Keep the room", review: "Review attendance" },
 		},
+		decision: DecisionEnvelopeSchema.parse({
+			version: 1,
+			kind: "question",
+			classId: "workshop.room",
+			proposal: "Keep the proposed room",
+			whyNow: "Attendance changed",
+			recommendation: "Review attendance first",
+			reversibility: "two_way",
+			blastRadius: "Workshop attendees",
+			confidence: null,
+			costOfWaiting: "The room remains unconfirmed",
+			reasoning: "The person knows the group size",
+			options: [
+				{
+					id: "keep",
+					label: "Keep",
+					intent: "approve",
+					consequence: "Records the room choice.",
+					cost: "No payment",
+				},
+				{
+					id: "review",
+					label: "Review",
+					intent: "reject",
+					consequence: "Leaves the room unconfirmed.",
+					cost: "No payment",
+				},
+			],
+		}),
 	});
 	expect(host.textContent).toContain(
 		"Morgan needs a room choice. Agreeing saves the proposed room.",
@@ -221,6 +253,15 @@ it("shows the same story and why-you line beside a pending decision", async () =
 	expect(host.textContent).toContain(
 		"Recommended: Review first because attendance changed.",
 	);
+	const options = host.querySelector('[aria-label="Options"]')!;
+	expect(options.querySelectorAll("li")).toHaveLength(2);
+	expect(options.textContent).toContain(
+		"Keep the room: Records the room choice.",
+	);
+	expect(options.textContent).toContain(
+		"Review attendance · Recommended: Leaves the room unconfirmed.",
+	);
+	expect(options.textContent?.match(/Recommended/g)).toHaveLength(1);
 });
 
 it("shows a finished result as a green chip with one body line", async () => {
