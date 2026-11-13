@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import {
 	ensureWebMcpBridge,
@@ -12,7 +12,6 @@ import {
 	type WebMcpOrgInfo,
 } from "../src/webmcp";
 
-const workspace = fileURLToPath(new URL("..", import.meta.url));
 const schemaPath = fileURLToPath(
 	new URL("../webmcp-evals/schema.json", import.meta.url),
 );
@@ -20,9 +19,63 @@ const evalsPath = fileURLToPath(
 	new URL("../webmcp-evals/evals.json", import.meta.url),
 );
 
-// Puppeteer's launch timeout; printed before any eval case runs.
-const browserNotStarted =
-	/Timed out after \d+ ms while waiting for the WS endpoint URL/;
+// The `webmcp-evals smoke` CLI launches Chrome through Puppeteer's fixed 30 s
+// launch timeout. Chrome usually starts in 6-12 s on CI, but a loaded runner
+// right after the Worker test pool has taken over 30 s and failed the check
+// before any WebMCP code ran. Run the same smoke evaluator here and launch
+// Chrome with the CLI's flags and a budget that covers a slow runner.
+const CHROME_LAUNCH_TIMEOUT_MS = 120_000;
+const smokeEvaluatorUrl = import.meta
+	.resolve("webmcp-evals/dist/evaluator/smokeEvaluator.js");
+const { executeSmokeEvals } = (await import(smokeEvaluatorUrl)) as {
+	executeSmokeEvals(
+		tests: unknown[],
+		config: {
+			url: string;
+			timeoutMs: number;
+			verbose: boolean;
+			chromeChannel: string;
+		},
+		dependencies: { launchBrowser: () => Promise<unknown> },
+	): Promise<{
+		results: {
+			testName: string;
+			stepIndex: number;
+			functionName: string;
+			outcome: "pass" | "error";
+			error?: string;
+		}[];
+		passCount: number;
+		errorCount: number;
+		totalExpectedSteps: number;
+	}>;
+};
+const { PUPPETEER_FLAGS } =
+	(await import("webmcp-evals/dist/evaluator/browser.js")) as {
+		PUPPETEER_FLAGS: string[];
+	};
+// puppeteer-core is a dependency of webmcp-evals, not of this workspace;
+// resolve the copy the evaluator itself uses.
+const puppeteer = (await import(
+	createRequire(smokeEvaluatorUrl).resolve("puppeteer-core")
+)) as {
+	default: { launch(options: Record<string, unknown>): Promise<unknown> };
+};
+
+async function launchChrome(): Promise<unknown> {
+	const started = performance.now();
+	const browser = await puppeteer.default.launch({
+		browser: "chrome",
+		channel: "chrome",
+		headless: true,
+		args: [...PUPPETEER_FLAGS],
+		timeout: CHROME_LAUNCH_TIMEOUT_MS,
+	});
+	console.log(
+		`Chrome started in ${Math.round(performance.now() - started)} ms (budget ${CHROME_LAUNCH_TIMEOUT_MS} ms)`,
+	);
+	return browser;
+}
 
 let origin = "";
 const org = (): WebMcpOrgInfo => ({
@@ -126,47 +179,25 @@ try {
 		"webmcp-evals/schema.json must match the CMS tools/list response",
 	);
 
-	let code = await runSmoke();
-	if (code === "browser-not-started") {
-		// Chrome never came up, so no eval ran: an infrastructure miss, not a result.
-		console.warn("webmcp-evals: Chrome did not start; retrying once");
-		code = await runSmoke();
-	}
-	assert.equal(code, 0, "webmcp-evals smoke failed");
+	const tests = JSON.parse(await readFile(evalsPath, "utf8")) as unknown[];
+	const outcome = await executeSmokeEvals(
+		tests,
+		{ url: origin, timeoutMs: 30_000, verbose: true, chromeChannel: "chrome" },
+		{ launchBrowser: launchChrome },
+	);
+	for (const result of outcome.results)
+		console.log(
+			`${result.outcome === "pass" ? "PASS" : "ERROR"} ${result.testName} step ${result.stepIndex} ${result.functionName}${result.error ? `: ${result.error}` : ""}`,
+		);
+	assert.equal(outcome.errorCount, 0, "webmcp-evals smoke failed");
+	assert.equal(
+		outcome.passCount,
+		outcome.totalExpectedSteps,
+		"webmcp-evals smoke did not run every step",
+	);
+	console.log(
+		`webmcp-evals smoke passed ${outcome.passCount}/${outcome.totalExpectedSteps} steps`,
+	);
 } finally {
 	await server.stop(true);
-}
-
-async function runSmoke(): Promise<number | null | "browser-not-started"> {
-	const child = spawn(
-		"bunx",
-		[
-			"webmcp-evals",
-			"--chrome-channel",
-			"chrome",
-			"smoke",
-			"--url",
-			origin,
-			"--evals",
-			evalsPath,
-			"--verbose",
-		],
-		{ cwd: workspace, stdio: ["inherit", "pipe", "pipe"] },
-	);
-	let output = "";
-	for (const [stream, target] of [
-		[child.stdout, process.stdout],
-		[child.stderr, process.stderr],
-	] as const)
-		stream.on("data", (chunk: Buffer) => {
-			target.write(chunk);
-			output = (output + chunk).slice(-100_000);
-		});
-	const code = await new Promise<number | null>((resolve, reject) => {
-		child.once("error", reject);
-		child.once("close", resolve);
-	});
-	return code !== 0 && browserNotStarted.test(output)
-		? "browser-not-started"
-		: code;
 }
