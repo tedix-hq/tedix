@@ -113,11 +113,16 @@ describe("governed memory search", () => {
 		vi.setSystemTime(new Date("2090-01-01T00:00:00.000Z"));
 		mocks.count.mockImplementation(() => new Promise(() => {}));
 		const pending = search({ query: "cobalt" });
+		let settled = false;
+		const settle = () => {
+			settled = true;
+		};
+		void pending.then(settle, settle);
 		await vi.advanceTimersByTimeAsync(51);
+		expect(settled).toBe(true);
 		const result = await pending;
 		expect(result.totalFactsApproximate).toBe(true);
 		expect(result.results).toEqual([]);
-		expect(result.retrievalMs).toBeLessThan(100);
 	});
 	it("reports a capped fact count as an approximate lower bound in the public response shape", async () => {
 		// A later system time expires the isolate's one-minute count cache.

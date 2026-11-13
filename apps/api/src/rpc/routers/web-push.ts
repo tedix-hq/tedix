@@ -5,7 +5,9 @@ import { webPushContract } from "@tedix/api-contract/contracts/web-push";
 import { WebPushPreferencesSchema } from "@tedix/api-contract/schemas/web-push";
 import {
 	deletePushConfig,
+	deletePushConfigs,
 	listPushConfigs,
+	listPushSubscriptionKeys,
 	savePushConfig,
 } from "@tedix/db/queries/web-push";
 import { getProjectByIdForOrganization } from "@tedix/db/queries/projects";
@@ -20,6 +22,11 @@ import {
 } from "../orpc";
 import { requireOrgId } from "../org-scope";
 
+// Each person keeps their newest devices; older ones stop receiving pushes.
+export const PUSH_DEVICE_CAP = 10;
+// New devices one person may add per window; refreshing a known device is free.
+export const PUSH_SUBSCRIBE_LIMIT = 5;
+export const PUSH_SUBSCRIBE_WINDOW_MS = 10 * 60_000;
 const webPushOs = implement(webPushContract).$context<BaseContext>();
 const os = webPushOs
 	.use(withAuth)
@@ -54,16 +61,25 @@ export const webPushRouter = webPushOs.router({
 		const scope = userScope(context);
 		if (!webPushKeys(context.env)) return { enabled: false };
 		const key = await pushEndpointKey(input.endpoint);
-		const current = await listPushConfigs(context.db, scope, "subscription:");
-		if (current.length >= 10 && !current.some((row) => row.key === key))
+		const current = await listPushSubscriptionKeys(context.db, scope);
+		const since = new Date(Date.now() - PUSH_SUBSCRIBE_WINDOW_MS).toISOString();
+		const known = current.some((row) => row.key === key);
+		const recent = current.filter((row) => (row.createdAt ?? "") > since);
+		if (!known && recent.length >= PUSH_SUBSCRIBE_LIMIT)
 			throw createError(
-				ErrorCodes.BAD_REQUEST,
-				"Remove an old push device first",
+				ErrorCodes.TOO_MANY_REQUESTS,
+				"Too many push devices registered recently. Try again later.",
 			);
 		await savePushConfig(context.db, scope, key, {
 			...input,
 			expirationTime: input.expirationTime ?? null,
 		});
+		const older = current.filter((row) => row.key !== key);
+		await deletePushConfigs(
+			context.db,
+			scope,
+			older.slice(PUSH_DEVICE_CAP - 1).map((row) => row.key),
+		);
 		return { enabled: true };
 	}),
 	unsubscribe: os.unsubscribe.handler(async ({ context, input }) => {

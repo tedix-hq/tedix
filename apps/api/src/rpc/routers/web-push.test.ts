@@ -8,7 +8,13 @@ import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import { userContext, apiKeyContext } from "../test-context";
-import { webPushRouter } from "./web-push";
+import {
+	PUSH_DEVICE_CAP,
+	PUSH_SUBSCRIBE_LIMIT,
+	PUSH_SUBSCRIBE_WINDOW_MS,
+	webPushRouter,
+} from "./web-push";
+import { pushEndpointKey } from "../../services/web-push";
 
 const databases: DatabaseSync[] = [];
 afterEach(() => {
@@ -20,10 +26,15 @@ function setup() {
 	sqlite.exec("PRAGMA foreign_keys = OFF;");
 	sqlite.exec(schemaDdl(userConfigs, osWorkspaces, auditEvents));
 	const db = createDbClient(createD1Facade(sqlite));
-	const client = (organizationId = "org-a", userId = "person-a") =>
+	const client = (
+		organizationId = "org-a",
+		userId = "person-a",
+		env?: CloudflareEnv,
+	) =>
 		createRouterClient(webPushRouter, {
 			context: userContext({
 				db,
+				env,
 				organizationId,
 				userId,
 				permissions: ["os:read"],
@@ -114,5 +125,75 @@ describe("personal Web Push API", () => {
 			}),
 		).toEqual({ enabled: false });
 		expect(await db.select().from(userConfigs)).toEqual([]);
+	});
+	it("limits new devices per person and keeps only the newest ones", async () => {
+		const { client, db } = setup();
+		const env = {
+			ENVIRONMENT: "test",
+			VAPID_PUBLIC_KEY: "public",
+			VAPID_PRIVATE_KEY: "private",
+			VAPID_SUBJECT: "mailto:ops@example.test",
+		} as unknown as CloudflareEnv;
+		const keys = { p256dh: "B".repeat(87), auth: "A".repeat(22) };
+		const endpoint = (n: number) => `https://web.push.apple.com/device-${n}`;
+		// Eleven devices registered before the window, oldest first.
+		const old = Date.now() - PUSH_SUBSCRIBE_WINDOW_MS - 60_000;
+		for (let n = 0; n <= PUSH_DEVICE_CAP; n++)
+			await db.insert(userConfigs).values({
+				id: crypto.randomUUID(),
+				userId: "person-a",
+				namespace: "os.push:org-a",
+				key: await pushEndpointKey(endpoint(n)),
+				value: { endpoint: endpoint(n), keys },
+				createdAt: new Date(old + n * 1000).toISOString(),
+				updatedAt: new Date(old + n * 1000).toISOString(),
+			});
+		const subscriptionEndpoints = async (userId = "person-a") =>
+			(await db.select().from(userConfigs))
+				.filter((row) => row.userId === userId)
+				.map((row) => row.value.endpoint as string)
+				.sort();
+		const newest = (from: number, to: number) =>
+			Array.from({ length: to - from + 1 }, (_, i) =>
+				endpoint(from + i),
+			).sort();
+
+		for (let n = 100; n < 100 + PUSH_SUBSCRIBE_LIMIT; n++)
+			expect(
+				await client("org-a", "person-a", env).subscribe({
+					endpoint: endpoint(n),
+					keys,
+				}),
+			).toEqual({ enabled: true });
+		// The cap holds: the five new devices plus the five newest old ones.
+		expect(await subscriptionEndpoints()).toEqual(
+			[...newest(100, 104), ...newest(6, 10)].sort(),
+		);
+
+		// A sixth new device inside the window is refused and stores nothing.
+		await expect(
+			client("org-a", "person-a", env).subscribe({
+				endpoint: endpoint(200),
+				keys,
+			}),
+		).rejects.toMatchObject({ code: "TOO_MANY_REQUESTS" });
+		expect(await subscriptionEndpoints()).not.toContain(endpoint(200));
+		// Refreshing an already registered device, new or old, still works.
+		for (const n of [100, 10])
+			await expect(
+				client("org-a", "person-a", env).subscribe({
+					endpoint: endpoint(n),
+					keys,
+				}),
+			).resolves.toEqual({ enabled: true });
+		expect(await subscriptionEndpoints()).toHaveLength(PUSH_DEVICE_CAP);
+		// The limit is per person: a teammate can still register.
+		await expect(
+			client("org-a", "person-b", env).subscribe({
+				endpoint: endpoint(300),
+				keys,
+			}),
+		).resolves.toEqual({ enabled: true });
+		expect(await subscriptionEndpoints("person-b")).toEqual([endpoint(300)]);
 	});
 });
