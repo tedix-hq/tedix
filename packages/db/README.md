@@ -164,6 +164,27 @@ and authorization prerequisites in the migration runbook are proven.
 
 ## Development
 
+### Generated sequence tests
+
+`bun run --cwd packages/db test:run` includes `collaboration.property.test.ts`
+and `os-shares.property.test.ts`; `test:ci` runs the same tests. Both use
+fast-check with seed `20261113`, 100 sequences per property, and at most 30
+operations per generated sequence. Explicit examples keep important orderings
+covered alongside the generated cases.
+
+The approval/write model checks preview edits, approval, rejection, stale
+requests, merge replay, and competing human writes against real D1 queries.
+The sharing model checks workspace and file links: grants, monotonic role
+ceilings, revocation, disable/undo, and stale session redemption. Undo turns a
+disabled link back on; it cannot undo permanent revocation or revive sessions.
+These bounded models do not simulate concurrent database connections or
+provider calls.
+
+Failures include the seed, shrunk sequence, and replay path. To replay, keep
+the printed seed and temporarily add `path: "<printed path>"` to that test's
+`fc.assert` options, then run `test:run` with its filename. Keep the fixed seed
+and shrinking enabled in committed tests.
+
 ### Versioned D1 migrations
 
 Schema changes use Drizzle generation and Wrangler's D1 migration ledger. The
