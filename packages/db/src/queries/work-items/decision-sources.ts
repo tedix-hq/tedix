@@ -15,6 +15,7 @@ import { getOsOutput } from "../os-workspaces/outputs";
 import { workInteractions } from "../../schema/work-factory";
 
 type Request = {
+	workItemId?: string | null;
 	creatorType?: string;
 	creatorId?: string;
 	createdAt?: string;
@@ -68,6 +69,18 @@ export async function decisionSourcesReview(
 	);
 	if (request.metadata.decisionDeck !== undefined && !envelope.success)
 		return changed;
+	const lane = laneBlockerAsk(request);
+	if (lane) {
+		// A runner's permission card cites one Work version. Its Allow is fenced
+		// on that version, executor and owner, so comments such as the runner's
+		// own notes leave the ask unchanged; a new version gets a new card.
+		const work = await getWorkItemById(db, lane.workItemId, orgId);
+		return work?.disposition === "accepted" &&
+			work.version === lane.workVersion &&
+			String(work.metadata?.executor ?? "") === lane.executor
+			? current
+			: changed;
+	}
 	const records = [
 		request.metadata.decisionSources,
 		envelope.success ? envelope.data.sources : undefined,
@@ -203,6 +216,27 @@ export async function retireDecisionSourceCard(
 }
 
 /** Only tenant-scoped reads; missing/archived sources never validate a decision. */
+/** The Work version a lane permission card asks about, when the card is one. */
+function laneBlockerAsk(request: Request) {
+	const blocker = request.metadata.laneBlocker;
+	if (
+		request.metadata.source !== "lane-dispatch-blocker" ||
+		!request.workItemId ||
+		!blocker ||
+		typeof blocker !== "object" ||
+		Array.isArray(blocker)
+	)
+		return null;
+	const { workVersion, executor } = blocker as Record<string, unknown>;
+	if (typeof workVersion !== "number" || !Number.isInteger(workVersion))
+		return null;
+	return {
+		workItemId: request.workItemId,
+		workVersion,
+		executor: typeof executor === "string" ? executor : "",
+	};
+}
+
 async function decisionSourceMatches(
 	db: DbQueryClient,
 	orgId: string,
