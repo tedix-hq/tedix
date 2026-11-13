@@ -109,6 +109,39 @@ describe("local capability routing", () => {
 			).executor,
 		).toBe("devin");
 	});
+	it("pins the executor but takes its configured route model", () => {
+		expect(
+			routeLocalWork({ executor: "devin" }, testRoutingPolicy, available, {})
+				.model,
+		).toBe("general-devin");
+		expect(
+			routeLocalWork(
+				{ executor: "devin", tags: ["mechanical"] },
+				testRoutingPolicy,
+				available,
+				{},
+			).model,
+		).toBe("small-devin");
+	});
+	it("uses the pinned executor's configured model from another rule", () => {
+		const route = routeLocalWork(
+			{ executor: "devin", tags: ["security"], risk: "high" },
+			testRoutingPolicy,
+			available,
+			{},
+		);
+		expect(route.executor).toBe("devin");
+		expect(route.rule).toBe("hard");
+		expect(route.model).toBe("small-devin");
+	});
+	it("keeps the native default when no rule routes the pinned executor", () => {
+		const policy = structuredClone(testRoutingPolicy);
+		for (const rule of policy.rules)
+			rule.routes = rule.routes.filter((route) => route.executor !== "devin");
+		expect(
+			routeLocalWork({ executor: "devin" }, policy, available, {}).model,
+		).toBeUndefined();
+	});
 	it("never changes a pinned assignment and never downgrades outside the rule", () => {
 		expect(() =>
 			routeLocalWork({ executor: "codex" }, testRoutingPolicy, available, {
