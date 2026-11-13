@@ -36,6 +36,7 @@ body{padding:0!important;min-height:560px;overflow:hidden}
 .slides-menu{position:absolute;top:calc(100% + 6px);left:0;z-index:20;display:grid;min-width:184px;max-height:min(70vh,440px);overflow-y:auto;padding:4px;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 2px 6px #0000001a,0 12px 32px #00000026;transform-origin:top left;animation:slides-pop .16s var(--ease)}
 .slides-menu.end{left:auto;right:0;transform-origin:top right}
 .slides-menu[hidden]{display:none}
+.slides-app .slides-bar [hidden]{display:none}
 .slides-app .slides-menu button{display:block;width:100%;border:0;border-radius:6px;background:transparent;padding:6px 10px;text-align:left;white-space:nowrap}
 .slides-app .slides-menu button:hover:not(:disabled),.slides-app .slides-menu button:focus-visible{background:var(--tint);outline:none}
 .slides-app .slides-menu button:active:not(:disabled){transform:none;background:var(--tint-strong)}

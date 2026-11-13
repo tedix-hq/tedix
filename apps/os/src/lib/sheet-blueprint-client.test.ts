@@ -703,6 +703,17 @@ describe("Portable Sheet grid", () => {
 		expect(drawn().size).toBeLessThan(80);
 		expect(q<HTMLInputElement>("#range").value).toBe("ZZ3");
 	});
+	it("lets someone invited to edit through a link change cells, and offers only the CSV download their page can make", async () => {
+		await editor("edit");
+		expect(q<HTMLInputElement>("#formula").disabled).toBe(false);
+		expect(q(".status").textContent).not.toBe("View only");
+		click("#download");
+		expect(
+			[...document.querySelectorAll(".menu [data-action]")].map(
+				(item) => (item as HTMLElement).dataset.action,
+			),
+		).toEqual(["csv"]);
+	});
 	it("keeps use-role sessions read-only while permitting tab navigation and export", async () => {
 		const app = await editor("use");
 		expect(q<HTMLInputElement>("#formula").disabled).toBe(true);

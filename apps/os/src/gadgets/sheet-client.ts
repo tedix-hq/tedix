@@ -258,6 +258,8 @@ export async function mountSheetClient(
 	let loaded: Saved | undefined,
 		draft: Content | undefined,
 		canEdit = false,
+		// Invited through a link to edit: that page cannot build an Excel file.
+		visitor = false,
 		// Only the first load and an explicit reload block the grid.
 		busy = false,
 		dirty = false,
@@ -1989,7 +1991,15 @@ export async function mountSheetClient(
 	q("#download").onclick = (event) =>
 		openMenu(event.currentTarget as HTMLElement, "Download", [
 			{ label: "CSV file", action: "csv", run: () => void download("csv") },
-			{ label: "Excel file", action: "xlsx", run: () => void download("xlsx") },
+			...(visitor
+				? []
+				: [
+						{
+							label: "Excel file",
+							action: "xlsx",
+							run: () => void download("xlsx"),
+						},
+					]),
 		]);
 	function gridMenu(target: Element | null, at: { x: number; y: number }) {
 		if (!draft || !available) return;
@@ -3049,8 +3059,11 @@ export async function mountSheetClient(
 		workspaceId = context.workspaceId;
 		slot = context.settings?.slot ?? "";
 		sync = createOutputSync<Content, Saved>(bridge, slot);
+		visitor = context.role === "edit";
 		canEdit =
-			(context.role === "owner" || context.role === "build") &&
+			(context.role === "owner" ||
+				context.role === "build" ||
+				context.role === "edit") &&
 			context.grants?.some(
 				(grant) =>
 					grant.slot === slot && grant.operations.includes("outputs.write"),

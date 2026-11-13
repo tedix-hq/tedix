@@ -88,8 +88,13 @@ export async function mountDocClient(
 	const slot = context.settings?.slot;
 	if (!slot || !context.workspaceId)
 		throw new Error("Document slot is not configured");
+	// Someone invited through a link to edit: their page saves changes but
+	// cannot store a new picture or build a Word, PDF, HTML or PNG file.
+	const visitor = context.role === "edit";
 	const editable =
-		(context.role === "owner" || context.role === "build") &&
+		(context.role === "owner" ||
+			context.role === "build" ||
+			context.role === "edit") &&
 		!!context.grants?.some(
 			(grant) =>
 				grant.slot === slot && grant.operations.includes("outputs.write"),
@@ -791,7 +796,11 @@ export async function mountDocClient(
 		["Numbered list", "ol ordered", () => addList("orderedList")],
 		["To-do list", "todo task check", () => addList("taskList")],
 		["Table", "grid", addTable],
-		["Image", "picture photo", () => imageInput.click()],
+		...(visitor
+			? []
+			: ([
+					["Image", "picture photo", () => imageInput.click()],
+				] as typeof inserts)),
 		["Divider", "line rule hr", () => run().setHorizontalRule().run()],
 		["Collapsible section", "toggle details", addSection],
 	];
@@ -991,7 +1000,7 @@ export async function mountDocClient(
 		button(toolbar, "Link" + keys("K"), "link", openLink, () =>
 			editor!.isActive("link"),
 		);
-		button(toolbar, "Image", "image", () => imageInput.click());
+		if (!visitor) button(toolbar, "Image", "image", () => imageInput.click());
 		button(toolbar, "Table", "table", addTable);
 		const table = (tableTools = document.createElement("span"));
 		table.className = "doc-table";
@@ -1034,16 +1043,19 @@ export async function mountDocClient(
 		note.textContent = "Read only";
 		toolbar.append(note);
 	}
-	for (const [format, name] of [
-		["md", "Markdown"],
-		["docx", "Word"],
-		["pdf", "PDF"],
-		["html", "HTML"],
-		["png", "PNG"],
-	] as const)
+	const exports = (
+		[
+			["md", "Markdown"],
+			["docx", "Word"],
+			["pdf", "PDF"],
+			["html", "HTML"],
+			["png", "PNG"],
+		] as const
+	).filter(([format]) => !visitor || format === "md");
+	for (const [format, name] of exports)
 		button(menu, `Export as ${name}`, undefined, () => exportAs(format, name));
 	// Exporting and the menu itself also work for someone who can only read.
-	buttons.splice(-5);
+	buttons.splice(-exports.length);
 	for (const node of menu.querySelectorAll("button"))
 		node.setAttribute("role", "menuitem");
 	const more = button(toolbar, "More", "more", () => {
