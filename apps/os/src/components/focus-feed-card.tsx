@@ -8,7 +8,10 @@ import {
 	StopCircle,
 	XCircle,
 } from "@phosphor-icons/react";
-import { decisionCardFallbackTitle } from "@tedix/api-contract/utils/decision-card-copy";
+import {
+	decisionCardActionLabel,
+	decisionCardFallbackTitle,
+} from "@tedix/api-contract/utils/decision-card-copy";
 import { FocusRowActions, type FocusRowAction } from "./focus-row-actions";
 import type { ActivityFeedItem } from "@tedix/api-contract/schemas/os-activity-feed";
 import type { FocusItem } from "@tedix/api-contract/utils/focus-feed";
@@ -136,6 +139,13 @@ export function FeedCard({
 			}
 		: activityHeadline(item, RECEIPT_NOTES);
 	const status = activityStatus(item);
+	const recommendedIntent =
+		item.presentation?.version === 2
+			? item.presentation.recommendedIntent
+			: undefined;
+	const recommendedOption = item.decision?.options.find(
+		(option) => option.intent === recommendedIntent,
+	)?.id;
 	const quote =
 		!!story.detail &&
 		(item.kind === "correction" ||
@@ -192,6 +202,24 @@ export function FeedCard({
 						<Text>
 							<strong>Recommended:</strong> {item.presentation.recommendation}
 						</Text>
+						{item.decision && (
+							<ul aria-label="Options" className="grid gap-1">
+								{item.decision.options.map((option) => (
+									<li key={option.id}>
+										<strong>
+											{decisionCardActionLabel(
+												item.presentation,
+												option.id,
+												option.intent,
+												option.label,
+											)}
+											{option.id === recommendedOption && " · Recommended"}
+										</strong>
+										: {option.consequence}
+									</li>
+								))}
+							</ul>
+						)}
 					</div>
 				)}
 				<div className="ft-byline flex-wrap">
