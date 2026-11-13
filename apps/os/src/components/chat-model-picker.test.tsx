@@ -65,7 +65,7 @@ it("names the selected model and marks it in the menu", async () => {
 	expect(onSelect).toHaveBeenCalledExactlyOnceWith("fast");
 });
 
-it("lists Auto first whatever the catalog order", async () => {
+it("keeps the order the administrator published", async () => {
 	const auto = { ref: "cloudflare/auto", label: "Auto" };
 	const button = await render(
 		<ChatModelPicker
@@ -81,5 +81,5 @@ it("lists Auto first whatever the catalog order", async () => {
 		[...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].map(
 			(item) => item.textContent,
 		),
-	).toEqual(["Auto", "Fast", "Deep"]);
+	).toEqual(["Fast", "Deep", "Auto"]);
 });

@@ -15,6 +15,10 @@ import {
 	type AiGatewayTransportEnv,
 } from "@tedix/workers-ai/gateway-transport";
 import { normalizeContext } from "@earendil-works/pi-ai/utils/transcript";
+import {
+	type ModelCatalogEntry,
+	offeredInChat,
+} from "@tedix/api-contract/schemas/model-catalog";
 import { repairJsonUnicode } from "@tedix/chat-transport/repair-json-unicode";
 
 function requestContext(context: Context) {
@@ -111,7 +115,7 @@ function workersAiModels(env: WorkspaceModelEnv): string[] {
 	return [...new Set(ids)];
 }
 
-/** Selectable models come only from this deployment's executable configuration. */
+/** Models this deployment can execute; labels name only where they run. */
 export function configuredWorkspaceModels(
 	env: WorkspaceModelEnv,
 ): WorkspaceModelChoice[] {
@@ -125,6 +129,29 @@ export function configuredWorkspaceModels(
 	}
 	for (const id of workersAiModels(env))
 		models.push({ id, label: `Workers AI: ${id}` });
+	return models;
+}
+
+/**
+ * What the workspace chat offers: the administrator's published catalog, in
+ * its order and with its names, limited to entries this deployment can run.
+ */
+export function catalogWorkspaceModels(
+	env: WorkspaceModelEnv,
+	entries: readonly ModelCatalogEntry[],
+): WorkspaceModelChoice[] {
+	const runnable = new Set(configuredWorkspaceModels(env).map(({ id }) => id));
+	const models: WorkspaceModelChoice[] = [];
+	for (const entry of entries) {
+		if (!offeredInChat(entry)) continue;
+		const id =
+			entry.provider === "workers-ai"
+				? entry.modelId
+				: entry.provider === "azure-openai"
+					? entry.ref
+					: null;
+		if (id && runnable.has(id)) models.push({ id, label: entry.label });
+	}
 	return models;
 }
 

@@ -33,6 +33,8 @@ import {
 import { publishOutputProjection } from "@tedix/db/queries/workspace-feed/output-publication";
 import { unreferencedObjectOutputRevisions } from "@tedix/db/queries/os-workspaces/output-revision-thinning";
 import { continuesOutputAutosaveBurst } from "@tedix/api-contract/utils/os-output-autosave";
+import type { ModelCatalogEntry } from "@tedix/api-contract/schemas/model-catalog";
+import { getModelCatalogConfig } from "@tedix/db/queries/model-catalog";
 import {
 	TenantStore,
 	tenantStoreDefinition,
@@ -65,8 +67,8 @@ import type {
 } from "./env";
 import { handleMcpRequest } from "./mcp";
 import {
+	catalogWorkspaceModels,
 	createWorkspaceModel,
-	configuredWorkspaceModels,
 	type ModelPort,
 } from "./model";
 import { buildSystemPrompt } from "./prompt";
@@ -93,6 +95,8 @@ export const COMPATIBILITY_DATE = "2026-05-14";
 /** Turns with more history than this run in their own facet. */
 export const ISOLATE_AFTER_MESSAGES = 40;
 const KEEPALIVE_MS = 60_000;
+/** How long an object reuses the published model catalog before rereading it. */
+const MODEL_CATALOG_TTL_MS = 60_000;
 
 interface ActivityPageInput {
 	afterSequence?: number;
@@ -252,6 +256,10 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	>();
 	#activitySerial: Promise<void> = Promise.resolve();
 	#movedChatReady = false;
+	#modelCatalog: {
+		entries: readonly ModelCatalogEntry[];
+		readAt: number;
+	} | null = null;
 	readonly #running = new Map<string, AbortController>();
 	/** Views each running turn has put in its answer. */
 	readonly #viewsShown = new Map<string, number>();
@@ -661,10 +669,11 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				seq: existing.first_seq ?? this.#events.latestSeq(),
 			};
 		}
-		if (
-			input.modelId !== undefined &&
-			!this.configuredModels().some((model) => model.id === input.modelId)
-		)
+		await this.refreshModelCatalog();
+		const models = this.configuredModels();
+		const modelId = input.modelId ?? models[0]?.id;
+		if (!modelId) throw new Error("No model is configured for workspace chat");
+		if (!models.some((model) => model.id === modelId))
 			throw new Error("This model is not configured for workspace chat");
 		const text = input.text.trim();
 		if (!text) throw new Error("A turn needs text");
@@ -721,7 +730,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				scope,
 				turnId,
 				conversationId,
-				{ ...input, text: text + selected.context },
+				{ ...input, modelId, text: text + selected.context },
 				controller,
 			),
 		);
@@ -775,14 +784,16 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				title: string | null;
 				updated_at: string;
 				last_turn_at: string | null;
+				running: number;
 			}>(
-				"SELECT id, title, updated_at, last_turn_at FROM conversations WHERE archived_at IS NULL ORDER BY updated_at DESC LIMIT 200",
+				"SELECT c.id, c.title, c.updated_at, c.last_turn_at, EXISTS (SELECT 1 FROM turns t WHERE t.conversation_id = c.id AND t.status = 'running') AS running FROM conversations c WHERE c.archived_at IS NULL ORDER BY c.updated_at DESC LIMIT 200",
 			)
 			.map((row) => ({
 				id: row.id,
 				title: row.title,
 				updatedAt: row.updated_at,
 				lastTurnAt: row.last_turn_at,
+				...(row.running ? { running: true } : {}),
 			}));
 	}
 
@@ -1033,6 +1044,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		const url = new URL(request.url);
 		const scope = this.#scopeFromHeaders(request);
 		if (url.pathname.endsWith("/subscribe")) {
+			await this.refreshModelCatalog();
 			if (request.headers.get("Upgrade") !== "websocket")
 				return new Response("Expected WebSocket", { status: 426 });
 			const pair = new WebSocketPair();
@@ -1104,6 +1116,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		try {
 			switch (frame?.type) {
 				case "subscribe":
+					await this.refreshModelCatalog();
 					this.#subscribe(ws, scope, frame.conversationId, frame.cursor ?? 0);
 					return;
 				case "send_turn": {
@@ -1978,8 +1991,27 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		};
 	}
 
+	/** Reread the administrator's published model catalog at most once a minute. */
+	protected async refreshModelCatalog(): Promise<void> {
+		if (
+			this.#modelCatalog &&
+			Date.now() - this.#modelCatalog.readAt < MODEL_CATALOG_TTL_MS
+		)
+			return;
+		try {
+			const { entries } = await getModelCatalogConfig(
+				createDbQueryClient(this.env.DB),
+			);
+			this.#modelCatalog = { entries, readAt: Date.now() };
+		} catch (error) {
+			// A missing or malformed catalog offers no model; never an older list.
+			this.#modelCatalog = null;
+			console.warn("workspace model catalog unavailable", error);
+		}
+	}
+
 	protected configuredModels() {
-		return configuredWorkspaceModels(this.env);
+		return catalogWorkspaceModels(this.env, this.#modelCatalog?.entries ?? []);
 	}
 
 	/** The model a turn streams from; a test subclass returns a scripted one. */
@@ -2026,7 +2058,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 						...(await priceTurn(
 							this.env.DB,
 							this.env,
-							plan.modelId ?? this.configuredModels()[0]?.id,
+							plan.modelId,
 							result.usage,
 							new Date().toISOString(),
 						)),

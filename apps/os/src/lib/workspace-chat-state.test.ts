@@ -349,8 +349,31 @@ describe("applyWorkspaceChatEvent", () => {
 				title: "How many challenges are open?",
 				updatedAt: at(20),
 				lastTurnAt: at(20),
+				running: true,
 			},
 		]);
+	});
+
+	it("marks a conversation working until its turn finishes, even when history arrives later", () => {
+		const elsewhere = applyWorkspaceChatEvents(
+			initialWorkspaceChatState(null),
+			[turn[0]!],
+		);
+		expect(elsewhere.conversations[0]?.running).toBe(true);
+		const finished = applyWorkspaceChatEvents(
+			initialWorkspaceChatState("c1"),
+			turn,
+		);
+		expect(finished.conversations[0]?.running).toBe(false);
+		const older = applyWorkspaceChatEvents(finished, [
+			{
+				...turn[0]!,
+				seq: 0,
+				at: at(0),
+				turnId: "t0",
+			} as WorkspaceChatLedgerEvent,
+		]);
+		expect(older.conversations[0]?.running).toBe(false);
 	});
 
 	it("upserts conversation titles without replacing them with older history", () => {

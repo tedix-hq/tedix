@@ -1,6 +1,8 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import type { AssistantMessage, Context } from "@earendil-works/pi-ai";
+import { modelCatalogEntry } from "@tedix/api-contract/test/model-catalog";
 import {
+	catalogWorkspaceModels,
 	configuredWorkspaceModels,
 	createAzureGatewayModel,
 	createWorkspaceModel,
@@ -458,3 +460,37 @@ test.each([
 		expect(model.responseMetadata?.().usageReported).toBe(false);
 	},
 );
+
+test("the workspace chat offers the published catalog in its order and names", () => {
+	const env = {
+		...configuredEnv,
+		...workersEnv,
+		AI_GATEWAY_AUTO_ALLOWED_MODELS: `${fixtureModelId},@cf/fixture/model-two,@cf/fixture/model-three`,
+	};
+	expect(
+		catalogWorkspaceModels(env, [
+			modelCatalogEntry("workers-ai/@cf/fixture/model-two", {
+				label: "Model Two",
+			}),
+			modelCatalogEntry("cloudflare/auto", { label: "Auto" }),
+			modelCatalogEntry("azure-openai/fixture-deployment", {
+				label: "Fixture Chat",
+			}),
+			modelCatalogEntry(`workers-ai/${fixtureModelId}`, {
+				label: "Hidden One",
+				hidden: true,
+			}),
+			modelCatalogEntry("workers-ai/@cf/fixture/model-three", {
+				label: "Old Three",
+				lifecycle: "superseded",
+			}),
+			modelCatalogEntry("workers-ai/@cf/fixture/not-allowed", {
+				label: "Not runnable here",
+			}),
+		]),
+	).toEqual([
+		{ id: "@cf/fixture/model-two", label: "Model Two" },
+		{ id: "azure-openai/fixture-deployment", label: "Fixture Chat" },
+	]);
+	expect(catalogWorkspaceModels(env, [])).toEqual([]);
+});

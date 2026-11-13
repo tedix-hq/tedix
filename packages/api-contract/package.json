@@ -8,6 +8,7 @@
 	"exports": {
 		"./assets/sheet-blueprint": "./src/assets/sheet-blueprint.ts",
 		"./utils/sheet-csv": "./src/utils/sheet-csv.ts",
+		"./utils/os-screens-prompt": "./src/utils/os-screens-prompt.ts",
 		"./assets/slides-blueprint": "./src/assets/slides-blueprint.ts",
 		"./utils/presentation-patch": "./src/utils/presentation-patch.ts",
 		"./assets/doc-blueprint": "./src/assets/doc-blueprint.ts",
