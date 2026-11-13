@@ -15,6 +15,7 @@ export const BINDING_NAMES = [
 	"apps",
 	"resources",
 	"work",
+	"views",
 ] as const;
 export type BindingName = (typeof BINDING_NAMES)[number];
 
@@ -45,6 +46,19 @@ interface OutputDetail extends OutputSummary { content: OutputContent | null }
 `.trim();
 
 export const BINDING_DECLARATIONS: Record<BindingName, string> = {
+	views: `
+/**
+ * Show a live view (table, facts or a custom layout) under your answer.
+ * Use it when a table or panel is clearer than prose; it changes no data.
+ * At most 3 views per answer, each under 64 KB. Omit layoutSpec for a table of
+ * the first list of records in data, or a panel of its plain fields. A custom
+ * layoutSpec is a json-render spec: { root: "id", elements: { id: { type, props, children: string[] } } }
+ * with types Stack, Grid, Text, Badge, DataTable, DataChart, StatGrid, KeyValuePanel,
+ * BarList, StatusTimeline; bind data with { $state: "/key" }.
+ */
+interface Views {
+  show(input: { title: string; summary?: string; data: Record<string, unknown> | Array<Record<string, unknown>>; layoutSpec?: Record<string, unknown> }): Promise<{ viewId: string; shown: true }>;
+}`.trim(),
 	sheets: SHEETS_DECLARATION,
 	presentations: PRESENTATION_BINDING_DECLARATION,
 	documents: `
@@ -103,7 +117,7 @@ export function renderEnvDeclarations(): string {
 	return [
 		SHARED_TYPES,
 		...BINDING_NAMES.map((name) => BINDING_DECLARATIONS[name]),
-		`interface Env { documents: Documents; sheets: Sheets; presentations: Presentations; outputs: Outputs; apps: Apps; resources: Resources; work: Work; }`,
+		`interface Env { documents: Documents; sheets: Sheets; presentations: Presentations; outputs: Outputs; apps: Apps; resources: Resources; work: Work; views: Views; }`,
 	].join("\n\n");
 }
 

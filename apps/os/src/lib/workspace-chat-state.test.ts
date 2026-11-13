@@ -109,6 +109,31 @@ describe("applyWorkspaceChatEvent", () => {
 		expect(activeTurn(state)).toBeNull();
 	});
 
+	it("keeps the views a turn showed, once each, in order", () => {
+		const view = (seq: number, viewId: string): WorkspaceChatLedgerEvent => ({
+			seq,
+			at: at(3),
+			conversationId: "c1",
+			type: "view.shown",
+			turnId: "t1",
+			viewId,
+			appSlug: "tedix-unified",
+			resourceUri: `ui://widgets/mcp-app/tedix-unified/r/${viewId}.html`,
+			title: `View ${viewId}`,
+			toolResult: { rows: [], layoutSpec: { root: "r", elements: {} } },
+		});
+		const state = applyWorkspaceChatEvents(initialWorkspaceChatState("c1"), [
+			...turn,
+			view(8, "a"),
+			view(9, "b"),
+			{ ...view(10, "a") },
+		]);
+		expect(state.turns[0]?.views?.map((item) => item.viewId)).toEqual([
+			"a",
+			"b",
+		]);
+	});
+
 	it("ignores a seq it already folded, so a replay after a drop changes nothing", () => {
 		const once = applyWorkspaceChatEvents(
 			initialWorkspaceChatState("c1"),

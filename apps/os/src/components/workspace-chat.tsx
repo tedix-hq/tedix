@@ -50,6 +50,7 @@ import {
 } from "@/components/kumo/tooltip";
 import { Link } from "@/components/kumo/link";
 import { UnreadBadge } from "@/components/unread-badge";
+import { WidgetFrame } from "@/components/widget-frame";
 import { WorkActorDirectoryContext } from "@/components/work-actor-avatar";
 import { mentionedPeople, notifyChatPosted } from "@/lib/workspace-chat-notify";
 import { WorkspaceChatResources } from "@/components/workspace-chat-resources";
@@ -622,6 +623,20 @@ function TurnView({
 						<ChatMarkdown content={turn.reply} />
 					</div>
 				) : null}
+				{turn.views?.map((view) => (
+					<div
+						className="workspace-chat-view"
+						data-testid="workspace-chat-view"
+						key={view.viewId}
+					>
+						<WidgetFrame
+							appSlug={view.appSlug}
+							resourceUri={view.resourceUri}
+							title={view.title}
+							toolResult={view.toolResult}
+						/>
+					</div>
+				))}
 				{turn.status === "error" ? (
 					<div className="workspace-chat-error" role="alert">
 						<WarningCircle aria-hidden />

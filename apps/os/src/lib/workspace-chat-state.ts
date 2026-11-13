@@ -45,6 +45,14 @@ export type ChatApproval = {
 	execution?: { status: "applied" | "failed"; error?: string };
 };
 
+export type ChatView = {
+	viewId: string;
+	appSlug: string;
+	resourceUri: string;
+	title: string;
+	toolResult: Record<string, unknown>;
+};
+
 export type ChatTurn = {
 	turnId: string;
 	conversationId: string;
@@ -67,6 +75,8 @@ export type ChatTurn = {
 	replyDone: boolean;
 	steps: ChatStep[];
 	approvals: ChatApproval[];
+	/** Live views the agent put in its answer, in the order shown. */
+	views?: ChatView[];
 	status: "running" | TurnStatus;
 	error?: string;
 	finishedAt: string | null;
@@ -325,6 +335,25 @@ export function applyWorkspaceChatEvent(
 				...(event.usage ? { usage: event.usage, usageSeq: event.seq } : {}),
 				...(event.model ? { model: event.model, modelSeq: event.seq } : {}),
 			}));
+			break;
+		case "view.shown":
+			turns = place(event.turnId)((turn) =>
+				turn.views?.some((view) => view.viewId === event.viewId)
+					? turn
+					: {
+							...turn,
+							views: [
+								...(turn.views ?? []),
+								{
+									viewId: event.viewId,
+									appSlug: event.appSlug,
+									resourceUri: event.resourceUri,
+									title: event.title,
+									toolResult: event.toolResult,
+								},
+							],
+						},
+			);
 			break;
 		case "step.started":
 			turns = place(event.turnId)((turn) =>

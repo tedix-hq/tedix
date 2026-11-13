@@ -22,6 +22,7 @@ import { applyDocumentBlockPatch } from "@tedix/api-contract/utils/document-patc
 import type { BindingName } from "./declarations";
 import { buildSheetBinding } from "./sheet-binding";
 import { buildPresentationBinding } from "./presentation-bindings";
+import { buildView, type ShownView } from "./views";
 import type {
 	CreateWorkInput,
 	OutputDetail,
@@ -44,6 +45,8 @@ export interface BindingDeps {
 	actor: Actor;
 	source: Source;
 	onRecorded?: (record: ChangeRecord) => void;
+	/** Puts a view in the running turn's answer; throws past the turn's limit. */
+	showView?: (view: ShownView) => void;
 }
 
 function revisionRef(output: OutputSummary | OutputDetail | null | undefined) {
@@ -150,7 +153,21 @@ export function buildWorkspaceBindings(
 			data.createWork({ ...input, actorId: deps.actor.id }),
 	};
 
+	const views = {
+		show: (input: unknown) => {
+			if (!deps.showView) throw new Error("Views need a running chat turn");
+			const view = buildView(input, crypto.randomUUID());
+			deps.showView(view);
+			return { viewId: view.viewId, shown: true as const };
+		},
+	};
+
 	return {
+		views: wrapBinding(views, {
+			...common,
+			resource: "view",
+			methods: { show: { riskTier: "read", blastRadius: "none" } },
+		}),
 		sheets: buildSheetBinding(deps),
 		presentations: buildPresentationBinding(deps),
 		documents: wrapBinding(documents, {

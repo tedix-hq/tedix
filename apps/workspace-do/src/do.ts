@@ -50,6 +50,7 @@ import type {
 import { CallRefusedError } from "@tedix/agent-governance/wrap-binding";
 import { SqlAccountabilityAdapter, SqlComplianceAdapter } from "./adapters";
 import { buildWorkspaceBindings } from "./bindings";
+import { MAX_VIEWS_PER_TURN } from "./views";
 import { resolveAttachments } from "./attachments";
 import { TenantDataPort } from "./data-port-tenant";
 import { BINDING_NAMES, type BindingName } from "./declarations";
@@ -252,6 +253,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	#activitySerial: Promise<void> = Promise.resolve();
 	#movedChatReady = false;
 	readonly #running = new Map<string, AbortController>();
+	/** Views each running turn has put in its answer. */
+	readonly #viewsShown = new Map<string, number>();
 	readonly #waiters = new Map<string, Array<() => void>>();
 
 	constructor(ctx: DurableObjectState, env: WorkspaceEnv) {
@@ -1704,6 +1707,17 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			},
 			actor,
 			source,
+			showView: (view) => {
+				const shown = this.#viewsShown.get(turn.turnId) ?? 0;
+				if (shown >= MAX_VIEWS_PER_TURN)
+					throw new Error(`At most ${MAX_VIEWS_PER_TURN} views per answer`);
+				this.#viewsShown.set(turn.turnId, shown + 1);
+				this.#events.append(turn.conversationId, {
+					type: "view.shown",
+					turnId: turn.turnId,
+					...view,
+				});
+			},
 		});
 	}
 
@@ -2055,6 +2069,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			});
 		} finally {
 			this.#running.delete(turnId);
+			this.#viewsShown.delete(turnId);
 			for (const wake of this.#waiters.get(turnId) ?? []) wake();
 			this.#waiters.delete(turnId);
 		}
@@ -2435,5 +2450,8 @@ export class WorkspaceBindingLoopback extends WorkerEntrypoint<
 	}
 	edit(...args: unknown[]) {
 		return this.#call("edit", args);
+	}
+	show(...args: unknown[]) {
+		return this.#call("show", args);
 	}
 }
