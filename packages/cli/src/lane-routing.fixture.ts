@@ -26,7 +26,7 @@ export const testRoutingPolicy = routingPolicySchema.parse({
 				{ executor: "opencode", model: "example/small" },
 				{ executor: "claude-code", model: "small-example" },
 				{ executor: "codex", model: "small-example" },
-				{ executor: "devin" },
+				{ executor: "devin", model: "small-devin" },
 			],
 		},
 		{
@@ -38,7 +38,7 @@ export const testRoutingPolicy = routingPolicySchema.parse({
 				{ executor: "codex", model: "general-example" },
 				{ executor: "claude-code", model: "general-example" },
 				{ executor: "opencode", model: "example/general" },
-				{ executor: "devin" },
+				{ executor: "devin", model: "general-devin" },
 			],
 		},
 	],

@@ -208,7 +208,14 @@ export function routeLocalWork(
 	const routes =
 		work.executor === "any-local"
 			? rule.routes
-			: [{ executor: executorSchema.parse(work.executor), model: undefined }];
+			: [
+					rule.routes.find((route) => route.executor === work.executor) ?? {
+						executor: executorSchema.parse(work.executor),
+						model: policy.rules
+							.flatMap((row) => row.routes)
+							.find((route) => route.executor === work.executor)?.model,
+					},
+				];
 	if (routes.length === 0)
 		throw new Error(
 			`No routes configured for ${rule.name}; use --routing-config or TEDIX_LANE_ROUTING_CONFIG to choose executors and models`,
