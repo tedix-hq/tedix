@@ -339,3 +339,46 @@ it("detects delayed email even when thread timestamps have not advanced", async 
 		sqlite.close();
 	}
 });
+
+it("keeps a runner's permission card while its task version is unchanged", async () => {
+	const { sqlite } = fixture();
+	const db = createDbClient(createD1Facade(sqlite));
+	const card = (workVersion: number, executor = "claude-code") =>
+		decisionSourcesCurrent(db, orgId, {
+			workItemId: id,
+			creatorType: "user",
+			creatorId: "owner",
+			createdAt: at,
+			status: "open",
+			targetType: "user",
+			subject: "Let Claude Code work on “Fictional app”?",
+			prompt:
+				"Claude Code paused this task because it asks the agent to publish something publicly, which needs your permission.",
+			metadata: {
+				source: "lane-dispatch-blocker",
+				laneBlocker: { kind: "owner_delegation", executor, workVersion },
+			},
+		});
+	try {
+		sqlite
+			.prepare(
+				"INSERT INTO work_items(id,org_id,title,disposition,version,metadata,created_at) VALUES (?,?,'Fictional app','accepted',6,'{\"executor\":\"claude-code\"}',?)",
+			)
+			.run(id, orgId, at);
+		// The runner's own notes do not change what Allow grants.
+		sqlite
+			.prepare(
+				"INSERT INTO work_item_comments(id,org_id,work_item_id,author_type,author_id,body,metadata,created_at) VALUES ('note',?,?,'external_agent','runner','Still waiting for permission','{}',?)",
+			)
+			.run(orgId, id, "2026-10-22T10:00:00.000Z");
+		expect(await card(6)).toBe(true);
+		expect(await card(5)).toBe(false);
+		expect(await card(6, "codex")).toBe(false);
+		sqlite
+			.prepare("UPDATE work_items SET disposition='completed' WHERE id=?")
+			.run(id);
+		expect(await card(6)).toBe(false);
+	} finally {
+		sqlite.close();
+	}
+});
