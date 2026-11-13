@@ -130,8 +130,10 @@ export async function installOutputEditor(
 	input: EditorInput,
 	context: BaseContext,
 ) {
-	const workspace = await requireWorkspace(context, input.workspaceId);
-	const output = await requireOutput(context, input.outputId);
+	const [workspace, output] = await Promise.all([
+		requireWorkspace(context, input.workspaceId),
+		requireOutput(context, input.outputId),
+	]);
 	if (
 		output.workspaceId !== workspace.id ||
 		output.kind !== input.kind ||
@@ -143,10 +145,17 @@ export async function installOutputEditor(
 			"Active workspace output not found",
 		);
 	const db = queryDb(context);
-	const revision = await getOsOutputRevision(db, {
-		organizationId: workspace.organizationId,
-		revisionId: output.currentRevisionId,
-	});
+	const [revision, resource] = await Promise.all([
+		getOsOutputRevision(db, {
+			organizationId: workspace.organizationId,
+			revisionId: output.currentRevisionId,
+		}),
+		findWorkspaceOutputResource(db, {
+			organizationId: workspace.organizationId,
+			workspaceId: workspace.id,
+			outputId: output.id,
+		}),
+	]);
 	const envelope = revision
 		? parseDerivedAccessEnvelope(revision.accessEnvelope)
 		: null;
@@ -165,11 +174,6 @@ export async function installOutputEditor(
 	const identity = (key: string) =>
 		editorIdentity(workspace.organizationId, input.kind, key);
 	const blueprintId = await identity("template");
-	const resource = await findWorkspaceOutputResource(db, {
-		organizationId: workspace.organizationId,
-		workspaceId: workspace.id,
-		outputId: output.id,
-	});
 	if (resource && (resource.status !== "active" || !resource.slot))
 		throw createError(
 			ErrorCodes.CONFLICT,
