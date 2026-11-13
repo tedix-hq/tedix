@@ -416,6 +416,9 @@ describe("question delegation", () => {
 	});
 	it("ledgers nothing for an ordinary answer", async () => {
 		const { db, sqlite } = question();
+		sqlite.exec(
+			"UPDATE work_items SET disposition='accepted', metadata='{\"executor\":\"codex\"}' WHERE id='work'",
+		);
 		await respondToWorkInteraction(db, {
 			id: "plain",
 			orgId: "org",
@@ -434,6 +437,20 @@ describe("question delegation", () => {
 				)
 				.get(),
 		).toBeUndefined();
+		const work = sqlite
+			.prepare("SELECT version,metadata FROM work_items WHERE id='work'")
+			.get()!;
+		expect(work.version).toBe(1);
+		expect(JSON.parse(String(work.metadata))).toMatchObject({
+			executor: "codex",
+			decisionContinuation: {
+				kind: "answer",
+				requestId: "mine",
+				responseId: "plain",
+				at: NOW,
+				body: "Yes",
+			},
+		});
 	});
 	it("keeps the question identity and attributes the actual tedi reply", async () => {
 		const { db } = question();

@@ -6813,60 +6813,76 @@ describe("structured dispatcher outcomes", () => {
 		expect(f.events.filter((e) => e.verb === "complete")).toHaveLength(1);
 		expect(f.releases).toHaveLength(2);
 	});
-	it("settles a deferred wait as cancelled with its reason and re-admits after the recheck", async () => {
-		const f = fixture();
-		f.items.splice(1);
-		const retryAt = new Date(Date.now() + 3_600_000).toISOString();
-		const deferred = () => ({
-			...common(),
-			outcome: "deferred",
-			reason: "Waiting on production access",
-			until: retryAt,
-		});
-		f.control.finalMessage = `TEDIX_LANE_RESULT ${JSON.stringify(deferred())}`;
-		await f.dispatcher.tick();
-		await until(() => f.releases.length === 1);
-		liveFence(f);
-		f.releases[0]!();
-		await f.dispatcher.drain();
-		const settle = f.events.find((e) => e.verb === "settle")!;
-		expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe("cancelled");
-		expect(settle.args[settle.args.indexOf("--note") + 1]).toContain(
-			"Deferred: Waiting on production access",
-		);
-		expect(settle.input?.metadata).toMatchObject({ laneResult: deferred() });
-		expect(f.events.filter((e) => e.verb === "complete")).toHaveLength(0);
-		const path = join(f.dir, `${item().id}-2.json`);
-		const saved = JSON.parse(readFileSync(path, "utf8"));
-		expect(saved).toMatchObject({
-			phase: "deferred",
-			outcome: "cancelled",
-			laneResult: deferred(),
-		});
-		expect(saved.retryAt).toBe(Date.parse(retryAt));
-		expect(saved.held).toBeUndefined();
-		// The wait parks until its recheck time instead of retrying at once.
-		await f.restart().tick();
-		expect(f.releases).toHaveLength(1);
-		// A settled deferred Attempt does not block the same revision's re-admission.
-		saved.retryAt = 0;
-		writeFileSync(path, JSON.stringify(saved));
-		f.control.history.data[0]!.outcome = "cancelled";
-		f.control.history.data[0]!.metadata = {
-			dispatchVersion: 2,
-			laneResult: deferred(),
-		};
-		f.control.finalMessage = "Access granted; result recorded.";
-		const restarted = f.restart();
-		await restarted.tick();
-		await until(() => f.releases.length === 2);
-		f.releases[1]!();
-		await restarted.drain();
-		expect(
-			f.events.filter((e) => e.verb === "start" && e.args[4] === "work"),
-		).toHaveLength(2);
-		expect(f.events.filter((e) => e.verb === "complete")).toHaveLength(1);
-	});
+	it.each(["timer", "answer", "approval"])(
+		"re-admits deferred Work after %s with fresh admission",
+		async (wake) => {
+			const f = fixture();
+			f.items.splice(1);
+			const retryAt = new Date(Date.now() + 3_600_000).toISOString();
+			const deferred = () => ({
+				...common(),
+				outcome: "deferred",
+				reason: "Waiting on production access",
+				until: retryAt,
+			});
+			f.control.finalMessage = `TEDIX_LANE_RESULT ${JSON.stringify(deferred())}`;
+			await f.dispatcher.tick();
+			await until(() => f.releases.length === 1);
+			liveFence(f);
+			f.releases[0]!();
+			await f.dispatcher.drain();
+			const settle = f.events.find((e) => e.verb === "settle")!;
+			expect(settle.args[settle.args.indexOf("--outcome") + 1]).toBe(
+				"cancelled",
+			);
+			expect(settle.args[settle.args.indexOf("--note") + 1]).toContain(
+				"Deferred: Waiting on production access",
+			);
+			expect(settle.input?.metadata).toMatchObject({ laneResult: deferred() });
+			expect(f.events.filter((e) => e.verb === "complete")).toHaveLength(0);
+			const path = join(f.dir, `${item().id}-2.json`);
+			const saved = JSON.parse(readFileSync(path, "utf8"));
+			expect(saved).toMatchObject({
+				phase: "deferred",
+				outcome: "cancelled",
+				laneResult: deferred(),
+			});
+			expect(saved.retryAt).toBe(Date.parse(retryAt));
+			expect(saved.held).toBeUndefined();
+			// The wait parks until its recheck time instead of retrying at once.
+			await f.restart().tick();
+			expect(f.releases).toHaveLength(1);
+			if (wake === "timer") {
+				saved.retryAt = 0;
+				writeFileSync(path, JSON.stringify(saved));
+			} else {
+				f.items[0]!.metadata = {
+					...f.items[0]!.metadata,
+					decisionContinuation: {
+						kind: wake,
+						requestId: "66666666-6666-4666-8666-666666666666",
+						responseId: "77777777-7777-4777-8777-777777777777",
+						at: new Date().toISOString(),
+					},
+				};
+			}
+			f.control.history.data[0]!.outcome = "cancelled";
+			f.control.history.data[0]!.metadata = {
+				dispatchVersion: 2,
+				laneResult: deferred(),
+			};
+			f.control.finalMessage = "Access granted; result recorded.";
+			const restarted = f.restart();
+			await restarted.tick();
+			await until(() => f.releases.length === 2);
+			f.releases[1]!();
+			await restarted.drain();
+			expect(
+				f.events.filter((e) => e.verb === "start" && e.args[4] === "work"),
+			).toHaveLength(2);
+			expect(f.events.filter((e) => e.verb === "complete")).toHaveLength(1);
+		},
+	);
 	it.each(["verified", "unavailable", "stale-session", "stale-version"])(
 		"fences preexisting completion: %s",
 		async (mode) => {

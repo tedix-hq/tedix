@@ -20,6 +20,7 @@ import {
 	getApprovalAnchor,
 } from "@tedix/db/queries/approvals";
 import { getMemberByUserId } from "@tedix/db/queries/organization-members";
+import { findAgentApprovalWork } from "@tedix/db/queries/work-items/attempts";
 import {
 	getOrganizationById,
 	getOrganizationPersonalDataRedaction,
@@ -1498,6 +1499,53 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 	requestOwnerToolApproval: serviceOs.requestOwnerToolApproval.handler(
 		async ({ input, context }) => {
 			await assertGatewayOrganization(context, input.organizationId);
+			let workItemId = input.workItemId;
+			if (input.requestingAgent) {
+				const active = await resolveAuthorizedExternalAgentMcpSession(
+					context.db,
+					{
+						organizationId: input.organizationId,
+						...input.requestingAgent,
+						now: new Date().toISOString(),
+					},
+				);
+				if (
+					!active ||
+					active.principal.credentialBindingType !== "owner_user" ||
+					(input.userId !== undefined &&
+						active.principal.credentialBindingId !== input.userId) ||
+					input.target.transport !== "rpc" ||
+					input.target.sensitiveDataEgress !== undefined
+				)
+					throw createError(
+						ErrorCodes.FORBIDDEN,
+						"Only a verified owner-bound agent may request this exact native call approval",
+					);
+				// A machine can ask, never consume a human's approval as itself.
+				if (input.approvalRequestId)
+					throw createError(
+						ErrorCodes.FORBIDDEN,
+						"Approve in Tedix OS to run the stored call",
+					);
+				const admittedWork = await findAgentApprovalWork(context.db, {
+					orgId: input.organizationId,
+					principalId: input.requestingAgent.principalId,
+					externalSessionKey: active.session.externalSessionKey,
+					now: new Date().toISOString(),
+				});
+				if (!admittedWork || (workItemId && workItemId !== admittedWork))
+					throw createError(
+						ErrorCodes.FORBIDDEN,
+						"An exact native approval request requires this agent's one live Work Attempt",
+					);
+				workItemId = admittedWork;
+				input.userId = active.principal.credentialBindingId;
+			}
+			if (!input.userId)
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"A verified requesting owner is required",
+				);
 			const egress =
 				input.target.sensitiveDataEgress === undefined
 					? null
@@ -1558,8 +1606,14 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 				toolId: input.toolId,
 				target: input.target,
 				args: input.args,
+				...(input.requestingAgent
+					? { workItemId, principalId: input.requestingAgent.principalId }
+					: {}),
 			});
-			const callIdentity = ownerToolCallIdentity(input);
+			const callIdentity = ownerToolCallIdentity({
+				...input,
+				userId: input.userId,
+			});
 			const callFingerprint = await canonicalDigest(callIdentity);
 			const now = new Date().toISOString();
 			if (input.approvalRequestId) {
@@ -1740,14 +1794,18 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 						target: input.target,
 						args: input.args,
 						fingerprint,
+						...(input.requestingAgent
+							? { requestingAgent: input.requestingAgent }
+							: {}),
+						...(workItemId ? { workItemId } : {}),
 					},
 					createdAt: now,
 					expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
 				},
 				{
 					organizationId: input.organizationId,
-					actorId: input.userId,
-					actorType: "user",
+					actorId: input.requestingAgent?.principalId ?? input.userId,
+					actorType: input.requestingAgent ? "external_agent" : "user",
 					action: "approval.requested",
 					resourceType: "approval_request",
 					resourceId: id,

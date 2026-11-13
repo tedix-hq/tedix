@@ -882,15 +882,31 @@ async function ownerToolApproval(
 	tool: ApprovalTool,
 	options?: DestructiveApprovalOptions,
 ): Promise<CallToolResult | null | undefined> {
+	const identity = agent.callerIdentity;
+	const requestingAgent =
+		identity?.authType === "external_agent" &&
+		identity.externalAgentPrincipalId &&
+		identity.externalAgentSessionId &&
+		identity.externalAgentClientRecordId &&
+		tool.config?.transport === "rpc" &&
+		!options?.sensitiveDataEgress
+			? {
+					principalId: identity.externalAgentPrincipalId,
+					sessionId: identity.externalAgentSessionId,
+					clientRecordId: identity.externalAgentClientRecordId,
+				}
+			: undefined;
 	if (
 		!(
 			callerIsUserPrincipalPath(agent) ||
+			requestingAgent ||
 			(options?.sensitiveDataEgress &&
 				agent.callerIdentity?.kernel === true &&
 				agent.callerIdentity.authType === "service") ||
 			isOwnerApprovalReplayCall(agent, options)
 		) ||
-		!agent.callerIdentity?.userId ||
+		!agent.callerIdentity ||
+		(!agent.callerIdentity.userId && !requestingAgent) ||
 		!agent.app?.organizationId ||
 		!agent.apiClient?.mcpGovernance?.requestOwnerToolApproval
 	)
@@ -903,6 +919,10 @@ async function ownerToolApproval(
 			await agent.apiClient.mcpGovernance.requestOwnerToolApproval({
 				organizationId: agent.app.organizationId,
 				userId: agent.callerIdentity.userId,
+				...(requestingAgent ? { requestingAgent } : {}),
+				...(identity?.requestWorkItemId
+					? { workItemId: identity.requestWorkItemId }
+					: {}),
 				appSlug: agent.appSlug ?? "",
 				toolId: tool.toolId,
 				target: {

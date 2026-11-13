@@ -43,6 +43,7 @@ import {
 } from "@tedix/db/queries/approvals";
 import { insertAuditEvent } from "@tedix/db/queries/audit";
 import { getMemberByUserId } from "@tedix/db/queries/organization-members";
+import { recordWorkDecisionContinuation } from "@tedix/db/queries/work-items/comments";
 import { getOrganizationById } from "@tedix/db/queries/organizations";
 import type { tediApprovalRequests } from "@tedix/db/schema/approvals";
 import { toJsonRecord } from "@tedix/db/utils/json";
@@ -69,6 +70,7 @@ export interface OwnerToolCallPayload {
 	target: Record<string, unknown>;
 	args: Record<string, unknown>;
 	fingerprint: string;
+	workItemId?: string;
 	execution?: OwnerToolApprovalExecution;
 }
 
@@ -110,6 +112,9 @@ export function parseOwnerToolCallPayload(
 		target,
 		args,
 		fingerprint,
+		...(typeof value.workItemId === "string"
+			? { workItemId: value.workItemId }
+			: {}),
 		...(isRecord(execution) &&
 		(execution.status === "queued" ||
 			execution.status === "running" ||
@@ -501,6 +506,21 @@ async function runOwnerToolCall(
 				error: errorMessage(error),
 			});
 		}
+		if (observed.outcome === "succeeded" && payload.workItemId)
+			await recordWorkDecisionContinuation(context.db, {
+				orgId: organizationId,
+				workItemId: payload.workItemId,
+				kind: "approval",
+				requestId: approval.id,
+				responseId: approval.id,
+				at: finishedAt,
+			}).catch((error) => {
+				// The side effect already ran; a wake failure must not relabel it as failed.
+				console.warn("[approvals] Work continuation signal failed", {
+					approvalRequestId: approval.id,
+					error: errorMessage(error),
+				});
+			});
 		await insertAuditEvent(context.db, {
 			organizationId,
 			actorId: payload.initiatedByUserId,

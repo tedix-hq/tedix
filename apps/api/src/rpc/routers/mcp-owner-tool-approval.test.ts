@@ -18,6 +18,19 @@ const mocks = vi.hoisted(() => ({
 	policyFences: vi.fn(),
 	policyProfile: vi.fn(),
 	latch: vi.fn(),
+	agent: vi.fn(),
+	agentWork: vi.fn(),
+}));
+vi.mock(
+	"@tedix/db/queries/external-agent-identity/mcp-credentials",
+	async (load) => ({
+		...(await load<object>()),
+		resolveAuthorizedExternalAgentMcpSession: mocks.agent,
+	}),
+);
+vi.mock("@tedix/db/queries/work-items/attempts", async (load) => ({
+	...(await load<object>()),
+	findAgentApprovalWork: mocks.agentWork,
 }));
 vi.mock("@tedix/db/queries/organization-members", async (load) => ({
 	...(await load<object>()),
@@ -754,5 +767,88 @@ describe("owner gateway approvals", () => {
 			"org-1",
 			"owner-1",
 		);
+	});
+});
+
+describe("owner-bound agent exact native approvals", () => {
+	const requestingAgent = {
+		principalId: "11111111-1111-4111-8111-111111111111",
+		sessionId: "22222222-2222-4222-8222-222222222222",
+		clientRecordId: "client-1",
+	};
+	const workItemId = "33333333-3333-4333-8333-333333333333";
+	const archive = {
+		...input,
+		userId: undefined,
+		requestingAgent,
+		toolId: "archive_project",
+		target: { transport: "rpc", endpoint: "projects/archive" },
+		args: { id: "44444444-4444-4444-8444-444444444444" },
+	};
+	beforeEach(() => {
+		mocks.agent.mockResolvedValue({
+			principal: {
+				credentialBindingType: "owner_user",
+				credentialBindingId: "owner-1",
+			},
+			session: { externalSessionKey: "codex:example" },
+		});
+		mocks.agentWork.mockResolvedValue(workItemId);
+	});
+	it("parks the exact call on its admitted Work with machine attribution and reuses its pending card", async () => {
+		const first = await client().requestOwnerToolApproval(archive);
+		expect(first.approved).toBe(false);
+		expect(mocks.create.mock.calls[0]![1].payload).toMatchObject({
+			requestingAgent,
+			workItemId,
+			args: archive.args,
+			target: archive.target,
+		});
+		expect(mocks.create.mock.calls[0]![2]).toMatchObject({
+			actorType: "external_agent",
+			actorId: requestingAgent.principalId,
+		});
+		mocks.pending.mockResolvedValue({ id: first.approvalRequestId });
+		expect(await client().requestOwnerToolApproval(archive)).toMatchObject({
+			approvalRequestId: first.approvalRequestId,
+			status: "pending",
+			approved: false,
+		});
+		expect(mocks.create).toHaveBeenCalledTimes(1);
+		expect(mocks.consume).not.toHaveBeenCalled();
+	});
+	it.each([
+		"revoked",
+		"foreign owner",
+		"api key",
+		"no Attempt",
+		"foreign Work",
+		"consume",
+		"external",
+	])("refuses %s without a new card or execution", async (mode) => {
+		if (mode === "revoked") mocks.agent.mockResolvedValue(null);
+		if (mode === "api key")
+			mocks.agent.mockResolvedValue({
+				principal: {
+					credentialBindingType: "api_key",
+					credentialBindingId: "other",
+				},
+			});
+		if (mode === "no Attempt") mocks.agentWork.mockResolvedValue(undefined);
+		await expect(
+			client().requestOwnerToolApproval({
+				...archive,
+				...(mode === "foreign owner" ? { userId: "other" } : {}),
+				...(mode === "foreign Work"
+					? { workItemId: "55555555-5555-4555-8555-555555555555" }
+					: {}),
+				...(mode === "consume"
+					? { approvalRequestId: "66666666-6666-4666-8666-666666666666" }
+					: {}),
+				...(mode === "external" ? { target: { transport: "external" } } : {}),
+			}),
+		).rejects.toThrow();
+		expect(mocks.create).not.toHaveBeenCalled();
+		expect(mocks.consume).not.toHaveBeenCalled();
 	});
 });

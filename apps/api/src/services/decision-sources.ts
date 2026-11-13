@@ -1,5 +1,5 @@
 import {
-	decisionSourcesCurrent,
+	decisionSourcesReview,
 	retireDecisionSourceCard,
 } from "@tedix/db/queries/work-items/decision-sources";
 import { listWorkInteractionInbox } from "@tedix/db/queries/work-items/interactions";
@@ -29,7 +29,10 @@ export async function refreshDecisionSourceCards(
 		});
 		for (const { request } of page.data) {
 			scanned++;
-			if (await decisionSourcesCurrent(db, orgId, request)) continue;
+			const review = await decisionSourcesReview(db, orgId, request);
+			// New comments can be reviewed in the answer flow. Retiring the card
+			// here would remove that opportunity before the person can read them.
+			if (review.current || review.reviewable) continue;
 			superseded += (
 				await retireDecisionSourceCard(db, {
 					orgId,
