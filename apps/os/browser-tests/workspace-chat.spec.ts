@@ -33,7 +33,7 @@ try {
 										models: [
 											{
 												id: "azure-openai/configured",
-												label: "Azure deployment: configured-workspace-model",
+												label: "Configured Workspace Model",
 											},
 										],
 									}),
