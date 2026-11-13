@@ -73,6 +73,28 @@ export async function handleProviderEventWebhook(
 		// Durable outbox committed before ACK; cron drains and retries independently.
 		return c.body(null, result.status as 202);
 	}
+	if (adapter === "github_webhook") {
+		if (Number(c.req.header("content-length") ?? 0) > 256_000)
+			return c.text("Payload too large", 413);
+		const body = await readNotificationBody(c.req.raw);
+		if (body === null) return c.text("Payload too large", 413);
+		const { receiveGithubWebhook } =
+			await import("../services/provider-events/signed-webhook");
+		const result = await receiveGithubWebhook(context, row, channel, {
+			headers: c.req.raw.headers,
+			body,
+		});
+		if (result.status >= 400)
+			return c.text("Invalid notification", result.status as 400);
+		if (result.received)
+			await updateProviderEventSubscription(
+				context.db,
+				row.organizationId,
+				row.id,
+				{ lastNotificationAt: new Date().toISOString() },
+			);
+		return c.body(null, result.status as 202);
+	}
 	const challenge = c.req.query("validationToken");
 	if (adapter === "microsoft_calendar" && challenge !== undefined) {
 		if (channel.status !== "pending" || challenge.length > 4096)

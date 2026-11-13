@@ -4,6 +4,7 @@ export const ProviderEventAdapterSchema = z.enum([
 	"google_calendar",
 	"microsoft_calendar",
 	"mcp_events",
+	"github_webhook",
 ]);
 export const MCP_EVENTS_DEFAULT_MAX_WAKES_PER_HOUR = 12;
 /** Draft SEP-3415 events of one connected upstream MCP app. */
@@ -25,6 +26,23 @@ export const McpEventsSubscriptionSchema = z
 			.default(MCP_EVENTS_DEFAULT_MAX_WAKES_PER_HOUR),
 	})
 	.strict();
+export const GithubWebhookResourceKeySchema = z
+	.string()
+	.regex(/^(?!\.{1,2}\/)(?!.*\/\.{1,2}$)[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/);
+export const GithubWebhookSubscriptionSchema = z
+	.object({
+		events: z
+			.array(
+				z
+					.string()
+					.regex(/^[a-z_]+$/)
+					.max(100),
+			)
+			.min(1)
+			.max(30),
+		maxWakesPerHour: z.number().int().min(1).max(120).default(12),
+	})
+	.strict();
 export const PersonalSubscriptionBindingSchema = z
 	.object({
 		workspaceId: z.uuid(),
@@ -38,9 +56,10 @@ export const ProviderEventRegisterSchema = z
 		adapter: ProviderEventAdapterSchema,
 		providerId: z.string().min(1).max(200),
 		connectionInstanceId: z.uuid(),
-		// Calendar adapters only; mcp_events uses mcpEvents.eventName as its resource key.
-		calendarId: z.string().min(1).max(1024).optional(),
+		// Calendar id or repository owner/name; MCP events use mcpEvents.eventName.
+		resourceKey: z.string().min(1).max(1024).optional(),
 		mcpEvents: McpEventsSubscriptionSchema.optional(),
+		githubWebhook: GithubWebhookSubscriptionSchema.optional(),
 		connectionScope: z.enum(["tenant", "user"]).default("tenant"),
 		personalDelegation: PersonalSubscriptionBindingSchema.optional(),
 		resourceDelegationIds: z.array(z.uuid()).max(20).optional(),
@@ -59,11 +78,11 @@ export const ProviderEventRegisterSchema = z
 					message: "MCP event subscriptions name an app and event",
 					path: ["mcpEvents"],
 				});
-			if (input.calendarId !== undefined)
+			if (input.resourceKey !== undefined)
 				ctx.addIssue({
 					code: "custom",
-					message: "MCP event subscriptions have no calendar",
-					path: ["calendarId"],
+					message: "Use mcpEvents.eventName as the resource key",
+					path: ["resourceKey"],
 				});
 			if (input.connectionScope !== "tenant")
 				ctx.addIssue({
@@ -72,11 +91,11 @@ export const ProviderEventRegisterSchema = z
 					path: ["connectionScope"],
 				});
 		} else {
-			if (!input.calendarId)
+			if (!input.resourceKey)
 				ctx.addIssue({
 					code: "custom",
-					message: "Calendar subscriptions require a calendar",
-					path: ["calendarId"],
+					message: "Provider subscriptions require a resource key",
+					path: ["resourceKey"],
 				});
 			if (input.mcpEvents)
 				ctx.addIssue({
@@ -85,6 +104,32 @@ export const ProviderEventRegisterSchema = z
 					path: ["mcpEvents"],
 				});
 		}
+		if (input.adapter === "github_webhook") {
+			if (
+				!input.githubWebhook ||
+				!GithubWebhookResourceKeySchema.safeParse(input.resourceKey).success
+			)
+				ctx.addIssue({
+					code: "custom",
+					message:
+						"GitHub webhooks require owner/repository and event settings",
+					path: ["githubWebhook"],
+				});
+			if (input.deliveryMode !== "push" || input.connectionScope !== "tenant")
+				ctx.addIssue({
+					code: "custom",
+					message:
+						"GitHub webhooks use push delivery and an organization connection",
+					path: ["deliveryMode"],
+				});
+		} else if (input.githubWebhook) {
+			ctx.addIssue({
+				code: "custom",
+				message: "Only GitHub webhooks take GitHub settings",
+				path: ["githubWebhook"],
+			});
+		}
+
 		if (input.connectionScope === "user" && !input.personalDelegation)
 			ctx.addIssue({
 				code: "custom",
@@ -108,7 +153,7 @@ export const ProviderEventStatusSchema = z.object({
 	adapter: ProviderEventAdapterSchema,
 	providerId: z.string(),
 	connectionInstanceId: z.string().nullable(),
-	calendarId: z.string(),
+	resourceKey: z.string(),
 	mcpAppId: z.string().nullable(),
 	maxWakesPerHour: z.number().int().nullable(),
 	wakeWindowStartedAt: z.string().nullable(),

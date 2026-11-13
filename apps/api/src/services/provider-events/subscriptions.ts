@@ -1,3 +1,4 @@
+import { githubWebhookAdapter } from "./signed-webhook";
 import { createRouterClient } from "@orpc/server";
 import type { ProviderEventRegister } from "@tedix/api-contract/schemas/provider-events";
 import { ProviderEventStatusSchema } from "@tedix/api-contract/schemas/provider-events";
@@ -34,6 +35,7 @@ export function adapterFor(
 	row: Subscription,
 ): ProviderAdapter {
 	if (row.adapter === "mcp_events") return mcpEventsAdapter(context, row);
+	if (row.adapter === "github_webhook") return githubWebhookAdapter();
 	return row.adapter === "google_calendar"
 		? googleCalendarAdapter()
 		: microsoftCalendarAdapter();
@@ -48,7 +50,7 @@ export async function loadSubscription(
 		organizationId,
 		id,
 	);
-	if (!row) throw new Error("Calendar subscription not found");
+	if (!row) throw new Error("Provider subscription not found");
 	if (row.connectionScope === "user") {
 		const owner =
 			context.authType === "user" &&
@@ -69,7 +71,7 @@ export async function loadSubscription(
 				!row.executionToolId ||
 				!row.connectionInstanceId
 			)
-				throw new Error("Calendar subscription not found");
+				throw new Error("Provider subscription not found");
 			const { authorizePersonalResourceDelegation } =
 				await import("../personal-resource-delegation-authority");
 			const grant = await authorizePersonalResourceDelegation(context, {
@@ -81,13 +83,13 @@ export async function loadSubscription(
 				resourceId: row.workspaceResourceId,
 				providerId: row.providerId,
 				connectionInstanceId: row.connectionInstanceId,
-				providerResourceId: row.calendarId,
+				providerResourceId: row.resourceKey,
 				operation: "subscribe",
 				toolId: row.executionToolId,
 				requiredScopes: [],
 			});
 			if (grant.ownerUserId !== row.personalOwnerUserId)
-				throw new Error("Calendar subscription not found");
+				throw new Error("Provider subscription not found");
 		}
 	}
 	return row;
@@ -120,18 +122,22 @@ export async function registerSubscription(
 		personalDelegation,
 		resourceDelegationIds,
 		mcpEvents,
-		calendarId,
+		githubWebhook,
+		resourceKey: inputResourceKey,
 		...registration
 	} = input;
-	const resourceKey = mcpEvents?.eventName ?? calendarId;
+	const resourceKey = mcpEvents?.eventName ?? inputResourceKey;
 	if (!resourceKey) throw new Error("Provider resource required");
 	const row: Subscription = {
 		...registration,
-		calendarId: resourceKey,
+		resourceKey,
 		mcpAppId: mcpEvents?.appId ?? null,
-		eventArguments: mcpEvents?.arguments ?? null,
+		eventArguments:
+			mcpEvents?.arguments ??
+			(githubWebhook ? { events: githubWebhook.events } : null),
 		eventCursor: null,
-		maxWakesPerHour: mcpEvents?.maxWakesPerHour ?? null,
+		maxWakesPerHour:
+			mcpEvents?.maxWakesPerHour ?? githubWebhook?.maxWakesPerHour ?? null,
 		wakeWindowStartedAt: null,
 		wakeWindowCount: 0,
 		connectionScope: personal ? "user" : "tenant",
@@ -166,13 +172,13 @@ export async function registerSubscription(
 	let token: string;
 	if (!personal) {
 		token = await resolveProviderEventCredential(context, row);
-		await adapterFor(context, row).validateCalendar(token, row);
+		await adapterFor(context, row).validateResource(token, row);
 	}
 	await createProviderEventSubscription(context.db, row);
 	try {
 		if (personal) {
 			token = await resolveProviderEventCredential(context, row);
-			await adapterFor(context, row).validateCalendar(token, row);
+			await adapterFor(context, row).validateResource(token, row);
 		}
 		if (row.deliveryMode === "push")
 			await renewSubscription(context, row, token!);
@@ -185,8 +191,8 @@ export async function registerSubscription(
 				{ status: "active" },
 			);
 		}
-		// An MCP event subscription dispatches only received events, never a bare signal.
-		if (row.adapter !== "mcp_events")
+		// Event subscriptions dispatch only received events, never a bare signal.
+		if (row.adapter !== "mcp_events" && row.adapter !== "github_webhook")
 			await queueReconciliation(context, row, `initial:${row.id}`);
 	} catch (error) {
 		await recordSubscriptionFailure(context, row, error);
@@ -210,7 +216,7 @@ export async function recordSubscriptionFailure(
 		error instanceof Error &&
 		/^Provider request failed \(\d+\)$/.test(error.message)
 			? error.message
-			: "Calendar event operation failed; verify connection, workflow and provider permissions";
+			: "Provider event operation failed; verify connection, workflow and provider permissions";
 	await updateProviderEventSubscription(
 		context.db,
 		row.organizationId,
@@ -238,10 +244,10 @@ export async function renewSubscription(
 	if (origin.protocol !== "https:")
 		throw new Error("Public HTTPS API origin required");
 	const channelId = crypto.randomUUID();
-	// MCP events sign deliveries with a Standard Webhooks whsec_ secret, which
-	// verification needs back: it alone is stored encrypted beside its hash.
-	const mcp = row.adapter === "mcp_events";
-	const secret = mcp
+	// Signature verification needs the secret back; store it encrypted beside its hash.
+	const signed =
+		row.adapter === "mcp_events" || row.adapter === "github_webhook";
+	const secret = signed
 		? generateWebhookSecret()
 		: `${crypto.randomUUID()}${crypto.randomUUID()}`;
 	const now = new Date().toISOString();
@@ -250,7 +256,7 @@ export async function renewSubscription(
 		subscriptionId: row.id,
 		organizationId: row.organizationId,
 		tokenHash: await callbackTokenHash(secret),
-		...(mcp
+		...(signed
 			? {
 					signingSecretCiphertext: await (
 						await import("@tedix/db/utils/secrets-encryption")
@@ -396,8 +402,9 @@ export async function queueReconciliation(
 		row.id,
 	);
 	if (!current || current.status === "disabled") return false;
-	// MCP event deliveries carry their event; a bare reconcile signal has none.
-	if (current.adapter === "mcp_events") return false;
+	// Event deliveries carry their event; a bare reconcile signal has none.
+	if (current.adapter === "mcp_events" || current.adapter === "github_webhook")
+		return false;
 	const id = await callbackTokenHash(`${row.organizationId}:${row.id}:${key}`);
 	const inserted = await addProviderEventDelivery(context.db, {
 		id,
@@ -428,7 +435,7 @@ export function reconciliationEvent(
 				adapter: row.adapter,
 				providerId: row.providerId,
 				connectionInstanceId: row.connectionInstanceId,
-				calendarId: row.calendarId,
+				resourceKey: row.resourceKey,
 				skillRevision: row.skillRevision,
 				...(event ? { mcpAppId: row.mcpAppId, event } : {}),
 			},

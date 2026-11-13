@@ -6,12 +6,17 @@ export const providerEventSubscriptions = sqliteTable(
 		id: text("id").primaryKey(),
 		organizationId: text("organization_id").notNull(),
 		adapter: text("adapter", {
-			enum: ["google_calendar", "microsoft_calendar", "mcp_events"],
+			enum: [
+				"google_calendar",
+				"microsoft_calendar",
+				"mcp_events",
+				"github_webhook",
+			],
 		}).notNull(),
 		providerId: text("provider_id").notNull(),
 		connectionInstanceId: text("connection_instance_id"),
-		// Provider resource key: the calendar id, or the upstream event name for mcp_events.
-		calendarId: text("calendar_id").notNull(),
+		// The selected calendar, upstream event name, or repository owner/name.
+		resourceKey: text("resource_key").notNull(),
 		// mcp_events: the organization's connected upstream MCP app and its event filter.
 		mcpAppId: text("mcp_app_id"),
 		eventArguments: text("event_arguments", { mode: "json" }).$type<
@@ -64,7 +69,7 @@ export const providerEventChannels = sqliteTable(
 		subscriptionId: text("subscription_id").notNull(),
 		organizationId: text("organization_id").notNull(),
 		tokenHash: text("token_hash").notNull(),
-		// mcp_events webhooks: the whsec_ signing secret, AES-GCM encrypted per organization.
+		// Signed-webhook secrets, AES-GCM encrypted per organization.
 		signingSecretCiphertext: text("signing_secret_ciphertext"),
 		providerChannelId: text("provider_channel_id"),
 		resourceId: text("resource_id"),
@@ -84,7 +89,7 @@ export const providerEventDeliveries = sqliteTable(
 		id: text("id").primaryKey(),
 		organizationId: text("organization_id").notNull(),
 		subscriptionId: text("subscription_id").notNull(),
-		// mcp_events rows start as `admitting` until the wake budget admits
+		// Event payloads start as `admitting` until the wake budget admits
 		// them; the dispatcher only ever reads `pending`.
 		status: text("status", {
 			enum: ["admitting", "pending", "sent", "discarded"],

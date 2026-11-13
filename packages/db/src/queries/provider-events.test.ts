@@ -1,9 +1,11 @@
+import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { describe, it, expect } from "vite-plus/test";
 import { createDbQueryClient } from "../query-client";
 import { createD1Facade } from "../test/d1-facade";
 import {
 	createProviderEventSubscription,
+	disableProviderEventSubscriptionsByConnection,
 	getProviderEventSubscription,
 	updateProviderEventSubscription,
 	addProviderEventDelivery,
@@ -23,7 +25,7 @@ import {
 function fixture() {
 	const sql = new DatabaseSync(":memory:");
 	sql.exec(
-		`CREATE TABLE provider_event_subscriptions(id TEXT PRIMARY KEY,organization_id TEXT NOT NULL,adapter TEXT NOT NULL,provider_id TEXT NOT NULL,connection_instance_id TEXT,calendar_id TEXT NOT NULL,mcp_app_id TEXT,event_arguments TEXT,event_cursor TEXT,max_wakes_per_hour INTEGER,wake_window_started_at TEXT,wake_window_count INTEGER NOT NULL DEFAULT 0,connection_scope TEXT NOT NULL DEFAULT 'tenant',personal_owner_user_id TEXT,workspace_id TEXT,workspace_resource_id TEXT,delegation_id TEXT,execution_tool_id TEXT,resource_delegation_ids TEXT NOT NULL DEFAULT '[]',tedi_id TEXT NOT NULL,skill_id TEXT NOT NULL,skill_revision INTEGER NOT NULL,delivery_mode TEXT NOT NULL,status TEXT NOT NULL,expires_at TEXT,next_reconcile_at TEXT NOT NULL,last_notification_at TEXT,last_dispatch_at TEXT,last_error TEXT,lease_until TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);CREATE TABLE provider_event_channels(id TEXT PRIMARY KEY,subscription_id TEXT NOT NULL,organization_id TEXT NOT NULL,token_hash TEXT NOT NULL,signing_secret_ciphertext TEXT,provider_channel_id TEXT,resource_id TEXT,status TEXT NOT NULL,expires_at TEXT NOT NULL,created_at TEXT NOT NULL);CREATE TABLE provider_event_deliveries(id TEXT PRIMARY KEY,organization_id TEXT NOT NULL,subscription_id TEXT NOT NULL,status TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,payload TEXT,lease_until TEXT,created_at TEXT NOT NULL,sent_at TEXT);`,
+		`CREATE TABLE provider_event_subscriptions(id TEXT PRIMARY KEY,organization_id TEXT NOT NULL,adapter TEXT NOT NULL,provider_id TEXT NOT NULL,connection_instance_id TEXT,resource_key TEXT NOT NULL,mcp_app_id TEXT,event_arguments TEXT,event_cursor TEXT,max_wakes_per_hour INTEGER,wake_window_started_at TEXT,wake_window_count INTEGER NOT NULL DEFAULT 0,connection_scope TEXT NOT NULL DEFAULT 'tenant',personal_owner_user_id TEXT,workspace_id TEXT,workspace_resource_id TEXT,delegation_id TEXT,execution_tool_id TEXT,resource_delegation_ids TEXT NOT NULL DEFAULT '[]',tedi_id TEXT NOT NULL,skill_id TEXT NOT NULL,skill_revision INTEGER NOT NULL,delivery_mode TEXT NOT NULL,status TEXT NOT NULL,expires_at TEXT,next_reconcile_at TEXT NOT NULL,last_notification_at TEXT,last_dispatch_at TEXT,last_error TEXT,lease_until TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);CREATE TABLE provider_event_channels(id TEXT PRIMARY KEY,subscription_id TEXT NOT NULL,organization_id TEXT NOT NULL,token_hash TEXT NOT NULL,signing_secret_ciphertext TEXT,provider_channel_id TEXT,resource_id TEXT,status TEXT NOT NULL,expires_at TEXT NOT NULL,created_at TEXT NOT NULL);CREATE TABLE provider_event_deliveries(id TEXT PRIMARY KEY,organization_id TEXT NOT NULL,subscription_id TEXT NOT NULL,status TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,payload TEXT,lease_until TEXT,created_at TEXT NOT NULL,sent_at TEXT);`,
 	);
 	return createDbQueryClient(createD1Facade(sql));
 }
@@ -32,7 +34,7 @@ const row = {
 	organizationId: "org-a",
 	adapter: "google_calendar" as const,
 	providerId: "google",
-	calendarId: "cal-a",
+	resourceKey: "cal-a",
 	tediId: "tedi",
 	skillId: "skill",
 	skillRevision: 1,
@@ -487,14 +489,14 @@ it("spends one hourly wake budget per subscription and organization, then resets
 	await createProviderEventSubscription(db, {
 		...row,
 		adapter: "mcp_events",
-		calendarId: "vendor.alert",
+		resourceKey: "vendor.alert",
 	});
 	await createProviderEventSubscription(db, {
 		...row,
 		id: "sub-b",
 		organizationId: "org-b",
 		adapter: "mcp_events",
-		calendarId: "vendor.alert",
+		resourceKey: "vendor.alert",
 	});
 	const wake = (org: string, id: string, now: string, windowStart: string) =>
 		claimProviderEventWake(db, org, id, now, windowStart, 2);
@@ -632,4 +634,133 @@ it("prunes expired callback capabilities and completed deliveries while retainin
 	expect(
 		await listPendingProviderEventDeliveries(db, "2026-03-01"),
 	).toHaveLength(1);
+});
+
+describe("connection disconnect revocation", () => {
+	it("disables all exact organization-account subscriptions and fences in-flight renewals", async () => {
+		const db = fixture();
+		for (const [id, organizationId, connectionInstanceId, connectionScope] of [
+			["one", "org-a", "slot", "tenant"],
+			["two", "org-a", "slot", "tenant"],
+			["other-org", "org-b", "slot", "tenant"],
+			["other-slot", "org-a", "other", "tenant"],
+			["personal", "org-a", "slot", "user"],
+		] as const)
+			await createProviderEventSubscription(db, {
+				...row,
+				id,
+				organizationId,
+				connectionInstanceId,
+				connectionScope,
+				leaseUntil: "lease",
+			});
+		expect(
+			await disableProviderEventSubscriptionsByConnection(
+				db,
+				{ organizationId: "org-a" },
+				"slot",
+			),
+		).toHaveLength(2);
+		for (const id of ["one", "two"]) {
+			expect(await getProviderEventSubscription(db, "org-a", id)).toMatchObject(
+				{ status: "disabled", leaseUntil: null },
+			);
+			expect(
+				await updateProviderEventSubscription(
+					db,
+					"org-a",
+					id,
+					{ status: "active" },
+					"lease",
+				),
+			).toEqual([]);
+		}
+		for (const [org, id] of [
+			["org-b", "other-org"],
+			["org-a", "other-slot"],
+			["org-a", "personal"],
+		])
+			expect((await getProviderEventSubscription(db, org!, id!))?.status).toBe(
+				"active",
+			);
+		expect(
+			await disableProviderEventSubscriptionsByConnection(
+				db,
+				{ organizationId: "org-a" },
+				"slot",
+			),
+		).toEqual([]);
+	});
+	it("revokes a personal account across organizations without revoking another owner or tenant", async () => {
+		const db = fixture();
+		for (const [id, organizationId, personalOwnerUserId, connectionScope] of [
+			["one", "org-a", "alice", "user"],
+			["two", "org-b", "alice", "user"],
+			["bob", "org-a", "bob", "user"],
+			["tenant", "org-a", "alice", "tenant"],
+		] as const)
+			await createProviderEventSubscription(db, {
+				...row,
+				id,
+				organizationId,
+				personalOwnerUserId,
+				connectionScope,
+				connectionInstanceId: "slot",
+			});
+		expect(
+			await disableProviderEventSubscriptionsByConnection(
+				db,
+				{ userId: "alice" },
+				"slot",
+			),
+		).toHaveLength(2);
+		expect(
+			(await getProviderEventSubscription(db, "org-a", "one"))?.status,
+		).toBe("disabled");
+		expect(
+			(await getProviderEventSubscription(db, "org-b", "two"))?.status,
+		).toBe("disabled");
+		expect(
+			(await getProviderEventSubscription(db, "org-a", "bob"))?.status,
+		).toBe("active");
+		expect(
+			(await getProviderEventSubscription(db, "org-a", "tenant"))?.status,
+		).toBe("active");
+	});
+});
+
+it("preserves calendar and event resource values through the forward column rename", () => {
+	const sql = new DatabaseSync(":memory:");
+	try {
+		sql.exec(
+			"CREATE TABLE provider_event_subscriptions (id TEXT PRIMARY KEY, calendar_id TEXT NOT NULL); INSERT INTO provider_event_subscriptions VALUES ('calendar', 'primary'), ('event', 'incident.created');",
+		);
+		sql.exec(
+			readFileSync(
+				new URL(
+					"../../drizzle/20261113111521_provider_event_resource_key/migration.sql",
+					import.meta.url,
+				),
+				"utf8",
+			),
+		);
+		expect(
+			sql
+				.prepare(
+					"SELECT id, resource_key FROM provider_event_subscriptions ORDER BY id",
+				)
+				.all(),
+		).toEqual([
+			{ id: "calendar", resource_key: "primary" },
+			{ id: "event", resource_key: "incident.created" },
+		]);
+		expect(
+			sql
+				.prepare("PRAGMA table_info(provider_event_subscriptions)")
+				.all()
+				.map((c) => c.name),
+		).toEqual(["id", "resource_key"]);
+	} finally {
+		sql.close();
+	}
 });

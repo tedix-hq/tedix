@@ -1,3 +1,4 @@
+import * as providerEvents from "@tedix/db/queries/provider-events";
 import * as appRecords from "@tedix/db/queries/app-records";
 import * as organizations from "@tedix/db/queries/organizations";
 import { createRouterClient } from "@orpc/server";
@@ -206,6 +207,9 @@ describe("connections authorization-plane composition", () => {
 			const lookup = vi
 				.spyOn(instanceQueries, "getConnectionInstance")
 				.mockResolvedValue(instance);
+			const disable = vi
+				.spyOn(providerEvents, "disableProviderEventSubscriptionsByConnection")
+				.mockResolvedValue([]);
 			const clear = vi
 				.spyOn(instanceQueries, "clearConnectionGrants")
 				.mockResolvedValue([instance]);
@@ -242,6 +246,7 @@ describe("connections authorization-plane composition", () => {
 						input instanceof Request ? input : new Request(input, init);
 					if (request.method === "DELETE") {
 						expect(new URL(request.url).searchParams.has("id")).toBe(true);
+						expect(disable).toHaveBeenCalledOnce();
 						deleted.push(new URL(request.url).searchParams.get("id")!);
 					}
 					return Response.json({});
@@ -269,6 +274,11 @@ describe("connections authorization-plane composition", () => {
 					"own-current",
 					"own-unobserved-scope",
 				]);
+				expect(disable).toHaveBeenCalledWith(
+					context.db,
+					scope === "user" ? { userId: "user-1" } : { organizationId: "org-1" },
+					TEDI_ID,
+				);
 				expect(clear).toHaveBeenCalledWith(
 					context.db,
 					scope === "user" ? { userId: "user-1" } : { organizationId: "org-1" },
@@ -277,6 +287,7 @@ describe("connections authorization-plane composition", () => {
 			} finally {
 				lookup.mockRestore();
 				clear.mockRestore();
+				disable.mockRestore();
 				fetchToken.mockRestore();
 				fetchSpy.mockRestore();
 				orgLookup.mockRestore();

@@ -17,7 +17,7 @@ describe("Graph calendar adapter", () => {
 		);
 		await microsoftCalendarAdapter(request).register(
 			"vault",
-			{ calendarId: "selected-calendar" } as Subscription,
+			{ resourceKey: "selected-calendar" } as Subscription,
 			"channel",
 			"secret",
 			"https://api.test/hook",
@@ -119,14 +119,14 @@ it("validates selected calendar before standing monitoring", async () => {
 	const request = vi
 		.fn()
 		.mockResolvedValue(Response.json({ id: "calendar-id" }));
-	await microsoftCalendarAdapter(request).validateCalendar("vault", {
-		calendarId: "calendar-id",
+	await microsoftCalendarAdapter(request).validateResource("vault", {
+		resourceKey: "calendar-id",
 	} as Subscription);
 	expect(request.mock.calls[0][0]).toContain(encodeURIComponent("calendar-id"));
 	request.mockResolvedValue(Response.json({ id: "another-calendar" }));
 	await expect(
-		microsoftCalendarAdapter(request).validateCalendar("vault", {
-			calendarId: "calendar-id",
+		microsoftCalendarAdapter(request).validateResource("vault", {
+			resourceKey: "calendar-id",
 		} as Subscription),
 	).rejects.toThrow("Selected calendar unavailable");
 });

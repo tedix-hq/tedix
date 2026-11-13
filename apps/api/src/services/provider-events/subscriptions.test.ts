@@ -40,7 +40,7 @@ vi.mock("./google-calendar", () => ({
 	googleCalendarAdapter: () => ({
 		register: mocks.register,
 		stop: mocks.stop,
-		validateCalendar: mocks.validate,
+		validateResource: mocks.validate,
 	}),
 }));
 vi.mock("../personal-resource-delegation-authority", () => ({
@@ -83,7 +83,7 @@ beforeEach(() => {
 		adapter: "google_calendar",
 		providerId: "google",
 		connectionInstanceId: id,
-		calendarId: "selected",
+		resourceKey: "selected",
 		mcpAppId: null,
 		eventArguments: null,
 		eventCursor: null,
@@ -271,7 +271,7 @@ describe("standing subscription lifecycle", () => {
 				adapter: "google_calendar",
 				providerId: "google",
 				connectionInstanceId: id,
-				calendarId: "selected",
+				resourceKey: "selected",
 				connectionScope: "tenant",
 				resourceDelegationIds: [],
 				tediId: id,
@@ -287,7 +287,7 @@ describe("standing subscription lifecycle", () => {
 			adapter: "google_calendar",
 			providerId: "google",
 			connectionInstanceId: id,
-			calendarId: "selected",
+			resourceKey: "selected",
 			connectionScope: "tenant",
 			resourceDelegationIds: [],
 			tediId: id,
@@ -315,7 +315,7 @@ describe("durable dispatch authority and retries", () => {
 		});
 		expect(
 			mocks.emit.mock.calls[0][0].event.params.providerEvent,
-		).toMatchObject({ calendarId: "selected", skillRevision: 3 });
+		).toMatchObject({ resourceKey: "selected", skillRevision: 3 });
 		expect(mocks.settle).toHaveBeenCalledWith(
 			{},
 			"delivery",
@@ -392,7 +392,7 @@ describe("durable dispatch authority and retries", () => {
 				adapter: "google_calendar",
 				providerId: "google",
 				connectionInstanceId: id,
-				calendarId: "selected",
+				resourceKey: "selected",
 				connectionScope: "tenant",
 				resourceDelegationIds: [],
 				tediId: id,

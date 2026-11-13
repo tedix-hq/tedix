@@ -736,7 +736,7 @@ export async function resolvePersonalSubscriptionCredential(
 	if (
 		primary.resourceId !== subscription.workspaceResourceId ||
 		primary.providerId !== subscription.providerId ||
-		primary.providerResourceId !== subscription.calendarId ||
+		primary.providerResourceId !== subscription.resourceKey ||
 		primary.connectionInstanceId !== subscription.connectionInstanceId ||
 		primary.resourceType !== "calendar"
 	)

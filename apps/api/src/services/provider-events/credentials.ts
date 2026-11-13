@@ -87,13 +87,13 @@ export async function resolveProviderEventCredential(
 		(token.expiresAt && token.expiresAt <= Date.now() / 1000)
 	)
 		throw new Error(
-			"Calendar connection is missing, expired or lacks required scope",
+			"Provider connection is missing, expired or lacks required scope",
 		);
 	const scopes = token.scopes ?? [];
-	// An MCP app's upstream authorizes its own event methods; admission there
-	// is the events/list check under this exact connection token.
+	// Non-calendar adapters validate access through their provider API under this exact token.
 	const canRead =
 		subscription.adapter === "mcp_events" ||
+		subscription.adapter === "github_webhook" ||
 		scopesGrantingConsent(
 			subscription.adapter === "google_calendar"
 				? "google-calendar-event-read"
@@ -101,7 +101,7 @@ export async function resolveProviderEventCredential(
 			scopes,
 		).length > 0;
 	if (!canRead)
-		throw new Error("Calendar connection lacks event read permission");
+		throw new Error("Provider connection lacks event read permission");
 	const current = await getConnectionInstance(
 		context.db,
 		{ organizationId: subscription.organizationId },
@@ -112,6 +112,6 @@ export async function resolveProviderEventCredential(
 		!current?.tokenIds.includes(token.id) ||
 		current.tokenSub !== token.tokenSub
 	)
-		throw new Error("Calendar connection changed during credential lookup");
+		throw new Error("Provider connection changed during credential lookup");
 	return token.accessToken;
 }
