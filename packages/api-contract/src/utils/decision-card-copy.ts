@@ -9,6 +9,8 @@ type CardCopy = {
 	recommendation: string;
 	stakes?: string;
 	context?: string;
+	story?: string;
+	whyMe?: string;
 	actionLabels?: Record<string, string>;
 	generatedAt?: string;
 };
@@ -144,6 +146,8 @@ export function renderDecisionCardDates<T extends CardCopy>(
 			? { context: render(copy.context) || "Open Details for the source." }
 			: {}),
 		...(copy.stakes ? { stakes: render(copy.stakes) } : {}),
+		...(copy.story ? { story: render(copy.story) } : {}),
+		...(copy.whyMe ? { whyMe: render(copy.whyMe) } : {}),
 		...(copy.actionLabels
 			? {
 					actionLabels: Object.fromEntries(
@@ -221,10 +225,37 @@ export function checkDecisionCardCopy(copy: CardCopy) {
 		copy.recommendation,
 		copy.stakes ?? "",
 		copy.context ?? "",
+		copy.story ?? "",
+		copy.whyMe ?? "",
 		...Object.values(copy.actionLabels ?? {}),
 	].join(" ");
+	if (copy.story || copy.whyMe) {
+		const sentences =
+			copy.story?.match(/[^.!?。！？]+[.!?。！？]+(?:\s|$)/gu) ?? [];
+		if (
+			!copy.story ||
+			!/[.!?。！？]$/.test(copy.story.trim()) ||
+			sentences.length < 2 ||
+			sentences.length > 3 ||
+			(copy.story.match(/\S+/gu) ?? []).length > 60
+		)
+			issues.push("story");
+		if (!copy.whyMe?.trim()) issues.push("why_me");
+	}
+	const displayed = copy.story
+		? [
+				copy.title,
+				copy.story,
+				copy.whyMe,
+				copy.recommendation,
+				copy.stakes,
+				...Object.values(copy.actionLabels ?? {}),
+			]
+				.filter(Boolean)
+				.join(" ")
+		: text;
 	if (
-		(text.match(/\S+/gu) ?? []).length +
+		(displayed.match(/\S+/gu) ?? []).length +
 			(copy.context ? copySpec.faceChromeWords : 0) >
 		copySpec.faceWordLimit
 	)
@@ -313,8 +344,9 @@ export function decisionCardFaceText(
 		return copySpec.pendingFace;
 	return [
 		copy.title,
-		copy.context,
-		`If yes: ${consequenceWithoutIfYes(copy.body)}`,
+		copy.story ?? copy.context,
+		copy.whyMe ? `Why you: ${copy.whyMe}` : null,
+		copy.story ? null : `If yes: ${consequenceWithoutIfYes(copy.body)}`,
 		`${copy.recommendation}${confidence === null ? "" : ` · ${Math.round(confidence * 100)}% sure`}`,
 		copy.stakes,
 		...Object.values(copy.actionLabels ?? {}),
@@ -385,6 +417,8 @@ export function unsupportedCopyFacts(
 		copy.recommendation,
 		copy.stakes ?? "",
 		copy.context ?? "",
+		copy.story ?? "",
+		copy.whyMe ?? "",
 	].join(" ");
 	// Search from each @ once, rather than retrying up to 64 local-part
 	// lengths at every character of a long failed email candidate.

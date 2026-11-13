@@ -195,6 +195,11 @@ describe("headless attention view adaptation", () => {
 			};
 			const view = deckDisplayCard(card, 2);
 			expect(view.draft).toBe(`Complete ${label} draft`);
+			expect(view.options.map((option) => option.id)).toEqual([
+				"useful",
+				"not_useful",
+			]);
+			expect(view.options[0]?.consequence).toContain("does not carry it out");
 			expect(view.actions[0]!.textArgumentPath).toBe("/decision/reason");
 			expect(
 				payload({

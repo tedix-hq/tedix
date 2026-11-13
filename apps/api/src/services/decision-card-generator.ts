@@ -161,27 +161,30 @@ function copyRepairFeedback(
 	});
 }
 
-/** The reader's chosen card language; null keeps English. Display only. */
-export async function cardReaderLanguage(
+/** Settings are resolved from the active reader's own profile, never the organization. */
+export async function cardReaderPreferences(
 	db: BaseContext["db"],
 	orgId: string,
 	targetId: string | null,
 ) {
-	if (!targetId) return null;
+	const defaults = { language: null, writingStyle: "" };
+	if (!targetId) return defaults;
 	try {
 		const userId = await resolveCardReaderUserId(db, orgId, targetId);
-		if (!userId) return null;
+		if (!userId) return defaults;
 		const row = await getUserConfig(db, {
 			userId,
 			namespace: OS_PREFERENCES_NAMESPACE,
 			key: orgId,
 		});
-		return (
-			OsUserPreferencesSchema.safeParse(row?.value).data?.decisionCards
-				?.language ?? null
-		);
+		const cards = OsUserPreferencesSchema.safeParse(row?.value).data
+			?.decisionCards;
+		return {
+			language: cards?.language ?? null,
+			writingStyle: cards?.writingStyle ?? "",
+		};
 	} catch {
-		return null;
+		return defaults;
 	}
 }
 
@@ -198,7 +201,11 @@ export async function generateDecisionCard(
 	},
 	onFailure?: (reason: string) => void,
 	// Context is always required; requireContext remains for existing callers.
-	options?: { timeoutMs?: number; requireContext?: boolean },
+	options?: {
+		timeoutMs?: number;
+		requireContext?: boolean;
+		requireStory?: boolean;
+	},
 ) {
 	if (containsCardSecret(request)) {
 		onFailure?.("unsafe_source");
@@ -275,13 +282,21 @@ export async function generateDecisionCard(
 				]
 			: []),
 	];
-	const readerLanguage = await cardReaderLanguage(
+	const readerPreferences = await cardReaderPreferences(
 		context.db,
 		request.orgId,
 		request.targetId,
 	);
+	const readerLanguage = readerPreferences.language;
+	if (containsCardSecret(readerPreferences)) {
+		onFailure?.("unsafe_preferences");
+		return null;
+	}
 	const source = JSON.stringify({
 		preferences: writingContext(preferences),
+		...(readerPreferences.writingStyle
+			? { readerWritingStyle: readerPreferences.writingStyle }
+			: {}),
 		...(readerLanguage ? { readerLanguage } : {}),
 		...(subject
 			? {
@@ -437,10 +452,22 @@ export async function generateDecisionCard(
 					const rest = (parsed.data.context ?? "").replace(line, "").trim();
 					parsed.data.context = rest ? `${line} ${rest}` : line;
 				}
-				if (nextStep) parsed.data.body = NEXT_STEP_BODY[nextStep];
+				if (nextStep) {
+					parsed.data.body = NEXT_STEP_BODY[nextStep];
+					if (parsed.data.story) {
+						const context = parsed.data.context
+							?.replace(/[.!?。！？]+$/, "")
+							.trim();
+						parsed.data.story = `${context ? `${context}. ` : ""}${parsed.data.body}`;
+					}
+				}
 			}
 			if (parsed.success) {
 				const issues = checkDecisionCardCopy(parsed.data);
+				if (options?.requireStory) {
+					if (!parsed.data.story) issues.push("story");
+					if (!parsed.data.whyMe) issues.push("why_me");
+				}
 				const recommendation = recommendationIssues(
 					parsed.data,
 					readerLanguage,

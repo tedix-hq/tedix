@@ -65,6 +65,29 @@ it("drops a list number from the ask and keeps the recommended answer", async ()
 	expect(unsure).not.toBeNull();
 	expect(unsure).not.toHaveProperty("recommendedIntent");
 });
+it("repairs a missing story and why-me line when preparing a new face", async () => {
+	const complete = {
+		...copy,
+		story:
+			"The owner needs a sign-in check. Agreeing checks the sample profile.",
+		whyMe: "Only you can approve this test.",
+	};
+	mocks.model
+		.mockResolvedValueOnce(JSON.stringify(copy))
+		.mockResolvedValueOnce(JSON.stringify(complete));
+	const failures: string[] = [];
+	const result = await generateDecisionCard(
+		{ db: {}, env: {} } as never,
+		request,
+		(reason) => failures.push(reason),
+		{ requireStory: true },
+	);
+	expect(result).toMatchObject({
+		story: complete.story,
+		whyMe: complete.whyMe,
+	});
+	expect(failures[0]).toContain("story,why_me");
+});
 it("writes the card in the reader's chosen language and asks for the user story shape", async () => {
 	mocks.reader.mockResolvedValue("user-robin");
 	mocks.userConfig.mockResolvedValue({
@@ -76,7 +99,10 @@ it("writes the card in the reader's chosen language and asks for the user story 
 			accessibility: { motion: "system", contrast: "system" },
 			notifications: { approvals: true, runFailures: true, budgetAlerts: true },
 			conversationModelRef: null,
-			decisionCards: { language: "es" },
+			decisionCards: {
+				language: "es",
+				writingStyle: "Use short sentences and name the affected person.",
+			},
 		},
 	});
 	await generateDecisionCard({ db: {}, env: {} } as never, request);
@@ -85,6 +111,9 @@ it("writes the card in the reader's chosen language and asks for the user story 
 		{ userId: "user-robin", namespace: "os.preferences", key: "fictional" },
 	);
 	expect(JSON.parse(mocks.model.mock.calls[0]?.[1]).readerLanguage).toBe("es");
+	expect(JSON.parse(mocks.model.mock.calls[0]?.[1]).readerWritingStyle).toBe(
+		"Use short sentences and name the affected person.",
+	);
 	const system = mocks.model.mock.calls[0]?.[2].system;
 	expect(system).toContain("question first");
 	expect(system).toContain("Review 07 —");

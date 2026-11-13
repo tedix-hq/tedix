@@ -22,6 +22,7 @@ export async function readDecisionLearning(
 	organizationId: string,
 	personId: string | null,
 	now = new Date(),
+	personalOnly = false,
 ) {
 	const config = await getDecisionLearningConfig(db, organizationId);
 	if (!config.enabled)
@@ -66,6 +67,7 @@ export async function readDecisionLearning(
 			AGENT_LESSON_TOPIC_PREFIX,
 			{
 				viewerUserId: personId,
+				personalOnly,
 				limit: 50,
 			},
 		),
@@ -74,7 +76,12 @@ export async function readDecisionLearning(
 		organizationId,
 		personId,
 		config,
-		events,
+		events: personalOnly
+			? events.filter(
+					(event) =>
+						event.scopeKind === "personal" && event.scopeId === personId,
+				)
+			: events,
 		now,
 		lessons: facts.map((f) => ({
 			id: f.id,
@@ -104,7 +111,7 @@ export async function readDraftPreferences(
 			? await resolveCardStyleOwner(db, organizationId, personId)
 			: null;
 		const [model, rules] = await Promise.all([
-			readDecisionLearning(db, organizationId, owner),
+			readDecisionLearning(db, organizationId, owner, new Date(), true),
 			owner ? listPersonalCardStyleRules(db, organizationId, owner) : [],
 		]);
 		const learned = draftLearningContext(model, classId);

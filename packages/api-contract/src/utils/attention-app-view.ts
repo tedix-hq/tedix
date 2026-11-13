@@ -114,13 +114,15 @@ export function deckDisplayCard(
 		id: card.id,
 		kind: card.kind,
 		ask: copy?.title ?? decisionCardFallbackTitle(card.label),
-		context: copy?.context ?? null,
+		context: copy?.story ?? copy?.context ?? null,
+		whyMe: copy?.whyMe ?? null,
 		confidence: card.decision?.confidence ?? null,
-		ifYes:
-			copy?.body ??
-			(card.faceText === copySpec.unavailableFace
-				? copySpec.unavailableFace
-				: copySpec.pendingFace),
+		ifYes: copy?.story
+			? null
+			: (copy?.body ??
+				(card.faceText === copySpec.unavailableFace
+					? copySpec.unavailableFace
+					: copySpec.pendingFace)),
 		why: copy?.recommendation ?? null,
 		stakes: copy && "stakes" in copy ? (copy.stakes ?? null) : null,
 		provenance: personal
@@ -151,9 +153,45 @@ export function deckDisplayCard(
 				? []
 				: (card.decision?.options.map((option) => ({
 						id: option.id,
-						label: option.label,
+						label: decisionCardActionLabel(
+							copy,
+							option.id,
+							option.intent,
+							option.label,
+						),
 						consequence: option.consequence,
-					})) ?? []),
+						recommended:
+							card.decision?.options.find(
+								(candidate) => candidate.intent === copy?.recommendedIntent,
+							)?.id === option.id,
+					})) ??
+					(card.factory
+						? [
+								{
+									id: "useful",
+									label: decisionCardActionLabel(
+										copy,
+										"useful",
+										"approve",
+										"Useful",
+									),
+									consequence:
+										"Records that this suggestion is useful; does not carry it out.",
+									recommended: copy?.recommendedIntent === "approve",
+								},
+								{
+									id: "not_useful",
+									label: decisionCardActionLabel(
+										copy,
+										"not_useful",
+										"reject",
+										"Not useful",
+									),
+									consequence: "Records that this suggestion is not useful.",
+									recommended: copy?.recommendedIntent === "reject",
+								},
+							]
+						: [])),
 		actions: [],
 		answer: "",
 		needsText: false,
@@ -365,9 +403,12 @@ export function feedDisplayCard(
 			(item.needsAction
 				? decisionCardFallbackTitle(item.sentence)
 				: item.sentence),
-		context: copy?.context ?? null,
+		context: copy?.story ?? copy?.context ?? null,
+		whyMe: copy?.whyMe ?? null,
 		confidence: item.decision?.confidence ?? null,
-		ifYes: copy?.body ?? (item.needsAction ? copySpec.pendingFace : null),
+		ifYes: copy?.story
+			? null
+			: (copy?.body ?? (item.needsAction ? copySpec.pendingFace : null)),
 		why:
 			copy?.recommendation ??
 			(item.needsAction ? null : item.explanation || null),
@@ -412,10 +453,14 @@ export function attentionMarkdown(
 		[
 			`- ${askPrefix(card)}${card.ask.replace(/[\[\]\r\n]/g, " ")}`,
 			card.context && `  ${card.context}`,
+			card.whyMe && `  Why you: ${card.whyMe}`,
 			card.ifYes && `  If yes: ${card.ifYes}`,
 			card.why && `  ${card.why}`,
 			card.confidence != null && `  ${Math.round(card.confidence * 100)}% sure`,
-			card.actions.length > 0 &&
+			card.options.length > 0 &&
+				`  Choices: ${card.options.map((option) => `${option.label}${option.recommended ? " (recommended)" : ""}${option.consequence ? `: ${option.consequence}` : ""}`).join(" / ")}`,
+			!card.options.length &&
+				card.actions.length > 0 &&
 				`  Choices: ${card.actions.map((action) => action.label).join(" / ")}`,
 			`  Details: [Original request](${card.source})`,
 		]
