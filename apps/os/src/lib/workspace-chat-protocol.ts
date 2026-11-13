@@ -183,6 +183,16 @@ export type WorkspaceChatLedgerEvent =
 			error?: string;
 	  })
 	| (Stamped & {
+			/** A live view for the answer, rendered in the sandboxed widget frame. */
+			type: "view.shown";
+			turnId: string;
+			viewId: string;
+			appSlug: string;
+			resourceUri: string;
+			title: string;
+			toolResult: Record<string, unknown>;
+	  })
+	| (Stamped & {
 			type: "turn.finished";
 			turnId: string;
 			status: TurnStatus;
@@ -236,6 +246,7 @@ const LEDGER_TYPES = new Set<WorkspaceChatLedgerEvent["type"]>([
 	"approval.requested",
 	"approval.decided",
 	"approval.executed",
+	"view.shown",
 	"turn.finished",
 	"conversation.updated",
 ]);

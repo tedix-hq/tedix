@@ -18,7 +18,9 @@ its code runs beside the data.
    that call back into this object. Every call is checked and recorded by the
    shared adapters (`@tedix/agent-governance`): reads pass, writes hold for
    approval, and each call is one change record with before/after revisions
-   and an undo plan.
+   and an undo plan. `env.views.show` changes no data: it puts a live view
+   (a `view.shown` event) under the answer, which the chat renders in the
+   same sandboxed widget frame tedi chat uses.
 4. Steps and tokens land in an event ledger first and are pushed to
    WebSocket subscribers. A late subscriber replays from any sequence number.
 5. The user's message, each model message and each tool result are saved

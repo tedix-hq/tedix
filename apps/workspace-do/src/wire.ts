@@ -93,6 +93,16 @@ export type WireEventBody =
 			error?: string;
 	  }
 	| {
+			/** A live view for the turn's answer, rendered in the widget frame. */
+			type: "view.shown";
+			turnId: string;
+			viewId: string;
+			appSlug: string;
+			resourceUri: string;
+			title: string;
+			toolResult: Record<string, unknown>;
+	  }
+	| {
 			type: "turn.finished";
 			turnId: string;
 			status: "done" | "error" | "cancelled";
@@ -195,6 +205,7 @@ export function stepLabel(
 		},
 		apps: { list: "Listing apps" },
 		resources: { list: "Listing resources" },
+		views: { show: "Showing a view" },
 		work: {
 			list: "Reading Work items",
 			listOpen: "Reading open Work items",

@@ -1218,6 +1218,35 @@ describe("WorkspaceDO", () => {
 		).toEqual(after);
 	});
 
+	test("a view shown from sandbox code lands in the answer's events", async () => {
+		await seedCore();
+		const ws = workspace();
+		const SHOW = `export default async (env) => {
+			for (const n of [1, 2, 3, 4]) {
+				try { await env.views.show({ title: "Open work " + n, data: [{ title: "A", disposition: "accepted" }] }); }
+				catch (error) { return error.message; }
+			}
+		}`;
+		await ws.scriptModel(scope, [{ code: SHOW }, { text: "Here it is." }]);
+		const { turnId, conversationId } = await ws.sendTurn(scope, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "Show open work as a table",
+		});
+		const turn = await ws.awaitTurn(scope, turnId, 20_000);
+		expect(turn).toMatchObject({ status: "finished", text: "Here it is." });
+		const views = (await ws.readEvents(scope, { conversationId })).filter(
+			(event) => event.type === "view.shown",
+		);
+		expect(views).toHaveLength(3);
+		expect(views[0]).toMatchObject({
+			turnId,
+			appSlug: "tedix-unified",
+			resourceUri: "ui://widgets/mcp-app/tedix-unified/r/open-work-1.html",
+			toolResult: { rows: [{ title: "A", disposition: "accepted" }] },
+		});
+	});
+
 	test("asking to file a Work Item shows a card and files it only after approval", async () => {
 		const ws = workspace();
 		const FILE = `export default async (env) => env.work.create({ title: "Make the Work tab live", description: "Show live Work in the monitor app." })`;

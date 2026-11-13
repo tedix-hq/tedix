@@ -15,7 +15,7 @@
 		"type-check": "tsc --noEmit && tsc --noEmit -p tsconfig.workers-test.json",
 		"test": "bun run test:run",
 		"test:run": "bun run test:unit && bun run test:workers",
-		"test:unit": "bun test src/prompt.test.ts src/bindings-declarations.test.ts src/turn-loop.test.ts src/model.test.ts src/sheet-binding.test.ts src/presentation-bindings.test.ts src/pricing.test.ts src/workflow-runner.test.ts src/attachments.test.ts",
+		"test:unit": "bun test src/prompt.test.ts src/bindings-declarations.test.ts src/turn-loop.test.ts src/model.test.ts src/sheet-binding.test.ts src/presentation-bindings.test.ts src/pricing.test.ts src/workflow-runner.test.ts src/attachments.test.ts src/views.test.ts",
 		"test:workers": "vp test run --config vitest.workers.config.ts",
 		"test:ci": "bun run test:run"
 	},

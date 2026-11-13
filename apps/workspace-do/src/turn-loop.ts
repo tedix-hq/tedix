@@ -83,7 +83,10 @@ export const TURN_TOOLS: Tool[] = [
 		name: DESCRIBE_BINDING_TOOL,
 		description: "Return the full TypeScript declaration of one env binding.",
 		parameters: obj({
-			name: str({ description: "outputs | apps | resources | work" }),
+			name: str({
+				description:
+					"outputs | documents | sheets | presentations | apps | resources | work | views",
+			}),
 		}),
 	},
 ];
