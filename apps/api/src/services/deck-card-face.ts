@@ -4,10 +4,13 @@ import { DecisionCardPresentationSchema } from "@tedix/api-contract/schemas/deci
 import type { DeckCard } from "@tedix/api-contract/schemas/attention";
 import { AttentionOfferedChoicesSchema } from "@tedix/api-contract/schemas/attention";
 import { getUserConfig, putUserConfig } from "@tedix/db/queries/user-configs";
-import { toJsonRecord } from "@tedix/db/utils/json";
+import { parseJsonField, toJsonRecord } from "@tedix/db/utils/json";
+import { currentDeckCuration } from "@tedix/api-contract/utils/deck-curator";
+import { getCardRevision } from "@tedix/db/queries/work-items/card-revisions";
 import type { BaseContext } from "../rpc/orpc";
 import { requireOrgId } from "../rpc/org-scope";
 import {
+	cardReaderLanguage,
 	decisionCardProducerContext,
 	generateDecisionCard,
 } from "./decision-card-generator";
@@ -25,9 +28,7 @@ import {
 } from "@tedix/api-contract/utils/decision-card-copy";
 import { readDraftPreferences } from "./decision-learning";
 import type { DecisionLearningModel } from "@tedix/api-contract/schemas/decision-learning";
-import { draftLearningContext } from "@tedix/api-contract/utils/decision-learning";
 import { saveDecisionCardPresentation } from "@tedix/db/queries/work-items/card-presentation";
-import { hasReviewTargetDeadline } from "@tedix/api-contract/utils/deck-ask";
 import {
 	bindCardPresentationSource,
 	cardPresentationSourceFingerprint,
@@ -67,6 +68,26 @@ export async function prepareDeckCardFaces(
 ) {
 	const unavailable = new Set<string>();
 	const deferred = new Set<string>();
+	const writingContexts = new Map<
+		string | undefined,
+		Promise<[string, string | null]>
+	>();
+	let language: Promise<string | null> | undefined;
+	const writingContext = (card: DeckCard) => async () => {
+		const classId = card.decision?.classId;
+		let pending = writingContexts.get(classId);
+		if (!pending) {
+			const viewerId = context.descopeUserId ?? context.userId ?? null;
+			const orgId = requireOrgId(context);
+			language ??= cardReaderLanguage(context.db, orgId, viewerId);
+			pending = Promise.all([
+				readDraftPreferences(context.db, orgId, viewerId, classId),
+				language,
+			]);
+			writingContexts.set(classId, pending);
+		}
+		return pending;
+	};
 	const faces = await Promise.all(
 		cards.map((card) =>
 			prepareDeckCardFace(
@@ -77,6 +98,7 @@ export async function prepareDeckCardFaces(
 				() => unavailable.add(card.id),
 				() => deferred.add(card.id),
 				retry,
+				writingContext(card),
 			),
 		),
 	);
@@ -94,6 +116,7 @@ export async function prepareDeckCardFaces(
 				() => unavailable.add(card.id),
 				undefined,
 				retry,
+				writingContext(card),
 			);
 			if (!context.waitUntil) faces[index] = face;
 		}),
@@ -133,6 +156,7 @@ export function deckCardWritingSource(card: DeckCard) {
 		kind: card.kind,
 		metadata: {
 			absoluteDates: { dueAt: card.dueAt, deadline: card.deadline },
+			reason: request?.metadata.reason,
 			sourceOptions: AttentionOfferedChoicesSchema.safeParse(request?.metadata)
 				.data?.decisionCard?.options,
 			producerContext: card.factory
@@ -180,10 +204,11 @@ export async function prepareDeckCardFace(
 	context: BaseContext,
 	card: DeckCard,
 	generate = true,
-	model?: DecisionLearningModel,
+	_model?: DecisionLearningModel,
 	onUnavailable?: () => void,
 	onDeferred?: () => void,
 	retry = false,
+	writingContext?: () => Promise<[string, string | null]>,
 ) {
 	if (!context.userId) return null;
 	const orgId = requireOrgId(context);
@@ -209,35 +234,58 @@ export async function prepareDeckCardFace(
 	)
 		return existing ?? null;
 	const request = card.interaction?.request;
-	const currentDeadline =
-		!request ||
-		!hasReviewTargetDeadline(request.metadata) ||
-		(existing?.version === 2 &&
-			existing.sourceFingerprint ===
-				(await cardPresentationSourceFingerprint(request)));
-	// Interaction projections are fenced by request version in listDecisionCardPresentations.
-	// Changing writing preferences must not hide already-saved copy on every read.
+	const curation = currentDeckCuration(request?.metadata);
 	if (
+		request &&
+		curation?.revision &&
 		existing?.version === 2 &&
-		currentDeadline &&
-		existing.context &&
+		[context.userId, context.descopeUserId].includes(request.requestedFromId) &&
+		existing.sourceFingerprint ===
+			(await cardPresentationSourceFingerprint(request)) &&
 		!checkDecisionCardCopy(existing).length &&
 		faceKeepsSubject(existing, source)
-	)
-		return existing;
-	const preferences = model
-		? draftLearningContext(model, card.decision?.classId)
-		: await readDraftPreferences(
-				context.db,
-				orgId,
-				card.interaction?.request.requestedFromId ??
-					context.descopeUserId ??
-					null,
-				card.decision?.classId,
-			);
+	) {
+		const revision = await getCardRevision(
+			context.db,
+			orgId,
+			request.id,
+			curation.revision,
+		);
+		const corrected = DecisionCardPresentationSchema.safeParse(
+			parseJsonField<{ faceAfter?: unknown }>(revision?.summary)?.faceAfter,
+		).data;
+		// An explicit recipient correction takes precedence over generated writing preferences.
+		if (
+			revision?.actorType === "user" &&
+			[context.userId, context.descopeUserId].includes(revision.actorId) &&
+			corrected &&
+			JSON.stringify(corrected) === JSON.stringify(existing)
+		)
+			return existing;
+	}
+	const viewerId = context.descopeUserId ?? context.userId;
+	const [preferences, language] = await (writingContext
+		? writingContext()
+		: Promise.all([
+				readDraftPreferences(
+					context.db,
+					orgId,
+					viewerId,
+					card.decision?.classId,
+				),
+				cardReaderLanguage(context.db, orgId, viewerId),
+			]));
 	const digest = await crypto.subtle.digest(
 		"SHA-256",
-		new TextEncoder().encode(JSON.stringify({ source, copySpec, preferences })),
+		new TextEncoder().encode(
+			JSON.stringify({
+				source,
+				copySpec,
+				preferences,
+				language,
+				requestVersion: card.interaction?.request.version,
+			}),
+		),
 	);
 	const fingerprint = [...new Uint8Array(digest)]
 		.map((byte) => byte.toString(16).padStart(2, "0"))
@@ -292,10 +340,7 @@ export async function prepareDeckCardFace(
 		{
 			...source,
 			orgId,
-			targetId:
-				card.interaction?.request.requestedFromId ??
-				context.descopeUserId ??
-				null,
+			targetId: viewerId,
 		},
 		(reason) =>
 			console.warn("[decision-card-face] generation failed", { reason }),
@@ -322,7 +367,12 @@ export async function prepareDeckCardFace(
 		});
 		return null;
 	}
-	if (card.interaction) {
+	if (
+		card.interaction &&
+		[context.userId, context.descopeUserId].includes(
+			card.interaction.request.requestedFromId,
+		)
+	) {
 		const request = card.interaction.request;
 		const saved = await saveDecisionCardPresentation(context.db, {
 			orgId,
@@ -331,7 +381,7 @@ export async function prepareDeckCardFace(
 			expectedVersion: request.version,
 			presentation: await bindCardPresentationSource(presentation, request),
 		});
-		return saved?.presentation ?? null;
+		if (!saved) return null;
 	}
 	const saved = await putUserConfig(context.db, {
 		...key,

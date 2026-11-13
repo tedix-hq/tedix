@@ -354,6 +354,12 @@ it("lets the recipient correct a credential card's face without a gadget grant o
 		]);
 		expect(display?.presentation).toMatchObject(editedFace);
 		expect(display?.faceText).toContain(editedFace.body);
+		const [otherDisplay] = await prepareDeckCardFaces(
+			{ ...humanContext, userId: "other", descopeUserId: "other-sub" },
+			[display!],
+		);
+		expect(otherDisplay?.presentation).toBeNull();
+		expect(otherDisplay?.faceText).not.toContain(editedFace.body);
 		await expect(
 			curateDeckCard(humanContext, { ...ownerInput, presentation: editedFace }),
 		).rejects.toMatchObject({ code: "CONFLICT" });

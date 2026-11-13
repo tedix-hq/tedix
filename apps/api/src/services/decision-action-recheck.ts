@@ -24,6 +24,12 @@ export async function recheckDecisionAction(
 	});
 	if (!detail) return null;
 	const change = detail.text;
+	if (detail.reviewableThrough)
+		return {
+			change,
+			reviewableThrough: detail.reviewableThrough,
+			note: detail.note,
+		};
 	const bytes = new Uint8Array(
 		await crypto.subtle.digest(
 			"SHA-256",
