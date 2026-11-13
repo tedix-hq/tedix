@@ -91,12 +91,13 @@ export function keepShownContent(
 	};
 }
 
-/** A runtime app shared to use runs in the guest sandbox, with or without an account. */
+/** A runtime app shared to use or edit runs in the guest sandbox, with or without an account. */
 function opensAsGuestApp(payload: SharePayload): boolean {
 	const resource = payload.resource;
 	return (
 		resource.type === "gadget" &&
-		payload.share.effectiveRole === "use" &&
+		(payload.share.effectiveRole === "use" ||
+			payload.share.effectiveRole === "edit") &&
 		isAppRuntimeManifest(
 			resource.revision.manifest.entry
 				? { entry: resource.revision.manifest.entry }

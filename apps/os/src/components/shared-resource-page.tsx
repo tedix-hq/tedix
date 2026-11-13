@@ -385,9 +385,11 @@ export function SharedResourceView({
 						{subtitle} ·{" "}
 						{role === "build"
 							? "You can edit"
-							: role === "use"
-								? "You can use apps and read files"
-								: "You can read"}
+							: role === "edit"
+								? "You can change this app's files"
+								: role === "use"
+									? "You can use apps and read files"
+									: "You can read"}
 						{payload.share.revisionMode === "pinned"
 							? " · Saved version"
 							: " · Updates appear here"}
