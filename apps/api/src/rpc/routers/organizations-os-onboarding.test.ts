@@ -17,6 +17,10 @@ const mocks = vi.hoisted(() => ({
 	patchTenant: vi.fn(),
 	deleteTenant: vi.fn(),
 	retireOrganization: vi.fn(),
+	getAppsByOrganization: vi.fn(),
+	deleteApp: vi.fn(),
+	deleteMcpServerRegistration: vi.fn(),
+	loadAllDescopeMcpServers: vi.fn(),
 }));
 
 vi.mock("../../services/default-work-apps", () => ({
@@ -33,7 +37,24 @@ vi.mock("@tedix/auth/client", async (load) => ({
 }));
 vi.mock("@tedix/db/queries/apps", async (load) => ({
 	...(await load<typeof import("@tedix/db/queries/apps")>()),
-	getAppsByOrganization: async () => [],
+	getAppsByOrganization: mocks.getAppsByOrganization,
+}));
+
+vi.mock("@tedix/db/queries/app-records", async (load) => ({
+	...(await load<typeof import("@tedix/db/queries/app-records")>()),
+	deleteApp: mocks.deleteApp,
+}));
+vi.mock("../../lib/provider-facts-cache", async (load) => ({
+	...(await load<typeof import("../../lib/provider-facts-cache")>()),
+	deleteMcpServerRegistration: mocks.deleteMcpServerRegistration,
+}));
+vi.mock("@tedix/auth/aih-client", async (load) => ({
+	...(await load<typeof import("@tedix/auth/aih-client")>()),
+	loadAllDescopeMcpServers: mocks.loadAllDescopeMcpServers,
+}));
+vi.mock("@tedix/auth/fga", async (load) => ({
+	...(await load<typeof import("@tedix/auth/fga")>()),
+	deleteAllAppRelations: vi.fn(),
 }));
 
 vi.mock("../../lib/tedi-provisioning", () => ({
@@ -81,6 +102,10 @@ describe("organizations.completeOsOnboarding", () => {
 		mocks.installDefaultWorkApps.mockResolvedValue({
 			workspaceId: "11111111-1111-4111-8111-111111111111",
 		});
+		mocks.loadAllDescopeMcpServers.mockResolvedValue([{ id: "MS-one" }]);
+		mocks.getAppsByOrganization.mockResolvedValue([]);
+		mocks.deleteApp.mockResolvedValue(true);
+		mocks.deleteMcpServerRegistration.mockResolvedValue(undefined);
 		mocks.patchTenant.mockResolvedValue({ ok: true });
 		mocks.deleteTenant.mockResolvedValue({ ok: true });
 		mocks.retireOrganization.mockResolvedValue({ id: ORGANIZATION_ID });
@@ -175,6 +200,137 @@ describe("organizations.completeOsOnboarding", () => {
 		await expect(client.delete(input)).resolves.toMatchObject({
 			success: true,
 		});
+		expect(mocks.retireOrganization).toHaveBeenCalledOnce();
+	});
+
+	it.each([false, true])(
+		"deletes every app and provider entry on forced retirement (already retired: %s)",
+		async (alreadyRetired) => {
+			const { organizationsContractRouter } = await import("./organizations");
+			const context = userContext();
+			context.user!.roles = ["platform-admin"];
+			context.env.DESCOPE_MANAGEMENT_KEY = "fictional-key";
+			const org = await mocks.getOrganizationById();
+			if (alreadyRetired) org.metadata = { retiredAt: "2026-01-01T00:00:00Z" };
+			const apps = [
+				{
+					id: "app-one",
+					metadata: { mcpConfig: { descopeResourceId: "MS-one" } },
+				},
+				{
+					id: "app-two",
+					metadata: JSON.stringify({
+						mcpConfig: { descopeResourceId: "MS-two" },
+					}),
+				},
+				{ id: "app-local", metadata: null },
+			];
+			mocks.getAppsByOrganization.mockImplementation(async () => [...apps]);
+			mocks.deleteApp.mockImplementation(async (_db, id) => {
+				apps.splice(
+					apps.findIndex((app) => app.id === id),
+					1,
+				);
+				return true;
+			});
+			const client = createRouterClient(organizationsContractRouter, {
+				context,
+			});
+			const input = { organizationId: ORGANIZATION_ID, force: true };
+			await expect(client.delete(input)).resolves.toEqual({ success: true });
+			expect(mocks.getAppsByOrganization).toHaveBeenCalledWith(
+				context.db,
+				ORGANIZATION_ID,
+			);
+			expect(
+				mocks.deleteMcpServerRegistration.mock.calls.map((call) => call[1]),
+			).toEqual(["MS-one", "MS-two"]);
+			expect(mocks.deleteApp.mock.calls.map((call) => call[1])).toEqual([
+				"app-one",
+				"app-two",
+				"app-local",
+			]);
+			for (let i = 0; i < 2; i++) {
+				expect(
+					mocks.deleteMcpServerRegistration.mock.invocationCallOrder[i],
+				).toBeLessThan(mocks.deleteApp.mock.invocationCallOrder[i]!);
+			}
+			if (alreadyRetired) {
+				expect(mocks.retireOrganization).not.toHaveBeenCalled();
+				expect(mocks.deleteTenant).not.toHaveBeenCalled();
+			} else {
+				expect(mocks.deleteApp.mock.invocationCallOrder[2]).toBeLessThan(
+					mocks.deleteTenant.mock.invocationCallOrder[0]!,
+				);
+			}
+			await expect(client.delete(input)).resolves.toEqual({ success: true });
+			expect(mocks.deleteApp).toHaveBeenCalledTimes(3);
+			expect(mocks.deleteMcpServerRegistration).toHaveBeenCalledTimes(2);
+		},
+	);
+
+	it.each(["list", "provider", "row"])(
+		"keeps retirement retryable after %s cleanup fails",
+		async (failure) => {
+			const { organizationsContractRouter } = await import("./organizations");
+			const context = userContext();
+			context.user!.roles = ["platform-admin"];
+			context.env.DESCOPE_MANAGEMENT_KEY = "fictional-key";
+			mocks.getAppsByOrganization.mockResolvedValue([
+				{
+					id: "app-one",
+					metadata: { mcpConfig: { descopeResourceId: "MS-one" } },
+				},
+			]);
+			if (failure === "list")
+				mocks.getAppsByOrganization.mockRejectedValueOnce(
+					new Error("cleanup unavailable"),
+				);
+			if (failure === "provider")
+				mocks.deleteMcpServerRegistration.mockRejectedValueOnce(
+					new Error("cleanup unavailable"),
+				);
+			if (failure === "row") mocks.deleteApp.mockResolvedValueOnce(false);
+			const client = createRouterClient(organizationsContractRouter, {
+				context,
+			});
+			const input = { organizationId: ORGANIZATION_ID, force: true };
+			await expect(client.delete(input)).rejects.toThrow();
+			expect(mocks.retireOrganization).not.toHaveBeenCalled();
+			expect(mocks.deleteTenant).not.toHaveBeenCalled();
+			if (failure !== "row") expect(mocks.deleteApp).not.toHaveBeenCalled();
+			await expect(client.delete(input)).resolves.toEqual({ success: true });
+			expect(mocks.retireOrganization).toHaveBeenCalledOnce();
+		},
+	);
+
+	it("retries a failed D1 deletion after the provider entry is already absent", async () => {
+		const { organizationsContractRouter } = await import("./organizations");
+		const context = userContext();
+		context.user!.roles = ["platform-admin"];
+		context.env.DESCOPE_MANAGEMENT_KEY = "fictional-key";
+		mocks.getAppsByOrganization.mockResolvedValue([
+			{
+				id: "app-one",
+				metadata: { mcpConfig: { descopeResourceId: "MS-one" } },
+			},
+		]);
+		mocks.deleteApp.mockRejectedValueOnce(new Error("D1 unavailable"));
+		const client = createRouterClient(organizationsContractRouter, { context });
+		const input = { organizationId: ORGANIZATION_ID, force: true };
+		await expect(client.delete(input)).rejects.toThrow("D1 unavailable");
+		mocks.deleteMcpServerRegistration.mockRejectedValue(
+			new Error("resource absent"),
+		);
+		mocks.loadAllDescopeMcpServers.mockRejectedValueOnce(
+			new Error("provider unavailable"),
+		);
+		await expect(client.delete(input)).rejects.toThrow("provider unavailable");
+		expect(mocks.deleteApp).toHaveBeenCalledOnce();
+		expect(mocks.retireOrganization).not.toHaveBeenCalled();
+		mocks.loadAllDescopeMcpServers.mockResolvedValue([]);
+		await expect(client.delete(input)).resolves.toEqual({ success: true });
+		expect(mocks.deleteApp).toHaveBeenCalledTimes(2);
 		expect(mocks.retireOrganization).toHaveBeenCalledOnce();
 	});
 
