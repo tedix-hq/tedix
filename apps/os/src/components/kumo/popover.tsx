@@ -61,7 +61,7 @@ function PopoverContent({
 			>
 				<KumoPopover.Popup
 					className={cn(
-						"max-h-[var(--available-height)] max-w-[calc(100vw-2rem)] overflow-y-auto overscroll-contain type-tedix-body shadow-tedix-floating",
+						"max-h-[var(--available-height)] max-w-[calc(100vw-2rem)] overflow-y-auto overflow-x-clip overscroll-contain type-tedix-body shadow-tedix-floating",
 						"duration-tedix-standard ease-tedix-standard motion-reduce:transition-none data-[instant]:duration-0",
 						className,
 					)}
