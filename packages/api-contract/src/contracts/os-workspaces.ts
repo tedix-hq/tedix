@@ -1501,6 +1501,16 @@ export const osWorkspacesContract = oc
 									.describe(
 										"Present for an exact revision request; history pages contain metadata only",
 									),
+								savedBy: z
+									.strictObject({
+										through: z.literal("share_link"),
+										name: z.string().nullable(),
+										email: z.string(),
+									})
+									.optional()
+									.describe(
+										"Present when someone invited by email saved this version through a share link: the email they confirmed and, when they are also a member of the organization, their name. Absent for every other version, and when the link has since been deleted.",
+									),
 							}),
 						),
 						nextBeforeRevision: z.number().int().positive().nullable(),

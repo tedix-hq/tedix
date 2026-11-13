@@ -824,3 +824,51 @@ export async function listOsShareEmailOpens(
 		.orderBy(desc(osShareSessions.createdAt))
 		.limit(100);
 }
+
+/**
+ * Who saved through a share link, by share session: the email each session
+ * proved and, when that person is also a member of the organization, their
+ * name. Scoped through the link's organization; a session whose link was
+ * deleted is gone and is not returned.
+ */
+export async function listOsShareSessionPeople(
+	db: DbQueryClient,
+	params: { organizationId: string; sessionIds: readonly string[] },
+): Promise<Map<string, { email: string; name: string | null }>> {
+	const people = new Map<string, { email: string; name: string | null }>();
+	for (const chunk of chunkForBoundParams(
+		[...new Set(params.sessionIds)],
+		90,
+	)) {
+		const rows = await db
+			.select({
+				sessionId: osShareSessions.id,
+				sessionEmail: osShareSessions.verifiedEmail,
+				memberName: organizationMembers.name,
+			})
+			.from(osShareSessions)
+			.innerJoin(osShareLinks, eq(osShareLinks.id, osShareSessions.shareLinkId))
+			.leftJoin(
+				organizationMembers,
+				and(
+					eq(organizationMembers.organizationId, osShareLinks.organizationId),
+					eq(organizationMembers.kind, "human"),
+					sql`lower(${organizationMembers.email}) = lower(${osShareSessions.verifiedEmail})`,
+				),
+			)
+			.where(
+				and(
+					eq(osShareLinks.organizationId, params.organizationId),
+					inArray(osShareSessions.id, chunk),
+				),
+			);
+		for (const row of rows) {
+			if (!row.sessionEmail) continue;
+			const name = row.memberName?.trim() || null;
+			const known = people.get(row.sessionId);
+			if (!known || (!known.name && name))
+				people.set(row.sessionId, { email: row.sessionEmail, name });
+		}
+	}
+	return people;
+}
