@@ -843,6 +843,70 @@ test("Workers AI repeated wire IDs have distinct Pi identities and correlated re
 		assert.notEqual(ids[0], ids[1]);
 	}
 });
+test("tool argument surrogates cannot poison later dispatches, including prepared prompts", async () => {
+	const args = {
+		nested: ["\uD800", "\uDC00", "😀", 42, null],
+		["key\uD800"]: true,
+	};
+	const assistant: AssistantMessage = {
+		role: "assistant",
+		api: model.api,
+		provider: model.provider,
+		model: model.id,
+		content: [
+			{ type: "toolCall", id: "call_fixture", name: "read", arguments: args },
+		],
+		usage: {
+			input: 0,
+			output: 0,
+			cacheRead: 0,
+			cacheWrite: 0,
+			totalTokens: 0,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+		},
+		stopReason: "toolUse",
+		timestamp: 1,
+	};
+	const replay = normalizeContext({ messages: [assistant] });
+	for (const prepared of [false, true]) {
+		let dispatched = 0;
+		const sdk = v2([{ ...finish, finishReason: "stop" }]);
+		const stream = sdk.doStream;
+		sdk.doStream = async (call) => {
+			const message = call.prompt.find(
+				(message) => message.role === "assistant",
+			);
+			assert.equal(message?.role, "assistant");
+			const part = message.content[0];
+			assert.equal(part?.type, "tool-call");
+			assert.deepEqual(part.input, {
+				nested: ["�", "�", "😀", 42, null],
+				"key�": true,
+			});
+			dispatched++;
+			return stream(call);
+		};
+		const provider = createTedixPiProvider({
+			catalog: () => [model],
+			resolveModel: () => sdk,
+			...(prepared
+				? {
+						prepare: async () => ({
+							prompt: piToSdkPrompt(replay.messages).prompt,
+						}),
+					}
+				: {}),
+		});
+		for (let turn = 0; turn < 2; turn++)
+			assert.equal(
+				(await provider.streamSimple(model, replay).result()).stopReason,
+				"stop",
+			);
+		assert.equal(dispatched, 2);
+	}
+	assert.equal(args.nested[0], "\uD800");
+});
+
 for (const entry of cases) {
 	await entry.run();
 	console.log(`PASS ${entry.name}`);

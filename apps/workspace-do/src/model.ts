@@ -15,6 +15,26 @@ import {
 	type AiGatewayTransportEnv,
 } from "@tedix/workers-ai/gateway-transport";
 import { normalizeContext } from "@earendil-works/pi-ai/utils/transcript";
+import { repairJsonUnicode } from "@tedix/chat-transport/repair-json-unicode";
+
+function requestContext(context: Context) {
+	const normalized = normalizeContext(context);
+	return {
+		...normalized,
+		messages: normalized.messages.map((message) =>
+			message.role === "assistant"
+				? {
+						...message,
+						content: message.content.map((part) =>
+							part.type === "toolCall"
+								? { ...part, arguments: repairJsonUnicode(part.arguments) }
+								: part,
+						),
+					}
+				: message,
+		),
+	};
+}
 
 export interface ModelPort {
 	/** Model id for the prompt-cache key and telemetry. */
@@ -221,7 +241,7 @@ export function createAzureGatewayModel(
 				azureDeploymentName: deployment,
 				azureApiVersion: configured(env.AZURE_OPENAI_API_VERSION) ?? "v1",
 			} as SimpleStreamOptions;
-			return streamSimple(model, normalizeContext(context), streamOptions);
+			return streamSimple(model, requestContext(context), streamOptions);
 		},
 	};
 }
@@ -271,7 +291,7 @@ function createWorkersAiGatewayModel(
 		responseMetadata: () => responseMetadata,
 		stream(context, options) {
 			responseMetadata = { usageReported: false };
-			return streamCompletions(model, normalizeContext(context), {
+			return streamCompletions(model, requestContext(context), {
 				apiKey: "cloudflare-ai-gateway-byok",
 				signal: options?.signal,
 				maxTokens: options?.maxTokens ?? model.maxTokens,

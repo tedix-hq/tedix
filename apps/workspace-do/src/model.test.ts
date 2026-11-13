@@ -1,4 +1,5 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
+import type { AssistantMessage, Context } from "@earendil-works/pi-ai";
 import {
 	configuredWorkspaceModels,
 	createAzureGatewayModel,
@@ -9,6 +10,88 @@ import {
 afterEach(() => {
 	spyOn(globalThis, "fetch").mockRestore();
 });
+
+test.each(["azure", "workers"] as const)(
+	"%s repairs tool arguments on every replay without mutating history",
+	async (provider) => {
+		const args = {
+			nested: ["before\uD800after", "\uDC00", "😀", null, 42],
+			["key\uD800"]: true,
+		};
+		const assistant: AssistantMessage = {
+			role: "assistant",
+			api:
+				provider === "azure" ? "azure-openai-responses" : "openai-completions",
+			provider:
+				provider === "azure"
+					? "azure-openai-responses"
+					: "cloudflare-workers-ai",
+			model: provider === "azure" ? "fixture-deployment" : fixtureModelId,
+			content: [
+				{ type: "toolCall", id: "call_fixture", name: "read", arguments: args },
+			],
+			usage: {
+				input: 0,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 0,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			stopReason: "toolUse",
+			timestamp: 1,
+		};
+		const history: Context = {
+			messages: [
+				{ role: "user", content: "Read", timestamp: 0 },
+				assistant,
+				{
+					role: "toolResult",
+					toolCallId: "call_fixture",
+					toolName: "read",
+					content: [{ type: "text", text: "ok" }],
+					isError: false,
+					timestamp: 2,
+				},
+			],
+		};
+		let requests = 0;
+		spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+			const body = (await new Request(input, init).json()) as {
+				input?: Array<{ type: string; arguments?: string }>;
+				messages?: Array<{
+					tool_calls?: Array<{ function: { arguments: string } }>;
+				}>;
+			};
+			const serialized =
+				provider === "azure"
+					? body.input!.find((item) => item.type === "function_call")!
+							.arguments!
+					: body.messages!.find((item) => item.tool_calls)!.tool_calls![0]!
+							.function.arguments;
+			expect(JSON.parse(serialized)).toEqual({
+				nested: ["before�after", "�", "😀", null, 42],
+				"key�": true,
+			});
+			requests++;
+			return provider === "workers"
+				? completion()
+				: new Response(
+						`data: ${JSON.stringify({ type: "response.completed", response: { id: "fixture", status: "completed", output: [] } })}\n\n`,
+						{ headers: { "Content-Type": "text/event-stream" } },
+					);
+		});
+		const model = createWorkspaceModel(
+			provider === "azure" ? configuredEnv : workersEnv,
+			attribution,
+		);
+		for (let turn = 0; turn < 2; turn++)
+			expect((await model.stream(history).result()).stopReason).toBe("stop");
+		expect(requests).toBe(2);
+		expect(assistant.content[0]).toMatchObject({ arguments: args });
+		expect(args.nested[0]).toBe("before\uD800after");
+	},
+);
 
 test.each(["v1", "2025-03-01-preview"])(
 	"the real Azure SDK uses GA Responses and stored BYOK with SDK version %s",
