@@ -145,6 +145,17 @@ describe("headless attention view adaptation", () => {
 			],
 		});
 		const view = deckDisplayCard(card, 0);
+		const feed = feedDisplayCard({
+			id: card.id,
+			sentence: card.label,
+			source: card.source,
+			actor: "Sample assistant",
+			needsAction: true,
+			presentation: card.presentation,
+			decision: card.decision,
+		} as Parameters<typeof feedDisplayCard>[0]);
+		expect(feed.options).toEqual(view.options);
+		expect(feed.actions).toEqual([]);
 		expect(view.actions.map((a) => a.id)).toEqual([
 			"adopt",
 			"not-needed",
@@ -193,7 +204,25 @@ describe("headless attention view adaptation", () => {
 				why: "Source reason",
 				sourceText: "Source",
 			};
+			card.presentation = { ...copy, version: 2, recommendedIntent: "approve" };
 			const view = deckDisplayCard(card, 2);
+			const item = {
+				id: card.id,
+				sentence: card.label,
+				source: card.source,
+				actor: label,
+				needsAction: true,
+				presentation: card.presentation,
+			} as Parameters<typeof feedDisplayCard>[0];
+			const feed = feedDisplayCard(item);
+			expect(feed.options).toEqual(view.options);
+			expect(feed.options.filter((option) => option.recommended)).toHaveLength(
+				1,
+			);
+			expect(feed.actions).toEqual([]);
+			expect(feedDisplayCard({ ...item, needsAction: false }).options).toEqual(
+				[],
+			);
 			expect(view.draft).toBe(`Complete ${label} draft`);
 			expect(view.options.map((option) => option.id)).toEqual([
 				"useful",

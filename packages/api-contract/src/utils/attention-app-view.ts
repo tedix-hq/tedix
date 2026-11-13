@@ -33,6 +33,50 @@ function checkedCopy(value: unknown) {
 		? copy
 		: null;
 }
+function displayOptions(
+	decision: DeckCard["decision"] | undefined,
+	factory: boolean,
+	copy: ReturnType<typeof checkedCopy>,
+): AttentionDisplayCard["options"] {
+	if (decision) {
+		const recommended = decision.options.find(
+			(option) => option.intent === copy?.recommendedIntent,
+		)?.id;
+		return decision.options.map((option) => ({
+			id: option.id,
+			label: decisionCardActionLabel(
+				copy,
+				option.id,
+				option.intent,
+				option.label,
+			),
+			consequence: option.consequence,
+			recommended: option.id === recommended,
+		}));
+	}
+	if (!factory) return [];
+	return [
+		{
+			id: "useful",
+			label: decisionCardActionLabel(copy, "useful", "approve", "Useful"),
+			consequence:
+				"Records that this suggestion is useful; does not carry it out.",
+			recommended: copy?.recommendedIntent === "approve",
+		},
+		{
+			id: "not_useful",
+			label: decisionCardActionLabel(
+				copy,
+				"not_useful",
+				"reject",
+				"Not useful",
+			),
+			consequence: "Records that this suggestion is not useful.",
+			recommended: copy?.recommendedIntent === "reject",
+		},
+	];
+}
+
 export function attentionSource(source: string, osOrigin?: string): string {
 	let origin: string | undefined;
 	try {
@@ -151,47 +195,7 @@ export function deckDisplayCard(
 		options:
 			card.responseKind === "task"
 				? []
-				: (card.decision?.options.map((option) => ({
-						id: option.id,
-						label: decisionCardActionLabel(
-							copy,
-							option.id,
-							option.intent,
-							option.label,
-						),
-						consequence: option.consequence,
-						recommended:
-							card.decision?.options.find(
-								(candidate) => candidate.intent === copy?.recommendedIntent,
-							)?.id === option.id,
-					})) ??
-					(card.factory
-						? [
-								{
-									id: "useful",
-									label: decisionCardActionLabel(
-										copy,
-										"useful",
-										"approve",
-										"Useful",
-									),
-									consequence:
-										"Records that this suggestion is useful; does not carry it out.",
-									recommended: copy?.recommendedIntent === "approve",
-								},
-								{
-									id: "not_useful",
-									label: decisionCardActionLabel(
-										copy,
-										"not_useful",
-										"reject",
-										"Not useful",
-									),
-									consequence: "Records that this suggestion is not useful.",
-									recommended: copy?.recommendedIntent === "reject",
-								},
-							]
-						: [])),
+				: displayOptions(card.decision, Boolean(card.factory), copy),
 		actions: [],
 		answer: "",
 		needsText: false,
@@ -422,7 +426,9 @@ export function feedDisplayCard(
 		draft: item.decision?.preview?.body ?? null,
 		recipient: null,
 		subject: null,
-		options: [],
+		options: item.needsAction
+			? displayOptions(item.decision, item.id.startsWith("factory:"), copy)
+			: [],
 		actions: [],
 		answer: "",
 		needsText: false,

@@ -264,6 +264,31 @@ it("shows the same story and why-you line beside a pending decision", async () =
 	expect(options.textContent?.match(/Recommended/g)).toHaveLength(1);
 });
 
+it("shows factory feedback choices without implying that feedback executes the suggestion", async () => {
+	await mountOne({
+		...items[0]!,
+		id: "factory:sample:0",
+		kind: "decision",
+		needsAction: true,
+		presentation: {
+			version: 2,
+			title: "Keep this suggestion?",
+			context: "The draft is ready for review.",
+			body: "Records your feedback.",
+			story: "The draft is ready for review. Agreeing records useful feedback.",
+			whyMe: "You know your readers.",
+			recommendation: "Keep it because the topic fits.",
+			recommendedIntent: "approve",
+		},
+	});
+	const options = host.querySelector('[aria-label="Options"]')!;
+	expect(options.querySelectorAll("li")).toHaveLength(2);
+	expect(options.textContent).toContain("Useful · Recommended");
+	expect(options.textContent).toContain("does not carry it out");
+	expect(options.textContent).toContain("Not useful");
+	expect(options.querySelector("button")).toBeNull();
+});
+
 it("shows a finished result as a green chip with one body line", async () => {
 	await mountOne({
 		...items[0]!,
