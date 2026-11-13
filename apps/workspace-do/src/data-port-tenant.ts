@@ -1,8 +1,7 @@
 /**
- * Outputs and revisions use the workspace's selected storage owner:
- * object SQLite after cutover, otherwise shared D1. Bodies are gzip objects
- * in R2 addressed by digest. Apps, resources and Work items still live in
- * the core database and are read there directly, no HTTP hop.
+ * Outputs and revisions live in the activated workspace object. Bodies are
+ * gzip objects in R2 addressed by digest. Resources use the workspace object;
+ * apps and Work items use the core database.
  */
 import type { DbQueryClient } from "@tedix/db/query-client";
 import {
@@ -12,11 +11,10 @@ import {
 	getOsOutputRevision,
 	listOsOutputs,
 } from "@tedix/db/queries/durable-sqlite/os-outputs";
-import * as coreOutputs from "@tedix/db/queries/os-workspaces/outputs";
 import type { TenantStoreDb } from "@tedix/db/queries/durable-sqlite/tenant-store";
 import { listOsGadgets } from "@tedix/db/queries/os-workspaces/gadgets";
 import { listOsWorkspaceProjects } from "@tedix/db/queries/os-workspaces/projects";
-import { listOsWorkspaceResources } from "@tedix/db/queries/os-workspaces/resources";
+import { listWorkspaceResourceSummaries } from "@tedix/db/queries/durable-sqlite/workspace-resources";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import { getProjectByIdForOrganization } from "@tedix/db/queries/projects";
 import {
@@ -109,7 +107,7 @@ export interface TenantDataPortDeps {
 	core: DbQueryClient;
 	bucket: OutputBodyBucket;
 	actorKind: "user" | "tedi" | "external_agent" | "service";
-	ownsOutputs: () => Promise<boolean>;
+	assertWorkspaceAuthority: () => Promise<void>;
 	commitOutput: <T>(outputId: string, write: () => Promise<T>) => Promise<T>;
 }
 
@@ -141,24 +139,17 @@ export class TenantDataPort implements WorkspaceDataPort {
 
 	private async locate(outputId: string) {
 		const params = { ...this.scope, outputId };
-		const legacy = !(await this.deps.ownsOutputs());
-		const row = legacy
-			? await coreOutputs.getOsOutput(this.deps.core, params)
-			: await getOsOutput(this.deps.tenant, params);
+		await this.deps.assertWorkspaceAuthority();
+		const row = await getOsOutput(this.deps.tenant, params);
 		if (!row || row.workspaceId !== this.deps.workspaceId) return null;
 		const revision = row.currentRevisionId
-			? await (legacy
-					? coreOutputs.getOsOutputRevision(this.deps.core, {
-							...this.scope,
-							revisionId: row.currentRevisionId,
-						})
-					: getOsOutputRevision(this.deps.tenant, {
-							...this.scope,
-							revisionId: row.currentRevisionId,
-						}))
+			? await getOsOutputRevision(this.deps.tenant, {
+					...this.scope,
+					revisionId: row.currentRevisionId,
+				})
 			: undefined;
 		if (revision && revision.outputId !== row.id) return null;
-		return { row, revision, legacy: Boolean(legacy) };
+		return { row, revision };
 	}
 
 	private summary(
@@ -195,17 +186,13 @@ export class TenantDataPort implements WorkspaceDataPort {
 		status?: OutputSummary["status"];
 	}): Promise<OutputSummary[]> {
 		const viewer = { userIds: [], workspaceIds: [this.deps.workspaceId] };
-		const owned = (await this.deps.ownsOutputs())
-			? await listOsOutputs(
-					this.deps.tenant,
-					this.deps.organizationId,
-					viewer,
-					{ workspaceId: this.deps.workspaceId, ...options, limit: 500 },
-				)
-			: await coreOutputs.listOsOutputs(this.deps.core, this.scope, viewer, {
-					...options,
-					limit: 500,
-				});
+		await this.deps.assertWorkspaceAuthority();
+		const owned = await listOsOutputs(
+			this.deps.tenant,
+			this.deps.organizationId,
+			viewer,
+			{ workspaceId: this.deps.workspaceId, ...options, limit: 500 },
+		);
 		const ids = new Set(owned.map((row) => row.id));
 		const rows = await Promise.all([...ids].map((id) => this.locate(id)));
 		return rows
@@ -238,6 +225,7 @@ export class TenantDataPort implements WorkspaceDataPort {
 		content: OsOutputContent;
 		actorId: string;
 	}): Promise<OutputDetail> {
+		await this.deps.assertWorkspaceAuthority();
 		const content = OsOutputContentInputSchema.parse(input.content);
 		const body = JSON.stringify(content);
 		const stored = await storeOutputBody(
@@ -248,23 +236,9 @@ export class TenantDataPort implements WorkspaceDataPort {
 		const outputId = crypto.randomUUID();
 		const revisionId = crypto.randomUUID();
 		const now = new Date().toISOString();
-		const create = (await this.deps.ownsOutputs())
-			? (
-					output: Parameters<typeof createOsOutput>[1],
-					revision: Parameters<typeof createOsOutput>[2],
-				) => createOsOutput(this.deps.tenant, output, revision)
-			: (
-					output: Parameters<typeof createOsOutput>[1],
-					revision: Parameters<typeof createOsOutput>[2],
-				) =>
-					coreOutputs.createOsOutput(
-						this.deps.core,
-						this.scope,
-						output,
-						revision,
-					);
 		const created = await this.deps.commitOutput(outputId, () =>
-			create(
+			createOsOutput(
+				this.deps.tenant,
 				{
 					id: outputId,
 					organizationId: this.deps.organizationId,
@@ -314,8 +288,6 @@ export class TenantDataPort implements WorkspaceDataPort {
 			this.deps.organizationId,
 			JSON.stringify(content),
 		);
-		const located = await this.locate(input.outputId);
-		if (!located) throw new Error("Output not found");
 		const params = {
 			id: crypto.randomUUID(),
 			organizationId: this.deps.organizationId,
@@ -329,9 +301,7 @@ export class TenantDataPort implements WorkspaceDataPort {
 			expectedRevision: input.expectedRevision,
 		};
 		const result = await this.deps.commitOutput(input.outputId, () =>
-			located.legacy
-				? coreOutputs.createOsOutputRevision(this.deps.core, params)
-				: createOsOutputRevision(this.deps.tenant, params),
+			createOsOutputRevision(this.deps.tenant, params),
 		);
 		if (!result.ok) throw new Error(`Revise failed: ${result.reason}`);
 		return {
@@ -361,16 +331,8 @@ export class TenantDataPort implements WorkspaceDataPort {
 	}
 
 	async listResources() {
-		const rows = await listOsWorkspaceResources(this.deps.core, {
-			...this.scope,
-			status: "active",
-		});
-		return rows.map((row) => ({
-			id: row.id,
-			name: row.name,
-			kind: row.resourceType,
-			status: row.status,
-		}));
+		await this.deps.assertWorkspaceAuthority();
+		return listWorkspaceResourceSummaries(this.deps.tenant, this.scope);
 	}
 
 	async listWork(options?: { disposition?: string; limit?: number }) {

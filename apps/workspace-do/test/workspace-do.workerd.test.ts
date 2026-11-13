@@ -350,7 +350,7 @@ const READ_ONLY_CODE = `export default async (env) => {
 }`;
 
 describe("staged output migration", () => {
-	test("directory-only and full imports keep shared reads and approved agent writes until separate activation", async () => {
+	test("directory-only and full staging refuse agent output reads and approved writes until activation", async () => {
 		await seedCore();
 		const scope: WorkspaceScope = {
 			organizationId: "org_test",
@@ -392,6 +392,9 @@ describe("staged output migration", () => {
 				outputAuthority: "shared",
 				importGeneration: phase === "full" ? 3 : 1,
 			});
+			const bodiesBefore = (await testEnv.R2_BUCKET.list()).objects.map(
+				(o) => o.key,
+			);
 			await ws.scriptModel(scope, [
 				{ code: `export default async env => env.outputs.list()` },
 				{
@@ -416,34 +419,45 @@ describe("staged output migration", () => {
 			expect(
 				reads
 					.filter((row) => row.operation === "list")
-					.every((row) => row.outcome === "applied"),
-			).toBe(true);
+					.map((row) => row.outcome),
+			).toEqual(phase === "full" ? ["unknown", "unknown"] : ["unknown"]);
 			const messages = JSON.stringify(
 				await ws.readMessages(scope, turn.conversationId),
 			);
 			expect(messages).not.toContain("out-sheet");
 			expect(messages).not.toContain("out-doc");
-			if (phase === "full") expect(messages).toContain("agent-directory");
-			await ws.scriptModel(scope, [{ text: "Created on the prior owner" }]);
+			expect(messages).toContain("Workspace output activation is required");
+			await ws.scriptModel(scope, [{ text: "Output activation is required" }]);
 			const applied = await ws.decideApproval(scope, {
 				approvalId: approval.approvalId,
 				decision: "approve",
 				by: "u1",
 			});
-			expect(applied.applied).toBe(true);
+			expect(applied.applied).toBe(false);
 			await ws.awaitTurn(scope, applied.turnId!, 20_000);
+			expect(
+				await ws.readEvents(scope, { conversationId: turn.conversationId }),
+			).toContainEqual(
+				expect.objectContaining({
+					type: "approval.executed",
+					status: "failed",
+					error: "Workspace output activation is required",
+				}),
+			);
+			expect(
+				(await testEnv.R2_BUCKET.list()).objects.map((o) => o.key),
+			).toEqual(bodiesBefore);
 			const shared = await testEnv.DB.prepare(
 				"SELECT id FROM os_outputs WHERE workspace_id = ? AND title = ?",
 			)
 				.bind(scope.workspaceId, `agent-${phase}`)
 				.all<{ id: string }>();
-			expect(shared.results).toHaveLength(1);
+			expect(shared.results).toHaveLength(0);
 			expect(
-				await ws.outputQuery(scope, {
-					op: "get",
-					outputId: shared.results[0]!.id,
-				}),
-			).toBeUndefined();
+				(await ws.outputQuery(scope, { op: "list" }))
+					.map((row) => row.id)
+					.sort(),
+			).toEqual(phase === "full" ? ["out-doc", "out-sheet"] : []);
 		}
 		await expect(
 			async () =>
@@ -1510,6 +1524,16 @@ describe("WorkspaceDO", () => {
 			const attachmentScope = { ...scope, workspaceId: crypto.randomUUID() };
 			await seedWorkspaceRows([attachmentScope]);
 			const ws = workspace(attachmentScope);
+			await seedOutputs(ws, attachmentScope);
+			const ownerScope =
+				kind === "foreign"
+					? { ...attachmentScope, workspaceId: crypto.randomUUID() }
+					: attachmentScope;
+			const owner = workspace(ownerScope);
+			if (kind === "foreign") {
+				await seedWorkspaceRows([ownerScope]);
+				await seedOutputs(owner, ownerScope);
+			}
 			const outputId = crypto.randomUUID();
 			const revisionId = crypto.randomUUID();
 			const content = {
@@ -1535,23 +1559,19 @@ describe("WorkspaceDO", () => {
 				attachmentScope.organizationId,
 				JSON.stringify(content),
 			);
-			await createCoreOutput(
-				createDbQueryClient(testEnv.DB),
-				{ organizationId: attachmentScope.organizationId },
-				{
+			await owner.outputQuery(ownerScope, {
+				op: "create",
+				output: {
 					id: outputId,
 					organizationId: attachmentScope.organizationId,
-					workspaceId:
-						kind === "foreign"
-							? crypto.randomUUID()
-							: attachmentScope.workspaceId,
+					workspaceId: ownerScope.workspaceId,
 					title: "Unavailable attachment",
 					kind: "document",
 					currentRevisionId: revisionId,
 					createdByKind: "user",
 					createdById: "u1",
 				},
-				{
+				revision: {
 					id: revisionId,
 					organizationId: attachmentScope.organizationId,
 					outputId,
@@ -1565,7 +1585,7 @@ describe("WorkspaceDO", () => {
 							? null
 							: JSON.stringify({ version: 1, sources: [] }),
 				},
-			);
+			});
 			const turnId = crypto.randomUUID();
 			if (kind === "large" || kind === "uploaded") {
 				await ws.scriptModel(attachmentScope, [

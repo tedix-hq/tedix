@@ -379,6 +379,7 @@
 		"./queries/cognitive-runtime": "./src/queries/cognitive-runtime.ts",
 		"./queries/durable-sqlite/os-outputs": "./src/queries/durable-sqlite/os-outputs.ts",
 		"./queries/durable-sqlite/output-rpc": "./src/queries/durable-sqlite/output-rpc.ts",
+		"./queries/durable-sqlite/workspace-resources": "./src/queries/durable-sqlite/workspace-resources.ts",
 		"./queries/durable-sqlite/skill-run-artifacts": "./src/queries/durable-sqlite/skill-run-artifacts.ts",
 		"./queries/durable-sqlite/tedi-artifacts": "./src/queries/durable-sqlite/tedi-artifacts.ts",
 		"./queries/durable-sqlite/tenant-store": "./src/queries/durable-sqlite/tenant-store.ts",

@@ -10,6 +10,10 @@
 		"types": ["node", "bun-types"]
 	},
 	"include": [
+		"migrate-workspaces/activate.ts",
+		"migrate-workspaces/delta.ts",
+		"migrate-workspaces/delta.test.ts",
+		"migrate-workspaces/activate.test.ts",
 		"migrate-workspaces/assignments.ts",
 		"migrate-workspaces/bundle.ts",
 		"migrate-workspaces/cli.ts",

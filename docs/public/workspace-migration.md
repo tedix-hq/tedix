@@ -5,7 +5,7 @@ title: "Move workspaces into workspace objects"
 topic: "Getting started"
 resource_type: guide
 description: "The cutover day runbook: copy every workspace's data into its own workspace object in one release, prove the copy, remove the old paths, and how to go back."
-summary: "Freeze, snapshot, export, import, reconcile, one deploy, delete the old code, run the feed check, drop the old tables; with rollback and go/no-go checks"
+summary: "Freeze, capture the final delta, reconcile, activate, deploy the removal release, check browser and agent behavior, and soak; with rollback prerequisites"
 read_when:
   - Planning or running the cutover of all workspaces to workspace objects
   - Deciding whether the cutover can start, continue, or must roll back
@@ -33,12 +33,13 @@ move: it stays shared across the organization, with the same access rules
 as today. A question asked in a
 workspace is then answered next to its data.
 
-Import stages a copy; it does not change who serves outputs. Browser and
-agent reads and writes keep their prior storage owner until an authorized
-operator explicitly activates the reconciled workspace. Workspaces that
-already serve from their object keep doing so. This is durable migration
-state, without a feature flag or a per-call fallback. Nothing in the shared
-database is dropped by import, reconciliation or activation.
+Import stages a copy; it does not activate it. The staging protocol release
+keeps the prior serving paths while an authorized operator reconciles and
+activates each workspace. Deploy the removal release only after activation:
+its workspace agent output and resource bindings refuse unactivated objects
+and have no shared-database fallback. Workspaces that already serve from
+their object remain object-owned. Nothing in the shared database is dropped
+by import, reconciliation or activation.
 
 The operator runs the steps below from a checkout of this repository with
 access to the installation's Cloudflare account. The commands are in
@@ -82,126 +83,163 @@ access to the installation's Cloudflare account. The commands are in
 
 ### 1. Freeze writes
 
-Put the platform into read-only mode for workspaces: pause scheduled runs
-and the agent dispatchers, and announce the window. From this point the
-shared database must not change in the tables that move.
+The installation operator pauses scheduled runs, dispatchers and every other
+workspace writer, drains active runs, and announces the window. Freeze both
+the shared database and the objects. Record the ISO timestamp as `FROZEN_AT`
+and a durable freeze evidence reference as `FREEZE_REF`.
 
-### 2. Snapshot the shared database
+Do not begin without the complete tested removal release, a tested recovery
+procedure and reviewed decisions for every held workspace. A clean subset
+does not authorize an installation-wide removal release.
 
-Export the main database and every log partition with the installation's
-Wrangler configuration. Keep the files; they are the rollback.
+### 2. Capture the final shared rows
 
-```bash
-wrangler d1 export <main database> --remote --output main.sql
-wrangler d1 export <log partition> --remote --output logs-1.sql
-```
-
-Record the file hashes on the Work Item. Export every log partition, not
-only the newest; the import refuses a copy that misses one. Start the
-import within two hours of this step.
-
-To move one workspace at a time instead of all of them, add `--scope
-<organization id>/<workspace id>` to the export, import and reconcile
-commands below, and give the scoped run its own bundle location.
-
-### 3. Export every workspace
+Use the installation's reviewed capture configuration as `CAPTURE_CONFIG`
+and a new directory as `FINAL_CAPTURE`. A completed staging capture cannot
+be resumed to make it fresh. The configuration must cover the main database,
+every historical log partition and the reviewed workspace assignments.
 
 ```bash
-bun scripts/migrate-workspaces/cli.ts export --snapshot main.sql --logs logs-1.sql --assignments assignments.json --bundles r2://<migration bucket>/<release id>
+bun scripts/migrate-workspaces/cli.ts capture --config "$CAPTURE_CONFIG" --out "$FINAL_CAPTURE" --page-size 100 --delay-ms 2000
 ```
 
-One bundle per workspace lands in the EU bucket. The command stops before
-writing anything if an organization has no assignment.
+This capture is paced to protect the shared database. Retain its manifest,
+page hashes and rows as evidence. The capture must start after the freeze,
+and its freshness and complete history are checked again before import or
+delta and reconciliation. Finish while the snapshot remains within the
+two-hour freshness limit; otherwise capture again under the freeze.
 
-### 4. Import every workspace
+### 3. Export the final bundles
+
+Choose a new reviewed local or EU object-store location as `FINAL_BUNDLES`.
 
 ```bash
-bun scripts/migrate-workspaces/cli.ts import --bundles r2://<migration bucket>/<release id> --remote https://<your MCP address> --auth tedix --snapshot main.sql --logs logs-1.sql
+bun scripts/migrate-workspaces/cli.ts export --snapshot "$FINAL_CAPTURE/manifest.json" --bundles "$FINAL_BUNDLES"
 ```
 
-The command first checks the snapshot (see the top of this page) and lists
-every problem it finds. It copies nothing until the list is empty.
+One bundle per workspace is written. Export refuses incomplete assignments.
+Keep the exact original staging bundles separately as `STAGED_BUNDLES`.
+To operate on a reviewed subset, pass the same `--scope` to each command;
+a subset report is not proof for the workspaces it excludes.
 
-`--auth tedix` uses the sign-in that `tedix login -w connect` saved. That
-sign-in must belong to a platform administrator; anyone else is refused. The
-MCP address forwards the three migration calls to the workspace objects and
-adds their own key for you, so you never handle it. The objects are created
-in the `eu` jurisdiction on first contact.
-If the command stops, run it again: chunks that already landed are skipped.
+### 4. Apply the frozen delta
 
-### 5. Reconcile
+For workspaces already staged, use the original staging bundle as the
+baseline. The installation supplies the admin migration gateway URL as
+`MIGRATION_GATEWAY` and a receipt path as `DELTA_RECEIPTS`.
 
 ```bash
-bun scripts/migrate-workspaces/cli.ts reconcile --bundles r2://<migration bucket>/<release id> --remote https://<your MCP address> --auth tedix --snapshot main.sql --logs logs-1.sql --report reconcile.json
+bun scripts/migrate-workspaces/cli.ts delta --baseline-bundles "$STAGED_BUNDLES" --snapshot "$FINAL_CAPTURE/manifest.json" --bundles "$FINAL_BUNDLES" --remote "$MIGRATION_GATEWAY" --auth tedix --workspace connect --freeze-ref "$FREEZE_REF" --frozen-at "$FROZEN_AT" --report "$DELTA_RECEIPTS"
 ```
 
-The report must say `OK` for every workspace and every total. Any `DRIFT`
-line stops the cutover; fix the cause, import again, reconcile again. Attach
-`reconcile.json` to the Work Item.
+Delta compares full predecessor rows before changing or deleting them. It
+preserves object rows absent from both source bundles, refuses divergent
+rows and unsafe parent deletions, and journals each generation-fenced batch.
+It refuses source changes on unresolved or object-owned workspaces and chat
+changes that conflict with native activity. Resolve those cases through their
+reviewed merge procedure, then reconcile again; do not force an overwrite.
+A lost response can be retried against the same bundles and retained receipts.
+
+For an initial import with no staged baseline, use `import` instead:
+
+```bash
+bun scripts/migrate-workspaces/cli.ts import --bundles "$FINAL_BUNDLES" --remote "$MIGRATION_GATEWAY" --auth tedix --workspace connect --snapshot "$FINAL_CAPTURE/manifest.json"
+```
+
+The stored sign-in must belong to a platform administrator. Authentication
+and human consent must be completed separately by the person; these commands
+do not grant access. The gateway forwards the authorized migration calls
+and attaches the object's migration token. Imports never activate objects.
+
+### 5. Reconcile under the freeze
+
+```bash
+bun scripts/migrate-workspaces/cli.ts reconcile --snapshot "$FINAL_CAPTURE/manifest.json" --bundles "$FINAL_BUNDLES" --remote "$MIGRATION_GATEWAY" --auth tedix --workspace connect --freeze-ref "$FREEZE_REF" --frozen-at "$FROZEN_AT" --report "$RECONCILIATION_REPORT"
+```
+
+Require zero drift and no problems or pending re-reads for every workspace
+and total. The report records each object's import generation and checks it
+again after the comparison. Any intervening import invalidates the report.
+Retain native object and chat evidence as well: copied source rows alone do
+not establish that native activity has been preserved. Reconciliation does
+not resolve held ownership or merge decisions.
+
+Attach the exact report to the Work Item and use its durable evidence URI as
+`RECONCILIATION_REF`. Keep the freeze in place.
 
 ### 6. Activate reconciled workspaces
 
-The installation release owner must first deploy the staging and activation
-protocol. Deployment alone does not activate copied workspaces. Keep the
-write freeze in place after the final import and zero-difference reconciliation.
-Read each object's `importGeneration` before reconciliation, retain it with
-the report and require the same value afterwards. The authorized operator separately calls
-`POST /activate` with that generation and `reconciliationRef`, the durable
-URI of the frozen reconciliation evidence. See the migration script README
-for the request. A new import batch invalidates an older generation; reconcile
-again before activating it. Import and rehearsal never call activation.
+The installation release owner must already have deployed the staging and
+activation protocol. Deployment alone does not activate copied workspaces.
 
-After activation, open one workspace per organization, ask a question in
-its chat and open its newest document. Confirm the agent answers from the
-workspace and the document shows its latest revision before lifting the freeze.
-Stage-1 copy proof alone does not authorize activation or deletion.
+```bash
+bun scripts/migrate-workspaces/cli.ts activate --reconciliation "$RECONCILIATION_REPORT" --reconciliation-ref "$RECONCILIATION_REF" --remote "$MIGRATION_GATEWAY" --auth tedix --workspace connect --report "$ACTIVATION_RECEIPTS"
+```
 
-### 7. Remove the old code paths
+Activation preflights the whole selection. It refuses stale or non-frozen
+reports, unresolved authority, dirty reconciliation and changed import
+generations. The object checks the generation again atomically. Existing
+object owners stay owners. Activation is per workspace, so retain the receipt
+journal on failure and read every authority back; a lost response can conceal
+a successful activation. Import and rehearsal never issue activation.
 
-The old paths are deleted by a short series of commits prepared before the
-day and pushed right after the sibling changes land on `main`, so the
-release never carries both. The series removes:
+### 7. Deploy the removal release
 
-- the shared-database output code in `apps/api`: the router
-  `src/rpc/routers/os-workspace-outputs.ts` and the output readers in
-  `os-workspaces-shared.ts`, `os-workspace-library.ts`,
-  `os-workspace-files.ts`, `os-workspace-collaboration.ts`,
-  `src/http/exports-and-renders.ts` and `src/lib/os-share-redemption.ts`
-  move to the workspace object's reads; the shared-database query files
-  they used go: `packages/db/src/queries/os-workspaces/outputs.ts`,
-  `output-body-backfill.ts` and `output-body-offload.ts`
-- the in-workspace chat path in `apps/api/src/rpc/routers/kernel-runtime/`:
-  the workspace branches of `conversations-reads.ts`,
-  `run-reads-streams.ts`, `run-steering.ts` and `direct-read.ts` read the
-  object instead of the shared database; the shared-database run and chat
-  query files stay because organization Home threads still use them
-- the delegation hop for in-workspace chat: the workspace delegation in
-  `delegation-context.ts`, `delegation-control.ts` and
-  `delegation-resolution-recovery.ts`, and the narration collapse in
-  `apps/api/src/rpc/routers/kernel/home-narration.ts`
-- in `apps/os`: the polling chat path (`src/components/chat-polling.ts`),
-  the "Response is still being prepared" state in
-  `src/components/chat-message-parts.tsx`, and the Home relay for
-  in-workspace chat in `src/lib/quick-chat-home.ts` (its adapter half is
-  already gone)
+The installation release owner deploys the fully tested removal series while
+the freeze remains in place. Preparing a local branch grants no push,
+deployment or activation authority. The release must remove every shared
+workspace read and write together, without a feature flag or fallback:
 
-The exact file list is posted on the Work Item before the day and updated
-as the sibling changes land.
+- API output readers and writers, including file confirmation, blueprint
+  instantiation and provisioning, collaboration, shares, evidence reads,
+  exports, body maintenance and cross-workspace summaries.
+- Workspace resources, including provider access checks, grants and every
+  cross-workspace reader. Core access metadata must still refer to the
+  correct object-owned resource.
+- Workspace branches of the core chat, run, event, delegation and narration
+  paths. Core Home threads, skill runs and shared organization memory stay
+  in the core and retain their existing behavior.
+- The workspace object's agent output and resource bindings and its storage
+  ownership checks. Newly created workspaces need explicit native
+  initialization; they must not depend on staging or inferred D1 ownership.
+- Workspace MCP routes. Missing runtime bindings or organization identity
+  must fail instead of mounting the generic core tool server.
+- Any remaining OS callers of core APIs for workspace chat. Preserve Home's
+  own helpers and components; native workspace chat uses its object socket
+  through `src/lib/workspace-chat-client.ts`.
 
-### 8. Run the feed check
+Post the exact caller audit and the behavior changes for every held workspace
+on the Work Item before deployment. An unfinished port is not a release
+candidate even if one binding or reader has been removed successfully.
 
-The change feed (`packages/workspace-feed`) projects every write in a
-workspace object into the shared core so Home, search and the Work board
-see it.
-Run its reconciler against the objects. It must report zero differences
-between the objects and the core projections before the old tables go.
+### 8. Check browser, agent and feed behavior
 
-### 9. Drop the old tables
+Open a workspace in each organization and check its newest document and
+revision history, selected file attachments, workspace chat and run history,
+resource visibility and moves. Exercise agent reads and approved writes,
+including stale-revision refusal. Check held-workspace decisions explicitly;
+do not treat a missing output or refused operation as a successful empty list.
+Verify organization Home threads, skill runs and shared organization memory.
 
-Only after steps 5 and 8 both report zero differences, and after the release
-has served real traffic for the agreed soak time, remove the moved tables
-from the shared database with a migration. Keep the snapshot files from step
-2 for the retention period the organization agreed to.
+Run the installation's feed reconciler against the objects and the core
+projections used by Home, search and Work. Require zero differences, including
+evidence references. Retain the results. Lift the freeze only after the
+installation owner accepts both browser and agent checks and the feed proof.
+
+### 9. Soak and authorize retirement separately
+
+Keep the old tables and recovery evidence throughout the agreed soak and
+retention period. Watch serving errors, native writes and projection lag.
+Table retirement is a separate authorized migration after acceptance and
+zero-difference reconciliation, not part of these preparation commands.
+
+The eventual whole-table candidates are `os_outputs`,
+`os_output_revisions` and `os_workspace_resources`, after every caller and
+foreign-key dependency has moved. Keep `os_workspaces` as the core directory.
+The kernel conversation, run, event, tool-result and artifact tables contain
+core data too: retire only workspace-owned rows after classification, never
+drop those mixed tables as a whole. Home threads, skill runs and organization
+memory remain in the core.
 
 ## Go/no-go
 
@@ -216,7 +254,7 @@ Start the freeze only when all of these are true:
 
 Stop and roll back when any of these happens:
 
-- `reconcile` reports drift that a second import does not clear
+- `reconcile` reports drift that a reviewed frozen delta or merge does not clear
 - a workspace object reports a jurisdiction other than `eu`
 - after the deploy, a workspace chat or document check fails in more than
   one organization
@@ -224,32 +262,53 @@ Stop and roll back when any of these happens:
 
 ## Rollback
 
-Until step 6, nothing has changed for users: unfreeze and stop. The objects
-and bundles can stay where they are; a later import skips the chunks that
-already landed.
+Before any activation, stop the migration processes and retain the capture,
+bundles, reports and per-workspace authority inventory. Confirm that staging
+did not change authority. Workspaces that were already object-owned stay
+object-owned. Release the freeze only after the previous serving paths have
+been checked. An interrupted import can remain staged for a later attempt.
 
-After step 6 and before step 9:
+After any activation, including a partially completed activation command:
 
-1. Redeploy the previous release. It reads and writes the shared database,
-   which is unchanged since the freeze.
-2. Restore the snapshot only if something wrote to the moved tables after
-   the freeze (it should not have): import `main.sql` and the log files with
-   `wrangler d1 execute --remote --file`.
-3. Unfreeze. Workspace changes made on the objects between the deploy and
-   the rollback are lost for users; the objects keep them for a later
-   attempt.
+1. Keep the freeze in place, or freeze again immediately if traffic resumed.
+   Drain active runs and record which workspaces actually became object-owned.
+   Read authority back; a lost response does not prove activation failed.
+   Preserve the activation receipts and reconciliation evidence.
+2. Capture the objects' current rows, revision bodies and native chat ledger,
+   as well as the source recovery point. Compare all object writes since the
+   freeze, including output moves, archives, revisions, resources and chat.
+   Preserve those writes before restoring a source snapshot. Snapshot restore
+   alone would discard them from the serving path.
+3. Reconcile a reverse copy into the previous store under separately authorized,
+   tested recovery tooling. Preserve existing object owners and apply the
+   reviewed per-row decisions for any divergent workspace. Never apply a
+   whole-database snapshot over unrelated core changes made during the window.
+4. Restore the exact previous serving release and its compatible authority
+   state together. Merely redeploying a release that consults persisted object
+   authority does not return activated workspaces to the shared database.
+   Reconcile both data and projections, then verify browser documents and chat,
+   agent reads and writes, organization Home threads and skill runs.
+5. Release the freeze only after the installation owner accepts those checks.
+   Retain both recovery points and the receipt inventory for the agreed period.
 
-After step 9 there is no quick way back: restoring means recreating the
-tables from the snapshot and the previous release. This is why step 9 waits
-for the soak time.
+The migration tools currently provide no deactivation command or reverse-copy
+operation. A tested installation recovery procedure for steps 2–4 is therefore
+a prerequisite to activation, not a command this guide can claim is ready.
+If that procedure is missing, keep the freeze and serving release unchanged;
+do not improvise an authority edit or accept loss of intervening object writes.
+
+After old tables have been removed, recovery also requires recreating their
+schema and restoring the verified reverse copy before the previous release can
+serve. Table removal is separately authorized after reconciliation, browser and
+agent acceptance, and the agreed soak and retention period. Tables that retain
+Home threads, skill runs or organization memory cannot be dropped as a whole.
 
 ## What the reconciler proves, and what it does not
 
-It proves that the rows in each object are the rows the snapshot had, that
-every output serves the same revision as before, that nothing that should
-move was left behind, that the log partitions cover every run's history,
-and that every object lives in `eu`. It does not prove that nothing
-changed in the live database after the snapshot; that is what the freeze
-is for. Organization memory is not part of the move, so its access rules
-do not change. Checks after the deploy and the feed check verify the
-serving paths and projections.
+It compares the mapped object rows, including output revision pointers, with
+the captured source and checks bundle totals, historical log coverage and EU
+jurisdiction. It does not exercise the serving paths or prove that native
+chat activity has been preserved. It also cannot prove that writers stayed
+frozen after capture. Retain native evidence and require the browser, agent
+and feed checks before accepting the release. Organization memory is outside
+the move.

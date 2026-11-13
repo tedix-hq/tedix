@@ -1608,13 +1608,26 @@ const worker = {
 			// access, rate limit, origin); the object scopes the call to the app's
 			// organization and records the principal on every change record.
 			const workspaceMatch = url.pathname.match(/^\/mcp\/workspaces\/([^/]+)$/);
-			// The binding is declared once the workspace Worker exists in the account.
+			if (
+				!workspaceMatch &&
+				(url.pathname === "/mcp/workspaces" ||
+					url.pathname.startsWith("/mcp/workspaces/"))
+			)
+				return Response.json(
+					{ error: "workspace_route_not_found" },
+					{ status: 404 },
+				);
 			const workspaceRuntime = (env as { WORKSPACE_RUNTIME?: Fetcher })
 				.WORKSPACE_RUNTIME;
-			if (workspaceMatch && app.organizationId && workspaceRuntime) {
+			if (workspaceMatch) {
 				if (request.method !== "POST") {
 					return new Response("Method not allowed", { status: 405 });
 				}
+				if (!app.organizationId || !workspaceRuntime)
+					return Response.json(
+						{ error: "workspace_runtime_unavailable" },
+						{ status: 503 },
+					);
 				const tediId = request.headers.get("x-tedix-auth-tedi-id");
 				const userId = request.headers.get("x-tedix-auth-user-id");
 				const workspaceId = decodeURIComponent(workspaceMatch[1] ?? "");

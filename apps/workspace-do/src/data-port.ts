@@ -1,8 +1,7 @@
 /**
  * What the bindings read and write. The agent loop never sees a database;
- * it sees this port. Today the port reads the shared D1 tables; once the
- * migration moves a workspace's rows into its own object, the same port is
- * backed by `runtime.storage` without touching the bindings or the loop.
+ * it sees this port. Outputs use the activated workspace object; core
+ * directories and Work use the shared database.
  */
 import type { OsOutputContent } from "@tedix/api-contract/schemas/os-workspaces";
 

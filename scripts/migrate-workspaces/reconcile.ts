@@ -33,6 +33,8 @@ export interface TableDrift {
 }
 
 export interface WorkspaceReport extends WorkspaceRef {
+	outputAuthority?: "object" | "shared" | "unresolved";
+	importGeneration?: number;
 	ok: boolean;
 	jurisdiction: string | null;
 	rows: number;
@@ -68,6 +70,7 @@ export interface ApprovedAccounting {
 }
 
 export interface ReconcileReport {
+	freeze?: { frozenAt: string; evidenceRef: string };
 	ok: boolean;
 	checkedAt: string;
 	workspaces: WorkspaceReport[];
@@ -100,8 +103,12 @@ export async function reconcileWorkspace(
 	let merge: WorkspaceReport["merge"];
 	let rows = 0;
 	let jurisdiction: string | null = null;
+	let importGeneration: number | undefined;
+	let outputAuthority: WorkspaceReport["outputAuthority"];
 	try {
 		const description = await store.describe();
+		importGeneration = description.importGeneration;
+		outputAuthority = description.outputAuthority;
 		const objectRows = new Map<string, StoredRow[]>();
 		for (const mapping of WORKSPACE_TABLES)
 			objectRows.set(mapping.table, await readAllRows(store, mapping.table));
@@ -338,11 +345,18 @@ export async function reconcileWorkspace(
 					problems,
 				);
 		}
+		const after = await store.describe();
+		if (after.importGeneration !== importGeneration)
+			problems.push("Import changed during reconciliation");
+		if (after.outputAuthority !== outputAuthority)
+			problems.push("Authority changed during reconciliation");
 	} finally {
 		await store.close();
 	}
 	return {
 		...ref,
+		importGeneration,
+		outputAuthority,
 		ok:
 			drift.length === 0 &&
 			problems.length === 0 &&

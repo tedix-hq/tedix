@@ -65,7 +65,10 @@ its code runs beside the data.
 The object extends the tenant store from `@tedix/db/tenant-store/store`:
 its own SQLite with the workspace's output rows (bodies stay in R2 by
 digest), the memory tables, and `importRows` for the one-shot migration.
-Apps, resources and Work items are read from the core database.
+Agent output reads and writes and resource listings require workspace
+activation and use object SQLite. Shared or unresolved workspaces receive an
+activation error; approval does not bypass it. Apps and Work items are read
+from the core database.
 
 Copied `kernel_conversations`, `kernel_runtime_runs` and
 `kernel_runtime_events` are converted into the object's chat tables on first
