@@ -551,33 +551,29 @@ it.each([false, true])(
 		await dispatchInteractionReviews(env, Date.parse(now) + 360_000);
 		expect(wakes).toHaveLength(stale ? 0 : 1);
 		if (stale) {
-			const replacements = sqlite
-				.prepare(
-					"SELECT id,status,metadata FROM work_interactions WHERE json_extract(metadata,'$.replacesDecisionId')=?",
-				)
-				.all(ASK) as Array<{ id: string; status: string; metadata: string }>;
-			expect(replacements).toHaveLength(1);
-			expect(replacements[0]!.status).toBe("cancelled");
-			const decision = JSON.parse(replacements[0]!.metadata).decisionDeck;
-			expect(decision.whyNow).toContain("live production");
-			expect(
-				decision.options.every(
-					(option: { effect?: unknown }) => !option.effect,
-				),
-			).toBe(true);
 			const { recheckDecisionAction } =
 				await import("../services/decision-action-recheck");
-			await recheckDecisionAction(
+			const changed = await recheckDecisionAction(
 				db,
 				(await getWorkInteraction(db, { orgId: ORG, interactionId: ASK }))!,
 			);
+			expect(changed).toEqual({
+				change:
+					"The linked Work has a newer comment: Credits renewed; the instance is live production.",
+				reviewableThrough: now,
+				note: "Credits renewed; the instance is live production.",
+			});
 			expect(
 				sqlite
 					.prepare(
 						"SELECT id FROM work_interactions WHERE json_extract(metadata,'$.replacesDecisionId')=?",
 					)
 					.all(ASK),
-			).toHaveLength(1);
+			).toHaveLength(0);
+			expect(
+				await dispatchInteractionReviews(env, Date.parse(now) + 720_000),
+			).toEqual({ interactionReviews: 0 });
+			expect(wakes).toHaveLength(0);
 		}
 		sqlite.close();
 	},
