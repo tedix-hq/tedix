@@ -24,10 +24,11 @@ export const skillsGetRunSensitiveDataLatch =
 		.use(AUTHZ.tedisRead)
 		.handler(async ({ input, context }) => {
 			const organizationId = requireOrgId(context);
-			return getRunSensitiveDataLatch(context.db, {
+			const { known, latch } = await getRunSensitiveDataLatch(context.db, {
 				organizationId,
 				runRef: input.runRef,
 			});
+			return { known, latch };
 		});
 
 export const skillsClearRunSensitiveDataLatch =
