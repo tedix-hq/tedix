@@ -88,6 +88,33 @@ export function snapshotManifest(snapshot: Snapshot): SnapshotManifest {
 	};
 }
 
+/** Names two unranged log stores whose run events overlap in time, if any. */
+function unrangedEventOverlap(logs: readonly DatabaseSync[]): string | null {
+	const spans = logs
+		.map((db, index) => {
+			const bounds = hasTable(db, "kernel_runtime_events")
+				? db
+						.prepare(
+							"SELECT min(created_at) AS first, max(created_at) AS last FROM kernel_runtime_events",
+						)
+						.get()
+				: undefined;
+			return typeof bounds?.first === "string" &&
+				typeof bounds.last === "string"
+				? { index: index + 1, first: bounds.first, last: bounds.last }
+				: null;
+		})
+		.filter((span) => span !== null)
+		.sort((a, b) => (a.first < b.first ? -1 : 1));
+	for (let i = 1; i < spans.length; i += 1) {
+		const previous = spans[i - 1]!;
+		const next = spans[i]!;
+		if (next.first <= previous.last)
+			return `log snapshots ${previous.index} and ${next.index} have no range and their run events overlap (${previous.first}..${previous.last} and ${next.first}..${next.last})`;
+	}
+	return null;
+}
+
 /** Gate 1: the snapshot is complete (main plus every log partition) and fresh. */
 export function validateSnapshot(
 	snapshot: Snapshot,
@@ -164,10 +191,23 @@ export function validateSnapshot(
 		if (rows[0]) ranges.push(rows[0]);
 	});
 	const unranged = snapshot.logs.length - ranges.length;
-	if (unranged > 0 && snapshot.logs.length > 1)
+	if (unranged > 0 && snapshot.logs.length > 1) {
+		// A rotation that never wrote ranges leaves several stores without one.
+		// They are accepted only when none has a range and the run events each
+		// one holds do not overlap in time; coverage of every run's events is
+		// still proven row by row during reconciliation.
+		const overlap =
+			ranges.length === 0 ? unrangedEventOverlap(snapshot.logs) : null;
 		problems.push(
-			"a log partition without a range holds all dates, so it must be the only one",
+			...(ranges.length > 0
+				? [
+						"a log partition without a range holds all dates, so it must be the only one",
+					]
+				: overlap
+					? [overlap]
+					: []),
 		);
+	}
 	if (ranges.length === snapshot.logs.length && ranges.length > 0) {
 		const sorted = [...ranges].sort((a, b) => (a.fromTs < b.fromTs ? -1 : 1));
 		if (new Set(sorted.map((r) => r.id)).size !== sorted.length)

@@ -489,6 +489,29 @@ describe("migrate-workspaces", () => {
 		).toEqual([
 			"a log partition without a range holds all dates, so it must be the only one",
 		]);
+		// A rotation that wrote no ranges: accepted only while the run events the
+		// two stores hold do not overlap in time.
+		const unrangedWith = (id: string, createdAt: string) => {
+			const db = sharedDatabase();
+			db.exec(
+				"CREATE TABLE IF NOT EXISTS log_partition (id text PRIMARY KEY NOT NULL, state text NOT NULL, from_ts text NOT NULL, to_ts text, created_at text NOT NULL)",
+			);
+			db.prepare(
+				"INSERT INTO kernel_runtime_events (id, organization_id, kind, conversation_id, run_id, sequence, payload, created_at) VALUES (?, ?, 'message', 'conv-a', 'run-a', 1, '{}', ?)",
+			).run(id, ORG, createdAt);
+			return db;
+		};
+		const older = unrangedWith("ev-old", "2026-03-01T00:00:00.000Z");
+		const newer = unrangedWith("ev-new", "2026-04-01T00:00:00.000Z");
+		expect(
+			validateSnapshot(Snapshot.fromDatabases(main, [newer, older])),
+		).toEqual([]);
+		const sameDay = unrangedWith("ev-same", "2026-04-01T00:00:00.000Z");
+		expect(
+			validateSnapshot(Snapshot.fromDatabases(main, [older, newer, sameDay])),
+		).toEqual([
+			"log snapshots 2 and 3 have no range and their run events overlap (2026-04-01T00:00:00.000Z..2026-04-01T00:00:00.000Z and 2026-04-01T00:00:00.000Z..2026-04-01T00:00:00.000Z)",
+		]);
 		expect(
 			validateSnapshot(Snapshot.fromDatabases(main, [sharedDatabase()])),
 		).toEqual([

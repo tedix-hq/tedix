@@ -67,7 +67,9 @@ bun scripts/migrate-workspaces/cli.ts assignments --snapshot main.sql --out assi
   1. **A validated full snapshot, taken at import time.** At least one log
      partition; each is a log partition (has a `log_partition` table); an
      unranged partition is the only one, otherwise exactly one is active,
-     it is the newest, and the ranges do not overlap. The snapshot is at
+     it is the newest, and the ranges do not overlap. Several partitions
+     that all lack a range (a rotation that wrote none) are accepted only
+     when the run events they hold do not overlap in time. The snapshot is at
      most two hours old, and its manifest equals the one in every bundle.
   2. **Historical log coverage.** The partitions' ranges reach back to the
      oldest run, each partition holds only events inside its range, every
