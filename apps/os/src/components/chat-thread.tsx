@@ -124,6 +124,7 @@ import {
 	skillCatalogQueryOptions,
 } from "@/lib/os-query-options";
 import { initialModelRef, modelsForNewSelection } from "@/lib/model-selection";
+import { useChatModelPreference } from "@/lib/use-chat-model-preference";
 import { assistantLinkedOutputIds } from "@/lib/output-navigation";
 import { parseSkillReferences } from "@tedix/api-contract/utils/skill-reference";
 import {
@@ -466,12 +467,32 @@ export function ChatThread({
 		() => modelsForNewSelection(resolvableModels),
 		[resolvableModels],
 	);
+	const modelPreference = useChatModelPreference();
 	useEffect(() => {
-		if (selectedModelRef || resolvableModels.length === 0) return;
+		if (
+			selectedModelRef ||
+			resolvableModels.length === 0 ||
+			!modelPreference.settled
+		)
+			return;
+		// The person's stored choice while it is still allowed; otherwise the
+		// organization's routed default.
+		const stored = resolvableModels.find(
+			(model) => model.ref === modelPreference.modelRef,
+		)?.ref;
 		setSelectedModelRef(
-			initialModelRef(resolvableModels, modelCatalog.data?.routing.modelRef),
+			initialModelRef(
+				resolvableModels,
+				stored ?? modelCatalog.data?.routing.modelRef,
+			),
 		);
-	}, [resolvableModels, modelCatalog.data, selectedModelRef]);
+	}, [
+		resolvableModels,
+		modelCatalog.data,
+		selectedModelRef,
+		modelPreference.settled,
+		modelPreference.modelRef,
+	]);
 	const selectedModelLabel =
 		resolvableModels.find((model) => model.ref === selectedModelRef)?.label ??
 		selectedModelRef ??
@@ -2759,6 +2780,7 @@ export function ChatThread({
 									selectedRef={selectedModelRef}
 									onSelect={(ref) => {
 										setSelectedModelRef(ref);
+										modelPreference.save(ref);
 										// The refusal is re-derived from the new selection;
 										// the stale one must not outlive it.
 										setAttachmentError(null);

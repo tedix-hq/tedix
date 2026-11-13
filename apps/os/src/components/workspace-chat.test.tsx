@@ -24,6 +24,15 @@ vi.mock("@/lib/workspace-chat-notify", async (original) => ({
 	...(await original<typeof import("@/lib/workspace-chat-notify")>()),
 	notifyChatPosted,
 }));
+vi.mock("@/lib/use-chat-model-preference", async (original) => ({
+	...(await original<typeof import("@/lib/use-chat-model-preference")>()),
+	// Covered in workspace-chat-model.test.tsx; these tests make no request.
+	useChatModelPreference: () => ({
+		modelRef: null,
+		settled: true,
+		save: () => {},
+	}),
+}));
 import { WorkspaceChat } from "./workspace-chat";
 import { osQueryKeys, canvasOutputsQueryOptions } from "@/lib/os-query-options";
 

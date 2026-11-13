@@ -158,6 +158,34 @@ describe("preferences", () => {
 		).toBeUndefined();
 	});
 
+	it("returns a person's chat model to any of their sessions and to nobody else", async () => {
+		const ref = "azure-openai/gpt-5.6-terra";
+		await client(
+			userContext({ env, organizationId: ORG_1, userId: "pine" }),
+		).updatePreferences({
+			expectedRevision: 0,
+			preferences: {
+				...DEFAULT_OS_USER_PREFERENCES,
+				conversationModelRef: ref,
+			},
+		});
+		// A second session for the same person shares nothing but the store.
+		expect(
+			(
+				await client(
+					userContext({ env, organizationId: ORG_1, userId: "pine" }),
+				).getPreferences({})
+			).preferences.conversationModelRef,
+		).toBe(ref);
+		expect(
+			(
+				await client(
+					userContext({ env, organizationId: ORG_1, userId: "birch" }),
+				).getPreferences({})
+			).preferences.conversationModelRef,
+		).toBeNull();
+	});
+
 	it("reports defaults as `default` at revision 0 before anything is stored", async () => {
 		const result = await client(
 			userContext({ env, organizationId: ORG_1 }),
