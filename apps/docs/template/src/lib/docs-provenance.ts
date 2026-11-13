@@ -17,6 +17,8 @@ export interface DocsProvenance {
 	pages: ReadonlyMap<string, ProvenancePage>;
 }
 
+// Local copy: this file is copied into the docs image, which cannot import
+// workspace packages such as @tedix/api-contract.
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }

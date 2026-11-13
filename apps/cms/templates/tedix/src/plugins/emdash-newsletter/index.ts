@@ -163,6 +163,8 @@ async function contentUrl(
 	return ctx.url(`/${collection}/${safeSlug}/`);
 }
 
+// Local copy: this template ships to tenant sites, which cannot import
+// workspace packages such as @tedix/chat-transport.
 function escapeHtml(s: unknown): string {
 	return String(s)
 		.replace(/&/g, "&amp;")
