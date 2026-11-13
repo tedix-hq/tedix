@@ -7,7 +7,7 @@
 
 import { DEFAULT_STANDING_OBJECTIVE_GATE_CONFIG } from "@tedix/api-contract/contracts/tedi-objectives";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, getColumns, inArray } from "drizzle-orm";
 import type { DbClient } from "../client";
 import type { DbQueryClient } from "../query-client";
 import {
@@ -26,6 +26,10 @@ import {
 	tediTasks,
 } from "../schema/tedi-objectives";
 
+// The column remains in storage until its historical values can be reviewed.
+const { linkedDomains: _linkedDomains, ...objectiveColumns } =
+	getColumns(tediObjectives);
+
 // ============================================================================
 // Types — Objectives
 // ============================================================================
@@ -43,7 +47,6 @@ export interface CreateObjectiveParams {
 	type: ObjectiveType;
 	riskLevel?: ObjectiveRiskLevel;
 	priority?: number;
-	linkedDomains?: string[];
 	gateConfig?: Record<string, JsonValue>;
 	budgetConfig?: Record<string, JsonValue>;
 	createdAt: string;
@@ -69,7 +72,6 @@ export interface UpdateObjectiveParams {
 	status?: ObjectiveStatus;
 	riskLevel?: ObjectiveRiskLevel;
 	priority?: number;
-	linkedDomains?: string[];
 	gateConfig?: Record<string, JsonValue>;
 	budgetConfig?: Record<string, JsonValue>;
 	progress?: Record<string, JsonValue>;
@@ -151,7 +153,7 @@ export async function listObjectives(
 	const whereClause = and(...conditions);
 
 	const data = await db
-		.select()
+		.select(objectiveColumns)
 		.from(tediObjectives)
 		.where(whereClause)
 		.orderBy(tediObjectives.priority, desc(tediObjectives.createdAt))
@@ -183,7 +185,7 @@ export async function getObjectiveById(
 	id: string,
 ): Promise<TediObjective | undefined> {
 	const results = await db
-		.select()
+		.select(objectiveColumns)
 		.from(tediObjectives)
 		.where(eq(tediObjectives.id, id));
 	return results[0];
@@ -255,12 +257,11 @@ export async function createObjective(
 			type: data.type,
 			riskLevel: data.riskLevel ?? "medium",
 			priority: data.priority ?? 0,
-			linkedDomains: data.linkedDomains ?? [],
 			gateConfig,
 			budgetConfig: data.budgetConfig ?? {},
 			createdAt: data.createdAt,
 		})
-		.returning();
+		.returning(objectiveColumns);
 	return results[0]!;
 }
 
@@ -283,8 +284,6 @@ export async function updateObjective(
 	if (params.status !== undefined) set.status = params.status;
 	if (params.riskLevel !== undefined) set.riskLevel = params.riskLevel;
 	if (params.priority !== undefined) set.priority = params.priority;
-	if (params.linkedDomains !== undefined)
-		set.linkedDomains = params.linkedDomains;
 	if (params.gateConfig !== undefined) set.gateConfig = params.gateConfig;
 	if (params.budgetConfig !== undefined) set.budgetConfig = params.budgetConfig;
 	if (params.progress !== undefined) set.progress = params.progress;
@@ -294,7 +293,7 @@ export async function updateObjective(
 		.update(tediObjectives)
 		.set(set)
 		.where(eq(tediObjectives.id, id))
-		.returning();
+		.returning(objectiveColumns);
 	return results[0];
 }
 
@@ -314,7 +313,7 @@ export async function deleteObjective(
 			completedAt: retiredAt,
 		})
 		.where(eq(tediObjectives.id, id))
-		.returning();
+		.returning(objectiveColumns);
 	return results.length > 0;
 }
 

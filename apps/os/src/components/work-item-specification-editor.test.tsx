@@ -43,7 +43,6 @@ const item: WorkItem = {
 	stewardId: null,
 	reviewerType: null,
 	reviewerId: null,
-	reviewerLeaseExpiresAt: null,
 	dueDate: null,
 	deadline: null,
 	startAt: null,

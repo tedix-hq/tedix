@@ -115,7 +115,7 @@ export const tediObjectives = sqliteTable(
 		/** Lower = higher priority */
 		priority: integer("priority").notNull().default(0),
 
-		/** JSON array: ["auth", "mcp", "memory"] */
+		/** Retired domain labels; retained only for historical data review. */
 		linkedDomains: text("linked_domains", { mode: "json" })
 			.$type<string[]>()
 			.default([]),
@@ -153,8 +153,14 @@ export const tediObjectives = sqliteTable(
 	],
 );
 
-export type TediObjective = typeof tediObjectives.$inferSelect;
-export type NewTediObjective = typeof tediObjectives.$inferInsert;
+export type TediObjective = Omit<
+	typeof tediObjectives.$inferSelect,
+	"linkedDomains"
+>;
+export type NewTediObjective = Omit<
+	typeof tediObjectives.$inferInsert,
+	"linkedDomains"
+>;
 
 export const tediTasks = sqliteTable(
 	"tedi_tasks",

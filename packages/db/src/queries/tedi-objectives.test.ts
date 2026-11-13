@@ -6,6 +6,8 @@ import {
 	createObjective,
 	deleteObjective,
 	getObjectiveById,
+	listObjectives,
+	updateObjective,
 } from "./tedi-objectives";
 
 function fixture() {
@@ -51,8 +53,41 @@ function fixture() {
 			completed_at TEXT
 		);
 	`);
-	return { db: createDbClient(createD1Facade(sqlite)) };
+	return { db: createDbClient(createD1Facade(sqlite)), sqlite };
 }
+
+it("omits retired domains from reads and writes without changing stored history", async () => {
+	const { db, sqlite } = fixture();
+	const created = await createObjective(db, {
+		id: "old-domains",
+		tediId: "tedi-1",
+		orgId: "org-1",
+		title: "Current objective",
+		type: "one_time",
+		createdAt: "2026-11-01T00:00:00.000Z",
+	});
+	expect(created).not.toHaveProperty("linkedDomains");
+	sqlite.exec(
+		`UPDATE tedi_objectives SET linked_domains = '["historical"]' WHERE id = 'old-domains'`,
+	);
+	const updated = await updateObjective(db, created.id, {
+		title: "Updated objective",
+		updatedAt: "2026-11-02T00:00:00.000Z",
+	});
+	expect(updated).not.toHaveProperty("linkedDomains");
+	expect(await getObjectiveById(db, created.id)).not.toHaveProperty(
+		"linkedDomains",
+	);
+	const page = await listObjectives(db, { orgId: "org-1" });
+	expect(page.total).toBe(1);
+	expect(page.data[0]).not.toHaveProperty("linkedDomains");
+	expect(
+		sqlite
+			.prepare("SELECT linked_domains FROM tedi_objectives WHERE id = ?")
+			.get(created.id)?.linked_domains,
+	).toBe('["historical"]');
+	sqlite.close();
+});
 
 const baseParams = {
 	tediId: "tedi-1",

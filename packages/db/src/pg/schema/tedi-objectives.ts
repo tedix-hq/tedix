@@ -115,7 +115,7 @@ export const tediObjectives = pgTable(
 		/** Lower = higher priority */
 		priority: integer("priority").notNull().default(0),
 
-		/** JSON array: ["auth", "mcp", "memory"] */
+		/** Retired domain labels; retained only for historical data review. */
 		linkedDomains: jsonb("linked_domains").$type<string[]>().default([]),
 
 		/** JSON: { gateType, threshold, firstN } */
@@ -149,8 +149,14 @@ export const tediObjectives = pgTable(
 	],
 );
 
-export type TediObjective = typeof tediObjectives.$inferSelect;
-export type NewTediObjective = typeof tediObjectives.$inferInsert;
+export type TediObjective = Omit<
+	typeof tediObjectives.$inferSelect,
+	"linkedDomains"
+>;
+export type NewTediObjective = Omit<
+	typeof tediObjectives.$inferInsert,
+	"linkedDomains"
+>;
 
 export const tediTasks = pgTable(
 	"tedi_tasks",

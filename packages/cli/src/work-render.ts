@@ -139,12 +139,8 @@ export function renderContextBrief(
 		)} · owner ${shortId(item.accountableOwnerId)} · steward ${shortId(item.stewardId)}`,
 	);
 	if (item.reviewerId) {
-		const lease =
-			typeof item.reviewerLeaseExpiresAt === "string"
-				? item.reviewerLeaseExpiresAt
-				: "no lease";
 		console.log(
-			`  reviewer ${String(item.reviewerType ?? "?")}:${shortId(item.reviewerId)} · lease ${lease}`,
+			`  reviewer ${String(item.reviewerType ?? "?")}:${shortId(item.reviewerId)}`,
 		);
 	}
 	if (typeof item.description === "string" && item.description.trim()) {
@@ -207,12 +203,7 @@ export function contextBriefJson(value: Record<string, unknown>): unknown {
 		accountableOwnerId: item.accountableOwnerId ?? null,
 		stewardId: item.stewardId ?? null,
 		reviewerId: item.reviewerId ?? null,
-		// Read-only now. Nothing binds or enforces a reviewer since the review
-		// plane was retired (decisions/minimal-gates-over-pre-proof.md);
-		// these three are surfaced so an operator reading a Work Item accepted
-		// before that still sees what its stored row says.
 		reviewerType: item.reviewerType ?? null,
-		reviewerLeaseExpiresAt: item.reviewerLeaseExpiresAt ?? null,
 		description:
 			typeof item.description === "string" ? item.description.trim() : null,
 		acceptanceContract: item.acceptanceContract ?? null,

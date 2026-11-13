@@ -256,6 +256,7 @@ export const workItems = sqliteTable(
 			enum: WORK_ITEM_ACCOUNTABILITY_PRINCIPAL_TYPE_VALUES,
 		}),
 		reviewerId: text("reviewer_id"),
+		/** Retired reviewer lease; retained only for historical data review. */
 		reviewerLeaseExpiresAt: text("reviewer_lease_expires_at"),
 		objectiveId: text("objective_id").references(() => tediObjectives.id, {
 			onDelete: "set null",
@@ -353,8 +354,14 @@ export const workItems = sqliteTable(
 	],
 );
 
-export type WorkItem = typeof workItems.$inferSelect;
-export type NewWorkItem = typeof workItems.$inferInsert;
+export type WorkItem = Omit<
+	typeof workItems.$inferSelect,
+	"reviewerLeaseExpiresAt"
+>;
+export type NewWorkItem = Omit<
+	typeof workItems.$inferInsert,
+	"reviewerLeaseExpiresAt"
+>;
 
 export const workItemComments = sqliteTable(
 	"work_item_comments",

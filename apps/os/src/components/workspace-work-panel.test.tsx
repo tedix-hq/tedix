@@ -42,7 +42,6 @@ const baseItem: WorkItem = {
 	stewardId: "operator-1",
 	reviewerType: "user",
 	reviewerId: "reviewer-1",
-	reviewerLeaseExpiresAt: "2026-08-21T00:00:00.000Z",
 	dueDate: null,
 	deadline: null,
 	startAt: null,

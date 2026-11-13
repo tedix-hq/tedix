@@ -22,6 +22,7 @@ import {
 	contextBriefJson,
 	filterEvidenceRows,
 	principalLabel,
+	renderContextBrief,
 	renderWorkAttemptsTable,
 	renderWorkEventsTable,
 	renderWorkEvidenceTable,
@@ -2401,36 +2402,51 @@ describe("settle carries verified commits", () => {
 	});
 });
 
-describe("work context brief surfaces the reviewer lease", () => {
-	const item = {
-		id: "5eed0029-0000-4000-8000-000000000029",
-		title: "Repair the smoke",
-		disposition: "accepted",
-		reviewerType: "tedi",
-		reviewerId: "5eed0042-0000-4000-8000-000000000042",
-		reviewerLeaseExpiresAt: "2026-09-05T02:48:05.717Z",
-	};
-
-	test("--json carries the lease expiry, not just the reviewer id", () => {
-		// The board refuses reviewer reassignment "until the current lease
-		// expires". Without the expiry a caller learns only that it cannot act,
-		// never when it may retry — a four-hour misestimate in practice.
-		const brief = contextBriefJson({ workItem: item }) as Record<
-			string,
-			unknown
-		>;
-		expect(brief.reviewerId).toBe(item.reviewerId);
-		expect(brief.reviewerType).toBe("tedi");
-		expect(brief.reviewerLeaseExpiresAt).toBe("2026-09-05T02:48:05.717Z");
+describe("work context brief omits retired review leases", () => {
+	test("human output retains the reviewer without a historical lease", () => {
+		const lines: string[] = [];
+		const prior = console.log;
+		console.log = (...values: unknown[]) =>
+			lines.push(values.map(String).join(" "));
+		try {
+			renderContextBrief(
+				{
+					workItem: {
+						id: "work",
+						title: "Current work",
+						reviewerType: "tedi",
+						reviewerId: "retired-reviewer",
+						reviewerLeaseExpiresAt: "2026-09-05T02:48:05.717Z",
+					},
+				},
+				{ enabled: false },
+			);
+		} finally {
+			console.log = prior;
+		}
+		expect(lines.join("\n")).toContain("Current work");
+		expect(lines.join("\n")).toContain("reviewer tedi:retired-");
+		expect(lines.join("\n")).not.toMatch(/lease|2026-09-05/);
 	});
-
-	test("an unassigned reviewer yields nulls rather than missing keys", () => {
-		const brief = contextBriefJson({ workItem: { id: "x" } }) as Record<
-			string,
-			unknown
-		>;
-		expect(brief.reviewerType).toBeNull();
-		expect(brief.reviewerLeaseExpiresAt).toBeNull();
+	test.each([
+		{ id: "work" },
+		{
+			id: "work",
+			reviewerType: "tedi",
+			reviewerId: "retired-reviewer",
+			reviewerLeaseExpiresAt: "2026-09-05T02:48:05.717Z",
+		},
+	])("--json retains assignments without a retired lease for %j", (item) => {
+		const brief = contextBriefJson({ workItem: item });
+		expect(brief).toHaveProperty(
+			"reviewerId",
+			"reviewerId" in item ? item.reviewerId : null,
+		);
+		expect(brief).toHaveProperty(
+			"reviewerType",
+			"reviewerType" in item ? item.reviewerType : null,
+		);
+		expect(brief).not.toHaveProperty("reviewerLeaseExpiresAt");
 	});
 
 	test("carries the project brief so a fresh session need not search", () => {

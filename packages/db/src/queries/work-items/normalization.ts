@@ -21,9 +21,15 @@ export function normalizeWorkItemAcceptanceContract(
 }
 
 /** Normalize SQLite JSON scalar encodings before rows cross the DB boundary. */
-export function normalizeWorkItemRow(item: WorkItem): WorkItem {
+export function normalizeWorkItemRow(
+	item: WorkItem & {
+		reviewerLeaseExpiresAt?: unknown;
+	},
+): WorkItem {
+	// Keep historical leases in storage without exposing them as current authority.
+	const { reviewerLeaseExpiresAt: _reviewerLeaseExpiresAt, ...current } = item;
 	return {
-		...item,
+		...current,
 		acceptanceContract: normalizeWorkItemAcceptanceContract(
 			item.acceptanceContract,
 		),
