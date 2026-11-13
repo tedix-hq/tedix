@@ -1,3 +1,5 @@
+import { osAudit } from "../os-audit";
+import { ORGANIZATION_SETTINGS_AUDIT } from "../settings-audit";
 import { implement, ORPCError } from "@orpc/server";
 import { organizationsContract } from "@tedix/api-contract/contracts/organizations";
 import { createDbClient } from "@tedix/db/client";
@@ -33,7 +35,7 @@ import {
 } from "../../services/organization-custom-hostnames";
 
 const os = implement(organizationsContract).$context<BaseContext>();
-const authed = os.use(withAuth);
+const authed = os.use(withAuth).use(osAudit(ORGANIZATION_SETTINGS_AUDIT));
 function primaryDb(context: BaseContext) {
 	return context.env.DB ? createDbClient(context.env.DB) : context.db;
 }

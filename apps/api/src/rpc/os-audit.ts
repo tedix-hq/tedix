@@ -1,5 +1,5 @@
 /**
- * Audit emission for the Tedix OS domains.
+ * Audit emission for Tedix OS and organization settings.
  *
  * Workspace, gadget, output, blueprint, collaboration, share and approval-rule
  * lifecycle are governance events: "who archived this workspace", "who minted
@@ -51,11 +51,16 @@ type Fields = Record<string, unknown>;
 export interface OsAuditFrame {
 	readonly input: Fields;
 	readonly output: Fields;
+	readonly context?: BaseContext;
 }
 
 export interface OsAuditSpec {
 	/** `os.{noun}.{verb_past}` — the repo's dominant audit action dialect. */
 	readonly action: string;
+	/** Target already authorized by the successful handler (platform callers may name another org). */
+	readonly organizationId?: (
+		frame: OsAuditFrame,
+	) => string | undefined | Promise<string | undefined>;
 	/** Exact string `audit.get_audit_by_resource` matches on. */
 	readonly resourceType: string;
 	/**
@@ -989,8 +994,7 @@ async function recordOsAuditRows(
 		// audit/query graph off any path that merely imports this module.
 		const [{ auditActor, emitAuditEvent }, { requireOrgId }] =
 			await Promise.all([import("./audit-helpers"), import("./org-scope")]);
-		// Same source the handlers use — never caller input.
-		const organizationId = requireOrgId(context);
+		// Actor attribution always comes from the authenticated context.
 		const actor = auditActor(context);
 		const ipAddress = context.headers.get("CF-Connecting-IP");
 		const userAgent = context.headers.get("User-Agent");
@@ -1013,7 +1017,8 @@ async function recordOsAuditRows(
 				// is an independent governance fact.
 				try {
 					await emitAuditEvent(context.db, {
-						organizationId,
+						organizationId:
+							(await spec.organizationId?.(frame)) ?? requireOrgId(context),
 						actorId: actor.actorId,
 						actorType: actor.actorType,
 						action: spec.action,
@@ -1071,6 +1076,7 @@ export function osAudit(registry: OsAuditRegistry) {
 				await recordOsAuditRows(options.context, specs, {
 					input: fields(input),
 					output: fields((result as { output?: unknown }).output),
+					context: options.context,
 				});
 			}
 			return result;

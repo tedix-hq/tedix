@@ -1,3 +1,4 @@
+import { decodeAuditCursor } from "@tedix/api-contract/schemas/audit-cursor";
 import { createRouterClient } from "@orpc/server";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "../orpc";
@@ -69,6 +70,7 @@ describe("audit router permissions", () => {
 			data: [],
 			pagination: {
 				hasMore: false,
+				nextCursor: null,
 				limit: 50,
 				offset: 0,
 				total: 0,
@@ -78,7 +80,7 @@ describe("audit router permissions", () => {
 			expect.anything(),
 			expect.objectContaining({
 				action: "mcp.code.execute",
-				limit: 50,
+				limit: 51,
 				offset: 0,
 				organizationId: ORG_ID,
 			}),
@@ -92,5 +94,47 @@ describe("audit router permissions", () => {
 			"Required: analytics:read",
 		);
 		expect(mocks.searchAuditEvents).not.toHaveBeenCalled();
+	});
+});
+
+it("returns a continuation cursor from the last visible row and ignores offset with a cursor", async () => {
+	const client = createClient(createContext(["analytics:read"]));
+	const row = {
+		id: "event-b",
+		organizationId: ORG_ID,
+		actorId: "user-1",
+		actorType: "user",
+		action: "organization.secret.set",
+		resourceType: "organization_secret",
+		resourceId: "secret-a",
+		metadata: null,
+		ipAddress: null,
+		userAgent: null,
+		timestamp: new Date("2026-11-01T00:00:00Z"),
+	};
+	mocks.searchAuditEvents.mockResolvedValue({
+		data: [row, { ...row, id: "event-a" }],
+		total: 2,
+	});
+	const first = await client.search({ limit: 1 });
+	expect(first.data.map((event) => event.id)).toEqual(["event-b"]);
+	expect(first.pagination.hasMore).toBe(true);
+	const cursor = first.pagination.nextCursor!;
+	expect(decodeAuditCursor(cursor)).toEqual({
+		timestamp: row.timestamp.toISOString(),
+		id: "event-b",
+	});
+	await client.search({ limit: 1, cursor, offset: 999 });
+	expect(mocks.searchAuditEvents).toHaveBeenLastCalledWith(
+		expect.anything(),
+		expect.objectContaining({
+			limit: 2,
+			offset: 0,
+			cursor: { timestamp: row.timestamp.toISOString(), id: "event-b" },
+			organizationId: ORG_ID,
+		}),
+	);
+	await expect(client.search({ cursor: "invalid" })).rejects.toMatchObject({
+		code: "BAD_REQUEST",
 	});
 });

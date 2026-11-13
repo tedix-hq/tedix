@@ -1,3 +1,4 @@
+import { auditEvents } from "@tedix/db/schema/audit-events";
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
@@ -17,7 +18,7 @@ function setup() {
 	const sqlite = new DatabaseSync(":memory:");
 	databases.push(sqlite);
 	sqlite.exec("PRAGMA foreign_keys = OFF;");
-	sqlite.exec(schemaDdl(userConfigs, osWorkspaces));
+	sqlite.exec(schemaDdl(userConfigs, osWorkspaces, auditEvents));
 	const db = createDbClient(createD1Facade(sqlite));
 	const client = (organizationId = "org-a", userId = "person-a") =>
 		createRouterClient(webPushRouter, {

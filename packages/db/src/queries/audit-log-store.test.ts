@@ -237,3 +237,31 @@ describe("optional audit log store", () => {
 		).toEqual([]);
 	});
 });
+
+it("applies the same tied timestamp cursor in both stores before merging", async () => {
+	const main = store();
+	const logs = store();
+	try {
+		for (const [db, ids] of [
+			[main.db, ["d", "b"]],
+			[logs.db, ["c", "a"]],
+		] as const) {
+			for (const id of ids)
+				await insertAuditEvent(db, {
+					...event,
+					id,
+					occurredAt: new Date("2026-01-01T00:00:00Z"),
+				});
+		}
+		configureLogStore(main.db, { LOGS_DB: logs.binding });
+		const result = await searchAuditEvents(main.db, {
+			organizationId: event.organizationId,
+			limit: 2,
+			cursor: { timestamp: "2026-01-01T00:00:00Z", id: "d" },
+		});
+		expect(result.data.map((row) => row.id)).toEqual(["c", "b"]);
+	} finally {
+		main.sqlite.close();
+		logs.sqlite.close();
+	}
+});

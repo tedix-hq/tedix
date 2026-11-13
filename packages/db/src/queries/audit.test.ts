@@ -285,3 +285,39 @@ describe("compact MCP telemetry metadata", () => {
 		expect(activity?.subjectUserId).toBe("someone-else");
 	});
 });
+
+describe("audit cursors", () => {
+	it("does not repeat or skip tied timestamps when a new event arrives between pages", async () => {
+		await seedHistory();
+		const options = {
+			organizationId: event.organizationId,
+			action: event.action,
+			resourceType: event.resourceType,
+			resourceId: event.resourceId ?? undefined,
+			actorId: event.actorId,
+			limit: 2,
+		};
+		const first = await searchAuditEvents(db, options);
+		expect(first.data.map((row) => row.id)).toEqual(["a-new", "tie-d"]);
+		await insertAuditEvent(db, {
+			...event,
+			id: "late-arrival",
+			occurredAt: newerAt,
+		});
+		const cursor = {
+			timestamp: first.data[1]!.timestamp.toISOString(),
+			id: first.data[1]!.id,
+		};
+		const second = await searchAuditEvents(db, { ...options, cursor });
+		expect(second.data.map((row) => row.id)).toEqual(["tie-c", "tie-b"]);
+		const third = await searchAuditEvents(db, {
+			...options,
+			cursor: {
+				timestamp: second.data[1]!.timestamp.toISOString(),
+				id: second.data[1]!.id,
+			},
+		});
+		expect(third.data.map((row) => row.id)).toEqual(["tie-a", "z-old"]);
+		expect(second.total).toBe(7);
+	});
+});

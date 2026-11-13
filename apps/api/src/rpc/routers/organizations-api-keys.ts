@@ -1,4 +1,6 @@
 /** API key list/create/revoke/delete/rotate/expiring procedures. */
+import { osAudit } from "../os-audit";
+import { ORGANIZATION_SETTINGS_AUDIT } from "../settings-audit";
 import { PLATFORM_ONLY_API_KEY_SCOPES } from "@tedix/api-contract/schemas/organization";
 import type { JWTPayload } from "@tedix/auth/types";
 import { isPlatformPrincipal } from "@tedix/auth/types";
@@ -19,11 +21,15 @@ import {
 	requireOrganizationAccess,
 	requireAdminOrOwner,
 } from "./organizations-base";
-import { authedOrganizationsOs } from "./organizations-base";
+import { authedOrganizationsOs as baseAuthedOrganizationsOs } from "./organizations-base";
 
 /**
  * Contract-based listApiKeys procedure implementation
  */
+const authedOrganizationsOs = baseAuthedOrganizationsOs.use(
+	osAudit(ORGANIZATION_SETTINGS_AUDIT),
+);
+
 export const listApiKeysContract = authedOrganizationsOs.listApiKeys
 	.use(AUTHZ.apiKeysAdmin)
 	.handler(async ({ input, context }) => {

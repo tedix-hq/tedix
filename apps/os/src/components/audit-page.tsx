@@ -1,3 +1,4 @@
+import { SETTINGS_AUDIT_ACTIONS } from "@tedix/api-contract/schemas/audit-actions";
 import {
 	ArrowClockwise,
 	CaretDown,
@@ -6,7 +7,7 @@ import {
 } from "@phosphor-icons/react";
 import { keepPreviousData, useMutation, useQuery } from "@tanstack/react-query";
 import { getOsSurface } from "@/lib/os-navigation";
-import { useMemo, useState, useContext } from "react";
+import { useId, useMemo, useState, useContext } from "react";
 import * as z from "zod";
 import { AUDIT_EXPORT_TRUNCATED_FILENAME } from "@tedix/api-contract/schemas/audit";
 import { FormInput } from "@/components/forms/form-input";
@@ -52,7 +53,6 @@ import {
 } from "@/components/kumo/empty";
 import { FormField } from "@/components/kumo/forms/form-field";
 import { useZodForm } from "@/components/kumo/forms/use-zod-form";
-import { Pagination } from "@/components/kumo/pagination";
 import {
 	Table,
 	TableBody,
@@ -582,6 +582,7 @@ function AuditFilterForm({
 	onApply: (filters: { action: string; resourceType: string }) => void;
 	onClear: () => void;
 }) {
+	const actionListId = useId();
 	const form = useZodForm({
 		schema: z.object({
 			action: z.string().trim(),
@@ -617,10 +618,16 @@ function AuditFilterForm({
 						<FormInput
 							field={field}
 							{...meta}
-							placeholder="e.g. record_skill"
+							placeholder="Choose or type an action"
+							list={actionListId}
 						/>
 					)}
 				</FormField>
+				<datalist id={actionListId}>
+					{Object.values(SETTINGS_AUDIT_ACTIONS).map((action) => (
+						<option key={action} value={action} />
+					))}
+				</datalist>
 				<FormField form={form} name="resourceType" label="Resource type">
 					{(field, meta) => (
 						<FormInput
@@ -745,7 +752,7 @@ export function AuditPage({
 	// of the facet values (resourceType is an open string in the contract).
 	const events = useQuery(auditSearchQueryOptions({ limit: AUDIT_PAGE_SIZE }));
 
-	// Filtering and paging are server-side (contract filters + offset), so a
+	// Filtering and paging are server-side (contract filters + cursor), so a
 	// narrowed view surfaces events beyond the first unfiltered page. The
 	// input-derived key keeps every filter/page combination a distinct cache
 	// entry; keepPreviousData holds the current rows while the next page loads.
@@ -808,7 +815,11 @@ export function AuditPage({
 								aria-label="Resource type"
 								value={facet}
 								onValueChange={(value) =>
-									onSearchChange({ resourceType: value as string, page: 1 })
+									onSearchChange({
+										resourceType: value as string,
+										page: 1,
+										cursors: [],
+									})
 								}
 								className="shrink-0"
 								tabs={[
@@ -829,13 +840,14 @@ export function AuditPage({
 					appliedAction={search.action}
 					appliedResourceType={search.resourceType}
 					onApply={({ action, resourceType }) =>
-						onSearchChange({ action, resourceType, page: 1 })
+						onSearchChange({ action, resourceType, page: 1, cursors: [] })
 					}
 					onClear={() =>
 						onSearchChange({
 							action: "",
 							resourceType: AUDIT_ALL_RESOURCES,
 							page: 1,
+							cursors: [],
 						})
 					}
 				/>
@@ -855,43 +867,70 @@ export function AuditPage({
 				{activeQuery.data && activeQuery.data.data.length === 0 && (
 					<AuditEmpty filtered={filtered} />
 				)}
-				{activeQuery.data && activeQuery.data.data.length > 0 && (
-					<>
-						<div aria-busy={activeQuery.isFetching || undefined}>
-							<AuditEventTable
-								events={activeQuery.data.data}
-								tediNames={tediNames}
-								onInspect={setInspectedEvent}
-							/>
-							<Collection aria-label="Audit events" className="lg:hidden">
-								{activeQuery.data.data.map((event) => (
-									<AuditEventRow
-										key={event.id}
-										event={event}
-										tediNames={tediNames}
-										onInspect={setInspectedEvent}
-									/>
-								))}
-							</Collection>
-						</div>
-						{activeQuery.data.pagination.total > AUDIT_PAGE_SIZE && (
-							<Pagination
-								className="flex-col items-stretch gap-3 border-kumo-hairline border-t pt-3 sm:flex-row sm:items-center"
-								page={search.page}
-								perPage={AUDIT_PAGE_SIZE}
-								totalCount={activeQuery.data.pagination.total}
-								setPage={(nextPage) => onSearchChange({ page: nextPage })}
-							>
-								<Pagination.Info>
-									{({ totalCount }) =>
-										`${formatCount(totalCount ?? 0)} events · Page ${formatCount(search.page)}`
-									}
-								</Pagination.Info>
-								<Pagination.Controls controls="simple" />
-							</Pagination>
-						)}
-					</>
-				)}
+				{activeQuery.data &&
+					(activeQuery.data.data.length > 0 || search.page > 1) && (
+						<>
+							<div aria-busy={activeQuery.isFetching || undefined}>
+								<AuditEventTable
+									events={activeQuery.data.data}
+									tediNames={tediNames}
+									onInspect={setInspectedEvent}
+								/>
+								<Collection aria-label="Audit events" className="lg:hidden">
+									{activeQuery.data.data.map((event) => (
+										<AuditEventRow
+											key={event.id}
+											event={event}
+											tediNames={tediNames}
+											onInspect={setInspectedEvent}
+										/>
+									))}
+								</Collection>
+							</div>
+							{(search.page > 1 || activeQuery.data.pagination.hasMore) && (
+								<nav
+									aria-label="Audit pages"
+									className="flex items-center justify-between gap-3 border-kumo-hairline border-t pt-3"
+								>
+									<Text role="caption">
+										{formatCount(activeQuery.data.pagination.total)} events ·
+										Page {formatCount(search.page)}
+									</Text>
+									<div className="flex gap-2">
+										<Button
+											variant="outline"
+											disabled={search.page <= 1 || activeQuery.isFetching}
+											onClick={() =>
+												onSearchChange({
+													page: search.page - 1,
+													cursors: search.cursors?.slice(0, -1) ?? [],
+												})
+											}
+										>
+											Previous
+										</Button>
+										<Button
+											variant="outline"
+											disabled={
+												!activeQuery.data.pagination.nextCursor ||
+												activeQuery.isFetching
+											}
+											onClick={() => {
+												const cursor = activeQuery.data?.pagination.nextCursor;
+												if (cursor)
+													onSearchChange({
+														page: search.page + 1,
+														cursors: [...(search.cursors ?? []), cursor],
+													});
+											}}
+										>
+											Next
+										</Button>
+									</div>
+								</nav>
+							)}
+						</>
+					)}
 			</section>
 			<Dialog
 				open={inspectedEvent !== null}

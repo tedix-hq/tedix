@@ -1,3 +1,5 @@
+import { osAudit } from "../os-audit";
+import { ORGANIZATION_SETTINGS_AUDIT } from "../settings-audit";
 import { createDbClient } from "@tedix/db/client";
 import { implement, ORPCError } from "@orpc/server";
 import { organizationsContract } from "@tedix/api-contract/contracts/organizations";
@@ -18,9 +20,11 @@ function primaryResidencyDb(context: BaseContext) {
 	return context.env.DB ? createDbClient(context.env.DB) : context.db;
 }
 
-const os = implement(organizationsContract).$context<BaseContext>();
-export const getDataResidency = os.getDataResidency
+const os = implement(organizationsContract)
+	.$context<BaseContext>()
 	.use(withAuth)
+	.use(osAudit(ORGANIZATION_SETTINGS_AUDIT));
+export const getDataResidency = os.getDataResidency
 	.use(AUTHZ.settingsRead)
 	.handler(async ({ context }) => {
 		const row = await getOrganizationResidencyPolicy(
@@ -37,7 +41,6 @@ export const getDataResidency = os.getDataResidency
 		);
 	});
 export const setDataResidency = os.setDataResidency
-	.use(withAuth)
 	.use(AUTHZ.settingsWrite)
 	.handler(async ({ input, context }) => {
 		const organizationId = requireOrgId(context);
@@ -84,14 +87,12 @@ export const setDataResidency = os.setDataResidency
 		}
 	});
 export const listResidencyProviderCatalog = os.listResidencyProviderCatalog
-	.use(withAuth)
 	.use(AUTHZ.platformAdmin)
 	.handler(({ context }) =>
 		listResidencyProviders(primaryResidencyDb(context)),
 	);
 export const publishResidencyProviderVersion =
 	os.publishResidencyProviderVersion
-		.use(withAuth)
 		.use(AUTHZ.platformAdmin)
 		.handler(({ context, input }) => {
 			const actorId = context.userId ?? context.user?.sub ?? context.apiKey?.id;

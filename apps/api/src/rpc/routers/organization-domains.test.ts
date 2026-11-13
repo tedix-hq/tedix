@@ -1,3 +1,4 @@
+import { auditEvents } from "@tedix/db/schema/audit-events";
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
@@ -84,7 +85,7 @@ function client(ctx = context()) {
 beforeEach(() => {
 	vi.resetAllMocks();
 	sqlite = new DatabaseSync(":memory:");
-	sqlite.exec(schemaDdl(organizations, cmsDomainClaims));
+	sqlite.exec(schemaDdl(organizations, cmsDomainClaims, auditEvents));
 	sqlite.exec(`CREATE TABLE cms_sites (id TEXT PRIMARY KEY, custom_domain TEXT);
 	INSERT INTO organizations (id,name,slug,features) VALUES ('org-a','Alpha','alpha','{"os":true}'),('org-b','Beta','beta','{"os":true}');`);
 	mocks.member.mockResolvedValue({ status: "active", role: "owner" });
@@ -106,6 +107,20 @@ describe("owner organization domains", () => {
 		const claim = await api.beginCustomDomain({
 			hostname: "Share.Example.com.",
 		});
+		expect(
+			sqlite
+				.prepare(
+					"SELECT action, actor_id, actor_type, resource_id FROM audit_events",
+				)
+				.all(),
+		).toEqual([
+			{
+				action: "organization.domain.begun",
+				actor_id: "owner",
+				actor_type: "user",
+				resource_id: claim.claimId,
+			},
+		]);
 		expect(claim).toMatchObject({
 			hostname: "share.example.com",
 			status: "pending",

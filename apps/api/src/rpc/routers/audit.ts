@@ -1,3 +1,7 @@
+import {
+	decodeAuditCursor,
+	encodeAuditCursor,
+} from "@tedix/api-contract/schemas/audit-cursor";
 /**
  * oRPC Audit Router
  * Audit trail search and retrieval for compliance and debugging
@@ -115,7 +119,7 @@ export const searchAuditEvents = authedOs.search
 		const orgId = requireOrgId(context);
 
 		const limit = input?.limit ?? 50;
-		const offset = input?.offset ?? 0;
+		const offset = input?.cursor ? 0 : (input?.offset ?? 0);
 
 		const { data, total } = await searchAuditEventsQuery(context.db, {
 			organizationId: orgId,
@@ -125,17 +129,25 @@ export const searchAuditEvents = authedOs.search
 			resourceId: input?.resourceId,
 			startDate: input?.startDate,
 			endDate: input?.endDate,
-			limit,
+			limit: limit + 1,
 			offset,
+			cursor: input?.cursor ? decodeAuditCursor(input.cursor) : undefined,
 		});
 
 		return {
-			data: data.map(toAuditEventOutput),
+			data: data.slice(0, limit).map(toAuditEventOutput),
 			pagination: {
 				limit,
 				offset,
 				total,
-				hasMore: offset + limit < total,
+				hasMore: data.length > limit,
+				nextCursor:
+					data.length > limit && data[limit - 1]
+						? encodeAuditCursor({
+								timestamp: data[limit - 1]!.timestamp.toISOString(),
+								id: data[limit - 1]!.id,
+							})
+						: null,
 			},
 		};
 	});

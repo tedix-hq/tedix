@@ -1,3 +1,4 @@
+import { decodeAuditCursor } from "../schemas/audit-cursor";
 import "@orpc/openapi/extensions/route";
 /**
  * Audit Contract for oRPC
@@ -65,13 +66,25 @@ export const auditContract = oc
 			})
 			.input(
 				AuditSearchFiltersSchema.extend(PaginationSchema.shape)
+					.extend({
+						cursor: z
+							.string()
+							.max(2048)
+							.refine(
+								(value) => decodeAuditCursor(value) !== undefined,
+								"Invalid audit cursor",
+							)
+							.optional(),
+					})
 					.strict()
 					.optional(),
 			)
 			.output(
 				z.object({
 					data: z.array(AuditEventSchema),
-					pagination: PaginationMetaSchema,
+					pagination: PaginationMetaSchema.extend({
+						nextCursor: z.string().nullable().optional(),
+					}),
 				}),
 			),
 

@@ -1,3 +1,5 @@
+import { osAudit } from "../os-audit";
+import { WEB_PUSH_AUDIT } from "../settings-audit";
 import { implement } from "@orpc/server";
 import { webPushContract } from "@tedix/api-contract/contracts/web-push";
 import { WebPushPreferencesSchema } from "@tedix/api-contract/schemas/web-push";
@@ -18,10 +20,11 @@ import {
 } from "../orpc";
 import { requireOrgId } from "../org-scope";
 
-const os = implement(webPushContract)
-	.$context<BaseContext>()
+const webPushOs = implement(webPushContract).$context<BaseContext>();
+const os = webPushOs
 	.use(withAuth)
-	.use(AUTHZ.osRead);
+	.use(AUTHZ.osRead)
+	.use(osAudit(WEB_PUSH_AUDIT));
 function userScope(context: BaseContext) {
 	if (
 		context.authType !== "user" ||
@@ -34,7 +37,7 @@ function userScope(context: BaseContext) {
 		);
 	return { organizationId: requireOrgId(context), userId: context.userId };
 }
-export const webPushRouter = os.router({
+export const webPushRouter = webPushOs.router({
 	getStatus: os.getStatus.handler(async ({ context }) => {
 		const scope = userScope(context);
 		const keys = webPushKeys(context.env);

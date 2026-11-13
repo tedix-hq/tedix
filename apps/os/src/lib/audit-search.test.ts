@@ -1,3 +1,4 @@
+import { encodeAuditCursor } from "@tedix/api-contract/schemas/audit-cursor";
 import { describe, expect, it } from "vite-plus/test";
 import {
 	AUDIT_ALL_RESOURCES,
@@ -116,4 +117,26 @@ describe("auditExportFilters", () => {
 	it("sends no filters for the unfiltered trail", () => {
 		expect(auditExportFilters(AUDIT_DEFAULT_SEARCH)).toEqual({});
 	});
+});
+
+it("keeps cursor history in the URL, uses the last cursor and excludes it from export", () => {
+	const cursor = encodeAuditCursor({
+		timestamp: "2026-11-01T00:00:00Z",
+		id: "event-a",
+	});
+	const search = parseSearch({
+		page: 2,
+		cursors: [cursor],
+		action: "organization.secret.set",
+	});
+	expect(search.cursors).toEqual([cursor]);
+	expect(auditSearchInput(search)).toEqual({
+		limit: AUDIT_PAGE_SIZE,
+		cursor,
+		action: "organization.secret.set",
+	});
+	expect(auditExportFilters(search)).toEqual({
+		action: "organization.secret.set",
+	});
+	expect(parseSearch({ cursors: ["invalid"] }).cursors).toBeUndefined();
 });

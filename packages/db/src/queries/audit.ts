@@ -4,7 +4,7 @@
  */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import { and, desc, eq, gte, lte } from "drizzle-orm";
+import { and, desc, eq, gte, lte, lt, or } from "drizzle-orm";
 import { getLogStores, type DbClient } from "../client";
 import { auditEvents } from "../schema/audit-events";
 import {
@@ -70,6 +70,7 @@ export interface SearchAuditEventsOptions {
 	endDate?: string;
 	limit?: number;
 	offset?: number;
+	cursor?: { timestamp: string; id: string };
 }
 
 // ============================================================================
@@ -255,11 +256,24 @@ export async function searchAuditEvents(
 		conditions.push(lte(auditEvents.timestamp, new Date(options.endDate)));
 
 	const whereClause = and(...conditions);
+	const cursor = options.cursor;
+	const pageWhere = cursor
+		? and(
+				whereClause,
+				or(
+					lt(auditEvents.timestamp, new Date(cursor.timestamp)),
+					and(
+						eq(auditEvents.timestamp, new Date(cursor.timestamp)),
+						lt(auditEvents.id, cursor.id),
+					),
+				),
+			)
+		: whereClause;
 
 	const data = await db
 		.select()
 		.from(auditEvents)
-		.where(whereClause)
+		.where(pageWhere)
 		.orderBy(desc(auditEvents.timestamp), desc(auditEvents.id))
 		.limit(limit)
 		.offset(offset);

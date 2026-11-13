@@ -15,6 +15,8 @@
  * setting `tedis.tags` is the trigger, and reconcile runs separately.
  */
 
+import { osAudit } from "../os-audit";
+import { ROLE_TEMPLATES_AUDIT } from "../settings-audit";
 import { implement } from "@orpc/server";
 import { roleTemplatesContract } from "@tedix/api-contract/contracts/role-templates";
 import {
@@ -40,7 +42,7 @@ import { hasEarnedDelegationGovernanceAuthority } from "./earned-delegation-acce
 const roleTemplatesOs = implement(
 	roleTemplatesContract,
 ).$context<BaseContext>();
-const authOs = roleTemplatesOs.use(withAuth);
+const authOs = roleTemplatesOs.use(withAuth).use(osAudit(ROLE_TEMPLATES_AUDIT));
 
 /** Map a typed `RoleTemplateError` from the query layer onto an oRPC error. */
 function rethrowRoleTemplateError(error: unknown): never {

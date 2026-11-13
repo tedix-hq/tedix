@@ -249,6 +249,8 @@
 		"./schemas/ai-gateway-attribution": "./src/schemas/ai-gateway-attribution.ts",
 		"./schemas/analytics": "./src/schemas/analytics.ts",
 		"./schemas/audit": "./src/schemas/audit.ts",
+		"./schemas/audit-actions": "./src/schemas/audit-actions.ts",
+		"./schemas/audit-cursor": "./src/schemas/audit-cursor.ts",
 		"./schemas/app": "./src/schemas/app.ts",
 		"./schemas/app-reference-maintenance": "./src/schemas/app-reference-maintenance.ts",
 		"./schemas/app-gating": "./src/schemas/app-gating.ts",
