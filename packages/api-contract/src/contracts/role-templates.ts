@@ -153,6 +153,7 @@ export const roleTemplatesContract = oc
 						includeArchived: z.boolean().optional(),
 					})
 					.extend(PaginationSchema.shape)
+					.strict()
 					.optional(),
 			)
 			.output(

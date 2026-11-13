@@ -630,11 +630,14 @@ export const organizationsContract = oc
 				description: "List all API keys for an organization",
 			})
 			.input(
-				z.object({ organizationId: z.uuid() }).extend({
-					...PaginationSchema.shape,
-					status: ApiKeyStatusSchema.optional(),
-					environment: ApiKeyEnvironmentSchema.optional(),
-				}),
+				z
+					.object({ organizationId: z.uuid() })
+					.extend({
+						...PaginationSchema.shape,
+						status: ApiKeyStatusSchema.optional(),
+						environment: ApiKeyEnvironmentSchema.optional(),
+					})
+					.strict(),
 			)
 			.output(createPaginatedResponseSchema(ApiKeySchema)),
 

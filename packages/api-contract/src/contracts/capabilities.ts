@@ -222,6 +222,7 @@ export const capabilitiesContract = oc
 						parentId: z.uuid().nullable().optional(),
 					})
 					.extend(PaginationSchema.shape)
+					.strict()
 					.optional(),
 			)
 			.output(

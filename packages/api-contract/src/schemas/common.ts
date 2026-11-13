@@ -47,7 +47,7 @@ export type StockStatus = z.infer<typeof StockStatusSchema>;
  * Pagination input parameters
  * Standard pagination for list endpoints
  */
-export const PaginationSchema = z.object({
+export const PaginationSchema = z.strictObject({
 	limit: z.coerce.number().min(1).max(100).default(50),
 	offset: z.coerce.number().min(0).default(0),
 });

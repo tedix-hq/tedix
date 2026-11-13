@@ -17,8 +17,8 @@ relaxing the gate.
 | Gate                                                 | Checks                                                                                                                                                  |
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `check-package-boundaries.ts`                        | Tracked-path hygiene, the D1 transaction ban, DB/model boundary, tsconfigs                                                                              |
-| `check-package-exports.ts`                           | `package.json#exports` targets exist; imports use exported subpaths                                                                                     |
-| `lint-import-cycles.ts` (+ `import-cycle-policy.ts`) | No new circular imports                                                                                                                                 |
+| `check-package-exports.ts`                           | `package.json#exports` targets exist; imports use exported subpaths; Vite/Vitest imports use `vite-plus`                                                |
+| `lint-import-cycles.ts` (+ `import-cycle-policy.ts`) | No circular imports                                                                                                                                     |
 | `lint-db-access.ts`                                  | D1 access stays in `packages/db` or a listed storage owner                                                                                              |
 | `lint-d1.ts`                                         | Duplicate output columns and unbounded `inArray` parameters                                                                                             |
 | `lint-remote-d1.ts`                                  | Remote D1 calls route through `scripts/lib/remote-d1.ts`, which records the actor                                                                       |
@@ -28,7 +28,6 @@ relaxing the gate.
 | `lint-contracts.ts`                                  | Contract naming/JSON conventions; collection-read inputs reject unknown keys                                                                            |
 | `lint-kumo.ts`, `lint-os.ts`                         | Tedix OS design tokens, Kumo adapters, query-key namespace, WebMCP tool modules                                                                         |
 | `lint-loader-sandbox.ts`                             | Every Worker Loader site sets its sandbox policy explicitly                                                                                             |
-| `lint-vite-plus-imports.ts`                          | Vite/Vitest are imported through `vite-plus`                                                                                                            |
 | `lint-session-genericity.ts`                         | Session ingestion and Attention stay independent of installation identities                                                                             |
 | `lint-output-kinds.ts`                               | New Output kinds and first-party Output editors need a decision reference                                                                               |
 | `lint-public-quality.ts`                             | Public prose free of AI filler; no developer paths or private links; no tenant, host or model literals in source (rules in `public-quality-rules.json`) |
@@ -48,9 +47,10 @@ including test cases and commit messages. Findings print locations only.
 
 ## Baselines
 
-- `contract-input-strictness-baseline.json`, `import-cycles-baseline.json` and
+- `contract-input-strictness-baseline.json` and
   `public-quality-baseline.json` record existing debt. They may only shrink: remove an entry when you fix it,
   and never add one to go green. Refresh with `--update-baseline`.
+- Import cycles have no baseline: every workspace must stay at zero.
 - `db-access-exceptions.json` lists the approved storage owners, each with its
   plane, binding, and responsibility. Unlisted or stale owners fail.
 - The other gates have no baseline: fix the finding or add the script's typed,
