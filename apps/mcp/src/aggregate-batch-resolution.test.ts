@@ -1094,7 +1094,6 @@ describe("nested durable aggregate snapshots", () => {
 			vi.resetModules();
 			const fresh = await import("./aggregate-surface");
 			getBySlugsWithTools.mockClear();
-			const started = Date.now();
 			const second = fresh.aggregateAndPrefixTools(
 				entries,
 				env,
@@ -1104,9 +1103,15 @@ describe("nested durable aggregate snapshots", () => {
 				undefined,
 				false,
 			);
-			await vi.runAllTimersAsync();
+			let settled = false;
+			const settle = () => {
+				settled = true;
+			};
+			void second.then(settle, settle);
+			// Under one second of fake time: the slow upstream (9 s) never runs.
+			await vi.advanceTimersByTimeAsync(999);
+			expect(settled).toBe(true);
 			expect((await second).tools).toHaveLength(1);
-			expect(Date.now() - started).toBeLessThan(1000);
 			// The root's own definitions come from the durable tier too, so a cold
 			// isolate reads no tool rows at all.
 			expect(getBySlugsWithTools).not.toHaveBeenCalled();

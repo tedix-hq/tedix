@@ -1204,7 +1204,6 @@ describe("planKernelRoute", () => {
 				return controller.signal;
 			});
 		try {
-			const started = Date.now();
 			const invalid = objectModel({ routeKind: "invalid" });
 			const model = new MockLanguageModelV3({
 				doStream: async () => ({ stream: fallbackAnswerStream() }),
@@ -1227,15 +1226,21 @@ describe("planKernelRoute", () => {
 				content: "Status",
 				generationTimeoutMs: 100,
 			});
+			let settled = false;
+			const settle = () => {
+				settled = true;
+			};
+			void pending.then(settle, settle);
 			// The re-ask gets ~75% of the remaining budget (~75 ms); advance past
 			// it so it aborts and the tool-free fallback still answers.
 			await vi.advanceTimersByTimeAsync(200);
+			// Settled inside the advanced fake time, so the retry stayed bounded.
+			expect(settled).toBe(true);
 			await expect(pending).resolves.toMatchObject({
 				routeKind: "answer_in_home",
 				recovery: "invalid_route_decision",
 			});
 			expect(model.doGenerateCalls).toHaveLength(2);
-			expect(Date.now() - started).toBeLessThan(1000);
 		} finally {
 			vi.clearAllTimers();
 			timeouts.mockRestore();

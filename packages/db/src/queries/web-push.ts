@@ -1,7 +1,8 @@
-import { and, eq, gt, like } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, like } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
 import { userConfigs } from "../schema/user-configs";
 import { upsertUserConfig } from "./user-configs";
+import { chunkForBoundParams } from "../utils/batch";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 
 const pushNamespace = (organizationId: string) => `os.push:${organizationId}`;
@@ -34,6 +35,44 @@ export async function listPushConfigs(
 			),
 		)
 		.limit(100);
+}
+// Newest first, so a caller can keep the most recently registered devices.
+export async function listPushSubscriptionKeys(
+	db: DbQueryClient,
+	scope: { organizationId: string; userId: string },
+) {
+	return db
+		.select({
+			key: userConfigs.key,
+			createdAt: userConfigs.createdAt,
+			updatedAt: userConfigs.updatedAt,
+		})
+		.from(userConfigs)
+		.where(
+			and(
+				eq(userConfigs.userId, scope.userId),
+				eq(userConfigs.namespace, pushNamespace(scope.organizationId)),
+				like(userConfigs.key, "subscription:%"),
+			),
+		)
+		.orderBy(desc(userConfigs.updatedAt), desc(userConfigs.key))
+		.limit(100);
+}
+export async function deletePushConfigs(
+	db: DbQueryClient,
+	scope: { organizationId: string; userId: string },
+	keys: string[],
+) {
+	for (const chunk of chunkForBoundParams(keys, 50))
+		await db
+			.delete(userConfigs)
+			.where(
+				and(
+					eq(userConfigs.userId, scope.userId),
+					eq(userConfigs.namespace, pushNamespace(scope.organizationId)),
+					inArray(userConfigs.key, chunk),
+				),
+			);
 }
 export async function deletePushConfig(
 	db: DbQueryClient,
