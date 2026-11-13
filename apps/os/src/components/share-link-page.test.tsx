@@ -21,6 +21,13 @@ vi.mock("@/components/widget-frame", () => ({
 	),
 }));
 
+// The sandboxed frame needs a real browser; the page around it is what is tested.
+vi.mock("@/components/app-runtime-frame", () => ({
+	AppRuntimeFrame: (props: { title: string }) => (
+		<div data-app-frame>{props.title}</div>
+	),
+}));
+
 import { keepShownContent, ShareLinkPage } from "./share-link-page";
 
 const ID = "AbCdEfGhIjKlMnOpQrStUv";
@@ -147,6 +154,67 @@ describe("ShareLinkPage", () => {
 		expect(container.querySelector("h1")?.textContent).toBe("Launch room");
 		expect(container.textContent).toContain("no sign-in needed");
 	});
+
+	it.each(["use", "edit"] as const)(
+		"opens an app shared to %s in the visitor's app view with that role",
+		async (role) => {
+			vi.mocked(fetch).mockImplementation(async (input) =>
+				String(input) === "/api/os-shared/app/open"
+					? json({
+							session: "app-session",
+							expiresAt: Date.now() + 60_000,
+							role,
+							revisionId: "rev-1",
+							verifiedEmail: "ada@visitor.example.test",
+							app: {
+								id: "app-1",
+								name: "Launch deck",
+								description: null,
+								workspaceId: "workspace-1",
+								revision: 1,
+								client: "export default function mount() {}",
+								settings: {},
+								grants: [],
+							},
+						})
+					: json(
+							opened({
+								access: "invited",
+								share: {
+									id: "share-1",
+									resourceType: "gadget",
+									role,
+									effectiveRole: role,
+									revisionMode: "living",
+									note: null,
+									expiresAt: null,
+									policyReason: null,
+								},
+								resource: {
+									type: "gadget",
+									gadget: {
+										id: "app-1",
+										workspaceId: "workspace-1",
+										name: "Launch deck",
+										description: null,
+									},
+									revision: {
+										id: "rev-1",
+										revision: 1,
+										manifest: { entry: "tedix:runtime/v1" },
+									},
+									openPath: null,
+								},
+							}),
+						),
+			);
+			const container = await renderPage();
+			expect(container.querySelector("[data-guest-app]")).not.toBeNull();
+			expect(
+				container.querySelector("[data-guest-bar-tools]")?.textContent,
+			).toContain(role === "edit" ? "Can edit" : "Can use");
+		},
+	);
 
 	it("resumes this tab's session instead of opening the link again", async () => {
 		window.sessionStorage.setItem(`tedix.os.share.${ID}`, SESSION);
