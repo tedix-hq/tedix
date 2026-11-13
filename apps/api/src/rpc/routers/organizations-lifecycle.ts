@@ -1,11 +1,14 @@
 /** Organization offboarding lifecycle: cancel, delete and syncFromDescope. */
 import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { assertDescopeOk } from "@tedix/auth/descope";
+import { loadAllDescopeMcpServers } from "@tedix/auth/aih-client";
 import { getDescopeManagement } from "../../lib/descope-management";
 import { deleteAllAppRelations } from "@tedix/auth/fga";
 import { descopeIssuer } from "@tedix/auth/principal-identity";
 import { isPlatformPrincipal } from "@tedix/auth/types";
 import { getAppsByOrganization } from "@tedix/db/queries/apps";
+import { deleteApp, getAppMetadataJson } from "@tedix/db/queries/app-records";
+import { deleteMcpServerRegistration } from "../../lib/provider-facts-cache";
 import {
 	addMember,
 	getMemberByCanonicalUserId,
@@ -150,7 +153,10 @@ export const deleteOrganizationContract = authedOrganizationsOs.delete
 		if (!org) {
 			throw createError(ErrorCodes.NOT_FOUND, "Organization not found");
 		}
-		if ((org.metadata as { retiredAt?: string } | null)?.retiredAt) {
+		const alreadyRetired = Boolean(
+			(org.metadata as { retiredAt?: string } | null)?.retiredAt,
+		);
+		if (alreadyRetired && !force) {
 			return { success: true as const };
 		}
 
@@ -186,9 +192,7 @@ export const deleteOrganizationContract = authedOrganizationsOs.delete
 		// retirement. FGA isn't tenant-scoped, so a tenant retirement leaves grants
 		// pointing at dead UUIDs — they pollute the FGA cache and confuse audit
 		// queries. Non-blocking; D1 retirement proceeds even if FGA cleanup fails.
-		const orgApps = await getAppsByOrganization(db, organizationId).catch(
-			() => [] as Array<{ id: string }>,
-		);
+		const orgApps = await getAppsByOrganization(db, organizationId);
 		const appIds = orgApps.map((a) => a.id);
 		if (appIds.length > 0) {
 			const mgmt = getDescopeManagement(context.env);
@@ -202,6 +206,46 @@ export const deleteOrganizationContract = authedOrganizationsOs.delete
 					);
 				}
 			}
+		}
+
+		// Keep the provider reference in D1 until deletion succeeds, so a failed
+		// registration or row deletion can be retried by the same retirement call.
+		for (const app of orgApps) {
+			const resourceId = getAppMetadataJson(app)?.mcpConfig?.descopeResourceId;
+			if (typeof resourceId === "string" && resourceId) {
+				try {
+					await deleteMcpServerRegistration(context.env, resourceId);
+				} catch (error) {
+					// A previous call may have deleted the provider entry before its
+					// D1 write failed. Proceed only on a fresh, confirmed absence.
+					const servers = await loadAllDescopeMcpServers(context.env);
+					if (servers.some((server) => server.id === resourceId)) throw error;
+				}
+			}
+			if (!(await deleteApp(db, app.id))) {
+				throw createError(
+					ErrorCodes.INTERNAL_SERVER_ERROR,
+					"Failed to delete app",
+				);
+			}
+		}
+
+		// Forced replay repairs apps left by older retirement implementations.
+		if (alreadyRetired) {
+			await emitAuditEvent(db, {
+				organizationId,
+				actorId: actor.actorId,
+				actorType: actor.actorType,
+				action: "organization.retirement_apps_deleted",
+				resourceType: "organization",
+				resourceId: organizationId,
+				metadata: {
+					...actor.actorMetadata,
+					force,
+					deletedAppCount: appIds.length,
+				},
+			});
+			return { success: true as const };
 		}
 
 		// Keep retirement retryable until the linked tenant is deleted.
@@ -243,7 +287,7 @@ export const deleteOrganizationContract = authedOrganizationsOs.delete
 			metadata: {
 				...actor.actorMetadata,
 				force,
-				disabledAppCount: appIds.length,
+				deletedAppCount: appIds.length,
 				descopeTenantId: org.descopeTenantId ?? null,
 				retiredAt,
 				retiredSlug: org.slug,
