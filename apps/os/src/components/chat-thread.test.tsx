@@ -79,7 +79,16 @@ const skillsApi = vi.hoisted(() => ({ listByOrg: vi.fn() }));
 const appsApi = vi.hoisted(() => ({ listComposerCommands: vi.fn() }));
 const modelCatalogApi = vi.hoisted(() => ({ list: vi.fn() }));
 const tedisApi = vi.hoisted(() => ({ list: vi.fn() }));
-const userSettingsApi = vi.hoisted(() => ({ getContext: vi.fn() }));
+const userSettingsApi = vi.hoisted(() => ({
+	getContext: vi.fn(),
+	getPreferences: vi.fn(),
+	updatePreferences: vi.fn(),
+}));
+/** The server's preference rows: one per signed-in person, shared by every browser. */
+const preferenceServer = vi.hoisted(() => ({
+	signedIn: "ana",
+	rows: new Map<string, { preferences: object; revision: number }>(),
+}));
 const directReadApi = vi.hoisted(() => ({
 	kernelRuntime: { listReadOnlyTools: vi.fn() },
 }));
@@ -225,6 +234,7 @@ import { approvalsFromRunSet, RunLinkChip } from "./chat-cards";
 import type { CardRunLinkProps } from "./chat-cards";
 import type { HomeRunSet } from "@tedix/api-contract/schemas/kernel-runtime";
 import type { ModelCatalogModel } from "@tedix/api-contract/schemas/model-catalog-projection";
+import { DEFAULT_OS_USER_PREFERENCES } from "@tedix/api-contract/schemas/user-settings";
 
 const ORG_ID = "33333333-3333-4333-8333-333333333333";
 const RUN_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -2849,6 +2859,32 @@ beforeEach(() => {
 		organization: { id: ORG_ID },
 		authority: { role: "owner", permissions: ["tedis:update", "os:approve"] },
 	});
+	preferenceServer.signedIn = "ana";
+	preferenceServer.rows.clear();
+	userSettingsApi.getPreferences.mockReset();
+	userSettingsApi.getPreferences.mockImplementation(async () => {
+		const row = preferenceServer.rows.get(preferenceServer.signedIn);
+		return row
+			? { ...row, source: "stored", updatedAt: null }
+			: {
+					preferences: DEFAULT_OS_USER_PREFERENCES,
+					source: "default",
+					revision: 0,
+					updatedAt: null,
+				};
+	});
+	userSettingsApi.updatePreferences.mockReset();
+	userSettingsApi.updatePreferences.mockImplementation(
+		async (input: { preferences: object; expectedRevision: number }) => {
+			const current =
+				preferenceServer.rows.get(preferenceServer.signedIn)?.revision ?? 0;
+			if (current !== input.expectedRevision)
+				throw Object.assign(new Error("conflict"), { code: "CONFLICT" });
+			const row = { preferences: input.preferences, revision: current + 1 };
+			preferenceServer.rows.set(preferenceServer.signedIn, row);
+			return { ...row, source: "stored", updatedAt: null };
+		},
+	);
 	modelCatalogApi.list.mockResolvedValue(
 		catalogPayload([catalogModel(TEXT_ONLY_REF, "unsupported")]),
 	);
@@ -3236,6 +3272,84 @@ describe("<ChatThread> image capability gate", () => {
 		await flush();
 		expect(attachmentAlert(container)).toContain("cannot read images");
 		expect(sendButton(container).disabled).toBe(true);
+	});
+});
+
+describe("<ChatThread> chosen model", () => {
+	const modelButton = (container: HTMLElement) =>
+		container.querySelector<HTMLButtonElement>('button[aria-label^="Model:"]')!;
+	const twoModels = () =>
+		modelCatalogApi.list.mockResolvedValue(
+			catalogPayload([
+				catalogModel(VISION_REF, "supported"),
+				catalogModel(TEXT_ONLY_REF, "unsupported"),
+			]),
+		);
+	async function choose(container: HTMLElement, ref: string) {
+		await act(async () => modelButton(container).click());
+		const item = [
+			...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+		].find((entry) => entry.textContent === `Label for ${ref}`)!;
+		await act(async () => item.click());
+		await flush();
+	}
+
+	it("follows the person to another browser and is not shown to the next person on this one", async () => {
+		twoModels();
+		const first = mountThread();
+		await flush();
+		expect(modelButton(first.container).textContent).toBe(
+			`Label for ${VISION_REF}`,
+		);
+		await choose(first.container, TEXT_ONLY_REF);
+		expect(window.localStorage.length).toBe(0);
+
+		// A new mount shares nothing with the first but the server.
+		const elsewhere = mountThread();
+		await flush();
+		expect(modelButton(elsewhere.container).textContent).toBe(
+			`Label for ${TEXT_ONLY_REF}`,
+		);
+
+		preferenceServer.signedIn = "ben";
+		const nextPerson = mountThread();
+		await flush();
+		expect(modelButton(nextPerson.container).textContent).toBe(
+			`Label for ${VISION_REF}`,
+		);
+	});
+
+	it("uses the organization's default when the stored model is no longer offered", async () => {
+		preferenceServer.rows.set("ana", {
+			preferences: {
+				...DEFAULT_OS_USER_PREFERENCES,
+				conversationModelRef: "azure-openai/withdrawn",
+			},
+			revision: 1,
+		});
+		twoModels();
+		const { container } = mountThread();
+		await flush();
+		expect(modelButton(container).textContent).toBe(`Label for ${VISION_REF}`);
+	});
+
+	it("keeps the other preferences when a choice is saved", async () => {
+		preferenceServer.rows.set("ana", {
+			preferences: { ...DEFAULT_OS_USER_PREFERENCES, theme: "dark" },
+			revision: 4,
+		});
+		twoModels();
+		const { container } = mountThread();
+		await flush();
+		await choose(container, TEXT_ONLY_REF);
+		expect(preferenceServer.rows.get("ana")).toEqual({
+			preferences: {
+				...DEFAULT_OS_USER_PREFERENCES,
+				theme: "dark",
+				conversationModelRef: TEXT_ONLY_REF,
+			},
+			revision: 5,
+		});
 	});
 });
 

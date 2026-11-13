@@ -57,6 +57,11 @@ import { WorkspaceChatResources } from "@/components/workspace-chat-resources";
 import { isImeComposing } from "@/lib/keyboard";
 import { osQueryKeys } from "@/lib/os-query-options";
 import { useNow } from "@/lib/use-now";
+import {
+	refForWorkspaceModelId,
+	useChatModelPreference,
+	workspaceModelIdForRef,
+} from "@/lib/use-chat-model-preference";
 import { useWorkspaceChat } from "@/lib/use-workspace-chat";
 import type { createWorkspaceChatClient } from "@/lib/workspace-chat-client";
 import type {
@@ -97,19 +102,6 @@ export type WorkspaceChatProps = {
 	createClient?: typeof createWorkspaceChatClient;
 };
 
-function chosenModelKey(workspaceId: string) {
-	return `tedix.workspace-chat.model.${workspaceId}`;
-}
-
-/** The model this browser last chose in the workspace; unknown ids fall back to the first. */
-function readChosenModel(workspaceId: string): string | null {
-	try {
-		return window.localStorage.getItem(chosenModelKey(workspaceId));
-	} catch {
-		return null;
-	}
-}
-
 export function WorkspaceChat({
 	workspaceId,
 	conversationId,
@@ -135,22 +127,17 @@ export function WorkspaceChat({
 		onOutputChanged,
 	);
 	const { state, connection, catchingUp } = snapshot;
-	const [selectedModelId, setSelectedModelId] = useState<string | null>(() =>
-		readChosenModel(workspaceId),
-	);
-	useEffect(() => {
-		setSelectedModelId(readChosenModel(workspaceId));
-	}, [workspaceId]);
+	const modelPreference = useChatModelPreference();
+	const [pickedModelId, setPickedModelId] = useState<string | null>(null);
+	const selectedModelId =
+		pickedModelId ?? workspaceModelIdForRef(modelPreference.modelRef);
+	const saveModelPreference = modelPreference.save;
 	const selectModel = useCallback(
 		(value: string) => {
-			setSelectedModelId(value);
-			try {
-				window.localStorage.setItem(chosenModelKey(workspaceId), value);
-			} catch {
-				// Storage can be unavailable; the choice still applies to this page.
-			}
+			setPickedModelId(value);
+			saveModelPreference(refForWorkspaceModelId(value));
 		},
-		[workspaceId],
+		[saveModelPreference],
 	);
 	const selectedModel =
 		state.models.find((model) => model.id === selectedModelId) ??
