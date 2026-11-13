@@ -10,10 +10,7 @@ import {
 import { listTediRuntimeEventsForRouter } from "@tedix/db/queries/cognitive-runtime";
 import { listTediRuntimeEvents } from "@tedix/db/queries/kernel-runtime-events";
 import { ensureCommitmentFollowup } from "../services/tedi-context-wake";
-import {
-	closeSettledCommitmentReminders,
-	routeEngineeringCommitmentReminders,
-} from "@tedix/db/queries/work-items/commitment-reminders";
+import { closeSettledCommitmentReminders } from "@tedix/db/queries/work-items/commitment-reminders";
 import { PlatformCronPathError } from "./platform-cron-receipts";
 import {
 	advanceCommitmentWakeCheckpoint,
@@ -151,11 +148,6 @@ export async function dispatchCommitmentWakes(
 		})),
 	];
 	const failures: unknown[] = [];
-	try {
-		await bounded(() => routeEngineeringCommitmentReminders(db));
-	} catch (error) {
-		failures.push(error);
-	}
 	// A reminder whose Work moved on since it was filed no longer needs anyone.
 	try {
 		remindersClosed = (

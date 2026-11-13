@@ -49,7 +49,7 @@ export async function ensureCommitmentFollowup(
 		subject: `Follow up: ${work.title}`,
 		prompt: `This commitment is ${change.state === "overdue" ? "past its due date" : "idle for more than 48 hours with no active Attempt"}. What is the current status or next step?`,
 		creator: { type: "tedi", id: change.tediId },
-		targetType: work.targetType,
+		targetType: "user",
 		targetId: work.personId,
 		metadata: {
 			source: COMMITMENT_REMINDER_SOURCE,

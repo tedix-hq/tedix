@@ -9,7 +9,6 @@ const mocks = vi.hoisted(() => ({
 	save: vi.fn(),
 	generate: vi.fn(),
 	preferences: vi.fn(),
-	language: vi.fn(),
 }));
 vi.mock("@tedix/db/queries/user-configs", () => ({
 	getUserConfig: mocks.get,
@@ -21,7 +20,6 @@ vi.mock("@tedix/db/queries/work-items/card-presentation", () => ({
 vi.mock("./decision-card-generator", async (importOriginal) => ({
 	...(await importOriginal()),
 	generateDecisionCard: mocks.generate,
-	cardReaderLanguage: mocks.language,
 }));
 vi.mock("./decision-learning", () => ({
 	readDraftPreferences: mocks.preferences,
@@ -77,7 +75,6 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	store.clear();
 	mocks.preferences.mockResolvedValue("");
-	mocks.language.mockResolvedValue(null);
 	mocks.generate.mockResolvedValue(copy);
 	mocks.get.mockImplementation(
 		async (_db, input) => store.get(key(input)) ?? null,
@@ -128,7 +125,7 @@ it("uses committed sample copy without model calls only in the offline demo", as
 	expect(mocks.generate).toHaveBeenCalledOnce();
 });
 it.each([undefined, "0".repeat(64)])(
-	"personalizes saved interaction copy despite an absent or old fingerprint: %s",
+	"reads version-fenced interaction copy despite an absent or old fingerprint: %s",
 	async (sourceFingerprint) => {
 		const presentation = {
 			...copy,
@@ -145,9 +142,9 @@ it.each([undefined, "0".repeat(64)])(
 			},
 		} as DeckCard;
 		const [displayed] = await prepareDeckCardFaces(context, [authored]);
-		expect(displayed?.presentation).toEqual(copy);
+		expect(displayed?.presentation).toEqual(presentation);
 		expect(displayed?.faceText).toContain(copy.body);
-		expect(mocks.generate).toHaveBeenCalledOnce();
+		expect(mocks.generate).not.toHaveBeenCalled();
 	},
 );
 
@@ -155,16 +152,6 @@ it("generates and returns a new face when the host cannot schedule background wo
 	const [displayed] = await prepareDeckCardFaces(context, [card]);
 	expect(displayed?.presentation).toEqual(copy);
 	expect(displayed?.faceText).not.toContain("Summary pending");
-});
-
-it("reads writing preferences once per class in a batch and refreshes them on the next read", async () => {
-	const cards = [card, { ...card, id: "another-factory-card" }];
-	await prepareDeckCardFaces(context, cards);
-	expect(mocks.preferences).toHaveBeenCalledTimes(1);
-	expect(mocks.language).toHaveBeenCalledTimes(1);
-	await prepareDeckCardFaces(context, cards);
-	expect(mocks.preferences).toHaveBeenCalledTimes(2);
-	expect(mocks.language).toHaveBeenCalledTimes(2);
 });
 
 it("reuses checked display copy, isolates people and organizations, and invalidates changed writing preferences", async () => {
@@ -190,45 +177,6 @@ it("reuses checked display copy, isolates people and organizations, and invalida
 	await prepareDeckCardFace(context, card);
 	expect(mocks.generate).toHaveBeenCalledTimes(2);
 });
-it("uses the viewer's own wording and language instead of the request recipient's", async () => {
-	const other = {
-		...context,
-		userId: "second-viewer",
-		descopeUserId: "second-viewer",
-	};
-	const shared = {
-		...card,
-		interaction: {
-			request: {
-				id: "shared-card",
-				version: 1,
-				requestedFromId: context.userId,
-				subject: card.label,
-				prompt: "Workshop notes",
-				metadata: { cardPresentation: copy },
-			},
-		},
-	} as DeckCard;
-	const secondCopy = { ...copy, title: "Is this workshop report helpful?" };
-	mocks.generate.mockImplementation(async (_context, source) =>
-		source.targetId === other.userId ? secondCopy : copy,
-	);
-	expect(await prepareDeckCardFace(context, shared)).toEqual(copy);
-	expect(await prepareDeckCardFace(other, shared)).toEqual(secondCopy);
-	expect(mocks.preferences).toHaveBeenCalledWith(
-		context.db,
-		context.organizationId,
-		other.userId,
-		undefined,
-	);
-	expect(mocks.save).toHaveBeenCalledTimes(1);
-	expect(await prepareDeckCardFace(other, shared, false)).toEqual(secondCopy);
-	mocks.language.mockResolvedValue("de");
-	expect(await prepareDeckCardFace(other, shared, false)).toBeNull();
-	await prepareDeckCardFace(other, shared);
-	expect(mocks.generate).toHaveBeenCalledTimes(3);
-});
-
 it("claims generation once when two tabs ask for the same card", async () => {
 	const results = await Promise.all([
 		prepareDeckCardFace(context, card),
@@ -558,7 +506,7 @@ it("lets an explicit Retry recover an exhausted face while concurrent retries sh
 });
 
 it.each([undefined, "0".repeat(64)])(
-	"refreshes a cached triage date and regenerates when preferences change: %s",
+	"refreshes a cached triage date once, then keeps the corrected face across preference changes: %s",
 	async (sourceFingerprint) => {
 		const stale = {
 			...card,
@@ -604,7 +552,7 @@ it.each([undefined, "0".repeat(64)])(
 		expect(
 			(await prepareDeckCardFaces(context, [reread]))[0]?.presentation,
 		).toEqual(fixed?.presentation);
-		expect(mocks.generate).toHaveBeenCalledTimes(2);
+		expect(mocks.generate).toHaveBeenCalledOnce();
 	},
 );
 it("regenerates a saved face that turns another account into the reader's own", async () => {

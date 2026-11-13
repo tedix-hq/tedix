@@ -5,11 +5,9 @@ import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
 import { workInteractions } from "../../schema/work-factory";
 import { workEvents, workItems } from "../../schema/work-items";
-import { tedis } from "../../schema/tedis";
 import {
 	closeSettledCommitmentReminders,
 	dismissCommitmentReminders,
-	routeEngineeringCommitmentReminders,
 } from "./commitment-reminders";
 
 const filed = "2026-11-06T08:00:00.000Z";
@@ -18,7 +16,7 @@ const reminder = JSON.stringify({ source: "commitment_followup" });
 
 function fixture() {
 	const sqlite = new DatabaseSync(":memory:");
-	sqlite.exec(schemaDdl(workItems, workEvents, workInteractions, tedis));
+	sqlite.exec(schemaDdl(workItems, workEvents, workInteractions));
 	sqlite.exec("PRAGMA foreign_keys = OFF");
 	const ask = (id: string, work: string, target: string, metadata = reminder) =>
 		`INSERT INTO work_interactions(id,org_id,work_item_id,kind,status,subject,prompt,creator_type,creator_id,target_type,target_id,created_at,version,metadata)
@@ -49,81 +47,10 @@ function fixture() {
 					.all() as Array<{ id: string; status: string }>
 			).map((row) => [row.id, row.status]),
 		);
-	return { db, sqlite, status };
+	return { db, status };
 }
 
 describe("commitment reminders", () => {
-	it("routes engineering reminders to the active steward, preserves history and leaves personal asks alone", async () => {
-		const { db, sqlite } = fixture();
-		try {
-			sqlite.exec(`
-				INSERT INTO tedis(id,organization_id,name,slug,status) VALUES
-				('steward','org-one','Steward','steward','active'),
-				('personal','org-one','Personal','personal','active');
-				UPDATE work_items SET work_kind='coding',steward_type='tedi',steward_id='steward' WHERE id='idle';
-			`);
-			expect((await routeEngineeringCommitmentReminders(db)).sort()).toEqual([
-				"r-idle",
-				"r-other",
-			]);
-			expect(
-				sqlite
-					.prepare(
-						"SELECT target_type,target_id,status,version,created_at FROM work_interactions WHERE id='r-idle'",
-					)
-					.get(),
-			).toEqual({
-				target_type: "tedi",
-				target_id: "steward",
-				status: "open",
-				version: 2,
-				created_at: filed,
-			});
-			expect(
-				sqlite
-					.prepare(
-						"SELECT target_type FROM work_interactions WHERE id='r-earlier'",
-					)
-					.get()?.target_type,
-			).toBe("user");
-			expect(await routeEngineeringCommitmentReminders(db)).toEqual([]);
-		} finally {
-			sqlite.close();
-		}
-	});
-	it("never routes an approval or another tenant's steward", async () => {
-		const { db, sqlite } = fixture();
-		try {
-			sqlite.exec(`
-				INSERT INTO tedis(id,organization_id,name,slug,status) VALUES ('steward','other-org','Other','other','active');
-				INSERT INTO tedis(id,organization_id,name,slug,status) VALUES ('personal','org-one','Personal','personal','active');
-				UPDATE work_items SET work_kind='coding',steward_type='tedi',steward_id='steward';
-				UPDATE work_interactions SET metadata='{"source":"commitment_followup","approvalOperation":"review"}' WHERE id='r-idle';
-			`);
-			expect((await routeEngineeringCommitmentReminders(db)).sort()).toEqual([
-				"r-done",
-				"r-earlier",
-				"r-other",
-				"r-started",
-			]);
-			expect(
-				sqlite
-					.prepare(
-						"SELECT DISTINCT target_id FROM work_interactions WHERE target_type='tedi'",
-					)
-					.all(),
-			).toEqual([{ target_id: "personal" }]);
-			expect(
-				sqlite
-					.prepare(
-						"SELECT target_type,version FROM work_interactions WHERE id='r-idle'",
-					)
-					.get(),
-			).toEqual({ target_type: "user", version: 1 });
-		} finally {
-			sqlite.close();
-		}
-	});
 	it("dismisses only the caller's own open reminders", async () => {
 		const { db, status } = fixture();
 		const dismissed = await dismissCommitmentReminders(db, {

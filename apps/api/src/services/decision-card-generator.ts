@@ -162,7 +162,7 @@ function copyRepairFeedback(
 }
 
 /** The reader's chosen card language; null keeps English. Display only. */
-export async function cardReaderLanguage(
+async function cardReaderLanguage(
 	db: BaseContext["db"],
 	orgId: string,
 	targetId: string | null,
@@ -309,7 +309,6 @@ export async function generateDecisionCard(
 					subject: request.subject,
 					prompt: request.prompt,
 					kind: request.kind,
-					whyReader: request.metadata.reason,
 					decision,
 					producerContext: decisionCardProducerContext(request.metadata),
 					sourceOptions: request.metadata.sourceOptions,

@@ -7,79 +7,9 @@ import {
 import type { DbQueryClient } from "../../query-client";
 import { workInteractions } from "../../schema/work-factory";
 import { workEvents, workItems } from "../../schema/work-items";
-import { tedis } from "../../schema/tedis";
 import { chunkForBoundParams } from "../../utils/batch";
 
 const isReminder = sql`json_extract(${workInteractions.metadata}, '$.source') = ${COMMITMENT_REMINDER_SOURCE}`;
-
-/** Preserve the request and its history while returning engineering status asks to a tedi. */
-export async function routeEngineeringCommitmentReminders(
-	db: DbQueryClient,
-	limit = 100,
-) {
-	const w = alias(workItems, "w");
-	const t = alias(tedis, "t");
-	const rows = await db
-		.select({
-			id: workInteractions.id,
-			orgId: workInteractions.orgId,
-			version: workInteractions.version,
-			tediId: sql<string>`${t.id}`.as("tediId"),
-		})
-		.from(workInteractions)
-		.innerJoin(
-			w,
-			and(
-				eq(w.orgId, workInteractions.orgId),
-				eq(w.id, workInteractions.workItemId),
-			),
-		)
-		.innerJoin(
-			t,
-			and(
-				eq(t.organizationId, w.orgId),
-				eq(t.status, "active"),
-				sql`${t.id} = coalesce(
-				(select id from tedis where organization_id = ${w.orgId} and id = ${w.stewardId}
-				 and ${w.stewardType} = 'tedi' and status = 'active'),
-				case when ${workInteractions.creatorType} = 'tedi' then ${workInteractions.creatorId} end)`,
-			),
-		)
-		.where(
-			and(
-				isReminder,
-				eq(w.workKind, "coding"),
-				eq(workInteractions.status, "open"),
-				eq(workInteractions.targetType, "user"),
-				eq(workInteractions.kind, "question"),
-				sql`json_extract(${workInteractions.metadata}, '$.decisionDeck') IS NULL`,
-				sql`json_extract(${workInteractions.metadata}, '$.approvalOperation') IS NULL`,
-			),
-		)
-		.limit(Math.max(1, Math.min(200, limit)));
-	const routed: string[] = [];
-	for (const row of rows) {
-		const changed = await db
-			.update(workInteractions)
-			.set({
-				targetType: "tedi",
-				targetId: row.tediId,
-				version: sql`${workInteractions.version}+1`,
-			})
-			.where(
-				and(
-					eq(workInteractions.orgId, row.orgId),
-					eq(workInteractions.id, row.id),
-					eq(workInteractions.version, row.version),
-					eq(workInteractions.status, "open"),
-					eq(workInteractions.targetType, "user"),
-				),
-			)
-			.returning({ id: workInteractions.id });
-		routed.push(...changed.map(({ id }) => id));
-	}
-	return routed;
-}
 
 /** The person a reminder asks closes any of their open reminders in one step. */
 export async function dismissCommitmentReminders(
