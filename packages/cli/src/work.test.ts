@@ -1,5 +1,13 @@
 import { fileDiscoveryCache, type DiscoveryCache } from "./discovery-cache";
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	test,
+} from "bun:test";
 import {
 	fileNativeBootstrapCache,
 	NATIVE_DESCRIPTOR_CACHE_TTL_MS,
@@ -43,6 +51,20 @@ import {
 } from "./work-lifecycle";
 import { detachedGitEnv } from "../../../scripts/oss/git-env";
 import { setProcessTableReader } from "./host-ancestry";
+
+const previousConfigDir = process.env.TEDIX_CONFIG_DIR;
+let testConfigDir: string;
+
+// Fictional sessions must not read the operator's credential/session store.
+beforeAll(() => {
+	testConfigDir = mkdtempSync(join(tmpdir(), "tedix-work-config-"));
+	process.env.TEDIX_CONFIG_DIR = testConfigDir;
+});
+afterAll(() => {
+	if (previousConfigDir === undefined) delete process.env.TEDIX_CONFIG_DIR;
+	else process.env.TEDIX_CONFIG_DIR = previousConfigDir;
+	rmSync(testConfigDir, { recursive: true, force: true });
+});
 
 const ITEM = "11111111-1111-4111-8111-111111111111";
 const ATTEMPT = "22222222-2222-4222-8222-222222222222";
@@ -4481,6 +4503,10 @@ describe("exact-chat Work handoff registration", () => {
 });
 
 describe("resolveAgentSession", () => {
+	// The ancestry case supplies its own process tree; other fixtures have no host.
+	beforeEach(() => setProcessTableReader(() => []));
+	afterEach(() => setProcessTableReader());
+
 	const keys = [
 		"TEDIX_AGENT_SESSION",
 		"CLAUDE_CODE_SESSION_ID",
