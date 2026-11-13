@@ -80,6 +80,14 @@ export async function resolveWorkspaceResourceAvailability(
 			checkedAt,
 		);
 	}
+	// Tedix's own objects (outputs, files, projects, links) live inside the
+	// organization and have no provider connection to check.
+	if (
+		resource.providerId === "tedix" &&
+		resource.connectionScope === "tenant"
+	) {
+		return { status: "available", reason: null, checkedAt };
+	}
 	try {
 		if (resource.connectionScope === "user") {
 			if (

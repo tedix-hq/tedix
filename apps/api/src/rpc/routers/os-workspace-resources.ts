@@ -89,17 +89,10 @@ async function projectWorkspaceResource(
 	row: OsWorkspaceResourceRow,
 ): Promise<OsWorkspaceResource> {
 	const resource = mapWorkspaceResource(row);
-	// A skill, tedi or connection link has no provider object behind it to check.
-	const availability =
-		(isWorkspaceLinkResource(resource) ||
-			(resource.providerId === "tedix" && resource.resourceType === "file")) &&
-		resource.status === "active"
-			? {
-					status: "available" as const,
-					reason: null,
-					checkedAt: new Date().toISOString(),
-				}
-			: await resolveWorkspaceResourceAvailability(context, resource);
+	const availability = await resolveWorkspaceResourceAvailability(
+		context,
+		resource,
+	);
 	return OsWorkspaceResourceSchema.parse({ ...resource, availability });
 }
 

@@ -161,4 +161,32 @@ describe("resolveWorkspaceResourceAvailability", () => {
 		expect(result.status).toBe("not_executable");
 		expect(checked).toBe(false);
 	});
+
+	it("treats Tedix's own objects as available without a connection check", async () => {
+		let checked = false;
+		const result = await resolveWorkspaceResourceAvailability(
+			context,
+			{ ...resource, providerId: "tedix", requiredScopes: [] },
+			{
+				...baseDependencies,
+				resolveToken: async () => {
+					checked = true;
+					return null;
+				},
+			},
+		);
+		expect(result).toEqual({
+			status: "available",
+			reason: null,
+			checkedAt: NOW.toISOString(),
+		});
+		expect(checked).toBe(false);
+
+		const removed = await resolveWorkspaceResourceAvailability(
+			context,
+			{ ...resource, providerId: "tedix", status: "removed" },
+			baseDependencies,
+		);
+		expect(removed.status).toBe("not_executable");
+	});
 });
