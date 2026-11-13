@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.21.11 — 2026-11-13
+
+### Patch Changes
+
+- Lane runners use fewer gateway requests for tasks that cannot start yet. A task its owner already allowed is no longer re-read on every pass while something else keeps it waiting. A task that keeps failing to start the same way is tried once every 30 minutes instead of three or four times.
+
 ## 0.21.10 — 2026-11-13
 
 ### Patch Changes
