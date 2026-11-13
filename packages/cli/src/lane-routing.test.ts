@@ -354,6 +354,23 @@ describe("resume recovery before admission", () => {
 		expect(result).toBe("new");
 		expect(events).toEqual(["resume", "fresh"]);
 	});
+	it("allocates fresh when the retained session is archived", async () => {
+		const events: string[] = [];
+		const result = await resumeThenFresh(
+			async () => {
+				events.push("resume");
+				throw new Error(
+					"session 019a1b2c is archived. Run `codex unarchive` to restore it.",
+				);
+			},
+			async () => {
+				events.push("fresh");
+				return "new";
+			},
+		);
+		expect(result).toBe("new");
+		expect(events).toEqual(["resume", "fresh"]);
+	});
 	it("does not hide auth, rate-limit, or backend failures as a missing session", async () => {
 		let fresh = false;
 		await expect(

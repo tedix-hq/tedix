@@ -270,7 +270,7 @@ export function routeLocalWork(
 		: new Error(message);
 }
 export function isMissingNativeState(error: unknown) {
-	return /(?:session|thread|rollout).*(?:not found|missing|does not exist)|no (?:session|thread|rollout).*found/i.test(
+	return /(?:session|thread|rollout).*(?:not found|missing|does not exist|archived)|no (?:session|thread|rollout).*found/i.test(
 		String(error),
 	);
 }

@@ -7225,3 +7225,339 @@ it("retries claim preflight deadlines inside one logged budget before admission"
 		await dispatcher.drain();
 	}
 });
+
+describe("stale hold recovery", () => {
+	const receiptPath = (dir: string, version = 2) =>
+		join(dir, `${item().id}-${version}.json`);
+	const receipt = (dir: string, version = 2) =>
+		JSON.parse(readFileSync(receiptPath(dir, version), "utf8")) as Record<
+			string,
+			unknown
+		>;
+	const logText = (dir: string) =>
+		readFileSync(join(dir, "dispatcher.log"), "utf8");
+	const starts = (
+		events: Array<{ verb: string; input?: Record<string, unknown> }>,
+	) => events.filter((event) => event.verb === "start" && event.input);
+	const attempt = (extra: Record<string, unknown> = {}) => ({
+		id: "99999999-9999-4999-8999-999999999999",
+		externalSessionKey: "codex:other-session",
+		executorType: "external_agent",
+		runtimeState: "running",
+		outcome: null,
+		startedAt: new Date(Date.now() - 600_000).toISOString(),
+		expiresAt: new Date(Date.now() + 300_000).toISOString(),
+		metadata: { dispatchVersion: 2 },
+		...extra,
+	});
+	const heldReceipt = (extra: Record<string, unknown> = {}) => ({
+		itemId: item().id,
+		version: 2,
+		phase: "deferred",
+		outcome: "failed",
+		admissionState: "admitted",
+		held: true,
+		identicalFailures: 3,
+		admissionFailure:
+			"Canonical history has a live Attempt; admission remains held",
+		admissionFailureSignature: laneFailureSignature(
+			new Error("Canonical history has a live Attempt; admission remains held"),
+		),
+		retries: 3,
+		retryAt: Date.now() - 1,
+		retryDeadlineAt: Date.now() - 1,
+		...extra,
+	});
+
+	it("releases a retained admission hold once the blocking Attempt's lease elapsed", async () => {
+		const { dispatcher, dir, items, control, releases, events } = fixture();
+		items.splice(1);
+		control.history = {
+			data: [
+				attempt({
+					expiresAt: new Date(Date.now() - 60_000).toISOString(),
+				}),
+			],
+			nextCursor: null,
+		};
+		writeFileSync(receiptPath(dir), JSON.stringify(heldReceipt()));
+		await dispatcher.tick();
+		await until(() => releases.length === 1);
+		releases[0]!();
+		await dispatcher.drain();
+		expect(starts(events)).toHaveLength(1);
+		expect(receipt(dir).held).not.toBe(true);
+	});
+	it("keeps the admission hold while the blocking Attempt's lease is live", async () => {
+		const { dispatcher, dir, items, control, releases, events } = fixture();
+		items.splice(1);
+		control.history = { data: [attempt()], nextCursor: null };
+		writeFileSync(receiptPath(dir), JSON.stringify(heldReceipt()));
+		await dispatcher.tick();
+		await dispatcher.drain();
+		expect(starts(events)).toHaveLength(0);
+		expect(releases).toHaveLength(0);
+		expect(receipt(dir).held).toBe(true);
+	});
+	it("dispatches a new Work revision without waiting on the old revision's hold", async () => {
+		const { dispatcher, dir, items, releases, events } = fixture();
+		items.splice(1);
+		items[0]!.version = 3;
+		writeFileSync(receiptPath(dir), JSON.stringify(heldReceipt()));
+		await dispatcher.tick();
+		await until(() => releases.length === 1);
+		releases[0]!();
+		await dispatcher.drain();
+		expect(starts(events)).toHaveLength(1);
+	});
+
+	it("releases an orphan whose Attempt is absent from the complete ledger and admits again", async () => {
+		const { dispatcher, dir, items, control, releases, events } = fixture();
+		items.splice(1);
+		const path = receiptPath(dir);
+		writeFileSync(
+			path,
+			JSON.stringify({
+				itemId: item().id,
+				version: 2,
+				phase: "running",
+				attemptId: "ghost-attempt",
+				session: "codex:ghost",
+				executorKey: "key",
+				admissionState: "admitted",
+			}),
+		);
+		control.history = { data: [], nextCursor: null };
+		await dispatcher.tick();
+		await dispatcher.drain();
+		expect(receipt(dir)).toMatchObject({
+			phase: "deferred",
+			outcome: "expired",
+		});
+		expect(logText(dir)).toContain('"orphan-released"');
+		// The same revision is dispatchable once the run-failure backoff elapses.
+		const saved = receipt(dir);
+		saved.retryAt = 0;
+		writeFileSync(path, JSON.stringify(saved));
+		await dispatcher.tick();
+		await until(() => releases.length === 1);
+		releases[0]!();
+		await dispatcher.drain();
+		expect(starts(events)).toHaveLength(1);
+	});
+	it("releases an orphan whose Attempt ended under another session", async () => {
+		const { dispatcher, dir, items, control } = fixture();
+		items.splice(1);
+		writeFileSync(
+			receiptPath(dir),
+			JSON.stringify({
+				itemId: item().id,
+				version: 2,
+				phase: "running",
+				attemptId: "99999999-9999-4999-8999-999999999999",
+				session: "codex:mine",
+				executorKey: "key",
+				admissionState: "admitted",
+			}),
+		);
+		control.history = {
+			data: [attempt({ outcome: "failed" })],
+			nextCursor: null,
+		};
+		await dispatcher.tick();
+		await dispatcher.drain();
+		expect(receipt(dir)).toMatchObject({
+			phase: "deferred",
+			outcome: "failed",
+		});
+		expect(logText(dir)).toContain('"orphan-released"');
+	});
+	it("keeps an orphan hold while a foreign Attempt lease is live", async () => {
+		const { dispatcher, dir, items, control } = fixture();
+		items.splice(1);
+		writeFileSync(
+			receiptPath(dir),
+			JSON.stringify({
+				itemId: item().id,
+				version: 2,
+				phase: "running",
+				attemptId: "99999999-9999-4999-8999-999999999999",
+				session: "codex:mine",
+				executorKey: "key",
+				admissionState: "admitted",
+			}),
+		);
+		control.history = { data: [attempt()], nextCursor: null };
+		await dispatcher.tick();
+		await dispatcher.drain();
+		expect(receipt(dir).phase).toBe("running");
+		expect(logText(dir)).toContain('"orphan-held"');
+	});
+
+	it.each(["completed", "cancelled"] as const)(
+		"stops settlement retries once the Work is %s",
+		async (disposition) => {
+			const { dispatcher, dir, items, control, events } = fixture();
+			items.splice(1);
+			items[0]!.disposition = disposition;
+			writeFileSync(
+				receiptPath(dir),
+				JSON.stringify({
+					itemId: item().id,
+					version: 2,
+					phase: "failed",
+					outcome: "succeeded",
+					attemptId: "99999999-9999-4999-8999-999999999999",
+					session: "codex:mine",
+					executorKey: "key",
+					admissionState: "admitted",
+					settlementRetries: 2,
+					retryAt: 0,
+				}),
+			);
+			control.history = {
+				data: [attempt({ outcome: "failed" })],
+				nextCursor: null,
+			};
+			await dispatcher.tick();
+			await dispatcher.drain();
+			expect(receipt(dir).phase).toBe("settled");
+			expect(logText(dir)).toContain('"settlement-stopped"');
+			expect(events.filter((event) => event.verb === "settle")).toHaveLength(0);
+		},
+	);
+	it("adopts the canonical Attempt outcome instead of retrying a contradicting settlement", async () => {
+		const { dispatcher, dir, items, control, releases, events } = fixture();
+		items.splice(1);
+		const path = receiptPath(dir);
+		writeFileSync(
+			path,
+			JSON.stringify({
+				itemId: item().id,
+				version: 2,
+				phase: "failed",
+				outcome: "succeeded",
+				attemptId: "99999999-9999-4999-8999-999999999999",
+				session: "codex:other-session",
+				executorKey: "key",
+				admissionState: "admitted",
+				retryAt: 0,
+			}),
+		);
+		control.history = {
+			data: [
+				attempt({
+					outcome: "failed",
+					expiresAt: new Date(Date.now() - 60_000).toISOString(),
+				}),
+			],
+			nextCursor: null,
+		};
+		await dispatcher.tick();
+		await dispatcher.drain();
+		expect(receipt(dir)).toMatchObject({
+			phase: "deferred",
+			outcome: "failed",
+		});
+		expect(logText(dir)).toContain('"settlement-reconciled"');
+		const saved = receipt(dir);
+		saved.retryAt = 0;
+		writeFileSync(path, JSON.stringify(saved));
+		await dispatcher.tick();
+		await until(() => releases.length === 1);
+		releases[0]!();
+		await dispatcher.drain();
+		expect(starts(events)).toHaveLength(1);
+	});
+	it("logs one line and provisions fresh when the retained run folder is gone", async () => {
+		const { dispatcher, dir, items, control, releases, events } = fixture();
+		items.splice(1);
+		writeFileSync(
+			receiptPath(dir),
+			JSON.stringify({
+				itemId: item().id,
+				version: 2,
+				phase: "deferred",
+				outcome: "expired",
+				attemptId: "gone-attempt",
+				session: "codex:gone",
+				executorKey: "key",
+				admissionState: "admitted",
+				repo: join(dir, "runs", `${item().id}-2`, "repo"),
+				retryAt: 0,
+			}),
+		);
+		control.history = {
+			data: [
+				attempt({
+					id: "gone-attempt",
+					outcome: "expired",
+					externalSessionKey: "codex:gone",
+					expiresAt: new Date(Date.now() - 60_000).toISOString(),
+				}),
+			],
+			nextCursor: null,
+		};
+		await dispatcher.tick();
+		await until(() => releases.length === 1);
+		releases[0]!();
+		await dispatcher.drain();
+		expect(logText(dir)).toContain('"run-folder-missing"');
+		expect(starts(events)).toHaveLength(1);
+	});
+	it("starts a fresh session when the retained session is archived", async () => {
+		const { dispatcher, dir, items, control, releases, events } = fixture();
+		items.splice(1);
+		const repo = join(dir, "runs", `${item().id}-2`, "repo");
+		mkdirSync(repo, { recursive: true });
+		writeFileSync(
+			receiptPath(dir),
+			JSON.stringify({
+				itemId: item().id,
+				version: 2,
+				phase: "deferred",
+				outcome: "expired",
+				attemptId: "arch-attempt",
+				session: "codex:archived-session",
+				executorKey: "key",
+				admissionState: "admitted",
+				repo,
+				retryAt: 0,
+			}),
+		);
+		control.history = {
+			data: [
+				attempt({
+					id: "arch-attempt",
+					outcome: "expired",
+					externalSessionKey: "codex:archived-session",
+					expiresAt: new Date(Date.now() - 60_000).toISOString(),
+				}),
+			],
+			nextCursor: null,
+		};
+		control.resumeError = new Error(
+			"session archived-session is archived. Run `codex unarchive archived-session` to restore it.",
+		);
+		await dispatcher.tick();
+		await until(() => releases.length === 1);
+		releases[0]!();
+		await dispatcher.drain();
+		expect(control.threadSessions[0]).toBe("archived-session");
+		expect(logText(dir)).toContain('"session-replaced"');
+		expect(starts(events)).toHaveLength(1);
+	});
+});
+
+it("provisions beside a locked worktree registration whose folder is gone", () => {
+	const { root, repo, git } = gitFixture(true);
+	const destination = join(root, "repo");
+	provisionLaneWorktree(repo, destination);
+	rmSync(destination, { recursive: true });
+	// The locked registration survives `worktree prune`; provisioning takes
+	// the next free suffix instead of running `git -C` into the missing folder.
+	const retry = provisionLaneWorktree(repo, destination);
+	expect(retry).toBe(`${destination}-2`);
+	expect(git(["rev-parse", "HEAD"], retry)).toBe(git(["rev-parse", "HEAD"]));
+	expect(provisionLaneWorktree(repo, destination)).toBe(`${destination}-3`);
+}, 30_000);
