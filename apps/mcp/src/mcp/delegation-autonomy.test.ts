@@ -408,3 +408,55 @@ it("retains bounded legacy writes with explicit risk metadata", async () => {
 		),
 	).toBeNull();
 });
+
+it("parks an admitted external agent's destructive native call for human approval", async () => {
+	const base = context() as ServerContext;
+	const requestOwnerToolApproval = vi.fn(async () => ({
+		approved: false,
+		approvalRequestId: "approval-1",
+		status: "pending",
+		url: "https://example.test/work/approvals#approval-1",
+	}));
+	const ctx = {
+		...base,
+		callerIdentity: {
+			authType: "external_agent",
+			externalAgentPrincipalId: "agent-1",
+			externalAgentSessionId: "session-1",
+			externalAgentClientRecordId: "client-1",
+		},
+		apiClient: {
+			...base.apiClient,
+			mcpGovernance: {
+				...base.apiClient.mcpGovernance,
+				requestOwnerToolApproval,
+			},
+		},
+	} as unknown as ServerContext;
+	const args = { id: "project-1" };
+	const result = await requireDestructiveToolApproval(
+		ctx,
+		{
+			toolId: "archive_project",
+			title: "Archive project",
+			config: { transport: "rpc", endpoint: "projects/archive" },
+		},
+		{ destructiveHint: true, readOnlyHint: false },
+		{ args },
+	);
+	expect(result?.isError).toBe(true);
+	expect(callToolResultText(result!)).toContain(
+		"Approving in Tedix OS runs this exact call once",
+	);
+	expect(requestOwnerToolApproval).toHaveBeenCalledWith(
+		expect.objectContaining({
+			args,
+			requestingAgent: {
+				principalId: "agent-1",
+				sessionId: "session-1",
+				clientRecordId: "client-1",
+			},
+			target: expect.objectContaining({ endpoint: "projects/archive" }),
+		}),
+	);
+});

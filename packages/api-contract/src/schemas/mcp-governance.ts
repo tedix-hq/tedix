@@ -270,7 +270,15 @@ export const ResolveAgentLifecycleAuthorizationResponseSchema = z.object({
 /** Gateway-attested caller and resolved target; never a public tool input. */
 export const RequestOwnerToolApprovalInputSchema = z.object({
 	organizationId: z.string().min(1),
-	userId: z.string().min(1),
+	userId: z.string().min(1).optional(),
+	requestingAgent: z
+		.object({
+			principalId: z.uuid(),
+			sessionId: z.uuid(),
+			clientRecordId: z.string().min(1),
+		})
+		.optional(),
+	workItemId: z.uuid().optional(),
 	appSlug: z.string().min(1),
 	toolId: z.string().min(1),
 	target: z.record(z.string(), JsonValueSchema),

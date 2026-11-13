@@ -22,6 +22,10 @@ const mocks = vi.hoisted(() => ({
 	member: vi.fn(),
 	organization: vi.fn(),
 	executor: vi.fn(),
+	continueWork: vi.fn(),
+}));
+vi.mock("@tedix/db/queries/work-items/comments", () => ({
+	recordWorkDecisionContinuation: mocks.continueWork,
 }));
 vi.mock("@tedix/db/queries/approvals", async (load) => ({
 	...(await load<object>()),
@@ -113,6 +117,7 @@ beforeEach(() => {
 	mocks.listDue.mockResolvedValue([]);
 	mocks.record.mockImplementation(async (_db, input) => input.execution);
 	mocks.receipt.mockResolvedValue({});
+	mocks.continueWork.mockResolvedValue([]);
 	mocks.audit.mockResolvedValue(undefined);
 	mocks.member.mockResolvedValue({ role: "owner", status: "active" });
 	mocks.organization.mockResolvedValue({ id: "org-1", slug: "example" });
@@ -966,3 +971,39 @@ describe("continuing an approved purge", () => {
 		expect(mocks.record).toHaveBeenCalledTimes(3);
 	});
 });
+
+it.each([true, false])(
+	"resumes linked Work only after the approved exact call succeeds: %s",
+	async (ok) => {
+		const workItemId = "33333333-3333-4333-8333-333333333333";
+		const row = approval({
+			payload: {
+				...payload,
+				workItemId,
+				toolId: "archive_project",
+				target: { transport: "rpc", endpoint: "projects/archive" },
+				args: { id: "project-1" },
+			},
+		});
+		mocks.executor.mockResolvedValue(
+			ok
+				? { ok: true, data: { id: "project-1", status: "archived" } }
+				: { ok: false, error: "Project changed" },
+		);
+		const result = await settleOwnerToolCallApproval(context, {
+			approval: row,
+			status: "approved",
+		});
+		expect(result).toBe(ok ? "succeeded" : "failed");
+		if (ok)
+			expect(mocks.continueWork).toHaveBeenCalledWith(context.db, {
+				orgId: row.orgId,
+				workItemId,
+				kind: "approval",
+				requestId: row.id,
+				responseId: row.id,
+				at: expect.any(String),
+			});
+		else expect(mocks.continueWork).not.toHaveBeenCalled();
+	},
+);

@@ -96,7 +96,7 @@ it.each([
 	["tedi", "asking-agent", { decisionImpact: "progress" }, false],
 	["user", "asking-agent", { decisionImpact: "progress" }, false],
 ])(
-	"sweeps a card after %s/%s posts %j (current: %s)",
+	"keeps reviewable comments on a card after %s/%s posts %j (current: %s)",
 	async (authorType, authorId, metadata, current) => {
 		const sqlite = createMigratedSqlite({ foreignKeys: false });
 		const db = createDbClient(createD1Facade(sqlite));
@@ -150,24 +150,39 @@ it.each([
 				);
 			expect(await refreshDecisionSourceCards(db, orgId, "person")).toEqual({
 				scanned: 1,
-				superseded: current ? 0 : 1,
+				superseded: 0,
 				hasMore: false,
 			});
 			expect(
 				sqlite
 					.prepare("SELECT status FROM work_interactions WHERE id='card'")
 					.get(),
-			).toMatchObject({ status: current ? "open" : "expired" });
+			).toMatchObject({ status: "open" });
+			// The question remains answerable after review; the freshness gate
+			// still rejects an answer that has not reviewed a newer fact.
+			expect(
+				await decisionSourcesCurrent(db, orgId, {
+					creatorType: "external_agent",
+					creatorId: "asking-agent",
+					createdAt: at,
+					status: "open",
+					kind: "question",
+					targetType: "user",
+					subject: "Delete the copy?",
+					prompt: "Review facts",
+					metadata: {
+						decisionSources: [
+							{ kind: "work", id, version: 1, commentCount: 0 },
+						],
+					},
+				}),
+			).toBe(current);
 			const receipts = sqlite
 				.prepare(
 					"SELECT metadata FROM audit_events WHERE resource_id='card' AND action='decision.sources.expired'",
 				)
 				.all();
-			expect(receipts).toHaveLength(current ? 0 : 1);
-			if (!current)
-				expect(receipts[0]).toMatchObject({
-					metadata: expect.stringContaining("decision_sources_changed"),
-				});
+			expect(receipts).toHaveLength(0);
 			expect(
 				await refreshDecisionSourceCards(db, orgId, "person"),
 			).toMatchObject({ superseded: 0 });

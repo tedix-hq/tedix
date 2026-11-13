@@ -1,3 +1,4 @@
+import { buildWorkDecisionContinuationStatement } from "./comments";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { retireDecisionReviews } from "./decision-review-retirement";
 import {
@@ -781,6 +782,27 @@ export async function respondToWorkInteraction(
 	try {
 		const [responses] = await db.batch([
 			responseInsert,
+			...(request.workItemId &&
+			request.kind !== "coordination" &&
+			resolvesRequest &&
+			p.responder.type === "user" &&
+			p.metadata?.delivery !== "none"
+				? [
+						buildWorkDecisionContinuationStatement(
+							db,
+							{
+								orgId: p.orgId,
+								workItemId: request.workItemId,
+								kind: "answer",
+								requestId: request.id,
+								responseId: p.id,
+								at: p.now,
+								body: p.body,
+							},
+							sql`EXISTS (SELECT 1 FROM work_interaction_responses r WHERE r.org_id=${p.orgId} AND r.id=${p.id})`,
+						),
+					]
+				: []),
 			...(accessGrants?.statements ?? []),
 			...(p.metadata?.cardAction === "ask_changes"
 				? [

@@ -1514,3 +1514,30 @@ export async function listLiveWorkAttemptHolders(
 	}
 	return holders;
 }
+
+/** An approval may follow one admitted lane, never an arbitrary Work selected by a machine. */
+export async function findAgentApprovalWork(
+	db: DbQueryClient,
+	p: {
+		orgId: string;
+		principalId: string;
+		externalSessionKey: string;
+		now: string;
+	},
+) {
+	const rows = await db
+		.select({ workItemId: workAttempts.workItemId })
+		.from(workAttempts)
+		.where(
+			and(
+				eq(workAttempts.orgId, p.orgId),
+				eq(workAttempts.executorType, "external_agent"),
+				eq(workAttempts.executorId, p.principalId),
+				eq(workAttempts.externalSessionKey, p.externalSessionKey),
+				inArray(workAttempts.runtimeState, ACTIVE_ATTEMPT_STATES),
+				sql`${workAttempts.expiresAt} > ${p.now}`,
+			),
+		)
+		.limit(2);
+	return rows.length === 1 ? rows[0]!.workItemId : undefined;
+}

@@ -53,6 +53,51 @@ export interface AddWorkItemCommentParams {
 	recordActivity?: boolean;
 }
 
+/** A new decision wakes an existing deferred lane without revising its contract or source pins. */
+export function buildWorkDecisionContinuationStatement(
+	db: DbQueryClient,
+	p: {
+		orgId: string;
+		workItemId: string;
+		kind: "answer" | "approval";
+		requestId: string;
+		responseId: string;
+		at: string;
+		body?: string;
+	},
+	fence?: ReturnType<typeof sql>,
+) {
+	const signal = JSON.stringify({
+		kind: p.kind,
+		requestId: p.requestId,
+		responseId: p.responseId,
+		at: p.at,
+		...(p.body ? { body: p.body.slice(0, 4000) } : {}),
+	});
+	return db
+		.update(workItems)
+		.set({
+			metadata: sql`json_set(${workItems.metadata}, '$.decisionContinuation', json(${signal}))`,
+		})
+		.where(
+			and(
+				eq(workItems.orgId, p.orgId),
+				eq(workItems.id, p.workItemId),
+				eq(workItems.disposition, "accepted"),
+				fence,
+				sql`coalesce(json_extract(${workItems.metadata}, '$.decisionContinuation.at'), '') < ${p.at}`,
+			),
+		)
+		.returning({ id: workItems.id });
+}
+
+export async function recordWorkDecisionContinuation(
+	db: DbQueryClient,
+	p: Parameters<typeof buildWorkDecisionContinuationStatement>[1],
+) {
+	return buildWorkDecisionContinuationStatement(db, p);
+}
+
 export async function getWorkItemCommentById(
 	db: DbQueryClient,
 	id: string,
