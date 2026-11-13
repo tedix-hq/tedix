@@ -238,12 +238,16 @@ export async function handleAppRuntimeCall(
 				typeof args.outputId !== "string"
 			)
 				return { ok: false, error: "bad_arguments" };
-			const outputId = outputIdForSlot(
-				deps.resources.filter(
-					(resource) => resource.workspaceId === context.workspaceId,
-				),
-				args.slot,
-			);
+			// Unsaved changes stay in this page's memory. Where the server
+			// resolves slots, the id the app read with the file names them.
+			const outputId = deps.serverResolvesSlots
+				? args.outputId
+				: outputIdForSlot(
+						deps.resources.filter(
+							(resource) => resource.workspaceId === context.workspaceId,
+						),
+						args.slot,
+					);
 			if (!outputId || outputId !== args.outputId)
 				return { ok: false, error: "slot_unbound" };
 			const key = `${context.workspaceId}:${context.gadget.id}:${deps.appRevisionId ?? context.gadget.revision}:${outputId}`;
@@ -271,7 +275,9 @@ export async function handleAppRuntimeCall(
 			}
 			if (method === "app.draft.read") {
 				try {
-					const current = await deps.readOutput(outputId);
+					const current = deps.serverResolvesSlots
+						? await deps.readSlot!(args.slot)
+						: await deps.readOutput(outputId);
 					const draft = deps.drafts.get(key);
 					if (draft && draft.content.kind !== current.kind) {
 						deps.drafts.delete(key);

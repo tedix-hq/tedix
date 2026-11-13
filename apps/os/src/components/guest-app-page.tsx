@@ -21,6 +21,7 @@ import { Input } from "@/components/kumo/input";
 import { Text } from "@/components/kumo/text";
 import {
 	type AppRuntimeContext,
+	type AppRuntimeDraft,
 	buildAppRuntimeDocument,
 	handleAppRuntimeCall,
 } from "@/lib/app-runtime-host";
@@ -520,6 +521,8 @@ function GuestApp({
 			),
 		[app, sessionToken, guestName, appId],
 	);
+	// Unsaved changes of this visit; they live only in this page.
+	const drafts = useMemo(() => new Map<string, AppRuntimeDraft>(), []);
 	const target = useMemo(
 		() => ({ sessionToken, ...(appId ? { appId } : {}) }),
 		[sessionToken, appId],
@@ -536,6 +539,7 @@ function GuestApp({
 					// The page cannot see which file a slot is; each call names the
 					// slot and the server checks the link, the visitor and the file.
 					serverResolvesSlots: true,
+					drafts,
 					readOutputRevision: (_outputId, revision, slot) =>
 						guestRequest("/api/os-shared/app/revision", {
 							...target,
@@ -579,7 +583,7 @@ function GuestApp({
 				method,
 				args,
 			),
-		[context, callServer, sessionToken, appId, target, app.role],
+		[context, callServer, sessionToken, appId, target, app.role, drafts],
 	);
 	const html = useMemo(
 		() =>
