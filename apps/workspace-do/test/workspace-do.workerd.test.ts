@@ -1475,7 +1475,7 @@ describe("WorkspaceDO", () => {
 	});
 
 	test.each(["uploaded", "large", "restricted", "foreign"])(
-		"refuses %s attachment contents without starting a turn",
+		"resolves %s attachments with workspace access checks",
 		async (kind) => {
 			await seedCore();
 			const attachmentScope = { ...scope, workspaceId: crypto.randomUUID() };
@@ -1538,16 +1538,49 @@ describe("WorkspaceDO", () => {
 				},
 			);
 			const turnId = crypto.randomUUID();
+			if (kind === "large" || kind === "uploaded") {
+				await ws.scriptModel(attachmentScope, [
+					{
+						code: `export default async env => { const output = await env.outputs.get(${JSON.stringify(outputId)}); return { revisionId: output.revisionId, content: output.content.kind === "document" ? { length: output.content.blocks.reduce((sum, block) => sum + (block.text?.length ?? 0), 0), file: output.content.file ?? null } : null }; }`,
+					},
+					{ text: "Read the attached output on demand." },
+				]);
+				const turn = await ws.sendTurn(attachmentScope, {
+					actorId: "u1",
+					actorKind: "user",
+					text: "Read the attached file",
+					attachments: [{ outputId }],
+					isolate: true,
+				});
+				expect(
+					(await ws.awaitTurn(attachmentScope, turn.turnId, 20_000)).status,
+				).toBe("finished");
+				const messages = await ws.readMessages(
+					attachmentScope,
+					turn.conversationId,
+				);
+				const user = JSON.stringify(
+					messages.filter((message) => message.role === "user"),
+				);
+				expect(user).toContain(outputId);
+				expect(user).toContain(revisionId);
+				expect(user).toContain("env.outputs.get");
+				expect(user).not.toContain("x".repeat(100));
+				const results = messages
+					.filter((message) => message.role === "toolResult")
+					.flatMap((message) => message.content)
+					.filter((part) => part.type === "text")
+					.map((part) => part.text)
+					.join("\n");
+				expect(results).toContain(revisionId);
+				if (kind === "large") expect(results).toContain('"length": 68000');
+				else expect(results).toContain(content.file!.resourceId);
+				return;
+			}
 			expect(
 				(await rejectedSocketTurn(ws, [{ outputId }], turnId, attachmentScope))
 					.message,
-			).toContain(
-				kind === "large"
-					? "64 KB"
-					: kind === "uploaded"
-						? "cannot be read"
-						: "unavailable",
-			);
+			).toContain("unavailable");
 			expect(await ws.readTurn(attachmentScope, turnId)).toBeNull();
 		},
 	);
