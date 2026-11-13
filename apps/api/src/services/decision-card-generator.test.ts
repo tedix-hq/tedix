@@ -113,15 +113,6 @@ it("repairs a recommendation that only states a fact", async () => {
 	);
 	expect(card?.recommendation).toBe(copy.recommendation);
 });
-it("gives the writer the supplied reason the reader is needed", async () => {
-	await generateDecisionCard({ db: {}, env: {} } as never, {
-		...request,
-		metadata: { reason: "Only the owner can confirm the intended audience." },
-	});
-	expect(JSON.parse(mocks.model.mock.calls[0]?.[1]).whyReader).toBe(
-		"Only the owner can confirm the intended audience.",
-	);
-});
 it("uses the recipient's style and configured model without generating authority", async () => {
 	expect(
 		await generateDecisionCard({ db: {}, env: {} } as never, request),

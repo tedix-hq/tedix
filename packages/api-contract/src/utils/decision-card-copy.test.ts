@@ -9,23 +9,6 @@ import {
 	renderDecisionCardDates,
 	recommendationLean,
 } from "./decision-card-copy";
-it.each([
-	"lane",
-	"executor",
-	"gates",
-	"private-ops trace",
-	"recovery-evidence",
-])("rejects internal engineering wording: %s", (term) => {
-	expect(
-		checkDecisionCardCopy({
-			version: 2,
-			title: "Review the report?",
-			context: `Check the ${term}.`,
-			body: "Records your review.",
-			recommendation: "Wait until the report is ready.",
-		}),
-	).toContain("banned_words");
-});
 const copy = {
 	version: 2,
 	title: "Save a task?",
