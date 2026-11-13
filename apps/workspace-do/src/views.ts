@@ -7,6 +7,8 @@
  */
 
 /** App whose generic `/r/<layout>` renderer serves generated views. */
+import { isRecord } from "@tedix/api-contract/utils/is-record";
+
 export const VIEW_APP_SLUG = "tedix-unified";
 export const MAX_VIEWS_PER_TURN = 3;
 export const MAX_VIEW_BYTES = 64 * 1024;
@@ -28,10 +30,6 @@ export interface ShownView {
 }
 
 type Scalar = string | number | boolean | null;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function isScalar(value: unknown): value is Scalar {
 	return (

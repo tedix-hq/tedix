@@ -56,6 +56,7 @@ import {
 	type KernelWriteExecutorTimings,
 	type WriteExecutorEnv,
 } from "./write-executor";
+import { isRecord } from "@tedix/api-contract/utils/is-record";
 
 export const OWNER_TOOL_CALL_KIND = "mcp_tool_call";
 
@@ -69,10 +70,6 @@ export interface OwnerToolCallPayload {
 	args: Record<string, unknown>;
 	fingerprint: string;
 	execution?: OwnerToolApprovalExecution;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 /**

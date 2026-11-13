@@ -227,6 +227,7 @@
         "@tedix/api-contract": "workspace:*",
         "@tedix/design-tokens": "workspace:*",
         "@tedix/widget-ui": "workspace:*",
+        "@tedix/worker-kit": "workspace:*",
         "astro": "^7.4.10",
         "clsx": "^2.1.1",
         "lucide-react": "^1.72.0",
@@ -574,6 +575,7 @@
       "name": "@tedix/widget",
       "version": "0.0.2",
       "dependencies": {
+        "@tedix/api-contract": "workspace:*",
         "@tedix/chat-transport": "workspace:*",
         "@tedix/deploy-values": "workspace:*",
         "@tedix/design-tokens": "workspace:*",
@@ -706,6 +708,7 @@
       "dependencies": {
         "@descope/node-sdk": "^2.22.0",
         "@tedix/api-contract": "workspace:*",
+        "@tedix/chat-transport": "workspace:*",
         "@tedix/mcp-shared": "workspace:*",
         "@tedix/ssrf-guard": "workspace:*",
         "@tedix/tenant-directory": "workspace:*",
@@ -747,6 +750,7 @@
         "@modelcontextprotocol/client": "catalog:",
         "@tedix/api-contract": "workspace:*",
         "@tedix/auth": "workspace:*",
+        "@tedix/chat-transport": "workspace:*",
         "@tedix/context-core": "workspace:*",
         "@tedix/mcp-shared": "workspace:*",
         "@tedix/worker-kit": "workspace:*",

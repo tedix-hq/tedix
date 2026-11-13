@@ -49,6 +49,7 @@ import {
 	zodToToolInputJsonSchema,
 } from "@tedix/api-contract/utils/tool-json-schema";
 import { auditedRemoteD1ExecuteArgv } from "../lib/remote-d1.ts";
+import { stableStringify } from "@tedix/api-contract/utils/stable-json";
 
 const TEDIX_ADMIN_APP_SLUG = "tedix";
 const TEDIX_APP_ID_SQL = `(SELECT id FROM apps WHERE slug = '${TEDIX_ADMIN_APP_SLUG}')`;
@@ -615,16 +616,6 @@ async function fetchD1Rows(
 			throw scope.fail("nested schema JSON");
 		}
 	});
-}
-
-function stableStringify(value: unknown): string {
-	if (value === null || typeof value !== "object") return JSON.stringify(value);
-	if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-	const obj = value as Record<string, unknown>;
-	return `{${Object.keys(obj)
-		.sort()
-		.map((key) => `${JSON.stringify(key)}:${stableStringify(obj[key])}`)
-		.join(",")}}`;
 }
 
 function diff(

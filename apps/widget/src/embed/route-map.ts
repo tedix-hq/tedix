@@ -12,6 +12,8 @@
  * crosses the signed session seam. A route rule never grants authority.
  */
 
+import { isRecord } from "@tedix/api-contract/utils/is-record";
+
 export interface HostRouteRule {
 	/**
 	 * Path pattern: literal segments, `:name` captures, and a trailing `*` that
@@ -41,10 +43,6 @@ interface CompiledRule {
 	segments: string[];
 	wildcard: boolean;
 	rule: HostRouteRule;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 function compileRule(value: unknown): CompiledRule | null {

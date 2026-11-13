@@ -27,6 +27,7 @@
 		"@modelcontextprotocol/client": "catalog:",
 		"@tedix/api-contract": "workspace:*",
 		"@tedix/auth": "workspace:*",
+		"@tedix/chat-transport": "workspace:*",
 		"@tedix/context-core": "workspace:*",
 		"@tedix/mcp-shared": "workspace:*",
 		"@tedix/worker-kit": "workspace:*",

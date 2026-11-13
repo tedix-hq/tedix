@@ -1,3 +1,5 @@
+import { sha256Hex } from "@tedix/worker-kit/crypto";
+
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export interface DemandIntake {
@@ -80,14 +82,6 @@ export function parseDemandIntake(input: unknown): DemandIntakeParseResult {
 			utmTerm: optional("utmTerm", 300) || undefined,
 		},
 	};
-}
-
-async function sha256Hex(value: string): Promise<string> {
-	const bytes = new TextEncoder().encode(value);
-	const digest = await crypto.subtle.digest("SHA-256", bytes);
-	return Array.from(new Uint8Array(digest))
-		.map((byte) => byte.toString(16).padStart(2, "0"))
-		.join("");
 }
 
 export async function demandSourceIntentId(

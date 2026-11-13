@@ -17,25 +17,14 @@
  *   affordance the host binds through {@link bindMarkdownCopyButtons}.
  */
 
+import { escapeHtml } from "./escape-html";
+
 const DIRECTION_CONTROL_PATTERN =
 	/[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/g;
 
 /** Removes every bidi/direction control. Idempotent. */
 export function stripBidiControls(value: string): string {
 	return value.replace(DIRECTION_CONTROL_PATTERN, "");
-}
-
-const ESCAPES: Record<string, string> = {
-	"&": "&amp;",
-	"<": "&lt;",
-	">": "&gt;",
-	'"': "&quot;",
-	"'": "&#39;",
-};
-
-/** HTML-escapes text for element content and attribute values. */
-export function escapeHtml(value: string): string {
-	return value.replace(/[&<>"']/g, (character) => ESCAPES[character] ?? "");
 }
 
 /**

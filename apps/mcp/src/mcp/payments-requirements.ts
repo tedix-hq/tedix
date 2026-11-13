@@ -16,6 +16,7 @@ import {
 	DEFAULT_PAYMENT_TTL_SECONDS,
 	type TedixToolPaymentPolicy,
 } from "./payments-policy";
+import { stableStringify } from "@tedix/api-contract/utils/stable-json";
 
 interface MockPaymentProof {
 	requirementId?: string;
@@ -26,19 +27,6 @@ interface MockPaymentProof {
 }
 
 export type PaymentProof = MockPaymentProof | string;
-
-export function stableStringify(value: unknown): string {
-	if (Array.isArray(value)) {
-		return `[${value.map(stableStringify).join(",")}]`;
-	}
-	if (isRecord(value)) {
-		return `{${Object.keys(value)
-			.sort()
-			.map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
-			.join(",")}}`;
-	}
-	return JSON.stringify(value);
-}
 
 export async function buildRequirementId(
 	agent: ServerContext,

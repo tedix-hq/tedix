@@ -29,6 +29,7 @@
 		"@tedix/api-contract": "workspace:*",
 		"@tedix/design-tokens": "workspace:*",
 		"@tedix/widget-ui": "workspace:*",
+		"@tedix/worker-kit": "workspace:*",
 		"astro": "^7.4.10",
 		"clsx": "^2.1.1",
 		"lucide-react": "^1.72.0",

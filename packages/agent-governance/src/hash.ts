@@ -1,5 +1,10 @@
-/** Stable JSON serialization with sorted object keys, so equal values hash equal. */
-export function stableStringify(value: unknown): string {
+/**
+ * Sorted-key JSON for governance hashes, so equal values hash equal. Unlike
+ * `stableStringify` (`@tedix/api-contract/utils/stable-json`) it follows
+ * `JSON.stringify` (drops `undefined` members, applies `toJSON`) and rejects
+ * cycles. Stored argument hashes depend on this exact output.
+ */
+export function serializeGovernanceValue(value: unknown): string {
 	const ancestors: Array<{ original: object; serialized: object }> = [];
 	return JSON.stringify(value, function (_key, inner: unknown) {
 		while (ancestors.length && ancestors.at(-1)?.serialized !== this) {
@@ -26,7 +31,7 @@ export function stableStringify(value: unknown): string {
 
 /** SHA-256 hex of the stable serialization. Uses Web Crypto, which every target runtime has. */
 export async function hashValue(value: unknown): Promise<string> {
-	const bytes = new TextEncoder().encode(stableStringify(value));
+	const bytes = new TextEncoder().encode(serializeGovernanceValue(value));
 	const digest = await crypto.subtle.digest("SHA-256", bytes);
 	return Array.from(new Uint8Array(digest), (b) =>
 		b.toString(16).padStart(2, "0"),

@@ -3,7 +3,7 @@
  * order, scalars as `JSON.stringify` renders them. Used wherever a digest or
  * equality check must not depend on the insertion order of parsed keys.
  *
- * This is NOT `canonicalJson` (`lib/blueprint-digest.ts`): that one drops
+ * This is NOT `canonicalJson` (`apps/api/src/lib/blueprint-digest.ts`): that one drops
  * `undefined` members, this one renders them as `JSON.stringify` would, so the
  * two produce different text for the same value. Digests persisted under one
  * must keep using it.

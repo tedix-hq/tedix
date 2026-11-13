@@ -1,6 +1,6 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import type { ActionReceipt } from "@tedix/api-contract/utils/action-receipt";
-import { stableStringify } from "../lib/stable-json";
+import { stableStringify } from "@tedix/api-contract/utils/stable-json";
 
 const REDACTED = "[REDACTED]";
 const SENSITIVE_KEY =

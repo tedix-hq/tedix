@@ -1,3 +1,5 @@
+import { escapeHtml } from "@tedix/chat-transport/escape-html";
+
 /**
  * Minimal branded page served by the CLI's local loopback listeners. These
  * render for a second or two in the operator's browser between the hosted auth
@@ -10,18 +12,6 @@ export function renderLoopbackPage(options: {
 	body: string;
 	tone?: "ok" | "error";
 }): string {
-	const escapeHtml = (value: string) =>
-		value.replace(
-			/[&<>"']/g,
-			(character) =>
-				({
-					"&": "&amp;",
-					"<": "&lt;",
-					">": "&gt;",
-					'"': "&quot;",
-					"'": "&#39;",
-				})[character]!,
-		);
 	const tone = options.tone ?? "ok";
 	const markColor = tone === "ok" ? "#8b7bf7" : "#e5484d";
 	const markGlyph = tone === "ok" ? "✓" : "✕";

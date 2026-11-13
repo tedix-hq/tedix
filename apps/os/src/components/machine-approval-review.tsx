@@ -1,9 +1,8 @@
 import { containsCardSecret } from "@tedix/api-contract/utils/card-secrets";
+import { isRecord } from "@tedix/api-contract/utils/is-record";
 
 const sensitiveKey =
 	/(?:password|secret|token|authorization|credential|api[_-]?key|private[_-]?key|cookie)/i;
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-	!!value && typeof value === "object" && !Array.isArray(value);
 
 /** Preserve useful arguments while never rendering values in credential fields. */
 export function redactMachineApproval(

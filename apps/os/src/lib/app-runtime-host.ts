@@ -35,6 +35,7 @@ import {
 	APP_RUNTIME_THEME_PLACEHOLDER,
 	APP_RUNTIME_THEME_STYLE_ID,
 } from "./app-runtime-theme";
+import { isRecord } from "@tedix/api-contract/utils/is-record";
 
 /**
  * The browser half of the workspace app host. `client.js` runs in the OS
@@ -185,10 +186,6 @@ export interface AppRuntimeHostDeps {
 const tooLarge = (content: unknown) =>
 	new TextEncoder().encode(JSON.stringify(content) ?? "").length >
 	OS_OUTPUT_CONTENT_MAX_BYTES;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 /** Resolve a granted slot to the Output it is bound to in this workspace. */
 export function outputIdForSlot(

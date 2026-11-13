@@ -6,6 +6,7 @@ import type {
 	AppRuntimeCode,
 	AppRuntimeFiles,
 } from "@tedix/api-contract/schemas/os-app-runtime";
+import { sha256Hex } from "@tedix/worker-kit/crypto";
 
 /**
  * App files this browser already holds, by the SHA-256 of their content.
@@ -37,16 +38,6 @@ async function openStore(): Promise<Cache | null> {
 		// Private windows and blocked storage: memory still works.
 		return null;
 	}
-}
-
-async function sha256Hex(text: string): Promise<string> {
-	const digest = await crypto.subtle.digest(
-		"SHA-256",
-		new TextEncoder().encode(text),
-	);
-	return Array.from(new Uint8Array(digest), (byte) =>
-		byte.toString(16).padStart(2, "0"),
-	).join("");
 }
 
 /** Hashes of the file sets this browser can supply without a download. */

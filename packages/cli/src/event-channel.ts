@@ -17,6 +17,7 @@
 import { sleep } from "@tedix/worker-kit/sleep";
 import type { CodexDriver } from "./supervise-drivers";
 import { CLI_VERSION } from "./shared";
+import { isRecord } from "@tedix/api-contract/utils/is-record";
 
 export const channelUsage = (): string => `Tedix event channel
 
@@ -79,9 +80,6 @@ export interface EventPollClient {
 }
 
 type JsonRecord = Record<string, unknown>;
-
-const isRecord = (value: unknown): value is JsonRecord =>
-	typeof value === "object" && value !== null && !Array.isArray(value);
 
 export interface ChannelEvent {
 	title?: string;

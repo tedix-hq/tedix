@@ -7,6 +7,7 @@ import {
 	type SessionBrokerSurface,
 } from "./session-broker";
 import { base64UrlDecode, base64UrlEncode } from "./utils";
+import { escapeHtml } from "@tedix/chat-transport/escape-html";
 
 interface ProductSessionCorrelation {
 	customHost?: SessionBrokerCustomHost;
@@ -270,15 +271,6 @@ export async function startProductSessionBroker(
 		return new Response(null, { status: 307, headers: response.headers });
 	}
 	return response;
-}
-
-function escapeHtml(value: string): string {
-	return value
-		.replaceAll("&", "&amp;")
-		.replaceAll("<", "&lt;")
-		.replaceAll(">", "&gt;")
-		.replaceAll('"', "&quot;")
-		.replaceAll("'", "&#39;");
 }
 
 /**
