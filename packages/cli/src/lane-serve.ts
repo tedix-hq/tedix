@@ -978,6 +978,7 @@ export function retainedLaneWorktree(
 	directory: string,
 	itemId: string,
 	history: Array<{ id: string; outcome: string | null }>,
+	onMissing?: (repo: string) => void,
 ) {
 	const failed = new Set(
 		history
@@ -986,14 +987,20 @@ export function retainedLaneWorktree(
 	);
 	const receipts = readLaneReceipts(directory);
 	const previous = receipts
-		.filter(
-			(row) =>
-				row.itemId === itemId &&
-				row.attemptId &&
-				failed.has(row.attemptId) &&
-				row.repo?.startsWith(join(directory, "runs") + sep) &&
-				existsSync(row.repo),
-		)
+		.filter((row) => {
+			if (
+				row.itemId !== itemId ||
+				!row.attemptId ||
+				!failed.has(row.attemptId) ||
+				!row.repo?.startsWith(join(directory, "runs") + sep)
+			)
+				return false;
+			if (!existsSync(row.repo)) {
+				onMissing?.(row.repo);
+				return false;
+			}
+			return true;
+		})
 		.sort((a, b) => b.version - a.version)[0];
 	if (previous?.pid && alive(previous.pid) && !hasSettledOutcome(previous))
 		throw new Error(
@@ -1204,16 +1211,28 @@ export function provisionLaneWorktree(
 	)
 		gitOutput(source, ["merge", "--ff-only", head]);
 	gitOutput(source, ["worktree", "prune"]);
+	// Git canonicalizes the path it registers, so a missing folder must be
+	// compared through its parent's realpath to match the recorded entry.
+	const canonical = (path: string) => {
+		if (existsSync(path)) return realpathSync(path);
+		const parent = dirname(path);
+		return existsSync(parent)
+			? join(realpathSync(parent), basename(path))
+			: resolve(path);
+	};
 	const registered = new Set(
 		gitOutput(source, ["worktree", "list", "--porcelain", "-z"])
 			.split("\0")
 			.filter((line) => line.startsWith("worktree "))
-			.map((line) => line.slice("worktree ".length)),
+			.map((line) => canonical(line.slice("worktree ".length))),
 	);
-	const isRegistered = (path: string) =>
-		registered.has(existsSync(path) ? realpathSync(path) : resolve(path));
+	const isRegistered = (path: string) => registered.has(canonical(path));
 	if (isRegistered(destination)) {
+		// A locked or stale registration survives `worktree prune` after its
+		// folder was removed; `git -C` into it fails, so it is not reusable and
+		// falls through to the next free suffix like a dirty checkout.
 		const reusable =
+			existsSync(destination) &&
 			!gitOutput(destination, ["status", "--porcelain"]) &&
 			spawnSync(
 				"git",
@@ -2887,14 +2906,7 @@ export class LaneDispatcher {
 			}
 			if (
 				history.data.some(
-					(attempt) =>
-						!attempt.outcome &&
-						!(
-							previous?.attemptId === attempt.id &&
-							attempt.externalSessionKey === previous.session &&
-							attempt.metadata?.dispatchVersion === item.version &&
-							!leaseMayBeLive(attempt)
-						),
+					(attempt) => !attempt.outcome && leaseMayBeLive(attempt),
 				)
 			)
 				throw new Error(
@@ -2974,6 +2986,12 @@ export class LaneDispatcher {
 				this.directory,
 				item.id,
 				history.data,
+				(repo) =>
+					this.log(
+						"run-folder-missing",
+						item.id,
+						`Retained run folder ${repo} is gone; provisioning a fresh worktree`,
+					),
 			);
 			const failedAttempt = history.data.find(
 				(row) => row.outcome === "failed" || row.outcome === "expired",
@@ -3044,6 +3062,12 @@ export class LaneDispatcher {
 			});
 			if (sessionRecovery) this.log("session-busy", item.id, sessionRecovery);
 			const resumed = thread.thread.id === previousSession;
+			if (previousSession && !resumed && !sessionRecovery)
+				this.log(
+					"session-replaced",
+					item.id,
+					`Retained ${executor} session ${previousSession} is gone; started a fresh session before admission`,
+				);
 			receipt.session = `${executor}:${thread.thread.id}`;
 			this.save(path, receipt);
 			const identity = await this.call<{ principalKey: string }>(
@@ -4494,15 +4518,38 @@ export class LaneDispatcher {
 				: row.externalSessionKey === receipt.session &&
 					row.metadata?.dispatchVersion === receipt.version,
 		);
+		const foreign = !!attempt && attempt.externalSessionKey !== receipt.session;
 		if (
-			!attempt ||
-			history.nextCursor !== null ||
-			attempt.externalSessionKey !== receipt.session
+			(!attempt && history.nextCursor !== null) ||
+			(foreign && !attempt.outcome && leaseMayBeLive(attempt))
 		) {
 			this.log(
 				"orphan-held",
 				receipt.itemId,
 				"Canonical Attempt fence unavailable",
+			);
+			return;
+		}
+		if (!attempt || foreign) {
+			// The complete ledger has no Attempt for this receipt, or the Attempt
+			// already terminated under another session. The orphan can never
+			// write under that fence again, so release it for fresh admission
+			// instead of holding the revision until someone deletes the receipt.
+			receipt.phase = "deferred";
+			receipt.outcome = attempt?.outcome ?? "expired";
+			await this.recordUnpushedCommits(receipt);
+			await this.recordRunFailure(receipt);
+			receipt.retryAt = Math.max(receipt.retryAt ?? 0, receipt.runRetryAt ?? 0);
+			this.save(
+				this.path({ id: receipt.itemId, version: receipt.version }),
+				receipt,
+			);
+			this.log(
+				"orphan-released",
+				receipt.itemId,
+				attempt
+					? `Attempt ${attempt.id} ended ${attempt.outcome ?? "expired"} under another session`
+					: "No canonical Attempt matches the retained receipt",
 			);
 			return;
 		}
@@ -4564,7 +4611,30 @@ export class LaneDispatcher {
 	}
 	private async recoverSettlement(receipt: Receipt) {
 		if (receipt.phase === "failed") receipt.retryAt = Date.now() + 15 * 60_000;
-		const history = await this.call<{ data: WorkAttempt[] }>([
+		const path = this.path({ id: receipt.itemId, version: receipt.version });
+		// A Work that already ended has nothing left to settle; reconcile the
+		// receipt once instead of retrying a write that can never land.
+		const detail = await this.call<{
+			workItem?: { disposition?: string };
+		}>(["work", "dispatch-get", receipt.itemId, "--input", "{}"]);
+		if (
+			["completed", "cancelled"].includes(detail.workItem?.disposition ?? "")
+		) {
+			receipt.phase = "settled";
+			receipt.outcome ??= "expired";
+			receipt.completionPending = false;
+			this.save(path, receipt);
+			this.log(
+				"settlement-stopped",
+				receipt.itemId,
+				`Work is ${detail.workItem!.disposition}; no settlement write attempted`,
+			);
+			return;
+		}
+		const history = await this.call<{
+			data: WorkAttempt[];
+			nextCursor: string | null;
+		}>([
 			"work",
 			"dispatch-attempts",
 			receipt.itemId,
@@ -4572,6 +4642,33 @@ export class LaneDispatcher {
 			JSON.stringify({ limit: 100 }),
 		]);
 		const attempt = history.data.find((row) => row.id === receipt.attemptId);
+		const fenceLost =
+			(!attempt && history.nextCursor === null) ||
+			(!!attempt &&
+				attempt.externalSessionKey !== receipt.session &&
+				(!!attempt.outcome || !leaseMayBeLive(attempt)));
+		if (fenceLost) {
+			// The Attempt is absent from the complete ledger or already ended
+			// under another session: the retained claim can never be fenced, so
+			// release the revision for fresh admission like an elapsed lease.
+			if (receipt.outcome === "succeeded" && !receipt.runFailureCounted)
+				receipt.retries = Math.max(
+					0,
+					(receipt.retries ?? 0) - (receipt.settlementRetries ?? 0),
+				);
+			receipt.outcome = attempt?.outcome ?? "expired";
+			receipt.phase = "deferred";
+			await this.recordUnpushedCommits(receipt);
+			await this.recordRunFailure(receipt, true);
+			receipt.retryAt = receipt.runRetryAt;
+			this.save(path, receipt);
+			this.log(
+				"settlement-expired",
+				receipt.itemId,
+				"Canonical Attempt fence is gone; fresh admission required",
+			);
+			return;
+		}
 		if (!attempt || attempt.externalSessionKey !== receipt.session)
 			throw new Error(
 				"Retained settlement fence is unavailable; no write attempted",
@@ -4595,10 +4692,7 @@ export class LaneDispatcher {
 			await this.recordUnpushedCommits(receipt);
 			await this.recordRunFailure(receipt, true);
 			receipt.retryAt = receipt.runRetryAt;
-			this.save(
-				this.path({ id: receipt.itemId, version: receipt.version }),
-				receipt,
-			);
+			this.save(path, receipt);
 			this.log(
 				"settlement-expired",
 				receipt.itemId,
@@ -4607,23 +4701,25 @@ export class LaneDispatcher {
 			return;
 		}
 		if (attempt.outcome) {
+			// The canonical Attempt's outcome wins over the local claim, so a
+			// contradicting receipt stops retrying settlement instead of looping.
+			const mismatched = attempt.outcome !== receipt.outcome;
+			if (mismatched) receipt.outcome = attempt.outcome;
 			await this.recordRunFailure(receipt);
 			receipt.retryAt = Math.max(receipt.retryAt ?? 0, receipt.runRetryAt ?? 0);
-			receipt.phase =
-				attempt.outcome === receipt.outcome
-					? receipt.retryable || receipt.laneResult?.outcome === "deferred"
-						? "deferred"
-						: "settled"
-					: "failed";
+			receipt.phase = mismatched
+				? ["failed", "expired"].includes(attempt.outcome)
+					? "deferred"
+					: "settled"
+				: receipt.retryable || receipt.laneResult?.outcome === "deferred"
+					? "deferred"
+					: "settled";
 			if (
 				receipt.phase === "deferred" &&
 				receipt.laneResult?.outcome === "deferred"
 			)
 				receipt.retryAt = laneDeferralAt(receipt.laneResult);
-			this.save(
-				join(this.directory, `${receipt.itemId}-${receipt.version}.json`),
-				receipt,
-			);
+			this.save(path, receipt);
 			this.log("settlement-reconciled", receipt.itemId, attempt.outcome);
 			await this.complete(receipt, true);
 		} else if (
@@ -4632,12 +4728,18 @@ export class LaneDispatcher {
 		) {
 			await this.settle(receipt);
 			this.scheduleCleanup(receipt);
-		} else
+		} else {
+			receipt.retryAt = Math.max(
+				receipt.retryAt ?? 0,
+				Date.now() + 15 * 60_000,
+			);
+			this.save(path, receipt);
 			this.log(
 				"settlement-expired",
 				receipt.itemId,
 				"The exact Attempt is no longer live; no write attempted",
 			);
+		}
 	}
 	/**
 	 * Waits for in-flight work, at most `deadlineMs`. Returns false when work was
