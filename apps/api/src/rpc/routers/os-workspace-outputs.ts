@@ -112,6 +112,8 @@ import {
 	withAuth,
 } from "../orpc";
 import { OS_WORKSPACES_AUDIT, osAudit } from "../os-audit";
+import { listOsShareSessionPeople } from "@tedix/db/queries/os-shares";
+import { SHARE_SESSION_PRINCIPAL_KIND } from "../../lib/os-share-app-runtime";
 import { resolveOsWorkspaceViewer } from "../../services/os-workspace-visibility";
 import {
 	queryDb,
@@ -399,6 +401,35 @@ const outputsCreate = authorOs.outputs.create.handler(
 	},
 );
 
+/**
+ * The people behind versions saved through a share link, keyed by the
+ * version's `createdById`. Such a version is recorded under its share
+ * session, which holds the email the visitor confirmed.
+ */
+async function shareLinkSavers(
+	context: BaseContext,
+	organizationId: string,
+	revisions: readonly { createdByKind: string; createdById: string }[],
+) {
+	const prefix = `${SHARE_SESSION_PRINCIPAL_KIND}:`;
+	const ids = revisions
+		.filter(
+			(revision) =>
+				revision.createdByKind === "service" &&
+				revision.createdById.startsWith(prefix),
+		)
+		.map((revision) => revision.createdById.slice(prefix.length));
+	if (!ids.length)
+		return new Map<string, { email: string; name: string | null }>();
+	const people = await listOsShareSessionPeople(queryDb(context), {
+		organizationId,
+		sessionIds: ids,
+	});
+	return new Map(
+		[...people].map(([sessionId, person]) => [`${prefix}${sessionId}`, person]),
+	);
+}
+
 const outputsHistory = readOs.outputs.history.handler(
 	async ({ input, context }) => {
 		const output = await requireOutput(context, input.outputId);
@@ -440,10 +471,22 @@ const outputsHistory = readOs.outputs.history.handler(
 					mapOsOutputRevisionRow(newest),
 				)
 			: [];
+		const people = await shareLinkSavers(context, output.organizationId, rows);
+		const named = <Revision extends { createdById: string }>(
+			revision: Revision,
+		) => {
+			const person = people.get(revision.createdById);
+			return person
+				? {
+						...revision,
+						savedBy: { through: "share_link" as const, ...person },
+					}
+				: revision;
+		};
 		return {
 			revisions: exact
-				? [mapOsOutputRevisionRow(exact)]
-				: rows.map(mapOsOutputRevisionMetadata),
+				? [named(mapOsOutputRevisionRow(exact))]
+				: rows.map((row) => named(mapOsOutputRevisionMetadata(row))),
 			nextBeforeRevision:
 				!input.revision && rows.length === 50 ? rows.at(-1)!.revision : null,
 			pending,

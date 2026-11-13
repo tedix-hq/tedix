@@ -14,10 +14,12 @@ import {
 	approvedGuestSkillRead,
 	prepareGuestSkillReadGrants,
 } from "../services/os-share-skill-read-grants";
+import { learningInteractionEvents } from "@tedix/db/schema/learning-feedback";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
 import { organizations } from "@tedix/db/schema/organizations";
 import { auditEvents } from "@tedix/db/schema/audit-events";
 import { osSharesContractRouter } from "../rpc/routers/os-shares";
+import { osWorkspacesContractRouter } from "../rpc/routers/os-workspaces";
 import {
 	osWorkspaceAccessEdges,
 	osWorkspaceCollaborators,
@@ -116,6 +118,7 @@ async function fixture(options: { triggers?: unknown[] } = {}) {
 			osWorkspaceCollaborators,
 			osWorkspaceShareLinks,
 			osWorkspaceShareKeys,
+			learningInteractionEvents,
 		),
 	);
 	const facade = createD1Facade(sqlite);
@@ -1644,6 +1647,73 @@ describe("a link that lets invited people edit", () => {
 				args: null,
 			}),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+
+	it("names the invited person in the file's history, and by their member name once they have one", async () => {
+		const { db, env, save } = await visitor();
+		expect((await save()).status).toBe(200);
+		const member = createRouterClient(osWorkspacesContractRouter, {
+			context: userContext({ env, permissions: ["os:read"] }),
+		});
+		const history = async (input: { revision?: number } = {}) =>
+			(await member.outputs.history({ outputId, ...input })).revisions;
+		const listed = await history();
+		expect(listed.find((row) => row.revision === 2)?.savedBy).toEqual({
+			through: "share_link",
+			name: null,
+			email,
+		});
+		// A version a member saved carries no such line.
+		expect(listed.find((row) => row.revision === 1)).not.toHaveProperty(
+			"savedBy",
+		);
+		await db.insert(organizationMembers).values({
+			id: "ada",
+			organizationId: "org-1",
+			descopeUserId: "user-ada",
+			email: "Ada@Visitor.example.test",
+			name: " Ada Lovelace ",
+			status: "active",
+			role: "member",
+		});
+		// The same address in another organization names nobody here.
+		await db.insert(organizationMembers).values({
+			id: "other-ada",
+			organizationId: "org-2",
+			descopeUserId: "user-ada-2",
+			email,
+			name: "Someone Else",
+			status: "active",
+			role: "member",
+		});
+		expect((await history({ revision: 2 }))[0]?.savedBy).toEqual({
+			through: "share_link",
+			name: "Ada Lovelace",
+			email,
+		});
+	});
+
+	it("leaves the name out once the link is deleted, and never names a session of another organization", async () => {
+		const { db, env, save, linkId } = await visitor();
+		expect((await save()).status).toBe(200);
+		const member = createRouterClient(osWorkspacesContractRouter, {
+			context: userContext({ env, permissions: ["os:read"] }),
+		});
+		const saved = async () =>
+			(await member.outputs.history({ outputId })).revisions.find(
+				(row) => row.revision === 2,
+			);
+		await db
+			.update(osShareLinks)
+			.set({ organizationId: "org-2" })
+			.where(eq(osShareLinks.id, linkId));
+		expect(await saved()).not.toHaveProperty("savedBy");
+		await db.delete(osShareLinks).where(eq(osShareLinks.id, linkId));
+		expect(await saved()).toMatchObject({
+			createdByKind: "service",
+			createdById: expect.stringMatching(/^share_session:/),
+		});
+		expect(await saved()).not.toHaveProperty("savedBy");
 	});
 
 	it("answers a save made from a revision that does not exist yet with a conflict", async () => {
