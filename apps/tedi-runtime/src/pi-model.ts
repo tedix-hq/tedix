@@ -1,5 +1,6 @@
 import { estimateInferenceTokens } from "./inference-guardrails";
 import { repairToolCallInput } from "./repair-tool-call";
+import { repairJsonUnicode } from "@tedix/chat-transport/repair-json-unicode";
 import type {
 	LanguageModelV2,
 	LanguageModelV3,
@@ -501,6 +502,18 @@ export function createTedixPiProvider<R>(
 					...prepared.callOptions,
 					abortSignal: sdkAbort.signal,
 				};
+				call.prompt = call.prompt.map((message) =>
+					message.role === "assistant"
+						? {
+								...message,
+								content: message.content.map((part) =>
+									part.type === "tool-call"
+										? { ...part, input: repairJsonUnicode(part.input) }
+										: part,
+								),
+							}
+						: message,
+				);
 				options.signal?.throwIfAborted();
 				sdkAbort.signal.throwIfAborted();
 				await config.beforeDispatch?.(call, receipt);
