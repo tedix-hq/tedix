@@ -19,7 +19,8 @@ Read `README.md` first. Rules that are easy to break:
   Pre-protocol owners and object-only transfer destinations keep their authority.
   Browser and agent reads and writes use that same
   owner, without a per-output fallback. An index row is location metadata,
-  not proof of object authority. Core rows (apps, resources, Work, tedis)
+  not proof of object authority. Agent output and resource bindings require
+  activation and never fall back to D1. Core rows (apps, Work, tedis)
   use the `DB` binding. The object never reads another workspace's rows.
 - Tests: `test:unit` (bun) for the loop, prompt and bindings;
   `test:workers` (workerd) for the object with the scripted model in

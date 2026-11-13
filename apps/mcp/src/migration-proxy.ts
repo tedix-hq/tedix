@@ -11,7 +11,7 @@
 export const MIGRATION_PROXY_PREFIX = "/admin/migration/workspaces/";
 
 const ROUTE =
-	/^\/admin\/migration\/workspaces\/([^/]+)\/([^/]+)(\/import|\/rows|\/activate)?$/;
+	/^\/admin\/migration\/workspaces\/([^/]+)\/([^/]+)(\/import|\/rows|\/activate|\/delta)?$/;
 
 export type MigrationProxyPlan =
 	| { kind: "not_proxied" }

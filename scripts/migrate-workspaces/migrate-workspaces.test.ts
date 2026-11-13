@@ -1,13 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { getMigratedSqliteTemplate } from "../../packages/db/src/test/migrated-sqlite-template";
 import { LocalBundleStore } from "./bundle";
-import { openStores, parseArgs } from "./cli";
+import { main, openStores, parseArgs } from "./cli";
 import { checkAssignments, exportAll } from "./export";
 import { importAll, proveSnapshot } from "./import";
+import { applyDeltaAll } from "./delta";
 import { reconcileAll } from "./reconcile";
 import { proposeAssignments } from "./assignments";
 import { rehearse } from "./rehearse";
@@ -1461,4 +1462,203 @@ describe("remote store authentication modes", () => {
 			'--auth must be "bearer" or "tedix"',
 		);
 	});
+});
+
+for (const changesDuringRead of [false, true])
+	test(`reconciliation ${changesDuringRead ? "refuses a changing" : "retains a stable"} import generation`, async () => {
+		const workDir = mkdtempSync(join(tmpdir(), "generation-proof-"));
+		const snapshot = fixtureSnapshot();
+		const bundles = new LocalBundleStore(join(workDir, "bundles"));
+		const stores = localStoreFactory(join(workDir, "objects"));
+		try {
+			await exportAll(snapshot, bundles, {});
+			await importAll(bundles, stores);
+			const withGeneration: WorkspaceStoreFactory = {
+				kind: "remote",
+				async open(ref) {
+					const store = await stores.open(ref);
+					let descriptions = 0;
+					return {
+						describe: async () => ({
+							...(await store.describe()),
+							importGeneration: changesDuringRead && descriptions++ > 0 ? 4 : 3,
+						}),
+						importRows: (batch) => store.importRows(batch),
+						readRows: (table, after, limit) =>
+							store.readRows(table, after, limit),
+						close: () => store.close(),
+					};
+				},
+			};
+			const report = await reconcileAll(bundles, withGeneration, { snapshot });
+			expect(report.ok).toBe(!changesDuringRead);
+			for (const workspace of report.workspaces) {
+				expect(workspace.importGeneration).toBe(3);
+				expect(workspace.problems).toEqual(
+					changesDuringRead ? ["Import changed during reconciliation"] : [],
+				);
+			}
+		} finally {
+			snapshot.close();
+			rmSync(workDir, { recursive: true, force: true });
+		}
+	});
+
+test("CLI frozen reconciliation proves the snapshot and refuses a capture preceding the freeze", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "frozen-reconcile-"));
+	const source = fixtureSnapshot();
+	const mainPath = join(dir, "main.sqlite");
+	const logPath = join(dir, "logs.sqlite");
+	writeFileSync(mainPath, source.main.serialize());
+	writeFileSync(logPath, source.logs[0]!.serialize());
+	source.close();
+	const snapshot = Snapshot.open({ main: mainPath, logs: [logPath] });
+	const bundlePath = join(dir, "bundles");
+	const objectPath = join(dir, "objects");
+	const reportPath = join(dir, "report.json");
+	try {
+		const bundles = new LocalBundleStore(bundlePath);
+		await exportAll(snapshot, bundles, {});
+		await importAll(bundles, localStoreFactory(objectPath));
+		const args = [
+			"reconcile",
+			"--snapshot",
+			mainPath,
+			"--logs",
+			logPath,
+			"--bundles",
+			bundlePath,
+			"--objects",
+			objectPath,
+			"--freeze-ref",
+			"fixture:freeze",
+			"--report",
+			reportPath,
+		];
+		const frozenAt = new Date(snapshot.takenAt.getTime() - 1000).toISOString();
+		expect(await main([...args, "--frozen-at", frozenAt], {}, () => {})).toBe(
+			0,
+		);
+		const report = JSON.parse(
+			readFileSync(reportPath, "utf8"),
+		) as import("./reconcile").ReconcileReport;
+		expect(report.freeze).toEqual({ frozenAt, evidenceRef: "fixture:freeze" });
+		expect(report.totals).toHaveLength(WORKSPACE_TABLES.length);
+		await expect(
+			main([...args, "--frozen-at", new Date().toISOString()], {}, () => {}),
+		).rejects.toThrow("snapshot begun after the freeze");
+	} finally {
+		snapshot.close();
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("frozen delta repairs changed/deleted rows, preserves untracked rows and resumes after a lost receipt", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "frozen-delta-"));
+	const snapshot = fixtureSnapshot({ takenAt: new Date() });
+	const baseline = new LocalBundleStore(join(dir, "baseline"));
+	const final = new LocalBundleStore(join(dir, "final"));
+	try {
+		await exportAll(snapshot, baseline, {});
+		const copies = new Map<string, Map<string, import("./rows").StoredRow[]>>();
+		for (const ref of await baseline.list())
+			copies.set(ref.workspaceId, (await baseline.read(ref)).tables);
+		copies
+			.get(WS_A)!
+			.get("os_outputs")!
+			.push({ id: "native-only", title: "Keep native" });
+		snapshot.main.exec(
+			"UPDATE os_outputs SET title='Final title' WHERE id='out-a1'",
+		);
+		snapshot.main.exec("DELETE FROM os_workspace_resources WHERE id='res-a'");
+		await exportAll(snapshot, final, {});
+		let generation = 7,
+			writes = 0,
+			loseReceipt = true;
+		const stores: WorkspaceStoreFactory = {
+			kind: "remote",
+			async open(ref) {
+				const tables = copies.get(ref.workspaceId)!;
+				return {
+					async describe() {
+						return {
+							...ref,
+							createdAt: "fixture",
+							migrations: [],
+							jurisdiction: "eu",
+							outputAuthority: "shared",
+							importGeneration: generation,
+						};
+					},
+					async readRows(table) {
+						return { rows: tables.get(table)!, next: null };
+					},
+					async importRows() {
+						throw new Error("Not an additive import");
+					},
+					async applyDelta(batch) {
+						expect(batch.importGeneration).toBe(generation);
+						const rows = tables.get(batch.table)!;
+						for (const change of batch.changes) {
+							const id = (change.before ?? change.after)!.id;
+							const index = rows.findIndex((r) => r.id === id);
+							if (index >= 0) rows.splice(index, 1);
+							if (change.after) rows.push(change.after);
+						}
+						writes++;
+						generation++;
+						if (loseReceipt) {
+							loseReceipt = false;
+							throw new Error("Lost HTTP response");
+						}
+						return {
+							batchId: batch.batchId,
+							table: batch.table,
+							rowCount: batch.changes.length,
+							status: "imported",
+							importGeneration: generation,
+						};
+					},
+					async close() {},
+				};
+			},
+		};
+		const options = {
+			snapshot,
+			freezeRef: "fixture:freeze",
+			frozenAt: new Date(snapshot.takenAt.getTime() - 1).toISOString(),
+		};
+		await expect(
+			applyDeltaAll(baseline, final, stores, options),
+		).rejects.toThrow("Lost HTTP response");
+		const results = await applyDeltaAll(baseline, final, stores, options);
+		expect(writes).toBe(2);
+		expect(results[0]!.alreadyApplied).toBe(1);
+		expect(
+			copies
+				.get(WS_A)!
+				.get("os_outputs")!
+				.find((r) => r.id === "out-a1")!.title,
+		).toBe("Final title");
+		expect(
+			copies
+				.get(WS_A)!
+				.get("os_outputs")!
+				.find((r) => r.id === "native-only")!.title,
+		).toBe("Keep native");
+		expect(copies.get(WS_A)!.get("os_workspace_resources")).toEqual([]);
+		await applyDeltaAll(baseline, final, stores, options);
+		expect(writes).toBe(2);
+		copies
+			.get(WS_A)!
+			.get("os_outputs")!
+			.find((r) => r.id === "out-a1")!.title = "Different writer";
+		await expect(
+			applyDeltaAll(baseline, final, stores, options),
+		).rejects.toThrow("no longer equals its baseline");
+		expect(writes).toBe(2);
+	} finally {
+		snapshot.close();
+		rmSync(dir, { recursive: true, force: true });
+	}
 });

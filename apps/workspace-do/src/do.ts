@@ -39,6 +39,7 @@ import {
 	TenantStore,
 	tenantStoreDefinition,
 	type TenantStoreImportBatch,
+	type TenantStoreDeltaBatch,
 } from "@tedix/db/tenant-store/store";
 import type { TenantScope } from "@tedix/db/tenant-scope";
 import { tenantStoreName } from "@tedix/db/tenant-store/router";
@@ -338,6 +339,81 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			if (batch.table.startsWith("kernel_")) this.#movedChatReady = false;
 			return result;
 		});
+	}
+
+	async applyImportDelta(
+		scope: WorkspaceScope,
+		input: TenantStoreDeltaBatch & {
+			importGeneration: number;
+			freezeRef: string;
+		},
+	) {
+		this.bindScope(scope);
+		if (
+			!input.freezeRef?.trim() ||
+			!Number.isSafeInteger(input.importGeneration) ||
+			input.importGeneration < 1 ||
+			![
+				"os_workspaces",
+				"os_outputs",
+				"os_output_revisions",
+				"os_workspace_resources",
+				"kernel_conversations",
+				"kernel_runtime_runs",
+				"kernel_runtime_events",
+				"kernel_tool_results",
+				"tedi_artifacts",
+			].includes(input.table)
+		)
+			throw new Error(
+				"Delta requires a staged generation, freeze evidence and workspace table",
+			);
+		return this.#serializeOutput(async () =>
+			this.ctx.storage.transactionSync(() => {
+				if (this.#store.get("output-authority") !== "shared")
+					throw new Error("Delta requires staged shared authority");
+				let rebuildChat = false;
+				const receipt = this.applyImportDeltaSync(scope, input, () => {
+					if (input.importGeneration !== this.#importGeneration())
+						throw new Error("Import changed before delta");
+					rebuildChat = input.table.startsWith("kernel_");
+					if (rebuildChat) {
+						const native = this.#store.exec<{
+							id: string;
+						}>(`SELECT turn_id AS id FROM turns WHERE actor_id != 'workspace_import'
+					UNION ALL SELECT c.id FROM conversations c WHERE NOT EXISTS (
+					 SELECT 1 FROM kernel_conversations k WHERE k.conversation_id = c.id AND k.title IS c.title AND k.deleted_at IS c.archived_at
+					) UNION ALL SELECT k.conversation_id AS id FROM kernel_conversations k WHERE NOT EXISTS (
+					 SELECT 1 FROM conversations c WHERE k.conversation_id = c.id
+					) LIMIT 1`);
+						if (native.length)
+							throw new Error(
+								"Chat delta conflicts with native workspace activity; review the merge",
+							);
+						for (const event of this.#store.exec<{ id: string }>(
+							"SELECT id FROM kernel_runtime_events",
+						))
+							this.#store.delete(`moved-chat-event:${event.id}`);
+						for (const table of [
+							"messages",
+							"events",
+							"turns",
+							"conversations",
+						])
+							this.#store.run(`DELETE FROM ${table}`);
+						this.#store.delete("moved-chat-visible-archives");
+					}
+				});
+				if (receipt.status === "imported") {
+					this.#store.put(
+						"output-import-generation",
+						this.#importGeneration() + 1,
+					);
+					if (rebuildChat) migrateMovedChat(this.#store, scope);
+				}
+				return { ...receipt, importGeneration: this.#importGeneration() };
+			}),
+		);
 	}
 
 	#importGeneration(): number {
@@ -1680,7 +1756,10 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			core: createDbQueryClient(this.env.DB),
 			bucket: this.env.R2_BUCKET,
 			actorKind,
-			ownsOutputs: () => this.#ownsOutputs(scope),
+			assertWorkspaceAuthority: async () => {
+				if (!(await this.#ownsOutputs(scope)))
+					throw new Error("Workspace output activation is required");
+			},
 			commitOutput: (outputId, write) =>
 				this.#commitOutput(scope, outputId, write),
 		});
@@ -2273,6 +2352,19 @@ export interface WorkspaceRpc {
 		createdAt: string;
 		migrations: string[];
 		outputAuthority: string;
+		importGeneration: number;
+	}>;
+	applyImportDelta(
+		scope: WorkspaceScope,
+		input: TenantStoreDeltaBatch & {
+			importGeneration: number;
+			freezeRef: string;
+		},
+	): Promise<{
+		batchId: string;
+		table: string;
+		rowCount: number;
+		status: "imported" | "duplicate";
 		importGeneration: number;
 	}>;
 	activateOutputAuthority(

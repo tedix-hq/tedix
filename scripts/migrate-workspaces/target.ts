@@ -54,8 +54,20 @@ export interface ImportReceipt {
 	status: "imported" | "duplicate";
 }
 
+export interface DeltaBatch {
+	batchId: string;
+	table: string;
+	importGeneration: number;
+	freezeRef: string;
+	changes: Array<{ before: StoredRow | null; after: StoredRow | null }>;
+}
+export interface DeltaReceipt extends ImportReceipt {
+	importGeneration: number;
+}
+
 export interface WorkspaceStore {
 	describe(): Promise<StoreDescription>;
+	applyDelta?(batch: DeltaBatch): Promise<DeltaReceipt>;
 	importRows(batch: ImportBatch): Promise<ImportReceipt>;
 	/** Every row of a table, page by page; `after` is the cursor the previous page returned. */
 	readRows(
@@ -66,6 +78,10 @@ export interface WorkspaceStore {
 		rows: StoredRow[];
 		next: string | null;
 	}>;
+	activate?(input: {
+		importGeneration: number;
+		reconciliationRef: string;
+	}): Promise<unknown>;
 	close(): Promise<void>;
 }
 
@@ -401,6 +417,23 @@ export class RemoteWorkspaceStore implements WorkspaceStore {
 
 	describe(): Promise<StoreDescription> {
 		return this.call<StoreDescription>("");
+	}
+
+	activate(input: {
+		importGeneration: number;
+		reconciliationRef: string;
+	}): Promise<unknown> {
+		return this.call("/activate", input);
+	}
+
+	applyDelta(batch: DeltaBatch): Promise<DeltaReceipt> {
+		return this.call("/delta", {
+			...batch,
+			changes: batch.changes.map((change) => ({
+				before: change.before && toWire(change.before),
+				after: change.after && toWire(change.after),
+			})),
+		});
 	}
 
 	async importRows(batch: ImportBatch): Promise<ImportReceipt> {

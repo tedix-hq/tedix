@@ -6,6 +6,7 @@
  *   bun scripts/migrate-workspaces/cli.ts export    --snapshot main.sql --logs logs-1.sql ... [--assignments assignments.json] --bundles <dir|r2://bucket/prefix> [--scope org/ws,...]
  *   bun scripts/migrate-workspaces/cli.ts import    --bundles <dir|r2://...> (--objects <dir> | --remote <url> --snapshot main.sql --logs ...) [--scope org/ws,...] [--merge-object-owned org/ws,... [--plan-only]]
  *   bun scripts/migrate-workspaces/cli.ts reconcile --bundles <dir|r2://...> (--objects <dir> | --remote <url>) [--snapshot main.sql --logs ...] [--scope org/ws,...] [--approved decisions.json [--merge-object-owned org/ws,...]] [--report report.json]
+ *   bun scripts/migrate-workspaces/cli.ts activate --reconciliation report.json --reconciliation-ref <evidence URI> --remote <url> --auth tedix --report activation.json [--scope org/ws,...]
  *   bun scripts/migrate-workspaces/cli.ts rehearse  --snapshot main.sql [--logs ...] --assignments assignments.json [--work-dir <dir>] [--report report.json]
  *   bun scripts/migrate-workspaces/cli.ts schema-check --snapshot main.sql [--logs ...]
  *   bun scripts/migrate-workspaces/cli.ts assignments  --snapshot main.sql --out assignments.json
@@ -20,11 +21,14 @@ import { capture, type CaptureConfig } from "./capture";
 import { proposeAssignments } from "./assignments";
 import { openBundleStore, R2BundleStore } from "./bundle";
 import { exportAll } from "./export";
-import { importAll } from "./import";
+import { importAll, proveSnapshot } from "./import";
+import { activateAll, type ActivationResult } from "./activate";
+import { applyDeltaAll } from "./delta";
 import {
 	reconcileAll,
 	renderReport,
 	type ApprovedAccounting,
+	type ReconcileReport,
 } from "./reconcile";
 import { rehearse, renderRehearsal } from "./rehearse";
 import { refKey, Scope } from "./scope";
@@ -220,6 +224,33 @@ export async function main(
 			out(JSON.stringify(manifest, null, 2));
 			return 0;
 		}
+		case "delta": {
+			const snapshot = openSnapshot(flags);
+			if (!snapshot) throw new Error("--snapshot is required");
+			const journal = required(flags, "report");
+			const receipts: unknown[] = [];
+			try {
+				const results = await applyDeltaAll(
+					openBundleStore(required(flags, "baseline-bundles")),
+					openBundleStore(required(flags, "bundles")),
+					await openStores(flags, env),
+					{
+						snapshot,
+						frozenAt: required(flags, "frozen-at"),
+						freezeRef: required(flags, "freeze-ref"),
+						scope: readScope(flags),
+						onReceipt: (ref, receipt) => {
+							receipts.push({ ...ref, ...receipt });
+							writeFileSync(journal, JSON.stringify(receipts, null, "\t"));
+						},
+					},
+				);
+				out(JSON.stringify(results, null, "\t"));
+				return 0;
+			} finally {
+				snapshot.close();
+			}
+		}
 		case "export": {
 			const snapshot = openSnapshot(flags);
 			if (!snapshot) throw new Error("--snapshot is required");
@@ -284,6 +315,26 @@ export async function main(
 				snapshot?.close();
 			}
 		}
+		case "activate": {
+			const receiptPath = required(flags, "report");
+			const retained: ActivationResult[] = [];
+			const report = JSON.parse(
+				readFileSync(required(flags, "reconciliation"), "utf8"),
+			) as ReconcileReport;
+			const receipts = await activateAll(
+				report,
+				await openStores(flags, env),
+				required(flags, "reconciliation-ref"),
+				readScope(flags),
+				new Date(),
+				(result) => {
+					retained.push(result);
+					writeFileSync(receiptPath, JSON.stringify(retained, null, "\t"));
+				},
+			);
+			out(JSON.stringify(receipts, null, "\t"));
+			return 0;
+		}
 		case "reconcile": {
 			const snapshot = openSnapshot(flags);
 			try {
@@ -298,6 +349,33 @@ export async function main(
 							flags["allow-any-jurisdiction"] === true ? null : undefined,
 					},
 				);
+				if (text(flags, "freeze-ref")) {
+					const frozenAt = required(flags, "frozen-at");
+					if (
+						!snapshot ||
+						!Number.isFinite(Date.parse(frozenAt)) ||
+						Date.parse(frozenAt) > Date.now() ||
+						Date.parse(frozenAt) >
+							Date.parse(
+								snapshot.capture?.startedAt ?? snapshot.takenAt.toISOString(),
+							)
+					)
+						throw new Error(
+							"Frozen reconciliation needs a snapshot begun after the freeze",
+						);
+					report.problems.push(
+						...(await proveSnapshot(
+							openBundleStore(required(flags, "bundles")),
+							snapshot,
+							readScope(flags),
+						)),
+					);
+					report.ok = report.ok && report.problems.length === 0;
+					report.freeze = {
+						frozenAt,
+						evidenceRef: required(flags, "freeze-ref"),
+					};
+				}
 				out(renderReport(report));
 				if (reportPath)
 					writeFileSync(reportPath, JSON.stringify(report, null, "\t"));
@@ -357,7 +435,7 @@ export async function main(
 		}
 		default:
 			out(
-				"usage: cli.ts export|import|reconcile|rehearse|schema-check|assignments [flags]; see the file header",
+				"usage: cli.ts capture|export|import|delta|reconcile|activate|rehearse|schema-check|assignments [flags]; see the file header",
 			);
 			return 2;
 	}

@@ -262,6 +262,61 @@ back and verify browser and agent behavior before lifting the freeze. The
 import CLI and rehearsal never issue this operation. A product source change
 or staging report grants no deployment or activation permission.
 
+## Frozen reconciliation and explicit activation commands
+
+After the installation operator has frozen every writer and drained active
+runs, record the freeze time and its durable evidence reference. Use a new
+capture directory; resuming a completed Stage 1 capture does not refresh it.
+These commands describe operator work and must run only with separate cutover
+authority:
+
+```bash
+bun scripts/migrate-workspaces/cli.ts capture --config "$CAPTURE_CONFIG" --out "$FINAL_CAPTURE" --page-size 100 --delay-ms 2000
+bun scripts/migrate-workspaces/cli.ts export --snapshot "$FINAL_CAPTURE/manifest.json" --bundles "$FINAL_BUNDLES"
+bun scripts/migrate-workspaces/cli.ts delta --baseline-bundles "$STAGED_BUNDLES" --snapshot "$FINAL_CAPTURE/manifest.json" --bundles "$FINAL_BUNDLES" --remote "$MIGRATION_GATEWAY" --auth tedix --workspace connect --freeze-ref "$FREEZE_REF" --frozen-at "$FROZEN_AT" --report "$DELTA_RECEIPTS"
+bun scripts/migrate-workspaces/cli.ts reconcile --snapshot "$FINAL_CAPTURE/manifest.json" --bundles "$FINAL_BUNDLES" --remote "$MIGRATION_GATEWAY" --auth tedix --workspace connect --freeze-ref "$FREEZE_REF" --frozen-at "$FROZEN_AT" --report "$RECONCILIATION_REPORT"
+bun scripts/migrate-workspaces/cli.ts activate --reconciliation "$RECONCILIATION_REPORT" --reconciliation-ref "$RECONCILIATION_REF" --remote "$MIGRATION_GATEWAY" --auth tedix --workspace connect --report "$ACTIVATION_RECEIPTS"
+```
+
+`FROZEN_AT` is an ISO timestamp no later than the capture's start. The freeze
+reference is the operator's attestation; the tool cannot freeze an installation.
+Frozen reconciliation repeats freshness, snapshot hash and historical coverage
+checks and records each object's authority and import generation. It reads the
+generation before and after comparing rows and refuses an intervening import.
+Upload the exact report to durable evidence before using its reference.
+
+`STAGED_BUNDLES` is the retained exact bundle from staging. `delta` validates
+both bundles, proves the fresh final source and compares each changed or
+deleted row with its staged predecessor before writing. Inserts and updates
+run before deletions; child deletions precede parent deletions. Replacements
+use updates so foreign-key children remain intact. Parent deletions refuse
+remaining dependent rows rather than cascading into untracked data. Each batch is atomic,
+generation-fenced and receipted; it advances the import generation and thus
+invalidates prior reconciliation. The receipt journal is updated per batch.
+A rerun recognizes rows already equal to the final bundle after a lost response.
+Rows absent from both source bundles are preserved, never inferred to be stale.
+
+Deltas require staged shared authority. They refuse divergent rows, unresolved
+or object-owned workspaces with source changes, schema differences, and chat
+changes that conflict with native activity. Imported-only chat projections are
+rebuilt atomically with raw chat deltas. Native conversations and turns are
+never overwritten by that rebuild. Resolve any refused ownership or merge
+through its reviewed per-row decision and reconcile again. The six held
+workspaces cannot be skipped to justify an installation-wide removal release.
+These commands perform no freeze themselves and grant no cutover permission.
+
+`activate` refuses a report without frozen snapshot coverage, a report older
+than two hours, drift, pending re-reads, unresolved authority or a changed import
+generation. It preflights all selected workspaces before activating the first.
+Clean existing object owners remain owners without another activation. The
+object atomically checks the generation again when committing activation.
+Activation is atomic per workspace, not across an installation. The required
+receipt file is updated after each response, before authority readback; retain
+it on failure. Retry with the same report and reference only while the report
+is fresh and every generation still matches. A lost HTTP response can hide a
+committed activation: read authority and repeat the same idempotent request
+rather than infer that the workspace stayed shared.
+
 ## Tests
 
 ```bash

@@ -161,6 +161,94 @@ describe("read-only aggregate mounting", () => {
 		);
 	});
 
+	it.each(["runtime", "organization"])(
+		"refuses a workspace route with missing %s instead of mounting core tools",
+		async (missing) => {
+			const response = appResponse(
+				`workspace-missing-${missing}`,
+				{ authMode: "public" },
+				[],
+			);
+			getBySlugWithTools.mockResolvedValue({
+				...response,
+				app: {
+					...response.app,
+					organizationId:
+						missing === "organization" ? null : response.app.organizationId,
+				},
+			});
+			const bindings = createEnv();
+			const forward = vi.fn();
+			if (missing === "organization")
+				bindings.WORKSPACE_RUNTIME = {
+					fetch: forward,
+					connect: () => {
+						throw new Error("Unexpected workspace socket");
+					},
+				};
+			const result = await worker.fetch(
+				new Request(
+					`https://workspace-missing-${missing}.mcp.tedix.tech/mcp/workspaces/workspace-fixture`,
+					{
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({
+							jsonrpc: "2.0",
+							id: 1,
+							method: "tools/list",
+						}),
+					},
+				),
+				bindings,
+				createExecutionContext(),
+			);
+			expect(result.status).toBe(503);
+			expect(await result.json()).toEqual({
+				error: "workspace_runtime_unavailable",
+			});
+			expect(forward).not.toHaveBeenCalled();
+			expect(mountMcp).not.toHaveBeenCalled();
+			expect(buildMcpServer).not.toHaveBeenCalled();
+		},
+	);
+
+	it("rejects workspace GET requests even when the object binding is absent", async () => {
+		const result = await worker.fetch(
+			new Request(
+				"https://workspace-get.mcp.tedix.tech/mcp/workspaces/workspace-fixture",
+			),
+			createEnv(),
+			createExecutionContext(),
+		);
+		expect(result.status).toBe(405);
+		expect(mountMcp).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		"/mcp/workspaces",
+		"/mcp/workspaces/workspace-fixture/",
+		"/mcp/workspaces/workspace-fixture/extra",
+	])(
+		"never mounts core tools for the unmatched workspace route %s",
+		async (path) => {
+			const result = await worker.fetch(
+				new Request(`https://workspace-unmatched.mcp.tedix.tech${path}`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+				}),
+				createEnv(),
+				createExecutionContext(),
+			);
+			expect(result.status).toBe(404);
+			expect(await result.json()).toEqual({
+				error: "workspace_route_not_found",
+			});
+			expect(mountMcp).not.toHaveBeenCalled();
+			expect(buildMcpServer).not.toHaveBeenCalled();
+		},
+	);
+
 	it("mounts only the source's read tools when the entry declares readOnly", async () => {
 		expect(await mountedToolIds("gateway-rule")).toEqual([
 			"vendor__read_record",

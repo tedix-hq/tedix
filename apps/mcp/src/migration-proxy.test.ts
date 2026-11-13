@@ -9,6 +9,23 @@ const ADMIN = ["platform:admin"];
 const base = "https://tedix.mcp.example";
 
 describe("planMigrationProxy", () => {
+	it("keeps deltas behind the same admin-only POST boundary", () => {
+		const pathname = "/admin/migration/workspaces/org/ws/delta";
+		expect(
+			planMigrationProxy({ method: "POST", pathname, scopes: ADMIN }),
+		).toMatchObject({ kind: "forward", shape: "delta" });
+		expect(
+			planMigrationProxy({
+				method: "POST",
+				pathname,
+				scopes: ["mcp:work.admin"],
+			}).kind,
+		).toBe("forbidden");
+		expect(
+			planMigrationProxy({ method: "GET", pathname, scopes: ADMIN }).kind,
+		).toBe("method_not_allowed");
+	});
+
 	it("forwards only the migration route shapes for a platform admin", () => {
 		expect(
 			planMigrationProxy({

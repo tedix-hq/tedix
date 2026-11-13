@@ -89,6 +89,15 @@ export interface TenantStoreImportBatch {
 	rows: TenantStoreImportRow[];
 }
 
+export interface TenantStoreDeltaBatch {
+	batchId: string;
+	table: string;
+	changes: Array<{
+		before: TenantStoreImportRow | null;
+		after: TenantStoreImportRow | null;
+	}>;
+}
+
 export interface TenantStoreImportResult {
 	batchId: string;
 	table: string;
@@ -311,6 +320,132 @@ export class TenantStore<Env = unknown> extends DurableObject<Env> {
 		};
 	}
 
+	/** A frozen-source delta may replace only the exact staged rows it names. */
+	protected applyImportDeltaSync(
+		scope: TenantScope,
+		batch: TenantStoreDeltaBatch,
+		beforeWrite: () => void,
+	): TenantStoreImportResult {
+		const bound = this.bindScope(scope);
+		const table = this.#definition.importTables[batch.table];
+		if (
+			!table ||
+			!batch.batchId?.trim() ||
+			!Array.isArray(batch.changes) ||
+			batch.changes.length < 1 ||
+			batch.changes.length > TENANT_STORE_IMPORT_MAX_ROWS
+		)
+			throw new Error("Invalid tenant delta batch");
+		const config = getTableConfig(table);
+		if (!config.columns.some((c) => c.name === "id" && c.primary))
+			throw new Error("Delta requires an id primary key");
+		const receipt = this.db
+			.select()
+			.from(tenantStoreImportBatches)
+			.where(eq(tenantStoreImportBatches.batchId, batch.batchId))
+			.get();
+		if (receipt) {
+			if (receipt.tableName !== batch.table)
+				throw new Error("Delta batch id belongs to another table");
+			return {
+				batchId: batch.batchId,
+				table: batch.table,
+				rowCount: receipt.rowCount,
+				status: "duplicate",
+			};
+		}
+		const columns = new Set(config.columns.map((c) => c.name));
+		const ids = new Set<string>();
+		const changes = batch.changes.map(({ before, after }) => {
+			const id = (before ?? after)?.id;
+			if (
+				typeof id !== "string" ||
+				!id ||
+				ids.has(id) ||
+				(before && after && before.id !== after.id)
+			)
+				throw new Error("Delta requires unique stable row ids");
+			ids.add(id);
+			for (const row of [before, after]) {
+				if (!row) continue;
+				buildInsert(config.name, columns, bound, row);
+				if (Object.keys(row).length !== columns.size)
+					throw new Error("Delta requires full rows from matching schemas");
+			}
+			return { id, before, after };
+		});
+		return this.ctx.storage.transactionSync(() => {
+			beforeWrite();
+			for (const { id, before, after } of changes) {
+				const current = this.ctx.storage.sql
+					.exec<TenantStoreImportRow>(
+						`SELECT * FROM "${config.name}" WHERE id = ?`,
+						id,
+					)
+					.toArray()[0];
+				if (
+					before
+						? !current ||
+							[...columns].some((c) => !sameImportValue(before[c], current[c]))
+						: current !== undefined
+				)
+					throw new Error(`Delta conflict in ${batch.table} row ${id}`);
+				if (before && after) {
+					const names = [...columns].filter((name) => name !== "id");
+					this.ctx.storage.sql.exec(
+						`UPDATE "${config.name}" SET ${names.map((name) => `"${name}" = ?`).join(", ")} WHERE id = ?`,
+						...names.map((name) => after[name] ?? null),
+						id,
+					);
+				} else if (before) {
+					// Children absent from the source bundle may be native; never cascade into them.
+					for (const child of Object.values(this.#definition.importTables)) {
+						const childConfig = getTableConfig(child);
+						for (const key of childConfig.foreignKeys) {
+							const ref = key.reference();
+							if (getTableConfig(ref.foreignTable).name !== config.name)
+								continue;
+							const found = this.ctx.storage.sql
+								.exec(
+									`SELECT 1 AS present FROM "${childConfig.name}" WHERE ${ref.columns.map((column) => `"${column.name}" = ?`).join(" AND ")} LIMIT 1`,
+									...ref.foreignColumns.map(
+										(column) => before[column.name] ?? null,
+									),
+								)
+								.toArray();
+							if (found.length)
+								throw new Error(
+									`Delta deletion has remaining dependents in ${childConfig.name}`,
+								);
+						}
+					}
+					this.ctx.storage.sql.exec(
+						`DELETE FROM "${config.name}" WHERE id = ?`,
+						id,
+					);
+				} else if (after) {
+					const insert = buildInsert(config.name, columns, bound, after);
+					this.ctx.storage.sql.exec(insert.query, ...insert.values);
+				}
+			}
+			this.db
+				.insert(tenantStoreImportBatches)
+				.values({
+					batchId: batch.batchId,
+					tableName: batch.table,
+					rowCount: changes.length,
+					importedAt: new Date().toISOString(),
+				})
+				.run();
+			return {
+				batchId: batch.batchId,
+				table: batch.table,
+				rowCount: changes.length,
+				status: "imported",
+			};
+		});
+	}
+
 	/**
 	 * Bind this object to its first scope and reject any other scope.
 	 * Every RPC method must call this before touching data.
@@ -386,4 +521,13 @@ function buildInsert(
 		query: `INSERT INTO "${tableName}" (${columns.map((c) => `"${c}"`).join(", ")}) VALUES (${columns.map(() => "?").join(", ")})`,
 		values: columns.map((column) => row[column] ?? null),
 	};
+}
+
+function sameImportValue(a: unknown, b: unknown): boolean {
+	if (a instanceof ArrayBuffer && b instanceof ArrayBuffer) {
+		const left = new Uint8Array(a),
+			right = new Uint8Array(b);
+		return left.length === right.length && left.every((v, i) => v === right[i]);
+	}
+	return a === b;
 }

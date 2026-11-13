@@ -1,3 +1,4 @@
+import type { TenantStoreImportRow } from "@tedix/db/tenant-store/store";
 /**
  * Worker entry. Other workers reach a workspace object through the
  * `InternalEntrypoint` service binding (RPC) or by forwarding an HTTP request
@@ -146,10 +147,10 @@ export class InternalEntrypoint extends WorkerEntrypoint<WorkspaceEnv> {
 }
 
 const MIGRATION_PATH =
-	/^\/migration\/workspaces\/([^/]+)\/([^/]+)(\/import|\/rows|\/activate)?$/;
+	/^\/migration\/workspaces\/([^/]+)\/([^/]+)(\/import|\/rows|\/activate|\/delta)?$/;
 
 /** Blobs travel as `{ "$b64": … }`; everything else is JSON as stored. */
-function decodeRow(row: Record<string, unknown>) {
+function decodeRow(row: Record<string, unknown>): TenantStoreImportRow {
 	return Object.fromEntries(
 		Object.entries(row).map(([key, value]) => {
 			if (value && typeof value === "object" && "$b64" in value) {
@@ -159,6 +160,12 @@ function decodeRow(row: Record<string, unknown>) {
 				);
 				return [key, bytes.buffer];
 			}
+			if (
+				value !== null &&
+				typeof value !== "string" &&
+				typeof value !== "number"
+			)
+				throw new Error("Unsupported migration row value");
 			return [key, value];
 		}),
 	);
@@ -199,6 +206,28 @@ async function handleMigration(
 			await stub().activateOutputAuthority(scope, {
 				importGeneration: body.importGeneration as number,
 				reconciliationRef: body.reconciliationRef as string,
+			}),
+		);
+	}
+	if (route === "/delta") {
+		if (!Array.isArray(body.changes))
+			throw new Error("Delta changes are required");
+		return Response.json(
+			await stub().applyImportDelta(scope, {
+				batchId: String(body.batchId ?? ""),
+				table: String(body.table ?? ""),
+				importGeneration: Number(body.importGeneration),
+				freezeRef: String(body.freezeRef ?? ""),
+				changes: body.changes.map((value) => {
+					const change = value as {
+						before: Record<string, unknown> | null;
+						after: Record<string, unknown> | null;
+					};
+					return {
+						before: change.before === null ? null : decodeRow(change.before),
+						after: change.after === null ? null : decodeRow(change.after),
+					};
+				}),
 			}),
 		);
 	}
