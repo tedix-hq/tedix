@@ -4639,6 +4639,45 @@ it("reads an item waiting on its owner once per window, not once per pass", asyn
 	}
 });
 
+it("spends a few gateway requests per pass on a lane of waiting items", async () => {
+	// Ten minutes of 30-second passes over ten items that wait on their
+	// owner. Before per-item reads were held, each pass read every item
+	// (230 requests: 20 lists, 200 reads, 10 owner requests).
+	const f = fixture();
+	f.items.splice(
+		0,
+		f.items.length,
+		...Array.from({ length: 10 }, (_, n) => ({
+			...item(n + 1),
+			description: "Send an email as the owner",
+		})),
+	);
+	const base = f.deps.cli!;
+	const requests: string[] = [];
+	f.deps.cli = async <T>(args: string[], env: NodeJS.ProcessEnv) => {
+		requests.push(args[5]!);
+		return args[5] === "interaction-create"
+			? ({ id: `request-${requests.length}` } as T)
+			: base<T>(args, env);
+	};
+	const dispatcher = f.restart();
+	const start = Date.now();
+	const clock = spyOn(Date, "now").mockReturnValue(start);
+	try {
+		for (let pass = 0; pass < 20; pass++) {
+			clock.mockReturnValue(start + pass * 30_000);
+			await dispatcher.tick();
+		}
+	} finally {
+		clock.mockRestore();
+	}
+	const count = (verb: string) => requests.filter((v) => v === verb).length;
+	expect(count("dispatch-list")).toBe(20);
+	expect(count("dispatch-get")).toBe(20);
+	expect(count("interaction-create")).toBe(10);
+	expect(requests).toHaveLength(50);
+});
+
 it("routes an ownerless delegation blocker to the signed-in lane operator", () => {
 	const work = {
 		...item(),
