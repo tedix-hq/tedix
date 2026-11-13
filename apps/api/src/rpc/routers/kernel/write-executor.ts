@@ -549,7 +549,10 @@ export async function executeApprovedOwnerToolCall(args: {
 				retryable: true,
 			};
 		}
-		if (tool.annotations?.readOnlyHint === true) {
+		if (
+			tool.annotations?.readOnlyHint === true &&
+			!payload.target?.sensitiveDataEgress
+		) {
 			return {
 				ok: false,
 				error: `Tool "${payload.toolId}" was re-published as read-only; aborting the approved call`,
@@ -564,7 +567,15 @@ export async function executeApprovedOwnerToolCall(args: {
 			{
 				name: tool.name,
 				arguments: payload.args,
-				_meta: { "com.tedix/approvalRequestId": args.approvalRequestId },
+				_meta: {
+					"com.tedix/approvalRequestId": args.approvalRequestId,
+					...(payload.target?.sensitiveDataEgress
+						? {
+								"com.tedix/sensitiveDataEgress":
+									payload.target.sensitiveDataEgress,
+							}
+						: {}),
+				},
 			},
 			payload.initiatedByUserId,
 			undefined,

@@ -497,7 +497,12 @@ describe("sensitive-data latch through the gateway", () => {
 		try {
 			await expect(
 				client.resolveRunSensitiveDataLatch({ organizationId: ORG_ID, runRef }),
-			).resolves.toEqual({ known: true, latch: null });
+			).resolves.toEqual({
+				known: true,
+				active: true,
+				exactFetchApprovalEnabled: false,
+				latch: null,
+			});
 			const latched = await client.latchRunSensitiveData({
 				organizationId: ORG_ID,
 				runRef,
@@ -574,7 +579,7 @@ describe("sensitive-data latch through the gateway", () => {
 					runRef,
 					source,
 				}),
-			).resolves.toEqual({ known: true, latch: null });
+			).resolves.toEqual({ known: true, active: true, latch: null });
 			sqlite
 				.prepare(
 					"INSERT INTO connection_instances (id, owner_user_id, organization_id, provider_id, label, data_sensitivity, token_ids, created_at, updated_at) VALUES ('inst-1', 'user-1', ?, 'crm', 'main', 'restricted', '[]', 'now', 'now')",

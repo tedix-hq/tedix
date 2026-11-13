@@ -418,6 +418,12 @@ export const PortfolioBucketsSchema = z
 	);
 
 export const OrganizationMetadataSchema = z.object({
+	sensitiveDataEgressApproval: z
+		.boolean()
+		.optional()
+		.describe(
+			"Allow an owner or admin to approve one exact public HTTPS GET for an active sensitive-data-locked run; absent means off.",
+		),
 	secretEgressMode: z
 		.enum(["block", "warn"])
 		.optional()

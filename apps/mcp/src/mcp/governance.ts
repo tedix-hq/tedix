@@ -29,7 +29,12 @@ import {
 	ToolActionTypeSchema,
 	type ToolAnnotations,
 } from "@tedix/api-contract/schemas/tools";
-import { sensitiveDataLatchRefusal } from "@tedix/api-contract/schemas/sensitive-data-latch";
+import {
+	sensitiveDataLatchRefusal,
+	SensitiveDataEgressApprovalSchema,
+	type SensitiveDataEgressApproval,
+} from "@tedix/api-contract/schemas/sensitive-data-latch";
+import { exactEgressFetchUrl } from "./exact-egress-fetch";
 import {
 	callerRunRef,
 	type LatchLookup,
@@ -783,6 +788,8 @@ async function buildInputRequiredResult(
 }
 
 export interface DestructiveApprovalOptions {
+	/** Gateway-derived binding, never a public tool argument. */
+	sensitiveDataEgress?: SensitiveDataEgressApproval;
 	/** Per-call receipt provenance, delivered only after successful consumption. */
 	onHomeAgentVerified?: (principalId: string) => void;
 	/** Server-projected callable, rather than an aggregate tool's wire id. */
@@ -878,6 +885,9 @@ async function ownerToolApproval(
 	if (
 		!(
 			callerIsUserPrincipalPath(agent) ||
+			(options?.sensitiveDataEgress &&
+				agent.callerIdentity?.kernel === true &&
+				agent.callerIdentity.authType === "service") ||
 			isOwnerApprovalReplayCall(agent, options)
 		) ||
 		!agent.callerIdentity?.userId ||
@@ -896,6 +906,9 @@ async function ownerToolApproval(
 				appSlug: agent.appSlug ?? "",
 				toolId: tool.toolId,
 				target: {
+					...(options?.sensitiveDataEgress
+						? { sensitiveDataEgress: options.sensitiveDataEgress }
+						: {}),
 					transport: tool.config?.transport ?? "rpc",
 					endpoint: tool.config?.endpoint ?? null,
 					mcpToolName: tool.config?.mcpToolName ?? null,
@@ -1116,9 +1129,22 @@ export async function requireDestructiveToolApproval(
 		};
 	}
 	// Sensitive-data latch. Read once per call, only when a run is involved.
-	// Public egress is refused even on a Home approval replay: the person who
-	// approved the action may not have known the run had read sensitive data.
-	const latchRunRef = callerRunRef(agent.callerIdentity);
+	// An ordinary Home approval cannot override the latch: its approver may
+	// not have known about the sensitive read. Only the bound fetch card can.
+	const replayEgress = isOwnerApprovalReplayCall(agent, options)
+		? SensitiveDataEgressApprovalSchema.safeParse(
+				options?.extra?._meta?.["com.tedix/sensitiveDataEgress"],
+			)
+		: undefined;
+	if (
+		isOwnerApprovalReplayCall(agent, options) &&
+		options?.extra?._meta?.["com.tedix/sensitiveDataEgress"] !== undefined &&
+		!replayEgress?.success
+	)
+		return approvalFailure("Invalid sensitive-data fetch approval binding.");
+	const latchRunRef =
+		callerRunRef(agent.callerIdentity) ??
+		(replayEgress?.success ? replayEgress.data.runRef : null);
 	let latchLookup: Promise<LatchLookup> | undefined;
 	const sensitiveLatch = (): Promise<LatchLookup> =>
 		(latchLookup ??= latchRunRef
@@ -1164,6 +1190,35 @@ export async function requireDestructiveToolApproval(
 				5,
 			);
 		if (lookup.status === "latched") {
+			const url = exactEgressFetchUrl(tool.config, options?.args ?? {});
+			if (
+				url &&
+				annotations?.readOnlyHint === true &&
+				annotations.destructiveHint !== true &&
+				lookup.active === true &&
+				lookup.exactFetchApprovalEnabled === true &&
+				options?.tenantPolicyCandidate?.effect.disposition !== "deny" &&
+				options?.nativePolicyCandidate?.effect.disposition !== "deny"
+			) {
+				const binding = {
+					runRef: latchRunRef,
+					latchedAt: lookup.latch.latchedAt,
+					url,
+					configHash: await sha256Hex(JSON.stringify(tool.config ?? {})),
+				};
+				if (
+					replayEgress?.success &&
+					JSON.stringify(replayEgress.data) !== JSON.stringify(binding)
+				)
+					return approvalFailure(
+						"The approved fetch or sensitive-data lock changed.",
+					);
+				const approval = await ownerToolApproval(agent, tool, {
+					...options,
+					sensitiveDataEgress: binding,
+				});
+				if (approval !== undefined) return approval;
+			}
 			emitGovernanceAuditEvent(
 				agent,
 				tool,
@@ -1176,6 +1231,10 @@ export async function requireDestructiveToolApproval(
 			);
 		}
 	}
+	if (replayEgress?.success)
+		return approvalFailure(
+			"The exact fetch approval is no longer valid for this run or tool.",
+		);
 	const homeApprovalId =
 		options?.extra?._meta?.["com.tedix/homeApprovalRequestId"];
 	const homeUserId =

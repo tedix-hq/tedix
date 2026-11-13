@@ -139,6 +139,15 @@ it. While latched, a tool row declared `public_egress` is refused, and grant
 or policy auto-approval is refused; both carry the plain-English reason.
 Declare egress and sensitivity on the `app_tools` row, never by slug.
 
+An owner or admin can enable `metadata.sensitiveDataEgressApproval` through
+`organizations.update`; the setting change and audit insert share a D1 batch.
+For an active run, a plain credential-free external HTTPS GET can then create
+an existing OS approval card showing the full URL. Approval binds the run,
+latch time, configuration and exact arguments, consumes once, and leaves the
+latch set. Redirects and automatic retries cannot expand that fetch. Turning
+the setting off, ending the run or changing the latch invalidates pending
+approvals. Other transports, credentials and request transforms stay blocked.
+
 ## Verification
 
 `bun run test:run` (never `bun test` — Workers aliases). Check live MCP

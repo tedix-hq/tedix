@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
 	policyGenerations: vi.fn(),
 	policyFences: vi.fn(),
 	policyProfile: vi.fn(),
+	latch: vi.fn(),
 }));
 vi.mock("@tedix/db/queries/organization-members", async (load) => ({
 	...(await load<object>()),
@@ -51,6 +52,10 @@ vi.mock("@tedix/db/queries/tenant-tool-policy", async (load) => ({
 	getTenantToolPolicyResourceGenerations: mocks.policyGenerations,
 }));
 import { mcpGovernanceContractRouter } from "./mcp-governance";
+vi.mock("@tedix/db/queries/sensitive-data-latch", async (load) => ({
+	...(await load<object>()),
+	getRunSensitiveDataLatch: mocks.latch,
+}));
 const input = {
 	organizationId: "org-1",
 	userId: "owner-1",
@@ -104,6 +109,89 @@ const skillStart = {
 	target: { transport: "rpc", endpoint: "skills/runWorkflow" },
 	args: { skillId: "skill-1", confirmDestructive: true, reason: "run" },
 };
+describe("exact fetch approvals", () => {
+	const binding = {
+		runRef: { kind: "skill_run" as const, id: "run-1" },
+		latchedAt: "2026-11-01T00:00:00Z",
+		url: "https://example.com/page",
+		configHash: "hash",
+	};
+	const fetchInput = {
+		...input,
+		toolId: "fetch_page",
+		target: { transport: "external", sensitiveDataEgress: binding },
+		args: {},
+	};
+	async function seed() {
+		mocks.organization.mockResolvedValue({
+			slug: "example",
+			metadata: { sensitiveDataEgressApproval: true },
+		});
+		mocks.latch.mockResolvedValue({
+			known: true,
+			active: true,
+			latch: { latchedAt: binding.latchedAt },
+		});
+		const result = await client().requestOwnerToolApproval(fetchInput);
+		const row = mocks.create.mock.calls[0]![1];
+		mocks.get.mockResolvedValue({
+			...row,
+			status: "approved",
+			resolvedBy: "owner-1",
+		});
+		return { ...fetchInput, approvalRequestId: result.approvalRequestId };
+	}
+	it("stores the URL and retained lock in the existing audited approval card", async () => {
+		const retry = await seed();
+		expect(mocks.create.mock.calls[0]![1].description).toContain(
+			"Fetch https://example.com/page once",
+		);
+		expect(mocks.create.mock.calls[0]![1].description).toContain(
+			"lock stays on",
+		);
+		expect(mocks.create.mock.calls[0]![2].metadata.sensitiveDataEgress).toEqual(
+			binding,
+		);
+		expect(await client().requestOwnerToolApproval(retry)).toMatchObject({
+			approved: true,
+		});
+	});
+	it.each(["disabled", "ended", "relatched", "foreign run", "URL changed"])(
+		"does not consume an approval after %s",
+		async (condition) => {
+			const retry = await seed();
+			if (condition === "disabled")
+				mocks.organization.mockResolvedValue({ slug: "example", metadata: {} });
+			if (condition === "ended")
+				mocks.latch.mockResolvedValue({
+					known: true,
+					active: false,
+					latch: { latchedAt: binding.latchedAt },
+				});
+			if (condition === "relatched")
+				mocks.latch.mockResolvedValue({
+					known: true,
+					active: true,
+					latch: { latchedAt: "later" },
+				});
+			if (condition === "foreign run")
+				mocks.latch.mockResolvedValue({ known: false, latch: null });
+			if (condition === "URL changed")
+				retry.target = {
+					...retry.target,
+					sensitiveDataEgress: {
+						...binding,
+						url: "https://other.example.com/",
+					},
+				};
+			await expect(
+				client().requestOwnerToolApproval(retry),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+			expect(mocks.consume).not.toHaveBeenCalled();
+		},
+	);
+});
+
 describe("owner skill starts", () => {
 	it("approves an active owner's start of an active executable skill", async () => {
 		expect(

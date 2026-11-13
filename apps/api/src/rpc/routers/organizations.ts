@@ -6,6 +6,7 @@ import {
 } from "./organization-domains";
 /** oRPC organizations router: CRUD, provisioning, features and the router assembly. */
 import { safeExceptionTopology } from "../../lib/safe-log-metadata";
+import { auditActor } from "../audit-helpers";
 import { assertDescopeOk } from "@tedix/auth/descope";
 import { installDefaultWorkApps } from "../../services/default-work-apps";
 import {
@@ -259,6 +260,11 @@ async function createOrganizationResources(
 	input: CreateOrganizationInput,
 	providerAuthorized = false,
 ) {
+	if (input.metadata?.sensitiveDataEgressApproval === true)
+		throw createError(
+			ErrorCodes.BAD_REQUEST,
+			"Enable exact fetch approvals in organization settings after creation so the decision is audited",
+		);
 	if (
 		input.metadata?.agentRequestApprovals &&
 		(context.authType !== "user" || context.externalAgentPrincipalId)
@@ -555,6 +561,14 @@ export const updateOrganizationContract = authedOrganizationsOs.update
 		requireOrganizationAccess(context, organizationId);
 		requireAdminOrOwner(context);
 		if (
+			updates.metadata?.sensitiveDataEgressApproval !== undefined &&
+			(context.authType !== "user" || context.externalAgentPrincipalId)
+		)
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Exact fetch approval settings require a human organization owner or admin",
+			);
+		if (
 			updates.metadata?.agentRequestApprovals !== undefined &&
 			(context.authType !== "user" ||
 				context.userRole !== "owner" ||
@@ -650,12 +664,34 @@ export const updateOrganizationContract = authedOrganizationsOs.update
 			}
 		}
 
-		const updated = await updateOrganization(db, organizationId, {
-			...updates,
-			...(updates.metadata
-				? { metadata: { ...(existing.metadata ?? {}), ...updates.metadata } }
-				: {}),
-		});
+		const setting = updates.metadata?.sensitiveDataEgressApproval;
+		const actor = auditActor(context);
+		const updated = await updateOrganization(
+			db,
+			organizationId,
+			{
+				...updates,
+				...(updates.metadata
+					? { metadata: { ...(existing.metadata ?? {}), ...updates.metadata } }
+					: {}),
+			},
+			setting === undefined ||
+				setting === (existing.metadata?.sensitiveDataEgressApproval === true)
+				? undefined
+				: {
+						organizationId,
+						actorId: actor.actorId,
+						actorType: actor.actorType,
+						action: "organization.sensitive_data_egress_approval_changed",
+						resourceType: "organization",
+						resourceId: organizationId,
+						metadata: {
+							previousValue:
+								existing.metadata?.sensitiveDataEgressApproval === true,
+							enabled: setting,
+						},
+					},
+		);
 
 		invalidateKernelContextCache(
 			context,

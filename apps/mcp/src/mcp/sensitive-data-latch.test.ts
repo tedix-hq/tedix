@@ -26,10 +26,17 @@ function runAgent(input: {
 	latch: SensitiveDataLatch | null | "unavailable";
 	caller?: Record<string, unknown>;
 	governance?: Record<string, unknown>;
+	exactFetchApprovalEnabled?: boolean;
+	active?: boolean;
 }) {
 	const resolveRunSensitiveDataLatch = vi.fn(async () => {
 		if (input.latch === "unavailable") throw new Error("api down");
-		return { known: true, latch: input.latch };
+		return {
+			known: true,
+			latch: input.latch,
+			active: input.active,
+			exactFetchApprovalEnabled: input.exactFetchApprovalEnabled,
+		};
 	});
 	const agent = {
 		server: { server: { elicitInput: vi.fn() } },
@@ -216,6 +223,118 @@ describe("sensitive-data latch at the approval gate", () => {
 			),
 		).toBeNull();
 		expect(resolveToolApprovalGrant).toHaveBeenCalled();
+	});
+});
+
+describe("one fetch through a sensitive-data lock", () => {
+	const tool = {
+		toolId: "fetch_page",
+		title: "Fetch page",
+		publicEgress: true,
+		config: {
+			transport: "external",
+			method: "GET" as const,
+			baseUrl: "https://example.com",
+			endpoint: "page",
+		},
+	};
+	const args = { q: "reviewed" };
+	function fixture(enabled = true, active = true) {
+		const requestOwnerToolApproval = vi.fn(
+			async (_input: { target: Record<string, unknown> }) => ({
+				approved: false,
+				status: "pending",
+				approvalRequestId: "approval-1",
+				url: "https://example.com/approval",
+			}),
+		);
+		const { agent } = runAgent({
+			latch: LATCH,
+			exactFetchApprovalEnabled: enabled,
+			active,
+			caller: { kernel: true, userId: "owner-1" },
+			governance: { requestOwnerToolApproval },
+		});
+		return { agent, requestOwnerToolApproval };
+	}
+	it("asks for the full URL and run, then consumes only the matching human approval", async () => {
+		const { agent, requestOwnerToolApproval } = fixture();
+		const result = await requireDestructiveToolApproval(
+			agent,
+			tool,
+			{ readOnlyHint: true },
+			{ args, autoConfirmAgent: true },
+		);
+		expect(result?.isError).toBe(true);
+		expect(requestOwnerToolApproval).toHaveBeenCalledWith(
+			expect.objectContaining({
+				args,
+				target: expect.objectContaining({
+					sensitiveDataEgress: expect.objectContaining({
+						runRef: { kind: "skill_run", id: "run-1" },
+						latchedAt: LATCH.latchedAt,
+						url: "https://example.com/page?q=reviewed",
+					}),
+				}),
+			}),
+		);
+		const binding =
+			requestOwnerToolApproval.mock.calls[0]![0].target.sensitiveDataEgress;
+		// The platform replay is a fresh service request, outside the original run.
+		agent.callerIdentity!.skillRunId = undefined;
+		requestOwnerToolApproval.mockResolvedValue({
+			approved: true,
+			status: "consumed",
+			approvalRequestId: "approval-1",
+			url: "https://example.com/approval",
+		});
+		const extra = {
+			_meta: {
+				"com.tedix/approvalRequestId": "approval-1",
+				"com.tedix/sensitiveDataEgress": binding,
+			},
+		};
+		expect(
+			await requireDestructiveToolApproval(
+				agent,
+				tool,
+				{ readOnlyHint: true },
+				{ args, extra },
+			),
+		).toBeNull();
+		requestOwnerToolApproval.mockClear();
+		expect(
+			(
+				await requireDestructiveToolApproval(
+					agent,
+					tool,
+					{ readOnlyHint: true },
+					{ args: { q: "other" }, extra },
+				)
+			)?.isError,
+		).toBe(true);
+		expect(
+			(await requireDestructiveToolApproval(agent, publishTool, {}, { extra }))
+				?.isError,
+		).toBe(true);
+		expect(requestOwnerToolApproval).not.toHaveBeenCalled();
+	});
+	it.each([
+		[false, true],
+		[true, false],
+	])("refuses when enabled=%s and active=%s", async (enabled, active) => {
+		const { agent, requestOwnerToolApproval } = fixture(enabled, active);
+		expect(
+			(
+				await requireDestructiveToolApproval(
+					agent,
+					tool,
+					{ readOnlyHint: true },
+					{ args },
+				)
+			)?.isError,
+		).toBe(true);
+		expect(requestOwnerToolApproval).not.toHaveBeenCalled();
 	});
 });
 

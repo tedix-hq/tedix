@@ -61,7 +61,7 @@ describe("run sensitive-data latch", () => {
 			const { db } = fixture();
 			expect(
 				await getRunSensitiveDataLatch(db, { organizationId: ORG, runRef }),
-			).toEqual({ known: true, latch: null });
+			).toEqual({ known: true, active: true, latch: null });
 
 			const first = await latchRunSensitiveData(db, {
 				organizationId: ORG,
@@ -90,7 +90,7 @@ describe("run sensitive-data latch", () => {
 			).toBe("list_salaries");
 			expect(
 				await getRunSensitiveDataLatch(db, { organizationId: ORG, runRef }),
-			).toEqual({ known: true, latch: null });
+			).toEqual({ known: true, active: true, latch: null });
 			expect(
 				await clearRunSensitiveDataLatch(db, { organizationId: ORG, runRef }),
 			).toBeNull();
@@ -109,7 +109,7 @@ describe("run sensitive-data latch", () => {
 		).toEqual({ known: false, latch: null });
 		expect(
 			await getRunSensitiveDataLatch(db, { organizationId: ORG, runRef }),
-		).toEqual({ known: true, latch: null });
+		).toEqual({ known: true, active: true, latch: null });
 		expect(
 			await getRunSensitiveDataLatch(db, {
 				organizationId: ORG,

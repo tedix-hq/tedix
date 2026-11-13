@@ -7,7 +7,9 @@
  * (external / upstream-MCP) tool result — the run row records a latch. While
  * the latch is set, the run may not send data outside the organization
  * (tools declared `public_egress`, OS share links) and no grant or policy may
- * approve an action on its behalf. An owner or admin reviews and clears it;
+ * approve an action on its behalf. An admin-controlled exact-fetch exception
+ * lets a person approve one URL for the active turn without clearing the latch.
+ * Otherwise an owner or admin reviews and clears it;
  * the clear is an audit event. The latch lives on the run row, so it survives
  * workflow continuation and Home approval replay.
  */
@@ -51,6 +53,16 @@ export const RunRefSchema = z.object({
 });
 export type RunRef = z.infer<typeof RunRefSchema>;
 
+export const SensitiveDataEgressApprovalSchema = z.strictObject({
+	runRef: RunRefSchema,
+	latchedAt: z.string(),
+	url: z.url(),
+	configHash: z.string().min(1),
+});
+export type SensitiveDataEgressApproval = z.infer<
+	typeof SensitiveDataEgressApprovalSchema
+>;
+
 export const LatchRunSensitiveDataInputSchema = z.object({
 	organizationId: z.string().min(1),
 	runRef: RunRefSchema,
@@ -71,6 +83,8 @@ export type LatchRunSensitiveDataInput = z.infer<
 export const RunSensitiveDataLatchStateSchema = z.object({
 	/** False when no run row matches; the gateway treats that as not latched. */
 	known: z.boolean(),
+	active: z.boolean().optional(),
+	exactFetchApprovalEnabled: z.boolean().optional(),
 	latch: SensitiveDataLatchSchema.nullable(),
 });
 export type RunSensitiveDataLatchState = z.infer<

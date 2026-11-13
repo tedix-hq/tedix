@@ -7,6 +7,7 @@
  */
 
 import { ProviderCredentialSummarySchema } from "@tedix/api-contract/schemas/provider-probe-receipt";
+import { SensitiveDataEgressApprovalSchema } from "@tedix/api-contract/schemas/sensitive-data-latch";
 import { extractJwtScopes } from "@tedix/auth/types";
 import { toJsonValue } from "@tedix/db/utils/json";
 import * as z from "zod";
@@ -1497,6 +1498,32 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 	requestOwnerToolApproval: serviceOs.requestOwnerToolApproval.handler(
 		async ({ input, context }) => {
 			await assertGatewayOrganization(context, input.organizationId);
+			const egress =
+				input.target.sensitiveDataEgress === undefined
+					? null
+					: SensitiveDataEgressApprovalSchema.parse(
+							input.target.sensitiveDataEgress,
+						);
+			if (egress) {
+				const organization = await getOrganizationById(
+					context.db,
+					input.organizationId,
+				);
+				const state = await getRunSensitiveDataLatch(context.db, {
+					organizationId: input.organizationId,
+					runRef: egress.runRef,
+				});
+				if (
+					organization?.metadata?.sensitiveDataEgressApproval !== true ||
+					!state.active ||
+					state.latch?.latchedAt !== egress.latchedAt ||
+					input.target.transport !== "external"
+				)
+					throw createError(
+						ErrorCodes.FORBIDDEN,
+						"Exact fetch approval is disabled, the turn ended, or the sensitive-data lock changed",
+					);
+			}
 			const requester = await getMemberByUserId(
 				context.db,
 				input.organizationId,
@@ -1702,7 +1729,9 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 					orgId: input.organizationId,
 					tediId: anchor.id,
 					actionType: "mcp.tool_call",
-					description: `${title}. In ${app} for ${requestedFor} (${organizationName}). Nothing has run yet; approving runs this exact call once.`,
+					description: egress
+						? `Fetch ${egress.url} once for this turn. This run read sensitive data at ${egress.latchedAt}. The sensitive-data lock stays on; other egress remains blocked.`
+						: `${title}. In ${app} for ${requestedFor} (${organizationName}). Nothing has run yet; approving runs this exact call once.`,
 					payload: {
 						kind: "mcp_tool_call",
 						initiatedByUserId: input.userId,
@@ -1726,6 +1755,7 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 						source: "mcp.gateway",
 						appSlug: input.appSlug,
 						toolId: input.toolId,
+						...(egress ? { sensitiveDataEgress: egress } : {}),
 					},
 				},
 			);
@@ -3964,10 +3994,18 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 	resolveRunSensitiveDataLatch: serviceOs.resolveRunSensitiveDataLatch.handler(
 		async ({ input, context }) => {
 			await assertGatewayOrganization(context, input.organizationId);
-			return getRunSensitiveDataLatch(context.db, {
+			const state = await getRunSensitiveDataLatch(context.db, {
 				organizationId: input.organizationId,
 				runRef: input.runRef,
 			});
+			const organization = state.latch
+				? await getOrganizationById(context.db, input.organizationId)
+				: undefined;
+			return {
+				...state,
+				exactFetchApprovalEnabled:
+					organization?.metadata?.sensitiveDataEgressApproval === true,
+			};
 		},
 	),
 	resolveSecretEgressPolicy: serviceOs.resolveSecretEgressPolicy.handler(

@@ -13,6 +13,10 @@ import {
  */
 
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import {
+	buildInsertAuditEventStatement,
+	type InsertAuditEventParams,
+} from "./audit";
 import type {
 	BillingSettlementMode,
 	RuntimeEntitlementGrant,
@@ -572,10 +576,11 @@ export async function updateOrganization(
 	db: DbClient,
 	id: string,
 	data: Partial<Omit<NewOrganization, "id" | "createdAt">>,
+	audit?: InsertAuditEventParams,
 ): Promise<Organization> {
 	const now = new Date().toISOString();
 
-	await db
+	const update = db
 		.update(organizations)
 		.set({
 			...data,
@@ -583,6 +588,12 @@ export async function updateOrganization(
 			updatedAt: now,
 		})
 		.where(eq(organizations.id, id));
+	if (audit)
+		await db.batch([
+			update,
+			buildInsertAuditEventStatement(db, audit).statement,
+		]);
+	else await update;
 
 	const updated = await getOrganizationById(db, id);
 	if (!updated) {
