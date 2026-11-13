@@ -148,6 +148,8 @@ export const ModelCatalogEntrySchema = z
 		imageInput: ModelImageInputSupportSchema,
 		governance: ModelGovernanceSchema,
 		lifecycle: ModelCatalogLifecycleSchema,
+		/** Kept resolvable but left out of every chat model picker. */
+		hidden: z.boolean().optional(),
 		maxOutputTokens: z.number().int().positive().max(128_000).optional(),
 		reasoningEfforts: z
 			.array(z.enum(["none", "low", "medium", "high", "xhigh", "max"]))
@@ -192,6 +194,16 @@ export const ModelCatalogEntriesSchema = z
 			refs.add(entry.ref);
 		}
 	});
+
+/**
+ * Whether chat pickers offer this entry for a new choice. Both chats list
+ * offered entries in the order the administrator published them.
+ */
+export function offeredInChat(
+	entry: Pick<ModelCatalogEntry, "lifecycle" | "hidden">,
+): boolean {
+	return entry.lifecycle === "active" && entry.hidden !== true;
+}
 
 /** Find a catalog entry by its canonical ref. */
 export function findCatalogEntry(

@@ -49,6 +49,11 @@ const APP_CSP = {
 	baseUriDomains: [],
 };
 
+/** How long one start may take before the frame is rebuilt. */
+const START_TIMEOUT_MS = 15_000;
+/** Quiet restarts before the person is told the app did not start. */
+const AUTO_RETRIES = 2;
+
 /** The last height each app asked for, so reopening it does not jump. */
 const lastHeights = new Map<string, number>();
 
@@ -73,6 +78,7 @@ export function AppRuntimeFrame({
 	const outputRevisionKey = JSON.stringify(outputRevisions);
 	const [state, setState] = useState<"loading" | "ready" | "failed">("loading");
 	const [attempt, setAttempt] = useState(0);
+	const autoRetries = useRef(0);
 
 	useEffect(() => {
 		const host = container.current;
@@ -100,8 +106,12 @@ export function AppRuntimeFrame({
 		let alive = true;
 		setState("loading");
 		const timer = setTimeout(() => {
-			if (alive) setState("failed");
-		}, 15_000);
+			if (!alive) return;
+			if (autoRetries.current < AUTO_RETRIES) {
+				autoRetries.current += 1;
+				setAttempt((n) => n + 1);
+			} else setState("failed");
+		}, START_TIMEOUT_MS);
 		const post = (data: unknown) =>
 			iframe.contentWindow?.postMessage(data, window.location.origin);
 		const onMessage = (event: MessageEvent) => {
@@ -124,6 +134,7 @@ export function AppRuntimeFrame({
 				});
 				latest.current.translation?.attach(post);
 				clearTimeout(timer);
+				autoRetries.current = 0;
 				if (alive) setState("ready");
 				return;
 			}
@@ -318,7 +329,10 @@ export function AppRuntimeFrame({
 					<Button
 						size="sm"
 						variant="secondary"
-						onClick={() => setAttempt((n) => n + 1)}
+						onClick={() => {
+							autoRetries.current = 0;
+							setAttempt((n) => n + 1);
+						}}
 					>
 						Try again
 					</Button>

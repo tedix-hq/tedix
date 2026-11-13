@@ -55,7 +55,6 @@ import { WorkActorDirectoryContext } from "@/components/work-actor-avatar";
 import { mentionedPeople, notifyChatPosted } from "@/lib/workspace-chat-notify";
 import { WorkspaceChatResources } from "@/components/workspace-chat-resources";
 import { isImeComposing } from "@/lib/keyboard";
-import { plainModelLabel } from "@/lib/plain-model-label";
 import { osQueryKeys } from "@/lib/os-query-options";
 import { useNow } from "@/lib/use-now";
 import { useWorkspaceChat } from "@/lib/use-workspace-chat";
@@ -171,14 +170,12 @@ export function WorkspaceChat({
 				size="sm"
 				title={selectedModel?.label}
 			>
-				<SelectValue>
-					{selectedModel ? plainModelLabel(selectedModel.label) : null}
-				</SelectValue>
+				<SelectValue>{selectedModel?.label ?? null}</SelectValue>
 			</SelectTrigger>
 			<SelectContent>
 				{state.models.map((model) => (
-					<SelectItem key={model.id} value={model.id} title={model.label}>
-						{plainModelLabel(model.label)}
+					<SelectItem key={model.id} value={model.id}>
+						{model.label}
 					</SelectItem>
 				))}
 			</SelectContent>
@@ -268,6 +265,7 @@ export function WorkspaceChat({
 				<ConversationList
 					conversations={state.conversations}
 					activeId={conversationId}
+					activeRunning={running !== null}
 					onSelect={onSelectConversation}
 					unread={unreadByConversation}
 				/>
@@ -320,6 +318,7 @@ export function WorkspaceChat({
 			<Thread
 				conversationId={conversationId}
 				turns={state.turns}
+				models={state.models}
 				pendingSend={state.pendingSend}
 				catchingUp={
 					catchingUp && state.turns.length === 0 && conversationId !== null
@@ -384,11 +383,14 @@ export function WorkspaceChat({
 function ConversationList({
 	conversations,
 	activeId,
+	activeRunning,
 	onSelect,
 	unread,
 }: {
 	conversations: ConversationSummary[];
 	activeId: string | null;
+	/** The open conversation's own turn is working, as this tab sees it. */
+	activeRunning: boolean;
 	onSelect: (conversationId: string | null) => void;
 	unread?: ReadonlyMap<string, number>;
 }) {
@@ -414,6 +416,15 @@ function ConversationList({
 								<Text as="span" role="body" className="truncate">
 									{conversation.title ?? "Untitled conversation"}
 								</Text>
+								{(conversation.id === activeId && activeRunning) ||
+								conversation.running ? (
+									<span
+										className="workspace-chat-list-working"
+										role="img"
+										aria-label="Working"
+										title="Working"
+									/>
+								) : null}
 								<UnreadBadge
 									count={unread?.get(conversation.id) ?? 0}
 									label="unread"
@@ -479,6 +490,7 @@ function ConnectionChip({
 function Thread({
 	conversationId,
 	turns,
+	models,
 	pendingSend,
 	catchingUp,
 	hasEarlier,
@@ -488,6 +500,7 @@ function Thread({
 }: {
 	conversationId: string | null;
 	turns: ChatTurn[];
+	models: ReadonlyArray<{ id: string; label: string }>;
 	pendingSend: { clientTurnId: string; text: string; sentAt: number } | null;
 	catchingUp: boolean;
 	hasEarlier: boolean;
@@ -541,6 +554,9 @@ function Thread({
 			{turns.map((turn, index) => (
 				<TurnView
 					key={turn.turnId}
+					modelLabel={
+						models.find((model) => model.id === turn.model)?.label ?? turn.model
+					}
 					onDecide={onDecide}
 					onContinue={
 						index === turns.length - 1 &&
@@ -567,16 +583,16 @@ const CONTINUE_TEXT =
 
 function TurnView({
 	turn,
+	modelLabel,
 	onDecide,
 	onContinue,
 }: {
 	turn: ChatTurn;
+	/** The catalog name of the model that answered, else its id. */
+	modelLabel: string | undefined;
 	onDecide: (approvalId: string, decision: "approve" | "deny") => void;
 	onContinue: (() => void) | null;
 }) {
-	const modelLabel = turn.model?.startsWith("azure-openai/")
-		? `Azure deployment: ${turn.model.slice("azure-openai/".length)}`
-		: turn.model;
 	const running = turn.status === "running";
 	const startedAt = Date.parse(turn.startedAt);
 	const now = useNow(running);

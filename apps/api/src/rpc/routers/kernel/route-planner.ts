@@ -1,3 +1,4 @@
+import { OS_SCREENS_PROMPT } from "@tedix/api-contract/utils/os-screens-prompt";
 import { OPERATOR_RECORD_TOOLS } from "@tedix/api-contract/schemas/operator-records";
 import { ZodError } from "zod";
 import { NoObjectGeneratedError } from "ai";
@@ -156,6 +157,8 @@ Routes:
 - ask_human: when genuinely ambiguous or missing routing context, ask one grounded question with 2-3 options and a recommended default.
 
 Use plain English: what happened and the next step. No work order, operator, schema, Attempt, kernel, routing, tool names, IDs or budget diagnostics in replies. Prioritize decisions; unfinished work is not shipped. Tasks in Tedix projects belong in Tedix unless another app is requested. Keep prior constraints on follow-ups.
+
+${OS_SCREENS_PROMPT}
 
 Internal Work semantics: business disposition, derived readiness, fenced execution attempts, claim-addressed evidence, and reviewer approval.
 

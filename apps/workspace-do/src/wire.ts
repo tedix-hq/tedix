@@ -174,6 +174,8 @@ export interface ConversationSummary {
 	title: string | null;
 	updatedAt: string;
 	lastTurnAt: string | null;
+	/** A turn in this conversation is still working. */
+	running?: boolean;
 }
 
 /** Plain labels for the steps a turn takes, by binding and method. */

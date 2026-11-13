@@ -135,7 +135,8 @@
 @media (prefers-reduced-motion: reduce) {
 	.workspace-chat-shimmer,
 	.workspace-chat-connection-dot,
-	.workspace-chat-step-pulse {
+	.workspace-chat-step-pulse,
+	.workspace-chat-list-working {
 		animation: none;
 	}
 }
@@ -458,6 +459,15 @@
 	font: inherit;
 	text-align: left;
 	cursor: pointer;
+}
+
+.workspace-chat-list-working {
+	flex: none;
+	width: 8px;
+	height: 8px;
+	border-radius: 999px;
+	background: var(--color-kumo-brand, currentcolor);
+	animation: workspace-chat-pulse 1.2s ease-in-out infinite;
 }
 
 .workspace-chat-list-row:hover,

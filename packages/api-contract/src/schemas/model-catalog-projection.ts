@@ -49,6 +49,7 @@ import {
 	ModelCatalogLifecycleSchema,
 	type ModelProviderId,
 	ModelProviderIdSchema,
+	offeredInChat,
 } from "./model-catalog";
 import { AiGatewayModelTierSchema } from "./tedi";
 
@@ -148,7 +149,7 @@ export const ModelCatalogModelSchema = z.object({
 	selectable: z
 		.boolean()
 		.describe(
-			"Whether catalog lifecycle permits this ref to be offered for a new selection. This is independent of `allowed`, which reports provider, entitlement, policy, runtime, and caller authority.",
+			"Whether catalog lifecycle and the administrator's hide flag permit this ref to be offered for a new selection. This is independent of `allowed`, which reports provider, entitlement, policy, runtime, and caller authority.",
 		),
 	allowed: z
 		.boolean()
@@ -606,7 +607,7 @@ export function evaluateModelCatalogEntry(
 		imageInput: entry.imageInput,
 		governance: entry.governance,
 		lifecycle: entry.lifecycle,
-		selectable: entry.lifecycle === "active",
+		selectable: offeredInChat(entry),
 		allowed: deniedBy === null,
 		checks,
 		deniedBy,

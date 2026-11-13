@@ -91,6 +91,42 @@ describe("runtime app frame", () => {
 		node.remove();
 	});
 
+	it("restarts a silent app twice before saying it did not start", async () => {
+		vi.useFakeTimers();
+		vi.spyOn(HTMLIFrameElement.prototype, "src", "set").mockImplementation(
+			() => {},
+		);
+		const node = document.createElement("div");
+		document.body.append(node);
+		const root = createRoot(node);
+		await act(async () => {
+			root.render(
+				<AppRuntimeFrame
+					html="<p>app</p>"
+					title="Fictional app"
+					onCall={async () => ({ ok: true, value: null }) as never}
+				/>,
+			);
+		});
+		const state = () =>
+			node
+				.querySelector("[data-app-runtime-frame]")
+				?.getAttribute("data-state");
+		const frames = new Set([node.querySelector("iframe")]);
+		for (let restart = 0; restart < 2; restart += 1) {
+			await act(async () => vi.advanceTimersByTime(15_000));
+			expect(state()).toBe("loading");
+			frames.add(node.querySelector("iframe"));
+		}
+		expect(frames.size).toBe(3);
+		await act(async () => vi.advanceTimersByTime(15_000));
+		expect(state()).toBe("failed");
+		expect(node.textContent).toContain("Fictional app did not start");
+		await act(async () => root.unmount());
+		node.remove();
+		vi.useRealTimers();
+	});
+
 	it("lets the app copy and translate and nothing more", async () => {
 		let src = "";
 		vi.spyOn(HTMLIFrameElement.prototype, "src", "set").mockImplementation(

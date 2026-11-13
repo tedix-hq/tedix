@@ -87,6 +87,8 @@ export type ConversationSummary = {
 	title: string | null;
 	updatedAt: string;
 	lastTurnAt: string | null;
+	/** A turn in this conversation is still working. */
+	running?: boolean;
 };
 
 export type TurnUsage = {

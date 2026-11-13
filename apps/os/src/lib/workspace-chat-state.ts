@@ -221,6 +221,11 @@ export function applyWorkspaceChatEvent(
 				previous?.lastTurnAt && previous.lastTurnAt > event.at
 					? previous.lastTurnAt
 					: event.at,
+			// An older history page must not revive a turn that already finished.
+			running:
+				previous?.running === true ||
+				state.cursor === null ||
+				event.seq > state.cursor,
 		};
 		state = {
 			...state,
@@ -244,6 +249,7 @@ export function applyWorkspaceChatEvent(
 				event.title === undefined ? (previous?.title ?? null) : event.title,
 			updatedAt: event.at,
 			lastTurnAt: previous?.lastTurnAt ?? null,
+			...(previous?.running ? { running: true } : {}),
 		};
 		return {
 			...state,
@@ -255,6 +261,18 @@ export function applyWorkspaceChatEvent(
 				conversation,
 			].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
 		};
+	}
+	if (event.type === "turn.finished") {
+		const finished = state.conversations.find(
+			(row) => row.id === event.conversationId && row.running,
+		);
+		if (finished)
+			state = {
+				...state,
+				conversations: state.conversations.map((row) =>
+					row === finished ? { ...row, running: false } : row,
+				),
+			};
 	}
 	if (event.conversationId !== state.conversationId)
 		return withCursor(state, event);

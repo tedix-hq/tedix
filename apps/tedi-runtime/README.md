@@ -326,6 +326,12 @@ contains `modelCatalog`, validated by `ModelCatalogConfigSchema`:
 }
 ```
 
+Both chats, tedi chat and workspace chat, list the catalog's entries in the
+order they are published and by their `label`. Set `"hidden": true` on an entry
+to keep it resolvable for stored choices while leaving it out of every chat
+model picker; a `superseded` entry is left out the same way. Workspace chat
+shows only the entries its deployment can run.
+
 Configure provider credentials separately in your deployment. Environment model
 names must also appear in this catalog. Fallback targets and optional Workers AI
 defaults must reference entries in the same policy. Organization fallback settings
