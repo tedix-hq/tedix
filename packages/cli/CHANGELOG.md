@@ -3,6 +3,12 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.21.10 — 2026-11-13
+
+### Patch Changes
+
+- Lane runners use far fewer gateway requests while tasks wait. A task waiting for its owner's go-ahead, and an earlier run that is still alive, were re-read on every pass; they are now read again after five minutes, or when the run's lease ends. This leaves more of your login's request allowance for chats, so they are paused less often. After an owner allows a task, a runner can take up to five minutes to start it.
+
 ## 0.21.9 — 2026-11-12
 
 ### Patch Changes
