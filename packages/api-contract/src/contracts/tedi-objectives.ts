@@ -262,6 +262,7 @@ export const tediObjectivesContract = oc
 						riskLevel: ObjectiveRiskLevelSchema.optional(),
 					})
 					.extend(PaginationSchema.shape)
+					.strict()
 					.optional(),
 			)
 			.output(
@@ -358,6 +359,7 @@ export const tediObjectivesContract = oc
 						kind: TaskKindSchema.optional(),
 					})
 					.extend(PaginationSchema.shape)
+					.strict()
 					.optional(),
 			)
 			.output(

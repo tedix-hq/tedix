@@ -63,7 +63,11 @@ export const auditContract = oc
 				description:
 					"Search audit events for the current organization with optional filters and pagination",
 			})
-			.input(AuditSearchFiltersSchema.extend(PaginationSchema.shape).optional())
+			.input(
+				AuditSearchFiltersSchema.extend(PaginationSchema.shape)
+					.strict()
+					.optional(),
+			)
 			.output(
 				z.object({
 					data: z.array(AuditEventSchema),

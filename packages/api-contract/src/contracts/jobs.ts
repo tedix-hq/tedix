@@ -96,7 +96,7 @@ export const jobsContract = {
 			AppIdParamSchema.extend({
 				...PaginationSchema.shape,
 				status: JobStatusSchema.optional(),
-			}),
+			}).strict(),
 		)
 		.output(
 			z.object({

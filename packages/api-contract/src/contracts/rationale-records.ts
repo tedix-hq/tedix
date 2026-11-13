@@ -122,6 +122,7 @@ export const rationaleRecordsContract = oc
 						outcomeStatus: z.enum(RATIONALE_OUTCOME_STATUSES).optional(),
 					})
 					.extend(PaginationSchema.shape)
+					.strict()
 					.optional(),
 			)
 			.output(

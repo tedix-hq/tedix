@@ -30,7 +30,6 @@ const GATES: string[][] = [
 	["lint-contracts.ts"],
 	["lint-os.ts"],
 	["lint-output-kinds.ts"],
-	["lint-vite-plus-imports.ts"],
 	["lint-session-genericity.ts"],
 	["lint-demo-identities.ts"],
 	["lint-public-quality.ts", "--strict"],

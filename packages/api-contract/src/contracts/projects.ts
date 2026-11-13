@@ -384,6 +384,7 @@ export const projectsContract = oc
 						search: z.string().trim().max(200).optional(),
 					})
 					.extend(PaginationSchema.shape)
+					.strict()
 					.optional(),
 			)
 			.output(

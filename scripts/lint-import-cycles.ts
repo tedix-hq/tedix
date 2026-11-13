@@ -1,16 +1,15 @@
 #!/usr/bin/env bun
 
 /**
- * Fail when a workspace grows a new circular import beyond the baseline (policy in
+ * Reject every circular import (policy in
  * `import-cycle-policy.ts`). Edges come from `runtime-import-specifiers.mjs`,
  * which skips type-only imports/exports and `await import()`: neither can
  * create an initialization-order hazard.
  */
 
-import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import {
-	type CycleBaseline,
 	evaluateCycles,
 	findCycles,
 	type WorkspaceCycles,
@@ -18,7 +17,6 @@ import {
 import { runtimeImportSpecifiers } from "./runtime-import-specifiers.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
-const baselinePath = join(repoRoot, "scripts", "import-cycles-baseline.json");
 
 const SOURCE_EXTENSIONS = [".ts", ".tsx"];
 const RESOLUTION_ORDER = [
@@ -146,48 +144,9 @@ export function workspaceRoots(): string[] {
 	return roots;
 }
 
-function readBaseline(): CycleBaseline {
-	const parsed = JSON.parse(readFileSync(baselinePath, "utf8"));
-	if (!parsed || typeof parsed.workspaces !== "object") {
-		throw new Error(`${baselinePath} is missing a "workspaces" object.`);
-	}
-	return parsed as CycleBaseline;
-}
-
-function writeBaseline(measured: WorkspaceCycles[]): void {
-	const workspaces: Record<string, number> = {};
-	for (const entry of measured.sort((a, b) =>
-		a.workspace.localeCompare(b.workspace),
-	)) {
-		workspaces[entry.workspace] = entry.cycles.length;
-	}
-	const baseline: CycleBaseline = {
-		$comment:
-			"Import cycles per workspace. Data, not policy — refresh with " +
-			"`bun scripts/lint-import-cycles.ts --update-baseline` and commit it like " +
-			"a lockfile. A count may only SHRINK; the judgement is the direction, " +
-			"not the number, so this needs no written justification. A workspace " +
-			"absent from this list is held at zero.",
-		workspaces,
-	};
-	writeFileSync(baselinePath, `${JSON.stringify(baseline, null, "\t")}\n`);
-}
-
 if (import.meta.main) {
-	const measured = workspaceRoots().map(measureWorkspace);
-
-	if (process.argv.includes("--update-baseline")) {
-		writeBaseline(measured);
-		const total = measured.reduce((sum, e) => sum + e.cycles.length, 0);
-		console.log(
-			`import-cycle baseline updated (${measured.length} workspaces, ${total} cycle(s)).`,
-		);
-		process.exit(0);
-	}
-
-	const verdict = evaluateCycles({ measured, baseline: readBaseline() });
+	const verdict = evaluateCycles(workspaceRoots().map(measureWorkspace));
 	for (const failure of verdict.failures) console.error(failure);
-	for (const improvement of verdict.improvements) console.log(improvement);
-	if (!verdict.ok) process.exit(1);
 	console.log(verdict.summary);
+	if (!verdict.ok) process.exit(1);
 }

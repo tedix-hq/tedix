@@ -1,105 +1,30 @@
-/**
- * Pure decision layer for the import-cycle gate.
- *
- * Split from `lint-import-cycles.ts` so the POLICY is testable without walking
- * the filesystem or parsing TypeScript.
- *
- * WHY A SHRINK-ONLY BASELINE RATHER THAN A HARD ZERO.
- *
- * A circular import is a real hazard: module A's top-level code can run before
- * B has finished initializing, so the graph cannot be reasoned about one file
- * at a time. That matters more here than in a human-written repo, because
- * agents navigate by reading a file in isolation and assuming its imports are
- * already resolved.
- *
- * But most of this repo is already clean and one app is not, so a hard zero
- * would either fail the build today or have to be introduced with an
- * exemption list nobody prunes. A per-workspace baseline pins each workspace
- * where it actually is: the clean ones are pinned at 0 and can never regress,
- * and the one with existing cycles can only ratchet down. That is the same
- * gate shape the bundle guard and the authz coverage lint already use — the
- * judgement lives in the DIRECTION, not in a number someone has to bump.
- *
- * A shrink is never a failure. It just means the baseline is pessimistic,
- * which costs nothing until refreshed with `--update-baseline`.
- */
+/** Detect import cycles; every workspace must stay at zero. */
 
 export interface WorkspaceCycles {
-	/** Repo-relative workspace root, e.g. `apps/api/src`. */
 	workspace: string;
-	/** Each cycle rendered as its member files, in traversal order. */
 	cycles: string[][];
 }
 
-export interface CycleBaseline {
-	$comment?: string;
-	/** workspace root -> allowed cycle count. */
-	workspaces: Record<string, number>;
-}
-
-export interface CycleVerdict {
+export function evaluateCycles(measured: WorkspaceCycles[]): {
 	ok: boolean;
-	/** Empty when ok. Each entry is a complete, actionable operator message. */
 	failures: string[];
-	/** Workspaces whose count dropped below baseline — good news, never fatal. */
-	improvements: string[];
 	summary: string;
-}
-
-export function evaluateCycles(input: {
-	measured: WorkspaceCycles[];
-	baseline: CycleBaseline;
-}): CycleVerdict {
+} {
 	const failures: string[] = [];
-	const improvements: string[] = [];
 	let total = 0;
-
-	for (const entry of input.measured) {
-		const count = entry.cycles.length;
-		total += count;
-		const allowed = input.baseline.workspaces[entry.workspace];
-
-		if (allowed === undefined) {
-			// A new workspace defaults to zero-tolerance. Anything else would let
-			// a package be added WITH cycles and never be noticed.
-			if (count > 0) {
-				failures.push(
-					`${entry.workspace} is not in the baseline and has ${count} import cycle(s).\n` +
-						`${renderCycles(entry.cycles)}\n` +
-						"New workspaces start at zero. Break the cycle, or record the debt deliberately:\n" +
-						"  bun scripts/lint-import-cycles.ts --update-baseline",
-				);
-			}
-			continue;
-		}
-
-		if (count > allowed) {
-			failures.push(
-				`${entry.workspace} has ${count} import cycle(s), over its baseline of ${allowed}.\n` +
-					`${renderCycles(entry.cycles)}\n` +
-					"A cycle means these modules cannot be initialized — or read — independently.\n" +
-					"Break it by moving the shared symbol DOWN into a module both sides import,\n" +
-					"rather than having the lower module reach back up.\n" +
-					"If the cycle is genuinely intended, refresh the baseline and say why in the commit:\n" +
-					"  bun scripts/lint-import-cycles.ts --update-baseline",
-			);
-			continue;
-		}
-
-		if (count < allowed) {
-			improvements.push(
-				`${entry.workspace}: ${allowed} -> ${count} cycle(s) — consider --update-baseline`,
-			);
-		}
+	for (const entry of measured) {
+		total += entry.cycles.length;
+		if (entry.cycles.length === 0) continue;
+		failures.push(
+			`${entry.workspace} has ${entry.cycles.length} import cycle(s); every workspace must stay at zero.\n` +
+				`${renderCycles(entry.cycles)}\n` +
+				"Break the cycle by moving shared symbols into a module both sides import.",
+		);
 	}
-
 	return {
 		ok: failures.length === 0,
 		failures,
-		improvements,
-		summary:
-			`import-cycle check passed (${input.measured.length} workspaces, ${total} cycle(s) total` +
-			`${improvements.length > 0 ? `; ${improvements.length} workspace(s) improved` : ""})`,
+		summary: `import-cycle check: ${measured.length} workspaces, ${total} cycle(s) total`,
 	};
 }
 

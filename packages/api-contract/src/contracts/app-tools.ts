@@ -289,7 +289,7 @@ export const appToolsContract = oc
 						.describe(
 							"Optional normalized all-term search across tool id, title, and description. Omit to list the unfiltered app inventory.",
 						),
-				}),
+				}).strict(),
 			)
 			.output(
 				z.object({

@@ -38,7 +38,7 @@ export default defineConfig({
 		// read, so a container with less RAM than that cannot run `vp lint` at all,
 		// whatever the thread count or file scope. The only plugin this repo ever
 		// configured supplied exactly one rule, `prefer-vite-plus-imports`, which
-		// now lives in `scripts/lint-vite-plus-imports.ts` and runs inside
+		// now lives in `scripts/check-package-exports.ts` and runs inside
 		// `lint:repo`. Keep the check; do not bring the allocator back.
 		//
 		// Keep the default path syntax-only: `lint:type-aware` (run by hand through

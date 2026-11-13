@@ -65,7 +65,8 @@ export const growthSnapshotsContract = oc
 					.object({
 						tediId: z.uuid(),
 					})
-					.extend(PaginationSchema.shape),
+					.extend(PaginationSchema.shape)
+					.strict(),
 			)
 			.output(
 				z.object({

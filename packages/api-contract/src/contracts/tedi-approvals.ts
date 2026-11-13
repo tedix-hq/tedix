@@ -435,6 +435,7 @@ export const tediApprovalsContract = oc
 							),
 					})
 					.extend(PaginationSchema.shape)
+					.strict()
 					.optional(),
 			)
 			.output(
