@@ -218,16 +218,18 @@ export async function revokeOsShareLink(
 	return rows[0];
 }
 
-const SHARE_ROLE_RANK = { viewer: 0, use: 1, build: 2 } as const;
+const SHARE_ROLE_RANK = { viewer: 0, use: 1, edit: 2, build: 3 } as const;
 
 function effectiveShareRoleRankSql() {
 	return sql<number>`case
 		when ${osShareLinks.policyMaxRole} = 'viewer' then 0
 		when ${osShareLinks.policyMaxRole} = 'use' then 1
-		when ${osShareLinks.policyMaxRole} = 'build' then 2
+		when ${osShareLinks.policyMaxRole} = 'edit' then 2
+		when ${osShareLinks.policyMaxRole} = 'build' then 3
 		when ${osShareLinks.role} = 'viewer' then 0
 		when ${osShareLinks.role} = 'use' then 1
-		else 2
+		when ${osShareLinks.role} = 'edit' then 2
+		else 3
 	end`;
 }
 

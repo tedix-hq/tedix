@@ -565,6 +565,70 @@ describe("governed resource roles and revision modes", () => {
 });
 
 describe("shares.update", () => {
+	it("lets only an invite-only link to one app carry edit, on create and on every change", async () => {
+		const h = harness();
+		const { workspace } = await h.outputs.workspaces.create({
+			name: "Launch workspace",
+		});
+		const { gadget } = await h.outputs.gadgets.create({
+			workspaceId: workspace.id,
+			name: "Launch deck",
+		});
+		await h.outputs.gadgets.revise({
+			workspaceId: workspace.id,
+			gadgetId: gadget.id,
+			manifest: {
+				entry: "ui://widgets/mcp-app/tedix/r/launch.html",
+				capabilities: [],
+			},
+		});
+		const app = { resourceType: "gadget", resourceId: gadget.id } as const;
+		for (const refused of [
+			{ ...app, role: "edit" },
+			{ ...app, role: "edit", access: "organization" },
+			{
+				resourceType: "workspace",
+				resourceId: workspace.id,
+				role: "edit",
+				access: "invited",
+			},
+		] as const)
+			await expect(h.org1.shares.create(refused)).rejects.toMatchObject({
+				code: "BAD_REQUEST",
+			});
+		const { share } = await h.org1.shares.create({
+			...app,
+			role: "edit",
+			access: "invited",
+		});
+		expect(share).toMatchObject({ role: "edit", access: "invited" });
+		// Opening it to more people is refused while it still lets people edit.
+		for (const access of ["anyone_with_link", "organization"] as const)
+			await expect(
+				h.org1.shares.update({ shareId: share.id, access }),
+			).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		await expect(
+			h.org1.shares.update({
+				shareId: share.id,
+				access: "anyone_with_link",
+				role: "use",
+			}),
+		).resolves.toMatchObject({
+			share: { role: "use", access: "anyone_with_link" },
+		});
+		// And a link open to anyone cannot be given edit.
+		await expect(
+			h.org1.shares.update({ shareId: share.id, role: "edit" }),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		await expect(
+			h.org1.shares.update({
+				shareId: share.id,
+				role: "edit",
+				access: "invited",
+			}),
+		).resolves.toMatchObject({ share: { role: "edit", access: "invited" } });
+	});
+
 	it("edits note, expiry and role in place; only admins may, and narrowing ends sessions", async () => {
 		const h = harness();
 		const { workspace } = await h.outputs.workspaces.create({

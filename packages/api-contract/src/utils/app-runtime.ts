@@ -201,6 +201,16 @@ const ROLE_OPERATIONS: Record<AppRuntimeRole, readonly AppRuntimeOperation[]> =
 			"skills.run",
 			"work.read",
 		],
+		// A share-link visitor allowed to edit: `use`, plus saving the files
+		// the app is granted. Never connected accounts or skill runs.
+		edit: [
+			"app.call",
+			"outputs.read",
+			"outputs.patch",
+			"outputs.write",
+			"skills.read",
+			"work.read",
+		],
 		use: ["app.call", "outputs.read", "skills.read", "work.read"],
 		viewer: [],
 	};

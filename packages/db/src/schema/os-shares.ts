@@ -47,7 +47,7 @@ export const osShareLinks = sqliteTable(
 		})
 			.notNull()
 			.default("anyone_with_link"),
-		role: text("role", { enum: ["viewer", "use", "build"] })
+		role: text("role", { enum: ["viewer", "use", "edit", "build"] })
 			.notNull()
 			.default("viewer"),
 		/** Living links resolve current truth; pinned links resolve this immutable revision. */
@@ -60,7 +60,7 @@ export const osShareLinks = sqliteTable(
 		note: text("note"),
 		/** Monotonic policy ceiling: once set, it can stay or tighten, never clear/widen. */
 		policyMaxRole: text("policy_max_role", {
-			enum: ["viewer", "use", "build"],
+			enum: ["viewer", "use", "edit", "build"],
 		}),
 		policyReason: text("policy_reason"),
 		policyRestrictedAt: text("policy_restricted_at"),

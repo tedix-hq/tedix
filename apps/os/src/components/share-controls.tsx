@@ -282,12 +282,14 @@ function ImpactSentences(props: {
 const ROLE_LABEL: Record<OsShareRole, string> = {
 	viewer: "Can view",
 	use: "Can use",
+	edit: "Can edit",
 	build: "Can build",
 };
 
 const ROLE_VERB: Record<OsShareRole, string> = {
 	viewer: "view",
 	use: "use",
+	edit: "edit",
 	build: "build",
 };
 
@@ -582,6 +584,44 @@ export function FreshLink(props: {
 	);
 }
 
+/**
+ * Whether the people invited to an app may change its files or only look.
+ * Narrowing to view takes effect on their next save.
+ */
+function InvitedRole(props: {
+	role: "use" | "edit";
+	noun: string;
+	pending: boolean;
+	onChange: (role: "use" | "edit") => void;
+}) {
+	return (
+		<ShareField
+			as="div"
+			label="Invited people can"
+			hint={
+				props.role === "edit"
+					? `They can change this ${props.noun}'s files after confirming their email. Each change is saved under the link they used.`
+					: `They can open this ${props.noun} but not change its files.`
+			}
+		>
+			<div data-share-invited-role={props.role}>
+				<SegmentedControl
+					ariaLabel="What invited people can do"
+					fill
+					value={props.role}
+					onValueChange={(role) => {
+						if (role !== props.role && !props.pending) props.onChange(role);
+					}}
+					options={[
+						{ value: "use", label: "View" },
+						{ value: "edit", label: "Edit" },
+					]}
+				/>
+			</div>
+		</ShareField>
+	);
+}
+
 /** The settings one link carries; the same form makes and changes a link. */
 type LinkSettings = {
 	role: OsShareRole;
@@ -617,10 +657,15 @@ function LinkForm(props: {
 					<SegmentedControl
 						ariaLabel="Share access role"
 						fill
-						value={settings.role as "use" | "build"}
+						value={settings.role as "use" | "edit" | "build"}
 						onValueChange={(role) => set({ role })}
 						options={[
 							{ value: "use", label: "Use" },
+							// Editing is for people the link names, one app at a time.
+							...(props.resourceType === "gadget" &&
+							props.editing?.access === "invited"
+								? [{ value: "edit" as const, label: "Edit" }]
+								: []),
 							{ value: "build", label: "Build" },
 						]}
 					/>
@@ -1140,12 +1185,15 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 		mutationFn: (input: {
 			shareId: string;
 			access: OsShareAccess;
+			/** Only invited people can edit, so another audience goes back to use. */
+			endsEditing: boolean;
 			/** What to offer Undo for, when the change took access away. */
 			undo?: { previous: OsShareAccess; text: string };
 		}) =>
 			osApi.osShares.shares.update({
 				shareId: input.shareId,
 				access: input.access,
+				...(input.endsEditing ? { role: "use" as const } : {}),
 			}),
 		onSuccess: (_result, input) => {
 			setPending(null);
@@ -1160,6 +1208,7 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 								osApi.osShares.shares.update({
 									shareId: input.shareId,
 									access: offer.previous,
+									...(input.endsEditing ? { role: "edit" as const } : {}),
 								}),
 						}
 					: null,
@@ -1202,6 +1251,13 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 			});
 		},
 		onSuccess: () => setFormMode({ kind: "closed" }),
+		onSettled: () => void invalidate(),
+	});
+	// What invited people may do. The server decides on every save whether a
+	// person may edit; this only records the owner's choice on the link.
+	const changeRole = useMutation({
+		mutationFn: (input: { shareId: string; role: "use" | "edit" }) =>
+			osApi.osShares.shares.update(input),
 		onSettled: () => void invalidate(),
 	});
 	const previewRevoke = useMutation({
@@ -1274,6 +1330,7 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 	const error =
 		createLink.error ??
 		changeAccess.error ??
+		changeRole.error ??
 		updateSettings.error ??
 		setDisabled.error ??
 		deleteLink.error ??
@@ -1301,6 +1358,7 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 			changeAccess.mutate({
 				shareId: change.shareId,
 				access: change.access,
+				endsEditing: link?.role === "edit" && change.access !== "invited",
 				...(narrows
 					? { undo: { previous: change.previous, text: doneText } }
 					: {}),
@@ -1544,6 +1602,14 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 					</AlertTitle>
 					<AlertDescription className="space-y-3">
 						<ImpactSentences impact={pending.impact} {...impactOptions} />
+						{pending.kind === "access" &&
+						link.role === "edit" &&
+						pending.access !== "invited" ? (
+							<p className="m-0" data-share-ends-editing>
+								Nobody will be able to edit through this link any more: only
+								people you invite by email can edit.
+							</p>
+						) : null}
 						<p className="m-0">
 							{pending.kind === "delete"
 								? "The address stops working for good and this can't be undone. A new link would get a new address."
@@ -1589,6 +1655,16 @@ export function ShareLinksPanel(props: ShareLinksPanelProps) {
 			<UndoNotice undo={undo} />
 			{link?.access === "invited" ? (
 				<InviteList shareId={link.id} noun={noun} organization={organization} />
+			) : null}
+			{link?.access === "invited" &&
+			resourceType === "gadget" &&
+			(link.role === "use" || link.role === "edit") ? (
+				<InvitedRole
+					role={link.role}
+					noun={noun}
+					pending={changeRole.isPending}
+					onChange={(role) => changeRole.mutate({ shareId: link.id, role })}
+				/>
 			) : null}
 			{listedLinks.length > 1 ? (
 				<section className="grid gap-1" aria-label="Other links">

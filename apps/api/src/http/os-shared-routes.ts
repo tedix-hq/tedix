@@ -248,6 +248,53 @@ export function registerOsSharedRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 			await c.req.json().catch(() => null),
 		);
 	});
+	// authz: public — same share session token; saves only for an invited,
+	// email-verified visitor of a link that lets its people edit.
+	app.post("/os-shared/app/save", async (c) => {
+		const [{ handleGuestAppSave }, { createDbQueryClient }] = await Promise.all(
+			[import("../lib/os-share-app-runtime"), import("@tedix/db/query-client")],
+		);
+		return handleGuestAppSave(
+			createDbQueryClient(c.env.DB),
+			await c.req.json().catch(() => null),
+		);
+	});
+	// authz: public — same share session token; reads only granted, sourceless Outputs.
+	app.post("/os-shared/app/changes", async (c) => {
+		const [{ handleGuestAppChanges }, { createDbQueryClient }] =
+			await Promise.all([
+				import("../lib/os-share-app-runtime"),
+				import("@tedix/db/query-client"),
+			]);
+		return handleGuestAppChanges(
+			createDbQueryClient(c.env.DB),
+			await c.req.json().catch(() => null),
+		);
+	});
+	// authz: public — same share session token; reads only granted, sourceless Outputs.
+	app.post("/os-shared/app/revision", async (c) => {
+		const [{ handleGuestAppRevision }, { createDbQueryClient }] =
+			await Promise.all([
+				import("../lib/os-share-app-runtime"),
+				import("@tedix/db/query-client"),
+			]);
+		return handleGuestAppRevision(
+			createDbQueryClient(c.env.DB),
+			await c.req.json().catch(() => null),
+		);
+	});
+	// authz: public — same share session token; reads only images stored with a granted, sourceless Output.
+	app.post("/os-shared/app/image", async (c) => {
+		const [{ handleGuestAppImage }, { createDbQueryClient }] =
+			await Promise.all([
+				import("../lib/os-share-app-runtime"),
+				import("@tedix/db/query-client"),
+			]);
+		return handleGuestAppImage(
+			createDbQueryClient(c.env.DB),
+			await c.req.json().catch(() => null),
+		);
+	});
 
 	// Unknown, revoked, and expired tokens are indistinguishable 404s.
 	app.get("/os-shared/:token", async (c) => {
@@ -283,7 +330,7 @@ async function shareRecipient(request: Request, env: CloudflareEnv) {
 	return {
 		authorize: (
 			link: { organizationId: string },
-			role: "viewer" | "use" | "build",
+			role: "viewer" | "use" | "edit" | "build",
 			accessEnvelope?: import("@tedix/api-contract/schemas/os-workspaces").OsDerivedAccessEnvelope,
 		) =>
 			authorizeOsShareRecipient(request, env, {

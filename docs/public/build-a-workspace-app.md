@@ -1064,6 +1064,13 @@ normally requires every slot in `resourceGrants` to be bound to an Output
 with no data from connected accounts. Grants for `connections.call`,
 `skills.read`, `skills.run` and `work.read` otherwise require sign-in.
 
+An invite-only app link can also be set to "Edit". A person you invited by
+email, after confirming that email, can then save changes to the Outputs the
+app is granted `outputs.write` or `outputs.patch` on. The host saves the
+change; your `App` class still runs with the `use` role for that person, so
+its own Output writes stay refused. A link open to anyone, or to the whole
+organization, cannot be set to "Edit".
+
 An organization owner or admin can approve an app's existing `skills.read`
 slot for one "Anyone with the link" use link by calling `osShares.shares.update`
 with `guestSkillReadSlots: ["research"]`. This uses the approving person's
