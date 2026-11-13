@@ -879,6 +879,36 @@ describe("changed-only saves through the host", () => {
 		expect(patchOutput).not.toHaveBeenCalled();
 	});
 
+	it("keeps a link visitor's unsaved changes under the file id the app read", async () => {
+		const drafts = new Map();
+		const content = { kind: "sheet", columns: ["#"], rows: [[1]] };
+		const visitor = {
+			...host("edit", ["outputs.read", "outputs.write"], { drafts }),
+			resources: [],
+			serverResolvesSlots: true,
+			readSlot: vi.fn(async () => content),
+		} as AppRuntimeHostDeps;
+		const args = { slot: "opportunities", outputId: "file-1" };
+		expect(
+			await handleAppRuntimeCall(visitor, "app.draft.write", {
+				...args,
+				revision: 2,
+				content,
+			}),
+		).toMatchObject({ ok: true });
+		expect(
+			await handleAppRuntimeCall(visitor, "app.draft.read", args),
+		).toMatchObject({ ok: true, value: { revision: 2 } });
+		// A view-only visitor keeps no unsaved changes.
+		expect(
+			await handleAppRuntimeCall(
+				{ ...visitor, context: { ...visitor.context, role: "use" } },
+				"app.draft.read",
+				args,
+			),
+		).toMatchObject({ ok: false, error: "not_permitted" });
+	});
+
 	it("refuses a patch from a role or grant that may not write, and malformed patches, before any call", async () => {
 		const patchOutput = vi.fn(async () => saved);
 		const args = { slot: "opportunities", baseRevision: 4, patch };
