@@ -175,7 +175,6 @@ const createProcedure = authOs.create
 			type: input.type,
 			riskLevel: input.riskLevel,
 			priority: input.priority,
-			linkedDomains: input.linkedDomains,
 			gateConfig: optionalJsonRecord(
 				trustedAuthorityWriter ? input.gateConfig : SAFE_UNTRUSTED_GATE,
 			),
@@ -266,7 +265,6 @@ const updateProcedure = authOs.update
 			status: input.status,
 			riskLevel: input.riskLevel,
 			priority: input.priority,
-			linkedDomains: input.linkedDomains,
 			gateConfig: optionalJsonRecord(input.gateConfig),
 			budgetConfig: optionalJsonRecord(input.budgetConfig),
 			progress: optionalJsonRecord(input.progress),

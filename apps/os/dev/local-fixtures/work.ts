@@ -80,7 +80,6 @@ const workItem = (
 	stewardId: assigneeTediId,
 	reviewerType: "user" as const,
 	reviewerId: "local-owner",
-	reviewerLeaseExpiresAt: null,
 	objectiveId: null,
 	workClass: "objective" as const,
 	purposeExceptionExpiresAt: null,

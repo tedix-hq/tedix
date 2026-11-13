@@ -1442,12 +1442,6 @@ export const WorkItemSchema = z.object({
 	stewardId: z.string().nullable(),
 	reviewerType: WorkItemOwnerTypeSchema.nullable(),
 	reviewerId: z.string().nullable(),
-	reviewerLeaseExpiresAt: z.iso
-		.datetime()
-		.nullable()
-		.describe(
-			"Legacy reviewer designation kept for stored rows; nothing writes or consults it since the review plane was retired.",
-		),
 	dueDate: z.string().nullable(),
 	deadline: z.string().nullable(),
 	startAt: z.iso
