@@ -1,3 +1,4 @@
+import { decodeAuditCursor } from "@tedix/api-contract/schemas/audit-cursor";
 import type { SearchSchemaInput } from "@tanstack/react-router";
 import * as z from "zod/mini";
 
@@ -18,7 +19,7 @@ import * as z from "zod/mini";
 /**
  * Page size for the audit trail — one contract read per URL-backed page.
  * Twenty keeps the mobile record projection scannable while retaining a dense
- * desktop table and deterministic server-side offsets.
+ * desktop table and stable server-side cursor windows.
  */
 export const AUDIT_PAGE_SIZE = 20;
 
@@ -41,6 +42,7 @@ export type AuditSearch = {
 	resourceType: string;
 	action: string;
 	page: number;
+	cursors?: string[];
 };
 
 export const AUDIT_DEFAULT_SEARCH: AuditSearch = {
@@ -59,6 +61,7 @@ export function validateAuditSearch(
 		resourceType?: string;
 		action?: string;
 		page?: number;
+		cursors?: string[];
 	} & SearchSchemaInput,
 ): AuditSearch {
 	const raw = search as Record<string, unknown>;
@@ -66,6 +69,15 @@ export function validateAuditSearch(
 		resourceType: filterParam(raw.resourceType, AUDIT_ALL_RESOURCES),
 		action: filterParam(raw.action, ""),
 		page: pageSchema.parse(raw.page),
+		...(Array.isArray(raw.cursors) &&
+		raw.cursors.every(
+			(cursor) =>
+				typeof cursor === "string" &&
+				cursor.length <= 2048 &&
+				decodeAuditCursor(cursor),
+		)
+			? { cursors: raw.cursors }
+			: {}),
 	};
 }
 
@@ -80,7 +92,8 @@ export function isDefaultAuditSearch(search: AuditSearch): boolean {
 		(search.resourceType === AUDIT_ALL_RESOURCES ||
 			search.resourceType.trim() === "") &&
 		search.action.trim() === "" &&
-		search.page === 1
+		search.page === 1 &&
+		!search.cursors?.length
 	);
 }
 
@@ -91,7 +104,8 @@ export function isDefaultAuditSearch(search: AuditSearch): boolean {
  */
 export function auditSearchInput(search: AuditSearch): {
 	limit: number;
-	offset: number;
+	offset?: number;
+	cursor?: string;
 	resourceType?: string;
 	action?: string;
 } {
@@ -102,7 +116,9 @@ export function auditSearchInput(search: AuditSearch): {
 	const action = search.action.trim();
 	return {
 		limit: AUDIT_PAGE_SIZE,
-		offset: (search.page - 1) * AUDIT_PAGE_SIZE,
+		...(search.cursors?.length
+			? { cursor: search.cursors.at(-1)! }
+			: { offset: (search.page - 1) * AUDIT_PAGE_SIZE }),
 		...(resourceType ? { resourceType } : {}),
 		...(action ? { action } : {}),
 	};
@@ -119,6 +135,7 @@ export function auditExportFilters(search: AuditSearch): {
 	const {
 		limit: _limit,
 		offset: _offset,
+		cursor: _cursor,
 		...filters
 	} = auditSearchInput(search);
 	return filters;

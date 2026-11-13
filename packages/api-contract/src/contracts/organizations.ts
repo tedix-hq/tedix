@@ -65,46 +65,56 @@ export const organizationsContract = oc
 	.errors(baseErrors)
 	.router({
 		getCustomDomain: oc
+			.route({ method: "GET" })
 			.input(z.object({}))
 			.output(OrganizationDomainSchema.nullable()),
 		beginCustomDomain: oc
+			.route({ method: "POST" })
 			.input(OrganizationDomainBeginSchema)
 			.output(OrganizationDomainSchema),
 		verifyCustomDomain: oc
+			.route({ method: "POST" })
 			.input(OrganizationDomainKeySchema)
 			.output(OrganizationDomainSchema),
 		removeCustomDomain: oc
+			.route({ method: "DELETE" })
 			.input(OrganizationDomainKeySchema)
 			.output(SuccessResponseSchema),
 		getDataResidency: oc
+			.route({ method: "GET" })
 			.route({
 				summary: "Read this organization's model data residency setting",
 			})
 			.input(z.object({}))
 			.output(DataResidencyPolicySchema),
 		setDataResidency: oc
+			.route({ method: "PUT" })
 			.route({
 				summary: "Set this organization's model data residency requirement",
 			})
 			.input(SetDataResidencyInputSchema)
 			.output(DataResidencyPolicySchema),
 		listResidencyProviderCatalog: oc
+			.route({ method: "GET" })
 			.route({
 				summary: "List operator-verified residency provider catalog entries",
 			})
 			.input(z.strictObject({}))
 			.output(z.array(ResidencyProviderSchema)),
 		publishResidencyProviderVersion: oc
+			.route({ method: "POST" })
 			.route({
 				summary: "Publish an operator-verified residency provider version",
 			})
 			.input(ResidencyProviderSchema)
 			.output(ResidencyProviderSchema),
 		listMcpAuthorizations: oc
+			.route({ method: "GET" })
 			.route({ summary: "List your Tedix Connect authorizations" })
 			.input(ListMcpAuthorizationsInputSchema)
 			.output(ListMcpAuthorizationsResultSchema),
 		listInboundClientInventory: oc
+			.route({ method: "GET" })
 			.route({
 				summary: "List the OAuth clients connected to an organization",
 				description:
@@ -113,12 +123,14 @@ export const organizationsContract = oc
 			.input(ListInboundClientInventoryInputSchema)
 			.output(ListInboundClientInventoryResultSchema),
 		disableMcpAuthorization: oc
+			.route({ method: "POST" })
 			.route({
 				summary: "Disable your human MCP access for one resource and client",
 			})
 			.input(DisableMcpAuthorizationInputSchema)
 			.output(HumanMcpConsentRevisionSchema),
 		stageMultiOrgMcpConsent: oc
+			.route({ method: "POST" })
 			.route({
 				summary: "Stage a human MCP consent selection",
 				description:
@@ -127,11 +139,13 @@ export const organizationsContract = oc
 			.input(StageHumanMcpConsentInputSchema)
 			.output(HumanMcpConsentRevisionSchema),
 		revokeMultiOrgMcpConsent: oc
+			.route({ method: "POST" })
 			.route({ summary: "Revoke a human MCP consent selection" })
 			.input(RevokeHumanMcpConsentInputSchema)
 			.output(HumanMcpConsentRevisionSchema),
 		/** Internal, service-bound recheck before every human MCP call. */
 		verifyMultiOrgMcpGrant: oc
+			.route({ method: "POST" })
 			.route({
 				summary: "Verify a current human MCP OAuth grant",
 				description:

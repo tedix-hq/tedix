@@ -16,6 +16,7 @@ export const Route = createFileRoute("/_session/_tenant/audit")({
 		resourceType: search.resourceType,
 		action: search.action,
 		page: search.page,
+		cursors: search.cursors,
 	}),
 	loader: ({ context, deps }) => prefetchAuditRoute(context.queryClient, deps),
 	component: AuditRoute,

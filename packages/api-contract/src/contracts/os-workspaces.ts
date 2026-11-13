@@ -1147,17 +1147,20 @@ export const osWorkspacesContract = oc
 				})
 				.input(z.strictObject({}))
 				.output(z.object({ workspaceId: z.string().uuid() })),
-			workApps: oc.input(z.strictObject({ limit: listLimitSchema })).output(
-				z.object({
-					items: z.array(
-						z.object({
-							gadget: OsGadgetSchema,
-							currentRevision: OsGadgetRevisionSchema,
-						}),
-					),
-					truncated: z.boolean(),
-				}),
-			),
+			workApps: oc
+				.route({ method: "GET" })
+				.input(z.strictObject({ limit: listLimitSchema }))
+				.output(
+					z.object({
+						items: z.array(
+							z.object({
+								gadget: OsGadgetSchema,
+								currentRevision: OsGadgetRevisionSchema,
+							}),
+						),
+						truncated: z.boolean(),
+					}),
+				),
 			list: oc
 				.route({
 					method: "GET",
@@ -1478,6 +1481,7 @@ export const osWorkspacesContract = oc
 				),
 			history: oc
 				.route({
+					method: "GET",
 					summary:
 						"Read immutable output versions with source access checked for every version",
 				})

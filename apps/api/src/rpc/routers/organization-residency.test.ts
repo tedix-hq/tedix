@@ -1,3 +1,8 @@
+import { DatabaseSync } from "node:sqlite";
+import { createDbClient } from "@tedix/db/client";
+import { auditEvents } from "@tedix/db/schema/audit-events";
+import { createD1Facade } from "@tedix/db/test/d1-facade";
+import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { createRouterClient } from "@orpc/server";
 import { describe, it, expect, vi, beforeEach } from "vite-plus/test";
 const mocks = vi.hoisted(() => ({
@@ -157,4 +162,26 @@ it("does not fall back to provider membership when a known canonical membership 
 	).rejects.toMatchObject({ code: "FORBIDDEN" });
 	expect(mocks.member).not.toHaveBeenCalled();
 	expect(mocks.set).not.toHaveBeenCalled();
+});
+
+it("persists the residency actor, target organization and new policy revision", async () => {
+	const sqlite = new DatabaseSync(":memory:");
+	try {
+		sqlite.exec(schemaDdl(auditEvents));
+		const db = createDbClient(createD1Facade(sqlite));
+		await client(context({ db })).setDataResidency({
+			mode: "eu",
+			expectedRevision: 0,
+		});
+		expect((await db.select().from(auditEvents))[0]).toMatchObject({
+			action: "organization.residency.set",
+			actorType: "user",
+			actorId: "owner_lark",
+			organizationId: "org_lark",
+			resourceId: "org_lark",
+			metadata: { mode: "eu", revision: 1 },
+		});
+	} finally {
+		sqlite.close();
+	}
 });

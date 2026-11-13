@@ -12,6 +12,8 @@
  * Contract is imported from @tedix/api-contract.
  */
 
+import { osAudit } from "../os-audit";
+import { ORGANIZATION_SECRETS_AUDIT } from "../settings-audit";
 import { implement } from "@orpc/server";
 import { organizationSecretsContract } from "@tedix/api-contract/contracts/secrets";
 import {
@@ -47,7 +49,9 @@ const organizationSecretsOs = implement(
  * Create authenticated implementer - ALL procedures inherit auth
  * This ensures all organization secrets endpoints require authentication
  */
-const authedOrganizationSecretsOs = organizationSecretsOs.use(withAuth);
+const authedOrganizationSecretsOs = organizationSecretsOs
+	.use(withAuth)
+	.use(osAudit(ORGANIZATION_SECRETS_AUDIT));
 
 // =============================================================================
 // CONTRACT-BASED PROCEDURE IMPLEMENTATIONS
@@ -235,14 +239,13 @@ export const masterKeyFingerprintsProcedure =
 /**
  * Contract-based router using os.router() pattern
  */
-export const organizationSecretsContractRouter =
-	authedOrganizationSecretsOs.router({
-		list: listOrgSecrets,
-		get: getOrgSecretProcedure,
-		set: setOrgSecretProcedure,
-		delete: deleteOrgSecretProcedure,
-		masterKeyFingerprints: masterKeyFingerprintsProcedure,
-	});
+export const organizationSecretsContractRouter = organizationSecretsOs.router({
+	list: listOrgSecrets,
+	get: getOrgSecretProcedure,
+	set: setOrgSecretProcedure,
+	delete: deleteOrgSecretProcedure,
+	masterKeyFingerprints: masterKeyFingerprintsProcedure,
+});
 
 // =============================================================================
 // HELPERS

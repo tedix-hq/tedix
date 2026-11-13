@@ -1,3 +1,11 @@
+import { act, useState } from "react";
+import { createRoot } from "react-dom/client";
+import { encodeAuditCursor } from "@tedix/api-contract/schemas/audit-cursor";
+import {
+	AUDIT_DEFAULT_SEARCH,
+	auditSearchInput,
+	type AuditSearch,
+} from "@/lib/audit-search";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Button } from "@/components/kumo/button";
@@ -521,4 +529,100 @@ it("resolves people and coding assistants from the actor directory while retaini
 			/>,
 		),
 	).toContain("U123");
+});
+
+it("suggests typed settings actions while retaining custom action input", () => {
+	const doc = new DOMParser().parseFromString(
+		renderToStaticMarkup(
+			<AuditFilters
+				appliedAction="custom.event"
+				appliedResourceType="all"
+				onApply={() => {}}
+				onClear={() => {}}
+			/>,
+		),
+		"text/html",
+	);
+	const input = doc.querySelector('input[name="action"]');
+	expect(input?.getAttribute("value")).toBe("custom.event");
+	const list = doc.getElementById(input?.getAttribute("list") ?? "");
+	expect(
+		list?.querySelector('option[value="organization.secret.set"]'),
+	).not.toBeNull();
+	expect(
+		list?.querySelector('option[value="organization.api_key.rotated"]'),
+	).not.toBeNull();
+});
+
+it("navigates Next and Previous with cursor history and keeps the selected action", async () => {
+	const cursor = encodeAuditCursor({
+		timestamp: baseEvent.timestamp,
+		id: baseEvent.id,
+	});
+	const initial = {
+		...AUDIT_DEFAULT_SEARCH,
+		action: "organization.secret.set",
+	};
+	const next = { ...initial, page: 2, cursors: [cursor] };
+	const client = new QueryClient({
+		defaultOptions: { queries: { enabled: false, retry: false } },
+	});
+	for (const [search, hasMore, nextCursor] of [
+		[initial, true, cursor],
+		[next, false, null],
+	] as const) {
+		client.setQueryData(
+			auditSearchQueryOptions(auditSearchInput(search)).queryKey,
+			{
+				data: [baseEvent],
+				pagination: {
+					total: 21,
+					limit: AUDIT_PAGE_SIZE,
+					offset: 0,
+					hasMore,
+					nextCursor,
+				},
+			},
+		);
+	}
+	const changes: Partial<AuditSearch>[] = [];
+	function View() {
+		const [search, setSearch] = useState<AuditSearch>(initial);
+		return (
+			<QueryClientProvider client={client}>
+				<AuditPage
+					search={search}
+					onSearchChange={(update) => {
+						changes.push(update);
+						setSearch((previous) => ({ ...previous, ...update }));
+					}}
+				/>
+			</QueryClientProvider>
+		);
+	}
+	const host = document.createElement("div");
+	document.body.append(host);
+	const root = createRoot(host);
+	try {
+		await act(async () => root.render(<View />));
+		const button = (name: string) =>
+			[...host.querySelectorAll("button")].find(
+				(button) => button.textContent === name,
+			)!;
+		expect(button("Previous").disabled).toBe(true);
+		await act(async () => button("Next").click());
+		expect(changes.at(-1)).toEqual({ page: 2, cursors: [cursor] });
+		expect(host.textContent).toContain("Page 2");
+		expect(button("Next").disabled).toBe(true);
+		expect(
+			host.querySelector<HTMLInputElement>('input[name="action"]')?.value,
+		).toBe(initial.action);
+		await act(async () => button("Previous").click());
+		expect(changes.at(-1)).toEqual({ page: 1, cursors: [] });
+		expect(host.textContent).toContain("Page 1");
+	} finally {
+		await act(async () => root.unmount());
+		host.remove();
+		client.clear();
+	}
 });

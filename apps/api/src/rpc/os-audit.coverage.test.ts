@@ -1,3 +1,15 @@
+import { readFileSync } from "node:fs";
+import { organizationsContract } from "@tedix/api-contract/contracts/organizations";
+import { organizationSecretsContract } from "@tedix/api-contract/contracts/secrets";
+import { roleTemplatesContract } from "@tedix/api-contract/contracts/role-templates";
+import { webPushContract } from "@tedix/api-contract/contracts/web-push";
+import {
+	ORGANIZATION_SECRETS_AUDIT,
+	ORGANIZATION_SETTINGS_AUDIT,
+	ROLE_TEMPLATES_AUDIT,
+	WEB_PUSH_AUDIT,
+	SETTINGS_AUDIT_NON_EMITTING,
+} from "./settings-audit";
 /**
  * The gate that makes "a Tedix OS verb shipped without audit" impossible.
  *
@@ -34,8 +46,8 @@ function contractLeaves(
 ): Record<string, string> {
 	if (typeof node !== "object" || node === null) return found;
 	const method = procedureMethod(node);
-	if (method !== undefined) {
-		found[prefix.join(".")] = method;
+	if ("~orpc" in node) {
+		found[prefix.join(".")] = method ?? "UNDECLARED";
 		return found;
 	}
 	for (const [key, child] of Object.entries(node)) {
@@ -45,11 +57,58 @@ function contractLeaves(
 	return found;
 }
 
+// Discover procedures from the scoped implementation files, rather than a
+// second hand-maintained list of their verbs. A new procedure must be decided.
+const SETTINGS_ORGANIZATION_FILES = [
+	"organizations-api-keys",
+	"organization-domains",
+	"organization-residency",
+	"organizations-mcp-authorizations",
+];
+const settingsOrganizationLeaves = Object.fromEntries(
+	SETTINGS_ORGANIZATION_FILES.flatMap((file) => {
+		const source = readFileSync(
+			new URL(`./routers/${file}.ts`, import.meta.url),
+			"utf8",
+		);
+		return [
+			...source.matchAll(
+				/(?:authedOrganizationsOs|organizationsOs|authed|os)\.(\w+)/g,
+			),
+		]
+			.filter((match) => match[1] !== "use")
+			.map((match) => [
+				match[1]!,
+				organizationsContract[match[1]! as keyof typeof organizationsContract],
+			]);
+	}),
+);
+const NON_EMITTING = {
+	...OS_AUDIT_NON_EMITTING,
+	...SETTINGS_AUDIT_NON_EMITTING,
+};
+
 const DOMAINS: {
 	name: string;
 	contract: unknown;
 	registry: OsAuditRegistry;
 }[] = [
+	{
+		name: "organizations",
+		contract: settingsOrganizationLeaves,
+		registry: ORGANIZATION_SETTINGS_AUDIT,
+	},
+	{
+		name: "organizationSecrets",
+		contract: organizationSecretsContract,
+		registry: ORGANIZATION_SECRETS_AUDIT,
+	},
+	{
+		name: "roleTemplates",
+		contract: roleTemplatesContract,
+		registry: ROLE_TEMPLATES_AUDIT,
+	},
+	{ name: "webPush", contract: webPushContract, registry: WEB_PUSH_AUDIT },
 	{
 		name: "osWorkspaces",
 		contract: osWorkspacesContract,
@@ -74,7 +133,55 @@ const DOMAINS: {
 
 const READ_METHODS = new Set(["GET", "HEAD"]);
 
+function missingDecisions(domain: (typeof DOMAINS)[number]): string[] {
+	return Object.entries(contractLeaves(domain.contract)).flatMap(
+		([path, method]) => {
+			if (READ_METHODS.has(method)) return [];
+			const qualified = `${domain.name}.${path}`;
+			return lookupOsAuditSpecs(domain.registry, path.split(".")).length ===
+				0 && NON_EMITTING[qualified] === undefined
+				? [`${qualified} (${method})`]
+				: [];
+		},
+	);
+}
+
 describe("Tedix OS audit coverage", () => {
+	it("keeps settings builders wired to their registry", () => {
+		for (const [file, registry] of [
+			...SETTINGS_ORGANIZATION_FILES.map((file) => [
+				file,
+				"ORGANIZATION_SETTINGS_AUDIT",
+			]),
+			["organization-secrets", "ORGANIZATION_SECRETS_AUDIT"],
+			["role-templates", "ROLE_TEMPLATES_AUDIT"],
+			["web-push", "WEB_PUSH_AUDIT"],
+		]) {
+			const source = readFileSync(
+				new URL(`./routers/${file}.ts`, import.meta.url),
+				"utf8",
+			).replace(/\s/g, "");
+			expect(source, file).toMatch(
+				new RegExp(`\\.use\\(osAudit\\(${registry}\\),?\\)`),
+			);
+		}
+	});
+	it("rejects a newly added settings mutation without an audit decision", () => {
+		const domain = {
+			name: "roleTemplates",
+			registry: ROLE_TEMPLATES_AUDIT,
+			contract: {
+				...roleTemplatesContract,
+				newSetting: { "~orpc": { meta: { "~openapi": { method: "PUT" } } } },
+			},
+		};
+		expect(missingDecisions(domain)).toEqual([
+			"roleTemplates.newSetting (PUT)",
+		]);
+		domain.contract.newSetting["~orpc"].meta["~openapi"].method = "";
+		expect(missingDecisions(domain)).toHaveLength(1);
+	});
+
 	it("resolves every OS contract leaf to a declared HTTP method", () => {
 		for (const domain of DOMAINS) {
 			const leaves = contractLeaves(domain.contract);
@@ -88,20 +195,7 @@ describe("Tedix OS audit coverage", () => {
 	});
 
 	it("forces every mutating verb to be registered or explicitly excused", () => {
-		const undecided: string[] = [];
-		for (const domain of DOMAINS) {
-			for (const [path, method] of Object.entries(
-				contractLeaves(domain.contract),
-			)) {
-				if (READ_METHODS.has(method)) continue;
-				const registered =
-					lookupOsAuditSpecs(domain.registry, path.split(".")).length > 0;
-				const qualified = `${domain.name}.${path}`;
-				if (!registered && OS_AUDIT_NON_EMITTING[qualified] === undefined) {
-					undecided.push(`${domain.name}.${path} (${method})`);
-				}
-			}
-		}
+		const undecided = DOMAINS.flatMap(missingDecisions);
 		expect(undecided).toEqual([]);
 	});
 
@@ -130,11 +224,13 @@ describe("Tedix OS audit coverage", () => {
 				),
 			),
 		);
-		for (const [path, reason] of Object.entries(OS_AUDIT_NON_EMITTING)) {
+		for (const [path, reason] of Object.entries(NON_EMITTING)) {
 			expect(known.has(path), `${path} is not an OS contract leaf`).toBe(true);
 			expect(reason.length).toBeGreaterThan(8);
 			// An excused verb must not also be registered.
-			for (const domain of DOMAINS) {
+			for (const domain of DOMAINS.filter((domain) =>
+				path.startsWith(`${domain.name}.`),
+			)) {
 				expect(
 					lookupOsAuditSpecs(domain.registry, path.split(".")).length,
 				).toBe(0);

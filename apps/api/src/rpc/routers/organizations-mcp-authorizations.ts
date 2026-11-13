@@ -1,4 +1,6 @@
 /** Human MCP authorizations, multi-org consent and CLI workspace bootstrap procedures. */
+import { osAudit } from "../os-audit";
+import { ORGANIZATION_SETTINGS_AUDIT } from "../settings-audit";
 import { createDbSession } from "@tedix/db/client";
 import { getOrganizationAggregatorGateways } from "@tedix/db/queries/organization-members";
 import {
@@ -35,7 +37,14 @@ import {
 	requireAdminOrOwner,
 	requireOrganizationAccess,
 } from "./organizations-base";
-import { organizationsOs, authedOrganizationsOs } from "./organizations-base";
+import {
+	organizationsOs,
+	authedOrganizationsOs as baseAuthedOrganizationsOs,
+} from "./organizations-base";
+
+const authedOrganizationsOs = baseAuthedOrganizationsOs.use(
+	osAudit(ORGANIZATION_SETTINGS_AUDIT),
+);
 
 export const listMcpAuthorizationsContract =
 	authedOrganizationsOs.listMcpAuthorizations
