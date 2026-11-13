@@ -23,7 +23,30 @@ export const OsShareResourceTypeSchema = z.enum([
 	"workspace",
 ]);
 
-export const OsShareRoleSchema = z.enum(["viewer", "use", "build"]);
+/**
+ * What a link lets its people do. `viewer` reads a file; `use` opens an app,
+ * read-only on its files; `edit` also lets people invited by email change the
+ * app's files; `build` opens the workspace for a signed-in member.
+ */
+export const OsShareRoleSchema = z.enum(["viewer", "use", "edit", "build"]);
+
+/**
+ * Why a link may not carry the `edit` role, or null when it may. Editing is
+ * for one app, and only for people the link names: a change to a file is
+ * always made by someone whose email was checked.
+ */
+export function osShareEditRefusal(link: {
+	resourceType: string;
+	access: string;
+	role: string;
+}): string | null {
+	if (link.role !== "edit") return null;
+	if (link.resourceType !== "gadget")
+		return "Only a link to one app can let people edit";
+	if (link.access !== "invited")
+		return 'Only people you invite by email can edit. Choose "Only people I invite" first.';
+	return null;
+}
 
 export const OsShareRevisionModeSchema = z.enum(["living", "pinned"]);
 
@@ -406,9 +429,16 @@ const createShareInput = z
 			context.addIssue({
 				code: "custom",
 				path: ["role"],
-				message: "App and workspace shares use the use or build role",
+				message: "App and workspace shares use the use, edit or build role",
 			});
 		}
+		const editRefusal = osShareEditRefusal(input);
+		if (editRefusal)
+			context.addIssue({
+				code: "custom",
+				path: ["role"],
+				message: editRefusal,
+			});
 		if (
 			input.revisionMode === "pinned" &&
 			resourceType !== "workspace" &&
@@ -560,7 +590,7 @@ export const osSharesContract = oc
 					path: "/resources/{resourceType}/{resourceId}/shares",
 					summary: "Create a governed Tedix OS share link",
 					description:
-						"Mints a role-aware living or pinned link. The returned token is the link's reusable secret, returned only in this answer; only its sha-256 hash persists. Outputs are viewer-only; App and workspace links use use/build roles without transferring owner credentials or connections.",
+						"Mints a role-aware living or pinned link. The returned token is the link's reusable secret, returned only in this answer; only its sha-256 hash persists. Outputs are viewer-only; App and workspace links use use/build roles without transferring owner credentials or connections. An App link that admits only invited people may use the edit role: an invited person whose email was checked can then change the App's files.",
 				})
 				.input(createShareInput)
 				.output(
@@ -611,7 +641,7 @@ export const osSharesContract = oc
 						.object({
 							shareId: z.string().uuid(),
 							role: OsShareRoleSchema.optional().describe(
-								"New authored role; outputs stay viewer, App and workspace links use or build",
+								"New authored role; outputs stay viewer, App and workspace links use or build; edit only on an invite-only App link",
 							),
 							guestSkillReadSlots: z
 								.array(

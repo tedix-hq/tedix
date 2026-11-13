@@ -257,6 +257,46 @@ describe("permission matrix", () => {
 		).toEqual({ allowed: false, reason: "role" });
 	});
 
+	it("lets edit save a granted file but never reach connected accounts or run skills", () => {
+		const granted = [
+			{
+				slot: "deck",
+				operations: [
+					"outputs.read",
+					"outputs.write",
+					"connections.call",
+					"skills.run",
+				],
+			},
+		];
+		for (const operation of ["outputs.read", "outputs.write"] as const)
+			expect(
+				appRuntimePermission({
+					role: "edit",
+					operation,
+					grants: granted,
+					slot: "deck",
+				}),
+			).toEqual({ allowed: true });
+		for (const operation of ["connections.call", "skills.run"] as const)
+			expect(
+				appRuntimePermission({
+					role: "edit",
+					operation,
+					grants: granted,
+					slot: "deck",
+				}),
+			).toEqual({ allowed: false, reason: "role" });
+		expect(
+			appRuntimePermission({
+				role: "edit",
+				operation: "outputs.write",
+				grants: granted,
+				slot: "other",
+			}),
+		).toEqual({ allowed: false, reason: "no_grant" });
+	});
+
 	it("needs a grant even for build, and the grant must name the operation", () => {
 		expect(
 			appRuntimePermission({

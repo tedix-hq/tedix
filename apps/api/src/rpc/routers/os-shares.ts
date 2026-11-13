@@ -1,5 +1,8 @@
 import { implement } from "@orpc/server";
-import { osSharesContract } from "@tedix/api-contract/contracts/os-shares";
+import {
+	osShareEditRefusal,
+	osSharesContract,
+} from "@tedix/api-contract/contracts/os-shares";
 import type { OsShareLink } from "@tedix/api-contract/contracts/os-shares";
 import { OsDerivedAccessEnvelopeSchema } from "@tedix/api-contract/schemas/os-workspaces";
 import {
@@ -785,7 +788,7 @@ const sharesSetDisabled = authorOs.shares.setDisabled.handler(
 	},
 );
 
-const ROLE_RANK = { viewer: 0, use: 1, build: 2 } as const;
+const ROLE_RANK = { viewer: 0, use: 1, edit: 2, build: 3 } as const;
 
 /**
  * Edit an active link without minting a new token. Organization owners and
@@ -818,8 +821,16 @@ const sharesUpdate = audienceOs.shares.update.handler(
 				ErrorCodes.BAD_REQUEST,
 				current.resourceType === "output"
 					? "Output shares are read-only viewer links"
-					: "App and workspace shares use the use or build role",
+					: "App and workspace shares use the use, edit or build role",
 			);
+		// Checked against what the link becomes: widening the audience of a
+		// link people can edit through is refused, never silently allowed.
+		const editRefusal = osShareEditRefusal({
+			resourceType: current.resourceType,
+			access: input.access ?? current.access,
+			role,
+		});
+		if (editRefusal) throw createError(ErrorCodes.BAD_REQUEST, editRefusal);
 		const expiresAt =
 			input.expiresAt === undefined ? current.expiresAt : input.expiresAt;
 		if (input.expiresAt) {

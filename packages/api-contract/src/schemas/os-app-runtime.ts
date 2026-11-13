@@ -238,10 +238,18 @@ export type AppRuntimeConfig = z.infer<typeof AppRuntimeConfigSchema>;
 
 /**
  * Who is calling an app. `owner` and `build` may change the app and write what
- * it is granted; `use` may run it and read; `viewer` only looks. The
- * collaborator graph resolves the role; the runtime only consumes it.
+ * it is granted; `use` may run it and read; `viewer` only looks. `edit` is a
+ * share-link visitor who may also save the app's files: only the page's host
+ * carries it, an app's server code never runs with it. The collaborator graph
+ * or the share link resolves the role; the runtime only consumes it.
  */
-export const AppRuntimeRoleSchema = z.enum(["owner", "build", "use", "viewer"]);
+export const AppRuntimeRoleSchema = z.enum([
+	"owner",
+	"build",
+	"edit",
+	"use",
+	"viewer",
+]);
 export type AppRuntimeRole = z.infer<typeof AppRuntimeRoleSchema>;
 
 /**

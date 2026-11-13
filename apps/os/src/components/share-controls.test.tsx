@@ -627,6 +627,95 @@ describe("ShareControls", () => {
 		expect(container.querySelector("[data-share-pending]")).toBeNull();
 	});
 
+	it("lets the owner choose whether the people invited to an app can edit", async () => {
+		const appLink = (overrides: Partial<OsShareLink> = {}) =>
+			shareFixture({
+				resourceType: "gadget",
+				access: "invited",
+				role: "use",
+				...overrides,
+			});
+		sharesApi.list.mockResolvedValue({ items: [appLink()] });
+		sharesApi.invitees.list.mockResolvedValue({ items: [] });
+		sharesApi.update.mockResolvedValue({
+			share: appLink({ role: "edit" }),
+			revokedSessionCount: 0,
+		});
+		const container = await openDialog({
+			resourceType: "gadget",
+			resourceId: OUTPUT_ID,
+		});
+		const choice = container.querySelector("[data-share-invited-role]");
+		expect(choice?.getAttribute("data-share-invited-role")).toBe("use");
+		click(findButton(choice!, "Edit"));
+		await flush();
+		expect(sharesApi.update).toHaveBeenCalledWith({
+			shareId: SHARE_ID,
+			role: "edit",
+		});
+	});
+
+	it("does not offer editing on a link open to anyone, or on a file link", async () => {
+		sharesApi.list.mockResolvedValue({
+			items: [shareFixture({ resourceType: "gadget", role: "use" })],
+		});
+		const app = await openDialog({
+			resourceType: "gadget",
+			resourceId: OUTPUT_ID,
+		});
+		expect(app.querySelector("[data-share-invited-role]")).toBeNull();
+	});
+
+	it("says editing ends before opening an edit link to more people, and Undo restores it", async () => {
+		sharesApi.list.mockResolvedValue({
+			items: [
+				shareFixture({
+					resourceType: "gadget",
+					access: "invited",
+					role: "edit",
+				}),
+			],
+		});
+		sharesApi.invitees.list.mockResolvedValue({ items: [] });
+		sharesApi.previewChange.mockResolvedValue(
+			impact({
+				loses: { ...NOBODY, people: 1 },
+				gains: { ...NOBODY, organization: true },
+			}),
+		);
+		sharesApi.update.mockResolvedValue({
+			share: shareFixture({
+				resourceType: "gadget",
+				access: "organization",
+				role: "use",
+			}),
+			revokedSessionCount: 1,
+		});
+		const container = await openDialog({
+			resourceType: "gadget",
+			resourceId: OUTPUT_ID,
+		});
+		click(findButton(container, "People in Acme Fictional"));
+		await flush();
+		expect(
+			container.querySelector("[data-share-ends-editing]")?.textContent,
+		).toContain("only people you invite by email can edit");
+		confirmPending(container);
+		await flush();
+		expect(sharesApi.update).toHaveBeenCalledWith({
+			shareId: SHARE_ID,
+			access: "organization",
+			role: "use",
+		});
+		click(findButton(container.querySelector("[data-share-undo]")!, "Undo"));
+		await flush();
+		expect(sharesApi.update).toHaveBeenLastCalledWith({
+			shareId: SHARE_ID,
+			access: "invited",
+			role: "edit",
+		});
+	});
+
 	it("adds and removes invited people on an invite-only link", async () => {
 		sharesApi.list.mockResolvedValue({
 			items: [shareFixture({ access: "invited" })],

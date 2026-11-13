@@ -161,7 +161,7 @@ const SHARE_DOCUMENT_PATH = /^\/s\/([A-Za-z0-9]{22})(?:\/[^/]*)?$/;
 /** `/s/<id>?sign-in`: the share page asking for this host's sign-in. */
 const SHARE_SIGN_IN_PARAM = "sign-in";
 const GUEST_SHARE_API_PATH =
-	/^\/api\/os-shared\/(?:open|redeem|session|output|file|email\/(?:request|verify)|app\/(?:open|call|read))$/;
+	/^\/api\/os-shared\/(?:open|redeem|session|output|file|email\/(?:request|verify)|app\/(?:open|call|read|save|changes|revision|image))$/;
 /** A shared document's file bytes: a signed, session-bound GET a `<video>` can range over. */
 const GUEST_SHARE_FILE_PATH =
 	/^\/api\/os-shared\/file\/[0-9a-f-]{36}\/[A-Za-z0-9_-]{1,100}$/;

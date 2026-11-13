@@ -268,6 +268,7 @@ describe("app runtime host", () => {
 		expect(readOutputImage).toHaveBeenCalledWith({
 			workspaceId: host.context.workspaceId,
 			outputId,
+			slot: "opportunities",
 			url: args.url,
 		});
 		readOutputImage.mockClear();
@@ -317,6 +318,7 @@ describe("app runtime host", () => {
 		expect(readOutputImage).toHaveBeenCalledWith({
 			workspaceId: host.context.workspaceId,
 			outputId,
+			slot: "opportunities",
 			url,
 		});
 		for (const bad of ["tedix-asset:abc", `${url}/x`, `tedix-asset:${url}`])
@@ -834,12 +836,47 @@ describe("changed-only saves through the host", () => {
 			expect(patchOutput).toHaveBeenCalledWith({
 				workspaceId: resource.workspaceId,
 				outputId,
+				slot: "opportunities",
 				baseRevision: 4,
 				patch,
 				explicit: false,
 			});
 			expect(onWrite).toHaveBeenCalledWith(outputId);
 		}
+	});
+
+	it("lets a link visitor who may edit save by slot, and one who may only look save nothing", async () => {
+		const patchOutput = vi.fn(async () => saved);
+		const args = { slot: "opportunities", baseRevision: 4, patch };
+		// The visitor's page holds no resource rows: the server finds the file.
+		const visitor = (role: AppRuntimeContext["role"]) => ({
+			...host(role, ["outputs.read", "outputs.write"], { patchOutput }),
+			resources: [],
+			serverResolvesSlots: true,
+		});
+		expect(
+			await handleAppRuntimeCall(visitor("edit"), "outputs.patch", args),
+		).toEqual({ ok: true, value: saved });
+		expect(patchOutput).toHaveBeenCalledWith({
+			workspaceId: resource.workspaceId,
+			outputId: "",
+			slot: "opportunities",
+			baseRevision: 4,
+			patch,
+			explicit: false,
+		});
+		patchOutput.mockClear();
+		expect(
+			await handleAppRuntimeCall(visitor("use"), "outputs.patch", args),
+		).toMatchObject({ ok: false, error: "not_permitted" });
+		// A slot the app is not granted stays refused for an editing visitor.
+		expect(
+			await handleAppRuntimeCall(visitor("edit"), "outputs.patch", {
+				...args,
+				slot: "other",
+			}),
+		).toMatchObject({ ok: false, error: "not_permitted" });
+		expect(patchOutput).not.toHaveBeenCalled();
 	});
 
 	it("refuses a patch from a role or grant that may not write, and malformed patches, before any call", async () => {
@@ -963,6 +1000,7 @@ describe("changed-only saves through the host", () => {
 		expect(readOutputChanges).toHaveBeenCalledWith({
 			workspaceId: resource.workspaceId,
 			outputId,
+			slot: "opportunities",
 			sinceRevision: 4,
 		});
 		expect(
@@ -971,11 +1009,19 @@ describe("changed-only saves through the host", () => {
 				revision: 3,
 			}),
 		).toMatchObject({ ok: true });
-		expect(readOutputRevision).toHaveBeenLastCalledWith(outputId, 3);
+		expect(readOutputRevision).toHaveBeenLastCalledWith(
+			outputId,
+			3,
+			"opportunities",
+		);
 		await handleAppRuntimeCall(reader, "outputs.readRevision", {
 			slot: "opportunities",
 		});
-		expect(readOutputRevision).toHaveBeenLastCalledWith(outputId, undefined);
+		expect(readOutputRevision).toHaveBeenLastCalledWith(
+			outputId,
+			undefined,
+			"opportunities",
+		);
 		for (const [method, bad] of [
 			["outputs.changes", { slot: "opportunities", sinceRevision: 0 }],
 			["outputs.changes", { slot: "opportunities" }],

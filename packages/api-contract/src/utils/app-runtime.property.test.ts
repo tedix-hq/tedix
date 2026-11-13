@@ -36,8 +36,9 @@ const GRANT_GATED = new Set<AppRuntimeOperation>([
 const RANK: Record<AppRuntimeRole, number> = {
 	viewer: 0,
 	use: 1,
-	build: 2,
-	owner: 3,
+	edit: 2,
+	build: 3,
+	owner: 4,
 };
 /** Names that resolve to something on Object.prototype when used as keys. */
 const HOSTILE_NAMES = [
@@ -92,6 +93,14 @@ describe("app runtime permission matrix, exhaustively", () => {
 				(input.role === "use" &&
 					(input.operation === "app.call" ||
 						input.operation === "outputs.read" ||
+						input.operation === "skills.read" ||
+						input.operation === "work.read")) ||
+				// A link visitor who may edit: what `use` may, plus saving files.
+				(input.role === "edit" &&
+					(input.operation === "app.call" ||
+						input.operation === "outputs.read" ||
+						input.operation === "outputs.patch" ||
+						input.operation === "outputs.write" ||
 						input.operation === "skills.read" ||
 						input.operation === "work.read"));
 			const granted =

@@ -1541,7 +1541,7 @@ export async function authorizeOsShareRecipient(
 	env: CloudflareEnv,
 	input: {
 		organizationId: string;
-		role: "viewer" | "use" | "build";
+		role: "viewer" | "use" | "edit" | "build";
 		accessEnvelope?: OsDerivedAccessEnvelope;
 	},
 ): Promise<boolean> {

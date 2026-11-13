@@ -6,6 +6,11 @@
  * but carries the `share_session` principal, the `use` role and the link id,
  * which the app host checks and cuts on revoke. Every refusal is the same
  * plain 404 as an unknown link: a guest learns nothing about what exists.
+ *
+ * A link with the `edit` role lets a visitor whose email the link names save
+ * changes to the app's files. The app's own server code still runs as `use`;
+ * a save goes through `handleGuestAppSave`, which checks the link, the
+ * visitor's verified email and the file on every call.
  */
 import {
 	AppRuntimeArgumentsSchema,
@@ -34,12 +39,27 @@ import {
 import { listOsWorkspaceResources } from "@tedix/db/queries/os-workspaces/resources";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
 import type { DbQueryClient } from "@tedix/db/query-client";
-import { parseOutputContentWithImages } from "../services/os-output-assets";
+import {
+	parseOutputContentWithImages,
+	readOutputAsset,
+} from "../services/os-output-assets";
+import {
+	EMPTY_OUTPUT_ACCESS_ENVELOPE,
+	osOutputChangesSince,
+	saveOsOutputPatch,
+} from "../services/os-output-patch";
+import { getOsOutputRevisionByNumber } from "../services/os-workspace-outputs";
+import type { OsOutputRevisionRow } from "@tedix/db/schema/os-workspaces";
 import type {
 	OsShareLinkRow,
 	OsShareSessionRow,
 } from "@tedix/db/schema/os-shares";
 import type { OsShareGuestRefusal } from "@tedix/api-contract/contracts/os-shares";
+import { OsOutputContentPatchSchema } from "@tedix/api-contract/schemas/os-output-patch";
+import { OsDerivedAccessEnvelopeSchema } from "@tedix/api-contract/schemas/os-workspaces";
+import { OS_OUTPUT_CONTENT_MAX_BYTES } from "@tedix/api-contract/utils/os-output-limits";
+import { outputAssetDigest } from "@tedix/api-contract/utils/os-output-assets";
+import { ORPCError } from "@orpc/server";
 import { z } from "zod";
 import { loadAppRuntimeRevision } from "../services/os-app-runtime-code";
 import { runInteractiveAppCall } from "../services/os-app-triggers";
@@ -87,6 +107,12 @@ export interface GuestAppScope {
 	shareSessionId: string;
 	workspaceName: string;
 	verifiedEmail?: string | null;
+	/**
+	 * True when this visitor may save changes to the app's files: the link
+	 * carries the `edit` role, admits only invited people, and this session
+	 * proved one of their emails.
+	 */
+	canEdit: boolean;
 	app: { id: string; name: string; description: string | null };
 }
 
@@ -247,6 +273,14 @@ async function resolveGuestAppLinkScope(
 		shareLinkId: link.id,
 		shareSessionId: session.id,
 		verifiedEmail: session.verifiedEmail,
+		// The link's own role must say edit: a build link that policy limited
+		// down keeps asking for a signed-in member and never lets a visitor save.
+		canEdit:
+			link.resourceType === "gadget" &&
+			link.role === "edit" &&
+			effectiveRole(link) === "edit" &&
+			link.access === "invited" &&
+			Boolean(session.verifiedEmail),
 		app: { id: gadget.id, name: gadget.name, description: gadget.description },
 	};
 }
@@ -310,7 +344,9 @@ export async function handleGuestAppOpen(
 		session: session.token,
 		verifiedEmail: scope.verifiedEmail,
 		expiresAt: session.expiresAt,
-		role: GUEST_ROLE,
+		// What the page may offer. The signed session above stays `use`: the
+		// app's server code never runs with more, and a save is checked again.
+		role: scope.canEdit ? ("edit" as const) : GUEST_ROLE,
 		revisionId: scope.revisionId,
 		app: {
 			...scope.app,
@@ -473,6 +509,21 @@ export async function readGuestAppSlot(
 		}).allowed
 	)
 		return null;
+	const shared = await guestSlotFile(db, scope, slot);
+	if (!shared) return null;
+	return guestFileRead(scope, shared.output, shared.revision);
+}
+
+/**
+ * The file a slot is bound to in the visitor's workspace with its current
+ * revision, or null: only a Tedix file whose current revision carries no
+ * data from connected accounts.
+ */
+async function guestSlotFile(
+	db: DbQueryClient,
+	scope: Pick<GuestAppScope, "organizationId" | "workspaceId">,
+	slot: string,
+) {
 	const resources = await listOsWorkspaceResources(db, {
 		organizationId: scope.organizationId,
 		workspaceId: scope.workspaceId,
@@ -486,13 +537,27 @@ export async function readGuestAppSlot(
 		resource.resourceType !== "output"
 	)
 		return null;
-	const shared = await shareableOutputRevision(
-		db,
-		scope,
-		resource.providerResourceId,
-	);
-	if (!shared) return null;
-	const { output, revision } = shared;
+	return shareableOutputRevision(db, scope, resource.providerResourceId);
+}
+
+/** A revision a visitor may read: one that names no connected-account source. */
+function sourceless(revision: Pick<OsOutputRevisionRow, "accessEnvelope">) {
+	if (!revision.accessEnvelope) return false;
+	try {
+		const parsed = OsDerivedAccessEnvelopeSchema.safeParse(
+			JSON.parse(revision.accessEnvelope),
+		);
+		return parsed.success && parsed.data.sources.length === 0;
+	} catch {
+		return false;
+	}
+}
+
+async function guestFileRead(
+	scope: Pick<GuestAppScope, "workspaceId">,
+	output: { id: string; title: string; kind: string },
+	revision: OsOutputRevisionRow,
+) {
 	return {
 		// The Doc, Sheet and Slides editors refuse a file that does not name
 		// the workspace they were opened in, so the read says where it lives.
@@ -531,4 +596,211 @@ export async function handleGuestAppRead(
 	}
 	const read = await readGuestAppSlot(db, scope, code.grants, slot);
 	return read ? noStoreJson(read) : notFound();
+}
+
+function refusal(status: number, body: Record<string, unknown>): Response {
+	return Response.json(body, {
+		status,
+		headers: {
+			"Cache-Control": "no-store",
+			"Referrer-Policy": "no-referrer",
+			"X-Content-Type-Options": "nosniff",
+		},
+	});
+}
+
+/** The slot a visitor's call names, with the app's grants, or null. */
+async function guestSlotCall(db: DbQueryClient, body: unknown) {
+	const scope = await resolveGuestAppScope(
+		db,
+		field(body, "sessionToken"),
+		field(body, "appId"),
+	);
+	if (!scope) return null;
+	const slot = field(body, "slot");
+	if (typeof slot !== "string" || slot.length === 0 || slot.length > 160)
+		return null;
+	let code;
+	try {
+		code = await loadAppRuntimeRevision(db, scope, scope.revisionId);
+	} catch {
+		return null;
+	}
+	if (await guestAppRefusal(db, scope, code.grants)) return null;
+	return { scope, slot, grants: code.grants };
+}
+
+/**
+ * Save a visitor's change to one of the app's files. Allowed only when the
+ * link lets its invited people edit and this session proved an invited
+ * email; the app must grant writing on the slot, and the file must carry no
+ * data from connected accounts. The save is recorded under the share
+ * session, which holds the visitor's verified email.
+ */
+export async function handleGuestAppSave(
+	db: DbQueryClient,
+	body: unknown,
+): Promise<Response> {
+	const call = await guestSlotCall(db, body);
+	if (!call || !call.scope.canEdit) return notFound();
+	const { scope, slot, grants } = call;
+	const mayWrite = (["outputs.patch", "outputs.write"] as const).some(
+		(operation) =>
+			appRuntimePermission({ role: "edit", grants, operation, slot }).allowed,
+	);
+	if (!mayWrite) return notFound();
+	const baseRevision = field(body, "baseRevision");
+	if (!Number.isInteger(baseRevision) || Number(baseRevision) < 1)
+		return notFound();
+	const rawPatch = field(body, "patch");
+	if (
+		new TextEncoder().encode(JSON.stringify(rawPatch) ?? "").length >
+		OS_OUTPUT_CONTENT_MAX_BYTES
+	)
+		return refusal(400, {
+			code: "BAD_REQUEST",
+			message: "This change is too large to save",
+		});
+	const patch = OsOutputContentPatchSchema.safeParse(rawPatch);
+	if (!patch.success) return notFound();
+	const file = await guestSlotFile(db, scope, slot);
+	if (!file) return notFound();
+	if (patch.data.kind !== file.output.kind)
+		return refusal(400, {
+			code: "BAD_REQUEST",
+			message: "This change does not fit this file",
+		});
+	const current = async () => {
+		const shared = await guestSlotFile(db, scope, slot);
+		if (!shared || shared.output.id !== file.output.id)
+			throw new ORPCError("NOT_FOUND", { message: "Share link not found" });
+		return shared;
+	};
+	try {
+		return noStoreJson(
+			await saveOsOutputPatch(db, {
+				output: file.output,
+				reloadOutput: async () => (await current()).output,
+				currentRevision: async () => (await current()).revision,
+				canReadRevision: async (revision) => sourceless(revision),
+				baseRevision: Number(baseRevision),
+				patch: patch.data,
+				...(field(body, "explicit") === true
+					? { note: "Saved through a share link" }
+					: { autosave: true }),
+				expectedWorkspaceId: scope.workspaceId,
+				creator: {
+					kind: "service",
+					id: `${SHARE_SESSION_PRINCIPAL_KIND}:${scope.shareSessionId}`,
+				},
+				producer: { skillRunId: null, skillId: null },
+				accessEnvelope: EMPTY_OUTPUT_ACCESS_ENVELOPE,
+			}),
+		);
+	} catch (error) {
+		if (error instanceof ORPCError && error.code === "CONFLICT")
+			return refusal(409, {
+				code: "CONFLICT",
+				message: error.message,
+				data: error.data,
+			});
+		if (error instanceof ORPCError && error.code === "BAD_REQUEST")
+			return refusal(400, { code: "BAD_REQUEST", message: error.message });
+		return notFound();
+	}
+}
+
+/** What changed in a granted file since a revision the visitor holds. */
+export async function handleGuestAppChanges(
+	db: DbQueryClient,
+	body: unknown,
+): Promise<Response> {
+	const call = await guestSlotCall(db, body);
+	const sinceRevision = field(body, "sinceRevision");
+	if (
+		!call ||
+		!Number.isInteger(sinceRevision) ||
+		Number(sinceRevision) < 1 ||
+		!appRuntimePermission({
+			role: GUEST_ROLE,
+			grants: call.grants,
+			operation: "outputs.read",
+			slot: call.slot,
+		}).allowed
+	)
+		return notFound();
+	const file = await guestSlotFile(db, call.scope, call.slot);
+	if (!file) return notFound();
+	return noStoreJson(
+		await osOutputChangesSince(db, {
+			output: file.output,
+			current: file.revision,
+			sinceRevision: Number(sinceRevision),
+			canReadRevision: async (revision) => sourceless(revision),
+		}),
+	);
+}
+
+/**
+ * A granted file at its current revision, or at a numbered one the visitor's
+ * unsaved changes were made against.
+ */
+export async function handleGuestAppRevision(
+	db: DbQueryClient,
+	body: unknown,
+): Promise<Response> {
+	const call = await guestSlotCall(db, body);
+	const number = field(body, "revision");
+	if (
+		!call ||
+		(number !== undefined &&
+			(!Number.isInteger(number) || Number(number) < 1)) ||
+		!appRuntimePermission({
+			role: GUEST_ROLE,
+			grants: call.grants,
+			operation: "outputs.read",
+			slot: call.slot,
+		}).allowed
+	)
+		return notFound();
+	const file = await guestSlotFile(db, call.scope, call.slot);
+	if (!file) return notFound();
+	let revision: OsOutputRevisionRow | undefined = file.revision;
+	if (number !== undefined && Number(number) !== file.revision.revision) {
+		revision = await getOsOutputRevisionByNumber(db, {
+			organizationId: call.scope.organizationId,
+			outputId: file.output.id,
+			revision: Number(number),
+		});
+		if (!revision || !sourceless(revision)) return notFound();
+	}
+	return noStoreJson(await guestFileRead(call.scope, file.output, revision));
+}
+
+/** One image stored with a granted file, as a data URL. */
+export async function handleGuestAppImage(
+	db: DbQueryClient,
+	body: unknown,
+): Promise<Response> {
+	const call = await guestSlotCall(db, body);
+	const url = field(body, "url");
+	if (
+		!call ||
+		typeof url !== "string" ||
+		!outputAssetDigest(url) ||
+		!appRuntimePermission({
+			role: GUEST_ROLE,
+			grants: call.grants,
+			operation: "outputs.read",
+			slot: call.slot,
+		}).allowed
+	)
+		return notFound();
+	const file = await guestSlotFile(db, call.scope, call.slot);
+	if (!file) return notFound();
+	const dataUrl = await readOutputAsset(
+		{ organizationId: call.scope.organizationId, outputId: file.output.id },
+		url,
+	);
+	return dataUrl ? noStoreJson({ dataUrl }) : notFound();
 }

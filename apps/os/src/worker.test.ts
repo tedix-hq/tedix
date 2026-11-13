@@ -952,6 +952,10 @@ describe("Tedix OS origin router", () => {
 			"/api/os-shared/app/open",
 			"/api/os-shared/app/call",
 			"/api/os-shared/app/read",
+			"/api/os-shared/app/save",
+			"/api/os-shared/app/changes",
+			"/api/os-shared/app/revision",
+			"/api/os-shared/app/image",
 		]) {
 			const response = await handleOsRequest(
 				new Request(`https://acme.os.tedix.dev${path}`, {

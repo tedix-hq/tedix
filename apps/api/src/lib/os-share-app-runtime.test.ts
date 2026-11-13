@@ -51,8 +51,12 @@ import { createOsAppRuntimeRouter } from "../rpc/routers/os-app-runtime";
 import {
 	guestAppRefusalForApp,
 	handleGuestAppCall,
+	handleGuestAppChanges,
+	handleGuestAppImage,
 	handleGuestAppOpen,
 	handleGuestAppRead,
+	handleGuestAppRevision,
+	handleGuestAppSave,
 } from "./os-share-app-runtime";
 import {
 	generateOsShareToken,
@@ -1497,4 +1501,297 @@ it("uses the verified email for invited guest apps and cuts app access after rem
 			})
 		).status,
 	).toBe(404);
+});
+
+describe("a link that lets invited people edit", () => {
+	const email = "ada@visitor.example.test";
+	const change = {
+		kind: "sheet",
+		ops: [{ op: "set", path: ["rows", 0, 0], value: 2 }],
+	};
+
+	/** An app link, the app's grant on its file, and one invited visitor's session. */
+	async function visitor(
+		overrides: Partial<NewOsShareLinkRow> = {},
+		options: {
+			operations?: string[];
+			verified?: boolean;
+			/** A change to the link made after the visitor opened it. */
+			later?: Partial<NewOsShareLinkRow>;
+		} = {},
+	) {
+		const h = await fixture();
+		const { db } = h;
+		const revision = (
+			await db
+				.select()
+				.from(osGadgetRevisions)
+				.where(eq(osGadgetRevisions.id, revisionId))
+		)[0]!;
+		await db
+			.update(osGadgetRevisions)
+			.set({
+				manifest: JSON.stringify({
+					...JSON.parse(revision.manifest),
+					resourceGrants: [
+						{
+							slot: "opportunities",
+							operations: options.operations ?? [
+								"outputs.read",
+								"outputs.write",
+							],
+						},
+					],
+				}),
+			})
+			.where(eq(osGadgetRevisions.id, revisionId));
+		const seeded = await seedLink(db, {
+			role: "edit",
+			access: "invited",
+			...overrides,
+		});
+		const link = (
+			await db.select().from(osShareLinks).where(eq(osShareLinks.id, seeded.id))
+		)[0]!;
+		let sessionToken: string | null;
+		if (options.verified === false) {
+			sessionToken = await redeem(db, seeded.token);
+		} else {
+			await db.insert(osShareLinkInvitees).values({
+				id: crypto.randomUUID(),
+				organizationId: "org-1",
+				shareLinkId: seeded.id,
+				email,
+				addedByKind: "user",
+				addedById: "user-1",
+			});
+			sessionToken = (
+				(await (
+					await openOsShareSession(
+						db,
+						link,
+						new Date().toISOString(),
+						undefined,
+						undefined,
+						undefined,
+						email,
+					)
+				).json()) as { sessionToken: string }
+			).sessionToken;
+		}
+		if (options.later)
+			await db
+				.update(osShareLinks)
+				.set(options.later)
+				.where(eq(osShareLinks.id, seeded.id));
+		const save = (body: Record<string, unknown> = {}) =>
+			handleGuestAppSave(db, {
+				sessionToken,
+				slot: "opportunities",
+				baseRevision: 1,
+				patch: change,
+				...body,
+			});
+		const revisions = () =>
+			db
+				.select()
+				.from(osOutputRevisions)
+				.where(eq(osOutputRevisions.outputId, outputId));
+		return { ...h, linkId: seeded.id, sessionToken, save, revisions };
+	}
+
+	it("saves an invited visitor's change under their share session, and the app's own code stays read-only", async () => {
+		const { db, env, sessionToken, save, revisions } = await visitor();
+		const opened = (await (
+			await handleGuestAppOpen(env, db, { sessionToken })
+		).json()) as { role: string; session: string };
+		expect(opened.role).toBe("edit");
+		expect((await verifyWorkspaceAppSession(key, opened.session))?.role).toBe(
+			"use",
+		);
+		const saved = await save();
+		expect(saved.status).toBe(200);
+		expect(await saved.json()).toMatchObject({
+			output: { id: outputId },
+			revision: { revision: 2 },
+			mergedWith: null,
+		});
+		const rows = await revisions();
+		expect(rows).toHaveLength(2);
+		const written = rows.find((row) => row.revision === 2)!;
+		expect(
+			await (
+				await handleGuestAppRevision(db, {
+					sessionToken,
+					slot: "opportunities",
+				})
+			).json(),
+		).toMatchObject({ revision: { revision: 2, content: { rows: [[2]] } } });
+		expect(written.createdByKind).toBe("service");
+		expect(written.createdById).toMatch(/^share_session:/);
+		expect(written.accessEnvelope).toBe(
+			JSON.stringify({ version: 1, sources: [] }),
+		);
+		// The app's server code reaches the file with the `use` session only.
+		const internal = createRouterClient(createOsAppRuntimeRouter(), {
+			context: userContext({ env, headers: { "X-Service-Binding": "true" } }),
+		});
+		await expect(
+			internal.capability({
+				session: opened.session,
+				operation: "outputs.write",
+				slot: "opportunities",
+				args: null,
+			}),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+
+	it("answers a save made from a revision that does not exist yet with a conflict", async () => {
+		const { save, revisions } = await visitor();
+		const refused = await save({ baseRevision: 5 });
+		expect(refused.status).toBe(409);
+		expect(await refused.json()).toMatchObject({
+			code: "CONFLICT",
+			data: { currentRevision: 1 },
+		});
+		expect(await revisions()).toHaveLength(1);
+	});
+
+	it.each([
+		["a link that only lets people use the app", { role: "use" }, {}],
+		[
+			"an edit link open to anyone, which names nobody",
+			{ access: "anyone_with_link" },
+			{ verified: false },
+		],
+		["a link whose policy limit is below edit", { policyMaxRole: "use" }, {}],
+		[
+			"a build link that policy limited to edit",
+			{ role: "build", policyMaxRole: "edit" },
+			{},
+		],
+		[
+			"a link turned off since it was opened",
+			{},
+			{ later: { disabledAt: "2026-11-01T00:00:00.000Z" } },
+		],
+		[
+			"a link that expired since it was opened",
+			{},
+			{ later: { expiresAt: "2026-11-01T00:00:00.000Z" } },
+		],
+		[
+			"an app that may only read the file",
+			{},
+			{ operations: ["outputs.read"] },
+		],
+	] as const)("refuses a save through %s", async (_name, link, options) => {
+		const { save, revisions } = await visitor(
+			link as Partial<NewOsShareLinkRow>,
+			options as Parameters<typeof visitor>[1],
+		);
+		const refused = await save();
+		expect(refused.status).toBe(404);
+		expect(await refused.text()).toBe("Share link not found");
+		expect(await revisions()).toHaveLength(1);
+	});
+
+	it("refuses another slot, a malformed change, and a file that carries connected data", async () => {
+		const { db, save, revisions } = await visitor();
+		expect((await save({ slot: "other" })).status).toBe(404);
+		expect((await save({ patch: { kind: "sheet", ops: [] } })).status).toBe(
+			404,
+		);
+		expect((await save({ baseRevision: 0 })).status).toBe(404);
+		expect(
+			(
+				await save({
+					patch: {
+						kind: "document",
+						ops: [{ op: "set", path: ["title"], value: "x" }],
+					},
+				})
+			).status,
+		).toBe(400);
+		await db
+			.update(osOutputRevisions)
+			.set({
+				accessEnvelope: JSON.stringify({
+					version: 1,
+					sources: [{ kind: "connection", id: "conn-1" }],
+				}),
+			})
+			.where(eq(osOutputRevisions.outputId, outputId));
+		expect((await save()).status).toBe(404);
+		expect(await revisions()).toHaveLength(1);
+	});
+
+	it("stops saving at once when the person is removed, the role is narrowed or the link is deleted", async () => {
+		for (const stop of [
+			(h: Awaited<ReturnType<typeof visitor>>) =>
+				h.db.delete(osShareLinkInvitees),
+			(h: Awaited<ReturnType<typeof visitor>>) =>
+				h.db
+					.update(osShareLinks)
+					.set({ role: "use" })
+					.where(eq(osShareLinks.id, h.linkId)),
+			(h: Awaited<ReturnType<typeof visitor>>) =>
+				h.db
+					.update(osShareLinks)
+					.set({ revokedAt: new Date().toISOString() })
+					.where(eq(osShareLinks.id, h.linkId)),
+		]) {
+			const h = await visitor();
+			await stop(h);
+			expect((await h.save()).status).toBe(404);
+			expect(await h.revisions()).toHaveLength(1);
+		}
+	});
+
+	it("lets a view-only visitor follow changes and read a revision, but never another slot", async () => {
+		const { db, sessionToken, save } = await visitor({ role: "use" });
+		expect((await save()).status).toBe(404);
+		const current = await handleGuestAppRevision(db, {
+			sessionToken,
+			slot: "opportunities",
+		});
+		expect(await current.json()).toMatchObject({
+			output: { id: outputId, workspaceId },
+			revision: { revision: 1, content: { rows: [[1]] } },
+		});
+		const changes = await handleGuestAppChanges(db, {
+			sessionToken,
+			slot: "opportunities",
+			sinceRevision: 1,
+		});
+		expect(await changes.json()).toMatchObject({
+			revision: { revision: 1 },
+			patch: null,
+		});
+		for (const refused of [
+			handleGuestAppRevision(db, { sessionToken, slot: "other" }),
+			handleGuestAppRevision(db, {
+				sessionToken,
+				slot: "opportunities",
+				revision: 9,
+			}),
+			handleGuestAppChanges(db, {
+				sessionToken,
+				slot: "other",
+				sinceRevision: 1,
+			}),
+			handleGuestAppChanges(db, { sessionToken, slot: "opportunities" }),
+			handleGuestAppImage(db, {
+				sessionToken,
+				slot: "opportunities",
+				url: "https://example.test/a.png",
+			}),
+			handleGuestAppImage(db, {
+				sessionToken,
+				slot: "other",
+				url: `tedix-asset:${"a".repeat(64)}`,
+			}),
+		])
+			expect((await refused).status).toBe(404);
+	});
 });

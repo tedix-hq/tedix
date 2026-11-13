@@ -107,7 +107,12 @@ export async function hashOsShareToken(token: string): Promise<string> {
 
 export const TOKEN_SHAPE = /^[A-Za-z0-9_-]{20,128}$/;
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
-const ROLE_RANK: Record<OsShareRole, number> = { viewer: 0, use: 1, build: 2 };
+const ROLE_RANK: Record<OsShareRole, number> = {
+	viewer: 0,
+	use: 1,
+	edit: 2,
+	build: 3,
+};
 
 function notFound(): Response {
 	return new Response("Share link not found", {
@@ -224,7 +229,13 @@ export async function linkAdmitsGuest(
 	db: DbQueryClient,
 	link: OsShareLinkRow,
 ): Promise<boolean> {
-	if (link.resourceType !== "gadget" || effectiveRole(link) !== "use")
+	// An edit link opens the same way; whether its visitor may save is decided
+	// per call. A build link that policy limited to edit stays a member's link.
+	const role = effectiveRole(link);
+	if (
+		link.resourceType !== "gadget" ||
+		!(role === "use" || (role === "edit" && link.role === "edit"))
+	)
 		return false;
 	const gadget = await getOsGadget(db, {
 		organizationId: link.organizationId,

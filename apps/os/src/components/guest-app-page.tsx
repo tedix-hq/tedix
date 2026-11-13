@@ -44,7 +44,8 @@ type GuestOpen = {
 	verifiedEmail?: string | null;
 	session: string;
 	expiresAt: number;
-	role: "use";
+	/** `edit` when the link lets this invited visitor save changes. */
+	role: "use" | "edit";
 	revisionId: string;
 	app: {
 		id: string;
@@ -144,6 +145,30 @@ async function guestRequest<T>(path: string, body: unknown): Promise<T> {
 	});
 	if (!response.ok) throw new Error("Share unavailable");
 	return (await response.json()) as T;
+}
+
+/**
+ * Save a visitor's change. A refusal the editor can act on (someone else
+ * saved first, or the change does not fit) is thrown with its code and
+ * details, as a signed-in save's is; anything else means the link no longer
+ * lets this visitor save.
+ */
+async function guestSave<T>(body: unknown): Promise<T> {
+	const response = await fetch("/api/os-shared/app/save", {
+		method: "POST",
+		credentials: "omit",
+		keepalive: true,
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(body),
+	});
+	if (response.ok) return (await response.json()) as T;
+	if (response.status === 409 || response.status === 400)
+		throw (await response.json()) as {
+			code: string;
+			message: string;
+			data?: unknown;
+		};
+	throw new Error("This link no longer lets you save changes");
 }
 
 /**
@@ -457,7 +482,7 @@ function GuestApp({
 				name: app.app.name,
 				revision: app.app.revision,
 			},
-			role: "use",
+			role: app.role,
 			settings: app.app.settings,
 			grants: app.app.grants,
 		}),
@@ -495,6 +520,10 @@ function GuestApp({
 			),
 		[app, sessionToken, guestName, appId],
 	);
+	const target = useMemo(
+		() => ({ sessionToken, ...(appId ? { appId } : {}) }),
+		[sessionToken, appId],
+	);
 	const onCall = useCallback(
 		(method: unknown, args: unknown) =>
 			handleAppRuntimeCall(
@@ -504,6 +533,40 @@ function GuestApp({
 					readOutput: async () => {
 						throw new Error("Guests read through the share session");
 					},
+					// The page cannot see which file a slot is; each call names the
+					// slot and the server checks the link, the visitor and the file.
+					serverResolvesSlots: true,
+					readOutputRevision: (_outputId, revision, slot) =>
+						guestRequest("/api/os-shared/app/revision", {
+							...target,
+							slot,
+							...(revision === undefined ? {} : { revision }),
+						}),
+					readOutputChanges: ({ slot, sinceRevision }) =>
+						guestRequest("/api/os-shared/app/changes", {
+							...target,
+							slot,
+							sinceRevision,
+						}),
+					readOutputImage: async ({ slot, url }) =>
+						(
+							await guestRequest<{ dataUrl: string }>(
+								"/api/os-shared/app/image",
+								{ ...target, slot, url },
+							)
+						).dataUrl,
+					...(app.role === "edit"
+						? {
+								patchOutput: ({ slot, baseRevision, patch, explicit }) =>
+									guestSave({
+										...target,
+										slot,
+										baseRevision,
+										patch,
+										explicit,
+									}),
+							}
+						: {}),
 					readSlot: async (slot) =>
 						(
 							await guestRequest<{ revision: { content: OsOutputContent } }>(
@@ -516,7 +579,7 @@ function GuestApp({
 				method,
 				args,
 			),
-		[context, callServer, sessionToken, appId],
+		[context, callServer, sessionToken, appId, target, app.role],
 	);
 	const html = useMemo(
 		() =>
@@ -593,7 +656,8 @@ function GuestApp({
 								/>
 							) : null}
 							<Badge variant="success" title={t("share_no_sign_in")}>
-								<ShieldCheck size={13} aria-hidden /> {t("share_can_use")}
+								<ShieldCheck size={13} aria-hidden />{" "}
+								{t(app.role === "edit" ? "share_can_edit" : "share_can_use")}
 							</Badge>
 							<AppTranslateButton translation={translation} compact />
 						</div>

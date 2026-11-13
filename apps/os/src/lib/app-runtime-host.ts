@@ -100,12 +100,19 @@ export interface AppRuntimeHostDeps {
 	 */
 	readSlot?: (slot: string) => Promise<OsOutputContent>;
 	/**
+	 * True where the host cannot see the workspace's resource rows (a
+	 * share-link visitor). The callbacks below then get the slot with an empty
+	 * `outputId`, and the server finds the file and checks the visitor itself.
+	 */
+	serverResolvesSlots?: boolean;
+	/**
 	 * The bound Output with its current revision, or with the numbered one an
 	 * editor made unsaved changes against.
 	 */
 	readOutputRevision?: (
 		outputId: string,
 		revision?: number,
+		slot?: string,
 	) => Promise<{ output: unknown; revision: unknown }>;
 	/**
 	 * Save only the changed parts of the bound Output, as a patch against the
@@ -115,6 +122,7 @@ export interface AppRuntimeHostDeps {
 	patchOutput?: (input: {
 		workspaceId: string;
 		outputId: string;
+		slot: string;
 		baseRevision: number;
 		patch: OsOutputContentPatch;
 		/** Someone asked for this save; otherwise the app saved by itself. */
@@ -124,6 +132,7 @@ export interface AppRuntimeHostDeps {
 	readOutputChanges?: (input: {
 		workspaceId: string;
 		outputId: string;
+		slot: string;
 		sinceRevision: number;
 	}) => Promise<unknown>;
 	callServer?: (method: string, args: JsonValue[]) => Promise<JsonValue>;
@@ -158,6 +167,7 @@ export interface AppRuntimeHostDeps {
 	readOutputImage?: (input: {
 		workspaceId: string;
 		outputId: string;
+		slot: string;
 		url: string;
 	}) => Promise<string>;
 	/**
@@ -193,6 +203,20 @@ export function outputIdForSlot(
 			candidate.resourceType === APP_RUNTIME_OUTPUT_RESOURCE.resourceType,
 	);
 	return resource?.providerResourceId ?? null;
+}
+
+/**
+ * The file a slot names for this host: its id from the workspace's resource
+ * rows, or an empty id where the server resolves the slot itself.
+ */
+function slotOutputId(deps: AppRuntimeHostDeps, slot: string): string | null {
+	if (deps.serverResolvesSlots) return "";
+	return outputIdForSlot(
+		deps.resources.filter(
+			(row) => row.workspaceId === deps.context.workspaceId,
+		),
+		slot,
+	);
 }
 
 /** Answer one call from the sandboxed client. Every branch is the matrix's decision, not the app's. */
@@ -368,17 +392,15 @@ export async function handleAppRuntimeCall(
 				.sort((a, b) => Number(b.allowed) - Number(a.allowed))[0]!;
 			if (!permission.allowed)
 				return { ok: false, error: "not_permitted", detail: permission.reason };
-			const outputId = outputIdForSlot(
-				deps.resources.filter((row) => row.workspaceId === context.workspaceId),
-				slot,
-			);
-			if (!outputId) return { ok: false, error: "slot_unbound" };
+			const outputId = slotOutputId(deps, slot);
+			if (outputId === null) return { ok: false, error: "slot_unbound" };
 			if (!deps.patchOutput) return { ok: false, error: "host_unavailable" };
 			let value: unknown;
 			try {
 				value = await deps.patchOutput({
 					workspaceId: context.workspaceId,
 					outputId,
+					slot,
 					baseRevision: Number(args.baseRevision),
 					patch: patch.data,
 					explicit: args.explicit === true,
@@ -408,7 +430,7 @@ export async function handleAppRuntimeCall(
 					return { ok: false, error: "bad_arguments", detail: error.message };
 				throw error;
 			}
-			deps.onWrite?.(outputId);
+			deps.onWrite?.(outputId || undefined);
 			return { ok: true, value };
 		}
 		case "outputs.changes": {
@@ -427,11 +449,8 @@ export async function handleAppRuntimeCall(
 			});
 			if (!permission.allowed)
 				return { ok: false, error: "not_permitted", detail: permission.reason };
-			const outputId = outputIdForSlot(
-				deps.resources.filter((row) => row.workspaceId === context.workspaceId),
-				args.slot,
-			);
-			if (!outputId) return { ok: false, error: "slot_unbound" };
+			const outputId = slotOutputId(deps, args.slot);
+			if (outputId === null) return { ok: false, error: "slot_unbound" };
 			if (!deps.readOutputChanges)
 				return { ok: false, error: "host_unavailable" };
 			return {
@@ -439,6 +458,7 @@ export async function handleAppRuntimeCall(
 				value: await deps.readOutputChanges({
 					workspaceId: context.workspaceId,
 					outputId,
+					slot: args.slot,
 					sinceRevision: Number(args.sinceRevision),
 				}),
 			};
@@ -503,11 +523,8 @@ export async function handleAppRuntimeCall(
 			});
 			if (!permission.allowed)
 				return { ok: false, error: "not_permitted", detail: permission.reason };
-			const outputId = outputIdForSlot(
-				deps.resources.filter((row) => row.workspaceId === context.workspaceId),
-				args.slot,
-			);
-			if (!outputId) return { ok: false, error: "slot_unbound" };
+			const outputId = slotOutputId(deps, args.slot);
+			if (outputId === null) return { ok: false, error: "slot_unbound" };
 			if (!deps.readOutputImage)
 				return { ok: false, error: "host_unavailable" };
 			return {
@@ -516,6 +533,7 @@ export async function handleAppRuntimeCall(
 					dataUrl: await deps.readOutputImage({
 						workspaceId: context.workspaceId,
 						outputId,
+						slot: args.slot,
 						url: args.url,
 					}),
 				},
@@ -636,11 +654,8 @@ export async function handleAppRuntimeCall(
 				return { ok: false, error: "not_permitted", detail: permission.reason };
 			if (!deps.readOutputRevision)
 				return { ok: false, error: "host_unavailable" };
-			const outputId = outputIdForSlot(
-				deps.resources.filter((row) => row.workspaceId === context.workspaceId),
-				args.slot,
-			);
-			if (!outputId) return { ok: false, error: "slot_unbound" };
+			const outputId = slotOutputId(deps, args.slot);
+			if (outputId === null) return { ok: false, error: "slot_unbound" };
 			if (
 				args.revision !== undefined &&
 				(!Number.isInteger(args.revision) || Number(args.revision) < 1)
@@ -651,6 +666,7 @@ export async function handleAppRuntimeCall(
 				value: await deps.readOutputRevision(
 					outputId,
 					args.revision === undefined ? undefined : Number(args.revision),
+					args.slot,
 				),
 			};
 		}

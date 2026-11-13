@@ -91,6 +91,13 @@ import {
 	parseDerivedAccessEnvelope,
 } from "../../services/os-derived-resource-access";
 import { attachOutputEditor } from "../../services/os-output-editor";
+import {
+	editableStoredContent,
+	EMPTY_OUTPUT_ACCESS_ENVELOPE,
+	OUTPUT_PROJECTIONS,
+	osOutputChangesSince,
+	saveOsOutputPatch,
+} from "../../services/os-output-patch";
 import { requireOrgId } from "../org-scope";
 import {
 	outputMetadataChange,
@@ -120,7 +127,7 @@ const authed = os.use(withAuth).use(osAudit(OS_WORKSPACES_AUDIT));
 const readOs = authed.use(AUTHZ.osRead);
 const authorOs = authed.use(AUTHZ.osAuthor);
 
-const EMPTY_ACCESS_ENVELOPE = JSON.stringify({ version: 1, sources: [] });
+const EMPTY_ACCESS_ENVELOPE = EMPTY_OUTPUT_ACCESS_ENVELOPE;
 
 /**
  * Envelope for a revision authored by a governed run.
@@ -775,30 +782,9 @@ async function persistEditedOutputRevision(
 	};
 }
 
-/** How the plain copies next to a rich body are rebuilt after a patch or merge. */
-const OUTPUT_PROJECTIONS = {
-	documentBlocks: blocksFromRichText,
-	presentationSlides: projectPresentationDeck,
-};
-
-/**
- * Stored content as the editors hold it. A document written before the rich
- * editor carries only blocks; its rich body is derived here exactly as the
- * editor's host derives it, so a patch made in the editor fits.
- */
-function editableStoredContent(row: OsOutputRevisionRow): OsOutputContent {
-	const content = OsOutputContentSchema.parse(JSON.parse(row.content));
-	return content.kind === "document" && !content.file && content.blocks.length
-		? normalizeDocumentContent(content)
-		: content;
-}
-
-/** Saves that lost the write to a concurrent save are applied again this often. */
-const PATCH_WRITE_ATTEMPTS = 3;
-
 const outputsPatch = authorOs.outputs.patch.handler(
 	async ({ input, context }) => {
-		let output = await requireOutput(context, input.outputId);
+		const output = await requireOutput(context, input.outputId);
 		if (
 			input.expectedWorkspaceId !== undefined &&
 			input.expectedWorkspaceId !== output.workspaceId
@@ -812,164 +798,32 @@ const outputsPatch = authorOs.outputs.patch.handler(
 				ErrorCodes.BAD_REQUEST,
 				`The patch is for a ${input.patch.kind} but the output is a ${output.kind}`,
 			);
-		const creator = resolveCreator(context);
-		const accessEnvelope = await resolveAccessEnvelope(context);
-		const db = queryDb(context);
-		const conflict = (currentRevision: number | null, parts?: string[]) =>
-			new ORPCError("CONFLICT", {
-				message: parts?.length
-					? "Someone else changed the same part of this file"
-					: "Output revision compare-and-swap lost against a concurrent revision write",
-				data: {
-					expectedRevision: input.baseRevision,
-					currentRevision,
-					...(parts?.length ? { parts } : {}),
-				},
-			});
-		let latest: number | null = null;
-		for (let attempt = 0; attempt < PATCH_WRITE_ATTEMPTS; attempt++) {
-			const current = await requireCurrentOutputRevision(context, output);
-			latest = current.revision;
-			if (input.baseRevision > current.revision)
-				throw conflict(current.revision);
-			const theirs = editableStoredContent(current);
-			let base = theirs;
-			if (input.baseRevision < current.revision) {
-				// A merge never moves content out from behind a stricter access
-				// check, and never builds on a revision this caller cannot read.
-				if (current.accessEnvelope !== accessEnvelope)
-					throw conflict(current.revision);
-				const started = await getOsOutputRevisionByNumber(db, {
-					organizationId: output.organizationId,
-					outputId: output.id,
-					revision: input.baseRevision,
-				});
-				if (!started || !(await canReadDerivedRevision(context, started)))
-					throw conflict(current.revision);
-				base = editableStoredContent(started);
-			}
-			let mine: OsOutputContent;
-			try {
-				mine = applyOutputPatch(base, input.patch, OUTPUT_PROJECTIONS);
-			} catch (error) {
-				if (!(error instanceof OutputPatchError)) throw error;
-				throw createError(ErrorCodes.BAD_REQUEST, error.message);
-			}
-			let next = mine;
-			if (base !== theirs) {
-				const merged = mergeOutputContent(
-					base,
-					mine,
-					theirs,
-					OUTPUT_PROJECTIONS,
-				);
-				if (!merged.ok) throw conflict(current.revision, merged.conflicts);
-				next = merged.content;
-			}
-			const checked = OsOutputContentSchema.safeParse(next);
-			if (!checked.success) {
-				const issue = checked.error.issues[0];
-				throw createError(
-					ErrorCodes.BAD_REQUEST,
-					`The change does not fit this file: ${issue?.path.join("/") ?? ""} ${issue?.message ?? "invalid"}`.trim(),
-				);
-			}
-			// An editor's own save a moment after an edit. It continues a burst
-			// when the revision it builds on is the same person's auto-save from
-			// a few minutes ago at most; anything else starts a new entry.
-			const producer = resolveProducer(context);
-			const autosave = input.autosave === true;
-
-			const note = autosave ? OS_OUTPUT_AUTOSAVE_NOTE : (input.note ?? null);
-			const continuesBurst =
-				autosave &&
-				continuesOutputAutosaveBurst(current, {
-					note,
-					createdByKind: creator.kind,
-					createdById: creator.id,
-					skillRunId: producer.skillRunId ?? null,
-					createdAt: new Date().toISOString(),
-				});
-			const result = await createOsOutputRevision(
-				db,
-				{
-					id: crypto.randomUUID(),
-					organizationId: output.organizationId,
-					outputId: output.id,
-					expectedWorkspaceId: input.expectedWorkspaceId,
-					content: JSON.stringify(checked.data),
-					note:
-						base === theirs
-							? note
-							: `${note ?? "Saved"} · merged with revision ${current.revision}`,
-					createdByKind: creator.kind,
-					createdById: creator.id,
-					...producer,
-					accessEnvelope,
-					expectedRevision: current.revision,
-				},
-				undefined,
-				{ continuesBurst },
-			);
-			if (result.ok) {
-				const advanced = await getOsOutput(db, {
-					organizationId: output.organizationId,
-					outputId: output.id,
-				});
-				// What is stored beyond what the caller sent: someone else's merged
-				// changes, schema defaults, images moved out of the content.
-				const stored = OsOutputContentSchema.parse(
-					JSON.parse(result.revision.content),
-				);
-				return {
-					output: mapOsOutputRow(advanced ?? output),
-					revision: {
-						id: result.revision.id,
-						revision: result.revision.revision,
-						createdAt: result.revision.createdAt,
-					},
-					mergedWith: base === theirs ? null : current.revision,
-					continuesBurst,
-					catchUp: diffOutputContent(mine, stored),
-				};
-			}
-			if (result.reason === "output_not_found")
-				throw createError(ErrorCodes.NOT_FOUND, "OS output not found");
-			// Someone saved between the read and the write: apply the patch again
-			// on top of their revision.
-			output = await requireOutput(context, input.outputId);
-		}
-		throw conflict(latest);
+		return saveOsOutputPatch(queryDb(context), {
+			output,
+			reloadOutput: () => requireOutput(context, input.outputId),
+			currentRevision: (row) => requireCurrentOutputRevision(context, row),
+			canReadRevision: (revision) => canReadDerivedRevision(context, revision),
+			baseRevision: input.baseRevision,
+			patch: input.patch,
+			autosave: input.autosave,
+			note: input.note,
+			expectedWorkspaceId: input.expectedWorkspaceId,
+			creator: resolveCreator(context),
+			producer: resolveProducer(context),
+			accessEnvelope: await resolveAccessEnvelope(context),
+		});
 	},
 );
 
 const outputsChanges = readOs.outputs.changes.handler(
 	async ({ input, context }) => {
 		const output = await requireOutput(context, input.outputId);
-		const current = await requireCurrentOutputRevision(context, output);
-		const answer = {
-			output: mapOsOutputRow(output),
-			revision: {
-				id: current.id,
-				revision: current.revision,
-				createdAt: current.createdAt,
-				createdByKind: current.createdByKind,
-			},
-		};
-		if (input.sinceRevision >= current.revision)
-			return { ...answer, patch: null };
-		const content = editableStoredContent(current);
-		const started = await getOsOutputRevisionByNumber(queryDb(context), {
-			organizationId: output.organizationId,
-			outputId: output.id,
-			revision: input.sinceRevision,
+		return osOutputChangesSince(queryDb(context), {
+			output,
+			current: await requireCurrentOutputRevision(context, output),
+			sinceRevision: input.sinceRevision,
+			canReadRevision: (revision) => canReadDerivedRevision(context, revision),
 		});
-		if (!started || !(await canReadDerivedRevision(context, started)))
-			return { ...answer, patch: null, content };
-		const since = editableStoredContent(started);
-		if (since.kind !== content.kind || content.kind === "video")
-			return { ...answer, patch: null, content };
-		return { ...answer, patch: diffOutputContent(since, content) };
 	},
 );
 
