@@ -119,6 +119,16 @@ export const PLATFORM_OPERATOR_TOOL_DEFINITIONS = [
 		kind: "read",
 	},
 	{
+		toolId: "list_os_workspace_drive_files",
+		endpoint: "osWorkspaces/resources/listDriveFiles",
+		kind: "read",
+	},
+	{
+		toolId: "read_os_workspace_drive_file",
+		endpoint: "osWorkspaces/resources/readDriveFile",
+		kind: "read",
+	},
+	{
 		toolId: "read_os_workspace_pdf",
 		endpoint: "osWorkspaces/resources/readPdf",
 		kind: "read",

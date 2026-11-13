@@ -45,6 +45,10 @@ import {
 	authorizeWorkspaceResourceRead,
 	resolveWorkspacePersonalReadCredential,
 } from "../../services/os-workspace-resource-read-authority";
+import {
+	listWorkspaceDriveFiles,
+	readWorkspaceDriveFile,
+} from "../../services/os-workspace-drive-read";
 import { readWorkspaceDrivePdf } from "../../services/os-workspace-drive-pdf-read";
 import { prepareWorkspaceRepositoryWork } from "../../services/os-workspace-repository-work";
 import {
@@ -161,8 +165,23 @@ async function verifiedResourceScopes(
 		resourceType: string;
 		providerResourceId: string;
 		requiredScopes: string[];
+		providerAccess?: { canRead: boolean; canWrite: boolean } | null;
 	},
 ) {
+	if (
+		selection.providerId === "google-drive" &&
+		["file", "folder"].includes(selection.resourceType)
+	) {
+		if (!/^[A-Za-z0-9_-]{1,255}$/.test(selection.providerResourceId))
+			throw createError(ErrorCodes.BAD_REQUEST, "Invalid Drive object ID");
+		return {
+			requiredScopes: selection.requiredScopes,
+			providerAccess: selection.providerAccess ?? {
+				canRead: true,
+				canWrite: false,
+			},
+		};
+	}
 	if (
 		selection.resourceType !== "calendar" ||
 		selection.connectionScope !== "user"
@@ -423,6 +442,29 @@ const get = readOs.resources.get.handler(async ({ input, context }) => ({
 	),
 }));
 
+const listDriveFiles = readOs.resources.listDriveFiles.handler(
+	async ({ input, context }) => {
+		const authorized = await authorizeWorkspaceResourceRead(context, {
+			...input,
+			expectedProviderId: "google-drive",
+			expectedResourceType: "folder",
+		});
+		return listWorkspaceDriveFiles(context, { ...input, ...authorized });
+	},
+);
+const readDriveFile = readOs.resources.readDriveFile.handler(
+	async ({ input, context }) => {
+		const authorized = await authorizeWorkspaceResourceRead(context, {
+			...input,
+			expectedProviderId: "google-drive",
+			expectedResourceType: ["file", "folder"],
+		});
+		return {
+			read: await readWorkspaceDriveFile(context, { ...input, ...authorized }),
+		};
+	},
+);
+
 const readPdf = readOs.resources.readPdf.handler(async ({ input, context }) => {
 	const { resource, requiredScopes } = await authorizeWorkspaceResourceRead(
 		context,
@@ -546,6 +588,7 @@ const rebind = authorOs.resources.rebind.handler(async ({ input, context }) => {
 		providerResourceId: current.providerResourceId,
 		connectionScope: input.connectionScope,
 		connectionInstanceId: input.connectionInstanceId,
+		providerAccess: input.providerAccess ?? current.providerAccess,
 		requiredScopes:
 			input.requiredScopes ?? (JSON.parse(current.requiredScopes) as string[]),
 	});
@@ -617,6 +660,8 @@ export const osWorkspaceResourceProcedures = {
 	create,
 	get,
 	readPdf,
+	listDriveFiles,
+	readDriveFile,
 	startRepositoryWork,
 	rebind,
 	rename,

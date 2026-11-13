@@ -387,6 +387,25 @@ describe("runtime connection OS approval adapter", () => {
 		).rejects.toThrow();
 		expect(mocks.gateway).not.toHaveBeenCalled();
 	});
+	it("refuses a read-only Drive write before approval or provider dispatch", async () => {
+		const changed = surface();
+		changed.tools[0]!.annotations.readOnlyHint = false;
+		mocks.surface.mockResolvedValue(changed);
+		await expect(
+			callWorkspaceAppConnection(
+				context(),
+				session,
+				{
+					...resource,
+					providerId: "google-drive",
+					providerAccess: { canRead: true, canWrite: false },
+				},
+				input,
+			),
+		).rejects.toThrow("read-only");
+		expect(mocks.create).not.toHaveBeenCalled();
+		expect(mocks.gateway).not.toHaveBeenCalled();
+	});
 	it("keeps effects and account-wide tools refused before approval creation", async () => {
 		const changed = surface();
 		changed.tools[0]!.annotations.readOnlyHint = false;

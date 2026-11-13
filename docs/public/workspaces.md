@@ -67,6 +67,41 @@ When you send a message, the workspace's agent answers in steps:
 4. You watch the steps as they happen, then read the answer. The exchange
    is saved as a turn you can read back later.
 
+## Connect a Drive file or folder
+
+In the workspace's connected resources, choose your Google Drive account,
+select **Drive file** or **Drive folder**, and enter its ID from Drive.
+Choose **Read-only** (the default) or **Read and write**. The saved choice
+uses `providerAccess.canWrite`; it does not expand the connected account's
+Google permissions. A read-only resource refuses changes. Selecting read
+and write does not bypass approval or enable an unsupported write action.
+
+An agent using the organization's workspace tools can call
+`list_os_workspace_drive_files` with the workspace and folder resource IDs.
+It returns files directly inside that folder and a continuation token.
+Subfolders and shortcuts do not grant access to files elsewhere: attach a
+subfolder separately when you need it.
+
+Use `read_os_workspace_drive_file` with that resource ID and a listed
+`fileId` to read a file. For an individually attached file, omit `fileId`.
+Reads return up to 8,192 bytes as base64, including binary files. Decode
+text files using their encoding. Continue at `nextByteOffset`, passing the
+returned file `version` as `expectedVersion` to detect changes between
+ranges. A null next offset means the read reached the end. Reading a
+PDF's raw bytes uses this tool too; the separate PDF text tool retains its
+2 MB conversion limit.
+
+Google Docs, Sheets and Slides are exported before reading. The result
+names the export's MIME type; pass it as `exportMimeType` on later ranges.
+Google's synchronous export limit is 10 MB. An unsupported export reports
+an error instead of inventing file contents. See Google's
+[download and export guide](https://developers.google.com/workspace/drive/api/guides/manage-downloads).
+
+Every read checks the current workspace resource, account access and folder
+membership. File bytes and provider credentials are not saved by these
+read tools. These tools are available to connected agents; the workspace
+chat's attachment selector and sandbox do not yet call them.
+
 ## What the workspace records
 
 The workspace keeps its conversations and change records next to its data.

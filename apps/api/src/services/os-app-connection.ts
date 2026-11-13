@@ -180,6 +180,12 @@ export async function callWorkspaceAppConnection(
 	);
 	const annotations = tool ? resolveToolAnnotations(tool) : undefined;
 	const config = tool?.config as ToolConfig | null | undefined;
+	if (
+		resource.providerId === "google-drive" &&
+		annotations?.readOnlyHint !== true &&
+		resource.providerAccess?.canWrite !== true
+	)
+		throw createError(ErrorCodes.FORBIDDEN, "This Drive resource is read-only");
 	const auth = config?.auth;
 	const routing = surface?.app.metadata?.mcpConfig;
 	if (
