@@ -723,6 +723,8 @@ class WorkRevisedDuringPreparationError extends Error {
 		);
 	}
 }
+/** Completion this Attempt can never obtain, however often it asks. */
+class CompletionRefusedError extends Error {}
 /** A stopping runner hands prepared Work back instead of launching it. */
 class DispatcherStoppingError extends Error {
 	constructor() {
@@ -2120,6 +2122,19 @@ export class LaneDispatcher {
 					);
 					continue;
 				}
+				// A capacity pause is never held, so it would cost a Work read on
+				// every retry; routing is local and preparation routes again.
+				const paused = (() => {
+					try {
+						this.route(item);
+					} catch (error) {
+						if (error instanceof LocalExecutorCapacityError) return error;
+					}
+				})();
+				if (paused) {
+					this.log("skipped", item.id, String(paused));
+					continue;
+				}
 				const task = this.execute(item, previous)
 					.catch((error) => this.log("failed", item.id, String(error)))
 					.finally(() => this.running.delete(item.id));
@@ -2747,6 +2762,24 @@ export class LaneDispatcher {
 			}
 		}
 	}
+	private route(item: DispatchItem) {
+		const metadata = item.metadata ?? {};
+		return routeLocalWork(
+			{
+				executor: String(metadata.executor),
+				tags: Array.isArray(metadata.tags)
+					? metadata.tags.filter(
+							(tag): tag is string => typeof tag === "string",
+						)
+					: [],
+				size: typeof metadata.size === "string" ? metadata.size : undefined,
+				risk: item.riskLevel,
+			},
+			this.policy,
+			this.availability,
+			this.budgets,
+		);
+	}
 	private async execute(candidate: DispatchItem, previous?: Receipt) {
 		const path = this.path(candidate);
 		const interrupted =
@@ -2790,22 +2823,7 @@ export class LaneDispatcher {
 			}>(["work", "dispatch-get", candidate.id, "--input", "{}"]);
 			const item = detail.workItem;
 			if (!item) throw new Error("Work read returned no item");
-			const metadata = item.metadata ?? {};
-			const selection = routeLocalWork(
-				{
-					executor: String(metadata.executor),
-					tags: Array.isArray(metadata.tags)
-						? metadata.tags.filter(
-								(tag): tag is string => typeof tag === "string",
-							)
-						: [],
-					size: typeof metadata.size === "string" ? metadata.size : undefined,
-					risk: item.riskLevel,
-				},
-				this.policy,
-				this.availability,
-				this.budgets,
-			);
+			const selection = this.route(item);
 			const executor = selection.executor;
 			receipt.model = selection.model;
 			this.log(
@@ -2839,35 +2857,48 @@ export class LaneDispatcher {
 				throw new Error(
 					"Complete Attempt history is unavailable; admission remains held",
 				);
+			const result = history.data.find(
+				(attempt) =>
+					attempt.outcome &&
+					attempt.metadata?.dispatchVersion === item.version &&
+					attempt.outcome !== "failed" &&
+					attempt.outcome !== "expired" &&
+					!(
+						attempt.outcome === "cancelled" &&
+						previous?.attemptId === attempt.id &&
+						previous.session === attempt.externalSessionKey &&
+						JSON.stringify(attempt.metadata.laneResult) ===
+							JSON.stringify(previous.laneResult) &&
+						((previous.laneResult?.outcome === "waiting_on_user" &&
+							(previous.waitResponseId !== undefined ||
+								previous.waitReleasedAt !== undefined)) ||
+							previous.laneResult?.outcome === "deferred")
+					),
+			);
+			if (result) {
+				// A recorded result for this revision stays recorded, so reading
+				// the history again cannot admit it: hold until the Work changes.
+				receipt.held = true;
+				delete receipt.admissionFailure;
+				receipt.note = `Admission held: Attempt ${result.id} already recorded a ${result.outcome} result for Work revision ${item.version}. A new Work revision is dispatched again.`;
+				this.save(path, receipt);
+				this.log("execution-held", item.id, receipt.note);
+				return;
+			}
 			if (
 				history.data.some(
 					(attempt) =>
-						(!attempt.outcome &&
-							!(
-								previous?.attemptId === attempt.id &&
-								attempt.externalSessionKey === previous.session &&
-								attempt.metadata?.dispatchVersion === item.version &&
-								!leaseMayBeLive(attempt)
-							)) ||
-						(attempt.outcome &&
+						!attempt.outcome &&
+						!(
+							previous?.attemptId === attempt.id &&
+							attempt.externalSessionKey === previous.session &&
 							attempt.metadata?.dispatchVersion === item.version &&
-							attempt.outcome !== "failed" &&
-							attempt.outcome !== "expired" &&
-							!(
-								attempt.outcome === "cancelled" &&
-								previous?.attemptId === attempt.id &&
-								previous.session === attempt.externalSessionKey &&
-								JSON.stringify(attempt.metadata.laneResult) ===
-									JSON.stringify(previous.laneResult) &&
-								((previous.laneResult?.outcome === "waiting_on_user" &&
-									(previous.waitResponseId !== undefined ||
-										previous.waitReleasedAt !== undefined)) ||
-									previous.laneResult?.outcome === "deferred")
-							)),
+							!leaseMayBeLive(attempt)
+						),
 				)
 			)
 				throw new Error(
-					"Canonical history has a live Attempt or a completed dispatcher result; admission remains held",
+					"Canonical history has a live Attempt; admission remains held",
 				);
 			// Use settled Attempt history rather than agent prose or a local retry
 			// window. A restart, reroute or elapsed delay cannot repair the same brief.
@@ -4244,7 +4275,7 @@ export class LaneDispatcher {
 		);
 		try {
 			if (!receipt.session || !receipt.executorKey || !receipt.attemptId)
-				throw new Error(
+				throw new CompletionRefusedError(
 					"Completion retained: original executor identity is missing",
 				);
 			if (reconcile) {
@@ -4268,7 +4299,9 @@ export class LaneDispatcher {
 					this.log("completion-observed", receipt.itemId, workItem.disposition);
 				} else {
 					if (workItem.version !== receipt.version)
-						throw new Error("Completion retained: Work revision changed");
+						throw new CompletionRefusedError(
+							"Completion retained: Work revision changed",
+						);
 					const history = await this.call<{ data: WorkAttempt[] }>(
 						[
 							"work",
@@ -4286,10 +4319,17 @@ export class LaneDispatcher {
 						latest.id !== receipt.attemptId ||
 						latest.externalSessionKey !== receipt.session ||
 						latest.outcome !== "succeeded"
-					)
-						throw new Error(
-							"Completion retained: original succeeded Attempt is no longer latest",
-						);
+					) {
+						const message =
+							"Completion retained: original succeeded Attempt is no longer latest";
+						// A newer Attempt stays newer; an unread or lagging outcome
+						// may still show this one succeeded.
+						throw latest &&
+							(latest.id !== receipt.attemptId ||
+								latest.externalSessionKey !== receipt.session)
+							? new CompletionRefusedError(message)
+							: new Error(message);
+					}
 				}
 			}
 			if (receipt.completionPending) {
@@ -4301,7 +4341,14 @@ export class LaneDispatcher {
 					["work", "complete", receipt.itemId],
 					receipt.session,
 					receipt.executorKey,
-				);
+				).catch((error: unknown) => {
+					throw error instanceof CliReadError &&
+						(error.code === "FORBIDDEN" ||
+							error.status === 403 ||
+							/\bFORBIDDEN:/.test(error.message))
+						? new CompletionRefusedError(error.message)
+						: error;
+				});
 				if (
 					completed?.id === receipt.itemId &&
 					completed.disposition === "completed" &&
@@ -4318,6 +4365,10 @@ export class LaneDispatcher {
 			delete receipt.completionError;
 		} catch (error) {
 			receipt.completionError = String(error).slice(0, 600);
+			// The same Attempt is refused again on every retry; its owner,
+			// steward or a new Work revision decides what happens next.
+			if (error instanceof CompletionRefusedError)
+				receipt.completionPending = false;
 			this.log("completion-retained", receipt.itemId, receipt.completionError);
 		}
 		this.save(

@@ -2117,6 +2117,36 @@ describe("dispatcher admission", () => {
 		expect(releases).toHaveLength(1);
 	});
 
+	it("stops asking to complete once the server refuses this Attempt", async () => {
+		const { dispatcher, items, control, events, releases, dir } = fixture();
+		items.splice(1);
+		control.completeError = new CliReadError(
+			'Tedix CLI read failed (exit 2): {"message":"MCP tool error: FORBIDDEN: Work Item completion requires its owner or steward"}',
+		);
+		await dispatcher.tick();
+		await until(() => releases.length === 1);
+		releases[0]!();
+		await dispatcher.drain();
+		const path = join(dir, `${item().id}-2.json`);
+		const saved = JSON.parse(readFileSync(path, "utf8"));
+		expect(saved).toMatchObject({
+			phase: "settled",
+			outcome: "succeeded",
+			completionPending: false,
+		});
+		expect(saved.completionError).toContain("FORBIDDEN");
+		saved.completionRetryAt = 0;
+		writeFileSync(path, JSON.stringify(saved));
+		const asks = () =>
+			events.filter((e) =>
+				["complete", "dispatch-get", "dispatch-attempts"].includes(e.verb),
+			).length;
+		const before = asks();
+		for (let pass = 0; pass < 3; pass++) await dispatcher.tick();
+		expect(asks()).toBe(before);
+		expect(releases).toHaveLength(1);
+	});
+
 	it.each(["settling", "admitted"])(
 		"closes a recovered %s success after a lost settlement reply without rerunning",
 		async (phase) => {
@@ -2156,7 +2186,7 @@ describe("dispatcher admission", () => {
 		},
 	);
 	it.each(["changed-version", "newer-attempt"])(
-		"keeps recovered closure fenced across retries after %s",
+		"keeps recovered closure fenced and stops asking after %s",
 		async (state) => {
 			const f = fixture();
 			f.items.splice(1);
@@ -2193,16 +2223,22 @@ describe("dispatcher admission", () => {
 					outcome: "succeeded",
 				});
 			const resumed = f.restart();
-			for (let n = 0; n < 2; n++) {
-				await resumed.tick();
-				const saved = JSON.parse(readFileSync(path, "utf8"));
-				expect(saved.completionPending).toBe(true);
-				expect(
-					f.events.filter((event) => event.verb === "complete"),
-				).toHaveLength(0);
-				saved.completionRetryAt = 0;
-				writeFileSync(path, JSON.stringify(saved));
-			}
+			await resumed.tick();
+			const saved = JSON.parse(readFileSync(path, "utf8"));
+			expect(saved.completionPending).toBe(false);
+			saved.completionRetryAt = 0;
+			writeFileSync(path, JSON.stringify(saved));
+			// The same Attempt is refused again on every retry, so it is not read.
+			const reads = () =>
+				f.events.filter((event) =>
+					["dispatch-get", "dispatch-attempts"].includes(event.verb),
+				).length;
+			const before = reads();
+			await resumed.tick();
+			expect(reads()).toBe(before);
+			expect(
+				f.events.filter((event) => event.verb === "complete"),
+			).toHaveLength(0);
 			expect(f.releases).toHaveLength(0);
 		},
 	);
@@ -2252,7 +2288,7 @@ describe("dispatcher admission", () => {
 		const recovered = JSON.parse(readFileSync(path, "utf8"));
 		expect(recovered.completionRetries).toBe(6);
 		expect(recovered.completionPending).toBe(
-			!["recovered", "completed", "cancelled"].includes(state),
+			["missing-attempt", "unreadable"].includes(state),
 		);
 		expect(events.filter((e) => e.verb === "complete")).toHaveLength(
 			before + (state === "recovered" ? 1 : 0),
@@ -3134,7 +3170,7 @@ describe("dispatcher admission", () => {
 		);
 	});
 	it.each(["quota", "backoff"])(
-		"resumes after three routing %s pauses when capacity returns",
+		"waits through routing %s pauses without reads and resumes when capacity returns",
 		async (pause) => {
 			const executor = pause === "quota" ? "claude-code" : "codex";
 			const { restart, deps, items, events, releases, dir } = fixture({
@@ -3167,16 +3203,15 @@ describe("dispatcher admission", () => {
 				for (let n = 1; n <= 3; n++) {
 					await dispatcher.tick();
 					await dispatcher.drain();
-					const saved = JSON.parse(readFileSync(path, "utf8"));
-					expect(saved.phase).toBe("deferred");
-					expect(saved.held).toBe(false);
-					expect(saved.retryAt - now).toBe(60_000 * 2 ** (n - 1));
+					expect(existsSync(path)).toBe(false);
 					expect(
 						events.some((event) =>
-							["start", "heartbeat", "settle"].includes(event.verb),
+							["dispatch-get", "start", "heartbeat", "settle"].includes(
+								event.verb,
+							),
 						),
 					).toBe(false);
-					now = saved.retryAt + 1;
+					now += 60_000 * 2 ** (n - 1);
 				}
 				capacityReturned = true;
 				if (pause === "backoff") now = capacityUntil + 1;
@@ -3495,6 +3530,41 @@ describe("dispatcher admission", () => {
 		await dispatcher.drain();
 		expect(tries()).toBe(before + 1);
 		expect(events.filter((e) => e.verb === "comment")).toHaveLength(1);
+	});
+	it("holds a revision with a recorded result until the Work changes", async () => {
+		const { dispatcher, dir, items, events, control } = fixture();
+		items.splice(1);
+		control.history.data = [
+			{
+				id: "recorded-attempt",
+				externalSessionKey: "codex:another-session",
+				outcome: "succeeded",
+				metadata: { dispatchVersion: 2 },
+			},
+		];
+		await dispatcher.tick();
+		await dispatcher.drain();
+		const path = join(dir, `${item().id}-2.json`);
+		const saved = JSON.parse(readFileSync(path, "utf8"));
+		expect(saved.held).toBe(true);
+		expect(saved.note).toContain(
+			"Attempt recorded-attempt already recorded a succeeded result",
+		);
+		saved.retryAt = 0;
+		saved.retryDeadlineAt = Date.now() - 1;
+		writeFileSync(path, JSON.stringify(saved));
+		const reads = () =>
+			events.filter((e) =>
+				["dispatch-get", "dispatch-attempts"].includes(e.verb),
+			).length;
+		const before = reads();
+		for (let pass = 0; pass < 3; pass++) await dispatcher.tick();
+		await dispatcher.drain();
+		expect(reads()).toBe(before);
+		expect(events.some((e) => e.verb === "start" && e.args[4] === "work")).toBe(
+			false,
+		);
+		expect(events.filter((e) => e.verb === "comment")).toHaveLength(0);
 	});
 	it("sends the full any-local executor set to server-side discovery", async () => {
 		const { dispatcher, events, releases } = fixture({ executor: "any-local" });
