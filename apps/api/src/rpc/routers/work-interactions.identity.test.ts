@@ -308,6 +308,74 @@ describe("Work interaction canonical actor projections", () => {
 		).toEqual([]);
 	});
 
+	it("keeps a card with new Work comments visible and requires reviewing them before answering", async () => {
+		const { sqlite, owner, target } = fixture(undefined, true);
+		const request = await owner.create({
+			workItemId: WORK_ITEM_ID,
+			kind: "question",
+			subject: "Keep the draft?",
+			prompt: "The draft needs your editorial choice.",
+			reason: "Only you know the intended audience.",
+			requestedFrom: { type: "user", id: "target-id" },
+			metadata: {
+				decisionSources: [
+					{ kind: "work", id: WORK_ITEM_ID, version: 1, commentCount: 0 },
+				],
+			},
+		});
+		const through = new Date(
+			Date.parse(request.requestedAt) + 1000,
+		).toISOString();
+		sqlite
+			.prepare(
+				"INSERT INTO work_item_comments(id,org_id,work_item_id,author_type,body,created_at) VALUES ('new-fact',?,?,'user','The audience has changed.',?)",
+			)
+			.run(ORG_ID, WORK_ITEM_ID, through);
+		expect(
+			(await target.listInbox({ states: ["open"] })).data.map(
+				(row) => row.request.id,
+			),
+		).toContain(request.id);
+		expect((await target.get({ requestId: request.id })).canRespond).toBe(true);
+		await expect(
+			target.respond({
+				requestId: request.id,
+				expectedRequestVersion: request.version,
+				responseKind: "answer",
+				body: "Keep it",
+				resolvesRequest: true,
+			}),
+		).rejects.toThrow(
+			"There is a newer note on the linked task since this was asked.",
+		);
+		const { refreshDecisionSourceCards } =
+			await import("../../services/decision-sources");
+		expect(
+			await refreshDecisionSourceCards(
+				createDbClient(createD1Facade(sqlite)),
+				ORG_ID,
+				"target-id",
+			),
+		).toMatchObject({ superseded: 0 });
+		expect((await target.get({ requestId: request.id })).effectiveState).toBe(
+			"open",
+		);
+		expect(
+			sqlite.prepare("SELECT count(*) AS n FROM work_interactions").get()?.n,
+		).toBe(1);
+		await target.respond({
+			requestId: request.id,
+			expectedRequestVersion: request.version,
+			responseKind: "answer",
+			body: "Keep it",
+			resolvesRequest: true,
+			reviewedChangesThrough: through,
+		});
+		expect((await target.get({ requestId: request.id })).effectiveState).toBe(
+			"resolved",
+		);
+	});
+
 	it.each([false, true])(
 		"rechecks a saved Yes before hook delivery (stale=%s)",
 		async (stale) => {

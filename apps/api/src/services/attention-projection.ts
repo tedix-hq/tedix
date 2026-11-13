@@ -875,36 +875,28 @@ export async function loadForYouProjection(
 		...selection.updates.filter((item) => outcomes.has(item.id)),
 	];
 	const shownIds = new Set(shown.map((item) => item.id));
-	const { prepareDeckCardFace, displayDeckCard } =
-		await import("./deck-card-face");
-	const pending: DeckCard[] = [];
-	const visible = await Promise.all(
-		shown.slice(0, input.limit).map(async (item) => {
+	const { prepareDeckCardFaces } = await import("./deck-card-face");
+	const visibleItems = shown.slice(0, input.limit);
+	const displayCards = await prepareDeckCardFaces(
+		context,
+		visibleItems.flatMap((item) => {
 			const card = faceSources.get(item.id.replace(/^decision:/, ""));
-			if (!item.needsAction || !card) return item;
-			const presentation = await prepareDeckCardFace(
-				context,
-				card,
-				false,
-				deck.model,
-			);
-			if (!presentation) pending.push(card);
-			const display = displayDeckCard(card, presentation);
-			return {
-				...item,
-				sentence: display.label,
-				presentation,
-				faceText: display.faceText,
-			};
+			return item.needsAction && card ? [card] : [];
 		}),
+		deck.model,
 	);
-	context.waitUntil?.(
-		Promise.all(
-			pending
-				.slice(0, 3)
-				.map((card) => prepareDeckCardFace(context, card, true, deck.model)),
-		).catch(() => {}),
-	);
+	const displays = new Map(displayCards.map((card) => [card.id, card]));
+	const visible = visibleItems.map((item) => {
+		const display = displays.get(item.id.replace(/^decision:/, ""));
+		return display
+			? {
+					...item,
+					sentence: display.label,
+					presentation: display.presentation,
+					faceText: display.faceText,
+				}
+			: item;
+	});
 	if (!deck.complete) incompleteSources.push("Decisions");
 	if (!factories.complete) incompleteSources.push("a card source");
 	if (sourcePages.some((page) => !page.complete))

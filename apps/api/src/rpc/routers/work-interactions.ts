@@ -16,7 +16,6 @@ import { sourceInteractionDeadline } from "@tedix/api-contract/utils/deck-ask";
 import { humanOnlyAskReasons } from "@tedix/api-contract/utils/human-only-ask";
 import { bindCardPresentationSource } from "../../services/card-presentation-source";
 import {
-	decisionSourcesCurrent,
 	decisionSourcesReview,
 	DECISION_SOURCE_CHANGED,
 } from "@tedix/db/queries/work-items/decision-sources";
@@ -1200,7 +1199,9 @@ const getProcedure = readOs.get.handler(async ({ input, context }) => {
 			canRespond:
 				isTarget &&
 				(state === "open" || correctable) &&
-				(await decisionSourcesCurrent(context.db, orgId, request)),
+				(await decisionSourcesReview(context.db, orgId, request).then(
+					(review) => review.current || Boolean(review.reviewable),
+				)),
 			canCancel: isCreator && state === "open",
 			latestDraft: latestDraft
 				? {
@@ -1331,7 +1332,9 @@ const listInboxProcedure = readOs.listInbox.handler(
 		// Keep the database cursor even when every card in this page is withheld.
 		const current = await Promise.all(
 			page.data.map((row) =>
-				decisionSourcesCurrent(context.db, orgId, row.request),
+				decisionSourcesReview(context.db, orgId, row.request).then(
+					(review) => review.current || Boolean(review.reviewable),
+				),
 			),
 		);
 		page.data = page.data.filter((_, index) => current[index]);
