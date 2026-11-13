@@ -120,6 +120,8 @@
 		"lint-kumo.ts",
 		"lint-output-kinds.ts",
 		"lint-output-kinds.test.ts",
+		"lint-tool-class.ts",
+		"lint-tool-class.test.ts",
 		"lint-worker-route-authz.ts",
 		"lint-worker-route-authz.test.ts",
 		"lint-os.ts",

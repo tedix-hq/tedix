@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import {
 	enforceToolRiskRateLimit,
 	resolveToolRiskPolicy,
+	setWireToolClassDeclaration,
+	toolApprovalMetadata,
 	toolRiskAuditMetadata,
 } from "./tool-risk-policy";
 
@@ -125,5 +127,49 @@ describe("tool risk policy", () => {
 		} finally {
 			output.mockRestore();
 		}
+	});
+});
+
+describe("declared class on the listed tool", () => {
+	const bounded = { riskTier: "bounded_write", blastRadius: "single_resource" };
+	const row = (policy: Record<string, unknown>, writeCapability?: string) =>
+		({
+			toolId: "remove_highlight",
+			config: { transport: "rpc" },
+			writeCapability,
+			meta: { "com.tedix/policy": policy },
+		}) as never;
+
+	it("lists the stored write class beside the marker", () => {
+		expect(
+			toolApprovalMetadata(row({ ...bounded, declared: true }, "write"))[
+				"com.tedix/policy"
+			],
+		).toEqual({ ...bounded, declared: true, writeCapability: "write" });
+	});
+
+	it("lists no declaration for a derived tier or a missing write class", () => {
+		expect(
+			toolApprovalMetadata(row(bounded, "write"))["com.tedix/policy"],
+		).toEqual(bounded);
+		expect(
+			toolApprovalMetadata(row({ ...bounded, declared: true }))[
+				"com.tedix/policy"
+			],
+		).toEqual(bounded);
+	});
+
+	it("does not let stored metadata speak for the write class", () => {
+		const forged = { ...bounded, declared: true, writeCapability: "write" };
+		const meta: Record<string, unknown> = { "com.tedix/policy": forged };
+		setWireToolClassDeclaration(meta, row(forged, "destructive"));
+		expect(meta["com.tedix/policy"]).toEqual({
+			...bounded,
+			declared: true,
+			writeCapability: "destructive",
+		});
+		const undeclared: Record<string, unknown> = { "com.tedix/policy": forged };
+		setWireToolClassDeclaration(undeclared, row(bounded, "write"));
+		expect(undeclared["com.tedix/policy"]).toEqual(bounded);
 	});
 });

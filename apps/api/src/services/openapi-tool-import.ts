@@ -1,3 +1,4 @@
+import { declaredToolClass } from "@tedix/api-contract/utils/tool-declared-class";
 import type {
 	OpenApiImportInput,
 	OpenApiImportResult,
@@ -1729,7 +1730,12 @@ export async function executeOpenApiToolImport(
 					? "render"
 					: (defaultWidget?.widgetKey ?? null);
 			const annotations = annotationsForMethod(entry.method);
-			const writeCapability = writeCapabilityForMethod(entry.method);
+			// The HTTP method is only the default. A class an owner declared on
+			// the row is kept, because a POST can read and a PUT can delete.
+			const declaredClass = existing ? declaredToolClass(existing) : null;
+			const writeCapability =
+				declaredClass?.writeCapability ??
+				writeCapabilityForMethod(entry.method);
 			const description = operationDescription(entry.operation);
 			const schemaSourceRef = `${resolved.specUrl ?? "inline"}#${entry.method} ${entry.path}`;
 			const schemaSourceHash = await sha256Hex(
@@ -1812,6 +1818,7 @@ export async function executeOpenApiToolImport(
 					visibility: authRequired ? "private" : "public",
 					annotations,
 					writeCapability,
+					...(declaredClass ? { meta: existing?.meta } : {}),
 					fileParams: fileParams.length > 0 ? fileParams : null,
 					schemaDialect: "json-schema-2020-12",
 					schemaSource: "openapi",

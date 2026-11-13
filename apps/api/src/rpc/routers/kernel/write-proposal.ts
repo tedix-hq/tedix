@@ -78,6 +78,10 @@ import type { KernelWriteRiskTier } from "@tedix/api-contract/utils/approval-pol
 import type { ApprovalEditableField } from "@tedix/api-contract/schemas/approval-edits";
 import { deriveApprovalEditableFields } from "@tedix/api-contract/utils/approval-edits";
 import { parseToolPolicyMetadata } from "@tedix/api-contract/schemas/tools";
+import {
+	wireDeclaredToolClass,
+	type DeclaredToolClass,
+} from "@tedix/api-contract/utils/tool-declared-class";
 import { CreateFactoryResultSchema } from "@tedix/api-contract/schemas/factories";
 import type { DbClient } from "@tedix/db/client";
 import { getAppBySlugForOrg } from "@tedix/db/queries/apps";
@@ -196,6 +200,8 @@ export interface KernelWriteProposal {
 	 * never policy-auto-approved; see {@link classifyWriteRisk}.
 	 */
 	riskTier: KernelWriteRiskTier;
+	/** The tool's declared class, when an owner or reviewed code stated one. */
+	declaredClass?: DeclaredToolClass;
 	/** Raw MCP tool or an aggregate Code Mode callable. */
 	transport?: KernelWriteTransport;
 	/** Inputs the approver may change before approving, from the tool schema. */
@@ -1128,6 +1134,7 @@ export async function planKernelWriteProposal(args: {
 			workProjects,
 			validated.args.projectId,
 		);
+		const declaredClass = wireDeclaredToolClass(validated.tool._meta);
 		return {
 			appSlug: provider.slug,
 			toolName: validated.tool.name,
@@ -1146,6 +1153,7 @@ export async function planKernelWriteProposal(args: {
 				)
 					? "high"
 					: validated.riskTier,
+			...(declaredClass ? { declaredClass } : {}),
 			transport,
 			editableFields: deriveApprovalEditableFields({
 				inputSchema: validated.tool.inputSchema,

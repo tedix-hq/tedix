@@ -6,6 +6,7 @@
  * Used by the unified MCP engine to dynamically register tools per app.
  */
 
+import { toolClassDeclarationGap } from "@tedix/api-contract/utils/tool-declared-class";
 import type {
 	ToolInvocationStatus,
 	ToolMeta,
@@ -626,6 +627,11 @@ export async function upsertTool(
 		}
 		return updated;
 	}
+
+	// A new row must say what it does. Older rows without a class keep working
+	// and are listed by the unclassified report; none may be added.
+	const gap = toolClassDeclarationGap(normalizedTool);
+	if (gap) throw new Error(`Tool ${normalizedTool.toolId} ${gap}.`);
 
 	// Create new tool
 	const id = normalizedTool.id || crypto.randomUUID();

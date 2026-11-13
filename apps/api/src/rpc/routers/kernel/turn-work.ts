@@ -587,6 +587,9 @@ async function planAndParkKernelWriteProposal(
 						payload: toJsonRecord({
 							...writePayload,
 							riskTier: writeProposal.riskTier,
+							...(writeProposal.declaredClass
+								? { declaredClass: writeProposal.declaredClass }
+								: {}),
 						}),
 						createdAt,
 						expiresAt: deps.offsetIso(

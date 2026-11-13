@@ -1,3 +1,4 @@
+import { declaredToolClass } from "@tedix/api-contract/utils/tool-declared-class";
 import type {
 	ToolConfig,
 	ToolInputJsonSchema,
@@ -499,10 +500,14 @@ export async function runGoogleDiscoveryToolImport(
 					destructiveHint: operation.httpMethod === "DELETE",
 				};
 				// The HTTP method always speaks, so every generated row carries a
-				// declared capability: GET → read, DELETE → destructive, the rest
-				// → write. Persisting the derivation keeps rows out of the
-				// UNDECLARED backlog the unclassified report scans for.
-				const writeCapability = deriveToolWriteCapability(annotations);
+				// class: GET → read, DELETE → destructive, the rest → write. That
+				// is only the default: a class an owner declared on the row is
+				// kept, because a POST can read and a POST can send mail.
+				const existing = existingByToolId.get(toolId);
+				const declaredClass = existing ? declaredToolClass(existing) : null;
+				const writeCapability =
+					declaredClass?.writeCapability ??
+					deriveToolWriteCapability(annotations);
 				const schemaSourceRef = `${discoveryUrlFor(service)}#${operation.methodId}`;
 				const schemaSourceHash = await sha256Hex(
 					stableStringify({
@@ -514,7 +519,6 @@ export async function runGoogleDiscoveryToolImport(
 						writeCapability,
 					}),
 				);
-				const existing = existingByToolId.get(toolId);
 				const matches =
 					existing?.schemaSource === "google-discovery" &&
 					existing.schemaSourceHash === schemaSourceHash &&
@@ -549,6 +553,7 @@ export async function runGoogleDiscoveryToolImport(
 						visibility: "private",
 						annotations,
 						writeCapability,
+						...(declaredClass ? { meta: existing?.meta } : {}),
 						schemaDialect: "json-schema-2020-12",
 						schemaSource: "google-discovery",
 						schemaSourceRef,

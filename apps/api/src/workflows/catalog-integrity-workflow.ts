@@ -1,3 +1,4 @@
+import { summarizeUndeclaredToolClasses } from "../services/tool-class-backlog";
 import {
 	WorkflowEntrypoint,
 	type WorkflowEvent,
@@ -70,6 +71,11 @@ export class CatalogIntegrityWorkflow extends WorkflowEntrypoint<
 							result.writeCapabilityReport.totalTools,
 						unclassifiedWriteCapabilityApps:
 							result.writeCapabilityReport.totalApps,
+						// How today's logic reads those tools: from annotations, or
+						// from the name alone. No row is rewritten from a guess.
+						undeclaredToolClasses: summarizeUndeclaredToolClasses(
+							result.writeCapabilityReport.items,
+						),
 					},
 				});
 			});

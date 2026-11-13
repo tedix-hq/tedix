@@ -87,6 +87,30 @@ An owner or admin can also let one kind of action run without asking, such as
 Critical actions can never be turned on this way, and neither can permanent
 deletion. A **This should have asked me** correction for the tool still wins.
 
+### Actions that always ask
+
+Five kinds of action never run on an automatic approval. A person decides
+each one, every time:
+
+- deleting data
+- sending a message or file outside the organization
+- spending or moving money
+- running arbitrary code or commands
+- changing who can see or use something
+
+Tedix decides this from what a tool says it does, before it looks at the
+tool's name. Each tool states whether it only reads, writes, or deletes
+(`writeCapability`: `read`, `write` or `destructive`), and a tool that changes
+anything also states how far the change reaches (`riskTier` and `blastRadius`
+under `_meta["com.tedix/policy"]`). Only an ordinary write with a bounded
+reach (`write` with `bounded_write`) can be covered by an approval rule.
+
+So a harmless tool with an alarming name, such as `remove_highlight`, can be
+covered once its owner states both values. A tool that deletes is held for a
+person even when its name sounds mild. A tool that has not stated both values
+is judged by its name as before, and a new tool cannot be saved without a
+write class.
+
 Home dispatches eligible work immediately, waking a standby tedi when needed.
 Coding work is spread across tedis that share the same repository, least busy
 first. Its Activity receipt identifies the task, tedi, and outcome. **This should

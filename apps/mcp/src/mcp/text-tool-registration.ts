@@ -28,7 +28,10 @@ import { settleToolPayment } from "./payments-settlement";
 import type { AppTool, ServerContext } from "./server-context";
 import { executeTool, preflightSecretEgress } from "./tool-execution";
 import { guardGatewayCall } from "./gateway-adapters";
-import { toolApprovalMetadata } from "./tool-risk-policy";
+import {
+	setWireToolClassDeclaration,
+	toolApprovalMetadata,
+} from "./tool-risk-policy";
 import {
 	projectNativeOutputEvidence,
 	type ToolInputStandardSchema,
@@ -104,6 +107,7 @@ export async function registerTextOnlyTool(
 	// Provenance comes from the configured connection, never upstream _meta.
 	delete meta["com.tedix/connectedTool"];
 	Object.assign(meta, { ...toolApprovalMetadata(tool), ...meta });
+	setWireToolClassDeclaration(meta, tool);
 	const paymentPolicy = getToolPaymentPolicy(tool);
 	if (paymentPolicy) {
 		meta["x-tedix/paymentRequired"] = true;

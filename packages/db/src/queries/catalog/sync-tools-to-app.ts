@@ -9,7 +9,10 @@ import type {
 	ToolConfig,
 	ToolWriteCapability,
 } from "@tedix/api-contract/schemas/tools";
-import { deriveToolWriteCapability } from "@tedix/api-contract/schemas/tools";
+import {
+	deriveToolWriteCapability,
+	withoutToolClassDeclaration,
+} from "@tedix/api-contract/schemas/tools";
 import { eq } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { apps, appTools, skillEntries } from "../../schema/index";
@@ -297,7 +300,8 @@ export async function syncCatalogToolsToApp(
 			ct.outputSchema,
 			annotations as ToolAnnotations | null,
 		);
-		const meta = ct.meta ?? null;
+		// An upstream server cannot declare its own tools' class to Tedix.
+		const meta = withoutToolClassDeclaration(ct.meta ?? null);
 		const schemaSourceRef = catalogMcpToolSourceRef(catalogAppId, ct.toolName);
 		const schemaSourceHash = await catalogMcpToolSourceHash({
 			toolName: ct.toolName,

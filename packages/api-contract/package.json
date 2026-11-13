@@ -357,6 +357,7 @@
 		"./utils/workbook-number-format": "./src/utils/workbook-number-format.ts",
 		"./utils/presentation-style": "./src/utils/presentation-style.ts",
 		"./utils/approval-policy": "./src/utils/approval-policy.ts",
+		"./utils/tool-declared-class": "./src/utils/tool-declared-class.ts",
 		"./utils/work-instructions": "./src/utils/work-instructions.ts",
 		"./utils/owner-tool-execution": "./src/utils/owner-tool-execution.ts",
 		"./utils/delegation-resolution-claim": "./src/utils/delegation-resolution-claim.ts",
