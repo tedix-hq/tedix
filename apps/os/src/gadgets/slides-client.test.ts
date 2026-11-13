@@ -1375,6 +1375,35 @@ describe("portable Slides canvas", () => {
 		expect(api.saves()).toBe(0);
 		expect(api.draftWrites()).toBe(0);
 	});
+	it("hides the editing tools from someone who can only look", async () => {
+		await mount("use");
+		expect(
+			document.querySelector<HTMLElement>(".slides-bar-tools")!.hidden,
+		).toBe(true);
+		expect(button("format").hidden).toBe(true);
+		expect(button("present").hidden).toBe(false);
+		expect(
+			document.querySelector<HTMLElement>('[data-export="pptx"]')!.hidden,
+		).toBe(false);
+	});
+	it("lets someone invited to edit through a link change the deck, without the upload and file exports their page lacks", async () => {
+		await mount("edit");
+		expect(
+			document.querySelector<HTMLElement>(".slides-bar-tools")!.hidden,
+		).toBe(false);
+		expect(button("add-slide").disabled).toBe(false);
+		expect(button("insert").disabled).toBe(false);
+		expect(button("upload").hidden).toBe(true);
+		expect(
+			document.querySelector<HTMLElement>('[data-export="pptx"]')!.hidden,
+		).toBe(true);
+		expect(
+			document.querySelector<HTMLElement>('[data-export="pdf"]')!.hidden,
+		).toBe(true);
+		expect(
+			document.querySelector<HTMLElement>('[data-export="outline"]')!.hidden,
+		).toBe(false);
+	});
 	it("runs the standalone bundle without importing a host editor", async () => {
 		document.body.innerHTML = '<div id="app"></div>';
 		const api = fixture();

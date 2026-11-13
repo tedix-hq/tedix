@@ -263,12 +263,23 @@ export async function mountSlidesClient(
 			message(reason(error), true, 6000),
 		);
 	};
+	// Someone invited through a link to edit: their page saves changes but
+	// cannot store a new picture or build a PowerPoint or PDF file.
+	const visitor = context.role === "edit";
 	const editable =
-		(context.role === "owner" || context.role === "build") &&
+		(context.role === "owner" ||
+			context.role === "build" ||
+			context.role === "edit") &&
 		context.grants?.some(
 			(grant) =>
 				grant.slot === slot && grant.operations.includes("outputs.write"),
 		);
+	// Someone who can only look gets no editing tools, and a link visitor is
+	// not offered what their page cannot do.
+	find(".slides-bar-tools").hidden = find("#format").hidden = !editable;
+	find("#upload").hidden = visitor;
+	for (const item of root.querySelectorAll<HTMLElement>("[data-export]"))
+		item.hidden = visitor && item.dataset.export !== "outline";
 	let loaded: Saved | undefined,
 		deck: OsPresentationDeck | undefined,
 		basis = 0,

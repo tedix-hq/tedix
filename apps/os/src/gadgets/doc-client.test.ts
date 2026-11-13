@@ -865,6 +865,15 @@ describe("portable rich Doc client", () => {
 		expect(statusText(root)).toBe("");
 		expect(mounted.dirty).toBe(false);
 	});
+	it("lets someone invited to edit through a link write, without the picture and file exports their page lacks", async () => {
+		const { root, editor } = await fixture("edit").mount();
+		expect(editor.isEditable).toBe(true);
+		expect(find(root, "Bold")).toBeDefined();
+		expect(find(root, "Image")).toBeUndefined();
+		expect(find(root, "Export as Markdown")).toBeDefined();
+		expect(find(root, "Export as PDF")).toBeUndefined();
+		expect(find(root, "Export as Word")).toBeUndefined();
+	});
 	it("keeps read-only users out of editing and reports oversized saves without dropping the draft", async () => {
 		const readonly = fixture("use"),
 			view = await readonly.mount();
