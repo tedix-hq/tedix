@@ -3,6 +3,13 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.21.12 — 2026-11-13
+
+### Patch Changes
+
+- Lane runners stop retrying tasks that are stuck for a reason that won't change. A task whose current version already has a result waits until the task changes, and a finished run whose completion was refused stops asking to complete.
+- Lane runners clear old holds instead of retrying them forever. Once every earlier run has expired or ended elsewhere, the task can start again. A run folder or agent session that no longer exists is set up fresh, with one clear log line, instead of failing on every pass.
+
 ## 0.21.11 — 2026-11-13
 
 ### Patch Changes
