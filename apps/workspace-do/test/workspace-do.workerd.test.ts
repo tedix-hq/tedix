@@ -2590,3 +2590,158 @@ test("groups workspace-store auto-saves while indexing every revision and recove
 		}),
 	).toEqual(["burst-r3"]);
 });
+
+describe("stopped, failed and interrupted turns", () => {
+	const slowReply = {
+		text: "one two three four five six seven eight nine ten eleven twelve",
+		tokensPerSecond: 4,
+	};
+
+	async function untilMessages(
+		ws: Stub,
+		conversationId: string,
+		roles: string[],
+	) {
+		for (let i = 0; i < 100; i += 1) {
+			const messages = await ws.readMessages(scope, conversationId);
+			if (messages.length >= roles.length) return messages;
+			await new Promise((resolve) => setTimeout(resolve, 50));
+		}
+		throw new Error("messages were not saved");
+	}
+
+	test.each([false, true])(
+		"Stop is stored as cancelled and keeps the user's message (isolate=%s)",
+		async (isolate) => {
+			await seedCore();
+			await seedCore();
+			const ws = workspace();
+			await ws.scriptModel(scope, [slowReply]);
+			const turn = await ws.sendTurn(scope, {
+				actorId: "u1",
+				actorKind: "user",
+				text: "Tell me slowly",
+				isolate,
+			});
+			await untilMessages(ws, turn.conversationId, ["user"]);
+			expect(await ws.cancelTurn(scope, turn.turnId)).toBe(true);
+			const outcome = await ws.awaitTurn(scope, turn.turnId, 5_000);
+			expect(outcome).toMatchObject({
+				status: "cancelled",
+				error: "cancelled by user",
+			});
+			const messages = await ws.readMessages(scope, turn.conversationId);
+			expect(messages[0]).toMatchObject({
+				role: "user",
+				content: "Tell me slowly",
+			});
+			const finished = (
+				await ws.readEvents(scope, { conversationId: turn.conversationId })
+			).find((event) => event.type === "turn.finished");
+			expect(finished).toMatchObject({ status: "cancelled" });
+		},
+	);
+
+	test("Stop ends a turn in a conversation longer than 40 messages", async () => {
+		await seedCore();
+		const ws = workspace();
+		let conversationId: string | null = null;
+		for (let i = 0; i < 21; i += 1) {
+			await ws.scriptModel(scope, [{ text: `reply ${i}` }]);
+			const started = await ws.sendTurn(scope, {
+				conversationId,
+				actorId: "u1",
+				actorKind: "user",
+				text: `m ${i}`,
+			});
+			conversationId = started.conversationId;
+			await ws.awaitTurn(scope, started.turnId, 20_000);
+		}
+		await ws.scriptModel(scope, [slowReply]);
+		const turn = await ws.sendTurn(scope, {
+			conversationId,
+			actorId: "u1",
+			actorKind: "user",
+			text: "long chat, then stop",
+		});
+		await untilMessages(ws, turn.conversationId, new Array(43).fill("m"));
+		await ws.cancelTurn(scope, turn.turnId);
+		const startedStop = Date.now();
+		const outcome = await ws.awaitTurn(scope, turn.turnId, 5_000);
+		expect(outcome.status).toBe("cancelled");
+		expect(Date.now() - startedStop).toBeLessThan(2_000);
+	});
+
+	test("a failed turn keeps its user message and finished steps", async () => {
+		await seedCore();
+		const ws = workspace();
+		// The script runs out after the tool call, so the second model call fails.
+		await ws.scriptModel(scope, [
+			{ code: "export default async () => 41 + 1" },
+		]);
+		const turn = await ws.sendTurn(scope, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "Compute it",
+		});
+		expect((await ws.awaitTurn(scope, turn.turnId, 20_000)).status).toBe(
+			"failed",
+		);
+		const messages = await ws.readMessages(scope, turn.conversationId);
+		expect(messages.map((message) => message.role)).toEqual([
+			"user",
+			"assistant",
+			"toolResult",
+		]);
+		expect(JSON.stringify(messages[2])).toContain("42");
+	});
+
+	test("an interrupted turn keeps its steps and the next turn continues from them", async () => {
+		await seedCore();
+		const ws = workspace();
+		await ws.scriptModel(scope, [
+			{ code: "export default async () => 'wrote it'", tokensPerSecond: 4 },
+			slowReply,
+		]);
+		const turn = await ws.sendTurn(scope, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "Write, then explain",
+		});
+		await untilMessages(ws, turn.conversationId, [
+			"user",
+			"assistant",
+			"toolResult",
+		]);
+		// A crash or deploy restart: the object resets mid-turn.
+		await runInDurableObject(ws, (_instance, state) =>
+			state.abort("restart"),
+		).catch(() => {});
+		const restarted = workspace();
+		expect(await restarted.readTurn(scope, turn.turnId)).toMatchObject({
+			status: "failed",
+			error: "interrupted",
+		});
+		const kept = await restarted.readMessages(scope, turn.conversationId);
+		expect(kept.slice(0, 3).map((message) => message.role)).toEqual([
+			"user",
+			"assistant",
+			"toolResult",
+		]);
+		expect(JSON.stringify(kept[2])).toContain("wrote it");
+
+		await restarted.scriptModel(scope, [{ text: "Already written; done." }]);
+		const next = await restarted.sendTurn(scope, {
+			conversationId: turn.conversationId,
+			actorId: "u1",
+			actorKind: "user",
+			text: "Continue",
+		});
+		expect(await restarted.awaitTurn(scope, next.turnId, 20_000)).toMatchObject(
+			{
+				status: "finished",
+				text: "Already written; done.",
+			},
+		);
+	});
+});

@@ -21,8 +21,14 @@ its code runs beside the data.
    and an undo plan.
 4. Steps and tokens land in an event ledger first and are pushed to
    WebSocket subscribers. A late subscriber replays from any sequence number.
-5. Long conversations run their turn in a `TurnFacet` so the object itself
-   stays responsive.
+5. The user's message, each model message and each tool result are saved
+   to the conversation as they finish, so a stopped, failed or restarted
+   turn keeps what it already did. The next turn sees that history; a tool
+   call left without a result gets one saying it may not have finished.
+   Stop is stored as `cancelled`; a restart marks the turn `failed` with
+   `interrupted`. The chat offers Continue after either.
+6. Long conversations run their turn in a `TurnFacet` so the object itself
+   stays responsive. Stop reaches the facet through its `cancel()` call.
 
 ## Surfaces
 

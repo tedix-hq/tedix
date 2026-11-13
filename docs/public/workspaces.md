@@ -97,6 +97,16 @@ Reads never ask. Sign-in, consent and the other steps reserved for a person
 stay with the person, as everywhere in Tedix; see
 [What an AI assistant may do and who says yes](./workers-and-governance.md).
 
+## Stopping a reply
+
+Stop ends the agent's reply; an action that is already running finishes
+first, and nothing after it starts. Your message and every step the agent
+already finished stay in the conversation, including changes it made, so
+the agent can see them next time. The same holds when a reply fails or is
+cut off by a restart. Choose **Continue** under a stopped or cut-off reply
+to let the agent pick up from there; it checks what already happened before
+repeating a change.
+
 ## What self-hosting needs
 
 Workspaces are part of the tenant product, not an add-on: the same
