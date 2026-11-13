@@ -22,6 +22,7 @@ import { applyOsPreferences } from "@/lib/os-presentation";
 import { setOrganizationTheme } from "@/lib/organization-theme";
 import { setPresentationAppearance } from "@/lib/presentation-appearance";
 import {
+	osQuery,
 	operationalContextQueryOptions,
 	userPreferencesQueryOptions,
 } from "@/lib/os-query-options";
@@ -54,7 +55,15 @@ export function useOsPreferences() {
 				expectedRevision: query.data?.revision ?? 0,
 			}),
 		onSuccess: (next) => {
+			const before = query.data?.preferences.decisionCards;
 			queryClient.setQueryData(queryOptions.queryKey, next);
+			if (
+				before?.writingStyle !== next.preferences.decisionCards?.writingStyle ||
+				before?.language !== next.preferences.decisionCards?.language
+			)
+				void queryClient.invalidateQueries({
+					queryKey: osQuery.attention.key(),
+				});
 		},
 		onError: (error) => {
 			// A conflict means the stored row moved. Pull the winner in so the

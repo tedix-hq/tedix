@@ -867,8 +867,8 @@ export function WorkDecisionCard({
 				? yesNoLabel
 				: actionLabel(action);
 	const whyNow =
-		face && "context" in face && face.context
-			? plainDecisionText(face.context)
+		face && "context" in face && (face.story || face.context)
+			? plainDecisionText(face.story ?? face.context ?? "")
 			: "";
 	// Only a Change… button the person can see on the card earns a line.
 	const draftEditable =
@@ -893,15 +893,15 @@ export function WorkDecisionCard({
 						: action.intent === "later"
 							? decisionText("Skips it for now; it comes back next visit.")
 							: undefined;
-	const outcomes: [string, string][] =
+	const outcomes: [string, string, string?][] =
 		faceState && face && !compact && !saved
 			? [
-					...actions.flatMap((action): [string, string][] => {
+					...actions.flatMap((action): [string, string, string?][] => {
 						const effect =
 							action.disabled || action.intent === "delegate"
 								? undefined
 								: effectOf(action);
-						return effect ? [[buttonLabel(action), effect]] : [];
+						return effect ? [[buttonLabel(action), effect, action.id]] : [];
 					}),
 					...(changeOffered
 						? ([
@@ -1105,6 +1105,12 @@ export function WorkDecisionCard({
 											{whyNow && <InlineMarkdown text={whyNow} />}
 										</p>
 									)}
+									{face && "whyMe" in face && face.whyMe && (
+										<Text data-why-me>
+											<strong>{decisionText("Why you:")}</strong>{" "}
+											<InlineMarkdown text={face.whyMe} />
+										</Text>
+									)}
 									{face && (
 										<Text className="fd-recommendation">
 											<strong>{decisionText("Recommended:")}</strong>{" "}
@@ -1123,9 +1129,19 @@ export function WorkDecisionCard({
 											className="fd-outcomes"
 											aria-label={decisionText("What happens")}
 										>
-											{outcomes.map(([label, effect]) => (
-												<div key={label}>
-													<dt>{label}</dt>
+											{outcomes.map(([label, effect, actionId]) => (
+												<div key={actionId ?? label}>
+													<dt
+														data-recommended={
+															(recommended && actionId === recommended.id) ||
+															undefined
+														}
+													>
+														{label}
+														{recommended && actionId === recommended.id && (
+															<span> · {decisionText("Recommended")}</span>
+														)}
+													</dt>
 													<dd>
 														<InlineMarkdown text={effect} />
 													</dd>

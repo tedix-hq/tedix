@@ -181,6 +181,19 @@ export function FeedCard({
 				>
 					<span className="ft-sentence">{story.headline}</span>
 				</Link>
+				{item.presentation?.version === 2 && item.presentation.story && (
+					<div className="grid gap-1">
+						<Text>{item.presentation.story}</Text>
+						{item.presentation.whyMe && (
+							<Text>
+								<strong>Why you:</strong> {item.presentation.whyMe}
+							</Text>
+						)}
+						<Text>
+							<strong>Recommended:</strong> {item.presentation.recommendation}
+						</Text>
+					</div>
+				)}
 				<div className="ft-byline flex-wrap">
 					<Text as="span" className="min-w-0 break-words">
 						{resolved.label}

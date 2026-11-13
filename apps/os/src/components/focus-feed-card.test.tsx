@@ -199,6 +199,30 @@ it("points a pending decision at its Decisions card without repeating the card",
 	expect(namedButton(host, "More")).toBeUndefined();
 });
 
+it("shows the same story and why-you line beside a pending decision", async () => {
+	await mountOne({
+		...items[0]!,
+		kind: "decision",
+		needsAction: true,
+		presentation: {
+			version: 2,
+			title: "Review the workshop plan?",
+			context: "Morgan needs the room choice.",
+			body: "Saves the room.",
+			story: "Morgan needs a room choice. Agreeing saves the proposed room.",
+			whyMe: "You know the group size.",
+			recommendation: "Review first because attendance changed.",
+		},
+	});
+	expect(host.textContent).toContain(
+		"Morgan needs a room choice. Agreeing saves the proposed room.",
+	);
+	expect(host.textContent).toContain("Why you: You know the group size.");
+	expect(host.textContent).toContain(
+		"Recommended: Review first because attendance changed.",
+	);
+});
+
 it("shows a finished result as a green chip with one body line", async () => {
 	await mountOne({
 		...items[0]!,

@@ -10,7 +10,7 @@ import { getCardRevision } from "@tedix/db/queries/work-items/card-revisions";
 import type { BaseContext } from "../rpc/orpc";
 import { requireOrgId } from "../rpc/org-scope";
 import {
-	cardReaderLanguage,
+	cardReaderPreferences,
 	decisionCardProducerContext,
 	generateDecisionCard,
 } from "./decision-card-generator";
@@ -33,6 +33,8 @@ import {
 	bindCardPresentationSource,
 	cardPresentationSourceFingerprint,
 } from "./card-presentation-source";
+
+type ReaderPreferences = Awaited<ReturnType<typeof cardReaderPreferences>>;
 
 const RETRY_DELAYS = [60000, 300000, 1800000] as const;
 
@@ -70,19 +72,19 @@ export async function prepareDeckCardFaces(
 	const deferred = new Set<string>();
 	const writingContexts = new Map<
 		string | undefined,
-		Promise<[string, string | null]>
+		Promise<[string, ReaderPreferences]>
 	>();
-	let language: Promise<string | null> | undefined;
+	let readerPreferences: Promise<ReaderPreferences> | undefined;
 	const writingContext = (card: DeckCard) => async () => {
 		const classId = card.decision?.classId;
 		let pending = writingContexts.get(classId);
 		if (!pending) {
 			const viewerId = context.descopeUserId ?? context.userId ?? null;
 			const orgId = requireOrgId(context);
-			language ??= cardReaderLanguage(context.db, orgId, viewerId);
+			readerPreferences ??= cardReaderPreferences(context.db, orgId, viewerId);
 			pending = Promise.all([
 				readDraftPreferences(context.db, orgId, viewerId, classId),
-				language,
+				readerPreferences,
 			]);
 			writingContexts.set(classId, pending);
 		}
@@ -208,7 +210,7 @@ export async function prepareDeckCardFace(
 	onUnavailable?: () => void,
 	onDeferred?: () => void,
 	retry = false,
-	writingContext?: () => Promise<[string, string | null]>,
+	writingContext?: () => Promise<[string, ReaderPreferences]>,
 ) {
 	if (!context.userId) return null;
 	const orgId = requireOrgId(context);
@@ -264,7 +266,7 @@ export async function prepareDeckCardFace(
 			return existing;
 	}
 	const viewerId = context.descopeUserId ?? context.userId;
-	const [preferences, language] = await (writingContext
+	const [preferences, readerPreferences] = await (writingContext
 		? writingContext()
 		: Promise.all([
 				readDraftPreferences(
@@ -273,7 +275,7 @@ export async function prepareDeckCardFace(
 					viewerId,
 					card.decision?.classId,
 				),
-				cardReaderLanguage(context.db, orgId, viewerId),
+				cardReaderPreferences(context.db, orgId, viewerId),
 			]));
 	const digest = await crypto.subtle.digest(
 		"SHA-256",
@@ -282,7 +284,7 @@ export async function prepareDeckCardFace(
 				source,
 				copySpec,
 				preferences,
-				language,
+				readerPreferences,
 				requestVersion: card.interaction?.request.version,
 			}),
 		),
@@ -344,7 +346,7 @@ export async function prepareDeckCardFace(
 		},
 		(reason) =>
 			console.warn("[decision-card-face] generation failed", { reason }),
-		{ timeoutMs: 20000, requireContext: true },
+		{ timeoutMs: 20000, requireContext: true, requireStory: true },
 	);
 	if (
 		!presentation ||

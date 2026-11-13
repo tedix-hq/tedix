@@ -9,6 +9,14 @@ const copy = {
 };
 
 describe("unsupportedCopyFacts", () => {
+	it.each(["story", "whyMe"])("checks source facts in %s", (field) => {
+		expect(
+			unsupportedCopyFacts(
+				{ ...copy, [field]: "This costs 900 euros." },
+				JSON.stringify(copy),
+			),
+		).toContain("900");
+	});
 	it("accepts facts present in the source, ignoring thousands separators", () => {
 		expect(
 			unsupportedCopyFacts(

@@ -1,4 +1,7 @@
 import type { DecisionCardPreferences } from "@tedix/api-contract/schemas/user-settings";
+import { useEffect, useState } from "react";
+import { Button } from "./kumo/button";
+import { Textarea } from "./kumo/textarea";
 import {
 	decideForMeMode,
 	type DecideForMeMode,
@@ -37,6 +40,11 @@ export function DecisionCardSettings({
 	const { query, save } = useOsPreferences();
 	const preferences = query.data?.preferences;
 	const cards: DecisionCardPreferences = preferences?.decisionCards ?? {};
+	const [writingStyle, setWritingStyle] = useState(cards.writingStyle ?? "");
+	useEffect(
+		() => setWritingStyle(cards.writingStyle ?? ""),
+		[cards.writingStyle],
+	);
 	const update = (next: DecisionCardPreferences) => {
 		if (preferences) save.mutate({ ...preferences, decisionCards: next });
 	};
@@ -60,6 +68,35 @@ export function DecisionCardSettings({
 					className="grid gap-5 px-4 pb-6 sm:px-6"
 					aria-busy={save.isPending}
 				>
+					<section className="grid gap-2">
+						<Text weight="semibold">{decisionText("Writing style")}</Text>
+						<Textarea
+							aria-label={decisionText("Writing style")}
+							value={writingStyle}
+							maxLength={3000}
+							rows={4}
+							onChange={(event) => setWritingStyle(event.target.value)}
+						/>
+						<Text tone="secondary">
+							{decisionText(
+								"Tell Tedix how you want your cards, reminders and feed summaries written. These preferences belong to you.",
+							)}
+						</Text>
+						<Button
+							disabled={
+								!preferences || writingStyle === (cards.writingStyle ?? "")
+							}
+							loading={save.isPending}
+							onClick={() => update({ ...cards, writingStyle })}
+						>
+							{decisionText("Save writing style")}
+						</Button>
+						{save.isError && (
+							<Text tone="error" role="caption">
+								{decisionText("Could not save. Try again.")}
+							</Text>
+						)}
+					</section>
 					<section className="grid gap-2">
 						<Text weight="semibold">{decisionText("Layout")}</Text>
 						<SegmentedControl

@@ -95,6 +95,8 @@ export function subjectIssues(
 	face: {
 		title: string;
 		context?: string;
+		story?: string;
+		whyMe?: string;
 		body: string;
 		recommendation: string;
 	},
@@ -106,13 +108,15 @@ export function subjectIssues(
 		`(?:^|[^\\p{L}])${subject.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:$|[^\\p{L}])`,
 		"iu",
 	);
-	if (!named.test(`${face.title} ${face.context ?? ""}`))
+	if (!named.test(`${face.title} ${face.story ?? face.context ?? ""}`))
 		issues.push("subject_missing");
 	const lines = [
 		face.title,
 		face.context ?? "",
 		face.body,
 		face.recommendation,
+		face.story ?? "",
+		face.whyMe ?? "",
 	];
 	if (
 		lines.some((line) =>

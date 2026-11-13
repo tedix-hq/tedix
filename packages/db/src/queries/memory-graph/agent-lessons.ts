@@ -64,7 +64,11 @@ export async function listApprovedAgentLessons(
 	db: DbQueryClient,
 	tenantScope: TenantScope,
 	topicPrefix: string,
-	options: { viewerUserId?: string | null; limit?: number } = {},
+	options: {
+		viewerUserId?: string | null;
+		limit?: number;
+		personalOnly?: boolean;
+	} = {},
 ): Promise<ApprovedAgentLessonRow[]> {
 	const { organizationId: orgId } = normalizeTenantScope(tenantScope);
 	const owner = sql`json_extract(${memoryFacts.metadata}, '$.learningFeed.ownerUserId')`;
@@ -89,9 +93,16 @@ export async function listApprovedAgentLessons(
 				eq(memoryFacts.organizationId, orgId),
 				gte(memoryFacts.topicKey, topicPrefix),
 				lt(memoryFacts.topicKey, prefixEnd(topicPrefix)),
-				options.viewerUserId
-					? or(orgWide, sql`${owner} = ${options.viewerUserId}`)
-					: orgWide,
+				options.personalOnly
+					? and(
+							eq(memoryFacts.visibility, "private"),
+							options.viewerUserId
+								? sql`${owner} = ${options.viewerUserId}`
+								: sql`0`,
+						)
+					: options.viewerUserId
+						? or(orgWide, sql`${owner} = ${options.viewerUserId}`)
+						: orgWide,
 				eq(memoryFacts.reviewStatus, "confirmed"),
 				eq(memoryFacts.status, "active"),
 				// A confirmed lesson is delivered; one restricted to evidence or

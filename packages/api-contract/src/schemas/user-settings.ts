@@ -157,6 +157,14 @@ const perCardType = <T extends z.ZodType>(value: T) =>
  */
 export const DecisionCardPreferencesSchema = z.object({
 	density: z.enum(["compact", "full"]).optional(),
+	writingStyle: z
+		.string()
+		.trim()
+		.max(3000)
+		.optional()
+		.describe(
+			"This person's writing preferences for cards, reminders and feed summaries; display only",
+		),
 	language: OsLocaleSchema.nullable()
 		.optional()
 		.describe("Language new card summaries are written in; null is English"),

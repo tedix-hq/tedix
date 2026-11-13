@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
 	save: vi.fn(),
 	generate: vi.fn(),
 	preferences: vi.fn(),
-	language: vi.fn(),
+	readerPreferences: vi.fn(),
 }));
 vi.mock("@tedix/db/queries/user-configs", () => ({
 	getUserConfig: mocks.get,
@@ -21,7 +21,7 @@ vi.mock("@tedix/db/queries/work-items/card-presentation", () => ({
 vi.mock("./decision-card-generator", async (importOriginal) => ({
 	...(await importOriginal()),
 	generateDecisionCard: mocks.generate,
-	cardReaderLanguage: mocks.language,
+	cardReaderPreferences: mocks.readerPreferences,
 }));
 vi.mock("./decision-learning", () => ({
 	readDraftPreferences: mocks.preferences,
@@ -77,7 +77,10 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	store.clear();
 	mocks.preferences.mockResolvedValue("");
-	mocks.language.mockResolvedValue(null);
+	mocks.readerPreferences.mockResolvedValue({
+		language: null,
+		writingStyle: "",
+	});
 	mocks.generate.mockResolvedValue(copy);
 	mocks.get.mockImplementation(
 		async (_db, input) => store.get(key(input)) ?? null,
@@ -161,10 +164,10 @@ it("reads writing preferences once per class in a batch and refreshes them on th
 	const cards = [card, { ...card, id: "another-factory-card" }];
 	await prepareDeckCardFaces(context, cards);
 	expect(mocks.preferences).toHaveBeenCalledTimes(1);
-	expect(mocks.language).toHaveBeenCalledTimes(1);
+	expect(mocks.readerPreferences).toHaveBeenCalledTimes(1);
 	await prepareDeckCardFaces(context, cards);
 	expect(mocks.preferences).toHaveBeenCalledTimes(2);
-	expect(mocks.language).toHaveBeenCalledTimes(2);
+	expect(mocks.readerPreferences).toHaveBeenCalledTimes(2);
 });
 
 it("reuses checked display copy, isolates people and organizations, and invalidates changed writing preferences", async () => {
@@ -223,10 +226,18 @@ it("uses the viewer's own wording and language instead of the request recipient'
 	);
 	expect(mocks.save).toHaveBeenCalledTimes(1);
 	expect(await prepareDeckCardFace(other, shared, false)).toEqual(secondCopy);
-	mocks.language.mockResolvedValue("de");
+	mocks.readerPreferences.mockResolvedValue({
+		language: null,
+		writingStyle: "Give concrete context.",
+	});
 	expect(await prepareDeckCardFace(other, shared, false)).toBeNull();
 	await prepareDeckCardFace(other, shared);
 	expect(mocks.generate).toHaveBeenCalledTimes(3);
+	mocks.readerPreferences.mockResolvedValue({
+		language: "de",
+		writingStyle: "Give concrete context.",
+	});
+	expect(await prepareDeckCardFace(other, shared, false)).toBeNull();
 });
 
 it("claims generation once when two tabs ask for the same card", async () => {

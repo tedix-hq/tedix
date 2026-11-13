@@ -6,6 +6,7 @@ type Face = {
 	body: string;
 	recommendation: string;
 	context?: string;
+	story?: string;
 	stakes?: string;
 };
 
@@ -73,7 +74,10 @@ export function missingDecisionFaceFacts(
 	if (!decision || typeof decision !== "object") return gaps;
 	const record = decision as Record<string, unknown>;
 	const waiting = text(record.costOfWaiting);
-	if (waiting && !restates(waiting, [face.context, face.stakes].join(" ")))
+	if (
+		waiting &&
+		!restates(waiting, [face.story ?? face.context, face.stakes].join(" "))
+	)
 		gaps.push({ check: "cost_of_waiting", source: waiting });
 	const approve = Array.isArray(record.options)
 		? (record.options as Record<string, unknown>[]).find(
@@ -84,7 +88,12 @@ export function missingDecisionFaceFacts(
 	if (
 		cost &&
 		!TRIVIAL_COST.test(cost) &&
-		!restates(cost, [face.body, face.stakes, face.context].join(" "))
+		!restates(
+			cost,
+			face.story
+				? [face.story, face.stakes].join(" ")
+				: [face.body, face.stakes, face.context].join(" "),
+		)
 	)
 		gaps.push({ check: "option_cost", source: cost });
 	return gaps;

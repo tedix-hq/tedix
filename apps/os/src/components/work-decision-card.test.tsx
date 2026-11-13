@@ -435,6 +435,26 @@ it("leads with the question, why now with a relative due date, and what each opt
 	).toBeNull();
 });
 
+it("shows the reader's story and a separate why-you line on the card face", async () => {
+	const story = "Morgan needs a room choice. Agreeing saves the proposed room.";
+	await mountFace({
+		presentation: {
+			...FACE,
+			story,
+			whyMe: "You know the group size.",
+			recommendedIntent: "approve",
+		},
+		confidence: null,
+	});
+	expect(host.querySelector("[data-why-now]")?.textContent).toBe(story);
+	expect(host.querySelector("[data-why-me]")?.textContent).toBe(
+		"Why you: You know the group size.",
+	);
+	expect(host.querySelector("[data-recommended]")?.textContent).toBe(
+		"Yes · Recommended",
+	);
+});
+
 it("shows the original ask at once, with no waiting or error face, and keeps actions live", async () => {
 	const decide = await mountFace({ presentation: null, confidence: null });
 	expect(heading()).toBe("Confirm who staffs the booth?");

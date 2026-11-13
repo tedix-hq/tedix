@@ -164,6 +164,24 @@ describe("listApprovedAgentLessons", () => {
 			"widened",
 		]);
 		expect(await ids()).toEqual(["team", "legacy-private", "widened"]);
+		expect(
+			(
+				await listApprovedAgentLessons(
+					db,
+					{ organizationId: "org-1" },
+					"learning-feed:",
+					{ viewerUserId: "user-a", personalOnly: true },
+				)
+			).map((row) => row.id),
+		).toEqual(["mine", "mine-routed"]);
+		expect(
+			await listApprovedAgentLessons(
+				db,
+				{ organizationId: "org-1" },
+				"learning-feed:",
+				{ personalOnly: true },
+			),
+		).toEqual([]);
 	});
 
 	it("lists current lessons whose newest decision is older than the cutoff", async () => {

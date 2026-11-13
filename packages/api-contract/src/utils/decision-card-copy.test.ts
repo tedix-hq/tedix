@@ -9,6 +9,32 @@ import {
 	renderDecisionCardDates,
 	recommendationLean,
 } from "./decision-card-copy";
+it("validates a short story and a separate why-me line within the displayed budget", () => {
+	const face = {
+		version: 2,
+		title: "Keep the plan?",
+		context: "Robin needs a room.",
+		body: "Records your choice.",
+		story: "Robin needs a room choice. Agreeing saves the plan.",
+		whyMe: "You know who will attend.",
+		recommendation: "Keep it because the room is available.",
+	};
+	expect(checkDecisionCardCopy(face)).toEqual([]);
+	expect(decisionCardFaceText(face)).toContain(
+		"Why you: You know who will attend.",
+	);
+	expect(decisionCardFaceText(face)).not.toContain("If yes:");
+	expect(
+		checkDecisionCardCopy({ ...face, story: "Robin needs a room." }),
+	).toContain("story");
+	expect(checkDecisionCardCopy({ ...face, whyMe: "" })).toContain("why_me");
+	expect(
+		checkDecisionCardCopy({
+			...face,
+			story: `Robin needs ${"a ".repeat(60)}room. Agreeing saves it.`,
+		}),
+	).toContain("story");
+});
 it.each([
 	"lane",
 	"executor",

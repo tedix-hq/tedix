@@ -52,6 +52,8 @@ export const DecisionCardPresentationSchema = z.union([
 		),
 		body: line(copySpec.fields.body.maxLength),
 		context: line(copySpec.contextMaxLength).optional(),
+		story: line(600).optional(),
+		whyMe: line(180).optional(),
 		sourceFingerprint: z
 			.string()
 			.regex(/^[a-f0-9]{64}$/)

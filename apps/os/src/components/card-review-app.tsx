@@ -1232,8 +1232,7 @@ export function CardReviewApp({
 								(chip) => chip.label,
 							)}
 							actions={[
-								// A card whose action runs a skill (Draft a reply…) needs no
-								// separate Useful: choosing the action already says so.
+								// A drafting action already records that the suggestion was useful.
 								...(source.doIt === "run_skill" && card.action && actionLabel
 									? []
 									: [
@@ -1241,12 +1240,18 @@ export function CardReviewApp({
 												id: "useful",
 												label: decisionText("Useful"),
 												intent: "approve" as const,
+												description: decisionText(
+													"Records that this suggestion is useful; does not carry it out.",
+												),
 											},
 										]),
 								{
 									id: "not_useful",
 									label: decisionText("Not useful"),
 									intent: "reject",
+									description: decisionText(
+										"Records that this suggestion is not useful.",
+									),
 								},
 								...(card.action && actionLabel
 									? [
@@ -1254,6 +1259,13 @@ export function CardReviewApp({
 												id: "do_it",
 												label: actionLabel,
 												intent: "approve" as const,
+												description: decisionText(
+													source.doIt === "approve"
+														? "Marks this suggestion to do; it does not carry it out."
+														: source.doIt === "copy_and_open"
+															? "Copies the draft and opens the source for you to finish."
+															: "Starts the configured action.",
+												),
 											},
 										]
 									: []),

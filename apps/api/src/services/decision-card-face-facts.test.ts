@@ -73,6 +73,30 @@ const face = {
 	recommendation: "It matches the source.",
 };
 
+it("requires waiting and approval costs in the visible story, not hidden compatibility fields", () => {
+	const decision = {
+		costOfWaiting: "The deadline is 2026-11-03.",
+		options: [option("approve", "EUR 50")],
+	};
+	const copy = {
+		...face,
+		context: "The deadline is 2026-11-03.",
+		body: "Costs EUR 50.",
+		story: "Morgan needs a room. Agreeing saves the booking.",
+	};
+	expect(
+		missingDecisionFaceFacts(copy, decision).map((gap) => gap.check),
+	).toEqual(["cost_of_waiting", "option_cost"]);
+	expect(
+		missingDecisionFaceFacts(
+			{
+				...copy,
+				story: "Morgan needs a room by Nov 3, 2026. Agreeing costs EUR 50.",
+			},
+			decision,
+		),
+	).toEqual([]);
+});
 it.each(producers)(
 	"$producer: accepts a face that restates why now, waiting and yes costs",
 	({ decision, covered }) => {
