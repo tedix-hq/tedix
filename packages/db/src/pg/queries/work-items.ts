@@ -3,7 +3,7 @@ import type {
 	WorkItemDisposition,
 	WorkItemKind,
 } from "../../schema/work-items";
-import { normalizeWorkItemAcceptanceContract } from "../../queries/work-items/normalization";
+import { normalizeWorkItemRow } from "./work-items/normalization";
 import type { PgQueryClient } from "../query-client";
 import { workAttempts, workItems } from "../schema/work-items";
 
@@ -22,14 +22,7 @@ export async function getWorkItemById(
 			),
 		)
 		.limit(1);
-	return row
-		? {
-				...row,
-				acceptanceContract: normalizeWorkItemAcceptanceContract(
-					row.acceptanceContract,
-				),
-			}
-		: null;
+	return row ? normalizeWorkItemRow(row) : null;
 }
 
 export async function listWorkItems(
@@ -71,14 +64,7 @@ export async function listWorkItems(
 		)
 		.orderBy(desc(workItems.createdAt))
 		.limit(options.limit ?? 100)
-		.then((rows) =>
-			rows.map((row) => ({
-				...row,
-				acceptanceContract: normalizeWorkItemAcceptanceContract(
-					row.acceptanceContract,
-				),
-			})),
-		);
+		.then((rows) => rows.map(normalizeWorkItemRow));
 }
 
 export async function listLatestWorkAttemptSummaries(
