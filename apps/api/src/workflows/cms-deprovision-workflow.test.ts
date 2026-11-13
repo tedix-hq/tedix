@@ -25,9 +25,7 @@ vi.mock("@tedix/db/queries/cms-deprovision-operations", () => ({
 	getCmsDeprovisionOperation: mocks.getOperation,
 	updateCmsDeprovisionOperation: mocks.updateOperation,
 	completeCmsDeprovisionOperation: mocks.completeOperation,
-}));
-vi.mock("@tedix/db/queries/cms-restore-fences", () => ({
-	countCmsRestorePermitsForSite: mocks.countPermits,
+	countCmsDeprovisionBlockingPermits: mocks.countPermits,
 }));
 vi.mock("@tedix/db/queries/cms-sites", () => ({
 	getCmsSiteByIdForOrganization: mocks.getSite,
@@ -150,7 +148,11 @@ describe("CmsDeprovisionWorkflow", () => {
 	});
 
 	it("fails closed and records failure when the D1 drain read fails", async () => {
-		mocks.countPermits.mockRejectedValue(new Error("D1 unavailable"));
+		mocks.countPermits.mockRejectedValue(
+			new Error("Failed query: select count(*)", {
+				cause: new Error("D1 unavailable"),
+			}),
+		);
 		const { workflow, event, step, fetch } = harness(
 			Response.json(completeProviderResult),
 		);
@@ -164,23 +166,23 @@ describe("CmsDeprovisionWorkflow", () => {
 			{},
 			expect.objectContaining({
 				status: "failed",
-				errors: ["D1 unavailable"],
+				errors: ["CMS mutation drain could not be read: D1 unavailable"],
 			}),
 		);
 	});
 
-	it("leaves resources intact when an orphan permit never drains", async () => {
+	it("leaves resources intact when a recent permit never drains", async () => {
 		vi.useFakeTimers();
 		try {
-			mocks.countPermits.mockResolvedValue(1);
+			mocks.countPermits.mockResolvedValue(2);
 			const { workflow, event, step, fetch } = harness(
 				Response.json(completeProviderResult),
 			);
 			const run = workflow.run(event as never, step as never);
 			const outcome = expect(run).rejects.toThrow(
-				"CMS mutations are still in progress",
+				"2 CMS mutations are still in progress",
 			);
-			await vi.advanceTimersByTimeAsync(538_000);
+			await vi.advanceTimersByTimeAsync(478_000);
 			await outcome;
 			expect(mocks.setSiteStatus).not.toHaveBeenCalled();
 			expect(fetch).not.toHaveBeenCalled();
