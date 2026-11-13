@@ -2034,7 +2034,8 @@ describe("dispatcher admission", () => {
 							event.verb === "dispatch-attempts" &&
 							event.args[6] === item(1).id,
 					),
-				).toHaveLength(2);
+					// The live lease is read once, then again only when it runs out.
+				).toHaveLength(1);
 				for (const release of releases) release();
 				await dispatcher.drain();
 			} finally {
@@ -4595,6 +4596,47 @@ it("asks the accountable owner once for a missing delegation and never adds it",
 	expect(readFileSync(join(f.dir, "dispatcher.log"), "utf8")).toContain(
 		"Request request-1",
 	);
+});
+
+it("reads an item waiting on its owner once per window, not once per pass", async () => {
+	const f = fixture();
+	f.items.splice(0, f.items.length, {
+		...item(1),
+		description: "Send an email as the owner",
+	});
+	const base = f.deps.cli!;
+	f.deps.cli = async <T>(args: string[], env: NodeJS.ProcessEnv) =>
+		args[5] === "interaction-create"
+			? ({ id: "request-1" } as T)
+			: base<T>(args, env);
+	const reads = () => f.events.filter((e) => e.verb === "dispatch-get").length;
+	const dispatcher = f.restart();
+	for (let pass = 0; pass < 3; pass++) await dispatcher.tick();
+	expect(reads()).toBe(1);
+	const clock = spyOn(Date, "now").mockReturnValue(Date.now() + 5 * 60_000);
+	try {
+		await dispatcher.tick();
+		expect(reads()).toBe(2);
+		// The owner's Delegation comment is seen on the next read after the window.
+		f.control.comments.push({
+			authorType: "user",
+			authorId: "fictional-owner",
+			body: "Delegation: codex work-version=2 Send only the fictional draft.",
+		});
+		await dispatcher.tick();
+		expect(reads()).toBe(2);
+		clock.mockReturnValue(Date.now() + 5 * 60_000);
+		await dispatcher.tick();
+		expect(reads()).toBeGreaterThan(2);
+		await until(() => f.releases.length === 1);
+		expect(readFileSync(join(f.dir, "dispatcher.log"), "utf8")).toContain(
+			'"event":"admitted"',
+		);
+		f.releases[0]!();
+		await dispatcher.drain();
+	} finally {
+		clock.mockRestore();
+	}
 });
 
 it("routes an ownerless delegation blocker to the signed-in lane operator", () => {

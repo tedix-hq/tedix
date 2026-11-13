@@ -593,6 +593,12 @@ const READ_BUDGET_MS = 60_000;
 const READ_CEILING_MS = 5 * 60_000;
 /** How often an `--accept-proposed` dispatcher sweeps proposals. */
 const PROPOSAL_SWEEP_INTERVAL_MS = 5 * 60_000;
+/**
+ * How long a per-item answer that kept the item waiting stands before the
+ * dispatcher reads that item again. Every lane shares one login's gateway
+ * budget, so a wait that cannot end this pass must not cost a read each pass.
+ */
+const HELD_ITEM_RECHECK_MS = 5 * 60_000;
 /** Spreads dispatchers that wake on the same cooldown end. */
 const COOLDOWN_WAKE_JITTER_MS = 5_000;
 /** A deferred wait with no declared recheck time is revisited after this delay. */
@@ -1510,6 +1516,8 @@ export class LaneDispatcher {
 	private proposalsSweptAt = 0;
 	private ticking = false;
 	private delegationRequests = new Map<string, string>();
+	/** When a still-waiting item or orphan may next cost a per-item read. */
+	private recheckAfter = new Map<string, number>();
 	private unavailable = new Map<LocalExecutor, UnavailableRunner>();
 	private health: LocalDispatcherHealth[] = [];
 	private healthCheckedAt = 0;
@@ -1635,6 +1643,16 @@ export class LaneDispatcher {
 			mode: 0o600,
 		});
 		process.stderr.write(`${line}\n`);
+	}
+	private holdRecheck(key: string, until?: number) {
+		const now = Date.now();
+		if (this.recheckAfter.size > 2048)
+			for (const [held, at] of this.recheckAfter)
+				if (at <= now) this.recheckAfter.delete(held);
+		this.recheckAfter.set(
+			key,
+			Math.min(until ?? Number.POSITIVE_INFINITY, now + HELD_ITEM_RECHECK_MS),
+		);
 	}
 	private path(item: Pick<DispatchItem, "id" | "version">) {
 		return join(this.directory, `${item.id}-${item.version}.json`);
@@ -1836,12 +1854,14 @@ export class LaneDispatcher {
 				await this.recoverOrphan(row);
 				continue;
 			}
+			const orphanKey = `orphan:${row.itemId}:${row.attemptId}`;
 			if (
 				!this.running.has(row.itemId) &&
 				row.pid &&
 				alive(row.pid) &&
 				row.session &&
-				row.attemptId
+				row.attemptId &&
+				Date.now() >= (this.recheckAfter.get(orphanKey) ?? 0)
 			) {
 				const history = await this.call<{
 					data: WorkAttempt[];
@@ -1856,6 +1876,16 @@ export class LaneDispatcher {
 				const attempt = history.data.find(
 					(attempt) => attempt.id === row.attemptId,
 				);
+				// A live lease is read again when it runs out; a process that
+				// cannot be verified stays as it is until the window passes.
+				const leaseEnds =
+					attempt && !attempt.outcome && attempt.expiresAt
+						? Date.parse(attempt.expiresAt)
+						: Number.NaN;
+				this.holdRecheck(
+					orphanKey,
+					leaseEnds > Date.now() ? leaseEnds : undefined,
+				);
 				if (
 					history.nextCursor === null &&
 					attempt?.externalSessionKey === row.session &&
@@ -1867,6 +1897,7 @@ export class LaneDispatcher {
 						reapLaneProcess(row.pid, row.session, row.processIdentity, row.repo)
 					) {
 						row.note = orphanStopNote(row);
+						this.recheckAfter.delete(orphanKey);
 						await this.recoverOrphan(row, history);
 						this.log(
 							"orphan-stopped",
@@ -1932,7 +1963,13 @@ export class LaneDispatcher {
 					this.options.coordinated,
 				);
 				let current = item;
-				if (reason?.startsWith("Possible human-reserved")) {
+				// The owner's answer arrives as a comment, which only the per-item
+				// read shows; an unanswered item is read again after the window.
+				const heldKey = `delegation:${item.id}:${item.version}`;
+				if (
+					reason?.startsWith("Possible human-reserved") &&
+					Date.now() >= (this.recheckAfter.get(heldKey) ?? 0)
+				) {
 					const detail = await this.call<{
 						workItem: DispatchItem;
 						comments: WorkItemComment[];
@@ -1944,6 +1981,8 @@ export class LaneDispatcher {
 						this.options.executor,
 						this.options.coordinated,
 					);
+					if (reason) this.holdRecheck(heldKey);
+					else this.recheckAfter.delete(heldKey);
 				}
 				if (!reason && item.metadata?.executor === "devin") {
 					const status = this.deps.devinAvailability();
