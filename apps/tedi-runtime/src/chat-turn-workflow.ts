@@ -74,7 +74,10 @@ import {
 	isInferenceBudgetExhaustedError,
 } from "./cron-budget-control";
 import type { AgentTediDO } from "./do";
-import { recoverDurableObjectDeploymentReset } from "./durable-object-recovery";
+import {
+	recoverDurableObjectDeploymentReset,
+	recoverDurableObjectTurnReset,
+} from "./durable-object-recovery";
 import { providerErrorWorkflowResult } from "./provider-error-settlement";
 import { runtimeErrorWorkflowResult } from "./runtime-error-settlement";
 
@@ -192,9 +195,11 @@ export class ChatTurnWorkflow extends AgentWorkflow<
 			runFacetTurn: async (computerContinuation) => {
 				let raw: unknown;
 				try {
-					raw = await this.withRecoverableFreshAgent(params, (agent) =>
-						agent.runFacetWorkflowTurn(
-							buildFacetWorkflowTurnInput(params, computerContinuation),
+					raw = await recoverDurableObjectTurnReset(() =>
+						this.withFreshAgent(params, (agent) =>
+							agent.runFacetWorkflowTurn(
+								buildFacetWorkflowTurnInput(params, computerContinuation),
+							),
 						),
 					);
 				} catch (error) {

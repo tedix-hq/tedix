@@ -15,17 +15,18 @@ export function isDurableObjectDeploymentResetError(error: unknown): boolean {
  * Additional runtime-loss transients (beyond the deploy-reset patterns above)
  * that mean the DO hosting a turn vanished mid-flight rather than the turn
  * genuinely failing: an isolate OOM eviction and an internal Durable Object
- * storage reset. Kept separate from the deploy-reset set because the immediate
- * one-shot RPC recovery ({@link recoverDurableObjectDeploymentReset}) only makes
- * sense for the deploy-collision case; these broader transients are handled at
- * the workflow SETTLE path ({@link isTransientWorkflowRedriveError}).
+ * storage reset.
  */
-const RUNTIME_LOSS_TRANSIENT_PATTERNS = [
+const DURABLE_OBJECT_TURN_RESET_PATTERNS = [
 	/exceeded (?:its )?memory limit/i,
 	/out of memory/i,
 	/\bisolate\b.*\b(?:evicted|reset|exceeded)/i,
 	/durable object.*(?:reset|internal error)/i,
 	/storage.*(?:reset|reset because)/i,
+];
+
+const RUNTIME_LOSS_TRANSIENT_PATTERNS = [
+	...DURABLE_OBJECT_TURN_RESET_PATTERNS,
 	// Cloudflare's own Workflows engine failed the attempt; the turn did not.
 	/attempt failed due to internal workflows? error/i,
 	// A deploy dropped the parent DO connection or its facet tool registry; the
@@ -57,6 +58,15 @@ export function isTransientWorkflowRedriveError(error: unknown): boolean {
 	);
 }
 
+/** Parent losses that can be retried before a resumed facet's registry wait expires. */
+export function isDurableObjectTurnResetError(error: unknown): boolean {
+	if (isDurableObjectDeploymentResetError(error)) return true;
+	const message = error instanceof Error ? error.message : String(error);
+	return DURABLE_OBJECT_TURN_RESET_PATTERNS.some((pattern) =>
+		pattern.test(message),
+	);
+}
+
 /**
  * Reacquire and retry one idempotent Agent RPC immediately when Cloudflare
  * retires the target Durable Object during a code deployment. The surrounding
@@ -70,6 +80,18 @@ export async function recoverDurableObjectDeploymentReset<T>(
 		return await operation();
 	} catch (error) {
 		if (!isDurableObjectDeploymentResetError(error)) throw error;
+		return operation();
+	}
+}
+
+/** Re-enter an idempotent turn once when its parent isolate vanishes mid-RPC. */
+export async function recoverDurableObjectTurnReset<T>(
+	operation: () => Promise<T>,
+): Promise<T> {
+	try {
+		return await operation();
+	} catch (error) {
+		if (!isDurableObjectTurnResetError(error)) throw error;
 		return operation();
 	}
 }

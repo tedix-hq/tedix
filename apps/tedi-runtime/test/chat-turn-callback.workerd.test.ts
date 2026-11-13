@@ -37,6 +37,13 @@ it("passes the actual native Workflow instance through the admitted parent bound
 	expect(f.stats.modelCalls).toBe(1);
 });
 
+it("re-drives a workstation turn on a fresh parent after an isolate reset", async () => {
+	const f = await probe({ turnResetOnce: true });
+	expect(f.error).toBeUndefined();
+	expect(f.result?.text).toBe("fixture response");
+	expect(f.stats.modelCalls).toBe(2);
+});
+
 for (const settled of [false, true]) {
 	it.each([
 		[

@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import {
 	isDurableObjectDeploymentResetError,
+	isDurableObjectTurnResetError,
 	isTransientWorkflowRedriveError,
 	recoverDurableObjectDeploymentReset,
+	recoverDurableObjectTurnReset,
 } from "./durable-object-recovery";
 
 assert.equal(
@@ -37,10 +39,25 @@ await assert.rejects(
 );
 assert.equal(failureCalls, 1);
 
-// (b) DEPLOY-WINDOW DO RESETS: the workflow SETTLE path re-drives a broader set
-// of transient runtime losses than the immediate one-shot RPC recovery — the
-// deploy `code was updated` reset (the observed objective-review /
-// skill-development cron failure), isolate OOM, and internal storage reset.
+assert.equal(
+	isDurableObjectTurnResetError(
+		new Error("The isolate exceeded its memory limit and was reset"),
+	),
+	true,
+);
+let turnRecoveryCalls = 0;
+const recoveredTurn = await recoverDurableObjectTurnReset(async () => {
+	turnRecoveryCalls += 1;
+	if (turnRecoveryCalls === 1)
+		throw new Error("The isolate exceeded its memory limit and was reset");
+	return "recovered turn";
+});
+assert.equal(recoveredTurn, "recovered turn");
+assert.equal(turnRecoveryCalls, 2);
+
+// (b) DEPLOY-WINDOW DO RESETS: terminal reconciliation also handles losses that
+// cannot be retried at the parent RPC boundary, including Workflow-engine and
+// gateway failures plus a registry wait that exhausted its deadline.
 for (const message of [
 	"Durable Object reset because its code was updated.",
 	"The isolate exceeded its memory limit and was reset",
