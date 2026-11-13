@@ -4,6 +4,8 @@
  * what the platform recorded about that run, read by the API's retry rules
  * and by Activity.
  */
+import { isRecord } from "./is-record";
+
 export interface OwnerToolExecutionRecord {
 	status: "queued" | "running" | "executed" | "failed";
 	nextAttemptAt?: string;
@@ -25,10 +27,6 @@ export interface OwnerToolExecutionRecord {
 	/** An owner or admin cleared it from the waiting list; it never runs again. */
 	dismissedAt?: string;
 	dismissedBy?: string;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 /** The execution record on a request payload, or null when there is none. */

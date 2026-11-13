@@ -13,9 +13,9 @@ import {
 	handleLocalRpc,
 	LOCAL_FIXTURE_IDS as IDS,
 	LOCAL_RPC_PROCEDURES,
-	LOCAL_WIDGET_RESOURCE_URI,
 	resetLocalFixtures,
 } from "./local-fixtures";
+import { LOCAL_WIDGET_RESOURCE_URI } from "./local-fixtures/core";
 import { localWidgetResource } from "./local-api-plugin";
 import { uid } from "./demo-pack";
 import opportunityCardsApp from "./demo-pack/opportunity-cards-app.json";

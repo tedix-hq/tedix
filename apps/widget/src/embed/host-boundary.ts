@@ -1,3 +1,5 @@
+import { escapeHtml } from "@tedix/chat-transport/escape-html";
+
 const BLOCKED_HOST_PATH =
 	/^\/(?:api|auth|cli|mcp|widgets|sandbox_proxy)(?:\/|$)/;
 
@@ -18,11 +20,7 @@ export interface EmbeddedPageContext {
 
 /** Escape host- or model-authored text before it enters Shadow DOM markup. */
 export function escapeEmbeddedHtml(value: unknown): string {
-	return String(value).replace(
-		/[&<>"]/g,
-		(character) =>
-			({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[character]!,
-	);
+	return escapeHtml(String(value));
 }
 
 /** Branding accents stay CSS colors, never arbitrary CSS input. */

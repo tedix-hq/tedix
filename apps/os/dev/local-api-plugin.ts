@@ -12,9 +12,11 @@ import {
 	handleLocalGuestShare,
 	handleLocalPublicBlueprint,
 	handleLocalRpc,
+} from "./local-fixtures";
+import {
 	LOCAL_WIDGET_APP_SLUG,
 	LOCAL_WIDGET_RESOURCE_URI,
-} from "./local-fixtures";
+} from "./local-fixtures/core";
 
 const SSE_STREAM_PATH =
 	/^\/api\/kernel\/runtime\/conversations\/[^/]+\/events\/stream(?:\?|$)/;

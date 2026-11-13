@@ -29,10 +29,10 @@ import {
 } from "./payments-policy";
 import {
 	type PaymentProof,
-	stableStringify,
 	getRequirementsResource,
 	redactedPaymentProof,
 } from "./payments-requirements";
+import { stableStringify } from "@tedix/api-contract/utils/stable-json";
 
 function optionalJsonRecord(
 	value: unknown,

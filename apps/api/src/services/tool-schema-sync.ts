@@ -80,10 +80,10 @@ import {
 	projectionContractHashForSourceHash,
 	projectSchemas,
 	sha256,
-	stableStringify,
 	type SyncColumn,
 	targetColumns,
 } from "./tool-schema-projection";
+import { stableStringify } from "@tedix/api-contract/utils/stable-json";
 
 /**
  * Message for a row write that failed. A transient D1 failure (D1 returned an

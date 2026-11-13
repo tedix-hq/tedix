@@ -17,14 +17,11 @@ import {
 	type ApproverEditsRecord,
 	MAX_APPROVAL_EDITABLE_FIELDS,
 } from "../schemas/approval-edits";
+import { isRecord } from "./is-record";
 
 const SCALAR_TYPES = new Set(["string", "number", "integer", "boolean"]);
 const MAX_PROPERTY_SCHEMA_LENGTH = 2_000;
 const MAX_EDIT_VALUE_LENGTH = 8_000;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
 
 /** Edits run with the requester's credentials, so routing needs explicit policy. */
 function destinationLikeInput(

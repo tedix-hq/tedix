@@ -7,6 +7,7 @@ import { resolve } from "node:path";
 import { findNodeAtLocation, parseTree } from "jsonc-parser";
 import { parsePushRanges } from "../ci/push-range-selection.mjs";
 import { detachedGitEnv } from "./git-env";
+import { isRecord } from "@tedix/api-contract/utils/is-record";
 
 /**
  * Deploy configs whose account/database ids and vars the private export
@@ -328,10 +329,6 @@ interface ContentAllowlistEntry {
 	reason: string;
 	rule: string;
 	sha256: string;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function parseEntry(

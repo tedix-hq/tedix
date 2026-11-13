@@ -13,7 +13,7 @@ import type {
 	TediProvisionalOutcome,
 } from "@tedix/db/schema/approvals";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
-import { stableStringify } from "../lib/stable-json";
+import { stableStringify } from "@tedix/api-contract/utils/stable-json";
 
 async function recordDigest(value: unknown): Promise<string> {
 	return `sha256:${await sha256Hex(stableStringify(value))}`;

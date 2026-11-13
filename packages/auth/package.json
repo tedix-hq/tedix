@@ -67,6 +67,7 @@
 	"dependencies": {
 		"@descope/node-sdk": "^2.22.0",
 		"@tedix/api-contract": "workspace:*",
+		"@tedix/chat-transport": "workspace:*",
 		"@tedix/mcp-shared": "workspace:*",
 		"@tedix/ssrf-guard": "workspace:*",
 		"@tedix/tenant-directory": "workspace:*",

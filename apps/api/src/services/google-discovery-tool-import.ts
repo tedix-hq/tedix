@@ -15,7 +15,7 @@ import type { AppMetadata } from "@tedix/db/schema/apps";
 import { toJsonRecord } from "@tedix/db/utils/json";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
-import { stableStringify } from "../lib/stable-json";
+import { stableStringify } from "@tedix/api-contract/utils/stable-json";
 
 type JsonObject = Record<string, unknown>;
 type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";

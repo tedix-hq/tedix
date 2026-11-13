@@ -9,7 +9,8 @@ import {
 	inlineOsExportImages,
 	type OsExportAssetReader,
 } from "./os-export-images";
-import { escapeHtml, OS_EXPORT_RESOURCE_WAIT } from "./os-output-html";
+import { escapeHtml } from "@tedix/chat-transport/escape-html";
+import { OS_EXPORT_RESOURCE_WAIT } from "./os-output-html";
 
 /** Keep CDN-negotiated WebP images readable by the native Office writer. */
 export async function prepareOsPptxImages(

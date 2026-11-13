@@ -27,7 +27,7 @@ import { toJsonRecord } from "@tedix/db/utils/json";
 import { parse as parseYaml } from "yaml";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
-import { stableStringify } from "../lib/stable-json";
+import { stableStringify } from "@tedix/api-contract/utils/stable-json";
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 
 type JsonObject = Record<string, unknown>;

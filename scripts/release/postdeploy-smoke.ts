@@ -34,6 +34,7 @@
 
 import { writeFileSync } from "node:fs";
 import { McpNativeBootstrapSchema } from "../../packages/api-contract/src/schemas/mcp-native-transport.ts";
+import { isRecord } from "@tedix/api-contract/utils/is-record";
 
 /** Must equal TEDIX_EXTERNAL_AGENT_WORKLOAD_AUDIENCE in @tedix/auth (tested). */
 export const WORKLOAD_AUDIENCE =
@@ -69,10 +70,6 @@ export interface SmokeOptions {
 	principal?: string;
 	sessionKey: string;
 	report?: string;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function message(error: unknown): string {

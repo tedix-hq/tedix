@@ -10,11 +10,7 @@ import {
 } from "@tedix/api-contract/schemas/os-workspaces";
 import { slideElementStyle } from "@tedix/api-contract/utils/presentation-style";
 import { describe, expect, it, vi } from "vite-plus/test";
-import {
-	escapeHtml,
-	renderOsOutputHtml,
-	OS_EXPORT_RESOURCE_WAIT,
-} from "./os-output-html";
+import { renderOsOutputHtml, OS_EXPORT_RESOURCE_WAIT } from "./os-output-html";
 
 const revisionMeta = { revision: 3, createdAt: "2026-08-13T00:00:00.000Z" };
 
@@ -175,15 +171,6 @@ describe("export resource loading", () => {
 			"https://fonts.googleapis.com/css2?family=DM+Sans:wght@400",
 		);
 		expect(html).not.toContain("private.png");
-	});
-});
-
-describe("escapeHtml", () => {
-	it("escapes every HTML-significant character and keeps the rest", () => {
-		expect(escapeHtml(`<script>alert("x&y")</script> 'q'`)).toBe(
-			"&lt;script&gt;alert(&quot;x&amp;y&quot;)&lt;/script&gt; &#39;q&#39;",
-		);
-		expect(escapeHtml("plain text 123")).toBe("plain text 123");
 	});
 });
 

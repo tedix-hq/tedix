@@ -9,6 +9,7 @@ import { richTextFromBlocks } from "@tedix/api-contract/utils/os-document";
  */
 
 import { formatWorkbookNumber } from "@tedix/api-contract/utils/workbook-number-format";
+import { escapeHtml } from "@tedix/chat-transport/escape-html";
 import {
 	parseSlideText,
 	slideElementMarkup,
@@ -71,21 +72,6 @@ function isExportImage(source: string): boolean {
 	return (
 		/^data:image\/(?:png|jpeg|gif|webp|svg\+xml);/i.test(source) ||
 		new RegExp(OS_EXPORT_REQUEST_PATTERNS[0]!).test(source)
-	);
-}
-
-const HTML_ESCAPES: Record<string, string> = {
-	"&": "&amp;",
-	"<": "&lt;",
-	">": "&gt;",
-	'"': "&quot;",
-	"'": "&#39;",
-};
-
-export function escapeHtml(text: string): string {
-	return text.replace(
-		/[&<>"']/g,
-		(character) => HTML_ESCAPES[character] ?? character,
 	);
 }
 

@@ -29,6 +29,7 @@ import {
 	OPEN_WORLD_ENDPOINTS,
 	ORG_INJECT_ROUTERS,
 } from "./tool-schema-overrides";
+import { stableStringify } from "@tedix/api-contract/utils/stable-json";
 
 type SchemaColumn = "inputSchema" | "outputSchema";
 export type SyncColumn =
@@ -48,16 +49,6 @@ export type JsonObject = Record<string, unknown>;
 type WidgetOverride = NonNullable<
 	ToolSchemaSyncInput["widgetOverrides"]
 >[string];
-
-export function stableStringify(value: unknown): string {
-	if (value === null || typeof value !== "object") return JSON.stringify(value);
-	if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-	const obj = value as JsonObject;
-	return `{${Object.keys(obj)
-		.sort()
-		.map((key) => `${JSON.stringify(key)}:${stableStringify(obj[key])}`)
-		.join(",")}}`;
-}
 
 function jsonEqual(left: unknown, right: unknown): boolean {
 	return stableStringify(left ?? null) === stableStringify(right ?? null);

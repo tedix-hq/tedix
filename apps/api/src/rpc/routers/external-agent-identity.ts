@@ -110,6 +110,7 @@ import {
 	resolveCallerOwnerHostSession,
 	verifiedActiveUserMembership,
 } from "./work-items-principal";
+import { sha256Hex } from "@tedix/worker-kit/crypto";
 
 /** Reserved: only openOwnerHostSession mints principals with this key prefix. */
 const OWNER_HOST_PRINCIPAL_KEY_PREFIX = "owner-host-";
@@ -177,16 +178,6 @@ function m2mBinding(principal: {
 }
 
 const M2M_BINDING_TAG = "external-agent-binding";
-
-async function sha256Hex(value: string): Promise<string> {
-	const digest = await crypto.subtle.digest(
-		"SHA-256",
-		new TextEncoder().encode(value),
-	);
-	return Array.from(new Uint8Array(digest), (byte) =>
-		byte.toString(16).padStart(2, "0"),
-	).join("");
-}
 
 function workloadAllowedScopes(metadata: unknown): string[] {
 	if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
