@@ -8,6 +8,7 @@ import { toJsonRecord } from "@tedix/db/utils/json";
 import type { BaseContext } from "../rpc/orpc";
 import { requireOrgId } from "../rpc/org-scope";
 import {
+	cardReaderLanguage,
 	decisionCardProducerContext,
 	generateDecisionCard,
 } from "./decision-card-generator";
@@ -25,13 +26,8 @@ import {
 } from "@tedix/api-contract/utils/decision-card-copy";
 import { readDraftPreferences } from "./decision-learning";
 import type { DecisionLearningModel } from "@tedix/api-contract/schemas/decision-learning";
-import { draftLearningContext } from "@tedix/api-contract/utils/decision-learning";
 import { saveDecisionCardPresentation } from "@tedix/db/queries/work-items/card-presentation";
-import { hasReviewTargetDeadline } from "@tedix/api-contract/utils/deck-ask";
-import {
-	bindCardPresentationSource,
-	cardPresentationSourceFingerprint,
-} from "./card-presentation-source";
+import { bindCardPresentationSource } from "./card-presentation-source";
 
 const RETRY_DELAYS = [60000, 300000, 1800000] as const;
 
@@ -67,6 +63,26 @@ export async function prepareDeckCardFaces(
 ) {
 	const unavailable = new Set<string>();
 	const deferred = new Set<string>();
+	const writingContexts = new Map<
+		string | undefined,
+		Promise<[string, string | null]>
+	>();
+	let language: Promise<string | null> | undefined;
+	const writingContext = (card: DeckCard) => async () => {
+		const classId = card.decision?.classId;
+		let pending = writingContexts.get(classId);
+		if (!pending) {
+			const viewerId = context.descopeUserId ?? context.userId ?? null;
+			const orgId = requireOrgId(context);
+			language ??= cardReaderLanguage(context.db, orgId, viewerId);
+			pending = Promise.all([
+				readDraftPreferences(context.db, orgId, viewerId, classId),
+				language,
+			]);
+			writingContexts.set(classId, pending);
+		}
+		return pending;
+	};
 	const faces = await Promise.all(
 		cards.map((card) =>
 			prepareDeckCardFace(
@@ -77,6 +93,7 @@ export async function prepareDeckCardFaces(
 				() => unavailable.add(card.id),
 				() => deferred.add(card.id),
 				retry,
+				writingContext(card),
 			),
 		),
 	);
@@ -94,6 +111,7 @@ export async function prepareDeckCardFaces(
 				() => unavailable.add(card.id),
 				undefined,
 				retry,
+				writingContext(card),
 			);
 			if (!context.waitUntil) faces[index] = face;
 		}),
@@ -133,6 +151,7 @@ export function deckCardWritingSource(card: DeckCard) {
 		kind: card.kind,
 		metadata: {
 			absoluteDates: { dueAt: card.dueAt, deadline: card.deadline },
+			reason: request?.metadata.reason,
 			sourceOptions: AttentionOfferedChoicesSchema.safeParse(request?.metadata)
 				.data?.decisionCard?.options,
 			producerContext: card.factory
@@ -180,10 +199,11 @@ export async function prepareDeckCardFace(
 	context: BaseContext,
 	card: DeckCard,
 	generate = true,
-	model?: DecisionLearningModel,
+	_model?: DecisionLearningModel,
 	onUnavailable?: () => void,
 	onDeferred?: () => void,
 	retry = false,
+	writingContext?: () => Promise<[string, string | null]>,
 ) {
 	if (!context.userId) return null;
 	const orgId = requireOrgId(context);
@@ -208,36 +228,29 @@ export async function prepareDeckCardFace(
 		card.interaction?.request.metadata.sampleData === true
 	)
 		return existing ?? null;
-	const request = card.interaction?.request;
-	const currentDeadline =
-		!request ||
-		!hasReviewTargetDeadline(request.metadata) ||
-		(existing?.version === 2 &&
-			existing.sourceFingerprint ===
-				(await cardPresentationSourceFingerprint(request)));
-	// Interaction projections are fenced by request version in listDecisionCardPresentations.
-	// Changing writing preferences must not hide already-saved copy on every read.
-	if (
-		existing?.version === 2 &&
-		currentDeadline &&
-		existing.context &&
-		!checkDecisionCardCopy(existing).length &&
-		faceKeepsSubject(existing, source)
-	)
-		return existing;
-	const preferences = model
-		? draftLearningContext(model, card.decision?.classId)
-		: await readDraftPreferences(
-				context.db,
-				orgId,
-				card.interaction?.request.requestedFromId ??
-					context.descopeUserId ??
-					null,
-				card.decision?.classId,
-			);
+	const viewerId = context.descopeUserId ?? context.userId;
+	const [preferences, language] = await (writingContext
+		? writingContext()
+		: Promise.all([
+				readDraftPreferences(
+					context.db,
+					orgId,
+					viewerId,
+					card.decision?.classId,
+				),
+				cardReaderLanguage(context.db, orgId, viewerId),
+			]));
 	const digest = await crypto.subtle.digest(
 		"SHA-256",
-		new TextEncoder().encode(JSON.stringify({ source, copySpec, preferences })),
+		new TextEncoder().encode(
+			JSON.stringify({
+				source,
+				copySpec,
+				preferences,
+				language,
+				requestVersion: card.interaction?.request.version,
+			}),
+		),
 	);
 	const fingerprint = [...new Uint8Array(digest)]
 		.map((byte) => byte.toString(16).padStart(2, "0"))
@@ -292,10 +305,7 @@ export async function prepareDeckCardFace(
 		{
 			...source,
 			orgId,
-			targetId:
-				card.interaction?.request.requestedFromId ??
-				context.descopeUserId ??
-				null,
+			targetId: viewerId,
 		},
 		(reason) =>
 			console.warn("[decision-card-face] generation failed", { reason }),
@@ -322,7 +332,12 @@ export async function prepareDeckCardFace(
 		});
 		return null;
 	}
-	if (card.interaction) {
+	if (
+		card.interaction &&
+		[context.userId, context.descopeUserId].includes(
+			card.interaction.request.requestedFromId,
+		)
+	) {
 		const request = card.interaction.request;
 		const saved = await saveDecisionCardPresentation(context.db, {
 			orgId,
@@ -331,7 +346,7 @@ export async function prepareDeckCardFace(
 			expectedVersion: request.version,
 			presentation: await bindCardPresentationSource(presentation, request),
 		});
-		return saved?.presentation ?? null;
+		if (!saved) return null;
 	}
 	const saved = await putUserConfig(context.db, {
 		...key,

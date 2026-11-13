@@ -125,6 +125,51 @@ describe("commitment wakes", () => {
 		vi.spyOn(Date, "now").mockReturnValue(Date.parse(through) + 30_000);
 	});
 	afterEach(() => vi.restoreAllMocks());
+	it.each(["personal", "steward"])(
+		"routes coding follow-ups to %s without asking the accountable person",
+		async (target) => {
+			const { db, sqlite } = fixture();
+			try {
+				sqlite.exec(`
+				INSERT INTO tedis(id,organization_id,name,slug,status,scope,owner_user_id) VALUES
+				('personal','org-one','Personal','personal','active','personal','provider-user'),
+				('steward','org-one','Steward','steward','active','organization',null);
+				INSERT INTO organization_members(id,organization_id,user_id,descope_user_id,email,status)
+				VALUES ('member','org-one','human','provider-user','human@example.test','active');
+				INSERT INTO work_items(id,org_id,title,created_at,accepted_at,disposition,accountable_owner_type,accountable_owner_id,work_kind,steward_type,steward_id)
+				VALUES ('engineering','org-one','Repair the service','2026-10-10T08:01:00.000Z','2026-10-10T08:01:00.000Z','accepted','user','human','coding','tedi','${target}');
+			`);
+				const change = {
+					key: "engineering",
+					orgId: "org-one",
+					tediId: "personal",
+					slug: "personal",
+					kind: "work" as const,
+					objectId: "engineering",
+					state: "idle",
+					changedAt: through,
+				};
+				const id = await ensureCommitmentFollowup(db, change, through);
+				expect(
+					sqlite
+						.prepare(
+							"SELECT target_type,target_id FROM work_interactions WHERE id=?",
+						)
+						.get(id),
+				).toEqual({ target_type: "tedi", target_id: target });
+				expect(await ensureCommitmentFollowup(db, change, through)).toBe(id);
+				expect(
+					sqlite
+						.prepare(
+							"SELECT count(*) AS n FROM work_interactions WHERE target_type='user'",
+						)
+						.get()?.n,
+				).toBe(0);
+			} finally {
+				sqlite.close();
+			}
+		},
+	);
 	it("creates one daily ask, reuses an open ask, and never reopens an answered ask", async () => {
 		const { db, sqlite } = fixture();
 		sqlite.exec(`

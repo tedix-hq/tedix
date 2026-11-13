@@ -44,6 +44,7 @@ export async function getCommitmentFollowupTarget(
 	id: string;
 	title: string;
 	personId: string;
+	targetType: "user" | "tedi";
 	openInteractionId: string | null;
 } | null> {
 	if (!["overdue", "idle"].includes(change.state)) return null;
@@ -113,7 +114,7 @@ export async function getCommitmentFollowupTarget(
 				),
 			)
 			.limit(1);
-		return interaction ?? null;
+		return interaction ? { ...interaction, targetType: "user" } : null;
 	}
 	if (change.kind !== "work") return null;
 	const w = alias(workItems, "w");
@@ -124,7 +125,16 @@ export async function getCommitmentFollowupTarget(
 		.select({
 			id: w.id,
 			title: w.title,
-			personId: sql<string>`${m.userId}`.as("personId"),
+			personId: sql<string>`case when ${w.workKind} = 'coding' then coalesce(
+				(select id from tedis where organization_id = ${w.orgId} and id = ${w.stewardId}
+				 and ${w.stewardType} = 'tedi' and status = 'active'), ${t.id}) else ${m.userId} end`.as(
+				"personId",
+			),
+			targetType: sql<
+				"user" | "tedi"
+			>`case when ${w.workKind} = 'coding' then 'tedi' else 'user' end`.as(
+				"targetType",
+			),
 		})
 		.from(w)
 		.innerJoin(
@@ -182,7 +192,7 @@ export async function getCommitmentFollowupTarget(
 			and(
 				eq(workInteractions.orgId, change.orgId),
 				eq(workInteractions.workItemId, work.id),
-				eq(workInteractions.targetType, "user"),
+				eq(workInteractions.targetType, work.targetType),
 				eq(workInteractions.targetId, work.personId),
 				eq(workInteractions.status, "open"),
 				or(
