@@ -54,6 +54,19 @@ The few code-built platform tools under
 not a pattern. `tool_id` names are verb-first snake_case (root rule "MCP Tool
 Naming").
 
+## Every tool states its class
+
+A tool states a write class (`write_capability`: read, write, destructive)
+and, unless it only reads, a risk tier (`meta["com.tedix/policy"]`).
+`toolClassDeclarationGap` (`@tedix/api-contract/utils/tool-declared-class`)
+refuses a new row without them; `bun scripts/lint-tool-class.ts` checks tools
+built in code. A tier Tedix derives from the write class is a default. Only a
+row whose owner stated both carries `declared: true`, and only then do the
+standing-rule matcher and the Home write classifier trust the class over the
+tool's name. `NEVER_AUTO_APPROVED_ACTIONS` in the same module is the one list
+of actions that always ask. Never set `declared` from upstream metadata, an
+HTTP method or a name.
+
 ## Every registered tool needs a scope decision
 
 Scope enforcement lives in **two** gates, and a tool is guarded by exactly one

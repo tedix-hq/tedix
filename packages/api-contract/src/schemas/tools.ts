@@ -423,6 +423,18 @@ export const ToolPolicyMetadataSchema = z
 			.describe(
 				"Maximum side-effect boundary. Optional only while riskTier is also absent; a declared tier requires a compatible blast radius.",
 			),
+		declared: z
+			.literal(true)
+			.optional()
+			.describe(
+				"Set only when an owner or reviewed code stated this tool's write class and risk tier. A value derived from an HTTP method, upstream hints or the tool name never sets it. Approval eligibility trusts a declared class over the tool name.",
+			),
+		writeCapability: z
+			.enum(TOOL_WRITE_CAPABILITY_VALUES)
+			.optional()
+			.describe(
+				"Wire-only copy of app_tools.write_capability, sent with `declared`. Stored rows use the column; this key is removed from stored and upstream metadata.",
+			),
 		sensitivity: z.enum(TOOL_POLICY_SENSITIVITY_VALUES).optional(),
 		evidenceHash: Sha256DigestSchema.optional(),
 		attestationHash: Sha256DigestSchema.optional(),
@@ -436,6 +448,12 @@ export const ToolPolicyMetadataSchema = z
 			),
 	})
 	.superRefine((policy, ctx) => {
+		if (policy.declared && policy.riskTier === undefined)
+			ctx.addIssue({
+				code: "custom",
+				path: ["riskTier"],
+				message: "riskTier is required when the class is declared",
+			});
 		if (policy.riskTier === undefined && policy.blastRadius === undefined)
 			return;
 		if (policy.riskTier === undefined) {
@@ -510,13 +528,12 @@ export function withDerivedToolOperationalRiskPolicy(input: {
 			: input.writeCapability === "write"
 				? "single_resource"
 				: "none";
-	const rawPolicy = input.meta?.[TEDIX_TOOL_POLICY_META_KEY];
-	const policy =
-		typeof rawPolicy === "object" &&
-		rawPolicy !== null &&
-		!Array.isArray(rawPolicy)
-			? rawPolicy
-			: {};
+	// A derived tier is never a declaration, whatever the incoming metadata says.
+	const {
+		declared: _declared,
+		writeCapability: _wireCapability,
+		...policy
+	} = policyRecord(input.meta);
 	return {
 		...input.meta,
 		[TEDIX_TOOL_POLICY_META_KEY]: {
@@ -525,6 +542,32 @@ export function withDerivedToolOperationalRiskPolicy(input: {
 			blastRadius,
 		},
 	};
+}
+
+function policyRecord(
+	meta: Record<string, JsonValue> | null | undefined,
+): Record<string, JsonValue> {
+	const raw = meta?.[TEDIX_TOOL_POLICY_META_KEY];
+	return typeof raw === "object" && raw !== null && !Array.isArray(raw)
+		? raw
+		: {};
+}
+
+/**
+ * Remove the class declaration from metadata Tedix did not write, such as an
+ * upstream server's `_meta`. Only an owner or reviewed code may declare.
+ */
+export function withoutToolClassDeclaration<
+	T extends Record<string, JsonValue> | null | undefined,
+>(meta: T): T {
+	const policy = policyRecord(meta);
+	if (!("declared" in policy) && !("writeCapability" in policy)) return meta;
+	const {
+		declared: _declared,
+		writeCapability: _wireCapability,
+		...rest
+	} = policy;
+	return { ...meta, [TEDIX_TOOL_POLICY_META_KEY]: rest } as T;
 }
 
 export const TOOL_SKILL_COVERAGE_STATUS_VALUES = [

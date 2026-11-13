@@ -383,6 +383,77 @@ describe("app-tools mutation subscription publishes", () => {
 		expect(mocks.upsertTool).toHaveBeenCalledOnce();
 	});
 
+	it("refuses a new tool that does not say whether it writes", async () => {
+		const { client } = makeHarness();
+
+		await expect(
+			client.create({
+				appId: APP_ID,
+				toolId: "update_things",
+				toolTypeId: "rpc",
+				title: "Update things",
+			}),
+		).rejects.toThrow(/has no write class/);
+		expect(mocks.upsertTool).not.toHaveBeenCalled();
+	});
+
+	it("marks a tool declared only when class and tier are both stated", async () => {
+		const { client } = makeHarness();
+		mocks.upsertTool.mockResolvedValue(
+			makeToolRow({ toolId: "update_things" }),
+		);
+		const policy = {
+			riskTier: "bounded_write",
+			blastRadius: "single_resource",
+		};
+
+		await client.create({
+			appId: APP_ID,
+			toolId: "update_things",
+			toolTypeId: "rpc",
+			title: "Update things",
+			writeCapability: "write",
+			meta: { "com.tedix/policy": policy },
+		});
+		expect(mocks.upsertTool.mock.calls[0]?.[1]).toMatchObject({
+			writeCapability: "write",
+			meta: { "com.tedix/policy": { ...policy, declared: true } },
+		});
+
+		// Annotations alone give a class and a default tier, not a declaration.
+		await client.create({
+			appId: APP_ID,
+			toolId: "update_things",
+			toolTypeId: "rpc",
+			title: "Update things",
+			annotations: { readOnlyHint: false },
+		});
+		expect(mocks.upsertTool.mock.calls[1]?.[1]).toMatchObject({
+			writeCapability: "write",
+			meta: { "com.tedix/policy": policy },
+		});
+	});
+
+	it("refuses a destructive tool stated as a bounded write", async () => {
+		const { client } = makeHarness();
+
+		await expect(
+			client.create({
+				appId: APP_ID,
+				toolId: "update_things",
+				toolTypeId: "rpc",
+				title: "Update things",
+				writeCapability: "destructive",
+				meta: {
+					"com.tedix/policy": {
+						riskTier: "bounded_write",
+						blastRadius: "single_resource",
+					},
+				},
+			}),
+		).rejects.toThrow(/declared destructive/);
+	});
+
 	it("enable of a non-prompt tool publishes tools + resources only", async () => {
 		const { client, flush, published } = makeHarness();
 		mocks.getToolById.mockResolvedValue(makeToolRow());

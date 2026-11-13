@@ -1,6 +1,11 @@
 import type { DbQueryClient } from "@tedix/db/query-client";
 import { findEnabledOsApprovalRulesByKind } from "@tedix/db/queries/os-approval-rules";
 import type { OsApprovalRuleRow } from "@tedix/db/schema/os-approval-rules";
+import {
+	declaredAutoApproval,
+	parseDeclaredToolClass,
+} from "@tedix/api-contract/utils/tool-declared-class";
+import { toolNameWords } from "../../services/tool-class-backlog";
 import { DESTRUCTIVE_VERBS } from "./kernel/write-tool-policy";
 
 interface RuleApproval {
@@ -8,13 +13,11 @@ interface RuleApproval {
 	actionType: string;
 	payload: Record<string, unknown>;
 }
+/**
+ * Backstop for a tool nobody has classified: a word in its name decides. A
+ * payload that carries the tool's declared class never reaches this list.
+ */
 const forbidden = new Set<string>([...DESTRUCTIVE_VERBS, "deploy", "takeover"]);
-function words(value: string): string[] {
-	return value
-		.replace(/([a-z])([A-Z])/g, "$1_$2")
-		.toLowerCase()
-		.split(/[^a-z0-9]+/);
-}
 export function matchingApprovalRule(
 	approval: RuleApproval,
 	rules: readonly OsApprovalRuleRow[],
@@ -26,13 +29,17 @@ export function matchingApprovalRule(
 		typeof payload.verb === "string"
 			? payload.verb
 			: tool
-				? words(tool)[0]
+				? toolNameWords(tool)[0]
 				: null;
 	const toolSlug = app && tool ? `${app}.${tool}` : null;
+	// The declared class decides first; the name is read only without one.
+	const declared = parseDeclaredToolClass(payload.declaredClass);
+	if (declared && !declaredAutoApproval(declared).eligible) return;
 	if (
-		[approval.actionType, toolSlug ?? "", verb ?? ""].some((value) =>
-			words(value).some((word) => forbidden.has(word)),
-		)
+		[
+			approval.actionType,
+			...(declared ? [] : [toolSlug ?? "", verb ?? ""]),
+		].some((value) => toolNameWords(value).some((word) => forbidden.has(word)))
 	)
 		return;
 	if (payload.riskTier === "high") return;

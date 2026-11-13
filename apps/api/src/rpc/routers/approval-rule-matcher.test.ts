@@ -53,6 +53,82 @@ describe("standing approval matching", () => {
 			matchingApprovalRule(approval, [{ ...rule, enabled: false }]),
 		).toBeUndefined();
 	});
+	it("lets a declared harmless tool with an alarming name match its rule", () => {
+		const named = {
+			...approval,
+			payload: { ...approval.payload, toolName: "remove_highlight" },
+		};
+		const itsRule = {
+			...rule,
+			toolSlug: "notes.remove_highlight",
+			verb: "remove",
+		};
+		// Undeclared: the name decides, and "remove" is refused.
+		expect(matchingApprovalRule(named, [itsRule])).toBeUndefined();
+		expect(
+			matchingApprovalRule(
+				{
+					...named,
+					payload: {
+						...named.payload,
+						declaredClass: {
+							writeCapability: "write",
+							riskTier: "bounded_write",
+							blastRadius: "single_resource",
+						},
+					},
+				},
+				[itsRule],
+			)?.id,
+		).toBe(rule.id);
+	});
+	it("refuses a declared dangerous tool with a harmless name", () => {
+		const named = {
+			...approval,
+			payload: { ...approval.payload, toolName: "tidy_notes" },
+		};
+		const itsRule = { ...rule, toolSlug: "notes.tidy_notes", verb: "tidy" };
+		// Undeclared: nothing in the name stops it.
+		expect(matchingApprovalRule(named, [itsRule])?.id).toBe(rule.id);
+		for (const declaredClass of [
+			{
+				writeCapability: "destructive",
+				riskTier: "high_impact_write",
+				blastRadius: "tenant",
+			},
+			{
+				writeCapability: "write",
+				riskTier: "external_side_effect",
+				blastRadius: "external_system",
+			},
+			{
+				writeCapability: "write",
+				riskTier: "high_impact_write",
+				blastRadius: "tenant",
+			},
+		])
+			expect(
+				matchingApprovalRule(
+					{ ...named, payload: { ...named.payload, declaredClass } },
+					[itsRule],
+				),
+			).toBeUndefined();
+	});
+	it("reads the name when the stored class is malformed", () => {
+		expect(
+			matchingApprovalRule(
+				{
+					...approval,
+					payload: {
+						...approval.payload,
+						toolName: "remove_highlight",
+						declaredClass: { writeCapability: "write" },
+					},
+				},
+				[{ ...rule, toolSlug: "notes.remove_highlight", verb: "remove" }],
+			),
+		).toBeUndefined();
+	});
 	it("does not revive legacy broad Home rules", () => {
 		expect(
 			matchingApprovalRule(approval, [{ ...rule, toolSlug: null, verb: null }]),

@@ -27,6 +27,58 @@ describe("bounded Work and Notion write planning", () => {
 			expect(classifyWriteRisk({ name, _meta: bounded })).toBe("high");
 		},
 	);
+	it("trusts a declared class over the tool name, in both directions", () => {
+		const declared = (
+			writeCapability: string,
+			riskTier: string,
+			blastRadius: string,
+		) => ({
+			"com.tedix/policy": {
+				declared: true,
+				writeCapability,
+				riskTier,
+				blastRadius,
+			},
+		});
+		// Harmless, alarming name.
+		expect(
+			classifyWriteRisk({
+				name: "remove_highlight",
+				_meta: declared("write", "bounded_write", "single_resource"),
+			}),
+		).toBe("low");
+		expect(
+			classifyWriteRisk({
+				name: "send_reminder_to_self",
+				_meta: declared("write", "bounded_write", "single_resource"),
+			}),
+		).toBe("low");
+		// Dangerous, mild name.
+		expect(
+			classifyWriteRisk({
+				name: "tidy_notes",
+				_meta: declared("destructive", "high_impact_write", "tenant"),
+			}),
+		).toBe("high");
+		expect(
+			classifyWriteRisk({
+				name: "tidy_notes",
+				_meta: declared("destructive", "bounded_write", "single_resource"),
+			}),
+		).toBe("high");
+		// The marker without the stored write class declares nothing.
+		expect(
+			classifyWriteRisk({
+				name: "remove_highlight",
+				_meta: {
+					"com.tedix/policy": {
+						...bounded["com.tedix/policy"],
+						declared: true,
+					},
+				},
+			}),
+		).toBe("high");
+	});
 	it("lets only an operational purpose repair through as a bounded Work update", () => {
 		const tool = {
 			name: "home__update_work_item",

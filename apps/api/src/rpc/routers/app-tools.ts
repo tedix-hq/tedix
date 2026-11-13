@@ -31,6 +31,11 @@ import {
 	upsertTool,
 } from "@tedix/db/queries/tools";
 import { toJsonRecord } from "@tedix/db/utils/json";
+import { declaredToolClass } from "@tedix/api-contract/utils/tool-declared-class";
+import {
+	metaStatesRiskTier,
+	resolveToolClassForSave,
+} from "../../services/tool-class-declaration";
 import { publishMcpListChangedEventsSoon } from "../../lib/mcp-subscriptions";
 import {
 	mergeValidationResults,
@@ -228,6 +233,38 @@ export const createAppTool = authedAppToolsOs.create
 			toolData.config as Record<string, unknown> | null | undefined,
 		);
 
+		// Declaration wins when supplied; otherwise derive it from the
+		// annotations. A tool that states neither is refused, not saved
+		// unclassified.
+		const createMeta =
+			toolData.meta == null ? toolData.meta : toJsonRecord(toolData.meta);
+		const createConfig =
+			validatedConfig == null ? validatedConfig : toJsonRecord(validatedConfig);
+		// Create also re-submits a tool that already exists. A request that
+		// says nothing about the class then keeps the stored one.
+		const resubmitted = await getToolByAppAndToolId(db, appId, toolData.toolId);
+		const createWriteCapability =
+			toolData.writeCapability !== undefined
+				? toolData.writeCapability
+				: (deriveToolWriteCapability(toolData.annotations) ??
+					resubmitted?.writeCapability ??
+					null);
+		const createClass = resolveToolClassForSave({
+			toolId: toolData.toolId,
+			toolTypeId: toolData.toolTypeId,
+			writeCapability: createWriteCapability,
+			meta: createMeta,
+			config: createConfig,
+			classStated: toolData.writeCapability != null,
+			tierStated: metaStatesRiskTier(createMeta),
+			untouchedLegacyRow:
+				resubmitted !== undefined &&
+				!resubmitted.writeCapability &&
+				toolData.writeCapability === undefined,
+		});
+		if (!createClass.ok)
+			throw createError(ErrorCodes.BAD_REQUEST, createClass.reason);
+
 		// Create the tool using upsertTool (it will create if not exists)
 		// Cast JSON values to DB schema types
 		const tool = await upsertTool(db, {
@@ -249,26 +286,17 @@ export const createAppTool = authedAppToolsOs.create
 			icons: toolData.icons,
 			executionTaskSupport: toolData.executionTaskSupport,
 			annotations: toolData.annotations,
-			// Declaration wins when supplied; otherwise derive it from the
-			// annotations so a hand-created tool is never born UNDECLARED when it
-			// already carries hints that say what it does.
-			writeCapability:
-				toolData.writeCapability !== undefined
-					? toolData.writeCapability
-					: deriveToolWriteCapability(toolData.annotations),
+			writeCapability: createWriteCapability,
 			actionType: toolData.actionType,
 			sensitiveData: toolData.sensitiveData,
 			publicEgress: toolData.publicEgress,
-			meta: toolData.meta == null ? toolData.meta : toJsonRecord(toolData.meta),
+			meta: createClass.meta,
 			invocationStatus: toolData.invocationStatus,
 			fileParams: toolData.fileParams,
 			widgetDescription: toolData.widgetDescription,
 			widgetPrefersBorder: toolData.widgetPrefersBorder,
 			widgetDomain: toolData.widgetDomain,
-			config:
-				validatedConfig == null
-					? validatedConfig
-					: toJsonRecord(validatedConfig),
+			config: createConfig,
 			schemaDialect: toolData.schemaDialect,
 			schemaSource: toolData.schemaSource,
 			schemaSourceRef: toolData.schemaSourceRef,
@@ -355,6 +383,45 @@ export const updateAppTool = authedAppToolsOs.update
 			nextConfig,
 		);
 
+		// An explicit declaration wins. Otherwise, changing the annotations
+		// re-derives the column (they are the same statement in two shapes),
+		// and leaving both alone keeps whatever is stored.
+		const updateWriteCapability =
+			input.writeCapability !== undefined
+				? input.writeCapability
+				: input.annotations !== undefined
+					? deriveToolWriteCapability(input.annotations)
+					: existingTool.writeCapability;
+		const updateMeta =
+			input.meta !== undefined
+				? input.meta === null
+					? null
+					: toJsonRecord(input.meta)
+				: existingTool.meta;
+		const updateConfig =
+			validatedUpdateConfig == null
+				? validatedUpdateConfig
+				: toJsonRecord(validatedUpdateConfig);
+		// A row stays declared only while each half is stated: by this request,
+		// or by the earlier one when this request leaves that half alone.
+		const wasDeclared = declaredToolClass(existingTool) !== null;
+		const classUntouched =
+			input.writeCapability === undefined && input.annotations === undefined;
+		const updateClass = resolveToolClassForSave({
+			toolId: existingTool.toolId,
+			toolTypeId: input.toolTypeId ?? existingTool.toolTypeId,
+			writeCapability: updateWriteCapability,
+			meta: updateMeta,
+			config: updateConfig,
+			classStated:
+				input.writeCapability != null || (classUntouched && wasDeclared),
+			tierStated:
+				input.meta !== undefined ? metaStatesRiskTier(updateMeta) : wasDeclared,
+			untouchedLegacyRow: classUntouched && !existingTool.writeCapability,
+		});
+		if (!updateClass.ok)
+			throw createError(ErrorCodes.BAD_REQUEST, updateClass.reason);
+
 		// Update the tool using upsertTool with existing ID
 		// Cast JSON values to the DB schema types
 		const tool = await upsertTool(db, {
@@ -411,27 +478,14 @@ export const updateAppTool = authedAppToolsOs.update
 				input.annotations !== undefined
 					? input.annotations
 					: existingTool.annotations,
-			// An explicit declaration wins. Otherwise, changing the annotations
-			// re-derives the column (they are the same statement in two shapes),
-			// and leaving both alone keeps whatever is stored.
-			writeCapability:
-				input.writeCapability !== undefined
-					? input.writeCapability
-					: input.annotations !== undefined
-						? deriveToolWriteCapability(input.annotations)
-						: existingTool.writeCapability,
+			writeCapability: updateWriteCapability,
 			actionType:
 				input.actionType !== undefined
 					? input.actionType
 					: existingTool.actionType,
 			sensitiveData: input.sensitiveData ?? existingTool.sensitiveData,
 			publicEgress: input.publicEgress ?? existingTool.publicEgress,
-			meta:
-				input.meta !== undefined
-					? input.meta === null
-						? null
-						: toJsonRecord(input.meta)
-					: existingTool.meta,
+			meta: updateClass.meta,
 			invocationStatus:
 				input.invocationStatus !== undefined
 					? input.invocationStatus
@@ -452,10 +506,7 @@ export const updateAppTool = authedAppToolsOs.update
 				input.widgetDomain !== undefined
 					? input.widgetDomain
 					: existingTool.widgetDomain,
-			config:
-				validatedUpdateConfig == null
-					? validatedUpdateConfig
-					: toJsonRecord(validatedUpdateConfig),
+			config: updateConfig,
 			schemaDialect:
 				input.schemaDialect !== undefined
 					? input.schemaDialect

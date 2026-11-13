@@ -5,6 +5,7 @@ import {
 	type ToolBlastRadius,
 	type ToolOperationalRiskTier,
 } from "@tedix/api-contract/schemas/tools";
+import { declaredToolClass } from "@tedix/api-contract/utils/tool-declared-class";
 import { serializeException } from "@tedix/worker-kit/logger";
 import { createMcpLogger } from "../log";
 import { redactRateLimitKey } from "../middleware/rate-limit";
@@ -35,24 +36,60 @@ export function resolveToolRiskPolicy(
 		: null;
 }
 
+type ClassifiedTool = Pick<AppTool, "toolId" | "config" | "meta"> &
+	Partial<Pick<AppTool, "writeCapability">>;
+
+function reviewedEffectFor(tool: ClassifiedTool) {
+	return tool.config?.transport === "mcp"
+		? reviewedConnectedEffect({
+				providerId: connectedProviderId(tool),
+				toolName:
+					typeof tool.config.mcpToolName === "string"
+						? tool.config.mcpToolName
+						: undefined,
+			})
+		: undefined;
+}
+
+/**
+ * Make a listed policy state the row's declared class, or none. Stored
+ * metadata may not speak for the write-class column.
+ */
+export function setWireToolClassDeclaration(
+	meta: Record<string, unknown>,
+	tool: ClassifiedTool,
+): void {
+	const raw = meta["com.tedix/policy"];
+	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+	const {
+		declared: _declared,
+		writeCapability: _writeCapability,
+		...policy
+	} = raw as Record<string, unknown>;
+	const declared = reviewedEffectFor(tool) ? null : declaredToolClass(tool);
+	meta["com.tedix/policy"] = declared
+		? { ...policy, declared: true, writeCapability: declared.writeCapability }
+		: policy;
+}
+
 /** The bounded approval facts shared by native and Code Mode discovery. */
 export function toolApprovalMetadata(
-	tool: Pick<AppTool, "toolId" | "config" | "meta">,
+	tool: ClassifiedTool,
 ): Record<string, unknown> {
 	const providerId = connectedProviderId(tool);
-	const effect =
-		tool.config?.transport === "mcp"
-			? reviewedConnectedEffect({
-					providerId,
-					toolName:
-						typeof tool.config.mcpToolName === "string"
-							? tool.config.mcpToolName
-							: undefined,
-				})
-			: undefined;
+	const effect = reviewedEffectFor(tool);
+	// The stored column travels with the marker, so the reader never has to
+	// trust a write class written into metadata.
+	const declared = effect ? null : declaredToolClass(tool);
 	const policy = effect
 		? { riskTier: effect, blastRadius: "single_resource" }
-		: resolveToolRiskPolicy(tool);
+		: declared
+			? {
+					...resolveToolRiskPolicy(tool),
+					declared: true,
+					writeCapability: declared.writeCapability,
+				}
+			: resolveToolRiskPolicy(tool);
 	return {
 		...(policy ? { "com.tedix/policy": policy } : {}),
 		...(providerId &&

@@ -6,6 +6,10 @@ import {
 	platformAutonomousOperation,
 	type KernelWriteRiskTier,
 } from "@tedix/api-contract/utils/approval-policy";
+import {
+	declaredAutoApproval,
+	wireDeclaredToolClass,
+} from "@tedix/api-contract/utils/tool-declared-class";
 
 export interface McpTool {
 	name: string;
@@ -183,6 +187,13 @@ export function classifyWriteRisk(
 	tool: McpTool,
 	args?: unknown,
 ): KernelWriteRiskTier {
+	// A declared class decides before the name does: a harmless tool with an
+	// alarming name is not held, and a dangerous one with a mild name is.
+	const declaredClass = parseToolPolicyMetadata(tool._meta)?.argumentPolicy
+		? null
+		: wireDeclaredToolClass(tool._meta);
+	if (declaredClass)
+		return declaredAutoApproval(declaredClass).eligible ? "low" : "high";
 	if (humanReservedActionClasses(tool.name).length) return "high";
 	const risk = classifyToolWriteRisk(tool, args);
 	// Platform-default operations (organization-autonomy.v1.json) are reversible
