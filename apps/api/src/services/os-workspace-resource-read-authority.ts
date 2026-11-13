@@ -45,7 +45,7 @@ export async function authorizeWorkspaceResourceRead(
 		workspaceId: string;
 		resourceId: string;
 		expectedProviderId: string;
-		expectedResourceType: string;
+		expectedResourceType: string | string[];
 	},
 ): Promise<{ resource: OsWorkspaceResourceRow; requiredScopes: string[] }> {
 	const organizationId = requireOrgId(context);
@@ -71,7 +71,11 @@ export async function authorizeWorkspaceResourceRead(
 		!resource ||
 		resource.status !== "active" ||
 		resource.providerId !== input.expectedProviderId ||
-		resource.resourceType !== input.expectedResourceType ||
+		!(
+			Array.isArray(input.expectedResourceType)
+				? input.expectedResourceType
+				: [input.expectedResourceType]
+		).includes(resource.resourceType) ||
 		!resource.providerResourceId.trim()
 	) {
 		throw createError(
@@ -79,6 +83,12 @@ export async function authorizeWorkspaceResourceRead(
 			"Active Workspace resource not found",
 		);
 	}
+
+	if (resource.providerAccess?.canRead === false)
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"Workspace resource does not allow reads",
+		);
 
 	let requiredScopes: unknown;
 	try {

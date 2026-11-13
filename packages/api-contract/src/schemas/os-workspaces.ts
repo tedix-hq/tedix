@@ -201,6 +201,25 @@ export const OsWorkspaceResourceSchema = z
 	.strict();
 export type OsWorkspaceResource = z.infer<typeof OsWorkspaceResourceSchema>;
 
+export const OsWorkspaceDriveFileSchema = z.object({
+	id: z.string(),
+	name: z.string(),
+	mimeType: z.string(),
+	modifiedTime: z.string().nullable(),
+	version: z.string().nullable(),
+});
+export const OsWorkspaceDriveReadSchema = z.object({
+	resourceId: z.uuid(),
+	file: OsWorkspaceDriveFileSchema,
+	contentMimeType: z.string(),
+	encoding: z.literal("base64"),
+	data: z.string(),
+	byteOffset: z.number().int().nonnegative(),
+	byteLength: z.number().int().nonnegative(),
+	nextByteOffset: z.number().int().nonnegative().nullable(),
+});
+export type OsWorkspaceDriveRead = z.infer<typeof OsWorkspaceDriveReadSchema>;
+
 /** Page-bounded text read from an exact Workspace-bound provider PDF. */
 export const OsWorkspacePdfReadSchema = z.object({
 	resourceId: z.string().uuid(),
@@ -241,6 +260,13 @@ export const OsWorkspaceResourceSelectionSchema = z
 		providerId: z.string().trim().min(1).max(160),
 		connectionScope: z.enum(["tenant", "user"]),
 		connectionInstanceId: z.string().uuid().optional(),
+		providerAccess: z
+			.object({ canRead: z.literal(true), canWrite: z.boolean() })
+			.strict()
+			.optional()
+			.describe(
+				"Drive access choice. Omit for read-only. This never grants provider scopes or bypasses write approval.",
+			),
 		requiredScopes: z
 			.array(z.string().trim().min(1).max(300))
 			.max(50)

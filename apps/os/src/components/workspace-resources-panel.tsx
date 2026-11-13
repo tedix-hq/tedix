@@ -65,6 +65,7 @@ export const resourceReferenceSchema = z
 			.string()
 			.trim()
 			.min(1, "Enter the ID from the connected app."),
+		driveAccess: z.enum(["read", "write"]).default("read"),
 		githubFullName: z.string().trim(),
 		githubInstallationId: z.string().trim(),
 		name: z.string().trim().min(1, "Enter a name."),
@@ -276,6 +277,14 @@ export function WorkspaceResourcesPanel({
 					providerId: selectedConnection.appId,
 					connectionScope: selectedConnection.tokenScope,
 					connectionInstanceId: selectedConnection.connectionInstanceId,
+					...(selectedConnection.appId === "google-drive"
+						? {
+								providerAccess: {
+									canRead: true as const,
+									canWrite: value.driveAccess === "write",
+								},
+							}
+						: {}),
 					resourceType: value.resourceType,
 					providerResourceId: value.providerResourceId,
 					name: value.name,
@@ -305,6 +314,7 @@ export function WorkspaceResourcesPanel({
 			providerKey: "",
 			resourceType: "",
 			providerResourceId: "",
+			driveAccess: "read",
 			githubFullName: "",
 			githubInstallationId: "",
 			name: "",
@@ -440,6 +450,9 @@ export function WorkspaceResourcesPanel({
 									{resource.connectionScope === "tenant"
 										? "Shared account"
 										: "Your account"}
+									{resource.providerId === "google-drive"
+										? ` · ${resource.providerAccess?.canWrite ? "Read and write" : "Read-only"}`
+										: ""}
 								</Text>
 								<Collapsible className="mt-1 text-kumo-subtle type-tedix-control">
 									<CollapsibleDefaultTrigger className="group/disclosure">
@@ -763,6 +776,8 @@ export function WorkspaceResourcesPanel({
 								) : (
 									<Select
 										items={[
+											{ value: "file", label: "Drive file" },
+											{ value: "folder", label: "Drive folder" },
 											{ value: "document", label: "Document" },
 											{ value: "spreadsheet", label: "Spreadsheet" },
 											{ value: "repository", label: "Code repository" },
@@ -802,6 +817,32 @@ export function WorkspaceResourcesPanel({
 								)
 							}
 						</FormField>
+						<form.Subscribe selector={(state) => state.values.providerKey}>
+							{(providerKey) =>
+								providerKey.startsWith("google-drive:") ? (
+									<FormField
+										form={form}
+										name="driveAccess"
+										label="Drive access"
+										description="Read-only is the default. Read and write still requires provider permission and approval for changes."
+									>
+										{(field, meta) => (
+											<FormSelect
+												field={field}
+												{...meta}
+												items={[
+													{ value: "read", label: "Read-only" },
+													{ value: "write", label: "Read and write" },
+												]}
+											>
+												<SelectItem value="read">Read-only</SelectItem>
+												<SelectItem value="write">Read and write</SelectItem>
+											</FormSelect>
+										)}
+									</FormField>
+								) : null
+							}
+						</form.Subscribe>
 						<FormField
 							form={form}
 							name="providerResourceId"

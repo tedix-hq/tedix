@@ -650,6 +650,8 @@ export const REVIEWED_RPC_ENDPOINT_SCOPES: Record<string, string> = {
 	// Same tier as removing any Workspace resource reference.
 	"osWorkspaces/schedules/unlink": "mcp:apps.admin",
 	"osWorkspaces/resources/readPdf": "mcp:apps.read",
+	"osWorkspaces/resources/listDriveFiles": "mcp:apps.read",
+	"osWorkspaces/resources/readDriveFile": "mcp:apps.read",
 	"osWorkspaces/resources/rebind": "mcp:apps.write",
 	"osWorkspaces/resources/remove": "mcp:apps.admin",
 	"osWorkspaces/resources/rename": "mcp:apps.write",

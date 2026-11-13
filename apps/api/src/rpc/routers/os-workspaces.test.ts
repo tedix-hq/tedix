@@ -702,6 +702,20 @@ describe("Workspace resources", () => {
 			personalOwnerUserId: "user-1",
 			connectionInstanceId: selection.connectionInstanceId,
 		});
+		expect(resource.providerAccess).toEqual({ canRead: true, canWrite: false });
+		const writable = await c.org1.resources.create({
+			workspaceId: workspace.id,
+			selection: {
+				...selection,
+				providerResourceId: "folder-2",
+				resourceType: "folder",
+				providerAccess: { canRead: true, canWrite: true },
+			},
+		});
+		expect(writable.resource.providerAccess).toEqual({
+			canRead: true,
+			canWrite: true,
+		});
 		const other = createRouterClient(osWorkspacesContractRouter, {
 			context: userContext({
 				env: c.env,

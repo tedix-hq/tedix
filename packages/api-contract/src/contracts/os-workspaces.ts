@@ -67,6 +67,8 @@ import {
 	OsWorkspaceSchema,
 	OsWorkspacePreferenceSchema,
 	OsWorkspacePdfReadSchema,
+	OsWorkspaceDriveFileSchema,
+	OsWorkspaceDriveReadSchema,
 	OsWorkspaceProjectSchema,
 	OsWorkspaceProjectStatusSchema,
 	OsWorkspaceResourceSchema,
@@ -759,6 +761,56 @@ export const osWorkspacesContract = oc
 					}),
 				)
 				.output(z.object({ resource: OsWorkspaceResourceSchema })),
+			listDriveFiles: oc
+				.route({
+					method: "GET",
+					path: "/workspaces/{workspaceId}/resources/{resourceId}/drive-files",
+					summary: "List files directly inside a connected Drive folder",
+					description:
+						"Lists only direct children of the attached folder using its authorized connection. Folder access is rechecked on every call.",
+				})
+				.input(
+					workspaceIdInput
+						.extend({
+							resourceId: z.uuid(),
+							pageToken: z.string().max(2048).optional(),
+							limit: z.number().int().min(1).max(50).default(25),
+						})
+						.strict(),
+				)
+				.output(
+					z.object({
+						items: z.array(OsWorkspaceDriveFileSchema),
+						nextPageToken: z.string().nullable(),
+					}),
+				),
+			readDriveFile: oc
+				.route({
+					method: "GET",
+					path: "/workspaces/{workspaceId}/resources/{resourceId}/drive-file",
+					summary: "Read a byte range of a connected Drive file",
+					description:
+						"Reads an attached file or a direct child of an attached folder. Returns at most 8192 bytes as base64. Native Google files are exported before slicing. Pass expectedVersion on subsequent ranges; a changed version fails CONFLICT. No bytes or credentials are persisted.",
+				})
+				.input(
+					workspaceIdInput.extend({
+						resourceId: z.uuid(),
+						fileId: z
+							.string()
+							.regex(/^[A-Za-z0-9_-]{1,255}$/)
+							.optional(),
+						byteOffset: z
+							.number()
+							.int()
+							.min(0)
+							.max(Number.MAX_SAFE_INTEGER - 8193)
+							.default(0),
+						byteLimit: z.number().int().min(1).max(8192).default(8192),
+						expectedVersion: z.string().min(1).max(200).optional(),
+						exportMimeType: z.string().max(200).optional(),
+					}),
+				)
+				.output(z.object({ read: OsWorkspaceDriveReadSchema })),
 			readPdf: oc
 				.route({
 					method: "GET",
@@ -849,6 +901,10 @@ export const osWorkspacesContract = oc
 						resourceId: z.string().uuid(),
 						expectedUpdatedAt: z.string(),
 						connectionScope: z.enum(["tenant", "user"]),
+						providerAccess: z
+							.object({ canRead: z.literal(true), canWrite: z.boolean() })
+							.strict()
+							.optional(),
 						connectionInstanceId: z.string().uuid().optional(),
 						requiredScopes: z
 							.array(z.string().trim().min(1).max(300))
