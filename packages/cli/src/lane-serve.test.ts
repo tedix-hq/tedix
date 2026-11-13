@@ -3470,6 +3470,32 @@ describe("dispatcher admission", () => {
 			expect(events.filter((e) => e.verb === "comment")).toHaveLength(1);
 		},
 	);
+	it("tries a held admission once per new retry window while it fails the same way", async () => {
+		const { dispatcher, dir, items, events } = fixture({ refuse: true });
+		items.splice(1);
+		const path = join(dir, `${item().id}-2.json`);
+		for (let n = 1; n <= 3; n++) {
+			await dispatcher.tick();
+			await dispatcher.drain();
+			const saved = JSON.parse(readFileSync(path, "utf8"));
+			saved.retryAt = 0;
+			saved.retryDeadlineAt = n === 3 ? Date.now() - 1 : 0;
+			writeFileSync(path, JSON.stringify(saved));
+		}
+		const tries = () =>
+			events.filter((e) => e.verb === "dispatch-attempts").length;
+		const before = tries();
+		await dispatcher.tick();
+		await dispatcher.drain();
+		expect(tries()).toBe(before + 1);
+		const saved = JSON.parse(readFileSync(path, "utf8"));
+		expect(saved.held).toBe(true);
+		expect(saved.retryDeadlineAt).toBeGreaterThan(Date.now());
+		await dispatcher.tick();
+		await dispatcher.drain();
+		expect(tries()).toBe(before + 1);
+		expect(events.filter((e) => e.verb === "comment")).toHaveLength(1);
+	});
 	it("sends the full any-local executor set to server-side discovery", async () => {
 		const { dispatcher, events, releases } = fixture({ executor: "any-local" });
 		await dispatcher.tick();
@@ -4676,6 +4702,39 @@ it("spends a few gateway requests per pass on a lane of waiting items", async ()
 	expect(count("dispatch-get")).toBe(20);
 	expect(count("interaction-create")).toBe(10);
 	expect(requests).toHaveLength(50);
+});
+
+it("reads a delegated item once while another reason keeps it waiting", async () => {
+	const f = fixture();
+	f.items.splice(0, f.items.length, {
+		...item(1),
+		description: "Send an email as the owner",
+	});
+	f.control.comments.push({
+		authorType: "user",
+		authorId: "fictional-owner",
+		body: "Delegation: codex work-version=2 Send only the fictional draft.",
+	});
+	writeFileSync(
+		join(f.dir, `${item(1).id}-2.json`),
+		JSON.stringify({
+			itemId: item(1).id,
+			version: 2,
+			phase: "deferred",
+			outcome: "failed",
+			admissionState: "rejected",
+			admissionFailure: "Fictional admission failure",
+			held: true,
+			identicalFailures: 3,
+			retries: 3,
+			retryDeadlineAt: Date.now() + 30 * 60_000,
+		}),
+	);
+	const dispatcher = f.restart();
+	for (let pass = 0; pass < 3; pass++) await dispatcher.tick();
+	await dispatcher.drain();
+	expect(f.events.filter((e) => e.verb === "dispatch-get")).toHaveLength(1);
+	expect(f.events.some((e) => e.verb === "start")).toBe(false);
 });
 
 it("routes an ownerless delegation blocker to the signed-in lane operator", () => {

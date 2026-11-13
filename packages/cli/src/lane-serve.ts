@@ -1518,6 +1518,8 @@ export class LaneDispatcher {
 	private delegationRequests = new Map<string, string>();
 	/** When a still-waiting item or orphan may next cost a per-item read. */
 	private recheckAfter = new Map<string, number>();
+	/** Work revisions whose owner delegation comment was already read. */
+	private delegated = new Set<string>();
 	private unavailable = new Map<LocalExecutor, UnavailableRunner>();
 	private health: LocalDispatcherHealth[] = [];
 	private healthCheckedAt = 0;
@@ -1965,7 +1967,14 @@ export class LaneDispatcher {
 				let current = item;
 				// The owner's answer arrives as a comment, which only the per-item
 				// read shows; an unanswered item is read again after the window.
+				// A delegation found once stands for this revision: preparation
+				// reads the comments again before any admission.
 				const heldKey = `delegation:${item.id}:${item.version}`;
+				if (
+					reason?.startsWith("Possible human-reserved") &&
+					this.delegated.has(heldKey)
+				)
+					reason = undefined;
 				if (
 					reason?.startsWith("Possible human-reserved") &&
 					Date.now() >= (this.recheckAfter.get(heldKey) ?? 0)
@@ -1982,7 +1991,11 @@ export class LaneDispatcher {
 						this.options.coordinated,
 					);
 					if (reason) this.holdRecheck(heldKey);
-					else this.recheckAfter.delete(heldKey);
+					else {
+						this.recheckAfter.delete(heldKey);
+						if (this.delegated.size > 2048) this.delegated.clear();
+						this.delegated.add(heldKey);
+					}
 				}
 				if (!reason && item.metadata?.executor === "devin") {
 					const status = this.deps.devinAvailability();
@@ -2070,9 +2083,10 @@ export class LaneDispatcher {
 					Date.now() >= previous.retryDeadlineAt
 				) {
 					// Admission facts can change without a Work revision. A new
-					// retry window still checks readiness and obtains a fresh fence.
+					// retry window still checks readiness and obtains a fresh fence,
+					// once: the same failure again holds it for the next window.
 					previous.held = false;
-					previous.identicalFailures = 0;
+					previous.identicalFailures = 2;
 				}
 				if (
 					previous?.phase === "settled" &&
