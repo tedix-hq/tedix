@@ -20,6 +20,10 @@ const evalsPath = fileURLToPath(
 	new URL("../webmcp-evals/evals.json", import.meta.url),
 );
 
+// Puppeteer's launch timeout; printed before any eval case runs.
+const browserNotStarted =
+	/Timed out after \d+ ms while waiting for the WS endpoint URL/;
+
 let origin = "";
 const org = (): WebMcpOrgInfo => ({
 	slug: "tedix",
@@ -122,6 +126,18 @@ try {
 		"webmcp-evals/schema.json must match the CMS tools/list response",
 	);
 
+	let code = await runSmoke();
+	if (code === "browser-not-started") {
+		// Chrome never came up, so no eval ran: an infrastructure miss, not a result.
+		console.warn("webmcp-evals: Chrome did not start; retrying once");
+		code = await runSmoke();
+	}
+	assert.equal(code, 0, "webmcp-evals smoke failed");
+} finally {
+	await server.stop(true);
+}
+
+async function runSmoke(): Promise<number | null | "browser-not-started"> {
 	const child = spawn(
 		"bunx",
 		[
@@ -135,13 +151,22 @@ try {
 			evalsPath,
 			"--verbose",
 		],
-		{ cwd: workspace, stdio: "inherit" },
+		{ cwd: workspace, stdio: ["inherit", "pipe", "pipe"] },
 	);
+	let output = "";
+	for (const [stream, target] of [
+		[child.stdout, process.stdout],
+		[child.stderr, process.stderr],
+	] as const)
+		stream.on("data", (chunk: Buffer) => {
+			target.write(chunk);
+			output = (output + chunk).slice(-100_000);
+		});
 	const code = await new Promise<number | null>((resolve, reject) => {
 		child.once("error", reject);
-		child.once("exit", resolve);
+		child.once("close", resolve);
 	});
-	assert.equal(code, 0, "webmcp-evals smoke failed");
-} finally {
-	await server.stop(true);
+	return code !== 0 && browserNotStarted.test(output)
+		? "browser-not-started"
+		: code;
 }
