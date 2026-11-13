@@ -120,6 +120,10 @@ The pre-push hook selects relevant checks. Do not weaken a failing check.
 Report what ran and what remains unverified. Passing tests, completing a
 Work Item, pushing a commit, and deploying a change are separate results.
 
+To review a change, yours or another session's, follow
+[REVIEW.md](REVIEW.md): what to check first, the rules each check enforces,
+and what not to flag.
+
 ## Commit and finish
 
 Run `bun run format <changed files>` before committing. Maintainers commit
