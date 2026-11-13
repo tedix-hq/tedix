@@ -280,7 +280,8 @@ an OS screen component; shared pure logic lives in `src/lib/`. Clients use
 host calls for calculation (`sheet.evaluate`), revision-checked saves
 (`outputs.patch` sends only what changed; `outputs.changes` fetches only
 what someone else changed), exports and drafts. Changing a client means
-bumping its version in `office-editor-versions.ts` so existing editors can
+bumping its version in `OFFICE_EDITOR_VERSIONS`
+(`@tedix/api-contract/assets/office-editor-versions`) so existing editors can
 upgrade.
 
 ## Validation and deployment
