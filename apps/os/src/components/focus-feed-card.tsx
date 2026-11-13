@@ -8,10 +8,8 @@ import {
 	StopCircle,
 	XCircle,
 } from "@phosphor-icons/react";
-import {
-	decisionCardActionLabel,
-	decisionCardFallbackTitle,
-} from "@tedix/api-contract/utils/decision-card-copy";
+import { decisionCardFallbackTitle } from "@tedix/api-contract/utils/decision-card-copy";
+import { feedDisplayCard } from "@tedix/api-contract/utils/attention-app-view";
 import { FocusRowActions, type FocusRowAction } from "./focus-row-actions";
 import type { ActivityFeedItem } from "@tedix/api-contract/schemas/os-activity-feed";
 import type { FocusItem } from "@tedix/api-contract/utils/focus-feed";
@@ -139,13 +137,7 @@ export function FeedCard({
 			}
 		: activityHeadline(item, RECEIPT_NOTES);
 	const status = activityStatus(item);
-	const recommendedIntent =
-		item.presentation?.version === 2
-			? item.presentation.recommendedIntent
-			: undefined;
-	const recommendedOption = item.decision?.options.find(
-		(option) => option.intent === recommendedIntent,
-	)?.id;
+	const options = feedDisplayCard(item).options;
 	const quote =
 		!!story.detail &&
 		(item.kind === "correction" ||
@@ -202,18 +194,13 @@ export function FeedCard({
 						<Text>
 							<strong>Recommended:</strong> {item.presentation.recommendation}
 						</Text>
-						{item.decision && (
+						{options.length > 0 && (
 							<ul aria-label="Options" className="grid gap-1">
-								{item.decision.options.map((option) => (
+								{options.map((option) => (
 									<li key={option.id}>
 										<strong>
-											{decisionCardActionLabel(
-												item.presentation,
-												option.id,
-												option.intent,
-												option.label,
-											)}
-											{option.id === recommendedOption && " · Recommended"}
+											{option.label}
+											{option.recommended && " · Recommended"}
 										</strong>
 										: {option.consequence}
 									</li>
