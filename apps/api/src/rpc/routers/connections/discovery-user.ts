@@ -1,3 +1,4 @@
+import { disableProviderEventSubscriptionsByConnection } from "@tedix/db/queries/provider-events";
 import { filterAppConnectionResourceTools } from "@tedix/db/queries/app-records";
 import { getToolsByAppId } from "@tedix/db/queries/tools";
 import { safeExceptionTopology } from "../../../lib/safe-log-metadata";
@@ -1173,6 +1174,11 @@ export const disconnectProvider = authedOs.disconnectProvider
 					);
 					if (!instance)
 						throw createError(ErrorCodes.NOT_FOUND, "Account not found");
+					await disableProviderEventSubscriptionsByConnection(
+						context.db,
+						owner,
+						instance.id,
+					);
 					// A wrong-account reconnect cannot be used, but its owner must
 					// still be able to disconnect that exact slot and recover.
 					const current = await fetchSelected(instance.id);

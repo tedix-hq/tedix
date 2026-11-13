@@ -16,10 +16,10 @@ export function microsoftCalendarAdapter(
 	request: ProviderFetch = fetch,
 ): ProviderAdapter {
 	return {
-		async validateCalendar(token, subscription) {
+		async validateResource(token, subscription) {
 			const result = await requireProviderResponse(
 				await request(
-					`https://graph.microsoft.com/v1.0/me/calendars/${encodeURIComponent(subscription.calendarId)}`,
+					`https://graph.microsoft.com/v1.0/me/calendars/${encodeURIComponent(subscription.resourceKey)}`,
 					{
 						headers: { Authorization: `Bearer ${token}` },
 						signal: AbortSignal.timeout(15_000),
@@ -27,7 +27,7 @@ export function microsoftCalendarAdapter(
 				),
 			);
 			const calendar = (await result.json()) as { id?: string };
-			if (calendar.id !== subscription.calendarId)
+			if (calendar.id !== subscription.resourceKey)
 				throw new Error("Selected calendar unavailable");
 		},
 		async register(token, _subscription, _channelId, secret, callback) {

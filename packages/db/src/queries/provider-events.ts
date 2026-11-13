@@ -1,10 +1,43 @@
 import { and, eq, lt, ne, or, isNull, sql, inArray, desc } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
+import type { ConnectionOwner } from "./connection-instances";
 import {
 	providerEventSubscriptions as subscriptions,
 	providerEventChannels as channels,
 	providerEventDeliveries as deliveries,
 } from "../schema/provider-events";
+/** Revoke every subscription for the exact disconnected account, across personal workspaces. */
+export async function disableProviderEventSubscriptionsByConnection(
+	db: DbQueryClient,
+	owner: ConnectionOwner,
+	connectionInstanceId: string,
+) {
+	return db
+		.update(subscriptions)
+		.set({
+			status: "disabled",
+			leaseUntil: null,
+			lastError:
+				"Disabled on connection disconnect; remaining remote webhooks require provider cleanup",
+			updatedAt: new Date().toISOString(),
+		})
+		.where(
+			and(
+				eq(subscriptions.connectionInstanceId, connectionInstanceId),
+				owner.organizationId
+					? and(
+							eq(subscriptions.organizationId, owner.organizationId),
+							eq(subscriptions.connectionScope, "tenant"),
+						)
+					: and(
+							eq(subscriptions.personalOwnerUserId, owner.userId!),
+							eq(subscriptions.connectionScope, "user"),
+						),
+				ne(subscriptions.status, "disabled"),
+			),
+		)
+		.returning({ id: subscriptions.id });
+}
 export async function createProviderEventSubscription(
 	db: DbQueryClient,
 	row: typeof subscriptions.$inferInsert,

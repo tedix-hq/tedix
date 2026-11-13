@@ -13,7 +13,7 @@ describe("Google watch adapter", () => {
 		const adapter = googleCalendarAdapter(request);
 		const result = await adapter.register(
 			"vault-token",
-			{ calendarId: "a/b@example.com" } as Subscription,
+			{ resourceKey: "a/b@example.com" } as Subscription,
 			"channel",
 			"callback-secret",
 			"https://api.test/hook",
@@ -79,7 +79,7 @@ describe("Google watch adapter", () => {
 		await expect(
 			adapter.register(
 				"vault",
-				{ calendarId: "fixture@example.com" } as Subscription,
+				{ resourceKey: "fixture@example.com" } as Subscription,
 				"channel",
 				"secret",
 				"https://api.test/hook",
@@ -102,16 +102,16 @@ it("validates selected calendar before standing monitoring", async () => {
 	const request = vi
 		.fn()
 		.mockResolvedValue(Response.json({ id: "a@example.com" }));
-	await googleCalendarAdapter(request).validateCalendar("vault", {
-		calendarId: "a@example.com",
+	await googleCalendarAdapter(request).validateResource("vault", {
+		resourceKey: "a@example.com",
 	} as Subscription);
 	expect(request.mock.calls[0][0]).toBe(
 		"https://www.googleapis.com/calendar/v3/users/me/calendarList/a%40example.com",
 	);
 	request.mockResolvedValue(Response.json({ id: "another-calendar" }));
 	await expect(
-		googleCalendarAdapter(request).validateCalendar("vault", {
-			calendarId: "a@example.com",
+		googleCalendarAdapter(request).validateResource("vault", {
+			resourceKey: "a@example.com",
 		} as Subscription),
 	).rejects.toThrow("Selected calendar unavailable");
 });

@@ -6,7 +6,7 @@ export type Registration = {
 	expiresAt: string;
 };
 export type ProviderAdapter = {
-	validateCalendar: (
+	validateResource: (
 		token: string,
 		subscription: Subscription,
 	) => Promise<void>;

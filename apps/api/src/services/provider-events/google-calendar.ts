@@ -4,10 +4,10 @@ export function googleCalendarAdapter(
 	request: ProviderFetch = fetch,
 ): ProviderAdapter {
 	return {
-		async validateCalendar(token, subscription) {
+		async validateResource(token, subscription) {
 			const result = await requireProviderResponse(
 				await request(
-					`https://www.googleapis.com/calendar/v3/users/me/calendarList/${encodeURIComponent(subscription.calendarId)}`,
+					`https://www.googleapis.com/calendar/v3/users/me/calendarList/${encodeURIComponent(subscription.resourceKey)}`,
 					{
 						headers: { Authorization: `Bearer ${token}` },
 						signal: AbortSignal.timeout(15_000),
@@ -17,15 +17,15 @@ export function googleCalendarAdapter(
 			const calendar = (await result.json()) as { id?: string };
 			if (
 				!calendar.id ||
-				(subscription.calendarId !== "primary" &&
-					calendar.id !== subscription.calendarId)
+				(subscription.resourceKey !== "primary" &&
+					calendar.id !== subscription.resourceKey)
 			)
 				throw new Error("Selected calendar unavailable");
 		},
 		async register(token, subscription, channelId, secret, callback) {
 			const response = await requireProviderResponse(
 				await request(
-					`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(subscription.calendarId)}/events/watch`,
+					`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(subscription.resourceKey)}/events/watch`,
 					{
 						method: "POST",
 						signal: AbortSignal.timeout(15_000),

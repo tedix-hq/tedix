@@ -336,7 +336,7 @@ export async function installCalendarMonitoring(
 						: ("microsoft_calendar" as const),
 				providerId: route.providerId,
 				connectionInstanceId: route.connectionInstanceId,
-				calendarId: route.calendarId,
+				resourceKey: route.calendarId,
 				tediId: config.tediId,
 				skillId: config.skillId,
 				skillRevision: config.skillRevision,
@@ -469,7 +469,7 @@ export async function reconcileCalendarSubscription(
 		(r) =>
 			r.providerId === subscription.providerId &&
 			r.connectionInstanceId === subscription.connectionInstanceId &&
-			r.calendarId === subscription.calendarId,
+			r.calendarId === subscription.resourceKey,
 	);
 	if (
 		!route ||

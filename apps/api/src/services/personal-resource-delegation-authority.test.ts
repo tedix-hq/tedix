@@ -585,7 +585,7 @@ describe("standing personal subscription authority", () => {
 			skillId: id,
 			skillRevision: 1,
 			providerId: "google",
-			calendarId: "calendar-a",
+			resourceKey: "calendar-a",
 			status: "registering",
 		};
 		vi.spyOn(subscriptions, "getProviderEventSubscription").mockResolvedValue(
