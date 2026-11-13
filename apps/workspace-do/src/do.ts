@@ -71,7 +71,12 @@ import {
 import { buildSystemPrompt } from "./prompt";
 import type { WorkspaceStorage } from "./runtime";
 import { createLoaderSandbox } from "./sandbox";
-import { runTurn, toTurnUsage, type TurnResult } from "./turn-loop";
+import {
+	runTurn,
+	toTurnUsage,
+	type TurnProgress,
+	type TurnResult,
+} from "./turn-loop";
 import { priceTurn } from "./pricing";
 import {
 	type ClientFrame,
@@ -143,7 +148,7 @@ CREATE TABLE IF NOT EXISTS approvals (
 );
 `;
 
-type TurnStatus = "running" | "finished" | "failed";
+type TurnStatus = "running" | "finished" | "failed" | "cancelled";
 
 interface TurnRow {
 	turn_id: string;
@@ -962,6 +967,18 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			input.method,
 			input.args,
 		);
+	}
+
+	/** Facet callback: messages a turn running elsewhere has finished. */
+	saveTurnProgress(
+		scope: WorkspaceScope,
+		turnId: string,
+		progress: TurnProgress,
+	): void {
+		this.bindScope(scope);
+		const turn = this.#turn(turnId);
+		if (!turn || turn.status !== "running") return;
+		this.#saveProgress(turn.conversation_id, turnId, progress);
 	}
 
 	/** Facet callback: an event produced while the turn ran elsewhere. */
@@ -1978,12 +1995,14 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			const isolate =
 				input.isolate ?? plan.history.length > ISOLATE_AFTER_MESSAGES;
 			const result = isolate
-				? await this.#runIsolated(plan)
+				? await this.#runIsolated(plan, controller.signal)
 				: await executeTurn(plan, {
 						env: this.env,
 						model: this.modelFor(scope, turnId, plan.actor.id, plan.modelId),
 						sandboxEnv: this.sandboxEnv(scope, turnId),
 						emit: (event) => this.#emitLoopEvent(conversationId, turnId, event),
+						save: (progress) =>
+							this.#saveProgress(conversationId, turnId, progress),
 						signal: controller.signal,
 					});
 			this.#persist(conversationId, turnId, result);
@@ -2014,9 +2033,15 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				durationMs: Date.now() - startedAt,
 			});
 		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
+			const cancelled = controller.signal.aborted;
+			const message = cancelled
+				? "cancelled by user"
+				: error instanceof Error
+					? error.message
+					: String(error);
 			this.#store.run(
-				"UPDATE turns SET status = 'failed', error = ?, finished_at = ? WHERE turn_id = ?",
+				"UPDATE turns SET status = ?, error = ?, finished_at = ? WHERE turn_id = ?",
+				cancelled ? "cancelled" : "failed",
 				message,
 				new Date().toISOString(),
 				turnId,
@@ -2024,7 +2049,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			this.#events.append(conversationId, {
 				type: "turn.finished",
 				turnId,
-				status: controller.signal.aborted ? "cancelled" : "error",
+				status: cancelled ? "cancelled" : "error",
 				error: message,
 				durationMs: Date.now() - startedAt,
 			});
@@ -2035,43 +2060,68 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		}
 	}
 
-	async #runIsolated(plan: TurnPlan): Promise<TurnResult> {
+	async #runIsolated(plan: TurnPlan, signal: AbortSignal): Promise<TurnResult> {
 		const facet = this.ctx.facets.get(`turn:${plan.turnId}`, () => ({
 			class: this.ctx.exports.TurnFacet,
 		})) as unknown as {
 			run(plan: TurnPlan, objectName: string): Promise<TurnResult>;
+			cancel(): Promise<void>;
 		};
+		signal.throwIfAborted();
+		// An AbortSignal cannot cross RPC; Stop reaches the facet as a call.
+		const stop = () => {
+			facet.cancel().catch(() => {});
+		};
+		signal.addEventListener("abort", stop, { once: true });
 		try {
 			return await facet.run(plan, tenantStoreName(plan.scope));
 		} finally {
+			signal.removeEventListener("abort", stop);
 			this.ctx.facets.delete(`turn:${plan.turnId}`);
 		}
 	}
 
+	/** Store a turn's progress at once, so a stop or crash keeps it. */
+	#saveProgress(
+		conversationId: string,
+		turnId: string,
+		progress: TurnProgress,
+	) {
+		const now = new Date().toISOString();
+		this.ctx.storage.transactionSync(() => {
+			if (progress.compaction) {
+				this.#store.put(
+					`compaction:${conversationId}`,
+					progress.compaction.summary,
+				);
+				this.#store.run(
+					"DELETE FROM messages WHERE seq IN (SELECT seq FROM messages WHERE conversation_id = ? ORDER BY seq ASC LIMIT ?)",
+					conversationId,
+					progress.compaction.droppedMessages,
+				);
+			}
+			for (const message of progress.messages) {
+				this.#store.run(
+					"INSERT INTO messages (conversation_id, turn_id, at, message) VALUES (?, ?, ?, ?)",
+					conversationId,
+					turnId,
+					now,
+					JSON.stringify(message),
+				);
+			}
+			this.#store.run(
+				"UPDATE conversations SET updated_at = ? WHERE id = ?",
+				now,
+				conversationId,
+			);
+		});
+	}
+
 	#persist(conversationId: string, turnId: string, result: TurnResult) {
 		const now = new Date().toISOString();
-		if (result.compaction) {
-			this.#store.put(
-				`compaction:${conversationId}`,
-				result.compaction.summary,
-			);
-			this.#store.run(
-				"DELETE FROM messages WHERE seq IN (SELECT seq FROM messages WHERE conversation_id = ? ORDER BY seq ASC LIMIT ?)",
-				conversationId,
-				result.compaction.droppedMessages,
-			);
-		}
-		for (const message of result.appended) {
-			this.#store.run(
-				"INSERT INTO messages (conversation_id, turn_id, at, message) VALUES (?, ?, ?, ?)",
-				conversationId,
-				turnId,
-				now,
-				JSON.stringify(message),
-			);
-		}
 		this.#store.run(
-			"UPDATE turns SET status = 'finished', text = ?, finished_at = ? WHERE turn_id = ?",
+			"UPDATE turns SET status = ?, text = ?, finished_at = ? WHERE turn_id = ?",
+			result.stopReason === "aborted" ? "cancelled" : "finished",
 			result.text,
 			now,
 			turnId,
@@ -2203,6 +2253,7 @@ export interface ExecuteTurnHost {
 	env: WorkspaceEnv;
 	sandboxEnv: Record<string, unknown>;
 	emit: (event: LoopEvent) => void;
+	save: (progress: TurnProgress) => void | Promise<void>;
 	signal?: AbortSignal;
 	model: ModelPort;
 }
@@ -2217,6 +2268,7 @@ export async function executeTurn(
 			model: host.model,
 			runCode: (code) => sandbox.run({ code, env: host.sandboxEnv }),
 			emit: host.emit,
+			save: host.save,
 			signal: host.signal,
 			summarize: async (messages) => {
 				const stream = host.model.stream(
@@ -2262,6 +2314,13 @@ export async function executeTurn(
  * calls go back to the parent object over RPC.
  */
 export class TurnFacet extends DurableObject<WorkspaceEnv> {
+	readonly #stop = new AbortController();
+
+	/** The parent's Stop: abort the model call and run no further code. */
+	cancel() {
+		this.#stop.abort(new Error("cancelled by user"));
+	}
+
 	/** The model this facet streams from; a test subclass returns a scripted one. */
 	protected async modelFor(plan: TurnPlan): Promise<ModelPort> {
 		return createWorkspaceModel(
@@ -2286,6 +2345,11 @@ export class TurnFacet extends DurableObject<WorkspaceEnv> {
 				turnId: string,
 				event: LoopEvent,
 			): Promise<void>;
+			saveTurnProgress(
+				scope: WorkspaceScope,
+				turnId: string,
+				progress: TurnProgress,
+			): Promise<void>;
 		};
 		const sandboxEnv: Record<string, unknown> = {};
 		for (const binding of BINDING_NAMES) {
@@ -2300,6 +2364,9 @@ export class TurnFacet extends DurableObject<WorkspaceEnv> {
 			emit: (event) => {
 				void parent.appendTurnEvent(plan.scope, plan.turnId, event);
 			},
+			save: (progress) =>
+				parent.saveTurnProgress(plan.scope, plan.turnId, progress),
+			signal: this.#stop.signal,
 		});
 	}
 }

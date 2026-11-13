@@ -13,7 +13,7 @@ import type { Context, Usage } from "@earendil-works/pi-ai";
 import type { ModelPort } from "./model";
 import { RUN_CODE_TOOL } from "./prompt";
 import type { SandboxRunResult } from "./runtime";
-import { runTurn } from "./turn-loop";
+import { closeOpenToolCalls, runTurn, type TurnProgress } from "./turn-loop";
 
 function tokenUsage(
 	input: number,
@@ -389,4 +389,123 @@ test("model transparency preserves the tool-step and output-token limits", async
 	expect(runs).toBe(24);
 	expect(result.stopReason).toBe("step_ceiling");
 	expect(result.usage?.input).toBe(240);
+});
+
+describe("turn progress", () => {
+	test("saves the user message and each finished step before a later failure", async () => {
+		const core = createFauxCore({ tokensPerSecond: 0 });
+		core.setResponses([
+			fauxAssistantMessage(fauxToolCall(RUN_CODE_TOOL, { code: "write" }), {
+				stopReason: "toolUse",
+			}),
+			fauxAssistantMessage([], {
+				stopReason: "error",
+				errorMessage: "provider down",
+			}),
+		]);
+		const saved: TurnProgress[] = [];
+		await expect(
+			runTurn(
+				{
+					model: fauxModel(core),
+					runCode: async () => ({
+						ok: true,
+						result: 1,
+						logs: [],
+						durationMs: 0,
+					}),
+					emit: () => {},
+					save: (progress) => {
+						saved.push(progress);
+					},
+					summarize: async () => ({ summary: "", usage: null }),
+				},
+				{ turnId: "t", systemPrompt: "sys", history: [], userText: "Write it" },
+			),
+		).rejects.toThrow("provider down");
+		expect(
+			saved.flatMap((progress) => progress.messages.map((m) => m.role)),
+		).toEqual(["user", "assistant", "toolResult"]);
+	});
+
+	test("a stop during a tool call keeps its result and runs no further calls", async () => {
+		const core = createFauxCore({ tokensPerSecond: 0 });
+		core.setResponses([
+			fauxAssistantMessage(
+				[
+					fauxToolCall(RUN_CODE_TOOL, { code: "first" }),
+					fauxToolCall(RUN_CODE_TOOL, { code: "second" }),
+				],
+				{ stopReason: "toolUse" },
+			),
+			fauxAssistantMessage(fauxText("should not be reached")),
+		]);
+		const controller = new AbortController();
+		const ran: string[] = [];
+		const saved: TurnProgress[] = [];
+		const result = await runTurn(
+			{
+				model: fauxModel(core),
+				runCode: async (code) => {
+					ran.push(code);
+					controller.abort();
+					return { ok: true, result: "written", logs: [], durationMs: 0 };
+				},
+				emit: () => {},
+				save: (progress) => {
+					saved.push(progress);
+				},
+				signal: controller.signal,
+				summarize: async () => ({ summary: "", usage: null }),
+			},
+			{ turnId: "t", systemPrompt: "sys", history: [], userText: "Do both" },
+		);
+		expect(ran).toEqual(["first"]);
+		expect(result.stopReason).toBe("aborted");
+		const messages = saved.flatMap((progress) => progress.messages);
+		expect(messages.map((m) => m.role)).toEqual([
+			"user",
+			"assistant",
+			"toolResult",
+			"toolResult",
+		]);
+		expect(JSON.stringify(messages[2])).toContain("written");
+		expect(JSON.stringify(messages[3])).toContain(
+			"Not run: the turn was stopped.",
+		);
+	});
+
+	test("closes tool calls an interrupted turn left without a result", () => {
+		const history = closeOpenToolCalls([
+			{ role: "user", content: "Write it", timestamp: 1 },
+			fauxAssistantMessage(
+				[
+					fauxToolCall(RUN_CODE_TOOL, { code: "a" }, { id: "call-a" }),
+					fauxToolCall(RUN_CODE_TOOL, { code: "b" }, { id: "call-b" }),
+				],
+				{ stopReason: "toolUse" },
+			),
+			{
+				role: "toolResult",
+				toolCallId: "call-a",
+				toolName: RUN_CODE_TOOL,
+				content: [{ type: "text", text: "ok" }],
+				isError: false,
+				timestamp: 2,
+			},
+			{ role: "user", content: "Continue", timestamp: 3 },
+		]);
+		expect(history.map((m) => m.role)).toEqual([
+			"user",
+			"assistant",
+			"toolResult",
+			"toolResult",
+			"user",
+		]);
+		expect(history[3]).toMatchObject({
+			role: "toolResult",
+			toolCallId: "call-b",
+			isError: true,
+		});
+	});
 });

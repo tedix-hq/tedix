@@ -328,6 +328,11 @@ export function WorkspaceChat({
 				onDecide={(approvalId, decision) =>
 					client?.decideApproval(approvalId, decision)
 				}
+				onContinue={
+					running || state.pendingSend || approval
+						? null
+						: () => void send(CONTINUE_TEXT)
+				}
 			/>
 			{connection.phase === "unavailable" ? (
 				<div
@@ -478,6 +483,7 @@ function Thread({
 	hasEarlier,
 	onLoadEarlier,
 	onDecide,
+	onContinue,
 }: {
 	conversationId: string | null;
 	turns: ChatTurn[];
@@ -486,6 +492,8 @@ function Thread({
 	hasEarlier: boolean;
 	onLoadEarlier: () => void;
 	onDecide: (approvalId: string, decision: "approve" | "deny") => void;
+	/** Resumes after the last turn; `null` while another turn is busy. */
+	onContinue: (() => void) | null;
 }) {
 	const scroller = useRef<HTMLDivElement | null>(null);
 	const stick = useRef(true);
@@ -529,8 +537,18 @@ function Thread({
 					</Text>
 				</div>
 			) : null}
-			{turns.map((turn) => (
-				<TurnView key={turn.turnId} onDecide={onDecide} turn={turn} />
+			{turns.map((turn, index) => (
+				<TurnView
+					key={turn.turnId}
+					onDecide={onDecide}
+					onContinue={
+						index === turns.length - 1 &&
+						(turn.status === "cancelled" || turn.status === "error")
+							? onContinue
+							: null
+					}
+					turn={turn}
+				/>
 			))}
 			{pendingSend ? (
 				<div className="workspace-chat-turn" data-pending="true">
@@ -542,12 +560,18 @@ function Thread({
 	);
 }
 
+/** What Continue sends after a stopped or interrupted turn. */
+const CONTINUE_TEXT =
+	"Continue where you stopped. Check what already happened before repeating any change.";
+
 function TurnView({
 	turn,
 	onDecide,
+	onContinue,
 }: {
 	turn: ChatTurn;
 	onDecide: (approvalId: string, decision: "approve" | "deny") => void;
+	onContinue: (() => void) | null;
 }) {
 	const modelLabel = turn.model?.startsWith("azure-openai/")
 		? `Azure deployment: ${turn.model.slice("azure-openai/".length)}`
@@ -610,6 +634,13 @@ function TurnView({
 					<Text role="caption" tone="secondary">
 						Stopped.
 					</Text>
+				) : null}
+				{onContinue ? (
+					<div>
+						<Button onClick={onContinue} size="xs" variant="outline">
+							Continue
+						</Button>
+					</div>
 				) : null}
 				{running ? (
 					<footer className="workspace-chat-turn-footer">

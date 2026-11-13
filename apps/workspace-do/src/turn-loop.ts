@@ -31,8 +31,19 @@ export interface TurnPorts {
 	summarize(
 		messages: Message[],
 	): Promise<{ summary: string; usage: Usage | null }>;
+	/**
+	 * Store progress as it happens: first the compaction and the user's
+	 * message, then each model message and each tool result. A turn that is
+	 * stopped, fails or is evicted keeps what it already did.
+	 */
+	save?(progress: TurnProgress): void | Promise<void>;
 	signal?: AbortSignal;
 	now?: () => number;
+}
+
+export interface TurnProgress {
+	messages: Message[];
+	compaction?: { summary: string; droppedMessages: number };
 }
 
 export interface TurnInput {
@@ -129,13 +140,49 @@ function toolResult(
 	};
 }
 
+/**
+ * Give every tool call in `history` a result. A turn that stopped between a
+ * model message and its tool results left calls open, and providers reject a
+ * call without a result.
+ */
+export function closeOpenToolCalls(history: Message[]): Message[] {
+	const closed: Message[] = [];
+	let open: ToolCall[] = [];
+	const close = () => {
+		for (const call of open)
+			closed.push(
+				toolResult(
+					call,
+					"No result: the turn stopped before this call returned. Check whether it took effect before repeating it.",
+					true,
+					0,
+				),
+			);
+		open = [];
+	};
+	for (const message of history) {
+		if (message.role === "toolResult") {
+			open = open.filter((call) => call.id !== message.toolCallId);
+		} else {
+			close();
+			if (message.role === "assistant")
+				open = message.content.filter(
+					(block): block is ToolCall => block.type === "toolCall",
+				);
+		}
+		closed.push(message);
+	}
+	close();
+	return closed;
+}
+
 export async function runTurn(
 	ports: TurnPorts,
 	input: TurnInput,
 ): Promise<TurnResult> {
 	const now = ports.now ?? (() => Date.now());
 	const appended: Message[] = [];
-	let history = [...input.history];
+	let history = closeOpenToolCalls(input.history);
 	let systemPrompt = input.systemPrompt;
 	let compaction: TurnResult["compaction"];
 	let usage: TurnResult["usage"] = null;
@@ -206,6 +253,15 @@ export async function runTurn(
 	};
 	appended.push(userMessage);
 	const messages: Message[] = [...history, userMessage];
+	await ports.save?.({
+		messages: [userMessage],
+		...(compaction ? { compaction } : {}),
+	});
+	const keep = async (message: Message) => {
+		messages.push(message);
+		appended.push(message);
+		await ports.save?.({ messages: [message] });
+	};
 
 	let steps = 0;
 	let finalText = "";
@@ -239,8 +295,7 @@ export async function runTurn(
 				message.errorMessage ?? `model stopped with ${message.stopReason}`,
 			);
 		}
-		messages.push(message);
-		appended.push(message);
+		await keep(message);
 		const calls = message.content.filter(
 			(block): block is ToolCall => block.type === "toolCall",
 		);
@@ -258,6 +313,12 @@ export async function runTurn(
 		}
 		let approvalRequired = false;
 		for (const call of calls) {
+			if (ports.signal?.aborted) {
+				await keep(
+					toolResult(call, "Not run: the turn was stopped.", true, now()),
+				);
+				continue;
+			}
 			if (call.name === DESCRIBE_BINDING_TOOL) {
 				const name = String(call.arguments.name ?? "");
 				const declaration = describeBinding(name);
@@ -267,8 +328,7 @@ export async function runTurn(
 					declaration === null,
 					now(),
 				);
-				messages.push(result);
-				appended.push(result);
+				await keep(result);
 				continue;
 			}
 			if (call.name !== RUN_CODE_TOOL) {
@@ -278,8 +338,7 @@ export async function runTurn(
 					true,
 					now(),
 				);
-				messages.push(result);
-				appended.push(result);
+				await keep(result);
 				continue;
 			}
 			const code = String(call.arguments.code ?? "");
@@ -301,9 +360,7 @@ export async function runTurn(
 					...(run.error ? { error: run.error } : {}),
 				},
 			});
-			const result = toolResult(call, renderRun(run), !run.ok, now());
-			messages.push(result);
-			appended.push(result);
+			await keep(toolResult(call, renderRun(run), !run.ok, now()));
 		}
 		if (approvalRequired) {
 			stopReason = "approval_required";

@@ -467,6 +467,68 @@ describe("WorkspaceChat", () => {
 		expect(host.querySelector('[aria-label="Send"]')).not.toBeNull();
 	});
 
+	it.each([
+		["cancelled", undefined],
+		["error", "interrupted"],
+	] as const)(
+		"offers Continue after a %s turn and sends it as the next turn",
+		(status, error) => {
+			const fake = fakeClient("c1");
+			mount(fake);
+			const continueButton = () =>
+				[...host.querySelectorAll("button")].find(
+					(button) => button.textContent === "Continue",
+				);
+			act(() => fake.feed([started]));
+			expect(continueButton()).toBeUndefined();
+			act(() =>
+				fake.feed([
+					{
+						seq: 2,
+						at,
+						conversationId: "c1",
+						type: "turn.finished",
+						turnId: "t1",
+						status,
+						...(error ? { error } : {}),
+						durationMs: 1000,
+					},
+				]),
+			);
+			act(() => continueButton()?.click());
+			expect(fake.calls).toContainEqual([
+				"sendTurn",
+				expect.objectContaining({
+					text: expect.stringContaining("Continue where you stopped"),
+				}),
+			]);
+		},
+	);
+
+	it("does not offer Continue after a turn that finished", () => {
+		const fake = fakeClient("c1");
+		mount(fake);
+		act(() =>
+			fake.feed([
+				started,
+				{
+					seq: 2,
+					at,
+					conversationId: "c1",
+					type: "turn.finished",
+					turnId: "t1",
+					status: "done",
+					durationMs: 1000,
+				},
+			]),
+		);
+		expect(
+			[...host.querySelectorAll("button")].some(
+				(button) => button.textContent === "Continue",
+			),
+		).toBe(false);
+	});
+
 	it("keeps the thread at its end before paint and again after a conversation change", () => {
 		const fake = fakeClient("c1");
 		mount(fake);
