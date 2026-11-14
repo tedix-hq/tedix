@@ -506,6 +506,61 @@ it("counts every visible configured factory source in a project Deck just as the
 	});
 });
 
+it("carries the asker's choices and recommendation into Feed while its summary is pending", async () => {
+	const implementation = mocks.call.getMockImplementation()!;
+	const options = [
+		{ id: "keep", label: "Keep", body: "Keep the proposed supplier." },
+		{ id: "revise", label: "Revise", body: "Ask for another supplier." },
+	];
+	mocks.call.mockImplementation(async (procedure: string, input: unknown) => {
+		if (procedure === "spaces") return { items: [], truncated: false };
+		if (procedure === "inbox")
+			return {
+				data: [
+					{
+						request: {
+							id: "fictional-supplier-choice",
+							kind: "question",
+							metadata: {
+								decisionClass: "customer",
+								decisionCard: {
+									kind: "decision",
+									options,
+									recommendedOptionId: "revise",
+								},
+							},
+							subject: "Which supplier?",
+							prompt: "Choose Cedar or Pine.",
+							projectId: null,
+							workItemId: null,
+							requestedAt: new Date().toISOString(),
+							dueAt: null,
+						},
+						effectiveState: "open",
+						canRespond: true,
+						askedBy: "Orchard helper",
+					},
+				],
+				nextCursor: null,
+				hasMore: false,
+			};
+		return implementation(procedure, input);
+	});
+	const feed = await loadForYouProjection(context, { limit: 100 });
+	const row = feed.items.find((item) =>
+		item.id.includes("fictional-supplier-choice"),
+	);
+	expect(row?.needsAction).toBe(true);
+	expect(row?.options).toEqual(
+		options.map((option) => ({
+			id: option.id,
+			label: option.label,
+			consequence: option.body,
+			recommended: option.id === "revise",
+		})),
+	);
+});
+
 it("shows feed-routed questions and approvals as updates, not Needs-you", async () => {
 	const implementation = mocks.call.getMockImplementation()!;
 	mocks.call.mockImplementation(async (procedure: string, input: unknown) => {

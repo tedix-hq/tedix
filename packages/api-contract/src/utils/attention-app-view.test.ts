@@ -56,6 +56,71 @@ const copy = {
 	stakes: "Due tomorrow",
 };
 describe("headless attention view adaptation", () => {
+	it.each(["pending", "critical", "read-only", "ready"])(
+		"preserves supplied choices and their recommendation for a %s card",
+		(state) => {
+			const card = raw("decision", {
+				...(state === "critical" ? { riskLevel: "critical" } : {}),
+				decisionCard: {
+					kind: "decision",
+					recommendedOptionId: "revise",
+					options: [
+						{ id: "keep", label: "Keep", body: "Keep the record." },
+						{ id: "revise", label: "Revise", body: "Request a correction." },
+					],
+				},
+			});
+			if (state === "pending") card.presentation = null;
+			if (state === "read-only") card.interaction!.canRespond = false;
+			const view = deckDisplayCard(card, 0);
+			expect(view.options).toEqual([
+				{
+					id: "keep",
+					label: "Keep",
+					consequence: "Keep the record.",
+					recommended: false,
+				},
+				{
+					id: "revise",
+					label: "Revise",
+					consequence: "Request a correction.",
+					recommended: true,
+				},
+			]);
+			expect(view.actions.length).toBe(state === "ready" ? 2 : 0);
+			const feed = feedDisplayCard({
+				id: card.id,
+				sentence: card.label,
+				source: card.source,
+				actor: "Sample assistant",
+				needsAction: true,
+				presentation: card.presentation,
+				options: view.options,
+			} as Parameters<typeof feedDisplayCard>[0]);
+			expect(feed.options).toEqual(view.options);
+			expect(feed.actions).toEqual([]);
+			expect(attentionMarkdown([feed], true)).toContain("Revise (recommended)");
+		},
+	);
+	it("does not recommend an identifier that is not one of the supplied choices", () => {
+		const card = raw("decision", {
+			decisionCard: {
+				recommendedOptionId: "missing",
+				options: [
+					{ id: "keep", label: "Keep" },
+					{ id: "revise", label: "Revise" },
+				],
+			},
+		});
+		card.responseKind = "choice";
+		card.responseOptions = [
+			{ id: "keep", label: "Keep" },
+			{ id: "revise", label: "Revise" },
+		];
+		expect(
+			deckDisplayCard(card, 0).options.some((option) => option.recommended),
+		).toBe(false);
+	});
 	it.each(["question", "input", "coordination"])(
 		"preserves %s input and version fences",
 		(kind) => {

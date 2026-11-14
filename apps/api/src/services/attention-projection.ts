@@ -1,5 +1,6 @@
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import { timelineItems } from "@tedix/api-contract/utils/feed-story";
+import { deckDisplayCard } from "@tedix/api-contract/utils/attention-app-view";
 import { call } from "@orpc/server";
 import type * as z from "zod";
 import {
@@ -894,6 +895,7 @@ export async function loadForYouProjection(
 					sentence: display.label,
 					presentation: display.presentation,
 					faceText: display.faceText,
+					options: deckDisplayCard(display, 0).options,
 				}
 			: item;
 	});

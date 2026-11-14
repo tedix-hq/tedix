@@ -1,4 +1,5 @@
 import * as z from "zod";
+import { AttentionDisplayOptionSchema } from "./attention-option";
 import { DeckPipelineStatusSchema } from "./deck-pipeline";
 import {
 	CardHistorySchema,
@@ -283,14 +284,7 @@ export const AttentionDisplayCardSchema = z.strictObject({
 	draft: z.string().nullable(),
 	recipient: z.string().nullable(),
 	subject: z.string().nullable(),
-	options: z.array(
-		z.strictObject({
-			id: z.string(),
-			label: z.string(),
-			consequence: z.string().nullable(),
-			recommended: z.boolean().optional(),
-		}),
-	),
+	options: z.array(AttentionDisplayOptionSchema),
 	actions: z.array(AttentionCardActionSchema),
 	answer: z.string(),
 	needsText: z.boolean(),
@@ -313,6 +307,7 @@ export const AttentionAppViewSchema = z.strictObject({
 export const AttentionOfferedChoicesSchema = z.object({
 	decisionCard: z
 		.object({
+			recommendedOptionId: z.string().optional(),
 			options: z
 				.array(
 					z.object({

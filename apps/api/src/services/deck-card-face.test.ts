@@ -64,6 +64,9 @@ const copy = {
 	title: "Is this news summary useful?",
 	context: "Your workshop news is ready for review.",
 	body: "Records whether the suggestion helped; changes nothing outside Tedix.",
+	story:
+		"Your workshop news is ready. Your feedback records whether this helped.",
+	whyMe: "Only you know your plans.",
 	recommendation: "Review first: usefulness depends on your workshop plans.",
 	actionLabels: { approve: "Useful", reject: "Not useful" },
 };
@@ -149,7 +152,7 @@ it.each([undefined, "0".repeat(64)])(
 		} as DeckCard;
 		const [displayed] = await prepareDeckCardFaces(context, [authored]);
 		expect(displayed?.presentation).toEqual(copy);
-		expect(displayed?.faceText).toContain(copy.body);
+		expect(displayed?.faceText).toContain(copy.story);
 		expect(mocks.generate).toHaveBeenCalledOnce();
 	},
 );
@@ -158,6 +161,19 @@ it("generates and returns a new face when the host cannot schedule background wo
 	const [displayed] = await prepareDeckCardFaces(context, [card]);
 	expect(displayed?.presentation).toEqual(copy);
 	expect(displayed?.faceText).not.toContain("Summary pending");
+});
+
+it("refreshes legacy cached copy missing both story and why-you", async () => {
+	await prepareDeckCardFace(context, card);
+	const row = [...store.values()][0]!;
+	const legacy = { ...copy } as Record<string, unknown>;
+	delete legacy.story;
+	delete legacy.whyMe;
+	row.value.presentation = legacy;
+	expect(await prepareDeckCardFace(context, card, false)).toBeNull();
+	expect(await prepareDeckCardFace(context, card)).toEqual(copy);
+	expect(mocks.generate).toHaveBeenCalledTimes(2);
+	expect(await prepareDeckCardFace(context, card, false)).toEqual(copy);
 });
 
 it("reads writing preferences once per class in a batch and refreshes them on the next read", async () => {
@@ -440,8 +456,8 @@ it("renders the generated story on the next read without changing the source", a
 	const presentation = await prepareDeckCardFace(context, card, false);
 	const displayed = displayDeckCard(card, presentation);
 	expect(displayed.label).toBe(copy.title);
-	expect(displayed.faceText).toContain(copy.context);
-	expect(displayed.faceText).toContain(copy.body);
+	expect(displayed.faceText).toContain(copy.story);
+	expect(displayed.faceText).toContain(`Why you: ${copy.whyMe}`);
 	expect(displayed.faceText).not.toContain("Summary pending");
 	expect(card).toEqual(original);
 });
