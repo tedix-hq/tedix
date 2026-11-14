@@ -25,7 +25,8 @@ import {
 	readExternalAgentProfile,
 	writeBootstrapApproval,
 	discardExternalAgentCredential,
-	readExternalAgentCredential,
+	laneAgentStoreActive,
+	readExternalAgentCredentialEntry,
 	writeExternalAgentCredential,
 	removeExternalAgentSession,
 	type StoredAihClient,
@@ -1249,34 +1250,103 @@ async function resolveExternalAgentCredential(
 			`TEDIX_EXTERNAL_AGENT selects "${selector}", but this workspace is bound to "${profile.key}".`,
 		);
 	}
-	const cached = readExternalAgentCredential(slot, profile, stored);
-	if (cached) return { Authorization: `Bearer ${cached}` };
+	const credential = await issueSessionCredential(
+		slot,
+		profile,
+		stored,
+		options,
+	);
+	return { Authorization: `Bearer ${credential.accessToken}` };
+}
+
+/** Reuse the cached session credential when it outlives `minimumMs`, else exchange. */
+async function issueSessionCredential(
+	slot: string,
+	profile: StoredExternalAgentProfile,
+	stored: StoredExternalAgentSession,
+	options: { fetch?: FetchLike },
+	minimumMs = 0,
+): Promise<{ accessToken: string; expiresAt?: number }> {
+	const cached = readExternalAgentCredentialEntry(slot, profile, stored);
+	if (cached && cached.expiresAt - Date.now() > minimumMs) return cached;
+	if (laneAgentStoreActive())
+		throw new Error(
+			"[tedix] This lane's Tedix credential expired. The dispatcher renews it every minute; retry shortly, and report a stalled dispatcher if it stays expired.",
+		);
 	const exchangeStartedAt = Date.now();
 	const exchange = await exchangeStoredSession(slot, profile, stored, options);
 	const session = storedSession(exchange);
 	// Cache conservatively from request start, never from delayed response receipt.
 	// The gateway still checks live principal/session authority on every call.
 	if (
-		session.id === stored.id &&
-		exchange.credential.mcpServerUrl === profile.mcpUrl
-	) {
-		writeExternalAgentCredential(
-			slot,
-			profile,
-			stored,
-			exchange.credential.accessToken,
-			exchangeStartedAt +
-				Math.min(exchange.credential.expiresIn * 1000, 300_000) -
-				60_000,
-		);
-	}
-
+		session.id !== stored.id ||
+		exchange.credential.mcpServerUrl !== profile.mcpUrl
+	)
+		return { accessToken: exchange.credential.accessToken };
+	const expiresAt =
+		exchangeStartedAt +
+		Math.min(exchange.credential.expiresIn * 1000, 300_000) -
+		60_000;
+	writeExternalAgentCredential(
+		slot,
+		profile,
+		stored,
+		exchange.credential.accessToken,
+		expiresAt,
+	);
 	// No `cleanup` revoke: the credential stays active after use so the next
 	// operation reuses THIS Descope MCP client (server-side reuse) instead of
 	// minting a fresh one on every call — the source of the TPA over-minting.
 	// Revocation happens only at session teardown (end_external_agent_session)
 	// or via the external-agent-mcp-client-reaper for abandoned sessions.
-	return { Authorization: `Bearer ${exchange.credential.accessToken}` };
+	return { accessToken: exchange.credential.accessToken, expiresAt };
+}
+
+/**
+ * Write a lane-only store holding one session and its short-lived credential.
+ * Enrollment secrets (API key, M2M client) stay in the host store, which the
+ * sandbox denies; the lane cannot exchange and relies on this renewal.
+ */
+export async function writeLaneExternalAgentCredential(options: {
+	workspace: string;
+	sessionKey: string;
+	storeDir: string;
+	fetch?: FetchLike;
+}): Promise<{ principalKey: string; expiresAt: number }> {
+	const { slot, profile, session } = sessionProfile(
+		options.workspace,
+		options.sessionKey,
+	);
+	if (!profile || session?.externalSessionKey !== options.sessionKey)
+		throw new Error(
+			`Agent-Session "${options.sessionKey}" has not been started.`,
+		);
+	const credential = await issueSessionCredential(
+		slot,
+		profile,
+		session,
+		options,
+		120_000,
+	);
+	if (!credential.expiresAt)
+		throw new Error("The lane credential is not bound to its Agent-Session.");
+	const { rawApiKey: _apiKey, aihClient: _client, ...shared } = profile;
+	const lane: StoredExternalAgentProfile = {
+		...shared,
+		credentialSource: "proxy",
+		sessions: { [session.externalSessionKey]: session },
+	};
+	const store = { configDir: options.storeDir };
+	writeExternalAgentProfile(slot, lane, store);
+	writeExternalAgentCredential(
+		slot,
+		lane,
+		session,
+		credential.accessToken,
+		credential.expiresAt,
+		store,
+	);
+	return { principalKey: profile.key, expiresAt: credential.expiresAt };
 }
 
 async function withExternalAgentClient<T>(

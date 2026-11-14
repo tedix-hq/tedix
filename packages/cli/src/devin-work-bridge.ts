@@ -208,7 +208,7 @@ export function createDevinWorkBridge(
 export type DevinWorkBridge = ReturnType<typeof createDevinWorkBridge>;
 
 export function devinScopedWorkInstruction(binding: DevinWorkBinding) {
-	return `The host supplied only your current admitted Work context below. Host credentials and plugin OAuth remain outside the sandbox. Do not read credential files or use Tedix directly. No other Work, organization, Attempt or session is available through this transport.
+	return `The host supplied only your current admitted Work context below. Host credentials and plugin OAuth remain outside the sandbox; do not read credential files. To re-read this Work, run Tedix CLI reads such as \`tedix work context <id>\` with the given selectors, TEDIX_AGENT_SESSION and TEDIX_EXTERNAL_AGENT; they run under this lane's own short-lived credential. Deliver your result only through this transport. No other Work, organization, Attempt or session is available through it.
 This transport has two response phases. For this delivery turn, the last-line rule is TEDIX_WORK_RESULT, even when the brief asks for TEDIX_LANE_RESULT last. Put the brief's exact TEDIX_LANE_RESULT JSON declaration on its own line immediately before the delivery envelope. Include it once, outside the note; the note contains only your result summary and evidence links.
 End this delivery turn with exactly one envelope as the final line:
 TEDIX_WORK_RESULT ${JSON.stringify({ binding, outcome: "succeeded", note: "Actual result summary and evidence links." })}

@@ -75,7 +75,7 @@ function coerceAihClient(value: unknown): StoredAihClient | null {
 	};
 }
 
-interface CachedAgentCredential {
+export interface CachedAgentCredential {
 	binding: string;
 	accessToken: string;
 	expiresAt: number;
@@ -163,9 +163,17 @@ interface ExternalAgentStore {
 	bootstrapApprovals?: Record<string, PendingBootstrapApproval>;
 }
 
+/** A sandboxed lane reads only the store its dispatcher wrote for that lane. */
+export const LANE_AGENT_STORE_ENV = "TEDIX_LANE_AGENT_STORE";
+
+export function laneAgentStoreActive(): boolean {
+	return Boolean(process.env[LANE_AGENT_STORE_ENV]?.trim());
+}
+
 function resolveStoreDir(options?: ExternalAgentStoreOptions): string {
 	return (
 		options?.configDir ??
+		(process.env[LANE_AGENT_STORE_ENV]?.trim() || undefined) ??
 		process.env.TEDIX_CONFIG_DIR ??
 		join(options?.homeDir ?? homedir(), ".tedix")
 	);
@@ -319,7 +327,12 @@ function readStore(options?: ExternalAgentStoreOptions): ExternalAgentStore {
 					};
 			}
 		return { version: 1, workspaces, credentials, bootstrapApprovals };
-	} catch {
+	} catch (error) {
+		const code = (error as NodeJS.ErrnoException).code;
+		if (code === "EACCES" || code === "EPERM")
+			throw new Error(
+				`[tedix] Access denied reading ${path}. Sandboxed lanes cannot read the host credential store; use the lane credential the dispatcher provides (${LANE_AGENT_STORE_ENV}).`,
+			);
 		throw new Error(
 			"[tedix] external-agents.json is corrupt or unreadable; repair or remove it before using external-agent auth.",
 		);
@@ -675,6 +688,16 @@ export function readExternalAgentCredential(
 	session: StoredExternalAgentSession,
 	options?: ExternalAgentStoreOptions,
 ): string | undefined {
+	return readExternalAgentCredentialEntry(workspace, profile, session, options)
+		?.accessToken;
+}
+
+export function readExternalAgentCredentialEntry(
+	workspace: string,
+	profile: StoredExternalAgentProfile,
+	session: StoredExternalAgentSession,
+	options?: ExternalAgentStoreOptions,
+): CachedAgentCredential | undefined {
 	const store = readStore(options);
 	const binding = credentialBinding(profile, session);
 	const cached =
@@ -689,7 +712,7 @@ export function readExternalAgentCredential(
 			credentialBinding(profile, session) &&
 		cached.expiresAt > Date.now() &&
 		cached.binding === credentialBinding(profile, session)
-		? cached.accessToken
+		? cached
 		: undefined;
 }
 

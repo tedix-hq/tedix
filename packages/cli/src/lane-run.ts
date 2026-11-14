@@ -46,6 +46,8 @@ export async function reportLaneObservation(
 }
 
 export const LANE_HEARTBEAT_MS = 120_000;
+/** Lane credentials live at least two minutes, so a missed renewal still overlaps. */
+const LANE_CREDENTIAL_RENEW_MS = 60_000;
 export const OPENCODE_PROVIDER_STALL_MS = 15 * 60_000;
 
 export function openCodeExportHasNoToolAction(
@@ -159,6 +161,12 @@ async function runLaneProcessWithReporter(
 		/** The caller already holds an admitted Attempt for this Work. */
 		admitted?: boolean;
 		devinWorkBridge?: DevinWorkBridge;
+		/** Renews an admitted Devin lane's own Tedix credential outside its sandbox. */
+		writeLaneAgentCredential?: (input: {
+			workspace: string;
+			sessionKey: string;
+			storeDir: string;
+		}) => Promise<unknown>;
 		deliverWorkNote?: (note: string) => Promise<void>;
 		onSpawn?: (pid: number) => void;
 		onTelemetry?: (value: LaneObservation) => void;
@@ -392,6 +400,9 @@ async function runLaneProcessWithReporter(
 			bridge.binding.externalSessionKey !== `devin:${sessionKey}`)
 	)
 		throw new Error("Devin Work bridge differs from the admitted lane");
+	let laneAgent:
+		| { workspace: string; sessionKey: string; storeDir: string }
+		| undefined;
 	if (devin) {
 		const [
 			{ writeDevinGitIdentity },
@@ -427,6 +438,13 @@ async function runLaneProcessWithReporter(
 					)?.key
 				: undefined,
 		});
+		// The sandbox denies the host store; hand over only this session's token.
+		if (bridge && workspace)
+			laneAgent = {
+				workspace,
+				sessionKey: `devin:${sessionKey}`,
+				storeDir: join(dir, "tedix-agent"),
+			};
 		command.splice(
 			0,
 			command.length,
@@ -461,6 +479,7 @@ async function runLaneProcessWithReporter(
 					GIT_CONFIG_GLOBAL: join(dir, "gitconfig"),
 					GIT_CONFIG_NOSYSTEM: "1",
 					TEDIX_AGENT_SESSION: `devin:${sessionKey}`,
+					...(laneAgent ? { TEDIX_LANE_AGENT_STORE: laneAgent.storeDir } : {}),
 				}
 			: {}),
 		TEDIX_WORKSPACE:
@@ -526,11 +545,26 @@ async function runLaneProcessWithReporter(
 			"--session",
 			sessionKey,
 		);
+	const renewLaneAgent = async () => {
+		if (!laneAgent) return;
+		try {
+			await (
+				deps.writeLaneAgentCredential ??
+				(await import("./external-agent")).writeLaneExternalAgentCredential
+			)(laneAgent);
+		} catch (error) {
+			process.stderr.write(`Lane Tedix credential: ${String(error)}\n`);
+		}
+	};
 	let heartbeat: Promise<unknown> | undefined;
 	let exitCode = 1,
 		signal: NodeJS.Signals | null = null;
 	for (let turn = 0; turn < (bridge ? 2 : 1); turn++) {
 		if (bridge) telemetry.finalMessage = "";
+		await renewLaneAgent();
+		const credentialTimer = laneAgent
+			? setInterval(() => void renewLaneAgent(), LANE_CREDENTIAL_RENEW_MS)
+			: undefined;
 		const stdout = deps.detachedChild
 			? laneOutput(join(outputDirectory, `stdout-${turn}.log`), (chunk) =>
 					receiveStdout(chunk),
@@ -745,6 +779,7 @@ async function runLaneProcessWithReporter(
 		} finally {
 			turnClosed = true;
 			clearInterval(timer);
+			if (credentialTimer) clearInterval(credentialTimer);
 			if (stallTimer) clearInterval(stallTimer);
 			if (stallKillTimer) clearTimeout(stallKillTimer);
 			stdout?.close();
@@ -937,6 +972,7 @@ async function runLaneProcessWithReporter(
 		rmSync(receipt, { force: true });
 		rmSync(join(dir, "devin"), { recursive: true, force: true });
 		rmSync(join(dir, "gitconfig"), { force: true });
+		rmSync(join(dir, "tedix-agent"), { recursive: true, force: true });
 		process.stderr.write(`Devin transcript retained at ${devinTranscript}\n`);
 	} else rmSync(dir, { recursive: true, force: true });
 	return exitCode;
