@@ -343,9 +343,10 @@ const outputsCreate = authorOs.outputs.create.handler(
 				`Content body is ${content.kind} but the output is declared ${input.kind}`,
 			);
 		}
-		if (input.workspaceId) {
-			await requireWorkspace(context, input.workspaceId);
-		} else if (context.externalAgentPrincipalId) {
+		const workspace = input.workspaceId
+			? await requireWorkspace(context, input.workspaceId)
+			: undefined;
+		if (!workspace && context.externalAgentPrincipalId) {
 			// Coding agents left Outputs in no workspace and had to recreate them
 			// to regroup; they must say where an Output belongs.
 			throw createError(
@@ -392,7 +393,15 @@ const outputsCreate = authorOs.outputs.create.handler(
 		// Every creator (people, agents, tedis, skills) lands here; the output
 		// opens in its reusable editor gadget from the first read.
 		lap("storage");
-		await attachOutputEditor(context, created.output);
+		await attachOutputEditor(
+			context,
+			created.output,
+			workspace && {
+				workspace,
+				output: created.output,
+				revision: created.revision,
+			},
+		);
 		lap("editor");
 		return {
 			output: mapOsOutputRow(created.output),

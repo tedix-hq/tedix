@@ -21,6 +21,11 @@ import {
 	linkWorkspaceOutputEditor,
 } from "@tedix/db/queries/os-workspaces/install-app";
 import { findOsBlueprintIdByName } from "@tedix/db/queries/os-workspaces/blueprints";
+import type {
+	OsOutputRevisionRow,
+	OsOutputRow,
+	OsWorkspaceRow,
+} from "@tedix/db/schema/os-workspaces";
 import { canonicalDigest } from "../lib/blueprint-digest";
 import { getOsOutputRevision } from "./workspace-output-storage";
 import {
@@ -122,40 +127,64 @@ export type EditorInput = {
 };
 
 /**
+ * Rows this request already authorized and wrote: the visible workspace, the
+ * output and revision it just created there, and the output's resource as
+ * read by the caller (undefined when none exists).
+ */
+export type CreatedOutputRows = {
+	workspace: OsWorkspaceRow;
+	output: OsOutputRow;
+	revision: Pick<OsOutputRevisionRow, "id" | "accessEnvelope">;
+};
+
+type KnownEditorRows = CreatedOutputRows & {
+	resource: Awaited<ReturnType<typeof findWorkspaceOutputResource>>;
+};
+
+/**
  * Install (or reuse) the reusable editor gadget for one workspace output and
  * point the output's resource at it. The gadget renders the typed Output; no
- * second copy of the body is stored.
+ * second copy of the body is stored. A creating request passes the rows it
+ * holds so the editor does not read its own write back through the index.
  */
 export async function installOutputEditor(
 	input: EditorInput,
 	context: BaseContext,
+	known?: KnownEditorRows,
 ) {
-	const [workspace, output] = await Promise.all([
-		requireWorkspace(context, input.workspaceId),
-		requireOutput(context, input.outputId),
-	]);
+	const [workspace, output] = known
+		? [known.workspace, known.output]
+		: await Promise.all([
+				requireWorkspace(context, input.workspaceId),
+				requireOutput(context, input.outputId),
+			]);
 	if (
+		workspace.id !== input.workspaceId ||
+		output.id !== input.outputId ||
 		output.workspaceId !== workspace.id ||
 		output.kind !== input.kind ||
 		output.status !== "active" ||
-		!output.currentRevisionId
+		!output.currentRevisionId ||
+		(known && known.revision.id !== output.currentRevisionId)
 	)
 		throw createError(
 			ErrorCodes.NOT_FOUND,
 			"Active workspace output not found",
 		);
 	const db = queryDb(context);
-	const [revision, resource] = await Promise.all([
-		getOsOutputRevision(db, {
-			organizationId: workspace.organizationId,
-			revisionId: output.currentRevisionId,
-		}),
-		findWorkspaceOutputResource(db, {
-			organizationId: workspace.organizationId,
-			workspaceId: workspace.id,
-			outputId: output.id,
-		}),
-	]);
+	const [revision, resource] = known
+		? [known.revision, known.resource]
+		: await Promise.all([
+				getOsOutputRevision(db, {
+					organizationId: workspace.organizationId,
+					revisionId: output.currentRevisionId,
+				}),
+				findWorkspaceOutputResource(db, {
+					organizationId: workspace.organizationId,
+					workspaceId: workspace.id,
+					outputId: output.id,
+				}),
+			]);
 	const envelope = revision
 		? parseDerivedAccessEnvelope(revision.accessEnvelope)
 		: null;
@@ -431,6 +460,7 @@ export async function attachOutputEditor(
 		kind: string;
 		status?: string;
 	},
+	created?: CreatedOutputRows,
 ): Promise<AttachOutputEditorResult> {
 	if (!output.workspaceId) return { status: "skipped", reason: "no_workspace" };
 	if (!isOutputEditorKind(output.kind))
@@ -462,6 +492,7 @@ export async function attachOutputEditor(
 				kind: output.kind,
 			},
 			context,
+			created && { ...created, resource },
 		);
 		return { status: "attached", gadgetId: gadget.id };
 	} catch (error) {
