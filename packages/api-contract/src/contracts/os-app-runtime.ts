@@ -189,6 +189,8 @@ export const osAppRuntimeContract = oc
 				AppRuntimeScopeSchema.extend({
 					conversationId: z.string().min(1).max(200).optional(),
 					expectedRevisionId: z.uuid(),
+					proposalId: z.uuid().optional(),
+					expectedSequence: z.number().int().nonnegative().optional(),
 					edits: z
 						.array(
 							z

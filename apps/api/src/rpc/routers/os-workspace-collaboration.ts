@@ -145,6 +145,8 @@ const collaborationList = readOs.collaboration.list.handler(
 				documentType: input.documentType,
 				documentId: input.documentId,
 				statuses: input.statuses,
+				sourceKind: input.sourceKind,
+				sourceId: input.sourceId,
 				limit: input.limit + 1,
 			},
 		);

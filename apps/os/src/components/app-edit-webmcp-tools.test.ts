@@ -2,13 +2,20 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { buildAppEditTools } from "./app-edit-webmcp-tools";
 
 const api = vi.hoisted(() => ({
+	list: vi.fn(async (): Promise<{ items: unknown[]; truncated: boolean }> => ({
+		items: [],
+		truncated: false,
+	})),
 	get: vi.fn(),
 	getCode: vi.fn(),
 	proposeEdit: vi.fn(),
 }));
 vi.mock("@/lib/api", () => ({
 	osApi: {
-		osWorkspaces: { gadgets: { get: api.get, getCode: api.getCode } },
+		osWorkspaces: {
+			collaboration: { list: api.list },
+			gadgets: { get: api.get, getCode: api.getCode },
+		},
 		osAppRuntime: { proposeEdit: api.proposeEdit },
 	},
 }));
@@ -62,6 +69,46 @@ describe("workspace Home app editing", () => {
 		expect(JSON.stringify(proposed)).toContain("draft-1");
 		expect(refresh).toHaveBeenCalledOnce();
 	});
+	it("reads and forwards the pending proposal fence", async () => {
+		api.list.mockResolvedValueOnce({
+			items: [
+				{
+					id: "draft-1",
+					documentType: "gadget",
+					status: "open",
+					baseRevision: 2,
+					baseRevisionId: "rev-2",
+					sequence: 1,
+					content: {
+						manifest: {
+							entry: "tedix:runtime/v1",
+							capabilities: [],
+							config: { version: 1 },
+						},
+						files: { "client.js": "Pending source", "server.js": "server" },
+					},
+				},
+			],
+			truncated: false,
+		});
+		const tools = buildAppEditTools("workspace-1", "chat-1", async () => {});
+		const read = await tools[0]!.execute({ gadgetId: "app-1" });
+		expect(JSON.stringify(read)).toContain("Pending source");
+		expect(JSON.stringify(read)).toContain('"sequence":1');
+		await tools[1]!.execute({
+			gadgetId: "app-1",
+			expectedRevisionId: "rev-2",
+			proposalId: "draft-1",
+			expectedSequence: 1,
+			edits: [
+				{ path: "client.js", before: "Pending source", after: "Next source" },
+			],
+		});
+		expect(api.proposeEdit).toHaveBeenLastCalledWith(
+			expect.objectContaining({ proposalId: "draft-1", expectedSequence: 1 }),
+		);
+	});
+
 	it("reports a rejected edit without claiming a draft or refreshing the panel", async () => {
 		api.proposeEdit.mockRejectedValueOnce(new Error("App revision changed"));
 		const refresh = vi.fn(async () => {});

@@ -2002,6 +2002,8 @@ export const osWorkspacesContract = oc
 							.describe(
 								"Optional document filter; omitted lists the whole workspace",
 							),
+						sourceKind: OsCollaborationSourceKindSchema.optional(),
+						sourceId: z.string().min(1).max(200).optional(),
 						statuses: z
 							.array(OsCollaborationProposalStatusSchema)
 							.max(4)

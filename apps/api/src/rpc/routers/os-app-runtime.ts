@@ -6,7 +6,7 @@ import type {
 	AppDraftRoomSubmissionSchema,
 } from "@tedix/api-contract/schemas/os-app-runtime";
 import { AppRuntimeConfigSchema } from "@tedix/api-contract/schemas/os-app-runtime";
-import { implement, call as callProcedure } from "@orpc/server";
+import { implement, call as callProcedure, ORPCError } from "@orpc/server";
 import { z } from "zod";
 import { RunWorkspaceSkillNowInputSchema } from "@tedix/api-contract/schemas/os-workspace-schedules";
 import { osAppRuntimeContract } from "@tedix/api-contract/contracts/os-app-runtime";
@@ -33,6 +33,7 @@ import {
 import {
 	getOsCollaborationProposal,
 	rebaseOsAppDraft,
+	proposeOsAppFileEdits,
 	createOsCollaborationProposal,
 } from "@tedix/db/queries/os-workspaces/collaboration";
 import { getKernelConversation } from "@tedix/db/queries/kernel-conversations";
@@ -484,37 +485,40 @@ export function createOsAppRuntimeRouter() {
 		if (scope.revisionId !== input.expectedRevisionId)
 			throw createError(ErrorCodes.CONFLICT, "App revision changed");
 		const code = await load(context, scope);
-		const files = { ...code.files };
-		for (const edit of input.edits) {
-			const source = files[edit.path];
-			if (source === undefined || source.split(edit.before).length !== 2)
-				throw createError(
-					ErrorCodes.CONFLICT,
-					"App edit must match exactly once in the current file",
-				);
-			files[edit.path] = source.replace(edit.before, () => edit.after);
+
+		let proposal;
+		try {
+			proposal = await proposeOsAppFileEdits(
+				queryDb(context),
+				{
+					organizationId: scope.organizationId,
+					workspaceId: scope.workspaceId,
+					gadgetId: scope.gadgetId,
+					...source,
+					proposalId: input.proposalId,
+					expectedSequence: input.expectedSequence,
+					baseRevisionId: input.expectedRevisionId,
+					baseRevision: code.revision,
+					content: { manifest: code.manifest, files: code.files },
+					edits: input.edits,
+					createdByKind: scope.principal.kind,
+					createdById: scope.principal.id,
+				},
+				(content) =>
+					validateAppSource(
+						context.env,
+						content.files,
+						content.manifest.config?.compatibilityDate,
+					),
+			);
+		} catch (error) {
+			if (error instanceof ORPCError) throw error;
+			throw createError(
+				ErrorCodes.CONFLICT,
+				error instanceof Error ? error.message : "App draft changed",
+			);
 		}
-		const content = OsAppDraftContentSchema.parse({
-			manifest: code.manifest,
-			files,
-		});
-		await validateAppSource(context.env, files, code.compatibilityDate);
-		const proposal = await createOsCollaborationProposal(queryDb(context), {
-			id: crypto.randomUUID(),
-			organizationId: scope.organizationId,
-			workspaceId: scope.workspaceId,
-			documentType: "gadget",
-			documentId: scope.gadgetId,
-			baseRevisionId: scope.revisionId,
-			baseRevision: code.revision,
-			status: "open",
-			...source,
-			sourceAttestationVersion: 1,
-			content: JSON.stringify(content),
-			sequence: 0,
-			createdByKind: scope.principal.kind,
-			createdById: scope.principal.id,
-		});
+
 		const previewUrl = new URL(
 			`/workspaces/${scope.workspaceId}`,
 			context.env.OS_URL,

@@ -208,7 +208,10 @@ export function stepLabel(
 		apps: {
 			list: "Listing apps",
 			getCode: "Reading app source",
-			revise: "Saving an app revision",
+			readFile: "Reading an app file",
+			grep: "Searching app files",
+			editFile: "Editing an app draft",
+			writeFile: "Writing an app draft file",
 		},
 		resources: { list: "Listing resources" },
 		views: { show: "Showing a view" },
@@ -219,6 +222,7 @@ export function stepLabel(
 		},
 	};
 	const write =
+		(binding === "apps" && ["editFile", "writeFile"].includes(method)) ||
 		method === "create" ||
 		method === "revise" ||
 		(["documents", "sheets", "presentations"].includes(binding) &&

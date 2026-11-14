@@ -1,3 +1,7 @@
+import {
+	OsAppDraftContentSchema,
+	type OsAppDraftContent,
+} from "@tedix/api-contract/schemas/os-workspaces";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import {
@@ -29,6 +33,8 @@ export interface ListOsCollaborationProposalsOptions {
 	documentType?: OsCollaborationProposalRow["documentType"];
 	documentId?: string;
 	statuses?: OsCollaborationProposalRow["status"][];
+	sourceKind?: OsCollaborationProposalRow["sourceKind"];
+	sourceId?: string;
 	limit?: number;
 }
 
@@ -84,6 +90,12 @@ export async function listOsCollaborationProposals(
 			eq(osCollaborationProposals.documentId, options.documentId),
 		);
 	}
+	if (options.sourceKind)
+		conditions.push(
+			eq(osCollaborationProposals.sourceKind, options.sourceKind),
+		);
+	if (options.sourceId)
+		conditions.push(eq(osCollaborationProposals.sourceId, options.sourceId));
 	if (options.statuses && options.statuses.length > 0) {
 		// bound-params: subset of the closed proposal-status enum
 		conditions.push(inArray(osCollaborationProposals.status, options.statuses));
@@ -586,4 +598,155 @@ export async function mergeOsCollaborationProposal(
 	return revision && mergedProposal
 		? { ok: true, proposal: mergedProposal, revision }
 		: { ok: false, reason: "revision_conflict" };
+}
+
+export interface AppEditSource {
+	organizationId: string;
+	workspaceId: string;
+	gadgetId: string;
+	sourceKind: OsCollaborationProposalRow["sourceKind"];
+	sourceId: string;
+}
+
+export async function getOsAppEditDraft(
+	db: DbQueryClient,
+	scope: AppEditSource,
+) {
+	const rows = await listOsCollaborationProposals(db, scope.organizationId, {
+		workspaceId: scope.workspaceId,
+		documentType: "gadget",
+		documentId: scope.gadgetId,
+		sourceKind: scope.sourceKind,
+		sourceId: scope.sourceId,
+		statuses: ["open", "accepted"],
+		limit: 2,
+	});
+	if (rows.length > 1)
+		throw new Error(
+			"Multiple pending app drafts; review them before editing again",
+		);
+	const row = rows[0];
+	if (row && row.sourceAttestationVersion !== 1)
+		throw new Error("App draft source is not attested");
+	return row;
+}
+
+/** Both app editors accumulate files in a proposal; only the decision path saves code. */
+export async function proposeOsAppFileEdits(
+	db: DbQueryClient,
+	input: AppEditSource & {
+		proposalId?: string;
+		expectedSequence?: number;
+		baseRevisionId: string;
+		baseRevision: number;
+		content: OsAppDraftContent;
+		edits: Array<{ path: string; before?: string; after: string }>;
+		createdByKind: OsCollaborationProposalRow["createdByKind"];
+		createdById: string;
+	},
+	validate: (content: OsAppDraftContent) => Promise<void>,
+) {
+	const pending = await getOsAppEditDraft(db, input);
+	if (
+		pending &&
+		(pending.status !== "open" ||
+			pending.baseRevisionId !== input.baseRevisionId ||
+			pending.id !== input.proposalId ||
+			pending.sequence !== input.expectedSequence)
+	)
+		throw new Error("App draft changed; read it again before editing");
+	if (
+		!pending &&
+		(input.proposalId !== undefined || input.expectedSequence !== undefined)
+	)
+		throw new Error("App draft changed; read it again before editing");
+	const content = pending
+		? OsAppDraftContentSchema.parse(JSON.parse(pending.content))
+		: input.content;
+	const files = { ...content.files };
+	for (const edit of input.edits) {
+		if (edit.before !== undefined) {
+			const text = Object.hasOwn(files, edit.path)
+				? files[edit.path]
+				: undefined;
+			if (
+				!edit.before ||
+				text === undefined ||
+				text.split(edit.before).length !== 2
+			)
+				throw new Error("App edit must match exactly once in the current file");
+			files[edit.path] = text.replace(edit.before, () => edit.after);
+		} else files[edit.path] = edit.after;
+	}
+	const updated = OsAppDraftContentSchema.parse({ ...content, files });
+	await validate(updated);
+	if (pending) {
+		const row = await updateOsCollaborationProposalPreview(db, {
+			organizationId: input.organizationId,
+			proposalId: pending.id,
+			expectedSequence: pending.sequence,
+			sourceKind: input.sourceKind,
+			sourceId: input.sourceId,
+			content: JSON.stringify(updated),
+		});
+		if (!row)
+			throw new Error("App draft changed; read it again before editing");
+		return row;
+	}
+	// Competing first edits use the same id, so one must re-read instead of creating two drafts.
+	const [previous] = await listOsCollaborationProposals(
+		db,
+		input.organizationId,
+		{
+			workspaceId: input.workspaceId,
+			documentType: "gadget",
+			documentId: input.gadgetId,
+			sourceKind: input.sourceKind,
+			sourceId: input.sourceId,
+			limit: 1,
+		},
+	);
+	if (previous && ["open", "accepted"].includes(previous.status))
+		throw new Error("App draft changed; read it again before editing");
+	const digest = await crypto.subtle.digest(
+		"SHA-256",
+		new TextEncoder().encode(
+			JSON.stringify([
+				input.organizationId,
+				input.workspaceId,
+				input.gadgetId,
+				input.sourceKind,
+				input.sourceId,
+				previous?.id ?? null,
+			]),
+		),
+	);
+	const hex = Array.from(new Uint8Array(digest), (b) =>
+		b.toString(16).padStart(2, "0"),
+	).join("");
+	const id = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+	const [created] = await db
+		.insert(osCollaborationProposals)
+		.values({
+			id,
+			organizationId: input.organizationId,
+			workspaceId: input.workspaceId,
+			documentType: "gadget",
+			documentId: input.gadgetId,
+			baseRevisionId: input.baseRevisionId,
+			baseRevision: input.baseRevision,
+			status: "open",
+			sourceKind: input.sourceKind,
+			sourceId: input.sourceId,
+			sourceAttestationVersion: 1,
+			content: JSON.stringify(updated),
+			sequence: 0,
+			createdByKind: input.createdByKind,
+			createdById: input.createdById,
+		})
+		.onConflictDoNothing()
+		.returning();
+	if (!created)
+		throw new Error("App draft changed; read it again before editing");
+	return created;
 }
