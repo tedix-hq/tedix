@@ -415,7 +415,7 @@ describe("composer-input — measured rows and vertical bursts", () => {
 		stdin.write("\r");
 		expect(calls).toEqual(["界X界\nab"]);
 	});
-	test("reports uncapped measured rows synchronously for wrapped burst ownership", async () => {
+	test("reports uncapped measured rows synchronously before measurement effects flush", () => {
 		const rows: number[] = [];
 		const { onSubmit, calls } = submitSpy();
 		const frame = render(
@@ -430,7 +430,6 @@ describe("composer-input — measured rows and vertical bursts", () => {
 				}),
 			),
 		);
-		await new Promise((resolve) => setTimeout(resolve, 30));
 		frame.stdin.write("\x1b[200~abcdefghij\x1b[201~");
 		expect(rows.at(-1)).toBe(3);
 		frame.stdin.write("\x1b[A");
