@@ -1059,8 +1059,9 @@ export async function handleOsShareRedemption(
  * or its organization id for OIDC tenants), and it must name the link's
  * organization. A link that needs a signed-in person answers `needsSignIn`
  * when the request carries no identity, so the page can start sign-in and
- * come back to the same address; a signed-in person the link does not admit
- * gets the same 404 as an unknown link.
+ * come back to the same address. Invited links offer email verification when
+ * the signed-in identity is not on the list, so a person can use another
+ * invited email. Other refusals get the same 404 as an unknown link.
  */
 export async function handleOsShareOpen(
 	db: DbQueryClient,
@@ -1082,10 +1083,12 @@ export async function handleOsShareOpen(
 			hostTenantId !== organization.id)
 	)
 		return notFound();
-	if (
-		link.access !== "anyone_with_link" &&
-		!(identifyRecipient && (await identifyRecipient()))
-	) {
+	const identity =
+		link.access !== "anyone_with_link" ? await identifyRecipient?.() : null;
+	const needsEmailCode =
+		link.access === "invited" &&
+		(!identity || !(await isOsShareLinkInvitee(db, { link, ...identity })));
+	if (link.access !== "anyone_with_link" && (!identity || needsEmailCode)) {
 		const body: OsShareOpenResult = {
 			needsSignIn: link.access !== "invited",
 			...(link.access === "invited" ? { needsEmailCode: true } : {}),
