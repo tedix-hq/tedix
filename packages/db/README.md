@@ -263,6 +263,17 @@ statements and read every target back; a conditional update may affect zero
 rows if another writer moved it. Keep snapshots and recovery evidence out of
 the source repository and remove the private buffers after collection.
 
+When no isolated prior copy exists, an operator can authorize the narrower
+`20261114213503_recover-derived-tool-classes` forward migration. It restores
+the former transport/capability baseline only for unchanged synchronized rows
+with matching annotations and source provenance. It removes the backfill's
+`declared` flag: an inferred baseline must not bypass critical-action checks.
+Curated policy fields, known Notion exceptions, later edits, missing provenance
+and conflicting pre-migration audit samples are excluded for review. This is
+rule-based recovery, not proof of every historical value; source provenance
+cannot reconstruct a manual class or a previously empty capability. Preserve
+a before/after change log and list excluded rows in the incident evidence.
+
 Own-account activation follows the
 [installation manifest lifecycle](../../docs/public/installation-manifests.md#backup-restore-and-upgrade).
 See the [database operating rules](AGENTS.md#validation) for migration review

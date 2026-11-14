@@ -3111,20 +3111,44 @@ it("re-derives a stale generated risk policy but keeps a curated one", async () 
 	};
 	const curated = makeDb([
 		makeRpcTool({
-			toolId: "expertise_memory_graph",
-			endpoint: "memoryGraph/expertise",
-			writeCapability: "read",
+			toolId: "request_card_changes",
+			endpoint: "workInteractions/requestCardChanges",
+			writeCapability: "write",
 			meta: { "com.tedix/policy": curatedPolicy },
 		}),
 	]);
 	await runToolSchemaSync(curated.db, {
 		mode: "projection",
 		apply: true,
-		endpoints: ["memoryGraph/expertise"],
+		endpoints: ["workInteractions/requestCardChanges"],
 	});
 	expect(curated.updates[0]?.patch).toMatchObject({
 		meta: { "com.tedix/policy": curatedPolicy },
 	});
+});
+
+it("refuses a curated write tier on a projected read without overwriting it", async () => {
+	const fixture = makeDb([
+		makeRpcTool({
+			toolId: "expertise_memory_graph",
+			endpoint: "memoryGraph/expertise",
+			writeCapability: "read",
+			meta: {
+				"com.tedix/policy": {
+					riskTier: "bounded_write",
+					blastRadius: "single_resource",
+					reviewedBy: "operator",
+				},
+			},
+		}),
+	]);
+	const result = await runToolSchemaSync(fixture.db, {
+		mode: "projection",
+		apply: true,
+		endpoints: ["memoryGraph/expertise"],
+	});
+	expect(result.failed).toBe(1);
+	expect(fixture.updates).toEqual([]);
 });
 
 it("projects bounded Deck feedback through the real object-envelope converter", async () => {
