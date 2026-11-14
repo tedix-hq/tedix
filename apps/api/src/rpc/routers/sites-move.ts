@@ -152,16 +152,14 @@ export const moveCmsSiteProcedure = authedSitesOs.moveCms
 			const entries = aggregateEntries(gateway);
 			const same = entries.filter((entry) => entry.slug === link.slug);
 			const kept = same.find((entry) => entry.prefix) ??
-				same[0] ?? {
-					prefix: `cms_${site.slug.replaceAll("-", "_")}`,
-					connectionLabel: site.slug,
-				};
+				same[0] ?? { prefix: `cms_${site.slug.replaceAll("-", "_")}` };
 			await updateApp(db, gateway.id, {
 				metadata: mergeAppMetadataPatch(getAppMetadataJson(gateway), {
 					mcpConfig: {
 						aggregateApps: [
 							...entries.filter((entry) => entry.slug !== link.slug),
-							{ ...kept, ...link },
+							// Without the label the gateway cannot tell the CMS which site.
+							{ connectionLabel: site.slug, ...kept, ...link },
 						],
 					},
 				}),
