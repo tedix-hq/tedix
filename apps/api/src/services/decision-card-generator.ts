@@ -106,15 +106,35 @@ function copyRepairFeedback(
 			? (draft as Record<string, unknown>)
 			: {};
 	const text = [
-		...["title", "context", "body", "recommendation", "stakes"].map(
-			(field) => record[field],
-		),
+		...[
+			"title",
+			"context",
+			"body",
+			"story",
+			"whyMe",
+			"recommendation",
+			"stakes",
+		].map((field) => record[field]),
 		...(record.actionLabels && typeof record.actionLabels === "object"
 			? Object.values(record.actionLabels)
 			: []),
 	]
 		.filter((value): value is string => typeof value === "string")
 		.join(" ");
+	const displayed = record.story
+		? [
+				record.title,
+				record.story,
+				record.whyMe,
+				record.recommendation,
+				record.stakes,
+				...(record.actionLabels && typeof record.actionLabels === "object"
+					? Object.values(record.actionLabels)
+					: []),
+			]
+				.filter((value): value is string => typeof value === "string")
+				.join(" ")
+		: text;
 	const wordLimit =
 		copySpec.faceWordLimit - (record.context ? copySpec.faceChromeWords : 0);
 	return JSON.stringify({
@@ -141,11 +161,10 @@ function copyRepairFeedback(
 			new RegExp(`\\b${term}\\b`, "i").test(text),
 		),
 		wordBudget: {
-			actual: (text.match(/\S+/gu) ?? []).length,
+			actual: (displayed.match(/\S+/gu) ?? []).length,
 			limit: wordLimit,
 			target: wordLimit - 6,
-			instruction:
-				"Rewrite the complete card below the target total across title, context, body, recommendation, stakes and supplied action labels. Shorten phrasing without dropping the actual consequence, essential numbers or source-supported reason. Omit optional stakes and unoffered action labels before dropping facts.",
+			instruction: `Rewrite the complete card below the target total across title, ${record.story ? "story, whyMe" : "context, body"}, recommendation, stakes and supplied action labels. Shorten phrasing without dropping the actual consequence, essential numbers or source-supported reason. Omit optional stakes and unoffered action labels before dropping facts.`,
 		},
 		lengths: Object.fromEntries(
 			Object.entries(copySpec.fields).map(([field, rule]) => [
