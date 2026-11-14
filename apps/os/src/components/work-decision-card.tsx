@@ -127,6 +127,7 @@ export interface DecisionCardAction {
 	label: string;
 	intent?: "approve" | "reject" | "delegate" | "later";
 	primary?: boolean;
+	recommended?: boolean;
 	confirm?: string;
 	confirmContent?: ReactNode;
 	confirmDisabled?: boolean;
@@ -535,6 +536,9 @@ export function WorkDecisionCard({
 			)
 		: undefined;
 	const decideAction = delegateAction ?? recommended;
+	const sourceRecommendations = actions.filter((action) => action.recommended);
+	const displayRecommended =
+		sourceRecommendations.length === 1 ? sourceRecommendations[0] : recommended;
 	const suggested = decideMode === "suggest" ? recommended : undefined;
 	// A decline keeps its outcome name; the old "No / Not needed" reads as "Decline".
 	const actionLabel = (action: DecisionCardAction) =>
@@ -1133,14 +1137,16 @@ export function WorkDecisionCard({
 												<div key={actionId ?? label}>
 													<dt
 														data-recommended={
-															(recommended && actionId === recommended.id) ||
+															(displayRecommended &&
+																actionId === displayRecommended.id) ||
 															undefined
 														}
 													>
 														{label}
-														{recommended && actionId === recommended.id && (
-															<span> · {decisionText("Recommended")}</span>
-														)}
+														{displayRecommended &&
+															actionId === displayRecommended.id && (
+																<span> · {decisionText("Recommended")}</span>
+															)}
 													</dt>
 													<dd>
 														<InlineMarkdown text={effect} />

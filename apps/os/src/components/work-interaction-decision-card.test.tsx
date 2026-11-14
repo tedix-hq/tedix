@@ -76,6 +76,56 @@ const preview = WorkInteractionInboxRowSchema.parse({
 	responseCount: 0,
 });
 
+it("keeps the asker's recommended option on the rendered interaction", async () => {
+	client = new QueryClient({
+		defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+	});
+	host = document.createElement("div");
+	document.body.append(host);
+	root = createRoot(host);
+	const presentation = {
+		version: 2 as const,
+		title: "Keep the supplier reply?",
+		context: "Morgan needs a delivery choice.",
+		body: "Records your preferred delivery date.",
+		recommendation: "Review first because the delivery date changed.",
+	};
+	const request = {
+		...preview.request,
+		metadata: {
+			decisionCard: {
+				kind: "decision",
+				recommendedOptionId: "revise",
+				options: [
+					{ id: "keep", label: "Keep", body: "Keeps the proposed date." },
+					{ id: "revise", label: "Revise", body: "Requests another date." },
+				],
+			},
+			cardPresentation: presentation,
+		},
+	};
+	client.setQueryData(workInteractionDetailQueryOptions(request.id).queryKey, {
+		request,
+		effectiveState: "open",
+		canRespond: true,
+		canCancel: false,
+		responses: { data: [], nextCursor: null, hasMore: false },
+	});
+	await act(async () =>
+		root.render(
+			<QueryClientProvider client={client}>
+				<CardFaceContext.Provider value={{ presentation, confidence: null }}>
+					<WorkInteractionDecisionCard requestId={request.id} />
+				</CardFaceContext.Provider>
+			</QueryClientProvider>,
+		),
+	);
+	expect(host.querySelector("[data-recommended]")?.textContent).toBe(
+		"Revise · Recommended",
+	);
+	expect(respond).not.toHaveBeenCalled();
+});
+
 it("shows the lane runner as asker and keeps its user carrier in source details", async () => {
 	client = new QueryClient({
 		defaultOptions: { queries: { retry: false, staleTime: Infinity } },

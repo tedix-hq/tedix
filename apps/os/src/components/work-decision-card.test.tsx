@@ -455,6 +455,33 @@ it("shows the reader's story and a separate why-you line on the card face", asyn
 	);
 });
 
+it("marks the asker's recommended choice without enabling an automatic answer", async () => {
+	const decide = await mountFace(
+		{ presentation: FACE, confidence: null },
+		undefined,
+		{
+			actions: [
+				{
+					id: "small",
+					label: "Small room",
+					description: "Saves the smaller room.",
+				},
+				{
+					id: "large",
+					label: "Large room",
+					description: "Saves the larger room.",
+					recommended: true,
+				},
+			],
+		},
+	);
+	expect(host.querySelector("[data-recommended]")?.textContent).toBe(
+		"Large room · Recommended",
+	);
+	expect(host.querySelector(".fd-auto-decide")).toBeNull();
+	expect(decide).not.toHaveBeenCalled();
+});
+
 it("shows the original ask at once, with no waiting or error face, and keeps actions live", async () => {
 	const decide = await mountFace({ presentation: null, confidence: null });
 	expect(heading()).toBe("Confirm who staffs the booth?");

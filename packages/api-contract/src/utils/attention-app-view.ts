@@ -109,6 +109,10 @@ export function deckDisplayCard(
 	const request = card.interaction?.request;
 	const metadata = request?.metadata ?? {};
 	const offered = AttentionOfferedChoicesSchema.safeParse(metadata).data;
+	const sourceOptions =
+		card.responseKind === "choice" && card.responseOptions?.length
+			? card.responseOptions
+			: offered?.decisionCard?.options;
 	// Null is the prepared projection's rejection of stale or unavailable copy.
 	const storedCopy = checkedCopy(
 		card.presentation === undefined
@@ -195,7 +199,15 @@ export function deckDisplayCard(
 		options:
 			card.responseKind === "task"
 				? []
-				: displayOptions(card.decision, Boolean(card.factory), copy),
+				: card.decision || card.factory
+					? displayOptions(card.decision, Boolean(card.factory), copy)
+					: (sourceOptions?.map((option) => ({
+							id: option.id,
+							label: option.label,
+							consequence: option.body ?? null,
+							recommended:
+								option.id === offered?.decisionCard?.recommendedOptionId,
+						})) ?? []),
 		actions: [],
 		answer: "",
 		needsText: false,
@@ -287,11 +299,6 @@ export function deckDisplayCard(
 				});
 			}
 		} else if (card.responseKind === "choice" && card.responseOptions?.length) {
-			view.options = card.responseOptions.map((option) => ({
-				id: option.id,
-				label: option.label,
-				consequence: option.body ?? null,
-			}));
 			for (const option of card.responseOptions)
 				add(option.id, option.label, {
 					kind: "interaction",
@@ -304,11 +311,6 @@ export function deckDisplayCard(
 					},
 				});
 		} else if (offered?.decisionCard) {
-			view.options = offered.decisionCard.options.map((option) => ({
-				id: option.id,
-				label: option.label,
-				consequence: option.body ?? null,
-			}));
 			for (const option of offered.decisionCard.options)
 				add(option.id, option.label, {
 					kind: "interaction",
@@ -427,7 +429,8 @@ export function feedDisplayCard(
 		recipient: null,
 		subject: null,
 		options: item.needsAction
-			? displayOptions(item.decision, item.id.startsWith("factory:"), copy)
+			? (item.options ??
+				displayOptions(item.decision, item.id.startsWith("factory:"), copy))
 			: [],
 		actions: [],
 		answer: "",

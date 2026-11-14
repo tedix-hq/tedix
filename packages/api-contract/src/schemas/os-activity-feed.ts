@@ -1,4 +1,5 @@
 import * as z from "zod";
+import { AttentionDisplayOptionSchema } from "./attention-option";
 import { WorkActorReferenceSchema } from "./os-work-actor";
 import { PersonalAgentContributionSchema } from "./personal-agent-inbound";
 import { CardReviewSourceSchema } from "./os-card-review";
@@ -65,6 +66,7 @@ export const ActivityFeedItemSchema = z.strictObject({
 		})
 		.optional(),
 	decision: DecisionEnvelopeSchema.optional(),
+	options: z.array(AttentionDisplayOptionSchema).max(8).optional(),
 	presentation: DecisionCardPresentationSchema.nullable().optional(),
 	faceText: z.string().optional(),
 });

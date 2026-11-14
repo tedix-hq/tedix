@@ -79,6 +79,7 @@ const offeredChoices = z.object({
 	decisionCard: z
 		.object({
 			kind: z.literal("decision"),
+			recommendedOptionId: z.string().optional(),
 			options: z
 				.array(
 					z.object({
@@ -492,6 +493,8 @@ export function WorkInteractionDecisionCard({
 							id: option.id,
 							label: option.label,
 							description: option.body,
+							recommended:
+								option.id === choices.decisionCard?.recommendedOptionId,
 						}))
 					: [
 							{

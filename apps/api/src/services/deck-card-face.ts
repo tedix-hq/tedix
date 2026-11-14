@@ -315,6 +315,8 @@ export async function prepareDeckCardFace(
 		if (
 			copy?.version === 2 &&
 			copy.context &&
+			copy.story &&
+			copy.whyMe &&
 			!checkDecisionCardCopy(copy).length &&
 			faceKeepsSubject(copy, source)
 		)
