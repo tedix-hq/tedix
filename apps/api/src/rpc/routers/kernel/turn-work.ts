@@ -638,7 +638,7 @@ async function planAndParkKernelWriteProposal(
 					const rule = standingRulesAllowed(input)
 						? await findApprovalRule(deps.db, approval, organizationId)
 						: undefined;
-					if (rule) ruleResolution = `auto-approved by rule ${rule.id}`;
+					if (rule) ruleResolution = rule.approvalReason;
 				}
 				writeApprovalRequestId = writeApprovalId;
 			} else {
@@ -2156,7 +2156,7 @@ export async function runKernelTurnWork(
 				writeApprovalDecision = {
 					autoResolve: true,
 					source: "policy",
-					reason: `auto-approved by rule ${rule.id}`,
+					reason: rule.approvalReason,
 				};
 		}
 	}
