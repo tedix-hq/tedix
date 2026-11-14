@@ -35,7 +35,7 @@ function context(options: {
 							: { approved: false, grantId: null },
 				),
 				recordPolicyToolApproval: vi.fn(async () => ({
-					approvalRequestId: null,
+					approvalRequestId: "approval-action-type",
 				})),
 			},
 		},
@@ -119,6 +119,7 @@ describe("owner-declared safe action types", () => {
 			organizationId: "org-1",
 			actionType: "comment_on_issue",
 		});
+		expect(governance.recordPolicyToolApproval).toHaveBeenCalledTimes(1);
 		expect(governance.recordPolicyToolApproval).toHaveBeenCalledWith({
 			organizationId: "org-1",
 			appSlug: "github",

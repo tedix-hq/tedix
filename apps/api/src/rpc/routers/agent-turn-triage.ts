@@ -1,3 +1,4 @@
+import { decideAutoApproval } from "@tedix/api-contract/utils/approval-policy";
 import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import { organizationModelEnv } from "../../services/unrouted-model-egress";
@@ -1344,12 +1345,15 @@ export async function decideReplyDraftDelivery(
 				{ id: params.request.id, classId, protected: !params.reversible },
 				learned,
 			);
-			if (
-				!learned.config.autoApproveClasses.includes(classId) ||
-				!readiness.ready
-			)
-				return review;
+			const approval = decideAutoApproval({
+				kind: "learned_class",
+				classId,
+				autoApproveClasses: learned.config.autoApproveClasses,
+				ready: readiness.ready,
+			});
+			if (!approval.autoApprove) return review;
 			learningReceipt = {
+				approvalReason: approval.reason,
 				classId,
 				unchanged: readiness.unchanged,
 				threshold: learned.config.unchangedThreshold,

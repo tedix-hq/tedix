@@ -1,10 +1,8 @@
+import { decideAutoApproval } from "@tedix/api-contract/utils/approval-policy";
 import type { DbQueryClient } from "@tedix/db/query-client";
 import { findEnabledOsApprovalRulesByKind } from "@tedix/db/queries/os-approval-rules";
 import type { OsApprovalRuleRow } from "@tedix/db/schema/os-approval-rules";
-import {
-	declaredAutoApproval,
-	parseDeclaredToolClass,
-} from "@tedix/api-contract/utils/tool-declared-class";
+import { parseDeclaredToolClass } from "@tedix/api-contract/utils/tool-declared-class";
 import { toolNameWords } from "../../services/tool-class-backlog";
 import { DESTRUCTIVE_VERBS } from "./kernel/write-tool-policy";
 
@@ -34,39 +32,24 @@ export function matchingApprovalRule(
 	const toolSlug = app && tool ? `${app}.${tool}` : null;
 	// The declared class decides first; the name is read only without one.
 	const declared = parseDeclaredToolClass(payload.declaredClass);
-	if (declared && !declaredAutoApproval(declared).eligible) return;
-	if (
-		[
+	const decision = decideAutoApproval({
+		kind: "standing_rule",
+		organizationId: approval.orgId,
+		actionType: approval.actionType,
+		payloadKind: payload.kind,
+		riskTier: payload.riskTier,
+		declaredClass: payload.declaredClass,
+		toolSlug,
+		verb: verb ?? null,
+		rules,
+		forbiddenName: [
 			approval.actionType,
 			...(declared ? [] : [toolSlug ?? "", verb ?? ""]),
-		].some((value) => toolNameWords(value).some((word) => forbidden.has(word)))
-	)
-		return;
-	if (payload.riskTier === "high") return;
-	// Standing consent for a Home write covers low risk only: medium stays with
-	// a person (decideKernelWriteApproval would hold it), and a payload without
-	// a classified tier predates this matcher and never matches.
-	if (approval.actionType === "home.tool_write" && payload.riskTier !== "low")
-		return;
-	// Home's coarse kind is never authority for every connected write tool.
-	if (
-		approval.actionType === "home.tool_write" &&
-		(!toolSlug ||
-			!verb ||
-			!["home_tool_write", "repo_commit_write"].includes(String(payload.kind)))
-	)
-		return;
-	return rules.find(
-		(rule) =>
-			rule.enabled &&
-			rule.decision === "approve" &&
-			rule.organizationId === approval.orgId &&
-			rule.actionKind === approval.actionType &&
-			(approval.actionType !== "home.tool_write" ||
-				Boolean(rule.toolSlug && rule.verb)) &&
-			(rule.toolSlug == null || rule.toolSlug === toolSlug) &&
-			(rule.verb == null || rule.verb === verb),
-	);
+		].some((value) => toolNameWords(value).some((word) => forbidden.has(word))),
+	});
+	return decision.autoApprove
+		? rules.find((rule) => rule.id === decision.ruleId)
+		: undefined;
 }
 /** Read standing authority at creation; settlement waits until the run is parked. */
 export async function findApprovalRule(

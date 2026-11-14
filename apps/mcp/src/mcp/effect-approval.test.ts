@@ -421,7 +421,9 @@ describe("effect-based gateway approval", () => {
 				vi.mocked(
 					ctx.apiClient.mcpGovernance.resolveAgentTransportPolicy,
 				).mockResolvedValue({ requireExplicitApprovalPolicy: false });
-				const record = vi.fn(async () => ({ approvalRequestId: null }));
+				const record = vi.fn(async () => ({
+					approvalRequestId: "approval-run",
+				}));
 				Object.assign(ctx.apiClient.mcpGovernance, {
 					recordPolicyToolApproval: record,
 				});

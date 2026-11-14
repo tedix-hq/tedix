@@ -1166,6 +1166,7 @@ describe("proposeReplyDraft delivery", () => {
 			)
 			.get(promoted.requestId) as { gate: string };
 		expect(JSON.parse(row.gate).learningReceipt).toMatchObject({
+			approvalReason: "learned class question",
 			classId: "question",
 			unchanged: 5,
 			threshold: 5,
@@ -1257,6 +1258,7 @@ describe("proposeReplyDraft delivery", () => {
 			)
 			.get(promoted.requestId) as { gate: string };
 		expect(JSON.parse(row.gate).learningReceipt).toMatchObject({
+			approvalReason: "learned class filing",
 			classId: "filing",
 			unchanged: 5,
 		});

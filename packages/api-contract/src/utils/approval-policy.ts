@@ -1,4 +1,8 @@
 import {
+	declaredAutoApproval,
+	parseDeclaredToolClass,
+} from "./tool-declared-class";
+import {
 	trustedRecipientSkipsCard,
 	type TrustedRecipientDecision,
 } from "./email-trusted-recipients";
@@ -426,35 +430,11 @@ export function decideAutonomousAction(input: {
 	/** Stored-list decision for a tedi email send; see email-trusted-recipients. */
 	trustedRecipientSend?: Pick<TrustedRecipientDecision, "trusted"> | null;
 }): { autoApprove: boolean; reason: string } {
-	const reserved = humanReservedActionClasses(input.content);
-	if (
-		input.policy?.askForClasses?.includes("*") ||
-		(input.classId && input.policy?.askForClasses?.includes(input.classId))
-	)
-		return {
-			autoApprove: false,
-			reason: `human correction requires approval for ${input.classId}`,
-		};
-	if (
-		trustedRecipientSkipsCard({
-			reservedClasses: reserved,
-			decision: input.trustedRecipientSend,
-		})
-	)
-		return { autoApprove: true, reason: "trusted recipient" };
-	if (reserved.length)
-		return {
-			autoApprove: false,
-			reason: `human-reserved: ${reserved.join(", ")}`,
-		};
-	if (input.risk !== "low" && input.risk !== "medium")
-		return {
-			autoApprove: false,
-			reason: `${input.risk} risk requires human approval`,
-		};
-	return input.policy?.version === 1 && input.policy.maxRisk === "medium"
-		? { autoApprove: true, reason: `autonomy v1: ${input.risk} risk` }
-		: { autoApprove: false, reason: "no autonomy policy configured" };
+	const { autoApprove, reason } = decideAutoApproval({
+		kind: "autonomy",
+		...input,
+	});
+	return { autoApprove, reason };
 }
 
 // ---------------------------------------------------------------------------
@@ -726,97 +706,11 @@ export function decideKernelWriteApproval(input: {
 	sessionAllowlist?: readonly string[] | null;
 	proposal: KernelWriteApprovalProposal;
 }): KernelWriteApprovalDecision {
-	const { appSlug, toolName, riskTier } = input.proposal;
-	// 0. Platform-default operations (organization-autonomy.v1.json): Work items,
-	//    workspace and app management, skills and schedules, run starts. Unless
-	//    the organization opted out, they run at low/medium risk under its
-	//    autonomy policy or the platform default; a tool whose name names a
-	//    critical action is never one.
-	const platformOperation =
-		input.policy?.platformAutonomy === false
-			? null
-			: platformAutonomousOperation(
-					toolName,
-					null,
-					input.policy?.autoApproval ?? null,
-				);
-	if (
-		platformOperation &&
-		input.policy?.writeTier?.autoApproveLowRisk !== false &&
-		decideAutonomousAction({
-			policy: input.policy?.autonomy ?? PLATFORM_DEFAULT_AUTONOMY,
-			risk: riskTier,
-			content: `${appSlug}:${toolName}`,
-		}).autoApprove
-	)
-		return {
-			autoResolve: true,
-			source: "policy",
-			reason: `${platformOperation.label} run without approval (platform default)`,
-		};
-	if (input.policy?.autonomy) {
-		const trusted = writeToolMatchesAllowlist(
-			appSlug,
-			toolName,
-			input.policy.writeTier?.trustedTools,
-		);
-		const decision = decideAutonomousAction({
-			policy: input.policy.autonomy,
-			risk: riskTier,
-			content: `${appSlug}:${toolName}`,
-		});
-		if (!trusted || input.policy.writeTier?.autoApproveLowRisk === false)
-			return {
-				autoResolve: false,
-				source: null,
-				reason:
-					"autonomy requires an enabled write-tier trusted-tool allowlist",
-			};
-		return {
-			autoResolve: decision.autoApprove,
-			source: decision.autoApprove ? "policy" : null,
-			reason: decision.reason,
-		};
-	}
-	// 1. Session-scoped pre-authorization — explicit, conversation-bounded grant.
-	if (writeToolMatchesAllowlist(appSlug, toolName, input.sessionAllowlist)) {
-		return {
-			autoResolve: true,
-			source: "session",
-			reason: `session pre-authorized ${appSlug}:${toolName}`,
-		};
-	}
-	// 2. Policy write-tier trusted-tool auto-approve (LOW RISK ONLY).
-	const writeTier = input.policy?.writeTier;
-	if (writeToolMatchesAllowlist(appSlug, toolName, writeTier?.trustedTools)) {
-		if (writeTier?.autoApproveLowRisk === false) {
-			return {
-				autoResolve: false,
-				source: null,
-				reason:
-					"trusted tool but writeTier.autoApproveLowRisk is disabled — human gate",
-			};
-		}
-		if (riskTier !== "low") {
-			return {
-				autoResolve: false,
-				source: null,
-				reason: `trusted tool but ${riskTier}-risk write requires human approval`,
-			};
-		}
-		return {
-			autoResolve: true,
-			source: "policy",
-			reason: `policy-trusted low-risk write ${appSlug}:${toolName}`,
-		};
-	}
-	// 3. FAIL-CLOSED DEFAULT.
+	const decision = decideAutoApproval({ kind: "kernel_write", ...input });
 	return {
-		autoResolve: false,
-		source: null,
-		reason: writeTier
-			? "write tool is not in the trusted-tool allowlist — human gate"
-			: "no write-tier policy configured — human gate (fail-closed default)",
+		autoResolve: decision.autoApprove,
+		source: decision.source ?? null,
+		reason: decision.reason,
 	};
 }
 
@@ -1491,5 +1385,264 @@ export function runtimeApprovalReviewSemantics(input: {
 			workflowId: input.workflowId,
 		}),
 		interaction: browserTakeoverInteraction(payload),
+	};
+}
+
+export interface AutoApprovalDecision {
+	autoApprove: boolean;
+	reason: string;
+	source?: "policy" | "session" | null;
+	ruleId?: string;
+}
+
+export interface StandingApprovalRule {
+	id: string;
+	organizationId: string;
+	actionKind: string;
+	toolSlug: string | null;
+	verb: string | null;
+	enabled: boolean;
+	decision: string;
+}
+
+type AutoApprovalInput =
+	| ({ kind: "autonomy" } & Parameters<typeof decideAutonomousAction>[0])
+	| ({ kind: "kernel_write" } & Parameters<typeof decideKernelWriteApproval>[0])
+	| {
+			kind: "standing_rule";
+			organizationId: string;
+			actionType: string;
+			payloadKind: unknown;
+			riskTier: unknown;
+			declaredClass: unknown;
+			toolSlug: string | null;
+			verb: string | null;
+			forbiddenName: boolean;
+			rules: readonly StandingApprovalRule[];
+	  }
+	| {
+			kind: "learned_class";
+			classId: string;
+			autoApproveClasses: readonly string[];
+			ready: boolean;
+	  }
+	| { kind: "gateway"; ruleId: string; reason: string; eligible: boolean }
+	| {
+			kind: "platform";
+			toolName: string;
+			endpoint: string | null;
+			policy: Pick<
+				KernelGovernancePolicy,
+				"platformAutonomy" | "autoApproval" | "autonomy"
+			>;
+			classId: string;
+	  };
+
+/** The sole automatic-approval decision. Adapters supply verified facts and persist its reason. */
+export function decideAutoApproval(
+	input: AutoApprovalInput & {
+		sensitiveData?: "clear" | "latched" | "unavailable";
+	},
+): AutoApprovalDecision {
+	if (input.sensitiveData && input.sensitiveData !== "clear")
+		return {
+			autoApprove: false,
+			reason: `sensitive_data_latch:auto_approval${input.sensitiveData === "unavailable" ? "_unknown" : ""}`,
+		};
+	if (input.kind === "gateway")
+		return {
+			autoApprove: input.eligible,
+			reason: input.reason,
+			ruleId: input.ruleId,
+		};
+	if (input.kind === "learned_class")
+		return {
+			autoApprove:
+				input.ready && input.autoApproveClasses.includes(input.classId),
+			reason: `learned class ${input.classId}`,
+			ruleId: `learned:${input.classId}`,
+		};
+	if (input.kind === "standing_rule") {
+		const deny = { autoApprove: false, reason: "no eligible standing rule" };
+		const declared = parseDeclaredToolClass(input.declaredClass);
+		if (
+			(declared && !declaredAutoApproval(declared).eligible) ||
+			input.forbiddenName ||
+			input.riskTier === "high"
+		)
+			return deny;
+		if (
+			input.actionType === "home.tool_write" &&
+			(input.riskTier !== "low" ||
+				!input.toolSlug ||
+				!input.verb ||
+				!["home_tool_write", "repo_commit_write"].includes(
+					String(input.payloadKind),
+				))
+		)
+			return deny;
+		const rule = input.rules.find(
+			(rule) =>
+				rule.enabled &&
+				rule.decision === "approve" &&
+				rule.organizationId === input.organizationId &&
+				rule.actionKind === input.actionType &&
+				(input.actionType !== "home.tool_write" ||
+					Boolean(rule.toolSlug && rule.verb)) &&
+				(rule.toolSlug == null || rule.toolSlug === input.toolSlug) &&
+				(rule.verb == null || rule.verb === input.verb),
+		);
+		return rule
+			? {
+					autoApprove: true,
+					reason: `auto-approved by rule ${rule.id}`,
+					ruleId: rule.id,
+				}
+			: deny;
+	}
+	if (input.kind === "platform") {
+		const operation = platformAutonomousOperation(
+			input.toolName,
+			input.endpoint,
+			input.policy.autoApproval ?? null,
+		);
+		const ask = input.policy.autonomy?.askForClasses;
+		return operation &&
+			input.policy.platformAutonomy !== false &&
+			!ask?.includes("*") &&
+			!ask?.includes(input.classId)
+			? {
+					autoApprove: true,
+					reason: `${operation.label} run without approval (platform default)`,
+					ruleId: operation.id,
+					source: "policy",
+				}
+			: { autoApprove: false, reason: "platform operation requires approval" };
+	}
+	if (input.kind === "autonomy") {
+		const reserved = humanReservedActionClasses(input.content);
+		if (
+			input.policy?.askForClasses?.includes("*") ||
+			(input.classId && input.policy?.askForClasses?.includes(input.classId))
+		)
+			return {
+				autoApprove: false,
+				reason: `human correction requires approval for ${input.classId}`,
+			};
+		if (
+			trustedRecipientSkipsCard({
+				reservedClasses: reserved,
+				decision: input.trustedRecipientSend,
+			})
+		)
+			return { autoApprove: true, reason: "trusted recipient" };
+		if (reserved.length)
+			return {
+				autoApprove: false,
+				reason: `human-reserved: ${reserved.join(", ")}`,
+			};
+		if (input.risk !== "low" && input.risk !== "medium")
+			return {
+				autoApprove: false,
+				reason: `${input.risk} risk requires human approval`,
+			};
+		return input.policy?.version === 1 && input.policy.maxRisk === "medium"
+			? { autoApprove: true, reason: `autonomy v1: ${input.risk} risk` }
+			: { autoApprove: false, reason: "no autonomy policy configured" };
+	}
+
+	const { appSlug, toolName, riskTier } = input.proposal;
+	// 0. Platform-default operations (organization-autonomy.v1.json): Work items,
+	//    workspace and app management, skills and schedules, run starts. Unless
+	//    the organization opted out, they run at low/medium risk under its
+	//    autonomy policy or the platform default; a tool whose name names a
+	//    critical action is never one.
+	const platformOperation =
+		input.policy?.platformAutonomy === false
+			? null
+			: platformAutonomousOperation(
+					toolName,
+					null,
+					input.policy?.autoApproval ?? null,
+				);
+	if (
+		platformOperation &&
+		input.policy?.writeTier?.autoApproveLowRisk !== false &&
+		decideAutoApproval({
+			kind: "autonomy",
+			policy: input.policy?.autonomy ?? PLATFORM_DEFAULT_AUTONOMY,
+			risk: riskTier,
+			content: `${appSlug}:${toolName}`,
+		}).autoApprove
+	)
+		return {
+			autoApprove: true,
+			source: "policy",
+			reason: `${platformOperation.label} run without approval (platform default)`,
+		};
+	if (input.policy?.autonomy) {
+		const trusted = writeToolMatchesAllowlist(
+			appSlug,
+			toolName,
+			input.policy.writeTier?.trustedTools,
+		);
+		const decision = decideAutoApproval({
+			kind: "autonomy",
+			policy: input.policy.autonomy,
+			risk: riskTier,
+			content: `${appSlug}:${toolName}`,
+		});
+		if (!trusted || input.policy.writeTier?.autoApproveLowRisk === false)
+			return {
+				autoApprove: false,
+				source: null,
+				reason:
+					"autonomy requires an enabled write-tier trusted-tool allowlist",
+			};
+		return {
+			autoApprove: decision.autoApprove,
+			source: decision.autoApprove ? "policy" : null,
+			reason: decision.reason,
+		};
+	}
+	// 1. Session-scoped pre-authorization — explicit, conversation-bounded grant.
+	if (writeToolMatchesAllowlist(appSlug, toolName, input.sessionAllowlist)) {
+		return {
+			autoApprove: true,
+			source: "session",
+			reason: `session pre-authorized ${appSlug}:${toolName}`,
+		};
+	}
+	// 2. Policy write-tier trusted-tool auto-approve (LOW RISK ONLY).
+	const writeTier = input.policy?.writeTier;
+	if (writeToolMatchesAllowlist(appSlug, toolName, writeTier?.trustedTools)) {
+		if (writeTier?.autoApproveLowRisk === false) {
+			return {
+				autoApprove: false,
+				source: null,
+				reason:
+					"trusted tool but writeTier.autoApproveLowRisk is disabled — human gate",
+			};
+		}
+		if (riskTier !== "low") {
+			return {
+				autoApprove: false,
+				source: null,
+				reason: `trusted tool but ${riskTier}-risk write requires human approval`,
+			};
+		}
+		return {
+			autoApprove: true,
+			source: "policy",
+			reason: `policy-trusted low-risk write ${appSlug}:${toolName}`,
+		};
+	}
+	// 3. FAIL-CLOSED DEFAULT.
+	return {
+		autoApprove: false,
+		source: null,
+		reason: writeTier
+			? "write tool is not in the trusted-tool allowlist — human gate"
+			: "no write-tier policy configured — human gate (fail-closed default)",
 	};
 }

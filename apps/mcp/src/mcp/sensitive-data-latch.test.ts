@@ -367,7 +367,7 @@ describe("sensitive-data latch and an admin's action-type opt-in", () => {
 			grantId: "grant-comment",
 		})),
 		recordPolicyToolApproval: vi.fn(async () => ({
-			approvalRequestId: null,
+			approvalRequestId: "approval-comment",
 		})),
 	});
 	const annotations = { readOnlyHint: false, destructiveHint: false };
@@ -652,5 +652,76 @@ describe("recording a sensitive read", () => {
 				null,
 			),
 		).toBe(false);
+	});
+});
+
+describe("platform automatic approval records", () => {
+	const tool = {
+		toolId: "create_work_item",
+		title: "Create Work item",
+		config: { transport: "rpc", endpoint: "workItems/create" },
+		meta: {
+			"com.tedix/policy": {
+				riskTier: "bounded_write",
+				blastRadius: "single_resource",
+			},
+		},
+	};
+	function setup(
+		latch: SensitiveDataLatch | null | "unavailable",
+		receipt: string | null = "approval-work",
+	) {
+		const recordPolicyToolApproval = vi.fn(async () => ({
+			approvalRequestId: receipt,
+		}));
+		const context = runAgent({
+			latch,
+			caller: { authType: "tedi" },
+			governance: {
+				resolveAgentTransportPolicy: vi.fn(async () => ({
+					requireExplicitApprovalPolicy: false,
+				})),
+				recordPolicyToolApproval,
+			},
+		});
+		return { ...context, recordPolicyToolApproval };
+	}
+	it("records the platform rule and reason before allowing the write", async () => {
+		const { agent, recordPolicyToolApproval } = setup(null);
+		expect(
+			await requireDestructiveToolApproval(agent, tool, {
+				readOnlyHint: false,
+			}),
+		).toBeNull();
+		expect(recordPolicyToolApproval).toHaveBeenCalledWith(
+			expect.objectContaining({
+				operationId: "work_items",
+				reason: expect.stringContaining("platform default"),
+			}),
+		);
+	});
+	it.each([LATCH, "unavailable"] as const)(
+		"blocks platform approval when the latch is %s",
+		async (latch) => {
+			const { agent, recordPolicyToolApproval } = setup(latch);
+			expect(
+				(
+					await requireDestructiveToolApproval(agent, tool, {
+						readOnlyHint: false,
+					})
+				)?.isError,
+			).toBe(true);
+			expect(recordPolicyToolApproval).not.toHaveBeenCalled();
+		},
+	);
+	it("does not approve a call whose reason could not be saved", async () => {
+		const { agent } = setup(null, null);
+		const result = await requireDestructiveToolApproval(agent, tool, {
+			readOnlyHint: false,
+		});
+		expect(result?._meta).toMatchObject({
+			code: "automatic_approval_record_unavailable",
+			details: { executed: false },
+		});
 	});
 });
