@@ -21,6 +21,7 @@ import {
 	type DispatcherReliability,
 	type DispatcherIdle,
 } from "@tedix/api-contract/schemas/dispatcher-health";
+import { CLI_VERSION } from "./shared";
 import { UUID_RE } from "./work-identity";
 import {
 	readDutyStatuses,
@@ -67,6 +68,8 @@ export interface DispatcherHealthSource {
 	slotsTotal: number;
 	pid: number;
 	startedAt: string;
+	/** The CLI version this dispatcher process runs. */
+	cliVersion?: string;
 	lastAdmissionAt?: string;
 	preparingSlots?: number;
 	nextCheckAt?: string;
@@ -105,6 +108,7 @@ export function writeDispatcherHealthSource(
 	},
 	pid = process.pid,
 	startedAt = new Date().toISOString(),
+	cliVersion = CLI_VERSION,
 ): void {
 	const path = join(directory, SOURCE_FILE);
 	const previous = readSource(path);
@@ -116,6 +120,7 @@ export function writeDispatcherHealthSource(
 		slotsTotal: options.max,
 		pid,
 		startedAt,
+		cliVersion,
 		preparingSlots: 0,
 		reliability: { coverageStartedAt: startedAt, events: [] },
 	};
@@ -237,6 +242,16 @@ export function dispatcherNextCheckAt(
 	if (source?.pid !== pid || !source.nextCheckAt) return;
 	const at = Date.parse(source.nextCheckAt);
 	return Number.isFinite(at) ? at : undefined;
+}
+
+/** The CLI version dispatcher process `pid` runs; undefined before it serves or when its CLI predates the field. */
+export function dispatcherCliVersion(
+	directory: string,
+	pid: number,
+): string | undefined {
+	const source = readSource(join(directory, SOURCE_FILE));
+	if (source?.pid !== pid || typeof source.cliVersion !== "string") return;
+	return source.cliVersion;
 }
 
 export function recordDispatcherCompletion(

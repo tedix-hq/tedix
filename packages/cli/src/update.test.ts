@@ -7,6 +7,7 @@ import {
 	mkdtempSync,
 	readFileSync,
 	readdirSync,
+	renameSync,
 	rmSync,
 	symlinkSync,
 	writeFileSync,
@@ -16,6 +17,7 @@ import { dirname, join } from "node:path";
 import { describe, expect, spyOn, test } from "bun:test";
 import {
 	compareVersions,
+	newerInstalledVersion,
 	runRollbackCommand,
 	runUpdateCommand,
 	type UpdateRuntime,
@@ -257,6 +259,76 @@ describe("compareVersions", () => {
 		expect(() => compareVersions("01.0.0", "1.0.0")).toThrow("Invalid");
 		expect(() => compareVersions("1.0.0-01", "1.0.0")).toThrow("Invalid");
 		expect(() => compareVersions("1.0.0-alpha..1", "1.0.0")).toThrow("Invalid");
+	});
+});
+
+describe("newerInstalledVersion", () => {
+	function installed(version: string) {
+		const root = mkdtempSync(join(tmpdir(), "tedix-installed-"));
+		const path = join(root, "tedix");
+		const install = (next: string) => {
+			// `tedix update` renames a new file over the path.
+			writeFileSync(`${path}.next`, next);
+			renameSync(`${path}.next`, path);
+		};
+		install(version);
+		const reads: string[] = [];
+		return {
+			install,
+			reads,
+			root,
+			check: newerInstalledVersion({
+				installPath: path,
+				standalone: true,
+				current: "1.2.3",
+				readVersion: (file) => {
+					const text = readFileSync(file, "utf8");
+					reads.push(text);
+					if (text === "unreadable") throw new Error("probe failed");
+					return `${text}\n`;
+				},
+			}),
+		};
+	}
+
+	test("reports a newer installed binary, reading it only when the file changes", () => {
+		const f = installed("1.2.3");
+		try {
+			expect(f.check()).toBeUndefined();
+			expect(f.check()).toBeUndefined();
+			expect(f.reads).toEqual(["1.2.3"]);
+			f.install("1.2.4");
+			expect(f.check()).toBe("1.2.4");
+			expect(f.check()).toBe("1.2.4");
+			expect(f.reads).toEqual(["1.2.3", "1.2.4"]);
+			// A rollback is not an update.
+			f.install("1.2.2");
+			expect(f.check()).toBeUndefined();
+		} finally {
+			rmSync(f.root, { recursive: true, force: true });
+		}
+	});
+
+	test("sees an update that landed before the first check and retries a failed read", () => {
+		const f = installed("2.0.0");
+		try {
+			expect(f.check()).toBe("2.0.0");
+			f.install("unreadable");
+			f.check();
+			f.check();
+			expect(f.reads).toEqual(["2.0.0", "unreadable", "unreadable"]);
+		} finally {
+			rmSync(f.root, { recursive: true, force: true });
+		}
+	});
+
+	test("never reports from a source checkout", () => {
+		expect(
+			newerInstalledVersion({
+				standalone: false,
+				readVersion: () => "99.0.0",
+			})(),
+		).toBeUndefined();
 	});
 });
 

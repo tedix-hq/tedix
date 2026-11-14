@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
 	chmodSync,
@@ -166,6 +167,46 @@ export function compareVersions(
 		return leftPart < rightPart ? -1 : 1;
 	}
 	return 0;
+}
+
+/**
+ * Returns a check that reports the installed version once the binary this
+ * process started from has been replaced by a newer one. A running process
+ * keeps executing the binary it started with, so a runner asks this to learn
+ * when to restart. The binary is asked for its version on the first check and
+ * then only when the file changes; a failed read is tried again.
+ */
+export function newerInstalledVersion({
+	installPath = process.execPath,
+	standalone = IS_STANDALONE_BUILD,
+	current = CLI_VERSION,
+	readVersion = (path: string) =>
+		spawnSync(path, ["--version"], {
+			encoding: "utf8",
+			timeout: VERSION_TIMEOUT_MS,
+		}).stdout,
+}: {
+	installPath?: string;
+	standalone?: boolean;
+	current?: string;
+	readVersion?: (path: string) => string;
+} = {}): () => string | undefined {
+	let seen: string | undefined;
+	let newer: string | undefined;
+	return () => {
+		if (!standalone) return;
+		try {
+			const stat = statSync(installPath);
+			const stamp = `${stat.ino}:${stat.mtimeMs}:${stat.size}`;
+			if (stamp === seen) return newer;
+			const version = readVersion(installPath).trim();
+			newer = compareVersions(version, current) > 0 ? version : undefined;
+			seen = stamp;
+		} catch {
+			// Mid-update or unreadable: the next check reads it again.
+		}
+		return newer;
+	};
 }
 
 function distributionBaseUrl(runtime: UpdateRuntime): string {

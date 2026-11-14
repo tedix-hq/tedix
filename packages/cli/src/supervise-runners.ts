@@ -27,7 +27,10 @@ import {
 	type SupervisorDutyStatus,
 } from "./supervise-duty-status";
 import { laneProcessIdentity } from "./lane-process-recovery";
-import { dispatcherNextCheckAt } from "./dispatcher-health";
+import {
+	dispatcherCliVersion,
+	dispatcherNextCheckAt,
+} from "./dispatcher-health";
 
 /**
  * Runners as duties of the one supervisor. A runner is the process on this
@@ -58,6 +61,12 @@ export const RUNNER_RESTART_MAX_MS = 15 * 60_000;
  * replacement passes well inside this window.
  */
 export const RUNNER_PASS_GRACE_MS = 3.5 * 60_000;
+/**
+ * A runner exits with this code when a newer CLI is installed and it has no
+ * Work in progress. It is restarted on the next check, with no backoff and no
+ * problem recorded.
+ */
+export const RUNNER_UPDATE_EXIT_CODE = 75;
 /** A longer gap between checks means this machine slept; passes restart from waking. */
 const CHECK_GAP_MS = 90_000;
 /** Exits older than this no longer lengthen the backoff. */
@@ -396,6 +405,8 @@ interface Running {
 	pid: number;
 	startedAt: number;
 	identity?: string;
+	/** The CLI version the runner reported, once logged. */
+	version?: string;
 	/** Set for children this supervisor spawned; an adopted child is only watched by pid. */
 	child?: RunnerChild;
 }
@@ -535,6 +546,7 @@ export class RunnerDuties {
 						this.identity(entry.pid, runner) === entry.identity)
 				) {
 					if (this.restartIfHung(key, entry, now)) continue;
+					this.noteVersion(key, entry);
 					this.record(
 						runner,
 						{
@@ -566,6 +578,17 @@ export class RunnerDuties {
 				this.start(key, runner, now);
 			}
 		}
+	}
+
+	/** Logs, once per runner process, the CLI version it reports running. */
+	private noteVersion(key: string, entry: Running) {
+		if (entry.version) return;
+		entry.version = dispatcherCliVersion(
+			join(configDir(this.deps.env), "dispatchers", key),
+			entry.pid,
+		);
+		if (entry.version)
+			this.log(`runner ${entry.runner.executor} now on ${entry.version}`);
 	}
 
 	private adopt(key: string, runner: RunnerDuty, now: number): boolean {
@@ -687,7 +710,20 @@ export class RunnerDuties {
 			if (this.running.get(key) !== entry) return;
 			this.running.delete(key);
 			rmSync(this.childPath(runner), { force: true });
-			this.noteExit(key, runner, code, this.now());
+			const at = this.now();
+			// A runner that asks again right after starting is not on the
+			// installed version; the ordinary backoff stops that loop.
+			if (
+				code === RUNNER_UPDATE_EXIT_CODE &&
+				at - entry.startedAt >= RUNNER_RESTART_BASE_MS
+			) {
+				this.log(
+					`${runner.executor} stopped with no task in progress to run the updated CLI; restarting`,
+				);
+				this.record(runner, { state: "waiting", retryAt: null }, at);
+				return;
+			}
+			this.noteExit(key, runner, code, at);
 		});
 	}
 

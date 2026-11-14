@@ -83,11 +83,16 @@ import { laneChildEnv } from "./lane-child-env";
 import { laneProcessIdentity, reapLaneProcess } from "./lane-process-recovery";
 import { unpushedLaneCommits } from "./lane-unpushed";
 import { beginFileLock } from "./local-file-lock";
-import { runnerKey } from "./supervise-runners";
+import {
+	readRunnerDuties,
+	runnerKey,
+	RUNNER_UPDATE_EXIT_CODE,
+} from "./supervise-runners";
+import { newerInstalledVersion } from "./update";
 import { inDarkWake } from "./oauth-provider";
 import { runLaneProcess, reportLaneObservation } from "./lane-run";
 import type { LaneObservation } from "./lane-telemetry";
-import { selfCommand } from "./shared";
+import { CLI_VERSION, selfCommand } from "./shared";
 import {
 	getCurrentWorkspace,
 	readWorkspaceCredentials,
@@ -1535,6 +1540,7 @@ export class LaneDispatcher {
 	private runsSweptAt = 0;
 	private queue = serialCalls();
 	private stopping = false;
+	private admissionsHeld = false;
 	private proposalsSweptAt = 0;
 	private ticking = false;
 	private delegationRequests = new Map<string, string>();
@@ -1576,6 +1582,33 @@ export class LaneDispatcher {
 	stop = () => {
 		this.stopping = true;
 	};
+	/**
+	 * Stops admitting Work so this runner can empty and restart onto an updated
+	 * CLI. Unlike `stop`, Work already in preparation still launches and runs to
+	 * its own end, so no Attempt is cancelled.
+	 */
+	holdAdmissions() {
+		this.admissionsHeld = true;
+	}
+	/**
+	 * True when a restart would interrupt nothing: no Work in preparation or
+	 * running here, no retained run whose agent process is alive, and none
+	 * between admission and settlement.
+	 */
+	quiet(): boolean {
+		if (this.running.size || this.preparing.size || this.maintenance.size)
+			return false;
+		try {
+			return !readLaneReceipts(this.directory, this.receipts).some(
+				(row) =>
+					!hasSettledOutcome(row) &&
+					((row.pid && alive(row.pid)) ||
+						["admitted", "running"].includes(row.phase)),
+			);
+		} catch {
+			return false;
+		}
+	}
 	/**
 	 * A spawn can be reported before exec shows the session in argv on a busy
 	 * host. Without an identity the run could never be stopped as an orphan,
@@ -1951,6 +1984,7 @@ export class LaneDispatcher {
 		).length;
 		while (
 			!this.stopping &&
+			!this.admissionsHeld &&
 			!diskLow &&
 			this.running.size + orphaned < this.options.max
 		) {
@@ -2316,6 +2350,7 @@ export class LaneDispatcher {
 		if (
 			executor === "any-local" ||
 			this.stopping ||
+			this.admissionsHeld ||
 			Date.now() - this.takeoverCheckedAt < 60_000
 		)
 			return;
@@ -4825,7 +4860,21 @@ export const LANE_STOP_DRAIN_MS = 2 * 60_000;
 /** Identity reads after spawn, 100 ms apart. */
 const IDENTITY_CAPTURE_TRIES = 30;
 
-export async function runLaneServe(args: string[]): Promise<number> {
+/** True when the supervisor's runner list has this runner enabled, so it is started again after it exits. */
+function supervised(key: string): boolean {
+	try {
+		return readRunnerDuties(process.env).some(
+			(duty) => duty.enabled && runnerKey(duty) === key,
+		);
+	} catch {
+		return false;
+	}
+}
+
+export async function runLaneServe(
+	args: string[],
+	installedVersion = newerInstalledVersion(),
+): Promise<number> {
 	if (args.includes("--help")) {
 		console.log(
 			"tedix lane serve --executor codex|claude-code|opencode|devin|any-local [--max 5] [--project UUID] [--coordinated] [--accept-proposed] [--rules <OS skill UUID|slug>] [--repo path] [--idle-takeover-minutes N] [--checkout-cap-gb N] [--install] [--once]",
@@ -4857,6 +4906,7 @@ export async function runLaneServe(args: string[]): Promise<number> {
 	let dispatcher: LaneDispatcher | undefined;
 	let stopping = false;
 	let abandoned = false;
+	let updating = false;
 	const stop = () => {
 		stopping = true;
 		dispatcher?.stop();
@@ -4909,6 +4959,22 @@ export async function runLaneServe(args: string[]): Promise<number> {
 				process.stderr.write(`Dispatcher deferred: ${String(error)}\n`);
 			}
 			if (options.once || stopping) break;
+			// Only a runner the supervisor will start again leaves for an update.
+			const newer = installedVersion();
+			if (newer && supervised(key)) {
+				if (!updating)
+					process.stderr.write(
+						`Dispatcher found Tedix CLI ${newer} installed while running ${CLI_VERSION}; it takes no new Work and restarts once none is in progress\n`,
+					);
+				updating = true;
+				dispatcher.holdAdmissions();
+				if (dispatcher.quiet()) {
+					process.stderr.write(
+						`Dispatcher restarting onto Tedix CLI ${newer}; no Work in progress\n`,
+					);
+					return RUNNER_UPDATE_EXIT_CODE;
+				}
+			}
 			const delay = dispatcher.nextTickDelayMs();
 			recordDispatcherNextCheck(
 				directory,
