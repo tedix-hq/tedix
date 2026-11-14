@@ -1,13 +1,11 @@
 import { isPlatformPrincipal } from "@tedix/auth/types";
 import {
 	deleteApp,
-	setAppGatewayMembership,
+	getAppMetadataJson,
+	updateApp,
 } from "@tedix/db/queries/app-records";
-import {
-	aggregateAppEntryMatches,
-	aggregateAppLink,
-} from "@tedix/db/queries/aggregate-app-links";
-import { getAppBySlug, getAppsByOrganization } from "@tedix/db/queries/apps";
+import { aggregateAppLink } from "@tedix/db/queries/aggregate-app-links";
+import { getAppBySlug } from "@tedix/db/queries/apps";
 import {
 	getCmsSiteByIdForOrganization,
 	listCmsSitesByOrganization,
@@ -23,6 +21,7 @@ import { DEFAULT_ORGANIZATION_FEATURES_BY_PLAN } from "@tedix/db/schema/organiza
 import { purgeMcpAggregateCache } from "../../lib/mcp-subscriptions";
 import { auditActor, emitAuditEvent } from "../audit-helpers";
 import { requireOrgId } from "../org-scope";
+import { mergeAppMetadataPatch } from "./app-metadata";
 import { createError, ErrorCodes, withAuthorization } from "../orpc";
 import { purgeMcpDiscoveryCache } from "./app-discovery-cache";
 import {
@@ -36,7 +35,7 @@ import {
 /**
  * Move a CMS site from the caller's organization to another one. The site row
  * and its domain claims move in one D1 batch; the authoring app is then
- * replaced by a fresh one in the target. Every step reads current state first,
+ * replaced by a fresh one in the target and linked in the target's gateway. Every step reads current state first,
  * so a call that stopped halfway is finished by calling it again.
  */
 export const moveCmsSiteProcedure = authedSitesOs.moveCms
@@ -107,27 +106,14 @@ export const moveCmsSiteProcedure = authedSitesOs.moveCms
 
 		const cmsApp = await getPlatformCmsApp(db);
 		let app = await getAppBySlug(db, `cms-${site.slug}`);
-		let wasLinked = false;
 		if (app && app.organizationId !== targetId) {
 			if (app.organizationId !== sourceId || app.id !== site.authoringAppId)
 				throw createError(
 					ErrorCodes.CONFLICT,
 					"CMS authoring app slug already belongs to another resource",
 				);
-			const link = aggregateAppLink(app);
-			const linking = (await getAppsByOrganization(db, sourceId)).filter(
-				(candidate) =>
-					aggregateEntries(candidate).some((entry) =>
-						aggregateAppEntryMatches(entry, link),
-					),
-			);
-			wasLinked = linking.length > 0;
+			// deleteApp also removes the source organization's links to it.
 			await deleteApp(db, app.id);
-			await Promise.all(
-				linking.map((gateway) =>
-					purgeMcpDiscoveryCache(context.env, gateway.id, [gateway]),
-				),
-			);
 			app = null;
 		}
 		app ??= await createCmsAuthoringApp(db, {
@@ -154,24 +140,32 @@ export const moveCmsSiteProcedure = authedSitesOs.moveCms
 				"CMS site changed during the move",
 			);
 
-		// The site keeps the gateway availability it had in the source.
-		let gatewayLinked = false;
-		const gatewaySlug = wasLinked
-			? (await getOrganizationAggregatorGateways(db, [targetId])).get(targetId)
-					?.slug
-			: undefined;
-		const gateway = gatewaySlug ? await getAppBySlug(db, gatewaySlug) : null;
-		if (gateway && gateway.organizationId === targetId) {
-			gatewayLinked =
-				(
-					await setAppGatewayMembership(
-						db,
-						targetId,
-						gateway.id,
-						aggregateAppLink(app),
-						true,
-					)
-				).length === 1;
+		// The target gateway keeps one entry for the site. An entry it already
+		// had (it may name the deleted app) keeps its prefix and takes the new id.
+		const gatewaySlug = (
+			await getOrganizationAggregatorGateways(db, [targetId])
+		).get(targetId)?.slug;
+		const found = gatewaySlug ? await getAppBySlug(db, gatewaySlug) : null;
+		const gateway = found?.organizationId === targetId ? found : null;
+		if (gateway) {
+			const link = aggregateAppLink(app);
+			const entries = aggregateEntries(gateway);
+			const same = entries.filter((entry) => entry.slug === link.slug);
+			const kept = same.find((entry) => entry.prefix) ??
+				same[0] ?? {
+					prefix: `cms_${site.slug.replaceAll("-", "_")}`,
+					connectionLabel: site.slug,
+				};
+			await updateApp(db, gateway.id, {
+				metadata: mergeAppMetadataPatch(getAppMetadataJson(gateway), {
+					mcpConfig: {
+						aggregateApps: [
+							...entries.filter((entry) => entry.slug !== link.slug),
+							{ ...kept, ...link },
+						],
+					},
+				}),
+			});
 			await purgeMcpDiscoveryCache(context.env, gateway.id, [gateway]);
 		}
 
@@ -198,6 +192,6 @@ export const moveCmsSiteProcedure = authedSitesOs.moveCms
 			slug: site.slug,
 			organizationId: targetId,
 			authoringAppId: app.id,
-			gatewayLinked,
+			gatewayLinked: gateway !== null,
 		};
 	});
