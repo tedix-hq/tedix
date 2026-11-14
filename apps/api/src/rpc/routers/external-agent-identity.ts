@@ -79,6 +79,7 @@ import {
 	getExternalAgentPrincipalByCredential,
 	listExternalAgentPrincipals,
 	renameExternalAgentPrincipal,
+	setExternalAgentWorkManagement,
 	setExternalAgentPrincipalStatus,
 } from "@tedix/db/queries/external-agent-identity/principals";
 import {
@@ -659,6 +660,53 @@ const disablePrincipal = authed.disablePrincipal.handler(
 			return await finishExternalAgentProviderCleanup(context.db, {
 				...params,
 				failed,
+			});
+		} catch (error) {
+			rethrowIdentityError(error);
+		}
+	},
+);
+
+const setWorkManagement = authed.setWorkManagement.handler(
+	async ({ input, context }) => {
+		const organizationId = requireOrganization(context, input.organizationId);
+		requireHumanUser(context);
+		const membership = await verifiedActiveUserMembership(
+			context,
+			organizationId,
+			"owner/admin",
+		);
+		if (membership.role !== "owner" && membership.role !== "admin")
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Work management grants require an active organization owner or admin",
+			);
+		if (
+			input.grant &&
+			"scope" in input.grant &&
+			input.grant.scope === "project"
+		) {
+			const { getProjectByIdForOrganization } =
+				await import("@tedix/db/queries/projects");
+			if (
+				!(await getProjectByIdForOrganization(
+					context.db,
+					organizationId,
+					input.grant.projectId,
+				))
+			)
+				throw createError(
+					ErrorCodes.NOT_FOUND,
+					"Project not found in this organization",
+				);
+		}
+		try {
+			return await setExternalAgentWorkManagement(context.db, {
+				organizationId,
+				principalId: input.principalId,
+				grant: input.grant,
+				actorId: membership.userId,
+				updatedAt: new Date().toISOString(),
 			});
 		} catch (error) {
 			rethrowIdentityError(error);
@@ -2078,6 +2126,7 @@ export const externalAgentIdentityContractRouter = identityOs.router({
 	createPrincipal,
 	setPrincipalStatus,
 	disablePrincipal,
+	setWorkManagement,
 	renamePrincipal,
 	openSession,
 	openOwnerHostSession,

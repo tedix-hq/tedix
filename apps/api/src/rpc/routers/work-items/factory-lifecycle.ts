@@ -367,7 +367,9 @@ export const updateSpecificationProcedure =
 				("canAssignExecutor" in actor && actor.canAssignExecutor)
 					? undefined
 					: input.executor,
-				input.projectId,
+				"canMoveProject" in actor && actor.canMoveProject
+					? undefined
+					: input.projectId,
 				input.riskLevel,
 				input.workClass,
 				input.purposeExceptionExpiresAt,

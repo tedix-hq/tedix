@@ -385,6 +385,7 @@ const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
 	// than platform scope.
 	create_external_agent_principal: "mcp:work",
 	rename_external_agent_principal: "mcp:work",
+	set_external_agent_work_management: "mcp:work",
 	// A plugin host starting its owner's own Agent-Session is Work lifecycle.
 	// The edge resolver (packages/mcp tool-scopes) grants mcp:work.write only to
 	// the canonical openOwnerHostSession RPC binding; the bare name elsewhere
@@ -754,6 +755,7 @@ const ACCESS_LEVEL_OVERRIDES: Record<string, ToolAccessLevel> = {
 	create_api_key: "admin",
 	create_external_agent_principal: "admin",
 	rename_external_agent_principal: "admin",
+	set_external_agent_work_management: "admin",
 	apply_skill_proposal: "write",
 	// Plural skills-router twins keep their singular counterparts' tiers.
 	improve_skills: "write",

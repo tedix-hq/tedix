@@ -1704,6 +1704,7 @@ describe("oRPC tool projection sync", () => {
 			"rename_external_agent_principal",
 			"retire_abandoned_external_agent_session",
 			"revoke_external_agent_mcp_credential",
+			"set_external_agent_work_management",
 			"start_external_agent_session_for_host",
 		]);
 		const endpoints = new Set(result.items.map((item) => item.endpoint));

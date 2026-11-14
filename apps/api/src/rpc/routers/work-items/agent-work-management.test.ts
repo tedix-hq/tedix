@@ -18,6 +18,7 @@ import {
 import type { BaseContext } from "../../orpc";
 import { workItemStewardActor } from "./policy-helpers";
 import {
+	cancelFactoryWorkItemProcedure,
 	completeProcedure,
 	settleAttemptProcedure,
 	updateSpecificationProcedure,
@@ -103,6 +104,7 @@ async function fixture({
 		id: string;
 		executor?: "codex";
 		description?: string;
+		projectId?: string;
 		riskLevel?: "low";
 		expectedWorkItemVersion?: number;
 	}) =>
@@ -118,6 +120,91 @@ async function fixture({
 }
 
 describe("owner-granted external-agent Work management", () => {
+	it("grants org-wide edits without a source and revokes them immediately", async () => {
+		const { sqlite, update, db, context, item } = await fixture();
+		sqlite.exec("UPDATE work_items SET source_intent_id=NULL");
+		const grant = {
+			scope: "organization",
+			actions: ["specification", "cancellation"],
+		};
+		sqlite
+			.prepare("UPDATE external_agent_principals SET metadata=?")
+			.run(JSON.stringify({ workManagement: grant }));
+		await expect(
+			update({ id, description: "Org-wide edit" }),
+		).resolves.toBeDefined();
+		const events = await db.select().from(workEvents);
+		expect(events).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					actorType: "external_agent",
+					actorId: "bot",
+				}),
+			]),
+		);
+		await expect(
+			workItemStewardActor(
+				context,
+				{ ...item, sourceIntentId: null },
+				"cancellation",
+			),
+		).resolves.toMatchObject({ id: "bot" });
+		await cancelFactoryWorkItemProcedure["~orpc"].handler!({
+			context,
+			input: { id, reason: "Owner-authorized cleanup" },
+			path: [],
+			procedure: cancelFactoryWorkItemProcedure,
+			signal: undefined,
+			lastEventId: undefined,
+		});
+		expect(await getWorkItemById(db, id)).toMatchObject({
+			disposition: "cancelled",
+		});
+		expect(await db.select().from(workEvents)).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					eventType: "work.cancelled",
+					actorType: "external_agent",
+					actorId: "bot",
+				}),
+			]),
+		);
+		sqlite.exec("UPDATE external_agent_principals SET metadata='{}'");
+		await expect(update({ id, description: "Revoked" })).rejects.toMatchObject({
+			code: "FORBIDDEN",
+		});
+		await expect(
+			workItemStewardActor(context, item, "cancellation"),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+	it("limits project grants to that project, including re-filing", async () => {
+		const { sqlite, update } = await fixture();
+		const projectId = "22222222-2222-4222-8222-222222222222";
+		sqlite
+			.prepare("UPDATE external_agent_principals SET metadata=?")
+			.run(
+				JSON.stringify({
+					workManagement: {
+						scope: "project",
+						projectId,
+						actions: ["specification", "cancellation"],
+					},
+				}),
+			);
+		await expect(
+			update({ id, description: "Outside project" }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+		sqlite
+			.prepare("UPDATE work_items SET project_id=?, source_intent_id=NULL")
+			.run(projectId);
+		await expect(
+			update({ id, description: "Inside project" }),
+		).resolves.toBeDefined();
+		await expect(
+			update({ id, projectId: "33333333-3333-4333-8333-333333333333" }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+
 	it.each([
 		"failed",
 		"expired",

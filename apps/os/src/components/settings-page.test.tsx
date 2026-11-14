@@ -47,6 +47,7 @@ vi.mock("@/lib/api", () => ({
 				list: vi.fn(async () => ({ items: [], truncated: false })),
 			},
 		},
+		externalAgentIdentity: { listPrincipals: vi.fn(async () => []) },
 		projects: { list: vi.fn(async () => ({ data: [] })) },
 	},
 }));
