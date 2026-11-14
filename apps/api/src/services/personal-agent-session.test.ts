@@ -55,6 +55,13 @@ const session = {
 };
 
 describe("signed-out protocol resource boundary", () => {
+	it("distinguishes new Session creation for lifecycle auditing", async () => {
+		mocks.session.mockResolvedValue("started");
+		expect(await verifySignedOutPersonalAgentSession(db, input)).toEqual({
+			status: "accepted",
+			sessionCreated: true,
+		});
+	});
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mocks.app.mockResolvedValue({

@@ -64,6 +64,8 @@ Session JWTs and fetched documents are never logged or stored. The internal
 `sessionToken` field is covered by RPC development-log redaction. Verification
 failures contain only protocol error codes. Sessions store pseudonymous IDs,
 the declared version and ended state; delegated keys may change between requests.
+New Sessions emit an app-scoped lifecycle audit event with static metadata.
+Continuations, rate counters and rejected JWTs do not add governance audit rows.
 
 Replay decision: this signed-out entry does not store JWT `jti` values. The
 protocol permits accepting a replay within the 60-second freshness window;

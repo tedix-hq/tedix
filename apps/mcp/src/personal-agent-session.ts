@@ -12,13 +12,17 @@ export async function checkSignedOutPersonalAgentSession(input: {
 		serviceFetch: env.API_SERVICE,
 		orgId: organizationId,
 	});
+	const sessionToken = request.headers.get("Poppy-Session");
+	const version = request.headers.get("Poppy-Version");
 	const result = await client.osTenant.personalAgentSession({
 		organizationId,
 		appId,
 		url: request.url,
 		method: request.method,
-		sessionToken: request.headers.get("Poppy-Session"),
-		version: request.headers.get("Poppy-Version"),
+		// Oversized credentials fail the protocol check, not RPC input validation.
+		sessionToken:
+			sessionToken && sessionToken.length > 16384 ? null : sessionToken,
+		version: version && version.length > 32 ? null : version,
 	});
 	if (result.status === "not_configured" || result.status === "accepted")
 		return null;

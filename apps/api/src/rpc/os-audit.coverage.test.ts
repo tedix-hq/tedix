@@ -33,6 +33,7 @@ import {
 	OS_APPROVAL_RULES_AUDIT,
 	OS_AUDIT_NON_EMITTING,
 	OS_SHARES_AUDIT,
+	OS_TENANT_AUDIT,
 	OS_WORKSPACES_AUDIT,
 	type OsAuditRegistry,
 	procedureMethod,
@@ -120,15 +121,10 @@ const DOMAINS: {
 		contract: osApprovalRulesContract,
 		registry: OS_APPROVAL_RULES_AUDIT,
 	},
-	// Enumerated even though neither declares an audited verb today. The gate's
-	// whole promise is "an OS verb cannot ship un-audited", and a contract that
-	// is absent from this list is exempt from that promise — which is exactly
-	// how the original gap happened. `osCompute` is read-only and `osTenant`
-	// carries one non-mutating POST; both are covered by
-	// `OS_AUDIT_NON_EMITTING`, so adding a MUTATING verb to either now fails
-	// this gate until it is registered or deliberately excused.
+	// Include internal routers too: routing lookups are excused explicitly,
+	// while Session creation has a lifecycle audit registration.
 	{ name: "osCompute", contract: osComputeContract, registry: {} },
-	{ name: "osTenant", contract: osTenantContract, registry: {} },
+	{ name: "osTenant", contract: osTenantContract, registry: OS_TENANT_AUDIT },
 ];
 
 const READ_METHODS = new Set(["GET", "HEAD"]);
@@ -156,6 +152,7 @@ describe("Tedix OS audit coverage", () => {
 			["organization-secrets", "ORGANIZATION_SECRETS_AUDIT"],
 			["role-templates", "ROLE_TEMPLATES_AUDIT"],
 			["web-push", "WEB_PUSH_AUDIT"],
+			["os-tenant", "OS_TENANT_AUDIT"],
 		]) {
 			const source = readFileSync(
 				new URL(`./routers/${file}.ts`, import.meta.url),
