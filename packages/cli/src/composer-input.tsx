@@ -28,6 +28,7 @@ import {
 	useInput,
 	usePaste,
 	useBoxMetrics,
+	measureElement,
 	useWindowSize,
 	useIsScreenReaderEnabled,
 	type DOMElement,
@@ -148,12 +149,20 @@ function ComposerInput({
 	const { columns } = useWindowSize();
 	const screenReader = useIsScreenReaderEnabled();
 	const contentColumns = Math.max(1, hasMeasured ? clientWidth : columns);
+	// Input can arrive before useBoxMetrics publishes the committed layout.
+	const inputColumns = () =>
+		Math.max(
+			1,
+			boxRef.current
+				? measureElement(boxRef.current).clientWidth
+				: contentColumns,
+		);
 	const publishedRowsRef = useRef<number | undefined>(undefined);
 	const publishRows = (editor: EditorState) => {
 		const rows = composerViewport(
 			editor.value,
 			editor.cursorOffset,
-			contentColumns,
+			inputColumns(),
 			1,
 		).totalRows;
 		if (rows !== publishedRowsRef.current) {
@@ -239,7 +248,7 @@ function ComposerInput({
 				pending,
 				input,
 				composerKey,
-				contentColumns,
+				inputColumns(),
 			);
 
 			if (result.submit !== undefined) {
