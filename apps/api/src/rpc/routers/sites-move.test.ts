@@ -200,7 +200,12 @@ describe("moveCms", () => {
 			mocks.updateApp.mock.calls[0]?.[2].metadata.mcpConfig.aggregateApps,
 		).toEqual([
 			{ appId: "other", slug: "other-app" },
-			{ appId: newApp.id, slug: newApp.slug, prefix: "cms_blog" },
+			{
+				connectionLabel: "acme",
+				appId: newApp.id,
+				slug: newApp.slug,
+				prefix: "cms_blog",
+			},
 		]);
 		expect(mocks.purgeAggregate).toHaveBeenCalledOnce();
 		expect(mocks.audit).toHaveBeenCalledTimes(2);
