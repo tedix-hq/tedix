@@ -30,7 +30,7 @@ import {
  *                      │  streamChatTurn(SAME conversationId as Tedix OS chat)
  *                      ▼  → ledger / brain / session / MCP tools (for free)
  *
- * @experimental Built on `@cloudflare/voice@0.3.6` (pinned exactly via the root
+ * @experimental Built on `@cloudflare/voice@0.5.0` (pinned exactly via the root
  * catalog — the SDK is not yet stable).
  */
 

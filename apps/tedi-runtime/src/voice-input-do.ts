@@ -45,7 +45,7 @@ import {
  *
  * No binary frames are ever sent from server to client (STT-only, no TTS).
  *
- * @experimental Built on `@cloudflare/voice@0.3.6` (pinned exactly via the root
+ * @experimental Built on `@cloudflare/voice@0.5.0` (pinned exactly via the root
  * catalog).
  */
 

@@ -30,7 +30,7 @@ read those fields for the complete package list and current versions.
 | ---------------------------------- | ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | `@orpc/*`                          | a 2.0 beta                                                  | Prerelease: a beta bump can break the API with no semver signal. All `@orpc/*` packages move together.                                                                                                                                                                                       | [middleapi/orpc](https://github.com/middleapi/orpc)                                                                            |
 | `drizzle-orm`                      | a 1.0 release candidate                                     | Prerelease, as above. The D1 rules in `packages/db/AGENTS.md` are written against this version.                                                                                                                                                                                              | [drizzle-team/drizzle-orm](https://github.com/drizzle-team/drizzle-orm)                                                        |
-| `@cloudflare/sandbox`              | `1.0.0`                                                     | Runtime-coupled: Workstation, CMS and Docs extend app-owned Durable Objects, use native `ctx.container` RPC, and copy the matching v1 `sandbox-shim` into each image. Upgrade the SDK and donor image together.                                                                              | [cloudflare/sandbox-sdk](https://github.com/cloudflare/sandbox-sdk)                                                            |
+| `@cloudflare/sandbox`              | `1.0.3`                                                     | Runtime-coupled: Workstation, CMS and Docs extend app-owned Durable Objects, use native `ctx.container` RPC, and copy the matching v1 `sandbox-shim` into each image. Upgrade the SDK and donor image together.                                                                              | [cloudflare/sandbox-sdk](https://github.com/cloudflare/sandbox-sdk)                                                            |
 | `vite-plus`, `vitest`, `vite`      | exact; `vite` is an alias of `@voidzero-dev/vite-plus-core` | `vp fmt` bundles a specific formatter, so this version decides the bytes the format check compares. `vite` is aliased to the Vite+ core, as Vite+ documents, and `vitest` must equal the version `vite-plus` depends on (`vp toolchain vitest`). Keep the core version equal to `vite-plus`. | [voidzero-dev/vite-plus](https://github.com/voidzero-dev/vite-plus)                                                            |
 | `wrangler`, `agents`               | exact                                                       | Deploy and runtime behaviour at the edge.                                                                                                                                                                                                                                                    | [cloudflare/workers-sdk](https://github.com/cloudflare/workers-sdk), [cloudflare/agents](https://github.com/cloudflare/agents) |
 | `emdash`, `@emdash-cms/cloudflare` | exact, matching release line                                | CMS runtime compatibility and version-specific local patches. Update the starter manifests, embedded snapshot, patches, and lockfiles together.                                                                                                                                              | [emdash-cms/emdash](https://github.com/emdash-cms/emdash)                                                                      |
@@ -38,9 +38,9 @@ read those fields for the complete package list and current versions.
 ## Overrides
 
 Security overrides pin `dompurify` to 3.4.17, `body-parser` to 2.4.0 and
-`fast-uri` to 3.1.9. Undici uses version-scoped overrides: 7.x consumers stay
-on 7.30.1 and 8.x consumers stay on 8.12.3. This includes Miniflare's exact
-7.x dependency without moving it to a different major. Bun 1.4.2 writes these
+`fast-uri` to 4.2.3. Undici uses version-scoped overrides: 7.x consumers stay
+on 7.30.2 and 8.x consumers stay on 8.12.4. This includes Miniflare's exact
+7.x dependency without moving it to a different major. Bun 1.4.4 writes these
 scoped rules in lockfile format 3; keep the manifest and lockfile together.
 The independently installed CMS starters carry the same security overrides
 in their manifests and lockfiles, and in the generated template snapshot.
@@ -49,7 +49,7 @@ Review these pins against upstream security releases when upgrading callers.
 | Override         | Why                                                                                                                                                                                                                                           | Upstream                                            |
 | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
 | `zod`            | Forces one zod copy. The AI SDK and `@orpc/zod` check schemas by identity, and several transitive packages still request zod 3; without the override the lockfile resolves several zod versions and schemas fail at runtime.                  | [colinhacks/zod](https://github.com/colinhacks/zod) |
-| `chat`           | Uses the catalog version for transitive requests as well as direct dependencies. The lockfile resolves `chat` and its Telegram/shared adapters to 4.42.0, satisfying the `agents` peer range. Review upgrades with `agents` and the adapters. | [vercel/chat](https://github.com/vercel/chat)       |
+| `chat`           | Uses the catalog version for transitive requests as well as direct dependencies. The lockfile resolves `chat` and its Telegram/shared adapters to 4.44.0, satisfying the `agents` peer range. Review upgrades with `agents` and the adapters. | [vercel/chat](https://github.com/vercel/chat)       |
 | `vite`, `vitest` | Apply the catalog versions above to transitive requests too, including `vite-plus`'s own.                                                                                                                                                     | —                                                   |
 
 ## Patches
@@ -57,14 +57,14 @@ Review these pins against upstream security releases when upgrading callers.
 The root `patchedDependencies` currently names `agents`, EmDash and its
 Cloudflare adapter; `bun.lock` records the same patch paths:
 
-- `patches/emdash@1.3.0.patch` handles the Worker Loader transaction path,
+- `patches/emdash@1.4.0.patch` handles the Worker Loader transaction path,
   guarded collection deletion, registry bundle validation and required plugin
   lifecycle hooks, external-auth roles, import/seed fencing, locale-aware
   taxonomy archives, and atomic menu replacement.
-- `patches/@emdash-cms/cloudflare@1.3.0.patch` implements the collection-deletion
+- `patches/@emdash-cms/cloudflare@1.4.0.patch` implements the collection-deletion
   registry guard using D1 batches or Durable Object `transactionSync`, and
   relaxes the Kumo peer dependency to a compatible range.
-- `patches/agents@0.28.1.patch` routes facet Lifecycle alarms through registered
+- `patches/agents@0.33.0.patch` routes facet Lifecycle alarms through registered
   parent-owned native jobs, preserves facet class and path identity, and adds
   a policy hook before facet initialization and alarm dispatch.
 
