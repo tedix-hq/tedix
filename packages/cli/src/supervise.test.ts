@@ -231,8 +231,8 @@ describe("dispatcher health publication", () => {
 			process.pid,
 		);
 		const run = supervisor([]);
-		await run.runner.tick();
-		await run.runner.tick();
+		await run.runner.tick(true);
+		await run.runner.tick(true);
 		expect(run.health).toHaveLength(1);
 		expect(run.health[0]).toMatchObject({
 			executor: "opencode",
@@ -242,8 +242,111 @@ describe("dispatcher health publication", () => {
 			slotsTotal: 4,
 		});
 		run.advance(2 * 60 * 1000);
-		await run.runner.tick();
+		await run.runner.tick(true);
 		expect(run.health).toHaveLength(2);
+	});
+
+	function lanes(...names: string[]) {
+		for (const name of names) {
+			const directory = join(config, "dispatchers", name);
+			mkdirSync(directory, { recursive: true });
+			writeDispatcherHealthSource(
+				directory,
+				{
+					scope: ["--workspace", "fixture", "--organization", "org_fixture"],
+					executor: name,
+					max: 1,
+				},
+				process.pid,
+			);
+		}
+	}
+
+	function reporter(read: (executor: string, timeoutMs: number) => unknown) {
+		const lines: string[] = [];
+		let clock = 0;
+		const runner = new Supervisor({
+			env: { TEDIX_CONFIG_DIR: config },
+			codex: {} as CodexDriver,
+			now: () => clock,
+			sleep: async (ms) => {
+				clock += ms;
+			},
+			log: (line) => lines.push(line),
+			read: async (args, timeoutMs) => {
+				const report = JSON.parse(args[args.indexOf("--input") + 1]!);
+				await read(report.executor, timeoutMs);
+				return {};
+			},
+		});
+		return {
+			runner,
+			lines,
+			advance: (ms: number) => {
+				clock += ms;
+			},
+		};
+	}
+
+	test("sends one report at a time without holding up the pass", async () => {
+		lanes("alpha", "beta", "gamma");
+		let active = 0;
+		let peak = 0;
+		const order: string[] = [];
+		const releases: Array<() => void> = [];
+		const run = reporter(async (executor) => {
+			order.push(executor);
+			peak = Math.max(peak, ++active);
+			await new Promise<void>((done) => releases.push(done));
+			active--;
+		});
+		await run.runner.tick();
+		expect(order).toEqual(["alpha"]);
+		run.advance(2 * 60 * 1000);
+		await run.runner.tick();
+		expect(order).toEqual(["alpha"]);
+		const done = run.runner.tick(true);
+		for (let sent = 0; sent < 3; sent++) {
+			while (releases.length <= sent) await Bun.sleep(1);
+			releases[sent]!();
+		}
+		await done;
+		expect(order).toEqual(["alpha", "beta", "gamma"]);
+		expect(peak).toBe(1);
+		expect(run.lines).toEqual([]);
+	});
+
+	test("retries a timed-out report with a longer limit", async () => {
+		lanes("alpha");
+		const timeouts: number[] = [];
+		const run = reporter((_executor, timeoutMs) => {
+			timeouts.push(timeoutMs);
+			if (timeouts.length === 1)
+				throw new Error("Tedix CLI read deadline elapsed");
+		});
+		await run.runner.tick(true);
+		expect(timeouts[0]).toBe(15_000);
+		expect(timeouts[1]).toBeGreaterThan(15_000);
+		expect(timeouts).toHaveLength(2);
+		expect(run.lines).toEqual([]);
+	});
+
+	test("logs the elapsed time of a failed report and sends the rest", async () => {
+		lanes("alpha", "beta");
+		const sent: string[] = [];
+		const run = reporter((executor) => {
+			sent.push(executor);
+			if (executor === "alpha") {
+				run.advance(15_000);
+				throw new Error("Tedix CLI read deadline elapsed");
+			}
+		});
+		await run.runner.tick(true);
+		expect(sent.at(-1)).toBe("beta");
+		expect(run.lines).toHaveLength(1);
+		expect(run.lines[0]).toMatch(
+			/^dispatcher alpha health report failed after \d{5} ms and [2-4] attempts: Tedix CLI read deadline elapsed$/,
+		);
 	});
 });
 
