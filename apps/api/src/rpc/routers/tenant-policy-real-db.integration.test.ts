@@ -8,6 +8,8 @@ import {
 import { ToolHandler } from "../../../../mcp/src/mcp/handler";
 import { IdenticalFailureBudget } from "../../../../../packages/tedi-codemode-core/src/failure-budget";
 import { tediApprovalRequests } from "@tedix/db/schema/approvals";
+import { tedis } from "@tedix/db/schema/tedis";
+import { auditEvents } from "@tedix/db/schema/audit-events";
 import { canonicalDigest } from "../../lib/blueprint-digest";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import { resolveHumanPolicyReplay } from "../../../../mcp/src/mcp/tenant-human-replay";
@@ -58,6 +60,8 @@ describe("owner policy against a real local D1 facade", () => {
 					appTools,
 					appToolCspDomains,
 					tediApprovalRequests,
+					tedis,
+					auditEvents,
 					tenantProviderIdentityProfiles,
 					tenantProviderIdentityPreparations,
 					tenantToolPolicyResourceGenerations,
@@ -71,6 +75,12 @@ describe("owner policy against a real local D1 facade", () => {
 			const db = createDbClient(createD1Facade(sqlite));
 			await db.insert(organizations).values({
 				id: "10000000-0000-4000-8000-000000000001",
+				name: "Sample",
+				slug: "sample",
+			});
+			await db.insert(tedis).values({
+				id: "fictional-tedi",
+				organizationId: "10000000-0000-4000-8000-000000000001",
 				name: "Sample",
 				slug: "sample",
 			});
@@ -541,6 +551,36 @@ describe("owner policy against a real local D1 facade", () => {
 				new Set(),
 			);
 			await groups.get("sample")!.fns.write!(exampleArgs);
+			const policyApprovals = sqlite
+				.prepare(
+					"SELECT id, status, resolution, payload FROM tedi_approval_requests WHERE org_id = ? AND json_extract(payload, '$.approvalRule') = 'tenant_policy'",
+				)
+				.all("10000000-0000-4000-8000-000000000001") as Array<{
+				id: string;
+				status: string;
+				resolution: string;
+				payload: string;
+			}>;
+			expect(policyApprovals).toHaveLength(1);
+			const policyApproval = policyApprovals[0]!;
+			const approvalReason = `tenant policy ${resolved!.revisionId}`;
+			expect(policyApproval).toMatchObject({
+				status: "approved",
+				resolution: approvalReason,
+			});
+			expect(JSON.parse(policyApproval.payload)).toMatchObject({
+				approvalRule: "tenant_policy",
+				approvalReason,
+			});
+			const approvalAudit = sqlite
+				.prepare(
+					"SELECT metadata FROM audit_events WHERE resource_id = ? AND action = 'approval.approved'",
+				)
+				.get(policyApproval.id) as { metadata: string };
+			expect(JSON.parse(approvalAudit.metadata)).toMatchObject({
+				approvalRule: "tenant_policy",
+				approvalReason,
+			});
 			expect(provider.writes).toBe(1);
 			expect(refs.trust.untrusted).toEqual(new Set(["sample.write"]));
 			const call = {
