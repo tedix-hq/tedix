@@ -181,6 +181,12 @@ context.
   provider data; missing resources count as removed on retry, and it is not
   complete while a custom hostname remains at Cloudflare. The receipt stops new
   permits; deprovision does not wait for old ones and removes them with the site.
+- **Move** (`sites.moveCms`, platform administrator, exact slug) re-homes an
+  active site and its domain claims in one D1 batch, then replaces the
+  authoring app with a fresh one in the target organization. Storage, bundles
+  and hostnames are keyed by slug and do not move. Editors authenticate against
+  the target organization afterwards, and a call that stopped halfway is
+  finished by repeating it.
 - **Custom hostnames** activate only after Cloudflare reports hostname and SSL
   active, and set `custom_domain` and `canonical_url` together; a replacement
   keeps the old hostname until the new one is live.

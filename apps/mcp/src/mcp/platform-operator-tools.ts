@@ -1277,6 +1277,13 @@ export const PLATFORM_OPERATOR_TOOL_DEFINITIONS = [
 		kind: "write",
 	},
 	{
+		toolId: "move_cms_site",
+		endpoint: "sites/moveCms",
+		kind: "destructive",
+		description:
+			"Platform admin. Move a CMS site from this organization to targetOrganizationId. The public site keeps serving; its authoring app is recreated in the target, so editors must be members of the target organization afterwards. confirmation is the site slug. Safe to call again if a call stopped halfway.",
+	},
+	{
 		toolId: "get_app_integrations",
 		endpoint: "apps/getIntegrations",
 		kind: "read",

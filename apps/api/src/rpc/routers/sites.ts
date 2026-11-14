@@ -1,9 +1,8 @@
 import { auditActor, emitAuditEvent } from "../audit-helpers";
 import { loadUserTenantEditorialIdentity } from "@tedix/auth/descope";
 import { isUserToken } from "@tedix/auth/jwt";
-import { buildTedixMcpResourceUri } from "@tedix/auth/aih-audiences";
 import { isPlatformPrincipal } from "@tedix/auth/types";
-import { createApp, getAppMetadataJson } from "@tedix/db/queries/app-records";
+import { getAppMetadataJson } from "@tedix/db/queries/app-records";
 import {
 	aggregateAppEntryMatches,
 	aggregateAppLink,
@@ -28,7 +27,6 @@ import {
 	getOrganizationById,
 	getOrganizationFeatures,
 } from "@tedix/db/queries/organizations";
-import type { AppMetadata } from "@tedix/db/schema/apps";
 import { DEFAULT_ORGANIZATION_FEATURES_BY_PLAN } from "@tedix/db/schema/organizations";
 import { getLatestSiteReconciliation } from "@tedix/db/queries/site-reconciliation";
 import { getTenantBundleSummary } from "@tedix/db/queries/tenant-bundles";
@@ -49,9 +47,12 @@ import {
 	sitesOs,
 	authedSitesOs,
 	aggregateEntries,
+	createCmsAuthoringApp,
 	getPlatformCmsApp,
+	isCmsAuthoringProxy,
 	requireOwnedSite,
 } from "./sites-shared";
+import { moveCmsSiteProcedure } from "./sites-move";
 import {
 	updateCmsDomainProcedure,
 	beginCmsDomainProcedure,
@@ -100,34 +101,6 @@ async function provisionAndActivateCmsSite(
 			"CMS site activation was denied by deprovision or restore state",
 		);
 	return active;
-}
-
-/** The app slug and source must both match: a same-name app is not reusable by itself. */
-function isCmsAuthoringProxy(
-	app: NonNullable<Awaited<ReturnType<typeof getAppBySlug>>>,
-	organizationId: string,
-	slug: string,
-	cmsApp: { id: string; slug: string } | null | undefined,
-): boolean {
-	const config = getAppMetadataJson(app)?.mcpConfig;
-	const entry: unknown = Array.isArray(config?.aggregateApps)
-		? config.aggregateApps[0]
-		: undefined;
-	return (
-		app.organizationId === organizationId &&
-		app.visibility === "private" &&
-		config?.authMode === "authenticated" &&
-		config.codeMode === true &&
-		config.expectedAudience === buildTedixMcpResourceUri(app.slug) &&
-		config?.connectionLabel === slug &&
-		Array.isArray(config.aggregateApps) &&
-		config.aggregateApps.length === 1 &&
-		aggregateAppEntryMatches(
-			entry,
-			cmsApp ? aggregateAppLink(cmsApp) : { appId: null, slug: "cms" },
-		) &&
-		Object.keys(entry ?? {}).every((key) => key === "slug" || key === "appId")
-	);
 }
 
 export const createCmsSiteProcedure = authedSitesOs.createCms
@@ -186,26 +159,12 @@ export const createCmsSiteProcedure = authedSitesOs.createCms
 			);
 		if (!authoringApp) {
 			try {
-				authoringApp =
-					(await createApp(context.db, {
-						organizationId,
-						slug: appSlug,
-						name: `${input.name} CMS authoring`,
-						description: `Authoring tools for ${input.name}`,
-						visibility: "private",
-						discoveryStatus: "pending",
-						metadata: {
-							mcpConfig: {
-								authMode: "authenticated",
-								codeMode: true,
-								expectedAudience: buildTedixMcpResourceUri(appSlug),
-								connectionLabel: input.slug,
-								aggregateApps: [
-									cmsApp ? aggregateAppLink(cmsApp) : { slug: "cms" },
-								],
-							},
-						} as AppMetadata,
-					})) ?? null;
+				authoringApp = await createCmsAuthoringApp(context.db, {
+					organizationId,
+					slug: input.slug,
+					name: input.name,
+					cmsApp,
+				});
 			} catch (error) {
 				// A concurrent request may have won the global app-slug constraint.
 				authoringApp = await getAppBySlug(context.db, appSlug);
@@ -650,6 +609,7 @@ export const sitesContractRouter = sitesOs.router({
 	proposeCmsEditorDraft: proposeCmsEditorDraftProcedure,
 	createCms: createCmsSiteProcedure,
 	registerCms: registerCmsSiteProcedure,
+	moveCms: moveCmsSiteProcedure,
 	updateCmsDomain: updateCmsDomainProcedure,
 	beginCmsDomain: beginCmsDomainProcedure,
 	getCmsDomain: getCmsDomainProcedure,

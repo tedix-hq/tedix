@@ -86,6 +86,7 @@ export const SITE_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"sites/getDeprovisionPlan": "get_site_deprovision_plan",
 	"sites/getDeprovisionStatus": "get_site_deprovision_status",
 	"sites/deprovision": "deprovision_site",
+	"sites/moveCms": "move_cms_site",
 };
 
 export const SITE_KIND_OVERRIDES: Record<
@@ -105,6 +106,7 @@ export const SITE_KIND_OVERRIDES: Record<
 	"sites/getDeprovisionPlan": "read",
 	"sites/getDeprovisionStatus": "read",
 	"sites/deprovision": "destructive",
+	"sites/moveCms": "destructive",
 };
 
 /**
