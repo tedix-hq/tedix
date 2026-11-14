@@ -65,7 +65,7 @@ import {
 	metaString,
 } from "./handler-request-context";
 import { gateDecisionMetadata } from "./gate-decision";
-import { findSecretValuePattern } from "./utils/payload-capture";
+import { findSecretValuePattern } from "./utils/secret-egress-scan";
 
 /**
  * Tool Handler
@@ -246,7 +246,12 @@ export interface RpcToolResult {
 
 type SecretEgressContext = Pick<
 	ToolExecutionContext<ToolConfig>,
-	"apiClient" | "app" | "config" | "publicEgress" | "secretEgressDecision"
+	| "apiClient"
+	| "app"
+	| "config"
+	| "publicEgress"
+	| "secretEgressDecision"
+	| "toolInputSchema"
 >;
 
 export async function checkSecretEgress(
@@ -267,7 +272,7 @@ export async function checkSecretEgress(
 	)
 		return null;
 
-	const secretPattern = findSecretValuePattern(input);
+	const secretPattern = findSecretValuePattern(input, ctx.toolInputSchema);
 	if (!secretPattern) return null;
 
 	let mode: "block" | "warn" = "block";

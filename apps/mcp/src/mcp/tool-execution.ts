@@ -126,12 +126,18 @@ export async function preflightSecretEgress(
 ) {
 	const context: Pick<
 		ToolExecutionContext<ToolConfig>,
-		"apiClient" | "app" | "config" | "publicEgress" | "secretEgressDecision"
+		| "apiClient"
+		| "app"
+		| "config"
+		| "publicEgress"
+		| "secretEgressDecision"
+		| "toolInputSchema"
 	> = {
 		apiClient: agent.apiClient,
 		app: agent.app,
 		config: (tool.config ?? {}) as unknown as ToolConfig,
 		publicEgress: tool.publicEgress === true,
+		toolInputSchema: tool.inputSchema,
 	};
 	const denial = await checkSecretEgress(args, context);
 	if (!denial) return { denial: null, decision: context.secretEgressDecision };
