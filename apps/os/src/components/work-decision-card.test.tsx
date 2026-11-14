@@ -105,6 +105,26 @@ describe("fast decision cards", () => {
 			search.remove();
 		}
 	});
+	it("pages with the arrow keys and answers only with Y, N or a button", async () => {
+		const next = vi.fn();
+		const previous = vi.fn();
+		const decide = await mount({ onNext: next, onPrevious: previous });
+		const press = (key: string) =>
+			act(async () => {
+				host
+					.querySelector("section")!
+					.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+			});
+		await press("ArrowRight");
+		await press("ArrowLeft");
+		expect(next).toHaveBeenCalledTimes(1);
+		expect(previous).toHaveBeenCalledTimes(1);
+		expect(decide).not.toHaveBeenCalled();
+		await press("y");
+		expect(decide).toHaveBeenCalledWith(
+			expect.objectContaining({ action: "send" }),
+		);
+	});
 	it("keeps fields hidden and records approval as-is with one click", async () => {
 		const decide = await mount();
 		expect(host.querySelector("input,textarea")).toBeNull();
@@ -350,8 +370,8 @@ it("keeps shortcuts out of the button label and announces them through aria-keys
 			button.getAttribute("aria-keyshortcuts"),
 		]),
 	).toEqual([
-		["Approve", "ArrowRight"],
-		["Not this", "ArrowLeft"],
+		["Approve", "Y"],
+		["Not this", "N"],
 		["Later", "L"],
 		["Decide for me", "D"],
 	]);
@@ -715,7 +735,7 @@ it("keeps right-arrow approval separate from the preferred delegation and suppor
 			},
 		],
 	});
-	await key("ArrowRight");
+	await key("y");
 	expect(approve).toHaveBeenCalledWith(
 		expect.objectContaining({ action: "yes" }),
 	);

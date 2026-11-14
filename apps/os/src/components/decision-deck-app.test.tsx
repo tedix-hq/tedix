@@ -345,7 +345,7 @@ it("requires confirmation after a consequential right swipe or keyboard approval
 		.mockRejectedValue(new Error("Unexpected network in practice"));
 	await mount();
 	await click("Try examples");
-	await key("ArrowRight");
+	await key("y");
 	expect(document.querySelector('[role="alertdialog"]')).not.toBeNull();
 	expect(host.textContent).not.toContain("1 practice choices");
 	expect(respond).not.toHaveBeenCalled();
@@ -698,6 +698,68 @@ it("browses every waiting card and opens one without a verdict or skip", async (
 				event.metadata?.decisionChoice === "skip"
 			);
 		}),
+	).toHaveLength(0);
+});
+
+it("pages with Previous, Next and the arrow keys without answering, skipping or learning", async () => {
+	const fetch = vi
+		.spyOn(globalThis, "fetch")
+		.mockRejectedValue(new Error("No live requests in the fixture"));
+	const rows = [
+		linkedRow(
+			"11111111-1111-4111-8111-111111111111",
+			"First fictional supplier",
+		),
+		linkedRow(
+			"33333333-3333-4333-8333-333333333333",
+			"Second fictional supplier",
+		),
+		linkedRow(
+			"44444444-4444-4444-8444-444444444444",
+			"Third fictional supplier",
+		),
+	];
+	await mount({ rows });
+	const arrow = (key: "ArrowRight" | "ArrowLeft") =>
+		act(async () => {
+			document.body.dispatchEvent(
+				new KeyboardEvent("keydown", { key, bubbles: true }),
+			);
+		});
+	const showing = (index: number) => {
+		expect(host.textContent).toContain(`${index + 1} of 3`);
+		expect(host.textContent).toContain(
+			`Live request ${rows[index]!.request.id}`,
+		);
+	};
+	showing(0);
+	expect(
+		host.querySelector("[data-deck-paging]")?.getAttribute("aria-label"),
+	).toBe("Move between cards");
+	await click("Next");
+	showing(1);
+	await arrow("ArrowRight");
+	showing(2);
+	await arrow("ArrowRight");
+	showing(0);
+	await arrow("ArrowLeft");
+	showing(2);
+	await click("Previous");
+	showing(1);
+	expect(
+		writes.record.mock.calls.filter(([input]) => {
+			const event = input as {
+				surface?: string;
+				metadata?: { decisionChoice?: string };
+			};
+			return (
+				event.surface === "decision_deck" ||
+				event.metadata?.decisionChoice === "skip"
+			);
+		}),
+	).toHaveLength(0);
+	expect(
+		fetch.mock.calls.filter(([url]) => String(url).includes("respond")),
 	).toHaveLength(0);
 });
 

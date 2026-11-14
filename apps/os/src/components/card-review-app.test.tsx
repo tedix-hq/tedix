@@ -538,8 +538,8 @@ describe("CardReviewApp decision interactions", () => {
 			},
 		);
 		await mount();
-		await key(heading(0)!, "ArrowRight");
-		await key(heading(0)!, "ArrowRight");
+		await key(heading(0)!, "y");
+		await key(heading(0)!, "y");
 		await act(async () =>
 			host
 				.querySelector<HTMLButtonElement>('[data-decision-intent="reject"]')!
@@ -654,10 +654,44 @@ describe("CardReviewApp decision interactions", () => {
 		expect(document.activeElement).toBe(
 			host.querySelector("[data-card-review]"),
 		);
-		await key(document.activeElement!, "ArrowRight");
+		await key(document.activeElement!, "u");
 		await flush();
 		expect(sheet.rows[0]![6]).toBe("yes");
 		expect(sheet.rows[0]![7]).toBe("Keep this reason.");
+	});
+	it("pages with Previous, Next and the arrow keys without a verdict, skip or learning event", async () => {
+		await mount(false);
+		const root = host.querySelector<HTMLElement>("[data-card-review]")!;
+		const position = () =>
+			host.querySelector("[data-card-review-position]")?.textContent;
+		const total = position()!.split(" of ")[1];
+		expect(position()).toBe(`1 of ${total}`);
+		const first = host
+			.querySelector("[data-card-review-card]")
+			?.getAttribute("aria-label");
+		await key(root, "ArrowRight");
+		expect(position()).toBe(`2 of ${total}`);
+		expect(
+			host.querySelector("[data-card-review-card]")?.getAttribute("aria-label"),
+		).not.toBe(first);
+		await key(root, "ArrowLeft");
+		expect(position()).toBe(`1 of ${total}`);
+		await act(async () =>
+			[...host.querySelectorAll("button")]
+				.find((button) => button.textContent === "Next")!
+				.click(),
+		);
+		expect(position()).toBe(`2 of ${total}`);
+		await act(async () =>
+			[...host.querySelectorAll("button")]
+				.find((button) => button.textContent === "Previous")!
+				.click(),
+		);
+		await key(root, "ArrowLeft");
+		expect(position()).toBe(`${total} of ${total}`);
+		expect(osApi.osWorkspaces.outputs.setSheetRange).not.toHaveBeenCalled();
+		expect(osApi.learningFeedback.recordInteraction).not.toHaveBeenCalled();
+		expect(host.textContent).not.toContain("Undo");
 	});
 	it("browses every open card from the Waiting list without a verdict, skip or learning event", async () => {
 		await mount(false);

@@ -478,8 +478,12 @@ export function useDecisionDeck(
 	};
 	const previous = () => {
 		clearFocusCard();
+		const position = filtered.findIndex((row) => row.id === selected?.id);
+		// Deciding wraps both ways, like next; history stops at the newest.
 		setIndex(
-			Math.max(0, filtered.findIndex((row) => row.id === selected?.id) - 1),
+			mode === "history"
+				? Math.max(0, position - 1)
+				: (position - 1 + filtered.length) % Math.max(1, filtered.length),
 		);
 	};
 	// What the learning records need to name the card on screen.
