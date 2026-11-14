@@ -1318,7 +1318,7 @@ test.each([
 			"console.log('Fake Devin completed the brief.');",
 			`
  const prompt = fs.readFileSync(args[args.indexOf('--prompt-file')+1], 'utf8');
- fs.appendFileSync('turns.jsonl', JSON.stringify({prompt,args,config})+'\\n');
+ fs.appendFileSync('turns.jsonl', JSON.stringify({prompt,args,config,store:process.env.TEDIX_LANE_AGENT_STORE})+'\\n');
  if (prompt.includes('Saved result:')) {
   const saved = JSON.parse(prompt.split('Saved result:\\n')[1]);
   if (${JSON.stringify(mode)} === 'wrong-native-session') fs.writeFileSync(args[args.indexOf('--export')+1], JSON.stringify({session_id:'other-river',steps:[]}));
@@ -1333,6 +1333,12 @@ test.each([
 	);
 	const brief = join(dir, "brief.txt");
 	writeFileSync(brief, "Read the guide and verify your result.");
+	process.env.TEDIX_CONFIG_DIR = join(dir, "config");
+	const renewals: Array<{
+		workspace: string;
+		sessionKey: string;
+		storeDir: string;
+	}> = [];
 	let last: unknown;
 	const exit = await runLaneProcess(
 		[
@@ -1343,6 +1349,8 @@ test.each([
 			workItem.projectId,
 			"--work-item",
 			binding.workItemId,
+			"--workspace",
+			"connect",
 			"--brief",
 			brief,
 			"--",
@@ -1353,6 +1361,9 @@ test.each([
 			sessionKey: "quiet-river",
 			admitted: true,
 			devinWorkBridge: bridge,
+			writeLaneAgentCredential: async (input) => {
+				renewals.push(input);
+			},
 			detachedChild: mode === "verified",
 			report: async (value) => {
 				last = value.telemetry;
@@ -1371,7 +1382,15 @@ test.each([
 		.split("\n")
 		.map((line) => JSON.parse(line));
 	expect(turns).toHaveLength(2);
+	// Each turn starts with a renewed lane-only credential, never the host store.
+	expect(renewals).toHaveLength(2);
+	for (const renewal of renewals)
+		expect(renewal).toMatchObject({
+			workspace: "connect",
+			sessionKey: "devin:quiet-river",
+		});
 	for (const turn of turns) {
+		expect(turn.store).toBe(renewals[0]!.storeDir);
 		expect(turn.args[turn.args.indexOf("-r") + 1]).toBe("quiet-river");
 		expect(turn.args).toContain("--sandbox");
 		expect(turn.config.permissions.deny).toContain("mcp__tedix__*");

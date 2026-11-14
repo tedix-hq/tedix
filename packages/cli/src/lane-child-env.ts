@@ -15,6 +15,7 @@ export function laneChildEnv(env = process.env): NodeJS.ProcessEnv {
 		"TEDIX_HOOK_HOST",
 		"TEDIX_DEVIN_LANE_ROOT",
 		"TEDIX_DEVIN_HEADLESS",
+		"TEDIX_LANE_AGENT_STORE",
 	])
 		delete child[key];
 	return child;
