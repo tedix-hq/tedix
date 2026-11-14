@@ -395,7 +395,7 @@ describe("handleOsShareOpen", () => {
 		).toBe(200);
 	});
 
-	it("an invited link admits people on its list by user id or email, and nobody else", async () => {
+	it("an invited link offers email verification, then admits people on its list by user id or email", async () => {
 		const db = fixture();
 		await seedOutput(db);
 		await seedShare(db, { access: "invited" });
@@ -406,11 +406,14 @@ describe("handleOsShareOpen", () => {
 			needsEmailCode: true,
 			access: "invited",
 		});
-		// Signed in but not invited; membership in the organization changes nothing.
-		expect(
-			(await openById(db, { identify: asInvitee, authorize: allowRecipient }))
-				.status,
-		).toBe(404);
+		const signedOut = await (await openById(db)).json();
+		const outsider = await openById(db, {
+			identify: asInvitee,
+			authorize: allowRecipient,
+		});
+		expect(outsider.status).toBe(200);
+		expect(await outsider.json()).toEqual(signedOut);
+		expect(await db.select().from(osShareSessions)).toEqual([]);
 		await db.insert(osShareLinkInvitees).values({
 			id: "invitee-1",
 			organizationId: "org-1",
@@ -461,7 +464,12 @@ describe("handleOsShareOpen", () => {
 			resourceId: "workspace-1",
 			role: "use",
 		});
-		expect((await openById(db, { identify: asInvitee })).status).toBe(404);
+		expect(
+			await (await openById(db, { identify: asInvitee })).json(),
+		).toMatchObject({
+			needsSignIn: false,
+			needsEmailCode: true,
+		});
 		await db.insert(osWorkspaceCollaborators).values({
 			id: "collab-1",
 			organizationId: "org-1",
@@ -1123,13 +1131,30 @@ describe("invited email codes", () => {
 		"opens %s links without creating an account and stores only HMAC proof",
 		async (kind) => {
 			const t = await setup(kind);
+			const identify = async () => ({
+				userId: "other-user",
+				email: "other@example.test",
+			});
+			const prompt = await openById(t.db, { identify });
+			expect(prompt.status).toBe(200);
+			expect(await prompt.json()).toEqual(await (await openById(t.db)).json());
+			expect(await t.db.select().from(osShareSessions)).toEqual([]);
+			expect(
+				await (await t.request({ email: "other@example.test" })).json(),
+			).toEqual({
+				message: "If this email is invited, we sent a code",
+			});
+			expect(t.send).not.toHaveBeenCalled();
 			const beforeMembers = await t.db.select().from(organizationMembers);
 			const beforeWorkspaces = await t.db.select().from(osWorkspaces);
 			expect(
 				await (await t.request({ email: " Guest@Example.test " })).json(),
 			).toEqual({ message: "If this email is invited, we sent a code" });
 			const code = t.sentCode();
-			const [challenge] = await t.db.select().from(osShareEmailCodes);
+			const [challenge] = await t.db
+				.select()
+				.from(osShareEmailCodes)
+				.where(eq(osShareEmailCodes.email, t.input.email));
 			expect(challenge!.codeHash).not.toContain(code);
 			expect(challenge!.codeHash).toBe(
 				await hashOsShareEmailCode(
@@ -1176,7 +1201,14 @@ describe("invited email codes", () => {
 				Date.parse(session!.expiresAt) - Date.parse(session!.createdAt),
 			).toBeGreaterThanOrEqual(7 * 24 * 60 * 60 * 1000);
 			expect(
-				(await handleOsShareSessionRead(t.db, opened.sessionToken)).status,
+				(
+					await handleOsShareSessionRead(
+						t.db,
+						opened.sessionToken,
+						undefined,
+						identify,
+					)
+				).status,
 			).toBe(200);
 			expect(await (await t.verify(code)).json()).toHaveProperty("error");
 			expect(await t.db.select().from(organizationMembers)).toEqual(
