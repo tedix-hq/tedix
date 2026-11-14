@@ -28,6 +28,7 @@ import {
 	RUNNER_PASS_GRACE_MS,
 	RUNNER_RESTART_BASE_MS,
 	RUNNER_RESTART_MAX_MS,
+	RUNNER_UPDATE_EXIT_CODE,
 	RUNNERS_FILE,
 	type RunnerChild,
 	RunnerDuties,
@@ -489,6 +490,69 @@ describe("running the dispatchers", () => {
 		f.advance(60 * 60_000);
 		f.duties.tick();
 		f.advance(30_000);
+		f.duties.tick();
+		expect(f.spawned).toHaveLength(1);
+	});
+
+	test("logs the CLI version each runner process reports, once", () => {
+		const f = setup();
+		f.write([runner()]);
+		const directory = join(config, "dispatchers", runnerKey(runner()));
+		mkdirSync(directory, { recursive: true });
+		const serve = (pid: number, version: string) => {
+			writeDispatcherHealthSource(
+				directory,
+				{
+					scope: ["--organization", "org_fixture", "--workspace", "fixture"],
+					executor: "codex",
+					max: 4,
+				},
+				pid,
+				new Date(f.now()).toISOString(),
+				version,
+			);
+			recordDispatcherNextCheck(
+				directory,
+				new Date(f.now() + 30_000).toISOString(),
+				pid,
+			);
+		};
+		const versionLines = () =>
+			f.lines.filter((line) => line.includes("now on"));
+		f.duties.tick();
+		f.duties.tick();
+		// Not serving yet: no version is claimed for it.
+		expect(versionLines()).toEqual([]);
+		serve(100, "1.2.3");
+		f.duties.tick();
+		f.duties.tick();
+		expect(versionLines()).toEqual(["runners: runner codex now on 1.2.3"]);
+
+		// The runner leaves for an update with nothing in progress: restarted on
+		// the next check, no backoff, no problem recorded.
+		f.advance(RUNNER_RESTART_BASE_MS);
+		f.spawned[0]!.exit(RUNNER_UPDATE_EXIT_CODE);
+		expect(f.lines.at(-1)).toContain("to run the updated CLI; restarting");
+		f.duties.tick();
+		expect(f.spawned).toHaveLength(2);
+		// The old process's report is not taken for the new one.
+		expect(versionLines()).toHaveLength(1);
+		serve(101, "1.2.4");
+		f.duties.tick();
+		expect(versionLines().at(-1)).toBe("runners: runner codex now on 1.2.4");
+		const status = readDutyStatuses(f.env).find(
+			(row) => row.id === runnerKey(runner()),
+		)!;
+		expect(status.exits).toEqual([]);
+		expect(status.lastProblem ?? null).toBeNull();
+	});
+
+	test("a runner that leaves for an update right after starting waits out the ordinary backoff", () => {
+		const f = setup();
+		f.write([runner()]);
+		f.duties.tick();
+		f.spawned[0]!.exit(RUNNER_UPDATE_EXIT_CODE);
+		expect(f.lines.at(-1)).toContain("codex exited (code 75); restart in 60s");
 		f.duties.tick();
 		expect(f.spawned).toHaveLength(1);
 	});
