@@ -69,7 +69,7 @@ Cloudflare adapter; `bun.lock` records the same patch paths:
   a policy hook before facet initialization and alarm dispatch.
 
 The CMS starters carry matching copies under `apps/cms/templates/*/patches/`.
-Their manifests also apply `@emdash-cms/plugin-forms@0.2.10.patch`, which excludes
+Their manifests also apply `@emdash-cms/plugin-forms@0.2.12.patch`, which excludes
 raw visitor IPs from stored submissions and defaults new forms to 30-day
 retention. Each patched dependency has an entry in `THIRD_PARTY_NOTICES.md`,
 and `bun run oss:check` fails on a patch without one.

@@ -91,7 +91,7 @@ export function wrapStatelessCodeModeSource(code: string): string {
 /**
  * Run request-scoped Code Mode through the stable executor API.
  *
- * `@cloudflare/codemode@0.4.1` exposes durable runtime primitives,
+ * `@cloudflare/codemode@0.5.6` exposes durable runtime primitives,
  * `DynamicWorkerExecutor`, and a package-level `runCode` helper. Tedix
  * deliberately keeps stateless MCP execution on the executor boundary so
  * gateway, per-tedi, and muscle-memory paths share one import-safe contract.
