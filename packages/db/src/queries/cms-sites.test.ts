@@ -8,6 +8,7 @@ import {
 	getCmsSiteByActiveWwwAlias,
 	getCmsSiteBySlug,
 	listCmsSitesByOrganization,
+	moveCmsSiteToOrganization,
 	registerCmsSite,
 	registerCmsSiteIfAbsent,
 	registerCmsSiteWithinQuota,
@@ -294,5 +295,58 @@ describe("CMS site create on D1", () => {
 			canonicalUrl: "https://direct.example",
 		});
 		expect(updated?.customDomain).toBe("direct.example");
+	});
+
+	it("moves an active site and its domain claims, and refuses a fenced or deprovisioning one", async () => {
+		const { db, sqlite } = fixture();
+		for (const [id, slug] of [
+			["site-one", "first"],
+			["site-two", "second"],
+			["site-three", "third"],
+		] as const)
+			await registerCmsSite(db, {
+				id,
+				organizationId: "org-one",
+				slug,
+				name: slug,
+				canonicalUrl: `https://${slug}.example`,
+			});
+		sqlite.exec(`
+			INSERT INTO cms_domain_claims (id, organization_id, site_id, hostname, verification_token, status, expires_at, created_at, updated_at) VALUES
+				('claim-one', 'org-one', 'site-one', 'first.example', 't', 'active', 'x', 'x', 'x'),
+				('claim-two', 'org-one', 'site-two', 'second.example', 't', 'active', 'x', 'x', 'x');
+			INSERT INTO cms_restore_fences (site_id, slug, generation, capture_id) VALUES ('site-two', 'second', 'g', 'c');
+			INSERT INTO cms_deprovision_operations (id, organization_id, slug) VALUES ('site-three', 'org-one', 'third');
+		`);
+		const move = (id: string, fromOrganizationId = "org-one") =>
+			moveCmsSiteToOrganization(db, {
+				id,
+				fromOrganizationId,
+				toOrganizationId: "org-two",
+			});
+		expect(await move("site-one", "org-other")).toBe(false);
+		expect(await move("site-two")).toBe(false);
+		expect(await move("site-three")).toBe(false);
+		expect(await move("site-one")).toBe(true);
+		expect(await move("site-one")).toBe(false);
+		expect(
+			sqlite
+				.prepare("SELECT id, organization_id AS org FROM cms_sites ORDER BY id")
+				.all(),
+		).toEqual([
+			{ id: "site-one", org: "org-two" },
+			{ id: "site-three", org: "org-one" },
+			{ id: "site-two", org: "org-one" },
+		]);
+		expect(
+			sqlite
+				.prepare(
+					"SELECT id, organization_id AS org FROM cms_domain_claims ORDER BY id",
+				)
+				.all(),
+		).toEqual([
+			{ id: "claim-one", org: "org-two" },
+			{ id: "claim-two", org: "org-one" },
+		]);
 	});
 });

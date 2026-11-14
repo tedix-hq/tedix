@@ -1,10 +1,17 @@
 import { implement } from "@orpc/server";
 import { sitesContract } from "@tedix/api-contract/contracts/sites";
-import { getAppMetadataJson } from "@tedix/db/queries/app-records";
-import { getAggregateAppLinkTargets } from "@tedix/db/queries/aggregate-app-links";
+import { buildTedixMcpResourceUri } from "@tedix/auth/aih-audiences";
+import { createApp, getAppMetadataJson } from "@tedix/db/queries/app-records";
+import {
+	aggregateAppEntryMatches,
+	aggregateAppLink,
+	getAggregateAppLinkTargets,
+} from "@tedix/db/queries/aggregate-app-links";
+import type { getAppBySlug } from "@tedix/db/queries/apps";
 import { getCmsSiteByIdForOrganization } from "@tedix/db/queries/cms-sites";
 import { getDocsSiteById } from "@tedix/db/queries/docs-sites/sites";
 import { getOrganizationById } from "@tedix/db/queries/organizations";
+import type { AppMetadata } from "@tedix/db/schema/apps";
 import { requireOrgId } from "../org-scope";
 import { type BaseContext, createError, ErrorCodes, withAuth } from "../orpc";
 
@@ -28,6 +35,68 @@ export async function getPlatformCmsApp(db: BaseContext["db"]) {
 		slugs: ["cms"],
 	});
 	return cmsApp ?? null;
+}
+
+/** The app slug and source must both match: a same-name app is not reusable by itself. */
+export function isCmsAuthoringProxy(
+	app: NonNullable<Awaited<ReturnType<typeof getAppBySlug>>>,
+	organizationId: string,
+	slug: string,
+	cmsApp: { id: string; slug: string } | null | undefined,
+): boolean {
+	const config = getAppMetadataJson(app)?.mcpConfig;
+	const entry: unknown = Array.isArray(config?.aggregateApps)
+		? config.aggregateApps[0]
+		: undefined;
+	return (
+		app.organizationId === organizationId &&
+		app.visibility === "private" &&
+		config?.authMode === "authenticated" &&
+		config.codeMode === true &&
+		config.expectedAudience === buildTedixMcpResourceUri(app.slug) &&
+		config?.connectionLabel === slug &&
+		Array.isArray(config.aggregateApps) &&
+		config.aggregateApps.length === 1 &&
+		aggregateAppEntryMatches(
+			entry,
+			cmsApp ? aggregateAppLink(cmsApp) : { appId: null, slug: "cms" },
+		) &&
+		Object.keys(entry ?? {}).every((key) => key === "slug" || key === "appId")
+	);
+}
+
+/** The private proxy app that exposes one CMS site's authoring tools. */
+export async function createCmsAuthoringApp(
+	db: BaseContext["db"],
+	input: {
+		organizationId: string;
+		slug: string;
+		name: string;
+		cmsApp: { id: string; slug: string } | null | undefined;
+	},
+) {
+	const appSlug = `cms-${input.slug}`;
+	return (
+		(await createApp(db, {
+			organizationId: input.organizationId,
+			slug: appSlug,
+			name: `${input.name} CMS authoring`,
+			description: `Authoring tools for ${input.name}`,
+			visibility: "private",
+			discoveryStatus: "pending",
+			metadata: {
+				mcpConfig: {
+					authMode: "authenticated",
+					codeMode: true,
+					expectedAudience: buildTedixMcpResourceUri(appSlug),
+					connectionLabel: input.slug,
+					aggregateApps: [
+						input.cmsApp ? aggregateAppLink(input.cmsApp) : { slug: "cms" },
+					],
+				},
+			} as AppMetadata,
+		})) ?? null
+	);
 }
 
 export async function requireCmsSite(context: BaseContext, siteId: string) {

@@ -375,6 +375,88 @@ export async function activateCmsSiteAfterMedia(
 	return getCmsSiteBySlug(db, input.slug);
 }
 
+/**
+ * Re-home an active site and its domain claims in one D1 batch. A deprovision
+ * receipt or a closed restore fence refuses the move.
+ */
+export async function moveCmsSiteToOrganization(
+	db: DbQueryClient,
+	input: {
+		id: string;
+		fromOrganizationId: string;
+		toOrganizationId: string;
+	},
+): Promise<boolean> {
+	const now = new Date().toISOString();
+	const [moved] = await db.batch([
+		db
+			.update(cmsSites)
+			.set({ organizationId: input.toOrganizationId, updatedAt: now })
+			.where(
+				and(
+					eq(cmsSites.id, input.id),
+					eq(cmsSites.organizationId, input.fromOrganizationId),
+					eq(cmsSites.status, "active"),
+					notExists(
+						db
+							.select({ one: sql`1` })
+							.from(cmsDeprovisionOperations)
+							.where(eq(cmsDeprovisionOperations.id, cmsSites.id)),
+					),
+					notExists(
+						db
+							.select({ one: sql`1` })
+							.from(cmsRestoreFences)
+							.where(eq(cmsRestoreFences.siteId, cmsSites.id)),
+					),
+				),
+			)
+			.returning({ id: cmsSites.id }),
+		// Runs only once the site row above belongs to the target.
+		db
+			.update(cmsDomainClaims)
+			.set({ organizationId: input.toOrganizationId, updatedAt: now })
+			.where(
+				and(
+					eq(cmsDomainClaims.siteId, input.id),
+					eq(cmsDomainClaims.organizationId, input.fromOrganizationId),
+					exists(
+						db
+							.select({ one: sql`1` })
+							.from(cmsSites)
+							.where(
+								and(
+									eq(cmsSites.id, input.id),
+									eq(cmsSites.organizationId, input.toOrganizationId),
+								),
+							),
+					),
+				),
+			),
+	]);
+	return moved.length === 1;
+}
+
+export async function setCmsSiteAuthoringApp(
+	db: DbQueryClient,
+	input: { id: string; organizationId: string; authoringAppId: string },
+): Promise<boolean> {
+	const rows = await db
+		.update(cmsSites)
+		.set({
+			authoringAppId: input.authoringAppId,
+			updatedAt: new Date().toISOString(),
+		})
+		.where(
+			and(
+				eq(cmsSites.id, input.id),
+				eq(cmsSites.organizationId, input.organizationId),
+			),
+		)
+		.returning({ id: cmsSites.id });
+	return rows.length === 1;
+}
+
 export async function deleteCmsSite(
 	db: DbQueryClient,
 	id: string,

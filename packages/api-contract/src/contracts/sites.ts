@@ -242,6 +242,28 @@ export const sitesContract = oc.router({
 				.strict(),
 		)
 		.output(z.object({ siteId: z.uuid(), slug: z.string(), url: z.url() })),
+	moveCms: oc
+		.route({
+			method: "POST",
+			path: "/cms/{siteId}/move",
+			tags: ["internal"],
+			summary: "Move a CMS site to another organization",
+		})
+		.input(
+			SiteIdParamSchema.extend({
+				targetOrganizationId: z.uuid(),
+				confirmation: z.string().min(1),
+			}),
+		)
+		.output(
+			z.object({
+				siteId: z.uuid(),
+				slug: z.string(),
+				organizationId: z.uuid(),
+				authoringAppId: z.uuid(),
+				gatewayLinked: z.boolean(),
+			}),
+		),
 	updateCmsDomain: oc
 		.route({
 			method: "POST",
