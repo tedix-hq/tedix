@@ -20,6 +20,7 @@ import {
 	getOrganizationFeatures,
 } from "@tedix/db/queries/organizations";
 import { DEFAULT_ORGANIZATION_FEATURES_BY_PLAN } from "@tedix/db/schema/organizations";
+import { purgeMcpAggregateCache } from "../../lib/mcp-subscriptions";
 import { auditActor, emitAuditEvent } from "../audit-helpers";
 import { requireOrgId } from "../org-scope";
 import { createError, ErrorCodes, withAuthorization } from "../orpc";
@@ -173,6 +174,9 @@ export const moveCmsSiteProcedure = authedSitesOs.moveCms
 				).length === 1;
 			await purgeMcpDiscoveryCache(context.env, gateway.id, [gateway]);
 		}
+
+		// Gateway tool lists are cached durably and nothing else refreshes them.
+		await purgeMcpAggregateCache(context.env, "cms-site-moved");
 
 		const actor = auditActor(context);
 		for (const organizationId of [sourceId, targetId])
