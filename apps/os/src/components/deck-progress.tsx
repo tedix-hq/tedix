@@ -56,16 +56,22 @@ export function DeckProgress({
 			<div className="fd-deck-meta flex min-w-0 items-center justify-between gap-2">
 				{leading ?? <span />}
 				{paging ? (
+					// Desktop pages on this line; phones page under the card.
 					<nav
 						aria-label={paging.label}
 						data-deck-paging
-						className="flex shrink-0 items-center gap-1 px-1.5"
+						data-focus-ring="inset"
+						className="flex shrink-0 items-center"
 					>
-						{paging.previous}
-						<Text role="label" tone="secondary" className="tabular-nums">
+						<span className="max-sm:hidden">{paging.previous}</span>
+						<Text
+							role="label"
+							tone="secondary"
+							className="px-2 text-right tabular-nums"
+						>
 							{label}
 						</Text>
-						{paging.next}
+						<span className="max-sm:hidden">{paging.next}</span>
 					</nav>
 				) : (
 					<Text
