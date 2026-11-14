@@ -81,6 +81,10 @@ describe("production D1 migration orchestration", () => {
 		const previousSummary = process.env.GITHUB_STEP_SUMMARY;
 		process.env.GITHUB_STEP_SUMMARY = summaryPath;
 		const names = readMigrationManifest().migrations.map(({ name }) => name);
+		const firstPending = names.indexOf(
+			"20261114160256_require-tool-class/migration.sql",
+		);
+		expect(firstPending).toBeGreaterThan(0);
 		const commands: string[][] = [];
 		let ledgerReads = 0;
 		try {
@@ -92,7 +96,8 @@ describe("production D1 migration orchestration", () => {
 							"SELECT name FROM tedix_drizzle_migrations ORDER BY id",
 						)
 					) {
-						const applied = ledgerReads++ === 0 ? names.slice(0, -1) : names;
+						const applied =
+							ledgerReads++ === 0 ? names.slice(0, firstPending) : names;
 						return JSON.stringify([
 							{ success: true, results: applied.map((name) => ({ name })) },
 						]);
