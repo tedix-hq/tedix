@@ -83,8 +83,13 @@ interface Outputs {
   revise(input: { outputId: string; content: OutputContent; expectedRevision: number; note?: string }): Promise<OutputDetail>;
 }`.trim(),
 	apps: `
-/** Apps installed in this workspace. Read-only. */
+/** Apps installed in this workspace. Code edits preserve the manifest and resource grants. */
+interface AppCode { id: string; name: string; revision: number; revisionId: string; manifest: Record<string, unknown>; files: Record<string, string> }
 interface Apps {
+  /** Read current source, or an earlier revision of this same app for restoration. */
+  getCode(input: { appId: string; revisionId?: string }): Promise<AppCode>;
+  /** Save all files as a new revision after approval. expectedRevision is the current revision number. To undo, read the previous revision and revise with its files and the current expectedRevision. */
+  revise(input: { appId: string; files: Record<string, string>; expectedRevision: number }): Promise<AppCode>;
   list(): Promise<Array<{ id: string; name: string; description: string | null; status: string; updatedAt: string }>>;
 }`.trim(),
 	resources: `

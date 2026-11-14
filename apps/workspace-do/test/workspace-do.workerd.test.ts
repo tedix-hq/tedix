@@ -4,6 +4,9 @@ import type { SQLiteTable } from "drizzle-orm/sqlite-core";
 import { describe, expect, test } from "vite-plus/test";
 import {
 	osGadgets,
+	osGadgetRevisions,
+	osGadgetCode,
+	osGadgetCodeBlobs,
 	osOutputs,
 	osOutputRevisions,
 	osWorkspaceProjects,
@@ -31,7 +34,10 @@ import {
 	getWorkspaceOutputIndexCurrent,
 	listWorkspaceActivity,
 } from "@tedix/db/queries/workspace-feed/read";
-import { storeOutputBody } from "../src/data-port-tenant";
+import { storeOutputBody, TenantDataPort } from "../src/data-port-tenant";
+import { createOsGadgetRevision } from "@tedix/db/queries/os-workspaces/gadgets";
+import type { TenantStoreDb } from "@tedix/db/queries/durable-sqlite/tenant-store";
+import { validateWorkspaceAppSource } from "../src/sandbox";
 import type { WorkspaceEnv, WorkspaceScope } from "../src/env";
 import type { WorkspaceRpc } from "../src/do";
 import type { ScriptStep } from "./worker";
@@ -1094,6 +1100,160 @@ describe("WorkspaceDO", () => {
 			);
 		},
 	);
+
+	test("app source edits need one approval, record revisions, reject invalid or foreign code, and restore the earlier files", async () => {
+		await seedCore();
+		await testEnv.DB.batch(
+			[osGadgetRevisions, osGadgetCode, osGadgetCodeBlobs].map((table) =>
+				testEnv.DB.prepare(ddl(table)),
+			),
+		);
+		await testEnv.DB.prepare(
+			"CREATE UNIQUE INDEX IF NOT EXISTS test_app_blob_key ON os_gadget_code_blobs (organization_id, sha256)",
+		).run();
+		await testEnv.DB.prepare(
+			"INSERT INTO os_gadgets (id, organization_id, workspace_id, name, status, created_by_kind, created_by_id, created_at, updated_at) VALUES ('editable', ?, ?, 'Fixture app', 'active', 'user', 'u1', 'now', 'now')",
+		)
+			.bind(scope.organizationId, scope.workspaceId)
+			.run();
+		const files = {
+			"server.js": "export class App {}",
+			"client.js": "export default () => 'Before';",
+		};
+		const db = createDbQueryClient(testEnv.DB);
+		const initial = await createOsGadgetRevision(db, {
+			id: "app-before",
+			organizationId: scope.organizationId,
+			gadgetId: "editable",
+			manifest: JSON.stringify({
+				entry: "tedix:runtime/v1",
+				capabilities: [],
+				config: { version: 1 },
+			}),
+			createdByKind: "user",
+			createdById: "u1",
+			expectedRevision: 0,
+			code: { files: JSON.stringify(files), codeLength: 1 },
+		});
+		expect(initial.ok).toBe(true);
+		const data = new TenantDataPort({
+			...scope,
+			tenant: {} as TenantStoreDb,
+			core: db,
+			bucket: testEnv.R2_BUCKET,
+			actorKind: "user",
+			assertWorkspaceAuthority: async () => {},
+			commitOutput: async () => {
+				throw new Error("unused");
+			},
+			validateAppSource: (source, date) =>
+				validateWorkspaceAppSource(testEnv.LOADER, source, date),
+		});
+		const ws = workspace();
+		const requestEdit = async (code: string) => {
+			await ws.scriptModel(scope, [{ code }]);
+			const started = await ws.sendTurn(scope, {
+				actorId: "u1",
+				actorKind: "user",
+				text: "Edit the app",
+			});
+			await ws.awaitTurn(scope, started.turnId, 20000);
+			const events = await ws.readEvents(scope, {
+				conversationId: started.conversationId,
+				after: 0,
+			});
+			const approvals = events.filter(
+				(event) => event.type === "approval.requested",
+			);
+			expect(approvals).toHaveLength(1);
+			const approval = approvals[0];
+			if (approval?.type !== "approval.requested")
+				throw new Error("App edit did not request approval");
+			expect(approval.title).toBe("Saving an app revision");
+			return approval;
+		};
+		const approval = await requestEdit(
+			`export default async env => { const app = await env.apps.getCode({appId:"editable"}); return env.apps.revise({appId:app.id, expectedRevision:app.revision, files:{...app.files, "client.js":"export default () => 'After';"}}); }`,
+		);
+		expect((await data.getAppCode({ appId: "editable" })).revision).toBe(1);
+		await ws.scriptModel(scope, [{ text: "Saved the app" }]);
+		const applied = await ws.decideApproval(scope, {
+			approvalId: approval.approvalId,
+			decision: "approve",
+			by: "u1",
+		});
+		expect(applied.applied).toBe(true);
+		await ws.awaitTurn(scope, applied.turnId!, 20000);
+		const updated = await data.getAppCode({ appId: "editable" });
+		expect(updated.revision).toBe(2);
+		expect(updated.files["client.js"]).toContain("After");
+		expect(
+			(await data.getAppCode({ appId: "editable", revisionId: "app-before" }))
+				.files,
+		).toEqual(files);
+		const records = (
+			await ws.readChangeRecords(scope, { resource: "app" })
+		).filter((record) => record.operation === "revise");
+		expect(records.map((record) => record.outcome)).toEqual([
+			"needs_approval",
+			"applied",
+		]);
+		expect(records[1]?.before?.revisionId).toBe("app-before");
+		expect(records[1]?.after?.revisionId).toBe(updated.revisionId);
+		expect(records[1]?.undo).toEqual({
+			kind: "rollback_revision",
+			toRevision: { revisionId: "app-before" },
+		});
+		await expect(
+			data.reviseAppCode({
+				appId: "editable",
+				expectedRevision: 1,
+				actorId: "u1",
+				files,
+			}),
+		).rejects.toThrow("revision conflict");
+		for (const broken of [
+			{ ...files, "client.js": "const broken = ;" },
+			{ ...files, "server.js": "export const App = 1;" },
+		])
+			await expect(
+				data.reviseAppCode({
+					appId: "editable",
+					expectedRevision: 2,
+					actorId: "u1",
+					files: broken,
+				}),
+			).rejects.toThrow();
+		expect((await data.getAppCode({ appId: "editable" })).revision).toBe(2);
+		const restoreApproval = await requestEdit(
+			`export default async env => { const current = await env.apps.getCode({appId:"editable"}); const before = await env.apps.getCode({appId:"editable",revisionId:"app-before"}); return env.apps.revise({appId:current.id,expectedRevision:current.revision,files:before.files}); }`,
+		);
+		await ws.scriptModel(scope, [{ text: "Restored" }]);
+		const restored = await ws.decideApproval(scope, {
+			approvalId: restoreApproval.approvalId,
+			decision: "approve",
+			by: "u1",
+		});
+		expect(restored.applied).toBe(true);
+		await ws.awaitTurn(scope, restored.turnId!, 20000);
+		expect((await data.getAppCode({ appId: "editable" })).files).toEqual(files);
+		expect((await data.getAppCode({ appId: "editable" })).revision).toBe(3);
+		// A known app or revision ID must not cross the workspace boundary.
+		await testEnv.DB.prepare(
+			"UPDATE os_gadgets SET workspace_id = 'another-workspace' WHERE id = 'editable'",
+		).run();
+		await expect(
+			data.getAppCode({ appId: "editable", revisionId: "app-before" }),
+		).rejects.toThrow("not found in this workspace");
+		await expect(
+			data.reviseAppCode({
+				appId: "editable",
+				expectedRevision: 3,
+				actorId: "u1",
+				files,
+			}),
+		).rejects.toThrow("not found in this workspace");
+	});
 
 	test("typed Doc edits use the canonical document and cannot run before approval", async () => {
 		await seedCore();

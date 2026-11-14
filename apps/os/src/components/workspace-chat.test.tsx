@@ -1000,13 +1000,16 @@ describe("WorkspaceChat", () => {
 		expect(card?.textContent).not.toContain("Applied");
 	});
 
-	it("invalidates the generated output query family after a successful write notification", () => {
+	it("invalidates output and app queries after a successful write notification", () => {
 		const fake = fakeClient("c1");
 		const invalidate = vi.spyOn(queryClient, "invalidateQueries");
 		mount(fake);
 		act(() => fake.notifyOutputs());
 		expect(invalidate).toHaveBeenCalledWith({
 			queryKey: osQueryKeys.outputs(),
+		});
+		expect(invalidate).toHaveBeenCalledWith({
+			queryKey: osQueryKeys.gadgets(),
 		});
 	});
 

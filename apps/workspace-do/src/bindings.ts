@@ -24,6 +24,8 @@ import { buildSheetBinding } from "./sheet-binding";
 import { buildPresentationBinding } from "./presentation-bindings";
 import { buildView, type ShownView } from "./views";
 import type {
+	AppCode,
+	ReviseAppCodeInput,
 	CreateWorkInput,
 	OutputDetail,
 	OutputSummary,
@@ -134,7 +136,13 @@ export function buildWorkspaceBindings(
 		): UndoPlan | undefined =>
 			before ? { kind: "rollback_revision", toRevision: before } : undefined,
 	};
-	const apps = { list: () => data.listApps() };
+	const apps = {
+		list: () => data.listApps(),
+		getCode: (input: { appId: string; revisionId?: string }) =>
+			data.getAppCode(input),
+		revise: (input: ReviseAppCodeInput) =>
+			data.reviseAppCode({ ...input, actorId: deps.actor.id }),
+	};
 	const resources = { list: () => data.listResources() };
 	const work = {
 		list: (options?: { disposition?: string; limit?: number }) =>
@@ -214,7 +222,32 @@ export function buildWorkspaceBindings(
 		apps: wrapBinding(apps, {
 			...common,
 			resource: "app",
-			methods: { list: { riskTier: "read", blastRadius: "none" } },
+			methods: {
+				list: { riskTier: "read", blastRadius: "none" },
+				getCode: { riskTier: "read", blastRadius: "none" },
+				revise: {
+					riskTier: "bounded_write",
+					blastRadius: "single_resource",
+					before: async (args: unknown[]) => ({
+						revisionId: (
+							await data.getAppCode({
+								appId: (args[0] as ReviseAppCodeInput).appId,
+							})
+						).revisionId,
+					}),
+					after: async (_args: unknown[], result: unknown) => ({
+						revisionId: (result as AppCode).revisionId,
+					}),
+					undo: (
+						_args: unknown[],
+						_result: unknown,
+						before?: RevisionRef,
+					): UndoPlan | undefined =>
+						before
+							? { kind: "rollback_revision", toRevision: before }
+							: undefined,
+				},
+			},
 		}),
 		resources: wrapBinding(resources, {
 			...common,

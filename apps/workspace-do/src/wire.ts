@@ -205,7 +205,11 @@ export function stepLabel(
 			replace: "Saving a presentation revision",
 			edit: "Editing slides",
 		},
-		apps: { list: "Listing apps" },
+		apps: {
+			list: "Listing apps",
+			getCode: "Reading app source",
+			revise: "Saving an app revision",
+		},
 		resources: { list: "Listing resources" },
 		views: { show: "Showing a view" },
 		work: {

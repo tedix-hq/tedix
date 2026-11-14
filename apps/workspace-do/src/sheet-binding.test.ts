@@ -68,6 +68,12 @@ function fixture(ask = false) {
 			return output;
 		},
 		listApps: async () => [],
+		getAppCode: async () => {
+			throw new Error("unused");
+		},
+		reviseAppCode: async () => {
+			throw new Error("unused");
+		},
 		listResources: async () => [],
 		listWork: async () => [],
 		createWork: async () => {

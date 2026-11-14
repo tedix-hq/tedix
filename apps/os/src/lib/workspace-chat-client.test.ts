@@ -720,6 +720,7 @@ describe("createWorkspaceChatClient", () => {
 	});
 
 	it.each([
+		["apps", "revise"],
 		["documents", "replace"],
 		["documents", "edit"],
 		["sheets", "replace"],
