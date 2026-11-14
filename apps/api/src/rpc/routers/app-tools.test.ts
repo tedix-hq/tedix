@@ -367,7 +367,10 @@ describe("app-tools mutation subscription publishes", () => {
 
 	it("allows an existing non-conforming logical id to be re-submitted", async () => {
 		const { client } = makeHarness();
-		const existing = makeToolRow({ toolId: "skills_list" });
+		const existing = makeToolRow({
+			toolId: "skills_list",
+			writeCapability: "read",
+		});
 		mocks.getToolByAppAndToolId.mockResolvedValue(existing);
 		mocks.upsertTool.mockResolvedValue(existing);
 
@@ -420,18 +423,16 @@ describe("app-tools mutation subscription publishes", () => {
 			meta: { "com.tedix/policy": { ...policy, declared: true } },
 		});
 
-		// Annotations alone give a class and a default tier, not a declaration.
-		await client.create({
-			appId: APP_ID,
-			toolId: "update_things",
-			toolTypeId: "rpc",
-			title: "Update things",
-			annotations: { readOnlyHint: false },
-		});
-		expect(mocks.upsertTool.mock.calls[1]?.[1]).toMatchObject({
-			writeCapability: "write",
-			meta: { "com.tedix/policy": policy },
-		});
+		await expect(
+			client.create({
+				appId: APP_ID,
+				toolId: "update_things",
+				toolTypeId: "rpc",
+				title: "Update things",
+				annotations: { readOnlyHint: false },
+			}),
+		).rejects.toThrow(/has no risk tier/);
+		expect(mocks.upsertTool).toHaveBeenCalledTimes(1);
 	});
 
 	it("refuses a destructive tool stated as a bounded write", async () => {

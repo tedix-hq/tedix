@@ -27,23 +27,15 @@ describe("tool class on save", () => {
 		expect(result.ok ? "" : result.reason).toContain("no write class");
 	});
 
-	it("leaves an untouched older row unclassified", () => {
-		expect(
-			save({
-				writeCapability: null,
-				classStated: false,
-				untouchedLegacyRow: true,
-			}),
-		).toEqual({ ok: true, meta: null });
+	it("refuses an older row until its write class is supplied", () => {
+		expect(save({ writeCapability: null, classStated: false })).toMatchObject({
+			ok: false,
+		});
 	});
 
-	it("fills in a tier without calling it declared", () => {
+	it("refuses a write without an explicit risk tier", () => {
 		const result = save({});
-		if (!result.ok) throw new Error(result.reason);
-		expect(result.meta).toEqual(tier);
-		expect(
-			declaredToolClass({ writeCapability: "write", meta: result.meta }),
-		).toBeNull();
+		expect(result.ok ? "" : result.reason).toContain("has no risk tier");
 	});
 
 	it("marks the row declared when class and tier are both stated", () => {

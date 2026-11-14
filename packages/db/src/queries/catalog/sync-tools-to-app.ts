@@ -3,6 +3,10 @@
  * Split from catalog.ts (mechanical move; bodies unchanged).
  */
 
+import {
+	declaredToolClass,
+	toolClassDeclarationGap,
+} from "@tedix/api-contract/utils/tool-declared-class";
 import type { ConnectionCredentialProfile } from "@tedix/api-contract/schemas/connection-provider-templates";
 import type {
 	ToolAnnotations,
@@ -301,7 +305,10 @@ export async function syncCatalogToolsToApp(
 			annotations as ToolAnnotations | null,
 		);
 		// An upstream server cannot declare its own tools' class to Tedix.
-		const meta = withoutToolClassDeclaration(ct.meta ?? null);
+		const meta =
+			existing && declaredToolClass(existing)
+				? existing.meta
+				: withoutToolClassDeclaration(ct.meta ?? null);
 		const schemaSourceRef = catalogMcpToolSourceRef(catalogAppId, ct.toolName);
 		const schemaSourceHash = await catalogMcpToolSourceHash({
 			toolName: ct.toolName,
@@ -314,6 +321,19 @@ export async function syncCatalogToolsToApp(
 			annotations: (annotations as ToolAnnotations | null) ?? null,
 			meta,
 		});
+
+		const gap = toolClassDeclarationGap({
+			writeCapability: declaredWriteCapability ?? existing?.writeCapability,
+			meta,
+		});
+		if (gap && (declaredWriteCapability !== null || existing)) {
+			const reason = `Tool ${ct.toolName} ${gap}.`;
+			if (dryRun) {
+				results.push({ toolName: ct.toolName, action: "skipped", reason });
+				continue;
+			}
+			throw new Error(reason);
+		}
 
 		const toolConfig = {
 			transport: "mcp" as const,

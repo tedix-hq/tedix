@@ -15,11 +15,8 @@
  *   a risk tier in `critical-actions.v1.json` `builtinToolPolicies`;
  * - `builtinToolPolicies` entries are complete and valid.
  *
- * Home tools that predate the rule are listed in HOME_TOOLS_WITHOUT_TIER. They
- * keep today's behaviour (held for a person unless another rule covers them).
- * The list may only shrink: a new non-read Home tool without a tier fails, and
- * so does an entry that has since gained one. Database rows are checked when
- * they are saved (`toolClassDeclarationGap`), not here.
+ * No exceptions are permitted for existing Home tools. Database rows are checked
+ * when they are saved (`toolClassDeclarationGap`).
  */
 
 import {
@@ -30,25 +27,6 @@ import {
 } from "../packages/api-contract/src/schemas/tools";
 import criticalActions from "../packages/api-contract/src/assets/critical-actions.v1.json";
 import { toolClassDeclarationGap } from "../packages/api-contract/src/utils/tool-declared-class";
-
-/** Non-read Home tools with no risk tier yet. Remove an entry when it gets one. */
-export const HOME_TOOLS_WITHOUT_TIER: readonly string[] = [
-	"ask",
-	"home__synthesize_spoken_reply",
-	"home__rename_conversation",
-	"home__pin_conversation",
-	"home__archive_conversation",
-	"home__delete_conversation",
-	"home__approve_home_plan",
-	"home__respond_home_approval",
-	"home__cancel_home_run",
-	"home__steer_home_run",
-	"home__retry_home_run",
-	"home__retry_delegation",
-	"home__create_work_item",
-	"home__accept_work_item",
-	"home__complete_work_item",
-];
 
 interface CodeTool {
 	toolId: string;
@@ -80,12 +58,8 @@ export function operatorToolFindings(
 	return problems;
 }
 
-export function homeToolFindings(
-	tools: readonly CodeTool[],
-	withoutTier: readonly string[] = HOME_TOOLS_WITHOUT_TIER,
-): string[] {
+export function homeToolFindings(tools: readonly CodeTool[]): string[] {
 	const problems: string[] = [];
-	const untiered = new Set<string>();
 	for (const tool of tools) {
 		const writeCapability = deriveToolWriteCapability(
 			tool.annotations as ToolAnnotations | null,
@@ -95,19 +69,10 @@ export function homeToolFindings(
 			meta: tool.meta as Record<string, unknown> | null,
 		});
 		if (!gap) continue;
-		if (writeCapability && writeCapability !== "read") {
-			untiered.add(tool.toolId);
-			if (withoutTier.includes(tool.toolId)) continue;
-		}
 		problems.push(
 			`Home tool ${tool.toolId} ${gap}. State readOnlyHint/destructiveHint on the tool and add its risk tier to builtinToolPolicies in critical-actions.v1.json.`,
 		);
 	}
-	for (const toolId of withoutTier)
-		if (!untiered.has(toolId))
-			problems.push(
-				`Home tool ${toolId} now has a risk tier or no longer exists: remove it from HOME_TOOLS_WITHOUT_TIER in scripts/lint-tool-class.ts.`,
-			);
 	return problems;
 }
 
@@ -150,6 +115,6 @@ if (import.meta.main) {
 	for (const problem of problems) console.error(problem);
 	if (problems.length) process.exit(1);
 	console.log(
-		`Tool classes: ${PLATFORM_OPERATOR_TOOL_DEFINITIONS.length} operator tools and ${homeTools.length} Home tools state a write class; ${HOME_TOOLS_WITHOUT_TIER.length} Home tools still lack a risk tier.`,
+		`Tool classes: ${PLATFORM_OPERATOR_TOOL_DEFINITIONS.length} operator tools and ${homeTools.length} Home tools state a write class; all non-read Home tools state a risk tier.`,
 	);
 }

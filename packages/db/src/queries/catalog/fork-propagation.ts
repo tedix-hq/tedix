@@ -3,6 +3,7 @@
  * Split from catalog.ts (mechanical move; bodies unchanged).
  */
 
+import { toolClassDeclarationGap } from "@tedix/api-contract/utils/tool-declared-class";
 import { eq, inArray } from "drizzle-orm";
 import { apps, appTools } from "../../schema/index";
 import { chunkForBoundParams } from "../../utils/batch";
@@ -139,6 +140,12 @@ export async function propagateTools(
 		.select()
 		.from(appTools)
 		.where(eq(appTools.appId, sourceAppId));
+	if (typesToApply.has("new_tool") || typesToApply.has("metadata_changed")) {
+		for (const sourceTool of sourceTools) {
+			const gap = toolClassDeclarationGap(sourceTool);
+			if (gap) throw new Error(`Tool ${sourceTool.toolId} ${gap}.`);
+		}
+	}
 	const sourceToolsByToolId = new Map(sourceTools.map((t) => [t.toolId, t]));
 
 	// 3. Get all target apps and their tools (eliminates N+1 per-target

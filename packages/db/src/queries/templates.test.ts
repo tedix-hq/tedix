@@ -1,5 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
-import { getColumns, getTableName } from "drizzle-orm";
+import { eq, getColumns, getTableName } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 import { ApplyTemplateInputSchema } from "@tedix/api-contract/contracts/templates";
 import { createDbClient } from "../client";
@@ -58,6 +58,7 @@ describe("template extraction controls", () => {
 					tools: [
 						{
 							toolId: "list_items",
+							writeCapability: "read",
 							toolTypeId: "rpc",
 							title: "Items",
 							config: {
@@ -103,6 +104,24 @@ describe("template extraction controls", () => {
 				context: "Regional catalog",
 			});
 			expect(result.tools[0]?.outputTemplate).toBe("Catalog: Regional catalog");
+			await db
+				.update(appTemplates)
+				.set({
+					tools: [
+						{
+							toolId: "tidy_notes",
+							toolTypeId: "rpc",
+							title: "Tidy",
+							widgetKey: "render",
+							writeCapability: "write",
+						},
+					],
+				})
+				.where(eq(appTemplates.id, templateId));
+			await expect(
+				applyTemplate(db, templateId, { ...input, slug: "refused" }),
+			).rejects.toThrow("has no risk tier");
+			expect(await db.select().from(apps)).toHaveLength(1);
 		} finally {
 			sqlite.close();
 		}

@@ -6,6 +6,7 @@
  * adapters, tools, and capabilities that can be applied to new apps.
  */
 
+import { toolClassDeclarationGap } from "@tedix/api-contract/utils/tool-declared-class";
 import type { AppCapabilities } from "@tedix/api-contract/schemas/app";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import {
@@ -312,6 +313,11 @@ export async function applyTemplate(
 
 	const templateTools = (template.tools ?? []) as TemplateTool[];
 	const toolValues = templateTools.map((templateTool) => {
+		const writeCapability =
+			templateTool.writeCapability ??
+			deriveToolWriteCapability(templateTool.annotations);
+		const gap = toolClassDeclarationGap({ ...templateTool, writeCapability });
+		if (gap) throw new Error(`Template tool ${templateTool.toolId} ${gap}.`);
 		// Replace placeholders in tool config
 		const toolConfig = replacePlaceholders(templateTool.config, appId, appData);
 
@@ -368,7 +374,8 @@ export async function applyTemplate(
 			// the old name-inference, silently ungated). Carry both the hints and
 			// the derived declaration.
 			annotations: templateTool.annotations ?? null,
-			writeCapability: deriveToolWriteCapability(templateTool.annotations),
+			writeCapability,
+			meta: templateTool.meta,
 			adapterScope,
 			resultStrategy: templateTool.resultStrategy ?? "merge",
 			outputTemplate,

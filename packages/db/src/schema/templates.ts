@@ -22,6 +22,8 @@ import type {
 	ToolInputJsonSchema,
 	ToolInvocationStatus,
 	ToolTypeId,
+	ToolWriteCapability,
+	ToolMeta,
 } from "@tedix/api-contract/schemas/tools";
 import { sql } from "drizzle-orm";
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
@@ -105,6 +107,8 @@ export interface TemplateTool {
 
 	/** MCP tool annotations */
 	annotations?: ToolAnnotations;
+	writeCapability?: ToolWriteCapability;
+	meta?: ToolMeta;
 
 	/** Apps SDK tool invocation status strings */
 	invocationStatus?: ToolInvocationStatus;

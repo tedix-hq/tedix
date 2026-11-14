@@ -257,10 +257,6 @@ export const createAppTool = authedAppToolsOs.create
 			config: createConfig,
 			classStated: toolData.writeCapability != null,
 			tierStated: metaStatesRiskTier(createMeta),
-			untouchedLegacyRow:
-				resubmitted !== undefined &&
-				!resubmitted.writeCapability &&
-				toolData.writeCapability === undefined,
 		});
 		if (!createClass.ok)
 			throw createError(ErrorCodes.BAD_REQUEST, createClass.reason);
@@ -417,7 +413,6 @@ export const updateAppTool = authedAppToolsOs.update
 				input.writeCapability != null || (classUntouched && wasDeclared),
 			tierStated:
 				input.meta !== undefined ? metaStatesRiskTier(updateMeta) : wasDeclared,
-			untouchedLegacyRow: classUntouched && !existingTool.writeCapability,
 		});
 		if (!updateClass.ok)
 			throw createError(ErrorCodes.BAD_REQUEST, updateClass.reason);

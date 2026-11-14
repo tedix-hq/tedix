@@ -21,8 +21,6 @@ export interface ToolClassSave {
 	classStated: boolean;
 	/** The caller stated the risk tier, rather than Tedix deriving it. */
 	tierStated: boolean;
-	/** An older row with no class that this save does not reclassify. */
-	untouchedLegacyRow?: boolean;
 }
 
 /** Whether metadata carries a complete risk tier of its own. */
@@ -35,9 +33,8 @@ export function metaStatesRiskTier(meta: ToolMeta): boolean {
  * Decide the class a tool row is saved with, or why the save is refused.
  *
  * Every saved tool needs a write class and, unless it only reads, a risk
- * tier. The row is marked `declared` only when the caller stated both; a
- * tier Tedix filled in from the write class is a default, not a declaration,
- * so approval checks keep reading that tool's name as well.
+ * tier. The row is marked `declared` only when the caller stated both;
+ * upstream annotations alone do not establish automatic approval eligibility.
  */
 export function resolveToolClassForSave(
 	save: ToolClassSave,
@@ -49,10 +46,7 @@ export function resolveToolClassForSave(
 		!Array.isArray(raw) &&
 		raw.declared === true;
 	if (!save.writeCapability) {
-		if (
-			(save.untouchedLegacyRow || save.toolTypeId === "prompt") &&
-			!asksDeclared
-		)
+		if (save.toolTypeId === "prompt" && !asksDeclared)
 			return { ok: true, meta: withoutToolClassDeclaration(save.meta) };
 		return {
 			ok: false,
@@ -65,16 +59,13 @@ export function resolveToolClassForSave(
 			ok: false,
 			reason: `Tool ${save.toolId} is marked declared, so the same request must state writeCapability and, under _meta["${TEDIX_TOOL_POLICY_META_KEY}"], riskTier and blastRadius.`,
 		};
+	const gap = toolClassDeclarationGap(save);
+	if (gap) return { ok: false, reason: `Tool ${save.toolId} ${gap}.` };
 	const meta = withDerivedToolOperationalRiskPolicy({
 		meta: stated ? save.meta : withoutToolClassDeclaration(save.meta),
 		config: save.config,
 		writeCapability: save.writeCapability,
 	});
-	const gap = toolClassDeclarationGap({
-		writeCapability: save.writeCapability,
-		meta,
-	});
-	if (gap) return { ok: false, reason: `Tool ${save.toolId} ${gap}.` };
 	if (!stated || !metaStatesRiskTier(meta)) return { ok: true, meta };
 	const policy = meta?.[TEDIX_TOOL_POLICY_META_KEY] as Record<
 		string,

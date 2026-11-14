@@ -28,34 +28,24 @@ describe("lint-tool-class", () => {
 	test("a non-read Home tool needs a risk tier", () => {
 		const read = { toolId: "read_x", annotations: { readOnlyHint: true } };
 		const write = { toolId: "write_x", annotations: { readOnlyHint: false } };
-		expect(homeToolFindings([read, { ...write, meta: bounded }], [])).toEqual(
-			[],
-		);
-		expect(homeToolFindings([write], [])[0]).toContain(
+		expect(homeToolFindings([read, { ...write, meta: bounded }])).toEqual([]);
+		expect(homeToolFindings([write])[0]).toContain(
 			"Home tool write_x has no risk tier",
 		);
-		expect(homeToolFindings([write], ["write_x"])).toEqual([]);
+	});
+
+	test("a pre-existing Home tool has no exemption for a missing tier", () => {
+		expect(
+			homeToolFindings([
+				{ toolId: "ask", annotations: { readOnlyHint: false } },
+			])[0],
+		).toContain("has no risk tier");
 	});
 
 	test("a Home tool must state whether it writes", () => {
 		expect(
-			homeToolFindings([{ toolId: "mystery", annotations: {} }], [])[0],
+			homeToolFindings([{ toolId: "mystery", annotations: {} }])[0],
 		).toContain("Home tool mystery has no write class");
-	});
-
-	test("the pre-rule list may only shrink", () => {
-		expect(
-			homeToolFindings(
-				[
-					{
-						toolId: "write_x",
-						annotations: { readOnlyHint: false },
-						meta: bounded,
-					},
-				],
-				["write_x"],
-			)[0],
-		).toContain("remove it from HOME_TOOLS_WITHOUT_TIER");
 	});
 
 	test("a built-in policy states tier and reach together", () => {
