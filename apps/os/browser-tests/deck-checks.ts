@@ -83,7 +83,7 @@ try {
 					"phone and desktop have no horizontal overflow",
 				);
 				await card.focus();
-				await page.keyboard.press("ArrowRight");
+				await page.keyboard.press("y");
 				await page.getByRole("alertdialog").waitFor();
 				await page
 					.getByRole("button", { name: "Go back", exact: true })

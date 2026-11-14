@@ -175,8 +175,8 @@ function DecisionDeckContent({
 		cardType,
 		faceState,
 	} = useDecisionDeck(config, workspaceId);
-	const paging = useRef({ next, previous, active: false });
-	paging.current = {
+	const keyPaging = useRef({ next, previous, active: false });
+	keyPaging.current = {
 		next,
 		previous,
 		active: !waitingMode && Boolean(selected ?? focusedFactoryCard),
@@ -192,7 +192,7 @@ function DecisionDeckContent({
 				event.ctrlKey ||
 				event.altKey ||
 				event.shiftKey ||
-				!paging.current.active ||
+				!keyPaging.current.active ||
 				isTypingEvent(event) ||
 				(event.target instanceof Element &&
 					event.target.closest(ARROW_OWNERS)) ||
@@ -200,39 +200,44 @@ function DecisionDeckContent({
 			)
 				return;
 			event.preventDefault();
-			if (event.key === "ArrowRight") paging.current.next();
-			else paging.current.previous();
+			if (event.key === "ArrowRight") keyPaging.current.next();
+			else keyPaging.current.previous();
 		};
 		document.addEventListener("keydown", page);
 		return () => document.removeEventListener("keydown", page);
 	}, []);
-	const navigation = (selected || focusedFactoryCard) &&
-		(mode === "history" || filtered.length > 1) && (
-			<nav
-				className="fd-deck-navigation"
-				aria-label={decisionText("Move between cards")}
-				data-deck-paging
+	const pageButton = (direction: "previous" | "next") => (
+		<ShortcutTooltip
+			label={decisionText(
+				direction === "next"
+					? "Next card · records nothing"
+					: "Previous card · records nothing",
+			)}
+			shortcut={direction === "next" ? "→" : "←"}
+			keyshortcuts={direction === "next" ? "ArrowRight" : "ArrowLeft"}
+		>
+			<Button
+				size="sm"
+				variant="ghost"
+				// Overlaps the text line instead of making it taller.
+				className="sm:-my-1"
+				onClick={direction === "next" ? next : previous}
 			>
-				<ShortcutTooltip
-					label={decisionText("Previous card · records nothing")}
-					shortcut="←"
-					keyshortcuts="ArrowLeft"
-				>
-					<Button variant="ghost" onClick={previous}>
-						{decisionText("Previous")}
-					</Button>
-				</ShortcutTooltip>
-				<ShortcutTooltip
-					label={decisionText("Next card · records nothing")}
-					shortcut="→"
-					keyshortcuts="ArrowRight"
-				>
-					<Button variant="ghost" onClick={next}>
-						{decisionText("Next")}
-					</Button>
-				</ShortcutTooltip>
-			</nav>
-		);
+				{decisionText(direction === "next" ? "Next" : "Previous")}
+			</Button>
+		</ShortcutTooltip>
+	);
+	// Deciding pages on the position line, so the card keeps its height.
+	const paging =
+		mode !== "history" &&
+		(selected || focusedFactoryCard) &&
+		filtered.length > 1
+			? {
+					label: decisionText("Move between cards"),
+					previous: pageButton("previous"),
+					next: pageButton("next"),
+				}
+			: undefined;
 	const content = createElement(
 		DecisionLearningContext.Provider,
 		{
@@ -333,6 +338,7 @@ function DecisionDeckContent({
 						)}
 						filtered={filtersActive}
 						saving={saving}
+						paging={paging}
 						leading={
 							mode === "decide" ? (
 								<DeckAskStrip card={selected} expiresAt={expiresAt} />
@@ -411,7 +417,6 @@ function DecisionDeckContent({
 								</OptimisticDeckDecisionContext.Provider>
 							)}
 						</Suspense>
-						{navigation}
 					</div>
 				) : mode === "decide" && focusCard && !selected ? (
 					<div className="grid gap-3">
@@ -726,7 +731,16 @@ function DecisionDeckContent({
 								</DeckFooterContext.Provider>
 							</DeckCurationContext.Provider>
 						</DeckNoticeContext.Provider>
-						{navigation}
+						{mode === "history" ? (
+							<div className="fd-deck-navigation">
+								<Button variant="ghost" onClick={previous}>
+									{decisionText("Previous")}
+								</Button>
+								<Button variant="ghost" onClick={next}>
+									{decisionText("Next")}
+								</Button>
+							</div>
+						) : null}
 					</div>
 				) : (
 					(practiceMode ||

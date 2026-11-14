@@ -16,6 +16,7 @@ export function DeckProgress({
 	filtered,
 	saving,
 	leading,
+	paging,
 	counting = false,
 }: {
 	total: number;
@@ -27,6 +28,8 @@ export function DeckProgress({
 	leading?: ReactNode;
 	/** Some sources are still loading, so the total is not known yet. */
 	counting?: boolean;
+	/** Previous and Next controls on either side of the position. */
+	paging?: { label: string; previous: ReactNode; next: ReactNode };
 }) {
 	const label = counting
 		? "Counting cards…"
@@ -52,13 +55,27 @@ export function DeckProgress({
 		<div className="fd-card-progress grid gap-1" data-deck-progress>
 			<div className="fd-deck-meta flex min-w-0 items-center justify-between gap-2">
 				{leading ?? <span />}
-				<Text
-					role="label"
-					tone="secondary"
-					className="shrink-0 px-2 text-right tabular-nums"
-				>
-					{label}
-				</Text>
+				{paging ? (
+					<nav
+						aria-label={paging.label}
+						data-deck-paging
+						className="flex shrink-0 items-center gap-1 px-1.5"
+					>
+						{paging.previous}
+						<Text role="label" tone="secondary" className="tabular-nums">
+							{label}
+						</Text>
+						{paging.next}
+					</nav>
+				) : (
+					<Text
+						role="label"
+						tone="secondary"
+						className="shrink-0 px-2 text-right tabular-nums"
+					>
+						{label}
+					</Text>
+				)}
 			</div>
 			<Progress
 				value={counting ? 0 : completed}
