@@ -6,6 +6,8 @@ import { parseDeclaredToolClass } from "@tedix/api-contract/utils/tool-declared-
 import { toolNameWords } from "../../services/tool-class-backlog";
 import { DESTRUCTIVE_VERBS } from "./kernel/write-tool-policy";
 
+type ApprovalRuleMatch = OsApprovalRuleRow & { approvalReason: string };
+
 interface RuleApproval {
 	orgId: string;
 	actionType: string;
@@ -19,7 +21,7 @@ const forbidden = new Set<string>([...DESTRUCTIVE_VERBS, "deploy", "takeover"]);
 export function matchingApprovalRule(
 	approval: RuleApproval,
 	rules: readonly OsApprovalRuleRow[],
-): OsApprovalRuleRow | undefined {
+): ApprovalRuleMatch | undefined {
 	const payload = approval.payload;
 	const tool = typeof payload.toolName === "string" ? payload.toolName : null;
 	const app = typeof payload.appSlug === "string" ? payload.appSlug : null;
@@ -47,16 +49,17 @@ export function matchingApprovalRule(
 			...(declared ? [] : [toolSlug ?? "", verb ?? ""]),
 		].some((value) => toolNameWords(value).some((word) => forbidden.has(word))),
 	});
-	return decision.autoApprove
+	const rule = decision.autoApprove
 		? rules.find((rule) => rule.id === decision.ruleId)
 		: undefined;
+	return rule ? { ...rule, approvalReason: decision.reason } : undefined;
 }
 /** Read standing authority at creation; settlement waits until the run is parked. */
 export async function findApprovalRule(
 	db: DbQueryClient,
 	approval: RuleApproval,
 	organizationId: string,
-): Promise<OsApprovalRuleRow | undefined> {
+): Promise<ApprovalRuleMatch | undefined> {
 	if (approval.orgId !== organizationId) return undefined;
 	try {
 		const rules = await findEnabledOsApprovalRulesByKind(db, organizationId, [

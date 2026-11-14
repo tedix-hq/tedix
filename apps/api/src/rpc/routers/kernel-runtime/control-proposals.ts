@@ -1784,7 +1784,7 @@ export async function proposeRepoCommitImpl(
 		decision = {
 			autoResolve: true,
 			source: "policy",
-			reason: `auto-approved by rule ${rule.id}`,
+			reason: rule.approvalReason,
 		};
 		effectiveAutoResolve = true;
 	}

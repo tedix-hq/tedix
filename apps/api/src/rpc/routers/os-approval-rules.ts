@@ -194,7 +194,7 @@ const applyProcedure = manageRules.apply.handler(async ({ context }) => {
 				{
 					id: approval.id,
 					status: "approved",
-					resolution: `auto-approved by rule ${rule.id}`,
+					resolution: rule.approvalReason,
 				},
 				{ context },
 			);

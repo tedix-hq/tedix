@@ -33,7 +33,10 @@ const approval = {
 
 describe("standing approval matching", () => {
 	it("matches the exact tool and verb without covering another tool or tenant", () => {
-		expect(matchingApprovalRule(approval, [rule])?.id).toBe(rule.id);
+		expect(matchingApprovalRule(approval, [rule])).toMatchObject({
+			id: rule.id,
+			approvalReason: `auto-approved by rule ${rule.id}`,
+		});
 		expect(
 			matchingApprovalRule(
 				{
