@@ -94,6 +94,7 @@
 		"./schemas/attention": "./src/schemas/attention.ts",
 		"./contracts/attention": "./src/contracts/attention.ts",
 		"./schemas/personal-agent-inbound": "./src/schemas/personal-agent-inbound.ts",
+		"./schemas/personal-agent-session": "./src/schemas/personal-agent-session.ts",
 		"./contracts/personal-agent-inbound": "./src/contracts/personal-agent-inbound.ts",
 		"./utils/host-session-id": "./src/utils/host-session-id.ts",
 		"./utils/code-mode-literal": "./src/utils/code-mode-literal.ts",

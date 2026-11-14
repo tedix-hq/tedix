@@ -1,4 +1,5 @@
 import { requestPhaseTimings } from "./mcp/phase-timings";
+import { checkSignedOutPersonalAgentSession } from "./personal-agent-session";
 import { buildWwwAuthenticate } from "@tedix/mcp-shared/auth";
 import {
 	apiWorkspaceLookup,
@@ -1491,6 +1492,21 @@ const worker = {
 					httpStatus: 429,
 				});
 				return mcpRateLimitResponse(rateLimit);
+			}
+
+			if (
+				isMcpPath &&
+				!hasAnyAuth &&
+				app.organizationId &&
+				app.metadata?.mcpConfig?.authMode === "public"
+			) {
+				const sessionError = await checkSignedOutPersonalAgentSession({
+					request,
+					appId: app.id,
+					organizationId: app.organizationId,
+					env,
+				});
+				if (sessionError) return sessionError;
 			}
 
 			if (url.pathname === "/mcp" || url.pathname.startsWith("/mcp/")) {

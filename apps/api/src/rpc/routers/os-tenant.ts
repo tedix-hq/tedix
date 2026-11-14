@@ -9,6 +9,7 @@ import {
 } from "@tedix/db/queries/organizations";
 import { PersonalAgentDiscoveryConfigSchema } from "@tedix/api-contract/schemas/organization";
 import { type BaseContext, withServiceAuth } from "../orpc";
+import { verifySignedOutPersonalAgentSession } from "../../services/personal-agent-session";
 
 /**
  * OS tenant resolution for the `tedix-os` edge router.
@@ -90,6 +91,10 @@ const personalAgentDiscovery = service.personalAgentDiscovery.handler(
 );
 
 export const osTenantContractRouter = osTenantOs.router({
+	personalAgentSession: service.personalAgentSession.handler(
+		({ input, context }) =>
+			verifySignedOutPersonalAgentSession(context.db, input),
+	),
 	personalAgentDiscovery,
 	resolve,
 	resolveHostname,
