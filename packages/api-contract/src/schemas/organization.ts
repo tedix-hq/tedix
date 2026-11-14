@@ -417,7 +417,45 @@ export const PortfolioBucketsSchema = z
 		"Each section needs a unique key",
 	);
 
+const DiscoveryHttpsUrlSchema = z
+	.url({ protocol: /^https$/ })
+	.refine((value) => {
+		const url = new URL(value);
+		return !url.username && !url.password && !url.hash;
+	}, "Discovery URLs must not contain credentials or fragments");
+
+export const PersonalAgentDiscoveryConfigSchema = z.strictObject({
+	domain: z
+		.string()
+		.regex(
+			/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/i,
+		),
+	mcpUrl: DiscoveryHttpsUrlSchema,
+	description: z.string().trim().min(1).max(500),
+});
+
+export const PersonalAgentDiscoverySchema = z.object({
+	protocol_version: z.literal("1.0"),
+	organization: z.object({ name: z.string().min(1), domain: z.string() }),
+	// Protocol sign-in needs Session support, which is not implemented yet.
+	auth: z.object({ disabled: z.literal(true) }),
+	apis: z
+		.array(
+			z.object({
+				type: z.literal("mcp"),
+				url: DiscoveryHttpsUrlSchema,
+				description: z.string().min(1),
+			}),
+		)
+		.min(1),
+});
+
+export type PersonalAgentDiscovery = z.infer<
+	typeof PersonalAgentDiscoverySchema
+>;
+
 export const OrganizationMetadataSchema = z.object({
+	personalAgentProtocol: PersonalAgentDiscoveryConfigSchema.optional(),
 	sensitiveDataEgressApproval: z
 		.boolean()
 		.optional()

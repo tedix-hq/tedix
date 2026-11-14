@@ -3,6 +3,7 @@ import { oc } from "@orpc/contract";
 import { SURFACE_SLUG_PATTERN } from "@tedix/tenant-directory";
 import * as z from "zod";
 import { baseErrors } from "../errors";
+import { PersonalAgentDiscoverySchema } from "../schemas/organization";
 
 /**
  * Internal OS tenant resolution for the `tedix-os` edge Worker.
@@ -35,6 +36,15 @@ export const osTenantContract = oc
 					identityProvider: z.literal("oidc").optional(),
 				}),
 			),
+		personalAgentDiscovery: oc
+			.route({ method: "GET" })
+			.input(
+				z.object({
+					organizationId: z.string().min(1),
+					hostname: z.string().min(1).max(253),
+				}),
+			)
+			.output(PersonalAgentDiscoverySchema.nullable()),
 		resolve: oc
 			.route({
 				method: "POST",

@@ -1096,6 +1096,49 @@ export async function handleOsRequest(
 		}
 	}
 
+	// authz: public — only the host organization's explicitly published discovery fields.
+	if (url.pathname === "/.well-known/poppy.json") {
+		const headers = { "Cache-Control": "no-store" };
+		if (request.method !== "GET" && request.method !== "HEAD")
+			return new Response(null, {
+				status: 405,
+				headers: { ...headers, Allow: "GET, HEAD" },
+			});
+		if (!hostOrganizationId || !env.API_SERVICE)
+			return refuse(404, "No discovery document at this hostname.");
+		try {
+			const document = await callRpc<
+				| import("@tedix/api-contract/schemas/organization").PersonalAgentDiscovery
+				| null
+			>(
+				"osTenant/personalAgentDiscovery",
+				{ organizationId: hostOrganizationId, hostname: url.hostname },
+				{
+					apiUrl: "https://api",
+					fetch: serviceBindingFetch(env.API_SERVICE),
+					headers: { "X-Service-Binding": "true" },
+					timeoutMs: 5_000,
+					retry: 0,
+				},
+			);
+			if (!document)
+				return refuse(404, "No discovery document at this hostname.");
+			return withSecurityHeaders(
+				new Response(
+					request.method === "HEAD" ? null : JSON.stringify(document),
+					{
+						headers: {
+							...headers,
+							"Content-Type": "application/json; charset=utf-8",
+						},
+					},
+				),
+			);
+		} catch {
+			return tenantResolutionUnavailable(request);
+		}
+	}
+
 	// authz: restricted tedi console session; canonical grant and tenant checked by the API on every read.
 	if (
 		url.pathname === "/tedi-console" ||

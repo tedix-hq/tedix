@@ -72,6 +72,29 @@ Descope's `DSR` as a bootstrap-only input. The
 [session broker](../session-broker/README.md)
 owns rotation and the Descope-readable cookie twin.
 
+## Personal Agent Protocol discovery
+
+The Worker serves the Personal Agent Protocol 1.0 draft discovery document at
+`https://{organization-host}/.well-known/poppy.json`. An organization admin
+publishes its MCP channel through `organizations.update`, preserving existing
+metadata and adding `metadata.personalAgentProtocol`:
+
+```json
+{
+	"domain": "team.example.com",
+	"mcpUrl": "https://mcp.example.com/mcp",
+	"description": "Shared project information, tasks, and results"
+}
+```
+
+`domain` must match the provisioned OS hostname that serves the document.
+The name comes from the current organization row. Only the configured MCP
+channel is advertised; protocol sign-in is disabled, and no sessions,
+conversations, extensions, or browser joins are offered. Missing or invalid
+configuration, a different hostname, and offboarding organizations return 404.
+The central launcher never publishes an organization's discovery document.
+Configuration stays in D1 metadata; no schema migration or tenant code is needed.
+
 ## Development
 
 ```sh
