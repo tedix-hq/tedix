@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
 	getAppsByOrganization: vi.fn(),
 	createApp: vi.fn(),
 	deleteApp: vi.fn(),
-	setGatewayMembership: vi.fn(),
+	updateApp: vi.fn(),
 	getOrganizationById: vi.fn(),
 	getOrganizationFeatures: vi.fn(),
 	getGateways: vi.fn(),
@@ -29,7 +29,7 @@ vi.mock("@tedix/db/queries/app-records", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@tedix/db/queries/app-records")>()),
 	createApp: mocks.createApp,
 	deleteApp: mocks.deleteApp,
-	setAppGatewayMembership: mocks.setGatewayMembership,
+	updateApp: mocks.updateApp,
 }));
 const CMS_APP = { id: "77777777-7777-4777-8777-777777777777", slug: "cms" };
 vi.mock("@tedix/db/queries/aggregate-app-links", async (importOriginal) => ({
@@ -90,19 +90,20 @@ const authoringApp = (id: string, organizationId: string) => ({
 });
 const oldApp = authoringApp(site.authoringAppId, SOURCE);
 const newApp = authoringApp("33333333-3333-4333-8333-333333333333", TARGET);
-const sourceGateway = {
-	id: "gateway-source",
-	organizationId: SOURCE,
-	slug: "source-unified",
-	metadata: {
-		mcpConfig: { aggregateApps: [{ appId: oldApp.id, slug: oldApp.slug }] },
-	},
-};
 const targetGateway = {
 	id: "gateway-target",
 	organizationId: TARGET,
 	slug: "target-unified",
-	metadata: {},
+	metadata: {
+		mcpConfig: {
+			aggregateApps: [
+				{ appId: "other", slug: "other-app" },
+				// A link the target already held to the app about to be deleted.
+				{ appId: oldApp.id, slug: oldApp.slug, prefix: "cms_blog" },
+				{ appId: "duplicate", slug: oldApp.slug },
+			],
+		},
+	},
 };
 const input = {
 	siteId: site.id,
@@ -155,11 +156,9 @@ beforeEach(() => {
 	mocks.listSites.mockResolvedValue([]);
 	mocks.setAuthoringApp.mockResolvedValue(true);
 	mocks.createApp.mockResolvedValue(newApp);
-	mocks.setGatewayMembership.mockResolvedValue([{ id: targetGateway.id }]);
 	mocks.getGateways.mockResolvedValue(
 		new Map([[TARGET, { slug: targetGateway.slug, customMcpDomain: null }]]),
 	);
-	mocks.getAppsByOrganization.mockResolvedValue([sourceGateway, oldApp]);
 	mocks.getAppBySlug.mockImplementation(async (_db: unknown, slug: string) =>
 		slug === targetGateway.slug ? targetGateway : oldApp,
 	);
@@ -196,13 +195,13 @@ describe("moveCms", () => {
 			{},
 			{ id: site.id, organizationId: TARGET, authoringAppId: newApp.id },
 		);
-		expect(mocks.setGatewayMembership).toHaveBeenCalledWith(
-			{},
-			TARGET,
-			targetGateway.id,
-			{ appId: newApp.id, slug: newApp.slug },
-			true,
-		);
+		expect(mocks.updateApp).toHaveBeenCalledOnce();
+		expect(
+			mocks.updateApp.mock.calls[0]?.[2].metadata.mcpConfig.aggregateApps,
+		).toEqual([
+			{ appId: "other", slug: "other-app" },
+			{ appId: newApp.id, slug: newApp.slug, prefix: "cms_blog" },
+		]);
 		expect(mocks.purgeAggregate).toHaveBeenCalledOnce();
 		expect(mocks.audit).toHaveBeenCalledTimes(2);
 	});
@@ -210,11 +209,13 @@ describe("moveCms", () => {
 	it("finishes a move that stopped after the site row changed owner", async () => {
 		siteStartsIn(TARGET);
 		mocks.getAppBySlug.mockResolvedValue(null);
+		mocks.getGateways.mockResolvedValue(new Map());
 		await expect(client().moveCms(input)).resolves.toMatchObject({
 			organizationId: TARGET,
 			authoringAppId: newApp.id,
 			gatewayLinked: false,
 		});
+		expect(mocks.updateApp).not.toHaveBeenCalled();
 		expect(mocks.moveSite).not.toHaveBeenCalled();
 		expect(mocks.deleteApp).not.toHaveBeenCalled();
 		expect(mocks.createApp).toHaveBeenCalledOnce();
@@ -242,5 +243,23 @@ describe("moveCms", () => {
 			code: "FORBIDDEN",
 		});
 		expect(mocks.moveSite).not.toHaveBeenCalled();
+	});
+
+	it("adds a prefixed gateway entry when the target had none", async () => {
+		siteStartsIn(SOURCE);
+		mocks.getAppBySlug.mockImplementation(async (_db: unknown, slug: string) =>
+			slug === targetGateway.slug ? { ...targetGateway, metadata: {} } : oldApp,
+		);
+		await client().moveCms(input);
+		expect(
+			mocks.updateApp.mock.calls[0]?.[2].metadata.mcpConfig.aggregateApps,
+		).toEqual([
+			{
+				appId: newApp.id,
+				slug: newApp.slug,
+				prefix: "cms_acme",
+				connectionLabel: "acme",
+			},
+		]);
 	});
 });
