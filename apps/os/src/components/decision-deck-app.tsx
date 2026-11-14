@@ -40,7 +40,8 @@ import {
 	ProposerContext,
 	ShortcutTooltip,
 } from "@/components/feed-deck-primitives";
-import { createElement, lazy, Suspense } from "react";
+import { createElement, lazy, Suspense, useEffect, useRef } from "react";
+import { isTypingEvent } from "@/lib/keyboard";
 import { type DecisionDeckConfig } from "@tedix/api-contract/schemas/os-decision-deck";
 import { DecisionAttentionContext } from "@/components/decision-attention-context";
 import { DecisionEnvelopeCard } from "@/components/decision-envelope-card";
@@ -69,6 +70,10 @@ const deadlineLabel = (deadline: string) =>
 	/^\d{4}-\d{2}-\d{2}$/.test(deadline)
 		? absoluteDate(deadline)
 		: absoluteTime(deadline);
+
+/** Widgets that use the arrow keys themselves, such as tabs and menus. */
+const ARROW_OWNERS =
+	"[role=radiogroup], [role=radio], [role=tablist], [role=tab], [role=listbox], [role=menu], [role=menubar], [role=menuitem], [role=slider], [role=grid], [role=tree], [role=dialog], [role=alertdialog]";
 
 const FactoryCards = lazy(() =>
 	import("@/components/card-review-app").then((module) => ({
@@ -170,6 +175,64 @@ function DecisionDeckContent({
 		cardType,
 		faceState,
 	} = useDecisionDeck(config, workspaceId);
+	const paging = useRef({ next, previous, active: false });
+	paging.current = {
+		next,
+		previous,
+		active: !waitingMode && Boolean(selected ?? focusedFactoryCard),
+	};
+	// Left and right arrows only move between cards: no answer, skip or
+	// learning event. A card that pages itself marks the key as handled.
+	useEffect(() => {
+		const page = (event: KeyboardEvent) => {
+			if (
+				(event.key !== "ArrowRight" && event.key !== "ArrowLeft") ||
+				event.defaultPrevented ||
+				event.metaKey ||
+				event.ctrlKey ||
+				event.altKey ||
+				event.shiftKey ||
+				!paging.current.active ||
+				isTypingEvent(event) ||
+				(event.target instanceof Element &&
+					event.target.closest(ARROW_OWNERS)) ||
+				document.querySelector("[aria-modal=true]")
+			)
+				return;
+			event.preventDefault();
+			if (event.key === "ArrowRight") paging.current.next();
+			else paging.current.previous();
+		};
+		document.addEventListener("keydown", page);
+		return () => document.removeEventListener("keydown", page);
+	}, []);
+	const navigation = (selected || focusedFactoryCard) &&
+		(mode === "history" || filtered.length > 1) && (
+			<nav
+				className="fd-deck-navigation"
+				aria-label={decisionText("Move between cards")}
+				data-deck-paging
+			>
+				<ShortcutTooltip
+					label={decisionText("Previous card · records nothing")}
+					shortcut="←"
+					keyshortcuts="ArrowLeft"
+				>
+					<Button variant="ghost" onClick={previous}>
+						{decisionText("Previous")}
+					</Button>
+				</ShortcutTooltip>
+				<ShortcutTooltip
+					label={decisionText("Next card · records nothing")}
+					shortcut="→"
+					keyshortcuts="ArrowRight"
+				>
+					<Button variant="ghost" onClick={next}>
+						{decisionText("Next")}
+					</Button>
+				</ShortcutTooltip>
+			</nav>
+		);
 	const content = createElement(
 		DecisionLearningContext.Provider,
 		{
@@ -348,6 +411,7 @@ function DecisionDeckContent({
 								</OptimisticDeckDecisionContext.Provider>
 							)}
 						</Suspense>
+						{navigation}
 					</div>
 				) : mode === "decide" && focusCard && !selected ? (
 					<div className="grid gap-3">
@@ -662,16 +726,7 @@ function DecisionDeckContent({
 								</DeckFooterContext.Provider>
 							</DeckCurationContext.Provider>
 						</DeckNoticeContext.Provider>
-						{mode === "history" ? (
-							<div className="fd-deck-navigation">
-								<Button variant="ghost" onClick={previous}>
-									{decisionText("Previous")}
-								</Button>
-								<Button variant="ghost" onClick={next}>
-									{decisionText("Next")}
-								</Button>
-							</div>
-						) : null}
+						{navigation}
 					</div>
 				) : (
 					(practiceMode ||

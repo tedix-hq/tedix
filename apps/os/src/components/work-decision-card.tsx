@@ -154,8 +154,8 @@ const OUTBOUND_REJECT_REASONS = [
 
 /** The card's keydown handler below owns these keys; the tooltips only show them. */
 const ACTION_SHORTCUTS: Record<string, { key: string; aria: string }> = {
-	approve: { key: "→", aria: "ArrowRight" },
-	reject: { key: "←", aria: "ArrowLeft" },
+	approve: { key: "Y", aria: "Y" },
+	reject: { key: "N", aria: "N" },
 	later: { key: "L", aria: "L" },
 	delegate: { key: "D", aria: "D" },
 };
@@ -555,7 +555,7 @@ export function WorkDecisionCard({
 						: action.label,
 		);
 	// On phones the Deck row keeps the primary and the secondary; these move to "⋯".
-	// In an outcome row a decline always lives in "⋯"; swipe left and ← still decline.
+	// In an outcome row a decline always lives in "⋯"; swipe left and N still decline.
 	// In an outcome row a decline stays in view; on phones it moves to "⋯".
 	const overflowActions = outcomeRow
 		? actions.filter(
@@ -1006,11 +1006,19 @@ export function WorkDecisionCard({
 					event.preventDefault();
 					(event.key === "j" ? onNext : onPrevious)?.();
 				}
-				if (event.key === "Enter" || event.key === "ArrowRight") {
+				// Arrows only page; the deck pages when this card has no handler.
+				if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
+					const page = event.key === "ArrowRight" ? onNext : onPrevious;
+					if (page) {
+						event.preventDefault();
+						page();
+					}
+				}
+				if (event.key === "Enter" || event.key.toLowerCase() === "y") {
 					event.preventDefault();
 					choose(approve);
 				}
-				if (event.key === "ArrowLeft") {
+				if (event.key.toLowerCase() === "n") {
 					event.preventDefault();
 					choose(reject);
 				}

@@ -13,6 +13,8 @@ import { isTypingEvent } from "@/lib/keyboard";
 import {
 	ArrowArcLeft,
 	ArrowSquareOut,
+	CaretLeft,
+	CaretRight,
 	CheckCircle,
 	ClockCountdown,
 	SkipForward,
@@ -577,6 +579,13 @@ export function CardReviewApp({
 		null;
 	const source = card ? sources[card.sourceIndex] : undefined;
 	const actionLabel = card && source ? doItLabel(source, card) : null;
+	const position = card ? queue.findIndex((row) => row.key === card.key) : -1;
+	const canPage = !focusCardKey && position >= 0 && queue.length > 1;
+	/** Show the previous or next waiting card; records no verdict, skip or learning event. */
+	const page = (step: 1 | -1) => {
+		if (!canPage) return;
+		setBrowseKey(queue[(position + step + queue.length) % queue.length]!.key);
+	};
 
 	const [selectedChips, setSelectedChips] = useState<string[]>([]);
 	const [note, setNote] = useState("");
@@ -1141,8 +1150,10 @@ export function CardReviewApp({
 			return;
 		}
 		const digit = Number.parseInt(key, 10);
-		if (key === "arrowright" || key === "u") void decide("useful");
-		else if (key === "arrowleft" || key === "n") void decide("not_useful");
+		if (key === "arrowright") page(1);
+		else if (key === "arrowleft") page(-1);
+		else if (key === "u") void decide("useful");
+		else if (key === "n") void decide("not_useful");
 		else if (key === "d" && actionLabel !== null) void decide("do_it");
 		else if (key === "s") snooze();
 		else if (key === "k") skip();
@@ -1429,6 +1440,43 @@ export function CardReviewApp({
 					{needsAccess?.cardKey === card.key && (
 						<AllowOrganising access={needsAccess} onAllowed={retryAfterAllow} />
 					)}
+					{queue.length > 1 && position >= 0 && (
+						<nav
+							aria-label={decisionText("Move between cards")}
+							data-card-review-paging
+							className="flex items-center justify-between gap-2"
+						>
+							<Button
+								size="sm"
+								variant="ghost"
+								icon={<CaretLeft aria-hidden />}
+								disabled={!canPage}
+								onClick={() => page(-1)}
+								aria-keyshortcuts="ArrowLeft"
+							>
+								{decisionText("Previous")}
+							</Button>
+							<Text
+								as="span"
+								role="caption"
+								tone="secondary"
+								aria-live="polite"
+								data-card-review-position
+							>
+								{OS_COPY.decisionDeck.position(position + 1, queue.length)}
+							</Text>
+							<Button
+								size="sm"
+								variant="ghost"
+								icon={<CaretRight aria-hidden />}
+								disabled={!canPage}
+								onClick={() => page(1)}
+								aria-keyshortcuts="ArrowRight"
+							>
+								{decisionText("Next")}
+							</Button>
+						</nav>
+					)}
 					<SwipeCard
 						key={card.key}
 						card={card}
@@ -1466,7 +1514,7 @@ export function CardReviewApp({
 								icon={<ThumbsDown aria-hidden />}
 								disabled={busy || revisionPending}
 								onClick={() => void decide("not_useful")}
-								aria-keyshortcuts="ArrowLeft"
+								aria-keyshortcuts="N"
 							>
 								{decisionText("Not useful")}
 							</Button>
@@ -1477,7 +1525,7 @@ export function CardReviewApp({
 								icon={<ThumbsUp aria-hidden />}
 								disabled={busy || revisionPending}
 								onClick={() => void decide("useful")}
-								aria-keyshortcuts="ArrowRight"
+								aria-keyshortcuts="U"
 							>
 								{decisionText("Useful")}
 							</Button>
@@ -1528,7 +1576,8 @@ export function CardReviewApp({
 						tone="secondary"
 						className="hidden text-center sm:block"
 					>
-						<Kbd>←</Kbd> not useful · <Kbd>→</Kbd> useful ·{" "}
+						<Kbd>←</Kbd> <Kbd>→</Kbd> previous or next · <Kbd>N</Kbd> not useful
+						· <Kbd>U</Kbd> useful ·{" "}
 						{actionLabel !== null && (
 							<>
 								<Kbd>D</Kbd> do it ·{" "}
