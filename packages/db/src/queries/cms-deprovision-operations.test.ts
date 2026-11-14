@@ -9,7 +9,6 @@ import {
 import {
 	CmsDeprovisionReservationConflictError,
 	completeCmsDeprovisionOperation,
-	countCmsDeprovisionBlockingPermits,
 	getCmsDeprovisionOperation,
 	getCmsDeprovisionOperationForOrganization,
 	reserveCmsDeprovisionOperation,
@@ -445,13 +444,12 @@ describe("CMS deprovision operation ledger", () => {
 		).toBeUndefined();
 	});
 
-	it("lets only a recent permit block deprovision and removes leftovers with the site", async () => {
+	it("removes the site's leftover permits with the site", async () => {
 		const { db, sqlite } = fixture();
 		sqlite.exec(`
-			INSERT INTO cms_restore_permits (id, site_id, slug, kind, entered_at) VALUES
-				('orphan', 'site-1', 'example', 'scheduled', datetime('now', '-73 hours')),
-				('recent', 'site-1', 'example', 'nested', datetime('now', '-71 hours')),
-				('other', 'site-2', 'other', 'outer', datetime('now', '-73 hours'));
+			INSERT INTO cms_restore_permits (id, site_id, slug, kind) VALUES
+				('leftover', 'site-1', 'example', 'scheduled'),
+				('other', 'site-2', 'other', 'outer');
 		`);
 		await reserveCmsDeprovisionOperation(db, {
 			siteId: "site-1",
@@ -459,10 +457,6 @@ describe("CMS deprovision operation ledger", () => {
 			slug: "example",
 			authoringAppId: "app-1",
 		});
-		expect(await countCmsDeprovisionBlockingPermits(db, "site-1")).toBe(1);
-		sqlite.exec("DELETE FROM cms_restore_permits WHERE id = 'recent'");
-		expect(await countCmsDeprovisionBlockingPermits(db, "site-1")).toBe(0);
-		expect(await countCmsRestorePermitsForSite(db, "site-1")).toBe(1);
 		await completeCmsDeprovisionOperation(db, {
 			siteId: "site-1",
 			organizationId: "org-1",

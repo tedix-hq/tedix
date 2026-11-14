@@ -26,7 +26,6 @@ import {
 } from "@tedix/db/queries/cms-sites";
 import {
 	completeCmsDeprovisionOperation,
-	countCmsDeprovisionBlockingPermits,
 	getCmsDeprovisionOperation,
 	updateCmsDeprovisionOperation,
 } from "@tedix/db/queries/cms-deprovision-operations";
@@ -83,35 +82,6 @@ function isPlatformHostname(hostname: string): boolean {
 	);
 }
 
-/** An admitted provider call can outlive its Workflow step timeout. Its durable
- * permit, rather than the Workflow status, determines when deletion is safe.
- * Eight minutes of polling leaves the ten-minute step room to report. */
-async function waitForCmsMutationDrain(
-	db: Parameters<typeof countCmsDeprovisionBlockingPermits>[0],
-	siteId: string,
-): Promise<void> {
-	let inFlight = 0;
-	for (let poll = 0; poll < 240; poll++) {
-		try {
-			inFlight = await countCmsDeprovisionBlockingPermits(db, siteId);
-		} catch (error) {
-			// Drizzle's own message is the SQL text; the D1 reason is its cause.
-			let cause: unknown = error;
-			while (cause instanceof Error && cause.cause instanceof Error)
-				cause = cause.cause;
-			throw new Error(
-				`CMS mutation drain could not be read: ${cause instanceof Error ? cause.message : String(cause)}`,
-			);
-		}
-		if (inFlight === 0) return;
-		if (poll < 239)
-			await new Promise<void>((resolve) => setTimeout(resolve, 2_000));
-	}
-	throw new Error(
-		`${inFlight} CMS mutation${inFlight === 1 ? " is" : "s are"} still in progress; cleanup needs attention`,
-	);
-}
-
 export class CmsDeprovisionWorkflow extends WorkflowEntrypoint<
 	CloudflareEnv,
 	CmsDeprovisionParams
@@ -152,11 +122,6 @@ export class CmsDeprovisionWorkflow extends WorkflowEntrypoint<
 		if (operation.status === "succeeded") return operation;
 
 		try {
-			await step.do(
-				"drain CMS mutations",
-				{ retries: { limit: 0, delay: "1 second" }, timeout: "10 minutes" },
-				() => waitForCmsMutationDrain(db, siteId),
-			);
 			await step.do(
 				"pause site and disable authoring",
 				{ retries: { limit: 3, delay: "2 seconds" }, timeout: "30 seconds" },
