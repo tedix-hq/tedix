@@ -264,6 +264,7 @@ export async function executeTool(
 		/** The Home approval receipt for this exact call was verified. */
 		homeApprovedCall?: boolean;
 		verifiedHomeAgentPrincipalId?: string;
+		verifiedOwnerToolUserId?: string;
 		/** Only from a verified server-side policy decision. */
 		expectedPolicyCredential?: SelectedConnectionCredential;
 		expectedPolicyProbe?: ToolExecutionContext<ToolConfig>["expectedPolicyProbe"];
@@ -302,6 +303,7 @@ export async function executeTool(
 				...agent.callerIdentity,
 				homeApprovedCall: true,
 				approvedHomeAgentPrincipalId: options.verifiedHomeAgentPrincipalId,
+				approvedToolUserId: options.verifiedOwnerToolUserId,
 			},
 		};
 	}

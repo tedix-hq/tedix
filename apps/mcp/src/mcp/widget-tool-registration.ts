@@ -10,6 +10,7 @@ import {
 import * as z from "zod";
 import { withDestructiveApprovalSchema } from "./governance";
 import { guardGatewayCall } from "./gateway-adapters";
+import { isApprovedReplayCall } from "./governance";
 import type { AppTool, ServerContext } from "./server-context";
 import { executeTool } from "./tool-execution";
 import {
@@ -184,10 +185,17 @@ export async function registerDynamicTool(
 					approval: { args, extra },
 					surface: "mcp_widget",
 				},
-				async (executionArgs) =>
+				async (
+					executionArgs,
+					verifiedHomeAgentPrincipalId,
+					verifiedOwnerToolUserId,
+				) =>
 					projectNativeOutputEvidence(
 						await executeTool(agent, tool, executionArgs, {
 							adapterScope,
+							homeApprovedCall: isApprovedReplayCall(agent, { extra }),
+							verifiedHomeAgentPrincipalId,
+							verifiedOwnerToolUserId,
 							resultStrategy:
 								(tool.resultStrategy as ResultStrategy) ?? "merge",
 						}),

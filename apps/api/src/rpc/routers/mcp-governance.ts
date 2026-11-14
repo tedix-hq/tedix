@@ -1599,6 +1599,24 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 					ErrorCodes.NOT_FOUND,
 					"Organization OS is unavailable",
 				);
+			if (
+				input.directUserCall &&
+				!input.requestingAgent &&
+				!input.approvalRequestId &&
+				!egress
+			) {
+				if (input.target.requiredRole === "owner" && requester.role !== "owner")
+					throw createError(
+						ErrorCodes.FORBIDDEN,
+						"Only an owner can run this tool",
+					);
+				return {
+					approved: true,
+					status: "self_authorized",
+					url: origin,
+					approvedUserId: input.userId,
+				};
+			}
 			const fingerprint = await canonicalDigest({
 				organizationId: input.organizationId,
 				userId: input.userId,
@@ -1717,6 +1735,8 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 					approval.status === "approved" &&
 					approver?.status === "active" &&
 					["owner", "admin"].includes(approver.role) &&
+					(input.target.requiredRole !== "owner" ||
+						approver.role === "owner") &&
 					(await consumeOwnerToolApproval(context.db, {
 						id: approval.id,
 						organizationId: input.organizationId,
@@ -1726,6 +1746,9 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 				const execution = stored.execution as { status?: unknown } | undefined;
 				return {
 					approved: Boolean(approved),
+					...(approved
+						? { approvedUserId: approval.resolvedBy!.replace(/^user:/, "") }
+						: {}),
 					approvalRequestId: approval.id,
 					status: approved
 						? "consumed"
@@ -1785,7 +1808,7 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 					actionType: "mcp.tool_call",
 					description: egress
 						? `Fetch ${egress.url} once for this turn. This run read sensitive data at ${egress.latchedAt}. The sensitive-data lock stays on; other egress remains blocked.`
-						: `${title}. In ${app} for ${requestedFor} (${organizationName}). Nothing has run yet; approving runs this exact call once.`,
+						: `${title}. In ${app} for ${requestedFor} (${organizationName}). ${input.target.requiredRole === "owner" ? "Only an owner can run this tool. " : input.target.requiredRole === "admin_or_owner" ? "Only an owner or admin can run this tool. " : ""}Nothing has run yet; approving runs this exact call once.`,
 					payload: {
 						kind: "mcp_tool_call",
 						initiatedByUserId: input.userId,

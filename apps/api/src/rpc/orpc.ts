@@ -843,6 +843,32 @@ export const withAuth = base.middleware(async (options, input) => {
 				context.headers.get("x-tedix-acting-user");
 			if (actingUser) context.descopeUserId = actingUser;
 		}
+		const approvedToolUser = context.headers.get("X-Tedix-Approved-Tool-User");
+		if (approvedToolUser) {
+			if (
+				context.serviceBindingPrincipal !== "mcp-edge" ||
+				!context.organizationId
+			)
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Approved tool authority requires the MCP gateway",
+				);
+			const member = await getMemberByUserId(
+				context.db,
+				context.organizationId,
+				approvedToolUser,
+			);
+			if (
+				member?.status !== "active" ||
+				!["owner", "admin"].includes(member.role)
+			)
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"The approver is no longer an active owner or admin",
+				);
+			context.userRole = member.role;
+			context.approvedToolUserId = approvedToolUser;
+		}
 		// Tedi principal: the MCP edge forwards the calling tedi's id and the
 		// capability scopes it resolved from D1 `tedis.mcp_capability_profile`.
 		// This IS an authority grant — `isPlatformPrincipal()` honors `platform:admin`

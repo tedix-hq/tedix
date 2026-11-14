@@ -1062,6 +1062,10 @@ export class ToolHandler {
 				headers["X-Tedix-Actor-Id"] =
 					ctx.callerIdentity.approvedHomeAgentPrincipalId;
 			}
+			if (ctx.callerIdentity.approvedToolUserId) {
+				headers["X-Tedix-Approved-Tool-User"] =
+					ctx.callerIdentity.approvedToolUserId;
+			}
 			const approvedScopes = homeApprovedToolScopes(
 				ctx.toolId,
 				config,
@@ -1070,7 +1074,9 @@ export class ToolHandler {
 				params,
 				ctx.readOnlyHint,
 			);
-			if (approvedScopes.length > 0)
+			if (ctx.callerIdentity.approvedToolUserId && transport === "rpc")
+				headers["X-Tedix-Tedi-Scopes"] = approvedScopes.join(" ");
+			else if (approvedScopes.length > 0)
 				headers["X-Tedix-Tedi-Scopes"] = [
 					...new Set([
 						...(headers["X-Tedix-Tedi-Scopes"]?.split(/\s+/).filter(Boolean) ??

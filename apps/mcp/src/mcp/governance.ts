@@ -26,6 +26,7 @@ import {
 } from "@tedix/api-contract/utils/email-trusted-recipients";
 import { AgentLifecycleEndpointSchema } from "@tedix/api-contract/schemas/mcp-governance";
 import {
+	parseToolPolicyMetadata,
 	ToolActionTypeSchema,
 	type ToolAnnotations,
 } from "@tedix/api-contract/schemas/tools";
@@ -792,6 +793,7 @@ export interface DestructiveApprovalOptions {
 	sensitiveDataEgress?: SensitiveDataEgressApproval;
 	/** Per-call receipt provenance, delivered only after successful consumption. */
 	onHomeAgentVerified?: (principalId: string) => void;
+	onOwnerToolVerified?: (userId: string) => void;
 	/** Server-projected callable, rather than an aggregate tool's wire id. */
 	toolName?: string;
 	/** Bind a Code Mode retry to its source and inner arguments. */
@@ -912,6 +914,9 @@ async function ownerToolApproval(
 	)
 		return undefined;
 	const replay = isOwnerApprovalReplayCall(agent, options);
+	const requiredRole = parseToolPolicyMetadata(
+		tool.meta as Record<string, unknown>,
+	)?.requiredRole;
 	try {
 		const approvalRequestId =
 			options?.extra?._meta?.["com.tedix/approvalRequestId"];
@@ -920,6 +925,11 @@ async function ownerToolApproval(
 				organizationId: agent.app.organizationId,
 				userId: agent.callerIdentity.userId,
 				...(requestingAgent ? { requestingAgent } : {}),
+				directUserCall:
+					callerIsUserPrincipalPath(agent) &&
+					!identity?.ownerHostSessionId &&
+					!identity?.externalAgentPrincipalId &&
+					!replay,
 				...(identity?.requestWorkItemId
 					? { workItemId: identity.requestWorkItemId }
 					: {}),
@@ -929,6 +939,7 @@ async function ownerToolApproval(
 					...(options?.sensitiveDataEgress
 						? { sensitiveDataEgress: options.sensitiveDataEgress }
 						: {}),
+					...(requiredRole ? { requiredRole } : {}),
 					transport: tool.config?.transport ?? "rpc",
 					endpoint: tool.config?.endpoint ?? null,
 					mcpToolName: tool.config?.mcpToolName ?? null,
@@ -950,6 +961,8 @@ async function ownerToolApproval(
 				...(typeof approvalRequestId === "string" ? { approvalRequestId } : {}),
 			});
 		if (approval.approved) {
+			if (replay && approval.approvedUserId)
+				options?.onOwnerToolVerified?.(approval.approvedUserId);
 			emitGovernanceAuditEvent(
 				agent,
 				tool,

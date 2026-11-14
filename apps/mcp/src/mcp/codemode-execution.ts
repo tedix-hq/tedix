@@ -534,7 +534,17 @@ export function buildNamespaceGroups(
 					},
 				};
 				const admission = await admitGatewayCall({
-					agent: serverCtx,
+					agent:
+						executionRefs.ownerHostSession && serverCtx.callerIdentity
+							? {
+									...serverCtx,
+									callerIdentity: {
+										...serverCtx.callerIdentity,
+										ownerHostSessionId:
+											executionRefs.ownerHostSession.sessionId,
+									},
+								}
+							: serverCtx,
 					tool,
 					annotations: declaredAnnotations,
 					args: toolArgs,
@@ -593,6 +603,7 @@ export function buildNamespaceGroups(
 						ownerHostSession: executionRefs.ownerHostSession,
 						verifiedHomeAgentPrincipalId:
 							admission.verifiedHomeAgentPrincipalId,
+						verifiedOwnerToolUserId: admission.verifiedOwnerToolUserId,
 						...(nativeCandidate
 							? { expectedNativePolicyRevalidate: nativeCandidate.revalidate }
 							: {}),

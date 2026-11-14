@@ -209,7 +209,11 @@ export async function registerTextOnlyTool(
 					nativePolicyCandidate: nativeCandidate ?? undefined,
 				},
 			},
-			async (executionArgs, verifiedHomeAgentPrincipalId) => {
+			async (
+				executionArgs,
+				verifiedHomeAgentPrincipalId,
+				verifiedOwnerToolUserId,
+			) => {
 				const payment = await checkToolPayment({
 					agent,
 					tool,
@@ -225,6 +229,7 @@ export async function registerTextOnlyTool(
 						clientSupportsTasks: clientSupportsTasks(extra?._meta),
 						homeApprovedCall: isApprovedReplayCall(agent, { extra }),
 						verifiedHomeAgentPrincipalId,
+						verifiedOwnerToolUserId,
 						secretEgressDecision: secretEgress.decision,
 						...(nativeCandidate
 							? { expectedNativePolicyRevalidate: nativeCandidate.revalidate }

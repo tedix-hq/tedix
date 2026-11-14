@@ -410,6 +410,7 @@ export const ToolPolicyMetadataSchema = z
 	.object({
 		owner: z.string().min(1).max(160).optional(),
 		argumentPolicy: z.string().min(1).max(160).optional(),
+		requiredRole: z.enum(["owner", "admin_or_owner"]).optional(),
 		risk: z.enum(TOOL_POLICY_RISK_VALUES).optional(),
 		riskTier: z
 			.enum(TOOL_OPERATIONAL_RISK_TIER_VALUES)

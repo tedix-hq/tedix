@@ -19,6 +19,7 @@ export interface ToolRiskPolicy {
 	riskTier: ToolOperationalRiskTier;
 	blastRadius: ToolBlastRadius;
 	argumentPolicy?: string;
+	requiredRole?: "owner" | "admin_or_owner";
 }
 
 export function resolveToolRiskPolicy(
@@ -29,6 +30,7 @@ export function resolveToolRiskPolicy(
 		? {
 				riskTier: policy.riskTier,
 				blastRadius: policy.blastRadius,
+				...(policy.requiredRole ? { requiredRole: policy.requiredRole } : {}),
 				...(policy.argumentPolicy
 					? { argumentPolicy: policy.argumentPolicy }
 					: {}),
@@ -90,8 +92,18 @@ export function toolApprovalMetadata(
 					writeCapability: declared.writeCapability,
 				}
 			: resolveToolRiskPolicy(tool);
+	const requiredRole = parseToolPolicyMetadata(
+		tool.meta as Record<string, unknown>,
+	)?.requiredRole;
 	return {
-		...(policy ? { "com.tedix/policy": policy } : {}),
+		...(policy || requiredRole
+			? {
+					"com.tedix/policy": {
+						...policy,
+						...(requiredRole ? { requiredRole } : {}),
+					},
+				}
+			: {}),
 		...(providerId &&
 		tool.config?.transport === "mcp" &&
 		typeof tool.config.mcpToolName === "string"

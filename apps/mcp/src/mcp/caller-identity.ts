@@ -90,6 +90,8 @@ export interface CallerIdentity {
 	 * the approved tool itself requires.
 	 */
 	homeApprovedCall?: boolean;
+	/** Active approver from this dispatch's consumed exact-call receipt. */
+	approvedToolUserId?: string;
 	/** Creator from this call's consumed receipt; never an authenticated session. */
 	approvedHomeAgentPrincipalId?: string;
 }

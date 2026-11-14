@@ -51,6 +51,14 @@ MCP calls can participate in durable Tedix work:
 MCP provides the connection. Tedix adds organization-specific identity,
 access controls, long-running work, and audit records.
 
+A tool that requires an organization role can declare `requiredRole` in its
+`meta["com.tedix/policy"]`: use `"owner"` or `"admin_or_owner"`. Discovery
+includes the requirement, and the approval card tells the person which role
+can run the call. An approved call uses the active approver's role for that
+exact call, with only the tool's required scopes. An owner or admin calling
+directly under their own login does not receive a separate approval addressed
+to themselves; calls from an agent keep their approval requirements.
+
 ## Trace one tool
 
 One external-transport test starts with this configuration:
