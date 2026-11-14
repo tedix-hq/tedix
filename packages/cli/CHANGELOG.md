@@ -3,6 +3,14 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.21.13 — 2026-11-14
+
+### Patch Changes
+
+- A task that was waiting on your decision or approval starts again once you answer, and the next run is told what you decided.
+- A task assigned to one specific local agent now uses the model you configured for that agent, the same as tasks picked automatically.
+- Work details no longer show the retired reviewer deadline. Current reviewer assignments are unchanged.
+
 ## 0.21.12 — 2026-11-13
 
 ### Patch Changes
