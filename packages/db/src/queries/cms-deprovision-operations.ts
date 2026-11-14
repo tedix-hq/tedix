@@ -1,4 +1,4 @@
-import { and, count, eq, gt, notExists, sql } from "drizzle-orm";
+import { and, eq, notExists, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
 import { cmsSites } from "../schema/cms-sites";
 import {
@@ -102,27 +102,6 @@ export async function getCmsDeprovisionOperationForOrganization(
 		)
 		.limit(1);
 	return row ?? null;
-}
-
-/**
- * A reservation stops new permits, so an in-flight claim can only be one
- * entered shortly before it. A permit older than 72 hours is an orphan: its
- * owner cannot still be running, and it must not keep a site undeletable.
- */
-export async function countCmsDeprovisionBlockingPermits(
-	db: DbQueryClient,
-	siteId: string,
-): Promise<number> {
-	const [permits] = await db
-		.select({ inFlight: count() })
-		.from(cmsRestorePermits)
-		.where(
-			and(
-				eq(cmsRestorePermits.siteId, siteId),
-				gt(cmsRestorePermits.enteredAt, sql`datetime('now', '-72 hours')`),
-			),
-		);
-	return permits?.inFlight ?? 0;
 }
 
 export interface UpdateCmsDeprovisionOperationParams {

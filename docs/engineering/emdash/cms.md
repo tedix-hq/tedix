@@ -172,15 +172,15 @@ context.
 - **Create** reserves a quota-counted site ID in a non-serving `provisioning`
   state, creates and rereads the media bucket under an exact-site permit, and
   activates only after readback. A retry reuses the reservation; an
-  unobserved provider outcome leaves an orphan permit that blocks teardown
-  for 72 hours. Paused sites count against `maxCmsSites`.
+  unobserved provider outcome leaves an orphan permit. Paused sites count
+  against `maxCmsSites`.
 - **Archive/restore** pause and reactivate the same resources without deleting
   data. **Reconcile** reports drift and never repairs automatically.
 - **Deprovision** (exact slug) runs `CmsDeprovisionWorkflow`. Builder and
   runtime each verify a paused site and matching receipt before touching
   provider data; missing resources count as removed on retry, and it is not
-  complete while a custom hostname remains at Cloudflare. It waits for permits
-  entered in the last 72 hours; older ones are orphans and go with the site.
+  complete while a custom hostname remains at Cloudflare. The receipt stops new
+  permits; deprovision does not wait for old ones and removes them with the site.
 - **Custom hostnames** activate only after Cloudflare reports hostname and SSL
   active, and set `custom_domain` and `canonical_url` together; a replacement
   keeps the old hostname until the new one is live.

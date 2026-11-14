@@ -18,14 +18,12 @@ const mocks = vi.hoisted(() => ({
 	removeClaim: vi.fn(),
 	findHostname: vi.fn(),
 	deleteHostname: vi.fn(),
-	countPermits: vi.fn(),
 }));
 vi.mock("@tedix/db/client", () => ({ createDbClient: mocks.createDb }));
 vi.mock("@tedix/db/queries/cms-deprovision-operations", () => ({
 	getCmsDeprovisionOperation: mocks.getOperation,
 	updateCmsDeprovisionOperation: mocks.updateOperation,
 	completeCmsDeprovisionOperation: mocks.completeOperation,
-	countCmsDeprovisionBlockingPermits: mocks.countPermits,
 }));
 vi.mock("@tedix/db/queries/cms-sites", () => ({
 	getCmsSiteByIdForOrganization: mocks.getSite,
@@ -105,7 +103,6 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	mocks.createDb.mockReturnValue({});
 	mocks.getOperation.mockResolvedValue(receipt);
-	mocks.countPermits.mockResolvedValue(0);
 	mocks.getSite.mockResolvedValue({
 		id: siteId,
 		slug: receipt.slug,
@@ -124,78 +121,7 @@ beforeEach(() => {
 });
 
 describe("CmsDeprovisionWorkflow", () => {
-	it("waits for site permits to drain before pausing or calling a provider", async () => {
-		vi.useFakeTimers();
-		try {
-			mocks.countPermits.mockResolvedValueOnce(1).mockResolvedValueOnce(0);
-			const { workflow, event, step, fetch } = harness(
-				Response.json(completeProviderResult),
-			);
-			const run = workflow.run(event as never, step as never);
-			await vi.advanceTimersByTimeAsync(2_000);
-			await expect(run).resolves.toMatchObject({ siteId });
-			expect(mocks.countPermits).toHaveBeenCalledWith({}, siteId);
-			expect(mocks.countPermits).toHaveBeenCalledTimes(2);
-			expect(mocks.setSiteStatus.mock.invocationCallOrder[0]).toBeGreaterThan(
-				mocks.countPermits.mock.invocationCallOrder[1]!,
-			);
-			expect(fetch.mock.invocationCallOrder[0]).toBeGreaterThan(
-				mocks.countPermits.mock.invocationCallOrder[1]!,
-			);
-		} finally {
-			vi.useRealTimers();
-		}
-	});
-
-	it("fails closed and records failure when the D1 drain read fails", async () => {
-		mocks.countPermits.mockRejectedValue(
-			new Error("Failed query: select count(*)", {
-				cause: new Error("D1 unavailable"),
-			}),
-		);
-		const { workflow, event, step, fetch } = harness(
-			Response.json(completeProviderResult),
-		);
-		await expect(workflow.run(event as never, step as never)).rejects.toThrow(
-			"D1 unavailable",
-		);
-		expect(mocks.setSiteStatus).not.toHaveBeenCalled();
-		expect(mocks.deleteHostname).not.toHaveBeenCalled();
-		expect(fetch).not.toHaveBeenCalled();
-		expect(mocks.updateOperation).toHaveBeenCalledWith(
-			{},
-			expect.objectContaining({
-				status: "failed",
-				errors: ["CMS mutation drain could not be read: D1 unavailable"],
-			}),
-		);
-	});
-
-	it("leaves resources intact when a recent permit never drains", async () => {
-		vi.useFakeTimers();
-		try {
-			mocks.countPermits.mockResolvedValue(2);
-			const { workflow, event, step, fetch } = harness(
-				Response.json(completeProviderResult),
-			);
-			const run = workflow.run(event as never, step as never);
-			const outcome = expect(run).rejects.toThrow(
-				"2 CMS mutations are still in progress",
-			);
-			await vi.advanceTimersByTimeAsync(478_000);
-			await outcome;
-			expect(mocks.setSiteStatus).not.toHaveBeenCalled();
-			expect(fetch).not.toHaveBeenCalled();
-			expect(mocks.updateOperation).toHaveBeenCalledWith(
-				{},
-				expect.objectContaining({ status: "failed" }),
-			);
-		} finally {
-			vi.useRealTimers();
-		}
-	});
-
-	it("rejects a changed site identity before draining or provider cleanup", async () => {
+	it("rejects a changed site identity before provider cleanup", async () => {
 		mocks.getSite.mockResolvedValue({
 			id: siteId,
 			slug: "replacement",
@@ -207,7 +133,6 @@ describe("CmsDeprovisionWorkflow", () => {
 		await expect(workflow.run(event as never, step as never)).rejects.toThrow(
 			"CMS deprovision site identity mismatch",
 		);
-		expect(mocks.countPermits).not.toHaveBeenCalled();
 		expect(mocks.setSiteStatus).not.toHaveBeenCalled();
 		expect(fetch).not.toHaveBeenCalled();
 	});
@@ -224,16 +149,7 @@ describe("CmsDeprovisionWorkflow", () => {
 		await expect(workflow.run(event as never, step as never)).rejects.toThrow(
 			"CMS deprovision site identity mismatch",
 		);
-		expect(mocks.countPermits).not.toHaveBeenCalled();
 		expect(fetch).not.toHaveBeenCalled();
-	});
-
-	it("counts permits only for the operation site ID", async () => {
-		const { workflow, event, step } = harness(
-			Response.json(completeProviderResult),
-		);
-		await workflow.run(event as never, step as never);
-		expect(mocks.countPermits).toHaveBeenCalledExactlyOnceWith({}, siteId);
 	});
 
 	it("records progress and a final receipt after provider and site cleanup", async () => {
@@ -248,7 +164,6 @@ describe("CmsDeprovisionWorkflow", () => {
 		});
 		expect(calls).toEqual([
 			"verify deprovision receipt",
-			"drain CMS mutations",
 			"pause site and disable authoring",
 			"remove CMS custom hostnames",
 			"remove CMS resources",
