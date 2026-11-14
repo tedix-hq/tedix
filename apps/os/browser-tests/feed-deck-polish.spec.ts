@@ -385,7 +385,7 @@ try {
 			if (!(await page.evaluate(() => Boolean(getSelection()?.toString()))))
 				throw new Error("Mouse drag could not select title text");
 			await page.locator(".fd-decision").focus();
-			await page.keyboard.press("ArrowRight");
+			await page.keyboard.press("y");
 			await page.locator(".fd-closure").waitFor();
 			await page.goto(
 				`${origin}/browser-tests/feed-deck-polish.html?surface=approval&theme=${theme}`,
