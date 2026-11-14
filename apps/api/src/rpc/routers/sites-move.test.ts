@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
 	getOrganizationFeatures: vi.fn(),
 	getGateways: vi.fn(),
 	audit: vi.fn(),
+	purgeAggregate: vi.fn(),
 }));
 
 vi.mock("@tedix/db/queries/cms-sites", () => ({
@@ -50,6 +51,9 @@ vi.mock("@tedix/db/queries/organization-members", () => ({
 }));
 vi.mock("@tedix/db/queries/docs-sites/sites", () => ({
 	getDocsSiteById: vi.fn(),
+}));
+vi.mock("../../lib/mcp-subscriptions", () => ({
+	purgeMcpAggregateCache: mocks.purgeAggregate,
 }));
 vi.mock("../audit-helpers", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../audit-helpers")>()),
@@ -199,6 +203,7 @@ describe("moveCms", () => {
 			{ appId: newApp.id, slug: newApp.slug },
 			true,
 		);
+		expect(mocks.purgeAggregate).toHaveBeenCalledOnce();
 		expect(mocks.audit).toHaveBeenCalledTimes(2);
 	});
 
@@ -213,6 +218,7 @@ describe("moveCms", () => {
 		expect(mocks.moveSite).not.toHaveBeenCalled();
 		expect(mocks.deleteApp).not.toHaveBeenCalled();
 		expect(mocks.createApp).toHaveBeenCalledOnce();
+		expect(mocks.purgeAggregate).toHaveBeenCalledOnce();
 	});
 
 	it("leaves everything in place when the site cannot move", async () => {
