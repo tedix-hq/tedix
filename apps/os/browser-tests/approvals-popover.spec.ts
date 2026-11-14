@@ -59,6 +59,9 @@ const evidenceDir = process.env.APPROVALS_POPOVER_EVIDENCE_DIR;
 if (evidenceDir) await mkdir(evidenceDir, { recursive: true });
 // The overflow menu once raced its disclosure in WebKit only; cover both engines.
 const browsers: Browser[] = [];
+let activePage: Page | undefined;
+let scenario = "browser startup";
+let crashed = false;
 try {
 	for (const engine of [webkit, chromium]) {
 		const browser = await engine.launch();
@@ -73,6 +76,12 @@ try {
 					viewport: { width, height },
 					colorScheme: theme,
 					hasTouch: width < 820,
+				});
+				activePage = page;
+				scenario = `${engine.name()} ${width}x${height} ${theme}`;
+				crashed = false;
+				page.on("crash", () => {
+					crashed = true;
 				});
 				await page.goto(`${server.origin}${fixturePath}?theme=${theme}`);
 				// The shared dev server can still be re-bundling fixture
@@ -345,6 +354,76 @@ try {
 	console.log(
 		"PASS: Approvals panel review groups, plain titles, identical-request rows, auto-approval policy, history filters, overflow, focus return and empty states; WebKit and Chromium × 320/375/1280 × light/dark",
 	);
+} catch (error) {
+	// The preload sees an uncaught error only after finally has closed the page.
+	// Sample a failing page here; keep the passing path free of frame probes.
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		const frames = await Promise.race([
+			(async () => {
+				const state = await activePage?.evaluate(() => ({
+					url: location.href,
+					readyState: document.readyState,
+					visibility: document.visibilityState,
+					focused: document.hasFocus(),
+					selectedTab: document.querySelector(
+						'[role="tab"][aria-selected="true"]',
+					)?.textContent,
+					buttons: Array.from(
+						document.querySelectorAll("[data-approvals-popover] button"),
+						(button) => ({
+							text: button.textContent?.slice(0, 120),
+							checked: button.getAttribute("aria-checked"),
+							disabled: button.hasAttribute("disabled"),
+						}),
+					),
+					animations: document.getAnimations().map((animation) => ({
+						playState: animation.playState,
+						pending: animation.pending,
+						currentTime: String(animation.currentTime),
+						startTime: String(animation.startTime),
+						documentTimeline: animation.timeline === document.timeline,
+					})),
+				}));
+				// Retain the state before a frame probe can wake a stalled clock.
+				console.error(
+					"[approvals-failure]",
+					JSON.stringify({ scenario, crashed, state }),
+				);
+				return activePage?.evaluate(async () => {
+					let frames = 0;
+					let frameId = 0;
+					const tick = () => {
+						frames++;
+						frameId = requestAnimationFrame(tick);
+					};
+					const started = performance.now();
+					frameId = requestAnimationFrame(tick);
+					await new Promise((resolve) => setTimeout(resolve, 500));
+					cancelAnimationFrame(frameId);
+					return { frames, elapsedMs: performance.now() - started };
+				});
+			})(),
+			new Promise((resolve) => {
+				timer = setTimeout(
+					() => resolve({ unavailable: "Page evaluation exceeded 2000ms" }),
+					2_000,
+				);
+			}),
+		]);
+		console.error(
+			"[approvals-frames]",
+			JSON.stringify({ scenario, crashed, frames }),
+		);
+	} catch (captureError) {
+		console.error(
+			"[approvals-failure]",
+			JSON.stringify({ scenario, crashed, unavailable: String(captureError) }),
+		);
+	} finally {
+		clearTimeout(timer);
+	}
+	throw error;
 } finally {
 	await Promise.all(browsers.map((browser) => browser.close()));
 	await server.stop();
