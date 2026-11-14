@@ -811,6 +811,32 @@ it("reports the full word count and reserved chrome when repairing an overlong f
 	expect(mocks.model.mock.calls[0]?.[1]).toBe(mocks.model.mock.calls[1]?.[1]);
 });
 
+it("counts the displayed story and why-you line when repairing a long story face", async () => {
+	const draft = {
+		...copy,
+		story:
+			"The owner needs a sign-in check before reviewing the sample profile page. Agreeing lets the assistant check the profile in a separate browser and report what the page shows.",
+		whyMe: "Only you can give permission for this test of the sample profile.",
+	};
+	mocks.model.mockResolvedValueOnce(JSON.stringify(draft));
+	await generateDecisionCard({ db: {}, env: {} } as never, request, undefined, {
+		requireStory: true,
+	});
+	const feedback = JSON.parse(
+		mocks.model.mock.calls[1]?.[2].validationFeedback,
+	);
+	const words = [draft.title, draft.story, draft.whyMe, draft.recommendation]
+		.join(" ")
+		.match(/\S+/gu)!.length;
+	expect(feedback.failedChecks).toContain("face_word_limit");
+	expect(feedback.wordBudget).toMatchObject({
+		actual: words,
+		limit: 46,
+		target: 40,
+	});
+	expect(feedback.wordBudget.instruction).toContain("story, whyMe");
+});
+
 it("retains the model's structured unknown-effect signal without inventing an action", async () => {
 	mocks.model.mockResolvedValue(
 		JSON.stringify({ ...copy, effectStatus: "unknown" }),

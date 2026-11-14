@@ -45,6 +45,64 @@ function fixture() {
 	return { sqlite, check };
 }
 
+it.each(["completed", "cancelled", "accepted", "proposed"])(
+	"retires unpinned task cards only when their linked task is terminal: %s",
+	async (disposition) => {
+		const sqlite = createMigratedSqlite({ foreignKeys: false });
+		const db = createDbClient(createD1Facade(sqlite));
+		try {
+			sqlite
+				.prepare(
+					"INSERT INTO organization_members(id,organization_id,descope_user_id,user_id,email,status) VALUES ('member',?,'person','person','person@example.test','active')",
+				)
+				.run(orgId);
+			sqlite
+				.prepare(
+					"INSERT INTO work_items(id,org_id,title,disposition,created_at,admission_spec_revision) VALUES (?,?,'Review the draft',?,?,'revision-1')",
+				)
+				.run(id, orgId, disposition, at);
+			sqlite
+				.prepare(
+					"INSERT INTO work_interactions(id,org_id,work_item_id,kind,subject,prompt,creator_type,creator_id,target_type,target_id,created_at,metadata) VALUES ('card',?,?,'question','Review the draft?','Choose the wording','system','tedix','user','person',?,'{}')",
+				)
+				.run(orgId, id, at);
+			const terminal = ["completed", "cancelled"].includes(disposition);
+			expect(await refreshDecisionSourceCards(db, orgId, "person")).toEqual({
+				scanned: 1,
+				superseded: terminal ? 1 : 0,
+				hasMore: false,
+			});
+			expect(
+				sqlite
+					.prepare(
+						"SELECT status,version FROM work_interactions WHERE id='card'",
+					)
+					.get(),
+			).toMatchObject({
+				status: terminal ? "expired" : "open",
+				version: terminal ? 2 : 1,
+			});
+			expect(
+				sqlite
+					.prepare("SELECT COUNT(*) AS count FROM work_interaction_responses")
+					.get(),
+			).toMatchObject({ count: 0 });
+			expect(
+				sqlite
+					.prepare(
+						"SELECT COUNT(*) AS count FROM audit_events WHERE resource_id='card' AND action='decision.sources.expired'",
+					)
+					.get(),
+			).toMatchObject({ count: terminal ? 1 : 0 });
+			expect(
+				await refreshDecisionSourceCards(db, orgId, "person"),
+			).toMatchObject({ superseded: 0 });
+		} finally {
+			sqlite.close();
+		}
+	},
+);
+
 it("keeps the pinned historical comment count while exempting new progress", async () => {
 	const { sqlite, check } = fixture();
 	try {
