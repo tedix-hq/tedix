@@ -17,15 +17,18 @@ import {
 	getOsGadget,
 	getOsGadgetRevision,
 	getOsGadgetCode,
-	createOsGadgetRevision,
 } from "@tedix/db/queries/os-workspaces/gadgets";
-import { OsGadgetManifestSchema } from "@tedix/api-contract/schemas/os-workspaces";
-import { AppRuntimeFilesSchema } from "@tedix/api-contract/schemas/os-app-runtime";
 import {
-	appRuntimeCodeLength,
-	isAppRuntimeManifest,
-} from "@tedix/api-contract/utils/app-runtime";
+	OsAppDraftContentSchema,
+	OsGadgetManifestSchema,
+} from "@tedix/api-contract/schemas/os-workspaces";
+import { AppRuntimeFilesSchema } from "@tedix/api-contract/schemas/os-app-runtime";
+import { isAppRuntimeManifest } from "@tedix/api-contract/utils/app-runtime";
 import { z } from "zod";
+import {
+	getOsAppEditDraft,
+	proposeOsAppFileEdits,
+} from "@tedix/db/queries/os-workspaces/collaboration";
 import { listOsWorkspaceProjects } from "@tedix/db/queries/os-workspaces/projects";
 import { listWorkspaceResourceSummaries } from "@tedix/db/queries/durable-sqlite/workspace-resources";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
@@ -55,7 +58,7 @@ import {
 } from "@tedix/api-contract/schemas/os-workspaces";
 import type {
 	AppCode,
-	ReviseAppCodeInput,
+	EditAppFilesInput,
 	OutputDetail,
 	OutputSummary,
 	CreateWorkInput,
@@ -122,6 +125,7 @@ export interface TenantDataPortDeps {
 	core: DbQueryClient;
 	bucket: OutputBodyBucket;
 	actorKind: "user" | "tedi" | "external_agent" | "service";
+	conversationId?: string;
 	assertWorkspaceAuthority: () => Promise<void>;
 	validateAppSource: (
 		files: Record<string, string>,
@@ -370,7 +374,18 @@ export class TenantDataPort implements WorkspaceDataPort {
 			app.status !== "active"
 		)
 			throw new Error("App not found in this workspace");
-		const revisionId = parsed.revisionId ?? app.currentRevisionId;
+
+		const pending =
+			!parsed.revisionId && this.deps.conversationId
+				? await getOsAppEditDraft(this.deps.core, {
+						...this.scope,
+						gadgetId: app.id,
+						sourceKind: "chat",
+						sourceId: this.deps.conversationId,
+					})
+				: undefined;
+		const revisionId =
+			parsed.revisionId ?? pending?.baseRevisionId ?? app.currentRevisionId;
 		if (!revisionId) throw new Error("App has no revision");
 		const params = { organizationId: this.deps.organizationId, revisionId };
 		const revision = await getOsGadgetRevision(this.deps.core, params);
@@ -384,56 +399,82 @@ export class TenantDataPort implements WorkspaceDataPort {
 		const code = await getOsGadgetCode(this.deps.core, params);
 		if (!code || code.gadgetId !== app.id)
 			throw new Error("App source not found");
+		const draft = pending
+			? OsAppDraftContentSchema.parse(JSON.parse(pending.content))
+			: undefined;
 		return {
 			id: app.id,
 			name: app.name,
 			revision: revision.revision,
 			revisionId,
-			manifest,
-			files: AppRuntimeFilesSchema.parse(JSON.parse(code.files)),
+			manifest: draft?.manifest ?? manifest,
+			files:
+				draft?.files ?? AppRuntimeFilesSchema.parse(JSON.parse(code.files)),
+			...(pending
+				? { proposalId: pending.id, sequence: pending.sequence }
+				: {}),
 		};
 	}
 
-	async reviseAppCode(
-		input: ReviseAppCodeInput & { actorId: string },
+	async editAppFiles(
+		input: EditAppFilesInput & { actorId: string },
 	): Promise<AppCode> {
 		const parsed = z
 			.object({
 				appId: z.string().min(1),
-				files: AppRuntimeFilesSchema,
-				expectedRevision: z.number().int().min(1),
+				expectedRevisionId: z.string().min(1),
+				proposalId: z.string().min(1).optional(),
+				expectedSequence: z.number().int().nonnegative().optional(),
+				edits: z
+					.array(
+						z
+							.object({
+								path: z.string().min(1),
+								before: z.string().min(1).optional(),
+								after: z.string(),
+							})
+							.strict(),
+					)
+					.min(1)
+					.max(24),
 				actorId: z.string().min(1),
 			})
 			.strict()
 			.parse(input);
+		if (!this.deps.conversationId)
+			throw new Error("App edits require a workspace conversation");
 		const current = await this.getAppCode({ appId: parsed.appId });
-		if (parsed.expectedRevision !== current.revision)
+		if (current.revisionId !== parsed.expectedRevisionId)
 			throw new Error(
 				"App revision conflict; read the current source before editing again",
 			);
-		await this.deps.validateAppSource(
-			parsed.files,
-			current.manifest.config?.compatibilityDate,
-		);
-		const result = await createOsGadgetRevision(this.deps.core, {
-			id: crypto.randomUUID(),
-			organizationId: this.deps.organizationId,
-			gadgetId: current.id,
-			manifest: JSON.stringify(current.manifest),
-			expectedRevision: parsed.expectedRevision,
-			createdByKind: this.deps.actorKind,
-			createdById: parsed.actorId,
-			code: {
-				files: JSON.stringify(parsed.files),
-				codeLength: appRuntimeCodeLength(parsed.files),
+		const proposal = await proposeOsAppFileEdits(
+			this.deps.core,
+			{
+				...this.scope,
+				gadgetId: current.id,
+				sourceKind: "chat",
+				sourceId: this.deps.conversationId,
+				proposalId: parsed.proposalId,
+				expectedSequence: parsed.expectedSequence,
+				baseRevisionId: current.revisionId,
+				baseRevision: current.revision,
+				content: { manifest: current.manifest, files: current.files },
+				edits: parsed.edits,
+				createdByKind: this.deps.actorKind,
+				createdById: parsed.actorId,
 			},
-		});
-		if (!result.ok) throw new Error(`App revise failed: ${result.reason}`);
+			(content) =>
+				this.deps.validateAppSource(
+					content.files,
+					content.manifest.config?.compatibilityDate,
+				),
+		);
 		return {
 			...current,
-			files: parsed.files,
-			revision: result.revision.revision,
-			revisionId: result.revision.id,
+			files: OsAppDraftContentSchema.parse(JSON.parse(proposal.content)).files,
+			proposalId: proposal.id,
+			sequence: proposal.sequence,
 		};
 	}
 

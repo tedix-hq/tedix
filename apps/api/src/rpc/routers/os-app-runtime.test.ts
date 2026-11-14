@@ -1,4 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
+import { proposeOsAppFileEdits } from "@tedix/db/queries/os-workspaces/collaboration";
+import { OsAppDraftContentSchema } from "@tedix/api-contract/schemas/os-workspaces";
 import { getOsGadgetCode } from "@tedix/db/queries/os-workspaces/gadgets";
 import { createRouterClient } from "@orpc/server";
 import { appRuntimeCodeDigest } from "@tedix/api-contract/utils/app-runtime";
@@ -1392,6 +1394,167 @@ describe("app chat drafts", () => {
 		};
 		return { ...f, collaboration, input };
 	}
+	it("accumulates exact replacements in one chat draft and accepts one validated revision", async () => {
+		const f = await chatFixture();
+		const first = await f.client.proposeEdit(f.input);
+		const second = await f.client.proposeEdit({
+			...f.input,
+			proposalId: first.proposal.id,
+			expectedSequence: first.proposal.sequence,
+			edits: [{ path: "server.js", before: "return 2", after: "return 3" }],
+		});
+		expect(second.proposal.id).toBe(first.proposal.id);
+		expect(second.proposal.sequence).toBe(1);
+		await expect(
+			f.client.proposeEdit({
+				...f.input,
+				proposalId: first.proposal.id,
+				expectedSequence: 0,
+				edits: [{ path: "server.js", before: "return 3", after: "return 9" }],
+			}),
+		).rejects.toMatchObject({ code: "CONFLICT" });
+		const own = await f.collaboration.list({
+			workspaceId,
+			sourceKind: "chat",
+			sourceId: "chat-1",
+			limit: 10,
+		});
+		expect(own.items.map((item) => item.id)).toEqual([first.proposal.id]);
+		const other = await f.collaboration.list({
+			workspaceId,
+			sourceKind: "chat",
+			sourceId: "another-chat",
+			limit: 10,
+		});
+		expect(other.items).toEqual([]);
+		expect(await f.db.select().from(osCollaborationProposals)).toHaveLength(1);
+		expect(await f.db.select().from(osGadgetRevisions)).toHaveLength(1);
+		await expect(
+			f.client.proposeEdit({
+				...f.input,
+				proposalId: second.proposal.id,
+				expectedSequence: second.proposal.sequence,
+				edits: [
+					{
+						path: "server.js",
+						before: "return 3",
+						after: "return ; } } broken(",
+					},
+				],
+			}),
+		).rejects.toMatchObject({ code: "BAD_REQUEST" });
+		const current = await f.collaboration.get({
+			proposalId: first.proposal.id,
+		});
+		expect(current.proposal.sequence).toBe(1);
+		const accepted = await f.client.acceptEdit({
+			...scope,
+			proposalId: first.proposal.id,
+			expectedSequence: 1,
+			rationale: "Reviewed changes",
+		});
+		expect(accepted.revision.revision).toBe(2);
+		expect(await f.db.select().from(osGadgetRevisions)).toHaveLength(2);
+		const code = await getOsGadgetCode(f.db, {
+			organizationId: "org-1",
+			revisionId: accepted.revision.id,
+		});
+		expect(JSON.parse(code!.files)["server.js"]).toContain("return 3");
+		await f.client.acceptEdit({
+			...scope,
+			proposalId: first.proposal.id,
+			expectedSequence: 1,
+			rationale: "Retry after lost response",
+		});
+		expect(await f.db.select().from(osGadgetRevisions)).toHaveLength(2);
+	});
+	it("refuses a stale whole-file write against a newer pending sequence", async () => {
+		const f = await chatFixture();
+		const first = await f.client.proposeEdit(f.input);
+		await f.client.proposeEdit({
+			...f.input,
+			proposalId: first.proposal.id,
+			expectedSequence: 0,
+			edits: [{ path: "server.js", before: "return 2", after: "return 3" }],
+		});
+		await expect(
+			proposeOsAppFileEdits(
+				f.db,
+				{
+					organizationId: "org-1",
+					workspaceId,
+					gadgetId,
+					sourceKind: "chat",
+					sourceId: "chat-1",
+					baseRevisionId: revisionId,
+					baseRevision: 1,
+					proposalId: first.proposal.id,
+					expectedSequence: 0,
+					content: OsAppDraftContentSchema.parse(first.proposal.content),
+					edits: [{ path: "server.js", after: f.input.edits[0]!.after }],
+					createdByKind: "user",
+					createdById: "user-1",
+				},
+				async () => {},
+			),
+		).rejects.toThrow("App draft changed");
+		const current = await f.collaboration.get({
+			proposalId: first.proposal.id,
+		});
+		expect(current.proposal.sequence).toBe(1);
+		expect(
+			OsAppDraftContentSchema.parse(current.proposal.content).files[
+				"server.js"
+			],
+		).toContain("return 3");
+	});
+	it("undo restores the complete prior file set after an accepted addition", async () => {
+		const f = await chatFixture();
+		const original = await getOsGadgetCode(f.db, {
+			organizationId: "org-1",
+			revisionId,
+		});
+		const [base] = await f.db.select().from(osGadgetRevisions);
+		const files = JSON.parse(original!.files);
+		const draft = await f.client.saveDraft({
+			...scope,
+			expectedRevisionId: revisionId,
+			content: {
+				manifest: JSON.parse(base!.manifest),
+				files: { ...files, "notes.txt": "Added in draft" },
+			},
+		});
+		const accepted = await f.client.acceptEdit({
+			...scope,
+			proposalId: draft.proposal.id,
+			expectedSequence: 0,
+			rationale: "Review added file",
+		});
+		const restored = await f.client.restoreRevision({
+			...scope,
+			revisionId,
+			expectedRevisionId: accepted.revision.id,
+		});
+		const saved = await getOsGadgetCode(f.db, {
+			organizationId: "org-1",
+			revisionId: restored.revision.id,
+		});
+		expect(JSON.parse(saved!.files)).toEqual(files);
+		expect(restored.revision.revision).toBe(3);
+	});
+
+	it("fences simultaneous first edits instead of creating two pending drafts", async () => {
+		const f = await chatFixture();
+		const results = await Promise.allSettled([
+			f.client.proposeEdit(f.input),
+			f.client.proposeEdit(f.input),
+		]);
+		expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+		expect(results.filter((r) => r.status === "rejected")).toHaveLength(1);
+		expect(await f.db.select().from(osCollaborationProposals)).toHaveLength(1);
+		expect(await f.db.select().from(osGadgetRevisions)).toHaveLength(1);
+	});
+
 	it("never emits owner interaction triggers from a draft preview", async () => {
 		const f = await chatFixture();
 		const { proposal } = await f.client.proposeEdit(f.input);
@@ -2298,6 +2461,17 @@ describe("owner-host app collaboration provenance", () => {
 			expectedRevisionId: revisionId,
 			content: f.content,
 		});
+		await expect(f.client.proposeEdit(edit)).rejects.toMatchObject({
+			code: "CONFLICT",
+			message: expect.stringContaining("Multiple pending"),
+		});
+		for (const pending of [proposal, saved.proposal])
+			await f.collaboration.reject({
+				proposalId: pending.id,
+				expectedSequence: pending.sequence,
+				rationale: "Discard earlier draft",
+				evidenceRefs: [],
+			});
 		const proposed = await f.client.proposeEdit(edit);
 		for (const draft of [saved.proposal, proposed.proposal]) {
 			expect(draft).toMatchObject({

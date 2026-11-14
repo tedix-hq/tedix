@@ -48,7 +48,7 @@ function fixture(ask = false) {
 		getAppCode: async () => {
 			throw new Error("unused");
 		},
-		reviseAppCode: async () => {
+		editAppFiles: async () => {
 			throw new Error("unused");
 		},
 		listResources: async () => [],

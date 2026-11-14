@@ -1,3 +1,4 @@
+import { appDraftsFrom } from "@/lib/app-runtime-drafts";
 import { useQueryClient } from "@tanstack/react-query";
 import { osAppRuntimeContract } from "@tedix/api-contract/contracts/os-app-runtime";
 import { webMcpResult } from "@tedix/webmcp-core/model-context";
@@ -19,7 +20,7 @@ export function buildAppEditTools(
 		{
 			name: "read_app_files",
 			description:
-				"Read an app's committed revision, manifest and files using an id from list_workspace_apps or the selected workpiece. The returned revision is the app version; manifest config.version is only a settings format number.",
+				"Read this chat's pending app files, or its committed revision, manifest and files using an id from list_workspace_apps or the selected workpiece. The returned revision is the app version; manifest config.version is only a settings format number.",
 			annotations: { readOnlyHint: true, untrustedContentHint: true },
 			inputSchema: {
 				type: "object",
@@ -48,15 +49,33 @@ export function buildAppEditTools(
 							knownFilesSha256,
 						}),
 					);
+					const pending = await osApi.osWorkspaces.collaboration.list({
+						workspaceId,
+						documentType: "gadget",
+						documentId: scope.gadgetId,
+						sourceKind: "chat",
+						sourceId: conversationId,
+						statuses: ["open", "accepted"],
+						limit: 2,
+					});
+					const drafts = appDraftsFrom(pending.items);
+					if (drafts.length > 1 || pending.truncated)
+						throw new Error(
+							"Review the existing app drafts before editing again",
+						);
+					const draft = drafts[0];
 					return webMcpResult(
 						{
 							gadgetId: gadget.id,
 							name: gadget.name,
 							status: gadget.status,
-							revision: currentRevision.revision,
-							revisionId: currentRevision.id,
-							manifest: currentRevision.manifest,
-							files: code?.files ?? null,
+							revision:
+								draft?.proposal.baseRevision ?? currentRevision.revision,
+							revisionId: draft?.proposal.baseRevisionId ?? currentRevision.id,
+							proposalId: draft?.proposal.id,
+							sequence: draft?.proposal.sequence,
+							manifest: draft?.content.manifest ?? currentRevision.manifest,
+							files: draft?.content.files ?? code?.files ?? null,
 						},
 						deepLink,
 					);
@@ -68,18 +87,32 @@ export function buildAppEditTools(
 		{
 			name: "propose_app_edit",
 			description:
-				"Propose exact text replacements in the current app files after reading them. Saves a draft for Preview and Accept; the live app keeps running.",
+				"Propose exact text replacements after reading the app files, using the latest proposalId and sequence as expectedSequence for a pending draft. Saves a draft for Preview and Accept; the live app keeps running.",
 			annotations: { readOnlyHint: false, consequentialHint: true },
 			inputSchema: deriveToolSchema(
 				contractInputSchema(osAppRuntimeContract.proposeEdit),
 				{
-					pick: ["gadgetId", "expectedRevisionId", "edits"],
+					pick: [
+						"gadgetId",
+						"expectedRevisionId",
+						"proposalId",
+						"expectedSequence",
+						"edits",
+					],
 					override: {
 						gadgetId: {
 							description: "The runtime app id in this workspace.",
 						},
 						expectedRevisionId: {
 							description: "The revisionId returned by read_app_files.",
+						},
+						proposalId: {
+							description:
+								"The pending proposalId from the latest read; omit for the first edit.",
+						},
+						expectedSequence: {
+							description:
+								"The pending sequence from the latest read; omit for the first edit.",
 						},
 					},
 				},
@@ -92,6 +125,12 @@ export function buildAppEditTools(
 						conversationId,
 						gadgetId: String(args.gadgetId),
 						expectedRevisionId: String(args.expectedRevisionId),
+						...(typeof args.proposalId === "string"
+							? { proposalId: args.proposalId }
+							: {}),
+						...(typeof args.expectedSequence === "number"
+							? { expectedSequence: args.expectedSequence }
+							: {}),
 						edits: args.edits as Array<{
 							path: string;
 							before: string;
@@ -103,6 +142,7 @@ export function buildAppEditTools(
 						{
 							proposalId: result.proposal.id,
 							status: result.proposal.status,
+							sequence: result.proposal.sequence,
 							next: "Open Edit in the app to preview and accept or reject it.",
 						},
 						deepLink,

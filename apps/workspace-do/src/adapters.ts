@@ -158,6 +158,14 @@ export class SqlComplianceAdapter implements ComplianceAdapter {
 	}
 
 	private async approvalState(call: CallDescription): Promise<ApprovalState> {
+		// File tools only stage a proposal. Publishing still requires the draft decision.
+		if (
+			call.resource === "app_draft" &&
+			["editFile", "writeFile"].includes(call.operation) &&
+			call.riskTier === "bounded_write" &&
+			!call.destructive
+		)
+			return "not_required";
 		if (!call.riskTier || call.riskTier === "read") return "not_required";
 		if (!this.policy.writesNeedApproval && !call.destructive)
 			return "not_required";

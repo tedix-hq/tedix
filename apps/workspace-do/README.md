@@ -16,9 +16,15 @@ its code runs beside the data.
 3. The model writes JavaScript. It runs in a fresh Worker with no network;
    its `env.outputs`, `env.apps`, `env.resources` and `env.work` are stubs
    that call back into this object. Every call is checked and recorded by the
-   shared adapters (`@tedix/agent-governance`): reads pass, writes hold for
-   approval, and each call is one change record with before/after revisions
-   and an undo plan. `env.views.show` changes no data: it puts a live view
+   shared adapters (`@tedix/agent-governance`): reads pass and canonical writes
+   hold for approval. App file tools stage changes in one conversation draft
+   on a pinned revision. The draft files and sequence let clients preview
+   edits while the turn runs. The existing app decision API validates and
+   saves one revision on acceptance, or discards the draft on rejection.
+   Restoring a previous revision preserves history; a moved base requires
+   rebasing before acceptance.
+   Each call has a change record; canonical writes include revision and undo
+   information. `env.views.show` changes no data: it puts a live view
    (a `view.shown` event) under the answer, which the chat renders in the
    same sandboxed widget frame tedi chat uses.
 4. Steps and tokens land in an event ledger first and are pushed to

@@ -1749,13 +1749,18 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			.map((row) => JSON.parse(row.message) as Message);
 	}
 
-	#dataPort(scope: WorkspaceScope, actorKind: ActorKind) {
+	#dataPort(
+		scope: WorkspaceScope,
+		actorKind: ActorKind,
+		conversationId?: string,
+	) {
 		return new TenantDataPort({
 			...scope,
 			tenant: this.db as TenantStoreDb,
 			core: createDbQueryClient(this.env.DB),
 			bucket: this.env.R2_BUCKET,
 			actorKind,
+			conversationId,
 			validateAppSource: (files, date) =>
 				validateWorkspaceAppSource(this.env.LOADER, files, date),
 			assertWorkspaceAuthority: async () => {
@@ -1785,7 +1790,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			organizationId: scope.organizationId,
 		};
 		return buildWorkspaceBindings({
-			data: this.#dataPort(scope, turn.actor.kind),
+			data: this.#dataPort(scope, turn.actor.kind, turn.conversationId),
 			compliance: this.#compliance,
 			accountability: {
 				append: async (input) => {
@@ -2558,6 +2563,18 @@ export class WorkspaceBindingLoopback extends WorkerEntrypoint<
 	}
 	listOpen(...args: unknown[]) {
 		return this.#call("listOpen", args);
+	}
+	readFile(...args: unknown[]) {
+		return this.#call("readFile", args);
+	}
+	editFile(...args: unknown[]) {
+		return this.#call("editFile", args);
+	}
+	writeFile(...args: unknown[]) {
+		return this.#call("writeFile", args);
+	}
+	grep(...args: unknown[]) {
+		return this.#call("grep", args);
 	}
 	getCode(...args: unknown[]) {
 		return this.#call("getCode", args);

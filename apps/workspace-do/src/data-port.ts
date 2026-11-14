@@ -35,12 +35,16 @@ export interface AppCode {
 	revisionId: string;
 	manifest: OsGadgetManifest;
 	files: Record<string, string>;
+	proposalId?: string;
+	sequence?: number;
 }
 
-export interface ReviseAppCodeInput {
+export interface EditAppFilesInput {
+	proposalId?: string;
+	expectedSequence?: number;
 	appId: string;
-	files: Record<string, string>;
-	expectedRevision: number;
+	expectedRevisionId: string;
+	edits: Array<{ path: string; before?: string; after: string }>;
 }
 
 export interface ResourceSummary {
@@ -100,8 +104,8 @@ export interface WorkspaceDataPort {
 	}): Promise<OutputDetail>;
 	listApps(): Promise<AppSummary[]>;
 	getAppCode(input: { appId: string; revisionId?: string }): Promise<AppCode>;
-	reviseAppCode(
-		input: ReviseAppCodeInput & { actorId: string },
+	editAppFiles(
+		input: EditAppFilesInput & { actorId: string },
 	): Promise<AppCode>;
 	listResources(): Promise<ResourceSummary[]>;
 	listWork(options?: {

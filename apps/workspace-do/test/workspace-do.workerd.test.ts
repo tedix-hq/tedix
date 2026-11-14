@@ -35,6 +35,11 @@ import {
 	listWorkspaceActivity,
 } from "@tedix/db/queries/workspace-feed/read";
 import { storeOutputBody, TenantDataPort } from "../src/data-port-tenant";
+import {
+	getOsAppEditDraft,
+	decideOsCollaborationProposal,
+	mergeOsCollaborationProposal,
+} from "@tedix/db/queries/os-workspaces/collaboration";
 import { createOsGadgetRevision } from "@tedix/db/queries/os-workspaces/gadgets";
 import type { TenantStoreDb } from "@tedix/db/queries/durable-sqlite/tenant-store";
 import { validateWorkspaceAppSource } from "../src/sandbox";
@@ -1101,7 +1106,7 @@ describe("WorkspaceDO", () => {
 		},
 	);
 
-	test("app source edits need one approval, record revisions, reject invalid or foreign code, and restore the earlier files", async () => {
+	test("chat file edits share one pinned draft, reject without publishing, merge once and preserve revision history", async () => {
 		await seedCore();
 		await testEnv.DB.batch(
 			[osGadgetRevisions, osGadgetCode, osGadgetCodeBlobs].map((table) =>
@@ -1142,14 +1147,15 @@ describe("WorkspaceDO", () => {
 			core: db,
 			bucket: testEnv.R2_BUCKET,
 			actorKind: "user",
+			validateAppSource: (files, date) =>
+				validateWorkspaceAppSource(testEnv.LOADER, files, date),
 			assertWorkspaceAuthority: async () => {},
 			commitOutput: async () => {
 				throw new Error("unused");
 			},
-			validateAppSource: (source, date) =>
-				validateWorkspaceAppSource(testEnv.LOADER, source, date),
 		});
 		const ws = workspace();
+
 		const requestEdit = async (code: string) => {
 			await ws.scriptModel(scope, [{ code }]);
 			const started = await ws.sendTurn(scope, {
@@ -1162,96 +1168,100 @@ describe("WorkspaceDO", () => {
 				conversationId: started.conversationId,
 				after: 0,
 			});
-			const approvals = events.filter(
-				(event) => event.type === "approval.requested",
-			);
-			expect(approvals).toHaveLength(1);
-			const approval = approvals[0];
-			if (approval?.type !== "approval.requested")
-				throw new Error("App edit did not request approval");
-			expect(approval.title).toBe("Saving an app revision");
-			return approval;
+			expect(
+				events.filter((e) => e.type === "approval.requested"),
+			).toHaveLength(0);
+			expect(
+				events.filter(
+					(e) => e.type === "step.finished" && e.status === "error",
+				),
+			).toHaveLength(0);
+			const draft = await getOsAppEditDraft(db, {
+				...scope,
+				gadgetId: "editable",
+				sourceKind: "chat",
+				sourceId: started.conversationId,
+			});
+			expect(draft).toBeDefined();
+			return draft!;
 		};
-		const approval = await requestEdit(
-			`export default async env => { const app = await env.apps.getCode({appId:"editable"}); return env.apps.revise({appId:app.id, expectedRevision:app.revision, files:{...app.files, "client.js":"export default () => 'After';"}}); }`,
-		);
-		expect((await data.getAppCode({ appId: "editable" })).revision).toBe(1);
-		await ws.scriptModel(scope, [{ text: "Saved the app" }]);
-		const applied = await ws.decideApproval(scope, {
-			approvalId: approval.approvalId,
-			decision: "approve",
-			by: "u1",
+		const code = `export default async env => {
+   const file = await env.apps.readFile({appId:"editable",path:"client.js"});
+   const matches = await env.apps.grep({appId:"editable",query:"Before"});
+   if (matches.matches.length !== 1) throw new Error("Search missed the source");
+   await env.apps.editFile({appId:"editable",path:"client.js",expectedRevisionId:file.revisionId,before:"Before",after:"After"});
+   const changed = await env.apps.readFile({appId:"editable",path:"client.js"});
+   if (!changed.content.includes("After")) throw new Error("Read did not see pending edits");
+   return env.apps.writeFile({appId:"editable",path:"README.md",expectedRevisionId:file.revisionId,proposalId:changed.proposalId,expectedSequence:changed.sequence,content:"App notes"});
+  }`;
+		const rejected = await requestEdit(code);
+		expect(rejected.sequence).toBe(1);
+		expect((await data.getAppCode({ appId: "editable" })).files).toEqual(files);
+		await decideOsCollaborationProposal(db, {
+			organizationId: scope.organizationId,
+			proposalId: rejected.id,
+			expectedSequence: rejected.sequence,
+			decision: "rejected",
+			rationale: "Discard",
+			evidenceRefs: "[]",
+			decidedByKind: "user",
+			decidedById: "u1",
 		});
-		expect(applied.applied).toBe(true);
-		await ws.awaitTurn(scope, applied.turnId!, 20000);
-		const updated = await data.getAppCode({ appId: "editable" });
-		expect(updated.revision).toBe(2);
-		expect(updated.files["client.js"]).toContain("After");
+		expect((await data.getAppCode({ appId: "editable" })).revision).toBe(1);
+		const pending = await requestEdit(code);
+		expect(pending.id).not.toBe(rejected.id);
+		const content = JSON.parse(pending.content);
+		expect(content.files["server.js"]).toBe(files["server.js"]);
+		expect(content.files["README.md"]).toBe("App notes");
+		await validateWorkspaceAppSource(testEnv.LOADER, content.files, undefined);
+		await decideOsCollaborationProposal(db, {
+			organizationId: scope.organizationId,
+			proposalId: pending.id,
+			expectedSequence: pending.sequence,
+			decision: "accepted",
+			rationale: "Accept",
+			evidenceRefs: "[]",
+			decidedByKind: "user",
+			decidedById: "u1",
+		});
+		const decision = {
+			organizationId: scope.organizationId,
+			proposalId: pending.id,
+			expectedSequence: pending.sequence,
+			revisionId: "app-after",
+			rationale: "Accept",
+			evidenceRefs: "[]",
+			mergedByKind: "user" as const,
+			mergedById: "u1",
+		};
+		expect((await mergeOsCollaborationProposal(db, decision)).ok).toBe(true);
+		expect((await mergeOsCollaborationProposal(db, decision)).ok).toBe(false);
+		expect((await data.getAppCode({ appId: "editable" })).revision).toBe(2);
+		expect(
+			(await data.getAppCode({ appId: "editable" })).files["client.js"],
+		).toContain("After");
 		expect(
 			(await data.getAppCode({ appId: "editable", revisionId: "app-before" }))
 				.files,
 		).toEqual(files);
-		const records = (
-			await ws.readChangeRecords(scope, { resource: "app" })
-		).filter((record) => record.operation === "revise");
-		expect(records.map((record) => record.outcome)).toEqual([
-			"needs_approval",
-			"applied",
-		]);
-		expect(records[1]?.before?.revisionId).toBe("app-before");
-		expect(records[1]?.after?.revisionId).toBe(updated.revisionId);
-		expect(records[1]?.undo).toEqual({
-			kind: "rollback_revision",
-			toRevision: { revisionId: "app-before" },
+		const records = await ws.readChangeRecords(scope, {
+			resource: "app_draft",
 		});
-		await expect(
-			data.reviseAppCode({
-				appId: "editable",
-				expectedRevision: 1,
-				actorId: "u1",
-				files,
-			}),
-		).rejects.toThrow("revision conflict");
+		expect(records).toHaveLength(4);
+		expect(records.every((record) => record.outcome === "applied")).toBe(true);
 		for (const broken of [
 			{ ...files, "client.js": "const broken = ;" },
 			{ ...files, "server.js": "export const App = 1;" },
 		])
 			await expect(
-				data.reviseAppCode({
-					appId: "editable",
-					expectedRevision: 2,
-					actorId: "u1",
-					files: broken,
-				}),
+				validateWorkspaceAppSource(testEnv.LOADER, broken, undefined),
 			).rejects.toThrow();
 		expect((await data.getAppCode({ appId: "editable" })).revision).toBe(2);
-		const restoreApproval = await requestEdit(
-			`export default async env => { const current = await env.apps.getCode({appId:"editable"}); const before = await env.apps.getCode({appId:"editable",revisionId:"app-before"}); return env.apps.revise({appId:current.id,expectedRevision:current.revision,files:before.files}); }`,
-		);
-		await ws.scriptModel(scope, [{ text: "Restored" }]);
-		const restored = await ws.decideApproval(scope, {
-			approvalId: restoreApproval.approvalId,
-			decision: "approve",
-			by: "u1",
-		});
-		expect(restored.applied).toBe(true);
-		await ws.awaitTurn(scope, restored.turnId!, 20000);
-		expect((await data.getAppCode({ appId: "editable" })).files).toEqual(files);
-		expect((await data.getAppCode({ appId: "editable" })).revision).toBe(3);
-		// A known app or revision ID must not cross the workspace boundary.
 		await testEnv.DB.prepare(
 			"UPDATE os_gadgets SET workspace_id = 'another-workspace' WHERE id = 'editable'",
 		).run();
 		await expect(
 			data.getAppCode({ appId: "editable", revisionId: "app-before" }),
-		).rejects.toThrow("not found in this workspace");
-		await expect(
-			data.reviseAppCode({
-				appId: "editable",
-				expectedRevision: 3,
-				actorId: "u1",
-				files,
-			}),
 		).rejects.toThrow("not found in this workspace");
 	});
 

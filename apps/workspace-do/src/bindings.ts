@@ -24,8 +24,6 @@ import { buildSheetBinding } from "./sheet-binding";
 import { buildPresentationBinding } from "./presentation-bindings";
 import { buildView, type ShownView } from "./views";
 import type {
-	AppCode,
-	ReviseAppCodeInput,
 	CreateWorkInput,
 	OutputDetail,
 	OutputSummary,
@@ -140,8 +138,70 @@ export function buildWorkspaceBindings(
 		list: () => data.listApps(),
 		getCode: (input: { appId: string; revisionId?: string }) =>
 			data.getAppCode(input),
-		revise: (input: ReviseAppCodeInput) =>
-			data.reviseAppCode({ ...input, actorId: deps.actor.id }),
+		readFile: async (input: { appId: string; path: string }) => {
+			const app = await data.getAppCode({ appId: input.appId });
+			if (!Object.hasOwn(app.files, input.path))
+				throw new Error("App file not found");
+			return {
+				appId: app.id,
+				path: input.path,
+				revisionId: app.revisionId,
+				proposalId: app.proposalId,
+				sequence: app.sequence,
+				content: app.files[input.path],
+			};
+		},
+		grep: async (input: { appId: string; query: string }) => {
+			if (typeof input.query !== "string" || !input.query)
+				throw new Error("A search needs text");
+			const app = await data.getAppCode({ appId: input.appId });
+			const matches: Array<{ path: string; line: number; text: string }> = [];
+			let truncated = false;
+			for (const [path, text] of Object.entries(app.files)) {
+				for (const [line, value] of text.split("\n").entries()) {
+					if (!value.includes(input.query)) continue;
+					if (matches.length === 200) {
+						truncated = true;
+						break;
+					}
+					matches.push({ path, line: line + 1, text: value.slice(0, 2000) });
+				}
+			}
+			return { revisionId: app.revisionId, matches, truncated };
+		},
+		editFile: (input: {
+			appId: string;
+			path: string;
+			expectedRevisionId: string;
+			proposalId?: string;
+			expectedSequence?: number;
+			before: string;
+			after: string;
+		}) =>
+			data.editAppFiles({
+				appId: input.appId,
+				expectedRevisionId: input.expectedRevisionId,
+				proposalId: input.proposalId,
+				expectedSequence: input.expectedSequence,
+				edits: [{ path: input.path, before: input.before, after: input.after }],
+				actorId: deps.actor.id,
+			}),
+		writeFile: (input: {
+			appId: string;
+			path: string;
+			expectedRevisionId: string;
+			proposalId?: string;
+			expectedSequence?: number;
+			content: string;
+		}) =>
+			data.editAppFiles({
+				appId: input.appId,
+				expectedRevisionId: input.expectedRevisionId,
+				proposalId: input.proposalId,
+				expectedSequence: input.expectedSequence,
+				edits: [{ path: input.path, after: input.content }],
+				actorId: deps.actor.id,
+			}),
 	};
 	const resources = { list: () => data.listResources() };
 	const work = {
@@ -225,27 +285,18 @@ export function buildWorkspaceBindings(
 			methods: {
 				list: { riskTier: "read", blastRadius: "none" },
 				getCode: { riskTier: "read", blastRadius: "none" },
-				revise: {
+				readFile: { riskTier: "read", blastRadius: "none" },
+				grep: { riskTier: "read", blastRadius: "none" },
+				// Proposals cannot advance the app revision. The person reviews all files once.
+				editFile: {
+					resource: "app_draft",
 					riskTier: "bounded_write",
 					blastRadius: "single_resource",
-					before: async (args: unknown[]) => ({
-						revisionId: (
-							await data.getAppCode({
-								appId: (args[0] as ReviseAppCodeInput).appId,
-							})
-						).revisionId,
-					}),
-					after: async (_args: unknown[], result: unknown) => ({
-						revisionId: (result as AppCode).revisionId,
-					}),
-					undo: (
-						_args: unknown[],
-						_result: unknown,
-						before?: RevisionRef,
-					): UndoPlan | undefined =>
-						before
-							? { kind: "rollback_revision", toRevision: before }
-							: undefined,
+				},
+				writeFile: {
+					resource: "app_draft",
+					riskTier: "bounded_write",
+					blastRadius: "single_resource",
 				},
 			},
 		}),
