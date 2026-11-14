@@ -112,6 +112,7 @@ export interface OrganizationFeatures {
  * Additional organization information
  */
 export interface OrganizationMetadata {
+	personalAgentProtocol?: OrganizationContractMetadata["personalAgentProtocol"];
 	sensitiveDataEgressApproval?: boolean;
 	/** Public-egress argument scanning policy; absent defaults to block. */
 	secretEgressMode?: "block" | "warn";

@@ -2,7 +2,12 @@ import { createDbClient } from "@tedix/db/client";
 import { resolveOrganizationHostname } from "@tedix/db/queries/organization-domains";
 import { implement } from "@orpc/server";
 import { osTenantContract } from "@tedix/api-contract/contracts/os-tenant";
-import { getOrganizationBySlug } from "@tedix/db/queries/organizations";
+import {
+	getOrganizationById,
+	getOrganizationBySlug,
+	isOrganizationOffboarding,
+} from "@tedix/db/queries/organizations";
+import { PersonalAgentDiscoveryConfigSchema } from "@tedix/api-contract/schemas/organization";
 import { type BaseContext, withServiceAuth } from "../orpc";
 
 /**
@@ -50,7 +55,42 @@ const resolveHostname = service.resolveHostname.handler(
 		};
 	},
 );
+const personalAgentDiscovery = service.personalAgentDiscovery.handler(
+	async ({ input, context }) => {
+		const organization = await getOrganizationById(
+			context.db,
+			input.organizationId,
+		);
+		if (
+			!organization?.features?.os ||
+			isOrganizationOffboarding(organization.metadata)
+		)
+			return null;
+		const config = PersonalAgentDiscoveryConfigSchema.safeParse(
+			organization.metadata?.personalAgentProtocol,
+		);
+		if (
+			!config.success ||
+			config.data.domain.toLowerCase() !== input.hostname.toLowerCase()
+		)
+			return null;
+		return {
+			protocol_version: "1.0" as const,
+			organization: { name: organization.name, domain: config.data.domain },
+			auth: { disabled: true as const },
+			apis: [
+				{
+					type: "mcp" as const,
+					url: config.data.mcpUrl,
+					description: config.data.description,
+				},
+			],
+		};
+	},
+);
+
 export const osTenantContractRouter = osTenantOs.router({
+	personalAgentDiscovery,
 	resolve,
 	resolveHostname,
 });
