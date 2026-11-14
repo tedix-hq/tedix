@@ -180,17 +180,15 @@ describe("owner-granted external-agent Work management", () => {
 	it("limits project grants to that project, including re-filing", async () => {
 		const { sqlite, update } = await fixture();
 		const projectId = "22222222-2222-4222-8222-222222222222";
-		sqlite
-			.prepare("UPDATE external_agent_principals SET metadata=?")
-			.run(
-				JSON.stringify({
-					workManagement: {
-						scope: "project",
-						projectId,
-						actions: ["specification", "cancellation"],
-					},
-				}),
-			);
+		sqlite.prepare("UPDATE external_agent_principals SET metadata=?").run(
+			JSON.stringify({
+				workManagement: {
+					scope: "project",
+					projectId,
+					actions: ["specification", "cancellation"],
+				},
+			}),
+		);
 		await expect(
 			update({ id, description: "Outside project" }),
 		).rejects.toMatchObject({ code: "FORBIDDEN" });

@@ -105,7 +105,10 @@ import { outputHandlers } from "./local-fixtures/outputs-handlers";
 import { runtimeHandlers } from "./local-fixtures/runtime-handlers";
 import { sharingHandlers } from "./local-fixtures/sharing-handlers";
 import { skillHandlers } from "./local-fixtures/skills-handlers";
-import { workHandlers } from "./local-fixtures/work-handlers";
+import {
+	workHandlers,
+	localExternalAgentPrincipal,
+} from "./local-fixtures/work-handlers";
 import { workspaceHandlers } from "./local-fixtures/workspaces-handlers";
 
 /** Every procedure the lane serves, assembled from the per-domain handler modules. */
@@ -127,6 +130,7 @@ const handlers: Record<string, (input: never) => unknown> = {
 let demoPackBuiltAt: number | null = null;
 
 export function resetLocalFixtures(): void {
+	localExternalAgentPrincipal.metadata = {};
 	localSkillReactivations.clear();
 	setLocalSkillDrafts(seedSkillDrafts());
 	localSnoozes.clear();
