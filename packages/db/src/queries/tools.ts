@@ -566,72 +566,45 @@ export async function upsertTool(
 	// Enforce: no plaintext secrets in tool configs
 	validateNoPlaintextSecrets(tool.config);
 
-	const normalizedTool = {
+	const existingById = tool.id ? await getToolById(db, tool.id) : undefined;
+	const existing =
+		existingById ?? (await getToolByAppAndToolId(db, tool.appId, tool.toolId));
+	const classified = {
 		...tool,
+		writeCapability:
+			tool.writeCapability === undefined
+				? existing?.writeCapability
+				: tool.writeCapability,
+		meta: tool.meta === undefined ? existing?.meta : tool.meta,
+	};
+	const gap = toolClassDeclarationGap(classified);
+	if (gap) throw new Error(`Tool ${tool.toolId} ${gap}.`);
+
+	const normalizedTool = {
+		...classified,
 		// Only the contract projection vouches for a contract hash. Any other
 		// writer changes the row in ways the hash does not describe, so clearing
 		// it makes the next projection revisit this row.
 		contractHash: tool.contractHash ?? null,
 		inputSchema: tool.inputSchema ?? EMPTY_TOOL_INPUT_SCHEMA,
 		meta: withDerivedToolOperationalRiskPolicy({
-			meta: tool.meta,
+			meta: classified.meta,
 			config: tool.config,
-			writeCapability: tool.writeCapability,
+			writeCapability: classified.writeCapability,
 		}),
 	};
 
 	const now = new Date().toISOString();
 
-	// First check if tool exists by ID
-	if (normalizedTool.id) {
-		const existingById = await getToolById(db, normalizedTool.id);
-		if (existingById) {
-			// Update existing tool by ID
-			await db
-				.update(appTools)
-				.set({
-					...normalizedTool,
-					updatedAt: now,
-				})
-				.where(eq(appTools.id, normalizedTool.id));
-
-			const updated = await getToolById(db, normalizedTool.id);
-			if (!updated) {
-				throw new Error(`Failed to update tool: ${normalizedTool.id}`);
-			}
-			return updated;
-		}
-	}
-
-	// Check if tool exists by app + toolId unique constraint
-	const existingByToolId = await getToolByAppAndToolId(
-		db,
-		normalizedTool.appId,
-		normalizedTool.toolId,
-	);
-
-	if (existingByToolId) {
-		// Update existing tool by unique constraint
+	if (existing) {
 		await db
 			.update(appTools)
-			.set({
-				...normalizedTool,
-				id: existingByToolId.id, // Keep existing ID
-				updatedAt: now,
-			})
-			.where(eq(appTools.id, existingByToolId.id));
-
-		const updated = await getToolById(db, existingByToolId.id);
-		if (!updated) {
-			throw new Error(`Failed to update tool: ${existingByToolId.id}`);
-		}
+			.set({ ...normalizedTool, id: existing.id, updatedAt: now })
+			.where(eq(appTools.id, existing.id));
+		const updated = await getToolById(db, existing.id);
+		if (!updated) throw new Error(`Failed to update tool: ${existing.id}`);
 		return updated;
 	}
-
-	// A new row must say what it does. Older rows without a class keep working
-	// and are listed by the unclassified report; none may be added.
-	const gap = toolClassDeclarationGap(normalizedTool);
-	if (gap) throw new Error(`Tool ${normalizedTool.toolId} ${gap}.`);
 
 	// Create new tool
 	const id = normalizedTool.id || crypto.randomUUID();

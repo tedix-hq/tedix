@@ -1464,6 +1464,10 @@
 		{
 			"name": "20261113111521_provider_event_resource_key/migration.sql",
 			"sha256": "e8c1f6a39d7a7079d1b1d506f33d79d5729ea373ba606785fbe6dce88f415df4"
+		},
+		{
+			"name": "20261114160256_require-tool-class/migration.sql",
+			"sha256": "c3ceb8083a438309ed67242880fdeb9722b682363f2506f53a59b1d0ad173316"
 		}
 	]
 }

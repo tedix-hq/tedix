@@ -1818,7 +1818,18 @@ export async function executeOpenApiToolImport(
 					visibility: authRequired ? "private" : "public",
 					annotations,
 					writeCapability,
-					...(declaredClass ? { meta: existing?.meta } : {}),
+					meta: declaredClass
+						? existing?.meta
+						: {
+								"com.tedix/policy": {
+									riskTier:
+										writeCapability === "read"
+											? "read"
+											: "external_side_effect",
+									blastRadius:
+										writeCapability === "read" ? "none" : "external_system",
+								},
+							},
 					fileParams: fileParams.length > 0 ? fileParams : null,
 					schemaDialect: "json-schema-2020-12",
 					schemaSource: "openapi",

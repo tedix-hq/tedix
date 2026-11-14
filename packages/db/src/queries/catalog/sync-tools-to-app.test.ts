@@ -155,6 +155,12 @@ describe("buildCatalogMcpConnectionAuth", () => {
 						// A sync refuses to create UNDECLARED rows, so the seeded
 						// catalog tools declare write capability through annotations.
 						annotations: { readOnlyHint: false },
+						meta: {
+							"com.tedix/policy": {
+								riskTier: "external_side_effect",
+								blastRadius: "external_system",
+							},
+						},
 					}),
 				),
 			),
@@ -324,7 +330,15 @@ describe("buildCatalogMcpConnectionAuth", () => {
 		// A change that lets the tool do more hides it until an owner approves.
 		await db
 			.update(appCatalogMcpTools)
-			.set({ annotations: { destructiveHint: true } })
+			.set({
+				annotations: { destructiveHint: true },
+				meta: {
+					"com.tedix/policy": {
+						riskTier: "external_side_effect",
+						blastRadius: "external_system",
+					},
+				},
+			})
 			.where(eq(appCatalogMcpTools.id, "catalog-tool-review"));
 		await syncCatalogToolsToApp(db, {
 			catalogAppId: "catalog-review",
@@ -377,6 +391,14 @@ describe("syncCatalogToolsToApp write capability", () => {
 		lastSeenAt: "2026-08-18T00:00:00.000Z",
 		inputSchema: { type: "object" as const, properties: {} },
 		...(annotations ? { annotations } : {}),
+		meta: {
+			"com.tedix/policy": {
+				riskTier:
+					annotations?.readOnlyHint === true ? "read" : "external_side_effect",
+				blastRadius:
+					annotations?.readOnlyHint === true ? "none" : "external_system",
+			},
+		},
 	});
 
 	it("retains sampled shapes across refreshes until upstream declares an output schema", async () => {
@@ -500,6 +522,37 @@ describe("syncCatalogToolsToApp write capability", () => {
 				toolName: "createJiraIssue",
 				action: "skipped",
 				reason: expect.stringContaining("no declared write capability"),
+			},
+		]);
+	});
+
+	it("refuses a write import without a tier before applying any changes", async () => {
+		const { db, batchCalls, resetBatchCalls } = setup();
+		await seed(db);
+		await db.insert(appCatalogMcpTools).values({
+			...catalogTool("missing-tier", "tidy_notes", { readOnlyHint: false }),
+			meta: null,
+		});
+		resetBatchCalls();
+		const options = {
+			catalogAppId: "catalog-wc",
+			appId: "app-wc",
+			mcpServerUrl: "https://mcp.acme.test/mcp",
+			dryRun: false,
+		};
+		await expect(syncCatalogToolsToApp(db, options)).rejects.toThrow(
+			"Tool tidy_notes has no risk tier",
+		);
+		expect(batchCalls()).toBe(0);
+		expect(await db.select().from(appTools)).toEqual([]);
+		const preview = await syncCatalogToolsToApp(db, {
+			...options,
+			dryRun: true,
+		});
+		expect(preview.results).toMatchObject([
+			{
+				action: "skipped",
+				reason: expect.stringContaining("has no risk tier"),
 			},
 		]);
 	});
@@ -637,7 +690,15 @@ describe("syncCatalogToolsToApp write capability", () => {
 
 		await db
 			.update(appCatalogMcpTools)
-			.set({ annotations: { destructiveHint: true } })
+			.set({
+				annotations: { destructiveHint: true },
+				meta: {
+					"com.tedix/policy": {
+						riskTier: "external_side_effect",
+						blastRadius: "external_system",
+					},
+				},
+			})
 			.where(eq(appCatalogMcpTools.id, "ct-1"));
 		await syncCatalogToolsToApp(db, syncInput);
 

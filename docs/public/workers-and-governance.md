@@ -108,8 +108,10 @@ reach (`write` with `bounded_write`) can be covered by an approval rule.
 So a harmless tool with an alarming name, such as `remove_highlight`, can be
 covered once its owner states both values. A tool that deletes is held for a
 person even when its name sounds mild. A tool that has not stated both values
-is judged by its name as before, and a new tool cannot be saved without a
-write class.
+is judged by its name as before. Imports and saves reject a non-read tool
+without a write class and a compatible risk tier. Older unclassified rows
+receive a conservative high-impact classification without deleting data;
+only a reviewed declaration can make a tool eligible for automatic approval.
 
 Home dispatches eligible work immediately, waking a standby tedi when needed.
 Coding work is spread across tedis that share the same repository, least busy

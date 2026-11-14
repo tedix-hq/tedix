@@ -83,6 +83,66 @@
 		"work_item_comment": {
 			"riskTier": "bounded_write",
 			"blastRadius": "single_resource"
+		},
+		"rename_conversation": {
+			"riskTier": "bounded_write",
+			"blastRadius": "single_resource"
+		},
+		"pin_conversation": {
+			"riskTier": "bounded_write",
+			"blastRadius": "single_resource"
+		},
+		"archive_conversation": {
+			"riskTier": "bounded_write",
+			"blastRadius": "single_resource"
+		},
+		"cancel_home_run": {
+			"riskTier": "high_impact_write",
+			"blastRadius": "tenant"
+		},
+		"steer_home_run": {
+			"riskTier": "bounded_write",
+			"blastRadius": "single_resource"
+		},
+		"create_work_item": {
+			"riskTier": "bounded_write",
+			"blastRadius": "single_resource"
+		},
+		"accept_work_item": {
+			"riskTier": "bounded_write",
+			"blastRadius": "single_resource"
+		},
+		"complete_work_item": {
+			"riskTier": "bounded_write",
+			"blastRadius": "single_resource"
+		},
+		"ask": {
+			"riskTier": "high_impact_write",
+			"blastRadius": "tenant"
+		},
+		"synthesize_spoken_reply": {
+			"riskTier": "high_impact_write",
+			"blastRadius": "tenant"
+		},
+		"delete_conversation": {
+			"riskTier": "high_impact_write",
+			"blastRadius": "tenant"
+		},
+		"approve_home_plan": {
+			"riskTier": "high_impact_write",
+			"blastRadius": "tenant"
+		},
+		"respond_home_approval": {
+			"riskTier": "high_impact_write",
+			"blastRadius": "tenant"
+		},
+		"retry_home_run": {
+			"riskTier": "high_impact_write",
+			"blastRadius": "tenant"
+		},
+		"retry_delegation": {
+			"riskTier": "high_impact_write",
+			"blastRadius": "tenant"
 		}
 	},
 	"neutralPhrases": [

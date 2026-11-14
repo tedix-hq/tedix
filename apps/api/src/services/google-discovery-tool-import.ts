@@ -553,7 +553,18 @@ export async function runGoogleDiscoveryToolImport(
 						visibility: "private",
 						annotations,
 						writeCapability,
-						...(declaredClass ? { meta: existing?.meta } : {}),
+						meta: declaredClass
+							? existing?.meta
+							: {
+									"com.tedix/policy": {
+										riskTier:
+											writeCapability === "read"
+												? "read"
+												: "external_side_effect",
+										blastRadius:
+											writeCapability === "read" ? "none" : "external_system",
+									},
+								},
 						schemaDialect: "json-schema-2020-12",
 						schemaSource: "google-discovery",
 						schemaSourceRef,
