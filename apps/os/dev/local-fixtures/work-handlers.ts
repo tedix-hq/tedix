@@ -3,6 +3,10 @@
  * attention procedures.
  */
 
+import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import type * as z from "zod";
+import type { ExternalAgentWorkManagementGrantSchema } from "@tedix/api-contract/schemas/external-agent-identity";
+
 import {
 	attentionFixture,
 	getAttentionFixtureLayout,
@@ -53,6 +57,26 @@ import {
 	workItemsInScope,
 	workItemSummary,
 } from "./work";
+
+export const localExternalAgentPrincipal = {
+	id: fid("ea", 1),
+	organizationId: ORG_ID,
+	key: "sample-fixture-agent",
+	displayName: "Sample fixture agent",
+	status: "active",
+	credentialBindingType: "api_key",
+	credentialBindingId: "sample-fixture-binding",
+	createdByType: "user",
+	createdById: "sample-operator",
+	metadata: {} as Record<string, JsonValue>,
+	createdAt: T1,
+	updatedAt: T5,
+	platform: null,
+	representedUserId: null,
+	allowedScopes: null,
+	expiresAt: null,
+	lastSeenAt: T5,
+};
 
 export const workHandlers: Record<string, (input: never) => unknown> = {
 	"decisionGraph/getContext": (input: { cardId: string }) =>
@@ -866,25 +890,17 @@ export const workHandlers: Record<string, (input: never) => unknown> = {
 
 	// --- purpose ---
 	"organizationPurpose/getOwnerBrief": () => OWNER_BRIEF,
-	"externalAgentIdentity/listPrincipals": () => [
-		{
-			id: fid("ea", 1),
-			organizationId: ORG_ID,
-			key: "sample-fixture-agent",
-			displayName: "Sample fixture agent",
-			status: "active",
-			credentialBindingType: "api_key",
-			credentialBindingId: "sample-fixture-binding",
-			createdByType: "user",
-			createdById: "sample-operator",
-			metadata: {},
-			createdAt: T1,
-			updatedAt: T5,
-			platform: null,
-			representedUserId: null,
-			allowedScopes: null,
-			expiresAt: null,
-			lastSeenAt: T5,
-		},
-	],
+	"externalAgentIdentity/listPrincipals": () => [localExternalAgentPrincipal],
+	"externalAgentIdentity/setWorkManagement": (input: {
+		principalId: string;
+		grant: z.infer<typeof ExternalAgentWorkManagementGrantSchema> | null;
+	}) => {
+		if (input.principalId !== localExternalAgentPrincipal.id)
+			throw new RpcError("NOT_FOUND", "External-agent principal not found");
+		if (input.grant === null)
+			delete localExternalAgentPrincipal.metadata.workManagement;
+		else localExternalAgentPrincipal.metadata.workManagement = input.grant;
+		localExternalAgentPrincipal.updatedAt = new Date().toISOString();
+		return localExternalAgentPrincipal;
+	},
 };

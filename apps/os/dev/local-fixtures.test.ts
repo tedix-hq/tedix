@@ -15,7 +15,7 @@ import {
 	LOCAL_RPC_PROCEDURES,
 	resetLocalFixtures,
 } from "./local-fixtures";
-import { LOCAL_WIDGET_RESOURCE_URI } from "./local-fixtures/core";
+import { fid, LOCAL_WIDGET_RESOURCE_URI } from "./local-fixtures/core";
 import { localWidgetResource } from "./local-api-plugin";
 import { uid } from "./demo-pack";
 import opportunityCardsApp from "./demo-pack/opportunity-cards-app.json";
@@ -560,6 +560,10 @@ const CALLS = {
 	"organizations/getMyOrganization": {},
 	"modelCatalog/list": {},
 	"externalAgentIdentity/listPrincipals": { organizationId: IDS.orgId },
+	"externalAgentIdentity/setWorkManagement": {
+		principalId: fid("ea", 1),
+		grant: null,
+	},
 	"organizations/get": { organizationId: IDS.orgId },
 	"organizations/getCustomDomain": {},
 	"organizations/beginCustomDomain": { hostname: "work.example.com" },
@@ -2827,4 +2831,36 @@ it("turns a sample draft back on, resumes its schedule and resets cleanly", () =
 	expect(callLocalOk("skills/get", { id: IDS.skillChurn })).toMatchObject({
 		entry: { lifecycleState: "draft", revision: 3 },
 	});
+});
+
+it("persists and revokes local agent grants without changing other principal fields", () => {
+	const principalId = fid("ea", 1);
+	const grant = {
+		scope: "organization",
+		actions: ["specification", "cancellation"],
+	};
+	expect(
+		callLocalOk("externalAgentIdentity/setWorkManagement", {
+			principalId,
+			grant,
+		}),
+	).toMatchObject({ id: principalId, metadata: { workManagement: grant } });
+	expect(callLocalOk("externalAgentIdentity/listPrincipals", {})).toEqual(
+		expect.arrayContaining([
+			expect.objectContaining({
+				id: principalId,
+				metadata: { workManagement: grant },
+			}),
+		]),
+	);
+	expect(
+		callLocalOk("externalAgentIdentity/setWorkManagement", {
+			principalId,
+			grant: null,
+		}),
+	).toMatchObject({ id: principalId, metadata: {} });
+	resetLocalFixtures();
+	expect(callLocalOk("externalAgentIdentity/listPrincipals", {})).toEqual(
+		expect.arrayContaining([expect.objectContaining({ metadata: {} })]),
+	);
 });
