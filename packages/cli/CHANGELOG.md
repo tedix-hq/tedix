@@ -3,6 +3,13 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.21.14 — 2026-11-14
+
+### Patch Changes
+
+- Devin lanes get their own Tedix credential, so a Devin run can read and update its task from inside its sandbox instead of failing on the shared agents file.
+- The supervisor sends runner health reports one at a time and retries a failed one, instead of sending all at once and timing out.
+
 ## 0.21.13 — 2026-11-14
 
 ### Patch Changes
