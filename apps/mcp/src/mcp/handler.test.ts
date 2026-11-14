@@ -54,6 +54,29 @@ describe("public-egress secret scanning", () => {
 		expect(catalogTransport).not.toHaveBeenCalled();
 	});
 
+	it("uses the tool schema to pass a declared cursor and still block a key", async () => {
+		const cursor = btoa(
+			JSON.stringify({ lastId: 1834567890, createdAt: "2026-10-31T09:12:44Z" }),
+		);
+		const { ctx } = context("block");
+		(ctx as { toolInputSchema?: unknown }).toolInputSchema = {
+			type: "object",
+			properties: { nextCursor: { type: "string" } },
+		};
+		await new ToolHandler()
+			.execute({ nextCursor: cursor }, ctx)
+			.catch(() => undefined);
+		expect(ctx.secretEgressDecision).toBeUndefined();
+
+		const blocked = context("block").ctx;
+		await new ToolHandler()
+			.execute({ nextCursor: cursor }, blocked)
+			.catch(() => undefined);
+		expect(blocked.secretEgressDecision).toMatchObject({
+			secretPattern: "long opaque token",
+		});
+	});
+
 	it("scans a third-party transport even when the tool is not flagged publicEgress", async () => {
 		const { ctx } = context("block");
 		(ctx as { publicEgress?: boolean }).publicEgress = false;

@@ -45,7 +45,7 @@ const REDACT_PII = false;
  * boundaries / length) to prefer false-negatives over mangling normal prose,
  * UUIDs, or ordinary identifiers.
  */
-const SECRET_VALUE_PATTERNS: readonly {
+export const SECRET_VALUE_PATTERNS: readonly {
 	name: string;
 	pattern: RegExp;
 }[] = [
@@ -79,16 +79,16 @@ const SECRET_VALUE_PATTERNS: readonly {
 ];
 
 // URL basic-auth credentials: keep the scheme, redact `user:pass@`.
-const URL_BASIC_AUTH_RE = /(https?:\/\/)[^/\s:@]+:[^/\s@]+@/gi;
+export const URL_BASIC_AUTH_RE = /(https?:\/\/)[^/\s:@]+:[^/\s@]+@/gi;
 
 // Long opaque secrets: standalone base64url/hex runs >= 40 chars. Anchored on
 // word boundaries. The 40-char floor already excludes UUIDs (<= 36 chars). A
 // secondary entropy gate (must contain both a letter and a digit) rejects
 // monotonous runs (e.g. "xxxx…") and long all-alpha words, so normal prose is
 // left intact while high-entropy keys/hashes are caught.
-const LONG_OPAQUE_SECRET_RE = /\b[A-Za-z0-9_-]{40,}\b/g;
-const HAS_LETTER_RE = /[A-Za-z]/;
-const HAS_DIGIT_RE = /[0-9]/;
+export const LONG_OPAQUE_SECRET_RE = /\b[A-Za-z0-9_-]{40,}\b/g;
+export const HAS_LETTER_RE = /[A-Za-z]/;
+export const HAS_DIGIT_RE = /[0-9]/;
 
 // Email addresses — only redacted when REDACT_PII is true.
 const EMAIL_RE = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
@@ -114,29 +114,6 @@ export function redactSecretValues(s: string): string {
 		out = out.replace(EMAIL_RE, REDACTED);
 	}
 	return out;
-}
-
-/** Return the first high-confidence secret pattern in a JSON-like value. */
-export function findSecretValuePattern(value: unknown): string | null {
-	let serialized: string;
-	try {
-		serialized = JSON.stringify(value) ?? "";
-	} catch {
-		return null;
-	}
-	URL_BASIC_AUTH_RE.lastIndex = 0;
-	if (URL_BASIC_AUTH_RE.test(serialized)) return "URL basic authentication";
-	for (const { name, pattern } of SECRET_VALUE_PATTERNS) {
-		pattern.lastIndex = 0;
-		if (pattern.test(serialized)) return name;
-	}
-	LONG_OPAQUE_SECRET_RE.lastIndex = 0;
-	for (const match of serialized.matchAll(LONG_OPAQUE_SECRET_RE)) {
-		const candidate = match[0];
-		if (HAS_LETTER_RE.test(candidate) && HAS_DIGIT_RE.test(candidate))
-			return "long opaque token";
-	}
-	return null;
 }
 
 /**
