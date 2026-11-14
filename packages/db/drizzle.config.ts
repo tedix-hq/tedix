@@ -40,6 +40,7 @@ export default defineConfig({
 		"./src/schema/tedi-console.ts",
 		"./src/schema/support.ts",
 		"./src/schema/oidc-sessions.ts",
+		"./src/schema/personal-agent-sessions.ts",
 	],
 	out: "./drizzle",
 	dialect: "sqlite",

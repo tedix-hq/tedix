@@ -4,6 +4,10 @@ import { SURFACE_SLUG_PATTERN } from "@tedix/tenant-directory";
 import * as z from "zod";
 import { baseErrors } from "../errors";
 import { PersonalAgentDiscoverySchema } from "../schemas/organization";
+import {
+	PersonalAgentSessionRequestSchema,
+	PersonalAgentSessionResultSchema,
+} from "../schemas/personal-agent-session";
 
 /**
  * Internal OS tenant resolution for the `tedix-os` edge Worker.
@@ -24,6 +28,10 @@ export const osTenantContract = oc
 	.route({ tags: ["os-tenant", "internal"], prefix: "/os-tenant" })
 	.errors(baseErrors)
 	.router({
+		personalAgentSession: oc
+			.route({ method: "POST" })
+			.input(PersonalAgentSessionRequestSchema)
+			.output(PersonalAgentSessionResultSchema),
 		resolveHostname: oc
 			.route({ method: "GET" })
 			.input(z.object({ hostname: z.string().min(1).max(253) }))

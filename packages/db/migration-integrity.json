@@ -1472,6 +1472,10 @@
 		{
 			"name": "20261114213503_recover-derived-tool-classes/migration.sql",
 			"sha256": "e80ea022c2382233f1c3345c49ef49bf478ab2552c64200c549ae52081e1d261"
+		},
+		{
+			"name": "20261114222356_personal-agent-sessions/migration.sql",
+			"sha256": "310d496e7c4a1c61d2c3a5aeea2364f3974dba91002790c41b8d7e22a8caeedd"
 		}
 	]
 }

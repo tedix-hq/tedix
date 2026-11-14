@@ -45,6 +45,38 @@ whichever kind the row declares. To add or change a tool, change its row (via
 the platform API or CLI); to change _how a kind of tool executes_, change
 `ToolHandler`.
 
+## Signed-out personal agent Sessions
+
+A public MCP app listed in its organization's `metadata.personalAgentProtocol.mcpUrl`
+verifies `Poppy-Version` and `Poppy-Session` before handling MCP requests without
+account credentials. The API service checks the stored organization and app,
+verifies the client's delegation and Session signature, then creates or continues
+the Session in D1. Session identity grants no account permissions. Authenticated
+apps retain their existing access requirements.
+
+The organization settings accept `allowedClientIds`, `blockedClientIds`, and
+`requestsPerMinute` (default 60). Counters are shared across Sessions and Worker
+isolates. Client metadata and JWKS fetches use the SSRF guard with no redirects,
+a five-second timeout per document and a 64 KiB body limit. The API Worker also
+requires `global_fetch_strictly_public` to enforce the network boundary.
+
+Session JWTs and fetched documents are never logged or stored. The internal
+`sessionToken` field is covered by RPC development-log redaction. Verification
+failures contain only protocol error codes. Sessions store pseudonymous IDs,
+the declared version and ended state; delegated keys may change between requests.
+
+Replay decision: this signed-out entry does not store JWT `jti` values. The
+protocol permits accepting a replay within the 60-second freshness window;
+request method, URL and any independently verified access token remain bound.
+Tool authorization and operation idempotency remain separate requirements.
+
+For staging acceptance, generate a validator identity with the company kit's
+`keygen`, host its public metadata and JWKS, and configure that staging
+organization's client policy. Run the foundation milestone with `--probe-session`
+against a real Session-dependent GET operation. The MCP transport returns 405
+for GET, so its POST endpoint cannot serve as that probe. Never install validator
+test identities in a production allowlist.
+
 ## Scope enforcement: two gates
 
 A registered tool is guarded by exactly one of two gates, and a tool registered

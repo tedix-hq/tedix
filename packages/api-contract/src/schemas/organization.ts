@@ -432,12 +432,15 @@ export const PersonalAgentDiscoveryConfigSchema = z.strictObject({
 		),
 	mcpUrl: DiscoveryHttpsUrlSchema,
 	description: z.string().trim().min(1).max(500),
+	allowedClientIds: z.array(DiscoveryHttpsUrlSchema).max(200).optional(),
+	blockedClientIds: z.array(DiscoveryHttpsUrlSchema).max(200).optional(),
+	requestsPerMinute: z.number().int().min(1).max(10000).optional(),
 });
 
 export const PersonalAgentDiscoverySchema = z.object({
 	protocol_version: z.literal("1.0"),
 	organization: z.object({ name: z.string().min(1), domain: z.string() }),
-	// Protocol sign-in needs Session support, which is not implemented yet.
+	// Protocol sign-in is not offered by the signed-out entry.
 	auth: z.object({ disabled: z.literal(true) }),
 	apis: z
 		.array(
