@@ -139,3 +139,25 @@ it("treats the current project as no move", async () => {
 		expect.objectContaining({ title: "Renamed", objectiveId: undefined }),
 	);
 });
+
+it("allows project moves only with the organization grant flag", async () => {
+	mocks.actor.mockResolvedValue({
+		type: "external_agent",
+		id: "agent",
+		canMoveProject: true,
+	});
+	await move();
+	expect(mocks.update).toHaveBeenCalledWith(
+		{},
+		expect.objectContaining({
+			projectId: TARGET,
+			actor: expect.objectContaining({ type: "external_agent", id: "agent" }),
+		}),
+	);
+	mocks.actor.mockResolvedValue({
+		type: "external_agent",
+		id: "agent",
+		canMoveProject: false,
+	});
+	await expect(move()).rejects.toMatchObject({ code: "FORBIDDEN" });
+});

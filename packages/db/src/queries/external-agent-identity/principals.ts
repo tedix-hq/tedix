@@ -1,5 +1,10 @@
 import { withTransientD1ReadRetry } from "../../utils/d1-retry";
-import { ExternalAgentPlatformSchema } from "@tedix/api-contract/schemas/external-agent-identity";
+import { auditEvents } from "../../schema/audit-events";
+import * as z from "zod";
+import {
+	ExternalAgentWorkManagementGrantSchema,
+	ExternalAgentPlatformSchema,
+} from "@tedix/api-contract/schemas/external-agent-identity";
 import { organizationMembers } from "../../schema/organization-members";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, desc, eq, getColumns, inArray, ne, or, sql } from "drizzle-orm";
@@ -293,6 +298,74 @@ export async function setExternalAgentPrincipalStatus(
 			"External-agent principal not found",
 		);
 	}
+	return rows[0];
+}
+
+/** Atomic grant replacement and audit; JSON operations preserve unrelated metadata. */
+export async function setExternalAgentWorkManagement(
+	db: DbClient,
+	params: {
+		organizationId: string;
+		principalId: string;
+		actorId: string;
+		grant: z.infer<typeof ExternalAgentWorkManagementGrantSchema> | null;
+		updatedAt: string;
+	},
+): Promise<ExternalAgentPrincipal> {
+	const predicate = and(
+		eq(externalAgentPrincipals.organizationId, params.organizationId),
+		eq(externalAgentPrincipals.id, params.principalId),
+	);
+	const grant =
+		params.grant === null
+			? null
+			: ExternalAgentWorkManagementGrantSchema.parse(params.grant);
+	const audit = db.insert(auditEvents).select(
+		db
+			.select({
+				id: sql<string>`${crypto.randomUUID()}`.as("audit_id"),
+				organizationId: sql<string>`${params.organizationId}`.as("audit_org"),
+				actorId: sql<string>`${params.actorId}`.as("audit_actor"),
+				actorType: sql<string>`'user'`.as("audit_actor_type"),
+				action: sql<string>`'external_agent.work_management.updated'`.as(
+					"audit_action",
+				),
+				resourceType: sql<string>`'external_agent_principal'`.as(
+					"audit_resource_type",
+				),
+				resourceId: externalAgentPrincipals.id,
+				metadata: sql<
+					Record<string, JsonValue>
+				>`json_object('previousGrant', json_extract(${externalAgentPrincipals.metadata}, '$.workManagement'), 'grant', json(${JSON.stringify(grant)}))`.as(
+					"audit_metadata",
+				),
+				ipAddress: sql<string | null>`NULL`.as("audit_ip"),
+				userAgent: sql<string | null>`NULL`.as("audit_user_agent"),
+				timestamp:
+					sql<Date>`${Math.floor(Date.parse(params.updatedAt) / 1000)}`.as(
+						"audit_timestamp",
+					),
+			})
+			.from(externalAgentPrincipals)
+			.where(predicate),
+	);
+	const update = db
+		.update(externalAgentPrincipals)
+		.set({
+			metadata:
+				grant === null
+					? sql`json_remove(${externalAgentPrincipals.metadata}, '$.workManagement')`
+					: sql`json_set(${externalAgentPrincipals.metadata}, '$.workManagement', json(${JSON.stringify(grant)}))`,
+			updatedAt: params.updatedAt,
+		})
+		.where(predicate)
+		.returning();
+	const [, rows] = await db.batch([audit, update]);
+	if (!rows[0])
+		throw new ExternalAgentIdentityError(
+			"principal_not_found",
+			"External-agent principal not found",
+		);
 	return rows[0];
 }
 

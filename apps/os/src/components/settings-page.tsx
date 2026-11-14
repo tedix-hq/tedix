@@ -857,6 +857,17 @@ export function SettingsPage({
 						</SectionDescription>
 					</SectionHeading>
 				</SectionHeader>
+				{!localEvaluation && operationalContext.data && (
+					<WorkspaceAppRenderer
+						manifest={{
+							entry: "tedix:app/agent-work-management",
+							capabilities: [],
+							config: {
+								organizationId: operationalContext.data.organization.id,
+							},
+						}}
+					/>
+				)}
 				<SettingsRows>
 					<SettingsRow
 						icon={Plug}

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
+	ExternalAgentWorkManagementGrantSchema,
 	ExternalAgentPrincipalMetadataSchema,
 	externalAgentScopeCeiling,
 	ExternalAgentReviewAssessmentSchema,
@@ -154,6 +155,35 @@ describe("external-agent represented identity metadata", () => {
 				platform: "invented",
 				allowedScopes: [],
 			}).success,
+		).toBe(false);
+	});
+});
+
+describe("Work management scopes", () => {
+	it.each([
+		{ scope: "organization", actions: ["specification", "cancellation"] },
+		{ scope: "project", projectId: BASE.id, actions: ["specification"] },
+		{ sourceIntentPrefixes: ["repair:"], actions: ["assignment"] },
+	])("accepts a bounded scope: %j", (grant) => {
+		expect(
+			ExternalAgentWorkManagementGrantSchema.safeParse(grant).success,
+		).toBe(true);
+	});
+	it.each([
+		{
+			scope: "organization",
+			sourceIntentPrefixes: ["repair:"],
+			actions: ["specification"],
+		},
+		{ scope: "project", actions: ["specification"] },
+		{ scope: "organization", actions: ["completion"] },
+		{ scope: "organization", actions: ["delete"] },
+		{ scope: "organization", actions: ["payment"] },
+		{ scope: "organization", actions: [] },
+		{ actions: ["specification"] },
+	])("rejects ambiguous or unauthorized grant shape: %j", (grant) => {
+		expect(
+			ExternalAgentWorkManagementGrantSchema.safeParse(grant).success,
 		).toBe(false);
 	});
 });

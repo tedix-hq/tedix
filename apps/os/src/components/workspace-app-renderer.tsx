@@ -87,6 +87,12 @@ const AccountOrganizationsApp = lazy(() =>
 	})),
 );
 
+const AgentWorkManagementApp = lazy(() =>
+	import("./agent-work-management-app").then((m) => ({
+		default: m.AgentWorkManagementApp,
+	})),
+);
+
 const OrganizationDomainApp = lazy(() =>
 	import("./organization-domain-app").then((m) => ({
 		default: m.OrganizationDomainApp,
@@ -136,6 +142,13 @@ function InstalledApp({
 	activityFeed?: ActivityFeedNavigation;
 }) {
 	const entry = manifest.entry.trim();
+	if (
+		entry === "tedix:app/agent-work-management" &&
+		typeof manifest.config?.organizationId === "string"
+	)
+		return (
+			<AgentWorkManagementApp organizationId={manifest.config.organizationId} />
+		);
 	if (entry === "tedix:app/account-organizations")
 		return <AccountOrganizationsApp />;
 	if (

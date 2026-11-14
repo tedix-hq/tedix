@@ -13,6 +13,7 @@ import {
 	ExternalAgentPrincipalSummarySchema,
 	ExternalAgentPrincipalMetadataSchema,
 	ExternalAgentPrincipalStatusSchema,
+	ExternalAgentWorkManagementGrantSchema,
 	ExternalAgentReputationContextSchema,
 	ExternalAgentReviewAssessmentSchema,
 	ExternalAgentReviewContextSchema,
@@ -190,6 +191,23 @@ export const externalAgentIdentityContract = oc
 					organizationId: OrganizationIdSchema,
 					principalId: z.uuid(),
 					reason: z.string().trim().min(1).max(1000),
+				}),
+			)
+			.output(ExternalAgentPrincipalSchema),
+
+		setWorkManagement: oc
+			.route({
+				method: "PATCH",
+				path: "/principals/{principalId}/work-management",
+				summary: "Grant or revoke an agent's Work management rights",
+				description:
+					"Requires a current organization owner or admin. Pass grant: null to revoke. Grants never authorize payments, sign-ins, outgoing messages or deletes.",
+			})
+			.input(
+				z.object({
+					organizationId: OrganizationIdSchema,
+					principalId: z.uuid(),
+					grant: ExternalAgentWorkManagementGrantSchema.nullable(),
 				}),
 			)
 			.output(ExternalAgentPrincipalSchema),

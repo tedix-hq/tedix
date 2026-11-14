@@ -164,10 +164,13 @@ export async function workItemStewardActor(
 			principal?.status === "active" &&
 			grant.success &&
 			grant.data.actions.includes(action) &&
-			item.sourceIntentId &&
-			grant.data.sourceIntentPrefixes.some((prefix) =>
-				item.sourceIntentId!.startsWith(prefix),
-			)
+			("scope" in grant.data
+				? grant.data.scope === "organization" ||
+					item.projectId === grant.data.projectId
+				: !!item.sourceIntentId &&
+					grant.data.sourceIntentPrefixes.some((prefix) =>
+						item.sourceIntentId!.startsWith(prefix),
+					))
 		) {
 			const { data: attempts } = await listWorkItemAttempts(context.db, {
 				orgId: item.orgId,
@@ -182,6 +185,8 @@ export async function workItemStewardActor(
 				return {
 					...actor,
 					canAssignExecutor: grant.data.actions.includes("assignment"),
+					canMoveProject:
+						"scope" in grant.data && grant.data.scope === "organization",
 				};
 		}
 	}
