@@ -28,7 +28,7 @@
  */
 import { createHash, randomUUID } from "node:crypto";
 import { CLI_VERSION } from "./shared";
-import { readBudgetMs } from "./read-retry";
+import { readBudgetMs, retryRead } from "./read-retry";
 import { holdAwake } from "./supervise-awake";
 import type { OfficeObservation } from "@tedix/api-contract/schemas/office-activity";
 import {
@@ -107,7 +107,10 @@ import {
 	localSessions,
 	waitingQuestions,
 } from "./supervise-questions";
-import { collectDispatcherHealth } from "./dispatcher-health";
+import {
+	collectDispatcherHealth,
+	type LocalDispatcherHealth,
+} from "./dispatcher-health";
 import {
 	RUNNER_RECORDS_DIR,
 	RUNNERS_FILE,
@@ -130,6 +133,8 @@ const DETAIL_TIMEOUT_MS = 15_000;
 const RECHECK_MAX_MS = 10 * 60 * 1000;
 const PRUNE_EVERY_MS = 60 * 60 * 1000;
 export const HEALTH_REPORT_INTERVAL_MS = 2 * 60 * 1000;
+/** Each report's retries share this; the first attempt gets DETAIL_TIMEOUT_MS. */
+const HEALTH_REPORT_BUDGET_MS = 45_000;
 
 /** A failed delivery is retried after this long. */
 const DELIVERY_RETRY_MS = 10 * 60 * 1000;
@@ -172,6 +177,7 @@ export class Supervisor {
 	private readonly logged = new Set<string>();
 	private prunedAt = Number.NEGATIVE_INFINITY;
 	private healthReportedAt = Number.NEGATIVE_INFINITY;
+	private healthPass: Promise<void> | undefined;
 
 	private readonly lead: LeadDuty;
 	constructor(private readonly deps: SuperviseDeps) {
@@ -192,7 +198,10 @@ export class Supervisor {
 		return this.lead.failed;
 	}
 
-	/** Returns the number of drafts delivered in this pass. */
+	/**
+	 * Returns the number of drafts delivered in this pass. `waitForLead` also
+	 * waits for the health reports this pass started.
+	 */
 	async tick(waitForLead = false): Promise<number> {
 		try {
 			alertStrandedLogins(this.deps.env);
@@ -250,36 +259,63 @@ export class Supervisor {
 				`answer delivery failed: ${(error as Error).message?.slice(0, 200)}`,
 			);
 		}
-		if (now - this.healthReportedAt >= HEALTH_REPORT_INTERVAL_MS) {
+		if (
+			!this.healthPass &&
+			now - this.healthReportedAt >= HEALTH_REPORT_INTERVAL_MS
+		) {
 			this.healthReportedAt = now;
-			await Promise.all(
-				collectDispatcherHealth(this.deps.env, now).map(
-					async ({ workspace, organization, ...report }) => {
-						try {
-							await this.deps.read(
-								[
-									"--workspace",
-									workspace,
-									"--organization",
-									organization,
-									"work",
-									"dispatcher-health-record",
-									"--input",
-									JSON.stringify(report),
-								],
-								DETAIL_TIMEOUT_MS,
-							);
-						} catch (error) {
-							this.log(
-								`dispatcher ${report.executor} health report failed: ${(error as Error).message?.slice(0, 200)}`,
-							);
-						}
-					},
-				),
-			);
+			this.healthPass = this.reportHealth(
+				collectDispatcherHealth(this.deps.env, now),
+			).finally(() => {
+				this.healthPass = undefined;
+			});
 		}
+		if (waitForLead) await this.healthPass;
 		await lead;
 		return delivered;
+	}
+
+	/**
+	 * One report at a time, off the tick: concurrent CLI children pushed each
+	 * other past the read deadline, and a slow report must not hold up answers.
+	 */
+	private async reportHealth(reports: LocalDispatcherHealth[]): Promise<void> {
+		const clock = this.deps.now ?? (() => performance.now());
+		for (const { workspace, organization, ...report } of reports) {
+			const started = clock();
+			let attempts = 0;
+			try {
+				await retryRead(
+					(timeoutMs) => {
+						attempts++;
+						return this.deps.read(
+							[
+								"--workspace",
+								workspace,
+								"--organization",
+								organization,
+								"work",
+								"dispatcher-health-record",
+								"--input",
+								JSON.stringify(report),
+							],
+							timeoutMs,
+						);
+					},
+					{
+						operation: "dispatcher-health-record",
+						budgetMs: HEALTH_REPORT_BUDGET_MS,
+						attemptMs: DETAIL_TIMEOUT_MS,
+						log: () => {},
+						wait: this.deps.sleep,
+					},
+				);
+			} catch (error) {
+				this.log(
+					`dispatcher ${report.executor} health report failed after ${Math.round(clock() - started)} ms and ${attempts} attempt${attempts === 1 ? "" : "s"}: ${(error as Error).message?.slice(0, 200)}`,
+				);
+			}
+		}
 	}
 
 	async pickupCommitHandoffs(): Promise<number> {
