@@ -627,7 +627,12 @@ describe("private OS workspaces", () => {
 		});
 		const open = (identify?: typeof asGuest) =>
 			handleOsShareOpen(db, share.publicId, "org-1", undefined, identify);
-		expect((await open(stranger)).status).toBe(404);
+		const challenge = await open(stranger);
+		expect(challenge.status).toBe(200);
+		const prompt = await challenge.json();
+		expect(prompt).toMatchObject({ needsSignIn: false, needsEmailCode: true });
+		expect(prompt).not.toHaveProperty("resource");
+		expect(prompt).not.toHaveProperty("sessionToken");
 		const invited = await open(asGuest);
 		expect(invited.status).toBe(200);
 		const session = ((await invited.json()) as { sessionToken: string })
@@ -640,7 +645,9 @@ describe("private OS workspaces", () => {
 		expect(
 			(await handleOsShareSessionRead(db, session, undefined, asGuest)).status,
 		).toBe(404);
-		expect((await open(asGuest)).status).toBe(404);
+		const removed = await open(asGuest);
+		expect(removed.status).toBe(200);
+		expect(await removed.json()).toEqual(prompt);
 	});
 
 	it("previews who loses and gains access, and the change then does exactly that", async () => {
