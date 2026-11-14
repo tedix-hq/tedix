@@ -57,6 +57,12 @@ function fakeData(): WorkspaceDataPort {
 			content: input.content,
 		}),
 		listApps: async () => [],
+		getAppCode: async () => {
+			throw new Error("unused");
+		},
+		reviseAppCode: async () => {
+			throw new Error("unused");
+		},
 		listResources: async () => [],
 		listWork: async () => work,
 		createWork: async (input) => ({

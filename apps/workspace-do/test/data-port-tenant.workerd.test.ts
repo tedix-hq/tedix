@@ -24,6 +24,7 @@ function port(tenant: TenantStoreDb, activated: boolean) {
 		core,
 		bucket,
 		actorKind: "user",
+		validateAppSource: unused,
 		assertWorkspaceAuthority: async () => {
 			if (!activated) throw new Error("Workspace activation is required");
 		},

@@ -12,7 +12,20 @@ import {
 	listOsOutputs,
 } from "@tedix/db/queries/durable-sqlite/os-outputs";
 import type { TenantStoreDb } from "@tedix/db/queries/durable-sqlite/tenant-store";
-import { listOsGadgets } from "@tedix/db/queries/os-workspaces/gadgets";
+import {
+	listOsGadgets,
+	getOsGadget,
+	getOsGadgetRevision,
+	getOsGadgetCode,
+	createOsGadgetRevision,
+} from "@tedix/db/queries/os-workspaces/gadgets";
+import { OsGadgetManifestSchema } from "@tedix/api-contract/schemas/os-workspaces";
+import { AppRuntimeFilesSchema } from "@tedix/api-contract/schemas/os-app-runtime";
+import {
+	appRuntimeCodeLength,
+	isAppRuntimeManifest,
+} from "@tedix/api-contract/utils/app-runtime";
+import { z } from "zod";
 import { listOsWorkspaceProjects } from "@tedix/db/queries/os-workspaces/projects";
 import { listWorkspaceResourceSummaries } from "@tedix/db/queries/durable-sqlite/workspace-resources";
 import { getOsWorkspace } from "@tedix/db/queries/os-workspaces/workspaces";
@@ -41,6 +54,8 @@ import {
 	type OsOutputContent,
 } from "@tedix/api-contract/schemas/os-workspaces";
 import type {
+	AppCode,
+	ReviseAppCodeInput,
 	OutputDetail,
 	OutputSummary,
 	CreateWorkInput,
@@ -108,6 +123,10 @@ export interface TenantDataPortDeps {
 	bucket: OutputBodyBucket;
 	actorKind: "user" | "tedi" | "external_agent" | "service";
 	assertWorkspaceAuthority: () => Promise<void>;
+	validateAppSource: (
+		files: Record<string, string>,
+		compatibilityDate?: unknown,
+	) => Promise<void>;
 	commitOutput: <T>(outputId: string, write: () => Promise<T>) => Promise<T>;
 }
 
@@ -328,6 +347,94 @@ export class TenantDataPort implements WorkspaceDataPort {
 			status: row.status,
 			updatedAt: row.updatedAt,
 		}));
+	}
+
+	async getAppCode(input: {
+		appId: string;
+		revisionId?: string;
+	}): Promise<AppCode> {
+		const parsed = z
+			.object({
+				appId: z.string().min(1),
+				revisionId: z.string().min(1).optional(),
+			})
+			.strict()
+			.parse(input);
+		const app = await getOsGadget(this.deps.core, {
+			organizationId: this.deps.organizationId,
+			gadgetId: parsed.appId,
+		});
+		if (
+			!app ||
+			app.workspaceId !== this.deps.workspaceId ||
+			app.status !== "active"
+		)
+			throw new Error("App not found in this workspace");
+		const revisionId = parsed.revisionId ?? app.currentRevisionId;
+		if (!revisionId) throw new Error("App has no revision");
+		const params = { organizationId: this.deps.organizationId, revisionId };
+		const revision = await getOsGadgetRevision(this.deps.core, params);
+		if (!revision || revision.gadgetId !== app.id)
+			throw new Error("App revision not found");
+		const manifest = OsGadgetManifestSchema.parse(
+			JSON.parse(revision.manifest),
+		);
+		if (!isAppRuntimeManifest(manifest))
+			throw new Error("This app has no editable runtime source");
+		const code = await getOsGadgetCode(this.deps.core, params);
+		if (!code || code.gadgetId !== app.id)
+			throw new Error("App source not found");
+		return {
+			id: app.id,
+			name: app.name,
+			revision: revision.revision,
+			revisionId,
+			manifest,
+			files: AppRuntimeFilesSchema.parse(JSON.parse(code.files)),
+		};
+	}
+
+	async reviseAppCode(
+		input: ReviseAppCodeInput & { actorId: string },
+	): Promise<AppCode> {
+		const parsed = z
+			.object({
+				appId: z.string().min(1),
+				files: AppRuntimeFilesSchema,
+				expectedRevision: z.number().int().min(1),
+				actorId: z.string().min(1),
+			})
+			.strict()
+			.parse(input);
+		const current = await this.getAppCode({ appId: parsed.appId });
+		if (parsed.expectedRevision !== current.revision)
+			throw new Error(
+				"App revision conflict; read the current source before editing again",
+			);
+		await this.deps.validateAppSource(
+			parsed.files,
+			current.manifest.config?.compatibilityDate,
+		);
+		const result = await createOsGadgetRevision(this.deps.core, {
+			id: crypto.randomUUID(),
+			organizationId: this.deps.organizationId,
+			gadgetId: current.id,
+			manifest: JSON.stringify(current.manifest),
+			expectedRevision: parsed.expectedRevision,
+			createdByKind: this.deps.actorKind,
+			createdById: parsed.actorId,
+			code: {
+				files: JSON.stringify(parsed.files),
+				codeLength: appRuntimeCodeLength(parsed.files),
+			},
+		});
+		if (!result.ok) throw new Error(`App revise failed: ${result.reason}`);
+		return {
+			...current,
+			files: parsed.files,
+			revision: result.revision.revision,
+			revisionId: result.revision.id,
+		};
 	}
 
 	async listResources() {

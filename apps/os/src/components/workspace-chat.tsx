@@ -119,6 +119,7 @@ export function WorkspaceChat({
 	const queryClient = useQueryClient();
 	const onOutputChanged = useCallback(() => {
 		void queryClient.invalidateQueries({ queryKey: osQueryKeys.outputs() });
+		void queryClient.invalidateQueries({ queryKey: osQueryKeys.gadgets() });
 	}, [queryClient]);
 	const { snapshot, client } = useWorkspaceChat(
 		workspaceId,

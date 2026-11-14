@@ -3,7 +3,12 @@
  * things it can reach are the RPC stubs placed in its `env`. Each stub is a
  * loopback into this workspace object, where the wrapped binding runs.
  */
-import { withModelAuthoredCodeIsolation } from "@tedix/tedi-codemode-core/model-authored-code-loader";
+import { loadAppRuntimeWorker } from "@tedix/api-contract/utils/app-runtime";
+import { validateAppSource } from "@tedix/api-contract/utils/app-source-validation";
+import {
+	withDynamicWorkerLoaderDiagnostics,
+	withModelAuthoredCodeIsolation,
+} from "@tedix/tedi-codemode-core/model-authored-code-loader";
 import type {
 	SandboxRunInput,
 	SandboxRunResult,
@@ -115,4 +120,37 @@ export function createLoaderSandbox(
 			}
 		},
 	};
+}
+
+/** Use the same source checks and capability-free App dry-load as the API. */
+export async function validateWorkspaceAppSource(
+	loader: WorkerLoader,
+	files: Record<string, string>,
+	compatibilityDate?: unknown,
+) {
+	await validateAppSource(
+		async (source, date) => {
+			try {
+				const worker = loadAppRuntimeWorker(
+					withDynamicWorkerLoaderDiagnostics(loader, {
+						surface: "workspace_app_validation",
+						reason: "workspace_app_validation",
+					}),
+					`validate:${crypto.randomUUID()}`,
+					source,
+					{ compatibilityDate: date, validation: true },
+				);
+				return await worker
+					.getEntrypoint()
+					.fetch(new Request("https://validate/"));
+			} catch (error) {
+				return new Response(
+					`server.js:1:1: App dry-load failed: ${error instanceof Error ? error.message : String(error)}`,
+					{ status: 400 },
+				);
+			}
+		},
+		files,
+		compatibilityDate,
+	);
 }

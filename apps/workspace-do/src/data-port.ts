@@ -3,6 +3,7 @@
  * it sees this port. Outputs use the activated workspace object; core
  * directories and Work use the shared database.
  */
+import type { OsGadgetManifest } from "@tedix/api-contract/schemas/os-workspaces";
 import type { OsOutputContent } from "@tedix/api-contract/schemas/os-workspaces";
 
 export interface OutputSummary {
@@ -25,6 +26,21 @@ export interface AppSummary {
 	description: string | null;
 	status: string;
 	updatedAt: string;
+}
+
+export interface AppCode {
+	id: string;
+	name: string;
+	revision: number;
+	revisionId: string;
+	manifest: OsGadgetManifest;
+	files: Record<string, string>;
+}
+
+export interface ReviseAppCodeInput {
+	appId: string;
+	files: Record<string, string>;
+	expectedRevision: number;
 }
 
 export interface ResourceSummary {
@@ -83,6 +99,10 @@ export interface WorkspaceDataPort {
 		note?: string;
 	}): Promise<OutputDetail>;
 	listApps(): Promise<AppSummary[]>;
+	getAppCode(input: { appId: string; revisionId?: string }): Promise<AppCode>;
+	reviseAppCode(
+		input: ReviseAppCodeInput & { actorId: string },
+	): Promise<AppCode>;
 	listResources(): Promise<ResourceSummary[]>;
 	listWork(options?: {
 		disposition?: string;

@@ -74,7 +74,7 @@ import {
 } from "./model";
 import { buildSystemPrompt } from "./prompt";
 import type { WorkspaceStorage } from "./runtime";
-import { createLoaderSandbox } from "./sandbox";
+import { createLoaderSandbox, validateWorkspaceAppSource } from "./sandbox";
 import {
 	runTurn,
 	toTurnUsage,
@@ -1756,6 +1756,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			core: createDbQueryClient(this.env.DB),
 			bucket: this.env.R2_BUCKET,
 			actorKind,
+			validateAppSource: (files, date) =>
+				validateWorkspaceAppSource(this.env.LOADER, files, date),
 			assertWorkspaceAuthority: async () => {
 				if (!(await this.#ownsOutputs(scope)))
 					throw new Error("Workspace output activation is required");
@@ -2556,6 +2558,9 @@ export class WorkspaceBindingLoopback extends WorkerEntrypoint<
 	}
 	listOpen(...args: unknown[]) {
 		return this.#call("listOpen", args);
+	}
+	getCode(...args: unknown[]) {
+		return this.#call("getCode", args);
 	}
 	get(...args: unknown[]) {
 		return this.#call("get", args);
