@@ -62,7 +62,7 @@ export async function continuePersonalAgentSession(
 	db: DbQueryClient,
 	p: PersonalAgentSessionParams,
 ) {
-	const [, rows] = await db.batch([
+	const [created, rows] = await db.batch([
 		db
 			.insert(personalAgentSessions)
 			.values({
@@ -74,14 +74,15 @@ export async function continuePersonalAgentSession(
 				version: p.version,
 				createdAt: p.now,
 			})
-			.onConflictDoNothing(),
+			.onConflictDoNothing()
+			.returning({ sessionId: personalAgentSessions.sessionId }),
 		db.select().from(personalAgentSessions).where(sessionWhere(p)).limit(1),
 	]);
 	const row = rows[0];
 	if (!row || row.endedAt !== null) return "session_ended" as const;
 	if (row.agentId !== (p.agentId ?? null) || row.version !== p.version)
 		return "invalid_session" as const;
-	return "accepted" as const;
+	return created.length > 0 ? ("started" as const) : ("accepted" as const);
 }
 
 export async function endPersonalAgentSession(

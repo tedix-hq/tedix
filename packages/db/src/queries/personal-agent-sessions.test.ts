@@ -39,7 +39,7 @@ const session = {
 describe("personal agent Sessions on D1", () => {
 	it("starts once, continues, and permits multiple Sessions per user", async () => {
 		const { db, sqlite } = fixture();
-		expect(await continuePersonalAgentSession(db, session)).toBe("accepted");
+		expect(await continuePersonalAgentSession(db, session)).toBe("started");
 		expect(await continuePersonalAgentSession(db, session)).toBe("accepted");
 		expect(
 			sqlite
@@ -51,7 +51,7 @@ describe("personal agent Sessions on D1", () => {
 				...session,
 				sessionId: "session-2",
 			}),
-		).toBe("accepted");
+		).toBe("started");
 		expect(
 			sqlite
 				.prepare("SELECT count(*) AS count FROM personal_agent_sessions")
@@ -72,7 +72,7 @@ describe("personal agent Sessions on D1", () => {
 		]) {
 			expect(
 				await continuePersonalAgentSession(db, { ...session, ...scope }),
-			).toBe("accepted");
+			).toBe("started");
 		}
 		expect(await continuePersonalAgentSession(db, session)).toBe(
 			"session_ended",

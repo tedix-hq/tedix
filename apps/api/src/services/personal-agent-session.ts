@@ -75,13 +75,14 @@ export async function verifySignedOutPersonalAgentSession(
 			}))
 		)
 			return { status: "rate_limited" as const };
-		return {
-			status: await continuePersonalAgentSession(db, {
-				organizationId: input.organizationId,
-				...session,
-				now,
-			}),
-		};
+		const status = await continuePersonalAgentSession(db, {
+			organizationId: input.organizationId,
+			...session,
+			now,
+		});
+		return status === "started"
+			? { status: "accepted" as const, sessionCreated: true }
+			: { status };
 	} catch (error) {
 		if (error instanceof PersonalAgentSessionFailure)
 			return { status: error.code };

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { checkSignedOutPersonalAgentSession } from "./personal-agent-session";
+import { PersonalAgentSessionRequestSchema } from "@tedix/api-contract/schemas/personal-agent-session";
 
 const { verify, getApiClient } = vi.hoisted(() => {
 	const verify = vi.fn();
@@ -21,6 +22,25 @@ const input = () => ({
 
 describe("signed-out MCP Session gate", () => {
 	beforeEach(() => vi.clearAllMocks());
+	it.each([
+		["Poppy-Session", 20000, "sessionToken", "invalid_session"],
+		["Poppy-Version", 40, "version", "version_unsupported"],
+	] as const)(
+		"returns a protocol error for an oversized %s header",
+		async (header, size, field, status) => {
+			const p = input();
+			p.request.headers.set(header, "x".repeat(size));
+			verify.mockResolvedValue({ status });
+			const response = await checkSignedOutPersonalAgentSession(p);
+			const payload = verify.mock.calls[0]![0];
+			expect(PersonalAgentSessionRequestSchema.safeParse(payload).success).toBe(
+				true,
+			);
+			expect(payload[field]).toBeNull();
+			expect(response?.status).toBe(400);
+			expect(await response?.json()).toEqual({ error: status });
+		},
+	);
 	it.each(["accepted", "not_configured"])(
 		"continues normal MCP routing for %s without granting account headers",
 		async (status) => {

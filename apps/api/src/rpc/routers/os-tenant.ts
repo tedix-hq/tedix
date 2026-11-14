@@ -10,6 +10,7 @@ import {
 import { PersonalAgentDiscoveryConfigSchema } from "@tedix/api-contract/schemas/organization";
 import { type BaseContext, withServiceAuth } from "../orpc";
 import { verifySignedOutPersonalAgentSession } from "../../services/personal-agent-session";
+import { osAudit, OS_TENANT_AUDIT } from "../os-audit";
 
 /**
  * OS tenant resolution for the `tedix-os` edge router.
@@ -21,7 +22,7 @@ import { verifySignedOutPersonalAgentSession } from "../../services/personal-age
  * tenant OS is a data-plane action with no DNS, cert, route, or deploy step.
  */
 const osTenantOs = implement(osTenantContract).$context<BaseContext>();
-const service = osTenantOs.use(withServiceAuth);
+const service = osTenantOs.use(withServiceAuth).use(osAudit(OS_TENANT_AUDIT));
 
 const resolve = service.resolve.handler(async ({ input, context }) => {
 	const organization = await getOrganizationBySlug(context.db, input.slug);

@@ -19,4 +19,5 @@ export const PersonalAgentSessionResultSchema = z.object({
 		"version_unsupported",
 		"rate_limited",
 	]),
+	sessionCreated: z.boolean().optional(),
 });
