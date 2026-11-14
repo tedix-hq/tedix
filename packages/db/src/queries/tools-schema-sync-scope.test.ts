@@ -285,7 +285,11 @@ describe("tool contract hashes", () => {
 			contractHash: _hash,
 			...rest
 		} = row;
-		await upsertTool(db, { ...rest, description: "edited" } as never);
+		await upsertTool(db, {
+			...rest,
+			writeCapability: "read",
+			description: "edited",
+		} as never);
 
 		const [edited] = await listToolContractHashesForSchemaSync(db, APP_ID);
 		expect(edited?.contractHash).toBeNull();

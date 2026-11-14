@@ -53,6 +53,41 @@ export function applyProductionMigrations(
 		return;
 	}
 
+	// This immutable migration replaced valid tiers lacking the newer declared
+	// marker. Refuse populated upgrades until their classes are preserved by
+	// the operator; never replay the lossy backfill against existing tools.
+	if (
+		before.appliedCount > 0 &&
+		before.pending.includes("20261114160256_require-tool-class/migration.sql")
+	) {
+		const payload = parseWranglerJson(
+			// remote-d1: runWrangler audits this read-only preservation check.
+			run([
+				"d1",
+				"execute",
+				D1_DATABASE_NAME,
+				"--remote",
+				"--config",
+				"wrangler.jsonc",
+				"--command",
+				"SELECT EXISTS(SELECT 1 FROM app_tools LIMIT 1) AS has_tools",
+				"--json",
+			]),
+			"Tool class preservation check",
+		);
+		assertD1ExecutionSucceeded(payload, "Tool class preservation check");
+		const rows = (payload as Array<{ results?: unknown[] }>)[0]?.results;
+		if (
+			!rows ||
+			rows.length !== 1 ||
+			!isRecord(rows[0]) ||
+			rows[0].has_tools !== 0
+		)
+			throw new Error(
+				"Refusing the lossy require-tool-class migration on existing tools. Preserve and review exact prior tool classes before an operator-managed upgrade; do not restore or replace the live database.",
+			);
+	}
+
 	const bookmark = parseTimeTravelBookmark(
 		parseWranglerJson(
 			run([
