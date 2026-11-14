@@ -929,17 +929,19 @@ describe("shares.invitees", () => {
 			userId: "stranger",
 			email: "stranger@else.test",
 		});
-		expect(
-			(
-				await handleOsShareOpen(
-					db,
-					share.publicId,
-					"tenant-1",
-					undefined,
-					asStranger,
-				)
-			).status,
-		).toBe(404);
+		const challenge = await handleOsShareOpen(
+			db,
+			share.publicId,
+			"tenant-1",
+			undefined,
+			asStranger,
+		);
+		expect(challenge.status).toBe(200);
+		const prompt = await challenge.json();
+		expect(prompt).toMatchObject({ needsSignIn: false, needsEmailCode: true });
+		expect(prompt).not.toHaveProperty("resource");
+		expect(prompt).not.toHaveProperty("sessionToken");
+		expect(await db.select().from(osShareSessions)).toEqual([]);
 		const opened = await handleOsShareOpen(
 			db,
 			share.publicId,
