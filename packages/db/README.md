@@ -233,6 +233,36 @@ bun run db:drift:check
 bun run db:studio
 ```
 
+### Recovering overwritten tool classes
+
+The immutable `20261114160256_require-tool-class` migration overwrote valid
+tiers when their policy lacked `declared: true`. The migration runner refuses
+to apply that migration to populated tool tables. Existing installations need
+an operator-managed preservation and recovery plan before upgrading.
+
+For a database where it already ran, obtain a pre-migration copy independently
+of the live database. Do not roll the live database back to recover metadata.
+From that copy and a fresh live read, select only these columns:
+
+```sql
+SELECT id, app_id, tool_id, write_capability, meta, updated_at FROM app_tools;
+```
+
+Save the result arrays as private working buffers, then run from `packages/db`:
+
+```bash
+bun scripts/recover-tool-classes.ts prior-rows.json current-rows.json
+```
+
+This produces a JSON change log and conditional SQL; it makes no database
+calls. It recovers only complete prior classes whose current row exactly
+matches the migration's change. Missing values, changed identities, reviewed
+classes and later edits go into the review list. It never infers a class from
+a tool name. An authorized operator must review the plan, execute approved
+statements and read every target back; a conditional update may affect zero
+rows if another writer moved it. Keep snapshots and recovery evidence out of
+the source repository and remove the private buffers after collection.
+
 Own-account activation follows the
 [installation manifest lifecycle](../../docs/public/installation-manifests.md#backup-restore-and-upgrade).
 See the [database operating rules](AGENTS.md#validation) for migration review

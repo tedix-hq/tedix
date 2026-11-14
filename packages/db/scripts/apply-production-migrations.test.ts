@@ -10,6 +10,40 @@ import {
 import { readMigrationManifest } from "./check-live-migration-ledger";
 
 describe("production D1 migration orchestration", () => {
+	it.each([1, null, "0"])(
+		"refuses populated or unverifiable tool class upgrades (%s) before mutation",
+		(hasTools) => {
+			const names = readMigrationManifest().migrations.map(({ name }) => name);
+			const stop = names.indexOf(
+				"20261114160256_require-tool-class/migration.sql",
+			);
+			const commands: string[][] = [];
+			expect(() =>
+				applyProductionMigrations({
+					run: (args) => {
+						commands.push(args);
+						if (
+							args.includes(
+								"SELECT name FROM tedix_drizzle_migrations ORDER BY id",
+							)
+						)
+							return JSON.stringify([
+								{
+									success: true,
+									results: names.slice(0, stop).map((name) => ({ name })),
+								},
+							]);
+						return JSON.stringify([
+							{ success: true, results: [{ has_tools: hasTools }] },
+						]);
+					},
+				}),
+			).toThrow("Refusing the lossy require-tool-class migration");
+			expect(commands).toHaveLength(2);
+			expect(commands.every((args) => args[1] === "execute")).toBe(true);
+		},
+	);
+
 	it("keeps a verified migration when PRAGMA optimize is rejected", () => {
 		const names = readMigrationManifest().migrations.map(({ name }) => name);
 		let ledgerReads = 0;
@@ -26,6 +60,10 @@ describe("production D1 migration orchestration", () => {
 							{ success: true, results: applied.map((name) => ({ name })) },
 						]);
 					}
+					if (args.some((arg) => arg.includes("AS has_tools")))
+						return JSON.stringify([
+							{ success: true, results: [{ has_tools: 0 }] },
+						]);
 					if (args[1] === "time-travel")
 						return JSON.stringify({ bookmark: "bookmark-1" });
 					if (args.includes("PRAGMA optimize"))
@@ -59,6 +97,10 @@ describe("production D1 migration orchestration", () => {
 							{ success: true, results: applied.map((name) => ({ name })) },
 						]);
 					}
+					if (args.some((arg) => arg.includes("AS has_tools")))
+						return JSON.stringify([
+							{ success: true, results: [{ has_tools: 0 }] },
+						]);
 					if (args[1] === "time-travel")
 						return JSON.stringify({ bookmark: "bookmark-1" });
 					if (args.includes("PRAGMA optimize"))
@@ -68,13 +110,14 @@ describe("production D1 migration orchestration", () => {
 			});
 			expect(commands.map((args) => args.slice(0, 3))).toEqual([
 				["d1", "execute", "DB"],
+				["d1", "execute", "DB"],
 				["d1", "time-travel", "info"],
 				["d1", "migrations", "apply"],
 				["d1", "execute", "DB"],
 				["d1", "execute", "DB"],
 			]);
-			expect(commands[1]?.[3]).toBe("DB");
 			expect(commands[2]?.[3]).toBe("DB");
+			expect(commands[3]?.[3]).toBe("DB");
 			for (const args of commands) {
 				expect(args[args.indexOf("--config") + 1]).toBe("wrangler.jsonc");
 			}
@@ -102,6 +145,10 @@ describe("production D1 migration orchestration", () => {
 						{ success: true, results: applied.map((name) => ({ name })) },
 					]);
 				}
+				if (args.some((arg) => arg.includes("AS has_tools")))
+					return JSON.stringify([
+						{ success: true, results: [{ has_tools: 0 }] },
+					]);
 				if (args[1] === "time-travel")
 					return JSON.stringify({ bookmark: "bookmark-1" });
 				if (args[2] === "apply")
