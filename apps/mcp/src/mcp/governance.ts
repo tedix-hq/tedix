@@ -2056,8 +2056,16 @@ export async function requireDestructiveToolApproval(
 	}
 	// This call IS the human's approval. The API still checks the run, tenant,
 	// conversation access and owner/admin authority; asking again creates a loop.
+	// These two control routes have a conservative built-in high-impact class.
+	// That class must not turn recording intent or answering into a second ask.
+	const controlBoundary =
+		annotations?.destructiveHint === true ||
+		(risk === "high_impact_write" && tool.meta?.source !== "homeSurface") ||
+		risk === "external_side_effect" ||
+		humanReservedActionClasses(`${agent.appSlug ?? ""}:${tool.toolId}`).length >
+			0;
 	if (
-		!humanBoundary &&
+		!controlBoundary &&
 		!configuredApproval &&
 		tool.config?.transport === "rpc" &&
 		tool.config.endpoint === "kernelRuntime/respondApproval" &&
@@ -2073,7 +2081,7 @@ export async function requireDestructiveToolApproval(
 	// Enqueue records intent; the kernel authorizes and risk-checks execution.
 	// Tasks capability alone must not turn that ingress into a destructive action.
 	if (
-		!humanBoundary &&
+		!controlBoundary &&
 		!isOwnedChannelBoundary &&
 		!configuredApproval &&
 		tool.config?.transport === "rpc" &&

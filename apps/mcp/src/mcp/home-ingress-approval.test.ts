@@ -52,6 +52,35 @@ describe("Home ingress approval", () => {
 			),
 		).not.toBeNull();
 	});
+	it("retains an operator high-impact gate on a stored ingress route", async () => {
+		expect(
+			await requireDestructiveToolApproval(
+				ownerContext(),
+				{ ...ask, meta: { ...ask.meta, source: "stored" } },
+				ask.annotations,
+				options,
+			),
+		).not.toBeNull();
+	});
+	it("retains the external-effect gate on an ingress route", async () => {
+		expect(
+			await requireDestructiveToolApproval(
+				ownerContext(),
+				{
+					...ask,
+					meta: {
+						...ask.meta,
+						"com.tedix/policy": {
+							riskTier: "external_side_effect",
+							blastRadius: "external_system",
+						},
+					},
+				},
+				ask.annotations,
+				options,
+			),
+		).not.toBeNull();
+	});
 	it.each(["always", "work_item"])(
 		"preserves an explicit %s ingress policy",
 		async (approvalPolicy) => {

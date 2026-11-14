@@ -1468,6 +1468,10 @@
 		{
 			"name": "20261114160256_require-tool-class/migration.sql",
 			"sha256": "c3ceb8083a438309ed67242880fdeb9722b682363f2506f53a59b1d0ad173316"
+		},
+		{
+			"name": "20261114213503_recover-derived-tool-classes/migration.sql",
+			"sha256": "e80ea022c2382233f1c3345c49ef49bf478ab2552c64200c549ae52081e1d261"
 		}
 	]
 }
