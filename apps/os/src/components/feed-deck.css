@@ -311,6 +311,23 @@
 	border: 0;
 	background: transparent;
 }
+/* Desktop pages on the position line; a short phone keeps its height for the card. */
+@media (max-height: 700px), (min-width: 40rem) {
+	.fd-deck-phone-paging {
+		display: none;
+	}
+}
+/* On the position line the buttons are as tall as its text, so the card keeps its height. */
+@media (min-width: 40rem) {
+	.feed-deck
+		.fd-deck-meta
+		[data-deck-paging]
+		[data-kumo-component="Button"].bg-inherit {
+		height: 1.25rem;
+		min-height: 0;
+		padding-block: 0;
+	}
+}
 @media (max-width: 40rem) {
 	.fd-deck {
 		border-radius: 1.25rem;

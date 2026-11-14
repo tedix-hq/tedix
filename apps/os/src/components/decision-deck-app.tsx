@@ -216,13 +216,7 @@ function DecisionDeckContent({
 			shortcut={direction === "next" ? "→" : "←"}
 			keyshortcuts={direction === "next" ? "ArrowRight" : "ArrowLeft"}
 		>
-			<Button
-				size="sm"
-				variant="ghost"
-				// Overlaps the text line instead of making it taller.
-				className="sm:-my-1"
-				onClick={direction === "next" ? next : previous}
-			>
+			<Button variant="ghost" onClick={direction === "next" ? next : previous}>
 				{decisionText(direction === "next" ? "Next" : "Previous")}
 			</Button>
 		</ShortcutTooltip>
@@ -238,6 +232,21 @@ function DecisionDeckContent({
 					next: pageButton("next"),
 				}
 			: undefined;
+	// Phones have no room on the position line for touch-sized buttons.
+	const phonePaging = paging && (
+		<nav
+			className="fd-deck-navigation fd-deck-phone-paging"
+			aria-label={paging.label}
+			data-focus-ring="inset"
+		>
+			<Button variant="ghost" onClick={previous}>
+				{decisionText("Previous")}
+			</Button>
+			<Button variant="ghost" onClick={next}>
+				{decisionText("Next")}
+			</Button>
+		</nav>
+	);
 	const content = createElement(
 		DecisionLearningContext.Provider,
 		{
@@ -417,6 +426,7 @@ function DecisionDeckContent({
 								</OptimisticDeckDecisionContext.Provider>
 							)}
 						</Suspense>
+						{phonePaging}
 					</div>
 				) : mode === "decide" && focusCard && !selected ? (
 					<div className="grid gap-3">
@@ -731,6 +741,7 @@ function DecisionDeckContent({
 								</DeckFooterContext.Provider>
 							</DeckCurationContext.Provider>
 						</DeckNoticeContext.Provider>
+						{phonePaging}
 						{mode === "history" ? (
 							<div className="fd-deck-navigation">
 								<Button variant="ghost" onClick={previous}>
