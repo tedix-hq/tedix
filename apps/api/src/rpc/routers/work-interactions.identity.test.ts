@@ -157,6 +157,22 @@ function fixture(
 		});
 	return {
 		sqlite,
+		kernel: (approver?: string) =>
+			createRouterClient(workInteractionsContractRouter, {
+				context: {
+					db: createDbClient(facade),
+					env: { ENVIRONMENT: "test", DB: facade },
+					organizationId: ORG_ID,
+					serviceBindingPrincipal: "mcp-edge",
+					url: new URL("https://api.test/rpc/workInteractions/cancel"),
+					headers: new Headers({
+						"X-Service-Binding": "true",
+						"X-Tedix-Acting-User": "owner-sub",
+						"X-Tedix-Tedi-Scopes": "mcp:messaging.write",
+						...(approver ? { "X-Tedix-Approved-Tool-User": approver } : {}),
+					}),
+				} as BaseContext,
+			}),
 		owner: clientFor({ userId: "owner-id", sub: "owner-sub", role: "owner" }),
 		target: clientFor({
 			userId: "target-id",
@@ -1254,3 +1270,37 @@ it("lets only the addressed person snooze an unchanged open card without answeri
 		sqlite.close();
 	}
 });
+
+it.each(["owner-sub", "target-sub"])(
+	"cancels an exact approved interaction as active approver %s",
+	async (approver) => {
+		const { sqlite, owner, kernel } = fixture();
+		try {
+			const request = await createTargetedInteraction(owner);
+			const result = await kernel(approver).cancel({
+				requestId: request.id,
+				expectedRequestVersion: request.version,
+			});
+			expect(result.state).toBe("cancelled");
+		} finally {
+			sqlite.close();
+		}
+	},
+);
+it.each([undefined, "other-sub"])(
+	"refuses cancellation without an active owner/admin grant (%s)",
+	async (approver) => {
+		const { sqlite, owner, kernel } = fixture();
+		try {
+			const request = await createTargetedInteraction(owner);
+			await expect(
+				kernel(approver).cancel({
+					requestId: request.id,
+					expectedRequestVersion: request.version,
+				}),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+		} finally {
+			sqlite.close();
+		}
+	},
+);

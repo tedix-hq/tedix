@@ -1062,12 +1062,29 @@ const delegateToStewardProcedure = writeOs.delegateToSteward.handler(
 
 const cancelProcedure = writeOs.cancel.handler(async ({ input, context }) => {
 	const orgId = requireOrgId(context);
-	const actor = await verifiedActiveWorkActor(context, orgId);
-	const actorIsAdmin =
-		actor.type === "user" &&
-		["owner", "admin"].includes(
-			(await verifiedActiveUserMembership(context, orgId)).role,
+	const approvedMember =
+		context.authType === "service-binding" && context.approvedToolUserId
+			? await getMemberByUserId(context.db, orgId, context.approvedToolUserId)
+			: undefined;
+	if (
+		context.approvedToolUserId &&
+		(approvedMember?.status !== "active" ||
+			!approvedMember.userId ||
+			!["owner", "admin"].includes(approvedMember.role))
+	)
+		throw createError(
+			ErrorCodes.FORBIDDEN,
+			"The approver is no longer an active owner or admin",
 		);
+	const actor = approvedMember?.userId
+		? { type: "user" as const, id: approvedMember.userId }
+		: await verifiedActiveWorkActor(context, orgId);
+	const actorIsAdmin =
+		Boolean(approvedMember) ||
+		(actor.type === "user" &&
+			["owner", "admin"].includes(
+				(await verifiedActiveUserMembership(context, orgId)).role,
+			));
 	try {
 		return requestOutput(
 			await cancelWorkInteraction(context.db, {

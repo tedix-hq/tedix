@@ -852,3 +852,77 @@ describe("owner-bound agent exact native approvals", () => {
 		expect(mocks.consume).not.toHaveBeenCalled();
 	});
 });
+
+describe("owner role delegation", () => {
+	it.each(["owner", "admin"])(
+		"authorizes a %s's own direct call inline",
+		async (role) => {
+			mocks.member.mockResolvedValue({ role, status: "active" });
+			expect(
+				await client().requestOwnerToolApproval({
+					...input,
+					directUserCall: true,
+				}),
+			).toMatchObject({
+				approved: true,
+				status: "self_authorized",
+				approvedUserId: "owner-1",
+			});
+			expect(mocks.create).not.toHaveBeenCalled();
+			expect(mocks.consume).not.toHaveBeenCalled();
+		},
+	);
+	it("does not authorize a non-admin direct call", async () => {
+		mocks.member.mockResolvedValue({ role: "member", status: "active" });
+		await expect(
+			client().requestOwnerToolApproval({ ...input, directUserCall: true }),
+		).rejects.toThrow(/owner or admin/);
+	});
+	it("shows the required role before approval and grants only the active approver", async () => {
+		const ownerOnly = {
+			...input,
+			target: { ...input.target, requiredRole: "owner" },
+		};
+		const created = await client().requestOwnerToolApproval(ownerOnly);
+		const row = mocks.create.mock.calls[0]![1];
+		expect(row.description).toContain("Only an owner can run this tool");
+		mocks.get.mockResolvedValue({
+			...row,
+			status: "approved",
+			resolvedBy: "user:approver-1",
+		});
+		const retry = {
+			...ownerOnly,
+			approvalRequestId: created.approvalRequestId,
+		};
+		mocks.member.mockImplementation(async (_db, _org, userId) => ({
+			role: userId === "approver-1" ? "member" : "owner",
+			status: "active",
+		}));
+		expect(await client().requestOwnerToolApproval(retry)).toMatchObject({
+			approved: false,
+		});
+		expect(mocks.consume).not.toHaveBeenCalled();
+		mocks.member.mockResolvedValue({ role: "owner", status: "active" });
+		expect(await client().requestOwnerToolApproval(retry)).toMatchObject({
+			approved: true,
+			approvedUserId: "approver-1",
+		});
+		mocks.consume.mockResolvedValueOnce(false);
+		const reused = await client().requestOwnerToolApproval(retry);
+		expect(reused.approved).toBe(false);
+		expect(reused.approvedUserId).toBeUndefined();
+	});
+});
+
+it("refuses an admin's direct call to an owner-only tool", async () => {
+	mocks.member.mockResolvedValue({ role: "admin", status: "active" });
+	await expect(
+		client().requestOwnerToolApproval({
+			...input,
+			directUserCall: true,
+			target: { ...input.target, requiredRole: "owner" },
+		}),
+	).rejects.toThrow("Only an owner can run this tool");
+	expect(mocks.create).not.toHaveBeenCalled();
+});

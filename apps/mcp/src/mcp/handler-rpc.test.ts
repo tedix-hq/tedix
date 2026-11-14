@@ -1847,3 +1847,45 @@ describe("factory approval receipt RPC forwarding", () => {
 		},
 	);
 });
+
+it("forwards an approved user's role grant only on the approved dispatch with tool scopes", async () => {
+	const apiFetch = vi.fn(
+		async (_input: RequestInfo | URL, _init?: RequestInit) =>
+			Response.json({ json: { ok: true } }),
+	);
+	const config = { transport: "rpc", endpoint: "workInteractions/cancel" };
+	const context = {
+		...ctx(config),
+		env: {
+			...ctx(config).env,
+			API_SERVICE: { fetch: apiFetch },
+		} as unknown as CloudflareEnv,
+		callerIdentity: {
+			authType: "service",
+			kernel: true,
+			organizationId: "org_1",
+			userId: "requester",
+			homeApprovedCall: true,
+			approvedToolUserId: "approver",
+			scopes: ["platform:admin", "work:write"],
+		},
+	} as ToolExecutionContext<ToolConfig>;
+	const handler = new ToolHandler();
+	expect(
+		(await handler.execute({ organizationId: "org_1" }, context)).status,
+	).toBe(200);
+	let headers = headersFromFetch(...apiFetch.mock.calls[0]!);
+	expect(headers.get("X-Tedix-Approved-Tool-User")).toBe("approver");
+	expect(headers.get("X-Tedix-Tedi-Scopes")).toBe("mcp:messaging.write");
+	const plain = {
+		...context,
+		callerIdentity: {
+			...context.callerIdentity!,
+			homeApprovedCall: false,
+			approvedToolUserId: undefined,
+		},
+	};
+	await handler.execute({ organizationId: "org_1" }, plain);
+	headers = headersFromFetch(...apiFetch.mock.calls[1]!);
+	expect(headers.has("X-Tedix-Approved-Tool-User")).toBe(false);
+});

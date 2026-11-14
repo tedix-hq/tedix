@@ -2192,3 +2192,85 @@ describe("sample-data demo sending gate", () => {
 		).rejects.not.toThrow(/Sending is switched off/);
 	});
 });
+
+describe("approved tool role authority", () => {
+	const guarded = os
+		.$context<BaseContext>()
+		.use(withAuth)
+		.use(createScopeMiddleware("settings:write"))
+		.handler(({ context }) => ({
+			role: context.userRole,
+			approver: context.approvedToolUserId,
+			authType: context.authType,
+		}));
+	function context(
+		principal = "mcp-edge",
+		grant = true,
+		scopes = "settings:write",
+	) {
+		return {
+			env: {},
+			db: {},
+			organizationId: "fictional-org",
+			serviceBindingPrincipal: principal,
+			url: new URL("https://api/rpc/organizations/update"),
+			headers: new Headers({
+				"X-Service-Binding": "true",
+				"X-Tedix-Acting-User": "requester",
+				"X-Tedix-Tedi-Scopes": scopes,
+				...(grant ? { "X-Tedix-Approved-Tool-User": "approver" } : {}),
+			}),
+		} as unknown as BaseContext;
+	}
+	it.each(["owner", "admin"])(
+		"carries the live %s role without changing the scope plane",
+		async (role) => {
+			personalAuthMocks.getMemberByUserId.mockResolvedValueOnce({
+				role,
+				status: "active",
+			});
+			const ctx = context();
+			expect(await call(guarded, undefined, { context: ctx })).toEqual({
+				role,
+				approver: "approver",
+				authType: "service-binding",
+			});
+			expect(ctx.user).toBeUndefined();
+			personalAuthMocks.getMemberByUserId.mockResolvedValueOnce({
+				role,
+				status: "active",
+			});
+			await expect(
+				call(guarded, undefined, {
+					context: context("mcp-edge", true, "work:write"),
+				}),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+		},
+	);
+	it.each(["member", "viewer"])(
+		"rejects an approver with role %s",
+		async (role) => {
+			personalAuthMocks.getMemberByUserId.mockResolvedValueOnce({
+				role,
+				status: "active",
+			});
+			await expect(
+				call(guarded, undefined, { context: context() }),
+			).rejects.toMatchObject({ code: "FORBIDDEN" });
+		},
+	);
+	it("refuses a role grant from another service", async () => {
+		await expect(
+			call(guarded, undefined, { context: context("other-worker") }),
+		).rejects.toMatchObject({ code: "FORBIDDEN" });
+	});
+	it("does not derive authority from an acting user alone", async () => {
+		expect(
+			await call(guarded, undefined, { context: context("mcp-edge", false) }),
+		).toEqual({
+			role: undefined,
+			approver: undefined,
+			authType: "service-binding",
+		});
+	});
+});

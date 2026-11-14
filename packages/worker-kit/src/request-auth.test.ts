@@ -53,6 +53,7 @@ describe("applyOperatorConsentHeaderHygiene", () => {
 describe("applyInboundTrustHeaderHygiene", () => {
 	it.each([
 		"X-Tedix-Approved-Home-User",
+		"X-Tedix-Approved-Tool-User",
 		"X-Tedix-Approved-Work-Responder",
 		"X-Tedix-Approved-Factory-Request",
 	])("strips %s at public ingress and preserves it on trusted hops", (name) => {

@@ -121,6 +121,8 @@ export interface BaseContext {
 	organizationId?: string;
 	/** User role within the organization */
 	userRole?: string;
+	/** Gateway-verified approver, restricted to this exact tool dispatch. */
+	approvedToolUserId?: string;
 	/**
 	 * Additive permission grants stored on this member's D1 row, on top of what
 	 * `userRole` implies (`organization_members.custom_permissions`).

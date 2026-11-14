@@ -269,6 +269,8 @@ export const ResolveAgentLifecycleAuthorizationResponseSchema = z.object({
 
 /** Gateway-attested caller and resolved target; never a public tool input. */
 export const RequestOwnerToolApprovalInputSchema = z.object({
+	/** Gateway attestation: a human call, with no agent session or replay. */
+	directUserCall: z.boolean().optional(),
 	organizationId: z.string().min(1),
 	userId: z.string().min(1).optional(),
 	requestingAgent: z
@@ -287,7 +289,9 @@ export const RequestOwnerToolApprovalInputSchema = z.object({
 });
 export const RequestOwnerToolApprovalResponseSchema = z.object({
 	approved: z.boolean(),
-	approvalRequestId: z.uuid(),
+	/** Absent when the human authorized their own call inline. */
+	approvalRequestId: z.uuid().optional(),
+	approvedUserId: z.string().min(1).optional(),
 	status: z.string(),
 	url: z.string().url(),
 });
