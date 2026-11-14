@@ -1351,6 +1351,8 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 						appSlug: input.appSlug,
 						toolId: input.toolId,
 						platformOperation: input.operationId,
+						approvalRule: input.operationId,
+						approvalReason: input.reason,
 						...(input.userId ? { initiatedByUserId: input.userId } : {}),
 						...(input.tediId ? { initiatedByTediId: input.tediId } : {}),
 						...(input.externalAgentPrincipalId
@@ -1376,6 +1378,8 @@ export const mcpGovernanceContractRouter = mcpGovernanceOs.router({
 						appSlug: input.appSlug,
 						toolId: input.toolId,
 						platformOperation: input.operationId,
+						approvalRule: input.operationId,
+						approvalReason: input.reason,
 					},
 				},
 			);

@@ -126,7 +126,7 @@ export const mcpGovernanceContract = oc
 			.route({
 				method: "POST",
 				path: "/record-policy-tool-approval",
-				summary: "Record a gateway call approved by the platform default",
+				summary: "Record a gateway call and its automatic approval reason",
 				tags: ["internal"],
 			})
 			.input(RecordPolicyToolApprovalInputSchema)

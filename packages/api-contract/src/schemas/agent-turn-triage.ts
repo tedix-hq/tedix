@@ -218,6 +218,7 @@ export type AgentReplyDeliveryGatePolicy = z.infer<
 export const AgentReplyDeliveryGateResultSchema = z.object({
 	learningReceipt: z
 		.object({
+			approvalReason: z.string().optional(),
 			classId: z.string(),
 			unchanged: z.number().int(),
 			threshold: z.number().int(),

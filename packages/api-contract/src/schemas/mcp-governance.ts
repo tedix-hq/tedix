@@ -297,7 +297,7 @@ export const RequestOwnerToolApprovalResponseSchema = z.object({
 });
 
 /**
- * A gateway call the platform-default autonomy approved, recorded as an
+ * A gateway call approved automatically, recorded as an
  * approved approval row (resolvedBy "policy") so Activity lists it with every
  * other automatic approval.
  */

@@ -14,10 +14,10 @@ import {
 	builtinToolPolicyMetadata,
 	reviewedConnectedEffect,
 	decideAutonomousAction,
+	decideAutoApproval,
 	humanReservedActionClasses,
 	isPlatformCriticalActionType,
 	isWorkItemPurposeRepairCall,
-	platformAutonomousOperation,
 	type DelegationAutonomyPolicy,
 } from "@tedix/api-contract/utils/approval-policy";
 import {
@@ -503,7 +503,7 @@ async function resolveActionTypeOptIn(
 	agent: ApprovalContext,
 	tool: ApprovalTool,
 	actionType: string,
-): Promise<boolean> {
+): Promise<{ grantId: string | null } | null> {
 	const organizationId = agent.app?.organizationId;
 	const governance = agent.apiClient?.mcpGovernance;
 	if (
@@ -511,7 +511,7 @@ async function resolveActionTypeOptIn(
 		agent.callerIdentity?.organizationId !== organizationId ||
 		!governance?.resolveActionTypeOptIn
 	)
-		return false;
+		return null;
 	try {
 		const policy = await governance.resolveAgentTransportPolicy?.({
 			organizationId,
@@ -525,50 +525,15 @@ async function resolveActionTypeOptIn(
 			askForClasses.includes(`tool:${agent.appSlug ?? ""}:${tool.toolId}`) ||
 			askForClasses.includes(`action_type:${actionType}`)
 		)
-			return false;
+			return null;
 		const optIn = await governance.resolveActionTypeOptIn({
 			organizationId,
 			actionType,
 		});
-		if (!optIn.approved) return false;
-		const reason = `Allowed without asking by the organization setting for "${actionType.replaceAll("_", " ")}"`;
-		emitGovernanceAuditEvent(agent, tool, "destructive_approved", reason, {
-			resolvedBy: "action_type_opt_in",
-			actionType,
-			grantId: optIn.grantId,
-		});
-		// Run history lists automatic approvals from approval rows; the row is a
-		// record, not a gate, so failing to write it never blocks the call.
-		await governance
-			.recordPolicyToolApproval?.({
-				organizationId,
-				appSlug: agent.appSlug ?? "",
-				toolId: tool.toolId,
-				reason,
-				operationId: `action_type:${actionType}`,
-				...(agent.callerIdentity.userId
-					? { userId: agent.callerIdentity.userId }
-					: {}),
-				...(agent.callerIdentity.tediId
-					? { tediId: agent.callerIdentity.tediId }
-					: {}),
-				...(agent.callerIdentity.externalAgentPrincipalId
-					? {
-							externalAgentPrincipalId:
-								agent.callerIdentity.externalAgentPrincipalId,
-						}
-					: {}),
-			})
-			.catch(() => {
-				console.warn("[governance] policy_approval_record_failed", {
-					organizationId,
-					toolId: tool.toolId,
-				});
-			});
-		return true;
+		return optIn.approved ? { grantId: optIn.grantId } : null;
 	} catch {
 		// Without a verified opt-in the normal gates below decide.
-		return false;
+		return null;
 	}
 }
 
@@ -1183,22 +1148,28 @@ export async function requireDestructiveToolApproval(
 		(latchLookup ??= latchRunRef
 			? lookupSensitiveDataLatch(agent, latchRunRef)
 			: Promise.resolve({ status: "clear" }));
-	// A latched run gets no automatic approval: neither an admin's action-type
-	// opt-in, the organization's standing policy nor a durable grant stands in
-	// for the person who has to review what the run read. Returns null when
-	// the run is clear (or there is no run).
-	const refuseAutoApprovalWhileLatched =
-		async (): Promise<CallToolResult | null> => {
-			if (!latchRunRef) return null;
-			const lookup = await sensitiveLatch();
-			if (lookup.status === "clear") return null;
+	// All automatic paths share the same latch decision and durable reason writer.
+	const automaticApproval = async (
+		reason = "automatic approval eligibility check",
+		ruleId?: string,
+		metadata?: Record<string, unknown>,
+	): Promise<CallToolResult | null> => {
+		const lookup = await sensitiveLatch();
+		const decision = decideAutoApproval({
+			kind: "gateway",
+			eligible: true,
+			reason,
+			ruleId: ruleId ?? "eligibility_check",
+			sensitiveData: lookup.status,
+		});
+		if (!decision.autoApprove) {
 			const latchedAt =
 				lookup.status === "latched" ? lookup.latch.latchedAt : null;
 			emitGovernanceAuditEvent(
 				agent,
 				tool,
 				"destructive_denied",
-				`sensitive_data_latch:auto_approval${latchedAt ? "" : "_unknown"}`,
+				decision.reason,
 				{ runRef: latchRunRef, latchedAt },
 			);
 			return lookup.status === "latched"
@@ -1213,7 +1184,52 @@ export async function requireDestructiveToolApproval(
 						"The run's sensitive-data lock could not be checked, so this action was not approved automatically; no side effect was executed.",
 						5,
 					);
-		};
+		}
+		if (!ruleId) return null;
+		try {
+			if (
+				agent.app?.organizationId &&
+				agent.apiClient?.mcpGovernance?.recordPolicyToolApproval
+			) {
+				const receipt =
+					await agent.apiClient.mcpGovernance.recordPolicyToolApproval({
+						organizationId: agent.app.organizationId,
+						appSlug: agent.appSlug ?? "",
+						toolId: tool.toolId,
+						reason: decision.reason,
+						operationId: ruleId,
+						...(agent.callerIdentity?.userId
+							? { userId: agent.callerIdentity.userId }
+							: {}),
+						...(agent.callerIdentity?.tediId
+							? { tediId: agent.callerIdentity.tediId }
+							: {}),
+						...(agent.callerIdentity?.externalAgentPrincipalId
+							? {
+									externalAgentPrincipalId:
+										agent.callerIdentity.externalAgentPrincipalId,
+								}
+							: {}),
+					});
+				if (!receipt.approvalRequestId)
+					throw new Error("Approval record unavailable");
+			}
+		} catch {
+			return preDispatchUnavailableToolResult(
+				"automatic_approval_record_unavailable",
+				"The automatic approval could not be recorded; no side effect was executed.",
+				5,
+			);
+		}
+		emitGovernanceAuditEvent(
+			agent,
+			tool,
+			"destructive_approved",
+			decision.reason,
+			{ resolvedBy: "policy", approvalRule: ruleId, ...metadata },
+		);
+		return null;
+	};
 	if (latchRunRef && tool.publicEgress === true) {
 		const lookup = await sensitiveLatch();
 		if (lookup.status === "unavailable")
@@ -1377,16 +1393,9 @@ export async function requireDestructiveToolApproval(
 		options,
 	);
 	if (trustedRecipients) {
-		const latched = await refuseAutoApprovalWhileLatched();
-		if (latched) return latched;
-		// Narrowing only: the API re-reads the stored list at send time and
-		// refuses the send if a recipient was revoked since this check.
-		options!.args!.trustedRecipientsOnly = true;
-		emitGovernanceAuditEvent(
-			agent,
-			tool,
-			"destructive_approved",
+		const decision = await automaticApproval(
 			"trusted recipient",
+			"trusted_recipient",
 			{
 				trustedRecipientSend: {
 					senderTediId: trustedRecipients.senderTediId,
@@ -1394,6 +1403,9 @@ export async function requireDestructiveToolApproval(
 				},
 			},
 		);
+		if (decision) return decision;
+		// The send API rechecks the stored list before executing.
+		options!.args!.trustedRecipientsOnly = true;
 		return null;
 	}
 	if (options?.nativePolicyCandidate?.effect.disposition === "ask") {
@@ -1411,7 +1423,7 @@ export async function requireDestructiveToolApproval(
 			return approvalFailure(
 				"This action requires a separate platform approval path.",
 			);
-		const latched = await refuseAutoApprovalWhileLatched();
+		const latched = await automaticApproval();
 		if (latched) return latched;
 		if (
 			caller?.authType !== "external_agent" ||
@@ -1529,7 +1541,7 @@ export async function requireDestructiveToolApproval(
 				return approvalFailure(
 					"This action requires a separate platform approval path.",
 				);
-			const latched = await refuseAutoApprovalWhileLatched();
+			const latched = await automaticApproval();
 			if (latched) return latched;
 			try {
 				if (
@@ -1768,11 +1780,12 @@ export async function requireDestructiveToolApproval(
 			isPlatformCriticalActionType(declaredActionType.data)
 		)
 	) {
-		const latched = await refuseAutoApprovalWhileLatched();
-		if (latched) return latched;
 		if (!(await nativePolicy.revalidate().catch(() => false)))
 			return approvalFailure("The native tool policy changed.");
-		return null;
+		return automaticApproval(
+			`native policy ${nativePolicy.revisionId}`,
+			"native_policy",
+		);
 	}
 	if (
 		tenantPolicy?.effect.disposition === "allow" &&
@@ -1790,9 +1803,10 @@ export async function requireDestructiveToolApproval(
 			isPlatformCriticalActionType(declaredActionType.data)
 		)
 	) {
-		const latched = await refuseAutoApprovalWhileLatched();
-		if (latched) return latched;
-		return null;
+		return automaticApproval(
+			`tenant policy ${tenantPolicy.revisionId}`,
+			"tenant_policy",
+		);
 	}
 	// A declared action type an organization admin opted in. An undeclared,
 	// destructive or platform-critical tool, an explicit tool policy and the
@@ -1812,10 +1826,23 @@ export async function requireDestructiveToolApproval(
 		humanReservedActionClasses(`${agent.appSlug ?? ""}:${tool.toolId}`)
 			.length === 0
 	) {
-		const latched = await refuseAutoApprovalWhileLatched();
+		const latched = await automaticApproval();
 		if (latched) return latched;
-		if (await resolveActionTypeOptIn(agent, tool, declaredActionType.data))
-			return null;
+		const optIn = await resolveActionTypeOptIn(
+			agent,
+			tool,
+			declaredActionType.data,
+		);
+		if (optIn)
+			return automaticApproval(
+				`Allowed without asking by the organization setting for "${declaredActionType.data.replaceAll("_", " ")}"`,
+				`action_type:${declaredActionType.data}`,
+				{
+					resolvedBy: "action_type_opt_in",
+					actionType: declaredActionType.data,
+					grantId: optIn.grantId,
+				},
+			);
 	}
 	// A tenant skill reaches platform tools (os.*, tedix.*) on the public tedix
 	// app, which another organization owns. The run, skill, tedi and policy
@@ -2196,55 +2223,15 @@ export async function requireDestructiveToolApproval(
 					? { tediId: agent.callerIdentity.tediId }
 					: {}),
 			});
-			// The organization's own changes to the default: groups switched off
-			// and single tools added or set to ask. Critical actions stay out.
-			const platformOperation = platformAutonomousOperation(
-				tool.toolId,
-				platformEndpoint,
-				policy.autoApproval ?? null,
-			);
-			const askForClasses = policy.autonomy?.askForClasses;
-			if (
-				platformOperation &&
-				policy.platformAutonomy !== false &&
-				!askForClasses?.includes("*") &&
-				!askForClasses?.includes(`tool:${agent.appSlug ?? ""}:${tool.toolId}`)
-			) {
-				const reason = `${platformOperation.label} run without approval (platform default)`;
-				emitGovernanceAuditEvent(agent, tool, "destructive_approved", reason, {
-					resolvedBy: "policy",
-					platformOperation: platformOperation.id,
-				});
-				// Activity lists automatic approvals from approval rows. The row is a
-				// record, not a gate: failing to write it never blocks the call.
-				await agent.apiClient?.mcpGovernance
-					?.recordPolicyToolApproval?.({
-						organizationId: agent.app.organizationId,
-						appSlug: agent.appSlug ?? "",
-						toolId: tool.toolId,
-						reason,
-						operationId: platformOperation.id,
-						...(agent.callerIdentity?.userId
-							? { userId: agent.callerIdentity.userId }
-							: {}),
-						...(agent.callerIdentity?.tediId
-							? { tediId: agent.callerIdentity.tediId }
-							: {}),
-						...(agent.callerIdentity?.externalAgentPrincipalId
-							? {
-									externalAgentPrincipalId:
-										agent.callerIdentity.externalAgentPrincipalId,
-								}
-							: {}),
-					})
-					.catch(() => {
-						console.warn("[governance] policy_approval_record_failed", {
-							organizationId: agent.app?.organizationId,
-							toolId: tool.toolId,
-						});
-					});
-				return null;
-			}
+			const decision = decideAutoApproval({
+				kind: "platform",
+				toolName: tool.toolId,
+				endpoint: platformEndpoint,
+				policy,
+				classId: `tool:${agent.appSlug ?? ""}:${tool.toolId}`,
+			});
+			if (decision.autoApprove)
+				return automaticApproval(decision.reason, decision.ruleId!);
 		} catch {
 			// Without the policy the normal gates below decide; nothing has run.
 		}
@@ -2294,7 +2281,7 @@ export async function requireDestructiveToolApproval(
 		configuredApproval === "always" ||
 		configuredApproval === "once";
 	if (wouldAutoApprove) {
-		const latched = await refuseAutoApprovalWhileLatched();
+		const latched = await automaticApproval();
 		if (latched) return latched;
 	}
 	// Org standing consent covers bounded actions; Work authorization is separate.
@@ -2308,18 +2295,10 @@ export async function requireDestructiveToolApproval(
 		configuredApproval !== "once" &&
 		configuredApproval !== "work_item"
 	) {
-		emitGovernanceAuditEvent(
-			agent,
-			tool,
-			"destructive_approved",
-			autonomousDecision.reason,
-			{
-				policyVersion: autonomy.version,
-				resolvedBy: "policy",
-				policyPack: autonomy.policyPack,
-			},
-		);
-		return null;
+		return automaticApproval(autonomousDecision.reason, "delegation_autonomy", {
+			policyVersion: autonomy.version,
+			policyPack: autonomy.policyPack,
+		});
 	}
 	if (
 		!humanBoundary &&
@@ -2495,13 +2474,9 @@ export async function requireDestructiveToolApproval(
 			agent.callerIdentity ?? { authType: "tedi" },
 		).actorType;
 		const reason = `autonomous ${actorType} self-approval (Code Mode)`;
-		emitGovernanceAuditEvent(agent, tool, "destructive_approved", reason, {
+		return automaticApproval(reason, "legacy_agent_confirmation", {
 			agentAutoConfirm: true,
 		});
-		console.log(
-			`[governance] ${tool.toolId} auto-approved for autonomous agent (${actorType})`,
-		);
-		return null;
 	}
 
 	const extra = options?.extra;
