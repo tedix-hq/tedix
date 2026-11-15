@@ -97,6 +97,7 @@ function fixture() {
 			created_at TEXT NOT NULL,
 			skill_run_id TEXT,
 			skill_id TEXT,
+			agent_turn_id TEXT,
 			access_envelope TEXT,
 			content_sha256 TEXT,
 			content_bytes INTEGER,
