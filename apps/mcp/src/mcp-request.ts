@@ -106,13 +106,9 @@ import {
 	buildAggregateTaskHandlers,
 	hasAggregateTaskCapableTool,
 } from "./mcp/aggregate-task-handlers";
-// Type-only static import: the value export `buildAggregateTediTools` is
-// loaded dynamically at its single call site instead. That module tree
-// (aggregate-tedis-*) materializes ~130 Zod→JSON-Schema conversions at module
-// scope, and every one of them ran during Worker STARTUP — the deploy-time
-// budget Cloudflare validates at 1s (error 10021). It is needed only when a
-// request actually aggregates tedi surfaces, so it must not be on the startup
-// path. Same reasoning as the `registerCodeModeTools` dynamic import.
+// Keep the tedi catalog off the startup path. Its dynamic import reads a
+// generated snapshot: projecting contracts beside a hydrated app catalog
+// exhausted the request isolate's memory.
 import type { AggregateTediEntry } from "./mcp/aggregate-tedis";
 import { isDirectHomeKernelCall } from "./mcp/caller-identity";
 import { buildAggregateCompletionHandler } from "./mcp/completions";
