@@ -1065,8 +1065,8 @@ export function WorkProjectPage({ projectId }: { projectId: string }) {
 				title={project.data.name}
 				description={`${project.data.key} · ${
 					project.data.objective
-						? `Goal: ${project.data.objective.title}`
-						: "No goal yet"
+						? `${OS_COPY.work.objective}: ${project.data.objective.title}`
+						: "No objective yet"
 				}`}
 			/>
 			<ProjectBrief description={project.data.description} />

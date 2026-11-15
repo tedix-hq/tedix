@@ -1,3 +1,4 @@
+import { OS_COPY } from "@/shared/os-copy";
 import type { WorkHomeSearch } from "@/lib/work-home-search";
 
 /**
@@ -59,8 +60,10 @@ export const WORK_VIEWS: readonly WorkView[] = [
 	},
 	{
 		id: "goals",
-		label: "Goals",
-		description: "Every goal and the projects and epics serving it.",
+		get label() {
+			return OS_COPY.work.objectives;
+		},
+		description: "Every objective and the projects and epics serving it.",
 		group: "planning",
 		to: "/work",
 		search: { app: "portfolio" },

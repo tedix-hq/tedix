@@ -774,9 +774,12 @@ export function GoalsOverview({
 		<PageSection aria-labelledby="goals-title">
 			<SectionHeader>
 				<SectionHeading>
-					<SectionTitle id="goals-title">Goals</SectionTitle>
+					<SectionTitle id="goals-title">
+						{OS_COPY.work.objectives}
+					</SectionTitle>
 					<SectionDescription>
-						What success means and the projects and epics serving each goal.
+						What success means and the projects and epics serving each
+						objective.
 					</SectionDescription>
 				</SectionHeading>
 			</SectionHeader>
@@ -784,18 +787,18 @@ export function GoalsOverview({
 				<Skeleton className="h-40 w-full" />
 			) : error ? (
 				<Alert variant="destructive">
-					<AlertTitle>Goals unavailable</AlertTitle>
+					<AlertTitle>Objectives unavailable</AlertTitle>
 					<AlertDescription>
-						{errorMessage(error, "Goals could not be loaded.")}
+						{errorMessage(error, "Objectives could not be loaded.")}
 					</AlertDescription>
 				</Alert>
 			) : goals.length === 0 ? (
 				<WorkEmpty
-					title="No goals yet"
-					description="Goals describe the success that projects and epics serve."
+					title="No objectives yet"
+					description="Objectives describe the success that projects and epics serve."
 				/>
 			) : (
-				<Collection appearance="inline" aria-label="Goals">
+				<Collection appearance="inline" aria-label={OS_COPY.work.objectives}>
 					{goals.map((goal) => {
 						const servingProjects = projects
 							.filter((row) => row.project.objectiveId === goal.id)
@@ -859,7 +862,9 @@ export function PortfolioApp({
 	lead?: "goals" | "projects";
 }) {
 	const projectsLead = lead === "projects";
-	useDocumentTitle(projectsLead ? "Projects · Work" : "Goals · Work");
+	useDocumentTitle(
+		projectsLead ? "Projects · Work" : `${OS_COPY.work.objectives} · Work`,
+	);
 	const currentUserId = useContext(WorkActorOwnerContext);
 	const portfolio = useQuery(projectPortfolioQueryOptions());
 	const goals = useInfiniteQuery(goalListQueryOptions());
@@ -927,11 +932,13 @@ export function PortfolioApp({
 		<Page width="full" className="gap-8">
 			<PageHeader>
 				<PageHeading>
-					<PageTitle>{projectsLead ? "Projects" : "Goals"}</PageTitle>
+					<PageTitle>
+						{projectsLead ? "Projects" : OS_COPY.work.objectives}
+					</PageTitle>
 					<PageDescription>
 						{projectsLead
 							? projectCount
-							: "Every goal in this organization and the work serving it."}
+							: "Every objective in this organization and the work serving it."}
 					</PageDescription>
 				</PageHeading>
 				{isOwner ? (

@@ -1,45 +1,11 @@
 import assert from "node:assert/strict";
-import { createServer } from "node:net";
 import { chromium, type Browser } from "playwright";
+import { startFixtureServer } from "./fixture-server";
 
-const cwd = new URL("../", import.meta.url).pathname;
-const probe = createServer();
-await new Promise<void>((resolve, reject) => {
-	probe.once("error", reject);
-	probe.listen(0, "127.0.0.1", resolve);
-});
-const address = probe.address();
-assert(address && typeof address !== "string");
-const port = String(address.port);
-await new Promise<void>((resolve, reject) => {
-	probe.close((error) => (error ? reject(error) : resolve()));
-});
-const origin = `http://127.0.0.1:${port}`;
-const server = Bun.spawn(
-	[
-		"../../node_modules/.bin/vp",
-		"dev",
-		"--port",
-		port,
-		"--strictPort",
-		"--host",
-		"127.0.0.1",
-	],
-	{ cwd, stdout: "ignore", stderr: "inherit", detached: true },
-);
+const server = await startFixtureServer("/", { shared: false });
+const origin = server.origin;
 let browser: Browser | undefined;
 try {
-	let ready = false;
-	for (let i = 0; i < 100; i++) {
-		if (server.exitCode !== null)
-			throw new Error(`Vite exited: ${server.exitCode}`);
-		try {
-			ready = (await fetch(origin)).ok;
-		} catch {}
-		if (ready) break;
-		await Bun.sleep(250);
-	}
-	assert(ready, "fixture server starts");
 	browser = await chromium.launch({ headless: true });
 	const page = await browser.newPage();
 	const createWorkspace = async (name: string) => {
@@ -83,10 +49,5 @@ try {
 	console.log("Selected workspace opens its Canvas");
 } finally {
 	await browser?.close();
-	try {
-		process.kill(-server.pid, "SIGTERM");
-	} catch {
-		server.kill();
-	}
-	await server.exited;
+	await server.stop();
 }

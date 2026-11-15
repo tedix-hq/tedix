@@ -55,7 +55,7 @@ export function DeckWaitingList({
 										row.sourceLabel,
 										project,
 										"objective" in row && row.objective
-											? `Serves ${row.objective.title}`
+											? `${OS_COPY.work.objective}: ${row.objective.title}`
 											: null,
 									]
 										.filter(Boolean)
