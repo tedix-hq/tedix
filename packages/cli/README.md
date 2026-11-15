@@ -601,7 +601,12 @@ defaults to 10 GB and `--checkout-cap-gb` or `TEDIX_LANE_CHECKOUT_CAP_GB`
 changes it. On start and every ten minutes the dispatcher sweeps every
 settled run instead of reclaiming one per pass, then enforces the cap. A
 removed run keeps its receipt JSON and its surviving run directory moves to
-`archive/` for inspection.
+`archive/` for inspection; the newest 100 archived run directories are kept.
+The sweep stays cheap on a runner with many retained runs: a finished run's
+size is measured once and again only when its directory or receipt changes
+(a run in progress at most hourly), and a checkout whose removal was refused
+is tried again after 10 minutes, then 20, doubling up to 2 hours. A checkout
+an earlier retry left beside the current one is removed under the same rules.
 A retry of a revision whose earlier dispatch failed before admission reuses
 that run's checkout when it is clean and holds no unlanded commit; otherwise
 the checkout stays for inspection and the retry gets a fresh sibling path.
