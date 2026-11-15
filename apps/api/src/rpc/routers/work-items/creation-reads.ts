@@ -7,6 +7,7 @@ import {
 	WorkCliBoardRowSchema,
 	WorkCliResolveRowSchema,
 	WorkCheckpointProjectionSchema,
+	WorkCaseSchema,
 } from "@tedix/api-contract/schemas/work-items";
 import { withAuthorization } from "../../orpc";
 import { workItemCreationActor } from "./creation-actor";
@@ -27,6 +28,7 @@ import {
 	tombstoneMissingSources,
 } from "@tedix/db/queries/work-item-sources";
 import { listWorkActivity } from "@tedix/db/queries/work-items/activity";
+import { listWorkCasesForWorkItem } from "@tedix/db/queries/work-items/cases";
 import {
 	listLiveWorkAttemptHolders,
 	listLatestWorkAttemptSummaries,
@@ -266,18 +268,23 @@ export const getByIdProcedure = authOs.getById.handler(
 			id = matches.data[0]!.id;
 		}
 		const workItem = await assertWorkItemAccess(context, id);
-		const [comments, evidencePage, projections, project] = await Promise.all([
-			listWorkItemComments(context.db, id),
-			listWorkItemEvidence(context.db, {
-				orgId: workItem.orgId,
-				workItemId: id,
-				limit: 100,
-			}),
-			listWorkItemProjections(context.db, id),
-			workItem.projectId
-				? getProjectById(context.db, workItem.projectId)
-				: undefined,
-		]);
+		const [comments, evidencePage, projections, project, epics] =
+			await Promise.all([
+				listWorkItemComments(context.db, id),
+				listWorkItemEvidence(context.db, {
+					orgId: workItem.orgId,
+					workItemId: id,
+					limit: 100,
+				}),
+				listWorkItemProjections(context.db, id),
+				workItem.projectId
+					? getProjectById(context.db, workItem.projectId)
+					: undefined,
+				listWorkCasesForWorkItem(context.db, {
+					orgId: workItem.orgId,
+					workItemId: id,
+				}),
+			]);
 		return {
 			workItem,
 			project:
@@ -288,6 +295,9 @@ export const getByIdProcedure = authOs.getById.handler(
 							description: project.description,
 						}
 					: null,
+			epics: epics.map(({ metadata: _metadata, ...epic }) =>
+				WorkCaseSchema.parse(epic),
+			),
 			comments,
 			evidence: await Promise.all(
 				evidencePage.data.map((row) => resolveWorkEvidenceRow(context, row)),

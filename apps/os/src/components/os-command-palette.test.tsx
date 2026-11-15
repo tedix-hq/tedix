@@ -346,7 +346,7 @@ describe("mounted palette resource states", () => {
 		expect(
 			document.querySelector('[aria-label="Loading resources"]'),
 		).not.toBeNull();
-		expect(document.body.textContent).toContain("Go to Projects");
+		expect(document.body.textContent).toContain("Go to Goals");
 		await search("nothing-matches-this");
 		expect(document.body.textContent).not.toContain(
 			"No matching pages or resources",
@@ -445,7 +445,7 @@ describe("mounted palette resource states", () => {
 		expect(status?.textContent).toContain("Resources unavailable");
 		expect(status?.textContent).toContain("Workspaces");
 		expect(status?.textContent).toContain("Recent runs");
-		expect(document.body.textContent).toContain("Go to Projects");
+		expect(document.body.textContent).toContain("Go to Goals");
 		await act(async () => button("Retry unavailable resources").click());
 		await settled();
 		expect(button("Retry unavailable resources").disabled).toBe(false);

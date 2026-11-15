@@ -2,6 +2,7 @@ import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { and, asc, desc, eq, gt, inArray, lt, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { workItems } from "../../schema/work-items";
+import { prefixedColumns } from "../../utils/select";
 import {
 	workCaseDependencies,
 	workCaseItems,
@@ -199,6 +200,31 @@ export async function listWorkCases(
 				? { createdAt: last.createdAt, id: last.id }
 				: null,
 	};
+}
+
+export async function listWorkCasesForWorkItem(
+	db: DbQueryClient,
+	p: { orgId: string; workItemId: string },
+): Promise<WorkCase[]> {
+	const rows = await db
+		.select({ workCase: prefixedColumns(workCases, "work_case") })
+		.from(workCaseItems)
+		.innerJoin(
+			workCases,
+			and(
+				eq(workCases.id, workCaseItems.caseId),
+				eq(workCases.orgId, workCaseItems.orgId),
+			),
+		)
+		.where(
+			and(
+				eq(workCaseItems.orgId, p.orgId),
+				eq(workCaseItems.workItemId, p.workItemId),
+			),
+		)
+		.orderBy(desc(workCases.createdAt), desc(workCases.id))
+		.limit(100);
+	return rows.map((row) => row.workCase);
 }
 
 export async function addWorkCaseDependency(

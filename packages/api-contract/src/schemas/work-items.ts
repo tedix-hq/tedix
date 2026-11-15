@@ -1548,6 +1548,7 @@ export const WorkCaseSchema = z
 		version: z.number().int().positive(),
 	})
 	.strict();
+export type WorkCase = z.infer<typeof WorkCaseSchema>;
 
 export const WorkCaseItemSchema = z
 	.object({
@@ -2744,6 +2745,9 @@ export const GetWorkItemResultSchema = z.object({
 		.describe(
 			"The Work Item's project brief (projects.description), so a fresh session reads its purpose without a search. Null when the item has no project.",
 		),
+	epics: z
+		.array(WorkCaseSchema)
+		.describe("Epics this Work Item is attached to, newest first."),
 	comments: z.array(WorkItemCommentSchema),
 	evidence: z.array(ResolvedWorkEvidenceSchema),
 	evidenceNextCursor: WorkFactoryProjectionCursorSchema.nullable().describe(

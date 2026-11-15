@@ -10,12 +10,15 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
 import {
 	factoryScoreboardQueryOptions,
+	goalEpicListQueryOptions,
+	goalListQueryOptions,
 	projectPortfolioQueryOptions,
 	workOfficeKnocksQueryOptions,
 } from "@/lib/os-query-options";
 import { Route as WorkIndexRoute } from "@/routes/_session/_tenant/work.index";
 import { WorkActorDirectoryContext } from "@/components/work-actor-avatar";
 import {
+	GoalsOverview,
 	PortfolioApp,
 	type ProjectListFilter,
 	crossOrgPortfolioUrl,
@@ -208,6 +211,19 @@ function seededClient({
 		hasMore: false,
 		observedAt: "2026-09-10T00:00:00.000Z",
 	} as never);
+	queryClient.setQueryData(goalListQueryOptions().queryKey, {
+		pages: [
+			{
+				data: [],
+				pagination: { limit: 100, offset: 0, total: 0, hasMore: false },
+			},
+		],
+		pageParams: [0],
+	});
+	queryClient.setQueryData(goalEpicListQueryOptions().queryKey, {
+		pages: [{ data: [], nextCursor: null }],
+		pageParams: [undefined],
+	});
 	return queryClient;
 }
 
@@ -330,6 +346,74 @@ describe("Projects list model", () => {
 });
 
 describe("PortfolioApp", () => {
+	it("lists each goal with success, owner, status, projects, and epics", () => {
+		const goalId = "55555555-5555-4555-8555-555555555555";
+		const project = projectRow(9, "Goal project", null, {
+			objectiveId: goalId,
+		});
+		const html = renderToStaticMarkup(
+			<WorkActorDirectoryContext.Provider
+				value={new Map([[`tedi:${TEDI_ID}`, { name: "Nova" }]])}
+			>
+				<GoalsOverview
+					goals={[
+						{
+							id: goalId,
+							tediId: TEDI_ID,
+							orgId: ORG_ID,
+							purposeCharterId: null,
+							title: "Customers trust every export",
+							description: null,
+							approach: null,
+							successCriteria: "Every export is verified before delivery.",
+							constraints: null,
+							type: "standing",
+							status: "active",
+							riskLevel: "medium",
+							priority: 1,
+							gateConfig: null,
+							budgetConfig: null,
+							progress: null,
+							createdAt: "2026-11-01T00:00:00.000Z",
+							updatedAt: null,
+							completedAt: null,
+						},
+					]}
+					projects={[portfolioRow(project)]}
+					epics={[
+						{
+							id: "66666666-6666-4666-8666-666666666666",
+							orgId: ORG_ID,
+							projectId: project.id,
+							objectiveId: goalId,
+							kind: "operations",
+							title: "Verified export rollout",
+							description: null,
+							stage: "executing",
+							accountableOwnerType: "tedi",
+							accountableOwnerId: TEDI_ID,
+							openedAt: "2026-11-01T00:00:00.000Z",
+							targetResolutionAt: null,
+							closedAt: null,
+							createdAt: "2026-11-01T00:00:00.000Z",
+							updatedAt: null,
+							version: 1,
+						},
+					]}
+				/>
+			</WorkActorDirectoryContext.Provider>,
+		);
+
+		expect(html).toContain("Customers trust every export");
+		expect(html).toContain("Every export is verified before delivery.");
+		expect(html).toContain("Nova");
+		expect(html).toContain("Active");
+		expect(html).toContain(`href="/work/projects/${project.id}"`);
+		expect(html).toContain(
+			'href="/work/cases/66666666-6666-4666-8666-666666666666"',
+		);
+	});
+
 	it("retains the full factory name as the link's accessible text", () => {
 		const name =
 			"Daily harbor operations digest and outstanding supplier follow-ups";
@@ -348,7 +432,7 @@ describe("PortfolioApp", () => {
 			render(seededClient()),
 			"text/html",
 		);
-		expect(doc.querySelector("h1")?.textContent).toBe("Projects");
+		expect(doc.querySelector("h1")?.textContent).toBe("Goals");
 		expect(doc.body.textContent).toContain(
 			"All 6 projects in this organization, 5 active.",
 		);

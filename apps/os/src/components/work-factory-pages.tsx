@@ -2135,6 +2135,24 @@ export function WorkItemPage({ itemId }: { itemId: string }) {
 							)}
 						</dd>
 					</div>
+					<div className="min-w-0">
+						<Text as="dt" role="label" tone="secondary">
+							Epic
+						</Text>
+						<dd className="m-0 flex flex-wrap gap-x-3 gap-y-1">
+							{detail.data?.epics?.length
+								? detail.data.epics.map((epic) => (
+										<Link
+											key={epic.id}
+											variant="record"
+											href={`/work/cases/${epic.id}`}
+										>
+											{epic.title}
+										</Link>
+									))
+								: "No epic"}
+						</dd>
+					</div>
 				</dl>
 			</Surface>
 			{item.description ? (
