@@ -1,8 +1,6 @@
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
-import {
-	nextSkillScheduleFireAt,
-	validateSkillSchedulePolicy,
-} from "@tedix/api-contract/utils/skill-schedule";
+import { validateSkillSchedulePolicy } from "@tedix/api-contract/utils/skill-schedule";
+import { nextSkillScheduleFireAt } from "@tedix/api-contract/utils/cron-schedule";
 import { and, asc, eq, gte, lte, sql } from "drizzle-orm";
 import { parseDocument } from "yaml";
 import type { DbClient } from "../client";

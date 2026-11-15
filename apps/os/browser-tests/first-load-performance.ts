@@ -21,6 +21,7 @@ const viewport = {
 const downloadThroughput = Number(
 	process.env.PERF_DOWNLOAD_THROUGHPUT ?? 1_250_000,
 );
+const cpuThrottlingRate = Number(process.env.PERF_CPU_THROTTLING_RATE ?? 4);
 const fixtureServer = process.env.PERF_START_FIXTURES
 	? await startFixtureServer("/", { stdout: "ignore", stderr: "ignore" })
 	: undefined;
@@ -142,7 +143,9 @@ try {
 				const cdp = await context.newCDPSession(page);
 				await cdp.send("Network.enable");
 				await cdp.send("Network.setCacheDisabled", { cacheDisabled: true });
-				await cdp.send("Emulation.setCPUThrottlingRate", { rate: 4 });
+				await cdp.send("Emulation.setCPUThrottlingRate", {
+					rate: cpuThrottlingRate,
+				});
 				await cdp.send("Network.emulateNetworkConditions", {
 					offline: false,
 					latency: 40,

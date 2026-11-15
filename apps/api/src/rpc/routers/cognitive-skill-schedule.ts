@@ -14,7 +14,7 @@
  * skill it owns.
  */
 import { createRouterClient } from "@orpc/server";
-import { nextSkillScheduleFireAt } from "@tedix/api-contract/utils/skill-schedule";
+import { nextSkillScheduleFireAt } from "@tedix/api-contract/utils/cron-schedule";
 import { getSkillEntry } from "@tedix/db/queries/cognitive/skill-crud";
 import { getSkillSchedule } from "@tedix/db/queries/skill-schedules";
 import {

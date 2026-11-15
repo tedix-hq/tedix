@@ -3,10 +3,8 @@ import {
 	GATEWAY_PLATFORM_MCP_NAMESPACES,
 	WORKFLOW_PLATFORM_MCP_METHODS,
 } from "@tedix/api-contract/utils/skill-manifest";
-import {
-	skillScheduleFiresDaily,
-	validateSkillSchedulePolicy,
-} from "@tedix/api-contract/utils/skill-schedule";
+import { validateSkillSchedulePolicy } from "@tedix/api-contract/utils/skill-schedule";
+import { skillScheduleFiresDaily } from "@tedix/api-contract/utils/cron-schedule";
 import { eq, inArray } from "drizzle-orm";
 import { parse as parseYaml } from "yaml";
 import type { FactoryRunContext } from "../factories";

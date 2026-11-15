@@ -1,7 +1,7 @@
 import * as z from "zod";
 import { JsonValueSchema } from "./common";
 import { ToolJsonSchemaSchema } from "./tools";
-import { nextSkillScheduleFireAt } from "../utils/skill-schedule";
+import { nextSkillScheduleFireAt } from "../utils/cron-schedule";
 
 /**
  * A workspace app that runs its own code. The manifest entry

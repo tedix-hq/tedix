@@ -2,10 +2,8 @@ import { implement, ORPCError } from "@orpc/server";
 import { osWorkspacesContract } from "@tedix/api-contract/contracts/os-workspaces";
 import { BlueprintApplyReceiptSchema } from "@tedix/api-contract/schemas/blueprint-provisioning";
 import { parseStoredOsBlueprintDefinition } from "@tedix/api-contract/schemas/os-workspaces";
-import {
-	validateSkillSchedulePolicy,
-	nextSkillScheduleFireAt,
-} from "@tedix/api-contract/utils/skill-schedule";
+import { validateSkillSchedulePolicy } from "@tedix/api-contract/utils/skill-schedule";
+import { nextSkillScheduleFireAt } from "@tedix/api-contract/utils/cron-schedule";
 import { getOsBlueprintRevision } from "@tedix/db/queries/os-workspaces/blueprints";
 import { getBlueprintApplyReceipt } from "@tedix/db/queries/os-workspaces/provisioning";
 import { instantiateOsBlueprint } from "../../services/os-workspace-outputs";
