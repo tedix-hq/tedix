@@ -28,6 +28,9 @@ if (
 	);
 }
 const MCP_UI_INSPECTOR_PORT = Number(process.env.MCP_UI_INSPECTOR_PORT ?? 9231);
+// Type generation needs adapter and font declarations, but not React/Tailwind's
+// dev dependency optimizer. Loading that graph on a cold cache can outlive sync.
+const syncingTypes = process.env.MCP_UI_TYPE_SYNC === "1";
 
 // https://astro.build/config
 export default defineConfig({
@@ -46,27 +49,52 @@ export default defineConfig({
 	adapter: cloudflare({
 		inspectorPort: MCP_UI_INSPECTOR_PORT,
 	}),
-	integrations: [react()],
+	integrations: syncingTypes ? [] : [react()],
 	fonts: [
 		{
-			provider: fontProviders.google(),
+			provider: fontProviders.local(),
 			name: "Raleway",
 			cssVariable: "--font-raleway",
-			weights: ["100 900"],
-			styles: ["normal", "italic"],
 			fallbacks: ["ui-sans-serif", "system-ui", "sans-serif"],
+			options: {
+				variants: [
+					{
+						src: [
+							"@fontsource-variable/raleway/files/raleway-latin-wght-normal.woff2",
+						],
+						weight: "100 900",
+						style: "normal",
+					},
+					{
+						src: [
+							"@fontsource-variable/raleway/files/raleway-latin-wght-italic.woff2",
+						],
+						weight: "100 900",
+						style: "italic",
+					},
+				],
+			},
 		},
 		{
-			provider: fontProviders.google(),
+			provider: fontProviders.local(),
 			name: "Comfortaa",
 			cssVariable: "--font-comfortaa",
-			weights: ["300 700"],
-			styles: ["normal"],
 			fallbacks: ["ui-rounded", "system-ui", "sans-serif"],
+			options: {
+				variants: [
+					{
+						src: [
+							"@fontsource-variable/comfortaa/files/comfortaa-latin-wght-normal.woff2",
+						],
+						weight: "300 700",
+						style: "normal",
+					},
+				],
+			},
 		},
 	],
 	vite: {
-		plugins: [tailwindcss()],
+		plugins: syncingTypes ? [] : [tailwindcss()],
 		resolve: {
 			// Force a single React instance across the app, @tedix/widget-ui, and the
 			// @json-render/* packages. Without this the dev optimizer can split React
@@ -125,40 +153,41 @@ export default defineConfig({
 			// dispatcher, "Cannot read properties of null (reading 'useState')" in dev.
 			// Listing React in both optimizers keeps their generations aligned.
 			optimizeDeps: {
-				include: [
-					"react",
-					"react-dom",
-					"react-dom/client",
-					"react/jsx-runtime",
-				],
+				noDiscovery: syncingTypes,
+				include: syncingTypes
+					? []
+					: ["react", "react-dom", "react-dom/client", "react/jsx-runtime"],
 			},
 		},
 		optimizeDeps: {
+			noDiscovery: syncingTypes,
 			// Pre-bundle workspace packages so Vite uses /node_modules/.vite/deps/
 			// Must specify package exports individually since there is no global export from @tedix/widget-ui
 			// instead of /@fs/ local paths (which ChatGPT sandbox can't access)
 			exclude: ["astro/compiler-runtime"],
-			include: [
-				// Co-bundle React with every react-importing package in one optimize pass
-				// so they all resolve to the single deduped React instance (see resolve.dedupe).
-				"react",
-				"react-dom",
-				"react-dom/client",
-				"@tedix/widget-ui/layouts",
-				// recharts is imported by @tedix/widget-ui's GeneratedChart (DataChart).
-				// It is a direct dependency of apps/mcp-ui so it resolves here as a bare
-				// specifier and gets pulled into the INITIAL optimize pass. Otherwise it
-				// is discovered late — the first time a chart renders — forcing a
-				// mid-session re-optimize that bumps React's browserHash and desyncs the
-				// SSR/client React instances (null hooks dispatcher → blank DataChart
-				// widgets while non-chart widgets like tables render fine).
-				"recharts",
-				"@json-render/core",
-				"@json-render/react",
-				"@json-render/shadcn",
-				"@json-render/directives",
-				"@json-render/devtools-react",
-			],
+			include: syncingTypes
+				? []
+				: [
+						// Co-bundle React with every react-importing package in one optimize pass
+						// so they all resolve to the single deduped React instance (see resolve.dedupe).
+						"react",
+						"react-dom",
+						"react-dom/client",
+						"@tedix/widget-ui/layouts",
+						// recharts is imported by @tedix/widget-ui's GeneratedChart (DataChart).
+						// It is a direct dependency of apps/mcp-ui so it resolves here as a bare
+						// specifier and gets pulled into the INITIAL optimize pass. Otherwise it
+						// is discovered late — the first time a chart renders — forcing a
+						// mid-session re-optimize that bumps React's browserHash and desyncs the
+						// SSR/client React instances (null hooks dispatcher → blank DataChart
+						// widgets while non-chart widgets like tables render fine).
+						"recharts",
+						"@json-render/core",
+						"@json-render/react",
+						"@json-render/shadcn",
+						"@json-render/directives",
+						"@json-render/devtools-react",
+					],
 		},
 	},
 });

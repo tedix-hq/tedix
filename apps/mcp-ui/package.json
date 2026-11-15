@@ -20,11 +20,13 @@
 		"test:run": "vp test run",
 		"test:watch": "vp test",
 		"test:ci": "bun run test:run",
-		"type-check": "MCP_UI_INSPECTOR_PORT=0 astro sync && tsc --noEmit"
+		"type-check": "MCP_UI_INSPECTOR_PORT=0 MCP_UI_TYPE_SYNC=1 astro sync && tsc --noEmit"
 	},
 	"dependencies": {
 		"@astrojs/cloudflare": "^14.4.7",
 		"@astrojs/react": "^7.1.7",
+		"@fontsource-variable/comfortaa": "^5.3.0",
+		"@fontsource-variable/raleway": "^5.3.0",
 		"@json-render/core": "catalog:",
 		"@json-render/devtools-react": "^0.22.0",
 		"@json-render/directives": "^0.22.0",

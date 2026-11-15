@@ -3,6 +3,7 @@ import * as childProcess from "node:child_process";
 import { PassThrough } from "node:stream";
 import {
 	parseWorkerTypesArgs,
+	resolveRecipe,
 	runCommand,
 	selectWorkspaces,
 } from "./generate-worker-types";
@@ -107,6 +108,16 @@ describe("Worker type command settlement", () => {
 });
 
 describe("worker types arguments", () => {
+	test("keeps MCP UI type sync off the dev dependency graph", () => {
+		expect(resolveRecipe("apps/mcp-ui").presync).toEqual({
+			args: ["astro", "sync"],
+			env: {
+				MCP_UI_INSPECTOR_PORT: "0",
+				MCP_UI_TYPE_SYNC: "1",
+			},
+		});
+	});
+
 	test("rejects unknown options", () => {
 		expect(() => parseWorkerTypesArgs(["--chek"])).toThrow(
 			"--chek: unknown option",

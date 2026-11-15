@@ -56,20 +56,45 @@ export default defineConfig({
 	integrations: [react()],
 	fonts: [
 		{
-			provider: fontProviders.google(),
+			provider: fontProviders.local(),
 			name: "Raleway",
 			cssVariable: "--font-raleway",
-			weights: ["100 900"],
-			styles: ["normal", "italic"],
 			fallbacks: ["ui-sans-serif", "system-ui", "sans-serif"],
+			options: {
+				variants: [
+					{
+						src: [
+							"@fontsource-variable/raleway/files/raleway-latin-wght-normal.woff2",
+						],
+						weight: "100 900",
+						style: "normal",
+					},
+					{
+						src: [
+							"@fontsource-variable/raleway/files/raleway-latin-wght-italic.woff2",
+						],
+						weight: "100 900",
+						style: "italic",
+					},
+				],
+			},
 		},
 		{
-			provider: fontProviders.google(),
+			provider: fontProviders.local(),
 			name: "Comfortaa",
 			cssVariable: "--font-comfortaa",
-			weights: ["300 700"],
-			styles: ["normal"],
 			fallbacks: ["ui-rounded", "system-ui", "sans-serif"],
+			options: {
+				variants: [
+					{
+						src: [
+							"@fontsource-variable/comfortaa/files/comfortaa-latin-wght-normal.woff2",
+						],
+						weight: "300 700",
+						style: "normal",
+					},
+				],
+			},
 		},
 	],
 	vite: {
