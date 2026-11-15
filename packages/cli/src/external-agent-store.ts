@@ -460,6 +460,9 @@ export function principalServesSession(
  * principal named for one harness (`codex-gtm-…`) serves only that family, so
  * another harness gets its own principal in a `<workspace>#<family>` slot
  * instead of borrowing it, even for a session an older CLI stored there.
+ *
+ * A lane store holds only the slot its dispatcher copied, so a harness slot
+ * with no shared profile beside it is still that harness's slot.
  */
 export function externalAgentProfileSlot(
 	workspace: string,
@@ -470,10 +473,11 @@ export function externalAgentProfileSlot(
 		? harnessFamily(sessionKey)
 		: undefined;
 	if (!family) return workspace;
-	const shared = readStore(options).workspaces[workspace];
-	return !shared || principalServesSession(shared.key, sessionKey)
-		? workspace
-		: `${workspace}#${family}`;
+	const { workspaces } = readStore(options);
+	const shared = workspaces[workspace];
+	const own = `${workspace}#${family}`;
+	if (!shared) return workspaces[own] ? own : workspace;
+	return principalServesSession(shared.key, sessionKey) ? workspace : own;
 }
 
 /**
