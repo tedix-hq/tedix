@@ -6,9 +6,10 @@ import { runSharedFixtureSpecs } from "./shared-fixture-specs";
 
 const spec = process.argv[2];
 const rounds = Number(process.argv[3] ?? 4);
+const debug = process.argv[4] ?? process.env.DEBUG ?? "pw:browser";
 if (!spec || !Number.isInteger(rounds) || rounds < 1 || rounds > 8)
 	throw new Error(
-		"Usage: bun browser-tests/repeat-spec.ts <spec> [rounds:1..8]",
+		"Usage: bun browser-tests/repeat-spec.ts <spec> [rounds:1..8] [debug]",
 	);
 
 // Each round runs three independent copies under the normal shard concurrency.
@@ -35,7 +36,7 @@ try {
 					env: {
 						...process.env,
 						OS_FIXTURE_ORIGIN: server.origin,
-						DEBUG: process.env.DEBUG ?? "pw:browser",
+						DEBUG: debug,
 						TEDIX_BROWSER_EVIDENCE_DIR: join(
 							evidenceDirectory,
 							`round-${round}-lane-${++lane}`,
