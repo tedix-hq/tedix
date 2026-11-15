@@ -1212,7 +1212,7 @@ loaded records; unread sources stay visibly unavailable.
 | `/work/queue`                                                          | `/work?view=feed&filter=queue` — In progress      |
 | `/work/queue?disposition=completed`, `/work/attempts`, `/work/history` | `/work?view=feed&filter=history` — Done           |
 | `/work/recovery`, `/work/stalled`                                      | `/work?view=feed&filter=stalled`                  |
-| `/work/portfolio`                                                      | `/work?app=portfolio` — installed Portfolio app   |
+| `/work/portfolio`                                                      | `/work?app=portfolio` — Goals and Projects        |
 | `/work/agents`, `/work/office`, `/work/outbound`                       | The matching installed app                        |
 
 Work item, project, request, run and receipt links remain direct. Office keeps

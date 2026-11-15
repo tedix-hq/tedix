@@ -851,11 +851,15 @@ export function GoalsOverview({
 export function PortfolioApp({
 	buckets = OS_COPY.portfolio.defaults,
 	isOwner = false,
+	lead = "goals",
 }: {
 	buckets?: readonly PortfolioBucket[];
 	isOwner?: boolean;
+	/** Which list the page is named after and shows first. */
+	lead?: "goals" | "projects";
 }) {
-	useDocumentTitle("Goals · Work");
+	const projectsLead = lead === "projects";
+	useDocumentTitle(projectsLead ? "Projects · Work" : "Goals · Work");
 	const currentUserId = useContext(WorkActorOwnerContext);
 	const portfolio = useQuery(projectPortfolioQueryOptions());
 	const goals = useInfiniteQuery(goalListQueryOptions());
@@ -901,13 +905,33 @@ export function PortfolioApp({
 	const groups = groupProjectsByStatus(visible);
 	const filtering = Boolean(query.trim()) || who !== "all" || filter.section;
 	const active = entries.filter((entry) => entry.project.status === "active");
+	const projectCount = portfolio.data
+		? `All ${counted(entries.length, "project")} in this organization, ${active.length} active.`
+		: "Every project in this organization.";
+	const goalsOverview = (
+		<GoalsOverview
+			goals={goals.data?.pages.flatMap((page) => page.data) ?? []}
+			projects={portfolio.data?.data ?? []}
+			epics={goalEpics.data?.pages.flatMap((page) => page.data) ?? []}
+			pending={Boolean(
+				goals.isPending ||
+				goalEpics.isPending ||
+				portfolio.isPending ||
+				goals.hasNextPage ||
+				goalEpics.hasNextPage,
+			)}
+			error={goals.error ?? goalEpics.error}
+		/>
+	);
 	return (
 		<Page width="full" className="gap-8">
 			<PageHeader>
 				<PageHeading>
-					<PageTitle>Goals</PageTitle>
+					<PageTitle>{projectsLead ? "Projects" : "Goals"}</PageTitle>
 					<PageDescription>
-						Every goal in this organization and the work serving it.
+						{projectsLead
+							? projectCount
+							: "Every goal in this organization and the work serving it."}
 					</PageDescription>
 				</PageHeading>
 				{isOwner ? (
@@ -922,29 +946,15 @@ export function PortfolioApp({
 					</PageActions>
 				) : null}
 			</PageHeader>
-			<GoalsOverview
-				goals={goals.data?.pages.flatMap((page) => page.data) ?? []}
-				projects={portfolio.data?.data ?? []}
-				epics={goalEpics.data?.pages.flatMap((page) => page.data) ?? []}
-				pending={Boolean(
-					goals.isPending ||
-					goalEpics.isPending ||
-					portfolio.isPending ||
-					goals.hasNextPage ||
-					goalEpics.hasNextPage,
-				)}
-				error={goals.error ?? goalEpics.error}
-			/>
-			<SectionHeader>
-				<SectionHeading>
-					<SectionTitle id="projects-title">Projects</SectionTitle>
-					<SectionDescription>
-						{portfolio.data
-							? `All ${counted(entries.length, "project")} in this organization, ${active.length} active.`
-							: "Every project in this organization."}
-					</SectionDescription>
-				</SectionHeading>
-			</SectionHeader>
+			{!projectsLead && goalsOverview}
+			{!projectsLead && (
+				<SectionHeader>
+					<SectionHeading>
+						<SectionTitle id="projects-title">Projects</SectionTitle>
+						<SectionDescription>{projectCount}</SectionDescription>
+					</SectionHeading>
+				</SectionHeader>
+			)}
 			{portfolio.isPending ? (
 				<div className="grid gap-2">
 					<Skeleton className="h-9 w-full max-w-md" />
@@ -1026,6 +1036,7 @@ export function PortfolioApp({
 					)}
 				</div>
 			)}
+			{projectsLead && goalsOverview}
 			<FactoryScoreboard />
 		</Page>
 	);

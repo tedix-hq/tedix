@@ -177,7 +177,9 @@ export function WorkHomeOverview() {
 			<ActivityRunningNow config={ORGANIZATION_ACTIVITY_CONFIG} />
 			<div className="grid gap-4 lg:grid-cols-3">
 				<Section title="Stuck">
-					<Text tone="secondary">Accepted Work that cannot start yet.</Text>
+					<Text tone="secondary">
+						Accepted Work that cannot start or is held, and why.
+					</Text>
 					{stuckFailed && (
 						<WorkReadFailure
 							title="Stuck Work unavailable"
@@ -197,7 +199,7 @@ export function WorkHomeOverview() {
 						</Rows>
 					) : readiness.isPending || recovery.isPending ? (
 						<WorkListSkeleton label="Checking stuck Work" />
-					) : (
+					) : stuckFailed ? null : (
 						<Text tone="secondary">No accepted Work is currently stuck.</Text>
 					)}
 					{(stuck.size > SECTION_ROWS ||
@@ -236,7 +238,7 @@ export function WorkHomeOverview() {
 					  workApprovals.isPending ||
 					  runtimeApprovals.isPending ? (
 						<WorkListSkeleton label="Checking Requests and approvals" />
-					) : (
+					) : needsFailed ? null : (
 						<Text tone="secondary">No open Requests or approvals.</Text>
 					)}
 					{(needsYou.length > SECTION_ROWS ||
@@ -283,7 +285,7 @@ export function WorkHomeOverview() {
 						</Rows>
 					) : matters.isPending ? (
 						<WorkListSkeleton label="Checking this week's Work" />
-					) : (
+					) : matters.isError ? null : (
 						<Text tone="secondary">
 							Nothing is due within seven days or marked high or critical
 							priority.

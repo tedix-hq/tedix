@@ -21,6 +21,7 @@ describe("Work views registry", () => {
 	it("lists every secondary Work page once, with a group and a description", () => {
 		expect(WORK_VIEWS.map(workViewHref)).toEqual([
 			"/work?view=items",
+			"/work?app=projects",
 			"/work?app=portfolio",
 			"/work/graph",
 			"/work/cases",

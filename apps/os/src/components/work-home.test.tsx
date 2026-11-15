@@ -297,3 +297,36 @@ it("opens an available Work app by exact gadget id without mounting the other ap
 		),
 	).toBeNull();
 });
+
+it("shows the overview on Activity, not above Decisions or a narrowed list", () => {
+	const overview = (search: WorkHomeSearch, defaultEntry?: string) =>
+		render(search, true, defaultEntry).querySelector(
+			'section[aria-label="Work overview"]',
+		);
+	expect(overview({ view: "feed" })).not.toBeNull();
+	expect(overview({})).not.toBeNull();
+	expect(overview({ view: "feed" }, "decision-deck")).not.toBeNull();
+	expect(overview({}, "decision-deck")).toBeNull();
+	expect(overview({ view: "deck" })).toBeNull();
+	expect(overview({ view: "feed", filter: "stalled" })).toBeNull();
+	expect(overview({ app: "office" })).toBeNull();
+});
+
+it("shows the Activity overview before any Work app is installed", () => {
+	const page = render({ view: "feed" }, false);
+	const overview = page.querySelector('section[aria-label="Work overview"]')!;
+	for (const title of ["Stuck", "Needs you", "This week"])
+		expect(overview.querySelector(`[aria-label="${title}"]`)).not.toBeNull();
+	expect(page.body.textContent).toContain("Set up Activity and Decisions");
+});
+
+it("opens Projects and Goals without an installed app", () => {
+	for (const app of ["projects", "portfolio"]) {
+		const page = render({ app }, false);
+		expect(page.body.textContent).not.toContain("This app is not available");
+		expect(page.body.textContent).not.toContain(
+			"Set up Activity and Decisions",
+		);
+		expect(page.querySelector("article")).toBeNull();
+	}
+});

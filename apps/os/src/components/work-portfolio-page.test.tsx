@@ -227,13 +227,31 @@ function seededClient({
 	return queryClient;
 }
 
-function render(queryClient: QueryClient) {
+function render(queryClient: QueryClient, lead?: "projects") {
 	return renderToStaticMarkup(
 		<QueryClientProvider client={queryClient}>
-			<PortfolioApp buckets={BUCKETS} />
+			<PortfolioApp buckets={BUCKETS} lead={lead} />
 		</QueryClientProvider>,
 	);
 }
+
+it("leads with the project list when opened as Projects", () => {
+	const headings = (lead?: "projects") =>
+		[
+			...new DOMParser()
+				.parseFromString(render(seededClient(), lead), "text/html")
+				.querySelectorAll("h1, h2"),
+		].map((node) => node.textContent);
+	const projects = headings("projects");
+	expect(projects[0]).toBe("Projects");
+	expect(projects.filter((text) => text === "Projects")).toHaveLength(1);
+	expect(projects.indexOf("Goals")).toBeGreaterThan(
+		projects.indexOf("Active 5"),
+	);
+	const goals = headings();
+	expect(goals.slice(0, 2)).toEqual(["Goals", "Goals"]);
+	expect(goals.indexOf("Projects")).toBeLessThan(goals.indexOf("Active 5"));
+});
 
 describe("Projects list model", () => {
 	const entries = projectListEntries(PORTFOLIO, BUCKETS);
