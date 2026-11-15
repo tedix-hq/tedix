@@ -217,59 +217,46 @@ export class ToolSchemaSyncWorkflow extends WorkflowEntrypoint<
 			);
 		}
 
-		if (apply && changed > 0 && aggregate.failed === 0) {
-			await step.do(
-				"publish tool list changed",
+		// Full release projections reconcile metadata-only migrations too. Scoped
+		// runs must not consume the release receipt for the rest of the surface.
+		const reconcileRelease =
+			mode === "projection" &&
+			/^[a-f0-9]{40}$/.test(this.env.GIT_SHA ?? "") &&
+			!payload.appId &&
+			!payload.router &&
+			!payload.endpoints &&
+			!payload.toolIds &&
+			payload.limit === undefined &&
+			payload.includeInternal !== false;
+		if (apply && aggregate.failed === 0 && (changed > 0 || reconcileRelease)) {
+			const publication = await step.do(
+				"purge aggregate tool cache",
 				{ retries: { limit: 2, delay: "5 seconds" }, timeout: "30 seconds" },
 				async () => {
-					const { publishToolSchemaSyncEvents } =
-						await import("../services/tool-schema-sync");
-					await publishToolSchemaSyncEvents(this.env, {
-						appId: aggregate.appId,
-						mode: aggregate.mode,
-						source: aggregate.source,
-						target: aggregate.target,
-						apply: aggregate.apply,
-						total: aggregate.total,
-						planned: aggregate.planned,
-						created: aggregate.created,
-						updated: aggregate.updated,
-						deleted: aggregate.deleted,
-						inSync: aggregate.inSync,
-						skipped: aggregate.skipped,
-						failed: aggregate.failed,
-						items: aggregate.items,
+					const { reconcileToolMetadataPublication } =
+						await import("../services/tool-metadata-publication");
+					return reconcileToolMetadataPublication(db, this.env, {
+						changed: changed > 0,
+						reconcileRelease,
 					});
-					return { published: true };
 				},
 			);
-
-			// A synced schema is not live until the gateway's durable aggregate cache
-			// stops serving the old copy — stripUnknownTopLevelKeys validates against
-			// the cached schema, so without this purge a newly added input stays
-			// silently stripped until the layers happen to turn over (can exceed an
-			// hour). Best-effort: the deploy-rolled cache key is
-			// the backstop, and a failed purge only means the old bounded TTLs apply.
-			if (this.env.MCP_SERVICE) {
+			if (publication.published) {
 				await step.do(
-					"purge aggregate tool cache",
+					"publish tool list changed",
 					{ retries: { limit: 2, delay: "5 seconds" }, timeout: "30 seconds" },
 					async () => {
-						const response = await this.env.MCP_SERVICE.fetch(
-							new Request("https://internal/__internal/purge-aggregate-cache", {
-								method: "POST",
-								headers: {
-									"Content-Type": "application/json",
-									"X-Service-Binding": "true",
-								},
-								body: JSON.stringify({ reason: "tool-schema-sync" }),
-							}),
+						const { publishMcpListChangedEvents } =
+							await import("../lib/mcp-subscriptions");
+						await publishMcpListChangedEvents(
+							this.env,
+							{ appId: aggregate.appId },
+							[
+								"notifications/tools/list_changed",
+								"notifications/resources/list_changed",
+							],
 						);
-						const body = (await response.json().catch(() => null)) as {
-							ok?: boolean;
-							r2Deleted?: number;
-						} | null;
-						return { status: response.status, ...body };
+						return { published: true };
 					},
 				);
 			}

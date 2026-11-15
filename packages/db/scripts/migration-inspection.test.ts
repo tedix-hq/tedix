@@ -2,7 +2,10 @@ import { DatabaseSync } from "node:sqlite";
 import { expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../src/query-client";
 import { createD1Facade } from "../src/test/d1-facade";
-import { readD1MigrationInspection } from "../src/queries/migration-inspection";
+import {
+	readD1MigrationInspection,
+	readD1MigrationPublicationRevision,
+} from "../src/queries/migration-inspection";
 
 it("preserves ordered ledger rows and actual foreign-key violations in native envelopes", async () => {
 	const sqlite = new DatabaseSync(":memory:");
@@ -14,6 +17,10 @@ CREATE TABLE parent(id INTEGER PRIMARY KEY);
 CREATE TABLE child(parent_id INTEGER REFERENCES parent(id));
 INSERT INTO child VALUES (7);`);
 		const db = createDbQueryClient(createD1Facade(sqlite));
+		expect(await readD1MigrationPublicationRevision(db)).toEqual({
+			id: 2,
+			name: "second/migration.sql",
+		});
 		const [ledger, foreignKeys] = await readD1MigrationInspection(db);
 		expect(ledger.success).toBe(true);
 		expect(ledger.results).toEqual([
@@ -26,6 +33,15 @@ INSERT INTO child VALUES (7);`);
 		]);
 		sqlite.exec("INSERT INTO parent VALUES (7)");
 		expect((await readD1MigrationInspection(db))[1].results).toEqual([]);
+		sqlite.exec(
+			"INSERT INTO tedix_drizzle_migrations VALUES (3, 'metadata/migration.sql')",
+		);
+		expect(await readD1MigrationPublicationRevision(db)).toEqual({
+			id: 3,
+			name: "metadata/migration.sql",
+		});
+		sqlite.exec("DELETE FROM tedix_drizzle_migrations");
+		expect(await readD1MigrationPublicationRevision(db)).toBeNull();
 	} finally {
 		sqlite.close();
 	}

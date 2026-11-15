@@ -23,7 +23,7 @@ const {
 			},
 			apps: { getBySlugWithTools, getBySlugsWithTools },
 		})),
-		buildMcpServer: vi.fn(async () => ({}) as unknown),
+		buildMcpServer: vi.fn(async (_input: unknown) => ({}) as unknown),
 	};
 });
 
@@ -335,6 +335,61 @@ describe("aggregate activation generations", () => {
 		const tools = await listGenerationTools(env);
 		expect(tools).toContain("source__new_tool");
 		expect(tools).not.toContain("source__old_tool");
+	});
+
+	it("refreshes metadata-only class changes through the trusted R2-only publication route", async () => {
+		const store = new Map([["aggregate-activation/v1/current", "metadata-0"]]);
+		let policy = { riskTier: "high_impact_write", blastRadius: "multi_tenant" };
+		const host = (slug: string) => {
+			const source = aggregateHost(slug, "stable_tool");
+			return {
+				...source,
+				tools: source.tools.map((tool) => ({
+					...tool,
+					writeCapability: "write",
+					meta: { "com.tedix/policy": { ...policy } },
+				})),
+			};
+		};
+		getBySlugWithTools.mockImplementation(async ({ slug }: { slug: string }) =>
+			host(slug),
+		);
+		getBySlugsWithTools.mockImplementation(
+			async ({ apps }: { apps: Array<{ slug: string }> }) => ({
+				results: apps.map(({ slug }) => ({ slug, ...host(slug) })),
+			}),
+		);
+		const env = createEnv({
+			AGGREGATE_CACHE: {
+				get: vi.fn(async (key: string) =>
+					store.has(key) ? new Response(store.get(key)) : null,
+				),
+				put: vi.fn(async (key: string, value: string) => store.set(key, value)),
+				list: vi.fn(async () => ({ objects: [], truncated: false })),
+				delete: vi.fn(async () => undefined),
+			},
+		});
+		async function discoveredPolicy() {
+			await listGenerationTools(env);
+			const input = buildMcpServer.mock.calls.at(-1)?.[0] as {
+				tools: Array<{ toolId: string; meta: Record<string, unknown> }>;
+			};
+			return input.tools.find((tool) => tool.toolId === "source__stable_tool")
+				?.meta["com.tedix/policy"];
+		}
+		expect(await discoveredPolicy()).toEqual(policy);
+		policy = { riskTier: "bounded_write", blastRadius: "single_resource" };
+		expect(await discoveredPolicy()).toEqual({
+			riskTier: "high_impact_write",
+			blastRadius: "multi_tenant",
+		});
+		const response = await internalFetch(
+			purgeRequest({ "X-Service-Binding": "true" }),
+			env,
+			createExecutionContext(),
+		);
+		expect(await response.json()).toMatchObject({ ok: true });
+		expect(await discoveredPolicy()).toEqual(policy);
 	});
 
 	it("bypasses aggregate and internal caches when the epoch read fails", async () => {

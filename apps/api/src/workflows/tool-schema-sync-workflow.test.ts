@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
 	run: vi.fn(),
 	publish: vi.fn(),
 	snapshot: vi.fn(),
+	migration: vi.fn(),
 }));
 
 vi.mock("@tedix/db/client", () => ({
@@ -28,7 +29,14 @@ vi.mock("../services/tool-schema-sync", () => ({
 	planToolSchemaSyncRows: mocks.planRows,
 	resolveTedixAdminAppId: async () => "5eed0020-0000-4000-8000-000000000020",
 	runToolSchemaSync: mocks.run,
-	publishToolSchemaSyncEvents: mocks.publish,
+}));
+
+vi.mock("../lib/mcp-subscriptions", () => ({
+	publishMcpListChangedEvents: mocks.publish,
+}));
+
+vi.mock("@tedix/db/queries/migration-inspection", () => ({
+	readD1MigrationPublicationRevision: mocks.migration,
 }));
 
 vi.mock("../services/gateway-tool-contract-snapshot", () => ({
@@ -73,6 +81,7 @@ function workflow(env: Partial<CloudflareEnv> = {}) {
 	);
 	(instance as unknown as { env: CloudflareEnv }).env = {
 		DB: {},
+		MCP_SERVICE: mcpService(),
 		...env,
 	} as CloudflareEnv;
 	return instance;
@@ -119,7 +128,12 @@ function purgeCalls(env: {
 
 function mcpService() {
 	return {
-		fetch: vi.fn(async () => new Response(JSON.stringify({ ok: true }))),
+		fetch: vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({ ok: true, activationEpoch: "epoch-new" }),
+				),
+		),
 	};
 }
 
@@ -129,6 +143,7 @@ beforeEach(() => {
 	mocks.run.mockImplementation(async () => syncResult());
 	mocks.publish.mockResolvedValue(undefined);
 	mocks.snapshot.mockResolvedValue({ gatewaysChecked: 0, gatewaysChanged: 0 });
+	mocks.migration.mockResolvedValue({ id: 1, name: "first/migration.sql" });
 	mocks.planProjection.mockReturnValue({
 		appId: "app-1",
 		endpoints: endpoints(120),
@@ -499,6 +514,126 @@ describe("ToolSchemaSyncWorkflow cache purge", () => {
 		expect(purgeCalls(env)).toBe(0);
 		expect(mocks.publish).not.toHaveBeenCalled();
 		expect(mocks.snapshot).not.toHaveBeenCalled();
+	});
+});
+
+describe("ToolSchemaSyncWorkflow release publication", () => {
+	function releaseEnv() {
+		const receipts = new Map<string, string>();
+		return {
+			GIT_SHA: "a".repeat(40),
+			MCP_SERVICE: mcpService(),
+			R2_BUCKET: {
+				get: vi.fn(async (key: string) => receipts.get(key) ?? null),
+				put: vi.fn(async (key: string, value: string) => {
+					receipts.set(key, value);
+				}),
+			},
+		};
+	}
+
+	async function runRelease(env: ReturnType<typeof releaseEnv>, payload = {}) {
+		return workflow(env as never).run(
+			{ payload: { mode: "projection", ...payload } } as never,
+			engine().step as never,
+		);
+	}
+
+	it("activates a metadata migration with zero batches, then skips the published revision", async () => {
+		mocks.planIncremental.mockResolvedValue({
+			appId: "app-1",
+			endpoints: [],
+			toolIds: {},
+			unchanged: 120,
+		});
+		const env = releaseEnv();
+		await runRelease(env);
+		await runRelease(env);
+		expect(mocks.run).not.toHaveBeenCalled();
+		expect(purgeCalls(env)).toBe(1);
+		expect(mocks.publish).toHaveBeenCalledTimes(1);
+		expect(env.R2_BUCKET.put).toHaveBeenCalledTimes(1);
+		mocks.migration.mockResolvedValue({
+			id: 2,
+			name: "metadata-only/migration.sql",
+		});
+		await runRelease(env);
+		expect(purgeCalls(env)).toBe(2);
+		expect(mocks.publish).toHaveBeenCalledTimes(2);
+		env.GIT_SHA = "b".repeat(40);
+		await runRelease(env);
+		expect(purgeCalls(env)).toBe(3);
+		expect(mocks.run).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		[200, { ok: false }],
+		[503, { ok: true, activationEpoch: "epoch" }],
+		[200, { ok: true }],
+		[200, { ok: true, activationEpoch: 42 }],
+		[200, null],
+	])(
+		"does not receipt or notify a rejected publication (%s, %j)",
+		async (status, body) => {
+			const env = releaseEnv();
+			env.MCP_SERVICE.fetch.mockImplementationOnce(
+				async () => new Response(JSON.stringify(body), { status }),
+			);
+			await expect(runRelease(env)).rejects.toThrow(
+				"Tool metadata publication failed",
+			);
+			expect(env.R2_BUCKET.put).not.toHaveBeenCalled();
+			expect(mocks.publish).not.toHaveBeenCalled();
+			await runRelease(env);
+			expect(purgeCalls(env)).toBe(2);
+			expect(env.R2_BUCKET.put).toHaveBeenCalledTimes(1);
+		},
+	);
+
+	it("still publishes changed projections after the release has a receipt", async () => {
+		const env = releaseEnv();
+		await runRelease(env);
+		mocks.run.mockResolvedValue(syncResult({ updated: 1 }));
+		await runRelease(env);
+		expect(purgeCalls(env)).toBe(2);
+		expect(mocks.publish).toHaveBeenCalledTimes(2);
+	});
+
+	it("retries receipt failure without consuming the publication revision", async () => {
+		const env = releaseEnv();
+		env.R2_BUCKET.put.mockRejectedValueOnce(new Error("receipt unavailable"));
+		await expect(runRelease(env)).rejects.toThrow("receipt unavailable");
+		expect(mocks.publish).not.toHaveBeenCalled();
+		await runRelease(env);
+		expect(purgeCalls(env)).toBe(2);
+		expect(mocks.publish).toHaveBeenCalledTimes(1);
+	});
+
+	it.each([
+		{ apply: false },
+		{ router: "workItems" },
+		{ endpoints: [] },
+		{ limit: 0 },
+		{ appId: "app-1" },
+		{ includeInternal: false },
+	])(
+		"does not consume release publication for a scoped or preview run %j",
+		async (payload) => {
+			const env = releaseEnv();
+			await runRelease(env, payload);
+			expect(mocks.migration).not.toHaveBeenCalled();
+			expect(env.R2_BUCKET.put).not.toHaveBeenCalled();
+			expect(purgeCalls(env)).toBe(0);
+		},
+	);
+
+	it("does not reconcile a release after reported projection failures", async () => {
+		const env = releaseEnv();
+		mocks.run.mockResolvedValue(syncResult({ failed: 1, updated: 1 }));
+		await runRelease(env);
+		expect(mocks.migration).not.toHaveBeenCalled();
+		expect(env.R2_BUCKET.put).not.toHaveBeenCalled();
+		expect(purgeCalls(env)).toBe(0);
 	});
 });
 

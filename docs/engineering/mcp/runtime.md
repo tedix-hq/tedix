@@ -237,6 +237,40 @@ Aggregators bundle dozens of apps, so resolution degrades rather than hangs
   pointer both fail, the purge reports failure rather than claiming the new
   generation is active. Leave the variable unset without beta access.
 
+### Publishing migrated tool metadata
+
+A Worker deploy does not invalidate compatible durable snapshots. A migration
+that changes `app_tools.write_capability` or `app_tools.meta` needs publication
+even when every stored contract hash still matches.
+
+After applying and verifying approved migrations, the installation's release
+workflow must run `toolSchemaSync.run` with `mode: "projection"` and
+`apply: true`, without an app, router, endpoint, tool or write-limit filter.
+This is the ordinary full projection, with no publication flag. The API needs
+its exact 40-character `GIT_SHA`, `R2_BUCKET`, and the trusted `MCP_SERVICE`
+binding. Wait for the workflow to succeed; a queued instance is not proof.
+
+A successful full projection compares the deployed revision and latest native
+D1 migration ledger entry with an R2 publication receipt. A new pair activates
+the gateway even when the incremental plan has zero batches. An unchanged,
+already published pair does not purge caches again. Scoped runs and previews
+cannot consume that receipt; projection failures cannot publish it. Any changed
+projection still publishes, even when the release already has a receipt.
+
+Publication uses the existing internal service-binding route. It requires both
+a successful HTTP response and an acknowledged activation epoch before storing
+the receipt or notifying subscribers. Failures retry as workflow steps. The
+gateway reads the epoch on aggregate requests, fencing every snapshot and
+source-definition cache, including on R2-only installations. Do not write the
+marker by hand or expose the purge route publicly.
+
+Release operators must measure migration completion to fresh discovery at the
+actual gateway and check the migrated write class, risk tier and blast radius.
+The release workflow must publish and demonstrate those values within one
+minute to establish that bound. Source tests, deployment health, a D1 readback,
+and publication receipts alone do not establish it. A migration applied outside
+that release workflow has no automatic publication trigger.
+
 ## Tedi MCP Server
 
 Every tedi exposes `{slug}.tedi.tedix.dev/mcp` on the same transport. Tools are
