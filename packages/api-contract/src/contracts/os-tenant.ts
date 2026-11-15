@@ -3,6 +3,10 @@ import { oc } from "@orpc/contract";
 import { SURFACE_SLUG_PATTERN } from "@tedix/tenant-directory";
 import * as z from "zod";
 import { baseErrors } from "../errors";
+import {
+	PersonalAgentConversationRequestSchema,
+	PersonalAgentConversationResultSchema,
+} from "../schemas/personal-agent-conversation";
 import { PersonalAgentDiscoverySchema } from "../schemas/organization";
 import {
 	PersonalAgentSessionRequestSchema,
@@ -30,6 +34,10 @@ export const osTenantContract = oc
 	.route({ tags: ["os-tenant", "internal"], prefix: "/os-tenant" })
 	.errors(baseErrors)
 	.router({
+		personalAgentConversation: oc
+			.route({ method: "POST" })
+			.input(PersonalAgentConversationRequestSchema)
+			.output(PersonalAgentConversationResultSchema),
 		personalAgentInterfaces: oc
 			.route({ method: "POST" })
 			.input(PersonalAgentInterfacesRequestSchema)

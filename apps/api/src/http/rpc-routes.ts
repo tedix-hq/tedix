@@ -123,6 +123,8 @@ export function registerRpcRoutes(app: Hono<{ Bindings: CloudflareEnv }>) {
 							key.includes("apikey") ||
 							key === "value" ||
 							key === "report" ||
+							key === "body" ||
+							key === "url" ||
 							key.includes("encrypted") ||
 							key.includes("authorization")
 						) {

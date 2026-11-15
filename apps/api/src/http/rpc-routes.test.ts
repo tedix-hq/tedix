@@ -21,14 +21,20 @@ vi.mock("@orpc/server/fetch", () => ({
 
 afterEach(() => vi.restoreAllMocks());
 
-it.each(["development", "production"])(
-	"keeps private feedback out of %s request logs",
-	async (environment) => {
+it.each(
+	["development", "production"].flatMap((environment) =>
+		["personalAgentInterfaces", "personalAgentConversation"].map(
+			(procedure) => [environment, procedure] as const,
+		),
+	),
+)(
+	"keeps private protocol content out of %s %s request logs",
+	async (environment, procedure) => {
 		const log = vi.spyOn(console, "log").mockImplementation(() => {});
 		const app = new Hono<{ Bindings: CloudflareEnv }>();
 		registerRpcRoutes(app);
 		const response = await app.request(
-			"https://api.example/rpc/osTenant/personalAgentInterfaces",
+			`https://api.example/rpc/osTenant/${procedure}`,
 			{
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
@@ -36,6 +42,14 @@ it.each(["development", "production"])(
 					json: {
 						organizationId: "org-example",
 						sessionToken: "private-session-proof",
+						url: "https://public.example/mcp/poppy/conversations?private-query",
+						body: {
+							id: "request",
+							message: {
+								author: { type: "agent" },
+								text: "private-conversation-text",
+							},
+						},
 						report: {
 							task: "private-feedback-task",
 							description: "private-feedback-description",
@@ -53,6 +67,8 @@ it.each(["development", "production"])(
 		expect(response.status).toBe(200);
 		const logged = JSON.stringify(log.mock.calls);
 		expect(logged).not.toContain("private-session-proof");
+		expect(logged).not.toContain("private-query");
+		expect(logged).not.toContain("private-conversation-text");
 		expect(logged).not.toContain("private-feedback-task");
 		expect(logged).not.toContain("private-feedback-description");
 		if (environment === "development") expect(logged).toContain("[REDACTED]");
