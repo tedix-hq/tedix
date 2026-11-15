@@ -1755,7 +1755,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	#dataPort(
 		scope: WorkspaceScope,
 		actorKind: ActorKind,
-		conversationId?: string,
+		turn?: { conversationId: string; turnId: string },
 	) {
 		return new TenantDataPort({
 			...scope,
@@ -1763,7 +1763,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			core: createDbQueryClient(this.env.DB),
 			bucket: this.env.R2_BUCKET,
 			actorKind,
-			conversationId,
+			conversationId: turn?.conversationId,
+			agentTurnId: turn?.turnId,
 			validateAppSource: (files, date) =>
 				validateWorkspaceAppSource(this.env.LOADER, files, date),
 			assertWorkspaceAuthority: async () => {
@@ -1805,7 +1806,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			organizationId: scope.organizationId,
 		};
 		return buildWorkspaceBindings({
-			data: this.#dataPort(scope, turn.actor.kind, turn.conversationId),
+			data: this.#dataPort(scope, turn.actor.kind, turn),
 			compliance: this.#compliance,
 			accountability: {
 				append: async (input) => {

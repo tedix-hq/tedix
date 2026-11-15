@@ -2916,6 +2916,7 @@ describe("changed-only saves (outputs.patch and outputs.changes)", () => {
 			id: saved.revision.id,
 			revision: 3,
 			createdByKind: "user",
+			byAgent: false,
 		});
 		expect(changes.content).toBeUndefined();
 		expect(changes.patch).toEqual({
@@ -2932,6 +2933,16 @@ describe("changed-only saves (outputs.patch and outputs.changes)", () => {
 			sinceRevision: 3,
 		});
 		expect(unknown.patch).toBeNull();
+		// The workspace chat agent saves on the person's behalf: still theirs,
+		// but an agent made it, so an open editor offers to undo it.
+		await createDbClient(c.env.DB)
+			.update(osOutputRevisions)
+			.set({ agentTurnId: "turn-fixture" })
+			.where(eq(osOutputRevisions.id, saved.revision.id));
+		expect(
+			(await c.org1.outputs.changes({ outputId: output.id, sinceRevision: 2 }))
+				.revision,
+		).toMatchObject({ createdByKind: "user", byAgent: true });
 	});
 
 	it("records one activity and one audit entry per burst of auto-saves, and a new one for anything else", async () => {

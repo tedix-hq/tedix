@@ -24,11 +24,20 @@ export const LANDED_SHOWN_MS = 2_400;
 const LANDED_STEP_MS = 140;
 const LANDED_STEPS_MS = 1_600;
 
-/** Whether a revision was saved by an agent and not by a person. */
-export const savedByAgent = (revision: unknown) =>
-	["tedi", "external_agent", "service"].includes(
-		String((revision as { createdByKind?: unknown } | null)?.createdByKind),
+/**
+ * Whether an agent made a revision: it says so (`byAgent`, which also covers
+ * the workspace chat agent saving on a person's behalf), or an agent saved it.
+ */
+export const savedByAgent = (revision: unknown) => {
+	const saved = revision as {
+		byAgent?: unknown;
+		createdByKind?: unknown;
+	} | null;
+	return (
+		saved?.byAgent === true ||
+		["tedi", "external_agent", "service"].includes(String(saved?.createdByKind))
 	);
+};
 
 /**
  * When the change at `index` of `count` lights up, in milliseconds from now:

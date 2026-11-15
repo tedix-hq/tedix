@@ -1,0 +1,1 @@
+ALTER TABLE `os_output_revisions` ADD `agent_turn_id` text;
