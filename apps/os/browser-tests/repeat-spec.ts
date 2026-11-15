@@ -9,10 +9,12 @@ const rounds = Number(process.argv[3] ?? 4);
 const debug = process.argv[4] ?? process.env.DEBUG ?? "pw:browser";
 if (!spec || !Number.isInteger(rounds) || rounds < 1 || rounds > 8)
 	throw new Error(
-		"Usage: bun browser-tests/repeat-spec.ts <spec> [rounds:1..8] [debug]",
+		"Usage: bun browser-tests/repeat-spec.ts <spec> [rounds:1..8] [debug] [peer specs...]",
 	);
 
-// Each round runs three independent copies under the normal shard concurrency.
+const peers = process.argv.slice(5);
+const specs = peers.length ? [spec, ...peers] : [spec, spec, spec];
+// A group preserves the sibling browser lifecycles from a failing shard.
 // A failed round stops the probe; a later pass cannot replace its evidence.
 const evidenceDirectory = join(
 	process.env.TEDIX_BROWSER_EVIDENCE_DIR ?? "browser-tests/.cache",
@@ -24,12 +26,13 @@ try {
 		server.origin,
 		readdirSync(new URL(".", import.meta.url))
 			.filter((name) => name.endsWith(".html"))
+			.sort()
 			.map((name) => `/browser-tests/${name}`),
 	);
 	for (let round = 1; round <= rounds; round++) {
 		let lane = 0;
 		const results = await runSharedFixtureSpecs(
-			[spec, spec, spec],
+			specs,
 			server,
 			(path) =>
 				Bun.spawn([process.execPath, path], {
