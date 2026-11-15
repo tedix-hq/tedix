@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { tediDo } from "../test/tedi-do";
+import { Database } from "bun:sqlite";
+import { constructedTediDo, tediDo } from "../test/tedi-do";
+import { AgentTediDO } from "./do";
 import { runtimeParentTurns } from "./runtime-parent-turns";
 import type { ParentServiceOperation } from "./pi-parent-services";
 const operation: ParentServiceOperation = {
@@ -82,10 +84,16 @@ console.log(
 
 for (const canonical of [false, true]) {
 	let resumed = 0;
+	let poppyRecovered = 0;
 	const pending: Promise<unknown>[] = [];
 	const agent = tediDo({
 		async ensureIdentity() {},
 		maintenance: { ensure: async () => canonical },
+		poppy: {
+			async recover() {
+				poppyRecovered++;
+			},
+		},
 		eventOutbox: {
 			ensureRedrive: async () => {
 				resumed++;
@@ -98,9 +106,35 @@ for (const canonical of [false, true]) {
 	});
 	await agent.onStart();
 	await Promise.all(pending);
+	assert.equal(poppyRecovered, 1, "startup recovers Company Agent work");
 	assert.equal(
 		resumed,
 		canonical ? 1 : 0,
 		"only the canonical runtime resumes queued evidence",
 	);
+}
+
+// Unlike the prototype-only probe above, initialize the real Poppy collaborator.
+const unconfigured = constructedTediDo();
+const db = new Database(":memory:");
+try {
+	const queries: string[] = [];
+	unconfigured.ctx.storage.sql.exec = (query: string) => {
+		queries.push(query);
+		return { toArray: () => db.query(query).all() };
+	};
+	unconfigured.ensureIdentity = async () => {};
+	unconfigured.maintenance = { ensure: async () => false };
+	unconfigured.nativeTelegram = async () => null;
+	await Reflect.apply(AgentTediDO.prototype.onStart, unconfigured, []);
+	assert.deepEqual(queries, [
+		"SELECT name FROM sqlite_master WHERE name='poppy_requests'",
+	]);
+	assert.deepEqual(
+		db.query("SELECT name FROM sqlite_master WHERE type='table'").all(),
+		[],
+		"startup without Company Agent configuration creates no Poppy tables",
+	);
+} finally {
+	db.close();
 }
