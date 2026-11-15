@@ -1319,7 +1319,7 @@ test.each([
 			"console.log('Fake Devin completed the brief.');",
 			`
  const prompt = fs.readFileSync(args[args.indexOf('--prompt-file')+1], 'utf8');
- fs.appendFileSync('turns.jsonl', JSON.stringify({prompt,args,config,store:process.env.TEDIX_LANE_AGENT_STORE})+'\\n');
+ fs.appendFileSync('turns.jsonl', JSON.stringify({prompt,args,config,store:process.env.TEDIX_LANE_AGENT_STORE,external:process.env.TEDIX_EXTERNAL_AGENT})+'\\n');
  if (prompt.includes('Saved result:')) {
   const saved = JSON.parse(prompt.split('Saved result:\\n')[1]);
   if (${JSON.stringify(mode)} === 'wrong-native-session') fs.writeFileSync(args[args.indexOf('--export')+1], JSON.stringify({session_id:'other-river',steps:[]}));
@@ -1392,6 +1392,7 @@ test.each([
 		});
 	for (const turn of turns) {
 		expect(turn.store).toBe(renewals[0]!.storeDir);
+		expect(turn.external).toBe("1");
 		expect(turn.args[turn.args.indexOf("-r") + 1]).toBe("quiet-river");
 		expect(turn.args).toContain("--sandbox");
 		expect(turn.config.permissions.deny).toContain("mcp__tedix__*");
