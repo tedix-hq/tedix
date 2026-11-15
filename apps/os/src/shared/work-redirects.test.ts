@@ -1,5 +1,5 @@
 import { expect, it } from "vite-plus/test";
-import { legacyWorkRedirect } from "./work-redirects";
+import { LEGACY_WORK_SEARCH, legacyWorkRedirect } from "./work-redirects";
 import { workHomeSearch } from "@/lib/work-home-search";
 
 it.each([
@@ -21,9 +21,14 @@ it.each([
 			`https://${host}/work?${search}`,
 		);
 });
+it("only redirects to searches the Work page accepts", () => {
+	for (const search of Object.values(LEGACY_WORK_SEARCH))
+		expect(workHomeSearch(search)).toEqual(search);
+});
 it("keeps record links and current Work URLs direct", () => {
 	for (const path of [
 		"/work",
+		"/work/control",
 		"/work?view=deck",
 		"/work/items/cedar",
 		"/work/projects/pine",

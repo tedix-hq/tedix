@@ -33,7 +33,6 @@ const expectedPaths = [
 	"/work/capacity",
 	"/work/cases",
 	"/work/cases/$caseId",
-	"/work/control",
 	"/work/needs-you",
 	"/work/interactions",
 	"/work/interactions/$requestId",

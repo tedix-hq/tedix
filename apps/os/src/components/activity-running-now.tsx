@@ -214,7 +214,9 @@ export function ActivityRunningNow({
 					</Text>
 				)}
 				{queries.some((query) => query.data?.hasMore) && (
-					<Link href="/work/attempts">More active attempts in Work</Link>
+					<Link href="/work?view=feed&filter=queue">
+						More active attempts in Work
+					</Link>
 				)}
 				{/* Runner statistics are for whoever operates the runners; they load on request. */}
 				<Collapsible open={scorecard} onOpenChange={setScorecard}>
