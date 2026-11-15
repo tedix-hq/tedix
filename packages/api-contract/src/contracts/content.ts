@@ -5,7 +5,7 @@ import "@orpc/openapi/extensions/route";
  *
  * Endpoints for managing the Cloudflare AI Search content library:
  * - search - Search content library with hybrid semantic search
- * - answer - Search + AI answer generation
+ * - answer - Search content library through the legacy POST interface
  * - ingest - Ingest content from URL
  * - listSources - List content sources for an app (D1 table)
  * - addSource - Add a content source (D1 table)
@@ -95,20 +95,18 @@ export const contentContract = oc
 	.route({ tags: ["content"], prefix: "/content" })
 	.router({
 		/**
-		 * POST /content/apps/{appId}/answer - Search + AI answer generation
+		 * POST /content/apps/{appId}/answer - Search content library
 		 *
-		 * Composite endpoint: searches the content library and generates an
-		 * AI-synthesized answer from the results using Workers AI.
-		 * AI config is read from the app's contentConfig in D1 metadata,
-		 * with optional per-request overrides.
+		 * Legacy answer interface: returns search sources without generating
+		 * an answer. Generation inputs remain accepted for compatibility.
 		 */
 		answer: oc
 			.route({
 				method: "POST",
 				path: "/apps/{appId}/answer",
-				summary: "Search content and generate AI answer",
+				summary: "Search content sources",
 				description:
-					"Searches the app content library and generates an AI-synthesized answer from the results. AI behavior is configurable per-app via contentConfig in app metadata.",
+					"Searches the app content library and returns matching sources. This legacy POST interface does not generate an answer or modify content; generation inputs are accepted but ignored.",
 			})
 			.input(
 				z.object({
@@ -116,15 +114,11 @@ export const contentContract = oc
 					query: z.string().min(1, "Search query is required").max(500),
 					limit: z.coerce.number().min(1).max(50).default(8),
 					category: z.string().optional(),
-					/** Override: Workers AI model ID */
+					// Legacy generation inputs remain accepted but are ignored.
 					aiModel: z.string().optional(),
-					/** Override: generation temperature */
 					temperature: z.number().min(0).max(2).optional(),
-					/** Override: max tokens for AI response */
 					maxTokens: z.number().min(50).max(4000).optional(),
-					/** Override: custom system prompt */
 					systemPrompt: z.string().max(2000).optional(),
-					/** Set false to skip AI answer and return raw sources only */
 					generateAnswer: z.boolean().default(true),
 				}),
 			)

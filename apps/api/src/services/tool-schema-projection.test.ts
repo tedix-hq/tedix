@@ -14,6 +14,7 @@ import { describe, expect, it } from "vite-plus/test";
 import * as z from "zod";
 import {
 	annotationsForEndpoint,
+	buildProjectedTool,
 	changedProjectionColumns,
 	generatedToolIdForEndpoint,
 	mergeGeneratedConfig,
@@ -155,6 +156,35 @@ describe("titleFromToolId", () => {
 });
 
 describe("annotationsForEndpoint", () => {
+	it("projects content retrieval as reads while preserving ingestion writes", async () => {
+		const candidates = projectionCandidates({
+			endpoints: ["content/answer", "content/search", "content/ingest"],
+		});
+		expect(candidates).toHaveLength(3);
+		for (const candidate of candidates) {
+			const { tool } = await buildProjectedTool("app", candidate);
+			const read = candidate.procPath !== "ingest";
+			expect(tool.writeCapability).toBe(read ? "read" : "write");
+			expect(tool.annotations).toMatchObject({
+				readOnlyHint: read,
+				destructiveHint: false,
+			});
+			expect(tool.meta?.["com.tedix/policy"]).toEqual({
+				riskTier: read ? "read" : "bounded_write",
+				blastRadius: read ? "none" : "single_resource",
+			});
+		}
+		expect(
+			annotationsForEndpoint(
+				endpoint({
+					router: "other",
+					procPath: "answer",
+					route: { method: "POST" },
+				}),
+			),
+		).toMatchObject({ readOnlyHint: false });
+	});
+
 	it("infers hints from the method and verb when no kind is declared", () => {
 		expect(annotationsForEndpoint(listSkillsByApp)).toEqual({
 			readOnlyHint: true,
