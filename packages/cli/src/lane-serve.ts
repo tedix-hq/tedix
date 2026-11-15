@@ -62,6 +62,7 @@ import {
 } from "@tedix/api-contract/schemas/dispatcher-health";
 import { createOpenCodeLaneThread } from "./opencode-lane-thread";
 import { laneReservedActions, userPresenceStep } from "./lane-reserved-actions";
+import { lanePermissionCopy } from "./lane-permission-copy";
 import { readExecutorBudgets } from "./lane-budget";
 import {
 	localExecutors,
@@ -268,6 +269,10 @@ export function laneDelegationRequest(
 	if (!reason.startsWith("Possible human-reserved action")) return;
 	const executor = String(item.metadata?.executor ?? "");
 	const agent = AGENT_NAMES[executor] ?? executor;
+	const copy = lanePermissionCopy(
+		`${item.title}\n${item.description ?? ""}`,
+		agent,
+	);
 	const steps = laneReservedActions(`${item.title}\n${item.description ?? ""}`);
 	const step =
 		[
@@ -285,6 +290,7 @@ export function laneDelegationRequest(
 		kind: owner ? "owner_delegation" : "accountable_owner",
 		executor,
 		workVersion: item.version,
+		matchedActions: copy.matches,
 	};
 	if (!owner) {
 		const title = shortTitle(item.title, 120);
@@ -301,15 +307,15 @@ export function laneDelegationRequest(
 		};
 	}
 	const title = shortTitle(item.title, 200);
-	const ask = `Let ${agent} work on “${shortTitle(item.title, 80 - agent.length - 20)}”?`;
-	const scope = `${agent} may ${step} only as this task describes, and nothing beyond it.`;
+	const ask = `Allow ${agent} to proceed?`;
+	const scope = `${agent} may ${step} only as this task describes, and nothing beyond it.\n\nMatched task sentences:\n${copy.sentences.map((sentence) => `“${sentence}”`).join("\n")}`;
 	const whyNow = `${agent} paused this task because it asks the agent to ${step}, which needs your permission. It stays blocked until you answer.`;
 	const allow = `Posts your permission for this version of the task; ${agent} starts on its next check.`;
 	return {
 		workItemId: item.id,
 		kind: "question",
 		subject: ask,
-		prompt: `${whyNow}\n\nAllow: ${allow}\nNo: nothing is posted and the task stays blocked; this version is not asked again.\nLater: the card stays and the task waits.\n\nPermission text: ${scope}`,
+		prompt: `${copy.story}\n\n${whyNow}\n\nAllow: ${allow}\nNo: nothing is posted and the task stays blocked; this version is not asked again.\nLater: the card stays and the task waits.\n\nPermission text: ${scope}\n\nUndo: ${copy.undo}`,
 		reason: "Only the task's accountable owner can allow this step.",
 		notificationReason: "blocked_approval",
 		requestedFrom: { type: "user", id: target },
@@ -322,15 +328,16 @@ export function laneDelegationRequest(
 				classId: "lane-delegation",
 				proposal: `Let ${agent} work on “${title}”, including the step that needs you: ${step}?`,
 				whyNow,
-				recommendation: `Allow, because you accepted this task for ${agent} and the permission covers only this version and the sentence above; edit the sentence to narrow it.`,
+				recommendation:
+					"Review the matched sentences before allowing; accepting a task does not establish permission for these effects.",
 				preview: { body: scope },
-				reversibility: "unknown",
+				reversibility: copy.reversibility,
 				tasteOrStrategy: false,
 				protectedEffects: [],
 				blastRadius: `Only this task as it reads now; if the task changes, ${agent} asks again.`,
 				confidence: null,
 				costOfWaiting: "The task stays blocked; no agent works on it.",
-				reasoning: `The runner holds a task that asks an agent to ${step} until its accountable owner allows that for the current version.`,
+				reasoning: `The runner holds a task that asks an agent to ${step} until its accountable owner allows that for the current version. Undo: ${copy.undo}`,
 				options: [
 					{
 						id: "allow",
@@ -366,12 +373,10 @@ export function laneDelegationRequest(
 				version: 2,
 				title: ask,
 				body: allow.slice(0, 120),
-				context: `Needs your permission to ${step}.`.slice(0, 120),
-				recommendation:
-					`Allow, because you accepted this task and the permission covers only this version.`.slice(
-						0,
-						120,
-					),
+				story: copy.story,
+				whyMe: "You own this task.",
+				stakes: copy.stakes,
+				recommendation: "Review scope before allowing.",
 				effectStatus: "known",
 			},
 		},

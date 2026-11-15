@@ -4841,7 +4841,7 @@ it("asks the accountable owner once for a missing delegation and never adds it",
 	};
 	// The card names the agent and the task, says what each answer does and
 	// carries no jargon; Allow posts the delegation through a card effect.
-	expect(input.subject).toBe(`Let Codex work on “${owned.title}”?`);
+	expect(input.subject).toBe("Allow Codex to proceed?");
 	expect(input.prompt).toContain("message people outside the team");
 	expect(input.prompt).not.toMatch(
 		/lane|work-version|Delegation:|sign-in|MFA/i,
@@ -4859,8 +4859,9 @@ it("asks the accountable owner once for a missing delegation and never adds it",
 		workVersion: 2,
 	});
 	expect(deck.preview?.body).toBe(
-		"Codex may message people outside the team only as this task describes, and nothing beyond it.",
+		"Codex may message people outside the team only as this task describes, and nothing beyond it.\n\nMatched task sentences:\n“Send an email as the owner”",
 	);
+	expect(deck.reversibility).toBe("one_way");
 	expect(
 		DecisionCardPresentationSchema.safeParse(input.metadata.cardPresentation)
 			.success,
