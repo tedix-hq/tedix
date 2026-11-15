@@ -319,7 +319,7 @@ export const workItems = sqliteTable(
 				table.id,
 			)
 			.where(
-				sql`(json_type(${table.metadata}, '$.laneDispatch') IS NULL OR json_extract(${table.metadata}, '$.laneDispatch.state') = 'ready') = 1`,
+				sql`json_extract(${table.metadata}, '$.laneDispatch.state') = 'ready'`,
 			),
 		index("idx_work_items_org_kind_risk").on(
 			table.orgId,

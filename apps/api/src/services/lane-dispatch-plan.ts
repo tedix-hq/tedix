@@ -1,16 +1,12 @@
-import type { LaneDispatchPlan } from "@tedix/api-contract/schemas/work-items";
+import {
+	LANE_READY_EXECUTORS,
+	type LaneDispatchPlan,
+} from "@tedix/api-contract/schemas/work-items";
 
 export function initialLaneDispatch(
 	executor: unknown,
 ): LaneDispatchPlan | undefined {
-	return [
-		"codex",
-		"claude-code",
-		"opencode",
-		"devin",
-		"tedi",
-		"human",
-	].includes(String(executor))
+	return (LANE_READY_EXECUTORS as readonly string[]).includes(String(executor))
 		? { state: "ready" }
 		: undefined;
 }

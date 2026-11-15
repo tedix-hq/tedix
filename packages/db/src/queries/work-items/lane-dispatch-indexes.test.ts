@@ -6,6 +6,7 @@ import { createMigratedSqlite } from "../../test/migrated-sqlite";
 import { listWorkItemsPage } from "./crud";
 
 const migration = "20261022073425_work_items_lane_dispatch_indexes";
+const backfill = "20261115163121_lane_ready_requires_state";
 
 // Build the chain-prefix template at collection, not inside a timed test on a
 // shared machine.
@@ -15,7 +16,7 @@ createMigratedSqlite({
 }).close();
 
 describe("lane dispatch indexes", () => {
-	it("indexes existing metadata and follows metadata updates without a backfill", async () => {
+	it("backfills missing plans, indexes ready state, and follows metadata updates", async () => {
 		const sqlite = createMigratedSqlite({
 			beforeMigration: migration,
 			foreignKeys: false,
@@ -30,12 +31,13 @@ describe("lane dispatch indexes", () => {
 				ELSE '{"executor":"codex","laneDispatch":{"state":"held"}}' END,
 				'2026-10-22T00:00:00Z','revision-1' FROM n;
 		`);
-		sqlite.exec(
-			readFileSync(
-				new URL(`../../../drizzle/${migration}/migration.sql`, import.meta.url),
-				"utf8",
-			),
-		);
+		for (const name of [migration, backfill])
+			sqlite.exec(
+				readFileSync(
+					new URL(`../../../drizzle/${name}/migration.sql`, import.meta.url),
+					"utf8",
+				).replaceAll("--> statement-breakpoint", ""),
+			);
 		sqlite.exec("ANALYZE work_items");
 		const queries: string[] = [];
 		const db = createDbQueryClient(
@@ -51,7 +53,7 @@ describe("lane dispatch indexes", () => {
 				dispatchReadyOnly: true,
 				limit: 1,
 			});
-			expect(page.total).toBe(Array.isArray(executor) ? 2 : 1);
+			expect(page.total).toBe(Array.isArray(executor) ? 3 : 2);
 		}
 		for (const query of queries) {
 			const plan = (
@@ -69,7 +71,7 @@ describe("lane dispatch indexes", () => {
 			expect(plan).not.toMatch(/SCAN work_items/);
 		}
 		sqlite.exec(
-			`UPDATE work_items SET metadata='{"executor":"codex","laneDispatch":{"state":"ready"}}' WHERE id='00003'`,
+			`UPDATE work_items SET metadata='{"executor":"codex","laneDispatch":{"state":"ready"}}' WHERE id='00004'`,
 		);
 		const updated = await listWorkItemsPage(db, {
 			orgId: "org-1",
@@ -77,6 +79,93 @@ describe("lane dispatch indexes", () => {
 			executor: "codex",
 			dispatchReadyOnly: true,
 		});
-		expect(updated.data.map((row) => row.id)).toEqual(["00003", "00001"]);
+		expect(updated.data.map((row) => row.id)).toEqual([
+			"00001",
+			"00003",
+			"00004",
+		]);
+	});
+});
+
+describe("dispatch order and readiness", () => {
+	it("lists ready Work by priority, due date, then oldest and ignores plan-less Work", async () => {
+		const sqlite = createMigratedSqlite({ foreignKeys: false });
+		const row = sqlite.prepare(
+			"INSERT INTO work_items(id,org_id,title,disposition,metadata,priority,due_date,created_at,admission_spec_revision) VALUES(?,?,?,?,?,?,?,?,'r')",
+		);
+		const ready = '{"executor":"codex","laneDispatch":{"state":"ready"}}';
+		row.run(
+			"a-old-medium",
+			"o",
+			"t",
+			"accepted",
+			ready,
+			"medium",
+			null,
+			"2026-01-01",
+		);
+		row.run(
+			"b-new-critical",
+			"o",
+			"t",
+			"accepted",
+			ready,
+			"critical",
+			null,
+			"2026-03-01",
+		);
+		row.run(
+			"c-high-late",
+			"o",
+			"t",
+			"accepted",
+			ready,
+			"high",
+			"2026-12-01",
+			"2026-02-01",
+		);
+		row.run(
+			"d-high-soon",
+			"o",
+			"t",
+			"accepted",
+			ready,
+			"high",
+			"2026-11-01",
+			"2026-02-02",
+		);
+		row.run(
+			"e-high-undated",
+			"o",
+			"t",
+			"accepted",
+			ready,
+			"high",
+			null,
+			"2026-01-01",
+		);
+		row.run(
+			"f-noplan",
+			"o",
+			"t",
+			"accepted",
+			'{"executor":"codex"}',
+			"critical",
+			null,
+			"2025-01-01",
+		);
+		const db = createDbQueryClient(createD1Facade(sqlite));
+		const page = await listWorkItemsPage(db, {
+			orgId: "o",
+			disposition: "accepted",
+			dispatchReadyOnly: true,
+		});
+		expect(page.data.map((r) => r.id)).toEqual([
+			"b-new-critical",
+			"d-high-soon",
+			"c-high-late",
+			"e-high-undated",
+			"a-old-medium",
+		]);
 	});
 });

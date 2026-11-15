@@ -1484,6 +1484,10 @@
 		{
 			"name": "20261115091247_output_revision_agent_turn/migration.sql",
 			"sha256": "78f73fa81f2e762bdd06a5f519ed572a99e3cc3e4576b60301aa5dfc23e58eb9"
+		},
+		{
+			"name": "20261115163121_lane_ready_requires_state/migration.sql",
+			"sha256": "f19219a4bacccfcf722aeff1dbbe9afcb9030fd053b7f41a2ff45bf1dee1b12a"
 		}
 	]
 }
