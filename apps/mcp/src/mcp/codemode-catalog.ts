@@ -586,20 +586,23 @@ export function buildCatalogProvider(
 			const paymentDescription = paymentPolicy
 				? `\n\nPaid tool: ${paymentPolicy.amount} ${paymentPolicy.currency ?? "USDC"} on ${paymentPolicy.network}. If this call returns payment requirements, return that object directly from code; retry the outer code tool with _meta["x402/payment"] or the code tool's top-level payment argument.`
 				: "";
-			return createCatalogToolEntry(ns, safeName, {
-				name: tool.title ?? toolId,
-				description: `${humanizeWeakDescription(tool.description, safeName)}${paymentDescription}`,
-				parameters: withFieldSelectionSchema(
-					withDestructiveApprovalSchema(tool, wireAnnotations),
-				),
-				annotations: wireAnnotations,
-				_meta: toolApprovalMetadata(tool),
-				outputSchema: tool.outputSchema as
-					| Record<string, unknown>
-					| null
-					| undefined,
-				schemaFreshness: schemaFreshnessFromTool(tool),
-			});
+			return {
+				...createCatalogToolEntry(ns, safeName, {
+					name: tool.title ?? toolId,
+					description: `${humanizeWeakDescription(tool.description, safeName)}${paymentDescription}`,
+					parameters: withFieldSelectionSchema(
+						withDestructiveApprovalSchema(tool, wireAnnotations),
+					),
+					annotations: wireAnnotations,
+					_meta: toolApprovalMetadata(tool),
+					outputSchema: tool.outputSchema as
+						| Record<string, unknown>
+						| null
+						| undefined,
+					schemaFreshness: schemaFreshnessFromTool(tool),
+				}),
+				wire: { name: tool.toolId },
+			};
 		});
 		const requiresEmbeddedSession =
 			!serverCtx.requestMeta?.["tedix/embedded-session"] &&
@@ -611,7 +614,6 @@ export function buildCatalogProvider(
 			});
 		const primaryEntry = {
 			...projection,
-			wire: { name: tool.toolId },
 			...(requiresEmbeddedSession
 				? { requiresEmbeddedSession: true as const }
 				: {}),
@@ -619,17 +621,17 @@ export function buildCatalogProvider(
 				? { organization: toolOrganizationId }
 				: {}),
 		};
-		Object.defineProperties(primaryEntry, {
-			...CALLER_CATALOG_PROPERTIES,
-			[CALLER_CATALOG_STATE]: {
-				value: {
-					serverCtx,
-					tool,
-					namespace: ns,
-					describeNativeTool,
-				} satisfies CallerCatalogState,
-			},
-			[SHARED_CATALOG_PROJECTION]: { value: projection },
+		Object.defineProperties(primaryEntry, CALLER_CATALOG_PROPERTIES);
+		Object.defineProperty(primaryEntry, CALLER_CATALOG_STATE, {
+			value: {
+				serverCtx,
+				tool,
+				namespace: ns,
+				describeNativeTool,
+			} satisfies CallerCatalogState,
+		});
+		Object.defineProperty(primaryEntry, SHARED_CATALOG_PROJECTION, {
+			value: projection,
 		});
 		catalog[ns][safeName] = primaryEntry;
 	}

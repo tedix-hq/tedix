@@ -419,22 +419,31 @@ export function catalogFreshnessMeta(
 	catalog: Record<string, Record<string, CatalogToolEntry>>,
 	catalogBuiltAt: string,
 ) {
-	const tools = Object.values(catalog).flatMap((namespaceTools) =>
-		Object.values(namespaceTools),
-	);
-	const syncedAtValues = tools
-		.map((tool) => tool.schemaFreshness?.syncedAt)
-		.filter((value): value is string => typeof value === "string" && !!value)
-		.sort();
+	let toolCount = 0;
+	let schemaSyncedTools = 0;
+	let oldestSchemaSyncedAt: string | undefined;
+	let newestSchemaSyncedAt: string | undefined;
+	for (const namespace in catalog) {
+		for (const toolName in catalog[namespace]) {
+			toolCount++;
+			const syncedAt = catalog[namespace]![toolName]!.schemaFreshness?.syncedAt;
+			if (typeof syncedAt !== "string" || !syncedAt) continue;
+			schemaSyncedTools++;
+			if (!oldestSchemaSyncedAt || syncedAt < oldestSchemaSyncedAt) {
+				oldestSchemaSyncedAt = syncedAt;
+			}
+			if (!newestSchemaSyncedAt || syncedAt > newestSchemaSyncedAt) {
+				newestSchemaSyncedAt = syncedAt;
+			}
+		}
+	}
 	return {
 		catalogBuiltAt,
-		toolCount: tools.length,
+		toolCount,
 		namespaceCount: Object.keys(catalog).length,
-		schemaSyncedTools: syncedAtValues.length,
-		unsyncedTools: tools.length - syncedAtValues.length,
-		...(syncedAtValues[0] ? { oldestSchemaSyncedAt: syncedAtValues[0] } : {}),
-		...(syncedAtValues.at(-1)
-			? { newestSchemaSyncedAt: syncedAtValues.at(-1) }
-			: {}),
+		schemaSyncedTools,
+		unsyncedTools: toolCount - schemaSyncedTools,
+		...(oldestSchemaSyncedAt ? { oldestSchemaSyncedAt } : {}),
+		...(newestSchemaSyncedAt ? { newestSchemaSyncedAt } : {}),
 	};
 }

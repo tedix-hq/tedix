@@ -2,6 +2,7 @@ import policy from "./no-funds-policy.json";
 import type { AppTool, ServerContext } from "./server-context";
 import { isNonPayingConnection } from "./connect-payment-policy";
 import { getToolPaymentPolicy } from "./payments-policy";
+import { catalogProjectionSource } from "./catalog-projection";
 
 const financialPattern = new RegExp(
 	`(?:^|_)(?:${policy.moneyMovingOperations.join("|")})$`,
@@ -22,6 +23,17 @@ function normalized(value: string): string {
 
 /** Match operation identifiers, not prose mentioning payment or a provider. */
 export function isNoFundsToolDenied(tool: AppTool): boolean {
+	const source = catalogProjectionSource(tool);
+	const cached = source ? noFundsDenials.get(source) : undefined;
+	if (cached !== undefined) return cached;
+	const denied = computeNoFundsToolDenied(tool);
+	if (source) noFundsDenials.set(source, denied);
+	return denied;
+}
+
+const noFundsDenials = new WeakMap<AppTool, boolean>();
+
+function computeNoFundsToolDenied(tool: AppTool): boolean {
 	if (getToolPaymentPolicy(tool)) return true;
 	const targets = [
 		tool.toolId,
