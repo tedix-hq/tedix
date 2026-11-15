@@ -8,8 +8,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { afterAll, describe, expect, it } from "vite-plus/test";
+import { createMigratedSqlite } from "../src/test/migrated-sqlite";
 import { readMigrationManifest } from "./check-live-migration-ledger";
 import {
 	APPLIED_BASELINE,
@@ -131,25 +131,35 @@ describe("snapshot-per-migration gate", () => {
 });
 
 describe("reconstructed behavioral-evaluation snapshots", () => {
+	const dbRoot = path.resolve(import.meta.dirname, "..");
+	const migrationNames = [
+		"20260922185847_tenant-behavioral-evals",
+		"20260922190904_tenant-behavioral-evals-cas",
+		"20260922192237_tenant-behavioral-evals-fks",
+	];
+	const tables = [
+		"tenant_behavioral_eval_assertion_results",
+		"tenant_behavioral_eval_case_runs",
+		"tenant_behavioral_eval_definitions",
+		"tenant_behavioral_eval_revisions",
+		"tenant_behavioral_eval_runs",
+	];
+	const database = createMigratedSqlite({
+		beforeMigration: migrationNames[0],
+		foreignKeys: false,
+	});
+	const migrations = readMigrationManifest().migrations;
+	const firstTarget = migrations.findIndex(
+		({ name }) => name === `${migrationNames[0]}/migration.sql`,
+	);
+	if (firstTarget < 0)
+		throw new Error(`Missing migration ${migrationNames[0]}`);
+	const relevantMigrations = migrations.slice(firstTarget);
+
 	it("matches the SQL state at both missing boundaries and preserves the FK successor", () => {
-		const dbRoot = path.resolve(import.meta.dirname, "..");
-		const migrationNames = [
-			"20260922185847_tenant-behavioral-evals",
-			"20260922190904_tenant-behavioral-evals-cas",
-			"20260922192237_tenant-behavioral-evals-fks",
-		];
-		const tables = [
-			"tenant_behavioral_eval_assertion_results",
-			"tenant_behavioral_eval_case_runs",
-			"tenant_behavioral_eval_definitions",
-			"tenant_behavioral_eval_revisions",
-			"tenant_behavioral_eval_runs",
-		];
-		const database = new DatabaseSync(":memory:");
 		let previousId = "26a5499c-cbea-43c4-beb6-02894bc89f93";
 		try {
-			database.exec("PRAGMA foreign_keys = OFF");
-			for (const migration of readMigrationManifest().migrations) {
+			for (const migration of relevantMigrations) {
 				const sql = readFileSync(
 					path.join(dbRoot, "drizzle", migration.name),
 					"utf8",

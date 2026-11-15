@@ -11,7 +11,7 @@ afterAll(async () => {
 });
 
 /** An independent in-memory Postgres database for parity tests. */
-export async function createPostgresTestDb() {
+export async function createPostgresTestDb(ddl = "") {
 	clientPromise ??= (async () => {
 		const client = new PGlite();
 		await client.waitReady;
@@ -19,5 +19,6 @@ export async function createPostgresTestDb() {
 	})();
 	const client = await clientPromise;
 	await client.exec("DROP SCHEMA public CASCADE; CREATE SCHEMA public");
+	if (ddl.trim().length > 0) await client.exec(ddl);
 	return drizzle({ client });
 }
