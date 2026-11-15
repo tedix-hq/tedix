@@ -46,6 +46,9 @@ function fixture(count: number) {
 		repo = join(root, "repo");
 	git(root, "init", "--bare", remote);
 	git(root, "init", "-b", "main", repo);
+	// runTrain creates commits outside the fixture helper's identity environment.
+	git(repo, "config", "user.name", "Train Test");
+	git(repo, "config", "user.email", "train@example.com");
 	writeFileSync(join(repo, "shared"), "base\n");
 	mkdirSync(join(repo, "scripts/oss"), { recursive: true });
 	writeFileSync(
