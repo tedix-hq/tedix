@@ -5,9 +5,9 @@
  * {@link ACTIVE_DAYS} days), count captured turns, tedi drafts and lesson
  * deliveries over the last 24 h. When no turn was captured although the user
  * had agent sessions (lessons were delivered to one) or the window was a
- * weekday, put ONE "For you" item in the user's inbox (`triage.urgency: now`)
- * unless an unexpired one is still open. Capture failures are silent on the
- * user's machine by design, so this is where they become visible.
+ * weekday, ask a verified source agent to check its local setup first. If none
+ * is available, explain the machine access needed in the user's inbox. Reuse
+ * an unexpired open health item regardless of its recipient.
  */
 
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
@@ -15,6 +15,7 @@ import { createDbClient } from "@tedix/db/client";
 import {
 	CAPTURE_HEALTH_SCHEMA,
 	type CaptureHealthRow,
+	getCaptureHealthAgent,
 	listCaptureHealth,
 } from "@tedix/db/queries/work-items/capture-health";
 import { createWorkInteraction } from "@tedix/db/queries/work-items/interactions";
@@ -57,6 +58,16 @@ export async function runCaptureHealthHeartbeat(
 		if (row.alertOpen || !captureLooksBroken(row, scheduledTime)) continue;
 		const counts = `${row.turns} turns · ${row.drafts} drafts · ${row.lessons} lessons in the last 24 h`;
 		try {
+			const agent = await getCaptureHealthAgent(db, {
+				orgId: row.orgId,
+				userId: row.userId,
+				activeSince: new Date(
+					scheduledTime - ACTIVE_DAYS * DAY_MS,
+				).toISOString(),
+			});
+			const reason = agent
+				? "The agent can run the local diagnostic. Ask the person only if it proves sign-in, consent, or machine access is required."
+				: "No verified active agent session is available for this capture setup. Open an agent on the machine where capture is enabled and ask it to run the diagnostic; complete sign-in or consent yourself if required.";
 			await createWorkInteraction(db, {
 				id: crypto.randomUUID(),
 				orgId: row.orgId,
@@ -65,15 +76,16 @@ export async function runCaptureHealthHeartbeat(
 				projectId: row.projectId,
 				kind: "coordination",
 				subject: CAPTURE_HEALTH_SUBJECT,
-				prompt: `${CAPTURE_HEALTH_SUBJECT}\n\n${counts}. Decision capture has been on for you, but no agent turn reached Tedix. Run \`tedix setup agents context show\` on the machine you work from to check the hooks and login.`,
-				// Interaction reads expose only user, tedi and agent creators; the
-				// item is the user's own reminder, raised by this job.
-				creator: { type: "user", id: row.userId },
-				targetType: "user",
-				targetId: row.userId,
+				prompt: `${CAPTURE_HEALTH_SUBJECT}\n\n${counts}. Decision capture has been on for you, but no agent turn reached Tedix. Run \`tedix setup agents context show\` on the machine where capture is enabled to check the hooks and login. ${reason}`,
+				creator: { type: "system", id: "tedix" },
+				targetType: agent ? "external_agent" : "user",
+				targetId: agent?.id ?? row.userId,
 				expiresAt: new Date(scheduledTime + ALERT_TTL_MS).toISOString(),
 				metadata: {
 					schema: CAPTURE_HEALTH_SCHEMA,
+					captureUserId: row.userId,
+					...(agent ? { sessionId: agent.sessionId } : {}),
+					reason,
 					triage: { status: "ok", urgency: "now" },
 					counts: {
 						turns: row.turns,

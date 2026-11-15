@@ -170,6 +170,53 @@ describe("commitment wakes", () => {
 			}
 		},
 	);
+
+	it.each(["question", "coordination", "approval"])(
+		"does not create a follow-up or rewrite an existing %s addressed to another recipient",
+		async (kind) => {
+			const { db, sqlite } = fixture();
+			try {
+				sqlite.exec(`
+    INSERT INTO tedis(id,organization_id,name,slug,status,scope,owner_user_id) VALUES ('personal','org-one','Personal','personal','active','personal','provider-user');
+    INSERT INTO organization_members(id,organization_id,user_id,descope_user_id,email,status) VALUES ('member','org-one','human','provider-user','human@example.test','active');
+    INSERT INTO work_items(id,org_id,title,created_at,accepted_at,disposition,accountable_owner_type,accountable_owner_id,work_kind) VALUES ('engineering','org-one','Repair service','2026-10-10T08:01:00.000Z','2026-10-10T08:01:00.000Z','accepted','user','human','coding');
+   `);
+				sqlite
+					.prepare(`INSERT INTO work_interactions(id,org_id,work_item_id,kind,status,subject,prompt,creator_type,creator_id,target_type,target_id,created_at)
+    VALUES ('existing','org-one','engineering',?,'open','Current ask','Next step?','user','human','user','human','${changedAt}')`)
+					.run(kind);
+				const change = {
+					key: "engineering",
+					orgId: "org-one",
+					tediId: "personal",
+					slug: "personal",
+					kind: "work" as const,
+					objectId: "engineering",
+					state: "idle",
+					changedAt: through,
+				};
+				expect(await ensureCommitmentFollowup(db, change, through)).toBe(
+					"existing",
+				);
+				expect(
+					sqlite
+						.prepare(
+							"SELECT count(*) AS n FROM work_interactions WHERE work_item_id='engineering'",
+						)
+						.get()?.n,
+				).toBe(1);
+				expect(
+					sqlite
+						.prepare(
+							"SELECT metadata,version FROM work_interactions WHERE id='existing'",
+						)
+						.get(),
+				).toEqual({ metadata: "{}", version: 1 });
+			} finally {
+				sqlite.close();
+			}
+		},
+	);
 	it("creates one daily ask, reuses an open ask, and never reopens an answered ask", async () => {
 		const { db, sqlite } = fixture();
 		sqlite.exec(`

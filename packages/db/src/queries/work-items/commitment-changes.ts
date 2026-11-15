@@ -192,22 +192,14 @@ export async function getCommitmentFollowupTarget(
 			and(
 				eq(workInteractions.orgId, change.orgId),
 				eq(workInteractions.workItemId, work.id),
-				eq(workInteractions.targetType, work.targetType),
-				eq(workInteractions.targetId, work.personId),
 				eq(workInteractions.status, "open"),
-				or(
-					eq(workInteractions.kind, "question"),
-					and(
-						eq(workInteractions.kind, "coordination"),
-						sql`json_extract(${workInteractions.metadata},'$.commitmentKey') = ${`work:${work.id}`}`,
-					),
-				),
 				or(
 					isNull(workInteractions.expiresAt),
 					gt(workInteractions.expiresAt, now),
 				),
 			),
 		)
+		.orderBy(sql`${workInteractions.createdAt} DESC`, workInteractions.id)
 		.limit(1);
 	return { ...work, openInteractionId: open?.id ?? null };
 }
@@ -228,6 +220,8 @@ export async function recordCommitmentFollowupAttention(
 	})
 		.where(sql`${workInteractions.orgId} = ${p.orgId} AND ${workInteractions.id} = ${p.interactionId}
 		AND ${workInteractions.status} = 'open' AND json_extract(${workInteractions.metadata}, '$.dedupeKey') IS NOT ${p.dedupeKey}
+		AND (${p.commitmentKey} LIKE 'interaction:%' OR ${workInteractions.subject} LIKE 'Follow up:%'
+		 OR json_extract(${workInteractions.metadata}, '$.commitmentKey') IS NOT NULL)
 		AND json_extract(${workInteractions.metadata}, '$.decisionDeck.kind') IS NOT 'approval'
 		AND json_extract(${workInteractions.metadata}, '$.approvalOperation') IS NULL`);
 }
