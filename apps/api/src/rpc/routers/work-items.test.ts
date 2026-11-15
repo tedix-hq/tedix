@@ -700,6 +700,77 @@ describe("Work Item router canonical specification reads and writes", () => {
 		expect(cancelled.disposition).toBe("cancelled");
 		expect(cancelled.cancelledAt).not.toBeNull();
 	});
+	it("leaves triage by decline, duplicate or snooze, and lists what still waits", async () => {
+		const file = fileable();
+		const unfiled = (title: string) => client().create({ ...PURPOSE, title });
+		const [declined, copy, later, waiting] = await Promise.all(
+			["Declined", "Copy", "Later", "Waiting"].map(unfiled),
+		);
+		const original = await client().create({ ...file, title: "Original" });
+		await expect(
+			client("owner").decline({ id: declined!.id, reason: "   " }),
+		).rejects.toThrow();
+		await expect(
+			client("owner").decline({ id: declined!.id, reason: "Not this year" }),
+		).resolves.toMatchObject({ disposition: "cancelled" });
+		await expect(
+			client("owner").markDuplicate({
+				id: copy!.id,
+				duplicateOfWorkItemId: copy!.id,
+			}),
+		).rejects.toThrow(/cannot duplicate itself/);
+		await expect(
+			client("owner").markDuplicate({
+				id: copy!.id,
+				duplicateOfWorkItemId: original.id,
+			}),
+		).resolves.toMatchObject({ disposition: "cancelled" });
+		expect(
+			sqlite
+				.prepare(
+					"SELECT from_work_item_id, to_work_item_id, relation_type FROM work_item_relations",
+				)
+				.all(),
+		).toEqual([
+			{
+				from_work_item_id: copy!.id,
+				to_work_item_id: original.id,
+				relation_type: "duplicates",
+			},
+		]);
+		await expect(
+			client("owner").snooze({
+				id: later!.id,
+				until: "2020-01-01T00:00:00.000Z",
+			}),
+		).rejects.toThrow(/future time/);
+		await expect(
+			client("owner").snooze({
+				id: later!.id,
+				until: new Date(Date.now() + 86_400_000).toISOString(),
+			}),
+		).resolves.toMatchObject({ disposition: "proposed" });
+		// Declining and snoozing are owner decisions, like cancelling.
+		await expect(
+			client().decline({ id: waiting!.id, reason: "No" }),
+		).rejects.toThrow();
+		const organization = await client().listTriage();
+		expect(organization.data.map((item) => item.id)).toEqual([waiting!.id]);
+		expect(organization.pagination.total).toBe(1);
+		expect(organization.snoozed).toBe(1);
+		expect(
+			organization.queues.sort((a, b) =>
+				String(a.projectId).localeCompare(String(b.projectId)),
+			),
+		).toEqual([
+			{ projectId: PROJECT_ID, count: 1 },
+			{ projectId: null, count: 1 },
+		]);
+		const project = await client().listTriage({ projectId: PROJECT_ID });
+		expect(project.data.map((item) => item.id)).toEqual([original.id]);
+		await client("owner").snooze({ id: later!.id, until: null });
+		expect((await client().listTriage()).pagination.total).toBe(2);
+	});
 	it("rejects cross-organization reads", async () => {
 		const id = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 		seed({ id, orgId: OTHER_ORG_ID });

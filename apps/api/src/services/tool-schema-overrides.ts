@@ -859,6 +859,11 @@ export const WORK_HIERARCHY_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"workItems/listEvents": "list_work_item_events",
 	"workItems/complete": "complete_work_item",
 	"workItems/cancel": "cancel_work_item",
+	// Triage: the ways a proposal leaves it besides accept, and its queues.
+	"workItems/decline": "decline_work_item",
+	"workItems/markDuplicate": "mark_work_item_duplicate",
+	"workItems/snooze": "snooze_work_item",
+	"workItems/listTriage": "list_work_triage",
 	// Work-graph steward (dup/stale/naming/orphan verifier + gated repair).
 	"workItems/getWorkGraphHealth": "get_work_graph_health",
 	"workItems/runWorkGraphSteward": "run_work_graph_steward",
@@ -988,6 +993,10 @@ export const WORK_HIERARCHY_KIND_OVERRIDES: Record<
 	"workItems/listEvents": "read",
 	"workItems/complete": "write",
 	"workItems/cancel": "write",
+	"workItems/decline": "write",
+	"workItems/markDuplicate": "write",
+	"workItems/snooze": "write",
+	"workItems/listTriage": "read",
 	// Steward: the health report is a read; running the steward can transition
 	// items to stale + write links/flags org-wide, so it is `destructive`
 	// (mirroring run_skill_workflow) to trip the destructive-tool approval gate

@@ -36,6 +36,12 @@ import { createProcedure } from "./work-items/creation-reads";
 import { addCommentProcedure } from "./work-items/lifecycle-marketing";
 import { closeoutDelegatedProcedure } from "./work-items/delegated-closeout";
 import {
+	declineProcedure,
+	listTriageProcedure,
+	markDuplicateProcedure,
+	snoozeProcedure,
+} from "./work-items/triage";
+import {
 	acceptProcedure,
 	cancelFactoryWorkItemProcedure,
 	completeProcedure,
@@ -129,6 +135,10 @@ export const workItemsContractRouter = workItemsOs.router({
 	accept: acceptProcedure,
 	getReadiness: getReadinessProcedure,
 	cancel: cancelFactoryWorkItemProcedure,
+	decline: declineProcedure,
+	markDuplicate: markDuplicateProcedure,
+	snooze: snoozeProcedure,
+	listTriage: listTriageProcedure,
 	complete: completeProcedure,
 	closeoutDelegated: closeoutDelegatedProcedure,
 	addComment: addCommentProcedure,
