@@ -20,15 +20,15 @@ this page top to bottom once; the other guides link back here for these terms.
 
 ## The records, top-down
 
-| Record    | What it is                                                                                                                                                                               |
-| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Objective | A directive a person sets: why work exists. It is one time, standing (for example "keep the docs current") or reactive. A project links to one, and its Work Items inherit that purpose. |
-| Project   | A body of work that serves an objective, with its own Work Items, milestones and budget.                                                                                                 |
-| Epic      | A bigger piece of work inside a project, like an incident, an investigation or a feature. It groups several Work Items and has one accountable owner. Tools and the CLI call it a case.  |
-| Milestone | A group of Work Items due together, with an optional target date.                                                                                                                        |
-| Work Item | One bounded outcome with a "done when", an owner, a priority and a risk level. This is the unit agents pick up.                                                                          |
-| Attempt   | One try by one executor at a Work Item, under a time-limited lease. A Work Item can have several Attempts over its life; only one may be live at a time.                                 |
-| Request   | What a person asks for, in Home or from an agent. Tedix answers it directly or turns it into a Work Item. A request is not Work until it is accepted.                                    |
+| Record    | What it is                                                                                                                                                                                                                                          |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Objective | A directive a person sets: why work exists. It is one time, standing (for example "keep the docs current") or reactive. A project links to one, and its Work Items inherit that purpose.                                                            |
+| Project   | A body of work that serves an objective, with its own Work Items, milestones and budget.                                                                                                                                                            |
+| Epic      | A bigger piece of work inside a project, like an incident, an investigation or a feature. It groups several Work Items and has one accountable owner. Tools and the CLI call it a case.                                                             |
+| Milestone | A group of Work Items due together, with an optional target date.                                                                                                                                                                                   |
+| Work Item | One bounded outcome with a "done when", an owner, a priority and a risk level. This is the unit agents pick up.                                                                                                                                     |
+| Attempt   | One try by one executor at a Work Item, under a time-limited lease. A Work Item can have several Attempts over its life; only one may be live at a time.                                                                                            |
+| Request   | What a person asks for, in Home or from an agent. Tedix tracks each request with its next owner and next action, and answers it directly or turns it into a Work Item. A request never gives authority to do Work; only an accepted Work Item does. |
 
 An Attempt is the Work-side record of a try. A run is the saved record of one
 tedi turn or skill execution. One Attempt can point at several runs.
