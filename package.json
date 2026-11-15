@@ -73,7 +73,7 @@
 		"tedix": "bun packages/cli/src/index.ts",
 		"test:ci": "vp run -r --concurrency-limit 1 test:ci",
 		"test:run": "bun run test:scripts",
-		"test:scripts": "bun test $(git ls-files --cached --others --exclude-standard ':(glob)scripts/**/*.test.*')",
+		"test:scripts": "bun test $(git ls-files --cached --others --exclude-standard ':(glob)scripts/**/*.test.*' ':(exclude)scripts/dev/push-train.test.ts') && bun test scripts/dev/push-train.test.ts",
 		"bump:check": "bun scripts/bump.ts --check",
 		"bump:interactive": "bun scripts/bump.ts --interactive",
 		"bump:minor": "bun scripts/bump.ts --interactive --target minor",

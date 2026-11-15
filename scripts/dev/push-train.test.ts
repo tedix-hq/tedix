@@ -18,7 +18,6 @@ import {
 	readResult,
 	recoverTrainResults,
 	runTrain,
-	snapshotLane,
 	type TrainTicket,
 } from "./push-train";
 import { selectPushRangeFiles } from "../ci/push-range-selection.mjs";
@@ -33,6 +32,8 @@ const env = detachedGitEnv();
 // marker: it disables lane snapshots, so no train forms and the single-lane
 // output the tests reject is what a real lane produces instead.
 delete env.TEDIX_DEVIN_HEADLESS;
+env.GIT_AUTHOR_NAME = env.GIT_COMMITTER_NAME = "Train Test";
+env.GIT_AUTHOR_EMAIL = env.GIT_COMMITTER_EMAIL = "train@example.com";
 function git(cwd: string, ...args: string[]): string {
 	const result = spawnSync("git", args, { cwd, env, encoding: "utf8" });
 	if (result.status !== 0) throw new Error(result.stderr);
@@ -45,8 +46,6 @@ function fixture(count: number) {
 		repo = join(root, "repo");
 	git(root, "init", "--bare", remote);
 	git(root, "init", "-b", "main", repo);
-	git(repo, "config", "user.name", "Train Test");
-	git(repo, "config", "user.email", "train@example.com");
 	writeFileSync(join(repo, "shared"), "base\n");
 	mkdirSync(join(repo, "scripts/oss"), { recursive: true });
 	writeFileSync(
@@ -75,6 +74,7 @@ if test -f red; then exit 1; fi
 	);
 	chmodSync(hook, 0o755);
 	git(repo, "config", "core.hooksPath", join(common, "hooks"));
+	const base = git(repo, "rev-parse", "main");
 	const tickets: TrainTicket[] = [];
 	for (let i = 0; i < count; i++) {
 		const cwd = join(root, `lane-${i}`);
@@ -87,7 +87,14 @@ if test -f red; then exit 1; fi
 			"-m",
 			`lane ${i}\n\nWork-Item: work-${i}\nAgent-Session: session-${i}`,
 		);
-		const lane = snapshotLane(cwd, false)!;
+		const lane = {
+			version: 1 as const,
+			cwd,
+			head: git(cwd, "rev-parse", "HEAD"),
+			base,
+			branch: `refs/heads/lane-${i}`,
+			dryRun: false,
+		};
 		const file = join(root, `ticket-${i}`);
 		writeFileSync(file, JSON.stringify(lane));
 		tickets.push({ file, result: join(root, `result-${i}`), lane });
@@ -106,7 +113,7 @@ function amend(ticket: TrainTicket, file: string, content: string) {
 	writeFileSync(join(ticket.lane.cwd, file), content);
 	git(ticket.lane.cwd, "add", ".");
 	git(ticket.lane.cwd, "commit", "--amend", "--no-edit");
-	ticket.lane = snapshotLane(ticket.lane.cwd, false)!;
+	ticket.lane.head = git(ticket.lane.cwd, "rev-parse", "HEAD");
 }
 
 function missingPreflightDependency(f: ReturnType<typeof fixture>) {
@@ -225,7 +232,7 @@ describe("push train with real repositories and hooks", () => {
 		git(f.tickets[1]!.lane.cwd, "reset", "--hard", f.tickets[0]!.lane.head);
 		git(f.tickets[1]!.lane.cwd, "rm", "file-0");
 		git(f.tickets[1]!.lane.cwd, "commit", "-m", "restore");
-		f.tickets[1]!.lane = snapshotLane(f.tickets[1]!.lane.cwd, false)!;
+		f.tickets[1]!.lane.head = git(f.tickets[1]!.lane.cwd, "rev-parse", "HEAD");
 		expect(runTrain(f.repo, f.common, f.tickets)).toBe(true);
 		const args = JSON.parse(
 			readFileSync(join(f.root, "ranges"), "utf8").trim(),
@@ -243,7 +250,7 @@ describe("push train with real repositories and hooks", () => {
 		git(second.lane.cwd, "reset", "--hard", f.tickets[0]!.lane.head);
 		git(second.lane.cwd, "rm", "secret-marker");
 		git(second.lane.cwd, "commit", "-m", "remove marker");
-		second.lane = snapshotLane(second.lane.cwd, false)!;
+		second.lane.head = git(second.lane.cwd, "rev-parse", "HEAD");
 		expect(runTrain(f.repo, f.common, f.tickets)).toBe(true);
 		expect(f.tickets.map((t) => readResult(t.result)!.code)).toEqual([1, 1, 0]);
 		expect(
