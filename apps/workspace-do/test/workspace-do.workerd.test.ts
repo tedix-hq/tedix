@@ -14,6 +14,11 @@ import {
 	osWorkspaces,
 } from "@tedix/db/schema/os-workspaces";
 import { tedis } from "@tedix/db/schema/tedis";
+import { organizations } from "@tedix/db/schema/organizations";
+import {
+	WORKSPACE_ROOM_OUTPUT_REVISION_PATH,
+	workspaceRoomName,
+} from "@tedix/api-contract/utils/workspace-room";
 import {
 	workspaceFeedLedger,
 	workspaceFeedCursors,
@@ -1159,6 +1164,7 @@ describe("WorkspaceDO", () => {
 			commitOutput: async () => {
 				throw new Error("unused");
 			},
+			notifyOutputRevision: async () => {},
 		});
 		const ws = workspace();
 
@@ -1552,6 +1558,68 @@ describe("WorkspaceDO", () => {
 			(await ws.outputQuery(scope, { op: "get", outputId: "out-doc" }))
 				?.currentRevisionId,
 		).toBe(before?.currentRevisionId);
+	});
+
+	test("an agent's saved edit tells everyone with the workspace open", async () => {
+		await seedCore();
+		await testEnv.DB.batch([
+			testEnv.DB.prepare(ddl(organizations)),
+			testEnv.DB.prepare(
+				"INSERT OR REPLACE INTO organizations (id, name, slug) VALUES (?, 'Blue Harbor', 'blueharbor')",
+			).bind(scope.organizationId),
+		]);
+		// Its own workspace: earlier tests revise the shared one's files.
+		const own = { ...scope, workspaceId: crypto.randomUUID() };
+		await seedWorkspaceRows([own]);
+		const ws = workspace(own);
+		await seedOutputs(ws, own);
+		await ws.scriptModel(own, [
+			{
+				code: `export default async (env) => env.outputs.revise({
+			outputId: "out-doc", expectedRevision: 1,
+			content: { kind: "document", blocks: [{ type: "paragraph", text: "agent edit" }] }
+		})`,
+			},
+		]);
+		const started = await ws.sendTurn(own, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "Edit the priorities",
+		});
+		await ws.awaitTurn(own, started.turnId, 20_000);
+		const requested = (
+			await ws.readEvents(own, { conversationId: started.conversationId })
+		).find((event) => event.type === "approval.requested");
+		if (requested?.type !== "approval.requested")
+			throw new Error("No held write");
+		await ws.scriptModel(own, [{ text: "Edited." }]);
+		const decided = await ws.decideApproval(own, {
+			approvalId: requested.approvalId,
+			decision: "approve",
+			by: "u1",
+		});
+		expect(decided.applied).toBe(true);
+		await ws.awaitTurn(own, decided.turnId!, 20_000);
+		const after = await ws.outputQuery(own, {
+			op: "get",
+			outputId: "out-doc",
+		});
+		const room = testEnv.COLLAB_ROOM.getByName(
+			workspaceRoomName({
+				tenantSlug: "blueharbor",
+				workspaceId: own.workspaceId,
+			}),
+		) as unknown as { notices(): Promise<unknown[]> };
+		expect(await room.notices()).toEqual([
+			{
+				path: WORKSPACE_ROOM_OUTPUT_REVISION_PATH,
+				body: {
+					outputId: "out-doc",
+					revisionId: after!.currentRevisionId,
+					revision: 2,
+				},
+			},
+		]);
 	});
 
 	test("events replay from a cursor and a guest tedi's profile comes from its own object", async () => {

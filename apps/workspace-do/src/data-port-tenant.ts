@@ -50,6 +50,7 @@ import type {
 	OsOutputRow,
 } from "@tedix/db/schema/os-workspaces";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
+import type { WorkspaceOutputRevisionNotice } from "@tedix/api-contract/utils/workspace-room";
 import {
 	OsOutputContentInputSchema,
 	OsOutputContentSchema,
@@ -132,6 +133,10 @@ export interface TenantDataPortDeps {
 		compatibilityDate?: unknown,
 	) => Promise<void>;
 	commitOutput: <T>(outputId: string, write: () => Promise<T>) => Promise<T>;
+	/** Tells everyone with the workspace open that a file has a new revision. */
+	notifyOutputRevision: (
+		notice: WorkspaceOutputRevisionNotice,
+	) => Promise<void>;
 }
 
 export class TenantDataPort implements WorkspaceDataPort {
@@ -327,6 +332,12 @@ export class TenantDataPort implements WorkspaceDataPort {
 			createOsOutputRevision(this.deps.tenant, params),
 		);
 		if (!result.ok) throw new Error(`Revise failed: ${result.reason}`);
+		if (result.revision.revision !== existing.revision)
+			await this.deps.notifyOutputRevision({
+				outputId: input.outputId,
+				revisionId: result.revision.id,
+				revision: result.revision.revision,
+			});
 		return {
 			...existing,
 			content,
