@@ -37,13 +37,16 @@ export async function startEditorTabs(options: {
 	/** What marks the editor as ready inside its frame. */
 	ready?: string;
 	reducedMotion?: "reduce" | "no-preference";
+	/** A phone: its size, with touch and the mobile viewport. */
+	phone?: { width: number; height: number };
 }) {
 	const server = await startFixtureServer("/", { shared: false });
 	let browser: Browser | undefined, context: BrowserContext;
 	try {
 		browser = await chromium.launch({ headless: true });
 		context = await browser.newContext({
-			viewport: { width: 1280, height: 800 },
+			viewport: options.phone ?? { width: 1280, height: 800 },
+			...(options.phone ? { isMobile: true, hasTouch: true } : {}),
 			reducedMotion: options.reducedMotion ?? "reduce",
 		});
 	} catch (error) {

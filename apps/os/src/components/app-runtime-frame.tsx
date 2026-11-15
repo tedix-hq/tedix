@@ -40,6 +40,8 @@ export interface AppRuntimeFrameProps {
 }
 
 const PROXY_READY = "ui/notifications/sandbox-proxy-ready";
+/** An app starts or ends a full-screen show, such as a slide presentation. */
+const APP_RUNTIME_PRESENT_METHOD = "tedix/present";
 const RESOURCE_READY = "ui/notifications/sandbox-resource-ready";
 /** No network, no nested frames: the proxy turns this into a strict CSP. */
 const APP_CSP = {
@@ -78,6 +80,8 @@ export function AppRuntimeFrame({
 	const outputRevisionKey = JSON.stringify(outputRevisions);
 	const [state, setState] = useState<"loading" | "ready" | "failed">("loading");
 	const [attempt, setAttempt] = useState(0);
+	const [presenting, setPresenting] = useState(false);
+	const frameRoot = useRef<HTMLDivElement>(null);
 	const autoRetries = useRef(0);
 
 	useEffect(() => {
@@ -173,6 +177,15 @@ export function AppRuntimeFrame({
 				);
 				return;
 			}
+			if (data.method === APP_RUNTIME_PRESENT_METHOD) {
+				const active =
+					(data.params as { active?: unknown } | null)?.active === true;
+				// Covering the whole page needs the person's own tap, so an app
+				// cannot take over the screen on its own.
+				if (active && navigator.userActivation?.isActive === false) return;
+				if (alive) setPresenting(active);
+				return;
+			}
 			if (data.method === "tedix/resize" && layout !== "fill") {
 				const height =
 					typeof data.params === "object" && data.params !== null
@@ -233,6 +246,7 @@ export function AppRuntimeFrame({
 		}).href;
 		return () => {
 			alive = false;
+			setPresenting(false);
 			latest.current.translation?.attach(null);
 			clearTimeout(timer);
 			window.removeEventListener("message", onMessage);
@@ -241,6 +255,78 @@ export function AppRuntimeFrame({
 		// The document is re-sent through the ref when it changes; the iframe is
 		// re-created only when the app identity (title) or layout changes.
 	}, [title, layout, attempt]);
+
+	// While the app presents, its frame covers the whole page: full screen and
+	// landscape where the browser allows, a pinned frame where it does not
+	// (iPhone). Back, Esc or leaving full screen ends the show in the app too.
+	useEffect(() => {
+		const root = frameRoot.current;
+		const holder = container.current;
+		const iframe = holder?.querySelector("iframe");
+		if (!presenting || !root || !holder || !iframe) return;
+		const saved = {
+			root: root.style.cssText,
+			holder: holder.style.flex,
+			iframe: iframe.style.cssText,
+			page: document.documentElement.style.overflow,
+		};
+		root.style.cssText =
+			"position:fixed;inset:0;z-index:2147483000;display:flex;flex-direction:column;background:#000";
+		holder.style.flex = "1 1 0px";
+		iframe.style.height = "100%";
+		iframe.style.minHeight = "0";
+		iframe.style.flex = "1 1 0px";
+		document.documentElement.style.overflow = "hidden";
+		let ended = false;
+		const end = () => {
+			if (ended) return;
+			ended = true;
+			setPresenting(false);
+			iframe.contentWindow?.postMessage(
+				{
+					jsonrpc: "2.0",
+					method: APP_RUNTIME_PRESENT_METHOD,
+					params: { active: false },
+				},
+				window.location.origin,
+			);
+		};
+		// Back closes the show instead of leaving the page.
+		window.history.pushState(
+			{ ...(window.history.state ?? {}), tedixPresent: true },
+			"",
+		);
+		const onPopState = () => {
+			if (!window.history.state?.tedixPresent) end();
+		};
+		const onFullscreen = () => {
+			if (!document.fullscreenElement) end();
+		};
+		window.addEventListener("popstate", onPopState);
+		document.addEventListener("fullscreenchange", onFullscreen);
+		const orientation = screen.orientation as ScreenOrientation & {
+			lock?: (orientation: string) => Promise<void>;
+		};
+		void root
+			.requestFullscreen?.({ navigationUI: "hide" })
+			.then(() => orientation?.lock?.("landscape"))
+			.catch(() => {});
+		return () => {
+			window.removeEventListener("popstate", onPopState);
+			document.removeEventListener("fullscreenchange", onFullscreen);
+			root.style.cssText = saved.root;
+			holder.style.flex = saved.holder;
+			iframe.style.cssText = saved.iframe;
+			document.documentElement.style.overflow = saved.page;
+			try {
+				orientation?.unlock?.();
+			} catch {}
+			if (document.fullscreenElement)
+				void document.exitFullscreen?.().catch(() => {});
+			// Ended by the app: drop the entry Back would otherwise land on.
+			if (window.history.state?.tedixPresent) window.history.back();
+		};
+	}, [presenting]);
 
 	// A kept-alive app can be shown again by a new panel with a new Translate
 	// channel; hand the running document to whichever channel is current.
@@ -304,8 +390,10 @@ export function AppRuntimeFrame({
 
 	return (
 		<div
+			ref={frameRoot}
 			className="flex min-h-0 min-w-0 flex-col"
 			data-app-runtime-frame
+			data-presenting={presenting || undefined}
 			data-state={state}
 			style={layout === "fill" ? { flex: "1 1 0px" } : undefined}
 		>

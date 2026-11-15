@@ -65,6 +65,8 @@ import {
 
 export interface SlidesClientBridge {
 	call<T = unknown>(method: string, args?: unknown): Promise<T>;
+	/** Tells the page a slide show started or ended, so it can fill the screen. */
+	present?(active: boolean): void;
 }
 type Saved = {
 	output: { id: string; title: string; workspaceId: string };
@@ -1981,6 +1983,7 @@ export async function mountSlidesClient(
 		properties.replaceChildren();
 		layers.replaceChildren();
 		notes.value = "";
+		if (!presenter.hidden) bridge.present?.(false);
 		presenter.hidden = true;
 		presentStage.replaceChildren();
 		render();
@@ -2269,6 +2272,16 @@ export async function mountSlidesClient(
 		}
 	}
 	const onMessage = (event: MessageEvent) => {
+		// The page ended the show: system Back or leaving full screen.
+		if (
+			event.source === window.parent &&
+			event.data?.jsonrpc === "2.0" &&
+			event.data.method === "tedix/present" &&
+			event.data.params?.active === false
+		) {
+			if (!presenter.hidden) button("exit").click();
+			return;
+		}
 		if (
 			event.source !== window.parent ||
 			event.data?.jsonrpc !== "2.0" ||
@@ -2417,11 +2430,13 @@ export async function mountSlidesClient(
 		commitText();
 		presentedId = undefined;
 		presenter.hidden = false;
+		bridge.present?.(true);
 		renderPresentation();
 		presenter.focus({ preventScroll: true });
 		wake();
 	};
 	button("exit").onclick = () => {
+		if (!presenter.hidden) bridge.present?.(false);
 		presenter.hidden = true;
 		clearTimeout(idleTimer);
 		render();
