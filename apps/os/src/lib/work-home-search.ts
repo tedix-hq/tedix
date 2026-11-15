@@ -33,7 +33,7 @@ export function selectedWorkApp<
 		: apps.find((app) => app.gadget.id === selected);
 }
 export type WorkHomeSearch = {
-	view?: "feed" | "deck" | "items";
+	view?: "feed" | "deck" | "items" | "triage";
 	filter?: WorkFeedFilter;
 	app?: string;
 	project?: string;
@@ -64,7 +64,8 @@ export function workHomeSearch(
 			: {}),
 		...(search.view === "deck" ||
 		search.view === "feed" ||
-		search.view === "items"
+		search.view === "items" ||
+		search.view === "triage"
 			? { view: search.view }
 			: {}),
 		...(WorkItemDispositionSchema.safeParse(search.status).success

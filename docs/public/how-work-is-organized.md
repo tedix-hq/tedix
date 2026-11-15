@@ -65,6 +65,9 @@ message names what is missing. `list_work_triage` lists what still waits: one
 list per project, and one for the organization with the proposals that have no
 project yet.
 
+In Tedix OS, open Work, then More views, then Triage. It shows one list at a
+time with the four actions, and how many proposals wait in each project.
+
 Triage is an inbox that should be empty, not a backlog.
 
 ## Why a Work Item exists: objective or work class

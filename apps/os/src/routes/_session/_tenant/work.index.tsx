@@ -10,11 +10,18 @@ const WorkItemsView = lazy(() =>
 	})),
 );
 
+const WorkTriageView = lazy(() =>
+	import("@/components/work-triage-view").then((module) => ({
+		default: module.WorkTriageView,
+	})),
+);
+
 export const Route = createFileRoute("/_session/_tenant/work/")({
 	validateSearch: workHomeSearch,
 	loaderDeps: ({ search }) => ({ view: search.view }),
 	loader: ({ context, deps }) => {
-		if (deps.view !== "items") prefetchWorkDeck(context.queryClient, deps.view);
+		if (deps.view !== "items" && deps.view !== "triage")
+			prefetchWorkDeck(context.queryClient, deps.view);
 	},
 	component: WorkLanding,
 });
@@ -30,6 +37,20 @@ function WorkLanding() {
 					onFiltersChange={(filters) =>
 						void navigate({
 							search: { view: "items", ...filters },
+							replace: true,
+						})
+					}
+				/>
+			</Suspense>
+		);
+	if (search.view === "triage")
+		return (
+			<Suspense fallback={null}>
+				<WorkTriageView
+					project={search.project}
+					onProjectChange={(project) =>
+						void navigate({
+							search: { view: "triage", ...(project ? { project } : {}) },
 							replace: true,
 						})
 					}
