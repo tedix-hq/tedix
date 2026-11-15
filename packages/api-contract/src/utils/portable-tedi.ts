@@ -189,7 +189,7 @@ export async function verifyPortableTediSnapshotFiles(
 		const bytes = files[entry.path];
 		if (!bytes) throw new Error(`Missing portable tedi snapshot: ${section}`);
 		const hash = new Uint8Array(
-			await crypto.subtle.digest("SHA-256", Uint8Array.from(bytes)),
+			await crypto.subtle.digest("SHA-256", bytes as Uint8Array<ArrayBuffer>),
 		);
 		const digest = Array.from(hash, (part) =>
 			part.toString(16).padStart(2, "0"),
@@ -199,15 +199,23 @@ export async function verifyPortableTediSnapshotFiles(
 		}
 
 		const text = decoder.decode(bytes);
-		const lines = text.endsWith("\n")
-			? text.slice(0, -1).split("\n")
-			: text.split("\n");
-		const count = text.length === 0 ? 0 : lines.length;
+		let count = text && !text.endsWith("\n") ? 1 : 0;
+		for (
+			let newline = text.indexOf("\n");
+			newline >= 0;
+			newline = text.indexOf("\n", newline + 1)
+		) {
+			count++;
+		}
 		if (count !== entry.count) {
 			throw new Error(`Portable tedi snapshot row count mismatch: ${section}`);
 		}
-		for (const [index, line] of lines.entries()) {
-			if (count === 0) break;
+		let lineStart = 0;
+		for (let index = 0; index < count; index++) {
+			const newline = text.indexOf("\n", lineStart);
+			const lineEnd = newline < 0 ? text.length : newline;
+			const line = text.slice(lineStart, lineEnd).trim();
+			lineStart = lineEnd + 1;
 			let parsed: unknown;
 			try {
 				parsed = JSON.parse(line);

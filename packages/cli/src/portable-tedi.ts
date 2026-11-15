@@ -286,21 +286,31 @@ async function snapshotSection(
 	access: GitAccess,
 	tediId: string,
 	section: Section,
-): Promise<{ bytes: Uint8Array; count: number }> {
+	retainBytes: boolean,
+): Promise<{ bytes?: Uint8Array; sha256: string; count: number }> {
 	const pages: string[] = [];
 	let count = 0;
 	let afterId: string | undefined;
+	const result = (text: string) => {
+		if (retainBytes) {
+			const bytes = new TextEncoder().encode(text ? `${text}\n` : "");
+			return {
+				bytes,
+				sha256: createHash("sha256").update(bytes).digest("hex"),
+				count,
+			};
+		}
+		const hash = createHash("sha256").update(text);
+		if (text) hash.update("\n");
+		return { sha256: hash.digest("hex"), count };
+	};
 	for (let pageNumber = 0; pageNumber < 10_000; pageNumber++) {
 		const page = await source.readPage({ access, tediId, section, afterId });
 		if (page.rowCount === 0) {
 			if (page.nextAfterId || page.text) {
 				throw new Error(`Invalid empty portable ${section} page`);
 			}
-			const text = pages.join("\n");
-			return {
-				bytes: new TextEncoder().encode(text ? `${text}\n` : ""),
-				count,
-			};
+			return result(pages.join("\n"));
 		}
 		if (!page.text || page.rowCount > 500) {
 			throw new Error(`Invalid portable ${section} page`);
@@ -308,8 +318,7 @@ async function snapshotSection(
 		pages.push(page.text);
 		count += page.rowCount;
 		if (!page.nextAfterId) {
-			const text = pages.join("\n");
-			return { bytes: new TextEncoder().encode(`${text}\n`), count };
+			return result(pages.join("\n"));
 		}
 		if (page.nextAfterId === afterId) {
 			throw new Error(`Portable ${section} cursor did not advance`);
@@ -323,6 +332,7 @@ async function snapshotAll(
 	source: PortableTediSource,
 	access: GitAccess,
 	tediId: string,
+	retainFiles: boolean,
 ) {
 	const files: Record<string, Uint8Array> = {};
 	const entries: Record<
@@ -330,16 +340,17 @@ async function snapshotAll(
 		{ path: string; sha256: string; count: number }
 	> = {};
 	for (const { section, path } of SECTIONS) {
-		const { bytes, count } = await snapshotSection(
+		const { bytes, sha256, count } = await snapshotSection(
 			source,
 			access,
 			tediId,
 			section,
+			retainFiles,
 		);
-		files[path] = bytes;
+		if (bytes) files[path] = bytes;
 		entries[section] = {
 			path,
-			sha256: createHash("sha256").update(bytes).digest("hex"),
+			sha256,
 			count,
 		};
 	}
@@ -352,8 +363,8 @@ async function stableSnapshot(
 	access: GitAccess,
 	tediId: string,
 ) {
-	const first = await snapshotAll(source, access, tediId);
-	const second = await snapshotAll(source, access, tediId);
+	const first = await snapshotAll(source, access, tediId, true);
+	const second = await snapshotAll(source, access, tediId, false);
 	for (const { section } of SECTIONS) {
 		if (first.entries[section]?.sha256 !== second.entries[section]?.sha256) {
 			throw new Error(`Portable ${section} changed during export; retry`);
@@ -485,11 +496,11 @@ export async function exportPortableTedi(options: {
 				]);
 				await runGit(["-C", repoDir, "checkout", "--detach", sourceHead]);
 			}
+			await rejectCredentialHistory(repoDir);
 		} else {
 			await mkdir(repoDir);
 			await runGit(["-C", repoDir, "init", "-b", "main"]);
 		}
-		await rejectCredentialHistory(repoDir);
 		const snapshot = await stableSnapshot(
 			options.source,
 			access,
@@ -551,7 +562,6 @@ export async function exportPortableTedi(options: {
 			"Portable tedi snapshot",
 		]);
 		await runGit(["-C", repoDir, "branch", "portable-export", "HEAD"]);
-		await runGit(["-C", repoDir, "switch", "portable-export"]);
 		await mkdir(dirname(outputPath), { recursive: true });
 		await runGit([
 			"-C",

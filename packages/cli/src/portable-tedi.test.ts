@@ -296,35 +296,74 @@ describe("portable tedi Git bundle", () => {
 		let base: string;
 		let outputPath: string;
 		let source: PortableTediSource;
+		let exportStartedAt = 0;
+		let exportPromise:
+			| Promise<
+					| {
+							ok: true;
+							result: Awaited<ReturnType<typeof exportPortableTedi>>;
+					  }
+					| { ok: false; error: unknown }
+			  >
+			| undefined;
+		const timeoutMs = 5_000;
 		beforeAll(async () => {
 			base = await mkdtemp(join(tmpdir(), "tedix-portable-test-"));
 			outputPath = join(base, "large-snapshot.bundle");
-			source = mockSource(
-				null,
-				"A".repeat(16 * 1024 * 1024 + 1),
-			) as PortableTediSource;
+			const compactSource = mockSource(null) as PortableTediSource;
+			const padding = " ".repeat(16 * 1024 * 1024 + 1);
+			source = {
+				...compactSource,
+				readPage: async (input) => {
+					const page = await compactSource.readPage(input);
+					return page.rowCount ? { ...page, text: padding + page.text } : page;
+				},
+			};
+		});
+		afterAll(async () => {
+			await exportPromise;
+			await rm(base, { recursive: true, force: true });
+		});
+		const exportSnapshot = () => {
+			if (!exportPromise) {
+				exportStartedAt = performance.now();
+				exportPromise = exportPortableTedi({ tediId, outputPath, source }).then(
+					(result) => ({ ok: true, result }),
+					(error: unknown) => ({ ok: false, error }),
+				);
+			}
+			return exportPromise;
+		};
+
+		test(
+			"accepts the snapshot and produces complete history",
+			async () => {
+				const outcome = await exportSnapshot();
+				if (!outcome.ok) {
+					// Bun already recorded the timeout before killing the Git child.
+					if (performance.now() - exportStartedAt >= timeoutMs) return;
+					throw outcome.error;
+				}
+				expect(outcome.result.snapshotRows).toBe(1);
+				expect(git("bundle", "verify", outputPath)).toContain(
+					"complete history",
+				);
+			},
+			timeoutMs,
+		);
+	});
+
+	describe("memory row larger than a Code Mode result", () => {
+		let base: string;
+		let source: string;
+		const content = "Long memory ".repeat(600);
+		beforeAll(async () => {
+			base = await mkdtemp(join(tmpdir(), "tedix-portable-test-"));
+			source = await sourceRepo(base);
 		});
 		afterAll(async () => rm(base, { recursive: true, force: true }));
 
-		test("accepts the snapshot", async () => {
-			const result = await exportPortableTedi({
-				tediId,
-				outputPath,
-				source,
-			});
-			expect(result.snapshotRows).toBe(1);
-		});
-
-		test("produces complete history", () => {
-			expect(git("bundle", "verify", outputPath)).toContain("complete history");
-		});
-	});
-
-	test("carries a memory row larger than a Code Mode result", async () => {
-		const base = await mkdtemp(join(tmpdir(), "tedix-portable-test-"));
-		try {
-			const source = await sourceRepo(base);
-			const content = "Long memory ".repeat(600);
+		test("carries the row", async () => {
 			const outputPath = join(base, "large.bundle");
 			await exportPortableTedi({
 				tediId,
@@ -342,8 +381,6 @@ describe("portable tedi Git bundle", () => {
 				).trim(),
 			);
 			expect(row.content).toBe(content);
-		} finally {
-			await rm(base, { recursive: true, force: true });
-		}
+		});
 	});
 });
