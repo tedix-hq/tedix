@@ -562,7 +562,9 @@ describe("ToolSchemaSyncWorkflow release publication", () => {
 		expect(mocks.publish).toHaveBeenCalledTimes(2);
 		env.GIT_SHA = "b".repeat(40);
 		await runRelease(env);
-		expect(purgeCalls(env)).toBe(3);
+		expect(purgeCalls(env)).toBe(2);
+		expect(mocks.publish).toHaveBeenCalledTimes(2);
+		expect(env.R2_BUCKET.put).toHaveBeenCalledTimes(2);
 		expect(mocks.run).not.toHaveBeenCalled();
 	});
 

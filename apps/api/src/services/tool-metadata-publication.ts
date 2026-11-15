@@ -10,7 +10,7 @@ export async function reconcileToolMetadataPublication(
 	if (options.reconcileRelease) {
 		if (!env.R2_BUCKET) throw new Error("Tool publication requires R2_BUCKET");
 		const migration = await readD1MigrationPublicationRevision(db);
-		const revision = JSON.stringify([env.GIT_SHA, migration]);
+		const revision = JSON.stringify(migration);
 		const digest = await crypto.subtle.digest(
 			"SHA-256",
 			new TextEncoder().encode(revision),
@@ -50,12 +50,15 @@ export async function reconcileToolMetadataPublication(
 			`Tool metadata publication failed (HTTP ${response.status})`,
 		);
 	}
-	// A failed purge or receipt write remains retryable. Immutable revision keys
-	// prevent an older concurrent release from overwriting a newer receipt.
+	// A failed purge or receipt write remains retryable. Immutable migration keys
+	// keep acknowledgments for older migrations separate from newer ones.
 	if (receiptKey) {
 		await env.R2_BUCKET.put(
 			receiptKey,
-			JSON.stringify({ activationEpoch: body.activationEpoch }),
+			JSON.stringify({
+				releaseSha: env.GIT_SHA,
+				activationEpoch: body.activationEpoch,
+			}),
 		);
 	}
 	return { published: true };
