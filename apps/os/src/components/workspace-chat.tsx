@@ -245,8 +245,10 @@ export function WorkspaceChat({
 		[client, modelId, notePost],
 	);
 	useEffect(() => {
-		onSendMessageReady?.(send);
-	}, [onSendMessageReady, send]);
+		if (!client || !onSendMessageReady) return;
+		onSendMessageReady(send);
+		return () => onSendMessageReady(() => {});
+	}, [client, onSendMessageReady, send]);
 
 	const title =
 		state.conversations.find(

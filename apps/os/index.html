@@ -145,6 +145,60 @@
 				<p>Opening your workspace…</p>
 			</div>
 		</div>
+		<script>
+			(function () {
+				try {
+					var match = location.pathname.match(
+						/^\/workspace\/([0-9a-f-]{36})$/i,
+					);
+					var search = new URLSearchParams(location.search);
+					if (
+						!match ||
+						search.get("pane") !== "chat" ||
+						search.has("workpiece") ||
+						!matchMedia("(max-width: 959px)").matches
+					)
+						return;
+					var workspaceId = match[1];
+					var conversation = search.get("conversation") || "new";
+					var draftKey =
+						"tedix.workspace-chat.draft." + workspaceId + "." + conversation;
+					var pendingKey = "tedix.workspace-chat.pending." + workspaceId;
+					var root = document.getElementById("root");
+					if (!root) return;
+					root.innerHTML =
+						'<main style="display:flex;min-height:100dvh;flex-direction:column;background:var(--background,Canvas);color:var(--foreground,CanvasText);font-family:var(--font-sans,system-ui)">' +
+						'<header style="padding:1rem;border-bottom:1px solid var(--border,ButtonBorder)"><strong>Tedix</strong><div style="margin-top:.25rem">Opening your workspace…</div></header>' +
+						'<div style="flex:1"></div><form id="phone-chat-bootstrap" style="padding:1rem;border-top:1px solid var(--border,ButtonBorder)">' +
+						'<label for="phone-chat-draft" style="display:block;font-weight:600;margin-bottom:.5rem">Workspace chat</label>' +
+						'<textarea id="phone-chat-draft" aria-label="Message the workspace" placeholder="Ask this workspace…" rows="2" style="box-sizing:border-box;width:100%;min-height:4.5rem;padding:.75rem;border:1px solid var(--input,ButtonBorder);border-radius:.75rem;background:var(--card,Field);color:inherit;font:inherit;resize:none"></textarea>' +
+						'<div style="display:flex;align-items:center;justify-content:space-between;gap:.75rem;margin-top:.5rem"><span id="phone-chat-status" role="status" style="font-size:.875rem"></span><button type="submit" style="min-height:2.75rem;padding:.5rem 1rem;border:0;border-radius:.65rem;background:var(--primary,#2563eb);color:var(--primary-foreground,#fff);font:inherit;font-weight:600">Send</button></div>' +
+						"</form></main>";
+					var form = document.getElementById("phone-chat-bootstrap");
+					var textarea = document.getElementById("phone-chat-draft");
+					var status = document.getElementById("phone-chat-status");
+					textarea.value = localStorage.getItem(draftKey) || "";
+					textarea.addEventListener("input", function () {
+						localStorage.setItem(draftKey, textarea.value);
+					});
+					form.addEventListener("submit", function (event) {
+						event.preventDefault();
+						var text = textarea.value.trim();
+						if (!text) return;
+						sessionStorage.setItem(
+							pendingKey,
+							JSON.stringify({ conversation: conversation, text: text }),
+						);
+						localStorage.setItem(draftKey, "");
+						textarea.value = "";
+						status.textContent = "Sending when the workspace is ready…";
+					});
+					textarea.focus();
+				} catch (error) {
+					console.error("Phone chat bootstrap failed", error);
+				}
+			})();
+		</script>
 		<script type="module" src="/src/main.tsx"></script>
 	</body>
 </html>

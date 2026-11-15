@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { WorkspaceChat } from "@/components/workspace-chat";
 import { persistCanvasPhonePane } from "@/lib/canvas-phone-pane";
 
@@ -14,6 +14,31 @@ export function PhoneWorkspaceChat({
 	onOpenWorkspace: () => void;
 }) {
 	const [listOpen, setListOpen] = useState(false);
+	const sendQueuedMessage = useCallback(
+		(send: (content: string) => void) => {
+			const key = `tedix.workspace-chat.pending.${workspaceId}`;
+			try {
+				const value = window.sessionStorage.getItem(key);
+				if (!value) return;
+				const pending = JSON.parse(value) as {
+					conversation?: unknown;
+					text?: unknown;
+				};
+				const expected = conversationId ?? "new";
+				if (
+					pending.conversation !== expected ||
+					typeof pending.text !== "string" ||
+					!pending.text.trim()
+				)
+					return;
+				window.sessionStorage.removeItem(key);
+				send(pending.text);
+			} catch {
+				window.sessionStorage.removeItem(key);
+			}
+		},
+		[conversationId, workspaceId],
+	);
 	useEffect(() => {
 		persistCanvasPhonePane(window.localStorage, workspaceId, "chat");
 	}, [workspaceId]);
@@ -24,6 +49,7 @@ export function PhoneWorkspaceChat({
 				conversationId={conversationId}
 				listOpen={listOpen}
 				onBrowseResources={onOpenWorkspace}
+				onSendMessageReady={sendQueuedMessage}
 				onConversationCreated={(next) => {
 					setListOpen(false);
 					onConversationChange(next);
