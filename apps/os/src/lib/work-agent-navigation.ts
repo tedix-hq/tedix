@@ -35,7 +35,7 @@ export function workAgentNavigation(
 			: undefined;
 	const tabs: AgentTab[] = [];
 	for (const [id, label, schema] of [
-		["office", "For you", OfficeConfigSchema],
+		["office", "Needs you", OfficeConfigSchema],
 		["agents", "Sessions", AgentsConfigSchema],
 	] as const) {
 		const entry = `tedix:app/${id}`;

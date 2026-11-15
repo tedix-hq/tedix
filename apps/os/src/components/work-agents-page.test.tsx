@@ -245,7 +245,7 @@ describe("Agents board", () => {
 		expect(doc.body.textContent).toContain("Local · Claude");
 		expect(doc.body.textContent).toContain("Codex");
 		const strip = doc.querySelector('[aria-label="Agent session counts"]');
-		expect(strip?.textContent).toContain("Waiting on you2");
+		expect(strip?.textContent).toContain("Needs you2");
 		expect(strip?.textContent).toContain("Blocked1");
 	});
 
@@ -261,7 +261,7 @@ describe("Agents board", () => {
 		);
 		expect(states).toEqual(["needs_you", "done", "working"]);
 		expect(group?.textContent).toContain("Billing revamp (3)");
-		expect(group?.querySelector("li")?.textContent).toContain("Waiting on you");
+		expect(group?.querySelector("li")?.textContent).toContain("Needs you");
 	});
 
 	it("tints only needs_you and done rows and keeps the full summary on hover", async () => {

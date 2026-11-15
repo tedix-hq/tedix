@@ -357,7 +357,7 @@ export function OsCommandPalette({
 				autoComplete="off"
 				className="type-tedix-control"
 				leading={<MagnifyingGlass size={16} className="text-kumo-subtle" />}
-				placeholder="Search pages, workspaces, outputs, apps, skills…"
+				placeholder="Search pages, workspaces, documents, apps, skills…"
 			/>
 			<CommandPalette.List>
 				{unavailableResources.length > 0 ? (

@@ -278,7 +278,7 @@ export function AgentInstallPage() {
 								organization check.
 							</Step>
 							<GuideLink href="https://docs.tedix.dev/cli/#devin-cli">
-								Devin setup and lane smoke test
+								Devin setup and runner smoke test
 							</GuideLink>
 						</CardContent>
 					</Card>

@@ -235,7 +235,7 @@ describe("Epics", () => {
 				?.classList.contains("sm:block"),
 		).toBe(true);
 		// Plain stage names, no raw owner ids and no empty due-date column.
-		expect(page.host.textContent).toContain("In progress");
+		expect(page.host.textContent).toContain("Executing");
 		expect(page.host.innerHTML).not.toContain(OWNER);
 		expect(page.host.innerHTML).not.toContain(OWNER.slice(0, 8));
 		expect(page.host.textContent).not.toContain("Horizon");
@@ -816,14 +816,14 @@ describe("Work case detail and clusters", () => {
 		// No typed-id fields remain; both actions start disabled until a pick.
 		expect(page.host.querySelector('input[placeholder*="UUID"]')).toBeNull();
 		expect(page.host.textContent).not.toContain("Work Item id");
-		for (const label of ["Add task", "Add dependency"]) {
+		for (const label of ["Add Work Item", "Add dependency"]) {
 			const button = [...page.host.querySelectorAll("button")].find(
 				(candidate) => candidate.textContent?.trim() === label,
 			);
 			expect(button?.disabled, label).toBe(true);
 		}
 		expect(
-			page.host.querySelector('[aria-label="Choose a task"]'),
+			page.host.querySelector('[aria-label="Choose a Work Item"]'),
 		).not.toBeNull();
 		expect(
 			page.host.querySelector('[aria-label="Choose an epic"]'),
@@ -842,7 +842,7 @@ describe("Work case detail and clusters", () => {
 		]);
 		expect(page.host.textContent).not.toContain(TASK);
 		expect(page.host.textContent).not.toContain(OTHER_STREAM);
-		await page.submit("Add task");
+		await page.submit("Add Work Item");
 		await page.submit("Add dependency");
 		expect(
 			api.calls.filter((call) =>
