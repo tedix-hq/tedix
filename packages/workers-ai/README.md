@@ -53,16 +53,28 @@ and removes its listener when the wait ends.
 
 ## Native provider assessment
 
-Agents 0.26's experimental `agents/models/ai-sdk` factory offers native V4
-streaming and multimodal support, but its `AISettings` requires an `Ai` binding
-and exposes no per-dispatch authorization seam. This package also supports
-HTTPS gateways without that binding and requires billable admission with the
-exact serialized request before every dispatch. Replacing the adapter directly
-would remove those supported contracts. Model selection stays with callers;
-no new provider path or global default is installed.
+Reassessed for Agents 0.33.0, the version this repo pins. Its
+`agents/models/ai-sdk` factory (`createAI`) offers `LanguageModelV4` streaming,
+multimodal models and gateway metadata. It no longer requires the `Ai`
+binding: `AISettings` also accepts `{ accountId, apiToken }`. That HTTP path
+does not match ours. A model id goes to the Cloudflare REST API
+(`api.cloudflare.com/.../ai/run`) with an account API token holding
+**Workers AI Read**, while this package sends HTTPS calls to
+`gateway.ai.cloudflare.com` with the gateway-scoped `CF_AI_GATEWAY_TOKEN`.
+Adopting it would need a broader credential and a different endpoint.
 
-Upstream contracts: [factory settings](https://github.com/cloudflare/agents/blob/agents%400.26.0/packages/agents/src/models/core/settings.ts)
-and [Agents 0.26 release](https://github.com/cloudflare/agents/releases/tag/agents%400.26.0).
+The factory still has no per-dispatch authorization seam. `createAI` takes
+only settings: no `fetch` or transport injection and no hook that sees the
+serialized request. Per-call `headers` and `metadata` cannot reject a call
+before it is sent. This package requires billable admission with the exact
+serialized request before every dispatch, so replacing the adapter would
+remove that contract. Decision unchanged: keep this adapter. Model selection
+stays with callers; no new provider path or global default is installed.
+
+Upstream contracts: [factory settings](https://github.com/cloudflare/agents/blob/agents%400.33.0/packages/agents/src/models/core/settings.ts),
+[AI SDK provider guide](https://developers.cloudflare.com/agents/models/ai-sdk/),
+[AI Gateway REST API](https://developers.cloudflare.com/ai-gateway/usage/rest-api/)
+and [Agents 0.33 release](https://github.com/cloudflare/agents/releases/tag/agents%400.33.0).
 
 Breaker state is per-isolate by design. Two Workers cannot share module scope,
 so a cross-Worker breaker would need a Durable Object round-trip on the hot path
