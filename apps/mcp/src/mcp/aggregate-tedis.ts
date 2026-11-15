@@ -1,37 +1,26 @@
-// Aggregate tedi tool catalog. The per-domain spec modules live in the
-// sibling aggregate-tedis-*.ts files (mechanical split along domain seams);
-// this module remains the stable aggregation point and public surface:
-// entry/spec assembly, buildTediTool, and buildAggregateTediTools.
+// Runtime catalog: regenerate with bun scripts/mcp/generate-aggregate-tedi-catalog.ts.
+// Projecting the contracts here exhausted memory when imported after app aggregation.
 import { builtinToolPolicyMetadata } from "@tedix/api-contract/utils/approval-policy";
-import { BROWSER_TOOLS } from "./aggregate-tedis-browser";
-import { CAPABILITY_MAP_TOOLS } from "./aggregate-tedis-capabilities";
-import {
-	COLLABORATION_TOOLS,
-	CONVERSATIONS_LIST_SCHEMA,
-	MESSAGING_TOOLS,
-} from "./aggregate-tedis-collaboration";
-import { EMAIL_TOOLS } from "./aggregate-tedis-email";
-import { GOVERNANCE_TOOLS } from "./aggregate-tedis-governance";
-import { HARNESS_TOOLS } from "./aggregate-tedis-harness";
-import { KERNEL_RUNTIME_TOOLS } from "./aggregate-tedis-kernel-runtime";
-import { MEMORY_TOOLS, RATIONALE_MUSCLE_TOOLS } from "./aggregate-tedis-memory";
-import { PAYMENT_TOOLS } from "./aggregate-tedis-payments";
-import { PROJECT_TOOLS } from "./aggregate-tedis-projects";
-import { ROLE_TEMPLATE_TOOLS } from "./aggregate-tedis-role-templates";
+import type { ToolJsonSchema } from "@tedix/api-contract/schemas/tools";
 import {
 	type AggregateTediEntry,
 	MAIN_SESSION_KEY,
-	READ_ONLY,
 	type TediToolSpec,
 } from "./aggregate-tedis-shared";
-import {
-	SKILL_WORKFLOW_OUTPUT_SCHEMAS,
-	SKILL_WORKFLOW_TOOLS,
-} from "./aggregate-tedis-skill-workflows";
-import { WORK_ITEM_TOOLS } from "./aggregate-tedis-work-items";
-import { WORKSPACE_TOOLS } from "./aggregate-tedis-workspace";
-import { COMPUTER_TOOLS } from "./aggregate-tedis-computer";
 import type { AppTool } from "./server-context";
+import snapshot from "./aggregate-tedi-catalog.generated.json";
+
+const {
+	full: FULL_TEDI_TOOLS,
+	collaboration: COLLABORATION_TOOLS,
+	skills: SKILL_WORKFLOW_TOOLS,
+	outputs: SKILL_WORKFLOW_OUTPUT_SCHEMAS,
+} = snapshot as unknown as {
+	full: TediToolSpec[];
+	collaboration: TediToolSpec[];
+	skills: TediToolSpec[];
+	outputs: Record<string, ToolJsonSchema | null>;
+};
 
 export type { AggregateTediEntry } from "./aggregate-tedis-shared";
 
@@ -48,48 +37,6 @@ export function buildTediCodeInvocation(
 			: params;
 	return `async () => await codemode${accessor}(${JSON.stringify(invocationParams)})`;
 }
-
-const FULL_TEDI_TOOLS: TediToolSpec[] = [
-	{
-		name: "conversations_list",
-		remoteName: "conversations_list",
-		description:
-			"List cognitive-runtime conversations, including channel-backed and internal agent sessions.",
-		inputSchema: CONVERSATIONS_LIST_SCHEMA,
-		annotations: READ_ONLY,
-	},
-	{
-		name: "conversation_get",
-		remoteName: "conversation_get",
-		description: "Get one cognitive-runtime conversation by session key.",
-		inputSchema: {
-			type: "object",
-			properties: { session_key: { type: "string" } },
-			required: ["session_key"],
-			additionalProperties: false,
-		},
-		annotations: READ_ONLY,
-	},
-	...COLLABORATION_TOOLS.filter(
-		(tool) => !["ask", "conversations_list"].includes(tool.name),
-	),
-	...SKILL_WORKFLOW_TOOLS,
-	...CAPABILITY_MAP_TOOLS,
-	...GOVERNANCE_TOOLS,
-	...PROJECT_TOOLS,
-	...ROLE_TEMPLATE_TOOLS,
-	...WORKSPACE_TOOLS,
-	...MESSAGING_TOOLS,
-	...COMPUTER_TOOLS,
-	...MEMORY_TOOLS,
-	...BROWSER_TOOLS,
-	...EMAIL_TOOLS,
-	...WORK_ITEM_TOOLS,
-	...HARNESS_TOOLS,
-	...KERNEL_RUNTIME_TOOLS,
-	...RATIONALE_MUSCLE_TOOLS,
-	...PAYMENT_TOOLS,
-];
 
 export function getTediMcpServerUrl(
 	entry: AggregateTediEntry,
