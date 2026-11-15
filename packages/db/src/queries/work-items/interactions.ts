@@ -1,3 +1,4 @@
+import { WorkInteractionConditionSchema } from "@tedix/api-contract/schemas/work-interactions";
 import { buildWorkDecisionContinuationStatement } from "./comments";
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { retireDecisionReviews } from "./decision-review-retirement";
@@ -204,6 +205,28 @@ export async function createWorkInteraction(
 		p.notificationReason === "blocked_approval" ||
 		Boolean(deadline && Date.parse(deadline) - Date.parse(p.now) < 86_400_000);
 	const metadata = { ...p.metadata };
+	if (metadata.resolveWhen !== undefined) {
+		const condition = WorkInteractionConditionSchema.safeParse(
+			metadata.resolveWhen,
+		);
+		if (!condition.success)
+			throw new WorkControlError(
+				"NOT_ELIGIBLE",
+				"Invalid interaction clearing condition",
+			);
+		await requireWorkItem(db, p.orgId, condition.data.workItemId);
+	}
+	if (
+		p.creator.type !== "user" &&
+		typeof metadata.blockerWorkItemId === "string" &&
+		metadata.resolveWhen === undefined
+	) {
+		await requireWorkItem(db, p.orgId, metadata.blockerWorkItemId);
+		metadata.resolveWhen = {
+			kind: "blocker_resolved",
+			workItemId: metadata.blockerWorkItemId,
+		};
+	}
 	delete metadata.notification;
 	delete metadata.followThrough;
 	if (
@@ -395,6 +418,7 @@ export async function createRepositoryCiAlert(
 	);
 	const metadata = JSON.stringify({
 		reason: ciAlertReason,
+		resolveWhen: { kind: "ci_green", workItemId: p.workItemId },
 		notification: {
 			state: urgent ? "immediate" : "deferred",
 			reason: urgent ? "deadline_under_24h" : "quiet_batch",
@@ -474,51 +498,278 @@ export async function refreshRepositoryCiAlerts(
 	db: DbQueryClient,
 	p: RepositoryCiAlertParams & { green: boolean },
 ) {
-	return db
-		.update(workInteractions)
-		.set(
-			p.green
-				? {
-						status: "cancelled" as const,
-						cancelledAt: p.now,
-						resolutionFence: crypto.randomUUID(),
-						version: sql`${workInteractions.version}+1`,
-					}
-				: {
-						metadata: sql`json_set(${workInteractions.metadata}, '$.notification.refreshedAt', ${p.now})`,
-					},
-		)
-		.where(
-			and(
-				eq(workInteractions.orgId, p.orgId),
-				eq(workInteractions.kind, "coordination"),
-				eq(workInteractions.status, "open"),
-				sql`json_extract(${workInteractions.metadata}, '$.reason')=${ciAlertReason}`,
-				eq(workInteractions.creatorType, "tedi"),
-				eq(workInteractions.creatorId, p.ownerTediId),
-				eq(workInteractions.targetType, "user"),
-				eq(workInteractions.targetId, p.escalationUserId),
-				// bound-params: SQL subquery binds a fixed scope, not one parameter per result
-				inArray(
-					workInteractions.workItemId,
-					db
-						.select({ id: workItems.id })
-						.from(workItems)
-						.where(
-							and(
-								eq(workItems.orgId, p.orgId),
-								eq(workItems.projectId, p.projectId),
-								sql`json_extract(${workItems.metadata}, '$.repositoryObserver')=1`,
-								sql`json_extract(${workItems.metadata}, '$.event.kind')='ci_red'`,
-								sql`json_extract(${workItems.metadata}, '$.event.repository')=${p.repository}`,
-								sql`json_extract(${workItems.metadata}, '$.event.branch')=${p.branch}`,
-								sql`json_extract(${workItems.metadata}, '$.event.surface')=${p.surface}`,
-							),
-						),
+	const scope = and(
+		eq(workInteractions.orgId, p.orgId),
+		eq(workInteractions.kind, "coordination"),
+		eq(workInteractions.status, "open"),
+		sql`json_extract(${workInteractions.metadata}, '$.reason')=${ciAlertReason}`,
+		eq(workInteractions.creatorType, "tedi"),
+		eq(workInteractions.creatorId, p.ownerTediId),
+		eq(workInteractions.targetType, "user"),
+		eq(workInteractions.targetId, p.escalationUserId),
+		// bound-params: SQL subquery binds a fixed scope, not one parameter per result
+		inArray(
+			workInteractions.workItemId,
+			db
+				.select({ id: workItems.id })
+				.from(workItems)
+				.where(
+					and(
+						eq(workItems.orgId, p.orgId),
+						eq(workItems.projectId, p.projectId),
+						sql`json_extract(${workItems.metadata}, '$.repositoryObserver')=1`,
+						sql`json_extract(${workItems.metadata}, '$.event.kind')='ci_red'`,
+						sql`json_extract(${workItems.metadata}, '$.event.repository')=${p.repository}`,
+						sql`json_extract(${workItems.metadata}, '$.event.branch')=${p.branch}`,
+						sql`json_extract(${workItems.metadata}, '$.event.surface')=${p.surface}`,
+					),
 				),
+		),
+	);
+	if (!p.green)
+		return db
+			.update(workInteractions)
+			.set({
+				metadata: sql`json_set(${workInteractions.metadata}, '$.notification.refreshedAt', ${p.now})`,
+			})
+			.where(scope)
+			.returning();
+	return closeClearedInteractions(db, scope!, p.now, "CI checks are green.");
+}
+
+function interactionCondition(row: WorkInteraction) {
+	if (row.metadata.resolveWhen !== undefined) return row.metadata.resolveWhen;
+	if (typeof row.metadata.blockerWorkItemId === "string")
+		return {
+			kind: "blocker_resolved",
+			workItemId: row.metadata.blockerWorkItemId,
+		};
+	if (row.kind === "coordination" && row.metadata.reason === ciAlertReason)
+		return { kind: "ci_green", workItemId: row.workItemId };
+	return undefined;
+}
+
+function clearingCondition() {
+	const kind = sql`CASE WHEN json_type(${workInteractions.metadata}, '$.resolveWhen') IS NOT NULL
+		THEN json_extract(${workInteractions.metadata}, '$.resolveWhen.kind')
+		WHEN json_type(${workInteractions.metadata}, '$.blockerWorkItemId')='text' THEN 'blocker_resolved'
+		WHEN ${workInteractions.kind}='coordination' AND json_extract(${workInteractions.metadata}, '$.reason')=${ciAlertReason} THEN 'ci_green' END`;
+	const workId = sql`CASE WHEN json_type(${workInteractions.metadata}, '$.resolveWhen') IS NOT NULL
+		THEN json_extract(${workInteractions.metadata}, '$.resolveWhen.workItemId')
+		WHEN json_type(${workInteractions.metadata}, '$.blockerWorkItemId')='text' THEN json_extract(${workInteractions.metadata}, '$.blockerWorkItemId')
+		ELSE ${workInteractions.workItemId} END`;
+	return sql`EXISTS (SELECT 1 FROM ${workItems} cleared_work
+		WHERE cleared_work.org_id=${workInteractions.orgId} AND cleared_work.id=${workId}
+		AND (
+			(${kind}='blocker_resolved' AND cleared_work.disposition='completed')
+			OR (${kind}='ci_green'
+				AND json_extract(cleared_work.metadata, '$.repositoryObserver')=1
+				AND json_extract(cleared_work.metadata, '$.event.kind')='ci_red'
+				AND json_type(cleared_work.metadata, '$.ciRecoveredAt')='text')
+		))`;
+}
+
+function clearedInteractionStatements(
+	db: DbQueryClient,
+	row: WorkInteraction,
+	note: string,
+	now: string,
+	fence: string,
+) {
+	const receipt = and(
+		eq(workInteractions.orgId, row.orgId),
+		eq(workInteractions.id, row.id),
+		eq(workInteractions.resolutionFence, fence),
+	);
+	return [
+		db.insert(auditEvents).select(
+			db
+				.select({
+					id: sql<string>`${crypto.randomUUID()}`.as("id"),
+					organizationId: sql<string>`${row.orgId}`.as("organizationId"),
+					actorId: sql<string>`'tedix'`.as("actorId"),
+					actorType: sql<string>`'system'`.as("actorType"),
+					action: sql<string>`'work.interaction.condition_cleared'`.as(
+						"action",
+					),
+					resourceType: sql<string>`'work_interaction'`.as("resourceType"),
+					resourceId: workInteractions.id,
+					metadata:
+						sql<string>`${JSON.stringify({ note, condition: interactionCondition(row) ?? null, fence })}`.as(
+							"metadata",
+						),
+					timestamp: sql<Date>`${Math.floor(Date.parse(now) / 1000)}`.as(
+						"timestamp",
+					),
+				})
+				.from(workInteractions)
+				.where(receipt),
+		),
+		...(row.workItemId && row.metadata.schema !== "tedix.decision-capture.v1"
+			? [
+					db.insert(workItemComments).select(
+						db
+							.select({
+								id: sql<string>`${crypto.randomUUID()}`.as("id"),
+								workItemId: workInteractions.workItemId,
+								orgId: workInteractions.orgId,
+								authorType: sql<string>`'system'`.as("authorType"),
+								authorId: sql<string>`'tedix'`.as("authorId"),
+								body: sql<string>`${`Closed request: ${row.subject}. ${note}`}`.as(
+									"body",
+								),
+								metadata:
+									sql<string>`${JSON.stringify({ source: "interaction-condition", requestId: row.id, fence })}`.as(
+										"metadata",
+									),
+								createdAt: sql<string>`${now}`.as("createdAt"),
+							})
+							.from(workInteractions)
+							.where(receipt),
+					),
+				]
+			: []),
+	];
+}
+
+async function closeClearedInteractions(
+	db: DbQueryClient,
+	eligible: SQLWrapper,
+	now: string,
+	note?: string,
+	limit = 50,
+) {
+	const rows = await db
+		.select()
+		.from(workInteractions)
+		.where(sql`${eligible}`)
+		.orderBy(asc(workInteractions.createdAt), asc(workInteractions.id))
+		.limit(limit);
+	const closed: WorkInteraction[] = [];
+	for (const row of rows) {
+		const condition = WorkInteractionConditionSchema.safeParse(
+			interactionCondition(row),
+		);
+		if (!note && !condition.success) continue;
+		const fence = crypto.randomUUID();
+		const [[updated]] = await db.batch([
+			db
+				.update(workInteractions)
+				.set({
+					status: "cancelled",
+					cancelledAt: now,
+					resolutionFence: fence,
+					version: sql`${workInteractions.version}+1`,
+				})
+				.where(
+					and(
+						sql`${eligible}`,
+						eq(workInteractions.orgId, row.orgId),
+						eq(workInteractions.id, row.id),
+						eq(workInteractions.version, row.version),
+					),
+				)
+				.returning(),
+			...clearedInteractionStatements(
+				db,
+				row,
+				note ??
+					(condition.success && condition.data.kind === "ci_green"
+						? "CI checks are green."
+						: "The blocker Work is completed."),
+				now,
+				fence,
 			),
-		)
-		.returning();
+		]);
+		if (!updated) continue;
+		await retireDecisionReviews(db, {
+			orgId: row.orgId,
+			originalId: row.id,
+			now,
+		});
+		closed.push(updated);
+	}
+	return closed;
+}
+
+/** Recheck canonical, tenant-scoped facts; never answer on a person's behalf. */
+export async function reconcileWorkInteractionConditions(
+	db: DbQueryClient,
+	p: {
+		orgId?: string;
+		targetType?: WorkInteractionTargetType;
+		targetId?: string;
+		now: string;
+		limit: number;
+	},
+): Promise<{ closed: number }> {
+	const limit = Math.min(50, Math.max(0, p.limit));
+	if (!limit) return { closed: 0 };
+	if (!p.orgId) {
+		const scheduleId = "work-interaction-conditions:v1";
+		const [previous] = await db
+			.select()
+			.from(platformCronCheckpoints)
+			.where(eq(platformCronCheckpoints.scheduleId, scheduleId))
+			.limit(1);
+		if (previous && previous.through >= p.now) return { closed: 0 };
+		// Rotate tenant ranges so maintenance never scans global interaction history.
+		let orgs = await db
+			.select({ id: organizations.id })
+			.from(organizations)
+			.where(sql`${organizations.id}>${previous?.cursor?.key ?? ""}`)
+			.orderBy(asc(organizations.id))
+			.limit(10);
+		if (!orgs.length && previous?.cursor?.key)
+			orgs = await db
+				.select({ id: organizations.id })
+				.from(organizations)
+				.orderBy(asc(organizations.id))
+				.limit(10);
+		if (!orgs.length) return { closed: 0 };
+		let closed = 0;
+		let lastOrg = previous?.cursor?.key ?? "";
+		for (const org of orgs) {
+			if (closed >= limit) break;
+			const result = await reconcileWorkInteractionConditions(db, {
+				...p,
+				orgId: org.id,
+				limit: limit - closed,
+			});
+			closed += result.closed;
+			lastOrg = org.id;
+		}
+		const cursor = {
+			changedAt: p.now,
+			key: lastOrg,
+			tediId: crypto.randomUUID(),
+		};
+		await db
+			.insert(platformCronCheckpoints)
+			.values({ scheduleId, through: p.now, cursor })
+			.onConflictDoUpdate({
+				target: platformCronCheckpoints.scheduleId,
+				set: { through: p.now, cursor },
+				setWhere: sql`${platformCronCheckpoints.through}<${p.now}`,
+			});
+		return { closed };
+	}
+	const eligible = and(
+		eq(workInteractions.orgId, p.orgId),
+		p.targetType ? eq(workInteractions.targetType, p.targetType) : undefined,
+		p.targetId ? eq(workInteractions.targetId, p.targetId) : undefined,
+		eq(workInteractions.status, "open"),
+		inArray(workInteractions.creatorType, ["system", "tedi", "external_agent"]),
+		clearingCondition(),
+	);
+	const rows = await closeClearedInteractions(
+		db,
+		eligible!,
+		p.now,
+		undefined,
+		limit,
+	);
+	return { closed: rows.length };
 }
 
 export interface RespondWorkInteractionParams {

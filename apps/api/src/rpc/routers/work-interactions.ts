@@ -64,6 +64,7 @@ import {
 	getWorkInteractionAttention,
 	listLastRelatedDecisions,
 	listWorkInteractionInbox,
+	reconcileWorkInteractionConditions,
 	listWorkInteractionResponses,
 	respondToWorkInteraction,
 	sweepSupersededSupportDraftInteractions,
@@ -1333,6 +1334,13 @@ const listInboxProcedure = readOs.listInbox.handler(
 		const orgId = requireOrgId(context);
 		const caller = await verifiedActiveWorkActor(context, orgId);
 		const observedAt = new Date().toISOString();
+		await reconcileWorkInteractionConditions(context.db, {
+			orgId,
+			targetType: caller.type,
+			targetId: caller.id,
+			now: observedAt,
+			limit: 25,
+		});
 		const page = await listWorkInteractionInbox(context.db, {
 			orgId,
 			states: input.states,

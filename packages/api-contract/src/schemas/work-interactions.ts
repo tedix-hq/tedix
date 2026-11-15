@@ -132,8 +132,13 @@ export const DelegateWorkInteractionToStewardInputSchema = z.strictObject({
 		.describe("Why the person hands the ask over, e.g. its priority reason."),
 });
 
+export const WorkInteractionConditionSchema = z.discriminatedUnion("kind", [
+	z.strictObject({ kind: z.literal("blocker_resolved"), workItemId: z.uuid() }),
+	z.strictObject({ kind: z.literal("ci_green"), workItemId: z.uuid() }),
+]);
+
 const metadataSchema = BoundedJsonObjectSchema.describe(
-	"Decision facts must include decisionSources (or decisionDeck.sources): 1-10 observed versions. Work: {kind:'work',id,version,commentCount}; email: {kind:'email_thread',id,tediId,updatedAt,lastMessageAt,messageCount}; output: {kind:'output',id,revisionId}. Read every cited source first. Changed, missing or unsupported sources withhold the card and block its answer. One-way decisions and decisions involving data, money or messages require sources. Refresh the facts and create a new card when a source changes.",
+	"Machine asks may declare metadata.resolveWhen as {kind: 'blocker_resolved' | 'ci_green', workItemId}: a completed blocker Work or a recovered repository CI observation closes the ask with a note. Human-created asks are never closed by this condition. Decision facts must include decisionSources (or decisionDeck.sources): 1-10 observed versions. Work: {kind:'work',id,version,commentCount}; email: {kind:'email_thread',id,tediId,updatedAt,lastMessageAt,messageCount}; output: {kind:'output',id,revisionId}. Read every cited source first. Changed, missing or unsupported sources withhold the card and block its answer. One-way decisions and decisions involving data, money or messages require sources. Refresh the facts and create a new card when a source changes.",
 );
 
 export const SnoozeWorkInteractionInputSchema = z.strictObject({

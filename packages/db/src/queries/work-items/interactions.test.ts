@@ -32,6 +32,7 @@ import {
 	createWorkInteraction,
 	createRepositoryCiAlert,
 	refreshRepositoryCiAlerts,
+	reconcileWorkInteractionConditions,
 	delegateWorkInteraction,
 	listLastRelatedDecisions,
 	listWorkInteractionInbox,
@@ -1740,4 +1741,498 @@ it("atomically reuses an equivalent open ask without merging different evidence,
 	expect(
 		await createWorkInteraction(db, { ...input, id: "new-ask" }),
 	).toMatchObject({ id: "new-ask", status: "open" });
+});
+
+describe("structured interaction clearing conditions", () => {
+	const blockerId = "00000000-0000-4000-8000-000000000001";
+	function clearingFixture(kind = "blocker_resolved") {
+		const { sqlite, db } = fixture();
+		sqlite.exec(
+			"INSERT INTO organizations (id,name,slug) VALUES ('other','Other','other')",
+		);
+		sqlite.exec(
+			schemaDdl(
+				organizationMembers,
+				policyPacks,
+				runtimeProfiles,
+				workspaceTemplateSets,
+				tedis,
+				workInteractionCardRevisions,
+			),
+		);
+		sqlite
+			.prepare(
+				"INSERT INTO work_items (id,org_id,title,created_at) VALUES (?,'org','Blocker',?)",
+			)
+			.run(blockerId, NOW);
+		const insert = sqlite.prepare(`INSERT INTO work_interactions
+			(id,org_id,work_item_id,kind,subject,prompt,creator_type,creator_id,target_type,target_id,created_at,metadata)
+			VALUES (?,'org','work','question','Restore access','Probe the connection',?,'author','user','human',?,?)`);
+		for (const creator of ["system", "tedi", "external_agent", "user"])
+			insert.run(
+				creator,
+				creator,
+				NOW,
+				JSON.stringify({ resolveWhen: { kind, workItemId: blockerId } }),
+			);
+		return { sqlite, db };
+	}
+
+	it("closes machine asks only when the blocker is completed, with one note and receipt each", async () => {
+		const { sqlite, db } = clearingFixture();
+		armInteractionGuards(sqlite);
+		expect(
+			await reconcileWorkInteractionConditions(db, {
+				orgId: "org",
+				now: NOW,
+				limit: 25,
+			}),
+		).toEqual({ closed: 0 });
+		sqlite
+			.prepare("UPDATE work_items SET disposition='completed' WHERE id=?")
+			.run(blockerId);
+		expect(
+			await reconcileWorkInteractionConditions(db, {
+				orgId: "other",
+				now: NOW,
+				limit: 25,
+			}),
+		).toEqual({ closed: 0 });
+		expect(
+			await reconcileWorkInteractionConditions(db, {
+				orgId: "org",
+				targetId: "other",
+				now: NOW,
+				limit: 25,
+			}),
+		).toEqual({ closed: 0 });
+		expect(
+			await reconcileWorkInteractionConditions(db, {
+				orgId: "org",
+				targetType: "tedi",
+				targetId: "human",
+				now: NOW,
+				limit: 25,
+			}),
+		).toEqual({ closed: 0 });
+		expect(
+			await reconcileWorkInteractionConditions(db, {
+				orgId: "org",
+				targetType: "user",
+				targetId: "human",
+				now: NOW,
+				limit: 2,
+			}),
+		).toEqual({ closed: 2 });
+		expect(
+			await reconcileWorkInteractionConditions(db, {
+				orgId: "org",
+				now: NOW,
+				limit: 25,
+			}),
+		).toEqual({ closed: 1 });
+		expect(
+			await reconcileWorkInteractionConditions(db, {
+				orgId: "org",
+				now: NOW,
+				limit: 25,
+			}),
+		).toEqual({ closed: 0 });
+		expect(
+			sqlite
+				.prepare("SELECT status,version FROM work_interactions WHERE id='user'")
+				.get(),
+		).toMatchObject({ status: "open", version: 1 });
+		expect(
+			sqlite
+				.prepare(
+					"SELECT count(*) n FROM work_item_comments WHERE body LIKE '%blocker Work is completed%'",
+				)
+				.get()?.n,
+		).toBe(3);
+		expect(
+			sqlite
+				.prepare(
+					"SELECT count(*) n FROM audit_events WHERE action='work.interaction.condition_cleared'",
+				)
+				.get()?.n,
+		).toBe(3);
+		expect(
+			sqlite.prepare("SELECT count(*) n FROM work_interaction_responses").get()
+				?.n,
+		).toBe(0);
+		sqlite.close();
+	});
+
+	it("requires CI recovery evidence rather than Work completion", async () => {
+		const { sqlite, db } = clearingFixture("ci_green");
+		sqlite
+			.prepare(
+				"UPDATE work_items SET disposition='completed',metadata=? WHERE id=?",
+			)
+			.run(
+				JSON.stringify({ repositoryObserver: 1, event: { kind: "ci_red" } }),
+				blockerId,
+			);
+		armInteractionGuards(sqlite);
+		expect(
+			await reconcileWorkInteractionConditions(db, {
+				orgId: "org",
+				now: NOW,
+				limit: 25,
+			}),
+		).toEqual({ closed: 0 });
+		sqlite.prepare("UPDATE work_items SET metadata=? WHERE id=?").run(
+			JSON.stringify({
+				repositoryObserver: 1,
+				event: { kind: "ci_red" },
+				ciRecoveredAt: NOW,
+			}),
+			blockerId,
+		);
+		expect(
+			await reconcileWorkInteractionConditions(db, {
+				orgId: "org",
+				now: NOW,
+				limit: 25,
+			}),
+		).toEqual({ closed: 3 });
+		expect(
+			sqlite
+				.prepare(
+					"SELECT count(*) n FROM work_item_comments WHERE body LIKE '%CI checks are green%'",
+				)
+				.get()?.n,
+		).toBe(3);
+		expect(
+			sqlite
+				.prepare("SELECT status FROM work_interactions WHERE id='user'")
+				.get()?.status,
+		).toBe("open");
+		sqlite.close();
+	});
+
+	it("keeps missing, cancelled and cross-tenant blockers unresolved", async () => {
+		const { sqlite, db } = clearingFixture();
+		armInteractionGuards(sqlite);
+		sqlite
+			.prepare("UPDATE work_items SET disposition='cancelled' WHERE id=?")
+			.run(blockerId);
+		expect(
+			await reconcileWorkInteractionConditions(db, {
+				orgId: "org",
+				now: NOW,
+				limit: 25,
+			}),
+		).toEqual({ closed: 0 });
+		sqlite
+			.prepare(
+				"UPDATE work_items SET org_id='other',disposition='completed' WHERE id=?",
+			)
+			.run(blockerId);
+		expect(
+			await reconcileWorkInteractionConditions(db, {
+				orgId: "org",
+				now: NOW,
+				limit: 25,
+			}),
+		).toEqual({ closed: 0 });
+		sqlite.prepare("DELETE FROM work_items WHERE id=?").run(blockerId);
+		expect(
+			await reconcileWorkInteractionConditions(db, {
+				orgId: "org",
+				now: NOW,
+				limit: 25,
+			}),
+		).toEqual({ closed: 0 });
+		sqlite.close();
+	});
+});
+
+it("rolls back automatic closure when its note cannot be recorded", async () => {
+	const { sqlite, db } = fixture();
+	sqlite.exec(
+		"INSERT INTO organizations (id,name,slug) VALUES ('other','Other','other')",
+	);
+	sqlite.exec(
+		schemaDdl(
+			organizationMembers,
+			policyPacks,
+			runtimeProfiles,
+			workspaceTemplateSets,
+			tedis,
+			workInteractionCardRevisions,
+		),
+	);
+	const blockerId = "00000000-0000-4000-8000-000000000002";
+	sqlite
+		.prepare(
+			"INSERT INTO work_items (id,org_id,title,disposition,created_at) VALUES (?,'org','Probe','completed',?)",
+		)
+		.run(blockerId, NOW);
+	sqlite
+		.prepare("UPDATE work_interactions SET metadata=? WHERE id='untargeted'")
+		.run(
+			JSON.stringify({
+				resolveWhen: { kind: "blocker_resolved", workItemId: blockerId },
+			}),
+		);
+	sqlite.exec(
+		"CREATE TRIGGER reject_closure_note BEFORE INSERT ON audit_events BEGIN SELECT RAISE(ABORT,'note unavailable'); END",
+	);
+	armInteractionGuards(sqlite);
+	await expect(
+		reconcileWorkInteractionConditions(db, {
+			orgId: "org",
+			now: NOW,
+			limit: 25,
+		}),
+	).rejects.toThrow();
+	expect(
+		sqlite
+			.prepare(
+				"SELECT status,version FROM work_interactions WHERE id='untargeted'",
+			)
+			.get(),
+	).toMatchObject({ status: "open", version: 1 });
+	expect(
+		sqlite.prepare("SELECT count(*) n FROM work_item_comments").get()?.n,
+	).toBe(0);
+	sqlite.close();
+});
+
+it("attaches a condition to a machine blocker ask and rejects foreign conditions", async () => {
+	const { db, sqlite } = fixture();
+	sqlite.exec(
+		"INSERT INTO organizations (id,name,slug) VALUES ('other','Other','other')",
+	);
+	sqlite.exec(
+		schemaDdl(tedis, policyPacks, runtimeProfiles, workspaceTemplateSets),
+	);
+	sqlite.exec(
+		"INSERT INTO tedis (id,organization_id,name,slug,status) VALUES ('worker','org','Worker','worker','active')",
+	);
+	const blockerId = "00000000-0000-4000-8000-000000000003";
+	sqlite
+		.prepare(
+			"INSERT INTO work_items (id,org_id,title,created_at) VALUES (?,'org','Access probe',?)",
+		)
+		.run(blockerId, NOW);
+	const input = {
+		id: "blocker-ask",
+		orgId: "org",
+		workItemId: "work",
+		kind: "question" as const,
+		subject: "Inspect access?",
+		prompt: "Complete the access probe Work.",
+		creator: { type: "tedi" as const, id: "worker" },
+		targetType: "tedi" as const,
+		targetId: "worker",
+		now: NOW,
+		metadata: { blockerWorkItemId: blockerId },
+	};
+	expect(await createWorkInteraction(db, input)).toMatchObject({
+		metadata: {
+			resolveWhen: { kind: "blocker_resolved", workItemId: blockerId },
+		},
+	});
+	await expect(
+		createWorkInteraction(db, {
+			...input,
+			id: "malformed",
+			metadata: { resolveWhen: { kind: "ci_green", workItemId: "missing" } },
+		}),
+	).rejects.toThrow("Invalid interaction clearing condition");
+	sqlite
+		.prepare("UPDATE work_items SET org_id='other' WHERE id=?")
+		.run(blockerId);
+	await expect(
+		createWorkInteraction(db, { ...input, id: "foreign" }),
+	).rejects.toThrow();
+	sqlite.close();
+});
+
+it.each(["blocker_resolved", "ci_green"])(
+	"reconciles legacy machine asks from their structured %s source",
+	async (kind) => {
+		const { db, sqlite } = fixture();
+		sqlite.exec(
+			schemaDdl(
+				organizationMembers,
+				policyPacks,
+				runtimeProfiles,
+				workspaceTemplateSets,
+				tedis,
+				workInteractionCardRevisions,
+			),
+		);
+		const id = "00000000-0000-4000-8000-000000000004";
+		sqlite
+			.prepare(
+				"INSERT INTO work_items (id,org_id,title,disposition,created_at,metadata) VALUES (?,'org','Recovered','completed',?,?)",
+			)
+			.run(
+				id,
+				NOW,
+				JSON.stringify({
+					repositoryObserver: 1,
+					event: { kind: "ci_red" },
+					ciRecoveredAt: NOW,
+				}),
+			);
+		const meta =
+			kind === "ci_green"
+				? { reason: "Failing checks need a decision after diagnosis" }
+				: { blockerWorkItemId: id };
+		const insert = sqlite.prepare(
+			"INSERT INTO work_interactions (id,org_id,work_item_id,kind,subject,prompt,creator_type,creator_id,target_type,target_id,created_at,metadata) VALUES (?,'org',?,'coordination','Recovered source','Details',?,'author','user','human',?,?)",
+		);
+		insert.run("legacy-machine", id, "system", NOW, JSON.stringify(meta));
+		insert.run("legacy-human", id, "user", NOW, JSON.stringify(meta));
+		armInteractionGuards(sqlite);
+		expect(
+			await reconcileWorkInteractionConditions(db, {
+				orgId: "org",
+				now: NOW,
+				limit: 25,
+			}),
+		).toEqual({ closed: 1 });
+		expect(
+			sqlite
+				.prepare("SELECT status FROM work_interactions WHERE id='legacy-human'")
+				.get()?.status,
+		).toBe("open");
+		expect(
+			sqlite.prepare("SELECT body FROM work_item_comments").get()?.body,
+		).toContain(
+			kind === "ci_green" ? "CI checks are green" : "blocker Work is completed",
+		);
+		sqlite.close();
+	},
+);
+
+it("keeps captured ask subjects out of shared Work closure comments", async () => {
+	const { db, sqlite } = fixture();
+	sqlite.exec(
+		schemaDdl(
+			organizationMembers,
+			policyPacks,
+			runtimeProfiles,
+			workspaceTemplateSets,
+			tedis,
+			workInteractionCardRevisions,
+		),
+	);
+	const id = "00000000-0000-4000-8000-000000000005";
+	sqlite
+		.prepare(
+			"INSERT INTO work_items (id,org_id,title,disposition,created_at) VALUES (?,'org','Blocker','completed',?)",
+		)
+		.run(id, NOW);
+	sqlite
+		.prepare(
+			"UPDATE work_interactions SET subject='Private captured question',metadata=? WHERE id='untargeted'",
+		)
+		.run(
+			JSON.stringify({
+				schema: "tedix.decision-capture.v1",
+				resolveWhen: { kind: "blocker_resolved", workItemId: id },
+			}),
+		);
+	armInteractionGuards(sqlite);
+	expect(
+		await reconcileWorkInteractionConditions(db, {
+			orgId: "org",
+			now: NOW,
+			limit: 25,
+		}),
+	).toEqual({ closed: 1 });
+	expect(
+		sqlite.prepare("SELECT count(*) n FROM work_item_comments").get()?.n,
+	).toBe(0);
+	expect(
+		sqlite
+			.prepare(
+				"SELECT metadata FROM audit_events WHERE action='work.interaction.condition_cleared'",
+			)
+			.get()?.metadata,
+	).toContain("blocker Work is completed");
+	sqlite.close();
+});
+
+it("rotates bounded organization pages and resumes after wrapping", async () => {
+	const { db, sqlite } = fixture();
+	sqlite.exec(
+		schemaDdl(
+			organizationMembers,
+			policyPacks,
+			runtimeProfiles,
+			workspaceTemplateSets,
+			tedis,
+			workInteractionCardRevisions,
+		),
+	);
+	const insert = sqlite.prepare(
+		"INSERT INTO work_interactions (id,org_id,work_item_id,kind,subject,prompt,creator_type,creator_id,created_at,metadata) VALUES (?,?,?,'question','Blocker cleared','Check Work','system','tedix',?,?)",
+	);
+	const workIds: string[] = [];
+	for (let i = 0; i < 12; i++) {
+		const org = `a${String(i).padStart(2, "0")}`;
+		const work = `00000000-0000-4000-8000-${String(i + 100).padStart(12, "0")}`;
+		workIds.push(work);
+		sqlite
+			.prepare("INSERT INTO organizations (id,name,slug) VALUES (?,?,?)")
+			.run(org, org, org);
+		sqlite
+			.prepare(
+				"INSERT INTO work_items (id,org_id,title,disposition,created_at) VALUES (?,?,'Blocker','completed',?)",
+			)
+			.run(work, org, NOW);
+		insert.run(
+			`paged-${org}`,
+			org,
+			work,
+			NOW,
+			JSON.stringify({
+				resolveWhen: { kind: "blocker_resolved", workItemId: work },
+			}),
+		);
+	}
+	armInteractionGuards(sqlite);
+	expect(
+		await reconcileWorkInteractionConditions(db, { now: NOW, limit: 50 }),
+	).toEqual({ closed: 10 });
+	expect(
+		await reconcileWorkInteractionConditions(db, { now: NOW, limit: 50 }),
+	).toEqual({ closed: 0 });
+	const firstWork = workIds[0]!;
+	insert.run(
+		"paged-extra",
+		"a00",
+		firstWork,
+		NOW,
+		JSON.stringify({
+			resolveWhen: { kind: "blocker_resolved", workItemId: firstWork },
+		}),
+	);
+	expect(
+		await reconcileWorkInteractionConditions(db, {
+			now: "2026-08-21T12:02:00.000Z",
+			limit: 50,
+		}),
+	).toEqual({ closed: 2 });
+	expect(
+		await reconcileWorkInteractionConditions(db, {
+			now: "2026-08-21T12:04:00.000Z",
+			limit: 50,
+		}),
+	).toEqual({ closed: 1 });
+	expect(
+		sqlite
+			.prepare(
+				"SELECT count(*) n FROM work_interactions WHERE id LIKE 'paged-%' AND status='cancelled'",
+			)
+			.get()?.n,
+	).toBe(13);
+	sqlite.close();
 });
