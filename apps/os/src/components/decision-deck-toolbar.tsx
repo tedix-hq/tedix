@@ -3,8 +3,8 @@ import {
 	DecisionFilterChip,
 } from "./decision-context-rail";
 import { CardSourceFilter } from "./card-source-filter";
-import { Button } from "./kumo/button";
 import { Input } from "./kumo/input";
+import { SegmentedControl } from "./kumo/segmented-control";
 import { DECK_ASK_KINDS } from "@tedix/api-contract/utils/deck-ask";
 import { cardSourceOptions } from "@/lib/card-source-filter";
 import { OS_COPY, decisionText } from "@/shared/os-copy";
@@ -60,36 +60,30 @@ export function DecisionDeckToolbar({
 		<DecisionContextToolbar
 			children={
 				<>
-					<div
-						className="fd-deck-toolbar min-w-0"
-						data-focus-ring="inset"
-						aria-label={decisionText("Decisions view")}
-					>
-						{[
+					<SegmentedControl
+						ariaLabel={decisionText("Decisions view")}
+						value={mode}
+						onValueChange={(value) => {
+							setMode(value);
+							setIndex(0);
+						}}
+						options={[
 							"decide",
 							"waiting",
 							"history",
 							...(config.examples.length ? ["practice"] : []),
-						].map((value) => (
-							<Button
-								key={value}
-								aria-pressed={mode === value}
-								variant="ghost"
-								onClick={() => {
-									setMode(value);
-									setIndex(0);
-								}}
-							>
-								{value === "decide"
+						].map((value) => ({
+							value,
+							label:
+								value === "decide"
 									? decisionText("For you")
 									: value === "waiting"
 										? decisionText("Everything waiting")
 										: value === "history"
 											? decisionText("What you decided")
-											: decisionText("Try examples")}
-							</Button>
-						))}
-					</div>
+											: decisionText("Try examples"),
+						}))}
+					/>
 					{priorityControls}
 				</>
 			}

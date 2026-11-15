@@ -15,6 +15,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import { CodeBlock } from "@/components/kumo/code";
+import { SegmentedControl } from "@/components/kumo/segmented-control";
 import { Surface } from "@/components/kumo/surface";
 import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
@@ -55,6 +56,24 @@ export function ApprovalManifestActions({
 					request.status === "pending" &&
 					!request.review.timeout.expired &&
 					Date.parse(request.expiresAt) > Date.now();
+				const decidable =
+					!disabled &&
+					pending &&
+					request.review.decisionMode === "approve_or_reject";
+				const choice = decisions[request.id] ?? "pending";
+				const choices = [
+					{ value: "pending" as const, label: "Keep pending", disabled },
+					{
+						value: "approve" as const,
+						label: "Choose approval",
+						disabled: !decidable || blocked,
+					},
+					{
+						value: "veto" as const,
+						label: "Choose veto",
+						disabled: !decidable,
+					},
+				];
 				return (
 					<Surface
 						key={request.id}
@@ -150,43 +169,31 @@ export function ApprovalManifestActions({
 						) : null}
 						<ApprovalProvenanceDisclosure approvalRequestId={request.id} />
 						<MachineApprovalReview payload={request.payload} />
-						<div
-							className="flex flex-wrap gap-2"
-							role="group"
-							aria-label={`Decision for ${request.description}`}
-						>
-							<Button
-								variant="outline"
-								aria-pressed={!decisions[request.id]}
-								disabled={disabled}
-								onClick={() => onDecision(request.id, undefined)}
-							>
-								Keep pending
-							</Button>
-							<Button
-								aria-pressed={decisions[request.id] === "approve"}
-								disabled={
-									disabled ||
-									!pending ||
-									blocked ||
-									request.review.decisionMode !== "approve_or_reject"
+						<div className="flex min-w-0 flex-wrap items-center gap-2">
+							<SegmentedControl
+								ariaLabel={`Decision for ${request.description}`}
+								value={choice}
+								onValueChange={(value) =>
+									onDecision(
+										request.id,
+										value === "pending" ? undefined : value,
+									)
 								}
-								onClick={() => onDecision(request.id, "approve")}
-							>
-								Choose approval
-							</Button>
-							<Button
-								variant="destructive"
-								aria-pressed={decisions[request.id] === "veto"}
-								disabled={
-									disabled ||
-									!pending ||
-									request.review.decisionMode !== "approve_or_reject"
-								}
-								onClick={() => onDecision(request.id, "veto")}
-							>
-								Choose veto
-							</Button>
+								options={choices.filter((option) => !option.disabled)}
+							/>
+							{/* The shared control has no disabled segments; an unavailable choice stays visible as a disabled button. */}
+							{choices
+								.filter((option) => option.disabled)
+								.map((option) => (
+									<Button
+										key={option.value}
+										variant="outline"
+										disabled
+										aria-pressed={choice === option.value}
+									>
+										{option.label}
+									</Button>
+								))}
 						</div>
 					</Surface>
 				);

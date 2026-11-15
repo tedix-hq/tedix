@@ -99,9 +99,6 @@
 .fd-deck > * {
 	grid-column: 1 / -1;
 }
-.fd-deck > .fd-deck-toolbar {
-	grid-column: 1;
-}
 .fd-deck > .fd-deck-filters {
 	grid-column: 2;
 	justify-self: end;
@@ -109,29 +106,6 @@
 .fd-deck > .fd-deck-filters:has([aria-expanded="true"]) {
 	grid-column: 1 / -1;
 	justify-self: stretch;
-}
-.fd-deck-toolbar {
-	display: flex;
-	flex-wrap: nowrap;
-	overflow-x: auto;
-	gap: 0.5rem;
-	align-items: center;
-}
-.fd-deck-toolbar button {
-	border: 0;
-	border-radius: 2rem;
-	box-shadow: none;
-	padding-inline: 0.85rem;
-	background: transparent;
-	color: var(--fd-muted);
-	font-size: 0.75rem !important;
-	white-space: nowrap;
-}
-.fd-deck-toolbar button[aria-pressed="true"] {
-	background: transparent;
-	color: var(--fd-ink) !important;
-	text-decoration: underline;
-	text-underline-offset: 0.5rem;
 }
 .fd-disclosure {
 	color: var(--fd-muted);
