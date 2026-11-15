@@ -174,7 +174,10 @@ it("ages fleet observations locally and marks elapsed leases without claiming he
 	expect(host.textContent).toContain(
 		"Lease elapsed · current activity unknown",
 	);
-	expect(host.textContent).toContain("More active attempts in Work");
+	const more = [...host.querySelectorAll("a")].find(
+		(link) => link.textContent === "More active attempts in Work",
+	);
+	expect(more?.getAttribute("href")).toBe("/work?view=feed&filter=queue");
 	await flush(75_010);
 	expect(host.textContent).toContain("Runners up: unknown");
 	expect(host.textContent).toContain("1 stale report");

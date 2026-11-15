@@ -1,9 +1,3 @@
-export function workQueueSearch(search: Record<string, unknown>): {
-	disposition?: "completed";
-} {
-	return search.disposition === "completed" ? { disposition: "completed" } : {};
-}
-
 export function workCapacitySearch(search: Record<string, unknown>) {
 	const resourceKey =
 		typeof search.resourceKey === "string" &&
