@@ -600,6 +600,7 @@ describe("Work interaction canonical actor projections", () => {
 				.run(JSON.stringify({ executor }), WORK_ITEM_ID);
 			const metadata = {
 				source: "lane-dispatch-blocker",
+				decisionClass: "lane-delegation",
 				laneBlocker: { kind: "owner_delegation", executor, workVersion: 1 },
 			};
 			const created = await owner.create({
@@ -611,6 +612,7 @@ describe("Work interaction canonical actor projections", () => {
 				requestedFrom: { type: "user", id: "owner-id" },
 				metadata,
 			});
+			expect(created.expiresAt).toBeNull();
 			expect(created).toMatchObject({
 				creatorType: "user",
 				creatorId: "owner-id",

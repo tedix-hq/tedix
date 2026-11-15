@@ -430,6 +430,7 @@ const createProcedure = writeOs.create.handler(async ({ input, context }) => {
 		input.metadata?.decisionDeck,
 	).data;
 	const expiresAt =
+		input.metadata?.source !== LANE_DELEGATION_SOURCE &&
 		target.type === "user" &&
 		(decision !== undefined ||
 			typeof input.metadata?.decisionClass === "string")
