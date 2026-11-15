@@ -262,6 +262,28 @@ const statusText = (root: HTMLElement) =>
 	root.querySelector(".doc-status")!.textContent;
 
 describe("portable rich Doc client", () => {
+	it.each(["owner", "view"])(
+		"leaves file-only outputs to the host preview for %s access",
+		async (role) => {
+			const test = fixture(role);
+			const content: DocumentContent = { kind: "document", blocks: [], file };
+			test.content(content);
+			const { root, mounted } = await test.mount();
+			expect(mounted.editor).toBeUndefined();
+			expect(mounted.dirty).toBe(false);
+			expect(root.querySelector<HTMLElement>(".doc-toolbar")!.hidden).toBe(
+				true,
+			);
+			expect(root.querySelector<HTMLElement>(".doc-page")!.hidden).toBe(true);
+			expect(statusText(root)).toBe("");
+			expect(find(root, "Try again")).toBeUndefined();
+			expect(test.calls.mock.calls.map(([method]) => method)).toEqual([
+				"context",
+				"outputs.readRevision",
+			]);
+			expect(test.persisted()).toEqual(content);
+		},
+	);
 	it("names the writing surface and keeps one toolbar row with the rest in a menu", async () => {
 		const test = fixture();
 		const { root, editor } = await test.mount();
