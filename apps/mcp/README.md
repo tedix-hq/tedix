@@ -24,6 +24,10 @@ Operating rules for changes in this directory: [`AGENTS.md`](./AGENTS.md).
 | Code execution, authorization, payments and read receipts      | `src/mcp/codemode.ts`         | `mcp/codemode-telemetry.test.ts`, `mcp/codemode-auth.test.ts`, `mcp/codemode-payment-input.test.ts`, `mcp/codemode-isolation.workerd.test.ts`          |
 | UI catalog, layout inference, health sweeps and transient HTML | `src/mcp/codemode-ui.ts`      | `mcp/codemode-ui.test.ts`                                                                                                                              |
 
+`bun run test:memory` checks cold Code Mode construction in an isolated Worker
+with a 128 MB V8 old-space budget, 5,791 retained fictional schemas and 20,422
+compact tools. It denies outbound traffic and releases the Worker on exit.
+
 The gateway runs bounded stateless programs; the persistent turn loop belongs
 in `apps/tedi-runtime`. Browser and memory operations are configured provider
 tools dispatched through `src/mcp/tool-execution.ts` and `src/mcp/handler.ts`.

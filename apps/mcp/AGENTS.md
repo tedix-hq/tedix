@@ -29,6 +29,9 @@ handler closures capture per-request `ServerContext` (fresh caller identity).
 
 Code Mode defers discovery catalog construction until a `discover.*` call and
 projects inline schemas only when needed. Connect always reads compact shards.
+Shard-backed servers release full-schema L1 caches from earlier gateway calls
+before copying their compact catalog and importing Code Mode. Durable snapshots
+remain available to later gateway requests.
 Calls and schema-bearing discovery pages fetch individual source definitions;
 schema pages contain at most five tools. Missing indexes rebuild serially in
 `waitUntil` from schema-free D1 projections; requests return a retryable error

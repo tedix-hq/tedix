@@ -29,6 +29,7 @@ import { resolvedMcpServerInfo } from "../json-rpc-envelope";
 import type { McpResultCacheHint } from "@tedix/mcp-shared/transport";
 import { createMcpLogger } from "../log";
 import { type ApiClient, getApiClient } from "../lib/api-client";
+import { releaseAggregateSchemaCaches } from "../aggregate-surface-cache";
 import { setBoundedCacheEntry } from "../lib/bounded-cache";
 import { JOINED_LOAD_BUDGET_MS, joinInFlightLoad } from "../lib/step-budget";
 import { withUpstreamRetry } from "../upstream";
@@ -933,6 +934,9 @@ export async function buildMcpServer(
 	loadDiscoveryTool?: ServerContext["loadDiscoveryTool"],
 ): Promise<McpServer> {
 	const startTime = Date.now();
+	// Full schemas from earlier gateway calls can exhaust the isolate while
+	// importing Code Mode beside this request's compact catalog.
+	if (loadDiscoveryTool) releaseAggregateSchemaCaches();
 
 	// Create org-scoped API client for skill fetching
 	const orgApiClient = getApiClient({
@@ -1056,8 +1060,7 @@ export async function buildMcpServer(
 	let codeModeActive = false;
 
 	if (codeModeRequested && !skipCodeMode) {
-		// Dynamic import: @cloudflare/codemode depends on zod-to-ts → TypeScript compiler
-		// which uses __filename (unavailable in Workers). Only load when actually needed.
+		// Compact handshakes and direct native calls do not need this execution graph.
 		const { registerCodeModeTools } = await import("./codemode");
 		codeModeActive = await registerCodeModeTools(server, serverCtx);
 	}
