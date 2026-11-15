@@ -921,9 +921,14 @@ export const dispatcherHealthQueryOptions = () =>
 /** Polled every 10s: the board is a glance surface for live local sessions. */
 export const WORK_AGENT_SESSIONS_REFETCH_MS = 10_000;
 
-export const officeOperationsQueryOptions = (limit = 50) =>
-	osQuery.workAgentSessions.listOperations.queryOptions({
-		input: { limit },
+type OfficeCursor = { at: string; id: string } | undefined;
+
+/** Pages back through the retained 24 hours with the server's cursor. */
+export const officeOperationsQueryOptions = () =>
+	osQuery.workAgentSessions.listOperations.infiniteOptions({
+		input: (before: OfficeCursor) => ({ limit: 100, before }),
+		initialPageParam: undefined as OfficeCursor,
+		getNextPageParam: (page) => page.nextBefore ?? undefined,
 		retry: false,
 		refetchInterval: 30_000,
 		refetchOnWindowFocus: true,

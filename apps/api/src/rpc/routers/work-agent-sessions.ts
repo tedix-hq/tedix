@@ -926,7 +926,11 @@ export const workAgentSessionsContractRouter = sessionsOs.router({
 							? ("attempt_succeeded" as const)
 							: event.outcome === "failed"
 								? ("attempt_failed" as const)
-								: ("unknown" as const),
+								: event.outcome === "cancelled"
+									? ("attempt_cancelled" as const)
+									: event.outcome === "expired"
+										? ("attempt_expired" as const)
+										: ("unknown" as const),
 			})),
 		];
 		const last = page.at(-1);

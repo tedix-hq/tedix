@@ -1057,6 +1057,33 @@ describe("stale session status", () => {
 	});
 });
 
+test("an OpenCode lane permission ask reports working: the lane approves it automatically", async () => {
+	const session = "ses_ea08bec38ffeGv2rruD2pzxAuC";
+	const raw = JSON.stringify({
+		session_id: session.toLowerCase(),
+		hook_event_name: "PermissionRequest",
+		tool_name: "bash",
+		tool_input: { command: "bun run test:run" },
+	});
+	enable();
+	await fire(
+		"PermissionRequest",
+		{},
+		{ TEDIX_HOOK_HOST: "opencode", TEDIX_LANE_ID: session.toLowerCase() },
+		raw,
+	);
+	const reports = spawned.filter(([args]) => args[0] === "tedix");
+	expect(reports).toHaveLength(1);
+	expect(JSON.parse(reports[0]![0][6]!)).toMatchObject({
+		harness: "opencode",
+		state: "working",
+		summary:
+			"An OpenCode session wants to run a shell command; the lane approves it automatically.",
+		observation: { trigger: "PermissionRequest", reportedState: "working" },
+	});
+	expect(notifications()).toEqual([]);
+});
+
 test("OpenCode status uses the same opt-in and emits a valid report", async () => {
 	const session = "ses_ea08bec38ffeGv2rruD2pzxAuC";
 	const raw = JSON.stringify({
