@@ -1425,6 +1425,38 @@ export function attemptFailedBeforeAgentTurn(attempt: {
 	);
 }
 
+/**
+ * A cancelled Attempt that carries no verdict on the Work: the agent declared
+ * a wait, or the runner cancelled it before the agent turn started (a runner
+ * stop, or a Work revision landing during start). Only the wait this receipt
+ * still holds open keeps the revision parked; a person's or the agent's own
+ * cancellation carries neither marker and stays a recorded result.
+ */
+export function cancelledWithoutVerdict(
+	attempt: {
+		id: string;
+		outcome: string | null;
+		metadata?: Record<string, unknown> | null;
+	},
+	previous?: {
+		attemptId?: string;
+		waitResponseId?: string;
+		waitReleasedAt?: number;
+	},
+): boolean {
+	if (attempt.outcome !== "cancelled") return false;
+	if (attempt.metadata?.agentTurnStarted === false) return true;
+	const result = attempt.metadata?.laneResult;
+	if (!isRecord(result)) return false;
+	if (result.outcome === "deferred") return true;
+	return (
+		result.outcome === "waiting_on_user" &&
+		(previous?.attemptId !== attempt.id ||
+			previous.waitResponseId !== undefined ||
+			previous.waitReleasedAt !== undefined)
+	);
+}
+
 export function laneFailureSignature(error: unknown): string {
 	const message = (error instanceof Error ? error.message : String(error))
 		.replace(/\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b/gi, "<uuid>")
@@ -3216,17 +3248,7 @@ export class LaneDispatcher {
 					attempt.metadata?.dispatchVersion === item.version &&
 					attempt.outcome !== "failed" &&
 					attempt.outcome !== "expired" &&
-					!(
-						attempt.outcome === "cancelled" &&
-						previous?.attemptId === attempt.id &&
-						previous.session === attempt.externalSessionKey &&
-						JSON.stringify(attempt.metadata.laneResult) ===
-							JSON.stringify(previous.laneResult) &&
-						((previous.laneResult?.outcome === "waiting_on_user" &&
-							(previous.waitResponseId !== undefined ||
-								previous.waitReleasedAt !== undefined)) ||
-							previous.laneResult?.outcome === "deferred")
-					),
+					!cancelledWithoutVerdict(attempt, previous),
 			);
 			if (result) {
 				// A recorded result for this revision stays recorded, so reading
@@ -3839,6 +3861,8 @@ export class LaneDispatcher {
 			)
 				receipt.admissionState = "rejected";
 			receipt.note = String(error).slice(0, 1800);
+			// A stop is no verdict: the next runner admits this revision again.
+			if (error instanceof DispatcherStoppingError) receipt.retryable = true;
 			if (!admitted) {
 				const signature = laneFailureSignature(error);
 				receipt.identicalFailures =
@@ -4598,8 +4622,9 @@ export class LaneDispatcher {
 							usage: receipt.telemetry?.usage ?? null,
 							// No spawned child means the run ended before the agent
 							// turn; the marker keeps it out of the execution hold.
-							...(["failed", "expired"].includes(receipt.outcome ?? "") &&
-							receipt.pid === undefined
+							...(["failed", "expired", "cancelled"].includes(
+								receipt.outcome ?? "",
+							) && receipt.pid === undefined
 								? { agentTurnStarted: false }
 								: {}),
 							...(receipt.laneResult ? { laneResult: receipt.laneResult } : {}),

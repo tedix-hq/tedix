@@ -7437,6 +7437,124 @@ describe("structured dispatcher outcomes", () => {
 			expect(f.events.filter((e) => e.verb === "complete")).toHaveLength(1);
 		},
 	);
+	it("retries a second deferral on schedule despite the first deferral's cancelled Attempt", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		const deferred = () => ({
+			...common(),
+			outcome: "deferred",
+			reason: "Waiting on production access",
+		});
+		// An earlier dispatch of this revision already deferred once.
+		const first = {
+			id: "first-deferral",
+			externalSessionKey: "codex:first-deferral",
+			outcome: "cancelled",
+			metadata: { dispatchVersion: 2, laneResult: deferred() },
+		};
+		f.control.history.data = [first];
+		f.control.finalMessage = `TEDIX_LANE_RESULT ${JSON.stringify(deferred())}`;
+		await f.dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		const live = liveFence(f);
+		f.releases[0]!();
+		await f.dispatcher.drain();
+		const path = join(f.dir, `${item().id}-2.json`);
+		const saved = JSON.parse(readFileSync(path, "utf8"));
+		expect(saved).toMatchObject({ phase: "deferred", outcome: "cancelled" });
+		expect(saved.held).toBeUndefined();
+		saved.retryAt = 0;
+		writeFileSync(path, JSON.stringify(saved));
+		f.control.history.data = [
+			first,
+			{
+				id: live.attemptId,
+				externalSessionKey: live.session,
+				outcome: "cancelled",
+				metadata: { dispatchVersion: 2, laneResult: deferred() },
+			},
+		];
+		f.control.finalMessage = "Access granted; result recorded.";
+		const restarted = f.restart();
+		await restarted.tick();
+		await until(() => f.releases.length === 2);
+		f.releases[1]!();
+		await restarted.drain();
+		expect(
+			f.events.filter((e) => e.verb === "start" && e.args[4] === "work"),
+		).toHaveLength(2);
+		expect(JSON.parse(readFileSync(path, "utf8")).held).toBeUndefined();
+	});
+	it("retries a run the stopping runner cancelled before its agent turn", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		const recall = f.deps.recall!;
+		let runner!: ReturnType<typeof f.restart>;
+		f.deps.recall = async (...args) => {
+			runner.stop();
+			return recall(...args);
+		};
+		runner = f.restart();
+		await runner.tick();
+		await runner.drain();
+		const settle = f.events.find((e) => e.verb === "settle")!;
+		expect(settle.args).toContain("cancelled");
+		expect(settle.input?.metadata).toMatchObject({ agentTurnStarted: false });
+		expect(f.releases).toHaveLength(0);
+		const path = join(f.dir, `${item().id}-2.json`);
+		const saved = JSON.parse(readFileSync(path, "utf8"));
+		expect(saved).toMatchObject({ phase: "deferred", outcome: "cancelled" });
+		saved.retryAt = 0;
+		writeFileSync(path, JSON.stringify(saved));
+		// A different runner's stop-cancel of this revision is no verdict either.
+		f.control.history.data = [
+			{
+				id: "other-runner-stop",
+				externalSessionKey: "codex:other-runner",
+				outcome: "cancelled",
+				metadata: { dispatchVersion: 2, agentTurnStarted: false },
+			},
+			{
+				id: saved.attemptId,
+				externalSessionKey: saved.session,
+				outcome: "cancelled",
+				metadata: settle.input!.metadata,
+			},
+		];
+		f.deps.recall = recall;
+		const next = f.restart();
+		await next.tick();
+		await until(() => f.releases.length === 1);
+		f.releases[0]!();
+		await next.drain();
+		expect(
+			f.events.filter((e) => e.verb === "start" && e.args[4] === "work"),
+		).toHaveLength(2);
+	});
+	it("still holds a revision that a person or the agent cancelled", async () => {
+		const f = fixture();
+		f.items.splice(1);
+		f.control.history.data = [
+			{
+				id: "cancelled-verdict",
+				externalSessionKey: "codex:another-session",
+				outcome: "cancelled",
+				metadata: { dispatchVersion: 2 },
+			},
+		];
+		await f.dispatcher.tick();
+		await f.dispatcher.drain();
+		const saved = JSON.parse(
+			readFileSync(join(f.dir, `${item().id}-2.json`), "utf8"),
+		);
+		expect(saved.held).toBe(true);
+		expect(saved.note).toContain(
+			"Attempt cancelled-verdict already recorded a cancelled result",
+		);
+		expect(
+			f.events.some((e) => e.verb === "start" && e.args[4] === "work"),
+		).toBe(false);
+	});
 	it.each(["verified", "unavailable", "stale-session", "stale-version"])(
 		"fences preexisting completion: %s",
 		async (mode) => {
