@@ -1,6 +1,8 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import {
+	copyFileSync,
+	mkdirSync,
 	mkdtempSync,
 	rmSync,
 	symlinkSync,
@@ -239,3 +241,28 @@ test("actual Oxfmt full and scoped checks agree for ignored targets", () => {
 	expect(run(root, ignored).status).toBe(0);
 	expect(run(root, full).status).toBe(0);
 }, 30_000);
+
+test("the repository's ignore rules keep local agent settings out of the full check", () => {
+	const { root } = repository();
+	symlinkSync(resolve(nodeModules), join(root, "node_modules"), "dir");
+	copyFileSync(
+		fileURLToPath(new URL("../../.gitignore", import.meta.url)),
+		join(root, ".gitignore"),
+	);
+	writeFileSync(
+		join(root, "package.json"),
+		`${JSON.stringify({ scripts: { "format:check": "vp fmt --check" } }, null, "\t")}\n`,
+	);
+	writeFileSync(
+		join(root, "vite.config.ts"),
+		"export default { fmt: { useTabs: true } };\n",
+	);
+	const unformatted = '{"permissions":\n  {"allow":["Bash(ls)"]}}\n';
+	mkdirSync(join(root, ".claude"));
+	writeFileSync(join(root, ".claude/settings.local.json"), unformatted);
+	const skipped = run(root, full);
+	expect(skipped.stdout + skipped.stderr).not.toContain("settings.local.json");
+	expect(skipped.status).toBe(0);
+	writeFileSync(join(root, ".claude/settings.json"), unformatted);
+	expect(run(root, full).status).toBe(1);
+}, 60_000);
