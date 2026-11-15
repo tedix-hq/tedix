@@ -34,29 +34,6 @@ const catchup = vi.hoisted(() => ({
 	billing: vi.fn(),
 	stall: vi.fn().mockResolvedValue(0),
 	thinning: vi.fn().mockResolvedValue({ status: "off" }),
-	offload: vi.fn().mockResolvedValue({
-		status: "idle",
-		cursor: 0,
-		maxRowid: 0,
-		passes: 0,
-		candidates: 0,
-		rowsCleared: 0,
-		bytesCleared: 0,
-		failures: [],
-		receiptKey: null,
-		summary: null,
-	}),
-	assetMigration: vi.fn().mockResolvedValue({
-		status: "not_started",
-		phase: "shared",
-		dryRun: false,
-		cursor: 0,
-		scanned: 0,
-		rewritten: 0,
-		embeddedBytes: 0,
-		failures: [],
-		receiptKey: null,
-	}),
 	paths: [] as string[],
 	outcomes: [] as Array<{ id: string; status: "success" | "failure" }>,
 }));
@@ -122,12 +99,6 @@ vi.mock("./support-maintenance", () => ({
 }));
 vi.mock("../services/os-output-revision-thinning", () => ({
 	runOutputRevisionThinningTick: catchup.thinning,
-}));
-vi.mock("../services/os-output-revision-offload", () => ({
-	runOutputRevisionBodyOffloadTick: catchup.offload,
-}));
-vi.mock("../services/os-output-asset-migration", () => ({
-	runOutputAssetMigrationTick: catchup.assetMigration,
 }));
 vi.mock("./platform-cron-receipts", () => ({
 	runPlatformCronPath: async (
@@ -231,26 +202,9 @@ it("runs bounded gateway-only catch-up on the existing two-minute trigger", asyn
 		id: "gateway-cost-catchup",
 		status: "success",
 	});
-	// Inline output bodies drain to R2 on the same installation tick.
-	expect(catchup.offload).toHaveBeenCalledWith(
-		expect.objectContaining({ now: new Date(Date.UTC(2026, 8, 24, 0, 0)) }),
-	);
-	expect(catchup.outcomes).toContainEqual({
-		id: "output-revision-body-offload",
-		status: "success",
-	});
-	// So is the thinning of auto-save revisions, which an operator arms.
 	expect(catchup.thinning).toHaveBeenCalledWith(
 		expect.objectContaining({ now: new Date(Date.UTC(2026, 8, 24, 0, 0)) }),
 	);
-	// The one-time stored image migration rides the same tick.
-	expect(catchup.assetMigration).toHaveBeenCalledWith(
-		expect.objectContaining({ now: new Date(Date.UTC(2026, 8, 24, 0, 0)) }),
-	);
-	expect(catchup.outcomes).toContainEqual({
-		id: "output-asset-migration",
-		status: "success",
-	});
 });
 
 it("fails the catch-up receipt on a gateway error but continues sibling cron paths", async () => {

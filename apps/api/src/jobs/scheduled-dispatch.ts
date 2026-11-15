@@ -305,45 +305,6 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 			);
 		}
 
-		// Inline output revision bodies move to R2 in small bounded steps on the
-		// installation tick: storage maintenance, not fleet-commercial.
-		if (cron === "*/2 * * * *") {
-			await trackPlatformCronPath(
-				env,
-				event,
-				"output-revision-body-offload",
-				async () => {
-					const { createDbQueryClient } =
-						await import("@tedix/db/query-client");
-					const { runOutputRevisionBodyOffloadTick } =
-						await import("../services/os-output-revision-offload");
-					const result = await runOutputRevisionBodyOffloadTick({
-						db: createDbQueryClient(env.DB),
-						bucket: env.R2_BUCKET,
-						now: new Date(event.scheduledTime),
-					});
-					if (result.status === "swept")
-						console.log(
-							JSON.stringify({
-								event: "os.output_revision_body_offload.tick",
-								...result,
-								failures: result.failures.length,
-								failureReasons: result.failures.map((row) => row.reason),
-							}),
-						);
-					return {
-						offloadCandidates: result.candidates,
-						offloadRowsCleared: result.rowsCleared,
-						offloadBytesCleared: result.bytesCleared,
-						offloadFailures: result.failures.length,
-						offloadCursor: result.cursor,
-						offloadMaxRowid: result.maxRowid,
-						offloadPasses: result.passes,
-					};
-				},
-			);
-		}
-
 		// Thins editor auto-save revisions out of file history. An operator
 		// arms it; unarmed it costs one bucket read and no D1.
 		if (cron === "*/2 * * * *") {
@@ -379,54 +340,6 @@ export const scheduled: ExportedHandlerScheduledHandler<CloudflareEnv> = async (
 					}),
 				);
 			}
-		}
-
-		// One-time move of embedded images out of stored presentation and
-		// document bodies. It does nothing until an operator writes its state
-		// object, and a finished migration answers `done` at once.
-		if (cron === "*/2 * * * *") {
-			await trackPlatformCronPath(
-				env,
-				event,
-				"output-asset-migration",
-				async () => {
-					const { createDbQueryClient } =
-						await import("@tedix/db/query-client");
-					const { runOutputAssetMigrationTick } =
-						await import("../services/os-output-asset-migration");
-					const result = await runOutputAssetMigrationTick({
-						db: createDbQueryClient(env.DB),
-						bucket: env.R2_BUCKET,
-						runtime: (
-							env as unknown as {
-								WORKSPACE_RUNTIME?: Parameters<
-									typeof runOutputAssetMigrationTick
-								>[0]["runtime"];
-							}
-						).WORKSPACE_RUNTIME,
-						now: new Date(event.scheduledTime),
-					});
-					if (result.status === "swept")
-						console.log(
-							JSON.stringify({
-								event: "os.output_asset_migration.tick",
-								...result,
-								failures: result.failures.length,
-								failureReasons: result.failures.map((row) => row.reason),
-							}),
-						);
-					return {
-						assetMigrationDone: result.status === "done" ? 1 : 0,
-						assetMigrationCursor: result.cursor,
-						assetMigrationScanned: result.scanned,
-						assetMigrationStarted: result.status === "not_started" ? 0 : 1,
-						assetMigrationDryRun: result.dryRun ? 1 : 0,
-						assetMigrationRewritten: result.rewritten,
-						assetMigrationEmbeddedBytes: result.embeddedBytes,
-						assetMigrationFailures: result.failures.length,
-					};
-				},
-			);
 		}
 
 		// Deck sweep: every 15 minutes on the installation tick (not fleet-commercial).
