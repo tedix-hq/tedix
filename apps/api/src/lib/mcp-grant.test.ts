@@ -236,6 +236,36 @@ describe("verifyHumanMcpGrant", () => {
 		});
 	});
 
+	it("keeps the same grant usable after deleting one organization's gateway", async () => {
+		const { verifyHumanMcpGrant } = await import("./mcp-grant");
+		const expected = orgIds.map((organizationId, index) => ({
+			organizationId,
+			descopeTenantId: tenantIds[index],
+			gatewaySlug: index === 0 ? "org-one-unified" : "org-two-unified",
+		}));
+		expect(await verifyHumanMcpGrant({} as never, env, input)).toEqual({
+			allowed: true,
+			reason: "active",
+			organizations: expected,
+		});
+		mocks.getOrganizationAggregatorGateways.mockResolvedValue(
+			new Map([[orgIds[1], { slug: "org-two-unified" }]]),
+		);
+		expect(await verifyHumanMcpGrant({} as never, env, input)).toEqual({
+			allowed: true,
+			reason: "active",
+			organizations: [expected[1]],
+		});
+		mocks.getOrganizationAggregatorGateways.mockResolvedValue(new Map());
+		expect(await verifyHumanMcpGrant({} as never, env, input)).toEqual({
+			allowed: false,
+			reason: "membership_missing",
+			organizations: [],
+		});
+		expect(mocks.promoteMcpConsentPending).not.toHaveBeenCalled();
+		expect(mocks.replaceMcpConsentSelection).not.toHaveBeenCalled();
+	});
+
 	it.each(["active", "pending"])(
 		"keeps usable organizations when a gateway disappears from an %s grant",
 		async (state) => {
