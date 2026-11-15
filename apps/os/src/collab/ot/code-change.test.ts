@@ -186,27 +186,29 @@ describe("transformCodeChange convergence", () => {
 	// composed changes fails on that benign difference, so convergence is asserted on content --
 	// which still pins the priority convention, since two inserts at equal positions land in a
 	// definite order in the resulting text (see the dedicated ordering test below).
-	it("obeys the ChangeSet transform law over 20000 concurrent edit pairs", () => {
-		const rng = makeRng(7);
-		for (let i = 0; i < 20_000; i++) {
-			const base = randomText(rng, 20);
-			const c = content({ "f.txt": base });
-			const a: CodeChange = [["f.txt", { edit: randomEdit(rng, base) }]];
-			const b: CodeChange = [["f.txt", { edit: randomEdit(rng, base) }]];
-			validateCodeChangeSchema(a);
-			validateCodeChangeSchema(b);
+	describe("ChangeSet transform law over 20000 concurrent edit pairs", () => {
+		it.each([7, 8, 9, 10])("seed %i (5000 pairs)", (seed) => {
+			const rng = makeRng(seed);
+			for (let i = 0; i < 5_000; i++) {
+				const base = randomText(rng, 20);
+				const c = content({ "f.txt": base });
+				const a: CodeChange = [["f.txt", { edit: randomEdit(rng, base) }]];
+				const b: CodeChange = [["f.txt", { edit: randomEdit(rng, base) }]];
+				validateCodeChangeSchema(a);
+				validateCodeChangeSchema(b);
 
-			const t = transformCodeChange(a, b);
-			// A.compose(B.map(A)) and B.compose(A.map(B, true)) agree, applied to the same base.
-			const composedA = applyCodeChange(c, composeCodeChange(a, t.b));
-			const composedB = applyCodeChange(c, composeCodeChange(b, t.a));
-			expect(toPlain(composedA)).toEqual(toPlain(composedB));
-			// ...and the stepwise pairing both replicas actually run converges on the same content.
-			const viaA = applyCodeChange(applyCodeChange(c, a), t.b);
-			const viaB = applyCodeChange(applyCodeChange(c, b), t.a);
-			expect(toPlain(viaA)).toEqual(toPlain(viaB));
-			expect(toPlain(viaA)).toEqual(toPlain(composedA));
-		}
+				const t = transformCodeChange(a, b);
+				// A.compose(B.map(A)) and B.compose(A.map(B, true)) agree, applied to the same base.
+				const composedA = applyCodeChange(c, composeCodeChange(a, t.b));
+				const composedB = applyCodeChange(c, composeCodeChange(b, t.a));
+				expect(toPlain(composedA)).toEqual(toPlain(composedB));
+				// ...and the stepwise pairing both replicas actually run converges on the same content.
+				const viaA = applyCodeChange(applyCodeChange(c, a), t.b);
+				const viaB = applyCodeChange(applyCodeChange(c, b), t.a);
+				expect(toPlain(viaA)).toEqual(toPlain(viaB));
+				expect(toPlain(viaA)).toEqual(toPlain(composedA));
+			}
+		});
 	});
 
 	it("converges for concurrent edit pairs, stepwise and composed", () => {
