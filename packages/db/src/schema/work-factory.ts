@@ -154,6 +154,7 @@ export const workCases = sqliteTable(
 		accountableOwnerId: text("accountable_owner_id").notNull(),
 		openedAt: text("opened_at").notNull(),
 		targetResolutionAt: text("target_resolution_at"),
+		proofRef: text("proof_ref"),
 		metadata: text("metadata", { mode: "json" })
 			.$type<Record<string, JsonValue>>()
 			.notNull()

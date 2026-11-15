@@ -1497,6 +1497,9 @@ export const WorkFactoryOwnerTypeSchema = WorkItemOwnerTypeSchema.exclude([
 	"team",
 ]);
 
+/** Where the delivered result of an epic can be checked: a link or reference. */
+export const WorkCaseProofSchema = z.string().trim().min(1).max(2_000);
+
 export const WorkCaseSchema = z
 	.object({
 		id: z.uuid(),
@@ -1530,6 +1533,9 @@ export const WorkCaseSchema = z
 			.datetime()
 			.nullable()
 			.describe("Nullable when no target resolution date has been committed."),
+		proofRef: WorkCaseProofSchema.nullable().describe(
+			"Proof of delivery: a link or reference to the result. Null until proof is recorded.",
+		),
 		closedAt: z.iso
 			.datetime()
 			.nullable()

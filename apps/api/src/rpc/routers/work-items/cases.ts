@@ -50,6 +50,7 @@ function caseOutput(row: Awaited<ReturnType<typeof getWorkCase>>) {
 		accountableOwnerId: row.accountableOwnerId,
 		openedAt: row.openedAt,
 		targetResolutionAt: row.targetResolutionAt,
+		proofRef: row.proofRef,
 		closedAt: row.closedAt,
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt,
@@ -102,6 +103,7 @@ export const createCaseProcedure = caseWriteOs.createCase.handler(
 					accountableOwnerId: input.accountableOwnerId,
 					openedAt: input.openedAt ?? now,
 					targetResolutionAt: input.targetResolutionAt,
+					proofRef: input.proofRef,
 					now,
 				}),
 			);
