@@ -543,7 +543,7 @@ export const sitesContract = oc.router({
 			SiteIdParamSchema.extend({
 				table: z
 					.string()
-					.regex(/^[a-z][a-z0-9_]*$/)
+					.regex(/^[a-z_][a-z0-9_]*$/)
 					.optional(),
 				offset: z.number().int().nonnegative().default(0),
 				limit: z.number().int().min(1).max(50).default(10),
