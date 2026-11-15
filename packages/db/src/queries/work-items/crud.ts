@@ -20,6 +20,7 @@ import {
 	inArray,
 	isNotNull,
 	isNull,
+	lte,
 	lt,
 	ne,
 	or,
@@ -360,6 +361,8 @@ export interface ListWorkItemsPageOptions {
 	 * is not authorization or a complete customer-visibility decision.
 	 */
 	customerVisiblePreFilter?: boolean;
+	/** Critical or high priority, or own due date or deadline no later than this instant. */
+	mattersThrough?: string;
 	limit?: number;
 	offset?: number;
 }
@@ -457,6 +460,19 @@ export async function listWorkItemsPage(
 		// matches `transitionalX`.
 		options.customerVisiblePreFilter
 			? sql`json_extract(${workItems.metadata}, '$.agentSession') IS NULL AND (json_extract(${workItems.metadata}, '$.purposeContext') IS NULL OR json_extract(${workItems.metadata}, '$.purposeContext') NOT LIKE 'transitional\\_%' ESCAPE '\\')`
+			: undefined,
+		options.mattersThrough
+			? or(
+					inArray(workItems.priority, ["critical", "high"]),
+					and(
+						isNotNull(workItems.deadline),
+						lte(workItems.deadline, options.mattersThrough),
+					),
+					and(
+						isNotNull(workItems.dueDate),
+						lte(workItems.dueDate, options.mattersThrough),
+					),
+				)
 			: undefined,
 	);
 	// Runners take the most important ready task first: priority, then the

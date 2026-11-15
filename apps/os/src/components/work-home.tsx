@@ -15,6 +15,7 @@ import {
 import { useDocumentTitle } from "@/lib/use-document-title";
 import { OS_COPY } from "@/shared/os-copy";
 import { useOsLocale } from "@/lib/use-os-locale";
+import { WorkHomeOverview } from "@/components/work-home-overview";
 import "./feed-deck.css";
 
 /** Work is an entry to installed apps, using the same renderer as their workspace. */
@@ -72,6 +73,7 @@ export function WorkHome({
 	);
 	return (
 		<Page width="full" className="fd-work-home">
+			{selected && !search.view && !search.app && <WorkHomeOverview />}
 			{(!selected || selected.role) && (
 				<PageTitle className="sr-only">{title}</PageTitle>
 			)}
@@ -96,6 +98,7 @@ export function WorkHome({
 						day: search.day,
 						onFilterChange,
 						apps: appLinks,
+						showRunningNow: Boolean(search.view || search.app),
 					}}
 				/>
 			) : pending ? (

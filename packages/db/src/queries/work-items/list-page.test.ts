@@ -38,13 +38,16 @@ function insert(row: {
 	objectiveId?: string | null;
 	projectId?: string | null;
 	accountableOwnerId?: string | null;
+	priority?: string;
+	dueDate?: string | null;
+	deadline?: string | null;
 	createdAt?: string;
 }) {
 	sqlite
 		.prepare(
 			`INSERT INTO work_items
-			 (id,org_id,title,disposition,work_kind,work_class,objective_id,project_id,accountable_owner_type,accountable_owner_id,created_at)
-			 VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+			 (id,org_id,title,disposition,work_kind,work_class,objective_id,project_id,accountable_owner_type,accountable_owner_id,priority,due_date,deadline,created_at)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		)
 		.run(
 			row.id,
@@ -57,6 +60,9 @@ function insert(row: {
 			row.projectId ?? null,
 			row.accountableOwnerId ? "tedi" : null,
 			row.accountableOwnerId ?? null,
+			row.priority ?? "medium",
+			row.dueDate ?? null,
+			row.deadline ?? null,
 			row.createdAt ?? "2026-08-20T00:00:00.000Z",
 		);
 }
@@ -512,3 +518,37 @@ it.each([{ executor: [] }, { executor: Array(11).fill("codex") }])(
 		).rejects.toThrow("between 1 and 10");
 	},
 );
+
+it("selects high-priority and due Work before paging", async () => {
+	insert({ id: idFor(1), disposition: "accepted", priority: "high" });
+	insert({
+		id: idFor(2),
+		disposition: "accepted",
+		dueDate: "2026-11-20T12:00:00.000Z",
+	});
+	insert({ id: idFor(3), disposition: "accepted", projectId: PROJECT });
+	insert({
+		id: idFor(4),
+		disposition: "accepted",
+		deadline: "2026-12-01T12:00:00.000Z",
+	});
+	insert({ id: idFor(5), disposition: "completed", priority: "critical" });
+
+	const page = await listWorkItemsPage(db, {
+		orgId: ORG,
+		disposition: "accepted",
+		mattersThrough: "2026-11-22T23:59:59.999Z",
+		limit: 1,
+	});
+	expect(page.total).toBe(2);
+	expect(page.data).toHaveLength(1);
+	const all = await listWorkItemsPage(db, {
+		orgId: ORG,
+		disposition: "accepted",
+		mattersThrough: "2026-11-22T23:59:59.999Z",
+		limit: 10,
+	});
+	expect(all.data.map((row) => row.id).sort()).toEqual(
+		[idFor(1), idFor(2)].sort(),
+	);
+});

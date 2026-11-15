@@ -316,6 +316,12 @@ export const workItemsContract = oc
 							.describe(
 								"Server-side PRE-FILTER that drops the dominant internal execution shapes (agent-session rows and transitional purpose contexts) before paging, so an embedded customer board is not paging through factory records to reach its own work. It is NOT the customer-visibility authority: the full rule has seven clauses and lives with the renderer, which must still apply it to what comes back.",
 							),
+						mattersThrough: z.iso
+							.datetime()
+							.optional()
+							.describe(
+								"Server-side Work-home filter: keep critical or high-priority Work, or Work whose own due date or deadline falls on or before this instant.",
+							),
 					})
 					.extend(PaginationSchema.shape)
 					// Strict: a silently stripped unknown key (e.g. `status`) would

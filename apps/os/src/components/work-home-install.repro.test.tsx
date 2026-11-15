@@ -33,6 +33,7 @@ vi.mock("@/lib/use-deck-count", () => ({
 }));
 vi.mock("@/lib/use-os-locale", () => ({ useOsLocale: () => "en-US" }));
 vi.mock("@/lib/use-document-title", () => ({ useDocumentTitle: vi.fn() }));
+vi.mock("./work-home-overview", () => ({ WorkHomeOverview: () => null }));
 
 afterEach(() => {
 	vi.clearAllMocks();

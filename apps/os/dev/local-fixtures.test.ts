@@ -421,6 +421,7 @@ const CALLS = {
 	"workItems/listEvidence": { id: "00000070-0000-4000-8000-000000000001" },
 	"workItems/listEvents": { id: "00000070-0000-4000-8000-000000000001" },
 	"workItems/listReadinessProjection": { limit: 25 },
+	"workItems/listRecoveryProjection": { limit: 100 },
 	"workItems/listAttemptProjection": {
 		projectId: "00000076-0000-4000-8000-000000000001",
 		runtimeStates: ["queued", "running", "waiting", "retrying"],
