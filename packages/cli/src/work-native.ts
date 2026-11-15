@@ -30,6 +30,8 @@ import { errorText } from "./format";
 import { retryRead } from "./read-retry";
 import { NATIVE_DESCRIPTOR_CACHE_TTL_MS } from "./native-bootstrap-cache";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
+import { stableStringify } from "@tedix/api-contract/utils/stable-json";
+import { withFieldSelectionSchema } from "@tedix/api-contract/utils/tool-field-selection-schema";
 import type { NativeToolContext } from "./work";
 import type { BoardError, BoardResult } from "./work-identity";
 
@@ -504,10 +506,35 @@ export async function boardCall(
 				(!Number.isFinite(Date.parse(detail.schemaFreshness.toolUpdatedAt)) ||
 					Date.parse(detail.schemaFreshness.toolUpdatedAt) >
 						Date.parse(descriptor.schemaFreshness.syncedAt!))
-			)
-				throw new Error(
-					"Native Work schema is stale relative to the configured tool",
-				);
+			) {
+				// updatedAt also moves for metadata and when a projected row is saved
+				// after schemaSyncedAt was assigned. Certify both schemas against the
+				// bundled contract instead of treating elapsed time as schema drift.
+				const { resolveContractEndpoint } =
+					await import("@tedix/api-contract/utils/contract-routers");
+				const { zodToToolInputJsonSchema, zodToStructuredOutputJsonSchema } =
+					await import("@tedix/api-contract/utils/tool-json-schema");
+				const endpoint = resolveContractEndpoint(descriptor.endpoint);
+				if (
+					!Number.isFinite(Date.parse(detail.schemaFreshness.toolUpdatedAt)) ||
+					descriptor.schemaFreshness.source !== "orpc" ||
+					descriptor.schemaFreshness.sourceRef !== descriptor.endpoint ||
+					!endpoint?.outputSchema ||
+					stableStringify(detail.parameters) !==
+						stableStringify(
+							withFieldSelectionSchema(
+								zodToToolInputJsonSchema(endpoint.inputSchema),
+							),
+						) ||
+					stableStringify(row.outputSchema) !==
+						stableStringify(
+							zodToStructuredOutputJsonSchema(endpoint.outputSchema),
+						)
+				)
+					throw new Error(
+						"Native Work schema is stale relative to the configured tool",
+					);
+			}
 			validateNativeSchema(detail.parameters, input);
 			// Prove the output schema is supported before invoking a mutation.
 			if (!isRecord(row.outputSchema))

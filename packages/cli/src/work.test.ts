@@ -25,6 +25,7 @@ import { TedixHomeClient } from "./home-client";
 import { parseOptions } from "./options";
 import type { WorkAttemptKey, WorkAttemptStore } from "./work-attempt-store";
 import { callConfiguredNativeTool, boardErrorFromValue } from "./work-native";
+import { withFieldSelectionSchema } from "@tedix/api-contract/utils/tool-field-selection-schema";
 import {
 	attemptSessionLabel,
 	contextBriefJson,
@@ -3491,6 +3492,82 @@ describe("native Work transport", () => {
 				"tools/call",
 			]);
 			await fixture.client.close();
+		}
+	});
+	test("certifies metadata-only updates and rejects unsynchronized schemas before dispatch", async () => {
+		const { resolveContractEndpoint } =
+			await import("@tedix/api-contract/utils/contract-routers");
+		const { zodToToolInputJsonSchema, zodToStructuredOutputJsonSchema } =
+			await import("@tedix/api-contract/utils/tool-json-schema");
+		for (const command of [
+			"interaction-outbox-list",
+			"interaction-audit-list",
+			`accept ${ITEM}`,
+		]) {
+			for (const scenario of ["metadata", "input", "output", "invalid-date"]) {
+				if (command.startsWith("accept") && scenario === "metadata") continue;
+				const fixture = makeContext(
+					{ doneWhen: "An exact result" },
+					undefined,
+					() => ({
+						data: [],
+						nextCursor: null,
+						hasMore: false,
+						observedAt: "2026-11-15T00:00:00Z",
+					}),
+				);
+				const invoke = fixture.ctx.client.callTool.bind(fixture.ctx.client);
+				fixture.ctx.client.callTool = (async (
+					name: string,
+					args: Record<string, unknown>,
+					options: unknown,
+				) => {
+					const result = (await invoke(name, args, options as never)) as Record<
+						string,
+						unknown
+					>;
+					if (name === "catalog_search") {
+						const rows = result.results as Array<Record<string, unknown>>;
+						const native = rows[0]!.native as { endpoint: string };
+						const endpoint = resolveContractEndpoint(native.endpoint)!;
+						rows[0]!.outputSchema =
+							scenario === "output"
+								? { type: "object", properties: { drift: { type: "string" } } }
+								: zodToStructuredOutputJsonSchema(endpoint.outputSchema);
+					}
+					if (name === "catalog_describe") {
+						const native = result.native as { endpoint: string };
+						const endpoint = resolveContractEndpoint(native.endpoint)!;
+						result.parameters =
+							scenario === "input"
+								? { type: "object", properties: { drift: { type: "string" } } }
+								: withFieldSelectionSchema(
+										zodToToolInputJsonSchema(endpoint.inputSchema),
+									);
+						result.schemaFreshness = {
+							...(result.schemaFreshness as Record<string, unknown>),
+							// Deliberately far beyond any conceivable clock tolerance.
+							toolUpdatedAt:
+								scenario === "invalid-date"
+									? "invalid"
+									: "2026-11-15T00:00:00Z",
+						};
+					}
+					return result;
+				}) as TedixHomeClient["callTool"];
+				const result = await capture(command, fixture.ctx);
+				if (scenario === "metadata") {
+					expect(result.err).toEqual([]);
+					expect(result.code).toBe(0);
+					expect(fixture.sources).toHaveLength(1);
+				} else {
+					expect(result.code).toBe(WORK_EXIT_FAIL);
+					expect([...result.out, ...result.err].join(" ")).toContain(
+						"schema is stale",
+					);
+					expect(fixture.sources).toEqual([]);
+				}
+			}
 		}
 	});
 	test("rejects missing, denied, ambiguous, stale and redirected descriptors before writes", async () => {

@@ -1,5 +1,5 @@
 import { isDiscoveryShardTool } from "../aggregate-discovery-shards";
-import { withFieldSelectionSchema } from "./field-selection";
+import { withFieldSelectionSchema } from "@tedix/api-contract/utils/tool-field-selection-schema";
 import { projectCatalogMeta } from "@tedix/mcp-shared/catalog-projection";
 import { type ServerContext } from "./server-context";
 import { tenantProfileDiscoveryPotential } from "./tenant-profile-candidate";
