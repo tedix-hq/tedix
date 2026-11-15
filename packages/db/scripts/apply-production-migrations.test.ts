@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,6 +10,94 @@ import {
 import { readMigrationManifest } from "./check-live-migration-ledger";
 
 describe("production D1 migration orchestration", () => {
+	function upgrade() {
+		const names = readMigrationManifest().migrations.map(({ name }) => name);
+		const events: string[] = [];
+		let applied = false;
+		const run = vi.fn((args: string[]) => {
+			if (
+				args.includes("SELECT name FROM tedix_drizzle_migrations ORDER BY id")
+			) {
+				return JSON.stringify([
+					{
+						success: true,
+						results: (applied ? names : names.slice(0, -1)).map((name) => ({
+							name,
+						})),
+					},
+				]);
+			}
+			if (args[1] === "time-travel")
+				return JSON.stringify({ bookmark: "bookmark-1" });
+			if (args[1] === "migrations") {
+				events.push("migration");
+				applied = true;
+				return "";
+			}
+			if (args.includes("PRAGMA optimize")) events.push("optimize");
+			return JSON.stringify([{ success: true, results: [] }]);
+		});
+		return { names, events, run };
+	}
+
+	it("preflights before SQL and publishes immediately after ledger verification, before maintenance", () => {
+		const f = upgrade();
+		const publish = vi.fn((_name: string, fresh: boolean) => {
+			f.events.push(fresh ? "activation" : "preflight");
+		});
+		applyProductionMigrations({ run: f.run, publish });
+		expect(f.events).toEqual([
+			"preflight",
+			"migration",
+			"activation",
+			"optimize",
+		]);
+		expect(publish.mock.calls).toEqual([
+			[f.names.at(-2), false],
+			[f.names.at(-1), true],
+		]);
+	});
+
+	it("refuses migration before mutation when the active publication protocol is unavailable", () => {
+		const f = upgrade();
+		expect(() =>
+			applyProductionMigrations({
+				run: f.run,
+				publish: () => {
+					throw new Error("unsupported publication protocol");
+				},
+			}),
+		).toThrow("unsupported publication protocol");
+		expect(f.events).toEqual([]);
+		expect(f.run).toHaveBeenCalledTimes(1);
+	});
+
+	it("does not hide a failed post-migration acknowledgment as an optimize warning", () => {
+		const f = upgrade();
+		expect(() =>
+			applyProductionMigrations({
+				run: f.run,
+				publish: (_name, fresh) => {
+					if (fresh) throw new Error("publication deadline exceeded");
+				},
+			}),
+		).toThrow("publication deadline exceeded");
+		expect(f.events).toEqual(["migration"]);
+	});
+
+	it("keeps already-current migration runs read-only", () => {
+		const f = upgrade();
+		f.run.mockReturnValue(
+			JSON.stringify([
+				{ success: true, results: f.names.map((name) => ({ name })) },
+			]),
+		);
+		const publish = vi.fn();
+		applyProductionMigrations({ run: f.run, publish });
+		expect(publish).not.toHaveBeenCalled();
+		expect(f.run).toHaveBeenCalledTimes(1);
+	});
+
 	it.each([1, null, "0"])(
 		"refuses populated or unverifiable tool class upgrades (%s) before mutation",
 		(hasTools) => {
@@ -49,6 +137,7 @@ describe("production D1 migration orchestration", () => {
 		let ledgerReads = 0;
 		expect(() =>
 			applyProductionMigrations({
+				publish: () => {},
 				run: (args) => {
 					if (
 						args.includes(
@@ -89,6 +178,7 @@ describe("production D1 migration orchestration", () => {
 		let ledgerReads = 0;
 		try {
 			applyProductionMigrations({
+				publish: () => {},
 				run: (args) => {
 					commands.push(args);
 					if (
@@ -162,11 +252,11 @@ describe("production D1 migration orchestration", () => {
 			};
 		};
 		expect(() =>
-			applyProductionMigrations({ run: runWith(true) }),
+			applyProductionMigrations({ run: runWith(true), publish: () => {} }),
 		).not.toThrow();
-		expect(() => applyProductionMigrations({ run: runWith(false) })).toThrow(
-			"duplicate column",
-		);
+		expect(() =>
+			applyProductionMigrations({ run: runWith(false), publish: () => {} }),
+		).toThrow("duplicate column");
 	});
 
 	it("requires a Time Travel bookmark", () => {

@@ -524,7 +524,9 @@ describe("ToolSchemaSyncWorkflow release publication", () => {
 			GIT_SHA: "a".repeat(40),
 			MCP_SERVICE: mcpService(),
 			R2_BUCKET: {
-				get: vi.fn(async (key: string) => receipts.get(key) ?? null),
+				get: vi.fn(async (key: string) =>
+					receipts.has(key) ? new Response(receipts.get(key)) : null,
+				),
 				put: vi.fn(async (key: string, value: string) => {
 					receipts.set(key, value);
 				}),
@@ -628,6 +630,73 @@ describe("ToolSchemaSyncWorkflow release publication", () => {
 			expect(purgeCalls(env)).toBe(0);
 		},
 	);
+
+	it("publishes directly after a migration without loading schema plans or snapshots", async () => {
+		const env = releaseEnv();
+		const payload = {
+			kind: "publish_tool_metadata",
+			mode: "schema",
+			apply: false,
+			expectedMigration: { id: 1, name: "first/migration.sql" },
+		};
+		const run = () =>
+			workflow(env as never).run({ payload } as never, engine().step as never);
+		expect(await run()).toMatchObject({
+			publicationProtocol: 1,
+			schemaWrites: 0,
+			published: true,
+			activationEpoch: "epoch-new",
+		});
+		expect(await run()).toMatchObject({
+			publicationProtocol: 1,
+			schemaWrites: 0,
+			published: false,
+			activationEpoch: "epoch-new",
+		});
+		expect(purgeCalls(env)).toBe(1);
+		expect(mocks.run).not.toHaveBeenCalled();
+		expect(mocks.planRows).not.toHaveBeenCalled();
+		expect(mocks.planIncremental).not.toHaveBeenCalled();
+		expect(mocks.snapshot).not.toHaveBeenCalled();
+	});
+
+	it("rejects a changed migration head before activation", async () => {
+		const env = releaseEnv();
+		await expect(
+			workflow(env as never).run(
+				{
+					payload: {
+						kind: "publish_tool_metadata",
+						mode: "schema",
+						apply: false,
+						expectedMigration: { id: 2, name: "later/migration.sql" },
+					},
+				} as never,
+				engine().step as never,
+			),
+		).rejects.toThrow("migration revision changed");
+		expect(purgeCalls(env)).toBe(0);
+		expect(env.R2_BUCKET.put).not.toHaveBeenCalled();
+	});
+
+	it("refuses publication requests that could mutate schemas on an older worker", async () => {
+		const env = releaseEnv();
+		await expect(
+			workflow(env as never).run(
+				{
+					payload: {
+						kind: "publish_tool_metadata",
+						mode: "schema",
+						apply: true,
+						expectedMigration: { id: 1, name: "first/migration.sql" },
+					},
+				} as never,
+				engine().step as never,
+			),
+		).rejects.toThrow("Invalid migration publication request");
+		expect(mocks.migration).not.toHaveBeenCalled();
+		expect(mocks.run).not.toHaveBeenCalled();
+	});
 
 	it("does not reconcile a release after reported projection failures", async () => {
 		const env = releaseEnv();

@@ -33,7 +33,7 @@ export function wranglerRuntimeExecutable(
 
 export function runWrangler(
 	args: string[],
-	options: { cwd?: string; env?: NodeJS.ProcessEnv } = {},
+	options: { cwd?: string; env?: NodeJS.ProcessEnv; timeoutMs?: number } = {},
 ): string {
 	// Every remote D1 touch leaves an actor trail before the process runs.
 	if (isRemoteD1Argv(args)) {
@@ -58,6 +58,7 @@ export function runWrangler(
 			env: { ...process.env, ...options.env },
 			stdio: ["ignore", "pipe", "pipe"],
 			maxBuffer: 20 * 1024 * 1024,
+			timeout: options.timeoutMs,
 		},
 	);
 	if (result.error) {

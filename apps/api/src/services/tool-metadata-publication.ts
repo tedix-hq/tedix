@@ -4,12 +4,26 @@ import { readD1MigrationPublicationRevision } from "@tedix/db/queries/migration-
 export async function reconcileToolMetadataPublication(
 	db: DbClient,
 	env: CloudflareEnv,
-	options: { changed: boolean; reconcileRelease: boolean },
-): Promise<{ published: boolean }> {
+	options: {
+		changed: boolean;
+		reconcileRelease: boolean;
+		expectedMigration?: { id: number; name: string };
+	},
+) {
 	let receiptKey: string | undefined;
+	let migration:
+		| Awaited<ReturnType<typeof readD1MigrationPublicationRevision>>
+		| undefined;
 	if (options.reconcileRelease) {
 		if (!env.R2_BUCKET) throw new Error("Tool publication requires R2_BUCKET");
-		const migration = await readD1MigrationPublicationRevision(db);
+		migration = await readD1MigrationPublicationRevision(db);
+		if (
+			options.expectedMigration &&
+			(migration?.id !== options.expectedMigration.id ||
+				migration.name !== options.expectedMigration.name)
+		) {
+			throw new Error("Tool publication migration revision changed");
+		}
 		const revision = JSON.stringify(migration);
 		const digest = await crypto.subtle.digest(
 			"SHA-256",
@@ -19,8 +33,23 @@ export async function reconcileToolMetadataPublication(
 			byte.toString(16).padStart(2, "0"),
 		).join("");
 		receiptKey = `tool-metadata-publication/v1/${hash}`;
-		if (!options.changed && (await env.R2_BUCKET.get(receiptKey))) {
-			return { published: false };
+		if (!options.changed) {
+			const stored = await env.R2_BUCKET.get(receiptKey);
+			if (stored) {
+				const receipt = await stored
+					.json<{ activationEpoch?: unknown }>()
+					.catch(() => null);
+				if (
+					typeof receipt?.activationEpoch === "string" &&
+					receipt.activationEpoch
+				) {
+					return {
+						published: false,
+						activationEpoch: receipt.activationEpoch,
+						migration,
+					};
+				}
+			}
 		}
 	}
 	if (!env.MCP_SERVICE) {
@@ -61,5 +90,5 @@ export async function reconcileToolMetadataPublication(
 			}),
 		);
 	}
-	return { published: true };
+	return { published: true, activationEpoch: body.activationEpoch, migration };
 }

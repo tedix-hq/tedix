@@ -243,12 +243,26 @@ A Worker deploy does not invalidate compatible durable snapshots. A migration
 that changes `app_tools.write_capability` or `app_tools.meta` needs publication
 even when every stored contract hash still matches.
 
-After applying and verifying approved migrations, the installation's release
-workflow must run `toolSchemaSync.run` with `mode: "projection"` and
-`apply: true`, without an app, router, endpoint, tool or write-limit filter.
-This is the ordinary full projection, with no publication flag. The API needs
-its exact 40-character `GIT_SHA`, `R2_BUCKET`, and the trusted `MCP_SERVICE`
-binding. Wait for the workflow to succeed; a queued instance is not proof.
+For a populated installation, the ordinary production migration command first
+checks that the active `ToolSchemaSyncWorkflow` supports publication-only
+requests. It then applies approved migrations, verifies the ledger, and invokes
+that path immediately, before optimizer maintenance, drift checks or Worker
+upload. There is no publication flag. Install this workflow implementation in
+a release with no pending migrations before the first upgrade that relies on it.
+An older workflow receives a dry-run payload and cannot rewrite schemas; its
+missing publication acknowledgment stops the upgrade before SQL is applied.
+
+The publisher resolves the existing workflow from the explicit production API
+config and requires its DB binding to match the migration config. It verifies
+the exact native migration revision and activation epoch. Workflow calls have
+bounded deadlines; a failed acknowledgment stops the release. Timing is checked
+against the earliest newly applied migration, rather than the end of an upload.
+A late activation still repairs the cache, but fails the timing check.
+
+The normal post-upload full projection remains the reconciliation backstop.
+The API needs `R2_BUCKET` and its trusted `MCP_SERVICE` binding. Wait for workflow
+completion; a queued instance is not proof. The publication-only path does not
+load contracts, project schemas or snapshot every organization's catalog.
 
 A successful full projection compares the latest native D1 migration ledger
 entry with an R2 publication receipt. A new migration revision activates
