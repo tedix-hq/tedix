@@ -6,6 +6,7 @@
 	"license": "Apache-2.0",
 	"type": "module",
 	"exports": {
+		"./utils/os-collaborator-graph": "./src/utils/os-collaborator-graph.ts",
 		"./assets/sheet-blueprint": "./src/assets/sheet-blueprint.ts",
 		"./utils/sheet-csv": "./src/utils/sheet-csv.ts",
 		"./utils/os-screens-prompt": "./src/utils/os-screens-prompt.ts",

@@ -6,7 +6,7 @@ import {
 	type GraphLink,
 	type PermissionGraph,
 	planKeptUserEdges,
-} from "./os-collaborator-graph";
+} from "@tedix/api-contract/utils/os-collaborator-graph";
 
 const OWNER = "owner";
 

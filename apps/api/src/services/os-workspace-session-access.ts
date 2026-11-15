@@ -3,7 +3,7 @@ import { getOsWorkspaceForCollaboration } from "@tedix/db/queries/os-collaborato
 import { getOsCollaborationProposal } from "@tedix/db/queries/os-workspaces/collaboration";
 import { getOsGadget } from "@tedix/db/queries/os-workspaces/gadgets";
 import { z } from "zod";
-import { readWorkspaceSessionRole } from "./os-workspace-collaborators";
+import { readWorkspaceSessionRole } from "@tedix/db/queries/os-workspace-access";
 
 const inputSchema = z
 	.object({

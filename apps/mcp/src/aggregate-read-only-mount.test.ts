@@ -217,6 +217,45 @@ describe("read-only aggregate mounting", () => {
 		},
 	);
 
+	it("does not forward a public app caller without a workspace principal", async () => {
+		getBySlugWithTools.mockResolvedValue(
+			appResponse("workspace-public", { authMode: "public" }, []),
+		);
+		const bindings = createEnv();
+		const forward = vi.fn(
+			async () => new Response("must not reach workspace data"),
+		);
+		bindings.WORKSPACE_RUNTIME = {
+			fetch: forward,
+			connect: () => {
+				throw new Error("Unexpected socket");
+			},
+		};
+		const response = await worker.fetch(
+			new Request(
+				"https://workspace-public.mcp.tedix.tech/mcp/workspaces/fictional-private",
+				{
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						"X-Workspace-Actor-Id": "fictional-owner",
+						"X-Workspace-Actor-Kind": "user",
+					},
+					body: JSON.stringify({
+						jsonrpc: "2.0",
+						id: 1,
+						method: "tools/call",
+						params: { name: "read_events" },
+					}),
+				},
+			),
+			bindings,
+			createExecutionContext(),
+		);
+		expect(response.status).toBe(404);
+		expect(forward).not.toHaveBeenCalled();
+	});
+
 	it("rejects workspace GET requests even when the object binding is absent", async () => {
 		const result = await worker.fetch(
 			new Request(

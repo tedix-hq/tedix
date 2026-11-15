@@ -58,7 +58,14 @@ its code runs beside the data.
   that each carry a `seq` cursor, plus `hello`, `turn.accepted` and `error`.
 - MCP: the gateway forwards `POST /mcp/workspaces/{workspaceId}` here with the
   caller's principal; tools are `send_turn`, `read_turn`, `read_events`,
-  `read_change_records`, `describe_binding`.
+  `read_change_records`, `describe_binding`. Forwarded requests carry
+  `X-Workspace-Actor-Id`, `X-Workspace-Actor-Kind` and `X-Workspace-Scopes`.
+  The object checks the current workspace permission graph on each call.
+  Chat history, turns and approvals require build access. Use access allows
+  interaction with deployed apps. Open chat sockets recheck before each action,
+  replay and outbound event, closing when access falls. A personal tedi needs
+  its active owner binding and the operation's scopes. Guest selection cannot
+  impersonate another person's personal tedi.
 - Migration: `/migration/workspaces/{org}/{workspace}` (`GET` describe,
   `POST /import`, `POST /rows`, separate `POST /activate`) on the worker, guarded by
   `MIGRATE_WORKSPACES_TOKEN`; see `scripts/migrate-workspaces/README.md`.

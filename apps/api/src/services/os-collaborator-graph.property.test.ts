@@ -14,7 +14,7 @@ import {
 	type PermissionGraph,
 	planKeptUserEdges,
 	type RoleMap,
-} from "./os-collaborator-graph";
+} from "@tedix/api-contract/utils/os-collaborator-graph";
 
 /**
  * Property tests for the collaborator graph over many seeded random graphs.

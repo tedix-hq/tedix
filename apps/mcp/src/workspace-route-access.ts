@@ -1,3 +1,7 @@
+import {
+	delegatedMachineScopes,
+	hasScope,
+} from "@tedix/mcp-shared/auth/scopes";
 import { callApiRpc } from "./lib/rpc";
 
 /** The caller the gateway authenticated for a `/mcp/workspaces/{id}` request. */
@@ -28,43 +32,36 @@ export async function resolveWorkspaceRouteAccess(
 	lookup: WorkspaceLookup,
 	caller: WorkspaceRouteCaller,
 ): Promise<WorkspaceRouteAccess> {
-	const attempts: Record<string, string>[] = [
-		{
+	const scopes = [...caller.scopes, ...delegatedMachineScopes(caller.scopes)];
+	if (!hasScope(scopes, "apps:read")) return "deny";
+	let headers: Record<string, string>;
+	if (caller.authType === "tedi" && caller.tediId) {
+		headers = {
 			"X-Tedix-Org-Id": caller.organizationId,
-			// Read authority for this one lookup; identity decides visibility.
 			"X-Tedix-Tedi-Scopes": "apps:read",
-			...(caller.tediId ? { "X-Tedix-Tedi-Id": caller.tediId } : {}),
-			// A person bound to a tedi is still that person, not the tedi's owner.
-			...(caller.tediId && caller.authType !== "tedi" && caller.userId
-				? { "X-Tedix-Acting-User": caller.userId }
-				: {}),
-		},
-	];
-	if (
+			"X-Tedix-Tedi-Id": caller.tediId,
+		};
+	} else if (
 		(caller.authType === "oauth" || caller.authType === "user") &&
-		caller.bearerToken
-	)
-		attempts.push({
+		caller.bearerToken &&
+		caller.userId
+	) {
+		headers = {
 			"X-Tedix-Org-Id": caller.organizationId,
 			"X-Forwarded-Authorization": `Bearer ${caller.bearerToken}`,
 			"X-Tedix-Caller-Type": "mcp-edge-user",
 			...(caller.scopes.length
 				? { "X-Tedix-Mcp-Caller-Scopes": caller.scopes.join(" ") }
 				: {}),
-		});
-
-	let unavailable = false;
-	for (const headers of attempts) {
-		let status: number;
-		try {
-			status = await lookup(headers);
-		} catch {
-			status = 503;
-		}
+		};
+	} else return "deny";
+	try {
+		const status = await lookup(headers);
 		if (status === 200) return "allow";
-		if (status >= 500 || status === 429) unavailable = true;
+		return status >= 500 || status === 429 ? "unavailable" : "deny";
+	} catch {
+		return "unavailable";
 	}
-	return unavailable ? "unavailable" : "deny";
 }
 
 export function apiWorkspaceLookup(

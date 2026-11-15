@@ -1,3 +1,10 @@
+import { grantOsWorkspaceAccess } from "@tedix/db/queries/os-collaborators";
+import { organizationMembers } from "@tedix/db/schema/organization-members";
+import {
+	osWorkspaceCollaborators,
+	osWorkspaceAccessEdges,
+	osWorkspaceShareLinks,
+} from "@tedix/db/schema/os-collaborators";
 import { env, evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { getTableColumns, getTableName } from "drizzle-orm";
 import type { SQLiteTable } from "drizzle-orm/sqlite-core";
@@ -174,6 +181,10 @@ function ddl(table: SQLiteTable): string {
 async function seedCore() {
 	const now = "2026-11-07T10:00:00.000Z";
 	const tables = [
+		organizationMembers,
+		osWorkspaceCollaborators,
+		osWorkspaceAccessEdges,
+		osWorkspaceShareLinks,
 		osWorkspaces,
 		osOutputs,
 		osOutputRevisions,
@@ -197,6 +208,15 @@ async function seedCore() {
 	];
 	await testEnv.DB.batch([
 		...tables.map((table) => testEnv.DB.prepare(ddl(table))),
+		testEnv.DB.prepare(
+			"CREATE UNIQUE INDEX IF NOT EXISTS os_workspace_collaborators_workspace_user_unique ON os_workspace_collaborators(workspace_id, user_id)",
+		),
+		testEnv.DB.prepare(
+			"CREATE UNIQUE INDEX IF NOT EXISTS os_workspace_access_edges_unique ON os_workspace_access_edges(workspace_id, target_user_id, edge_key)",
+		),
+		testEnv.DB.prepare(
+			"INSERT OR REPLACE INTO organization_members (id, organization_id, descope_user_id, email, role, status, kind) VALUES (?, ?, 'u1', 'u1@example.test', 'member', 'active', 'human')",
+		).bind(`fixture-u1-${scope.organizationId}`, scope.organizationId),
 		testEnv.DB.prepare(
 			`INSERT OR REPLACE INTO os_workspaces (id, organization_id, name, description, status, created_by_kind, created_by_id, created_at, updated_at, visibility) VALUES (?, ?, ?, ?, 'active', 'user', 'u1', ?, ?, 'org')`,
 		).bind(
@@ -232,6 +252,13 @@ async function seedCore() {
 
 async function seedWorkspaceRows(scopes: WorkspaceScope[]) {
 	const now = "2026-11-07T10:00:00.000Z";
+	await testEnv.DB.batch(
+		[...new Set(scopes.map((s) => s.organizationId))].map((organizationId) =>
+			testEnv.DB.prepare(
+				"INSERT OR REPLACE INTO organization_members (id, organization_id, descope_user_id, email, role, status, kind) VALUES (?, ?, 'u1', 'u1@example.test', 'member', 'active', 'human')",
+			).bind(`fixture-u1-${organizationId}`, organizationId),
+		),
+	);
 	await testEnv.DB.batch(
 		scopes.map((workspaceScope, index) =>
 			testEnv.DB.prepare(
@@ -1945,6 +1972,7 @@ describe("WorkspaceDO", () => {
 			organizationId: "org_test",
 			workspaceId: "11111111-1111-4111-8111-111111111117",
 		};
+		await seedWorkspaceRows([scope]);
 		const ws = workspace(scope);
 		await ws.scriptModel(scope, [{ text: "native answer" }]);
 		const native = await ws.sendTurn(scope, {
@@ -2161,8 +2189,9 @@ describe("WorkspaceDO", () => {
 			"Content-Type": "application/json",
 			"X-Workspace-Org": scope.organizationId,
 			"X-Workspace-Id": scope.workspaceId,
-			"X-Workspace-Actor-Id": "outside-agent",
-			"X-Workspace-Actor-Kind": "external_agent",
+			"X-Workspace-Actor-Id": "u1",
+			"X-Workspace-Actor-Kind": "user",
+			"X-Workspace-Scopes": "mcp:apps.read mcp:apps.write",
 		};
 		const discovered = await ws.fetch(
 			new Request("https://workspace.test/mcp", {
@@ -3117,5 +3146,419 @@ describe("stopped, failed and interrupted turns", () => {
 				text: "Already written; done.",
 			},
 		);
+	});
+});
+
+/** Every identity and row below belongs to a fictional, local tenant. */
+describe("workspace transport authorization", () => {
+	async function fixture() {
+		await seedCore();
+		const privateScope = { ...scope, workspaceId: crypto.randomUUID() };
+		await seedWorkspaceRows([privateScope]);
+		await testEnv.DB.prepare(
+			"UPDATE os_workspaces SET visibility = 'private', owner_user_id = 'u1' WHERE id = ?",
+		)
+			.bind(privateScope.workspaceId)
+			.run();
+		for (const [userId, role] of [
+			["fictional-builder", "build"],
+			["fictional-user", "use"],
+		] as const) {
+			await grantOsWorkspaceAccess(createDbQueryClient(testEnv.DB), {
+				...privateScope,
+				now: "2026-11-15T00:00:00Z",
+				edges: [
+					{
+						kind: "user",
+						targetUserId: userId,
+						targetEmail: null,
+						targetName: null,
+						sharerUserId: "u1",
+						role,
+					},
+				],
+			});
+		}
+		const ws = workspace(privateScope);
+		await seedOutputs(ws, privateScope);
+		return { ws, privateScope };
+	}
+	function headers(
+		privateScope: WorkspaceScope,
+		actorId = "u1",
+		actorKind = "user",
+		scopes = "mcp:apps.read mcp:apps.write",
+	) {
+		return {
+			"Content-Type": "application/json",
+			"X-Workspace-Org": privateScope.organizationId,
+			"X-Workspace-Id": privateScope.workspaceId,
+			"X-Workspace-Actor-Id": actorId,
+			"X-Workspace-Actor-Kind": actorKind,
+			"X-Workspace-Scopes": scopes,
+		};
+	}
+	function mcp(
+		ws: Stub,
+		h: Record<string, string>,
+		name: string,
+		args: Record<string, unknown> = {},
+	) {
+		return ws.fetch(
+			new Request("https://workspace.test/mcp", {
+				method: "POST",
+				headers: h,
+				body: JSON.stringify({
+					jsonrpc: "2.0",
+					id: 1,
+					method: "tools/call",
+					params: { name, arguments: args },
+				}),
+			}),
+		);
+	}
+	async function open(
+		ws: Stub,
+		privateScope: WorkspaceScope,
+		actorId = "fictional-builder",
+	) {
+		const response = await ws.fetch(
+			new Request("https://workspace.test/subscribe", {
+				headers: { ...headers(privateScope, actorId), Upgrade: "websocket" },
+			}),
+		);
+		expect(response.status).toBe(101);
+		if (!response.webSocket) throw new Error("No socket");
+		return response.webSocket;
+	}
+	test.each(["fictional-user", "fictional-stranger"])(
+		"MCP and chat refuse private workspace access for %s",
+		async (actorId) => {
+			const { ws, privateScope } = await fixture();
+			for (const name of [
+				"read_events",
+				"read_turn",
+				"read_change_records",
+				"send_turn",
+				"decide_approval",
+			]) {
+				const response = await mcp(ws, headers(privateScope, actorId), name, {
+					text: "Unauthorized write",
+					decision: "approve",
+				});
+				expect(response.status).toBe(403);
+				expect(await response.text()).not.toContain("out-doc");
+			}
+			const chat = await ws.fetch(
+				new Request("https://workspace.test/subscribe?after=0", {
+					headers: { ...headers(privateScope, actorId), Upgrade: "websocket" },
+				}),
+			);
+			expect(chat.status).toBe(403);
+			expect(await ws.listConversations(privateScope)).toEqual([]);
+		},
+	);
+	test.each(["u1", "fictional-builder"])(
+		"MCP and chat permit current owner/build access for %s",
+		async (actorId) => {
+			const { ws, privateScope } = await fixture();
+			expect(
+				(await mcp(ws, headers(privateScope, actorId), "read_events")).status,
+			).toBe(200);
+			await ws.scriptModel(privateScope, [
+				{ text: "Fictional authorized answer" },
+			]);
+			const response = await mcp(
+				ws,
+				headers(privateScope, actorId),
+				"send_turn",
+				{ text: "Authorized task", waitSeconds: 1 },
+			);
+			expect(await response.json()).toMatchObject({
+				result: { isError: false },
+			});
+			const socket = await open(ws, privateScope, actorId);
+			try {
+				const replay = socketFramesUntil(
+					socket,
+					(frame) => frame.type === "caught_up",
+				);
+				socket.send(
+					JSON.stringify({
+						type: "subscribe",
+						conversationId: null,
+						cursor: 0,
+					}),
+				);
+				const frames = await replay;
+				expect(frames.some((frame) => frame.type === "turn.started")).toBe(
+					true,
+				);
+			} finally {
+				socket.close(1000, "test complete");
+			}
+		},
+	);
+	test.each(["u1", "fictional-builder"])(
+		"current owner/build %s can approve a held write on an existing socket",
+		async (actorId) => {
+			const { ws, privateScope } = await fixture();
+			await ws.scriptModel(privateScope, [
+				{
+					code: `export default async env => env.outputs.create({title:"Authorized output",content:{kind:"document",blocks:[]}})`,
+				},
+			]);
+			const started = await ws.sendTurn(privateScope, {
+				actorId: "u1",
+				actorKind: "user",
+				text: "Create a fictional output",
+			});
+			await ws.awaitTurn(privateScope, started.turnId, 20_000);
+			const requested = (
+				await ws.readEvents(privateScope, {
+					conversationId: started.conversationId,
+				})
+			).find((event) => event.type === "approval.requested");
+			if (requested?.type !== "approval.requested")
+				throw new Error("Missing pending approval");
+			await ws.scriptModel(privateScope, [
+				{ text: "Saved the authorized output" },
+			]);
+			const socket = await open(ws, privateScope, actorId);
+			try {
+				const executed = socketFramesUntil(
+					socket,
+					(frame) =>
+						frame.type === "approval.executed" || frame.type === "error",
+				);
+				socket.send(
+					JSON.stringify({
+						type: "decide_approval",
+						approvalId: requested.approvalId,
+						decision: "approve",
+					}),
+				);
+				expect((await executed).at(-1)).toMatchObject({
+					type: "approval.executed",
+					approvalId: requested.approvalId,
+					status: "applied",
+				});
+				expect(
+					(
+						await ws.outputQuery(privateScope, {
+							op: "list",
+							options: { limit: 50 },
+						})
+					).some((output) => output.title === "Authorized output"),
+				).toBe(true);
+			} finally {
+				socket.close(1000, "test complete");
+			}
+		},
+	);
+
+	test("MCP tedi access requires the active personal binding and operation scopes", async () => {
+		const { ws, privateScope } = await fixture();
+		const tediId = crypto.randomUUID();
+		await testEnv.DB.prepare(
+			"INSERT INTO tedis (id, organization_id, name, slug, scope, owner_user_id, status, created_at, updated_at) VALUES (?, ?, 'Fictional tedi', ?, 'personal', 'u1', 'active', '2026-11-15', '2026-11-15')",
+		)
+			.bind(tediId, privateScope.organizationId, tediId)
+			.run();
+		const impersonation = await mcp(
+			ws,
+			headers(privateScope, "fictional-builder"),
+			"send_turn",
+			{ text: "Impersonate the owner's tedi", tediId },
+		);
+		expect(await impersonation.json()).toMatchObject({
+			result: { isError: true },
+		});
+		expect(await ws.listConversations(privateScope)).toEqual([]);
+		const socket = await open(ws, privateScope);
+		try {
+			const denied = socketFramesUntil(
+				socket,
+				(frame) => frame.type === "error",
+			);
+			socket.send(
+				JSON.stringify({
+					type: "send_turn",
+					clientTurnId: "impersonation",
+					text: "Impersonate the owner's tedi",
+					tediId,
+				}),
+			);
+			expect((await denied).at(-1)).toMatchObject({
+				type: "error",
+				message: "Tedi access denied",
+			});
+			expect(await ws.listConversations(privateScope)).toEqual([]);
+		} finally {
+			socket.close(1000, "test complete");
+		}
+		const h = headers(privateScope, tediId, "tedi", "mcp:apps.read");
+		expect((await mcp(ws, h, "read_events")).status).toBe(200);
+		const deniedWrite = await mcp(ws, h, "send_turn", {
+			text: "Read grant cannot write",
+		});
+		expect(await deniedWrite.json()).toMatchObject({
+			result: { isError: true },
+		});
+		expect(await ws.listConversations(privateScope)).toEqual([]);
+		await ws.scriptModel(privateScope, [{ text: "Fictional tedi answer" }]);
+		const allowedWrite = await mcp(
+			ws,
+			headers(privateScope, tediId, "tedi"),
+			"send_turn",
+			{ text: "Authorized tedi task", waitSeconds: 1 },
+		);
+		expect(await allowedWrite.json()).toMatchObject({
+			result: { isError: false },
+		});
+		// Revoking the binding affects the same already-issued caller identity.
+		await testEnv.DB.prepare(
+			"UPDATE tedis SET owner_user_id = 'fictional-stranger' WHERE id = ?",
+		)
+			.bind(tediId)
+			.run();
+		for (const name of ["read_events", "send_turn", "decide_approval"])
+			expect((await mcp(ws, h, name)).status).toBe(403);
+		await testEnv.DB.prepare(
+			"UPDATE tedis SET owner_user_id = 'u1', status = 'paused' WHERE id = ?",
+		)
+			.bind(tediId)
+			.run();
+		expect((await mcp(ws, h, "read_events")).status).toBe(403);
+	});
+	test("another organization and an app identity confer no workspace authority", async () => {
+		const { ws, privateScope } = await fixture();
+		const foreignScope = {
+			organizationId: "fictional-other-org",
+			workspaceId: privateScope.workspaceId,
+		};
+		const foreign = workspace(foreignScope);
+		for (const name of ["read_events", "send_turn", "decide_approval"]) {
+			expect((await mcp(foreign, headers(foreignScope), name)).status).toBe(
+				403,
+			);
+			expect(
+				(
+					await mcp(
+						ws,
+						headers(privateScope, "app:fictional", "external_agent"),
+						name,
+					)
+				).status,
+			).toBe(403);
+		}
+		expect(
+			(
+				await foreign.fetch(
+					new Request("https://workspace.test/subscribe", {
+						headers: { ...headers(foreignScope), Upgrade: "websocket" },
+					}),
+				)
+			).status,
+		).toBe(403);
+	});
+	const deniedFrames = [
+		{ type: "subscribe", conversationId: null, cursor: 0 },
+		{ type: "read_ledger", conversationId: "fictional-conversation" },
+		{
+			type: "send_turn",
+			clientTurnId: "fictional-write",
+			text: "Unauthorized task",
+		},
+		{ type: "cancel_turn", turnId: "fictional-turn" },
+		{
+			type: "decide_approval",
+			approvalId: "fictional-approval",
+			decision: "approve",
+		},
+		{
+			type: "decide_approval",
+			approvalId: "fictional-approval",
+			decision: "deny",
+		},
+	];
+	for (const change of ["revoke", "downgrade"] as const) {
+		test.each(deniedFrames)(
+			`an existing socket denies $type after ${change}`,
+			async (frame) => {
+				const { ws, privateScope } = await fixture();
+				// Real pending rows make the approval test detect an unauthorized mutation.
+				await runInDurableObject(ws, async (_instance, state) => {
+					state.storage.sql.exec(
+						"INSERT INTO approvals (approval_id, turn_id, conversation_id, step_id, binding, method, args, resource, args_hash, actor_id, actor_kind, status) VALUES ('fictional-approval','fictional-turn','fictional-conversation','step','outputs','create','{}','output','hash','u1','user','pending')",
+					);
+				});
+				const socket = await open(ws, privateScope);
+				try {
+					if (change === "revoke")
+						await testEnv.DB.prepare(
+							"DELETE FROM os_workspace_access_edges WHERE workspace_id = ? AND target_user_id = 'fictional-builder'",
+						)
+							.bind(privateScope.workspaceId)
+							.run();
+					else
+						await testEnv.DB.prepare(
+							"UPDATE os_workspace_access_edges SET role = 'use' WHERE workspace_id = ? AND target_user_id = 'fictional-builder'",
+						)
+							.bind(privateScope.workspaceId)
+							.run();
+					const rejected = socketFramesUntil(
+						socket,
+						(event) => event.type === "error",
+					);
+					socket.send(JSON.stringify(frame));
+					expect((await rejected).at(-1)).toMatchObject({
+						type: "error",
+						code: "access_denied",
+					});
+					expect(await ws.listConversations(privateScope)).toEqual([]);
+					await runInDurableObject(ws, async (_instance, state) => {
+						expect(
+							state.storage.sql
+								.exec<{ status: string }>(
+									"SELECT status FROM approvals WHERE approval_id = 'fictional-approval'",
+								)
+								.one().status,
+						).toBe("pending");
+					});
+					for (const name of ["read_events", "send_turn"])
+						expect(
+							(await mcp(ws, headers(privateScope, "fictional-builder"), name))
+								.status,
+						).toBe(403);
+				} finally {
+					socket.close(1000, "test complete");
+				}
+			},
+		);
+	}
+	test("revocation cuts outbound events without another client frame", async () => {
+		const { ws, privateScope } = await fixture();
+		const socket = await open(ws, privateScope);
+		const received: unknown[] = [];
+		socket.addEventListener("message", (e) => received.push(e.data));
+		socket.accept();
+		const closed = new Promise<CloseEvent>((resolve) =>
+			socket.addEventListener("close", resolve, { once: true }),
+		);
+		await testEnv.DB.prepare(
+			"DELETE FROM os_workspace_access_edges WHERE workspace_id = ? AND target_user_id = 'fictional-builder'",
+		)
+			.bind(privateScope.workspaceId)
+			.run();
+		await ws.scriptModel(privateScope, [{ text: "Secret after revocation" }]);
+		const started = await ws.sendTurn(privateScope, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "Owner task after revocation",
+		});
+		expect((await closed).code).toBe(1008);
+		await ws.awaitTurn(privateScope, started.turnId, 1000);
+		expect(received).toEqual([]);
 	});
 });

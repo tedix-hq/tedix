@@ -1671,8 +1671,6 @@ const worker = {
 				const tediId = request.headers.get("x-tedix-auth-tedi-id");
 				const userId = request.headers.get("x-tedix-auth-user-id");
 				const workspaceId = decodeURIComponent(workspaceMatch[1] ?? "");
-				// Passing the app's gates is not access to every workspace in the
-				// organization: a private one is only its owner's.
 				const access = await resolveWorkspaceRouteAccess(
 					apiWorkspaceLookup(env, workspaceId),
 					{
@@ -1697,16 +1695,23 @@ const worker = {
 							: { error: "workspace_access_unavailable" },
 						{ status: access === "deny" ? 404 : 503 },
 					);
+				const isTedi = request.headers.get("x-tedix-auth-type") === "tedi";
+				const isPerson = ["oauth", "user"].includes(
+					request.headers.get("x-tedix-auth-type") ?? "",
+				);
 				const headers = new Headers({
 					"content-type": "application/json",
 					"X-Workspace-Org": app.organizationId,
 					"X-Workspace-Id": workspaceId,
-					"X-Workspace-Actor-Id": tediId ?? userId ?? `app:${app.id}`,
-					"X-Workspace-Actor-Kind": tediId
+					"X-Workspace-Actor-Id":
+						(isTedi ? tediId : isPerson ? userId : null) ?? `app:${app.id}`,
+					"X-Workspace-Actor-Kind": isTedi
 						? "tedi"
-						: userId
+						: isPerson && userId
 							? "user"
 							: "external_agent",
+					"X-Workspace-Scopes":
+						request.headers.get("x-tedix-auth-scopes") ?? "",
 				});
 				return workspaceRuntime.fetch(
 					new Request("https://workspace.internal/mcp", {

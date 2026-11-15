@@ -3,6 +3,7 @@
  * the sharing operations around it. Access is the permission graph in
  * `os-collaborator-graph.ts`, recomputed from stored edges on every call.
  */
+import { loadWorkspaceAccess } from "@tedix/db/queries/os-workspace-access";
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
 import {
 	collaboratorRoleAtLeast,
@@ -25,7 +26,6 @@ import {
 	grantOsWorkspaceAccess,
 	listOsWorkspaceOrganizationMemberRoles,
 	listTedixPeople,
-	loadOsWorkspacePermissionRows,
 	type OsWorkspaceEdgeInput,
 	type OsWorkspacePermissionRows,
 	recordOsWorkspaceCollaboratorOpen,
@@ -35,7 +35,6 @@ import {
 	updateOsWorkspaceShareLink,
 } from "@tedix/db/queries/os-collaborators";
 import { getOrganizationProfile } from "@tedix/db/queries/organizations";
-import { getMemberAccessByUserId } from "@tedix/db/queries/organization-members";
 import {
 	getOsGadget,
 	getOsGadgetRevision,
@@ -52,12 +51,11 @@ import {
 	computeEffectiveRoles,
 	diffRoles,
 	type GraphChange,
-	type GraphEdge,
 	type PermissionGraph,
 	planKeptUserEdges,
 	type RoleChange,
 	type RoleMap,
-} from "./os-collaborator-graph";
+} from "@tedix/api-contract/utils/os-collaborator-graph";
 
 /** Fixed domain-separation key: the hash proves possession, it is not a secret. */
 const SHARE_KEY_HMAC_KEY = "tedix.os.workspace-share-key.v1";
@@ -120,118 +118,6 @@ type WorkspaceAccess = {
 	canAdminister: boolean;
 };
 
-const ORG_ROLE: Record<string, OsCollaboratorRole> = {
-	owner: "build",
-	admin: "build",
-	member: "build",
-	viewer: "use",
-};
-
-function toGraphEdges(rows: OsWorkspacePermissionRows): GraphEdge[] {
-	return rows.edges.flatMap((edge): GraphEdge[] => {
-		if (edge.kind === "user" && edge.sharerUserId && edge.role)
-			return [
-				{
-					kind: "user",
-					targetId: edge.targetUserId,
-					sharerId: edge.sharerUserId,
-					role: edge.role,
-				},
-			];
-		if (edge.kind === "link" && edge.linkId)
-			return [
-				{ kind: "link", targetId: edge.targetUserId, linkId: edge.linkId },
-			];
-		return [];
-	});
-}
-
-/**
- * Roots hold `build` implicitly. A private workspace has one: its owner. An
- * organization workspace is already open to its organization's members, so
- * members who appear in the graph (as sharers, link creators or the caller)
- * are roots at their organization role. Administrators are the private
- * owner, or the organization's owners and admins.
- */
-async function loadRoots(
-	database: DbQueryClient,
-	workspace: OsWorkspaceRow,
-	rows: OsWorkspacePermissionRows,
-	callerId: string,
-): Promise<{
-	roots: Map<string, OsCollaboratorRole>;
-	administrators: Set<string>;
-}> {
-	if (workspace.visibility === "private") {
-		const owner = workspace.ownerUserId;
-		return {
-			roots: new Map(owner ? [[owner, "build"] as const] : []),
-			administrators: new Set(owner ? [owner] : []),
-		};
-	}
-	const candidates = new Set<string>([callerId]);
-	for (const edge of rows.edges) {
-		candidates.add(edge.targetUserId);
-		if (edge.sharerUserId) candidates.add(edge.sharerUserId);
-	}
-	for (const link of rows.links) candidates.add(link.creatorUserId);
-	const members = await listOsWorkspaceOrganizationMemberRoles(database, {
-		organizationId: workspace.organizationId,
-		userIds: [...candidates],
-	});
-	return {
-		roots: new Map(
-			members.flatMap((member) => {
-				const role = ORG_ROLE[member.role];
-				return role ? [[member.userId, role] as const] : [];
-			}),
-		),
-		administrators: new Set(
-			members
-				.filter((member) => member.role === "owner" || member.role === "admin")
-				.map((member) => member.userId),
-		),
-	};
-}
-
-async function loadAccess(
-	database: DbQueryClient,
-	workspace: OsWorkspaceRow,
-	callerId: string,
-): Promise<WorkspaceAccess> {
-	const rows = await loadOsWorkspacePermissionRows(database, {
-		organizationId: workspace.organizationId,
-		workspaceId: workspace.id,
-	});
-	const { roots, administrators } = await loadRoots(
-		database,
-		workspace,
-		rows,
-		callerId,
-	);
-	const graph: PermissionGraph = {
-		roots,
-		edges: toGraphEdges(rows),
-		links: rows.links.map((link) => ({
-			id: link.id,
-			creatorId: link.creatorUserId,
-			role: link.role,
-			revoked: link.revokedAt !== null,
-		})),
-	};
-	const roles = computeEffectiveRoles(graph);
-	return {
-		workspace,
-		callerId,
-		rows,
-		graph,
-		roles,
-		role: roles.get(callerId) ?? null,
-		isRoot: roots.has(callerId),
-		canAdminister: administrators.has(callerId),
-	};
-}
-
 async function findWorkspace(
 	database: DbQueryClient,
 	workspaceId: string,
@@ -242,26 +128,6 @@ async function findWorkspace(
 	if (!workspace || workspace.status !== "active")
 		throw createError(ErrorCodes.NOT_FOUND, "Workspace not found");
 	return workspace;
-}
-
-/** Revalidate a previously verified socket identity without storing its credentials. */
-export async function readWorkspaceSessionRole(
-	database: DbQueryClient,
-	workspaceId: string,
-	userId: string,
-): Promise<OsCollaboratorRole | null> {
-	const workspace = await getOsWorkspaceForCollaboration(database, {
-		workspaceId,
-	});
-	if (!workspace || workspace.status !== "active") return null;
-	const member = await getMemberAccessByUserId(
-		database,
-		workspace.organizationId,
-		userId,
-	);
-	// Explicit shares cannot keep a suspended organization seat connected.
-	if (member && member.status !== "active") return null;
-	return (await loadAccess(database, workspace, userId)).role;
 }
 
 /**
@@ -276,7 +142,7 @@ export async function listWorkspaceAccessHolders(
 ): Promise<Set<string>> {
 	const [first] = userIds;
 	if (first === undefined) return new Set();
-	const access = await loadAccess(database, workspace, first);
+	const access = await loadWorkspaceAccess(database, workspace, first);
 	const holders = new Set(userIds.filter((id) => access.roles.has(id)));
 	if (workspace.visibility === "private") return holders;
 	const members = await listOsWorkspaceOrganizationMemberRoles(database, {
@@ -284,7 +150,8 @@ export async function listWorkspaceAccessHolders(
 		userIds,
 	});
 	for (const member of members)
-		if (ORG_ROLE[member.role]) holders.add(member.userId);
+		if (["owner", "admin", "member", "viewer"].includes(member.role))
+			holders.add(member.userId);
 	return holders;
 }
 
@@ -300,7 +167,7 @@ export async function requireWorkspaceCollaboratorAccess(
 ): Promise<WorkspaceAccess> {
 	const callerId = requireCollaboratorIdentity(context);
 	const database = db(context);
-	const access = await loadAccess(
+	const access = await loadWorkspaceAccess(
 		database,
 		await findWorkspace(database, workspaceId),
 		callerId,
@@ -325,7 +192,7 @@ export async function isOsWorkspaceBuildCollaborator(
 	userId: string,
 ): Promise<boolean> {
 	try {
-		const access = await loadAccess(db(context), workspace, userId);
+		const access = await loadWorkspaceAccess(db(context), workspace, userId);
 		return !access.isRoot && access.role === "build";
 	} catch (error) {
 		// Fail closed: this runs only on the path that would otherwise deny.
@@ -404,7 +271,7 @@ export async function openWorkspaceAsCollaborator(
 			keyHash: await hashWorkspaceShareKey(input.shareKey),
 		});
 		if (link) {
-			const pre = await loadAccess(database, workspace, callerId);
+			const pre = await loadWorkspaceAccess(database, workspace, callerId);
 			if (!pre.isRoot) {
 				const [person] = await listTedixPeople(database, [callerId]);
 				await grantOsWorkspaceAccess(database, {
@@ -424,7 +291,7 @@ export async function openWorkspaceAsCollaborator(
 			}
 		}
 	}
-	const access = await loadAccess(database, workspace, callerId);
+	const access = await loadWorkspaceAccess(database, workspace, callerId);
 	if (!access.role) throw createError(ErrorCodes.FORBIDDEN, ACCESS_DENIED);
 	if (input.appId) {
 		const gadget = await getOsGadget(database, {
@@ -646,7 +513,11 @@ export async function addWorkspaceCollaborator(
 			},
 		],
 	});
-	const after = await loadAccess(database, access.workspace, access.callerId);
+	const after = await loadWorkspaceAccess(
+		database,
+		access.workspace,
+		access.callerId,
+	);
 	const [sharer] = await listTedixPeople(database, [access.callerId]);
 	return {
 		userId: person.userId,
@@ -849,7 +720,11 @@ export async function removeWorkspaceAccess(
 			sharerUserId: plan.sharerUserId,
 		});
 	}
-	const after = await loadAccess(database, access.workspace, access.callerId);
+	const after = await loadWorkspaceAccess(
+		database,
+		access.workspace,
+		access.callerId,
+	);
 	const fell = diffRoles(access.roles, after.roles);
 	// Anyone whose role fell may still hold a signed app session or be inside
 	// an app call; the workspace's app host cuts them and restarts its apps.
@@ -875,7 +750,11 @@ async function applyAccessChange(
 ): Promise<OsAffectedCollaborator[]> {
 	const database = db(context);
 	await write();
-	const after = await loadAccess(database, access.workspace, access.callerId);
+	const after = await loadWorkspaceAccess(
+		database,
+		access.workspace,
+		access.callerId,
+	);
 	const fell = diffRoles(access.roles, after.roles);
 	await cutWorkspaceAppSessions(context.env, {
 		organizationId: access.workspace.organizationId,
