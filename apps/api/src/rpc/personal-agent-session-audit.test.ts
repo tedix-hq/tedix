@@ -99,10 +99,32 @@ it("audits a new Session once through the real router without storing request se
 		version: "1.0",
 	};
 	try {
-		verify.mockResolvedValue({ status: "accepted", sessionCreated: true });
+		const identity = {
+			clientId: "https://private-client.example/agent.json",
+			userId: "private-user",
+			sessionId: "private-session",
+			agentId: "private-agent",
+			version: "1.0",
+		};
+		context.headers.delete("X-Service-Binding");
+		await expect(client.personalAgentSession(input)).rejects.toMatchObject({
+			code: "UNAUTHORIZED",
+		});
+		expect(verify).not.toHaveBeenCalled();
+		context.headers.set("X-Service-Binding", "true");
+		verify.mockResolvedValue({
+			status: "accepted",
+			sessionCreated: true,
+			identity,
+		});
+		expect(await client.personalAgentSession(input)).toEqual({
+			status: "accepted",
+			sessionCreated: true,
+			identity,
+		});
+		verify.mockResolvedValue({ status: "accepted", identity });
 		await client.personalAgentSession(input);
 		for (const status of [
-			"accepted",
 			"not_configured",
 			"invalid_session",
 			"session_ended",
@@ -127,6 +149,9 @@ it("audits a new Session once through the real router without storing request se
 		});
 		expect(JSON.stringify(rows)).not.toContain("fictional-secret");
 		expect(JSON.stringify(rows)).not.toContain("private=");
+		for (const claim of Object.values(identity)) {
+			if (claim !== "1.0") expect(JSON.stringify(rows)).not.toContain(claim);
+		}
 	} finally {
 		sqlite.close();
 	}

@@ -80,9 +80,12 @@ export async function verifySignedOutPersonalAgentSession(
 			...session,
 			now,
 		});
-		return status === "started"
-			? { status: "accepted" as const, sessionCreated: true }
-			: { status };
+		if (status !== "started" && status !== "accepted") return { status };
+		return {
+			status: "accepted" as const,
+			identity: session,
+			...(status === "started" ? { sessionCreated: true } : {}),
+		};
 	} catch (error) {
 		if (error instanceof PersonalAgentSessionFailure)
 			return { status: error.code };

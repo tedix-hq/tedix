@@ -11,17 +11,33 @@ export const PersonalAgentSessionRequestSchema = z.object({
 	version: z.string().max(32).nullable(),
 });
 
-export const PersonalAgentSessionResultSchema = z.object({
-	status: z.enum([
-		"not_configured",
-		"accepted",
-		"invalid_session",
-		"session_ended",
-		"version_unsupported",
-		"rate_limited",
-	]),
-	sessionCreated: z.boolean().optional(),
-});
+const sessionFailureStatus = z.enum([
+	"not_configured",
+	"invalid_session",
+	"session_ended",
+	"version_unsupported",
+	"rate_limited",
+]);
+
+export const PersonalAgentSessionResultSchema = z.discriminatedUnion("status", [
+	z.object({
+		status: z.literal("accepted"),
+		sessionCreated: z.boolean().optional(),
+		// Internal verified claims, never an OAuth principal or account grant.
+		identity: z.object({
+			clientId: z.url({ protocol: /^https$/ }).max(2048),
+			userId: z.string().min(1).max(512),
+			sessionId: z
+				.string()
+				.min(1)
+				.max(512)
+				.regex(/^[A-Za-z0-9_-]+$/),
+			agentId: z.string().min(1).max(512).optional(),
+			version: z.string().regex(/^1\.(0|[1-9][0-9]*)$/),
+		}),
+	}),
+	z.object({ status: sessionFailureStatus }),
+]);
 
 export const PersonalAgentFeedbackSchema = z.object({
 	task: z.string().min(1).max(200),
@@ -33,13 +49,14 @@ export const PersonalAgentInterfacesRequestSchema =
 		report: z.json().optional(),
 	});
 
-export const PersonalAgentInterfacesResultSchema =
-	PersonalAgentSessionResultSchema.extend({
-		status: z.enum([
-			...PersonalAgentSessionResultSchema.shape.status.options,
-			"invalid_request",
-			"unavailable",
-		]),
-		excludedTasks: z.array(PersonalAgentExcludedTaskSchema).optional(),
-		feedbackEndpoint: z.url().optional(),
-	});
+export const PersonalAgentInterfacesResultSchema = z.object({
+	status: z.enum([
+		...sessionFailureStatus.options,
+		"accepted",
+		"invalid_request",
+		"unavailable",
+	]),
+	sessionCreated: z.boolean().optional(),
+	excludedTasks: z.array(PersonalAgentExcludedTaskSchema).optional(),
+	feedbackEndpoint: z.url().optional(),
+});

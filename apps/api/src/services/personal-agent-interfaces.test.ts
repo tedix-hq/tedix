@@ -50,7 +50,16 @@ beforeEach(() => {
 	mocks.organization.mockResolvedValue({
 		metadata: { personalAgentProtocol: config },
 	});
-	mocks.verify.mockResolvedValue({ status: "accepted", sessionCreated: true });
+	mocks.verify.mockResolvedValue({
+		status: "accepted",
+		sessionCreated: true,
+		identity: {
+			clientId: "https://agent.example/agent.json",
+			userId: "private-user",
+			sessionId: "private-session",
+			version: "1.0",
+		},
+	});
 	mocks.intake.mockResolvedValue({ status: "received" });
 });
 describe("personal agent interfaces", () => {
@@ -79,8 +88,9 @@ describe("personal agent interfaces", () => {
 		expect(mocks.intake).not.toHaveBeenCalled();
 	});
 	it("routes verified feedback to the shared private intake", async () => {
-		expect(await personalAgentInterfaces(db, env, feedback)).toMatchObject({
+		expect(await personalAgentInterfaces(db, env, feedback)).toEqual({
 			status: "accepted",
+			sessionCreated: true,
 		});
 		expect(mocks.intake).toHaveBeenCalledWith(
 			db,

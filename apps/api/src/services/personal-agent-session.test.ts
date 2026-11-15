@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { DbClient } from "@tedix/db/client";
 import { PersonalAgentSessionFailure } from "@tedix/auth/personal-agent-session";
+import { PersonalAgentSessionResultSchema } from "@tedix/api-contract/schemas/personal-agent-session";
 import { verifySignedOutPersonalAgentSession } from "./personal-agent-session";
 
 const mocks = vi.hoisted(() => ({
@@ -60,6 +61,7 @@ describe("signed-out protocol resource boundary", () => {
 		expect(await verifySignedOutPersonalAgentSession(db, input)).toEqual({
 			status: "accepted",
 			sessionCreated: true,
+			identity: session,
 		});
 	});
 	beforeEach(() => {
@@ -76,6 +78,7 @@ describe("signed-out protocol resource boundary", () => {
 	it("binds the app to the organization and the Session to its protocol audience", async () => {
 		expect(await verifySignedOutPersonalAgentSession(db, input)).toEqual({
 			status: "accepted",
+			identity: session,
 		});
 		expect(mocks.app).toHaveBeenCalledWith(
 			db,
@@ -105,6 +108,35 @@ describe("signed-out protocol resource boundary", () => {
 				...session,
 			}),
 		);
+	});
+	it("returns only verified claims and permits a later Session for the same client and User", async () => {
+		const later = {
+			...session,
+			sessionId: "sid-later",
+			agentId: "agent-later",
+		};
+		for (const identity of [session, later]) {
+			mocks.verify.mockResolvedValue(identity);
+			const result = await verifySignedOutPersonalAgentSession(db, {
+				...input,
+				sessionToken: "untrusted-claims-are-not-identity",
+			});
+			expect(PersonalAgentSessionResultSchema.parse(result)).toEqual({
+				status: "accepted",
+				identity,
+			});
+		}
+	});
+	it("requires identity on an accepted internal result and strips it from denials", () => {
+		expect(
+			PersonalAgentSessionResultSchema.safeParse({ status: "accepted" })
+				.success,
+		).toBe(false);
+		for (const status of ["session_ended", "invalid_session", "rate_limited"]) {
+			expect(
+				PersonalAgentSessionResultSchema.parse({ status, identity: session }),
+			).toEqual({ status });
+		}
 	});
 	it("does not create a signed-out route on an authenticated or foreign app", async () => {
 		for (const app of [

@@ -44,7 +44,19 @@ describe("signed-out MCP Session gate", () => {
 	it.each(["accepted", "not_configured"])(
 		"continues normal MCP routing for %s without granting account headers",
 		async (status) => {
-			verify.mockResolvedValue({ status });
+			verify.mockResolvedValue({
+				status,
+				...(status === "accepted"
+					? {
+							identity: {
+								clientId: "https://agent.example/agent.json",
+								userId: "private-user",
+								sessionId: "private-session",
+								version: "1.0",
+							},
+						}
+					: {}),
+			});
 			const p = input();
 			expect(await checkSignedOutPersonalAgentSession(p)).toBeNull();
 			expect(
