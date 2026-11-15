@@ -13,7 +13,7 @@ import { schemaDdl } from "../../test/schema-ddl";
 import { updateWorkItemSpecification } from "./crud";
 import { workItemHasMilestoneLinks } from "./milestones";
 
-it("moves Work to another project, audits it, and refuses while a milestone pins it", async () => {
+it("moves Work to another project and audits it despite legacy milestone links", async () => {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys=OFF");
 	sqlite.exec(
@@ -81,26 +81,25 @@ it("moves Work to another project, audits it, and refuses while a milestone pins
 	expect(
 		await workItemHasMilestoneLinks(db, { orgId: "org", workItemId: "free" }),
 	).toBe(false);
-	await expect(
-		updateWorkItemSpecification(db, {
-			orgId: "org",
-			workItemId: "pinned",
-			actor,
-			projectId: "project-b",
-		}),
-	).rejects.toThrow();
+	const previouslyPinned = await updateWorkItemSpecification(db, {
+		orgId: "org",
+		workItemId: "pinned",
+		actor,
+		projectId: "project-b",
+	});
+	expect(previouslyPinned.projectId).toBe("project-b");
 	expect(
 		sqlite.prepare("SELECT project_id FROM work_items WHERE id='pinned'").get(),
-	).toEqual({ project_id: "project-a" });
+	).toEqual({ project_id: "project-b" });
 
-	// Naming the current project is not a move and needs no milestone check.
+	// Naming the current project is not a move.
 	const same = await updateWorkItemSpecification(db, {
 		orgId: "org",
 		workItemId: "pinned",
 		actor,
-		projectId: "project-a",
+		projectId: "project-b",
 		title: "Pinned, renamed",
 	});
-	expect(same.projectId).toBe("project-a");
+	expect(same.projectId).toBe("project-b");
 	sqlite.close();
 });

@@ -12,7 +12,6 @@ import {
 	WorkItemProjectError,
 	WorkItemPurposeError,
 } from "@tedix/db/queries/work-items/purpose";
-import { workItemHasMilestoneLinks } from "@tedix/db/queries/work-items/milestones";
 import {
 	WorkAttemptCliRowSchema,
 	WorkEvidenceCliRowSchema,
@@ -283,16 +282,6 @@ async function workItemProjectMovePurpose(
 			throw createError(ErrorCodes.NOT_FOUND, "Project not found");
 		throw error;
 	}
-	if (
-		await workItemHasMilestoneLinks(context.db, {
-			orgId: workItem.orgId,
-			workItemId: workItem.id,
-		})
-	)
-		throw createError(
-			ErrorCodes.CONFLICT,
-			"This Work item is linked to a milestone of its current project; detach it before moving it",
-		);
 	if (workItem.workClass !== "objective") return {};
 	if (!project.objectiveId)
 		throw createError(
