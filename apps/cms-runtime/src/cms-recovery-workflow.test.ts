@@ -8,13 +8,9 @@ const authority = vi.hoisted(() => ({
 const capturePause = vi.hoisted(() => ({
 	abort: vi.fn(),
 	claim: vi.fn(),
-	reconcile: vi.fn(),
-	drain: vi.fn(),
+	confirm: vi.fn(),
 	assert: vi.fn(),
 	release: vi.fn(),
-}));
-vi.mock("./scheduled-restore-permits", () => ({
-	reconcileScheduledCmsRestorePermits: capturePause.reconcile,
 }));
 vi.mock("@tedix/db/client", () => ({ createDbClient: vi.fn(() => ({})) }));
 vi.mock("@tedix/db/query-client", () => ({
@@ -23,7 +19,7 @@ vi.mock("@tedix/db/query-client", () => ({
 vi.mock("@tedix/db/queries/cms-restore-fences", () => ({
 	abortCmsCaptureCronPause: capturePause.abort,
 	claimCmsCaptureCronPause: capturePause.claim,
-	drainCmsCaptureCronPause: capturePause.drain,
+	confirmCmsCaptureCronPause: capturePause.confirm,
 	assertCmsCaptureCronPause: capturePause.assert,
 	releaseCmsCaptureCronPause: capturePause.release,
 }));
@@ -67,25 +63,16 @@ describe("CMS recovery workflow", () => {
 			.mockResolvedValue([{ isActive: true, version: 7, etag: "bundle-7" }]);
 	});
 
-	it("drains scheduled permits before the first SQL digest and releases before verification", async () => {
+	it("captures without draining scheduled permits and releases before verification", async () => {
 		const events: string[] = [];
 		capturePause.claim.mockImplementation(async () => {
 			events.push("pause-claimed");
 			return true;
 		});
-		capturePause.reconcile.mockImplementation(async () => {
-			events.push("completed-owners-reconciled");
-			return 0;
+		capturePause.confirm.mockImplementation(async () => {
+			events.push("pause-confirmed");
+			return true;
 		});
-		capturePause.drain
-			.mockImplementationOnce(async () => {
-				events.push("drain-blocked");
-				return false;
-			})
-			.mockImplementation(async () => {
-				events.push("drain-complete");
-				return true;
-			});
 		capturePause.assert.mockResolvedValue(true);
 		capturePause.release.mockImplementation(async () => {
 			events.push("pause-released");
@@ -149,15 +136,12 @@ describe("CMS recovery workflow", () => {
 				step as never,
 			),
 		).resolves.toEqual({ captureId: control.captureId, status: "verified" });
-		expect(capturePause.drain).toHaveBeenCalledTimes(2);
-		expect(step.sleep).toHaveBeenCalledOnce();
+		expect(capturePause.confirm).toHaveBeenCalledOnce();
+		expect(step.sleep).not.toHaveBeenCalled();
 		expect(capturePause.release).toHaveBeenCalledOnce();
 		expect(events).toEqual([
 			"pause-claimed",
-			"completed-owners-reconciled",
-			"drain-blocked",
-			"completed-owners-reconciled",
-			"drain-complete",
+			"pause-confirmed",
 			"control-running",
 			"database-snapshot",
 			"database-snapshot",
@@ -171,7 +155,7 @@ describe("CMS recovery workflow", () => {
 	it("retries steps inside the workflow and replays a lost release response safely", async () => {
 		let released = false;
 		capturePause.claim.mockResolvedValue(true);
-		capturePause.drain.mockResolvedValue(true);
+		capturePause.confirm.mockResolvedValue(true);
 		capturePause.assert.mockImplementation(async () => !released);
 		capturePause.release.mockImplementation(async () => {
 			if (released) return true; // Exact row was already deleted.
@@ -256,7 +240,7 @@ describe("CMS recovery workflow", () => {
 			status: "verified",
 		});
 		expect(capturePause.claim).toHaveBeenCalledOnce();
-		expect(capturePause.drain).toHaveBeenCalledOnce();
+		expect(capturePause.confirm).toHaveBeenCalledOnce();
 		expect(capturePause.assert).toHaveBeenCalledTimes(2);
 		expect(capturePause.abort).not.toHaveBeenCalled();
 		expect(capturePause.release).toHaveBeenCalledTimes(2);
@@ -264,9 +248,9 @@ describe("CMS recovery workflow", () => {
 		vi.unstubAllGlobals();
 	});
 
-	it("aborts an undrained terminal failure and retains the original error if cleanup fails", async () => {
+	it("aborts a lost pause and retains the original error if cleanup fails", async () => {
 		capturePause.claim.mockResolvedValue(true);
-		capturePause.drain.mockResolvedValue(false);
+		capturePause.confirm.mockResolvedValue(false);
 		capturePause.abort.mockRejectedValue(new Error("cleanup unavailable"));
 		const log = vi.spyOn(console, "error").mockImplementation(() => {});
 		const step = {
@@ -279,7 +263,7 @@ describe("CMS recovery workflow", () => {
 		);
 		await expect(
 			workflow.run({ payload: control } as never, step as never),
-		).rejects.toThrow("CMS recovery scheduled writes did not drain");
+		).rejects.toThrow("CMS recovery scheduled-write pause unavailable");
 		expect(capturePause.abort).toHaveBeenCalledExactlyOnceWith({}, control);
 		expect(capturePause.release).not.toHaveBeenCalled();
 		expect(log).toHaveBeenCalledOnce();
@@ -288,7 +272,7 @@ describe("CMS recovery workflow", () => {
 
 	it("cleans an exact pause after capture work exhausts its retries", async () => {
 		capturePause.claim.mockResolvedValue(true);
-		capturePause.drain.mockResolvedValue(true);
+		capturePause.confirm.mockResolvedValue(true);
 		capturePause.abort.mockResolvedValue(1);
 		const failure = new Error("capture storage unavailable");
 		const step = {

@@ -12,11 +12,10 @@ import {
 	abortCmsCaptureCronPause,
 	assertCmsCaptureCronPause,
 	claimCmsCaptureCronPause,
-	drainCmsCaptureCronPause,
+	confirmCmsCaptureCronPause,
 	releaseCmsCaptureCronPause,
 } from "@tedix/db/queries/cms-restore-fences";
 import { listTenantBundleVersions } from "@tedix/provisioning/cms";
-import { reconcileScheduledCmsRestorePermits } from "./scheduled-restore-permits";
 import {
 	copyAndVerifyMediaObject,
 	digestSourceMediaObject,
@@ -526,25 +525,11 @@ export class CmsRecoveryWorkflow extends WorkflowEntrypoint<
 			);
 			if (!pauseClaimed)
 				throw new Error("CMS recovery scheduled-write pause unavailable");
-			let drained = false;
-			for (let attempt = 0; attempt < 60; attempt++) {
-				if (
-					await step.do(`drain-scheduled-writes-${attempt}`, async () => {
-						await reconcileScheduledCmsRestorePermits(
-							db,
-							this.env.RECOVERY_STORAGE,
-							event.payload,
-						);
-						return drainCmsCaptureCronPause(db, event.payload);
-					})
-				) {
-					drained = true;
-					break;
-				}
-				await step.sleep(`wait-scheduled-write-drain-${attempt}`, "1 second");
-			}
-			if (!drained)
-				throw new Error("CMS recovery scheduled writes did not drain");
+			const pauseConfirmed = await step.do("confirm-capture-cron-pause", () =>
+				confirmCmsCaptureCronPause(db, event.payload),
+			);
+			if (!pauseConfirmed)
+				throw new Error("CMS recovery scheduled-write pause unavailable");
 			await captureCmsRecovery(this.env, step, event.payload, () =>
 				assertCmsCaptureCronPause(db, event.payload),
 			);

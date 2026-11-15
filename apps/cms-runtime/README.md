@@ -53,16 +53,17 @@ been upgraded.
 
 ## Public restore reservations
 
-GET/HEAD response creation and body pulls share an outer D1 reservation within one
-serving isolate for ten seconds. Every reuse reads the exact reservation and
-checks the site's status, epoch, restore fence and deprovision reservation.
-The reuse window expires even under continuous traffic; active renders retain
-the row until their last borrower finishes. Idle cleanup runs in `waitUntil`.
-Isolate loss leaves a durable outer row for the existing restore reconciliation.
+GET/HEAD response creation and body pulls share a D1 reservation within one
+serving isolate for ten seconds. Creating a reservation checks the site's status,
+epoch, restore fence and deprovision reservation. Reuse performs no D1 check.
+The durable reservation uses the nested kind, so restore reconciliation cannot
+reclaim it as an abandoned outer response. The reuse window expires even under
+continuous traffic; active renders retain the row until their last borrower
+finishes. Idle cleanup runs in `waitUntil`. Isolate loss can leave a durable row.
 
 Only admission is shared: authentication and the response handler still run for
-each request, including authenticated reads. Every body pull checks the pinned
-epoch before reading and retains its borrower through completion or cancellation.
+each request, including authenticated reads. Every body pull borrows a reservation
+in the pinned epoch and retains it through completion or cancellation.
 SQL statements and batches share a separate nested reservation in the site's
 existing database Durable Object. Replicas forward these operations to the
 primary, which coordinates callers across serving isolates and returns its
@@ -70,13 +71,20 @@ current bookmark. This can add latency for readers far from the primary.
 Admission is serialized so simultaneous cold callers share the first published
 reservation; SQL execution remains outside that admission lock.
 Restore reconciliation cannot reclaim the nested row as an abandoned outer
-response. Every SQL operation checks current admission and holds a borrower
-until its actual RPC finishes, even when the caller times out. Only plain SELECTs
-are retried; writes execute once. Tenant R2 and session writes, the collection
+response. Every SQL operation borrows admission and holds a borrower until its
+actual RPC finishes, even when the caller times out. A cached borrow does not
+recheck the epoch, so restore still waits for these reservations to drain before
+writing tenant data. Only plain SELECTs are retried; writes execute once.
+Tenant R2 and session writes, the collection
 deletion guard and tenant egress borrow the same nested reservation through
 the database object: the operation runs in the caller, and the object holds its
-borrower until the caller's callback settles or disconnects. Plugin KV, AI
-Search, scheduled and contact-form work keep exact per-operation permits.
+borrower until the caller's callback settles or disconnects. Plugin KV, AI Search
+and contact-form work also use this shared admission. Scheduled runs keep exact
+per-operation permits.
+
+Recovery capture pauses new scheduled admission without waiting for existing
+permits or requiring completion receipts. It retains the SQL and media checks
+that refuse publication when captured content changes during verification.
 No database migration or new namespace is required.
 Tenant Worker Loader keys include the runtime release
 so a deployment refreshes injected database RPC methods. The installation's D1
