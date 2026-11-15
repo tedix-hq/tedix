@@ -228,12 +228,14 @@ export function runTrain(
 			git(integration, ["remote", "get-url", "--push", "origin"]).out,
 		);
 		/** Applies one lane on HEAD; on failure HEAD is back where it started. */
-		const apply = (ticket: TrainTicket): Skip["reason"] | null => {
+		const apply = (
+			ticket: TrainTicket,
+		): { reason: Skip["reason"] | null; head: string } => {
 			const start = git(integration, ["rev-parse", "HEAD"]).out;
 			const undo = (reason: Skip["reason"]) => {
 				if (reason === "conflict") git(integration, ["cherry-pick", "--abort"]);
 				git(integration, ["reset", "--hard", start]);
-				return reason;
+				return { reason, head: start };
 			};
 			const commits = git(integration, [
 				"rev-list",
@@ -283,7 +285,7 @@ export function runTrain(
 				}
 				parent = head;
 			}
-			return null;
+			return { reason: null, head: parent };
 		};
 		const attempt = (batch: TrainTicket[]): Attempt => {
 			let accepted: Attempt["accepted"] = [];
@@ -297,7 +299,8 @@ export function runTrain(
 				skipped = [];
 				const ranges: string[] = [];
 				for (const ticket of batch) {
-					const reason = apply(ticket);
+					const applied = apply(ticket);
+					const { reason } = applied;
 					if (reason) {
 						console.log(
 							`push: left ${basename(ticket.file)} out of this candidate (${reason}); ${reason === "scan" ? "it is rejected without a duplicate scan" : "it is retried alone afterwards"}.`,
@@ -307,7 +310,7 @@ export function runTrain(
 					}
 					accepted.push({
 						ticket,
-						sha: git(integration, ["rev-parse", "HEAD"]).out,
+						sha: applied.head,
 					});
 					// Original ranges retain checks hidden by later lanes reverting
 					// files. The normal hook also supplies the actual published range.
@@ -319,7 +322,7 @@ export function runTrain(
 					writeFileSync(
 						`${journal}.tmp`,
 						JSON.stringify({
-							head: git(integration, ["rev-parse", "HEAD"]).out,
+							head: accepted.at(-1)!.sha,
 							accepted,
 						}),
 					);

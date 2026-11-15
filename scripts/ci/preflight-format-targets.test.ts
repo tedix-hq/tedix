@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import {
 	mkdtempSync,
@@ -169,7 +169,7 @@ function run(root: string, command: string[]) {
 	});
 }
 
-test("actual Oxfmt full and scoped checks agree before and after repair, including ignored targets", () => {
+function oxfmtFixture() {
 	const { root } = repository();
 	symlinkSync(resolve(nodeModules), join(root, "node_modules"), "dir");
 	writeFileSync(
@@ -191,10 +191,23 @@ test("actual Oxfmt full and scoped checks agree before and after repair, includi
 	commit(root);
 	const command = select(root, base)!;
 	expect(command).toEqual(scoped(...names.sort()));
+	return { root, names, command };
+}
+
+const oxfmt = oxfmtFixture();
+roots.splice(roots.indexOf(oxfmt.root), 1);
+afterAll(() => rmSync(oxfmt.root, { recursive: true, force: true }));
+
+test("actual Oxfmt full and scoped checks agree before repair", () => {
+	const { root, command } = oxfmt;
 	const fullBad = run(root, full);
 	const scopedBad = run(root, command);
 	expect(fullBad.status).toBe(1);
 	expect(scopedBad.status).toBe(fullBad.status);
+}, 30_000);
+
+test("actual Oxfmt full and scoped checks agree after repair", () => {
+	const { root, names, command } = oxfmt;
 	const repaired = run(root, [
 		"bun",
 		"run",
@@ -206,6 +219,10 @@ test("actual Oxfmt full and scoped checks agree before and after repair, includi
 	expect(repaired.status).toBe(0);
 	expect(run(root, full).status).toBe(0);
 	expect(run(root, command).status).toBe(0);
+}, 30_000);
+
+test("actual Oxfmt full and scoped checks agree for ignored targets", () => {
+	const { root } = oxfmt;
 	const repairedHead = commit(root);
 	writeFileSync(join(root, "LICENSE"), "Unformatted plain text\n");
 	writeFileSync(join(root, "configured.ts"), "const bad={x:1}\n");

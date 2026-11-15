@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { afterAll, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import {
 	existsSync,
@@ -176,29 +176,31 @@ function runSpec(
 	});
 }
 
+const failingSpecRoot = mkdtempSync(join(tmpdir(), "browser-evidence-"));
+const failingSpec = runSpec(`throw new Error("boom spec");\n`, failingSpecRoot);
+const passingSpecRoot = mkdtempSync(join(tmpdir(), "browser-evidence-"));
+const passingSpec = runSpec(`console.log("clean");\n`, passingSpecRoot);
+afterAll(() => {
+	rmSync(failingSpecRoot, { recursive: true, force: true });
+	rmSync(passingSpecRoot, { recursive: true, force: true });
+});
+
 test("a failing spec keeps its diagnostics through the bunfig preload", () => {
-	const root = mkdtempSync(join(tmpdir(), "browser-evidence-"));
-	try {
-		const run = runSpec(`throw new Error("boom spec");\n`, root);
-		expect(run.status).not.toBe(0);
-		expect(run.stderr).toContain("boom spec");
-		expect(
-			readFileSync(join(root, "out", "evidence-check", "error.txt"), "utf8"),
-		).toContain("boom spec");
-	} finally {
-		rmSync(root, { recursive: true, force: true });
-	}
+	expect(failingSpec.status).not.toBe(0);
+	expect(failingSpec.stderr).toContain("boom spec");
+	expect(
+		readFileSync(
+			join(failingSpecRoot, "out", "evidence-check", "error.txt"),
+			"utf8",
+		),
+	).toContain("boom spec");
 });
 
 test("a passing spec leaves no diagnostics behind", () => {
-	const root = mkdtempSync(join(tmpdir(), "browser-evidence-"));
-	try {
-		const run = runSpec(`console.log("clean");\n`, root);
-		expect(run.status).toBe(0);
-		expect(existsSync(join(root, "out", "evidence-check"))).toBe(false);
-	} finally {
-		rmSync(root, { recursive: true, force: true });
-	}
+	expect(passingSpec.status).toBe(0);
+	expect(existsSync(join(passingSpecRoot, "out", "evidence-check"))).toBe(
+		false,
+	);
 });
 
 test("spec processes get separate protocol files before Playwright imports", () => {

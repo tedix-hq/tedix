@@ -100,8 +100,9 @@ type MatrixJob = {
 
 test("slow workspaces publish complete non-overlapping shard sets on the real manifests", () => {
 	const root = join(import.meta.dir, "../..");
+	const matrix = workspaceMatrix(root).include as MatrixJob[];
 	const jobsOf = (workspace: string, testScript: string) =>
-		(workspaceMatrix(root).include as MatrixJob[]).filter(
+		matrix.filter(
 			(job) => job.workspace === workspace && job.testScript === testScript,
 		);
 	expect(jobsOf("apps/api", "test:unit")).toEqual(
@@ -131,7 +132,7 @@ test("slow workspaces publish complete non-overlapping shard sets on the real ma
 		},
 	]);
 	const groups = new Map<string, MatrixJob[]>();
-	for (const job of workspaceMatrix(root).include as MatrixJob[]) {
+	for (const job of matrix) {
 		const key = `${job.workspace}:${job.testScript ?? ""}`;
 		const group = groups.get(key);
 		if (group) group.push(job);
