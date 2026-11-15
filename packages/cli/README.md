@@ -302,7 +302,7 @@ headers are refused.
 ### Factories
 
 `tedix factory create` builds a factory from a goal in one call through the
-gateway's `create_factory` tool. It creates the Work project, objective, a
+gateway's `create_factory` tool. It creates the Work project, goal, a
 scheduled lane skill (daily, twice daily, hourly or every N hours) and a
 standing health Work Item. With `--output`, each run also appends its summary
 to a Tedix document or sheet. `tedix factory

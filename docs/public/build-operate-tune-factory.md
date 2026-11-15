@@ -21,7 +21,7 @@ Output. Then follow one loop: **goal -> dry run -> create -> proof run -> daily
 health -> tune**.
 
 A factory is a recurring lane owned by a tedi. It includes a Work project and
-objective, a skill, a schedule, a Workspace and a durable result. These are
+goal, a skill, a schedule, a Workspace and a durable result. These are
 separate facts: a factory can be configured but not active, active but not yet
 run, or completed without delivering a useful result.
 

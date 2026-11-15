@@ -79,11 +79,11 @@ ids do not resolve publicly. Pull requests are currently disabled; see
 - Each tedi runs two delegated tasks at a time by default; more wait in a
   queue. Other delegation limits apply only where an organization policy turns
   them on.
-- An agent session's report of success is not verification. A coding lane
-  started by the local dispatcher needs either a commit on `main` or verified
+- An agent session's report of success is not verification. Coding work
+  started by a local runner needs either a commit on `main` or verified
   versioned skill-run evidence from its held Attempt when the accepted Work
   declares that artifact. Without either it settles as failed. After success, Work is
-  completed by its owner, steward or an organization admin, or by the dispatcher
+  completed by its owner, steward or an organization admin, or by the runner
   on their behalf once it has verified the evidence.
 - Local mode makes no model calls unless you add inference on your own
   Cloudflare account. It does not configure connectors or deploy anything.

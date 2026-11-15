@@ -84,15 +84,18 @@ Local tests do not prove that Tedix Cloud works or that a change is deployed.
 
 ## Find the code
 
-| You are changing         | Read first                                                                                |
-| ------------------------ | ----------------------------------------------------------------------------------------- |
-| Screens and interactions | `apps/os/README.md`, `apps/os/AGENTS.md`, then `apps/os/src/routes/`                      |
-| API                      | `apps/api/AGENTS.md`, `packages/api-contract/src/contracts/`, `apps/api/src/rpc/routers/` |
-| Stored data              | `packages/db/AGENTS.md`, then the relevant `src/schema/` and `src/queries/` modules       |
-| Tedi execution           | `apps/tedi-runtime/AGENTS.md`, `apps/tedi-runtime/src/do.ts`, and nearby modules          |
-| MCP tools                | `apps/mcp/AGENTS.md`, `apps/mcp/src/mcp/handler.ts`, `packages/db/src/schema/tools.ts`    |
-| Command-line tool        | `packages/cli/README.md` and the command's implementation                                 |
-| Factories and schedules  | `docs/public/build-operate-tune-factory.md`, then the relevant API, runtime, or CLI code  |
+| You are changing         | Area             | Read first                                                                                |
+| ------------------------ | ---------------- | ----------------------------------------------------------------------------------------- |
+| Screens and interactions | Tedix OS         | `apps/os/README.md`, `apps/os/AGENTS.md`, then `apps/os/src/routes/`                      |
+| API                      | API              | `apps/api/AGENTS.md`, `packages/api-contract/src/contracts/`, `apps/api/src/rpc/routers/` |
+| Stored data              | Database         | `packages/db/AGENTS.md`, then the relevant `src/schema/` and `src/queries/` modules       |
+| Tedi execution           | Tedi runtime     | `apps/tedi-runtime/AGENTS.md`, `apps/tedi-runtime/src/do.ts`, and nearby modules          |
+| MCP tools                | MCP and gateway  | `apps/mcp/AGENTS.md`, `apps/mcp/src/mcp/handler.ts`, `packages/db/src/schema/tools.ts`    |
+| Command-line tool        | CLI and plugins  | `packages/cli/README.md` and the command's implementation                                 |
+| Factories and schedules  | Work and runners | `docs/public/build-operate-tune-factory.md`, then the relevant API, runtime, or CLI code  |
+
+An area is a standing part of the work with one owner and a goal.
+`docs/public/how-work-is-organized.md` lists every area with its code paths.
 
 ## Keep these code rules
 

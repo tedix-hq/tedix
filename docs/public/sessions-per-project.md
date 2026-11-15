@@ -137,7 +137,7 @@ organization, along with corrected filing examples that teach project routing.
 Uploaded source events remain private to you.
 Turn it off from the same page to stop further automatic filing.
 
-Each new request, ask, idea or issue is compared with project and objective
+Each new request, ask, idea or issue is compared with project and goal
 briefs, factory bindings, visible workspaces and recent Work. A small Workers AI
 model picks a candidate and Clef-flash scores whether it fits. A score of at
 least 0.8 files to the existing project. A lower score creates a plainly named

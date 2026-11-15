@@ -1,8 +1,8 @@
 /**
  * Query helpers for Projects (work hierarchy v1).
  *
- * A project is the org-scoped anchor at the top of the work hierarchy
- * project → epic → feature → story → work_item → task. Work Items stay the
+ * A project is an org-scoped standing area of work or a dated engagement.
+ * Epics (`work_cases`) group Work Items toward one outcome. Work Items stay the
  * canonical coordination object; a project just groups them (via
  * `work_items.projectId`) and provides a rollup. Soft-archive preserves audit
  * history (status=archived + archivedAt), mirroring the capability-map pattern.

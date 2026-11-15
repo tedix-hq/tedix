@@ -1,12 +1,12 @@
 /**
  * Projects Schema (work hierarchy v1)
  *
- * A thin org-scoped container that anchors the work hierarchy
- * project → epic → feature → story → work_item → task. Projects sit at the top
- * of the tree; the tiers below live as typed `work_items` rows
- * (`work_items.workKind`, `work_items.projectId`). This is deliberately NOT a
- * second canonical board — Work Items stay the coordination truth; a project is
- * just the grouping + rollup anchor (Jira/SAFe-style, HTN task decomposition).
+ * A thin org-scoped container for Work Items. A project is either a standing
+ * area of work with no end date or an engagement with a target date, archived
+ * when it ends. Work Items join it through `work_items.projectId`; epics
+ * (`work_cases`) group Work Items toward one outcome and may span projects.
+ * This is deliberately NOT a second canonical board — Work Items stay the
+ * coordination truth; a project is just the grouping + rollup anchor.
  *
  * D1 is canonical. New table (fresh CREATE TABLE — real FKs are safe on a table
  * created new), unlike the additive-only ALTERs on the pre-existing `work_items`

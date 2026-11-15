@@ -36,7 +36,7 @@ export const PROJECT_TOOLS: TediToolSpec[] = [
 		name: "create_project",
 		remoteName: "create_project",
 		description:
-			"Create an org-scoped project — the top of the work hierarchy (project → epic → feature → story → work_item → task). `key` is unique per org.",
+			"Create an org-scoped project: either a standing area of work with no end date, or an engagement with a target date that is archived when it ends. A project groups Work Items; epics (cases) group Work Items toward one outcome and may span projects. `key` is unique per org.",
 		inputSchema: CREATE_PROJECT_SCHEMA,
 		annotations: MUTATING,
 		rpcEndpoint: "projects/create",

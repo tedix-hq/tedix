@@ -151,7 +151,7 @@ organization's independent tedi/guardian approval only when its actual policy
 requires it; do not add a tedi review gate to every task, self-approve, or lower
 risk to evade admission. Expired and terminal Attempts cannot be reused.
 
-Link actual related Work IDs and useful project, sprint, milestone or Workspace
+Link actual related Work IDs and useful project, epic or Workspace
 context where those relationships are relevant and supported by reads. Do not
 invent links, create duplicate records merely to fill every surface, or bulk
 write memory and skills. A reusable lesson or skill change needs its own

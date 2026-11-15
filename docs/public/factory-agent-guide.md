@@ -16,7 +16,7 @@ visibility: public
 # Build and operate a factory
 
 A factory is a recurring lane owned by a tedi. It includes a Work project and
-objective, a skill, a schedule, a Workspace and a durable result. Configuration, a queued
+goal, a skill, a schedule, a Workspace and a durable result. Configuration, a queued
 run and a delivered result are separate facts.
 
 For the complete first-build loop, start with
@@ -437,7 +437,7 @@ Pause disables future dispatch while preserving cadence and Documents; it does
 not cancel an in-flight run. Resume restores the existing schedule. Archive
 retires the lane and removes its schedule; it preserves Work and Documents.
 For disposable factories, cancel the returned health Work Item, archive the
-project, and complete its standing objective only after checking nothing else
+project, and complete its standing goal only after checking nothing else
 uses them. Archive the scratch Workspace after verifying no schedule remains.
 
 ## Apply a reusable project blueprint
@@ -447,8 +447,7 @@ Discover `preview_os_blueprint_apply` and `apply_os_blueprint`. Pass the same
 returns the resolved plan and stable resource IDs without creating anything.
 Pass its `receipt.planSha256` as `expectedPlanSha256` on apply to reject a
 plan that changed after preview. Apply saves the workspace, apps, project,
-milestones, proposed Work cards,
-dependencies, document templates and schedule definitions together. Cards
+proposed Work cards, dependencies, document templates and schedule definitions together. Cards
 keep descriptions, done-when and suggested owners; nobody is assigned or
 started. Repeating an instance key returns its receipt and preserves member
 edits. Different parameters or a different revision require a new instance key.
@@ -456,9 +455,8 @@ edits. Different parameters or a different revision require a new instance key.
 Authors declare setup under `definition.provisioning` (version 1), with stable
 `key` values for each template. Declare parameter types in `parameters` and
 use `{{parameterName}}` in text. `{{workspaceId}}` and `{{projectId}}` resolve
-to the new instance. A milestone target may be a timezone-aware date or
-`{ parameter: "deadline", offsetMinutes: -30 }`. References and dependency
-cycles are checked before apply writes anything.
+to the new instance. References and dependency cycles are checked before apply
+writes anything.
 
 Schedules default to disabled. Without a `skillId`, a schedule is an unbound
 definition in Workspace Resources, not a running automation. To provision an
@@ -469,7 +467,7 @@ normal runtime consent, budget and execution gates still apply.
 
 ## Automation factory inputs
 
-Record the lane's skill, Workspace and objective once in the project's
+Record the lane's skill, Workspace and goal once in the project's
 `metadata.factory` binding. Each automation receives
 `env.__RUN_CONTEXT__.factory` with `workspaceId`, `projectId`, `objectiveId`,
 `blueprintRevisionId` and `ownerTediId`, plus its health Work Item and Output.
