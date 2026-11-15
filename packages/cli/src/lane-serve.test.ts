@@ -17,6 +17,7 @@ import { dirname, join } from "node:path";
 import {
 	LaneDispatcher,
 	LaneCommitFetchError,
+	ARCHIVED_RUNS_KEPT,
 	DISPATCHER_LOG_CAP_BYTES,
 	MIN_FREE_DISK_BYTES,
 	cleanupLaneWorktree,
@@ -6282,6 +6283,116 @@ it("evicts the oldest removable run checkouts until the retained cap holds", asy
 	const log = readFileSync(join(dir, "dispatcher.log"), "utf8");
 	expect(log).toContain('"event":"checkout-cap"');
 	expect(log).toContain('"event":"checkout-evicted"');
+});
+
+it("measures a finished run once, across sweeps and a runner restart", async () => {
+	const f = fixture();
+	f.items.splice(0);
+	const run = join(f.dir, "runs", `${item().id}-2`);
+	const repo = join(run, "repo");
+	mkdirSync(repo, { recursive: true });
+	// A checkout kept for a retry stays through every sweep.
+	writeFileSync(
+		join(f.dir, `${item().id}-2.json`),
+		JSON.stringify({
+			itemId: item().id,
+			version: 2,
+			phase: "deferred",
+			outcome: "expired",
+			admissionState: "admitted",
+			attemptId: "attempt",
+			session: "codex:interrupted",
+			repo,
+		}),
+	);
+	let measured = 0;
+	f.deps.directoryBytes = async () => {
+		measured++;
+		return 1;
+	};
+	const sweep = async (dispatcher: LaneDispatcher) => {
+		await dispatcher.tick();
+		await dispatcher.drain();
+	};
+	const first = f.restart();
+	await sweep(first);
+	expect(measured).toBe(1);
+	const clock = spyOn(Date, "now").mockReturnValue(Date.now() + 11 * 60_000);
+	try {
+		await sweep(first);
+		await sweep(f.restart());
+		expect(measured).toBe(1);
+		// A new entry in the run directory changes what it holds.
+		mkdirSync(join(run, "repo-2"));
+		await sweep(f.restart());
+		expect(measured).toBe(2);
+	} finally {
+		clock.mockRestore();
+	}
+});
+
+it("waits longer after each refused checkout cleanup", async () => {
+	const { dispatcher, dir, items, control } = fixture();
+	items.splice(0);
+	mkdirSync(join(dir, "runs", `${item().id}-1`, "repo"), { recursive: true });
+	control.cleanupResult = false;
+	const start = Date.now();
+	const clock = spyOn(Date, "now").mockReturnValue(start);
+	try {
+		const cleanupsAfter = async (minutes: number) => {
+			clock.mockReturnValue(start + minutes * 60_000);
+			await dispatcher.tick();
+			await dispatcher.drain();
+			return control.cleanups;
+		};
+		expect(await cleanupsAfter(0)).toBe(1);
+		expect(await cleanupsAfter(11)).toBe(2);
+		// The second refusal doubles the wait to twenty minutes.
+		expect(await cleanupsAfter(22)).toBe(2);
+		expect(await cleanupsAfter(33)).toBe(3);
+	} finally {
+		clock.mockRestore();
+	}
+});
+
+it("removes the checkouts earlier retries left beside the receipt's own", async () => {
+	const { dispatcher, dir, items, control } = fixture();
+	items.splice(0);
+	const run = join(dir, "runs", `${item().id}-2`);
+	for (const name of ["repo", "repo-2", "repo-3"])
+		mkdirSync(join(run, name), { recursive: true });
+	writeFileSync(
+		join(dir, `${item().id}-2.json`),
+		JSON.stringify({
+			itemId: item().id,
+			version: 2,
+			phase: "deferred",
+			outcome: "expired",
+			admissionState: "admitted",
+			attemptId: "attempt",
+			session: "codex:interrupted",
+			repo: join(run, "repo-3"),
+		}),
+	);
+	control.cleanupRemoves = true;
+	await dispatcher.tick();
+	await dispatcher.drain();
+	expect(readdirSync(run)).toEqual(["repo-3"]);
+});
+
+it("keeps only the newest archived run folders", async () => {
+	const { dispatcher, dir, items } = fixture();
+	items.splice(0);
+	for (let n = 0; n < ARCHIVED_RUNS_KEPT + 2; n++)
+		mkdirSync(join(dir, "archive", `${item(n).id}-2-${1000 + n}`), {
+			recursive: true,
+		});
+	await dispatcher.tick();
+	await dispatcher.drain();
+	const kept = readdirSync(join(dir, "archive"));
+	expect(kept).toHaveLength(ARCHIVED_RUNS_KEPT);
+	expect(kept).not.toContain(`${item(0).id}-2-1000`);
+	expect(kept).not.toContain(`${item(1).id}-2-1001`);
 });
 
 it("parses a retained-checkout cap from the flag or environment", () => {
