@@ -52,11 +52,13 @@ export type WorkRecoverySignal =
 	| "dependencies_blocked"
 	| "latest_attempt_failed"
 	| "latest_attempt_expired"
-	| "attempt_lease_elapsed";
+	| "attempt_lease_elapsed"
+	| "dispatch_held";
 
 export interface WorkRecoveryProjectionRow extends WorkFactoryItemSummaryRow {
 	sortAt: string;
 	signals: WorkRecoverySignal[];
+	dispatchHoldReason?: string;
 	blockingDependencyCount: number;
 	latestAttemptId: string | null;
 	latestAttemptState: WorkAttemptRuntimeState | null;
@@ -180,6 +182,11 @@ export async function listOrgWorkAttempts(
 	};
 }
 
+/** A runner's hold: a held dispatch state that carries its reason. */
+const dispatchHoldReason = sql<
+	string | null
+>`CASE WHEN json_extract(${workItems.metadata}, '$.laneDispatch.state') = 'held' THEN json_extract(${workItems.metadata}, '$.laneDispatch.reason') END`;
+
 function recoveryPredicate(
 	signal: WorkRecoverySignal | undefined,
 	now: string,
@@ -191,6 +198,7 @@ function recoveryPredicate(
 		latest_attempt_failed: sql`${latest.runtimeState} = 'failed'`,
 		latest_attempt_expired: sql`${latest.runtimeState} = 'expired'`,
 		attempt_lease_elapsed: sql`${latest.runtimeState} IN ('queued', 'running', 'waiting', 'retrying') AND ${latest.expiresAt} IS NOT NULL AND ${latest.expiresAt} <= ${now}`,
+		dispatch_held: sql`${dispatchHoldReason} IS NOT NULL`,
 	};
 	return signal
 		? predicates[signal]
@@ -282,6 +290,7 @@ export async function listOrgWorkRecovery(
 			accountableOwnerType: workItems.accountableOwnerType,
 			accountableOwnerId: workItems.accountableOwnerId,
 			sortAt: sortAt.as("sortAt"),
+			dispatchHoldReason: dispatchHoldReason.as("dispatchHoldReason"),
 			blockingDependencyCount:
 				sql<unknown>`COALESCE(${blockers.blockingCount}, 0)`.as(
 					"blockingDependencyCount",
@@ -353,6 +362,7 @@ export async function listOrgWorkRecovery(
 			row.latestAttemptExpiresAt <= params.observedAt
 		)
 			signals.push("attempt_lease_elapsed");
+		if (row.dispatchHoldReason) signals.push("dispatch_held");
 		return {
 			id: row.id,
 			title: row.title,
@@ -365,6 +375,9 @@ export async function listOrgWorkRecovery(
 			accountableOwnerId: row.accountableOwnerId,
 			sortAt: row.sortAt,
 			signals,
+			...(row.dispatchHoldReason
+				? { dispatchHoldReason: row.dispatchHoldReason }
+				: {}),
 			blockingDependencyCount: Number(row.blockingDependencyCount),
 			latestAttemptId: row.latestAttemptId,
 			latestAttemptState: row.latestAttemptState,

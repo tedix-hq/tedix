@@ -1272,10 +1272,20 @@ export async function updateWorkItemSpecification(
 ): Promise<WorkItem> {
 	const updatedAt = params.updatedAt ?? new Date().toISOString();
 	const prior = await getScopedWorkItem(db, params.orgId, params.workItemId);
-	const laneDispatch =
+	const requestedDispatch =
 		params.laneDispatch ??
 		(params.executor !== undefined &&
 		(LANE_READY_EXECUTORS as readonly string[]).includes(params.executor)
+			? { state: "ready" as const }
+			: undefined);
+	// A runner's hold names its reason and lasts until the Work is revised:
+	// any other specification update makes the Work ready again.
+	const priorDispatch = prior.metadata?.laneDispatch as
+		| LaneDispatchPlan
+		| undefined;
+	const laneDispatch =
+		requestedDispatch ??
+		(priorDispatch?.state === "held" && priorDispatch.reason
 			? { state: "ready" as const }
 			: undefined);
 	const dispatch =
@@ -1332,7 +1342,7 @@ export async function updateWorkItemSpecification(
 				eq(workItems.orgId, params.orgId),
 				eq(workItems.id, params.workItemId),
 				eq(workItems.version, params.expectedWorkItemVersion ?? prior.version),
-				laneDispatch === undefined
+				requestedDispatch === undefined
 					? undefined
 					: sql`NOT EXISTS (
 					SELECT 1 FROM ${workAttempts}

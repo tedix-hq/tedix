@@ -57,6 +57,12 @@ it("shows running, stuck reasons, requests and approvals, and this week's Work w
 					title: "Retry task",
 					signals: ["latest_attempt_failed"],
 				},
+				{
+					id: "held-work",
+					title: "Held task",
+					signals: ["latest_attempt_failed", "dispatch_held"],
+					dispatchHoldReason: "3 runs failed on this version of the task.",
+				},
 			],
 			hasMore: false,
 			nextCursor: null,
@@ -135,6 +141,9 @@ it("shows running, stuck reasons, requests and approvals, and this week's Work w
 		expect(page.querySelector(`[aria-label="${name}"]`)).not.toBeNull();
 	expect(page.body.textContent).toContain("Blocked by prerequisite task");
 	expect(page.body.textContent).toContain("The latest Attempt failed");
+	expect(page.body.textContent).toContain(
+		"The latest Attempt failed · The runner stopped: 3 runs failed on this version of the task.",
+	);
 	expect(page.body.textContent).toContain("High priority");
 	expect(page.body.textContent).toMatch(/Due .*18/);
 	expect(page.body.textContent).not.toMatch(/milestone|sprint/i);

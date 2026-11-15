@@ -289,7 +289,7 @@ trusting a filtered page as a whole-ledger answer.
 
 Factory controls (--input accepts inline JSON or @path):
   agent-turn-triage · agent-reply-label · agent-reply-draft-request · agent-session-report
-  dispatch-reassign · dispatch-idle-list · dispatch-list · dispatch-get · dispatch-attempts
+  dispatch-reassign · dispatch-hold · dispatch-idle-list · dispatch-list · dispatch-get · dispatch-attempts
   case-list · case-get · case-create · case-stage · case-close · case-attach
   case-dependency-add (epics; the API calls them cases)
   dispatcher-health-list · dispatcher-health-record

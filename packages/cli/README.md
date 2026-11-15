@@ -727,6 +727,16 @@ an uncertain comment response is retained without sending it again. Failed
 settlements keep their separate bounded one-minute retries and check the exact
 server Attempt before writing again.
 
+When a runner stops starting a Work revision until a person changes the Work
+(three failed runs, a result already recorded for that revision, or a finished
+run that Tedix refused to complete), it records that on the Work Item: dispatch
+state `held` with a one-line reason and the last failure note. Tedix lists the
+task under Stuck with that reason, stops offering it to runners, and the runner
+sends one request to the task's accountable owner (the signed-in operator when
+the owner is not a person). Editing the task makes it ready again and closes the
+request. The runner uses the operator's login for this, which needs an owner or
+admin role.
+
 Possible money, personal messaging, login or credential requests are skipped
 and logged unless an actual owner comment says
 `Delegation: codex work-version=<version> <bounded note>`.

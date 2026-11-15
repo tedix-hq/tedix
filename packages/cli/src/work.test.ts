@@ -4302,7 +4302,7 @@ describe("native dispatcher coverage", () => {
 			await fixture.client.close();
 		}
 		expect(covered).toEqual(workVerbNames());
-		expect(covered).toHaveLength(67);
+		expect(covered).toHaveLength(68);
 	});
 });
 

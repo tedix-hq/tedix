@@ -133,7 +133,13 @@ export function WorkHomeOverview() {
 		stuck.set(row.id, {
 			id: row.id,
 			title: row.title,
-			reason: row.signals.map((signal) => recoveryReason[signal]).join(" · "),
+			reason: row.signals
+				.map((signal) =>
+					signal === "dispatch_held"
+						? `The runner stopped: ${row.dispatchHoldReason}`
+						: recoveryReason[signal],
+				)
+				.join(" · "),
 		});
 	}
 	const needsYou = [

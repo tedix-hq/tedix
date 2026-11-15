@@ -24,6 +24,11 @@ export const STRUCTURED_FACTORY_VERBS: Record<string, StructuredFactoryVerb> = {
 		write: true,
 		pathField: "id",
 	},
+	"dispatch-hold": {
+		tool: "update_work_item_specification",
+		write: true,
+		pathField: "id",
+	},
 	"dispatch-idle-list": { tool: "list_work_items", write: false },
 	"dispatch-list": { tool: "list_work_items", write: false },
 	"dispatch-get": {

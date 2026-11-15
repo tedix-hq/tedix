@@ -291,7 +291,23 @@ function fixture({
 			else if (verb === "dispatch-list" && input.disposition === "proposed")
 				response = { data: proposed, pagination: { hasMore: false } };
 			else if (verb === "dispatch-list")
-				response = { data: items, pagination: { hasMore: false } };
+				// Like the server's ready filter: held Work is not offered.
+				response = {
+					data: items.filter(
+						(row) =>
+							(row.metadata?.laneDispatch as { state?: string })?.state !==
+							"held",
+					),
+					pagination: { hasMore: false },
+				};
+			else if (verb === "dispatch-hold") {
+				// Like the server: planning a hold is a new Work version.
+				const row = items.find((row) => row.id === args[6])!;
+				row.version++;
+				row.metadata = { ...row.metadata, laneDispatch: input.laneDispatch };
+				response = row;
+			} else if (verb === "interaction-create")
+				response = { id: "fictional-request" };
 			else if (verb === "dispatch-get")
 				response = {
 					workItem: {
@@ -2218,13 +2234,41 @@ describe("dispatcher admission", () => {
 		saved.completionRetryAt = 0;
 		writeFileSync(path, JSON.stringify(saved));
 		const asks = () =>
-			events.filter((e) =>
-				["complete", "dispatch-get", "dispatch-attempts"].includes(e.verb),
-			).length;
+			events.filter((e) => ["complete", "dispatch-attempts"].includes(e.verb))
+				.length;
 		const before = asks();
 		for (let pass = 0; pass < 3; pass++) await dispatcher.tick();
 		expect(asks()).toBe(before);
 		expect(releases).toHaveLength(1);
+		// The refusal is recorded on the Work and its owner is asked, once.
+		const holds = events.filter((e) => e.verb === "dispatch-hold");
+		expect(holds).toHaveLength(1);
+		expect(holds[0]!.input).toEqual({
+			expectedWorkItemVersion: 2,
+			laneDispatch: {
+				state: "held",
+				reason: "The agent finished, but Tedix refused to complete the task.",
+				note: expect.stringContaining("FORBIDDEN"),
+			},
+		});
+		expect(holds[0]!.env.TEDIX_AGENT_SESSION).toBeUndefined();
+		const requests = events.filter((e) => e.verb === "interaction-create");
+		expect(requests).toHaveLength(1);
+		expect(requests[0]!.input).toMatchObject({
+			workItemId: item().id,
+			kind: "input",
+			notificationReason: "failure",
+			requestedFrom: { type: "user", id: "fictional-owner" },
+			metadata: {
+				source: "lane-dispatch-blocker",
+				laneBlocker: {
+					kind: "execution_hold",
+					executor: "codex",
+					workVersion: 3,
+				},
+			},
+		});
+		expect(JSON.parse(readFileSync(path, "utf8")).holdRecorded).toBe(true);
 	});
 
 	it.each(["settling", "admitted"])(
@@ -2310,8 +2354,10 @@ describe("dispatcher admission", () => {
 			writeFileSync(path, JSON.stringify(saved));
 			// The same Attempt is refused again on every retry, so it is not read.
 			const reads = () =>
-				f.events.filter((event) =>
-					["dispatch-get", "dispatch-attempts"].includes(event.verb),
+				f.events.filter(
+					(event) =>
+						["dispatch-get", "dispatch-attempts"].includes(event.verb) &&
+						event.env.TEDIX_AGENT_SESSION,
 				).length;
 			const before = reads();
 			await resumed.tick();
@@ -2374,8 +2420,9 @@ describe("dispatcher admission", () => {
 			before + (state === "recovered" ? 1 : 0),
 		);
 		expect(
-			events.filter((e) => e.verb === "dispatch-get").at(-1)!.env
-				.TEDIX_AGENT_SESSION,
+			events
+				.filter((e) => e.verb === "dispatch-get" && e.env.TEDIX_AGENT_SESSION)
+				.at(-1)!.env.TEDIX_AGENT_SESSION,
 		).toBe(saved.session);
 		expect(recovered.completionRetryAt).toBeGreaterThan(
 			Date.now() + 14 * 60_000,
@@ -3687,7 +3734,24 @@ describe("dispatcher admission", () => {
 		const before = reads();
 		for (let pass = 0; pass < 3; pass++) await dispatcher.tick();
 		await dispatcher.drain();
-		expect(reads()).toBe(before);
+		// One read records the hold on the Work; the history is not read again.
+		expect(reads()).toBe(before + 1);
+		expect(
+			events.filter((e) => e.verb === "dispatch-hold").map((e) => e.input),
+		).toEqual([
+			{
+				expectedWorkItemVersion: 2,
+				laneDispatch: {
+					state: "held",
+					reason:
+						"An earlier run already recorded a result for this version of the task, so no agent starts it again.",
+					note: saved.note,
+				},
+			},
+		]);
+		expect(events.filter((e) => e.verb === "interaction-create")).toHaveLength(
+			1,
+		);
 		expect(events.some((e) => e.verb === "start" && e.args[4] === "work")).toBe(
 			false,
 		);
@@ -7723,9 +7787,44 @@ it("holds exhausted canonical execution failures across windows and restarts whi
 	saved.retryAt = 0;
 	saved.retryDeadlineAt = 0;
 	writeFileSync(path, JSON.stringify(saved));
-	await f.restart().tick();
+	// The hold is recorded on the Work and the owner asked once; a restart
+	// finds both done and repeats neither.
+	for (let pass = 0; pass < 3; pass++) await f.restart().tick();
 	expect(f.releases).toHaveLength(0);
 	expect(f.events.filter((e) => e.verb === "comment")).toHaveLength(1);
+	const holds = f.events.filter((e) => e.verb === "dispatch-hold");
+	expect(holds).toHaveLength(1);
+	expect(holds[0]!.input).toEqual({
+		expectedWorkItemVersion: 2,
+		laneDispatch: {
+			state: "held",
+			reason: "Three runs failed or expired on this version of the task.",
+			note: saved.note,
+		},
+	});
+	const requests = f.events.filter((e) => e.verb === "interaction-create");
+	expect(requests).toHaveLength(1);
+	expect(requests[0]!.input).toMatchObject({
+		workItemId: item().id,
+		kind: "input",
+		subject: 'What should happen with "Summarize the guide"?',
+		requestedFrom: { type: "user", id: "fictional-owner" },
+		metadata: {
+			source: "lane-dispatch-blocker",
+			laneBlocker: {
+				kind: "execution_hold",
+				executor: "codex",
+				workVersion: 3,
+			},
+		},
+	});
+	expect(requests[0]!.input!.prompt).toContain(
+		"Three runs failed or expired on this version of the task.",
+	);
+	expect(f.items[0]).toMatchObject({
+		version: 3,
+		metadata: { laneDispatch: { state: "held" } },
+	});
 	const next = { ...item(2), version: 3 };
 	f.items.push(next);
 	const restarted = f.restart();
@@ -7739,14 +7838,64 @@ it("holds exhausted canonical execution failures across windows and restarts whi
 		outcome: "succeeded",
 		completionPending: false,
 	});
-	// A revised brief has its own budget and still needs a fresh admission.
+	// A revised brief has its own budget and still needs a fresh admission;
+	// the server makes held Work ready again when its specification is edited.
 	f.items.splice(1);
-	f.items[0]!.version = 3;
+	f.items[0]!.version = 4;
+	f.items[0]!.metadata = { executor: "codex" };
 	await restarted.tick();
 	await until(() => f.releases.length === 2);
 	f.releases[1]!();
 	await restarted.drain();
 	expect(f.events.filter((e) => e.verb === "start" && e.input)).toHaveLength(2);
+});
+
+it("asks again after a lost request reply without holding the Work twice, and drops a hold the Work outgrew", async () => {
+	const f = fixture({ max: 1 });
+	f.items.splice(2);
+	const held = (n: number) => ({
+		itemId: item(n).id,
+		version: 2,
+		phase: "deferred",
+		held: true,
+		note: "Automatic execution held after 3 failed or expired Attempts on Work revision 2.",
+	});
+	const paths = [1, 2].map((n) => join(f.dir, `${item(n).id}-2.json`));
+	writeFileSync(paths[0]!, JSON.stringify(held(1)));
+	writeFileSync(paths[1]!, JSON.stringify(held(2)));
+	// The second Work was revised after its receipt was written.
+	f.items[1]!.version = 3;
+	f.items[1]!.startAt = new Date(Date.now() + 60_000).toISOString();
+	let lost = 0;
+	const base = f.deps.cli!;
+	f.deps.cli = async <T>(args: string[], env: NodeJS.ProcessEnv) => {
+		if (args[5] === "interaction-create" && !lost++)
+			throw new Error("Gateway timeout");
+		return base<T>(args, env);
+	};
+	const first = f.restart();
+	await first.tick();
+	expect(JSON.parse(readFileSync(paths[0]!, "utf8")).holdRecorded).toBe(
+		undefined,
+	);
+	expect(JSON.parse(readFileSync(paths[1]!, "utf8")).holdRecorded).toBe(true);
+	// Inside the recheck window the same runner does not read again.
+	const reads = f.events.length;
+	await first.tick();
+	expect(
+		f.events.slice(reads).filter((e) => e.verb !== "dispatch-list"),
+	).toEqual([]);
+	for (let pass = 0; pass < 2; pass++) await f.restart().tick();
+	expect(JSON.parse(readFileSync(paths[0]!, "utf8")).holdRecorded).toBe(true);
+	const holds = f.events.filter((e) => e.verb === "dispatch-hold");
+	expect(holds.map((e) => e.args[6])).toEqual([item(1).id]);
+	const requests = f.events.filter((e) => e.verb === "interaction-create");
+	expect(requests).toHaveLength(1);
+	expect(requests[0]!.input).toMatchObject({
+		workItemId: item(1).id,
+		metadata: { laneBlocker: { workVersion: 3 } },
+	});
+	expect(f.releases).toHaveLength(0);
 });
 
 it("does not count Attempts that ended before the agent turn toward the execution hold", async () => {

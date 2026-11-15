@@ -70,6 +70,60 @@ it("acceptance and reassignment atomically preserve the brief, ready dispatch, a
 	sqlite.close();
 });
 
+it("a runner's hold stays until the Work is revised, and the revision makes it ready again", async () => {
+	const sqlite = new DatabaseSync(":memory:");
+	sqlite.exec("PRAGMA foreign_keys=OFF");
+	sqlite.exec(schemaDdl(workItems, workEvents, workAttempts, workItemComments));
+	sqlite
+		.prepare(
+			"INSERT INTO work_items(id,org_id,title,disposition,created_at,metadata,project_id,accountable_owner_type,accountable_owner_id) VALUES('work','org-acme','Fictional guide','accepted','2026-10-18T00:00:00.000Z',?,'project','user','fictional-owner')",
+		)
+		.run(
+			JSON.stringify({ executor: "codex", laneDispatch: { state: "ready" } }),
+		);
+	const db = createDbQueryClient(createD1Facade(sqlite));
+	const base = {
+		orgId: "org-acme",
+		workItemId: "work",
+		actor: { type: "user" as const, id: "fictional-owner" },
+	};
+	const hold = {
+		state: "held" as const,
+		reason: "3 runs failed on this version of the task.",
+		note: "exit 1",
+	};
+	const held = await updateWorkItemSpecification(db, {
+		...base,
+		laneDispatch: hold,
+	});
+	expect(held.metadata?.laneDispatch).toEqual(hold);
+	expect(held.version).toBe(2);
+	// Recording the hold is bookkeeping: no dispatch receipt, same admission revision.
+	expect(
+		sqlite.prepare("SELECT count(*) AS n FROM work_item_comments").get()?.n,
+	).toBe(0);
+	const revised = await updateWorkItemSpecification(db, {
+		...base,
+		description: "A repaired brief",
+	});
+	expect(revised.metadata?.laneDispatch).toEqual({ state: "ready" });
+	expect(revised.admissionSpecRevision).not.toBe(held.admissionSpecRevision);
+	expect(sqlite.prepare("SELECT body FROM work_item_comments").all()).toEqual([
+		{ body: expect.stringMatching(/^Dispatched to codex at /) },
+	]);
+	// A coordinator's hold carries no reason and is left to the coordinator.
+	await updateWorkItemSpecification(db, {
+		...base,
+		laneDispatch: { state: "held" },
+	});
+	const edited = await updateWorkItemSpecification(db, {
+		...base,
+		title: "Fictional guide, second edition",
+	});
+	expect(edited.metadata?.laneDispatch).toEqual({ state: "held" });
+	sqlite.close();
+});
+
 it("acceptance renews a lapsed operational purpose window so the accepted item is admissible", async () => {
 	const sqlite = new DatabaseSync(":memory:");
 	sqlite.exec("PRAGMA foreign_keys=OFF");
