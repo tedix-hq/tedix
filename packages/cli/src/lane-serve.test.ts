@@ -5408,7 +5408,7 @@ function gitFixture(withOrigin = false) {
 
 it.each([false, true])(
 	"refreshes a stale source before cutting a run (retry=%s)",
-	(retry) => {
+	async (retry) => {
 		const { root, repo, git } = gitFixture(true);
 		const destination = join(root, "repo");
 		if (retry) git(["worktree", "add", "--detach", destination]);
@@ -5434,7 +5434,7 @@ it.each([false, true])(
 		git(["push", "origin", "main"], publisher);
 		const current = git(["rev-parse", "HEAD"], publisher);
 		expect(git(["rev-parse", "origin/main"])).toBe(stale);
-		expect(provisionLaneWorktree(repo, destination)).toBe(destination);
+		expect(await provisionLaneWorktree(repo, destination)).toBe(destination);
 		expect(git(["rev-parse", "HEAD"], destination)).toBe(current);
 		expect(git(["rev-parse", "HEAD"])).toBe(current);
 		expect(readFileSync(join(destination, "fresh.txt"), "utf8")).toBe(
@@ -5446,7 +5446,7 @@ it.each([false, true])(
 
 it.each(["dirty", "unlanded"])(
 	"bases runs on origin/main while preserving a %s source",
-	(state) => {
+	async (state) => {
 		const { root, repo, git } = gitFixture(true);
 		const stale = git(["rev-parse", "HEAD"]);
 		git([
@@ -5466,7 +5466,7 @@ it.each(["dirty", "unlanded"])(
 			git(["-c", "commit.gpgsign=false", "commit", "-m", "unlanded"]);
 		}
 		const sourceHead = git(["rev-parse", "HEAD"]);
-		const destination = provisionLaneWorktree(repo, join(root, "repo"));
+		const destination = await provisionLaneWorktree(repo, join(root, "repo"));
 		expect(git(["rev-parse", "HEAD"], destination)).toBe(current);
 		expect(git(["rev-parse", "HEAD"])).toBe(sourceHead);
 		expect(readFileSync(join(repo, "retained.txt"), "utf8")).toBe(
@@ -5477,21 +5477,21 @@ it.each(["dirty", "unlanded"])(
 	30_000,
 );
 
-it("does not cut a stale run when origin cannot be fetched", () => {
+it("does not cut a stale run when origin cannot be fetched", async () => {
 	const { root, repo, git } = gitFixture(true);
 	git(["remote", "set-url", "origin", join(root, "missing.git")]);
 	const destination = join(root, "repo");
-	expect(() => provisionLaneWorktree(repo, destination)).toThrow();
+	await expect(provisionLaneWorktree(repo, destination)).rejects.toThrow();
 	expect(existsSync(destination)).toBe(false);
 }, 30_000);
 
-it("suppresses worktree checkout progress while provisioning", () => {
+it("suppresses worktree checkout progress while provisioning", async () => {
 	const { root, repo } = gitFixture(true);
 	const trace = join(root, "git-trace.json");
 	const previousTrace = process.env.GIT_TRACE2_EVENT;
 	process.env.GIT_TRACE2_EVENT = trace;
 	try {
-		provisionLaneWorktree(repo, join(root, "repo"));
+		await provisionLaneWorktree(repo, join(root, "repo"));
 	} finally {
 		if (previousTrace === undefined) delete process.env.GIT_TRACE2_EVENT;
 		else process.env.GIT_TRACE2_EVENT = previousTrace;
@@ -5511,12 +5511,53 @@ it("suppresses worktree checkout progress while provisioning", () => {
 	).toBe(true);
 }, 30_000);
 
-it("preserves an orphan destination and provisions the retry path", () => {
+it.each(["slow", "failing"])(
+	"clears a %s worktree add, says what happened and lets the next try succeed",
+	async (mode) => {
+		const { root, repo, git } = gitFixture(true);
+		const destination = join(root, "repo");
+		// Git runs this hook at the end of `worktree add`, after the checkout
+		// exists and while its registration is still locked as initializing.
+		const hook = join(repo, ".git", "hooks", "post-checkout");
+		writeFileSync(
+			hook,
+			mode === "slow"
+				? "#!/bin/sh\nsleep 3\n"
+				: "#!/bin/sh\necho 'disk quota exceeded' >&2\nexit 1\n",
+			{ mode: 0o755 },
+		);
+		let ticks = 0;
+		const ticking = setInterval(() => ticks++, 20);
+		const failure = await provisionLaneWorktree(
+			repo,
+			destination,
+			mode === "slow" ? 1_000 : undefined,
+		).catch((error: Error) => error);
+		clearInterval(ticking);
+		expect(String(failure)).toContain(
+			mode === "slow"
+				? "git worktree add failed: timed out after 1 s"
+				: "git worktree add failed: disk quota exceeded",
+		);
+		// The runner's timers kept firing while Git worked.
+		if (mode === "slow") expect(ticks).toBeGreaterThan(10);
+		expect(existsSync(destination)).toBe(false);
+		expect(git(["worktree", "list", "--porcelain"])).not.toContain(destination);
+		rmSync(hook);
+		expect(await provisionLaneWorktree(repo, destination)).toBe(destination);
+		expect(readdirSync(root).some((name) => name.includes("orphan"))).toBe(
+			false,
+		);
+	},
+	30_000,
+);
+
+it("preserves an orphan destination and provisions the retry path", async () => {
 	const { root, repo, git } = gitFixture(true);
 	const destination = join(root, "repo");
 	mkdirSync(destination);
 	writeFileSync(join(destination, "retained.txt"), "unfinished work");
-	provisionLaneWorktree(repo, destination);
+	await provisionLaneWorktree(repo, destination);
 	expect(git(["rev-parse", "HEAD"], destination)).toBe(
 		git(["rev-parse", "HEAD"]),
 	);
@@ -5528,12 +5569,12 @@ it("preserves an orphan destination and provisions the retry path", () => {
 	);
 }, 30_000);
 
-it("keeps a dirty registered worktree for inspection and provisions the retry beside it", () => {
+it("keeps a dirty registered worktree for inspection and provisions the retry beside it", async () => {
 	const { root, repo, git } = gitFixture(true);
 	const destination = join(root, "repo");
 	git(["worktree", "add", "--detach", destination]);
 	writeFileSync(join(destination, "retained.txt"), "unfinished work");
-	const retry = provisionLaneWorktree(repo, destination);
+	const retry = await provisionLaneWorktree(repo, destination);
 	expect(retry).toBe(`${destination}-2`);
 	expect(git(["rev-parse", "HEAD"], retry)).toBe(git(["rev-parse", "HEAD"]));
 	expect(readFileSync(join(destination, "retained.txt"), "utf8")).toBe(
@@ -5541,13 +5582,15 @@ it("keeps a dirty registered worktree for inspection and provisions the retry be
 	);
 	// Every later retry gets its own path; no checkout is reused while dirty.
 	writeFileSync(join(retry, "second.txt"), "second attempt");
-	expect(provisionLaneWorktree(repo, destination)).toBe(`${destination}-3`);
+	expect(await provisionLaneWorktree(repo, destination)).toBe(
+		`${destination}-3`,
+	);
 	expect(readFileSync(join(retry, "second.txt"), "utf8")).toBe(
 		"second attempt",
 	);
 }, 30_000);
 
-it("keeps a registered worktree holding unlanded commits and provisions beside it", () => {
+it("keeps a registered worktree holding unlanded commits and provisions beside it", async () => {
 	const { root, repo, git } = gitFixture(true);
 	const destination = join(root, "repo");
 	git(["worktree", "add", "--detach", destination]);
@@ -5556,13 +5599,15 @@ it("keeps a registered worktree holding unlanded commits and provisions beside i
 		destination,
 	);
 	const local = git(["rev-parse", "HEAD"], destination);
-	expect(provisionLaneWorktree(repo, destination)).toBe(`${destination}-2`);
+	expect(await provisionLaneWorktree(repo, destination)).toBe(
+		`${destination}-2`,
+	);
 	expect(git(["rev-parse", "HEAD"], destination)).toBe(local);
 }, 30_000);
 
 it("records and preserves an unpushed commit until origin/main contains it", async () => {
 	const { root, repo, git } = gitFixture(true);
-	const destination = provisionLaneWorktree(repo, join(root, "repo"));
+	const destination = await provisionLaneWorktree(repo, join(root, "repo"));
 	git(
 		[
 			"-c",
@@ -5587,7 +5632,7 @@ it("evicts a stale checkout that still holds work, saving it under a ref first",
 	const { root, repo, git } = gitFixture(true);
 	const run = join(root, "item-2");
 	mkdirSync(run);
-	const destination = provisionLaneWorktree(repo, join(run, "repo"));
+	const destination = await provisionLaneWorktree(repo, join(run, "repo"));
 	git(
 		["-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", "rebased"],
 		destination,
@@ -5623,13 +5668,13 @@ it("deletes a stale folder Git no longer knows only under eviction", async () =>
 	expect(existsSync(destination)).toBe(false);
 });
 
-it("reuses a clean registered worktree left by a failed admission at fresh origin/main", () => {
+it("reuses a clean registered worktree left by a failed admission at fresh origin/main", async () => {
 	const { root, repo, git } = gitFixture(true);
 	const destination = join(root, "repo");
 	git(["worktree", "add", "--detach", destination]);
 	git(["-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", "next"]);
 	git(["push", "origin", "main"]);
-	expect(provisionLaneWorktree(repo, destination)).toBe(destination);
+	expect(await provisionLaneWorktree(repo, destination)).toBe(destination);
 	expect(git(["rev-parse", "HEAD"], destination)).toBe(
 		git(["rev-parse", "HEAD"]),
 	);
@@ -5641,8 +5686,8 @@ it.each([false, true])(
 	async (reused) => {
 		const { root, repo, git } = gitFixture(true);
 		const destination = join(root, "repo");
-		if (reused) provisionLaneWorktree(repo, destination);
-		expect(provisionLaneWorktree(repo, destination)).toBe(destination);
+		if (reused) await provisionLaneWorktree(repo, destination);
+		expect(await provisionLaneWorktree(repo, destination)).toBe(destination);
 		expect(git(["worktree", "list", "--porcelain"])).toContain(
 			"locked Tedix dispatcher checkout",
 		);
@@ -5659,7 +5704,7 @@ it.each([false, true])(
 
 it("keeps its own lock when dispatcher cleanup cannot remove the checkout", async () => {
 	const { root, repo, git } = gitFixture(true);
-	const destination = provisionLaneWorktree(repo, join(root, "repo"));
+	const destination = await provisionLaneWorktree(repo, join(root, "repo"));
 	writeFileSync(join(destination, "unsaved.txt"), "work");
 	expect(await cleanupLaneWorktree(repo, destination, () => false)).toBe(false);
 	expect(git(["worktree", "list", "--porcelain"])).toContain(
@@ -8237,15 +8282,17 @@ describe("stale hold recovery", () => {
 	});
 });
 
-it("provisions beside a locked worktree registration whose folder is gone", () => {
+it("provisions beside a locked worktree registration whose folder is gone", async () => {
 	const { root, repo, git } = gitFixture(true);
 	const destination = join(root, "repo");
-	provisionLaneWorktree(repo, destination);
+	await provisionLaneWorktree(repo, destination);
 	rmSync(destination, { recursive: true });
 	// The locked registration survives `worktree prune`; provisioning takes
 	// the next free suffix instead of running `git -C` into the missing folder.
-	const retry = provisionLaneWorktree(repo, destination);
+	const retry = await provisionLaneWorktree(repo, destination);
 	expect(retry).toBe(`${destination}-2`);
 	expect(git(["rev-parse", "HEAD"], retry)).toBe(git(["rev-parse", "HEAD"]));
-	expect(provisionLaneWorktree(repo, destination)).toBe(`${destination}-3`);
+	expect(await provisionLaneWorktree(repo, destination)).toBe(
+		`${destination}-3`,
+	);
 }, 30_000);
