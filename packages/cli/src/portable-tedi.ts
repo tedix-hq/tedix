@@ -1,13 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import {
-	link,
-	lstat,
-	mkdtemp,
-	mkdir,
-	readFile,
-	rm,
-	writeFile,
-} from "node:fs/promises";
+import { link, lstat, mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import {
@@ -249,10 +241,15 @@ const SECTIONS: ReadonlyArray<{ section: Section; path: string }> = [
 
 async function runGit(
 	args: string[],
-	options: { env?: Record<string, string | undefined>; token?: string } = {},
+	options: {
+		env?: Record<string, string | undefined>;
+		token?: string;
+		stdin?: Blob;
+	} = {},
 ): Promise<string> {
 	const child = Bun.spawn(["git", ...args], {
 		env: options.env ?? process.env,
+		stdin: options.stdin,
 		stdout: "pipe",
 		stderr: "pipe",
 	});
@@ -530,38 +527,42 @@ export async function exportPortableTedi(options: {
 				throw error;
 			}
 		}
-		await mkdir(join(payloadDir, "snapshot"), { recursive: true });
-		for (const [path, bytes] of Object.entries(snapshot.files)) {
-			await writeFile(join(payloadDir, path), bytes);
+		// Git's SHA-1 can take a second per pass over a large snapshot. fast-import
+		// hashes it once, straight into a pack the bundle reuses; `git add` and
+		// `git commit` hash a working-tree file three times and bundling once more.
+		const message = "Portable tedi snapshot\n";
+		const stream: Array<string | Uint8Array> = [
+			`commit refs/heads/portable-export\ncommitter Tedix Portable Export <portable-export@tedix.dev> ${Math.floor(Date.now() / 1000)} +0000\ndata ${message.length}\n${message}${sourceHead ? `from ${sourceHead}\n` : ""}`,
+		];
+		for (const [path, bytes] of [
+			...Object.entries(snapshot.files),
+			[
+				"manifest.json",
+				new TextEncoder().encode(`${JSON.stringify(manifest, null, 2)}\n`),
+			] as const,
+		]) {
+			stream.push(
+				`M 100644 inline ${PORTABLE_DIR}/${path}\ndata ${bytes.length}\n`,
+				bytes,
+				"\n",
+			);
 		}
-		await writeFile(
-			join(payloadDir, "manifest.json"),
-			`${JSON.stringify(manifest, null, 2)}\n`,
+		await runGit(
+			[
+				"-C",
+				repoDir,
+				"-c",
+				"core.compression=1",
+				"-c",
+				"core.bigFileThreshold=1m",
+				"-c",
+				"fastimport.unpackLimit=0",
+				"fast-import",
+				"--quiet",
+			],
+			{ stdin: new Blob(stream) },
 		);
-		await runGit([
-			"-C",
-			repoDir,
-			"-c",
-			"core.compression=1",
-			"add",
-			PORTABLE_DIR,
-		]);
-		await runGit([
-			"-C",
-			repoDir,
-			"-c",
-			"core.compression=1",
-			"-c",
-			"gc.auto=0",
-			"-c",
-			"user.name=Tedix Portable Export",
-			"-c",
-			"user.email=portable-export@tedix.dev",
-			"commit",
-			"-m",
-			"Portable tedi snapshot",
-		]);
-		await runGit(["-C", repoDir, "branch", "portable-export", "HEAD"]);
+		await runGit(["-C", repoDir, "update-ref", "HEAD", "portable-export"]);
 		await mkdir(dirname(outputPath), { recursive: true });
 		await runGit([
 			"-C",
