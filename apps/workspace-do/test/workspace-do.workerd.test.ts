@@ -2141,6 +2141,136 @@ describe("WorkspaceDO", () => {
 		).toEqual([before[1]]);
 	});
 
+	test.each(["completed", "running", "requires_approval"])(
+		"moved %s rows without a terminal receipt finish in replay",
+		async (status) => {
+			const movedScope = { ...scope, workspaceId: crypto.randomUUID() };
+			await seedWorkspaceRows([movedScope]);
+			const ws = workspace(movedScope);
+			await runInDurableObject(ws, (_instance, state) => {
+				state.storage.sql.exec(
+					"INSERT INTO kernel_conversations (id, organization_id, workspace_id, conversation_id, title, last_message_at) VALUES ('missing-terminal', ?, ?, 'missing-terminal', 'Old chat', '2026-10-22T10:00:00.000Z')",
+					movedScope.organizationId,
+					movedScope.workspaceId,
+				);
+				state.storage.sql.exec(
+					"INSERT INTO kernel_runtime_runs (id, organization_id, conversation_id, status, started_at) VALUES ('missing-terminal-run', ?, 'missing-terminal', ?, '2026-10-22T10:00:00.000Z')",
+					movedScope.organizationId,
+					status,
+				);
+				state.storage.sql.exec(
+					"INSERT INTO kernel_runtime_events (id, organization_id, conversation_id, run_id, kind, payload, created_at) VALUES ('missing-terminal-start', ?, 'missing-terminal', 'missing-terminal-run', 'message.received', ?, '2026-10-22T10:00:00.000Z')",
+					movedScope.organizationId,
+					JSON.stringify({ role: "user", content: "Old question" }),
+				);
+			});
+			await evictDurableObject(ws);
+			const events = await ws.readEvents(movedScope);
+			expect(events.map((event) => event.type)).toEqual([
+				"turn.started",
+				"turn.finished",
+			]);
+			expect(events.at(-1)).toMatchObject({
+				status:
+					status === "completed"
+						? "done"
+						: status === "requires_approval"
+							? "waiting"
+							: "error",
+				durationMs: 0,
+			});
+			expect(
+				await ws.readTurn(movedScope, "missing-terminal-run"),
+			).toMatchObject({ finishedAt: "2026-10-22T10:00:00.000Z" });
+			await evictDurableObject(ws);
+			expect(await ws.readEvents(movedScope)).toEqual(events);
+		},
+	);
+
+	test("the alarm keeps a live turn until its progress is 15 minutes old", async () => {
+		const localScope = { ...scope, workspaceId: crypto.randomUUID() };
+		await seedWorkspaceRows([localScope]);
+		const ws = workspace(localScope);
+		await ws.scriptModel(localScope, [
+			{
+				text: "This answer takes several seconds to stream and will be interrupted by the idle watchdog.",
+				tokensPerSecond: 1,
+			},
+		]);
+		const turn = await ws.sendTurn(localScope, {
+			actorId: "u1",
+			actorKind: "user",
+			text: "Stream slowly",
+		});
+		await ws.retryProjections(localScope);
+		expect(await ws.readTurn(localScope, turn.turnId)).toMatchObject({
+			status: "running",
+		});
+		await runInDurableObject(ws, (instance, state) => {
+			state.storage.sql.exec(
+				"UPDATE events SET at = ? WHERE turn_id = ?",
+				new Date(Date.now() - 16 * 60_000).toISOString(),
+				turn.turnId,
+			);
+			return instance.alarm!();
+		});
+		expect(await ws.awaitTurn(localScope, turn.turnId, 1000)).toMatchObject({
+			status: "failed",
+			error: "Stopped: no progress for 15 minutes.",
+		});
+		const events = await ws.readEvents(localScope);
+		expect(
+			events.filter((event) => event.type === "turn.finished"),
+		).toHaveLength(1);
+		expect(events.at(-1)).toMatchObject({
+			type: "turn.finished",
+			status: "error",
+		});
+	});
+
+	test.each(["stop", "alarm"])(
+		"%s closes a running row without an executor and preserves its steps",
+		async (path) => {
+			const localScope = { ...scope, workspaceId: crypto.randomUUID() };
+			await seedWorkspaceRows([localScope]);
+			const ws = workspace(localScope);
+			await ws.listConversations(localScope);
+			await runInDurableObject(ws, (_instance, state) => {
+				state.storage.sql.exec(
+					"INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('orphan', 'Orphan', '2026-10-22T10:00:00.000Z', '2026-10-22T10:00:00.000Z')",
+				);
+				state.storage.sql.exec(
+					"INSERT INTO turns (turn_id, conversation_id, started_at, status, actor_id, actor_kind) VALUES ('orphan', 'orphan', '2026-10-22T10:00:00.000Z', 'running', 'u1', 'user')",
+				);
+				state.storage.sql.exec(
+					"INSERT INTO events (conversation_id, turn_id, at, type, body) VALUES ('orphan', 'orphan', '2026-10-22T10:00:00.000Z', 'step.started', ?)",
+					JSON.stringify({
+						type: "step.started",
+						turnId: "orphan",
+						stepId: "kept",
+						label: "Read data",
+						kind: "read",
+					}),
+				);
+			});
+			if (path === "stop")
+				expect(await ws.cancelTurn(localScope, "orphan")).toBe(true);
+			else await ws.retryProjections(localScope);
+			expect(await ws.readTurn(localScope, "orphan")).toMatchObject({
+				status: path === "stop" ? "cancelled" : "failed",
+			});
+			const events = await ws.readEvents(localScope);
+			expect(events).toHaveLength(2);
+			expect(events[0]).toMatchObject({ type: "step.started", stepId: "kept" });
+			expect(events[1]).toMatchObject({
+				type: "turn.finished",
+				status: path === "stop" ? "cancelled" : "error",
+			});
+			expect(await ws.cancelTurn(localScope, "orphan")).toBe(false);
+			expect(await ws.readEvents(localScope)).toEqual(events);
+		},
+	);
+
 	test("a WebSocket reconnect replays events after its cursor", async () => {
 		const ws = workspace();
 		await ws.scriptModel(scope, [{ text: "replayed answer" }]);

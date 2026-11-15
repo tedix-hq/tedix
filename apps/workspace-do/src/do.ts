@@ -103,6 +103,7 @@ export const COMPATIBILITY_DATE = "2026-05-14";
 /** Turns with more history than this run in their own facet. */
 export const ISOLATE_AFTER_MESSAGES = 40;
 const KEEPALIVE_MS = 60_000;
+const TURN_IDLE_TIMEOUT_MS = 15 * 60_000;
 /** How long an object reuses the published model catalog before rereading it. */
 const MODEL_CATALOG_TTL_MS = 60_000;
 
@@ -161,7 +162,7 @@ CREATE TABLE IF NOT EXISTS approvals (
 );
 `;
 
-type TurnStatus = "running" | "finished" | "failed" | "cancelled";
+type TurnStatus = "running" | "finished" | "failed" | "cancelled" | "waiting";
 
 interface TurnRow {
 	turn_id: string;
@@ -825,10 +826,32 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 
 	async cancelTurn(scope: WorkspaceScope, turnId: string): Promise<boolean> {
 		this.bindScope(scope);
-		const controller = this.#running.get(turnId);
-		if (!controller) return false;
-		controller.abort(new Error("cancelled by user"));
+		const turn = this.#turn(turnId);
+		if (!turn || turn.status !== "running") return false;
+		this.#stopTurn(turn, "cancelled by user", "cancelled");
 		return true;
+	}
+
+	#stopTurn(turn: TurnRow, reason: string, status: "failed" | "cancelled") {
+		this.#running.get(turn.turn_id)?.abort(new Error(reason));
+		const now = new Date().toISOString();
+		this.#store.run(
+			"UPDATE turns SET status = ?, error = ?, finished_at = ? WHERE turn_id = ? AND status = 'running'",
+			status,
+			reason,
+			now,
+			turn.turn_id,
+		);
+		this.#events.append(turn.conversation_id, {
+			type: "turn.finished",
+			turnId: turn.turn_id,
+			status: status === "failed" ? "error" : "cancelled",
+			error: reason,
+			durationMs: Math.max(0, Date.parse(now) - Date.parse(turn.started_at)),
+		});
+		this.#running.delete(turn.turn_id);
+		for (const wake of this.#waiters.get(turn.turn_id) ?? []) wake();
+		this.#waiters.delete(turn.turn_id);
 	}
 
 	/** Live replay: events after a cursor, one conversation or the whole object. */
@@ -1328,6 +1351,25 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	}
 
 	override async alarm() {
+		for (const turn of this.#store.exec<TurnRow>(
+			"SELECT * FROM turns WHERE status = 'running'",
+		)) {
+			const [last] = this.#store.exec<{ at: string | null }>(
+				"SELECT max(at) AS at FROM events WHERE turn_id = ?",
+				turn.turn_id,
+			);
+			if (!this.#running.has(turn.turn_id))
+				this.#stopTurn(
+					turn,
+					"Stopped: no live executor for this turn.",
+					"failed",
+				);
+			else if (
+				Date.now() - Date.parse(last?.at ?? turn.started_at) >=
+				TURN_IDLE_TIMEOUT_MS
+			)
+				this.#stopTurn(turn, "Stopped: no progress for 15 minutes.", "failed");
+		}
 		for (const [outputId, pending] of Object.entries(this.#outputTransfers())) {
 			try {
 				await this.#runOutputTransfer(outputId, pending);
@@ -2009,6 +2051,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	}
 
 	#emitLoopEvent(conversationId: string, turnId: string, event: LoopEvent) {
+		if (this.#turn(turnId)?.status !== "running") return;
 		const data = event.data ?? {};
 		let body: WireEventBody | null = null;
 		switch (event.type) {
@@ -2231,7 +2274,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 							this.#saveProgress(conversationId, turnId, progress),
 						signal: controller.signal,
 					});
-			this.#persist(conversationId, turnId, result);
+			if (this.#turn(turnId)?.status !== "running") return;
 			const usage = result.usage
 				? {
 						...toTurnUsage(result.usage),
@@ -2244,6 +2287,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 						)),
 					}
 				: null;
+			if (this.#turn(turnId)?.status !== "running") return;
+			this.#persist(conversationId, turnId, result);
 			this.#events.append(conversationId, {
 				type: "assistant.done",
 				turnId,
@@ -2259,6 +2304,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				durationMs: Date.now() - startedAt,
 			});
 		} catch (error) {
+			if (this.#turn(turnId)?.status !== "running") return;
 			const cancelled = controller.signal.aborted;
 			const message = cancelled
 				? "cancelled by user"
@@ -2314,6 +2360,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		turnId: string,
 		progress: TurnProgress,
 	) {
+		if (this.#turn(turnId)?.status !== "running") return;
 		const now = new Date().toISOString();
 		this.ctx.storage.transactionSync(() => {
 			if (progress.compaction) {

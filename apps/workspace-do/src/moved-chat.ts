@@ -42,12 +42,13 @@ export function migrateMovedChat(
 	store.run(
 		`INSERT INTO turns (turn_id, conversation_id, started_at, finished_at, status, actor_id, actor_kind, text, error)
 		SELECT r.id, r.conversation_id, coalesce(r.started_at, r.created_at), r.completed_at,
-		CASE WHEN r.status = 'completed' THEN 'finished' ELSE 'failed' END,
+		CASE WHEN r.status = 'completed' THEN 'finished' WHEN r.status = 'requires_approval' THEN 'waiting' ELSE 'failed' END,
 		'workspace_import', 'service', NULL,
-		CASE WHEN r.status = 'completed' THEN NULL ELSE 'Imported run: ' || r.status END
+		CASE WHEN r.status IN ('completed', 'requires_approval') THEN NULL ELSE 'Imported run: ' || r.status END
 		FROM kernel_runtime_runs r JOIN kernel_conversations c ON c.conversation_id = r.conversation_id AND c.organization_id = r.organization_id
 		WHERE c.organization_id = ? AND c.workspace_id = ?
-		ON CONFLICT(turn_id) DO NOTHING`,
+		ON CONFLICT(turn_id) DO UPDATE SET status = excluded.status, error = excluded.error
+		WHERE turns.actor_id = 'workspace_import' AND turns.error = 'Imported run: requires_approval'`,
 		scope.organizationId,
 		scope.workspaceId,
 	);
@@ -166,5 +167,52 @@ export function migrateMovedChat(
 			);
 		}
 		store.put(key, true);
+	}
+	// Rows and replay must agree even when the old run never wrote a terminal event.
+	for (const turn of store.exec<{
+		turn_id: string;
+		conversation_id: string;
+		started_at: string;
+		finished_at: string | null;
+		status: string;
+		error: string | null;
+		last_at: string | null;
+	}>(
+		`SELECT t.turn_id, t.conversation_id, t.started_at, t.finished_at, t.status, t.error,
+		(SELECT max(e.at) FROM events e WHERE e.turn_id = t.turn_id) AS last_at
+		FROM turns t WHERE t.actor_id = 'workspace_import' AND t.status != 'running' AND t.first_seq IS NOT NULL
+		AND NOT EXISTS (SELECT 1 FROM events e WHERE e.turn_id = t.turn_id AND e.type = 'turn.finished')`,
+	)) {
+		const at = turn.finished_at ?? turn.last_at ?? turn.started_at;
+		const body: WireEventBody = {
+			type: "turn.finished",
+			turnId: turn.turn_id,
+			status:
+				turn.status === "finished"
+					? "done"
+					: turn.status === "waiting"
+						? "waiting"
+						: "error",
+			...(turn.status === "waiting"
+				? {
+						approvalUrl: `/work/executions/${encodeURIComponent(turn.turn_id)}`,
+					}
+				: {}),
+			durationMs: Math.max(0, Date.parse(at) - Date.parse(turn.started_at)),
+			...(turn.error ? { error: turn.error } : {}),
+		};
+		store.run(
+			"INSERT INTO events (conversation_id, turn_id, at, type, body) VALUES (?, ?, ?, ?, ?)",
+			turn.conversation_id,
+			turn.turn_id,
+			at,
+			body.type,
+			JSON.stringify(body),
+		);
+		store.run(
+			"UPDATE turns SET finished_at = ? WHERE turn_id = ?",
+			at,
+			turn.turn_id,
+		);
 	}
 }

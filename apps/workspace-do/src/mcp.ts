@@ -21,7 +21,7 @@ export interface McpHost {
 		turnId: string,
 		timeoutMs: number,
 	): Promise<{
-		status: "running" | "finished" | "failed" | "cancelled";
+		status: "running" | "finished" | "failed" | "cancelled" | "waiting";
 		text?: string;
 		error?: string;
 	}>;
