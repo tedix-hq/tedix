@@ -45,7 +45,8 @@ export const WORK_VIEWS: readonly WorkView[] = [
 	{
 		id: "items",
 		label: "All work",
-		description: "Every Work Item with its status, owner and priority.",
+		description:
+			"Accepted and finished Work Items with status, owner and priority.",
 		group: "planning",
 		to: "/work",
 		search: { view: "items" },

@@ -189,6 +189,20 @@ describe("listWorkItemsPage filters and counts in SQL", () => {
 		expect(unfiltered.total).toBe(30);
 	});
 
+	it("leaves out one disposition before paging and counts the rest", async () => {
+		const dispositions = ["proposed", "accepted", "completed", "cancelled"];
+		for (let index = 0; index < 20; index += 1)
+			insert({ id: idFor(index), disposition: dispositions[index % 4] });
+		const page = await listWorkItemsPage(db, {
+			orgId: ORG,
+			excludeDisposition: "proposed",
+			limit: 5,
+		});
+		expect(page.total).toBe(15);
+		expect(page.data).toHaveLength(5);
+		expect(page.data.map((row) => row.disposition)).not.toContain("proposed");
+	});
+
 	it("keeps offset pages disjoint when every created_at is identical", async () => {
 		for (let index = 0; index < 25; index += 1) {
 			insert({ id: idFor(index), createdAt: "2026-08-20T12:00:00.000Z" });

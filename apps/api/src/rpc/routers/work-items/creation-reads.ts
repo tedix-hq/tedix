@@ -194,6 +194,7 @@ export const listProcedure = authOs.list.handler(async ({ input, context }) => {
 	const { data, total } = await listWorkItemsPage(context.db, {
 		orgId,
 		disposition: input?.disposition,
+		excludeDisposition: input?.excludeDisposition,
 		executor: input?.executor,
 		dispatchReadyOnly: input?.dispatchReadyOnly,
 		workKind: input?.workKind,

@@ -614,7 +614,7 @@ export const workItemListQueryOptions = (
 export const workItemPagesQueryOptions = (
 	filters: Pick<
 		ClientInput<typeof osApi.workItems.list>,
-		"disposition" | "projectId" | "executor"
+		"disposition" | "excludeDisposition" | "projectId" | "executor"
 	>,
 ) =>
 	osQuery.workItems.list.infiniteOptions({

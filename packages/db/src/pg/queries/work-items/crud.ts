@@ -348,6 +348,8 @@ export interface ListWorkItemsPageOptions {
 	projectId?: string | null;
 	parentWorkItemId?: string | null;
 	disposition?: WorkItem["disposition"];
+	/** Leave out rows with this disposition, e.g. proposals still in triage. */
+	excludeDisposition?: WorkItem["disposition"];
 	workKind?: WorkItemKind;
 	objectiveId?: string;
 	workClass?: WorkItemClass;
@@ -415,6 +417,9 @@ export async function listWorkItemsPage(
 				: eq(workItems.parentWorkItemId, options.parentWorkItemId),
 		options.disposition
 			? eq(workItems.disposition, options.disposition)
+			: undefined,
+		options.excludeDisposition
+			? ne(workItems.disposition, options.excludeDisposition)
 			: undefined,
 		executors
 			? // bound-params: executor filter is limited to 10 values above.
