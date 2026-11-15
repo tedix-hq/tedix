@@ -50,6 +50,25 @@ async function fits(page: Page, width: number) {
 	);
 }
 
+async function assertStableTabOverflow(page: Page) {
+	const state = await page.getByRole("tablist").evaluate((tablist) => ({
+		clientWidth: tablist.clientWidth,
+		scrollWidth: tablist.scrollWidth,
+		scrollDrivenAnimations: tablist
+			.getAnimations()
+			.filter((animation) => animation.timeline !== document.timeline).length,
+	}));
+	assert(
+		state.scrollWidth > state.clientWidth,
+		"Phone tabs overflow horizontally",
+	);
+	assert.equal(
+		state.scrollDrivenAnimations,
+		0,
+		"Overflowing tabs do not run Kumo's scroll-driven mask animation",
+	);
+}
+
 // The topbar Approvals panel against the app's real CSS: WebKit at 320, 375 and
 // 1280 px, light and dark, with three held delegations, with mixed action
 // requests and history, and with nothing.
@@ -255,6 +274,7 @@ try {
 				);
 				await fits(page, width);
 				await capture(page, `activity-review-${width}-${theme}`);
+				if (width === 320) await assertStableTabOverflow(page);
 
 				// Automatic rules and their explanation are separate from history.
 				await activity.getByRole("tab", { name: "Auto-approval" }).click();
