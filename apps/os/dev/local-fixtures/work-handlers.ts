@@ -438,6 +438,7 @@ export const workHandlers: Record<string, (input: never) => unknown> = {
 					workKind?: string;
 					projectId?: string;
 					titleContains?: string;
+					mattersThrough?: string;
 					limit?: number;
 					offset?: number;
 			  }
@@ -446,6 +447,12 @@ export const workHandlers: Record<string, (input: never) => unknown> = {
 		paginate(
 			WORK_ITEMS.filter(
 				(row) =>
+					(input?.mattersThrough === undefined ||
+						row.priority === "critical" ||
+						row.priority === "high" ||
+						([row.deadline, row.dueDate] as (string | null)[]).some(
+							(due) => due != null && due <= input.mattersThrough!,
+						)) &&
 					(input?.disposition === undefined ||
 						row.disposition === input.disposition) &&
 					(input?.workKind === undefined || row.workKind === input.workKind) &&
@@ -485,6 +492,13 @@ export const workHandlers: Record<string, (input: never) => unknown> = {
 		reasons: [],
 		derivedAt: T5,
 		gates: [],
+	}),
+	// The sample company has no failed or expired Work to recover.
+	"workItems/listRecoveryProjection": () => ({
+		data: [],
+		nextCursor: null,
+		hasMore: false,
+		observedAt: new Date().toISOString(),
 	}),
 	// Accepted queue: items with a live attempt read as already running.
 	"workItems/listReadinessProjection": (

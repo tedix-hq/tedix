@@ -701,7 +701,9 @@ export function FocusFeed({
 				/>
 			))}
 			<DecisionContextToolbar />
-			<ActivityRunningNow config={config} projectId={navigation?.projectId} />
+			{navigation?.showRunningNow !== false && (
+				<ActivityRunningNow config={config} projectId={navigation?.projectId} />
+			)}
 			{filtered ? (
 				<div className="focus-filter-heading">
 					<h2>{filterLabel}</h2>

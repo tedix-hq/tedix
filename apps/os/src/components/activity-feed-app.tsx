@@ -14,6 +14,7 @@ export interface ActivityFeedNavigation {
 	day?: string;
 	onFilterChange?: (filter: Filter) => void;
 	apps?: ReactNode;
+	showRunningNow?: boolean;
 }
 
 export function ActivityFeedApp(props: {

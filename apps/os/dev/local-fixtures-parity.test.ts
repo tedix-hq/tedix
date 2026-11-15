@@ -397,7 +397,6 @@ const LOCAL_UNSUPPORTED: Record<string, readonly string[]> = {
 		"workItems/createCase",
 		"workItems/getAdmissionSpecification",
 		"workItems/inspectAttemptRepository",
-		"workItems/listRecoveryProjection",
 		"workItems/listWorkItemSources",
 		"workItems/previewEvidence",
 		"workItems/putBudgetEnvelope",
