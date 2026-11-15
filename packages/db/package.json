@@ -537,7 +537,7 @@
 		"test:watch": "vp test",
 		"test:ci": "bun run test:run && bun run test:postgres",
 		"db:migrate:generate": "bun scripts/generate-migration.ts",
-		"migration:restamp": "node ../../node_modules/jiti/lib/jiti-cli.mjs scripts/generate-migration.ts --restamp",
+		"migration:restamp": "bun scripts/generate-migration.ts --restamp",
 		"db:schema:check": "bun scripts/generate-migration.ts --check && bun scripts/generate-tenant-store-migration.ts --check",
 		"db:tenant-store:generate": "bun scripts/generate-tenant-store-migration.ts",
 		"db:migrate:history-check": "bun scripts/check-migration-history.ts",
