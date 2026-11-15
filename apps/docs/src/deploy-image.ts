@@ -10,6 +10,18 @@ const COPY_INSTRUCTION = /^\s*COPY\s+(\S[^\n]*)$/gm;
 const SANDBOX_IMAGE = /sandbox:\s*\{\s*dockerfile:\s*"[^"]+"\s*\}/;
 const REGISTRY_HOST = "registry.cloudflare.com";
 export const DOCS_BUILD_IMAGE_REPOSITORY = "public-installation-docs-build";
+/**
+ * How the deploy script builds the image. Part of the tag, so changing the
+ * build flags never reuses an image pushed with the old ones. Cloudflare
+ * rejects image indexes, so the build must push one plain amd64 manifest
+ * (`--provenance=false`, as `cf` builds its own images).
+ */
+export const IMAGE_BUILD_FLAGS = [
+	"--platform",
+	"linux/amd64",
+	"--provenance=false",
+];
+const IMAGE_BUILD_FORMAT = IMAGE_BUILD_FLAGS.join(" ");
 
 /**
  * Build-context paths a Dockerfile's COPY instructions read. `COPY --from=`
@@ -34,6 +46,8 @@ export function imageInputTag(
 	files: ReadonlyArray<{ path: string; contents: Buffer }>,
 ): string {
 	const hash = createHash("sha256");
+	hash.update(IMAGE_BUILD_FORMAT);
+	hash.update("\0");
 	for (const { path, contents } of [...files].sort((a, b) =>
 		a.path.localeCompare(b.path),
 	)) {
