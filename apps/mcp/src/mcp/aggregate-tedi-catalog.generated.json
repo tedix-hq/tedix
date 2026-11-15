@@ -8687,6 +8687,17 @@
 							},
 							"score": {
 								"type": "number"
+							},
+							"reason": {
+								"description": "Why a runner stopped starting this Work, in one plain line. Held Work with a reason is listed as stuck; the next specification edit makes it ready again.",
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 300
+							},
+							"note": {
+								"description": "The last failure the runner saw before it held the Work.",
+								"type": "string",
+								"maxLength": 2000
 							}
 						},
 						"required": ["state"],
