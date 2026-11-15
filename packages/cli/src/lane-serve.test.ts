@@ -6392,6 +6392,50 @@ it("measures a finished run once, across sweeps and a runner restart", async () 
 	}
 });
 
+it("retries a run folder it could not measure hourly, not on every sweep", async () => {
+	const { restart, dir, items, deps } = fixture();
+	items.splice(0);
+	const repo = join(dir, "runs", `${item().id}-2`, "repo");
+	mkdirSync(repo, { recursive: true });
+	writeFileSync(
+		join(dir, `${item().id}-2.json`),
+		JSON.stringify({
+			itemId: item().id,
+			version: 2,
+			phase: "deferred",
+			outcome: "expired",
+			admissionState: "admitted",
+			attemptId: "attempt",
+			session: "codex:interrupted",
+			repo,
+		}),
+	);
+	let measured = 0;
+	deps.directoryBytes = async () => {
+		measured++;
+		throw new Error("Command failed: du -sk");
+	};
+	const dispatcher = restart();
+	const start = Date.now();
+	const clock = spyOn(Date, "now").mockReturnValue(start);
+	try {
+		const measuredAfter = async (minutes: number) => {
+			clock.mockReturnValue(start + minutes * 60_000);
+			await dispatcher.tick();
+			await dispatcher.drain();
+			return measured;
+		};
+		expect(await measuredAfter(0)).toBe(1);
+		expect(await measuredAfter(11)).toBe(1);
+		expect(await measuredAfter(61)).toBe(2);
+	} finally {
+		clock.mockRestore();
+	}
+	expect(readFileSync(join(dir, "dispatcher.log"), "utf8")).toContain(
+		'"event":"run-size-deferred"',
+	);
+});
+
 it("waits longer after each refused checkout cleanup", async () => {
 	const { dispatcher, dir, items, control } = fixture();
 	items.splice(0);

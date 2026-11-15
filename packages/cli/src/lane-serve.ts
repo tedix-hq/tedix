@@ -1645,8 +1645,10 @@ export class LaneDispatcher {
 	private maintenance = new Map<string, Promise<void>>();
 	private runsSweptAt = 0;
 	/** Measured run directory sizes, kept across restarts in `run-sizes.state`. */
-	private runSizes: Record<string, { key: string; bytes: number; at: number }> =
-		{};
+	private runSizes: Record<
+		string,
+		{ key: string; bytes: number; at: number; failed?: boolean }
+	> = {};
 	private queue = serialCalls();
 	private stopping = false;
 	private admissionsHeld = false;
@@ -2799,8 +2801,8 @@ export class LaneDispatcher {
 	 * A run directory's size. Measuring one reads every file of a checkout
 	 * with its dependencies, and a runner with a hundred retained runs spent a
 	 * whole core doing that on every sweep. A finished run is measured once and
-	 * again only when its directory or receipt changes; a run in progress at
-	 * most hourly.
+	 * again only when its directory or receipt changes; a run in progress, or
+	 * one whose measurement failed, at most hourly.
 	 */
 	private async runBytes(
 		name: string,
@@ -2817,12 +2819,26 @@ export class LaneDispatcher {
 		const known = this.runSizes[name];
 		if (
 			known?.key === key &&
-			(!live || Date.now() - known.at < LIVE_RUN_SIZE_MS)
+			(!(live || known.failed) || Date.now() - known.at < LIVE_RUN_SIZE_MS)
 		)
 			return known.bytes;
-		const bytes = await this.deps.directoryBytes(run);
-		this.runSizes[name] = { key, bytes, at: Date.now() };
-		return bytes;
+		try {
+			const bytes = await this.deps.directoryBytes(run);
+			this.runSizes[name] = { key, bytes, at: Date.now() };
+			return bytes;
+		} catch (error) {
+			// A directory too large to measure in time would otherwise cost a
+			// full timed-out scan on every sweep. Its last known size stands in
+			// until the next hourly try.
+			this.runSizes[name] = {
+				key,
+				bytes: known?.bytes ?? 0,
+				at: Date.now(),
+				failed: true,
+			};
+			this.log("run-size-deferred", itemId, String(error));
+			return this.runSizes[name].bytes;
+		}
 	}
 	private saveRunSizes(names: string[]) {
 		const present = new Set(names);
