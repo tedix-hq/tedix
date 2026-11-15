@@ -27,7 +27,7 @@ import {
 } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import { policyPacks } from "../../schema/control-plane";
-import { workAdmissions, workMilestoneItems } from "../../schema/work-factory";
+import { workAdmissions } from "../../schema/work-factory";
 import { kernelRequests } from "../../schema/kernel-requests";
 import {
 	type WorkItem,
@@ -1163,7 +1163,7 @@ export async function updateWorkItemSpecification(
 		actor: WorkActor;
 		executor?: string;
 		laneDispatch?: LaneDispatchPlan;
-		/** Validated by the caller; refused while milestone links remain. */
+		/** Validated by the caller. */
 		projectId?: string;
 		title?: string;
 		description?: string | null;
@@ -1258,14 +1258,6 @@ export async function updateWorkItemSpecification(
 					AND ${workAttempts.runtimeState} IN ('queued', 'running', 'waiting', 'retrying')
 					AND (${workAttempts.expiresAt} IS NULL OR ${workAttempts.expiresAt} > ${updatedAt})
 				)`,
-				// Milestones must share their Work's project.
-				projectMove
-					? sql`NOT EXISTS (
-					SELECT 1 FROM ${workMilestoneItems}
-					WHERE ${workMilestoneItems.orgId} = ${params.orgId}
-					AND ${workMilestoneItems.workItemId} = ${params.workItemId}
-				)`
-					: undefined,
 				ne(workItems.disposition, "completed"),
 				ne(workItems.disposition, "cancelled"),
 			),

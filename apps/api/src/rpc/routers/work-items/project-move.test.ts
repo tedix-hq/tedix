@@ -5,7 +5,6 @@ const mocks = vi.hoisted(() => ({
 	actor: vi.fn(),
 	update: vi.fn(),
 	project: vi.fn(),
-	pinned: vi.fn(),
 }));
 vi.mock("./policy-helpers", async (original) => ({
 	...(await original<typeof import("./policy-helpers")>()),
@@ -19,12 +18,6 @@ vi.mock("@tedix/db/queries/work-items/crud", async (original) => ({
 vi.mock("@tedix/db/queries/work-items/purpose", async (original) => ({
 	...(await original<typeof import("@tedix/db/queries/work-items/purpose")>()),
 	assertValidWorkItemProject: mocks.project,
-}));
-vi.mock("@tedix/db/queries/work-items/milestones", async (original) => ({
-	...(await original<
-		typeof import("@tedix/db/queries/work-items/milestones")
-	>()),
-	workItemHasMilestoneLinks: mocks.pinned,
 }));
 import { WorkItemProjectError } from "@tedix/db/queries/work-items/purpose";
 import { updateSpecificationProcedure } from "./factory-lifecycle";
@@ -54,7 +47,6 @@ beforeEach(() => {
 	mocks.actor.mockResolvedValue({ type: "user", id: "acme-owner" });
 	mocks.update.mockResolvedValue(item);
 	mocks.project.mockResolvedValue({ key: "B", objectiveId: "objective-b" });
-	mocks.pinned.mockResolvedValue(false);
 });
 
 it("moves owner Work to another project and takes that project's objective", async () => {
@@ -102,11 +94,6 @@ it.each([
 		"Project not found",
 	],
 	[
-		"Work pinned by a milestone",
-		() => mocks.pinned.mockResolvedValue(true),
-		"detach it before moving",
-	],
-	[
 		"objective Work into a project without an objective",
 		() => mocks.project.mockResolvedValue({ key: "B", objectiveId: null }),
 		"project with an objective",
@@ -133,7 +120,6 @@ it("refuses a move combined with purpose repair", async () => {
 it("treats the current project as no move", async () => {
 	await move({ projectId: item.projectId, title: "Renamed" });
 	expect(mocks.project).not.toHaveBeenCalled();
-	expect(mocks.pinned).not.toHaveBeenCalled();
 	expect(mocks.update).toHaveBeenCalledWith(
 		{},
 		expect.objectContaining({ title: "Renamed", objectiveId: undefined }),
