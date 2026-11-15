@@ -163,7 +163,7 @@ export function ApprovalNotifications({
 							variant="line"
 						>
 							<TabsTrigger className="px-2!" value="review">
-								Needs you
+								Needs review
 								{count > 0 ? (
 									<Badge className="ml-1.5 tabular-nums" variant="secondary">
 										{count > 99 ? "99+" : count}

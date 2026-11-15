@@ -961,7 +961,7 @@ export function RunTimelineStep({
 						</div>
 						<div>
 							<Text as="dt" role="label">
-								Tool or runner
+								Tool or lane
 							</Text>
 							<dd className="m-0 mt-1 wrap-anywhere">
 								<CodeInline>{event.lane}</CodeInline>

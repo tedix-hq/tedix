@@ -164,7 +164,7 @@ export function OfficeLeaderboard({ now = new Date() }: { now?: Date }) {
 							<TableHead className="w-10">#</TableHead>
 							<TableHead>Tedi</TableHead>
 							<TableHead className="text-right">Stood</TableHead>
-							<TableHead className="text-right">Requests answered</TableHead>
+							<TableHead className="text-right">Knocks answered</TableHead>
 							<TableHead className="text-right">Auto-sent</TableHead>
 							<TableHead className="text-right">Corrected</TableHead>
 							<TableHead className="text-right">Avg reply</TableHead>
@@ -220,7 +220,7 @@ export function OfficeLeaderboard({ now = new Date() }: { now?: Date }) {
 										{row.score.stood}
 									</TableCell>
 									<TableCell
-										label="Requests answered"
+										label="Knocks answered"
 										className="text-right tabular-nums"
 									>
 										{row.score.answered}

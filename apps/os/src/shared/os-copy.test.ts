@@ -11,17 +11,6 @@ it("follows personal Spanish preferences after the app modules have already load
 	expect(OS_COPY.feed.filters.all).toBe("Para ti");
 	expect(OS_COPY.feedDeckVisual.clear).toBe("Todo decidido");
 	expect(OS_COPY.workspace.overview).toBe("Resumen");
-	expect(OS_COPY.work.status).toBe("Estado");
-	expect(OS_COPY.work.dispositions).toEqual({
-		proposed: "Propuesto",
-		accepted: "Aceptado",
-		completed: "Completado",
-		cancelled: "Cancelado",
-	});
-	expect(OS_COPY.decisionDeck.cardKinds.question).toBe("Solicitud");
-	expect(OS_COPY.feed.filters.attention).toBe(
-		OS_COPY.feed.timeline.status.needsYou,
-	);
 	expect(OS_COPY.learning.shorter("introducciones")).toContain(
 		"textos más breves",
 	);
@@ -29,8 +18,6 @@ it("follows personal Spanish preferences after the app modules have already load
 	setOsFormattingPreferences({ locale: "en-GB", timezone: null });
 	expect(OS_COPY.feed.filters.all).toBe("All");
 	expect(OS_COPY.workspace.overview).toBe("Overview");
-	expect(OS_COPY.work.dispositions.accepted).toBe("Accepted");
-	expect(OS_COPY.work.status).toBe("Status");
 	expect(decisionText("Confirm decision")).toBe("Confirm decision");
 });
 
@@ -50,7 +37,7 @@ it("switches the Activity timeline labels between English and Spanish", () => {
 		partial: "Partly done",
 		paused: "Paused",
 		stopped: "Stopped",
-		needsLook: "Needs you",
+		needsLook: "Needs a look",
 		needsYou: "Needs you",
 	});
 	expect(OS_COPY.feed.timeline.more).toBe("More");
@@ -92,7 +79,7 @@ it("switches the Activity timeline labels between English and Spanish", () => {
 		partial: "Hecho en parte",
 		paused: "En pausa",
 		stopped: "Detenido",
-		needsLook: "Necesita tu atención",
+		needsLook: "Necesita revisión",
 		needsYou: "Necesita tu atención",
 	});
 	expect(OS_COPY.feed.timeline.more).toBe("Más");

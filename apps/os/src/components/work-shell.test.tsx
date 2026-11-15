@@ -172,7 +172,7 @@ it("unifies only the selected Agents area and keeps the primary navigation separ
 	route.withAgents = true;
 	try {
 		for (const [pathname, search, label] of [
-			["/work", { app: "office" }, "Needs you"],
+			["/work", { app: "office" }, "For you"],
 			["/work", { app: "11111111-1111-4111-8111-000000000001" }, "Sessions"],
 			["/work/capacity", { view: "budgets" }, "Capacity"],
 		] as const) {
@@ -180,7 +180,7 @@ it("unifies only the selected Agents area and keeps the primary navigation separ
 			const nav = doc.querySelector('nav[aria-label="Agents"]');
 			expect(
 				[...nav!.querySelectorAll("a")].map((link) => link.textContent),
-			).toEqual(["Needs you", "Sessions", "Capacity"]);
+			).toEqual(["For you", "Sessions", "Capacity"]);
 			expect(nav!.querySelector('[aria-current="page"]')?.textContent).toBe(
 				label,
 			);

@@ -58,7 +58,7 @@ export function MemoryVitals({ health }: { health: MemoryHealth }) {
 		},
 		{
 			id: "stale-facts",
-			label: "Needs you",
+			label: "Needs review",
 			value: formatCount(health.staleFacts),
 			href: "/brain?tab=stale",
 			tone: health.staleFacts > 0 ? "warning" : "strong",

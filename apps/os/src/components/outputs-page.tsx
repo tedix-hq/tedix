@@ -878,7 +878,7 @@ export function OutputsPage() {
 							{allItems.length > 0
 								? "Try another search, format, or sharing scope."
 								: kind === "archived"
-									? "Documents you archive appear here, and you can restore them from the ⋯ menu."
+									? "Outputs you archive appear here, and you can restore them from the ⋯ menu."
 									: "Create a document from a blank page or a template. Documents, sheets, and presentations created with your tedi also appear here."}
 						</EmptyDescription>
 					</EmptyHeader>

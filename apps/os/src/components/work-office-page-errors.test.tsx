@@ -64,7 +64,7 @@ describe("Office failed reads", () => {
 		const text = new DOMParser().parseFromString(html, "text/html").body
 			.textContent;
 		for (const resource of [
-			"requests",
+			"knocks",
 			"reply outcomes",
 			"requests waiting for you",
 			"sessions",
@@ -80,6 +80,6 @@ describe("Office failed reads", () => {
 		expect(text).not.toContain("No tedis yet");
 		expect(text).not.toContain("None yet today");
 		expect(text).not.toContain("0 active");
-		expect(text).not.toContain("Requests today0");
+		expect(text).not.toContain("Knocks today0");
 	});
 });

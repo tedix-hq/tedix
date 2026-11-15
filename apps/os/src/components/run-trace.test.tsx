@@ -326,7 +326,7 @@ describe("RunReconciliationPanel", () => {
 		);
 		expect(html).toContain("production binding");
 		expect(html).toContain("wf-abc123");
-		expect(html).toContain("Run number");
+		expect(html).toContain("Execution epoch");
 		expect(html).toContain(">2</strong>");
 		expect(html).toContain("Restart requested");
 		expect(html).toContain("Engine snapshot");

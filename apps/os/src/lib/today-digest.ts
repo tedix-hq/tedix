@@ -4,7 +4,7 @@ import { isTypingEvent } from "@/lib/keyboard";
 
 export const TODAY_COLUMNS = [
 	"Project",
-	"Objective",
+	"Goal",
 	"Progress",
 	"Running",
 	"Needs you",

@@ -184,7 +184,7 @@ export function buildWorkspaceWebMcpTools(
 						{
 							selectedWorkpiece: { type: selection.type, id: selection.id },
 							gadget: null,
-							note: "The selected workpiece is an output, not an app. list_workspace_outputs shows its compact row; the Documents surface owns full output reads.",
+							note: "The selected workpiece is an output, not an app. list_workspace_outputs shows its compact row; the Outputs surface owns full output reads.",
 						},
 						workpieceDeepLink(workspaceId, selection),
 					);
@@ -285,7 +285,7 @@ export function buildWorkspaceWebMcpTools(
 		name: "list_workspace_outputs",
 		annotations: { readOnlyHint: true, untrustedContentHint: true },
 		description:
-			"List the durable outputs grouped under this workspace — documents, sheets, presentations, and videos — as the compact rows the workbench's resource rail shows, each with a workbench deep link. Full output reads and edits belong to the Documents surface.",
+			"List the durable outputs grouped under this workspace — documents, sheets, presentations, and videos — as the compact rows the workbench's resource rail shows, each with a workbench deep link. Full output reads and edits belong to the Outputs surface.",
 		inputSchema: {
 			type: "object",
 			properties: {

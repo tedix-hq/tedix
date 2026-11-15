@@ -71,7 +71,7 @@ try {
 				await trigger.click();
 				assert.equal(await trigger.getAttribute("aria-expanded"), "true");
 				await navigation
-					.getByRole("link", { name: "Activity", exact: true })
+					.getByRole("link", { name: "Activity log", exact: true })
 					.waitFor();
 			}
 			const state = await navState(page);
@@ -103,9 +103,9 @@ try {
 			if (!phone) {
 				const activeBackground = await background(page, "Connected accounts");
 				await navigation
-					.getByRole("link", { name: "Activity", exact: true })
+					.getByRole("link", { name: "Activity log", exact: true })
 					.hover();
-				const hoverBackground = await background(page, "Activity");
+				const hoverBackground = await background(page, "Activity log");
 				assert.notEqual(hoverBackground, "rgba(0, 0, 0, 0)");
 				assert.notEqual(hoverBackground, activeBackground);
 			}
@@ -129,7 +129,7 @@ try {
 				});
 
 			await navigation
-				.getByRole("link", { name: "Activity", exact: true })
+				.getByRole("link", { name: "Activity log", exact: true })
 				.click();
 			await page.waitForURL((url) => url.pathname === "/audit");
 			if (phone) {
@@ -141,7 +141,7 @@ try {
 							.querySelector("[data-settings-menu]")
 							?.getAttribute("aria-expanded") === "false",
 				);
-				assert.match((await trigger.textContent()) ?? "", /Activity/);
+				assert.match((await trigger.textContent()) ?? "", /Activity log/);
 			}
 			// The closed phone sheet is aria-hidden, so read the link by its address.
 			assert.equal(

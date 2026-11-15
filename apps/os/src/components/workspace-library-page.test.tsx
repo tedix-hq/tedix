@@ -595,7 +595,7 @@ describe("WorkspaceLibraryPage", () => {
 		expect(text).toContain("Its apps, with every saved version");
 		expect(text).toContain("Kept");
 		expect(text).toContain(
-			"Documents, sheets and slides. Find them in Documents.",
+			"Documents, sheets and slides. They stay in Outputs.",
 		);
 		expect(text).toContain("1 share link is still on");
 		const confirm = action("Turn off links and delete");
