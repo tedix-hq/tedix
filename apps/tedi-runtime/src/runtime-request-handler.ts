@@ -155,6 +155,7 @@ import { utcDateSlug } from "./workspace";
 import { type WorkstationTurnContext } from "./workstation-turn-context";
 
 export interface RuntimeRequestHost {
+	handlePoppy: (request: Request) => Promise<Response>;
 	pageToolBroker: PageToolBroker;
 	hintsFromHeaders: (headers: Headers) => {
 		slug?: string;
@@ -494,6 +495,11 @@ export async function handleRuntimeRequest(
 		);
 	}
 	const hints = host.hintsFromHeaders(request.headers);
+	if (url.pathname === "/__internal/poppy") {
+		if (request.method !== "POST") return new Response(null, { status: 405 });
+		await host.ensureIdentity(hints);
+		return host.handlePoppy(request);
+	}
 	if (
 		url.pathname === "/get-messages" ||
 		url.pathname.endsWith("/get-messages")

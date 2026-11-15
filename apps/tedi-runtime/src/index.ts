@@ -2184,7 +2184,7 @@ export default {
 		//          live. `run_id` + `last_event_id` ride the query, which
 		//          `new URL(request.url)` + `.pathname` preserve; `Last-Event-ID`
 		//          rides the copied headers. No body on GET.
-		if (isChatStreamHook) {
+		if (isChatStreamHook || url.pathname === "/hooks/poppy") {
 			if (request.method !== "POST" && request.method !== "GET") {
 				return new Response("Method Not Allowed", { status: 405 });
 			}
@@ -2199,7 +2199,9 @@ export default {
 			if (tedi.orgId) headersForDo.set("X-Tedi-Org-Id", tedi.orgId);
 			headersForDo.set("X-Tedi-Slug", tedi.slug);
 			const internalUrl = new URL(request.url);
-			internalUrl.pathname = "/__internal/chat/stream";
+			internalUrl.pathname = isChatStreamHook
+				? "/__internal/chat/stream"
+				: "/__internal/poppy";
 			const forward = new Request(internalUrl.toString(), {
 				method: request.method,
 				headers: headersForDo,
