@@ -25,7 +25,6 @@ import { TedixHomeClient } from "./home-client";
 import { parseOptions } from "./options";
 import type { WorkAttemptKey, WorkAttemptStore } from "./work-attempt-store";
 import { callConfiguredNativeTool, boardErrorFromValue } from "./work-native";
-import { withFieldSelectionSchema } from "@tedix/api-contract/utils/tool-field-selection-schema";
 import {
 	attemptSessionLabel,
 	contextBriefJson,
@@ -3493,79 +3492,108 @@ describe("native Work transport", () => {
 			await fixture.client.close();
 		}
 	});
-	test("certifies metadata-only updates and rejects unsynchronized schemas before dispatch", async () => {
-		const { resolveContractEndpoint } =
-			await import("@tedix/api-contract/utils/contract-routers");
-		const { zodToToolInputJsonSchema, zodToStructuredOutputJsonSchema } =
-			await import("@tedix/api-contract/utils/tool-json-schema");
-		for (const command of [
-			"interaction-outbox-list",
-			"interaction-audit-list",
-			`accept ${ITEM}`,
-		]) {
-			for (const scenario of ["metadata", "input", "output", "invalid-date"]) {
-				if (command.startsWith("accept") && scenario === "metadata") continue;
-				const fixture = makeContext(
-					{ doneWhen: "An exact result" },
-					undefined,
-					() => ({
-						data: [],
-						nextCursor: null,
-						hasMore: false,
-						observedAt: "2026-11-15T00:00:00Z",
-					}),
-				);
-				const invoke = fixture.ctx.client.callTool.bind(fixture.ctx.client);
-				fixture.ctx.client.callTool = (async (
-					name: string,
-					args: Record<string, unknown>,
-					options: unknown,
-				) => {
-					const result = (await invoke(name, args, options as never)) as Record<
-						string,
-						unknown
-					>;
-					if (name === "catalog_search") {
-						const rows = result.results as Array<Record<string, unknown>>;
-						const native = rows[0]!.native as { endpoint: string };
-						const endpoint = resolveContractEndpoint(native.endpoint)!;
-						rows[0]!.outputSchema =
-							scenario === "output"
-								? { type: "object", properties: { drift: { type: "string" } } }
-								: zodToStructuredOutputJsonSchema(endpoint.outputSchema);
-					}
-					if (name === "catalog_describe") {
-						const native = result.native as { endpoint: string };
-						const endpoint = resolveContractEndpoint(native.endpoint)!;
-						result.parameters =
-							scenario === "input"
-								? { type: "object", properties: { drift: { type: "string" } } }
-								: withFieldSelectionSchema(
-										zodToToolInputJsonSchema(endpoint.inputSchema),
-									);
-						result.schemaFreshness = {
-							...(result.schemaFreshness as Record<string, unknown>),
-							// Deliberately far beyond any conceivable clock tolerance.
-							toolUpdatedAt:
-								scenario === "invalid-date"
-									? "invalid"
-									: "2026-11-15T00:00:00Z",
-						};
-					}
+	test("follows a live schema newer than the bundled contract and names a rejected field", async () => {
+		const liveInput = (...fields: string[]) => ({
+			type: "object",
+			properties: {
+				...Object.fromEntries(fields.map((field) => [field, {}])),
+				id: { type: "string" },
+				addedByServer: { type: "string" },
+			},
+			required: fields,
+			additionalProperties: false,
+		});
+		const scenarios = {
+			"added-fields": {},
+			"removed-input": {
+				parameters: liveInput("id"),
+				refusal:
+					"the server does not accept acceptanceContract. The server's tool may be newer than this CLI; run `tedix update`",
+			},
+			"required-input": {
+				parameters: liveInput("id", "acceptanceContract", "reviewer"),
+				refusal: "the server requires reviewer",
+			},
+			"wrong-source-ref": {
+				sourceRef: "workItems/create",
+				refusal: "is not generated from workItems/accept",
+			},
+			"wrong-source": { source: "manual", refusal: "cannot be verified" },
+			"invalid-date": {
+				toolUpdatedAt: "invalid",
+				refusal: "cannot be verified",
+			},
+		} as Record<
+			string,
+			{
+				parameters?: unknown;
+				source?: string;
+				sourceRef?: string;
+				toolUpdatedAt?: string;
+				refusal?: string;
+			}
+		>;
+		for (const [scenario, live] of Object.entries(scenarios)) {
+			const fixture = makeContext(
+				{ doneWhen: "An exact result" },
+				undefined,
+				() => ({ id: ITEM, addedByServer: "triaged" }),
+			);
+			const invoke = fixture.ctx.client.callTool.bind(fixture.ctx.client);
+			fixture.ctx.client.callTool = (async (
+				name: string,
+				args: Record<string, unknown>,
+				options: unknown,
+			) => {
+				const result = (await invoke(name, args, options as never)) as Record<
+					string,
+					unknown
+				>;
+				const row =
+					name === "catalog_search"
+						? (result.results as Array<Record<string, unknown>>)[0]!
+						: result;
+				if (name !== "catalog_search" && name !== "catalog_describe")
 					return result;
-				}) as TedixHomeClient["callTool"];
-				const result = await capture(command, fixture.ctx);
-				if (scenario === "metadata") {
-					expect(result.err).toEqual([]);
-					expect(result.code).toBe(0);
-					expect(fixture.sources).toHaveLength(1);
-				} else {
-					expect(result.code).toBe(WORK_EXIT_FAIL);
-					expect([...result.out, ...result.err].join(" ")).toContain(
-						"schema is stale",
-					);
-					expect(fixture.sources).toEqual([]);
+				const freshness = {
+					...(row.native as { schemaFreshness: Record<string, unknown> })
+						.schemaFreshness,
+					...(live.source ? { source: live.source } : {}),
+					...(live.sourceRef ? { sourceRef: live.sourceRef } : {}),
+				};
+				row.native = { ...(row.native as object), schemaFreshness: freshness };
+				if (name === "catalog_search")
+					row.outputSchema = {
+						type: "object",
+						properties: {
+							id: { type: "string" },
+							addedByServer: { type: "string" },
+						},
+						required: ["id", "addedByServer"],
+						additionalProperties: false,
+					};
+				else {
+					row.parameters =
+						live.parameters ?? liveInput("id", "acceptanceContract");
+					row.schemaFreshness = {
+						...freshness,
+						// The row was saved after its schema sync, as in production.
+						toolUpdatedAt: live.toolUpdatedAt ?? "2026-11-15T00:00:00Z",
+					};
 				}
+				return result;
+			}) as TedixHomeClient["callTool"];
+			const result = await capture(`accept ${ITEM}`, fixture.ctx);
+			const printed = [...result.out, ...result.err].join(" ");
+			expect(printed).not.toContain("schema is stale");
+			if (live.refusal) {
+				expect([scenario, result.code]).toEqual([scenario, WORK_EXIT_FAIL]);
+				expect(printed).toContain(live.refusal);
+				expect(fixture.sources).toEqual([]);
+			} else {
+				expect(result.err).toEqual([]);
+				expect(result.code).toBe(0);
+				expect(fixture.sources).toHaveLength(1);
 			}
 		}
 	});

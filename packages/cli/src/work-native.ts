@@ -30,8 +30,6 @@ import { errorText } from "./format";
 import { retryRead } from "./read-retry";
 import { NATIVE_DESCRIPTOR_CACHE_TTL_MS } from "./native-bootstrap-cache";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
-import { stableStringify } from "@tedix/api-contract/utils/stable-json";
-import { withFieldSelectionSchema } from "@tedix/api-contract/utils/tool-field-selection-schema";
 import type { NativeToolContext } from "./work";
 import type { BoardError, BoardResult } from "./work-identity";
 
@@ -353,6 +351,41 @@ function validateNativeSchema(schema: unknown, value: unknown): void {
 		);
 }
 
+/** Refuse an input the live tool schema rejects, naming each field. */
+function validateNativeInput(
+	callable: string,
+	schema: unknown,
+	input: Record<string, unknown>,
+): void {
+	if (!isRecord(schema)) throw new Error("Native Work schema is absent");
+	const result = z.fromJSONSchema(schema).safeParse(input);
+	if (result.success) return;
+	let contractDiffers = false;
+	const problems = result.error.issues.map((issue) => {
+		const path = issue.path.join(".");
+		if (issue.code === "unrecognized_keys") {
+			contractDiffers = true;
+			const fields = issue.keys.map((key) => (path ? `${path}.${key}` : key));
+			return `the server does not accept ${fields.join(", ")}`;
+		}
+		const sent = issue.path.reduce<unknown>(
+			(value, key) =>
+				typeof value === "object" && value !== null
+					? (value as Record<PropertyKey, unknown>)[key]
+					: undefined,
+			input,
+		);
+		if (issue.code === "invalid_type" && path && sent === undefined) {
+			contractDiffers = true;
+			return `the server requires ${path}`;
+		}
+		return `${path || "input"}: ${issue.message}`;
+	});
+	throw new Error(
+		`Native Work schema validation failed for ${callable}: ${problems.join("; ")}${contractDiffers ? ". The server's tool may be newer than this CLI; run `tedix update` and retry." : ""}`,
+	);
+}
+
 /** Explain why a catalog row cannot be called, keeping the row's alias and scope details. */
 function catalogRowRefusal(
 	ctx: NativeToolContext,
@@ -494,41 +527,23 @@ export async function boardCall(
 				detail.schemaFreshness.syncedAt !== descriptor.schemaFreshness.syncedAt
 			)
 				throw new Error("Native Work described schema provenance mismatch");
+			const toolUpdatedAt = detail.schemaFreshness.toolUpdatedAt;
+			// The API deploys ahead of CLI releases, so the live schemas decide what
+			// a call looks like; the contract bundled with this CLI does not. A row
+			// saved after its schema sync (updatedAt also moves for metadata) is
+			// trusted only when its schema is generated from the endpoint it calls.
 			if (
-				typeof detail.schemaFreshness.toolUpdatedAt === "string" &&
-				(!Number.isFinite(Date.parse(detail.schemaFreshness.toolUpdatedAt)) ||
-					Date.parse(detail.schemaFreshness.toolUpdatedAt) >
-						Date.parse(descriptor.schemaFreshness.syncedAt!))
-			) {
-				// updatedAt also moves for metadata and when a projected row is saved
-				// after schemaSyncedAt was assigned. Certify both schemas against the
-				// bundled contract instead of treating elapsed time as schema drift.
-				const { resolveContractEndpoint } =
-					await import("@tedix/api-contract/utils/contract-routers");
-				const { zodToToolInputJsonSchema, zodToStructuredOutputJsonSchema } =
-					await import("@tedix/api-contract/utils/tool-json-schema");
-				const endpoint = resolveContractEndpoint(descriptor.endpoint);
-				if (
-					!Number.isFinite(Date.parse(detail.schemaFreshness.toolUpdatedAt)) ||
-					descriptor.schemaFreshness.source !== "orpc" ||
-					descriptor.schemaFreshness.sourceRef !== descriptor.endpoint ||
-					!endpoint?.outputSchema ||
-					stableStringify(detail.parameters) !==
-						stableStringify(
-							withFieldSelectionSchema(
-								zodToToolInputJsonSchema(endpoint.inputSchema),
-							),
-						) ||
-					stableStringify(row.outputSchema) !==
-						stableStringify(
-							zodToStructuredOutputJsonSchema(endpoint.outputSchema),
-						)
-				)
-					throw new Error(
-						"Native Work schema is stale relative to the configured tool",
-					);
-			}
-			validateNativeSchema(detail.parameters, input);
+				typeof toolUpdatedAt === "string" &&
+				(!Number.isFinite(Date.parse(toolUpdatedAt)) ||
+					(Date.parse(toolUpdatedAt) >
+						Date.parse(descriptor.schemaFreshness.syncedAt!) &&
+						(descriptor.schemaFreshness.source !== "orpc" ||
+							descriptor.schemaFreshness.sourceRef !== descriptor.endpoint)))
+			)
+				throw new Error(
+					`Native Work schema provenance for ${callable} cannot be verified: the tool changed after its schema sync and is not generated from ${descriptor.endpoint}`,
+				);
+			validateNativeInput(callable, detail.parameters, input);
 			// Prove the output schema is supported before invoking a mutation.
 			if (!isRecord(row.outputSchema))
 				throw new Error("Native Work output schema is absent");
