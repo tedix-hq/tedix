@@ -93,11 +93,13 @@ const IDS = {
 	workItemId: "22222222-2222-4222-8222-222222222222",
 	tediId: "33333333-3333-4333-8333-333333333333",
 	admissionId: "44444444-4444-4444-8444-444444444444",
+	projectId: "55555555-5555-4555-8555-555555555555",
 };
 
 const SEED = `
 INSERT INTO organizations(id,name,slug) VALUES('${IDS.orgId}','Org','org');
 INSERT INTO tedis(id,organization_id,name,slug,status) VALUES('${IDS.tediId}','${IDS.orgId}','T','t','active');
+INSERT INTO projects(id,org_id,key,name,created_at) VALUES('${IDS.projectId}','${IDS.orgId}','PAR','Parity','${NOW}');
 `;
 
 interface Plane {
@@ -276,6 +278,9 @@ for (const plane of planes) {
 					title: "Parent",
 					workClass: "maintenance",
 					purposeExceptionExpiresAt: "2026-11-01T00:00:00.000Z",
+					projectId: IDS.projectId,
+					accountableOwnerType: "tedi",
+					accountableOwnerId: IDS.tediId,
 					stewardType: "tedi",
 					stewardId: IDS.tediId,
 					metadata: { laneExecution: policy },
@@ -287,6 +292,9 @@ for (const plane of planes) {
 					title: "Child",
 					workClass: "maintenance",
 					purposeExceptionExpiresAt: "2026-11-01T00:00:00.000Z",
+					projectId: IDS.projectId,
+					accountableOwnerType: "tedi",
+					accountableOwnerId: IDS.tediId,
 					stewardType: "tedi",
 					stewardId: IDS.tediId,
 					parentWorkItemId: parent.id,
@@ -358,6 +366,9 @@ for (const plane of planes) {
 				title: "Parity",
 				workClass: "maintenance",
 				purposeExceptionExpiresAt: "2026-11-01T00:00:00.000Z",
+				projectId: IDS.projectId,
+				accountableOwnerType: "tedi",
+				accountableOwnerId: IDS.tediId,
 				stewardType: "tedi",
 				stewardId: IDS.tediId,
 				createdAt: NOW,

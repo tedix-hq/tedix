@@ -621,9 +621,10 @@ retain their behavior when `--coordinated` is absent.
 `--accept-proposed` (with `--project`) lets a scheduled shift feed the queue
 without a person accepting each item: before paging accepted Work, the
 dispatcher accepts proposed Work in that project that is assigned to its
-executor and whose description has a `## Done when` section, using that
-section as the acceptance contract under the dispatcher's own login. Proposals
-without the section, or assigned elsewhere, stay proposed. Each acceptance is
+executor, has an accountable owner, and whose description has a `## Done when`
+section, using that section as the acceptance contract under the dispatcher's
+own login. Proposals without the section, without an owner, or assigned
+elsewhere stay proposed. Each acceptance is
 logged as `accepted`; admission still happens on a later page like any other
 accepted item.
 

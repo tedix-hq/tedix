@@ -693,6 +693,14 @@ describe("Accepted proposal starts its first step", () => {
 		]);
 		expect((f.calls[0]![1] as { content: string }).content).toContain(brief);
 		expect(f.disposition(id!)).toBe("accepted");
+		// The member who said yes answers for Work the proposal left unowned.
+		expect(
+			f.sqlite
+				.prepare(
+					"SELECT accountable_owner_type AS type, accountable_owner_id AS id FROM work_items WHERE id=?",
+				)
+				.get(id!),
+		).toEqual({ type: "user", id: "target-id" });
 		expect(first.response.metadata.started).toMatchObject({
 			kind: "delegate",
 			status: "started",

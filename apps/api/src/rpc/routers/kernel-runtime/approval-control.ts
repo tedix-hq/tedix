@@ -1087,6 +1087,7 @@ async function approveHomePlanAssignmentsCore(
 				},
 				actor: { type: "system", id: "home" },
 				acceptedAt: approvedAt,
+				systemEnvelope: true,
 			});
 		await addWorkItemComment(context.db, {
 			id: crypto.randomUUID(),

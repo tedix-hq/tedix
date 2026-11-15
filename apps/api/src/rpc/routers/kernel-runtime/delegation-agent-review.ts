@@ -136,6 +136,7 @@ export async function requestHomeDelegationAgentReview(
 			},
 			actor: { type: "system", id: "home" },
 			acceptedAt: input.requestedAt,
+			systemEnvelope: true,
 		});
 	}
 	if (item.disposition !== "accepted") {

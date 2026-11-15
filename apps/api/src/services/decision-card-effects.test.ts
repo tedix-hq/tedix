@@ -361,6 +361,12 @@ describe("decision card effects", () => {
 				f.sqlite
 					.prepare("update work_items set disposition='accepted' where id=?")
 					.run(work);
+			else
+				f.sqlite
+					.prepare(
+						"update work_items set project_id='99999999-9999-4999-8999-999999999999', accountable_owner_type='user', accountable_owner_id='person' where id=?",
+					)
+					.run(work);
 			const result = await executeDecisionCardEffect(f.context, f.input);
 			expect(result.metadata?.decisionEffect).toMatchObject({
 				kind,

@@ -40,6 +40,7 @@ import {
 	requireExternalSession,
 	requireWorkItem,
 } from "./factory-validation";
+import { acceptanceRefusal, missingForAcceptance } from "./acceptance-rule";
 import {
 	requiredWorkAdmissionAuthorities,
 	WORK_ADMISSION_APPROVAL_ACTION,
@@ -156,6 +157,11 @@ function routineAcceptanceContract(
 			"NOT_ELIGIBLE",
 			"Routine acceptance requires proposed low/medium-risk Work, an independent tedi and a non-empty acceptance contract",
 		);
+	// The proposal pins the Work Item version, so what is judged here is what
+	// the approved decision accepts.
+	const missing = missingForAcceptance(item, parsed.data);
+	if (missing.length)
+		throw new WorkControlError("NOT_ELIGIBLE", acceptanceRefusal(missing));
 	if (
 		item.accountableOwnerType === "tedi" &&
 		item.accountableOwnerId === approver.approverId
