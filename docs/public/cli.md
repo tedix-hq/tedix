@@ -154,6 +154,14 @@ keeps that log bounded: once it passes 8 MB it keeps the newest lines and
 marks where older ones were dropped. An unchanged skip or wait reason is
 logged once an hour instead of on every check, so a busy board's log stays
 small; a changed reason is logged right away.
+
+After `tedix update`, each runner in that file moves to the new version by
+itself. It notices the newer installed binary, takes no new Work, lets the
+Work it already has finish, and exits once nothing is in progress. The
+supervisor starts it again on its next check, without the usual wait, and
+logs `runner <executor> now on <version>`. No running Attempt is cancelled,
+so you do not need to stop runners by hand after an update.
+
 The same command includes saved duty status from `~/.tedix/supervisor-duties-status.json`: last start and exit, exit code when observed, executor, retry time and recent exits. This history survives supervisor restarts. A retained process whose identity cannot be verified stays unknown; the supervisor neither adopts nor stops it by its process number alone.
 After a reinstall, a new runner checks every 250 ms for its predecessor's lock to clear and logs one waiting notice per process while the predecessor finishes active Work.
 
@@ -174,7 +182,10 @@ the duty's reported task identity. A finished pass means the executor exited suc
 review its recorded result to assess its judgement. Set `enabled: false` to
 disable the duty.
 
-Work Capacity shows the executors and duties each supervisor reports. Current
+Work Capacity shows the executors and duties each supervisor reports. The
+supervisor sends these health reports every two minutes, one runner at a
+time, and tries a report again when it times out. A report that still fails
+is logged with how long it took and how many tries it had. Current
 Work links, task-specific waits, known next checks and the last confirmed Work
 completion appear beside each duty. Executor names come from configuration;
 the view does not require a fixed set of harnesses. Older producers may report
@@ -419,7 +430,8 @@ with the current version. Updates fetch fresh bounded metadata, stream the
 artifact with a strict size limit, verify its size and SHA-256 hash, smoke-test
 it, and atomically replace the active macOS/Linux standalone executable under
 an exclusive install lock. One verified previous binary is retained for
-`tedix rollback`.
+`tedix rollback`. Runners the supervisor keeps running restart onto the new
+version once their Work has finished.
 
 Source-checkout invocations may check releases but refuse update and rollback
 mutations, so running `bun packages/cli/src/index.ts update` cannot overwrite an

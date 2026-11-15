@@ -668,6 +668,42 @@ with the person.
 Creating an agent does not grant an Earned Delegation entrustment or recertify
 one. Direct `tedis.create` remains available under its existing authorization.
 
+## Let an agent manage Work
+
+An organization owner or admin can let a named external agent edit, cancel or
+assign Work. Open **Settings**, find **Agent Work permissions** under
+**Connected agents**, choose all Work in the organization or one project, pick
+the actions (**Edit and re-file**, **Cancel**, **Assign executor**) and save.
+**Revoke grant** removes it. Through MCP, discover
+`set_external_agent_work_management`; pass `grant: null` to revoke.
+
+A grant for the whole organization also lets the agent move Work to another
+project. A project grant covers only Work in that project. The agent must be
+active, and Work whose latest Attempt is queued, running, waiting or retrying
+cannot be changed this way. The grant does not cover payments, sign-ins,
+outgoing messages or deletes; those keep their existing permissions.
+
+## Publish a discovery document
+
+An organization can publish a Personal Agent Protocol discovery document so a
+person's own agent can find the organization's MCP address. An owner or admin
+adds `metadata.personalAgentProtocol` through `organizations.update`; other
+settings stay as they are:
+
+```json
+{
+	"domain": "team.example.com",
+	"mcpUrl": "https://mcp.example.com/mcp",
+	"description": "Shared project information, tasks, and results"
+}
+```
+
+Tedix then serves the document at
+`https://<organization-host>/.well-known/poppy.json`. `domain` must be the
+hostname that serves it. The document lists the organization's name and that
+one MCP address, and marks protocol sign-in as disabled. A missing or invalid
+setting, a different hostname, or an organization being offboarded returns 404.
+
 ## Limit a GitHub connection
 
 An administrator can open **Accounts → Organization**, expand a GitHub account's
@@ -821,6 +857,14 @@ dotenv files. The OS sandbox applies the read denies to exec processes too;
 indirect runtime reads cannot bypass them. This also prevents commands needing
 those credentials from reading them. Shared Tedix plugin MCP access is disabled
 before discovery, so it cannot refresh the owner's OAuth grant.
+Each admitted Devin lane gets its own Tedix credential instead. The dispatcher
+writes a store for that lane only (`TEDIX_LANE_AGENT_STORE`) holding its one
+Agent-Session and a short-lived session credential, without the enrollment key.
+It renews the credential before each turn and every minute. Inside the lane the
+Tedix CLI reads only that store, so Devin can re-read its Work with
+`tedix work context <id>`. The lane cannot obtain a credential itself; an
+expired one is reported as expired, and a blocked read of the host store is
+reported as access denied.
 For admitted Work, the dispatcher supplies a current Work and Attempt snapshot
 through the prompt file. It includes the accepted outcome and an exact binding
 to the organization, Work revision, Attempt, executor and native session.
