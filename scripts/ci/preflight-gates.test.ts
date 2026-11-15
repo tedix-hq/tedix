@@ -70,12 +70,8 @@ function addMigration(dir: string, name: string) {
 
 function check(dir: string, ...args: string[]) {
 	return spawnSync(
-		"node",
-		[
-			join(root, "node_modules/jiti/lib/jiti-cli.mjs"),
-			join(root, "packages/db/scripts/generate-migration.ts"),
-			...args,
-		],
+		process.execPath,
+		[join(root, "packages/db/scripts/generate-migration.ts"), ...args],
 		{ cwd: dir, encoding: "utf8" },
 	);
 }

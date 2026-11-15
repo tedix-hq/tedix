@@ -205,7 +205,10 @@ test("spec processes get separate protocol files before Playwright imports", () 
 	const root = mkdtempSync(join(tmpdir(), "browser-protocol-"));
 	try {
 		const source = `console.log(process.env.DEBUG_FILE);`;
-		const env = { TEDIX_BROWSER_PROTOCOL_DIR: join(root, "protocol") };
+		const env = {
+			TEDIX_BROWSER_PROTOCOL_DIR: join(root, "protocol"),
+			[evidenceDirVariable]: "",
+		};
 		const first = runSpec(source, root, env);
 		const second = runSpec(source, root, env);
 		expect(first.status, first.stderr).toBe(0);

@@ -101,8 +101,7 @@ export function migrationOrderGate(files, ranges) {
 			files === null ||
 			files.some((file) => /^packages\/db\/drizzle\//.test(file)),
 		cmd: [
-			"node",
-			"node_modules/jiti/lib/jiti-cli.mjs",
+			"bun",
 			"packages/db/scripts/generate-migration.ts",
 			"--check-order",
 			...ranges.flatMap(({ base, head }) => ["--base", base, "--head", head]),
