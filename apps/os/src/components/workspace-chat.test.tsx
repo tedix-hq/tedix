@@ -38,7 +38,6 @@ import {
 	osQuery,
 	osQueryKeys,
 	canvasOutputsQueryOptions,
-	workspaceResourcesQueryOptions,
 } from "@/lib/os-query-options";
 
 (
@@ -379,24 +378,16 @@ describe("WorkspaceChat", () => {
 		expect(host.querySelector('a[href="/outputs/doc-1"]')).not.toBeNull();
 	});
 	it("previews an uploaded picture beside the message and leaves documents as links", () => {
-		queryClient.setQueryData<unknown>(
-			workspaceResourcesQueryOptions("ws-1").queryKey,
-			{
-				items: [
-					{
-						id: "photo-1",
-						resourceType: "file",
-						metadata: { mimeType: "image/jpeg", size: 834 },
-					},
-					{
-						id: "doc-1",
-						resourceType: "file",
-						metadata: { mimeType: "application/pdf", size: 10 },
-					},
-				],
-				truncated: false,
-			},
-		);
+		for (const [id, mimeType] of [
+			["photo-1", "image/jpeg"],
+			["doc-1", "application/pdf"],
+		] as const)
+			queryClient.setQueryData<unknown>(
+				osQuery.osWorkspaces.resources.get.queryOptions({
+					input: { workspaceId: "ws-1", resourceId: id },
+				}).queryKey,
+				{ resource: { id, resourceType: "file", metadata: { mimeType } } },
+			);
 		queryClient.setQueryData<unknown>(
 			osQuery.osWorkspaces.resources.getFile.queryOptions({
 				input: { workspaceId: "ws-1", resourceId: "photo-1" },
