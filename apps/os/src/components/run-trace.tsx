@@ -390,12 +390,13 @@ export function RunReconciliationPanel({
 					<time dateTime={run.workflowRetiredAt}>
 						{relativeTime(run.workflowRetiredAt)}
 					</time>{" "}
-					— it can never be re-entered or restarted. A retry starts a new run.
+					— it can never be re-entered or restarted. A retry starts a new
+					instance in a new execution epoch.
 				</Text>
 			)}
 			<ul className="m-0 flex list-none flex-wrap gap-x-6 gap-y-1 p-0 text-kumo-subtle text-xs tabular-nums [&_strong]:font-medium [&_strong]:text-kumo-default">
 				<li>
-					Run number <strong>{run.executionEpoch}</strong>
+					Execution epoch <strong>{run.executionEpoch}</strong>
 				</li>
 				<li>
 					Last reconciled{" "}

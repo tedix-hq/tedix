@@ -40,7 +40,7 @@ describe("Attention copy", () => {
 		const now = new Date("2026-10-17T12:00:00Z");
 		for (const [column, label] of [
 			["moving", "Running"],
-			["waiting", "Needs you"],
+			["waiting", "Waiting on you"],
 			["blocked", "Blocked: Approval denied"],
 			["done", "Done"],
 		] as const) {
@@ -83,7 +83,7 @@ describe("Attention copy", () => {
 					},
 					now,
 				),
-			).toBe("Needs you");
+			).toBe("Waiting on you");
 		}
 	});
 });

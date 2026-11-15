@@ -32,7 +32,7 @@ import { errorMessage } from "@tedix/worker-kit/error-message";
 
 /**
  * WebMCP tools for workspace Outputs: an in-page browser agent can list the
- * same durable revisioned deliverables the human sees in the Documents library,
+ * same durable revisioned deliverables the human sees in the Outputs library,
  * read one as an editable markdown projection, and record a new revision
  * through the canonical CAS write path (`outputs.revise` with
  * `expectedRevision`). Successful writes invalidate the generated query keys.
@@ -769,7 +769,7 @@ export function buildOutputsWebMcpTools(
 		name: "list_outputs",
 		annotations: { readOnlyHint: true, untrustedContentHint: true },
 		description:
-			"List the organization's Tedix OS outputs — durable revisioned documents, sheets, presentations, and videos — as the compact rows the human sees in the Documents library.",
+			"List the organization's Tedix OS outputs — durable revisioned documents, sheets, presentations, and videos — as the compact rows the human sees in the Outputs library.",
 		inputSchema: {
 			type: "object",
 			properties: {

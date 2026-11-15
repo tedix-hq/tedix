@@ -81,10 +81,10 @@ const CASE_STAGES = [
 
 /** Plain names for an epic's stage; the stored values stay as they are. */
 export const WORK_STREAM_STAGE_LABELS = {
-	investigating: "Investigating",
+	investigating: "Looking into it",
 	planning: "Planning",
-	executing: "Executing",
-	monitoring: "Monitoring",
+	executing: "In progress",
+	monitoring: "Watching",
 	closed: "Closed",
 } as const satisfies Record<(typeof CASE_STAGES)[number], string>;
 
@@ -261,7 +261,7 @@ export function WorkCasesPage() {
 		<Page width="xl">
 			<WorkPageHeader
 				title="Epics"
-				description="Bigger pieces of work inside a project, like an incident, an investigation or a feature. An epic groups several Work Items and has one owner."
+				description="Bigger pieces of work inside a project, like an incident, an investigation or a feature. An epic groups several tasks and has one owner."
 				action={
 					<Button
 						variant={caseFormOpen ? "outline" : "default"}
@@ -298,7 +298,7 @@ export function WorkCasesPage() {
 				) : records.length === 0 ? (
 					<WorkEmpty
 						title="No epics yet"
-						description="Start one when a piece of work will need several Work Items, and more will turn up as you go."
+						description="Start one when a piece of work will need several tasks, and more will turn up as you go."
 					/>
 				) : (
 					<>
@@ -555,7 +555,7 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 					<SectionHeading>
 						<SectionTitle>Stage</SectionTitle>
 						<SectionDescription>
-							Closing an epic does not finish its Work Items.
+							Closing an epic does not finish its tasks.
 						</SectionDescription>
 					</SectionHeading>
 				</SectionHeader>
@@ -585,10 +585,10 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 			<div className="grid gap-3 lg:grid-cols-2">
 				<Card>
 					<CardHeader>
-						<CardTitle>Add a Work Item</CardTitle>
+						<CardTitle>Add a task</CardTitle>
 						<CardDescription>
-							Search by title. Without a search you see this project&apos;s Work
-							Items.
+							Search by title. Without a search you see this project&apos;s
+							tasks.
 						</CardDescription>
 					</CardHeader>
 					<CardContent>
@@ -601,7 +601,7 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 							}}
 						>
 							<OperationPicker
-								label="Choose a Work Item"
+								label="Choose a task"
 								options={taskOptions}
 								value={taskId}
 								selectedLabel={taskLabel}
@@ -621,7 +621,7 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 								onChange={(event) => setRationale(event.target.value)}
 							/>
 							<Button type="submit" disabled={!taskId || attach.isPending}>
-								{attach.isPending ? "Adding…" : "Add Work Item"}
+								{attach.isPending ? "Adding…" : "Add task"}
 							</Button>
 							<MutationError error={attach.error} />
 						</form>
@@ -661,9 +661,9 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 				</Card>
 			</div>
 			<SectionCollection
-				title={`Work Items (${query.data.items.data.length})`}
-				description="Work Items in this epic and why each belongs here."
-				empty="No Work Items yet."
+				title={`Tasks (${query.data.items.data.length})`}
+				description="Tasks in this epic and why each belongs here."
+				empty="No tasks yet."
 				footer={
 					<PageControls
 						hasPrevious={itemPaging.hasPrevious}
@@ -681,7 +681,7 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 					? query.data.items.data.map((item) => (
 							<Text as="li" role="body" key={item.id} data-case-task>
 								<Link href={`/work/items/${item.workItemId}`}>
-									{taskTitles.get(item.workItemId) ?? "Work Item"}
+									{taskTitles.get(item.workItemId) ?? "Task"}
 								</Link>
 								{item.rationale ? ` — ${item.rationale}` : ""}
 							</Text>

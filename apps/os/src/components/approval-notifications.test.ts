@@ -311,7 +311,7 @@ describe("delegationHoldChip", () => {
 			tone: "warning",
 		});
 		expect(delegationHoldChip(null)).toEqual({
-			label: "Needs you",
+			label: "Needs review",
 			tone: "secondary",
 		});
 	});

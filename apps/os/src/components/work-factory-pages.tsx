@@ -193,16 +193,16 @@ export function WorkItemReadOnlyLedgers({
 			</SectionCollection>
 			<PageGrid className="items-start">
 				<SectionCollection
-					title={`Attempts on this page (${attempts.length})`}
-					description="See who worked on this task and how each Attempt ended."
-					empty="No attempts on this page."
+					title={`Work sessions on this page (${attempts.length})`}
+					description="See who worked on this task and how each session ended."
+					empty="No work sessions on this page."
 					footer={attemptControls}
 				>
 					{attemptsError ? (
 						<li>
 							<WorkReadFailure
 								fallback={PROJECTION_FAILURE_FALLBACK}
-								title="Attempts unavailable"
+								title="Work sessions unavailable"
 								error={attemptsError}
 							/>
 						</li>
@@ -214,7 +214,7 @@ export function WorkItemReadOnlyLedgers({
 								id={`attempt-${attempt.id}`}
 							>
 								<div className="min-w-0">
-									<Text weight="medium">Attempt {attempt.attemptNumber}</Text>
+									<Text weight="medium">Session {attempt.attemptNumber}</Text>
 									<Text
 										role="label"
 										tone="mono-secondary"
@@ -563,7 +563,9 @@ export function WorkItemStatusSummary({
 		>
 			<Text as="p">
 				<span className="text-kumo-subtle">{OS_COPY.work.status}: </span>
-				{OS_COPY.work.dispositions[disposition]}
+				{disposition === "proposed"
+					? OS_COPY.work.proposed
+					: sentenceCase(disposition)}
 			</Text>
 			{disposition === "proposed" ? (
 				<div className="flex flex-wrap items-center gap-3">
@@ -673,7 +675,7 @@ function WorkItemMobileList({
 						<div className="flex min-h-7 min-w-0 flex-wrap items-center gap-x-2 gap-y-1 pb-1">
 							{showDisposition ? (
 								<Badge variant={dispositionVariant(item.disposition)}>
-									{OS_COPY.work.dispositions[item.disposition]}
+									{sentenceCase(item.disposition)}
 								</Badge>
 							) : null}
 							{showReadiness ? (
@@ -832,7 +834,7 @@ export function WorkItemsTable({
 								{showDisposition ? (
 									<TableCell className="py-2!">
 										<Badge variant={dispositionVariant(item.disposition)}>
-											{OS_COPY.work.dispositions[item.disposition]}
+											{sentenceCase(item.disposition)}
 										</Badge>
 									</TableCell>
 								) : null}
@@ -1259,7 +1261,7 @@ export function WorkProjectPage({ projectId }: { projectId: string }) {
 				title={project.data.name}
 				description={`${project.data.key} · ${
 					project.data.objective
-						? `Objective: ${project.data.objective.title}`
+						? `Serves: ${project.data.objective.title}`
 						: "No objective yet"
 				}`}
 			/>
@@ -1928,8 +1930,8 @@ export function WorkRecordedOutcome({
 	return (
 		<SectionCollection
 			title="Recorded outcome"
-			description="Work is marked complete. Check the latest Attempt result and any published changes below."
-			empty="No Attempt result recorded."
+			description="Work is marked complete. Check the latest session result and any published changes below."
+			empty="No session result recorded."
 		>
 			<li className="grid gap-2">
 				{error ? (
@@ -1943,7 +1945,7 @@ export function WorkRecordedOutcome({
 				) : attempt ? (
 					<>
 						<Text weight="medium">
-							Latest Attempt: {sentenceCase(attempt.runtimeState)} ·{" "}
+							Latest session: {sentenceCase(attempt.runtimeState)} ·{" "}
 							{attemptOutcomeLabel(attempt)}
 						</Text>
 						<WorkAttemptActivity attempt={attempt} />
@@ -1978,7 +1980,7 @@ export function WorkRecordedOutcome({
 					</>
 				) : (
 					<Text as="p" role="body" tone="secondary">
-						No Attempt result recorded. Completion alone does not establish an
+						No session result recorded. Completion alone does not establish an
 						executor result or deployment.
 					</Text>
 				)}

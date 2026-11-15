@@ -201,7 +201,7 @@ it("keeps a human handoff prominent without treating it as an offline worker", (
 		/>,
 	);
 	expect(html).toContain("Confirm the address");
-	expect(html).toContain("Needs you");
+	expect(html).toContain("Waiting on you");
 	expect(html).not.toContain("Heartbeat not reported");
 	expect(html).not.toContain("opacity-65");
 	expect(html).not.toContain("Heartbeat stale");

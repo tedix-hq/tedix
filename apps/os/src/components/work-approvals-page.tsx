@@ -128,7 +128,7 @@ export function WorkApprovalsPage() {
 			>
 				<TabsList aria-label="Approvals" className="-mx-1" variant="line">
 					<TabsTrigger className="px-2!" value="needs-you">
-						Needs you
+						Needs review
 						{waiting > 0 ? (
 							<Badge className="ml-1.5 tabular-nums" variant="secondary">
 								{waiting}
@@ -283,7 +283,10 @@ function NeedsYou({
 						</Text>
 					) : null}
 					{rows.length > 0 ? (
-						<ul aria-label="Needs you" className="m-0 grid list-none gap-3 p-0">
+						<ul
+							aria-label="Waiting for you"
+							className="m-0 grid list-none gap-3 p-0"
+						>
 							{rows.map((row) => (
 								<ApprovalCard
 									busy={row.some((item) => inbox.isPending(item.key))}

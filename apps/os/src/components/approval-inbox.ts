@@ -131,7 +131,7 @@ export function delegationHoldChip(reason: string | null | undefined): {
 	}
 	if (reason && /\bhigh risk\b/i.test(reason))
 		return { label: "High risk", tone: "error" };
-	return { label: "Needs you", tone: "secondary" };
+	return { label: "Needs review", tone: "secondary" };
 }
 
 const RUNTIME_INTENT_CHIPS: Record<string, { label: string; tone: ChipTone }> =
@@ -210,7 +210,7 @@ export function runtimeApprovalItem(
 			payload.riskTier === "high"
 				? { label: "High risk", tone: "error" }
 				: (RUNTIME_INTENT_CHIPS[approval.review.intent] ?? {
-						label: "Needs you",
+						label: "Needs review",
 						tone: "secondary",
 					}),
 		// A detail the title already states ("Create 1 Work item in X: "Task"")

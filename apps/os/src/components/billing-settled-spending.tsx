@@ -135,7 +135,7 @@ export function SettledSpendingRows({
 			)}
 			<Text tone="secondary">
 				A charge is counted once per receipt, even when a run produces several
-				documents. Reviewed or accepted results are not linked to these charges
+				Outputs. Reviewed or accepted results are not linked to these charges
 				yet, so cost per accepted result is unavailable.
 			</Text>
 		</div>

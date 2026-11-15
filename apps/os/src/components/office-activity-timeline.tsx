@@ -126,7 +126,7 @@ function hookLine(row: OfficeActivityRow) {
 		row.trigger === "PermissionRequest" &&
 		(row.reportedState === "error" || row.reportedState === "working")
 	)
-		return "PermissionRequest · OpenCode runner asked for permission; the runner approves it automatically";
+		return "PermissionRequest · OpenCode lane asked for permission; the lane approves it automatically";
 	return `${row.trigger === "reply_drain" ? "Reply fallback" : row.trigger} · ${REASONS[row.reason]}${row.reportedState ? ` · Session reported ${STATES[row.reportedState]}` : ""}`;
 }
 

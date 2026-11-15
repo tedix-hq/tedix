@@ -308,8 +308,8 @@ function ActivityReviewRow({ group }: { group: ActivityReviewGroup }) {
 				<span>·</span>
 				<span>
 					{group.evidence.payloadsConfigured
-						? "payload capture on"
-						: "payload capture off"}
+						? "payload lane on"
+						: "payload lane off"}
 				</span>
 				<span>·</span>
 				<span

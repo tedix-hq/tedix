@@ -287,7 +287,7 @@ await runShellSpec(
 				for (const label of [
 					"Templates",
 					"Website chat",
-					"Activity",
+					"Activity log",
 					"Usage & billing",
 					"Usage",
 					"Billing",
@@ -305,7 +305,7 @@ await runShellSpec(
 					["Billing", "/admin/billing", "Billing"],
 					["Templates", "/blueprints", "Templates"],
 					["Website chat", "/widget", "Website chat"],
-					["Activity", "/audit", "Activity"],
+					["Activity log", "/audit", "Activity log"],
 				]) {
 					await openSettings();
 					await settings

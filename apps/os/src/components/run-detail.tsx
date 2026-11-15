@@ -358,7 +358,7 @@ export function RunDetailPage() {
 												disabled={!retryCandidate || retryRun.isPending}
 												title={
 													retryCandidate
-														? "Retry in a new run"
+														? "Retry in a new execution epoch"
 														: "No engine-verified retry candidate"
 												}
 											/>
@@ -373,8 +373,8 @@ export function RunDetailPage() {
 											</AlertDialogTitle>
 											<AlertDialogDescription>
 												This uses the engine-verified retry token and starts a
-												new run. It does not generically restart an arbitrary
-												run.
+												new execution epoch. It does not generically restart an
+												arbitrary run.
 											</AlertDialogDescription>
 										</AlertDialogHeader>
 										<AlertDialogFooter>

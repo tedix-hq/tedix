@@ -897,7 +897,7 @@ async function proxyApiRequest(
 	hostTenantId: string | null = null,
 ): Promise<Response> {
 	if (!env.API_SERVICE) {
-		return refuse(503, "The local runner has no API binding.");
+		return refuse(503, "The local lane has no API binding.");
 	}
 	const upstream = new URL(
 		url.pathname.replace(/^\/(?:cli\/)?api/, "") || "/",

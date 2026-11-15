@@ -43,7 +43,7 @@ const STATUS: Record<
 	SessionRequest["status"],
 	{ label: string; variant: BadgeVariant }
 > = {
-	waiting_on_user: { label: "Needs you", variant: "warning" },
+	waiting_on_user: { label: "Waiting on you", variant: "warning" },
 	dropped_risk: { label: "At risk", variant: "destructive" },
 	open: { label: "Open", variant: "info" },
 	in_progress: { label: "In progress", variant: "secondary" },
@@ -119,7 +119,7 @@ export function SessionRequestsSection({
 						onValueChange={setFilter}
 						options={[
 							{ value: "active", label: "Open" },
-							{ value: "waiting", label: "Needs you" },
+							{ value: "waiting", label: "Waiting on you" },
 							{ value: "closed", label: "Closed" },
 							{ value: "all", label: "All" },
 						]}

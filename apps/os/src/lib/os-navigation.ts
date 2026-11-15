@@ -574,7 +574,7 @@ export const OS_PAGES: readonly OsPage[] = [
 	{
 		id: "work-interactions",
 		path: "/work/interactions",
-		label: "Requests",
+		label: "Interactions",
 		parentId: "work",
 		breadcrumb: "parent",
 	},
@@ -588,14 +588,14 @@ export const OS_PAGES: readonly OsPage[] = [
 	{
 		id: "work-executions-detail",
 		path: "/work/executions/$runId",
-		label: "Run",
+		label: "Executions",
 		parentId: "work",
 		breadcrumb: "parent",
 	},
 	{
 		id: "work-interactions-detail",
 		path: "/work/interactions/$requestId",
-		label: "Requests",
+		label: "Interactions",
 		parentId: "work",
 		breadcrumb: "parent",
 	},
