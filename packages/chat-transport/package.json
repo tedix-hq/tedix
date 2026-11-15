@@ -30,7 +30,7 @@
 		"test:run": "vp test run"
 	},
 	"dependencies": {
-		"@cloudflare/voice": "catalog:",
+		"agents": "catalog:",
 		"capnweb": "^0.12.0"
 	},
 	"devDependencies": {

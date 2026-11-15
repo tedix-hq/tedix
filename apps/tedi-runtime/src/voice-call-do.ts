@@ -9,7 +9,7 @@ import {
  * This is a SIBLING Durable Object, deliberately NOT `withVoice(AgentTediDO)`.
  *
  * Voice has a separate WebSocket lifecycle from native Pi chat.
- * `@cloudflare/voice` wraps `onMessage` in its constructor, so browser voice
+ * `agents/voice` wraps `onMessage` in its constructor, so browser voice
  * lives in its OWN DO whose `onTurn` CONSULTS the canonical tedi loop via RPC.
  *
  * `VoiceCallDO` holds ZERO canonical state. The voice package persists call
@@ -30,17 +30,10 @@ import {
  *                      │  streamChatTurn(SAME conversationId as Tedix OS chat)
  *                      ▼  → ledger / brain / session / MCP tools (for free)
  *
- * @experimental Built on `@cloudflare/voice@0.5.0` (pinned exactly via the root
+ * @experimental Built on `agents/voice` (`agents` is pinned exactly via the root
  * catalog — the SDK is not yet stable).
  */
 
-import {
-	type Transcriber,
-	type VoiceTurnContext,
-	WorkersAIFluxSTT,
-	WorkersAITTS,
-	withVoice,
-} from "@cloudflare/voice";
 import type { RecordVoiceProviderUsageInput } from "@tedix/api-contract/schemas/billing";
 import { DEFAULT_SESSION_KEY } from "@tedix/tedi-session/session-harness";
 import {
@@ -51,6 +44,13 @@ import {
 } from "@tedix/voice/runtime";
 import { durableObjectStubByName } from "@tedix/worker-kit/durable-objects";
 import { Agent, type Connection, type ConnectionContext } from "agents";
+import {
+	type Transcriber,
+	type VoiceTurnContext,
+	WorkersAIFluxSTT,
+	WorkersAITTS,
+	withVoice,
+} from "agents/voice";
 import { recordVoiceProviderUsage } from "./voice-provider-usage-client";
 import { buildVoiceCallRecap, type VoiceRecapTurn } from "./voice-recap";
 import {
@@ -153,7 +153,7 @@ export class VoiceCallDO extends VoiceAgentBase {
 	 *
 	 * Why the normalization exists (root cause of "the agent never responds"):
 	 * workerd delivers binary frames on non-hibernating WebSockets as **Blob**
-	 * (the WHATWG `binaryType: "blob"` default), but `@cloudflare/voice`'s
+	 * (the WHATWG `binaryType: "blob"` default), but `agents/voice`'s
 	 * wrapper only checks `message instanceof ArrayBuffer` — Blobs fell through
 	 * past `bufferAudio`, so STT never received a single byte and no turn ever
 	 * fired. `onConnect` also sets `binaryType = "arraybuffer"` on the socket;
@@ -501,7 +501,7 @@ export class VoiceCallDO extends VoiceAgentBase {
 	 * harness, cognitive ledger, brain bridge, and the tedi's MCP tools exactly
 	 * like a typed chat message.
 	 *
-	 * STREAMING (SDK best practice, `@cloudflare/voice` docs): we return an
+	 * STREAMING (SDK best practice, `agents/voice` docs): we return an
 	 * `AsyncIterable<string>` so `withVoice` sentence-chunks the reply and
 	 * synthesizes TTS CONCURRENTLY while the canonical turn is still generating,
 	 * instead of waiting for the full text. `context.signal` (aborted on barge-in

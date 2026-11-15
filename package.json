@@ -147,7 +147,6 @@
 		"@cloudflare/sandbox": "1.0.3",
 		"@cloudflare/vite-plugin": "2.0.0-beta.v.16",
 		"@cloudflare/vitest-plugin": "1.7.0",
-		"@cloudflare/voice": "0.5.0",
 		"@cloudflare/workers-types": "^5.20261110.1",
 		"@json-render/core": "^0.22.0",
 		"@json-render/shadcn": "^0.22.0",

@@ -1,9 +1,4 @@
 /** STT-only browser dictation for the Tedix OS composer. */
-import {
-	type Transcriber,
-	WorkersAIFluxSTT,
-	withVoiceInput,
-} from "@cloudflare/voice";
 import type { RecordVoiceProviderUsageInput } from "@tedix/api-contract/schemas/billing";
 import {
 	createInstrumentedVoiceTranscriber,
@@ -12,6 +7,11 @@ import {
 	SingleSpeakerGate,
 } from "@tedix/voice/runtime";
 import { Agent, type Connection, type ConnectionContext } from "agents";
+import {
+	type Transcriber,
+	WorkersAIFluxSTT,
+	withVoiceInput,
+} from "agents/voice";
 import { logKernelVoiceFailure } from "./kernel-voice-log";
 import { type AiRunner, createVoiceGatewayAi } from "./voice-gateway-ai";
 import { watchVoiceMembership } from "./voice-membership";
