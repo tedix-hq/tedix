@@ -54,6 +54,7 @@ import { WidgetFrame } from "@/components/widget-frame";
 import { WorkActorDirectoryContext } from "@/components/work-actor-avatar";
 import { mentionedPeople, notifyChatPosted } from "@/lib/workspace-chat-notify";
 import { WorkspaceChatResources } from "@/components/workspace-chat-resources";
+import { ChatImagePreview } from "@/components/chat-image-preview";
 import { isImeComposing } from "@/lib/keyboard";
 import { osQueryKeys } from "@/lib/os-query-options";
 import { useNow } from "@/lib/use-now";
@@ -304,6 +305,7 @@ export function WorkspaceChat({
 				<ConnectionChip client={client} connection={connection} />
 			</div>
 			<Thread
+				workspaceId={workspaceId}
 				conversationId={conversationId}
 				turns={state.turns}
 				models={state.models}
@@ -476,6 +478,7 @@ function ConnectionChip({
 }
 
 function Thread({
+	workspaceId,
 	conversationId,
 	turns,
 	models,
@@ -486,6 +489,7 @@ function Thread({
 	onDecide,
 	onContinue,
 }: {
+	workspaceId: string;
 	conversationId: string | null;
 	turns: ChatTurn[];
 	models: ReadonlyArray<{ id: string; label: string }>;
@@ -542,6 +546,7 @@ function Thread({
 			{turns.map((turn, index) => (
 				<TurnView
 					key={turn.turnId}
+					workspaceId={workspaceId}
 					modelLabel={
 						models.find((model) => model.id === turn.model)?.label ?? turn.model
 					}
@@ -570,11 +575,13 @@ const CONTINUE_TEXT =
 	"Continue where you stopped. Check what already happened before repeating any change.";
 
 function TurnView({
+	workspaceId,
 	turn,
 	modelLabel,
 	onDecide,
 	onContinue,
 }: {
+	workspaceId: string;
 	turn: ChatTurn;
 	/** The catalog name of the model that answered, else its id. */
 	modelLabel: string | undefined;
@@ -597,6 +604,11 @@ function TurnView({
 				<ul aria-label="Message files" className="m-0 grid list-none gap-1 p-0">
 					{turn.attachments.map((file) => (
 						<li key={file.outputId}>
+							<ChatImagePreview
+								workspaceId={workspaceId}
+								outputId={file.outputId}
+								title={file.title}
+							/>
 							<Link href={`/outputs/${encodeURIComponent(file.outputId)}`}>
 								{file.title}
 							</Link>{" "}
@@ -1211,6 +1223,12 @@ function Composer({
 					>
 						{selected.map((file) => (
 							<li key={file.outputId}>
+								<ChatImagePreview
+									workspaceId={workspaceId}
+									outputId={file.outputId}
+									title={file.title}
+									size="chip"
+								/>
 								<FileText aria-hidden size={14} />
 								<span className="truncate">{file.title}</span>
 								<Button

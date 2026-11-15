@@ -34,7 +34,12 @@ vi.mock("@/lib/use-chat-model-preference", async (original) => ({
 	}),
 }));
 import { WorkspaceChat } from "./workspace-chat";
-import { osQueryKeys, canvasOutputsQueryOptions } from "@/lib/os-query-options";
+import {
+	osQuery,
+	osQueryKeys,
+	canvasOutputsQueryOptions,
+	workspaceResourcesQueryOptions,
+} from "@/lib/os-query-options";
 
 (
 	globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -373,6 +378,70 @@ describe("WorkspaceChat", () => {
 		).toContain("Budget notes · Revision 3");
 		expect(host.querySelector('a[href="/outputs/doc-1"]')).not.toBeNull();
 	});
+	it("previews an uploaded picture beside the message and leaves documents as links", () => {
+		queryClient.setQueryData<unknown>(
+			workspaceResourcesQueryOptions("ws-1").queryKey,
+			{
+				items: [
+					{
+						id: "photo-1",
+						resourceType: "file",
+						metadata: { mimeType: "image/jpeg", size: 834 },
+					},
+					{
+						id: "doc-1",
+						resourceType: "file",
+						metadata: { mimeType: "application/pdf", size: 10 },
+					},
+				],
+				truncated: false,
+			},
+		);
+		queryClient.setQueryData<unknown>(
+			osQuery.osWorkspaces.resources.getFile.queryOptions({
+				input: { workspaceId: "ws-1", resourceId: "photo-1" },
+			}).queryKey,
+			{
+				filename: "photo.jpg",
+				mimeType: "image/jpeg",
+				size: 834,
+				url: "/api/workspace-files/org/ws-1/photo-1/media?sig=s",
+				expiresAt: "2026-11-15T00:05:00.000Z",
+			},
+		);
+		const fake = fakeClient("c1");
+		mount(fake);
+		act(() =>
+			fake.feed([
+				{
+					...started,
+					attachments: [
+						{
+							outputId: "photo-1",
+							title: "photo.jpg",
+							revision: 1,
+							revisionId: "p1",
+						},
+						{
+							outputId: "doc-1",
+							title: "Budget notes",
+							revision: 3,
+							revisionId: "r3",
+						},
+					],
+				},
+			]),
+		);
+		const previews = host.querySelectorAll<HTMLImageElement>(
+			'[aria-label="Message files"] [data-testid="chat-image-preview"]',
+		);
+		expect(previews).toHaveLength(1);
+		expect(previews[0]!.alt).toBe("photo.jpg");
+		expect(previews[0]!.getAttribute("src")).toBe(
+			"/api/workspace-files/org/ws-1/photo-1/media?sig=s",
+		);
+		expect(host.querySelector('a[href="/outputs/photo-1"]')).not.toBeNull();
+	});
 	it("opens workspace resources from both the thread and conversation list", async () => {
 		const browse = vi.fn();
 		const fake = fakeClient("c1");
@@ -382,7 +451,9 @@ describe("WorkspaceChat", () => {
 		);
 		expect(trigger).not.toBeNull();
 		await act(async () => trigger?.click());
-		expect(document.body.textContent).toContain("cannot be read in chat yet");
+		expect(document.body.textContent).toContain(
+			"cannot read uploaded files yet",
+		);
 		const browseButton = [...document.querySelectorAll("button")].find(
 			(button) => button.textContent === "Browse all files",
 		);

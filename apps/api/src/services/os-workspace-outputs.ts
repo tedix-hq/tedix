@@ -74,8 +74,30 @@ export async function confirmOsWorkspaceFile(
 	params: Parameters<typeof confirmFile>[1],
 	bucket: OutputStorageBucket = env.R2_BUCKET,
 ) {
-	const revision = params.revision;
+	const { output, revision } = params;
 	if (!revision) return confirmFile(db, params);
+	// A workspace that keeps its files in its own store reads them only from
+	// there, so the file's document is created there, not in the shared batch.
+	if (
+		output?.workspaceId &&
+		!(await workspaceOutputsInSharedStore({
+			organizationId: output.organizationId,
+			workspaceId: output.workspaceId,
+		}))
+	) {
+		if (params.resource) await confirmFile(db, { resource: params.resource });
+		try {
+			await createOsOutput(db, output, revision, bucket);
+		} catch (error) {
+			// A parallel confirm may have created the same document.
+			const scope = {
+				organizationId: output.organizationId,
+				outputId: output.id,
+			};
+			if (!(await outputs.getOsOutput(db, scope))) throw error;
+		}
+		return;
+	}
 	const { body } = await storeRevisionBody(bucket, revision);
 	return confirmFile(db, {
 		...params,

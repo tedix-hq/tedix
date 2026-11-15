@@ -48,8 +48,9 @@ export function WorkspaceChatResources({
 				<PopoverTitle>Add to your message</PopoverTitle>
 				<PopoverDescription>
 					Pick up to 5 documents, sheets or slides from this workspace for the
-					assistant to read. Files you upload are saved to the workspace but
-					cannot be read in chat yet.
+					assistant to read. A file you upload is saved to the workspace and
+					added to this message; pictures show a preview, but the assistant
+					cannot read uploaded files yet.
 				</PopoverDescription>
 				{outputs.isError ? (
 					<Text role="caption" tone="error">
@@ -88,7 +89,13 @@ export function WorkspaceChatResources({
 						) : null}
 					</div>
 				)}
-				<WorkspaceFileUpload workspaceId={workspaceId} />
+				<WorkspaceFileUpload
+					workspaceId={workspaceId}
+					onUploaded={(file) => {
+						if (selectedIds.length < 5)
+							onSelect({ outputId: file.outputId, title: file.name });
+					}}
+				/>
 				<Button
 					onClick={() => {
 						setOpen(false);
