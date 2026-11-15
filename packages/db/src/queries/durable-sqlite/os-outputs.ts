@@ -120,6 +120,8 @@ export interface CreateOsOutputRevisionParams {
 	/** Producer lineage forwarded by the workflow bridge; null for human edits. */
 	skillRunId?: string | null;
 	skillId?: string | null;
+	/** The agent turn that made this edit on a person's behalf; null otherwise. */
+	agentTurnId?: string | null;
 	/** JSON OsDerivedAccessEnvelope; null is legacy/unverifiable. */
 	accessEnvelope?: string | null;
 	/**
@@ -565,6 +567,9 @@ export async function createOsOutputRevision(
 						),
 						skillId: sql<string | null>`${params.skillId ?? null}`.as(
 							"skill_id",
+						),
+						agentTurnId: sql<string | null>`${params.agentTurnId ?? null}`.as(
+							"agent_turn_id",
 						),
 						accessEnvelope: sql<string | null>`${accessEnvelope}`.as(
 							"access_envelope",

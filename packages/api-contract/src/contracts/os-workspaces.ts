@@ -1731,6 +1731,12 @@ export const osWorkspacesContract = oc
 							createdByKind: OsCreatedByKindSchema.optional().describe(
 								"Who saved the current revision: a person (user) or an agent (tedi, external_agent, service). An open editor uses it to offer undo for an agent's change",
 							),
+							byAgent: z
+								.boolean()
+								.optional()
+								.describe(
+									"True when an agent made the current revision: an agent saved it, or the workspace chat agent saved it on a person's behalf (createdByKind then stays user, who remains accountable). An open editor offers undo for an agent's change",
+								),
 						}),
 						patch: OsOutputContentPatchSchema.nullable(),
 						content: OsOutputContentSchema.optional().describe(

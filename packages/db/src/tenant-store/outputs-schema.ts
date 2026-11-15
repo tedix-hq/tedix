@@ -116,6 +116,13 @@ export const tenantOsOutputRevisions = sqliteTable(
 			.default(sql`(datetime('now'))`),
 		skillRunId: text("skill_run_id"),
 		skillId: text("skill_id"),
+		/**
+		 * The agent turn that produced this revision while saving on a person's
+		 * behalf, such as the workspace chat agent. createdByKind/createdById
+		 * still name who is accountable; this only says an agent did the edit,
+		 * so an open editor can offer to undo it. Null for every other revision.
+		 */
+		agentTurnId: text("agent_turn_id"),
 		accessEnvelope: text("access_envelope"),
 		contentSha256: text("content_sha256"),
 		contentBytes: integer("content_bytes"),

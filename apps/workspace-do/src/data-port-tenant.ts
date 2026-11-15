@@ -127,6 +127,12 @@ export interface TenantDataPortDeps {
 	bucket: OutputBodyBucket;
 	actorKind: "user" | "tedi" | "external_agent" | "service";
 	conversationId?: string;
+	/**
+	 * The agent turn writing through this port. Its saves stay attributed to
+	 * the accountable actor and also record this turn, so an open editor can
+	 * offer to undo an agent's change made on a person's behalf.
+	 */
+	agentTurnId?: string;
 	assertWorkspaceAuthority: () => Promise<void>;
 	validateAppSource: (
 		files: Record<string, string>,
@@ -290,6 +296,7 @@ export class TenantDataPort implements WorkspaceDataPort {
 					createdByKind: this.deps.actorKind,
 					createdById: input.actorId,
 					createdAt: now,
+					agentTurnId: this.deps.agentTurnId ?? null,
 					...stored,
 				},
 			),
@@ -327,6 +334,7 @@ export class TenantDataPort implements WorkspaceDataPort {
 			createdByKind: this.deps.actorKind,
 			createdById: input.actorId,
 			expectedRevision: input.expectedRevision,
+			agentTurnId: this.deps.agentTurnId,
 		};
 		const result = await this.deps.commitOutput(input.outputId, () =>
 			createOsOutputRevision(this.deps.tenant, params),

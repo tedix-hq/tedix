@@ -232,6 +232,7 @@ export async function osOutputChangesSince(
 			revision: current.revision,
 			createdAt: current.createdAt,
 			createdByKind: current.createdByKind,
+			byAgent: current.createdByKind !== "user" || current.agentTurnId != null,
 		},
 	};
 	if (input.sinceRevision >= current.revision)

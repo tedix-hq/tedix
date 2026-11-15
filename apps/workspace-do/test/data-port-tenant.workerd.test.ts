@@ -114,4 +114,80 @@ describe("workspace agent data storage", () => {
 			]);
 		});
 	});
+
+	test("an agent turn's saves stay the person's and record the turn", async () => {
+		const bindings = env as unknown as WorkspaceEnv;
+		const ws = tenantStoreStub(bindings.WORKSPACE, bindings, scope);
+		await runInDurableObject(ws, async (_instance, state) => {
+			state.storage.sql.exec(
+				"INSERT OR IGNORE INTO os_workspaces (id, organization_id, name, created_by_kind, created_by_id) VALUES (?, ?, 'Fixture', 'user', 'fixture')",
+				scope.workspaceId,
+				scope.organizationId,
+			);
+			const tenant = createTenantStoreDb(state.storage);
+			const data = (agentTurnId?: string) =>
+				new TenantDataPort({
+					...scope,
+					tenant,
+					core,
+					bucket: bindings.R2_BUCKET,
+					actorKind: "user",
+					agentTurnId,
+					validateAppSource: unused,
+					assertWorkspaceAuthority: async () => {},
+					commitOutput: (_outputId, write) => write(),
+					notifyOutputRevision: async () => {},
+				});
+			const created = await data("turn-1").createOutput({
+				title: "Notes",
+				content: { kind: "document", blocks: [] },
+				actorId: "person-1",
+			});
+			await data("turn-2").reviseOutput({
+				outputId: created.id,
+				content: {
+					kind: "document",
+					blocks: [{ type: "paragraph", text: "From the agent" }],
+				},
+				expectedRevision: 1,
+				actorId: "person-1",
+			});
+			await data().reviseOutput({
+				outputId: created.id,
+				content: {
+					kind: "document",
+					blocks: [{ type: "paragraph", text: "Typed by the person" }],
+				},
+				expectedRevision: 2,
+				actorId: "person-1",
+			});
+			expect(
+				state.storage.sql
+					.exec(
+						"SELECT revision, created_by_kind, created_by_id, agent_turn_id FROM os_output_revisions WHERE output_id = ? ORDER BY revision",
+						created.id,
+					)
+					.toArray(),
+			).toEqual([
+				{
+					revision: 1,
+					created_by_kind: "user",
+					created_by_id: "person-1",
+					agent_turn_id: "turn-1",
+				},
+				{
+					revision: 2,
+					created_by_kind: "user",
+					created_by_id: "person-1",
+					agent_turn_id: "turn-2",
+				},
+				{
+					revision: 3,
+					created_by_kind: "user",
+					created_by_id: "person-1",
+					agent_turn_id: null,
+				},
+			]);
+		});
+	});
 });

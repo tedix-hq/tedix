@@ -1480,6 +1480,10 @@
 		{
 			"name": "20261115021418_audit_trace_column/migration.sql",
 			"sha256": "fdec5b95a36f3fac0a4da40655bbcd5c2e937b7f08ae17b5f829004fb1e0cb65"
+		},
+		{
+			"name": "20261115091247_output_revision_agent_turn/migration.sql",
+			"sha256": "78f73fa81f2e762bdd06a5f519ed572a99e3cc3e4576b60301aa5dfc23e58eb9"
 		}
 	]
 }

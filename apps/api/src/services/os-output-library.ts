@@ -176,6 +176,8 @@ export function outputLibraryRowsFromIndex(row: WorkspaceOutputLibraryRow): {
 			createdAt: index.revisionCreatedAt,
 			skillRunId: index.skillRunId,
 			skillId: index.skillId,
+			// Only an open editor uses it, to offer undo; library cards do not.
+			agentTurnId: null,
 			accessEnvelope: index.accessEnvelope,
 			contentSha256: index.contentSha256,
 			contentBytes: index.contentBytes,

@@ -79,6 +79,9 @@ describe("changes someone else made to an open file", () => {
 		for (const kind of ["tedi", "external_agent", "service"])
 			expect(savedByAgent({ createdByKind: kind })).toBe(true);
 		expect(savedByAgent({ createdByKind: "user" })).toBe(false);
+		// The workspace chat agent saves on the person's behalf.
+		expect(savedByAgent({ createdByKind: "user", byAgent: true })).toBe(true);
+		expect(savedByAgent({ createdByKind: "user", byAgent: false })).toBe(false);
 		expect(savedByAgent({ revision: 3 })).toBe(false);
 		expect(savedByAgent(null)).toBe(false);
 	});
