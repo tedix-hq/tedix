@@ -295,6 +295,7 @@ const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
 	get_site_deprovision_status: "mcp:content",
 	deprovision_site: "mcp:content",
 	repair_cms_media: "mcp:content",
+	recover_deleted_cms_data: "mcp:content",
 	move_cms_site: "mcp:content",
 	provision_theme_artifact_repo: "mcp:content",
 	read_theme_artifact_head: "mcp:content",
@@ -662,6 +663,7 @@ const ACCESS_LEVEL_OVERRIDES: Record<string, ToolAccessLevel> = {
 	// Repairing tenant media provisions provider infrastructure. Keep it above
 	// ordinary editorial writes even though the operation is idempotent.
 	repair_cms_media: "admin",
+	recover_deleted_cms_data: "admin",
 	move_cms_site: "admin",
 	start_cms_recovery_capture: "admin",
 	purge_cms_recovery_capture: "admin",

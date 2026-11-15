@@ -27,6 +27,7 @@ import cmsRuntime, {
 } from "./index";
 import {
 	databaseDeprovisionAdminResponse,
+	databaseRecoverAdminResponse,
 	databaseStorageAdminResponse,
 	databaseRecoveryBookmarkAdminResponse,
 	databaseSchemaDiagnosticResponse,
@@ -1246,6 +1247,57 @@ describe("CMS database deprovisioning", () => {
 		expect(authorized?.status).toBe(200);
 		expect(deleteTenantData).toHaveBeenCalledOnce();
 		expect(await authorized?.json()).toMatchObject({ deletedStorage: true });
+	});
+
+	test("rewinds an emptied tenant object to before its finished deprovision", async () => {
+		const slug = `recover-${crypto.randomUUID().slice(0, 8)}`;
+		const url = new URL(
+			`https://${slug}.cms.tedix.dev/_tedix/internal/database-runtime/recover-deleted`,
+		);
+		let rows: unknown[] = [];
+		const restoreTenantDataAt = vi.fn(async () => {
+			rows = [{ name: "ec_posts" }];
+			throw new Error("Durable Object reset");
+		});
+		const env = {
+			CMS_INTERNAL_AUTH_TOKEN: "internal-secret",
+			PLATFORM_DB: mediaAdminD1,
+			DB_DO: {
+				idFromName: (name: string) => name,
+				get: () => ({ restoreTenantDataAt, query: async () => ({ rows }) }),
+			},
+		} as never;
+		const recover = (token = "internal-secret") =>
+			databaseRecoverAdminResponse({
+				env,
+				request: new Request(url, {
+					method: "POST",
+					headers: { "X-Tedix-CMS-Internal-Auth": token },
+				}),
+				slug,
+				url,
+			});
+		expect((await recover("wrong"))?.status).toBe(401);
+		// No finished deprovision: nothing to undo.
+		expect((await recover())?.status).toBe(409);
+		await mediaAdminD1
+			.prepare(
+				"INSERT INTO cms_deprovision_operations (id, organization_id, slug, status, created_at) VALUES (?, ?, ?, 'succeeded', '2026-01-02 03:04:05')",
+			)
+			.bind(crypto.randomUUID(), "test-org", slug)
+			.run();
+		const recovered = await recover();
+		expect(recovered?.status).toBe(200);
+		expect(await recovered?.json()).toMatchObject({
+			restoredTo: "2026-01-02T03:03:05.000Z",
+			storageState: "present",
+		});
+		expect(restoreTenantDataAt).toHaveBeenCalledExactlyOnceWith(
+			Date.UTC(2026, 0, 2, 3, 3, 5),
+		);
+		// Content is back, so a second call must not rewind it again.
+		expect((await recover())?.status).toBe(409);
+		expect(restoreTenantDataAt).toHaveBeenCalledOnce();
 	});
 
 	test("rejects database deletion without exact site and running receipt", async () => {

@@ -107,6 +107,7 @@ export const SITE_KIND_OVERRIDES: Record<
 	"sites/getDeprovisionStatus": "read",
 	"sites/deprovision": "destructive",
 	"sites/moveCms": "destructive",
+	"sites/recoverDeletedCmsData": "write",
 };
 
 /**

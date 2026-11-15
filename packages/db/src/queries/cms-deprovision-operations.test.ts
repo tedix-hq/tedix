@@ -11,6 +11,7 @@ import {
 	completeCmsDeprovisionOperation,
 	getCmsDeprovisionOperation,
 	getCmsDeprovisionOperationForOrganization,
+	getLatestSucceededCmsDeprovisionBySlug,
 	reserveCmsDeprovisionOperation,
 	updateCmsDeprovisionOperation,
 } from "./cms-deprovision-operations";
@@ -465,5 +466,20 @@ describe("CMS deprovision operation ledger", () => {
 		expect(
 			sqlite.prepare("SELECT id FROM cms_restore_permits ORDER BY id").all(),
 		).toEqual([{ id: "other" }]);
+	});
+
+	it("finds the newest finished deprovision of a slug", async () => {
+		const { db, sqlite } = fixture();
+		sqlite.exec(`
+			INSERT INTO cms_deprovision_operations (id, organization_id, slug, status, created_at) VALUES
+				('old', 'org-1', 'example', 'succeeded', '2026-01-01 00:00:00'),
+				('new', 'org-1', 'example', 'succeeded', '2026-02-01 00:00:00'),
+				('running', 'org-1', 'example', 'running', '2026-03-01 00:00:00'),
+				('other', 'org-1', 'elsewhere', 'succeeded', '2026-04-01 00:00:00');
+		`);
+		expect(
+			(await getLatestSucceededCmsDeprovisionBySlug(db, "example"))?.id,
+		).toBe("new");
+		expect(await getLatestSucceededCmsDeprovisionBySlug(db, "none")).toBeNull();
 	});
 });

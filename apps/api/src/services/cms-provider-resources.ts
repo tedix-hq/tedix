@@ -71,3 +71,41 @@ export async function inspectCmsProviderResources(
 		};
 	}
 }
+
+export interface CmsDeletedDataRecovery {
+	restoredTo: string;
+	storageState: "present" | "missing";
+}
+
+/** Ask the CMS runtime to rewind a deprovisioned site's emptied database. */
+export async function recoverDeletedCmsData(
+	env: CmsResourceEnv,
+	slug: string,
+): Promise<CmsDeletedDataRecovery> {
+	const response = await env.CMS.fetch(
+		new Request(
+			`https://cms.internal/api/internal/deployments/${encodeURIComponent(slug)}/recover-deleted`,
+			{
+				method: "POST",
+				headers: {
+					Authorization: `Bearer ${env.PLATFORM_SERVICE_TOKEN}`,
+					"X-Tedix-Connection-Label": slug,
+				},
+			},
+		),
+	);
+	const data = (await response
+		.json()
+		.catch(() => ({}))) as Partial<CmsDeletedDataRecovery> & {
+		ok?: boolean;
+		error?: string;
+	};
+	if (
+		!response.ok ||
+		!data.ok ||
+		!data.restoredTo ||
+		(data.storageState !== "present" && data.storageState !== "missing")
+	)
+		throw new Error(data.error ?? `CMS runtime returned ${response.status}`);
+	return { restoredTo: data.restoredTo, storageState: data.storageState };
+}

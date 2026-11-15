@@ -3,9 +3,11 @@ import {
 	aggregateAppLink,
 } from "@tedix/db/queries/aggregate-app-links";
 import { getAppsByOrganization } from "@tedix/db/queries/apps";
+import { isPlatformPrincipal } from "@tedix/auth/types";
 import {
 	CmsDeprovisionReservationConflictError,
 	getCmsDeprovisionOperationForOrganization,
+	getLatestSucceededCmsDeprovisionBySlug,
 	reserveCmsDeprovisionOperation,
 	updateCmsDeprovisionOperation,
 } from "@tedix/db/queries/cms-deprovision-operations";
@@ -18,7 +20,10 @@ import {
 	withAuthorization,
 } from "../orpc";
 import { inspectCmsMediaResource } from "../../services/cms-media-resources";
-import { inspectCmsProviderResources } from "../../services/cms-provider-resources";
+import {
+	inspectCmsProviderResources,
+	recoverDeletedCmsData,
+} from "../../services/cms-provider-resources";
 import {
 	authedSitesOs,
 	aggregateEntries,
@@ -322,3 +327,37 @@ export const getDeprovisionStatusProcedure = authedSitesOs.getDeprovisionStatus
 			await ensureCmsDeprovisionWorkflow(context, receipt, false),
 		);
 	});
+
+/** Deprovision empties the content database, but the provider keeps 30 days of
+ * history. This rewinds an emptied database to just before the request. */
+export const recoverDeletedCmsDataProcedure =
+	authedSitesOs.recoverDeletedCmsData
+		.use(withAuthorization("settings:manage", "mcp:content.admin"))
+		.handler(async ({ input, context }) => {
+			if (!isPlatformPrincipal(context))
+				throw createError(
+					ErrorCodes.FORBIDDEN,
+					"Platform administrator required to recover deleted CMS data",
+				);
+			const receipt = await getLatestSucceededCmsDeprovisionBySlug(
+				context.db,
+				input.slug,
+			);
+			if (!receipt || receipt.organizationId !== requireOrgId(context))
+				throw createError(
+					ErrorCodes.NOT_FOUND,
+					"No finished deprovision for this CMS site",
+				);
+			try {
+				return {
+					slug: input.slug,
+					...(await recoverDeletedCmsData(context.env, input.slug)),
+				};
+			} catch (error) {
+				throw createError(
+					ErrorCodes.BAD_GATEWAY,
+					`CMS data recovery failed: ${error instanceof Error ? error.message : String(error)}`,
+					error,
+				);
+			}
+		});

@@ -11,7 +11,10 @@ import {
 	provisionCmsMediaBucket,
 } from "@tedix/provisioning/cms";
 import { createDbQueryClient } from "@tedix/db/query-client";
-import { getCmsDeprovisionOperation } from "@tedix/db/queries/cms-deprovision-operations";
+import {
+	getCmsDeprovisionOperation,
+	getLatestSucceededCmsDeprovisionBySlug,
+} from "@tedix/db/queries/cms-deprovision-operations";
 import {
 	enterCmsProvisioningPermit,
 	enterCmsRestorePermit,
@@ -22,6 +25,7 @@ import { type EmDashDBStub } from "./emdash-db";
 import { type Env } from "./env";
 import {
 	DATABASE_DEPROVISION_ADMIN_PATH,
+	DATABASE_RECOVER_ADMIN_PATH,
 	DATABASE_STORAGE_ADMIN_PATH,
 	DATABASE_RECOVERY_BOOKMARK_ADMIN_PATH,
 	DATABASE_SCHEMA_DIAGNOSTIC_PATH,
@@ -123,6 +127,66 @@ export async function databaseDeprovisionAdminResponse(args: {
 		slug,
 		deletedStorage: true,
 	});
+}
+
+const CMS_CONTENT_PRESENT_SQL =
+	"SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'ec_%' LIMIT 1";
+
+/** Undo the data loss of a finished deprovision from the object's 30-day
+ * history. Only an empty content database is rewound, to one minute before
+ * the deprovision was requested. */
+export async function databaseRecoverAdminResponse(args: {
+	env: Env;
+	request: Request;
+	slug: string;
+	url: URL;
+}): Promise<Response | null> {
+	const { env, request, slug, url } = args;
+	if (url.pathname !== DATABASE_RECOVER_ADMIN_PATH) return null;
+	if (!(await verifyInternalCmsRequest(request, env))) {
+		return jsonResponse({ ok: false, error: "unauthorized" }, { status: 401 });
+	}
+	if (request.method !== "POST") {
+		return jsonResponse(
+			{ ok: false, error: "method not allowed" },
+			{ status: 405, headers: { Allow: "POST" } },
+		);
+	}
+	try {
+		const receipt = await getLatestSucceededCmsDeprovisionBySlug(
+			createDbQueryClient(env.PLATFORM_DB),
+			slug,
+		);
+		if (!receipt)
+			return jsonResponse(
+				{ ok: false, error: "No finished deprovision for this CMS site" },
+				{ status: 409 },
+			);
+		const stub = () =>
+			durableObjectStubByName(env.DB_DO, env, slug) as unknown as EmDashDBStub;
+		const hasContent = async () =>
+			(await stub().query(CMS_CONTENT_PRESENT_SQL)).rows.length > 0;
+		if (await hasContent())
+			return jsonResponse(
+				{ ok: false, error: "CMS content database is not empty" },
+				{ status: 409 },
+			);
+		const restoredTo =
+			Date.parse(`${receipt.createdAt.replace(" ", "T")}Z`) - 60_000;
+		try {
+			await stub().restoreTenantDataAt(restoredTo);
+		} catch {
+			// ctx.abort() disconnects the RPC; the fresh read below is the proof.
+		}
+		return jsonResponse({
+			ok: true,
+			slug,
+			restoredTo: new Date(restoredTo).toISOString(),
+			storageState: (await hasContent()) ? "present" : "missing",
+		});
+	} catch (error) {
+		return errorResponse(502, "cms_storage_recover_failed", error);
+	}
 }
 
 /** Inspect tenant SQLite storage without importing D1 or requiring an active site. */
