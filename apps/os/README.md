@@ -16,7 +16,7 @@ stack). [Development](#development) has the details.
 ## Overview
 
 Tedix OS is the main working interface for durable company work. The entry
-route opens Work, where Activity and Decisions are the primary views; Projects is
+route opens Work, where Activity and Decisions are the primary views; Goals is
 available through More views. Workspaces, Documents, Team, Skills, Apps and
 Memory share the authenticated shell. Templates and Activity log are available
 through Settings, alongside organization and personal settings:
