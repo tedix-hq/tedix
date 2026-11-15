@@ -23,6 +23,8 @@
 		"@astrojs/cloudflare": "^14.4.7",
 		"@astrojs/react": "^7.1.7",
 		"@cloudflare/kumo": "2.18.0",
+		"@fontsource-variable/comfortaa": "^5.3.0",
+		"@fontsource-variable/raleway": "^5.3.0",
 		"@tanstack/react-query": "^5.107.1",
 		"@tanstack/react-table": "^9.3.1",
 		"@tedix/api-client": "workspace:*",

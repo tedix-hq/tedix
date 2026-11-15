@@ -111,6 +111,9 @@ const CANONICAL_WRANGLER_ARGS = [
  *    place the dev inspector. Pinning 0 lets the OS choose a free port, so a
  *    sync running next to a live `bun dev` (or two syncs in this script's own
  *    concurrent pool) cannot collide on a fixed inspector port.
+ * 4. MCP UI's sync skips dev-only dependency optimization. Loading those large
+ *    include sets otherwise continues after Astro reports generated types and
+ *    can exceed the deadline on a cold cache.
  */
 const ASTRO_WORKSPACES: ReadonlyMap<string, string> = new Map([
 	["apps/landing", "LANDING_INSPECTOR_PORT"],
@@ -173,7 +176,10 @@ export function resolveRecipe(workspace: string): WorkerTypesRecipe {
 			wranglerArgs: ["types", "--strict-vars=false"],
 			presync: {
 				args: ["astro", "sync"],
-				env: { [inspectorPortVar]: "0" },
+				env: {
+					[inspectorPortVar]: "0",
+					...(workspace === "apps/mcp-ui" ? { MCP_UI_TYPE_SYNC: "1" } : {}),
+				},
 			},
 			narrowEnvironmentLiteral: false,
 		};

@@ -220,6 +220,8 @@
         "@astrojs/cloudflare": "^14.4.7",
         "@astrojs/react": "^7.1.7",
         "@cloudflare/kumo": "2.18.0",
+        "@fontsource-variable/comfortaa": "^5.3.0",
+        "@fontsource-variable/raleway": "^5.3.0",
         "@tanstack/react-query": "^5.107.1",
         "@tanstack/react-table": "^9.3.1",
         "@tedix/api-client": "workspace:*",
@@ -295,6 +297,8 @@
       "dependencies": {
         "@astrojs/cloudflare": "^14.4.7",
         "@astrojs/react": "^7.1.7",
+        "@fontsource-variable/comfortaa": "^5.3.0",
+        "@fontsource-variable/raleway": "^5.3.0",
         "@json-render/core": "catalog:",
         "@json-render/devtools-react": "^0.22.0",
         "@json-render/directives": "^0.22.0",
@@ -1689,6 +1693,8 @@
     "@floating-ui/utils": ["@floating-ui/utils@0.2.12", "", {}, "sha512-HpCo8tmWzLVad5s2d19EhAz5zqrrQ6s69qd6moPMQvkOuSwDT1YgRfWSVuc4ennqrgv3OHppiOGMQ7oC13yIww=="],
 
     "@fontsource-variable/comfortaa": ["@fontsource-variable/comfortaa@5.3.0", "", {}, "sha512-al/XR/3rUwZRLPAgAN7VsHKudQ27++W2sEQPhRpkg7x9a8VISekS3eQr4c3lICNWDfflz+gVes8dfekL/yY+Ng=="],
+
+    "@fontsource-variable/raleway": ["@fontsource-variable/raleway@5.3.0", "", {}, "sha512-aSV2k+V6Zz+od0dHpBOzkVxEzmgEdiXcxDfant39jLOx+T89dielQRrZylukwK3Fp+FY255gPqz67ruOfs1rqA=="],
 
     "@google/genai": ["@google/genai@2.32.0", "", { "dependencies": { "google-auth-library": "^10.3.0", "p-retry": "^4.6.2", "protobufjs": "^7.5.4", "ws": "^8.18.0" }, "peerDependencies": { "@modelcontextprotocol/sdk": "^1.25.2" }, "optionalPeers": ["@modelcontextprotocol/sdk"], "hasInstallScript": true }, "sha512-60c79uXpR0a47bmGqDxbXEBuQUalNmwo5mx5kqb91jIW4FoqpsLSt86DeVhRhtH5+s/16Wqxt3sXzFQn2U1OHQ=="],
 
