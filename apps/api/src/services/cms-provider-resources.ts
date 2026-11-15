@@ -109,3 +109,39 @@ export async function recoverDeletedCmsData(
 		throw new Error(data.error ?? `CMS runtime returned ${response.status}`);
 	return { restoredTo: data.restoredTo, storageState: data.storageState };
 }
+
+/** Read content tables from a site's storage: table counts, or a page of rows. */
+export async function readCmsContentRows(
+	env: CmsResourceEnv,
+	slug: string,
+	page?: { table: string; offset: number; limit: number },
+): Promise<{
+	tables?: Record<string, number>;
+	rows?: Record<string, unknown>[];
+}> {
+	const url = new URL(
+		`https://cms.internal/api/internal/deployments/${encodeURIComponent(slug)}/content-rows`,
+	);
+	if (page) {
+		url.searchParams.set("table", page.table);
+		url.searchParams.set("offset", String(page.offset));
+		url.searchParams.set("limit", String(page.limit));
+	}
+	const response = await env.CMS.fetch(
+		new Request(url, {
+			headers: {
+				Authorization: `Bearer ${env.PLATFORM_SERVICE_TOKEN}`,
+				"X-Tedix-Connection-Label": slug,
+			},
+		}),
+	);
+	const data = (await response.json().catch(() => ({}))) as {
+		ok?: boolean;
+		error?: string;
+		tables?: Record<string, number>;
+		rows?: Record<string, unknown>[];
+	};
+	if (!response.ok || !data.ok)
+		throw new Error(data.error ?? `CMS runtime returned ${response.status}`);
+	return { tables: data.tables, rows: data.rows };
+}

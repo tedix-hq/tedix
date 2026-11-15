@@ -72,6 +72,7 @@ import {
 	getDeprovisionPlanProcedure,
 	deprovisionSiteProcedure,
 	getDeprovisionStatusProcedure,
+	readCmsContentRowsProcedure,
 	recoverDeletedCmsDataProcedure,
 } from "./sites-deprovision";
 
@@ -631,4 +632,5 @@ export const sitesContractRouter = sitesOs.router({
 	deprovision: deprovisionSiteProcedure,
 	getDeprovisionStatus: getDeprovisionStatusProcedure,
 	recoverDeletedCmsData: recoverDeletedCmsDataProcedure,
+	readCmsContentRows: readCmsContentRowsProcedure,
 });

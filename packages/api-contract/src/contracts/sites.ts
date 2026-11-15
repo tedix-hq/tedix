@@ -532,6 +532,30 @@ export const sitesContract = oc.router({
 		})
 		.input(SiteIdParamSchema.extend({ confirmation: z.string().min(1) }))
 		.output(SiteDeprovisionStatusSchema),
+	readCmsContentRows: oc
+		.route({
+			method: "GET",
+			path: "/cms/{siteId}/content-rows",
+			tags: ["internal"],
+			summary: "Read a CMS site's content tables from storage",
+		})
+		.input(
+			SiteIdParamSchema.extend({
+				table: z
+					.string()
+					.regex(/^[a-z][a-z0-9_]*$/)
+					.optional(),
+				offset: z.number().int().nonnegative().default(0),
+				limit: z.number().int().min(1).max(50).default(10),
+			}).strict(),
+		)
+		.output(
+			z.object({
+				slug: z.string(),
+				tables: z.record(z.string(), z.number()).optional(),
+				rows: z.array(z.record(z.string(), z.unknown())).optional(),
+			}),
+		),
 	recoverDeletedCmsData: oc
 		.route({
 			method: "POST",

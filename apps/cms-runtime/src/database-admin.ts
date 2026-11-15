@@ -24,6 +24,7 @@ import { getCmsSiteBySlug } from "@tedix/db/queries/cms-sites";
 import { type EmDashDBStub } from "./emdash-db";
 import { type Env } from "./env";
 import {
+	DATABASE_CONTENT_ROWS_ADMIN_PATH,
 	DATABASE_DEPROVISION_ADMIN_PATH,
 	DATABASE_RECOVER_ADMIN_PATH,
 	DATABASE_STORAGE_ADMIN_PATH,
@@ -186,6 +187,67 @@ export async function databaseRecoverAdminResponse(args: {
 		});
 	} catch (error) {
 		return errorResponse(502, "cms_storage_recover_failed", error);
+	}
+}
+
+/** Read content tables straight from tenant storage, for a site whose bundle
+ * cannot serve its own export. Without `table` it lists the content tables and
+ * their row counts; with one it returns a page of that table's rows. */
+export async function databaseContentRowsAdminResponse(args: {
+	env: Env;
+	request: Request;
+	slug: string;
+	url: URL;
+}): Promise<Response | null> {
+	const { env, request, slug, url } = args;
+	if (url.pathname !== DATABASE_CONTENT_ROWS_ADMIN_PATH) return null;
+	if (!(await verifyInternalCmsRequest(request, env))) {
+		return jsonResponse({ ok: false, error: "unauthorized" }, { status: 401 });
+	}
+	if (request.method !== "GET") {
+		return jsonResponse(
+			{ ok: false, error: "method not allowed" },
+			{ status: 405, headers: { Allow: "GET" } },
+		);
+	}
+	try {
+		const stub = durableObjectStubByName(
+			env.DB_DO,
+			env,
+			slug,
+		) as unknown as EmDashDBStub;
+		const tables = (
+			await stub.query(
+				"SELECT name FROM sqlite_master WHERE type = 'table' AND (name LIKE 'ec_%' OR name IN ('taxonomies', 'content_taxonomies', 'media')) ORDER BY name",
+			)
+		).rows.map((row) => String(row.name));
+		const table = url.searchParams.get("table");
+		if (!table) {
+			const counts: Record<string, number> = {};
+			for (const name of tables)
+				counts[name] = Number(
+					(await stub.query(`SELECT count(*) AS n FROM "${name}"`)).rows[0]?.n,
+				);
+			return jsonResponse({ ok: true, slug, tables: counts });
+		}
+		// Only a name read back from sqlite_master is interpolated.
+		if (!tables.includes(table))
+			return jsonResponse(
+				{ ok: false, error: "unknown content table" },
+				{ status: 404 },
+			);
+		const limit = Math.min(
+			Math.max(Number(url.searchParams.get("limit")) || 10, 1),
+			50,
+		);
+		const offset = Math.max(Number(url.searchParams.get("offset")) || 0, 0);
+		const { rows } = await stub.query(
+			`SELECT * FROM "${table}" ORDER BY rowid LIMIT ? OFFSET ?`,
+			[limit, offset],
+		);
+		return jsonResponse({ ok: true, slug, table, offset, rows });
+	} catch (error) {
+		return errorResponse(502, "cms_content_rows_failed", error);
 	}
 }
 

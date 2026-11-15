@@ -9,6 +9,8 @@ export const DATABASE_DEPROVISION_ADMIN_PATH =
 	"/_tedix/internal/database-runtime/deprovision";
 export const DATABASE_RECOVER_ADMIN_PATH =
 	"/_tedix/internal/database-runtime/recover-deleted";
+export const DATABASE_CONTENT_ROWS_ADMIN_PATH =
+	"/_tedix/internal/database-runtime/content-rows";
 export const DATABASE_STORAGE_ADMIN_PATH =
 	"/_tedix/internal/database-runtime/storage";
 export const DATABASE_RECOVERY_BOOKMARK_ADMIN_PATH =

@@ -26,6 +26,7 @@ import cmsRuntime, {
 	type DatabaseRuntimeAdminDependencies,
 } from "./index";
 import {
+	databaseContentRowsAdminResponse,
 	databaseDeprovisionAdminResponse,
 	databaseRecoverAdminResponse,
 	databaseStorageAdminResponse,
@@ -1247,6 +1248,48 @@ describe("CMS database deprovisioning", () => {
 		expect(authorized?.status).toBe(200);
 		expect(deleteTenantData).toHaveBeenCalledOnce();
 		expect(await authorized?.json()).toMatchObject({ deletedStorage: true });
+	});
+
+	test("reads only content tables that exist in tenant storage", async () => {
+		const slug = "content-rows";
+		const queries: string[] = [];
+		const query = vi.fn(async (sql: string, params?: unknown[]) => {
+			queries.push(sql);
+			if (sql.includes("sqlite_master"))
+				return { rows: [{ name: "ec_posts" }, { name: "media" }] };
+			if (sql.includes("count(*)")) return { rows: [{ n: 3 }] };
+			return { rows: [{ id: "post-1", params }] };
+		});
+		const env = {
+			CMS_INTERNAL_AUTH_TOKEN: "internal-secret",
+			DB_DO: { idFromName: (name: string) => name, get: () => ({ query }) },
+		} as never;
+		const read = (search: string, token = "internal-secret") => {
+			const url = new URL(
+				`https://${slug}.cms.tedix.dev/_tedix/internal/database-runtime/content-rows${search}`,
+			);
+			return databaseContentRowsAdminResponse({
+				env,
+				request: new Request(url, {
+					headers: { "X-Tedix-CMS-Internal-Auth": token },
+				}),
+				slug,
+				url,
+			});
+		};
+		expect((await read("", "wrong"))?.status).toBe(401);
+		expect(await (await read(""))?.json()).toMatchObject({
+			tables: { ec_posts: 3, media: 3 },
+		});
+		expect((await read("?table=users"))?.status).toBe(404);
+		const page = await read("?table=ec_posts&offset=20&limit=500");
+		expect(await page?.json()).toMatchObject({
+			table: "ec_posts",
+			rows: [{ id: "post-1", params: [50, 20] }],
+		});
+		expect(queries.at(-1)).toBe(
+			'SELECT * FROM "ec_posts" ORDER BY rowid LIMIT ? OFFSET ?',
+		);
 	});
 
 	test("rewinds an emptied tenant object to before its finished deprovision", async () => {
