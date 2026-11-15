@@ -394,6 +394,7 @@ describe("PortfolioApp", () => {
 							accountableOwnerId: TEDI_ID,
 							openedAt: "2026-11-01T00:00:00.000Z",
 							targetResolutionAt: null,
+							proofRef: null,
 							closedAt: null,
 							createdAt: "2026-11-01T00:00:00.000Z",
 							updatedAt: null,
