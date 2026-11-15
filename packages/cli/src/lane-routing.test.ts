@@ -291,6 +291,23 @@ describe("local capability routing", () => {
 			"No eligible local executor for general (codex: codex --version timed out after 5000 ms); assignments and capability requirements retained",
 		);
 	});
+	it("pauses instead of failing when the version probe only timed out", () => {
+		expect(() =>
+			routeLocalWork(
+				{ executor: "codex" },
+				testRoutingPolicy,
+				{
+					...available,
+					codex: {
+						available: false,
+						transient: true,
+						reason: "codex --version timed out twice",
+					},
+				},
+				{},
+			),
+		).toThrow(LocalExecutorCapacityError);
+	});
 	it("ignores expired native readings but preserves an explicit cooldown", () => {
 		expect(
 			routeLocalWork(

@@ -3304,6 +3304,53 @@ describe("dispatcher admission", () => {
 		},
 	);
 
+	it("waits out a timed-out version probe without a failed run and logs it once", async () => {
+		const { restart, deps, items, events, releases, dir } = fixture();
+		items.splice(1);
+		let busy = true;
+		deps.available = (executor) =>
+			busy && executor === "codex"
+				? {
+						available: false,
+						transient: true,
+						reason: "codex --version timed out twice",
+					}
+				: { available: true };
+		const path = join(dir, `${item().id}-2.json`);
+		const dispatcher = restart();
+		for (let n = 1; n <= 4; n++) {
+			await dispatcher.tick();
+			await dispatcher.drain();
+			expect(existsSync(path)).toBe(false);
+		}
+		expect(
+			events.some((event) =>
+				["dispatch-get", "start", "comment", "settle"].includes(event.verb),
+			),
+		).toBe(false);
+		const logged = readFileSync(join(dir, "dispatcher.log"), "utf8")
+			.trim()
+			.split("\n")
+			.map((line) => JSON.parse(line));
+		expect(
+			logged.filter(
+				(row) =>
+					row.event === "executor-probe-slow" &&
+					row.reason === "codex --version timed out twice",
+			),
+		).toHaveLength(1);
+		expect(
+			logged.filter((row) => row.event === "skipped" && row.itemId),
+		).toHaveLength(1);
+		expect(logged.some((row) => /fail/.test(row.event))).toBe(false);
+		busy = false;
+		await dispatcher.tick();
+		await until(() => releases.length === 1);
+		releases[0]!();
+		await dispatcher.drain();
+		expect(JSON.parse(readFileSync(path, "utf8")).outcome).toBe("succeeded");
+	});
+
 	it("keeps unavailable-only routing failures held after three checks", async () => {
 		const { restart, deps, items, events, dir } = fixture();
 		writeDispatcherHealthSource(dir, {

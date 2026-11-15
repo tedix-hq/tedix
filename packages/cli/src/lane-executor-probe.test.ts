@@ -1,5 +1,11 @@
 import { afterEach, expect, it } from "bun:test";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -39,15 +45,62 @@ it("names the exit status and elapsed time when the version probe fails", () => 
 	expect(probe.reason).toContain("ms");
 });
 
-it("counts a probe that outruns its timeout as timed out, not as a crash", () => {
+it("retries a timed-out probe once and reports a second timeout as transient", () => {
 	const command = fakeBinary("#!/bin/sh\nexec /bin/sleep 60\n");
 	const started = Date.now();
-	const probe = probeExecutorVersion(command, 200);
+	const probe = probeExecutorVersion(command, 200, 400);
 	expect(Date.now() - started).toBeLessThan(10_000);
-	expect(probe.available).toBe(false);
-	expect(probe.reason).toContain(`${command} --version timed out after`);
-	expect(probe.reason).toContain("(limit 200 ms)");
+	expect(probe).toEqual({
+		available: false,
+		transient: true,
+		reason: `${command} --version timed out twice (limits 200 ms, then 400 ms); the machine is busy, trying again later`,
+	});
 }, 15_000);
+
+it("passes a 6-second version check on the longer second try", () => {
+	const command = fakeBinary("#!/bin/sh\n/bin/sleep 6\necho 1.2.3\n");
+	const probe = probeExecutorVersion(command);
+	expect(probe.available).toBe(true);
+	expect(probe.transient).toBeUndefined();
+	expect(probe.slow).toContain(
+		`${command} --version timed out at 5000 ms, then passed in`,
+	);
+}, 40_000);
+
+it("does not retry a probe that fails without timing out", () => {
+	const dir = mkdtempSync(join(tmpdir(), "lane-probe-test-"));
+	dirs.push(dir);
+	const command = fakeBinary(`#!/bin/sh\necho run >> ${dir}/runs\nexit 3\n`);
+	const probe = probeExecutorVersion(command);
+	expect(probe.transient).toBeUndefined();
+	expect(readFileSync(join(dir, "runs"), "utf8")).toBe("run\n");
+});
+
+it("reuses a twice-timed-out probe briefly, then probes again", () => {
+	let now = 1_000_000;
+	let calls = 0;
+	let result: ExecutorAvailability = {
+		available: false,
+		transient: true,
+		reason: "codex --version timed out twice",
+	};
+	const probe = cachedExecutorProbe(
+		() => {
+			calls++;
+			return result;
+		},
+		60_000,
+		() => now,
+		30_000,
+	);
+	expect(probe("codex").transient).toBe(true);
+	expect(probe("codex").transient).toBe(true);
+	expect(calls).toBe(1);
+	now += 30_000;
+	result = { available: true };
+	expect(probe("codex")).toEqual({ available: true });
+	expect(calls).toBe(2);
+});
 
 it("names a missing binary instead of reporting a nonzero exit", () => {
 	const probe = probeExecutorVersion("/definitely/missing/executor");

@@ -1567,6 +1567,8 @@ export class LaneDispatcher {
 	private idleItems = new Map<string, ReturnType<typeof idleReason>>();
 	/** The reason and time of each item's last written state log. */
 	private loggedStates = new Map<string, { reason: string; at: number }>();
+	/** Executors whose slow version probe was already logged. */
+	private slowProbes = new Set<LocalExecutor>();
 	private coordinatorSample = {
 		at: 0,
 		ids: new Set<string>(),
@@ -1872,6 +1874,12 @@ export class LaneDispatcher {
 		const observed = this.deps.budgets(this.policy);
 		for (const executor of localExecutors) {
 			let probe = this.deps.available(executor);
+			const slow = probe.slow ?? (probe.transient ? probe.reason : undefined);
+			if (!slow) this.slowProbes.delete(executor);
+			else if (!this.slowProbes.has(executor)) {
+				this.slowProbes.add(executor);
+				this.log("executor-probe-slow", undefined, slow);
+			}
 			if (executor === "devin" && probe.available) {
 				const status = this.deps.devinAvailability();
 				if (!status.available)
