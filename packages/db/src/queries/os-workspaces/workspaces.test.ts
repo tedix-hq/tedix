@@ -563,6 +563,59 @@ describe("save a conversation as a workspace", () => {
 		).toBeUndefined();
 	});
 
+	it("preserves all source matches beyond D1's parameter limit", async () => {
+		const db = conversationFixture();
+		const fromWorkspaceIds = Array.from({ length: 205 }, (_, i) => `ws-${i}`);
+		const selectedSources = ["ws-0", "ws-102", "ws-204"];
+		for (const id of [...selectedSources, "ws-excluded"]) {
+			await createOsWorkspace(db, { ...workspace, id, name: id });
+		}
+		for (const workspaceId of [...selectedSources, "ws-excluded", null]) {
+			await seedOutput(db, {
+				id: `out-${workspaceId ?? "loose"}`,
+				workspaceId,
+				conversationId: "home:os:a",
+			});
+		}
+		await seedOutput(db, {
+			id: "out-other-conversation",
+			workspaceId: "ws-204",
+			conversationId: "home:os:b",
+		});
+		await seedOutput(db, {
+			id: "out-other-org",
+			workspaceId: null,
+			conversationId: "home:os:a",
+			organizationId: "org-2",
+		});
+
+		const saved = await saveConversationAsOsWorkspace(db, {
+			workspace: { ...workspace, id: "ws-new", name: "Saved" },
+			conversationId: "home:os:a",
+			fromWorkspaceIds: [...fromWorkspaceIds, ...selectedSources],
+		});
+
+		expect(saved.movedOutputIds.sort()).toEqual(
+			["out-loose", ...selectedSources.map((id) => `out-${id}`)].sort(),
+		);
+		expect(
+			Object.fromEntries(
+				(await db.select().from(osOutputs)).map((row) => [
+					row.id,
+					row.workspaceId,
+				]),
+			),
+		).toEqual({
+			"out-ws-0": "ws-new",
+			"out-ws-102": "ws-new",
+			"out-ws-204": "ws-new",
+			"out-loose": "ws-new",
+			"out-ws-excluded": "ws-excluded",
+			"out-other-conversation": "ws-204",
+			"out-other-org": null,
+		});
+	});
+
 	it("finds a member's own oldest active private workspace only", async () => {
 		const db = conversationFixture();
 		const privateTo = (id: string, owner: string, createdAt: string) => ({

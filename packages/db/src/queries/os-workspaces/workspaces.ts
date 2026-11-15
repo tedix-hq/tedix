@@ -248,8 +248,8 @@ export async function saveConversationAsOsWorkspace(
 					params.fromWorkspaceIds.length > 0
 						? or(
 								isNull(osOutputs.workspaceId),
-								// bound-params: at most the two default chat workspaces.
-								inArray(osOutputs.workspaceId, [...params.fromWorkspaceIds]),
+								// One binding keeps arbitrary source lists within D1's limit.
+								sql`${osOutputs.workspaceId} IN (SELECT value FROM json_each(${JSON.stringify(params.fromWorkspaceIds)}))`,
 							)
 						: isNull(osOutputs.workspaceId),
 				),
