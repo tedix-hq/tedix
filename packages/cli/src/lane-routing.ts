@@ -189,6 +189,13 @@ export interface ExecutorAvailability {
 	available: boolean;
 	/** Why the route was rejected, e.g. a failed `--version` probe. */
 	reason?: string;
+	/**
+	 * The probe could not answer in time, so the executor may well be fine.
+	 * Routing waits and tries again instead of failing the Work.
+	 */
+	transient?: boolean;
+	/** Set when the probe passed only on its longer second try. */
+	slow?: string;
 }
 
 export function routeLocalWork(
@@ -230,6 +237,7 @@ export function routeLocalWork(
 				(budget.resetAt ?? 0) > now);
 		const probe = available[route.executor];
 		if (!probe?.available) {
+			if (probe?.transient) capacityPaused = true;
 			rejected.push(`${route.executor}: ${probe?.reason ?? "unavailable"}`);
 			continue;
 		}
