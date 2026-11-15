@@ -277,9 +277,18 @@ it("names Feed and Deck with one hidden page heading before app content", () => 
 				view === "feed" ? "Activity" : "Decisions",
 			);
 			expect(headings[0]?.classList.contains("sr-only")).toBe(true);
-			expect(headings[0]?.nextElementSibling).toBe(
-				page.querySelector("article"),
-			);
+			const article = page.querySelector("article");
+			expect(article).not.toBeNull();
+			// Overview sections and the app both come after the page heading.
+			for (const later of [
+				article!,
+				...page.querySelectorAll("h2, h3, h4, h5, h6"),
+			])
+				expect(
+					headings[0]!.compareDocumentPosition(later) &
+						Node.DOCUMENT_POSITION_FOLLOWING,
+				).toBeTruthy();
+			expect(headings[0]?.previousElementSibling).toBeNull();
 		}
 	}
 	expect(render({ app: "office" }).querySelector("h1")).toBeNull();
