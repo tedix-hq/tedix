@@ -328,6 +328,13 @@ export function createWorkspaceChatClient(
 
 	function notifyOutputChanges(events: readonly WorkspaceChatLedgerEvent[]) {
 		for (const event of events) {
+			// An approved write lands after its step has finished.
+			if (
+				event.conversationId === conversationId &&
+				event.type === "approval.executed" &&
+				event.status === "applied"
+			)
+				options.onOutputChanged?.();
 			if (
 				event.conversationId !== conversationId ||
 				event.type !== "step.finished"
