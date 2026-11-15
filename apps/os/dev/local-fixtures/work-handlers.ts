@@ -487,6 +487,7 @@ export const workHandlers: Record<string, (input: never) => unknown> = {
 		input:
 			| {
 					disposition?: string;
+					excludeDisposition?: string;
 					workKind?: string;
 					projectId?: string;
 					titleContains?: string;
@@ -507,6 +508,7 @@ export const workHandlers: Record<string, (input: never) => unknown> = {
 						)) &&
 					(input?.disposition === undefined ||
 						row.disposition === input.disposition) &&
+					row.disposition !== input?.excludeDisposition &&
 					(input?.workKind === undefined || row.workKind === input.workKind) &&
 					(input?.projectId === undefined ||
 						row.projectId === input.projectId) &&

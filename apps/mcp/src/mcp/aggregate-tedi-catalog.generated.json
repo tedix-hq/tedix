@@ -6302,6 +6302,11 @@
 						"type": "string",
 						"enum": ["proposed", "accepted", "completed", "cancelled"]
 					},
+					"excludeDisposition": {
+						"description": "Server-side lifecycle filter: leave out Work Items with this disposition. excludeDisposition proposed lists accepted, completed and cancelled Work without the proposals still in triage.",
+						"type": "string",
+						"enum": ["proposed", "accepted", "completed", "cancelled"]
+					},
 					"executor": {
 						"anyOf": [
 							{

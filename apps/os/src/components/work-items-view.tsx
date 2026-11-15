@@ -42,6 +42,7 @@ import {
 import {
 	projectListQueryOptions,
 	workItemPagesQueryOptions,
+	workTriageQueryOptions,
 } from "@/lib/os-query-options";
 import { plainWorkText, workDate } from "@/lib/work-detail";
 import type { WorkHomeSearch } from "@/lib/work-home-search";
@@ -266,7 +267,56 @@ export function AllWorkTable({
 	);
 }
 
-/** Work → All work: every Work Item in one list, filtered in the URL. */
+/**
+ * What the list asks the server for. Without a status filter it leaves out
+ * proposed Work Items: they wait in Triage until someone accepts them.
+ */
+export function allWorkQuery(filters: WorkItemsFilters) {
+	return {
+		...(filters.status
+			? { disposition: filters.status }
+			: { excludeDisposition: "proposed" as const }),
+		projectId: filters.project,
+		executor: filters.executor,
+	};
+}
+
+/** Proposals waiting in triage: in one project's queue, or in every queue. */
+export function triageCount(
+	triage:
+		| { pagination: { total: number }; queues: readonly { count: number }[] }
+		| undefined,
+	project: string | undefined,
+): number {
+	if (!triage) return 0;
+	return project
+		? triage.pagination.total
+		: triage.queues.reduce((sum, queue) => sum + queue.count, 0);
+}
+
+/** How many proposals the default list leaves out, with the way to them. */
+export function TriageLink({
+	count,
+	project,
+}: {
+	count: number;
+	project?: string;
+}) {
+	if (!count) return null;
+	const search = new URLSearchParams({ view: "triage" });
+	if (project) search.set("project", project);
+	return (
+		<Text className="m-0">
+			<Link href={`/work?${search}`}>{count} in triage</Link>
+		</Text>
+	);
+}
+
+/**
+ * Work → All work: accepted, completed and cancelled Work Items in one list,
+ * filtered in the URL. Proposed ones wait in Triage unless the status filter
+ * asks for them.
+ */
 export function WorkItemsView({
 	filters,
 	onFiltersChange,
@@ -275,12 +325,15 @@ export function WorkItemsView({
 	onFiltersChange: (filters: WorkItemsFilters) => void;
 }) {
 	const pages = useInfiniteQuery(
-		workItemPagesQueryOptions({
-			disposition: filters.status,
-			projectId: filters.project,
-			executor: filters.executor,
-		}),
+		workItemPagesQueryOptions(allWorkQuery(filters)),
 	);
+	const triage = useQuery({
+		...workTriageQueryOptions(filters.project),
+		enabled: !filters.status,
+	});
+	const inTriage = filters.status
+		? 0
+		: triageCount(triage.data, filters.project);
 	const projects = useQuery(projectListQueryOptions(100));
 	const projectNames = useMemo(
 		() =>
@@ -310,7 +363,7 @@ export function WorkItemsView({
 		<Page width="full">
 			<WorkPageHeader
 				title="All work"
-				description="Every Work Item, most important first."
+				description="Accepted, completed and cancelled Work Items, most important first. Proposed ones wait in Triage."
 			/>
 			<div className="grid gap-3 sm:grid-cols-3 lg:max-w-3xl">
 				<Filter
@@ -339,6 +392,7 @@ export function WorkItemsView({
 					onChange={(executor) => change({ executor })}
 				/>
 			</div>
+			<TriageLink count={inTriage} project={filters.project} />
 			{pages.isPending ? (
 				<WorkListSkeleton rows={8} label="Loading Work Items" />
 			) : pages.isError && !items.length ? (

@@ -1697,6 +1697,19 @@ describe("work graph fixture coherence", () => {
 		}
 	});
 
+	it("leaves proposals out of the list on request", () => {
+		type Status = { disposition: string };
+		const all = board() as unknown as Status[];
+		const settled = board({
+			limit: 100,
+			excludeDisposition: "proposed",
+		}) as unknown as Status[];
+		expect(all.some((row) => row.disposition === "proposed")).toBe(true);
+		expect(settled).toEqual(
+			all.filter((row) => row.disposition !== "proposed"),
+		);
+	});
+
 	it("narrows the board and relations by canonical project id", () => {
 		const projectId = (
 			callLocalOk("projects/list", { limit: 100 }) as {

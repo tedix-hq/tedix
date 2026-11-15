@@ -1,6 +1,12 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
-import { AllWorkTable, sortWorkItems } from "./work-items-view";
+import {
+	AllWorkTable,
+	allWorkQuery,
+	sortWorkItems,
+	TriageLink,
+	triageCount,
+} from "./work-items-view";
 
 const item = (
 	id: string,
@@ -39,6 +45,36 @@ describe("All work list", () => {
 			"medium",
 			"low-soon",
 		]);
+	});
+
+	it("leaves proposed work to Triage unless the status filter asks for it", () => {
+		expect(allWorkQuery({})).toEqual({ excludeDisposition: "proposed" });
+		expect(
+			allWorkQuery({ project: "project-pine", executor: "codex" }),
+		).toEqual({
+			excludeDisposition: "proposed",
+			projectId: "project-pine",
+			executor: "codex",
+		});
+		for (const status of ["proposed", "accepted", "cancelled"] as const)
+			expect(allWorkQuery({ status })).toEqual({ disposition: status });
+	});
+
+	it("links to Triage with how many proposals wait there", () => {
+		const triage = {
+			pagination: { total: 3 },
+			queues: [{ count: 3 }, { count: 4 }],
+		};
+		expect(triageCount(triage, undefined)).toBe(7);
+		expect(triageCount(triage, "project-pine")).toBe(3);
+		expect(triageCount(undefined, undefined)).toBe(0);
+		const link = renderToStaticMarkup(<TriageLink count={7} />);
+		expect(link).toContain('href="/work?view=triage"');
+		expect(link).toContain(">7 in triage</a>");
+		expect(
+			renderToStaticMarkup(<TriageLink count={3} project="project-pine" />),
+		).toContain('href="/work?view=triage&amp;project=project-pine"');
+		expect(renderToStaticMarkup(<TriageLink count={0} />)).toBe("");
 	});
 
 	it("shows status, project, owner, executor, priority and due date per item", () => {
