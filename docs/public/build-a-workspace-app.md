@@ -233,7 +233,9 @@ linked to it can read and write its outputs only while a run is going.
 who and where, what happened and what Tedix suggests, any draft, and the
 buttons **Useful**, **Not useful**, **Do it**, **Snooze** and **Skip**. Rule
 ids stay behind **Details**. Swipe right or left on a phone; on a keyboard
-use ←/→, D, S, K, the number keys for reason chips and Z to undo.
+use U, N, D, S, K, the number keys for reason chips and Z to undo.
+**Previous** and **Next**, or ← and →, show another waiting card and its
+position, such as "3 of 21", without recording a verdict or a skip.
 
 Write each card in plain words, at most two short lines: who, what happened
 and what Tedix suggests ("Mia asked if Tuesday works. Tedix suggests a short
@@ -516,12 +518,14 @@ completion message displays the next time in the viewer's timezone.
 defaults to 7. The current browser tab remembers deferred cards for that
 batch. These attention controls do not replace server permissions.
 
-Swipe or use the visible buttons. Desktop shortcuts are Left for Not this,
-Right or Enter for Approve, E for Change, L for Later, D for Decide for me,
-J and K for the next and previous card, and ? for the shortcut list, when
-that action is available. Typing in a field never triggers these shortcuts.
-Right always means Approve, even when Decide for me is the primary button.
-Consequential choices retain their confirmation.
+Swipe or use the visible buttons. **Previous** and **Next** sit beside the
+position, such as "3 of 21" (under the card on a phone), and move between
+cards without recording an answer, a skip or a rating. Desktop shortcuts are
+N for Not this, Y or Enter for Approve, E for Change, L for Later, D for
+Decide for me, Right or J and Left or K for the next and previous card, and
+? for the shortcut list, when that action is available. Typing in a field
+never triggers these shortcuts. Y always means Approve, even when Decide for
+me is the primary button. Consequential choices retain their confirmation.
 
 Each card names what it asks of you: **Send**, **Decide**, **Approve draft**,
 **Answer** or **Consent**, with its deadline. Overdue cards come first, longest

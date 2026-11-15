@@ -57,7 +57,10 @@ includes the requirement, and the approval card tells the person which role
 can run the call. An approved call uses the active approver's role for that
 exact call, with only the tool's required scopes. An owner or admin calling
 directly under their own login does not receive a separate approval addressed
-to themselves; calls from an agent keep their approval requirements.
+to themselves; calls from an agent keep their approval requirements. A tool
+that requires an owner refuses an admin's direct call and runs only on an
+owner's approval. The approver must still be an active owner or admin when
+the approved call runs.
 
 ## Trace one tool
 

@@ -188,8 +188,10 @@ the exact unsupported requirement when a compatible CLI workflow is needed.
   Every two minutes the same supervisor reads each local dispatcher's bounded
   health descriptor, recent log tail and active receipts, then publishes its
   running state, last admission, occupied slots and top repeated problem to
-  Tedix. It never starts, stops or restarts a dispatcher. Reports become stale
-  after five minutes when the Mac or supervisor is unavailable.
+  Tedix. It never starts, stops or restarts a dispatcher. Reports go out one
+  at a time, apart from answer delivery; a timed-out report is retried within
+  45 seconds, and a failure logs its elapsed time and attempts. Reports become
+  stale after five minutes when the Mac or supervisor is unavailable.
 
   Register accepted Work for an existing Codex chat with
   `tedix work handoff <id> --host codex --to codex:<chat-id> --launch`.
@@ -441,6 +443,12 @@ Isolated configs retain only the existing Devin organization selection;
 if none is saved, dispatch stops before onboarding or a model turn.
 The read-only smoke uses the existing Tedix CLI login; Devin MCP authorization
 is a separate step.
+For admitted Work the dispatcher writes a lane-only store
+(`TEDIX_LANE_AGENT_STORE`) with that lane's one Agent-Session and short-lived
+session credential, without the enrollment API key or M2M client. It renews the
+credential before each turn and every minute. Inside the lane the CLI reads only
+that store and never exchanges; an expired credential says so, and a denied read
+of the host store reports access denied.
 
 Claude Code hooks report into the same lane when launched by the wrapper.
 Other executors can write the common observation JSON to
@@ -477,6 +485,10 @@ separate actions. `--install` records the runner in
 `~/.tedix/supervisor-runners.json`; `tedix supervise` (`supervise-runners.ts`)
 starts it as a child, restarts it with a backoff and adopts a child that
 outlived a supervisor restart, so the supervisor is the one LaunchAgent.
+After `tedix update`, a listed runner that finds a newer installed binary stops
+admitting Work, lets Work in progress finish and exits with code 75. The
+supervisor restarts it on its next check without backoff and logs
+`runner <executor> now on <version>`. No Attempt is cancelled.
 When a lane settles, commits already on `origin/main` count as its proof,
 including one landed earlier by another admitted Attempt on the same Work.
 A commit the dispatcher will not count is logged as `custody-rejected` with
