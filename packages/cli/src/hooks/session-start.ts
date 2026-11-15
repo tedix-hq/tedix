@@ -10,6 +10,7 @@ import {
 import { basename, isAbsolute, join } from "node:path";
 import { claudeConfigDirectory } from "../claude-lane-thread";
 import { unpinnedModelVersion } from "../external-agent";
+import { fileGatewayCooldown } from "../gateway-cooldown";
 import { harnessOf } from "./agent-status";
 import {
 	clearDelivery,
@@ -242,6 +243,17 @@ async function sessionStart(deps: HookDeps): Promise<void> {
 				return;
 			}
 			command.push("--organization", binding.organization);
+			// Every CLI child waits out the shared gateway cooldown before it
+			// sends (see gateway-retry), which would outlast this read's deadline.
+			const cooldownUntil = fileGatewayCooldown(
+				env.TEDIX_CONFIG_DIR ? { configDir: env.TEDIX_CONFIG_DIR } : undefined,
+			).read(auth.mcpUrl);
+			if (cooldownUntil > now().getTime()) {
+				send(
+					`Tedix preflight: gateway is rate-limited until ${isoSeconds(new Date(cooldownUntil), true)}; organization check skipped; no Work was read.`,
+				);
+				return;
+			}
 			try {
 				const runtime = await readOrganizationContext(read, command, 8000);
 				binding.credentialOrganizationId = runtime.organizationId;
