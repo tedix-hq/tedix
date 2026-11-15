@@ -5,6 +5,7 @@ import {
 	WorkItemCommentSchema,
 	WorkItemSchema,
 } from "@tedix/api-contract/schemas/work-items";
+import { parseServerResponse } from "./server-response";
 
 const bindingSchema = z.strictObject({
 	orgId: z.uuid(),
@@ -86,7 +87,11 @@ export function createDevinWorkBridge(
 	};
 	const read = async () => {
 		const snapshot = await host.read();
-		const work = workSchema.parse(snapshot.workItem);
+		const work = parseServerResponse(
+			workSchema,
+			snapshot.workItem,
+			"The Work Item read for Devin",
+		);
 		const attempt = attemptSchema.parse(snapshot.attempt);
 		if (
 			work.id !== binding.workItemId ||

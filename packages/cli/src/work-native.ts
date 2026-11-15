@@ -28,6 +28,7 @@ import {
 import * as z from "zod";
 import { errorText } from "./format";
 import { retryRead } from "./read-retry";
+import { parseServerResponse } from "./server-response";
 import { NATIVE_DESCRIPTOR_CACHE_TTL_MS } from "./native-bootstrap-cache";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
 import type { NativeToolContext } from "./work";
@@ -339,16 +340,23 @@ function forgetCachedBootstrap(ctx: NativeToolContext): boolean {
 	return true;
 }
 
-/** Validate the returned configured JSON schema before retaining or publishing data. */
-function validateNativeSchema(schema: unknown, value: unknown): void {
+/**
+ * Validate a result against the live output schema before retaining or
+ * publishing it. Fields the schema does not declare are ignored: the API can
+ * return a new field before the tool's schema is synced.
+ */
+function validateNativeOutput(
+	callable: string,
+	schema: unknown,
+	value: unknown,
+): void {
 	if (!isRecord(schema)) throw new Error("Native Work schema is absent");
 	// Zod's converter rejects unsupported schemas instead of silently ignoring them.
-	const validator = z.fromJSONSchema(schema);
-	const result = validator.safeParse(value);
-	if (!result.success)
-		throw new Error(
-			`Native Work schema validation failed: ${result.error.message}`,
-		);
+	parseServerResponse(
+		z.fromJSONSchema(schema),
+		value,
+		`Native Work schema validation failed: the ${callable} response`,
+	);
 }
 
 /** Refuse an input the live tool schema rejects, naming each field. */
@@ -622,8 +630,15 @@ export async function boardCall(
 			return { value, error };
 		}
 		nativeOptions(ctx);
-		validateNativeSchema(detail.outputSchema, value);
-		projectionSchema?.output.parse(value);
+		validateNativeOutput(callable, detail.outputSchema, value);
+		// The bundled projection names the fields this CLI reads; a field the
+		// server added since this release is ignored instead of refused.
+		if (projectionSchema)
+			parseServerResponse(
+				projectionSchema.output,
+				value,
+				`The ${callable} response`,
+			);
 		return { value };
 	} catch (error) {
 		if (isNativeSchemaError(error)) invalidateNativeResolution(ctx, callable);

@@ -123,6 +123,41 @@ describe("Deck CLI native transport", () => {
 			}),
 		).toBe(0);
 	});
+	test("ignores a field the server added and names one it dropped", async () => {
+		const run = async (change: (deck: Record<string, unknown>) => void) => {
+			const { ctx } = fixture();
+			const invoke = ctx.client.callTool.bind(ctx.client);
+			ctx.client.callTool = (async (
+				name: string,
+				input: Record<string, unknown>,
+			) => {
+				const result = (await invoke(name, input)) as Record<string, unknown>;
+				if (name === "tedix__configured_deck_list") change(result);
+				return result;
+			}) as typeof ctx.client.callTool;
+			const errors: string[] = [];
+			const prior = { log: console.log, error: console.error };
+			console.log = () => {};
+			console.error = (text: string) => errors.push(text);
+			try {
+				return { code: await runAttentionCommand("deck", ctx), errors };
+			} finally {
+				Object.assign(console, prior);
+			}
+		};
+		expect(
+			await run((deck) => {
+				deck.addedByServer = true;
+			}),
+		).toEqual({ code: 0, errors: [] });
+		const dropped = await run((deck) => {
+			deck.addedByServer = true;
+			delete deck.count;
+		});
+		expect(dropped.code).toBe(2);
+		expect(dropped.errors[0]).toContain("count is missing");
+		expect(dropped.errors[0]).toContain("run `tedix update`");
+	});
 	test("refuses a mismatched native endpoint without executing it", async () => {
 		const { ctx, calls } = fixture({ endpoint: "workItems/create" });
 		expect(await runAttentionCommand("deck", ctx)).toBe(2);

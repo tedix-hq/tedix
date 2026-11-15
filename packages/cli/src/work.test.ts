@@ -2713,9 +2713,13 @@ describe("selected chat Work checkpoint", () => {
 					nextCursor,
 					hasMore: true,
 					observedAt: "2026-10-03T10:00:00Z",
+					// An unknown field is ignored; the bad cursor beside it is not.
+					addedByServer: true,
 				},
 			});
-			expect((await capture("checkpoint", ctx)).code).toBe(WORK_EXIT_FAIL);
+			const result = await capture("checkpoint", ctx);
+			expect(result.code).toBe(WORK_EXIT_FAIL);
+			expect([...result.out, ...result.err].join(" ")).toContain("nextCursor");
 		}
 	});
 	test("verifies stored-login organization from authenticated bootstrap", async () => {
@@ -2827,9 +2831,11 @@ describe("selected chat Work checkpoint", () => {
 		});
 		const result = await capture("checkpoint", ctx);
 		expect(result.code).toBe(WORK_EXIT_FAIL);
-		const malformed = fixture({ page: { data: [] } });
-		expect((await capture("checkpoint", malformed.ctx)).code).toBe(
-			WORK_EXIT_FAIL,
+		const malformed = fixture({ page: { data: [], addedByServer: true } });
+		const refused = await capture("checkpoint", malformed.ctx);
+		expect(refused.code).toBe(WORK_EXIT_FAIL);
+		expect([...refused.out, ...refused.err].join(" ")).toContain(
+			"nextCursor is missing",
 		);
 	});
 	test("does not make audit-only rows actionable and rejects cross-Work rows", async () => {
@@ -3597,6 +3603,250 @@ describe("native Work transport", () => {
 			}
 		}
 	});
+	describe("read projections from a server newer than this CLI", () => {
+		const at = "2026-11-15T10:00:00.000Z";
+		const cursor = { at, id: ATTEMPT };
+		// callable, input, response, a field the CLI reads
+		const reads: Array<
+			[string, Record<string, unknown>, unknown, Array<string | number>]
+		> = [
+			[
+				"work.list_work_item_cli_rows",
+				{ view: "board", limit: 50 },
+				{
+					data: [
+						{
+							id: ITEM,
+							title: "Example",
+							activeAttempt: { agentSession: null, executorId: "codex-1" },
+						},
+					],
+				},
+				["data", 0, "title"],
+			],
+			[
+				"work.get_work_item_checkpoint",
+				{ id: ITEM },
+				{ id: ITEM, projectId: null, orgId: TEST_ORG },
+				["orgId"],
+			],
+			[
+				"work.list_work_attempt_cli_rows",
+				{ id: ITEM },
+				{
+					data: [
+						{
+							id: ATTEMPT,
+							attemptNumber: 1,
+							runtimeState: "finished",
+							outcome: "succeeded",
+							executorType: "external_agent",
+							executorId: "codex-1",
+							startedAt: at,
+							heartbeatAt: at,
+						},
+					],
+					nextCursor: cursor,
+				},
+				["data", 0, "executorId"],
+			],
+			[
+				"work.list_work_evidence_cli_rows",
+				{ id: ITEM },
+				{
+					data: [
+						{
+							id: ATTEMPT,
+							claimKey: "tests",
+							kind: "test_report",
+							disposition: "pending",
+							uri: "artifact://tests",
+						},
+					],
+					nextCursor: cursor,
+				},
+				["data", 0, "claimKey"],
+			],
+			[
+				"work.list_work_event_cli_rows",
+				{ id: ITEM },
+				{
+					data: [
+						{
+							sequence: 4,
+							id: ATTEMPT,
+							eventType: "evidence_reviewed",
+							actorType: "tedi",
+							actorId: "cto-1",
+							attemptId: null,
+							occurredAt: at,
+						},
+					],
+					next: 4,
+				},
+				["events", 0, "sequence"],
+			],
+			[
+				"work.list_work_interaction_cli_rows",
+				{ workItemId: ITEM, states: ["open"], limit: 5 },
+				{
+					data: [
+						{
+							canRespond: true,
+							effectiveState: "open",
+							request: {
+								id: ATTEMPT,
+								workItemId: ITEM,
+								orgId: TEST_ORG,
+								prompt: "Approve?",
+								promptComplete: true,
+							},
+						},
+					],
+					nextCursor: cursor,
+					hasMore: true,
+					observedAt: at,
+				},
+				["data", 0, "request", "subject"],
+			],
+			[
+				"agent.triage_agent_turn",
+				{ text: "Fictional turn" },
+				{
+					status: "ok",
+					urgency: "later",
+					labels: {},
+					urgentLabels: [],
+					model: "fixture",
+					policyVersion: 1,
+					latencyMs: 1,
+				},
+				["urgency"],
+			],
+			[
+				"agent.label_agent_reply",
+				{ turnText: "Fictional turn", replyText: "yes" },
+				{ status: "ok", label: "approve", p: 0.9, model: "fixture" },
+				["label"],
+			],
+			[
+				"agent.request_agent_reply_draft",
+				{ requestId: ITEM },
+				{ status: "queued" },
+				["status"],
+			],
+		];
+		/** Add a field no released CLI knows to every object in the response. */
+		const withAddedFields = (value: unknown, key?: string): unknown =>
+			Array.isArray(value)
+				? value.map((entry) => withAddedFields(entry))
+				: // `labels` is an open map of numbers, not a fixed shape.
+					typeof value === "object" && value !== null && key !== "labels"
+					? {
+							...Object.fromEntries(
+								Object.entries(value).map(([name, entry]) => [
+									name,
+									withAddedFields(entry, name),
+								]),
+							),
+							addedByServer: { since: "next release" },
+						}
+					: value;
+		const read = (
+			[callable, input, response]: (typeof reads)[number],
+			change: (value: Record<string, unknown>) => unknown,
+		) => {
+			const fixture = makeContext({}, undefined, () => response);
+			const invoke = fixture.ctx.client.callTool.bind(fixture.ctx.client);
+			fixture.ctx.client.callTool = (async (
+				name: string,
+				args: Record<string, unknown>,
+				options: unknown,
+			) => {
+				const result = await invoke(name, args, options as never);
+				return name.startsWith("configured_")
+					? change(structuredClone(result) as Record<string, unknown>)
+					: result;
+			}) as TedixHomeClient["callTool"];
+			return callConfiguredNativeTool(fixture.ctx, callable, input);
+		};
+
+		const named = reads.map((row) => [row[0], row] as const);
+		test.each(named)("%s ignores fields the server added", async (_, row) => {
+			const plain = await read(row, (value) => value);
+			const added = (await read(row, (value) =>
+				withAddedFields(value),
+			)) as Record<string, unknown>;
+			expect(added.addedByServer).toBeDefined();
+			expect(added).toEqual(withAddedFields(plain) as Record<string, unknown>);
+		});
+
+		test.each(named)(
+			"%s refuses a response without a field the CLI reads",
+			async (_, row) => {
+				const path = row[3];
+				for (const change of [
+					(holder: Record<string, unknown>, key: string | number) =>
+						delete holder[key],
+					(holder: Record<string, unknown>, key: string | number) =>
+						(holder[key] = { retyped: true }),
+				]) {
+					const call = read(row, (value) => {
+						const holder = path
+							.slice(0, -1)
+							.reduce<unknown>(
+								(current, key) => (current as Record<string, unknown>)[key],
+								value,
+							) as Record<string, unknown>;
+						change(holder, path.at(-1)!);
+						return withAddedFields(value);
+					});
+					await expect(call).rejects.toThrow(
+						`The ${row[0]} response is not what this CLI expects: ${path.join(".")}`,
+					);
+					await expect(call).rejects.toThrow("run `tedix update`");
+				}
+			},
+		);
+
+		test("ignores a field the live output schema has not synced yet", async () => {
+			const liveOutput = {
+				type: "object",
+				properties: { id: { type: "string" } },
+				required: ["id"],
+				additionalProperties: false,
+			};
+			for (const [response, refusal] of [
+				[{ id: ITEM, addedByServer: true }, undefined],
+				[
+					{ addedByServer: true },
+					"the work.get_work_items_by_id response is not what this CLI expects: id is missing",
+				],
+			] as const) {
+				const fixture = makeContext({}, undefined, () => response);
+				const invoke = fixture.ctx.client.callTool.bind(fixture.ctx.client);
+				fixture.ctx.client.callTool = (async (
+					name: string,
+					args: Record<string, unknown>,
+					options: unknown,
+				) => {
+					const result = (await invoke(name, args, options as never)) as {
+						results: Array<Record<string, unknown>>;
+					};
+					if (name === "catalog_search")
+						result.results[0]!.outputSchema = liveOutput;
+					return result;
+				}) as TedixHomeClient["callTool"];
+				const call = callConfiguredNativeTool(
+					fixture.ctx,
+					"work.get_work_items_by_id",
+					{ id: ITEM },
+				);
+				if (refusal) await expect(call).rejects.toThrow(refusal);
+				else expect(await call).toEqual(response);
+			}
+		});
+	});
 	test("rejects missing, denied, ambiguous, stale and redirected descriptors before writes", async () => {
 		for (const scenario of [
 			"missing",
@@ -4167,9 +4417,13 @@ describe("native agent hook factory operations", () => {
 			const [, , input] = cases.find((x) => x[0] === verb)!;
 			const badOutput = modernContext({ input: JSON.stringify(input) }, () => ({
 				status: "invented",
+				addedByServer: true,
 			}));
 			const outputResult = await capture(verb, badOutput.ctx);
 			expect(outputResult.code).not.toBe(0);
+			expect([...outputResult.out, ...outputResult.err].join(" ")).toContain(
+				"response is not what this CLI expects: status: ",
+			);
 			expect(outputResult.out.join(" ")).not.toContain('"status":"invented"');
 			expect(badOutput.sources).toHaveLength(1);
 		}

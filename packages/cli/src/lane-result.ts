@@ -1,6 +1,7 @@
 import * as z from "zod";
 import { execFileSync } from "node:child_process";
 import { GetWorkInteractionResultSchema } from "@tedix/api-contract/schemas/work-interactions";
+import { safeParseServerResponse } from "./server-response";
 
 const fence = {
 	workItemId: z.uuid(),
@@ -81,7 +82,7 @@ export function laneWaitResponse(
 	wait: LaneWait,
 	value: unknown,
 ): string | undefined {
-	const parsed = GetWorkInteractionResultSchema.safeParse(value);
+	const parsed = safeParseServerResponse(GetWorkInteractionResultSchema, value);
 	if (!parsed.success) return;
 	const { request, responses, effectiveState } = parsed.data;
 	if (
@@ -115,7 +116,7 @@ export function laneWaitResponse(
  * The wait releases so the lane re-checks the Work instead of holding forever.
  */
 export function laneWaitTerminal(wait: LaneWait, value: unknown): boolean {
-	const parsed = GetWorkInteractionResultSchema.safeParse(value);
+	const parsed = safeParseServerResponse(GetWorkInteractionResultSchema, value);
 	if (!parsed.success) return false;
 	const { request, effectiveState } = parsed.data;
 	return (
