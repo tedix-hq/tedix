@@ -290,6 +290,8 @@ export function annotationsForEndpoint(
 	const method = endpoint.route?.method?.toUpperCase();
 	const proc = snakeCase(endpoint.proc);
 	const readOnly =
+		// The POST compatibility endpoint returns search sources, not a mutation.
+		(endpointPath === "content/answer" && method === "POST") ||
 		method === "GET" ||
 		/^(get|list|search|query|check|preview|validate|audit|inspect|estimate|read)_?/.test(
 			`${proc}_`,
