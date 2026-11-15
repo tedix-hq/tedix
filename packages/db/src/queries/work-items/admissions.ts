@@ -35,6 +35,7 @@ import {
 	evaluateWorkAdmissionEligibility,
 } from "./admission-approval-policy";
 import { hasActivePurposeContext } from "./purpose";
+import { chunkForBoundParams } from "../../utils/batch";
 import {
 	isSameCanonicalParty,
 	resolveCanonicalWorkParties,
@@ -54,6 +55,8 @@ export type WorkAdmissionRejectionCode =
 	| "stale_specification";
 export const WORK_ADMISSION_RESOURCE_REQUIREMENT_CAP = 500;
 export const WORK_ADMISSION_BUDGET_ENVELOPE_CAP = 1000;
+// A reservation row binds 12 parameters and D1 allows 100 per statement.
+const RESERVATION_ROWS_PER_STATEMENT = 8;
 
 type BoundedAdmissionFacts<TRow> = {
 	rows: TRow[];
@@ -765,42 +768,52 @@ export async function evaluateAndRecordWorkAdmission(
 				),
 		)
 		.returning();
-	const resourceInserts = eligibility.requirements.map((r) =>
+	const resourceInserts = chunkForBoundParams(
+		eligibility.requirements,
+		RESERVATION_ROWS_PER_STATEMENT,
+	).map((rows) =>
 		db
 			.insert(workResourceReservations)
-			.values({
-				id: crypto.randomUUID(),
-				orgId: p.orgId,
-				admissionId: p.id,
-				workItemId: p.workItemId,
-				poolId: r.poolId!,
-				poolVersion: r.poolVersion!,
-				resourceKey: r.resourceKey,
-				quantity: r.quantity,
-				state: "active",
-				reservedAt: p.now,
-				expiresAt,
-				version: 1,
-			})
+			.values(
+				rows.map((r) => ({
+					id: crypto.randomUUID(),
+					orgId: p.orgId,
+					admissionId: p.id,
+					workItemId: p.workItemId,
+					poolId: r.poolId!,
+					poolVersion: r.poolVersion!,
+					resourceKey: r.resourceKey,
+					quantity: r.quantity,
+					state: "active" as const,
+					reservedAt: p.now,
+					expiresAt,
+					version: 1,
+				})),
+			)
 			.returning({ id: workResourceReservations.id }),
 	);
-	const budgetInserts = eligibility.envelopes.map((e) =>
+	const budgetInserts = chunkForBoundParams(
+		eligibility.envelopes,
+		RESERVATION_ROWS_PER_STATEMENT,
+	).map((rows) =>
 		db
 			.insert(workBudgetReservations)
-			.values({
-				id: crypto.randomUUID(),
-				orgId: p.orgId,
-				admissionId: p.id,
-				workItemId: p.workItemId,
-				envelopeId: e.id,
-				envelopeVersion: e.version,
-				amountMicros: e.reservationMicros,
-				consumedMicros: null,
-				state: "active",
-				reservedAt: p.now,
-				expiresAt,
-				version: 1,
-			})
+			.values(
+				rows.map((e) => ({
+					id: crypto.randomUUID(),
+					orgId: p.orgId,
+					admissionId: p.id,
+					workItemId: p.workItemId,
+					envelopeId: e.id,
+					envelopeVersion: e.version,
+					amountMicros: e.reservationMicros,
+					consumedMicros: null,
+					state: "active" as const,
+					reservedAt: p.now,
+					expiresAt,
+					version: 1,
+				})),
+			)
 			.returning({ id: workBudgetReservations.id }),
 	);
 	try {

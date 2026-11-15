@@ -12,6 +12,7 @@ const logger = createLogger<{
 	durationSource: string;
 	operation: string;
 	rowsRead: number;
+	statementCount: number;
 	sampleRate: number;
 }>({ component: "db.slow_query" });
 
@@ -43,6 +44,7 @@ function report(
 	durationMs: number,
 	durationSource: string,
 	result?: D1Result,
+	statementCount?: number,
 ): void {
 	if (durationMs <= 1_000) return;
 	logger.warn("D1 operation exceeded 1 s", {
@@ -55,6 +57,7 @@ function report(
 		durationSource,
 		operation,
 		rowsRead: result?.meta?.rows_read,
+		statementCount,
 		sampleRate: 1,
 	});
 }
@@ -128,19 +131,34 @@ export function observeD1<T extends Pick<D1Database, "prepare" | "batch">>(
 						return results;
 					} finally {
 						const elapsed = performance.now() - start;
+						const sqlOf = (statement: D1PreparedStatement) =>
+							statements.get(statement)?.sql ?? "<unobserved statement>";
+						let untimed = 0;
 						batch.forEach((statement, index) => {
 							const result = results?.[index];
-							// A batch's wall time cannot be attributed to one statement.
 							const duration = result?.meta?.duration;
+							if (duration === undefined) untimed += 1;
+							else
+								report(
+									sqlOf(statement),
+									origin,
+									"batch",
+									duration,
+									"d1",
+									result,
+								);
+						});
+						// A batch's wall time cannot be attributed to one statement.
+						if (untimed > 0)
 							report(
-								statements.get(statement)?.sql ?? "<unobserved statement>",
+								sqlOf(batch[0]!),
 								origin,
 								"batch",
-								duration ?? elapsed,
-								duration === undefined ? "batch_wall" : "d1",
-								result,
+								elapsed,
+								"batch_wall",
+								undefined,
+								batch.length,
 							);
-						});
 					}
 				};
 			const value = Reflect.get(target, key);

@@ -103,6 +103,26 @@ describe("slow D1 observation", () => {
 		});
 	});
 
+	it("reports a batch without per-statement durations once, not once per statement", async () => {
+		const { db, database, log } = fixture(1_500);
+		database.batch.mockImplementation(async (batch: unknown[]) => {
+			vi.mocked(performance.now).mockReturnValue(1_500);
+			return batch.map(() => ({ success: true, meta: {} })) as never;
+		});
+		await db.batch([
+			db.prepare("INSERT INTO a VALUES (?)").bind(1),
+			db.prepare("INSERT INTO b VALUES (?)").bind(2),
+			db.prepare("INSERT INTO b VALUES (?)").bind(3),
+		]);
+		expect(log).toHaveBeenCalledOnce();
+		expect(log.mock.calls.at(0)![0]).toMatchObject({
+			sqlShape: "INSERT INTO a VALUES (?)",
+			durationMs: 1_500,
+			durationSource: "batch_wall",
+			statementCount: 3,
+		});
+	});
+
 	it("keeps the original rejection and omits its potentially sensitive message", async () => {
 		const { db, native, log } = fixture();
 		const error = new Error("private-binding");
