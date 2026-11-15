@@ -82,15 +82,12 @@ const TEST_ENDPOINTS: Record<string, string> = {
 	corroborate_work_items: "workItems/corroborate",
 	accept_work_item: "workItems/accept",
 	add_comment: "workItems/addComment",
-	add_project_milestone_dependency: "projects/addMilestoneDependency",
 	add_work_case_dependency: "workItems/addCaseDependency",
-	attach_project_milestone_work_item: "projects/attachMilestoneWorkItem",
 	attach_work_case_item: "workItems/attachCaseWorkItem",
 	authorize_owned_channel: "workItems/authorizeOwnedChannel",
 	cancel_work_interaction: "workInteractions/cancel",
 	cancel_work_items: "workItems/cancel",
 	complete_work_item: "workItems/complete",
-	create_project_milestone: "projects/createMilestone",
 	create_work_case: "workItems/createCase",
 	ack_work_interaction_delivery: "workInteractions/ackDelivery",
 	record_reply_draft_delivery: "workInteractions/recordDraftDelivery",
@@ -107,7 +104,6 @@ const TEST_ENDPOINTS: Record<string, string> = {
 	grant_work_lane_attempt: "workItems/grantLaneAttempt",
 	heartbeat_work_item_attempt: "workItems/heartbeatAttempt",
 	list_project_health_judgments: "projects/listHealthJudgments",
-	list_project_milestones: "projects/listMilestones",
 	list_undelivered_work_interaction_responses:
 		"workInteractions/listUndelivered",
 	list_ready_work: "workScheduler/listReady",
@@ -138,7 +134,6 @@ const TEST_ENDPOINTS: Record<string, string> = {
 	settle_work_item_attempt: "workItems/settleAttempt",
 	start_work_item_attempt: "workItems/startAttempt",
 	submit_work_item_evidence: "workItems/submitEvidence",
-	update_project_milestone: "projects/updateMilestone",
 	update_work_case: "workItems/updateCase",
 	update_work_item_specification: "workItems/updateSpecification",
 };
@@ -1247,13 +1242,28 @@ describe("canonical work lifecycle", () => {
 });
 
 describe("artifact-neutral factory control verbs", () => {
-	test("routes project milestone and health controls through projects", async () => {
+	test("rejects removed milestone commands without provider calls", async () => {
+		for (const verb of [
+			"milestone-list",
+			"milestone-create",
+			"milestone-update",
+			"milestone-attach",
+			"milestone-dependency-add",
+		]) {
+			const { ctx, sources } = makeContext({
+				input: JSON.stringify({ id: ITEM }),
+			});
+			expect(workVerbNames()).not.toContain(verb);
+			await expect(runWork(verb, ctx)).rejects.toThrow(
+				`Unknown work verb "${verb}"`,
+			);
+			expect(sources).toEqual([]);
+		}
+		expect(workUsage()).not.toContain("milestone");
+	});
+
+	test("routes project health controls through projects", async () => {
 		const callables = {
-			"milestone-list": "projects.list_project_milestones",
-			"milestone-create": "projects.create_project_milestone",
-			"milestone-update": "projects.update_project_milestone",
-			"milestone-attach": "projects.attach_project_milestone_work_item",
-			"milestone-dependency-add": "projects.add_project_milestone_dependency",
 			"health-list": "projects.list_project_health_judgments",
 			"health-record": "projects.record_project_health_judgment",
 		} as const;
@@ -1307,7 +1317,6 @@ describe("artifact-neutral factory control verbs", () => {
 			"case-create",
 			"case-stage",
 			"case-close",
-			"milestone-create",
 			"health-record",
 			"dispatcher-health-record",
 			"approval-decide",
@@ -3879,11 +3888,6 @@ describe("native dispatcher coverage", () => {
 			"case-stage",
 			"case-close",
 			"case-attach",
-			"milestone-list",
-			"milestone-create",
-			"milestone-update",
-			"milestone-attach",
-			"milestone-dependency-add",
 			"health-list",
 			"health-record",
 			"approval-decide",
@@ -4032,7 +4036,7 @@ describe("native dispatcher coverage", () => {
 			await fixture.client.close();
 		}
 		expect(covered).toEqual(workVerbNames());
-		expect(covered).toHaveLength(74);
+		expect(covered).toHaveLength(69);
 	});
 });
 

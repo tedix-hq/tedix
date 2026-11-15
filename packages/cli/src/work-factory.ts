@@ -85,36 +85,6 @@ export const STRUCTURED_FACTORY_VERBS: Record<string, StructuredFactoryVerb> = {
 		pathField: "caseId",
 	},
 	"case-dependency-add": { tool: "add_work_case_dependency", write: true },
-	"milestone-list": {
-		tool: "list_project_milestones",
-		namespace: "projects",
-		write: false,
-		pathField: "id",
-	},
-	"milestone-create": {
-		tool: "create_project_milestone",
-		namespace: "projects",
-		write: true,
-		pathField: "id",
-	},
-	"milestone-update": {
-		tool: "update_project_milestone",
-		namespace: "projects",
-		write: true,
-		pathField: "id",
-	},
-	"milestone-attach": {
-		tool: "attach_project_milestone_work_item",
-		namespace: "projects",
-		write: true,
-		pathField: "id",
-	},
-	"milestone-dependency-add": {
-		tool: "add_project_milestone_dependency",
-		namespace: "projects",
-		write: true,
-		pathField: "id",
-	},
 	"health-list": {
 		tool: "list_project_health_judgments",
 		namespace: "projects",
