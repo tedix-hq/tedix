@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vite-plus/test";
 import {
 	configWithImageReference,
+	digestReference,
 	dockerCopySources,
 	imageInputTag,
 	imageReference,
@@ -62,5 +63,22 @@ describe("configWithImageReference", () => {
 		expect(() => configWithImageReference("const x = 1;", reference)).toThrow(
 			/exactly one Sandbox dockerfile image/,
 		);
+	});
+});
+
+describe("digestReference", () => {
+	const reference = "registry.cloudflare.com/acct/docs-build:inputs-0123";
+	const digest = `sha256:${"a".repeat(64)}`;
+
+	it("pins the tag to the single manifest digest", () => {
+		expect(
+			digestReference(reference, JSON.stringify({ Descriptor: { digest } })),
+		).toBe(`registry.cloudflare.com/acct/docs-build@${digest}`);
+	});
+
+	it("refuses an image index, which Cloudflare rejects", () => {
+		expect(() =>
+			digestReference(reference, JSON.stringify([{ Descriptor: { digest } }])),
+		).toThrow("no single-manifest digest");
 	});
 });
