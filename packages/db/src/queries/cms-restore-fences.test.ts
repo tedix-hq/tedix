@@ -6,6 +6,7 @@ import {
 	abortCmsCaptureCronPause,
 	assertCmsCaptureCronPause,
 	claimCmsCaptureCronPause,
+	checkCmsRestoreWriteAdmission,
 	closeCmsRestoreFence,
 	countCmsRestorePermitsForSite,
 	confirmCmsCaptureCronPause,
@@ -88,6 +89,34 @@ const two = {
 const closed = { ...one, generation: "generation-1", captureId: "capture-1" };
 
 describe("CMS restore fence", () => {
+	it("checks write admission independently of an existing permit and rejects stale epochs after release", async () => {
+		const { db, sqlite } = fixture();
+		const writer = { ...one, permitId: "cached" };
+		expect(await enterCmsRestorePermit(db, writer)).toBe(true);
+		expect(await checkCmsRestoreWriteAdmission(db, writer)).toBe(true);
+		expect(
+			await checkCmsRestoreWriteAdmission(db, { ...writer, slug: "wrong" }),
+		).toBe(false);
+		expect(
+			await checkCmsRestoreWriteAdmission(db, {
+				...writer,
+				siteId: two.siteId,
+			}),
+		).toBe(false);
+		expect(await closeCmsRestoreFence(db, closed)).toBe(true);
+		expect(await checkCmsRestoreWriteAdmission(db, writer)).toBe(false);
+		expect(await leaveCmsRestorePermit(db, writer)).toBe(true);
+		expect(await releaseCmsRestoreFence(db, closed)).toBe(true);
+		expect(await checkCmsRestoreWriteAdmission(db, writer)).toBe(false);
+		expect(
+			await checkCmsRestoreWriteAdmission(db, { ...writer, restoreEpoch: 1 }),
+		).toBe(true);
+		sqlite.exec("UPDATE cms_sites SET status = 'paused' WHERE id = 'site-1'");
+		expect(
+			await checkCmsRestoreWriteAdmission(db, { ...writer, restoreEpoch: 1 }),
+		).toBe(false);
+	});
+
 	it("releases completed scheduled owners idempotently without deleting conflicts", async () => {
 		const { db } = fixture();
 		const permit = {

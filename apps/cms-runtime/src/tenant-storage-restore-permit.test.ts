@@ -245,6 +245,16 @@ describe("nested tenant storage restore permits", () => {
 			captureId: "writes-capture",
 		};
 		expect(await closeCmsRestoreFence(db, fence)).toBe(true);
+		// The reservation is still warm: no clock advance is needed to reject writes.
+		await expect(
+			entrypoint.query("UPDATE content SET title = 'stale'"),
+		).rejects.toThrow("fence unavailable");
+		await expect(
+			entrypoint.batchQuery([
+				{ sql: "SELECT 1" },
+				{ sql: "DELETE FROM content" },
+			]),
+		).rejects.toThrow("fence unavailable");
 		expect(await reconcileCmsRestoreOuterPermits(db, fence)).toBe(0);
 		expect(await releaseCmsRestoreFence(db, fence)).toBe(false);
 		await reservationExpiry();
@@ -341,9 +351,10 @@ describe("nested tenant storage restore permits", () => {
 			forceDelete: false,
 		};
 		const pending = entrypoint.executeCollectionDeletionGuard(input);
-		await vi.waitFor(async () => {
-			expect((await getCmsRestoreFenceState(db, identity)).inFlight).toBe(1);
-		});
+		await vi.waitFor(() =>
+			expect(executeCollectionDeletionGuard).toHaveBeenCalledOnce(),
+		);
+		expect((await getCmsRestoreFenceState(db, identity)).inFlight).toBe(1);
 		const fence = { ...identity, generation: "g1", captureId: "c1" };
 		expect(await closeCmsRestoreFence(db, fence)).toBe(true);
 		expect(await releaseCmsRestoreFence(db, fence)).toBe(false);
@@ -370,6 +381,36 @@ describe("nested tenant storage restore permits", () => {
 			),
 		).resolves.toMatchObject({ rows: [{ "1": 1 }] });
 	}, 20_000);
+
+	test("warm cached admission refuses storage and session mutations after close", async () => {
+		const identity = await site();
+		await tenantDb(identity, {}).query("SELECT 1");
+		const fetch = vi.fn();
+		vi.stubGlobal("fetch", fetch);
+		const put = vi.fn();
+		const remove = vi.fn();
+		const media = tenantR2(identity);
+		const session = tenantSession(identity, { put, delete: remove });
+		const fence = { ...identity, generation: "warm", captureId: "warm" };
+		expect(await closeCmsRestoreFence(db, fence)).toBe(true);
+		expect(await getCmsRestoreEpoch(db, identity)).toBe(1);
+		await expect(media.put("key", "stale")).rejects.toBeInstanceOf(
+			CmsRestoreFenceUnavailableError,
+		);
+		await expect(media.delete("key")).rejects.toBeInstanceOf(
+			CmsRestoreFenceUnavailableError,
+		);
+		await expect(session.put("key", "stale")).rejects.toBeInstanceOf(
+			CmsRestoreFenceUnavailableError,
+		);
+		await expect(session.delete("key")).rejects.toBeInstanceOf(
+			CmsRestoreFenceUnavailableError,
+		);
+		expect(fetch).not.toHaveBeenCalled();
+		expect(put).not.toHaveBeenCalled();
+		expect(remove).not.toHaveBeenCalled();
+		expect((await getCmsRestoreFenceState(db, identity)).inFlight).toBe(1);
+	});
 
 	test("closed site denies every DB, R2, and session mutation before dispatch", async () => {
 		const identity = await site();
@@ -527,7 +568,7 @@ describe("nested tenant storage restore permits", () => {
 		expect(await permitIds(identity.siteId)).toEqual([]);
 	}, 20_000);
 
-	test("a restore waits for every borrower of a shared row and refuses new ones after expiry", async () => {
+	test("a restore retains every active borrower and immediately refuses new writes", async () => {
 		const identity = await site();
 		const finishers: Array<() => void> = [];
 		const put = vi.fn(
@@ -543,12 +584,15 @@ describe("nested tenant storage restore permits", () => {
 		await vi.waitFor(() => expect(put).toHaveBeenCalledTimes(2));
 		expect(await permitIds(identity.siteId)).toHaveLength(1);
 
+		const third = session.put("three", "value");
+		await vi.waitFor(() => expect(put).toHaveBeenCalledTimes(3));
 		const fence = { ...identity, generation: "g1", captureId: "c1" };
 		expect(await closeCmsRestoreFence(db, fence)).toBe(true);
 		expect(await reconcileCmsRestoreOuterPermits(db, fence)).toBe(0);
-		// A borrower admitted inside the window shares the row the close drains.
-		const third = session.put("three", "value");
-		await vi.waitFor(() => expect(put).toHaveBeenCalledTimes(3));
+		await expect(session.put("closed", "value")).rejects.toBeInstanceOf(
+			CmsRestoreFenceUnavailableError,
+		);
+		expect(put).toHaveBeenCalledTimes(3);
 		expect(await permitIds(identity.siteId)).toHaveLength(1);
 
 		finishers[0]!();
@@ -585,7 +629,7 @@ describe("nested tenant storage restore permits", () => {
 	}, 30_000);
 
 	test.each(["pause", "deprovision"] as const)(
-		"%s refuses borrowers after expiry and cannot drain past a live shared row",
+		"%s immediately refuses new writes and retains a live shared row",
 		async (operation) => {
 			const identity = await site();
 			let finish!: () => void;
@@ -608,8 +652,11 @@ describe("nested tenant storage restore permits", () => {
 					.prepare("INSERT INTO cms_deprovision_operations (id) VALUES (?)")
 					.bind(identity.siteId)
 					.run();
-			await reservationExpiry();
 			await expect(session.put("late", "value")).rejects.toBeInstanceOf(
+				CmsRestoreFenceUnavailableError,
+			);
+			await reservationExpiry();
+			await expect(session.put("expired", "value")).rejects.toBeInstanceOf(
 				CmsRestoreFenceUnavailableError,
 			);
 			expect(put).toHaveBeenCalledTimes(1);
@@ -669,7 +716,10 @@ test("buffered pages do not rotate revisions for zero-row tenant maintenance", a
 				return {
 					queries: statements.length,
 					revisions: statements.filter((sql) =>
-						/^update "cms_sites"/i.test(sql),
+						/^update "cms_sites" set "config"/i.test(sql),
+					).length,
+					writeChecks: statements.filter((sql) =>
+						/^update "cms_sites" set "restore_epoch"/i.test(sql),
 					).length,
 				};
 			} finally {
@@ -684,8 +734,9 @@ test("buffered pages do not rotate revisions for zero-row tenant maintenance", a
 		counts,
 	);
 	expect(counts.revisions).toBe(0);
-	// One outer and one nested reservation INSERT; borrows inside the TTL read nothing.
-	expect(counts.queries).toBe(2);
+	// One guard for each DELETE; the ten SELECTs and response borrows add no queries.
+	expect(counts.writeChecks).toBe(10);
+	expect(counts.queries).toBe(12);
 }, 20_000);
 
 test("page-cache revision changes on tenant writes but not reads", async () => {
