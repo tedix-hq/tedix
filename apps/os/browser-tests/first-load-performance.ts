@@ -210,6 +210,15 @@ try {
 						),
 				);
 				const usefulMs = Date.now() - start;
+				if (process.env.PERF_VERIFY_EARLY_SEND === "1") {
+					const queued = `Queued before startup ${run}`;
+					await useful.fill(queued);
+					await page.getByRole("button", { name: "Send", exact: true }).click();
+					await page.getByText(queued, { exact: true }).waitFor({
+						state: "visible",
+						timeout: 30_000,
+					});
+				}
 				// Use the same observation window even when useful content arrives earlier.
 				await page.waitForTimeout(Math.max(0, 8_000 - (Date.now() - start)));
 				await Promise.all(pending);
