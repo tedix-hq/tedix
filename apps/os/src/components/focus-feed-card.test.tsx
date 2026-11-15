@@ -289,6 +289,39 @@ it("shows factory feedback choices without implying that feedback executes the s
 	expect(options.querySelector("button")).toBeNull();
 });
 
+it("keeps supplied choices and their recommendation visible while the story is missing", async () => {
+	await mountOne({
+		...items[0]!,
+		id: "decision:fictional-workshop",
+		kind: "decision",
+		needsAction: true,
+		presentation: null,
+		options: [
+			{
+				id: "keep",
+				label: "Keep the room",
+				consequence: "Records the room choice.",
+				recommended: true,
+			},
+			{
+				id: "review",
+				label: "Review attendance",
+				consequence: "Leaves the room unconfirmed.",
+				recommended: false,
+			},
+		],
+	});
+	const options = host.querySelector('[aria-label="Options"]');
+	expect(options?.querySelectorAll("li")).toHaveLength(2);
+	expect(options?.textContent).toContain(
+		"Keep the room · Recommended: Records the room choice.",
+	);
+	expect(options?.textContent).toContain(
+		"Review attendance: Leaves the room unconfirmed.",
+	);
+	expect(options?.querySelector("button")).toBeNull();
+});
+
 it("shows a finished result as a green chip with one body line", async () => {
 	await mountOne({
 		...items[0]!,
