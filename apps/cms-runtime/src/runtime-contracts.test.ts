@@ -1256,7 +1256,9 @@ describe("CMS database deprovisioning", () => {
 		const query = vi.fn(async (sql: string, params?: unknown[]) => {
 			queries.push(sql);
 			if (sql.includes("sqlite_master"))
-				return { rows: [{ name: "ec_posts" }, { name: "media" }] };
+				return {
+					rows: [{ name: "ec_posts" }, { name: "media" }, { name: "users" }],
+				};
 			if (sql.includes("count(*)")) return { rows: [{ n: 3 }] };
 			return { rows: [{ id: "post-1", params }] };
 		});
@@ -1279,7 +1281,7 @@ describe("CMS database deprovisioning", () => {
 		};
 		expect((await read("", "wrong"))?.status).toBe(401);
 		expect(await (await read(""))?.json()).toMatchObject({
-			tables: { ec_posts: 3, media: 3 },
+			tables: { ec_posts: 3, media: 3, users: 3 },
 		});
 		expect((await read("?table=users"))?.status).toBe(404);
 		const page = await read("?table=ec_posts&offset=20&limit=500");

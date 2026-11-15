@@ -191,8 +191,8 @@ export async function databaseRecoverAdminResponse(args: {
 }
 
 /** Read content tables straight from tenant storage, for a site whose bundle
- * cannot serve its own export. Without `table` it lists the content tables and
- * their row counts; with one it returns a page of that table's rows. */
+ * cannot serve its own export. Without `table` it counts the rows of every
+ * table; with one it returns a page of that content table's rows. */
 export async function databaseContentRowsAdminResponse(args: {
 	env: Env;
 	request: Request;
@@ -216,15 +216,29 @@ export async function databaseContentRowsAdminResponse(args: {
 			env,
 			slug,
 		) as unknown as EmDashDBStub;
-		const tables = (
+		// Every table is counted; rows are returned only for content tables, never
+		// for users, sessions or credentials.
+		const all = (
 			await stub.query(
-				"SELECT name FROM sqlite_master WHERE type = 'table' AND (name LIKE 'ec_%' OR name IN ('taxonomies', 'content_taxonomies', 'media')) ORDER BY name",
+				"SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' ORDER BY name",
 			)
 		).rows.map((row) => String(row.name));
+		const tables = all.filter(
+			(name) =>
+				name.startsWith("ec_") ||
+				[
+					"taxonomies",
+					"content_taxonomies",
+					"media",
+					"revisions",
+					"_emdash_collections",
+					"_emdash_fields",
+				].includes(name),
+		);
 		const table = url.searchParams.get("table");
 		if (!table) {
 			const counts: Record<string, number> = {};
-			for (const name of tables)
+			for (const name of all)
 				counts[name] = Number(
 					(await stub.query(`SELECT count(*) AS n FROM "${name}"`)).rows[0]?.n,
 				);
