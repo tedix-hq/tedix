@@ -57,6 +57,12 @@
 				"name": "TEDI_AGENT",
 				"script_name": "public-installation-tedi-runtime",
 			},
+			// The workspace's live room in Tedix OS; the agent's saves notify it.
+			{
+				"class_name": "CollabRoom",
+				"name": "COLLAB_ROOM",
+				"script_name": "public-installation-os-development",
+			},
 		],
 	},
 	"migrations": [
@@ -117,6 +123,11 @@
 						"class_name": "AgentTediDO",
 						"name": "TEDI_AGENT",
 						"script_name": "public-installation-tedi-runtime",
+					},
+					{
+						"class_name": "CollabRoom",
+						"name": "COLLAB_ROOM",
+						"script_name": "public-installation-os",
 					},
 				],
 			},

@@ -57,6 +57,7 @@ import type { WorkspaceSnapshot } from "./data-port";
 import { MAX_VIEWS_PER_TURN } from "./views";
 import { resolveAttachments } from "./attachments";
 import { TenantDataPort } from "./data-port-tenant";
+import { notifyOutputRevision } from "@tedix/workspace-feed/output-revision-notice";
 import { BINDING_NAMES, type BindingName } from "./declarations";
 import { SqlEventLedger } from "./event-ledger";
 import { migrateMovedChat } from "./moved-chat";
@@ -1771,6 +1772,18 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			},
 			commitOutput: (outputId, write) =>
 				this.#commitOutput(scope, outputId, write),
+			// Saves through the API notify there; the agent's saves land here.
+			notifyOutputRevision: (notice) =>
+				notifyOutputRevision(
+					{
+						db: createDbQueryClient(this.env.DB),
+						rooms: this.env.COLLAB_ROOM,
+						env: this.env,
+						development: this.env.ENVIRONMENT === "development",
+					},
+					scope,
+					notice,
+				),
 		});
 	}
 

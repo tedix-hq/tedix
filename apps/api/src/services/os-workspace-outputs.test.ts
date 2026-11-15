@@ -17,7 +17,7 @@ import {
 } from "./os-workspace-outputs";
 
 const notices = vi.hoisted(() => ({ notifyOutputRevision: vi.fn() }));
-vi.mock("./os-output-revision-notice", () => notices);
+vi.mock("@tedix/workspace-feed/output-revision-notice", () => notices);
 
 function fixture() {
 	const sqlite = new DatabaseSync(":memory:");

@@ -610,6 +610,7 @@
         "@tedix/tedi-codemode-core": "workspace:*",
         "@tedix/worker-kit": "workspace:*",
         "@tedix/workers-ai": "workspace:*",
+        "@tedix/workspace-feed": "workspace:*",
         "drizzle-orm": "catalog:",
         "zod": "catalog:",
       },
@@ -1087,6 +1088,7 @@
       "dependencies": {
         "@tedix/api-contract": "workspace:*",
         "@tedix/db": "workspace:*",
+        "@tedix/worker-kit": "workspace:*",
       },
       "devDependencies": {
         "@cloudflare/workers-types": "catalog:",

@@ -10,7 +10,8 @@
 		"./ledger": "./src/ledger.ts",
 		"./feed": "./src/feed.ts",
 		"./consumer": "./src/consumer.ts",
-		"./reconcile": "./src/reconcile.ts"
+		"./reconcile": "./src/reconcile.ts",
+		"./output-revision-notice": "./src/output-revision-notice.ts"
 	},
 	"scripts": {
 		"type-check": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
@@ -18,7 +19,8 @@
 	},
 	"dependencies": {
 		"@tedix/api-contract": "workspace:*",
-		"@tedix/db": "workspace:*"
+		"@tedix/db": "workspace:*",
+		"@tedix/worker-kit": "workspace:*"
 	},
 	"devDependencies": {
 		"@cloudflare/workers-types": "catalog:",

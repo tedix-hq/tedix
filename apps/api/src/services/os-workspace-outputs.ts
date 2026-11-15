@@ -5,7 +5,7 @@ import { OS_OUTPUT_CONTENT_MAX_BYTES } from "@tedix/api-contract/utils/os-output
 import { confirmOsWorkspaceFile as confirmFile } from "@tedix/db/queries/os-workspaces/files";
 import { instantiateOsBlueprint as instantiateBlueprint } from "@tedix/db/queries/os-workspaces/instantiate";
 import { env } from "cloudflare:workers";
-import { notifyOutputRevision } from "./os-output-revision-notice";
+import { notifyOutputRevision } from "@tedix/workspace-feed/output-revision-notice";
 import {
 	getOsCollaborationProposal,
 	mergeOsCollaborationProposal as mergeProposal,

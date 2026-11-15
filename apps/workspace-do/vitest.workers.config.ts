@@ -20,6 +20,7 @@ export default defineConfig({
 				durableObjects: {
 					WORKSPACE: { className: "WorkspaceDO", useSQLite: true },
 					TEDI_AGENT: { className: "TediAgentFixture", useSQLite: true },
+					COLLAB_ROOM: { className: "CollabRoomFixture", useSQLite: true },
 				},
 			},
 		}),

@@ -206,6 +206,23 @@ export class TediAgentFixture extends DurableObject<WorkspaceEnv> {
 	}
 }
 
+/** Stands in for the Tedix OS workspace room and keeps the notices it is sent. */
+export class CollabRoomFixture extends DurableObject<WorkspaceEnv> {
+	async fetch(request: Request) {
+		const notices = (await this.ctx.storage.get<unknown[]>("notices")) ?? [];
+		notices.push({
+			path: new URL(request.url).pathname,
+			body: await request.json(),
+		});
+		await this.ctx.storage.put("notices", notices);
+		return new Response(null, { status: 204 });
+	}
+
+	async notices() {
+		return (await this.ctx.storage.get<unknown[]>("notices")) ?? [];
+	}
+}
+
 export default {
 	fetch() {
 		return new Response("test worker");

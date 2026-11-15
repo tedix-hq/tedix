@@ -8,7 +8,7 @@ vi.mock("@tedix/db/queries/organizations", () => ({
 import {
 	notifyOutputRevision,
 	resetOutputRevisionNoticeCache,
-} from "./os-output-revision-notice";
+} from "./output-revision-notice";
 
 const notice = {
 	outputId: "33333333-3333-4333-8333-333333333333",

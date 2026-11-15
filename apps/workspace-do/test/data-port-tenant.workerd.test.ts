@@ -29,6 +29,7 @@ function port(tenant: TenantStoreDb, activated: boolean) {
 			if (!activated) throw new Error("Workspace activation is required");
 		},
 		commitOutput: unused,
+		notifyOutputRevision: unused,
 	});
 }
 
