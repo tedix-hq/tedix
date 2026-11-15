@@ -27,6 +27,7 @@ const FLEET_COMMERCIAL_CRONS = [
 ];
 
 const catchup = vi.hoisted(() => ({
+	sessionEvents: vi.fn().mockResolvedValue({ queued: 0 }),
 	providerEvents: vi.fn().mockResolvedValue({ dispatched: 0 }),
 	commitment: vi.fn().mockResolvedValue({ observed: 0, dispatched: 0 }),
 	ingest: vi.fn(),
@@ -63,6 +64,9 @@ vi.mock("./decision-outcome-labeller", () => ({
 	runDecisionOutcomeLabeller: vi
 		.fn()
 		.mockResolvedValue({ immediate: 0, delayed: 0 }),
+}));
+vi.mock("./agent-session-event-drain", () => ({
+	dispatchPendingAgentSessionEvents: catchup.sessionEvents,
 }));
 vi.mock("./provider-events", () => ({
 	maintainProviderEvents: catchup.providerEvents,
@@ -379,6 +383,7 @@ it("treats CAS contention as a successful catch-up receipt", async () => {
 });
 
 it("maintains provider notifications without fleet authority and isolates failures", async () => {
+	catchup.sessionEvents.mockClear();
 	catchup.paths.length = 0;
 	catchup.outcomes.length = 0;
 	catchup.providerEvents
@@ -399,6 +404,7 @@ it("maintains provider notifications without fleet authority and isolates failur
 	);
 	expect(catchup.providerEvents).toHaveBeenCalledOnce();
 	expect(catchup.paths).toContain("agent-session-event-drain");
+	expect(catchup.sessionEvents).toHaveBeenCalledOnce();
 	expect(catchup.outcomes).toContainEqual({
 		id: "provider-event-maintenance",
 		status: "failure",
@@ -406,6 +412,41 @@ it("maintains provider notifications without fleet authority and isolates failur
 	expect(catchup.paths).toContain("work-attempt-lease-sweep");
 	expect(catchup.paths).toContain("kernel-request-reconcile");
 	expect(catchup.paths).toContain("interaction-review-dispatch");
+});
+
+it("dispatches stall recovery once every six minutes across the hour boundary", async () => {
+	catchup.stall.mockClear();
+	const env = {
+		TEDIX_FLEET_AUTHORITY_MODE: "disabled",
+		DB: {},
+		TEDI_SERVICE: {},
+	} as unknown as CloudflareEnv;
+	const start = Date.UTC(2026, 10, 15, 0, 54);
+	const dispatchedAt: number[] = [];
+	for (let minute = 0; minute <= 60; minute += 2) {
+		const background: Promise<unknown>[] = [];
+		const scheduledTime = start + minute * 60_000;
+		const callsBefore = catchup.stall.mock.calls.length;
+		await scheduled(
+			{ cron: "*/2 * * * *", scheduledTime, noRetry: () => {} },
+			env,
+			{
+				waitUntil: (work: Promise<unknown>) => background.push(work),
+				passThroughOnException: () => {},
+				props: {},
+			} as unknown as ExecutionContext,
+		);
+		await Promise.all(background);
+		expect(catchup.stall.mock.calls.length - callsBefore).toBe(
+			minute % 6 === 0 ? 1 : 0,
+		);
+		if (catchup.stall.mock.calls.length > callsBefore)
+			dispatchedAt.push(scheduledTime);
+	}
+	expect(dispatchedAt).toEqual(
+		Array.from({ length: 11 }, (_, index) => start + index * 360_000),
+	);
+	expect(catchup.stall.mock.calls.map((call) => call[2])).toEqual(dispatchedAt);
 });
 
 it("keeps commitment replay and later paths live while stall recovery is pending or fails", async () => {
