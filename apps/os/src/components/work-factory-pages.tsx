@@ -118,7 +118,7 @@ const PROJECTION_FAILURE_FALLBACK =
 export function WorkItemInspectorPage({ children }: { children: ReactNode }) {
 	return (
 		<Page width="lg">
-			<PageBack render={<Link href="/work/queue" />}>All work</PageBack>
+			<PageBack render={<Link href="/work?view=items" />}>All work</PageBack>
 			{children}
 		</Page>
 	);
@@ -461,7 +461,7 @@ export function EvidencePreviewResult({
 	) : null;
 }
 
-function dispositionVariant(disposition: WorkItem["disposition"]) {
+export function dispositionVariant(disposition: WorkItem["disposition"]) {
 	if (disposition === "completed") return "success" as const;
 	if (disposition === "cancelled") return "outline" as const;
 	if (disposition === "accepted") return "secondary" as const;

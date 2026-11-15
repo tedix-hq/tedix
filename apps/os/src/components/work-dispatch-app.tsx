@@ -26,7 +26,7 @@ import {
 import { absoluteTime } from "@/lib/time";
 import { OS_COPY } from "@/shared/os-copy";
 
-const labels: Record<WorkExecutor, string> = {
+export const WORK_EXECUTOR_LABELS: Record<WorkExecutor, string> = {
 	human: "Human",
 	tedi: "Tedi",
 	codex: "Codex",
@@ -53,7 +53,7 @@ function ExecutorChoice({
 			<Label htmlFor={id}>Executor</Label>
 			<Select
 				value={value}
-				items={labels}
+				items={WORK_EXECUTOR_LABELS}
 				onValueChange={(next) => onChange(WorkExecutorSchema.parse(next))}
 				disabled={disabled}
 			>
@@ -63,7 +63,7 @@ function ExecutorChoice({
 				<SelectContent>
 					{WorkExecutorSchema.options.map((executor) => (
 						<SelectItem key={executor} value={executor}>
-							{labels[executor]}
+							{WORK_EXECUTOR_LABELS[executor]}
 						</SelectItem>
 					))}
 				</SelectContent>
@@ -184,7 +184,7 @@ export function WorkExecutorChoice({ item }: { item: WorkItem }) {
 							<Label htmlFor={hostId}>Host</Label>
 							<Select
 								value={host}
-								items={labels}
+								items={WORK_EXECUTOR_LABELS}
 								onValueChange={(next) => {
 									if (isSessionHost(next)) setHost(next);
 								}}
@@ -196,7 +196,7 @@ export function WorkExecutorChoice({ item }: { item: WorkItem }) {
 								<SelectContent>
 									{sessionHosts.map((value) => (
 										<SelectItem key={value} value={value}>
-											{labels[value]}
+											{WORK_EXECUTOR_LABELS[value]}
 										</SelectItem>
 									))}
 								</SelectContent>
@@ -239,7 +239,7 @@ export function WorkExecutorChoice({ item }: { item: WorkItem }) {
 										!brief.trim()
 									}
 								>
-									Start {labels[host]} session
+									Start {WORK_EXECUTOR_LABELS[host]} session
 								</Button>
 								<Button
 									type="button"
@@ -262,7 +262,9 @@ export function WorkExecutorChoice({ item }: { item: WorkItem }) {
 						</Text>
 					) : queued ? (
 						<div className="grid gap-2">
-							<Text tone="secondary">Queued for {labels[executor]}.</Text>
+							<Text tone="secondary">
+								Queued for {WORK_EXECUTOR_LABELS[executor]}.
+							</Text>
 							{!starting && readiness.data && !readiness.isError
 								? readiness.data.reasons.map((reason, index) => (
 										<Text key={`${reason.code}:${index}`} tone="secondary">

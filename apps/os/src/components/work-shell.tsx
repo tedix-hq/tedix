@@ -48,7 +48,7 @@ export function WorkShell() {
 	const view = useRouterState({
 		select: (state) => {
 			const search = state.location.search as {
-				view?: "deck" | "feed";
+				view?: "deck" | "feed" | "items";
 				app?: unknown;
 			};
 			return state.location.pathname.replace(/\/$/, "") === "/work" &&

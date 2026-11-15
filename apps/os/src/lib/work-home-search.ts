@@ -1,3 +1,9 @@
+import {
+	WorkExecutorSchema,
+	WorkItemDispositionSchema,
+	type WorkExecutor,
+	type WorkItem,
+} from "@tedix/api-contract/schemas/work-items";
 import { cardSourceSearch } from "./card-source-filter";
 
 const WORK_FEED_FILTERS = [
@@ -27,10 +33,13 @@ export function selectedWorkApp<
 		: apps.find((app) => app.gadget.id === selected);
 }
 export type WorkHomeSearch = {
-	view?: "feed" | "deck";
+	view?: "feed" | "deck" | "items";
 	filter?: WorkFeedFilter;
 	app?: string;
 	project?: string;
+	/** All work only: keep one status or one executor. */
+	status?: WorkItem["disposition"];
+	executor?: WorkExecutor;
 	day?: string;
 	source?: string;
 };
@@ -53,8 +62,16 @@ export function workHomeSearch(
 		...(typeof search.day === "string" && /^\d{4}-\d{2}-\d{2}$/.test(search.day)
 			? { day: search.day }
 			: {}),
-		...(search.view === "deck" || search.view === "feed"
+		...(search.view === "deck" ||
+		search.view === "feed" ||
+		search.view === "items"
 			? { view: search.view }
+			: {}),
+		...(WorkItemDispositionSchema.safeParse(search.status).success
+			? { status: search.status as WorkItem["disposition"] }
+			: {}),
+		...(WorkExecutorSchema.safeParse(search.executor).success
+			? { executor: search.executor as WorkExecutor }
 			: {}),
 		...(typeof filter === "string" &&
 		WORK_FEED_FILTERS.includes(filter as WorkFeedFilter)

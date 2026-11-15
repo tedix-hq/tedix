@@ -775,7 +775,7 @@ export function WorkspaceWorkPanel({ workspaceId }: { workspaceId: string }) {
 				) ? (
 					<Text role="caption" tone="secondary">
 						Showing the first 100 items per project.{" "}
-						<Link href="/work/queue">Open Work for the full list</Link>.
+						<Link href="/work?view=items">Open Work for the full list</Link>.
 					</Text>
 				) : null}
 			</div>

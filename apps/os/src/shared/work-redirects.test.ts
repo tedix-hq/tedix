@@ -70,3 +70,11 @@ it.each([
 ])("drops an invalid Source filter: %s", (source) => {
 	expect(workHomeSearch({ source })).toEqual({});
 });
+it("keeps the All work filters in the URL and drops unknown ones", () => {
+	expect(
+		workHomeSearch({ view: "items", status: "accepted", executor: "codex" }),
+	).toEqual({ view: "items", status: "accepted", executor: "codex" });
+	expect(
+		workHomeSearch({ view: "items", status: "pending", executor: "robot" }),
+	).toEqual({ view: "items" });
+});
