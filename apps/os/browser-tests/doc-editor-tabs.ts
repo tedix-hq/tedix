@@ -36,6 +36,7 @@ export async function startEditorTabs(options: {
 	content?: unknown;
 	/** What marks the editor as ready inside its frame. */
 	ready?: string;
+	readyState?: "attached" | "visible";
 	reducedMotion?: "reduce" | "no-preference";
 	/** A phone: its size, with touch and the mobile viewport. */
 	phone?: { width: number; height: number };
@@ -177,7 +178,9 @@ export async function startEditorTabs(options: {
 				.first()
 				.frameLocator("iframe");
 			const editor = frame.locator(options.ready ?? ".tiptap");
-			await editor.first().waitFor({ timeout: 60_000 });
+			await editor
+				.first()
+				.waitFor({ timeout: 60_000, state: options.readyState ?? "visible" });
 			return { page, frame, editor };
 		},
 		async stop() {
