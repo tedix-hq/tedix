@@ -44,6 +44,7 @@ export function devinGitWritePaths(cwd: string): string[] {
 		`${commonDir}/push-code/**`,
 		`${commonDir}/push-queue/**`,
 		`${commonDir}/push-queue.lock`,
+		`${commonDir}/pre-push-gates.lock`,
 		`${commonDir}/push-queue-retries.jsonl`,
 		`${commonDir}/push-queue-retries.jsonl.tmp`,
 		`${commonDir}/push-queue-history.jsonl`,

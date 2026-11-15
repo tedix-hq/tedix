@@ -890,6 +890,7 @@ test("linked worktree Git grants cover its metadata and guarded single-lane push
 		`${common}/push-code/**`,
 		`${common}/push-queue/**`,
 		`${common}/push-queue.lock`,
+		`${common}/pre-push-gates.lock`,
 		`${common}/push-queue-retries.jsonl`,
 		`${common}/push-queue-retries.jsonl.tmp`,
 		`${common}/push-queue-history.jsonl`,
