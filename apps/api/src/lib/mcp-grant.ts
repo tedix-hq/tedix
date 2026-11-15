@@ -273,7 +273,7 @@ export async function stageHumanMcpConsent(
 	);
 	if (
 		registered.resource.metadata?.mcpConfig?.multiOrgConsent === true &&
-		rows.some((id) => !gateways.has(id!))
+		rows.some((id) => !gateways.get(id!)?.slug)
 	)
 		return null;
 	const key = {
@@ -829,17 +829,20 @@ async function judgeLedger(
 			defer,
 		);
 		if (!verdict.allowed) return deny("client_not_allowed");
+		const gatewaySlug =
+			resource.metadata?.mcpConfig?.multiOrgConsent === true
+				? ledger.gateways.get(row.organizationId)?.slug
+				: resource.slug;
+		// Gateway removal narrows routing, not the installation's consent identity.
+		if (!gatewaySlug) continue;
 		organizations.push({
 			organizationId: row.organizationId,
 			descopeTenantId,
-			gatewaySlug:
-				resource.metadata?.mcpConfig?.multiOrgConsent === true
-					? (ledger.gateways.get(row.organizationId)?.slug ?? "")
-					: resource.slug,
+			gatewaySlug,
 		});
 	}
 	mark("membership");
-	if (organizations.some((org) => !org.gatewaySlug)) {
+	if (organizations.length === 0) {
 		return deny("membership_missing");
 	}
 	try {

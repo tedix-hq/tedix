@@ -346,9 +346,11 @@ export async function resolveHumanMcpSelection(
 			? { ok: false, unavailable: true, reason: decision.reason }
 			: invalid(decision.reason);
 	if (
-		decision.organizations.length !== selected.length ||
+		decision.organizations.length === 0 ||
+		new Set(decision.organizations.map((org) => org.descopeTenantId)).size !==
+			decision.organizations.length ||
 		decision.organizations.some(
-			(org, index) => org.descopeTenantId !== selected[index],
+			(org) => !selected.includes(org.descopeTenantId),
 		)
 	)
 		return invalid("selection_mismatch");
