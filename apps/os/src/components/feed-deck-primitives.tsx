@@ -289,7 +289,7 @@ export function DeckClosure({
 					{OS_COPY.feedDeckVisual.decisionHistory}
 				</Link>
 			) : (
-				<Link href="/work?view=deck" variant="plain">
+				<Link href="/work?view=feed&filter=history" variant="plain">
 					{OS_COPY.feedDeckVisual.decisionHistory}
 				</Link>
 			)}

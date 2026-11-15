@@ -65,16 +65,10 @@ import { Route as SessionTenantTeamNewRouteImport } from './routes/_session/_ten
 import { Route as SessionTenantWorkIndexRouteImport } from './routes/_session/_tenant/work.index'
 import { Route as SessionTenantWorkAdmissionRouteImport } from './routes/_session/_tenant/work.admission'
 import { Route as SessionTenantWorkApprovalsRouteImport } from './routes/_session/_tenant/work.approvals'
-import { Route as SessionTenantWorkAttemptsRouteImport } from './routes/_session/_tenant/work.attempts'
-import { Route as SessionTenantWorkAttentionRouteImport } from './routes/_session/_tenant/work.attention'
 import { Route as SessionTenantWorkCapacityRouteImport } from './routes/_session/_tenant/work.capacity'
 import { Route as SessionTenantWorkCasesRouteImport } from './routes/_session/_tenant/work.cases'
 import { Route as SessionTenantWorkGraphRouteImport } from './routes/_session/_tenant/work.graph'
 import { Route as SessionTenantWorkInteractionsRouteImport } from './routes/_session/_tenant/work.interactions'
-import { Route as SessionTenantWorkNeedsYouRouteImport } from './routes/_session/_tenant/work.needs-you'
-import { Route as SessionTenantWorkPortfolioRouteImport } from './routes/_session/_tenant/work.portfolio'
-import { Route as SessionTenantWorkQueueRouteImport } from './routes/_session/_tenant/work.queue'
-import { Route as SessionTenantWorkRecoveryRouteImport } from './routes/_session/_tenant/work.recovery'
 import { Route as SessionChromeFreeSharedWorkspaceWorkspaceIdRouteImport } from './routes/_session/_chrome-free/shared_.workspace.$workspaceId'
 import { Route as SessionTenantAppsAppIdIndexRouteImport } from './routes/_session/_tenant/apps_.$appId.index'
 import { Route as SessionTenantAppsAppIdAnalyticsRouteImport } from './routes/_session/_tenant/apps_.$appId.analytics'
@@ -393,18 +387,6 @@ const SessionTenantWorkApprovalsRoute =
     path: '/approvals',
     getParentRoute: () => SessionTenantWorkRoute,
   } as any)
-const SessionTenantWorkAttemptsRoute =
-  SessionTenantWorkAttemptsRouteImport.update({
-    id: '/attempts',
-    path: '/attempts',
-    getParentRoute: () => SessionTenantWorkRoute,
-  } as any)
-const SessionTenantWorkAttentionRoute =
-  SessionTenantWorkAttentionRouteImport.update({
-    id: '/attention',
-    path: '/attention',
-    getParentRoute: () => SessionTenantWorkRoute,
-  } as any)
 const SessionTenantWorkCapacityRoute =
   SessionTenantWorkCapacityRouteImport.update({
     id: '/capacity',
@@ -425,29 +407,6 @@ const SessionTenantWorkInteractionsRoute =
   SessionTenantWorkInteractionsRouteImport.update({
     id: '/interactions',
     path: '/interactions',
-    getParentRoute: () => SessionTenantWorkRoute,
-  } as any)
-const SessionTenantWorkNeedsYouRoute =
-  SessionTenantWorkNeedsYouRouteImport.update({
-    id: '/needs-you',
-    path: '/needs-you',
-    getParentRoute: () => SessionTenantWorkRoute,
-  } as any)
-const SessionTenantWorkPortfolioRoute =
-  SessionTenantWorkPortfolioRouteImport.update({
-    id: '/portfolio',
-    path: '/portfolio',
-    getParentRoute: () => SessionTenantWorkRoute,
-  } as any)
-const SessionTenantWorkQueueRoute = SessionTenantWorkQueueRouteImport.update({
-  id: '/queue',
-  path: '/queue',
-  getParentRoute: () => SessionTenantWorkRoute,
-} as any)
-const SessionTenantWorkRecoveryRoute =
-  SessionTenantWorkRecoveryRouteImport.update({
-    id: '/recovery',
-    path: '/recovery',
     getParentRoute: () => SessionTenantWorkRoute,
   } as any)
 const SessionChromeFreeSharedWorkspaceWorkspaceIdRoute =
@@ -644,16 +603,10 @@ export interface FileRoutesByFullPath {
   '/team/new': typeof SessionTenantTeamNewRoute
   '/work/admission': typeof SessionTenantWorkAdmissionRoute
   '/work/approvals': typeof SessionTenantWorkApprovalsRoute
-  '/work/attempts': typeof SessionTenantWorkAttemptsRoute
-  '/work/attention': typeof SessionTenantWorkAttentionRoute
   '/work/capacity': typeof SessionTenantWorkCapacityRoute
   '/work/cases': typeof SessionTenantWorkCasesRouteWithChildren
   '/work/graph': typeof SessionTenantWorkGraphRoute
   '/work/interactions': typeof SessionTenantWorkInteractionsRouteWithChildren
-  '/work/needs-you': typeof SessionTenantWorkNeedsYouRoute
-  '/work/portfolio': typeof SessionTenantWorkPortfolioRoute
-  '/work/queue': typeof SessionTenantWorkQueueRoute
-  '/work/recovery': typeof SessionTenantWorkRecoveryRoute
   '/admin/': typeof SessionTenantAdminIndexRoute
   '/skills/': typeof SessionTenantSkillsIndexRoute
   '/work/': typeof SessionTenantWorkIndexRoute
@@ -725,16 +678,10 @@ export interface FileRoutesByTo {
   '/team/new': typeof SessionTenantTeamNewRoute
   '/work/admission': typeof SessionTenantWorkAdmissionRoute
   '/work/approvals': typeof SessionTenantWorkApprovalsRoute
-  '/work/attempts': typeof SessionTenantWorkAttemptsRoute
-  '/work/attention': typeof SessionTenantWorkAttentionRoute
   '/work/capacity': typeof SessionTenantWorkCapacityRoute
   '/work/cases': typeof SessionTenantWorkCasesRouteWithChildren
   '/work/graph': typeof SessionTenantWorkGraphRoute
   '/work/interactions': typeof SessionTenantWorkInteractionsRouteWithChildren
-  '/work/needs-you': typeof SessionTenantWorkNeedsYouRoute
-  '/work/portfolio': typeof SessionTenantWorkPortfolioRoute
-  '/work/queue': typeof SessionTenantWorkQueueRoute
-  '/work/recovery': typeof SessionTenantWorkRecoveryRoute
   '/admin': typeof SessionTenantAdminIndexRoute
   '/skills': typeof SessionTenantSkillsIndexRoute
   '/work': typeof SessionTenantWorkIndexRoute
@@ -818,16 +765,10 @@ export interface FileRoutesById {
   '/_session/_tenant/team_/new': typeof SessionTenantTeamNewRoute
   '/_session/_tenant/work/admission': typeof SessionTenantWorkAdmissionRoute
   '/_session/_tenant/work/approvals': typeof SessionTenantWorkApprovalsRoute
-  '/_session/_tenant/work/attempts': typeof SessionTenantWorkAttemptsRoute
-  '/_session/_tenant/work/attention': typeof SessionTenantWorkAttentionRoute
   '/_session/_tenant/work/capacity': typeof SessionTenantWorkCapacityRoute
   '/_session/_tenant/work/cases': typeof SessionTenantWorkCasesRouteWithChildren
   '/_session/_tenant/work/graph': typeof SessionTenantWorkGraphRoute
   '/_session/_tenant/work/interactions': typeof SessionTenantWorkInteractionsRouteWithChildren
-  '/_session/_tenant/work/needs-you': typeof SessionTenantWorkNeedsYouRoute
-  '/_session/_tenant/work/portfolio': typeof SessionTenantWorkPortfolioRoute
-  '/_session/_tenant/work/queue': typeof SessionTenantWorkQueueRoute
-  '/_session/_tenant/work/recovery': typeof SessionTenantWorkRecoveryRoute
   '/_session/_tenant/admin/': typeof SessionTenantAdminIndexRoute
   '/_session/_tenant/skills/': typeof SessionTenantSkillsIndexRoute
   '/_session/_tenant/work/': typeof SessionTenantWorkIndexRoute
@@ -907,16 +848,10 @@ export interface FileRouteTypes {
     | '/team/new'
     | '/work/admission'
     | '/work/approvals'
-    | '/work/attempts'
-    | '/work/attention'
     | '/work/capacity'
     | '/work/cases'
     | '/work/graph'
     | '/work/interactions'
-    | '/work/needs-you'
-    | '/work/portfolio'
-    | '/work/queue'
-    | '/work/recovery'
     | '/admin/'
     | '/skills/'
     | '/work/'
@@ -988,16 +923,10 @@ export interface FileRouteTypes {
     | '/team/new'
     | '/work/admission'
     | '/work/approvals'
-    | '/work/attempts'
-    | '/work/attention'
     | '/work/capacity'
     | '/work/cases'
     | '/work/graph'
     | '/work/interactions'
-    | '/work/needs-you'
-    | '/work/portfolio'
-    | '/work/queue'
-    | '/work/recovery'
     | '/admin'
     | '/skills'
     | '/work'
@@ -1080,16 +1009,10 @@ export interface FileRouteTypes {
     | '/_session/_tenant/team_/new'
     | '/_session/_tenant/work/admission'
     | '/_session/_tenant/work/approvals'
-    | '/_session/_tenant/work/attempts'
-    | '/_session/_tenant/work/attention'
     | '/_session/_tenant/work/capacity'
     | '/_session/_tenant/work/cases'
     | '/_session/_tenant/work/graph'
     | '/_session/_tenant/work/interactions'
-    | '/_session/_tenant/work/needs-you'
-    | '/_session/_tenant/work/portfolio'
-    | '/_session/_tenant/work/queue'
-    | '/_session/_tenant/work/recovery'
     | '/_session/_tenant/admin/'
     | '/_session/_tenant/skills/'
     | '/_session/_tenant/work/'
@@ -1522,20 +1445,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SessionTenantWorkApprovalsRouteImport
       parentRoute: typeof SessionTenantWorkRoute
     }
-    '/_session/_tenant/work/attempts': {
-      id: '/_session/_tenant/work/attempts'
-      path: '/attempts'
-      fullPath: '/work/attempts'
-      preLoaderRoute: typeof SessionTenantWorkAttemptsRouteImport
-      parentRoute: typeof SessionTenantWorkRoute
-    }
-    '/_session/_tenant/work/attention': {
-      id: '/_session/_tenant/work/attention'
-      path: '/attention'
-      fullPath: '/work/attention'
-      preLoaderRoute: typeof SessionTenantWorkAttentionRouteImport
-      parentRoute: typeof SessionTenantWorkRoute
-    }
     '/_session/_tenant/work/capacity': {
       id: '/_session/_tenant/work/capacity'
       path: '/capacity'
@@ -1562,34 +1471,6 @@ declare module '@tanstack/react-router' {
       path: '/interactions'
       fullPath: '/work/interactions'
       preLoaderRoute: typeof SessionTenantWorkInteractionsRouteImport
-      parentRoute: typeof SessionTenantWorkRoute
-    }
-    '/_session/_tenant/work/needs-you': {
-      id: '/_session/_tenant/work/needs-you'
-      path: '/needs-you'
-      fullPath: '/work/needs-you'
-      preLoaderRoute: typeof SessionTenantWorkNeedsYouRouteImport
-      parentRoute: typeof SessionTenantWorkRoute
-    }
-    '/_session/_tenant/work/portfolio': {
-      id: '/_session/_tenant/work/portfolio'
-      path: '/portfolio'
-      fullPath: '/work/portfolio'
-      preLoaderRoute: typeof SessionTenantWorkPortfolioRouteImport
-      parentRoute: typeof SessionTenantWorkRoute
-    }
-    '/_session/_tenant/work/queue': {
-      id: '/_session/_tenant/work/queue'
-      path: '/queue'
-      fullPath: '/work/queue'
-      preLoaderRoute: typeof SessionTenantWorkQueueRouteImport
-      parentRoute: typeof SessionTenantWorkRoute
-    }
-    '/_session/_tenant/work/recovery': {
-      id: '/_session/_tenant/work/recovery'
-      path: '/recovery'
-      fullPath: '/work/recovery'
-      preLoaderRoute: typeof SessionTenantWorkRecoveryRouteImport
       parentRoute: typeof SessionTenantWorkRoute
     }
     '/_session/_chrome-free/shared_/workspace/$workspaceId': {
@@ -1896,16 +1777,10 @@ const SessionTenantWorkInteractionsRouteWithChildren =
 interface SessionTenantWorkRouteChildren {
   SessionTenantWorkAdmissionRoute: typeof SessionTenantWorkAdmissionRoute
   SessionTenantWorkApprovalsRoute: typeof SessionTenantWorkApprovalsRoute
-  SessionTenantWorkAttemptsRoute: typeof SessionTenantWorkAttemptsRoute
-  SessionTenantWorkAttentionRoute: typeof SessionTenantWorkAttentionRoute
   SessionTenantWorkCapacityRoute: typeof SessionTenantWorkCapacityRoute
   SessionTenantWorkCasesRoute: typeof SessionTenantWorkCasesRouteWithChildren
   SessionTenantWorkGraphRoute: typeof SessionTenantWorkGraphRoute
   SessionTenantWorkInteractionsRoute: typeof SessionTenantWorkInteractionsRouteWithChildren
-  SessionTenantWorkNeedsYouRoute: typeof SessionTenantWorkNeedsYouRoute
-  SessionTenantWorkPortfolioRoute: typeof SessionTenantWorkPortfolioRoute
-  SessionTenantWorkQueueRoute: typeof SessionTenantWorkQueueRoute
-  SessionTenantWorkRecoveryRoute: typeof SessionTenantWorkRecoveryRoute
   SessionTenantWorkIndexRoute: typeof SessionTenantWorkIndexRoute
   SessionTenantWorkExecutionsRunIdRoute: typeof SessionTenantWorkExecutionsRunIdRoute
   SessionTenantWorkItemsWorkItemIdRoute: typeof SessionTenantWorkItemsWorkItemIdRoute
@@ -1916,17 +1791,11 @@ interface SessionTenantWorkRouteChildren {
 const SessionTenantWorkRouteChildren: SessionTenantWorkRouteChildren = {
   SessionTenantWorkAdmissionRoute: SessionTenantWorkAdmissionRoute,
   SessionTenantWorkApprovalsRoute: SessionTenantWorkApprovalsRoute,
-  SessionTenantWorkAttemptsRoute: SessionTenantWorkAttemptsRoute,
-  SessionTenantWorkAttentionRoute: SessionTenantWorkAttentionRoute,
   SessionTenantWorkCapacityRoute: SessionTenantWorkCapacityRoute,
   SessionTenantWorkCasesRoute: SessionTenantWorkCasesRouteWithChildren,
   SessionTenantWorkGraphRoute: SessionTenantWorkGraphRoute,
   SessionTenantWorkInteractionsRoute:
     SessionTenantWorkInteractionsRouteWithChildren,
-  SessionTenantWorkNeedsYouRoute: SessionTenantWorkNeedsYouRoute,
-  SessionTenantWorkPortfolioRoute: SessionTenantWorkPortfolioRoute,
-  SessionTenantWorkQueueRoute: SessionTenantWorkQueueRoute,
-  SessionTenantWorkRecoveryRoute: SessionTenantWorkRecoveryRoute,
   SessionTenantWorkIndexRoute: SessionTenantWorkIndexRoute,
   SessionTenantWorkExecutionsRunIdRoute: SessionTenantWorkExecutionsRunIdRoute,
   SessionTenantWorkItemsWorkItemIdRoute: SessionTenantWorkItemsWorkItemIdRoute,

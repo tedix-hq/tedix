@@ -1,7 +1,6 @@
 /**
- * Old Work URLs and the Work view each one opens. The Worker redirects full
- * page loads from this table; the redirect-only route files read the same
- * entries for links followed inside the app.
+ * Old Work URLs and the Work view each one opens. The Worker redirects page
+ * loads from this table; there are no route files for these paths.
  */
 export const LEGACY_WORK_SEARCH = {
 	"/work/attention": { view: "feed", filter: "attention" },
