@@ -68,7 +68,8 @@ automatically a substitute for a repository's required machine identity.
    owner/admin or `work:accept`-scoped credential. Use `work accept <id>
    --done-when '<observable outcome>'` or the discovered `accept_work_item`
    schema. Do not rewrite an already accepted outcome merely to make admission
-   pass. Proposed, blocked and completed items are not executable as observed.
+   pass. Proposed, cancelled and completed items are not executable, and an accepted item
+   that readiness reports as blocked is not executable until the block clears.
 6. Read `work context <id> --json`, `work attempts <id> --limit 5` and
    `work readiness <id> --json`, or the equivalent scoped native tools. Resolve
    the reported dependencies and required admission approvals within the task's
@@ -126,9 +127,12 @@ automatically a substitute for a repository's required machine identity.
     discovered `settle_work_item_attempt` schema and its fence fields. Evidence
     submission is optional telemetry; do not invent an evidence-count or
     independent-review prerequisite for completion.
-14. After succeeded settlement, call `work complete <id>` once, unconditionally,
-    or the discovered `complete_work_item` equivalent. Completion is idempotent;
-    it has no extra proof-review gate. Then read the current Work disposition
+14. After succeeded settlement, completion belongs to the Work's owner, steward
+    or an organization admin. You may call `work complete <id>` (or the discovered
+    `complete_work_item` equivalent) yourself only when the Work is accepted, your
+    own latest Attempt settled `succeeded` (coding also needs a commit) and it is
+    not a credentials, money or external-message action. Completion is
+    idempotent; it has no extra proof-review gate. Then read the current Work disposition
     and Attempt settlement back. Report Work completion separately from the
     verified live result. If a claim later proves false, correct it through the
     authorized Work corroboration/contradiction path rather than repeat it.

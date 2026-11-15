@@ -119,7 +119,10 @@ result. The flow, with the CLI verbs:
 4. Do the work in a worktree. Put evidence on the item with
    `tedix work comment <id>` as you go.
 5. `tedix work settle <id> --outcome succeeded --commit <full sha>` records
-   your report; the owner or steward runs `tedix work complete <id>`.
+   your report. The owner or steward completes the item (`tedix work complete
+   <id>`); you may complete it yourself only when your own Attempt settled
+   `succeeded` and the Work is not a credentials, money or external-message
+   action. See [How work is organized](./how-work-is-organized.md#who-completes-a-work-item).
 
 A lead session that hands work to another session registers it with
 `tedix work delegate` and closes it with `--done`. Titles, descriptions and
@@ -165,7 +168,7 @@ run through the first probe, daily health and evidence-based tuning.
 ## 5. Know the containers
 
 A **Workspace** holds Documents. A **Work project** holds Work Items and a brief.
-The **Work factory** records around them (epics, milestones, approvals,
+The **Work control plane** records around them (epics, milestones, approvals,
 interactions, admission, capacity) are the control plane. A working factory is
 one project, one Workspace, one tedi and the skills or schedule that keep it
 producing. When you cannot tell where something belongs, this page decides it.
