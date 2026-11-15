@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import { deployValues } from "@tedix/deploy-values";
 import {
 	configWithImageReference,
 	dockerCopySources,
@@ -103,8 +104,12 @@ function imageExists(reference: string): boolean {
  * Rebuild-and-push happens only when the tag is missing.
  */
 async function ensureImage(): Promise<string | undefined> {
+	// Ship sets only the token; the account comes from the deploy values,
+	// as it does for cloudflare.config.ts.
 	const accountId =
-		process.env.CLOUDFLARE_ACCOUNT_ID ?? process.env.CF_ACCOUNT_ID;
+		process.env.CLOUDFLARE_ACCOUNT_ID ||
+		process.env.CF_ACCOUNT_ID ||
+		deployValues({ mode: "production" }).account("");
 	const apiToken = process.env.CLOUDFLARE_API_TOKEN;
 	if (!accountId || !apiToken) {
 		console.warn(
