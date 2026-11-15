@@ -1487,6 +1487,75 @@ describe("approved owner tool call replay", () => {
 		},
 	};
 
+	it("executes the stored call when schema description exceeds gateway memory", async () => {
+		const base = codeModeGateway([], () => ({
+			jsonrpc: "2.0",
+			id: 1,
+			result: { structuredContent: { success: true } },
+		}));
+		let schemaLoads = 0;
+		const service = {
+			fetch: async (input: string, init?: RequestInit) => {
+				const body = JSON.parse(String(init?.body ?? "{}"));
+				if (body.method !== "tools/call" || body.params.name !== "code")
+					return base.fetch(input, init);
+				const discover = {
+					search: async (query: Record<string, unknown>) => {
+						expect(query.includeMetadata).toBe(true);
+						return {
+							results: [
+								{ ...liveEntry, tool: "delete_descope_aih_mcp_client" },
+							],
+						};
+					},
+					describe: async () => {
+						schemaLoads++;
+						throw new Error("Dynamic import exceeded memory limits.");
+					},
+				};
+				const result = await new Function(
+					"discover",
+					`return (${body.params.arguments.code})()`,
+				)(discover);
+				return new Response(
+					JSON.stringify(
+						modernReply(body, {
+							jsonrpc: "2.0",
+							result: {
+								structuredContent: {
+									executionId: "exec-lookup",
+									result: JSON.stringify(result),
+								},
+							},
+						}),
+					),
+					{ headers: { "content-type": "application/json" } },
+				);
+			},
+		};
+		expect(
+			await executeApprovedOwnerToolCall({
+				env: env(service),
+				payload: {
+					appSlug: "example-unified",
+					toolId: "tedix__delete_descope_aih_mcp_client",
+					args: { id: "item-1" },
+					organizationId: "org-1",
+					initiatedByUserId: "owner-1",
+				},
+				approvalRequestId: "approval-1",
+			}),
+		).toEqual({ ok: true, data: { success: true } });
+		expect(schemaLoads).toBe(0);
+		expect(
+			base.calls.filter((call) => call.method === "tools/call"),
+		).toHaveLength(1);
+		expect(base.calls.at(-1)?.params).toMatchObject({
+			name: "tedix__delete_descope_aih_mcp_client",
+			arguments: { id: "item-1" },
+			_meta: { "com.tedix/approvalRequestId": "approval-1" },
+		});
+	});
 	it("finds a native tool the compact tools/list hides and calls it by its wire name with the receipt", async () => {
 		const service = codeModeGateway([liveEntry], () => ({
 			jsonrpc: "2.0",

@@ -170,7 +170,8 @@ export function codeModeCanonicalDescribeParams(
  * one Code Mode call. A programmatic caller's `tools/list` on a Code Mode
  * gateway is the compact surface (`code`, `ask`, ...), so a stored native tool
  * can only be re-validated through the gateway's own catalog: search by the
- * bare tool name, then describe each hit for its `native` descriptor.
+ * bare tool name with metadata. Replay needs no input or output schemas;
+ * describing hits hydrates those definitions concurrently in the gateway.
  */
 export function codeModeReplayLookupParams(
 	toolName: string,
@@ -178,13 +179,12 @@ export function codeModeReplayLookupParams(
 	if (!/^[A-Za-z_][\w-]*$/.test(toolName))
 		throw new Error(`Invalid Code Mode tool name: ${toolName}`);
 	const projectedName = toolName.replace(/-/g, "_");
-	const search = `const page = await discover.search(${JSON.stringify({ query: projectedName, limit: 25 })}); `;
+	const search = `const page = await discover.search(${JSON.stringify({ query: projectedName, limit: 25, includeMetadata: true })}); `;
 	const hits = `const hits = (Array.isArray(page) ? page : page.results ?? []).filter((hit) => hit.tool === ${JSON.stringify(projectedName)} && typeof hit.callable === "string").slice(0, 8); `;
-	const describe = `const described = await Promise.all(hits.map((hit) => discover.describe({ callable: hit.callable }))); `;
 	return {
 		name: CODE_MODE_TOOL_NAME,
 		arguments: {
-			code: `async () => { ${search}${hits}${describe}return described.filter(Boolean).map((hit) => ({ callable: hit.callable, annotations: hit.annotations, _meta: hit._meta, native: hit.native, wire: hit.wire })); }`,
+			code: `async () => { ${search}${hits}return hits.map((hit) => ({ callable: hit.callable, annotations: hit.annotations, _meta: hit._meta, native: hit.native, wire: hit.wire })); }`,
 		},
 	};
 }

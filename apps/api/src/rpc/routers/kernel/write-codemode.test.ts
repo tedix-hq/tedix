@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import {
 	codeModeCanonicalDescribeParams,
 	codeModeDescribeParams,
@@ -31,6 +31,7 @@ describe("write discovery contracts", () => {
 							{
 								tool: "notion_update_page",
 								callable: "notion.notion_update_page",
+								wire,
 							},
 						],
 					};
@@ -42,6 +43,42 @@ describe("write discovery contracts", () => {
 			{ name: "notion.notion_update_page", wire: { ...wire, endpoint: null } },
 		]);
 		expect(() => codeModeReplayLookupParams('bad";call()')).toThrow();
+	});
+	it("revalidates replay metadata without allocating full tool schemas", async () => {
+		const describe = vi.fn(async () => {
+			throw new Error("Dynamic import exceeded memory limits.");
+		});
+		const result = await runGenerated(
+			codeModeReplayLookupParams("delete_item"),
+			{
+				search: async (input: Record<string, unknown>) => {
+					expect(input).toEqual({
+						query: "delete_item",
+						limit: 25,
+						includeMetadata: true,
+					});
+					return {
+						results: [
+							{
+								tool: "delete_item",
+								callable: "items.delete_item",
+								annotations: { readOnlyHint: false, destructiveHint: true },
+								wire: { name: "items__delete_item" },
+							},
+						],
+					};
+				},
+				describe,
+			},
+		);
+		expect(parseCodeModeCatalogValue(result)).toMatchObject([
+			{
+				name: "items.delete_item",
+				annotations: { readOnlyHint: false, destructiveHint: true },
+				wire: { name: "items__delete_item" },
+			},
+		]);
+		expect(describe).not.toHaveBeenCalled();
 	});
 	it("keeps JavaScript delimiters and HTML tags as argument data", async () => {
 		const value =
