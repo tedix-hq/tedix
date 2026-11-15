@@ -18,6 +18,9 @@ const {
 		getBySlugWithTools,
 		getBySlugsWithTools,
 		getApiClient: vi.fn(() => ({
+			osTenant: {
+				personalAgentSession: vi.fn(async () => ({ status: "not_configured" })),
+			},
 			apps: { getBySlugWithTools, getBySlugsWithTools },
 		})),
 		buildMcpServer: vi.fn(async () => ({}) as unknown),

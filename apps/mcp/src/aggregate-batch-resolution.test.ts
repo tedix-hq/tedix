@@ -23,6 +23,11 @@ const { getApiClient, getByDomain, getBySlugWithTools, getBySlugsWithTools } =
 			getBySlugWithTools,
 			getBySlugsWithTools,
 			getApiClient: vi.fn(() => ({
+				osTenant: {
+					personalAgentSession: vi.fn(async () => ({
+						status: "not_configured",
+					})),
+				},
 				apps: { getByDomain, getBySlugWithTools, getBySlugsWithTools },
 			})),
 		};
