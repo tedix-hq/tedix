@@ -229,7 +229,7 @@ function firstToken(text: string): [string, string] {
 }
 
 export function workUsage(): string {
-	return `tedix work — artifact-neutral factory work
+	return `tedix work — create, start and finish Work Items
 
 Usage: tedix work <verb> [args] [options]
 
@@ -246,6 +246,8 @@ Lifecycle:
   complete <id>
   cancel <id> [--reason <summary>]
   move <id> --project <id>   (owner/admin; objective Work takes that project's objective)
+  trailers <id>
+  authorize-blog <id> · revoke-blog <id>
 
 Delegation (a lead session's hand-offs; open ones appear in its prompt context):
   delegate "<title>" --done-when "<what done looks like>" --via subagent|session
@@ -262,12 +264,12 @@ Discovery: list [--disposition <value>] [--kind <kind>] [--class <class>]
                 [--project <id>] [--objective <id>] [--executor <exec>] [--offset <n>]
            · find <query> · readiness <id> · context <id>
 Ledgers: evidence <id> · attempts <id> · events <id>  (one bounded page; --limit 1–100, default 25)
-Checkpoint: checkpoint (read selected chat Work and bounded directed open Interactions; no writes)
+Checkpoint: checkpoint (read selected chat Work and bounded open requests addressed to you; no writes)
 Collaboration: comment <id> [text] [--body|--message|--text <text>]
                confirm <id> --evidence <ref> [--contradicts]
 
 Choose the parent before creating. --project files the item under a portfolio
-project and inherits its objective. For example:
+project and inherits its goal (--objective). For example:
   tedix work create "<title>" --kind coding --project <project-id>
 --parent <work-id> links create/delegate to existing Work and inherits its project.
 An explicit --project must match the parent. Parent access is checked in the selected organization.
@@ -286,19 +288,23 @@ page — the board exposes no server-side evidence filter — so raise --limit b
 trusting a filtered page as a whole-ledger answer.
 
 Factory controls (--input accepts inline JSON or @path):
-  agent-turn-triage|agent-reply-label|agent-reply-draft-request|agent-session-report
-  case-list|get|create|stage|close|attach|dependency-add (epics; the API calls them cases)
-  health-list|record
-	  dispatcher-health-list|record
-  approval-list|approval-audit-list|approval-propose|approval-decide (admission authority)
-  interaction-list|interaction-outbox-list|interaction-audit-list|interaction-get|interaction-create|interaction-respond|interaction-cancel
+  agent-turn-triage · agent-reply-label · agent-reply-draft-request · agent-session-report
+  dispatch-reassign · dispatch-idle-list · dispatch-list · dispatch-get · dispatch-attempts
+  case-list · case-get · case-create · case-stage · case-close · case-attach
+  case-dependency-add (epics; the API calls them cases)
+  dispatcher-health-list · dispatcher-health-record
+  approval-list · approval-audit-list · approval-propose · approval-decide (admission authority)
+  interaction-list · interaction-outbox-list · interaction-audit-list · interaction-get
+  interaction-create · interaction-respond · interaction-cancel (requests; the API calls them interactions)
   interaction-respond <id> --input '{…}' [--no-deliver] (closing a status update, not answering an ask:
     sets response metadata.delivery="none"; never delivered to the asking session nor handed off)
-  interaction-undelivered|interaction-ack (your answers not yet delivered to the asking session; record delivery)
+  interaction-undelivered · interaction-ack (your answers not yet delivered to the asking session; record delivery)
   interaction-draft-delivered <id> --input '{"draftId":…,"via":"hook"}' (an auto draft reached the session: answer in the tedi's name)
   claim-files <id> --repo-key <stable-repo-key> --path <relative-file> [--path ...]
     Declare file requirements with existing owner/admin authority; reservation occurs at start.
-  admission-get|replace · resource-list|put · budget-list|put · fleet · scheduler · clusters --executor-tedi <uuid>
+  admission-get · admission-replace · attempt-grant · resource-list · resource-put
+  budget-list · budget-put
+  fleet · scheduler · clusters --executor-tedi <uuid>
 
 Scheduler receipts distinguish factsTruncated + truncatedFacts (dependency, capability,
 approval, resource, budget, or case facts; affected candidates are withheld as

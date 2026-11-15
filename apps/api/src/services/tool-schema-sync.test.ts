@@ -1189,13 +1189,13 @@ describe("oRPC tool projection sync", () => {
 		expect(validate({}).valid).toBe(false);
 	});
 
-	it("projects root-array outputs with the MCP structuredContent data envelope", async () => {
+	it("wraps root-array outputs in the MCP structuredContent data envelope", async () => {
 		const { db, inserts } = makeDb([]);
 
 		const result = await runToolSchemaSync(db, {
 			mode: "projection",
 			apply: true,
-			endpoints: ["projects/listHealthJudgments"],
+			endpoints: ["workItems/listCorroborations"],
 		});
 
 		expect(result).toMatchObject({ total: 1, created: 1, failed: 0 });
@@ -1210,6 +1210,22 @@ describe("oRPC tool projection sync", () => {
 				},
 			},
 		});
+	});
+
+	it("does not project project health judgment endpoints as MCP tools", async () => {
+		const { db, inserts } = makeDb([]);
+
+		const result = await runToolSchemaSync(db, {
+			mode: "projection",
+			apply: true,
+			endpoints: [
+				"projects/listHealthJudgments",
+				"projects/recordHealthJudgment",
+			],
+		});
+
+		expect(result).toMatchObject({ total: 0, created: 0, failed: 0 });
+		expect(inserts).toEqual([]);
 	});
 
 	it("projects nullable output alternatives with the runtime data envelope", async () => {
@@ -1454,7 +1470,7 @@ describe("oRPC tool projection sync", () => {
 	});
 
 	it("projects stable work-hierarchy tool ids by default for the Tedix admin app", async () => {
-		// Work hierarchy v1: the 8 projected tool ids that need a projection sync.
+		// Projects: the 8 projected tool ids that need a projection sync.
 		// projects/list needs no override (the bare-verb rule already emits
 		// list_projects); the workItems reads carry their object in the proc name.
 		const { db } = makeDb([]);

@@ -723,6 +723,9 @@ const UNPROJECTABLE_ROUTERS = new Set([
 const UNPROJECTABLE_ENDPOINTS = new Set([
 	// Home-bound native runtime action; an MCP mount cannot carry its authority.
 	"workItems/closeoutDelegated",
+	// Health judgments remain an OS project feature, not an agent judgment tool.
+	"projects/listHealthJudgments",
+	"projects/recordHealthJudgment",
 	"workInteractions/outbound/act",
 	"workInteractions/outbound/accounts",
 	"workInteractions/outbound/checkOutcome",

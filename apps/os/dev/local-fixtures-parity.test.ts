@@ -412,7 +412,6 @@ const LOCAL_UNSUPPORTED: Record<string, readonly string[]> = {
 	],
 	"Scheduler query options are invalidated by Work mutations; no mounted reader":
 		["workScheduler/listReady"],
-	"WorkClustersPage WorkReadFailure": ["workScheduler/planClusters"],
 };
 
 function missingFixtures(

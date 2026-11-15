@@ -67,7 +67,7 @@ export const mcpEventsContract = oc
 			.route({
 				method: "POST",
 				path: "/work-interaction-requests/poll",
-				summary: "Poll Work interaction-requests after a keyset cursor",
+				summary: "Poll Work requests (interactions) after a keyset cursor",
 			})
 			.input(PollWorkInteractionRequestsInputSchema)
 			.output(PollWorkInteractionRequestsResultSchema),
@@ -75,7 +75,8 @@ export const mcpEventsContract = oc
 			.route({
 				method: "POST",
 				path: "/work-interaction-responses/poll",
-				summary: "Poll Work interaction responses after a keyset cursor",
+				summary:
+					"Poll Work request (interaction) responses after a keyset cursor",
 			})
 			.input(PollWorkInteractionResponsesInputSchema)
 			.output(PollWorkInteractionResponsesResultSchema),

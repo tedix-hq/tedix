@@ -1,10 +1,9 @@
 /**
- * Projects Router (work hierarchy v1)
+ * Projects Router
  *
- * Org-scoped project container at the top of the work hierarchy
- * project → epic → feature → story → work_item → task. Work Items stay the
- * canonical coordination object; a project just groups them (via
- * `work_items.projectId`) and exposes a rollup.
+ * An organization-scoped project groups an area or engagement. Work Items stay
+ * the canonical coordination object; a project groups them through
+ * `work_items.projectId` and exposes a rollup.
  *
  * REST Endpoints:
  * POST   /projects              - Create project (org scoped, unique key)

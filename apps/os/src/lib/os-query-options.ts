@@ -988,16 +988,6 @@ export const workSchedulerQueryOptions = () =>
 		input: { limit: 50, candidateLimit: 200 },
 	});
 
-export const workExecutionClustersQueryOptions = (tediId: string) =>
-	osQuery.workScheduler.planClusters.queryOptions({
-		input: {
-			limit: 100,
-			candidateLimit: 10,
-			maxParallelism: 8,
-			executor: { type: "tedi", id: tediId },
-		},
-	});
-
 export const workAdmissionSpecificationQueryOptions = (id: string) =>
 	osQuery.workItems.getAdmissionSpecification.queryOptions({ input: { id } });
 

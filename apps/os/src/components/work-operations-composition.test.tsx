@@ -68,7 +68,6 @@ const { WorkCasePage } = await import("./work-cases-pages");
 const { WorkApprovalsPage } = await import("./work-approvals-page");
 const { WorkInteractionsPage, WorkInteractionPage } =
 	await import("./work-interactions-pages");
-const { WorkClustersPage } = await import("./work-clusters-page");
 const { WorkAdmissionPage } = await import("./work-admission-page");
 const { WorkCapacityPage } = await import("./work-capacity-page");
 const { Page } = await import("@/components/kumo/page");
@@ -767,7 +766,7 @@ describe("Work admission and capacity", () => {
 	});
 });
 
-describe("Work case detail and clusters", () => {
+describe("Work case detail", () => {
 	const TASK = "11111111-1111-4111-8111-111111111111";
 	const OTHER_STREAM = "22222222-2222-4222-8222-222222222222";
 	const workStream = (stage: string) => ({
@@ -864,19 +863,6 @@ describe("Work case detail and clusters", () => {
 			(button) => button.textContent?.trim() === "Moving to Planning…",
 		);
 		expect(stage?.disabled).toBe(true);
-	});
-
-	it("uses a schema-backed form for execution cluster lookup", async () => {
-		viewport(false);
-		const page = await mount(<WorkClustersPage />);
-		expect(page.host.querySelectorAll("form")).toHaveLength(0);
-		await page.submit("Advanced: tedi UUID");
-		await page.type("Executor tedi id", "not-a-uuid");
-		await page.submit("Plan waves");
-		expect(page.host.textContent).toContain("Enter a canonical tedi UUID.");
-		expect(
-			api.calls.some((call) => call.path === "workScheduler.planClusters"),
-		).toBe(false);
 	});
 });
 

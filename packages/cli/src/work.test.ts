@@ -103,7 +103,6 @@ const TEST_ENDPOINTS: Record<string, string> = {
 	get_work_items_by_id: "workItems/getById",
 	grant_work_lane_attempt: "workItems/grantLaneAttempt",
 	heartbeat_work_item_attempt: "workItems/heartbeatAttempt",
-	list_project_health_judgments: "projects/listHealthJudgments",
 	list_undelivered_work_interaction_responses:
 		"workInteractions/listUndelivered",
 	list_ready_work: "workScheduler/listReady",
@@ -126,7 +125,6 @@ const TEST_ENDPOINTS: Record<string, string> = {
 	propose_work_approval: "workApprovals/propose",
 	put_work_budget_envelope: "workItems/putBudgetEnvelope",
 	put_work_resource_pool: "workItems/putResourcePool",
-	record_project_health_judgment: "projects/recordHealthJudgment",
 	replace_work_admission_specification:
 		"workItems/replaceAdmissionSpecification",
 	respond_work_interaction: "workInteractions/respond",
@@ -1241,7 +1239,7 @@ describe("canonical work lifecycle", () => {
 	});
 });
 
-describe("artifact-neutral factory control verbs", () => {
+describe("factory control verbs", () => {
 	test("rejects removed milestone commands without provider calls", async () => {
 		for (const verb of [
 			"milestone-list",
@@ -1260,21 +1258,6 @@ describe("artifact-neutral factory control verbs", () => {
 			expect(sources).toEqual([]);
 		}
 		expect(workUsage()).not.toContain("milestone");
-	});
-
-	test("routes project health controls through projects", async () => {
-		const callables = {
-			"health-list": "projects.list_project_health_judgments",
-			"health-record": "projects.record_project_health_judgment",
-		} as const;
-		for (const [verb, callable] of Object.entries(callables)) {
-			const { ctx, sources } = makeContext({
-				input: JSON.stringify({ id: ITEM }),
-			});
-			expect(await runWork(verb, ctx)).toBe(0);
-			expect(sources[0]).toContain(callable);
-			expect(sources[0]).not.toContain(`work.${callable.split(".")[1]}`);
-		}
 	});
 
 	test("routes dispatcher health through its deployed namespace", async () => {
@@ -1317,7 +1300,6 @@ describe("artifact-neutral factory control verbs", () => {
 			"case-create",
 			"case-stage",
 			"case-close",
-			"health-record",
 			"dispatcher-health-record",
 			"approval-decide",
 			"approval-audit-list",
@@ -1334,6 +1316,14 @@ describe("artifact-neutral factory control verbs", () => {
 			expect(verbs).toContain(verb);
 		for (const retired of ["claim", "release", "done", "next", "checkout"])
 			expect(verbs).not.toContain(retired);
+	});
+
+	test("documents every registered verb", () => {
+		const usage = workUsage();
+		expect(usage).toStartWith(
+			"tedix work — create, start and finish Work Items",
+		);
+		for (const verb of workVerbNames()) expect(usage).toContain(verb);
 	});
 
 	test("explains the scheduler truncation receipt", () => {
@@ -3888,8 +3878,6 @@ describe("native dispatcher coverage", () => {
 			"case-stage",
 			"case-close",
 			"case-attach",
-			"health-list",
-			"health-record",
 			"approval-decide",
 			"interaction-get",
 			"interaction-respond",
@@ -4036,7 +4024,7 @@ describe("native dispatcher coverage", () => {
 			await fixture.client.close();
 		}
 		expect(covered).toEqual(workVerbNames());
-		expect(covered).toHaveLength(69);
+		expect(covered).toHaveLength(67);
 	});
 });
 

@@ -113,7 +113,7 @@ export const workInteractionsContract = oc
 			.route({
 				method: "GET",
 				path: "/cli-inbox",
-				summary: "Bounded CLI interaction inbox",
+				summary: "Bounded CLI request (interaction) inbox",
 			})
 			.input(ListWorkInteractionCliInboxInputSchema)
 			.output(ListWorkInteractionCliInboxResultSchema),
@@ -139,7 +139,7 @@ export const workInteractionsContract = oc
 			.route({
 				method: "POST",
 				path: "" as `/${string}`,
-				summary: "Create Work interaction",
+				summary: "Create a Work request (interaction)",
 				successStatus: 201,
 			})
 			.input(CreateWorkInteractionInputSchema)
@@ -148,7 +148,7 @@ export const workInteractionsContract = oc
 			.route({
 				method: "POST",
 				path: "/{requestId}/responses",
-				summary: "Respond to Work interaction",
+				summary: "Respond to a Work request (interaction)",
 				successStatus: 201,
 			})
 			.input(RespondToWorkInteractionInputSchema)
@@ -162,7 +162,7 @@ export const workInteractionsContract = oc
 			.route({
 				method: "POST",
 				path: "/{requestId}/cancel",
-				summary: "Cancel Work interaction",
+				summary: "Cancel a Work request (interaction)",
 			})
 			.input(CancelWorkInteractionInputSchema)
 			.output(WorkInteractionRequestSchema),
@@ -179,7 +179,7 @@ export const workInteractionsContract = oc
 			.route({
 				method: "GET",
 				path: "/{requestId}",
-				summary: "Get Work interaction detail",
+				summary: "Get Work request (interaction) detail",
 			})
 			.input(GetWorkInteractionInputSchema)
 			.output(GetWorkInteractionResultSchema),
@@ -187,7 +187,7 @@ export const workInteractionsContract = oc
 			.route({
 				method: "GET",
 				path: "" as `/${string}`,
-				summary: "List Work interaction inbox",
+				summary: "List the Work request (interaction) inbox",
 			})
 			.input(ListWorkInteractionInboxInputSchema)
 			.output(ListWorkInteractionInboxResultSchema),
@@ -195,7 +195,7 @@ export const workInteractionsContract = oc
 			.route({
 				method: "GET",
 				path: "/outbox",
-				summary: "List authenticated creator Work interaction outbox",
+				summary: "List the Work requests (interactions) the caller created",
 			})
 			.input(ListWorkInteractionInboxInputSchema)
 			.output(ListWorkInteractionInboxResultSchema),
@@ -203,7 +203,8 @@ export const workInteractionsContract = oc
 			.route({
 				method: "GET",
 				path: "/audit",
-				summary: "List organization Work interaction audit ledger",
+				summary:
+					"List the organization's Work request (interaction) audit ledger",
 			})
 			.input(ListWorkInteractionInboxInputSchema)
 			.output(ListWorkInteractionInboxResultSchema),

@@ -218,7 +218,7 @@ export const tediObjectivesContract = oc
 			.route({
 				method: "POST",
 				path: "" as `/${string}`,
-				summary: "Create objective",
+				summary: "Create goal (objective)",
 				description:
 					"Create a mission directive for a tedi. Available to authenticated operators and internal tedis.",
 				tags: ["tedi-objectives"],
@@ -247,7 +247,7 @@ export const tediObjectivesContract = oc
 			.route({
 				method: "GET",
 				path: "" as `/${string}`,
-				summary: "List objectives",
+				summary: "List goals (objectives)",
 				description:
 					"List objectives for the current organization with optional filters.",
 			})
@@ -274,7 +274,7 @@ export const tediObjectivesContract = oc
 			.route({
 				method: "GET",
 				path: "/{id}",
-				summary: "Get objective",
+				summary: "Get goal (objective)",
 			})
 			.input(z.object({ id: z.uuid() }))
 			.output(ObjectiveSchema),
@@ -283,7 +283,7 @@ export const tediObjectivesContract = oc
 			.route({
 				method: "PATCH",
 				path: "/{id}",
-				summary: "Update objective",
+				summary: "Update goal (objective)",
 				description: "Partial update of objective fields. Used by OS and tedi.",
 			})
 			.input(
@@ -309,7 +309,7 @@ export const tediObjectivesContract = oc
 			.route({
 				method: "DELETE",
 				path: "/{id}",
-				summary: "Delete objective",
+				summary: "Delete goal (objective)",
 			})
 			.input(z.object({ id: z.uuid() }))
 			.output(z.object({ success: z.literal(true), deletedId: z.string() })),

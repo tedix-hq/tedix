@@ -439,7 +439,7 @@ const EXACT_TOOL_RULES: Record<string, McpCapabilityScopeName> = {
 	list_unmapped_capability_entities: "mcp:memory",
 	link_capability: "mcp:memory",
 	unlink_capability: "mcp:memory",
-	// Work hierarchy v1 (project → epic → story container + rollup). Org work
+	// Projects (areas or engagements grouping Work Items, plus rollup). Org work
 	// structure, same institutional-memory family as the capability map and
 	// objective_* tools — all eight map to mcp:memory (the granular access level
 	// is then derived per-verb by toolToAccessLevel).

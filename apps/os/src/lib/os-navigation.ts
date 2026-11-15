@@ -558,13 +558,6 @@ export const OS_PAGES: readonly OsPage[] = [
 		breadcrumb: "parent",
 	},
 	{
-		id: "work-clusters",
-		path: "/work/clusters",
-		label: "Clusters",
-		parentId: "work",
-		breadcrumb: "parent",
-	},
-	{
 		id: "work-graph",
 		path: "/work/graph",
 		label: "Graph",

@@ -18,7 +18,7 @@ import {
 import { createWorkItem } from "./work-items/crud";
 
 /**
- * Projects (work hierarchy v1) — CRUD + rollup against a REAL in-memory SQLite
+ * Projects — CRUD + rollup against a REAL in-memory SQLite
  * engine via the production createDbClient path (mirrors capabilities.test.ts).
  */
 
