@@ -386,6 +386,7 @@
 		"./utils/skill-manifest": "./src/utils/skill-manifest.ts",
 		"./utils/skill-reference": "./src/utils/skill-reference.ts",
 		"./utils/skill-schedule": "./src/utils/skill-schedule.ts",
+		"./utils/cron-schedule": "./src/utils/cron-schedule.ts",
 		"./utils/tool-json-schema": "./src/utils/tool-json-schema.ts",
 		"./utils/tool-field-selection-schema": "./src/utils/tool-field-selection-schema.ts",
 		"./utils/tool-factory-artifact": "./src/utils/tool-factory-artifact.ts",

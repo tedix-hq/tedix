@@ -191,8 +191,18 @@ export default defineConfig(async ({ command, mode, isPreview }) => {
 										includeDependenciesRecursively: false,
 									},
 									{
+										name: "zod-runtime",
+										test: /node_modules[\/].*[\/]zod[\/]/,
+										includeDependenciesRecursively: false,
+									},
+									{
+										name: "style-runtime",
+										test: /node_modules[\/].*tailwind-merge[\/]/,
+										includeDependenciesRecursively: false,
+									},
+									{
 										name: "contract-validation",
-										test: /(?:node_modules[\/]zod[\/]|packages[\/]api-contract[\/]src[\/]schemas[\/])/,
+										test: /packages[\/]api-contract[\/]src[\/]schemas[\/]/,
 										includeDependenciesRecursively: false,
 									},
 									{

@@ -51,7 +51,6 @@ import {
 	SidebarProvider,
 	useSidebar,
 } from "@/components/kumo/sidebar";
-import { ApprovalNotifications } from "@/components/approval-notifications";
 import { OsQuickChat } from "@/components/os-quick-chat";
 import { OsOrganizationIdentity } from "@/components/os-organization-identity";
 import { OsWorkspaceSwitcher } from "@/components/os-workspace-switcher";
@@ -74,6 +73,10 @@ const OsCommandPalette = lazy(() =>
 		default: module.OsCommandPalette,
 	})),
 );
+const ApprovalNotifications = lazy(async () => ({
+	default: (await import("@/components/approval-notifications"))
+		.ApprovalNotifications,
+}));
 
 const SIDEBAR_COLLAPSED_KEY = "tedix-os-sidebar-collapsed";
 
@@ -378,7 +381,9 @@ export function OsShell() {
 											</>
 										)}
 										<SupportGetHelp organization={tenantLabel} />
-										<ApprovalNotifications topbar />
+										<Suspense fallback={null}>
+											<ApprovalNotifications topbar />
+										</Suspense>
 										<TopbarSearch onOpenPalette={() => setPaletteOpen(true)} />
 										{phone ? (
 											<>

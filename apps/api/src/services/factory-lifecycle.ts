@@ -1,4 +1,4 @@
-import { nextSkillScheduleFireAt } from "@tedix/api-contract/utils/skill-schedule";
+import { nextSkillScheduleFireAt } from "@tedix/api-contract/utils/cron-schedule";
 import { parseDocument } from "yaml";
 
 /**

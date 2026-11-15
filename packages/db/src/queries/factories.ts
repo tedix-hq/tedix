@@ -15,7 +15,7 @@
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { summarizeRunError } from "@tedix/api-contract/utils/run-error";
-import { nextSkillScheduleFireAt } from "@tedix/api-contract/utils/skill-schedule";
+import { nextSkillScheduleFireAt } from "@tedix/api-contract/utils/cron-schedule";
 import {
 	and,
 	desc,

@@ -1,6 +1,6 @@
 import { isGovernedLearningSkillSlug } from "@tedix/api-contract/utils/governed-learning";
 import { parseCapabilityManifest } from "@tedix/api-contract/utils/skill-manifest";
-import { nextSkillScheduleFireAt } from "@tedix/api-contract/utils/skill-schedule";
+import { nextSkillScheduleFireAt } from "@tedix/api-contract/utils/cron-schedule";
 import {
 	OsDerivedAccessEnvelopeSchema,
 	type OsDerivedAccessEnvelope,

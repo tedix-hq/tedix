@@ -2,10 +2,10 @@
 
 import { safeExceptionTopology } from "../../lib/safe-log-metadata";
 import {
-	nextSkillScheduleFireAt,
 	type SkillSchedulePolicy,
 	validateSkillSchedulePolicy,
 } from "@tedix/api-contract/utils/skill-schedule";
+import { nextSkillScheduleFireAt } from "@tedix/api-contract/utils/cron-schedule";
 import {
 	formatAdjacencyRefusal,
 	scoreSkillAdjacency,

@@ -24,7 +24,7 @@ import {
 	AppRuntimeConfigSchema,
 	type AppRuntimeTrigger,
 } from "@tedix/api-contract/schemas/os-app-runtime";
-import { nextSkillScheduleFireAt } from "@tedix/api-contract/utils/skill-schedule";
+import { nextSkillScheduleFireAt } from "@tedix/api-contract/utils/cron-schedule";
 import { mintWorkspaceAppSession } from "@tedix/auth/workspace-app-session";
 import { ROLE_PERMISSION_GRANTS, type Role } from "@tedix/auth/rbac";
 import {

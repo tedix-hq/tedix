@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
 import {
-	nextSkillScheduleFireAt,
 	readSkillSchedulePolicy,
 	validateSkillSchedulePolicy,
 } from "./skill-schedule";
+import { nextSkillScheduleFireAt } from "./cron-schedule";
 
 const SKILL = `---
 name: weekly-report

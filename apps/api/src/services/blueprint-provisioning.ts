@@ -13,7 +13,7 @@ import {
 } from "@tedix/api-contract/schemas/os-workspaces";
 import type { BlueprintProvisioningRows } from "@tedix/db/queries/os-workspaces/provisioning";
 import type { InstantiateOsBlueprintParams } from "@tedix/db/queries/os-workspaces/instantiate";
-import { nextSkillScheduleFireAt } from "@tedix/api-contract/utils/skill-schedule";
+import { nextSkillScheduleFireAt } from "@tedix/api-contract/utils/cron-schedule";
 import { canonicalDigest } from "../lib/blueprint-digest";
 import { buildBlueprintOutputRows } from "./blueprint-outputs";
 

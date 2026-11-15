@@ -38,7 +38,7 @@ import { OsRoutePending } from "@/components/os-route-boundaries";
 import {
 	OS_LOADER_FIRST_PAINT_DEADLINE_MS,
 	prefetchCanvasRoute,
-} from "@/lib/os-route-loaders";
+} from "@/lib/os-route-loaders-impl";
 
 const WORKSPACE_ID = "1f1f7f5c-6b4a-4d0f-9a5e-7c1a2b3c4d5e";
 

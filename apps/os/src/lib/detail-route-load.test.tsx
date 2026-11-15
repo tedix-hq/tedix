@@ -36,7 +36,7 @@ import { DetailUnavailable } from "@/components/detail-unavailable";
 import {
 	OS_LOADER_FIRST_PAINT_DEADLINE_MS,
 	prefetchOutputRoute,
-} from "@/lib/os-route-loaders";
+} from "@/lib/os-route-loaders-impl";
 
 const OUTPUT_ID = "3d2f1e0a-4b5c-4d6e-8f90-a1b2c3d4e5f6";
 

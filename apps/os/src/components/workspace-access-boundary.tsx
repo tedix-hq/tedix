@@ -1,6 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, type ReactNode } from "react";
-import { SharedWorkspacePage } from "@/components/shared-workspace-page";
+import { lazy, Suspense, useEffect, useRef, type ReactNode } from "react";
 import { disposeOsCapabilities } from "@/lib/capability-lifecycle";
 import { Text } from "@/components/kumo/text";
 import { Button } from "@/components/kumo/button";
@@ -9,6 +8,11 @@ import {
 	isWorkspaceAccessDenied,
 } from "@/lib/workspace-verification";
 import { osQuery } from "@/lib/os-query-options";
+
+const SharedWorkspacePage = lazy(async () => ({
+	default: (await import("@/components/shared-workspace-page"))
+		.SharedWorkspacePage,
+}));
 
 /**
  * A permission change must close the editors within a few seconds, so the
@@ -59,7 +63,12 @@ export function WorkspaceAccessBoundary({
 			retainedWorkspace.current = null;
 		}
 	}, [denied, verified, workspaceId]);
-	if (denied) return <SharedWorkspacePage workspaceId={workspaceId} />;
+	if (denied)
+		return (
+			<Suspense fallback={<div role="status">Opening shared workspace…</div>}>
+				<SharedWorkspacePage workspaceId={workspaceId} />
+			</Suspense>
+		);
 	if (!verified && retainedWorkspace.current !== workspaceId)
 		return (
 			<div role="status" aria-busy={access.isPending}>

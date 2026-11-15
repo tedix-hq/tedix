@@ -9,7 +9,7 @@ import {
 	type WorkspaceSkillRunsAt,
 	WorkspaceSkillRunsAtSchema,
 } from "@tedix/api-contract/schemas/os-workspace-schedules";
-import { nextSkillScheduleFireAt } from "@tedix/api-contract/utils/skill-schedule";
+import { nextSkillScheduleFireAt } from "@tedix/api-contract/utils/cron-schedule";
 import { parseSkillFrontmatter } from "@tedix/api-contract/utils/skill-manifest";
 import type { ReportedSkillRunRow } from "@tedix/db/queries/skill-runs";
 

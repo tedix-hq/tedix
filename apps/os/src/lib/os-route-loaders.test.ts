@@ -151,7 +151,7 @@ import {
 	prefetchTeamRoute,
 	prefetchTediMailboxRoute,
 	prefetchWorkspacesRoute,
-} from "@/lib/os-route-loaders";
+} from "@/lib/os-route-loaders-impl";
 import {
 	billingOverviewQueryOptions,
 	billingPlansQueryOptions,
