@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { createMigratedSqlite } from "./migrated-sqlite";
 
 const root = new URL("../../drizzle/", import.meta.url);
@@ -37,6 +37,7 @@ const transformMigration = (sql: string, name: string) =>
 // The transformed and prefix variants build at collection too.
 createMigratedSqlite({ transformMigration }).close();
 createMigratedSqlite({ beforeMigration, foreignKeys: false }).close();
+createMigratedSqlite({ beforeMigration: names[names.length - 2] }).close();
 
 describe("migrated SQLite template", () => {
 	it("preserves every table, index and trigger from a fresh ordered replay", () => {
@@ -108,5 +109,30 @@ describe("migrated SQLite template", () => {
 		expect(() =>
 			sqlite.prepare("SELECT * FROM provider_execution_attempts"),
 		).toThrow(/no such table/);
+	});
+	it("invalidates late variants when prefix or suffix SQL changes", () => {
+		const marker = `probe_${Date.now()}`;
+		const exec = vi.spyOn(DatabaseSync.prototype, "exec");
+		for (const value of [1, 2]) {
+			const options = {
+				transformMigration: (sql: string, name: string) =>
+					sql +
+					(name === names[names.length - 2]
+						? `CREATE TABLE ${marker}(value INTEGER); INSERT INTO ${marker} VALUES (${value});`
+						: name === names[names.length - 1]
+							? `UPDATE ${marker} SET value=value+10;`
+							: ""),
+			};
+			for (let copy = 0; copy < 2; copy++) {
+				const sqlite = createMigratedSqlite(options);
+				expect(exec).not.toHaveBeenCalledWith(
+					readFileSync(new URL(`${names[0]}/migration.sql`, root), "utf8"),
+				);
+				expect(sqlite.prepare(`SELECT value FROM ${marker}`).get()).toEqual({
+					value: value + 10,
+				});
+			}
+		}
+		exec.mockRestore();
 	});
 });

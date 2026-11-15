@@ -164,6 +164,15 @@ and authorization prerequisites in the migration runbook are proven.
 
 ## Development
 
+`test:run` and `db:migrate:check` require Python 3 on a POSIX host. They
+hold an OS file lock at `~/.cache/tedix/db-check.lock` so separate checkouts
+using the same home directory queue before starting expensive DB checks.
+Do not delete the lock file to release it: the kernel releases the lock when
+its holders exit. Admission logs include queue time, load, wall time and child
+CPU time. Run `python3 packages/db/scripts/admit-db-check.test.py` from the
+repository root to check admission across independent working directories.
+The migration gate still replays the entire fresh chain.
+
 ### Generated sequence tests
 
 `bun run --cwd packages/db test:run` includes `collaboration.property.test.ts`

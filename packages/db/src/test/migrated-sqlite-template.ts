@@ -9,7 +9,7 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { loadavg, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import process from "node:process";
 import { DatabaseSync } from "node:sqlite";
@@ -71,16 +71,36 @@ export function getMigratedSqliteTemplate({
 		return template;
 	}
 
+	const started = performance.now();
+	const cpu = process.cpuUsage();
+	// A variant starts at the last unchanged prefix, never at an unrelated
+	// full template. Every changed migration and suffix still executes in order.
+	const firstChanged = statements.findIndex(
+		(statement, index) => statement.sql !== migrations[index]!.sql,
+	);
+	const prefix =
+		firstChanged > 0
+			? getMigratedSqliteTemplate({
+					beforeMigration: statements[firstChanged]!.name,
+					foreignKeys,
+				})
+			: undefined;
 	const sqlite = new DatabaseSync(":memory:");
 	let template: Uint8Array;
 	try {
+		if (prefix) sqlite.deserialize(prefix);
 		sqlite.exec(`PRAGMA foreign_keys=${foreignKeys ? "ON" : "OFF"}`);
-		for (const { sql } of statements) sqlite.exec(sql);
+		for (const { sql } of statements.slice(prefix ? firstChanged : 0))
+			sqlite.exec(sql);
 		template = sqlite.serialize();
 	} finally {
 		sqlite.close();
 	}
 
+	const used = process.cpuUsage(cpu);
+	console.log(
+		`[sqlite template] key=${key} statements=${statements.length} prefix=${prefix ? firstChanged : 0} wallMs=${(performance.now() - started).toFixed(1)} cpuMs=${((used.user + used.system) / 1000).toFixed(1)} load=${loadavg().join(",")}`,
+	);
 	const temporaryPath = `${cachePath}.${process.pid}.${randomUUID()}.tmp`;
 	try {
 		writeFileSync(temporaryPath, template);

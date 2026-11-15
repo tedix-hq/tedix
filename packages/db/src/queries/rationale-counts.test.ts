@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vite-plus/test";
 import { createDbClient } from "../client";
 import { createD1Facade } from "../test/d1-facade";
+import { getMigratedSqliteTemplate } from "../test/migrated-sqlite-template";
 import { createMigratedSqlite } from "../test/migrated-sqlite";
 import { listRationaleRecords } from "./rationale-records";
+
+// Prepare the unchanged historical prefix outside the timed backfill test.
+getMigratedSqliteTemplate({
+	beforeMigration: "20261109122650_main_d1_count_reads",
+});
 
 describe("maintained rationale totals", () => {
 	it("backfills and tracks inserts, duplicate writes, updates and deletes", async () => {
