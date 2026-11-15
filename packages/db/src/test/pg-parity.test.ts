@@ -11,12 +11,12 @@
  */
 
 import { DatabaseSync } from "node:sqlite";
-import { describe, expect, it } from "vite-plus/test";
+import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../query-client";
 import { createD1Facade } from "./d1-facade";
 import { schemaDdl } from "./schema-ddl";
 import { pgSchemaDdl } from "./pg-schema-ddl";
-import { createPgTestDb } from "./pglite-test";
+import { createPostgresTestDb } from "./postgres";
 
 import * as d1Crud from "../queries/work-items/crud";
 import * as d1Attempts from "../queries/work-items/attempts";
@@ -104,7 +104,7 @@ interface Plane {
 	name: string;
 	setup: () => Promise<{
 		db: any;
-		close: () => Promise<void> | void;
+		close?: () => Promise<void> | void;
 		counts: () => Promise<number[]>;
 	}>;
 	modules: {
@@ -175,7 +175,7 @@ const planes: Plane[] = [
 	{
 		name: "postgres",
 		setup: async () => {
-			const t = await createPgTestDb(
+			const db = await createPostgresTestDb(
 				pgSchemaDdl(
 					{ foreignKeys: false },
 					pgOrganizations,
@@ -204,8 +204,7 @@ const planes: Plane[] = [
 				) + SEED,
 			);
 			return {
-				db: t.db,
-				close: t.close,
+				db,
 				counts: async () =>
 					Promise.all(
 						[
@@ -215,7 +214,7 @@ const planes: Plane[] = [
 							pgWorkAttempts,
 						].map(
 							async (table) =>
-								(await t.db.select({ id: table.id }).from(table)).length,
+								(await db.select({ id: table.id }).from(table)).length,
 						),
 					),
 			};
@@ -233,244 +232,244 @@ const actor = { type: "user" as const, id: "owner-1" };
 
 for (const plane of planes) {
 	describe(`Work lifecycle parity [${plane.name}]`, () => {
+		let fixture: Awaited<ReturnType<Plane["setup"]>> | undefined;
+
+		beforeEach(async () => {
+			fixture = await plane.setup();
+		});
+
+		afterEach(async () => {
+			await fixture?.close?.();
+			fixture = undefined;
+		});
+
 		it.each(["omitted", "reset_depth", "weakened_budget"])(
 			"rejects %s child policy through the same ancestry gate",
 			async (mode) => {
-				const { db, close, counts } = await plane.setup();
-				try {
-					const m = plane.modules;
-					const policy = {
-						version: 1,
-						role: "closure",
-						sharedResourceKeys: ["shared"],
-						makerResourceKey: "makers",
-						reservedSlots: 1,
-						budgetEnvelopeIds: ["shared-budget"],
-						maxAttempts: 2,
-						maxDelegationDepth: 1,
-						delegationDepth: 0,
-						executors: [
-							{
-								id: "executor",
-								kind: "tedi",
-								principalType: "tedi",
-								principalId: IDS.tediId,
-								resourceKey: "executor",
-								costMicros: 10,
-								capabilities: [],
-							},
-						],
-					};
-					const parent = await m.crud.createWorkItem(db, {
-						id: "77777777-7777-4777-8777-777777777777",
-						orgId: IDS.orgId,
-						title: "Parent",
-						workClass: "maintenance",
-						purposeExceptionExpiresAt: "2026-11-01T00:00:00.000Z",
-						stewardType: "tedi",
-						stewardId: IDS.tediId,
-						metadata: { laneExecution: policy },
-						createdAt: NOW,
-					});
-					await m.crud.createWorkItem(db, {
-						id: IDS.workItemId,
-						orgId: IDS.orgId,
-						title: "Child",
-						workClass: "maintenance",
-						purposeExceptionExpiresAt: "2026-11-01T00:00:00.000Z",
-						stewardType: "tedi",
-						stewardId: IDS.tediId,
-						parentWorkItemId: parent.id,
-						metadata:
-							mode === "omitted"
-								? {}
-								: {
-										laneExecution: {
-											...policy,
-											delegationDepth: mode === "reset_depth" ? 0 : 1,
-											budgetEnvelopeIds:
-												mode === "weakened_budget"
-													? ["other-budget"]
-													: policy.budgetEnvelopeIds,
-										},
+				const { db, counts } = fixture!;
+				const m = plane.modules;
+				const policy = {
+					version: 1,
+					role: "closure",
+					sharedResourceKeys: ["shared"],
+					makerResourceKey: "makers",
+					reservedSlots: 1,
+					budgetEnvelopeIds: ["shared-budget"],
+					maxAttempts: 2,
+					maxDelegationDepth: 1,
+					delegationDepth: 0,
+					executors: [
+						{
+							id: "executor",
+							kind: "tedi",
+							principalType: "tedi",
+							principalId: IDS.tediId,
+							resourceKey: "executor",
+							costMicros: 10,
+							capabilities: [],
+						},
+					],
+				};
+				const parent = await m.crud.createWorkItem(db, {
+					id: "77777777-7777-4777-8777-777777777777",
+					orgId: IDS.orgId,
+					title: "Parent",
+					workClass: "maintenance",
+					purposeExceptionExpiresAt: "2026-11-01T00:00:00.000Z",
+					stewardType: "tedi",
+					stewardId: IDS.tediId,
+					metadata: { laneExecution: policy },
+					createdAt: NOW,
+				});
+				await m.crud.createWorkItem(db, {
+					id: IDS.workItemId,
+					orgId: IDS.orgId,
+					title: "Child",
+					workClass: "maintenance",
+					purposeExceptionExpiresAt: "2026-11-01T00:00:00.000Z",
+					stewardType: "tedi",
+					stewardId: IDS.tediId,
+					parentWorkItemId: parent.id,
+					metadata:
+						mode === "omitted"
+							? {}
+							: {
+									laneExecution: {
+										...policy,
+										delegationDepth: mode === "reset_depth" ? 0 : 1,
+										budgetEnvelopeIds:
+											mode === "weakened_budget"
+												? ["other-budget"]
+												: policy.budgetEnvelopeIds,
 									},
-						createdAt: NOW,
-					});
-					const child = await m.crud.acceptWorkItem(db, {
-						orgId: IDS.orgId,
-						workItemId: IDS.workItemId,
-						actor,
-						acceptanceContract: { version: 1, doneLooksLike: "Checked" },
-						acceptedAt: NOW,
-					});
-					const preview = await m.admissions.previewWorkAdmission(db, {
+								},
+					createdAt: NOW,
+				});
+				const child = await m.crud.acceptWorkItem(db, {
+					orgId: IDS.orgId,
+					workItemId: IDS.workItemId,
+					actor,
+					acceptanceContract: { version: 1, doneLooksLike: "Checked" },
+					acceptedAt: NOW,
+				});
+				const preview = await m.admissions.previewWorkAdmission(db, {
+					orgId: IDS.orgId,
+					workItemId: child.id,
+					expectedWorkItemVersion: child.version,
+					expectedAdmissionSpecRevision: child.admissionSpecRevision,
+					executorType: "tedi",
+					executorId: IDS.tediId,
+					now: NOW,
+				});
+				expect(preview.rejection?.code).toBe("evaluation_required");
+				expect(await counts()).toEqual([0, 0, 0, 0]);
+				const admission = await m.admissions.evaluateAndRecordWorkAdmission(
+					db,
+					{
+						id: IDS.admissionId,
 						orgId: IDS.orgId,
 						workItemId: child.id,
 						expectedWorkItemVersion: child.version,
 						expectedAdmissionSpecRevision: child.admissionSpecRevision,
 						executorType: "tedi",
 						executorId: IDS.tediId,
+						leaseTtlMs: 60_000,
 						now: NOW,
-					});
-					expect(preview.rejection?.code).toBe("evaluation_required");
-					expect(await counts()).toEqual([0, 0, 0, 0]);
-					const admission = await m.admissions.evaluateAndRecordWorkAdmission(
-						db,
-						{
-							id: IDS.admissionId,
-							orgId: IDS.orgId,
-							workItemId: child.id,
-							expectedWorkItemVersion: child.version,
-							expectedAdmissionSpecRevision: child.admissionSpecRevision,
-							executorType: "tedi",
-							executorId: IDS.tediId,
-							leaseTtlMs: 60_000,
-							now: NOW,
-						},
-					);
-					expect(admission.decision).toBe("rejected");
-					expect(admission.rejectionCode).toBe("evaluation_required");
-					expect(admission.rejectionReason).toMatch(
-						mode === "omitted"
-							? /retain/
-							: mode === "reset_depth"
-								? /depth/
-								: /weakens/,
-					);
-				} finally {
-					await close();
-				}
+					},
+				);
+				expect(admission.decision).toBe("rejected");
+				expect(admission.rejectionCode).toBe("evaluation_required");
+				expect(admission.rejectionReason).toMatch(
+					mode === "omitted"
+						? /retain/
+						: mode === "reset_depth"
+							? /depth/
+							: /weakens/,
+				);
 			},
 		);
 
 		it("create → accept → admit → start → heartbeat → settle → complete → comment", async () => {
-			const { db, close, counts } = await plane.setup();
-			try {
-				const m = plane.modules;
-				const item = await m.crud.createWorkItem(db, {
-					id: IDS.workItemId,
-					orgId: IDS.orgId,
-					title: "Parity",
-					workClass: "maintenance",
-					purposeExceptionExpiresAt: "2026-11-01T00:00:00.000Z",
-					stewardType: "tedi",
-					stewardId: IDS.tediId,
-					createdAt: NOW,
-				});
-				expect(item.disposition).toBe("proposed");
-				expect(item.version).toBe(1);
-				expect(item.admissionSpecRevision).toMatch(/^[0-9a-f]{32}$/);
+			const { db, counts } = fixture!;
+			const m = plane.modules;
+			const item = await m.crud.createWorkItem(db, {
+				id: IDS.workItemId,
+				orgId: IDS.orgId,
+				title: "Parity",
+				workClass: "maintenance",
+				purposeExceptionExpiresAt: "2026-11-01T00:00:00.000Z",
+				stewardType: "tedi",
+				stewardId: IDS.tediId,
+				createdAt: NOW,
+			});
+			expect(item.disposition).toBe("proposed");
+			expect(item.version).toBe(1);
+			expect(item.admissionSpecRevision).toMatch(/^[0-9a-f]{32}$/);
 
-				const accepted = await m.crud.acceptWorkItem(db, {
-					orgId: IDS.orgId,
-					workItemId: IDS.workItemId,
-					acceptanceContract: { version: 1, doneLooksLike: "tests pass" },
-					actor,
-					acceptedAt: NOW,
-				});
-				expect(accepted.disposition).toBe("accepted");
-				expect(accepted.version).toBe(2);
-				const preview = await m.admissions.previewWorkAdmission(db, {
-					orgId: IDS.orgId,
-					workItemId: IDS.workItemId,
-					expectedWorkItemVersion: accepted.version,
-					expectedAdmissionSpecRevision: accepted.admissionSpecRevision,
-					executorType: "tedi",
-					executorId: IDS.tediId,
-					now: NOW,
-				});
-				expect(preview.rejection).toBeUndefined();
-				expect(await counts()).toEqual([0, 0, 0, 0]);
+			const accepted = await m.crud.acceptWorkItem(db, {
+				orgId: IDS.orgId,
+				workItemId: IDS.workItemId,
+				acceptanceContract: { version: 1, doneLooksLike: "tests pass" },
+				actor,
+				acceptedAt: NOW,
+			});
+			expect(accepted.disposition).toBe("accepted");
+			expect(accepted.version).toBe(2);
+			const preview = await m.admissions.previewWorkAdmission(db, {
+				orgId: IDS.orgId,
+				workItemId: IDS.workItemId,
+				expectedWorkItemVersion: accepted.version,
+				expectedAdmissionSpecRevision: accepted.admissionSpecRevision,
+				executorType: "tedi",
+				executorId: IDS.tediId,
+				now: NOW,
+			});
+			expect(preview.rejection).toBeUndefined();
+			expect(await counts()).toEqual([0, 0, 0, 0]);
 
-				const admission = await m.admissions.evaluateAndRecordWorkAdmission(
-					db,
-					{
-						id: IDS.admissionId,
-						orgId: IDS.orgId,
-						workItemId: IDS.workItemId,
-						expectedWorkItemVersion: accepted.version,
-						expectedAdmissionSpecRevision: accepted.admissionSpecRevision,
-						executorType: "tedi",
-						executorId: IDS.tediId,
-						leaseTtlMs: 3_600_000,
-						now: NOW,
-					},
-				);
-				expect(admission.decision).toBe("admitted");
-				expect(admission.workItemVersion).toBe(2);
-				expect(admission.expiresAt).toBe("2026-10-01T01:00:00.000Z");
+			const admission = await m.admissions.evaluateAndRecordWorkAdmission(db, {
+				id: IDS.admissionId,
+				orgId: IDS.orgId,
+				workItemId: IDS.workItemId,
+				expectedWorkItemVersion: accepted.version,
+				expectedAdmissionSpecRevision: accepted.admissionSpecRevision,
+				executorType: "tedi",
+				executorId: IDS.tediId,
+				leaseTtlMs: 3_600_000,
+				now: NOW,
+			});
+			expect(admission.decision).toBe("admitted");
+			expect(admission.workItemVersion).toBe(2);
+			expect(admission.expiresAt).toBe("2026-10-01T01:00:00.000Z");
 
-				const started = await m.attempts.startWorkItemAttempt(db, {
-					orgId: IDS.orgId,
-					workItemId: IDS.workItemId,
-					admissionId: IDS.admissionId,
-					executor: { type: "tedi", id: IDS.tediId },
-					expiresAt: admission.expiresAt!,
-					startedAt: NOW,
-				});
-				expect(started.attempt.runtimeState).toBe("running");
-				expect(started.attempt.attemptNumber).toBe(1);
-				expect(started.resumed).toBe(false);
+			const started = await m.attempts.startWorkItemAttempt(db, {
+				orgId: IDS.orgId,
+				workItemId: IDS.workItemId,
+				admissionId: IDS.admissionId,
+				executor: { type: "tedi", id: IDS.tediId },
+				expiresAt: admission.expiresAt!,
+				startedAt: NOW,
+			});
+			expect(started.attempt.runtimeState).toBe("running");
+			expect(started.attempt.attemptNumber).toBe(1);
+			expect(started.resumed).toBe(false);
 
-				const beat = await m.attempts.heartbeatWorkItemAttempt(db, {
-					orgId: IDS.orgId,
-					workItemId: IDS.workItemId,
-					attemptId: started.attempt.id,
-					executor: { type: "tedi", id: IDS.tediId },
-					leaseTtlMs: 3_600_000,
-					heartbeatAt: "2026-10-01T00:30:00.000Z",
-				});
-				expect(beat.expiresAt).toBe("2026-10-01T01:30:00.000Z");
+			const beat = await m.attempts.heartbeatWorkItemAttempt(db, {
+				orgId: IDS.orgId,
+				workItemId: IDS.workItemId,
+				attemptId: started.attempt.id,
+				executor: { type: "tedi", id: IDS.tediId },
+				leaseTtlMs: 3_600_000,
+				heartbeatAt: "2026-10-01T00:30:00.000Z",
+			});
+			expect(beat.expiresAt).toBe("2026-10-01T01:30:00.000Z");
 
-				const settled = await m.attempts.settleWorkItemAttempt(db, {
-					orgId: IDS.orgId,
-					workItemId: IDS.workItemId,
-					attemptId: started.attempt.id,
-					executor: { type: "tedi", id: IDS.tediId },
-					outcome: "succeeded",
-					settledAt: "2026-10-01T00:45:00.000Z",
-				});
-				expect(settled.attempt.runtimeState).toBe("finished");
-				expect(settled.attempt.outcome).toBe("succeeded");
+			const settled = await m.attempts.settleWorkItemAttempt(db, {
+				orgId: IDS.orgId,
+				workItemId: IDS.workItemId,
+				attemptId: started.attempt.id,
+				executor: { type: "tedi", id: IDS.tediId },
+				outcome: "succeeded",
+				settledAt: "2026-10-01T00:45:00.000Z",
+			});
+			expect(settled.attempt.runtimeState).toBe("finished");
+			expect(settled.attempt.outcome).toBe("succeeded");
 
-				const comment = await m.comments.addWorkItemComment(db, {
-					id: "55555555-5555-4555-8555-555555555555",
-					orgId: IDS.orgId,
-					workItemId: IDS.workItemId,
-					authorType: "user",
-					authorId: "owner-1",
-					body: "done",
-					createdAt: NOW,
-					recordActivity: true,
-				});
-				expect(comment.body).toBe("done");
+			const comment = await m.comments.addWorkItemComment(db, {
+				id: "55555555-5555-4555-8555-555555555555",
+				orgId: IDS.orgId,
+				workItemId: IDS.workItemId,
+				authorType: "user",
+				authorId: "owner-1",
+				body: "done",
+				createdAt: NOW,
+				recordActivity: true,
+			});
+			expect(comment.body).toBe("done");
 
-				const completed = await m.crud.completeWorkItem(db, {
-					orgId: IDS.orgId,
-					workItemId: IDS.workItemId,
-					actor,
-					completedAt: "2026-10-01T01:00:00.000Z",
-				});
-				expect(completed.disposition).toBe("completed");
+			const completed = await m.crud.completeWorkItem(db, {
+				orgId: IDS.orgId,
+				workItemId: IDS.workItemId,
+				actor,
+				completedAt: "2026-10-01T01:00:00.000Z",
+			});
+			expect(completed.disposition).toBe("completed");
 
-				// Fencing: a stale version/spec revision records a rejection, not a
-				// new admission — the insert-select fence matched no row.
-				const rejected = await m.admissions.evaluateAndRecordWorkAdmission(db, {
-					id: "66666666-6666-4666-8666-666666666666",
-					orgId: IDS.orgId,
-					workItemId: IDS.workItemId,
-					expectedWorkItemVersion: 1,
-					expectedAdmissionSpecRevision: "stale",
-					executorType: "tedi",
-					executorId: IDS.tediId,
-					leaseTtlMs: 3_600_000,
-					now: "2026-10-01T02:00:00.000Z",
-				});
-				expect(rejected.decision).toBe("rejected");
-				expect(rejected.rejectionCode).toBe("stale_specification");
-			} finally {
-				await close();
-			}
+			// Fencing: a stale version/spec revision records a rejection, not a
+			// new admission — the insert-select fence matched no row.
+			const rejected = await m.admissions.evaluateAndRecordWorkAdmission(db, {
+				id: "66666666-6666-4666-8666-666666666666",
+				orgId: IDS.orgId,
+				workItemId: IDS.workItemId,
+				expectedWorkItemVersion: 1,
+				expectedAdmissionSpecRevision: "stale",
+				executorType: "tedi",
+				executorId: IDS.tediId,
+				leaseTtlMs: 3_600_000,
+				now: "2026-10-01T02:00:00.000Z",
+			});
+			expect(rejected.decision).toBe("rejected");
+			expect(rejected.rejectionCode).toBe("stale_specification");
 		});
 	});
 }
