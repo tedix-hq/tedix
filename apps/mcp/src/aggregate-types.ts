@@ -28,6 +28,8 @@ export type AggregateAppEntry = {
 	/** Flat namespace these tools answered to before per-app namespaces. */
 	legacyNamespace?: string;
 	connectionLabel?: string;
+	/** Runtime-only routing default; discarded at a provider-bound child. */
+	inheritedRoutingLabel?: string;
 	connectionProviderId?: string;
 	connectionScope?: "tenant" | "user" | "hybrid";
 	connectionScopes?: string[];

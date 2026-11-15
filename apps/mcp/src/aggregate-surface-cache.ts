@@ -158,6 +158,7 @@ export function aggregateSurfaceCacheKey(
 			organizationMount: entry.organizationMount ?? false,
 			legacyNamespace: entry.legacyNamespace ?? null,
 			connectionLabel: entry.connectionLabel ?? null,
+			inheritedRoutingLabel: entry.inheritedRoutingLabel ?? null,
 			connectionProviderId: entry.connectionProviderId ?? null,
 			connectionInstanceId: entry.connectionInstanceId ?? null,
 			connectionScope: entry.connectionScope ?? null,

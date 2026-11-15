@@ -543,6 +543,9 @@ async function aggregateAndPrefixToolsUncached(
 				};
 			}
 			const prefix = entry.prefix ?? entry.slug;
+			const routingLabel = !appConnectionProviderId
+				? (entry.inheritedRoutingLabel ?? appConnectionLabel ?? undefined)
+				: undefined;
 			const forwardedQueryParams =
 				entry.forwardedQueryParams ?? appForwardedQueryParams ?? undefined;
 
@@ -605,6 +608,7 @@ async function aggregateAndPrefixToolsUncached(
 						sub.connectionLabel ??
 						(appProviderMatches ? appConnectionLabel : undefined) ??
 						undefined,
+					inheritedRoutingLabel: routingLabel,
 					connectionProviderId:
 						entry.connectionProviderId ??
 						sub.connectionProviderId ??
@@ -701,7 +705,10 @@ async function aggregateAndPrefixToolsUncached(
 						appCatalogPrompts.length > 0))
 			) {
 				const effectiveLabel =
-					entry.connectionLabel ?? appConnectionLabel ?? undefined;
+					entry.connectionLabel ??
+					routingLabel ??
+					appConnectionLabel ??
+					undefined;
 				const effectiveConnectionProviderId =
 					entry.connectionProviderId ?? appConnectionProviderId ?? undefined;
 				const inheritedAccount =
