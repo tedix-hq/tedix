@@ -12,7 +12,12 @@ const {
 	return {
 		getByDomain,
 		getBySlugWithTools,
-		getApiClient: vi.fn(() => ({ apps: { getByDomain, getBySlugWithTools } })),
+		getApiClient: vi.fn(() => ({
+			apps: { getByDomain, getBySlugWithTools },
+			osTenant: {
+				personalAgentSession: vi.fn(async () => ({ status: "not_configured" })),
+			},
+		})),
 		mountMcp: vi.fn(
 			async () =>
 				new Response(JSON.stringify({ ok: true }), {
