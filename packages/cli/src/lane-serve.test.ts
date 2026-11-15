@@ -6418,6 +6418,8 @@ it("removes stale recovery folders and says when the cap cannot be met", async (
 	expect(log).toContain('"event":"recovery-removed"');
 	expect(log).toContain('"event":"checkout-cap-held"');
 	expect(log).toContain("1 removable run folders refused removal");
+	expect(log).toContain('"event":"checkout-held"');
+	expect(log).toContain("waiting for its retry backoff");
 });
 
 it("measures a finished run once, across sweeps and a runner restart", async () => {

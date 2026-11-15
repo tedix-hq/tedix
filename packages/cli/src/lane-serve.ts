@@ -1082,7 +1082,7 @@ async function laneWorktreeInUse(destination: string): Promise<boolean> {
 }
 
 /** How long a folder Git cannot read is kept before eviction deletes it. */
-const STALE_CHECKOUT_MS = 3 * 24 * 60 * 60_000;
+const STALE_CHECKOUT_MS = 60 * 60_000;
 
 function staleFolder(path: string): boolean {
 	try {
@@ -1123,6 +1123,7 @@ export async function cleanupLaneWorktree(
 		destination: string,
 	) => boolean | Promise<boolean> = laneWorktreeInUse,
 	evict = false,
+	refused: (reason: string) => void = () => {},
 ): Promise<boolean> {
 	const run = async (repo: string, args: string[]) => {
 		try {
@@ -1145,9 +1146,14 @@ export async function cleanupLaneWorktree(
 	]);
 	const head = await run(destination, ["rev-parse", "HEAD"]);
 	if (!status || !head) {
-		if (!evict || !staleFolder(destination) || !lostGitDir(destination))
+		if (!evict || !staleFolder(destination) || !lostGitDir(destination)) {
+			refused("git cannot read the checkout");
 			return false;
-		if (await inUse(destination)) return false;
+		}
+		if (await inUse(destination)) {
+			refused("a process still uses the checkout");
+			return false;
+		}
 		await rm(destination, { recursive: true, force: true });
 		return true;
 	}
@@ -1168,7 +1174,14 @@ export async function cleanupLaneWorktree(
 	const emptied = changes.every((line) => /^(?: D|D )/.test(line));
 	// Work younger than `STALE_CHECKOUT_MS` may still be retried or pushed.
 	const evictable = evict && staleFolder(destination);
-	if (!emptied && !evictable) return false;
+	if (!emptied && !evictable) {
+		refused(
+			evict
+				? "holds uncommitted files and changed under the last hour"
+				: "holds uncommitted files",
+		);
+		return false;
+	}
 	// Recording a SHA on Work does not preserve the commit's Git objects.
 	const unpushed = await run(destination, [
 		"rev-list",
@@ -1176,12 +1189,24 @@ export async function cleanupLaneWorktree(
 		"--not",
 		"refs/remotes/origin/main",
 	]);
-	if (!unpushed) return false;
+	if (!unpushed) {
+		refused("git rev-list failed");
+		return false;
+	}
 	const holdsWork = !emptied || !!unpushed.stdout.trim();
-	if (holdsWork && !evictable) return false;
-	if (await inUse(destination)) return false;
+	if (holdsWork && !evictable) {
+		refused("holds unpushed commits");
+		return false;
+	}
+	if (await inUse(destination)) {
+		refused("a process still uses the checkout");
+		return false;
+	}
 	const list = await run(source, ["worktree", "list", "--porcelain", "-z"]);
-	if (!list) return false;
+	if (!list) {
+		refused("git worktree list failed");
+		return false;
+	}
 	const target = realpathSync(destination);
 	const entry = list.stdout
 		.split("\0\0")
@@ -1198,7 +1223,10 @@ export async function cleanupLaneWorktree(
 		(line) => line === "locked" || line.startsWith("locked "),
 	);
 	// A lock someone else placed keeps the checkout; only release our own.
-	if (lock && lock !== `locked ${LANE_WORKTREE_LOCK_REASON}`) return false;
+	if (lock && lock !== `locked ${LANE_WORKTREE_LOCK_REASON}`) {
+		refused("locked by someone else");
+		return false;
+	}
 	if (holdsWork) {
 		const identity = [
 			"-c",
@@ -1219,8 +1247,10 @@ export async function cleanupLaneWorktree(
 					"--message",
 					"Evicted checkout snapshot",
 				])))
-		)
+		) {
+			refused("snapshot commit failed");
 			return false;
+		}
 		const saved = await run(destination, ["rev-parse", "HEAD"]);
 		if (
 			!saved ||
@@ -1229,8 +1259,10 @@ export async function cleanupLaneWorktree(
 				`refs/lane-evicted/${basename(dirname(destination))}/${basename(destination)}`,
 				saved.stdout.trim(),
 			]))
-		)
+		) {
+			refused("saving the work as a Git ref failed");
 			return false;
+		}
 	}
 	const locked =
 		lock !== undefined &&
@@ -1253,6 +1285,7 @@ export async function cleanupLaneWorktree(
 		return true;
 	} catch {
 		if (locked) await run(source, lockLaneWorktreeArgs(destination));
+		refused("git worktree remove failed");
 		return false;
 	}
 }
@@ -1656,6 +1689,7 @@ interface DispatcherDeps {
 		source: string,
 		destination: string,
 		evict?: boolean,
+		refused?: (reason: string) => void,
 	) => boolean | Promise<boolean>;
 	/** Recursive size of a run directory in bytes. */
 	directoryBytes: (path: string) => Promise<number>;
@@ -1690,8 +1724,8 @@ const defaultDeps: DispatcherDeps = {
 					: createCodexLaneThread(cwd, "codex", model, resume),
 	launch: runLaneProcess,
 	darkWake: inDarkWake,
-	cleanup: (source, destination, evict) =>
-		cleanupLaneWorktree(source, destination, undefined, evict),
+	cleanup: (source, destination, evict, refused) =>
+		cleanupLaneWorktree(source, destination, undefined, evict, refused),
 	directoryBytes: async (path) => {
 		const { stdout } = await promisify(execFile)("du", ["-sk", path], {
 			encoding: "utf8",
@@ -1784,6 +1818,14 @@ export class LaneDispatcher {
 	 * Whether a cleanup of this path may run now. Saying yes books the next
 	 * try, later after each refusal; a successful cleanup forgets the path.
 	 */
+	private refusals = new Map<string, string>();
+	/** Remembers why a path was last refused, whichever pass asked. */
+	private noteRefusal(path: string, then?: (reason: string) => void) {
+		return (reason: string) => {
+			this.refusals.set(path, reason);
+			then?.(reason);
+		};
+	}
 	private cleanupDue(path: string): boolean {
 		const last = this.cleanupAfter.get(path);
 		if (last && Date.now() < last.at) return false;
@@ -2749,7 +2791,12 @@ export class LaneDispatcher {
 			break;
 		}
 	}
-	private async cleanupOrphanRun(run: string, itemId: string, evict = false) {
+	private async cleanupOrphanRun(
+		run: string,
+		itemId: string,
+		evict = false,
+		refused?: (reason: string) => void,
+	) {
 		let kept = false;
 		for (const name of readdirSync(run)) {
 			if (!name.startsWith("repo")) continue;
@@ -2757,7 +2804,14 @@ export class LaneDispatcher {
 			// its checkout here; keep the directory for it.
 			if (this.running.has(itemId) || this.preparing.has(itemId)) return;
 			const repo = join(run, name);
-			if (await this.deps.cleanup(this.options.repo, repo, evict))
+			if (
+				await this.deps.cleanup(
+					this.options.repo,
+					repo,
+					evict,
+					this.noteRefusal(run, refused),
+				)
+			)
 				this.log("worktree-cleaned", itemId, repo);
 			else kept = true;
 		}
@@ -2790,7 +2844,14 @@ export class LaneDispatcher {
 				!this.cleanupDue(repo)
 			)
 				continue;
-			if (await this.deps.cleanup(this.options.repo, repo)) {
+			if (
+				await this.deps.cleanup(
+					this.options.repo,
+					repo,
+					false,
+					this.noteRefusal(repo),
+				)
+			) {
 				this.cleanupAfter.delete(repo);
 				this.log("worktree-cleaned", itemId, repo);
 			}
@@ -2962,8 +3023,9 @@ export class LaneDispatcher {
 			itemId: string;
 			at: number;
 			size: number;
-			remove: () => Promise<void>;
+			remove: (refused: (reason: string) => void) => Promise<void>;
 		}> = [];
+		const held = new Map<string, string>();
 		for (const name of names) {
 			if (this.stopping) return;
 			const run = join(runs, name);
@@ -2980,23 +3042,32 @@ export class LaneDispatcher {
 			total += size;
 			const itemId = name.slice(0, 36);
 			if (row) {
-				if (this.checkoutCleanupReady(row, true))
+				if (!this.checkoutCleanupReady(row, true))
+					held.set(
+						itemId,
+						`protected: phase ${row.phase}${row.pid && alive(row.pid) ? ", process alive" : ""}${row.pendingCommitProof !== undefined || row.pendingObservation ? ", proof pending" : ""}${row.admissionState === "unknown" ? ", admission unknown" : ""}`,
+					);
+				else
 					candidates.push({
 						run,
 						path: row.repo!,
 						itemId: row.itemId,
 						at,
 						size,
-						remove: () => this.cleanupWorktree(row, { retained: true }),
+						remove: (refused) =>
+							this.cleanupWorktree(row, { retained: true, refused }),
 					});
-			} else if (this.orphanRun(name, itemId, run, receipted, referenced)) {
+			} else if (!this.orphanRun(name, itemId, run, receipted, referenced))
+				held.set(itemId, "protected: a live run or receipt refers to it");
+			else {
 				candidates.push({
 					run,
 					path: run,
 					itemId,
 					at,
 					size,
-					remove: () => this.cleanupOrphanRun(run, itemId, true),
+					remove: (refused) =>
+						this.cleanupOrphanRun(run, itemId, true, refused),
 				});
 			}
 		}
@@ -3012,13 +3083,24 @@ export class LaneDispatcher {
 			if (this.stopping || total <= cap) break;
 			// A checkout this sweep or an earlier one already refused is not
 			// tried again until its backoff ends.
-			if (!this.cleanupDue(candidate.path)) continue;
+			if (!this.cleanupDue(candidate.path)) {
+				held.set(
+					candidate.itemId,
+					`waiting for its retry backoff${this.refusals.has(candidate.path) ? `; last refused: ${this.refusals.get(candidate.path)}` : ""}`,
+				);
+				continue;
+			}
 			try {
-				await candidate.remove();
+				await candidate.remove((reason) =>
+					held.set(candidate.itemId, `refused: ${reason}`),
+				);
 			} catch (error) {
+				held.set(candidate.itemId, `failed: ${String(error)}`);
 				this.log("cleanup-deferred", candidate.itemId, String(error));
 				continue;
 			}
+			if (existsSync(candidate.run) && !held.has(candidate.itemId))
+				held.set(candidate.itemId, "refused: it still has a checkout inside");
 			if (!existsSync(candidate.run)) {
 				total -= candidate.size;
 				this.log(
@@ -3028,12 +3110,18 @@ export class LaneDispatcher {
 				);
 			}
 		}
-		if (total > cap)
+		if (total > cap) {
+			for (const candidate of candidates)
+				if (existsSync(candidate.run) && !held.has(candidate.itemId))
+					held.set(candidate.itemId, "not reached before the cap was met");
+			for (const [itemId, reason] of held)
+				this.log("checkout-held", itemId, reason);
 			this.log(
 				"checkout-cap-held",
 				undefined,
-				`${(total / 1024 ** 3).toFixed(1)} GB still retained: ${candidates.filter((candidate) => existsSync(candidate.run)).length} removable run folders refused removal or wait for their next try and ${names.length - candidates.length} are running, awaiting proof or protected`,
+				`${(total / 1024 ** 3).toFixed(1)} GB still retained: ${candidates.filter((candidate) => existsSync(candidate.run)).length} removable run folders refused removal or wait for their next try and ${names.length - candidates.length} are running, awaiting proof or protected; each folder's reason is in the checkout-held lines above`,
 			);
+		}
 	}
 	private async releaseWaits(
 		rows: Receipt[],
@@ -4190,7 +4278,15 @@ export class LaneDispatcher {
 	}
 	private async cleanupWorktree(
 		receipt: Receipt,
-		{ retained = false, ownRun = false } = {},
+		{
+			retained = false,
+			ownRun = false,
+			refused,
+		}: {
+			retained?: boolean;
+			ownRun?: boolean;
+			refused?: (reason: string) => void;
+		} = {},
 	) {
 		if (!this.checkoutCleanupReady(receipt, retained)) return;
 		// A settle-time call finishes the running slot it holds; every other
@@ -4201,7 +4297,14 @@ export class LaneDispatcher {
 			(this.running.has(receipt.itemId) || this.preparing.has(receipt.itemId))
 		)
 			return;
-		if (await this.deps.cleanup(this.options.repo, receipt.repo!, retained)) {
+		if (
+			await this.deps.cleanup(
+				this.options.repo,
+				receipt.repo!,
+				retained,
+				this.noteRefusal(receipt.repo!, refused),
+			)
+		) {
 			this.cleanupAfter.delete(receipt.repo!);
 			const run = dirname(receipt.repo!);
 			if (
