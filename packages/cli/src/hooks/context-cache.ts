@@ -3,8 +3,9 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { isRecord } from "@tedix/api-contract/utils/is-record";
 import { beginFileLock } from "../local-file-lock";
-import { isObject, type JsonObject } from "./hook-io";
+import type { JsonObject } from "./hook-io";
 
 /** How long a cached read stands in for the live one. */
 export const CACHE_TTL_MS = 10 * 60_000;
@@ -41,10 +42,13 @@ export function readCache(
 		const parsed: unknown = JSON.parse(
 			readFileSync(entryPath(env, kind, key), "utf8"),
 		);
-		if (!isObject(parsed) || parsed.key !== key || !isObject(parsed.value))
+		if (!isRecord(parsed) || parsed.key !== key || !isRecord(parsed.value))
 			return undefined;
 		// Clock skew counts as age zero.
-		const ageMs = Math.max(0, now.getTime() - Date.parse(parsed.writtenAt));
+		const ageMs = Math.max(
+			0,
+			now.getTime() - Date.parse(String(parsed.writtenAt)),
+		);
 		const ttl =
 			kind === "next-work" || kind === "recall" ? 30_000 : CACHE_TTL_MS;
 		if (!Number.isFinite(ageMs) || ageMs > ttl) return undefined;
