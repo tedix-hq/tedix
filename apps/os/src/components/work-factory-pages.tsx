@@ -102,16 +102,17 @@ import { osApi } from "@/lib/api";
 import { errorMessage } from "@/lib/orpc-error";
 import { absoluteDate, absoluteTime } from "@/lib/time";
 import { useDocumentTitle } from "@/lib/use-document-title";
-import { workPrincipalLabel } from "@/lib/work-display";
+import { workPrincipalLabel, workPrincipalTooltip } from "@/lib/work-display";
 import {
 	PageControls,
+	namedWorkPrincipal,
 	useCursorPaging,
 	useWorkPrincipalNames,
 } from "./work-operations-shared";
 
 const WORK_LIST_LIMIT = 100;
 const PROJECTION_FAILURE_FALLBACK =
-	"The canonical projection failed. Retry once; if the failure persists, inspect the API Work projection health.";
+	"This list could not be loaded. Try again; if it keeps failing, ask an administrator to check the service status.";
 
 export function WorkItemInspectorPage({ children }: { children: ReactNode }) {
 	return (
@@ -133,7 +134,10 @@ export function WorkItemReadOnlyLedgers({
 	events,
 	workItemId,
 	repositoryWorkspaceId,
+	principalNames,
 }: {
+	/** `type:id` to display name; tooltips show the name, never the raw id. */
+	principalNames?: PrincipalNames;
 	repositoryWorkspaceId?: string;
 	workItemId: string;
 	acceptanceContract: WorkItem["acceptanceContract"];
@@ -174,6 +178,10 @@ export function WorkItemReadOnlyLedgers({
 	}>;
 }) {
 	useOsFormattingPreferences();
+	const eventActorName = (type: string, id: string) =>
+		principalNames?.has(`${type}:${id}`)
+			? namedWorkPrincipal(type, id, principalNames)
+			: workEventActorLabel(id, type);
 	return (
 		<>
 			<SectionCollection
@@ -216,12 +224,22 @@ export function WorkItemReadOnlyLedgers({
 									<Text
 										role="label"
 										tone="mono-secondary"
-										title={`${attempt.executorType}:${attempt.executorId}`}
-									>
-										{workPrincipalLabel(
-											attempt.executorId,
+										title={workPrincipalTooltip(
 											attempt.executorType,
+											attempt.executorId,
+											principalNames,
 										)}
+									>
+										{principalNames
+											? namedWorkPrincipal(
+													attempt.executorType,
+													attempt.executorId,
+													principalNames,
+												)
+											: workPrincipalLabel(
+													attempt.executorId,
+													attempt.executorType,
+												)}
 									</Text>
 									<WorkAttemptActivity attempt={attempt} />
 								</div>
@@ -302,7 +320,7 @@ export function WorkItemReadOnlyLedgers({
 				</SectionCollection>
 			</PageGrid>
 			<SectionCollection
-				title="Immutable events"
+				title="History"
 				description="Discussion remains in comments; lifecycle state is recorded here."
 				empty="No lifecycle events recorded."
 			>
@@ -311,14 +329,20 @@ export function WorkItemReadOnlyLedgers({
 							<li className="min-w-0" key={event.id}>
 								<WorkActorAvatar
 									actor={workActorReference(event.actorType, event.actorId)}
-									name={workEventActorLabel(event.actorId, event.actorType)}
+									name={eventActorName(event.actorType, event.actorId)}
 								/>
 								<Text weight="medium">
 									{sentenceCase(event.eventType.replaceAll(".", "_"))}
 								</Text>
 								<Text role="label" tone="secondary">
-									<span title={`${event.actorType}:${event.actorId}`}>
-										{workEventActorLabel(event.actorId, event.actorType)}
+									<span
+										title={workPrincipalTooltip(
+											event.actorType,
+											event.actorId,
+											principalNames,
+										)}
+									>
+										{eventActorName(event.actorType, event.actorId)}
 									</span>{" "}
 									·{" "}
 									<time
@@ -1057,8 +1081,8 @@ export function WorkProjectPage({ projectId }: { projectId: string }) {
 				<CardHeader>
 					<CardTitle>Accountable health</CardTitle>
 					<CardDescription>
-						Immutable judgment history; mechanical completion never substitutes
-						for it.
+						A record of how the accountable person judges this project. A
+						finished task does not replace that judgment.
 					</CardDescription>
 				</CardHeader>
 				<CardContent className="grid gap-3">
@@ -1135,7 +1159,7 @@ export function WorkProjectPage({ projectId }: { projectId: string }) {
 			) : (
 				<WorkEmpty
 					title="No work in this project"
-					description="Projects are not executable; admit bounded Work Items when outcomes are ready."
+					description="This project has no tasks yet. Add a task when an outcome is ready to be worked on."
 				/>
 			)}
 		</Page>
@@ -1183,7 +1207,7 @@ export function WorkGraphPage() {
 		<Page width="full">
 			<WorkPageHeader
 				title="Work graph"
-				description="A durable dependency graph. Portfolio hierarchy is not executor ownership, and external project managers remain projections."
+				description="Which tasks have to finish before others can start. Grouping tasks under a project does not decide who does them."
 			/>
 			{relationsQuery.isError ? (
 				<WorkReadFailure
@@ -1195,7 +1219,7 @@ export function WorkGraphPage() {
 			) : relations.length === 0 ? (
 				<WorkEmpty
 					title="No dependency edges"
-					description="Independent work remains visible in the queue; add blocks, duplicates, or references only when the relationship is real."
+					description="Tasks that do not depend on each other still appear in the queue. Add a link only when one task really blocks, repeats, or refers to another."
 				/>
 			) : (
 				<>
@@ -1844,6 +1868,7 @@ export function WorkItemPage({ itemId }: { itemId: string }) {
 					<div className="grid gap-4 pt-4">
 						<ClipboardText size="sm" text={item.id} textToCopy={item.id} />
 						<WorkItemReadOnlyLedgers
+							principalNames={principalNames}
 							workItemId={item.id}
 							repositoryWorkspaceId={
 								z.uuid().safeParse(item.provenance?.workspaceId).data

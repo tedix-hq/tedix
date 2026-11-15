@@ -150,7 +150,7 @@ export function OperationPicker({
 				render={
 					<Button
 						variant="outline"
-						className="min-h-11 max-w-full justify-start whitespace-normal text-left"
+						className="min-h-11 w-auto max-w-full min-w-0 justify-start whitespace-normal text-left"
 					/>
 				}
 				aria-label={label}

@@ -61,6 +61,14 @@ import {
 } from "@/lib/os-query-options";
 import { useDocumentTitle } from "@/lib/use-document-title";
 import {
+	FormPicker,
+	useEpicOptions,
+	usePrincipalOptions,
+	useProjectOptions,
+	useWorkItemOptions,
+} from "@/components/work-form-pickers";
+import { workPrincipalTooltip } from "@/lib/work-display";
+import {
 	namedWorkPrincipal,
 	useWorkPrincipalNames,
 	OperationActor,
@@ -74,13 +82,13 @@ import {
 
 const interactionRequestSchema = z.object({
 	contextType: z.enum(["work_item", "case", "project"]),
-	contextId: z.string().trim().min(1, "Enter a context id."),
+	contextId: z.string().trim().min(1, "Choose what this request is about."),
 	kind: z.enum(["question", "input", "handoff", "coordination"]),
 	subject: z.string().trim().min(1, "Enter a subject."),
 	reason: z.string().trim().max(300, "Keep the reason to one line."),
 	prompt: z.string().trim().min(1, "Enter the requested input."),
 	targetType: z.enum(["user", "tedi", "external_agent"]),
-	targetId: z.string().trim().min(1, "Enter a target principal id."),
+	targetId: z.string().trim().min(1, "Choose who should answer."),
 });
 
 /** The quiet toggle under a session's newest question. */
@@ -379,6 +387,19 @@ export function WorkInteractionsPage() {
 		onSubmit: ({ value }) => create.mutate(value),
 	});
 	const kind = useStore(form.store, (state) => state.values.kind);
+	const contextType = useStore(form.store, (state) => state.values.contextType);
+	const targetType = useStore(form.store, (state) => state.values.targetType);
+	// A chosen id belongs to one kind; clear it when the kind changes.
+	useEffect(() => {
+		form.setFieldValue("contextId", "");
+	}, [contextType, form]);
+	useEffect(() => {
+		form.setFieldValue("targetId", "");
+	}, [targetType, form]);
+	const workItemPicker = useWorkItemOptions();
+	const epicOptions = useEpicOptions();
+	const projectOptions = useProjectOptions();
+	const targetOptions = usePrincipalOptions(targetType);
 	const visibleRows = query.data?.data ?? [];
 	const renderInteractionRow = (
 		{
@@ -413,7 +434,13 @@ export function WorkInteractionsPage() {
 			</Badge>
 		);
 		const target = (
-			<span title={`${request.requestedFromType}:${request.requestedFromId}`}>
+			<span
+				title={workPrincipalTooltip(
+					request.requestedFromType,
+					request.requestedFromId,
+					names,
+				)}
+			>
 				{namedWorkPrincipal(
 					request.requestedFromType,
 					request.requestedFromId,
@@ -548,8 +575,7 @@ export function WorkInteractionsPage() {
 								Ask for input
 							</SectionTitle>
 							<SectionDescription>
-								Choose exactly one canonical context and one concrete target
-								principal.
+								Pick what the request is about and who should answer it.
 							</SectionDescription>
 						</SectionHeading>
 					</SectionHeader>
@@ -595,10 +621,59 @@ export function WorkInteractionsPage() {
 									</FormSelect>
 								)}
 							</FormField>
+							<FormField
+								form={form}
+								name="contextId"
+								label={
+									contextType === "work_item"
+										? "Work Item"
+										: contextType === "case"
+											? "Epic"
+											: "Project"
+								}
+							>
+								{(field) => (
+									<FormPicker
+										key={contextType}
+										field={field}
+										label={`Choose ${contextType === "work_item" ? "a Work Item" : contextType === "case" ? "an epic" : "a project"}`}
+										options={
+											contextType === "work_item"
+												? workItemPicker.options
+												: contextType === "case"
+													? epicOptions
+													: projectOptions
+										}
+										onSearch={
+											contextType === "work_item"
+												? workItemPicker.onSearch
+												: undefined
+										}
+									/>
+								)}
+							</FormField>
+							<FormField
+								form={form}
+								name="targetId"
+								label={
+									targetType === "user"
+										? "Person to ask"
+										: targetType === "tedi"
+											? "Tedi to ask"
+											: "Agent to ask"
+								}
+							>
+								{(field) => (
+									<FormPicker
+										key={targetType}
+										field={field}
+										label={`Choose ${targetType === "user" ? "a person" : targetType === "tedi" ? "a tedi" : "an agent"}`}
+										options={targetOptions}
+									/>
+								)}
+							</FormField>
 							{(
 								[
-									["contextId", "Context id"],
-									["targetId", "Target principal id"],
 									["subject", "Subject"],
 									["reason", "Why it needs them (one line)"],
 								] as const
