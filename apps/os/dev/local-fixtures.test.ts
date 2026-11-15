@@ -935,6 +935,17 @@ const CALLS = {
 		proposalId: uid(51, 14),
 		expectedSequence: 1,
 	},
+	"osAppRuntime/revisions": {
+		workspaceId: uid(48, 1),
+		gadgetId: uid(49, 14),
+		limit: 20,
+	},
+	"osAppRuntime/restoreRevision": {
+		workspaceId: uid(48, 1),
+		gadgetId: uid(49, 14),
+		revisionId: uid(50, 14),
+		expectedRevisionId: uid(50, 14),
+	},
 	"osWorkspaces/gadgets/getCode": {
 		workspaceId: IDS.workspaceRevenue,
 		gadgetId: IDS.gadgetDashboard,
@@ -1243,6 +1254,8 @@ const DEMO_PACK_CALLS = new Set([
 	"osAppRuntime/proposeEdit",
 	"osAppRuntime/saveDraft",
 	"osAppRuntime/mergeDraft",
+	"osAppRuntime/revisions",
+	"osAppRuntime/restoreRevision",
 ]);
 
 describe("local fixtures parse through the contract output schemas", () => {
@@ -1411,6 +1424,54 @@ it("redeems a staged connect ticket once and refuses unknown tickets", () => {
 	expect(
 		callLocal("connections/redeemConnectTicket", { ticket: "unknown" }).status,
 	).toBe(404);
+});
+
+it("restores an earlier app version as a new current revision and keeps the history", async () => {
+	vi.resetModules();
+	const sample = await import("./local-fixtures");
+	sample.enableDemoPack();
+	const scope = CALLS["osAppRuntime/client"];
+	const call = (key: string, input: unknown) =>
+		sample.handleLocalRpc(`/api/rpc/${key}`, "POST", { json: input });
+	const json = <T>(key: string, input: unknown) => {
+		const result = call(key, input);
+		expect(result?.status).toBe(200);
+		return (result!.body as { json: T }).json;
+	};
+	type Row = { id: string; revision: number };
+	const first = json<{ revisions: Row[] }>("osAppRuntime/revisions", scope)
+		.revisions[0]!;
+	const client = json<{ client: string }>("osAppRuntime/client", scope).client;
+	const stale = {
+		...scope,
+		revisionId: first.id,
+		expectedRevisionId: first.id,
+	};
+	const { revision: second } = json<{ revision: Row }>(
+		"osAppRuntime/restoreRevision",
+		stale,
+	);
+	expect(second.revision).toBe(first.revision + 1);
+	expect(call("osAppRuntime/restoreRevision", stale)?.status).toBe(409);
+	expect(
+		call("osAppRuntime/restoreRevision", {
+			...stale,
+			revisionId: uid(50, 99),
+			expectedRevisionId: second.id,
+		})?.status,
+	).toBe(404);
+	expect(
+		json<{ revisions: Row[] }>("osAppRuntime/revisions", scope).revisions.map(
+			(row) => row.id,
+		),
+	).toEqual([second.id, first.id]);
+	expect(
+		json<{ revisions: Row[] }>("osAppRuntime/revisions", { ...scope, limit: 1 })
+			.revisions,
+	).toHaveLength(1);
+	expect(
+		json<{ client: string; revisionId: string }>("osAppRuntime/client", scope),
+	).toMatchObject({ client, revisionId: second.id });
 });
 
 it("serves the runtime client and only its current session's granted Output slots", async () => {

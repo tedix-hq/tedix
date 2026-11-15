@@ -514,6 +514,54 @@ export const gadgetHandlers: Record<string, (input: never) => unknown> = {
 			previewUrl: `/workspaces/${gadget.workspaceId}?workpiece=gadget%3A${gadget.id}&view=drafts`,
 		};
 	},
+	"osAppRuntime/revisions": (input: {
+		workspaceId: string;
+		gadgetId: string;
+		limit?: number;
+	}) => {
+		const gadget = findGadget(input.workspaceId, input.gadgetId);
+		return {
+			revisions: state.gadgetRevisions
+				.filter((row) => row.gadgetId === gadget.id)
+				.sort((a, b) => b.revision - a.revision)
+				.slice(0, input.limit ?? 20),
+		};
+	},
+	// Like the API: the earlier version comes back as a new revision, so the
+	// history keeps every version and the app opens on the restored one.
+	"osAppRuntime/restoreRevision": (input: {
+		workspaceId: string;
+		gadgetId: string;
+		revisionId: string;
+		expectedRevisionId: string;
+	}) => {
+		const gadget = findGadget(input.workspaceId, input.gadgetId);
+		if (gadget.currentRevisionId !== input.expectedRevisionId)
+			throw new RpcError("CONFLICT", "App revision changed");
+		const history = state.gadgetRevisions.filter(
+			(row) => row.gadgetId === gadget.id,
+		);
+		const earlier = history.find((row) => row.id === input.revisionId);
+		const files = earlier ? state.gadgetCode[earlier.id] : undefined;
+		if (!earlier || !files || earlier.manifest.entry !== APP_RUNTIME_ENTRY)
+			throw new RpcError("NOT_FOUND", "OS runtime app revision not found");
+		const revision: OsGadgetRevision = {
+			id: nextId(),
+			organizationId: ORG_ID,
+			gadgetId: gadget.id,
+			revision: (latestRevision(history)?.revision ?? 0) + 1,
+			manifest: earlier.manifest,
+			sourceArtifactRef: earlier.sourceArtifactRef,
+			createdByKind: "user",
+			createdById: "dev-operator",
+			createdAt: now(),
+		};
+		state.gadgetRevisions.push(revision);
+		state.gadgetCode[revision.id] = files;
+		gadget.currentRevisionId = revision.id;
+		gadget.updatedAt = revision.createdAt;
+		return { revision };
+	},
 	"osWorkspaces/gadgets/getCode": (input: {
 		workspaceId: string;
 		gadgetId: string;
