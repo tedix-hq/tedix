@@ -3,6 +3,17 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.21.19 — 2026-11-15
+
+### Patch Changes
+
+- cff0e21: Tedix now accepts a Work Item only when it has a project, a done-when and an accountable owner, and says what is missing otherwise. `tedix lane serve --accept-proposed` leaves proposals without an accountable owner in triage instead of trying to accept them; file shift Work with `--owner`.
+- e5ae619: Creating a task's checkout no longer stalls the runner or fails after 30 seconds on a large repository. The runner keeps working while Git creates the checkout and allows it up to five minutes. If it still fails, the half-made checkout is removed before the next try and the error shows Git's own message or how long it waited.
+- 7dc4517: `tedix work --help` now opens with a plain description and lists every verb; the `health-list` and `health-record` verbs are removed.
+- 47c9091: Devin lanes now find their own Tedix profile. When a workspace's shared agent profile belongs to another coding tool, the dispatcher stored the Devin lane's profile under a Devin-specific name, but the CLI inside the lane looked under the workspace name and reported "No external-agent profile is configured." Commands such as `tedix work context`, `tedix agent status` and Work comments now run under the lane's own short-lived credential, and the lane brief no longer suggests setting session variables by hand.
+- ead0353: The runner now retries a task that waited more than once or that was cancelled because the runner was stopping. Before, a second "deferred" wait or a stop during start left the task held until someone changed it. A task that a person or the agent cancelled is still left alone.
+- f90ed85: `tedix lane serve` now frees `runs/` space under cap pressure for checkouts idle for an hour (it was three days), after saving their commits and uncommitted files as a Git ref. When the cap still cannot be met, the log names each folder it kept and why (`checkout-held`).
+
 ## 0.21.18 — 2026-11-15
 
 ### Patch Changes
