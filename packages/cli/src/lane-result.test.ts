@@ -155,6 +155,15 @@ describe("structured lane results", () => {
 	});
 	it("releases only a complete resolving response from the exact human", () => {
 		expect(laneWaitResponse(wait, interaction())).toBe(responseId);
+		// A runner on an older CLI still sees the answer when the server adds fields.
+		const newer = structuredClone(interaction()) as Record<string, any>;
+		newer.addedByServer = true;
+		newer.request.addedByServer = { since: "next release" };
+		newer.responses.data[0].addedByServer = 1;
+		expect(laneWaitResponse(wait, newer)).toBe(responseId);
+		expect(laneWaitTerminal(wait, newer)).toBe(true);
+		delete newer.request.version;
+		expect(laneWaitResponse(wait, newer)).toBeUndefined();
 		const cases = [
 			(v: ReturnType<typeof interaction>) => {
 				v.request.workItemId = responseId;

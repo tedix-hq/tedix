@@ -7,6 +7,7 @@ import {
 } from "@tedix/api-contract/schemas/attention";
 import { normalizeCodeResult, truncationErrorMessage } from "./code-result";
 import { errorText } from "./format";
+import { parseServerResponse } from "./server-response";
 import { callConfiguredNativeTool } from "./work-native";
 import type { NativeToolContext } from "./work";
 
@@ -103,7 +104,13 @@ export async function runAttentionCommand(
 		const normalized = normalizeCodeResult(raw);
 		if (normalized.truncated)
 			throw new Error(truncationErrorMessage(normalized));
-		const value = schema ? schema.parse(normalized.value) : normalized.value;
+		const value = schema
+			? parseServerResponse(
+					schema,
+					normalized.value,
+					`The attention.${tool} response`,
+				)
+			: normalized.value;
 		if (
 			!schema &&
 			(!value ||
