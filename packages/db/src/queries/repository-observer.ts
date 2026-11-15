@@ -451,20 +451,31 @@ function settlementValues(now: string, reason: string | SQL) {
 		metadata: sql`json_set(${workItems.metadata}, '$.settleReason', ${reason}, '$.settledAt', ${now})`,
 	};
 }
-export async function settleRecoveredRepositoryObservation(
+export async function settleRecoveredRepositoryShipObservations(
 	db: DbQueryClient,
-	orgId: string,
-	id: string,
-	now: string,
+	p: {
+		orgId: string;
+		projectId: string;
+		repository: string;
+		branch: string;
+		surface: string;
+		occurredAt?: string;
+		now: string;
+	},
 ) {
 	return db
 		.update(workItems)
-		.set(settlementValues(now, "no action needed: ship_green recovery"))
+		.set(settlementValues(p.now, "no action needed: ship_green recovery"))
 		.where(
 			and(
-				eq(workItems.orgId, orgId),
-				eq(workItems.id, id),
-				settleableObservation(now),
+				eq(workItems.orgId, p.orgId),
+				eq(workItems.projectId, p.projectId),
+				sql`json_extract(${workItems.metadata}, '$.event.kind')='ship_red'`,
+				sql`json_extract(${workItems.metadata}, '$.event.repository')=${p.repository}`,
+				sql`json_extract(${workItems.metadata}, '$.event.branch')=${p.branch}`,
+				sql`json_extract(${workItems.metadata}, '$.event.surface')=${p.surface}`,
+				sql`julianday(coalesce(json_extract(${workItems.metadata}, '$.event.occurredAt'), ${workItems.createdAt})) <= julianday(${p.occurredAt ?? p.now})`,
+				settleableObservation(p.now),
 			),
 		)
 		.returning({ id: workItems.id });

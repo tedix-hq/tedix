@@ -155,6 +155,11 @@ export async function observeRepositoryEvent(
 		if (event.kind !== "push") id = parent.id;
 	}
 	if (event.kind === "ship_green") {
+		await observations.settleRecoveredRepositoryShipObservations(context.db, {
+			...event,
+			orgId,
+			now: new Date().toISOString(),
+		});
 		const row = await observations.getRepositoryObservation(
 			context.db,
 			orgId,
@@ -170,12 +175,6 @@ export async function observeRepositoryEvent(
 			`${id}:green`,
 			config.instructions,
 			event,
-		);
-		await observations.settleRecoveredRepositoryObservation(
-			context.db,
-			orgId,
-			id,
-			new Date().toISOString(),
 		);
 		return { observationId: id, workItemId: id, status: "recovery_queued" };
 	}
