@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { chromium } from "playwright";
 import type { OsGadgetExecution } from "@tedix/api-contract/schemas/os-workspaces";
 import { startFixtureServer } from "./fixture-server";
+import { showWorkpieceView } from "./workpiece-views";
 
 const workspaceId = "00000030-0000-4000-8000-000000000001";
 const gadgetId = "00000031-0000-4000-8000-00000000000e";
@@ -110,10 +111,7 @@ try {
 			`${server.origin}/workspace/${workspaceId}?workpiece=gadget%3A${gadgetId}&pane=workpiece`,
 			{ waitUntil: "domcontentloaded" },
 		);
-		await page
-			.getByRole("group", { name: "Active workpiece view" })
-			.getByRole("button", { name: "History", exact: true })
-			.click();
+		await showWorkpieceView(page, "History");
 		const runs = page.getByRole("list", { name: "Runs" });
 		const row = runs.getByRole("button", { name: /clicked Count/ });
 		await row.waitFor();
@@ -154,10 +152,7 @@ try {
 		// manual run stays one small action away.
 		neverRun = true;
 		await page.reload({ waitUntil: "domcontentloaded" });
-		await page
-			.getByRole("group", { name: "Active workpiece view" })
-			.getByRole("button", { name: "History", exact: true })
-			.click();
+		await showWorkpieceView(page, "History");
 		await page.getByText("No runs yet").waitFor();
 		await page
 			.getByText(

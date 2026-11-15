@@ -53,6 +53,7 @@ import { CanvasResourceRail } from "@/components/canvas-resource-rail";
 import {
 	CANVAS_WORKPIECE_PANEL_ID,
 	CanvasWorkpieceTabs,
+	CanvasWorkpieceViewMenu,
 	canvasWorkpieceModeOptions,
 	canvasWorkpieceTabId,
 } from "@/components/canvas-workpiece-tabs";
@@ -316,19 +317,27 @@ const CANVAS_STAGE_MOTION_MS = 200;
 export const CANVAS_STAGE_CLOSE_SETTLE_MS = CANVAS_STAGE_MOTION_MS + 100;
 
 const CANVAS_NARROW_QUERY = "(max-width: 959px)";
+/** The phone line canvas-page.css draws its single-row item bar at. */
+const CANVAS_PHONE_QUERY = "(max-width: 639px)";
 
-function subscribeCanvasNarrow(onChange: () => void) {
-	const query = window.matchMedia?.(CANVAS_NARROW_QUERY);
-	query?.addEventListener("change", onChange);
-	return () => query?.removeEventListener("change", onChange);
+function useCanvasMediaQuery(media: string): boolean {
+	const subscribe = useCallback(
+		(onChange: () => void) => {
+			const query = window.matchMedia?.(media);
+			query?.addEventListener("change", onChange);
+			return () => query?.removeEventListener("change", onChange);
+		},
+		[media],
+	);
+	return useSyncExternalStore(
+		subscribe,
+		() => window.matchMedia?.(media).matches ?? false,
+	);
 }
 
 /** A phone-width screen shows one pane at a time from the bottom switcher. */
 function useCanvasNarrow(): boolean {
-	return useSyncExternalStore(
-		subscribeCanvasNarrow,
-		() => window.matchMedia?.(CANVAS_NARROW_QUERY).matches ?? false,
-	);
+	return useCanvasMediaQuery(CANVAS_NARROW_QUERY);
 }
 
 function canvasMotionReduced(): boolean {
@@ -626,6 +635,7 @@ export function CanvasPage({
 	);
 	const [openedDocs, setOpenedDocs] = useState<CanvasWorkpieceSelection[]>([]);
 	const narrow = useCanvasNarrow();
+	const phone = useCanvasMediaQuery(CANVAS_PHONE_QUERY);
 	// The item pane beside the chat. Closing it keeps the tabs and the selected
 	// item mounted, so opening it again shows the same thing at once.
 	const [stagePaneOpen, setStagePaneOpen] = useState(() => {
@@ -1728,22 +1738,34 @@ export function CanvasPage({
 			? "workpiece"
 			: workpieceMode;
 
-	const workpieceViewControls = selectedDoc ? (
-		<SegmentedControl
-			ariaLabel="Active workpiece view"
-			className="canvas-workpiece-mode-switcher"
-			compact
-			onValueChange={selectWorkpieceMode}
-			options={canvasWorkpieceModeOptions(
+	const workpieceViewOptions = selectedDoc
+		? canvasWorkpieceModeOptions(
 				selectedDoc,
 				selectedOutputKind,
 				selectedDraftCount,
 				workpieceMode,
 				selectedFileEditorKind,
-			)}
+			)
+		: [];
+	// A phone has room for one row above the open item, so the view tabs fold
+	// into a menu on that row.
+	const workpieceViewControls = !selectedDoc ? null : phone ? (
+		<CanvasWorkpieceViewMenu
+			draftCount={selectedDraftCount}
+			onValueChange={selectWorkpieceMode}
+			options={workpieceViewOptions}
 			value={shownWorkpieceMode}
 		/>
-	) : null;
+	) : (
+		<SegmentedControl
+			ariaLabel="Active workpiece view"
+			className="canvas-workpiece-mode-switcher"
+			compact
+			onValueChange={selectWorkpieceMode}
+			options={workpieceViewOptions}
+			value={shownWorkpieceMode}
+		/>
+	);
 
 	const workspaceMenuItems = (
 		<>

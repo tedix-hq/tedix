@@ -112,6 +112,22 @@ function DropdownMenuItem({
 	);
 }
 
+/** One choice among several; the checked row shows its indicator. */
+const DropdownMenuRadioGroup = KumoDropdownMenu.RadioGroup;
+const DropdownMenuRadioItemIndicator = KumoDropdownMenu.RadioItemIndicator;
+
+function DropdownMenuRadioItem({
+	className,
+	...props
+}: React.ComponentProps<typeof KumoDropdownMenu.RadioItem>) {
+	return (
+		<KumoDropdownMenu.RadioItem
+			className={cn(COARSE_MENU_ITEM, className)}
+			{...props}
+		/>
+	);
+}
+
 const DropdownMenuLinkItem = React.forwardRef<
 	React.ComponentRef<typeof KumoDropdownMenu.LinkItem>,
 	React.ComponentPropsWithoutRef<typeof KumoDropdownMenu.LinkItem>
@@ -136,6 +152,9 @@ export {
 	DropdownMenuLabel,
 	DropdownMenuLinkItem,
 	DropdownMenuList,
+	DropdownMenuRadioGroup,
+	DropdownMenuRadioItem,
+	DropdownMenuRadioItemIndicator,
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 };

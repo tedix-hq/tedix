@@ -1,12 +1,19 @@
 import assert from "node:assert/strict";
 import { chromium, type Page } from "playwright";
 import { startFixtureServer } from "./fixture-server";
+import {
+	showWorkpieceView,
+	workpieceViewMenu,
+	workpieceViewNames,
+	workpieceViewTabs,
+} from "./workpiece-views";
 
 /*
  * A workspace page has at most two navigation rows above the canvas: the
  * workspace's top bar, and the open item's tab row. No control appears twice
  * (one chat toggle, one Files toggle, one presence stack, one place for each
- * view), and every width gets the same structure in both themes.
+ * view), and every width gets the same structure in both themes. On a phone
+ * the open item's row is a single line: the view tabs fold into a menu there.
  */
 const appPath =
 	"/workspace/00000030-0000-4000-8000-000000000001?workpiece=gadget%3A00000031-0000-4000-8000-00000000000a&pane=workpiece";
@@ -124,12 +131,14 @@ try {
 				`${label}: the pane switcher is for narrow screens only`,
 			);
 			assert.deepEqual(
-				await page
-					.getByRole("group", { name: "Active workpiece view" })
-					.getByRole("button")
-					.allInnerTexts(),
+				await workpieceViewNames(page),
 				["App", "Code", "History", "Connections"],
-				`${label}: four plain tabs for the open app`,
+				`${label}: four plain views for the open app`,
+			);
+			assert.equal(
+				await workpieceViewTabs(page).isVisible(),
+				!phone,
+				`${label}: view tabs on wide screens, a view menu on a phone`,
 			);
 
 			// One control per job: a single chat toggle and a single Files toggle,
@@ -192,22 +201,25 @@ try {
 			);
 			assert.equal(emptySegments, 0, `${label}: no empty title segment`);
 
-			// The view tabs keep their place whichever view is open.
-			const viewTabs = page.getByRole("group", {
-				name: "Active workpiece view",
-			});
+			// The view control keeps its place whichever view is open: the tabs
+			// by their left edge, the phone's menu (named after the view, so its
+			// width changes) by its right edge beside Close.
+			const viewControl = phone
+				? workpieceViewMenu(page)
+				: workpieceViewTabs(page);
 			const tabX: number[] = [];
 			for (const view of ["App", "Code", "History", "Connections"]) {
-				await viewTabs.getByRole("button", { name: view, exact: true }).click();
+				await showWorkpieceView(page, view);
 				await page.waitForTimeout(150);
-				tabX.push(Math.round((await viewTabs.boundingBox())?.x ?? -1));
+				const box = await viewControl.boundingBox();
+				tabX.push(Math.round(box ? box.x + (phone ? box.width : 0) : -1));
 			}
 			assert.equal(
 				new Set(tabX).size,
 				1,
-				`${label}: view tabs stay put across App, Edit, History and Connections (${tabX})`,
+				`${label}: the view control stays put across App, Code, History and Connections (${tabX})`,
 			);
-			await viewTabs.getByRole("button", { name: "App", exact: true }).click();
+			await showWorkpieceView(page, "App");
 
 			// The open item's bar is at most two rows, on one left edge.
 			const barRows = await page.evaluate(() => {
@@ -227,7 +239,10 @@ try {
 				}
 				return rows.map((row) => Math.round(row.left));
 			});
-			assert(barRows.length <= 2, `${label}: item bar is at most two rows`);
+			assert(
+				barRows.length <= (phone ? 1 : 2),
+				`${label}: item bar is ${phone ? "one row" : "at most two rows"} (${barRows.length})`,
+			);
 			assert.equal(
 				new Set(barRows).size,
 				1,

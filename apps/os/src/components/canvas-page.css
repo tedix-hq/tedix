@@ -1010,21 +1010,23 @@
 		display: none;
 	}
 
-	/* A phone gives the view tabs their own full-width line under the open
-	   tab and its actions, so nothing scrolls out of reach. */
+	/* A phone keeps the open item to one row: its tabs, its actions, a view
+	   menu in place of the view tabs, and Close. The tabs give way first and
+	   scroll; nothing wraps onto a second line above the item. */
 	.canvas-workpiece-bar {
 		height: auto;
 		flex: none;
-		flex-wrap: wrap;
-		row-gap: 0;
+		flex-wrap: nowrap;
 		column-gap: 8px;
+		padding-block: 2px;
 		padding-inline: 12px;
 	}
 
 	.canvas-workpiece-tabs {
-		min-width: 7rem;
+		min-width: 4rem;
 		min-height: 44px;
 		flex-basis: 0;
+		padding-block: 0;
 	}
 
 	.canvas-workpiece-tab {
@@ -1032,17 +1034,16 @@
 		flex: 0 1 auto;
 	}
 
-	/* The view tabs always take the second line, so they keep their place
-	   whichever view adds or drops a control on the first. */
-	.canvas-workpiece-bar::after {
-		content: "";
-		order: 2;
-		flex-basis: 100%;
+	/* The open file's Share keeps the row's 44px height. */
+	.canvas-workpiece-actions .canvas-document-actions {
+		padding: 0;
 	}
 
-	.canvas-workpiece-mode-switcher {
-		order: 3;
-		margin-bottom: 8px;
+	.canvas-workpiece-view-menu {
+		min-width: 0;
+		max-width: 9rem;
+		flex: 0 1 auto;
+		gap: 4px;
 	}
 
 	.chat-starter-prompts {

@@ -4,6 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { startFixtureServer } from "./fixture-server";
+import {
+	showWorkpieceView,
+	waitForWorkpieceViews,
+	workpieceViewMenu,
+	workpieceViewNames,
+} from "./workpiece-views";
 
 // The runtime app panel on the demo pack's Reddit workspace: the live app,
 // its code, and a chat draft that previews in its own sandbox and is accepted
@@ -67,9 +73,8 @@ try {
 				waitUntil: "domcontentloaded",
 			});
 
-			// The live app opens directly, beside its Code and History tabs.
-			const tabs = appView(page);
-			await tabs.waitFor();
+			// The live app opens directly, beside its Code and History views.
+			await waitForWorkpieceViews(page);
 			assert.equal(
 				await page.locator("html").getAttribute("data-mode"),
 				theme,
@@ -78,13 +83,17 @@ try {
 			await guest(page, "Opportunity cards")
 				.getByRole("heading", { name: /opportunities for Maya/ })
 				.waitFor();
-			// The open draft is counted on the Code tab and announced in the app.
-			const editTab = tabs.getByRole("button", { name: /^Code/ });
-			await editTab.waitFor();
-			assert.equal(
-				(await editTab.innerText()).replace(/\s+/g, " ").trim(),
-				"Code 1",
-				`${label}: the Code tab counts the open draft`,
+			// The open draft is counted on the Code view and announced in the
+			// app; a phone's view menu shows the count while Code is not open.
+			if (width < 640)
+				assert.equal(
+					await workpieceViewMenu(page).getAttribute("aria-label"),
+					"View: App, 1 draft in Code",
+					`${label}: the view menu counts the open draft`,
+				);
+			assert(
+				(await workpieceViewNames(page)).includes("Code 1"),
+				`${label}: the Code view counts the open draft`,
 			);
 			const banner = page.locator("[data-canvas-drafts-banner]");
 			assert.match(
@@ -112,7 +121,7 @@ try {
 			await page.screenshot({ path: `${evidence}/${width}-${theme}-app.png` });
 
 			// Edit: builders can edit the revision files into a draft.
-			await editTab.click();
+			await showWorkpieceView(page, /^Code/);
 			const files = page.getByRole("complementary", { name: "Code files" });
 			await files
 				.getByRole("button", { name: "client.js", exact: true })
@@ -164,7 +173,7 @@ try {
 				path: `${evidence}/${width}-${theme}-code.png`,
 			});
 			// History fills the column too: its header and rows have no card.
-			await tabs.getByRole("button", { name: "History" }).click();
+			await showWorkpieceView(page, "History");
 			const history = page.locator("[data-gadget-executions]");
 			await history.getByRole("button", { name: "Run manually" }).waitFor();
 			const historyEdges = await page.evaluate(() => {
@@ -183,7 +192,7 @@ try {
 			await page.screenshot({
 				path: `${evidence}/${width}-${theme}-edit-history.png`,
 			});
-			await editTab.click();
+			await showWorkpieceView(page, /^Code/);
 
 			// The draft sits above the code in Edit: what it changes, and its own
 			// preview.
