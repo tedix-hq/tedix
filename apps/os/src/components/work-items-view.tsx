@@ -55,6 +55,7 @@ type WorkItemRow = Pick<
 	| "disposition"
 	| "priority"
 	| "projectId"
+	| "parentWorkItemId"
 	| "accountableOwnerType"
 	| "accountableOwnerId"
 	| "dueDate"
@@ -128,6 +129,17 @@ function Filter<T extends string>({
 	);
 }
 
+/** The epic is the parent Work Item; its title and date come from the loaded rows. */
+function epicOf(item: WorkItemRow, items: readonly WorkItemRow[]) {
+	if (!item.parentWorkItemId) return null;
+	const parent = items.find((row) => row.id === item.parentWorkItemId);
+	return {
+		id: item.parentWorkItemId,
+		title: parent?.title,
+		due: parent && due(parent),
+	};
+}
+
 export function AllWorkTable({
 	items,
 	projectNames,
@@ -141,16 +153,17 @@ export function AllWorkTable({
 		<Table
 			scrollLabel="All work"
 			mobileLayout="stacked"
-			className="table-fixed sm:min-w-[60rem]"
+			className="table-fixed sm:min-w-[72rem]"
 		>
 			<TableHeader>
 				<TableRow>
-					<TableHead className="w-[30%]">Title</TableHead>
+					<TableHead className="w-[22%]">Title</TableHead>
 					<TableHead className="w-[11%]">{OS_COPY.work.status}</TableHead>
-					<TableHead className="w-[15%]">{OS_COPY.work.project}</TableHead>
-					<TableHead className="w-[15%]">{OS_COPY.work.owner}</TableHead>
+					<TableHead className="w-[13%]">{OS_COPY.work.project}</TableHead>
+					<TableHead className="w-[12%]">{OS_COPY.work.owner}</TableHead>
 					<TableHead className="w-[11%]">Executor</TableHead>
 					<TableHead className="w-[8%]">Priority</TableHead>
+					<TableHead className="w-[13%]">Epic</TableHead>
 					<TableHead className="w-[10%]">{OS_COPY.work.due}</TableHead>
 				</TableRow>
 			</TableHeader>
@@ -165,6 +178,7 @@ export function AllWorkTable({
 						principalNames,
 					);
 					const dueOn = due(item);
+					const epic = epicOf(item, items);
 					return (
 						<TableRow key={item.id}>
 							<TableCell className="py-2! whitespace-normal">
@@ -210,6 +224,30 @@ export function AllWorkTable({
 							</TableCell>
 							<TableCell className="py-2!" label="Priority">
 								{PRIORITY_LABELS[item.priority]}
+							</TableCell>
+							<TableCell
+								className="py-2! sm:truncate"
+								label="Epic"
+								title={epic?.title}
+							>
+								{epic ? (
+									<>
+										<Link href={`/work/items/${epic.id}`}>
+											{epic.title ? plainWorkText(epic.title) : "Open epic"}
+										</Link>
+										{epic.due ? (
+											<Text as="span" tone="secondary">
+												{" "}
+												· target{" "}
+												<time dateTime={epic.due}>{workDate(epic.due)}</time>
+											</Text>
+										) : null}
+									</>
+								) : (
+									<Text as="span" tone="secondary">
+										No epic
+									</Text>
+								)}
 							</TableCell>
 							<TableCell className="py-2!" label={OS_COPY.work.due}>
 								{dueOn ? (
