@@ -177,7 +177,7 @@ export function WorkAdmissionPage() {
 									void lookupForm.handleSubmit();
 								}}
 							>
-								<FormField form={lookupForm} name="itemId" label="Work Item ID">
+								<FormField form={lookupForm} name="itemId" label="Work Item id">
 									{(field, meta) => (
 										<FormInput
 											field={field}
@@ -221,7 +221,7 @@ export function WorkAdmissionPage() {
 								<FormField
 									form={editorForm}
 									name="rawSpec"
-									label="Requirements (JSON)"
+									label="Admission specification JSON"
 								>
 									{(field, meta) => (
 										<FormTextarea

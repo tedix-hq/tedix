@@ -539,13 +539,14 @@ function RunWaitingGate({
 		mutate: (input: { type: string; payload: Record<string, unknown> }) => void;
 	};
 }) {
+	const [approvalIdInput, setApprovalIdInput] = useState<string | null>(null);
 	const [eventTypeInput, setEventTypeInput] = useState<string | null>(null);
 	const [eventPayloadInput, setEventPayloadInput] = useState("{}");
 	const [eventPayloadError, setEventPayloadError] = useState<string | null>(
 		null,
 	);
-	// The approval comes from the gate's own record; nobody types its id.
-	const approvalId = extractGateField(gate, "approvalId") ?? "";
+	const approvalId =
+		approvalIdInput ?? extractGateField(gate, "approvalId") ?? "";
 	const eventType = eventTypeInput ?? extractGateField(gate, "eventType") ?? "";
 
 	return (
@@ -557,13 +558,20 @@ function RunWaitingGate({
 				</CardTitle>
 				<CardDescription>
 					{approvalId
-						? "Approve or reject this request. The run continues or stops based on your answer."
-						: "Send the event this step is waiting for. Most events need no extra details."}
+						? "Approve or reject with the approval id recorded in the gate evidence."
+						: "Send the event this non-approval gate is waiting for. The payload must be a JSON object."}
 				</CardDescription>
 			</CardHeader>
 			<CardContent>
 				{approvalId ? (
 					<div className="flex flex-wrap items-center gap-2">
+						<Input
+							aria-label="Approval id"
+							placeholder="approval id"
+							className="max-w-64"
+							value={approvalId}
+							onChange={(event) => setApprovalIdInput(event.target.value)}
+						/>
 						<Button
 							size="sm"
 							icon={<Check size={15} />}
@@ -590,22 +598,15 @@ function RunWaitingGate({
 							value={eventType}
 							onChange={(event) => setEventTypeInput(event.target.value)}
 						/>
-						<Collapsible>
-							<CollapsibleDefaultTrigger>
-								Advanced: extra event details (JSON)
-							</CollapsibleDefaultTrigger>
-							<CollapsibleDefaultContent>
-								<Input
-									aria-label="Extra event details (JSON object)"
-									placeholder="{}"
-									value={eventPayloadInput}
-									onChange={(event) => {
-										setEventPayloadInput(event.target.value);
-										setEventPayloadError(null);
-									}}
-								/>
-							</CollapsibleDefaultContent>
-						</Collapsible>
+						<Input
+							aria-label="Event payload"
+							placeholder="{}"
+							value={eventPayloadInput}
+							onChange={(event) => {
+								setEventPayloadInput(event.target.value);
+								setEventPayloadError(null);
+							}}
+						/>
 						{eventPayloadError ? (
 							<Text
 								as="p"

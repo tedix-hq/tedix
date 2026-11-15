@@ -18,22 +18,6 @@ export function workPrincipalLabel(
 	return type ? `${type}:${identity}` : identity;
 }
 
-/**
- * Hover text for a principal: the person's, tedi's or agent's name when known,
- * otherwise only the kind ("Tedi"). Never the raw `type:uuid` pair.
- */
-export function workPrincipalTooltip(
-	type: string | undefined,
-	id: string | null | undefined,
-	names?: ReadonlyMap<string, string>,
-): string {
-	const known = names?.get(`${type}:${id}`);
-	if (known) return known;
-	if (!type) return "Unknown";
-	const kind = type === "external_agent" ? "agent" : type;
-	return `${kind.charAt(0).toUpperCase()}${kind.slice(1).replaceAll("_", " ")}`;
-}
-
 export function factoryHref(
 	row: Pick<FactoryScoreboardEntry, "kind" | "id">,
 ): string {
