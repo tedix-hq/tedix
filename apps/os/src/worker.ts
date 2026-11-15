@@ -1138,6 +1138,7 @@ export async function handleOsRequest(
 			return tenantResolutionUnavailable(request);
 		}
 	}
+	// authz: public — unknown metadata paths return no tenant or session data.
 	if (url.pathname.startsWith("/.well-known/")) {
 		return refuse(404, "No well-known resource at this path.");
 	}
