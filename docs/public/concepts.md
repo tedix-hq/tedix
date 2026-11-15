@@ -5,7 +5,7 @@ title: "Core concepts"
 topic: "Platform"
 resource_type: guide
 description: "The small set of Tedix terms a new operator or agent needs before using the platform."
-summary: "Public glossary for organizations, tedis, runs, Work Items, epics, milestones, Documents, apps, skills, and approvals"
+summary: "Public glossary for organizations, tedis, runs, Work Items, epics, milestones, Outputs, apps, skills, and approvals"
 read_when:
   - Learning Tedix terminology
   - Translating a product request into Tedix objects
@@ -44,7 +44,8 @@ explains how to set them up.
 | Objective   | A directive a person sets that says why work exists. A project links to one. See [How work is organized](./how-work-is-organized.md).                                                                                                       |
 | Epic        | A bigger piece of work inside a project, like an incident, an investigation or a feature. It groups several Work Items and has one owner; tools and the CLI call it a case. Stages: investigating, planning, executing, monitoring, closed. |
 | Milestone   | A project's group of Work Items due together, with an optional target date. Statuses: proposed, planned, active, done, cancelled.                                                                                                           |
-| Output      | A document, sheet, presentation or video in a Workspace. Every save is an append-only revision; the Output points at its current one.                                                                                                       |
+| Output      | The one word for a saved file in a Workspace: a document, sheet, presentation or video. "Document" names one kind of Output, not a separate thing. Every save is an append-only revision; the Output points at its current one.             |
+| Runner      | The process on a machine that picks up Work for one executor and runs it as Attempts. The supervisor starts and updates runners; see [CLI](./cli.md). "Run" means a saved record of one tedi turn or skill execution, never a runner.       |
 | Task        | Handle for asynchronous work. Having a task id does not mean the work finished.                                                                                                                                                             |
 | Interaction | A question or request a session or tedi raises on a Work Item. An answer given in Tedix OS reaches the session that asked; a tedi may answer in its own name, and a later human answer is recorded as a correction.                         |
 | Delegation  | A lead session's hand-off of work to a subagent or another session, registered as an accepted Work Item and completed with a recorded outcome.                                                                                              |
