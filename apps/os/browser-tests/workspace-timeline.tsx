@@ -5,8 +5,7 @@ import {
 	workspaceWorkProjectsQueryOptions,
 	projectListQueryOptions,
 	workGraphItemsQueryOptions,
-	projectSprintsQueryOptions,
-	projectMilestonesQueryOptions,
+	workCaseListQueryOptions,
 	projectActiveAttemptsQueryOptions,
 } from "../src/lib/os-query-options";
 import "../src/styles.css";
@@ -60,13 +59,10 @@ client.setQueryData(
 		pagination: { total: 3, limit: 100, offset: 0, hasMore: false },
 	},
 );
-client.setQueryData(projectSprintsQueryOptions("project").queryKey, {
-	data: [],
-});
-client.setQueryData(projectMilestonesQueryOptions("project").queryKey, {
-	data: [],
-	nextCursor: null,
-});
+client.setQueryData(
+	workCaseListQueryOptions({ projectId: "project", limit: 50 }).queryKey,
+	{ data: [], nextCursor: null },
+);
 client.setQueryData(projectActiveAttemptsQueryOptions("project").queryKey, {
 	data: [],
 	nextCursor: null,

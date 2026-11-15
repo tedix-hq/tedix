@@ -20,7 +20,6 @@ import {
 	EvidenceReference,
 	EvidencePreviewResult,
 	compactEvidenceUri,
-	milestoneLifecycleUpdateInput,
 	ProjectBrief,
 	ProjectSummary,
 	projectProgressCopy,
@@ -869,34 +868,6 @@ describe("Work evidence links", () => {
 		);
 		expect(html).not.toContain("href=");
 		expect(html).toContain(uri.replaceAll("&", "&amp;"));
-	});
-});
-
-describe("Project milestone updates", () => {
-	it("includes trimmed proof only for the guarded Done transition", () => {
-		const common = {
-			projectId: "22222222-2222-4222-8222-222222222222",
-			milestoneId: "33333333-3333-4333-8333-333333333333",
-			version: 4,
-		};
-		expect(
-			milestoneLifecycleUpdateInput({
-				...common,
-				lifecycle: "done",
-				proofRef: "  artifact://milestone/proof  ",
-			}),
-		).toMatchObject({
-			lifecycle: "done",
-			proofRef: "artifact://milestone/proof",
-			expectedVersion: 4,
-		});
-		expect(
-			milestoneLifecycleUpdateInput({
-				...common,
-				lifecycle: "active",
-				proofRef: "artifact://ignored",
-			}),
-		).not.toHaveProperty("proofRef");
 	});
 });
 

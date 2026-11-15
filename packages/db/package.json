@@ -470,8 +470,6 @@
 		"./queries/work-items/readiness": "./src/queries/work-items/readiness.ts",
 		"./queries/work-items/projections": "./src/queries/work-items/projections.ts",
 		"./queries/work-items/cases": "./src/queries/work-items/cases.ts",
-		"./queries/work-items/milestones": "./src/queries/work-items/milestones.ts",
-		"./queries/work-items/sprints": "./src/queries/work-items/sprints.ts",
 		"./queries/work-items/health": "./src/queries/work-items/health.ts",
 		"./queries/work-items/approvals": "./src/queries/work-items/approvals.ts",
 		"./queries/work-items/capture-health": "./src/queries/work-items/capture-health.ts",

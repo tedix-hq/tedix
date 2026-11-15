@@ -12,7 +12,6 @@ import {
 	osQueryKeys,
 	osSharesQueryOptions,
 	outputDetailQueryOptions,
-	projectMilestonesQueryOptions,
 	workAttemptProjectionQueryOptions,
 	workRecoveryProjectionQueryOptions,
 	workReadinessProjectionQueryOptions,
@@ -199,7 +198,6 @@ describe("canonical OS Query definitions", () => {
 			at: "2026-08-20T00:00:00.000Z",
 			id: "11111111-1111-4111-8111-111111111111",
 		};
-		const projectId = "22222222-2222-4222-8222-222222222222";
 		const continuations = [
 			[
 				workAttemptProjectionQueryOptions().queryKey,
@@ -209,36 +207,12 @@ describe("canonical OS Query definitions", () => {
 				workRecoveryProjectionQueryOptions().queryKey,
 				workRecoveryProjectionQueryOptions(cursor).queryKey,
 			],
-			[
-				projectMilestonesQueryOptions(projectId).queryKey,
-				projectMilestonesQueryOptions(projectId, cursor.id).queryKey,
-			],
 		] as const;
 
 		for (const [first, next] of continuations) {
 			expect(next).not.toEqual(first);
 			expect(JSON.stringify(next)).toContain(cursor.id);
 		}
-	});
-
-	it("invalidates every milestone cursor page through the generated domain key", async () => {
-		const queryClient = new QueryClient();
-		const projectId = "22222222-2222-4222-8222-222222222222";
-		const first = projectMilestonesQueryOptions(projectId).queryKey;
-		const next = projectMilestonesQueryOptions(
-			projectId,
-			"11111111-1111-4111-8111-111111111111",
-		).queryKey;
-		queryClient.setQueryData(first, { data: [], nextCursor: null });
-		queryClient.setQueryData(next, { data: [], nextCursor: null });
-
-		await queryClient.invalidateQueries({
-			queryKey: osQueryKeys.projectMilestones(),
-			refetchType: "none",
-		});
-
-		expect(queryClient.getQueryState(first)?.isInvalidated).toBe(true);
-		expect(queryClient.getQueryState(next)?.isInvalidated).toBe(true);
 	});
 });
 

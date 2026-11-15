@@ -8,10 +8,7 @@ import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
 import { projects } from "@tedix/db/schema/projects";
 import { workItems, workItemRelations } from "@tedix/db/schema/work-items";
-import {
-	workMilestones,
-	workMilestoneItems,
-} from "@tedix/db/schema/work-factory";
+import { workCaseItems, workCases } from "@tedix/db/schema/work-factory";
 import {
 	osOutputs,
 	osOutputRevisions,
@@ -103,8 +100,8 @@ function fixture(
 			projects,
 			workItems,
 			workItemRelations,
-			workMilestones,
-			workMilestoneItems,
+			workCases,
+			workCaseItems,
 			osOutputs,
 			osOutputRevisions,
 			osWorkspaceProjects,
@@ -238,8 +235,23 @@ describe("generic blueprint apply", () => {
 		expect(f.count("os_gadgets")).toBe(1);
 		expect(f.count("os_gadget_revisions")).toBe(1);
 		expect(f.count("work_item_relations")).toBe(109);
-		expect(f.count("work_milestone_items")).toBe(110);
-		expect(f.count("work_milestones")).toBe(1);
+		expect(f.count("work_case_items")).toBe(110);
+		expect(
+			f.sqlite
+				.prepare(
+					"SELECT title,kind,stage,target_resolution_at,accountable_owner_type,accountable_owner_id FROM work_cases",
+				)
+				.all(),
+		).toEqual([
+			{
+				title: "Finish",
+				kind: "other",
+				stage: "planning",
+				target_resolution_at: "2030-01-01T12:00:00Z",
+				accountable_owner_type: "system",
+				accountable_owner_id: "tedix",
+			},
+		]);
 		expect(f.count("os_outputs")).toBe(1);
 		expect(f.count("os_workspace_projects")).toBe(1);
 		const item = f.sqlite.prepare("SELECT * FROM work_items LIMIT 1").get()!;

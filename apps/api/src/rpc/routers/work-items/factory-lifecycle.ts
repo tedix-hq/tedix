@@ -263,8 +263,7 @@ async function resolveActor(
 
 /**
  * A project move keeps the Work's purpose truthful: objective Work takes the
- * new project's objective, and milestone links (which pin a project) must be
- * removed first.
+ * new project's objective.
  */
 async function workItemProjectMovePurpose(
 	context: BaseContext,

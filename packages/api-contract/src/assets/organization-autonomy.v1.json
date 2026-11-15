@@ -9,14 +9,14 @@
 		{
 			"id": "workspace_management",
 			"label": "Workspace and app management",
-			"pattern": "^(?:(?:create|update|rename|restore|archive|revise|move|link|unlink|attach|remove|patch|set|install)_os_(?:workspace|workspace_resource|workspace_skill|workspace_project|gadget|output|document|slides|sheet_range)s?|(?:request|confirm)_os_workspace_file_upload|install_work_defaults|(?:create|update|rename)_project(?:_milestone)?)$",
+			"pattern": "^(?:(?:create|update|rename|restore|archive|revise|move|link|unlink|attach|remove|patch|set|install)_os_(?:workspace|workspace_resource|workspace_skill|workspace_project|gadget|output|document|slides|sheet_range)s?|(?:request|confirm)_os_workspace_file_upload|install_work_defaults|(?:create|update|rename)_project)$",
 			"endpointPattern": "^osWorkspaces/(?:workspaces/(?:create|update|archive|restore)|resources/(?:create|rename|remove|requestFileUpload|confirmFileUpload)|schedules/(?:link|unlink)|work/(?:attachProject|removeProject)|gadgets/(?:create|revise|archive|rename|installWorkDefaults)|outputs/(?:create|rename|move|revise|patchDocument|patchSlides|setSheetRange|archive))$",
 			"callablePattern": "^$"
 		},
 		{
 			"id": "work_items",
 			"label": "Work items",
-			"pattern": "^(?:create_work_items?|cancel_work_items?|reopen_work_items?|update_work_items?|update_work_item_specification|accept_work_item|work_item_comment|(?:add|create)_work_item_comments?|complete_work_items?|close_completed_work_item|submit_work_item_evidence|(?:create|update)_work_case|attach_work_case_item|add_work_case_dependency|attach_project_milestone_work_item)$",
+			"pattern": "^(?:create_work_items?|cancel_work_items?|reopen_work_items?|update_work_items?|update_work_item_specification|accept_work_item|work_item_comment|(?:add|create)_work_item_comments?|complete_work_items?|close_completed_work_item|submit_work_item_evidence|(?:create|update)_work_case|attach_work_case_item|add_work_case_dependency)$",
 			"endpointPattern": "^workItems/(?:create|cancel|reopen|update|updateSpecification|accept|addComment|complete|submitEvidence|createCase|updateCase|attachCaseWorkItem|addCaseDependency)$",
 			"callablePattern": "^$"
 		},

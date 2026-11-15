@@ -45,11 +45,6 @@ import {
 	listWorkInteractionInbox,
 } from "./interactions";
 import { listDueWorkInteractionReviews } from "./interaction-reviews";
-import {
-	linkWorkItemToMilestone,
-	listWorkMilestoneViews,
-	updateWorkMilestone,
-} from "./milestones";
 
 const migrationRoot = new URL("../../../drizzle/", import.meta.url);
 const migrations = readdirSync(migrationRoot)
@@ -359,11 +354,11 @@ describe("migrated Work factory raw-D1 invariants", () => {
 		).toEqual({ limit_micros: 60 });
 	});
 
-	it("rejects graph attachment to terminal cases and milestones", () => {
+	it("rejects graph attachment to terminal cases", () => {
 		const db = migrated();
 		seedCore(db);
 		db.exec(
-			`INSERT INTO work_cases(id,org_id,project_id,title,kind,stage,accountable_owner_type,accountable_owner_id,opened_at,created_at) VALUES('case','org','project','Case','incident','investigating','system','tedix','2026-08-20T00:00:00.000Z','2026-08-20T00:00:00.000Z'); UPDATE work_cases SET stage='closed',closed_at='2026-08-20T01:00:00.000Z',updated_at='2026-08-20T01:00:00.000Z',version=2 WHERE id='case'; INSERT INTO work_milestones(id,org_id,project_id,title,status,accountable_owner_type,accountable_owner_id,created_at) VALUES('milestone','org','project','Milestone','active','system','tedix','2026-08-20T00:00:00.000Z'); UPDATE work_milestones SET status='cancelled',cancelled_at='2026-08-20T01:00:00.000Z',updated_at='2026-08-20T01:00:00.000Z',version=2 WHERE id='milestone'`,
+			`INSERT INTO work_cases(id,org_id,project_id,title,kind,stage,accountable_owner_type,accountable_owner_id,opened_at,created_at) VALUES('case','org','project','Case','incident','investigating','system','tedix','2026-08-20T00:00:00.000Z','2026-08-20T00:00:00.000Z'); UPDATE work_cases SET stage='closed',closed_at='2026-08-20T01:00:00.000Z',updated_at='2026-08-20T01:00:00.000Z',version=2 WHERE id='case'`,
 		);
 		expectAbort(
 			() =>
@@ -371,59 +366,6 @@ describe("migrated Work factory raw-D1 invariants", () => {
 					"INSERT INTO work_case_items(id,org_id,case_id,work_item_id,discovered_at) VALUES('link','org','case','work','2026-08-20T00:00:00.000Z')",
 				),
 			/closed case cannot accept work/,
-		);
-		expectAbort(
-			() =>
-				db.exec(
-					"INSERT INTO work_milestone_items(org_id,milestone_id,work_item_id,created_at) VALUES('org','milestone','work','2026-08-20T00:00:00.000Z')",
-				),
-			/terminal milestone cannot accept work/,
-		);
-	});
-
-	it("enforces milestone project domains, initial state, and terminal graph retention", () => {
-		const db = migrated();
-		seedCore(db);
-		db.exec(
-			`INSERT INTO projects(id,org_id,key,name,created_at) VALUES('other-project','org','other','Other','2026-08-20T00:00:00.000Z'); INSERT INTO work_items(id,org_id,project_id,title,disposition,admission_spec_revision,created_at) VALUES('project-work','org','project','Project work','completed','project-revision','2026-08-20T00:00:00.000Z'),('other-work','org','other-project','Other work','completed','other-revision','2026-08-20T00:00:00.000Z'); INSERT INTO work_milestones(id,org_id,project_id,title,status,accountable_owner_type,accountable_owner_id,created_at) VALUES('milestone','org','project','Milestone','active','system','tedix','2026-08-20T00:00:00.000Z'),('peer-milestone','org','project','Peer','active','system','tedix','2026-08-20T00:00:00.000Z'),('other-milestone','org','other-project','Other','active','system','tedix','2026-08-20T00:00:00.000Z')`,
-		);
-		expectAbort(
-			() =>
-				db.exec(
-					"INSERT INTO work_milestones(id,org_id,project_id,title,status,accountable_owner_type,accountable_owner_id,proof_ref,done_at,created_at) VALUES('forged','org','project','Forged','done','system','tedix','proof','2026-08-20T00:00:00.000Z','2026-08-20T00:00:00.000Z')",
-				),
-			/initial state/,
-		);
-		expectAbort(
-			() =>
-				db.exec(
-					"INSERT INTO work_milestone_items(org_id,milestone_id,work_item_id,created_at) VALUES('org','milestone','other-work','2026-08-20T00:00:00.000Z')",
-				),
-			/share project/,
-		);
-		expectAbort(
-			() =>
-				db.exec(
-					"INSERT INTO work_milestone_dependencies(id,org_id,prerequisite_milestone_id,dependent_milestone_id,created_at) VALUES('cross','org','milestone','other-milestone','2026-08-20T00:00:00.000Z')",
-				),
-			/share project/,
-		);
-		db.exec(
-			"INSERT INTO work_milestone_items(org_id,milestone_id,work_item_id,created_at) VALUES('org','milestone','project-work','2026-08-20T00:00:00.000Z'); INSERT INTO work_milestone_dependencies(id,org_id,prerequisite_milestone_id,dependent_milestone_id,created_at) VALUES('dependency','org','peer-milestone','milestone','2026-08-20T00:00:00.000Z'); UPDATE work_milestones SET status='cancelled',cancelled_at='2026-08-20T01:00:00.000Z',updated_at='2026-08-20T01:00:00.000Z',version=2 WHERE id='milestone'",
-		);
-		expectAbort(
-			() =>
-				db.exec(
-					"DELETE FROM work_milestone_items WHERE milestone_id='milestone'",
-				),
-			/retained/,
-		);
-		expectAbort(
-			() =>
-				db.exec(
-					"DELETE FROM work_milestone_dependencies WHERE id='dependency'",
-				),
-			/retained/,
 		);
 	});
 
@@ -1076,116 +1018,6 @@ describe("migrated Work factory raw-D1 invariants", () => {
 		);
 		expect(result.data).toEqual([]);
 		expect(result.evaluatedCandidates).toBe(0);
-	});
-
-	it("names the project mismatch when a milestone link crosses projects", async () => {
-		const sqlite = migrated();
-		seedCore(sqlite);
-		sqlite.exec(
-			`INSERT INTO work_items(id,org_id,project_id,title,disposition,admission_spec_revision,created_at) VALUES('project-work','org','project','Project work','proposed','project-revision','2026-08-20T00:00:00.000Z'); INSERT INTO work_milestones(id,org_id,project_id,title,status,accountable_owner_type,accountable_owner_id,created_at) VALUES('milestone','org','project','Milestone','active','system','tedix','2026-08-20T00:00:00.000Z')`,
-		);
-		const db = createDbQueryClient(createD1Facade(sqlite));
-		const now = "2026-08-20T01:00:00.000Z";
-		await expect(
-			linkWorkItemToMilestone(db, {
-				orgId: "org",
-				milestoneId: "milestone",
-				workItemId: "work",
-				now,
-			}),
-		).rejects.toMatchObject({
-			name: "WorkControlError",
-			code: "NOT_ELIGIBLE",
-			message: expect.stringContaining(
-				"items must be in the milestone's project",
-			),
-		});
-		await expect(
-			linkWorkItemToMilestone(db, {
-				orgId: "org",
-				milestoneId: "milestone",
-				workItemId: "project-work",
-				now,
-			}),
-		).resolves.toMatchObject({ workItemId: "project-work" });
-	});
-
-	it("keeps milestone timeline pages canonical and under D1's parameter budget", async () => {
-		const sqlite = migrated();
-		seedCore(sqlite);
-		const insert = sqlite.prepare(
-			"INSERT INTO work_milestones(id,org_id,project_id,title,status,accountable_owner_type,accountable_owner_id,sort_order,target_at,created_at) VALUES(?,'org','project',?,'active','system','tedix',?,?,'2026-08-20T00:00:00.000Z')",
-		);
-		insert.run("m-early", "Early", 0, "2026-08-20T01:00:00.000Z");
-		insert.run("m-late", "Late", 0, "2026-08-20T02:00:00.000Z");
-		insert.run("m-null-a", "Null A", 0, null);
-		insert.run("m-null-b", "Null B", 0, null);
-		for (let i = 0; i < 201; i++)
-			insert.run(
-				`m-bulk-${i.toString().padStart(3, "0")}`,
-				`Bulk ${i}`,
-				i + 1,
-				null,
-			);
-		const db = createDbQueryClient(createD1Facade(sqlite));
-		const first = await listWorkMilestoneViews(db, {
-			orgId: "org",
-			projectId: "project",
-			limit: 2,
-		});
-		expect(first.data.map((row) => row.milestone.id)).toEqual([
-			"m-early",
-			"m-late",
-		]);
-		const second = await listWorkMilestoneViews(db, {
-			orgId: "org",
-			projectId: "project",
-			limit: 2,
-			cursor: first.nextCursor!,
-		});
-		expect(second.data.map((row) => row.milestone.id)).toEqual([
-			"m-null-a",
-			"m-null-b",
-		]);
-		await expect(
-			listWorkMilestoneViews(db, {
-				orgId: "org",
-				projectId: "project",
-				cursor: "missing",
-			}),
-		).rejects.toMatchObject({ code: "NOT_FOUND" });
-		const defaultPage = await listWorkMilestoneViews(db, {
-			orgId: "org",
-			projectId: "project",
-		});
-		expect(defaultPage.data).toHaveLength(50);
-		expect(defaultPage.nextCursor).not.toBeNull();
-		const maxPage = await listWorkMilestoneViews(db, {
-			orgId: "org",
-			projectId: "project",
-			limit: 200,
-		});
-		expect(maxPage.data).toHaveLength(200);
-		expect(maxPage.nextCursor).not.toBeNull();
-	});
-
-	it("requires done prerequisites and returns a typed milestone transition failure", async () => {
-		const sqlite = migrated();
-		seedCore(sqlite);
-		sqlite.exec(
-			`UPDATE work_items SET project_id='project',admission_spec_revision='project-revision',updated_at='2026-08-20T00:00:00.000Z',version=2 WHERE id='work'; INSERT INTO work_milestones(id,org_id,project_id,title,status,accountable_owner_type,accountable_owner_id,created_at) VALUES('prerequisite','org','project','Prerequisite','active','system','tedix','2026-08-20T00:00:00.000Z'),('dependent','org','project','Dependent','active','system','tedix','2026-08-20T00:00:00.000Z'); INSERT INTO work_milestone_dependencies(id,org_id,prerequisite_milestone_id,dependent_milestone_id,created_at) VALUES('dependency','org','prerequisite','dependent','2026-08-20T00:00:00.000Z'); INSERT INTO work_milestone_items(org_id,milestone_id,work_item_id,created_at) VALUES('org','dependent','work','2026-08-20T00:00:00.000Z'); UPDATE work_milestones SET status='cancelled',cancelled_at='2026-08-20T00:30:00.000Z',updated_at='2026-08-20T00:30:00.000Z',version=2 WHERE id='prerequisite'`,
-		);
-		const db = createDbQueryClient(createD1Facade(sqlite));
-		await expect(
-			updateWorkMilestone(db, {
-				orgId: "org",
-				milestoneId: "dependent",
-				expectedVersion: 1,
-				status: "done",
-				proofRef: "artifact://proof",
-				now: "2026-08-20T01:00:00.000Z",
-			}),
-		).rejects.toMatchObject({ code: "INVALID_TRANSITION" });
 	});
 
 	it("evaluates admissions across more than one hundred attached cases without oversized bindings", async () => {

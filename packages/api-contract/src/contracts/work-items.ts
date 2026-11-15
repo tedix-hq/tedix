@@ -729,7 +729,7 @@ export const workItemsContract = oc
 						.uuid()
 						.optional()
 						.describe(
-							"Owner/admin move to another project in this organization. Objective Work takes the new project's objective; Work linked to a milestone must be detached first.",
+							"Owner/admin move to another project in this organization. Objective Work takes the new project's objective.",
 						),
 					expectedWorkItemVersion: z
 						.number()

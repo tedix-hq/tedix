@@ -38,8 +38,7 @@ import { osApi } from "@/lib/api";
 import {
 	projectListQueryOptions,
 	projectActiveAttemptsQueryOptions,
-	projectMilestonesQueryOptions,
-	projectSprintsQueryOptions,
+	workCaseListQueryOptions,
 	workGraphItemsQueryOptions,
 	workspaceWorkProjectsQueryOptions,
 	osQuery,
@@ -128,18 +127,8 @@ function ScheduleDialog({
 	const [duration, setDuration] = useState(
 		item.durationDays?.toString() ?? "1",
 	);
-	const [sprintId, setSprintId] = useState("none");
-	const sprints = useQuery({
-		...projectSprintsQueryOptions(item.projectId!),
-		enabled: Boolean(item.projectId),
-	});
-	const refresh = async () => {
-		await queryClient.invalidateQueries({ queryKey: osQuery.workItems.key() });
-		if (item.projectId)
-			await queryClient.invalidateQueries({
-				queryKey: projectSprintsQueryOptions(item.projectId).queryKey,
-			});
-	};
+	const refresh = () =>
+		queryClient.invalidateQueries({ queryKey: osQuery.workItems.key() });
 	const save = useMutation({
 		mutationFn: () =>
 			osApi.workItems.updateSpecification({
@@ -153,15 +142,6 @@ function ScheduleDialog({
 			close();
 		},
 		onError: refresh,
-	});
-	const assign = useMutation({
-		mutationFn: () =>
-			osApi.projects.assignSprintWorkItem({
-				id: item.projectId!,
-				sprintId,
-				workItemId: item.id,
-			}),
-		onSuccess: refresh,
 	});
 	return (
 		<Dialog
@@ -224,55 +204,6 @@ function ScheduleDialog({
 						</Button>
 					</DialogFooter>
 				</form>
-				{(sprints.data?.data.length ?? 0) > 0 ? (
-					<div className="grid gap-2 border-t border-kumo-line pt-4">
-						<Text role="caption">Sprint</Text>
-						<div className="flex flex-wrap gap-2">
-							<Picker
-								name="Add work to sprint"
-								value={sprintId}
-								onChange={setSprintId}
-								options={[
-									{ value: "none", label: "Choose sprint" },
-									...sprints
-										.data!.data.filter(
-											(entry) => !entry.workItemIds.includes(item.id),
-										)
-										.map(({ sprint }) => ({
-											value: sprint.id,
-											label: sprint.name,
-										})),
-								]}
-							/>
-							<Button
-								variant="secondary"
-								size="sm"
-								disabled={
-									sprintId === "none" ||
-									assign.isPending ||
-									Boolean(
-										sprints.data?.data
-											.find((entry) => entry.sprint.id === sprintId)
-											?.workItemIds.includes(item.id),
-									)
-								}
-								onClick={() => assign.mutate()}
-							>
-								Add to sprint
-							</Button>
-						</div>
-						{sprints
-							.data!.data.filter((entry) => entry.workItemIds.includes(item.id))
-							.map(({ sprint }) => (
-								<Text key={sprint.id} role="caption" tone="secondary">
-									In {sprint.name}
-								</Text>
-							))}
-						{assign.isError ? (
-							<Text tone="error">{assign.error.message}</Text>
-						) : null}
-					</div>
-				) : null}
 			</DialogContent>
 		</Dialog>
 	);
@@ -286,7 +217,6 @@ export function WorkspaceWorkPanel({ workspaceId }: { workspaceId: string }) {
 	const [view, setView] = useState<WorkView>("list");
 	const [search, setSearch] = useState("");
 	const [status, setStatus] = useState("all");
-	const [sprintId, setSprintId] = useState("all");
 	const [hideEmpty, setHideEmpty] = useState(true);
 	const [manage, setManage] = useState(false);
 	const [projectSearch, setProjectSearch] = useState("");
@@ -309,12 +239,15 @@ export function WorkspaceWorkPanel({ workspaceId }: { workspaceId: string }) {
 			workGraphItemsQueryOptions({ projectId: id }, 100),
 		),
 	});
-	const sprintQueries = useQueries({
-		queries: visibleIds.map(projectSprintsQueryOptions),
+	const epicQueries = useQueries({
+		queries: visibleIds.map((id) =>
+			workCaseListQueryOptions({ projectId: id, limit: 50 }),
+		),
 	});
-	const milestoneQueries = useQueries({
-		queries: visibleIds.map((id) => projectMilestonesQueryOptions(id)),
-	});
+	// An open epic with a target date is the dated checkpoint on the timeline.
+	const datedEpics = epicQueries
+		.flatMap((query) => query.data?.data ?? [])
+		.filter((epic) => epic.targetResolutionAt && epic.stage !== "closed");
 	const attemptQueries = useQueries({
 		queries: visibleIds.map(projectActiveAttemptsQueryOptions),
 	});
@@ -322,15 +255,12 @@ export function WorkspaceWorkPanel({ workspaceId }: { workspaceId: string }) {
 		(query) => query.data?.data.map((entry) => entry.attempt) ?? [],
 	);
 	const allItems = itemQueries.flatMap((query) => query.data?.data ?? []);
-	const sprints = sprintQueries.flatMap((query) => query.data?.data ?? []);
-	const selectedSprint = sprints.find((entry) => entry.sprint.id === sprintId);
 	const work = allItems.filter(
 		(item) =>
 			(status === "all" || workProgress(item, attempts) === status) &&
 			item.title
 				.toLocaleLowerCase()
-				.includes(search.trim().toLocaleLowerCase()) &&
-			(!selectedSprint || selectedSprint.workItemIds.includes(item.id)),
+				.includes(search.trim().toLocaleLowerCase()),
 	);
 	const projectName = (id: string | null) =>
 		projects.data?.data.find((project) => project.id === id)?.name ??
@@ -444,10 +374,7 @@ export function WorkspaceWorkPanel({ workspaceId }: { workspaceId: string }) {
 					<Picker
 						name="Work project"
 						value={effectiveProjectId}
-						onChange={(id) => {
-							setProjectId(id);
-							setSprintId("all");
-						}}
+						onChange={setProjectId}
 						options={[
 							{ value: "all", label: "All projects" },
 							...linked.map((link) => ({
@@ -486,20 +413,6 @@ export function WorkspaceWorkPanel({ workspaceId }: { workspaceId: string }) {
 							...STATUSES.map((value) => ({ value, label: label(value) })),
 						]}
 					/>
-					{sprints.length ? (
-						<Picker
-							name="Work sprint"
-							value={selectedSprint ? sprintId : "all"}
-							onChange={setSprintId}
-							options={[
-								{ value: "all", label: "All sprints" },
-								...sprints.map(({ sprint }) => ({
-									value: sprint.id,
-									label: sprint.name,
-								})),
-							]}
-						/>
-					) : null}
 					{view === "board" ? (
 						<Button
 							size="sm"
@@ -519,11 +432,6 @@ export function WorkspaceWorkPanel({ workspaceId }: { workspaceId: string }) {
 					<Text role="caption" tone="secondary">
 						Some live progress is unavailable; work without a current attempt
 						shows its accepted status.
-					</Text>
-				) : null}
-				{sprintQueries.some((query) => query.isError) ? (
-					<Text role="caption" tone="secondary">
-						Sprint filters could not be loaded.
 					</Text>
 				) : null}
 				{links.isError || itemQueries.some((query) => query.isError) ? (
@@ -751,19 +659,13 @@ export function WorkspaceWorkPanel({ workspaceId }: { workspaceId: string }) {
 								</Collection>
 							</section>
 						) : null}
-						{milestoneQueries.flatMap((query) => query.data?.data ?? [])
-							.length ? (
-							<div className="flex flex-wrap gap-2">
-								{milestoneQueries
-									.flatMap((query) => query.data?.data ?? [])
-									.map(({ milestone }) => (
-										<Badge key={milestone.id} variant="outline">
-											◆ {milestone.title}
-											{milestone.targetAt
-												? ` · ${dateLabel(milestone.targetAt)}`
-												: ""}
-										</Badge>
-									))}
+						{datedEpics.length ? (
+							<div className="flex flex-wrap gap-2" data-timeline-epics>
+								{datedEpics.map((epic) => (
+									<Badge key={epic.id} variant="outline">
+										◆ {epic.title} · {dateLabel(epic.targetResolutionAt!)}
+									</Badge>
+								))}
 							</div>
 						) : null}
 					</>

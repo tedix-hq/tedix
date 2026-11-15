@@ -1066,7 +1066,7 @@ export const osWorkspacesContract = oc
 					path: "/workspaces/{workspaceId}/work/projects",
 					summary: "List canonical Work projects linked to a Workspace",
 					description:
-						"Defines the native Work view scope without copying Work Items, milestones, dependencies, or status into the Workspace domain.",
+						"Defines the native Work view scope without copying Work Items, dependencies, or status into the Workspace domain.",
 				})
 				.input(
 					workspaceIdInput

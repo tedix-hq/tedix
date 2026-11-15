@@ -7,9 +7,8 @@ import { afterEach, describe, expect, it } from "vite-plus/test";
 import { WorkspaceWorkPanel } from "./workspace-work-panel";
 import {
 	projectListQueryOptions,
-	projectSprintsQueryOptions,
-	projectMilestonesQueryOptions,
 	projectActiveAttemptsQueryOptions,
+	workCaseListQueryOptions,
 	workGraphItemsQueryOptions,
 	workspaceWorkProjectsQueryOptions,
 } from "@/lib/os-query-options";
@@ -128,13 +127,26 @@ async function renderPanel(terminal = false, scheduled = false) {
 				pagination: { total: 1, limit: 100, offset: 0, hasMore: false },
 			},
 		);
-		queryClient.setQueryData(projectSprintsQueryOptions(id).queryKey, {
-			data: [],
-		});
-		queryClient.setQueryData(projectMilestonesQueryOptions(id).queryKey, {
-			data: [],
-			nextCursor: null,
-		});
+		queryClient.setQueryData(
+			workCaseListQueryOptions({ projectId: id, limit: 50 }).queryKey,
+			{
+				data: [
+					{
+						id: `${id}-epic`,
+						title: `${id} launch`,
+						stage: id === "finance" ? "executing" : "closed",
+						targetResolutionAt: "2026-11-30T00:00:00.000Z",
+					},
+					{
+						id: `${id}-undated`,
+						title: `${id} undated`,
+						stage: "planning",
+						targetResolutionAt: null,
+					},
+				] as never,
+				nextCursor: null,
+			},
+		);
 		queryClient.setQueryData(projectActiveAttemptsQueryOptions(id).queryKey, {
 			data: [],
 			nextCursor: null,
@@ -219,6 +231,11 @@ describe("Workspace work", () => {
 		expect(
 			host.querySelector('[aria-label="Schedule finance task"]'),
 		).not.toBeNull();
+		// Open epics with a target date are the timeline's dated checkpoints.
+		const epics = host.querySelector("[data-timeline-epics]")!;
+		expect(epics.children).toHaveLength(1);
+		expect(epics.textContent).toContain("finance launch");
+		expect(host.textContent).not.toMatch(/sprint|milestone/i);
 	});
 
 	it("keeps terminal work dates read-only across views", async () => {

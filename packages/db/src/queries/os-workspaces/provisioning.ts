@@ -3,7 +3,7 @@ import type { BatchItem } from "drizzle-orm/batch";
 import type { DbQueryClient } from "../../query-client";
 import { projects } from "../../schema/projects";
 import { workItems, workItemRelations } from "../../schema/work-items";
-import { workMilestones, workMilestoneItems } from "../../schema/work-factory";
+import { workCaseItems, workCases } from "../../schema/work-factory";
 import { skillSchedules } from "../../schema/cognitive";
 import {
 	osOutputs,
@@ -14,10 +14,10 @@ import {
 
 export interface BlueprintProvisioningRows {
 	projects: (typeof projects.$inferInsert)[];
-	milestones: (typeof workMilestones.$inferInsert)[];
+	epics: (typeof workCases.$inferInsert)[];
 	items: (typeof workItems.$inferInsert)[];
 	relations: (typeof workItemRelations.$inferInsert)[];
-	milestoneItems: (typeof workMilestoneItems.$inferInsert)[];
+	epicItems: (typeof workCaseItems.$inferInsert)[];
 	outputs: (typeof osOutputs.$inferInsert)[];
 	outputRevisions: (typeof osOutputRevisions.$inferInsert)[];
 	projectLinks: (typeof osWorkspaceProjects.$inferInsert)[];
@@ -34,12 +34,10 @@ export function buildBlueprintProvisioningStatements(
 		...rows.projectLinks.map((row) =>
 			db.insert(osWorkspaceProjects).values(row),
 		),
-		...rows.milestones.map((row) => db.insert(workMilestones).values(row)),
+		...rows.epics.map((row) => db.insert(workCases).values(row)),
 		...rows.items.map((row) => db.insert(workItems).values(row)),
 		...rows.relations.map((row) => db.insert(workItemRelations).values(row)),
-		...rows.milestoneItems.map((row) =>
-			db.insert(workMilestoneItems).values(row),
-		),
+		...rows.epicItems.map((row) => db.insert(workCaseItems).values(row)),
 		...rows.outputs.map((row) => db.insert(osOutputs).values(row)),
 		...rows.outputRevisions.map((row) =>
 			db.insert(osOutputRevisions).values(row),

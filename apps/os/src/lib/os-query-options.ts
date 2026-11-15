@@ -825,17 +825,6 @@ export const workCaseDetailQueryOptions = (
 		},
 	});
 
-export const projectMilestonesQueryOptions = (
-	projectId: string,
-	cursor?: string,
-) =>
-	osQuery.projects.listMilestones.queryOptions({
-		input: { id: projectId, limit: 50, ...(cursor ? { cursor } : {}) },
-	});
-
-export const projectSprintsQueryOptions = (projectId: string) =>
-	osQuery.projects.listSprints.queryOptions({ input: { id: projectId } });
-
 export const projectHealthJudgmentsQueryOptions = (
 	projectId: string,
 	limit = 20,
@@ -1582,8 +1571,6 @@ export const osQueryKeys = {
 		osQuery.organizations.listOsMine.key({ type: "query" }),
 	organizationsAllMine: () =>
 		osQuery.organizations.listAllMine.key({ type: "query" }),
-	projectMilestones: () =>
-		osQuery.projects.listMilestones.key({ type: "query" }),
 	/** Every project read: detail, list, rollup and the Projects view. */
 	projects: () => osQuery.projects.key({ type: "query" }),
 	/** Active charter, revision history, and deterministic Owner brief. */

@@ -32,7 +32,6 @@ import {
 	workDue,
 	workReminders,
 } from "@/lib/work-detail";
-import { FormInput } from "@/components/forms/form-input";
 import { FormSelect } from "@/components/forms/form-select";
 import { FormTextarea } from "@/components/forms/form-textarea";
 import { Link } from "@/components/kumo/link";
@@ -90,8 +89,6 @@ import {
 	projectDetailQueryOptions,
 	projectRollupQueryOptions,
 	projectHealthJudgmentsQueryOptions,
-	projectMilestonesQueryOptions,
-	osQueryKeys,
 	workItemAttemptsQueryOptions,
 	workItemDetailQueryOptions,
 	workItemEventsQueryOptions,
@@ -878,31 +875,6 @@ export function WorkItemsTable({
 	);
 }
 
-export function milestoneLifecycleUpdateInput({
-	projectId,
-	milestoneId,
-	version,
-	lifecycle,
-	proofRef,
-}: {
-	projectId: string;
-	milestoneId: string;
-	version: number;
-	lifecycle: "planned" | "active" | "done" | "cancelled";
-	proofRef?: string;
-}) {
-	const normalizedProof = proofRef?.trim();
-	return {
-		id: projectId,
-		milestoneId,
-		expectedVersion: version,
-		lifecycle,
-		...(lifecycle === "done" && normalizedProof
-			? { proofRef: normalizedProof }
-			: {}),
-	};
-}
-
 /** The project's brief: its description, shown verbatim with line breaks. */
 export function ProjectBrief({ description }: { description: string | null }) {
 	const brief = description?.trim();
@@ -1005,205 +977,20 @@ export function ProjectSummary({
 	);
 }
 
-const projectMilestoneSchema = z.object({
-	title: z.string().trim().min(1, "Enter a milestone outcome."),
-	ownerId: z.string().trim().min(1, "Enter an accountable user id."),
-});
-
-const milestoneAttachmentSchema = z.object({
-	milestoneId: z.string().trim().uuid("Enter a canonical milestone UUID."),
-	workItemId: z.string().trim().uuid("Enter a canonical Work Item UUID."),
-});
-
-const milestoneDependencySchema = z.object({
-	fromMilestoneId: z
-		.string()
-		.trim()
-		.uuid("Enter the prerequisite milestone UUID."),
-	toMilestoneId: z.string().trim().uuid("Enter the dependent milestone UUID."),
-});
-
 const projectHealthSchema = z.object({
 	health: z.enum(["on_track", "at_risk", "off_track", "paused"]),
 	summary: z.string().trim().min(1, "Enter an evidence-based rationale."),
 });
 
-const milestoneLifecycleSchema = z
-	.object({
-		lifecycle: z.enum(["planned", "active", "done", "cancelled"]),
-		proofRef: z.string().trim(),
-	})
-	.refine((value) => value.lifecycle !== "done" || Boolean(value.proofRef), {
-		message: "A durable proof reference is required for Done.",
-		path: ["proofRef"],
-	});
-
-function MilestoneLifecycleForm({
-	milestone,
-	isPending,
-	onSubmit,
-}: {
-	milestone: {
-		id: string;
-		lifecycle: "proposed" | "planned" | "active" | "done" | "cancelled";
-		proofRef: string | null;
-		version: number;
-	};
-	isPending: boolean;
-	onSubmit: (value: {
-		id: string;
-		version: number;
-		lifecycle: "planned" | "active" | "done" | "cancelled";
-		proofRef?: string;
-	}) => void;
-}) {
-	const form = useZodForm({
-		schema: milestoneLifecycleSchema,
-		defaultValues: {
-			lifecycle:
-				milestone.lifecycle === "proposed" ? "planned" : milestone.lifecycle,
-			proofRef: milestone.proofRef ?? "",
-		},
-		validateOn: "submit",
-		onSubmit: ({ value }) =>
-			onSubmit({
-				id: milestone.id,
-				version: milestone.version,
-				lifecycle: value.lifecycle,
-				...(value.proofRef ? { proofRef: value.proofRef } : {}),
-			}),
-	});
-	return (
-		<form
-			className="grid gap-3 sm:grid-cols-2"
-			onSubmit={(event) => {
-				event.preventDefault();
-				void form.handleSubmit();
-			}}
-		>
-			<FormField form={form} name="lifecycle" label="Lifecycle">
-				{(field, meta) => (
-					<FormSelect field={field} {...meta}>
-						<SelectItem value="planned">Planned</SelectItem>
-						<SelectItem value="active">Active</SelectItem>
-						<SelectItem value="done">Done</SelectItem>
-						<SelectItem value="cancelled">Cancelled</SelectItem>
-					</FormSelect>
-				)}
-			</FormField>
-			<FormField form={form} name="proofRef" label="Proof reference" optional>
-				{(field, meta) => (
-					<FormInput
-						field={field}
-						{...meta}
-						placeholder="Required when marking Done"
-					/>
-				)}
-			</FormField>
-			<Button className="sm:col-span-2" type="submit" disabled={isPending}>
-				Update milestone
-			</Button>
-		</form>
-	);
-}
-
 export function WorkProjectPage({ projectId }: { projectId: string }) {
 	const queryClient = useQueryClient();
-	const milestonePaging = useCursorPaging<string>();
 	const project = useQuery(projectDetailQueryOptions(projectId));
 	const rollup = useQuery(projectRollupQueryOptions(projectId));
-	const milestones = useQuery(
-		projectMilestonesQueryOptions(projectId, milestonePaging.cursor),
-	);
 	const health = useQuery(projectHealthJudgmentsQueryOptions(projectId));
 	const items = useQuery(
 		workItemListQueryOptions({ projectId, limit: WORK_LIST_LIMIT }),
 	);
 	const principalNames = useWorkPrincipalNames(items.data?.data[0]?.orgId);
-	const refreshMilestones = () => {
-		milestonePaging.reset();
-		return queryClient.invalidateQueries({
-			queryKey: osQueryKeys.projectMilestones(),
-		});
-	};
-	const createMilestone = useMutation({
-		mutationFn: (value: z.output<typeof projectMilestoneSchema>) =>
-			osApi.projects.createMilestone({
-				id: projectId,
-				title: value.title,
-				accountableOwnerType: "user",
-				accountableOwnerId: value.ownerId,
-			}),
-		onSuccess: async () => {
-			createMilestoneForm.reset();
-			await refreshMilestones();
-		},
-	});
-	const createMilestoneForm = useZodForm({
-		schema: projectMilestoneSchema,
-		defaultValues: { title: "", ownerId: "" },
-		validateOn: "submit",
-		onSubmit: ({ value }) => createMilestone.mutate(value),
-	});
-	const updateMilestone = useMutation({
-		mutationFn: ({
-			id,
-			version,
-			lifecycle,
-			proofRef,
-		}: {
-			id: string;
-			version: number;
-			lifecycle: "planned" | "active" | "done" | "cancelled";
-			proofRef?: string;
-		}) =>
-			osApi.projects.updateMilestone(
-				milestoneLifecycleUpdateInput({
-					projectId,
-					milestoneId: id,
-					version,
-					lifecycle,
-					proofRef,
-				}),
-			),
-		onSuccess: refreshMilestones,
-	});
-	const attachMilestone = useMutation({
-		mutationFn: (value: z.output<typeof milestoneAttachmentSchema>) =>
-			osApi.projects.attachMilestoneWorkItem({
-				id: projectId,
-				milestoneId: value.milestoneId,
-				workItemId: value.workItemId,
-			}),
-		onSuccess: async () => {
-			attachmentForm.reset();
-			await refreshMilestones();
-		},
-	});
-	const attachmentForm = useZodForm({
-		schema: milestoneAttachmentSchema,
-		defaultValues: { milestoneId: "", workItemId: "" },
-		validateOn: "submit",
-		onSubmit: ({ value }) => attachMilestone.mutate(value),
-	});
-	const addMilestoneDependency = useMutation({
-		mutationFn: (value: z.output<typeof milestoneDependencySchema>) =>
-			osApi.projects.addMilestoneDependency({
-				id: projectId,
-				fromMilestoneId: value.fromMilestoneId,
-				toMilestoneId: value.toMilestoneId,
-			}),
-		onSuccess: async () => {
-			dependencyForm.reset();
-			await refreshMilestones();
-		},
-	});
-	const dependencyForm = useZodForm({
-		schema: milestoneDependencySchema,
-		defaultValues: { fromMilestoneId: "", toMilestoneId: "" },
-		validateOn: "submit",
-		onSubmit: ({ value }) => addMilestoneDependency.mutate(value),
-	});
 	const recordHealth = useMutation({
 		mutationFn: (value: z.output<typeof projectHealthSchema>) =>
 			osApi.projects.recordHealthJudgment({
@@ -1224,11 +1011,7 @@ export function WorkProjectPage({ projectId }: { projectId: string }) {
 		validateOn: "submit",
 		onSubmit: ({ value }) => recordHealth.mutate(value),
 	});
-	if (
-		[project, rollup, items, milestones, health].some(
-			(query) => query.isPending,
-		)
-	)
+	if ([project, rollup, items, health].some((query) => query.isPending))
 		return (
 			<Page width="full">
 				<WorkListSkeleton />
@@ -1243,15 +1026,12 @@ export function WorkProjectPage({ projectId }: { projectId: string }) {
 				/>
 			</Page>
 		);
-	if (milestones.isError || health.isError)
+	if (health.isError)
 		return (
 			<Page width="full">
 				<WorkReadFailure
 					fallback={PROJECTION_FAILURE_FALLBACK}
-					title={
-						(milestones.error ?? health.error)?.message ??
-						"Project planning controls unavailable"
-					}
+					title={health.error?.message ?? "Project health unavailable"}
 				/>
 			</Page>
 		);
@@ -1273,245 +1053,75 @@ export function WorkProjectPage({ projectId }: { projectId: string }) {
 				projectId={projectId}
 			/>
 			<WorkProjectContributors projectId={projectId} />
-			<div className="grid gap-3 lg:grid-cols-2">
-				<Card>
-					<CardHeader>
-						<CardTitle>Milestones</CardTitle>
-						<CardDescription>
-							Portfolio outcomes with guarded dependencies and linked Work
-							Items.
-						</CardDescription>
-					</CardHeader>
-					<CardContent className="grid gap-3">
-						<form
-							className="grid gap-3"
-							onSubmit={(event) => {
-								event.preventDefault();
-								void createMilestoneForm.handleSubmit();
-							}}
+			<Card>
+				<CardHeader>
+					<CardTitle>Accountable health</CardTitle>
+					<CardDescription>
+						Immutable judgment history; mechanical completion never substitutes
+						for it.
+					</CardDescription>
+				</CardHeader>
+				<CardContent className="grid gap-3">
+					<form
+						className="grid gap-3"
+						onSubmit={(event) => {
+							event.preventDefault();
+							void healthForm.handleSubmit();
+						}}
+					>
+						<FormField form={healthForm} name="health" label="Health judgment">
+							{(field, meta) => (
+								<FormSelect field={field} {...meta}>
+									<SelectItem value="on_track">On track</SelectItem>
+									<SelectItem value="at_risk">At risk</SelectItem>
+									<SelectItem value="off_track">Off track</SelectItem>
+									<SelectItem value="paused">Paused</SelectItem>
+								</FormSelect>
+							)}
+						</FormField>
+						<FormField
+							form={healthForm}
+							name="summary"
+							label="Health rationale"
 						>
-							<FormField
-								form={createMilestoneForm}
-								name="title"
-								label="Milestone outcome"
-							>
-								{(field, meta) => <FormInput field={field} {...meta} />}
-							</FormField>
-							<FormField
-								form={createMilestoneForm}
-								name="ownerId"
-								label="Accountable user id"
-							>
-								{(field, meta) => <FormInput field={field} {...meta} />}
-							</FormField>
-							<Button type="submit" disabled={createMilestone.isPending}>
-								Create milestone
-							</Button>
-						</form>
-						{milestones.data?.data.map(({ milestone }) => (
-							<Surface key={milestone.id} className="grid gap-2 p-3">
-								<div>
-									<strong>{milestone.title}</strong>{" "}
-									<Badge variant="outline">
-										{sentenceCase(milestone.lifecycle)}
-									</Badge>
-									<Text as="p" role="label" tone="secondary">
-										{milestone.id} · v{milestone.version}
-									</Text>
-								</div>
-								<MilestoneLifecycleForm
-									milestone={milestone}
-									isPending={updateMilestone.isPending}
-									onSubmit={(value) => updateMilestone.mutate(value)}
+							{(field, meta) => (
+								<FormTextarea
+									field={field}
+									{...meta}
+									placeholder="Evidence-based health rationale"
 								/>
-							</Surface>
-						))}
-						<PageControls
-							hasPrevious={milestonePaging.hasPrevious}
-							hasNext={Boolean(milestones.data?.nextCursor)}
-							onPrevious={milestonePaging.reset}
-							onBack={milestonePaging.previous}
-							onNext={() => {
-								if (milestones.data?.nextCursor)
-									milestonePaging.next(milestones.data.nextCursor);
-							}}
+							)}
+						</FormField>
+						<Button type="submit" disabled={recordHealth.isPending}>
+							Record judgment
+						</Button>
+					</form>
+					{recordHealth.error ? (
+						<WorkReadFailure
+							fallback={PROJECTION_FAILURE_FALLBACK}
+							title={(recordHealth.error as Error).message}
 						/>
-						<div className="grid gap-4 lg:grid-cols-2">
-							<form
-								className="grid gap-3"
-								onSubmit={(event) => {
-									event.preventDefault();
-									void attachmentForm.handleSubmit();
-								}}
-							>
-								<FormField
-									form={attachmentForm}
-									name="milestoneId"
-									label="Milestone id"
+					) : null}
+					<ul className="m-0 grid gap-2 pl-5">
+						{health.data?.map((judgment) => (
+							<li key={judgment.id}>
+								<Badge
+									variant={
+										judgment.health === "on_track"
+											? "success"
+											: judgment.health === "off_track"
+												? "error"
+												: "warning"
+									}
 								>
-									{(field, meta) => (
-										<FormInput
-											field={field}
-											{...meta}
-											placeholder="Milestone UUID"
-										/>
-									)}
-								</FormField>
-								<FormField
-									form={attachmentForm}
-									name="workItemId"
-									label="Work Item id"
-								>
-									{(field, meta) => (
-										<FormInput
-											field={field}
-											{...meta}
-											placeholder="Work Item UUID"
-										/>
-									)}
-								</FormField>
-								<Button
-									type="submit"
-									variant="outline"
-									disabled={attachMilestone.isPending}
-								>
-									Attach Work Item
-								</Button>
-							</form>
-							<form
-								className="grid gap-3"
-								onSubmit={(event) => {
-									event.preventDefault();
-									void dependencyForm.handleSubmit();
-								}}
-							>
-								<FormField
-									form={dependencyForm}
-									name="fromMilestoneId"
-									label="Prerequisite milestone id"
-								>
-									{(field, meta) => (
-										<FormInput
-											field={field}
-											{...meta}
-											placeholder="Milestone UUID"
-										/>
-									)}
-								</FormField>
-								<FormField
-									form={dependencyForm}
-									name="toMilestoneId"
-									label="Dependent milestone id"
-								>
-									{(field, meta) => (
-										<FormInput
-											field={field}
-											{...meta}
-											placeholder="Milestone UUID"
-										/>
-									)}
-								</FormField>
-								<Button
-									type="submit"
-									variant="outline"
-									disabled={addMilestoneDependency.isPending}
-								>
-									Add prerequisite edge
-								</Button>
-							</form>
-						</div>
-						{createMilestone.error ||
-						updateMilestone.error ||
-						attachMilestone.error ||
-						addMilestoneDependency.error ? (
-							<WorkReadFailure
-								fallback={PROJECTION_FAILURE_FALLBACK}
-								title={
-									(
-										createMilestone.error ??
-										updateMilestone.error ??
-										attachMilestone.error ??
-										(addMilestoneDependency.error as Error)
-									).message
-								}
-							/>
-						) : null}
-					</CardContent>
-				</Card>
-				<Card>
-					<CardHeader>
-						<CardTitle>Accountable health</CardTitle>
-						<CardDescription>
-							Immutable judgment history; mechanical completion never
-							substitutes for it.
-						</CardDescription>
-					</CardHeader>
-					<CardContent className="grid gap-3">
-						<form
-							className="grid gap-3"
-							onSubmit={(event) => {
-								event.preventDefault();
-								void healthForm.handleSubmit();
-							}}
-						>
-							<FormField
-								form={healthForm}
-								name="health"
-								label="Health judgment"
-							>
-								{(field, meta) => (
-									<FormSelect field={field} {...meta}>
-										<SelectItem value="on_track">On track</SelectItem>
-										<SelectItem value="at_risk">At risk</SelectItem>
-										<SelectItem value="off_track">Off track</SelectItem>
-										<SelectItem value="paused">Paused</SelectItem>
-									</FormSelect>
-								)}
-							</FormField>
-							<FormField
-								form={healthForm}
-								name="summary"
-								label="Health rationale"
-							>
-								{(field, meta) => (
-									<FormTextarea
-										field={field}
-										{...meta}
-										placeholder="Evidence-based health rationale"
-									/>
-								)}
-							</FormField>
-							<Button type="submit" disabled={recordHealth.isPending}>
-								Record judgment
-							</Button>
-						</form>
-						{recordHealth.error ? (
-							<WorkReadFailure
-								fallback={PROJECTION_FAILURE_FALLBACK}
-								title={(recordHealth.error as Error).message}
-							/>
-						) : null}
-						<ul className="m-0 grid gap-2 pl-5">
-							{health.data?.map((judgment) => (
-								<li key={judgment.id}>
-									<Badge
-										variant={
-											judgment.health === "on_track"
-												? "success"
-												: judgment.health === "off_track"
-													? "error"
-													: "warning"
-										}
-									>
-										{sentenceCase(judgment.health)}
-									</Badge>{" "}
-									{judgment.summary}
-								</li>
-							))}
-						</ul>
-					</CardContent>
-				</Card>
-			</div>
+									{sentenceCase(judgment.health)}
+								</Badge>{" "}
+								{judgment.summary}
+							</li>
+						))}
+					</ul>
+				</CardContent>
+			</Card>
 			{items.isError ? (
 				<WorkReadFailure
 					fallback={PROJECTION_FAILURE_FALLBACK}

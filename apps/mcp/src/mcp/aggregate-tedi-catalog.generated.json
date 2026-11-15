@@ -6393,6 +6393,12 @@
 						"description": "Server-side PRE-FILTER that drops the dominant internal execution shapes (agent-session rows and transitional purpose contexts) before paging, so an embedded customer board is not paging through factory records to reach its own work. It is NOT the customer-visibility authority: the full rule has seven clauses and lives with the renderer, which must still apply it to what comes back.",
 						"type": "boolean"
 					},
+					"mattersThrough": {
+						"description": "Server-side Work-home filter: keep critical or high-priority Work, or Work whose own due date or deadline falls on or before this instant.",
+						"type": "string",
+						"format": "date-time",
+						"pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+					},
 					"limit": {
 						"default": 50,
 						"type": "number",
@@ -8682,7 +8688,7 @@
 						"additionalProperties": false
 					},
 					"projectId": {
-						"description": "Owner/admin move to another project in this organization. Objective Work takes the new project's objective; Work linked to a milestone must be detached first.",
+						"description": "Owner/admin move to another project in this organization. Objective Work takes the new project's objective.",
 						"type": "string",
 						"format": "uuid",
 						"pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"

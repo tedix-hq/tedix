@@ -1,5 +1,5 @@
 /**
- * Sample Work: items, projects, relations, sprints, milestones, attempts,
+ * Sample Work: items, projects, relations, attempts,
  * graph health and the owner brief.
  */
 
@@ -331,108 +331,6 @@ export const workItemsInScope = (projectId?: string) =>
 	WORK_ITEMS.filter(
 		(row) => projectId === undefined || row.projectId === projectId,
 	);
-
-// Sprints, milestones and live attempts — the planning reads a linked
-// project's Work view makes beside the item list itself.
-const sprint = (
-	n: number,
-	projectN: number,
-	name: string,
-	goal: string | null,
-	status: "planned" | "active" | "completed" | "cancelled",
-	startAt: string,
-	endAt: string,
-	workItemNs: number[],
-) => ({
-	sprint: {
-		id: fid("45", n),
-		orgId: ORG_ID,
-		projectId: fid("76", projectN),
-		name,
-		goal,
-		status,
-		startAt,
-		endAt,
-		createdAt: T1,
-		updatedAt: null,
-		version: 1,
-	},
-	workItemIds: workItemNs.map(workItemId),
-});
-
-export const PROJECT_SPRINTS = [
-	sprint(
-		1,
-		1,
-		"Week 33 reporting pass",
-		"Cohort query and revenue summary land before the Monday owner sync",
-		"active",
-		T3,
-		"2026-08-16T17:00:00.000Z",
-		[1, 6],
-	),
-	sprint(
-		2,
-		1,
-		"Week 34 reporting pass",
-		null,
-		"planned",
-		"2026-08-17T09:00:00.000Z",
-		"2026-08-21T17:00:00.000Z",
-		[],
-	),
-];
-
-const milestone = (
-	n: number,
-	projectN: number,
-	title: string,
-	lifecycle: "proposed" | "planned" | "active" | "done" | "cancelled",
-	targetAt: string | null,
-	sortOrder: number,
-	workItemNs: number[],
-) => ({
-	milestone: {
-		id: fid("46", n),
-		orgId: ORG_ID,
-		projectId: fid("76", projectN),
-		title,
-		description: null,
-		lifecycle,
-		accountableOwnerType: "tedi" as const,
-		accountableOwnerId: TEDI_MILES,
-		targetAt,
-		proofRef: null,
-		completedAt: lifecycle === "done" ? T4 : null,
-		cancelledAt: null,
-		sortOrder,
-		createdAt: T1,
-		updatedAt: null,
-		version: 1,
-	},
-	workItemNs,
-});
-
-export const PROJECT_MILESTONES = [
-	milestone(
-		1,
-		1,
-		"Owner sync refreshes itself",
-		"active",
-		"2026-08-17T09:00:00.000Z",
-		1,
-		[1, 4],
-	),
-	milestone(
-		2,
-		1,
-		"Churn cohort trusted end to end",
-		"planned",
-		"2026-08-31T17:00:00.000Z",
-		2,
-		[6],
-	),
-];
 
 export const workItemSummary = (row: (typeof WORK_ITEMS)[number]) => ({
 	id: row.id,

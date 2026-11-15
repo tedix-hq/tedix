@@ -242,7 +242,6 @@ describe("plan-wide tool id resolution", () => {
 		const expected = {
 			"workItems/createCase": ["create_work_case", "write"],
 			"workItems/addCaseDependency": ["add_work_case_dependency", "write"],
-			"projects/createMilestone": ["create_project_milestone", "write"],
 			"workApprovals/propose": ["propose_work_approval", "write"],
 			"workApprovals/decide": ["decide_work_approval", "write"],
 			"workApprovals/listInbox": ["list_work_approvals", "read"],
