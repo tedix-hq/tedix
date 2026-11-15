@@ -105,7 +105,8 @@ export type WireEventBody =
 	| {
 			type: "turn.finished";
 			turnId: string;
-			status: "done" | "error" | "cancelled";
+			status: "done" | "error" | "cancelled" | "waiting";
+			approvalUrl?: string;
 			error?: string;
 			durationMs: number;
 	  }

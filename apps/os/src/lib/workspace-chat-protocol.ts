@@ -48,7 +48,7 @@ export function parseWorkspaceChatPath(pathname: string): string | null {
 
 export type ApprovalDecision = "approve" | "deny";
 export type StepKind = "read" | "write" | "code" | "tool" | "think";
-export type TurnStatus = "done" | "error" | "cancelled";
+export type TurnStatus = "done" | "error" | "cancelled" | "waiting";
 
 export type WorkspaceChatClientMessage =
 	| {
@@ -198,6 +198,7 @@ export type WorkspaceChatLedgerEvent =
 			type: "turn.finished";
 			turnId: string;
 			status: TurnStatus;
+			approvalUrl?: string;
 			error?: string;
 			durationMs: number;
 	  })

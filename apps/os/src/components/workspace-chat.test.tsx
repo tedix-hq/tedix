@@ -771,6 +771,33 @@ describe("WorkspaceChat", () => {
 		expect(fake.calls).toContainEqual(["retry"]);
 	});
 
+	it("shows an imported approval hold with its Home link and no running clock", () => {
+		const fake = fakeClient("c1");
+		mount(fake);
+		act(() =>
+			fake.feed([
+				started,
+				{
+					seq: 2,
+					at,
+					conversationId: "c1",
+					type: "turn.finished",
+					turnId: "t1",
+					status: "waiting",
+					durationMs: 0,
+					approvalUrl: "/work/executions/t1",
+				},
+			]),
+		);
+		const footer = host.querySelector('[data-testid="workspace-chat-timer"]');
+		expect(footer?.textContent).toBe("Waiting for approval");
+		expect(footer?.querySelector("a")?.getAttribute("href")).toBe(
+			"/work/executions/t1",
+		);
+		expect(host.querySelector('button[aria-label="Stop"]')).toBeNull();
+		expect(host.textContent).not.toContain("Working");
+	});
+
 	it("renders an approval inline, blocks the composer and posts the decision", () => {
 		const fake = fakeClient("c1");
 		mount(fake);
@@ -793,6 +820,12 @@ describe("WorkspaceChat", () => {
 		);
 		const card = host.querySelector('[data-testid="workspace-chat-approval"]');
 		expect(card?.textContent).toContain("Write to the Challenges sheet");
+		expect(card?.id).toBe("approval-a1");
+		const timer = host.querySelector('[data-testid="workspace-chat-timer"]');
+		expect(timer?.textContent).toBe("Waiting for approval");
+		expect(timer?.querySelector("a")?.getAttribute("href")).toBe(
+			"#approval-a1",
+		);
 		const textarea = host.querySelector("textarea");
 		expect(textarea?.disabled).toBe(true);
 		expect(textarea?.placeholder).toContain("Approve or deny");

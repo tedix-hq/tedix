@@ -78,6 +78,7 @@ export type ChatTurn = {
 	/** Live views the agent put in its answer, in the order shown. */
 	views?: ChatView[];
 	status: "running" | TurnStatus;
+	approvalUrl?: string;
 	error?: string;
 	finishedAt: string | null;
 	durationMs?: number;
@@ -512,6 +513,7 @@ export function applyWorkspaceChatEvent(
 			turns = place(event.turnId)((turn) => ({
 				...turn,
 				status: event.status,
+				approvalUrl: event.approvalUrl,
 				error: event.error,
 				finishedAt: event.at,
 				durationMs: event.durationMs,

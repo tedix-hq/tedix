@@ -597,9 +597,10 @@ function TurnView({
 }) {
 	const running = turn.status === "running";
 	const startedAt = Date.parse(turn.startedAt);
-	const now = useNow(running);
 	const waiting = turn.approvals.find((approval) => approval.decision === null);
-	const quiet = running && turn.reply === "" && turn.steps.length === 0;
+	const now = useNow(running && !waiting);
+	const quiet =
+		running && !waiting && turn.reply === "" && turn.steps.length === 0;
 	return (
 		<article
 			className="workspace-chat-turn"
@@ -682,15 +683,26 @@ function TurnView({
 						</Button>
 					</div>
 				) : null}
-				{running ? (
+				{waiting || running || turn.status === "waiting" ? (
 					<footer className="workspace-chat-turn-footer">
 						<Text
 							role="caption"
 							tone="secondary"
 							data-testid="workspace-chat-timer"
 						>
-							{waiting ? "Needs your decision" : "Working"} ·{" "}
-							{elapsedLabel(now - startedAt)}
+							{waiting || turn.status === "waiting" ? (
+								<a
+									href={
+										waiting
+											? `#approval-${waiting.approvalId}`
+											: turn.approvalUrl
+									}
+								>
+									Waiting for approval
+								</a>
+							) : (
+								<>Working · {elapsedLabel(now - startedAt)}</>
+							)}
 						</Text>
 					</footer>
 				) : (
@@ -1012,6 +1024,7 @@ function ApprovalCard({
 	return (
 		<div
 			className="workspace-chat-approval"
+			id={`approval-${approval.approvalId}`}
 			data-decision={approval.decision ?? (sent ? "pending" : "open")}
 			data-testid="workspace-chat-approval"
 		>

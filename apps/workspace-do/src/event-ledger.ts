@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS events (
 	body TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS events_conversation ON events(conversation_id, seq);
+CREATE INDEX IF NOT EXISTS events_turn_at ON events(turn_id, at);
 `;
 
 /** Retain this many events; older rows are trimmed when the object is idle. */
