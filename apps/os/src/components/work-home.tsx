@@ -103,10 +103,11 @@ export function WorkHome({
 		);
 	return (
 		<Page width="full" className="fd-work-home">
-			{overview && (selected || pending) && <WorkHomeOverview />}
+			{/* The page heading comes first, so overview sections sit under it. */}
 			{(!selected || selected.role) && (
 				<PageTitle className="sr-only">{title}</PageTitle>
 			)}
+			{overview && (selected || pending) && <WorkHomeOverview />}
 			{selected ? (
 				<WorkspaceAppRenderer
 					key={selected.gadget.id}
