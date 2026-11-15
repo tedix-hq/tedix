@@ -1,6 +1,18 @@
 import { sql } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
 
+export async function readD1MigrationPublicationRevision(db: DbQueryClient) {
+	const rows = await db
+		.select({
+			id: sql<number>`id`.as("id"),
+			name: sql<string>`name`.as("name"),
+		})
+		.from(sql`tedix_drizzle_migrations`)
+		.orderBy(sql`id DESC`)
+		.limit(1);
+	return rows[0] ?? null;
+}
+
 export function readD1MigrationInspection(db: DbQueryClient) {
 	// Wrangler owns this table, outside the Drizzle migration models.
 	const ledger = db

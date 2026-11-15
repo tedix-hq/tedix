@@ -413,6 +413,7 @@
 		"./queries/kernel-do-storage": "./src/queries/kernel-do-storage.ts",
 		"./queries/kernel-route-eval": "./src/queries/kernel-route-eval.ts",
 		"./queries/mcp-subscription-targets": "./src/queries/mcp-subscription-targets.ts",
+		"./queries/migration-inspection": "./src/queries/migration-inspection.ts",
 		"./queries/platform-job-storage": "./src/queries/platform-job-storage.ts",
 		"./queries/home-reflection": "./src/queries/home-reflection.ts",
 		"./queries/tedi-usage": "./src/queries/tedi-usage.ts",
