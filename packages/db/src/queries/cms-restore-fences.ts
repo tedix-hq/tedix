@@ -61,7 +61,7 @@ function siteHasNoDeprovision(db: DbQueryClient) {
 	);
 }
 
-/** Terminal capture cleanup removes only its own pause, even before drain.
+/** Terminal capture cleanup removes only its own pause.
  * It never reclaims permits or touches a replacement capture's ownership. */
 export async function abortCmsCaptureCronPause(
 	db: DbQueryClient,
@@ -126,8 +126,8 @@ export async function claimCmsCaptureCronPause(
 	return rows.length === 1;
 }
 
-/** The UPDATE is a primary D1 write: once it succeeds, no older cron remains. */
-export async function drainCmsCaptureCronPause(
+/** Confirm exact pause ownership; older scheduled runs do not block capture. */
+export async function confirmCmsCaptureCronPause(
 	db: DbQueryClient,
 	input: CmsCaptureCronPauseParams,
 ): Promise<boolean> {
@@ -140,17 +140,6 @@ export async function drainCmsCaptureCronPause(
 				eq(cmsCaptureCronPauses.slug, input.slug),
 				eq(cmsCaptureCronPauses.captureId, input.captureId),
 				sql`${cmsCaptureCronPauses.expiresAtUnix} > unixepoch()`,
-				notExists(
-					db
-						.select({ one: sql`1` })
-						.from(cmsRestorePermits)
-						.where(
-							and(
-								eq(cmsRestorePermits.siteId, input.siteId),
-								eq(cmsRestorePermits.kind, "scheduled"),
-							),
-						),
-				),
 			),
 		)
 		.returning({ siteId: cmsCaptureCronPauses.siteId });

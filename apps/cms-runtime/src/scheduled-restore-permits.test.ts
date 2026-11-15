@@ -4,7 +4,7 @@ import { createDbQueryClient } from "@tedix/db/query-client";
 import {
 	claimCmsCaptureCronPause,
 	countCmsRestorePermitsForSite,
-	drainCmsCaptureCronPause,
+	confirmCmsCaptureCronPause,
 	enterCmsRestorePermit,
 } from "@tedix/db/queries/cms-restore-fences";
 import {
@@ -58,7 +58,7 @@ function loseCompletionResponse() {
 }
 
 describe("scheduled restore permit ownership", () => {
-	test("unblocks capture after reconciling its completed orphan", async () => {
+	test("allows capture before reconciling its completed orphan", async () => {
 		const identity = await site();
 		await expect(
 			withScheduledCmsRestorePermit(
@@ -70,11 +70,11 @@ describe("scheduled restore permit ownership", () => {
 		).rejects.toThrow("completion response lost");
 		const capture = { ...identity, captureId: "capture" };
 		await claimCmsCaptureCronPause(db, capture);
-		expect(await drainCmsCaptureCronPause(db, capture)).toBe(false);
+		expect(await confirmCmsCaptureCronPause(db, capture)).toBe(true);
 		expect(
 			await reconcileScheduledCmsRestorePermits(db, storage, identity),
 		).toBe(1);
-		expect(await drainCmsCaptureCronPause(db, capture)).toBe(true);
+		expect(await confirmCmsCaptureCronPause(db, capture)).toBe(true);
 	});
 
 	test("recovers a completed orphan and leaves active and historical permits fenced", async () => {
@@ -99,12 +99,12 @@ describe("scheduled restore permit ownership", () => {
 			.run();
 		const capture = { ...identity, captureId: "capture" };
 		expect(await claimCmsCaptureCronPause(db, capture)).toBe(true);
-		expect(await drainCmsCaptureCronPause(db, capture)).toBe(false);
+		expect(await confirmCmsCaptureCronPause(db, capture)).toBe(true);
 		expect(
 			await reconcileScheduledCmsRestorePermits(db, storage, identity),
 		).toBe(1);
 		expect(await countCmsRestorePermitsForSite(db, identity.siteId)).toBe(1);
-		expect(await drainCmsCaptureCronPause(db, capture)).toBe(false);
+		expect(await confirmCmsCaptureCronPause(db, capture)).toBe(true);
 		expect(
 			await reconcileScheduledCmsRestorePermits(db, storage, identity),
 		).toBe(0);
@@ -146,7 +146,7 @@ describe("scheduled restore permit ownership", () => {
 		expect(await countCmsRestorePermitsForSite(db, identity.siteId)).toBe(0);
 	});
 
-	test("does not reclaim a running callback and drains only after it returns", async () => {
+	test("allows capture during a running callback without reclaiming it", async () => {
 		const identity = await site();
 		let finish!: () => void;
 		let entered!: () => void;
@@ -172,10 +172,10 @@ describe("scheduled restore permit ownership", () => {
 		expect(
 			await reconcileScheduledCmsRestorePermits(db, storage, identity),
 		).toBe(0);
-		expect(await drainCmsCaptureCronPause(db, capture)).toBe(false);
+		expect(await confirmCmsCaptureCronPause(db, capture)).toBe(true);
 		finish();
 		await expect(running).resolves.toEqual({ admitted: true, value: "done" });
-		expect(await drainCmsCaptureCronPause(db, capture)).toBe(true);
+		expect(await confirmCmsCaptureCronPause(db, capture)).toBe(true);
 	});
 
 	test("retains uncertain transport failures and refuses paused admission", async () => {
@@ -280,7 +280,7 @@ describe("scheduled tenant runs", () => {
 		expect(await countCmsRestorePermitsForSite(db, identity.siteId)).toBe(0);
 		const capture = { ...identity, captureId: "capture" };
 		expect(await claimCmsCaptureCronPause(db, capture)).toBe(true);
-		expect(await drainCmsCaptureCronPause(db, capture)).toBe(true);
+		expect(await confirmCmsCaptureCronPause(db, capture)).toBe(true);
 	});
 
 	test("never starts the handler when the isolate is not ready", async () => {
@@ -315,10 +315,10 @@ describe("scheduled tenant runs", () => {
 		});
 		const capture = { ...identity, captureId: "capture" };
 		expect(await claimCmsCaptureCronPause(db, capture)).toBe(true);
-		expect(await drainCmsCaptureCronPause(db, capture)).toBe(true);
+		expect(await confirmCmsCaptureCronPause(db, capture)).toBe(true);
 	});
 
-	test("keeps blocking capture when the handler RPC itself is lost", async () => {
+	test("allows capture when the handler RPC itself is lost", async () => {
 		const identity = await site();
 		const started = tenant(`export default { scheduled() {} };`);
 		await expect(
@@ -334,6 +334,6 @@ describe("scheduled tenant runs", () => {
 		).toBe(0);
 		const capture = { ...identity, captureId: "capture" };
 		expect(await claimCmsCaptureCronPause(db, capture)).toBe(true);
-		expect(await drainCmsCaptureCronPause(db, capture)).toBe(false);
+		expect(await confirmCmsCaptureCronPause(db, capture)).toBe(true);
 	});
 });

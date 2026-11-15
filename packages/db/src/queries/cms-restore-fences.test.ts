@@ -8,7 +8,7 @@ import {
 	claimCmsCaptureCronPause,
 	closeCmsRestoreFence,
 	countCmsRestorePermitsForSite,
-	drainCmsCaptureCronPause,
+	confirmCmsCaptureCronPause,
 	enterCmsProvisioningPermit,
 	enterCmsRestorePermit,
 	getCmsRestoreFenceState,
@@ -123,7 +123,7 @@ describe("CMS restore fence", () => {
 		expect(await releaseCmsRestoreFence(db, closed)).toBe(true);
 	});
 
-	it("atomically excludes exact-site scheduled admissions while a capture drains", async () => {
+	it("captures with leftover permits while excluding new exact-site scheduled admissions", async () => {
 		const { db } = fixture();
 		const capture = {
 			siteId: one.siteId,
@@ -137,7 +137,7 @@ describe("CMS restore fence", () => {
 		};
 		expect(await enterCmsRestorePermit(db, scheduled)).toBe(true);
 		expect(await claimCmsCaptureCronPause(db, capture)).toBe(true);
-		expect(await drainCmsCaptureCronPause(db, capture)).toBe(false);
+		expect(await confirmCmsCaptureCronPause(db, capture)).toBe(true);
 		expect(
 			await enterCmsRestorePermit(db, { ...scheduled, permitId: "cron-2" }),
 		).toBe(false);
@@ -151,8 +151,8 @@ describe("CMS restore fence", () => {
 		expect(
 			await enterCmsRestorePermit(db, { ...one, permitId: "public-read" }),
 		).toBe(true);
-		expect(await leaveCmsRestorePermit(db, scheduled)).toBe(true);
-		expect(await drainCmsCaptureCronPause(db, capture)).toBe(true);
+		expect(await countCmsRestorePermitsForSite(db, one.siteId)).toBe(2);
+		expect(await confirmCmsCaptureCronPause(db, capture)).toBe(true);
 		expect(await assertCmsCaptureCronPause(db, capture)).toBe(true);
 		expect(
 			await releaseCmsCaptureCronPause(db, { ...capture, captureId: "wrong" }),
@@ -179,6 +179,7 @@ describe("CMS restore fence", () => {
 			"UPDATE cms_capture_cron_pauses SET expires_at_unix = unixepoch() - 1",
 		);
 		expect(await assertCmsCaptureCronPause(db, first)).toBe(false);
+		expect(await confirmCmsCaptureCronPause(db, first)).toBe(false);
 		expect(
 			await enterCmsRestorePermit(db, {
 				...one,
@@ -188,7 +189,8 @@ describe("CMS restore fence", () => {
 		).toBe(true);
 		expect(await claimCmsCaptureCronPause(db, second)).toBe(true);
 		expect(await releaseCmsCaptureCronPause(db, first)).toBe(false);
-		expect(await drainCmsCaptureCronPause(db, second)).toBe(false);
+		expect(await confirmCmsCaptureCronPause(db, first)).toBe(false);
+		expect(await confirmCmsCaptureCronPause(db, second)).toBe(true);
 	});
 
 	it("aborts only the exact failed capture without draining or reclaiming permits", async () => {
@@ -205,7 +207,7 @@ describe("CMS restore fence", () => {
 		};
 		expect(await enterCmsRestorePermit(db, scheduled)).toBe(true);
 		expect(await claimCmsCaptureCronPause(db, capture)).toBe(true);
-		expect(await drainCmsCaptureCronPause(db, capture)).toBe(false);
+		expect(await confirmCmsCaptureCronPause(db, capture)).toBe(true);
 		expect(
 			await abortCmsCaptureCronPause(db, { ...capture, slug: "wrong" }),
 		).toBe(0);
@@ -233,7 +235,7 @@ describe("CMS restore fence", () => {
 		expect(await abortCmsCaptureCronPause(db, replacement)).toBe(1);
 	});
 
-	it("never releases an expired or undrained capture pause", async () => {
+	it("never releases an expired or unconfirmed capture pause", async () => {
 		const { db, sqlite } = fixture();
 		const capture = {
 			siteId: one.siteId,
@@ -242,7 +244,7 @@ describe("CMS restore fence", () => {
 		};
 		expect(await claimCmsCaptureCronPause(db, capture)).toBe(true);
 		expect(await releaseCmsCaptureCronPause(db, capture)).toBe(false);
-		expect(await drainCmsCaptureCronPause(db, capture)).toBe(true);
+		expect(await confirmCmsCaptureCronPause(db, capture)).toBe(true);
 		sqlite.exec(
 			"UPDATE cms_capture_cron_pauses SET expires_at_unix = unixepoch() - 1",
 		);
