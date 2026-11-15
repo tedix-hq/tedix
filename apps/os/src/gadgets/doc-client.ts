@@ -547,23 +547,6 @@ export async function mountDocClient(
 			if (destroyed) return;
 			loaded = value;
 			theirs = undefined;
-			const savedContent = value.revision.content;
-			if (
-				savedContent.file &&
-				!savedContent.richText &&
-				savedContent.blocks.length === 0
-			) {
-				// The host renders the attached file outside the editor frame.
-				editor?.destroy();
-				editor = undefined;
-				toolbar.hidden = true;
-				page.hidden = true;
-				available = false;
-				dirty = false;
-				say();
-				return;
-			}
-			toolbar.hidden = false;
 			const retained = editable
 				? await bridge.call<Draft | null>("app.draft.read", draftArgs())
 				: null;
