@@ -3,6 +3,14 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.21.16 — 2026-11-15
+
+### Patch Changes
+
+- A runner on a busy machine no longer fails a task because the agent's `--version` check was slow. A check that takes longer than 5 seconds is tried once more with a 15-second limit. If that also times out, the runner waits and tries again later; the task is not counted as a failed start and is not held after three tries. The runner log records the slow check once as `executor-probe-slow`.
+- The session and prompt hook no longer waits out a gateway rate limit before its organization check. While the gateway is rate-limited the hook skips the check and says "gateway is rate-limited until <time>; organization check skipped", instead of timing out with "organization could not be verified", which wrongly pointed at the login or organization.
+- A coding task can finish with a local branch that is not pushed. Set `metadata.artifactKind` to `local_branch` and `metadata.artifactLocalBranch` to `{branch, baseCommit}`; the runner then checks the named commit, that it builds on the base commit, that the checkout is clean, and that the Attempt has a test report. Tasks without that setting still need landed commits.
+
 ## 0.21.15 — 2026-11-15
 
 ### Patch Changes
