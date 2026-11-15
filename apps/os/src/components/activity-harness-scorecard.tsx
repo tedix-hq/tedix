@@ -175,12 +175,12 @@ export function ActivityHarnessScorecard({
 			<Text role="caption" tone="secondary">
 				Attempts started in the last 24 h; outcomes as of now. *Orphaned counts
 				expired Attempts and unsettled Attempts with elapsed leases, not
-				confirmed process exits. Fleet held counts Work revisions placed on
-				hold; supervisor kills count lease-guard stop signals. These require
-				fresh health reports covering 24 h; legacy, warming and project-scoped
-				counts are unknown. †Unique dispatcher settlement commit receipts for
-				these Attempts; existing fixes are excluded. Idle blockers use the
-				latest complete runner report.
+				confirmed process exits. Held counts Work revisions placed on hold;
+				supervisor kills count lease-guard stop signals. These require fresh
+				health reports covering 24 h; legacy, warming and project-scoped counts
+				are unknown. †Unique dispatcher settlement commit receipts for these
+				Attempts; existing fixes are excluded. Idle blockers use the latest
+				complete runner report.
 			</Text>
 		</section>
 	);

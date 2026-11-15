@@ -385,7 +385,7 @@ export function CanvasProposals({
 							>
 								{
 									{
-										open: "Needs review",
+										open: "Needs you",
 										accepted: "Approved · not applied",
 										merged: "Applied",
 										rejected: "Rejected",

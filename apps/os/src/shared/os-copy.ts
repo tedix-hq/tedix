@@ -254,9 +254,9 @@ const ENGLISH_COPY = {
 		cardKinds: {
 			outbound: "Approve email",
 			proposal: "Next step",
-			question: "Your call",
+			question: "Request",
 			approval: "Your approval",
-			decision: "Your call",
+			decision: "Request",
 			adr: "Architecture decision",
 		} as Record<string, string>,
 		kinds: {
@@ -398,15 +398,13 @@ const ENGLISH_COPY = {
 			"It's hidden from Workspaces.",
 			"Its share and invite links stop working, and its apps stop running.",
 		],
-		archiveKeeps: [
-			"Its documents, apps, files and chats, with their history. Documents stay in Outputs.",
-		],
+		archiveKeeps: ["Its documents, apps, files and chats, with their history."],
 		deleteRemoves: [
 			"The workspace, its member list and its invite links",
 			"Its apps, with every saved version",
 			"Its uploaded files and its links to connected accounts, skills and Work projects",
 		],
-		deleteKeepsOutputs: "Documents, sheets and slides. They stay in Outputs.",
+		deleteKeepsOutputs: "Documents, sheets and slides. Find them in Documents.",
 		deleteKeepsPrivateOutputs:
 			"Documents, sheets and slides. They move to a new Saved documents workspace and stay private to the owner.",
 		deleteKeeps: [
@@ -431,7 +429,13 @@ const ENGLISH_COPY = {
 		owner: "Owner",
 		unassigned: ATTENTION_COPY.unassigned,
 		ownerUnavailable: "Owner name unavailable",
-		proposed: "Proposed — waiting for the owner to accept",
+		proposed: "Proposed",
+		dispositions: {
+			proposed: "Proposed",
+			accepted: "Accepted",
+			completed: "Completed",
+			cancelled: "Cancelled",
+		},
 		needsAcceptance: (name: string) =>
 			`Not started yet · ${name} needs to accept this`,
 		accept: "Accept",
@@ -586,7 +590,7 @@ const ENGLISH_COPY = {
 		subtitle: "What matters now, with the record behind it.",
 		filters: {
 			all: "All",
-			attention: "Needs me",
+			attention: "Needs you",
 			office: "Replies",
 			history: "Done",
 			stalled: "Stalled",
@@ -641,7 +645,7 @@ const ENGLISH_COPY = {
 				partial: "Partly done",
 				paused: "Paused",
 				stopped: "Stopped",
-				needsLook: "Needs a look",
+				needsLook: "Needs you",
 				needsYou: "Needs you",
 			},
 			more: "More",
@@ -716,6 +720,11 @@ const ENGLISH_COPY = {
 /** Resolve at render time so loading or changing personal preferences updates copy. */
 export const OS_COPY = {
 	...ENGLISH_COPY,
+	get work() {
+		return osLocale().startsWith("es")
+			? { ...ENGLISH_COPY.work, ...SPANISH_FEED_DECK_COPY.work }
+			: ENGLISH_COPY.work;
+	},
 	get navigation() {
 		return osLocale().startsWith("es")
 			? SPANISH_FEED_DECK_COPY.navigation
