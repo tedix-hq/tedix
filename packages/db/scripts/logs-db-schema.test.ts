@@ -21,7 +21,7 @@ function shape(sqlite: DatabaseSync) {
 	const result: Record<string, { columns: unknown[]; indexes: unknown[] }> = {};
 	for (const table of LOGS_DB_TABLES.map(getTableName).sort()) {
 		const columns = sqlite
-			.prepare(`PRAGMA table_info("${table}")`)
+			.prepare(`PRAGMA table_xinfo("${table}")`)
 			.all()
 			.map((row) => {
 				const column = row as Record<string, unknown>;
@@ -30,6 +30,7 @@ function shape(sqlite: DatabaseSync) {
 					type: column.type,
 					notnull: column.notnull,
 					pk: column.pk,
+					hidden: column.hidden,
 				};
 			});
 		const indexes = (

@@ -1476,6 +1476,10 @@
 		{
 			"name": "20261114222356_personal-agent-sessions/migration.sql",
 			"sha256": "310d496e7c4a1c61d2c3a5aeea2364f3974dba91002790c41b8d7e22a8caeedd"
+		},
+		{
+			"name": "20261115021418_audit_trace_column/migration.sql",
+			"sha256": "fdec5b95a36f3fac0a4da40655bbcd5c2e937b7f08ae17b5f829004fb1e0cb65"
 		}
 	]
 }

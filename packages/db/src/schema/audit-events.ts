@@ -4,6 +4,7 @@
  */
 
 import type { JsonValue } from "@tedix/api-contract/schemas/common";
+import { sql } from "drizzle-orm";
 import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 export const auditEvents = sqliteTable(
@@ -22,12 +23,20 @@ export const auditEvents = sqliteTable(
 		ipAddress: text("ip_address"),
 		userAgent: text("user_agent"),
 		timestamp: integer("timestamp", { mode: "timestamp" }).notNull(),
+		traceId: text("trace_id").generatedAlwaysAs(
+			sql`CASE WHEN json_valid("metadata") THEN json_extract("metadata", '$.traceId') END`,
+			{ mode: "virtual" },
+		),
 	},
 	(table) => [
 		// search_audit / governance-overview / home-reflection-producer all filter
 		// organization_id and ORDER BY timestamp DESC.
 		index("idx_audit_events_org_timestamp").on(
 			table.organizationId,
+			table.timestamp,
+		),
+		index("idx_audit_events_trace_id_timestamp").on(
+			table.traceId,
 			table.timestamp,
 		),
 		// Retention (queries/d1-retention.ts) walks the rowid b-tree; this index

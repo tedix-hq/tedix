@@ -343,7 +343,7 @@ export async function listAnalyticsTraceActivity(
 		.from(auditEvents)
 		.where(
 			and(
-				sql`json_extract(${auditEvents.metadata}, '$.traceId') = ${input.traceId}`,
+				eq(auditEvents.traceId, input.traceId),
 				like(auditEvents.action, "mcp.%"),
 				optionalOrganization(input.organizationId),
 			),
