@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileGatewayCooldown } from "../gateway-cooldown";
 import { contextHash, readDelivery, writeDelivery } from "./context-delivery";
 import type { JsonObject } from "./hook-io";
 import { runSessionStart } from "./session-start";
@@ -10,6 +11,8 @@ import { runSessionStart } from "./session-start";
 const WORK_ID = "ac651d65-a993-4e57-aa05-d4c45c78cfda";
 const ORG_ID = "11111111-1111-4111-8111-111111111111";
 const OBJECTIVE_ID = "22222222-2222-4222-8222-222222222222";
+// Keeps this machine's own gateway cooldown and hook state out of the tests.
+const CONFIG = mkdtempSync(join(tmpdir(), "tedix-session-start-"));
 const organizationInfo = (organizationId: string) => ({
 	structuredContent: {
 		nativeContext: {
@@ -39,7 +42,7 @@ async function run(
 	const calls: string[][] = [];
 	const lines: string[] = [];
 	await runSessionStart({
-		env: { ...env },
+		env: { TEDIX_CONFIG_DIR: CONFIG, ...env },
 		stdin: typeof event === "string" ? event : JSON.stringify(event),
 		cwd: process.cwd(),
 		now: now ? () => now : undefined,
@@ -238,6 +241,62 @@ describe("tedix hooks session-start", () => {
 		const denied = await run([binding, auth, new Error("FORBIDDEN")]);
 		expect(denied.output).toContain("organization could not be verified");
 		expect(denied.calls).toHaveLength(3);
+	});
+
+	test("an active gateway cooldown skips the organization check instead of waiting it out", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "tedix-cooldown-"));
+		const env = { TEDIX_CONFIG_DIR: directory };
+		const session = "44444444-4444-4444-8444-444444444444";
+		const binding = {
+			status: "bound",
+			workspace: "connect",
+			org: "org_target",
+			organization: "org_target",
+			mcpUrl: "https://connect.mcp.tedix.dev/mcp",
+			projectId: "project-id",
+			workItemId: WORK_ID,
+			contextSessionId: session,
+		};
+		const auth = {
+			wouldUse: "stored-login",
+			workspace: "connect",
+			mcpUrl: binding.mcpUrl,
+			storedLogin: { accessToken: { selectedOrganizations: ["org_target"] } },
+		};
+		const event = { hook_event_name: "UserPromptSubmit", session_id: session };
+		const until = Date.parse("2026-11-12T17:19:06Z");
+		try {
+			fileGatewayCooldown({ configDir: directory }).extend(
+				binding.mcpUrl,
+				until,
+			);
+			const limited = await run(
+				[binding, auth],
+				env,
+				event,
+				new Date(until - 60_000),
+			);
+			expect(context(limited.output)).toBe(
+				"Tedix preflight: gateway is rate-limited until 2026-11-12T17:19:06Z; organization check skipped; no Work was read.",
+			);
+			expect(limited.calls).toHaveLength(2);
+			// Once the cooldown has ended the check runs again.
+			const item = boundary({
+				title: "Scoped task",
+				projectId: "project-id",
+				disposition: "accepted",
+			});
+			const after = await run(
+				[binding, auth, organizationInfo(ORG_ID), item],
+				env,
+				event,
+				new Date(until),
+			);
+			expect(after.calls[2]).toContain("tools/call");
+			expect(context(after.output)).toContain("Scoped task");
+		} finally {
+			rmSync(directory, { recursive: true, force: true });
+		}
 	});
 
 	test("all lifecycle sources preserve the ordinary outcome", async () => {
