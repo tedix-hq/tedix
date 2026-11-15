@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vite-plus/test";
+import { listAnalyticsTraceActivity } from "./queries/analytics-audit";
 import { createDbClient } from "./client";
 import { createDbQueryClient } from "./query-client";
 import {
@@ -70,6 +71,25 @@ function queryPlan(sqlite: DatabaseSync, statement: string): string {
 }
 
 describe("hot production query plans", () => {
+	it.each([undefined, "org-1"])(
+		"finds a trace through its indexed column (organization %s)",
+		async (organizationId) => {
+			const { db, lastPlan, sqlite } = fixture();
+			try {
+				await listAnalyticsTraceActivity(db, {
+					traceId: "trace-1",
+					organizationId,
+				});
+				const plan = lastPlan("audit_events");
+				expect(plan).toContain(
+					"SEARCH audit_events USING INDEX idx_audit_events_trace_id_timestamp (trace_id=?)",
+				);
+				expect(plan).not.toMatch(/SCAN audit_events|USE TEMP B-TREE/);
+			} finally {
+				sqlite.close();
+			}
+		},
+	);
 	it.each([undefined, "2026-11-12T12:00:00.000Z"])(
 		"looks up lexical recall facts by FTS rowid for one organization (clock %s)",
 		async (now) => {

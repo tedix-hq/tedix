@@ -844,9 +844,9 @@ export const D1_LOGS_COPY_STATEMENT_BYTES = 256 * 1024;
 const D1_LOGS_COPY_BATCH_BYTES = 1024 * 1024;
 
 function tableColumnNames(tableSpec: D1RetentionTableSpec): string[] {
-	return Object.values(getColumns(tableSpec.table)).map(
-		(column) => (column as AnySQLiteColumn).name,
-	);
+	return Object.values(getColumns(tableSpec.table))
+		.filter((column) => !(column as AnySQLiteColumn).generated)
+		.map((column) => (column as AnySQLiteColumn).name);
 }
 
 function rowValue(row: D1RetentionRow, column: string): JsonValue {

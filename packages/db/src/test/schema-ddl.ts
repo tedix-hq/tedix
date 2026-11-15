@@ -72,6 +72,15 @@ function columnDdl(column: SQLiteColumn, isLonePrimaryKey: boolean): string {
 	if (column.default !== undefined && !is(column.default, SQL)) {
 		parts.push(`DEFAULT ${literal(column.default)}`);
 	}
+	if (column.generated) {
+		const expression =
+			typeof column.generated.as === "function"
+				? column.generated.as()
+				: column.generated.as;
+		parts.push(
+			`GENERATED ALWAYS AS (${is(expression, SQL) ? indexExpression(expression) : expression}) ${column.generated.mode ?? "virtual"}`,
+		);
+	}
 	return parts.join(" ");
 }
 
