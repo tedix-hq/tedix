@@ -25,6 +25,24 @@ export function laneReservedActions(text: string): string[] {
 	];
 }
 
+/** Source sentences for display only; the whole-task classifier owns admission. */
+export function laneReservedActionMatches(text: string) {
+	const classes = laneReservedActions(text);
+	const sentences = text
+		.split(/\n+|(?<=[.!?;])[ \t]+/u)
+		.filter((s) => s.trim());
+	return classes.flatMap((action) => {
+		const matches = sentences.filter((sentence) =>
+			laneReservedActions(sentence).includes(action),
+		);
+		// Some credential rules span lines. Keep the complete source in that case.
+		return (matches.length ? matches : [text]).map((sentence) => ({
+			action,
+			sentence: sentence.trim(),
+		}));
+	});
+}
+
 /** An instruction to the executor to perform consent, MFA or a sign-in step. */
 export const userPresenceStep =
 	/\b(?:complete|approve|grant|give|pass|perform|finish|enter|type|paste|accept|click|solve|scan|tap|confirm|answer|redo|re-do|do|go[ \t]+through|click[ \t]+through)\s+(?:(?:the|an?|your|my|their|its|our)\s+)?(?:oauth\s+|login\s+|sign[- ]?in\s+|verification\s+|sms\s+|e-?mail\s+|authenticator\s+|security\s+|device\s+|consent\s+|mfa\s+|2fa\s+)?(?:mfa|2fa|otp|totp|consent|passkey|password|captcha|qr[ -]?code|touch[ -]?id|face[ -]?id|security[ \t]+key|authenticator|login|sign[- ]?in|oauth(?:[ \t]+(?:flow|dance|screen|prompt))?|consent[ \t]+(?:screen|prompt|dialog)|verification[ \t]+code|sms[ \t]+code|e-?mail[ \t]+code|device|push[ \t]+notification)\b|\b(?:enter|type|paste|read[ \t]+out|answer)[ \t]+(?:the[ \t]+)?(?:\w+[ \t]+)?code\b(?![ \t]+(?:path|base|review|change|style|owner|block|sample|snippet|point))|\buse[ \t]+(?:the|your|my|an?)?[ \t]*(?:passkey|touch[ -]?id|face[ -]?id|security[ \t]+key|authenticator)\b(?![ \t]+(?:mock|stub|fake|test|fixture|component|module|class))|\bclick[ \t]+(?:on[ \t]+)?(?:["'“]?)(?:allow|approve|accept|authori[sz]e|continue[ \t]+with[ \t]+google|sign[ \t]+in[ \t]+with)\b|\bconsent[ \t]+to\b(?![^.;!?\n]*\b(?:checkbox|label|form|page|component|copy|text|ui|string|wording)\b)|(?:^|[.;!\n][ \t]*)(?:please[ \t]+)?(?:log|sign)[ -]?(?:in|on)[ \t]*(?:[.!;\n]|$)/i;
