@@ -33,6 +33,8 @@ vi.mock("@tanstack/react-router", async (importOriginal) => ({
 	createFileRoute: () => (options: { component: () => unknown }) => ({
 		options,
 		useParams: () => ({ workspaceId: "pine-workspace" }),
+		useSearch: () => ({ pane: "resources" }),
+		useNavigate: () => vi.fn(),
 	}),
 }));
 vi.mock("@/components/canvas-page", () => ({
