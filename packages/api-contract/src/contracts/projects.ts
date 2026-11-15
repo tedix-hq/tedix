@@ -1,16 +1,16 @@
 import "@orpc/openapi/extensions/route";
 /**
- * Projects Contract (work hierarchy v1)
+ * Projects Contract
  *
- * A thin org-scoped container at the top of the work hierarchy
- * project → epic → feature → story → work_item → task. Projects group typed
- * `work_items` rows (`work_items.projectId`) and expose a rollup. Work Items
- * stay the canonical coordination object — this is NOT a second board.
+ * A project groups an area or engagement. Epics group related Work Items, goals
+ * state purpose, Attempts track execution, and requests carry questions or
+ * decisions for people. Work Items remain the canonical coordination object;
+ * projects group them through `work_items.projectId` and expose a rollup.
  *
  * D1 tables: projects (packages/db/src/schema/projects.ts). Projected MCP tool
  * ids are verb-first snake_case (create_project, list_projects,
- * get_project_rollup, ...) via PROJECT_TOOL_ID_OVERRIDES in
- * apps/api/src/services/tool-schema-sync.ts.
+ * get_project_rollup, ...) via WORK_HIERARCHY_TOOL_ID_OVERRIDES in
+ * apps/api/src/services/tool-schema-overrides.ts.
  */
 
 import { oc } from "@orpc/contract";

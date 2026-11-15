@@ -328,7 +328,7 @@ export const apiContract = oc.route({ prefix: "/v1" }).router({
 
 	// Tedix-owned channels and cross-installation outcome authority
 
-	// Work hierarchy v1: project → epic → story container + rollup
+	// Projects: standing areas or dated engagements that group Work Items, plus rollup
 	projects: projectsContract,
 
 	// Reusable role primitive: persona + objectives + tags + profile as a unit

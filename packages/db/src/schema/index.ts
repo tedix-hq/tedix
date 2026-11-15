@@ -81,7 +81,7 @@ export type {
 export * from "./plugins";
 export * from "./principal-identities";
 export * from "./provider-installations";
-// Work hierarchy v1: thin project container for the work_items tree
+// Projects: thin container that groups Work Items
 export type { NewProject, Project, ProjectStatus } from "./projects";
 export * from "./projects";
 // Reusable role primitive — persona + standing objectives + tags + profile

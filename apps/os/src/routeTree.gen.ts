@@ -69,7 +69,6 @@ import { Route as SessionTenantWorkAttemptsRouteImport } from './routes/_session
 import { Route as SessionTenantWorkAttentionRouteImport } from './routes/_session/_tenant/work.attention'
 import { Route as SessionTenantWorkCapacityRouteImport } from './routes/_session/_tenant/work.capacity'
 import { Route as SessionTenantWorkCasesRouteImport } from './routes/_session/_tenant/work.cases'
-import { Route as SessionTenantWorkClustersRouteImport } from './routes/_session/_tenant/work.clusters'
 import { Route as SessionTenantWorkGraphRouteImport } from './routes/_session/_tenant/work.graph'
 import { Route as SessionTenantWorkInteractionsRouteImport } from './routes/_session/_tenant/work.interactions'
 import { Route as SessionTenantWorkNeedsYouRouteImport } from './routes/_session/_tenant/work.needs-you'
@@ -417,12 +416,6 @@ const SessionTenantWorkCasesRoute = SessionTenantWorkCasesRouteImport.update({
   path: '/cases',
   getParentRoute: () => SessionTenantWorkRoute,
 } as any)
-const SessionTenantWorkClustersRoute =
-  SessionTenantWorkClustersRouteImport.update({
-    id: '/clusters',
-    path: '/clusters',
-    getParentRoute: () => SessionTenantWorkRoute,
-  } as any)
 const SessionTenantWorkGraphRoute = SessionTenantWorkGraphRouteImport.update({
   id: '/graph',
   path: '/graph',
@@ -655,7 +648,6 @@ export interface FileRoutesByFullPath {
   '/work/attention': typeof SessionTenantWorkAttentionRoute
   '/work/capacity': typeof SessionTenantWorkCapacityRoute
   '/work/cases': typeof SessionTenantWorkCasesRouteWithChildren
-  '/work/clusters': typeof SessionTenantWorkClustersRoute
   '/work/graph': typeof SessionTenantWorkGraphRoute
   '/work/interactions': typeof SessionTenantWorkInteractionsRouteWithChildren
   '/work/needs-you': typeof SessionTenantWorkNeedsYouRoute
@@ -737,7 +729,6 @@ export interface FileRoutesByTo {
   '/work/attention': typeof SessionTenantWorkAttentionRoute
   '/work/capacity': typeof SessionTenantWorkCapacityRoute
   '/work/cases': typeof SessionTenantWorkCasesRouteWithChildren
-  '/work/clusters': typeof SessionTenantWorkClustersRoute
   '/work/graph': typeof SessionTenantWorkGraphRoute
   '/work/interactions': typeof SessionTenantWorkInteractionsRouteWithChildren
   '/work/needs-you': typeof SessionTenantWorkNeedsYouRoute
@@ -831,7 +822,6 @@ export interface FileRoutesById {
   '/_session/_tenant/work/attention': typeof SessionTenantWorkAttentionRoute
   '/_session/_tenant/work/capacity': typeof SessionTenantWorkCapacityRoute
   '/_session/_tenant/work/cases': typeof SessionTenantWorkCasesRouteWithChildren
-  '/_session/_tenant/work/clusters': typeof SessionTenantWorkClustersRoute
   '/_session/_tenant/work/graph': typeof SessionTenantWorkGraphRoute
   '/_session/_tenant/work/interactions': typeof SessionTenantWorkInteractionsRouteWithChildren
   '/_session/_tenant/work/needs-you': typeof SessionTenantWorkNeedsYouRoute
@@ -921,7 +911,6 @@ export interface FileRouteTypes {
     | '/work/attention'
     | '/work/capacity'
     | '/work/cases'
-    | '/work/clusters'
     | '/work/graph'
     | '/work/interactions'
     | '/work/needs-you'
@@ -1003,7 +992,6 @@ export interface FileRouteTypes {
     | '/work/attention'
     | '/work/capacity'
     | '/work/cases'
-    | '/work/clusters'
     | '/work/graph'
     | '/work/interactions'
     | '/work/needs-you'
@@ -1096,7 +1084,6 @@ export interface FileRouteTypes {
     | '/_session/_tenant/work/attention'
     | '/_session/_tenant/work/capacity'
     | '/_session/_tenant/work/cases'
-    | '/_session/_tenant/work/clusters'
     | '/_session/_tenant/work/graph'
     | '/_session/_tenant/work/interactions'
     | '/_session/_tenant/work/needs-you'
@@ -1563,13 +1550,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SessionTenantWorkCasesRouteImport
       parentRoute: typeof SessionTenantWorkRoute
     }
-    '/_session/_tenant/work/clusters': {
-      id: '/_session/_tenant/work/clusters'
-      path: '/clusters'
-      fullPath: '/work/clusters'
-      preLoaderRoute: typeof SessionTenantWorkClustersRouteImport
-      parentRoute: typeof SessionTenantWorkRoute
-    }
     '/_session/_tenant/work/graph': {
       id: '/_session/_tenant/work/graph'
       path: '/graph'
@@ -1920,7 +1900,6 @@ interface SessionTenantWorkRouteChildren {
   SessionTenantWorkAttentionRoute: typeof SessionTenantWorkAttentionRoute
   SessionTenantWorkCapacityRoute: typeof SessionTenantWorkCapacityRoute
   SessionTenantWorkCasesRoute: typeof SessionTenantWorkCasesRouteWithChildren
-  SessionTenantWorkClustersRoute: typeof SessionTenantWorkClustersRoute
   SessionTenantWorkGraphRoute: typeof SessionTenantWorkGraphRoute
   SessionTenantWorkInteractionsRoute: typeof SessionTenantWorkInteractionsRouteWithChildren
   SessionTenantWorkNeedsYouRoute: typeof SessionTenantWorkNeedsYouRoute
@@ -1941,7 +1920,6 @@ const SessionTenantWorkRouteChildren: SessionTenantWorkRouteChildren = {
   SessionTenantWorkAttentionRoute: SessionTenantWorkAttentionRoute,
   SessionTenantWorkCapacityRoute: SessionTenantWorkCapacityRoute,
   SessionTenantWorkCasesRoute: SessionTenantWorkCasesRouteWithChildren,
-  SessionTenantWorkClustersRoute: SessionTenantWorkClustersRoute,
   SessionTenantWorkGraphRoute: SessionTenantWorkGraphRoute,
   SessionTenantWorkInteractionsRoute:
     SessionTenantWorkInteractionsRouteWithChildren,

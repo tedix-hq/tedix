@@ -25,7 +25,6 @@ export type WorkView = Readonly<{
 					| "/work/admission"
 					| "/work/graph"
 					| "/work/cases"
-					| "/work/clusters"
 					| "/work/capacity";
 				search?: undefined;
 		  }
@@ -72,13 +71,6 @@ export const WORK_VIEWS: readonly WorkView[] = [
 			"Bigger pieces of work that group several Work Items under one owner.",
 		group: "planning",
 		to: "/work/cases",
-	},
-	{
-		id: "clusters",
-		label: "Clusters",
-		description: "Related work grouped together.",
-		group: "planning",
-		to: "/work/clusters",
 	},
 	{
 		id: "approvals",

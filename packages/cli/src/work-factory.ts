@@ -85,18 +85,6 @@ export const STRUCTURED_FACTORY_VERBS: Record<string, StructuredFactoryVerb> = {
 		pathField: "caseId",
 	},
 	"case-dependency-add": { tool: "add_work_case_dependency", write: true },
-	"health-list": {
-		tool: "list_project_health_judgments",
-		namespace: "projects",
-		write: false,
-		pathField: "id",
-	},
-	"health-record": {
-		tool: "record_project_health_judgment",
-		namespace: "projects",
-		write: true,
-		pathField: "id",
-	},
 	"approval-list": {
 		tool: "list_work_approvals",
 		write: false,

@@ -135,8 +135,8 @@ export interface GraphCapability extends GraphProjectionStamped {
 }
 
 /**
- * Project node (`projects` projection). The top of the work hierarchy and the
- * anchor a client engagement is asked about ("how is ACME going").
+ * Project node (`projects` projection). Groups an area or engagement, such as
+ * the client engagement in "how is ACME going?".
  */
 export interface GraphProject extends GraphProjectionStamped {
 	id: string;

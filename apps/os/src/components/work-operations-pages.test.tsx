@@ -39,7 +39,6 @@ import {
 	workItemReadinessQueryOptions,
 } from "@/lib/os-query-options";
 import { WorkAdmissionPage } from "./work-admission-page";
-import { WorkClustersPage } from "./work-clusters-page";
 import {
 	NeedsYouNowSection,
 	WorkInteractionsRoute,
@@ -1238,23 +1237,6 @@ describe("Read-only operations entry", () => {
 		expect(container.textContent).toContain("Current readiness");
 		expect(fetch).not.toHaveBeenCalled();
 		vi.restoreAllMocks();
-	});
-	it("offers a named tedi snapshot with advanced UUID lookup collapsed", () => {
-		const client = new QueryClient({
-			defaultOptions: { queries: { enabled: false } },
-		});
-		client.setQueryData(tediRosterQueryOptions(100).queryKey, {
-			data: [{ id, name: "cedar", displayName: "Cedar" }] as never,
-			pagination: { total: 1, limit: 100, offset: 0, hasMore: false },
-		});
-		const html = renderToStaticMarkup(
-			<QueryClientProvider client={client}>
-				<WorkClustersPage />
-			</QueryClientProvider>,
-		);
-		expect(html).toContain("Choose a tedi");
-		expect(html).toContain("Advanced");
-		expect(html).not.toContain('placeholder="Tedi UUID"');
 	});
 });
 

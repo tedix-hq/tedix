@@ -1,5 +1,5 @@
 /**
- * Query helpers for Projects (work hierarchy v1).
+ * Query helpers for Projects.
  *
  * A project is an org-scoped standing area of work or a dated engagement.
  * Epics (`work_cases`) group Work Items toward one outcome. Work Items stay the

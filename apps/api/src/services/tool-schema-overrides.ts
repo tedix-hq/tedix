@@ -715,11 +715,9 @@ export const GRAPH_GOVERNANCE_KIND_OVERRIDES: Record<
 
 /**
  * Stable verb-first tool ids for project and Work Item operator surfaces.
- * Without overrides the generator would pluralize bare verbs against the
- * router (`create_projects`, `get_projects`) and leave `get_rollup`
- * router-less. `projects/list` needs no entry: the bare-verb rule already emits
- * `list_projects`. Work Item reads are pinned so their durable object is
- * explicit in discovery and authorization scope routing.
+ * Project overrides keep the public object singular where appropriate and
+ * Work Item reads name their durable object explicitly in discovery and
+ * authorization scope routing.
  */
 export const WORK_HIERARCHY_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"attention/listDeckCards": "list_deck_cards",
@@ -771,8 +769,6 @@ export const WORK_HIERARCHY_TOOL_ID_OVERRIDES: Record<string, string> = {
 	"projects/updateMilestone": "update_project_milestone",
 	"projects/attachMilestoneWorkItem": "attach_project_milestone_work_item",
 	"projects/addMilestoneDependency": "add_project_milestone_dependency",
-	"projects/recordHealthJudgment": "record_project_health_judgment",
-	"projects/listHealthJudgments": "list_project_health_judgments",
 	"workItems/listCliProjection": "list_work_item_cli_rows",
 	"workItems/getCheckpointProjection": "get_work_item_checkpoint",
 	"workItems/listAttemptCliProjection": "list_work_attempt_cli_rows",
@@ -913,8 +909,6 @@ export const WORK_HIERARCHY_KIND_OVERRIDES: Record<
 	"projects/updateMilestone": "write",
 	"projects/attachMilestoneWorkItem": "write",
 	"projects/addMilestoneDependency": "write",
-	"projects/recordHealthJudgment": "write",
-	"projects/listHealthJudgments": "read",
 	"workItems/createCase": "write",
 	"workItems/listCases": "read",
 	"workItems/getCase": "read",

@@ -9,7 +9,7 @@ import {
 	type TediToolSpec,
 } from "./aggregate-tedis-shared";
 
-// Work hierarchy v1 projects (project → epic → story container + rollup).
+// Projects group an area or engagement and provide its Work rollup.
 // Org-scoped surface: projects have no tediId, so the selected tedi's id is
 // never injected (includeTediIdParam: false) — mirroring CAPABILITY_MAP_TOOLS.
 const CREATE_PROJECT_SCHEMA: ToolInputJsonSchema = zodToToolInputJsonSchema(

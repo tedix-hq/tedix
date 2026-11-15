@@ -682,7 +682,7 @@ const HOME_SURFACE_TOOL_SPECS: HomeSurfaceToolSpec[] = [
 	{
 		name: "create_work_item",
 		description:
-			"Create an artifact-neutral Work Item specification. Execution and acceptance are separate attempt and evidence lifecycles.",
+			"Create a Work Item specification. Execution is tracked separately as Attempts, and acceptance as evidence.",
 		inputSchema: CREATE_WORK_ITEM_SCHEMA,
 		annotations: MUTATING,
 		rpcEndpoint: "workItems/create",

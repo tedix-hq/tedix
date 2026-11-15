@@ -1989,7 +1989,7 @@ export const UpdateWorkItemInputSchema = CreateWorkItemInputSchema.extend({
 export type UpdateWorkItemInput = z.infer<typeof UpdateWorkItemInputSchema>;
 
 // =============================================================================
-// Work hierarchy — subtree + rollup outputs (work hierarchy v1)
+// Work Item subtree + rollup outputs
 // =============================================================================
 
 export const WorkItemSubtreeNodeSchema = z.object({

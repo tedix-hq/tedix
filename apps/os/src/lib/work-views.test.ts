@@ -24,7 +24,6 @@ describe("Work views registry", () => {
 			"/work?app=portfolio",
 			"/work/graph",
 			"/work/cases",
-			"/work/clusters",
 			"/work/approvals",
 			"/work/interactions",
 			"/work/admission",

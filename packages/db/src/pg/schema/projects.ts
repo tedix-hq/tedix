@@ -1,5 +1,5 @@
 /**
- * Projects Schema (work hierarchy v1)
+ * Projects Schema
  *
  * A thin org-scoped container for Work Items. A project is either a standing
  * area of work with no end date or an engagement with a target date, archived

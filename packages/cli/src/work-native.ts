@@ -179,7 +179,6 @@ export const WORK_NATIVE_ENDPOINTS: Record<string, string> = {
 	get_work_items_by_id: "workItems/getById",
 	grant_work_lane_attempt: "workItems/grantLaneAttempt",
 	heartbeat_work_item_attempt: "workItems/heartbeatAttempt",
-	list_project_health_judgments: "projects/listHealthJudgments",
 	list_undelivered_work_interaction_responses:
 		"workInteractions/listUndelivered",
 	list_ready_work: "workScheduler/listReady",
@@ -202,7 +201,6 @@ export const WORK_NATIVE_ENDPOINTS: Record<string, string> = {
 	propose_work_approval: "workApprovals/propose",
 	put_work_budget_envelope: "workItems/putBudgetEnvelope",
 	put_work_resource_pool: "workItems/putResourcePool",
-	record_project_health_judgment: "projects/recordHealthJudgment",
 	replace_work_admission_specification:
 		"workItems/replaceAdmissionSpecification",
 	respond_work_interaction: "workInteractions/respond",
