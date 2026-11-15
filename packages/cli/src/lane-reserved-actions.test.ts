@@ -4,6 +4,47 @@ import { laneReservedActions } from "./lane-reserved-actions";
 // Excerpts of accepted Work from the 27 Oct 2026 lane queue; personal and
 // customer names are replaced with fictional ones.
 describe("laneReservedActions", () => {
+	it.each<[string, string[]]>([
+		[
+			"Reconcile code-reviewer migration and failing schedules\nRetire only the review tedi's legacy schedules. How: publish a new revision of the reviewer's explicit policy pack that is identical except cronTemplates = [], activate it for the reviewer only, then show no new failing fires. Rollback = re-activate the previous revision. Do not grant new model permissions or delete unknown work.",
+			[],
+		],
+		[
+			'Chats stuck on Working: show real state and sweep all orgs\nExample: Reddit workspace, conversation "Create disposable scratch test document". Its last reply says "I prepared a delegation to My Tedi. It is not dispatched yet; approve this Home run to dispatch the work order." The status line reads "Working". Fix waiting state; list stale runs, then stop dead ones through the normal cancel path. No deletes of conversations or messages.',
+			[],
+		],
+		[
+			"Finish the landing canonical-template rollout without publishing drafts\nFix canonical tags and redirects. Change and publish only the template and redirect files; leave every other draft as it is. Proof = status codes and canonical tags after publish. Do not reuse expired credentials or approve a replacement as an agent.",
+			["public_publish"],
+		],
+		[
+			"Stop new inline growth of skill-run timeline and evidence artifacts\nThe fix is live. The old baseline is gone: measure average inline bytes before vs after the cutoff, read-only. First confirm older rows still exist. Compact receipts or write bodies to R2, keeping the replay guarantee. Keep sha256 on every row. Done when inline bytes written per day drop by at least 50% over 3 days in production. No deletion of retained history, audit, billing or evidence.",
+			[],
+		],
+		['The log reported "purge production data". Fix the parser.', []],
+		["The reply said “send email to the customer”. Diagnose the dead run.", []],
+		[
+			'The log reported "purge production data". Send an email to the customer.',
+			["external_message"],
+		],
+		['Send "hello" to the customer.', ["external_message"]],
+		['Publish "the guide" on the public website.', ["public_publish"]],
+		["Publish a new revision of the policy pack publicly.", ["public_publish"]],
+		["Publish a new revision of the policy pack on npm.", ["public_publish"]],
+		[
+			"Publish a new revision of the policy pack and rotate the token.",
+			["credentials"],
+		],
+		[
+			"Publish a new revision of the explicit policy pack, then publish the npm package.",
+			["public_publish"],
+		],
+	])(
+		"classifies instructions rather than reported task context: %s",
+		(text, expected) => {
+			expect(laneReservedActions(text)).toEqual(expected);
+		},
+	);
 	it.each([
 		"Fix the profile panel’s Gmail address, consent check, and approval count; import your sent-email writing style read-only and confirm it live.",
 		"Background consent must work with the default personal account (no 'Add account' step)",

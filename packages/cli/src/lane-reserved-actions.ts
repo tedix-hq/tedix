@@ -14,7 +14,14 @@ import { humanReservedActionClasses } from "@tedix/api-contract/utils/approval-p
  * without a lane act rule stay as the shared classifier reports them.
  */
 export function laneReservedActions(text: string): string[] {
-	const instructions = withoutNegatedClauses(text);
+	// Reported speech describes an earlier turn, not an instruction to this lane.
+	// Keep quoted objects in actual instructions, such as Send "hello" to a client.
+	const instructions = withoutNegatedClauses(
+		text.replace(
+			/\b(?:says?|said|reads?|read|reported|quoted|wrote)[: \t]+(?:"[^"]*"|“[^”]*”|`[^`]*`)/gi,
+			" ",
+		),
+	);
 	return [
 		...humanReservedActionClasses(instructions).filter(
 			(id) => !(id in actRules),
@@ -148,7 +155,8 @@ const actRules: Record<string, RegExp[]> = {
 		/\bimpersonat\w*/i,
 	],
 	public_publish: [
-		/(?<!\b(?:can|could|may|might)[ \t]+)\bpublish(?:es|ing)?\b(?!-|[ \t]+boundar(?:y|ies)\b|[ \t]+(?:(?:the|a|an|one|its|this)[ \t]+)?(?:workspace[ \t]+output|output|feed|today|internal|draft|findings[ \t]+in[ \t]+os))/i,
+		/(?<!\b(?:can|could|may|might)[ \t]+)\bpublish(?:es|ing)?\b[^.;!?\n]{0,120}\b(?:publicly|on[ \t]+npm|to[ \t]+(?:npm|the[ \t]+public))\b/i,
+		/(?<!\b(?:can|could|may|might)[ \t]+)\bpublish(?:es|ing)?\b(?!-|[ \t]+boundar(?:y|ies)\b|[ \t]+(?:a[ \t]+|the[ \t]+)?(?:new[ \t]+)?revision[ \t]+of[ \t]+(?:(?!(?:and|then|public|publicly)\b)[\w'’-]+[ \t]+){0,4}policy[ -]pack\b|[ \t]+(?:(?:the|a|an|one|its|this)[ \t]+)?(?:workspace[ \t]+output|output|feed|today|internal|draft|findings[ \t]+in[ \t]+os))/i,
 		/\b(?:is|are|gets?|be|been|was|were)[ \t]+published\b(?![ \t]+(?:to|in|as|on)[ \t]+(?:the[ \t]+)?(?:workspace|output|feed|os|tedix|today)\b)/i,
 		/\b(?:npm|bun|pnpm|yarn|cargo|gh|changeset)[ \t]+(?:publish|release[ \t]+create)\b/i,
 		/\bpost[ \t]+(?:\w+[ \t]+){0,4}(?:public|publicly|social|linked[ \t]*in|reddit|tweet|blog|hacker[ \t]*news)\b/i,
@@ -158,7 +166,7 @@ const actRules: Record<string, RegExp[]> = {
 		/\b(?:tweet|github[ \t]+merge[ \t]+pull[ \t]+request|veröffentliche|veröffentlichen|publiziere|publizieren|poste)\b/i,
 	],
 	delete_data: [
-		/\b(?:(?:delet|purg|wip|truncat|trash|destroy|eras|remov|lösch)\w*|drop(?:s|ped|ping)?)\b[^.;!?\n]{0,60}\b(?:data|rows?|records?(?![ \t]+(?:why|what|how|that|whether|it|its|the|an?)\b)|tables?|database|d1|r2|kv|buckets?|archives?|backups?|snapshots?|e-?mails?|messages?|users?|accounts?|tenants?|orgs?|organi[sz]ations?|customers?|memor(?:y|ies)|history|logs?|uploads?|namespaces?|live|production|prod|environments?|cloudflare[ \t]+\w+|workers?(?![ \t-]+(?:type|types|code|file|module|thread|threads|pool|script|config|entry|loader|class|test|tests))|daten|datenbank|zeilen|tabellen?|kunden)\b/i,
+		/\b(?:(?:delet|purg|wip|truncat|trash|destroy|eras|remov|lösch)\w*|drop(?:s|ped|ping)?(?![ \t]+(?:by|to|below)\b))\b[^.;!?\n]{0,60}\b(?:data|rows?|records?(?![ \t]+(?:why|what|how|that|whether|it|its|the|an?)\b)|tables?|database|d1|r2|kv|buckets?|archives?|backups?|snapshots?|e-?mails?|messages?|users?|accounts?|tenants?|orgs?|organi[sz]ations?|customers?|memor(?:y|ies)|history|logs?|uploads?|namespaces?|live|production|prod|environments?|cloudflare[ \t]+\w+|workers?(?![ \t-]+(?:type|types|code|file|module|thread|threads|pool|script|config|entry|loader|class|test|tests))|daten|datenbank|zeilen|tabellen?|kunden)\b/i,
 		/\b(?:data|rows?|records?|tables?|database|buckets?|archives?|backups?|snapshots?|e-?mails?|accounts?|tenants?|customers?|orgs?)\b[^.;!?\n]{0,40}\b(?:are|is|get|be)[ \t]+(?:deleted|purged|dropped|wiped|gone|removed)\b/i,
 		/\b(?:DELETE[ \t]+FROM|DROP[ \t]+(?:TABLE|DATABASE|INDEX|SCHEMA)|TRUNCATE(?:[ \t]+TABLE)?)[ \t]+[\w"`.]+/i,
 		/\bwrangler[ \t]+(?:d1|r2|kv(?::\w+)?|vectorize|queues)[ \t]+(?:\w+[ \t]+)?(?:delete|purge|drop)\b/i,
