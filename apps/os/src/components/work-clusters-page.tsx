@@ -103,7 +103,7 @@ export function WorkClustersPage() {
 					)}
 					<Collapsible>
 						<CollapsibleDefaultTrigger>
-							Advanced: enter a tedi by ID
+							Advanced: tedi UUID
 						</CollapsibleDefaultTrigger>
 						<CollapsibleDefaultContent>
 							<form
@@ -113,7 +113,7 @@ export function WorkClustersPage() {
 									void form.handleSubmit();
 								}}
 							>
-								<FormField form={form} name="tediId" label="Tedi ID">
+								<FormField form={form} name="tediId" label="Executor tedi id">
 									{(field, meta) => (
 										<FormInput
 											field={field}
@@ -143,11 +143,10 @@ export function WorkClustersPage() {
 				<>
 					<SchedulerTruncationWarnings {...clusters.data} />
 					<Alert>
-						<AlertTitle>Suggested order of work</AlertTitle>
+						<AlertTitle>Advisory execution plan</AlertTitle>
 						<AlertDescription>
-							Tasks in the same wave can run at the same time. Check this plan
-							again before starting the next wave; the system still checks each
-							task is ready when it starts.
+							Launch items within one wave in parallel. Re-read the plan before
+							advancing to the next wave; admission remains authoritative.
 						</AlertDescription>
 					</Alert>
 					{clusters.data.clusters.length ? (

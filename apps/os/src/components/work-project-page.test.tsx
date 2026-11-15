@@ -90,35 +90,6 @@ async function mountProject() {
 		q.workItemListQueryOptions({ projectId: PROJECT_ID, limit: 100 }).queryKey,
 		{ data: [] } as never,
 	);
-	// The people, tedis and agents the owner picker offers, by name.
-	client.setQueryData(q.operationalContextQueryOptions().queryKey, {
-		organization: { id: "org-1", appearance: {} },
-	} as never);
-	client.setQueryData(
-		q.membersListQueryOptions({
-			organizationId: "org-1",
-			limit: 100,
-			offset: 0,
-		}).queryKey,
-		{
-			data: [
-				{
-					descopeUserId: "owner-1",
-					userId: "owner-1",
-					name: "Owen Owner",
-					email: "owen@example.com",
-					kind: "human",
-				},
-			],
-		} as never,
-	);
-	client.setQueryData(q.tediRosterQueryOptions(100).queryKey, {
-		data: [],
-	} as never);
-	client.setQueryData(
-		q.workExternalPrincipalsQueryOptions("org-1").queryKey,
-		[] as never,
-	);
 	const host = document.createElement("div");
 	document.body.append(host);
 	await act(async () =>
@@ -146,16 +117,6 @@ async function mountProject() {
 			input.dispatchEvent(new Event("input", { bubbles: true }));
 		});
 	};
-	const pick = async (triggerLabel: string, optionName: string) => {
-		const trigger = host.querySelector<HTMLElement>(
-			`[aria-label="${triggerLabel}"]`,
-		)!;
-		await act(async () => trigger.click());
-		const option = [
-			...document.querySelectorAll<HTMLElement>('[role="option"]'),
-		].find((candidate) => candidate.textContent?.trim() === optionName)!;
-		await act(async () => option.click());
-	};
 	const submit = async () => {
 		const button = [...host.querySelectorAll("button")].find(
 			(candidate) => candidate.textContent?.trim() === "Create milestone",
@@ -166,7 +127,7 @@ async function mountProject() {
 				await new Promise((resolve) => setTimeout(resolve, 0));
 		});
 	};
-	return { host, type, pick, submit };
+	return { host, type, submit };
 }
 
 describe("Project milestone updates", () => {
@@ -179,7 +140,7 @@ describe("Project milestone updates", () => {
 		expect(page.host.textContent).toContain("Enter a milestone outcome.");
 
 		await page.type("Milestone outcome", "  Launch the pilot  ");
-		await page.pick("Choose a person", "Owen Owner");
+		await page.type("Accountable user id", "owner-1");
 		await page.submit();
 		expect(
 			calls.filter((call) => call.path === "projects.createMilestone"),

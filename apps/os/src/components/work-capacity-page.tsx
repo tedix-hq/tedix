@@ -5,16 +5,8 @@ import {
 	WorkEmpty,
 } from "@/components/work-surface-primitives";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useStore } from "@tanstack/react-form";
 import { useEffect, useState } from "react";
 import * as z from "zod";
-import {
-	FormPicker,
-	useEpicOptions,
-	useProjectOptions,
-	useWorkItemOptions,
-} from "@/components/work-form-pickers";
-import { useOsOperationalContext } from "@/lib/use-os-preferences";
 import { FormInput } from "@/components/forms/form-input";
 import { FormSelect } from "@/components/forms/form-select";
 import { Badge } from "@/components/kumo/badge";
@@ -66,17 +58,11 @@ const positiveIntegerString = z
 	.transform(Number)
 	.refine((value) => value >= 1, "Value must be at least 1.");
 
-/** Dollars typed by a person, stored as millionths of a dollar. */
-const usdToMicros = z
+const nonNegativeIntegerString = z
 	.string()
-	.trim()
-	.regex(/^\d+(\.\d{1,6})?$/, "Enter an amount in dollars, like 25 or 12.50.")
-	.transform((value) => Math.round(Number(value) * 1_000_000));
-
-const microsToUsd = (micros: number) => String(micros / 1_000_000);
-
-const usd = (micros: number) =>
-	`$${(micros / 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+	.regex(/^\d+$/, "Enter a whole number.")
+	.transform(Number)
+	.refine((value) => value >= 0, "Value cannot be negative.");
 
 const resourcePoolSchema = z.object({
 	resourceKey: z.string().trim().min(1, "Enter a resource key."),
@@ -87,17 +73,13 @@ const resourcePoolSchema = z.object({
 const budgetEnvelopeSchema = z
 	.object({
 		scopeType: z.enum(["organization", "project", "case", "work_item"]),
-		scopeId: z.string().trim(),
-		limitUsd: usdToMicros,
-		reservationUsd: usdToMicros,
+		scopeId: z.string().trim().uuid("Enter the scope UUID."),
+		limitMicros: nonNegativeIntegerString,
+		reservationMicros: nonNegativeIntegerString,
 	})
-	.refine((value) => value.scopeType === "organization" || value.scopeId, {
-		message: "Choose what the budget applies to.",
-		path: ["scopeId"],
-	})
-	.refine((value) => value.reservationUsd <= value.limitUsd, {
-		message: "The amount held back cannot exceed the limit.",
-		path: ["reservationUsd"],
+	.refine((value) => value.reservationMicros <= value.limitMicros, {
+		message: "Reservation cannot exceed the limit.",
+		path: ["reservationMicros"],
 	});
 
 export function BudgetScopeLink({
@@ -114,7 +96,7 @@ export function BudgetScopeLink({
 	});
 	if (scopeType === "work_item")
 		return (
-			<Link variant="record" href={`/work/items/${scopeId}`}>
+			<Link variant="record" href={`/work/items/${scopeId}`} title={scopeId}>
 				{work.data?.workItem.title ?? `Work ${workPrincipalLabel(scopeId)}`}
 			</Link>
 		);
@@ -126,11 +108,11 @@ export function BudgetScopeLink({
 				: undefined;
 	const label = `${sentenceCase(scopeType)} · ${workPrincipalLabel(scopeId)}`;
 	return href ? (
-		<Link variant="record" href={href}>
+		<Link variant="record" href={href} title={scopeId}>
 			{label}
 		</Link>
 	) : (
-		<span>{label}</span>
+		<span title={scopeId}>{label}</span>
 	);
 }
 
@@ -256,8 +238,6 @@ export function WorkCapacityPage({
 	const visibleBudgets = (budgets.data?.data ?? []).filter(
 		(row) => !exhaustedOnly || row.availableMicros <= 0,
 	);
-	const operational = useOsOperationalContext();
-	const organizationId = operational.data?.organization?.id ?? "";
 	const [poolVersion, setPoolVersion] = useState<number | undefined>();
 	const [budgetVersion, setBudgetVersion] = useState<number | undefined>();
 	const [poolFormOpen, setPoolFormOpen] = useState(false);
@@ -308,10 +288,9 @@ export function WorkCapacityPage({
 		mutationFn: (value: z.output<typeof budgetEnvelopeSchema>) =>
 			osApi.workItems.putBudgetEnvelope({
 				scopeType: value.scopeType,
-				scopeId:
-					value.scopeType === "organization" ? organizationId : value.scopeId,
-				limitMicros: value.limitUsd,
-				reservationMicros: value.reservationUsd,
+				scopeId: value.scopeId,
+				limitMicros: value.limitMicros,
+				reservationMicros: value.reservationMicros,
 				...(budgetVersion ? { expectedVersion: budgetVersion } : {}),
 			}),
 		onSuccess: async () => {
@@ -327,22 +306,12 @@ export function WorkCapacityPage({
 		defaultValues: {
 			scopeType: "organization",
 			scopeId: "",
-			limitUsd: "0",
-			reservationUsd: "0",
+			limitMicros: "0",
+			reservationMicros: "0",
 		},
 		validateOn: "submit",
 		onSubmit: ({ value }) => putBudget.mutate(value),
 	});
-	const budgetScopeType = useStore(
-		budgetForm.store,
-		(state) => state.values.scopeType,
-	);
-	useEffect(() => {
-		if (!budgetVersion) budgetForm.setFieldValue("scopeId", "");
-	}, [budgetScopeType, budgetVersion, budgetForm]);
-	const workItemPicker = useWorkItemOptions();
-	const epicOptions = useEpicOptions();
-	const projectOptions = useProjectOptions();
 	return (
 		<Page width="full">
 			<WorkPageHeader
@@ -431,7 +400,7 @@ export function WorkCapacityPage({
 									? "Edit budget envelope"
 									: "Create budget envelope"
 							}
-							description="Choose what the budget applies to and set a spending limit in US dollars."
+							description="Enter organization, project, epic, or work_item scope and the exact UUID."
 							mobileOpen={budgetFormOpen}
 							onMobileOpenChange={setBudgetFormOpen}
 						>
@@ -460,62 +429,32 @@ export function WorkCapacityPage({
 										</FormSelect>
 									)}
 								</FormField>
-								{budgetScopeType !== "organization" ? (
-									<FormField
-										form={budgetForm}
-										name="scopeId"
-										label={
-											budgetScopeType === "project"
-												? "Project"
-												: budgetScopeType === "case"
-													? "Epic"
-													: "Work Item"
-										}
-									>
-										{(field) =>
-											budgetVersion ? (
-												<BudgetScopeLink
-													scopeType={budgetScopeType}
-													scopeId={field.state.value as string}
-												/>
-											) : (
-												<FormPicker
-													key={budgetScopeType}
-													field={field}
-													label="Choose one"
-													options={
-														budgetScopeType === "project"
-															? projectOptions
-															: budgetScopeType === "case"
-																? epicOptions
-																: workItemPicker.options
-													}
-													onSearch={
-														budgetScopeType === "work_item"
-															? workItemPicker.onSearch
-															: undefined
-													}
-												/>
-											)
-										}
-									</FormField>
-								) : null}
-								<FormField
-									form={budgetForm}
-									name="limitUsd"
-									label="Spending limit (US dollars)"
-								>
+								<FormField form={budgetForm} name="scopeId" label="Scope id">
 									{(field, meta) => (
-										<FormInput field={field} {...meta} inputMode="decimal" />
+										<FormInput
+											field={field}
+											{...meta}
+											disabled={Boolean(budgetVersion)}
+											placeholder="Scope UUID"
+										/>
 									)}
 								</FormField>
 								<FormField
 									form={budgetForm}
-									name="reservationUsd"
-									label="Amount held back (US dollars)"
+									name="limitMicros"
+									label="Limit (micros)"
 								>
 									{(field, meta) => (
-										<FormInput field={field} {...meta} inputMode="decimal" />
+										<FormInput field={field} {...meta} type="number" min="0" />
+									)}
+								</FormField>
+								<FormField
+									form={budgetForm}
+									name="reservationMicros"
+									label="Reservation (micros)"
+								>
+									{(field, meta) => (
+										<FormInput field={field} {...meta} type="number" min="0" />
 									)}
 								</FormField>
 								<Button type="submit" disabled={putBudget.isPending}>
@@ -679,8 +618,8 @@ export function WorkCapacityPage({
 															</CollapsibleDefaultTrigger>
 															<CollapsibleDefaultContent>
 																<Text as="span" role="label" tone="secondary">
-																	{usd(committedMicros)} committed ·{" "}
-																	{usd(availableMicros)} available · version{" "}
+																	{committedMicros} committed ·{" "}
+																	{availableMicros} available (micros) · version{" "}
 																	{envelope.version}
 																</Text>
 															</CollapsibleDefaultContent>
@@ -699,12 +638,12 @@ export function WorkCapacityPage({
 																envelope.scopeId,
 															);
 															budgetForm.setFieldValue(
-																"limitUsd",
-																microsToUsd(envelope.limitMicros),
+																"limitMicros",
+																String(envelope.limitMicros),
 															);
 															budgetForm.setFieldValue(
-																"reservationUsd",
-																microsToUsd(envelope.reservationMicros),
+																"reservationMicros",
+																String(envelope.reservationMicros),
 															);
 															setBudgetVersion(envelope.version);
 															setBudgetFormOpen(true);

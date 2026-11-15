@@ -104,21 +104,16 @@ import {
 import { osApi } from "@/lib/api";
 import { absoluteDate, absoluteTime } from "@/lib/time";
 import { useDocumentTitle } from "@/lib/use-document-title";
-import {
-	FormPicker,
-	usePrincipalOptions,
-} from "@/components/work-form-pickers";
-import { workPrincipalLabel, workPrincipalTooltip } from "@/lib/work-display";
+import { workPrincipalLabel } from "@/lib/work-display";
 import {
 	PageControls,
-	namedWorkPrincipal,
 	useCursorPaging,
 	useWorkPrincipalNames,
 } from "./work-operations-shared";
 
 const WORK_LIST_LIMIT = 100;
 const PROJECTION_FAILURE_FALLBACK =
-	"This list could not be loaded. Try again; if it keeps failing, ask an administrator to check the service status.";
+	"The canonical projection failed. Retry once; if the failure persists, inspect the API Work projection health.";
 
 export function WorkItemInspectorPage({ children }: { children: ReactNode }) {
 	return (
@@ -140,10 +135,7 @@ export function WorkItemReadOnlyLedgers({
 	events,
 	workItemId,
 	repositoryWorkspaceId,
-	principalNames,
 }: {
-	/** `type:id` to display name; tooltips show the name, never the raw id. */
-	principalNames?: PrincipalNames;
 	repositoryWorkspaceId?: string;
 	workItemId: string;
 	acceptanceContract: WorkItem["acceptanceContract"];
@@ -184,10 +176,6 @@ export function WorkItemReadOnlyLedgers({
 	}>;
 }) {
 	useOsFormattingPreferences();
-	const eventActorName = (type: string, id: string) =>
-		principalNames?.has(`${type}:${id}`)
-			? namedWorkPrincipal(type, id, principalNames)
-			: workEventActorLabel(id, type);
 	return (
 		<>
 			<SectionCollection
@@ -230,22 +218,12 @@ export function WorkItemReadOnlyLedgers({
 									<Text
 										role="label"
 										tone="mono-secondary"
-										title={workPrincipalTooltip(
-											attempt.executorType,
-											attempt.executorId,
-											principalNames,
-										)}
+										title={`${attempt.executorType}:${attempt.executorId}`}
 									>
-										{principalNames
-											? namedWorkPrincipal(
-													attempt.executorType,
-													attempt.executorId,
-													principalNames,
-												)
-											: workPrincipalLabel(
-													attempt.executorId,
-													attempt.executorType,
-												)}
+										{workPrincipalLabel(
+											attempt.executorId,
+											attempt.executorType,
+										)}
 									</Text>
 									<WorkAttemptActivity attempt={attempt} />
 								</div>
@@ -326,7 +304,7 @@ export function WorkItemReadOnlyLedgers({
 				</SectionCollection>
 			</PageGrid>
 			<SectionCollection
-				title="History"
+				title="Immutable events"
 				description="Discussion remains in comments; lifecycle state is recorded here."
 				empty="No lifecycle events recorded."
 			>
@@ -335,20 +313,14 @@ export function WorkItemReadOnlyLedgers({
 							<li className="min-w-0" key={event.id}>
 								<WorkActorAvatar
 									actor={workActorReference(event.actorType, event.actorId)}
-									name={eventActorName(event.actorType, event.actorId)}
+									name={workEventActorLabel(event.actorId, event.actorType)}
 								/>
 								<Text weight="medium">
 									{sentenceCase(event.eventType.replaceAll(".", "_"))}
 								</Text>
 								<Text role="label" tone="secondary">
-									<span
-										title={workPrincipalTooltip(
-											event.actorType,
-											event.actorId,
-											principalNames,
-										)}
-									>
-										{eventActorName(event.actorType, event.actorId)}
+									<span title={`${event.actorType}:${event.actorId}`}>
+										{workEventActorLabel(event.actorId, event.actorType)}
 									</span>{" "}
 									·{" "}
 									<time
@@ -1035,17 +1007,20 @@ export function ProjectSummary({
 
 const projectMilestoneSchema = z.object({
 	title: z.string().trim().min(1, "Enter a milestone outcome."),
-	ownerId: z.string().trim().min(1, "Choose the accountable person."),
+	ownerId: z.string().trim().min(1, "Enter an accountable user id."),
 });
 
 const milestoneAttachmentSchema = z.object({
-	milestoneId: z.string().trim().uuid("Choose a milestone."),
-	workItemId: z.string().trim().uuid("Choose a Work Item."),
+	milestoneId: z.string().trim().uuid("Enter a canonical milestone UUID."),
+	workItemId: z.string().trim().uuid("Enter a canonical Work Item UUID."),
 });
 
 const milestoneDependencySchema = z.object({
-	fromMilestoneId: z.string().trim().uuid("Choose the prerequisite milestone."),
-	toMilestoneId: z.string().trim().uuid("Choose the dependent milestone."),
+	fromMilestoneId: z
+		.string()
+		.trim()
+		.uuid("Enter the prerequisite milestone UUID."),
+	toMilestoneId: z.string().trim().uuid("Enter the dependent milestone UUID."),
 });
 
 const projectHealthSchema = z.object({
@@ -1145,14 +1120,6 @@ export function WorkProjectPage({ projectId }: { projectId: string }) {
 		workItemListQueryOptions({ projectId, limit: WORK_LIST_LIMIT }),
 	);
 	const principalNames = useWorkPrincipalNames(items.data?.data[0]?.orgId);
-	const personOptions = usePrincipalOptions("user");
-	const milestoneOptions = (milestones.data?.data ?? []).map(
-		({ milestone }) => ({ value: milestone.id, label: milestone.title }),
-	);
-	const projectItemOptions = (items.data?.data ?? []).map((item) => ({
-		value: item.id,
-		label: item.title,
-	}));
 	const refreshMilestones = () => {
 		milestonePaging.reset();
 		return queryClient.invalidateQueries({
@@ -1333,15 +1300,9 @@ export function WorkProjectPage({ projectId }: { projectId: string }) {
 							<FormField
 								form={createMilestoneForm}
 								name="ownerId"
-								label="Accountable person"
+								label="Accountable user id"
 							>
-								{(field) => (
-									<FormPicker
-										field={field}
-										label="Choose a person"
-										options={personOptions}
-									/>
-								)}
+								{(field, meta) => <FormInput field={field} {...meta} />}
 							</FormField>
 							<Button type="submit" disabled={createMilestone.isPending}>
 								Create milestone
@@ -1386,26 +1347,26 @@ export function WorkProjectPage({ projectId }: { projectId: string }) {
 								<FormField
 									form={attachmentForm}
 									name="milestoneId"
-									label="Milestone"
+									label="Milestone id"
 								>
-									{(field) => (
-										<FormPicker
+									{(field, meta) => (
+										<FormInput
 											field={field}
-											label="Choose a milestone"
-											options={milestoneOptions}
+											{...meta}
+											placeholder="Milestone UUID"
 										/>
 									)}
 								</FormField>
 								<FormField
 									form={attachmentForm}
 									name="workItemId"
-									label="Work Item"
+									label="Work Item id"
 								>
-									{(field) => (
-										<FormPicker
+									{(field, meta) => (
+										<FormInput
 											field={field}
-											label="Choose a Work Item"
-											options={projectItemOptions}
+											{...meta}
+											placeholder="Work Item UUID"
 										/>
 									)}
 								</FormField>
@@ -1427,26 +1388,26 @@ export function WorkProjectPage({ projectId }: { projectId: string }) {
 								<FormField
 									form={dependencyForm}
 									name="fromMilestoneId"
-									label="Prerequisite milestone"
+									label="Prerequisite milestone id"
 								>
-									{(field) => (
-										<FormPicker
+									{(field, meta) => (
+										<FormInput
 											field={field}
-											label="Choose the milestone that comes first"
-											options={milestoneOptions}
+											{...meta}
+											placeholder="Milestone UUID"
 										/>
 									)}
 								</FormField>
 								<FormField
 									form={dependencyForm}
 									name="toMilestoneId"
-									label="Milestone that waits"
+									label="Dependent milestone id"
 								>
-									{(field) => (
-										<FormPicker
+									{(field, meta) => (
+										<FormInput
 											field={field}
-											label="Choose the milestone that waits"
-											options={milestoneOptions}
+											{...meta}
+											placeholder="Milestone UUID"
 										/>
 									)}
 								</FormField>
@@ -1481,8 +1442,8 @@ export function WorkProjectPage({ projectId }: { projectId: string }) {
 					<CardHeader>
 						<CardTitle>Accountable health</CardTitle>
 						<CardDescription>
-							A record of how the accountable person judges this project. A
-							finished task does not replace that judgment.
+							Immutable judgment history; mechanical completion never
+							substitutes for it.
 						</CardDescription>
 					</CardHeader>
 					<CardContent className="grid gap-3">
@@ -1564,7 +1525,7 @@ export function WorkProjectPage({ projectId }: { projectId: string }) {
 			) : (
 				<WorkEmpty
 					title="No work in this project"
-					description="This project has no tasks yet. Add a task when an outcome is ready to be worked on."
+					description="Projects are not executable; admit bounded Work Items when outcomes are ready."
 				/>
 			)}
 		</Page>
@@ -1612,7 +1573,7 @@ export function WorkGraphPage() {
 		<Page width="full">
 			<WorkPageHeader
 				title="Work graph"
-				description="Which tasks have to finish before others can start. Grouping tasks under a project does not decide who does them."
+				description="A durable dependency graph. Portfolio hierarchy is not executor ownership, and external project managers remain projections."
 			/>
 			{relationsQuery.isError ? (
 				<WorkReadFailure
@@ -1624,7 +1585,7 @@ export function WorkGraphPage() {
 			) : relations.length === 0 ? (
 				<WorkEmpty
 					title="No dependency edges"
-					description="Tasks that do not depend on each other still appear in the queue. Add a link only when one task really blocks, repeats, or refers to another."
+					description="Independent work remains visible in the queue; add blocks, duplicates, or references only when the relationship is real."
 				/>
 			) : (
 				<>
@@ -2255,7 +2216,6 @@ export function WorkItemPage({ itemId }: { itemId: string }) {
 					<div className="grid gap-4 pt-4">
 						<ClipboardText size="sm" text={item.id} textToCopy={item.id} />
 						<WorkItemReadOnlyLedgers
-							principalNames={principalNames}
 							workItemId={item.id}
 							repositoryWorkspaceId={
 								z.uuid().safeParse(item.provenance?.workspaceId).data

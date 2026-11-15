@@ -154,21 +154,6 @@ async function mount(element: ReactNode) {
 			input.dispatchEvent(new Event("input", { bubbles: true }));
 		});
 	};
-	/** Open a name picker by its button label and choose an option by name. */
-	const pick = async (triggerLabel: string, optionName: string) => {
-		const trigger = host.querySelector<HTMLElement>(
-			`[aria-label="${triggerLabel}"]`,
-		);
-		if (!trigger) throw new Error(`no picker ${triggerLabel}`);
-		await act(async () => trigger.click());
-		await settle();
-		const option = [
-			...document.querySelectorAll<HTMLElement>('[role="option"]'),
-		].find((candidate) => candidate.textContent?.trim() === optionName);
-		if (!option) throw new Error(`no option ${optionName}`);
-		await act(async () => option.click());
-		await settle();
-	};
 	const submit = async (buttonText: string) => {
 		const button = [...host.querySelectorAll("button")].find(
 			(candidate) => candidate.textContent?.trim() === buttonText,
@@ -180,7 +165,7 @@ async function mount(element: ReactNode) {
 		});
 		await settle();
 	};
-	return { host, client, type, pick, submit };
+	return { host, client, type, submit };
 }
 
 async function settle() {
@@ -465,12 +450,7 @@ describe("Work interactions", () => {
 		await act(async () => create.form!.requestSubmit());
 		await settle();
 		expect(mutations("workInteractions.create")).toEqual([]);
-		expect(page.host.textContent).toContain(
-			"Choose what this request is about.",
-		);
-		// Nobody types an id: both targets are pickers.
-		expect(page.host.querySelector('input[placeholder*="UUID"]')).toBeNull();
-		expect(page.host.textContent).not.toContain("Context id");
+		expect(page.host.textContent).toContain("Enter a context id.");
 	});
 
 	it("keeps the request form out of the phone queue until opened", async () => {
@@ -486,32 +466,13 @@ describe("Work interactions", () => {
 
 	it("closes a submitted request and shows it in the requested view", async () => {
 		viewport(false);
-		api.reads["userSettings.getContext"] = {
-			organization: { id: "org-1", appearance: {} },
-		};
-		api.reads["members.listMembers"] = {
-			data: [
-				{
-					descopeUserId: OWNER,
-					userId: OWNER,
-					name: "Olivia Owner",
-					email: "olivia@example.com",
-					kind: "human",
-				},
-			],
-		};
-		api.reads["externalAgentIdentity.listPrincipals"] = [];
-		api.reads["workItems.list"] = {
-			data: [{ id: "work-1", title: "Refund policy", version: 1 }],
-			nextCursor: null,
-		};
 		const page = await mount(<WorkInteractionsPage />);
 		const ask = [...page.host.querySelectorAll("button")].find(
 			(button) => button.textContent?.trim() === "Ask for input",
 		)!;
 		await act(async () => ask.click());
-		await page.pick("Choose a Work Item", "Refund policy");
-		await page.pick("Choose a person", "Olivia Owner");
+		await page.type("Context id", "work-1");
+		await page.type("Target principal id", OWNER);
 		await page.type("Subject", "Confirm refund policy");
 		await page.type("Prompt", "Which policy applies?");
 		await page.submit("Create Question");
@@ -742,7 +703,7 @@ describe("Work admission and capacity", () => {
 		expect(page.host.querySelectorAll("form")).toHaveLength(0);
 		await page.submit("Advanced: IDs and specification JSON");
 		expect(page.host.querySelectorAll("form")).toHaveLength(2);
-		await page.type("Work Item ID", "not-a-uuid");
+		await page.type("Work Item id", "not-a-uuid");
 		await page.submit("Load");
 		expect(page.host.textContent).toContain(
 			"Enter a canonical Work Item UUID.",
@@ -799,15 +760,10 @@ describe("Work admission and capacity", () => {
 		await act(async () =>
 			surfaces[1]!.querySelector<HTMLElement>("button")!.click(),
 		);
-		await page.type("Spending limit (US dollars)", "ten");
+		await page.type("Scope id", "not-a-uuid");
 		await page.submit("Create envelope");
 		expect(mutations("workItems.putBudgetEnvelope")).toEqual([]);
-		expect(page.host.textContent).toContain(
-			"Enter an amount in dollars, like 25 or 12.50.",
-		);
-		// No id or "micros" fields: a named picker and dollar amounts.
-		expect(page.host.textContent).not.toContain("Scope id");
-		expect(page.host.textContent).not.toContain("micros");
+		expect(page.host.textContent).toContain("Enter the scope UUID.");
 	});
 });
 
@@ -914,8 +870,8 @@ describe("Work case detail and clusters", () => {
 		viewport(false);
 		const page = await mount(<WorkClustersPage />);
 		expect(page.host.querySelectorAll("form")).toHaveLength(0);
-		await page.submit("Advanced: enter a tedi by ID");
-		await page.type("Tedi ID", "not-a-uuid");
+		await page.submit("Advanced: tedi UUID");
+		await page.type("Executor tedi id", "not-a-uuid");
 		await page.submit("Plan waves");
 		expect(page.host.textContent).toContain("Enter a canonical tedi UUID.");
 		expect(

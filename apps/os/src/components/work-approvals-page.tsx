@@ -1,7 +1,6 @@
 import { ChatCircle, Check, Pulse, X } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useStore } from "@tanstack/react-form";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import * as z from "zod";
 import { ActivityAutoApproval } from "@/components/activity-auto-approval";
 import { ActivityHistory } from "@/components/activity-history";
@@ -58,12 +57,7 @@ import {
 	WorkReadFailure,
 } from "@/components/work-surface-primitives";
 import { osApi } from "@/lib/api";
-import { useOsFormattingPreferences, sentenceCase } from "@/lib/format";
-import {
-	FormPicker,
-	usePrincipalOptions,
-	useWorkItemOptions,
-} from "@/components/work-form-pickers";
+import { useOsFormattingPreferences } from "@/lib/format";
 import {
 	osQueryKeys,
 	workApprovalsQueryOptions,
@@ -84,36 +78,30 @@ type ApprovalsTab = "needs-you" | "auto" | "history";
 
 const SOON_MS = 3 * 3_600_000;
 
-const approvalProposalSchema = z
-	.object({
-		workItemId: z.string().trim().min(1, "Choose a Work Item."),
-		workItemVersion: z
-			.string()
-			.regex(/^\d+$/, "Enter a valid Work Item version.")
-			.transform(Number)
-			.refine((value) => value >= 1, "Version must be at least 1."),
-		proposalJson: z.string().refine((value) => {
-			try {
-				JSON.parse(value);
-				return true;
-			} catch {
-				return false;
-			}
-		}, "Enter valid proposal JSON."),
-		authorityKey: z.string().trim(),
-		customAuthorityKey: z.string().trim(),
-		approverType: z.enum(["user", "tedi"]),
-		approverId: z.string().trim().min(1, "Choose who should approve."),
-		requestRationale: z
-			.string()
-			.trim()
-			.min(1, "Explain why authority is needed."),
-		expiresAt: z.date().nullable().refine(Boolean, "Choose an expiry."),
-	})
-	.refine((value) => Boolean(value.customAuthorityKey || value.authorityKey), {
-		message: "Choose what the approval covers.",
-		path: ["authorityKey"],
-	});
+const approvalProposalSchema = z.object({
+	workItemId: z.string().trim().min(1, "Enter a Work Item id."),
+	workItemVersion: z
+		.string()
+		.regex(/^\d+$/, "Enter a valid Work Item version.")
+		.transform(Number)
+		.refine((value) => value >= 1, "Version must be at least 1."),
+	proposalJson: z.string().refine((value) => {
+		try {
+			JSON.parse(value);
+			return true;
+		} catch {
+			return false;
+		}
+	}, "Enter valid proposal JSON."),
+	authorityKey: z.string().trim().min(1, "Enter an authority key."),
+	approverType: z.enum(["user", "tedi"]),
+	approverId: z.string().trim().min(1, "Enter an approver id."),
+	requestRationale: z
+		.string()
+		.trim()
+		.min(1, "Explain why authority is needed."),
+	expiresAt: z.date().nullable().refine(Boolean, "Choose an expiry."),
+});
 
 /** "expires in 20h", or "expired 3h ago" once the window has passed. */
 export function expiryLabel(expiresAt: string, now = new Date()): string {
@@ -803,7 +791,7 @@ function WorkStartHistory() {
 				workItemId: value.workItemId,
 				workItemVersion: value.workItemVersion,
 				proposal: JSON.parse(value.proposalJson) as never,
-				authorityKey: value.customAuthorityKey || value.authorityKey,
+				authorityKey: value.authorityKey,
 				approverType: value.approverType,
 				approverId: value.approverId,
 				requestRationale: value.requestRationale,
@@ -834,7 +822,6 @@ function WorkStartHistory() {
 			workItemVersion: "1",
 			proposalJson: "{}",
 			authorityKey: "",
-			customAuthorityKey: "",
 			approverType: "user",
 			approverId: "",
 			requestRationale: "",
@@ -843,30 +830,6 @@ function WorkStartHistory() {
 		validateOn: "submit",
 		onSubmit: ({ value }) => propose.mutate(value),
 	});
-	const workItemPicker = useWorkItemOptions();
-	const approverType = useStore(
-		form.store,
-		(state) => state.values.approverType,
-	);
-	const approverOptions = usePrincipalOptions(approverType);
-	const chosenItemId = useStore(form.store, (state) => state.values.workItemId);
-	const chosenVersion = workItemPicker.versions.get(chosenItemId);
-	useEffect(() => {
-		if (chosenVersion)
-			form.setFieldValue("workItemVersion", String(chosenVersion));
-	}, [chosenVersion, form]);
-	useEffect(() => {
-		form.setFieldValue("approverId", "");
-	}, [approverType, form]);
-	// Offer the approval kinds this organization has already used.
-	const authorityOptions = [
-		...new Set(
-			(query.data?.data ?? []).map((row) => row.proposal.authorityKey),
-		),
-	].map((value) => ({
-		value,
-		label: sentenceCase(value.replaceAll(/[._:-]/g, " ")),
-	}));
 	const rows = (query.data?.data ?? []).filter(
 		({ effectiveStatus, canDecide }) =>
 			effectiveStatus !== "pending" || !canDecide,
@@ -971,42 +934,19 @@ function WorkStartHistory() {
 						void form.handleSubmit();
 					}}
 				>
-					<FormField form={form} name="workItemId" label="Work Item">
-						{(field) => (
-							<FormPicker
-								field={field}
-								label="Choose a Work Item"
-								options={workItemPicker.options}
-								onSearch={workItemPicker.onSearch}
-							/>
-						)}
-					</FormField>
-					<FormField
-						form={form}
-						name="authorityKey"
-						label="What the approval covers"
-					>
-						{(field) => (
-							<FormPicker
-								field={field}
-								label="Choose what it covers"
-								options={authorityOptions}
-							/>
-						)}
-					</FormField>
-					<FormField form={form} name="approverId" label="Who should approve">
-						{(field) => (
-							<FormPicker
-								key={approverType}
-								field={field}
-								label={
-									approverType === "user" ? "Choose a person" : "Choose a tedi"
-								}
-								options={approverOptions}
-							/>
-						)}
-					</FormField>
-					<FormField form={form} name="approverType" label="Approver is a">
+					{(
+						[
+							["workItemId", "Work Item id"],
+							["workItemVersion", "Work Item version"],
+							["authorityKey", "Authority key"],
+							["approverId", "Approver id"],
+						] as const
+					).map(([name, label]) => (
+						<FormField key={name} form={form} name={name} label={label}>
+							{(field, meta) => <FormInput field={field} {...meta} />}
+						</FormField>
+					))}
+					<FormField form={form} name="approverType" label="Approver type">
 						{(field, meta) => (
 							<FormSelect field={field} {...meta}>
 								<SelectItem value="user">Person</SelectItem>
@@ -1034,42 +974,15 @@ function WorkStartHistory() {
 					>
 						{(field, meta) => <FormTextarea field={field} {...meta} />}
 					</FormField>
-					<Collapsible className="md:col-span-2">
-						<CollapsibleDefaultTrigger>
-							Advanced: custom approval type and details
-						</CollapsibleDefaultTrigger>
-						<CollapsibleDefaultContent>
-							<div className="grid gap-3 pt-3 md:grid-cols-2">
-								<FormField
-									form={form}
-									name="customAuthorityKey"
-									label="Other approval type (technical name)"
-								>
-									{(field, meta) => <FormInput field={field} {...meta} />}
-								</FormField>
-								<FormField
-									form={form}
-									name="workItemVersion"
-									label="Work Item version"
-								>
-									{(field, meta) => <FormInput field={field} {...meta} />}
-								</FormField>
-								<FormField
-									form={form}
-									name="proposalJson"
-									label="Extra details (JSON)"
-								>
-									{(field, meta) => (
-										<FormTextarea
-											field={field}
-											{...meta}
-											className="min-h-32 font-mono"
-										/>
-									)}
-								</FormField>
-							</div>
-						</CollapsibleDefaultContent>
-					</Collapsible>
+					<FormField form={form} name="proposalJson" label="Proposal JSON">
+						{(field, meta) => (
+							<FormTextarea
+								field={field}
+								{...meta}
+								className="min-h-32 font-mono"
+							/>
+						)}
+					</FormField>
 					<Button
 						className="md:col-span-2"
 						disabled={propose.isPending}
