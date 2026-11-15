@@ -898,7 +898,10 @@ export function WorkDecisionCard({
 							? decisionText("Skips it for now; it comes back next visit.")
 							: undefined;
 	const outcomes: [string, string, string?][] =
-		faceState && face && !compact && !saved
+		faceState &&
+		(face || actions.some((action) => action.description)) &&
+		!compact &&
+		!saved
 			? [
 					...actions.flatMap((action): [string, string, string?][] => {
 						const effect =

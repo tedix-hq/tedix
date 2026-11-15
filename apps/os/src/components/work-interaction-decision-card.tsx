@@ -78,7 +78,7 @@ const offeredChoices = z.object({
 		.catch(undefined),
 	decisionCard: z
 		.object({
-			kind: z.literal("decision"),
+			kind: z.literal("decision").optional(),
 			recommendedOptionId: z.string().optional(),
 			options: z
 				.array(
@@ -506,7 +506,7 @@ export function WorkInteractionDecisionCard({
 								intent: "approve",
 							},
 						];
-	if (!approval && !lane && !proposal) {
+	if (!approval && !lane && !proposal && !choices.decisionCard) {
 		const decline = decision?.options.find(
 			(option) => option.intent === "reject",
 		);

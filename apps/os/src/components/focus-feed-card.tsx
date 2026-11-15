@@ -194,20 +194,20 @@ export function FeedCard({
 						<Text>
 							<strong>Recommended:</strong> {item.presentation.recommendation}
 						</Text>
-						{options.length > 0 && (
-							<ul aria-label="Options" className="grid gap-1">
-								{options.map((option) => (
-									<li key={option.id}>
-										<strong>
-											{option.label}
-											{option.recommended && " · Recommended"}
-										</strong>
-										: {option.consequence}
-									</li>
-								))}
-							</ul>
-						)}
 					</div>
+				)}
+				{options.length > 0 && (
+					<ul aria-label="Options" className="grid gap-1">
+						{options.map((option) => (
+							<li key={option.id}>
+								<strong>
+									{option.label}
+									{option.recommended && " · Recommended"}
+								</strong>
+								: {option.consequence}
+							</li>
+						))}
+					</ul>
 				)}
 				<div className="ft-byline flex-wrap">
 					<Text as="span" className="min-w-0 break-words">
