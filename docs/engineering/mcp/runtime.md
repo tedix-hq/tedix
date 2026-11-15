@@ -250,11 +250,12 @@ This is the ordinary full projection, with no publication flag. The API needs
 its exact 40-character `GIT_SHA`, `R2_BUCKET`, and the trusted `MCP_SERVICE`
 binding. Wait for the workflow to succeed; a queued instance is not proof.
 
-A successful full projection compares the deployed revision and latest native
-D1 migration ledger entry with an R2 publication receipt. A new pair activates
+A successful full projection compares the latest native D1 migration ledger
+entry with an R2 publication receipt. A new migration revision activates
 the gateway even when the incremental plan has zero batches. An unchanged,
-already published pair does not purge caches again. Scoped runs and previews
-cannot consume that receipt; projection failures cannot publish it. Any changed
+already published revision does not purge caches again, including across API
+releases. The receipt records the deployed SHA for attribution. Scoped runs and
+previews cannot consume that receipt; projection failures cannot publish it. Any changed
 projection still publishes, even when the release already has a receipt.
 
 Publication uses the existing internal service-binding route. It requires both
