@@ -2805,7 +2805,7 @@ describe("agent proposal review", () => {
 		const container = await openDoc("Weekly report");
 
 		expect(container.textContent).toContain("Suggested changes");
-		expect(container.textContent).toContain("Needs review");
+		expect(container.textContent).toContain("Needs you");
 		const suggestion = container.querySelector(
 			'[aria-label="Suggested changes"]',
 		);

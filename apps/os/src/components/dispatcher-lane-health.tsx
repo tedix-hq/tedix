@@ -85,9 +85,9 @@ export function DispatcherLaneHealth() {
 		return () => clearInterval(timer);
 	}, []);
 	return (
-		<section aria-label="Local lanes" className="grid gap-3">
+		<section aria-label="Local runners" className="grid gap-3">
 			<div>
-				<SectionTitle>Local lanes</SectionTitle>
+				<SectionTitle>Local runners</SectionTitle>
 				<Text tone="secondary">
 					Checks for new reports every 30 seconds. Shows reported tasks and
 					confirmed completions. Older reports leave current activity unknown.
@@ -95,26 +95,26 @@ export function DispatcherLaneHealth() {
 			</div>
 			{health.isError ? (
 				<WorkReadFailure
-					title="Lane observations unavailable"
+					title="Runner observations unavailable"
 					error={health.error}
 					onRetry={() => health.refetch()}
 					retrying={health.isFetching}
 				/>
 			) : null}
 			{health.isPending ? (
-				<WorkListSkeleton label="Loading local lanes" />
+				<WorkListSkeleton label="Loading local runners" />
 			) : null}
 			{health.data?.data.length === 0 ? (
 				<WorkEmpty
-					title="No lane observations"
-					description="No supervisor has reported local lanes to this organization. Their state is unknown."
+					title="No runner observations"
+					description="No supervisor has reported local runners to this organization. Their state is unknown."
 				/>
 			) : null}
 			{health.data &&
 			health.data.data.length > 0 &&
 			health.data.data.every((lane) => isStaleReport(lane, now)) ? (
 				<Text tone="secondary">
-					No recent lane reports. Current lane status is unknown.
+					No recent runner reports. Current runner status is unknown.
 				</Text>
 			) : null}
 			{[false, true].map((historical) => {
@@ -427,7 +427,7 @@ function DutyRow({ lane, now }: { lane: DispatcherHealthReport; now: number }) {
 						<div className="grid gap-2">
 							{stale ? (
 								<Text>
-									Historical lane observation. Current state is unknown.
+									Historical runner observation. Current state is unknown.
 								</Text>
 							) : null}
 							{lead ? (

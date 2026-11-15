@@ -689,7 +689,7 @@ function TurnView({
 							tone="secondary"
 							data-testid="workspace-chat-timer"
 						>
-							{waiting ? "Waiting for your decision" : "Working"} ·{" "}
+							{waiting ? "Needs your decision" : "Working"} ·{" "}
 							{elapsedLabel(now - startedAt)}
 						</Text>
 					</footer>

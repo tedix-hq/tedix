@@ -33,7 +33,7 @@ export async function runLaneStates() {
 		for (const width of [375, 1280]) {
 			const page = await browser.newPage({ viewport: { width, height: 900 } });
 			await page.goto(`${origin}/work/capacity`);
-			const section = page.getByRole("region", { name: "Local lanes" });
+			const section = page.getByRole("region", { name: "Local runners" });
 			await section.getByText("Slots in use", { exact: true }).waitFor();
 			assert.equal(
 				await section
@@ -378,7 +378,7 @@ export async function runLaneStates() {
 		});
 		await stalePage.goto(`${origin}/work/capacity`);
 		const unknown = stalePage.getByText(
-			"No recent lane reports. Current lane status is unknown.",
+			"No recent runner reports. Current runner status is unknown.",
 			{ exact: true },
 		);
 		await unknown.waitFor();
@@ -429,8 +429,8 @@ export async function runLaneStates() {
 			await page
 				.getByText(
 					mode === "empty"
-						? "No lane observations"
-						: "Lane observations unavailable",
+						? "No runner observations"
+						: "Runner observations unavailable",
 					{ exact: true },
 				)
 				.waitFor();
@@ -546,7 +546,7 @@ export async function runLaneActivity(theme: "light" | "dark") {
 					});
 				});
 				await page.goto(`${origin}/work/capacity`);
-				const section = page.getByRole("region", { name: "Local lanes" });
+				const section = page.getByRole("region", { name: "Local runners" });
 				await section.getByText("Working", { exact: true }).waitFor();
 				assert.equal(
 					await section.locator("tbody > tr").count(),

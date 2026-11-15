@@ -196,7 +196,7 @@ describe("Project contributors", () => {
 		]);
 		const rows = [...doc.querySelectorAll("li[data-contributor-state]")];
 		expect(rows[0]?.getAttribute("data-contributor-state")).toBe("needs_you");
-		expect(rows[0]?.textContent).toContain("Waiting on you");
+		expect(rows[0]?.textContent).toContain("Needs you");
 		expect(rows[0]?.textContent).toContain("Lead");
 	});
 

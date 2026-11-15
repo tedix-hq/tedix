@@ -269,7 +269,7 @@ function AppDraftCard({
 				<Badge variant={proposal.status === "accepted" ? "info" : "secondary"}>
 					{proposal.status === "accepted"
 						? "Approved · not applied"
-						: "Needs review"}
+						: "Needs you"}
 				</Badge>
 				<Text as="span" role="label" tone="secondary">
 					{APP_DRAFT_SOURCE_LABELS[proposal.sourceKind]} · from version{" "}

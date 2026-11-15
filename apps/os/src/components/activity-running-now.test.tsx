@@ -204,7 +204,7 @@ it("keeps failures distinct from a quiet fleet and exposes retry controls", asyn
 	api.health.mockRejectedValue(failure);
 	await mount();
 	expect(host.textContent).toContain("Active attempts unavailable");
-	expect(host.textContent).toContain("Fleet health unavailable");
+	expect(host.textContent).toContain("Runner health unavailable");
 	expect(host.textContent).toContain("Current activity is unknown.");
 	expect(host.textContent).not.toContain("No active attempts");
 	expect(host.textContent).not.toContain("Runners up: 0");

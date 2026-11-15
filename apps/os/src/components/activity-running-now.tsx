@@ -96,7 +96,7 @@ export function ActivityRunningNow({
 				<Text tone="secondary">
 					Updates every 30 seconds while Activity is open.
 				</Text>
-				<Text role="caption" aria-label="Fleet health">
+				<Text role="caption" aria-label="Runner health">
 					{healthFailed || !runners.length
 						? "Runners up: unknown"
 						: `Runners up: ${up.length} / ${runners.length}`}
@@ -122,7 +122,7 @@ export function ActivityRunningNow({
 				</Text>
 				{healthFailed && (
 					<WorkReadFailure
-						title="Fleet health unavailable"
+						title="Runner health unavailable"
 						error={health.error ?? health.failureReason}
 						onRetry={() => health.refetch()}
 						retrying={health.isFetching}

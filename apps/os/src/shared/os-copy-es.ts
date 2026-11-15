@@ -1,5 +1,15 @@
 /** Interface copy only. Source records and exact proposals retain their original wording. */
 export const SPANISH_FEED_DECK_COPY = {
+	work: {
+		status: "Estado",
+		proposed: "Propuesto",
+		dispositions: {
+			proposed: "Propuesto",
+			accepted: "Aceptado",
+			completed: "Completado",
+			cancelled: "Cancelado",
+		},
+	},
 	navigationDescriptions: {
 		work: "Revisa lo que necesita tu atención y sigue tus tareas.",
 		chat: "Habla con tus tedis y lee sus respuestas.",
@@ -205,9 +215,9 @@ export const SPANISH_FEED_DECK_COPY = {
 		cardKinds: {
 			outbound: "Aprobar correo",
 			proposal: "Siguiente paso",
-			question: "Tú decides",
+			question: "Solicitud",
 			approval: "Tu aprobación",
-			decision: "Tú decides",
+			decision: "Solicitud",
 			adr: "Decisión de arquitectura",
 		} as Record<string, string>,
 		kinds: {
@@ -334,7 +344,7 @@ export const SPANISH_FEED_DECK_COPY = {
 		subtitle: "Lo que importa ahora, con su registro detrás.",
 		filters: {
 			all: "Para ti",
-			attention: "Necesita acción",
+			attention: "Necesita tu atención",
 			office: "Respuestas",
 			history: "Hecho",
 			stalled: "Bloqueado",
@@ -391,7 +401,7 @@ export const SPANISH_FEED_DECK_COPY = {
 				partial: "Hecho en parte",
 				paused: "En pausa",
 				stopped: "Detenido",
-				needsLook: "Necesita revisión",
+				needsLook: "Necesita tu atención",
 				needsYou: "Necesita tu atención",
 			},
 			more: "Más",

@@ -460,7 +460,7 @@ export function WorkAgentsBoard({
 		<>
 			<div aria-label="Today’s delegation totals" className="grid gap-1">
 				<Text role="body" tone="strong">
-					Today: {formatCount(totals.lanes)} lanes ·{" "}
+					Today: {formatCount(totals.lanes)} runners ·{" "}
 					{formatCount(totals.tokens)} measured tokens · {cost(totals.cost)}{" "}
 					estimated ·{" "}
 					{totals.successRate === null
@@ -468,7 +468,7 @@ export function WorkAgentsBoard({
 						: `${Math.round(totals.successRate * 100)}% executor success`}
 				</Text>
 				<Text role="label" tone="secondary">
-					{totals.unmeasured} lanes without usage · {totals.unpriced} without
+					{totals.unmeasured} runners without usage · {totals.unpriced} without
 					rates · Time to verified: see Work verification receipts. Totals cover
 					the sessions returned by the board.
 				</Text>

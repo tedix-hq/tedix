@@ -337,7 +337,7 @@ export function ActivityAutoApproval({ canChange }: { canChange: boolean }) {
 						</PolicyRow>
 						<PolicyRow
 							icon={<ShieldCheck size={14} />}
-							mode="Needs review"
+							mode="Needs you"
 							title="Other changes"
 							tone="warning"
 						>

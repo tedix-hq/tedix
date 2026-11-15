@@ -95,7 +95,7 @@ describe("activity timeline", () => {
 		expect(
 			activityStatus(item({ classId: "work:attempt.failed", done: false }))
 				?.label,
-		).toBe("Needs a look");
+		).toBe("Needs you");
 		expect(activityStatus(item({}))).toBeNull();
 		expect(
 			activityStatus(item({ kind: "decision", needsAction: true })),
@@ -263,6 +263,6 @@ describe("activity timeline", () => {
 		expect(
 			activityStatus(item({ classId: "work:attempt.failed", done: false }))
 				?.label,
-		).toBe("Necesita revisión");
+		).toBe("Necesita tu atención");
 	});
 });

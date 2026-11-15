@@ -73,7 +73,7 @@ describe("Office evidence wording", () => {
 			canonicalOfficeLine({ ...row, source: "reply", stage: "unknown" }).title,
 		).toContain("Reply delivery method is unknown");
 	});
-	it("shows an OpenCode lane permission ask as auto-approved and counts combined reports", () => {
+	it("shows an OpenCode runner permission ask as auto-approved and counts combined reports", () => {
 		const hook: OfficeActivityRow = {
 			id: "00000000-0000-4000-8000-000000000001",
 			at: "2026-11-03T12:00:00.000Z",
@@ -90,7 +90,7 @@ describe("Office evidence wording", () => {
 			workItemId: null,
 		};
 		const [line] = officeTimelineRows([hook], []);
-		expect(line!.title).toContain("the lane approves it automatically");
+		expect(line!.title).toContain("the runner approves it automatically");
 		expect(line!.title).not.toContain("error");
 		expect(line!.evidence).toContain("40 matching reports combined since");
 		const [claude] = officeTimelineRows(

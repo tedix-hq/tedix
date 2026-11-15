@@ -21,13 +21,15 @@ try {
 			.waitFor();
 		assert.equal(await page.locator('input[placeholder*="UUID"]').count(), 0);
 
-		await page.getByRole("combobox", { name: "Choose a task" }).click();
-		await page.getByRole("combobox", { name: "Find a task" }).fill(search);
+		await page.getByRole("combobox", { name: "Choose a Work Item" }).click();
+		await page.getByRole("combobox", { name: "Find a Work Item" }).fill(search);
 		await page
 			.getByRole("option", { name: new RegExp(search, "i") })
 			.first()
 			.click();
-		await page.getByRole("button", { name: "Add task", exact: true }).click();
+		await page
+			.getByRole("button", { name: "Add Work Item", exact: true })
+			.click();
 		await page
 			.locator("[data-case-task]", { hasText: new RegExp(search, "i") })
 			.first()

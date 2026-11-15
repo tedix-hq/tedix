@@ -391,7 +391,7 @@ function FactoryRow({ row }: { row: FactoryScoreboardEntry }) {
 						</Badge>
 					) : null}
 					<Badge variant="outline">
-						{row.kind === "blueprint" ? "Template" : "Loop"}
+						{row.kind === "blueprint" ? "Template" : "Skill"}
 					</Badge>
 				</div>
 			}
@@ -457,10 +457,10 @@ function FactoryScoreboard() {
 		<PageSection aria-labelledby="portfolio-factories-title">
 			<SectionHeader>
 				<SectionHeading>
-					<SectionTitle id="portfolio-factories-title">Factories</SectionTitle>
+					<SectionTitle id="portfolio-factories-title">Skills</SectionTitle>
 					<SectionDescription>
-						Runs and results of each scheduled loop and Template over the last 7
-						days.
+						Runs and results of each scheduled skill and Template over the last
+						7 days.
 					</SectionDescription>
 					{failing || notFiring ? (
 						<Text as="p" role="label" tone="error" data-factory-problems="">

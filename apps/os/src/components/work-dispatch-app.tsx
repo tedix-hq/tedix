@@ -24,6 +24,7 @@ import {
 	workItemReadinessQueryOptions,
 } from "@/lib/os-query-options";
 import { absoluteTime } from "@/lib/time";
+import { OS_COPY } from "@/shared/os-copy";
 
 export const WORK_EXECUTOR_LABELS: Record<WorkExecutor, string> = {
 	human: "Human",
@@ -404,7 +405,9 @@ export function WorkDispatchApp({ projectId }: { projectId: string }) {
 						{item.title}
 					</Text>
 					<Text>{item.description}</Text>
-					<Text tone="secondary">{item.disposition}</Text>
+					<Text tone="secondary">
+						{OS_COPY.work.dispositions[item.disposition]}
+					</Text>
 					<WorkExecutorChoice item={item} />
 					{item.disposition === "proposed" &&
 					item.accountableOwnerId === viewer.data?.id ? (
