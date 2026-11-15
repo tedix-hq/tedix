@@ -244,9 +244,9 @@ export function runTrain(
 				`^${ticket.lane.base}`,
 			]);
 			if (!commits.ok) return undo("conflict");
+			let parent = start;
 			for (const commit of commits.out.split("\n").filter(Boolean)) {
 				// Shared commits between lanes may already be applied.
-				const parent = git(integration, ["rev-parse", "HEAD"]).out;
 				if (!git(integration, ["cherry-pick", "--empty=drop", commit]).ok)
 					return undo("conflict");
 				const head = git(integration, ["rev-parse", "HEAD"]).out;
@@ -281,6 +281,7 @@ export function runTrain(
 					console.error(scan.stdout, scan.stderr);
 					return undo("scan");
 				}
+				parent = head;
 			}
 			return null;
 		};
