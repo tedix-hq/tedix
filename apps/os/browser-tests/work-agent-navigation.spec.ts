@@ -16,13 +16,13 @@ try {
 		const nav = page.getByRole("navigation", { name: "Agents", exact: true });
 		await page.locator('[data-workspace-app-entry="office"]').waitFor();
 		assert.deepEqual(await nav.getByRole("tab").allTextContents(), [
-			"For you",
+			"Needs you",
 			"Sessions",
 			"Capacity",
 		]);
 		assert.equal(
 			await nav.locator('[aria-current="page"]').innerText(),
-			"For you",
+			"Needs you",
 		);
 		for (const link of await nav.getByRole("tab").all()) {
 			const bounds = await link.boundingBox();
@@ -41,7 +41,7 @@ try {
 				.evaluate((list) => getComputedStyle(list).scrollBehavior),
 			"auto",
 		);
-		const firstTab = nav.getByRole("tab", { name: "For you", exact: true });
+		const firstTab = nav.getByRole("tab", { name: "Needs you", exact: true });
 		await firstTab.focus();
 		await page.keyboard.press("ArrowRight");
 		assert.equal(
@@ -76,7 +76,7 @@ try {
 		});
 		await nav.getByRole("tab", { name: "Capacity", exact: true }).click();
 		await page
-			.getByRole("region", { name: "Local lanes", exact: true })
+			.getByRole("region", { name: "Local runners", exact: true })
 			.waitFor();
 		assert.equal(await page.locator("[data-workspace-app-entry]").count(), 0);
 		assert.equal(

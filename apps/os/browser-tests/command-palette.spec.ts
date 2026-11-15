@@ -69,7 +69,7 @@ try {
 	await page.goto(origin);
 	await page.getByText("Quick search…", { exact: true }).click();
 	const input = page.getByPlaceholder(
-		"Search pages, workspaces, outputs, apps, skills…",
+		"Search pages, workspaces, documents, apps, skills…",
 	);
 	for (const query of ["book", "BOOKS reference", "tedix", "reference"]) {
 		await input.fill(query);

@@ -116,7 +116,7 @@ export function knockOutcome(input: {
 		};
 	return {
 		lane: "you",
-		text: input.open ? "Waiting for you" : "Closed",
+		text: input.open ? "Needs you" : "Closed",
 	};
 }
 
@@ -164,18 +164,18 @@ export function OfficeSummarySentence({
 	answered: number;
 	waiting: number;
 }) {
-	if (knocks === 0) return <>Quiet so far: nobody has knocked today.</>;
+	if (knocks === 0) return <>Quiet so far: no requests today.</>;
 	if (waiting === 0)
 		return (
 			<>
-				Nothing needs you. {answered} of today's {knocks} knocks were answered
+				Nothing needs you. {answered} of today's {knocks} requests were answered
 				for you.
 			</>
 		);
 	return (
 		<>
 			{waiting} {waiting === 1 ? "thing needs" : "things need"} you. {answered}{" "}
-			of today's {knocks} knocks were answered for you.
+			of today's {knocks} requests were answered for you.
 		</>
 	);
 }
@@ -227,7 +227,7 @@ function OfficeHeader({ since }: { since: string }) {
 					) : knocks.isPending ||
 					  totals.acceptance.isPending ||
 					  totals.urgent.isPending ? (
-						"Reading today's knocks…"
+						"Reading today's requests…"
 					) : (
 						<OfficeSummarySentence
 							knocks={rows.length}
@@ -255,7 +255,7 @@ function TodayTiles({ since }: { since: string }) {
 	const totals = useTodayTotals(since);
 	const health = useQuery(captureHealthQueryOptions(since));
 	const failures = [
-		{ resource: "knocks", query: knocks },
+		{ resource: "requests", query: knocks },
 		{ resource: "reply outcomes", query: totals.acceptance },
 		{ resource: "requests waiting for you", query: totals.urgent },
 	].filter(({ query }) => query.isError);
@@ -293,7 +293,7 @@ function TodayTiles({ since }: { since: string }) {
 					{health.data.turns === 0 ? (
 						<Text as="p" role="label" tone="secondary">
 							No agent turns captured today. Unattended sessions and context
-							checks do not create knocks.
+							checks do not create requests.
 						</Text>
 					) : null}
 				</div>
@@ -317,10 +317,10 @@ function TodayMetrics({
 				emphasis="metric"
 				tile={{
 					state: "measured",
-					label: "Knocks today",
+					label: "Requests today",
 					value: knocks,
 					window: "today",
-					source: "knocks",
+					source: "requests",
 				}}
 			/>
 			<MetricTile
@@ -339,7 +339,7 @@ function TodayMetrics({
 				emphasis="metric"
 				tile={{
 					state: "measured",
-					label: "Waiting for you",
+					label: "Needs you",
 					value: formatCount(totals.waiting),
 					window: "now",
 					source: "open requests",
@@ -387,10 +387,10 @@ function Knocks({ since }: { since: string }) {
 		]),
 	);
 	const failures = [
-		{ resource: "knocks", query: knocks },
+		{ resource: "requests", query: knocks },
 		{ resource: "requests waiting for you", query: urgent },
 		{ resource: "drafting tedis", query: tedis },
-		...details.map((query) => ({ resource: "a knock's reply", query })),
+		...details.map((query) => ({ resource: "a request's reply", query })),
 	].filter(({ query }) => query.isError);
 	if (failures.length)
 		return (
@@ -410,7 +410,7 @@ function Knocks({ since }: { since: string }) {
 		tedis.isPending ||
 		details.some((query) => query.isPending)
 	)
-		return <Skeleton className="h-24 w-full" aria-label="Loading knocks" />;
+		return <Skeleton className="h-24 w-full" aria-label="Loading requests" />;
 	const items = rows.map((row, index) => {
 		const summary = decisionCaptureSummary(row.request.metadata);
 		const draft = latestDraftOf(details[index]?.data);
@@ -508,7 +508,7 @@ function Knocks({ since }: { since: string }) {
 						<EmptyHeader>
 							<EmptyTitle>Nothing needs you</EmptyTitle>
 							<EmptyDescription>
-								Important knocks and replies waiting for your OK land here.
+								Important requests and replies waiting for your OK land here.
 							</EmptyDescription>
 						</EmptyHeader>
 					</Empty>
@@ -521,7 +521,7 @@ function Knocks({ since }: { since: string }) {
 							Answered for you
 						</SectionTitle>
 						<SectionDescription>
-							Routine knocks your tedis replied to the way you would.
+							Routine requests your tedis replied to the way you would.
 						</SectionDescription>
 					</SectionHeading>
 				</SectionHeader>
@@ -687,9 +687,12 @@ function Activity() {
 					Live sessions
 				</CardTitle>
 				{knocks.isError ? (
-					<OfficeReadError resource="knock activity" error={knocks.error} />
+					<OfficeReadError resource="request activity" error={knocks.error} />
 				) : knocks.isPending ? (
-					<Skeleton className="h-4 w-24" aria-label="Loading knock activity" />
+					<Skeleton
+						className="h-4 w-24"
+						aria-label="Loading request activity"
+					/>
 				) : (
 					<svg
 						viewBox="0 0 96 16"
@@ -711,7 +714,7 @@ function Activity() {
 									opacity={count ? 1 : 0.25}
 								>
 									<title>
-										{`${count} ${count === 1 ? "knock" : "knocks"}, ${23 - index === 0 ? "this hour" : `${23 - index}h ago`}`}
+										{`${count} ${count === 1 ? "request" : "requests"}, ${23 - index === 0 ? "this hour" : `${23 - index}h ago`}`}
 									</title>
 								</rect>
 							);

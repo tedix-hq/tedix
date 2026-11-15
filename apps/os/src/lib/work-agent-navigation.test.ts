@@ -24,7 +24,7 @@ describe("Agents navigation", () => {
 			app: "office",
 		});
 		expect(navigation.tabs.map((tab) => tab.label)).toEqual([
-			"For you",
+			"Needs you",
 			"Capacity",
 		]);
 		expect(navigation.tabs[0]).toMatchObject({
@@ -84,7 +84,7 @@ describe("Agents navigation", () => {
 			},
 		);
 		expect(navigation.tabs.map((tab) => tab.label)).toEqual([
-			"For you",
+			"Needs you",
 			"Sessions",
 			"Capacity",
 		]);

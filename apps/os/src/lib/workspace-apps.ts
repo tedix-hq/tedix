@@ -188,7 +188,7 @@ export function workspaceAppReadme(input: {
 	else lines.push("- Not described yet. Add a `description` to manifest.json.");
 	lines.push("");
 
-	lines.push("## Interactions");
+	lines.push("## Requests");
 	if (guide) for (const item of guide.interactions) lines.push(`- ${item}`);
 	else if (widget)
 		lines.push(

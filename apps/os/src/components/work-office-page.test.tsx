@@ -146,9 +146,9 @@ describe("Office ledger rendering", () => {
 		const client = seeded();
 		const titles = [...renderOffice(client).querySelectorAll("svg rect title")];
 		expect(titles).toHaveLength(24);
-		expect(titles[0]?.textContent).toBe("0 knocks, 23h ago");
-		expect(titles[22]?.textContent).toBe("1 knock, 1h ago");
-		expect(titles[23]?.textContent).toBe("4 knocks, this hour");
+		expect(titles[0]?.textContent).toBe("0 requests, 23h ago");
+		expect(titles[22]?.textContent).toBe("1 request, 1h ago");
+		expect(titles[23]?.textContent).toBe("4 requests, this hour");
 		expect(
 			errors.mock.calls.filter((args) => args.join(" ").includes("<title>")),
 		).toEqual([]);
@@ -180,7 +180,7 @@ describe("Office ledger rendering", () => {
 		expect(answered.textContent).not.toContain(yesterday.request.subject);
 		expect(answered.querySelectorAll("li")).toHaveLength(1);
 		expect(doc.querySelector("svg rect:last-child title")?.textContent).toBe(
-			"2 knocks, this hour",
+			"2 requests, this hour",
 		);
 		client.clear();
 	});

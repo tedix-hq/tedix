@@ -461,7 +461,7 @@ export async function runSettingsAnchor(
 						);
 						await openSettings();
 						await settings
-							.getByRole("link", { name: "Activity log", exact: true })
+							.getByRole("link", { name: "Activity", exact: true })
 							.click();
 						await page.waitForURL((url) => url.pathname === "/audit");
 						await page.goBack();

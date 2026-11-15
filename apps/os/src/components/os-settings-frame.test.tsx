@@ -49,9 +49,7 @@ describe("Settings sidebar", () => {
 			),
 		).toEqual(["Organization", "Connections", "Billing", "History"]);
 		expect(nav(doc).textContent).toContain("Usage & billing");
-		expect(doc.querySelector('a[href="/audit"]')?.textContent).toBe(
-			"Activity log",
-		);
+		expect(doc.querySelector('a[href="/audit"]')?.textContent).toBe("Activity");
 		expect(doc.body.textContent).toContain("Page content");
 	});
 	it("groups every admin destination with an icon", () => {
@@ -71,7 +69,7 @@ describe("Settings sidebar", () => {
 			],
 			["Connections", ["Connected accounts", "My accounts", "API keys"]],
 			["Billing", ["Usage & billing", "Payments"]],
-			["History", ["Activity log"]],
+			["History", ["Activity"]],
 		]);
 		for (const link of nav(doc).querySelectorAll("a"))
 			expect(link.querySelector("svg"), link.textContent ?? "").not.toBeNull();
