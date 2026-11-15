@@ -208,6 +208,39 @@ describe("multi-organization MCP consent", () => {
 		expect(fetch).toHaveBeenCalledTimes(2);
 	});
 
+	it.each([
+		[["org_sample"], true],
+		[[], false],
+		[["other"], false],
+		[["org_tedix", "org_tedix"], false],
+	] as const)(
+		"accepts only a non-empty subset of the token's tenants %j",
+		async (tenants, allowed) => {
+			const fetch = vi.fn(async () =>
+				Response.json({
+					json: {
+						allowed: true,
+						effectiveScopes: ["mcp:apps.read"],
+						organizations: tenants.map((descopeTenantId) => ({
+							organizationId: `id-${descopeTenantId}`,
+							descopeTenantId,
+							gatewaySlug: descopeTenantId,
+						})),
+					},
+				}),
+			);
+			const env = { API_SERVICE: { fetch } } as unknown as CloudflareEnv;
+			const selection = await validateHumanMcpSelection(payload, env, config);
+			if (allowed) {
+				expect(
+					selection?.organizations.map((org) => org.descopeTenantId),
+				).toEqual(tenants);
+			} else {
+				expect(selection).toBeNull();
+			}
+		},
+	);
+
 	it("keeps the API's denial reason and separates an unavailable check from an invalid grant", async () => {
 		const fetch = vi.fn();
 		const env = { API_SERVICE: { fetch } } as unknown as CloudflareEnv;

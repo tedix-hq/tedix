@@ -405,8 +405,25 @@ describe("InboundConsentPage layout", () => {
 						},
 					],
 				},
+				{
+					org: {
+						organizationId: "unready-id",
+						slug: "unready",
+						name: "No gateway",
+						descopeTenantId: "org_unready",
+						provisionComplete: true,
+					},
+					surfaces: [
+						{
+							surface: "mcp",
+							provisioned: false,
+							canonicalUrl: null,
+							handoffUrl: null,
+						},
+					],
+				},
 			],
-			pagination: { limit: 100, offset: 0, total: 2, hasMore: false },
+			pagination: { limit: 100, offset: 0, total: 3, hasMore: false },
 		});
 		await act(async () => renderConsentPage());
 		const onScreenUpdate = descopeMock.flowProps?.onScreenUpdate as (
@@ -450,6 +467,7 @@ describe("InboundConsentPage layout", () => {
 		expect(container.textContent).toContain(
 			"Organizations you join later are not included.",
 		);
+		expect(container.textContent).not.toContain("No gateway");
 		await click("Select all current");
 		await click("Review access");
 		expect(container.textContent).toContain("Tedix");

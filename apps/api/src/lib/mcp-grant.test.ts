@@ -236,6 +236,66 @@ describe("verifyHumanMcpGrant", () => {
 		});
 	});
 
+	it.each(["active", "pending"])(
+		"keeps usable organizations when a gateway disappears from an %s grant",
+		async (state) => {
+			const { verifyHumanMcpGrant } = await import("./mcp-grant");
+			const grant = await mocks.getMcpConsentSelection();
+			if (state === "pending") {
+				mocks.getMcpConsentSelection.mockResolvedValue(null);
+				mocks.getMcpConsentPending.mockResolvedValue({
+					...grant,
+					expectedActiveRevision: null,
+					expiresAt: "2999-01-01T00:00:00.000Z",
+				});
+				mocks.promoteMcpConsentPending.mockImplementation(async () => {
+					mocks.getMcpConsentSelection.mockResolvedValue(grant);
+				});
+			}
+			mocks.getOrganizationAggregatorGateways.mockResolvedValue(
+				new Map([[orgIds[0], { slug: "org-one-unified" }]]),
+			);
+			expect(await verifyHumanMcpGrant({} as never, env, input)).toEqual({
+				allowed: true,
+				reason: "active",
+				organizations: [
+					{
+						organizationId: orgIds[0],
+						descopeTenantId: tenantIds[0],
+						gatewaySlug: "org-one-unified",
+					},
+				],
+			});
+			if (state === "pending") {
+				expect(mocks.promoteMcpConsentPending).toHaveBeenCalledWith(
+					expect.anything(),
+					expect.objectContaining({ selectedTenantIds: tenantIds }),
+				);
+			}
+			expect(mocks.replaceMcpConsentSelection).not.toHaveBeenCalled();
+		},
+	);
+
+	it.each([undefined, { slug: "" }])(
+		"does not stage a multi-org selection with an unusable gateway %j",
+		async (gateway) => {
+			const { stageHumanMcpConsent } = await import("./mcp-grant");
+			const gateways = new Map([[orgIds[0], { slug: "org-one-unified" }]]);
+			if (gateway) gateways.set(orgIds[1]!, gateway);
+			mocks.getOrganizationAggregatorGateways.mockResolvedValue(gateways);
+			expect(
+				await stageHumanMcpConsent({} as never, env, input.descopeUserId, {
+					clientId: input.clientId,
+					resourceUrl: input.resourceUrl,
+					selectedTenantIds: tenantIds,
+					approvedScopes: input.tokenScopes,
+				}),
+			).toBeNull();
+			expect(mocks.stageMcpConsentPending).not.toHaveBeenCalled();
+			expect(mocks.allowDescopeClientPartialScopes).not.toHaveBeenCalled();
+		},
+	);
+
 	it("caps a widened refresh JWT at its installation's 22 approved scopes", async () => {
 		const issued = [
 			...Object.keys(MCP_GRANULAR_CAPABILITY_SCOPES),
