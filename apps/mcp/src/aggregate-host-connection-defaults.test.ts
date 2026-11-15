@@ -1875,6 +1875,34 @@ describe("aggregate host connection defaults (integration via worker.fetch)", ()
 		]);
 	});
 
+	it("preserves a provider-free CMS routing label through a gateway mount", async () => {
+		installFixtures([
+			{
+				slug: "cms-routing-host",
+				mcpConfig: {
+					authMode: "public",
+					aggregateApps: [{ slug: "cms-routing-site", prefix: "site" }],
+				},
+			},
+			{
+				slug: "cms-routing-site",
+				mcpConfig: {
+					connectionLabel: "test-site",
+					aggregateApps: [{ slug: "cms-routing-base" }],
+				},
+			},
+			{
+				slug: "cms-routing-base",
+				tools: [connectionTool("menu_list", "cms")],
+			},
+		]);
+
+		const tools = await serveAndCaptureTools("cms-routing-host");
+		expect(
+			tools.find((tool) => tool.toolId === "site__menu_list")?.config,
+		).toMatchObject({ _aggregateConnectionLabel: "test-site" });
+	});
+
 	it("propagates a tenant-safe forwarded organization query through a proxy aggregate", async () => {
 		// Fixture slugs are unique per test on purpose: the internal upstream-tool
 		// resolve is memoized in a module-level cache keyed by upstream slug
