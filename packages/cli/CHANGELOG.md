@@ -3,6 +3,16 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.21.15 — 2026-11-15
+
+### Patch Changes
+
+- Lane runners move to a newly installed CLI version by themselves. After `tedix update`, each runner takes no new task, lets its running tasks finish, then restarts, and the supervisor log says which version it now runs. A running task is never cancelled for an update.
+- Runners and agents can read and answer task questions again after Tedix updates its task tools. The CLI used to refuse with "schema is stale" until it was updated; it now accepts the update when the tool definitions match exactly.
+- Devin runners wait their turn before running pre-push checks, instead of running them at the same time as every other session.
+- An OpenCode runner that approves its own permission ask is shown as working, not as an error.
+- Pasting long text keeps the row count and cursor movement right when input arrives before the layout is measured.
+
 ## 0.21.14 — 2026-11-14
 
 ### Patch Changes
