@@ -1,3 +1,4 @@
+import { OS_COPY } from "@/shared/os-copy";
 import { Page } from "@/components/kumo/page";
 import {
 	ProjectBrief,
@@ -52,8 +53,8 @@ export function WorkProjectGoalsPage({ projectId }: { projectId: string }) {
 				title={project.data.name}
 				description={`${project.data.key} · ${
 					project.data.objective
-						? `Goal: ${project.data.objective.title}`
-						: "No goal yet"
+						? `${OS_COPY.work.objective}: ${project.data.objective.title}`
+						: "No objective yet"
 				}`}
 			/>
 			<ProjectBrief description={project.data.description} />

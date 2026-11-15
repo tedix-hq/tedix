@@ -245,11 +245,11 @@ it("leads with the project list when opened as Projects", () => {
 	const projects = headings("projects");
 	expect(projects[0]).toBe("Projects");
 	expect(projects.filter((text) => text === "Projects")).toHaveLength(1);
-	expect(projects.indexOf("Goals")).toBeGreaterThan(
+	expect(projects.indexOf("Objectives")).toBeGreaterThan(
 		projects.indexOf("Active 5"),
 	);
 	const goals = headings();
-	expect(goals.slice(0, 2)).toEqual(["Goals", "Goals"]);
+	expect(goals.slice(0, 2)).toEqual(["Objectives", "Objectives"]);
 	expect(goals.indexOf("Projects")).toBeLessThan(goals.indexOf("Active 5"));
 });
 
@@ -451,7 +451,7 @@ describe("PortfolioApp", () => {
 			render(seededClient()),
 			"text/html",
 		);
-		expect(doc.querySelector("h1")?.textContent).toBe("Goals");
+		expect(doc.querySelector("h1")?.textContent).toBe("Objectives");
 		expect(doc.body.textContent).toContain(
 			"All 6 projects in this organization, 5 active.",
 		);

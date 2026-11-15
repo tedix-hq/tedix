@@ -1,6 +1,8 @@
 /** Interface copy only. Source records and exact proposals retain their original wording. */
 export const SPANISH_FEED_DECK_COPY = {
 	work: {
+		objective: "Objetivo",
+		objectives: "Objetivos",
 		status: "Estado",
 		proposed: "Propuesto",
 		dispositions: {

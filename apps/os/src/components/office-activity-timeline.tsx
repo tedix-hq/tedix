@@ -112,7 +112,7 @@ export function canonicalOfficeLine(row: OfficeCanonicalRow): {
 
 const STATES = {
 	working: "working",
-	needs_you: "waiting for you",
+	needs_you: "Needs you",
 	done: "done",
 	error: "an error",
 	ended: "ended",

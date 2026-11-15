@@ -98,7 +98,7 @@ describe("Office evidence wording", () => {
 			[],
 		);
 		expect(claude!.title).toBe(
-			"PermissionRequest · Status hook observed; Work completion is separate · Session reported waiting for you",
+			"PermissionRequest · Status hook observed; Work completion is separate · Session reported Needs you",
 		);
 	});
 });
