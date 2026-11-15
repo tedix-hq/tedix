@@ -75,7 +75,6 @@ import {
 	TableRow,
 } from "@/components/kumo/table";
 import { useWorkItemWebMcpTools } from "@/components/work-item-webmcp-tools";
-import { ProjectEpics } from "@/components/work-project-epics";
 import { WorkProjectContributors } from "@/components/work-project-contributors";
 import { ProjectTargetDate } from "@/components/project-target-date";
 import {
@@ -1274,7 +1273,6 @@ export function WorkProjectPage({ projectId }: { projectId: string }) {
 				projectId={projectId}
 			/>
 			<WorkProjectContributors projectId={projectId} />
-			<ProjectEpics projectId={projectId} />
 			<div className="grid gap-3 lg:grid-cols-2">
 				<Card>
 					<CardHeader>
