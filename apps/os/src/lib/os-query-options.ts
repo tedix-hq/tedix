@@ -299,6 +299,15 @@ export const canvasGadgetDetailQueryOptions = (
 		input: { workspaceId, gadgetId },
 	});
 
+/** Earlier versions of a runtime app, newest first. */
+export const appRuntimeRevisionsQueryOptions = (
+	workspaceId: string,
+	gadgetId: string,
+) =>
+	osQuery.osAppRuntime.revisions.queryOptions({
+		input: { workspaceId, gadgetId, limit: 20 },
+	});
+
 /**
  * Open a workspace as the signed-in person for one app: the collaborator
  * graph recomputes the role and returns the capability the runtime consumes.

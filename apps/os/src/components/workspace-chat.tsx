@@ -52,6 +52,11 @@ import {
 } from "@/components/kumo/tooltip";
 import { Link } from "@/components/kumo/link";
 import { UnreadBadge } from "@/components/unread-badge";
+import { AppEditDiff, AppEditUndo } from "@/components/app-edit-approval";
+import {
+	appEditRequestFrom,
+	publishPendingAppEdits,
+} from "@/lib/app-edit-approval";
 import { WorkActorDirectoryContext } from "@/components/work-actor-avatar";
 import { mentionedPeople, notifyChatPosted } from "@/lib/workspace-chat-notify";
 import { WorkspaceChatResources } from "@/components/workspace-chat-resources";
@@ -177,6 +182,26 @@ export function WorkspaceChat({
 	) : null;
 	const running = activeTurn(state);
 	const approval = pendingApproval(running);
+	useEffect(() => {
+		const edits = state.turns.flatMap((turn) =>
+			turn.approvals.flatMap((item) => {
+				const request = appEditRequestFrom(item.input);
+				return request && item.decision === null && !item.execution
+					? [
+							{
+								...request,
+								workspaceId,
+								approvalId: item.approvalId,
+								decide: (decision: "approve" | "deny") =>
+									client?.decideApproval(item.approvalId, decision),
+							},
+						]
+					: [];
+			}),
+		);
+		publishPendingAppEdits(edits);
+		return () => publishPendingAppEdits([]);
+	}, [state.turns, client, workspaceId]);
 
 	// Tell the page when the conversation moves, so unread state is re-read
 	// once per turn rather than on every streamed word.
@@ -634,6 +659,7 @@ function TurnView({
 				{turn.approvals.map((approval) => (
 					<ApprovalCard
 						approval={approval}
+						workspaceId={workspaceId}
 						key={approval.approvalId}
 						onDecide={onDecide}
 					/>
@@ -1007,9 +1033,11 @@ function approvalPreview(input: Record<string, unknown> | null): string {
 /** The decision and the action's recorded result remain separate. */
 function ApprovalCard({
 	approval,
+	workspaceId,
 	onDecide,
 }: {
 	approval: ChatApproval;
+	workspaceId: string;
 	onDecide: (approvalId: string, decision: "approve" | "deny") => void;
 }) {
 	const [sent, setSent] = useState<"approve" | "deny" | null>(null);
@@ -1018,7 +1046,8 @@ function ApprovalCard({
 	const target =
 		approval.target?.title ??
 		(typeof input?.title === "string" ? input.title : null);
-	const preview = approvalPreview(input);
+	const appEdit = appEditRequestFrom(approval.input);
+	const preview = appEdit ? "" : approvalPreview(input);
 	const status = approvalStatus(approval);
 	const failed = approval.execution?.status === "failed";
 	return (
@@ -1054,6 +1083,14 @@ function ApprovalCard({
 								? "Your approval was recorded. The action's result has not been recorded."
 								: "Review the proposed change, then approve or deny it."}
 			</Text>
+			{appEdit ? (
+				<div className="workspace-chat-approval-preview">
+					<AppEditDiff workspaceId={workspaceId} edit={appEdit} />
+					{approval.execution?.status === "applied" ? (
+						<AppEditUndo workspaceId={workspaceId} edit={appEdit} />
+					) : null}
+				</div>
+			) : null}
 			{preview ? (
 				<div className="workspace-chat-approval-preview">
 					<Text role="caption" tone="secondary">
@@ -1114,7 +1151,7 @@ function ApprovalCard({
 						size="sm"
 						variant="outline"
 					>
-						Deny
+						{appEdit ? "Reject" : "Deny"}
 					</Button>
 					<Button
 						disabled={decided !== null}
@@ -1124,7 +1161,13 @@ function ApprovalCard({
 						}}
 						size="sm"
 					>
-						{sent === "approve" ? "Approving…" : "Approve"}
+						{sent === "approve"
+							? appEdit
+								? "Accepting…"
+								: "Approving…"
+							: appEdit
+								? "Accept"
+								: "Approve"}
 					</Button>
 				</div>
 			) : null}

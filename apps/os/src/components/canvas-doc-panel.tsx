@@ -36,6 +36,7 @@ import {
 } from "@/components/kumo/alert";
 import { Badge, type BadgeVariant } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
+import { PendingAppEditBanner } from "@/components/app-edit-approval";
 import { Card, CardContent } from "@/components/kumo/card";
 import { SegmentedControl } from "@/components/kumo/segmented-control";
 import { Text } from "@/components/kumo/text";
@@ -893,6 +894,9 @@ export function CanvasDocPanel({
 								value={effectiveGadgetView}
 							/>
 						)}
+					{isRuntimeApp && effectiveGadgetView === "preview" && (
+						<PendingAppEditBanner workspaceId={workspaceId} appId={doc.id} />
+					)}
 					{isRuntimeApp &&
 						effectiveGadgetView === "preview" &&
 						gadgetViewOverride !== undefined &&
