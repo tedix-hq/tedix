@@ -1,3 +1,4 @@
+import { retireStaleLaneDelegationRequests } from "./lane-delegation-requests";
 import {
 	externalAgentPrincipals,
 	externalAgentSessions,
@@ -660,6 +661,29 @@ describe("obsolete Work interactions", () => {
 			).toBe(0);
 			expect(await sweep(f)).toMatchObject({ observed: 0, expired: 0 });
 		}
+	});
+	it("keeps an old lane permission answerable until its task changes", async () => {
+		const f = sweepFixture();
+		f.sqlite
+			.exec(`UPDATE work_items SET disposition='accepted', version=3, metadata='{"executor":"codex"}';
+			UPDATE work_interactions SET created_at='2026-08-01T00:00:00.000Z',
+			metadata='{"source":"lane-dispatch-blocker","laneBlocker":{"kind":"owner_delegation","executor":"codex","workVersion":3}}'
+			WHERE id='other-type'`);
+		expect((await sweep(f)).expired).toBe(0);
+		const inbox = await listWorkInteractionInbox(f.db, {
+			orgId: "org",
+			targetType: "user",
+			targetId: "cto",
+			states: ["open"],
+			observedAt: NOW,
+		});
+		expect(inbox.data.some((row) => row.request.id === "other-type")).toBe(
+			true,
+		);
+		f.sqlite.exec("UPDATE work_items SET version=4 WHERE id='work'");
+		expect(await retireStaleLaneDelegationRequests(f.db, { now: NOW })).toBe(1);
+		expect(statusOf(f.sqlite, "other-type")).toBe("cancelled");
+		f.sqlite.close();
 	});
 	it("expires old asks to people on active Work and keeps resolved requests", async () => {
 		for (const finished of [false, true]) {
