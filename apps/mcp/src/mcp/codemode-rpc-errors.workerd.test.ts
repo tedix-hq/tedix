@@ -1,6 +1,6 @@
 import { os, ORPCError } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { InMemoryTransport } from "@modelcontextprotocol/server";
 import { env } from "cloudflare:workers";
 import { expect, it } from "vite-plus/test";
 import { buildMcpServer, type CachedAppData } from "./server-factory";

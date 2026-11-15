@@ -1,5 +1,3 @@
-import { McpServer as LegacyMcpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import type { ToolConfig } from "@tedix/api-contract/schemas/tools";
 import { createMcpServer } from "@tedix/mcp-shared/server";
 import { mountMcp, type MountMcpOptions } from "@tedix/mcp-shared/transport";
@@ -13,6 +11,7 @@ import {
 } from "vite-plus/test";
 import * as z from "zod";
 import { type ToolExecutionContext, ToolHandler } from "./handler";
+import { serveLegacyMcp } from "./legacy-mcp-server.test-helper";
 import {
 	callUpstreamMcpTool,
 	prepareUpstreamIdentityProbe,
@@ -77,22 +76,17 @@ function serveUpstream(handle: (request: Request) => Promise<Response>) {
 	return exchanges;
 }
 
-/** The official v1 SDK's stateless web-standard transport. */
-async function serveLegacyV1(request: Request): Promise<Response> {
-	const server = new LegacyMcpServer({ name: "legacy", version: "1.0.0" });
-	server.registerTool(
-		"echo",
-		{ inputSchema: { msg: z.string() } },
-		async ({ msg }) => ({
-			content: [{ type: "text", text: JSON.stringify({ echoed: msg }) }],
-		}),
+/** The v1 SDK's stateless web-standard wire behavior. */
+function serveLegacyV1(request: Request): Promise<Response> {
+	return serveLegacyMcp(
+		request,
+		{ name: "legacy", version: "1.0.0" },
+		{
+			echo: ({ msg }) => ({
+				content: [{ type: "text", text: JSON.stringify({ echoed: msg }) }],
+			}),
+		},
 	);
-	const transport = new WebStandardStreamableHTTPServerTransport({
-		sessionIdGenerator: undefined,
-		enableJsonResponse: true,
-	});
-	await server.connect(transport);
-	return transport.handleRequest(request);
 }
 
 /** A v1 server whose front end mishandles the unknown discovery probe. */
@@ -116,24 +110,26 @@ describe("reviewed upstream identity probes", () => {
 	it("probes before a write using the same authenticated transport and refuses changed identity", async () => {
 		let account = "account-a";
 		let writes = 0;
-		serveUpstream(async (request) => {
-			const server = new LegacyMcpServer({ name: "sample", version: "1" });
-			server.registerTool("identity", { inputSchema: {} }, async () => ({
-				content: [
-					{ type: "text", text: JSON.stringify({ account: { id: account } }) },
-				],
-			}));
-			server.registerTool("write", { inputSchema: {} }, async () => {
-				writes++;
-				return { content: [{ type: "text", text: "ok" }] };
-			});
-			const transport = new WebStandardStreamableHTTPServerTransport({
-				sessionIdGenerator: undefined,
-				enableJsonResponse: true,
-			});
-			await server.connect(transport);
-			return transport.handleRequest(request);
-		});
+		serveUpstream((request) =>
+			serveLegacyMcp(
+				request,
+				{ name: "sample", version: "1" },
+				{
+					identity: () => ({
+						content: [
+							{
+								type: "text",
+								text: JSON.stringify({ account: { id: account } }),
+							},
+						],
+					}),
+					write: () => {
+						writes++;
+						return { content: [{ type: "text", text: "ok" }] };
+					},
+				},
+			),
+		);
 		const base = {
 			url: UPSTREAM_URL,
 			fetcher: globalThis.fetch,
