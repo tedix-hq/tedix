@@ -10,7 +10,7 @@
 		"clear-port": "../../scripts/clear-port.sh --app docs",
 		"types": "cf workers types --mode production",
 		"dev": "bun run clear-port && bun ../../scripts/dev-local.ts -- vp dev",
-		"build": "vp build",
+		"build": "bun scripts/deploy-production.ts --build-only",
 		"deploy:production": "bun run types && bun scripts/deploy-production.ts",
 		"test": "vp test run",
 		"test:run": "vp test run",
