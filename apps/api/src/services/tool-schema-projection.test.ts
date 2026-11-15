@@ -21,11 +21,26 @@ import {
 	projectionContractHash,
 	projectionCandidates,
 	titleFromToolId,
+	sha256,
 } from "./tool-schema-projection";
 import {
 	WORK_HIERARCHY_TOOL_ID_OVERRIDES,
 	WORK_HIERARCHY_KIND_OVERRIDES,
 } from "./tool-schema-overrides";
+
+it("preserves persisted SHA-256 bytes for sorted keys and UTF-8 values", async () => {
+	const value = { z: [null, "Grüße 🌍", true], a: { second: 2, first: 1 } };
+	const canonical = '{"a":{"first":1,"second":2},"z":[null,"Grüße 🌍",true]}';
+	const digest = await crypto.subtle.digest(
+		"SHA-256",
+		new TextEncoder().encode(canonical),
+	);
+	const expected = Array.from(new Uint8Array(digest), (byte) =>
+		byte.toString(16).padStart(2, "0"),
+	).join("");
+	expect(await sha256(value)).toBe(expected);
+	expect(await sha256({ a: value.a, z: value.z })).toBe(expected);
+});
 
 function endpoint(
 	overrides: Partial<ResolvedContractEndpoint> & {

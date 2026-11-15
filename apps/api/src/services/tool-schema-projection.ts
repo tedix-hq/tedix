@@ -4,6 +4,7 @@
  * generation, and the content hashes the planner and sync runner compare.
  * Nothing here touches D1; `tool-schema-sync.ts` owns the reads and writes.
  */
+import { createHash } from "node:crypto";
 import attentionAppViews from "@tedix/api-contract/assets/attention-app-views.v2.json";
 import cliNativeEndpoints from "@tedix/api-contract/assets/cli-native-endpoints.v1.json";
 import { TEDI_DURABLE_CODE_TRANSPORT_TIMEOUT_MS } from "@tedix/api-contract/schemas/tedi-durable-code";
@@ -55,11 +56,9 @@ function jsonEqual(left: unknown, right: unknown): boolean {
 }
 
 export async function sha256(value: unknown): Promise<string> {
-	const bytes = new TextEncoder().encode(stableStringify(value));
-	const digest = await crypto.subtle.digest("SHA-256", bytes);
-	return [...new Uint8Array(digest)]
-		.map((byte) => byte.toString(16).padStart(2, "0"))
-		.join("");
+	// Full projection hashes thousands of small values. Avoid a thread-pool
+	// round trip for each digest while keeping the persisted bytes identical.
+	return createHash("sha256").update(stableStringify(value)).digest("hex");
 }
 
 export function asRpcEndpoint(tool: AppTool): string | null {
