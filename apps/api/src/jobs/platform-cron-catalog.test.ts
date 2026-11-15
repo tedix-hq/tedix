@@ -25,6 +25,17 @@ describe("platform cron health", () => {
 			intervalMinutes: 2,
 		});
 	});
+	it("reports the six-minute stall recovery interval on the shared two-minute trigger", () => {
+		expect(
+			PLATFORM_CRON_DEFINITIONS.find(
+				(definition) => definition.id === "stall-recovery",
+			),
+		).toMatchObject({
+			cron: "*/2 * * * *",
+			intervalMinutes: 6,
+			requiresBinding: "TEDI_SERVICE",
+		});
+	});
 	it("defines every dispatcher id exactly once", () => {
 		const defined = PLATFORM_CRON_DEFINITIONS.map(
 			(definition) => definition.id,
