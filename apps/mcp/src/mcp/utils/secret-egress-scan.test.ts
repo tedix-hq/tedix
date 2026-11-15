@@ -72,6 +72,47 @@ describe("findSecretValuePattern", () => {
 		).toBeNull();
 	});
 
+	it("allows only schema-constrained full commit IDs and still scans adjacent secrets", () => {
+		const sha = "abcdef0123".repeat(4);
+		const schema = {
+			type: "object",
+			properties: {
+				sourceCommit: { type: "string", pattern: "^[a-f0-9]{40}$" },
+				expectedHead: { type: "string", pattern: "^[a-f0-9]{40}$" },
+			},
+		};
+		expect(
+			findSecretValuePattern({ sourceCommit: sha, expectedHead: sha }, schema),
+		).toBeNull();
+		expect(findSecretValuePattern({ sourceCommit: sha })).toBe(
+			"long opaque token",
+		);
+		expect(findSecretValuePattern({ other: sha }, schema)).toBe(
+			"long opaque token",
+		);
+		for (const value of [
+			sha + "a",
+			sha.toUpperCase(),
+			`commit ${sha}`,
+			OPAQUE_KEY,
+			GITHUB_TOKEN,
+			JWT,
+		]) {
+			expect(
+				findSecretValuePattern({ sourceCommit: value }, schema),
+			).not.toBeNull();
+		}
+		expect(
+			findSecretValuePattern({ sourceCommit: sha, secret: OPAQUE_KEY }, schema),
+		).toBe("long opaque token");
+		expect(
+			findSecretValuePattern(
+				{ sourceCommit: sha },
+				{ type: "object", properties: { sourceCommit: { type: "string" } } },
+			),
+		).toBe("long opaque token");
+	});
+
 	describe("file uploads", () => {
 		const pdf = toBase64(syntheticPdf());
 
