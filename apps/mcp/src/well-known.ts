@@ -24,6 +24,7 @@ import { getApiClient } from "./lib/api-client";
 import { createMcpLogger } from "./log";
 import {
 	renderSkillIndexEntry,
+	renderSkillMarkdown,
 	type SkillDocumentEntry,
 } from "./mcp/skill-document";
 import type { AppData } from "./resolution";
@@ -172,6 +173,21 @@ export async function handleWellKnown(
 	if (path === "/.well-known/agent-skills/index.json") {
 		return handlePublicSkillIndex(hostname, env);
 	}
+	const skillPath = path.match(
+		/^\/\.well-known\/agent-skills\/([^/]+)\/SKILL\.md$/,
+	);
+	if (skillPath) {
+		try {
+			return handlePublicSkillIndex(
+				hostname,
+				env,
+				decodeURIComponent(skillPath[1]!),
+			);
+		} catch (error) {
+			if (!(error instanceof URIError)) throw error;
+			return new Response(null, { status: 404 });
+		}
+	}
 
 	// RFC 9728: clients derive the metadata URL by inserting /.well-known/oauth-protected-resource
 	// between the host and the resource path. For /mcp this becomes /.well-known/oauth-protected-resource/mcp.
@@ -260,9 +276,10 @@ function toSkillDocumentEntry(skill: SkillEntry): SkillDocumentEntry {
 	};
 }
 
-async function handlePublicSkillIndex(
+export async function handlePublicSkillIndex(
 	hostname: string,
 	env: CloudflareEnv,
+	skillSlug?: string,
 ): Promise<Response> {
 	const { hostnameInfo, app, mcpConfig, tools, upstreamUnavailable } =
 		await resolveAppMcpConfig(hostname, env);
@@ -342,6 +359,25 @@ async function handlePublicSkillIndex(
 	}
 
 	const uuidToToolId = new Map(tools.map((tool) => [tool.id, tool.toolId]));
+	if (skillSlug !== undefined) {
+		const skill = skills.find((entry) => entry.slug === skillSlug);
+		return new Response(
+			skill
+				? renderSkillMarkdown(
+						toSkillDocumentEntry(skill),
+						app.slug,
+						uuidToToolId,
+					)
+				: null,
+			{
+				status: skill ? 200 : 404,
+				headers: {
+					"Content-Type": "text/markdown; charset=utf-8",
+					"Cache-Control": "private, no-store",
+				},
+			},
+		);
+	}
 	const manifests = await Promise.all(
 		skills
 			.sort((a, b) => (a.slug ?? a.id).localeCompare(b.slug ?? b.id))
@@ -355,7 +391,9 @@ async function handlePublicSkillIndex(
 	);
 	const entries = manifests.map((entry) => ({
 		type: "skill-md",
-		url: entry.uri,
+		name: entry.frontmatter.name,
+		description: entry.frontmatter.description,
+		url: `https://${hostname}/.well-known/agent-skills/${encodeURIComponent(String(entry.frontmatter.name))}/SKILL.md`,
 		frontmatter: entry.frontmatter,
 		digest: Array.isArray(entry.resources)
 			? entry.resources.find((resource) => resource.uri === entry.uri)?.digest

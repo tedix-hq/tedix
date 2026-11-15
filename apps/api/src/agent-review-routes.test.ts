@@ -37,6 +37,7 @@ import { agentReviewRoutes } from "./agent-review-routes";
 import {
 	redactAgentReview,
 	fileAgentReview,
+	filePersonalAgentFeedback,
 	wakeAgentReview,
 } from "./services/agent-review";
 
@@ -81,6 +82,40 @@ function post(body: unknown = payload(), headers: Record<string, string> = {}) {
 		env(),
 	);
 }
+
+it("persists protocol feedback through the redacted, capped intake without invented review fields", async () => {
+	const report = {
+		task: "Find a task",
+		description: "Contact demo@example.test. password=sample-sensitive-value",
+	};
+	await filePersonalAgentFeedback(
+		{} as Parameters<typeof filePersonalAgentFeedback>[0],
+		env(),
+		report,
+		"caller-alpha",
+	);
+	const item = mocks.create.mock.calls[0]![1];
+	expect(item.metadata).toMatchObject({
+		agentReview: true,
+		callerOrgId: "caller-alpha",
+		protocolFeedback: { organizationId: "caller-alpha", task: report.task },
+	});
+	expect(item.metadata).not.toHaveProperty("feedback");
+	expect(item.description).not.toContain("demo@example.test");
+	expect(item.description).not.toContain("sample-sensitive-value");
+	expect(item.dailyCap).toBe(50);
+	expect(limiter).toHaveBeenCalledWith({
+		key: "agent-review:org:caller-alpha",
+	});
+	const firstIntent = item.sourceIntentId;
+	await filePersonalAgentFeedback(
+		{} as Parameters<typeof filePersonalAgentFeedback>[0],
+		env(),
+		report,
+		"caller-beta",
+	);
+	expect(mocks.create.mock.calls[1]![1].sourceIntentId).not.toBe(firstIntent);
+});
 
 beforeEach(() => {
 	vi.clearAllMocks();

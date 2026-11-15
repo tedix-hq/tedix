@@ -424,24 +424,46 @@ const DiscoveryHttpsUrlSchema = z
 		return !url.username && !url.password && !url.hash;
 	}, "Discovery URLs must not contain credentials or fragments");
 
-export const PersonalAgentDiscoveryConfigSchema = z.strictObject({
-	domain: z
-		.string()
-		.regex(
-			/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/i,
-		),
-	mcpUrl: DiscoveryHttpsUrlSchema,
-	description: z.string().trim().min(1).max(500),
-	allowedClientIds: z.array(DiscoveryHttpsUrlSchema).max(200).optional(),
-	blockedClientIds: z.array(DiscoveryHttpsUrlSchema).max(200).optional(),
-	requestsPerMinute: z.number().int().min(1).max(10000).optional(),
+export const PersonalAgentExcludedTaskSchema = z.object({
+	task: z.string().min(1).max(200),
+	alternative: z
+		.object({
+			instructions: z.string().min(1).max(2000),
+		})
+		.optional(),
 });
+
+export const PersonalAgentDiscoveryConfigSchema = z
+	.strictObject({
+		domain: z
+			.string()
+			.regex(
+				/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/i,
+			),
+		mcpUrl: DiscoveryHttpsUrlSchema,
+		description: z.string().trim().min(1).max(500),
+		allowedClientIds: z.array(DiscoveryHttpsUrlSchema).max(200).optional(),
+		blockedClientIds: z.array(DiscoveryHttpsUrlSchema).max(200).optional(),
+		requestsPerMinute: z.number().int().min(1).max(10000).optional(),
+		interfaces: z
+			.object({
+				excludedTasks: z.array(PersonalAgentExcludedTaskSchema).max(200),
+				feedback: z.boolean().optional(),
+			})
+			.optional(),
+	})
+	.refine(
+		(config) =>
+			!config.interfaces || /^https:\/\/[^/?#]+\/mcp\/?$/.test(config.mcpUrl),
+		"Interfaces require a query-free /mcp endpoint",
+	);
 
 export const PersonalAgentDiscoverySchema = z.object({
 	protocol_version: z.literal("1.0"),
 	organization: z.object({ name: z.string().min(1), domain: z.string() }),
 	// Protocol sign-in is not offered by the signed-out entry.
 	auth: z.object({ disabled: z.literal(true) }),
+	tasks: z.object({ endpoint: DiscoveryHttpsUrlSchema }).optional(),
 	apis: z
 		.array(
 			z.object({

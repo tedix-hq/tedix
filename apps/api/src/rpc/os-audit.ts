@@ -167,8 +167,19 @@ const WORKSPACE_UPDATE_FIELDS = [
 	"ownerUserId",
 ] as const;
 
-/** Session lifecycle only; ordinary request counters are not governance events. */
+/** Session creation and feedback receipts; request counters are not governance events. */
 export const OS_TENANT_AUDIT: OsAuditRegistry = {
+	personalAgentInterfaces: {
+		action: "os.personal_agent_interfaces.received",
+		organizationId: ({ input }) => text(input.organizationId),
+		resourceType: "app",
+		resourceId: ({ input, output }) =>
+			output.sessionCreated === true ||
+			(input.method === "POST" && output.status === "accepted")
+				? text(input.appId)
+				: [],
+		metadata: () => ({ sessionType: "signed_out" }),
+	},
 	personalAgentSession: {
 		action: "os.personal_agent_session.started",
 		organizationId: ({ input }) => text(input.organizationId),

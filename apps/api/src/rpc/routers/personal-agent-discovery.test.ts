@@ -70,6 +70,19 @@ describe("organization Personal Agent Protocol discovery", () => {
 			organization: { ...expected.organization, name: "Renamed" },
 		});
 	});
+	it("advertises the opt-in tasks endpoint on the listed MCP server", async () => {
+		sqlite.prepare("UPDATE organizations SET metadata=?").run(
+			JSON.stringify({
+				personalAgentProtocol: {
+					...config,
+					interfaces: { excludedTasks: [], feedback: true },
+				},
+			}),
+		);
+		expect(await client().personalAgentDiscovery(input)).toMatchObject({
+			tasks: { endpoint: `${config.mcpUrl}/poppy/tasks` },
+		});
+	});
 	it("does not publish another host or an unconfigured organization", async () => {
 		expect(
 			await client().personalAgentDiscovery({

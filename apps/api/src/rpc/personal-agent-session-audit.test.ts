@@ -9,10 +9,71 @@ import { expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "./orpc";
 import { osTenantContractRouter } from "./routers/os-tenant";
 
-const { verify } = vi.hoisted(() => ({ verify: vi.fn() }));
+const { verify, interfaces } = vi.hoisted(() => ({
+	verify: vi.fn(),
+	interfaces: vi.fn(),
+}));
 vi.mock("../services/personal-agent-session", () => ({
 	verifySignedOutPersonalAgentSession: verify,
 }));
+vi.mock("../services/personal-agent-interfaces", () => ({
+	personalAgentInterfaces: interfaces,
+}));
+
+it("requires service auth and audits accepted feedback without the report, URL or Session proof", async () => {
+	const sqlite = new DatabaseSync(":memory:");
+	sqlite.exec(schemaDdl(auditEvents));
+	const db = createDbClient(createD1Facade(sqlite));
+	const input = {
+		organizationId: "org-example",
+		appId: "app-example",
+		method: "POST",
+		url: "https://mcp.example/mcp/poppy/feedback?secret=fictional-secret",
+		sessionToken: "fictional-secret",
+		version: "1.0",
+		report: { task: "fictional-secret", description: "fictional-secret" },
+	};
+	const context = {
+		db,
+		authType: "none",
+		headers: new Headers(),
+		env: {} as CloudflareEnv,
+		url: new URL("https://api.example/rpc/osTenant/personalAgentInterfaces"),
+	} as BaseContext;
+	try {
+		const client = createRouterClient(osTenantContractRouter, { context });
+		await expect(client.personalAgentInterfaces(input)).rejects.toMatchObject({
+			code: "UNAUTHORIZED",
+		});
+		expect(interfaces).not.toHaveBeenCalled();
+		context.headers.set("X-Service-Binding", "true");
+		interfaces.mockResolvedValue({ status: "accepted" });
+		await client.personalAgentInterfaces(input);
+		for (const status of [
+			"invalid_session",
+			"invalid_request",
+			"unavailable",
+			"rate_limited",
+		]) {
+			interfaces.mockResolvedValue({ status });
+			await client.personalAgentInterfaces(input);
+		}
+		const rows = await getAuditEventsByResource(
+			db,
+			input.organizationId,
+			"app",
+			input.appId,
+		);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({
+			action: "os.personal_agent_interfaces.received",
+			metadata: { sessionType: "signed_out" },
+		});
+		expect(JSON.stringify(rows)).not.toContain("fictional-secret");
+	} finally {
+		sqlite.close();
+	}
+});
 
 it("audits a new Session once through the real router without storing request secrets", async () => {
 	const sqlite = new DatabaseSync(":memory:");

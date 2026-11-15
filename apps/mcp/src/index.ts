@@ -1,5 +1,6 @@
 import { requestPhaseTimings } from "./mcp/phase-timings";
 import { checkSignedOutPersonalAgentSession } from "./personal-agent-session";
+import { handlePersonalAgentInterfaces } from "./personal-agent-interfaces";
 import { buildWwwAuthenticate } from "@tedix/mcp-shared/auth";
 import {
 	apiWorkspaceLookup,
@@ -1492,6 +1493,21 @@ const worker = {
 					httpStatus: 429,
 				});
 				return mcpRateLimitResponse(rateLimit);
+			}
+
+			// authz: verified signed-out Session; never supplies account authority.
+			if (/^\/mcp\/poppy\/(tasks|feedback)$/.test(url.pathname)) {
+				if (
+					!app.organizationId ||
+					app.metadata?.mcpConfig?.authMode !== "public"
+				)
+					return new Response(null, { status: 404 });
+				return handlePersonalAgentInterfaces({
+					request,
+					appId: app.id,
+					organizationId: app.organizationId,
+					env,
+				});
 			}
 
 			if (
