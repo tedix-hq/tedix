@@ -14,9 +14,9 @@ range, so a later lane reverting a file cannot hide an earlier lane's selected
 checks. Formatter selection conservatively uses a full check for multiple trees.
 
 A train takes at most 12 lanes (`MAX_TRAIN_LANES`). A lane whose commits
-conflict or fail the per-commit secret scan is left out of the candidate; the
-others are gated together, and the left-out lane is retried alone on the new
-main afterwards, failing without a gate if it still conflicts. A failed gate
+conflict or fail the per-commit secret scan is left out of the candidate. The
+others are gated together; conflicting lanes retry alone on the new main, while
+scan-rejected lanes fail without repeating the same scan. A failed gate
 splits the candidate into arrival-ordered halves, each rebuilt from fresh main
 and gated again; batches of three or fewer go lane by lane. One red lane among
 n therefore costs about 1 + 2·log2(n) gate runs instead of 1 + n. Each lane

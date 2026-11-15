@@ -231,7 +231,7 @@ export function runTrain(
 		const apply = (ticket: TrainTicket): Skip["reason"] | null => {
 			const start = git(integration, ["rev-parse", "HEAD"]).out;
 			const undo = (reason: Skip["reason"]) => {
-				git(integration, ["cherry-pick", "--abort"]);
+				if (reason === "conflict") git(integration, ["cherry-pick", "--abort"]);
 				git(integration, ["reset", "--hard", start]);
 				return reason;
 			};
@@ -299,7 +299,7 @@ export function runTrain(
 					const reason = apply(ticket);
 					if (reason) {
 						console.log(
-							`push: left ${basename(ticket.file)} out of this candidate (${reason}); it is retried alone afterwards.`,
+							`push: left ${basename(ticket.file)} out of this candidate (${reason}); ${reason === "scan" ? "it is rejected without a duplicate scan" : "it is retried alone afterwards"}.`,
 						);
 						skipped.push({ ticket, reason });
 						continue;
@@ -393,9 +393,13 @@ export function runTrain(
 			for (const part of parts) run(part);
 		};
 		run(tickets);
-		// Left-out lanes run alone on the new main: a conflict with a lane that
-		// has since published fails without a gate; an unrelated one still lands.
+		// Conflict outcomes can change on the new main. A failed scan cannot, so
+		// do not run the same rejected commits and scan a second time.
 		for (const { ticket, reason } of deferred) {
+			if (reason === "scan") {
+				complete(ticket, { code: 1, message: SKIP_MESSAGES.scan });
+				continue;
+			}
 			const solo = attempt([ticket]);
 			if (solo.pushed) continue;
 			if (
