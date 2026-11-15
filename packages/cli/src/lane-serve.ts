@@ -1071,10 +1071,40 @@ async function laneWorktreeInUse(destination: string): Promise<boolean> {
 	}
 }
 
+/** How long a folder Git cannot read is kept before eviction deletes it. */
+const STALE_CHECKOUT_MS = 3 * 24 * 60 * 60_000;
+
+function staleFolder(path: string): boolean {
+	try {
+		return Date.now() - statSync(path).mtimeMs > STALE_CHECKOUT_MS;
+	} catch {
+		return false;
+	}
+}
+
+/** A checkout whose `.git` is missing or points at a removed registration. */
+function lostGitDir(destination: string): boolean {
+	try {
+		const pointer = readFileSync(join(destination, ".git"), "utf8");
+		const gitDir = pointer.match(/^gitdir: (.+)$/m)?.[1];
+		return !gitDir || !existsSync(gitDir);
+	} catch (error) {
+		return (error as NodeJS.ErrnoException).code === "ENOENT";
+	}
+}
+
 /**
  * Removes a lane worktree when nothing in it is still the only copy of the
  * work: every change is already a deletion or ignored build output, HEAD has
  * no commit missing from `origin/main`, and no live process uses it.
+ *
+ * With `evict`, a checkout untouched for `STALE_CHECKOUT_MS` that still holds
+ * work is removed too, after that work is saved in the source repository under
+ * `refs/lane-evicted/<run>/<checkout>`: its commits, plus one snapshot commit
+ * of its uncommitted files. Agents leave scratch files behind and a rebased
+ * commit never matches `origin/main`, so without this a full disk had nothing
+ * it was allowed to remove. A folder that old which Git no longer knows is
+ * deleted.
  */
 export async function cleanupLaneWorktree(
 	source: string,
@@ -1082,6 +1112,7 @@ export async function cleanupLaneWorktree(
 	inUse: (
 		destination: string,
 	) => boolean | Promise<boolean> = laneWorktreeInUse,
+	evict = false,
 ): Promise<boolean> {
 	const run = async (repo: string, args: string[]) => {
 		try {
@@ -1103,7 +1134,13 @@ export async function cleanupLaneWorktree(
 		"--ignore-submodules=none",
 	]);
 	const head = await run(destination, ["rev-parse", "HEAD"]);
-	if (!status || !head) return false;
+	if (!status || !head) {
+		if (!evict || !staleFolder(destination) || !lostGitDir(destination))
+			return false;
+		if (await inUse(destination)) return false;
+		await rm(destination, { recursive: true, force: true });
+		return true;
+	}
 	const changes = status.stdout
 		.split("\0")
 		.filter(
@@ -1119,7 +1156,9 @@ export async function cleanupLaneWorktree(
 	// A tree whose only changes are deletions holds nothing a commit could
 	// still save; such checkouts are left behind by interrupted removals.
 	const emptied = changes.every((line) => /^(?: D|D )/.test(line));
-	if (!emptied) return false;
+	// Work younger than `STALE_CHECKOUT_MS` may still be retried or pushed.
+	const evictable = evict && staleFolder(destination);
+	if (!emptied && !evictable) return false;
 	// Recording a SHA on Work does not preserve the commit's Git objects.
 	const unpushed = await run(destination, [
 		"rev-list",
@@ -1127,7 +1166,9 @@ export async function cleanupLaneWorktree(
 		"--not",
 		"refs/remotes/origin/main",
 	]);
-	if (!unpushed || unpushed.stdout.trim()) return false;
+	if (!unpushed) return false;
+	const holdsWork = !emptied || !!unpushed.stdout.trim();
+	if (holdsWork && !evictable) return false;
 	if (await inUse(destination)) return false;
 	const list = await run(source, ["worktree", "list", "--porcelain", "-z"]);
 	if (!list) return false;
@@ -1148,6 +1189,39 @@ export async function cleanupLaneWorktree(
 	);
 	// A lock someone else placed keeps the checkout; only release our own.
 	if (lock && lock !== `locked ${LANE_WORKTREE_LOCK_REASON}`) return false;
+	if (holdsWork) {
+		const identity = [
+			"-c",
+			"user.name=Tedix runner",
+			"-c",
+			"user.email=runner@tedix.invalid",
+			"-c",
+			"commit.gpgsign=false",
+		];
+		if (
+			!emptied &&
+			(!(await run(destination, ["add", "--all"])) ||
+				!(await run(destination, [
+					...identity,
+					"commit",
+					"--no-verify",
+					"--quiet",
+					"--message",
+					"Evicted checkout snapshot",
+				])))
+		)
+			return false;
+		const saved = await run(destination, ["rev-parse", "HEAD"]);
+		if (
+			!saved ||
+			!(await run(source, [
+				"update-ref",
+				`refs/lane-evicted/${basename(dirname(destination))}/${basename(destination)}`,
+				saved.stdout.trim(),
+			]))
+		)
+			return false;
+	}
 	const locked =
 		lock !== undefined &&
 		(await run(source, ["worktree", "unlock", destination])) !== undefined;
@@ -1159,7 +1233,7 @@ export async function cleanupLaneWorktree(
 				source,
 				"worktree",
 				"remove",
-				...(changes.length ? ["--force"] : []),
+				...(changes.length || holdsWork ? ["--force"] : []),
 				destination,
 			],
 			{
@@ -1497,7 +1571,11 @@ interface DispatcherDeps {
 	unpushedCommits: typeof unpushedLaneCommits;
 	verifyExisting: typeof verifyExistingLaneResult;
 	localBranch: typeof localBranchProof;
-	cleanup: (source: string, destination: string) => boolean | Promise<boolean>;
+	cleanup: (
+		source: string,
+		destination: string,
+		evict?: boolean,
+	) => boolean | Promise<boolean>;
 	/** Recursive size of a run directory in bytes. */
 	directoryBytes: (path: string) => Promise<number>;
 	freeDiskBytes: (path: string) => number;
@@ -1531,7 +1609,8 @@ const defaultDeps: DispatcherDeps = {
 					: createCodexLaneThread(cwd, "codex", model, resume),
 	launch: runLaneProcess,
 	darkWake: inDarkWake,
-	cleanup: cleanupLaneWorktree,
+	cleanup: (source, destination, evict) =>
+		cleanupLaneWorktree(source, destination, undefined, evict),
 	directoryBytes: async (path) => {
 		const { stdout } = await promisify(execFile)("du", ["-sk", path], {
 			encoding: "utf8",
@@ -2586,7 +2665,7 @@ export class LaneDispatcher {
 			break;
 		}
 	}
-	private async cleanupOrphanRun(run: string, itemId: string) {
+	private async cleanupOrphanRun(run: string, itemId: string, evict = false) {
 		let kept = false;
 		for (const name of readdirSync(run)) {
 			if (!name.startsWith("repo")) continue;
@@ -2594,7 +2673,7 @@ export class LaneDispatcher {
 			// its checkout here; keep the directory for it.
 			if (this.running.has(itemId) || this.preparing.has(itemId)) return;
 			const repo = join(run, name);
-			if (await this.deps.cleanup(this.options.repo, repo))
+			if (await this.deps.cleanup(this.options.repo, repo, evict))
 				this.log("worktree-cleaned", itemId, repo);
 			else kept = true;
 		}
@@ -2631,6 +2710,20 @@ export class LaneDispatcher {
 				this.cleanupAfter.delete(repo);
 				this.log("worktree-cleaned", itemId, repo);
 			}
+		}
+	}
+	/**
+	 * `provisionLaneWorktree` moves the leftovers of a failed `worktree add`
+	 * into `repo.orphan-*` beside the checkout. They are not Git worktrees, so
+	 * no cleanup could ever remove them and their run folder never archived.
+	 */
+	private async removeStaleRecoveries(run: string, itemId: string) {
+		for (const name of readdirSync(run)) {
+			if (this.running.has(itemId) || this.preparing.has(itemId)) return;
+			const recovery = join(run, name);
+			if (!name.startsWith("repo.orphan-") || !staleFolder(recovery)) continue;
+			await rm(recovery, { recursive: true, force: true });
+			this.log("recovery-removed", itemId, recovery);
 		}
 	}
 	/** Deletes the oldest archived run folders beyond `ARCHIVED_RUNS_KEPT`. */
@@ -2691,6 +2784,7 @@ export class LaneDispatcher {
 			const run = join(runs, name);
 			const itemId = name.slice(0, 36);
 			try {
+				await this.removeStaleRecoveries(run, itemId);
 				if (!this.orphanRun(name, itemId, run, receipted, referenced))
 					await this.cleanupUnreferencedCheckouts(run, itemId, referenced);
 				else if (this.cleanupDue(run)) await this.cleanupOrphanRun(run, itemId);
@@ -2804,7 +2898,7 @@ export class LaneDispatcher {
 					itemId,
 					at,
 					size,
-					remove: () => this.cleanupOrphanRun(run, itemId),
+					remove: () => this.cleanupOrphanRun(run, itemId, true),
 				});
 			}
 		}
@@ -2813,7 +2907,7 @@ export class LaneDispatcher {
 		this.log(
 			"checkout-cap",
 			undefined,
-			`runs/ holds ${(total / 1024 ** 3).toFixed(1)} GB, above the ${(cap / 1024 ** 3).toFixed(1)} GB retained-checkout cap; evicting oldest first`,
+			`runs/ holds ${(total / 1024 ** 3).toFixed(1)} GB, above the ${(cap / 1024 ** 3).toFixed(1)} GB retained-checkout cap; ${candidates.length} of ${names.length} run folders may be evicted, oldest first`,
 		);
 		candidates.sort((a, b) => a.at - b.at);
 		for (const candidate of candidates) {
@@ -2836,6 +2930,12 @@ export class LaneDispatcher {
 				);
 			}
 		}
+		if (total > cap)
+			this.log(
+				"checkout-cap-held",
+				undefined,
+				`${(total / 1024 ** 3).toFixed(1)} GB still retained: ${candidates.filter((candidate) => existsSync(candidate.run)).length} removable run folders refused removal or wait for their next try and ${names.length - candidates.length} are running, awaiting proof or protected`,
+			);
 	}
 	private async releaseWaits(
 		rows: Receipt[],
@@ -4002,7 +4102,7 @@ export class LaneDispatcher {
 			(this.running.has(receipt.itemId) || this.preparing.has(receipt.itemId))
 		)
 			return;
-		if (await this.deps.cleanup(this.options.repo, receipt.repo!)) {
+		if (await this.deps.cleanup(this.options.repo, receipt.repo!, retained)) {
 			this.cleanupAfter.delete(receipt.repo!);
 			const run = dirname(receipt.repo!);
 			if (

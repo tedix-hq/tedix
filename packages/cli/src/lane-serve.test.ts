@@ -5557,6 +5557,46 @@ it("records and preserves an unpushed commit until origin/main contains it", asy
 	expect(await cleanupLaneWorktree(repo, destination, () => false)).toBe(true);
 }, 30_000);
 
+it("evicts a stale checkout that still holds work, saving it under a ref first", async () => {
+	const { root, repo, git } = gitFixture(true);
+	const run = join(root, "item-2");
+	mkdirSync(run);
+	const destination = provisionLaneWorktree(repo, join(run, "repo"));
+	git(
+		["-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", "rebased"],
+		destination,
+	);
+	writeFileSync(join(destination, ".commit-msg.tmp"), "scratch");
+	// Fresh work stays even under eviction: it may still be retried or pushed.
+	expect(await cleanupLaneWorktree(repo, destination, () => false, true)).toBe(
+		false,
+	);
+	utimesSync(destination, 1, 1);
+	expect(await cleanupLaneWorktree(repo, destination, () => false)).toBe(false);
+	expect(await cleanupLaneWorktree(repo, destination, () => false, true)).toBe(
+		true,
+	);
+	expect(existsSync(destination)).toBe(false);
+	const saved = "refs/lane-evicted/item-2/repo";
+	expect(git(["log", "--format=%s", "-2", saved])).toBe(
+		"Evicted checkout snapshot\nrebased",
+	);
+	expect(git(["show", `${saved}:.commit-msg.tmp`])).toBe("scratch");
+}, 30_000);
+
+it("deletes a stale folder Git no longer knows only under eviction", async () => {
+	const { root, repo } = gitFixture(true);
+	const destination = join(root, "repo");
+	mkdirSync(destination);
+	writeFileSync(join(destination, "README.md"), "leftover");
+	utimesSync(destination, 1, 1);
+	expect(await cleanupLaneWorktree(repo, destination, () => false)).toBe(false);
+	expect(await cleanupLaneWorktree(repo, destination, () => false, true)).toBe(
+		true,
+	);
+	expect(existsSync(destination)).toBe(false);
+});
+
 it("reuses a clean registered worktree left by a failed admission at fresh origin/main", () => {
 	const { root, repo, git } = gitFixture(true);
 	const destination = join(root, "repo");
@@ -6283,6 +6323,27 @@ it("evicts the oldest removable run checkouts until the retained cap holds", asy
 	const log = readFileSync(join(dir, "dispatcher.log"), "utf8");
 	expect(log).toContain('"event":"checkout-cap"');
 	expect(log).toContain('"event":"checkout-evicted"');
+});
+
+it("removes stale recovery folders and says when the cap cannot be met", async () => {
+	const { dispatcher, dir, items, control } = fixture({ capBytes: 1 });
+	items.splice(0);
+	const run = join(dir, "runs", `${item().id}-2`);
+	const stale = join(run, "repo.orphan-old");
+	const fresh = join(run, "repo.orphan-new");
+	mkdirSync(join(stale, "repo"), { recursive: true });
+	mkdirSync(join(fresh, "repo"), { recursive: true });
+	utimesSync(stale, 1, 1);
+	control.runSize = 2;
+	control.cleanupResult = false;
+	await dispatcher.tick();
+	await dispatcher.drain();
+	expect(existsSync(stale)).toBe(false);
+	expect(existsSync(fresh)).toBe(true);
+	const log = readFileSync(join(dir, "dispatcher.log"), "utf8");
+	expect(log).toContain('"event":"recovery-removed"');
+	expect(log).toContain('"event":"checkout-cap-held"');
+	expect(log).toContain("1 removable run folders refused removal");
 });
 
 it("measures a finished run once, across sweeps and a runner restart", async () => {
