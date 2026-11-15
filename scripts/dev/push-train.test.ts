@@ -39,6 +39,9 @@ function git(cwd: string, ...args: string[]): string {
 	if (result.status !== 0) throw new Error(result.stderr);
 	return result.stdout.trim();
 }
+function branchHead(common: string, branch: string): string {
+	return readFileSync(join(common, "refs/heads", branch), "utf8").trim();
+}
 function fixture(count: number) {
 	const root = mkdtempSync(join(tmpdir(), "push-train-test-"));
 	roots.push(root);
@@ -77,7 +80,7 @@ if test -f red; then exit 1; fi
 	);
 	chmodSync(hook, 0o755);
 	git(repo, "config", "core.hooksPath", join(common, "hooks"));
-	const base = git(repo, "rev-parse", "main");
+	const base = branchHead(common, "main");
 	const tickets: TrainTicket[] = [];
 	for (let i = 0; i < count; i++) {
 		const cwd = join(root, `lane-${i}`);
@@ -93,7 +96,7 @@ if test -f red; then exit 1; fi
 		const lane = {
 			version: 1 as const,
 			cwd,
-			head: git(cwd, "rev-parse", "HEAD"),
+			head: branchHead(common, `lane-${i}`),
 			base,
 			branch: `refs/heads/lane-${i}`,
 			dryRun: false,
