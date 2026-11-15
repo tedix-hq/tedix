@@ -53,11 +53,10 @@ COPY template/updates-rss.xml.ts /opt/tedix-docs-template/src/pages/updates/rss.
 COPY template/agent-setup.astro /opt/tedix-docs-template/src/pages/agent-setup.astro
 COPY template/tedix-theme.css /opt/tedix-docs-template/src/styles/tedix-theme.css
 COPY template/public/ /opt/tedix-docs-template/public/
-
-WORKDIR /workspace
-CMD ["sleep", "infinity"]
-
 COPY template/DocsLayout.astro /opt/tedix-docs-template/src/layouts/DocsLayout.astro
 COPY template/page-markdown.ts /opt/tedix-docs-template/src/pages/[...slug]/index.md.ts
 COPY template/page.astro /opt/tedix-docs-template/src/pages/[...slug].astro
 COPY template/page-paths.ts /opt/tedix-docs-template/src/lib/page-paths.ts
+
+WORKDIR /workspace
+CMD ["sleep", "infinity"]
