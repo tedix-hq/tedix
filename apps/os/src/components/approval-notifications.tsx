@@ -67,7 +67,7 @@ export type ActivityTab =
 	| "workspace";
 
 export const approvalGroupHeadingClassName =
-	"m-0 flex min-w-0 items-center gap-2 break-words px-4 pb-1 pt-3 text-kumo-subtle type-tedix-caption font-semibold";
+	"m-0 flex min-w-0 items-center gap-2 wrap-anywhere px-4 pb-1 pt-3 text-kumo-subtle type-tedix-caption font-semibold";
 
 export function ApprovalNotifications({
 	conversationId = null,
@@ -216,7 +216,7 @@ export function ApprovalNotifications({
 								description="When an agent needs your OK to change, send or pay for something, it waits here."
 							/>
 						) : (
-							<div className="grid">
+							<div className="grid grid-cols-[minmax(0,1fr)]">
 								{inbox.workStartPending.length > 0 && (
 									<Link href="/work/approvals" className="px-4 py-3">
 										Review requests to start Work (
@@ -231,11 +231,11 @@ export function ApprovalNotifications({
 									>
 										<h3 className={approvalGroupHeadingClassName}>
 											{sanitizeUntrustedText(group.label)}
-											<span className="tabular-nums font-normal">
+											<span className="shrink-0 tabular-nums font-normal">
 												{group.items.length}
 											</span>
 										</h3>
-										<ul className="m-0 grid list-none p-0 pb-1">
+										<ul className="m-0 grid grid-cols-[minmax(0,1fr)] list-none p-0 pb-1">
 											{collapseIdenticalItems(group.items).map((row) => (
 												<ApprovalRow
 													busy={row.some((entry) => inbox.isPending(entry.key))}
@@ -268,8 +268,9 @@ export function ApprovalNotifications({
 				) : null}
 				<footer className="sticky bottom-0 border-t border-kumo-hairline bg-kumo-base px-2 py-1.5">
 					<Link
-						className="flex min-h-9 items-center justify-between rounded-md px-2 text-kumo-default no-underline type-tedix-control hover:bg-kumo-tint max-sm:min-h-11"
+						className="flex min-h-9 w-full min-w-0 items-center justify-between rounded-md px-2 text-kumo-default type-tedix-control max-sm:min-h-11"
 						href="/work/approvals"
+						variant="collection"
 					>
 						Open the approvals page
 						<CaretRight aria-hidden size={14} />
@@ -328,7 +329,7 @@ function ApprovalRow({
 							aria-label={`${title}. ${expanded ? "Hide" : "Show"} details`}
 							className="group/disclosure -mx-2 min-h-0 items-start px-2 py-0.5 text-kumo-default"
 						>
-							<span className="line-clamp-2 min-w-0 flex-1 font-medium type-tedix-control">
+							<span className="line-clamp-2 min-w-0 flex-1 wrap-anywhere font-medium type-tedix-control">
 								{title}
 							</span>
 							<CaretRight
@@ -342,7 +343,7 @@ function ApprovalRow({
 							{repeats > 1 ? (
 								<Badge variant="outline">{repeats} identical</Badge>
 							) : null}
-							<span>
+							<span className="min-w-0 wrap-anywhere">
 								{item.kind}
 								{item.where ? ` in ${sanitizeUntrustedText(item.where)}` : ""}
 							</span>

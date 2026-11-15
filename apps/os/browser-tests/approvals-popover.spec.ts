@@ -2,6 +2,7 @@ import { startFixtureServer } from "./fixture-server";
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { chromium, webkit, type Browser, type Page } from "playwright";
+import { unreadFixture } from "./approvals-popover-unread";
 
 // A disclosure mounts with data-starting-style and starts its transition a
 // frame later, so "no running animation" alone can pass on the mount frame.
@@ -69,7 +70,7 @@ async function assertStableTabOverflow(page: Page) {
 	);
 }
 
-// The topbar Approvals panel against the app's real CSS: WebKit at 320, 375 and
+// The topbar Approvals panel against the app's real CSS: WebKit at 320, 375, 390 and
 // 1280 px, light and dark, with three held delegations, with mixed action
 // requests and history, and with nothing.
 const fixturePath = "/browser-tests/approvals-popover.html";
@@ -89,6 +90,7 @@ try {
 			for (const [width, height] of [
 				[320, 812],
 				[375, 812],
+				[390, 844],
 				[1280, 900],
 			] as const) {
 				const page = await browser.newPage({
@@ -237,6 +239,44 @@ try {
 				);
 				await fits(page, width);
 
+				// Unread: thirty rows under long unbroken workspace names and file
+				// titles stay inside the panel; titles truncate, headings wrap.
+				await page.route("**/api/rpc/workspaceUnread/list**", (route) =>
+					route.fulfill({ json: { json: unreadFixture(Date.now()) } }),
+				);
+				await page.goto(
+					`${server.origin}${fixturePath}?theme=${theme}&empty&unread`,
+				);
+				await page
+					.getByRole("button", {
+						name: "Activity and approvals: none waiting, 30 unread",
+						exact: true,
+					})
+					.click();
+				const unreadPanel = page.locator("[data-approvals-popover]");
+				await unreadPanel.getByText("30 unread", { exact: true }).waitFor();
+				await unreadPanel
+					.getByRole("region", {
+						name: /^Quarterly_planning_workspace_.*: 10 unread$/,
+					})
+					.waitFor();
+				await fits(page, width);
+				const rows = await unreadPanel
+					.locator("section li a")
+					.evaluateAll((links) =>
+						links.map((link) => {
+							const panel = link.closest("[data-approvals-popover]")!;
+							return (
+								link.getBoundingClientRect().right <=
+								panel.getBoundingClientRect().right + 0.5
+							);
+						}),
+					);
+				assert.equal(rows.length, 30);
+				assert.equal(rows.every(Boolean), true, "Every unread row fits");
+				await capture(page, `activity-unread-${width}-${theme}`);
+				await page.unroute("**/api/rpc/workspaceUnread/list**");
+
 				// Needs review: raw tool slugs read as plain titles, and identical
 				// requests from one tedi are one row decided together.
 				await page.goto(
@@ -372,7 +412,7 @@ try {
 			}
 	}
 	console.log(
-		"PASS: Approvals panel review groups, plain titles, identical-request rows, auto-approval policy, history filters, overflow, focus return and empty states; WebKit and Chromium × 320/375/1280 × light/dark",
+		"PASS: Approvals panel review groups, plain titles, identical-request rows, unread rows within the panel width, auto-approval policy, history filters, overflow, focus return and empty states; WebKit and Chromium × 320/375/390/1280 × light/dark",
 	);
 } catch (error) {
 	// The preload sees an uncaught error only after finally has closed the page.
