@@ -74,8 +74,8 @@ export function UnreadList({ onNavigate }: { onNavigate?: () => void }) {
 			/>
 		);
 	return (
-		<div className="grid">
-			<div className="flex items-center justify-between gap-2 px-4 pt-3">
+		<div className="grid grid-cols-[minmax(0,1fr)]">
+			<div className="flex min-w-0 flex-wrap items-center justify-between gap-2 px-4 pt-3">
 				<Text as="p" className="m-0" role="label" tone="secondary">
 					{list.data.total} unread
 				</Text>
@@ -94,21 +94,25 @@ export function UnreadList({ onNavigate }: { onNavigate?: () => void }) {
 					className="border-b border-kumo-hairline last:border-b-0"
 					key={group.workspaceId}
 				>
-					<h3 className="m-0 flex min-w-0 items-center gap-2 break-words px-4 pb-1 pt-3 text-kumo-subtle type-tedix-caption font-semibold">
+					<h3 className="m-0 flex min-w-0 items-center gap-2 wrap-anywhere px-4 pb-1 pt-3 text-kumo-subtle type-tedix-caption font-semibold">
 						{sanitizeUntrustedText(group.workspaceName)}
-						<span className="tabular-nums font-normal">
+						<span className="shrink-0 tabular-nums font-normal">
 							{group.items.length}
 						</span>
 					</h3>
-					<ul className="m-0 grid list-none p-0 pb-1">
+					<ul className="m-0 grid grid-cols-[minmax(0,1fr)] list-none p-0 pb-1">
 						{group.items.map((item) => (
 							<li key={`${item.kind}:${item.id}`}>
 								<Link
-									className="flex min-h-9 items-center gap-2 px-4 py-1.5 text-kumo-default no-underline type-tedix-control hover:bg-kumo-tint max-sm:min-h-11"
+									className="flex min-h-9 w-full min-w-0 items-center gap-2 rounded-none px-4 py-1.5 text-kumo-default type-tedix-control max-sm:min-h-11"
 									href={unreadItemHref(group.workspaceId, item)}
 									onClick={onNavigate}
+									variant="collection"
 								>
-									<span className="min-w-0 flex-1 truncate">
+									<span
+										className="min-w-0 flex-1 truncate"
+										title={unreadItemLabel(item)}
+									>
 										{unreadItemLabel(item)}
 									</span>
 									{item.byAgent ? (

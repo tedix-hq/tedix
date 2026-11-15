@@ -118,6 +118,29 @@ describe("unread list", () => {
 		expect(host.textContent).toContain("You're all caught up");
 	});
 
+	it("keeps long names inside the panel: titles cut short keep their full text, headings and the action row wrap", async () => {
+		const title = "October_board_review_with_revenue_forecast_final_v12.xlsx";
+		unreadApi.list.mockResolvedValue({
+			total: 1,
+			groups: [
+				{
+					workspaceId: "ws-1",
+					workspaceName: "Quarterly_planning_workspace_for_onboarding",
+					latestAt: file.occurredAt,
+					items: [{ ...file, title }],
+				},
+			],
+		});
+		const host = await render();
+		const label = host.querySelector("li a span");
+		expect(label?.className).toContain("truncate");
+		expect(label?.getAttribute("title")).toBe(`${title} was changed`);
+		expect(host.querySelector("li a")?.className).toContain("min-w-0");
+		expect(host.querySelector("h3")?.className).toContain("wrap-anywhere");
+		const actions = host.querySelector("button")?.parentElement;
+		expect(actions?.className).toContain("flex-wrap");
+	});
+
 	it("says so when the list cannot be loaded instead of showing it as empty", async () => {
 		unreadApi.list.mockRejectedValue(new Error("offline"));
 		const host = await render();

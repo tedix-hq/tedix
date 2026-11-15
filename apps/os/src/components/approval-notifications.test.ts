@@ -136,7 +136,7 @@ describe("approval popover authority", () => {
 describe("approval group heading", () => {
 	it("wraps unbroken tedi labels within the popover", () => {
 		expect(approvalGroupHeadingClassName).toContain("min-w-0");
-		expect(approvalGroupHeadingClassName).toContain("break-words");
+		expect(approvalGroupHeadingClassName).toContain("wrap-anywhere");
 	});
 });
 

@@ -11,6 +11,11 @@ import {
 	tediNamesQueryOptions,
 	workPendingApprovalsQueryOptions,
 } from "../src/lib/os-query-options";
+import {
+	unreadListQueryOptions,
+	unreadSummaryQueryOptions,
+} from "../src/lib/workspace-unread";
+import { unreadFixture } from "./approvals-popover-unread";
 import "../src/styles.css";
 
 // Real component, seeded reads: three held delegations (two tedis) or none.
@@ -21,6 +26,8 @@ const dark = params.get("theme") === "dark";
 const probe = params.has("probe");
 const empty = params.has("empty") || probe;
 const activity = params.has("activity") || probe;
+// `unread` seeds 30 unread rows: long unbroken workspace names and file titles.
+const unread = params.has("unread");
 document.documentElement.classList.toggle("dark", dark);
 document.documentElement.style.colorScheme = dark ? "dark" : "light";
 
@@ -312,6 +319,20 @@ client.setQueryData(pendingHomeDelegationsQueryOptions().queryKey, {
 				],
 	},
 } as never);
+
+if (unread) {
+	const list = unreadFixture(Date.now());
+	client.setQueryData(unreadSummaryQueryOptions().queryKey, {
+		total: list.total,
+		workspaces: list.groups.map((group) => ({
+			workspaceId: group.workspaceId,
+			chat: 6,
+			files: 4,
+			total: group.items.length,
+		})),
+	} as never);
+	client.setQueryData(unreadListQueryOptions().queryKey, list as never);
+}
 
 createRoot(document.getElementById("root")!).render(
 	<QueryClientProvider client={client}>
