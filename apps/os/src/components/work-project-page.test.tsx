@@ -87,6 +87,7 @@ describe("Work project page", () => {
 						accountableOwnerId: "owner-1",
 						openedAt: "2026-11-01T00:00:00.000Z",
 						targetResolutionAt: "2099-11-30T12:00:00.000Z",
+						proofRef: null,
 						closedAt: null,
 						createdAt: "2026-11-01T00:00:00.000Z",
 						updatedAt: null,
