@@ -1,4 +1,4 @@
-import { withFieldSelectionSchema } from "./field-selection";
+import { withFieldSelectionSchema } from "@tedix/api-contract/utils/tool-field-selection-schema";
 import { createMcpLogger } from "../log";
 import { nativeCatalogToolMeta } from "./registration/bootstrap";
 import { isToolDeniedForConnection } from "./no-funds-policy";

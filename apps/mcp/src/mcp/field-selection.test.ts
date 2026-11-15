@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vite-plus/test";
+import { withFieldSelectionSchema } from "@tedix/api-contract/utils/tool-field-selection-schema";
 import {
 	readResponseFields,
 	selectResponseFields,
-	withFieldSelectionSchema,
 	fieldSelectionSources,
 } from "./field-selection";
 import {

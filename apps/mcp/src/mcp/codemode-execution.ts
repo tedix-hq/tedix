@@ -1,6 +1,6 @@
 import { resolveToolTrustLabel } from "@tedix/mcp-shared/content-sanitize";
 import { isDiscoveryShardTool } from "../aggregate-discovery-shards";
-import { withFieldSelectionSchema } from "./field-selection";
+import { withFieldSelectionSchema } from "@tedix/api-contract/utils/tool-field-selection-schema";
 import { gateDecisionMetadata } from "./gate-decision";
 import { resolveHumanPolicyReplay } from "./tenant-human-replay";
 import {

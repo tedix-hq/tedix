@@ -387,6 +387,7 @@
 		"./utils/skill-reference": "./src/utils/skill-reference.ts",
 		"./utils/skill-schedule": "./src/utils/skill-schedule.ts",
 		"./utils/tool-json-schema": "./src/utils/tool-json-schema.ts",
+		"./utils/tool-field-selection-schema": "./src/utils/tool-field-selection-schema.ts",
 		"./utils/tool-factory-artifact": "./src/utils/tool-factory-artifact.ts",
 		"./utils/trace-bundle": "./src/utils/trace-bundle.ts",
 		"./utils/portable-tedi": "./src/utils/portable-tedi.ts",
