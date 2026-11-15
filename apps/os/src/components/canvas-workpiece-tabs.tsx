@@ -13,6 +13,15 @@ import {
 	ContextMenuTrigger,
 } from "@/components/kumo/context-menu";
 import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuRadioGroup,
+	DropdownMenuRadioItem,
+	DropdownMenuRadioItemIndicator,
+	DropdownMenuTrigger,
+} from "@/components/kumo/dropdown-menu";
+import {
+	CaretDown,
 	FileText,
 	MonitorPlay,
 	PresentationChart,
@@ -37,6 +46,13 @@ import {
  * writes stay in canvas-page.tsx.
  */
 
+export type CanvasWorkpieceModeOption = {
+	value: CanvasWorkpieceMode;
+	label: ReactNode;
+	/** The label as plain words, for a name that cannot hold a badge. */
+	text: string;
+};
+
 /**
  * The open item's views: the item, then for an app Code (counting the drafts
  * waiting there), History (its runs), and Connections. The editor of a Doc,
@@ -52,21 +68,19 @@ export function canvasWorkpieceModeOptions(
 	activeMode: CanvasWorkpieceMode = "workpiece",
 	/** The kind of file this app edits, when it is a file's editor. */
 	fileEditorKind?: OsOutputKind | null,
-): { value: CanvasWorkpieceMode; label: ReactNode }[] {
+): CanvasWorkpieceModeOption[] {
+	const itemLabel =
+		doc.type === "gadget"
+			? fileEditorKind === "document"
+				? "Doc"
+				: fileEditorKind
+					? outputWorkshopKindLabel(fileEditorKind)
+					: "App"
+			: doc.type === "repository"
+				? "Repository"
+				: outputWorkshopKindLabel(outputKind);
 	return [
-		{
-			value: "workpiece",
-			label:
-				doc.type === "gadget"
-					? fileEditorKind === "document"
-						? "Doc"
-						: fileEditorKind
-							? outputWorkshopKindLabel(fileEditorKind)
-							: "App"
-					: doc.type === "repository"
-						? "Repository"
-						: outputWorkshopKindLabel(outputKind),
-		},
+		{ value: "workpiece", label: itemLabel, text: itemLabel },
 		...(doc.type === "gadget"
 			? [
 					{
@@ -80,19 +94,91 @@ export function canvasWorkpieceModeOptions(
 							) : (
 								"Code"
 							),
+						text: "Code",
 					},
 					...(fileEditorKind
 						? []
-						: [{ value: "history" as const, label: "History" }]),
+						: [
+								{
+									value: "history" as const,
+									label: "History",
+									text: "History",
+								},
+							]),
 				]
 			: []),
 		...(doc.type === "gadget" || activeMode === "connections"
-			? [{ value: "connections" as const, label: "Connections" }]
+			? [
+					{
+						value: "connections" as const,
+						label: "Connections",
+						text: "Connections",
+					},
+				]
 			: []),
 		...(activeMode === "activity"
-			? [{ value: "activity" as const, label: "Review" }]
+			? [{ value: "activity" as const, label: "Review", text: "Review" }]
 			: []),
 	];
+}
+
+/**
+ * The phone form of the view tabs: one button in the open item's row, named
+ * after the view on screen, that lists every view. It keeps the item's row to
+ * a single line, so the open file gets the height the tab rail took.
+ */
+export function CanvasWorkpieceViewMenu({
+	options,
+	value,
+	onValueChange,
+	draftCount = 0,
+}: {
+	options: readonly CanvasWorkpieceModeOption[];
+	value: CanvasWorkpieceMode;
+	onValueChange: (mode: CanvasWorkpieceMode) => void;
+	/** Open drafts, shown on the button while another view is on screen. */
+	draftCount?: number;
+}) {
+	const current =
+		options.find((option) => option.value === value) ?? options[0];
+	if (!current) return null;
+	const waiting = draftCount > 0 && current.value !== "edit";
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger
+				render={
+					<Button
+						aria-label={`View: ${current.text}${waiting ? `, ${draftCount} ${draftCount === 1 ? "draft" : "drafts"} in Code` : ""}`}
+						className="canvas-workpiece-view-menu"
+						size="sm"
+						title="Choose a view"
+						variant="outline"
+					/>
+				}
+			>
+				<span className="truncate">{current.text}</span>
+				{waiting ? <Badge variant="info">{draftCount}</Badge> : null}
+				<CaretDown aria-hidden className="shrink-0" size={12} />
+			</DropdownMenuTrigger>
+			<DropdownMenuContent align="end">
+				<DropdownMenuRadioGroup
+					value={current.value}
+					onValueChange={(next) => onValueChange(next as CanvasWorkpieceMode)}
+				>
+					{options.map((option) => (
+						<DropdownMenuRadioItem
+							closeOnClick
+							key={option.value}
+							value={option.value}
+						>
+							{option.label}
+							<DropdownMenuRadioItemIndicator />
+						</DropdownMenuRadioItem>
+					))}
+				</DropdownMenuRadioGroup>
+			</DropdownMenuContent>
+		</DropdownMenu>
+	);
 }
 
 export const CANVAS_WORKPIECE_PANEL_ID = "canvas-workpiece-panel";

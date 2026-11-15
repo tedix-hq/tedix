@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { chromium, webkit } from "playwright";
 import { startFixtureServer } from "./fixture-server";
+import { workpieceViewMenu } from "./workpiece-views";
 
 // The workpiece view switcher (App / Edit / History / Connections) is shell
 // chrome shared by every workspace gadget. On a phone its labels must never
@@ -9,7 +10,9 @@ import { startFixtureServer } from "./fixture-server";
 // narrow for every segment (chat open beside the app), the selected view
 // stays scrolled into sight. Below the 820px tablet line the switcher
 // segments and the workspace header actions keep a 44px hit target, and
-// keyboard focus stays visible inside the scrolling row.
+// keyboard focus stays visible inside the scrolling row. On a phone the views
+// fold into one "View" menu in the open item's row instead: every view is a
+// thumb-sized choice there, and the button names the view on screen.
 const workpiecePath =
 	"/workspace/00000030-0000-4000-8000-000000000001?workpiece=gadget%3A00000031-0000-4000-8000-00000000000a&pane=workpiece";
 const views = ["App", "Code", "History", "Connections"];
@@ -32,6 +35,75 @@ try {
 					hasTouch: phone,
 				});
 				await page.goto(`${server.origin}${workpiecePath}`);
+				if (phone) {
+					const menuButton = workpieceViewMenu(page);
+					await menuButton.waitFor();
+					assert.equal(
+						await page
+							.getByRole("group", { name: "Active workpiece view" })
+							.count(),
+						0,
+						`${label}: no view tabs on a phone`,
+					);
+					const button = await menuButton.boundingBox();
+					assert(
+						button && button.width >= 44 && button.height >= 44,
+						`${label}: the view menu keeps a 44px hit target`,
+					);
+					for (const view of views.toReversed()) {
+						await menuButton.click();
+						const menu = page.getByRole("menu");
+						const items = menu.getByRole("menuitemradio");
+						await items.first().waitFor();
+						assert.deepEqual(
+							(await items.allInnerTexts()).map((text) => text.trim()),
+							views,
+							`${label}: exactly these views are offered`,
+						);
+						for (const item of await items.all()) {
+							const box = await item.boundingBox();
+							assert(
+								box && box.height >= 44,
+								`${label}: every view is at least 44px tall`,
+							);
+						}
+						await menu
+							.getByRole("menuitemradio", { name: view, exact: true })
+							.click();
+						await menu.waitFor({ state: "hidden" });
+						assert.equal(
+							await menuButton.getAttribute("aria-label"),
+							`View: ${view}`,
+							`${label}: ${view} is reachable`,
+						);
+					}
+					// The last pick was App; the menu marks it and only it.
+					await menuButton.click();
+					await page.getByRole("menuitemradio").first().waitFor();
+					assert.deepEqual(
+						await page
+							.getByRole("menuitemradio")
+							.evaluateAll((items) =>
+								items.map((item) => item.getAttribute("aria-checked")),
+							),
+						["true", "false", "false", "false"],
+						`${label}: the menu marks the view on screen`,
+					);
+					await page.keyboard.press("Escape");
+					assert(
+						await page.evaluate(
+							() => document.documentElement.scrollWidth <= innerWidth,
+						),
+						`${label}: no sideways page scroll`,
+					);
+					// Review opens from the workspace menu; the view menu names it.
+					await page.goto(`${server.origin}${workpiecePath}&view=activity`);
+					await page
+						.getByRole("button", { name: "View: Review", exact: true })
+						.waitFor();
+					await page.close();
+					continue;
+				}
 				const switcher = page.getByRole("group", {
 					name: "Active workpiece view",
 				});

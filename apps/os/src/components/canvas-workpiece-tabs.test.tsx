@@ -2,10 +2,16 @@ import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vite-plus/test";
-import { type CanvasDocSelection, canvasDocKey } from "@/lib/canvas-search";
+import {
+	type CanvasDocSelection,
+	type CanvasWorkpieceMode,
+	canvasDocKey,
+} from "@/lib/canvas-search";
 import {
 	CANVAS_WORKPIECE_PANEL_ID,
 	CanvasWorkpieceTabs,
+	CanvasWorkpieceViewMenu,
+	canvasWorkpieceModeOptions,
 	canvasWorkpieceTabId,
 } from "./canvas-workpiece-tabs";
 
@@ -324,5 +330,56 @@ describe("workpiece tab reordering and menu", () => {
 		await act(async () => entry!.click());
 		expect(view.order()).toEqual(["doc-two"]);
 		view.unmount();
+	});
+});
+
+describe("workpiece view menu (phone)", () => {
+	it("names the view on screen and switches views from one button", async () => {
+		const container = document.createElement("div");
+		document.body.append(container);
+		const root = createRoot(container);
+		const picked: CanvasWorkpieceMode[] = [];
+		function Harness() {
+			const [mode, setMode] = useState<CanvasWorkpieceMode>("workpiece");
+			return (
+				<CanvasWorkpieceViewMenu
+					draftCount={2}
+					onValueChange={(next) => {
+						picked.push(next);
+						setMode(next);
+					}}
+					options={canvasWorkpieceModeOptions(
+						{ type: "gadget", id: "doc-editor" },
+						null,
+						2,
+						mode,
+						"document",
+					)}
+					value={mode}
+				/>
+			);
+		}
+		await act(async () => root.render(<Harness />));
+		const button = container.querySelector<HTMLElement>("button")!;
+		expect(button.getAttribute("aria-label")).toBe(
+			"View: Doc, 2 drafts in Code",
+		);
+		await act(async () => button.click());
+		const items = [
+			...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]'),
+		];
+		expect(items.map((item) => item.textContent?.replace(/\d/g, ""))).toEqual([
+			"Doc",
+			"Code",
+			"Connections",
+		]);
+		expect(items[0]?.getAttribute("aria-checked")).toBe("true");
+		await act(async () => items[2]!.click());
+		expect(picked).toEqual(["connections"]);
+		expect(button.getAttribute("aria-label")).toBe(
+			"View: Connections, 2 drafts in Code",
+		);
+		await act(async () => root.unmount());
+		container.remove();
 	});
 });
