@@ -943,6 +943,9 @@ describe("WorkspaceDO", () => {
 				}),
 			),
 		);
+		const projected = await testEnv.DB.prepare(
+			"SELECT COUNT(*) AS count FROM workspace_feed_ledger WHERE workspace_id LIKE '00000000-0000-4000-8000-%'",
+		).first<{ count: number }>();
 
 		const p50 = percentile(latencies, 0.5);
 		const p95 = percentile(latencies, 0.95);
@@ -950,6 +953,7 @@ describe("WorkspaceDO", () => {
 			`workspace-do load: turns=${latencies.length} p50=${p50.toFixed(1)}ms p95=${p95.toFixed(1)}ms`,
 		);
 		expect(latencies).toHaveLength(250);
+		expect(projected?.count).toBe(0);
 		expect(p95).toBeLessThan(20_000);
 	});
 
