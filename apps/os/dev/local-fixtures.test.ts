@@ -499,8 +499,6 @@ const CALLS = {
 	"projects/getRollup": { id: "00000076-0000-4000-8000-000000000001" },
 	"projects/getPortfolio": {},
 	"projects/getFactoryScoreboard": {},
-	"projects/listMilestones": { id: "00000076-0000-4000-8000-000000000001" },
-	"projects/listSprints": { id: "00000076-0000-4000-8000-000000000001" },
 	"projects/listHealthJudgments": {
 		id: "00000076-0000-4000-8000-000000000001",
 	},
@@ -1782,38 +1780,6 @@ describe("workspace work fixture coherence", () => {
 		expect(
 			linksFor(IDS.workspaceRevenue).some((link) => link.projectId === pilot),
 		).toBe(false);
-	});
-
-	it("linked projects expose sprints and milestones over real work", () => {
-		const sprints = callLocalOk("projects/listSprints", { id: OPS }) as {
-			data: { sprint: { projectId: string }; workItemIds: string[] }[];
-		};
-		expect(sprints.data.length).toBeGreaterThan(0);
-		const ids = new Set(
-			(
-				callLocalOk("workItems/list", {
-					projectId: OPS,
-					limit: 100,
-				}) as { data: { id: string }[] }
-			).data.map((row) => row.id),
-		);
-		for (const entry of sprints.data) {
-			expect(entry.sprint.projectId).toBe(OPS);
-			for (const id of entry.workItemIds) expect(ids.has(id)).toBe(true);
-		}
-		const milestones = callLocalOk("projects/listMilestones", {
-			id: OPS,
-		}) as {
-			data: {
-				milestone: { projectId: string };
-				workItems: { id: string }[];
-			}[];
-		};
-		expect(milestones.data.length).toBeGreaterThan(0);
-		for (const entry of milestones.data) {
-			expect(entry.milestone.projectId).toBe(OPS);
-			for (const item of entry.workItems) expect(ids.has(item.id)).toBe(true);
-		}
 	});
 
 	it("attempt projections scope to the project and name its real work", () => {

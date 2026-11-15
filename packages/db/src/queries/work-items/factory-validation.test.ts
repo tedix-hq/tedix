@@ -8,14 +8,13 @@ import {
 import { organizationMembers } from "../../schema/organization-members";
 import { projects } from "../../schema/projects";
 import { tedis } from "../../schema/tedis";
-import { workCases, workMilestones } from "../../schema/work-factory";
+import { workCases } from "../../schema/work-factory";
 import { workItems } from "../../schema/work-items";
 import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
 import {
 	requireActivePrincipal,
 	requireExternalSession,
-	requireMilestone,
 	requireProject,
 	requireWorkCase,
 	requireWorkItem,
@@ -44,7 +43,6 @@ function setup() {
 			workItems,
 			projects,
 			workCases,
-			workMilestones,
 		),
 	);
 	return createDbQueryClient(createD1Facade(sqlite));
@@ -298,23 +296,6 @@ describe("organization-scoped entity requirements", () => {
 					createdAt: NOW,
 					stage: inactive ? "closed" : "executing",
 					closedAt: inactive ? NOW : null,
-				});
-			},
-		},
-		{
-			name: "milestone",
-			require: requireMilestone,
-			seed: async (db: ReturnType<typeof setup>, inactive: boolean) => {
-				await db.insert(workMilestones).values({
-					id: "entity",
-					orgId: ORG,
-					projectId: "fixture-project",
-					title: "Fixture milestone",
-					accountableOwnerType: "system",
-					accountableOwnerId: "tedix",
-					createdAt: NOW,
-					status: inactive ? "cancelled" : "active",
-					cancelledAt: inactive ? NOW : null,
 				});
 			},
 		},

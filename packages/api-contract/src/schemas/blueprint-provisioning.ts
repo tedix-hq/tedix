@@ -50,6 +50,7 @@ export const BlueprintProvisioningSchema = z
 			})
 			.strict()
 			.optional(),
+		/** Dated checkpoints. Installing creates one epic per milestone. */
 		milestones: z
 			.array(
 				z

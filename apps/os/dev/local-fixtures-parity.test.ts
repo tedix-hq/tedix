@@ -249,14 +249,7 @@ const LOCAL_UNSUPPORTED: Record<string, readonly string[]> = {
 		"personalResourceDelegations/list",
 		"personalResourceDelegations/revoke",
 	],
-	"WorkFactoryPages read/mutation error; WorkspaceWorkPanel sprint error": [
-		"projects/addMilestoneDependency",
-		"projects/assignSprintWorkItem",
-		"projects/attachMilestoneWorkItem",
-		"projects/createMilestone",
-		"projects/recordHealthJudgment",
-		"projects/updateMilestone",
-	],
+	"WorkFactoryPages read/mutation error": ["projects/recordHealthJudgment"],
 	"SitesPage read error or mutation failure toast": [
 		"sites/beginCmsDomain",
 		"sites/createCms",

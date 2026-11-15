@@ -8,7 +8,7 @@ import { organizationMembers } from "../../schema/organization-members";
 import { projects } from "../../schema/projects";
 import { tedis } from "../../schema/tedis";
 import { workItems } from "../../schema/work-items";
-import { workCases, workMilestones } from "../../schema/work-factory";
+import { workCases } from "../../schema/work-factory";
 
 export class WorkControlError extends Error {
 	constructor(
@@ -175,22 +175,5 @@ export async function requireWorkCase(
 			.limit(1)
 	)[0];
 	if (!row) throw new WorkControlError("NOT_FOUND", `Case ${id} was not found`);
-	return row;
-}
-
-export async function requireMilestone(
-	db: DbQueryClient,
-	orgId: string,
-	id: string,
-) {
-	const row = (
-		await db
-			.select()
-			.from(workMilestones)
-			.where(and(eq(workMilestones.orgId, orgId), eq(workMilestones.id, id)))
-			.limit(1)
-	)[0];
-	if (!row)
-		throw new WorkControlError("NOT_FOUND", `Milestone ${id} was not found`);
 	return row;
 }

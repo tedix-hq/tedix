@@ -437,7 +437,7 @@ describe("buildBlueprintApplyRows", () => {
 		expect(JSON.parse(receiptRow?.metadata ?? "")).toEqual(plan.receipt);
 	});
 
-	it("projects the project, its workspace link and the milestone", async () => {
+	it("projects the project, its workspace link and the milestone as an epic", async () => {
 		const plan = await planBlueprintApply(planInput());
 		const params = await buildBlueprintApplyRows(plan, BASE);
 		const projectId = resourceId(plan, "project", "pod");
@@ -467,22 +467,24 @@ describe("buildBlueprintApplyRows", () => {
 				updatedAt: NOW,
 			},
 		]);
-		expect(params.provisioning?.milestones).toEqual([
+		expect(params.provisioning?.epics).toEqual([
 			{
 				id: resourceId(plan, "milestone", "launch"),
 				orgId: ORGANIZATION_ID,
 				projectId,
 				title: "Launch Quokka",
-				sortOrder: 0,
+				kind: "other",
+				stage: "planning",
 				accountableOwnerType: "system",
-				accountableOwnerId: `blueprint:${plan.receipt.workspaceId}`,
+				accountableOwnerId: "tedix",
+				openedAt: NOW,
 				metadata: { ...provenance, templateKey: "launch" },
 				createdAt: NOW,
 			},
 		]);
 	});
 
-	it("projects work templates, their blocking edges and milestone links", async () => {
+	it("projects work templates, their blocking edges and epic links", async () => {
 		const plan = await planBlueprintApply(planInput());
 		const params = await buildBlueprintApplyRows(plan, BASE);
 		const projectId = resourceId(plan, "project", "pod");
@@ -525,12 +527,13 @@ describe("buildBlueprintApplyRows", () => {
 				createdAt: NOW,
 			},
 		]);
-		expect(params.provisioning?.milestoneItems).toEqual([
+		expect(params.provisioning?.epicItems).toEqual([
 			{
+				id: await instanceId([reviewId, "epic", "launch"]),
 				orgId: ORGANIZATION_ID,
-				milestoneId: resourceId(plan, "milestone", "launch"),
+				caseId: resourceId(plan, "milestone", "launch"),
 				workItemId: reviewId,
-				createdAt: NOW,
+				discoveredAt: NOW,
 			},
 		]);
 	});

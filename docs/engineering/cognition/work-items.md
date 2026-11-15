@@ -1,7 +1,7 @@
 ---
 summary: "Work factory invariants: Work Items, admission, Attempts, settlement, approvals, and interactions"
 read_when:
-  - Updating Work Item, case, milestone, approval, interaction, admission, attempt, resource, budget, settlement, or fleet behavior
+  - Updating Work Item, case (epic), approval, interaction, admission, attempt, resource, budget, settlement, or fleet behavior
   - Designing coding or non-coding work for humans, tedis, or external agents
 title: "Work factory"
 ---
@@ -27,8 +27,8 @@ authenticated principal; never trust actor input).
 
 | Question                                  | Record                                     |
 | ----------------------------------------- | ------------------------------------------ |
-| Why are we investing? / What is due?      | Objective, project, milestone              |
-| Which emergent body of work?              | Case                                       |
+| Why are we investing?                     | Objective, project                         |
+| Which push of work, and what is due?      | Case (epic): owner, target date, proof     |
 | What bounded outcome must be produced?    | Work Item                                  |
 | May a specific executor act now?          | Derived readiness plus immutable admission |
 | Which scarce capacity is held?            | Resource and budget reservations           |
@@ -40,7 +40,7 @@ authenticated principal; never trust actor input).
 
 Never infer project health from percentage done, a deployed surface from a
 settled Attempt, or permission from an assignment label. Project health is an
-immutable judgment by an accountable principal. A milestone's `proofRef` never
+immutable judgment by an accountable principal. A case's `proofRef` never
 substitutes for its linked work. Closing a case does not complete its items.
 Todo, Kanban, and Gantt are views over the same rows.
 

@@ -46,8 +46,6 @@ import {
 	localProject,
 	orgGraphHealthFor,
 	OWNER_BRIEF,
-	PROJECT_MILESTONES,
-	PROJECT_SPRINTS,
 	PROJECTS,
 	WORK_ATTEMPTS,
 	WORK_GRAPH_HEALTH,
@@ -954,32 +952,6 @@ export const workHandlers: Record<string, (input: never) => unknown> = {
 		],
 		since: "2026-10-01T00:00:00.000Z",
 	}),
-	"projects/listMilestones": (input: { id: string }) => {
-		localProject(input.id);
-		return {
-			data: PROJECT_MILESTONES.filter(
-				(entry) => entry.milestone.projectId === input.id,
-			).map((entry) => ({
-				milestone: entry.milestone,
-				workItems: entry.workItemNs
-					.map((n) => WORK_ITEMS.find((row) => row.id === workItemId(n)))
-					.filter((row) => row !== undefined)
-					.map(({ id, title, disposition }) => ({ id, title, disposition })),
-				dependencies: [],
-				workItemsTruncated: false,
-				dependenciesTruncated: false,
-			})),
-			nextCursor: null,
-		};
-	},
-	"projects/listSprints": (input: { id: string }) => {
-		localProject(input.id);
-		return {
-			data: PROJECT_SPRINTS.filter(
-				(entry) => entry.sprint.projectId === input.id,
-			),
-		};
-	},
 	"projects/listHealthJudgments": (input: { id: string }) => {
 		localProject(input.id);
 		return [];

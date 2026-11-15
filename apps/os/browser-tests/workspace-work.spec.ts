@@ -8,7 +8,7 @@ import { withInteractionProfile } from "./interaction-profile";
  * Workspace Work pane in the zero-account fixture lanes. In the classic
  * fixtures the seeded project links populate the list from both linked
  * projects; in the default sample-data pack each workspace's linked project
- * fills it. Either way the sprint filter appears and nothing renders the
+ * fills it. Either way no sprint filter appears and nothing renders the
  * unsupported-procedure error — at phone and desktop width, light and dark.
  * Removing a linked project opens a confirmation that names its effect.
  */
@@ -117,9 +117,10 @@ for (const lane of lanes) {
 				const panel = page.locator('[aria-label="Workspace Work"]');
 				await panel.waitFor({ timeout: 30_000 });
 				await lane.check(panel);
-				assert(
-					await page.locator('[aria-label="Work sprint"]').isVisible(),
-					`${lane.name}: sprint filter renders with seeded sprints`,
+				assert.equal(
+					await page.locator('[aria-label="Work sprint"]').count(),
+					0,
+					`${lane.name}: no sprint filter`,
 				);
 				assert.equal(
 					await panel

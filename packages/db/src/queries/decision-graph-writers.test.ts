@@ -283,7 +283,7 @@ describe.each([false, true])(
 				revisions: [],
 				provisioning: {
 					projects: [],
-					milestones: [],
+					epics: [],
 					items: [],
 					relations: [
 						{
@@ -295,7 +295,7 @@ describe.each([false, true])(
 							createdAt: NOW,
 						},
 					],
-					milestoneItems: [],
+					epicItems: [],
 					outputs: [],
 					outputRevisions: [],
 					projectLinks: [],

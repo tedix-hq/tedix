@@ -217,10 +217,10 @@ export async function buildBlueprintApplyRows(
 	});
 	const rows: BlueprintProvisioningRows = {
 		projects: [],
-		milestones: [],
+		epics: [],
 		items: [],
 		relations: [],
-		milestoneItems: [],
+		epicItems: [],
 		outputs: [],
 		outputRevisions: [],
 		projectLinks: [],
@@ -266,18 +266,21 @@ export async function buildBlueprintApplyRows(
 			updatedAt: base.now,
 		});
 	}
-	for (const [index, milestone] of p.milestones.entries())
-		rows.milestones.push({
+	// A Blueprint milestone installs as an epic: the dated checkpoint for its tasks.
+	for (const milestone of p.milestones)
+		rows.epics.push({
 			id: id("milestone", milestone.key),
 			orgId: base.organizationId,
 			projectId: projectId!,
 			title: milestone.title,
 			description: milestone.description,
-			targetAt:
-				typeof milestone.targetAt === "string" ? milestone.targetAt : undefined,
-			sortOrder: index,
+			kind: "other",
+			stage: "planning",
 			accountableOwnerType: "system",
-			accountableOwnerId: `blueprint:${workspaceId}`,
+			accountableOwnerId: "tedix",
+			openedAt: base.now,
+			targetResolutionAt:
+				typeof milestone.targetAt === "string" ? milestone.targetAt : undefined,
 			metadata: provenance(milestone.key),
 			createdAt: base.now,
 		});
@@ -311,11 +314,12 @@ export async function buildBlueprintApplyRows(
 				createdAt: base.now,
 			});
 		if (item.milestone)
-			rows.milestoneItems.push({
+			rows.epicItems.push({
+				id: await blueprintInstanceId([workItemId, "epic", item.milestone]),
 				orgId: base.organizationId,
-				milestoneId: id("milestone", item.milestone),
+				caseId: id("milestone", item.milestone),
 				workItemId,
-				createdAt: base.now,
+				discoveredAt: base.now,
 			});
 	}
 	for (const doc of p.documents) {

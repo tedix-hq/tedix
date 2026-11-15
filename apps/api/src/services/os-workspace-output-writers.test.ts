@@ -82,10 +82,10 @@ async function write(path: string, f: ReturnType<typeof fixture>) {
 				: {
 						provisioning: {
 							projects: [],
-							milestones: [],
+							epics: [],
 							items: [],
 							relations: [],
-							milestoneItems: [],
+							epicItems: [],
 							outputs: [output],
 							outputRevisions: [revision],
 							projectLinks: [],
