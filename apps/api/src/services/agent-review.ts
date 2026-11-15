@@ -1,4 +1,8 @@
-import { FileAgentReviewInputSchema } from "@tedix/api-contract/schemas/agent-review";
+import {
+	FileAgentReviewInputSchema,
+	type FileAgentReviewInput,
+} from "@tedix/api-contract/schemas/agent-review";
+import { PersonalAgentFeedbackSchema } from "@tedix/api-contract/schemas/personal-agent-session";
 import type { DbClient } from "@tedix/db/client";
 import { getProjectById } from "@tedix/db/queries/projects";
 import { getTediByIdForOrganization } from "@tedix/db/queries/tedis";
@@ -110,6 +114,45 @@ export async function fileAgentReview(
 	) {
 		throw new HTTPException(400, { message: "Review rejected by spam guard" });
 	}
+	return persistAgentReport(db, env, input, callerOrgId);
+}
+
+export async function filePersonalAgentFeedback(
+	db: DbClient,
+	env: CloudflareEnv,
+	raw: unknown,
+	organizationId: string,
+) {
+	const parsed = PersonalAgentFeedbackSchema.safeParse(raw);
+	if (!parsed.success)
+		throw new HTTPException(400, { message: "Invalid feedback format" });
+	// Do not manufacture a repository review, fit score, or user attribution.
+	return persistAgentReport(
+		db,
+		env,
+		{
+			reportMarkdown: `${parsed.data.task}\n\n${parsed.data.description}`,
+			protocolFeedback: { ...parsed.data, organizationId },
+		},
+		organizationId,
+	);
+}
+
+async function persistAgentReport(
+	db: DbClient,
+	env: CloudflareEnv,
+	input:
+		| FileAgentReviewInput
+		| {
+				reportMarkdown: string;
+				protocolFeedback: {
+					task: string;
+					description: string;
+					organizationId: string;
+				};
+		  },
+	callerOrgId?: string,
+) {
 	// Validation must precede spending a shared rate-limit token.
 	try {
 		const allowed = await env.AGENT_REVIEW_RATE_LIMITER.limit({
@@ -166,12 +209,17 @@ export async function fileAgentReview(
 				projectId: project.id,
 				objectiveId: project.objectiveId!,
 				leadTediId: project.leadTediId!,
-				title: `Agent review: fit ${sanitized.feedback.fitScore}/5 (${sanitized.feedback.reviewedSha.slice(0, 8)})`,
+				title:
+					"feedback" in sanitized
+						? `Agent review: fit ${sanitized.feedback.fitScore}/5 (${sanitized.feedback.reviewedSha.slice(0, 8)})`
+						: `Agent feedback: ${sanitized.protocolFeedback.task}`,
 				description: sanitized.reportMarkdown,
 				sourceIntentId,
 				metadata: {
 					agentReview: true,
-					feedback: sanitized.feedback,
+					...("feedback" in sanitized
+						? { feedback: sanitized.feedback }
+						: { protocolFeedback: sanitized.protocolFeedback }),
 					...(callerOrgId ? { callerOrgId } : {}),
 				},
 				createdAt: now.toISOString(),

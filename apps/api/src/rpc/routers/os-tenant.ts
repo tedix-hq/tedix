@@ -10,6 +10,7 @@ import {
 import { PersonalAgentDiscoveryConfigSchema } from "@tedix/api-contract/schemas/organization";
 import { type BaseContext, withServiceAuth } from "../orpc";
 import { verifySignedOutPersonalAgentSession } from "../../services/personal-agent-session";
+import { personalAgentInterfaces } from "../../services/personal-agent-interfaces";
 import { osAudit, OS_TENANT_AUDIT } from "../os-audit";
 
 /**
@@ -80,6 +81,13 @@ const personalAgentDiscovery = service.personalAgentDiscovery.handler(
 			protocol_version: "1.0" as const,
 			organization: { name: organization.name, domain: config.data.domain },
 			auth: { disabled: true as const },
+			...(config.data.interfaces
+				? {
+						tasks: {
+							endpoint: `${config.data.mcpUrl.replace(/\/$/, "")}/poppy/tasks`,
+						},
+					}
+				: {}),
 			apis: [
 				{
 					type: "mcp" as const,
@@ -92,6 +100,10 @@ const personalAgentDiscovery = service.personalAgentDiscovery.handler(
 );
 
 export const osTenantContractRouter = osTenantOs.router({
+	personalAgentInterfaces: service.personalAgentInterfaces.handler(
+		({ input, context }) =>
+			personalAgentInterfaces(context.db, context.env, input),
+	),
 	personalAgentSession: service.personalAgentSession.handler(
 		({ input, context }) =>
 			verifySignedOutPersonalAgentSession(context.db, input),

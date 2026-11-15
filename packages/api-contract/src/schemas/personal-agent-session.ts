@@ -1,4 +1,5 @@
 import * as z from "zod";
+import { PersonalAgentExcludedTaskSchema } from "./organization";
 
 /** Signed-out resource verification, reachable only over a service binding. */
 export const PersonalAgentSessionRequestSchema = z.object({
@@ -21,3 +22,24 @@ export const PersonalAgentSessionResultSchema = z.object({
 	]),
 	sessionCreated: z.boolean().optional(),
 });
+
+export const PersonalAgentFeedbackSchema = z.object({
+	task: z.string().min(1).max(200),
+	description: z.string().min(1).max(2000),
+});
+
+export const PersonalAgentInterfacesRequestSchema =
+	PersonalAgentSessionRequestSchema.extend({
+		report: z.json().optional(),
+	});
+
+export const PersonalAgentInterfacesResultSchema =
+	PersonalAgentSessionResultSchema.extend({
+		status: z.enum([
+			...PersonalAgentSessionResultSchema.shape.status.options,
+			"invalid_request",
+			"unavailable",
+		]),
+		excludedTasks: z.array(PersonalAgentExcludedTaskSchema).optional(),
+		feedbackEndpoint: z.url().optional(),
+	});

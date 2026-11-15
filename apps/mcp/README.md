@@ -72,12 +72,30 @@ protocol permits accepting a replay within the 60-second freshness window;
 request method, URL and any independently verified access token remain bound.
 Tool authorization and operation idempotency remain separate requirements.
 
+To publish tasks, set `metadata.personalAgentProtocol.interfaces` on the
+organization to `{ excludedTasks: [], feedback: true }`. Exclusions are stored
+in that organization's metadata; each has a `task` and optional
+`alternative.instructions`. Discovery then advertises `GET /mcp/poppy/tasks`
+on the configured public MCP host. It verifies the request's Session and returns
+`excluded_tasks`, the existing app's allowlisted `skill_index`, and the feedback
+endpoint when enabled. Skills use HTTPS URLs with digests of the served Markdown.
+Only `mcpConfig.publicSkillSlugs` publishes skills; private, draft, archived,+tedi-owned and other-app skills remain excluded.
+
+`POST /mcp/poppy/feedback` requires a verified Session and accepts `task` (at most
+200 characters) and `description` (at most 2,000). It returns 202 with no body
+after the shared agent-review intake persists the report. The intake must be
+configured in the installation; redaction, per-organization throttling,
+deduplication and the daily cap apply. Protocol reports carry their organization
+but no invented repository SHA, fit score or user attribution. Invalid reports
+return `invalid_request`; unavailable intake returns 503.
+
 For staging acceptance, generate a validator identity with the company kit's
 `keygen`, host its public metadata and JWKS, and configure that staging
 organization's client policy. Run the foundation milestone with `--probe-session`
-against a real Session-dependent GET operation. The MCP transport returns 405
-for GET, so its POST endpoint cannot serve as that probe. Never install validator
-test identities in a production allowlist.
+against the advertised tasks endpoint, then run `check --milestone interfaces`.
+Check issuerless MCP by hand: a valid Session can initialize and list/call only
+the app's public tools, while absent, invalid and ended Sessions are rejected.
+Never install validator test identities in a production allowlist.
 
 ## Scope enforcement: two gates
 

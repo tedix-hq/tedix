@@ -7,6 +7,8 @@ import { PersonalAgentDiscoverySchema } from "../schemas/organization";
 import {
 	PersonalAgentSessionRequestSchema,
 	PersonalAgentSessionResultSchema,
+	PersonalAgentInterfacesRequestSchema,
+	PersonalAgentInterfacesResultSchema,
 } from "../schemas/personal-agent-session";
 
 /**
@@ -28,6 +30,10 @@ export const osTenantContract = oc
 	.route({ tags: ["os-tenant", "internal"], prefix: "/os-tenant" })
 	.errors(baseErrors)
 	.router({
+		personalAgentInterfaces: oc
+			.route({ method: "POST" })
+			.input(PersonalAgentInterfacesRequestSchema)
+			.output(PersonalAgentInterfacesResultSchema),
 		personalAgentSession: oc
 			.route({ method: "POST" })
 			.input(PersonalAgentSessionRequestSchema)

@@ -120,11 +120,17 @@ describe("public Agent Skills index", () => {
 		expect(response?.status).toBe(200);
 		expect(response?.headers.get("Cache-Control")).toBe("private, no-store");
 		const body = (await response?.json()) as {
-			skills: Array<{ url: string; frontmatter: { name: string } }>;
+			skills: Array<{
+				url: string;
+				digest: string;
+				frontmatter: { name: string };
+			}>;
 		};
 		expect(body.skills).toHaveLength(1);
 		expect(body.skills[0]).toMatchObject({
-			url: "skill://acme/public-guide/SKILL.md",
+			url: `https://${HOST}/.well-known/agent-skills/public-guide/SKILL.md`,
+			name: "public-guide",
+			description: "public-guide description",
 			frontmatter: { name: "public-guide" },
 		});
 		expect(listByApp).toHaveBeenCalledWith({
@@ -136,6 +142,23 @@ describe("public Agent Skills index", () => {
 			serviceFetch: undefined,
 			orgId: "org_acme",
 		});
+		const published = body.skills[0]!;
+		const markdown = await handleWellKnown(
+			new URL(published.url),
+			HOST,
+			createEnv(),
+		);
+		expect(markdown?.status).toBe(200);
+		const { sha256Digest } = await import("./mcp/skill-document");
+		expect(await sha256Digest(await markdown!.text())).toBe(published.digest);
+		for (const slug of ["private-guide", "other-tenant", "missing"]) {
+			const hidden = await handleWellKnown(
+				new URL(`https://${HOST}/.well-known/agent-skills/${slug}/SKILL.md`),
+				HOST,
+				createEnv(),
+			);
+			expect(hidden?.status).toBe(404);
+		}
 	});
 
 	it("returns an empty public index without reading organization skills when no allowlist exists", async () => {
