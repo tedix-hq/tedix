@@ -2124,8 +2124,9 @@ export function CanvasPage({
 								</Suspense>
 							</section>
 						) : null}
-						{/* The open item stays mounted behind the library or Work, so an
-					    unsaved draft is where the person left it on the way back. */}
+						{/* Wide screens keep the open item mounted behind the other views. A
+					    phone mounts it only on its visible pane, avoiding editor downloads
+					    while the person is using chat. */}
 						<div
 							aria-labelledby={
 								selectedDoc ? canvasWorkpieceTabId(selectedDoc) : undefined
@@ -2146,7 +2147,9 @@ export function CanvasPage({
 							id={CANVAS_WORKPIECE_PANEL_ID}
 							role="tabpanel"
 						>
-							{workspaceId !== null && selectedDoc !== null ? (
+							{workspaceId !== null &&
+							selectedDoc !== null &&
+							(!narrow || mobilePane === "workpiece") ? (
 								<Suspense fallback={<CanvasStagePending />}>
 									{selectedDoc.type === "repository" ? (
 										<CanvasRepositoryWorkpiece

@@ -181,6 +181,21 @@ export default defineConfig(async ({ command, mode, isPreview }) => {
 							codeSplitting: {
 								groups: [
 									{
+										name: "react-runtime",
+										test: /node_modules[\/].*react(?:-dom)?[\/]/,
+										includeDependenciesRecursively: false,
+									},
+									{
+										name: "tanstack-runtime",
+										test: /node_modules[\/]@tanstack[\/]/,
+										includeDependenciesRecursively: false,
+									},
+									{
+										name: "contract-validation",
+										test: /(?:node_modules[\/]zod[\/]|packages[\/]api-contract[\/]src[\/]schemas[\/])/,
+										includeDependenciesRecursively: false,
+									},
+									{
 										name: "bootstrap",
 										tags: ["$initial"],
 										includeDependenciesRecursively: false,

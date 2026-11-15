@@ -8,15 +8,28 @@
 import path from "node:path";
 import { gzipSync } from "node:zlib";
 import { chromium } from "playwright";
+import { startFixtureServer } from "./fixture-server";
 
 const origin = process.env.PERF_ORIGIN ?? "http://127.0.0.1:3010";
 const output = process.env.PERF_OUTPUT ?? "/tmp/os-first-load.json";
 const samples = Number(process.env.PERF_SAMPLES ?? 5);
 const assets = process.env.PERF_ASSETS_ROOT;
+const viewport = {
+	width: Number(process.env.PERF_VIEWPORT_WIDTH ?? 1440),
+	height: Number(process.env.PERF_VIEWPORT_HEIGHT ?? 1000),
+};
+const downloadThroughput = Number(
+	process.env.PERF_DOWNLOAD_THROUGHPUT ?? 1_250_000,
+);
+const fixtureServer = process.env.PERF_START_FIXTURES
+	? await startFixtureServer("/", { stdout: "ignore", stderr: "ignore" })
+	: undefined;
 let server: ReturnType<typeof Bun.serve> | undefined;
 if (assets) {
 	const fixtures = new URL(
-		process.env.PERF_FIXTURES_ORIGIN ?? "http://127.0.0.1:3010",
+		fixtureServer?.origin ??
+			process.env.PERF_FIXTURES_ORIGIN ??
+			"http://127.0.0.1:3010",
 	);
 	if (fixtures.hostname !== "127.0.0.1")
 		throw new Error("Fixture proxy must use loopback.");
@@ -25,7 +38,16 @@ if (assets) {
 		port: Number(new URL(origin).port),
 		async fetch(request) {
 			const url = new URL(request.url);
-			if (url.pathname.startsWith("/api/")) {
+			if (url.pathname === "/auth/session-broker/status") {
+				return Response.json({
+					authenticated: true,
+					user: { name: "Performance fixture", email: "fixture@example.test" },
+				});
+			}
+			if (
+				url.pathname.startsWith("/api/") ||
+				url.pathname.startsWith("/auth/")
+			) {
 				return fetch(new URL(url.pathname + url.search, fixtures), {
 					method: request.method,
 					headers: request.headers,
@@ -64,6 +86,13 @@ const targets = process.argv.includes("--live")
 		]
 	: [
 			{
+				name: "Workspace chat",
+				url:
+					origin + "/workspace/00000030-0000-4000-8000-000000000001?pane=chat",
+				text: "Message the workspace",
+				selector: 'textarea[aria-label="Message the workspace"]',
+			},
+			{
 				name: "Workspaces",
 				url: origin + "/workspaces",
 				text: "Weekly revenue reporting surfaces and gadgets",
@@ -89,9 +118,7 @@ try {
 			!process.env.PERF_TARGET || target.name === process.env.PERF_TARGET,
 	)) {
 		for (let run = 0; run < samples; run++) {
-			const context = await browser.newContext({
-				viewport: { width: 1440, height: 1000 },
-			});
+			const context = await browser.newContext({ viewport });
 			try {
 				const page = await context.newPage();
 				await page.addInitScript(
@@ -119,7 +146,7 @@ try {
 				await cdp.send("Network.emulateNetworkConditions", {
 					offline: false,
 					latency: 40,
-					downloadThroughput: 1_250_000,
+					downloadThroughput,
 					uploadThroughput: 625_000,
 				});
 				const chunks = new Map<string, { bytes: number; gzip: number }>();
@@ -138,7 +165,7 @@ try {
 				page.on("pageerror", (error) => errors.push(error.message));
 				page.on("response", (response) => {
 					const url = new URL(response.url());
-					if (url.pathname.startsWith("/api/") && response.status() >= 400)
+					if (response.status() >= 400)
 						apiFailures.push({ path: url.pathname, status: response.status() });
 					if (response.request().resourceType() === "script") {
 						pending.push(
@@ -155,10 +182,22 @@ try {
 				const start = Date.now();
 				await page.goto(target.url, { waitUntil: "commit" });
 				const useful =
-					target.name === "Card review"
-						? page.getByRole("button", { name: target.text, exact: true })
-						: page.getByText(target.text).first();
-				await useful.waitFor({ state: "visible", timeout: 30_000 });
+					"selector" in target
+						? page.locator(target.selector)
+						: target.name === "Card review"
+							? page.getByRole("button", { name: target.text, exact: true })
+							: page.getByText(target.text).first();
+				try {
+					await useful.waitFor({ state: "visible", timeout: 30_000 });
+				} catch (error) {
+					console.error({
+						url: page.url(),
+						body: (await page.locator("body").innerText()).slice(0, 1_000),
+						errors,
+						apiFailures,
+					});
+					throw error;
+				}
 				await page.evaluate(
 					() =>
 						new Promise<void>((resolve) =>
@@ -229,4 +268,5 @@ try {
 } finally {
 	await browser.close();
 	server?.stop();
+	await fixtureServer?.stop();
 }

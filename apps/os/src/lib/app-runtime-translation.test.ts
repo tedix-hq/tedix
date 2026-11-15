@@ -1,11 +1,13 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 import {
 	APP_RUNTIME_TRANSLATE_METHOD,
-	APP_RUNTIME_TRANSLATE_TEXT_METHOD,
-	APP_RUNTIME_TRANSLATION_METHOD,
 	APP_RUNTIME_TRANSLATION_SCRIPT,
 	appRuntimeGlossary,
 } from "./app-runtime-host";
+import {
+	APP_RUNTIME_TRANSLATE_TEXT_METHOD,
+	APP_RUNTIME_TRANSLATION_METHOD,
+} from "./app-runtime-protocol";
 
 const statuses: unknown[] = [];
 const hostRequests: { id: string; params: { text: string } }[] = [];

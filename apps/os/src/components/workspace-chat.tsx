@@ -19,6 +19,8 @@ import {
 	type FormEvent,
 	type KeyboardEvent,
 	type ReactNode,
+	lazy,
+	Suspense,
 	useCallback,
 	useContext,
 	useEffect,
@@ -50,7 +52,6 @@ import {
 } from "@/components/kumo/tooltip";
 import { Link } from "@/components/kumo/link";
 import { UnreadBadge } from "@/components/unread-badge";
-import { WidgetFrame } from "@/components/widget-frame";
 import { WorkActorDirectoryContext } from "@/components/work-actor-avatar";
 import { mentionedPeople, notifyChatPosted } from "@/lib/workspace-chat-notify";
 import { WorkspaceChatResources } from "@/components/workspace-chat-resources";
@@ -80,6 +81,10 @@ import {
 	pendingApproval,
 	turnDetails,
 } from "@/lib/workspace-chat-state";
+
+const WidgetFrame = lazy(async () => ({
+	default: (await import("@/components/widget-frame")).WidgetFrame,
+}));
 
 export type WorkspaceChatProps = {
 	workspaceId: string;
@@ -645,12 +650,14 @@ function TurnView({
 						data-testid="workspace-chat-view"
 						key={view.viewId}
 					>
-						<WidgetFrame
-							appSlug={view.appSlug}
-							resourceUri={view.resourceUri}
-							title={view.title}
-							toolResult={view.toolResult}
-						/>
+						<Suspense fallback={<Text role="label">Opening view…</Text>}>
+							<WidgetFrame
+								appSlug={view.appSlug}
+								resourceUri={view.resourceUri}
+								title={view.title}
+								toolResult={view.toolResult}
+							/>
+						</Suspense>
 					</div>
 				))}
 				{turn.status === "error" ? (

@@ -36,6 +36,15 @@ import {
 	APP_RUNTIME_THEME_STYLE_ID,
 } from "./app-runtime-theme";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
+import {
+	APP_RUNTIME_CALL_METHOD,
+	APP_RUNTIME_LANGUAGE_METHOD,
+	APP_RUNTIME_TRANSLATE_TEXT_METHOD,
+	APP_RUNTIME_TRANSLATION_METHOD,
+	type AppRuntimeHostResult,
+	type AppRuntimeOutputRevision,
+	APP_RUNTIME_OUTPUTS_CHANGED_METHOD,
+} from "./app-runtime-protocol";
 
 /**
  * The browser half of the workspace app host. `client.js` runs in the OS
@@ -54,16 +63,6 @@ export const APP_RUNTIME_OUTPUT_RESOURCE = {
 	resourceType: "output",
 } as const;
 
-export const APP_RUNTIME_CALL_METHOD = "tedix/call";
-export const APP_RUNTIME_OUTPUTS_CHANGED_METHOD = "tedix/outputs-changed";
-
-export interface AppRuntimeOutputRevision {
-	slot: string;
-	outputId: string;
-	revisionId: string;
-	revision: number;
-}
-
 export interface AppRuntimeContext {
 	workspaceId: string;
 	gadget: { id: string; name: string; revision: number };
@@ -75,19 +74,6 @@ export interface AppRuntimeContext {
 	/** Slots the app may read or write, with the operations each allows. */
 	grants: ReadonlyArray<{ slot: string; operations: readonly string[] }>;
 }
-
-export type AppRuntimeHostError =
-	| "not_permitted"
-	| "unknown_method"
-	| "bad_arguments"
-	| "slot_unbound"
-	| "revision_conflict"
-	| "too_large"
-	| "host_unavailable";
-
-export type AppRuntimeHostResult =
-	| { ok: true; value: unknown }
-	| { ok: false; error: AppRuntimeHostError; detail?: string };
 
 export type AppRuntimeDraft = { revision: number; content: OsOutputContent };
 
@@ -731,13 +717,6 @@ const escapeScript = (source: string) =>
 export const APP_RUNTIME_TRANSLATE_METHOD = "tedix/translate";
 /** Host to app: name the language of the text the app shows. */
 export const APP_RUNTIME_DETECT_LANGUAGE_METHOD = "tedix/detect-language";
-/** App to host, with an id: translate one text with the host's translator. */
-export const APP_RUNTIME_TRANSLATE_TEXT_METHOD = "tedix/translate-text";
-/** App to host: progress and result of a translate request. */
-export const APP_RUNTIME_TRANSLATION_METHOD = "tedix/translation";
-/** App to host: the detected language, or null. */
-export const APP_RUNTIME_LANGUAGE_METHOD = "tedix/language";
-
 export interface AppRuntimeTranslateParams {
 	/** BCP 47 code of the app's own text. */
 	source: string;
