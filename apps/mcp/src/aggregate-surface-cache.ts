@@ -101,6 +101,12 @@ export function aggregateSurfaceRetainedRows(): number {
 	return aggregateSurfaceCache.retainedRows;
 }
 
+/** Shard-backed requests fetch individual definitions and need no full schema graphs. */
+export function releaseAggregateSchemaCaches(): void {
+	aggregateSurfaceCache.clear();
+	internalToolCache.clear();
+}
+
 /** Mark an L1 entry as recently used so the row budget releases others first. */
 export function touchAggregateSurface(cacheKey: string): void {
 	const entry = aggregateSurfaceCache.get(cacheKey);
