@@ -1,5 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import { serveLegacyMcp } from "./legacy-mcp-server.test-helper";
 
 /** In-process fictional upstream for cross-service policy integration tests. */
 export function fictionalPolicyProvider(state: {
@@ -10,24 +9,23 @@ export function fictionalPolicyProvider(state: {
 		const request = new Request(input, init);
 		if (request.headers.get("Authorization") !== "Bearer fictional-token")
 			return new Response("Unauthorized", { status: 401 });
-		const server = new McpServer({ name: "fictional-provider", version: "1" });
-		server.registerTool("identity", { inputSchema: {} }, async () => ({
-			content: [
-				{
-					type: "text",
-					text: JSON.stringify({ account: { id: state.account } }),
+		return serveLegacyMcp(
+			request,
+			{ name: "fictional-provider", version: "1" },
+			{
+				identity: () => ({
+					content: [
+						{
+							type: "text",
+							text: JSON.stringify({ account: { id: state.account } }),
+						},
+					],
+				}),
+				write: () => {
+					state.writes++;
+					return { content: [{ type: "text", text: "ok" }] };
 				},
-			],
-		}));
-		server.registerTool("write", { inputSchema: {} }, async () => {
-			state.writes++;
-			return { content: [{ type: "text", text: "ok" }] };
-		});
-		const transport = new WebStandardStreamableHTTPServerTransport({
-			sessionIdGenerator: undefined,
-			enableJsonResponse: true,
-		});
-		await server.connect(transport);
-		return transport.handleRequest(request);
+			},
+		);
 	};
 }

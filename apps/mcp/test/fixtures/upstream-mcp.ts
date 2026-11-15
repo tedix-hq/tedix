@@ -1,8 +1,7 @@
-import { McpServer as LegacyMcpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { createMcpServer } from "@tedix/mcp-shared/server";
 import { mountMcp } from "@tedix/mcp-shared/transport";
 import * as z from "zod";
+import { serveLegacyMcp } from "../../src/mcp/legacy-mcp-server.test-helper";
 
 /**
  * External MCP servers for the workerd suite. They run on the Node side of
@@ -16,20 +15,13 @@ const echoResult = ({ msg }: { msg: string }) => ({
 	content: [{ type: "text" as const, text: JSON.stringify({ echoed: msg }) }],
 });
 
-/** A 2025-era server: the official v1 SDK's stateless web-standard transport. */
-async function serveLegacyV1(request: Request): Promise<Response> {
-	const server = new LegacyMcpServer({ name: "legacy", version: "1.0.0" });
-	server.registerTool(
-		"echo",
-		{ inputSchema: { msg: z.string() } },
-		async (args) => echoResult(args),
+/** A 2025-era server: the v1 SDK's stateless web-standard wire behavior. */
+function serveLegacyV1(request: Request): Promise<Response> {
+	return serveLegacyMcp(
+		request,
+		{ name: "legacy", version: "1.0.0" },
+		{ echo: ({ msg }) => echoResult({ msg: String(msg) }) },
 	);
-	const transport = new WebStandardStreamableHTTPServerTransport({
-		sessionIdGenerator: undefined,
-		enableJsonResponse: true,
-	});
-	await server.connect(transport);
-	return transport.handleRequest(request);
 }
 
 /** A 2026-07-28 server mounted the way Tedix's own MCP Workers mount one. */

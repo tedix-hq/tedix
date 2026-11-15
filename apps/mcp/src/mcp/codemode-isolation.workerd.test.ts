@@ -1,5 +1,5 @@
 import { NATIVE_CATALOG_TOOLS } from "./native-catalog-tools";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { InMemoryTransport } from "@modelcontextprotocol/server";
 import { buildMcpServer } from "./server-factory";
 import type { CachedAppData } from "./server-factory";
 import { env } from "cloudflare:workers";
