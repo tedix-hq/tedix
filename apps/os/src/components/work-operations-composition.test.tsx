@@ -853,6 +853,57 @@ describe("Work case detail", () => {
 		).toEqual([]);
 	});
 
+	it("shows the owner, target date and proof, and saves changes", async () => {
+		viewport(false);
+		const stream = workStream("executing");
+		api.reads["workItems.getCase"] = {
+			...stream,
+			workCase: {
+				...stream.workCase,
+				accountableOwnerType: "user",
+				targetResolutionAt: "2031-12-30T09:30:00.000Z",
+				proofRef: "https://example.test/refund-report",
+			},
+		};
+		const page = await mount(<WorkCasePage caseId="case-1" />);
+		expect(page.host.querySelector("[data-epic-owner]")).not.toBeNull();
+		expect(
+			page.host
+				.querySelector("[data-epic-target] time")
+				?.getAttribute("dateTime"),
+		).toBe("2031-12-30T09:30:00.000Z");
+		expect(
+			page.host.querySelector("[data-epic-proof] a")?.getAttribute("href"),
+		).toBe("https://example.test/refund-report");
+		await page.type("Proof of delivery", "  Signed handover, file 12  ");
+		await page.submit("Save");
+		expect(mutations("workItems.updateCase")[0]).toEqual({
+			caseId: "case-1",
+			expectedVersion: 2,
+			targetResolutionAt: "2031-12-30T09:30:00.000Z",
+			proofRef: "Signed handover, file 12",
+		});
+	});
+
+	it("says plainly when an epic has no target date or proof", async () => {
+		viewport(false);
+		api.reads["workItems.getCase"] = workStream("planning");
+		const page = await mount(<WorkCasePage caseId="case-1" />);
+		expect(page.host.querySelector("[data-epic-target]")?.textContent).toBe(
+			"Target dateNo target date yet",
+		);
+		expect(page.host.querySelector("[data-epic-proof]")?.textContent).toBe(
+			"Proof of deliveryNo proof yet",
+		);
+		await page.submit("Save");
+		expect(mutations("workItems.updateCase")[0]).toEqual({
+			caseId: "case-1",
+			expectedVersion: 2,
+			targetResolutionAt: null,
+			proofRef: null,
+		});
+	});
+
 	it("labels a stage change while it is pending", async () => {
 		viewport(false);
 		api.reads["workItems.getCase"] = workStream("investigating");

@@ -120,6 +120,142 @@ const caseFormSchema = z.object({
 	title: z.string().trim().min(1, "Give the epic a name."),
 });
 
+const deliveryFormSchema = z.object({
+	targetDate: z.string().trim(),
+	proofRef: z
+		.string()
+		.trim()
+		.max(2_000, "Keep the proof under 2,000 characters."),
+});
+
+type EpicDelivery = {
+	accountableOwnerType: string;
+	accountableOwnerId: string;
+	targetResolutionAt: string | null;
+	proofRef: string | null;
+};
+
+/** An epic is the dated checkpoint: who answers for it, when, and the proof. */
+function EpicDelivery({
+	record,
+	isPending,
+	onSave,
+}: {
+	record: EpicDelivery;
+	isPending: boolean;
+	onSave: (value: {
+		targetResolutionAt: string | null;
+		proofRef: string | null;
+	}) => void;
+}) {
+	const form = useZodForm({
+		schema: deliveryFormSchema,
+		defaultValues: {
+			targetDate: record.targetResolutionAt?.slice(0, 10) ?? "",
+			proofRef: record.proofRef ?? "",
+		},
+		validateOn: "submit",
+		onSubmit: ({ value }) =>
+			onSave({
+				// Keep the stored time when the day did not change.
+				targetResolutionAt: !value.targetDate
+					? null
+					: record.targetResolutionAt?.startsWith(value.targetDate)
+						? record.targetResolutionAt
+						: `${value.targetDate}T00:00:00.000Z`,
+				proofRef: value.proofRef || null,
+			}),
+	});
+	const proof = record.proofRef;
+	return (
+		<PageSection data-epic-delivery>
+			<SectionHeader>
+				<SectionHeading>
+					<SectionTitle>Delivery</SectionTitle>
+					<SectionDescription>
+						Who answers for this epic, when it is due, and where the result can
+						be checked.
+					</SectionDescription>
+				</SectionHeading>
+			</SectionHeader>
+			<dl className="grid gap-3 sm:grid-cols-3">
+				<div className="grid min-w-0 gap-1" data-epic-owner>
+					<Text as="dt" role="label" tone="secondary">
+						Owner
+					</Text>
+					<dd className="min-w-0">
+						<OperationActor
+							type={record.accountableOwnerType}
+							id={record.accountableOwnerId}
+						/>
+					</dd>
+				</div>
+				<div className="grid min-w-0 gap-1" data-epic-target>
+					<Text as="dt" role="label" tone="secondary">
+						Target date
+					</Text>
+					<Text as="dd" role="body">
+						{record.targetResolutionAt ? (
+							<time
+								dateTime={record.targetResolutionAt}
+								title={absoluteTime(record.targetResolutionAt)}
+							>
+								{absoluteDate(record.targetResolutionAt)}
+							</time>
+						) : (
+							"No target date yet"
+						)}
+					</Text>
+				</div>
+				<div className="grid min-w-0 gap-1" data-epic-proof>
+					<Text as="dt" role="label" tone="secondary">
+						Proof of delivery
+					</Text>
+					<Text as="dd" role="body" className="min-w-0 break-words">
+						{!proof ? (
+							"No proof yet"
+						) : /^https?:\/\//i.test(proof) ? (
+							<Link href={proof}>{proof}</Link>
+						) : (
+							proof
+						)}
+					</Text>
+				</div>
+			</dl>
+			<form
+				className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto] sm:items-end"
+				data-epic-delivery-form
+				onSubmit={(event) => {
+					event.preventDefault();
+					event.stopPropagation();
+					void form.handleSubmit();
+				}}
+			>
+				<FormField form={form} name="targetDate" label="Target date" optional>
+					{(field, meta) => <FormInput field={field} {...meta} type="date" />}
+				</FormField>
+				<FormField
+					form={form}
+					name="proofRef"
+					label="Proof of delivery"
+					optional
+				>
+					{(field, meta) => (
+						<FormInput
+							field={field}
+							{...meta}
+							placeholder="Link or reference to the result"
+						/>
+					)}
+				</FormField>
+				<Button type="submit" disabled={isPending}>
+					{isPending ? "Saving…" : "Save"}
+				</Button>
+			</form>
+		</PageSection>
+	);
+}
+
 /** Project names by id, from the shared Projects read. */
 function useProjectNames() {
 	const portfolio = useQuery(projectPortfolioQueryOptions());
@@ -491,6 +627,20 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 		},
 		onSuccess: refresh,
 	});
+	const delivery = useMutation({
+		mutationFn: (value: {
+			targetResolutionAt: string | null;
+			proofRef: string | null;
+		}) => {
+			if (!query.data) throw new Error("Epic is not loaded");
+			return osApi.workItems.updateCase({
+				caseId,
+				expectedVersion: query.data.workCase.version,
+				...value,
+			});
+		},
+		onSuccess: refresh,
+	});
 	const attach = useMutation({
 		mutationFn: () =>
 			osApi.workItems.attachCaseWorkItem({
@@ -550,6 +700,13 @@ export function WorkCasePage({ caseId }: { caseId: string }) {
 					.filter(Boolean)
 					.join(" · ")}
 			/>
+			<EpicDelivery
+				key={`${record.targetResolutionAt}|${record.proofRef}`}
+				record={record}
+				isPending={delivery.isPending}
+				onSave={(value) => delivery.mutate(value)}
+			/>
+			<MutationError error={delivery.error} />
 			<PageSection>
 				<SectionHeader>
 					<SectionHeading>

@@ -30,6 +30,7 @@ export function localCases() {
 		accountableOwnerId: "dev-operator",
 		openedAt: T0,
 		targetResolutionAt: null,
+		proofRef: null,
 		closedAt: null,
 		createdAt: T0,
 		updatedAt: null,

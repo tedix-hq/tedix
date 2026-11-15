@@ -1,0 +1,1 @@
+ALTER TABLE `work_cases` ADD `proof_ref` text;

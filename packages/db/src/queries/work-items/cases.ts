@@ -30,6 +30,7 @@ export interface CreateWorkCaseParams {
 	accountableOwnerId: string;
 	openedAt: string;
 	targetResolutionAt?: string | null;
+	proofRef?: string | null;
 	metadata?: Record<string, JsonValue>;
 	now: string;
 }
@@ -59,6 +60,7 @@ export async function createWorkCase(
 				accountableOwnerId: p.accountableOwnerId,
 				openedAt: p.openedAt,
 				targetResolutionAt: p.targetResolutionAt,
+				proofRef: p.proofRef,
 				metadata: p.metadata ?? {},
 				createdAt: p.now,
 				updatedAt: null,
@@ -77,6 +79,7 @@ export interface UpdateWorkCaseParams {
 	accountableOwnerType?: "user" | "tedi" | "system";
 	accountableOwnerId?: string;
 	targetResolutionAt?: string | null;
+	proofRef?: string | null;
 	stage?: WorkCaseStage;
 	metadata?: Record<string, JsonValue>;
 	now: string;
@@ -128,6 +131,7 @@ export async function updateWorkCase(
 				accountableOwnerType: ownerType,
 				accountableOwnerId: ownerId,
 				targetResolutionAt: p.targetResolutionAt,
+				proofRef: p.proofRef,
 				stage,
 				metadata: p.metadata,
 				closedAt: stage === "closed" ? p.now : prior.closedAt,

@@ -1488,6 +1488,10 @@
 		{
 			"name": "20261115163121_lane_ready_requires_state/migration.sql",
 			"sha256": "f19219a4bacccfcf722aeff1dbbe9afcb9030fd053b7f41a2ff45bf1dee1b12a"
+		},
+		{
+			"name": "20261115201207_work_case_proof_ref/migration.sql",
+			"sha256": "e7fd13c8411d81cdaade99d78ae6067067d19d3184bac2c2ab58d72de1c1607d"
 		}
 	]
 }

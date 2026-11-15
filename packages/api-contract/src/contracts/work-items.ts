@@ -99,6 +99,7 @@ import {
 	WorkCaseDetailSchema,
 	WorkCaseItemSchema,
 	WorkCaseKindSchema,
+	WorkCaseProofSchema,
 	WorkCaseSchema,
 	WorkCaseStageSchema,
 	WorkFactoryOwnerTypeSchema,
@@ -413,6 +414,9 @@ export const workItemsContract = oc
 							.datetime()
 							.optional()
 							.describe("Optional target date for resolving the epic."),
+						proofRef: WorkCaseProofSchema.optional().describe(
+							"Optional proof of delivery: a link or reference to the result.",
+						),
 					})
 					.strict(),
 			)
@@ -531,6 +535,11 @@ export const workItemsContract = oc
 							.nullable()
 							.optional()
 							.describe("Omit to preserve the target date; null removes it."),
+						proofRef: WorkCaseProofSchema.nullable()
+							.optional()
+							.describe(
+								"Omit to preserve the proof of delivery; null removes it.",
+							),
 					})
 					.strict(),
 			)
