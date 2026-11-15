@@ -1,6 +1,10 @@
 import type { ToolConfig } from "@tedix/api-contract/schemas/tools";
 import { describe, expect, it, vi } from "vite-plus/test";
-import { ToolHandler, type ToolExecutionContext } from "./handler";
+import {
+	checkSecretEgress,
+	ToolHandler,
+	type ToolExecutionContext,
+} from "./handler";
 
 describe("public-egress secret scanning", () => {
 	const context = (mode: "block" | "warn") => {
@@ -75,6 +79,31 @@ describe("public-egress secret scanning", () => {
 		expect(blocked.secretEgressDecision).toMatchObject({
 			secretPattern: "long opaque token",
 		});
+	});
+
+	it("passes schema-declared commit IDs through the MCP egress gate and blocks adjacent secrets", async () => {
+		const { ctx } = context("block");
+		ctx.config = {
+			transport: "mcp",
+			endpoint: "read_theme_artifact_file",
+		} as ToolConfig;
+		ctx.toolInputSchema = {
+			type: "object",
+			properties: {
+				sourceCommit: { type: "string", pattern: "^[a-f0-9]{40}$" },
+				expectedHead: { type: "string", pattern: "^[a-f0-9]{40}$" },
+			},
+		};
+		const args = {
+			sourceCommit: "abcdef0123".repeat(4),
+			expectedHead: "123abc456d".repeat(4),
+		};
+		expect(await checkSecretEgress(args, ctx)).toBeNull();
+		expect(ctx.secretEgressDecision).toBeUndefined();
+		const token = ["ghp", "0123456789abcdefghij0123"].join("_");
+		expect(
+			await checkSecretEgress({ ...args, note: token }, ctx),
+		).toMatchObject({ status: 403, data: { code: "SECRET_EGRESS_DENIED" } });
 	});
 
 	it("scans a third-party transport even when the tool is not flagged publicEgress", async () => {

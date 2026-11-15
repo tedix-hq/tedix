@@ -14,7 +14,8 @@ import {
  * opaque token" check is skipped only for content Tedix can positively
  * identify: base64 file bytes (by file signature, or a field the tool schema or
  * the argument shape declares as file content) and declared pagination
- * cursors. Base64 that decodes to text is scanned as that text.
+ * cursors, plus full Git commit IDs constrained by a schema pattern. Base64
+ * that decodes to text is scanned as that text.
  *
  * @module @tedix/mcp/secret-egress-scan
  */
@@ -221,7 +222,20 @@ function scan(
 	schema: JsonSchema | undefined,
 	role: StringRole,
 ): string | null {
-	if (typeof value === "string") return scanString(value, role);
+	if (typeof value === "string") {
+		// Only the exact schema constraint exempts a hash from the opaque-token
+		// heuristic; a commit-like field name alone cannot exempt credentials.
+		if (
+			/^[a-f0-9]{40}$/.test(value) &&
+			schemaVariants(schema).some(
+				(variant) =>
+					variant.type === "string" && variant.pattern === "^[a-f0-9]{40}$",
+			)
+		) {
+			return findHighConfidencePattern(value);
+		}
+		return scanString(value, role);
+	}
 	if (Array.isArray(value)) {
 		const items = itemSchema(schema);
 		for (const item of value) {
