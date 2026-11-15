@@ -22,6 +22,7 @@ const INTERNAL_ROUTES = [
 	"/__internal/inject",
 	"/__internal/mesh/inject",
 	"/__internal/chat/stream",
+	"/__internal/poppy",
 	"/__internal/chat/warm",
 	"/__internal/cancel",
 	"/__internal/cleanup-orphan",
@@ -264,6 +265,7 @@ function assertMarked(request: Request, label: string): void {
 // The service-binding aliases the edge rewrites to internal routes.
 for (const [alias, method, target] of [
 	["/hooks/chat-stream", "POST", "/__internal/chat/stream"],
+	["/hooks/poppy", "POST", "/__internal/poppy"],
 	["/hooks/chat-stream?run_id=run-1", "GET", "/__internal/chat/stream"],
 	["/hooks/inject", "POST", "/__internal/inject"],
 	["/hooks/review-capabilities", "GET", "/__internal/review-capabilities"],

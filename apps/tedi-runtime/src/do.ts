@@ -226,6 +226,7 @@ import { DoBrowserBudgetStore } from "./browser-budget-store-do";
 import { createTediBrowser, type TediBrowserSession } from "./browser-session";
 import { persistentBrowserEgress } from "./browser-egress-policy";
 import { ChatStreamHub, type FrameSink } from "./chat-stream-hub";
+import { PoppyRuntime } from "./poppy-runtime";
 import { type InboundEmailTrust } from "./email-turn-tools";
 import {
 	K2DerivedRuntimeEventPublisher,
@@ -1334,9 +1335,24 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 		};
 	}
 
+	private readonly poppy = new PoppyRuntime({
+		storage: this.ctx.storage,
+		organizationId: () => this.state.orgId,
+		queue: (conversationId) =>
+			this.queue(
+				"onPoppyDrain",
+				{ conversationId },
+				{ retry: { maxAttempts: 5 } },
+			),
+		run: (turn) => this.runConversationFacetTurn(turn),
+	});
+	async onPoppyDrain(payload: { conversationId: string }): Promise<void> {
+		await this.poppy.drain(payload.conversationId);
+	}
 	private requestHost(): RuntimeRequestHost {
 		const parent = this;
 		return {
+			handlePoppy: (request) => parent.poppy.handle(request),
 			hintsFromHeaders: (...args) => parent.hintsFromHeaders(...args),
 			ensureIdentity: (...args) => parent.ensureIdentity(...args),
 			get state() {
@@ -1546,6 +1562,7 @@ export class AgentTediDO extends Agent<Cloudflare.Env, State> {
 			this.ctx.waitUntil(this.eventOutbox.ensureRedrive());
 		const telegram = await this.nativeTelegram();
 		if (telegram) this.ctx.waitUntil(telegram.recoverPending());
+		await this.poppy.recover();
 	}
 	async onParentMaintenance(
 		payload: MaintenancePayload,
