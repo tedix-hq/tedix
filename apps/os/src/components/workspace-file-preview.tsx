@@ -7,7 +7,7 @@ import { LoadError } from "@/components/kumo/alert";
 import { Text } from "@/components/kumo/text";
 
 const VIDEO_MIME_TYPES = ["video/mp4", "video/webm"];
-const IMAGE_MIME_TYPES = [
+export const IMAGE_MIME_TYPES = [
 	"image/png",
 	"image/jpeg",
 	"image/webp",

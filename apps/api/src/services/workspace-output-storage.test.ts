@@ -737,4 +737,43 @@ describe("workspace output storage authority", () => {
 			}),
 		).rejects.toThrow("explicit transfer");
 	});
+
+	it("creates an uploaded file's document in the workspace's own store", async () => {
+		const { core, output, revision } = await fixture();
+		const objects = new Map<string, ArrayBuffer>();
+		const bucket = {
+			put: async (key: string, value: ArrayBuffer) => objects.set(key, value),
+			get: async (key: string) => {
+				const bytes = objects.get(key);
+				return bytes ? { arrayBuffer: async () => bytes } : null;
+			},
+			head: async (key: string) => (objects.has(key) ? {} : null),
+		};
+		const { confirmOsWorkspaceFile } = await import("./os-workspace-outputs");
+		const file = {
+			output,
+			revision: {
+				...revision,
+				content: JSON.stringify({
+					kind: "document",
+					blocks: [],
+					file: { workspaceId: scope.workspaceId, resourceId: output.id },
+				}),
+			},
+		};
+		await confirmOsWorkspaceFile(core, file, bucket as never);
+		// A second confirm of the same upload keeps the one document.
+		await confirmOsWorkspaceFile(core, file, bucket as never);
+		const ids = { organizationId: scope.organizationId, outputId: output.id };
+		expect(await d1Outputs.getOsOutput(core, ids)).toBeUndefined();
+		expect((await storage.getOsOutput(core, ids))?.id).toBe(output.id);
+		expect(
+			(
+				await storage.getOsOutputRevision(core, {
+					organizationId: scope.organizationId,
+					revisionId: revision.id,
+				})
+			)?.outputId,
+		).toBe(output.id);
+	});
 });

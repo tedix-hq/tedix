@@ -386,6 +386,21 @@
 	line-height: var(--text-tedix-label--line-height);
 }
 
+.workspace-chat-image-preview {
+	display: block;
+	max-width: min(100%, 320px);
+	max-height: 240px;
+	border-radius: 8px;
+	object-fit: contain;
+}
+
+.workspace-chat-image-preview[data-size="chip"] {
+	width: 20px;
+	height: 20px;
+	border-radius: 4px;
+	object-fit: cover;
+}
+
 .workspace-chat-composer-row {
 	display: flex;
 	align-items: center;
