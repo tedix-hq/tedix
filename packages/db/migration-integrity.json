@@ -1492,6 +1492,10 @@
 		{
 			"name": "20261115201207_work_case_proof_ref/migration.sql",
 			"sha256": "e7fd13c8411d81cdaade99d78ae6067067d19d3184bac2c2ab58d72de1c1607d"
+		},
+		{
+			"name": "20261115203018_carry_milestones_into_epics/migration.sql",
+			"sha256": "ef9c6b55498e8ea6d6813ab048991593c4a8429ad37aced3abdc30ce0c9909ac"
 		}
 	]
 }
