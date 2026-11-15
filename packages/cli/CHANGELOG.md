@@ -3,6 +3,23 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.21.18 — 2026-11-15
+
+### Patch Changes
+
+- 0d16662: Explain runner permission requests with the matched task sentences, agent, action and destination, what Allow records, and action-specific undo limits.
+- 76b65cb: Make a Devin lane's Tedix commands use the lane's own credential. Inside the lane the CLI now selects the dispatcher-provided store instead of reporting "No Tedix MCP auth found".
+- a150c36: Remove milestone commands and their native endpoint mappings from the CLI.
+  Use epic controls (`case-*`) to group Work Items.
+- 94be65c: A runner no longer spends up to five minutes on every sweep measuring a run
+  folder that is too large to measure in time. One Work revision with 30
+  checkouts hit the five-minute limit on each try. A folder whose measurement
+  fails is now tried again after an hour, and its last known size is used until
+  then.
+- 9a94911: Avoid permission cards for quoted task history, internal policy revisions and
+  measurement decreases. Retain permission request receipts across runner restarts
+  so the same Work version and recipient are not asked again.
+
 ## 0.21.17 — 2026-11-15
 
 ### Patch Changes
