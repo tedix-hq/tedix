@@ -235,8 +235,7 @@ function dispatchable(db: DbQueryClient, orgId: SQLWrapper): SQL | undefined {
 		eq(w.orgId, orgId),
 		eq(w.disposition, "accepted"),
 		sql`json_extract(${w.metadata}, '$.executor') IS NOT NULL`,
-		sql`(json_type(${w.metadata}, '$.laneDispatch') IS NULL
-			OR json_extract(${w.metadata}, '$.laneDispatch.state') = 'ready') = 1`,
+		sql`json_extract(${w.metadata}, '$.laneDispatch.state') = 'ready'`,
 		notExists(
 			db
 				.select({ one: sql`1` })

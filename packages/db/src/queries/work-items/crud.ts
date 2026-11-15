@@ -7,9 +7,13 @@ import {
 	containsCardSecret,
 	CARD_SECRET_MESSAGE,
 } from "@tedix/api-contract/utils/card-secrets";
-import type { LaneDispatchPlan } from "@tedix/api-contract/schemas/work-items";
+import {
+	LANE_READY_EXECUTORS,
+	type LaneDispatchPlan,
+} from "@tedix/api-contract/schemas/work-items";
 import {
 	and,
+	asc,
 	desc,
 	eq,
 	gte,
@@ -414,7 +418,7 @@ export async function listWorkItemsPage(
 				)
 			: undefined,
 		options.dispatchReadyOnly
-			? sql`(json_type(${workItems.metadata}, '$.laneDispatch') IS NULL OR json_extract(${workItems.metadata}, '$.laneDispatch.state') = 'ready') = 1`
+			? sql`json_extract(${workItems.metadata}, '$.laneDispatch.state') = 'ready'`
 			: undefined,
 		options.workKind ? eq(workItems.workKind, options.workKind) : undefined,
 		options.objectiveId
@@ -454,11 +458,22 @@ export async function listWorkItemsPage(
 			? sql`json_extract(${workItems.metadata}, '$.agentSession') IS NULL AND (json_extract(${workItems.metadata}, '$.purposeContext') IS NULL OR json_extract(${workItems.metadata}, '$.purposeContext') NOT LIKE 'transitional\\_%' ESCAPE '\\')`
 			: undefined,
 	);
+	// Runners take the most important ready task first: priority, then the
+	// nearest due date (undated last), then the oldest.
+	const listOrder = options.dispatchReadyOnly
+		? [
+				sql`CASE ${workItems.priority} WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END`,
+				sql`${workItems.dueDate} IS NULL`,
+				asc(workItems.dueDate),
+				asc(workItems.createdAt),
+				asc(workItems.id),
+			]
+		: [desc(workItems.createdAt), desc(workItems.id)];
 	const rows = await db
 		.select()
 		.from(workItems)
 		.where(where)
-		.orderBy(desc(workItems.createdAt), desc(workItems.id))
+		.orderBy(...listOrder)
 		.limit(limit)
 		.offset(offset);
 	const [counted] = await db
@@ -1161,7 +1176,7 @@ export async function updateWorkItemSpecification(
 	const laneDispatch =
 		params.laneDispatch ??
 		(params.executor !== undefined &&
-		["codex", "claude-code", "tedi", "human"].includes(params.executor)
+		(LANE_READY_EXECUTORS as readonly string[]).includes(params.executor)
 			? { state: "ready" as const }
 			: undefined);
 	const dispatch =

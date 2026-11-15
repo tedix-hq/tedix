@@ -319,9 +319,7 @@ export const workItems = pgTable(
 				table.createdAt,
 				table.id,
 			)
-			.where(
-				sql`(jsonb_typeof(${table.metadata} #> '{laneDispatch}') IS NULL OR (${table.metadata} #>> '{laneDispatch,state}') = 'ready') = 1`,
-			),
+			.where(sql`(${table.metadata} #>> '{laneDispatch,state}') = 'ready'`),
 		index("idx_work_items_org_kind_risk").on(
 			table.orgId,
 			table.workKind,

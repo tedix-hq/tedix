@@ -1863,6 +1863,16 @@ export const WorkExecutorSchema = z.enum([
 ]);
 export type WorkExecutor = z.infer<typeof WorkExecutorSchema>;
 
+/** Executors whose assigned Work is ready to dispatch without a planner. */
+export const LANE_READY_EXECUTORS = [
+	"codex",
+	"claude-code",
+	"opencode",
+	"devin",
+	"tedi",
+	"human",
+] as const satisfies readonly WorkExecutor[];
+
 export const LaneDispatchPlanSchema = z
 	.object({
 		state: z.enum(["held", "ready"]),

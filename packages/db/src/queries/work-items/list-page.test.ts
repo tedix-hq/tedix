@@ -454,7 +454,8 @@ it("pages server-selected lanes and keeps held or malformed plans out of dispatc
 		dispatchReadyOnly: true,
 		limit: 1,
 	});
-	expect(page.total).toBe(2);
+	// A missing plan is not ready; only the explicit ready state is.
+	expect(page.total).toBe(1);
 	expect(page.data.map((r) => r.id)).toEqual([idFor(1)]);
 	const second = await listWorkItemsPage(db, {
 		orgId: ORG,
@@ -463,7 +464,7 @@ it("pages server-selected lanes and keeps held or malformed plans out of dispatc
 		limit: 1,
 		offset: 1,
 	});
-	expect(second.data.map((r) => r.id)).toEqual([idFor(0)]);
+	expect(second.data).toEqual([]);
 	expect(
 		(await listWorkItemsPage(db, { orgId: ORG, executor: "codex" })).total,
 	).toBe(5);

@@ -29,7 +29,14 @@ function seed() {
 	const item = sqlite.prepare(
 		"INSERT INTO work_items(id,org_id,title,disposition,metadata,created_at,admission_spec_revision) VALUES(?,?,?,?,?,?,'revision-1')",
 	);
-	item.run("ready", "busy", "Ready", "accepted", '{"executor":"codex"}', T0);
+	item.run(
+		"ready",
+		"busy",
+		"Ready",
+		"accepted",
+		'{"executor":"codex","laneDispatch":{"state":"ready"}}',
+		T0,
+	);
 	item.run(
 		"ready2",
 		"busy",
