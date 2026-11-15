@@ -83,6 +83,32 @@ describe("organization Personal Agent Protocol discovery", () => {
 			tasks: { endpoint: `${config.mcpUrl}/poppy/tasks` },
 		});
 	});
+	it("publishes only the configured Company Agent endpoint and description", async () => {
+		const companyAgent = {
+			tediId: "00000000-0000-4000-8000-000000000001",
+			description: "Public support",
+			publicInstructions: "Private configuration must not appear in discovery",
+		};
+		sqlite
+			.prepare("UPDATE organizations SET metadata=?")
+			.run(
+				JSON.stringify({ personalAgentProtocol: { ...config, companyAgent } }),
+			);
+		const discovery = await client().personalAgentDiscovery(input);
+		expect(discovery?.agent).toEqual({
+			protocols: [
+				{
+					type: "poppy",
+					endpoint: `${config.mcpUrl}/poppy/conversations`,
+					description: companyAgent.description,
+				},
+			],
+		});
+		expect(JSON.stringify(discovery)).not.toContain(
+			companyAgent.publicInstructions,
+		);
+		expect(JSON.stringify(discovery)).not.toContain(companyAgent.tediId);
+	});
 	it("does not publish another host or an unconfigured organization", async () => {
 		expect(
 			await client().personalAgentDiscovery({

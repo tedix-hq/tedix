@@ -9,9 +9,13 @@ import { expect, it, vi } from "vite-plus/test";
 import type { BaseContext } from "./orpc";
 import { osTenantContractRouter } from "./routers/os-tenant";
 
-const { verify, interfaces } = vi.hoisted(() => ({
+const { verify, interfaces, conversations } = vi.hoisted(() => ({
 	verify: vi.fn(),
 	interfaces: vi.fn(),
+	conversations: vi.fn(),
+}));
+vi.mock("../services/personal-agent-conversation", () => ({
+	personalAgentConversation: conversations,
 }));
 vi.mock("../services/personal-agent-session", () => ({
 	verifySignedOutPersonalAgentSession: verify,
@@ -152,6 +156,65 @@ it("audits a new Session once through the real router without storing request se
 		for (const claim of Object.values(identity)) {
 			if (claim !== "1.0") expect(JSON.stringify(rows)).not.toContain(claim);
 		}
+	} finally {
+		sqlite.close();
+	}
+});
+
+it("gates and audits accepted conversation requests without visitor text, identity or Session proof", async () => {
+	const sqlite = new DatabaseSync(":memory:");
+	sqlite.exec(schemaDdl(auditEvents));
+	const db = createDbClient(createD1Facade(sqlite));
+	const context = {
+		db,
+		authType: "none",
+		headers: new Headers(),
+		env: {} as CloudflareEnv,
+		url: new URL("https://api.example/rpc/osTenant/personalAgentConversation"),
+	} as BaseContext;
+	const input = {
+		organizationId: "org-example",
+		appId: "app-example",
+		method: "POST",
+		url: "https://public.example/mcp/poppy/conversations?secret=fictional-secret",
+		sessionToken: "fictional-secret",
+		version: "1.0",
+		body: {
+			id: "first",
+			message: { author: { type: "agent" }, text: "fictional-secret" },
+		},
+	};
+	try {
+		const client = createRouterClient(osTenantContractRouter, { context });
+		await expect(client.personalAgentConversation(input)).rejects.toMatchObject(
+			{ code: "UNAUTHORIZED" },
+		);
+		expect(conversations).not.toHaveBeenCalled();
+		context.headers.set("X-Service-Binding", "true");
+		conversations.mockResolvedValue({
+			httpStatus: 201,
+			body: { conversation_id: "conversation" },
+		});
+		await client.personalAgentConversation(input);
+		conversations.mockResolvedValue({
+			httpStatus: 400,
+			body: { error: "invalid_session" },
+		});
+		await client.personalAgentConversation(input);
+		conversations.mockResolvedValue({ httpStatus: 200, body: { events: [] } });
+		await client.personalAgentConversation({ ...input, method: "GET" });
+		const rows = await getAuditEventsByResource(
+			db,
+			input.organizationId,
+			"app",
+			input.appId,
+		);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({
+			action: "os.personal_agent_conversation.received",
+			metadata: { sessionType: "signed_out" },
+		});
+		expect(JSON.stringify(rows)).not.toContain("fictional-secret");
 	} finally {
 		sqlite.close();
 	}

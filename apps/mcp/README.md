@@ -93,6 +93,34 @@ deduplication and the daily cap apply. Protocol reports carry their organization
 but no invented repository SHA, fit score or user attribution. Invalid reports
 return `invalid_request`; unavailable intake returns 503.
 
+To offer a signed-out Company Agent, configure
+`metadata.personalAgentProtocol.companyAgent` with an organization-owned `tediId`,
+a public `description`, and `publicInstructions`. Discovery lists the Poppy
+conversation endpoint under `agent.protocols`. Only those public instructions
+and the visitor's conversation reach the model; internal memory and tools are
+unavailable. The configured tedi must use the Agent runtime. Keep its identity
+stable while conversations are retained: protocol state lives in its runtime.
+
+The endpoint supports new messages, events with `cursor` and capped `wait`,
+handoff, handoff cancel, close, and linked Direct Conversations. Requests are
+deduplicated by client and User ID across Sessions and conversations. Events and
+request receipts are retained with the tedi's durable state; no event expiry or
+SSE streaming is offered. A Company Agent does not initiate Direct Conversations;
+the personal agent starts them with a first message and `parent_conversation_id`.
+
+Optional `companyAgent.handoff: { userId, projectId }` routes a visitor's request
+to a person through the existing OS inbox. Both targets must belong to the
+organization. The card explicitly says the reply will be shared with the
+personal agent. Polling reconciles the person's answer into the conversation;
+only a recorded response from that person is labelled human. Further visitor
+messages create reply cards. Cancel or close withdraws open cards on the next
+protocol request. Without a configured recipient, the agent explains that no
+person is available. This does not grant account access.
+
+Deploy the API, MCP edge and tedi runtime through the installation's release
+procedure before enabling Company Agent discovery. No new shared D1 migration
+is needed for its runtime-local SQLite state.
+
 For staging acceptance, generate a validator identity with the company kit's
 `keygen`, host its public metadata and JWKS, and configure that staging
 organization's client policy. Run the foundation milestone with `--probe-session`

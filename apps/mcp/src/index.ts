@@ -1,6 +1,7 @@
 import { requestPhaseTimings } from "./mcp/phase-timings";
 import { checkSignedOutPersonalAgentSession } from "./personal-agent-session";
 import { handlePersonalAgentInterfaces } from "./personal-agent-interfaces";
+import { handlePersonalAgentConversations } from "./personal-agent-conversations";
 import { buildWwwAuthenticate } from "@tedix/mcp-shared/auth";
 import {
 	apiWorkspaceLookup,
@@ -1496,13 +1497,20 @@ const worker = {
 			}
 
 			// authz: verified signed-out Session; never supplies account authority.
-			if (/^\/mcp\/poppy\/(tasks|feedback)$/.test(url.pathname)) {
+			if (
+				/^\/mcp\/poppy\/(tasks|feedback|conversations(?:\/.*)?)$/.test(
+					url.pathname,
+				)
+			) {
 				if (
 					!app.organizationId ||
 					app.metadata?.mcpConfig?.authMode !== "public"
 				)
 					return new Response(null, { status: 404 });
-				return handlePersonalAgentInterfaces({
+				const handler = url.pathname.startsWith("/mcp/poppy/conversations")
+					? handlePersonalAgentConversations
+					: handlePersonalAgentInterfaces;
+				return handler({
 					request,
 					appId: app.id,
 					organizationId: app.organizationId,

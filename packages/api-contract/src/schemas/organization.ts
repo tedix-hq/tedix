@@ -445,6 +445,19 @@ export const PersonalAgentDiscoveryConfigSchema = z
 		allowedClientIds: z.array(DiscoveryHttpsUrlSchema).max(200).optional(),
 		blockedClientIds: z.array(DiscoveryHttpsUrlSchema).max(200).optional(),
 		requestsPerMinute: z.number().int().min(1).max(10000).optional(),
+		companyAgent: z
+			.strictObject({
+				tediId: z.uuid(),
+				description: z.string().trim().min(1).max(500),
+				publicInstructions: z.string().trim().min(1).max(16000),
+				handoff: z
+					.strictObject({
+						userId: z.string().min(1).max(512),
+						projectId: z.uuid(),
+					})
+					.optional(),
+			})
+			.optional(),
 		interfaces: z
 			.object({
 				excludedTasks: z.array(PersonalAgentExcludedTaskSchema).max(200),
@@ -454,7 +467,8 @@ export const PersonalAgentDiscoveryConfigSchema = z
 	})
 	.refine(
 		(config) =>
-			!config.interfaces || /^https:\/\/[^/?#]+\/mcp\/?$/.test(config.mcpUrl),
+			!(config.interfaces || config.companyAgent) ||
+			/^https:\/\/[^/?#]+\/mcp\/?$/.test(config.mcpUrl),
 		"Interfaces require a query-free /mcp endpoint",
 	);
 
@@ -464,6 +478,19 @@ export const PersonalAgentDiscoverySchema = z.object({
 	// Protocol sign-in is not offered by the signed-out entry.
 	auth: z.object({ disabled: z.literal(true) }),
 	tasks: z.object({ endpoint: DiscoveryHttpsUrlSchema }).optional(),
+	agent: z
+		.object({
+			protocols: z
+				.array(
+					z.object({
+						type: z.literal("poppy"),
+						endpoint: DiscoveryHttpsUrlSchema,
+						description: z.string().min(1),
+					}),
+				)
+				.min(1),
+		})
+		.optional(),
 	apis: z
 		.array(
 			z.object({
