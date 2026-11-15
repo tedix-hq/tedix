@@ -778,8 +778,7 @@ export function GoalsOverview({
 						{OS_COPY.work.objectives}
 					</SectionTitle>
 					<SectionDescription>
-						What success means and the projects and epics serving each
-						objective.
+						What success means and the projects and epics serving each goal.
 					</SectionDescription>
 				</SectionHeading>
 			</SectionHeader>
@@ -787,15 +786,15 @@ export function GoalsOverview({
 				<Skeleton className="h-40 w-full" />
 			) : error ? (
 				<Alert variant="destructive">
-					<AlertTitle>Objectives unavailable</AlertTitle>
+					<AlertTitle>Goals unavailable</AlertTitle>
 					<AlertDescription>
-						{errorMessage(error, "Objectives could not be loaded.")}
+						{errorMessage(error, "Goals could not be loaded.")}
 					</AlertDescription>
 				</Alert>
 			) : goals.length === 0 ? (
 				<WorkEmpty
-					title="No objectives yet"
-					description="Objectives describe the success that projects and epics serve."
+					title="No goals yet"
+					description="Goals describe the success that projects and epics serve."
 				/>
 			) : (
 				<Collection appearance="inline" aria-label={OS_COPY.work.objectives}>
@@ -938,7 +937,7 @@ export function PortfolioApp({
 					<PageDescription>
 						{projectsLead
 							? projectCount
-							: "Every objective in this organization and the work serving it."}
+							: "Every goal in this organization and the work serving it."}
 					</PageDescription>
 				</PageHeading>
 				{isOwner ? (
