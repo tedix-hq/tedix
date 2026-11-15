@@ -10,6 +10,9 @@
 		"types": ["node", "bun-types"]
 	},
 	"include": [
+		"mcp/publish-migrated-tool-metadata.ts",
+		"mcp/publish-migrated-tool-metadata.test.ts",
+		"../packages/db/scripts/apply-production-migrations.ts",
 		"migrate-workspaces/activate.ts",
 		"migrate-workspaces/delta.ts",
 		"migrate-workspaces/delta.test.ts",

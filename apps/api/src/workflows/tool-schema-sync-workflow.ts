@@ -55,12 +55,51 @@ interface FrozenPlan {
 	unsupported?: string[];
 }
 
+type ToolSchemaSyncWorkflowInput = ToolSchemaSyncInput & {
+	/** Operator-only payload, sent directly through the existing Workflow binding. */
+	kind?: "publish_tool_metadata";
+	expectedMigration?: { id: number; name: string };
+};
+
 export class ToolSchemaSyncWorkflow extends WorkflowEntrypoint<
 	CloudflareEnv,
-	ToolSchemaSyncInput
+	ToolSchemaSyncWorkflowInput
 > {
-	async run(event: WorkflowEvent<ToolSchemaSyncInput>, step: WorkflowStep) {
+	async run(
+		event: WorkflowEvent<ToolSchemaSyncWorkflowInput>,
+		step: WorkflowStep,
+	) {
 		const db = createDbClient(this.env.DB);
+		if (event.payload.kind === "publish_tool_metadata") {
+			const expected = event.payload.expectedMigration;
+			// apply:false is a compatibility fence: an older deployed workflow can
+			// only preview this payload, never project old contracts after migration.
+			if (
+				event.payload.apply !== false ||
+				event.payload.mode !== "schema" ||
+				!expected ||
+				!Number.isSafeInteger(expected.id) ||
+				expected.id < 1 ||
+				typeof expected.name !== "string" ||
+				!expected.name
+			) {
+				throw new Error("Invalid migration publication request");
+			}
+			return step.do(
+				"publish migrated tool metadata",
+				{ retries: { limit: 1, delay: "2 seconds" }, timeout: "15 seconds" },
+				async () => {
+					const { reconcileToolMetadataPublication } =
+						await import("../services/tool-metadata-publication");
+					const result = await reconcileToolMetadataPublication(db, this.env, {
+						changed: false,
+						reconcileRelease: true,
+						expectedMigration: expected,
+					});
+					return { publicationProtocol: 1, schemaWrites: 0, ...result };
+				},
+			);
+		}
 		const payload: ToolSchemaSyncInput = {
 			...event.payload,
 			apply: event.payload.apply ?? true,

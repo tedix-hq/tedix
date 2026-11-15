@@ -29,3 +29,13 @@ test("resolves the project-installed Wrangler from a fixture directory", () => {
 		}),
 	).toMatch(/\d+\.\d+\.\d+/);
 });
+
+test("bounds a Wrangler child process by its caller deadline", () => {
+	expect(() =>
+		runWrangler(["--version"], {
+			cwd: tmpdir(),
+			timeoutMs: 1,
+			env: { WRANGLER_SEND_METRICS: "false" },
+		}),
+	).toThrow("Unable to run project-installed Wrangler");
+});

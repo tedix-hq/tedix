@@ -2,9 +2,11 @@ import { appendFileSync } from "node:fs";
 import {
 	checkLiveMigrationLedger,
 	D1_DATABASE_NAME,
+	readMigrationManifest,
 } from "./check-live-migration-ledger";
 import { parseWranglerJson, runWrangler } from "./wrangler-command";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
+import { publishMigratedToolMetadata } from "../../../scripts/mcp/publish-migrated-tool-metadata";
 
 export function parseTimeTravelBookmark(payload: unknown): string {
 	if (
@@ -36,12 +38,17 @@ function appendMigrationSummary(lines: string[]): void {
 }
 
 export function applyProductionMigrations(
-	options: { run?: typeof runWrangler } = {},
+	options: {
+		run?: typeof runWrangler;
+		publish?: (expectedName: string, freshMigration: boolean) => unknown;
+	} = {},
 ): void {
 	const run = options.run ?? runWrangler;
+	const manifest = readMigrationManifest();
 	const before = checkLiveMigrationLedger({
 		allowPending: true,
 		run,
+		manifest,
 	});
 	if (before.pending.length === 0) {
 		appendMigrationSummary([
@@ -88,6 +95,17 @@ export function applyProductionMigrations(
 			);
 	}
 
+	const publish =
+		options.publish ??
+		((name: string, fresh: boolean) =>
+			publishMigratedToolMetadata(name, fresh, {
+				run,
+				firstMigration: fresh ? before.pending[0] : undefined,
+			}));
+	if (before.appliedCount > 0) {
+		publish(manifest.migrations[before.appliedCount - 1]!.name, false);
+	}
+
 	const bookmark = parseTimeTravelBookmark(
 		parseWranglerJson(
 			run([
@@ -132,11 +150,24 @@ export function applyProductionMigrations(
 		// A retried D1 request can re-run a batch that already committed: on
 		// 2026-10-12 the ledger row landed at 09:15:24 and the retry then failed
 		// with "duplicate column". Trust the ledger, not the exit code.
-		const recheck = checkLiveMigrationLedger({ allowPending: true, run });
+		const recheck = checkLiveMigrationLedger({
+			allowPending: true,
+			run,
+			manifest,
+		});
 		if (recheck.pending.length > 0) throw error;
 		console.log(
 			`wrangler reported a failure but all ${before.pending.length} pending migration(s) are recorded; continuing`,
 		);
+	}
+
+	const after = checkLiveMigrationLedger({
+		allowPending: false,
+		run,
+		manifest,
+	});
+	if (before.appliedCount > 0) {
+		publish(before.pending.at(-1)!, true);
 	}
 
 	// Planner statistics are maintenance, not proof: on 2026-11-04 a busy
@@ -167,10 +198,6 @@ export function applyProductionMigrations(
 			`::warning title=PRAGMA optimize::${error instanceof Error ? error.message : String(error)}; continuing after the ledger check`,
 		);
 	}
-	const after = checkLiveMigrationLedger({
-		allowPending: false,
-		run,
-	});
 	appendMigrationSummary([
 		"",
 		`Applied ${before.pending.length} migration(s), ${optimized ? "ran" : "could not run"} \`PRAGMA optimize\`, and verified ${after.appliedCount} immutable ledger entries.`,
