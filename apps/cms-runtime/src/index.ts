@@ -133,6 +133,7 @@ import { type Env } from "./env";
 import { cmsRuntimePlatformHosts } from "./platform-hosts";
 import {
 	DATABASE_RUNTIME_ADMIN_PATH,
+	DATABASE_CONTENT_ROWS_ADMIN_PATH,
 	DATABASE_DEPROVISION_ADMIN_PATH,
 	DATABASE_RECOVER_ADMIN_PATH,
 	DATABASE_STORAGE_ADMIN_PATH,
@@ -145,6 +146,7 @@ import {
 	verifyInternalCmsRequest,
 } from "./internal-admin-http";
 import {
+	databaseContentRowsAdminResponse,
 	databaseDeprovisionAdminResponse,
 	databaseRecoverAdminResponse,
 	databaseStorageAdminResponse,
@@ -1498,6 +1500,14 @@ async function fetchCmsSite(
 	});
 	if (databaseDeprovision) return databaseDeprovision;
 
+	const databaseContentRows = await databaseContentRowsAdminResponse({
+		env,
+		request,
+		slug,
+		url,
+	});
+	if (databaseContentRows) return databaseContentRows;
+
 	const databaseRecover = await databaseRecoverAdminResponse({
 		env,
 		request,
@@ -2071,6 +2081,7 @@ export default {
 				url.pathname === "/health") ||
 			[
 				DATABASE_RUNTIME_ADMIN_PATH,
+				DATABASE_CONTENT_ROWS_ADMIN_PATH,
 				DATABASE_DEPROVISION_ADMIN_PATH,
 				DATABASE_RECOVER_ADMIN_PATH,
 				DATABASE_STORAGE_ADMIN_PATH,

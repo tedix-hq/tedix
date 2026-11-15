@@ -1195,6 +1195,38 @@ app.get("/api/internal/deployments/:slug/resources", async (c) => {
 	});
 });
 
+// Service-only read of content tables, for a site whose bundle cannot serve
+// its own export.
+app.get("/api/internal/deployments/:slug/content-rows", async (c) => {
+	const auth = await authenticateRequest(c.req.raw, c.env);
+	const slug = c.req.param("slug");
+	if (
+		!isInternalDeploymentRequestAuthorized(auth, slug) ||
+		!/^[a-z][a-z0-9-]*$/.test(slug)
+	) {
+		return c.json({ error: "Internal service authorization required" }, 403);
+	}
+	if (!c.env.CMS_DISPATCH || !c.env.CMS_INTERNAL_AUTH_TOKEN) {
+		return c.json({ error: "CMS runtime unavailable" }, 503);
+	}
+	const target = new URL(
+		`${cmsPlatformHosts(c.env).tenantOrigin(slug)}/_tedix/internal/database-runtime/content-rows`,
+	);
+	target.search = new URL(c.req.url).search;
+	const response = await c.env.CMS_DISPATCH.fetch(
+		new Request(target, {
+			headers: { "X-Tedix-CMS-Internal-Auth": c.env.CMS_INTERNAL_AUTH_TOKEN },
+		}),
+	);
+	const headers = new Headers(response.headers);
+	headers.set("Cache-Control", "no-store");
+	return new Response(response.body, {
+		status: response.status,
+		statusText: response.statusText,
+		headers,
+	});
+});
+
 // Service-only undo of a finished deprovision's data loss. The runtime checks
 // the deprovision receipt and refuses a database that holds content.
 app.post("/api/internal/deployments/:slug/recover-deleted", async (c) => {

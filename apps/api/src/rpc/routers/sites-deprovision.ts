@@ -22,6 +22,7 @@ import {
 import { inspectCmsMediaResource } from "../../services/cms-media-resources";
 import {
 	inspectCmsProviderResources,
+	readCmsContentRows,
 	recoverDeletedCmsData,
 } from "../../services/cms-provider-resources";
 import {
@@ -361,3 +362,34 @@ export const recoverDeletedCmsDataProcedure =
 				);
 			}
 		});
+
+/** A site without a working bundle cannot serve its own export; this reads its
+ * content tables from storage instead. */
+export const readCmsContentRowsProcedure = authedSitesOs.readCmsContentRows
+	.use(withAuthorization("settings:manage", "mcp:content.admin"))
+	.handler(async ({ input, context }) => {
+		if (!isPlatformPrincipal(context))
+			throw createError(
+				ErrorCodes.FORBIDDEN,
+				"Platform administrator required to read CMS storage",
+			);
+		const site = await requireCmsSite(context, input.siteId);
+		try {
+			return {
+				slug: site.slug,
+				...(await readCmsContentRows(
+					context.env,
+					site.slug,
+					input.table
+						? { table: input.table, offset: input.offset, limit: input.limit }
+						: undefined,
+				)),
+			};
+		} catch (error) {
+			throw createError(
+				ErrorCodes.BAD_GATEWAY,
+				`CMS storage read failed: ${error instanceof Error ? error.message : String(error)}`,
+				error,
+			);
+		}
+	});

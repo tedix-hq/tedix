@@ -1272,6 +1272,13 @@ export const PLATFORM_OPERATOR_TOOL_DEFINITIONS = [
 		kind: "destructive",
 	},
 	{
+		toolId: "read_cms_content_rows",
+		endpoint: "sites/readCmsContentRows",
+		kind: "read",
+		description:
+			"Platform admin. Read a CMS site's content tables straight from storage, for a site whose bundle cannot serve its own export. Without table it returns the content tables and their row counts; with table it returns up to 50 rows from offset.",
+	},
+	{
 		toolId: "recover_deleted_cms_data",
 		endpoint: "sites/recoverDeletedCmsData",
 		kind: "write",
