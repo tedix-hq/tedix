@@ -479,7 +479,13 @@ async function runLaneProcessWithReporter(
 					GIT_CONFIG_GLOBAL: join(dir, "gitconfig"),
 					GIT_CONFIG_NOSYSTEM: "1",
 					TEDIX_AGENT_SESSION: `devin:${sessionKey}`,
-					...(laneAgent ? { TEDIX_LANE_AGENT_STORE: laneAgent.storeDir } : {}),
+					// The store alone is not enough: auth only reads it in external-agent mode.
+					...(laneAgent
+						? {
+								TEDIX_LANE_AGENT_STORE: laneAgent.storeDir,
+								TEDIX_EXTERNAL_AGENT: "1",
+							}
+						: {}),
 				}
 			: {}),
 		TEDIX_WORKSPACE:
