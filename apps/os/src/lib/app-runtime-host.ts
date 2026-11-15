@@ -957,7 +957,8 @@ ${APP_RUNTIME_THEME_PLACEHOLDER}
 				window.parent.postMessage({jsonrpc:"2.0",id:id,method:${JSON.stringify(APP_RUNTIME_CALL_METHOD)},params:{method:method,args:args===undefined?null:args}},"*");
 			});
 		},
-		resize:function(height){window.parent.postMessage({jsonrpc:"2.0",method:"tedix/resize",params:{height:height}},"*");}
+		resize:function(height){window.parent.postMessage({jsonrpc:"2.0",method:"tedix/resize",params:{height:height}},"*");},
+		present:function(active){window.parent.postMessage({jsonrpc:"2.0",method:"tedix/present",params:{active:active===true}},"*");}
 	};
 	new ResizeObserver(function(){window.tedix.resize(document.documentElement.scrollHeight);}).observe(document.body);
 })();

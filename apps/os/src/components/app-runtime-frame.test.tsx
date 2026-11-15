@@ -156,4 +156,75 @@ describe("runtime app frame", () => {
 		await act(async () => root.unmount());
 		node.remove();
 	});
+	it("fills the page while the app presents and ends the show on Back", async () => {
+		vi.spyOn(HTMLIFrameElement.prototype, "src", "set").mockImplementation(
+			() => {},
+		);
+		const fullscreen = vi.fn(async () => {});
+		Object.defineProperty(HTMLElement.prototype, "requestFullscreen", {
+			configurable: true,
+			value: fullscreen,
+		});
+		const back = vi.spyOn(window.history, "back").mockImplementation(() => {});
+		const node = document.createElement("div");
+		document.body.append(node);
+		const root = createRoot(node);
+		await act(async () => {
+			root.render(
+				<AppRuntimeFrame
+					html="<p>slides</p>"
+					title="Fictional slides"
+					onCall={async () => ({ ok: true, value: null }) as never}
+				/>,
+			);
+		});
+		const frame = node.querySelector("iframe")!;
+		const post = vi
+			.spyOn(frame.contentWindow!, "postMessage")
+			.mockImplementation(() => {});
+		const send = (method: string, params?: unknown) =>
+			act(async () => {
+				window.dispatchEvent(
+					new MessageEvent("message", {
+						source: frame.contentWindow,
+						origin: window.location.origin,
+						data: { jsonrpc: "2.0", method, params },
+					}),
+				);
+			});
+		const shell = node.querySelector<HTMLElement>("[data-app-runtime-frame]")!;
+		await send("ui/notifications/sandbox-proxy-ready");
+
+		await send("tedix/present", { active: true });
+		expect(shell.dataset.presenting).toBe("true");
+		expect(shell.style.position).toBe("fixed");
+		expect(frame.style.height).toBe("100%");
+		expect(fullscreen).toHaveBeenCalledWith({ navigationUI: "hide" });
+		expect(window.history.state?.tedixPresent).toBe(true);
+
+		// System Back pops the show's entry: the app is told to stop.
+		await act(async () => {
+			window.history.replaceState({}, "");
+			window.dispatchEvent(new PopStateEvent("popstate"));
+		});
+		expect(shell.dataset.presenting).toBeUndefined();
+		expect(shell.style.position).toBe("");
+		expect(post).toHaveBeenCalledWith(
+			{ jsonrpc: "2.0", method: "tedix/present", params: { active: false } },
+			window.location.origin,
+		);
+		expect(back).not.toHaveBeenCalled();
+
+		// Exit in the app drops the entry Back would otherwise land on.
+		await send("tedix/present", { active: true });
+		await send("tedix/present", { active: false });
+		expect(shell.dataset.presenting).toBeUndefined();
+		expect(back).toHaveBeenCalledTimes(1);
+
+		await act(async () => root.unmount());
+		node.remove();
+		delete (HTMLElement.prototype as { requestFullscreen?: unknown })
+			.requestFullscreen;
+		window.history.replaceState({}, "");
+	});
 });

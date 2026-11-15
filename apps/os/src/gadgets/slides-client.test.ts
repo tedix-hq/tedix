@@ -1295,6 +1295,36 @@ describe("portable Slides canvas", () => {
 			expect(stageElement().textContent).toBe("External title"),
 		);
 	});
+	it("tells the page when a show starts and ends, and stops when the page ends it", async () => {
+		const api = await mount();
+		const present = vi.fn();
+		api.bridge.present = present;
+		const presenter = document.querySelector<HTMLElement>("#presenter")!;
+		button("present").click();
+		expect(present).toHaveBeenLastCalledWith(true);
+		button("exit").click();
+		expect(present).toHaveBeenLastCalledWith(false);
+		expect(presenter.hidden).toBe(true);
+
+		button("present").click();
+		const pageEnds = (source: MessageEventSource | null) =>
+			window.dispatchEvent(
+				new MessageEvent("message", {
+					source,
+					data: {
+						jsonrpc: "2.0",
+						method: "tedix/present",
+						params: { active: false },
+					},
+				}),
+			);
+		pageEnds(null);
+		expect(presenter.hidden).toBe(false);
+		pageEnds(window.parent);
+		expect(presenter.hidden).toBe(true);
+		expect(present).toHaveBeenLastCalledWith(false);
+		expect(document.activeElement).toBe(button("present"));
+	});
 	it("presents the full canvas and exports the saved edits without a manual save", async () => {
 		const api = await mount();
 		clickElement();
