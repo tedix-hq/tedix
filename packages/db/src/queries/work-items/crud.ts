@@ -45,6 +45,7 @@ import {
 	workEvents,
 	workItemComments,
 	workItemProjections,
+	workItemRelations,
 	workItems,
 } from "../../schema/work-items";
 import { normalizeWorkItemRow } from "./normalization";
@@ -84,7 +85,7 @@ export interface CreateWorkItemParams {
 	createdAt: string;
 }
 
-function lifecycleEventInsert(
+export function lifecycleEventInsert(
 	db: DbQueryClient,
 	params: {
 		orgId: string;
@@ -1051,6 +1052,17 @@ export async function cancelWorkItem(
 		expectedWorkItemVersion?: number;
 		hygiene?: { humanQuietHours: number; noAttempts: boolean };
 		cancelledAt?: string;
+		/**
+		 * A triage exit: the item must still be proposed. A duplicate records its
+		 * `duplicates` relation in the same batch as the cancellation.
+		 */
+		triage?:
+			| { exit: "declined" }
+			| {
+					exit: "duplicate";
+					relationId: string;
+					duplicateOfWorkItemId: string;
+			  };
 	},
 ): Promise<WorkItem> {
 	const cancelledAt = params.cancelledAt ?? new Date().toISOString();
@@ -1074,7 +1086,9 @@ export async function cancelWorkItem(
 				eq(workItems.orgId, params.orgId),
 				eq(workItems.id, params.workItemId),
 				eq(workItems.version, params.expectedWorkItemVersion ?? prior.version),
-				inArray(workItems.disposition, ["proposed", "accepted"]),
+				params.triage
+					? eq(workItems.disposition, "proposed")
+					: inArray(workItems.disposition, ["proposed", "accepted"]),
 				sql`NOT EXISTS (SELECT 1 FROM ${workAttempts} active_attempt WHERE active_attempt.org_id = ${params.orgId} AND active_attempt.work_item_id = ${params.workItemId} AND active_attempt.runtime_state IN ('queued','running','waiting','retrying') AND (active_attempt.expires_at IS NULL OR active_attempt.expires_at > ${cancelledAt}))`,
 				params.hygiene
 					? sql`NOT EXISTS (SELECT 1 FROM ${workItemComments} human_comment WHERE human_comment.org_id = ${params.orgId} AND human_comment.work_item_id = ${params.workItemId} AND human_comment.author_type = 'user' AND (julianday(human_comment.created_at) IS NULL OR julianday(human_comment.created_at) >= julianday(${humanCutoff})))`
@@ -1093,14 +1107,62 @@ export async function cancelWorkItem(
 		eventType: "work.cancelled",
 		actor: params.actor,
 		occurredAt: cancelledAt,
-		payload: { reason: params.reason ?? null },
+		payload: {
+			reason: params.reason ?? null,
+			...(params.triage ? { triageExit: params.triage.exit } : {}),
+			...(params.triage?.exit === "duplicate"
+				? { duplicateOfWorkItemId: params.triage.duplicateOfWorkItemId }
+				: {}),
+		},
 	});
-	const [cancelledRows] = await db.batch([cancelMutation, cancelEvent]);
+	const duplicate =
+		params.triage?.exit === "duplicate" ? params.triage : undefined;
+	const [cancelledRows] = await db.batch([
+		cancelMutation,
+		cancelEvent,
+		...(duplicate
+			? [
+					db
+						.insert(workItemRelations)
+						.select(
+							db
+								.select({
+									id: sql<string>`${duplicate.relationId}`.as("id"),
+									orgId: workItems.orgId,
+									fromWorkItemId: sql<string>`${workItems.id}`.as(
+										"from_work_item_id",
+									),
+									toWorkItemId:
+										sql<string>`${duplicate.duplicateOfWorkItemId}`.as(
+											"to_work_item_id",
+										),
+									relationType: sql<"duplicates">`'duplicates'`.as(
+										"relation_type",
+									),
+									metadata: sql<Record<string, JsonValue>>`'{}'`.as("metadata"),
+									createdAt: sql<string>`${cancelledAt}`.as("created_at"),
+								})
+								.from(workItems)
+								.where(
+									and(
+										eq(workItems.orgId, params.orgId),
+										eq(workItems.id, params.workItemId),
+										eq(workItems.version, prior.version + 1),
+										eq(workItems.disposition, "cancelled"),
+									),
+								),
+						)
+						.onConflictDoNothing(),
+				]
+			: []),
+	]);
 	const item = cancelledRows[0];
 	if (!item)
 		throw new WorkFactoryError(
 			"NOT_READY",
-			"Terminal work cannot be cancelled",
+			params.triage
+				? "Only proposed work can leave triage this way"
+				: "Terminal work cannot be cancelled",
 		);
 	await retireDecisionReviews(db, {
 		orgId: params.orgId,

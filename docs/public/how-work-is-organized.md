@@ -51,11 +51,21 @@ has agreed to it yet. For each one, a person or lead does one of these:
    (`tedix work move <id> --project <id>`), then accepts it with a "done when"
    and names who should do it:
    `tedix work accept <id> --done-when "<what done looks like>" --executor <exec>`.
-2. Cancels it, with the reason, if it should not be done.
+2. Declines it, with the reason, if it should not be done
+   (`decline_work_item`, or `tedix work cancel <id> --reason "<why>"`).
+3. Marks it as a duplicate of the Work Item that already covers it
+   (`mark_work_item_duplicate`). Tedix records the link and cancels the
+   duplicate together.
+4. Snoozes it until a date (`snooze_work_item`). It leaves the triage lists and
+   comes back on its own at that time.
 
-Triage is an inbox that should be empty, not a backlog. This is a working
-practice: today Tedix does not refuse to accept a Work Item that has not been
-sorted into a project.
+Tedix accepts a Work Item only when it has a project, a statement of what done
+looks like and an accountable owner. Otherwise the accept is refused and the
+message names what is missing. `list_work_triage` lists what still waits: one
+list per project, and one for the organization with the proposals that have no
+project yet.
+
+Triage is an inbox that should be empty, not a backlog.
 
 ## Why a Work Item exists: objective or work class
 
@@ -79,11 +89,6 @@ A Work Item has one durable state, its **disposition**:
 | `accepted`  | An owner or admin (or a credential with `work:accept`) approved it. |
 | `completed` | The accepted outcome is recorded as done.                           |
 | `cancelled` | It will not be done.                                                |
-
-A proposed Work Item is in triage, whether or not it has a project yet. Tedix
-accepts it only when it has a project, a statement of what done looks like and
-an accountable owner; otherwise the accept is refused and the message names
-what is missing.
 
 "Blocked" is not a disposition. It is a reading from the readiness check: an
 accepted Work Item can be blocked by an unfinished dependency, a pending

@@ -1016,6 +1016,103 @@ export const workItemsContract = oc
 			)
 			.output(WorkItemSchema),
 
+		decline: oc
+			.route({
+				method: "POST",
+				path: "/{id}/decline",
+				summary: "Decline a proposed Work Item",
+			})
+			.input(
+				z.object({
+					id: z.uuid(),
+					reason: z
+						.string()
+						.trim()
+						.min(1)
+						.max(2000)
+						.describe("Why this proposal will not be done."),
+				}),
+			)
+			.output(WorkItemSchema),
+
+		markDuplicate: oc
+			.route({
+				method: "POST",
+				path: "/{id}/duplicate",
+				summary: "Close a proposed Work Item as a duplicate of another",
+			})
+			.input(
+				z.object({
+					id: z.uuid(),
+					duplicateOfWorkItemId: z
+						.uuid()
+						.describe("The Work Item that already covers this proposal."),
+					reason: z.string().trim().min(1).max(2000).optional(),
+				}),
+			)
+			.output(WorkItemSchema),
+
+		snooze: oc
+			.route({
+				method: "POST",
+				path: "/{id}/snooze",
+				summary: "Snooze a proposed Work Item out of triage",
+			})
+			.input(
+				z.object({
+					id: z.uuid(),
+					until: z.iso
+						.datetime({ offset: true })
+						.nullable()
+						.describe(
+							"When the proposal returns to its triage queue. Null wakes it now.",
+						),
+				}),
+			)
+			.output(WorkItemSchema),
+
+		listTriage: oc
+			.route({
+				method: "GET",
+				path: "/triage",
+				summary: "List Work Items waiting in triage",
+			})
+			.input(
+				z
+					.object({
+						projectId: z
+							.uuid()
+							.optional()
+							.describe(
+								"A project's triage queue. Omit for the organization queue: proposals that have no project yet.",
+							),
+					})
+					.extend(PaginationSchema.shape)
+					.strict()
+					.optional(),
+			)
+			.output(
+				z.object({
+					data: z.array(WorkItemSchema),
+					pagination: PaginationMetaSchema,
+					queues: z
+						.array(
+							z.object({
+								projectId: z.uuid().nullable(),
+								count: z.number().int().nonnegative(),
+							}),
+						)
+						.describe(
+							"Waiting proposals per project; a null project is the organization queue.",
+						),
+					snoozed: z
+						.number()
+						.int()
+						.nonnegative()
+						.describe("Proposals snoozed out of every queue."),
+				}),
+			),
+
 		closeoutDelegated: oc
 			.route({
 				method: "POST",
