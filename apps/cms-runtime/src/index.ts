@@ -145,6 +145,7 @@ import {
 } from "./internal-admin-http";
 import {
 	databaseDeprovisionAdminResponse,
+	databaseRecoverAdminResponse,
 	databaseStorageAdminResponse,
 	databaseRecoveryBookmarkAdminResponse,
 	databaseSchemaDiagnosticResponse,
@@ -1495,6 +1496,14 @@ async function fetchCmsSite(
 		url,
 	});
 	if (databaseDeprovision) return databaseDeprovision;
+
+	const databaseRecover = await databaseRecoverAdminResponse({
+		env,
+		request,
+		slug,
+		url,
+	});
+	if (databaseRecover) return databaseRecover;
 
 	const databaseStorage = await databaseStorageAdminResponse({
 		env,

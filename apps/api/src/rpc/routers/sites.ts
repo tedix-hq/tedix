@@ -72,6 +72,7 @@ import {
 	getDeprovisionPlanProcedure,
 	deprovisionSiteProcedure,
 	getDeprovisionStatusProcedure,
+	recoverDeletedCmsDataProcedure,
 } from "./sites-deprovision";
 
 const STARTER_CMS_SITE_QUOTA =
@@ -629,4 +630,5 @@ export const sitesContractRouter = sitesOs.router({
 	getDeprovisionPlan: getDeprovisionPlanProcedure,
 	deprovision: deprovisionSiteProcedure,
 	getDeprovisionStatus: getDeprovisionStatusProcedure,
+	recoverDeletedCmsData: recoverDeletedCmsDataProcedure,
 });

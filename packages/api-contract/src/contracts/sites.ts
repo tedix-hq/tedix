@@ -532,6 +532,31 @@ export const sitesContract = oc.router({
 		})
 		.input(SiteIdParamSchema.extend({ confirmation: z.string().min(1) }))
 		.output(SiteDeprovisionStatusSchema),
+	recoverDeletedCmsData: oc
+		.route({
+			method: "POST",
+			path: "/cms/recover-deleted",
+			tags: ["internal"],
+			summary: "Recover a deprovisioned CMS site's content database",
+		})
+		.input(
+			z
+				.object({
+					slug: z
+						.string()
+						.min(1)
+						.max(63)
+						.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+				})
+				.strict(),
+		)
+		.output(
+			z.object({
+				slug: z.string(),
+				restoredTo: z.string(),
+				storageState: z.enum(["present", "missing"]),
+			}),
+		),
 	getDeprovisionStatus: oc
 		.route({
 			method: "GET",

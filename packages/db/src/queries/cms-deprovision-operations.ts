@@ -1,4 +1,4 @@
-import { and, eq, notExists, sql } from "drizzle-orm";
+import { and, desc, eq, notExists, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../query-client";
 import { cmsSites } from "../schema/cms-sites";
 import {
@@ -83,6 +83,26 @@ export async function getCmsDeprovisionOperation(
 		.select()
 		.from(cmsDeprovisionOperations)
 		.where(eq(cmsDeprovisionOperations.id, siteId))
+		.limit(1);
+	return row ?? null;
+}
+
+/** The newest finished deprovision of a slug. It was created before any of
+ * the site's data was deleted, which makes it the point to recover to. */
+export async function getLatestSucceededCmsDeprovisionBySlug(
+	db: DbQueryClient,
+	slug: string,
+): Promise<CmsDeprovisionOperationRow | null> {
+	const [row] = await db
+		.select()
+		.from(cmsDeprovisionOperations)
+		.where(
+			and(
+				eq(cmsDeprovisionOperations.slug, slug),
+				eq(cmsDeprovisionOperations.status, "succeeded"),
+			),
+		)
+		.orderBy(desc(cmsDeprovisionOperations.createdAt))
 		.limit(1);
 	return row ?? null;
 }

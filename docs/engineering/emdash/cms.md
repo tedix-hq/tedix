@@ -181,6 +181,11 @@ context.
   provider data; missing resources count as removed on retry, and it is not
   complete while a custom hostname remains at Cloudflare. The receipt stops new
   permits; deprovision does not wait for old ones and removes them with the site.
+- **Recover deleted data** (`sites.recoverDeletedCmsData`, platform
+  administrator) rewinds a deprovisioned site's emptied content database from
+  the Durable Object's 30-day history to one minute before the deprovision was
+  requested. It refuses a database that holds content, so run it before
+  recreating the site. Media, bundles and the site record are not restored.
 - **Move** (`sites.moveCms`, platform administrator, exact slug) re-homes an
   active site and its domain claims in one D1 batch, then replaces the
   authoring app with a fresh one in the target organization. Storage, bundles

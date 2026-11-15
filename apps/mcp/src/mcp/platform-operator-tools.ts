@@ -1272,6 +1272,13 @@ export const PLATFORM_OPERATOR_TOOL_DEFINITIONS = [
 		kind: "destructive",
 	},
 	{
+		toolId: "recover_deleted_cms_data",
+		endpoint: "sites/recoverDeletedCmsData",
+		kind: "write",
+		description:
+			"Platform admin. Restore the content database of a CMS site this organization deprovisioned, from the provider's 30-day history, to one minute before the deprovision was requested. Refused when the database holds content. Run it before recreating the site with the same slug; media, bundles and the site record are not restored.",
+	},
+	{
 		toolId: "repair_cms_media",
 		endpoint: "sites/repairCmsMedia",
 		kind: "write",

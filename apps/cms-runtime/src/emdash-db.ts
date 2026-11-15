@@ -847,6 +847,21 @@ export class EmDashDB extends EmdashSqlDB {
 		await this.ctx.storage.deleteAll();
 	}
 
+	/** Rewind storage emptied by deprovision. The restart applies the restore and
+	 * disconnects the caller, which then reads the result through a fresh stub. */
+	async restoreTenantDataAt(timestamp: number): Promise<void> {
+		const primary = (
+			this.ctx.storage as DurableObjectStorage & {
+				primary?: { restoreTenantDataAt(timestamp: number): Promise<void> };
+			}
+		).primary;
+		if (primary) return primary.restoreTenantDataAt(timestamp);
+		await this.ctx.storage.onNextSessionRestoreBookmark(
+			await this.ctx.storage.getBookmarkForTime(timestamp),
+		);
+		this.ctx.abort();
+	}
+
 	/** Capture a PITR bookmark from the primary after proving CMS tables exist. */
 	async captureRecoveryBookmark(): Promise<string | null> {
 		const storage = this.ctx.storage as DurableObjectStorage & {
@@ -1097,6 +1112,7 @@ export interface EmDashDBStub {
 		opts?: { bookmark?: string },
 	): Promise<DoQueryResult[]>;
 	deleteTenantData(): Promise<void>;
+	restoreTenantDataAt(timestamp: number): Promise<void>;
 	captureRecoveryBookmark(): Promise<string | null>;
 	readSiteDrillProof(): Promise<CmsSiteDrillDigestProof>;
 	executeCollectionDeletionGuard(
