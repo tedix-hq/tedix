@@ -4,15 +4,15 @@ import { Button } from "@/components/kumo/button";
 import { Skeleton } from "@/components/kumo/skeleton";
 import {
 	APP_RUNTIME_CALL_METHOD,
-	APP_RUNTIME_OUTPUTS_CHANGED_METHOD,
-	type AppRuntimeOutputRevision,
 	APP_RUNTIME_LANGUAGE_METHOD,
+	APP_RUNTIME_OUTPUTS_CHANGED_METHOD,
 	APP_RUNTIME_TRANSLATE_TEXT_METHOD,
 	APP_RUNTIME_TRANSLATION_METHOD,
 	type AppRuntimeHostResult,
-} from "@/lib/app-runtime-host";
+	type AppRuntimeOutputRevision,
+} from "@/lib/app-runtime-protocol";
 import type { AppRuntimeTranslationChannel } from "@/lib/app-runtime-translation";
-import { widgetSandboxUrl } from "@/components/widget-frame";
+import { widgetSandboxUrl } from "@/lib/widget-sandbox-url";
 import {
 	APP_RUNTIME_THEME_METHOD,
 	appRuntimeThemeCss,

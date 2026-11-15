@@ -2,13 +2,15 @@ import type { JsonValue } from "@tedix/api-contract/schemas/common";
 import { useCallback, useMemo, useRef, useState } from "react";
 import {
 	APP_RUNTIME_DETECT_LANGUAGE_METHOD,
-	APP_RUNTIME_LANGUAGE_METHOD,
 	APP_RUNTIME_TRANSLATE_METHOD,
-	APP_RUNTIME_TRANSLATION_METHOD,
 	type AppRuntimeTranslateParams,
 	type AppRuntimeTranslationStatus,
 	appRuntimeGlossary,
 } from "@/lib/app-runtime-host";
+import {
+	APP_RUNTIME_LANGUAGE_METHOD,
+	APP_RUNTIME_TRANSLATION_METHOD,
+} from "@/lib/app-runtime-protocol";
 
 /**
  * The host half of Translate for a runtime app: the app frame attaches its

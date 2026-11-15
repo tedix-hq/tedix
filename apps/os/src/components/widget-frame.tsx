@@ -23,6 +23,7 @@ import { Skeleton } from "@/components/kumo/skeleton";
 import { Text } from "@/components/kumo/text";
 import { resolveThemeMode, useOsTheme } from "@/lib/theme";
 import { isRecord } from "@tedix/api-contract/utils/is-record";
+import { widgetSandboxUrl } from "@/lib/widget-sandbox-url";
 
 /**
  * MCP Apps host mount for Tedix OS (docs/engineering/mcp/apps.md).
@@ -132,20 +133,6 @@ export function extractWidgetResource(payload: unknown): {
 	const csp = ui && isRecord(ui.csp) ? (ui.csp as WidgetCsp) : undefined;
 	const permissions = parseWidgetPermissions(ui?.permissions);
 	return { html, csp, permissions };
-}
-
-/** Encode the closed permission set for the same-origin sandbox proxy. */
-export function widgetSandboxUrl(
-	permissions?: McpUiResourcePermissions & {
-		translator?: object;
-		languageDetector?: object;
-	},
-): URL {
-	const url = new URL("/sandbox_proxy.html", window.location.origin);
-	if (permissions && Object.keys(permissions).length > 0) {
-		url.searchParams.set("permissions", JSON.stringify(permissions));
-	}
-	return url;
 }
 
 /** Governed resource proxy URL for a widget `ui://` resource. */
