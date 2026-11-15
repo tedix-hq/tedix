@@ -52,12 +52,12 @@ test("treats only fixture start failures and slow-runner timeouts as infrastruct
 		).toBeUndefined();
 });
 
-test("reruns once on an infrastructure failure and records it, never on a test failure", () => {
+function runSuite(body: string) {
 	const dir = mkdtempSync(join(tmpdir(), "infra-rerun-"));
 	const counter = join(dir, "count");
 	const summary = join(dir, "summary.md");
 	const suite = join(dir, "suite.sh");
-	const runSuite = (body: string) => {
+	try {
 		writeFileSync(counter, "0");
 		writeFileSync(summary, "");
 		writeFileSync(
@@ -87,50 +87,76 @@ test("reruns once on an infrastructure failure and records it, never on a test f
 			summary: readFileSync(summary, "utf8"),
 			stdout: result.stdout,
 		};
-	};
-	try {
-		const flaky = runSuite(
-			'if [ "$n" = 1 ]; then echo "Feed test server did not start" >&2; exit 1; fi',
-		);
-		expect(flaky).toMatchObject({ status: 0, attempts: 2 });
-		expect(flaky.stdout).toContain("::warning title=Infrastructure rerun::");
-		expect(flaky.summary).toContain("Infrastructure rerun passed.");
-
-		const broken = runSuite(
-			'echo "Feed test server did not start" >&2; exit 3',
-		);
-		expect(broken).toMatchObject({ status: 3, attempts: 2 });
-		expect(broken.summary).toContain("failed again (exit 3)");
-
-		const failing = runSuite('echo "AssertionError: wrong colour" >&2; exit 1');
-		expect(failing).toMatchObject({ status: 1, attempts: 1, summary: "" });
-		const mixed = runSuite(
-			'if [ "$n" = 1 ]; then echo "AssertionError: wrong colour" >&2; echo "Feed test server did not start" >&2; exit 7; fi',
-		);
-		expect(mixed).toMatchObject({ status: 7, attempts: 1, summary: "" });
-		expect(mixed.stdout).not.toContain("::warning");
-
-		const passing = runSuite("exit 0");
-		expect(passing).toMatchObject({ status: 0, attempts: 1, summary: "" });
-
-		// A narrow spec failure is rerun once and, when it passes, named as a flake.
-		const narrow =
-			'echo "AssertionError: wrong colour" >&2; echo "[run-specs] FAIL (exit 1) 5.8s  browser-tests/a.spec.ts"';
-		const flake = runSuite(`if [ "$n" = 1 ]; then ${narrow}; exit 1; fi`);
-		expect(flake).toMatchObject({ status: 0, attempts: 2 });
-		expect(flake.stdout).toContain("::warning title=Flake check::");
-		expect(flake.stdout).toContain("FLAKY browser-tests/a.spec.ts");
-		expect(flake.summary).toContain("Flake check passed: FLAKY");
-		const regression = runSuite(`${narrow}; exit 1`);
-		expect(regression).toMatchObject({ status: 1, attempts: 2 });
-		expect(regression.summary).toContain("failed again (exit 1)");
-		const broad = runSuite(
-			'for s in a b c d; do echo "[run-specs] FAIL (exit 1) 1s  browser-tests/$s.spec.ts"; done; exit 1',
-		);
-		expect(broad).toMatchObject({ status: 1, attempts: 1, summary: "" });
 	} finally {
 		rmSync(dir, { recursive: true });
 	}
+}
+
+const infrastructurePass = runSuite(
+	'if [ "$n" = 1 ]; then echo "Feed test server did not start" >&2; exit 1; fi',
+);
+const infrastructureFailureTwice = runSuite(
+	'echo "Feed test server did not start" >&2; exit 3',
+);
+const assertionFailure = runSuite(
+	'echo "AssertionError: wrong colour" >&2; exit 1',
+);
+const mixedFailure = runSuite(
+	'if [ "$n" = 1 ]; then echo "AssertionError: wrong colour" >&2; echo "Feed test server did not start" >&2; exit 7; fi',
+);
+const passingSuite = runSuite("exit 0");
+const narrow =
+	'echo "AssertionError: wrong colour" >&2; echo "[run-specs] FAIL (exit 1) 5.8s  browser-tests/a.spec.ts"';
+const narrowFlake = runSuite(`if [ "$n" = 1 ]; then ${narrow}; exit 1; fi`);
+const narrowRegression = runSuite(`${narrow}; exit 1`);
+const broadFailure = runSuite(
+	'for s in a b c d; do echo "[run-specs] FAIL (exit 1) 1s  browser-tests/$s.spec.ts"; done; exit 1',
+);
+
+test("reruns an infrastructure failure once and records a pass", () => {
+	expect(infrastructurePass).toMatchObject({ status: 0, attempts: 2 });
+	expect(infrastructurePass.stdout).toContain(
+		"::warning title=Infrastructure rerun::",
+	);
+	expect(infrastructurePass.summary).toContain("Infrastructure rerun passed.");
+});
+
+test("keeps an infrastructure failure when its rerun also fails", () => {
+	expect(infrastructureFailureTwice).toMatchObject({ status: 3, attempts: 2 });
+	expect(infrastructureFailureTwice.summary).toContain("failed again (exit 3)");
+});
+
+test("never reruns a test assertion failure", () => {
+	expect(assertionFailure).toMatchObject({
+		status: 1,
+		attempts: 1,
+		summary: "",
+	});
+});
+
+test("never reruns mixed infrastructure and assertion output", () => {
+	expect(mixedFailure).toMatchObject({ status: 7, attempts: 1, summary: "" });
+	expect(mixedFailure.stdout).not.toContain("::warning");
+});
+
+test("never reruns a passing suite", () => {
+	expect(passingSuite).toMatchObject({ status: 0, attempts: 1, summary: "" });
+});
+
+test("names a narrow failure that passes its rerun as a flake", () => {
+	expect(narrowFlake).toMatchObject({ status: 0, attempts: 2 });
+	expect(narrowFlake.stdout).toContain("::warning title=Flake check::");
+	expect(narrowFlake.stdout).toContain("FLAKY browser-tests/a.spec.ts");
+	expect(narrowFlake.summary).toContain("Flake check passed: FLAKY");
+});
+
+test("keeps a narrow failure when its rerun also fails", () => {
+	expect(narrowRegression).toMatchObject({ status: 1, attempts: 2 });
+	expect(narrowRegression.summary).toContain("failed again (exit 1)");
+});
+
+test("never reruns a broad spec failure", () => {
+	expect(broadFailure).toMatchObject({ status: 1, attempts: 1, summary: "" });
 });
 
 test("names one to three failed specs as a possible flake, never a broad failure", () => {

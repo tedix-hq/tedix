@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -87,12 +87,11 @@ test("procedure parity selects only the invariant suites for every risky source 
 	expect(procedureParityGates(null).every((gate) => gate.when)).toBe(true);
 });
 
-test("fast pre-push refuses parity failures with actionable messages", () => {
+describe("fast pre-push parity failures", () => {
 	const bin = mkdtempSync(join(tmpdir(), "preflight-parity-"));
-	try {
-		writeFileSync(
-			join(bin, "bun"),
-			`#!/bin/sh
+	writeFileSync(
+		join(bin, "bun"),
+		`#!/bin/sh
 case "$*" in
   *tool-schema-sync-scope-coverage.test.ts*)
     i=0
@@ -117,24 +116,39 @@ case "$*" in
 esac
 exit 0
 `,
-			{ mode: 0o755 },
-		);
-		const run = (file: string) =>
-			spawnSync(
+		{ mode: 0o755 },
+	);
+	const run = (file: string) => {
+		const result = Bun.spawnSync(
+			[
 				process.execPath,
-				["scripts/ci/preflight-gates.mjs", "--local-fast", "--files", file],
-				{
-					cwd: new URL("../..", import.meta.url),
-					env: {
-						...process.env,
-						PATH: `${bin}:${process.env.PATH}`,
-						TEDIX_PUSH_TRAIN_RANGES: "[]",
-						CI: "true",
-					},
-					encoding: "utf8",
+				"scripts/ci/preflight-gates.mjs",
+				"--local-fast",
+				"--files",
+				file,
+			],
+			{
+				cwd: new URL("../..", import.meta.url).pathname,
+				env: {
+					...process.env,
+					PATH: `${bin}:${process.env.PATH}`,
+					TEDIX_PUSH_TRAIN_RANGES: "[]",
+					CI: "true",
 				},
-			);
-		const result = run("packages/api-contract/src/contracts/example.ts");
+				stdout: "pipe",
+				stderr: "pipe",
+			},
+		);
+		return {
+			status: result.exitCode,
+			stderr: result.stderr.toString(),
+		};
+	};
+	const result = run("packages/api-contract/src/contracts/example.ts");
+	const docs = run("README.md");
+	afterAll(() => rmSync(bin, { recursive: true, force: true }));
+
+	test("refuses parity failures with actionable messages", () => {
 		expect(result.status).toBe(1);
 		expect(result.stderr).toContain(
 			"new endpoints without an MCP capability mapping: example/propose",
@@ -150,12 +164,9 @@ exit 0
 			expect(result.stderr).toContain(gate.name);
 			expect(result.stderr).toContain(`fix: ${gate.fix}`);
 		}
-		const docs = run("README.md");
 		expect(docs.status).toBe(0);
 		expect(docs.stderr).not.toContain("procedure parity");
-	} finally {
-		rmSync(bin, { recursive: true, force: true });
-	}
+	});
 });
 
 test("fast local checks retain source safety and owner types while CI retains every other gate", () => {

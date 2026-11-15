@@ -1,4 +1,11 @@
-import { afterEach, beforeAll, describe, expect, test } from "bun:test";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	describe,
+	expect,
+	test,
+} from "bun:test";
 import { spawnSync } from "node:child_process";
 import {
 	chmodSync,
@@ -115,6 +122,8 @@ if test -f red; then exit 1; fi
 			readFileSync(join(root, "pushes"), "utf8").trim().split("\n").length,
 	};
 }
+type TrainFixture = ReturnType<typeof fixture>;
+
 function amend(ticket: TrainTicket, file: string, content: string) {
 	writeFileSync(join(ticket.lane.cwd, file), content);
 	git(ticket.lane.cwd, "add", ".");
@@ -135,6 +144,22 @@ function missingPreflightDependency(f: ReturnType<typeof fixture>) {
 		join(f.common, "hooks/pre-push"),
 		`#!/bin/sh\n"${process.execPath}" "${join(f.root, "preflight-gates.mjs")}"\n`,
 	);
+}
+
+function trainTest(
+	name: string,
+	count: number,
+	setup: (fixture: TrainFixture) => void,
+	run: (fixture: TrainFixture) => void | Promise<void>,
+	timeout = 5_000,
+) {
+	describe(name, () => {
+		const f = fixture(count);
+		setup(f);
+		roots.splice(roots.indexOf(f.root), 1);
+		afterAll(() => rmSync(f.root, { recursive: true, force: true }));
+		test(name, () => run(f), timeout);
+	});
 }
 
 describe("push train with real repositories and hooks", () => {
@@ -205,200 +230,255 @@ describe("push train with real repositories and hooks", () => {
 		).not.toContain("red");
 	}, 20_000);
 
-	test("a conflicting lane is left out; the rest publish under one gate", () => {
-		const f = fixture(3);
-		amend(f.tickets[0]!, "shared", "first\n");
-		amend(f.tickets[1]!, "shared", "second\n");
-		expect(runTrain(f.repo, f.common, f.tickets)).toBe(true);
-		expect(f.tickets.map((t) => readResult(t.result)!.code)).toEqual([0, 1, 0]);
-		expect(readResult(f.tickets[1]!.result)!.message).toContain("conflicts");
-		expect(git(f.remote, "show", "main:shared")).toBe("first");
-		// Retried alone, it conflicts again before reaching the hook.
-		expect(f.gates()).toBe(1);
-	});
+	trainTest(
+		"a conflicting lane is left out; the rest publish under one gate",
+		3,
+		(f) => {
+			amend(f.tickets[0]!, "shared", "first\n");
+			amend(f.tickets[1]!, "shared", "second\n");
+		},
+		(f) => {
+			expect(runTrain(f.repo, f.common, f.tickets)).toBe(true);
+			expect(f.tickets.map((t) => readResult(t.result)!.code)).toEqual([
+				0, 1, 0,
+			]);
+			expect(readResult(f.tickets[1]!.result)!.message).toContain("conflicts");
+			expect(git(f.remote, "show", "main:shared")).toBe("first");
+			// Retried alone, it conflicts again before reaching the hook.
+			expect(f.gates()).toBe(1);
+		},
+	);
 
-	test("a red lane in a large train is found by halving, not lane by lane", () => {
-		const f = fixture(8);
-		amend(f.tickets[5]!, "red", "bad\n");
-		expect(runTrain(f.repo, f.common, f.tickets)).toBe(true);
-		expect(f.tickets.map((t) => readResult(t.result)!.code)).toEqual([
-			0, 0, 0, 0, 0, 1, 0, 0,
-		]);
-		// 0-7 red; 0-3 green; 4-7 red; 4-5 red: 4 green, 5 red; 6-7 green.
-		// Lane by lane after the first rejection this was 1 + 8 = 9.
-		expect(f.gates()).toBe(7);
-		const files = git(f.remote, "ls-tree", "--name-only", "main").split("\n");
-		expect(files).not.toContain("red");
-		for (const i of [0, 1, 2, 3, 4, 6, 7]) expect(files).toContain(`file-${i}`);
-	}, 20000);
+	trainTest(
+		"a red lane in a large train is found by halving, not lane by lane",
+		8,
+		(f) => amend(f.tickets[5]!, "red", "bad\n"),
+		(f) => {
+			expect(runTrain(f.repo, f.common, f.tickets)).toBe(true);
+			expect(f.tickets.map((t) => readResult(t.result)!.code)).toEqual([
+				0, 0, 0, 0, 0, 1, 0, 0,
+			]);
+			// 0-7 red; 0-3 green; 4-7 red; 4-5 red: 4 green, 5 red; 6-7 green.
+			// Lane by lane after the first rejection this was 1 + 8 = 9.
+			expect(f.gates()).toBe(7);
+			const files = git(f.remote, "ls-tree", "--name-only", "main").split("\n");
+			expect(files).not.toContain("red");
+			for (const i of [0, 1, 2, 3, 4, 6, 7])
+				expect(files).toContain(`file-${i}`);
+		},
+		20_000,
+	);
 
-	test("ranges retain selectors for a file reverted by another lane", () => {
-		const f = fixture(2);
-		// Lane 2 descends from lane 1 and restores its file; the net diff hides it.
-		git(f.tickets[1]!.lane.cwd, "reset", "--hard", f.tickets[0]!.lane.head);
-		git(f.tickets[1]!.lane.cwd, "rm", "file-0");
-		git(f.tickets[1]!.lane.cwd, "commit", "-m", "restore");
-		f.tickets[1]!.lane.head = git(f.tickets[1]!.lane.cwd, "rev-parse", "HEAD");
-		expect(runTrain(f.repo, f.common, f.tickets)).toBe(true);
-		const args = JSON.parse(
-			readFileSync(join(f.root, "ranges"), "utf8").trim(),
-		) as string[];
-		const ranges = [];
-		for (let i = 0; i < args.length; i += 4)
-			ranges.push({ base: args[i + 1]!, head: args[i + 3]! });
-		expect(selectPushRangeFiles(f.repo, ranges)).toContain("file-0");
-	});
-
-	test("per-commit scans reject a secret even when a later lane removes it", () => {
-		const f = fixture(3);
-		amend(f.tickets[0]!, "secret-marker", "blocked");
-		const second = f.tickets[1]!;
-		git(second.lane.cwd, "reset", "--hard", f.tickets[0]!.lane.head);
-		git(second.lane.cwd, "rm", "secret-marker");
-		git(second.lane.cwd, "commit", "-m", "remove marker");
-		second.lane.head = git(second.lane.cwd, "rev-parse", "HEAD");
-		expect(runTrain(f.repo, f.common, f.tickets)).toBe(true);
-		expect(f.tickets.map((t) => readResult(t.result)!.code)).toEqual([1, 1, 0]);
-		expect(
-			git(f.remote, "ls-tree", "--name-only", "main").split("\n"),
-		).not.toContain("file-0");
-	});
-
-	test("a stale ticket does not reapply an upstream patch that was later reverted", () => {
-		const f = fixture(2);
-		git(
-			f.repo,
-			"-c",
-			"user.name=Upstream Test",
-			"cherry-pick",
-			f.tickets[0]!.lane.head,
-		);
-		git(f.repo, "revert", "--no-edit", "HEAD");
-		git(f.repo, "push", "origin", "HEAD:main");
-		expect(runTrain(f.repo, f.common, f.tickets)).toBe(true);
-		const files = git(f.remote, "ls-tree", "--name-only", "main").split("\n");
-		expect(files).not.toContain("file-0");
-		expect(files).toContain("file-1");
-		for (const ticket of f.tickets)
-			expect(readResult(ticket.result)!.code).toBe(0);
-	});
-
-	test("holder recovery after publication does not duplicate commits", () => {
-		const f = fixture(2);
-		runTrain(f.repo, f.common, f.tickets);
-		const published = git(f.remote, "rev-parse", "main");
-		const accepted = f.tickets.map((ticket) => ({
-			ticket,
-			sha: readResult(ticket.result)!.sha!,
-		}));
-		for (const ticket of f.tickets) {
-			rmSync(`${ticket.result}.json`);
-			writeFileSync(ticket.file, JSON.stringify(ticket.lane));
-		}
-		writeFileSync(
-			join(f.common, "push-train-recovery.json"),
-			JSON.stringify({ head: published, accepted }),
-		);
-		recoverTrainResults(f.repo, f.common);
-		expect(git(f.remote, "rev-parse", "main")).toBe(published);
-		for (const { ticket, sha } of accepted)
-			expect(readResult(ticket.result)).toMatchObject({ code: 0, sha });
-		expect(f.gates()).toBe(1);
-	});
-
-	test("changed checkouts are preserved when consuming a successful receipt", () => {
-		const f = fixture(2);
-		runTrain(f.repo, f.common, f.tickets);
-		const ticket = f.tickets[1]!;
-		writeFileSync(join(ticket.lane.cwd, "new-work"), "keep");
-		finishLane(ticket.lane, readResult(ticket.result)!, false);
-		expect(git(ticket.lane.cwd, "rev-parse", "HEAD")).toBe(ticket.lane.head);
-		expect(readFileSync(join(ticket.lane.cwd, "new-work"), "utf8")).toBe(
-			"keep",
-		);
-	});
-
-	test("dry runs gate once without updating remote or checkout", () => {
-		const f = fixture(2),
-			base = git(f.remote, "rev-parse", "main");
-		for (const ticket of f.tickets) ticket.lane.dryRun = true;
-		expect(runTrain(f.repo, f.common, f.tickets)).toBe(false);
-		expect(f.gates()).toBe(1);
-		expect(git(f.remote, "rev-parse", "main")).toBe(base);
-		for (const ticket of f.tickets) {
-			expect(readResult(ticket.result)!.code).toBe(0);
-			expect(readResult(ticket.result)!.sha).toBeUndefined();
-		}
-	});
-
-	test.each([false, true])(
-		"queued processes receive individual statuses (process dies: %s)",
-		async (dies) => {
-			const f = fixture(3);
-			if (!dies) amend(f.tickets[1]!, "red", "bad\n");
-			// Hold the machine lock until every real process has queued its snapshot.
-			const lock = join(f.common, "push-queue.lock");
-			writeFileSync(
-				lock,
-				JSON.stringify({ pid: process.pid, startedAt: Date.now() }),
+	trainTest(
+		"ranges retain selectors for a file reverted by another lane",
+		2,
+		(f) => {
+			// Lane 2 descends from lane 1 and restores its file; the net diff hides it.
+			git(f.tickets[1]!.lane.cwd, "reset", "--hard", f.tickets[0]!.lane.head);
+			git(f.tickets[1]!.lane.cwd, "rm", "file-0");
+			git(f.tickets[1]!.lane.cwd, "commit", "-m", "restore");
+			f.tickets[1]!.lane.head = git(
+				f.tickets[1]!.lane.cwd,
+				"rev-parse",
+				"HEAD",
 			);
-			writeFileSync(join(f.common, "worktree-gc.stamp"), "test");
-			const bin = join(f.root, "bin");
-			mkdirSync(bin);
-			writeFileSync(join(bin, "gh"), "#!/bin/sh\nexit 0\n");
-			chmodSync(join(bin, "gh"), 0o755);
-			const processes = [];
-			try {
-				for (const ticket of f.tickets) {
-					processes.push(
-						Bun.spawn(
-							[process.execPath, resolve(import.meta.dirname, "push-queue.ts")],
-							{
-								cwd: ticket.lane.cwd,
-								env: {
-									...env,
-									PATH: `${bin}:${env.PATH}`,
-									TEDIX_PUSH_QUEUE_SNAPSHOT: "fixture",
-								},
-								stdout: "pipe",
-								stderr: "pipe",
-							},
-						),
-					);
-					await Bun.sleep(30);
-				}
-				const queue = join(f.common, "push-queue");
-				const deadline = Date.now() + 10000;
-				while (
-					(!existsSync(queue) || readdirSync(queue).length < 3) &&
-					Date.now() < deadline
-				)
-					await Bun.sleep(20);
-				expect(readdirSync(queue).length).toBe(3);
-				if (dies)
-					writeFileSync(join(f.root, "kill"), String(processes[1]!.pid));
-				rmSync(lock);
-				const codes = await Promise.all(processes.map((p) => p.exited));
-				expect(codes[0]).toBe(0);
-				expect(codes[1]).not.toBe(0);
-				expect(codes[2]).toBe(0);
-				const outputs = await Promise.all(
-					processes.map((p) => new Response(p.stdout).text()),
-				);
-				expect(outputs[0]).toContain("pushed SHA");
-				expect(outputs[2]).toContain("pushed SHA");
-				expect(f.gates()).toBe(dies ? 1 : 4);
-				expect(
-					git(f.remote, "ls-tree", "--name-only", "main")
-						.split("\n")
-						.includes("file-1"),
-				).toBe(dies);
-			} finally {
-				for (const p of processes) p.kill();
+		},
+		(f) => {
+			expect(runTrain(f.repo, f.common, f.tickets)).toBe(true);
+			const args = JSON.parse(
+				readFileSync(join(f.root, "ranges"), "utf8").trim(),
+			) as string[];
+			const ranges = [];
+			for (let i = 0; i < args.length; i += 4)
+				ranges.push({ base: args[i + 1]!, head: args[i + 3]! });
+			expect(selectPushRangeFiles(f.repo, ranges)).toContain("file-0");
+		},
+	);
+
+	trainTest(
+		"per-commit scans reject a secret even when a later lane removes it",
+		3,
+		(f) => {
+			amend(f.tickets[0]!, "secret-marker", "blocked");
+			const second = f.tickets[1]!;
+			git(second.lane.cwd, "reset", "--hard", f.tickets[0]!.lane.head);
+			git(second.lane.cwd, "rm", "secret-marker");
+			git(second.lane.cwd, "commit", "-m", "remove marker");
+			second.lane.head = git(second.lane.cwd, "rev-parse", "HEAD");
+		},
+		(f) => {
+			expect(runTrain(f.repo, f.common, f.tickets)).toBe(true);
+			expect(f.tickets.map((t) => readResult(t.result)!.code)).toEqual([
+				1, 1, 0,
+			]);
+			expect(
+				git(f.remote, "ls-tree", "--name-only", "main").split("\n"),
+			).not.toContain("file-0");
+		},
+	);
+
+	trainTest(
+		"a stale ticket does not reapply an upstream patch that was later reverted",
+		2,
+		(f) => {
+			git(
+				f.repo,
+				"-c",
+				"user.name=Upstream Test",
+				"cherry-pick",
+				f.tickets[0]!.lane.head,
+			);
+			git(f.repo, "revert", "--no-edit", "HEAD");
+			git(f.repo, "push", "origin", "HEAD:main");
+		},
+		(f) => {
+			expect(runTrain(f.repo, f.common, f.tickets)).toBe(true);
+			const files = git(f.remote, "ls-tree", "--name-only", "main").split("\n");
+			expect(files).not.toContain("file-0");
+			expect(files).toContain("file-1");
+			for (const ticket of f.tickets)
+				expect(readResult(ticket.result)!.code).toBe(0);
+		},
+	);
+
+	trainTest(
+		"holder recovery after publication does not duplicate commits",
+		2,
+		() => {},
+		(f) => {
+			runTrain(f.repo, f.common, f.tickets);
+			const published = git(f.remote, "rev-parse", "main");
+			const accepted = f.tickets.map((ticket) => ({
+				ticket,
+				sha: readResult(ticket.result)!.sha!,
+			}));
+			for (const ticket of f.tickets) {
+				rmSync(`${ticket.result}.json`);
+				writeFileSync(ticket.file, JSON.stringify(ticket.lane));
+			}
+			writeFileSync(
+				join(f.common, "push-train-recovery.json"),
+				JSON.stringify({ head: published, accepted }),
+			);
+			recoverTrainResults(f.repo, f.common);
+			expect(git(f.remote, "rev-parse", "main")).toBe(published);
+			for (const { ticket, sha } of accepted)
+				expect(readResult(ticket.result)).toMatchObject({ code: 0, sha });
+			expect(f.gates()).toBe(1);
+		},
+	);
+
+	trainTest(
+		"changed checkouts are preserved when consuming a successful receipt",
+		2,
+		() => {},
+		(f) => {
+			runTrain(f.repo, f.common, f.tickets);
+			const ticket = f.tickets[1]!;
+			writeFileSync(join(ticket.lane.cwd, "new-work"), "keep");
+			finishLane(ticket.lane, readResult(ticket.result)!, false);
+			expect(git(ticket.lane.cwd, "rev-parse", "HEAD")).toBe(ticket.lane.head);
+			expect(readFileSync(join(ticket.lane.cwd, "new-work"), "utf8")).toBe(
+				"keep",
+			);
+		},
+	);
+
+	trainTest(
+		"dry runs gate once without updating remote or checkout",
+		2,
+		(f) => {
+			for (const ticket of f.tickets) ticket.lane.dryRun = true;
+		},
+		(f) => {
+			const base = git(f.remote, "rev-parse", "main");
+			expect(runTrain(f.repo, f.common, f.tickets)).toBe(false);
+			expect(f.gates()).toBe(1);
+			expect(git(f.remote, "rev-parse", "main")).toBe(base);
+			for (const ticket of f.tickets) {
+				expect(readResult(ticket.result)!.code).toBe(0);
+				expect(readResult(ticket.result)!.sha).toBeUndefined();
 			}
 		},
-		20000,
 	);
+
+	for (const dies of [false, true]) {
+		trainTest(
+			`queued processes receive individual statuses (process dies: ${dies})`,
+			3,
+			(f) => {
+				if (!dies) amend(f.tickets[1]!, "red", "bad\n");
+				// Hold the machine lock until every real process has queued its snapshot.
+				const lock = join(f.common, "push-queue.lock");
+				writeFileSync(
+					lock,
+					JSON.stringify({ pid: process.pid, startedAt: Date.now() }),
+				);
+				writeFileSync(join(f.common, "worktree-gc.stamp"), "test");
+				const bin = join(f.root, "bin");
+				mkdirSync(bin);
+				writeFileSync(join(bin, "gh"), "#!/bin/sh\nexit 0\n");
+				chmodSync(join(bin, "gh"), 0o755);
+			},
+			async (f) => {
+				const lock = join(f.common, "push-queue.lock");
+				const bin = join(f.root, "bin");
+				const processes = [];
+				try {
+					for (const ticket of f.tickets) {
+						(processes.push(
+							Bun.spawn(
+								[
+									process.execPath,
+									resolve(import.meta.dirname, "push-queue.ts"),
+								],
+								{
+									cwd: ticket.lane.cwd,
+									env: {
+										...env,
+										PATH: `${bin}:${env.PATH}`,
+										TEDIX_PUSH_QUEUE_SNAPSHOT: "fixture",
+									},
+									stdout: "pipe",
+									stderr: "pipe",
+								},
+							),
+						),
+							await Bun.sleep(30));
+					}
+					const queue = join(f.common, "push-queue");
+					const deadline = Date.now() + 10000;
+					while (
+						(!existsSync(queue) || readdirSync(queue).length < 3) &&
+						Date.now() < deadline
+					)
+						await Bun.sleep(20);
+					expect(readdirSync(queue).length).toBe(3);
+					if (dies)
+						writeFileSync(join(f.root, "kill"), String(processes[1]!.pid));
+					rmSync(lock);
+					const codes = await Promise.all(processes.map((p) => p.exited));
+					expect(codes[0]).toBe(0);
+					expect(codes[1]).not.toBe(0);
+					expect(codes[2]).toBe(0);
+					const outputs = await Promise.all(
+						processes.map((p) => new Response(p.stdout).text()),
+					);
+					expect(outputs[0]).toContain("pushed SHA");
+					expect(outputs[2]).toContain("pushed SHA");
+					expect(f.gates()).toBe(dies ? 1 : 4);
+					expect(
+						git(f.remote, "ls-tree", "--name-only", "main")
+							.split("\n")
+							.includes("file-1"),
+					).toBe(dies);
+				} finally {
+					for (const p of processes) p.kill();
+				}
+			},
+			20_000,
+		);
+	}
 });
 
 test("startup dependency crashes leave the single-lane retry budget available", () => {

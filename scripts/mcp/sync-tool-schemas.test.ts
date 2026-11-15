@@ -1,4 +1,4 @@
-import { describe, expect, spyOn, test } from "bun:test";
+import { afterAll, describe, expect, spyOn, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { spawn, spawnSync } from "node:child_process";
@@ -312,15 +312,13 @@ describe("owned bounded collector", () => {
 		).rejects.toThrow("unsupported");
 		expect(f.children).toHaveLength(0);
 	});
-	test("one real fictional owned node child ignores TERM; requests/reaping remain bounded", async () => {
-		const node = Bun.which("node");
-		if (!node) throw Error("existing Node missing");
+	test("one real fictional owned child ignores TERM; requests/reaping remain bounded", async () => {
 		const f = fixture(),
 			signals: string[] = [];
 		let closed: Promise<void> | undefined;
 		f.io.spawn = () => {
 			const c = spawn(
-				node,
+				process.execPath,
 				[
 					"-e",
 					'process.on("SIGTERM",()=>{});process.stdout.write("ready\\n");setInterval(()=>{},1000)',
@@ -683,32 +681,30 @@ describe("diagnosable refusals", () => {
 		).toBe("a CF_DEPLOY_TOKEN=[redacted CF_DEPLOY_TOKEN] b");
 		expect(redactDiagnostic("0123456789", {}, 4)).toBe("…6789");
 	});
+	const emptyPath = mkdtempSync(join(tmpdir(), "sync-tool-schemas-path-"));
+	// No node on PATH: the reader must refuse with a printed cause, not exit
+	// quietly. Read-only and offline: refusal precedes any Wrangler call.
+	const realScriptResult = spawnSync(
+		process.execPath,
+		[
+			fileURLToPath(new URL("./sync-tool-schemas.ts", import.meta.url)),
+			"--check",
+		],
+		{
+			cwd: fileURLToPath(new URL("../../apps/api/", import.meta.url)),
+			env: { PATH: emptyPath, HOME: emptyPath },
+			encoding: "utf8",
+			timeout: 20_000,
+		},
+	);
+	afterAll(() => rmSync(emptyPath, { recursive: true, force: true }));
+
 	test("the real script, run the way deploy runs it, never fails silently", () => {
-		// No node on PATH: the reader must refuse with a printed cause, not exit
-		// quietly. Read-only and offline: refusal precedes any Wrangler call.
-		const empty = mkdtempSync(join(tmpdir(), "sync-tool-schemas-path-"));
-		try {
-			const result = spawnSync(
-				process.execPath,
-				[
-					fileURLToPath(new URL("./sync-tool-schemas.ts", import.meta.url)),
-					"--check",
-				],
-				{
-					cwd: fileURLToPath(new URL("../../apps/api/", import.meta.url)),
-					env: { PATH: empty, HOME: empty },
-					encoding: "utf8",
-					timeout: 20_000,
-				},
-			);
-			expect(result.status).toBe(1);
-			expect(result.stderr).toContain(
-				"Schema reader refused: installed tools.",
-			);
-			expect(result.stderr).toMatch(/Cause: failed check: /);
-		} finally {
-			rmSync(empty, { recursive: true, force: true });
-		}
+		expect(realScriptResult.status).toBe(1);
+		expect(realScriptResult.stderr).toContain(
+			"Schema reader refused: installed tools.",
+		);
+		expect(realScriptResult.stderr).toMatch(/Cause: failed check: /);
 	});
 });
 
