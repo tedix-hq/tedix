@@ -3,6 +3,12 @@
  * into the workspace object with the same tools a chat turn has.
  */
 import { BINDING_NAMES, describeBinding } from "./declarations";
+import { isRecord } from "@tedix/api-contract/utils/is-record";
+import {
+	MCP_MODERN_PROTOCOL_VERSION,
+	MCP_SERVER_INFO_META_KEY,
+	isModernMcpRequest,
+} from "@tedix/mcp-shared/protocol";
 
 export interface McpHost {
 	sendTurn(input: {
@@ -100,8 +106,22 @@ interface JsonRpcRequest {
 	params?: Record<string, unknown>;
 }
 
-function result(id: JsonRpcRequest["id"], value: unknown) {
-	return { jsonrpc: "2.0", id: id ?? null, result: value };
+const SERVER_INFO = { name: "tedix-workspace", version: "1" };
+
+function result(request: JsonRpcRequest, value: Record<string, unknown>) {
+	const meta = request.params?._meta;
+	const modern = isRecord(meta) && isModernMcpRequest(meta);
+	return {
+		jsonrpc: "2.0",
+		id: request.id ?? null,
+		result: modern
+			? {
+					...value,
+					resultType: "complete",
+					_meta: { [MCP_SERVER_INFO_META_KEY]: SERVER_INFO },
+				}
+			: value,
+	};
 }
 
 function failure(id: JsonRpcRequest["id"], code: number, message: string) {
@@ -139,17 +159,23 @@ export async function handleMcpRequest(
 	)
 		return failure(null, -32600, "Invalid request");
 	switch (request.method) {
+		case "server/discover":
+			return result(request, {
+				resultType: "complete",
+				supportedVersions: [MCP_MODERN_PROTOCOL_VERSION, "2025-06-18"],
+				capabilities: { tools: {} },
+			});
 		case "initialize":
-			return result(request.id, {
+			return result(request, {
 				protocolVersion: "2025-06-18",
 				capabilities: { tools: {} },
-				serverInfo: { name: "tedix-workspace", version: "1" },
+				serverInfo: SERVER_INFO,
 			});
 		case "notifications/initialized":
 		case "ping":
-			return result(request.id, {});
+			return result(request, {});
 		case "tools/list":
-			return result(request.id, { tools: MCP_TOOLS });
+			return result(request, { tools: MCP_TOOLS });
 		case "tools/call": {
 			const name = String(request.params?.name ?? "");
 			const args = (request.params?.arguments ?? {}) as Record<string, unknown>;
@@ -170,18 +196,18 @@ export async function handleMcpRequest(
 						);
 						const outcome = await host.awaitTurn(turnId, wait * 1000);
 						return result(
-							request.id,
+							request,
 							textContent({ turnId, ...outcome }, outcome.status === "failed"),
 						);
 					}
 					case "read_turn":
 						return result(
-							request.id,
+							request,
 							textContent(await host.awaitTurn(String(args.turnId ?? ""), 0)),
 						);
 					case "read_change_records":
 						return result(
-							request.id,
+							request,
 							textContent(
 								await host.readChangeRecords({
 									...(typeof args.afterSequence === "number"
@@ -195,7 +221,7 @@ export async function handleMcpRequest(
 						);
 					case "read_events":
 						return result(
-							request.id,
+							request,
 							textContent(
 								await host.readEvents({
 									...(typeof args.conversationId === "string"
@@ -211,7 +237,7 @@ export async function handleMcpRequest(
 					case "describe_binding": {
 						const declaration = describeBinding(String(args.name ?? ""));
 						return result(
-							request.id,
+							request,
 							textContent(
 								declaration ?? "Unknown binding",
 								declaration === null,
@@ -223,7 +249,7 @@ export async function handleMcpRequest(
 				}
 			} catch (error) {
 				return result(
-					request.id,
+					request,
 					textContent(
 						error instanceof Error ? error.message : String(error),
 						true,

@@ -2083,7 +2083,7 @@ describe("WorkspaceDO", () => {
 		).toBe(true);
 	});
 
-	test("the MCP entry lists tools and completes a workspace turn", async () => {
+	test("the MCP entry negotiates discovery, lists tools and completes a workspace turn", async () => {
 		const ws = workspace();
 		const headers = {
 			"Content-Type": "application/json",
@@ -2092,16 +2092,52 @@ describe("WorkspaceDO", () => {
 			"X-Workspace-Actor-Id": "outside-agent",
 			"X-Workspace-Actor-Kind": "external_agent",
 		};
+		const discovered = await ws.fetch(
+			new Request("https://workspace.test/mcp", {
+				method: "POST",
+				headers,
+				body: JSON.stringify({
+					jsonrpc: "2.0",
+					id: "discover",
+					method: "server/discover",
+				}),
+			}),
+		);
+		expect(await discovered.json()).toEqual({
+			jsonrpc: "2.0",
+			id: "discover",
+			result: {
+				resultType: "complete",
+				supportedVersions: ["2026-07-28", "2025-06-18"],
+				capabilities: { tools: {} },
+			},
+		});
 		const listed = await ws.fetch(
 			new Request("https://workspace.test/mcp", {
 				method: "POST",
 				headers,
-				body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+				body: JSON.stringify({
+					jsonrpc: "2.0",
+					id: 1,
+					method: "tools/list",
+					params: {
+						_meta: { "io.modelcontextprotocol/protocolVersion": "2026-07-28" },
+					},
+				}),
 			}),
 		);
 		const listBody = (await listed.json()) as {
 			result: { tools: Array<{ name: string }> };
 		};
+		expect(listBody.result).toMatchObject({
+			resultType: "complete",
+			_meta: {
+				"io.modelcontextprotocol/serverInfo": {
+					name: "tedix-workspace",
+					version: "1",
+				},
+			},
+		});
 		expect(listBody.result.tools.map((tool) => tool.name)).toContain(
 			"send_turn",
 		);
@@ -2118,6 +2154,7 @@ describe("WorkspaceDO", () => {
 					params: {
 						name: "send_turn",
 						arguments: { text: "answer from outside", waitSeconds: 10 },
+						_meta: { "io.modelcontextprotocol/protocolVersion": "2026-07-28" },
 					},
 				}),
 			}),
@@ -2125,6 +2162,15 @@ describe("WorkspaceDO", () => {
 		const callBody = (await called.json()) as {
 			result: { content: Array<{ text: string }> };
 		};
+		expect(callBody.result).toMatchObject({
+			resultType: "complete",
+			_meta: {
+				"io.modelcontextprotocol/serverInfo": {
+					name: "tedix-workspace",
+					version: "1",
+				},
+			},
+		});
 		const outcome = JSON.parse(callBody.result.content[0]?.text ?? "{}") as {
 			status?: string;
 			text?: string;
