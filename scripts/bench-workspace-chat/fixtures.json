@@ -1,0 +1,19 @@
+[
+	{
+		"id": "workspace-overview",
+		"question": "Using only this workspace's canonical data, answer these three facts: (1) how many challenge rows remain after excluding the overall problem-statement row; (2) what are the three rows marked Tied priority; and (3) how many linked Work items are open, where open means proposed or accepted? Answer all three briefly.",
+		"checks": [
+			{ "label": "10 challenges", "pattern": "\\b(?:10|ten)\\b" },
+			{ "label": "Evaluation", "pattern": "\\bevaluation\\b" },
+			{
+				"label": "Continuous compliance",
+				"pattern": "\\bcontinuous compliance\\b"
+			},
+			{
+				"label": "Controlled memory",
+				"pattern": "\\bcontrolled memory\\b"
+			},
+			{ "label": "4 open Work items", "pattern": "\\b(?:4|four)\\b" }
+		]
+	}
+]
