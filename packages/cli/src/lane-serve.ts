@@ -384,6 +384,52 @@ export function laneDelegationRequest(
 }
 
 /**
+ * The one request a runner raises when it stops starting a Work revision
+ * until a person changes the Work. It carries the lane-blocker source, so the
+ * server keeps one per Work version and person and retires it when the Work
+ * changes or finishes.
+ */
+export function laneHoldRequest(
+	item: Pick<
+		DispatchItem,
+		| "id"
+		| "title"
+		| "version"
+		| "metadata"
+		| "accountableOwnerType"
+		| "accountableOwnerId"
+	>,
+	hold: { reason: string; note?: string },
+	operatorUserId: string | undefined,
+) {
+	const target =
+		item.accountableOwnerType === "user" && item.accountableOwnerId
+			? item.accountableOwnerId
+			: operatorUserId;
+	if (!target) return;
+	const executor = String(item.metadata?.executor ?? "");
+	const agent = AGENT_NAMES[executor] ?? executor;
+	const title = shortTitle(item.title, 120);
+	return {
+		workItemId: item.id,
+		kind: "input" as const,
+		subject: `What should happen with "${title}"?`,
+		prompt: `${agent} stopped working on "${title}". ${hold.reason}${hold.note ? `\n\nLast note from the runner: ${hold.note}` : ""}\n\nThe task stays accepted and no agent starts it. To run it again, edit the task, for example to repair its description. Otherwise complete or cancel it. This request closes when the task changes.`,
+		reason: "No agent works on this task until a person changes it.",
+		notificationReason: "failure" as const,
+		requestedFrom: { type: "user" as const, id: target },
+		metadata: {
+			source: "lane-dispatch-blocker",
+			laneBlocker: {
+				kind: "execution_hold",
+				executor,
+				workVersion: item.version,
+			},
+		},
+	};
+}
+
+/**
  * The done-when a dispatcher may accept a proposed item with: the item is
  * assigned to this executor and its description carries a `## Done when`
  * section. Anything else stays proposed for a human.
@@ -843,6 +889,7 @@ interface Receipt {
 	localBranchArtifact?: LocalBranchArtifact;
 	identicalFailures?: number;
 	held?: boolean;
+	holdRecorded?: boolean;
 	pendingObservation?: Record<string, unknown>;
 	reportRetryAt?: number;
 	reportRetries?: number;
@@ -858,6 +905,33 @@ interface Receipt {
 	};
 }
 class LaneReceiptReadError extends Error {}
+
+/**
+ * Why a receipt's Work revision stays parked until a person changes the
+ * Work, in one plain line. Undefined while the run is in flight and for a
+ * wait that ends on its own, such as a timed admission retry.
+ */
+function laneHoldReason(row: Receipt): string | undefined {
+	if (!["settled", "deferred", "failed"].includes(row.phase)) return;
+	if (
+		row.phase === "settled" &&
+		row.outcome === "succeeded" &&
+		row.completionPending === false &&
+		row.completionError
+	)
+		return row.completionError.startsWith("The result did not declare")
+			? "The agent's run succeeded without declaring the task done, so the task was not completed."
+			: "The agent finished, but Tedix refused to complete the task.";
+	if (!row.held) return;
+	if (row.note?.startsWith("Admission held:"))
+		return "An earlier run already recorded a result for this version of the task, so no agent starts it again.";
+	if (row.note?.startsWith("Automatic execution held after Attempt"))
+		return "The agent reported the accepted outcome incomplete; running the same brief again would repeat that.";
+	if (row.note?.startsWith("Automatic execution held"))
+		return "Three runs failed or expired on this version of the task.";
+	if (row.runFailureCounted)
+		return "The agent failed three times in the same way.";
+}
 
 function readLaneReceipts(
 	directory: string,
@@ -2486,6 +2560,19 @@ export class LaneDispatcher {
 				if (await this.reconcileRetained(row, this.running.size > 0)) break;
 			}
 		}
+		// A few per pass: each record costs a Work read on the login's budget.
+		for (let n = 0, recorded = 0; n < retained.length && recorded < 3; n++) {
+			const row = retained[n]!;
+			const reason = row.holdRecorded ? undefined : laneHoldReason(row);
+			if (
+				!reason ||
+				this.stopping ||
+				this.running.has(row.itemId) ||
+				this.maintenance.has(row.itemId)
+			)
+				continue;
+			if (await this.recordHold(row, reason)) recorded++;
+		}
 		if (
 			!this.preparing.size &&
 			this.options.acceptProposed &&
@@ -4080,23 +4167,103 @@ export class LaneDispatcher {
 			this.save(path, receipt);
 		}
 	}
+	/** The person signed in on this runner, asked when a task has no user owner. */
+	private operatorUserId(item: DispatchItem) {
+		if (item.accountableOwnerType === "user" && item.accountableOwnerId) return;
+		const at = this.options.scope.indexOf("--workspace");
+		const workspace =
+			at < 0 ? getCurrentWorkspace() : this.options.scope[at + 1];
+		return workspace ? readWorkspaceCredentials(workspace)?.loginId : undefined;
+	}
+	/**
+	 * Make a parked revision visible: record the hold on the Work, which takes
+	 * it off the ready list until someone revises it, and ask its owner once.
+	 * Each step starts from the server's state, so a restart or a lost response
+	 * repeats nothing. Returns whether it spent a read.
+	 */
+	private async recordHold(receipt: Receipt, reason: string) {
+		const key = `hold:${receipt.itemId}:${receipt.version}`;
+		if (Date.now() < (this.recheckAfter.get(key) ?? 0)) return false;
+		try {
+			const { workItem } = await this.call<{ workItem: DispatchItem }>([
+				"work",
+				"dispatch-get",
+				receipt.itemId,
+				"--input",
+				"{}",
+			]);
+			if (workItem?.id !== receipt.itemId)
+				throw new Error("Hold could not read its Work");
+			const plan = LaneDispatchPlanSchema.safeParse(
+				workItem.metadata?.laneDispatch,
+			).data;
+			const held = plan?.state === "held" && plan.reason !== undefined;
+			// A finished or revised Work has nothing left to hold or ask about.
+			if (
+				workItem.disposition === "accepted" &&
+				(held || workItem.version === receipt.version)
+			) {
+				if (workItem.activeAttempt && leaseMayBeLive(workItem.activeAttempt)) {
+					this.holdRecheck(key);
+					return true;
+				}
+				const note = (receipt.completionError ?? receipt.note)?.slice(0, 1000);
+				let version = workItem.version;
+				if (!held) {
+					const updated = await this.call<{ version?: unknown }>([
+						"work",
+						"dispatch-hold",
+						receipt.itemId,
+						"--input",
+						JSON.stringify({
+							expectedWorkItemVersion: version,
+							laneDispatch: {
+								state: "held",
+								reason,
+								...(note ? { note } : {}),
+							},
+						}),
+					]);
+					if (typeof updated?.version !== "number")
+						throw new Error("Hold returned no Work version");
+					version = updated.version;
+				}
+				const request = laneHoldRequest(
+					{ ...workItem, version },
+					{ reason, note },
+					this.operatorUserId(workItem),
+				);
+				if (request) {
+					const created = await this.call<{ id?: unknown }>([
+						"work",
+						"interaction-create",
+						"--input",
+						JSON.stringify(request),
+					]);
+					if (typeof created?.id !== "string")
+						throw new Error("Hold request returned no id");
+					this.log("owner-request", receipt.itemId, `Request ${created.id}`);
+				}
+				this.log("hold-recorded", receipt.itemId, reason);
+			}
+			receipt.holdRecorded = true;
+			this.save(
+				this.path({ id: receipt.itemId, version: receipt.version }),
+				receipt,
+			);
+		} catch (error) {
+			this.holdRecheck(key);
+			this.log("hold-record-failed", receipt.itemId, String(error));
+		}
+		return true;
+	}
 	/** Raise or reuse the one owner request a delegation skip needs. */
 	private async requestDelegation(item: DispatchItem, reason: string) {
 		if (!reason.startsWith("Possible human-reserved action")) return;
-		const operator = () => {
-			const at = this.options.scope.indexOf("--workspace");
-			const workspace =
-				at < 0 ? getCurrentWorkspace() : this.options.scope[at + 1];
-			return workspace
-				? readWorkspaceCredentials(workspace)?.loginId
-				: undefined;
-		};
 		const request = laneDelegationRequest(
 			item,
 			reason,
-			item.accountableOwnerType === "user" && item.accountableOwnerId
-				? undefined
-				: operator(),
+			this.operatorUserId(item),
 		);
 		if (!request) return;
 		const key = `${item.id}:${item.version}:${request.requestedFrom.id}`;

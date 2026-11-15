@@ -995,12 +995,19 @@ export const WorkRecoverySignalSchema = z.enum([
 	"latest_attempt_failed",
 	"latest_attempt_expired",
 	"attempt_lease_elapsed",
+	"dispatch_held",
 ]);
 
 export const WorkRecoveryProjectionSchema = WorkFactoryItemSummarySchema.extend(
 	{
 		sortAt: z.iso.datetime(),
 		signals: z.array(WorkRecoverySignalSchema).min(1),
+		dispatchHoldReason: z
+			.string()
+			.optional()
+			.describe(
+				"Why a runner stopped starting this Work; present with the dispatch_held signal.",
+			),
 		blockingDependencyCount: z.number().int().nonnegative(),
 		latestAttemptId: z
 			.uuid()
@@ -1884,6 +1891,20 @@ export const LaneDispatchPlanSchema = z
 	.object({
 		state: z.enum(["held", "ready"]),
 		score: z.number().finite().optional(),
+		reason: z
+			.string()
+			.trim()
+			.min(1)
+			.max(300)
+			.optional()
+			.describe(
+				"Why a runner stopped starting this Work, in one plain line. Held Work with a reason is listed as stuck; the next specification edit makes it ready again.",
+			),
+		note: z
+			.string()
+			.max(2000)
+			.optional()
+			.describe("The last failure the runner saw before it held the Work."),
 	})
 	.strict();
 export type LaneDispatchPlan = z.infer<typeof LaneDispatchPlanSchema>;

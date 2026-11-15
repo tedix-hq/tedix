@@ -11,7 +11,8 @@ CREATE TABLE work_items (
  acceptance_contract TEXT, required_capabilities TEXT NOT NULL DEFAULT '[]',
  required_authorities TEXT NOT NULL DEFAULT '[]', admission_spec_revision TEXT NOT NULL DEFAULT 'test-revision',
  priority TEXT NOT NULL, accountable_owner_type TEXT,
- accountable_owner_id TEXT, project_id TEXT, created_at TEXT NOT NULL, updated_at TEXT
+ accountable_owner_id TEXT, project_id TEXT, created_at TEXT NOT NULL, updated_at TEXT,
+ metadata TEXT NOT NULL DEFAULT '{}'
 );
 CREATE TABLE work_attempts (
  id TEXT PRIMARY KEY, admission_id TEXT, work_item_id TEXT NOT NULL, org_id TEXT NOT NULL,
@@ -181,5 +182,42 @@ describe("org-wide Work factory projections", () => {
 		]);
 		expect(page.data[0]?.signals).toEqual(["attempt_lease_elapsed"]);
 		expect(page.data[1]?.signals).toEqual(["latest_attempt_expired"]);
+	});
+
+	it("lists Work a runner holds with the runner's reason", async () => {
+		const { sqlite, db } = fixture();
+		seedItem(sqlite, { id: "runner-held", createdAt: "2026-08-20T12:00:00Z" });
+		seedItem(sqlite, { id: "unplanned", createdAt: "2026-08-20T11:00:00Z" });
+		seedItem(sqlite, { id: "ready", createdAt: "2026-08-20T10:00:00Z" });
+		const plan = sqlite.prepare("UPDATE work_items SET metadata=? WHERE id=?");
+		plan.run(
+			JSON.stringify({
+				laneDispatch: { state: "held", reason: "Three runs failed." },
+			}),
+			"runner-held",
+		);
+		// A coordinator's hold has no reason: the Work only waits its turn.
+		plan.run(JSON.stringify({ laneDispatch: { state: "held" } }), "unplanned");
+		plan.run(
+			JSON.stringify({ laneDispatch: { state: "ready", reason: "stale" } }),
+			"ready",
+		);
+
+		const page = await listOrgWorkRecovery(db, {
+			orgId: "org-a",
+			observedAt: "2026-08-20T14:00:00Z",
+		});
+		expect(page.data).toHaveLength(1);
+		expect(page.data[0]).toMatchObject({
+			id: "runner-held",
+			signals: ["dispatch_held"],
+			dispatchHoldReason: "Three runs failed.",
+		});
+		const failed = await listOrgWorkRecovery(db, {
+			orgId: "org-a",
+			observedAt: "2026-08-20T14:00:00Z",
+			signal: "latest_attempt_failed",
+		});
+		expect(failed.data).toEqual([]);
 	});
 });
