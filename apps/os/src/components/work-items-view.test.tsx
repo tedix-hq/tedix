@@ -11,6 +11,7 @@ const item = (
 	disposition: "accepted" as const,
 	priority: "medium" as const,
 	projectId: null,
+	parentWorkItemId: null,
 	accountableOwnerType: null,
 	accountableOwnerId: null,
 	dueDate: null,
@@ -55,6 +56,7 @@ describe("All work list", () => {
 						metadata: { executor: "claude-code" },
 					}),
 					item("bare", { disposition: "cancelled" }),
+					item("child", { parentWorkItemId: "cedar" }),
 				]}
 				projectNames={new Map([["project-pine", "Pine launch"]])}
 				principalNames={new Map([["user:user-1", "Robin Example"]])}
@@ -74,6 +76,10 @@ describe("All work list", () => {
 			"No project",
 			"Not set",
 			"No due date",
+			"No epic",
+			'href="/work/items/cedar"',
+			"target",
+			"Fri 20 Nov",
 		])
 			expect(html).toContain(text);
 		expect(html).not.toMatch(/sprint|milestone/i);
