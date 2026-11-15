@@ -64,6 +64,26 @@ export function imageReference(accountId: string, tag: string): string {
 }
 
 /**
+ * Pin a tagged `reference` to the digest from `docker manifest inspect -v`.
+ * Cloudflare's image preparation rejects tag references ("The image is
+ * invalid or does not exist in this account"); `cf` deploys by digest too.
+ */
+export function digestReference(
+	reference: string,
+	manifestInspectJson: string,
+): string {
+	const parsed: unknown = JSON.parse(manifestInspectJson);
+	const digest =
+		typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+			? (parsed as { Descriptor?: { digest?: unknown } }).Descriptor?.digest
+			: undefined;
+	if (typeof digest !== "string" || !/^sha256:[0-9a-f]{64}$/.test(digest))
+		throw new Error(`no single-manifest digest for ${reference}`);
+	const repository = reference.slice(0, reference.lastIndexOf(":"));
+	return `${repository}@${digest}`;
+}
+
+/**
  * Swap the build Sandbox's `dockerfile` image for a prebuilt registry
  * `reference`. `vp build` docker-builds every dockerfile image it evaluates;
  * a reference deploys the pushed image as-is. The substitution happens only in

@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { deployValues } from "@tedix/deploy-values";
 import {
 	configWithImageReference,
+	digestReference,
 	dockerCopySources,
 	IMAGE_BUILD_FLAGS,
 	imageInputTag,
@@ -90,14 +91,16 @@ async function registryCredentials(
 	return { username, password };
 }
 
-function imageExists(reference: string): boolean {
-	return (
-		spawnSync("docker", ["manifest", "inspect", reference], {
-			cwd: appDir,
-			stdio: "ignore",
-			env: process.env,
-		}).status === 0
-	);
+/** The pushed image's digest reference, or undefined when the tag is missing. */
+function pushedImage(reference: string): string | undefined {
+	const result = spawnSync("docker", ["manifest", "inspect", "-v", reference], {
+		cwd: appDir,
+		stdio: ["ignore", "pipe", "ignore"],
+		env: process.env,
+		encoding: "utf8",
+	});
+	if (result.status !== 0) return undefined;
+	return digestReference(reference, result.stdout);
 }
 
 /**
@@ -135,9 +138,10 @@ async function ensureImage(): Promise<string | undefined> {
 		],
 		`${credentials.password}\n`,
 	);
-	if (imageExists(reference)) {
-		console.log(`docs deploy: reusing image ${reference}`);
-		return reference;
+	const existing = pushedImage(reference);
+	if (existing !== undefined) {
+		console.log(`docs deploy: reusing image ${existing}`);
+		return existing;
 	}
 	console.log(`docs deploy: building image ${reference}`);
 	run("docker", [
@@ -150,7 +154,10 @@ async function ensureImage(): Promise<string | undefined> {
 		appDir,
 	]);
 	run("docker", ["push", reference]);
-	return reference;
+	const pushed = pushedImage(reference);
+	if (pushed === undefined)
+		throw new Error(`pushed ${reference} is not readable`);
+	return pushed;
 }
 
 let reference: string | undefined;
