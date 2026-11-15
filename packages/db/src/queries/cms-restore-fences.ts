@@ -26,9 +26,12 @@ export interface CmsRestoreSiteParams {
 	slug: string;
 }
 
-export interface CmsRestorePermitParams extends CmsRestoreSiteParams {
-	permitId: string;
+export interface CmsRestoreWriteParams extends CmsRestoreSiteParams {
 	restoreEpoch: number;
+}
+
+export interface CmsRestorePermitParams extends CmsRestoreWriteParams {
+	permitId: string;
 	kind: "outer" | "nested" | "scheduled";
 }
 
@@ -242,6 +245,28 @@ export async function enterCmsRestorePermit(
 		)
 		.onConflictDoNothing({ target: cmsRestorePermits.id })
 		.returning({ id: cmsRestorePermits.id });
+	return rows.length === 1;
+}
+
+/** A guarded no-op UPDATE uses the primary, rather than a possibly stale read. */
+export async function checkCmsRestoreWriteAdmission(
+	db: DbQueryClient,
+	input: CmsRestoreWriteParams,
+): Promise<boolean> {
+	const rows = await db
+		.update(cmsSites)
+		.set({ restoreEpoch: sql`${cmsSites.restoreEpoch}` })
+		.where(
+			and(
+				eq(cmsSites.id, input.siteId),
+				eq(cmsSites.slug, input.slug),
+				eq(cmsSites.restoreEpoch, input.restoreEpoch),
+				eq(cmsSites.status, "active"),
+				siteHasNoFence(db),
+				siteHasNoDeprovision(db),
+			),
+		)
+		.returning({ siteId: cmsSites.id });
 	return rows.length === 1;
 }
 

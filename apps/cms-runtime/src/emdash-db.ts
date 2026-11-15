@@ -32,6 +32,7 @@ import type {
 import { createDbClient } from "@tedix/db/client";
 import { createDbQueryClient } from "@tedix/db/query-client";
 import {
+	checkCmsRestoreWriteAdmission,
 	countCmsRestorePermitsForSite,
 	getCmsRestoreFenceState,
 } from "@tedix/db/queries/cms-restore-fences";
@@ -304,6 +305,7 @@ export class EmDashDB extends EmdashSqlDB {
 	private async withDatabasePermit<T>(
 		identity: CmsRestoreFenceIdentity,
 		run: () => Promise<T>,
+		write = true,
 	): Promise<T> {
 		const env = this.siteDrillEnv();
 		if (
@@ -311,13 +313,23 @@ export class EmDashDB extends EmdashSqlDB {
 			durableObjectIdFromName(env.DB_DO, env, identity.slug).toString()
 		)
 			throw new CmsRestoreFenceUnavailableError();
+		const db = createDbQueryClient(env.PLATFORM_DB);
 		const queries = this.databasePermits.forRequest((task) =>
 			this.ctx.waitUntil(task),
 		);
 		const result = await withCmsRestorePermit(
-			createDbQueryClient(env.PLATFORM_DB),
+			db,
 			identity,
-			run,
+			async () => {
+				if (
+					write &&
+					!(await checkCmsRestoreWriteAdmission(db, identity).catch(
+						() => false,
+					))
+				)
+					throw new CmsRestoreFenceUnavailableError();
+				return run();
+			},
 			{
 				// Publish the cold reservation before the next caller enters.
 				enter: (db, permit) =>
@@ -354,10 +366,13 @@ export class EmDashDB extends EmdashSqlDB {
 		).primary;
 		if (primary)
 			return await primary.queryWithRestorePermit(identity, sql, params, opts);
-		return await this.withDatabasePermit(identity, () =>
-			this.withPageCacheInvalidation(identity, [{ sql, params }], () =>
-				super.query(sql, params, opts),
-			),
+		return await this.withDatabasePermit(
+			identity,
+			() =>
+				this.withPageCacheInvalidation(identity, [{ sql, params }], () =>
+					super.query(sql, params, opts),
+				),
+			!(PLAIN_SELECT_PATTERN.test(sql) && !sql.includes(";")),
 		);
 	}
 
@@ -375,9 +390,14 @@ export class EmDashDB extends EmdashSqlDB {
 				statements,
 				opts,
 			);
-		return await this.withDatabasePermit(identity, () =>
-			this.withPageCacheInvalidation(identity, statements, () =>
-				super.batchQuery(statements, opts),
+		return await this.withDatabasePermit(
+			identity,
+			() =>
+				this.withPageCacheInvalidation(identity, statements, () =>
+					super.batchQuery(statements, opts),
+				),
+			!statements.every(
+				({ sql }) => PLAIN_SELECT_PATTERN.test(sql) && !sql.includes(";"),
 			),
 		);
 	}
