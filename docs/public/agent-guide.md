@@ -561,6 +561,23 @@ retain settlement for retry; missing evidence or a mismatched revision fails
 proof. Recover previous app Work only through its owning dispatcher and Attempt;
 this contract does not authorize another session to settle it.
 
+Some Work is finished on a local branch that must not be pushed yet, for
+example one step of a stack that lands later. Accept that Work with
+`metadata.artifactKind` set to `local_branch` and `metadata.artifactLocalBranch`
+set to an object with `branch` (the branch name) and `baseCommit` (the full SHA
+the branch starts from). The lane commits on that branch in its checkout, leaves
+the checkout clean with the branch checked out, submits its test results with
+`--claim-key delivery --evidence-kind test_report`, and declares the branch tip
+as `commitSha` in its result. The dispatcher checks that the branch is at that
+exact commit, that it descends from `baseCommit`, that every new commit names
+this Work and a session whose admitted Attempt covered the commit time, that
+nothing is uncommitted, and that the test evidence belongs to the held Attempt.
+It records the branch, commits and evidence reference with the settlement and
+pushes nothing. The checkout stays on disk because it holds the only copy.
+Without this setting an unpushed commit never counts: a lane whose Work can
+only be delivered locally should declare `deferred` rather than `completed`, so
+the Work stays open without a failed Attempt.
+
 Coding Work without delivery proof settles as failed, even when the
 harness exited normally. After success the dispatcher requests Work completion
 under its original session, retaining any denied or interrupted request for

@@ -691,6 +691,17 @@ installed app. Unavailable proof sources defer settlement; a complete ledger
 without matching evidence or a mismatched installed revision fails proof.
 Settlement retains revision metadata and the evidence reference, without tenant
 source or an invented commit. Existing app Work stays with its owning dispatcher.
+For Work delivered as an unpushed local branch, set `metadata.artifactKind` to
+`local_branch` and `metadata.artifactLocalBranch` to `{branch, baseCommit}`
+before dispatch; `baseCommit` is a full SHA. The lane declares the branch tip as
+`commitSha` and submits `test_report` evidence for its held Attempt. The
+dispatcher verifies that the branch and the clean retained checkout are at that
+commit, that it descends from `baseCommit`, that each new commit has exactly one
+matching `Work-Item` and `Agent-Session` trailer within an admitted Attempt
+interval, and that the evidence exists. Settlement records `local_branch`
+metadata with no `--commit`; nothing is pushed. An unreadable evidence ledger
+defers settlement; any failed check fails proof. Without this setting, landed
+commits are still required.
 Devin's structured Work delivery remains separate; these lines must be carried in
 its delivered note and do not replace its success/failure envelope.
 

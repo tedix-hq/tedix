@@ -6391,6 +6391,140 @@ describe("structured dispatcher outcomes", () => {
 		return saved;
 	}
 	it.each([
+		"proven",
+		"dirty",
+		"foreignSession",
+		"noEvidence",
+		"incomplete",
+		"ledgerUnavailable",
+		"unconfigured",
+	])("honors a configured local-only branch delivery: %s", async (state) => {
+		const f = fixture();
+		f.items.splice(1);
+		f.items[0]!.workKind = "coding";
+		const branch = "prepare/fictional-gap3";
+		const git = (repo: string, args: string[]) => {
+			const result = spawnSync(
+				"git",
+				[
+					"-C",
+					repo,
+					"-c",
+					"user.name=Test",
+					"-c",
+					"user.email=test@example.com",
+					"-c",
+					"commit.gpgsign=false",
+					...args,
+				],
+				{ encoding: "utf8" },
+			);
+			if (result.status !== 0) throw new Error(result.stderr);
+			return result.stdout.trim();
+		};
+		const source = gitFixture();
+		const base = source.git(["rev-parse", "HEAD"]);
+		if (state !== "unconfigured")
+			f.items[0]!.metadata = {
+				...f.items[0]!.metadata,
+				artifactKind: "local_branch",
+				artifactLocalBranch: { branch, baseCommit: base },
+			};
+		f.deps.provision = (_source, destination) => {
+			source.git(["clone", source.repo, destination]);
+			git(destination, ["remote", "remove", "origin"]);
+			return destination;
+		};
+		const dispatcher = f.restart();
+		await dispatcher.tick();
+		await until(() => f.releases.length === 1);
+		const saved = liveFence(f);
+		Object.assign(f.control.history.data[0]!, {
+			workItemId: item().id,
+			admissionId: "fictional-admission",
+			startedAt: new Date(Date.now() - 60_000).toISOString(),
+		});
+		const repo: string = saved.repo;
+		git(repo, ["checkout", "-b", branch]);
+		writeFileSync(join(repo, "change.txt"), "local change");
+		git(repo, ["add", "change.txt"]);
+		git(repo, [
+			"commit",
+			"-m",
+			`Change\n\nWork-Item: ${item().id}\nAgent-Session: ${state === "foreignSession" ? "codex:foreign" : saved.session}`,
+		]);
+		const sha = git(repo, ["rev-parse", "HEAD"]);
+		if (state === "dirty") writeFileSync(join(repo, "change.txt"), "edited");
+		const evidenceId = "55555555-5555-4555-8555-555555555555";
+		if (state !== "noEvidence")
+			f.control.evidence.data = [
+				{
+					id: evidenceId,
+					attemptId: saved.attemptId,
+					kind: "test_report",
+					uri: "artifact://fictional-test-report",
+					disposition: "pending",
+				},
+			];
+		if (state === "ledgerUnavailable")
+			f.control.evidenceError = new Error("gateway unavailable");
+		const result = {
+			...completedResult(),
+			commitSha: sha,
+			...(state === "incomplete"
+				? { outcome: "incomplete", remaining: "Tests remain" }
+				: {}),
+		};
+		f.control.finalMessage = `TEDIX_LANE_RESULT ${JSON.stringify(result)}`;
+		f.releases[0]!();
+		await dispatcher.drain();
+		const settled = f.events.filter((e) => e.verb === "settle");
+		const receipt = JSON.parse(
+			readFileSync(join(f.dir, `${item().id}-2.json`), "utf8"),
+		);
+		if (state === "ledgerUnavailable") {
+			expect(settled).toHaveLength(0);
+			expect(receipt.phase).toBe("settling");
+			expect(receipt.pendingCommitProof).toBeDefined();
+			return;
+		}
+		expect(settled).toHaveLength(1);
+		expect(settled[0]!.args[settled[0]!.args.indexOf("--outcome") + 1]).toBe(
+			state === "proven" ? "succeeded" : "failed",
+		);
+		expect(settled[0]!.args).not.toContain("--commit");
+		const metadata = settled[0]!.input?.metadata as Record<string, unknown>;
+		expect(metadata.recoveredCommits).toBeUndefined();
+		if (state === "proven") {
+			expect(metadata.settlement).toEqual({
+				mode: "local_branch",
+				branch,
+				baseCommit: base,
+				commitSha: sha,
+				commitShas: [sha],
+				evidenceId,
+				evidenceUri: "artifact://fictional-test-report",
+			});
+			expect(f.briefs[0]).toContain(
+				`local branch ${branch} based on ${base}; do not push it`,
+			);
+			expect(f.events.filter((e) => e.verb === "complete")).toHaveLength(1);
+			// Nothing was pushed: the commit exists only on the retained branch.
+			expect(git(repo, ["rev-parse", `refs/heads/${branch}`])).toBe(sha);
+			expect(git(repo, ["remote"])).toBe("");
+		} else {
+			expect(metadata.settlement).toBeUndefined();
+			expect(f.events.some((e) => e.verb === "complete")).toBe(false);
+			expect(receipt.note).toContain(
+				state === "unconfigured"
+					? "No landed commit SHA on origin/main"
+					: state === "incomplete"
+						? "Accepted outcome incomplete"
+						: "Local branch delivery is not proven",
+			);
+		}
+	});
+	it.each([
 		"recovered",
 		"laterSessionAttempt",
 		"originalVersion",
