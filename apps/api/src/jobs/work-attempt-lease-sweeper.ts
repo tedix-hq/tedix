@@ -1,5 +1,8 @@
 import { createDbQueryClient } from "@tedix/db/query-client";
-import { sweepObsoleteWorkInteractions } from "@tedix/db/queries/work-items/interactions";
+import {
+	reconcileWorkInteractionConditions,
+	sweepObsoleteWorkInteractions,
+} from "@tedix/db/queries/work-items/interactions";
 import { flushWorkInteractionDigests } from "@tedix/db/queries/work-items/interaction-digests";
 import { sweepElapsedWorkAttempts } from "@tedix/db/queries/work-items/attempts";
 import {
@@ -85,6 +88,10 @@ export async function runWorkAttemptLeaseSweeperTick(
 			`[WorkAttemptLeaseSweeper] cancelled ${stale.cancelled} stale failed delegation(s)`,
 		);
 	}
+	await reconcileWorkInteractionConditions(createDbQueryClient(env.DB), {
+		now: new Date(scheduledTime).toISOString(),
+		limit: 25,
+	});
 	const interactions = await sweepObsoleteWorkInteractions(
 		createDbQueryClient(env.DB),
 		{
