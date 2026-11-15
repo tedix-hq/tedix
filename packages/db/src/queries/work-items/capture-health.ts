@@ -10,6 +10,7 @@
 
 import {
 	and,
+	desc,
 	eq,
 	exists,
 	gt,
@@ -21,6 +22,11 @@ import {
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import type { DbQueryClient } from "../../query-client";
+import {
+	externalAgentPrincipals,
+	externalAgentSessions,
+} from "../../schema/external-agent-identity";
+import { organizationMembers } from "../../schema/organization-members";
 import { learningInteractionEvents } from "../../schema/learning-feedback";
 import {
 	workInteractionReplyDrafts,
@@ -129,7 +135,7 @@ export interface CaptureHealthRow extends CaptureHealthCounts {
 	projectId: string | null;
 	workItemId: string | null;
 	caseId: string | null;
-	/** An unexpired open health item already waits for the user. */
+	/** An unexpired health item is open for the user or their source agent. */
 	alertOpen: boolean;
 }
 
@@ -189,8 +195,10 @@ export async function listCaptureHealth(
 					.where(
 						and(
 							eq(h.orgId, latest.orgId),
-							eq(h.targetType, "user"),
-							eq(h.targetId, latest.userId),
+							or(
+								and(eq(h.targetType, "user"), eq(h.targetId, latest.userId)),
+								sql`json_extract(${h.metadata}, '$.captureUserId') = ${latest.userId}`,
+							),
 							eq(h.status, "open"),
 							or(isNull(h.expiresAt), gt(h.expiresAt, p.now)),
 							sql`json_extract(${h.metadata}, '$.schema') = ${CAPTURE_HEALTH_SCHEMA}`,
@@ -229,4 +237,66 @@ export async function listCaptureHealth(
 		alertOpen: Boolean(row.alert_open),
 		...counts(row),
 	}));
+}
+
+/** Route only to a verified session that captured this user's turns in this org. */
+export async function getCaptureHealthAgent(
+	db: DbQueryClient,
+	p: { orgId: string; userId: string; activeSince: string },
+): Promise<{ id: string; sessionId: string } | null> {
+	const c = alias(workInteractions, "capture");
+	const a = externalAgentPrincipals;
+	const s = externalAgentSessions;
+	const m = organizationMembers;
+	const [agent] = await db
+		.select({ id: a.id, sessionId: s.externalSessionKey })
+		.from(c)
+		.innerJoin(
+			s,
+			and(
+				eq(s.organizationId, c.orgId),
+				eq(s.status, "active"),
+				eq(
+					s.externalSessionKey,
+					sql`coalesce(${c.creatorExternalSessionKey}, json_extract(${c.metadata}, '$.agentSession'), json_extract(${c.metadata}, '$.sessionId'))`,
+				),
+				or(
+					sql`${c.creatorType} <> 'external_agent'`,
+					eq(s.principalId, c.creatorId),
+				),
+			),
+		)
+		.innerJoin(
+			a,
+			and(
+				eq(a.organizationId, s.organizationId),
+				eq(a.id, s.principalId),
+				eq(a.status, "active"),
+				eq(a.credentialBindingType, "owner_user"),
+			),
+		)
+		.innerJoin(
+			m,
+			and(
+				eq(m.organizationId, a.organizationId),
+				eq(m.userId, p.userId),
+				eq(m.status, "active"),
+				or(
+					eq(a.credentialBindingId, m.userId),
+					eq(a.credentialBindingId, m.descopeUserId),
+				),
+			),
+		)
+		.where(
+			and(
+				eq(c.orgId, p.orgId),
+				eq(c.targetType, "user"),
+				eq(c.targetId, p.userId),
+				gte(c.createdAt, p.activeSince),
+				sql`json_extract(${c.metadata}, '$.schema') = ${DECISION_CAPTURE_SCHEMA}`,
+			),
+		)
+		.orderBy(desc(c.createdAt), desc(s.lastSeenAt), s.id)
+		.limit(1);
+	return agent ?? null;
 }

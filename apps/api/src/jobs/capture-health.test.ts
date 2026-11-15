@@ -3,11 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 const db = vi.hoisted(() => ({
 	list: vi.fn(),
 	create: vi.fn(),
+	agent: vi.fn(),
 }));
 vi.mock("@tedix/db/client", () => ({ createDbClient: () => ({}) }));
 vi.mock("@tedix/db/queries/work-items/capture-health", () => ({
 	CAPTURE_HEALTH_SCHEMA: "tedix.capture-health.v1",
 	listCaptureHealth: db.list,
+	getCaptureHealthAgent: db.agent,
 }));
 vi.mock("@tedix/db/queries/work-items/interactions", () => ({
 	createWorkInteraction: db.create,
@@ -49,6 +51,7 @@ describe("captureLooksBroken", () => {
 describe("runCaptureHealthHeartbeat", () => {
 	beforeEach(() => {
 		db.list.mockReset();
+		db.agent.mockReset().mockResolvedValue(null);
 		db.create.mockReset().mockResolvedValue({});
 	});
 
@@ -84,6 +87,28 @@ describe("runCaptureHealthHeartbeat", () => {
 			},
 		});
 		expect(params.prompt).toContain("0 turns · 1 drafts · 3 lessons");
+		expect(params.metadata.reason).toContain(
+			"No verified active agent session",
+		);
+		expect(params.prompt).not.toContain("unknown");
+	});
+
+	it("directs the check to the verified source agent before asking the person", async () => {
+		db.list.mockResolvedValue([row()]);
+		db.agent.mockResolvedValue({ id: "agent", sessionId: "codex:source" });
+		await runCaptureHealthHeartbeat({ DB: {} as D1Database }, THURSDAY);
+		const [, params] = db.create.mock.calls[0]!;
+		expect(params).toMatchObject({
+			creator: { type: "system", id: "tedix" },
+			targetType: "external_agent",
+			targetId: "agent",
+			metadata: { captureUserId: "user", sessionId: "codex:source" },
+		});
+		expect(params.prompt).toContain("tedix setup agents context show");
+		expect(params.metadata.reason).toContain(
+			"agent can run the local diagnostic",
+		);
+		expect(params.prompt).not.toContain("unknown");
 	});
 
 	it("fails the run receipt when an item cannot be written", async () => {

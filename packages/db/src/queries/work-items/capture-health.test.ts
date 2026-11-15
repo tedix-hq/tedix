@@ -5,6 +5,7 @@ import { createMigratedSqlite } from "../../test/migrated-sqlite";
 import {
 	CAPTURE_HEALTH_SCHEMA,
 	getCaptureHealth,
+	getCaptureHealthAgent,
 	listCaptureHealth,
 } from "./capture-health";
 
@@ -13,7 +14,7 @@ const SINCE = "2026-08-20T00:00:00.000Z";
 const RECENT = "2026-08-20T06:00:00.000Z";
 const NOW = "2026-08-21T00:00:00.000Z";
 
-function seed() {
+function seed(agentAlert = false) {
 	const sqlite = createMigratedSqlite();
 	sqlite.exec(`
 		INSERT INTO organizations(id,name,slug) VALUES('org','Org','org');
@@ -23,34 +24,53 @@ function seed() {
 		INSERT INTO organization_members(id,organization_id,descope_user_id,user_id,email,status) VALUES('m2','org','quiet','quiet','quiet@example.com','active');
 		INSERT INTO work_items(id,org_id,title,disposition,work_class,purpose_exception_expires_at,admission_spec_revision,created_at) VALUES('work','org','Work','completed','hygiene','2026-09-01T00:00:00.000Z','revision-1','${OLD}');
 		INSERT INTO tedis(id,organization_id,name,slug,status) VALUES('drafter','org','Drafter','drafter','active');
+   INSERT INTO external_agent_principals(id,organization_id,key,display_name,credential_binding_type,credential_binding_id,created_by_type,created_by_id)
+   VALUES('agent','org','agent','Agent','owner_user','quiet','user','quiet');
+
 	`);
 	const ask = sqlite.prepare(
 		"INSERT INTO work_interactions(id,org_id,work_item_id,kind,subject,prompt,creator_type,creator_id,target_type,target_id,created_at,expires_at,metadata) VALUES(?,'org','work','question','Q','A?','system','tedix','user',?,?,?,?)",
 	);
 	const capture = JSON.stringify({
 		schema: "tedix.decision-capture.v1",
+		sessionId: "codex:source",
 		triage: { status: "ok", urgency: "later", labels: {}, urgentLabels: [] },
 	});
 	ask.run("busy-old", "busy", OLD, null, capture);
 	ask.run("busy-new", "busy", RECENT, null, capture);
 	ask.run("quiet-old", "quiet", OLD, null, capture);
-	ask.run(
-		"quiet-alert",
-		"quiet",
-		RECENT,
-		"2026-08-22T00:00:00.000Z",
-		JSON.stringify({ schema: CAPTURE_HEALTH_SCHEMA }),
-	);
+	if (agentAlert) {
+		sqlite
+			.prepare(
+				"INSERT INTO work_interactions(id,org_id,work_item_id,kind,subject,prompt,creator_type,creator_id,target_type,target_id,created_at,expires_at,metadata) VALUES('quiet-alert','org','work','coordination','Check capture','Run the diagnostic','system','tedix','external_agent','agent',?,?,?)",
+			)
+			.run(
+				RECENT,
+				"2026-08-22T00:00:00.000Z",
+				JSON.stringify({
+					schema: CAPTURE_HEALTH_SCHEMA,
+					captureUserId: "quiet",
+				}),
+			);
+	} else {
+		ask.run(
+			"quiet-alert",
+			"quiet",
+			RECENT,
+			"2026-08-22T00:00:00.000Z",
+			JSON.stringify({ schema: CAPTURE_HEALTH_SCHEMA }),
+		);
+	}
 	sqlite.exec(`
 		INSERT INTO work_interaction_reply_drafts(id,org_id,interaction_id,drafter_type,drafter_id,body,rationale,created_at) VALUES('d1','org','busy-old','tedi','drafter','Go','Because','${RECENT}');
 		INSERT INTO learning_interaction_events(id,organization_id,actor_type,actor_id,client_event_id,signal_class,event_kind,scope_kind,scope_id,surface,occurred_at) VALUES('e1','org','user','quiet','c1','lifecycle','delivered','organization','org','lesson_delivery','${RECENT}');
 	`);
-	return createDbQueryClient(createD1Facade(sqlite));
+	return { db: createDbQueryClient(createD1Facade(sqlite)), sqlite };
 }
 
 describe("capture health", () => {
 	it("counts one user's turns, drafts and lessons since a time", async () => {
-		const db = seed();
+		const { db } = seed();
 		expect(
 			await getCaptureHealth(db, {
 				orgId: "org",
@@ -61,7 +81,7 @@ describe("capture health", () => {
 	});
 
 	it("lists users with capture on and whether a health item is open", async () => {
-		const db = seed();
+		const { db } = seed();
 		expect(
 			await listCaptureHealth(db, { since: SINCE, activeSince: OLD, now: NOW }),
 		).toEqual([
@@ -88,5 +108,48 @@ describe("capture health", () => {
 				lessons: 1,
 			},
 		]);
+	});
+});
+
+describe("capture health agent routing", () => {
+	it("requires an active source session owned by this user in this organization", async () => {
+		const { db, sqlite } = seed();
+		const input = { orgId: "org", userId: "quiet", activeSince: OLD };
+		expect(await getCaptureHealthAgent(db, input)).toBeNull();
+		sqlite.exec(`
+   INSERT INTO external_agent_sessions(id,organization_id,principal_id,external_session_key,harness,harness_version,model_provider,model_id,model_version,identity_source,started_at,last_seen_at)
+   VALUES('session','org','agent','codex:source','codex','1','openai','model','1','native','${OLD}','${NOW}');
+  `);
+		expect(await getCaptureHealthAgent(db, input)).toEqual({
+			id: "agent",
+			sessionId: "codex:source",
+		});
+		expect(
+			await getCaptureHealthAgent(db, { ...input, userId: "busy" }),
+		).toBeNull();
+		expect(
+			await getCaptureHealthAgent(db, { ...input, orgId: "other-org" }),
+		).toBeNull();
+		sqlite.exec(
+			`UPDATE external_agent_sessions SET status='ended',ended_at='${NOW}'`,
+		);
+		expect(await getCaptureHealthAgent(db, input)).toBeNull();
+		sqlite.exec(
+			"UPDATE external_agent_sessions SET status='active',ended_at=null; UPDATE external_agent_principals SET status='suspended'",
+		);
+		expect(await getCaptureHealthAgent(db, input)).toBeNull();
+		sqlite.exec(
+			"UPDATE external_agent_principals SET status='active',credential_binding_id='busy'",
+		);
+		expect(await getCaptureHealthAgent(db, input)).toBeNull();
+	});
+	it("recognizes an open agent-directed alert so the heartbeat cannot also ask the user", async () => {
+		const { db } = seed(true);
+		const rows = await listCaptureHealth(db, {
+			since: SINCE,
+			activeSince: OLD,
+			now: NOW,
+		});
+		expect(rows.find((row) => row.userId === "quiet")?.alertOpen).toBe(true);
 	});
 });

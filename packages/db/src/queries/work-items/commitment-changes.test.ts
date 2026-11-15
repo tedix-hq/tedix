@@ -17,7 +17,10 @@ import {
 import { tediApprovalRequests } from "../../schema/approvals";
 import { osGadgetExecutions } from "../../schema/os-workspaces";
 import { skillRuns } from "../../schema/cognitive";
-import { listCommitmentChanges } from "./commitment-changes";
+import {
+	getCommitmentFollowupTarget,
+	listCommitmentChanges,
+} from "./commitment-changes";
 
 const after = "2026-10-22T08:00:00.000Z";
 const through = "2026-10-22T08:02:00.000Z";
@@ -147,4 +150,50 @@ describe("member commitment changes", () => {
 			await listCommitmentChanges(db, after, through, "production"),
 		).toEqual([]);
 	});
+});
+
+describe("existing follow-up cards", () => {
+	it.each(["question", "coordination", "approval", "handoff"])(
+		"reuses the newest open %s on the same Work regardless of recipient",
+		async (kind) => {
+			const { db, sqlite } = fixture();
+			try {
+				sqlite
+					.prepare(`INSERT INTO work_interactions(id,org_id,work_item_id,kind,status,subject,prompt,creator_type,creator_id,target_type,target_id,created_at)
+   VALUES ('existing','org-one','idle',?,'open','Current ask','Next?','tedi','personal','tedi','other-agent','2026-10-22T08:01:59.000Z')`)
+					.run(kind);
+				const change = {
+					key: "idle",
+					orgId: "org-one",
+					tediId: "personal",
+					slug: "personal",
+					kind: "work" as const,
+					objectId: "idle",
+					state: "idle",
+					changedAt: through,
+				};
+				expect(
+					await getCommitmentFollowupTarget(db, change, through),
+				).toMatchObject({ openInteractionId: "existing" });
+				sqlite.exec("UPDATE work_interactions SET status='resolved'");
+				expect(
+					await getCommitmentFollowupTarget(db, change, through),
+				).toMatchObject({ openInteractionId: null });
+				sqlite.exec(
+					`UPDATE work_interactions SET status='open',expires_at='${after}'`,
+				);
+				expect(
+					await getCommitmentFollowupTarget(db, change, through),
+				).toMatchObject({ openInteractionId: null });
+				sqlite.exec(
+					"UPDATE work_interactions SET expires_at=null,org_id='other-org'",
+				);
+				expect(
+					await getCommitmentFollowupTarget(db, change, through),
+				).toMatchObject({ openInteractionId: null });
+			} finally {
+				sqlite.close();
+			}
+		},
+	);
 });
