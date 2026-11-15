@@ -24,7 +24,7 @@ import type {
 	Transcriber,
 	TranscriberSession,
 	TranscriberSessionOptions,
-} from "@cloudflare/voice";
+} from "agents/voice";
 import { createInstrumentedVoiceTranscriber } from "./runtime";
 import { createSelfHealingTranscriber } from "./self-healing";
 

@@ -11,13 +11,6 @@
  *             Sec-WebSocket-Protocol: bearer-<token>
  */
 
-import {
-	type Transcriber,
-	type VoiceTurnContext,
-	WorkersAIFluxSTT,
-	WorkersAITTS,
-	withVoice,
-} from "@cloudflare/voice";
 import type { RecordVoiceProviderUsageInput } from "@tedix/api-contract/schemas/billing";
 import {
 	createInstrumentedVoiceTranscriber,
@@ -26,6 +19,13 @@ import {
 	SingleSpeakerGate,
 } from "@tedix/voice/runtime";
 import { Agent, type Connection, type ConnectionContext } from "agents";
+import {
+	type Transcriber,
+	type VoiceTurnContext,
+	WorkersAIFluxSTT,
+	WorkersAITTS,
+	withVoice,
+} from "agents/voice";
 
 import { loadKernelTurnDelegation, loadTurnWork } from "./kernel-lazy";
 import { logKernelVoiceEvent, logKernelVoiceFailure } from "./kernel-voice-log";

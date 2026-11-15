@@ -2,7 +2,7 @@ import type {
 	Transcriber,
 	TranscriberSession,
 	TranscriberSessionOptions,
-} from "@cloudflare/voice";
+} from "agents/voice";
 
 import { createSelfHealingTranscriber } from "./self-healing";
 

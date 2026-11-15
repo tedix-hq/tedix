@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import type { Transcriber, TranscriberSessionOptions } from "@cloudflare/voice";
+import type { Transcriber, TranscriberSessionOptions } from "agents/voice";
 import {
 	createInstrumentedVoiceTranscriber,
 	filterVoiceUtterance,

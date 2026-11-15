@@ -45,15 +45,10 @@ import {
  *
  * No binary frames are ever sent from server to client (STT-only, no TTS).
  *
- * @experimental Built on `@cloudflare/voice@0.5.0` (pinned exactly via the root
+ * @experimental Built on `agents/voice` (`agents` is pinned exactly via the root
  * catalog).
  */
 
-import {
-	type Transcriber,
-	WorkersAIFluxSTT,
-	withVoiceInput,
-} from "@cloudflare/voice";
 import type { RecordVoiceProviderUsageInput } from "@tedix/api-contract/schemas/billing";
 import {
 	createInstrumentedVoiceTranscriber,
@@ -61,6 +56,11 @@ import {
 	SingleSpeakerGate,
 } from "@tedix/voice/runtime";
 import { Agent, type Connection, type ConnectionContext } from "agents";
+import {
+	type Transcriber,
+	WorkersAIFluxSTT,
+	withVoiceInput,
+} from "agents/voice";
 
 import { recordVoiceProviderUsage } from "./voice-provider-usage-client";
 import {

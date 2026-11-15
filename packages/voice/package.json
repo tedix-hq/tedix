@@ -17,8 +17,8 @@
 		"type-check": "tsc --noEmit"
 	},
 	"dependencies": {
-		"@cloudflare/voice": "catalog:",
-		"@tedix/workers-ai": "workspace:*"
+		"@tedix/workers-ai": "workspace:*",
+		"agents": "catalog:"
 	},
 	"devDependencies": {
 		"@cloudflare/workers-types": "catalog:",

@@ -1,5 +1,5 @@
 /**
- * Self-healing wrapper around `@cloudflare/voice` `Transcriber` sessions.
+ * Self-healing wrapper around `agents/voice` `Transcriber` sessions.
  *
  * ============================ PROBLEM ============================
  * Two proven failure modes in production:
@@ -43,7 +43,7 @@ import type {
 	Transcriber,
 	TranscriberSession,
 	TranscriberSessionOptions,
-} from "@cloudflare/voice";
+} from "agents/voice";
 
 // ---------------------------------------------------------------------------
 // Public API types

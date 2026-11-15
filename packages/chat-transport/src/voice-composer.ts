@@ -1,7 +1,7 @@
 import type {
 	VoiceTransport,
 	VoiceTransportCloseInfo,
-} from "@cloudflare/voice/client";
+} from "agents/voice/client";
 
 export const VOICE_WAVE_BAR_COUNT = 96;
 /**

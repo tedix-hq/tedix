@@ -37,7 +37,6 @@
 		"@block65/webcrypto-web-push": "2",
 		"@cloudflare/ai-chat": "catalog:",
 		"@cloudflare/puppeteer": "catalog:",
-		"@cloudflare/voice": "catalog:",
 		"@json-render/core": "catalog:",
 		"@modelcontextprotocol/client": "catalog:",
 		"@orpc/client": "catalog:",

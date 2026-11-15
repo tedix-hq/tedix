@@ -1,6 +1,6 @@
 /**
  * Pure voice helpers — extracted so tests can import without pulling in
- * @cloudflare/voice or agents (which use cloudflare: protocol imports).
+ * agents or agents/voice (which use cloudflare: protocol imports).
  */
 
 import type { KernelTurnWorkResult } from "../rpc/routers/kernel/turn-work";
