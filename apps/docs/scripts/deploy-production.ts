@@ -19,6 +19,11 @@ import {
  * and `vp build` performs no Docker build at all. Any failure in the reuse
  * path falls back to the stock Dockerfile build so a release is never blocked
  * by the optimization.
+ *
+ * `--build-only` (the package `build` script) stops after `vp build`. Ship
+ * builds each migrating surface before applying D1 migrations; without this
+ * that check docker-built the whole image again. Without a Cloudflare token
+ * it is a plain `vp build`.
  */
 
 const appDir = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -26,6 +31,7 @@ const dockerfilePath = join(appDir, "Dockerfile");
 const configPath = join(appDir, "cloudflare.config.ts");
 const registryHost = "registry.cloudflare.com";
 const releaseSha = process.env.GIT_SHA ?? process.env.GITHUB_SHA ?? "unknown";
+const buildOnly = process.argv.includes("--build-only");
 
 function run(command: string, args: string[], input?: string): void {
 	const result = spawnSync(command, args, {
@@ -108,13 +114,14 @@ function pushedImage(reference: string): string | undefined {
  * Rebuild-and-push happens only when the tag is missing.
  */
 async function ensureImage(): Promise<string | undefined> {
+	const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+	if (buildOnly && !apiToken) return undefined;
 	// Ship sets only the token; the account comes from the deploy values,
 	// as it does for cloudflare.config.ts.
 	const accountId =
 		process.env.CLOUDFLARE_ACCOUNT_ID ||
 		process.env.CF_ACCOUNT_ID ||
 		deployValues({ mode: "production" }).account("");
-	const apiToken = process.env.CLOUDFLARE_API_TOKEN;
 	if (!accountId || !apiToken) {
 		console.warn(
 			"docs deploy: no Cloudflare account credentials; building the image with the Dockerfile",
@@ -169,6 +176,7 @@ try {
 	);
 }
 
+const buildArgs = buildOnly ? ["build"] : ["build", "--mode", "production"];
 const deployArgs = [
 	"deploy",
 	"--mode",
@@ -179,19 +187,19 @@ const deployArgs = [
 ];
 
 function deployFromDockerfile(): void {
-	run("vp", ["build", "--mode", "production"]);
-	run("cf", deployArgs);
+	run("vp", buildArgs);
+	if (!buildOnly) run("cf", deployArgs);
 }
 
 function deployWithReference(reference: string): void {
 	const original = readFileSync(configPath, "utf8");
 	writeFileSync(configPath, configWithImageReference(original, reference));
 	try {
-		run("vp", ["build", "--mode", "production"]);
+		run("vp", buildArgs);
 	} finally {
 		writeFileSync(configPath, original);
 	}
-	run("cf", deployArgs);
+	if (!buildOnly) run("cf", deployArgs);
 }
 
 if (reference === undefined) {
@@ -201,7 +209,7 @@ if (reference === undefined) {
 		deployWithReference(reference);
 	} catch (error) {
 		console.warn(
-			`docs deploy: deploying ${reference} failed (${error instanceof Error ? error.message : error}); building with the Dockerfile`,
+			`docs deploy: ${buildOnly ? "building" : "deploying"} ${reference} failed (${error instanceof Error ? error.message : error}); building with the Dockerfile`,
 		);
 		deployFromDockerfile();
 	}
