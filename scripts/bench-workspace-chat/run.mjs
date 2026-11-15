@@ -30,13 +30,20 @@ export function observeHomeEvent(state, event, elapsedMs) {
 }
 
 export function observeWorkspaceEvent(state, event, elapsedMs) {
-	if (event.type === "turn.accepted" && event.clientTurnId === state.clientTurnId) {
+	if (
+		event.type === "turn.accepted" &&
+		event.clientTurnId === state.clientTurnId
+	) {
 		state.turnId = event.turnId;
 		state.conversationId = event.conversationId;
 		return;
 	}
 	if (state.turnId === null || event.turnId !== state.turnId) return;
-	if (state.firstTokenMs === null && event.type === "assistant.delta" && event.text)
+	if (
+		state.firstTokenMs === null &&
+		event.type === "assistant.delta" &&
+		event.text
+	)
 		state.firstTokenMs = elapsedMs;
 	if (event.type === "assistant.done" && typeof event.text === "string")
 		state.answer = event.text;
@@ -124,7 +131,11 @@ function parseJson(text, label) {
 }
 
 function unwrapResult(value) {
-	for (let depth = 0; depth < 8 && value && typeof value === "object"; depth++) {
+	for (
+		let depth = 0;
+		depth < 8 && value && typeof value === "object";
+		depth++
+	) {
 		if (!("result" in value)) break;
 		value = value.result;
 	}
@@ -133,7 +144,9 @@ function unwrapResult(value) {
 
 export function runIdFromDispatch(value) {
 	const result = unwrapResult(value);
-	return result?.homeRunId ?? result?.run?.id ?? result?.runId ?? result?.id ?? null;
+	return (
+		result?.homeRunId ?? result?.run?.id ?? result?.runId ?? result?.id ?? null
+	);
 }
 
 export function runIdFromSet(value) {
@@ -172,11 +185,13 @@ async function runHomeFixture(fixture, options) {
 	const started = performance.now();
 	const conversationId = `workspace-bench:${fixture.id}:${crypto.randomUUID()}`;
 	const content = `In workspace ${options.workspaceId}, ${fixture.question}`;
-	const source = `async () => await kernel.enqueue_kernel_runtime_message(${JSON.stringify({
-		conversationId,
-		content,
-		idempotencyKey: crypto.randomUUID(),
-	})})`;
+	const source = `async () => await kernel.enqueue_kernel_runtime_message(${JSON.stringify(
+		{
+			conversationId,
+			content,
+			idempotencyKey: crypto.randomUUID(),
+		},
+	)})`;
 	let runId;
 	try {
 		const dispatched = await runCommand([
@@ -217,8 +232,9 @@ async function runHomeFixture(fixture, options) {
 			"Home transcript",
 		);
 		state.answer =
-			transcript.messages?.filter((message) => message.role === "assistant").at(-1)
-				?.content ?? "";
+			transcript.messages
+				?.filter((message) => message.role === "assistant")
+				.at(-1)?.content ?? "";
 	}
 	return {
 		answer: state.answer,
@@ -233,7 +249,8 @@ async function runWorkspaceFixture(fixture, options) {
 	const cookie = process.env.TEDIX_OS_COOKIE;
 	if (!authorization && !cookie)
 		throw new Error("Set TEDIX_OS_AUTHORIZATION or TEDIX_OS_COOKIE");
-	if (!process.env.TEDIX_OS_URL) throw new Error("Set TEDIX_OS_URL to the tenant OS origin");
+	if (!process.env.TEDIX_OS_URL)
+		throw new Error("Set TEDIX_OS_URL to the tenant OS origin");
 	const base = new URL(process.env.TEDIX_OS_URL);
 	base.protocol = base.protocol === "https:" ? "wss:" : "ws:";
 	base.pathname = `/workspace/${encodeURIComponent(options.workspaceId)}/chat`;
@@ -267,7 +284,11 @@ async function runWorkspaceFixture(fixture, options) {
 		);
 		socket.addEventListener("open", () =>
 			socket.send(
-				JSON.stringify({ type: "subscribe", conversationId: null, cursor: null }),
+				JSON.stringify({
+					type: "subscribe",
+					conversationId: null,
+					cursor: null,
+				}),
 			),
 		);
 		socket.addEventListener("message", ({ data }) => {

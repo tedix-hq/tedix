@@ -17,9 +17,9 @@ const fixture = {
 
 describe("workspace chat benchmark", () => {
 	test("scores every fixture check case-insensitively", () => {
-		expect(scoreAnswer(fixture, "There are ten. CONTROLLED MEMORY is tied.")).toEqual(
-			{ ok: true, missing: [] },
-		);
+		expect(
+			scoreAnswer(fixture, "There are ten. CONTROLLED MEMORY is tied."),
+		).toEqual({ ok: true, missing: [] });
 		expect(scoreAnswer(fixture, "There are 10.")).toEqual({
 			ok: false,
 			missing: ["priority"],
@@ -27,15 +27,31 @@ describe("workspace chat benchmark", () => {
 	});
 
 	test("reads Home deltas and final text from normalized payloads", () => {
-		const state = { answer: "", error: "", firstTokenMs: null as number | null };
-		observeHomeEvent(state, { kind: "message.delta", payload: { text: "" } }, 10);
-		observeHomeEvent(state, { kind: "message.delta", payload: { text: "First" } }, 20);
+		const state = {
+			answer: "",
+			error: "",
+			firstTokenMs: null as number | null,
+		};
+		observeHomeEvent(
+			state,
+			{ kind: "message.delta", payload: { text: "" } },
+			10,
+		);
+		observeHomeEvent(
+			state,
+			{ kind: "message.delta", payload: { text: "First" } },
+			20,
+		);
 		observeHomeEvent(
 			state,
 			{ kind: "message.completed", payload: { content: "Final answer" } },
 			30,
 		);
-		expect(state).toEqual({ answer: "Final answer", error: "", firstTokenMs: 20 });
+		expect(state).toEqual({
+			answer: "Final answer",
+			error: "",
+			firstTokenMs: 20,
+		});
 	});
 
 	test("binds workspace events to the accepted turn", () => {
@@ -48,7 +64,11 @@ describe("workspace chat benchmark", () => {
 			status: "running",
 			turnId: null,
 		};
-		observeWorkspaceEvent(state, { type: "assistant.delta", turnId: "other", text: "No" }, 5);
+		observeWorkspaceEvent(
+			state,
+			{ type: "assistant.delta", turnId: "other", text: "No" },
+			5,
+		);
 		observeWorkspaceEvent(
 			state,
 			{
@@ -59,9 +79,21 @@ describe("workspace chat benchmark", () => {
 			},
 			10,
 		);
-		observeWorkspaceEvent(state, { type: "assistant.delta", turnId: "turn", text: "Hi" }, 12);
-		observeWorkspaceEvent(state, { type: "assistant.done", turnId: "turn", text: "Final" }, 20);
-		observeWorkspaceEvent(state, { type: "turn.finished", turnId: "turn", status: "done" }, 25);
+		observeWorkspaceEvent(
+			state,
+			{ type: "assistant.delta", turnId: "turn", text: "Hi" },
+			12,
+		);
+		observeWorkspaceEvent(
+			state,
+			{ type: "assistant.done", turnId: "turn", text: "Final" },
+			20,
+		);
+		observeWorkspaceEvent(
+			state,
+			{ type: "turn.finished", turnId: "turn", status: "done" },
+			25,
+		);
 		expect(state).toMatchObject({
 			answer: "Final",
 			conversationId: "conversation",
@@ -73,9 +105,9 @@ describe("workspace chat benchmark", () => {
 	});
 
 	test("unwraps the Home dispatch receipt", () => {
-		expect(runIdFromDispatch({ result: { result: { homeRunId: "run" } } })).toBe(
-			"run",
-		);
+		expect(
+			runIdFromDispatch({ result: { result: { homeRunId: "run" } } }),
+		).toBe("run");
 		expect(runIdFromSet({ runSet: { runs: [{ id: "run" }] } })).toBe("run");
 	});
 
