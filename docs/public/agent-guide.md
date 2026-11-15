@@ -486,7 +486,8 @@ Interactions. They never use a local `night-log.md` as lane state. A reported
 success wakes the Work's owning, steward or project lead tedi to verify the exact settlement
 against its claimed SHA, document or Work result and post a receipt. Configure
 a tedi owner or steward on the Work, or a lead tedi on its project. The local
-session reports success; the tedi completes Work after verification. A wake
+session reports success; the Work's owner or steward completes it after verification
+(see [How work is organized](./how-work-is-organized.md#who-completes-a-work-item)). A wake
 grants no approval and does not itself prove verification or delivery.
 
 The request tracker's timer can complete verified dispatcher coding Work only
@@ -581,7 +582,7 @@ the Work stays open without a failed Attempt.
 Coding Work without delivery proof settles as failed, even when the
 harness exited normally. After success the dispatcher requests Work completion
 under its original session, retaining any denied or interrupted request for
-bounded retry. Owner-only actions remain with the owner. A lane's report and
+bounded retry. Owner-only actions (credentials, money, external messages) remain with the owner. A lane's report and
 Work completion do not independently verify the result.
 
 If dispatchable Work waits while no dispatcher has admitted an Attempt for a

@@ -15,9 +15,8 @@ visibility: public
 
 # Build and operate a factory
 
-A factory is a recurring lane owned by a tedi: a Work project and standing
-objective, a revisioned executable skill, a schedule and a health Work Item.
-A Workspace holds its sources, Documents and review app. Configuration, a queued
+A factory is a recurring lane owned by a tedi. It includes a Work project and
+objective, a skill, a schedule, a Workspace and a durable result. Configuration, a queued
 run and a delivered result are separate facts.
 
 For the complete first-build loop, start with
