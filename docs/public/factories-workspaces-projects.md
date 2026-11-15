@@ -5,7 +5,7 @@ title: "Factories, Workspaces and Projects"
 topic: "Platform"
 resource_type: guide
 description: "How a Work project, a Workspace and a tedi fit together into a factory, and which record answers which question."
-summary: "Workspace holds Documents; the Work control plane tracks epics, milestones and approvals; a factory is a recurring lane owned by a tedi"
+summary: "Workspace holds Documents; the Work control plane tracks epics, approvals and requests; a factory is a recurring lane owned by a tedi"
 read_when:
   - Deciding where a new initiative lives in Tedix
   - Telling a Workspace apart from a Work project
@@ -18,19 +18,19 @@ visibility: public
 Three words come up as soon as an organization runs more than one initiative
 in Tedix. They describe different layers.
 
-| Term               | What it is                                                                                                                           | Where you see it                                               |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------- |
-| Workspace          | The Tedix OS container for Documents: documents, sheets, presentations and videos, each with a revision history.                     | OS → Workspaces                                                |
-| Work project       | A ledger of Work Items with one owner, one brief and an optional target date. Projects group canonical Work; they do not hold files. | OS → Work → More views → Projects, then a project page         |
-| Work control plane | The control plane around projects: epics, milestones, sprints, health, approvals, interactions, admission and capacity.              | OS → Work → More views → Epics, Approvals, Admission, Capacity |
-| A factory          | A recurring lane owned by a tedi: a Work project and objective, a skill, a schedule, a Workspace and a durable result.               | All of the above, per initiative                               |
+| Term               | What it is                                                                                                                                                                                                                        | Where you see it                                               |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| Workspace          | The Tedix OS container for Documents: documents, sheets, presentations and videos, each with a revision history.                                                                                                                  | OS → Workspaces                                                |
+| Work project       | A ledger of Work Items with one owner, one brief and a goal. It is either a standing area of work with no end date or an engagement with a target date, archived when it ends. Projects group Work Items; they do not hold files. | OS → Work → More views → Projects, then a project page         |
+| Work control plane | The control plane around projects: epics, health, approvals, requests, admission and capacity.                                                                                                                                    | OS → Work → More views → Epics, Approvals, Admission, Capacity |
+| A factory          | A recurring lane owned by a tedi: a Work project and goal, a skill, a schedule, a Workspace and a durable result.                                                                                                                 | All of the above, per initiative                               |
 
 ## Workspace: where the results live
 
 A Workspace is organization-owned and holds the shared workpieces of one line
-of work. An Output belongs to a Workspace and is one of four kinds: document,
+of work. A Document belongs to a Workspace and is one of four kinds: document,
 sheet, presentation or video. Every save is an append-only revision; the
-Output points at its current revision. A Workspace can also carry selected
+Document points at its current revision. Tools and the API call it an Output. A Workspace can also carry selected
 external resources, installed apps and a Blueprint that created it.
 
 A Workspace links to Work projects through an explicit link record, so a
@@ -42,15 +42,14 @@ their results are. A project name typed into a document is not a link.
 The Work Item lifecycle (proposed, accepted, completed or cancelled) is one layer; Attempts record each try separately. See [How work is organized](./how-work-is-organized.md).
 The factory records sit around it and are deliberately separate:
 
-| Record                             | Answers                                                                                                                                                                                                        |
-| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Epic (a case in tools and the CLI) | A bigger piece of work inside a project, like an incident, an investigation or a feature. It groups several Work Items. Stages: investigating, planning, executing, monitoring, closed. One accountable owner. |
-| Milestone and sprint               | Which Work Items are due together. Milestones: proposed, planned, active, done, cancelled. Sprints: planned, active, completed, cancelled.                                                                     |
-| Project health judgment            | On track, at risk, off track or paused, as judged at a point in time.                                                                                                                                          |
-| Approval proposal and decision     | Who proposed an action, who decided, and whether it was approved, rejected, cancelled or expired.                                                                                                              |
-| Interaction                        | A question, input request, handoff or coordination note between humans and agents, with its responses, drafts and delivery receipts.                                                                           |
-| Admission                          | Whether a Work Attempt was admitted or rejected against policy, budget and capacity.                                                                                                                           |
-| Resource pool, budget envelope     | How much execution capacity and spend a project, epic or Work Item may consume, and the reservations held against them.                                                                                        |
+| Record                               | Answers                                                                                                                                                                                                                                                                                         |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Epic (a case in the API and the CLI) | A bounded push toward one outcome, with one accountable owner and a target date. It groups Work Items, which may sit in several projects. Stages: investigating, planning, executing, monitoring, closed. There are no sprints or milestones; a dated checkpoint is an epic with a target date. |
+| Project health judgment              | On track, at risk, off track or paused, as judged at a point in time.                                                                                                                                                                                                                           |
+| Approval proposal and decision       | Who proposed an action, who decided, and whether it was approved, rejected, cancelled or expired.                                                                                                                                                                                               |
+| Request (an interaction in the API)  | A question, input request, handoff or coordination note between people and agents, with its responses, drafts and delivery receipts.                                                                                                                                                            |
+| Admission                            | Whether a Work Attempt was admitted or rejected against policy, budget and capacity.                                                                                                                                                                                                            |
+| Resource pool, budget envelope       | How much execution capacity and spend a project, epic or Work Item may consume, and the reservations held against them.                                                                                                                                                                         |
 
 Receipt tables in this layer are immutable. A record there is evidence of what
 happened, not a place to edit history.
@@ -90,23 +89,24 @@ Most teams do not need every record above. A working factory is the pattern:
 2. **One Workspace** linked to that project, holding the Documents the project
    exists to produce.
 3. **One tedi** that owns the Work Items and writes the Documents.
-4. **Skills or a schedule** that produce the next Output without someone
+4. **Skills or a schedule** that produce the next Document without someone
    asking. The skill carries the procedure; the schedule decides when.
 
-A new initiative gets a new project. If it will produce files, give it a
-Workspace too. If it is a short investigation, open an epic inside an existing
-project instead of a project of its own.
+A new engagement, such as a customer pilot, gets a new project with a target
+date; archive it when it ends. If it will produce files, give it a Workspace
+too. A bounded push inside your standing areas, such as an investigation or a
+feature, is an epic, not a project of its own.
 
 ## Which record answers which question
 
-| Question                      | Look at                                          | Not at                     |
-| ----------------------------- | ------------------------------------------------ | -------------------------- |
-| What is this initiative for?  | The project brief                                | A Workspace name           |
-| What is being worked on now?  | Open epics and accepted Work Items               | Documents in the Workspace |
-| What was produced?            | Documents and their current revision             | A Work Item marked done    |
-| Who worked on it?             | Attempts and the project's Contributors list     | The Workspace creator      |
-| Why did an Attempt not start? | Its admission record                             | The Work Item status       |
-| What is waiting on a person?  | Open interactions and pending approval proposals | Comments on a Work Item    |
+| Question                      | Look at                                      | Not at                     |
+| ----------------------------- | -------------------------------------------- | -------------------------- |
+| What is this initiative for?  | The project brief                            | A Workspace name           |
+| What is being worked on now?  | Open epics and accepted Work Items           | Documents in the Workspace |
+| What was produced?            | Documents and their current revision         | A Work Item marked done    |
+| Who worked on it?             | Attempts and the project's Contributors list | The Workspace creator      |
+| Why did an Attempt not start? | Its admission record                         | The Work Item status       |
+| What is waiting on a person?  | Open requests and pending approval proposals | Comments on a Work Item    |
 
 For an agent procedure that walks these records with native tools, read
 [Build and inspect a factory as an agent](./factory-agent-guide.md). For how

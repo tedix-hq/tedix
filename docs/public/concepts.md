@@ -5,7 +5,7 @@ title: "Core concepts"
 topic: "Platform"
 resource_type: guide
 description: "The small set of Tedix terms a new operator or agent needs before using the platform."
-summary: "Public glossary for organizations, tedis, runs, Work Items, epics, milestones, Outputs, apps, skills, and approvals"
+summary: "Public glossary for organizations, tedis, runs, Work Items, projects, epics, goals, Documents, apps, skills, and approvals"
 read_when:
   - Learning Tedix terminology
   - Translating a product request into Tedix objects
@@ -36,20 +36,20 @@ recent activity and receipts. Your organization chooses the apps and batch
 settings; [workspace apps](./build-a-workspace-app.md#decisions)
 explains how to set them up.
 
-| Term        | Meaning                                                                                                                                                                                                                                     |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Home        | The conversation where you ask for work. Tedix answers there or hands the request to a tedi, and saves each turn as a run.                                                                                                                  |
-| Run         | The saved record of one tedi turn or skill execution: status, events, rationale, artifacts, and result. A Work Attempt can point at several runs.                                                                                           |
-| Work Item   | A bounded outcome with an owner, a risk level, a budget, a time-limited claim, discussion, and a recorded result.                                                                                                                           |
-| Objective   | A directive a person sets that says why work exists. A project links to one. See [How work is organized](./how-work-is-organized.md).                                                                                                       |
-| Epic        | A bigger piece of work inside a project, like an incident, an investigation or a feature. It groups several Work Items and has one owner; tools and the CLI call it a case. Stages: investigating, planning, executing, monitoring, closed. |
-| Milestone   | A project's group of Work Items due together, with an optional target date. Statuses: proposed, planned, active, done, cancelled.                                                                                                           |
-| Output      | The one word for a saved file in a Workspace: a document, sheet, presentation or video. "Document" names one kind of Output, not a separate thing. Every save is an append-only revision; the Output points at its current one.             |
-| Runner      | The process on a machine that picks up Work for one executor and runs it as Attempts. The supervisor starts and updates runners; see [CLI](./cli.md). "Run" means a saved record of one tedi turn or skill execution, never a runner.       |
-| Task        | Handle for asynchronous work. Having a task id does not mean the work finished.                                                                                                                                                             |
-| Interaction | A question or request a session or tedi raises on a Work Item. An answer given in Tedix OS reaches the session that asked; a tedi may answer in its own name, and a later human answer is recorded as a correction.                         |
-| Delegation  | A lead session's hand-off of work to a subagent or another session, registered as an accepted Work Item and completed with a recorded outcome.                                                                                              |
-| Workstation | Bounded Sandbox lease for jobs that need files, processes, a repository, or operating-system tools. It is additive compute, not the tedi's identity.                                                                                        |
+| Term        | Meaning                                                                                                                                                                                                                                                                                                                         |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Home        | The conversation where you ask for work. Tedix answers there or hands the request to a tedi, and saves each turn as a run.                                                                                                                                                                                                      |
+| Run         | The saved record of one tedi turn or skill execution: status, events, rationale, artifacts, and result. A Work Attempt can point at several runs.                                                                                                                                                                               |
+| Work Item   | One piece of work with a "done when", an owner, a priority, a risk level and the person or agent assigned to do it. States: proposed (in triage), accepted, completed, cancelled.                                                                                                                                               |
+| Goal        | Why work exists, with a statement of what success looks like. Projects and epics serve a goal; the API and tools call it an objective. See [How work is organized](./how-work-is-organized.md).                                                                                                                                 |
+| Project     | A standing area of work with no end date, or an engagement with an end date that is archived when it ends. Each has one owner, a brief and a goal.                                                                                                                                                                              |
+| Epic        | A bounded push toward one outcome, with an owner and a target date. It groups Work Items, which may sit in several areas; the API and the CLI call it a case. Stages: investigating, planning, executing, monitoring, closed.                                                                                                   |
+| Document    | A saved file in a Workspace: a document, sheet, presentation or video. Every save is an append-only revision; the Document points at its current one. Tools and the API call it an Output.                                                                                                                                      |
+| Runner      | The process on a machine that picks up Work for one executor and runs it as Attempts. The supervisor starts and updates runners; see [CLI](./cli.md). "Run" means a saved record of one tedi turn or skill execution, never a runner.                                                                                           |
+| Task        | Handle for asynchronous work. Having a task id does not mean the work finished.                                                                                                                                                                                                                                                 |
+| Request     | A question, a request for input, a handoff or a coordination note addressed to a person; the API calls it an interaction. The Decisions page shows open requests as cards. An answer given in Tedix OS reaches the session that asked; a tedi may answer in its own name, and a later human answer is recorded as a correction. |
+| Delegation  | A lead session's hand-off of work to a subagent or another session, registered as an accepted Work Item and completed with a recorded outcome.                                                                                                                                                                                  |
+| Workstation | Bounded Sandbox lease for jobs that need files, processes, a repository, or operating-system tools. It is additive compute, not the tedi's identity.                                                                                                                                                                            |
 
 ## Capabilities
 
@@ -75,7 +75,7 @@ explains how to set them up.
 | Rationale          | The recorded explanation for a decision or run. It explains; it does not show the result is right.                                           |
 | Artifact           | Addressable output such as a report, file, or patch.                                                                                         |
 | Settlement         | The result a tedi records when a run or Work Item finishes. It is the tedi's report, not a check.                                            |
-| Attempt            | One agent session's try at a Work Item. A Work Item can have several Attempts over time.                                                     |
+| Attempt            | One try at a Work Item by one person or agent. A Work Item can have several Attempts over time.                                              |
 | Admission          | The check that a Work Item is ready and that this agent may start it, done before an Attempt begins.                                         |
 | Lease              | The time-limited hold a running Attempt keeps by sending heartbeats. If the agent stops, the lease expires and the Attempt can be restarted. |
 | Provider reference | The outside system's own id for an action it performed, such as a sent message id.                                                           |
