@@ -1138,6 +1138,9 @@ export async function handleOsRequest(
 			return tenantResolutionUnavailable(request);
 		}
 	}
+	if (url.pathname.startsWith("/.well-known/")) {
+		return refuse(404, "No well-known resource at this path.");
+	}
 
 	// authz: restricted tedi console session; canonical grant and tenant checked by the API on every read.
 	if (
