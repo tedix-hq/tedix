@@ -4,6 +4,7 @@ import { addWorkItemCommentIfAbsent } from "@tedix/db/queries/work-items/comment
 import {
 	getWorkItemById,
 	getWorkItemBySourceIntentId,
+	updateWorkItemSpecification,
 } from "@tedix/db/queries/work-items/crud";
 import type { getWorkInteraction } from "@tedix/db/queries/work-items/interactions";
 import { safeExceptionTopology } from "../lib/safe-log-metadata";
@@ -182,6 +183,18 @@ async function settleWork(
 	if (disposition === "propose") return;
 	const { workItemsContractRouter } = await import("../rpc/routers/work-items");
 	if (disposition === "accept") {
+		// The person who said yes answers for the work when nobody is named;
+		// acceptance refuses work without an accountable owner.
+		const work = await getWorkItemById(context.db, workItemId, request.orgId);
+		if (work?.disposition === "proposed" && !work.accountableOwnerId)
+			await updateWorkItemSpecification(context.db, {
+				orgId: request.orgId,
+				workItemId,
+				actor: { type: "user", id: request.targetId! },
+				accountableOwnerType: "user",
+				accountableOwnerId: request.targetId!,
+				expectedWorkItemVersion: work.version,
+			});
 		await call(
 			workItemsContractRouter.accept,
 			{

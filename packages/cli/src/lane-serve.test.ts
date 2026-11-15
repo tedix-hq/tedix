@@ -2014,6 +2014,9 @@ describe("dispatcher admission", () => {
 			"Full suite hourly is green again on main.",
 		);
 		expect(proposedAcceptance(item(), "codex")).toBeUndefined();
+		expect(
+			proposedAcceptance({ ...shift, accountableOwnerId: null }, "codex"),
+		).toBeUndefined();
 		const silent = fixture({ proposed: [shift, bare, other] });
 		await silent.dispatcher.tick();
 		await until(() => silent.releases.length === 2);

@@ -716,6 +716,7 @@ export async function listOrgWorkItemProjections(
 	return { data: rows, total: Number(counted?.total ?? 0) };
 }
 
+import { acceptanceRefusal, missingForAcceptance } from "./acceptance-rule";
 import {
 	getScopedWorkItem,
 	type WorkActor,
@@ -729,16 +730,29 @@ export async function acceptWorkItem(
 		acceptanceContract: WorkItemAcceptanceContract;
 		actor: WorkActor;
 		acceptedAt?: string;
+		/**
+		 * Home's own execution wrapper around one delegated run. It is created
+		 * and accepted in one step for a named tedi and is never triaged, so it
+		 * may be accepted before any project is known. Never set this for work a
+		 * person or agent proposed.
+		 */
+		systemEnvelope?: boolean;
 	},
 ): Promise<WorkItem> {
 	const acceptedAt = params.acceptedAt ?? new Date().toISOString();
 	const prior = await getScopedWorkItem(db, params.orgId, params.workItemId);
-	// Acceptance fixes the outcome in plain language; an empty contract says
-	// nothing about done.
-	if (!params.acceptanceContract.doneLooksLike?.trim())
+	// Acceptance is the exit from triage: it fixes where the work lives, what
+	// done looks like and who answers for it.
+	const missing =
+		prior.disposition === "proposed"
+			? missingForAcceptance(prior, params.acceptanceContract, {
+					systemEnvelope: params.systemEnvelope,
+				})
+			: [];
+	if (missing.length)
 		throw new WorkFactoryError(
 			"ACCEPTANCE_REQUIRED",
-			"An acceptance contract must state what done looks like",
+			acceptanceRefusal(missing),
 		);
 	const executor = prior.metadata?.executor;
 	const dispatch = ["codex", "claude-code", "tedi", "human"].includes(
@@ -779,6 +793,8 @@ export async function acceptWorkItem(
 				eq(workItems.id, params.workItemId),
 				eq(workItems.disposition, "proposed"),
 				eq(workItems.version, prior.version),
+				isNotNull(workItems.accountableOwnerId),
+				params.systemEnvelope ? undefined : isNotNull(workItems.projectId),
 			),
 		)
 		.returning();

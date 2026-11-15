@@ -133,6 +133,26 @@ beforeEach(() => {
 		.run(OBJECTIVE_ID, ORG_ID);
 });
 
+/** What acceptance needs besides a done-when: a project and a named owner. */
+function fileable() {
+	sqlite
+		.prepare(
+			"INSERT OR IGNORE INTO projects(id,org_id,key,objective_id,created_at) VALUES (?,?,?,?,?)",
+		)
+		.run(
+			PROJECT_ID,
+			ORG_ID,
+			"FACTORY",
+			OBJECTIVE_ID,
+			"2026-08-20T00:00:00.000Z",
+		);
+	return {
+		projectId: PROJECT_ID,
+		accountableOwnerType: "user" as const,
+		accountableOwnerId: "owner-1",
+	};
+}
+
 describe("Work Item router canonical specification reads and writes", () => {
 	it("maps concurrent resource-pool create and CAS update races to wire conflicts", async () => {
 		const createInput = {
@@ -614,7 +634,10 @@ describe("Work Item router canonical specification reads and writes", () => {
 		});
 	});
 	it("accepts only with a nonempty typed acceptance contract", async () => {
-		const created = await client().create({ ...PURPOSE, title: "Ship report" });
+		const created = await client().create({
+			...fileable(),
+			title: "Ship report",
+		});
 		const accepted = await client("owner").accept({
 			id: created.id,
 			acceptanceContract: {
@@ -623,7 +646,7 @@ describe("Work Item router canonical specification reads and writes", () => {
 			},
 		});
 		expect(accepted.disposition).toBe("accepted");
-		const empty = await client().create({ ...PURPOSE, title: "Empty" });
+		const empty = await client().create({ ...fileable(), title: "Empty" });
 		await expect(
 			client("owner").accept({
 				id: empty.id,
@@ -637,6 +660,18 @@ describe("Work Item router canonical specification reads and writes", () => {
 	// than the owner/admin membership check, so the message changed while the
 	// boundary did not. A gateway-verified agent or tedi may accept only with the
 	// explicitly granted work:accept scope — see work-acceptance-scope.test.ts.
+	it("refuses to accept a proposal with no project or no accountable owner", async () => {
+		const unfiled = await client().create({ ...PURPOSE, title: "Unfiled" });
+		await expect(
+			client("owner").accept({
+				id: unfiled.id,
+				acceptanceContract: { version: 1, doneLooksLike: "Shipped" },
+			}),
+		).rejects.toThrow(/Missing: a project, an accountable owner\./);
+		expect(
+			(await client().getById({ id: unfiled.id })).workItem.disposition,
+		).toBe("proposed");
+	});
 	it("refuses acceptance from a principal that is not accountable for it", async () => {
 		const created = await client().create({
 			...PURPOSE,
@@ -676,7 +711,10 @@ describe("tedi Work stewardship", () => {
 	async function ownedItem(
 		role: "accountableOwner" | "steward" = "accountableOwner",
 	) {
-		const item = await client().create({ ...PURPOSE, title: "Nova report" });
+		const item = await client().create({
+			...fileable(),
+			title: "Nova report",
+		});
 		return client("owner").updateSpecification({
 			id: item.id,
 			[`${role}Type`]: "tedi",
@@ -1165,7 +1203,7 @@ describe("Work Item router collaboration ledgers", () => {
 	});
 	it("turns an authorized delegation mention into executor data and a dispatch receipt", async () => {
 		const created = await client().create({
-			...PURPOSE,
+			...fileable(),
 			title: "Fictional guide",
 		});
 		await client("owner").accept({

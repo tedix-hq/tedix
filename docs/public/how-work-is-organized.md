@@ -80,6 +80,11 @@ A Work Item has one durable state, its **disposition**:
 | `completed` | The accepted outcome is recorded as done.                           |
 | `cancelled` | It will not be done.                                                |
 
+A proposed Work Item is in triage, whether or not it has a project yet. Tedix
+accepts it only when it has a project, a statement of what done looks like and
+an accountable owner; otherwise the accept is refused and the message names
+what is missing.
+
 "Blocked" is not a disposition. It is a reading from the readiness check: an
 accepted Work Item can be blocked by an unfinished dependency, a pending
 approval, a live Attempt, an exhausted budget or no free capacity. Read it with

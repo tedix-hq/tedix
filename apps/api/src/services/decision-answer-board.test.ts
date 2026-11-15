@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
 	work: vi.fn(),
 	bySource: vi.fn(),
 	assign: vi.fn(),
+	own: vi.fn(),
 }));
 vi.mock("./decision-yes-assign", () => ({ assignAgentOnYes: mocks.assign }));
 vi.mock("@orpc/server", () => ({ call: mocks.call }));
@@ -16,6 +17,7 @@ vi.mock("@tedix/db/queries/work-items/comments", () => ({
 vi.mock("@tedix/db/queries/work-items/crud", () => ({
 	getWorkItemById: mocks.work,
 	getWorkItemBySourceIntentId: mocks.bySource,
+	updateWorkItemSpecification: mocks.own,
 }));
 vi.mock("../rpc/routers/work-items/creation-reads", () => ({
 	createProcedure: "create",
@@ -156,6 +158,13 @@ describe("recordDecisionAnswerOnBoard", () => {
 			},
 			{ context },
 		]);
+		// Nobody was named, so the person who said yes answers for the Work.
+		expect(mocks.own).toHaveBeenCalledTimes(1);
+		expect(mocks.own.mock.calls[0]?.[1]).toMatchObject({
+			workItemId: workId,
+			accountableOwnerType: "user",
+			accountableOwnerId: card.targetId,
+		});
 	});
 
 	it("leaves accepted or declined linked Work alone", async () => {

@@ -60,7 +60,7 @@ function fixture(userId = "canonical-user-id") {
 	);
 	sqlite
 		.prepare(
-			"INSERT INTO work_items (id,org_id,title,required_authorities,created_at) VALUES (?,?,?,json(?),?)",
+			"INSERT INTO work_items (id,org_id,title,required_authorities,created_at,project_id,accountable_owner_type,accountable_owner_id) VALUES (?,?,?,json(?),?,'99999999-9999-4999-8999-999999999999','user','work-owner-id')",
 		)
 		.run(
 			WORK_ITEM_ID,
@@ -918,6 +918,17 @@ describe("Independent tedi routine acceptance", () => {
 			)
 			.run("tedi-approver-id", WORK_ITEM_ID);
 		await expect(f.client.propose(f.request)).rejects.toThrow(/own Work Item/);
+	});
+	it("refuses routine acceptance of Work with no project or no owner", async () => {
+		const f = routineAcceptanceFixture();
+		f.sqlite
+			.prepare(
+				"UPDATE work_items SET project_id=NULL,accountable_owner_type=NULL,accountable_owner_id=NULL WHERE id=?",
+			)
+			.run(WORK_ITEM_ID);
+		await expect(f.client.propose(f.request)).rejects.toThrow(
+			/Missing: a project, an accountable owner\./,
+		);
 	});
 	it("refuses a tedi proposing acceptance to itself", async () => {
 		const f = routineAcceptanceFixture();

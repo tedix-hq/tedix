@@ -389,10 +389,15 @@ export function laneDelegationRequest(
  * section. Anything else stays proposed for a human.
  */
 export function proposedAcceptance(
-	item: Pick<DispatchItem, "disposition" | "description" | "metadata">,
+	item: Pick<
+		DispatchItem,
+		"disposition" | "description" | "metadata" | "accountableOwnerId"
+	>,
 	executor: ServeOptions["executor"],
 ): string | undefined {
 	if (item.disposition !== "proposed") return;
+	// Tedix refuses to accept work nobody answers for; leave it in triage.
+	if (!item.accountableOwnerId) return;
 	const assigned = String(item.metadata?.executor ?? "");
 	if (
 		executor === "any-local"

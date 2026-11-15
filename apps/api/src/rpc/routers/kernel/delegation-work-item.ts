@@ -436,6 +436,7 @@ export async function createDelegationWorkItem(
 		},
 		actor: { type: "system", id: "home" },
 		acceptedAt: input.createdAt,
+		systemEnvelope: true,
 	});
 	const admission = await admitWorkAttempt(context.db, {
 		workItem: acceptedWorkItem,

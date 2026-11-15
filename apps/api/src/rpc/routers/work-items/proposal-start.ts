@@ -17,6 +17,7 @@ import {
 import {
 	acceptWorkItem,
 	getWorkItemById,
+	updateWorkItemSpecification,
 } from "@tedix/db/queries/work-items/crud";
 import type { BaseContext } from "../../orpc";
 
@@ -221,6 +222,21 @@ async function run(
 			throw new Error("this organization has no tedi to hand the work to");
 		// A delegated attempt needs accepted Work; the member just accepted it.
 		const current = await getWorkItemById(context.db, workItem.id, orgId);
+		// The member who said yes answers for the work when the proposal named
+		// nobody; acceptance refuses work without an accountable owner.
+		if (
+			current?.disposition === "proposed" &&
+			!current.accountableOwnerId &&
+			(input.responder.type === "user" || input.responder.type === "tedi")
+		)
+			await updateWorkItemSpecification(context.db, {
+				orgId,
+				workItemId: workItem.id,
+				actor: input.responder,
+				accountableOwnerType: input.responder.type,
+				accountableOwnerId: input.responder.id,
+				expectedWorkItemVersion: current.version,
+			});
 		if (current?.disposition === "proposed")
 			await acceptWorkItem(context.db, {
 				orgId,

@@ -18,7 +18,7 @@ it("acceptance and reassignment atomically preserve the brief, ready dispatch, a
 	sqlite.exec(schemaDdl(workItems, workEvents, workAttempts, workItemComments));
 	sqlite
 		.prepare(
-			"INSERT INTO work_items(id,org_id,title,description,created_at,metadata) VALUES(?,?,?,?,?,?)",
+			"INSERT INTO work_items(id,org_id,title,description,created_at,metadata,project_id,accountable_owner_type,accountable_owner_id) VALUES(?,?,?,?,?,?,'project','user','fictional-owner')",
 		)
 		.run(
 			"work",
@@ -76,7 +76,7 @@ it("acceptance renews a lapsed operational purpose window so the accepted item i
 	sqlite.exec(schemaDdl(workItems, workEvents, workAttempts, workItemComments));
 	sqlite
 		.prepare(
-			"INSERT INTO work_items(id,org_id,title,created_at,work_class,purpose_exception_expires_at) VALUES(?,?,?,?,?,?)",
+			"INSERT INTO work_items(id,org_id,title,created_at,work_class,purpose_exception_expires_at,project_id,accountable_owner_type,accountable_owner_id) VALUES(?,?,?,?,?,?,'project','user','fictional-owner')",
 		)
 		.run(
 			"work",

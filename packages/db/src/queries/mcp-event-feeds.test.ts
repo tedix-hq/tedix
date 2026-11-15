@@ -62,7 +62,7 @@ function fixture() {
 	const seedItem = (id: string, org: string) =>
 		sqlite
 			.prepare(
-				"INSERT INTO work_items(id,org_id,title,disposition,work_kind,created_at,work_class) VALUES(?,?,?,'proposed','coding',?,'maintenance')",
+				"INSERT INTO work_items(id,org_id,title,disposition,work_kind,created_at,work_class,project_id,accountable_owner_type,accountable_owner_id) VALUES(?,?,?,'proposed','coding',?,'maintenance','project-1','user','user-1')",
 			)
 			.run(id, org, id, NOW);
 	return { sqlite, db: createDbClient(createD1Facade(sqlite)), seedItem };
