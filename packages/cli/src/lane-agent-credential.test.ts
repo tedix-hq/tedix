@@ -8,21 +8,26 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { readAuthStatus } from "./auth-resolve";
 import {
+	externalAgentStatus,
 	resolveExternalAgentAuth,
 	writeLaneExternalAgentCredential,
 } from "./external-agent";
 import {
+	externalAgentProfileSlot,
 	readExternalAgentProfile,
 	writeExternalAgentCredential,
 	writeExternalAgentProfile,
 } from "./external-agent-store";
+import { parseOptions } from "./options";
 
 const dirs: string[] = [];
 const saved = {
 	config: process.env.TEDIX_CONFIG_DIR,
 	lane: process.env.TEDIX_LANE_AGENT_STORE,
 	session: process.env.TEDIX_AGENT_SESSION,
+	external: process.env.TEDIX_EXTERNAL_AGENT,
 };
 
 afterEach(() => {
@@ -30,6 +35,7 @@ afterEach(() => {
 		["TEDIX_CONFIG_DIR", saved.config],
 		["TEDIX_LANE_AGENT_STORE", saved.lane],
 		["TEDIX_AGENT_SESSION", saved.session],
+		["TEDIX_EXTERNAL_AGENT", saved.external],
 	] as const)
 		if (value === undefined) delete process.env[key];
 		else process.env[key] = value;
@@ -137,6 +143,69 @@ describe("Devin lane credential handoff", () => {
 		expect(auth.headers).toEqual({
 			Authorization: "Bearer lane-session-token",
 		});
+		chmodSync(join(host, "external-agents.json"), 0o600);
+	});
+
+	test("a lane finds its profile when the host keeps Devin in its own slot", async () => {
+		const host = temp();
+		const lane = join(temp(), "tedix-agent");
+		process.env.TEDIX_CONFIG_DIR = host;
+		// The workspace's shared principal is named for Codex, so Devin has its own.
+		writeExternalAgentProfile("connect", {
+			...profile,
+			principalId: "codex-principal-id",
+			key: "codex-gtm-1",
+			sessions: {},
+		});
+		writeExternalAgentProfile("connect#devin", profile);
+		const stored = readExternalAgentProfile("connect#devin")!;
+		writeExternalAgentCredential(
+			"connect#devin",
+			stored,
+			stored.sessions[sessionKey]!,
+			"lane-session-token",
+			Date.now() + 200_000,
+		);
+		await writeLaneExternalAgentCredential({
+			workspace: "connect",
+			sessionKey,
+			storeDir: lane,
+			fetch: () => {
+				throw new Error("a fresh cache needs no exchange");
+			},
+		});
+		const written = readFileSync(join(lane, "external-agents.json"), "utf8");
+		expect(written).not.toContain("codex-gtm-1");
+		expect(written).not.toContain("sk_host_secret_never_in_lane");
+
+		// What the dispatcher gives the Devin process: no principal key, no host store.
+		chmodSync(join(host, "external-agents.json"), 0o000);
+		process.env.TEDIX_LANE_AGENT_STORE = lane;
+		process.env.TEDIX_AGENT_SESSION = sessionKey;
+		process.env.TEDIX_EXTERNAL_AGENT = "1";
+		expect(externalAgentProfileSlot("connect", sessionKey)).toBe(
+			"connect#devin",
+		);
+		expect(externalAgentStatus("connect")).toMatchObject({
+			configured: true,
+			key: "devin-local-ada",
+			currentSession: { externalSessionKey: sessionKey },
+		});
+		expect(
+			readAuthStatus(parseOptions(["-w", "connect", "auth", "status"]).options)
+				.wouldUse,
+		).toBe("external-agent:devin-local-ada");
+		const auth = await resolveExternalAgentAuth({
+			workspace: "connect",
+			selector: "1",
+			fetch: () => {
+				throw new Error("the lane never exchanges");
+			},
+		});
+		expect(auth.headers).toEqual({
+			Authorization: "Bearer lane-session-token",
+		});
+		expect(auth.source).toBe("external-agent:devin-local-ada:session-id");
 		chmodSync(join(host, "external-agents.json"), 0o600);
 	});
 
