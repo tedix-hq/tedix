@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, spyOn, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import {
 	existsSync,
@@ -161,9 +161,9 @@ afterEach(() => {
 		rmSync(path, { recursive: true, force: true });
 });
 
-function cloneFixture() {
+function cloneFixture(track = true) {
 	const root = mkdtempSync(join(tmpdir(), "tedix-gc-"));
-	temporary.push(root);
+	if (track) temporary.push(root);
 	const git = (path: string, ...args: string[]) =>
 		execFileSync("git", args, {
 			cwd: path,
@@ -203,6 +203,9 @@ function cloneFixture() {
 }
 
 describe("sibling clones", () => {
+	const stashFixture = cloneFixture(false);
+	afterAll(() => rmSync(stashFixture.root, { recursive: true, force: true }));
+
 	test("finds only independent same-origin clones beside canonical tedix-hq repos", () => {
 		const { canonical, clone, git } = cloneFixture();
 		expect(findSiblingClones(canonical)).toEqual([clone]);
@@ -232,7 +235,7 @@ describe("sibling clones", () => {
 	}, 60_000);
 
 	test("keeps stashes, attached worktrees and unavailable remotes", () => {
-		const { root, clone, git } = cloneFixture();
+		const { root, clone, git } = stashFixture;
 		writeFileSync(join(clone, "file"), "stash me");
 		git(clone, "stash");
 		expect(cloneFullyPushed(clone)).toBe(false);
@@ -268,9 +271,9 @@ describe("sibling clones", () => {
 	}, 60_000);
 });
 
-function worktreeFixture() {
+function worktreeFixture(track = true) {
 	const root = mkdtempSync(join(tmpdir(), "tedix-gc-worktree-"));
-	temporary.push(root);
+	if (track) temporary.push(root);
 	const canonical = root;
 	const git = (cwd: string, ...args: string[]) =>
 		execFileSync("git", args, {
@@ -303,6 +306,13 @@ function worktreeFixture() {
 }
 
 describe("worktree removal", () => {
+	const recheckFixture = worktreeFixture(false);
+	const failureFixture = worktreeFixture(false);
+	afterAll(() => {
+		rmSync(recheckFixture.canonical, { recursive: true, force: true });
+		rmSync(failureFixture.canonical, { recursive: true, force: true });
+	});
+
 	test("removes clean merged worktrees with ignored dependencies and build output", () => {
 		const { canonical, path, entry } = worktreeFixture();
 		for (const name of ["node_modules", "dist"]) {
@@ -348,7 +358,7 @@ describe("worktree removal", () => {
 	});
 
 	test("rechecks lock, activity, age, merge status and HEAD before removal", () => {
-		const { canonical, path, entry, eraseTracked, git } = worktreeFixture();
+		const { canonical, path, entry, eraseTracked, git } = recheckFixture;
 		eraseTracked();
 		expect(removeWorktree(canonical, entry, "origin/main", 2, () => [])).toBe(
 			false,
@@ -379,7 +389,7 @@ describe("worktree removal", () => {
 	});
 
 	test("uses a long bounded timeout and restores missing tracked files on failure", () => {
-		const { canonical, path, entry, git } = worktreeFixture();
+		const { canonical, path, entry, git } = failureFixture;
 		const errors = spyOn(console, "error").mockImplementation(() => {});
 		try {
 			const remove = (_cwd: string, args: string[], timeout = 0) => {
