@@ -21,6 +21,7 @@ const cleanups: Array<() => unknown> = [];
 afterEach(async () => {
 	for (const cleanup of cleanups.splice(0)) await cleanup();
 	document.body.replaceChildren();
+	vi.useRealTimers();
 	vi.restoreAllMocks();
 });
 
@@ -199,8 +200,11 @@ async function editor(role = "owner", transform?: (sheet: Sheet) => Sheet) {
 		},
 		/** Wait until the editor has no call to the host in flight. */
 		async settle() {
-			do await new Promise((resolve) => setTimeout(resolve, 5));
-			while (inFlight > 0);
+			let idleTurns = 0;
+			while (idleTurns < 20) {
+				await Promise.resolve();
+				idleTurns = inFlight === 0 ? idleTurns + 1 : 0;
+			}
 		},
 		async reopen() {
 			await mounted.dispose();
@@ -510,25 +514,27 @@ describe("Portable Sheet grid", () => {
 		const first = cell("A1");
 		select("B2");
 		app.changeExternal(3);
+		await app.settle();
 		await vi.waitFor(() => expect(display("C1")).toBe("5"));
 		// The update lands in the same cells: nothing is rebuilt or deselected.
 		expect(cell("A1")).toBe(first);
 		expect(cell("B2").classList.contains("active")).toBe(true);
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 		edit("A1", "8");
-		await vi.waitFor(() => expect(display("C1")).toBe("10"));
+		await vi.advanceTimersByTimeAsync(10);
+		expect(display("C1")).toBe("10");
 		app.changeExternal(4);
-		await vi.waitFor(() =>
-			expect(q("#updates").textContent).toContain(
-				"Choose which version to keep",
-			),
-		);
+		await app.settle();
+		expect(q("#updates").textContent).toContain("Choose which version to keep");
 		expect(q("#updates").textContent).not.toMatch(/revision/i);
 		expect(app.saved().rows[0]![0]).toBe(4);
 		expect(display("C1")).toBe("10");
 		expect(q<HTMLInputElement>("#formula").disabled).toBe(false);
 		choose("theirs");
-		await vi.waitFor(() => expect(display("C1")).toBe("6"));
-		await vi.waitFor(() => expect(q("#updates").textContent).toBe(""));
+		await app.settle();
+		expect(display("C1")).toBe("6");
+		expect(q("#updates").textContent).toBe("");
+		vi.useRealTimers();
 	});
 	describe("changes someone else makes while the sheet is open", () => {
 		const lit = () =>
@@ -983,7 +989,8 @@ describe("Portable Sheet grid", () => {
 			return original(method, args);
 		});
 		key("s", { ctrlKey: true });
-		await vi.waitFor(() => expect(state()).toBe("error"));
+		await app.settle();
+		expect(state()).toBe("error");
 		expect(q(".status").textContent).toContain("Couldn't save");
 		expect(q(".status").title).toContain("Content exceeds");
 		expect(app.revision()).toBe(1);

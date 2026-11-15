@@ -147,12 +147,19 @@ function render() {
 }
 
 async function settle(assertion: () => void) {
-	await vi.waitFor(async () => {
+	let failure: unknown;
+	for (let elapsed = 0; elapsed < 1_000; elapsed++) {
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(1);
 		});
-		assertion();
-	});
+		try {
+			assertion();
+			return;
+		} catch (error) {
+			failure = error;
+		}
+	}
+	throw failure;
 }
 
 /** oRPC passes a call context as the second argument; assert on inputs only. */

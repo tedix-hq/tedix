@@ -104,7 +104,7 @@ export function DeckProgress({
 				aria-live="polite"
 				aria-atomic="true"
 			>
-				{announcement}
+				{counting ? "" : announcement}
 			</span>
 		</div>
 	);

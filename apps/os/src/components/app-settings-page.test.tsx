@@ -100,12 +100,19 @@ async function mount() {
 	return { host, client };
 }
 async function settles(assertion: () => void) {
-	await vi.waitFor(async () => {
+	let failure: unknown;
+	for (let turn = 0; turn < 100; turn++) {
 		await act(async () => {
-			await Promise.resolve();
+			await new Promise((resolve) => setTimeout(resolve, 0));
 		});
-		assertion();
-	});
+		try {
+			assertion();
+			return;
+		} catch (error) {
+			failure = error;
+		}
+	}
+	throw failure;
 }
 function input(host: HTMLElement, name: string) {
 	const label = [...host.querySelectorAll("label")].find((label) =>
