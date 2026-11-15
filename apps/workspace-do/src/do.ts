@@ -53,6 +53,7 @@ import type {
 import { CallRefusedError } from "@tedix/agent-governance/wrap-binding";
 import { SqlAccountabilityAdapter, SqlComplianceAdapter } from "./adapters";
 import { buildWorkspaceBindings } from "./bindings";
+import type { WorkspaceSnapshot } from "./data-port";
 import { MAX_VIEWS_PER_TURN } from "./views";
 import { resolveAttachments } from "./attachments";
 import { TenantDataPort } from "./data-port-tenant";
@@ -257,6 +258,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	>();
 	#activitySerial: Promise<void> = Promise.resolve();
 	#movedChatReady = false;
+	#workspaceRead: Promise<WorkspaceSnapshot> | null = null;
 	#modelCatalog: {
 		entries: readonly ModelCatalogEntry[];
 		readAt: number;
@@ -2041,8 +2043,18 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		input: TurnRequest,
 	): Promise<TurnPlan> {
 		const data = this.#dataPort(scope, input.actorKind);
+		const workspaceRead = this.#workspaceRead ?? data.workspace();
+		this.#workspaceRead = workspaceRead;
+		void workspaceRead.then(
+			() => {
+				if (this.#workspaceRead === workspaceRead) this.#workspaceRead = null;
+			},
+			() => {
+				if (this.#workspaceRead === workspaceRead) this.#workspaceRead = null;
+			},
+		);
 		const [workspace, guest] = await Promise.all([
-			data.workspace(),
+			workspaceRead,
 			input.tediId ? this.#guestProfile(scope, input.tediId, input.text) : null,
 		]);
 		const history = this.#history(conversationId, 200);
