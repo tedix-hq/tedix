@@ -4813,9 +4813,8 @@ it("asks the accountable owner once for a missing delegation and never adds it",
 	};
 	for (let pass = 0; pass < 2; pass++) await f.restart().tick();
 	const asks = f.events.filter((e) => e.verb === "interaction-create");
-	expect(asks).toHaveLength(2);
+	expect(asks).toHaveLength(1);
 	expect(requests.size).toBe(1);
-	expect(asks[0]!.input).toEqual(asks[1]!.input);
 	expect(asks[0]!.input).toMatchObject({
 		workItemId: owned.id,
 		kind: "question",
@@ -4872,6 +4871,32 @@ it("asks the accountable owner once for a missing delegation and never adds it",
 	expect(readFileSync(join(f.dir, "dispatcher.log"), "utf8")).toContain(
 		"Request request-1",
 	);
+});
+
+it("asks again only for a new Work version or recipient after restart", async () => {
+	const f = fixture();
+	f.items.splice(0, f.items.length, {
+		...item(1),
+		description: "Send an email to the customer",
+	});
+	const base = f.deps.cli!;
+	let requests = 0;
+	f.deps.cli = async <T>(args: string[], env: NodeJS.ProcessEnv) => {
+		if (args[5] !== "interaction-create") return base<T>(args, env);
+		requests++;
+		return { id: `request-${requests}` } as T;
+	};
+	await f.restart().tick();
+	// Neither a later tick nor a new process asks the same person again.
+	await f.restart().tick();
+	expect(requests).toBe(1);
+	f.items[0]!.version++;
+	await f.restart().tick();
+	expect(requests).toBe(2);
+	f.items[0]!.accountableOwnerId = "another-fictional-owner";
+	await f.restart().tick();
+	expect(requests).toBe(3);
+	expect(f.events.some((e) => e.verb === "start")).toBe(false);
 });
 
 it("reads an item waiting on its owner once per window, not once per pass", async () => {

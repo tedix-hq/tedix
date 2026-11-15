@@ -3944,6 +3944,11 @@ export class LaneDispatcher {
 		if (!request) return;
 		const key = `${item.id}:${item.version}:${request.requestedFrom.id}`;
 		if (this.delegationRequests.has(key)) return;
+		const receipt = join(
+			this.directory,
+			`delegation-${createHash("sha256").update(key).digest("hex")}.state`,
+		);
+		if (existsSync(receipt)) return;
 		try {
 			const created = await this.call<{ id: string }>([
 				"work",
@@ -3954,6 +3959,10 @@ export class LaneDispatcher {
 			if (typeof created.id !== "string")
 				throw new Error("Delegation request returned no id");
 			this.delegationRequests.set(key, created.id);
+			writeFileSync(`${receipt}.tmp`, JSON.stringify({ key, id: created.id }), {
+				mode: 0o600,
+			});
+			renameSync(`${receipt}.tmp`, receipt);
 			this.log("owner-request", item.id, `Request ${created.id}`);
 		} catch (error) {
 			this.log("owner-request-failed", item.id, String(error));
