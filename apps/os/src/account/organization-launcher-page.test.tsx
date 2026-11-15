@@ -137,11 +137,6 @@ describe("OrganizationLauncherContent", () => {
 								copyValue: null,
 							},
 							{
-								surface: "cms",
-								href: "https://blog.acme.com/_emdash/admin",
-								copyValue: null,
-							},
-							{
 								surface: "mcp",
 								href: null,
 								copyValue: "https://acme.mcp.tedix.dev/mcp",
@@ -153,12 +148,11 @@ describe("OrganizationLauncherContent", () => {
 		);
 		// Route-out surfaces render as anchors to their server-built canonical URL.
 		expect(html).toContain('href="https://acme.os.tedix.dev/"');
-		expect(html).toContain('href="https://blog.acme.com/_emdash/admin"');
 		// MCP stays a copy/discovery action, never a route-out anchor. Technical
 		// hostnames stay out of the scan path and are available from the control.
 		expect(html).not.toContain('href="https://acme.mcp.tedix.dev/mcp"');
 		expect(html).toContain('aria-label="Copy MCP gateway"');
-		expect(html).toContain('aria-label="Open CMS"');
+		expect(html).not.toContain("CMS");
 		expect(html).toContain('data-workspace-link="true"');
 		expect(html).toContain("Search workspaces");
 		expect(html).toContain("1 workspace");

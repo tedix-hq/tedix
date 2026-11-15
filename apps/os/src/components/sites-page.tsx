@@ -995,6 +995,19 @@ export function SitesPage() {
 					>
 						Open public site
 					</DropdownMenuItem>
+					{site.editorUrl ? (
+						<DropdownMenuItem
+							onClick={() =>
+								window.open(
+									site.editorUrl ?? "",
+									"_blank",
+									"noopener,noreferrer",
+								)
+							}
+						>
+							Open editor
+						</DropdownMenuItem>
+					) : null}
 					<DropdownMenuItem onClick={() => void inspectRecovery(site.id)}>
 						Recovery details
 					</DropdownMenuItem>
@@ -1031,6 +1044,20 @@ export function SitesPage() {
 					</PageDescription>
 				</PageHeading>
 				<PageActions>
+					{selectedSiteDetails?.editorUrl ? (
+						<Button
+							variant="outline"
+							onClick={() =>
+								window.open(
+									selectedSiteDetails.editorUrl ?? "",
+									"_blank",
+									"noopener,noreferrer",
+								)
+							}
+						>
+							Open editor
+						</Button>
+					) : null}
 					{selectedSite ? (
 						<Button
 							variant="outline"

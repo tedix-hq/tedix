@@ -24,7 +24,7 @@ export function resolveOsPlatformDomain(hostname: string): OsPlatformDomain {
  * arrival. MCP is deliberately absent — it is a copy/discovery endpoint, never
  * a browser session, so it is never an authorized `returnTo` target.
  */
-const SESSION_ROUTE_OUT_SURFACES: readonly DirectorySurface[] = ["os", "cms"];
+const SESSION_ROUTE_OUT_SURFACES: readonly DirectorySurface[] = ["os"];
 
 /**
  * A normalized launcher row. The route builds these from directory records
@@ -33,7 +33,7 @@ const SESSION_ROUTE_OUT_SURFACES: readonly DirectorySurface[] = ["os", "cms"];
  */
 interface LauncherSurfaceEntry {
 	surface: DirectorySurface;
-	/** Route-out destination for a session surface (os/cms); null for MCP. */
+	/** Route-out destination for a session surface (os); null for MCP. */
 	href: string | null;
 	/** MCP gateway endpoint to copy; null for session surfaces. */
 	copyValue: string | null;
@@ -153,7 +153,7 @@ export function withLauncherNextPath(
 /**
  * Build the set of origins a `returnTo` may redirect into: both the canonical
  * destination and broker-handoff origins of every PROVISIONED, session-routable
- * surface (os/cms) of a member org, drawn live from the directory.
+ * surface (os) of a member org, drawn live from the directory.
  * MCP is excluded (copy-only, never a browser session). A non-provisioned
  * surface contributes nothing, and an org that is not `provisionComplete`
  * contributes no surfaces at all — so a stale or attacker-supplied host that is
@@ -261,7 +261,7 @@ export function buildTenantOsHandoffUrl(target: URL): string {
 /**
  * Normalize directory records into launcher rows. Only provisioned surfaces of
  * a `provisionComplete` org become entries; MCP becomes a copy entry (its
- * server-built endpoint), and os/cms become route-out anchors to their
+ * server-built endpoint), and os becomes a route-out anchor to its
  * server-built session handoff URL. A non-`provisionComplete` org yields an entry
  * with no surfaces so the launcher can render it disabled without routing.
  */

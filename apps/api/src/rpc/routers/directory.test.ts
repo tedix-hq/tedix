@@ -65,8 +65,6 @@ function membership(overrides: Record<string, unknown> = {}) {
 function signals(overrides: Record<string, unknown> = {}) {
 	return {
 		os: false,
-		cmsEnabled: false,
-		cmsDomain: null,
 		...overrides,
 	};
 }
@@ -155,7 +153,7 @@ describe("directory.listMyWorkspaces", () => {
 	it("enumerates each surface from its live provision signal", async () => {
 		mocks.getUserOrganizationMemberships.mockResolvedValue([membership()]);
 		mocks.getOrganizationSurfaceSignals.mockResolvedValue(
-			new Map([[ORG_A, signals({ os: true, cmsEnabled: true })]]),
+			new Map([[ORG_A, signals({ os: true })]]),
 		);
 		mocks.getOrganizationAggregatorGateways.mockResolvedValue(
 			new Map([[ORG_A, { slug: "acme-unified", customMcpDomain: null }]]),
@@ -180,12 +178,8 @@ describe("directory.listMyWorkspaces", () => {
 			canonicalUrl: "https://acme-unified.mcp.tedix.dev/mcp",
 			handoffUrl: null,
 		});
-		expect(byName.get("cms")).toMatchObject({
-			provisioned: true,
-			canonicalUrl: "https://acme.cms.tedix.dev/_emdash/admin",
-			handoffUrl:
-				"https://acme.cms.tedix.dev/_emdash/api/auth/session-broker/start?tenant_id=T-acme&redirect_to=%2F_emdash%2Fadmin",
-		});
+		// CMS sites are listed per site on the Sites page, never here.
+		expect([...byName.keys()]).toEqual(["os", "mcp"]);
 	});
 
 	it("leaves an unsignaled surface unprovisioned with a null url", async () => {
@@ -199,17 +193,12 @@ describe("directory.listMyWorkspaces", () => {
 		).listMyWorkspaces({});
 		const byName = surfaceMap(data[0]!.surfaces);
 		expect(byName.get("os")?.provisioned).toBe(true);
-		expect(byName.get("cms")).toMatchObject({
-			provisioned: false,
-			canonicalUrl: null,
-			handoffUrl: null,
-		});
 		expect(byName.get("mcp")).toMatchObject({
 			provisioned: false,
 			canonicalUrl: null,
 			handoffUrl: null,
 		});
-		expect(byName.size).toBe(3);
+		expect(byName.size).toBe(2);
 	});
 
 	it("disables every surface when the org has no Descope tenant", async () => {
@@ -217,7 +206,7 @@ describe("directory.listMyWorkspaces", () => {
 			membership({ descopeTenantId: null }),
 		]);
 		mocks.getOrganizationSurfaceSignals.mockResolvedValue(
-			new Map([[ORG_A, signals({ os: true, cmsEnabled: true })]]),
+			new Map([[ORG_A, signals({ os: true })]]),
 		);
 		mocks.getOrganizationAggregatorGateways.mockResolvedValue(
 			new Map([[ORG_A, { slug: "acme-unified", customMcpDomain: null }]]),
@@ -234,19 +223,8 @@ describe("directory.listMyWorkspaces", () => {
 		}
 	});
 
-	it("prefers a per-surface custom domain over the platform subdomain", async () => {
+	it("prefers a custom MCP domain over the platform subdomain", async () => {
 		mocks.getUserOrganizationMemberships.mockResolvedValue([membership()]);
-		mocks.getOrganizationSurfaceSignals.mockResolvedValue(
-			new Map([
-				[
-					ORG_A,
-					signals({
-						cmsEnabled: true,
-						cmsDomain: "blog.acme.com",
-					}),
-				],
-			]),
-		);
 		mocks.getOrganizationAggregatorGateways.mockResolvedValue(
 			new Map([
 				[ORG_A, { slug: "acme-unified", customMcpDomain: "mcp.acme.com" }],
@@ -262,12 +240,6 @@ describe("directory.listMyWorkspaces", () => {
 			canonicalUrl: "https://mcp.acme.com/mcp",
 			handoffUrl: null,
 			customDomain: "mcp.acme.com",
-		});
-		expect(byName.get("cms")).toMatchObject({
-			canonicalUrl: "https://blog.acme.com/_emdash/admin",
-			handoffUrl:
-				"https://acme.cms.tedix.dev/_emdash/api/auth/session-broker/start?tenant_id=T-acme&redirect_to=%2F_emdash%2Fadmin",
-			customDomain: "blog.acme.com",
 		});
 		expect(byName.has("tedi")).toBe(false);
 	});
@@ -344,9 +316,6 @@ describe("directory.resolveWorkspace", () => {
 			descopeTenantId: "T-acme",
 			features: { os: true },
 		});
-		mocks.getOrganizationSurfaceSignals.mockResolvedValue(
-			new Map([[ORG_A, signals({ os: true })]]),
-		);
 
 		const result = await createClient(createContext("user-1")).resolveWorkspace(
 			{ organizationId: ORG_A },

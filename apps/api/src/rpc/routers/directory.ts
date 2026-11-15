@@ -10,10 +10,7 @@ import {
 	getOrganizationById,
 	isOrganizationOffboarding,
 } from "@tedix/db/queries/organizations";
-import {
-	getOrganizationSurfaceSignals,
-	type OrganizationSurfaceSignals,
-} from "@tedix/db/queries/tenant-directory";
+import { getOrganizationSurfaceSignals } from "@tedix/db/queries/tenant-directory";
 import { buildSurfaceUrl } from "@tedix/tenant-directory";
 import {
 	type BaseContext,
@@ -28,7 +25,7 @@ import { platformDomain as platformDomainOf } from "@tedix/worker-kit/platform-h
  * Cross-surface workspace directory for the tenant-neutral launcher.
  *
  * A caller-scoped, D1-authoritative read model: it enumerates the surfaces
- * (OS, MCP, CMS) each authenticated user's organizations exposes
+ * (OS, MCP) each authenticated user's organizations exposes
  * and builds their canonical URLs and browser session handoffs server-side via
  * `@tedix/tenant-directory`.
  *
@@ -39,12 +36,13 @@ import { platformDomain as platformDomainOf } from "@tedix/worker-kit/platform-h
  * minted Descope tenant; an org without one is disabled and every surface
  * reports `provisioned:false`, with null canonical and handoff URLs. Each
  * surface additionally
- * requires its own live D1 signal (OS `features.os`, CMS
- * `blogConfig.enabled`, MCP unified gateway row).
+ * requires its own live D1 signal (OS `features.os`, MCP unified gateway row).
+ * CMS sites are not a directory surface: an organization can have several, and
+ * the OS Sites page opens each one's editor.
  *
  * Cache posture: this endpoint reads D1 live and holds no cache of its own. The
  * downstream per-surface resolvers cache with no push-purge for their positive
- * TTLs (OS edge 300s, CMS 5min, MCP aggregate ~12min), so a
+ * TTLs (OS edge 300s, MCP aggregate ~12min), so a
  * just-provisioned surface may report `provisioned:true` here before the
  * surface edge itself serves it. The directory must never be cached longer than
  * the smallest of those windows; today it caches nothing.
@@ -63,45 +61,32 @@ type OrgCore = {
 };
 
 type SurfaceRecord = {
-	surface: "os" | "mcp" | "cms";
+	surface: "os" | "mcp";
 	provisioned: boolean;
 	canonicalUrl: string | null;
 	handoffUrl: string | null;
 	customDomain?: string;
 };
 
-function tenantSurfaceHandoffUrl(
-	surface: "os" | "cms",
-	org: OrgCore,
-	platformDomain: string,
-): string {
-	const origin = buildSurfaceUrl(surface, org.slug, { platformDomain });
+function osHandoffUrl(org: OrgCore, platformDomain: string): string {
+	const origin = buildSurfaceUrl("os", org.slug, { platformDomain });
 	if (!origin || !org.descopeTenantId) {
-		throw new Error(`${surface} handoff requires a provisioned organization`);
+		throw new Error("os handoff requires a provisioned organization");
 	}
-	const handoff = new URL(
-		surface === "cms"
-			? "/_emdash/api/auth/session-broker/start"
-			: "/auth/session-broker/start",
-		origin,
-	);
+	const handoff = new URL("/auth/session-broker/start", origin);
 	handoff.searchParams.set("tenant_id", org.descopeTenantId);
-	handoff.searchParams.set(
-		"redirect_to",
-		surface === "cms" ? "/_emdash/admin" : "/",
-	);
+	handoff.searchParams.set("redirect_to", "/");
 	return handoff.toString();
 }
 
 /**
- * Normalize an org + its provision signals + its unified MCP gateway into a
+ * Normalize an org + its unified MCP gateway into a
  * single directory record. Every surface is gated on `provisionComplete` first,
  * then on its own live signal; a per-surface custom domain overrides the
  * platform subdomain when present.
  */
 function buildWorkspaceRecord(
 	org: OrgCore,
-	signals: OrganizationSurfaceSignals | undefined,
 	gateway: { slug: string; customMcpDomain: string | null } | undefined,
 	platformDomain: string,
 ) {
@@ -117,9 +102,7 @@ function buildWorkspaceRecord(
 			canonicalUrl: provisioned
 				? buildSurfaceUrl("os", org.slug, { platformDomain })
 				: null,
-			handoffUrl: provisioned
-				? tenantSurfaceHandoffUrl("os", org, platformDomain)
-				: null,
+			handoffUrl: provisioned ? osHandoffUrl(org, platformDomain) : null,
 		});
 	}
 
@@ -144,33 +127,6 @@ function buildWorkspaceRecord(
 			provisioned,
 			canonicalUrl,
 			handoffUrl: null,
-			...(customDomain ? { customDomain } : {}),
-		});
-	}
-
-	// CMS — any app has blogConfig.enabled; cmsDomain overrides.
-	{
-		const provisioned = provisionComplete && signals?.cmsEnabled === true;
-		let canonicalUrl: string | null = null;
-		let customDomain: string | undefined;
-		if (provisioned) {
-			if (signals?.cmsDomain) {
-				customDomain = signals.cmsDomain;
-				canonicalUrl = `https://${signals.cmsDomain}/_emdash/admin`;
-			} else {
-				const origin = buildSurfaceUrl("cms", org.slug, { platformDomain });
-				canonicalUrl = origin
-					? new URL("/_emdash/admin", origin).toString()
-					: null;
-			}
-		}
-		surfaces.push({
-			surface: "cms",
-			provisioned,
-			canonicalUrl,
-			handoffUrl: provisioned
-				? tenantSurfaceHandoffUrl("cms", org, platformDomain)
-				: null,
 			...(customDomain ? { customDomain } : {}),
 		});
 	}
@@ -235,7 +191,6 @@ const listMyWorkspaces = authed.listMyWorkspaces
 					os: signals.get(m.organizationId)?.os === true,
 					owner: m.member.role === "owner",
 				},
-				signals.get(m.organizationId),
 				gateways.get(m.organizationId),
 				platformDomain,
 			),
@@ -291,9 +246,8 @@ const resolveWorkspace = authed.resolveWorkspace
 		if (!organization || isOrganizationOffboarding(organization.metadata))
 			return null;
 
-		const [signals, gateways] = await Promise.all([
-			getOrganizationSurfaceSignals(db, [organization.id]),
-			getOrganizationAggregatorGateways(db, [organization.id]),
+		const gateways = await getOrganizationAggregatorGateways(db, [
+			organization.id,
 		]);
 		const platformDomain = platformDomainOf(context.env);
 
@@ -307,7 +261,6 @@ const resolveWorkspace = authed.resolveWorkspace
 				os: organization.features?.os === true,
 				owner: membership.role === "owner",
 			},
-			signals.get(organization.id),
 			gateways.get(organization.id),
 			platformDomain,
 		);

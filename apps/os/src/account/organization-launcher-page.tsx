@@ -1,7 +1,6 @@
 import { PageTitle } from "@/components/kumo/page";
 import {
 	ArrowRight,
-	Article,
 	Browser,
 	CaretDown,
 	Check,
@@ -82,14 +81,13 @@ const WORKSPACE_ROW =
 /**
  * Presentation metadata per surface. The directory owns provisioning and
  * canonical URLs; the launcher owns only how each surface is labeled and which
- * ones route out (os/cms) versus copy (mcp).
+ * ones route out (os) versus copy (mcp).
  */
 const SURFACE_META: Record<
 	DirectorySurface,
 	{ label: string; description: string; Icon: Icon }
 > = {
 	os: { label: "OS", description: "Working interface", Icon: Browser },
-	cms: { label: "CMS", description: "Emdash content admin", Icon: Article },
 	mcp: {
 		label: "MCP gateway",
 		description: "Copy to connect your tools",
