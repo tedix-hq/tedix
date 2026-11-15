@@ -7,11 +7,11 @@ import {
 const base: WorkspaceRouteCaller = {
 	organizationId: "org-1",
 	workspaceId: "ws-1",
-	authType: "external_agent",
-	tediId: null,
+	authType: "tedi",
+	tediId: "tedi-1",
 	userId: null,
 	bearerToken: null,
-	scopes: [],
+	scopes: ["mcp:apps.read"],
 };
 
 function lookup(statuses: number[]) {
@@ -33,6 +33,7 @@ describe("resolveWorkspaceRouteAccess", () => {
 		expect(api.seen[0]).toEqual({
 			"X-Tedix-Org-Id": "org-1",
 			"X-Tedix-Tedi-Scopes": "apps:read",
+			"X-Tedix-Tedi-Id": "tedi-1",
 		});
 	});
 
@@ -53,22 +54,23 @@ describe("resolveWorkspaceRouteAccess", () => {
 		expect(api.seen[0]).not.toHaveProperty("X-Tedix-Acting-User");
 	});
 
-	it("asks as the person when a private workspace is hidden from the binding", async () => {
-		const api = lookup([404, 200]);
+	it("checks the person without borrowing their attached tedi", async () => {
+		const api = lookup([200]);
 		const access = await resolveWorkspaceRouteAccess(api.fn, {
 			...base,
 			authType: "oauth",
 			tediId: "tedi-1",
 			userId: "user-1",
 			bearerToken: "token",
-			scopes: ["mcp:tools.read"],
+			scopes: ["mcp:apps.read"],
 		});
 		expect(access).toBe("allow");
-		expect(api.seen[0]?.["X-Tedix-Acting-User"]).toBe("user-1");
-		expect(api.seen[1]).toMatchObject({
+		expect(api.seen).toHaveLength(1);
+		expect(api.seen[0]).not.toHaveProperty("X-Tedix-Tedi-Id");
+		expect(api.seen[0]).toMatchObject({
 			"X-Forwarded-Authorization": "Bearer token",
 			"X-Tedix-Caller-Type": "mcp-edge-user",
-			"X-Tedix-Mcp-Caller-Scopes": "mcp:tools.read",
+			"X-Tedix-Mcp-Caller-Scopes": "mcp:apps.read",
 		});
 	});
 
@@ -91,4 +93,37 @@ describe("resolveWorkspaceRouteAccess", () => {
 			}, base),
 		).toBe("unavailable");
 	});
+});
+
+it("cannot borrow an inferred tedi or app service identity for a machine caller", async () => {
+	const api = lookup([200]);
+	expect(
+		await resolveWorkspaceRouteAccess(api.fn, {
+			...base,
+			authType: "external_agent",
+			userId: "owner",
+			bearerToken: "machine-token",
+		}),
+	).toBe("deny");
+	expect(api.seen).toEqual([]);
+});
+it("does not retry a human denial as their attached tedi", async () => {
+	const api = lookup([404, 200]);
+	expect(
+		await resolveWorkspaceRouteAccess(api.fn, {
+			...base,
+			authType: "oauth",
+			userId: "stranger",
+			bearerToken: "token",
+		}),
+	).toBe("deny");
+	expect(api.seen).toHaveLength(1);
+});
+
+it("does not synthesize a workspace read grant for an unscoped tedi", async () => {
+	const api = lookup([200]);
+	expect(
+		await resolveWorkspaceRouteAccess(api.fn, { ...base, scopes: [] }),
+	).toBe("deny");
+	expect(api.seen).toEqual([]);
 });

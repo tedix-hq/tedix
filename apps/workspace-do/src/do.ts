@@ -68,6 +68,11 @@ import type {
 	WorkspaceEnv,
 	WorkspaceScope,
 } from "./env";
+import {
+	assertWorkspaceGuestTedi,
+	workspaceSessionAllowed,
+	type WorkspaceSession,
+} from "./session-access";
 import { handleMcpRequest } from "./mcp";
 import {
 	catalogWorkspaceModels,
@@ -258,6 +263,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		Promise<NonNullable<OutputQueryResult<"get">>>
 	>();
 	#activitySerial: Promise<void> = Promise.resolve();
+	#pushSerial: Promise<void> = Promise.resolve();
 	#movedChatReady = false;
 	#workspaceRead: Promise<WorkspaceSnapshot> | null = null;
 	#modelCatalog: {
@@ -276,7 +282,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		this.#activityRecords = new SqlActivityRecords(this.#store);
 		this.#events = new SqlEventLedger(this.#store, (event) => {
 			this.#recordConversationActivity(event);
-			this.#push(event);
+			this.#pushSerial = this.#pushSerial.then(() => this.#push(event));
+			this.ctx.waitUntil(this.#pushSerial);
 			// Unread badges and chat notifications read the activity feed. A
 			// post, a finished turn and a question go there now instead of
 			// waiting for the next keepalive alarm.
@@ -1123,24 +1130,25 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		const url = new URL(request.url);
 		const scope = this.#scopeFromHeaders(request);
 		if (url.pathname.endsWith("/subscribe")) {
+			const session: WorkspaceSession = {
+				scope,
+				actorId: request.headers.get("X-Workspace-Actor-Id") ?? "",
+				actorKind: "user",
+				scopes: null,
+			};
+			if (!(await workspaceSessionAllowed(this.env.DB, session)))
+				return new Response("Workspace access denied", { status: 403 });
 			await this.refreshModelCatalog();
 			if (request.headers.get("Upgrade") !== "websocket")
 				return new Response("Expected WebSocket", { status: 426 });
 			const pair = new WebSocketPair();
 			const [client, server] = [pair[0], pair[1]];
 			this.ctx.acceptWebSocket(server);
-			// The caller (OS worker) authenticated the person and names them here.
-			server.serializeAttachment({
-				scope,
-				conversationId: null,
-				actorId:
-					request.headers.get("X-Workspace-Actor-Id") ??
-					request.headers.get("X-Tedix-Person") ??
-					"person",
-			});
+			// Keep the verified principal, never its credentials or a cached role.
+			server.serializeAttachment({ ...session, conversationId: null });
 			const cursor = Number(url.searchParams.get("after") ?? "");
 			if (Number.isFinite(cursor) && url.searchParams.has("after")) {
-				this.#subscribe(
+				await this.#subscribe(
 					server,
 					scope,
 					url.searchParams.get("conversation"),
@@ -1154,14 +1162,42 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				request.headers.get("X-Workspace-Actor-Id") ?? "anonymous";
 			const actorKind = (request.headers.get("X-Workspace-Actor-Kind") ??
 				"external_agent") as ActorKind;
+			const session: WorkspaceSession = {
+				scope,
+				actorId,
+				actorKind,
+				scopes: (request.headers.get("X-Workspace-Scopes") ?? "")
+					.split(/\s+/)
+					.filter(Boolean),
+			};
 			const body = await request.json().catch(() => null);
+			const authorize = async (write = false) => {
+				if (!(await workspaceSessionAllowed(this.env.DB, session, write)))
+					throw new Error("Workspace access denied");
+			};
+			if (!(await workspaceSessionAllowed(this.env.DB, session)))
+				return new Response("Workspace access denied", { status: 403 });
 			const reply = await handleMcpRequest(
 				{
-					sendTurn: async (input) => this.sendTurn(scope, input),
-					awaitTurn: (turnId, timeoutMs) =>
-						this.awaitTurn(scope, turnId, timeoutMs),
-					readChangeRecords: (query) => this.readChangeRecords(scope, query),
-					readEvents: async (input) => this.readEvents(scope, input),
+					sendTurn: async (input) => {
+						await authorize(true);
+						await assertWorkspaceGuestTedi(this.env.DB, session, input.tediId);
+						return this.sendTurn(scope, input);
+					},
+					awaitTurn: async (turnId, timeoutMs) => {
+						await authorize();
+						const result = await this.awaitTurn(scope, turnId, timeoutMs);
+						await authorize();
+						return result;
+					},
+					readChangeRecords: async (query) => {
+						await authorize();
+						return this.readChangeRecords(scope, query);
+					},
+					readEvents: async (input) => {
+						await authorize();
+						return this.readEvents(scope, input);
+					},
 				},
 				{ actorId, actorKind },
 				body,
@@ -1187,22 +1223,44 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			});
 			return;
 		}
-		const attachment = ws.deserializeAttachment() as {
-			scope: WorkspaceScope;
+		const attachment = ws.deserializeAttachment() as WorkspaceSession & {
 			conversationId: string | null;
 		};
+		if (
+			!(await workspaceSessionAllowed(
+				this.env.DB,
+				attachment,
+				frame?.type !== "subscribe" &&
+					frame?.type !== "read_ledger" &&
+					frame?.type !== "ping",
+			))
+		) {
+			this.#control(ws, {
+				type: "error",
+				code: "access_denied",
+				message: "Workspace access denied",
+			});
+			ws.close(1008, "Workspace access denied");
+			return;
+		}
 		const { scope } = attachment;
 		try {
 			switch (frame?.type) {
 				case "subscribe":
 					await this.refreshModelCatalog();
-					this.#subscribe(ws, scope, frame.conversationId, frame.cursor ?? 0);
+					await this.#subscribe(
+						ws,
+						scope,
+						frame.conversationId,
+						frame.cursor ?? 0,
+					);
 					return;
 				case "send_turn": {
+					await assertWorkspaceGuestTedi(this.env.DB, attachment, frame.tediId);
 					const started = await this.sendTurn(scope, {
 						turnId: frame.clientTurnId,
 						conversationId: frame.conversationId,
-						actorId: ws.deserializeAttachment()?.actorId ?? "person",
+						actorId: attachment.actorId,
 						actorKind: "user",
 						text: frame.text,
 						modelId: frame.modelId,
@@ -1221,7 +1279,7 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 					await this.decideApproval(scope, {
 						approvalId: frame.approvalId,
 						decision: frame.decision,
-						by: ws.deserializeAttachment()?.actorId ?? "person",
+						by: attachment.actorId,
 						...(frame.note ? { note: frame.note } : {}),
 					});
 					return;
@@ -1627,12 +1685,18 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		return true;
 	}
 
-	#subscribe(
+	async #subscribe(
 		ws: WebSocket,
 		scope: WorkspaceScope,
 		conversationId: string | null,
 		cursor: number,
 	) {
+		if (
+			!(await workspaceSessionAllowed(this.env.DB, ws.deserializeAttachment()))
+		) {
+			ws.close(1008, "Workspace access denied");
+			return;
+		}
 		this.bindScope(scope);
 		const current = ws.deserializeAttachment() as Record<string, unknown>;
 		ws.serializeAttachment({ ...current, scope, conversationId });
@@ -1658,12 +1722,16 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 		}
 	}
 
-	#push(event: WireEvent) {
+	async #push(event: WireEvent) {
 		const frame = JSON.stringify(event);
 		for (const ws of this.ctx.getWebSockets()) {
-			const attachment = ws.deserializeAttachment() as {
-				conversationId?: string | null;
-			} | null;
+			const attachment = ws.deserializeAttachment() as
+				| (WorkspaceSession & { conversationId?: string | null })
+				| null;
+			if (!(await workspaceSessionAllowed(this.env.DB, attachment))) {
+				ws.close(1008, "Workspace access denied");
+				continue;
+			}
 			if (
 				attachment?.conversationId &&
 				attachment.conversationId !== event.conversationId

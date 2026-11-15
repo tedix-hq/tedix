@@ -46,7 +46,7 @@ import {
 	runAppRuntimeCall,
 	type AppRuntimeRevision,
 } from "./os-app-runtime-code";
-import { readWorkspaceSessionRole } from "./os-workspace-collaborators";
+import { readWorkspaceSessionRole } from "@tedix/db/queries/os-workspace-access";
 import { SKIPPED_RUN_RESULT_STATUSES } from "./workspace-schedules";
 
 export const APP_TRIGGER_PRINCIPAL_KIND = "app_trigger";
