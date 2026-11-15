@@ -32,6 +32,12 @@ import {
 	DecisionContextToolbar,
 } from "./decision-context-rail";
 import { Button } from "./kumo/button";
+import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from "./kumo/collapsible";
+import { SegmentedControl } from "./kumo/segmented-control";
 import { Link } from "./kumo/link";
 import { Text } from "./kumo/text";
 import { ActivityGroupRow } from "./activity-group-row";
@@ -646,22 +652,16 @@ export function FocusFeed({
 			</section>
 		));
 	const chips = (
-		<div
-			role="group"
-			aria-label={OS_COPY.feed.timeline.whoGroup}
-			className="ft-chips flex flex-wrap items-center gap-1"
-		>
-			{ACTIVITY_WHO.map((value) => (
-				<Button
-					key={value}
-					size="sm"
-					variant={who === value ? "secondary" : "ghost"}
-					aria-pressed={who === value}
-					onClick={() => setWho(value)}
-				>
-					{OS_COPY.feed.timeline.who[value]}
-				</Button>
-			))}
+		<div className="ft-chips flex min-w-0 flex-wrap items-center gap-1">
+			<SegmentedControl
+				ariaLabel={OS_COPY.feed.timeline.whoGroup}
+				value={who}
+				onValueChange={setWho}
+				options={ACTIVITY_WHO.map((value) => ({
+					value,
+					label: OS_COPY.feed.timeline.who[value],
+				}))}
+			/>
 			{sourceFilter}
 		</div>
 	);
@@ -804,32 +804,30 @@ export function FocusFeed({
 							<Text tone="secondary">{OS_COPY.feed.timeline.nothingNew}</Text>
 						)}
 						{waiting.length > 0 && (
-							<>
-								<Button
-									variant="ghost"
-									className="focus-more !px-0"
-									aria-expanded={heldOpen}
-									onClick={() => reveal(() => setHeldOpen((v) => !v))}
-								>
+							<Collapsible
+								open={heldOpen}
+								onOpenChange={(open) => reveal(() => setHeldOpen(open))}
+							>
+								<CollapsibleTrigger className="w-full justify-start px-0">
 									{heldOpen
 										? OS_COPY.feed.timeline.lowerPriorityHide
 										: OS_COPY.feed.timeline.lowerPriority(waiting.length)}
-								</Button>
-								{heldOpen && days(waiting)}
-							</>
+								</CollapsibleTrigger>
+								<CollapsibleContent>{days(waiting)}</CollapsibleContent>
+							</Collapsible>
 						)}
 						{handled.length > 0 && (
-							<section className="focus-handled">
-								<Button
-									variant="ghost"
-									className="focus-more !px-0"
-									aria-expanded={handledOpen}
-									onClick={() => reveal(() => setHandledOpen((v) => !v))}
-								>
+							<Collapsible
+								render={<section />}
+								className="focus-handled"
+								open={handledOpen}
+								onOpenChange={(open) => reveal(() => setHandledOpen(open))}
+							>
+								<CollapsibleTrigger className="w-full justify-start px-0">
 									{OS_COPY.feed.timeline.handled(handled.length)}
-								</Button>
-								{handledOpen && days(handled)}
-							</section>
+								</CollapsibleTrigger>
+								<CollapsibleContent>{days(handled)}</CollapsibleContent>
+							</Collapsible>
 						)}
 					</>
 				)}

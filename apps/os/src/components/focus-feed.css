@@ -40,7 +40,7 @@
 	font: 600 0.8125rem/1.4 var(--font-sans);
 	color: var(--muted-foreground);
 }
-.ft-chips [data-slot="button"] {
+.ft-chips [data-slot="button"]:not([data-kumo-component="SegmentedControl"] *) {
 	border-radius: 999px;
 }
 .focus-list {
