@@ -103,6 +103,33 @@ const LOCAL_GOALS = [
 	},
 ];
 
+/** Wake times of proposals snoozed in this local session. */
+const LOCAL_SNOOZES = new Map<string, string>();
+/** Proposals declined or closed as duplicates in this local session. */
+const LOCAL_TRIAGE_EXITS = new Set<string>();
+
+function localProposal(id: string) {
+	const item = WORK_ITEMS.find((row) => row.id === id);
+	if (!item) throw new RpcError("NOT_FOUND", "Work item not found");
+	if (item.disposition !== "proposed" || LOCAL_TRIAGE_EXITS.has(id))
+		throw new RpcError(
+			"CONFLICT",
+			"Only proposed work can leave triage this way",
+		);
+	return item;
+}
+
+/** The sample board stays as seeded; only the triage lists drop the item. */
+function cancelLocalProposal(id: string) {
+	const item = localProposal(id);
+	LOCAL_TRIAGE_EXITS.add(id);
+	return {
+		...item,
+		disposition: "cancelled" as const,
+		cancelledAt: new Date().toISOString(),
+	};
+}
+
 export const workHandlers: Record<string, (input: never) => unknown> = {
 	"decisionGraph/getContext": (input: { cardId: string }) =>
 		decisionGraphFixture(input.cardId),
@@ -492,6 +519,52 @@ export const workHandlers: Record<string, (input: never) => unknown> = {
 			),
 			input,
 		),
+	"workItems/listTriage": (
+		input: { projectId?: string; limit?: number; offset?: number } | undefined,
+	) => {
+		const now = new Date().toISOString();
+		const proposed = WORK_ITEMS.filter(
+			(row) =>
+				row.disposition === "proposed" && !LOCAL_TRIAGE_EXITS.has(row.id),
+		);
+		const waiting = proposed.filter(
+			(row) => (LOCAL_SNOOZES.get(row.id) ?? "") <= now,
+		);
+		const counts = new Map<string | null, number>();
+		for (const row of waiting)
+			counts.set(
+				row.projectId ?? null,
+				(counts.get(row.projectId ?? null) ?? 0) + 1,
+			);
+		return {
+			...paginate(
+				waiting.filter(
+					(row) => (row.projectId ?? null) === (input?.projectId ?? null),
+				),
+				input,
+			),
+			queues: [...counts].map(([projectId, count]) => ({ projectId, count })),
+			snoozed: proposed.length - waiting.length,
+		};
+	},
+	"workItems/decline": (input: { id: string }) => cancelLocalProposal(input.id),
+	"workItems/markDuplicate": (input: {
+		id: string;
+		duplicateOfWorkItemId: string;
+	}) => {
+		if (!WORK_ITEMS.some((row) => row.id === input.duplicateOfWorkItemId))
+			throw new RpcError("NOT_FOUND", "Work item not found");
+		return cancelLocalProposal(input.id);
+	},
+	"workItems/snooze": (input: { id: string; until: string | null }) => {
+		const item = localProposal(input.id);
+		if (input.until) LOCAL_SNOOZES.set(item.id, input.until);
+		else LOCAL_SNOOZES.delete(item.id);
+		return {
+			...item,
+			metadata: input.until ? { triageSnoozedUntil: input.until } : {},
+		};
+	},
 	// Work item detail: the record and its project brief; the ledgers are empty.
 	"workItems/getById": (input: { id: string }) => {
 		const workItem = WORK_ITEMS.find((row) => row.id.startsWith(input.id));

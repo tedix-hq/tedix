@@ -103,6 +103,7 @@ import {
 	workItemRelationsQueryOptions,
 } from "@/lib/os-query-options";
 import { osApi } from "@/lib/api";
+import { errorMessage } from "@/lib/orpc-error";
 import { absoluteDate, absoluteTime } from "@/lib/time";
 import { useDocumentTitle } from "@/lib/use-document-title";
 import { workPrincipalLabel } from "@/lib/work-display";
@@ -621,7 +622,8 @@ export function WorkItemAcceptance({ item }: { item: WorkItem }) {
 			</Button>
 			{accept.isError ? (
 				<Text role="label" tone="error">
-					{OS_COPY.work.acceptError}
+					{/* The API names what acceptance still needs. */}
+					{errorMessage(accept.error, OS_COPY.work.acceptError)}
 				</Text>
 			) : null}
 		</div>

@@ -423,6 +423,19 @@ const CALLS = {
 	"workItems/listEvents": { id: "00000070-0000-4000-8000-000000000001" },
 	"workItems/listReadinessProjection": { limit: 25 },
 	"workItems/listRecoveryProjection": { limit: 100 },
+	"workItems/listTriage": { limit: 100 },
+	"workItems/snooze": {
+		id: "00000070-0000-4000-8000-000000000007",
+		until: "2099-10-27T09:00:00.000Z",
+	},
+	"workItems/decline": {
+		id: "00000070-0000-4000-8000-000000000008",
+		reason: "Not this quarter",
+	},
+	"workItems/markDuplicate": {
+		id: "00000070-0000-4000-8000-000000000009",
+		duplicateOfWorkItemId: "00000070-0000-4000-8000-000000000001",
+	},
 	"workItems/listAttemptProjection": {
 		projectId: "00000076-0000-4000-8000-000000000001",
 		runtimeStates: ["queued", "running", "waiting", "retrying"],

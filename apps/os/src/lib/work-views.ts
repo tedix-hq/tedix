@@ -73,6 +73,15 @@ export const WORK_VIEWS: readonly WorkView[] = [
 		to: "/work/cases",
 	},
 	{
+		id: "triage",
+		label: "Triage",
+		description:
+			"Proposed work waiting for a decision: accept, decline, mark as duplicate or snooze.",
+		group: "reviews",
+		to: "/work",
+		search: { view: "triage" },
+	},
+	{
 		id: "approvals",
 		label: "Approvals",
 		description: "Work proposals waiting for a person to approve.",

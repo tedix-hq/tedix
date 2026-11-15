@@ -617,6 +617,12 @@ export const workItemPagesQueryOptions = (
 				: undefined,
 	});
 
+/** Triage: one queue of proposals plus how much waits in every queue. */
+export const workTriageQueryOptions = (projectId?: string) =>
+	osQuery.workItems.listTriage.queryOptions({
+		input: { ...(projectId ? { projectId } : {}), limit: 100, offset: 0 },
+	});
+
 export const workItemDetailQueryOptions = (id: string) =>
 	osQuery.workItems.getById.queryOptions({ input: { id } });
 
