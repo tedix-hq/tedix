@@ -33,9 +33,13 @@ export async function personalAgentInterfaces(
 		return { status: "not_configured" as const };
 	const session = await verifySignedOutPersonalAgentSession(db, input);
 	if (session.status !== "accepted") return session;
+	const receipt = {
+		status: session.status,
+		...(session.sessionCreated ? { sessionCreated: true } : {}),
+	};
 	if (tasks)
 		return {
-			...session,
+			...receipt,
 			excludedTasks: interfaces.excludedTasks,
 			...(interfaces.feedback
 				? { feedbackEndpoint: `${base}/poppy/feedback` }
@@ -45,7 +49,7 @@ export async function personalAgentInterfaces(
 	if (!report.success) return { status: "invalid_request" as const };
 	try {
 		await filePersonalAgentFeedback(db, env, report.data, input.organizationId);
-		return session;
+		return receipt;
 	} catch (error) {
 		if (error instanceof HTTPException && error.status === 429)
 			return { status: "rate_limited" as const };
