@@ -3,6 +3,38 @@
 Notes for each CLI release, newest first, collected from `.changeset/` files.
 See [CONTRIBUTING.md](../../CONTRIBUTING.md#releases) for how versions are chosen.
 
+## 0.21.17 — 2026-11-15
+
+### Patch Changes
+
+- 31331b9: A runner with many retained runs no longer keeps a processor core busy while
+  idle. Every ten minutes it measured the size of every run folder again, and it
+  checked every checkout it could not remove again. Now a finished run is
+  measured once and again only when it changes, the sizes survive a runner
+  restart, and a checkout whose removal was refused is tried again after 10
+  minutes, then 20, doubling up to 2 hours.
+
+  The same sweep now also removes clean, landed checkouts that an earlier retry
+  left beside the current one (`repo-2`, `repo-3`, …) and keeps only the newest
+  100 folders in `archive/`. A checkout with uncommitted or unpushed work, or
+  one a running or retained Attempt uses, still stays.
+
+- d8d5aa7: A runner over its checkout cap now actually frees the disk. Until now it
+  logged "evicting oldest first" on every sweep and removed almost nothing: a
+  checkout with a leftover scratch file, or with a commit that reached main
+  under another SHA after a rebase, counted as the only copy of someone's work
+  and was kept forever. Two runners had grown to 200 GB and 370 GB against a
+  10 GB cap.
+
+  Under cap pressure, a finished checkout untouched for three days is now
+  removed after its commits and a snapshot of its uncommitted files are saved
+  in the runner's source repository under `refs/lane-evicted/<run>/<checkout>`.
+  Recovery folders left by a failed checkout (`repo.orphan-*`) and folders Git
+  no longer knows are deleted after three days. A run in progress, one awaiting
+  proof and any checkout touched in the last three days still stay. When the
+  cap still cannot be met, the log says how many folders refused removal
+  instead of claiming eviction.
+
 ## 0.21.16 — 2026-11-15
 
 ### Patch Changes
