@@ -1,15 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
-import {
-	osQuery,
-	workspaceResourcesQueryOptions,
-} from "@/lib/os-query-options";
+import { osQuery } from "@/lib/os-query-options";
 import { IMAGE_MIME_TYPES } from "@/components/workspace-file-preview";
 
 /**
  * A small preview of an uploaded picture attached to a chat message. An
- * uploaded file's document shares its resource's id, so the workspace's
- * file list says whether the attachment is a picture; anything else shows
- * nothing and the caller keeps its plain link.
+ * uploaded file's document shares its resource's id, so that resource says
+ * whether the attachment is a picture. Any other attachment has no such
+ * resource and shows nothing; the caller keeps its plain link.
  */
 export function ChatImagePreview({
 	workspaceId,
@@ -23,11 +20,17 @@ export function ChatImagePreview({
 	/** A chip in the composer shows a thumbnail; a sent message shows more. */
 	size?: "chip" | "message";
 }) {
-	const resources = useQuery(workspaceResourcesQueryOptions(workspaceId));
-	const resource = resources.data?.items.find(
-		(item) => item.id === outputId && item.resourceType === "file",
-	);
-	const mimeType = resource?.metadata.mimeType;
+	// Read the one resource: a workspace's file list is capped, so a new
+	// upload in a busy workspace may not be on it.
+	const resource = useQuery({
+		...osQuery.osWorkspaces.resources.get.queryOptions({
+			input: { workspaceId, resourceId: outputId },
+		}),
+		retry: false,
+		staleTime: Infinity,
+	}).data?.resource;
+	const mimeType =
+		resource?.resourceType === "file" ? resource.metadata.mimeType : undefined;
 	const isImage =
 		typeof mimeType === "string" && IMAGE_MIME_TYPES.includes(mimeType);
 	const file = useQuery({
