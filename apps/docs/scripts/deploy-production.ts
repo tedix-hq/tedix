@@ -6,6 +6,7 @@ import { deployValues } from "@tedix/deploy-values";
 import {
 	configWithImageReference,
 	dockerCopySources,
+	IMAGE_BUILD_FLAGS,
 	imageInputTag,
 	imageReference,
 } from "../src/deploy-image";
@@ -141,8 +142,7 @@ async function ensureImage(): Promise<string | undefined> {
 	console.log(`docs deploy: building image ${reference}`);
 	run("docker", [
 		"build",
-		"--platform",
-		"linux/amd64",
+		...IMAGE_BUILD_FLAGS,
 		"--file",
 		dockerfilePath,
 		"--tag",
@@ -162,34 +162,40 @@ try {
 	);
 }
 
-if (reference === undefined) {
-	run("vp", ["build", "--mode", "production"]);
-} else {
-	const original = readFileSync(configPath, "utf8");
-	let substituted: string;
-	try {
-		substituted = configWithImageReference(original, reference);
-	} catch (error) {
-		console.warn(
-			`docs deploy: ${error instanceof Error ? error.message : error}; building with the Dockerfile`,
-		);
-		run("vp", ["build", "--mode", "production"]);
-		substituted = "";
-	}
-	if (substituted !== "") {
-		writeFileSync(configPath, substituted);
-		try {
-			run("vp", ["build", "--mode", "production"]);
-		} finally {
-			writeFileSync(configPath, original);
-		}
-	}
-}
-run("cf", [
+const deployArgs = [
 	"deploy",
 	"--mode",
 	"production",
 	"--prebuilt",
 	"--message",
 	releaseSha,
-]);
+];
+
+function deployFromDockerfile(): void {
+	run("vp", ["build", "--mode", "production"]);
+	run("cf", deployArgs);
+}
+
+function deployWithReference(reference: string): void {
+	const original = readFileSync(configPath, "utf8");
+	writeFileSync(configPath, configWithImageReference(original, reference));
+	try {
+		run("vp", ["build", "--mode", "production"]);
+	} finally {
+		writeFileSync(configPath, original);
+	}
+	run("cf", deployArgs);
+}
+
+if (reference === undefined) {
+	deployFromDockerfile();
+} else {
+	try {
+		deployWithReference(reference);
+	} catch (error) {
+		console.warn(
+			`docs deploy: deploying ${reference} failed (${error instanceof Error ? error.message : error}); building with the Dockerfile`,
+		);
+		deployFromDockerfile();
+	}
+}
