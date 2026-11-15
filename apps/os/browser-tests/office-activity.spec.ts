@@ -64,7 +64,7 @@ try {
 				await timeline.scrollIntoViewIfNeeded();
 				assert.equal(
 					await timeline
-						.getByText("4 coalesced status observations", { exact: false })
+						.getByText("4 matching reports combined", { exact: false })
 						.count(),
 					1,
 				);
@@ -77,11 +77,14 @@ try {
 						.count(),
 					1,
 				);
-				await timeline
-					.getByRole("combobox", { name: "Sources", exact: true })
-					.click();
+				const sources = timeline.getByRole("combobox", {
+					name: "Sources",
+					exact: true,
+				});
+				assert.equal(await sources.innerText(), "Every source");
+				await sources.click();
 				await page
-					.getByRole("option", { name: "supervisor", exact: true })
+					.getByRole("option", { name: "Supervisor", exact: true })
 					.click();
 				await timeline
 					.getByText(

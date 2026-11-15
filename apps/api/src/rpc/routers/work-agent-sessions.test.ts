@@ -783,7 +783,11 @@ describe("Office operational history", () => {
 		await ada.report({ ...report, observation: first });
 		await ada.report({
 			...report,
-			observation: { ...first, id: crypto.randomUUID() },
+			observation: {
+				...first,
+				id: crypto.randomUUID(),
+				trigger: "UserPromptSubmit",
+			},
 		});
 		await ada.report({ ...report, observation: first });
 		const page = await ada.listOperations({ limit: 1 });

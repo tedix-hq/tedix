@@ -11,7 +11,9 @@ import {
 import { workAgentSessions } from "../schema/work-agent-sessions";
 import { workEvents, workAttempts } from "../schema/work-items";
 
-export const OFFICE_HISTORY_LIMIT = 200;
+/** Supervisor reply rows keep their own share, so busy hooks cannot evict them. */
+export const OFFICE_HOOK_LIMIT = 150;
+export const OFFICE_SUPERVISOR_LIMIT = 50;
 export const OFFICE_HISTORY_MS = 24 * 60 * 60 * 1000;
 
 function identity(owner: { organizationId: string; userId: string }) {
@@ -24,7 +26,10 @@ function identity(owner: { organizationId: string; userId: string }) {
 
 /** One bounded personal snapshot per tenant, never an append-only event ledger.
  * SQL merges against the stored value, so overlapping hooks cannot lose rows.
- * Reads also enforce age: an offline reporter cannot extend history retention.
+ * A hook row replaces the earlier row with the same session, trigger and
+ * reported state, adding its count and keeping the first time. Without this an
+ * OpenCode session reporting every few seconds filled the whole snapshot in
+ * minutes. Reads also enforce age: an offline reporter cannot extend retention.
  */
 export async function recordOfficeObservation(
 	db: DbQueryClient,
@@ -34,6 +39,23 @@ export async function recordOfficeObservation(
 ) {
 	const key = identity(owner);
 	const cutoff = new Date(Date.parse(now) - OFFICE_HISTORY_MS).toISOString();
+	const stored = sql`json_each(${userConfigs.value}, '$.rows')`;
+	const field = (alias: string, path: string) =>
+		sql`json_extract(${sql.identifier(alias)}.value, ${`$.${path}`})`;
+	const sameReport = (alias: string) =>
+		row.source === "hook"
+			? sql`(${field(alias, "source")} = 'hook' AND ${field(alias, "host")} = ${row.host} AND ${field(alias, "sessionKey")} = ${row.sessionKey} AND ${field(alias, "trigger")} = ${row.trigger} AND COALESCE(${field(alias, "reportedState")}, '') = ${row.reportedState ?? ""} AND ${field(alias, "at")} >= ${cutoff})`
+			: sql`0`;
+	const duplicate = sql`EXISTS (SELECT 1 FROM ${stored} dup WHERE ${field("dup", "id")} = ${row.id})`;
+	const incoming = sql`json_extract(excluded.value, '$.rows[0]')`;
+	const merged =
+		row.source !== "hook"
+			? incoming
+			: sql`json_set(${incoming},
+ '$.occurrences', MIN(1000000, ${row.occurrences} + COALESCE((SELECT SUM(${field("m", "occurrences")}) FROM ${stored} m WHERE ${sameReport("m")}), 0)),
+ '$.firstAt', MIN(${row.firstAt ?? row.at}, COALESCE((SELECT MIN(COALESCE(${field("m", "firstAt")}, ${field("m", "at")})) FROM ${stored} m WHERE ${sameReport("m")}), ${row.at})),
+ '$.at', MAX(${row.at}, COALESCE((SELECT MAX(${field("m", "at")}) FROM ${stored} m WHERE ${sameReport("m")}), ''))
+)`;
 	await db
 		.insert(userConfigs)
 		.values({
@@ -48,11 +70,15 @@ export async function recordOfficeObservation(
 			set: {
 				value: sql`json_object('rows', json((SELECT json_group_array(json(value)) FROM (
  SELECT value FROM (
- SELECT value FROM json_each(${userConfigs.value}, '$.rows')
- UNION ALL SELECT value FROM json_each(excluded.value, '$.rows')
- WHERE NOT EXISTS (SELECT 1 FROM json_each(${userConfigs.value}, '$.rows') old WHERE json_extract(old.value, '$.id') = ${row.id})
+ SELECT value, json_extract(value, '$.source') AS source, ROW_NUMBER() OVER (
+ PARTITION BY json_extract(value, '$.source') = 'supervisor'
+ ORDER BY json_extract(value, '$.at') DESC, json_extract(value, '$.id') DESC
+ ) AS position FROM (
+ SELECT old.value AS value FROM ${stored} old WHERE ${duplicate} OR NOT ${sameReport("old")}
+ UNION ALL SELECT ${merged} AS value WHERE NOT ${duplicate}
  ) WHERE json_extract(value, '$.at') >= ${cutoff}
- ORDER BY json_extract(value, '$.at') DESC, json_extract(value, '$.id') DESC LIMIT ${OFFICE_HISTORY_LIMIT}
+ ) WHERE position <= CASE WHEN source = 'supervisor' THEN ${OFFICE_SUPERVISOR_LIMIT} ELSE ${OFFICE_HOOK_LIMIT} END
+ ORDER BY json_extract(value, '$.at') DESC, json_extract(value, '$.id') DESC
 ))))`,
 				updatedAt: now,
 			},

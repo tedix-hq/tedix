@@ -47,6 +47,8 @@ export type OfficeObservation = z.infer<typeof OfficeObservationSchema>;
 
 export const OfficeActivityRowSchema = OfficeObservationSchema.extend({
 	workItemId: z.uuid().nullable(),
+	/** Earliest combined report; set by the server when it merges repeats. */
+	firstAt: z.iso.datetime().optional(),
 });
 export type OfficeActivityRow = z.infer<typeof OfficeActivityRowSchema>;
 
@@ -66,6 +68,8 @@ export const OfficeCanonicalRowSchema = z.strictObject({
 		"work_closed",
 		"attempt_succeeded",
 		"attempt_failed",
+		"attempt_cancelled",
+		"attempt_expired",
 	]),
 	workItemId: z.string().nullable(),
 	attemptId: z.string().nullable(),

@@ -820,7 +820,18 @@ function recordStatus(
 		Boolean(env.TEDIX_LANE_ID || env.TEDIX_LANE_LOG) ||
 		env.CLAUDE_CODE_SESSION_ATTENDED === "0" ||
 		unattendedRun(event, env);
-	if (unattended && state === "needs_you") state = "error";
+	// Tedix runs OpenCode lanes with `opencode run --auto`, which answers its own
+	// permission asks; the session keeps working rather than failing.
+	if (
+		harness === "opencode" &&
+		Boolean(env.TEDIX_LANE_ID || env.TEDIX_LANE_LOG) &&
+		event.hook_event_name === "PermissionRequest"
+	)
+		[state, summary] = [
+			"working",
+			`${summary.replace(/\.$/, "")}; the lane approves it automatically.`,
+		];
+	else if (unattended && state === "needs_you") state = "error";
 	const directory = statusDir(env);
 	const path = join(directory, `${harness}-${sessionKey}.json`);
 	const previous = readState(path);
