@@ -600,6 +600,22 @@ export const workItemListQueryOptions = (
 	input: ClientInput<typeof osApi.workItems.list>,
 ) => osQuery.workItems.list.queryOptions({ input });
 
+/** All work: 100 newest items per page under the same server-side filters. */
+export const workItemPagesQueryOptions = (
+	filters: Pick<
+		ClientInput<typeof osApi.workItems.list>,
+		"disposition" | "projectId" | "executor"
+	>,
+) =>
+	osQuery.workItems.list.infiniteOptions({
+		input: (offset: number) => ({ ...filters, limit: 100, offset }),
+		initialPageParam: 0,
+		getNextPageParam: (page) =>
+			page.pagination.hasMore
+				? page.pagination.offset + page.data.length
+				: undefined,
+	});
+
 export const workItemDetailQueryOptions = (id: string) =>
 	osQuery.workItems.getById.queryOptions({ input: { id } });
 

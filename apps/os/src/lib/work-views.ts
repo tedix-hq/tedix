@@ -43,6 +43,14 @@ export const WORK_VIEW_GROUPS: readonly Readonly<{
 
 export const WORK_VIEWS: readonly WorkView[] = [
 	{
+		id: "items",
+		label: "All work",
+		description: "Every Work Item with its status, owner and priority.",
+		group: "planning",
+		to: "/work",
+		search: { view: "items" },
+	},
+	{
 		id: "projects",
 		label: "Projects",
 		description: "Every project, its owner and how far along it is.",
