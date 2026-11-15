@@ -41,10 +41,17 @@ console.log(
 // shared server then re-bundles and stalls or reloads pages it does not own.
 // Discover them now, while only this warmup page is connected.
 const warmed = performance.now();
-const fixtureEntries = readdirSync(new URL(".", import.meta.url))
-	.filter((name) => name.endsWith(".html"))
-	.sort()
-	.map((name) => `/browser-tests/${name}`);
+const fixtureEntries = [
+	// These split SPA routes have no HTML entry. Warm them before the
+	// best-effort budget is spent on standalone fixtures.
+	"/account/settings",
+	"/team/00000010-0000-4000-8000-000000000001",
+	"/admin/organization",
+	...readdirSync(new URL(".", import.meta.url))
+		.filter((name) => name.endsWith(".html"))
+		.sort()
+		.map((name) => `/browser-tests/${name}`),
+];
 await warmFixtureModuleGraph(server.origin, fixtureEntries);
 console.log(
 	`[run-specs] warmed ${fixtureEntries.length} fixture entries in ${seconds(warmed)}`,
