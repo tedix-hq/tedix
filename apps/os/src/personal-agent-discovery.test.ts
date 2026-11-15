@@ -43,7 +43,7 @@ function env(result: unknown = document, status = 200): OsRouterEnv {
 }
 const url = "https://alpha.os.tedix.dev/.well-known/poppy.json";
 describe("public organization discovery", () => {
-	it("serves JSON without a login or redirect, including HEAD", async () => {
+	it("serves known JSON and returns plain-text 404 for unknown well-known paths", async () => {
 		const response = await handleOsRequest(new Request(url), env(), resolver);
 		expect(response.status).toBe(200);
 		expect(response.headers.get("Content-Type")).toContain("application/json");
@@ -56,6 +56,18 @@ describe("public organization discovery", () => {
 		);
 		expect(head.status).toBe(200);
 		expect(await head.text()).toBe("");
+		const unknown = await handleOsRequest(
+			new Request(
+				"https://alpha.os.tedix.dev/.well-known/oauth-protected-resource",
+			),
+			env(),
+			resolver,
+		);
+		expect(unknown.status).toBe(404);
+		expect(unknown.headers.get("Content-Type")).toBe(
+			"text/plain; charset=utf-8",
+		);
+		expect(await unknown.text()).toBe("No well-known resource at this path.\n");
 	});
 	it("returns 404 for missing configuration and 503 for API failure", async () => {
 		expect(
