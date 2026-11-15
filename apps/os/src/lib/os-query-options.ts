@@ -59,6 +59,7 @@ export const WORKFLOW_DEFINITIONS_LIMIT = 50;
 export const MEMBERS_PAGE_SIZE = 25;
 export const API_KEYS_PAGE_SIZE = 25;
 export const WORK_FACTORY_PROJECTION_LIMIT = 100;
+export const GOALS_PAGE_LIMIT = 100;
 /** One month of runway to rotate a credential before it expires or goes overdue. */
 export const EXPIRING_API_KEYS_WINDOW_DAYS = 30;
 
@@ -784,6 +785,24 @@ export const workCaseListQueryOptions = (
 		limit: WORK_CASES_LIMIT,
 	},
 ) => osQuery.workItems.listCases.queryOptions({ input });
+
+export const goalListQueryOptions = () =>
+	osQuery.tediObjectives.list.infiniteOptions({
+		input: (offset: number) => ({ limit: GOALS_PAGE_LIMIT, offset }),
+		initialPageParam: 0,
+		getNextPageParam: (page, _pages, offset) =>
+			page.pagination.hasMore ? offset + page.data.length : undefined,
+	});
+
+export const goalEpicListQueryOptions = () =>
+	osQuery.workItems.listCases.infiniteOptions({
+		input: (cursor: { at: string; id: string } | undefined) => ({
+			limit: WORK_CASES_LIMIT,
+			...(cursor ? { cursor } : {}),
+		}),
+		initialPageParam: undefined as { at: string; id: string } | undefined,
+		getNextPageParam: (page) => page.nextCursor ?? undefined,
+	});
 
 export const workCaseDetailQueryOptions = (
 	caseId: string,

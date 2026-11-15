@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { WorkProjectPage } from "@/components/work-factory-pages";
+import { WorkProjectGoalsPage } from "@/components/work-project-goals-page";
 import { ListPending } from "@/routes/-pending";
 
 export const Route = createFileRoute(
@@ -9,5 +9,5 @@ export const Route = createFileRoute(
 	pendingComponent: ListPending,
 });
 function WorkProjectRoute() {
-	return <WorkProjectPage projectId={Route.useParams().projectId} />;
+	return <WorkProjectGoalsPage projectId={Route.useParams().projectId} />;
 }

@@ -6,8 +6,10 @@ import type {
 	Project,
 	ProjectPortfolioEntry,
 } from "@tedix/api-contract/contracts/projects";
-import { useQuery } from "@tanstack/react-query";
-import { useContext, useMemo, useState } from "react";
+import type { Objective } from "@tedix/api-contract/contracts/tedi-objectives";
+import type { WorkCase } from "@tedix/api-contract/schemas/work-items";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useContext, useEffect, useMemo, useState } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/kumo/alert";
 import { Badge, type BadgeVariant } from "@/components/kumo/badge";
 import {
@@ -59,6 +61,8 @@ import { plainWorkText } from "@/lib/work-detail";
 import { errorMessage } from "@/lib/orpc-error";
 import {
 	factoryScoreboardQueryOptions,
+	goalEpicListQueryOptions,
+	goalListQueryOptions,
 	projectPortfolioQueryOptions,
 	workOfficeKnocksQueryOptions,
 } from "@/lib/os-query-options";
@@ -727,6 +731,123 @@ const WHO_OPTIONS = [
 
 const ALL_SECTIONS = "all";
 
+function GoalLinks({
+	label,
+	items,
+}: {
+	label: string;
+	items: readonly { id: string; title: string; href: string }[];
+}) {
+	return (
+		<div className="grid gap-1">
+			<Text as="dt" role="label" tone="secondary">
+				{label}
+			</Text>
+			<dd className="m-0 flex flex-wrap gap-x-3 gap-y-1">
+				{items.length
+					? items.map((item) => (
+							<Link key={item.id} variant="record" href={item.href}>
+								{item.title}
+							</Link>
+						))
+					: "None"}
+			</dd>
+		</div>
+	);
+}
+
+export function GoalsOverview({
+	goals,
+	projects,
+	epics,
+	pending = false,
+	error,
+}: {
+	goals: readonly Objective[];
+	projects: readonly ProjectPortfolioEntry[];
+	epics: readonly WorkCase[];
+	pending?: boolean;
+	error?: unknown;
+}) {
+	const directory = useContext(WorkActorDirectoryContext);
+	return (
+		<PageSection aria-labelledby="goals-title">
+			<SectionHeader>
+				<SectionHeading>
+					<SectionTitle id="goals-title">Goals</SectionTitle>
+					<SectionDescription>
+						What success means and the projects and epics serving each goal.
+					</SectionDescription>
+				</SectionHeading>
+			</SectionHeader>
+			{pending ? (
+				<Skeleton className="h-40 w-full" />
+			) : error ? (
+				<Alert variant="destructive">
+					<AlertTitle>Goals unavailable</AlertTitle>
+					<AlertDescription>
+						{errorMessage(error, "Goals could not be loaded.")}
+					</AlertDescription>
+				</Alert>
+			) : goals.length === 0 ? (
+				<WorkEmpty
+					title="No goals yet"
+					description="Goals describe the success that projects and epics serve."
+				/>
+			) : (
+				<Collection appearance="inline" aria-label="Goals">
+					{goals.map((goal) => {
+						const servingProjects = projects
+							.filter((row) => row.project.objectiveId === goal.id)
+							.map((row) => ({
+								id: row.project.id,
+								title: row.project.name,
+								href: `/work/projects/${row.project.id}`,
+							}));
+						const servingEpics = epics
+							.filter((epic) => epic.objectiveId === goal.id)
+							.map((epic) => ({
+								id: epic.id,
+								title: epic.title,
+								href: `/work/cases/${epic.id}`,
+							}));
+						const owner =
+							directory.get(`tedi:${goal.tediId}`)?.name ??
+							"Owner name unavailable";
+						return (
+							<li key={goal.id} className="grid gap-3 py-3">
+								<div className="flex flex-wrap items-center justify-between gap-2">
+									<Text as="h3" weight="semibold" className="m-0">
+										{goal.title}
+									</Text>
+									<Badge
+										variant={goal.status === "active" ? "success" : "outline"}
+									>
+										{sentenceCase(goal.status)}
+									</Badge>
+								</div>
+								<Text as="p" className="m-0 whitespace-pre-line">
+									{goal.successCriteria?.trim() || "No success statement yet."}
+								</Text>
+								<dl className="m-0 grid gap-3 sm:grid-cols-3">
+									<div>
+										<Text as="dt" role="label" tone="secondary">
+											Owner
+										</Text>
+										<dd className="m-0">{owner}</dd>
+									</div>
+									<GoalLinks label="Projects" items={servingProjects} />
+									<GoalLinks label="Epics" items={servingEpics} />
+								</dl>
+							</li>
+						);
+					})}
+				</Collection>
+			)}
+		</PageSection>
+	);
+}
+
 export function PortfolioApp({
 	buckets = OS_COPY.portfolio.defaults,
 	isOwner = false,
@@ -734,9 +855,23 @@ export function PortfolioApp({
 	buckets?: readonly PortfolioBucket[];
 	isOwner?: boolean;
 }) {
-	useDocumentTitle("Projects · Work");
+	useDocumentTitle("Goals · Work");
 	const currentUserId = useContext(WorkActorOwnerContext);
 	const portfolio = useQuery(projectPortfolioQueryOptions());
+	const goals = useInfiniteQuery(goalListQueryOptions());
+	const goalEpics = useInfiniteQuery(goalEpicListQueryOptions());
+	useEffect(() => {
+		if (goals.hasNextPage && !goals.isFetchingNextPage)
+			void goals.fetchNextPage();
+	}, [goals.hasNextPage, goals.isFetchingNextPage, goals.fetchNextPage]);
+	useEffect(() => {
+		if (goalEpics.hasNextPage && !goalEpics.isFetchingNextPage)
+			void goalEpics.fetchNextPage();
+	}, [
+		goalEpics.hasNextPage,
+		goalEpics.isFetchingNextPage,
+		goalEpics.fetchNextPage,
+	]);
 	const inbox = useQuery({
 		...workOfficeKnocksQueryOptions(),
 		refetchOnWindowFocus: false,
@@ -770,11 +905,9 @@ export function PortfolioApp({
 		<Page width="full" className="gap-8">
 			<PageHeader>
 				<PageHeading>
-					<PageTitle>Projects</PageTitle>
+					<PageTitle>Goals</PageTitle>
 					<PageDescription>
-						{portfolio.data
-							? `All ${counted(entries.length, "project")} in this organization, ${active.length} active. Open one to see its tasks.`
-							: "Every project in this organization. Open one to see its tasks."}
+						Every goal in this organization and the work serving it.
 					</PageDescription>
 				</PageHeading>
 				{isOwner ? (
@@ -789,6 +922,29 @@ export function PortfolioApp({
 					</PageActions>
 				) : null}
 			</PageHeader>
+			<GoalsOverview
+				goals={goals.data?.pages.flatMap((page) => page.data) ?? []}
+				projects={portfolio.data?.data ?? []}
+				epics={goalEpics.data?.pages.flatMap((page) => page.data) ?? []}
+				pending={Boolean(
+					goals.isPending ||
+					goalEpics.isPending ||
+					portfolio.isPending ||
+					goals.hasNextPage ||
+					goalEpics.hasNextPage,
+				)}
+				error={goals.error ?? goalEpics.error}
+			/>
+			<SectionHeader>
+				<SectionHeading>
+					<SectionTitle id="projects-title">Projects</SectionTitle>
+					<SectionDescription>
+						{portfolio.data
+							? `All ${counted(entries.length, "project")} in this organization, ${active.length} active.`
+							: "Every project in this organization."}
+					</SectionDescription>
+				</SectionHeading>
+			</SectionHeader>
 			{portfolio.isPending ? (
 				<div className="grid gap-2">
 					<Skeleton className="h-9 w-full max-w-md" />

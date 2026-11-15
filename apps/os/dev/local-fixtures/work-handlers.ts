@@ -78,6 +78,31 @@ export const localExternalAgentPrincipal = {
 	lastSeenAt: T5,
 };
 
+const LOCAL_GOALS = [
+	{
+		id: fid("d5", 1),
+		tediId: TEDI_NOVA,
+		orgId: ORG_ID,
+		purposeCharterId: null,
+		title: "Customers trust every recommendation",
+		description: null,
+		approach: null,
+		successCriteria:
+			"Every recommendation is timely, evidence-backed, and easy to act on.",
+		constraints: null,
+		type: "standing" as const,
+		status: "active" as const,
+		riskLevel: "medium" as const,
+		priority: 1,
+		gateConfig: null,
+		budgetConfig: null,
+		progress: null,
+		createdAt: T0,
+		updatedAt: null,
+		completedAt: null,
+	},
+];
+
 export const workHandlers: Record<string, (input: never) => unknown> = {
 	"decisionGraph/getContext": (input: { cardId: string }) =>
 		decisionGraphFixture(input.cardId),
@@ -87,6 +112,8 @@ export const workHandlers: Record<string, (input: never) => unknown> = {
 		complete: true,
 		observedAt: new Date().toISOString(),
 	}),
+	"tediObjectives/list": (input: Pagination | undefined) =>
+		paginate(LOCAL_GOALS, input),
 	"workItems/listCases": (input: {
 		stages?: string[];
 		projectId?: string;
@@ -479,6 +506,12 @@ export const workHandlers: Record<string, (input: never) => unknown> = {
 						description: project.description,
 					}
 				: null,
+			epics: localCases().filter((workCase) =>
+				LOCAL_CASE_ITEMS.some(
+					(item) =>
+						item.caseId === workCase.id && item.workItemId === workItem.id,
+				),
+			),
 			comments: [],
 			evidence: [],
 			evidenceNextCursor: null,

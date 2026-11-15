@@ -405,6 +405,7 @@ describe("Work graph collection", () => {
 		client.setQueryData(workItemDetailQueryOptions(ITEM_ID).queryKey, {
 			workItem: item,
 			project: null,
+			epics: [],
 			projections: [],
 			evidence: [],
 			evidenceNextCursor: null,
@@ -412,6 +413,7 @@ describe("Work graph collection", () => {
 		});
 		client.setQueryData(workItemDetailQueryOptions(otherId).queryKey, {
 			project: null,
+			epics: [],
 			projections: [],
 			evidence: [],
 			evidenceNextCursor: null,
@@ -1000,7 +1002,31 @@ describe("Recorded Work outcomes and activity", () => {
 		seedPrincipalNames(queryClient, item.orgId);
 		queryClient.setQueryData(workItemDetailQueryOptions(item.id).queryKey, {
 			workItem: { ...item, disposition: "completed" },
-			project: null,
+			project: {
+				id: "33333333-3333-4333-8333-333333333333",
+				name: "Trusted exports",
+				description: null,
+			},
+			epics: [
+				{
+					id: "55555555-5555-4555-8555-555555555555",
+					orgId: item.orgId,
+					projectId: "33333333-3333-4333-8333-333333333333",
+					objectiveId: null,
+					kind: "operations",
+					title: "Verified export rollout",
+					description: null,
+					stage: "executing",
+					accountableOwnerType: "user",
+					accountableOwnerId: "owner-1",
+					openedAt: "2026-10-01T00:00:00.000Z",
+					targetResolutionAt: null,
+					closedAt: null,
+					createdAt: "2026-10-01T00:00:00.000Z",
+					updatedAt: null,
+					version: 1,
+				},
+			],
 			projections: [],
 			evidence: [],
 			evidenceNextCursor: null,
@@ -1065,6 +1091,13 @@ describe("Recorded Work outcomes and activity", () => {
 			html.indexOf("Activation pending before release"),
 		);
 		expect(html).toContain(attempt.summary);
+		expect(html).toContain(
+			'href="/work/projects/33333333-3333-4333-8333-333333333333"',
+		);
+		expect(html).toContain(
+			'href="/work/cases/55555555-5555-4555-8555-555555555555"',
+		);
+		expect(html).toContain("Verified export rollout");
 		const host = document.createElement("div");
 		document.body.append(host);
 		const root = createRoot(host);

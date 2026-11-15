@@ -398,6 +398,7 @@ const CALLS = {
 	"knowledge/list": { limit: 100 },
 	"audit/search": { limit: 100 },
 	"workItems/list": { limit: 50 },
+	"tediObjectives/list": { limit: 100 },
 	"workItems/listCases": {},
 	"dispatcherHealth/list": {},
 	"workItems/listResourcePools": {},

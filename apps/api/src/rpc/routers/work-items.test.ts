@@ -1,6 +1,10 @@
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { schemaDdl } from "@tedix/db/test/schema-ddl";
-import { workInteractions } from "@tedix/db/schema/work-factory";
+import {
+	workCaseItems,
+	workCases,
+	workInteractions,
+} from "@tedix/db/schema/work-factory";
 import { DatabaseSync } from "node:sqlite";
 import { createRouterClient } from "@orpc/server";
 import { createDbClient } from "@tedix/db/client";
@@ -28,6 +32,7 @@ CREATE TABLE organizations (id TEXT PRIMARY KEY, metadata TEXT);
 CREATE TABLE organization_members (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, user_id TEXT, descope_user_id TEXT NOT NULL, email TEXT NOT NULL, name TEXT, avatar_url TEXT, kind TEXT NOT NULL DEFAULT 'human', represented_user_id TEXT, role TEXT NOT NULL, custom_permissions TEXT, status TEXT NOT NULL DEFAULT 'active', invited_at TEXT, invite_accepted_at TEXT, invited_by TEXT, last_active_at TEXT, created_at TEXT, updated_at TEXT);
 CREATE TABLE tedi_objectives (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active');
 CREATE TABLE projects (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, key TEXT NOT NULL, objective_id TEXT, status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL, name TEXT, description TEXT, lead_tedi_id TEXT, owner_user_id TEXT, target_date TEXT, metadata TEXT DEFAULT '{}', updated_at TEXT, archived_at TEXT);
+CREATE UNIQUE INDEX uniq_projects_org_id ON projects(org_id,id);
 CREATE TABLE work_items (
  id TEXT PRIMARY KEY, org_id TEXT NOT NULL, title TEXT NOT NULL, description TEXT,
  disposition TEXT NOT NULL DEFAULT 'proposed', work_kind TEXT NOT NULL DEFAULT 'other', risk_level TEXT NOT NULL DEFAULT 'medium', acceptance_contract TEXT,
@@ -123,6 +128,8 @@ beforeEach(() => {
 	sqlite = new DatabaseSync(":memory:");
 	sqlite.exec(DDL);
 	sqlite.exec(schemaDdl(workInteractions));
+	sqlite.exec(schemaDdl(workCases));
+	sqlite.exec(schemaDdl(workCaseItems));
 	sqlite
 		.prepare(
 			"INSERT INTO organization_members(id,organization_id,user_id,descope_user_id,email,role,status) VALUES ('m1',?,?,?,'owner@test','owner','active')",
@@ -419,9 +426,52 @@ describe("Work Item router canonical specification reads and writes", () => {
 		const read = await client().getById({ id: created.id });
 		expect(read.workItem.id).toBe(created.id);
 		expect(read.comments).toEqual([]);
+		expect(read.epics).toEqual([]);
 		expect(read.evidence).toEqual([]);
 		expect(read.evidenceNextCursor).toBeNull();
 		expect(read.projections).toEqual([]);
+	});
+	it("includes attached epics in the exact Work Item read", async () => {
+		const created = await client().create({
+			...PURPOSE,
+			title: "Ship the trusted export",
+		});
+		const epicId = "55555555-5555-4555-8555-555555555555";
+		sqlite
+			.prepare("INSERT OR IGNORE INTO organizations(id) VALUES (?)")
+			.run(ORG_ID);
+		sqlite
+			.prepare(
+				"INSERT INTO work_cases(id,org_id,objective_id,title,kind,stage,accountable_owner_type,accountable_owner_id,opened_at,created_at) VALUES (?,?,?,?,?,'executing','user','owner-1',?,?)",
+			)
+			.run(
+				epicId,
+				ORG_ID,
+				OBJECTIVE_ID,
+				"Verified export rollout",
+				"operations",
+				"2026-11-01T00:00:00.000Z",
+				"2026-11-01T00:00:00.000Z",
+			);
+		sqlite
+			.prepare(
+				"INSERT INTO work_case_items(id,org_id,case_id,work_item_id,discovered_at) VALUES (?,?,?,?,?)",
+			)
+			.run(
+				"66666666-6666-4666-8666-666666666666",
+				ORG_ID,
+				epicId,
+				created.id,
+				"2026-11-01T00:00:00.000Z",
+			);
+
+		const read = await client().getById({ id: created.id });
+		expect(read.epics).toHaveLength(1);
+		expect(read.epics[0]).toMatchObject({
+			id: epicId,
+			title: "Verified export rollout",
+			stage: "executing",
+		});
 	});
 	it("resolves Work prefixes within the caller organization and returns ambiguity candidates", async () => {
 		const first = "abcdef01-0000-4000-8000-000000000001";
