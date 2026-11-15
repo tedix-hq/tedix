@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { chromium, type Browser } from "playwright";
 import { startFixtureServer } from "./fixture-server";
 
-// Projects lists every project, and a project's target date is set, shown
+// Goals lists every project, and a project's target date is set, shown
 // and removed from its page, with no placeholder when there is none.
 const server = await startFixtureServer("/work?app=portfolio", {
 	shared: false,
@@ -15,7 +15,7 @@ try {
 		// An unset target opens the current month; keep October selectable year-round.
 		await page.clock.setFixedTime(new Date("2026-10-15T12:00:00Z"));
 		await page.goto(`${server.origin}/work?app=portfolio`);
-		await page.getByRole("heading", { name: "Projects", level: 1 }).waitFor();
+		await page.getByRole("heading", { name: "Goals", level: 1 }).waitFor();
 		const rows = page.locator("[data-project-row]");
 		await rows.first().waitFor();
 		assert.equal(await rows.count(), 3, `${width}: every project is listed`);
