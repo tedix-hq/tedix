@@ -139,6 +139,10 @@ vi.mock("@tanstack/react-query", () => ({
 							description: null,
 							status: "active",
 							url: "https://blog.acme.example",
+							editorUrl:
+								readStates.siteType === "cms"
+									? "https://acme.cms.tedix.dev/_emdash/admin"
+									: null,
 							accessMode: null,
 							customDomain: siteCustomDomain.current,
 							activeRevisionId: "75",
@@ -803,6 +807,22 @@ describe("SitesPage owned-site actions", () => {
 				'[data-testid="menu-item"][data-variant="destructive"]',
 			)?.textContent,
 		).toBe("Archive site");
+	});
+
+	it("opens a CMS site's editor on its own platform host", () => {
+		const open = vi.spyOn(window, "open").mockReturnValue(null);
+		const host = renderPage();
+		const item = [
+			...host.querySelectorAll<HTMLElement>('[data-testid="menu-item"]'),
+		].find((entry) => entry.textContent === "Open editor");
+		if (!item) throw new Error("Open editor action missing");
+		act(() => item.click());
+		expect(open).toHaveBeenCalledWith(
+			"https://acme.cms.tedix.dev/_emdash/admin",
+			"_blank",
+			"noopener,noreferrer",
+		);
+		open.mockRestore();
 	});
 
 	it("filters sites by domain and opens a focused management view", () => {

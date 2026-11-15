@@ -27,14 +27,6 @@ function workspace(
 				provisioned: tenantId !== null,
 				surface: "os",
 			},
-			{
-				canonicalUrl: `https://${slug}.cms.tedix.dev/_emdash/admin`,
-				handoffUrl: tenantId
-					? `https://${slug}.cms.tedix.dev/_emdash/api/auth/session-broker/start?tenant_id=${tenantId}&redirect_to=%2F_emdash%2Fadmin`
-					: null,
-				provisioned: tenantId !== null,
-				surface: "cms",
-			},
 		],
 	};
 }
@@ -53,7 +45,7 @@ describe("workspace switcher", () => {
 		).toBe("acme");
 	});
 
-	it("brokers OS and CMS destinations so stale product cookies cannot change identity", () => {
+	it("brokers the OS destination so stale product cookies cannot change identity", () => {
 		expect(
 			buildSurfaceSwitchUrl({
 				surface: "os",
@@ -61,14 +53,6 @@ describe("workspace switcher", () => {
 			}),
 		).toBe(
 			"https://acme.os.tedix.dev/auth/session-broker/start?tenant_id=T-acme&redirect_to=%2F",
-		);
-		expect(
-			buildSurfaceSwitchUrl({
-				surface: "cms",
-				workspace: workspace("1", "acme", "T-acme"),
-			}),
-		).toBe(
-			"https://acme.cms.tedix.dev/_emdash/api/auth/session-broker/start?tenant_id=T-acme&redirect_to=%2F_emdash%2Fadmin",
 		);
 	});
 

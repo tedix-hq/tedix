@@ -71,7 +71,7 @@ describe("OS launcher routing", () => {
 
 describe("directory-backed returnTo authorization", () => {
 	// The directory is the trust root: acme is fully provisioned (OS
-	// route-out, plus an MCP copy endpoint and a custom-domain CMS); beta is a
+	// route-out, plus an MCP copy endpoint); beta is a
 	// provisioned org whose surfaces are all still un-provisioned; ghost has no
 	// minted tenant at all. Only currently-provisioned member route-out origins
 	// may ever receive a browser redirect.
@@ -93,14 +93,6 @@ describe("directory-backed returnTo authorization", () => {
 						"https://acme.os.tedix.dev/auth/session-broker/start?tenant_id=T-acme&redirect_to=%2F",
 				},
 				{
-					surface: "cms",
-					provisioned: true,
-					canonicalUrl: "https://blog.acme.com/_emdash/admin",
-					handoffUrl:
-						"https://acme.cms.tedix.dev/_emdash/api/auth/session-broker/start?tenant_id=T-acme&redirect_to=%2F_emdash%2Fadmin",
-					customDomain: "blog.acme.com",
-				},
-				{
 					surface: "mcp",
 					provisioned: true,
 					canonicalUrl: "https://acme.mcp.tedix.dev/mcp",
@@ -119,12 +111,6 @@ describe("directory-backed returnTo authorization", () => {
 			surfaces: [
 				{
 					surface: "os",
-					provisioned: false,
-					canonicalUrl: null,
-					handoffUrl: null,
-				},
-				{
-					surface: "cms",
 					provisioned: false,
 					canonicalUrl: null,
 					handoffUrl: null,
@@ -165,11 +151,7 @@ describe("directory-backed returnTo authorization", () => {
 	}
 
 	it("derives exactly the provisioned route-out origins (MCP excluded)", () => {
-		expect([...origins].sort()).toEqual([
-			"https://acme.cms.tedix.dev",
-			"https://acme.os.tedix.dev",
-			"https://blog.acme.com",
-		]);
+		expect([...origins].sort()).toEqual(["https://acme.os.tedix.dev"]);
 	});
 
 	it("authorizes the exact OS development origin only in that lane", () => {
@@ -182,11 +164,14 @@ describe("directory-backed returnTo authorization", () => {
 		expect(origins.has("https://acme.os.tedix.tech")).toBe(false);
 	});
 
-	it.each([
-		["OS deep link", "https://acme.os.tedix.dev/workspace/123#editor"],
-		["custom-domain CMS", "https://blog.acme.com/_emdash/admin/posts"],
-	])("authorizes a provisioned member surface (%s)", (_label, value) => {
-		expect(authorize(value)).toBe(true);
+	it("authorizes a provisioned member surface", () => {
+		expect(authorize("https://acme.os.tedix.dev/workspace/123#editor")).toBe(
+			true,
+		);
+	});
+
+	it("does not authorize a CMS host, which is no directory surface", () => {
+		expect(authorize("https://acme.cms.tedix.dev/_emdash/admin")).toBe(false);
 	});
 
 	it.each([
@@ -402,11 +387,6 @@ describe("launcher workspace projection", () => {
 								href: "https://acme.os.tedix.dev/auth/session-broker/start?tenant_id=T1&redirect_to=%2F",
 								copyValue: null,
 							},
-							{
-								surface: "cms",
-								href: "https://acme.cms.tedix.dev/_emdash/api/auth/session-broker/start?redirect_to=%2F_emdash%2Fadmin",
-								copyValue: null,
-							},
 							{ surface: "mcp", href: null, copyValue: "https://mcp.example/" },
 						],
 					},
@@ -430,10 +410,7 @@ describe("launcher workspace projection", () => {
 			expect(
 				new URL(acme?.surfaces[0]?.href ?? "").searchParams.get("redirect_to"),
 			).toBe("/outputs/abc");
-			expect(acme?.surfaces[1]?.href).toContain(
-				"redirect_to=%2F_emdash%2Fadmin",
-			);
-			expect(acme?.surfaces[2]?.href).toBeNull();
+			expect(acme?.surfaces[1]?.href).toBeNull();
 			expect(local?.surfaces[0]?.href).toBe(
 				"http://local.localhost:3030/outputs/abc",
 			);

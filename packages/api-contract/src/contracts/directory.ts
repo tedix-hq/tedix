@@ -2,7 +2,7 @@ import "@orpc/openapi/extensions/route";
 /**
  * Cross-surface workspace directory contract.
  *
- * A caller-scoped read model over the app-level surfaces (OS, MCP, CMS) each of the
+ * A caller-scoped read model over the app-level surfaces (OS, MCP) each of the
  * authenticated user's organizations exposes. It answers the launcher's two
  * questions: "which workspaces can I open, and where does each surface live?"
  *
@@ -13,8 +13,8 @@ import "@orpc/openapi/extensions/route";
  * are built server-side from `@tedix/tenant-directory` so the client never
  * assembles a hostname or session-broker path.
  *
- * Because the underlying per-surface resolvers cache (OS edge 300s, CMS
- * 5min, MCP aggregate ~12min) with no push-purge for the positive TTLs, a
+ * Because the underlying per-surface resolvers cache (OS edge 300s, MCP
+ * aggregate ~12min) with no push-purge for the positive TTLs, a
  * just-provisioned surface may report `provisioned:true` here up to those
  * windows before the surface edge itself serves it. This directory is itself
  * D1-live and must not be cached longer than any downstream surface's TTL.
@@ -29,7 +29,7 @@ import {
 } from "../schemas/common";
 
 /** An app-level surface in the cross-workspace directory. */
-export const DirectorySurfaceSchema = z.enum(["os", "mcp", "cms"]);
+export const DirectorySurfaceSchema = z.enum(["os", "mcp"]);
 
 export const DirectorySurfaceRecordSchema = z.object({
 	surface: DirectorySurfaceSchema,
@@ -48,13 +48,13 @@ export const DirectorySurfaceRecordSchema = z.object({
 		.string()
 		.nullable()
 		.describe(
-			"Server-built browser session-broker entry point for OS and CMS; null for MCP and unprovisioned surfaces.",
+			"Server-built browser session-broker entry point for OS; null for MCP and unprovisioned surfaces.",
 		),
 	customDomain: z
 		.string()
 		.optional()
 		.describe(
-			"Present only when a per-surface custom domain overrides the platform subdomain (MCP customMcpDomain or CMS blogConfig.cmsDomain).",
+			"Present only when a per-surface custom domain overrides the platform subdomain (MCP customMcpDomain).",
 		),
 });
 
@@ -112,7 +112,7 @@ export const directoryContract = oc
 			.route({
 				summary: "List my workspaces and their provisioned surfaces",
 				description:
-					"Enumerate every organization the current user is an active member of, each with its D1-provisioned app-level surfaces (OS, MCP, CMS) and server-built canonical URLs, for the tenant-neutral launcher.",
+					"Enumerate every organization the current user is an active member of, each with its D1-provisioned app-level surfaces (OS, MCP) and server-built canonical URLs, for the tenant-neutral launcher.",
 			})
 			.input(PaginationSchema)
 			.output(createPaginatedResponseSchema(DirectoryWorkspaceRecordSchema)),

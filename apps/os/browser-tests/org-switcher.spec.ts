@@ -69,19 +69,10 @@ try {
 							.count(),
 						1,
 					);
-					assert.deepEqual(
-						await menu
-							.locator('[aria-label$=" CMS"]')
-							.evaluateAll((items) =>
-								items.map((item) => item.getAttribute("aria-label")),
-							),
-						[
-							"Open Alder Works CMS",
-							"Open Dune Freight CMS",
-							"Open Granite Legal Partners and Associates International CMS",
-							"Open Juniper Farms CMS",
-						],
-						`${label}: CMS only where provisioned`,
+					assert.equal(
+						await menu.getByText("CMS", { exact: true }).count(),
+						0,
+						`${label}: no CMS entries`,
 					);
 					assert.equal(
 						await menu.getByText("OS", { exact: true }).count(),
@@ -129,15 +120,9 @@ try {
 							path: `${evidenceDir}/org-switcher-${engine.name()}-${width}-${theme}.png`,
 						});
 
-					// The CMS chip opens that org's CMS; the row opens its OS.
-					await menu
-						.getByRole("menuitem", { name: "Open Dune Freight CMS" })
-						.click();
-					assert.deepEqual(await switches(page), ["dune:cms"]);
-					await menu.waitFor({ state: "hidden" });
-					await trigger.click();
+					// A row opens that organization's OS.
 					await menu.getByRole("menuitem", { name: /Birch Studio/ }).click();
-					assert.deepEqual(await switches(page), ["dune:cms", "birch:os"]);
+					assert.deepEqual(await switches(page), ["birch:os"]);
 					await menu.waitFor({ state: "hidden" });
 
 					// Keyboard: open, search, arrow, Enter.

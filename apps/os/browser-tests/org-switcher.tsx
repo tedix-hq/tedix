@@ -29,7 +29,6 @@ const NAMES = [
 const workspaces: DirectoryWorkspaceRecord[] = NAMES.map((name, index) => {
 	const slug = name.split(" ")[0]!.toLowerCase();
 	const provisionComplete = name !== "Lantern Books";
-	const cms = provisionComplete && index % 3 === 0;
 	return {
 		org: {
 			descopeTenantId: provisionComplete ? `org_${slug}` : null,
@@ -47,12 +46,6 @@ const workspaces: DirectoryWorkspaceRecord[] = NAMES.map((name, index) => {
 				handoffUrl: null,
 				provisioned: provisionComplete,
 				surface: "os",
-			},
-			{
-				canonicalUrl: cms ? `https://${slug}.cms.example.test/` : null,
-				handoffUrl: null,
-				provisioned: cms,
-				surface: "cms",
 			},
 		],
 	};

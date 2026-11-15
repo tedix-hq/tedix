@@ -1123,6 +1123,17 @@ it("lists owned CMS quota usage including paused sites", async () => {
 	expect(result.cmsSiteQuota).toEqual({ used: 2, limit: 5 });
 });
 
+it("opens each CMS site's editor on its platform host, even with a custom domain", async () => {
+	mocks.listCmsSitesByOrganization.mockResolvedValue([cmsSite]);
+	mocks.getOrganizationFeatures.mockResolvedValue({});
+	const result = await client().list();
+	const site = result.sites.find((entry) => entry.id === cmsSite.id);
+	expect(site?.url).toBe("https://www.acme.test");
+	expect(site?.editorUrl).toMatch(
+		/^https:\/\/acme\.cms\.tedix\.(dev|tech)\/_emdash\/admin$/,
+	);
+});
+
 describe("CMS canonical domain updates", () => {
 	it("requires platform authority", async () => {
 		await expect(

@@ -8,7 +8,6 @@ import {
 	findWorkspaceSurface,
 	useSurfaceSwitch,
 } from "@/lib/workspace-switcher";
-import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
 import {
 	DropdownMenu,
@@ -164,7 +163,6 @@ function OrganizationRow({
 	const { org } = workspace;
 	const settingUp = !org.provisionComplete;
 	const os = findWorkspaceSurface(workspace, "os");
-	const cms = findWorkspaceSurface(workspace, "cms");
 	return (
 		<div className="flex min-w-0 items-center gap-1" data-org-row={org.slug}>
 			<DropdownMenuItem
@@ -195,16 +193,6 @@ function OrganizationRow({
 					<Check aria-label="Current organization" size={14} />
 				) : null}
 			</DropdownMenuItem>
-			{!settingUp && cms?.provisioned ? (
-				<DropdownMenuItem
-					aria-label={`Open ${org.name} CMS`}
-					className="shrink-0 px-1.5"
-					label={org.name}
-					onClick={() => onSwitch(workspace, "cms")}
-				>
-					<Badge variant="outline">CMS</Badge>
-				</DropdownMenuItem>
-			) : null}
 		</div>
 	);
 }

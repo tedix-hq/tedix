@@ -33,13 +33,6 @@ const workspace: DirectoryWorkspaceRecord = {
 			provisioned: true,
 			surface: "mcp",
 		},
-		{
-			canonicalUrl: "https://blog.tedix.dev/_emdash/admin",
-			handoffUrl:
-				"https://tedix.cms.tedix.dev/_emdash/api/auth/session-broker/start?tenant_id=org_tedix&redirect_to=%2F_emdash%2Fadmin",
-			provisioned: true,
-			surface: "cms",
-		},
 	],
 };
 
@@ -60,12 +53,6 @@ function organization(index: number, name: string): DirectoryWorkspaceRecord {
 				handoffUrl: `https://${slug}.os.tedix.dev/auth/session-broker/start`,
 				provisioned: true,
 				surface: "os",
-			},
-			{
-				canonicalUrl: null,
-				handoffUrl: null,
-				provisioned: false,
-				surface: "cms",
 			},
 		],
 	};
@@ -154,7 +141,7 @@ function rowNames(menu: Element | null) {
 }
 
 describe("OsWorkspaceSwitcher", () => {
-	it("lists one row per organization, current first, with CMS only where it is provisioned", async () => {
+	it("lists one row per organization, current first, with no CMS entry", async () => {
 		const { menu } = await openSwitcher();
 
 		expect(rowNames(menu)).toEqual(["tedix", "northwind-labs"]);
@@ -165,16 +152,17 @@ describe("OsWorkspaceSwitcher", () => {
 					item.getAttribute("aria-label") ??
 					item.querySelector("[title]")?.textContent,
 			),
-		).toEqual(["Tedix", "Open Tedix CMS", "Northwind Labs"]);
+		).toEqual(["Tedix", "Northwind Labs"]);
 		expect(items[0]?.getAttribute("aria-current")).toBe("true");
 		expect(
 			items[0]?.querySelector('[aria-label="Current organization"]'),
 		).not.toBeNull();
 		expect(menu?.textContent).not.toContain("OS");
+		expect(menu?.textContent).not.toContain("CMS");
 		expect(menu?.querySelector('input[type="text"], input')).toBeNull();
 	});
 
-	it("opens an organization's OS by default and its CMS from the trailing chip", async () => {
+	it("opens another organization's OS", async () => {
 		const { menu } = await openSwitcher();
 		const items = [
 			...(menu?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? []),
@@ -189,17 +177,8 @@ describe("OsWorkspaceSwitcher", () => {
 			...(reopened.menu?.querySelectorAll<HTMLElement>('[role="menuitem"]') ??
 				[]),
 		];
-		await act(async () => again[2]?.click());
+		await act(async () => again[1]?.click());
 		expect(switchTo).toHaveBeenLastCalledWith(otherWorkspace, "os");
-
-		unmountAll();
-		const third = await openSwitcher();
-		await act(async () =>
-			third.menu
-				?.querySelector<HTMLElement>('[aria-label="Open Tedix CMS"]')
-				?.click(),
-		);
-		expect(switchTo).toHaveBeenLastCalledWith(workspace, "cms");
 	});
 
 	it("adds a search field once there are more than six organizations", async () => {

@@ -30,6 +30,8 @@ import {
 import { DEFAULT_ORGANIZATION_FEATURES_BY_PLAN } from "@tedix/db/schema/organizations";
 import { getLatestSiteReconciliation } from "@tedix/db/queries/site-reconciliation";
 import { getTenantBundleSummary } from "@tedix/db/queries/tenant-bundles";
+import { buildSurfaceUrl } from "@tedix/tenant-directory";
+import { platformDomain as platformDomainOf } from "@tedix/worker-kit/platform-hosts";
 import { requireOrgId } from "../org-scope";
 import {
 	type BaseContext,
@@ -324,6 +326,12 @@ export const registerCmsSiteProcedure = authedSitesOs.registerCms
 		return { siteId: site.id, slug: site.slug, url: site.canonicalUrl };
 	});
 
+/** The admin always lives on the platform host, which runs the sign-in. */
+function cmsEditorUrl(slug: string, platformDomain: string): string | null {
+	const origin = buildSurfaceUrl("cms", slug, { platformDomain });
+	return origin ? new URL("/_emdash/admin", origin).toString() : null;
+}
+
 export const listSitesProcedure = authedSitesOs.list
 	.use(withAuthorization("apps:read", "mcp:content.read"))
 	.handler(async ({ context }) => {
@@ -336,6 +344,7 @@ export const listSitesProcedure = authedSitesOs.list
 			listDocsSites(context.db, organization.slug),
 			getOrganizationFeatures(context.db, organizationId),
 		]);
+		const platformDomain = platformDomainOf(context.env);
 		const cmsWithBundles = await Promise.all(
 			cms.map(async (site) => ({
 				site,
@@ -361,6 +370,7 @@ export const listSitesProcedure = authedSitesOs.list
 					description: site.description,
 					status: site.status,
 					url: site.canonicalUrl,
+					editorUrl: cmsEditorUrl(site.slug, platformDomain),
 					accessMode: null,
 					customDomain: site.customDomain,
 					activeRevisionId:
@@ -376,6 +386,7 @@ export const listSitesProcedure = authedSitesOs.list
 					description: site.description || null,
 					status: site.status,
 					url: site.canonicalUrl,
+					editorUrl: null,
 					accessMode: site.accessMode,
 					customDomain: new URL(site.canonicalUrl).hostname.endsWith(
 						".tedix.dev",

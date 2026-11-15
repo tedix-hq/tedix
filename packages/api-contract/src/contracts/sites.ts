@@ -120,6 +120,12 @@ export const SiteSummarySchema = z.object({
 		.describe("Null when the owner has not supplied a description"),
 	status: z.enum(["active", "paused", "provisioning"]),
 	url: z.string().url(),
+	editorUrl: z
+		.url()
+		.nullable()
+		.describe(
+			"CMS admin on the site's platform host; opening it signs the browser in. Null for documentation sites",
+		),
 	accessMode: z
 		.enum(["public", "organization"])
 		.nullable()
