@@ -99,6 +99,58 @@ export default function ConsentBannerIsland({
 		};
 	}, [dialogOpen]);
 
+	useEffect(() => {
+		if (!dialogOpen) return;
+		const popup = () =>
+			document
+				.querySelector('[data-consent-action="save"]')
+				?.closest<HTMLElement>('[role="dialog"]') ?? null;
+		const tabbables = (root: HTMLElement) =>
+			Array.from(
+				root.querySelectorAll<HTMLElement>(
+					'button:not([disabled]), a[href], input:not([disabled]), [tabindex]:not([tabindex="-1"]):not([data-base-ui-focus-guard]):not([data-floating-ui-focus-guard]):not([aria-disabled="true"])',
+				),
+			).filter(
+				(el) =>
+					el.getAttribute("aria-hidden") !== "true" && el.offsetParent !== null,
+			);
+		// Base UI's focus guards let Tab reach the page behind the dialog in
+		// real browsers, so wrap focus explicitly and pull stray focus back.
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (event.key !== "Tab") return;
+			const root = popup();
+			if (!root) return;
+			const items = tabbables(root);
+			if (items.length === 0) return;
+			const first = items[0];
+			const last = items[items.length - 1];
+			const active = document.activeElement;
+			const inside = active instanceof Node && root.contains(active);
+			if (event.shiftKey && (!inside || active === first)) {
+				event.preventDefault();
+				last.focus();
+			} else if (!event.shiftKey && (!inside || active === last)) {
+				event.preventDefault();
+				first.focus();
+			}
+		};
+		const onFocusIn = (event: FocusEvent) => {
+			const root = popup();
+			if (
+				!root ||
+				(event.target instanceof Node && root.contains(event.target))
+			)
+				return;
+			tabbables(root)[0]?.focus();
+		};
+		document.addEventListener("keydown", onKeyDown, true);
+		document.addEventListener("focusin", onFocusIn);
+		return () => {
+			document.removeEventListener("keydown", onKeyDown, true);
+			document.removeEventListener("focusin", onFocusIn);
+		};
+	}, [dialogOpen]);
+
 	return (
 		<>
 			{bannerVisible && (
