@@ -7,7 +7,13 @@ import { organizationDetailQueryOptions } from "@/lib/os-query-options";
 import { useOsOperationalContext } from "@/lib/use-os-preferences";
 import { OS_COPY } from "@/shared/os-copy";
 
-function OrganizationPortfolio({ settings = false }: { settings?: boolean }) {
+function OrganizationPortfolio({
+	settings = false,
+	lead,
+}: {
+	settings?: boolean;
+	lead?: "goals" | "projects";
+}) {
 	const context = useOsOperationalContext();
 	const id = context.data?.organization.id ?? "";
 	const detail = useQuery({
@@ -41,11 +47,15 @@ function OrganizationPortfolio({ settings = false }: { settings?: boolean }) {
 		) : (
 			<p>Only the organization owner can edit project sections.</p>
 		);
-	return <PortfolioApp buckets={buckets} isOwner={isOwner} />;
+	return <PortfolioApp buckets={buckets} isOwner={isOwner} lead={lead} />;
 }
 
-export function OrganizationPortfolioApp() {
-	return <OrganizationPortfolio />;
+export function OrganizationPortfolioApp({
+	lead,
+}: {
+	lead?: "goals" | "projects";
+}) {
+	return <OrganizationPortfolio lead={lead} />;
 }
 export function PortfolioSettingsApp() {
 	return <OrganizationPortfolio settings />;

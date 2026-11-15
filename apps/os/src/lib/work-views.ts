@@ -50,6 +50,14 @@ export const WORK_VIEWS: readonly WorkView[] = [
 		search: { view: "items" },
 	},
 	{
+		id: "projects",
+		label: "Projects",
+		description: "Every project with its open work and what needs you.",
+		group: "planning",
+		to: "/work",
+		search: { app: "projects" },
+	},
+	{
 		id: "goals",
 		label: "Goals",
 		description: "Every goal and the projects and epics serving it.",

@@ -17,6 +17,7 @@ const WORK_FEED_FILTERS = [
 export type WorkFeedFilter = (typeof WORK_FEED_FILTERS)[number];
 export const WORK_APP_ENTRIES = {
 	portfolio: "tedix:app/portfolio",
+	projects: "tedix:app/portfolio",
 	agents: "tedix:app/agents",
 	office: "tedix:app/office",
 	outbound: "tedix:app/outbound-review",
@@ -32,6 +33,33 @@ export function selectedWorkApp<
 		? apps.find((app) => app.manifest.entry === entry)
 		: apps.find((app) => app.gadget.id === selected);
 }
+/** Goals and Projects are one page; the URL says which list leads it. */
+export function workPortfolioLead(search: {
+	app?: string;
+}): "goals" | "projects" | null {
+	return search.app === "portfolio"
+		? "goals"
+		: search.app === "projects"
+			? "projects"
+			: null;
+}
+
+/**
+ * The overview (running, stuck, needs you, this week) belongs to Activity:
+ * `?view=feed` with no narrower filter, or the bare Work URL unless it lands
+ * on Decisions. It reads Work records directly, so it neither waits for nor
+ * needs an installed Activity app.
+ */
+export function showsWorkOverview(
+	search: WorkHomeSearch,
+	landing: { pending: boolean; role: "feed" | "deck" | null },
+): boolean {
+	if (search.app || search.project || search.day) return false;
+	if ((search.filter ?? "all") !== "all") return false;
+	if (search.view) return search.view === "feed";
+	return !landing.pending && landing.role !== "deck";
+}
+
 export type WorkHomeSearch = {
 	view?: "feed" | "deck" | "items" | "triage";
 	filter?: WorkFeedFilter;
