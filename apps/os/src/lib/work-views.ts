@@ -63,7 +63,7 @@ export const WORK_VIEWS: readonly WorkView[] = [
 		get label() {
 			return OS_COPY.work.objectives;
 		},
-		description: "Every objective and the projects and epics serving it.",
+		description: "Every goal and the projects and epics serving it.",
 		group: "planning",
 		to: "/work",
 		search: { app: "portfolio" },

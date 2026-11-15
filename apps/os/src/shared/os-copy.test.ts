@@ -12,8 +12,8 @@ it("follows personal Spanish preferences after the app modules have already load
 	expect(OS_COPY.feedDeckVisual.clear).toBe("Todo decidido");
 	expect(OS_COPY.workspace.overview).toBe("Resumen");
 	expect(OS_COPY.work.status).toBe("Estado");
-	expect(OS_COPY.work.objective).toBe("Objetivo");
-	expect(OS_COPY.work.objectives).toBe("Objetivos");
+	expect(OS_COPY.work.objective).toBe("Meta");
+	expect(OS_COPY.work.objectives).toBe("Metas");
 	expect(OS_COPY.work.dispositions).toEqual({
 		proposed: "Propuesto",
 		accepted: "Aceptado",
@@ -33,8 +33,8 @@ it("follows personal Spanish preferences after the app modules have already load
 	expect(OS_COPY.workspace.overview).toBe("Overview");
 	expect(OS_COPY.work.dispositions.accepted).toBe("Accepted");
 	expect(OS_COPY.work.status).toBe("Status");
-	expect(OS_COPY.work.objective).toBe("Objective");
-	expect(OS_COPY.work.objectives).toBe("Objectives");
+	expect(OS_COPY.work.objective).toBe("Goal");
+	expect(OS_COPY.work.objectives).toBe("Goals");
 	expect(decisionText("Confirm decision")).toBe("Confirm decision");
 });
 
