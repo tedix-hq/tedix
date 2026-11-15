@@ -62,16 +62,25 @@ describe("browser fixture readiness", () => {
 
 	it("fails on child exit while an HTTP readiness request is still pending", async () => {
 		const url = await serve(() => {});
-		const child = spawn(process.execPath, [
-			"-e",
-			"setTimeout(() => process.exit(7), 50)",
-		]);
+		const child = spawn(
+			process.execPath,
+			["-e", "process.send?.('ready'); setTimeout(() => process.exit(7), 50)"],
+			{ stdio: ["ignore", "ignore", "ignore", "ipc"] },
+		);
+		const ready = new Promise<void>((resolve, reject) => {
+			child.once("message", () => resolve());
+			child.once("error", reject);
+			child.once("exit", (code) =>
+				reject(new Error(`Child exited with code ${code} before ready`)),
+			);
+		});
 		const exited = new Promise<number>((resolve, reject) => {
 			child.once("error", reject);
 			child.once("exit", (code) => resolve(code ?? -1));
 		});
-		const started = performance.now();
 		try {
+			await ready;
+			const started = performance.now();
 			await expect(
 				waitForFixtureServer(url, {
 					server: {
