@@ -1292,6 +1292,50 @@ function gitOutput(repo: string, args: string[]): string {
 }
 
 /**
+ * Adds the checkout without blocking the runner: a whole-repository checkout
+ * can take minutes. A failed or timed-out add leaves a half-made folder and a
+ * registration still locked as "initializing"; both are removed so the next
+ * try starts clean, and the error says what Git reported.
+ */
+async function addLaneWorktree(
+	source: string,
+	destination: string,
+	head: string,
+	timeoutMs: number,
+) {
+	try {
+		await promisify(execFile)(
+			"git",
+			[
+				"-C",
+				source,
+				"worktree",
+				"add",
+				"--quiet",
+				"--detach",
+				destination,
+				head,
+			],
+			{ encoding: "utf8", timeout: timeoutMs },
+		);
+	} catch (error) {
+		const failure = error as { killed?: boolean; stderr?: string };
+		await rm(destination, { recursive: true, force: true });
+		spawnSync("git", ["-C", source, "worktree", "unlock", destination], {
+			timeout: 30_000,
+		});
+		spawnSync("git", ["-C", source, "worktree", "prune"], { timeout: 30_000 });
+		throw new Error(
+			`git worktree add failed: ${
+				failure.killed
+					? `timed out after ${Math.round(timeoutMs / 1000)} s`
+					: failure.stderr?.trim() || String(error)
+			}`,
+		);
+	}
+}
+
+/**
  * Provisions the checkout for one dispatch of a Work revision and returns its
  * path. The caller only passes a path inside this dispatcher's own `runs/`
  * directory and has already excluded a live lane process for that receipt.
@@ -1301,10 +1345,11 @@ function gitOutput(repo: string, args: string[]): string {
  * clean and holds no commit origin/main lacks; otherwise it stays untouched for
  * inspection and the retry gets the next free sibling path.
  */
-export function provisionLaneWorktree(
+export async function provisionLaneWorktree(
 	source: string,
 	destination: string,
-): string {
+	addTimeoutMs = 5 * 60_000,
+): Promise<string> {
 	gitOutput(source, [
 		"fetch",
 		"origin",
@@ -1370,18 +1415,12 @@ export function provisionLaneWorktree(
 		destination = `${destination}-${next}`;
 	}
 	if (existsSync(destination)) {
-		// A failed add may leave files behind. Preserve them outside the retry path.
+		// Files Git does not know may be unfinished work. Preserve them outside
+		// the retry path.
 		const recovery = mkdtempSync(`${destination}.orphan-`);
 		renameSync(destination, join(recovery, "repo"));
 	}
-	gitOutput(source, [
-		"worktree",
-		"add",
-		"--quiet",
-		"--detach",
-		destination,
-		head,
-	]);
+	await addLaneWorktree(source, destination, head, addTimeoutMs);
 	lockLaneWorktree(source, destination);
 	return destination;
 }
@@ -1601,7 +1640,7 @@ interface DispatcherDeps {
 	}>;
 	launch: typeof runLaneProcess;
 	darkWake: typeof inDarkWake;
-	provision: (source: string, destination: string) => string;
+	provision: (source: string, destination: string) => string | Promise<string>;
 	installDependencies: typeof installLaneDependencies;
 	baseCommit: (repo: string) => string;
 	landedCommits: typeof landedLaneCommits;
@@ -1660,7 +1699,8 @@ const defaultDeps: DispatcherDeps = {
 		const stats = statfsSync(path);
 		return Number(stats.bavail) * Number(stats.bsize);
 	},
-	provision: provisionLaneWorktree,
+	provision: (source, destination) =>
+		provisionLaneWorktree(source, destination),
 	installDependencies: installLaneDependencies,
 	baseCommit: (repo) => gitOutput(repo, ["rev-parse", "HEAD"]),
 	landedCommits: landedLaneCommits,
@@ -2752,8 +2792,8 @@ export class LaneDispatcher {
 		}
 	}
 	/**
-	 * `provisionLaneWorktree` moves the leftovers of a failed `worktree add`
-	 * into `repo.orphan-*` beside the checkout. They are not Git worktrees, so
+	 * `provisionLaneWorktree` moves a folder Git does not know out of the
+	 * checkout path into `repo.orphan-*` beside it. They are not Git worktrees, so
 	 * no cleanup could ever remove them and their run folder never archived.
 	 */
 	private async removeStaleRecoveries(run: string, itemId: string) {
@@ -3363,7 +3403,7 @@ export class LaneDispatcher {
 					: "");
 			const repo =
 				previousLane?.repo ??
-				this.deps.provision(this.options.repo, join(dir, "repo"));
+				(await this.deps.provision(this.options.repo, join(dir, "repo")));
 			receipt.repo = repo;
 			receipt.unpushedCommits = previousLane?.unpushedCommits;
 			receipt.baseCommit =
