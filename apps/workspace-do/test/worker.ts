@@ -33,6 +33,7 @@ export type ScriptStep =
 export class WorkspaceDO extends ProductionWorkspaceDO {
 	#script: ScriptStep[] = [];
 	#projectionFailures = 0;
+	#activityProjectionEnabled = true;
 	#loseTransferReply = false;
 	failTransferReply(scope: WorkspaceScope) {
 		this.bindScope(scope);
@@ -67,7 +68,13 @@ export class WorkspaceDO extends ProductionWorkspaceDO {
 		this.#eventFailure = when;
 	}
 
+	disableActivityProjection(scope: WorkspaceScope) {
+		this.bindScope(scope);
+		this.#activityProjectionEnabled = false;
+	}
+
 	protected override async projectEvent(event: WorkspaceChangeInput) {
+		if (!this.#activityProjectionEnabled) return;
 		const failure = this.#eventFailure;
 		this.#eventFailure = null;
 		if (failure === "before")
@@ -91,6 +98,7 @@ export class WorkspaceDO extends ProductionWorkspaceDO {
 		scope: WorkspaceScope,
 		record: ChangeRecord,
 	) {
+		if (!this.#activityProjectionEnabled) return;
 		const failure = this.#actionFailure;
 		this.#actionFailure = null;
 		if (failure === "before")
@@ -126,6 +134,8 @@ export class WorkspaceDO extends ProductionWorkspaceDO {
 		this.bindScope(scope);
 		return this.#script;
 	}
+
+	protected override async refreshModelCatalog(): Promise<void> {}
 
 	protected override configuredModels() {
 		return [{ id: "faux", label: "Scripted test model" }];

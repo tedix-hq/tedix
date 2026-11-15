@@ -60,6 +60,7 @@ type Stub = DurableObjectStub &
 	WorkspaceRpc & {
 		failTransferReply(scope: WorkspaceScope): Promise<void>;
 		pruneChatLedger(scope: WorkspaceScope): Promise<void>;
+		disableActivityProjection(scope: WorkspaceScope): Promise<void>;
 		failNextProjection(scope: WorkspaceScope): Promise<void>;
 		failEventProjection(
 			scope: WorkspaceScope,
@@ -916,6 +917,7 @@ describe("WorkspaceDO", () => {
 		const workspaces = await Promise.all(
 			loadScopes.map(async (workspaceScope, index) => {
 				const ws = workspace(workspaceScope);
+				await ws.disableActivityProjection(workspaceScope);
 				await ws.scriptModel(workspaceScope, [{ text: `workspace ${index}` }]);
 				return { scope: workspaceScope, ws };
 			}),
