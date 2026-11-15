@@ -153,7 +153,6 @@ function TabsList({
 				ref={listRef}
 				data-kumo-part="list"
 				data-variant={variant}
-				data-overflowing={overflow.isOverflowing ? "" : undefined}
 				data-overflow-start={overflow.canScrollStart ? "" : undefined}
 				data-overflow-end={overflow.canScrollEnd ? "" : undefined}
 				className={cn(
