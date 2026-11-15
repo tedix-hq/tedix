@@ -225,11 +225,18 @@ export function evaluateWorkbook(workbook: OsWorkbook): OsWorkbook {
 		sheets: workbook.sheets.map((sheet) => ({
 			...sheet,
 			rows: sheet.rows.map((row, rowIndex) =>
-				sheet.columns.map((_, columnIndex_) => {
-					const current = row[columnIndex_] ?? { input: "", value: null };
+				row.map((current, columnIndex_) => {
+					if (!current) return null;
+					const value =
+						current.input.startsWith("=") &&
+						current.format?.numberFormat !== "text"
+							? evaluateCell(sheet, rowIndex, columnIndex_)
+							: current.format?.numberFormat === "text"
+								? current.input
+								: literalValue(current.input);
 					return {
 						...current,
-						value: scalarResult(evaluateCell(sheet, rowIndex, columnIndex_)),
+						value: scalarResult(value),
 					};
 				}),
 			),

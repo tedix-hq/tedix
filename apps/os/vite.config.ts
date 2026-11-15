@@ -211,8 +211,9 @@ export default defineConfig(async ({ command, mode, isPreview }) => {
 			// exact bound the root config raised because it makes CI redness track CI
 			// load.
 			...sharedTestConfig,
-			// Leave CPU headroom for other agent worktrees.
-			maxWorkers: 4,
+			// CI already shards this suite four ways. Limit each invocation so
+			// concurrent local lanes do not multiply the CPU-heavy DOM fixtures.
+			maxWorkers: 2,
 			environment: "happy-dom",
 			// happy-dom 21 blocks iframe loads by default; widget frame tests need one.
 			environmentOptions: {

@@ -45,6 +45,14 @@ describe("workbook formulas", () => {
 			2, 3, 5,
 		]);
 	});
+	it("keeps sparse rows sparse while recalculating populated cells", () => {
+		const value = workbook();
+		value.sheets[0]!.rows = [[{ input: "2", value: null }, null]];
+		expect(evaluateWorkbook(value).sheets[0]!.rows[0]).toEqual([
+			{ input: "2", value: 2 },
+			null,
+		]);
+	});
 
 	it("evaluates quoted cross-sheet references", () => {
 		const value = workbook();

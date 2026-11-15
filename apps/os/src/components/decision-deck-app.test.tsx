@@ -323,14 +323,18 @@ it("browses all six practice kinds, explains the choice and never submits a real
 		expect(
 			document.querySelector("[data-decision-context]")?.textContent,
 		).toContain("Prefer a bounded next step with evidence");
-		await act(async () =>
+		await act(async () => {
 			document
 				.querySelector<HTMLButtonElement>(
 					'[aria-label="Close decision context"]',
 				)!
-				.click(),
-		);
-		await key("j");
+				.click();
+			host
+				.querySelector("section")!
+				.dispatchEvent(
+					new KeyboardEvent("keydown", { key: "j", bubbles: true }),
+				);
+		});
 	}
 	expect(host.textContent).toContain("All clear");
 	expect(host.textContent).not.toContain("0 decided today");
