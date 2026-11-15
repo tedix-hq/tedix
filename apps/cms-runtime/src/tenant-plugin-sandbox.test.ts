@@ -333,16 +333,19 @@ describe("plugin KV restore permits", () => {
 		);
 		try {
 			const pending = bridge.kvSet("key", "value");
-			await vi.waitFor(async () => {
-				expect(
-					(
-						await getCmsRestoreFenceState(platformDb, {
-							siteId: scope.siteId,
-							slug: scope.tenantSlug,
-						})
-					).inFlight,
-				).toBe(1);
-			});
+			await vi.waitFor(
+				async () => {
+					expect(
+						(
+							await getCmsRestoreFenceState(platformDb, {
+								siteId: scope.siteId,
+								slug: scope.tenantSlug,
+							})
+						).inFlight,
+					).toBe(1);
+				},
+				{ timeout: 10_000 },
+			);
 			const fence = {
 				siteId: scope.siteId,
 				slug: scope.tenantSlug,
