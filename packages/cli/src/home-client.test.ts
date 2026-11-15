@@ -1,5 +1,5 @@
 import { isAuthError } from "./operator/runtime-errors";
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { preDispatchUnavailableToolResult } from "@tedix/mcp-shared/tool-result";
 import { normalizeCodeResult } from "./code-result";
 import {
@@ -1925,6 +1925,49 @@ describe("bounded native calls", () => {
 		retryable: false,
 		timeoutMs: 1000,
 	};
+	const startWithHeldDeadline = <T>(
+		durationMs: number,
+		start: () => Promise<T>,
+	) => {
+		const originalSetTimeout = globalThis.setTimeout;
+		const originalClearTimeout = globalThis.clearTimeout;
+		const futureNow = Date.now() + 60_000;
+		let held: ReturnType<typeof setTimeout> | undefined;
+		let fire: (() => void) | undefined;
+		const clock = spyOn(Date, "now").mockImplementation(() => futureNow);
+		const timers = spyOn(globalThis, "setTimeout").mockImplementation(
+			Object.assign(
+				(...[callback, ms, ...args]: Parameters<typeof setTimeout>) => {
+					if (ms === durationMs && !fire) {
+						held = originalSetTimeout(() => {}, 60_000);
+						fire = () => callback(...args);
+						return held;
+					}
+					return originalSetTimeout(callback, ms, ...args);
+				},
+				{ __promisify__: originalSetTimeout.__promisify__ },
+			),
+		);
+		let pending: Promise<T>;
+		try {
+			pending = start();
+			if (!fire) throw new Error("deadline timer was not scheduled");
+		} finally {
+			timers.mockRestore();
+			clock.mockRestore();
+		}
+		void pending.catch(() => {});
+		return {
+			pending,
+			expire: () => {
+				if (!fire) throw new Error("deadline timer was not scheduled");
+				if (held) originalClearTimeout(held);
+				const callback = fire;
+				fire = undefined;
+				callback();
+			},
+		};
+	};
 	for (const oauth of [false, true]) {
 		const make = (
 			fetcher: NonNullable<
@@ -2268,6 +2311,13 @@ describe("bounded native calls", () => {
 		test(`${oauth ? "OAuth SDK" : "raw"} task progress cannot renew original deadline`, async () => {
 			let starts = 0,
 				polls = 0;
+			let started!: () => void, polled!: () => void;
+			const taskStarted = new Promise<void>((resolve) => {
+				started = resolve;
+			});
+			const taskPolled = new Promise<void>((resolve) => {
+				polled = resolve;
+			});
 			const client = make(async (_url, init) => {
 				const b = JSON.parse(String(init?.body));
 				if (b.method === "server/discover")
@@ -2279,6 +2329,7 @@ describe("bounded native calls", () => {
 					});
 				if (b.method === "tools/call") {
 					starts++;
+					started();
 					return response(b.id, {
 						resultType: "task",
 						...taskBase("fictional-task"),
@@ -2286,6 +2337,7 @@ describe("bounded native calls", () => {
 					});
 				}
 				polls++;
+				polled();
 				return response(b.id, {
 					resultType: "complete",
 					...taskBase("fictional-task"),
@@ -2293,14 +2345,19 @@ describe("bounded native calls", () => {
 					pollIntervalMs: 1,
 				});
 			});
+			await client.discoverProtocol();
+			const deadline = startWithHeldDeadline(40, () =>
+				client.callTool(
+					"fictional_mutation",
+					{},
+					{ ...options, timeoutMs: 40 },
+				),
+			);
 			try {
-				await expect(
-					client.callTool(
-						"fictional_mutation",
-						{},
-						{ ...options, timeoutMs: 40 },
-					),
-				).rejects.toThrow("deadline");
+				await taskStarted;
+				await taskPolled;
+				deadline.expire();
+				await expect(deadline.pending).rejects.toThrow("deadline");
 				expect(starts).toBe(1);
 				expect(polls).toBeGreaterThan(0);
 			} finally {
@@ -2326,21 +2383,30 @@ describe("bounded native calls", () => {
 		});
 		test(`${oauth ? "OAuth SDK" : "raw"} original deadline cancels ignored fetch without retry`, async () => {
 			let calls = 0;
+			let called!: () => void;
+			const fetchCalled = new Promise<void>((resolve) => {
+				called = resolve;
+			});
 			const client = make(async (_url, init) => {
 				const b = JSON.parse(String(init?.body));
 				if (b.method === "server/discover")
 					return response(b.id, { supportedVersions: ["2026-07-28"] });
 				calls++;
+				called();
 				return await new Promise<Response>(() => {});
 			});
+			await client.discoverProtocol();
+			const deadline = startWithHeldDeadline(30, () =>
+				client.callTool(
+					"fictional_mutation",
+					{},
+					{ ...options, timeoutMs: 30 },
+				),
+			);
 			try {
-				await expect(
-					client.callTool(
-						"fictional_mutation",
-						{},
-						{ ...options, timeoutMs: 30 },
-					),
-				).rejects.toThrow("deadline");
+				await fetchCalled;
+				deadline.expire();
+				await expect(deadline.pending).rejects.toThrow("deadline");
 				expect(calls).toBe(1);
 			} finally {
 				await client.close();
