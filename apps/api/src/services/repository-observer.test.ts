@@ -46,7 +46,7 @@ describe("repository observer safety", () => {
 
 const recoveryDeps = vi.hoisted(() => ({
 	get: vi.fn(),
-	settle: vi.fn(),
+	settleShip: vi.fn(),
 	enqueue: vi.fn(),
 }));
 vi.mock("@orpc/server", async (importOriginal) => ({
@@ -71,7 +71,7 @@ vi.mock("@tedix/db/queries/projects", () => ({
 }));
 vi.mock("@tedix/db/queries/repository-observer", () => ({
 	getRepositoryObservation: recoveryDeps.get,
-	settleRecoveredRepositoryObservation: recoveryDeps.settle,
+	settleRecoveredRepositoryShipObservations: recoveryDeps.settleShip,
 }));
 it("settles an existing recovered incident while preserving the recovery wake and status", async () => {
 	recoveryDeps.get.mockResolvedValue({ id: "incident" });
@@ -94,17 +94,22 @@ it("settles an existing recovered incident while preserving the recovery wake an
 	);
 	expect(result.status).toBe("recovery_queued");
 	expect(recoveryDeps.enqueue).toHaveBeenCalledTimes(1);
-	expect(recoveryDeps.settle).toHaveBeenCalledWith(
+	expect(recoveryDeps.settleShip).toHaveBeenCalledWith(
 		{},
-		"org-example",
-		result.observationId,
-		expect.any(String),
+		expect.objectContaining({
+			orgId: "org-example",
+			projectId: "project-example",
+			repository: "example/repo",
+			branch: "main",
+			surface: "api",
+			now: expect.any(String),
+		}),
 	);
 });
 
-it("keeps no-incident recovery free of settlement and wakes", async () => {
+it("settles older incidents even when the green commit has no incident", async () => {
 	recoveryDeps.get.mockResolvedValue(null);
-	recoveryDeps.settle.mockClear();
+	recoveryDeps.settleShip.mockClear();
 	recoveryDeps.enqueue.mockClear();
 	const result = await observeRepositoryEvent(
 		{ db: {} } as Parameters<typeof observeRepositoryEvent>[0],
@@ -123,6 +128,6 @@ it("keeps no-incident recovery free of settlement and wakes", async () => {
 		},
 	);
 	expect(result.status).toBe("no_incident");
-	expect(recoveryDeps.settle).not.toHaveBeenCalled();
+	expect(recoveryDeps.settleShip).toHaveBeenCalledTimes(1);
 	expect(recoveryDeps.enqueue).not.toHaveBeenCalled();
 });

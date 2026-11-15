@@ -19,7 +19,7 @@ import {
 	overdueRepositoryObservations,
 	finishRepositoryObserverEscalation,
 	settleAgedRepositoryPushObservations,
-	settleRecoveredRepositoryObservation,
+	settleRecoveredRepositoryShipObservations,
 	pendingRepositoryObservations,
 	claimRepositoryObserverWake,
 	deferRepositoryObserverWake,
@@ -265,33 +265,68 @@ it.each([{}, { stillRed: false }, { stillRed: true }])(
 		).toBe("cancelled");
 	},
 );
-it("settles recovery idempotently and scopes it to the observer tenant", async () => {
+it("closes older red Ship records and shift fixes on the recovered surface", async () => {
 	const { db } = fixture();
-	await createRepositoryObservation(db, event);
-	await settleRecoveredRepositoryObservation(
-		db,
-		"other-org",
-		event.id,
-		event.now,
-	);
+	const eventFields = {
+		kind: "ship_red",
+		repository: "example/repo",
+		branch: "main",
+		surface: "api",
+		sha: "a".repeat(40),
+		occurredAt: "2026-10-17T11:00:00Z",
+	};
+	for (const [id, metadata] of [
+		["older-red", { repositoryObserver: 1, event: eventFields }],
+		[
+			"shift-fix",
+			{
+				repositoryObserver: 1,
+				event: { ...eventFields, sha: "b".repeat(40) },
+				engShift: { kind: "ci-fix", surface: "ship" },
+			},
+		],
+		[
+			"other-surface",
+			{
+				repositoryObserver: 1,
+				event: { ...eventFields, surface: "os" },
+			},
+		],
+		[
+			"later-red",
+			{
+				repositoryObserver: 1,
+				event: { ...eventFields, occurredAt: "2026-10-17T13:00:00Z" },
+			},
+		],
+	] as const)
+		await createRepositoryObservation(db, { ...event, id, metadata });
+	const green = {
+		orgId: event.orgId,
+		projectId: event.projectId,
+		repository: "example/repo",
+		branch: "main",
+		surface: "api",
+		occurredAt: "2026-10-17T12:00:00Z",
+		now: event.now,
+	};
+	await settleRecoveredRepositoryShipObservations(db, {
+		...green,
+		orgId: "other-org",
+	});
+	await settleRecoveredRepositoryShipObservations(db, green);
+	await settleRecoveredRepositoryShipObservations(db, green);
+	for (const id of ["older-red", "shift-fix"])
+		expect(
+			(await getRepositoryObservation(db, event.orgId, id))?.disposition,
+		).toBe("cancelled");
+	for (const id of ["other-surface", "later-red"])
+		expect(
+			(await getRepositoryObservation(db, event.orgId, id))?.disposition,
+		).toBe("proposed");
 	expect(
-		(await getRepositoryObservation(db, event.orgId, event.id))?.disposition,
-	).toBe("proposed");
-	await settleRecoveredRepositoryObservation(
-		db,
-		event.orgId,
-		event.id,
-		event.now,
-	);
-	await settleRecoveredRepositoryObservation(
-		db,
-		event.orgId,
-		event.id,
-		event.now,
-	);
-	const row = await getRepositoryObservation(db, event.orgId, event.id);
-	expect(row?.disposition).toBe("cancelled");
-	expect(row?.version).toBe(2);
+		(await getRepositoryObservation(db, event.orgId, "older-red"))?.version,
+	).toBe(2);
 });
 it("ages reported and unreported pushes, excludes red follow-ups and other work, and caps each tick at 100", async () => {
 	const { db, sqlite } = fixture();

@@ -13,6 +13,7 @@ const deps = vi.hoisted(() => ({
 	createAlert: vi.fn(),
 	refreshAlerts: vi.fn(),
 	settleCi: vi.fn(),
+	settleShip: vi.fn(),
 	schedule: vi.fn(),
 }));
 vi.mock("@orpc/server", async (importOriginal) => ({
@@ -34,6 +35,7 @@ vi.mock("@tedix/db/queries/repository-observer", () => ({
 	createRepositoryObservation: deps.create,
 	getRepositoryObservation: deps.get,
 	settleRecoveredRepositoryCiObservations: deps.settleCi,
+	settleRecoveredRepositoryShipObservations: deps.settleShip,
 	// Wake-slot accounting is covered in repository-observer-wake.test.ts.
 	claimRepositoryObserverWake: async () => true,
 	deferRepositoryObserverWake: async () => {},
