@@ -980,6 +980,7 @@ describe("subscribe", () => {
 				},
 			},
 			{
+				retryDelayMs: 0,
 				sleep: async (ms) => {
 					delays.push(ms);
 					await tick();

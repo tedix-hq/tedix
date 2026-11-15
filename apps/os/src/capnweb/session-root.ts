@@ -309,6 +309,8 @@ export interface CapnChatSessionInit {
 	now?: () => number;
 	/** Injectable pause for subscription pumps (tests). */
 	sleep?: (ms: number) => Promise<void>;
+	/** Injectable API retry delay (tests). */
+	retryDelayMs?: number;
 }
 
 /** Simple continuous-refill token bucket: RATE_LIMIT_CALLS per window. */
@@ -351,6 +353,7 @@ class SessionCore {
 	readonly credentialHeaders: Record<string, string>;
 	readonly subscriptions = new Set<SubscriptionCap>();
 	readonly sleep: (ms: number) => Promise<void>;
+	readonly retryDelayMs: number | undefined;
 	disposed = false;
 	readonly #bucket: TokenBucket;
 
@@ -369,6 +372,7 @@ class SessionCore {
 		this.sleep =
 			init.sleep ??
 			((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+		this.retryDelayMs = init.retryDelayMs;
 		this.#bucket = new TokenBucket(RATE_LIMIT_CALLS, RATE_LIMIT_WINDOW_MS, now);
 	}
 
@@ -412,6 +416,9 @@ class SessionCore {
 			headers,
 			timeoutMs: options.timeoutMs ?? 15_000,
 			...(options.retry === undefined ? {} : { retry: options.retry }),
+			...(this.retryDelayMs === undefined
+				? {}
+				: { retryDelayMs: this.retryDelayMs }),
 		});
 	}
 
