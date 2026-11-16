@@ -9,6 +9,7 @@ import {
 	readdirSync,
 	renameSync,
 	rmSync,
+	statSync,
 	symlinkSync,
 	writeFileSync,
 } from "node:fs";
@@ -143,6 +144,9 @@ function fixture(options?: {
 		standalone: true,
 		// No local signing identity unless a test provides one.
 		signing: () => ({ status: 1, output: "" }),
+		// The product still makes its three attempts, without the 500 ms and
+		// 1500 ms waits between them: a test never spends its deadline asleep.
+		retryDelaysMs: [0, 0],
 	};
 	return {
 		close() {
@@ -704,6 +708,43 @@ describe("CLI update lifecycle", () => {
 				fixtureData.close();
 			}
 		});
+
+		test("the fixture's own runtime retries without waiting out the real backoff", async () => {
+			// Every test that takes the fixture's runtime as it is must not sit in
+			// the product's 500 ms and 1500 ms backoff: two reset connections on
+			// the manifest and on the binary would silently spend 4 s of a 5 s
+			// test deadline.
+			const fixtureData = fixture();
+			const output = spyOn(console, "log").mockImplementation(() => {});
+			const sleep = spyOn(Bun, "sleep");
+			try {
+				const { calls, stub } = flaky((_path, call) =>
+					call <= 2
+						? Object.assign(new Error("read ECONNRESET"), {
+								code: "ECONNRESET",
+							})
+						: undefined,
+				);
+				await runUpdateCommand(
+					{
+						check: false,
+						force: false,
+						json: true,
+						version: fixtureData.version,
+					},
+					{ ...fixtureData.runtime, fetch: stub },
+				);
+				expect([...calls.values()]).toEqual([3, 3]);
+				expect(sleep.mock.calls.map(([ms]) => ms)).toEqual([0, 0, 0, 0]);
+				expect(readFileSync(fixtureData.installPath, "utf8")).toBe(
+					script(fixtureData.version),
+				);
+			} finally {
+				sleep.mockRestore();
+				output.mockRestore();
+				fixtureData.close();
+			}
+		});
 	});
 
 	test("terminates stuck and noisy downloaded version probes while preserving both binaries", async () => {
@@ -928,6 +969,19 @@ describe("CLI update lifecycle", () => {
 
 	test("installs and rolls back while retaining an atomic previous point", async () => {
 		const test = fixture();
+		const previous = `${test.installPath}.previous`;
+		const output = spyOn(console, "log").mockImplementation(() => {});
+		// Which release sits at a path is read from its bytes and mode. The
+		// update and the rollback each still run their binary for real, through
+		// the product's own bounded version probe. Running the files again from
+		// the test added four processes that nothing bounds: when the test
+		// deadline passes inside Bun.spawnSync, the runner kills that child and
+		// the assertion reports an empty version for a correct rollback.
+		const expectRelease = (path: string, version: string) => {
+			expect(readFileSync(path, "utf8")).toBe(script(version));
+			expect(statSync(path).mode & 0o111).toBe(0o111);
+		};
+		const lastResult = () => JSON.parse(String(output.mock.calls.at(-1)?.[0]));
 		try {
 			await runUpdateCommand(
 				{
@@ -938,25 +992,29 @@ describe("CLI update lifecycle", () => {
 				},
 				test.runtime,
 			);
-			expect(
-				Bun.spawnSync([test.installPath, "--version"]).stdout.toString().trim(),
-			).toBe(test.version);
-			expect(
-				Bun.spawnSync([`${test.installPath}.previous`, "--version"])
-					.stdout.toString()
-					.trim(),
-			).toBe("0.1.0");
+			expect(lastResult()).toMatchObject({
+				changed: true,
+				previous: true,
+				version: test.version,
+			});
+			expectRelease(test.installPath, test.version);
+			expectRelease(previous, "0.1.0");
 
 			await runRollbackCommand({ json: true }, test.runtime);
-			expect(
-				Bun.spawnSync([test.installPath, "--version"]).stdout.toString().trim(),
-			).toBe("0.1.0");
-			expect(
-				Bun.spawnSync([`${test.installPath}.previous`, "--version"])
-					.stdout.toString()
-					.trim(),
-			).toBe(test.version);
+			// The version the rollback reports is what the previous binary printed.
+			expect(lastResult()).toEqual({
+				changed: true,
+				path: test.installPath,
+				version: "0.1.0",
+			});
+			expectRelease(test.installPath, "0.1.0");
+			expectRelease(previous, test.version);
+			expect(readdirSync(dirname(test.installPath)).sort()).toEqual([
+				"tedix",
+				"tedix.previous",
+			]);
 		} finally {
+			output.mockRestore();
 			test.close();
 		}
 	});
