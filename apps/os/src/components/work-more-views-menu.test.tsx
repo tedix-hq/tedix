@@ -36,12 +36,22 @@ import { WorkMoreViewsMenu } from "./work-more-views-menu";
 ).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root | undefined;
 
-async function openMenu() {
+const app = (entry: string) => ({
+	gadget: { id: entry },
+	manifest: { entry },
+});
+const ALL_APPS = [
+	app("tedix:app/agents"),
+	app("tedix:app/office"),
+	app("tedix:app/outbound-review"),
+];
+
+async function openMenu(apps = ALL_APPS) {
 	const container = document.createElement("div");
 	document.body.append(container);
 	root = createRoot(container);
 	await act(async () => {
-		root!.render(<WorkMoreViewsMenu />);
+		root!.render(<WorkMoreViewsMenu apps={apps} />);
 	});
 	const trigger = document.querySelector<HTMLButtonElement>(
 		'button[aria-haspopup="menu"]',
@@ -124,7 +134,7 @@ describe("Work more-views menu", () => {
 		expect(trigger.textContent).toBe("Epics");
 		route.pathname = "/work";
 		route.search = { view: "deck" };
-		await act(async () => root!.render(<WorkMoreViewsMenu />));
+		await act(async () => root!.render(<WorkMoreViewsMenu apps={ALL_APPS} />));
 		expect(trigger.textContent).toBe("");
 		expect(trigger.getAttribute("aria-label")).toBe("More views");
 		expect(trigger.hasAttribute("data-active")).toBe(false);
@@ -158,6 +168,42 @@ describe("Work more-views menu", () => {
 				(label) => label.textContent,
 			),
 		).toEqual(["Planning", "Reviews", "Operations", "History"]);
+	});
+
+	it("leaves out a view whose app the organization has not installed", async () => {
+		const { menu } = await openMenu([]);
+		const ids = [...menu.querySelectorAll("[data-work-view]")].map((item) =>
+			item.getAttribute("data-work-view"),
+		);
+		expect(ids).not.toContain("outbound");
+		// Agents stays: Capacity needs no app.
+		expect(ids).toContain("agents");
+		expect(ids).toContain("projects");
+		expect(ids).toContain("goals");
+	});
+
+	it("still names the open view when its app is not installed", async () => {
+		route.search = { app: "outbound" };
+		const { trigger, menu } = await openMenu([]);
+		expect(trigger.getAttribute("aria-label")).toBe(
+			"More views: Outbound review",
+		);
+		expect(menu.querySelector('[aria-current="page"]')).toBeNull();
+	});
+
+	it("names each item by its view and describes it with its sentence", async () => {
+		const { menu } = await openMenu();
+		const items = [...menu.querySelectorAll('a[role="menuitem"]')];
+		expect(items.length).toBeGreaterThan(0);
+		for (const item of items) {
+			const view = WORK_VIEWS.find(
+				(view) => view.id === item.getAttribute("data-work-view"),
+			)!;
+			const text = (attribute: string) =>
+				document.getElementById(item.getAttribute(attribute)!)?.textContent;
+			expect(text("aria-labelledby")).toBe(view.label);
+			expect(text("aria-describedby")).toBe(view.description);
+		}
 	});
 
 	it("moves focus between views and returns to the trigger on Escape", async () => {
