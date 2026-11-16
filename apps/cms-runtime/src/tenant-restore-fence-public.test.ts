@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 import {
 	CmsRestoreFenceUnavailableError,
 	cmsRestoreFenceResponse,
+	cmsTemporarilyUnavailableResponse,
+	isTransientUnavailable,
 	withCmsRestorePermit,
 	withCmsRestoreResponsePermit,
 } from "./tenant-restore-fence";
@@ -194,5 +196,21 @@ describe("anonymous public restore ledger failures", () => {
 			CmsRestoreFenceUnavailableError,
 		);
 		expect(cancel).toHaveBeenCalledOnce();
+	});
+});
+
+describe("public unavailable responses", () => {
+	it("tells a closed restore fence apart from a passing failure", async () => {
+		const restore = cmsRestoreFenceResponse();
+		const passing = cmsTemporarilyUnavailableResponse();
+		expect([restore.status, passing.status]).toEqual([503, 503]);
+		expect(isTransientUnavailable(restore)).toBe(false);
+		expect(isTransientUnavailable(passing)).toBe(true);
+		expect(await restore.text()).toContain("during restore");
+		expect(await passing.text()).not.toContain("restore");
+		expect(passing.headers.get("Retry-After")).toBe("5");
+		expect(isTransientUnavailable(new Response("x", { status: 500 }))).toBe(
+			false,
+		);
 	});
 });
