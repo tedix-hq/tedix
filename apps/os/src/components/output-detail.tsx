@@ -71,7 +71,7 @@ function OutputDetail({ outputId }: { outputId: string }) {
 
 	return (
 		<Page width="md" className="output-detail-reading">
-			<PageBack render={<Link to="/outputs" />}>All outputs</PageBack>
+			<PageBack render={<Link to="/outputs" />}>All documents</PageBack>
 			{detail.isPending && (
 				<div className="grid gap-3" aria-busy="true">
 					<Skeleton className="h-8 w-64 rounded-lg" />

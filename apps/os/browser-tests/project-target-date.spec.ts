@@ -15,7 +15,7 @@ try {
 		// An unset target opens the current month; keep October selectable year-round.
 		await page.clock.setFixedTime(new Date("2026-10-15T12:00:00Z"));
 		await page.goto(`${server.origin}/work?app=portfolio`);
-		await page.getByRole("heading", { name: "Goals", level: 1 }).waitFor();
+		await page.getByRole("heading", { name: "Objectives", level: 1 }).waitFor();
 		const rows = page.locator("[data-project-row]");
 		await rows.first().waitFor();
 		assert.equal(await rows.count(), 3, `${width}: every project is listed`);

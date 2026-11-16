@@ -825,7 +825,7 @@ export function OutputsPage() {
 						/>
 						<SearchInput
 							containerClassName="min-w-0 flex-1 sm:w-60"
-							aria-label="Search outputs"
+							aria-label="Search documents"
 							value={query}
 							onChange={(event) => setQuery(event.target.value)}
 							placeholder="Search"
@@ -854,7 +854,7 @@ export function OutputsPage() {
 			) : null}
 			{restore.isError ? (
 				<Alert variant="destructive">
-					<AlertTitle>Output not restored</AlertTitle>
+					<AlertTitle>Document not restored</AlertTitle>
 					<AlertDescription>{restore.error.message}</AlertDescription>
 				</Alert>
 			) : null}
@@ -869,10 +869,10 @@ export function OutputsPage() {
 						</EmptyMedia>
 						<EmptyTitle>
 							{allItems.length > 0
-								? "No matching outputs"
+								? "No matching documents"
 								: kind === "archived"
-									? "No archived outputs"
-									: "No outputs yet"}
+									? "No archived documents"
+									: "No documents yet"}
 						</EmptyTitle>
 						<EmptyDescription>
 							{allItems.length > 0
@@ -958,7 +958,7 @@ export function OutputsPage() {
 			) : null}
 			{outputs.data?.truncated ? (
 				<Text role="label" tone="secondary" className="text-center">
-					Showing the 200 most recently updated outputs.
+					Showing the 200 most recently updated documents.
 				</Text>
 			) : null}
 			<RenameDialog

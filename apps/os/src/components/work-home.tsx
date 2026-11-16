@@ -66,7 +66,7 @@ export function WorkHome({
 	const title = portfolioLead
 		? portfolioLead === "projects"
 			? "Projects"
-			: "Goals"
+			: OS_COPY.work.objectives
 		: selected?.role === "feed"
 			? copy.feed
 			: selected?.role === "deck"
