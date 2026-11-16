@@ -1,4 +1,4 @@
-import { getSkillRun } from "@tedix/db/queries/skill-runs";
+import type { getSkillRun } from "@tedix/db/queries/skill-runs";
 import { sha256Hex } from "@tedix/worker-kit/crypto";
 import * as z from "zod";
 import type { EvaluationRequest } from "@tedix/api-contract/schemas/evaluation-context";
@@ -119,6 +119,7 @@ export async function admitEvaluation(input: {
 	const epoch = input.request.headers.get("X-Tedix-Workflow-Execution-Epoch");
 	if (!workflowRunId || epoch === null || !/^\d+$/.test(epoch))
 		throw new Error("Evaluation requires authenticated workflow provenance");
+	const { getSkillRun } = await import("@tedix/db/queries/skill-runs");
 	const run = await getSkillRun(
 		(await import("@tedix/db/client")).createDbClient(input.env.DB),
 		workflowRunId,
@@ -293,6 +294,7 @@ export async function assertEvaluationAuthority(
 	admission: Omit<EvaluationAdmission, "agents" | "agentsProof"> &
 		Partial<Pick<EvaluationAdmission, "agents" | "agentsProof">>,
 ) {
+	const { getSkillRun } = await import("@tedix/db/queries/skill-runs");
 	const run = await getSkillRun(
 		(await import("@tedix/db/client")).createDbClient(env.DB),
 		admission.workflowRunId,
