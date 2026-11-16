@@ -239,6 +239,87 @@ describe("skill run environment fencing", () => {
 		});
 	});
 
+	it("says what started each run and filters the log by starter, revision and age", async () => {
+		const { db, insert, sqlite } = fixture();
+		const starter = sqlite.prepare(
+			"UPDATE skill_runs SET created_by = ?, certification = ? WHERE id = ?",
+		);
+		insert({
+			id: "scheduled",
+			status: "failed",
+			error: `Error: tool timed out\n${"at step ".repeat(100)}`,
+			startedAt: "2026-07-12T06:00:00.000Z",
+		});
+		starter.run("schedule", 0, "scheduled");
+		insert({
+			id: "manual",
+			status: "completed",
+			result: JSON.stringify({ summary: "31 threads queued" }),
+			skillRevision: 2,
+			// D1's own timestamp shape: later than the ISO cut-off below, and
+			// sorted as text below the ISO run of the same day.
+			startedAt: "2026-07-12 09:00:00",
+		});
+		starter.run("user:person-1", 0, "manual");
+		insert({
+			id: "agent",
+			status: "completed",
+			result: JSON.stringify({ backgroundOutcome: { summary: "No change" } }),
+			startedAt: "2026-07-11T09:00:00.000Z",
+		});
+		starter.run("tedi:tedi-1", 0, "agent");
+		insert({
+			id: "test",
+			status: "completed",
+			result: JSON.stringify({ message: "ok", summary: 7 }),
+			startedAt: "2026-07-10T09:00:00.000Z",
+		});
+		starter.run("user:person-1", 1, "test");
+		insert({ id: "unrecorded", startedAt: "2026-07-09T09:00:00.000Z" });
+
+		const list = (
+			options?: Parameters<typeof listSkillRunsForSkill>[4],
+		): Promise<Awaited<ReturnType<typeof listSkillRunsForSkill>>> =>
+			listSkillRunsForSkill(db, "org-1", "skill-1", "development", options);
+		const all = await list();
+		const byId = Object.fromEntries(all.map((run) => [run.id, run]));
+		expect(all.map((run) => [run.id, run.trigger])).toEqual([
+			["scheduled", "scheduled"],
+			["manual", "manual"],
+			["agent", "agent"],
+			["test", "test"],
+			["unrecorded", null],
+		]);
+		expect(byId.scheduled?.errorPreview).toHaveLength(400);
+		expect(byId.scheduled?.errorPreview).toMatch(/^Error: tool timed out/);
+		expect(byId.manual).toMatchObject({
+			resultSummary: "31 threads queued",
+			errorPreview: null,
+		});
+		expect(byId.agent?.resultSummary).toBe("No change");
+		expect(byId.test?.resultSummary).toBe("ok");
+		expect(byId.unrecorded?.resultSummary).toBeNull();
+
+		const ids = async (options: Parameters<typeof list>[0]) =>
+			(await list(options)).map((run) => run.id);
+		expect(await ids({ trigger: "test" })).toEqual(["test"]);
+		expect(await ids({ trigger: "manual" })).toEqual(["manual"]);
+		expect(await ids({ trigger: "scheduled" })).toEqual(["scheduled"]);
+		expect(await ids({ trigger: "agent" })).toEqual(["agent"]);
+		expect(await ids({ skillRevision: 2 })).toEqual(["manual"]);
+		expect(await ids({ startedAfter: "2026-07-12T00:00:00.000Z" })).toEqual([
+			"scheduled",
+			"manual",
+		]);
+		expect(
+			await ids({
+				startedAfter: "2026-07-10T00:00:00.000Z",
+				status: "completed",
+				trigger: "agent",
+			}),
+		).toEqual(["agent"]);
+	});
+
 	it("keeps every read surface inside its workflow runtime environment", async () => {
 		const { db, insert } = fixture();
 		insert({ id: "dev-a", runtimeEnvironment: "development" });

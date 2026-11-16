@@ -972,6 +972,7 @@ export const seedState = (): LocalState => ({
 			completedAt: T2,
 			error: null,
 			createdBy: "schedule",
+			resultSummary: "Report for 14 accounts sent to finance",
 		},
 		{
 			id: RUN_CHURN_FAILED,

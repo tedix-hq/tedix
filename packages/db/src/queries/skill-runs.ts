@@ -19,6 +19,7 @@ import {
 	notExists,
 	notInArray,
 	or,
+	type SQL,
 	sql,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
@@ -343,15 +344,12 @@ export async function setSkillRunCostSummary(
 	return updated.length > 0;
 }
 
-export interface ListSkillRunsForTediOptions {
+export interface ListSkillRunsForTediOptions extends SkillRunListFilters {
 	limit?: number;
 	offset?: number;
 	/** Omit private run inputs from a read-only capture inventory. */
 	metadataOnly?: boolean;
-	status?: SkillRunStatus;
 	skillId?: string;
-	/** Filter runs to skills carrying this exact JSON-array tag. */
-	skillTag?: string;
 }
 
 export interface SkillRunSummaryRow {
@@ -378,7 +376,28 @@ export interface SkillRunSummaryRow {
 	hasError: boolean | number;
 	outcome: "delivered" | "progressed" | "blocked" | "no_action" | null;
 	workItemId: string | null;
+	/** What started the run, read from `certification` and `createdBy`. */
+	trigger: SkillRunTrigger | null;
+	/** The start of the stored error, at most 400 characters. */
+	errorPreview: string | null;
+	/** The result's own summary text, at most 300 characters. */
+	resultSummary: string | null;
 }
+
+export type SkillRunTrigger = "scheduled" | "manual" | "agent" | "test";
+
+/**
+ * What started a run. A test is an owner's or admin's certification run;
+ * the scheduler writes `schedule`; a person's run carries `user:<id>`; any
+ * other recorded starter is an agent or an app.
+ */
+const skillRunTriggerSql = sql<SkillRunTrigger | null>`case
+	when ${skillRuns.certification} = 1 then 'test'
+	when ${skillRuns.createdBy} = 'schedule' then 'scheduled'
+	when ${skillRuns.createdBy} like 'user:%' then 'manual'
+	when ${skillRuns.createdBy} is null or ${skillRuns.createdBy} = 'unknown' then null
+	else 'agent'
+end`;
 
 const skillRunSummarySelect = {
 	id: skillRuns.id,
@@ -415,6 +434,19 @@ const skillRunSummarySelect = {
 		then json_extract(${skillRuns.result}, '$.workItemId')
 		else null
 	end`.as("work_item_id"),
+	trigger: skillRunTriggerSql.as("run_trigger"),
+	errorPreview: sql<string | null>`substr(${skillRuns.error}, 1, 400)`.as(
+		"error_preview",
+	),
+	resultSummary: sql<string | null>`substr(case
+		when json_type(${skillRuns.result}, '$.summary') = 'text'
+		then json_extract(${skillRuns.result}, '$.summary')
+		when json_type(${skillRuns.result}, '$.message') = 'text'
+		then json_extract(${skillRuns.result}, '$.message')
+		when json_type(${skillRuns.result}, '$.backgroundOutcome.summary') = 'text'
+		then json_extract(${skillRuns.result}, '$.backgroundOutcome.summary')
+		else null
+	end, 1, 300)`.as("result_summary"),
 };
 
 function skillRunSummaryProjection(metadataOnly?: boolean) {
@@ -427,6 +459,34 @@ function skillRunSummaryProjection(metadataOnly?: boolean) {
 				>`null`.as("capability_manifest"),
 			}
 		: skillRunSummarySelect;
+}
+
+/** Filters every run list shares: status, tag, starter, revision, age. */
+interface SkillRunListFilters {
+	status?: SkillRunStatus;
+	/** Filter runs to skills carrying this exact JSON-array tag. */
+	skillTag?: string;
+	trigger?: SkillRunTrigger;
+	skillRevision?: number;
+	/** ISO time; only runs started at or after it. */
+	startedAfter?: string;
+}
+
+function skillRunFilterConditions(options?: SkillRunListFilters): SQL[] {
+	const conditions: SQL[] = [];
+	if (options?.status) conditions.push(eq(skillRuns.status, options.status));
+	if (options?.skillTag) conditions.push(skillTagCondition(options.skillTag));
+	if (options?.trigger)
+		conditions.push(sql`${skillRunTriggerSql} = ${options.trigger}`);
+	if (options?.skillRevision != null)
+		conditions.push(eq(skillRuns.skillRevision, options.skillRevision));
+	// started_at holds both `YYYY-MM-DD HH:MM:SS` and ISO text; datetime()
+	// reads both as UTC.
+	if (options?.startedAfter)
+		conditions.push(
+			sql`datetime(${skillRuns.startedAt}) >= datetime(${options.startedAfter})`,
+		);
+	return conditions;
 }
 
 function skillTagCondition(skillTag: string) {
@@ -451,9 +511,8 @@ export async function listSkillRunsForTedi(
 		eq(skillRuns.tediId, tediId),
 		skillRunEnvironmentCondition(runtimeEnvironment),
 	];
-	if (options?.status) conditions.push(eq(skillRuns.status, options.status));
 	if (options?.skillId) conditions.push(eq(skillRuns.skillId, options.skillId));
-	if (options?.skillTag) conditions.push(skillTagCondition(options.skillTag));
+	conditions.push(...skillRunFilterConditions(options));
 
 	return db
 		.select(skillRunSummaryProjection(options?.metadataOnly))
@@ -464,13 +523,10 @@ export async function listSkillRunsForTedi(
 		.offset(Math.max(options?.offset ?? 0, 0));
 }
 
-export interface ListSkillRunsForSkillOptions {
+export interface ListSkillRunsForSkillOptions extends SkillRunListFilters {
 	limit?: number;
 	offset?: number;
 	metadataOnly?: boolean;
-	status?: SkillRunStatus;
-	/** Filter runs to skills carrying this exact JSON-array tag. */
-	skillTag?: string;
 }
 
 export async function listSkillRunsForSkill(
@@ -485,8 +541,7 @@ export async function listSkillRunsForSkill(
 		eq(skillRuns.skillId, skillId),
 		skillRunEnvironmentCondition(runtimeEnvironment),
 	];
-	if (options?.status) conditions.push(eq(skillRuns.status, options.status));
-	if (options?.skillTag) conditions.push(skillTagCondition(options.skillTag));
+	conditions.push(...skillRunFilterConditions(options));
 
 	return db
 		.select(skillRunSummaryProjection(options?.metadataOnly))
@@ -497,13 +552,10 @@ export async function listSkillRunsForSkill(
 		.offset(Math.max(options?.offset ?? 0, 0));
 }
 
-export interface ListSkillRunsForOrgOptions {
+export interface ListSkillRunsForOrgOptions extends SkillRunListFilters {
 	limit?: number;
 	offset?: number;
 	metadataOnly?: boolean;
-	status?: SkillRunStatus;
-	/** Filter runs to skills carrying this exact JSON-array tag. */
-	skillTag?: string;
 }
 
 /**
@@ -521,8 +573,7 @@ export async function listSkillRunsForOrg(
 		eq(skillRuns.organizationId, organizationId),
 		skillRunEnvironmentCondition(runtimeEnvironment),
 	];
-	if (options?.status) conditions.push(eq(skillRuns.status, options.status));
-	if (options?.skillTag) conditions.push(skillTagCondition(options.skillTag));
+	conditions.push(...skillRunFilterConditions(options));
 
 	return db
 		.select(skillRunSummaryProjection(options?.metadataOnly))

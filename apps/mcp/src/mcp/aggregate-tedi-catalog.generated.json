@@ -2715,6 +2715,23 @@
 							"canceled"
 						]
 					},
+					"trigger": {
+						"description": "Filter by what started the run",
+						"type": "string",
+						"enum": ["scheduled", "manual", "agent", "test"]
+					},
+					"skillRevision": {
+						"description": "Filter to runs of one skill revision",
+						"type": "integer",
+						"exclusiveMinimum": 0,
+						"maximum": 9007199254740991
+					},
+					"startedAfter": {
+						"description": "Only runs started at or after this ISO time",
+						"type": "string",
+						"format": "date-time",
+						"pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+					},
 					"limit": {
 						"default": 50,
 						"type": "integer",
@@ -11785,6 +11802,23 @@
 							"canceled"
 						]
 					},
+					"trigger": {
+						"description": "Filter by what started the run",
+						"type": "string",
+						"enum": ["scheduled", "manual", "agent", "test"]
+					},
+					"skillRevision": {
+						"description": "Filter to runs of one skill revision",
+						"type": "integer",
+						"exclusiveMinimum": 0,
+						"maximum": 9007199254740991
+					},
+					"startedAfter": {
+						"description": "Only runs started at or after this ISO time",
+						"type": "string",
+						"format": "date-time",
+						"pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+					},
 					"limit": {
 						"default": 50,
 						"type": "integer",
@@ -14650,6 +14684,26 @@
 								]
 							},
 							"workItemId": {
+								"type": ["string", "null"]
+							},
+							"trigger": {
+								"description": "What started the run; null when it was not recorded",
+								"anyOf": [
+									{
+										"type": "string",
+										"enum": ["scheduled", "manual", "agent", "test"]
+									},
+									{
+										"type": "null"
+									}
+								]
+							},
+							"errorPreview": {
+								"description": "The start of the run's error, at most 400 characters",
+								"type": ["string", "null"]
+							},
+							"resultSummary": {
+								"description": "The summary or message text of the run's result, at most 300 characters",
 								"type": ["string", "null"]
 							}
 						},

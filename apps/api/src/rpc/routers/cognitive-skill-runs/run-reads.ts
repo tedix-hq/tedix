@@ -328,6 +328,13 @@ export const skillsRunWorkflowHistory = authedSkills.runWorkflowHistory
 	.handler(async ({ input, context }) => {
 		const orgId = requireOrgId(context);
 
+		const filters = {
+			status: input.status,
+			skillTag: input.skillTag,
+			trigger: input.trigger,
+			skillRevision: input.skillRevision,
+			startedAfter: input.startedAfter,
+		};
 		let runs: SkillRunSummaryRow[];
 		if (input.tediId) {
 			runs = await listSkillRunsForTedi(
@@ -339,9 +346,8 @@ export const skillsRunWorkflowHistory = authedSkills.runWorkflowHistory
 					limit: input.limit,
 					...(input.offset ? { offset: input.offset } : {}),
 					...(input.reconcile === false ? { metadataOnly: true } : {}),
-					status: input.status,
+					...filters,
 					skillId: input.skillId,
-					skillTag: input.skillTag,
 				},
 			);
 		} else if (input.skillId) {
@@ -354,8 +360,7 @@ export const skillsRunWorkflowHistory = authedSkills.runWorkflowHistory
 					limit: input.limit,
 					...(input.offset ? { offset: input.offset } : {}),
 					...(input.reconcile === false ? { metadataOnly: true } : {}),
-					status: input.status,
-					skillTag: input.skillTag,
+					...filters,
 				},
 			);
 		} else {
@@ -370,8 +375,7 @@ export const skillsRunWorkflowHistory = authedSkills.runWorkflowHistory
 					limit: input.limit,
 					...(input.offset ? { offset: input.offset } : {}),
 					...(input.reconcile === false ? { metadataOnly: true } : {}),
-					status: input.status,
-					skillTag: input.skillTag,
+					...filters,
 				},
 			);
 		}

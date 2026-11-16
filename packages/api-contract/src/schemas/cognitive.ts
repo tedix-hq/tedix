@@ -316,6 +316,15 @@ export const SkillRunStatusSchema = z.enum([
 ]);
 export type SkillRunStatus = z.infer<typeof SkillRunStatusSchema>;
 
+/** What started a run: the schedule, a person, an agent or app, or a test. */
+export const SkillRunTriggerSchema = z.enum([
+	"scheduled",
+	"manual",
+	"agent",
+	"test",
+]);
+export type SkillRunTrigger = z.infer<typeof SkillRunTriggerSchema>;
+
 const SkillRunRuntimeEnvironmentSchema = z.enum([
 	"development",
 	"staging",
@@ -425,6 +434,21 @@ export const SkillRunSummarySchema = z.object({
 		.nullable()
 		.optional(),
 	workItemId: z.string().nullable().optional(),
+	trigger: SkillRunTriggerSchema.nullable()
+		.optional()
+		.describe("What started the run; null when it was not recorded"),
+	errorPreview: z
+		.string()
+		.nullable()
+		.optional()
+		.describe("The start of the run's error, at most 400 characters"),
+	resultSummary: z
+		.string()
+		.nullable()
+		.optional()
+		.describe(
+			"The summary or message text of the run's result, at most 300 characters",
+		),
 });
 export type SkillRunSummary = z.infer<typeof SkillRunSummarySchema>;
 

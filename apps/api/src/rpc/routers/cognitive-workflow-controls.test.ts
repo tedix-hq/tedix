@@ -1581,6 +1581,62 @@ describe("skill workflow history repair", () => {
 			hasError: false,
 		});
 	});
+
+	it("passes the run log filters to the read and returns its starter, error and result lines", async () => {
+		mocks.listSkillRunsForSkill.mockResolvedValue([
+			{
+				...RUN,
+				runtimeEnvironment: "production" as const,
+				lastReconciledAt: null,
+				status: "failed" as const,
+				completedAt: "2026-07-12T00:02:00.000Z",
+				hasResult: 0,
+				hasError: 1,
+				outcome: null,
+				workItemId: null,
+				trigger: "scheduled" as const,
+				errorPreview: "Error: tool timed out",
+				resultSummary: null,
+			},
+		]);
+		const client = createRouterClient(skillsContractRouter, {
+			context: createContext(vi.fn()),
+		});
+
+		const response = await client.runWorkflowHistory({
+			skillId: RUN.skillId,
+			status: "failed",
+			trigger: "scheduled",
+			skillRevision: 3,
+			startedAfter: "2026-07-11T00:00:00.000Z",
+			offset: 50,
+		});
+
+		expect(mocks.listSkillRunsForSkill).toHaveBeenLastCalledWith(
+			expect.anything(),
+			RUN.organizationId,
+			RUN.skillId,
+			expect.anything(),
+			expect.objectContaining({
+				status: "failed",
+				trigger: "scheduled",
+				skillRevision: 3,
+				startedAfter: "2026-07-11T00:00:00.000Z",
+				offset: 50,
+			}),
+		);
+		expect(response.runs[0]).toMatchObject({
+			trigger: "scheduled",
+			errorPreview: "Error: tool timed out",
+			resultSummary: null,
+		});
+		await expect(
+			client.runWorkflowHistory({
+				skillId: RUN.skillId,
+				startedAfter: "last week",
+			}),
+		).rejects.toThrow();
+	});
 });
 
 describe("skill workflow retry candidates", () => {
