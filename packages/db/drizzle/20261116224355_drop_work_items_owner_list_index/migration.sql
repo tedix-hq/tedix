@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS `idx_work_items_org_owner_disposition_created`;
