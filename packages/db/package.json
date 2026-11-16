@@ -171,6 +171,7 @@
 		"./queries/skill-retrieval-utility": "./src/queries/skill-retrieval-utility.ts",
 		"./queries/skill-run-effects": "./src/queries/skill-run-effects.ts",
 		"./queries/skill-lifecycle": "./src/queries/skill-lifecycle.ts",
+		"./queries/skill-stop-notice": "./src/queries/skill-stop-notice.ts",
 		"./queries/fact-lifecycle": "./src/queries/fact-lifecycle.ts",
 		"./queries/skill-portfolio": "./src/queries/skill-portfolio.ts",
 		"./queries/governance-overview": "./src/queries/governance-overview.ts",

@@ -44,6 +44,9 @@ const NAMED_ID: [RegExp, string][] = [
 	],
 ];
 
+/** Not within the target of a Markdown link such as `[open](/skills/<id>)`. */
+const OUTSIDE_LINK_TARGET = "(?<!\\]\\([^)\\s]*)";
+
 const PATTERNS: [RegExp, string][] = [
 	// Actor references such as external_agent:7e22… or tedi:0000….
 	[new RegExp(`\\b[a-z]+(?:_[a-z]+)*:${UUID}`, "gi"), ""],
@@ -54,8 +57,9 @@ const PATTERNS: [RegExp, string][] = [
 	[/\b[\w-]+(?:\.[\w-]+)*\.(?:local|lan|internal)\b/gi, ""],
 	// Bare error codes such as E151103.
 	[/\b[A-Z]\d{5,}\b/g, ""],
-	[new RegExp(`\\b${UUID}\\b`, "gi"), ""],
-	[new RegExp(`\\b${HEX}\\b`, "gi"), ""],
+	// An id inside a Markdown link target is the link itself, not text to hide.
+	[new RegExp(`${OUTSIDE_LINK_TARGET}\\b${UUID}\\b`, "gi"), ""],
+	[new RegExp(`${OUTSIDE_LINK_TARGET}\\b${HEX}\\b`, "gi"), ""],
 ];
 
 /** Tidy what removed identifiers leave behind: "( , )", " ,", doubled spaces. */
