@@ -1504,6 +1504,10 @@
 		{
 			"name": "20261116132543_work_planning_approval_continuity/migration.sql",
 			"sha256": "27a1f989e3a0bb38b8ac085eefe1ffa30a978116b0d22abe01113ef6db80fa0b"
+		},
+		{
+			"name": "20261116143434_owned_channel_publish_boundary/migration.sql",
+			"sha256": "57b5b2893ec5e651d8bc6dcee3ef50c9a67fcea462ed33bbc96ef1cd77ae33e2"
 		}
 	]
 }

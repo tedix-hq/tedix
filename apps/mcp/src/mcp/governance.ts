@@ -320,16 +320,13 @@ function emitGovernanceAuditEvent(
  * tools.ts`). Fail-soft: any absent/malformed/unexpected value reads as `null`
  * ("never" — no grant lookup, unchanged elicitation behavior). Never throws.
  */
-function isTedixOwnedChannelPublishBoundary(
+export function isTedixOwnedChannelPublishBoundary(
 	agent: ApprovalContext,
 	tool: ApprovalTool,
 ): boolean {
-	const config =
-		tool.config &&
-		typeof tool.config === "object" &&
-		!Array.isArray(tool.config)
-			? (tool.config as Record<string, unknown>)
-			: {};
+	const config = isRecord(tool.config) ? tool.config : {};
+	const declared = config.ownedChannelPublish;
+	if (!isRecord(declared)) return false;
 	const configuredLabel =
 		typeof config._aggregateConnectionLabel === "string"
 			? config._aggregateConnectionLabel
@@ -337,20 +334,12 @@ function isTedixOwnedChannelPublishBoundary(
 	const connectionLabel = (configuredLabel ?? agent.connectionLabel)
 		?.trim()
 		.toLowerCase();
-	const isCmsPublishTool =
-		tool.toolId === "content_publish" ||
-		tool.toolId.endsWith("__content_publish");
-	const targetsTedixConnection =
-		connectionLabel === "tedix" && isCmsPublishTool;
 	return (
-		(agent.appSlug === "tedix-unified" &&
-			(tool.toolId === "cms_landing__content_publish" ||
-				tool.toolId === "cms_tedix__content_publish" ||
-				tool.toolId === "cms-tedix__content_publish")) ||
-		((agent.appSlug === "cms-tedix-landing" || agent.appSlug === "cms-tedix") &&
-			(tool.toolId === "cms__content_publish" ||
-				tool.toolId === "content_publish")) ||
-		targetsTedixConnection
+		(Array.isArray(declared.routes) &&
+			declared.routes.includes(`${agent.appSlug ?? ""}:${tool.toolId}`)) ||
+		(connectionLabel !== undefined &&
+			Array.isArray(declared.connectionLabels) &&
+			declared.connectionLabels.includes(connectionLabel))
 	);
 }
 
