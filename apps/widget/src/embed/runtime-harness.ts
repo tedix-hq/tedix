@@ -430,7 +430,7 @@ export function sessionResult(extra: Record<string, unknown> = {}) {
 	};
 }
 
-/** A WebMCP host that records the tools the runtime projects onto it. */
+/** A WebMCP host that records the tools the runtime registers on it. */
 export function modelContextHost() {
 	const tools = new Map<
 		string,
@@ -438,15 +438,18 @@ export function modelContextHost() {
 	>();
 	const host = {
 		tools,
-		provideContext: vi.fn(
-			(value: {
-				tools: Array<{
+		registerTool: vi.fn(
+			(
+				tool: {
 					name: string;
 					execute: (args: unknown, options?: unknown) => Promise<unknown>;
-				}>;
-			}) => {
-				tools.clear();
-				for (const tool of value.tools) tools.set(tool.name, tool);
+				},
+				options?: { signal?: AbortSignal },
+			) => {
+				tools.set(tool.name, tool);
+				options?.signal?.addEventListener("abort", () => {
+					if (tools.get(tool.name) === tool) tools.delete(tool.name);
+				});
 			},
 		),
 	};

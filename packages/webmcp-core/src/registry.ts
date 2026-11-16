@@ -1,11 +1,9 @@
 import {
 	describeModelContextApi,
 	type ModelContextLike,
-	type ResolvedModelContext,
-	resolveModelContextSource,
+	resolveModelContext,
 	toSpecToolOutput,
 	type WebMcpHostApi,
-	type WebMcpHostSource,
 	type WebMcpSpecTool,
 	type WebMcpToolDef,
 	type WebMcpToolResult,
@@ -16,14 +14,10 @@ import {
  *
  * Routes register a named scope of tools on mount and dispose it on leave;
  * the registry composes every live scope into one tool set and projects it
- * onto whichever WebMCP surface the browser offers:
- *
- * - Current `registerTool(tool, { signal })` is preferred. Every projection
- *   owns an AbortController, so route and tenant changes unregister the old
- *   tool set before registering the new one. Tools go through
- *   `toSpecToolOutput`, so error results reject as the spec requires.
- * - Legacy `provideContext` remains a compatibility fallback for experiments
- *   that only implement whole-set replacement.
+ * onto `document.modelContext.registerTool(tool, { signal })`. Every
+ * projection owns an AbortController, so route and tenant changes unregister
+ * the old tool set before registering the new one. Tools go through
+ * `toSpecToolOutput`, so error results reject as the spec requires.
  *
  * Module-level singleton by design (like the realtime connection manager):
  * the document has one agent surface, not one per React tree. No React here.
@@ -39,12 +33,11 @@ let projectionGeneration = 0;
 let lastRegistrationError: string | null = null;
 
 /**
- * Injectable for tests; production always uses the real feature detection.
- * Resolution is source-aware so the diagnostic probe reports the host it
- * actually found rather than re-deriving detection of its own.
+ * Injectable for tests; production always uses the real feature detection,
+ * so the diagnostic probe reports the host the registry actually resolved
+ * rather than re-deriving detection of its own.
  */
-let contextResolver: () => ResolvedModelContext | null =
-	resolveModelContextSource;
+let contextResolver: () => ModelContextLike | null = resolveModelContext;
 
 /** One console hint per document when tools are dropped for want of a host. */
 let missingHostHintEmitted = false;
@@ -211,23 +204,11 @@ function instrumented(scopeKey: string, tool: WebMcpToolDef): WebMcpToolDef {
 	};
 }
 
-/**
- * Test seam. Accepts either the sourced form (to exercise host reporting) or a
- * bare context; a bare context is reported as the `document` surface, which is
- * what production detection prefers.
- */
+/** Test seam: swap host detection, or restore it with null. */
 export function setModelContextResolverForTests(
-	resolver: (() => ModelContextLike | ResolvedModelContext | null) | null,
+	resolver: (() => ModelContextLike | null) | null,
 ): void {
-	contextResolver = resolver
-		? () => {
-				const resolved = resolver();
-				if (!resolved) return null;
-				return "context" in resolved
-					? resolved
-					: { context: resolved, source: "document" };
-			}
-		: resolveModelContextSource;
+	contextResolver = resolver ?? resolveModelContext;
 	missingHostHintEmitted = false;
 	projectionController?.abort();
 	projectionController = null;
@@ -292,18 +273,6 @@ function project(context: ModelContextLike): void {
 			lastRegistrationError = errorMessage(error);
 			console.error("WebMCP tool registration failed", error);
 		});
-		return;
-	}
-
-	if (!context.provideContext) return;
-	try {
-		context.provideContext({ tools });
-	} catch (error) {
-		// WebMCP is an optional enhancement. A legacy host can reject a
-		// projection synchronously (for example while replacing a stale scope),
-		// but that must never abort the mounting application's own controls.
-		lastRegistrationError = errorMessage(error);
-		console.error("WebMCP tool registration failed", error);
 	}
 }
 
@@ -316,8 +285,8 @@ export function registerWebMcpScope(
 	scopeKey: string,
 	tools: WebMcpToolDef[],
 ): () => void {
-	const resolved = contextResolver();
-	if (!resolved) {
+	const context = contextResolver();
+	if (!context) {
 		noteMissingHost();
 		return () => {};
 	}
@@ -326,12 +295,12 @@ export function registerWebMcpScope(
 		tools: tools.map((tool) => instrumented(scopeKey, tool)),
 	};
 	scopes.set(scopeKey, entry);
-	project(resolved.context);
+	project(context);
 	return () => {
 		if (!disposeScope(scopeKey, entry)) return;
 		const current = contextResolver();
 		if (!current) return;
-		project(current.context);
+		project(current);
 	};
 }
 
@@ -348,7 +317,7 @@ function noteMissingHost(): void {
 	missingHostHintEmitted = true;
 	try {
 		console.info(
-			"WebMCP tools are not being registered: no WebMCP host detected on this page (checked document.modelContext, then navigator.modelContext). This is expected in a browser without WebMCP support — it does not mean the route has no tools. Run window.__tedixWebMcp.status() and read host.detected.",
+			"WebMCP tools are not being registered: no WebMCP host detected on this page (checked document.modelContext). This is expected in a browser without WebMCP support — it does not mean the route has no tools. Run window.__tedixWebMcp.status() and read host.detected.",
 		);
 	} catch {
 		// A hint must never affect behavior.
@@ -370,8 +339,6 @@ export function webMcpRegisteredToolNames(): string[] {
 export interface WebMcpHostStatus {
 	/** True only when a WebMCP host object answered detection. */
 	detected: boolean;
-	/** Which surface carried it, or null when nothing was found. */
-	source: WebMcpHostSource | null;
 	/** Which projection API it offers; `none` with no host, or an inert host. */
 	api: WebMcpHostApi;
 }
@@ -394,12 +361,11 @@ export interface WebMcpRegistrationStatus {
  * arguments or results.
  */
 export function webMcpRegistrationStatus(): WebMcpRegistrationStatus {
-	const resolved = contextResolver();
+	const context = contextResolver();
 	return {
 		host: {
-			detected: resolved !== null,
-			source: resolved?.source ?? null,
-			api: describeModelContextApi(resolved?.context ?? null),
+			detected: context !== null,
+			api: describeModelContextApi(context),
 		},
 		tools: webMcpRegisteredToolNames(),
 		generation: projectionGeneration,

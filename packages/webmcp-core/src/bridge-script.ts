@@ -9,13 +9,12 @@
  *
  * Two deliberate improvements over the original cms-runtime copy:
  *
- * 1. Detection follows the current draft at `document.modelContext` first and
- *    falls back to `navigator.modelContext` for deployed experiments. Neither
- *    present is still a silent no-op — the bridge must never break the page.
- * 2. Current `registerTool(tool, { signal })` is preferred, with the older
- *    whole-set `provideContext({ tools })` retained as a compatibility fallback.
- *    Tools registered through `registerTool` follow the spec execute contract:
- *    error results reject, and MCP annotations map onto the spec hints.
+ * 1. Detection follows the current draft at `document.modelContext` only (see
+ *    model-context.ts for why the older surfaces are gone). Absent is still a
+ *    silent no-op — the bridge must never break the page.
+ * 2. Registration uses `registerTool(tool, { signal })` and the spec execute
+ *    contract: error results reject, and MCP annotations map onto the spec
+ *    hints.
  *
  * Retry policy: endpoint discovery /
  * tools/list failures retry with EXPONENTIAL BACKOFF and FULL JITTER — base
@@ -43,7 +42,6 @@ const BRIDGE_JS_SOURCE = `// Tedix WebMCP bridge — shared @tedix/webmcp-core b
 	function boot() {
 		var surface =
 			(typeof document !== "undefined" ? document.modelContext : undefined) ??
-			(typeof navigator !== "undefined" ? navigator.modelContext : undefined) ??
 			null;
 		if (!surface) {
 			if (readinessAttempts++ < maxReadinessAttempts) {
@@ -51,9 +49,7 @@ const BRIDGE_JS_SOURCE = `// Tedix WebMCP bridge — shared @tedix/webmcp-core b
 			}
 			return;
 		}
-		var canRegisterTool = typeof surface.registerTool === "function";
-		var canProvideContext = typeof surface.provideContext === "function";
-		if (!canRegisterTool && !canProvideContext) return;
+		if (typeof surface.registerTool !== "function") return;
 
 		var moduleUrl = new URL(import.meta.url);
 	var configuredMcpUrl = moduleUrl.searchParams.get("mcp-url");
@@ -153,17 +149,13 @@ const BRIDGE_JS_SOURCE = `// Tedix WebMCP bridge — shared @tedix/webmcp-core b
 			// failure starts again from the base delay.
 			retryAttempt = 0;
 			var tools = ((result && result.tools) || []).map(toolDefFor);
-			if (canRegisterTool) {
-				var controller = new AbortController();
-				return Promise.all(tools.map(function (tool) {
-					return surface.registerTool(specToolFor(tool), { signal: controller.signal });
-				})).catch(function (error) {
-					controller.abort();
-					throw error;
-				});
-			} else {
-				surface.provideContext({ tools: tools });
-			}
+			var controller = new AbortController();
+			return Promise.all(tools.map(function (tool) {
+				return surface.registerTool(specToolFor(tool), { signal: controller.signal });
+			})).catch(function (error) {
+				controller.abort();
+				throw error;
+			});
 		})
 		.catch(function () {
 			scheduleRetry();

@@ -30,65 +30,66 @@ function tool(name: string): WebMcpToolDef {
 	};
 }
 
+/**
+ * A registerTool host that tracks the live tool set the way a real host
+ * does: registrations land in `tools`, and aborting the projection signal
+ * unregisters them.
+ */
+function registerToolHost() {
+	const tools = new Map<string, WebMcpSpecTool>();
+	const calls: WebMcpSpecTool[] = [];
+	const context: ModelContextLike = {
+		registerTool: (spec, options) => {
+			calls.push(spec);
+			tools.set(spec.name, spec);
+			options?.signal?.addEventListener("abort", () => {
+				if (tools.get(spec.name) === spec) tools.delete(spec.name);
+			});
+		},
+	};
+	return { calls, context, tools };
+}
+
 afterEach(() => {
 	setModelContextResolverForTests(null);
 	setWebMcpInvocationObserver(null);
 });
 
 describe("registerWebMcpScope", () => {
-	it.each(["registerTool", "provideContext"] as const)(
-		"forwards invocation cancellation through %s without changing attribution",
-		async (api) => {
-			let registered: Pick<WebMcpSpecTool, "execute"> | undefined;
-			setModelContextResolverForTests(() =>
-				api === "registerTool"
-					? {
-							registerTool: (value) => {
-								registered = value;
-							},
-						}
-					: {
-							provideContext: ({ tools }) => {
-								registered = tools[0];
-							},
-						},
-			);
-			const observer = vi.fn();
-			setWebMcpInvocationObserver(observer);
-			const execute = vi.fn<WebMcpToolDef["execute"]>(
-				async (_args, options) => {
-					options?.signal?.throwIfAborted();
-					return webMcpResult({ ok: true });
-				},
-			);
-			registerWebMcpScope("cancellable", [{ ...tool("read_state"), execute }]);
-			const controller = new AbortController();
-			const options = { signal: controller.signal };
-			const args = { limit: 1 };
-			// The spec path resolves to the structured data; legacy keeps the MCP shape.
-			const expected =
-				api === "registerTool" ? { ok: true } : webMcpResult({ ok: true });
-			await expect(registered!.execute(args, options)).resolves.toEqual(
-				expected,
-			);
-			expect(execute).toHaveBeenLastCalledWith(args, options);
-			expect(execute.mock.calls[0]?.[1]).toBe(options);
-			const reason = new Error("Browser cancelled invocation");
-			controller.abort(reason);
-			await expect(registered!.execute(args, options)).rejects.toBe(reason);
-			await expect(registered!.execute(args)).resolves.toEqual(expected);
-			expect(execute).toHaveBeenLastCalledWith(args, undefined);
-			expect(observer.mock.calls.map(([event]) => event.outcome)).toEqual([
-				"ok",
-				"error",
-				"ok",
-			]);
-			expect(
-				new Set(observer.mock.calls.map(([event]) => event.invocationId)).size,
-			).toBe(3);
-			expect(currentWebMcpInvocationId()).toBeNull();
-		},
-	);
+	it("forwards invocation cancellation through registerTool without changing attribution", async () => {
+		const { context, tools } = registerToolHost();
+		setModelContextResolverForTests(() => context);
+		const observer = vi.fn();
+		setWebMcpInvocationObserver(observer);
+		const execute = vi.fn<WebMcpToolDef["execute"]>(async (_args, options) => {
+			options?.signal?.throwIfAborted();
+			return webMcpResult({ ok: true });
+		});
+		registerWebMcpScope("cancellable", [{ ...tool("read_state"), execute }]);
+		const registered = tools.get("read_state")!;
+		const controller = new AbortController();
+		const options = { signal: controller.signal };
+		const args = { limit: 1 };
+		// The spec path resolves to the structured data.
+		const expected = { ok: true };
+		await expect(registered.execute(args, options)).resolves.toEqual(expected);
+		expect(execute).toHaveBeenLastCalledWith(args, options);
+		expect(execute.mock.calls[0]?.[1]).toBe(options);
+		const reason = new Error("Browser cancelled invocation");
+		controller.abort(reason);
+		await expect(registered.execute(args, options)).rejects.toBe(reason);
+		await expect(registered.execute(args)).resolves.toEqual(expected);
+		expect(execute).toHaveBeenLastCalledWith(args, undefined);
+		expect(observer.mock.calls.map(([event]) => event.outcome)).toEqual([
+			"ok",
+			"error",
+			"ok",
+		]);
+		expect(
+			new Set(observer.mock.calls.map(([event]) => event.invocationId)).size,
+		).toBe(3);
+		expect(currentWebMcpInvocationId()).toBeNull();
+	});
 
 	it("is a free no-op without a WebMCP surface", () => {
 		setModelContextResolverForTests(() => null);
@@ -97,11 +98,8 @@ describe("registerWebMcpScope", () => {
 		dispose();
 	});
 
-	it("projects the composed scope set through provideContext", () => {
-		const provided: WebMcpToolDef[][] = [];
-		const context: ModelContextLike = {
-			provideContext: ({ tools }) => provided.push(tools),
-		};
+	it("projects the composed scope set through registerTool", () => {
+		const { context, tools } = registerToolHost();
 		setModelContextResolverForTests(() => context);
 
 		const disposeWork = registerWebMcpScope("work", [
@@ -109,30 +107,27 @@ describe("registerWebMcpScope", () => {
 			tool("create_work_item"),
 		]);
 		registerWebMcpScope("chat", [tool("ask_tedi")]);
-		expect(provided.at(-1)?.map((t) => t.name)).toEqual([
+		expect([...tools.keys()]).toEqual([
 			"list_work_items",
 			"create_work_item",
 			"ask_tedi",
 		]);
 
 		disposeWork();
-		expect(provided.at(-1)?.map((t) => t.name)).toEqual(["ask_tedi"]);
+		expect([...tools.keys()]).toEqual(["ask_tedi"]);
 	});
 
 	it("replaces a re-registered scope instead of duplicating it", () => {
-		const provided: WebMcpToolDef[][] = [];
-		const context: ModelContextLike = {
-			provideContext: ({ tools }) => provided.push(tools),
-		};
+		const { context, tools } = registerToolHost();
 		setModelContextResolverForTests(() => context);
 
 		registerWebMcpScope("work", [tool("list_work_items")]);
 		registerWebMcpScope("work", [tool("get_work_item")]);
-		expect(provided.at(-1)?.map((t) => t.name)).toEqual(["get_work_item"]);
+		expect([...tools.keys()]).toEqual(["get_work_item"]);
 	});
 
 	it("drops name collisions across scopes (first registration wins)", () => {
-		const context: ModelContextLike = { provideContext: () => {} };
+		const context: ModelContextLike = { registerTool: () => {} };
 		setModelContextResolverForTests(() => context);
 		registerWebMcpScope("a", [tool("list_work_items")]);
 		registerWebMcpScope("b", [tool("list_work_items")]);
@@ -211,42 +206,17 @@ describe("registerWebMcpScope", () => {
 		consoleError.mockRestore();
 	});
 
-	it("contains synchronous legacy host failures so application controls still mount", () => {
-		const error = new Error("stale registration");
-		const consoleError = vi
-			.spyOn(console, "error")
-			.mockImplementation(() => undefined);
-		setModelContextResolverForTests(() => ({
-			provideContext: () => {
-				throw error;
-			},
-		}));
-
-		const dispose = registerWebMcpScope("chat", [tool("ask_tedi")]);
-
-		expect(webMcpRegisteredToolNames()).toEqual(["ask_tedi"]);
-		expect(webMcpRegistrationStatus().error).toBe("stale registration");
-		expect(consoleError).toHaveBeenCalledWith(
-			"WebMCP tool registration failed",
-			error,
-		);
-		expect(() => dispose()).not.toThrow();
-		consoleError.mockRestore();
-	});
-
 	it("double dispose is safe and does not clobber a newer scope", () => {
-		const provided: WebMcpToolDef[][] = [];
-		const context: ModelContextLike = {
-			provideContext: ({ tools }) => provided.push(tools),
-		};
+		const { calls, context, tools } = registerToolHost();
 		setModelContextResolverForTests(() => context);
 
 		const first = registerWebMcpScope("work", [tool("list_work_items")]);
 		registerWebMcpScope("work", [tool("get_work_item")]);
-		const projectionCount = provided.length;
+		const registrationCount = calls.length;
 		first(); // stale dispose of a replaced scope must not remove the new one
 		expect(webMcpRegisteredToolNames()).toEqual(["get_work_item"]);
-		expect(provided).toHaveLength(projectionCount);
+		expect([...tools.keys()]).toEqual(["get_work_item"]);
+		expect(calls).toHaveLength(registrationCount);
 		first();
 		expect(webMcpRegisteredToolNames()).toEqual(["get_work_item"]);
 	});
@@ -291,21 +261,19 @@ describe("spec registerTool projection", () => {
 });
 
 describe("invocation observer", () => {
-	/** Registers one scope and returns the projected (instrumented) tools. */
+	/** Registers one scope and returns the projected (spec-wrapped) tools. */
 	function projectTools(scopeKey: string, tools: WebMcpToolDef[]) {
-		const projected: WebMcpToolDef[][] = [];
-		const context: ModelContextLike = {
-			provideContext: ({ tools: t }) => projected.push(t),
-		};
+		const { context, tools: projected } = registerToolHost();
 		setModelContextResolverForTests(() => context);
 		registerWebMcpScope(scopeKey, tools);
-		return projected.at(-1) ?? [];
+		return [...projected.values()];
 	}
 
 	it("is a plain passthrough with no observer set", async () => {
 		const [projected] = projectTools("work", [tool("list_work_items")]);
-		const result = await projected?.execute({});
-		expect(result?.structuredContent).toEqual({ name: "list_work_items" });
+		await expect(projected?.execute({})).resolves.toEqual({
+			name: "list_work_items",
+		});
 	});
 
 	it("classifies ok, error, and context_unavailable with a duration", async () => {
@@ -320,7 +288,10 @@ describe("invocation observer", () => {
 			},
 		];
 		const projected = projectTools("work", defs);
-		for (const t of projected) await t.execute({});
+		await projected[0]!.execute({});
+		// Error results reject on the spec surface but still emit their event.
+		await expect(projected[1]!.execute({})).rejects.toThrow("nope");
+		await expect(projected[2]!.execute({})).rejects.toThrow();
 
 		expect(events.map((e) => [e.tool, e.scope, e.outcome])).toEqual([
 			["list_work_items", "work", "ok"],
@@ -338,9 +309,9 @@ describe("invocation observer", () => {
 			throw new Error("telemetry sink is broken");
 		});
 		const [projected] = projectTools("work", [tool("list_work_items")]);
-		const result = await projected?.execute({});
-		expect(result?.structuredContent).toEqual({ name: "list_work_items" });
-		expect(result?.isError).toBeUndefined();
+		await expect(projected?.execute({})).resolves.toEqual({
+			name: "list_work_items",
+		});
 	});
 
 	it("records an escaping execute rejection as error and rethrows", async () => {
@@ -392,15 +363,12 @@ describe("invocation observer", () => {
 });
 
 describe("currentWebMcpInvocationId", () => {
-	/** Registers one scope and returns the projected (instrumented) tools. */
+	/** Registers one scope and returns the projected (spec-wrapped) tools. */
 	function projectTools(scopeKey: string, tools: WebMcpToolDef[]) {
-		const projected: WebMcpToolDef[][] = [];
-		const context: ModelContextLike = {
-			provideContext: ({ tools: t }) => projected.push(t),
-		};
+		const { context, tools: projected } = registerToolHost();
 		setModelContextResolverForTests(() => context);
 		registerWebMcpScope(scopeKey, tools);
-		return projected.at(-1) ?? [];
+		return [...projected.values()];
 	}
 
 	it("is null outside an execute", () => {
@@ -488,7 +456,6 @@ describe("webMcpRegistrationStatus host reporting", () => {
 		const status = webMcpRegistrationStatus();
 		expect(status.host).toEqual({
 			detected: false,
-			source: null,
 			api: "none",
 		});
 		expect(status.tools).toEqual([]);
@@ -496,17 +463,12 @@ describe("webMcpRegistrationStatus host reporting", () => {
 		expect(status.error).toBeNull();
 	});
 
-	it("reports a detected host, its source, and its projection API", () => {
-		const context: ModelContextLike = { registerTool: () => {} };
-		setModelContextResolverForTests(() => ({
-			context,
-			source: "document" as const,
-		}));
+	it("reports a detected host and its projection API", () => {
+		setModelContextResolverForTests(() => ({ registerTool: () => {} }));
 		registerWebMcpScope("work", [tool("list_work_items")]);
 		const status = webMcpRegistrationStatus();
 		expect(status.host).toEqual({
 			detected: true,
-			source: "document",
 			api: "registerTool",
 		});
 		expect(status.tools).toEqual(["list_work_items"]);
@@ -514,28 +476,10 @@ describe("webMcpRegistrationStatus host reporting", () => {
 		expect(status.error).toBeNull();
 	});
 
-	it("reports the navigator surface and the legacy provideContext API", () => {
-		const context: ModelContextLike = { provideContext: () => {} };
-		setModelContextResolverForTests(() => ({
-			context,
-			source: "navigator" as const,
-		}));
-		registerWebMcpScope("chat", [tool("ask_tedi")]);
-		expect(webMcpRegistrationStatus().host).toEqual({
-			detected: true,
-			source: "navigator",
-			api: "provideContext",
-		});
-	});
-
 	it("reports a detected but inert host as api none", () => {
-		setModelContextResolverForTests(() => ({
-			context: {},
-			source: "document" as const,
-		}));
+		setModelContextResolverForTests(() => ({}));
 		expect(webMcpRegistrationStatus().host).toEqual({
 			detected: true,
-			source: "document",
 			api: "none",
 		});
 	});
@@ -561,10 +505,7 @@ describe("webMcpRegistrationStatus host reporting", () => {
 	it("is inert with a host present", () => {
 		const info = vi.spyOn(console, "info").mockImplementation(() => {});
 		try {
-			setModelContextResolverForTests(() => ({
-				context: { registerTool: () => {} },
-				source: "document" as const,
-			}));
+			setModelContextResolverForTests(() => ({ registerTool: () => {} }));
 			registerWebMcpScope("work", [tool("list_work_items")]);
 			expect(info).not.toHaveBeenCalled();
 		} finally {

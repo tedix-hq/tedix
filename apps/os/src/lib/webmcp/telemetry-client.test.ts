@@ -10,7 +10,7 @@ import {
 	registerWebMcpScope,
 	setModelContextResolverForTests,
 } from "@tedix/webmcp-core/registry";
-import type { WebMcpToolDef } from "@tedix/webmcp-core/model-context";
+import type { WebMcpSpecTool } from "@tedix/webmcp-core/model-context";
 import {
 	MAX_TELEMETRY_BATCH_EVENTS,
 	TELEMETRY_FLUSH_INTERVAL_MS,
@@ -159,9 +159,9 @@ describe("installWebMcpTelemetry", () => {
 
 		// Drive one real invocation through the dependency-free registry so
 		// the installed observer records it, exactly as production does.
-		const projected: WebMcpToolDef[][] = [];
+		const projected: WebMcpSpecTool[] = [];
 		setModelContextResolverForTests(() => ({
-			provideContext: ({ tools }) => projected.push(tools),
+			registerTool: (tool) => projected.push(tool),
 		}));
 		registerWebMcpScope("work", [
 			{
@@ -172,7 +172,7 @@ describe("installWebMcpTelemetry", () => {
 				execute: async () => ({ content: [{ type: "text", text: "{}" }] }),
 			},
 		]);
-		await projected.at(-1)?.[0]?.execute({});
+		await projected[0]?.execute({});
 		expect(sent).toHaveLength(0);
 
 		window.dispatchEvent(new Event("pagehide"));

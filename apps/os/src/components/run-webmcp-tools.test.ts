@@ -156,7 +156,7 @@ describe("buildRunWebMcpTools", () => {
 
 	it("registers the three run-scoped tools under an id-keyed scope", () => {
 		const context: ModelContextLike = {
-			provideContext: () => {},
+			registerTool: () => {},
 		};
 		setModelContextResolverForTests(() => context);
 		const dispose = registerWebMcpScope(

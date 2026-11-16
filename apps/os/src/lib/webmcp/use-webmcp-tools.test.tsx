@@ -46,7 +46,7 @@ afterEach(() => {
 
 describe("useWebMcpTools", () => {
 	it("registers on mount and disposes on unmount", () => {
-		const context: ModelContextLike = { provideContext: () => {} };
+		const context: ModelContextLike = { registerTool: () => {} };
 		setModelContextResolverForTests(() => context);
 
 		mount(createElement(Probe, { scope: "work", name: "list_work_items" }));
@@ -57,7 +57,7 @@ describe("useWebMcpTools", () => {
 	});
 
 	it("re-registers when a dependency changes", () => {
-		const context: ModelContextLike = { provideContext: () => {} };
+		const context: ModelContextLike = { registerTool: () => {} };
 		setModelContextResolverForTests(() => context);
 
 		mount(createElement(Probe, { scope: "work", name: "list_work_items" }));

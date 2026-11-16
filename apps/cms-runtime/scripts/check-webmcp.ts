@@ -69,18 +69,14 @@ function rpcRequest(
 
 // The served bridge is the shared @tedix/webmcp-core module: ES module
 // configuration is derived from import.meta.url (never currentScript) and
-// detection follows the current document API with a navigator fallback.
+// detection follows the current document API only.
 const bridgeSource = await (await webMcpBridgeScriptResponse()).text();
 assert.match(bridgeSource, /import\.meta\.url/);
 assert.doesNotMatch(bridgeSource, /document\.currentScript/);
 assert.match(bridgeSource, /mcp-protocol-version/);
-assert.match(bridgeSource, /navigator\.modelContext/);
-assert.ok(
-	bridgeSource.indexOf("document.modelContext") <
-		bridgeSource.indexOf("navigator.modelContext"),
-	"bridge must detect document.modelContext before navigator.modelContext",
-);
-assert.match(bridgeSource, /provideContext/);
+assert.match(bridgeSource, /document\.modelContext/);
+assert.doesNotMatch(bridgeSource, /navigator\.modelContext/);
+assert.doesNotMatch(bridgeSource, /provideContext/);
 assert.match(bridgeSource, /AbortController/);
 assert.match(bridgeSource, new RegExp(WEBMCP_PROTOCOL_VERSION));
 

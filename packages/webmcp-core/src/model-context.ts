@@ -4,11 +4,14 @@
  * WebMCP (webmachinelearning/webmcp; Chrome 155+ behind
  * `enable-webmcp-testing`; supported by ChatGPT's in-app browser) exposes a
  * `modelContext` object that lets a page register tools an in-page browser
- * agent can call. The spec surface is `document.modelContext.registerTool`;
- * deployed experiments have also exposed `navigator.modelContext` and the
- * older whole-set `provideContext` shape. These types stay structural so the
- * registry copes with every shape; `spec-conformance.ts` type-checks them
- * against the `webmcp-types` package so spec drift fails `type-check`.
+ * agent can call. The only surface is `document.modelContext.registerTool`.
+ * The draft removed `provideContext` on 2026-03-05 (webmcp#132) and moved
+ * the getter from `navigator` to `document` on 2026-05-27 (webmcp#184);
+ * Chromium deprecated `navigator.modelContext` in 150 and ChatGPT's Site
+ * tools read `document.modelContext.registerTool`, so no host we target
+ * needs the old `navigator.modelContext` or `provideContext` fallbacks and
+ * they were removed. `spec-conformance.ts` type-checks these types against
+ * the `webmcp-types` package so spec drift fails `type-check`.
  * Absent API = silent no-op.
  */
 
@@ -78,44 +81,26 @@ export interface ModelContextLike {
 		tool: WebMcpSpecTool,
 		options?: WebMcpRegisterOptions,
 	) => Promise<unknown> | unknown;
-	provideContext?: (context: { tools: WebMcpToolDef[] }) => void;
 }
-
-/** Where the host object was found. `document` is the current draft. */
-export type WebMcpHostSource = "document" | "navigator";
 
 /** Which projection API the detected host offers. */
-export type WebMcpHostApi = "registerTool" | "provideContext" | "none";
-
-export interface ResolvedModelContext {
-	context: ModelContextLike;
-	source: WebMcpHostSource;
-}
+export type WebMcpHostApi = "registerTool" | "none";
 
 /**
- * Feature-detect the WebMCP surface wherever the host put it, reporting WHICH
- * surface answered. The registry and diagnostic probe use this single
- * detection path, so the probe can never
+ * Feature-detect the WebMCP surface on the document. The registry and
+ * diagnostic probe use this single detection path, so the probe can never
  * disagree with what the registry actually resolved.
- *
- * `document.modelContext` (current draft) wins over `navigator.modelContext`
- * (deployed experiment) when both exist.
  */
-export function resolveModelContextSource(): ResolvedModelContext | null {
-	const fromDocument = (
-		globalThis.document as Document & { modelContext?: ModelContextLike }
-	)?.modelContext;
-	if (fromDocument) return { context: fromDocument, source: "document" };
-	const fromNavigator = (
-		globalThis.navigator as Navigator & { modelContext?: ModelContextLike }
-	)?.modelContext;
-	if (fromNavigator) return { context: fromNavigator, source: "navigator" };
-	return null;
+export function resolveModelContext(): ModelContextLike | null {
+	return (
+		(globalThis.document as Document & { modelContext?: ModelContextLike })
+			?.modelContext ?? null
+	);
 }
 
 /**
  * Classify a detected host by the projection API it exposes. `none` means an
- * object is present but implements neither shape — a host the registry can
+ * object is present but has no `registerTool` — a host the registry can
  * detect but cannot project onto.
  */
 export function describeModelContextApi(
@@ -123,7 +108,6 @@ export function describeModelContextApi(
 ): WebMcpHostApi {
 	if (!context) return "none";
 	if (context.registerTool) return "registerTool";
-	if (context.provideContext) return "provideContext";
 	return "none";
 }
 

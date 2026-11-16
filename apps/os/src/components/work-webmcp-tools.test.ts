@@ -93,9 +93,9 @@ describe("buildWorkWebMcpTools", () => {
 	});
 
 	it("registers the five work tools on the WebMCP surface", () => {
-		const provided: string[][] = [];
+		const provided: string[] = [];
 		const context: ModelContextLike = {
-			provideContext: ({ tools: t }) => provided.push(t.map((x) => x.name)),
+			registerTool: (t) => provided.push(t.name),
 		};
 		setModelContextResolverForTests(() => context);
 

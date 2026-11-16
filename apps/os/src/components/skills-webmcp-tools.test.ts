@@ -134,7 +134,7 @@ describe("buildSkillsWebMcpTools", () => {
 	});
 
 	it("registers the four skills tools under the unbound skills scope", () => {
-		const context: ModelContextLike = { provideContext: () => {} };
+		const context: ModelContextLike = { registerTool: () => {} };
 		setModelContextResolverForTests(() => context);
 		const dispose = registerWebMcpScope("skills", buildSkillsWebMcpTools());
 		expect(webMcpRegisteredToolNames()).toEqual([
@@ -147,7 +147,7 @@ describe("buildSkillsWebMcpTools", () => {
 	});
 
 	it("registers the same tool names under a bound skill scope", () => {
-		const context: ModelContextLike = { provideContext: () => {} };
+		const context: ModelContextLike = { registerTool: () => {} };
 		setModelContextResolverForTests(() => context);
 		const dispose = registerWebMcpScope(
 			`skills:${BOUND_SKILL_ID}`,

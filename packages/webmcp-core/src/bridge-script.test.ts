@@ -98,12 +98,11 @@ afterEach(() => {
 });
 
 describe("webMcpBridgeScript", () => {
-	it("detects current document.modelContext before the navigator compatibility fallback", () => {
+	it("detects document.modelContext only", () => {
 		const script = webMcpBridgeScript();
-		expect(script).toContain("navigator.modelContext");
-		expect(script.indexOf("document.modelContext")).toBeLessThan(
-			script.indexOf("navigator.modelContext"),
-		);
+		expect(script).toContain("document.modelContext");
+		expect(script).not.toContain("navigator.modelContext");
+		expect(script).not.toContain("provideContext");
 		expect(script).toContain("import.meta.url");
 		expect(script).toContain('searchParams.get("mcp-url")');
 		expect(script).toContain("io.modelcontextprotocol/clientInfo");
@@ -198,40 +197,26 @@ describe("webMcpBridgeScript", () => {
 		);
 	});
 
-	it("falls back to one provideContext({ tools }) call when registerTool is absent", async () => {
-		const provided: Array<{ tools: Array<{ name: string }> }> = [];
-		runBridge({
-			navigator: undefined,
-			document: {
-				modelContext: {
-					provideContext: (context: { tools: Array<{ name: string }> }) =>
-						provided.push(context),
-				},
-			},
-		});
+	it("no-ops on a detected surface without registerTool", async () => {
+		const calls = runBridge({ document: { modelContext: {} } });
 		await settle();
-
-		expect(provided).toHaveLength(1);
-		expect(provided[0]?.tools.map((tool) => tool.name)).toEqual([
-			"search_site",
-			"read_page",
-		]);
+		expect(calls).toHaveLength(0);
 	});
 
-	it("prefers registerTool when both shapes exist", async () => {
+	it("ignores a navigator-only modelContext", async () => {
+		vi.useFakeTimers();
 		const registered: string[] = [];
-		let providedCalls = 0;
-		runBridge({
+		const calls = runBridge({
+			document: {},
 			navigator: {
 				modelContext: {
 					registerTool: (tool: { name: string }) => registered.push(tool.name),
-					provideContext: () => providedCalls++,
 				},
 			},
 		});
-		await settle();
-		expect(registered).toEqual(["search_site", "read_page"]);
-		expect(providedCalls).toBe(0);
+		await vi.advanceTimersByTimeAsync(5_100);
+		expect(calls).toHaveLength(0);
+		expect(registered).toEqual([]);
 	});
 
 	it("silently no-ops when no WebMCP surface exists", async () => {
@@ -356,7 +341,7 @@ describe("webMcpBridgeScript", () => {
 
 	it("silently no-ops when the endpoint is cross-origin", async () => {
 		const calls = runBridge({
-			navigator: { modelContext: { registerTool: () => {} } },
+			document: { modelContext: { registerTool: () => {} } },
 			windowOrigin: "https://other.example",
 		});
 		await settle();
@@ -365,7 +350,7 @@ describe("webMcpBridgeScript", () => {
 
 	it("derives the /mcp endpoint from the bridge path when mcp-url is absent", async () => {
 		const calls = runBridge({
-			navigator: { modelContext: { registerTool: () => {} } },
+			document: { modelContext: { registerTool: () => {} } },
 			moduleUrl: "https://tenant.example/_tedix/webmcp/bridge.js",
 		});
 		await settle();
