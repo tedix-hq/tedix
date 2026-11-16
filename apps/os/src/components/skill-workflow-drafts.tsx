@@ -1,4 +1,4 @@
-// Draft → test → switch on → roll back for a skill's automation, in the
+// Draft → test → adopt → roll back for a skill's automation, in the
 // console. Every step calls the same API procedures the MCP tools use
 // (skills.proposeWorkflowImprovement, skills.runWorkflow with certification,
 // skills.activateWorkflowImprovement); nothing here decides on its own.
@@ -67,6 +67,7 @@ import {
 	tediRosterQueryOptions,
 } from "@/lib/os-query-options";
 import { hasActiveSkillRun } from "@/lib/skill-runs-search";
+import { plainChangeMessage } from "@/lib/skill-versions";
 import { useCanManageTedis } from "@/lib/tedi-permissions";
 import { absoluteTime, relativeTime } from "@/lib/time";
 
@@ -148,7 +149,7 @@ export function describeCertification(
 		return {
 			state: "none",
 			title: "Not tested yet",
-			detail: "Test the draft before switching it on.",
+			detail: "Test the draft before adopting it.",
 		};
 	if (!TERMINAL.has(run.status))
 		return {
@@ -185,7 +186,7 @@ export function describeCertification(
 				named.length > 0
 					? `Failed: ${named.join("; ")}. `
 					: `Failed call receipts: ${failedArtifacts.map((artifact) => artifact.path).join(", ")}. `
-			}Tedix only switches on a draft whose test had no failed call, even when the workflow reported itself as passed. Fix the draft and test again.`,
+			}Tedix only adopts a draft whose test had no failed call, even when the workflow reported itself as passed. Fix the draft and test again.`,
 		};
 	}
 	const result =
@@ -206,7 +207,7 @@ export function describeCertification(
 		return {
 			state: "passed",
 			title: "Test passed",
-			detail: `${toolCalls.length === 0 ? "No call" : `${toolCalls.length} call${toolCalls.length === 1 ? "" : "s"}, none`} failed and the workflow reported that the test passed. You can switch this draft on.`,
+			detail: `${toolCalls.length === 0 ? "No call" : `${toolCalls.length} call${toolCalls.length === 1 ? "" : "s"}, none`} failed and the workflow reported that the test passed. You can adopt this draft.`,
 		};
 	return {
 		state: "blocked",
@@ -219,12 +220,14 @@ export function describeCertification(
 	};
 }
 
-/** Baseline + draft rows for one skill. Owner/admin controls only. */
-export function SkillWorkflowDrafts({ skillId }: { skillId: string }) {
+/**
+ * Every draft of one skill, adopted or not. Read only for people who may
+ * change the skill; everyone else gets an idle query.
+ */
+export function useSkillWorkflowDrafts(skillId: string) {
 	const canManage = useCanManageTedis();
-	const detail = useQuery(skillDetailQueryOptions(skillId));
 	const options = skillWorkflowDraftsQueryOptions(skillId);
-	const drafts = useInfiniteQuery({
+	return useInfiniteQuery({
 		queryKey: options.queryKey,
 		queryFn: ({ pageParam }) =>
 			osApi.skills.listByOrg({
@@ -241,6 +244,13 @@ export function SkillWorkflowDrafts({ skillId }: { skillId: string }) {
 		},
 		enabled: canManage,
 	});
+}
+
+/** Drafts waiting for a test or a decision. Owner/admin controls only. */
+export function SkillWorkflowDrafts({ skillId }: { skillId: string }) {
+	const canManage = useCanManageTedis();
+	const detail = useQuery(skillDetailQueryOptions(skillId));
+	const drafts = useSkillWorkflowDrafts(skillId);
 	const entries = drafts.data?.pages.flatMap((page) => page.entries) ?? [];
 	const adopted = entries
 		.filter((entry) => entry.improvementAdoption)
@@ -276,11 +286,11 @@ export function SkillWorkflowDrafts({ skillId }: { skillId: string }) {
 					weight="semibold"
 					className="m-0"
 				>
-					Improvements
+					Drafts
 				</Text>
 				<CardDescription>
-					Test a draft without changing the live skill or schedule. After it
-					passes, you can switch it on as revision {baseline.revision + 1}.
+					Try a change without touching the current version. Once its test
+					passes, adopt it as revision {baseline.revision + 1}.
 				</CardDescription>
 				<CardAction>
 					<Button
@@ -310,28 +320,19 @@ export function SkillWorkflowDrafts({ skillId }: { skillId: string }) {
 				{activated ? (
 					<Alert variant="info">
 						<AlertTitle>
-							Switched on: revision {activated.revision} is live
+							Adopted: revision {activated.revision} is live
 						</AlertTitle>
 						<AlertDescription>
-							Draft {activated.title} is archived. The previous version stays in
-							the list below so you can roll back.
+							The previous version stays in the list below, where you can make
+							it current again.
 						</AlertDescription>
 					</Alert>
 				) : null}
-				{drafts.isSuccess && entries.length === 0 ? (
+				{drafts.isSuccess && waiting.length === 0 ? (
 					<Text role="label" tone="secondary" className="m-0">
-						No improvements yet.
+						{entries.length === 0 ? "No drafts yet." : "No drafts are waiting."}
 					</Text>
 				) : null}
-				<Text as="h4" weight="semibold" className="m-0">
-					Adopted ({adopted.length})
-				</Text>
-				{adopted.map((entry) => (
-					<ImprovementHistoryRow key={entry.id} entry={entry} />
-				))}
-				<Text as="h4" weight="semibold" className="m-0">
-					Waiting for review ({waiting.length})
-				</Text>
 				{waiting.map((draft) => (
 					<SkillWorkflowDraftRow
 						key={draft.id}
@@ -342,25 +343,27 @@ export function SkillWorkflowDrafts({ skillId }: { skillId: string }) {
 						}
 					/>
 				))}
-				<Collapsible>
-					<CollapsibleDefaultTrigger>
-						Rejected or abandoned ({abandoned.length})
-					</CollapsibleDefaultTrigger>
-					<CollapsibleDefaultContent>
-						<div className="grid gap-3">
-							{abandoned.map((entry) => (
-								<ImprovementHistoryRow key={entry.id} entry={entry} />
-							))}
-						</div>
-					</CollapsibleDefaultContent>
-				</Collapsible>
+				{adopted.length + abandoned.length > 0 ? (
+					<Collapsible>
+						<CollapsibleDefaultTrigger>
+							Earlier drafts ({adopted.length + abandoned.length})
+						</CollapsibleDefaultTrigger>
+						<CollapsibleDefaultContent>
+							<div className="grid gap-3">
+								{[...adopted, ...abandoned].map((entry) => (
+									<ImprovementHistoryRow key={entry.id} entry={entry} />
+								))}
+							</div>
+						</CollapsibleDefaultContent>
+					</Collapsible>
+				) : null}
 				{drafts.hasNextPage ? (
 					<Button
 						variant="outline"
 						disabled={drafts.isFetchingNextPage}
 						onClick={() => void drafts.fetchNextPage()}
 					>
-						Show more improvements
+						Show more drafts
 					</Button>
 				) : null}
 				{seed ? (
@@ -382,7 +385,7 @@ function ImprovementHistoryRow({ entry }: { entry: SkillEntry }) {
 			<Text as="strong" role="body">
 				{adoption
 					? `Adopted as revision ${adoption.activatedIntoRevision}`
-					: entry.title}
+					: `${entry.title} · not adopted`}
 			</Text>
 			{adoption?.adoptedAt ? (
 				<Text role="label" tone="secondary" className="m-0">
@@ -396,7 +399,7 @@ function ImprovementHistoryRow({ entry }: { entry: SkillEntry }) {
 				</Text>
 			) : null}
 			<Text role="label" className="m-0">
-				{adoption?.reason ??
+				{plainChangeMessage(adoption?.reason) ??
 					entry.summary ??
 					entry.description ??
 					"No reason recorded."}
@@ -487,7 +490,7 @@ function SkillWorkflowDraftRow({
 			osApi.skills.activateWorkflowImprovement({
 				id: draft.id,
 				certificationRunId: latest!.id,
-				reason: `Switched on from the Tedix OS versions page after test run ${latest!.id}`,
+				reason: "Adopted on the skill's Versions tab after a passed test",
 			}),
 		onSuccess: (result) => {
 			onActivated(result.baseline.revision);
@@ -525,16 +528,16 @@ function SkillWorkflowDraftRow({
 			</div>
 			{draft.revisionReasoning ? (
 				<Text role="label" tone="secondary" className="m-0">
-					{draft.revisionReasoning.split("\n")[0]}
+					{plainChangeMessage(draft.revisionReasoning.split("\n")[0])}
 				</Text>
 			) : null}
 			{activate.isSuccess ? null : stale ? (
 				<Alert variant="warning">
-					<AlertTitle>This draft cannot be switched on</AlertTitle>
+					<AlertTitle>This draft cannot be adopted</AlertTitle>
 					<AlertDescription>
 						It was based on revision {draft.sourceRevision ?? "unknown"}, but
-						the live version is now revision {baseline.revision}. Make a new
-						draft from the live version.
+						the current version is now revision {baseline.revision}. Make a new
+						draft from the current version.
 					</AlertDescription>
 				</Alert>
 			) : (
@@ -550,7 +553,7 @@ function SkillWorkflowDraftRow({
 			) : null}
 			{activate.isError ? (
 				<Text role="label" tone="error" className="m-0">
-					Could not switch on: {errorMessage(activate.error)}
+					Could not adopt: {errorMessage(activate.error)}
 					{errorDetails(activate.error).map((line) => (
 						<span key={line} className="block">
 							{line}
@@ -570,54 +573,58 @@ function SkillWorkflowDraftRow({
 					Could not reject: {errorMessage(reject.error)}
 				</Text>
 			) : null}
-			<Button
-				size="sm"
-				variant="outline"
-				className="justify-self-start"
-				disabled={busy || verdict.state === "running"}
-				onClick={() => reject.mutate()}
-			>
-				{reject.isPending ? "Rejecting…" : "Reject draft"}
-			</Button>
-			{!stale && !activate.isSuccess ? (
-				<div className="flex flex-wrap gap-2">
-					<Button
-						size="sm"
-						variant="outline"
-						disabled={busy || verdict.state === "running"}
-						onClick={() => test.mutate()}
-					>
-						{test.isPending
-							? "Starting test…"
-							: verdict.state === "none"
-								? "Test this draft (dry run)"
-								: "Test again (dry run)"}
-					</Button>
-					<Button
-						size="sm"
-						disabled={busy || verdict.state !== "passed"}
-						onClick={() => activate.mutate()}
-					>
-						{activate.isPending ? "Switching on…" : "Switch on"}
-					</Button>
-				</div>
-			) : null}
+			<div className="flex flex-wrap gap-2">
+				{!stale && !activate.isSuccess ? (
+					<>
+						<Button
+							size="sm"
+							variant="outline"
+							disabled={busy || verdict.state === "running"}
+							onClick={() => test.mutate()}
+						>
+							{test.isPending
+								? "Starting test…"
+								: verdict.state === "none"
+									? "Test"
+									: "Test again"}
+						</Button>
+						<Button
+							size="sm"
+							disabled={busy || verdict.state !== "passed"}
+							onClick={() => activate.mutate()}
+						>
+							{activate.isPending ? "Adopting…" : "Adopt"}
+						</Button>
+					</>
+				) : null}
+				<Button
+					size="sm"
+					variant="ghost"
+					disabled={busy || verdict.state === "running"}
+					onClick={() => reject.mutate()}
+				>
+					{reject.isPending ? "Rejecting…" : "Reject draft"}
+				</Button>
+			</div>
 		</div>
 	);
 }
 
 /**
  * Roll back = a draft made from the files an earlier run pinned, then the
- * same test and switch-on path. Nothing changes until that draft is switched on.
+ * same test and adopt path. Nothing changes until that draft is adopted.
  */
 export function SkillRollbackButton({
 	baseline,
 	runId,
 	revision,
+	label,
 }: {
 	baseline: SkillEntry;
 	runId: string;
 	revision: number;
+	/** A short name for the button where the row already names the revision. */
+	label?: string;
 }) {
 	const canManage = useCanManageTedis();
 	const [seed, setSeed] = useState<DraftSeed | null>(null);
@@ -647,14 +654,16 @@ export function SkillRollbackButton({
 			<Button
 				size="sm"
 				variant="outline"
-				multiline
-				className="w-fit max-w-full whitespace-normal text-left"
+				multiline={!label}
+				className={
+					label ? undefined : "w-fit max-w-full whitespace-normal text-left"
+				}
 				disabled={load.isPending}
 				onClick={() => load.mutate()}
 			>
 				{load.isPending
 					? "Reading files…"
-					: `Roll back to revision ${revision}`}
+					: (label ?? `Roll back to revision ${revision}`)}
 			</Button>
 			{load.isError ? (
 				<Text role="label" tone="error" className="m-0">
@@ -756,7 +765,7 @@ export function SkillWorkflowDraftDialog({
 					<DialogDescription>
 						Based on revision {baseline.revision}
 						{seed.origin ? ` · ${seed.origin}` : ""}. Saving creates a draft you
-						can test and switch on; the live version does not change.
+						can test and adopt; the current version does not change.
 					</DialogDescription>
 				</DialogHeader>
 				{propose.isSuccess ? (
@@ -767,7 +776,7 @@ export function SkillWorkflowDraftDialog({
 							</AlertTitle>
 							<AlertDescription>
 								{propose.data.validation.valid
-									? "Next: test it with a dry run, then switch it on."
+									? "Next: test it, then adopt it."
 									: `The draft has validation problems: ${propose.data.validation.errors.map((issue) => issue.message).join("; ")}`}
 							</AlertDescription>
 						</Alert>

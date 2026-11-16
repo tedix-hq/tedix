@@ -633,12 +633,11 @@ function WorkspaceDraftTestPath({
 				disabled={load.isPending}
 				onClick={() => load.mutate()}
 			>
-				{load.isPending ? "Loading skill…" : "Test and switch on this draft"}
+				{load.isPending ? "Loading skill…" : "Test and adopt this draft"}
 			</Button>
 			<Text role="label" tone="secondary" className="m-0">
 				Creates a testable draft from this proposal on the skill's Versions
-				page. Nothing changes until that draft passes its test and is switched
-				on.
+				page. Nothing changes until that draft passes its test and is adopted.
 			</Text>
 			{load.isError && (
 				<Text role="label" tone="error">
@@ -661,7 +660,7 @@ function WorkspaceDraftTestPath({
 							params={{ skillId }}
 							className="w-fit underline"
 						>
-							Open Versions to test and switch it on
+							Open Versions to test and adopt it
 						</Link>
 					}
 				/>

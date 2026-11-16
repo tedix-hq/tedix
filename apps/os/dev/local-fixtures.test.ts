@@ -330,6 +330,10 @@ const CALLS = {
 	"skills/listRunArtifacts": { runId: IDS.skillRunCompleted },
 	"skills/listWorkflowToolCalls": { runId: IDS.skillRunCompleted },
 	"skills/getWorkflowRevision": { runId: IDS.skillRunCompleted },
+	"skills/compareWorkflowRevisions": {
+		baselineRunId: IDS.skillRunCompleted,
+		candidateRunId: IDS.skillRunFailed,
+	},
 	"skills/proposeWorkflowImprovement": {
 		baselineRunId: IDS.skillRunCompleted,
 		reason: "Local sample improvement",

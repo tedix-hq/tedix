@@ -33,15 +33,44 @@ try {
 						'[aria-labelledby="skill-versions-title"]',
 					);
 					const drafts = page.locator("[data-skill-workflow-drafts]");
-					await drafts
-						.getByText("No improvements yet.", { exact: true })
-						.waitFor();
+					await drafts.getByText("No drafts yet.", { exact: true }).waitFor();
 					await page.evaluate(() => document.fonts.ready);
 					const summary = await bounds(
-						versions.getByText("Based on", { exact: false }),
+						versions.getByText("Each version of this skill", { exact: false }),
 					);
 					const card = await bounds(drafts);
-					const table = await bounds(versions.getByRole("table"));
+					const list = versions.getByRole("list", { name: "Skill versions" });
+					const table = await bounds(list);
+					const rows = list.locator("[data-version-row]");
+					assert.deepEqual(
+						await rows.evaluateAll((items) =>
+							items.map((item) => [
+								item.getAttribute("data-version-row"),
+								item.getAttribute("aria-current"),
+							]),
+						),
+						[
+							["3", "true"],
+							["2", null],
+							["1", null],
+						],
+						`${label}: current version first, then newest to oldest`,
+					);
+					assert.equal(
+						await rows.first().locator("[data-version-message]").innerText(),
+						"Clearer review conditions.",
+						`${label}: one-line change message`,
+					);
+					assert.match(
+						await rows.nth(2).locator("[data-version-evidence]").innerText(),
+						/12 runs · 67% completed · 3 failed/,
+						`${label}: compact run evidence`,
+					);
+					assert.doesNotMatch(
+						await versions.innerText(),
+						/workflow improvement cop|Based on \d+ runs|[0-9a-f]{8}-[0-9a-f]{4}-/,
+						`${label}: no cleanup notes or ids in the list`,
+					);
 					assert(
 						card.y - summary.y - summary.height >= 11.5,
 						`${label}: summary and drafts gap`,
@@ -51,7 +80,7 @@ try {
 						`${label}: drafts and history gap`,
 					);
 					const title = await bounds(
-						drafts.getByRole("heading", { name: "Improvements", exact: true }),
+						drafts.getByRole("heading", { name: "Drafts", exact: true }),
 					);
 					assert(title.x - card.x >= 15, `${label}: card horizontal padding`);
 					assert(title.y - card.y >= 15, `${label}: card vertical padding`);
@@ -72,12 +101,8 @@ try {
 							`${label}: heading and action align`,
 						);
 					}
-					const row = versions
-						.getByRole("row")
-						.filter({ has: page.getByText("Revision 2", { exact: true }) });
-					const status = await bounds(
-						row.locator("p").filter({ hasText: /^Observed/ }),
-					);
+					const row = list.locator('[data-version-row="2"]');
+					const status = await bounds(row.locator("[data-version-evidence]"));
 					const actions = await bounds(
 						row.locator('[data-slot="section-actions"]'),
 					);
@@ -86,13 +111,19 @@ try {
 						`${label}: evidence and actions gap`,
 					);
 					const rollback = await bounds(
-						row.getByRole("button", {
-							name: "Roll back to revision 2",
-							exact: true,
-						}),
+						row.getByRole("button", { name: "Make current", exact: true }),
 					);
+					for (const name of [
+						"View source of revision 2",
+						"Compare revision 2 with revision 1",
+					]) {
+						const action = await bounds(
+							row.getByRole("button", { name, exact: true }),
+						);
+						assert(action.x + action.width <= width, `${label}: ${name} fits`);
+					}
 					const details = row.getByRole("button", {
-						name: "Technical evidence",
+						name: "Technical details",
 						exact: true,
 					});
 					const trigger = await bounds(details);
@@ -143,6 +174,35 @@ try {
 					});
 					await details.press("Space");
 					assert.equal(await details.getAttribute("aria-expanded"), "false");
+					// The cleanup notes are kept, behind the current version's details.
+					const current = rows.first();
+					await current
+						.getByRole("button", { name: "Technical details", exact: true })
+						.click();
+					await current
+						.getByText("3 from automatic cleanup", { exact: false })
+						.waitFor();
+					// The current version's source opens from what the page has loaded.
+					await current
+						.getByRole("button", {
+							name: "View source of revision 3",
+							exact: true,
+						})
+						.click();
+					const source = page.getByRole("dialog", {
+						name: "Source of revision 3",
+					});
+					await source.getByText("# Research workflow").waitFor();
+					const sheet = await bounds(source);
+					assert(
+						sheet.x >= 0 && sheet.x + sheet.width <= width,
+						`${label}: source dialog fits`,
+					);
+					await page.screenshot({ path: `${evidence}/${label}-source.png` });
+					await source
+						.getByRole("button", { name: "Close", exact: true })
+						.click();
+					await source.waitFor({ state: "hidden" });
 					assert.deepEqual(errors, [], `${label}: no page errors`);
 					await page.close();
 					console.log(`PASS versions layout ${label}`);

@@ -536,7 +536,7 @@ describe("workspace skill draft safety and usability", () => {
 		await mount();
 		await click(button("View pending draft"));
 		expect(document.body.textContent).not.toContain(
-			"Test and switch on this draft",
+			"Test and adopt this draft",
 		);
 		act(() => root.unmount());
 		root = createRoot(container);
@@ -546,7 +546,7 @@ describe("workspace skill draft safety and usability", () => {
 		});
 		await mount();
 		await click(button("View pending draft"));
-		await click(button("Test and switch on this draft"));
+		await click(button("Test and adopt this draft"));
 		expect(harness.getSource).toHaveBeenCalledWith(source.id);
 		expect(document.body.textContent).toContain("from a workspace draft");
 		expect(
