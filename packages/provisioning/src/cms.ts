@@ -200,18 +200,21 @@ async function readCompiledEmdashVersion(
 	modules: string[],
 	read: (module: string) => Promise<string>,
 ): Promise<string> {
-	const versionModules = modules.filter((module) =>
+	// Emdash 1.5 also emits a `version-*` chunk for site-settings revisions;
+	// only the release chunk declares `VERSION`.
+	const candidates = modules.filter((module) =>
 		/^chunks\/version-[^/]+\.mjs$/.test(module),
 	);
-	if (versionModules.length !== 1)
-		throw new Error("compiled Emdash version module is missing or ambiguous");
-	const source = await read(versionModules[0]!);
-	const matches = Array.from(
-		source.matchAll(/\b(?:var|let|const)\s+VERSION\s*=\s*["']([^"']+)["']/g),
-	);
-	if (matches.length !== 1)
+	const versions: string[] = [];
+	for (const module of candidates) {
+		for (const match of (await read(module)).matchAll(
+			/\b(?:var|let|const)\s+VERSION\s*=\s*["']([^"']+)["']/g,
+		))
+			versions.push(match[1]!);
+	}
+	if (versions.length !== 1)
 		throw new Error("compiled Emdash version is missing or ambiguous");
-	return matches[0]![1]!;
+	return versions[0]!;
 }
 
 function isSupportedCompiledEmdashVersion(version: string): boolean {
