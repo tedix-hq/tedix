@@ -40,6 +40,11 @@ on:
         required: false
         type: boolean
         default: false
+      diagnostic_env:
+        description: "With capture_browser_state: browser settings to try, as NAME=value words (for example WEBKIT_SKIA_ENABLE_CPU_RENDERING=1)"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -130,6 +135,7 @@ jobs:
           BROWSERS: ${{ steps.plan.outputs.browsers }}
           TEDIX_SCREENSHOT_DIR: ${{ runner.temp }}/browser-evidence
           CAPTURE_BROWSER_STATE: ${{ inputs.capture_browser_state }}
+          DIAGNOSTIC_ENV: ${{ inputs.diagnostic_env }}
           BROWSER_DIAGNOSTICS_DIR: ${{ runner.temp }}/browser-diagnostics
         run: |
           command=(bun run --cwd "$WORKSPACE" "$TEST_SCRIPT")
@@ -138,6 +144,15 @@ jobs:
             mkdir -p "$BROWSER_DIAGNOSTICS_DIR"
             # Browsers inherit this limit; without it no dump file is written.
             ulimit -c unlimited 2>/dev/null || true
+            # Settings under test reach the browsers through the environment.
+            for setting in ${DIAGNOSTIC_ENV:-}; do
+              if [[ ! "$setting" =~ ^[A-Z][A-Z0-9_]*=[A-Za-z0-9._-]*$ ]]; then
+                echo "::error::diagnostic_env takes NAME=value words; got '$setting'"
+                exit 2
+              fi
+              export "${setting?}"
+              echo "Diagnostic setting: $setting"
+            done
             # Runner hardware varies; the CPU decides which code a software
             # rasterizer compiles, so record it in the log and the artifact.
             grep -m1 '^model name' /proc/cpuinfo || true
@@ -197,6 +212,7 @@ jobs:
               -ex 'echo \n== fault ==\n' -ex "print \$_siginfo" \
               -ex 'echo \n== faulting thread ==\n' -ex 'bt 60' \
               -ex 'info registers' -ex "x/16i \$pc" \
+              -ex "print \$ymm5.v8_int32" -ex "print \$ymm9.v8_int32" \
               -ex 'echo \n== libraries ==\n' -ex 'info sharedlibrary' \
               -ex 'echo \n== all threads ==\n' -ex 'thread apply all bt 30' \
               > "$out/$name.txt" 2>&1 || echo "gdb did not finish reading $name"
