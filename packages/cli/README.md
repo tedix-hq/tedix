@@ -608,6 +608,13 @@ size is measured once and again only when its directory or receipt changes
 a checkout whose removal was refused is tried again after 10 minutes, then 20,
 doubling up to 2 hours. A checkout an earlier retry left beside the current
 one is removed under the same rules.
+Above the cap, a checkout idle for an hour that still holds work is removed
+after its commits and uncommitted files are saved in the source repository
+under `refs/lane-evicted/<run>/<checkout>`; a leftover folder Git no longer
+knows is saved the same way. A run folder whose checkout is already gone is
+archived. When a run commits a change it cannot push, later holds on the task
+name those commits, and the next run is handed that checkout or the ref that
+saved it.
 A retry of a revision whose earlier dispatch failed before admission reuses
 that run's checkout when it is clean and holds no unlanded commit; otherwise
 the checkout stays for inspection and the retry gets a fresh sibling path.

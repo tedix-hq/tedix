@@ -2605,6 +2605,8 @@ describe("dispatcher admission", () => {
 					metadata: { dispatchVersion: 2 },
 				},
 			];
+			// The retained commit is still in the checkout when the run ends.
+			control.unpushedCommits = [retainedSha];
 			now = expired.retryAt + 1;
 			const resumed = restart();
 			await resumed.tick();
@@ -2931,7 +2933,12 @@ describe("dispatcher admission", () => {
 				);
 			} else {
 				expect(saved.session).toBeUndefined();
-				expect(saved.repo).toBeUndefined();
+				// The checkout an earlier run left in runs/ stays named, so its
+				// work reaches the next run; the old Attempt is only remembered.
+				expect(saved.repo).toBe(state === "outside-runs" ? undefined : repo);
+				expect(saved.retainedAttemptId).toBe(
+					state === "outside-runs" ? undefined : "old-attempt",
+				);
 			}
 		},
 	);
@@ -3544,6 +3551,80 @@ describe("dispatcher admission", () => {
 			expect(starts()).toHaveLength(1);
 		},
 	);
+	it("keeps a held run's unpushed commits named and hands them to the next revision", async () => {
+		const { restart, deps, dir, items, events, control, releases } = fixture();
+		items.splice(1);
+		items[0]!.workKind = "research";
+		const path = join(dir, `${item().id}-2.json`);
+		const repo = join(dir, "runs", `${item().id}-2`, "repo");
+		deps.evictedWork = (_source, destination) =>
+			destination === repo ? "refs/lane-evicted/run/repo" : undefined;
+		const dispatcher = restart();
+		mkdirSync(repo, { recursive: true });
+		const sha = "c".repeat(40);
+		// The run committed its change, could not push it and reported the
+		// outcome incomplete.
+		writeFileSync(
+			path,
+			JSON.stringify({
+				itemId: item().id,
+				version: 2,
+				phase: "deferred",
+				outcome: "failed",
+				admissionState: "admitted",
+				attemptId: "verdict-attempt",
+				repo,
+				baseCommit: "b".repeat(40),
+				unpushedCommits: [sha],
+			}),
+		);
+		control.history.data = [
+			{
+				id: "verdict-attempt",
+				outcome: "failed",
+				metadata: {
+					dispatchVersion: 2,
+					laneResult: { outcome: "incomplete", remaining: "Not pushed" },
+				},
+			},
+		];
+		await dispatcher.tick();
+		await dispatcher.drain();
+		const held = JSON.parse(readFileSync(path, "utf8"));
+		expect(held.held).toBe(true);
+		expect(held.attemptId).toBeUndefined();
+		expect(held).toMatchObject({
+			repo,
+			unpushedCommits: [sha],
+			retainedAttemptId: "verdict-attempt",
+		});
+		expect(held.note).toContain(
+			`Finished commits that are not on origin/main stay in ${repo}: ${sha}.`,
+		);
+		expect(events.find((e) => e.verb === "comment")?.args.join(" ")).toContain(
+			sha,
+		);
+		expect(
+			retainedLaneWorktree(dir, item().id, [
+				{ id: "verdict-attempt", outcome: "failed" },
+			])?.repo,
+		).toBe(repo);
+
+		// The checkout is evicted to free disk, then the owner revises the
+		// task: the next run is told which ref saved the work.
+		rmSync(repo, { recursive: true });
+		items[0]!.version = 3;
+		await dispatcher.tick();
+		await until(() => releases.length === 1);
+		expect(
+			readFileSync(join(dir, "runs", `${item().id}-3`, "brief.txt"), "utf8"),
+		).toContain(
+			"Its commits and uncommitted files are saved in this repository as Git ref refs/lane-evicted/run/repo;",
+		);
+		releases[0]!();
+		await dispatcher.drain();
+	});
+
 	it("holds matching failures despite changing request diagnostics", async () => {
 		const { dispatcher, dir, items, events, control } = fixture();
 		items.splice(1);
@@ -5793,6 +5874,81 @@ it("deletes a stale folder Git no longer knows only under eviction", async () =>
 	expect(existsSync(destination)).toBe(false);
 });
 
+it("counts a checkout whose folder is already gone as removed and frees its path", async () => {
+	const { root, repo, git } = gitFixture(true);
+	const destination = await provisionLaneWorktree(repo, join(root, "repo"));
+	rmSync(destination, { recursive: true });
+	// The dispatcher's lock keeps the registration through `worktree prune`.
+	git(["worktree", "prune"]);
+	expect(git(["worktree", "list", "--porcelain"])).toContain(
+		"locked Tedix dispatcher checkout",
+	);
+	const reasons: string[] = [];
+	expect(
+		await cleanupLaneWorktree(
+			repo,
+			destination,
+			() => false,
+			false,
+			(reason) => reasons.push(reason),
+		),
+	).toBe(true);
+	expect(reasons).toEqual([]);
+	expect(git(["worktree", "list", "--porcelain"])).not.toContain("locked");
+	// The next run gets the same path instead of a `repo-2` sibling.
+	expect(await provisionLaneWorktree(repo, join(root, "repo"))).toBe(
+		destination,
+	);
+}, 30_000);
+
+it("saves the files of a checkout that lost its Git registration before deleting it", async () => {
+	const { root, repo, git } = gitFixture(true);
+	const run = join(root, "item-3");
+	mkdirSync(run);
+	const destination = await provisionLaneWorktree(repo, join(run, "repo"));
+	writeFileSync(join(destination, "finished.txt"), "work");
+	const registration = readFileSync(join(destination, ".git"), "utf8").match(
+		/^gitdir: (.+)$/m,
+	)![1]!;
+	rmSync(registration, { recursive: true });
+	utimesSync(destination, 1, 1);
+	const reasons: string[] = [];
+	expect(
+		await cleanupLaneWorktree(
+			repo,
+			destination,
+			() => false,
+			false,
+			(reason) => reasons.push(reason),
+		),
+	).toBe(false);
+	expect(reasons[0]).toStartWith(
+		"git cannot read the checkout: fatal: not a git repository",
+	);
+	expect(await cleanupLaneWorktree(repo, destination, () => false, true)).toBe(
+		true,
+	);
+	expect(existsSync(destination)).toBe(false);
+	const saved = "refs/lane-evicted/item-3/repo";
+	expect(git(["show", `${saved}:finished.txt`])).toBe("work");
+	expect(git(["log", "--format=%s", "-1", saved])).toBe(
+		"Evicted checkout snapshot",
+	);
+	// The source checkout's own index and files are untouched.
+	expect(git(["status", "--porcelain"])).toBe("");
+
+	// A checkout that never finished holds nothing `origin/main` lacks.
+	const halfMade = join(root, "item-4", "repo");
+	mkdirSync(halfMade, { recursive: true });
+	writeFileSync(join(halfMade, ".git"), `gitdir: ${registration}\n`);
+	utimesSync(halfMade, 1, 1);
+	expect(await cleanupLaneWorktree(repo, halfMade, () => false, true)).toBe(
+		true,
+	);
+	expect(existsSync(halfMade)).toBe(false);
+	expect(() => git(["rev-parse", "refs/lane-evicted/item-4/repo"])).toThrow();
+}, 30_000);
+
 it("reuses a clean registered worktree left by a failed admission at fresh origin/main", async () => {
 	const { root, repo, git } = gitFixture(true);
 	const destination = join(root, "repo");
@@ -6541,8 +6697,76 @@ it("removes stale recovery folders and says when the cap cannot be met", async (
 	expect(log).toContain('"event":"checkout-cap-held"');
 	expect(log).toContain("1 removable run folders refused removal");
 	expect(log).toContain('"event":"checkout-held"');
-	expect(log).toContain("waiting for its retry backoff");
+	expect(log).toContain("refused: it still has a checkout inside");
 });
+
+it("archives a run whose checkout is already gone and evicts the sibling an earlier try left", async () => {
+	const { repo: source, git } = gitFixture(true);
+	const f = fixture({ capBytes: 1 });
+	f.items.splice(0);
+	f.control.runSize = 2;
+	f.config.repo = source;
+	delete f.deps.cleanup;
+	// The checkout the receipt names was removed earlier; a recovery folder
+	// kept the run folder then and is gone now. Only logs remain.
+	const emptied = join(f.dir, "runs", `${item(1).id}-2`);
+	mkdirSync(emptied, { recursive: true });
+	writeFileSync(join(emptied, "brief.txt"), "brief");
+	writeFileSync(
+		join(f.dir, `${item(1).id}-2.json`),
+		JSON.stringify({
+			itemId: item(1).id,
+			version: 2,
+			phase: "settled",
+			outcome: "succeeded",
+			repo: join(emptied, "repo"),
+		}),
+	);
+	// A retry moved to `repo-2`, which is gone; the first checkout still
+	// holds a commit and a registration that was pruned.
+	const run = join(f.dir, "runs", `${item(2).id}-2`);
+	const sibling = join(run, "repo");
+	git(["worktree", "add", "--detach", sibling]);
+	git(
+		["-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", "finished"],
+		sibling,
+	);
+	const sha = git(["rev-parse", "HEAD"], sibling);
+	const halfMade = join(run, "repo-3");
+	mkdirSync(halfMade);
+	writeFileSync(
+		join(halfMade, ".git"),
+		"gitdir: /nonexistent/worktrees/repo\n",
+	);
+	utimesSync(sibling, 1, 1);
+	utimesSync(halfMade, 1, 1);
+	writeFileSync(
+		join(f.dir, `${item(2).id}-2.json`),
+		JSON.stringify({
+			itemId: item(2).id,
+			version: 2,
+			phase: "settled",
+			outcome: "failed",
+			repo: join(run, "repo-2"),
+		}),
+	);
+	const dispatcher = f.restart();
+	await dispatcher.tick();
+	await dispatcher.drain();
+	expect(existsSync(emptied)).toBe(false);
+	expect(existsSync(run)).toBe(false);
+	expect(git(["rev-parse", `refs/lane-evicted/${item(2).id}-2/repo`])).toBe(
+		sha,
+	);
+	const log = readFileSync(join(f.dir, "dispatcher.log"), "utf8");
+	expect(log).not.toContain("git cannot read the checkout");
+	expect(log).not.toContain('"event":"checkout-held"');
+	expect(
+		readdirSync(join(f.dir, "archive"))
+			.map((name) => name.slice(0, 38))
+			.sort(),
+	).toEqual([`${item(1).id}-2`, `${item(2).id}-2`]);
+}, 30_000);
 
 it("measures a finished run once, across sweeps and a runner restart", async () => {
 	const f = fixture();

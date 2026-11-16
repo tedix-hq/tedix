@@ -47,7 +47,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { rm } from "node:fs/promises";
-import { homedir, hostname } from "node:os";
+import { homedir, hostname, tmpdir } from "node:os";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import {
 	LaneDispatchPlanSchema,
@@ -875,6 +875,8 @@ interface Receipt {
 	commits?: string[];
 	unpushedCommits?: string[];
 	unpushedCommented?: string;
+	/** The earlier Attempt whose checkout `repo` names, while this try has none. */
+	retainedAttemptId?: string;
 	recoveredCommits?: Array<{
 		commitSha: string;
 		attemptId: string;
@@ -1101,6 +1103,51 @@ const alive = (pid: number) => {
 	}
 };
 
+/**
+ * What a new try of the same Work revision keeps from the receipt it
+ * replaces: the checkout an earlier run left and the commits in it that are
+ * not on `origin/main`. A try can end before it gets a checkout of its own (a
+ * hold, a refused admission, a failed read); the receipt it saved then named
+ * no checkout, so finished commits stayed in a folder no later run was told
+ * about.
+ */
+function retainedCheckout(
+	directory: string,
+	candidate: { id: string; version: number },
+	previous?: Receipt,
+): Pick<
+	Receipt,
+	| "repo"
+	| "baseCommit"
+	| "unpushedCommits"
+	| "unpushedCommented"
+	| "retainedAttemptId"
+> {
+	if (
+		previous?.itemId !== candidate.id ||
+		previous.version !== candidate.version ||
+		!previous.repo ||
+		!resolve(previous.repo).startsWith(resolve(directory, "runs") + sep) ||
+		!existsSync(previous.repo)
+	)
+		return {};
+	return {
+		repo: previous.repo,
+		baseCommit: previous.baseCommit,
+		unpushedCommits: previous.unpushedCommits,
+		unpushedCommented: previous.unpushedCommented,
+		retainedAttemptId: previous.attemptId ?? previous.retainedAttemptId,
+	};
+}
+
+/** Names the commits a held run left unpushed, for the person who reads the hold. */
+function unpushedHoldNote(receipt: Receipt): string {
+	const commits = receipt.unpushedCommits ?? [];
+	return receipt.repo && commits.length
+		? ` Finished commits that are not on origin/main stay in ${receipt.repo}: ${commits.slice(0, 5).join(", ")}${commits.length > 5 ? ` and ${commits.length - 5} more` : ""}. The next run of this task is handed that checkout, or the Git ref that saved it if the checkout was removed to free disk.`
+		: "";
+}
+
 export function retainedLaneWorktree(
 	directory: string,
 	itemId: string,
@@ -1115,10 +1162,11 @@ export function retainedLaneWorktree(
 	const receipts = readLaneReceipts(directory);
 	const previous = receipts
 		.filter((row) => {
+			const attemptId = row.attemptId ?? row.retainedAttemptId;
 			if (
 				row.itemId !== itemId ||
-				!row.attemptId ||
-				!failed.has(row.attemptId) ||
+				!attemptId ||
+				!failed.has(attemptId) ||
 				!row.repo?.startsWith(join(directory, "runs") + sep)
 			)
 				return false;
@@ -1189,6 +1237,110 @@ function lostGitDir(destination: string): boolean {
 	}
 }
 
+/** Where the work of an evicted checkout is saved in the source repository. */
+function evictedLaneRef(destination: string): string {
+	return `refs/lane-evicted/${basename(dirname(destination))}/${basename(destination)}`;
+}
+
+function evictedLaneWork(
+	source: string,
+	destination: string,
+): string | undefined {
+	const ref = evictedLaneRef(destination);
+	return spawnSync(
+		"git",
+		["-C", source, "rev-parse", "--verify", "--quiet", `${ref}^{commit}`],
+		{ timeout: 10_000 },
+	).status === 0
+		? ref
+		: undefined;
+}
+
+const EVICTION_IDENTITY = [
+	"-c",
+	"user.name=Tedix runner",
+	"-c",
+	"user.email=runner@tedix.invalid",
+	"-c",
+	"commit.gpgsign=false",
+];
+
+/**
+ * Git registers the canonical path, so a folder that is gone is compared
+ * through its parent's realpath to match the recorded entry.
+ */
+function canonicalPath(path: string): string {
+	if (existsSync(path)) return realpathSync(path);
+	const parent = dirname(path);
+	return existsSync(parent)
+		? join(realpathSync(parent), basename(path))
+		: resolve(path);
+}
+
+/**
+ * Saves the files of a folder that lost its Git registration as one snapshot
+ * commit on top of `origin/main`, under the same ref an evicted checkout uses.
+ * A half-made checkout holds nothing but files `origin/main` already has, and
+ * then no ref is written. False means the files could not be saved.
+ */
+async function saveLostCheckout(
+	source: string,
+	destination: string,
+): Promise<boolean> {
+	const scratch = mkdtempSync(join(tmpdir(), "tedix-lane-evict-"));
+	try {
+		const gitDir = gitOutput(source, ["rev-parse", "--absolute-git-dir"]);
+		const main = "refs/remotes/origin/main";
+		const git = async (args: string[]) =>
+			(
+				await promisify(execFile)(
+					"git",
+					[
+						...EVICTION_IDENTITY,
+						`--git-dir=${gitDir}`,
+						`--work-tree=${destination}`,
+						...args,
+					],
+					{
+						cwd: destination,
+						encoding: "utf8",
+						timeout: 5 * 60_000,
+						maxBuffer: 64 * 1024 * 1024,
+						env: { ...process.env, GIT_INDEX_FILE: join(scratch, "index") },
+					},
+				)
+			).stdout.trim();
+		await git(["read-tree", main]);
+		await git(["add", "--all"]);
+		// Missing files alone are a deletion in progress or a checkout that
+		// never finished: nothing a commit could bring back.
+		if (
+			!(await git([
+				"diff-index",
+				"--cached",
+				"--name-only",
+				"--diff-filter=d",
+				main,
+			]))
+		)
+			return true;
+		const commit = await git([
+			"commit-tree",
+			await git(["write-tree"]),
+			"-p",
+			main,
+			"-m",
+			"Evicted checkout snapshot",
+		]);
+		await git(["update-ref", evictedLaneRef(destination), commit]);
+		return true;
+	} catch {
+		return false;
+	} finally {
+		await rm(scratch, { recursive: true, force: true });
+	}
+}
+
 /**
  * Removes a lane worktree when nothing in it is still the only copy of the
  * work: every change is already a deletion or ignored build output, HEAD has
@@ -1200,7 +1352,10 @@ function lostGitDir(destination: string): boolean {
  * of its uncommitted files. Agents leave scratch files behind and a rebased
  * commit never matches `origin/main`, so without this a full disk had nothing
  * it was allowed to remove. A folder that old which Git no longer knows is
- * deleted.
+ * deleted after its files are saved the same way.
+ *
+ * A checkout whose folder is already gone counts as removed: only its
+ * registration is released, so the path is free for the next run.
  */
 export async function cleanupLaneWorktree(
 	source: string,
@@ -1211,6 +1366,7 @@ export async function cleanupLaneWorktree(
 	evict = false,
 	refused: (reason: string) => void = () => {},
 ): Promise<boolean> {
+	let failure = "";
 	const run = async (repo: string, args: string[]) => {
 		try {
 			return await promisify(execFile)("git", ["-C", repo, ...args], {
@@ -1218,10 +1374,40 @@ export async function cleanupLaneWorktree(
 				timeout: 10_000,
 				maxBuffer: 16 * 1024 * 1024,
 			});
-		} catch {
+		} catch (error) {
+			const { killed, stderr } = error as { killed?: boolean; stderr?: string };
+			failure = killed
+				? `git ${args[0]} timed out after 10 s`
+				: (stderr?.trim().split("\n")[0] ?? String(error)).slice(0, 200);
 			return undefined;
 		}
 	};
+	const registration = async () => {
+		const list = await run(source, ["worktree", "list", "--porcelain", "-z"]);
+		if (!list) return undefined;
+		const target = canonicalPath(destination);
+		const entry = list.stdout
+			.split("\0\0")
+			.map((block) => block.split("\0"))
+			.find(
+				(lines) =>
+					lines[0]?.startsWith("worktree ") &&
+					canonicalPath(lines[0].slice("worktree ".length)) === target,
+			);
+		return {
+			lock: entry?.find(
+				(line) => line === "locked" || line.startsWith("locked "),
+			),
+		};
+	};
+	if (!existsSync(destination)) {
+		const registered = await registration();
+		// A lock someone else placed keeps its registration.
+		if (registered?.lock === `locked ${LANE_WORKTREE_LOCK_REASON}`)
+			await run(source, ["worktree", "unlock", canonicalPath(destination)]);
+		await run(source, ["worktree", "prune"]);
+		return true;
+	}
 	const status = await run(destination, [
 		"status",
 		"--porcelain",
@@ -1233,14 +1419,20 @@ export async function cleanupLaneWorktree(
 	const head = await run(destination, ["rev-parse", "HEAD"]);
 	if (!status || !head) {
 		if (!evict || !staleFolder(destination) || !lostGitDir(destination)) {
-			refused("git cannot read the checkout");
+			refused(`git cannot read the checkout: ${failure}`);
 			return false;
 		}
 		if (await inUse(destination)) {
 			refused("a process still uses the checkout");
 			return false;
 		}
+		if (!(await saveLostCheckout(source, destination))) {
+			refused("saving the files of a checkout Git no longer knows failed");
+			return false;
+		}
 		await rm(destination, { recursive: true, force: true });
+		// The registration of a half-deleted checkout may outlive its folder.
+		await run(source, ["worktree", "prune"]);
 		return true;
 	}
 	const changes = status.stdout
@@ -1288,45 +1480,23 @@ export async function cleanupLaneWorktree(
 		refused("a process still uses the checkout");
 		return false;
 	}
-	const list = await run(source, ["worktree", "list", "--porcelain", "-z"]);
-	if (!list) {
+	const registered = await registration();
+	if (!registered) {
 		refused("git worktree list failed");
 		return false;
 	}
-	const target = realpathSync(destination);
-	const entry = list.stdout
-		.split("\0\0")
-		.map((block) => block.split("\0"))
-		.find((lines) => {
-			const path = lines[0]?.startsWith("worktree ")
-				? lines[0].slice("worktree ".length)
-				: undefined;
-			return (
-				path !== undefined && existsSync(path) && realpathSync(path) === target
-			);
-		});
-	const lock = entry?.find(
-		(line) => line === "locked" || line.startsWith("locked "),
-	);
+	const { lock } = registered;
 	// A lock someone else placed keeps the checkout; only release our own.
 	if (lock && lock !== `locked ${LANE_WORKTREE_LOCK_REASON}`) {
 		refused("locked by someone else");
 		return false;
 	}
 	if (holdsWork) {
-		const identity = [
-			"-c",
-			"user.name=Tedix runner",
-			"-c",
-			"user.email=runner@tedix.invalid",
-			"-c",
-			"commit.gpgsign=false",
-		];
 		if (
 			!emptied &&
 			(!(await run(destination, ["add", "--all"])) ||
 				!(await run(destination, [
-					...identity,
+					...EVICTION_IDENTITY,
 					"commit",
 					"--no-verify",
 					"--quiet",
@@ -1342,7 +1512,7 @@ export async function cleanupLaneWorktree(
 			!saved ||
 			!(await run(source, [
 				"update-ref",
-				`refs/lane-evicted/${basename(dirname(destination))}/${basename(destination)}`,
+				evictedLaneRef(destination),
 				saved.stdout.trim(),
 			]))
 		) {
@@ -1490,22 +1660,13 @@ export async function provisionLaneWorktree(
 	)
 		gitOutput(source, ["merge", "--ff-only", head]);
 	gitOutput(source, ["worktree", "prune"]);
-	// Git canonicalizes the path it registers, so a missing folder must be
-	// compared through its parent's realpath to match the recorded entry.
-	const canonical = (path: string) => {
-		if (existsSync(path)) return realpathSync(path);
-		const parent = dirname(path);
-		return existsSync(parent)
-			? join(realpathSync(parent), basename(path))
-			: resolve(path);
-	};
 	const registered = new Set(
 		gitOutput(source, ["worktree", "list", "--porcelain", "-z"])
 			.split("\0")
 			.filter((line) => line.startsWith("worktree "))
-			.map((line) => canonical(line.slice("worktree ".length))),
+			.map((line) => canonicalPath(line.slice("worktree ".length))),
 	);
-	const isRegistered = (path: string) => registered.has(canonical(path));
+	const isRegistered = (path: string) => registered.has(canonicalPath(path));
 	if (isRegistered(destination)) {
 		// A locked or stale registration survives `worktree prune` after its
 		// folder was removed; `git -C` into it fails, so it is not reusable and
@@ -1767,6 +1928,8 @@ interface DispatcherDeps {
 	provision: (source: string, destination: string) => string | Promise<string>;
 	installDependencies: typeof installLaneDependencies;
 	baseCommit: (repo: string) => string;
+	/** The Git ref that saved an evicted checkout's work, when one exists. */
+	evictedWork: (source: string, destination: string) => string | undefined;
 	landedCommits: typeof landedLaneCommits;
 	unpushedCommits: typeof unpushedLaneCommits;
 	verifyExisting: typeof verifyExistingLaneResult;
@@ -1828,6 +1991,7 @@ const defaultDeps: DispatcherDeps = {
 		provisionLaneWorktree(source, destination),
 	installDependencies: installLaneDependencies,
 	baseCommit: (repo) => gitOutput(repo, ["rev-parse", "HEAD"]),
+	evictedWork: evictedLaneWork,
 	landedCommits: landedLaneCommits,
 	unpushedCommits: unpushedLaneCommits,
 	verifyExisting: verifyExistingLaneResult,
@@ -2933,6 +3097,8 @@ export class LaneDispatcher {
 		run: string,
 		itemId: string,
 		referenced: string[],
+		evict = false,
+		refused?: (reason: string) => void,
 	) {
 		for (const name of readdirSync(run)) {
 			if (this.running.has(itemId) || this.preparing.has(itemId)) return;
@@ -2940,21 +3106,40 @@ export class LaneDispatcher {
 			if (
 				!/^repo(-\d+)?$/.test(name) ||
 				referenced.includes(resolve(repo)) ||
-				!this.cleanupDue(repo)
+				!this.cleanupDue(evict ? `evict:${repo}` : repo)
 			)
 				continue;
 			if (
 				await this.deps.cleanup(
 					this.options.repo,
 					repo,
-					false,
-					this.noteRefusal(repo),
+					evict,
+					this.noteRefusal(repo, refused),
 				)
 			) {
 				this.cleanupAfter.delete(repo);
+				this.cleanupAfter.delete(`evict:${repo}`);
 				this.log("worktree-cleaned", itemId, repo);
 			}
 		}
+	}
+	/**
+	 * Archives a run folder once no checkout or recovery folder is left in it.
+	 * The checkout a receipt names can be removed while a sibling still stands;
+	 * when the sibling goes later, nothing else returns to the folder, and the
+	 * cap pass kept asking Git to read a checkout that was already gone.
+	 */
+	private archiveEmptiedRun(run: string, itemId: string) {
+		if (
+			!existsSync(run) ||
+			readdirSync(run).some((name) => name.startsWith("repo"))
+		)
+			return;
+		const archive = join(this.directory, "archive");
+		mkdirSync(archive, { recursive: true, mode: 0o700 });
+		renameSync(run, join(archive, `${basename(run)}-${Date.now()}`));
+		this.cleanupAfter.delete(run);
+		this.log("run-archived", itemId, run);
 	}
 	/**
 	 * `provisionLaneWorktree` moves a folder Git does not know out of the
@@ -3007,9 +3192,10 @@ export class LaneDispatcher {
 		const runs = join(this.directory, "runs");
 		for (const row of retained) {
 			if (this.stopping) return;
+			// A checkout that is gone still leaves its run folder to archive.
 			if (
 				!row.repo ||
-				!existsSync(row.repo) ||
+				!existsSync(dirname(row.repo)) ||
 				this.running.has(row.itemId) ||
 				this.preparing.has(row.itemId) ||
 				!this.checkoutCleanupReady(row) ||
@@ -3153,8 +3339,24 @@ export class LaneDispatcher {
 						itemId: row.itemId,
 						at,
 						size,
-						remove: (refused) =>
-							this.cleanupWorktree(row, { retained: true, refused }),
+						// Earlier tries of this revision left sibling checkouts no
+						// receipt names; under the cap they are evicted the same way.
+						remove: async (refused) => {
+							await this.cleanupWorktree(row, { retained: true, refused });
+							if (!existsSync(run)) return;
+							await this.cleanupUnreferencedCheckouts(
+								run,
+								row.itemId,
+								referenced,
+								true,
+								refused,
+							);
+							if (
+								!this.running.has(row.itemId) &&
+								!this.preparing.has(row.itemId)
+							)
+								this.archiveEmptiedRun(run, row.itemId);
+						},
 					});
 			} else if (!this.orphanRun(name, itemId, run, receipted, referenced))
 				held.set(itemId, "protected: a live run or receipt refers to it");
@@ -3180,9 +3382,12 @@ export class LaneDispatcher {
 		candidates.sort((a, b) => a.at - b.at);
 		for (const candidate of candidates) {
 			if (this.stopping || total <= cap) break;
-			// A checkout this sweep or an earlier one already refused is not
-			// tried again until its backoff ends.
-			if (!this.cleanupDue(candidate.path)) {
+			// An eviction that was refused is not tried again until its backoff
+			// ends. The backoff is its own: the ordinary cleanup above visits the
+			// same checkout first on every sweep, and sharing one booking meant
+			// a checkout it had refused was never offered for eviction at all.
+			const eviction = `evict:${candidate.path}`;
+			if (!this.cleanupDue(eviction)) {
 				held.set(
 					candidate.itemId,
 					`waiting for its retry backoff${this.refusals.has(candidate.path) ? `; last refused: ${this.refusals.get(candidate.path)}` : ""}`,
@@ -3201,6 +3406,7 @@ export class LaneDispatcher {
 			if (existsSync(candidate.run) && !held.has(candidate.itemId))
 				held.set(candidate.itemId, "refused: it still has a checkout inside");
 			if (!existsSync(candidate.run)) {
+				this.cleanupAfter.delete(eviction);
 				total -= candidate.size;
 				this.log(
 					"checkout-evicted",
@@ -3423,6 +3629,7 @@ export class LaneDispatcher {
 			runFailureSignature: previous?.runFailureSignature,
 			admissionState: previous?.admissionState ?? "not_sent",
 			identicalFailures: previous?.identicalFailures ?? 0,
+			...retainedCheckout(this.directory, candidate, previous),
 		};
 		let admitted = false;
 		let admissionSent = false;
@@ -3532,9 +3739,11 @@ export class LaneDispatcher {
 				receipt.held = true;
 				// This is an execution hold, not a timed admission rejection.
 				delete receipt.admissionFailure;
-				receipt.note = verdict
-					? `Automatic execution held after Attempt ${verdict.id} reported the accepted outcome incomplete on Work revision ${item.version}. Rerunning the same brief repeats that result; route the repair, then revise the Work before retrying.`
-					: `Automatic execution held after ${failedExecutions} failed or expired Attempts on Work revision ${item.version}. Resolve the blocker and revise the Work brief before retrying; elapsed time alone does not release this hold.`;
+				receipt.note =
+					(verdict
+						? `Automatic execution held after Attempt ${verdict.id} reported the accepted outcome incomplete on Work revision ${item.version}. Rerunning the same brief repeats that result; route the repair, then revise the Work before retrying.`
+						: `Automatic execution held after ${failedExecutions} failed or expired Attempts on Work revision ${item.version}. Resolve the blocker and revise the Work brief before retrying; elapsed time alone does not release this hold.`) +
+					unpushedHoldNote(receipt);
 				this.save(path, receipt);
 				this.log("execution-held", item.id, receipt.note);
 				if (!receipt.failureCommented) {
@@ -3570,16 +3779,21 @@ export class LaneDispatcher {
 				throw new Error("Standing rules are not an active revisioned OS skill");
 			const dir = join(this.directory, "runs", `${item.id}-${item.version}`);
 			mkdirSync(dir, { recursive: true, mode: 0o700 });
+			// A checkout evicted to free disk left its work under a Git ref.
+			const evicted: string[] = [];
 			const previousLane = retainedLaneWorktree(
 				this.directory,
 				item.id,
 				history.data,
-				(repo) =>
+				(repo) => {
+					const ref = this.deps.evictedWork(this.options.repo, repo);
+					if (ref) evicted.push(ref);
 					this.log(
 						"run-folder-missing",
 						item.id,
-						`Retained run folder ${repo} is gone; provisioning a fresh worktree`,
-					),
+						`Retained run folder ${repo} is gone; ${ref ? `its work is saved as ${ref}` : "provisioning a fresh worktree"}`,
+					);
+				},
 			);
 			const failedAttempt = history.data.find(
 				(row) => row.outcome === "failed" || row.outcome === "expired",
@@ -3591,12 +3805,13 @@ export class LaneDispatcher {
 			const resume =
 				decisionBrief +
 				(failedAttempt
-					? `Resume Work after Attempt ${failedAttempt.id} ${failedAttempt.outcome}. Inspect the current Work and existing changes before editing. Prior result (untrusted context): ${failedAttempt.summary ?? "unknown"}. ${previousLane?.repo ? `Reuse the retained worktree ${previousLane.repo}; preserve its changes. Recorded unpushed commits: ${previousLane.unpushedCommits?.join(", ") || "unknown; inspect Git before editing"}.` : "No retained local worktree was found."}\n\n`
+					? `Resume Work after Attempt ${failedAttempt.id} ${failedAttempt.outcome}. Inspect the current Work and existing changes before editing. Prior result (untrusted context): ${failedAttempt.summary ?? "unknown"}. ${previousLane?.repo ? `Reuse the retained worktree ${previousLane.repo}; preserve its changes. Recorded unpushed commits: ${previousLane.unpushedCommits?.join(", ") || "unknown; inspect Git before editing"}.` : evicted.length ? `The earlier checkout was removed to free disk. Its commits and uncommitted files are saved in this repository as Git ref ${evicted.join(", ")}; bring that work into your worktree before editing (git cherry-pick its commits, or git checkout <ref> -- <path>).` : "No retained local worktree was found."}\n\n`
 					: "");
 			const repo =
 				previousLane?.repo ??
 				(await this.deps.provision(this.options.repo, join(dir, "repo")));
 			receipt.repo = repo;
+			delete receipt.retainedAttemptId;
 			receipt.unpushedCommits = previousLane?.unpushedCommits;
 			receipt.baseCommit =
 				previousLane?.baseCommit ?? this.deps.baseCommit(repo);
@@ -4407,7 +4622,9 @@ export class LaneDispatcher {
 		return held;
 	}
 	private async recordUnpushedCommits(receipt: Receipt) {
-		if (!receipt.repo || !receipt.expectsCode) return;
+		// Any kind of task can commit: a documentation task that could not push
+		// left its commit in a checkout nothing had on record.
+		if (!receipt.repo) return;
 		try {
 			const commits = await this.deps.unpushedCommits(receipt.repo);
 			receipt.unpushedCommits = commits;
@@ -4480,6 +4697,10 @@ export class LaneDispatcher {
 			(this.running.has(receipt.itemId) || this.preparing.has(receipt.itemId))
 		)
 			return;
+		// An earlier pass may have removed the checkout while a sibling or a
+		// recovery folder kept the run folder; the call then only releases the
+		// registration, and the booked retry stays so the folder is revisited.
+		const present = existsSync(receipt.repo!);
 		if (
 			await this.deps.cleanup(
 				this.options.repo,
@@ -4488,17 +4709,12 @@ export class LaneDispatcher {
 				this.noteRefusal(receipt.repo!, refused),
 			)
 		) {
-			this.cleanupAfter.delete(receipt.repo!);
-			const run = dirname(receipt.repo!);
-			if (
-				existsSync(run) &&
-				!readdirSync(run).some((name) => name.startsWith("repo"))
-			) {
-				const archive = join(this.directory, "archive");
-				mkdirSync(archive, { recursive: true, mode: 0o700 });
-				renameSync(run, join(archive, `${basename(run)}-${Date.now()}`));
+			this.refusals.delete(receipt.repo!);
+			if (present) {
+				this.cleanupAfter.delete(receipt.repo!);
+				this.log("worktree-cleaned", receipt.itemId, receipt.repo);
 			}
-			this.log("worktree-cleaned", receipt.itemId, receipt.repo);
+			this.archiveEmptiedRun(dirname(receipt.repo!), receipt.itemId);
 		}
 	}
 	private async skillRevisionProof(
