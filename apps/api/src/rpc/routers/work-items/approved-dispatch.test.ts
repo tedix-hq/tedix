@@ -128,7 +128,9 @@ it.each([
 					)
 					.get(),
 			).toEqual({ version: 1, status: "approved" });
-			expect((await readiness()).state).toBe("approval_blocked");
+			expect((await readiness()).state).toBe(
+				change.executor === "claude-code" ? "approval_blocked" : "ready",
+			);
 			expect(
 				sqlite.prepare("SELECT id, body FROM work_item_comments").all(),
 			).toEqual([

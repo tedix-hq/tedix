@@ -50,6 +50,7 @@ import {
 	workItems,
 } from "../../schema/work-items";
 import { normalizeWorkItemRow } from "./normalization";
+import { planningApprovalVersion } from "./planning-approval";
 import { acceptanceRenewedPurposeExpiry } from "./purpose";
 import { resolveWorkItemSteward } from "./stewardship";
 import { retireDecisionReviews } from "./decision-review-retirement";
@@ -93,6 +94,7 @@ export function lifecycleEventInsert(
 		workItemId: string;
 		disposition: WorkItemDisposition;
 		expectedVersion: number;
+		specificationUpdateId?: string;
 		eventType: string;
 		actor: WorkActor;
 		occurredAt: string;
@@ -127,6 +129,9 @@ export function lifecycleEventInsert(
 					eq(workItems.id, params.workItemId),
 					eq(workItems.disposition, params.disposition),
 					eq(workItems.version, params.expectedVersion),
+					params.specificationUpdateId === undefined
+						? undefined
+						: sql`json_extract(${workItems.metadata}, '$.specificationUpdateId')=${params.specificationUpdateId}`,
 				),
 			),
 	);
@@ -1241,7 +1246,7 @@ function isPlanningOnlyUpdate(
 	> & { executor?: string; laneDispatch?: LaneDispatchPlan },
 ): boolean {
 	return (
-		params.laneDispatch !== undefined &&
+		(params.laneDispatch !== undefined || params.executor !== undefined) &&
 		(params.executor === undefined ||
 			params.executor === prior.metadata?.executor) &&
 		APPROVED_SPECIFICATION_FIELDS.every(
@@ -1310,6 +1315,21 @@ export async function updateWorkItemSpecification(
 			: null;
 	const receiptId = crypto.randomUUID();
 	const planningOnly = isPlanningOnlyUpdate(prior, params);
+	const [approvalScope] = planningOnly
+		? await db
+				.select({
+					version: planningApprovalVersion(prior).as("approval_version"),
+				})
+				.from(workItems)
+				.where(
+					and(
+						eq(workItems.orgId, params.orgId),
+						eq(workItems.id, params.workItemId),
+					),
+				)
+				.limit(1)
+		: [];
+	const specificationUpdateId = crypto.randomUUID();
 	// Home marks a task it started without a project; any move into a project
 	// answers that, so the mark goes with it.
 	const { needsProject, ...sortedMetadata } = prior.metadata ?? {};
@@ -1317,21 +1337,13 @@ export async function updateWorkItemSpecification(
 	const updateMutation = db
 		.update(workItems)
 		.set({
-			metadata:
-				params.executor === undefined &&
-				laneDispatch === undefined &&
-				!clearNeedsProject
-					? undefined
-					: {
-							...(clearNeedsProject ? sortedMetadata : prior.metadata),
-							...(dispatch ? { laneDispatchReceiptId: receiptId } : {}),
-							...(params.executor === undefined
-								? {}
-								: { executor: params.executor }),
-							...(laneDispatch === undefined
-								? {}
-								: { laneDispatch: laneDispatch }),
-						},
+			metadata: {
+				...(clearNeedsProject ? sortedMetadata : prior.metadata),
+				specificationUpdateId,
+				...(dispatch ? { laneDispatchReceiptId: receiptId } : {}),
+				...(params.executor === undefined ? {} : { executor: params.executor }),
+				...(laneDispatch === undefined ? {} : { laneDispatch }),
+			},
 			projectId: projectMove?.to,
 			title: params.title,
 			description: params.description,
@@ -1362,6 +1374,7 @@ export async function updateWorkItemSpecification(
 				eq(workItems.orgId, params.orgId),
 				eq(workItems.id, params.workItemId),
 				eq(workItems.version, params.expectedWorkItemVersion ?? prior.version),
+				eq(workItems.version, prior.version),
 				requestedDispatch === undefined
 					? undefined
 					: sql`NOT EXISTS (
@@ -1381,10 +1394,22 @@ export async function updateWorkItemSpecification(
 		workItemId: params.workItemId,
 		disposition: prior.disposition,
 		expectedVersion: prior.version + 1,
+		specificationUpdateId,
 		eventType: "work.specification_updated",
 		actor: params.actor,
 		occurredAt: updatedAt,
-		...(projectMove ? { payload: { projectMove } } : {}),
+		payload: {
+			...(projectMove ? { projectMove } : {}),
+			...(planningOnly
+				? {
+						planningApproval: {
+							fromVersion: approvalScope?.version ?? prior.version,
+							toVersion: prior.version + 1,
+							admissionSpecRevision: prior.admissionSpecRevision,
+						},
+					}
+				: {}),
+		},
 	});
 	// Approval proposals are immutable and remain bound to their reviewed version.
 	const [updatedRows] = await db.batch([

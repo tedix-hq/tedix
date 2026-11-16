@@ -1,3 +1,4 @@
+import { matchesWorkApprovalVersion } from "./planning-approval";
 import { ensureWorkRiskApproval } from "./approvals";
 import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
@@ -370,11 +371,19 @@ export async function listReadyWork(
 				db
 					.select({
 						workItemId: workApprovalProposals.workItemId,
-						workItemVersion: workApprovalProposals.workItemVersion,
+						workItemVersion: workItems.version,
 						authorityKey: workApprovalProposals.authorityKey,
 						action: workApprovalProposals.action,
 					})
 					.from(workApprovalProposals)
+					.innerJoin(
+						workItems,
+						and(
+							eq(workItems.orgId, workApprovalProposals.orgId),
+							eq(workItems.id, workApprovalProposals.workItemId),
+							matchesWorkApprovalVersion(workItems),
+						),
+					)
 					.innerJoin(
 						workApprovalDecisions,
 						and(
