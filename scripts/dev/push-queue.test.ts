@@ -12,6 +12,8 @@ import {
 	readRetryHistory,
 	recordTrain,
 	recordRetry,
+	chargeRejection,
+	retryFailures,
 	retryRefusal,
 	selectTrain,
 	ticketKey,
@@ -19,7 +21,16 @@ import {
 	waitNote,
 } from "./push-queue";
 import { splitRejected, type Lane } from "./push-train";
-import { failedPushGate } from "./push-gate-failure";
+import {
+	failedPushGate,
+	formatVerdict,
+	gateFailureKind,
+	overallVerdict,
+	parseVerdict,
+	pushRejection,
+	refusalSentence,
+	type PushRefusal,
+} from "./push-gate-failure";
 
 const tmp = () => mkdtempSync(join(tmpdir(), "push-queue-"));
 const DEAD = 99999;
@@ -255,6 +266,42 @@ describe("gate retry budget", () => {
 		}
 	});
 
+	test("timeouts are counted apart from the change's two attempts, and a red main not at all", () => {
+		const file = join(tmp(), "retries.jsonl");
+		const now = Date.now();
+		const timeout = {
+			kind: "infrastructure",
+			gate: "tests (apps/api)",
+		} as const;
+		for (let i = 0; i < 5; i++)
+			chargeRejection(file, "lane|work", timeout, now);
+		chargeRejection(
+			file,
+			"lane|work",
+			{ kind: "main", gate: "type-check" },
+			now,
+		);
+		expect(retryRefusal(file, "lane|work", now)).toBeNull();
+		expect(retryFailures(file, "lane|work", now)).toEqual([]);
+		// The loop still ends: a sixth timeout refuses, and so do two real failures.
+		chargeRejection(file, "lane|work", timeout, now);
+		expect(retryRefusal(file, "lane|work", now)).toContain(
+			"timed out or hit machine errors 6 times",
+		);
+		const other = join(tmp(), "retries.jsonl");
+		chargeRejection(other, "lane|work", timeout, now);
+		for (const gate of ["lint:repo", "type-check"])
+			chargeRejection(other, "lane|work", { kind: "change", gate }, now);
+		expect(retryRefusal(other, "lane|work", now)).toContain(
+			"(lint:repo, type-check)",
+		);
+		expect(readRetryHistory(other).map((record) => record.kind)).toEqual([
+			"infrastructure",
+			"change",
+			"change",
+		]);
+	});
+
 	test("keeps retry history trimmed to fifty entries", () => {
 		const file = join(tmp(), "retries.jsonl");
 		for (let i = 0; i < 60; i++)
@@ -266,6 +313,141 @@ describe("gate retry budget", () => {
 			});
 		expect(readRetryHistory(file)).toHaveLength(50);
 		expect(readRetryHistory(file).at(-1)?.gate).toBe("gate-59");
+	});
+});
+
+describe("whose failure a failed gate is", () => {
+	// Runner output as vitest 5.1 and bun 1.4 print it, captured 16 Nov 2026.
+	const hookTimeout = ` ❯ src/rpc/fleet-authority-coverage.test.ts (5 tests | 5 skipped) 120014ms
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/rpc/fleet-authority-coverage.test.ts [ src/rpc/fleet-authority-coverage.test.ts ]
+Error: Hook timed out in 120000ms.
+If this is a long-running hook, pass a timeout value as the last argument or configure it globally with "hookTimeout".
+
+ Test Files  1 failed | 4 passed (5)
+      Tests  18 passed | 5 skipped (23)
+error: script "test:unit" exited with code 1`;
+	const testTimeout = ` FAIL  src/a.test.ts > slow
+Error: Test timed out in 20000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+`;
+	const thrown = ` FAIL  src/a.test.ts > typeerror
+TypeError: Cannot read properties of undefined (reading 'x')
+`;
+	const assertion = ` FAIL  src/a.test.ts > assert
+AssertionError: expected 1 to be 2 // Object.is equality
+`;
+	const bunTimeout = `(fail) slow [200.38ms]
+  ^ this test timed out after 200ms.
+`;
+
+	test("only timeouts and a killed or exhausted process are the machine's", () => {
+		expect(gateFailureKind({ output: hookTimeout })).toBe("infrastructure");
+		expect(gateFailureKind({ output: testTimeout })).toBe("infrastructure");
+		expect(gateFailureKind({ output: bunTimeout })).toBe("infrastructure");
+		expect(gateFailureKind({ output: "", signal: "SIGKILL" })).toBe(
+			"infrastructure",
+		);
+		expect(gateFailureKind({ output: "", spawnFailed: true })).toBe(
+			"infrastructure",
+		);
+		expect(
+			gateFailureKind({
+				output:
+					"FATAL ERROR: Reached heap limit - JavaScript heap out of memory",
+			}),
+		).toBe("infrastructure");
+	});
+
+	test("a failed assertion counts as the change's, even beside a timeout", () => {
+		expect(gateFailureKind({ output: assertion })).toBe("change");
+		expect(gateFailureKind({ output: testTimeout + assertion })).toBe("change");
+		expect(gateFailureKind({ output: testTimeout + thrown })).toBe("change");
+		expect(
+			gateFailureKind({ output: `${bunTimeout}(fail) throws [0.43ms]\n` }),
+		).toBe("change");
+		expect(
+			gateFailureKind({
+				output: `${bunTimeout}error: expect(received).toBe(expected)\n(fail) assert [0.06ms]\n`,
+			}),
+		).toBe("change");
+		expect(
+			gateFailureKind({
+				output: "src/a.ts(1,2): error TS2322: Type 'string' is not assignable",
+			}),
+		).toBe("change");
+		// A gate that printed nothing recognizable is never excused.
+		expect(gateFailureKind({ output: "lint failed" })).toBe("change");
+		expect(
+			gateFailureKind({ output: "ENOSPC\n FAIL  src/a.test.ts > x\n" }),
+		).toBe("change");
+	});
+
+	test("one verdict per run: the change first, then a red main, then the machine", () => {
+		const of = (...kinds: ("change" | "infrastructure" | "main")[]) =>
+			overallVerdict(kinds.map((kind) => ({ kind, gate: `${kind} gate` })))
+				?.kind;
+		expect(of("infrastructure", "main", "change")).toBe("change");
+		expect(of("infrastructure", "main")).toBe("main");
+		expect(of("infrastructure")).toBe("infrastructure");
+		expect(overallVerdict([])).toBeNull();
+	});
+
+	test("the queue reads the gate runner's verdict and treats anything else as the change's", () => {
+		const verdict = {
+			kind: "infrastructure",
+			gate: "tests (apps/api)",
+		} as const;
+		const output = `✗ tests (apps/api) (4m02s)\nremote: noise\n${formatVerdict(verdict)}\nerror: failed to push some refs`;
+		expect(parseVerdict(output)).toEqual(verdict);
+		expect(pushRejection(output)).toEqual(verdict);
+		expect(pushRejection("✗ type-check (1s)")).toEqual({
+			kind: "change",
+			gate: "type-check",
+		});
+		expect(
+			pushRejection('pre-push-verdict: {"kind":"fine","gate":"x"}'),
+		).toEqual({
+			kind: "change",
+			gate: "pre-push gates",
+		});
+		expect(pushRejection("pre-push-verdict: {torn")).toEqual({
+			kind: "change",
+			gate: "pre-push gates",
+		});
+		expect(
+			pushRejection(
+				"error: Cannot find package 'jsonc-parser' from '/repo/scripts/ci/preflight-gates.mjs'",
+			),
+		).toBeNull();
+	});
+
+	test("every refusal is one sentence that says what to do next", () => {
+		const gate = "type-check apps/os";
+		const refusals: PushRefusal[] = [
+			{ reason: "gate", verdict: { kind: "change", gate } },
+			{ reason: "gate", verdict: { kind: "infrastructure", gate } },
+			{ reason: "gate", verdict: { kind: "main", gate } },
+			{ reason: "change-budget", gates: [gate, "lint:repo"] },
+			{ reason: "infrastructure-budget", gate },
+			{ reason: "dependencies" },
+			{ reason: "fetch" },
+			{ reason: "conflict" },
+			{ reason: "expected-main" },
+			{ reason: "main-moving" },
+			{ reason: "secret-scan" },
+		];
+		for (const refusal of refusals) {
+			const sentence = refusalSentence(refusal);
+			expect(sentence).toMatch(/^Push refused: [^\n]+\.$/);
+			// One sentence: no full stop followed by another clause.
+			expect(sentence.slice(0, -1)).not.toMatch(/\.\s/);
+		}
+		expect(
+			refusalSentence({ reason: "gate", verdict: { kind: "main", gate } }),
+		).toContain("wait for main to be fixed, then run bun run push again");
 	});
 });
 

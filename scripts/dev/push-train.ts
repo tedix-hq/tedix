@@ -11,7 +11,11 @@ import {
 import { basename, join } from "node:path";
 import { detachedGitEnv } from "../oss/git-env";
 import { pushesToCanonicalRepo } from "../ci/push-range-selection.mjs";
-import { failedPushGate } from "./push-gate-failure";
+import {
+	pushRejection,
+	refusalSentence,
+	type GateVerdict,
+} from "./push-gate-failure";
 
 export type Lane = {
 	version: 1;
@@ -24,7 +28,8 @@ export type Lane = {
 export type TrainTicket = { file: string; result: string; lane: Lane };
 export type TrainResult = { code: number; sha?: string; message: string };
 export type RetryHooks = {
-	onFailure: (cwd: string, gate: string) => void;
+	/** Charges the lane's retry budget as the verdict warrants; returns its refusal sentence. */
+	onFailure: (cwd: string, verdict: GateVerdict) => string;
 	onPass: (cwd: string) => void;
 };
 
@@ -145,9 +150,12 @@ export function finishLane(
 	result: TrainResult,
 	dryRun: boolean,
 ): number {
-	console.log(
-		`push: ${result.message}${result.sha ? `; pushed SHA ${result.sha}` : ""}.`,
-	);
+	// A refusal is already one whole sentence for the lane to copy.
+	if (result.code !== 0) console.error(result.message);
+	else
+		console.log(
+			`push: ${result.message}${result.sha ? `; pushed SHA ${result.sha}` : ""}.`,
+		);
 	if (result.code === 0 && result.sha && !dryRun && lane) {
 		if (
 			!laneUnchanged(lane) ||
@@ -179,16 +187,24 @@ type Attempt = {
 	pushed: boolean;
 	accepted: { ticket: TrainTicket; sha: string }[];
 	skipped: Skip[];
-	gate?: string | null;
+	/** Null: preflight never loaded, so no gate judged the candidate. */
+	verdict?: GateVerdict | null;
 };
 
-const REJECTED = "lane rejected by a gate or the remote; fix it and run again";
-const UNREACHABLE = "could not fetch or reset to origin/main; run again";
+const UNJUDGED: GateVerdict = { kind: "change", gate: "pre-push gates" };
+const UNREACHABLE = refusalSentence({ reason: "fetch" });
 const SKIP_MESSAGES: Record<Skip["reason"], string> = {
-	conflict:
-		"lane conflicts with main or with lanes published before it; rebase onto origin/main and run again",
-	scan: "secret scan rejected a commit in this lane; fix it and run again",
+	conflict: refusalSentence({ reason: "conflict" }),
+	scan: refusalSentence({ reason: "secret-scan" }),
 };
+/** One lane's refusal: charged through the queue's hook when there is one. */
+const rejectLane = (
+	hooks: RetryHooks | undefined,
+	cwd: string,
+	verdict: GateVerdict,
+) =>
+	hooks?.onFailure(cwd, verdict) ??
+	refusalSentence({ reason: "gate", verdict });
 
 /**
  * One normal push/hook per candidate. A lane that conflicts or fails the
@@ -290,7 +306,7 @@ export function runTrain(
 		const attempt = (batch: TrainTicket[]): Attempt => {
 			let accepted: Attempt["accepted"] = [];
 			let skipped: Skip[] = [];
-			let gate: string | null | undefined;
+			let verdict: GateVerdict | null | undefined;
 			for (let retry = 0; retry <= 2; retry++) {
 				if (!git(integration, ["fetch", "--quiet", "origin", "main"]).ok) break;
 				const base = git(integration, ["rev-parse", "origin/main"]).out;
@@ -351,14 +367,14 @@ export function runTrain(
 					return { pushed: true, accepted, skipped };
 				}
 				rmSync(journal, { force: true });
-				gate = failedPushGate(`${push.out}\n${push.err}`);
+				verdict = pushRejection(`${push.out}\n${push.err}`);
 				if (
 					!git(integration, ["fetch", "--quiet", "origin", "main"]).ok ||
 					git(integration, ["rev-parse", "origin/main"]).out === base
 				)
 					break;
 			}
-			return { pushed: false, accepted, skipped, gate };
+			return { pushed: false, accepted, skipped, verdict };
 		};
 		const deferred: Skip[] = [];
 		const run = (batch: TrainTicket[]) => {
@@ -372,22 +388,34 @@ export function runTrain(
 				return;
 			}
 			const rejected = outcome.accepted.map(({ ticket }) => ticket);
-			if (outcome.gate === null) {
+			if (outcome.verdict === null) {
 				for (const ticket of rejected)
 					complete(ticket, {
 						code: 1,
-						message:
-							"preflight dependencies missing; run bun install --frozen-lockfile and retry. Retry budget unchanged",
+						message: refusalSentence({ reason: "dependencies" }),
+					});
+				return;
+			}
+			const verdict = outcome.verdict ?? UNJUDGED;
+			// A gate that main fails too rejects every part of the candidate
+			// alike: splitting would re-run it for nothing, and no lane is charged.
+			if (verdict.kind === "main") {
+				for (const ticket of rejected)
+					complete(ticket, {
+						code: 1,
+						message: refusalSentence({ reason: "gate", verdict }),
 					});
 				return;
 			}
 			if (rejected.length === 1) {
-				if (outcome.skipped.length === 0)
-					retryHooks?.onFailure(
-						rejected[0]!.lane.cwd,
-						outcome.gate ?? "pre-push gates",
-					);
-				complete(rejected[0]!, { code: 1, message: REJECTED });
+				const lane = rejected[0]!;
+				complete(lane, {
+					code: 1,
+					message:
+						outcome.skipped.length === 0
+							? rejectLane(retryHooks, lane.lane.cwd, verdict)
+							: refusalSentence({ reason: "gate", verdict }),
+				});
 				return;
 			}
 			const parts = splitRejected(rejected);
@@ -406,19 +434,19 @@ export function runTrain(
 			}
 			const solo = attempt([ticket]);
 			if (solo.pushed) continue;
-			if (
-				!solo.skipped.length &&
-				solo.accepted.length === 1 &&
-				solo.gate !== null
-			)
-				retryHooks?.onFailure(ticket.lane.cwd, solo.gate ?? "pre-push gates");
 			complete(ticket, {
 				code: 1,
 				message: solo.skipped.length
 					? SKIP_MESSAGES[solo.skipped[0]!.reason]
-					: solo.accepted.length
-						? REJECTED
-						: SKIP_MESSAGES[reason],
+					: !solo.accepted.length
+						? SKIP_MESSAGES[reason]
+						: solo.verdict === null
+							? refusalSentence({ reason: "dependencies" })
+							: rejectLane(
+									retryHooks,
+									ticket.lane.cwd,
+									solo.verdict ?? UNJUDGED,
+								),
 			});
 		}
 	} finally {
