@@ -48,6 +48,55 @@ try {
 							files: { "scripts/workflow.ts": "export default {}" },
 						},
 					};
+				const failedRun = (id: string, status: string) => ({
+					id,
+					organizationId: "fictional-org",
+					skillId: "fictional-skill",
+					tediId: "fictional-tedi",
+					workflowInstanceId: id,
+					runtimeEnvironment: "production",
+					lastReconciledAt: null,
+					executionEpoch: 0,
+					status,
+					skillRevision: 7,
+					startedAt: "2026-11-07T06:00:00.000Z",
+					completedAt: "2026-11-07T06:00:14.000Z",
+					hasResult: false,
+					hasError: status === "failed",
+				});
+				if (endpoint === "skills/runWorkflowHistory")
+					result = {
+						runs: [
+							failedRun("run-9", "failed"),
+							failedRun("run-8", "failed"),
+							failedRun("run-7", "failed"),
+							failedRun("run-6", "completed"),
+						],
+					};
+				if (endpoint === "skills/runWorkflowStatus")
+					result = {
+						...failedRun("run-9", "failed"),
+						error: "Error: Mailbox token expired\n    at step (workflow.ts:4)",
+					};
+				if (endpoint === "skills/listWorkflowSchedules")
+					result = {
+						schedules: [
+							{
+								id: "fictional-schedule",
+								organizationId: "fictional-org",
+								skillId: "fictional-skill",
+								tediId: "fictional-tedi",
+								cron: "0 6 * * *",
+								params: {},
+								enabled: false,
+								nextFireAt: "2026-11-08T06:00:00.000Z",
+							},
+						],
+						total: 1,
+						offset: 0,
+						limit: 100,
+						nextOffset: null,
+					};
 				if (endpoint === "tedis/list")
 					result = { data: [{ id: "fictional-tedi", name: "Night lead" }] };
 				if (endpoint === "skills/runWorkflow") {
@@ -100,6 +149,42 @@ try {
 			});
 			await button.waitFor();
 			await page.evaluate(() => document.fonts.ready);
+			// A draft says why it is a draft, when, and what to do, test first.
+			const notice = page.getByLabel("Why this skill is a draft");
+			await notice.getByText("Last error: Mailbox token expired").waitFor();
+			const reason = await notice.innerText();
+			assert.match(reason, /Draft after 3 failed runs in a row/);
+			assert.match(reason, /Its last 3 runs failed, most recently on Nov 7/);
+			assert.doesNotMatch(reason, /workflow\.ts/);
+			assert.match(
+				reason,
+				/Its schedule is paused, so no scheduled runs start/,
+			);
+			assert.match(
+				reason,
+				/What to do next[\s\S]*Open the failed run[\s\S]*Run a test[\s\S]*Turn it back on[\s\S]*Open the Schedule tab/,
+			);
+			assert(
+				await notice
+					.getByRole("link", { name: "Open the failed run", exact: true })
+					.isVisible(),
+			);
+			const testButton = page.getByRole("button", {
+				name: "Run a test",
+				exact: true,
+			});
+			assert(
+				await testButton.evaluate(
+					(test, turnOn) =>
+						Boolean(
+							turnOn &&
+							test.compareDocumentPosition(turnOn) &
+								Node.DOCUMENT_POSITION_FOLLOWING,
+						),
+					await button.elementHandle(),
+				),
+				"the test button comes before Turn back on",
+			);
 			assert.equal(
 				await page.evaluate(
 					() => document.documentElement.scrollWidth > innerWidth,
@@ -160,10 +245,18 @@ try {
 			});
 			await recovery.click();
 			const dialog = page.getByRole("dialog");
+			await dialog
+				.getByRole("heading", { name: "Test run of Daily operating loop" })
+				.waitFor();
+			assert.match(
+				await dialog.innerText(),
+				/Runs revision 7 once as a test/,
+				"the test dialog says it is a test",
+			);
 			await dialog.getByRole("combobox", { name: "Run as" }).click();
 			await page.getByRole("option", { name: "Night lead" }).click();
 			await dialog
-				.getByRole("button", { name: "Run now", exact: true })
+				.getByRole("button", { name: "Run test", exact: true })
 				.click();
 			await dialog
 				.getByText(
@@ -184,6 +277,8 @@ try {
 			await button.click();
 			await page.getByText("Active", { exact: true }).waitFor();
 			assert.equal(await recovery.count(), 0);
+			assert.equal(await notice.count(), 0, "an active skill needs no reason");
+			assert.equal(await testButton.count(), 0);
 			lifecycleState = "draft";
 			role = "member";
 			await page.reload();

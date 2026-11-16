@@ -196,6 +196,151 @@ describe("native skill ownership", () => {
 		expect(host.textContent).not.toContain("Turn back on");
 	});
 
+	const draftRun = (id: string, status: "completed" | "failed") => ({
+		id,
+		organizationId: "org-1",
+		skillId: "skill-1",
+		tediId: "tedi-1",
+		workflowInstanceId: id,
+		runtimeEnvironment: "production" as const,
+		lastReconciledAt: null,
+		executionEpoch: 0,
+		status,
+		skillRevision: 3,
+		startedAt: "2026-11-07T06:00:00.000Z",
+		completedAt: "2026-11-07T06:00:14.000Z",
+		hasResult: false,
+		hasError: status === "failed",
+	});
+	const seedDraft =
+		(runs: Array<ReturnType<typeof draftRun>>, schedulePaused = false) =>
+		(client: QueryClient) => {
+			client.setQueryData(q.skillDetailQueryOptions("skill-1").queryKey, {
+				entry: { ...skill.entry, lifecycleState: "draft" },
+			});
+			client.setQueryData(q.skillRunsQueryOptions("skill-1").queryKey, {
+				runs,
+			} as never);
+			client.setQueryData(
+				q.skillSpecificSchedulesQueryOptions("skill-1").queryKey,
+				{
+					schedules: schedulePaused ? [{ id: "s-1", enabled: false }] : [],
+					total: schedulePaused ? 1 : 0,
+					offset: 0,
+					limit: 100,
+					nextOffset: null,
+				} as never,
+			);
+			if (runs[0]?.status === "failed")
+				client.setQueryData(q.skillRunStatusQueryOptions(runs[0].id).queryKey, {
+					...runs[0],
+					error: "Error: Mailbox token expired\n    at step (workflow.ts:4)",
+				} as never);
+		};
+	const draftNotice = (host: HTMLElement) =>
+		host.querySelector('[aria-label="Why this skill is a draft"]');
+	const headerButtons = (host: HTMLElement) =>
+		[...host.querySelectorAll<HTMLElement>("button")]
+			.map((button) => button.textContent?.trim())
+			.filter((text) => text === "Run a test" || text === "Turn back on");
+
+	it("tells an owner a skill went to draft after failed runs, with the date, the error and the test first", async () => {
+		authority.role = "owner";
+		const { host } = await mount(
+			<SkillDetailLayout />,
+			seedDraft(
+				[
+					draftRun("run-9", "failed"),
+					draftRun("run-8", "failed"),
+					draftRun("run-7", "failed"),
+					draftRun("run-6", "completed"),
+				],
+				true,
+			),
+		);
+		const notice = draftNotice(host)!;
+		expect(notice.textContent).toContain("Draft after 3 failed runs in a row");
+		expect(notice.textContent).toContain(
+			"Its last 3 runs failed, most recently on Nov 7",
+		);
+		expect(notice.textContent).toContain("Last error: Mailbox token expired");
+		expect(notice.textContent).not.toContain("workflow.ts:4");
+		expect(notice.textContent).toContain(
+			"Its schedule is paused, so no scheduled runs start.",
+		);
+		expect(
+			notice.querySelector('a[href="/work/runs/$runId"]')?.textContent,
+		).toBe("Open the failed run");
+		expect(
+			[...notice.querySelectorAll("ol li")].map((step) => step.textContent),
+		).toEqual([
+			"Open the failed run, see what went wrong and fix it.",
+			"Run a test. Tedix normally turns a skill on only after a test run of this version has passed.",
+			"Turn it back on.",
+			"Open the Schedule tab and turn the schedule back on if it is still paused.",
+		]);
+		// The test comes before turning the skill back on.
+		expect(headerButtons(host)).toEqual(["Run a test", "Turn back on"]);
+	});
+
+	it("starts a test run of the draft from the page and says it is a test", async () => {
+		authority.role = "owner";
+		const { click } = await mount(<SkillDetailLayout />, seedDraft([]));
+		await click("Run a test");
+		const dialog = document.body.querySelector<HTMLElement>('[role="dialog"]')!;
+		expect(dialog.textContent).toContain("Test run of Customer export");
+		expect(dialog.textContent).toContain("Runs revision 3 once as a test");
+		expect(
+			[...dialog.querySelectorAll("button")].map((button) =>
+				button.textContent?.trim(),
+			),
+		).toContain("Run test");
+	});
+
+	it("says a draft that never ran is not turned on yet", async () => {
+		authority.role = "admin";
+		const { host } = await mount(<SkillDetailLayout />, seedDraft([]));
+		const notice = draftNotice(host)!;
+		expect(notice.textContent).toContain("Draft: not turned on yet");
+		expect(notice.textContent).toContain(
+			"A new skill starts as a draft. It has not run yet.",
+		);
+		expect(notice.textContent).not.toContain("Open the failed run");
+	});
+
+	it("tells a member why it is a draft and whom to ask, without owner buttons", async () => {
+		authority.role = "member";
+		const { host } = await mount(
+			<SkillDetailLayout />,
+			seedDraft([draftRun("run-2", "completed")]),
+		);
+		const notice = draftNotice(host)!;
+		expect(notice.textContent).toContain(
+			"Draft: this version is not turned on",
+		);
+		expect(notice.textContent).toContain(
+			"Ask an owner or admin to turn this skill back on.",
+		);
+		expect(headerButtons(host)).toEqual([]);
+	});
+
+	it("claims no cause for a draft whose runs are not loaded, and none for an active skill", async () => {
+		authority.role = "owner";
+		const unloaded = await mount(<SkillDetailLayout />, (client) =>
+			client.setQueryData(q.skillDetailQueryOptions("skill-1").queryKey, {
+				entry: { ...skill.entry, lifecycleState: "draft" },
+			}),
+		);
+		expect(draftNotice(unloaded.host)!.textContent).toContain(
+			"This skill is a draft",
+		);
+		expect(draftNotice(unloaded.host)!.textContent).not.toContain("failed");
+		const active = await mount(<SkillDetailLayout />, (client) =>
+			client.setQueryData(q.skillDetailQueryOptions("skill-1").queryKey, skill),
+		);
+		expect(draftNotice(active.host)).toBeNull();
+	});
+
 	it("keeps the detail frame visible while loading and when a skill is missing", async () => {
 		const loading = await mount(<SkillDetailLayout />, () => {});
 		expect(loading.host.querySelector('[data-slot="skeleton"]')).not.toBeNull();

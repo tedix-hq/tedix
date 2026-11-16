@@ -306,7 +306,13 @@ try {
 			);
 			await page.getByText(/figures shown may be out of date/).waitFor();
 			await page.getByText("Could not refresh runs", { exact: true }).waitFor();
-			assert.equal(await page.getByText("86%", { exact: true }).count(), 1);
+			// With the runs loaded the newest runs lead, and the sampled rate
+			// stays beside them.
+			assert.equal(
+				await page.getByText("Last 5 runs completed", { exact: true }).count(),
+				1,
+			);
+			assert.equal(await page.getByText(/^86% overall: /).count(), 1);
 			assert.equal(
 				await page.locator('[data-slot="table"] tbody tr').count(),
 				5,

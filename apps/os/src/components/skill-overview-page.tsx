@@ -27,6 +27,7 @@ import {
 	skillReliabilityQueryOptions,
 	skillRunsQueryOptions,
 } from "@/lib/os-query-options";
+import { recentRunTrend } from "@/lib/skill-draft-reason";
 import { formatDurationMs } from "@/lib/time";
 
 export function SkillOverviewPage() {
@@ -58,6 +59,7 @@ export function SkillOverviewPage() {
 				}
 				tags={skill.tags ?? []}
 				reliability={reliability}
+				recent={recentRunTrend(runs.data?.runs)}
 				successCount={skill.successCount}
 				failureCount={skill.failureCount}
 			/>
@@ -102,6 +104,20 @@ export function SkillOverviewPage() {
 			</Collapsible>
 		</PageSection>
 	);
+}
+
+/** "Last 5 runs failed", "3 of the last 5 runs completed". */
+function recentRunsLabel(recent: {
+	finished: number;
+	completed: number;
+	failed: number;
+}): string {
+	const { finished, completed, failed } = recent;
+	if (finished === 1)
+		return completed === 1 ? "Last run completed" : "Last run did not complete";
+	if (completed === finished) return `Last ${finished} runs completed`;
+	if (failed === finished) return `Last ${finished} runs failed`;
+	return `${completed} of the last ${finished} runs completed`;
 }
 
 type SkillRunEvidence = {
@@ -167,12 +183,18 @@ export function SkillOverviewSummary({
 	description,
 	tags,
 	reliability,
+	recent,
 	successCount,
 	failureCount,
 }: {
 	description: string | null | undefined;
 	tags: string[];
 	reliability: SkillReliabilityRead;
+	/**
+	 * The newest finished runs. A rate over the whole sample hides a skill
+	 * that used to work and now fails, so the latest runs lead when known.
+	 */
+	recent?: { finished: number; completed: number; failed: number } | null;
 	successCount: number;
 	failureCount: number;
 }) {
@@ -186,6 +208,10 @@ export function SkillOverviewSummary({
 	 */
 	const coldError = reliability.isError && !evidence;
 	const refreshError = reliability.isError && Boolean(evidence);
+	const sampledRate =
+		evidence && evidence.runCount > 0 && evidence.successRate != null
+			? `${Math.round(evidence.successRate * 100)}%`
+			: null;
 	return (
 		<section aria-label="Skill summary" className="grid gap-4">
 			{description || tags.length ? (
@@ -213,9 +239,9 @@ export function SkillOverviewSummary({
 							: reliability.isPending
 								? "Reading…"
 								: evidence && evidence.runCount > 0
-									? evidence.successRate == null
-										? "—"
-										: `${Math.round(evidence.successRate * 100)}%`
+									? recent
+										? recentRunsLabel(recent)
+										: (sampledRate ?? "—")
 									: "No runs yet"
 					}
 					description={
@@ -234,6 +260,7 @@ export function SkillOverviewSummary({
 								<span>
 									{evidence && evidence.runCount > 0 ? (
 										<>
+											{recent && sampledRate ? `${sampledRate} overall: ` : ""}
 											{formatCount(evidence.completedCount)} of{" "}
 											{formatCount(evidence.runCount)} sampled runs completed
 											{evidence.averageDurationMs
