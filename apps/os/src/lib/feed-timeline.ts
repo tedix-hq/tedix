@@ -223,3 +223,104 @@ export function activityDays<T extends ActivityFeedItem>(
 		items: dayItems,
 	}));
 }
+
+export type StalledCauseKind =
+	| "expired"
+	| "failed"
+	| "partial"
+	| "cancelled"
+	| "blocked"
+	| "other";
+
+/** Why a stalled record stopped, read from the record itself. */
+function stalledCauseKind(item: ActivityFeedItem): StalledCauseKind {
+	if (item.kind === "result")
+		return item.resultOutcome && item.resultOutcome !== "succeeded"
+			? item.resultOutcome
+			: "other";
+	if (item.kind !== "work") return "other";
+	const match = /blocked|expired|failed/.exec(item.classId)?.[0];
+	return (match as "blocked" | "expired" | "failed" | undefined) ?? "other";
+}
+
+export interface StalledCause<T extends ActivityFeedItem> {
+	key: string;
+	cause: StalledCauseKind;
+	/** What stalled: the Work Item's title, or the record's own headline. */
+	target: string;
+	/** What the newest record that says anything more reported, if any did. */
+	report: string;
+	/** How often it happened: finished Attempts when known, records otherwise. */
+	times: number;
+	/** Newest first. */
+	items: T[];
+}
+
+const sameText = (text: string) =>
+	text.toLowerCase().replace(/\s+/g, " ").trim();
+
+/**
+ * Stalled records that share one cause read as one row: the same Work Item
+ * stopping the same way, or the same actor posting the same line. Repeats are
+ * counted instead of listed, and the newest cause comes first.
+ */
+export function stalledCauses<T extends ActivityFeedItem>(
+	items: readonly T[],
+): StalledCause<T>[] {
+	const notes = [OS_COPY.feed.workExplanation, OS_COPY.feed.resultExplanation];
+	const endings = [
+		...Object.values(OS_COPY.feed.workEvents as Record<string, string>),
+		OS_COPY.feed.workUpdated,
+	].map((ending) => ` ${ending}.`);
+	const groups = new Map<string, { cause: StalledCauseKind; items: T[] }>();
+	for (const item of [...items].sort(
+		(a, b) => b.at.localeCompare(a.at) || a.id.localeCompare(b.id),
+	)) {
+		const cause = stalledCauseKind(item);
+		const key = `stalled:${
+			item.workItemId ??
+			`${item.actor}|${sameText(activityHeadline(item).headline)}`
+		}:${cause}`;
+		const group = groups.get(key) ?? { cause, items: [] };
+		group.items.push(item);
+		groups.set(key, group);
+	}
+	return [...groups].map(([key, group]) => {
+		const stories = group.items.map((item) => ({
+			item,
+			...activityHeadline(item, notes),
+		}));
+		// A Work event's line is "<title> <what happened>."; the title is the target.
+		const fromEvent = stories
+			.map(({ item, headline }) => {
+				const ending =
+					item.kind === "work"
+						? endings.find((e) => headline.endsWith(e))
+						: undefined;
+				return ending ? headline.slice(0, -ending.length) : "";
+			})
+			.find(Boolean);
+		const target =
+			group.items.find((item) => item.attachment?.title)?.attachment?.title ??
+			(fromEvent || stories[0]!.headline);
+		const says = (text: string | undefined) =>
+			text && !sameText(text).startsWith(sameText(target)) ? text : "";
+		const report =
+			stories
+				.map(
+					({ item, headline, detail }) =>
+						says(item.attachment?.summary) || says(headline) || says(detail),
+				)
+				.find(Boolean) ?? "";
+		return {
+			key,
+			cause: group.cause,
+			target,
+			report,
+			times:
+				group.items.filter((item) => item.kind === "result").length ||
+				group.items.length,
+			items: group.items,
+		};
+	});
+}

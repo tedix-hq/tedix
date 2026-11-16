@@ -623,6 +623,38 @@ const ENGLISH_COPY = {
 			stalled: "Stalled work",
 			noFinished: "No finished work matches these filters.",
 			noStalled: "No stalled work matches these filters.",
+			stalledCauses: {
+				expired: {
+					label: "Paused",
+					why: "The Attempt stopped reporting before it delivered a result.",
+				},
+				failed: {
+					label: "Didn't finish",
+					why: "The Attempt ended with a failure.",
+				},
+				partial: {
+					label: "Partly done",
+					why: "The Attempt delivered part of the work and left the rest.",
+				},
+				cancelled: {
+					label: "Stopped",
+					why: "The Attempt was cancelled before it finished.",
+				},
+				blocked: {
+					label: "Blocked",
+					why: "Something is blocking this Work.",
+				},
+				other: { label: "Stalled", why: "" },
+			},
+			stalledList: "Stalled work, one row per cause",
+			stalledRow: (target: string, label: string, times: number) =>
+				`${target}: ${label}${times > 1 ? `, ${times} times` : ""}`,
+			stalledTimes: (times: number) => `${times} times`,
+			stalledLastReport: (report: string) => `Last report: ${report}`,
+			stalledOpenWork: "Open Work Item",
+			stalledOpenSource: "Open",
+			stalledShow: (count: number) => `Show all ${count} records`,
+			stalledHide: "Hide the records",
 			region: "Activity",
 			opening: "Opening your activity…",
 			preferences: "Activity preferences",

@@ -213,6 +213,33 @@
 .focus-feed .ft-group .ft-byline {
 	flex-wrap: nowrap;
 }
+/* A stalled cause: the chip, then the reason in full, then where to act. */
+.focus-feed .ft-stalled-why {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	gap: 0.25rem 0.5rem;
+	min-width: 0;
+}
+.focus-feed .ft-stalled-why > :first-child {
+	flex: none;
+}
+.focus-feed .ft-stalled-why p {
+	margin: 0;
+	min-width: 0;
+	font-size: 0.875rem;
+	line-height: 1.5;
+	color: var(--muted-foreground);
+	overflow-wrap: anywhere;
+}
+.focus-feed .ft-stalled-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.25rem 0.75rem;
+	min-width: 0;
+	font-size: 0.875rem;
+}
 .focus-receipt {
 	border-left: 2px solid var(--border);
 	padding-left: 0.75rem;
