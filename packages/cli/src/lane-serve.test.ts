@@ -5922,9 +5922,8 @@ it("saves the files of a checkout that lost its Git registration before deleting
 			(reason) => reasons.push(reason),
 		),
 	).toBe(false);
-	expect(reasons[0]).toStartWith(
-		"git cannot read the checkout: fatal: not a git repository",
-	);
+	// Git's wording for a lost registration differs between versions.
+	expect(reasons[0]).toStartWith("git cannot read the checkout: fatal: ");
 	expect(await cleanupLaneWorktree(repo, destination, () => false, true)).toBe(
 		true,
 	);
