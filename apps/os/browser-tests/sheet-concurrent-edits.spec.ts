@@ -44,9 +44,15 @@ try {
 	const at = (tab: Tab, row: number, column: number) =>
 		tab.frame.locator(`td[data-row="${row}"][data-column="${column}"]`);
 	const type = async (tab: Tab, row: number, column: number, value: string) => {
-		await at(tab, row, column).click();
-		await tab.page.keyboard.type(value);
-		await tab.page.keyboard.press("Enter");
+		await tab.frame
+			.locator('.status:not([data-state="loading"])')
+			.waitFor({ timeout: 15_000 });
+		const target = at(tab, row, column);
+		await target.dblclick();
+		const input = target.locator(".cell-edit");
+		await input.fill(value);
+		await input.press("Enter");
+		await target.getByText(value, { exact: true }).waitFor();
 	};
 	const shows = (tab: Tab, row: number, column: number, value: string) =>
 		at(tab, row, column)
@@ -156,7 +162,14 @@ try {
 		await type(b, at - 2, 1, "Far B");
 		await type(b, 2, 4, `Wide B ${at}`);
 		if (fail) await shows(a, at - 2, 1, "Far B");
-		else await a.page.waitForTimeout(1_500);
+		else {
+			const bSaved = Array.from({ length: at - 1 }, (_, row) =>
+				Array.from({ length: 5 }, (_, column) => expected[row]?.[column] ?? ""),
+			);
+			bSaved[at - 2]![1] = "Far B";
+			bSaved[2]![4] = `Wide B ${at}`;
+			await settle(bSaved, "B saved before A's held save was released");
+		}
 		assert.equal(await question(a).count(), 0, "A was not asked");
 		release();
 		const grown = Array.from({ length: at + 1 }, (_, row) =>
