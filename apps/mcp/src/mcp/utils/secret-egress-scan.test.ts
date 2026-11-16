@@ -284,4 +284,45 @@ describe("findSecretValuePattern", () => {
 			"long opaque token",
 		);
 	});
+
+	describe("snake_case word slugs", () => {
+		const COPY_KEY =
+			"ui_invoice_ocr_latency_spiked_2_9_on_jun_7_consider_adding_a_re";
+
+		it("lets a lowercase copy-key slug through as a value or an object key", () => {
+			expect(findSecretValuePattern({ key: COPY_KEY })).toBeNull();
+			expect(
+				findSecretValuePattern({ blocks: [{ copy: { [COPY_KEY]: "Hi" } }] }),
+			).toBeNull();
+		});
+
+		it("still blocks random 40+ char tokens, including ones with a few underscores", () => {
+			for (const token of [
+				OPAQUE_KEY,
+				"a8f3k29dj4h5_l6m7n8b9v0c1_x2z3q4w5e6r7t8y9",
+				"Ab3d_Ef6h_Ij9l_Mn2p_Qr5t_Uv8x_Yz1b_Cd4f_Gh7j",
+				"a8f3_k29d_j4h5_l6m7_n8b9_v0c1_x2z3_q4w5_e6r7",
+				"abcdefghijklmnop0123_qrstuv_wxyz_ab_cd_ef_gh",
+			]) {
+				expect(findSecretValuePattern({ value: token })).toBe(
+					"long opaque token",
+				);
+				expect(findSecretValuePattern({ [token]: "x" })).toBe(
+					"long opaque token",
+				);
+			}
+		});
+
+		it("still blocks provider-prefixed keys shaped like snake_case", () => {
+			expect(findSecretValuePattern({ [STRIPE_KEY]: "x" })).toBe(
+				"prefixed API key",
+			);
+			expect(findSecretValuePattern({ [`${STRIPE_KEY}_a_b_c`]: "x" })).toBe(
+				"prefixed API key",
+			);
+			expect(findSecretValuePattern({ value: `${GITHUB_TOKEN}_a_b_c` })).toBe(
+				"GitHub token",
+			);
+		});
+	});
 });
