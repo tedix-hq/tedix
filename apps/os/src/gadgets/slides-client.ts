@@ -110,6 +110,8 @@ type FieldOptions = {
 const EAGER_THUMBNAILS = 40;
 /** How long after choosing a slide the editor leaves the person there. */
 const FOLLOW_AFTER_NAV_MS = 2_500;
+/** Points one bullet list holds, as the editor adds them. */
+const MAX_BULLETS = 6;
 /** What `chooseImage` targets to set the deck logo rather than an element. */
 const DECK_LOGO = "deck-logo";
 /**
@@ -264,14 +266,14 @@ export async function mountSlidesClient(
 				)
 				.join(""),
 	).join("<hr>")}</div></span></div>
-<div class="slides-bar-right"><span class="slides-save" role="img" hidden></span><div class="slides-status" role="status" aria-live="polite"></div><span class="slides-zoom" role="group" aria-label="Zoom"><button id="zoom-out" class="ghost" title="Zoom out (${keys("−")})" aria-label="Zoom out">−</button><button id="zoom-fit" class="ghost" title="Fit (${keys("0")})" aria-label="Zoom to fit">Fit</button><button id="zoom-in" class="ghost" title="Zoom in (${keys("+")})" aria-label="Zoom in">+</button></span><button id="mode" class="ghost" title="Edit (E)" aria-pressed="false" hidden>Edit</button><button id="format" class="ghost" title="Format (Enter)" aria-expanded="false" aria-controls="slides-inspector">${glyph(GLYPHS.format)} Format</button><button id="present" class="ghost primary">${icon("play")} Present</button><span class="slides-menu-anchor">${tool("more", "More", glyph(GLYPHS.more), "", 'aria-haspopup="menu" aria-expanded="false"')}<div class="slides-menu end" id="more-menu" role="menu" aria-label="More" hidden>${EXPORTS.map(
+<div class="slides-bar-right"><span class="slides-save" role="img" hidden></span><div class="slides-status" role="status" aria-live="polite"></div><span class="slides-counter" role="group" aria-label="Slide position"><button id="slide-previous" class="ghost" aria-label="Previous slide" title="Previous slide (←)">${glyph(GLYPHS.previous)}</button><span class="slides-menu-anchor"><button id="slide-count" class="ghost" aria-haspopup="menu" aria-expanded="false" title="Go to slide">1 / 1</button><div class="slides-menu" id="goto-menu" role="menu" aria-label="Go to slide" hidden></div></span><button id="slide-next" class="ghost" aria-label="Next slide" title="Next slide (→)">${glyph(GLYPHS.next)}</button></span><span class="slides-zoom" role="group" aria-label="Zoom"><button id="zoom-out" class="ghost" title="Zoom out (${keys("−")})" aria-label="Zoom out">−</button><button id="zoom-fit" class="ghost" title="Fit (${keys("0")})" aria-label="Zoom to fit">Fit</button><button id="zoom-in" class="ghost" title="Zoom in (${keys("+")})" aria-label="Zoom in">+</button></span><button id="mode" class="ghost" title="Edit (E)" aria-pressed="false" hidden>Edit</button><button id="format" class="ghost" title="Format (Enter)" aria-expanded="false" aria-controls="slides-inspector">${glyph(GLYPHS.format)} Format</button><button id="present" class="ghost primary">${icon("play")} Present</button><span class="slides-menu-anchor">${tool("more", "More", glyph(GLYPHS.more), "", 'aria-haspopup="menu" aria-expanded="false"')}<div class="slides-menu end" id="more-menu" role="menu" aria-label="More" hidden>${EXPORTS.map(
 		([format, name]) =>
 			`<button role="menuitem" data-export="${format}">Download as ${name}</button>`,
 	).join(
 		"",
 	)}<hr><button role="menuitem" id="toggle-rail">Hide slide list</button><button role="menuitem" id="show-shortcuts">Keyboard shortcuts</button></div></span></div></header>
 <div class="slides-updates" role="status" aria-live="polite"></div>
-<div class="slides-layout"><aside class="slides-rail"><nav aria-label="Slides"><div class="slides-skeleton"></div><div class="slides-skeleton"></div><div class="slides-skeleton"></div></nav></aside>
+<div class="slides-layout"><aside class="slides-rail"><div class="slides-rail-search"><input type="search" id="slide-search" placeholder="Search slides" aria-label="Search slides" autocomplete="off"><span id="slide-matches" class="slides-sr" role="status" aria-live="polite"></span></div><nav aria-label="Slides"><div class="slides-skeleton"></div><div class="slides-skeleton"></div><div class="slides-skeleton"></div></nav></aside>
 <section class="slides-workspace"><div class="slides-canvas"><div class="slides-stage" tabindex="0" aria-label="Slide canvas" aria-describedby="slides-help"></div></div><p class="slides-sr" id="slides-help">Select an element to move or resize it. Double-click text to write. Arrow keys move the selected element; Shift moves by 10 pixels. Press Enter to format the selected element. Drop or paste an image onto the canvas.</p><label class="slides-notes"><span class="slides-sr">Speaker notes</span><textarea id="notes" maxlength="${OS_SLIDE_MAX_TEXT_CHARS}" placeholder="Speaker notes"></textarea></label></section>
 <aside class="slides-inspector" id="slides-inspector" aria-label="Slide and element properties" data-open="false"><div class="slides-inspector-body"><div id="properties"></div><h2>Layers</h2><div id="layers"></div></div></aside></div>
 <input type="file" id="image-file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" hidden>
@@ -317,6 +319,25 @@ export async function mountSlidesClient(
 		updates = find(".slides-updates");
 	const guides = document.createElement("div");
 	guides.className = "slides-guides";
+	const slideSearch = find<HTMLInputElement>("#slide-search"),
+		slideMatches = find("#slide-matches"),
+		gotoMenu = find("#goto-menu");
+	slideSearch.oninput = () => filterRail();
+	slideSearch.onkeydown = (event) => {
+		event.stopPropagation();
+		if (event.key === "Escape" && slideSearch.value) {
+			event.preventDefault();
+			slideSearch.value = "";
+			filterRail();
+		} else if (event.key === "Enter") {
+			// Enter opens the first matching slide.
+			event.preventDefault();
+			const first = (deck?.slides ?? []).findIndex(
+				(slide) => !thumbs.get(slide.id)?.item.hidden,
+			);
+			if (first >= 0) selectSlide(first, true);
+		}
+	};
 	// Quick actions that float above the selection.
 	const selbar = document.createElement("div");
 	selbar.className = "slides-selbar";
@@ -925,7 +946,9 @@ export async function mountSlidesClient(
 		if (index < 0) return;
 		const current = active()?.id;
 		mutate(() => {
-			const slides = deck!.slides.filter((slide) => slide.id !== id);
+			let slides = deck!.slides.filter((slide) => slide.id !== id);
+			// A deck always keeps one slide: the last one gives way to a blank cover.
+			if (!slides.length) slides = [newCanvasSlide("title")];
 			if (current === id) {
 				viewedId = slides[Math.min(index, slides.length - 1)]?.id;
 				selectOnly();
@@ -1187,7 +1210,14 @@ export async function mountSlidesClient(
 			} else if (by) selectSlide(index() + by, true);
 			else if (event.key === "Home") selectSlide(0, true);
 			else if (event.key === "End") selectSlide(last, true);
-			else if (event.key === "Delete" || event.key === "Backspace") {
+			else if (
+				(event.metaKey || event.ctrlKey) &&
+				event.key.toLowerCase() === "d"
+			) {
+				duplicateSlide(id);
+				const copy = deck?.slides[index() + 1];
+				if (copy) thumbs.get(copy.id)?.select.focus();
+			} else if (event.key === "Delete" || event.key === "Backspace") {
 				const at = index();
 				deleteSlide(id);
 				const next = deck?.slides[Math.min(at, deck.slides.length - 1)];
@@ -1327,6 +1357,40 @@ export async function mountSlidesClient(
 			if (current)
 				thumbs.get(current)?.item.scrollIntoView?.({ block: "nearest" });
 		}
+		filterRail();
+	}
+	/** All the words a slide shows or holds, for searching the slide list. */
+	function slideWords(slide: OsPresentationCanvasSlide) {
+		return [
+			slide.name,
+			slide.notes ?? "",
+			...slide.elements.flatMap((element) => [
+				element.text ?? "",
+				element.props?.eyebrow ?? "",
+				element.props?.title ?? "",
+				element.props?.body ?? "",
+			]),
+		]
+			.join("\n")
+			.toLowerCase();
+	}
+	/** Show only the slides that match the search; reordering waits until it is cleared. */
+	function filterRail() {
+		const query = slideSearch.value.trim().toLowerCase();
+		let found = 0;
+		for (const slide of deck?.slides ?? []) {
+			const entry = thumbs.get(slide.id);
+			if (!entry) continue;
+			const match = !query || slideWords(slide).includes(query);
+			if (match) found++;
+			entry.item.hidden = !match;
+			entry.item.draggable = canWrite() && !query;
+		}
+		const text = query
+			? `${found} of ${deck?.slides.length ?? 0} slides match`
+			: "";
+		if (slideMatches.textContent !== text) slideMatches.textContent = text;
+		main.toggleAttribute("data-searching", !!query);
 	}
 	function field(
 		parent: HTMLElement,
@@ -2079,6 +2143,13 @@ export async function mountSlidesClient(
 		const write = canWrite(),
 			slide = active();
 		markSave();
+		const count = deck?.slides.length ?? 0,
+			at = slide ? deck!.slides.indexOf(slide) : -1;
+		const position = count ? `${at + 1} / ${count}` : "0 / 0";
+		if (button("slide-count").textContent !== position)
+			button("slide-count").textContent = position;
+		button("slide-previous").disabled = at <= 0;
+		button("slide-next").disabled = at < 0 || at >= count - 1;
 		button("undo").disabled = !write || !history.length;
 		button("redo").disabled = !write || !future.length;
 		button("add-slide").disabled = button("layouts").disabled =
@@ -2640,6 +2711,18 @@ export async function mountSlidesClient(
 				event.preventDefault();
 				void flush(true);
 			} else if (
+				element.type === "bullet" &&
+				event.key === "Enter" &&
+				!command &&
+				!event.shiftKey &&
+				!event.isComposing &&
+				input.value.split("\n").filter((line) => line.trim()).length >=
+					MAX_BULLETS
+			) {
+				// A list stays short enough to read from across the room.
+				event.preventDefault();
+				message(`A list holds up to ${MAX_BULLETS} points.`, false, 3000);
+			} else if (
 				event.key === "Escape" ||
 				(event.key === "Enter" &&
 					!event.isComposing &&
@@ -3163,6 +3246,25 @@ export async function mountSlidesClient(
 	menu(button("more"), find("#more-menu"));
 	menu(button("align"), find("#align-menu"));
 	menu(button("layouts"), find("#layout-menu"));
+	// Go to slide: the counter opens a list of every slide by number and title.
+	menu(button("slide-count"), gotoMenu);
+	const openGoto = button("slide-count").onclick!;
+	button("slide-count").onclick = (event) => {
+		if (gotoMenu.hidden)
+			gotoMenu.replaceChildren(
+				...(deck?.slides ?? []).map((slide, index) => {
+					const item = document.createElement("button");
+					item.setAttribute("role", "menuitem");
+					item.textContent = `${index + 1}. ${thumbs.get(slide.id)?.caption.textContent || slide.name}`;
+					if (slide === active()) item.setAttribute("aria-current", "true");
+					item.onclick = () => selectSlide(index);
+					return item;
+				}),
+			);
+		openGoto.call(button("slide-count"), event);
+	};
+	button("slide-previous").onclick = () => step(-1);
+	button("slide-next").onclick = () => step(1);
 	function toggleRail() {
 		const hide = main.dataset.rail !== "hidden";
 		if (hide) main.dataset.rail = "hidden";

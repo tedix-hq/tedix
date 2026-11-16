@@ -99,7 +99,12 @@ for (const phone of [
 				!document.querySelector("[data-app-runtime-frame][data-presenting]"),
 		);
 		assert.equal(page.url(), url, `${label}: Back stays on the editor`);
-		assert.equal((await coversScreen()).covered, false);
+		// The full-screen frame lets go of the screen as the show closes.
+		for (const deadline = Date.now() + 5_000; ;) {
+			if (!(await coversScreen()).covered) break;
+			assert.ok(Date.now() < deadline, `${label}: the editor is back in place`);
+			await page.waitForTimeout(100);
+		}
 		await frame.locator(".slides-stage .slides-element").first().waitFor();
 		if (shots) await page.screenshot({ path: `${shots}/${label}-back.png` });
 
