@@ -45,6 +45,8 @@ const tabs = await startEditorTabs({
 });
 try {
 	const viewer = await tabs.open();
+	// A presentation opens for viewing; the watcher edits with it.
+	await viewer.frame.locator("#mode").click();
 	let savedBy = "tedi";
 	await viewer.page.route(
 		"**/api/rpc/osWorkspaces/outputs/changes*",

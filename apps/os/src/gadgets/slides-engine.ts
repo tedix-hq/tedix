@@ -15,15 +15,130 @@ import {
 export { normalizePresentationContent, projectDeck };
 export type { PresentationContent };
 
-export function newCanvasSlide(): OsPresentationCanvasSlide {
-	const title = createElement("title", 0);
-	title.text = "Untitled slide";
+export type NewSlideLayout =
+	| "title"
+	| "title-content"
+	| "two-column"
+	| "four-card";
+
+/** What the New slide menu offers, in order; the first is the button's default. */
+export const NEW_SLIDE_LAYOUTS: Array<[NewSlideLayout, string]> = [
+	["title-content", "Narrative"],
+	["title", "Title"],
+	["two-column", "Two columns"],
+	["four-card", "Four columns"],
+];
+
+function block(
+	type: OsPresentationElementType,
+	box: Pick<OsPresentationElement, "x" | "y" | "width" | "height">,
+	text: string,
+	style: OsPresentationElement["style"],
+): OsPresentationElement {
+	return { ...createElement(type, 0), ...box, text, style };
+}
+const heading = (text: string) =>
+	block("title", { x: 35, y: 76, width: 984, height: 80 }, text, {
+		fontSize: 28,
+		fontWeight: "semibold",
+		color: "#000000",
+		lineHeight: 1.2,
+		letterSpacing: -0.8,
+	});
+const body = (
+	box: Pick<OsPresentationElement, "x" | "y" | "width" | "height">,
+	text: string,
+	size = 19,
+	weight?: "semibold",
+) =>
+	block("text", box, text, {
+		fontSize: size,
+		color: "#000000",
+		lineHeight: weight ? 1.3 : 1.6,
+		...(weight ? { fontWeight: weight } : {}),
+	});
+
+/** A new slide built from one of the layouts, with placeholder text to replace. */
+export function newCanvasSlide(
+	layout: NewSlideLayout = "title-content",
+): OsPresentationCanvasSlide {
+	const section = block(
+		"label",
+		{ x: 36, y: 35, width: 160, height: 28 },
+		"SECTION",
+		{
+			fontSize: 10,
+			fontWeight: "semibold",
+			color: "#525252",
+			letterSpacing: 1,
+		},
+	);
+	const elements: OsPresentationElement[] =
+		layout === "title"
+			? [
+					block("title", { x: 33, y: 245, width: 760, height: 140 }, "Title", {
+						fontSize: 58,
+						fontWeight: "bold",
+						color: "#171717",
+						lineHeight: 1.1,
+						letterSpacing: -1.7,
+					}),
+				]
+			: layout === "two-column"
+				? [
+						section,
+						heading("Compare two options side by side"),
+						...[36, 609].flatMap((x) => [
+							body(
+								{ x, y: 204, width: 553, height: 32 },
+								"Column heading",
+								18,
+								"semibold",
+							),
+							body(
+								{ x, y: 252, width: 553, height: 160 },
+								"Add concise supporting copy. Keep both columns parallel in structure and similar in length.",
+							),
+						]),
+					]
+				: layout === "four-card"
+					? [
+							section,
+							heading("Four points worth remembering"),
+							...[34, 328, 622, 916].flatMap((x, index) => [
+								body(
+									{ x, y: 194, width: 250, height: 40 },
+									String(index + 1).padStart(2, "0"),
+									28,
+									"semibold",
+								),
+								body(
+									{ x, y: 252, width: 250, height: 32 },
+									"Point heading",
+									18,
+									"semibold",
+								),
+								body(
+									{ x, y: 296, width: 250, height: 200 },
+									"One or two sentences that explain this point.",
+									17,
+								),
+							]),
+						]
+					: [
+							section,
+							heading("Write the headline as a specific assertion"),
+							body(
+								{ x: 36, y: 204, width: 760, height: 200 },
+								"Replace this with one or two short paragraphs of supporting evidence. Keep body copy to roughly 40–60 words and leave generous white space on the right.",
+							),
+						];
 	return {
 		id: `slide-${crypto.randomUUID()}`,
-		name: "Untitled slide",
-		layout: "title",
+		name: layout === "title" ? "Title" : "Untitled slide",
+		layout,
 		background: "#ffffff",
-		elements: [title],
+		elements,
 	};
 }
 

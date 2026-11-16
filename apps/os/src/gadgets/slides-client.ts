@@ -8,6 +8,8 @@ import {
 	slideElementStyle,
 	slideThemeFontFamily,
 	slideTone,
+	slideArrowEndpoints,
+	slideElementBox,
 	type PresentationAppearance,
 } from "@tedix/api-contract/utils/presentation-style";
 import {
@@ -51,6 +53,8 @@ import {
 import {
 	duplicateCanvasSlide,
 	newCanvasSlide,
+	NEW_SLIDE_LAYOUTS,
+	type NewSlideLayout,
 	newSlideElement,
 	normalizePresentationContent,
 	projectDeck,
@@ -83,6 +87,8 @@ type Context = {
 	appearance?: PresentationAppearance;
 };
 type Handle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
+/** The ends of an arrow, which drag on their own. */
+type Grip = Handle | "from" | "to";
 type FieldOptions = {
 	type?: string;
 	min?: number;
@@ -119,6 +125,9 @@ const SAVE_IDLE_MS = 220,
 	MIN_HEIGHT = 24,
 	EASE = "cubic-bezier(0.2,0.8,0.2,1)";
 
+/** Zoom levels ⌘+ and ⌘− step through, as on-screen pixels per slide pixel. */
+const ZOOM_STEPS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
+const MAX_ZOOM = 4;
 /** Font sizes ⌘⇧. and ⌘⇧, step through. */
 const TYPE_SCALE = [
 	10, 12, 14, 16, 17, 19, 22, 24, 28, 32, 36, 42, 48, 58, 64, 72, 84, 96, 120,
@@ -181,6 +190,7 @@ const GLYPHS = {
 	more: "M3.5 8h.01M8 8h.01M12.5 8h.01",
 	format: "M2.5 5h5M11 5h2.5M2.5 11H5M8.5 11h5M9 3.5v3M6.5 9.5v3",
 	addSlide: "M2.5 3.5h11v9h-11zM8 6v4M6 8h4",
+	caret: "M5 6.5 8 9.5l3-3",
 	insert: "M6.5 3v7M3 6.5h7M12 11l1.5 1.5L15 11",
 	previous: "M10 3.5 5.5 8l4.5 4.5",
 	next: "M6 3.5 10.5 8 6 12.5",
@@ -220,7 +230,12 @@ export async function mountSlidesClient(
 	document.head.append(style);
 	root.innerHTML = `<main class="slides-app" aria-label="Slides gadget" data-loading>
 <header class="slides-bar"><div class="slides-bar-left"><h1>Slides</h1></div>
-<div class="slides-bar-tools" role="toolbar" aria-label="Slide tools">${tool("undo", "Undo", icon("undo"), keys("Z"))}${tool("redo", "Redo", icon("redo"), keys("Z", true))}${divider}${tool("add-slide", "Add slide", glyph(GLYPHS.addSlide))}<span class="slides-menu-anchor">${tool("insert", "Insert", glyph(GLYPHS.insert), "", 'aria-haspopup="menu" aria-expanded="false"')}<div class="slides-menu" id="insert-menu" role="menu" aria-label="Insert" hidden><input type="search" class="slides-menu-search" placeholder="Search elements" aria-label="Search elements" autocomplete="off">${INSERT_GROUPS.map(
+<div class="slides-bar-tools" role="toolbar" aria-label="Slide tools">${tool("undo", "Undo", icon("undo"), keys("Z"))}${tool("redo", "Redo", icon("redo"), keys("Z", true))}${divider}${tool("add-slide", "New slide", glyph(GLYPHS.addSlide))}<span class="slides-menu-anchor">${tool("layouts", "New slide layout", glyph(GLYPHS.caret), "", 'aria-haspopup="menu" aria-expanded="false"')}<div class="slides-menu" id="layout-menu" role="menu" aria-label="New slide layout" hidden>${NEW_SLIDE_LAYOUTS.map(
+		([layout, name]) =>
+			`<button role="menuitem" data-layout="${layout}">${name}</button>`,
+	).join(
+		"",
+	)}</div></span><span class="slides-menu-anchor">${tool("insert", "Insert", glyph(GLYPHS.insert), "", 'aria-haspopup="menu" aria-expanded="false"')}<div class="slides-menu" id="insert-menu" role="menu" aria-label="Insert" hidden><input type="search" class="slides-menu-search" placeholder="Search elements" aria-label="Search elements" autocomplete="off">${INSERT_GROUPS.map(
 		(group) =>
 			group
 				.map(
@@ -239,7 +254,7 @@ export async function mountSlidesClient(
 				)
 				.join(""),
 	).join("<hr>")}</div></span></div>
-<div class="slides-bar-right"><span class="slides-save" role="img" hidden></span><div class="slides-status" role="status" aria-live="polite"></div><button id="format" class="ghost" title="Format (Enter)" aria-expanded="false" aria-controls="slides-inspector">${glyph(GLYPHS.format)} Format</button><button id="present" class="ghost primary">${icon("play")} Present</button><span class="slides-menu-anchor">${tool("more", "More", glyph(GLYPHS.more), "", 'aria-haspopup="menu" aria-expanded="false"')}<div class="slides-menu end" id="more-menu" role="menu" aria-label="More" hidden>${EXPORTS.map(
+<div class="slides-bar-right"><span class="slides-save" role="img" hidden></span><div class="slides-status" role="status" aria-live="polite"></div><span class="slides-zoom" role="group" aria-label="Zoom"><button id="zoom-out" class="ghost" title="Zoom out (${keys("−")})" aria-label="Zoom out">−</button><button id="zoom-fit" class="ghost" title="Fit (${keys("0")})" aria-label="Zoom to fit">Fit</button><button id="zoom-in" class="ghost" title="Zoom in (${keys("+")})" aria-label="Zoom in">+</button></span><button id="mode" class="ghost" title="Edit (E)" aria-pressed="false" hidden>Edit</button><button id="format" class="ghost" title="Format (Enter)" aria-expanded="false" aria-controls="slides-inspector">${glyph(GLYPHS.format)} Format</button><button id="present" class="ghost primary">${icon("play")} Present</button><span class="slides-menu-anchor">${tool("more", "More", glyph(GLYPHS.more), "", 'aria-haspopup="menu" aria-expanded="false"')}<div class="slides-menu end" id="more-menu" role="menu" aria-label="More" hidden>${EXPORTS.map(
 		([format, name]) =>
 			`<button role="menuitem" data-export="${format}">Download as ${name}</button>`,
 	).join(
@@ -292,6 +307,14 @@ export async function mountSlidesClient(
 		updates = find(".slides-updates");
 	const guides = document.createElement("div");
 	guides.className = "slides-guides";
+	// Quick actions that float above the selection.
+	const selbar = document.createElement("div");
+	selbar.className = "slides-selbar";
+	selbar.setAttribute("role", "toolbar");
+	selbar.setAttribute("aria-label", "Selection actions");
+	selbar.hidden = true;
+	selbar.addEventListener("pointerdown", (event) => event.stopPropagation());
+	selbar.addEventListener("dblclick", (event) => event.stopPropagation());
 	const context = await bridge.call<Context>("context");
 	const slot = context.settings?.slot;
 	if (!slot || !context.workspaceId)
@@ -336,6 +359,9 @@ export async function mountSlidesClient(
 	// Someone who can only look gets no editing tools, and a link visitor is
 	// not offered what their page cannot do.
 	find(".slides-bar-tools").hidden = find("#format").hidden = !editable;
+	button("mode").hidden = !editable;
+	// A presentation opens for viewing; E or Edit switches to editing.
+	let editMode = false;
 	find("#upload").hidden = visitor;
 	for (const item of root.querySelectorAll<HTMLElement>("[data-export]"))
 		item.hidden = visitor && item.dataset.export !== "outline";
@@ -391,7 +417,7 @@ export async function mountSlidesClient(
 				x: number;
 				y: number;
 				box: DOMRect;
-				handle: Handle | null;
+				handle: Grip | null;
 				moving: Array<{
 					node: HTMLElement;
 					original: OsPresentationElement;
@@ -400,10 +426,14 @@ export async function mountSlidesClient(
 				moved: boolean;
 				// A plain click on one element of several selects only that one.
 				collapse?: string;
+				// A click on the one selected text element starts writing in it.
+				write?: string;
 				targets?: SnapTargets;
 				marquee?: { node: HTMLElement; base: Set<string> };
 		  }
 		| undefined;
+	/** On-screen pixels per slide pixel, or undefined to fit the slide. */
+	let zoom: number | undefined;
 	let editing: HTMLTextAreaElement | undefined, editingId: string | undefined;
 	let inspectorOpen = false,
 		advancedOpen = false,
@@ -526,7 +556,7 @@ export async function mountSlidesClient(
 						: "All changes saved";
 		saveMark.setAttribute("aria-label", saveMark.title);
 	}
-	const canWrite = () => !!editable && available && !loading;
+	const canWrite = () => !!editable && editMode && available && !loading;
 	const active = () =>
 		deck?.slides.find((slide) => slide.id === viewedId) ??
 		deck?.slides.find((slide) => slide.id === deck?.activeSlideId) ??
@@ -859,9 +889,9 @@ export async function mountSlidesClient(
 			lastNav = Date.now();
 		});
 	}
-	function addSlide() {
+	function addSlide(layout?: NewSlideLayout) {
 		if ((deck?.slides.length ?? 0) < OS_DECK_MAX_SLIDES)
-			placeSlide(newCanvasSlide(), active()?.id);
+			placeSlide(newCanvasSlide(layout), active()?.id);
 	}
 	function duplicateSlide(id: string) {
 		const slide = deck?.slides.find((row) => row.id === id);
@@ -982,15 +1012,30 @@ export async function mountSlidesClient(
 		};
 		return node;
 	}
-	function addHandles(node: HTMLElement, id: string) {
-		for (const handle of HANDLES) {
+	function addHandles(node: HTMLElement, element: OsPresentationElement) {
+		// An arrow is moved by its two ends; everything else by its box.
+		const arrow = element.type === "arrow";
+		const ends = arrow ? slideArrowEndpoints(element) : undefined;
+		const box = arrow ? slideElementBox(element) : element;
+		for (const handle of arrow ? (["from", "to"] as const) : HANDLES) {
 			const grip = document.createElement("button");
 			grip.className = "slides-resize";
 			grip.dataset.handle = handle;
 			grip.tabIndex = -1;
-			grip.setAttribute("aria-label", "Resize element");
+			grip.setAttribute(
+				"aria-label",
+				handle === "from"
+					? "Move arrow start"
+					: handle === "to"
+						? "Move arrow end"
+						: "Resize element",
+			);
+			if (ends && (handle === "from" || handle === "to")) {
+				grip.style.left = `${((ends[handle].x - box.x) / box.width) * 100}%`;
+				grip.style.top = `${((ends[handle].y - box.y) / box.height) * 100}%`;
+			}
 			grip.disabled = !canWrite();
-			grip.onpointerdown = (event) => beginPointer(event, id, handle);
+			grip.onpointerdown = (event) => beginPointer(event, element.id, handle);
 			node.append(grip);
 		}
 	}
@@ -1018,7 +1063,7 @@ export async function mountSlidesClient(
 		if (!stageBackground) {
 			stageBackground = document.createElement("div");
 			stageBackground.className = "slides-background";
-			stage.append(stageBackground, guides);
+			stage.append(stageBackground, guides, selbar);
 		}
 		if (stageSlide !== slide)
 			linked.background(stageBackground, slide, context.appearance);
@@ -1049,7 +1094,7 @@ export async function mountSlidesClient(
 			node.classList.toggle("selected", chosen);
 			node.setAttribute("aria-pressed", String(chosen));
 			const grips = node.querySelector(":scope > .slides-resize");
-			if (resizable && !grips) addHandles(node, element.id);
+			if (resizable && !grips) addHandles(node, element);
 			else if (!resizable && grips)
 				node
 					.querySelectorAll(":scope > .slides-resize")
@@ -1068,7 +1113,7 @@ export async function mountSlidesClient(
 		const item = document.createElement("div");
 		item.className = "slides-thumb";
 		item.dataset.slideId = id;
-		item.draggable = !!editable;
+		item.draggable = canWrite();
 		const number = document.createElement("span");
 		number.className = "slides-thumb-number";
 		number.setAttribute("aria-hidden", "true");
@@ -1559,13 +1604,18 @@ export async function mountSlidesClient(
 					})),
 				choices ? { choices, wide: true } : { wide: true },
 			);
-		field(
-			basics,
-			"Text",
-			() => selected()?.text ?? "",
-			(value) => edit((current) => ({ ...current, text: value })),
-			{ multiline: true },
-		);
+		// Each type shows only the fields that change how it looks.
+		const textual = !NO_TEXT.includes(type);
+		const lettered = textual || type === "logo";
+		const framed = type !== "arrow" && type !== "divider";
+		if (textual || type === "image" || type === "svg")
+			field(
+				basics,
+				textual ? "Text" : "Alt text",
+				() => selected()?.text ?? "",
+				(value) => edit((current) => ({ ...current, text: value })),
+				{ multiline: textual },
+			);
 		if (type === "shape")
 			propsField("Shape", "kind", "rectangle", ["rectangle", "ellipse"]);
 		if (type === "card" || type === "box") {
@@ -1671,36 +1721,44 @@ export async function mountSlidesClient(
 				choices: ["contain", "cover"],
 				wide: true,
 			});
-		styleField(basics, "Font size", "fontSize", 24, {
-			type: "number",
-			min: 8,
-			max: 180,
-		});
-		styleField(basics, "Font weight", "fontWeight", "normal", {
-			choices: ["light", "normal", "medium", "semibold", "bold"],
-		});
-		styleField(basics, "Text alignment", "textAlign", "left", {
-			choices: ["left", "center", "right"],
-		});
-		styleField(basics, "Vertical alignment", "verticalAlign", "top", {
-			choices: ["top", "middle", "bottom"],
-		});
-		styleColor("Text color", "color", "#111111");
-		styleColor("Fill", "background", "transparent", {
-			label: "None",
-			value: "transparent",
-		});
-		styleColor("Border color", "borderColor", "#000000");
-		styleField(basics, "Border width", "borderWidth", 0, {
-			type: "number",
-			min: 0,
-			max: 24,
-		});
-		styleField(basics, "Corner radius", "borderRadius", 0, {
-			type: "number",
-			min: 0,
-			max: 200,
-		});
+		if (lettered) {
+			styleField(basics, "Font size", "fontSize", 24, {
+				type: "number",
+				min: 8,
+				max: 180,
+			});
+			styleField(basics, "Font weight", "fontWeight", "normal", {
+				choices: ["light", "normal", "medium", "semibold", "bold"],
+			});
+		}
+		if (textual) {
+			styleField(basics, "Text alignment", "textAlign", "left", {
+				choices: ["left", "center", "right"],
+			});
+			styleField(basics, "Vertical alignment", "verticalAlign", "top", {
+				choices: ["top", "middle", "bottom"],
+			});
+		}
+		if (lettered) styleColor("Text color", "color", "#111111");
+		if (type === "divider") styleColor("Color", "background", "#d4d4d4");
+		else if (type !== "arrow")
+			styleColor("Fill", "background", "transparent", {
+				label: "None",
+				value: "transparent",
+			});
+		if (framed) {
+			styleColor("Border color", "borderColor", "#000000");
+			styleField(basics, "Border width", "borderWidth", 0, {
+				type: "number",
+				min: 0,
+				max: 24,
+			});
+			styleField(basics, "Corner radius", "borderRadius", 0, {
+				type: "number",
+				min: 0,
+				max: 200,
+			});
+		}
 		styleField(basics, "Opacity", "opacity", 1, {
 			type: "number",
 			min: 0,
@@ -1727,31 +1785,34 @@ export async function mountSlidesClient(
 					max: key === "x" || key === "width" ? 1200 : 675,
 				},
 			);
-		styleField(extras, "Font family", "fontFamily", "Arial, sans-serif", {
-			wide: true,
-		});
+		if (lettered)
+			styleField(extras, "Font family", "fontFamily", "Arial, sans-serif", {
+				wide: true,
+			});
 		styleField(extras, "Rotation", "rotation", 0, {
 			type: "number",
 			min: -360,
 			max: 360,
 		});
-		styleField(extras, "Padding", "padding", 0, {
-			type: "number",
-			min: 0,
-			max: 200,
-		});
-		styleField(extras, "Line height", "lineHeight", 1.3, {
-			type: "number",
-			min: 0.1,
-			max: 10,
-			step: "0.1",
-		});
-		styleField(extras, "Letter spacing", "letterSpacing", 0, {
-			type: "number",
-			min: -50,
-			max: 100,
-			step: "0.5",
-		});
+		if (textual) {
+			styleField(extras, "Padding", "padding", 0, {
+				type: "number",
+				min: 0,
+				max: 200,
+			});
+			styleField(extras, "Line height", "lineHeight", 1.3, {
+				type: "number",
+				min: 0.1,
+				max: 10,
+				step: "0.1",
+			});
+			styleField(extras, "Letter spacing", "letterSpacing", 0, {
+				type: "number",
+				min: -50,
+				max: 100,
+				step: "0.5",
+			});
+		}
 		if (type === "image" || type === "svg")
 			field(
 				extras,
@@ -1888,7 +1949,7 @@ export async function mountSlidesClient(
 		markSave();
 		button("undo").disabled = !write || !history.length;
 		button("redo").disabled = !write || !future.length;
-		button("add-slide").disabled =
+		button("add-slide").disabled = button("layouts").disabled =
 			!write || (deck?.slides.length ?? 0) >= OS_DECK_MAX_SLIDES;
 		button("insert").disabled =
 			!write || !slide || slide.elements.length >= OS_SLIDE_MAX_ELEMENTS;
@@ -1952,6 +2013,7 @@ export async function mountSlidesClient(
 		for (const [id, entry] of thumbs)
 			entry.item.classList.toggle("landed", lit.has(id));
 		renderInspector();
+		renderSelbar();
 		if (document.activeElement !== notes) notes.value = active()?.notes ?? "";
 		if (!presenter.hidden) renderPresentation();
 		controls();
@@ -1960,13 +2022,86 @@ export async function mountSlidesClient(
 	// ---- Stage size ----
 
 	/** Scale the slide to the largest size that fits the space around it. */
-	function fit() {
+	/** The scale that shows the whole slide, or undefined before layout. */
+	function fitScale() {
 		const padding = parseFloat(getComputedStyle(canvasArea).paddingLeft) || 0;
 		const width = canvasArea.clientWidth - padding * 2,
 			height = canvasArea.clientHeight - padding * 2;
-		if (width <= 0 || height <= 0) return;
-		stage.style.width = `${Math.max(120, Math.floor(Math.min(width, (height * 16) / 9)))}px`;
+		if (width <= 0 || height <= 0) return undefined;
+		return Math.max(120, Math.floor(Math.min(width, (height * 16) / 9))) / 1200;
 	}
+	/** Size the stage: fitted, or at the chosen zoom (never smaller than fit). */
+	function fit() {
+		const fitted = fitScale();
+		if (fitted === undefined) return;
+		if (zoom !== undefined && zoom <= fitted * 1.002) zoom = undefined;
+		const scale = zoom ?? fitted;
+		stage.style.width = `${Math.floor(1200 * scale)}px`;
+		main.toggleAttribute("data-zoomed", zoom !== undefined);
+		const label = zoom === undefined ? "Fit" : `${Math.round(zoom * 100)}%`;
+		button("zoom-fit").textContent = label;
+		button("zoom-out").disabled = zoom === undefined;
+		button("zoom-in").disabled = scale >= MAX_ZOOM;
+	}
+	/**
+	 * Zoom to `scale` (undefined fits the slide), keeping the slide point under
+	 * `anchor` (client coordinates; the middle of the view by default) in place.
+	 */
+	function setZoom(
+		scale: number | undefined,
+		anchor?: { x: number; y: number },
+	) {
+		const fitted = fitScale();
+		if (fitted === undefined) return;
+		const area = canvasArea.getBoundingClientRect();
+		const at = anchor ?? {
+			x: area.left + area.width / 2,
+			y: area.top + area.height / 2,
+		};
+		const before = stage.getBoundingClientRect();
+		const point =
+			before.width > 0
+				? {
+						x: (at.x - before.left) / before.width,
+						y: (at.y - before.top) / before.height,
+					}
+				: { x: 0.5, y: 0.5 };
+		zoom =
+			scale === undefined
+				? undefined
+				: Math.min(Math.max(MAX_ZOOM, fitted), Math.max(fitted, scale));
+		fit();
+		const after = stage.getBoundingClientRect();
+		canvasArea.scrollLeft += after.left + point.x * after.width - at.x;
+		canvasArea.scrollTop += after.top + point.y * after.height - at.y;
+	}
+	function stepZoom(by: 1 | -1) {
+		const current = zoom ?? fitScale() ?? 1;
+		setZoom(
+			by > 0
+				? (ZOOM_STEPS.find((step) => step > current * 1.002) ?? MAX_ZOOM)
+				: [...ZOOM_STEPS].reverse().find((step) => step < current / 1.002),
+		);
+	}
+	button("zoom-in").onclick = () => stepZoom(1);
+	button("zoom-out").onclick = () => stepZoom(-1);
+	button("zoom-fit").onclick = () => setZoom(undefined);
+	// A trackpad pinch arrives as a wheel event with Ctrl held.
+	canvasArea.addEventListener(
+		"wheel",
+		(event) => {
+			if (!(event.ctrlKey || event.metaKey)) return;
+			event.preventDefault();
+			const factor = Math.exp(
+				-Math.max(-50, Math.min(50, event.deltaY)) * 0.01,
+			);
+			setZoom((zoom ?? fitScale() ?? 1) * factor, {
+				x: event.clientX,
+				y: event.clientY,
+			});
+		},
+		{ passive: false },
+	);
 	const fitObserver =
 		typeof ResizeObserver === "function" ? new ResizeObserver(fit) : undefined;
 	fitObserver?.observe(canvasArea);
@@ -2000,9 +2135,11 @@ export async function mountSlidesClient(
 	function beginPointer(
 		event: PointerEvent,
 		elementId: string,
-		handle: Handle | null,
+		handle: Grip | null,
 	) {
 		if (event.button !== 0 || (editing && editingId === elementId)) return;
+		// In view mode a click on the slide selects nothing.
+		if (editable && !editMode) return;
 		commitText();
 		event.preventDefault();
 		event.stopPropagation();
@@ -2010,6 +2147,14 @@ export async function mountSlidesClient(
 			node = stageNodes.get(elementId)?.node;
 		if (!element || !node) return;
 		let collapse: string | undefined;
+		const write =
+			!handle &&
+			!adding(event) &&
+			selection.size === 1 &&
+			selection.has(elementId) &&
+			!NO_TEXT.includes(element.type)
+				? elementId
+				: undefined;
 		if (!handle && adding(event)) {
 			toggleSelected(elementId);
 			render();
@@ -2042,6 +2187,7 @@ export async function mountSlidesClient(
 			moving,
 			moved: false,
 			collapse,
+			write,
 		};
 		if (handle) capture(event.pointerId);
 	}
@@ -2100,6 +2246,23 @@ export async function mountSlidesClient(
 		}
 		return updateElementGeometry(original, { x, y, width, height });
 	}
+	/** Drag one end of an arrow; its box follows both ends. */
+	function movedEnd(
+		original: OsPresentationElement,
+		end: "from" | "to",
+		dx: number,
+		dy: number,
+	) {
+		const ends = slideArrowEndpoints(original);
+		const point = {
+			x: Math.round(Math.max(0, Math.min(1200, ends[end].x + dx))),
+			y: Math.round(Math.max(0, Math.min(675, ends[end].y + dy))),
+		};
+		return slideElementBox({
+			...original,
+			props: { ...original.props, ...ends, [end]: point },
+		});
+	}
 	/** Select every element the selection box touches, plus what was selected before. */
 	function drawMarquee(
 		gesture: NonNullable<typeof pointer>,
@@ -2147,11 +2310,14 @@ export async function mountSlidesClient(
 			dy = (moveY * 675) / gesture.box.height;
 		if (!gesture.moved) capture(event.pointerId);
 		gesture.moved = true;
+		selbar.hidden = true;
 		if (gesture.marquee) return drawMarquee(gesture, gesture.marquee, dx, dy);
 		const { handle, moving } = gesture;
 		const originals = moving.map((member) => member.original);
 		let nexts: OsPresentationElement[];
-		if (handle)
+		if (handle === "from" || handle === "to")
+			nexts = [movedEnd(originals[0]!, handle, dx, dy)];
+		else if (handle)
 			nexts = [resized(originals[0]!, handle, dx, dy, event.shiftKey)];
 		else {
 			let [shiftX, shiftY] = groupShift(originals, dx, dy);
@@ -2189,7 +2355,7 @@ export async function mountSlidesClient(
 			cssBox(member.node, next);
 			if (next.props !== member.original.props) {
 				linked.element(member.node, next, context.appearance);
-				if (selection.size === 1) addHandles(member.node, next.id);
+				if (selection.size === 1) addHandles(member.node, next);
 			}
 		});
 	};
@@ -2217,7 +2383,8 @@ export async function mountSlidesClient(
 		} else if (gesture.collapse && event.type !== "pointercancel") {
 			selectOnly(gesture.collapse);
 			render();
-		}
+		} else if (gesture.write && event.type === "pointerup")
+			beginText(gesture.write);
 		// A save that waited for this gesture goes out now.
 		scheduleSave();
 		refreshExternal();
@@ -2271,7 +2438,12 @@ export async function mountSlidesClient(
 		const input = document.createElement("textarea");
 		input.className = "slides-inline-editor";
 		input.setAttribute("aria-label", "Edit canvas text");
-		input.value = element.text ?? "";
+		input.placeholder = "Type here";
+		// A card or box shows its title in place of its text when it has one.
+		const titled =
+			(element.type === "card" || element.type === "box") &&
+			element.props?.title !== undefined;
+		input.value = (titled ? element.props?.title : element.text) ?? "";
 		entry.node.replaceChildren(input);
 		entry.element = undefined;
 		editing = input;
@@ -2288,7 +2460,11 @@ export async function mountSlidesClient(
 				group = "";
 				remembered = true;
 			}
-			updateElement({ ...current, text: input.value });
+			updateElement(
+				titled
+					? { ...current, props: { ...current.props, title: input.value } }
+					: { ...current, text: input.value },
+			);
 			changed(true);
 			controls();
 		};
@@ -2395,6 +2571,8 @@ export async function mountSlidesClient(
 			deck = deckOf(retained?.content ?? value.revision.content);
 			basis = retained?.revision ?? value.revision.revision;
 			dirty = !!retained;
+			// Unsaved edits from an earlier visit open where they were made.
+			if (dirty && editable) setMode(true, false);
 			// Edits kept from an older revision are merged into the newer saved
 			// copy like any other catch-up, part by part.
 			if (basis < value.revision.revision)
@@ -2826,6 +3004,7 @@ export async function mountSlidesClient(
 	const openInsert = menu(button("insert"), find("#insert-menu"));
 	menu(button("more"), find("#more-menu"));
 	menu(button("align"), find("#align-menu"));
+	menu(button("layouts"), find("#layout-menu"));
 	function toggleRail() {
 		const hide = main.dataset.rail !== "hidden";
 		if (hide) main.dataset.rail = "hidden";
@@ -2851,6 +3030,191 @@ export async function mountSlidesClient(
 	shortcuts.onclick = (event) => {
 		if (event.target === shortcuts) showShortcuts(false);
 	};
+	/** Switch between viewing and editing. Leaving edit mode keeps every change. */
+	function setMode(edit: boolean, draw = true) {
+		if (!editable || edit === editMode) return;
+		if (!edit) {
+			commitText();
+			selectOnly();
+			setInspector(false);
+		}
+		editMode = edit;
+		main.dataset.mode = edit ? "edit" : "view";
+		const mode = button("mode");
+		mode.textContent = edit ? "Done" : "Edit";
+		mode.title = edit ? "Done editing (E)" : "Edit (E)";
+		mode.setAttribute("aria-pressed", String(edit));
+		for (const item of nav.querySelectorAll<HTMLElement>(".slides-thumb"))
+			item.draggable = edit;
+		if (draw) render();
+	}
+	button("mode").onclick = () => setMode(!editMode);
+	main.dataset.mode = "view";
+	/** Rebuild the floating bar for the current selection, above it on the slide. */
+	function renderSelbar() {
+		const chosen = selectedElements();
+		if (!chosen.length || !canWrite() || editing || pointer) {
+			selbar.hidden = true;
+			return;
+		}
+		const one = chosen.length === 1 ? chosen[0] : undefined;
+		const texts = chosen.filter((element) => !NO_TEXT.includes(element.type));
+		const tool = (
+			label: string,
+			content: string,
+			run: () => void,
+			pressed?: boolean,
+		) => {
+			const control = document.createElement("button");
+			control.type = "button";
+			control.title = label;
+			control.setAttribute("aria-label", label);
+			if (pressed !== undefined)
+				control.setAttribute("aria-pressed", String(pressed));
+			control.innerHTML = content;
+			control.onclick = run;
+			return control;
+		};
+		const gap = () => {
+			const line = document.createElement("span");
+			line.className = "slides-selbar-gap";
+			return line;
+		};
+		const restyle = (
+			make: (element: OsPresentationElement) => OsPresentationElement,
+			targets: OsPresentationElement[],
+			together: string,
+		) => mutate(() => updateElements(targets.map(make)), together);
+		const chips = (
+			targets: OsPresentationElement[],
+			key: "color" | "background",
+		) =>
+			paletteColors()
+				.slice(0, 4)
+				.map(([name, color]) => {
+					const chip = tool(
+						`${key === "color" ? "Text" : "Fill"} ${name}`,
+						"",
+						() =>
+							restyle(
+								(element) => ({
+									...element,
+									style: { ...element.style, [key]: color },
+								}),
+								targets,
+								`color:${key}`,
+							),
+						targets.every(
+							(element) =>
+								hexColor(element.style[key], "") === hexColor(color, color),
+						),
+					);
+					chip.className = "slides-selbar-chip";
+					chip.style.background = color;
+					return chip;
+				});
+		const parts: HTMLElement[] = [
+			tool("Format", "Format", () => setInspector(true, true)),
+		];
+		if (texts.length) {
+			const sizes = new Set(
+				texts.map((element) => element.style.fontSize ?? 24),
+			);
+			const size = document.createElement("span");
+			size.className = "slides-selbar-size";
+			size.textContent = sizes.size === 1 ? String([...sizes][0]) : "–";
+			parts.push(
+				gap(),
+				tool("Smaller text", "−", () => stepFontSize(-1)),
+				size,
+				tool("Larger text", "+", () => stepFontSize(1)),
+				...chips(texts, "color"),
+			);
+			if (one && texts.length === 1) {
+				const align = one.style.textAlign ?? "left";
+				const next =
+					align === "left" ? "center" : align === "center" ? "right" : "left";
+				parts.push(
+					tool(
+						`Align ${next}`,
+						editorIcon(
+							align === "left"
+								? "alignLeft"
+								: align === "center"
+									? "alignCenter"
+									: "alignRight",
+						),
+						() =>
+							restyle(
+								(element) => ({
+									...element,
+									style: { ...element.style, textAlign: next },
+								}),
+								[one],
+								"",
+							),
+					),
+				);
+			}
+		}
+		const shapes = chosen.filter((element) => element.type === "shape");
+		if (shapes.length) parts.push(gap(), ...chips(shapes, "background"));
+		if (one?.type === "arrow")
+			parts.push(
+				gap(),
+				tool(
+					"Dashed line",
+					"Dashed",
+					() =>
+						restyle(
+							(element) => ({
+								...element,
+								props: {
+									...element.props,
+									dashed: !element.props?.dashed || undefined,
+								},
+							}),
+							[one],
+							"",
+						),
+					!!one.props?.dashed,
+				),
+			);
+		if (
+			one &&
+			(one.type === "image" || one.type === "svg" || one.type === "logo")
+		)
+			parts.push(
+				gap(),
+				tool(one.src ? "Replace image" : "Add image", editorIcon("image"), () =>
+					chooseImage(one.id),
+				),
+			);
+		parts.push(
+			gap(),
+			tool("Duplicate", editorIcon("copy"), () => elementAction("duplicate")),
+		);
+		if (one)
+			parts.push(
+				tool("Bring forward", editorIcon("front"), () =>
+					elementAction("forward"),
+				),
+				tool("Send backward", editorIcon("back"), () =>
+					elementAction("backward"),
+				),
+			);
+		parts.push(
+			tool("Delete", editorIcon("trash"), () => elementAction("delete")),
+		);
+		selbar.replaceChildren(...parts);
+		// Above the selection, or below it when it touches the top of the slide.
+		const box = groupBox(chosen);
+		const below = box.y < 70;
+		selbar.dataset.side = below ? "below" : "above";
+		selbar.style.left = `${((box.x + box.width / 2) / 1200) * 100}%`;
+		selbar.style.top = `${((below ? box.y + box.height : box.y) / 675) * 100}%`;
+		selbar.hidden = false;
+	}
 	/** Step the selected text's font size along the type scale, as one undo step. */
 	function stepFontSize(by: 1 | -1) {
 		const along = (current: number) =>
@@ -2911,7 +3275,9 @@ export async function mountSlidesClient(
 			),
 		);
 	}
-	button("add-slide").onclick = addSlide;
+	button("add-slide").onclick = () => addSlide();
+	for (const item of root.querySelectorAll<HTMLButtonElement>("[data-layout]"))
+		item.onclick = () => addSlide(item.dataset.layout as NewSlideLayout);
 	button("format").onclick = () => setInspector(!inspectorOpen);
 	notes.onchange = commitNotes;
 	async function insertImage(file: File) {
@@ -3110,6 +3476,16 @@ export async function mountSlidesClient(
 			button("redo").click();
 			return;
 		}
+		if (
+			command &&
+			!event.altKey &&
+			["=", "+", "-", "_", "0"].includes(event.key)
+		) {
+			event.preventDefault();
+			if (event.key === "0") setZoom(undefined);
+			else stepZoom(event.key === "=" || event.key === "+" ? 1 : -1);
+			return;
+		}
 		if (command && !event.altKey && event.key === "/") {
 			event.preventDefault();
 			showShortcuts(true);
@@ -3128,6 +3504,17 @@ export async function mountSlidesClient(
 		if (!command && !event.altKey && event.key === "/" && canWrite()) {
 			event.preventDefault();
 			openInsert();
+			return;
+		}
+		if (
+			!command &&
+			!event.altKey &&
+			!event.shiftKey &&
+			event.key.toLowerCase() === "e" &&
+			editable
+		) {
+			event.preventDefault();
+			setMode(!editMode);
 			return;
 		}
 		if (
