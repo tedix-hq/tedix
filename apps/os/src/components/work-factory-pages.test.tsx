@@ -430,9 +430,9 @@ describe("Work graph collection", () => {
 		);
 		expect(html).toContain(item.title);
 		expect(html).toContain("Older task outside the first 100");
-		expect(html).toContain("1–25 of 26 returned dependencies");
-		expect(html).toContain("Dependency view is truncated");
-		expect(html).toContain("Next dependencies");
+		expect(html).toContain("1–25 of 26 links");
+		expect(html).toContain("This list is incomplete");
+		expect(html).toContain("Next links");
 		expect(client.getQueryCache().getAll()).toHaveLength(3);
 	});
 
@@ -467,7 +467,7 @@ describe("Work graph collection", () => {
 			/>,
 		);
 
-		expect(html).toContain('aria-label="Work dependency edges"');
+		expect(html).toContain('aria-label="Links between Work Items"');
 		expect(html).toContain('data-slot="collection"');
 		expect(html).toContain('data-appearance="inline"');
 		expect(html).toContain("max-h-[min(65vh,40rem)]");
@@ -485,8 +485,8 @@ describe("Work graph collection", () => {
 		expect(html).not.toContain(`From ${missingTitleId}`);
 		expect(html).toContain("Blocks");
 		expect(html).toContain("References");
-		expect(html).toContain("Dependency view is truncated");
-		expect(html).toContain("first 5,000 returned edges");
+		expect(html).toContain("This list is incomplete");
+		expect(html).toContain("first 5,000 links");
 	});
 });
 

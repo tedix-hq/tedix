@@ -159,8 +159,8 @@ export function ResourceHolders({
 		return (
 			<Text as="p" role="label" tone="secondary">
 				{activeReserved
-					? "Holder details unavailable. Refresh capacity before coordinating."
-					: "No active reservations."}
+					? "Could not load who is using this. Reload the page before you plan around it."
+					: "Nobody is using this right now."}
 			</Text>
 		);
 	return (
@@ -187,10 +187,10 @@ export function ResourceHolders({
 									holder.executorId,
 									names,
 								)
-							: "Executor unavailable"}
+							: "Name unavailable"}
 					</span>
 					{" · "}
-					{holder.quantity} reserved · lease until{" "}
+					{holder.quantity} in use · held until{" "}
 					<time
 						dateTime={holder.expiresAt}
 						title={absoluteTime(holder.expiresAt)}
@@ -212,18 +212,18 @@ export function ResourceHolders({
 			))}
 			{!details.holders.length && activeReserved > 0 ? (
 				<Text as="p" role="label" tone="secondary">
-					No current linked Work holder is available in this snapshot.
+					In use, but the Work Item using it could not be found.
 				</Text>
 			) : null}
 			{details.holdersTruncated ? (
 				<Text as="p" role="label" tone="secondary">
-					Additional holders are omitted from this bounded snapshot.
+					More Work Items are using this than are listed here.
 				</Text>
 			) : null}
 			<Text as="p" role="label" tone="secondary">
 				{activeReserved
-					? "Open the holding Work to coordinate or wait for its reservation to release, then retry admission."
-					: "No active reservations."}
+					? "To use this too, open the Work Item above and coordinate, or wait until it is free and start your work again."
+					: "Nobody is using this right now."}
 			</Text>
 		</div>
 	);
@@ -349,8 +349,8 @@ export function WorkCapacityPage({
 				title={view === "budgets" ? "Budgets" : "Resources"}
 				description={
 					view === "budgets"
-						? "Check the affected work and remaining allowance before changing a budget."
-						: "See which work is using shared resources before starting overlapping work."
+						? "See how much of each budget is left. Choose Change settings to add a budget or change a spending limit."
+						: "See which shared resources are in use and by which Work Items. Choose Change settings to add one or change how many can use it at once."
 				}
 			/>
 			<div className="flex flex-wrap gap-3">
@@ -376,9 +376,9 @@ export function WorkCapacityPage({
 					<div className="grid gap-3 lg:grid-cols-2">
 						<ResponsiveFormSurface
 							title={
-								poolVersion ? "Edit resource pool" : "Create resource pool"
+								poolVersion ? "Edit shared resource" : "Add a shared resource"
 							}
-							description="Capacity is integer concurrent quantity; admission owns reservations."
+							description="Name something only a limited number of Work Items can use at once, and say how many. A place is reserved when work starts and freed when it ends."
 							mobileOpen={poolFormOpen}
 							onMobileOpenChange={setPoolFormOpen}
 						>
@@ -402,7 +402,11 @@ export function WorkCapacityPage({
 										/>
 									)}
 								</FormField>
-								<FormField form={poolForm} name="capacity" label="Capacity">
+								<FormField
+									form={poolForm}
+									name="capacity"
+									label="How many at once"
+								>
 									{(field, meta) => (
 										<FormInput field={field} {...meta} type="number" min="1" />
 									)}
@@ -410,27 +414,25 @@ export function WorkCapacityPage({
 								<FormField
 									form={poolForm}
 									name="allocationMode"
-									label="Allocation mode"
+									label="How it is shared"
 								>
 									{(field, meta) => (
 										<FormSelect field={field} {...meta}>
-											<SelectItem value="capacity">Capacity</SelectItem>
-											<SelectItem value="exclusive">Exclusive</SelectItem>
+											<SelectItem value="capacity">
+												Up to the limit at once
+											</SelectItem>
+											<SelectItem value="exclusive">One at a time</SelectItem>
 										</FormSelect>
 									)}
 								</FormField>
 								<Button type="submit" disabled={putPool.isPending}>
-									{poolVersion ? `Save version ${poolVersion}` : "Create pool"}
+									{poolVersion ? `Save version ${poolVersion}` : "Add resource"}
 								</Button>
 								<MutationError error={putPool.error} />
 							</form>
 						</ResponsiveFormSurface>
 						<ResponsiveFormSurface
-							title={
-								budgetVersion
-									? "Edit budget envelope"
-									: "Create budget envelope"
-							}
+							title={budgetVersion ? "Edit budget" : "Add a budget"}
 							description="Choose what the budget applies to and set a spending limit in US dollars."
 							mobileOpen={budgetFormOpen}
 							onMobileOpenChange={setBudgetFormOpen}
@@ -445,7 +447,7 @@ export function WorkCapacityPage({
 								<FormField
 									form={budgetForm}
 									name="scopeType"
-									label="Scope type"
+									label="Applies to"
 								>
 									{(field, meta) => (
 										<FormSelect
@@ -521,7 +523,7 @@ export function WorkCapacityPage({
 								<Button type="submit" disabled={putBudget.isPending}>
 									{budgetVersion
 										? `Save version ${budgetVersion}`
-										: "Create envelope"}
+										: "Add budget"}
 								</Button>
 								<MutationError error={putBudget.error} />
 							</form>
@@ -541,18 +543,15 @@ export function WorkCapacityPage({
 					{view === "resources" ? (
 						<Card>
 							<CardHeader>
-								<CardTitle>Resource pools</CardTitle>
+								<CardTitle>Shared resources</CardTitle>
 								<CardDescription>
 									{resourceKey
-										? `Exact resource: ${resourceKey}`
+										? `Showing only ${resourceKey}`
 										: saturatedOnly
-											? "Showing saturated pools"
-											: "Organization capacity"}{" "}
-									·{" "}
-									<Link href="/work/capacity?saturated=true">
-										Saturated pools
-									</Link>{" "}
-									· <Link href="/work/capacity?saturated=false">All pools</Link>
+											? "Showing only full resources"
+											: "All shared resources in your organization"}{" "}
+									· <Link href="/work/capacity?saturated=true">Only full</Link>{" "}
+									· <Link href="/work/capacity?saturated=false">All</Link>
 								</CardDescription>
 							</CardHeader>
 							<CardContent>
@@ -573,8 +572,8 @@ export function WorkCapacityPage({
 														<strong>{pool.resourceKey}</strong>
 														<br />
 														<Text as="span" role="label" tone="secondary">
-															{activeReserved} reserved · {effectiveAvailable}{" "}
-															available · v{pool.version}
+															{activeReserved} in use · {effectiveAvailable}{" "}
+															free · version {pool.version}
 														</Text>
 														<ResourceHolders
 															details={reservationDetails}
@@ -611,17 +610,19 @@ export function WorkCapacityPage({
 								) : (
 									<WorkEmpty
 										title={
-											saturatedOnly ? "No saturated pools" : "No resource pools"
+											saturatedOnly
+												? "Nothing is full"
+												: "No shared resources yet"
 										}
 										description={
 											saturatedOnly
-												? "No saturated pools in this view."
-												: "Create a pool to manage shared capacity."
+												? "No shared resource is full right now."
+												: "Choose Change settings to add the first one."
 										}
 									/>
 								)}
 								<PageControls
-									label="resource pools"
+									label="shared resources"
 									hasPrevious={poolPaging.hasPrevious}
 									hasNext={Boolean(pools.data.nextCursor)}
 									onPrevious={poolPaging.reset}
@@ -729,7 +730,7 @@ export function WorkCapacityPage({
 									/>
 								)}
 								<PageControls
-									label="budget envelopes"
+									label="budgets"
 									hasPrevious={budgetPaging.hasPrevious}
 									hasNext={Boolean(budgets.data.nextCursor)}
 									onPrevious={budgetPaging.reset}

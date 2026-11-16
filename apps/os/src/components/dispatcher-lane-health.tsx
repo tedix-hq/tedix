@@ -89,8 +89,9 @@ export function DispatcherLaneHealth() {
 			<div>
 				<SectionTitle>Local runners</SectionTitle>
 				<Text tone="secondary">
-					Checks for new reports every 30 seconds. Shows reported tasks and
-					confirmed completions. Older reports leave current activity unknown.
+					The runners on your team's computers that pick up Work: what each is
+					doing now and what it last finished. Refreshes every 30 seconds. A
+					runner that has not reported for a while shows as unknown.
 				</Text>
 			</div>
 			{health.isError ? (
@@ -107,7 +108,7 @@ export function DispatcherLaneHealth() {
 			{health.data?.data.length === 0 ? (
 				<WorkEmpty
 					title="No runner observations"
-					description="No supervisor has reported local runners to this organization. Their state is unknown."
+					description="No computer has reported runners to this organization yet. Runners appear here once one reports in."
 				/>
 			) : null}
 			{health.data &&

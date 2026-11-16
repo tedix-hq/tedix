@@ -78,7 +78,7 @@ export const WORK_VIEWS: readonly WorkView[] = [
 	{
 		id: "graph",
 		label: "Graph",
-		description: "How work items depend on each other.",
+		description: "Which Work Items have to finish before others can start.",
 		group: "planning",
 		to: "/work/graph",
 	},
@@ -116,7 +116,8 @@ export const WORK_VIEWS: readonly WorkView[] = [
 	{
 		id: "admission",
 		label: "Admission",
-		description: "Which agent sessions hold work and under what lease.",
+		description:
+			"Which Work Items can start now and what the others are waiting for.",
 		group: "reviews",
 		to: "/work/admission",
 	},
@@ -150,7 +151,8 @@ export const WORK_VIEWS: readonly WorkView[] = [
 	{
 		id: "capacity",
 		label: "Capacity",
-		description: "Resource pools and budgets, and which ones are full.",
+		description:
+			"Shared resources and budgets, and which ones are full or used up.",
 		group: "operations",
 		to: "/work/capacity",
 	},

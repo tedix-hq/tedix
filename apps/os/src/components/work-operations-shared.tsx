@@ -193,10 +193,12 @@ export function ReadinessOverview({
 	return (
 		<Card>
 			<CardHeader>
-				<CardTitle>Readiness and leases</CardTitle>
+				<CardTitle>Ready to start or waiting</CardTitle>
 				<CardDescription>
-					Read-only snapshot of Work and admission gates. Inspecting an item
-					never starts work. Readiness depends on the executor.
+					Each Work Item with whether it can start now and, if not, what it is
+					waiting for. Looking at one here never starts it. The answer can
+					differ by who would do the work, and is checked again when work
+					starts.
 				</CardDescription>
 			</CardHeader>
 			<CardContent className="grid gap-3">
@@ -209,14 +211,14 @@ export function ReadinessOverview({
 					/>
 				) : rows.length === 0 ? (
 					<WorkEmpty
-						title="No Work in this snapshot"
-						description="New Work will appear here when it is available."
+						title="Nothing to check yet"
+						description="Work Items appear here once someone adds them."
 					/>
 				) : (
 					<>
 						{onSelect && (
 							<OperationPicker
-								label="Choose Work"
+								label="Choose a Work Item"
 								value={selectedId}
 								options={rows.map(({ workItem }) => ({
 									value: workItem.id,
