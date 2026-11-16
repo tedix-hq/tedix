@@ -78,13 +78,144 @@ export function mergeOutputContent(
 			Object.entries(content).filter(([key]) => !derived.includes(key)),
 		) as unknown as Json;
 	const conflicts: Conflicts = Object.assign([], { prefer });
-	const merged = merge(strip(base), strip(mine), strip(theirs), "", conflicts);
+	const [from, left, right] = alignGrids(base, mine, theirs);
+	const merged = merge(strip(from), strip(left), strip(right), "", conflicts);
 	if (conflicts.length > 0 && !prefer) return { ok: false, conflicts };
 	return {
 		ok: true,
 		content: project(merged as OsOutputContent, options),
 		conflicts: [...conflicts],
 	};
+}
+
+type Row = OsWorkbook["sheets"][number]["rows"][number];
+type Grid = OsWorkbook["sheets"][number];
+
+/**
+ * Line up sheets that grew at their edges. A sheet has no fixed size: typing
+ * below the last row or right of the last column adds rows and columns to
+ * reach that cell. When two people do that, their new rows and columns are
+ * the same grid positions, not separate additions to keep one after the
+ * other. Where both only edited cells in place and added at the edges, all
+ * three copies are filled out to one size, so each cell merges with the cell
+ * at the same position. A sheet only one of them grew, or where either side
+ * inserted, deleted or moved rows or columns, is left as it is and merges as
+ * a sequence.
+ */
+function alignGrids(
+	base: OsOutputContent,
+	mine: OsOutputContent,
+	theirs: OsOutputContent,
+): [OsOutputContent, OsOutputContent, OsOutputContent] {
+	if (
+		base.kind !== "sheet" ||
+		mine.kind !== "sheet" ||
+		theirs.kind !== "sheet" ||
+		!base.workbook ||
+		!mine.workbook ||
+		!theirs.workbook
+	)
+		return [base, mine, theirs];
+	const aligned = new Map<string, [Grid, Grid, Grid]>();
+	for (const from of base.workbook.sheets) {
+		const left = mine.workbook.sheets.find((sheet) => sheet.id === from.id);
+		const right = theirs.workbook.sheets.find((sheet) => sheet.id === from.id);
+		const grids = left && right && alignGrid(from, left, right);
+		if (grids) aligned.set(from.id, grids);
+	}
+	if (aligned.size === 0) return [base, mine, theirs];
+	const use = (content: typeof base, side: 0 | 1 | 2) => ({
+		...content,
+		workbook: {
+			...content.workbook!,
+			sheets: content.workbook!.sheets.map(
+				(sheet) => aligned.get(sheet.id)?.[side] ?? sheet,
+			),
+		},
+	});
+	return [use(base, 0), use(mine, 1), use(theirs, 2)];
+}
+
+const blank = (cell: Row[number] | undefined) =>
+	cell == null || (cell.input === "" && cell.value === null && !cell.format);
+const rowKey = (row: Row) => {
+	let end = row.length;
+	while (end > 0 && blank(row[end - 1])) end--;
+	return JSON.stringify(
+		row.slice(0, end).map((cell) => (blank(cell) ? 0 : cell)),
+	);
+};
+
+/**
+ * Whether `side` kept every row and column of `base` where it was: cells
+ * edited in place, rows and columns added only after the last one.
+ */
+function grewInPlace(base: Grid, side: Grid): boolean {
+	if (
+		side.rows.length < base.rows.length ||
+		side.columns.length < base.columns.length ||
+		base.columns.some((column, index) => side.columns[index]!.id !== column.id)
+	)
+		return false;
+	const keys = base.rows.map(rowKey);
+	const places = new Map<string, number[]>();
+	keys.forEach((key, index) =>
+		places.set(key, [...(places.get(key) ?? []), index]),
+	);
+	return base.rows.every((row, index) => {
+		const now = side.rows[index]!;
+		const key = rowKey(now);
+		if (key === keys[index] || key === "[]" || keys[index] === "[]")
+			return true;
+		// The row is one that used to be somewhere else: rows moved.
+		if (places.get(key)?.some((place) => place !== index)) return false;
+		// A row that moved and had its formulas rewritten shares little with
+		// the row that was here; an edited row still shares most of its cells.
+		let kept = 0;
+		let changed = 0;
+		for (let i = 0; i < Math.max(row.length, now.length); i++) {
+			if (blank(row[i]) && blank(now[i])) continue;
+			if (same(row[i] ?? null, now[i] ?? null)) kept++;
+			else changed++;
+		}
+		return kept >= changed || kept + changed === 1;
+	});
+}
+
+function alignGrid(
+	base: Grid,
+	mine: Grid,
+	theirs: Grid,
+): [Grid, Grid, Grid] | null {
+	const height = Math.max(mine.rows.length, theirs.rows.length);
+	const width = Math.max(mine.columns.length, theirs.columns.length);
+	// One side growing already merges as a sequence; this is for both.
+	const grew = (grid: Grid) =>
+		grid.rows.length > base.rows.length ||
+		grid.columns.length > base.columns.length;
+	if (!grew(mine) || !grew(theirs)) return null;
+	if (!grewInPlace(base, mine) || !grewInPlace(base, theirs)) return null;
+	// A column both added at one position is one column: it takes their id.
+	const columns = (grid: Grid, other: Grid) =>
+		Array.from({ length: width }, (_, index) => {
+			const column = grid.columns[index] ?? other.columns[index]!;
+			const shared = theirs.columns[index] ?? mine.columns[index]!;
+			return index < base.columns.length
+				? column
+				: { ...column, id: shared.id };
+		});
+	const rows = (grid: Grid) =>
+		Array.from({ length: height }, (_, row) =>
+			Array.from(
+				{ length: width },
+				(_, column) => grid.rows[row]?.[column] ?? null,
+			),
+		);
+	return [
+		{ ...base, rows: rows(base) },
+		{ ...mine, columns: columns(mine, theirs), rows: rows(mine) },
+		{ ...theirs, columns: columns(theirs, mine), rows: rows(theirs) },
+	];
 }
 
 /**
