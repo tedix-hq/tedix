@@ -488,7 +488,7 @@ function FactoryScoreboard() {
 				<Skeleton className="h-24" />
 			) : scoreboard.isError ? (
 				<LoadError
-					title="Factories unavailable"
+					title="Skills unavailable"
 					error={scoreboard.error}
 					onRetry={() => scoreboard.refetch({ cancelRefetch: false })}
 					retrying={scoreboard.isFetching}
@@ -498,7 +498,7 @@ function FactoryScoreboard() {
 					{groups.map((group) => (
 						<Collection
 							key={group.tedi}
-							aria-label={`${group.tedi} factories`}
+							aria-label={`${group.tedi} skills`}
 							className="mb-3 break-inside-avoid"
 						>
 							<li className="px-4 py-3">
@@ -515,8 +515,8 @@ function FactoryScoreboard() {
 			) : (
 				<Text as="p" role="label" tone="secondary">
 					{unusedTemplates
-						? "No loop or Template ran in the last 7 days"
-						: "No scheduled loops or published Templates yet"}
+						? "No skill or Template ran in the last 7 days"
+						: "No scheduled skills or published Templates yet"}
 				</Text>
 			)}
 		</PageSection>
@@ -775,13 +775,14 @@ export function GoalsOverview({
 						{OS_COPY.work.objectives}
 					</SectionTitle>
 					<SectionDescription>
-						What success means and the projects and epics serving each goal.
+						What success means and the projects and epics serving each
+						objective.
 					</SectionDescription>
 				</SectionHeading>
 			</SectionHeader>
 			{error ? (
 				<LoadError
-					title="Goals unavailable"
+					title="Objectives unavailable"
 					error={error}
 					onRetry={onRetry}
 					retrying={retrying}
@@ -790,8 +791,8 @@ export function GoalsOverview({
 				<Skeleton className="h-40 w-full" />
 			) : goals.length === 0 ? (
 				<WorkEmpty
-					title="No goals yet"
-					description="Goals describe the success that projects and epics serve."
+					title="No objectives yet"
+					description="Objectives describe the success that projects and epics serve."
 				/>
 			) : (
 				<Collection appearance="inline" aria-label={OS_COPY.work.objectives}>
@@ -953,7 +954,7 @@ export function PortfolioApp({
 					<PageDescription>
 						{projectsLead
 							? projectCount
-							: "Every goal in this organization and the work serving it."}
+							: "Every objective in this organization and the work serving it."}
 					</PageDescription>
 				</PageHeading>
 				{isOwner ? (

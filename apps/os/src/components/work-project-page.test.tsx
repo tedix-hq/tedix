@@ -104,7 +104,7 @@ describe("Work project page", () => {
 			</QueryClientProvider>,
 		);
 
-		expect(html).toContain("Goal: Customers trust every export");
+		expect(html).toContain("Objective: Customers trust every export");
 		expect(html).toContain("Open epics");
 		expect(html).toContain("Ship the trusted export");
 		expect(html).toContain("Executing");

@@ -177,7 +177,7 @@ try {
 			.getAttribute("href"))!,
 		/^\/work\/capacity(\?|$)/,
 	);
-	for (const name of ["Projects", "Goals"]) {
+	for (const name of ["Projects", "Objectives"]) {
 		await restrictedMenu.getByRole("menuitem", { name, exact: true }).click();
 		await unavailable
 			.getByRole("heading", { level: 1, name, exact: true })

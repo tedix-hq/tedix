@@ -186,7 +186,7 @@ describe("OutputDetailPage", () => {
 		expect(page?.className).toContain("max-w-4xl");
 		expect(page?.hasAttribute("data-full-height")).toBe(false);
 		expect(container.querySelector('[data-slot="page-header"]')).not.toBeNull();
-		expect(back?.textContent).toContain("All outputs");
+		expect(back?.textContent).toContain("All documents");
 		expect(title?.textContent).toBe("Weekly report");
 		expect(description?.textContent).toContain(
 			"Document · Version 3 · updated",

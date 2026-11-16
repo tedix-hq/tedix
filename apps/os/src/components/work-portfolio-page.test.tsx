@@ -245,11 +245,11 @@ it("leads with the project list when opened as Projects", () => {
 	const projects = headings("projects");
 	expect(projects[0]).toBe("Projects");
 	expect(projects.filter((text) => text === "Projects")).toHaveLength(1);
-	expect(projects.indexOf("Goals")).toBeGreaterThan(
+	expect(projects.indexOf("Objectives")).toBeGreaterThan(
 		projects.indexOf("Active 5"),
 	);
 	const goals = headings();
-	expect(goals.slice(0, 2)).toEqual(["Goals", "Goals"]);
+	expect(goals.slice(0, 2)).toEqual(["Objectives", "Objectives"]);
 	expect(goals.indexOf("Projects")).toBeLessThan(goals.indexOf("Active 5"));
 });
 
@@ -409,7 +409,7 @@ describe("PortfolioApp", () => {
 						</QueryClientProvider>,
 					),
 				);
-				expect(host.textContent).toContain("Goals unavailable");
+				expect(host.textContent).toContain("Objectives unavailable");
 				expect(fetch).not.toHaveBeenCalled();
 				const retry = [...host.querySelectorAll("button")].find(
 					(button) => button.textContent === "Retry",
@@ -437,10 +437,10 @@ describe("PortfolioApp", () => {
 				onRetry={() => {}}
 			/>,
 		);
-		expect(html).toContain("Goals unavailable");
+		expect(html).toContain("Objectives unavailable");
 		expect(html).toContain('data-slot="load-error"');
 		expect(html).toContain("Retry");
-		expect(html).not.toContain("No goals yet");
+		expect(html).not.toContain("No objectives yet");
 	});
 
 	it("lists each goal with success, owner, status, projects, and epics", () => {
@@ -530,7 +530,7 @@ describe("PortfolioApp", () => {
 			render(seededClient()),
 			"text/html",
 		);
-		expect(doc.querySelector("h1")?.textContent).toBe("Goals");
+		expect(doc.querySelector("h1")?.textContent).toBe("Objectives");
 		expect(doc.body.textContent).toContain(
 			"All 6 projects in this organization, 5 active.",
 		);
@@ -692,7 +692,7 @@ describe("PortfolioApp", () => {
 		expect(doc.body.textContent).toContain("Last run failed: provider timeout");
 		expect(doc.body.textContent).not.toContain(runId);
 		expect(doc.querySelector(`a[href="/work/runs/${runId}"]`)).not.toBeNull();
-		const card = doc.querySelector('[aria-label="Nova factories"]');
+		const card = doc.querySelector('[aria-label="Nova skills"]');
 		expect(card?.className).toContain("break-inside-avoid");
 		expect(card?.parentElement?.className).toContain("columns-1");
 		expect(card?.parentElement?.className).toContain(
@@ -706,7 +706,7 @@ describe("PortfolioApp", () => {
 			render(seededClient()),
 			"text/html",
 		);
-		const nova = doc.querySelector('[aria-label="Nova factories"]');
+		const nova = doc.querySelector('[aria-label="Nova skills"]');
 		const digest = nova?.querySelector(
 			'[data-factory="skill_loop:skill-digest"]',
 		);
@@ -719,7 +719,7 @@ describe("PortfolioApp", () => {
 		).toBe("Weekly brief");
 		expect(digest?.textContent).not.toContain("Idle");
 		const crm = doc.querySelector(
-			'[aria-label="No tedi factories"] [data-factory="blueprint:bp-crm"]',
+			'[aria-label="No tedi skills"] [data-factory="blueprint:bp-crm"]',
 		);
 		expect(crm?.textContent).toContain("Idle");
 		expect(crm?.textContent).toContain("Nothing produced yet");

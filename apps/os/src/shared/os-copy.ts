@@ -425,8 +425,8 @@ const ENGLISH_COPY = {
 	],
 	chatFormats: ["Document", "Spreadsheet", "Presentation"],
 	work: {
-		objective: "Goal",
-		objectives: "Goals",
+		objective: "Objective",
+		objectives: "Objectives",
 		status: "Status",
 		owner: "Owner",
 		unassigned: ATTENTION_COPY.unassigned,

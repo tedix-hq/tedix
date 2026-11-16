@@ -2216,7 +2216,7 @@ describe("CanvasPage listing", () => {
 		expect(notice?.textContent).toContain(foreignOutputId);
 		expect(container.textContent).not.toContain("Pick a document");
 		expect(findButton(container, "Browse this workspace")).not.toBeNull();
-		expect(findButton(container, "Search all outputs")).not.toBeNull();
+		expect(findButton(container, "Search all documents")).not.toBeNull();
 		// The unresolvable param still leaves the URL, and never becomes a crash.
 		expect(routing.navigate).toHaveBeenCalledWith({
 			search: { pane: "workpiece" },
@@ -2240,7 +2240,7 @@ describe("CanvasPage listing", () => {
 		).toContain("This app is not in this workspace");
 		// A gadget only ever exists inside a workspace, so the org-wide Outputs
 		// library is not a path forward for one.
-		expect(container.textContent).not.toContain("Search all outputs");
+		expect(container.textContent).not.toContain("Search all documents");
 	});
 
 	it("keeps the safe empty picker when no workpiece is requested at all", async () => {

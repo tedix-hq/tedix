@@ -2323,7 +2323,7 @@ export function CanvasPage({
 													size="sm"
 													variant="secondary"
 												>
-													Search all outputs
+													Search all documents
 												</Button>
 											) : null}
 										</div>

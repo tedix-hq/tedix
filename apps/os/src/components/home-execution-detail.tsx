@@ -385,7 +385,7 @@ function DelegationEvidence({
 					<SectionHeading>
 						<SectionTitle>Artifacts</SectionTitle>
 						<SectionDescription>
-							Files and outputs {tediName} saved.
+							Files and documents {tediName} saved.
 						</SectionDescription>
 					</SectionHeading>
 					<Badge variant="secondary">{evidence.artifacts.length}</Badge>
