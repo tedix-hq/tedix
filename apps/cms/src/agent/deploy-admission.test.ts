@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { createD1Facade } from "@tedix/db/test/d1-facade";
 import { describe, expect, it, vi } from "vite-plus/test";
 import {
+	CMS_DEPLOY_JOB_ID_RE,
 	cmsDeployWorkflowInstanceId,
 	startCmsDeployWorkflow,
 } from "./deploy-admission";
@@ -164,6 +165,14 @@ describe("CMS deploy workflow admission", () => {
 			`cms-${SITE_ONE}-e0-v${Number.MAX_SAFE_INTEGER}-s${source}`,
 		);
 		expect(id.length).toBe(103);
+		// The gateway secret scan exempts job IDs only under this exact pattern.
+		expect(CMS_DEPLOY_JOB_ID_RE.source).toBe(
+			"^cms-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}-e[0-9]{1,16}-v[1-9][0-9]{0,15}(?:-s[a-f0-9]{40})?$",
+		);
+		expect(id).toMatch(CMS_DEPLOY_JOB_ID_RE);
+		expect(cmsDeployWorkflowInstanceId(SITE_ONE, "acme", 1, 0)).toMatch(
+			CMS_DEPLOY_JOB_ID_RE,
+		);
 		expect(id).not.toBe(
 			`cms-deploy-${"a".repeat(63)}-v${Number.MAX_SAFE_INTEGER}-s${source.slice(0, 12)}`,
 		);

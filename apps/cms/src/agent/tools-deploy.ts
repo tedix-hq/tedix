@@ -7,6 +7,7 @@ import {
 	startCmsSandboxBuild,
 } from "./build-runner";
 import { getActiveCmsSiteForPermit } from "./cms-restore-permit";
+import { CMS_DEPLOY_JOB_ID_RE } from "./deploy-admission";
 import {
 	buildCmsPublishReceipt,
 	parseCmsPublishJobId,
@@ -317,7 +318,10 @@ export function registerDeployTools(
 				"While the job is still running it reports the currently active bundle.",
 			inputSchema: schema(
 				z.object({
-					jobId: z.string().describe("Job ID returned from theme_deploy"),
+					jobId: z
+						.string()
+						.regex(CMS_DEPLOY_JOB_ID_RE)
+						.describe("Job ID returned from theme_deploy"),
 				}),
 			),
 			outputSchema: schema(
@@ -470,7 +474,10 @@ export function registerDeployTools(
 				"A completed job alone is not publication proof.",
 			inputSchema: schema(
 				z.object({
-					jobId: z.string().max(150),
+					jobId: z
+						.string()
+						.regex(CMS_DEPLOY_JOB_ID_RE)
+						.describe("Job ID returned from theme_deploy"),
 					expectedSourceCommit: z
 						.string()
 						.regex(/^[a-f0-9]{40}$/)

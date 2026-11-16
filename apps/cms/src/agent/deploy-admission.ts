@@ -48,6 +48,15 @@ export interface CmsDeployWorkflowBinding {
 	}>;
 }
 
+/**
+ * Exact shape of {@link cmsDeployWorkflowInstanceId}. Tools declare it as the
+ * jobId schema pattern; the MCP gateway's secret egress scan lets a long job
+ * ID through only under this identical pattern
+ * (apps/mcp/src/mcp/utils/secret-egress-scan.ts EXEMPT_IDENTIFIER_PATTERNS).
+ */
+export const CMS_DEPLOY_JOB_ID_RE =
+	/^cms-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}-e[0-9]{1,16}-v[1-9][0-9]{0,15}(?:-s[a-f0-9]{40})?$/;
+
 export function cmsDeployWorkflowInstanceId(
 	siteId: string,
 	orgSlug: string,

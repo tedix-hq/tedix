@@ -14,13 +14,26 @@ import {
  * opaque token" check is skipped only for content Tedix can positively
  * identify: base64 file bytes (by file signature, or a field the tool schema or
  * the argument shape declares as file content) and declared pagination
- * cursors, plus full Git commit IDs constrained by a schema pattern. Base64
- * that decodes to text is scanned as that text.
+ * cursors, plus structured identifiers (full Git commit IDs, CMS deploy job
+ * IDs) constrained by the exact schema pattern below. Base64 that decodes to
+ * text is scanned as that text.
  *
  * @module @tedix/mcp/secret-egress-scan
  */
 
 type JsonSchema = Record<string, unknown>;
+
+/**
+ * Schema patterns whose values are structured identifiers, not credentials.
+ * The tool must declare the identical pattern string and the value must match
+ * it; every random part is a lowercase hex UUID or Git commit ID.
+ */
+export const EXEMPT_IDENTIFIER_PATTERNS = [
+	// Full Git commit ID.
+	"^[a-f0-9]{40}$",
+	// CMS theme deploy job: cms-<site uuid>-e<restore epoch>-v<bundle version>[-s<commit>].
+	"^cms-[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}-e[0-9]{1,16}-v[1-9][0-9]{0,15}(?:-s[a-f0-9]{40})?$",
+] as const;
 
 const FILE_CONTENT_KEYS = new Set([
 	"base64",
@@ -223,15 +236,14 @@ function scan(
 	role: StringRole,
 ): string | null {
 	if (typeof value === "string") {
-		// Only the exact schema constraint exempts a hash from the opaque-token
-		// heuristic; a commit-like field name alone cannot exempt credentials.
-		if (
-			/^[a-f0-9]{40}$/.test(value) &&
+		// Only an exact schema constraint exempts a structured identifier from
+		// the opaque-token heuristic; a field name alone cannot exempt credentials.
+		const exempt = EXEMPT_IDENTIFIER_PATTERNS.find((pattern) =>
 			schemaVariants(schema).some(
-				(variant) =>
-					variant.type === "string" && variant.pattern === "^[a-f0-9]{40}$",
-			)
-		) {
+				(variant) => variant.type === "string" && variant.pattern === pattern,
+			),
+		);
+		if (exempt && new RegExp(exempt).test(value)) {
 			return findHighConfidencePattern(value);
 		}
 		return scanString(value, role);
