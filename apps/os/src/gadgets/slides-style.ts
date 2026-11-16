@@ -125,6 +125,7 @@ body{padding:0!important;min-height:560px;overflow:hidden}
 .slides-app .slides-selbar .slides-selbar-chip[aria-pressed=true]{outline:2px solid var(--primary);outline-offset:1px}
 .slides-selbar-size{min-width:22px;text-align:center;font-variant-numeric:tabular-nums}
 .slides-selbar-gap{width:1px;height:18px;margin:0 3px;background:var(--line)}
+::highlight(slides-added){background-color:color-mix(in srgb,var(--tedix-primary,#3669e8) 28%,transparent)}
 .slides-inline-editor::placeholder{color:var(--muted-fg);opacity:.8}
 .slides-guide{position:absolute;background:var(--tedix-primary,#3669e8)}
 .slides-guide.v{top:0;bottom:0;width:1px}

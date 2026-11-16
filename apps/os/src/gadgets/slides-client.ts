@@ -12,6 +12,7 @@ import {
 	slideArrowEndpoints,
 	slideDeckLogo,
 	slideElementBox,
+	slideElementMarkup,
 	type PresentationAppearance,
 } from "@tedix/api-contract/utils/presentation-style";
 import {
@@ -31,6 +32,7 @@ import { createSlideLinkedImages } from "../lib/slide-linked-images";
 import { isLargeEmbeddedImage } from "@tedix/api-contract/utils/os-output-assets";
 import { lastingSaveFailure } from "../lib/save-failure";
 import { createOutputSync } from "../lib/output-sync";
+import { addedWordRanges } from "../lib/word-diff";
 import {
 	createLandedChanges,
 	landedDelay,
@@ -95,6 +97,8 @@ type Context = {
 type Handle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
 /** The ends of an arrow, which drag on their own. */
 type Grip = Handle | "from" | "to";
+/** The parts of a card or box written separately. */
+type CardPart = "eyebrow" | "title" | "body";
 type FieldOptions = {
 	type?: string;
 	min?: number;
@@ -459,6 +463,7 @@ export async function mountSlidesClient(
 				collapse?: string;
 				// A click on the one selected text element starts writing in it.
 				write?: string;
+				part?: CardPart;
 				targets?: SnapTargets;
 				marquee?: { node: HTMLElement; base: Set<string> };
 		  }
@@ -466,6 +471,9 @@ export async function mountSlidesClient(
 	/** On-screen pixels per slide pixel, or undefined to fit the slide. */
 	let zoom: number | undefined;
 	let measureAuto = false;
+	/** Elements whose added words to light up next, with their text before. */
+	let words = new Map<string, OsPresentationElement>(),
+		wordsTimer: ReturnType<typeof setTimeout> | undefined;
 	let editing: HTMLTextAreaElement | undefined, editingId: string | undefined;
 	let inspectorOpen = false,
 		advancedOpen = false,
@@ -1040,7 +1048,7 @@ export async function mountSlidesClient(
 		node.tabIndex = 0;
 		node.setAttribute("role", "button");
 		node.onpointerdown = (event) => beginPointer(event, id, null);
-		node.ondblclick = () => beginText(id);
+		node.ondblclick = (event) => beginText(id, partAt(event));
 		node.onanimationend = () => node.classList.remove("fresh");
 		node.onkeydown = (event) => {
 			if (event.target !== node) return;
@@ -2219,6 +2227,7 @@ export async function mountSlidesClient(
 			measureAuto = false;
 			recordAutoHeights();
 		}
+		if (words.size) markWords();
 		renderInspector();
 		renderSelbar();
 		if (document.activeElement !== notes) notes.value = active()?.notes ?? "";
@@ -2395,6 +2404,7 @@ export async function mountSlidesClient(
 			moved: false,
 			collapse,
 			write,
+			part: partAt(event),
 		};
 		if (handle) capture(event.pointerId);
 	}
@@ -2605,7 +2615,7 @@ export async function mountSlidesClient(
 			selectOnly(gesture.collapse);
 			render();
 		} else if (gesture.write && event.type === "pointerup")
-			beginText(gesture.write);
+			beginText(gesture.write, gesture.part);
 		// A save that waited for this gesture goes out now.
 		scheduleSave();
 		refreshExternal();
@@ -2647,7 +2657,16 @@ export async function mountSlidesClient(
 
 	// ---- Writing on the slide ----
 
-	function beginText(elementId: string) {
+	/** The card or box part (eyebrow, title, body) under a pointer event. */
+	function partAt(event: Event): CardPart | undefined {
+		const part = (event.target as HTMLElement | null)?.closest?.<HTMLElement>(
+			"[data-slide-part]",
+		)?.dataset.slidePart;
+		return part === "eyebrow" || part === "title" || part === "body"
+			? part
+			: undefined;
+	}
+	function beginText(elementId: string, part?: CardPart) {
 		const element = active()?.elements.find((row) => row.id === elementId);
 		if (!element || !canWrite() || NO_TEXT.includes(element.type)) return;
 		if (editingId === elementId) return;
@@ -2660,11 +2679,32 @@ export async function mountSlidesClient(
 		input.className = "slides-inline-editor";
 		input.setAttribute("aria-label", "Edit canvas text");
 		input.placeholder = "Type here";
-		// A card or box shows its title in place of its text when it has one.
-		const titled =
-			(element.type === "card" || element.type === "box") &&
-			element.props?.title !== undefined;
-		input.value = (titled ? element.props?.title : element.text) ?? "";
+		// A card or box is written part by part: the one clicked, else its
+		// title, which shows the element's text when it has no title of its own.
+		const container = element.type === "card" || element.type === "box";
+		const key: CardPart | "text" = !container
+			? "text"
+			: part && part !== "title"
+				? part
+				: element.props?.title !== undefined
+					? "title"
+					: "text";
+		input.value = (key === "text" ? element.text : element.props?.[key]) ?? "";
+		// The editor takes the look of the part it replaces.
+		const shown = entry.node.querySelector<HTMLElement>(
+			`[data-slide-part="${part ?? "title"}"]`,
+		);
+		if (container && shown) {
+			const look = getComputedStyle(shown);
+			for (const name of [
+				"font-size",
+				"font-weight",
+				"line-height",
+				"color",
+				"text-transform",
+			])
+				input.style.setProperty(name, look.getPropertyValue(name), "important");
+		}
 		entry.node.replaceChildren(input);
 		entry.element = undefined;
 		editing = input;
@@ -2690,9 +2730,9 @@ export async function mountSlidesClient(
 				remembered = true;
 			}
 			updateElement(
-				titled
-					? { ...current, props: { ...current.props, title: input.value } }
-					: { ...current, text: input.value },
+				key === "text"
+					? { ...current, text: input.value }
+					: { ...current, props: { ...current.props, [key]: input.value } },
 			);
 			changed(true);
 			controls();
@@ -2867,6 +2907,19 @@ export async function mountSlidesClient(
 		}
 		if (!found.size) return;
 		lit = found;
+		// Text changed on the slide in view lights up word by word.
+		const here = active();
+		const was = here && old.get(here.id);
+		words = new Map(
+			(here?.elements ?? []).flatMap((element) => {
+				const previous = was?.elements.find((row) => row.id === element.id);
+				return previous &&
+					!NO_TEXT.includes(element.type) &&
+					found.get(here!.id)?.has(element.id)
+					? [[element.id, previous] as const]
+					: [];
+			}),
+		);
 		if (canFollow() && !found.has(active()?.id ?? ""))
 			viewedId = found.keys().next().value;
 		clearTimeout(litTimer);
@@ -3308,6 +3361,67 @@ export async function mountSlidesClient(
 				: [];
 		});
 		if (next.length) updateElements(next);
+	}
+	/**
+	 * Light up the words someone else just added, without touching the slide's
+	 * markup: a CSS highlight over ranges of the drawn text. Browsers without
+	 * highlights still show the element's own glow.
+	 */
+	function markWords() {
+		const pending = words;
+		words = new Map();
+		const registry = globalThis as {
+			CSS?: { highlights?: Map<string, unknown> };
+			Highlight?: new (...ranges: Range[]) => unknown;
+		};
+		const highlights = registry.CSS?.highlights,
+			Highlight = registry.Highlight;
+		if (!highlights || !Highlight) return;
+		const ranges: Range[] = [];
+		for (const [id, before] of pending) {
+			const node = stageNodes.get(id)?.node;
+			if (!node) continue;
+			const probe = document.createElement("div");
+			probe.innerHTML = slideElementMarkup(
+				before,
+				"canvas",
+				context.appearance,
+			);
+			const text = node.textContent ?? "";
+			const added = addedWordRanges(probe.textContent ?? "", text);
+			if (!added.length) continue;
+			// Walk the drawn text once, cutting a range for each added stretch.
+			const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+			let offset = 0,
+				current: Node | null;
+			const spots: Array<[Node, number]> = [];
+			while ((current = walker.nextNode())) {
+				spots.push([current, offset]);
+				offset += current.textContent?.length ?? 0;
+			}
+			const at = (position: number): [Node, number] | undefined => {
+				for (let index = spots.length - 1; index >= 0; index--) {
+					const [textNode, start] = spots[index]!;
+					if (position >= start) return [textNode, position - start];
+				}
+			};
+			for (const [start, end] of added) {
+				const from = at(start),
+					to = at(end);
+				if (!from || !to) continue;
+				const range = document.createRange();
+				range.setStart(...from);
+				range.setEnd(...to);
+				ranges.push(range);
+			}
+		}
+		if (!ranges.length) return;
+		highlights.set("slides-added", new Highlight(...ranges));
+		clearTimeout(wordsTimer);
+		wordsTimer = setTimeout(
+			() => highlights.delete("slides-added"),
+			LANDED_SHOWN_MS + 1_600,
+		);
 	}
 	/** Switch between viewing and editing. Leaving edit mode keeps every change. */
 	function setMode(edit: boolean, draw = true) {
@@ -3900,6 +4014,7 @@ export async function mountSlidesClient(
 				pillTimer,
 				litTimer,
 				offerTimer,
+				wordsTimer,
 			])
 				clearTimeout(timer);
 			fitObserver?.disconnect();
