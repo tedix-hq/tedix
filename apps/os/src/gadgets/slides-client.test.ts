@@ -69,6 +69,33 @@ const move = (x: number, y: number, pointerId = 1, altKey = false) =>
 			altKey,
 		}),
 	);
+const pressWith = (id: string, init: PointerEventInit) =>
+	stageElement(id).dispatchEvent(
+		new PointerEvent("pointerdown", {
+			bubbles: true,
+			button: 0,
+			pointerId: 1,
+			clientX: 100,
+			clientY: 80,
+			...init,
+		}),
+	);
+const pressSlide = (x: number, y: number, init: PointerEventInit = {}) =>
+	document.querySelector(".slides-stage .slides-background")!.dispatchEvent(
+		new PointerEvent("pointerdown", {
+			bubbles: true,
+			button: 0,
+			pointerId: 1,
+			clientX: x,
+			clientY: y,
+			...init,
+		}),
+	);
+const chosenIds = () =>
+	[...document.querySelectorAll<HTMLElement>(".slides-stage .selected")].map(
+		(node) => node.dataset.elementId,
+	);
+const grips = () => document.querySelectorAll(".slides-stage .slides-resize");
 const release = (pointerId = 1) =>
 	stage().dispatchEvent(new PointerEvent("pointerup", { pointerId }));
 const clickElement = (id = "title-1") => {
@@ -859,6 +886,140 @@ describe("portable Slides canvas", () => {
 		expect(document.querySelectorAll(".slides-guide")).toHaveLength(0);
 		format();
 		expect(field("X").value).toBe("200");
+	});
+	describe("several selected elements", () => {
+		const elementsOf = async (api: Awaited<ReturnType<typeof mount>>) => {
+			await api.app.save();
+			return Object.fromEntries(
+				api
+					.result()
+					.revision.content.deck!.slides[0]!.elements.map((element) => [
+						element.id,
+						{ x: element.x, y: element.y },
+					]),
+			);
+		};
+		const selectBoth = () => {
+			clickElement();
+			pressWith("artwork", { shiftKey: true });
+			release();
+		};
+		it("adds and removes elements with Shift, Cmd or Ctrl, and shows resize handles only for one", async () => {
+			await mount();
+			clickElement();
+			expect(chosenIds()).toEqual(["title-1"]);
+			expect(grips().length).toBeGreaterThan(0);
+			pressWith("artwork", { shiftKey: true });
+			release();
+			expect(chosenIds()).toEqual(["title-1", "artwork"]);
+			expect(grips()).toHaveLength(0);
+			format();
+			expect(document.querySelector("#properties h2")?.textContent).toBe(
+				"2 elements",
+			);
+			pressWith("title-1", { metaKey: true });
+			release();
+			expect(chosenIds()).toEqual(["artwork"]);
+			expect(grips().length).toBeGreaterThan(0);
+			pressWith("title-1", { ctrlKey: true });
+			release();
+			expect(chosenIds()).toEqual(["title-1", "artwork"]);
+			// A plain click on one of them, without dragging, selects only that one.
+			clickElement("artwork");
+			expect(chosenIds()).toEqual(["artwork"]);
+		});
+		it("selects what a box drawn over the empty slide touches, adding to the selection with Shift", async () => {
+			await mount();
+			fullSizeStage();
+			pressSlide(20, 20);
+			move(300, 200);
+			expect(document.querySelector(".slides-marquee")).not.toBeNull();
+			expect(chosenIds()).toEqual(["title-1"]);
+			release();
+			expect(document.querySelector(".slides-marquee")).toBeNull();
+			expect(chosenIds()).toEqual(["title-1"]);
+			pressSlide(20, 230, { shiftKey: true });
+			move(200, 300);
+			release();
+			expect(chosenIds()).toEqual(["title-1", "artwork"]);
+			// Without Shift a new box starts over, and a plain click clears it.
+			pressSlide(20, 230);
+			move(200, 300);
+			release();
+			expect(chosenIds()).toEqual(["artwork"]);
+			pressSlide(1100, 600);
+			release();
+			expect(chosenIds()).toEqual([]);
+		});
+		it("drags the whole selection as one change and one undo step, snapping the group's box", async () => {
+			const api = await mount();
+			fullSizeStage();
+			selectBoth();
+			press("title-1", 100, 80);
+			move(150, 110, 1, true);
+			expect(api.draftWrites()).toBe(0);
+			release();
+			expect(api.draftWrites()).toBe(1);
+			expect(chosenIds()).toEqual(["title-1", "artwork"]);
+			expect(await elementsOf(api)).toEqual({
+				"title-1": { x: 122, y: 90 },
+				artwork: { x: 150, y: 270 },
+			});
+			button("undo").click();
+			expect(button("undo").disabled).toBe(true);
+			expect(await elementsOf(api)).toEqual({
+				"title-1": { x: 72, y: 60 },
+				artwork: { x: 100, y: 240 },
+			});
+			// The group's centre lands two units from the slide's centre and snaps.
+			press("artwork", 100, 80);
+			move(226, 80);
+			expect(document.querySelectorAll(".slides-guide.v")).toHaveLength(1);
+			release();
+			expect(await elementsOf(api)).toEqual({
+				"title-1": { x: 200, y: 60 },
+				artwork: { x: 228, y: 240 },
+			});
+		});
+		it("nudges and deletes the whole selection", async () => {
+			const api = await mount();
+			selectBoth();
+			key(stage(), { key: "ArrowRight" });
+			key(stage(), { key: "ArrowRight" });
+			key(stage(), { key: "ArrowDown", shiftKey: true });
+			expect(await elementsOf(api)).toEqual({
+				"title-1": { x: 74, y: 70 },
+				artwork: { x: 102, y: 250 },
+			});
+			button("undo").click();
+			expect(button("undo").disabled).toBe(true);
+			expect(chosenIds()).toEqual(["title-1", "artwork"]);
+			key(stage(), { key: "Delete" });
+			expect(chosenIds()).toEqual([]);
+			expect(await elementsOf(api)).toEqual({});
+			button("undo").click();
+			expect(Object.keys(await elementsOf(api))).toEqual([
+				"title-1",
+				"artwork",
+			]);
+		});
+		it("keeps the selection when someone else's save lands, minus what they removed", async () => {
+			const api = await mount();
+			selectBoth();
+			api.externalDeck((deck) => ({
+				...deck,
+				slides: deck.slides.map((slide) => ({
+					...slide,
+					elements: slide.elements.filter(
+						(element) => element.id !== "artwork",
+					),
+				})),
+			}));
+			api.notify();
+			await vi.waitFor(() => expect(stageElement("artwork")).toBeNull());
+			expect(chosenIds()).toEqual(["title-1"]);
+			expect(grips().length).toBeGreaterThan(0);
+		});
 	});
 	it("folds a run of arrow-key nudges into one undo step", async () => {
 		const api = await mount();
