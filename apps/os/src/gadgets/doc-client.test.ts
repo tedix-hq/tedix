@@ -669,7 +669,7 @@ describe("portable rich Doc client", () => {
 		submit();
 		expect(editor.isActive("link")).toBe(false);
 	});
-	it("restores a tab draft after an authorized read and asks before it replaces a newer save", async () => {
+	it("restores a tab draft after an authorized read, keeps it over a newer save to the same words and offers theirs", async () => {
 		const test = fixture(),
 			first = await test.mount();
 		fakeClock();
@@ -687,16 +687,21 @@ describe("portable rich Doc client", () => {
 		expect(second.root.textContent).toContain("Restored your unsaved changes");
 		await second.mounted.save();
 		expect(second.editor.getText()).toContain("My draft");
-		expect(second.mounted.dirty).toBe(true);
-		expect(second.root.textContent).toContain("Keep mine");
+		expect(second.root.textContent).toContain("Your version was kept");
+		expect(second.root.textContent).not.toContain("Keep mine");
 		expect(second.root.textContent).not.toMatch(/revision/i);
+		await second.mounted.save();
+		expect(second.mounted.dirty).toBe(false);
 		click(second.root, "Use theirs");
 		await vi.waitFor(() =>
 			expect(second.editor.getText()).toBe("Newer saved version"),
 		);
+		await second.mounted.save();
 		expect(second.mounted.dirty).toBe(false);
+		expect(test.persisted().richText!.content[0]!.content![0]!.text).toBe(
+			"Newer saved version",
+		);
 		expect(test.retained()).toBeNull();
-		expect(statusText(second.root)).toBe("");
 	});
 	it("merges a restored draft with a newer save to another paragraph without asking", async () => {
 		const paragraphs = (...values: string[]) => ({
@@ -732,7 +737,7 @@ describe("portable rich Doc client", () => {
 			expect.objectContaining({ revision: basis }),
 		);
 	});
-	it("keeps a restored draft over a newer save when asked to", async () => {
+	it("keeps and saves a restored draft over a newer save to the same words without asking", async () => {
 		const test = fixture(),
 			first = await test.mount();
 		fakeClock();
@@ -746,8 +751,6 @@ describe("portable rich Doc client", () => {
 		test.external("Newer saved version");
 		const second = await test.mount();
 		await second.mounted.save();
-		click(second.root, "Keep mine");
-		await vi.waitFor(() => expect(second.mounted.dirty).toBe(true));
 		await second.mounted.save();
 		expect(second.mounted.dirty).toBe(false);
 		expect(test.persisted().richText!.content[0]!.content![0]!.text).toBe(
@@ -879,7 +882,7 @@ describe("portable rich Doc client", () => {
 			);
 		expect(merged.attrs).toMatchObject({ textAlign: "right", indent: 2 });
 	});
-	it("asks only about the words both changed and keeps the rest from both", async () => {
+	it("keeps the person's words where both changed them, the rest from both, and can bring theirs back", async () => {
 		const test = fixture(),
 			{ root, editor } = await test.mount();
 		const text = (value: string) => ({
@@ -897,28 +900,34 @@ describe("portable rich Doc client", () => {
 			.insertContentAt({ from: at("The"), to: at("The") + 3 }, "Our")
 			.run();
 		test.external(text("The launch is on Sunday and the owner is Bob."));
-		await vi.waitFor(() => expect(root.textContent).toContain("Keep mine"));
-		expect(root.textContent).toContain("the same words");
-		click(root, "Keep mine");
 		await vi.waitFor(() =>
 			expect(editor.getText()).toBe(
 				"Our launch is on Friday and the owner is Bob.",
 			),
 		);
+		expect(root.textContent).toContain("the same words");
+		click(root, "Use theirs");
+		await vi.waitFor(() =>
+			expect(editor.getText()).toBe(
+				"Our launch is on Sunday and the owner is Bob.",
+			),
+		);
 	});
-	it("asks which version to keep only when both edited the same paragraph", async () => {
+	it("keeps saving through a clash on the same paragraph and lets the person take theirs", async () => {
 		const test = fixture(),
 			{ root, editor, mounted } = await test.mount();
 		editor.commands.insertContentAt(1, "Mine ");
 		test.external("Theirs");
-		await vi.waitFor(() => expect(root.textContent).toContain("Keep mine"));
+		await vi.waitFor(() =>
+			expect(root.textContent).toContain("Your version was kept"),
+		);
 		expect(root.textContent).not.toMatch(/revision/i);
 		expect(editor.getText()).toContain("Mine Original");
 		await mounted.save();
-		expect(saves(test)).toBe(0);
+		expect(saves(test)).toBe(1);
 		click(root, "Use theirs");
 		await vi.waitFor(() => expect(editor.getText()).toBe("Theirs"));
-		expect(statusText(root)).toBe("");
+		await mounted.save();
 		expect(mounted.dirty).toBe(false);
 	});
 	it("lets someone invited to edit through a link write, without the picture and file exports their page lacks", async () => {

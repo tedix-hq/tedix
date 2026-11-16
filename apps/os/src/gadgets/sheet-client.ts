@@ -286,8 +286,20 @@ export async function mountSheetClient(
 	let copied:
 		| { data: CopiedCells; row: number; column: number; cut?: boolean }
 		| undefined;
-	const undo: Content[] = [],
-		redo: Content[] = [];
+	/**
+	 * Undo and redo steps. Each remembers how many changes from others had
+	 * arrived when it was taken, so stepping back replays those changes on top
+	 * and never reverts someone else's work.
+	 */
+	type Step = { content: Content; seen: number };
+	const undo: Step[] = [],
+		redo: Step[] = [];
+	// Others' changes since the oldest step, in order: the sheet before and after.
+	let arrived: Array<{ before: Content; after: Content }> = [],
+		arrivedFrom = 0;
+	// After a clash on the same cells: the sheet as kept, and with their cells.
+	let clash: { kept: Content; theirs: Content } | undefined,
+		clashTimer: ReturnType<typeof setTimeout> | undefined;
 	let retainedConflict: RetainedDraft | undefined,
 		// Looking at changes from an earlier visit that were never saved.
 		reviewing = false;
@@ -601,6 +613,8 @@ export async function mountSheetClient(
 		copied = undefined;
 		saveError = "";
 		undo.length = redo.length = 0;
+		arrived = [];
+		clash = undefined;
 		resetGrid();
 		tabs.replaceChildren();
 		tabButtons.replaceChildren();
@@ -639,7 +653,7 @@ export async function mountSheetClient(
 		if (!editable()) return;
 		commitCell();
 		commitFormula();
-		undo.push(structuredClone(draft!));
+		undo.push(step());
 		if (undo.length > OS_EDITOR_UNDO_STEPS) undo.shift();
 		redo.length = 0;
 		change();
@@ -1486,13 +1500,43 @@ export async function mountSheetClient(
 					if (sheet().rows[row]?.[col]) put(row, col, "");
 		});
 	}
-	function history(from: Content[], to: Content[]) {
+	const step = (): Step => ({
+		content: structuredClone(draft!),
+		seen: arrivedFrom + arrived.length,
+	});
+	/** Note someone else's change, so undo steps taken before it keep it. */
+	function arrive(before: Content, after: Content) {
+		if (!undo.length && !redo.length) {
+			arrivedFrom += arrived.length;
+			arrived = [];
+			return;
+		}
+		arrived.push({ before, after: structuredClone(after) });
+		// Changes older than every remaining step are never replayed again.
+		const oldest = Math.min(...[...undo, ...redo].map((entry) => entry.seen));
+		if (oldest > arrivedFrom) {
+			arrived = arrived.slice(oldest - arrivedFrom);
+			arrivedFrom = oldest;
+		}
+	}
+	/** A step's sheet with every change from others since it was taken. */
+	function replay(entry: Step): Content {
+		let content = entry.content;
+		for (const change of arrived.slice(Math.max(0, entry.seen - arrivedFrom))) {
+			const result = mergeOutputContent(change.before, content, change.after, {
+				prefer: "theirs",
+			});
+			content = result.ok ? (result.content as Content) : change.after;
+		}
+		return content;
+	}
+	function history(from: Step[], to: Step[]) {
 		if (!editable()) return;
 		commitCell();
 		commitFormula();
 		if (!from.length) return;
-		to.push(structuredClone(draft!));
-		draft = from.pop()!;
+		to.push(step());
+		draft = replay(from.pop()!);
 		mark();
 		syncGrid();
 		scheduleCalculation();
@@ -2527,7 +2571,12 @@ export async function mountSheetClient(
 			);
 			return;
 		}
-		if (offering && landed.undoable)
+		if (clash)
+			banner(
+				"Someone else changed the same cells. Your version was kept and saved.",
+				[["Use theirs", "theirs", () => void useTheirs()]],
+			);
+		else if (offering && landed.undoable)
 			banner("An agent changed this sheet.", [
 				["Undo agent change", "undo", undoLanded],
 			]);
@@ -2546,6 +2595,35 @@ export async function mountSheetClient(
 		if (dirty) {
 			if (current > choice) void mergeLatest();
 		} else void refresh();
+	}
+	/** Offer the other person's cells for a while after a clash kept the person's. */
+	function offerTheirs(offered: NonNullable<typeof clash>) {
+		clash = offered;
+		clearTimeout(clashTimer);
+		clashTimer = setTimeout(() => {
+			clash = undefined;
+			external();
+		}, LANDED_UNDO_MS);
+	}
+	/**
+	 * Put their cells back where the clash was, keeping everything the person
+	 * changed since: their version is merged into the current sheet.
+	 */
+	async function useTheirs() {
+		const offered = clash;
+		clash = undefined;
+		clearTimeout(clashTimer);
+		if (!offered || !draft || !editable()) return external();
+		const result = mergeOutputContent(offered.kept, draft, offered.theirs, {
+			prefer: "theirs",
+		});
+		if (!result.ok) return external();
+		const next = await evaluate(result.content as Content);
+		if (destroyed) return;
+		edit(() => {
+			draft = next;
+		});
+		external();
 	}
 	/** Show someone else's save in place when nothing here is unsaved. */
 	async function refresh() {
@@ -2572,9 +2650,7 @@ export async function mountSheetClient(
 			loaded = latest;
 			basis = latest.revision.revision;
 			adopt(content);
-			// Undo steps were taken against the old sheet; replaying them would
-			// silently revert the other person's changes.
-			undo.length = redo.length = 0;
+			arrive(before!, draft!);
 			q("h1").textContent = latest.output.title;
 			land(before, savedByAgent(latest.revision));
 			syncGrid();
@@ -2633,10 +2709,26 @@ export async function mountSheetClient(
 				return true;
 			};
 			if (stale()) return;
-			const result = mergeOutputContent(base, draft, theirs, { prefer });
+			let result = mergeOutputContent(base, draft, theirs, { prefer });
+			let clashed: typeof clash;
 			if (!result.ok) {
-				choice = latest.revision.revision;
-				return;
+				// Both changed the same cells: the person's stay and keep saving,
+				// and their cells can be brought back from the note.
+				const kept = mergeOutputContent(base, draft, theirs, {
+						prefer: "mine",
+					}),
+					other = mergeOutputContent(base, draft, theirs, {
+						prefer: "theirs",
+					});
+				if (!kept.ok || !other.ok) {
+					choice = latest.revision.revision;
+					return;
+				}
+				clashed = {
+					kept: kept.content as Content,
+					theirs: other.content as Content,
+				};
+				result = kept;
 			}
 			const merged = await evaluate(result.content as Content);
 			if (destroyed || stale()) return;
@@ -2646,9 +2738,8 @@ export async function mountSheetClient(
 			basis = latest.revision.revision;
 			adopt(merged);
 			generation++;
-			// Undo steps were taken against the old sheet; replaying them would
-			// silently revert the other person's changes.
-			undo.length = redo.length = 0;
+			arrive(before!, draft!);
+			if (clashed) offerTheirs(clashed);
 			land(before, savedByAgent(latest.revision));
 			syncGrid();
 			showLanded();
@@ -2767,6 +2858,8 @@ export async function mountSheetClient(
 			formulaDirty = false;
 			saveDeadline = retryDelay = retryAt = 0;
 			undo.length = redo.length = 0;
+			arrived = [];
+			clash = undefined;
 			q("h1").textContent = result.output.title;
 			busy = false;
 			controls();

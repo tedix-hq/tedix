@@ -509,7 +509,7 @@ describe("Portable Sheet grid", () => {
 				.map((row) => row[1]!.value),
 		).toEqual([4, 3]);
 	});
-	it("shows another person's save in place, and asks only when both changed one cell", async () => {
+	it("shows another person's save in place, and keeps the person's value when both changed one cell", async () => {
 		const app = await editor();
 		const first = cell("A1");
 		select("B2");
@@ -525,13 +525,13 @@ describe("Portable Sheet grid", () => {
 		expect(display("C1")).toBe("10");
 		app.changeExternal(4);
 		await app.settle();
-		expect(q("#updates").textContent).toContain("Choose which version to keep");
+		expect(q("#updates").textContent).toContain("Your version was kept");
 		expect(q("#updates").textContent).not.toMatch(/revision/i);
-		expect(app.saved().rows[0]![0]).toBe(4);
 		expect(display("C1")).toBe("10");
 		expect(q<HTMLInputElement>("#formula").disabled).toBe(false);
 		choose("theirs");
 		await app.settle();
+		await vi.advanceTimersByTimeAsync(10);
 		expect(display("C1")).toBe("6");
 		expect(q("#updates").textContent).toBe("");
 		vi.useRealTimers();
@@ -607,18 +607,30 @@ describe("Portable Sheet grid", () => {
 			expect(display("A1")).toBe("$9.00");
 		});
 	});
-	it("keeps the chosen value for a cell both people edited, then saves the merge", async () => {
+	it("keeps the person's value for a cell both people edited and saves the merge without asking", async () => {
 		const app = await editor();
 		edit("A1", "8");
 		await vi.waitFor(() => expect(display("C1")).toBe("10"));
 		app.changeExternal(4);
 		await vi.waitFor(() =>
-			expect(q("#updates").textContent).toContain("Keep mine"),
+			expect(q("#updates").textContent).toContain("Your version was kept"),
 		);
-		choose("mine");
 		await vi.waitFor(() => expect(app.revision()).toBe(3));
 		expect(display("C1")).toBe("10");
 		expect(app.saved().rows[0]![0]).toBe(8);
+	});
+	it("keeps undo working after someone else's save, without undoing their change", async () => {
+		const app = await editor();
+		edit("B1", "5");
+		await vi.waitFor(() => expect(display("C1")).toBe("6"));
+		app.changeExternal(4);
+		await vi.waitFor(() => expect(display("C1")).toBe("9"));
+		expect(q<HTMLButtonElement>("#undo").disabled).toBe(false);
+		q<HTMLButtonElement>("#undo").click();
+		// Their 4 in A1 stays; only the person's own 5 in B1 goes back to 2.
+		await vi.waitFor(() => expect(display("C1")).toBe("6"));
+		expect(display("B1")).toBe("2");
+		expect(app.saved().rows[0]![0]).toBe(4);
 	});
 	it("merges someone else's save into unsaved changes to a different cell and saves both", async () => {
 		const app = await editor();

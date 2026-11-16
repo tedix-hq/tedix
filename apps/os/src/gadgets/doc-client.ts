@@ -128,6 +128,11 @@ export async function mountDocClient(
 		}),
 		input = watchForInput(window);
 	let offering = false;
+	/**
+	 * After a clash on the same words, the version that was kept and the one
+	 * with their words there, for "Use theirs" while it is offered.
+	 */
+	let clash: { kept: DocumentContent; theirs: DocumentContent } | undefined;
 	const buttons: {
 		node: HTMLButtonElement;
 		active?: () => boolean;
@@ -146,6 +151,8 @@ export async function mountDocClient(
 		clearTimeout(statusTimer);
 		mark();
 		offering = false;
+		// Any other message replaces the "Use theirs" offer.
+		clash = undefined;
 		status.textContent = text;
 		status.dataset.error = String(error);
 		for (const [label, run] of actions) {
@@ -435,18 +442,56 @@ export async function mountDocClient(
 		);
 		say("Agent change undone.", false, [], true);
 	}
-	function ask(whole = false) {
+	/**
+	 * Only when the version unsaved changes started from is gone can nothing
+	 * be combined; then the person chooses which whole version stays.
+	 */
+	function ask() {
 		clearTimeout(saveTimer);
 		say(
-			whole
-				? "Your unsaved changes on this device started from a version that is no longer stored, so they cannot be combined with the newer saved version. Which whole version should stay?"
-				: "Someone else changed the same words. Which version should stay there?",
+			"Your unsaved changes on this device started from a version that is no longer stored, so they cannot be combined with the newer saved version. Which whole version should stay?",
 			false,
 			[
 				["Keep mine", () => void sync("mine")],
 				["Use theirs", () => void sync("theirs")],
 			],
 		);
+	}
+	/** Say that a clash kept the person's words, and offer theirs for a while. */
+	function offerTheirs(offered: NonNullable<typeof clash>) {
+		say(
+			"Someone else changed the same words. Your version was kept and saved.",
+			false,
+			[["Use theirs", useTheirs]],
+		);
+		clash = offered;
+		statusTimer = setTimeout(() => say(), LANDED_UNDO_MS);
+	}
+	/**
+	 * Put their words back where the clash was, keeping everything the person
+	 * wrote since: their version is merged into the current one.
+	 */
+	function useTheirs() {
+		const offered = clash;
+		clash = undefined;
+		if (!offered || !editor?.isEditable) return say();
+		const result = mergeOutputContent(
+			normalized(offered.kept),
+			snapshot(),
+			normalized(offered.theirs),
+			{ prefer: "theirs", documentBlocks: blocksFromRichText },
+		);
+		if (!result.ok) return say();
+		const before = editor.state.doc;
+		show(check(result.content as DocumentContent), true);
+		if (!before.eq(editor.state.doc)) changed();
+		say("Their words are back.", false, [], true);
+	}
+	/** A document as this editor writes it, so comparisons see real changes only. */
+	function normalized(value: DocumentContent): DocumentContent {
+		return value.richText
+			? { ...value, richText: check(value).toJSON() as OsRichTextDocument }
+			: value;
 	}
 	/**
 	 * Bring a newer saved copy into the editor. Changes to different parts
@@ -463,29 +508,39 @@ export async function mountDocClient(
 	) {
 		const saved = latest.revision.content;
 		let content = saved;
+		let clashed: typeof clash;
 		if (dirty) {
 			const mine = snapshot();
-			// Compare documents the way this editor writes them.
-			const normal = (value: DocumentContent): DocumentContent =>
-				value.richText
-					? {
-							...value,
-							richText: check(value).toJSON() as OsRichTextDocument,
-						}
-					: value;
 			const base =
 				basis === loaded!.revision.revision ? loaded!.revision.content : older;
-			const result = !base
+			const merge = (side: OutputMergePreference | undefined) =>
+				mergeOutputContent(normalized(base!), mine, normalized(saved), {
+					prefer: side,
+					documentBlocks: blocksFromRichText,
+				});
+			let result = !base
 				? prefer
 					? { ok: true as const, content: prefer === "mine" ? mine : saved }
 					: { ok: false as const }
-				: mergeOutputContent(normal(base), mine, normal(saved), {
-						prefer,
-						documentBlocks: blocksFromRichText,
-					});
-			if (!result.ok) {
+				: merge(prefer);
+			if (!result.ok && !base) {
 				theirs = latest;
-				return ask(!base);
+				return ask();
+			}
+			if (!result.ok) {
+				// Both changed the same words: the person's stay and keep saving,
+				// and their words can be brought back from the note.
+				const kept = merge("mine"),
+					other = merge("theirs");
+				if (!kept.ok || !other.ok) {
+					theirs = latest;
+					return ask();
+				}
+				clashed = {
+					kept: kept.content as DocumentContent,
+					theirs: other.content as DocumentContent,
+				};
+				result = kept;
 			}
 			content = result.content as DocumentContent;
 		}
@@ -499,6 +554,7 @@ export async function mountDocClient(
 		draft = content;
 		show(next);
 		land(before, editor!.state.doc, savedByAgent(latest.revision));
+		if (clashed && dirty) offerTheirs(clashed);
 		if (dirty) {
 			since = Date.now();
 			schedule();
@@ -684,9 +740,10 @@ export async function mountDocClient(
 				since = Date.now();
 				schedule();
 			} else clearDraft();
-			// An offer to undo an agent's change stays up through a quiet save.
+			// An offer to undo an agent's change, or to use their words after a
+			// clash, stays up through a save.
 			const note = asked || failed || slow ? "Saved" : "";
-			if (!theirs && (note || !offering)) say(note, false, [], true);
+			if (!theirs && !clash && (note || !offering)) say(note, false, [], true);
 			failed = false;
 			tries = 0;
 			// A link typed just now can only be fetched once it is saved.
