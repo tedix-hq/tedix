@@ -150,6 +150,16 @@ Delivery runs on the workspace alarm or the next binding/output flush. This
 does not reconstruct transitions or conversation events from before capture,
 cover core-only metadata writers, or prove a universal action history.
 
+The workspace object also reports its chat counts to the core's workspace
+summary (`os_workspace_summaries`): open conversations, messages (one per
+posted turn and one per finished answer), turns, turns still running or
+waiting for approval, and the latest turn. It writes them with
+`applyOsWorkspaceObjectUsage` after each activity delivery when they changed,
+retries on the workspace alarm, and rebuilds them on `replayActivity`. The
+core's own snapshot keeps the Work links and no longer replaces counts an
+object reported. A workspace that has had no activity since this shipped
+keeps its earlier counts until its next chat change or a `replayActivity`.
+
 The activity API returns `coverage: "recorded_only"`. It filters current
 workspace visibility and checks both the historical and current revision's
 source access before returning file metadata or links. Missing source records,

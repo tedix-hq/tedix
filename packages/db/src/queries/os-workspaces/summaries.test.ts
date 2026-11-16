@@ -14,6 +14,7 @@ import { projects } from "../../schema/projects";
 import { createD1Facade } from "../../test/d1-facade";
 import { schemaDdl } from "../../test/schema-ddl";
 import {
+	applyOsWorkspaceObjectUsage,
 	applyOsWorkspaceSummary,
 	computeOsWorkspaceSummary,
 	deleteOsWorkspaceSummary,
@@ -182,6 +183,77 @@ describe("OS workspace summaries", () => {
 		expect(parseOsWorkspaceSummaryPayload(newer!).usage.conversationCount).toBe(
 			2,
 		);
+	});
+
+	it("keeps the chat counts a workspace object reported when a core snapshot lands", async () => {
+		const { db } = await seed();
+		await db.insert(osWorkspaceProjects).values({
+			id: "link-1",
+			organizationId: ORG,
+			workspaceId: WS,
+			projectId: "project-1",
+			status: "active",
+			createdByKind: "user",
+			createdById: "user-1",
+			createdAt: "2026-09-21T00:00:00.000Z",
+			updatedAt: "2026-09-21T00:00:00.000Z",
+		});
+		const scope = { organizationId: ORG, workspaceId: WS };
+		const report = (conversationCount: number) => ({
+			...scope,
+			usage: { conversationCount, messageCount: 4, runCount: 2 },
+			runStatus: {
+				activeRunCount: 1,
+				latestRun: {
+					id: "turn-1",
+					status: "running",
+					updatedAt: "2026-11-16T00:00:00.000Z",
+				},
+			},
+			publishedAt: "2026-11-16T00:00:00.000Z",
+		});
+		// The first report creates the row with the core's active Work links.
+		expect(await applyOsWorkspaceObjectUsage(db, report(1))).toBe(true);
+		const first = await getOsWorkspaceSummary(db, scope);
+		expect(parseOsWorkspaceSummaryPayload(first!)).toMatchObject({
+			usage: { conversationCount: 1, messageCount: 4, runCount: 2 },
+			runStatus: { activeRunCount: 1, latestRun: { id: "turn-1" } },
+			workLinks: [{ projectId: "project-1" }],
+		});
+		// A core snapshot replaces the Work links and leaves the chat counts.
+		const snapshot = await applyOsWorkspaceSummary(
+			db,
+			message(first!.revision + 1, {
+				usage: '{"conversationCount":0,"messageCount":0,"runCount":0}',
+				runStatus: '{"activeRunCount":0,"latestRun":null}',
+			}),
+		);
+		expect(snapshot?.revision).toBe(first!.revision + 1);
+		expect(parseOsWorkspaceSummaryPayload(snapshot!)).toMatchObject({
+			usage: { conversationCount: 1 },
+			runStatus: { activeRunCount: 1 },
+			workLinks: [],
+		});
+		// A later report changes the counts only.
+		await applyOsWorkspaceObjectUsage(db, report(2));
+		const later = await getOsWorkspaceSummary(db, scope);
+		expect(later?.revision).toBe(first!.revision + 1);
+		expect(parseOsWorkspaceSummaryPayload(later!)).toMatchObject({
+			usage: { conversationCount: 2 },
+			workLinks: [],
+		});
+		// Another organization's report cannot touch the row, and a workspace
+		// without a core row gets none.
+		expect(
+			await applyOsWorkspaceObjectUsage(db, {
+				...report(9),
+				organizationId: "org-2",
+			}),
+		).toBe(false);
+		expect(
+			parseOsWorkspaceSummaryPayload((await getOsWorkspaceSummary(db, scope))!)
+				.usage.conversationCount,
+		).toBe(2);
 	});
 
 	it("lists an org's summary rows and deletes by scope", async () => {

@@ -31,6 +31,11 @@ import {
 	publishWorkspaceAction,
 } from "@tedix/db/queries/workspace-feed/action-publication";
 import { publishOutputProjection } from "@tedix/db/queries/workspace-feed/output-publication";
+import {
+	applyOsWorkspaceObjectUsage,
+	type OsWorkspaceRunStatusSummary,
+	type OsWorkspaceUsageSummary,
+} from "@tedix/db/queries/os-workspaces/summaries";
 import { unreferencedObjectOutputRevisions } from "@tedix/db/queries/os-workspaces/output-revision-thinning";
 import { continuesOutputAutosaveBurst } from "@tedix/api-contract/utils/os-output-autosave";
 import type { ModelCatalogEntry } from "@tedix/api-contract/schemas/model-catalog";
@@ -163,6 +168,20 @@ CREATE TABLE IF NOT EXISTS approvals (
 `;
 
 type TurnStatus = "running" | "finished" | "failed" | "cancelled" | "waiting";
+
+/** A turn's status as the core's run rollups name it. */
+const CORE_RUN_STATUS: Record<TurnStatus, string> = {
+	running: "running",
+	waiting: "requires_approval",
+	finished: "completed",
+	failed: "failed",
+	cancelled: "canceled",
+};
+
+interface WorkspaceUsage {
+	usage: OsWorkspaceUsageSummary;
+	runStatus: OsWorkspaceRunStatusSummary;
+}
 
 interface TurnRow {
 	turn_id: string;
@@ -1392,7 +1411,8 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 			this.#activityRecords.list({
 				afterSequence: this.#store.get<number>("event-activity-sequence") ?? 0,
 				limit: 1,
-			}).length > 0
+			}).length > 0 ||
+			this.#usageUnpublished()
 		) {
 			await this.ctx.storage.setAlarm(Date.now() + KEEPALIVE_MS);
 			return;
@@ -1429,8 +1449,79 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 				await this.projectEvent(record.event);
 				this.#store.put("event-activity-sequence", record.sequence);
 			}
+			await this.#publishUsage(scope);
 		}).catch((error) => {
 			console.error("Workspace activity queued for retry", error);
+		});
+	}
+
+	/** Chat counts for the core's workspace summary, in the core's run vocabulary. */
+	#usage(): WorkspaceUsage {
+		const open =
+			"FROM turns t JOIN conversations c ON c.id = t.conversation_id WHERE c.archived_at IS NULL";
+		const [conversations] = this.#store.exec<{ total: number }>(
+			"SELECT COUNT(*) AS total FROM conversations WHERE archived_at IS NULL",
+		);
+		// One message per posted turn and one per finished answer.
+		const [turns] = this.#store.exec<{
+			total: number;
+			answered: number | null;
+			active: number | null;
+		}>(
+			`SELECT COUNT(*) AS total, SUM(t.status = 'finished') AS answered, SUM(t.status IN ('running', 'waiting')) AS active ${open}`,
+		);
+		const [latest] = this.#store.exec<{
+			turn_id: string;
+			status: TurnStatus;
+			updated_at: string;
+		}>(
+			`SELECT t.turn_id, t.status, coalesce(t.finished_at, t.started_at) AS updated_at ${open} ORDER BY updated_at DESC, t.turn_id DESC LIMIT 1`,
+		);
+		const total = turns?.total ?? 0;
+		return {
+			usage: {
+				conversationCount: conversations?.total ?? 0,
+				messageCount: total + (turns?.answered ?? 0),
+				runCount: total,
+			},
+			runStatus: {
+				activeRunCount: turns?.active ?? 0,
+				latestRun: latest
+					? {
+							id: latest.turn_id,
+							status: CORE_RUN_STATUS[latest.status],
+							updatedAt: latest.updated_at,
+						}
+					: null,
+			},
+		};
+	}
+
+	/** True while the core's workspace summary lacks this object's current counts. */
+	#usageUnpublished(): boolean {
+		return (
+			Boolean(this.#store.get<WorkspaceScope>("activity-scope")) &&
+			this.#store.get<string>("published-usage") !==
+				JSON.stringify(this.#usage())
+		);
+	}
+
+	async #publishUsage(scope: WorkspaceScope): Promise<void> {
+		const counts = this.#usage();
+		const encoded = JSON.stringify(counts);
+		if (this.#store.get<string>("published-usage") === encoded) return;
+		await this.projectUsage(scope, counts);
+		this.#store.put("published-usage", encoded);
+	}
+
+	protected async projectUsage(
+		scope: WorkspaceScope,
+		counts: WorkspaceUsage,
+	): Promise<void> {
+		await applyOsWorkspaceObjectUsage(createDbQueryClient(this.env.DB), {
+			...scope,
+			...counts,
+			publishedAt: new Date().toISOString(),
 		});
 	}
 
@@ -1580,6 +1671,9 @@ export class WorkspaceDO extends TenantStore<WorkspaceEnv> {
 	async replayActivity(scope: WorkspaceScope, input: ActivityPageInput = {}) {
 		this.bindScope(scope);
 		return this.#serializeActivity(async () => {
+			// A replay also rebuilds the core's chat counts for this workspace.
+			this.#store.delete("published-usage");
+			await this.#publishUsage(scope);
 			if (input.source === "events") {
 				const records = this.#activityRecords.list(input);
 				for (const record of records) await this.projectEvent(record.event);

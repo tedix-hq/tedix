@@ -806,7 +806,9 @@ export const osWorkspaceSkillDraftProposals = sqliteTable(
  * admin and search workspace listings, and workspace usage views — read this
  * projection instead of fanning out to the workspace-scoped source tables.
  * The row is rebuildable: `computeOsWorkspaceSummary` re-derives every payload
- * column from the source tables.
+ * column from the source tables. Once a workspace object reports its own chat
+ * counts (`applyOsWorkspaceObjectUsage`), `usage` and `run_status` come from
+ * the object and a core snapshot only replaces the Work links.
  */
 export const osWorkspaceSummaries = sqliteTable(
 	"os_workspace_summaries",
