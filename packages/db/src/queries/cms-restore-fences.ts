@@ -504,7 +504,34 @@ export async function reconcileCmsRestoreOuterPermits(
 	return rows.length;
 }
 
-/** Administrative drain read; an orphan permit remains counted indefinitely. */
+/**
+ * Remove permits whose holder can no longer be running. A request or a
+ * scheduled tenant run that is cancelled before its release (a client
+ * disconnect, an isolate eviction, a failed release write) leaves its row
+ * behind, and every restore, pause and deprovision then waits on it forever.
+ * No permit holder lives for a day, so a day-old row is an orphan. Bounded per
+ * call so a backlog drains over several runs instead of one large delete.
+ */
+export async function deleteStaleCmsRestorePermits(
+	db: DbQueryClient,
+	input: { olderThanSeconds: number; limit: number },
+): Promise<number> {
+	const stale = db
+		.select({ id: cmsRestorePermits.id })
+		.from(cmsRestorePermits)
+		.where(
+			sql`${cmsRestorePermits.enteredAt} < datetime('now', ${`-${Math.floor(input.olderThanSeconds)} seconds`})`,
+		)
+		.limit(input.limit);
+	const rows = await db
+		.delete(cmsRestorePermits)
+		// bound-params: `stale` is a LIMIT subquery, not a bound list
+		.where(inArray(cmsRestorePermits.id, stale))
+		.returning({ id: cmsRestorePermits.id });
+	return rows.length;
+}
+
+/** Administrative drain read; an orphan permit counts until the stale sweep removes it. */
 export async function getCmsRestoreFenceState(
 	db: DbQueryClient,
 	input: CmsRestoreSiteParams,

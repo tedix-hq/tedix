@@ -47,7 +47,10 @@ import type {
 } from "emdash";
 import { listTenantBundleVersions } from "@tedix/provisioning/cms";
 import { createDbQueryClient } from "@tedix/db/query-client";
-import { getCmsRestoreEpoch } from "@tedix/db/queries/cms-restore-fences";
+import {
+	deleteStaleCmsRestorePermits,
+	getCmsRestoreEpoch,
+} from "@tedix/db/queries/cms-restore-fences";
 import {
 	getCmsSiteByActiveWwwAlias,
 	getCmsSiteBySlug,
@@ -2067,6 +2070,25 @@ async function fetchCmsSite(
 	}
 }
 
+/** Public GET and HEAD attempts before a visitor sees the restore 503. */
+const PUBLIC_SERVE_ATTEMPTS = 3;
+
+/** Bounded error text for logs: message plus nested causes, no stack. */
+function describePublicServeError(error: unknown): string {
+	const parts: string[] = [];
+	let current: unknown = error;
+	for (let depth = 0; current && depth < 4; depth++) {
+		if (current instanceof Error) {
+			parts.push(`${current.name}: ${current.message}`);
+			current = current.cause;
+		} else {
+			parts.push(String(current));
+			break;
+		}
+	}
+	return parts.join(" <- ").slice(0, 400);
+}
+
 export default {
 	async fetch(
 		request: Request,
@@ -2102,7 +2124,9 @@ export default {
 		)
 			return cmsRestoreFenceResponse();
 
-		try {
+		// Site lookups and admission read D1. A single failed read used to turn
+		// into a 503 for visitors; GET and HEAD carry no body, so replay them.
+		const serve = async (): Promise<Response> => {
 			const db = createDbQueryClient(env.PLATFORM_DB);
 			const isPublicAlias =
 				(request.method === "GET" || request.method === "HEAD") &&
@@ -2177,9 +2201,27 @@ export default {
 				request,
 			);
 			return permitted.admitted ? permitted.value : cmsRestoreFenceResponse();
-		} catch (error) {
-			console.error("[cms-runtime] public restore permit unavailable:", error);
-			return cmsRestoreFenceResponse();
+		};
+		const replayable = request.method === "GET" || request.method === "HEAD";
+		for (let attempt = 1; ; attempt++) {
+			try {
+				return await serve();
+			} catch (error) {
+				const detail = describePublicServeError(error);
+				if (replayable && attempt < PUBLIC_SERVE_ATTEMPTS) {
+					console.warn("[cms-runtime] public request failed; retrying", {
+						attempt,
+						detail,
+					});
+					await new Promise((resolve) => setTimeout(resolve, attempt * 150));
+					continue;
+				}
+				console.error("[cms-runtime] public restore permit unavailable:", {
+					attempt,
+					detail,
+				});
+				return cmsRestoreFenceResponse();
+			}
 		}
 	},
 
@@ -2189,6 +2231,28 @@ export default {
 		ctx: ExecutionContext,
 	): Promise<void> {
 		const startedAt = Date.now();
+		// Once an hour, drop day-old orphan restore permits so a cancelled
+		// request can never block restores, pauses or deprovisions forever.
+		if (new Date(controller.scheduledTime).getUTCMinutes() === 7) {
+			ctx.waitUntil(
+				deleteStaleCmsRestorePermits(createDbQueryClient(env.PLATFORM_DB), {
+					olderThanSeconds: 86_400,
+					limit: 1_000,
+				}).then(
+					(removed) => {
+						if (removed > 0)
+							console.info("[cms-runtime] stale restore permits removed", {
+								removed,
+							});
+					},
+					(error) =>
+						console.error(
+							"[cms-runtime] stale restore permit sweep failed:",
+							error,
+						),
+				),
+			);
+		}
 		const accountId = env.CF_ACCOUNT_ID;
 		const r2Token = env.CLOUDFLARE_R2_API_TOKEN;
 		if (!accountId || !r2Token) {
