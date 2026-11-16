@@ -91,6 +91,14 @@ describe("fleet-authority guard coverage", () => {
 	// timed out and reported as a failure of the assertion rather than of the
 	// fixture. Constructing the fixture here, with a timeout sized for the walk
 	// rather than for an assertion, leaves every expectation below untouched.
+	//
+	// The walk imports all 105 router namespaces, the whole API module graph:
+	// 2 s warm and 5 s cold on a quiet 18-core laptop (16 Nov 2026). It crossed
+	// 120 s once, on 15 Nov, in a pre-push run where every phase of every gate
+	// ran about 35 times slower than that. So the bound stays where it is: past
+	// it the machine is starved, and waiting longer only holds the push queue.
+	// The gate runner reports that expiry as a timeout, not as a failure of the
+	// change being pushed (scripts/dev/push-gate-failure.ts).
 	beforeAll(async () => {
 		await guardInventory();
 	}, 120_000);

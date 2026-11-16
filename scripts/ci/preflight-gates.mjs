@@ -34,6 +34,13 @@
  *    failed, and nobody is asked to guess which regenerate command a stale
  *    artifact wants.
  *
+ * 4. A failure says whose it is. A gate that was killed, or whose only failures
+ *    are test-runner timeouts, failed on the machine; a gate that also fails on
+ *    the push base failed on main. Both still block, both are named as such,
+ *    and the last line (`pre-push-verdict:`) tells `bun run push` which it was,
+ *    so only a failure of the change spends that change's retry budget. See
+ *    scripts/dev/push-gate-failure.ts and preflight-baseline.mjs.
+ *
  * Usage: preflight-gates.mjs [--remote-url <url>] [--base <sha> --head <sha>] [--all] [--files <path>...]
  */
 
@@ -83,6 +90,12 @@ import {
 	selectPushRangeFiles,
 } from "./push-range-selection.mjs";
 import { workerConfigShapeWarning } from "./worker-config-shape.mjs";
+import { baseCheckout, markBaseFailures } from "./preflight-baseline.mjs";
+import {
+	formatVerdict,
+	gateFailureKind,
+	overallVerdict,
+} from "../dev/push-gate-failure.ts";
 import {
 	missingWorkItemTrailers,
 	workItemTrailerError,
@@ -779,7 +792,13 @@ for (const [index, gate] of active.entries()) {
 	const blocked = gate.precondition?.();
 	if (blocked) {
 		ran += 1;
-		failures.push({ gate, output: blocked, ms: Date.now() - started });
+		// The environment refused the gate; the change was never examined.
+		failures.push({
+			gate,
+			output: blocked,
+			ms: Date.now() - started,
+			kind: "infrastructure",
+		});
 		finishProgress(gate.name, "failed (precondition)", started);
 		continue;
 	}
@@ -813,7 +832,16 @@ for (const [index, gate] of active.entries()) {
 		}
 	}
 	if (result.status !== 0) {
-		failures.push({ gate, output, ms: Date.now() - started });
+		failures.push({
+			gate,
+			output,
+			ms: Date.now() - started,
+			kind: gateFailureKind({
+				output,
+				signal: result.signal,
+				spawnFailed: result.error !== undefined,
+			}),
+		});
 		if (gate.fatal) {
 			warnings.push(
 				`stopped after "${gate.name}": the remaining gates compare bytes from the installed toolchain and would mislead until it matches the lockfile`,
@@ -824,7 +852,31 @@ for (const [index, gate] of active.entries()) {
 }
 progress("");
 
-for (const { gate, output, ms } of failures) {
+// Only a local push asks whether main is red: CI runs on main itself, and a
+// `--files` caller has no commit to compare against.
+const pushBase = pushRanges[0]?.base ?? defaultPushBase(repoRoot);
+if (
+	failures.length &&
+	!process.env.CI &&
+	!fileArguments?.length &&
+	pushBase &&
+	!/^0+$/.test(pushBase)
+) {
+	progress("pre-push: checking whether the push base fails the same gates");
+	markBaseFailures(failures, {
+		files,
+		checkout: baseCheckout({ repoRoot, base: pushBase }),
+	});
+	progress("");
+}
+
+const KIND_NOTE = {
+	infrastructure:
+		"timed out or hit a machine error, not a failed assertion: the change is not blamed; run the push again",
+	main: "also fails on the push base without this change: wait for main to be fixed, then run the push again",
+};
+
+for (const { gate, output, ms, kind } of failures) {
 	const lines = output.split("\n");
 	const shown = lines.slice(0, SHOWN_LINES);
 	console.error(`\n✗ ${gate.name} (${formatDuration(ms)})`);
@@ -835,7 +887,8 @@ for (const { gate, output, ms } of failures) {
 		);
 	}
 	const fix = typeof gate.fix === "function" ? gate.fix(output) : gate.fix;
-	if (fix) console.error(`  fix: ${fix}`);
+	if (KIND_NOTE[kind]) console.error(`  ${KIND_NOTE[kind]}`);
+	else if (fix) console.error(`  fix: ${fix}`);
 }
 for (const warning of warnings) console.error(`\n⚠ ${warning}`);
 
@@ -861,4 +914,11 @@ console.error(
 // identical from here. Say so before anyone "fixes" a gate that was fine.
 const advice = contentionAdvice(pressure);
 if (advice) console.error(advice);
+console.error(
+	formatVerdict(
+		overallVerdict(
+			failures.map(({ gate, kind }) => ({ kind, gate: gate.name })),
+		),
+	),
+);
 process.exit(1);

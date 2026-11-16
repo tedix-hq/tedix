@@ -17,6 +17,13 @@
  * single ticket keeps the original rebase/push path. Waiting sessions print
  * their place and an estimate from recent lock holds (push-queue-history.jsonl).
  *
+ * A change whose gates fail twice in two hours is refused until a person
+ * overrides: that stops a session looping on a change that cannot pass. Only
+ * failures of the change count. A gate that timed out or was killed counts on
+ * a separate, larger allowance, and a gate that origin/main fails too is never
+ * counted (push-gate-failure.ts). Every refusal ends with one sentence that
+ * says what stopped the push and what to do next.
+ *
  * Dead holders and tickets are removed. A living holder never expires: its
  * pre-push gates may still be running. No daemon.
  *
@@ -45,7 +52,15 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { runCurrentQueue } from "./push-bootstrap";
-import { failedPushGate } from "./push-gate-failure";
+import {
+	CHANGE_FAILURE_LIMIT,
+	INFRASTRUCTURE_FAILURE_LIMIT,
+	pushRejection,
+	refusalSentence,
+	RETRY_WINDOW_MS,
+	type GateFailureKind,
+	type GateVerdict,
+} from "./push-gate-failure";
 import {
 	finishLane,
 	laneUnchanged,
@@ -85,6 +100,8 @@ export type RetryRecord = {
 	gate: string;
 	result: "failed" | "passed";
 	at: number;
+	/** Whose failure it was; a record without one predates kinds and counts as "change". */
+	kind?: GateFailureKind;
 };
 
 /**
@@ -162,37 +179,66 @@ export function recordRetry(file: string, record: RetryRecord) {
 	renameSync(`${file}.tmp`, file);
 }
 
+/** This key's failures of one kind since its last pass, within the window. */
 export function retryFailures(
 	file: string,
 	key: string,
 	now = Date.now(),
+	kind: GateFailureKind = "change",
 ): RetryRecord[] {
-	const cutoff = now - 2 * 60 * 60 * 1000;
+	const cutoff = now - RETRY_WINDOW_MS;
 	let failures: RetryRecord[] = [];
 	for (const record of readRetryHistory(file)) {
 		if (record.key !== key || record.at < cutoff) continue;
 		if (record.result === "passed") failures = [];
-		else failures.push(record);
+		else if ((record.kind ?? "change") === kind) failures.push(record);
 	}
 	return failures;
 }
 
+/** The sentence that refuses another attempt, or null while the budget lasts. */
 export function retryRefusal(
 	file: string,
 	key: string,
 	now = Date.now(),
 ): string | null {
+	if (process.env.TEDIX_PUSH_RETRY_OVERRIDE === "1") return null;
 	const failures = retryFailures(file, key, now);
-	if (failures.length < 2 || process.env.TEDIX_PUSH_RETRY_OVERRIDE === "1")
-		return null;
-	return (
-		`push: retry budget exhausted for ${key}; previous failures: ${failures
-			.slice(-2)
-			.map((failure) => failure.gate)
-			.join(", ")}. ` +
-		"post the failure on the Work item and hand off. " +
-		"For a human override, set TEDIX_PUSH_RETRY_OVERRIDE=1."
-	);
+	if (failures.length >= CHANGE_FAILURE_LIMIT)
+		return refusalSentence({
+			reason: "change-budget",
+			gates: failures
+				.slice(-CHANGE_FAILURE_LIMIT)
+				.map((failure) => failure.gate),
+		});
+	const stalled = retryFailures(file, key, now, "infrastructure");
+	if (stalled.length >= INFRASTRUCTURE_FAILURE_LIMIT)
+		return refusalSentence({
+			reason: "infrastructure-budget",
+			gate: stalled.at(-1)!.gate,
+		});
+	return null;
+}
+
+/**
+ * Records a rejected push against its key and returns the sentence to print.
+ * A gate that main fails too is not this change's failure and leaves no record.
+ */
+export function chargeRejection(
+	file: string,
+	key: string,
+	verdict: GateVerdict,
+	now = Date.now(),
+): string {
+	if (verdict.kind !== "main")
+		recordRetry(file, {
+			key,
+			gate: verdict.gate,
+			result: "failed",
+			at: now,
+			kind: verdict.kind,
+		});
+	return refusalSentence({ reason: "gate", verdict });
 }
 
 export function ticketKey(cwd: string): string {
@@ -337,23 +383,25 @@ function git(args: string[], inherit = false, cwd = process.cwd()) {
 }
 
 function fetchAndRebase(expectedMain?: string): boolean {
-	if (!git(["fetch", "--quiet", "origin", "main"], true).ok) return false;
+	if (!git(["fetch", "--quiet", "origin", "main"], true).ok) {
+		console.error(refusalSentence({ reason: "fetch" }));
+		return false;
+	}
 	if (expectedMain && git(["rev-parse", "origin/main"]).out !== expectedMain) {
-		console.error("push: main changed; refusing the conditional push.");
+		console.error(refusalSentence({ reason: "expected-main" }));
 		return false;
 	}
 	const rebase = git(["rebase", "origin/main"], true);
 	if (rebase.ok) return true;
 	git(["rebase", "--abort"]);
-	console.error(
-		"push: rebase onto origin/main failed; resolve it and run again.",
-	);
+	console.error(refusalSentence({ reason: "conflict" }));
 	return false;
 }
 
 function pushOnce(dryRun: boolean): {
 	outcome: "pushed" | "main-moved" | "failed";
-	gate?: string | null;
+	/** Null: preflight never loaded, so no gate judged the change. */
+	verdict?: GateVerdict | null;
 } {
 	const args = [
 		"push",
@@ -368,7 +416,7 @@ function pushOnce(dryRun: boolean): {
 	// Gates or the remote said no. It was a race only if main moved past us.
 	git(["fetch", "--quiet", "origin", "main"]);
 	return git(["merge-base", "--is-ancestor", "origin/main", "HEAD"]).ok
-		? { outcome: "failed", gate: failedPushGate(`${push.out}\n${push.err}`) }
+		? { outcome: "failed", verdict: pushRejection(`${push.out}\n${push.err}`) }
 		: { outcome: "main-moved" };
 }
 
@@ -534,13 +582,8 @@ async function main() {
 				result: join(resultsDir, entry.file.slice(queueDir.length + 1)),
 			})),
 			{
-				onFailure: (cwd, gate) =>
-					recordRetry(retryFile, {
-						key: ticketKey(cwd),
-						gate,
-						result: "failed",
-						at: Date.now(),
-					}),
+				onFailure: (cwd, verdict) =>
+					chargeRejection(retryFile, ticketKey(cwd), verdict),
 				onPass: (cwd) =>
 					recordRetry(retryFile, {
 						key: ticketKey(cwd),
@@ -585,20 +628,10 @@ async function main() {
 			process.exit(0);
 		}
 		if (outcome.outcome === "failed") {
-			if (outcome.gate === null) {
-				console.error(
-					"push: preflight dependencies missing; run bun install --frozen-lockfile and retry. Retry budget unchanged.",
-				);
-				process.exit(1);
-			}
-			recordRetry(retryFile, {
-				key,
-				gate: outcome.gate ?? "pre-push gates",
-				result: "failed",
-				at: Date.now(),
-			});
 			console.error(
-				"push: rejected by a gate or the remote; fix it and run again.",
+				outcome.verdict
+					? chargeRejection(retryFile, key, outcome.verdict)
+					: refusalSentence({ reason: "dependencies" }),
 			);
 			process.exit(1);
 		}
@@ -607,7 +640,7 @@ async function main() {
 				`push: main moved elsewhere; rebasing and retrying (${attempt + 1}/${MAX_RETRIES}).`,
 			);
 	}
-	console.error("push: main kept moving; run again.");
+	console.error(refusalSentence({ reason: "main-moving" }));
 	process.exit(1);
 }
 

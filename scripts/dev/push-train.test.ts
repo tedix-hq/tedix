@@ -218,12 +218,19 @@ describe("push train with real repositories and hooks", () => {
 		amend(f.tickets[1]!, "red", "bad\n");
 		expect(
 			runTrain(f.repo, f.common, f.tickets, {
-				onFailure: (cwd, gate) => failures.push(`${cwd}:${gate}`),
+				onFailure: (cwd, verdict) => {
+					failures.push(`${cwd}:${verdict.kind}:${verdict.gate}`);
+					return "charged";
+				},
 				onPass: () => {},
 			}),
 		).toBe(true);
 		expect(f.tickets.map((t) => readResult(t.result)!.code)).toEqual([0, 1, 0]);
-		expect(failures).toEqual([`${f.tickets[1]!.lane.cwd}:pre-push gates`]);
+		// A hook that names no kind is the change's failure, as before.
+		expect(failures).toEqual([
+			`${f.tickets[1]!.lane.cwd}:change:pre-push gates`,
+		]);
+		expect(readResult(f.tickets[1]!.result)!.message).toBe("charged");
 		expect(f.gates()).toBe(4);
 		expect(
 			git(f.remote, "ls-tree", "--name-only", "main").split("\n"),
@@ -503,16 +510,113 @@ test("startup dependency crashes leave the single-lane retry budget available", 
 	for (let i = 0; i < 3; i++) {
 		const result = run();
 		expect(result.status).toBe(1);
-		expect(result.stderr).toContain("Retry budget unchanged");
+		expect(result.stderr).toContain("the retry budget is unchanged");
 	}
 	expect(existsSync(join(f.common, "push-queue-retries.jsonl"))).toBe(false);
 	writeFileSync(
 		hook,
 		"#!/bin/sh\necho 'pre-push: type-check (1/1)' >&2\necho '✗ type-check (1s)' >&2\nexit 1\n",
 	);
-	expect(run().stderr).toContain("rejected by a gate");
-	expect(run().stderr).toContain("rejected by a gate");
-	expect(run().stderr).toContain("retry budget exhausted");
+	const failed = 'the pre-push gate "type-check" failed on this change';
+	expect(run().stderr).toContain(failed);
+	expect(run().stderr).toContain(failed);
+	expect(run().stderr).toContain(
+		"already failed pre-push gates 2 times in 2 hours (type-check, type-check)",
+	);
+}, 20_000);
+
+/** A hook that fails the way the gate runner reports one kind of failure. */
+function verdictHook(f: TrainFixture, kind: string, gate: string) {
+	writeFileSync(
+		join(f.common, "hooks/pre-push"),
+		`#!/bin/sh\ncat >> '${f.root}/pushes'\necho '✗ ${gate} (4m02s)' >&2\necho 'pre-push-verdict: ${JSON.stringify({ kind, gate })}' >&2\nexit 1\n`,
+	);
+}
+function pushAlone(f: TrainFixture) {
+	return spawnSync(
+		process.execPath,
+		[resolve(import.meta.dirname, "push-queue.ts")],
+		{
+			cwd: f.tickets[0]!.lane.cwd,
+			env: {
+				...env,
+				TEDIX_PUSH_QUEUE_SNAPSHOT: "fixture",
+				TEDIX_DEVIN_HEADLESS: "1",
+				TEDIX_WORK_ID: "fixture-work",
+			},
+			encoding: "utf8",
+		},
+	);
+}
+const lastLine = (text: string) => text.trim().split("\n").at(-1)!;
+
+test("a gate that timed out blocks the push without spending the change's two attempts", () => {
+	const f = fixture(1);
+	verdictHook(f, "infrastructure", "procedure parity API registries");
+	const base = git(f.remote, "rev-parse", "main");
+	// The 15 Nov stranding: the third run was refused outright. Now six runs
+	// are each told to try again, and only the seventh stops the loop.
+	for (let i = 0; i < 6; i++) {
+		const result = pushAlone(f);
+		expect(result.status).toBe(1);
+		expect(lastLine(result.stderr)).toBe(
+			'Push refused: the pre-push gate "procedure parity API registries" timed out or hit a machine error instead of failing an assertion, so the change is not blamed; run bun run push again.',
+		);
+	}
+	expect(lastLine(pushAlone(f).stderr)).toContain(
+		"timed out or hit machine errors 6 times in 2 hours",
+	);
+	expect(git(f.remote, "rev-parse", "main")).toBe(base);
+	// A real failure after the timeouts still has its own two attempts, no more.
+	const g = fixture(1);
+	verdictHook(g, "infrastructure", "tests (apps/api)");
+	expect(pushAlone(g).status).toBe(1);
+	verdictHook(g, "change", "type-check apps/os");
+	for (let i = 0; i < 2; i++)
+		expect(lastLine(pushAlone(g).stderr)).toContain(
+			'"type-check apps/os" failed on this change',
+		);
+	expect(lastLine(pushAlone(g).stderr)).toContain("hand off");
+}, 60_000);
+
+test("a gate that origin/main fails too blocks the push and is never charged", () => {
+	const f = fixture(1);
+	verdictHook(f, "main", "type-check apps/os");
+	const base = git(f.remote, "rev-parse", "main");
+	for (let i = 0; i < 4; i++) {
+		const result = pushAlone(f);
+		expect(result.status).toBe(1);
+		expect(lastLine(result.stderr)).toBe(
+			'Push refused: origin/main itself fails the pre-push gate "type-check apps/os", so this change is not the cause and is not charged; wait for main to be fixed, then run bun run push again.',
+		);
+	}
+	expect(existsSync(join(f.common, "push-queue-retries.jsonl"))).toBe(false);
+	expect(git(f.remote, "rev-parse", "main")).toBe(base);
+}, 30_000);
+
+test("a train rejected because main is red charges no lane and is not split", () => {
+	const f = fixture(3);
+	verdictHook(f, "main", "type-check apps/os");
+	const charged: string[] = [];
+	expect(
+		runTrain(f.repo, f.common, f.tickets, {
+			onFailure: (cwd, verdict) => {
+				charged.push(`${cwd}:${verdict.kind}`);
+				return "charged";
+			},
+			onPass: () => {
+				throw new Error("A red main cannot pass");
+			},
+		}),
+	).toBe(false);
+	expect(charged).toEqual([]);
+	expect(f.gates()).toBe(1);
+	for (const ticket of f.tickets)
+		expect(readResult(ticket.result)).toEqual({
+			code: 1,
+			message:
+				'Push refused: origin/main itself fails the pre-push gate "type-check apps/os", so this change is not the cause and is not charged; wait for main to be fixed, then run bun run push again.',
+		});
 }, 20_000);
 
 test("startup dependency crashes do not charge train lanes or split the batch", () => {
@@ -521,7 +625,10 @@ test("startup dependency crashes do not charge train lanes or split the batch", 
 	const failures: string[] = [];
 	expect(
 		runTrain(f.repo, f.common, f.tickets, {
-			onFailure: (cwd) => failures.push(cwd),
+			onFailure: (cwd) => {
+				failures.push(cwd);
+				return "charged";
+			},
 			onPass: () => {
 				throw new Error("A startup crash cannot pass");
 			},
@@ -531,7 +638,7 @@ test("startup dependency crashes do not charge train lanes or split the batch", 
 	for (const ticket of f.tickets) {
 		expect(readResult(ticket.result)).toMatchObject({ code: 1 });
 		expect(readResult(ticket.result)!.message).toContain(
-			"Retry budget unchanged",
+			"the retry budget is unchanged",
 		);
 	}
 }, 20_000);
@@ -553,7 +660,9 @@ test("conditional automated pushes refuse a moved main before running a gate", (
 		},
 	);
 	expect(result.status).toBe(1);
-	expect(result.stderr).toContain("main changed");
+	expect(result.stderr).toContain(
+		"main is no longer at the commit this conditional push expected",
+	);
 	expect(git(f.remote, "rev-parse", "main")).toBe(base);
 	expect(existsSync(join(f.root, "pushes"))).toBe(false);
 });
