@@ -28,7 +28,6 @@ import {
 	createLandedChanges,
 	landedDelay,
 	savedByAgent,
-	watchForInput,
 	LANDED_SHOWN_MS,
 	LANDED_UNDO_MS,
 } from "../lib/landed-changes";
@@ -94,6 +93,8 @@ type FieldOptions = {
 /** Save this long after the last change, and never later than the maximum. */
 /** Thumbnails drawn at once when a deck opens; the rest wait until seen. */
 const EAGER_THUMBNAILS = 40;
+/** How long after choosing a slide the editor leaves the person there. */
+const FOLLOW_AFTER_NAV_MS = 2_500;
 /**
  * A save sends only what changed, so it follows a short pause in editing and
  * never waits long while someone keeps editing. A failed save that may pass
@@ -319,7 +320,8 @@ export async function mountSlidesClient(
 		litTimer: typeof statusTimer,
 		offerTimer: typeof statusTimer,
 		offering = false;
-	const input = watchForInput(window);
+	/** When the person last moved to another slide themself. */
+	let lastNav = 0;
 	let history: OsPresentationDeck[] = [],
 		future: OsPresentationDeck[] = [],
 		group = "",
@@ -761,6 +763,7 @@ export async function mountSlidesClient(
 			deck = { ...deck!, activeSlideId: slide.id, slides };
 			viewedId = slide.id;
 			selectedId = null;
+			lastNav = Date.now();
 		});
 	}
 	function addSlide() {
@@ -781,6 +784,7 @@ export async function mountSlidesClient(
 			if (current === id) {
 				viewedId = slides[Math.min(index, slides.length - 1)]?.id;
 				selectedId = null;
+				lastNav = Date.now();
 			}
 			deck = {
 				...deck!,
@@ -805,6 +809,7 @@ export async function mountSlidesClient(
 		if (!slide) return;
 		viewedId = slide.id;
 		selectedId = null;
+		lastNav = Date.now();
 		render();
 		if (focus) thumbs.get(slide.id)?.select.focus();
 	}
@@ -2034,11 +2039,13 @@ export async function mountSlidesClient(
 	}
 	/**
 	 * Light up what differs from `before` on screen: each changed element on
-	 * its slide, and the slide in the list. Someone who is only watching is
-	 * taken to the first changed slide.
+	 * its slide, and the slide in the list. The person stays on the slide they
+	 * were on; only someone editing who is not busy is taken to the first
+	 * changed slide (see `canFollow`).
 	 */
 	function light(before: OsPresentationDeck | undefined) {
 		if (!deck || !before) return;
+		keepView(before);
 		const old = new Map(before.slides.map((slide) => [slide.id, slide]));
 		const found = new Map<string, Set<string>>();
 		for (const slide of deck.slides) {
@@ -2063,21 +2070,56 @@ export async function mountSlidesClient(
 		}
 		if (!found.size) return;
 		lit = found;
-		if (
-			input.watching &&
-			!dirty &&
-			!pointer &&
-			!editing &&
-			!found.has(active()?.id ?? "")
-		) {
+		if (canFollow() && !found.has(active()?.id ?? ""))
 			viewedId = found.keys().next().value;
-			selectedId = null;
-		}
 		clearTimeout(litTimer);
 		litTimer = setTimeout(() => {
 			lit = new Map();
 			render();
 		}, LANDED_SHOWN_MS + 1_600);
+	}
+	/**
+	 * Hold the slide that was on screen before someone else's save, by id,
+	 * so a new current slide in the deck or a reorder does not move the
+	 * person. When their slide was deleted, take the one now at its place.
+	 */
+	function keepView(before: OsPresentationDeck) {
+		if (!deck) return;
+		const shown =
+			before.slides.find((slide) => slide.id === viewedId) ??
+			before.slides.find((slide) => slide.id === before.activeSlideId) ??
+			before.slides[0];
+		if (!shown) return;
+		if (deck.slides.some((slide) => slide.id === shown.id)) {
+			viewedId = shown.id;
+			return;
+		}
+		const at = before.slides.indexOf(shown);
+		viewedId = deck.slides[Math.min(at, deck.slides.length - 1)]?.id;
+		selectedId = null;
+	}
+	/**
+	 * Follow someone else's edit to its slide only while editing and not busy:
+	 * nothing selected, no menu open, not typing or dragging, and not within
+	 * 2.5 seconds of choosing a slide. Readers and presenters stay put.
+	 */
+	function canFollow() {
+		const focused = document.activeElement;
+		return (
+			canWrite() &&
+			presenter.hidden &&
+			selectedId === null &&
+			!dirty &&
+			!pointer &&
+			!editing &&
+			Date.now() - lastNav > FOLLOW_AFTER_NAV_MS &&
+			!root.querySelector(".slides-menu:not([hidden])") &&
+			!(
+				focused instanceof HTMLElement &&
+				inspector.contains(focused) &&
+				focused.matches("input,textarea,select,[contenteditable=true]")
+			)
+		);
 	}
 	/** Someone else's save replaced `before` on screen: show it, and offer undo for an agent's. */
 	function land(before: OsPresentationDeck | undefined, agent: boolean) {
@@ -2639,7 +2681,6 @@ export async function mountSlidesClient(
 				offerTimer,
 			])
 				clearTimeout(timer);
-			input.stop();
 			fitObserver?.disconnect();
 			thumbWatch?.disconnect();
 			window.removeEventListener("message", onMessage);
