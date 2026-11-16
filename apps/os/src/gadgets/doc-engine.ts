@@ -92,12 +92,15 @@ export interface LandedRange {
 	from: number;
 	to: number;
 	words: boolean;
+	/** A point where words or blocks were taken out, shown as a brief mark. */
+	removed?: "text" | "block";
 }
 
 /**
  * Where `after` differs from `before`, as the smallest parts that say it:
  * the changed words of a paragraph that was edited in place, or the block,
- * list item or table cell that is new. Removed parts leave nothing to show.
+ * list item or table cell that is new. Where words or blocks were removed,
+ * a point marks the spot.
  */
 export function landedRanges(before: DocNode, after: DocNode): LandedRange[] {
 	const ranges: LandedRange[] = [];
@@ -108,10 +111,23 @@ export function landedRanges(before: DocNode, after: DocNode): LandedRange[] {
 		if (node.isTextblock) {
 			const start = old.content.findDiffStart(node.content);
 			if (start === null) return;
-			let end = old.content.findDiffEnd(node.content)!.b;
+			const tail = old.content.findDiffEnd(node.content)!;
+			let end = tail.b;
 			if (end < start) end = start;
-			return end > start
-				? ranges.push({ from: pos + 1 + start, to: pos + 1 + end, words: true })
+			if (end > start)
+				return ranges.push({
+					from: pos + 1 + start,
+					to: pos + 1 + end,
+					words: true,
+				});
+			// Only words taken out: mark where they were.
+			return Math.max(tail.a, start) > start
+				? ranges.push({
+						from: pos + 1 + start,
+						to: pos + 1 + start,
+						words: true,
+						removed: "text",
+					})
 				: whole(node, pos);
 		}
 		if (old.childCount !== node.childCount) return whole(node, pos);
@@ -142,6 +158,12 @@ export function landedRanges(before: DocNode, after: DocNode): LandedRange[] {
 					starts[at]!,
 				);
 			});
+			// Blocks taken out: mark the gap they left.
+			if (hunk.remove > hunk.insert.length) {
+				const at = starts[hunk.at + shift + hunk.insert.length];
+				const point = at ?? after.content.size;
+				ranges.push({ from: point, to: point, words: false, removed: "block" });
+			}
 			shift += hunk.insert.length - hunk.remove;
 		}
 	}
@@ -166,10 +188,26 @@ const Landed = Extension.create({
 						if (!ranges) return shown.map(tr.mapping, tr.doc);
 						return DecorationSet.create(
 							tr.doc,
-							ranges.map(({ from, to, words }, index) => {
+							ranges.map(({ from, to, words, removed }, index) => {
+								const delay = `animation-delay:${landedDelay(index, ranges.length)}ms`;
+								if (removed)
+									return Decoration.widget(
+										from,
+										() => {
+											const gone = document.createElement("span");
+											gone.className =
+												removed === "text"
+													? "doc-removed"
+													: "doc-removed-block";
+											gone.setAttribute("aria-hidden", "true");
+											gone.style.cssText = delay;
+											return gone;
+										},
+										{ side: -1, ignoreSelection: true },
+									);
 								const attrs = {
 									class: words ? "doc-landed-words" : "doc-landed",
-									style: `animation-delay:${landedDelay(index, ranges.length)}ms`,
+									style: delay,
 								};
 								return words
 									? Decoration.inline(from, to, attrs)

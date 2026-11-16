@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it } from "vite-plus/test";
-import { createDocEngine, retryLinkedImages } from "./doc-engine";
+import {
+	createDocEngine,
+	landedRanges,
+	retryLinkedImages,
+	showLanded,
+} from "./doc-engine";
 
 afterEach(() => document.body.replaceChildren());
 
@@ -41,5 +46,45 @@ describe("linked images in the Doc editor", () => {
 		expect(JSON.stringify(editor.getJSON())).toContain(link);
 		expect(JSON.stringify(editor.getJSON())).not.toContain(copy);
 		editor.destroy();
+	});
+});
+
+describe("what someone else removed", () => {
+	const editorWith = (...texts: string[]) => {
+		const element = document.body.appendChild(document.createElement("div"));
+		const editor = createDocEngine({
+			element,
+			editable: true,
+			onUpdate: () => undefined,
+		});
+		const doc = (values: string[]) => ({
+			type: "doc",
+			content: values.map((text) => ({
+				type: "paragraph",
+				content: [{ type: "text", text }],
+			})),
+		});
+		editor.commands.setContent(doc(texts));
+		return { editor, element, doc };
+	};
+	it("marks the spot where words were taken out of a paragraph", () => {
+		const { editor, element, doc } = editorWith("Ship on Friday at noon");
+		const before = editor.state.doc;
+		editor.commands.setContent(doc(["Ship on Friday"]));
+		const ranges = landedRanges(before, editor.state.doc);
+		expect(ranges).toEqual([
+			{ from: 15, to: 15, words: true, removed: "text" },
+		]);
+		showLanded(editor, ranges);
+		expect(element.querySelector(".doc-removed")).not.toBeNull();
+	});
+	it("marks the gap a removed paragraph left", () => {
+		const { editor, element, doc } = editorWith("One", "Two", "Three");
+		const before = editor.state.doc;
+		editor.commands.setContent(doc(["One", "Three"]));
+		const ranges = landedRanges(before, editor.state.doc);
+		expect(ranges.map((range) => range.removed)).toEqual(["block"]);
+		showLanded(editor, ranges);
+		expect(element.querySelector(".doc-removed-block")).not.toBeNull();
 	});
 });
