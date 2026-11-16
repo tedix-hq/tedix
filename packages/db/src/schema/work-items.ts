@@ -354,6 +354,17 @@ export const workItems = sqliteTable(
 			table.accountableOwnerType,
 			table.accountableOwnerId,
 		),
+		// One owner's Work in one disposition, newest first, when the caller
+		// gives no owner type. The list and its count otherwise read the
+		// organization's items in that disposition (about 28,000 rows per call,
+		// 86M rows on 16 Nov 2026).
+		index("idx_work_items_org_owner_disposition_created").on(
+			table.orgId,
+			table.accountableOwnerId,
+			table.disposition,
+			table.createdAt,
+			table.id,
+		),
 		index("idx_work_items_objective").on(table.objectiveId),
 		index("idx_work_items_org_objective").on(table.orgId, table.objectiveId),
 		index("idx_work_items_org_class").on(table.orgId, table.workClass),
