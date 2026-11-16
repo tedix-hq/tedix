@@ -143,7 +143,10 @@ it("lists tasks Home started without a project until one is chosen", async () =>
 		projectId: "project",
 	});
 	expect(moved.projectId).toBe("project");
-	expect(moved.metadata).toEqual({ homeRunId: "run-1" });
+	expect(moved.metadata).toEqual({
+		homeRunId: "run-1",
+		specificationUpdateId: expect.any(String),
+	});
 	expect(await waiting()).toEqual([]);
 	sqlite.close();
 });
