@@ -2,6 +2,7 @@ import { and, asc, desc, eq, inArray, like, sql } from "drizzle-orm";
 import type { DbClient } from "../client";
 import { auditEvents } from "../schema/audit-events";
 import { auditMetadataRefs } from "../schema/audit-metadata-refs";
+import { isMissingAuditMetadataRefsTable } from "../utils/audit-metadata-refs";
 import { tediRuntimeEvents } from "../schema/cognitive-runtime";
 import { tediRationaleRecords } from "../schema/rationale-records";
 import { chunkForBoundParams } from "../utils/batch";
@@ -110,11 +111,32 @@ function auditMetadataNumeric(key: string) {
 	>`json_extract(${auditEvents.metadata}, ${`$.${key}`})`.as(key);
 }
 
+/**
+ * Run a read that resolves compact identifiers through `audit_metadata_refs`.
+ * A logs database that has not received that migration cannot hold compact
+ * rows either, so the same read runs there against the inline identifiers.
+ */
+async function withAuditMetadataRefs<T>(
+	read: (refs: boolean) => Promise<T>,
+): Promise<T> {
+	try {
+		return await read(true);
+	} catch (error) {
+		if (!isMissingAuditMetadataRefsTable(error)) throw error;
+		return read(false);
+	}
+}
+
 function auditReferencedMetadata(
+	refs: boolean,
 	key: "appId" | "clientId",
 	refKey: "a" | "c",
 	kind: "app" | "client",
 ) {
+	if (!refs)
+		return sql<
+			string | null
+		>`json_extract(${auditEvents.metadata}, ${`$.${key}`})`;
 	return sql<string | null>`coalesce(
 		json_extract(${auditEvents.metadata}, ${`$.${key}`}),
 		(
@@ -127,10 +149,17 @@ function auditReferencedMetadata(
 	)`;
 }
 
-const auditAppId = auditReferencedMetadata("appId", "a", "app");
-const auditClientId = auditReferencedMetadata("clientId", "c", "client");
+function auditAppId(refs: boolean) {
+	return auditReferencedMetadata(refs, "appId", "a", "app");
+}
 
-function auditAppMatches(appId: string) {
+function auditClientId(refs: boolean) {
+	return auditReferencedMetadata(refs, "clientId", "c", "client");
+}
+
+function auditAppMatches(refs: boolean, appId: string) {
+	if (!refs)
+		return sql`json_extract(${auditEvents.metadata}, '$.appId') = ${appId}`;
 	return sql`(
 		json_extract(${auditEvents.metadata}, '$.appId') = ${appId}
 		or json_extract(${auditEvents.metadata}, '$._r.a') = (
@@ -143,31 +172,35 @@ function auditAppMatches(appId: string) {
 	)`;
 }
 
-const auditOauthClientId = sql<
-	string | null
->`coalesce(${auditClientId}, json_extract(${auditEvents.metadata}, '$.oauthClientId'))`;
+function auditOauthClientId(refs: boolean) {
+	return sql<
+		string | null
+	>`coalesce(${auditClientId(refs)}, json_extract(${auditEvents.metadata}, '$.oauthClientId'))`;
+}
 
-const auditActivityFields = {
-	action: auditEvents.action,
-	actorId: auditEvents.actorId,
-	actorType: auditEvents.actorType,
-	resourceId: auditEvents.resourceId,
-	timestamp: auditTimestamp.as("timestamp"),
-	appId: auditAppId.as("appId"),
-	durationMs: auditMetadataNumeric("durationMs"),
-	errorCode: auditMetadata("errorCode"),
-	executionId: auditMetadata("executionId"),
-	traceId: auditMetadata("traceId"),
-	clientId: auditClientId.as("clientId"),
-	subjectUserId: auditSubjectUserId.as("subjectUserId"),
-	agentTediId: auditMetadata("agentTediId"),
-	oauthClientId: auditOauthClientId.as("oauthClientId"),
-	delegationMode: auditMetadata("delegationMode"),
-	denialReason: auditMetadata("denialReason"),
-	httpStatus: auditMetadataNumeric("httpStatus"),
-	mcpMethod: auditMetadata("mcpMethod"),
-	riskTier: auditMetadata("riskTier"),
-};
+function auditActivityFields(refs: boolean) {
+	return {
+		action: auditEvents.action,
+		actorId: auditEvents.actorId,
+		actorType: auditEvents.actorType,
+		resourceId: auditEvents.resourceId,
+		timestamp: auditTimestamp.as("timestamp"),
+		appId: auditAppId(refs).as("appId"),
+		durationMs: auditMetadataNumeric("durationMs"),
+		errorCode: auditMetadata("errorCode"),
+		executionId: auditMetadata("executionId"),
+		traceId: auditMetadata("traceId"),
+		clientId: auditClientId(refs).as("clientId"),
+		subjectUserId: auditSubjectUserId.as("subjectUserId"),
+		agentTediId: auditMetadata("agentTediId"),
+		oauthClientId: auditOauthClientId(refs).as("oauthClientId"),
+		delegationMode: auditMetadata("delegationMode"),
+		denialReason: auditMetadata("denialReason"),
+		httpStatus: auditMetadataNumeric("httpStatus"),
+		mcpMethod: auditMetadata("mcpMethod"),
+		riskTier: auditMetadata("riskTier"),
+	};
+}
 
 function optionalOrganization(organizationId: string | undefined) {
 	return organizationId
@@ -175,14 +208,17 @@ function optionalOrganization(organizationId: string | undefined) {
 		: undefined;
 }
 
-function optionalActivityScope(input: {
-	organizationId?: string;
-	appId?: string;
-	actorId?: string;
-}) {
+function optionalActivityScope(
+	refs: boolean,
+	input: {
+		organizationId?: string;
+		appId?: string;
+		actorId?: string;
+	},
+) {
 	return [
 		optionalOrganization(input.organizationId),
-		input.appId ? auditAppMatches(input.appId) : undefined,
+		input.appId ? auditAppMatches(refs, input.appId) : undefined,
 		input.actorId ? eq(auditEvents.actorId, input.actorId) : undefined,
 	];
 }
@@ -227,9 +263,27 @@ export async function getAnalyticsAppFreshness(
 			.sort((a, b) => Number(b.timestamp) - Number(a.timestamp))[0];
 		return { countsRow, latestRow };
 	}
+	return withAuditMetadataRefs((refs) =>
+		readAnalyticsAppFreshness(db, input, refs),
+	);
+}
+
+async function readAnalyticsAppFreshness(
+	db: DbClient,
+	input: {
+		organizationId: string;
+		appId: string;
+		windowStartSeconds: number;
+		windowEndSeconds: number;
+	},
+	refs: boolean,
+): Promise<{
+	countsRow: AnalyticsFreshnessCountsRow | undefined;
+	latestRow: AnalyticsLatestAuditRow | undefined;
+}> {
 	const appScope = and(
 		eq(auditEvents.organizationId, input.organizationId),
-		auditAppMatches(input.appId),
+		auditAppMatches(refs, input.appId),
 	);
 	const [countsRow] = await db
 		.select({
@@ -293,36 +347,38 @@ export async function listAnalyticsExecutionAuditRows(
 			.sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
 		return rows;
 	}
-	return db
-		.select({
-			action: auditEvents.action,
-			actorId: auditEvents.actorId,
-			actorType: auditEvents.actorType,
-			resourceId: auditEvents.resourceId,
-			timestamp: auditTimestamp.as("timestamp"),
-			durationMs: auditMetadataNumeric("durationMs"),
-			errorCode: auditMetadata("errorCode"),
-			traceId: auditMetadata("traceId"),
-			clientId: auditClientId.as("clientId"),
-			subjectUserId: auditSubjectUserId.as("subjectUserId"),
-			agentTediId: auditMetadata("agentTediId"),
-			oauthClientId: auditOauthClientId.as("oauthClientId"),
-			delegationMode: auditMetadata("delegationMode"),
-		})
-		.from(auditEvents)
-		.where(
-			and(
-				sql`json_extract(${auditEvents.metadata}, '$.executionId') = ${input.executionId}`,
-				inArray(auditEvents.action, [
-					"mcp.code.execute",
-					"mcp.code.error",
-					"mcp.tool.execute",
-					"mcp.tool.error",
-				]),
-				optionalOrganization(input.organizationId),
-			),
-		)
-		.orderBy(asc(auditEvents.timestamp));
+	return withAuditMetadataRefs((refs) =>
+		db
+			.select({
+				action: auditEvents.action,
+				actorId: auditEvents.actorId,
+				actorType: auditEvents.actorType,
+				resourceId: auditEvents.resourceId,
+				timestamp: auditTimestamp.as("timestamp"),
+				durationMs: auditMetadataNumeric("durationMs"),
+				errorCode: auditMetadata("errorCode"),
+				traceId: auditMetadata("traceId"),
+				clientId: auditClientId(refs).as("clientId"),
+				subjectUserId: auditSubjectUserId.as("subjectUserId"),
+				agentTediId: auditMetadata("agentTediId"),
+				oauthClientId: auditOauthClientId(refs).as("oauthClientId"),
+				delegationMode: auditMetadata("delegationMode"),
+			})
+			.from(auditEvents)
+			.where(
+				and(
+					sql`json_extract(${auditEvents.metadata}, '$.executionId') = ${input.executionId}`,
+					inArray(auditEvents.action, [
+						"mcp.code.execute",
+						"mcp.code.error",
+						"mcp.tool.execute",
+						"mcp.tool.error",
+					]),
+					optionalOrganization(input.organizationId),
+				),
+			)
+			.orderBy(asc(auditEvents.timestamp)),
+	);
 }
 
 export async function listRecentAnalyticsAuditActivity(
@@ -345,14 +401,19 @@ export async function listRecentAnalyticsAuditActivity(
 			.sort((a, b) => -(Number(a.timestamp) - Number(b.timestamp)));
 		return rows.slice(0, input.limit);
 	}
-	return db
-		.select(auditActivityFields)
-		.from(auditEvents)
-		.where(
-			and(like(auditEvents.action, "mcp.%"), ...optionalActivityScope(input)),
-		)
-		.orderBy(desc(auditEvents.timestamp))
-		.limit(input.limit);
+	return withAuditMetadataRefs((refs) =>
+		db
+			.select(auditActivityFields(refs))
+			.from(auditEvents)
+			.where(
+				and(
+					like(auditEvents.action, "mcp.%"),
+					...optionalActivityScope(refs, input),
+				),
+			)
+			.orderBy(desc(auditEvents.timestamp))
+			.limit(input.limit),
+	);
 }
 
 export async function listAnalyticsTraceActivity(
@@ -370,17 +431,19 @@ export async function listAnalyticsTraceActivity(
 			.sort((a, b) => Number(a.timestamp) - Number(b.timestamp));
 		return rows;
 	}
-	return db
-		.select(auditActivityFields)
-		.from(auditEvents)
-		.where(
-			and(
-				eq(auditEvents.traceId, input.traceId),
-				like(auditEvents.action, "mcp.%"),
-				optionalOrganization(input.organizationId),
-			),
-		)
-		.orderBy(asc(auditEvents.timestamp));
+	return withAuditMetadataRefs((refs) =>
+		db
+			.select(auditActivityFields(refs))
+			.from(auditEvents)
+			.where(
+				and(
+					eq(auditEvents.traceId, input.traceId),
+					like(auditEvents.action, "mcp.%"),
+					optionalOrganization(input.organizationId),
+				),
+			)
+			.orderBy(asc(auditEvents.timestamp)),
+	);
 }
 
 export async function listAnalyticsAuditActivityWindow(
@@ -409,19 +472,21 @@ export async function listAnalyticsAuditActivityWindow(
 			.sort((a, b) => -(Number(a.timestamp) - Number(b.timestamp)));
 		return rows.slice(0, input.limit);
 	}
-	return db
-		.select(auditActivityFields)
-		.from(auditEvents)
-		.where(
-			and(
-				like(auditEvents.action, "mcp.%"),
-				sql`${auditEvents.timestamp} >= ${input.startSeconds}`,
-				sql`${auditEvents.timestamp} <= ${input.endSeconds}`,
-				...optionalActivityScope(input),
-			),
-		)
-		.orderBy(desc(auditEvents.timestamp))
-		.limit(input.limit);
+	return withAuditMetadataRefs((refs) =>
+		db
+			.select(auditActivityFields(refs))
+			.from(auditEvents)
+			.where(
+				and(
+					like(auditEvents.action, "mcp.%"),
+					sql`${auditEvents.timestamp} >= ${input.startSeconds}`,
+					sql`${auditEvents.timestamp} <= ${input.endSeconds}`,
+					...optionalActivityScope(refs, input),
+				),
+			)
+			.orderBy(desc(auditEvents.timestamp))
+			.limit(input.limit),
+	);
 }
 
 export async function listAnalyticsRuntimeTraceEvidence(

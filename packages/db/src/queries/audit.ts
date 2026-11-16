@@ -8,6 +8,7 @@ import { and, desc, eq, gte, inArray, lte, lt, or } from "drizzle-orm";
 import { getLogStores, type DbClient } from "../client";
 import { auditEvents } from "../schema/audit-events";
 import { auditMetadataRefs } from "../schema/audit-metadata-refs";
+import { isMissingAuditMetadataRefsTable } from "../utils/audit-metadata-refs";
 import { chunkForBoundParams } from "../utils/batch";
 import {
 	compareTimestampId,
@@ -117,19 +118,28 @@ export async function insertAuditEvent(
 	});
 	if (referenced.refs.length === 0) await statement;
 	else {
-		const existing = await target
-			.select()
-			.from(auditMetadataRefs)
-			.where(
-				and(
-					eq(auditMetadataRefs.organizationId, event.organizationId),
-					// bound-params: one app ref and one client ref per audit event
-					inArray(
-						auditMetadataRefs.ref,
-						referenced.refs.map((entry) => entry.ref),
+		let existing: (typeof auditMetadataRefs.$inferSelect)[];
+		try {
+			existing = await target
+				.select()
+				.from(auditMetadataRefs)
+				.where(
+					and(
+						eq(auditMetadataRefs.organizationId, event.organizationId),
+						// bound-params: one app ref and one client ref per audit event
+						inArray(
+							auditMetadataRefs.ref,
+							referenced.refs.map((entry) => entry.ref),
+						),
 					),
-				),
-			);
+				);
+		} catch (error) {
+			if (!isMissingAuditMetadataRefsTable(error)) throw error;
+			// This store has not received the dictionary table yet: keep the
+			// identifiers inline, where every reader already looks first.
+			await buildInsertAuditEventStatement(target, { ...event, id }).statement;
+			return id;
+		}
 		for (const row of existing) {
 			const expected = referenced.refs.find((entry) => entry.ref === row.ref);
 			if (
