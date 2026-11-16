@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
-import { deriveSkillAnatomy, recordedStepsByName } from "./skill-anatomy";
+import {
+	deriveSkillAnatomy,
+	inputKindPhrase,
+	inputLabel,
+	recordedStepsByName,
+} from "./skill-anatomy";
 
 const SOURCE = `
 const EFFECT = { retries: { limit: 2, delay: "1 second" }, timeout: "2 minutes" };
@@ -178,6 +183,86 @@ describe("deriveSkillAnatomy — edge cases", () => {
 		});
 		expect(anatomy.steps[0]!.kind).toBe("operation");
 		expect(anatomy.steps[0]!.name).toBe("storefront.list_orders");
+	});
+});
+
+describe("deriveSkillAnatomy — steps named by a variable", () => {
+	const anatomy = deriveSkillAnatomy({
+		content: "# doc",
+		files: {
+			"scripts/workflow.ts": [
+				"export default { async run(event, step, env) {",
+				"  const name = event.payload.label;",
+				"  await step.do(name, async () => env.MCP.gmail.send_message({}));",
+				"  await step.do(name, async () => env.MCP.crm.findLead({}).then(() => env.MCP.crm.update_lead({})));",
+				"  await step.do(job.name, async () => env.REASON.judge({}));",
+				"  await step.do(name, async () => fetch(url));",
+				"  await step.do(`${name}`, async () => compute());",
+				'  await step.sleep(name, "10 seconds");',
+				"  await step.sleepUntil(name, until);",
+				'  await step.waitForEvent(name, { type: "publish-approval" });',
+				"  await step.waitForEvent(name, options);",
+				"  await step.do(`sync-${name}`, async () => compute());",
+				"} };",
+			].join("\n"),
+		},
+		inputSchema: null,
+	});
+
+	it("calls each step by what it does, never by the name expression", () => {
+		expect(anatomy.steps.map((step) => step.label)).toEqual([
+			"Send message in gmail",
+			"Find lead in crm and 1 more",
+			"Ask a model",
+			"Make a network request",
+			"Step 5",
+			"Pause for 10 seconds",
+			"Pause until a set time",
+			"Wait for publish approval",
+			"Wait for an event",
+			"sync-…",
+		]);
+		for (const step of anatomy.steps) {
+			expect(step.label).not.toBe("name");
+			expect(step.dynamicName).toBe(true);
+			expect(step.name).toBeNull();
+		}
+	});
+
+	it("keeps the name expression as a technical detail only", () => {
+		expect(anatomy.steps[0]!.nameExpression).toBe("name");
+		expect(anatomy.steps[2]!.nameExpression).toBe("job.name");
+		expect(anatomy.steps[4]!.nameExpression).toBe("`${name}`");
+		// A pattern that spells part of the name is already readable.
+		expect(anatomy.steps[9]!.nameExpression).toBeNull();
+	});
+
+	it("leaves literal names untouched", () => {
+		const literal = deriveSkillAnatomy({
+			content: "# doc",
+			files: {
+				"scripts/workflow.ts":
+					"export default { async run(e, step) { await step.do('fetch-orders', async () => 1); } };",
+			},
+			inputSchema: null,
+		});
+		expect(literal.steps[0]!.label).toBe("fetch-orders");
+		expect(literal.steps[0]!.nameExpression).toBeNull();
+	});
+});
+
+describe("input wording", () => {
+	it("turns field names into readable labels", () => {
+		expect(inputLabel("dryRun")).toBe("Dry run");
+		expect(inputLabel("order_id")).toBe("Order id");
+		expect(inputLabel("mode")).toBe("Mode");
+	});
+
+	it("describes declared types in plain words", () => {
+		expect(inputKindPhrase("boolean")).toBe("Yes or no");
+		expect(inputKindPhrase("string")).toBe("Text");
+		expect(inputKindPhrase("integer")).toBe("A number");
+		expect(inputKindPhrase(null)).toBeNull();
 	});
 });
 
