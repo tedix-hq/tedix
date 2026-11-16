@@ -156,6 +156,7 @@ const css = [
 	`.resize{position:absolute;right:-1px;top:0;width:7px;height:100%;cursor:col-resize;z-index:1}.resize:hover,.resize.on{background:color-mix(in srgb,var(--primary) 55%,transparent)}`,
 	// Notices and prompts float over the grid instead of pushing it down.
 	`.overlay{position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:20;display:flex;flex-direction:column;gap:6px;align-items:center;width:max-content;max-width:calc(100% - 24px);pointer-events:none}.overlay>*{pointer-events:auto}`,
+	`[role=tab][data-touched]::after{content:"";display:inline-block;width:6px;height:6px;margin-left:6px;border-radius:50%;background:var(--primary);vertical-align:middle}`,
 	`.find{display:flex;gap:6px;align-items:center;padding:6px 8px;font-size:12.5px;border:1px solid var(--line);border-radius:10px;background:var(--surface);box-shadow:0 6px 24px color-mix(in srgb,#000 16%,transparent)}.find input{width:min(240px,50vw)}#find-count{min-width:60px;color:var(--muted);font-variant-numeric:tabular-nums}.fill-grip{position:absolute;right:0;bottom:0;z-index:4;width:7px;height:7px;background:var(--primary);border:1px solid var(--bg);cursor:crosshair;touch-action:none}td.fill-target{box-shadow:inset 0 0 0 1px var(--primary)}`,
 	`#updates,.command{display:flex;gap:8px;align-items:center;flex-wrap:wrap;max-width:100%;padding:6px 8px 6px 12px;font-size:12.5px;border:1px solid var(--line);border-radius:10px;background:var(--surface);box-shadow:0 6px 24px color-mix(in srgb,#000 16%,transparent);animation:drop .14s var(--ease)}#updates:empty{display:none}`,
 	`#updates button,.command button{height:26px;padding:0 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);cursor:pointer;transition:background-color .12s var(--ease),transform .12s var(--ease)}#updates button:hover,.command button:hover{background:var(--hover)}#updates button:active,.command button:active{transform:scale(.97)}`,
@@ -786,6 +787,8 @@ export async function mountSheetClient(
 		for (let i = 0; i < column; i++) left += columnWidth(s, i);
 		return left;
 	};
+	// Tabs someone else changed while this person was on another one.
+	const touched = new Set<string>();
 	const fillGrip = document.createElement("span");
 	fillGrip.className = "fill-grip";
 	fillGrip.setAttribute("aria-hidden", "true");
@@ -1320,6 +1323,19 @@ export async function mountSheetClient(
 		if (repaint) for (const [row, tr] of rowEls) paintRow(tr, row);
 	}
 	const paintWindow = () => updateWindow(true);
+	/** Mark the tabs someone else changed that this person has not looked at. */
+	function markTabs() {
+		touched.delete(sheet().id);
+		for (const button of tabButtons.querySelectorAll<HTMLElement>(
+			"[data-sheet]",
+		)) {
+			const changed = touched.has(button.dataset.sheet!);
+			button.toggleAttribute("data-touched", changed);
+			button.title = changed
+				? `${button.textContent} (changed by someone else)`
+				: (button.textContent ?? "");
+		}
+	}
 	function renderTabs() {
 		const list = draft!.workbook!.sheets,
 			active = sheet().id,
@@ -1346,6 +1362,7 @@ export async function mountSheetClient(
 			button.setAttribute("aria-selected", String(option.selected));
 			tabButtons.append(button);
 		}
+		markTabs();
 	}
 	/** Everything outside the grid that follows the selection. */
 	function syncChrome() {
@@ -1651,6 +1668,7 @@ export async function mountSheetClient(
 		commitCell();
 		commitFormula();
 		if (id === sheet().id) return;
+		touched.delete(id);
 		tabBounds = undefined;
 		draft.workbook!.activeSheetId = id;
 		selection = { anchor: { row: 0, column: 0 }, focus: { row: 0, column: 0 } };
@@ -2679,6 +2697,9 @@ export async function mountSheetClient(
 		}
 		if (!first) return;
 		lit = found;
+		// Tabs changed out of view keep a mark until the person opens them.
+		for (const id of found.keys()) if (id !== sheet().id) touched.add(id);
+		markTabs();
 		clearTimeout(litTimer);
 		litTimer = setTimeout(() => {
 			lit = new Map();

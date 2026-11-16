@@ -479,6 +479,28 @@ describe("Portable Sheet grid", () => {
 		change("#tabs", app.saved().workbook!.sheets[1]!.id);
 		expect(display("C1")).toBe("3");
 	});
+	it("marks a tab someone else changed while you were on another one", async () => {
+		const app = await editor();
+		const tab = (id: string) => q(`[role=tab][data-sheet="${id}"]`);
+		const main = (tab("archive").previousElementSibling as HTMLElement).dataset
+			.sheet!;
+		tab("archive").click();
+		await vi.waitFor(() =>
+			expect(tab("archive").getAttribute("aria-selected")).toBe("true"),
+		);
+		// Busy on the Archive tab, so the view stays there.
+		window.dispatchEvent(new KeyboardEvent("keydown"));
+		app.changeExternal(7);
+		await vi.waitFor(() =>
+			expect(tab(main).hasAttribute("data-touched")).toBe(true),
+		);
+		expect(tab(main).title).toContain("changed by someone else");
+		tab(main).click();
+		await vi.waitFor(() =>
+			expect(tab(main).getAttribute("aria-selected")).toBe("true"),
+		);
+		expect(tab(main).hasAttribute("data-touched")).toBe(false);
+	});
 	it("finds values across the sheet and jumps to each match", async () => {
 		await editor();
 		key("f", { metaKey: true });
