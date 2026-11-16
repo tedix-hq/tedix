@@ -576,3 +576,49 @@ export async function getProjectByIdForOrganization(
 			)[0],
 	);
 }
+
+/**
+ * The project a request already points at, or null when it names none. Tried
+ * in order: the one active project serving the request's objective, the one
+ * active project the named tedi leads, the requester's own default project,
+ * then the organization's only active project. Two candidates for a step is
+ * no answer; with none left the work waits in triage for a person to pick.
+ */
+export async function findRequestContextProjectId(
+	db: DbQueryClient,
+	params: {
+		orgId: string;
+		objectiveId?: string | null;
+		leadTediId?: string | null;
+		defaultProjectId?: string | null;
+	},
+): Promise<string | null> {
+	const only = async (
+		condition?: ReturnType<typeof eq>,
+	): Promise<string | null> => {
+		const rows = await db
+			.select({ id: projects.id })
+			.from(projects)
+			.where(
+				and(
+					eq(projects.orgId, params.orgId),
+					eq(projects.status, "active"),
+					condition,
+				),
+			)
+			.limit(2);
+		return rows.length === 1 ? rows[0]!.id : null;
+	};
+	return (
+		(params.objectiveId
+			? await only(eq(projects.objectiveId, params.objectiveId))
+			: null) ??
+		(params.leadTediId
+			? await only(eq(projects.leadTediId, params.leadTediId))
+			: null) ??
+		(params.defaultProjectId
+			? await only(eq(projects.id, params.defaultProjectId))
+			: null) ??
+		(await only())
+	);
+}

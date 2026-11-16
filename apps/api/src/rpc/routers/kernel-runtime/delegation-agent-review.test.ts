@@ -34,6 +34,8 @@ function fixture() {
 		VALUES
 			('tedi-cto','${ORG_ID}','CTO','cto','active','standard'),
 			('tedi-cpo','${ORG_ID}','CPO','cpo','active','standard');
+		INSERT INTO projects(id,org_id,key,name,status,lead_tedi_id,created_at)
+		VALUES('project-product','${ORG_ID}','PRODUCT','Product','active','tedi-cpo','2026-09-26T09:00:00.000Z');
 	`);
 	const delegation = {
 		workOrder: {
@@ -151,6 +153,7 @@ describe("Home delegation agent review over the Work approval plane", () => {
 		const item = await getWorkItemById(f.context.db, review.workItemId!);
 		expect(item).toMatchObject({
 			disposition: "accepted",
+			projectId: "project-product",
 			requiredAuthorities: ["home_delegation"],
 			sourceIntentId: `${RUN_ID}:delegation-review`,
 			accountableOwnerId: "tedi-cpo",
@@ -187,6 +190,30 @@ describe("Home delegation agent review over the Work approval plane", () => {
 				now: new Date().toISOString(),
 			}),
 		).rejects.toThrow(/home_delegation/);
+	});
+
+	it("leaves a held delegation with no project proposed in triage and asks no approver", async () => {
+		const f = currentFixture;
+		f.sqlite.exec("UPDATE projects SET status='archived'");
+		await expect(requestReview(f)).rejects.toThrow(/waiting in Triage/);
+		expect(
+			f.sqlite
+				.prepare(
+					"SELECT disposition, project_id, accountable_owner_id FROM work_items",
+				)
+				.all(),
+		).toEqual([
+			{
+				disposition: "proposed",
+				project_id: null,
+				accountable_owner_id: "tedi-cpo",
+			},
+		]);
+		expect(
+			f.sqlite
+				.prepare("SELECT count(*) AS n FROM work_approval_proposals")
+				.get(),
+		).toEqual({ n: 0 });
 	});
 
 	it("the target tedi cannot decide its own delegation", async () => {

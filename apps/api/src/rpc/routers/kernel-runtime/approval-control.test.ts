@@ -12,6 +12,7 @@ import {
 	kernelRuntimeEvents,
 } from "@tedix/db/schema/cognitive-runtime";
 import { organizationMembers } from "@tedix/db/schema/organization-members";
+import { projects } from "@tedix/db/schema/projects";
 import { eq, sql } from "drizzle-orm";
 import { evaluateKernelRunMetadataPatch } from "../__tests__/api-sqlite";
 import * as runQueries from "@tedix/db/queries/kernel-runtime-runs";
@@ -970,8 +971,63 @@ describe("Home plan Work promotion", () => {
 			.run(JSON.stringify({ homePlan: plan }));
 		return f;
 	}
+	const researchProject = (f: Awaited<ReturnType<typeof fixture>>) =>
+		f.context.db.insert(projects).values({
+			id: "project-research",
+			orgId: ORG,
+			key: "RESEARCH",
+			name: "Research",
+			leadTediId: "tedi-research",
+			createdAt: AT,
+		});
+	it("leaves an assignment with no project proposed in triage and does not start it", async () => {
+		const f = await planFixture();
+		const input = {
+			organizationId: ORG,
+			homeRunId: f.run.id,
+			assignmentIds: ["assignment"],
+			dispatch: true,
+		};
+		const held = await approveHomePlanAssignmentsCore(f.context, input);
+		expect(held.assignments[0]).toMatchObject({
+			status: "approved",
+			childRunId: null,
+			error: expect.stringContaining("waiting in Triage"),
+		});
+		const work = () =>
+			f.sqlite
+				.prepare(
+					"SELECT disposition, project_id, accountable_owner_id FROM work_items",
+				)
+				.all();
+		expect(work()).toEqual([
+			{
+				disposition: "proposed",
+				project_id: null,
+				accountable_owner_id: "tedi-research",
+			},
+		]);
+		expect(
+			f.sqlite.prepare("SELECT count(*) AS n FROM work_attempts").get(),
+		).toEqual({ n: 0 });
+		expect(effects.dispatch).not.toHaveBeenCalled();
+		// Once a person gives it a project, the same approval accepts it.
+		f.sqlite.exec("UPDATE work_items SET project_id = 'project-research'");
+		await approveHomePlanAssignmentsCore(f.context, {
+			...input,
+			dispatch: false,
+		});
+		expect(work()).toEqual([
+			{
+				disposition: "accepted",
+				project_id: "project-research",
+				accountable_owner_id: "tedi-research",
+			},
+		]);
+	});
 	it("promotes once and reuses the accepted Work for an explicitly repeated selection", async () => {
 		const f = await planFixture();
+		await researchProject(f);
 		const input = {
 			organizationId: ORG,
 			homeRunId: f.run.id,
@@ -989,12 +1045,15 @@ describe("Home plan Work promotion", () => {
 		);
 		expect(
 			f.sqlite
-				.prepare("SELECT id, disposition, source_intent_id FROM work_items")
+				.prepare(
+					"SELECT id, disposition, project_id, source_intent_id FROM work_items",
+				)
 				.all(),
 		).toEqual([
 			{
 				id: first.assignments[0]?.workItemId,
 				disposition: "accepted",
+				project_id: "project-research",
 				source_intent_id: "assignment",
 			},
 		]);

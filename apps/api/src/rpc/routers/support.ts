@@ -29,6 +29,7 @@ import {
 	supportReceipt,
 	supportReporter,
 	supportStaff,
+	supportWorkOwner,
 } from "../../services/support";
 import {
 	AUTHZ,
@@ -343,24 +344,28 @@ export const supportContractRouter = {
 				key: config.projectKey,
 				now,
 			});
-			row = await tickets.createSupportTicket(context.db, {
-				id,
-				orgId,
-				platformOrgId: config.platformOrgId,
-				reporterKey,
-				idempotencyKey: input.idempotencyKey,
-				workItemId: await supportObjectId(`support-work:${id}`),
-				mirrorWorkItemId: await supportObjectId(`support-mirror:${id}`),
-				projectId: project.id,
-				report,
-				consentReference: input.consent.reference,
-				payloadDigest: digest,
-				nextUpdateDue: new Date(
-					Date.now() + config.firstResponseMinutes * 60_000,
-				).toISOString(),
-				createdAt: now,
-				updatedAt: now,
-			});
+			row = await tickets.createSupportTicket(
+				context.db,
+				{
+					id,
+					orgId,
+					platformOrgId: config.platformOrgId,
+					reporterKey,
+					idempotencyKey: input.idempotencyKey,
+					workItemId: await supportObjectId(`support-work:${id}`),
+					mirrorWorkItemId: await supportObjectId(`support-mirror:${id}`),
+					projectId: project.id,
+					report,
+					consentReference: input.consent.reference,
+					payloadDigest: digest,
+					nextUpdateDue: new Date(
+						Date.now() + config.firstResponseMinutes * 60_000,
+					).toISOString(),
+					createdAt: now,
+					updatedAt: now,
+				},
+				supportWorkOwner(context, project),
+			);
 		}
 		if (!row || row.reporterKey !== reporterKey || row.payloadDigest !== digest)
 			throw createError(ErrorCodes.CONFLICT, "Support intake conflict");

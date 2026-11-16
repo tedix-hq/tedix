@@ -25,6 +25,8 @@ import {
 	createDelegationWorkItem,
 	directDelegationDispatchContent,
 	findForeignActiveAttempt,
+	homeRequestProjectId,
+	waitingInTriageForProject,
 } from "../kernel/delegation-work-item";
 import {
 	type KernelRuntimeRun,
@@ -1054,6 +1056,12 @@ async function approveHomePlanAssignmentsCore(
 				}),
 				workKind: "operations",
 				priority: assignment.risk === "high" ? "high" : "medium",
+				projectId:
+					(await homeRequestProjectId(context, {
+						organizationId,
+						objectiveId: existingPlan.objectiveId,
+						tediId: assignment.ownerTediId,
+					})) ?? undefined,
 				accountableOwnerType: "tedi",
 				accountableOwnerId: assignment.ownerTediId,
 				...workItemPurposeFor({
@@ -1076,7 +1084,9 @@ async function approveHomePlanAssignmentsCore(
 				},
 				createdAt: approvedAt,
 			}));
-		if (workItem.disposition === "proposed")
+		// An assignment with no project is a proposal like any other: it stays
+		// in Triage, and the dispatch loop below does not start it.
+		if (workItem.disposition === "proposed" && workItem.projectId)
 			workItem = await acceptWorkItem(context.db, {
 				orgId: organizationId,
 				workItemId: workItem.id,
@@ -1087,7 +1097,6 @@ async function approveHomePlanAssignmentsCore(
 				},
 				actor: { type: "system", id: "home" },
 				acceptedAt: approvedAt,
-				systemEnvelope: true,
 			});
 		await addWorkItemComment(context.db, {
 			id: crypto.randomUUID(),
@@ -1095,7 +1104,10 @@ async function approveHomePlanAssignmentsCore(
 			orgId: organizationId,
 			authorType: "system",
 			authorId: "home",
-			body: `Home approved ${assignment.ownerLabel} for this assignment and linked it to plan ${existingPlan.id}.`,
+			body:
+				workItem.disposition === "proposed"
+					? `Home approved ${assignment.ownerLabel} for this assignment of plan ${existingPlan.id}. ${waitingInTriageForProject(workItem.id)}`
+					: `Home approved ${assignment.ownerLabel} for this assignment and linked it to plan ${existingPlan.id}.`,
 			metadata: {
 				approvalNote: input.approvalNote ?? null,
 				assignmentId: assignment.id,
@@ -1210,6 +1222,26 @@ async function approveHomePlanAssignmentsCore(
 		}
 	}
 	for (const [index, { assignment, workItem }] of created.entries()) {
+		// Still in Triage (no project, or a person has not accepted it): the
+		// assignment is approved but no child run is minted.
+		if (workItem.disposition === "proposed") {
+			assignmentResults.set(assignment.id, {
+				childConversationId: null,
+				childRunId: null,
+				error: waitingInTriageForProject(workItem.id),
+				status: "approved",
+				workItemId: workItem.id,
+			});
+			approvalResults.push({
+				assignmentId: assignment.id,
+				ownerTediId: assignment.ownerTediId,
+				status: "approved",
+				workItemId: workItem.id,
+				childRunId: null,
+				childConversationId: null,
+			});
+			continue;
+		}
 		// CROSS-TEDI BLOCKER GATE: before dispatching this assignment, check whether
 		// its Work Item is blocked_by any other Work Item that is not yet terminal.
 		// A non-terminal blocker DEFERS the dispatch — the Work Item is created and

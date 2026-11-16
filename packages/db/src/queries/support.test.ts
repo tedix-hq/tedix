@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vite-plus/test";
 import { createDbQueryClient } from "../query-client";
 import { createD1Facade } from "../test/d1-facade";
@@ -70,12 +71,88 @@ function ticket() {
 		updatedAt: now,
 	};
 }
+const alice = { type: "user" as const, id: "alice" };
 describe("Support bridge D1 persistence", () => {
+	it("accepts the reporter's Work Item only when it has an accountable owner", async () => {
+		const { db } = fixture();
+		const source = async (id: string) =>
+			(
+				await db
+					.select({
+						disposition: workItems.disposition,
+						ownerType: workItems.accountableOwnerType,
+						ownerId: workItems.accountableOwnerId,
+						projectId: workItems.projectId,
+						acceptedAt: workItems.acceptedAt,
+					})
+					.from(workItems)
+					.where(eq(workItems.id, id))
+			)[0];
+		await support.createSupportTicket(db, ticket(), alice);
+		await support.createSupportTicket(
+			db,
+			{
+				...ticket(),
+				id: "ticket-b",
+				idempotencyKey: "second-report",
+				reporterKey: "apikey:key-1",
+				workItemId: "source-b",
+				mirrorWorkItemId: "mirror-b",
+			},
+			null,
+		);
+		expect(await source("source-a")).toEqual({
+			disposition: "accepted",
+			ownerType: "user",
+			ownerId: "alice",
+			projectId: "project-a",
+			acceptedAt: now,
+		});
+		expect(await source("source-b")).toEqual({
+			disposition: "proposed",
+			ownerType: null,
+			ownerId: null,
+			projectId: "project-a",
+			acceptedAt: null,
+		});
+		// A follow-up on the ticket leaves unowned work in triage; resolving
+		// the ticket still closes it.
+		const unowned = (await support.getSupportTicket(
+			db,
+			"tenant-a",
+			"ticket-b",
+		))!;
+		const followUp = await support.updateSupportTicket(db, unowned, {
+			key: "follow-up",
+			actorId: "key-1",
+			actorType: "system",
+			now,
+			patch: { status: "received" },
+			commentId: "comment-follow-up",
+			commentBody: "More detail",
+			publicComment: true,
+			eventId: "event-follow-up",
+		});
+		expect((await source("source-b"))?.disposition).toBe("proposed");
+		await support.updateSupportTicket(db, followUp!, {
+			key: "resolve",
+			actorId: "key-1",
+			actorType: "system",
+			now,
+			patch: { status: "resolved" },
+			commentId: "comment-resolve",
+			commentBody: "Works now",
+			publicComment: true,
+			eventId: "event-resolve",
+		});
+		expect((await source("source-b"))?.disposition).toBe("completed");
+		expect((await source("source-a"))?.disposition).toBe("accepted");
+	});
 	it("preserves one durable source before mirror delivery, scopes reporters, and retries the mirror once", async () => {
 		const { db, sqlite } = fixture(),
 			input = ticket();
-		await support.createSupportTicket(db, input);
-		await support.createSupportTicket(db, input);
+		await support.createSupportTicket(db, input, alice);
+		await support.createSupportTicket(db, input, alice);
 		expect(await support.getSupportTicket(db, "tenant-b", input.id)).toBeNull();
 		expect(
 			await support.getSupportTicket(db, input.orgId, input.id, "user:bob"),
@@ -129,7 +206,7 @@ describe("Support bridge D1 persistence", () => {
 				createdAt: now,
 			},
 		]);
-		await support.createSupportTicket(db, input);
+		await support.createSupportTicket(db, input, alice);
 		const row = (await support.getSupportTicket(db, input.orgId, input.id))!;
 		await support.deliverSupportMirror(db, row, {
 			projectId: "platform-project",
@@ -195,14 +272,16 @@ describe("Support bridge D1 persistence", () => {
 		sqlite.exec(
 			"CREATE TRIGGER reject_ticket BEFORE INSERT ON support_tickets BEGIN SELECT RAISE(ABORT,'test failure'); END;",
 		);
-		await expect(support.createSupportTicket(db, ticket())).rejects.toThrow();
+		await expect(
+			support.createSupportTicket(db, ticket(), alice),
+		).rejects.toThrow();
 		expect(sqlite.prepare("select count(*) n from work_items").get()).toEqual({
 			n: 0,
 		});
 	});
 	it("CAS rejects a stale answer without stray comments/events, and keeps private drafts out of public history", async () => {
 		const { db, sqlite } = fixture();
-		await support.createSupportTicket(db, ticket());
+		await support.createSupportTicket(db, ticket(), alice);
 		await support.deliverSupportMirror(
 			db,
 			(await support.getSupportTicket(db, "tenant-a", "ticket-a"))!,

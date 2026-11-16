@@ -29,6 +29,8 @@ import {
 	workItems,
 } from "@tedix/db/schema";
 import { policyPacks } from "@tedix/db/schema/control-plane";
+import { projects } from "@tedix/db/schema/projects";
+import { userConfigs } from "@tedix/db/schema/user-configs";
 import { workstationLeases } from "@tedix/db/schema/workstations";
 import { tediApprovalExecutionReceipts } from "@tedix/db/schema/approval-simulations";
 import { vi } from "vite-plus/test";
@@ -37,6 +39,8 @@ import type { BaseContext } from "../../orpc";
 import { kernelRuntimeContractRouter } from "../kernel-runtime";
 
 export const ORG_ID = "org-1";
+/** The organization's only project, so Home work has a place to live. */
+export const PROJECT_ID = "00000000-0000-4000-8000-00000000a0e1";
 export const NATIVE_EXECUTION_REQUIREMENT: ExecutionRequirement = {
 	surface: "native",
 	requiredCapabilities: ["repository_read"],
@@ -578,6 +582,10 @@ export function createKernelRuntimeDb(opts?: {
 		[];
 	const auditRows: Array<Record<string, unknown>> = [];
 	const workItemRows: WorkItemRow[] = [];
+	// Empty this to model an organization where a request names no project.
+	const projectRows: Array<{ id: string; orgId: string; status: string }> = [
+		{ id: PROJECT_ID, orgId: ORG_ID, status: "active" },
+	];
 	const workItemCommentRows: WorkItemCommentRow[] = [];
 	// Cross-tedi dependency edges (createHomePlanDependencyRelations →
 	// addWorkItemRelation). queryWorkItemBlockers/findWorkItemsBlockedBy read these.
@@ -684,6 +692,7 @@ export function createKernelRuntimeDb(opts?: {
 		artifacts,
 		idempotencyMappings,
 		policyPackRows,
+		projectRows,
 		workItemRows,
 		workItemCommentRows,
 		workItemRelationRows,
@@ -1441,8 +1450,12 @@ export function createKernelRuntimeDb(opts?: {
 						selectedRows = [...runtimeSubmissionRows] as typeof selectedRows;
 						return this;
 					}
-					if (table === workstationLeases) {
+					if (table === workstationLeases || table === userConfigs) {
 						selectedRows = [];
+						return this;
+					}
+					if (table === projects) {
+						selectedRows = [...projectRows] as unknown as typeof selectedRows;
 						return this;
 					}
 					throw new Error("Unexpected table in kernel runtime test");

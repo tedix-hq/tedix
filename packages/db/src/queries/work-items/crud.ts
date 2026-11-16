@@ -752,13 +752,6 @@ export async function acceptWorkItem(
 		acceptanceContract: WorkItemAcceptanceContract;
 		actor: WorkActor;
 		acceptedAt?: string;
-		/**
-		 * Home's own execution wrapper around one delegated run. It is created
-		 * and accepted in one step for a named tedi and is never triaged, so it
-		 * may be accepted before any project is known. Never set this for work a
-		 * person or agent proposed.
-		 */
-		systemEnvelope?: boolean;
 	},
 ): Promise<WorkItem> {
 	const acceptedAt = params.acceptedAt ?? new Date().toISOString();
@@ -767,9 +760,7 @@ export async function acceptWorkItem(
 	// done looks like and who answers for it.
 	const missing =
 		prior.disposition === "proposed"
-			? missingForAcceptance(prior, params.acceptanceContract, {
-					systemEnvelope: params.systemEnvelope,
-				})
+			? missingForAcceptance(prior, params.acceptanceContract)
 			: [];
 	if (missing.length)
 		throw new WorkFactoryError(
@@ -816,7 +807,7 @@ export async function acceptWorkItem(
 				eq(workItems.disposition, "proposed"),
 				eq(workItems.version, prior.version),
 				isNotNull(workItems.accountableOwnerId),
-				params.systemEnvelope ? undefined : isNotNull(workItems.projectId),
+				isNotNull(workItems.projectId),
 			),
 		)
 		.returning();
