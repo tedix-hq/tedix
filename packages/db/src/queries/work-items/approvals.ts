@@ -1,3 +1,4 @@
+import { matchesWorkApprovalVersion } from "./planning-approval";
 import {
 	AgentRequestActionSchema,
 	AgentRequestProposalSchema,
@@ -21,6 +22,7 @@ import {
 	getColumns,
 	inArray,
 	isNull,
+	ne,
 	or,
 	sql,
 } from "drizzle-orm";
@@ -544,6 +546,9 @@ export async function decideWorkApproval(
 						eq(workApprovalProposals.status, "pending"),
 						sql`${workApprovalProposals.resolutionFence} IS NULL`,
 						sql`${workApprovalProposals.expiresAt}>${p.now}`,
+						proposal.action === "admission" && p.decision === "approved"
+							? sql`EXISTS (SELECT 1 FROM ${workItems} WHERE ${workItems.orgId}=${p.orgId} AND ${workItems.id}=${proposal.workItemId} AND ${workItems.version}=${proposal.workItemVersion})`
+							: undefined,
 						agentProposal
 							? sql`EXISTS (SELECT 1 FROM ${workItems} WHERE ${workItems.orgId}=${p.orgId} AND ${workItems.id}=${proposal.workItemId} AND ${workItems.version}=${proposal.workItemVersion} AND ${workItems.disposition} NOT IN ('completed', 'cancelled'))
 							 AND EXISTS (SELECT 1 FROM ${organizationMembers} WHERE ${organizationMembers.organizationId}=${p.orgId} AND ${organizationMembers.userId}=${p.deciderId} AND ${organizationMembers.status}='active' AND ${organizationMembers.kind}='human' AND ${organizationMembers.role} IN ('owner','admin'))
@@ -989,7 +994,13 @@ export async function ensureWorkRiskApproval(
 			and(
 				eq(workApprovalProposals.orgId, item.orgId),
 				eq(workApprovalProposals.workItemId, item.id),
-				eq(workApprovalProposals.workItemVersion, item.version),
+				or(
+					eq(workApprovalProposals.workItemVersion, item.version),
+					and(
+						ne(workApprovalProposals.status, "pending"),
+						matchesWorkApprovalVersion(item),
+					),
+				),
 				eq(workApprovalProposals.authorityKey, authorityKey),
 				eq(workApprovalProposals.action, "admission"),
 			),

@@ -1,3 +1,4 @@
+import { matchesWorkApprovalVersion } from "./planning-approval";
 import { ensureWorkRiskApproval } from "./approvals";
 import { and, desc, eq, inArray, lt, ne, or, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
@@ -415,11 +416,19 @@ export async function deriveWorkItemReadiness(
 		db
 			.select({
 				workItemId: workApprovalProposals.workItemId,
-				workItemVersion: workApprovalProposals.workItemVersion,
+				workItemVersion: workItems.version,
 				authorityKey: workApprovalProposals.authorityKey,
 				action: workApprovalProposals.action,
 			})
 			.from(workApprovalProposals)
+			.innerJoin(
+				workItems,
+				and(
+					eq(workItems.orgId, workApprovalProposals.orgId),
+					eq(workItems.id, workApprovalProposals.workItemId),
+					matchesWorkApprovalVersion(workItems),
+				),
+			)
 			.innerJoin(
 				workApprovalDecisions,
 				and(
@@ -435,7 +444,6 @@ export async function deriveWorkItemReadiness(
 				and(
 					eq(workApprovalProposals.orgId, params.orgId),
 					eq(workApprovalProposals.workItemId, params.workItemId),
-					eq(workApprovalProposals.workItemVersion, item.version),
 					eq(workApprovalProposals.action, WORK_ADMISSION_APPROVAL_ACTION),
 					eq(workApprovalProposals.status, "approved"),
 					sql`${workApprovalProposals.expiresAt}>${derivedAt}`,
@@ -581,11 +589,19 @@ export async function listWorkItemReadinessProjection(
 			db
 				.select({
 					workItemId: workApprovalProposals.workItemId,
-					workItemVersion: workApprovalProposals.workItemVersion,
+					workItemVersion: workItems.version,
 					authorityKey: workApprovalProposals.authorityKey,
 					action: workApprovalProposals.action,
 				})
 				.from(workApprovalProposals)
+				.innerJoin(
+					workItems,
+					and(
+						eq(workItems.orgId, workApprovalProposals.orgId),
+						eq(workItems.id, workApprovalProposals.workItemId),
+						matchesWorkApprovalVersion(workItems),
+					),
+				)
 				.innerJoin(
 					workApprovalDecisions,
 					and(

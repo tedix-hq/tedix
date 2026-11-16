@@ -1,3 +1,4 @@
+import { matchesWorkApprovalVersion } from "./planning-approval";
 import {
 	LaneExecutionPolicySchema,
 	laneResourceKeys,
@@ -387,13 +388,21 @@ async function evaluate(
 	const approvals = await db
 		.select({
 			workItemId: workApprovalProposals.workItemId,
-			workItemVersion: workApprovalProposals.workItemVersion,
+			workItemVersion: workItems.version,
 			authorityKey: workApprovalProposals.authorityKey,
 			action: workApprovalProposals.action,
 			deciderType: workApprovalDecisions.deciderType,
 			deciderId: workApprovalDecisions.deciderId,
 		})
 		.from(workApprovalProposals)
+		.innerJoin(
+			workItems,
+			and(
+				eq(workItems.orgId, workApprovalProposals.orgId),
+				eq(workItems.id, workApprovalProposals.workItemId),
+				matchesWorkApprovalVersion(workItems),
+			),
+		)
 		.innerJoin(
 			workApprovalDecisions,
 			and(
@@ -409,7 +418,6 @@ async function evaluate(
 			and(
 				eq(workApprovalProposals.orgId, p.orgId),
 				eq(workApprovalProposals.workItemId, p.workItemId),
-				eq(workApprovalProposals.workItemVersion, item.version),
 				eq(workApprovalProposals.status, "approved"),
 				sql`(${workApprovalProposals.expiresAt} IS NULL OR ${workApprovalProposals.expiresAt}>${p.now})`,
 			),

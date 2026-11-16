@@ -97,6 +97,7 @@ it("stores executor selection without losing other metadata and rejects another 
 	});
 	expect(updated.metadata).toEqual({
 		retained: true,
+		specificationUpdateId: expect.any(String),
 		executor: "codex",
 		laneDispatch: { state: "ready" },
 		laneDispatchReceiptId: expect.any(String),
@@ -179,6 +180,7 @@ it("fences dispatch plans against live Attempts and preserves calendar and metad
 	expect(updated.metadata).toEqual({
 		executor: "codex",
 		retained: true,
+		specificationUpdateId: expect.any(String),
 		laneDispatch: { state: "ready", score: 42 },
 		laneDispatchReceiptId: expect.any(String),
 	});
