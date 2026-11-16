@@ -233,9 +233,15 @@ export async function runCmsSandboxBuildToCompletion(
 					);
 				}),
 			]);
-		} catch {
+		} catch (error) {
+			// Name the cause class so operators can tell a Sandbox timeout from a
+			// database or lookup failure; the message stays bounded.
+			const cause =
+				error instanceof Error
+					? `${error.name}: ${error.message}`.slice(0, 200)
+					: "unknown error";
 			throw new CmsUnknownProcessOutcomeError(
-				`CMS build ${label} outcome is unknown; native process may still be running`,
+				`CMS build ${label} outcome is unknown; native process may still be running (${cause})`,
 			);
 		} finally {
 			if (timer !== undefined) clearTimeout(timer);
