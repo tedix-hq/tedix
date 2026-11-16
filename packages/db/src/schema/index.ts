@@ -142,6 +142,7 @@ export * from "./approval-simulations";
 // Audit trail events
 export type { AuditEvent, NewAuditEvent } from "./audit-events";
 export * from "./audit-events";
+export * from "./audit-metadata-refs";
 // Canonical billing entitlements, credits, reservations, usage, and metering
 export * from "./billing";
 export * from "./billing-cost-rollups";

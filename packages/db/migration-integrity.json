@@ -1510,7 +1510,11 @@
 			"sha256": "57b5b2893ec5e651d8bc6dcee3ef50c9a67fcea462ed33bbc96ef1cd77ae33e2"
 		},
 		{
-			"name": "20261116222247_hot_read_lookup_indexes/migration.sql",
+			"name": "20261116225344_audit_metadata_refs/migration.sql",
+			"sha256": "dfea2a37cba5d6226a7467fccb91866da10b8b119fca264fbf96dfbcd88d1463"
+		},
+		{
+			"name": "20261116225345_hot_read_lookup_indexes/migration.sql",
 			"sha256": "b5676e36ef5966785da7fe3f7894534959393760970659f6dc7c5ee54b0037ca"
 		},
 		{
