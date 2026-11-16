@@ -396,6 +396,13 @@ export function CanvasProposals({
 					</CardHeader>
 					<CardContent className="grid gap-2">
 						<Text as="p" role="label" tone="secondary" className="m-0">
+							{(proposal.status === "open" || proposal.status === "accepted") &&
+								canonicalRevision != null &&
+								canonicalRevision.id !== proposal.baseRevisionId && (
+									<Text as="span" role="label" tone="warning">
+										Stale ·{" "}
+									</Text>
+								)}
 							Based on version {proposal.baseRevision}
 							{proposal.resultRevision !== null &&
 								` · applied as version ${proposal.resultRevision}`}

@@ -2,7 +2,7 @@ import {
 	OsAppDraftContentSchema,
 	type OsAppDraftContent,
 } from "@tedix/api-contract/schemas/os-workspaces";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import type { DbQueryClient } from "../../query-client";
 import {
 	type NewOsCollaborationProposalRow,
@@ -11,11 +11,15 @@ import {
 	type OsOutputRevisionRow,
 	osCollaborationProposals,
 	osGadgetRevisions,
+	osGadgetCode,
+	osGadgetCodeBlobs,
 	osGadgetExecutions,
 	osGadgets,
 	osOutputRevisions,
 	osOutputs,
 } from "../../schema/os-workspaces";
+import { normalizeStoredJsonText } from "../../utils/json";
+import { getOsGadgetRevision } from "./gadgets";
 import { mergeOsOutputAccessEnvelopes } from "../../utils/os-output-access-envelope";
 import { chunkForBoundParams } from "../../utils/batch";
 import {
@@ -221,6 +225,115 @@ export async function rebaseOsAppDraft(
 	return row;
 }
 
+type StaleProposalResult = { reason: "stale_base" };
+
+/** Compare every intervening revision, including changes later reverted. */
+async function rebaseStaleAppProposal(
+	db: DbQueryClient,
+	proposal: OsCollaborationProposalRow,
+	currentRevisionId: string,
+): Promise<
+	| Pick<
+			OsCollaborationProposalRow,
+			"content" | "baseRevisionId" | "baseRevision"
+	  >
+	| StaleProposalResult
+> {
+	const stale = { reason: "stale_base" } as const;
+	const current = await getOsGadgetRevision(db, {
+		organizationId: proposal.organizationId,
+		revisionId: currentRevisionId,
+	});
+	const draft = OsAppDraftContentSchema.safeParse(JSON.parse(proposal.content));
+	if (!current || current.gadgetId !== proposal.documentId || !draft.success)
+		return stale;
+	const history = await db
+		.select({
+			id: osGadgetRevisions.id,
+			revision: osGadgetRevisions.revision,
+			manifest: osGadgetRevisions.manifest,
+			files: osGadgetCodeBlobs.files,
+		})
+		.from(osGadgetRevisions)
+		.leftJoin(
+			osGadgetCode,
+			and(
+				eq(osGadgetCode.revisionId, osGadgetRevisions.id),
+				eq(osGadgetCode.organizationId, osGadgetRevisions.organizationId),
+			),
+		)
+		.leftJoin(
+			osGadgetCodeBlobs,
+			and(
+				eq(osGadgetCodeBlobs.organizationId, osGadgetCode.organizationId),
+				eq(osGadgetCodeBlobs.sha256, osGadgetCode.filesSha256),
+			),
+		)
+		.where(
+			and(
+				eq(osGadgetRevisions.organizationId, proposal.organizationId),
+				eq(osGadgetRevisions.gadgetId, proposal.documentId),
+				gte(osGadgetRevisions.revision, proposal.baseRevision),
+				lte(osGadgetRevisions.revision, current.revision),
+			),
+		)
+		.orderBy(asc(osGadgetRevisions.revision));
+	if (
+		history[0]?.id !== proposal.baseRevisionId ||
+		history.at(-1)?.id !== current.id ||
+		history.length !== current.revision - proposal.baseRevision + 1
+	)
+		return stale;
+	const contents: OsAppDraftContent[] = [];
+	for (const revision of history) {
+		if (revision.files === null) return stale;
+		const snapshot = OsAppDraftContentSchema.safeParse({
+			manifest: JSON.parse(revision.manifest),
+			files: JSON.parse(revision.files),
+		});
+		if (!snapshot.success) return stale;
+		contents.push(snapshot.data);
+	}
+	const base = contents[0]!;
+	const latest = contents.at(-1)!;
+	const changedFiles = (before: OsAppDraftContent, after: OsAppDraftContent) =>
+		[
+			...new Set([...Object.keys(before.files), ...Object.keys(after.files)]),
+		].filter((name) => before.files[name] !== after.files[name]);
+	const proposedFiles = changedFiles(base, draft.data);
+	const mainlineFiles = new Set<string>();
+	let mainlineManifestChanged = false;
+	const manifestText = (content: OsAppDraftContent) =>
+		normalizeStoredJsonText(JSON.stringify(content.manifest));
+	for (let index = 1; index < contents.length; index++) {
+		const before = contents[index - 1]!;
+		const after = contents[index]!;
+		for (const name of changedFiles(before, after)) mainlineFiles.add(name);
+		mainlineManifestChanged ||= manifestText(before) !== manifestText(after);
+	}
+	const proposedManifestChanged =
+		manifestText(base) !== manifestText(draft.data);
+	if (
+		proposedFiles.some((name) => mainlineFiles.has(name)) ||
+		(proposedManifestChanged && mainlineManifestChanged)
+	)
+		return stale;
+	const files = { ...latest.files };
+	for (const name of proposedFiles) {
+		if (Object.hasOwn(draft.data.files, name))
+			files[name] = draft.data.files[name]!;
+		else delete files[name];
+	}
+	return {
+		baseRevisionId: current.id,
+		baseRevision: current.revision,
+		content: JSON.stringify({
+			manifest: proposedManifestChanged ? draft.data.manifest : latest.manifest,
+			files,
+		}),
+	};
+}
+
 export async function decideOsCollaborationProposal(
 	db: DbQueryClient,
 	params: OsCollaborationProposalScope & {
@@ -231,7 +344,61 @@ export async function decideOsCollaborationProposal(
 		decidedByKind: OsCollaborationProposalRow["createdByKind"];
 		decidedById: string;
 	},
-): Promise<OsCollaborationProposalRow | undefined> {
+): Promise<OsCollaborationProposalRow | StaleProposalResult | undefined> {
+	let acceptance:
+		| Pick<
+				OsCollaborationProposalRow,
+				"content" | "baseRevisionId" | "baseRevision"
+		  >
+		| undefined;
+	let acceptanceFence;
+	if (params.decision === "accepted") {
+		const proposal = await getOsCollaborationProposal(db, params);
+		if (
+			!proposal ||
+			proposal.status !== "open" ||
+			proposal.sequence !== params.expectedSequence
+		)
+			return undefined;
+		if (proposal.documentType === "gadget") {
+			const [gadget] = await db
+				.select({
+					currentRevisionId: osGadgets.currentRevisionId,
+					workspaceId: osGadgets.workspaceId,
+				})
+				.from(osGadgets)
+				.where(
+					and(
+						eq(osGadgets.organizationId, proposal.organizationId),
+						eq(osGadgets.id, proposal.documentId),
+					),
+				)
+				.limit(1);
+			if (
+				!gadget?.currentRevisionId ||
+				gadget.workspaceId !== proposal.workspaceId
+			)
+				return { reason: "stale_base" };
+			if (gadget.currentRevisionId !== proposal.baseRevisionId) {
+				const rebased = await rebaseStaleAppProposal(
+					db,
+					proposal,
+					gadget.currentRevisionId,
+				);
+				if ("reason" in rebased) return rebased;
+				acceptance = rebased;
+			}
+			// Mainline and a concurrent rebase must still match the snapshots read above.
+			acceptanceFence = and(
+				eq(osCollaborationProposals.baseRevisionId, proposal.baseRevisionId),
+				eq(osCollaborationProposals.content, proposal.content),
+				sql`exists (select 1 from ${osGadgets} where ${osGadgets.id} = ${proposal.documentId}
+					and ${osGadgets.organizationId} = ${proposal.organizationId}
+					and ${osGadgets.workspaceId} = ${proposal.workspaceId}
+					and ${osGadgets.currentRevisionId} = ${gadget.currentRevisionId})`,
+			);
+		}
+	}
 	const allowedStatuses =
 		params.decision === "accepted"
 			? (["open"] as const)
@@ -240,6 +407,7 @@ export async function decideOsCollaborationProposal(
 	const [row] = await db
 		.update(osCollaborationProposals)
 		.set({
+			...acceptance,
 			status: params.decision,
 			decisionRationale: params.rationale,
 			decisionEvidenceRefs: params.evidenceRefs,
@@ -250,6 +418,7 @@ export async function decideOsCollaborationProposal(
 		})
 		.where(
 			and(
+				acceptanceFence,
 				eq(osCollaborationProposals.organizationId, params.organizationId),
 				eq(osCollaborationProposals.id, params.proposalId),
 				// bound-params: allowed-transition guard over the closed status enum
@@ -258,7 +427,7 @@ export async function decideOsCollaborationProposal(
 			),
 		)
 		.returning();
-	return row;
+	return row ?? (acceptanceFence ? { reason: "stale_base" } : undefined);
 }
 
 export type MergeOsCollaborationProposalResult =
