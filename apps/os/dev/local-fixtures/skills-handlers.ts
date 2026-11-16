@@ -233,17 +233,23 @@ export const skillHandlers: Record<string, (input: never) => unknown> = {
 			],
 		};
 	},
-	"skills/listWorkflowSchedules": () => ({
-		schedules: SCHEDULES.map((schedule) => ({
-			...schedule,
-			enabled:
-				localSkillReactivations.has(schedule.skillId) || schedule.enabled,
-		})),
-		total: SCHEDULES.length,
-		offset: 0,
-		limit: 100,
-		nextOffset: null,
-	}),
+	"skills/listWorkflowSchedules": (input: { skillId?: string } | undefined) => {
+		// A skill's own page asks for that skill's schedules only.
+		const rows = SCHEDULES.filter(
+			(schedule) => !input?.skillId || schedule.skillId === input.skillId,
+		);
+		return {
+			schedules: rows.map((schedule) => ({
+				...schedule,
+				enabled:
+					localSkillReactivations.has(schedule.skillId) || schedule.enabled,
+			})),
+			total: rows.length,
+			offset: 0,
+			limit: 100,
+			nextOffset: null,
+		};
+	},
 	"skills/pauseSchedule": (input: { id: string }) =>
 		fixtureScheduleControl(input, "paused"),
 	"skills/resumeSchedule": (input: { id: string }) =>

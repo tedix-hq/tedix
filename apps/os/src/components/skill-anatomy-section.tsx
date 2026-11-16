@@ -23,8 +23,6 @@ import {
 	type RecordedStepEvidence,
 	type SkillAnatomyStep,
 	deriveSkillAnatomy,
-	inputKindPhrase,
-	inputLabel,
 	recordedStepsByName,
 } from "@/lib/skill-anatomy";
 import { workflowRunInspectQueryOptions } from "@/lib/os-query-options";
@@ -274,61 +272,6 @@ export function SkillAnatomySection({
 						: "Instructions only"}
 				</Badge>
 			</SectionHeader>
-			{anatomy.inputs.length > 0 ? (
-				<div className="grid min-w-0 gap-1">
-					<Text role="label" tone="secondary" className="m-0">
-						Inputs
-					</Text>
-					<ul className="m-0 grid min-w-0 list-none gap-1 p-0">
-						{anatomy.inputs.map((input) => (
-							<li
-								key={input.name}
-								className="flex min-w-0 flex-wrap items-baseline gap-x-2"
-							>
-								<Text as="span" role="control" className="wrap-anywhere">
-									{inputLabel(input.name)}
-								</Text>
-								<Text as="span" role="label" tone="secondary">
-									{input.required ? "Required" : "Optional"}
-								</Text>
-								<Text
-									as="span"
-									role="body"
-									tone="secondary"
-									className="min-w-0 wrap-anywhere"
-								>
-									{input.description ??
-										(inputKindPhrase(input.type)
-											? `${inputKindPhrase(input.type)}. No description yet.`
-											: "No description yet.")}
-								</Text>
-							</li>
-						))}
-					</ul>
-					<Collapsible>
-						<CollapsibleDefaultTrigger>
-							Technical details
-						</CollapsibleDefaultTrigger>
-						<CollapsibleDefaultContent keepMounted>
-							<ul className="m-0 grid min-w-0 list-none gap-0.5 px-2 pt-1 pb-2">
-								{anatomy.inputs.map((input) => (
-									<li key={input.name}>
-										<Text
-											role="label"
-											tone="mono-secondary"
-											className="m-0 wrap-anywhere"
-										>
-											{input.name}
-											{input.type ? `: ${input.type}` : ""}
-											{input.required ? " · required" : ""}
-										</Text>
-									</li>
-								))}
-							</ul>
-						</CollapsibleDefaultContent>
-					</Collapsible>
-				</div>
-			) : null}
 			{anatomy.steps.length > 0 ? (
 				<ol className="m-0 grid min-w-0 list-none gap-0.5 p-0">
 					{anatomy.steps.map((step, index) => (

@@ -2855,6 +2855,35 @@ it("keeps snoozed fixture cards out of the inbox until their wake time", () => {
 	}
 });
 
+it("gives a skill's Settings tab its own schedule, connections and inputs", () => {
+	resetLocalFixtures();
+	const own = callLocalOk("skills/listWorkflowSchedules", {
+		skillId: IDS.skillRevenue,
+	}) as { schedules: { skillId: string }[]; total: number };
+	expect(own.schedules.length).toBeGreaterThan(0);
+	expect(own.total).toBe(own.schedules.length);
+	expect(
+		own.schedules.every((schedule) => schedule.skillId === IDS.skillRevenue),
+	).toBe(true);
+	const { entry } = callLocalOk("skills/get", { id: IDS.skillRevenue }) as {
+		entry: {
+			mcpAppBindings?: Record<string, string>;
+			inputSchema?: { properties?: Record<string, unknown> };
+		};
+	};
+	const installed = callLocalOk("appGating/installedEligibility", {}) as {
+		appId: string;
+	}[];
+	// The linked connection resolves to an installed sample app.
+	expect(installed.map((app) => app.appId)).toContain(
+		entry.mcpAppBindings?.["storefront"],
+	);
+	expect(Object.keys(entry.inputSchema?.properties ?? {})).toEqual([
+		"period",
+		"includeRefunds",
+	]);
+});
+
 it("turns a sample draft back on, resumes its schedule and resets cleanly", () => {
 	resetLocalFixtures();
 	expect(callLocalOk("skills/get", { id: IDS.skillChurn })).toMatchObject({

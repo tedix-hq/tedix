@@ -74,6 +74,14 @@ const skillRunSchema = z.object({
 	paramsText: jsonTextSchema(parseRunParams),
 });
 
+const SKILL_TABS = [
+	"overview",
+	"runs",
+	"versions",
+	"settings",
+	"source",
+] as const;
+
 export function SkillDetailLayout() {
 	const { skillId } = useParams({ from: "/_session/_tenant/skills/$skillId" });
 	useSkillsWebMcpTools(skillId);
@@ -95,9 +103,7 @@ export function SkillDetailLayout() {
 	const canTurnBackOn =
 		skill?.lifecycleState === "draft" && (role === "owner" || role === "admin");
 	const activeTab =
-		["runs", "versions", "schedule"].find((tab) =>
-			pathname.endsWith(`/${tab}`),
-		) ?? "overview";
+		SKILL_TABS.find((tab) => pathname.endsWith(`/${tab}`)) ?? "overview";
 	const executable = Boolean(skill?.files?.["scripts/workflow.ts"]);
 	// A draft says why it is a draft; the reads are the ones its tabs use.
 	const isDraft = skill?.lifecycleState === "draft";
@@ -341,23 +347,21 @@ export function SkillDetailLayout() {
 					aria-label="Skill detail sections"
 					variant="underline"
 					value={activeTab}
-					tabs={(["overview", "runs", "versions", "schedule"] as const).map(
-						(tab) => ({
-							value: tab,
-							label: sentenceCase(tab),
-							nativeButton: false,
-							render: (
-								<Link
-									to={
-										tab === "overview"
-											? "/skills/$skillId"
-											: `/skills/$skillId/${tab}`
-									}
-									params={{ skillId }}
-								/>
-							),
-						}),
-					)}
+					tabs={SKILL_TABS.map((tab) => ({
+						value: tab,
+						label: sentenceCase(tab),
+						nativeButton: false,
+						render: (
+							<Link
+								to={
+									tab === "overview"
+										? "/skills/$skillId"
+										: `/skills/$skillId/${tab}`
+								}
+								params={{ skillId }}
+							/>
+						),
+					}))}
 				/>
 			</div>
 			<Outlet />

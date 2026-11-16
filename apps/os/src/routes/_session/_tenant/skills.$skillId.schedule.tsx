@@ -1,13 +1,14 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { SkillSchedulePage } from "@/components/skill-schedule-page";
-import { prefetchSkillScheduleRoute } from "@/lib/os-route-loaders";
-import { ListPending } from "@/routes/-pending";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
+// The schedule now lives on the skill's Settings tab; old links land there.
 export const Route = createFileRoute(
 	"/_session/_tenant/skills/$skillId/schedule",
 )({
-	loader: ({ context, params }) =>
-		prefetchSkillScheduleRoute(context.queryClient, params.skillId),
-	component: SkillSchedulePage,
-	pendingComponent: ListPending,
+	beforeLoad: ({ params }) => {
+		throw redirect({
+			to: "/skills/$skillId/settings",
+			params: { skillId: params.skillId },
+			replace: true,
+		});
+	},
 });

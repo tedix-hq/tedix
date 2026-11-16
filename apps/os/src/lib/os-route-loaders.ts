@@ -113,8 +113,11 @@ export const prefetchSkillRunsRoute = demandLoaded("prefetchSkillRunsRoute");
 export const prefetchSkillVersionsRoute = demandLoaded(
 	"prefetchSkillVersionsRoute",
 );
-export const prefetchSkillScheduleRoute = demandLoaded(
-	"prefetchSkillScheduleRoute",
+export const prefetchSkillSettingsRoute = demandLoaded(
+	"prefetchSkillSettingsRoute",
+);
+export const prefetchSkillSourceRoute = demandLoaded(
+	"prefetchSkillSourceRoute",
 );
 export const prefetchWorkQueueRoute = demandLoaded("prefetchWorkQueueRoute");
 export const prefetchWorkPortfolioRoute = demandLoaded(

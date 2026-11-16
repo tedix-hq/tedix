@@ -4,6 +4,11 @@ import { useEffect, useReducer, useState } from "react";
 import type { SkillSchedule } from "@tedix/api-contract/contracts/cognitive";
 import { Badge } from "@/components/kumo/badge";
 import { Button } from "@/components/kumo/button";
+import {
+	Collapsible,
+	CollapsibleDefaultContent,
+	CollapsibleDefaultTrigger,
+} from "@/components/kumo/collapsible";
 import { Link } from "@/components/kumo/link";
 import {
 	Collection,
@@ -20,14 +25,26 @@ import {
 	scheduleUpdateConfirmation,
 	useUpdateSkillSchedule,
 } from "@/components/skill-schedule-controls";
-import { cronToHuman } from "@/components/triggers-panel";
-import { errorMessage } from "@/lib/orpc-error";
 import { Text } from "@/components/kumo/text";
 import { skillSpecificSchedulesQueryOptions } from "@/lib/os-query-options";
-import { osTimeZone, useOsFormattingPreferences } from "@/lib/format";
+import { osLocale, osTimeZone, useOsFormattingPreferences } from "@/lib/format";
+import { inputLabel } from "@/lib/skill-anatomy";
+import { scheduleInWords } from "@/lib/skill-schedule-words";
 import { absoluteTime, relativeTime } from "@/lib/time";
 import { useTediNames } from "@/lib/use-tedi-names";
 
+/** "Period: last_7_days" for each value a scheduled run starts with. */
+function startValues(params: SkillSchedule["params"]): string[] {
+	return Object.entries(params ?? {}).map(
+		([name, value]) =>
+			`${inputLabel(name)}: ${typeof value === "string" ? value : JSON.stringify(value)}`,
+	);
+}
+
+/**
+ * When the skill runs on its own. Times read in the person's time zone; the
+ * stored expression, which is in UTC, stays behind Technical details.
+ */
 export function SkillSchedulePage() {
 	useOsFormattingPreferences();
 	const { skillId } = useParams({ from: "/_session/_tenant/skills/$skillId" });
@@ -39,12 +56,29 @@ export function SkillSchedulePage() {
 	const now = Date.now();
 	const timezone =
 		osTimeZone() ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
-	const update = useUpdateSkillSchedule((result) =>
+	const inWords = (cron: string, nextFireAt?: string | null) => {
+		const next = nextFireAt ? Date.parse(nextFireAt) : Number.NaN;
+		// The zone's offset on the day of the next run, so the time stays
+		// right across a clock change.
+		return scheduleInWords(cron, timezone, {
+			reference: new Date(Number.isFinite(next) && next > now ? next : now),
+			locale: osLocale(),
+		});
+	};
+	const update = useUpdateSkillSchedule((result) => {
+		const cadence = inWords(result.cron, result.nextFireAt).text;
 		setNotices((current) => ({
 			...current,
-			[result.skillId]: scheduleUpdateConfirmation(result, timezone),
-		})),
-	);
+			[result.skillId]:
+				result.scheduleEnabled && cadence
+					? `${result.changed ? "On" : "Already set"}. ${cadence}.${
+							result.nextFireAt
+								? ` Next run ${absoluteTime(result.nextFireAt)}.`
+								: ""
+						}`
+					: scheduleUpdateConfirmation(result, timezone),
+		}));
+	});
 	useEffect(() => {
 		const next = Math.min(
 			...(schedules.data?.schedules ?? [])
@@ -65,14 +99,11 @@ export function SkillSchedulePage() {
 				<SectionHeading>
 					<SectionTitle id="skill-schedules-title">Schedule</SectionTitle>
 					<SectionDescription>
-						Schedules defined by this skill. Change the time or switch a
-						schedule off and on here; each change is saved as a new revision.
+						When this skill runs on its own. Times are in your time zone,{" "}
+						{timezone}. Each change is saved as a new version.
 					</SectionDescription>
 				</SectionHeading>
 			</SectionHeader>
-			<Text role="label" tone="secondary" className="m-0">
-				Cron timezone: UTC · Timestamps: {timezone}
-			</Text>
 			<ListQueryBoundary
 				query={schedules}
 				errorTitle={
@@ -90,40 +121,45 @@ export function SkillSchedulePage() {
 				(schedules.data.schedules.length === 0 ? (
 					<Empty appearance="inline">
 						<EmptyDescription>
-							This skill declares no schedules.
+							This skill has no schedule. It runs only when someone starts it.
 						</EmptyDescription>
 					</Empty>
 				) : (
 					<Collection>
 						{schedules.data.schedules.map((schedule) => {
-							const cadence = cronToHuman(schedule.cron);
+							const words = inWords(schedule.cron, schedule.nextFireAt);
+							const starts = startValues(schedule.params);
+							const hasNext =
+								Number.isFinite(Date.parse(schedule.nextFireAt)) &&
+								Date.parse(schedule.nextFireAt) > now;
 							return (
-								<li key={schedule.id} className="grid min-w-0 gap-1 px-4 py-3">
+								<li
+									key={schedule.id}
+									data-schedule-row
+									className="grid min-w-0 gap-1.5 px-4 py-3"
+								>
 									<span className="flex flex-wrap items-center gap-2">
-										<Text as="strong" role="body">
-											{cadence}
+										<Text as="strong" role="body" data-schedule-cadence>
+											{words.text ?? "Custom schedule"}
 										</Text>
-										{cadence === schedule.cron ? null : (
-											<Text as="span" role="label" tone="secondary">
-												{schedule.cron}
-											</Text>
-										)}
 										<Badge variant={schedule.enabled ? "success" : "outline"}>
-											{schedule.enabled ? "Enabled" : "Paused"}
+											{schedule.enabled ? "On" : "Off"}
 										</Badge>
-										<Text as="span" role="label" tone="secondary">
-											{tediNames[schedule.tediId] ?? "tedi"}
-										</Text>
 									</span>
 									<Text as="span" role="label" tone="secondary">
 										{!schedule.enabled
-											? "Paused · not scheduled"
-											: Number.isFinite(Date.parse(schedule.nextFireAt)) &&
-												  Date.parse(schedule.nextFireAt) > now
+											? "Off · no runs planned"
+											: hasNext
 												? `Next run ${relativeTime(schedule.nextFireAt, new Date(now))} · ${absoluteTime(schedule.nextFireAt)}`
 												: "Next run unavailable"}
 										{schedule.lastFireAt
-											? ` · last fired ${relativeTime(schedule.lastFireAt)}`
+											? ` · last ran ${relativeTime(schedule.lastFireAt)}`
+											: ""}
+									</Text>
+									<Text as="span" role="label" tone="secondary">
+										Runs as {tediNames[schedule.tediId] ?? "a tedi"}
+										{starts.length > 0
+											? ` · starts with ${starts.join(", ")}`
 											: ""}
 									</Text>
 									{schedule.lastError ? (
@@ -133,11 +169,8 @@ export function SkillSchedulePage() {
 									) : null}
 									{schedule.lastBudgetBlockedAt ? (
 										<Text as="span" role="label" tone="warning">
-											Budget blocked{" "}
+											Held back by the spending limit{" "}
 											{relativeTime(schedule.lastBudgetBlockedAt)}
-											{schedule.lastBudgetAdmissionClass
-												? ` · ${schedule.lastBudgetAdmissionClass.replace(/_/g, " ")}`
-												: ""}
 											{schedule.lastBudgetBlockedReason
 												? ` · ${schedule.lastBudgetBlockedReason}`
 												: ""}
@@ -191,6 +224,39 @@ export function SkillSchedulePage() {
 											{notices[schedule.skillId]}
 										</Text>
 									) : null}
+									<Collapsible>
+										<CollapsibleDefaultTrigger>
+											Technical details
+										</CollapsibleDefaultTrigger>
+										<CollapsibleDefaultContent keepMounted>
+											<ul className="m-0 grid min-w-0 list-none gap-0.5 px-2 pt-1 pb-2">
+												{[
+													`Stored schedule (UTC): ${schedule.cron}`,
+													...(schedule.lastBudgetAdmissionClass
+														? [
+																`Spending class: ${schedule.lastBudgetAdmissionClass.replace(/_/g, " ")}`,
+															]
+														: []),
+													...(starts.length > 0
+														? [
+																`Start values: ${JSON.stringify(schedule.params)}`,
+															]
+														: []),
+													`Schedule id: ${schedule.id}`,
+												].map((line) => (
+													<li key={line}>
+														<Text
+															role="label"
+															tone="mono-secondary"
+															className="m-0 wrap-anywhere"
+														>
+															{line}
+														</Text>
+													</li>
+												))}
+											</ul>
+										</CollapsibleDefaultContent>
+									</Collapsible>
 								</li>
 							);
 						})}
@@ -204,6 +270,7 @@ export function SkillSchedulePage() {
 			{editing ? (
 				<SkillScheduleDialog
 					schedule={editing}
+					timeZone={timezone}
 					close={() => setEditing(null)}
 				/>
 			) : null}

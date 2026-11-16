@@ -79,6 +79,8 @@ import { Route as SessionTenantExploreAppsSlugRouteImport } from './routes/_sess
 import { Route as SessionTenantSkillsSkillIdIndexRouteImport } from './routes/_session/_tenant/skills.$skillId.index'
 import { Route as SessionTenantSkillsSkillIdRunsRouteImport } from './routes/_session/_tenant/skills.$skillId.runs'
 import { Route as SessionTenantSkillsSkillIdScheduleRouteImport } from './routes/_session/_tenant/skills.$skillId.schedule'
+import { Route as SessionTenantSkillsSkillIdSettingsRouteImport } from './routes/_session/_tenant/skills.$skillId.settings'
+import { Route as SessionTenantSkillsSkillIdSourceRouteImport } from './routes/_session/_tenant/skills.$skillId.source'
 import { Route as SessionTenantSkillsSkillIdVersionsRouteImport } from './routes/_session/_tenant/skills.$skillId.versions'
 import { Route as SessionTenantTeamTediIdIndexRouteImport } from './routes/_session/_tenant/team_.$tediId.index'
 import { Route as SessionTenantTeamTediIdAuthorityRouteImport } from './routes/_session/_tenant/team_.$tediId.authority'
@@ -469,6 +471,18 @@ const SessionTenantSkillsSkillIdScheduleRoute =
     path: '/schedule',
     getParentRoute: () => SessionTenantSkillsSkillIdRoute,
   } as any)
+const SessionTenantSkillsSkillIdSettingsRoute =
+  SessionTenantSkillsSkillIdSettingsRouteImport.update({
+    id: '/settings',
+    path: '/settings',
+    getParentRoute: () => SessionTenantSkillsSkillIdRoute,
+  } as any)
+const SessionTenantSkillsSkillIdSourceRoute =
+  SessionTenantSkillsSkillIdSourceRouteImport.update({
+    id: '/source',
+    path: '/source',
+    getParentRoute: () => SessionTenantSkillsSkillIdRoute,
+  } as any)
 const SessionTenantSkillsSkillIdVersionsRoute =
   SessionTenantSkillsSkillIdVersionsRouteImport.update({
     id: '/versions',
@@ -618,6 +632,8 @@ export interface FileRoutesByFullPath {
   '/explore/apps/$slug': typeof SessionTenantExploreAppsSlugRoute
   '/skills/$skillId/runs': typeof SessionTenantSkillsSkillIdRunsRoute
   '/skills/$skillId/schedule': typeof SessionTenantSkillsSkillIdScheduleRoute
+  '/skills/$skillId/settings': typeof SessionTenantSkillsSkillIdSettingsRoute
+  '/skills/$skillId/source': typeof SessionTenantSkillsSkillIdSourceRoute
   '/skills/$skillId/versions': typeof SessionTenantSkillsSkillIdVersionsRoute
   '/team/$tediId/authority': typeof SessionTenantTeamTediIdAuthorityRoute
   '/team/$tediId/learning': typeof SessionTenantTeamTediIdLearningRoute
@@ -693,6 +709,8 @@ export interface FileRoutesByTo {
   '/explore/apps/$slug': typeof SessionTenantExploreAppsSlugRoute
   '/skills/$skillId/runs': typeof SessionTenantSkillsSkillIdRunsRoute
   '/skills/$skillId/schedule': typeof SessionTenantSkillsSkillIdScheduleRoute
+  '/skills/$skillId/settings': typeof SessionTenantSkillsSkillIdSettingsRoute
+  '/skills/$skillId/source': typeof SessionTenantSkillsSkillIdSourceRoute
   '/skills/$skillId/versions': typeof SessionTenantSkillsSkillIdVersionsRoute
   '/team/$tediId/authority': typeof SessionTenantTeamTediIdAuthorityRoute
   '/team/$tediId/learning': typeof SessionTenantTeamTediIdLearningRoute
@@ -780,6 +798,8 @@ export interface FileRoutesById {
   '/_session/_tenant/explore/apps_/$slug': typeof SessionTenantExploreAppsSlugRoute
   '/_session/_tenant/skills/$skillId/runs': typeof SessionTenantSkillsSkillIdRunsRoute
   '/_session/_tenant/skills/$skillId/schedule': typeof SessionTenantSkillsSkillIdScheduleRoute
+  '/_session/_tenant/skills/$skillId/settings': typeof SessionTenantSkillsSkillIdSettingsRoute
+  '/_session/_tenant/skills/$skillId/source': typeof SessionTenantSkillsSkillIdSourceRoute
   '/_session/_tenant/skills/$skillId/versions': typeof SessionTenantSkillsSkillIdVersionsRoute
   '/_session/_tenant/team_/$tediId/authority': typeof SessionTenantTeamTediIdAuthorityRoute
   '/_session/_tenant/team_/$tediId/learning': typeof SessionTenantTeamTediIdLearningRoute
@@ -863,6 +883,8 @@ export interface FileRouteTypes {
     | '/explore/apps/$slug'
     | '/skills/$skillId/runs'
     | '/skills/$skillId/schedule'
+    | '/skills/$skillId/settings'
+    | '/skills/$skillId/source'
     | '/skills/$skillId/versions'
     | '/team/$tediId/authority'
     | '/team/$tediId/learning'
@@ -938,6 +960,8 @@ export interface FileRouteTypes {
     | '/explore/apps/$slug'
     | '/skills/$skillId/runs'
     | '/skills/$skillId/schedule'
+    | '/skills/$skillId/settings'
+    | '/skills/$skillId/source'
     | '/skills/$skillId/versions'
     | '/team/$tediId/authority'
     | '/team/$tediId/learning'
@@ -1024,6 +1048,8 @@ export interface FileRouteTypes {
     | '/_session/_tenant/explore/apps_/$slug'
     | '/_session/_tenant/skills/$skillId/runs'
     | '/_session/_tenant/skills/$skillId/schedule'
+    | '/_session/_tenant/skills/$skillId/settings'
+    | '/_session/_tenant/skills/$skillId/source'
     | '/_session/_tenant/skills/$skillId/versions'
     | '/_session/_tenant/team_/$tediId/authority'
     | '/_session/_tenant/team_/$tediId/learning'
@@ -1543,6 +1569,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SessionTenantSkillsSkillIdScheduleRouteImport
       parentRoute: typeof SessionTenantSkillsSkillIdRoute
     }
+    '/_session/_tenant/skills/$skillId/settings': {
+      id: '/_session/_tenant/skills/$skillId/settings'
+      path: '/settings'
+      fullPath: '/skills/$skillId/settings'
+      preLoaderRoute: typeof SessionTenantSkillsSkillIdSettingsRouteImport
+      parentRoute: typeof SessionTenantSkillsSkillIdRoute
+    }
+    '/_session/_tenant/skills/$skillId/source': {
+      id: '/_session/_tenant/skills/$skillId/source'
+      path: '/source'
+      fullPath: '/skills/$skillId/source'
+      preLoaderRoute: typeof SessionTenantSkillsSkillIdSourceRouteImport
+      parentRoute: typeof SessionTenantSkillsSkillIdRoute
+    }
     '/_session/_tenant/skills/$skillId/versions': {
       id: '/_session/_tenant/skills/$skillId/versions'
       path: '/versions'
@@ -1713,6 +1753,8 @@ const SessionTenantAdminRouteWithChildren =
 interface SessionTenantSkillsSkillIdRouteChildren {
   SessionTenantSkillsSkillIdRunsRoute: typeof SessionTenantSkillsSkillIdRunsRoute
   SessionTenantSkillsSkillIdScheduleRoute: typeof SessionTenantSkillsSkillIdScheduleRoute
+  SessionTenantSkillsSkillIdSettingsRoute: typeof SessionTenantSkillsSkillIdSettingsRoute
+  SessionTenantSkillsSkillIdSourceRoute: typeof SessionTenantSkillsSkillIdSourceRoute
   SessionTenantSkillsSkillIdVersionsRoute: typeof SessionTenantSkillsSkillIdVersionsRoute
   SessionTenantSkillsSkillIdIndexRoute: typeof SessionTenantSkillsSkillIdIndexRoute
 }
@@ -1722,6 +1764,10 @@ const SessionTenantSkillsSkillIdRouteChildren: SessionTenantSkillsSkillIdRouteCh
     SessionTenantSkillsSkillIdRunsRoute: SessionTenantSkillsSkillIdRunsRoute,
     SessionTenantSkillsSkillIdScheduleRoute:
       SessionTenantSkillsSkillIdScheduleRoute,
+    SessionTenantSkillsSkillIdSettingsRoute:
+      SessionTenantSkillsSkillIdSettingsRoute,
+    SessionTenantSkillsSkillIdSourceRoute:
+      SessionTenantSkillsSkillIdSourceRoute,
     SessionTenantSkillsSkillIdVersionsRoute:
       SessionTenantSkillsSkillIdVersionsRoute,
     SessionTenantSkillsSkillIdIndexRoute: SessionTenantSkillsSkillIdIndexRoute,

@@ -21,7 +21,13 @@ import { Input } from "@/components/kumo/input";
 import { Label } from "@/components/kumo/label";
 import { Text } from "@/components/kumo/text";
 import { osApi } from "@/lib/api";
+import { osLocale } from "@/lib/format";
 import { osQueryKeys } from "@/lib/os-query-options";
+import {
+	cronAtLocalTime,
+	scheduleInWords,
+	scheduleLocalTime,
+} from "@/lib/skill-schedule-words";
 import { absoluteTime } from "@/lib/time";
 import { cronToHuman } from "@/components/triggers-panel";
 
@@ -104,19 +110,47 @@ const pad = (value: number) => String(value).padStart(2, "0");
  */
 export function SkillScheduleDialog({
 	schedule,
+	timeZone,
 	close,
 }: {
 	schedule: SkillSchedule;
+	/**
+	 * The person's time zone. With it, a schedule that runs at one time on
+	 * every day or on named weekdays is read and set as a local time.
+	 */
+	timeZone?: string;
 	close: () => void;
 }) {
 	const fixed = cronFixedTime(schedule.cron);
-	const [time, setTime] = useState(() =>
-		fixed ? `${pad(fixed.hour)}:${pad(fixed.minute)}` : "09:00",
+	// The zone's offset on the day of the next run, fixed while the dialog is
+	// open so the time typed and the time saved agree.
+	const [reference] = useState(() => {
+		const next = Date.parse(schedule.nextFireAt);
+		return new Date(
+			Number.isFinite(next) && next > Date.now() ? next : Date.now(),
+		);
+	});
+	const localTime = timeZone
+		? scheduleLocalTime(schedule.cron, timeZone, reference)
+		: null;
+	const inWords = (value: string) =>
+		(timeZone
+			? scheduleInWords(value, timeZone, { reference, locale: osLocale() }).text
+			: null) ?? `Runs ${cronToHuman(value)} (UTC)`;
+	const [time, setTime] = useState(
+		() =>
+			localTime ??
+			(fixed ? `${pad(fixed.hour)}:${pad(fixed.minute)}` : "09:00"),
 	);
 	const [cron, setCron] = useState(schedule.cron);
 	const update = useUpdateSkillSchedule(close);
 	const draft = (() => {
 		if (!fixed) return cron.trim();
+		if (timeZone && localTime !== null)
+			return (
+				cronAtLocalTime(schedule.cron, time, timeZone, reference) ??
+				schedule.cron
+			);
 		const [hour, minute] = time.split(":").map(Number);
 		return retimedCron(schedule.cron, hour ?? 0, minute ?? 0);
 	})();
@@ -139,8 +173,9 @@ export function SkillScheduleDialog({
 				<DialogHeader>
 					<DialogTitle>Change schedule</DialogTitle>
 					<DialogDescription>
-						It currently runs {cronToHuman(schedule.cron)} (UTC). The change is
-						saved as a new revision of the skill.
+						{localTime !== null && timeZone
+							? `It currently runs ${inWords(schedule.cron).replace(/^E/, "e")}, in your time zone (${timeZone}). The change is saved as a new version of the skill.`
+							: `It currently runs ${cronToHuman(schedule.cron)} (UTC). The change is saved as a new revision of the skill.`}
 					</DialogDescription>
 				</DialogHeader>
 				<form
@@ -152,7 +187,9 @@ export function SkillScheduleDialog({
 				>
 					{fixed ? (
 						<div className="grid gap-2">
-							<Label htmlFor="schedule-time">Time (UTC)</Label>
+							<Label htmlFor="schedule-time">
+								{localTime !== null ? "Time" : "Time (UTC)"}
+							</Label>
 							<Input
 								id="schedule-time"
 								type="time"
@@ -162,7 +199,11 @@ export function SkillScheduleDialog({
 								autoFocus
 							/>
 							<Text role="label" tone="secondary">
-								Runs {cronToHuman(draft)} (UTC)
+								{localTime !== null
+									? timeMissing
+										? "Enter a time."
+										: `${inWords(draft)}.`
+									: `Runs ${cronToHuman(draft)} (UTC)`}
 							</Text>
 						</div>
 					) : (

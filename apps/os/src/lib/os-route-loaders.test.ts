@@ -53,10 +53,12 @@ const api = vi.hoisted(() => ({
 	getProjectPortfolio: vi.fn(),
 	listSkillRuns: vi.fn(),
 	getWorkItem: vi.fn(),
+	listInstalledApps: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({
 	osApi: {
+		appGating: { installedEligibility: api.listInstalledApps },
 		billing: {
 			getOverview: api.getBillingOverview,
 			listPlans: api.listBillingPlans,
@@ -146,7 +148,8 @@ import {
 	prefetchSkillDetailRoute,
 	prefetchSkillOverviewRoute,
 	prefetchSkillRunsRoute,
-	prefetchSkillScheduleRoute,
+	prefetchSkillSettingsRoute,
+	prefetchSkillSourceRoute,
 	prefetchSkillVersionsRoute,
 	prefetchTeamRoute,
 	prefetchTediMailboxRoute,
@@ -234,6 +237,7 @@ beforeEach(() => {
 	api.listDefinitionHealth.mockResolvedValue(empty);
 	api.listWorkflowDefinitions.mockResolvedValue(empty);
 	api.listSchedules.mockResolvedValue(empty);
+	api.listInstalledApps.mockResolvedValue([]);
 	api.listCatalog.mockResolvedValue({
 		apps: [],
 		total: 0,
@@ -870,7 +874,7 @@ describe("list-route prefetchers", () => {
 			prefetchSkillOverviewRoute(queryClient, OUTPUT_ID),
 			prefetchSkillRunsRoute(queryClient, OUTPUT_ID, "queued"),
 			prefetchSkillVersionsRoute(queryClient, OUTPUT_ID),
-			prefetchSkillScheduleRoute(queryClient, OUTPUT_ID),
+			prefetchSkillSettingsRoute(queryClient, OUTPUT_ID),
 		]);
 		expect(
 			queryClient.getQueryData(
@@ -894,6 +898,14 @@ describe("list-route prefetchers", () => {
 			{ skillId: OUTPUT_ID, limit: SKILL_SCHEDULES_LIMIT },
 			expect.anything(),
 		);
+		// Settings also needs to know which connections are ready.
+		expect(api.listInstalledApps).toHaveBeenCalledTimes(1);
+
+		api.listSkillRuns.mockClear();
+		await prefetchSkillSourceRoute(queryClient, OUTPUT_ID);
+		expect(
+			queryClient.getQueryData(skillRunsQueryOptions(OUTPUT_ID).queryKey),
+		).toBeDefined();
 	});
 
 	it("does not block a detail route on a slow skill read", async () => {
